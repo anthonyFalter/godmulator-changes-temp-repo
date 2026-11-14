@@ -76,9 +76,17 @@ class SoundEngine {
     this.playTone(190, 0.35, 'sawtooth', 0.06, 0.55);
   }
 
+  public playMeteorIncoming(): void {
+    // High-altitude whistle descending into deep atmospheric re-entry rumble over 1.1s
+    this.playTone(620, 1.05, 'sine', 0.055, 0.22);
+    this.playTone(180, 1.1, 'sawtooth', 0.045, 0.45);
+  }
+
   public playHeavyImpact(): void {
-    this.playTone(95, 0.45, 'sawtooth', 0.11, 0.35);
-    setTimeout(() => this.playTone(65, 0.5, 'square', 0.09, 0.4), 40);
+    // Earth-shattering detonation + sub-bass shockwave rumble
+    this.playTone(110, 0.65, 'sawtooth', 0.14, 0.25);
+    setTimeout(() => this.playTone(68, 0.85, 'square', 0.12, 0.3), 35);
+    setTimeout(() => this.playTone(48, 1.05, 'triangle', 0.14, 0.45), 90);
   }
 
   public playEpochAscend(): void {

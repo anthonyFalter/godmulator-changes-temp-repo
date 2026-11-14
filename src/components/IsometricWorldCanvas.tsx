@@ -681,9 +681,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     // One-shot Animated Power VFX (Colossal Meteor dive + fireball dome, Multi-fork Lightning, Orbital Beams, Shockwaves)
     const burstFxGroup = new THREE.Group();
     worldGroup.add(burstFxGroup);
-    const sharedMeteorGeo = new THREE.BoxGeometry(1.75, 1.75, 1.75);
-    const sharedMeteorAuraGeo = new THREE.BoxGeometry(2.35, 2.35, 2.35);
-    const sharedExplosionDomeGeo = new THREE.SphereGeometry(1, 18, 12, 0, Math.PI * 2, 0, Math.PI / 2);
+    const sharedMeteorGeo = new THREE.BoxGeometry(2.05, 2.05, 2.05);
+    const sharedMeteorAuraGeo = new THREE.BoxGeometry(2.75, 2.75, 2.75);
+    const sharedExplosionDomeGeo = new THREE.SphereGeometry(1, 20, 14, 0, Math.PI * 2, 0, Math.PI / 2);
     const sharedBoltGeo = new THREE.BoxGeometry(0.34, 6.2, 0.34);
     const sharedBeamGeo = new THREE.CylinderGeometry(0.85, 1.35, 18, 16, 1, true);
     sharedBeamGeo.translate(0, 9, 0);
@@ -708,6 +708,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       boltSegments?: THREE.Mesh[];
       forkMeshes?: THREE.Mesh[];
       explosionDome?: THREE.Mesh;
+      innerDomeMesh?: THREE.Mesh;
+      shockWallMesh?: THREE.Mesh;
       ringMesh?: THREE.Mesh;
       outerRingMesh?: THREE.Mesh;
       beamMesh?: THREE.Mesh;
@@ -739,10 +741,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         const coreGlowMat = new THREE.MeshBasicMaterial({
           color: 0xffee55,
           transparent: true,
-          opacity: 0.88,
+          opacity: 0.9,
         });
         const domeMat = new THREE.MeshBasicMaterial({
-          color: 0xff6b00,
+          color: 0xff5400,
           transparent: true,
           opacity: 0.0,
           side: THREE.DoubleSide,
@@ -751,25 +753,56 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         const ringMat = new THREE.MeshBasicMaterial({
           color: 0xffaa00,
           transparent: true,
-          opacity: 0.65,
+          opacity: 0.75,
           side: THREE.DoubleSide,
           depthWrite: false,
         });
         const outerRingMat = new THREE.MeshBasicMaterial({
           color: 0xff2a00,
           transparent: true,
+          opacity: 0.65,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        const innerDomeMat = new THREE.MeshBasicMaterial({
+          color: 0xfff3b0,
+          transparent: true,
           opacity: 0.0,
           side: THREE.DoubleSide,
           depthWrite: false,
         });
-        materials.push(rockMat, coreGlowMat, domeMat, ringMat, outerRingMat);
+        const shockWallMat = new THREE.MeshBasicMaterial({
+          color: 0xff922b,
+          transparent: true,
+          opacity: 0.0,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        materials.push(
+          rockMat,
+          coreGlowMat,
+          domeMat,
+          ringMat,
+          outerRingMat,
+          innerDomeMat,
+          shockWallMat,
+        );
 
         const meteorGroup = new THREE.Group();
         const meteorRock = new THREE.Mesh(sharedMeteorGeo, rockMat);
+        const meteorRockCross = new THREE.Mesh(sharedMeteorGeo, rockMat);
+        meteorRockCross.rotation.set(0.78, 0.78, 0.4);
+        meteorRockCross.scale.setScalar(0.92);
         const meteorAura = new THREE.Mesh(sharedMeteorAuraGeo, coreGlowMat);
-        meteorGroup.add(meteorRock, meteorAura);
-        meteorGroup.position.set(tx + 8.5, ty + 25, tz - 8.5);
+        meteorGroup.add(meteorRock, meteorRockCross, meteorAura);
+        meteorGroup.position.set(tx + 15.5, ty + 34, tz - 15.5);
         group.add(meteorGroup);
+
+        const innerDomeMesh = new THREE.Mesh(sharedExplosionDomeGeo, innerDomeMat);
+        innerDomeMesh.position.set(tx, ty + 0.05, tz);
+        innerDomeMesh.scale.setScalar(0.2);
+        innerDomeMesh.visible = false;
+        group.add(innerDomeMesh);
 
         const explosionDome = new THREE.Mesh(sharedExplosionDomeGeo, domeMat);
         explosionDome.position.set(tx, ty + 0.05, tz);
@@ -777,25 +810,30 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         explosionDome.visible = false;
         group.add(explosionDome);
 
+        const shockWallMesh = new THREE.Mesh(sharedDomeCylinderGeo, shockWallMat);
+        shockWallMesh.position.set(tx, ty + 0.05, tz);
+        shockWallMesh.scale.set(0.3, 0.5, 0.3);
+        shockWallMesh.visible = false;
+        group.add(shockWallMesh);
+
         const ringMesh = new THREE.Mesh(sharedHazRingGeo, ringMat);
         ringMesh.position.set(tx, ty + 0.12, tz);
-        ringMesh.scale.setScalar(radius * 0.85);
+        ringMesh.scale.setScalar(radius * 0.95);
         group.add(ringMesh);
 
         const outerRingMesh = new THREE.Mesh(sharedHazRingGeo, outerRingMat);
         outerRingMesh.position.set(tx, ty + 0.16, tz);
-        outerRingMesh.scale.setScalar(0.2);
-        outerRingMesh.visible = false;
+        outerRingMesh.scale.setScalar(radius * 1.45);
         group.add(outerRingMesh);
 
-        // Erupting magma debris pillars around crater rim
+        // 12 erupting magma debris pillars around the crater rim
         const spikes: THREE.Mesh[] = [];
-        for (let i = 0; i < 8; i++) {
-          const a = (i / 8) * Math.PI * 2;
+        for (let i = 0; i < 12; i++) {
+          const a = (i / 12) * Math.PI * 2;
           const sp = new THREE.Mesh(sharedPillarSpikeGeo, i % 2 === 0 ? rockMat : coreGlowMat);
-          sp.position.set(tx + Math.cos(a) * (radius * 0.58), ty, tz + Math.sin(a) * (radius * 0.58));
-          sp.rotation.z = Math.cos(a) * -0.35;
-          sp.rotation.x = Math.sin(a) * 0.35;
+          sp.position.set(tx + Math.cos(a) * (radius * 0.62), ty, tz + Math.sin(a) * (radius * 0.62));
+          sp.rotation.z = Math.cos(a) * -0.42;
+          sp.rotation.x = Math.sin(a) * 0.42;
           sp.scale.set(1, 0.01, 1);
           sp.visible = false;
           group.add(sp);
@@ -809,8 +847,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           group,
           materials,
           age: 0,
-          duration: 1.55,
-          impactDelay: 0.48,
+          duration: 2.95,
+          impactDelay: 1.15,
           deferImpact,
           tx,
           ty,
@@ -819,6 +857,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           impactFired: false,
           meteorMesh: meteorGroup,
           explosionDome,
+          innerDomeMesh,
+          shockWallMesh,
           ringMesh,
           outerRingMesh,
           spikes,
@@ -1694,18 +1734,28 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         if (fx.kind === 'meteor' && fx.meteorMesh && fx.ringMesh) {
           const dropPhase = Math.min(1, fx.age / fx.impactDelay);
           if (dropPhase < 1) {
-            const easeIn = dropPhase * dropPhase;
-            const mx = fx.tx + 8.5 * (1 - easeIn);
-            const my = fx.ty + 25 * (1 - easeIn) + 0.4;
-            const mz = fx.tz - 8.5 * (1 - easeIn);
+            const easeIn = Math.pow(dropPhase, 1.65);
+            const mx = fx.tx + 15.5 * (1 - easeIn);
+            const my = fx.ty + 34 * (1 - easeIn) + 0.4;
+            const mz = fx.tz - 15.5 * (1 - easeIn);
             fx.meteorMesh.position.set(mx, my, mz);
-            fx.meteorMesh.rotation.x += dt * 14;
-            fx.meteorMesh.rotation.y += dt * 11;
-            // Contracting warning reticle on the ground before impact
-            fx.ringMesh.scale.setScalar(fx.radius * (0.95 - dropPhase * 0.72));
-            (fx.materials[3] as THREE.MeshBasicMaterial).opacity = 0.35 + dropPhase * 0.55;
-            spawnParticleBurst(mx, my, mz, 5, '#ff6b00', 0.85, 1.6, 1.35);
-            spawnParticleBurst(mx, my, mz, 3, '#ffee55', 0.45, 1.1, 1.05);
+            fx.meteorMesh.rotation.x += dt * 11;
+            fx.meteorMesh.rotation.y += dt * 9;
+            // Dynamic atmospheric entry light following the falling asteroid
+            vfxFlashLight.position.set(mx, Math.max(fx.ty + 3, my), mz);
+            vfxFlashLight.color.set('#ff7b00');
+            vfxFlashLight.intensity = 9 + easeIn * 18;
+            // Dual contracting target lock rings on the ground before impact
+            fx.ringMesh.scale.setScalar(fx.radius * (1.05 - dropPhase * 0.72));
+            (fx.materials[3] as THREE.MeshBasicMaterial).opacity = 0.35 + dropPhase * 0.6;
+            if (fx.outerRingMesh) {
+              fx.outerRingMesh.scale.setScalar(fx.radius * (1.55 - easeIn * 1.15));
+              (fx.materials[4] as THREE.MeshBasicMaterial).opacity = 0.25 + dropPhase * 0.65;
+            }
+            // Thick blazing comet trail + dark re-entry smoke
+            spawnParticleBurst(mx, my, mz, 6, '#ff5400', 1.1, 2.0, 1.5);
+            spawnParticleBurst(mx, my, mz, 4, '#ffee55', 0.6, 1.4, 1.2);
+            spawnParticleBurst(mx + 0.6, my + 0.9, mz - 0.6, 3, '#2b2d42', 1.2, 1.2, 1.65);
           } else {
             if (!fx.impactFired) {
               fx.impactFired = true;
@@ -1714,33 +1764,49 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
                 soundEngine.playHeavyImpact();
               }
               fx.meteorMesh.visible = false;
+              if (fx.innerDomeMesh) fx.innerDomeMesh.visible = true;
               if (fx.explosionDome) fx.explosionDome.visible = true;
+              if (fx.shockWallMesh) fx.shockWallMesh.visible = true;
               if (fx.outerRingMesh) fx.outerRingMesh.visible = true;
-              trauma = Math.min(1.0, trauma + 1.0);
-              hitstopTimer = 0.07;
-              triggerLightFlash(fx.tx, fx.ty, fx.tz, '#ff6b00', 28);
-              spawnParticleBurst(fx.tx, fx.ty + 0.5, fx.tz, 95, '#ff5400', fx.radius * 1.05, 8.5, 1.65);
-              spawnParticleBurst(fx.tx, fx.ty + 0.6, fx.tz, 45, '#ffee55', fx.radius * 0.65, 10.0, 1.35);
+              trauma = 1.0;
+              hitstopTimer = 0.1;
+              triggerLightFlash(fx.tx, fx.ty + 2, fx.tz, '#ffaa00', 42);
+              // Colossal lava, spark & pyroclastic ash eruption
+              spawnParticleBurst(fx.tx, fx.ty + 0.5, fx.tz, 120, '#ff5400', fx.radius * 1.45, 11.5, 1.85);
+              spawnParticleBurst(fx.tx, fx.ty + 0.6, fx.tz, 60, '#ffee55', fx.radius * 0.95, 13.5, 1.45);
+              spawnParticleBurst(fx.tx, fx.ty + 0.8, fx.tz, 45, '#2b2d42', fx.radius * 0.75, 8.5, 2.1);
               if (fx.spikes) {
                 for (const sp of fx.spikes) sp.visible = true;
               }
             }
             const wavePhase = Math.min(1, (fx.age - fx.impactDelay) / (fx.duration - fx.impactDelay));
-            const easeOut = 1 - (1 - wavePhase) * (1 - wavePhase);
-            if (fx.explosionDome) {
-              fx.explosionDome.scale.setScalar(0.6 + easeOut * fx.radius * 1.05);
-              (fx.materials[2] as THREE.MeshBasicMaterial).opacity = (1 - wavePhase) * 0.88;
+            const easeOut = 1 - Math.pow(1 - wavePhase, 2.4);
+            if (fx.innerDomeMesh && fx.materials[5]) {
+              const innerPhase = Math.min(1, wavePhase * 1.5);
+              fx.innerDomeMesh.scale.setScalar(0.8 + (1 - (1 - innerPhase) * (1 - innerPhase)) * fx.radius * 1.05);
+              (fx.materials[5] as THREE.MeshBasicMaterial).opacity = Math.max(0, (1 - innerPhase) * 0.95);
             }
-            fx.ringMesh.scale.setScalar(0.6 + easeOut * fx.radius * 1.35);
-            (fx.materials[3] as THREE.MeshBasicMaterial).opacity = (1 - wavePhase) * 0.95;
+            if (fx.explosionDome) {
+              fx.explosionDome.scale.setScalar(0.8 + easeOut * fx.radius * 1.55);
+              (fx.materials[2] as THREE.MeshBasicMaterial).opacity = Math.pow(1 - wavePhase, 1.3) * 0.92;
+            }
+            if (fx.shockWallMesh && fx.materials[6]) {
+              const wallRadius = 0.8 + easeOut * fx.radius * 2.45;
+              const wallHeight = 0.6 + Math.sin(wavePhase * Math.PI) * 1.85;
+              fx.shockWallMesh.scale.set(wallRadius, wallHeight, wallRadius);
+              (fx.materials[6] as THREE.MeshBasicMaterial).opacity = Math.pow(1 - wavePhase, 1.5) * 0.65;
+            }
+            // Huge primary & secondary concentric shockwaves sweeping across the map
+            fx.ringMesh.scale.setScalar(0.8 + easeOut * fx.radius * 2.85);
+            (fx.materials[3] as THREE.MeshBasicMaterial).opacity = Math.pow(1 - wavePhase, 1.2) * 0.98;
             if (fx.outerRingMesh) {
-              fx.outerRingMesh.scale.setScalar(0.3 + wavePhase * fx.radius * 1.75);
-              (fx.materials[4] as THREE.MeshBasicMaterial).opacity = (1 - wavePhase) * 0.85;
+              fx.outerRingMesh.scale.setScalar(0.5 + wavePhase * fx.radius * 3.5);
+              (fx.materials[4] as THREE.MeshBasicMaterial).opacity = Math.pow(1 - wavePhase, 1.1) * 0.9;
             }
             if (fx.spikes) {
-              const spikeH = Math.sin(wavePhase * Math.PI) * 1.85;
+              const spikeH = Math.sin(wavePhase * Math.PI) * 2.35;
               for (const sp of fx.spikes) {
-                sp.scale.set(1.1, Math.max(0.05, spikeH), 1.1);
+                sp.scale.set(1.25, Math.max(0.05, spikeH), 1.25);
               }
             }
           }

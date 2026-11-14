@@ -226,7 +226,8 @@ export default function App() {
         const res = castGodPower(sim, activeTool.power, tileX, tileZ, { deferImpact: true });
         const def = GOD_POWERS.find((p) => p.type === activeTool.power);
         if (res.ok) {
-          soundEngine.playClick();
+          if (activeTool.power === 'meteor_strike') soundEngine.playMeteorIncoming();
+          else soundEngine.playClick();
           setStatusFeedback(`${def?.name} cast`);
         } else {
           setStatusFeedback(res.reason || 'Need more Faith');
