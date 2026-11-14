@@ -1607,9 +1607,77 @@ test('dragons breathe fire matching their scale color and actively attack trees 
   );
 });
 
+test('dragons execute gliding carpet-bombing strafe runs before banking to turn around, and dinosaurs roam when rocks are far from destroyed', () => {
+  const state = createInitialSimulationState(128, 'DRAGON-STRAFE-TURN-TEST');
+  state.sandboxFreeMode = true;
+  state.wildlifeSeeded = true;
+  for (let dz = -10; dz <= 10; dz++) {
+    for (let dx = -10; dx <= 10; dx++) {
+      const t = getTile(state, 64 + dx, 64 + dz)!;
+      t.height = 2;
+      t.terrain = 'grass';
+      t.resourceNode = 'none';
+      t.resourceAmount = 0;
+      t.buildingId = null;
+      t.onFireTimer = 0;
+    }
+  }
 
+  placeBuilding(state, 'forager_hut', 67, 64);
+  const bld = state.buildings[state.buildings.length - 1];
+  bld.maxHp = 5000;
+  bld.hp = 5000;
 
+  const dragon = spawnUnit(state, 'dragon', 64, 64).unit!;
+  dragon.x = 64;
+  dragon.z = 64;
+  dragon.actionCooldown = 0;
+  state.pendingVfx.length = 0;
 
+  const startX = dragon.x;
+  let sawStrafe = false;
+  let sawTurn = false;
+  let breathCountDuringStrafe = 0;
 
+  for (let step = 0; step < 36; step++) {
+    stepSimulation(state, 0.1);
+    if (dragon.dragonRunPhase === 'strafe') {
+      sawStrafe = true;
+    }
+    if (dragon.dragonRunPhase === 'turn') {
+      sawTurn = true;
+    }
+    for (const v of state.pendingVfx) {
+      if (v.type === 'dragon_fire_breath') {
+        assert.equal(v.sourceUnitId, dragon.id, 'Dragon breath VFX must carry sourceUnitId for 3D jaw tracking');
+        breathCountDuringStrafe++;
+      }
+    }
+    state.pendingVfx.length = 0;
+  }
 
+  assert.ok(sawStrafe, 'Dragon must enter gliding strafe phase when carpet-bombing target');
+  assert.ok(sawTurn, 'Dragon must transition to banking turn phase after gliding past target');
+  assert.ok(
+    breathCountDuringStrafe >= 2,
+    `Dragon should spew multiple fire blasts while gliding across target (got ${breathCountDuringStrafe})`,
+  );
+  assert.ok(
+    Math.hypot(dragon.x - startX, dragon.z - 64) > 1.5,
+    'Dragon must glide across the map while carpet-bombing rather than stopping in 1 spot',
+  );
 
+  // Verify dinosaur does not stay locked on a tough stone outcrop when far from destroying it
+  const rockTile = getTile(state, 58, 58)!;
+  rockTile.resourceNode = 'stone_outcrop';
+  rockTile.resourceAmount = 350;
+  const dino = spawnUnit(state, 'dinosaur', 57, 58).unit!;
+  dino.x = 57;
+  dino.z = 58;
+  dino.actionCooldown = 0;
+
+  stepSimulation(state, 0.1);
+  assert.ok(rockTile.resourceAmount < 350, 'Dinosaur should crunch stone outcrop once');
+  assert.ok(rockTile.resourceAmount > 150, 'Stone outcrop is still far from destroyed');
+  assert.equal(dino.state, 'moving', 'Dinosaur should immediately switch to moving/roaming instead of camping the rock');
+});

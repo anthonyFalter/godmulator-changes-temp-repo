@@ -212,6 +212,13 @@ export interface UnitEntity {
   attackAnimTimer?: number;
   attackTargetX?: number;
   attackTargetZ?: number;
+  dragonRunPhase?: 'approach' | 'strafe' | 'turn';
+  dragonRunTimer?: number;
+  dragonRunDirX?: number;
+  dragonRunDirZ?: number;
+  dragonAnchorX?: number;
+  dragonAnchorZ?: number;
+  dragonTurnSign?: number;
   expeditionTargetX?: number;
   expeditionTargetZ?: number;
   expeditionTimer?: number;
@@ -333,6 +340,7 @@ export interface VisualEffectEvent {
   originX?: number;
   originY?: number;
   originZ?: number;
+  sourceUnitId?: string;
   variant?: 'bite' | 'slam' | 'crunch' | 'peck' | 'horn_blast' | 'fire_breath';
   radius: number;
   color: string;

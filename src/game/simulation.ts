@@ -4842,10 +4842,12 @@ function stepWildlifeAI(
       unitTarget?: UnitEntity;
       buildingTarget?: BuildingEntity;
       isEnvAttack?: boolean;
+      cooldownOverride?: number;
     },
   ) => {
     const dragonGlowHex = getDragonVariant(u.appearanceSeed).glowHex;
-    u.actionCooldown = options?.isEnvAttack ? 1.25 : 1.15;
+    u.actionCooldown =
+      options?.cooldownOverride ?? (options?.isEnvAttack ? 0.42 : 0.38);
     u.attackAnimTimer = 0.78;
     u.attackTargetX = targetX;
     u.attackTargetZ = targetZ;
@@ -4861,6 +4863,7 @@ function stepWildlifeAI(
       id: nextEntityId('vfx'),
       type: 'dragon_fire_breath',
       variant: 'fire_breath',
+      sourceUnitId: u.id,
       originX: u.x,
       originZ: u.z,
       x: targetX,
@@ -4969,6 +4972,53 @@ function stepWildlifeAI(
     }
   };
 
+  if (u.role === 'dragon') {
+    if (u.dragonRunDirX === undefined || u.dragonRunDirZ === undefined) {
+      const dx = u.targetX - u.x;
+      const dz = u.targetZ - u.z;
+      const d = Math.hypot(dx, dz);
+      if (d > 0.05) {
+        u.dragonRunDirX = dx / d;
+        u.dragonRunDirZ = dz / d;
+      } else {
+        const seedAng = ((u.appearanceSeed ?? 1) % 360) * (Math.PI / 180);
+        u.dragonRunDirX = Math.cos(seedAng);
+        u.dragonRunDirZ = Math.sin(seedAng);
+      }
+    }
+  }
+
+  const steerDragonToward = (
+    goalX: number,
+    goalZ: number,
+    maxTurnRate: number,
+    lockTurnSign?: number,
+  ): { dirX: number; dirZ: number; angleDiff: number } => {
+    const curDirX = u.dragonRunDirX ?? 1;
+    const curDirZ = u.dragonRunDirZ ?? 0;
+    const curAngle = Math.atan2(curDirZ, curDirX);
+    const dx = goalX - u.x;
+    const dz = goalZ - u.z;
+    if (dx * dx + dz * dz < 1e-4) {
+      return { dirX: curDirX, dirZ: curDirZ, angleDiff: 0 };
+    }
+    const desiredAngle = Math.atan2(dz, dx);
+    const diff = Math.atan2(Math.sin(desiredAngle - curAngle), Math.cos(desiredAngle - curAngle));
+    const maxStep = maxTurnRate * dt;
+    const turnDir =
+      lockTurnSign !== undefined && Math.abs(diff) > 1.85
+        ? lockTurnSign
+        : Math.sign(diff) || 1;
+    const step = Math.abs(diff) <= maxStep ? diff : turnDir * maxStep;
+    const nextAngle = curAngle + step;
+    const nextDirX = Math.cos(nextAngle);
+    const nextDirZ = Math.sin(nextAngle);
+    u.dragonRunDirX = nextDirX;
+    u.dragonRunDirZ = nextDirZ;
+    const remDiff = Math.atan2(Math.sin(desiredAngle - nextAngle), Math.cos(desiredAngle - nextAngle));
+    return { dirX: nextDirX, dirZ: nextDirZ, angleDiff: remDiff };
+  };
+
   // Predators, Dragons, Unicorns & Frenzied Animals combat / hunting
   if (isPredatorRole(u.role) || u.role === 'unicorn' || isFrenzied) {
     let target: UnitEntity | null = null;
@@ -4979,7 +5029,7 @@ function stepWildlifeAI(
       const dSq = (other.x - u.x) ** 2 + (other.z - u.z) ** 2;
 
       if (other.faction === 'hostile') {
-        const maxSq = u.role === 'dragon' ? 256 : u.role === 'unicorn' ? 25 : 81;
+        const maxSq = u.role === 'dragon' ? 256 : u.role === 'unicorn' ? 25 : 100;
         if (dSq <= maxSq && dSq < bestScore) {
           bestScore = dSq;
           target = other;
@@ -4993,119 +5043,50 @@ function stepWildlifeAI(
         u.role === 'dragon' &&
         (other.role === 'dinosaur' || other.role === 'bear' || other.role === 'wolf')
       ) {
-        if (dSq <= 81 && dSq + 12 < bestScore) {
-          bestScore = dSq + 12;
-          target = other;
-        }
-      } else if (isPredatorRole(u.role) && u.role !== 'dragon' && isPreyAnimalRole(other.role)) {
-        if (dSq <= 49 && dSq + 10 < bestScore) {
+        if (dSq <= 100 && dSq + 10 < bestScore) {
           bestScore = dSq + 10;
           target = other;
         }
-      } else if (isPredatorRole(u.role) && other.faction === 'civilization' && dSq <= 5.5) {
-        // Territorial close-range defense only
-        if (dSq + 16 < bestScore) {
-          bestScore = dSq + 16;
+      } else if (
+        u.role === 'dinosaur' &&
+        (isPreyAnimalRole(other.role) || other.role === 'wolf' || other.role === 'bear')
+      ) {
+        if (dSq <= 100 && dSq + 8 < bestScore) {
+          bestScore = dSq + 8;
+          target = other;
+        }
+      } else if (isPredatorRole(u.role) && u.role !== 'dragon' && isPreyAnimalRole(other.role)) {
+        if (dSq <= 64 && dSq + 10 < bestScore) {
+          bestScore = dSq + 10;
+          target = other;
+        }
+      } else if (
+        isPredatorRole(u.role) &&
+        other.faction === 'civilization' &&
+        dSq <= (u.role === 'dinosaur' ? 36 : 5.5)
+      ) {
+        if (dSq + 14 < bestScore) {
+          bestScore = dSq + 14;
           target = other;
         }
       }
-    }
-
-    if (target) {
-      const dist = Math.hypot(target.x - u.x, target.z - u.z);
-      u.targetX = target.x;
-      u.targetZ = target.z;
-      if (dist <= def.attackRange) {
-        if (u.role === 'dragon') {
-          u.state = 'moving';
-          const flightPhase = state.year * 2.5 + ((u.appearanceSeed ?? 1) % 13);
-          const strafeX = target.x + Math.cos(flightPhase) * 4.5;
-          const strafeZ = target.z + Math.sin(flightPhase) * 4.5;
-          u.targetX = strafeX;
-          u.targetZ = strafeZ;
-
-          const sDist = Math.hypot(strafeX - u.x, strafeZ - u.z);
-          if (sDist > 0.2) {
-            const nx = u.x + ((strafeX - u.x) / sDist) * moveSpeed * 1.25 * dt;
-            const nz = u.z + ((strafeZ - u.z) / sDist) * moveSpeed * 1.25 * dt;
-            u.x = Math.max(1, Math.min(gs - 2, nx));
-            u.z = Math.max(1, Math.min(gs - 2, nz));
-          }
-          if (u.actionCooldown <= 0) {
-            const dmg = def.attackDamage * (isFrenzied ? 1.8 : 1.0);
-            u.attackAnimTimer = 0.78;
-            u.attackTargetX = target.x;
-            u.attackTargetZ = target.z;
-            emitDragonBreathAt(target.x, target.z, dmg, { unitTarget: target });
-          }
-          return;
-        }
-
-        u.state = 'fighting';
-        if (u.actionCooldown <= 0) {
-          const dmg = def.attackDamage * (isFrenzied ? 1.8 : 1.0);
-          u.actionCooldown = u.role === 'wolf' ? 0.72 : 0.9;
-          u.attackAnimTimer = 0.48;
-          u.attackTargetX = target.x;
-          u.attackTargetZ = target.z;
-          target.hp -= dmg;
-          const variant =
-            u.role === 'wolf'
-              ? 'bite'
-              : u.role === 'bear'
-                ? 'slam'
-                : u.role === 'dinosaur'
-                  ? 'crunch'
-                  : u.role === 'unicorn'
-                    ? 'horn_blast'
-                    : 'peck';
-          const color =
-            u.role === 'wolf'
-              ? '#f87171'
-              : u.role === 'bear'
-                ? '#f59e0b'
-                : u.role === 'dinosaur'
-                  ? '#fb923c'
-                  : u.role === 'unicorn'
-                    ? '#f472b6'
-                    : '#fde047';
-          state.pendingVfx.push({
-            id: nextEntityId('vfx'),
-            type: 'animal_attack',
-            variant,
-            originX: u.x,
-            originZ: u.z,
-            x: target.x,
-            y: 0,
-            z: target.z,
-            radius: u.role === 'dinosaur' ? 1.55 : u.role === 'bear' ? 1.35 : 1.05,
-            color,
-            createdAt: Date.now(),
-          });
-        }
-      } else {
-        u.state = 'moving';
-        const nx = u.x + ((target.x - u.x) / dist) * moveSpeed * dt;
-        const nz = u.z + ((target.z - u.z) / dist) * moveSpeed * dt;
-        const nt = getTile(state, nx, nz);
-        if (isFlying || (nt && nt.height > 0)) {
-          u.x = Math.max(1, Math.min(gs - 2, nx));
-          u.z = Math.max(1, Math.min(gs - 2, nz));
-        }
-      }
-      return;
     }
 
     // Environmental rampage: Dragons torch buildings, trees, bushes, rocks & flammable terrain;
     // Dinosaurs, Bears & Frenzied beasts smash nearby structures, trees, bushes & boulders.
+    type EnvTarget =
+      | { kind: 'building'; building: BuildingEntity; x: number; z: number; score: number }
+      | { kind: 'tile'; tile: TileData; x: number; z: number; score: number };
+    let envTarget: EnvTarget | null = null;
+
     const canAttackEnv =
-      u.role === 'dragon' || u.role === 'dinosaur' || u.role === 'bear' || isFrenzied;
+      !target &&
+      (u.role === 'dragon' ||
+        isFrenzied ||
+        ((u.role === 'dinosaur' || u.role === 'bear') && u.actionCooldown <= 0.35));
+
     if (canAttackEnv) {
-      type EnvTarget =
-        | { kind: 'building'; building: BuildingEntity; x: number; z: number; score: number }
-        | { kind: 'tile'; tile: TileData; x: number; z: number; score: number };
-      let envTarget: EnvTarget | null = null;
-      const envRange = u.role === 'dragon' ? 11 : isFrenzied ? 7 : 5;
+      const envRange = u.role === 'dragon' ? 12 : isFrenzied ? 7 : 5;
       const envRangeSq = envRange * envRange;
 
       if (u.role === 'dragon' || u.role === 'dinosaur' || isFrenzied) {
@@ -5161,122 +5142,369 @@ function stepWildlifeAI(
           }
         }
       }
+    }
 
-      if (envTarget) {
-        if (u.role === 'dinosaur' && envTarget.kind === 'tile') {
-          if (envTarget.tile.resourceAmount > 120 && Math.random() < dt * 0.2) {
-            envTarget = null;
-          }
+    // Specialized 3-phase Dragon Gliding Carpet-Bombing & Banking Turn AI
+    if (
+      u.role === 'dragon' &&
+      (target || envTarget || u.dragonRunPhase === 'strafe' || u.dragonRunPhase === 'turn')
+    ) {
+      const dmg = def.attackDamage * (isFrenzied ? 1.8 : 1.0);
+      const hasLiveGoal = Boolean(target || envTarget);
+      const goalX = target ? target.x : envTarget ? envTarget.x : (u.dragonAnchorX ?? u.x);
+      const goalZ = target ? target.z : envTarget ? envTarget.z : (u.dragonAnchorZ ?? u.z);
+      const distToGoal = Math.hypot(goalX - u.x, goalZ - u.z);
+
+      // First-time engagement when spawning directly in attack range: line up and begin strafe run immediately
+      if (u.dragonRunPhase === undefined && hasLiveGoal && distToGoal <= def.attackRange) {
+        if (distToGoal > 0.05) {
+          u.dragonRunDirX = (goalX - u.x) / distToGoal;
+          u.dragonRunDirZ = (goalZ - u.z) / distToGoal;
         }
+        u.dragonRunPhase = 'strafe';
+        u.dragonRunTimer = 1.35;
+        u.dragonAnchorX = goalX;
+        u.dragonAnchorZ = goalZ;
+      } else if (u.dragonRunPhase === undefined) {
+        u.dragonRunPhase = 'approach';
+        u.dragonAnchorX = goalX;
+        u.dragonAnchorZ = goalZ;
       }
 
-      if (envTarget) {
-        const dist = Math.hypot(envTarget.x - u.x, envTarget.z - u.z);
-        u.targetX = envTarget.x;
-        u.targetZ = envTarget.z;
-        if (dist <= def.attackRange) {
-          if (u.role === 'dragon') {
-            u.state = 'moving';
-            const flightPhase = state.year * 2.5 + ((u.appearanceSeed ?? 1) % 13);
-            const strafeX = envTarget.x + Math.cos(flightPhase) * 4.5;
-            const strafeZ = envTarget.z + Math.sin(flightPhase) * 4.5;
-            u.targetX = strafeX;
-            u.targetZ = strafeZ;
+      if (u.dragonRunPhase === 'strafe') {
+        u.dragonRunTimer = Math.max(0, (u.dragonRunTimer ?? 1.2) - dt);
+        let dirX = u.dragonRunDirX ?? 1;
+        let dirZ = u.dragonRunDirZ ?? 0;
 
-            const sDist = Math.hypot(strafeX - u.x, strafeZ - u.z);
-            if (sDist > 0.2) {
-              const nx = u.x + ((strafeX - u.x) / sDist) * moveSpeed * 1.25 * dt;
-              const nz = u.z + ((strafeZ - u.z) / sDist) * moveSpeed * 1.25 * dt;
-              u.x = Math.max(1, Math.min(gs - 2, nx));
-              u.z = Math.max(1, Math.min(gs - 2, nz));
-            }
-            if (u.actionCooldown <= 0) {
-              const dmg = def.attackDamage * (isFrenzied ? 1.8 : 1.0);
-              u.attackAnimTimer = 0.78;
-              u.attackTargetX = envTarget.x;
-              u.attackTargetZ = envTarget.z;
-              emitDragonBreathAt(envTarget.x, envTarget.z, dmg, {
-                buildingTarget: envTarget.kind === 'building' ? envTarget.building : undefined,
-                isEnvAttack: true,
-              });
-            }
-            return;
+        // Subtle forward course trim if tracking a moving unit ahead of the dragon
+        if (target) {
+          const toTx = target.x - u.x;
+          const toTz = target.z - u.z;
+          const toDist = Math.hypot(toTx, toTz);
+          if (toDist > 0.4 && (toTx * dirX + toTz * dirZ) / toDist > 0.35) {
+            const steered = steerDragonToward(target.x, target.z, 0.95);
+            dirX = steered.dirX;
+            dirZ = steered.dirZ;
           }
+          u.dragonAnchorX = target.x;
+          u.dragonAnchorZ = target.z;
+        } else if (envTarget?.kind === 'building') {
+          u.dragonAnchorX = envTarget.x;
+          u.dragonAnchorZ = envTarget.z;
+        }
 
-          u.state = 'fighting';
-          if (u.actionCooldown <= 0) {
-            const dmg = def.attackDamage * (isFrenzied ? 1.8 : 1.0);
-            u.actionCooldown = isFrenzied ? 0.95 : 2.6;
-            u.attackAnimTimer = 0.48;
-            u.attackTargetX = envTarget.x;
-            u.attackTargetZ = envTarget.z;
-            if (envTarget.kind === 'building' && envTarget.building.shieldTimer <= 0) {
-              envTarget.building.hp = Math.max(0, envTarget.building.hp - dmg * 0.7);
-            } else if (envTarget.kind === 'tile') {
-              const et = envTarget.tile;
-              et.resourceAmount = Math.max(0, et.resourceAmount - (u.role === 'dinosaur' ? 120 : 85));
-              if (et.resourceAmount <= 0) {
-                et.resourceNode = 'none';
-                if (et.terrain === 'forest' || et.terrain === 'jungle') {
-                  et.terrain = 'grass';
-                }
-              } else if (u.role === 'dinosaur' && et.resourceAmount > 100 && Math.random() < 0.25) {
-                u.state = 'moving';
-              }
-            }
-            const variant =
-              u.role === 'wolf'
-                ? 'bite'
-                : u.role === 'bear'
-                  ? 'slam'
-                  : u.role === 'dinosaur'
-                    ? 'crunch'
-                    : u.role === 'unicorn'
-                      ? 'horn_blast'
-                      : 'peck';
-            const color =
-              u.role === 'wolf'
-                ? '#f87171'
-                : u.role === 'bear'
-                  ? '#f59e0b'
-                  : u.role === 'dinosaur'
-                    ? '#fb923c'
-                    : u.role === 'unicorn'
-                      ? '#f472b6'
-                      : '#fde047';
-            state.pendingVfx.push({
-              id: nextEntityId('vfx'),
-              type: 'animal_attack',
-              variant,
-              originX: u.x,
-              originZ: u.z,
-              x: envTarget.x,
-              y: 0,
-              z: envTarget.z,
-              radius: u.role === 'dinosaur' ? 1.55 : u.role === 'bear' ? 1.35 : 1.05,
-              color,
-              createdAt: Date.now(),
+        // Glide smoothly forward through the target zone while carpet-bombing
+        const glideSpeed = moveSpeed * 1.18;
+        u.x = Math.max(2, Math.min(gs - 3, u.x + dirX * glideSpeed * dt));
+        u.z = Math.max(2, Math.min(gs - 3, u.z + dirZ * glideSpeed * dt));
+        u.state = 'moving';
+        u.targetX = u.x + dirX * 6.0;
+        u.targetZ = u.z + dirZ * 6.0;
+        u.attackAnimTimer = Math.max(u.attackAnimTimer ?? 0, 0.45);
+        u.attackTargetX = u.x + dirX * 2.4;
+        u.attackTargetZ = u.z + dirZ * 2.4;
+
+        if (u.actionCooldown <= 0) {
+          const forwardCheckX = u.x + dirX * 1.8;
+          const forwardCheckZ = u.z + dirZ * 1.8;
+          if (
+            target &&
+            Math.hypot(target.x - u.x, target.z - u.z) <= def.attackRange + 0.8 &&
+            (target.x - u.x) * dirX + (target.z - u.z) * dirZ >= -0.25
+          ) {
+            emitDragonBreathAt(target.x, target.z, dmg, {
+              unitTarget: target,
+              cooldownOverride: 0.36,
+            });
+          } else if (
+            envTarget &&
+            Math.hypot(envTarget.x - u.x, envTarget.z - u.z) <= def.attackRange + 0.8 &&
+            (envTarget.x - u.x) * dirX + (envTarget.z - u.z) * dirZ >= -0.25
+          ) {
+            emitDragonBreathAt(envTarget.x, envTarget.z, dmg, {
+              buildingTarget: envTarget.kind === 'building' ? envTarget.building : undefined,
+              isEnvAttack: true,
+              cooldownOverride: 0.36,
+            });
+          } else {
+            const bombX = Math.max(1, Math.min(gs - 2, forwardCheckX));
+            const bombZ = Math.max(1, Math.min(gs - 2, forwardCheckZ));
+            emitDragonBreathAt(bombX, bombZ, dmg, {
+              isEnvAttack: true,
+              cooldownOverride: 0.36,
             });
           }
+        }
+
+        if (u.dragonRunTimer <= 0) {
+          u.dragonRunPhase = 'turn';
+          u.dragonRunTimer = 1.4;
+          u.dragonTurnSign = ((u.appearanceSeed ?? 1) + Math.round(u.x + u.z)) % 2 === 0 ? 1 : -1;
+          u.actionCooldown = Math.max(u.actionCooldown, 0.72);
+          u.attackAnimTimer = 0;
+        }
+        return;
+      }
+
+      if (u.dragonRunPhase === 'turn') {
+        u.dragonRunTimer = Math.max(0, (u.dragonRunTimer ?? 1.2) - dt);
+        u.attackAnimTimer = 0;
+        if (hasLiveGoal) {
+          u.dragonAnchorX = goalX;
+          u.dragonAnchorZ = goalZ;
+        }
+        const anchorX = u.dragonAnchorX ?? goalX;
+        const anchorZ = u.dragonAnchorZ ?? goalZ;
+        const distAnchor = Math.hypot(anchorX - u.x, anchorZ - u.z);
+        const curAngle = Math.atan2(u.dragonRunDirZ ?? 0, u.dragonRunDirX ?? 1);
+        const desiredAngle = Math.atan2(anchorZ - u.z, anchorX - u.x);
+        const rawDiff = Math.atan2(
+          Math.sin(desiredAngle - curAngle),
+          Math.cos(desiredAngle - curAngle),
+        );
+
+        let dirX = u.dragonRunDirX ?? 1;
+        let dirZ = u.dragonRunDirZ ?? 0;
+        let remDiff = rawDiff;
+
+        // Fly out slightly if too close to the anchor before banking back around
+        if (distAnchor < 3.2 && Math.abs(rawDiff) > 0.9) {
+          const gentleAngle = curAngle + (u.dragonTurnSign ?? 1) * 1.15 * dt;
+          dirX = Math.cos(gentleAngle);
+          dirZ = Math.sin(gentleAngle);
+          u.dragonRunDirX = dirX;
+          u.dragonRunDirZ = dirZ;
         } else {
-          u.state = 'moving';
-          const nx = u.x + ((envTarget.x - u.x) / dist) * moveSpeed * dt;
-          const nz = u.z + ((envTarget.z - u.z) / dist) * moveSpeed * dt;
-          const nt = getTile(state, nx, nz);
-          if (isFlying || (nt && nt.height > 0)) {
-            u.x = Math.max(1, Math.min(gs - 2, nx));
-            u.z = Math.max(1, Math.min(gs - 2, nz));
+          const steered = steerDragonToward(anchorX, anchorZ, 2.85, u.dragonTurnSign ?? 1);
+          dirX = steered.dirX;
+          dirZ = steered.dirZ;
+          remDiff = steered.angleDiff;
+        }
+
+        const turnSpeed = moveSpeed * 1.05;
+        u.x = Math.max(2, Math.min(gs - 3, u.x + dirX * turnSpeed * dt));
+        u.z = Math.max(2, Math.min(gs - 3, u.z + dirZ * turnSpeed * dt));
+        u.state = 'moving';
+        u.targetX = u.x + dirX * 6.0;
+        u.targetZ = u.z + dirZ * 6.0;
+
+        if (u.dragonRunTimer <= 0 || (distAnchor >= 2.0 && Math.abs(remDiff) <= 0.32)) {
+          if (!hasLiveGoal) {
+            u.dragonRunPhase = undefined;
+          } else if (distToGoal <= def.attackRange && Math.abs(remDiff) <= 0.4) {
+            u.dragonRunPhase = 'strafe';
+            u.dragonRunTimer = 1.35;
+          } else {
+            u.dragonRunPhase = 'approach';
           }
         }
         return;
       }
+
+      // Phase: 'approach' — smoothly bank & glide toward the target until lined up in attack range
+      u.dragonAnchorX = goalX;
+      u.dragonAnchorZ = goalZ;
+      const curAngle = Math.atan2(u.dragonRunDirZ ?? 0, u.dragonRunDirX ?? 1);
+      const desiredAngle = Math.atan2(goalZ - u.z, goalX - u.x);
+      const rawDiff = Math.atan2(
+        Math.sin(desiredAngle - curAngle),
+        Math.cos(desiredAngle - curAngle),
+      );
+
+      let dirX = u.dragonRunDirX ?? 1;
+      let dirZ = u.dragonRunDirZ ?? 0;
+      let remDiff = rawDiff;
+
+      if (distToGoal < 3.0 && Math.abs(rawDiff) > 0.85) {
+        // Gain turning room so the dragon never orbits tightly in place
+        const bankSign = u.dragonTurnSign ?? (rawDiff >= 0 ? 1 : -1);
+        const nextAngle = curAngle + bankSign * 1.35 * dt;
+        dirX = Math.cos(nextAngle);
+        dirZ = Math.sin(nextAngle);
+        u.dragonRunDirX = dirX;
+        u.dragonRunDirZ = dirZ;
+      } else {
+        const steered = steerDragonToward(goalX, goalZ, 3.0);
+        dirX = steered.dirX;
+        dirZ = steered.dirZ;
+        remDiff = steered.angleDiff;
+      }
+
+      const approachSpeed = moveSpeed * 1.1;
+      u.x = Math.max(2, Math.min(gs - 3, u.x + dirX * approachSpeed * dt));
+      u.z = Math.max(2, Math.min(gs - 3, u.z + dirZ * approachSpeed * dt));
+      u.state = 'moving';
+      u.targetX = u.x + dirX * 6.0;
+      u.targetZ = u.z + dirZ * 6.0;
+
+      const updatedDist = Math.hypot(goalX - u.x, goalZ - u.z);
+      if (updatedDist <= def.attackRange && Math.abs(remDiff) <= 0.42) {
+        u.dragonRunPhase = 'strafe';
+        u.dragonRunTimer = 1.35;
+        if (u.actionCooldown <= 0) {
+          emitDragonBreathAt(goalX, goalZ, dmg, {
+            unitTarget: target ?? undefined,
+            buildingTarget: envTarget?.kind === 'building' ? envTarget.building : undefined,
+            isEnvAttack: !target,
+            cooldownOverride: 0.36,
+          });
+        }
+      }
+      return;
+    }
+
+    if (target) {
+      const dist = Math.hypot(target.x - u.x, target.z - u.z);
+      u.targetX = target.x;
+      u.targetZ = target.z;
+      if (dist <= def.attackRange) {
+        u.state = 'fighting';
+        if (u.actionCooldown <= 0) {
+          const dmg = def.attackDamage * (isFrenzied ? 1.8 : 1.0);
+          u.actionCooldown = u.role === 'wolf' ? 0.72 : 0.9;
+          u.attackAnimTimer = 0.48;
+          u.attackTargetX = target.x;
+          u.attackTargetZ = target.z;
+          target.hp -= dmg;
+          const variant =
+            u.role === 'wolf'
+              ? 'bite'
+              : u.role === 'bear'
+                ? 'slam'
+                : u.role === 'dinosaur'
+                  ? 'crunch'
+                  : u.role === 'unicorn'
+                    ? 'horn_blast'
+                    : 'peck';
+          const color =
+            u.role === 'wolf'
+              ? '#f87171'
+              : u.role === 'bear'
+                ? '#f59e0b'
+                : u.role === 'dinosaur'
+                  ? '#fb923c'
+                  : u.role === 'unicorn'
+                    ? '#f472b6'
+                    : '#fde047';
+          state.pendingVfx.push({
+            id: nextEntityId('vfx'),
+            type: 'animal_attack',
+            variant,
+            originX: u.x,
+            originZ: u.z,
+            x: target.x,
+            y: 0,
+            z: target.z,
+            radius: u.role === 'dinosaur' ? 1.55 : u.role === 'bear' ? 1.35 : 1.05,
+            color,
+            createdAt: Date.now(),
+          });
+        }
+      } else {
+        u.state = 'moving';
+        const nx = u.x + ((target.x - u.x) / dist) * moveSpeed * dt;
+        const nz = u.z + ((target.z - u.z) / dist) * moveSpeed * dt;
+        const nt = getTile(state, nx, nz);
+        if (isFlying || (nt && nt.height > 0)) {
+          u.x = Math.max(1, Math.min(gs - 2, nx));
+          u.z = Math.max(1, Math.min(gs - 2, nz));
+        }
+      }
+      return;
+    }
+
+    if (envTarget) {
+      const dist = Math.hypot(envTarget.x - u.x, envTarget.z - u.z);
+      u.targetX = envTarget.x;
+      u.targetZ = envTarget.z;
+      if (dist <= def.attackRange) {
+        u.state = 'fighting';
+        if (u.actionCooldown <= 0) {
+          const dmg = def.attackDamage * (isFrenzied ? 1.8 : 1.0);
+          u.actionCooldown = isFrenzied ? 0.95 : 2.8;
+          u.attackAnimTimer = 0.48;
+          u.attackTargetX = envTarget.x;
+          u.attackTargetZ = envTarget.z;
+          if (envTarget.kind === 'building' && envTarget.building.shieldTimer <= 0) {
+            envTarget.building.hp = Math.max(0, envTarget.building.hp - dmg * 0.7);
+          } else if (envTarget.kind === 'tile') {
+            const et = envTarget.tile;
+            et.resourceAmount = Math.max(0, et.resourceAmount - (u.role === 'dinosaur' ? 120 : 85));
+            if (et.resourceAmount <= 0) {
+              et.resourceNode = 'none';
+              if (et.terrain === 'forest' || et.terrain === 'jungle') {
+                et.terrain = 'grass';
+              }
+            } else if ((u.role === 'dinosaur' || u.role === 'bear') && et.resourceAmount >= 95) {
+              // When still far from destroying a tough rock/tree, pick a random roam destination instead of camping it
+              const roamAng = Math.random() * Math.PI * 2;
+              const roamDist = 6 + Math.random() * 5;
+              const rx = Math.max(2, Math.min(gs - 3, Math.round(u.x + Math.cos(roamAng) * roamDist)));
+              const rz = Math.max(2, Math.min(gs - 3, Math.round(u.z + Math.sin(roamAng) * roamDist)));
+              const rt = getTile(state, rx, rz);
+              if (rt && rt.height > 0) {
+                u.targetX = rx;
+                u.targetZ = rz;
+                u.state = 'moving';
+              }
+            }
+          }
+          const variant =
+            u.role === 'wolf'
+              ? 'bite'
+              : u.role === 'bear'
+                ? 'slam'
+                : u.role === 'dinosaur'
+                  ? 'crunch'
+                  : u.role === 'unicorn'
+                    ? 'horn_blast'
+                    : 'peck';
+          const color =
+            u.role === 'wolf'
+              ? '#f87171'
+              : u.role === 'bear'
+                ? '#f59e0b'
+                : u.role === 'dinosaur'
+                  ? '#fb923c'
+                  : u.role === 'unicorn'
+                    ? '#f472b6'
+                    : '#fde047';
+          state.pendingVfx.push({
+            id: nextEntityId('vfx'),
+            type: 'animal_attack',
+            variant,
+            originX: u.x,
+            originZ: u.z,
+            x: envTarget.x,
+            y: 0,
+            z: envTarget.z,
+            radius: u.role === 'dinosaur' ? 1.55 : u.role === 'bear' ? 1.35 : 1.05,
+            color,
+            createdAt: Date.now(),
+          });
+        }
+      } else {
+        u.state = 'moving';
+        const nx = u.x + ((envTarget.x - u.x) / dist) * moveSpeed * dt;
+        const nz = u.z + ((envTarget.z - u.z) / dist) * moveSpeed * dt;
+        const nt = getTile(state, nx, nz);
+        if (isFlying || (nt && nt.height > 0)) {
+          u.x = Math.max(1, Math.min(gs - 2, nx));
+          u.z = Math.max(1, Math.min(gs - 2, nz));
+        }
+      }
+      return;
     }
   }
 
   // Natural wandering across matching biome tiles (livelier cadence)
   const distToTarget = Math.hypot(u.targetX - u.x, u.targetZ - u.z);
   const currentTileInvalid = !isFlying && (!curTile || curTile.height <= 0);
-  if (distToTarget < 0.35 || currentTileInvalid || (u.state === 'idle' && Math.random() < dt * 0.85)) {
+  if (
+    distToTarget < (isFlying ? 2.2 : 0.35) ||
+    currentTileInvalid ||
+    (u.state === 'idle' && Math.random() < dt * 0.85)
+  ) {
     const roamRadius = isFlying ? 18 : isPredatorRole(u.role) ? 10 : 6.5;
     let chosen: TileData | null = null;
     for (let attempt = 0; attempt < 8; attempt++) {
@@ -5297,22 +5525,29 @@ function stepWildlifeAI(
   }
 
   if (u.state === 'moving') {
-    const dx = u.targetX - u.x;
-    const dz = u.targetZ - u.z;
-    const dist = Math.hypot(dx, dz);
-    if (dist > 0.1) {
-      const pace = isFlying ? 0.98 : isPreyAnimalRole(u.role) ? 0.72 : 0.84;
-      const nx = u.x + (dx / dist) * moveSpeed * pace * dt;
-      const nz = u.z + (dz / dist) * moveSpeed * pace * dt;
-      const nt = getTile(state, nx, nz);
-      if (isFlying || (nt && nt.height > 0)) {
-        u.x = Math.max(1, Math.min(gs - 2, nx));
-        u.z = Math.max(1, Math.min(gs - 2, nz));
+    if (u.role === 'dragon') {
+      const steered = steerDragonToward(u.targetX, u.targetZ, 2.0);
+      const pace = 0.98;
+      u.x = Math.max(2, Math.min(gs - 3, u.x + steered.dirX * moveSpeed * pace * dt));
+      u.z = Math.max(2, Math.min(gs - 3, u.z + steered.dirZ * moveSpeed * pace * dt));
+    } else {
+      const dx = u.targetX - u.x;
+      const dz = u.targetZ - u.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist > 0.1) {
+        const pace = isPreyAnimalRole(u.role) ? 0.72 : 0.84;
+        const nx = u.x + (dx / dist) * moveSpeed * pace * dt;
+        const nz = u.z + (dz / dist) * moveSpeed * pace * dt;
+        const nt = getTile(state, nx, nz);
+        if (nt && nt.height > 0) {
+          u.x = Math.max(1, Math.min(gs - 2, nx));
+          u.z = Math.max(1, Math.min(gs - 2, nz));
+        } else {
+          u.state = 'idle';
+        }
       } else {
         u.state = 'idle';
       }
-    } else {
-      u.state = 'idle';
     }
   }
 }

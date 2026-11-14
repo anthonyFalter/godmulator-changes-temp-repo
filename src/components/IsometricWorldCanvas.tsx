@@ -1358,6 +1358,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       ox?: number;
       oy?: number;
       oz?: number;
+      sourceUnitId?: string;
       variant?: string;
       radius: number;
       impactFired: boolean;
@@ -2503,6 +2504,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       });
     }
 
+    const _zUnitAxis = new THREE.Vector3(0, 0, 1);
+    const _mawWorldPos = new THREE.Vector3();
+    const _segVecTemp = new THREE.Vector3();
+    const _segDirTemp = new THREE.Vector3();
+
     function spawnDragonFireBreath(
       ox: number,
       oy: number,
@@ -2512,7 +2518,26 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       tz: number,
       radius: number,
       colorHex: string,
+      sourceUnitId?: string,
     ) {
+      if (sourceUnitId) {
+        const existing = activeBurstFx.find(
+          (f) => f.kind === 'dragon_flame' && f.sourceUnitId === sourceUnitId,
+        );
+        if (existing) {
+          existing.age = Math.min(existing.age, 0.14);
+          existing.duration = 0.68;
+          existing.tx = tx;
+          existing.ty = ty + 0.25;
+          existing.tz = tz;
+          existing.impactFired = false;
+          existing.impactDelay = 0.04;
+          triggerLightFlash(tx, ty + 1.2, tz, colorHex, 18);
+          spawnParticleBurst(tx, ty + 0.2, tz, 14, colorHex, 1.15, 4.2, 1.1);
+          return;
+        }
+      }
+
       const group = new THREE.Group();
       const outerCol = new THREE.Color(colorHex);
       const coreCol = outerCol.clone().lerp(new THREE.Color(0xffffff), 0.54);
@@ -2540,21 +2565,34 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       const materials: THREE.Material[] = [outerMat, coreMat, ringMat];
 
       // Compute exact 3D vector from dragon's aerial jaw to ground target
-      const dx = tx - ox;
-      const dy = ty - oy;
-      const dz = tz - oz;
-      const dist = Math.max(0.6, Math.hypot(dx, dy, dz));
-      const dir = new THREE.Vector3(dx / dist, dy / dist, dz / dist);
-      const mouthX = ox + dir.x * 1.15;
-      const mouthY = oy + dir.y * 0.25;
-      const mouthZ = oz + dir.z * 1.15;
-      const segVec = new THREE.Vector3(tx - mouthX, ty + 0.25 - mouthY, tz - mouthZ);
-      const segLen = Math.max(0.5, segVec.length());
-      const segDir = segVec.clone().normalize();
+      let mouthX = ox;
+      let mouthY = oy;
+      let mouthZ = oz;
+      const uEntry = sourceUnitId ? unitMeshes.get(sourceUnitId) : undefined;
+      if (uEntry) {
+        uEntry.group.updateMatrixWorld(true);
+        const mawObj = uEntry.group.getObjectByName('fire_maw') ?? uEntry.group;
+        mawObj.getWorldPosition(_mawWorldPos);
+        mouthX = _mawWorldPos.x;
+        mouthY = _mawWorldPos.y;
+        mouthZ = _mawWorldPos.z;
+      } else {
+        const dx = tx - ox;
+        const dy = ty - oy;
+        const dz = tz - oz;
+        const dist = Math.max(0.6, Math.hypot(dx, dy, dz));
+        mouthX = ox + (dx / dist) * 1.15;
+        mouthY = oy + (dy / dist) * 0.25;
+        mouthZ = oz + (dz / dist) * 1.15;
+      }
+
+      _segVecTemp.set(tx - mouthX, ty + 0.25 - mouthY, tz - mouthZ);
+      const segLen = Math.max(0.5, _segVecTemp.length());
+      _segDirTemp.copy(_segVecTemp).divideScalar(segLen);
 
       const flameOuterCone = new THREE.Mesh(sharedFlameOuterGeo, outerMat);
       flameOuterCone.position.set(mouthX, mouthY, mouthZ);
-      flameOuterCone.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), segDir);
+      flameOuterCone.quaternion.setFromUnitVectors(_zUnitAxis, _segDirTemp);
       flameOuterCone.scale.set(0.95, 0.95, 0.15);
       group.add(flameOuterCone);
 
@@ -2570,17 +2608,18 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       group.add(ringMesh);
 
       triggerLightFlash(tx, ty + 1.2, tz, colorHex, 20);
-      spawnDirectionalFlameStream(mouthX, mouthY, mouthZ, tx, ty + 0.25, tz, 24, colorHex, 0.55);
+      spawnDirectionalFlameStream(mouthX, mouthY, mouthZ, tx, ty + 0.25, tz, 20, colorHex, 0.55);
 
       burstFxGroup.add(group);
       activeBurstFx.push({
         kind: 'dragon_flame',
         powerType: 'dragon_fire_breath',
+        sourceUnitId,
         group,
         materials,
         age: 0,
-        duration: 0.82,
-        impactDelay: 0.12,
+        duration: 0.72,
+        impactDelay: 0.08,
         deferImpact: false,
         tx,
         ty: ty + 0.25,
@@ -2588,7 +2627,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         ox: mouthX,
         oy: mouthY,
         oz: mouthZ,
-        radius: Math.max(1.2, segLen),
+        radius: Math.max(1.2, segLen, radius),
         impactFired: false,
         flameCoreCone,
         flameOuterCone,
@@ -3514,36 +3553,78 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           isAttacking && !isDragon && u.role !== 'bear'
             ? Math.sin(atkProg * Math.PI) * (u.role === 'wolf' ? 0.42 : u.role === 'chicken' ? 0.24 : 0.16)
             : 0;
-        const flightHoverY =
+        const isDragonStrafing =
+          isDragon && (u.dragonRunPhase === 'strafe' || isAttacking);
+        const targetHoverY =
           isDragon && u.state !== 'ko'
-            ? (isAttacking ? 1.85 : isWorking ? 2.05 : 2.45) +
-              Math.sin(elapsed * 3.1 + seedPhase) * 0.34
+            ? (isDragonStrafing
+                ? 1.86
+                : u.dragonRunPhase === 'turn'
+                  ? 2.54
+                  : 2.34) + Math.sin(elapsed * 2.3 + seedPhase) * (isDragonStrafing ? 0.08 : 0.22)
             : 0;
         const levitateY =
           blackHolePullFrac > 0
             ? Math.pow(blackHolePullFrac, 1.3) * 1.65 +
               Math.sin(elapsed * 9 + u.x * 2) * 0.12 * blackHolePullFrac
             : 0;
-        uGroup.position.set(
-          u.x,
-          groundY + (walkBob + pounceHopY + flightHoverY) * (1 - blackHolePullFrac) + levitateY,
-          u.z,
-        );
+        let finalUnitY =
+          groundY + (walkBob + pounceHopY + targetHoverY) * (1 - blackHolePullFrac) + levitateY;
+        if (isDragon && u.state !== 'ko' && blackHolePullFrac <= 0) {
+          const prevDragonY =
+            typeof uGroup.userData.smoothWorldY === 'number'
+              ? uGroup.userData.smoothWorldY
+              : finalUnitY;
+          finalUnitY = THREE.MathUtils.damp(prevDragonY, finalUnitY, 6.2, dt);
+          uGroup.userData.smoothWorldY = finalUnitY;
+        }
+        const flightHoverY = Math.max(0, finalUnitY - groundY);
+        uGroup.position.set(u.x, finalUnitY, u.z);
 
-        // Face movement/target direction (or attack target when snapping/breathing fire)
+        // Smoothly damped facing direction & turn-rate banking calculation
+        let dragonYawDelta = 0;
         if (blackHolePullFrac > 0.15) {
           uGroup.rotation.y = blackHoleAngle + elapsed * 3.5 * blackHolePullFrac;
+        } else if (isDragon) {
+          const dirX =
+            u.dragonRunDirX !== undefined ? u.dragonRunDirX : u.targetX - u.x;
+          const dirZ =
+            u.dragonRunDirZ !== undefined ? u.dragonRunDirZ : u.targetZ - u.z;
+          if (dirX * dirX + dirZ * dirZ > 0.0005) {
+            const desiredYaw = Math.atan2(dirX, dirZ);
+            const curYaw =
+              typeof uGroup.userData.initYaw === 'boolean'
+                ? uGroup.rotation.y
+                : desiredYaw;
+            uGroup.userData.initYaw = true;
+            const yawDiff = Math.atan2(
+              Math.sin(desiredYaw - curYaw),
+              Math.cos(desiredYaw - curYaw),
+            );
+            dragonYawDelta = yawDiff;
+            uGroup.rotation.y = curYaw + yawDiff * Math.min(1, dt * 9.5);
+          }
         } else {
           const faceX = isAttacking && u.attackTargetX !== undefined ? u.attackTargetX : u.targetX;
           const faceZ = isAttacking && u.attackTargetZ !== undefined ? u.attackTargetZ : u.targetZ;
           const dx = faceX - u.x;
           const dz = faceZ - u.z;
           if (dx * dx + dz * dz > 0.005) {
-            uGroup.rotation.y = Math.atan2(dx, dz);
+            const desiredYaw = Math.atan2(dx, dz);
+            const curYaw =
+              typeof uGroup.userData.initYaw === 'boolean'
+                ? uGroup.rotation.y
+                : desiredYaw;
+            uGroup.userData.initYaw = true;
+            const yawDiff = Math.atan2(
+              Math.sin(desiredYaw - curYaw),
+              Math.cos(desiredYaw - curYaw),
+            );
+            uGroup.rotation.y = curYaw + yawDiff * Math.min(1, dt * 14);
           }
         }
 
-        // KO topple, Black Hole 3D vortex tumble/spaghettification, or normal movement sway
+        // KO topple, Black Hole 3D vortex tumble/spaghettification, or aerodynamic flight/stride sway
         if (u.state === 'ko') {
           uGroup.rotation.z = THREE.MathUtils.damp(uGroup.rotation.z, Math.PI / 2, 12, dt);
           uGroup.rotation.x = 0;
@@ -3553,22 +3634,22 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           uGroup.rotation.x = blackHolePullFrac * 0.72 * Math.cos(elapsed * 6.5 + u.z);
           const bhScale = Math.max(0.58, 1 - Math.pow(blackHolePullFrac, 1.8) * 0.38);
           uGroup.scale.setScalar(bhScale);
+        } else if (isDragon) {
+          const targetBank = THREE.MathUtils.clamp(dragonYawDelta * 1.45, -0.48, 0.48);
+          const targetPitch = isDragonStrafing
+            ? 0.18
+            : u.dragonRunPhase === 'turn'
+              ? -0.1
+              : 0.05 + Math.sin(elapsed * 2.3 + seedPhase) * 0.04;
+          uGroup.rotation.z = THREE.MathUtils.damp(uGroup.rotation.z, targetBank, 7.0, dt);
+          uGroup.rotation.x = THREE.MathUtils.damp(uGroup.rotation.x, targetPitch, 7.0, dt);
+          uGroup.scale.setScalar(1);
         } else {
-          uGroup.rotation.z =
-            isMoving && !isDragon
-              ? Math.sin(elapsed * bobFreq + seedPhase) * (u.role === 'chicken' ? 0.12 : 0.08)
-              : isDragon && isMoving
-                ? Math.sin(elapsed * 3.2 + seedPhase) * 0.38 + Math.sin(elapsed * 1.6) * 0.18
-                : 0;
-          uGroup.rotation.x = isDragon
-            ? isAttacking
-              ? -0.35 + Math.sin(elapsed * 6.8) * 0.15
-              : isMoving
-                ? 0.15 + Math.sin(elapsed * 3.1 + seedPhase) * 0.12
-                : Math.sin(elapsed * 3.1 + seedPhase) * 0.05
-            : isWorking && !isAnimal
-              ? Math.sin(elapsed * 16 + u.x) * 0.22
-              : 0;
+          uGroup.rotation.z = isMoving
+            ? Math.sin(elapsed * bobFreq + seedPhase) * (u.role === 'chicken' ? 0.12 : 0.08)
+            : 0;
+          uGroup.rotation.x =
+            isWorking && !isAnimal ? Math.sin(elapsed * 16 + u.x) * 0.22 : 0;
           uGroup.scale.setScalar(1);
         }
 
@@ -3611,8 +3692,15 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
           if (headPivot) {
             if (isDragon) {
-              headPivot.rotation.x = isAttacking ? 0.42 : Math.sin(elapsed * 2.5 + seedPhase) * 0.1;
-              headPivot.rotation.y = isAttacking ? 0 : Math.sin(elapsed * 1.4 + seedPhase) * 0.18;
+              const targetHeadX = isDragonStrafing
+                ? 0.34
+                : Math.sin(elapsed * 2.2 + seedPhase) * 0.08;
+              const targetHeadY = isDragonStrafing
+                ? 0
+                : THREE.MathUtils.clamp(dragonYawDelta * 0.45, -0.28, 0.28) +
+                  Math.sin(elapsed * 1.4 + seedPhase) * 0.12;
+              headPivot.rotation.x = THREE.MathUtils.damp(headPivot.rotation.x, targetHeadX, 9, dt);
+              headPivot.rotation.y = THREE.MathUtils.damp(headPivot.rotation.y, targetHeadY, 8, dt);
             } else if (isAttacking) {
               headPivot.rotation.x = Math.sin(atkProg * Math.PI) * (u.role === 'chicken' ? 0.65 : 0.42);
               headPivot.rotation.y = 0;
@@ -3642,7 +3730,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
           if (jawPivot) {
             if (isDragon) {
-              jawPivot.rotation.x = isAttacking ? 0.62 : 0.08 + Math.max(0, Math.sin(elapsed * 2.2 + seedPhase)) * 0.14;
+              const targetJaw = isDragonStrafing
+                ? 0.64
+                : 0.06 + Math.max(0, Math.sin(elapsed * 2.0 + seedPhase)) * 0.1;
+              jawPivot.rotation.x = THREE.MathUtils.damp(jawPivot.rotation.x, targetJaw, 12, dt);
             } else if (isAttacking) {
               // Open wide then snap shut cleanly
               jawPivot.rotation.x = Math.sin(atkProg * Math.PI) * 0.68;
@@ -3653,8 +3744,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
           if (tailPivot) {
             if (isDragon) {
-              tailPivot.rotation.y = Math.sin(elapsed * 4.8 + seedPhase) * 0.32;
-              tailPivot.rotation.x = Math.cos(elapsed * 3.2 + seedPhase) * 0.14;
+              const targetTailY =
+                -THREE.MathUtils.clamp(dragonYawDelta * 0.55, -0.35, 0.35) +
+                Math.sin(elapsed * (isDragonStrafing ? 3.2 : 4.5) + seedPhase) *
+                  (isDragonStrafing ? 0.16 : 0.28);
+              tailPivot.rotation.y = THREE.MathUtils.damp(tailPivot.rotation.y, targetTailY, 8, dt);
+              tailPivot.rotation.x = Math.cos(elapsed * 2.8 + seedPhase) * 0.1;
             } else if (isAttacking && u.role === 'dinosaur') {
               tailPivot.rotation.y = Math.sin(atkProg * Math.PI * 2) * 0.58;
             } else {
@@ -3703,14 +3798,19 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
         if (wingL && wingR && u.state !== 'ko') {
           if (isDragon) {
-            const wingFreq = isAttacking ? 12.5 : 8.2;
-            const flap = Math.sin(elapsed * wingFreq + seedPhase) * 0.62 + 0.1;
-            wingL.rotation.z = flap;
-            wingR.rotation.z = -flap;
+            // Spread wide in a steady aerodynamic glide when carpet-bombing; beat powerfully when turning/climbing
+            const wingFreq = u.dragonRunPhase === 'turn' ? 7.4 : 6.2;
+            const targetFlap = isDragonStrafing
+              ? 0.14 + Math.sin(elapsed * 2.6 + seedPhase) * 0.1
+              : Math.sin(elapsed * wingFreq + seedPhase) * 0.55 + 0.08;
+            wingL.rotation.z = THREE.MathUtils.damp(wingL.rotation.z, targetFlap, 11, dt);
+            wingR.rotation.z = THREE.MathUtils.damp(wingR.rotation.z, -targetFlap, 11, dt);
             if (wingOuterL && wingOuterR) {
-              const outerFlex = Math.sin(elapsed * wingFreq + seedPhase - 0.85) * 0.46;
-              wingOuterL.rotation.z = outerFlex;
-              wingOuterR.rotation.z = -outerFlex;
+              const targetOuter = isDragonStrafing
+                ? -0.06 + Math.sin(elapsed * 2.6 + seedPhase - 0.6) * 0.08
+                : Math.sin(elapsed * wingFreq + seedPhase - 0.85) * 0.42;
+              wingOuterL.rotation.z = THREE.MathUtils.damp(wingOuterL.rotation.z, targetOuter, 11, dt);
+              wingOuterR.rotation.z = THREE.MathUtils.damp(wingOuterR.rotation.z, -targetOuter, 11, dt);
             }
           } else if (u.role === 'chicken' && (isMoving || isAttacking || ((elapsed + seedPhase) % 4.5 < 0.55))) {
             const flutter = Math.sin(elapsed * 24 + seedPhase) * 0.55;
@@ -3874,7 +3974,6 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           const oz = vfx.originZ ?? vfx.z;
           const oTile = getTileFromArray(simState, ox, oz);
           const originGroundY = oTile ? Math.max(0.22, oTile.height * HEIGHT_STEP + 0.25) : surfY;
-          // Dragon aerial jaw sits at hoverY (~1.85) + head neck jaw height (~1.2)
           spawnDragonFireBreath(
             ox,
             originGroundY + 3.05,
@@ -3884,6 +3983,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             vfx.z,
             vfx.radius,
             vfx.color,
+            vfx.sourceUnitId,
           );
         } else if (vfx.type === 'animal_attack') {
           const ox = vfx.originX ?? vfx.x;
@@ -4957,28 +5057,34 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             }
           }
         } else if (fx.kind === 'dragon_flame' && fx.flameOuterCone && fx.flameCoreCone && fx.ringMesh) {
+          if (fx.sourceUnitId) {
+            const srcUnit = simRef.current.units.find((u) => u.id === fx.sourceUnitId);
+            if (!srcUnit || srcUnit.state === 'ko' || srcUnit.dragonRunPhase === 'turn') {
+              fx.age = Math.max(fx.age, fx.duration - 0.16);
+            }
+          }
           if (fx.age >= fx.impactDelay && !fx.impactFired) {
             fx.impactFired = true;
             spawnParticleBurst(fx.tx, fx.ty + 0.15, fx.tz, 18, fx.colorHex, 1.25, 4.6, 1.2);
           }
           const prog = Math.min(1, fx.age / fx.duration);
-          const extendProg = Math.min(1, prog / 0.16);
-          const fadeOut = prog > 0.68 ? Math.max(0, 1 - (prog - 0.68) / 0.32) : 1;
-          const pulse = 0.88 + Math.sin(elapsedTotal * 38) * 0.18;
+          const extendProg = Math.min(1, prog / 0.14);
+          const fadeOut = prog > 0.72 ? Math.max(0, 1 - (prog - 0.72) / 0.28) : 1;
+          const pulse = 0.9 + Math.sin(elapsedTotal * 34) * 0.14;
           const reach = fx.radius * extendProg;
-          const coneScale = (0.78 + extendProg * 0.35) * pulse * (0.4 + fadeOut * 0.6);
+          const coneScale = (0.78 + extendProg * 0.34) * pulse * (0.4 + fadeOut * 0.6);
 
           fx.flameOuterCone.scale.set(coneScale, coneScale, Math.max(0.15, reach));
           fx.flameCoreCone.scale.set(coneScale * 0.85, coneScale * 0.85, Math.max(0.15, reach * 0.94));
           (fx.materials[0] as THREE.MeshBasicMaterial).opacity = 0.82 * fadeOut;
           (fx.materials[1] as THREE.MeshBasicMaterial).opacity = 0.94 * fadeOut;
 
-          fx.ringMesh.scale.setScalar(0.35 + prog * 1.85);
+          fx.ringMesh.scale.setScalar(0.35 + prog * 1.65);
           (fx.materials[2] as THREE.MeshBasicMaterial).opacity = Math.sin(prog * Math.PI) * 0.92;
 
           // Emit continuous directional flame & ember stream from dragon's mouth down onto target!
           fx.particleEmitTimer = (fx.particleEmitTimer ?? 0) + dt;
-          if (fx.particleEmitTimer >= 0.035 && prog < 0.76) {
+          if (fx.particleEmitTimer >= 0.035 && prog < 0.78) {
             fx.particleEmitTimer = 0;
             spawnDirectionalFlameStream(
               fx.ox ?? fx.tx,
@@ -5034,6 +5140,57 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       }
 
       syncSceneFromSimulation(simRef.current, dt, elapsedTotal);
+
+      // Lock active dragon_flame cones to the gliding dragon's 3D jaw (fire_maw) with zero frame lag
+      for (let i = 0; i < activeBurstFx.length; i++) {
+        const fx = activeBurstFx[i];
+        if (
+          fx.kind === 'dragon_flame' &&
+          fx.sourceUnitId &&
+          fx.flameOuterCone &&
+          fx.flameCoreCone &&
+          fx.ringMesh
+        ) {
+          const uEntry = unitMeshes.get(fx.sourceUnitId);
+          if (uEntry) {
+            uEntry.group.updateMatrixWorld(true);
+            const mawObj = uEntry.group.getObjectByName('fire_maw') ?? uEntry.group;
+            mawObj.getWorldPosition(_mawWorldPos);
+            fx.ox = _mawWorldPos.x;
+            fx.oy = _mawWorldPos.y;
+            fx.oz = _mawWorldPos.z;
+
+            const fwdX = Math.sin(uEntry.group.rotation.y);
+            const fwdZ = Math.cos(uEntry.group.rotation.y);
+            const sweepX = _mawWorldPos.x + fwdX * 2.05;
+            const sweepZ = _mawWorldPos.z + fwdZ * 2.05;
+            const sTile = getTileFromArray(simRef.current, sweepX, sweepZ);
+            const sweepY =
+              (sTile ? Math.max(0.22, sTile.height * HEIGHT_STEP + 0.25) : fx.ty) + 0.22;
+
+            fx.tx = THREE.MathUtils.damp(fx.tx, sweepX, 9, dt);
+            fx.ty = THREE.MathUtils.damp(fx.ty, sweepY, 9, dt);
+            fx.tz = THREE.MathUtils.damp(fx.tz, sweepZ, 9, dt);
+
+            _segVecTemp.set(fx.tx - fx.ox, fx.ty - fx.oy, fx.tz - fx.oz);
+            const segLen = Math.max(0.65, _segVecTemp.length());
+            fx.radius = segLen;
+            _segDirTemp.copy(_segVecTemp).divideScalar(segLen);
+
+            fx.flameOuterCone.position.set(fx.ox, fx.oy, fx.oz);
+            fx.flameOuterCone.quaternion.setFromUnitVectors(_zUnitAxis, _segDirTemp);
+            fx.flameCoreCone.position.set(fx.ox, fx.oy, fx.oz);
+            fx.flameCoreCone.quaternion.copy(fx.flameOuterCone.quaternion);
+            fx.ringMesh.position.set(fx.tx, fx.ty - 0.08, fx.tz);
+
+            const prog = Math.min(1, fx.age / fx.duration);
+            const extendProg = Math.min(1, prog / 0.14);
+            const reach = fx.radius * extendProg;
+            fx.flameOuterCone.scale.z = Math.max(0.15, reach);
+            fx.flameCoreCone.scale.z = Math.max(0.15, reach * 0.94);
+          }
+        }
+      }
 
       // Update pooled particles in-place
       for (let i = 0; i < MAX_PARTICLES; i++) {
