@@ -89,6 +89,15 @@ class SoundEngine {
     setTimeout(() => this.playTone(48, 1.05, 'triangle', 0.14, 0.45), 90);
   }
 
+  public playEarthquake(): void {
+    // Deep sustained tectonic rumble + grinding seismic fault cracks
+    this.playTone(54, 1.6, 'sawtooth', 0.14, 0.68);
+    setTimeout(() => this.playTone(42, 1.5, 'triangle', 0.16, 0.85), 60);
+    setTimeout(() => this.playTone(95, 0.35, 'square', 0.08, 0.32), 180);
+    setTimeout(() => this.playTone(60, 1.2, 'sawtooth', 0.11, 0.72), 460);
+    setTimeout(() => this.playTone(84, 0.4, 'square', 0.07, 0.38), 720);
+  }
+
   public playEpochAscend(): void {
     const chord = [261.63, 329.63, 392.0, 523.25, 659.25];
     chord.forEach((n, idx) => {

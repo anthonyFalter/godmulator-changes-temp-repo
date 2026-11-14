@@ -316,6 +316,19 @@ export const PowerPixelIcon: React.FC<{ power: GodPowerType; className?: string 
           <rect x="4" y="9" width="4" height="4" fill="#5c4742" />
         </svg>
       );
+    case 'earthquake':
+      return (
+        <svg viewBox="0 0 16 16" className={className} aria-hidden="true" shapeRendering="crispEdges">
+          <rect x="2" y="8" width="12" height="5" fill="#8d5b3c" />
+          <rect x="2" y="7" width="5" height="2" fill="#6a994e" />
+          <rect x="9" y="6" width="5" height="2" fill="#6a994e" />
+          <rect x="7" y="4" width="2" height="3" fill="#ff7b00" />
+          <rect x="6" y="7" width="3" height="3" fill="#ff5400" />
+          <rect x="7" y="10" width="2" height="4" fill="#1b1512" />
+          <rect x="4" y="3" width="2" height="2" fill="#ffd166" />
+          <rect x="10" y="2" width="2" height="2" fill="#ffd166" />
+        </svg>
+      );
     case 'terraform_beam':
       return (
         <svg viewBox="0 0 16 16" className={className} aria-hidden="true" shapeRendering="crispEdges">

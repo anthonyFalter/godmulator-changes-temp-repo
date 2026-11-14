@@ -47,9 +47,15 @@ export type TerrainType =
   | 'grass'
   | 'fertile'
   | 'forest'
+  | 'jungle'
   | 'savanna'
   | 'swamp'
   | 'highland'
+  | 'mountain'
+  | 'taiga'
+  | 'tundra'
+  | 'badlands'
+  | 'blossom'
   | 'stone_road'
   | 'rail_track'
   | 'rock'
@@ -68,7 +74,7 @@ export type ResourceNodeType =
 export interface TileData {
   x: number;
   z: number;
-  height: number; // 0 = water, 1..8 = stepped elevation levels
+  height: number; // 0 = water, 1..10 = stepped elevation levels (mountains rise 5..10)
   terrain: TerrainType;
   resourceNode: ResourceNodeType;
   resourceAmount: number;
@@ -197,6 +203,7 @@ export type GodPowerType =
   | 'divine_shield'
   | 'lightning_smite'
   | 'meteor_strike'
+  | 'earthquake'
   | 'plague_miasma'
   | 'bloodlust_frenzy'
   | 'terraform_beam'
@@ -285,7 +292,7 @@ export interface VisualEffectEvent {
 
 export interface ActiveHazardZone {
   id: string;
-  kind: 'rain_cloud' | 'plague_cloud' | 'shield_dome' | 'wormhole_rift' | 'tsunami_wave';
+  kind: 'rain_cloud' | 'plague_cloud' | 'shield_dome' | 'wormhole_rift' | 'tsunami_wave' | 'earthquake_zone';
   x: number;
   z: number;
   targetX?: number;

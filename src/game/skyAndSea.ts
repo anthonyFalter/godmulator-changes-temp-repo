@@ -609,14 +609,20 @@ const STYLED_TERRAIN_CODE: Record<TerrainType, number> = {
   scorched: 12,
   crystal_field: 13,
   rail_track: 14,
+  jungle: 15,
+  mountain: 16,
+  taiga: 17,
+  tundra: 18,
+  badlands: 19,
+  blossom: 20,
 };
 
 export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem {
   // RGBA DataTexture storing per-tile terrain info:
-  // R = terrain code * 16
-  // G = height * 28 (0..224)
+  // R = terrain code * 8 (supports up to 31 biomes)
+  // G = height * 20 (supports elevation 0..12)
   // B = deterministic spatial hash (0..255)
-  // A = 255
+  // A = 255 if cultivated farm plot
   const data = new Uint8Array(gridSize * gridSize * 4);
   const landMapTex = new THREE.DataTexture(data, gridSize, gridSize, THREE.RGBAFormat);
   landMapTex.magFilter = THREE.NearestFilter;
@@ -669,11 +675,11 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
     }
 
     float decodeHeight(vec4 t) {
-      return floor(t.g * 255.0 / 28.0 + 0.5);
+      return floor(t.g * 255.0 / 20.0 + 0.5);
     }
 
     float decodeTerrain(vec4 t) {
-      return floor(t.r * 255.0 / 16.0 + 0.5);
+      return floor(t.r * 255.0 / 8.0 + 0.5);
     }
 
     vec3 computeBiomeColor(float code, vec2 pixPos, vec2 chunkPos, vec2 subUv, float tTime, bool isCultivatedFarm) {
@@ -815,8 +821,70 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         vec3 sh   = landSrgb(34.0, 50.0, 62.0);
         vec3 c = mix(sh, base, step(0.45, waveA));
         return mix(c, hi, trace * (0.55 + 0.45 * pulse));
-      } else {
+      } else if (code < 14.5) {
         return landSrgb(96.0, 90.0, 84.0);
+      } else if (code < 15.5) {
+        // Jungle (15): deep humid emerald canopy floor, fern moss & exotic tropical blossom flecks
+        float wind = sin(pixPos.x * 0.8 + pixPos.y * 0.6 - tTime * 1.2) * 0.06;
+        vec3 sh   = landSrgb(22.0, 58.0, 36.0);
+        vec3 base = landSrgb(34.0, 88.0, 50.0);
+        vec3 hi   = landSrgb(54.0, 122.0, 68.0);
+        vec3 c = mix(sh, base, step(0.32, patchVal));
+        c = mix(c, hi, step(0.64, patchVal + wind));
+        if (detail > 0.962) c = landSrgb(242.0, 108.0, 84.0); // tropical orchid fleck
+        else if (detail < 0.025) c = landSrgb(245.0, 198.0, 72.0);
+        return c;
+      } else if (code < 16.5) {
+        // Mountain (16): sharp alpine granite ridges, basalt shadows & pale quartz veins
+        float ridgeStrata = landNoise(vec2(chunkPos.x * 1.15 - chunkPos.y * 0.55, chunkPos.y * 1.15));
+        vec3 sh   = landSrgb(68.0, 74.0, 84.0);
+        vec3 base = landSrgb(108.0, 116.0, 126.0);
+        vec3 hi   = landSrgb(154.0, 162.0, 172.0);
+        vec3 c = mix(sh, base, step(0.32, ridgeStrata));
+        c = mix(c, hi, step(0.66, ridgeStrata));
+        if (detail > 0.93) c = landSrgb(198.0, 210.0, 220.0);
+        return c;
+      } else if (code < 17.5) {
+        // Taiga (17): cool spruce-needle floor, damp peat & light winter frost flecks
+        vec3 sh   = landSrgb(34.0, 56.0, 48.0);
+        vec3 base = landSrgb(50.0, 82.0, 70.0);
+        vec3 hi   = landSrgb(72.0, 108.0, 92.0);
+        vec3 c = mix(sh, base, step(0.35, patchVal));
+        c = mix(c, hi, step(0.67, patchVal));
+        if (detail > 0.925) c = landSrgb(206.0, 224.0, 228.0);
+        return c;
+      } else if (code < 18.5) {
+        // Tundra (18): frozen permafrost lichen, cold grey-teal gravel & frost patches
+        float frost = landNoise(chunkPos * 1.1 + vec2(4.2, 8.7));
+        vec3 sh   = landSrgb(92.0, 106.0, 108.0);
+        vec3 base = landSrgb(134.0, 148.0, 144.0);
+        vec3 hi   = landSrgb(184.0, 198.0, 196.0);
+        vec3 c = mix(sh, base, step(0.34, patchVal));
+        c = mix(c, hi, step(0.65, frost));
+        if (detail > 0.89) c = landSrgb(224.0, 236.0, 240.0);
+        return c;
+      } else if (code < 19.5) {
+        // Badlands (19): striated terracotta sandstone canyon, burnt sienna & golden ochre strata
+        float band = landNoise(vec2(chunkPos.x * 0.55 + chunkPos.y * 0.85, chunkPos.y * 1.4));
+        vec3 sh   = landSrgb(134.0, 64.0, 40.0);
+        vec3 base = landSrgb(184.0, 96.0, 56.0);
+        vec3 hi   = landSrgb(218.0, 138.0, 82.0);
+        vec3 c = mix(sh, base, step(0.32, band));
+        c = mix(c, hi, step(0.68, band));
+        if (detail > 0.92) c = mix(c, landSrgb(235.0, 178.0, 118.0), 0.7);
+        return c;
+      } else {
+        // Blossom (20): vibrant spring green sakura grove meadow dusted with pink petals
+        float petalNoise = landNoise(chunkPos * 1.25 + vec2(7.1, 2.3));
+        vec3 sh   = landSrgb(72.0, 118.0, 68.0);
+        vec3 base = landSrgb(102.0, 156.0, 88.0);
+        vec3 hi   = landSrgb(136.0, 184.0, 106.0);
+        vec3 c = mix(sh, base, step(0.34, patchVal));
+        c = mix(c, hi, step(0.66, patchVal));
+        if (petalNoise > 0.64 || detail > 0.88) {
+          c = detail > 0.94 ? landSrgb(255.0, 226.0, 238.0) : landSrgb(246.0, 172.0, 200.0);
+        }
+        return c;
       }
     }
 
@@ -1179,7 +1247,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
     roughness: 0.84,
     metalness: 0.08,
   });
-  cliffMat.customProgramCacheKey = () => 'aeon_cliff_pixel_v3';
+  cliffMat.customProgramCacheKey = () => 'aeon_cliff_pixel_v4';
   cliffMat.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = sharedTime;
     shader.uniforms.uEpoch = sharedEpoch;
@@ -1201,6 +1269,8 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         float ownerCode = decodeTerrain(sampleLandTile(cliffOwnerCoord));
         float neighborCode = decodeTerrain(sampleLandTile(cliffNeighborCoord));
         bool isCraterWall = abs(ownerCode - 12.0) < 0.5 || abs(neighborCode - 12.0) < 0.5;
+        bool isBadlandsWall = abs(ownerCode - 19.0) < 0.5 || abs(neighborCode - 19.0) < 0.5;
+        bool isMountainWall = abs(ownerCode - 16.0) < 0.5 || abs(ownerCode - 11.0) < 0.5;
 
         float strata = landNoise(vec2(wallChunk.x * 0.65, wallChunk.y * 2.2));
         float brickRow = floor(wallPix.y * 4.0);
@@ -1208,9 +1278,27 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         float seam = step(0.86, fract(wallPix.y * 4.0)) + step(0.91, fract((wallPix.x + mod(brickRow, 2.0) * 0.25) * 2.0));
         float brickTone = landHash12(vec2(brickCol, brickRow));
 
-        vec3 stoneBase = isCraterWall ? landSrgb(48.0, 36.0, 34.0) : landSrgb(74.0, 89.0, 95.0);
-        vec3 stoneHi   = isCraterWall ? landSrgb(78.0, 52.0, 42.0) : landSrgb(104.0, 122.0, 129.0);
-        vec3 stoneSh   = isCraterWall ? landSrgb(24.0, 17.0, 18.0) : landSrgb(45.0, 56.0, 61.0);
+        vec3 stoneBase = isCraterWall
+          ? landSrgb(48.0, 36.0, 34.0)
+          : isBadlandsWall
+            ? landSrgb(162.0, 82.0, 48.0)
+            : isMountainWall
+              ? landSrgb(88.0, 96.0, 106.0)
+              : landSrgb(74.0, 89.0, 95.0);
+        vec3 stoneHi = isCraterWall
+          ? landSrgb(78.0, 52.0, 42.0)
+          : isBadlandsWall
+            ? landSrgb(206.0, 122.0, 72.0)
+            : isMountainWall
+              ? landSrgb(126.0, 136.0, 146.0)
+              : landSrgb(104.0, 122.0, 129.0);
+        vec3 stoneSh = isCraterWall
+          ? landSrgb(24.0, 17.0, 18.0)
+          : isBadlandsWall
+            ? landSrgb(106.0, 52.0, 32.0)
+            : isMountainWall
+              ? landSrgb(54.0, 60.0, 68.0)
+              : landSrgb(45.0, 56.0, 61.0);
 
         vec3 cliffCol = mix(stoneSh, stoneBase, step(0.32, strata * 0.7 + brickTone * 0.3));
         cliffCol = mix(cliffCol, stoneHi, step(0.68, strata * 0.65 + brickTone * 0.35));
@@ -1241,15 +1329,15 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
   for (const tType of terrainTypes) {
     const tCode = STYLED_TERRAIN_CODE[tType];
     const roughness =
-      tType === 'crystal_field' ? 0.34 : tType === 'stone_road' ? 0.65 : tType === 'snow' ? 0.68 : 0.82;
-    const metalness = tType === 'crystal_field' ? 0.28 : tType === 'rock' ? 0.12 : 0.05;
+      tType === 'crystal_field' ? 0.34 : tType === 'stone_road' ? 0.65 : tType === 'snow' || tType === 'tundra' ? 0.68 : 0.82;
+    const metalness = tType === 'crystal_field' ? 0.28 : tType === 'rock' || tType === 'mountain' ? 0.12 : 0.05;
 
     const topMat = new THREE.MeshStandardMaterial({
       color: 0xffffff,
       roughness,
       metalness,
     });
-    topMat.customProgramCacheKey = () => 'aeon_land_top_pixel_v6';
+    topMat.customProgramCacheKey = () => 'aeon_land_top_pixel_v7';
     topMat.onBeforeCompile = (shader) => {
       shader.uniforms.uTime = sharedTime;
       shader.uniforms.uEpoch = sharedEpoch;
@@ -1422,7 +1510,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
           if (hN < myHeight) lowerEdge = min(lowerEdge, subUv.y);
           if (hW < myHeight) lowerEdge = min(lowerEdge, subUv.x);
           if (lowerEdge < 0.12) {
-            col *= (abs(myCode - 10.0) < 0.5 || abs(myCode - 12.0) < 0.5) ? 1.26 : 1.18;
+            col *= (abs(myCode - 10.0) < 0.5 || abs(myCode - 12.0) < 0.5 || abs(myCode - 16.0) < 0.5) ? 1.26 : 1.18;
           }
 
           // 4. Crisp Terrace / Crater Bowl Base Ambient Occlusion Shadow (adjacent to taller step)
@@ -1448,8 +1536,8 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
       const t = tiles[i];
       const idx = i * 4;
       const code = STYLED_TERRAIN_CODE[t.terrain] ?? 3;
-      data[idx] = Math.min(255, code * 16);
-      data[idx + 1] = Math.min(255, t.height * 28);
+      data[idx] = Math.min(255, code * 8);
+      data[idx + 1] = Math.min(255, t.height * 20);
       data[idx + 2] = Math.abs(((t.x * 73856093) ^ (t.z * 19349663)) | 0) & 255;
       data[idx + 3] = t.farmSettlementId ? 255 : 0;
     }

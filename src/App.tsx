@@ -227,6 +227,7 @@ export default function App() {
         const def = GOD_POWERS.find((p) => p.type === activeTool.power);
         if (res.ok) {
           if (activeTool.power === 'meteor_strike') soundEngine.playMeteorIncoming();
+          else if (activeTool.power === 'earthquake') soundEngine.playEarthquake();
           else soundEngine.playClick();
           setStatusFeedback(`${def?.name} cast`);
         } else {

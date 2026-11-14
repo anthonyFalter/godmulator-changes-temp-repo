@@ -592,6 +592,16 @@ export const GOD_POWERS: GodPowerDefinition[] = [
     color: '#ff5400',
   },
   {
+    type: 'earthquake',
+    name: 'Quake',
+    category: 'Wrathful',
+    summary: 'Tectonic rift fractures earth & shakes screen',
+    faithCost: 30,
+    radius: 7.0,
+    keyHint: 'V',
+    color: '#e07a2b',
+  },
+  {
     type: 'terraform_beam',
     name: 'Terraform',
     category: 'Cosmic',

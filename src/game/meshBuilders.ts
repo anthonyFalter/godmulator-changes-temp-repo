@@ -218,6 +218,48 @@ export function getTerrainMaterial(terrain: TerrainType): THREE.MeshStandardMate
         metalness: 0.3,
       });
       break;
+    case 'jungle':
+      topMat = new THREE.MeshStandardMaterial({
+        map: getPixelArtTexture('jungle', '#225832', '#367a44', '#163e24', 'grass'),
+        roughness: 0.84,
+        metalness: 0.04,
+      });
+      break;
+    case 'mountain':
+      topMat = new THREE.MeshStandardMaterial({
+        map: getPixelArtTexture('mountain', '#6c747e', '#9aa2ac', '#444a54', 'stone'),
+        roughness: 0.78,
+        metalness: 0.14,
+      });
+      break;
+    case 'taiga':
+      topMat = new THREE.MeshStandardMaterial({
+        map: getPixelArtTexture('taiga', '#325246', '#486c5c', '#203630', 'grass'),
+        roughness: 0.84,
+        metalness: 0.05,
+      });
+      break;
+    case 'tundra':
+      topMat = new THREE.MeshStandardMaterial({
+        map: getPixelArtTexture('tundra', '#869490', '#b8c6c4', '#5c6c6e', 'grass'),
+        roughness: 0.74,
+        metalness: 0.06,
+      });
+      break;
+    case 'badlands':
+      topMat = new THREE.MeshStandardMaterial({
+        map: getPixelArtTexture('badlands', '#b86038', '#da8652', '#864228', 'stone'),
+        roughness: 0.84,
+        metalness: 0.06,
+      });
+      break;
+    case 'blossom':
+      topMat = new THREE.MeshStandardMaterial({
+        map: getPixelArtTexture('blossom', '#669c58', '#f6acc8', '#487644', 'grass'),
+        roughness: 0.8,
+        metalness: 0.04,
+      });
+      break;
     case 'grass':
     default:
       topMat = new THREE.MeshStandardMaterial({
@@ -404,8 +446,82 @@ function addPixelBush(
   );
 }
 
+function addJungleTree(
+  parts: THREE.BufferGeometry[],
+  tx: number,
+  tz: number,
+  scale: number,
+  isPalm: boolean,
+) {
+  addColoredBox(parts, 0.34 * scale, 0.02, 0.34 * scale, tx, 0.01, tz, 0x13261a);
+  if (isPalm) {
+    // Curved tropical palm trunk + spreading frond crown + coconuts
+    addColoredBox(parts, 0.1 * scale, 0.36 * scale, 0.1 * scale, tx, 0.18 * scale, tz, 0x6e4a2e, 0, 0.08);
+    addColoredBox(parts, 0.09 * scale, 0.38 * scale, 0.09 * scale, tx - 0.04 * scale, 0.5 * scale, tz, 0x7d5738, 0, 0.16);
+    const cy = 0.68 * scale;
+    const cx = tx - 0.08 * scale;
+    addColoredBox(parts, 0.56 * scale, 0.07 * scale, 0.14 * scale, cx, cy, tz, 0x2d8a4e);
+    addColoredBox(parts, 0.14 * scale, 0.07 * scale, 0.56 * scale, cx, cy, tz, 0x3ba85e);
+    addColoredBox(parts, 0.36 * scale, 0.08 * scale, 0.36 * scale, cx, cy + 0.06 * scale, tz, 0x52c46d);
+    addColoredBox(parts, 0.08 * scale, 0.08 * scale, 0.08 * scale, cx + 0.07 * scale, cy - 0.06 * scale, tz + 0.06 * scale, 0x593a22);
+  } else {
+    // Giant rainforest mahogany/kapok buttress trunk + broad layered canopy + hanging vines
+    addColoredBox(parts, 0.16 * scale, 0.44 * scale, 0.16 * scale, tx, 0.22 * scale, tz, 0x4f331e);
+    addColoredBox(parts, 0.28 * scale, 0.12 * scale, 0.1 * scale, tx, 0.06 * scale, tz, 0x452b18);
+    addColoredBox(parts, 0.64 * scale, 0.18 * scale, 0.6 * scale, tx, 0.5 * scale, tz, 0x1e6338);
+    addColoredBox(parts, 0.48 * scale, 0.16 * scale, 0.48 * scale, tx + 0.03 * scale, 0.66 * scale, tz - 0.02 * scale, 0x2e854a);
+    addColoredBox(parts, 0.3 * scale, 0.12 * scale, 0.3 * scale, tx - 0.02 * scale, 0.78 * scale, tz + 0.02 * scale, 0x4db35f);
+    // Hanging liana vines
+    addColoredBox(parts, 0.04 * scale, 0.24 * scale, 0.04 * scale, tx + 0.22 * scale, 0.36 * scale, tz + 0.16 * scale, 0x3b8c47);
+    addColoredBox(parts, 0.04 * scale, 0.2 * scale, 0.04 * scale, tx - 0.22 * scale, 0.38 * scale, tz - 0.14 * scale, 0x3b8c47);
+  }
+}
+
+function addTaigaConifer(
+  parts: THREE.BufferGeometry[],
+  tx: number,
+  tz: number,
+  scale: number,
+  snowTipped: boolean,
+) {
+  addColoredBox(parts, 0.3 * scale, 0.02, 0.3 * scale, tx, 0.01, tz, 0x182622);
+  addColoredBox(parts, 0.11 * scale, 0.26 * scale, 0.11 * scale, tx, 0.13 * scale, tz, 0x4a3121);
+  addColoredBox(parts, 0.44 * scale, 0.16 * scale, 0.44 * scale, tx, 0.28 * scale, tz, 0x24473a);
+  addColoredBox(parts, 0.34 * scale, 0.18 * scale, 0.34 * scale, tx, 0.44 * scale, tz, 0x2f5c4b);
+  addColoredBox(parts, 0.22 * scale, 0.18 * scale, 0.22 * scale, tx, 0.6 * scale, tz, 0x3a705b);
+  addColoredBox(
+    parts,
+    0.12 * scale,
+    0.14 * scale,
+    0.12 * scale,
+    tx,
+    0.74 * scale,
+    tz,
+    snowTipped ? 0xddeef2 : 0x49856e,
+  );
+  if (snowTipped) {
+    addColoredBox(parts, 0.36 * scale, 0.05 * scale, 0.36 * scale, tx, 0.54 * scale, tz, 0xd4e6eb);
+  }
+}
+
+function addSakuraTree(
+  parts: THREE.BufferGeometry[],
+  tx: number,
+  tz: number,
+  scale: number,
+) {
+  addColoredBox(parts, 0.32 * scale, 0.02, 0.32 * scale, tx, 0.01, tz, 0x292428);
+  addColoredBox(parts, 0.12 * scale, 0.3 * scale, 0.12 * scale, tx, 0.15 * scale, tz, 0x4a3235);
+  addColoredBox(parts, 0.48 * scale, 0.18 * scale, 0.46 * scale, tx, 0.36 * scale, tz, 0xe87ea8);
+  addColoredBox(parts, 0.38 * scale, 0.16 * scale, 0.38 * scale, tx + 0.04 * scale, 0.51 * scale, tz - 0.03 * scale, 0xf7a8c6);
+  addColoredBox(parts, 0.24 * scale, 0.13 * scale, 0.24 * scale, tx - 0.03 * scale, 0.63 * scale, tz + 0.02 * scale, 0xffd6e6);
+}
+
 export interface NodeVariantLibrary {
   timber: THREE.BufferGeometry[];
+  timberJungle: THREE.BufferGeometry[];
+  timberTaiga: THREE.BufferGeometry[];
+  timberBlossom: THREE.BufferGeometry[];
   berry: THREE.BufferGeometry[];
   farmCrop: THREE.BufferGeometry[];
   sciFiFarm: THREE.BufferGeometry[];
@@ -414,6 +530,12 @@ export interface NodeVariantLibrary {
   crystal: THREE.BufferGeometry[];
   ambientGrass: THREE.BufferGeometry[];
   ambientForest: THREE.BufferGeometry[];
+  ambientJungle: THREE.BufferGeometry[];
+  ambientMountain: THREE.BufferGeometry[];
+  ambientTaiga: THREE.BufferGeometry[];
+  ambientTundra: THREE.BufferGeometry[];
+  ambientBadlands: THREE.BufferGeometry[];
+  ambientBlossom: THREE.BufferGeometry[];
   ambientSand: THREE.BufferGeometry[];
   ambientRock: THREE.BufferGeometry[];
   ambientSnow: THREE.BufferGeometry[];
@@ -801,8 +923,147 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     ambientHighland.push(finalizeMergedParts(p));
   }
 
+  // 6b. Biome-specific Timber Groves (Jungle Palms/Mahogany, Taiga Conifers, Sakura Blossoms)
+  const timberJungle: THREE.BufferGeometry[] = [];
+  {
+    const p: THREE.BufferGeometry[] = [];
+    addJungleTree(p, -0.14, -0.1, 1.18, false);
+    addJungleTree(p, 0.22, 0.18, 0.88, true);
+    timberJungle.push(finalizeMergedParts(p));
+  }
+  {
+    const p: THREE.BufferGeometry[] = [];
+    addJungleTree(p, 0.14, -0.16, 1.08, true);
+    addJungleTree(p, -0.2, 0.16, 1.02, false);
+    addColoredBox(p, 0.18, 0.12, 0.18, 0.16, 0.06, 0.22, 0x267342);
+    timberJungle.push(finalizeMergedParts(p));
+  }
+  {
+    const p: THREE.BufferGeometry[] = [];
+    addJungleTree(p, 0.0, 0.0, 1.32, false);
+    addJungleTree(p, -0.26, 0.22, 0.68, true);
+    timberJungle.push(finalizeMergedParts(p));
+  }
+
+  const timberTaiga: THREE.BufferGeometry[] = [];
+  {
+    const p: THREE.BufferGeometry[] = [];
+    addTaigaConifer(p, -0.16, -0.14, 1.12, true);
+    addTaigaConifer(p, 0.2, 0.16, 0.86, false);
+    timberTaiga.push(finalizeMergedParts(p));
+  }
+  {
+    const p: THREE.BufferGeometry[] = [];
+    addTaigaConifer(p, -0.18, 0.14, 0.94, true);
+    addTaigaConifer(p, 0.18, -0.16, 1.02, true);
+    addTaigaConifer(p, 0.06, 0.24, 0.72, false);
+    timberTaiga.push(finalizeMergedParts(p));
+  }
+
+  const timberBlossom: THREE.BufferGeometry[] = [];
+  {
+    const p: THREE.BufferGeometry[] = [];
+    addSakuraTree(p, -0.14, -0.12, 1.14);
+    addSakuraTree(p, 0.22, 0.18, 0.82);
+    timberBlossom.push(finalizeMergedParts(p));
+  }
+  {
+    const p: THREE.BufferGeometry[] = [];
+    addSakuraTree(p, 0.02, 0.0, 1.25);
+    addColoredBox(p, 0.14, 0.04, 0.14, -0.24, 0.02, 0.22, 0xf7a8c6);
+    timberBlossom.push(finalizeMergedParts(p));
+  }
+
+  // 6c. New Biome Ambient Ground Props (Mountain spires, Jungle ferns/orchids, Taiga snow shrubs, Tundra ice, Badlands hoodoos, Blossom petals)
+  const ambientJungle: THREE.BufferGeometry[] = [];
+  {
+    const p: THREE.BufferGeometry[] = [];
+    addColoredBox(p, 0.24, 0.12, 0.24, -0.14, 0.06, -0.12, 0x2a7d46);
+    addColoredBox(p, 0.16, 0.18, 0.16, 0.18, 0.09, 0.16, 0x3b9e56);
+    addColoredBox(p, 0.08, 0.08, 0.08, 0.18, 0.2, 0.16, 0xf26444); // tropical flower
+    ambientJungle.push(finalizeMergedParts(p));
+  }
+  {
+    const p: THREE.BufferGeometry[] = [];
+    addColoredBox(p, 0.28, 0.08, 0.1, 0.0, 0.04, 0.12, 0x4f331e, 0.6); // mossy log
+    addColoredBox(p, 0.2, 0.14, 0.2, -0.18, 0.07, -0.16, 0x1e6338);
+    addColoredBox(p, 0.07, 0.07, 0.07, -0.16, 0.16, -0.14, 0xf5c542);
+    ambientJungle.push(finalizeMergedParts(p));
+  }
+
+  const ambientMountain: THREE.BufferGeometry[] = [];
+  {
+    // Jagged craggy alpine granite spire + snow-dusted ledge
+    const p: THREE.BufferGeometry[] = [];
+    addColoredBox(p, 0.42, 0.34, 0.38, -0.06, 0.17, -0.04, 0x5c636e);
+    addColoredBox(p, 0.28, 0.56, 0.26, 0.04, 0.28, 0.04, 0x767f8c);
+    addColoredBox(p, 0.16, 0.72, 0.16, 0.06, 0.36, 0.02, 0x9aa4b2);
+    addColoredBox(p, 0.18, 0.1, 0.18, 0.06, 0.74, 0.02, 0xe8f1f5);
+    ambientMountain.push(finalizeMergedParts(p));
+  }
+  {
+    const p: THREE.BufferGeometry[] = [];
+    addColoredBox(p, 0.32, 0.46, 0.32, -0.12, 0.23, 0.08, 0x68707d, 0.3);
+    addColoredBox(p, 0.24, 0.3, 0.24, 0.18, 0.15, -0.14, 0x828b99);
+    addColoredBox(p, 0.22, 0.08, 0.22, -0.12, 0.48, 0.08, 0xdde8ed);
+    ambientMountain.push(finalizeMergedParts(p));
+  }
+
+  const ambientTaiga: THREE.BufferGeometry[] = [];
+  {
+    const p: THREE.BufferGeometry[] = [];
+    addColoredBox(p, 0.18, 0.14, 0.18, -0.16, 0.07, -0.14, 0x2f5c4b);
+    addColoredBox(p, 0.18, 0.05, 0.18, -0.16, 0.16, -0.14, 0xd8ebef);
+    addColoredBox(p, 0.12, 0.08, 0.12, 0.18, 0.04, 0.18, 0x6f7a7e);
+    ambientTaiga.push(finalizeMergedParts(p));
+  }
+
+  const ambientTundra: THREE.BufferGeometry[] = [];
+  {
+    const p: THREE.BufferGeometry[] = [];
+    addColoredBox(p, 0.14, 0.24, 0.14, -0.16, 0.12, 0.12, 0x89d6e3, 0.4);
+    addColoredBox(p, 0.2, 0.08, 0.18, 0.14, 0.04, -0.12, 0xc7dce3);
+    ambientTundra.push(finalizeMergedParts(p));
+  }
+  {
+    const p: THREE.BufferGeometry[] = [];
+    addColoredBox(p, 0.22, 0.14, 0.2, -0.08, 0.07, -0.1, 0x708084);
+    addColoredBox(p, 0.2, 0.05, 0.18, -0.08, 0.16, -0.1, 0xe8f2f5);
+    ambientTundra.push(finalizeMergedParts(p));
+  }
+
+  const ambientBadlands: THREE.BufferGeometry[] = [];
+  {
+    // Stepped terracotta sandstone hoodoo & desert scrub
+    const p: THREE.BufferGeometry[] = [];
+    addColoredBox(p, 0.3, 0.28, 0.28, -0.08, 0.14, -0.06, 0xb85c38);
+    addColoredBox(p, 0.22, 0.24, 0.22, -0.08, 0.36, -0.06, 0xd97d48);
+    addColoredBox(p, 0.26, 0.08, 0.26, -0.08, 0.5, -0.06, 0xe8a064);
+    addColoredBox(p, 0.1, 0.09, 0.1, 0.22, 0.045, 0.2, 0x7a8544);
+    ambientBadlands.push(finalizeMergedParts(p));
+  }
+  {
+    const p: THREE.BufferGeometry[] = [];
+    addColoredBox(p, 0.2, 0.42, 0.2, 0.12, 0.21, -0.1, 0xa85030);
+    addColoredBox(p, 0.16, 0.12, 0.16, -0.18, 0.06, 0.16, 0xd47644);
+    ambientBadlands.push(finalizeMergedParts(p));
+  }
+
+  const ambientBlossom: THREE.BufferGeometry[] = [];
+  {
+    const p: THREE.BufferGeometry[] = [];
+    addColoredBox(p, 0.16, 0.04, 0.16, -0.16, 0.02, 0.14, 0xf7a8c6);
+    addColoredBox(p, 0.12, 0.04, 0.12, 0.18, 0.02, -0.16, 0xffd6e6);
+    addColoredBox(p, 0.12, 0.14, 0.12, 0.16, 0.07, 0.18, 0x747b7e);
+    addColoredBox(p, 0.08, 0.07, 0.08, 0.16, 0.17, 0.18, 0xffd166); // garden stone lantern
+    ambientBlossom.push(finalizeMergedParts(p));
+  }
+
   cachedVariantLib = {
     timber,
+    timberJungle,
+    timberTaiga,
+    timberBlossom,
     berry,
     farmCrop,
     sciFiFarm,
@@ -811,6 +1072,12 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     crystal,
     ambientGrass,
     ambientForest,
+    ambientJungle,
+    ambientMountain,
+    ambientTaiga,
+    ambientTundra,
+    ambientBadlands,
+    ambientBlossom,
     ambientSand,
     ambientRock,
     ambientSnow,

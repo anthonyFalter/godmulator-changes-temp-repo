@@ -228,7 +228,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     worldGroup.add(skyClouds.shadowGroup);
     worldGroup.add(skyClouds.group);
 
-    // Instanced terrain system (15 draw calls total regardless of map size!)
+    // Instanced terrain system (21 draw calls total regardless of map size!)
     const TERRAIN_TYPES: TerrainType[] = [
       'deep_water',
       'shallow_water',
@@ -245,6 +245,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       'scorched',
       'crystal_field',
       'rail_track',
+      'jungle',
+      'mountain',
+      'taiga',
+      'tundra',
+      'badlands',
+      'blossom',
     ];
     const tileGeo = new THREE.BoxGeometry(1.0, 1.0, 1.0);
     tileGeo.translate(0, -0.5, 0);
@@ -285,9 +291,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       tilePropSig[i] = -1;
     }
 
-    // Instanced Multi-Object Props (1-4 objects per tile across 128x128 in ~33 draw calls)
+    // Instanced Multi-Object Props (1-4 objects per tile across 128x128)
     const variantLib = getNodeVariantLibrary();
-    const maxPropCapacity = Math.ceil(sim.tiles.length * 0.45);
+    const maxPropCapacity = Math.ceil(sim.tiles.length * 0.55);
     const makePropInstancedList = (
       geos: THREE.BufferGeometry[],
       mat: THREE.Material,
@@ -305,6 +311,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       });
 
     const timberInsts = makePropInstancedList(variantLib.timber, variantLib.standardMat, true);
+    const timberJungleInsts = makePropInstancedList(variantLib.timberJungle, variantLib.standardMat, true);
+    const timberTaigaInsts = makePropInstancedList(variantLib.timberTaiga, variantLib.standardMat, true);
+    const timberBlossomInsts = makePropInstancedList(variantLib.timberBlossom, variantLib.standardMat, true);
     const berryInsts = makePropInstancedList(variantLib.berry, variantLib.standardMat, true);
     const farmCropInsts = makePropInstancedList(variantLib.farmCrop, variantLib.standardMat, true);
     const sciFiFarmInsts = makePropInstancedList(variantLib.sciFiFarm, variantLib.crystalMat, true);
@@ -319,9 +328,18 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     const ambSavannaInsts = makePropInstancedList(variantLib.ambientSavanna, variantLib.standardMat, false);
     const ambSwampInsts = makePropInstancedList(variantLib.ambientSwamp, variantLib.standardMat, false);
     const ambHighlandInsts = makePropInstancedList(variantLib.ambientHighland, variantLib.standardMat, false);
+    const ambJungleInsts = makePropInstancedList(variantLib.ambientJungle, variantLib.standardMat, false);
+    const ambMountainInsts = makePropInstancedList(variantLib.ambientMountain, variantLib.standardMat, false);
+    const ambTaigaInsts = makePropInstancedList(variantLib.ambientTaiga, variantLib.standardMat, false);
+    const ambTundraInsts = makePropInstancedList(variantLib.ambientTundra, variantLib.standardMat, false);
+    const ambBadlandsInsts = makePropInstancedList(variantLib.ambientBadlands, variantLib.standardMat, false);
+    const ambBlossomInsts = makePropInstancedList(variantLib.ambientBlossom, variantLib.standardMat, false);
 
     const allPropInsts = [
       ...timberInsts,
+      ...timberJungleInsts,
+      ...timberTaigaInsts,
+      ...timberBlossomInsts,
       ...berryInsts,
       ...farmCropInsts,
       ...sciFiFarmInsts,
@@ -336,6 +354,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       ...ambSavannaInsts,
       ...ambSwampInsts,
       ...ambHighlandInsts,
+      ...ambJungleInsts,
+      ...ambMountainInsts,
+      ...ambTaigaInsts,
+      ...ambTundraInsts,
+      ...ambBadlandsInsts,
+      ...ambBlossomInsts,
     ];
 
     const TERRAIN_CODE: Record<string, number> = {
@@ -354,6 +378,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       scorched: 12,
       crystal_field: 13,
       rail_track: 14,
+      jungle: 15,
+      mountain: 16,
+      taiga: 17,
+      tundra: 18,
+      badlands: 19,
+      blossom: 20,
     };
     const NODE_CODE: Record<string, number> = {
       none: 0,
@@ -592,7 +622,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     }
 
     interface HazardVisual {
-      kind: 'rain_cloud' | 'plague_cloud' | 'shield_dome' | 'wormhole_rift' | 'tsunami_wave';
+      kind:
+        | 'rain_cloud'
+        | 'plague_cloud'
+        | 'shield_dome'
+        | 'wormhole_rift'
+        | 'tsunami_wave'
+        | 'earthquake_zone';
       group: THREE.Group;
       materials: THREE.Material[];
       drops?: { mesh: THREE.Mesh; offsetY: number; speed: number; baseX: number; baseZ: number }[];
@@ -836,6 +872,36 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         buildWaveRing(28, true);
 
         return { kind, group, materials, waveSegments };
+      }
+
+      if (kind === 'earthquake_zone') {
+        const quakeRingMat = new THREE.MeshBasicMaterial({
+          color: 0xe07a2b,
+          transparent: true,
+          opacity: 0.78,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        const crackMat = new THREE.MeshBasicMaterial({
+          color: 0xffaa44,
+          transparent: true,
+          opacity: 0.72,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        materials.push(quakeRingMat, crackMat);
+
+        const ringMesh = new THREE.Mesh(sharedHazRingGeo, quakeRingMat);
+        ringMesh.position.y = 0.08;
+        ringMesh.scale.setScalar(radius * 0.92);
+        group.add(ringMesh);
+
+        const secondaryRingMesh = new THREE.Mesh(sharedRuneSquareGeo, crackMat);
+        secondaryRingMesh.position.y = 0.11;
+        secondaryRingMesh.scale.setScalar(radius * 0.56);
+        group.add(secondaryRingMesh);
+
+        return { kind, group, materials, ringMesh, secondaryRingMesh };
       }
 
       // wormhole_rift — spinning black hole event horizon + contracting gravity-well funnel rings + inward-spiraling accretion shards
@@ -1083,6 +1149,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         | 'plague_eruption'
         | 'terraform_strata'
         | 'rift_implosion'
+        | 'earthquake_quake'
         | 'ripple_ring';
       powerType: string;
       group: THREE.Group;
@@ -2076,6 +2143,80 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         return;
       }
 
+      if (type === 'earthquake') {
+        const quakeAmberMat = new THREE.MeshBasicMaterial({
+          color: 0xe07a2b,
+          transparent: true,
+          opacity: 0.9,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        const quakeHotMat = new THREE.MeshBasicMaterial({
+          color: 0xffbe5c,
+          transparent: true,
+          opacity: 0.85,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        const spireMat = new THREE.MeshStandardMaterial({
+          color: 0x6b6057,
+          roughness: 0.92,
+          flatShading: true,
+        });
+        materials.push(quakeAmberMat, quakeHotMat, spireMat);
+
+        const ringMesh = new THREE.Mesh(sharedHazRingGeo, quakeAmberMat);
+        ringMesh.position.set(tx, ty + 0.12, tz);
+        ringMesh.scale.setScalar(0.5);
+        group.add(ringMesh);
+
+        const outerRingMesh = new THREE.Mesh(sharedHazRingGeo, quakeHotMat);
+        outerRingMesh.position.set(tx, ty + 0.16, tz);
+        outerRingMesh.scale.setScalar(0.35);
+        group.add(outerRingMesh);
+
+        const faultAngle = (((Math.round(tx) * 19 + Math.round(tz) * 37) & 31) / 32) * Math.PI;
+        const cosA = Math.cos(faultAngle);
+        const sinA = Math.sin(faultAngle);
+
+        const spikes: THREE.Mesh[] = [];
+        for (let i = 0; i < 14; i++) {
+          const along = ((i / 13) - 0.5) * radius * 1.65;
+          const side = (i % 2 === 0 ? 1 : -1) * (1.2 + (i % 3) * 0.45);
+          const sx = tx + along * cosA - side * sinA;
+          const sz = tz + along * sinA + side * cosA;
+          const sp = new THREE.Mesh(sharedPillarSpikeGeo, spireMat);
+          sp.position.set(sx, ty, sz);
+          sp.rotation.set(((i % 5) - 2) * 0.14, faultAngle + i * 0.4, ((i % 3) - 1) * 0.16);
+          sp.scale.set(0.85, 0.01, 0.85);
+          group.add(sp);
+          spikes.push(sp);
+        }
+
+        burstFxGroup.add(group);
+        activeBurstFx.push({
+          kind: 'earthquake_quake',
+          powerType: type,
+          group,
+          materials,
+          age: 0,
+          duration: 3.4,
+          impactDelay: 0.06,
+          deferImpact,
+          tx,
+          ty,
+          tz,
+          radius,
+          impactFired: false,
+          ringMesh,
+          outerRingMesh,
+          spikes,
+          particleEmitTimer: 0,
+          colorHex,
+        });
+        return;
+      }
+
       // Utility events (terrain_sculpt, epoch_up): Clean ground ripple without any beam pillar
       const ringMat = new THREE.MeshBasicMaterial({
         color: colorHex,
@@ -2336,6 +2477,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       }
 
       const activeTsunamis = (simState.activeHazards ?? []).filter((h) => h.kind === 'tsunami_wave');
+      const activeQuakes = (simState.activeHazards ?? []).filter((h) => h.kind === 'earthquake_zone');
 
       for (let i = 0; i < simState.tiles.length; i++) {
         const t = simState.tiles[i];
@@ -2365,6 +2507,20 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             }
           }
         }
+        let quakeJoltY = 0;
+        if (activeQuakes.length > 0 && t.height > 0) {
+          for (let qi = 0; qi < activeQuakes.length; qi++) {
+            const qh = activeQuakes[qi];
+            const dx = t.x - qh.x;
+            const dz = t.z - qh.z;
+            const distSq = dx * dx + dz * dz;
+            const rSq = qh.radius * qh.radius * 1.44;
+            if (distSq <= rSq) {
+              const strength = (1 - Math.sqrt(distSq) / (qh.radius * 1.2)) * Math.min(1, qh.remaining / 1.0);
+              quakeJoltY += Math.sin(elapsed * 54 + t.x * 3.1 + t.z * 2.7) * 0.14 * strength;
+            }
+          }
+        }
         const curY =
           Math.abs(tileCurrentY[i] - targetTopY) > 0.001
             ? THREE.MathUtils.damp(tileCurrentY[i], targetTopY, 14, dt)
@@ -2376,8 +2532,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         inst.count = slot + 1;
         terrainInstanceToTile.get(inst)![slot] = i;
 
-        _dummyPos.set(t.x, curY, t.z);
-        _dummyScale.set(1, curY + 0.6, 1);
+        const renderTopY = curY + quakeJoltY;
+        _dummyPos.set(t.x, renderTopY, t.z);
+        _dummyScale.set(1, Math.max(0.2, renderTopY + 0.6), 1);
         _dummyMatrix.compose(_dummyPos, _dummyQuat, _dummyScale);
         inst.setMatrixAt(slot, _dummyMatrix);
 
@@ -2433,7 +2590,15 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
           let targetInst: THREE.InstancedMesh | null = null;
           if (t.resourceNode === 'timber_grove') {
-            targetInst = timberInsts[h % timberInsts.length];
+            if (t.terrain === 'jungle') {
+              targetInst = timberJungleInsts[h % timberJungleInsts.length];
+            } else if (t.terrain === 'taiga') {
+              targetInst = timberTaigaInsts[h % timberTaigaInsts.length];
+            } else if (t.terrain === 'blossom') {
+              targetInst = timberBlossomInsts[h % timberBlossomInsts.length];
+            } else {
+              targetInst = timberInsts[h % timberInsts.length];
+            }
           } else if (t.resourceNode === 'berry_bush') {
             if (t.farmSettlementId && simState.epochIndex >= 6) {
               targetInst = sciFiFarmInsts[h % sciFiFarmInsts.length];
@@ -2467,6 +2632,18 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
               targetInst = ambSwampInsts[h % ambSwampInsts.length];
             } else if (t.terrain === 'highland' && chance < 48) {
               targetInst = ambHighlandInsts[h % ambHighlandInsts.length];
+            } else if (t.terrain === 'jungle' && chance < 72) {
+              targetInst = ambJungleInsts[h % ambJungleInsts.length];
+            } else if (t.terrain === 'mountain' && chance < 62) {
+              targetInst = ambMountainInsts[h % ambMountainInsts.length];
+            } else if (t.terrain === 'taiga' && chance < 58) {
+              targetInst = ambTaigaInsts[h % ambTaigaInsts.length];
+            } else if (t.terrain === 'tundra' && chance < 52) {
+              targetInst = ambTundraInsts[h % ambTundraInsts.length];
+            } else if (t.terrain === 'badlands' && chance < 58) {
+              targetInst = ambBadlandsInsts[h % ambBadlandsInsts.length];
+            } else if (t.terrain === 'blossom' && chance < 66) {
+              targetInst = ambBlossomInsts[h % ambBlossomInsts.length];
             }
           }
 
@@ -2988,6 +3165,31 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           (hv.materials[1] as THREE.MeshStandardMaterial).opacity = 0.9 * fade;
           (hv.materials[2] as THREE.MeshBasicMaterial).opacity = 0.94 * fade;
           (hv.materials[3] as THREE.MeshBasicMaterial).opacity = 0.98 * fade;
+        } else if (hv.kind === 'earthquake_zone') {
+          const pulseWave = (elapsed * 1.45) % 1;
+          if (hv.ringMesh) {
+            hv.ringMesh.scale.setScalar(haz.radius * (0.45 + pulseWave * 0.72));
+            (hv.materials[0] as THREE.MeshBasicMaterial).opacity = Math.sin(pulseWave * Math.PI) * 0.72 * fade;
+          }
+          if (hv.secondaryRingMesh) {
+            hv.secondaryRingMesh.rotation.z = Math.sin(elapsed * 26) * 0.28;
+            hv.secondaryRingMesh.scale.setScalar(haz.radius * (0.48 + Math.sin(elapsed * 14) * 0.08));
+            (hv.materials[1] as THREE.MeshBasicMaterial).opacity = 0.62 * fade;
+          }
+          if (Math.random() < 0.7) {
+            const ang = Math.random() * Math.PI * 2;
+            const dist = Math.random() * haz.radius * 0.85;
+            spawnParticleBurst(
+              haz.x + Math.cos(ang) * dist,
+              hy + 0.15,
+              haz.z + Math.sin(ang) * dist,
+              2,
+              Math.random() < 0.5 ? '#c2a88d' : '#e07a2b',
+              0.7,
+              3.2,
+              0.85,
+            );
+          }
         }
       }
       for (const [id, hv] of hazardMeshes.entries()) {
@@ -3716,6 +3918,39 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
               (mat as THREE.MeshBasicMaterial).opacity = 0.9 * envelope;
             }
           }
+        } else if (fx.kind === 'earthquake_quake' && fx.ringMesh) {
+          if (fx.age >= fx.impactDelay && !fx.impactFired) {
+            fx.impactFired = true;
+            if (fx.deferImpact) {
+              executeGodPowerImpact(simRef.current, fx.powerType as GodPowerType, fx.tx, fx.tz);
+            }
+            trauma = 1.0;
+            hitstopTimer = 0.05;
+            triggerLightFlash(fx.tx, fx.ty + 1.5, fx.tz, '#e07a2b', 28);
+            spawnParticleBurst(fx.tx, fx.ty + 0.35, fx.tz, 64, '#a88b70', fx.radius * 0.95, 5.8, 1.35);
+            spawnParticleBurst(fx.tx, fx.ty + 0.35, fx.tz, 34, '#e07a2b', fx.radius * 0.72, 6.4, 1.15);
+          }
+          const phase = Math.min(1, fx.age / fx.duration);
+          const env = 1 - phase;
+          const shockCycle = (fx.age * 1.6) % 1;
+          fx.ringMesh.scale.setScalar(0.5 + shockCycle * fx.radius * 1.4);
+          (fx.materials[0] as THREE.MeshBasicMaterial).opacity = Math.sin(shockCycle * Math.PI) * 0.85 * env;
+          if (fx.outerRingMesh) {
+            const shockCycle2 = (fx.age * 1.6 + 0.5) % 1;
+            fx.outerRingMesh.scale.setScalar(0.35 + shockCycle2 * fx.radius * 1.5);
+            (fx.materials[1] as THREE.MeshBasicMaterial).opacity = Math.sin(shockCycle2 * Math.PI) * 0.78 * env;
+          }
+          if (fx.spikes) {
+            const upPhase = Math.min(1, fx.age / 0.24);
+            const dropPhase = fx.age > fx.duration - 0.65 ? Math.max(0, (fx.duration - fx.age) / 0.65) : 1;
+            const spikeAmp = upPhase * dropPhase;
+            for (let si = 0; si < fx.spikes.length; si++) {
+              const sp = fx.spikes[si];
+              const hVar = 0.55 + (si % 3) * 0.32;
+              sp.scale.set(0.82, Math.max(0.01, hVar * spikeAmp), 0.82);
+              sp.position.y = fx.ty + Math.sin(elapsedTotal * 48 + si) * 0.08 * env;
+            }
+          }
         } else if (fx.kind === 'ripple_ring' && fx.ringMesh) {
           if (fx.age >= fx.impactDelay && !fx.impactFired) {
             fx.impactFired = true;
@@ -3872,10 +4107,22 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         camera.updateProjectionMatrix();
       }
 
-      trauma = Math.max(0, trauma - dt * 1.8);
-      const shakeMag = trauma * trauma * 0.35;
-      const shakeX = (Math.random() - 0.5) * shakeMag;
-      const shakeY = (Math.random() - 0.5) * shakeMag;
+      // Sustained earthquake tremor keeps camera trauma energized for full multi-second screen shake
+      const hasActiveQuake = (simRef.current.activeHazards ?? []).some(
+        (h) => h.kind === 'earthquake_zone' && h.remaining > 0,
+      );
+      if (hasActiveQuake) {
+        trauma = Math.max(trauma, 0.78);
+      } else {
+        trauma = Math.max(0, trauma - dt * 1.8);
+      }
+      const shakePower = trauma * trauma;
+      const shakeHoriz =
+        frustumSize * 0.032 * shakePower * (Math.sin(elapsedTotal * 56) * 0.65 + (Math.random() - 0.5) * 0.7);
+      const shakeVert =
+        frustumSize * 0.026 * shakePower * (Math.cos(elapsedTotal * 49) * 0.65 + (Math.random() - 0.5) * 0.7);
+      const shakeRightX = Math.cos(camYaw) * shakeHoriz;
+      const shakeRightZ = -Math.sin(camYaw) * shakeHoriz;
 
       // Keep directional keyLight tracking camTarget so shadows stay crisp across 128x128
       keyLight.target.position.set(camTarget.x, 0, camTarget.z);
@@ -3892,12 +4139,20 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
       const isoDist = 28;
       const isoHeight = 22.5;
+      // Translate BOTH camera position and lookAt target together so orthographic view visibly shakes!
       camera.position.set(
-        camTarget.x + Math.sin(camYaw) * isoDist + shakeX,
-        camTarget.y + isoHeight + shakeY,
-        camTarget.z + Math.cos(camYaw) * isoDist,
+        camTarget.x + Math.sin(camYaw) * isoDist + shakeRightX,
+        camTarget.y + isoHeight + shakeVert,
+        camTarget.z + Math.cos(camYaw) * isoDist + shakeRightZ,
       );
-      camera.lookAt(camTarget.x, camTarget.y, camTarget.z);
+      camera.lookAt(
+        camTarget.x + shakeRightX,
+        camTarget.y + shakeVert,
+        camTarget.z + shakeRightZ,
+      );
+      if (shakePower > 0.002) {
+        camera.rotation.z += Math.sin(elapsedTotal * 43) * 0.024 * shakePower;
+      }
 
       renderer.render(scene, camera);
 

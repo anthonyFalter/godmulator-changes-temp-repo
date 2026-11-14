@@ -924,4 +924,101 @@ test('Industrial to Information Age pacing includes Info Age, metro railways, ca
   assert.ok(sawPlaneAirborne, 'Airport aircraft must take off and become airborne');
 });
 
+test('Worldgen spawns towering mountains (height >= 7), jungles, and diverse biomes', () => {
+  const seenTerrains = new Set<string>();
+  let maxHeight = 0;
+  let mountainCount = 0;
 
+  // Sample several seeds across 128x128 worlds to ensure full biome & peak variety
+  for (const seed of [101, 202, 303, 404, 505]) {
+    const state = createInitialSimulationState(128, `BIOME-${seed}`);
+    for (const t of state.tiles) {
+      seenTerrains.add(t.terrain);
+      if (t.height > maxHeight) maxHeight = t.height;
+      if (t.terrain === 'mountain') mountainCount++;
+    }
+  }
+
+  assert.ok(maxHeight >= 7, `Expected towering alpine peaks height >= 7, got ${maxHeight}`);
+  assert.ok(mountainCount > 50, `Expected substantial mountain ranges, got ${mountainCount} tiles`);
+  for (const required of ['mountain', 'jungle', 'taiga', 'tundra', 'badlands', 'blossom']) {
+    assert.ok(seenTerrains.has(required), `Expected worldgen to generate biome "${required}"`);
+  }
+});
+
+test('Earthquake god power creates fault lines, protects ocean tiles, damages structures/units, and ticks aftershocks', () => {
+  const state = createInitialSimulationState(128, 'QUAKE-TEST');
+  state.resources.faith = 500;
+  state.sandboxFreeMode = true;
+
+  const qx = 64;
+  const qz = 64;
+  for (let dz = -8; dz <= 8; dz++) {
+    for (let dx = -8; dx <= 8; dx++) {
+      const t = getTile(state, qx + dx, qz + dz)!;
+      // Leave far edge (-7, -7) as ocean water to ensure earthquake never raises sea tiles into land
+      if (dx <= -6 && dz <= -6) {
+        t.height = 0;
+        t.terrain = 'deep_water';
+      } else {
+        t.height = 3;
+        t.terrain = dx === 0 ? 'stone_road' : 'grass';
+      }
+      t.resourceNode = 'none';
+      t.resourceAmount = 0;
+      t.buildingId = null;
+    }
+  }
+
+  const bRes = placeBuilding(state, 'forager_hut', qx + 2, qz);
+  assert.equal(bRes.ok, true, bRes.reason);
+  state.sandboxFreeMode = false;
+  const bld = state.buildings.find((b) => b.tileX === qx + 2 && b.tileZ === qz)!;
+  assert.ok(bld, 'Placed structure must exist in state.buildings');
+  bld.hp = 600;
+  bld.maxHp = 600;
+
+  const uRes = spawnUnit(state, 'human', qx - 2, qz + 1, false);
+  assert.equal(uRes.ok, true);
+  const unit = uRes.unit!;
+  const unitHpBefore = unit.hp;
+
+  const faithBefore = state.resources.faith;
+  const castRes = castGodPower(state, 'earthquake', qx, qz);
+  assert.equal(castRes.ok, true);
+  assert.equal(state.resources.faith, faithBefore - 30, 'Earthquake should deduct 30 Faith');
+
+  const quakeZone = (state.activeHazards ?? []).find((h) => h.kind === 'earthquake_zone');
+  assert.ok(quakeZone, 'Earthquake should register sustained earthquake_zone hazard');
+
+  let sawElevationChange = false;
+  for (let dz = -6; dz <= 6; dz++) {
+    for (let dx = -6; dx <= 6; dx++) {
+      const t = getTile(state, qx + dx, qz + dz)!;
+      if (dx <= -6 && dz <= -6) {
+        assert.equal(t.height, 0, 'Ocean tiles must remain submerged at height 0 during earthquakes');
+      } else if (t.height !== 3) {
+        sawElevationChange = true;
+      }
+    }
+  }
+  assert.ok(sawElevationChange, 'Earthquake should fracture and displace land height along fault & ridges');
+  assert.ok(bld.hp < 600, `Earthquake should damage unshielded buildings (hp=${bld.hp})`);
+  assert.ok(unit.hp < unitHpBefore, `Earthquake should injure unshielded units (hp=${unit.hp})`);
+
+  const hpBeforeAftershock = bld.hp;
+  for (let i = 0; i < 6; i++) {
+    stepSimulation(state, 0.25);
+  }
+  assert.ok(bld.hp < hpBeforeAftershock, 'Sustained earthquake_zone aftershocks should deal follow-up damage');
+
+  // Step until earthquake_zone expires cleanly
+  for (let i = 0; i < 20; i++) {
+    stepSimulation(state, 0.25);
+  }
+  assert.equal(
+    (state.activeHazards ?? []).some((h) => h.kind === 'earthquake_zone'),
+    false,
+    'Earthquake hazard zone should expire cleanly after duration',
+  );
+});

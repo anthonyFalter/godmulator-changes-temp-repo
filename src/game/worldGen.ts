@@ -124,6 +124,7 @@ export function generateWorldTiles(gridSize: number, rawSeed: number): TileData[
   const warpNoise = createNoise2D(seed + 4049);
   const tempNoise = createNoise2D(seed + 7079);
   const moistNoise = createNoise2D(seed + 9091);
+  const biomeNoise = createNoise2D(seed + 5113);
 
   const center = (gridSize - 1) / 2;
   const maxRadius = Math.max(8, gridSize * 0.47);
@@ -132,12 +133,13 @@ export function generateWorldTiles(gridSize: number, rawSeed: number): TileData[
   const heightGrid = new Int32Array(totalTiles);
   const tempGrid = new Float32Array(totalTiles);
   const moistGrid = new Float32Array(totalTiles);
+  const biomeVarGrid = new Float32Array(totalTiles);
   const riverMask = new Uint8Array(totalTiles);
 
   // Seeded world-flavor parameters so each seed shifts continent style, mountain vigor, & climate
   const worldStyle = rng(); // archipelago / twin-bay / grand-continent
   const warpAmp = 6.5 + rng() * 5.0;
-  const ridgeStrength = 2.6 + rng() * 1.4;
+  const ridgeStrength = 7.4 + rng() * 2.8;
   const climateBiasTemp = (rng() - 0.5) * 0.16;
   const climateBiasMoist = (rng() - 0.5) * 0.14;
   const ridgeAngle = rng() * Math.PI;
@@ -161,11 +163,12 @@ export function generateWorldTiles(gridSize: number, rawSeed: number): TileData[
       const macroLand = elevNoise.fbm(wx * 0.026, wz * 0.026, 4);
       const detailHills = elevNoise.fbm(wx * 0.075 + 11.4, wz * 0.075 - 5.2, 3);
 
-      // Oriented mountain tectonic ridges
+      // Oriented mountain tectonic ridges (capable of rising into towering alpine chains up to height 10)
       const rx = wx * cosR - wz * sinR;
       const rz = wx * sinR + wz * cosR;
-      const mountainBelt = ridgeNoise.ridged(rx * 0.028, rz * 0.042, 4);
-      const mountainBoost = Math.max(0, mountainBelt - 0.36) * ridgeStrength;
+      const mountainBelt = ridgeNoise.ridged(rx * 0.024, rz * 0.036, 4);
+      const ridgeExcess = Math.max(0, mountainBelt - 0.42);
+      const mountainBoost = Math.pow(ridgeExcess * 1.9, 1.25) * ridgeStrength;
 
       // Continent falloff profile (varies between broad mainland and fragmented archipelago)
       const falloffPower = 1.65 + worldStyle * 0.55;
@@ -178,30 +181,37 @@ export function generateWorldTiles(gridSize: number, rawSeed: number): TileData[
         mountainBoost -
         edgeFalloff;
 
-      let h = Math.max(0, Math.min(8, Math.round(rawElevation)));
+      let h = Math.max(0, Math.min(10, Math.round(rawElevation)));
 
-      // Ensure central starting view has natural dry landmass rather than deep sea
+      // Ensure central starting view has natural dry landmass rather than deep sea or impassable spire
       if (dist < 6.5 && h === 0) {
         h = 2;
+      } else if (dist < 4.5 && h > 4) {
+        h = 3;
       }
 
       heightGrid[idx] = h;
 
-      // Temperature drops at higher altitudes and follows a warped latitude gradient
-      const latFactor = Math.sin((z / Math.max(1, gridSize)) * Math.PI) * 0.16;
+      // Temperature drops at higher altitudes and follows a contrast-stretched warped latitude gradient
+      const latFactor = Math.sin((z / Math.max(1, gridSize)) * Math.PI) * 0.14;
+      const tempBase = 0.5 + (tempNoise.fbm(wx * 0.024 + 5.1, wz * 0.024 + 8.3, 3) - 0.5) * 1.75;
       const rawTemp =
-        tempNoise.fbm(wx * 0.024 + 5.1, wz * 0.024 + 8.3, 3) +
+        tempBase +
         latFactor -
-        Math.max(0, h - 3) * 0.085 +
+        Math.max(0, h - 3) * 0.065 +
         climateBiasTemp;
       tempGrid[idx] = Math.max(0, Math.min(1, rawTemp));
 
-      // Moisture field
+      // Moisture field (contrast-stretched for clear deserts, jungles, swamps, and temperate meadows)
+      const moistBase = 0.5 + (moistNoise.fbm(wx * 0.027 + 21.7, wz * 0.027 - 14.3, 4) - 0.5) * 1.75;
       const rawMoist =
-        moistNoise.fbm(wx * 0.027 + 21.7, wz * 0.027 - 14.3, 4) +
-        (h === 1 ? 0.08 : 0) +
+        moistBase +
+        (h === 1 ? 0.06 : 0) +
         climateBiasMoist;
       moistGrid[idx] = Math.max(0, Math.min(1, rawMoist));
+
+      const rawBiomeVar = 0.5 + (biomeNoise.fbm(wx * 0.036 - 12.4, wz * 0.036 + 29.1, 3) - 0.5) * 1.85;
+      biomeVarGrid[idx] = Math.max(0, Math.min(1, rawBiomeVar));
     }
   }
 
@@ -299,6 +309,7 @@ export function generateWorldTiles(gridSize: number, rawSeed: number): TileData[
       const h = heightGrid[idx];
       const temp = tempGrid[idx];
       const moist = moistGrid[idx];
+      const bVar = biomeVarGrid[idx];
       const dx = x - center;
       const dz = z - center;
       const dist = Math.sqrt(dx * dx + dz * dz);
@@ -332,40 +343,72 @@ export function generateWorldTiles(gridSize: number, rawSeed: number): TileData[
           }
           terrain = nearLand || normDist < 0.8 ? 'shallow_water' : 'deep_water';
         }
-      } else if (h >= 7 || (h === 6 && temp < 0.44)) {
-        // High alpine snow peaks
+      } else if (h >= 8 || (h >= 7 && temp < 0.45)) {
+        // High alpine snow summits crowning towering mountain ranges
         terrain = 'snow';
         if (roll < 0.14) {
           resourceNode = 'crystal_monolith';
           resourceAmount = 380;
-        } else if (roll < 0.34) {
+        } else if (roll < 0.36) {
           resourceNode = 'stone_outcrop';
-          resourceAmount = 280;
+          resourceAmount = 290;
         }
       } else if (h >= 5) {
-        // Mountain rock crags & crystal veins
-        const mysticPocket = moist > 0.62 && temp < 0.48;
-        terrain = mysticPocket ? 'crystal_field' : 'rock';
-        if (mysticPocket && roll < 0.38) {
-          resourceNode = 'crystal_monolith';
-          resourceAmount = 360;
-        } else if (roll < 0.22) {
-          resourceNode = 'ore_vein';
-          resourceAmount = 320;
-        } else if (roll < 0.42) {
-          resourceNode = 'stone_outcrop';
-          resourceAmount = 260;
+        // Jagged tectonic Mountain crags & mineral-rich alpine peaks
+        const mysticPocket = moist > 0.65 && temp < 0.46;
+        if (mysticPocket) {
+          terrain = 'crystal_field';
+          if (roll < 0.38) {
+            resourceNode = 'crystal_monolith';
+            resourceAmount = 360;
+          }
+        } else {
+          terrain = h >= 6 || roll > 0.28 ? 'mountain' : 'rock';
+          if (roll < 0.24) {
+            resourceNode = 'ore_vein';
+            resourceAmount = 340;
+          } else if (roll < 0.48) {
+            resourceNode = 'stone_outcrop';
+            resourceAmount = 280;
+          }
         }
       } else if (h === 4) {
-        // Highland moorlands / mountain foothills
-        if (moist > 0.58 && temp > 0.34) {
-          terrain = 'forest';
+        // Foothills, canyon mesas, boreal taiga ridges & tropical cloud-forest slopes
+        if (temp > 0.56 && moist < 0.38 && bVar > 0.46) {
+          terrain = 'badlands';
+          if (roll < 0.2) {
+            resourceNode = 'ore_vein';
+            resourceAmount = 300;
+          } else if (roll < 0.38) {
+            resourceNode = 'stone_outcrop';
+            resourceAmount = 250;
+          }
+        } else if (temp > 0.54 && moist > 0.58) {
+          terrain = 'jungle';
+          if (roll < 0.54) {
+            resourceNode = 'timber_grove';
+            resourceAmount = 260;
+          } else if (roll < 0.68) {
+            resourceNode = 'berry_bush';
+            resourceAmount = 210;
+          }
+        } else if (temp < 0.34) {
+          terrain = moist > 0.48 ? 'taiga' : 'tundra';
+          if (terrain === 'taiga' && roll < 0.48) {
+            resourceNode = 'timber_grove';
+            resourceAmount = 240;
+          } else if (roll < 0.24) {
+            resourceNode = 'stone_outcrop';
+            resourceAmount = 250;
+          }
+        } else if (moist > 0.58 && temp >= 0.34) {
+          terrain = bVar > 0.62 ? 'blossom' : 'forest';
           if (roll < 0.52) {
             resourceNode = 'timber_grove';
             resourceAmount = 240;
           }
-        } else if (temp > 0.66 && moist < 0.34) {
-          terrain = 'rock';
+        } else if (temp > 0.64 && moist < 0.34) {
+          terrain = 'mountain';
           if (roll < 0.3) {
             resourceNode = roll < 0.15 ? 'ore_vein' : 'stone_outcrop';
             resourceAmount = 260;
@@ -389,7 +432,17 @@ export function generateWorldTiles(gridSize: number, rawSeed: number): TileData[
             (z > 0 && heightGrid[idx - gridSize] === 0) ||
             (z < gridSize - 1 && heightGrid[idx + gridSize] === 0));
 
-        if (temp > 0.64 && moist < 0.35 && dist > 6.5) {
+        if (temp > 0.58 && moist < 0.36 && h >= 2 && bVar > 0.49 && dist > 7.0) {
+          // Terracotta Red-Rock Badlands Canyon
+          terrain = 'badlands';
+          if (roll < 0.16) {
+            resourceNode = 'stone_outcrop';
+            resourceAmount = 250;
+          } else if (roll < 0.26) {
+            resourceNode = 'ore_vein';
+            resourceAmount = 300;
+          }
+        } else if (temp > 0.64 && moist < 0.35 && dist > 6.5) {
           // Arid Desert Dunes
           terrain = 'sand';
           if (roll < 0.14) {
@@ -402,7 +455,45 @@ export function generateWorldTiles(gridSize: number, rawSeed: number): TileData[
         } else if (isCoast && moist < 0.62 && dist > 6.0) {
           // Coastal sandy beach
           terrain = 'sand';
-        } else if (h <= 2 && moist > 0.67 && temp > 0.38 && dist > 6.0) {
+        } else if (temp < 0.32 && dist > 7.0) {
+          // Frigid Sub-Arctic Tundra & Frost-Tipped Boreal Taiga
+          if (moist > 0.47) {
+            terrain = 'taiga';
+            if (roll < 0.5) {
+              resourceNode = 'timber_grove';
+              resourceAmount = 240;
+            }
+          } else {
+            terrain = 'tundra';
+            if (roll < 0.15) {
+              resourceNode = 'stone_outcrop';
+              resourceAmount = 240;
+            } else if (roll < 0.21) {
+              resourceNode = 'ore_vein';
+              resourceAmount = 270;
+            }
+          }
+        } else if (temp < 0.41 && moist > 0.48 && dist > 6.5) {
+          // Cool Evergreen Boreal Taiga
+          terrain = 'taiga';
+          if (roll < 0.54) {
+            resourceNode = 'timber_grove';
+            resourceAmount = 250;
+          } else if (roll < 0.62) {
+            resourceNode = 'berry_bush';
+            resourceAmount = 190;
+          }
+        } else if (temp > 0.55 && moist > 0.56 && dist > 5.5) {
+          // Lush Tropical Rainforest Jungle
+          terrain = 'jungle';
+          if (roll < 0.6) {
+            resourceNode = 'timber_grove';
+            resourceAmount = 280;
+          } else if (roll < 0.76) {
+            resourceNode = 'berry_bush';
+            resourceAmount = 220;
+          }
+        } else if (h <= 2 && moist > 0.68 && temp > 0.38 && dist > 6.0) {
           // Misty Wetland Swamp
           terrain = 'swamp';
           if (roll < 0.36) {
@@ -411,6 +502,22 @@ export function generateWorldTiles(gridSize: number, rawSeed: number): TileData[
           } else if (roll < 0.46) {
             resourceNode = 'berry_bush';
             resourceAmount = 190;
+          }
+        } else if (
+          temp >= 0.39 &&
+          temp <= 0.62 &&
+          moist > 0.47 &&
+          bVar > 0.58 &&
+          dist > 6.0
+        ) {
+          // Blooming Cherry Blossom Sakura Grove
+          terrain = 'blossom';
+          if (roll < 0.44) {
+            resourceNode = 'timber_grove';
+            resourceAmount = 240;
+          } else if (roll < 0.56) {
+            resourceNode = 'berry_bush';
+            resourceAmount = 200;
           }
         } else if (temp > 0.56 && moist < 0.48 && dist > 5.5) {
           // Golden Savanna Steppe

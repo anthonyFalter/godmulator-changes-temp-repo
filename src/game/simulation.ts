@@ -465,7 +465,10 @@ export function isCultivableSoil(t: TileData): boolean {
     t.terrain === 'grass' ||
     t.terrain === 'fertile' ||
     t.terrain === 'forest' ||
-    t.terrain === 'savanna'
+    t.terrain === 'savanna' ||
+    t.terrain === 'jungle' ||
+    t.terrain === 'blossom' ||
+    t.terrain === 'taiga'
   );
 }
 
@@ -504,16 +507,21 @@ export function applyTerrainTool(
             t.height = 1;
             t.terrain = 'sand';
           } else {
-            t.height = Math.min(8, t.height + 1);
-            if (t.height >= 7) {
+            t.height = Math.min(10, t.height + 1);
+            if (t.height >= 8) {
               t.terrain = 'snow';
               if (t.resourceNode === 'berry_bush' || t.resourceNode === 'timber_grove') {
                 t.resourceNode = 'none';
                 t.resourceAmount = 0;
               }
             } else if (t.height >= 5) {
-              if (t.terrain !== 'scorched' && t.terrain !== 'crystal_field') {
-                t.terrain = 'rock';
+              if (
+                t.terrain !== 'scorched' &&
+                t.terrain !== 'crystal_field' &&
+                t.terrain !== 'rock' &&
+                t.terrain !== 'badlands'
+              ) {
+                t.terrain = 'mountain';
               }
               if (t.resourceNode === 'berry_bush') {
                 t.resourceNode = 'none';
@@ -538,10 +546,10 @@ export function applyTerrainTool(
               t.resourceNode = 'none';
               t.resourceAmount = 0;
               t.onFireTimer = 0;
-            } else if (t.height <= 6 && t.terrain === 'snow') {
-              t.terrain = 'rock';
-            } else if (t.height <= 4 && t.terrain === 'rock') {
-              t.terrain = 'savanna';
+            } else if (t.height <= 7 && t.terrain === 'snow') {
+              t.terrain = 'mountain';
+            } else if (t.height <= 4 && (t.terrain === 'rock' || t.terrain === 'mountain')) {
+              t.terrain = 'highland';
             }
           }
           break;
@@ -555,9 +563,15 @@ export function applyTerrainTool(
             }
           } else if (t.height > 0) {
             t.height = targetFlattenHeight;
-            if (t.height >= 7) t.terrain = 'snow';
-            else if (t.height >= 5 && t.terrain !== 'scorched') t.terrain = 'rock';
-            else if (t.height < 5 && (t.terrain === 'snow' || t.terrain === 'rock')) t.terrain = 'savanna';
+            if (t.height >= 8) t.terrain = 'snow';
+            else if (t.height >= 5 && t.terrain !== 'scorched' && t.terrain !== 'badlands' && t.terrain !== 'rock') {
+              t.terrain = 'mountain';
+            } else if (
+              t.height < 5 &&
+              (t.terrain === 'snow' || t.terrain === 'rock' || t.terrain === 'mountain')
+            ) {
+              t.terrain = 'highland';
+            }
             modifiedCount++;
           }
           break;
@@ -999,13 +1013,15 @@ export function executeGodPowerImpact(
           t.cursedTimer = 30;
           t.blessedTimer = 0;
           if (!t.buildingId) {
-            // Dynamic degradation based on existing biome instead of overwriting rock/snow into mud
-            if (t.terrain === 'fertile' || t.terrain === 'forest') {
+            // Dynamic degradation based on existing biome instead of overwriting rock/snow/mountain into mud
+            if (t.terrain === 'fertile' || t.terrain === 'forest' || t.terrain === 'jungle' || t.terrain === 'blossom') {
               t.terrain = dSq <= rSq * 0.45 ? 'swamp' : 'savanna';
-            } else if (t.terrain === 'grass') {
+            } else if (t.terrain === 'grass' || t.terrain === 'taiga') {
               t.terrain = dSq <= 4.5 ? 'scorched' : dSq <= rSq * 0.6 ? 'swamp' : 'savanna';
-            } else if (t.terrain === 'savanna' || t.terrain === 'sand') {
+            } else if (t.terrain === 'savanna' || t.terrain === 'sand' || t.terrain === 'badlands') {
               t.terrain = dSq <= rSq * 0.5 ? 'scorched' : 'sand';
+            } else if (t.terrain === 'tundra') {
+              t.terrain = 'rock';
             }
           }
           if (t.resourceNode === 'berry_bush' || t.resourceNode === 'timber_grove') {
@@ -1045,9 +1061,16 @@ export function executeGodPowerImpact(
         if (dSq <= rSq && t.height > 0) {
           t.cursedTimer = 20;
           if (!t.buildingId && dSq <= rSq * 0.65) {
-            if (t.terrain === 'fertile' || t.terrain === 'grass' || t.terrain === 'forest') {
+            if (
+              t.terrain === 'fertile' ||
+              t.terrain === 'grass' ||
+              t.terrain === 'forest' ||
+              t.terrain === 'jungle' ||
+              t.terrain === 'blossom' ||
+              t.terrain === 'taiga'
+            ) {
               t.terrain = 'swamp';
-            } else if (t.terrain === 'savanna') {
+            } else if (t.terrain === 'savanna' || t.terrain === 'badlands') {
               t.terrain = dSq <= rSq * 0.3 ? 'swamp' : 'sand';
             }
           }
@@ -1137,7 +1160,10 @@ export function executeGodPowerImpact(
             (t.terrain === 'forest' ||
               t.terrain === 'savanna' ||
               t.terrain === 'fertile' ||
-              t.terrain === 'grass')
+              t.terrain === 'grass' ||
+              t.terrain === 'taiga' ||
+              t.terrain === 'blossom' ||
+              t.terrain === 'jungle')
           ) {
             if ((t.x * 13 + t.z * 7) % 6 === 0) {
               t.onFireTimer = Math.max(t.onFireTimer, 8);
@@ -1304,7 +1330,7 @@ export function executeGodPowerImpact(
             }
           } else if (effDSq <= 23.5 && !t.buildingId) {
             // 3. Continuous 360-degree circular raised rocky crater rim (height + 1)
-            t.height = Math.min(8, tileH + 1);
+            t.height = Math.min(10, tileH + 1);
             // Desert sand fuses into glassy crystal_field on the rim; normal earth upheaves rock
             t.terrain = effDSq <= 19.2 ? (wasSand ? 'crystal_field' : 'rock') : 'scorched';
             t.onFireTimer = 0;
@@ -1427,13 +1453,13 @@ export function executeGodPowerImpact(
                 t.terrain = 'crystal_field';
               } else if (t.terrain === 'scorched') {
                 t.terrain = dSq <= rSq * 0.5 ? 'grass' : 'savanna';
-              } else if (t.terrain === 'sand' || t.terrain === 'swamp') {
+              } else if (t.terrain === 'sand' || t.terrain === 'swamp' || t.terrain === 'badlands') {
                 t.terrain = dSq <= rSq * 0.55 ? 'fertile' : 'grass';
-              } else if (t.terrain === 'rock' || t.terrain === 'snow') {
-                t.terrain = t.height >= 5 ? 'rock' : 'grass';
+              } else if (t.terrain === 'rock' || t.terrain === 'snow' || t.terrain === 'mountain' || t.terrain === 'tundra') {
+                t.terrain = t.height >= 8 ? 'snow' : t.height >= 5 ? 'mountain' : 'grass';
               } else if (t.terrain === 'savanna') {
                 t.terrain = 'grass';
-              } else if (t.terrain === 'grass' && dSq <= rSq * 0.65) {
+              } else if ((t.terrain === 'grass' || t.terrain === 'blossom') && dSq <= rSq * 0.65) {
                 t.terrain = 'fertile';
               }
             }
@@ -1488,6 +1514,119 @@ export function executeGodPowerImpact(
         }
       }
       addChronicle(state, 'Singularity Rift crystallized the terrain and surged cosmic resources!', 'epoch');
+      break;
+    }
+
+    case 'earthquake': {
+      isHeavy = true;
+      state.activeHazards.push({
+        id: nextEntityId('haz'),
+        kind: 'earthquake_zone',
+        x: targetX,
+        z: targetZ,
+        radius: r,
+        remaining: 3.6,
+        duration: 3.6,
+        tickTimer: 0,
+      });
+
+      const faultAngle = (((targetX * 19 + targetZ * 37) & 31) / 32) * Math.PI;
+      const cosA = Math.cos(faultAngle);
+      const sinA = Math.sin(faultAngle);
+      let displacedTiles = 0;
+
+      for (const t of state.tiles) {
+        const dx = t.x - targetX;
+        const dz = t.z - targetZ;
+        const dSq = dx * dx + dz * dz;
+        if (dSq > rSq) continue;
+        if (t.height === 0) continue; // Never thrust ocean floor tiles into dry land
+
+        const perp = -dx * sinA + dz * cosA;
+        const jitter = ((((t.x * 73856093) ^ (t.z * 19349663)) & 15) / 15 - 0.5) * 0.75;
+        const absPerp = Math.abs(perp + jitter);
+        const hBit = Math.abs((t.x * 13 + t.z * 29) & 7);
+
+        if (!t.buildingId) {
+          if (absPerp <= 1.2) {
+            // Tectonic fault trench splits open along the fault line
+            const drop = t.height >= 4 ? 2 : 1;
+            t.height = Math.max(1, t.height - drop);
+            t.terrain = absPerp <= 0.6 && hBit <= 2 ? 'scorched' : 'rock';
+            t.farmSettlementId = undefined;
+            if (t.resourceNode === 'berry_bush' || t.resourceNode === 'timber_grove') {
+              t.resourceNode = 'none';
+              t.resourceAmount = 0;
+            }
+            if (t.resourceNode === 'none' && hBit <= 1) {
+              t.resourceNode = hBit === 0 ? 'ore_vein' : 'stone_outcrop';
+              t.resourceAmount = 280;
+            }
+            displacedTiles++;
+          } else if (absPerp > 1.35 && absPerp <= 3.15 && dSq <= rSq * 0.78 && hBit <= 5) {
+            // Flanking ridge upheaval thrusts earth & stone skyward
+            const boost = absPerp <= 2.35 && dSq <= rSq * 0.45 && hBit <= 2 ? 2 : 1;
+            t.height = Math.min(10, t.height + boost);
+            t.farmSettlementId = undefined;
+            if (t.height >= 8) {
+              t.terrain = 'snow';
+            } else if (t.height >= 5) {
+              t.terrain = t.terrain === 'badlands' ? 'badlands' : 'mountain';
+            } else if (t.terrain === 'stone_road' || t.terrain === 'rail_track') {
+              t.terrain = 'highland';
+            }
+            if (t.resourceNode === 'berry_bush') {
+              t.resourceNode = 'none';
+              t.resourceAmount = 0;
+            }
+            if (t.height >= 5 && t.resourceNode === 'timber_grove') {
+              t.resourceNode = 'none';
+              t.resourceAmount = 0;
+            }
+            displacedTiles++;
+          } else if ((t.terrain === 'stone_road' || t.terrain === 'rail_track') && hBit <= 3) {
+            // Shatter paved streets & metro rail tracks across the quake zone
+            t.terrain = 'highland';
+            displacedTiles++;
+          }
+        }
+      }
+
+      for (const b of state.buildings) {
+        const dSq = (b.tileX - targetX) ** 2 + (b.tileZ - targetZ) ** 2;
+        if (dSq <= rSq && b.shieldTimer <= 0) {
+          const proximity = 1 - Math.min(1, Math.sqrt(dSq) / Math.max(1, r));
+          const dmg = Math.round(115 + proximity * 125);
+          b.hp = Math.max(0, b.hp - dmg);
+        }
+      }
+
+      for (const u of state.units) {
+        const dx = u.x - targetX;
+        const dz = u.z - targetZ;
+        const dSq = dx * dx + dz * dz;
+        if (dSq <= rSq && u.state !== 'ko' && !u.statusEffects.shielded) {
+          u.hp = Math.max(0, u.hp - 58);
+          if (u.hp <= 0) {
+            u.state = 'ko';
+            u.koTimer = 0.45;
+            if (u.faction === 'hostile') state.totalRaidersDefeated += 1;
+          } else {
+            const dist = Math.max(0.3, Math.sqrt(dSq));
+            u.x = Math.max(1, Math.min(state.gridSize - 2, u.x + (dx / dist) * 2.1));
+            u.z = Math.max(1, Math.min(state.gridSize - 2, u.z + (dz / dist) * 2.1));
+          }
+        }
+      }
+
+      state.happiness = Math.max(15, state.happiness - 8);
+      addChronicle(
+        state,
+        displacedTiles > 0
+          ? 'Tectonic Earthquake split a jagged fault line and heaved rocky ridges skyward!'
+          : 'Violent seismic tremors shook the earth and rattled foundations!',
+        'warning',
+      );
       break;
     }
   }
@@ -2280,7 +2419,11 @@ function transformSettlementEnvironment(
           !ft.farmSettlementId &&
           ft.resourceNode === 'none' &&
           !isSettlementRoadTile(ft.x - anchor.x, ft.z - anchor.z, variant) &&
-          (ft.terrain === 'grass' || ft.terrain === 'savanna' || ft.terrain === 'fertile')
+          (ft.terrain === 'grass' ||
+            ft.terrain === 'savanna' ||
+            ft.terrain === 'fertile' ||
+            ft.terrain === 'jungle' ||
+            ft.terrain === 'blossom')
         ) {
           ft.terrain = 'fertile';
           ft.resourceNode = 'berry_bush';
@@ -2301,7 +2444,7 @@ function transformSettlementEnvironment(
     wt.height > 0 &&
     !wt.buildingId &&
     wt.resourceNode === 'none' &&
-    wt.terrain === 'forest' &&
+    (wt.terrain === 'forest' || wt.terrain === 'jungle' || wt.terrain === 'taiga' || wt.terrain === 'blossom') &&
     Math.hypot(rx - anchor.x, rz - anchor.z) > 8
   ) {
     wt.resourceNode = 'timber_grove';
@@ -2331,7 +2474,9 @@ function findNewCitySite(
         t.terrain !== 'grass' &&
         t.terrain !== 'fertile' &&
         t.terrain !== 'savanna' &&
-        t.terrain !== 'forest'
+        t.terrain !== 'forest' &&
+        t.terrain !== 'jungle' &&
+        t.terrain !== 'blossom'
       ) {
         continue;
       }
@@ -2832,6 +2977,27 @@ function stepSimulationSingle(state: SimulationState, dt: number): void {
             u.statusEffects.plagued = Math.max(u.statusEffects.plagued ?? 0, 16);
           }
         }
+      } else if (haz.kind === 'earthquake_zone') {
+        const aftershockRSq = (haz.radius * 0.78) ** 2;
+        for (const b of state.buildings) {
+          const dSq = (b.tileX - haz.x) ** 2 + (b.tileZ - haz.z) ** 2;
+          if (dSq <= aftershockRSq && b.shieldTimer <= 0) {
+            b.hp = Math.max(0, b.hp - 16);
+          }
+        }
+        for (const u of state.units) {
+          const dx = u.x - haz.x;
+          const dz = u.z - haz.z;
+          const dSq = dx * dx + dz * dz;
+          if (dSq <= aftershockRSq && u.state !== 'ko' && !u.statusEffects.shielded) {
+            u.hp = Math.max(0, u.hp - 12);
+            if (u.hp <= 0) {
+              u.state = 'ko';
+              u.koTimer = 0.45;
+              if (u.faction === 'hostile') state.totalRaidersDefeated += 1;
+            }
+          }
+        }
       }
     }
 
@@ -2921,7 +3087,7 @@ function stepSimulationSingle(state: SimulationState, dt: number): void {
               t.resourceAmount = 0;
             } else {
               // Wash grass, forest, fertile meadows, roads, or scorched soil into wet coastal sand & marshland
-              if (t.terrain !== 'rock' && t.terrain !== 'snow' && t.terrain !== 'crystal_field') {
+              if (t.terrain !== 'rock' && t.terrain !== 'mountain' && t.terrain !== 'snow' && t.terrain !== 'crystal_field') {
                 t.terrain = dSq <= (haz.radius * 2.55) ** 2 ? 'sand' : 'swamp';
               }
               if (t.resourceNode === 'berry_bush' || t.resourceNode === 'timber_grove') {
@@ -2940,12 +3106,15 @@ function stepSimulationSingle(state: SimulationState, dt: number): void {
                 t.resourceAmount = 0;
               }
             } else if (dSq <= (maxR * 0.9) ** 2) {
-              // Inundate grass, forest, fertile, savanna, roads, and scorched land into waterlogged swamp or sand
+              // Inundate grass, forest, fertile, savanna, jungle, blossom, taiga, roads, and scorched land into waterlogged swamp or sand
               if (
                 t.terrain === 'grass' ||
                 t.terrain === 'fertile' ||
                 t.terrain === 'forest' ||
                 t.terrain === 'savanna' ||
+                t.terrain === 'jungle' ||
+                t.terrain === 'blossom' ||
+                t.terrain === 'taiga' ||
                 t.terrain === 'scorched' ||
                 t.terrain === 'stone_road'
               ) {
@@ -2965,7 +3134,9 @@ function stepSimulationSingle(state: SimulationState, dt: number): void {
               t.terrain === 'scorched' ||
               t.terrain === 'savanna' ||
               t.terrain === 'forest' ||
-              t.terrain === 'fertile'
+              t.terrain === 'fertile' ||
+              t.terrain === 'blossom' ||
+              t.terrain === 'jungle'
             ) {
               t.terrain = dSq <= (haz.radius * 1.7) ** 2 ? 'swamp' : 'grass';
             }
@@ -3034,7 +3205,10 @@ function stepSimulationSingle(state: SimulationState, dt: number): void {
           t.resourceNode = 'none';
           t.terrain = 'scorched';
         }
-      } else if (t.onFireTimer === 0 && (t.terrain === 'forest' || t.terrain === 'savanna')) {
+      } else if (
+        t.onFireTimer === 0 &&
+        (t.terrain === 'forest' || t.terrain === 'savanna' || t.terrain === 'taiga' || t.terrain === 'blossom')
+      ) {
         t.terrain = 'scorched';
       }
       // Occasional slow wildfire spread to 1 dry/forest neighbor
@@ -3052,7 +3226,11 @@ function stepSimulationSingle(state: SimulationState, dt: number): void {
           nb.height > 0 &&
           nb.onFireTimer <= 0 &&
           nb.blessedTimer <= 0 &&
-          (nb.terrain === 'forest' || nb.terrain === 'savanna' || nb.terrain === 'fertile')
+          (nb.terrain === 'forest' ||
+            nb.terrain === 'savanna' ||
+            nb.terrain === 'fertile' ||
+            nb.terrain === 'taiga' ||
+            nb.terrain === 'blossom')
         ) {
           nb.onFireTimer = 5.5;
         }
