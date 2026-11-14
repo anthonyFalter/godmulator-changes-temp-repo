@@ -101,7 +101,7 @@ export default function App() {
     unit: 'human',
   });
   const [brushRadius, setBrushRadius] = useState<number>(1);
-  const [pixelScale, setPixelScale] = useState<number>(2);
+  const pixelScale = 3;
   const [lightingPreset, setLightingPreset] = useState<LightingPreset>('noon');
   const [dockCollapsed, setDockCollapsed] = useState<boolean>(false);
   const [chronicleOpen, setChronicleOpen] = useState<boolean>(false);
@@ -943,22 +943,6 @@ export default function App() {
                     </div>
 
                     <div className="flex flex-wrap items-center justify-center gap-3 text-xs">
-                      <div className="flex items-center gap-1">
-                        <span className="text-[#a89f91]">Pixel</span>
-                        {[1, 2, 3].map((val) => (
-                          <button
-                            key={val}
-                            type="button"
-                            onClick={() => setPixelScale(val)}
-                            className={`px-2 py-0.5 font-pixel-num text-[11px] cursor-pointer ${
-                              pixelScale === val ? 'px-btn-active font-bold' : 'px-btn'
-                            }`}
-                          >
-                            {val}x
-                          </button>
-                        ))}
-                      </div>
-
                       <div className="flex items-center gap-1">
                         <span className="text-[#a89f91]">Sky</span>
                         {(['noon', 'dusk', 'night', 'dawn'] as LightingPreset[]).map((lp) => (

@@ -2133,7 +2133,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       if (!container) return;
       const w = Math.max(1, container.clientWidth);
       const h = Math.max(1, container.clientHeight);
-      const pxScale = Math.max(1, propsRef.current.pixelScale || 2);
+      const pxScale = Math.max(1, propsRef.current.pixelScale || 3);
       const rw = Math.max(160, Math.floor(w / pxScale));
       const rh = Math.max(100, Math.floor(h / pxScale));
 
