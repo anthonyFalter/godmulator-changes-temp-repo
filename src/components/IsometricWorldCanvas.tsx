@@ -611,6 +611,49 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       }
     }
 
+    function spawnDirectionalFlameStream(
+      ox: number,
+      oy: number,
+      oz: number,
+      tx: number,
+      ty: number,
+      tz: number,
+      count: number,
+      hexColor: string,
+      spread = 0.45,
+    ) {
+      const baseCol = new THREE.Color(hexColor);
+      const hotCol = new THREE.Color(0xfff3b0);
+      const dx = tx - ox;
+      const dy = ty - oy;
+      const dz = tz - oz;
+      const len = Math.max(0.3, Math.hypot(dx, dy, dz));
+      const speedBase = Math.max(5.5, len * 2.6);
+      const travelSec = Math.min(0.62, len / speedBase);
+      for (let i = 0; i < count; i++) {
+        const p = particles[particleHead];
+        particleHead = (particleHead + 1) % MAX_PARTICLES;
+        p.active = true;
+        const along = Math.random() * 0.22;
+        p.x = ox + dx * along + (Math.random() - 0.5) * 0.24;
+        p.y = oy + dy * along + (Math.random() - 0.5) * 0.2;
+        p.z = oz + dz * along + (Math.random() - 0.5) * 0.24;
+        const invLen = speedBase * (0.85 + Math.random() * 0.4) / len;
+        p.vx = dx * invLen + (Math.random() - 0.5) * spread * 2.4;
+        p.vy = dy * invLen + (Math.random() - 0.5) * spread * 1.6;
+        p.vz = dz * invLen + (Math.random() - 0.5) * spread * 2.4;
+        p.gravity = -0.8; // Slight thermal updraft along jet
+        p.maxLife = travelSec * (0.75 + Math.random() * 0.55);
+        p.life = p.maxLife;
+        p.size = 1.15 + Math.random() * 1.45;
+        if (Math.random() < 0.35) {
+          p.color.copy(hotCol);
+        } else {
+          p.color.copy(baseCol).offsetHSL((Math.random() - 0.5) * 0.06, 0, (Math.random() - 0.5) * 0.15);
+        }
+      }
+    }
+
     function spawnInwardPullParticles(
       cx: number,
       cy: number,
@@ -1246,6 +1289,21 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     sharedRuneSquareGeo.rotateX(-Math.PI / 2);
     const sharedOrbMoteGeo = new THREE.OctahedronGeometry(0.24, 0);
     const sharedShardMoteGeo = new THREE.BoxGeometry(0.2, 0.42, 0.2);
+    const sharedFlameOuterGeo = (() => {
+      const g = new THREE.ConeGeometry(0.68, 1.0, 12, 1, true);
+      g.translate(0, -0.5, 0);
+      g.rotateX(-Math.PI / 2);
+      return g;
+    })();
+    const sharedFlameCoreGeo = (() => {
+      const g = new THREE.ConeGeometry(0.35, 1.0, 10, 1, true);
+      g.translate(0, -0.5, 0);
+      g.rotateX(-Math.PI / 2);
+      return g;
+    })();
+    const sharedSlashBladeGeo = new THREE.BoxGeometry(0.85, 0.09, 0.14);
+    const sharedSlamClawGeo = new THREE.BoxGeometry(0.14, 0.1, 0.95);
+    const sharedHornStarGeo = new THREE.OctahedronGeometry(0.28, 0);
 
     interface PowerMote {
       mesh: THREE.Mesh;
@@ -1271,6 +1329,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         | 'terraform_strata'
         | 'rift_implosion'
         | 'earthquake_quake'
+        | 'dragon_flame'
+        | 'animal_strike'
         | 'ripple_ring';
       powerType: string;
       group: THREE.Group;
@@ -1282,6 +1342,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       tx: number;
       ty: number;
       tz: number;
+      ox?: number;
+      oy?: number;
+      oz?: number;
+      variant?: string;
       radius: number;
       impactFired: boolean;
       meteorMesh?: THREE.Group;
@@ -1299,6 +1363,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       motes?: PowerMote[];
       spikes?: THREE.Mesh[];
       crackMeshes?: THREE.Mesh[];
+      slashMeshes?: THREE.Mesh[];
+      flameCoreCone?: THREE.Mesh;
+      flameOuterCone?: THREE.Mesh;
       faultSegments?: EarthquakeFaultSegment[];
       quakeShapeKind?: EarthquakeShapeKind;
       particleEmitTimer?: number;
@@ -2423,6 +2490,214 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       });
     }
 
+    function spawnDragonFireBreath(
+      ox: number,
+      oy: number,
+      oz: number,
+      tx: number,
+      ty: number,
+      tz: number,
+      radius: number,
+      colorHex: string,
+    ) {
+      const group = new THREE.Group();
+      const outerCol = new THREE.Color(colorHex);
+      const outerMat = new THREE.MeshBasicMaterial({
+        color: outerCol,
+        transparent: true,
+        opacity: 0.78,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
+      const coreMat = new THREE.MeshBasicMaterial({
+        color: 0xfff3b0,
+        transparent: true,
+        opacity: 0.92,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
+      const ringMat = new THREE.MeshBasicMaterial({
+        color: outerCol,
+        transparent: true,
+        opacity: 0.9,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
+      const materials: THREE.Material[] = [outerMat, coreMat, ringMat];
+
+      // Compute exact 3D vector from dragon's aerial jaw to ground target
+      const dx = tx - ox;
+      const dy = ty - oy;
+      const dz = tz - oz;
+      const dist = Math.max(0.6, Math.hypot(dx, dy, dz));
+      const dir = new THREE.Vector3(dx / dist, dy / dist, dz / dist);
+      const mouthX = ox + dir.x * 1.15;
+      const mouthY = oy + dir.y * 0.25;
+      const mouthZ = oz + dir.z * 1.15;
+      const segVec = new THREE.Vector3(tx - mouthX, ty + 0.25 - mouthY, tz - mouthZ);
+      const segLen = Math.max(0.5, segVec.length());
+      const segDir = segVec.clone().normalize();
+
+      const flameOuterCone = new THREE.Mesh(sharedFlameOuterGeo, outerMat);
+      flameOuterCone.position.set(mouthX, mouthY, mouthZ);
+      flameOuterCone.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), segDir);
+      flameOuterCone.scale.set(0.95, 0.95, 0.15);
+      group.add(flameOuterCone);
+
+      const flameCoreCone = new THREE.Mesh(sharedFlameCoreGeo, coreMat);
+      flameCoreCone.position.set(mouthX, mouthY, mouthZ);
+      flameCoreCone.quaternion.copy(flameOuterCone.quaternion);
+      flameCoreCone.scale.set(0.85, 0.85, 0.15);
+      group.add(flameCoreCone);
+
+      const ringMesh = new THREE.Mesh(sharedHazRingGeo, ringMat);
+      ringMesh.position.set(tx, ty + 0.14, tz);
+      ringMesh.scale.setScalar(0.3);
+      group.add(ringMesh);
+
+      triggerLightFlash(tx, ty + 1.2, tz, colorHex, 20);
+      spawnDirectionalFlameStream(mouthX, mouthY, mouthZ, tx, ty + 0.25, tz, 24, colorHex, 0.55);
+
+      burstFxGroup.add(group);
+      activeBurstFx.push({
+        kind: 'dragon_flame',
+        powerType: 'dragon_fire_breath',
+        group,
+        materials,
+        age: 0,
+        duration: 0.82,
+        impactDelay: 0.12,
+        deferImpact: false,
+        tx,
+        ty: ty + 0.25,
+        tz,
+        ox: mouthX,
+        oy: mouthY,
+        oz: mouthZ,
+        radius: Math.max(1.2, segLen),
+        impactFired: false,
+        flameCoreCone,
+        flameOuterCone,
+        ringMesh,
+        particleEmitTimer: 0,
+        colorHex,
+      });
+    }
+
+    function spawnAnimalAttackVisual(
+      variant: string,
+      ox: number,
+      oy: number,
+      oz: number,
+      tx: number,
+      ty: number,
+      tz: number,
+      radius: number,
+      colorHex: string,
+    ) {
+      const group = new THREE.Group();
+      const slashMat = new THREE.MeshBasicMaterial({
+        color: colorHex,
+        transparent: true,
+        opacity: 0.95,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
+      const whiteMat = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0.92,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
+      const ringMat = new THREE.MeshBasicMaterial({
+        color: colorHex,
+        transparent: true,
+        opacity: 0.88,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
+      const materials: THREE.Material[] = [slashMat, whiteMat, ringMat];
+
+      const slashMeshes: THREE.Mesh[] = [];
+      const yaw = Math.atan2(tx - ox, tz - oz);
+
+      if (variant === 'bite' || variant === 'crunch') {
+        // Crossed glowing claw/fang slash blades snapping across the target
+        const slashCount = variant === 'crunch' ? 4 : 3;
+        const slashSpread = variant === 'crunch' ? 1.35 : 0.92;
+        for (let i = 0; i < slashCount; i++) {
+          const m = new THREE.Mesh(sharedSlashBladeGeo, i % 2 === 0 ? slashMat : whiteMat);
+          m.position.set(tx, ty + 0.52 + (i - 1) * 0.12, tz);
+          m.rotation.set(0.35, yaw + (i % 2 === 0 ? 0.55 : -0.55), (i % 2 === 0 ? 1 : -1) * 0.62);
+          m.scale.set(slashSpread, 1, 1);
+          group.add(m);
+          slashMeshes.push(m);
+        }
+        spawnParticleBurst(tx, ty + 0.45, tz, variant === 'crunch' ? 28 : 18, colorHex, radius * 0.65, 5.2, 1.1);
+        spawnParticleBurst(tx, ty + 0.45, tz, 10, '#ffffff', radius * 0.4, 6.0, 0.85);
+      } else if (variant === 'slam') {
+        // Bear heavy ground-pound radial claw blades + shockwave dome
+        for (let i = 0; i < 4; i++) {
+          const a = yaw + (i - 1.5) * 0.35;
+          const m = new THREE.Mesh(sharedSlamClawGeo, i % 2 === 0 ? slashMat : whiteMat);
+          m.position.set(tx + Math.sin(a) * 0.25, ty + 0.26, tz + Math.cos(a) * 0.25);
+          m.rotation.y = a;
+          group.add(m);
+          slashMeshes.push(m);
+        }
+        spawnParticleBurst(tx, ty + 0.3, tz, 26, '#d97706', radius * 0.85, 5.6, 1.15);
+        spawnParticleBurst(tx, ty + 0.3, tz, 14, '#fef3c7', radius * 0.55, 6.2, 0.9);
+      } else if (variant === 'horn_blast') {
+        // Unicorn radiant prismatic starburst crescent & sparkles
+        for (let i = 0; i < 3; i++) {
+          const m = new THREE.Mesh(sharedHornStarGeo, i === 0 ? whiteMat : slashMat);
+          m.position.set(tx, ty + 0.55, tz);
+          m.rotation.y = yaw + i * 0.7;
+          group.add(m);
+          slashMeshes.push(m);
+        }
+        spawnRisingParticles(tx, ty + 0.25, tz, 22, colorHex, radius * 0.8, 3.6, 1.1, 1.1);
+      } else {
+        spawnParticleBurst(tx, ty + 0.35, tz, 14, colorHex, 0.55, 4.0, 0.9);
+      }
+
+      const ringMesh = new THREE.Mesh(sharedHazRingGeo, ringMat);
+      ringMesh.position.set(tx, ty + 0.12, tz);
+      ringMesh.scale.setScalar(0.35);
+      group.add(ringMesh);
+
+      const outerRingMesh = new THREE.Mesh(sharedHazRingGeo, whiteMat);
+      outerRingMesh.position.set(tx, ty + 0.15, tz);
+      outerRingMesh.scale.setScalar(0.25);
+      group.add(outerRingMesh);
+
+      burstFxGroup.add(group);
+      activeBurstFx.push({
+        kind: 'animal_strike',
+        powerType: 'animal_attack',
+        group,
+        materials,
+        age: 0,
+        duration: variant === 'crunch' || variant === 'slam' ? 0.56 : 0.44,
+        impactDelay: 0.02,
+        deferImpact: false,
+        tx,
+        ty,
+        tz,
+        ox,
+        oy,
+        oz,
+        variant,
+        radius,
+        impactFired: true,
+        ringMesh,
+        outerRingMesh,
+        slashMeshes,
+        colorHex,
+      });
+    }
+
     // Camera state
     const camTarget = new THREE.Vector3(gridCenter, 1.2, gridCenter);
     const camDesiredTarget = new THREE.Vector3(gridCenter, 1.2, gridCenter);
@@ -3181,18 +3456,54 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         const isWorking =
           u.state === 'gathering' || u.state === 'building' || u.state === 'fighting';
         const isDragon = u.role === 'dragon';
-        const bobFreq = u.role === 'chicken' ? 16 : unitAgeStage === 'child' ? 14.5 : 11;
+        const isAnimal =
+          u.role === 'cow' ||
+          u.role === 'pig' ||
+          u.role === 'chicken' ||
+          u.role === 'capybara' ||
+          u.role === 'wolf' ||
+          u.role === 'bear' ||
+          u.role === 'dinosaur' ||
+          u.role === 'unicorn' ||
+          isDragon;
+        const seedPhase = ((u.appearanceSeed ?? 1) % 31) * 0.41;
+        const atkTimer = u.attackAnimTimer ?? 0;
+        const atkDur = isDragon ? 0.78 : 0.48;
+        const atkProg = atkTimer > 0 ? THREE.MathUtils.clamp(1 - atkTimer / atkDur, 0, 1) : 0;
+        const isAttacking = atkTimer > 0 && u.state !== 'ko';
+
+        const bobFreq =
+          u.role === 'chicken'
+            ? 17
+            : u.role === 'wolf'
+              ? 14
+              : u.role === 'dinosaur' || u.role === 'bear'
+                ? 9.5
+                : unitAgeStage === 'child'
+                  ? 14.5
+                  : 11;
         const walkBob = isDragon
           ? 0
           : isMoving
-            ? Math.abs(Math.sin(elapsed * bobFreq + u.x * 3)) *
-              (u.role === 'chicken' ? 0.1 : unitAgeStage === 'child' ? 0.095 : 0.08)
+            ? Math.abs(Math.sin(elapsed * bobFreq + seedPhase)) *
+              (u.role === 'chicken'
+                ? 0.13
+                : u.role === 'wolf' || u.role === 'unicorn'
+                  ? 0.1
+                  : unitAgeStage === 'child'
+                    ? 0.095
+                    : 0.08)
             : isWorking
-              ? Math.abs(Math.sin(elapsed * 14 + u.z * 2)) * 0.04
+              ? Math.abs(Math.sin(elapsed * 14 + seedPhase)) * 0.05
               : 0;
+        const pounceHopY =
+          isAttacking && !isDragon && u.role !== 'bear'
+            ? Math.sin(atkProg * Math.PI) * (u.role === 'wolf' ? 0.42 : u.role === 'chicken' ? 0.24 : 0.16)
+            : 0;
         const flightHoverY =
           isDragon && u.state !== 'ko'
-            ? (isWorking ? 0.95 : 1.55) + Math.sin(elapsed * 3.6 + (u.appearanceSeed ?? 1)) * 0.24
+            ? (isAttacking ? 1.85 : isWorking ? 2.05 : 2.45) +
+              Math.sin(elapsed * 3.1 + seedPhase) * 0.34
             : 0;
         const levitateY =
           blackHolePullFrac > 0
@@ -3201,17 +3512,19 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             : 0;
         uGroup.position.set(
           u.x,
-          groundY + (walkBob + flightHoverY) * (1 - blackHolePullFrac) + levitateY,
+          groundY + (walkBob + pounceHopY + flightHoverY) * (1 - blackHolePullFrac) + levitateY,
           u.z,
         );
 
-        // Face movement/target direction (or spiral tangent when pulled into Black Hole)
+        // Face movement/target direction (or attack target when snapping/breathing fire)
         if (blackHolePullFrac > 0.15) {
           uGroup.rotation.y = blackHoleAngle + elapsed * 3.5 * blackHolePullFrac;
         } else {
-          const dx = u.targetX - u.x;
-          const dz = u.targetZ - u.z;
-          if (dx * dx + dz * dz > 0.01) {
+          const faceX = isAttacking && u.attackTargetX !== undefined ? u.attackTargetX : u.targetX;
+          const faceZ = isAttacking && u.attackTargetZ !== undefined ? u.attackTargetZ : u.targetZ;
+          const dx = faceX - u.x;
+          const dz = faceZ - u.z;
+          if (dx * dx + dz * dz > 0.005) {
             uGroup.rotation.y = Math.atan2(dx, dz);
           }
         }
@@ -3224,28 +3537,169 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         } else if (blackHolePullFrac > 0) {
           uGroup.rotation.z = blackHolePullFrac * 0.92 * Math.sin(elapsed * 7.5 + u.x);
           uGroup.rotation.x = blackHolePullFrac * 0.72 * Math.cos(elapsed * 6.5 + u.z);
-          // Slight gravitational compression as unit approaches the Event Horizon core
           const bhScale = Math.max(0.58, 1 - Math.pow(blackHolePullFrac, 1.8) * 0.38);
           uGroup.scale.setScalar(bhScale);
         } else {
-          uGroup.rotation.z = isMoving && !isDragon ? Math.sin(elapsed * 11 + u.z * 2) * 0.08 : 0;
-          uGroup.rotation.x = isDragon && isMoving
-            ? -0.08 + Math.sin(elapsed * 3.6 + (u.appearanceSeed ?? 1)) * 0.06
-            : isWorking
+          uGroup.rotation.z =
+            isMoving && !isDragon
+              ? Math.sin(elapsed * bobFreq + seedPhase) * (u.role === 'chicken' ? 0.12 : 0.08)
+              : isDragon && isMoving
+                ? Math.sin(elapsed * 2.2 + seedPhase) * 0.1
+                : 0;
+          uGroup.rotation.x = isDragon
+            ? isAttacking
+              ? -0.18
+              : isMoving
+                ? 0.08 + Math.sin(elapsed * 3.1 + seedPhase) * 0.08
+                : Math.sin(elapsed * 3.1 + seedPhase) * 0.05
+            : isWorking && !isAnimal
               ? Math.sin(elapsed * 16 + u.x) * 0.22
               : 0;
           uGroup.scale.setScalar(1);
         }
 
+        // Articulated creature animation (wings, head grazing/pecking/prowling, jaw snapping, tail wagging, legs)
+        const bodyPivot = uGroup.getObjectByName('body_pivot');
+        const headPivot = uGroup.getObjectByName('head_pivot');
+        const jawPivot = uGroup.getObjectByName('jaw_pivot');
+        const tailPivot = uGroup.getObjectByName('tail_pivot');
         const wingL = uGroup.getObjectByName('wing_l');
         const wingR = uGroup.getObjectByName('wing_r');
+        const wingOuterL = uGroup.getObjectByName('wing_outer_l');
+        const wingOuterR = uGroup.getObjectByName('wing_outer_r');
+
+        if (isAnimal && u.state !== 'ko') {
+          if (bodyPivot) {
+            let bodyPitch = 0;
+            let bodyForward = 0;
+            if (isAttacking) {
+              const s = Math.sin(atkProg * Math.PI);
+              if (u.role === 'bear') {
+                // Towering rear-up followed by heavy slam
+                bodyPitch = atkProg < 0.45 ? -0.58 * (atkProg / 0.45) : -0.58 + 0.88 * ((atkProg - 0.45) / 0.55);
+                bodyForward = atkProg > 0.45 ? 0.22 * Math.sin(((atkProg - 0.45) / 0.55) * Math.PI) : -0.08;
+              } else if (u.role === 'unicorn') {
+                bodyPitch = -0.34 * s;
+                bodyForward = 0.26 * s;
+              } else if (!isDragon) {
+                bodyPitch = 0.24 * s;
+                bodyForward = (u.role === 'wolf' ? 0.34 : 0.24) * s;
+              }
+            }
+            bodyPivot.rotation.x = bodyPitch;
+            bodyPivot.position.z = bodyForward;
+            // Subtle idle chest breathing
+            const breath = isMoving ? 0 : Math.sin(elapsed * 3.4 + seedPhase) * 0.035;
+            if (u.role !== 'dinosaur') {
+              bodyPivot.scale.y = 1 + breath;
+            }
+          }
+
+          if (headPivot) {
+            if (isDragon) {
+              headPivot.rotation.x = isAttacking ? 0.42 : Math.sin(elapsed * 2.5 + seedPhase) * 0.1;
+              headPivot.rotation.y = isAttacking ? 0 : Math.sin(elapsed * 1.4 + seedPhase) * 0.18;
+            } else if (isAttacking) {
+              headPivot.rotation.x = Math.sin(atkProg * Math.PI) * (u.role === 'chicken' ? 0.65 : 0.42);
+              headPivot.rotation.y = 0;
+            } else if (u.role === 'chicken') {
+              // Brisk pecking & alert side-glances
+              const peckCycle = (elapsed * 1.4 + seedPhase) % 3.2;
+              const isPecking = !isMoving && peckCycle < 0.7;
+              headPivot.rotation.x = isPecking
+                ? Math.max(0, Math.sin((peckCycle / 0.7) * Math.PI * 2)) * 0.65
+                : isMoving
+                  ? Math.sin(elapsed * 17 + seedPhase) * 0.22
+                  : 0;
+              headPivot.rotation.y = !isMoving && !isPecking ? Math.sin(elapsed * 2.2 + seedPhase) * 0.38 : 0;
+            } else if (u.role === 'cow' || u.role === 'pig' || u.role === 'capybara' || u.role === 'unicorn') {
+              // Periodic grazing dip when idle, subtle look around
+              const grazeWave = Math.max(0, Math.sin(elapsed * 0.75 + seedPhase));
+              headPivot.rotation.x = !isMoving
+                ? grazeWave * (u.role === 'unicorn' ? 0.28 : 0.45)
+                : Math.sin(elapsed * bobFreq + seedPhase) * 0.08;
+              headPivot.rotation.y = !isMoving ? Math.sin(elapsed * 1.3 + seedPhase) * 0.24 : 0;
+            } else {
+              // Wolf, Bear, Dinosaur alert scanning
+              headPivot.rotation.x = isMoving ? Math.sin(elapsed * bobFreq + seedPhase) * 0.07 : Math.sin(elapsed * 2.1 + seedPhase) * 0.06;
+              headPivot.rotation.y = !isMoving ? Math.sin(elapsed * 1.7 + seedPhase) * 0.35 : 0;
+            }
+          }
+
+          if (jawPivot) {
+            if (isDragon) {
+              jawPivot.rotation.x = isAttacking ? 0.62 : 0.08 + Math.max(0, Math.sin(elapsed * 2.2 + seedPhase)) * 0.14;
+            } else if (isAttacking) {
+              // Open wide then snap shut cleanly
+              jawPivot.rotation.x = Math.sin(atkProg * Math.PI) * 0.68;
+            } else {
+              jawPivot.rotation.x = Math.max(0, Math.sin(elapsed * 2.4 + seedPhase)) * 0.14;
+            }
+          }
+
+          if (tailPivot) {
+            if (isDragon) {
+              tailPivot.rotation.y = Math.sin(elapsed * 4.8 + seedPhase) * 0.32;
+              tailPivot.rotation.x = Math.cos(elapsed * 3.2 + seedPhase) * 0.14;
+            } else if (isAttacking && u.role === 'dinosaur') {
+              tailPivot.rotation.y = Math.sin(atkProg * Math.PI * 2) * 0.58;
+            } else {
+              const tailSpeed = isMoving ? 10 : u.role === 'wolf' ? 6.5 : 3.5;
+              tailPivot.rotation.y = Math.sin(elapsed * tailSpeed + seedPhase) * (u.role === 'wolf' || u.role === 'dinosaur' ? 0.36 : 0.22);
+            }
+          }
+
+          const strideFreq = isMoving ? bobFreq : 0;
+          const legAmp = isMoving ? (u.role === 'wolf' || u.role === 'unicorn' ? 0.62 : 0.48) : 0;
+          const legPhase = elapsed * strideFreq + seedPhase;
+          const legFL = uGroup.getObjectByName('leg_fl');
+          const legFR = uGroup.getObjectByName('leg_fr');
+          const legBL = uGroup.getObjectByName('leg_bl');
+          const legBR = uGroup.getObjectByName('leg_br');
+          const legL = uGroup.getObjectByName('leg_l');
+          const legR = uGroup.getObjectByName('leg_r');
+
+          if (legFL && legFR && legBL && legBR) {
+            if (isDragon) {
+              // Tucked aerodynamic flight legs
+              legFL.rotation.x = 0.52;
+              legFR.rotation.x = 0.52;
+              legBL.rotation.x = 0.68;
+              legBR.rotation.x = 0.68;
+            } else if (isAttacking && (u.role === 'bear' || u.role === 'unicorn')) {
+              const pawLift = Math.sin(atkProg * Math.PI) * -0.95;
+              legFL.rotation.x = pawLift;
+              legFR.rotation.x = pawLift;
+              legBL.rotation.x = 0.2;
+              legBR.rotation.x = 0.2;
+            } else {
+              const swing = Math.sin(legPhase) * legAmp;
+              legFL.rotation.x = swing;
+              legBR.rotation.x = swing;
+              legFR.rotation.x = -swing;
+              legBL.rotation.x = -swing;
+            }
+          }
+          if (legL && legR) {
+            const swing = Math.sin(legPhase) * (isMoving ? 0.62 : 0);
+            legL.rotation.x = swing;
+            legR.rotation.x = -swing;
+          }
+        }
+
         if (wingL && wingR && u.state !== 'ko') {
           if (isDragon) {
-            const flap = Math.sin(elapsed * 9.5 + (u.appearanceSeed ?? 1)) * 0.58;
+            const wingFreq = isAttacking ? 12.5 : 8.2;
+            const flap = Math.sin(elapsed * wingFreq + seedPhase) * 0.62 + 0.1;
             wingL.rotation.z = flap;
             wingR.rotation.z = -flap;
-          } else if (u.role === 'chicken' && isMoving) {
-            const flutter = Math.sin(elapsed * 22 + u.x) * 0.45;
+            if (wingOuterL && wingOuterR) {
+              const outerFlex = Math.sin(elapsed * wingFreq + seedPhase - 0.85) * 0.46;
+              wingOuterL.rotation.z = outerFlex;
+              wingOuterR.rotation.z = -outerFlex;
+            }
+          } else if (u.role === 'chicken' && (isMoving || isAttacking || ((elapsed + seedPhase) % 4.5 < 0.55))) {
+            const flutter = Math.sin(elapsed * 24 + seedPhase) * 0.55;
             wingL.rotation.z = flutter;
             wingR.rotation.z = -flutter;
           } else {
@@ -3256,8 +3710,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
         const unitShadow = uGroup.getObjectByName('contact_shadow');
         if (unitShadow) {
-          const totalAir = flightHoverY + levitateY;
-          unitShadow.scale.setScalar(Math.max(0.28, 1 - totalAir * 0.25));
+          const totalAir = flightHoverY + levitateY + pounceHopY;
+          unitShadow.scale.setScalar(Math.max(0.28, 1 - totalAir * 0.18));
         }
 
         const heldTool = uGroup.getObjectByName('held_tool');
@@ -3394,11 +3848,45 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         }
       }
 
-      // 4. Consume pending VFX bursts & trigger dramatic 3D power animations
+      // 4. Consume pending VFX bursts & trigger dramatic 3D power & creature combat animations
       while (simState.pendingVfx.length > 0) {
         const vfx = simState.pendingVfx.shift()!;
+        const vTile = getTileFromArray(simState, vfx.x, vfx.z);
+        const surfY = vTile ? Math.max(0.22, vTile.height * HEIGHT_STEP + 0.25) : Math.max(0.45, vfx.y);
         if (vfx.type === 'hit_spark' || vfx.type === 'build_complete') {
-          spawnParticleBurst(vfx.x, vfx.y + 0.2, vfx.z, 20, vfx.color, vfx.radius * 0.5, 3.5, 0.9);
+          spawnParticleBurst(vfx.x, surfY + 0.25, vfx.z, 22, vfx.color, vfx.radius * 0.55, 3.8, 0.95);
+        } else if (vfx.type === 'dragon_fire_breath') {
+          const ox = vfx.originX ?? vfx.x;
+          const oz = vfx.originZ ?? vfx.z;
+          const oTile = getTileFromArray(simState, ox, oz);
+          const originGroundY = oTile ? Math.max(0.22, oTile.height * HEIGHT_STEP + 0.25) : surfY;
+          // Dragon aerial jaw sits at hoverY (~1.85) + head neck jaw height (~1.2)
+          spawnDragonFireBreath(
+            ox,
+            originGroundY + 3.05,
+            oz,
+            vfx.x,
+            surfY,
+            vfx.z,
+            vfx.radius,
+            vfx.color,
+          );
+        } else if (vfx.type === 'animal_attack') {
+          const ox = vfx.originX ?? vfx.x;
+          const oz = vfx.originZ ?? vfx.z;
+          const oTile = getTileFromArray(simState, ox, oz);
+          const originGroundY = oTile ? Math.max(0.22, oTile.height * HEIGHT_STEP + 0.25) : surfY;
+          spawnAnimalAttackVisual(
+            vfx.variant ?? 'bite',
+            ox,
+            originGroundY,
+            oz,
+            vfx.x,
+            surfY,
+            vfx.z,
+            vfx.radius,
+            vfx.color,
+          );
         } else {
           spawnPowerVisualEffect(
             vfx.type,
@@ -4442,6 +4930,57 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
               sp.position.y = fx.ty + Math.sin(elapsedTotal * 42 + si) * 0.06 * env;
             }
           }
+        } else if (fx.kind === 'dragon_flame' && fx.flameOuterCone && fx.flameCoreCone && fx.ringMesh) {
+          const prog = Math.min(1, fx.age / fx.duration);
+          const extendProg = Math.min(1, prog / 0.16);
+          const fadeOut = prog > 0.68 ? Math.max(0, 1 - (prog - 0.68) / 0.32) : 1;
+          const pulse = 0.88 + Math.sin(elapsedTotal * 38) * 0.18;
+          const reach = fx.radius * extendProg;
+          const coneScale = (0.78 + extendProg * 0.35) * pulse * (0.4 + fadeOut * 0.6);
+
+          fx.flameOuterCone.scale.set(coneScale, coneScale, Math.max(0.15, reach));
+          fx.flameCoreCone.scale.set(coneScale * 0.85, coneScale * 0.85, Math.max(0.15, reach * 0.94));
+          (fx.materials[0] as THREE.MeshBasicMaterial).opacity = 0.78 * fadeOut;
+          (fx.materials[1] as THREE.MeshBasicMaterial).opacity = 0.94 * fadeOut;
+
+          fx.ringMesh.scale.setScalar(0.35 + prog * 1.85);
+          (fx.materials[2] as THREE.MeshBasicMaterial).opacity = Math.sin(prog * Math.PI) * 0.92;
+
+          // Emit continuous directional flame & ember stream from dragon's mouth down onto target!
+          fx.particleEmitTimer = (fx.particleEmitTimer ?? 0) + dt;
+          if (fx.particleEmitTimer >= 0.035 && prog < 0.76) {
+            fx.particleEmitTimer = 0;
+            spawnDirectionalFlameStream(
+              fx.ox ?? fx.tx,
+              fx.oy ?? fx.ty + 2.5,
+              fx.oz ?? fx.tz,
+              fx.tx,
+              fx.ty,
+              fx.tz,
+              8,
+              fx.colorHex,
+              0.55,
+            );
+            spawnParticleBurst(fx.tx, fx.ty + 0.15, fx.tz, 4, fx.colorHex, 0.85, 3.4, 1.05);
+          }
+        } else if (fx.kind === 'animal_strike' && fx.ringMesh) {
+          const prog = Math.min(1, fx.age / fx.duration);
+          const easeOut = 1 - Math.pow(1 - prog, 2);
+          const env = 1 - prog;
+          fx.ringMesh.scale.setScalar(0.28 + easeOut * fx.radius * 1.15);
+          (fx.materials[2] as THREE.MeshBasicMaterial).opacity = env * 0.9;
+          if (fx.outerRingMesh) {
+            fx.outerRingMesh.scale.setScalar(0.18 + prog * fx.radius * 1.45);
+          }
+          if (fx.slashMeshes) {
+            for (let si = 0; si < fx.slashMeshes.length; si++) {
+              const sm = fx.slashMeshes[si];
+              const sScale = 0.65 + easeOut * 0.75;
+              sm.scale.set(sScale, 1 + (1 - env) * 0.35, sScale);
+            }
+          }
+          (fx.materials[0] as THREE.MeshBasicMaterial).opacity = env * 0.95;
+          (fx.materials[1] as THREE.MeshBasicMaterial).opacity = env * 0.9;
         } else if (fx.kind === 'ripple_ring' && fx.ringMesh) {
           if (fx.age >= fx.impactDelay && !fx.impactFired) {
             fx.impactFired = true;

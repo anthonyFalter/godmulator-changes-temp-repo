@@ -208,6 +208,9 @@ export interface UnitEntity {
   ageStage?: UnitAgeStage;
   growthTimer?: number;
   appearanceSeed?: number;
+  attackAnimTimer?: number;
+  attackTargetX?: number;
+  attackTargetZ?: number;
   expeditionTargetX?: number;
   expeditionTargetZ?: number;
   expeditionTimer?: number;
@@ -315,10 +318,21 @@ export interface EarthquakeFaultSegment {
 
 export interface VisualEffectEvent {
   id: string;
-  type: GodPowerType | 'terrain_sculpt' | 'build_complete' | 'hit_spark' | 'epoch_up';
+  type:
+    | GodPowerType
+    | 'terrain_sculpt'
+    | 'build_complete'
+    | 'hit_spark'
+    | 'epoch_up'
+    | 'dragon_fire_breath'
+    | 'animal_attack';
   x: number;
   y: number;
   z: number;
+  originX?: number;
+  originY?: number;
+  originZ?: number;
+  variant?: 'bite' | 'slam' | 'crunch' | 'peck' | 'horn_blast' | 'fire_breath';
   radius: number;
   color: string;
   createdAt: number;

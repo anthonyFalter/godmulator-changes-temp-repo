@@ -4736,6 +4736,9 @@ function stepWildlifeAI(
 ): void {
   const gs = state.gridSize;
   const isFlying = u.role === 'dragon';
+  if ((u.attackAnimTimer ?? 0) > 0) {
+    u.attackAnimTimer = Math.max(0, (u.attackAnimTimer ?? 0) - dt);
+  }
   const curTile = getTile(state, u.x, u.z);
   if (curTile && curTile.onFireTimer > 0 && !u.statusEffects.shielded && !isFlying) {
     u.hp -= 10 * dt;
@@ -4774,7 +4777,7 @@ function stepWildlifeAI(
         x: u.x,
         y: 0.6,
         z: u.z,
-        radius: 1.3,
+        radius: 1.4,
         color: '#f472b6',
         createdAt: Date.now(),
       });
@@ -4783,8 +4786,10 @@ function stepWildlifeAI(
     }
   }
 
-  // Prey flee behavior from predators & hostile raiders
-  if (isPreyAnimalRole(u.role)) {
+  const isFrenzied = Boolean(u.statusEffects.frenzied);
+
+  // Prey flee behavior from predators & hostile raiders (unless frenzied!)
+  if (isPreyAnimalRole(u.role) && !isFrenzied) {
     let threat: UnitEntity | null = null;
     let bestThreatDistSq = 20.25; // 4.5 tiles
     for (const other of state.units) {
@@ -4799,13 +4804,13 @@ function stepWildlifeAI(
     }
     if (threat) {
       const dist = Math.max(0.2, Math.sqrt(bestThreatDistSq));
-      const fx = Math.max(2, Math.min(gs - 3, u.x + ((u.x - threat.x) / dist) * 4.5));
-      const fz = Math.max(2, Math.min(gs - 3, u.z + ((u.z - threat.z) / dist) * 4.5));
+      const fx = Math.max(2, Math.min(gs - 3, u.x + ((u.x - threat.x) / dist) * 5.0));
+      const fz = Math.max(2, Math.min(gs - 3, u.z + ((u.z - threat.z) / dist) * 5.0));
       u.targetX = fx;
       u.targetZ = fz;
       u.state = 'moving';
-      const nextX = u.x + ((fx - u.x) / Math.max(0.2, Math.hypot(fx - u.x, fz - u.z))) * moveSpeed * 1.35 * dt;
-      const nextZ = u.z + ((fz - u.z) / Math.max(0.2, Math.hypot(fx - u.x, fz - u.z))) * moveSpeed * 1.35 * dt;
+      const nextX = u.x + ((fx - u.x) / Math.max(0.2, Math.hypot(fx - u.x, fz - u.z))) * moveSpeed * 1.45 * dt;
+      const nextZ = u.z + ((fz - u.z) / Math.max(0.2, Math.hypot(fx - u.x, fz - u.z))) * moveSpeed * 1.45 * dt;
       const nextTile = getTile(state, nextX, nextZ);
       if (nextTile && nextTile.height > 0) {
         u.x = Math.max(1, Math.min(gs - 2, nextX));
@@ -4815,28 +4820,35 @@ function stepWildlifeAI(
     }
   }
 
-  // Predators & Dragons combat / hunting
-  if (isPredatorRole(u.role) || u.role === 'unicorn') {
+  // Predators, Dragons, Unicorns & Frenzied Animals combat / hunting
+  if (isPredatorRole(u.role) || u.role === 'unicorn' || isFrenzied) {
     let target: UnitEntity | null = null;
     let bestScore = Infinity;
-    const isFrenzied = Boolean(u.statusEffects.frenzied);
 
     for (const other of state.units) {
       if (other.id === u.id || other.state === 'ko' || other.statusEffects.shielded) continue;
       const dSq = (other.x - u.x) ** 2 + (other.z - u.z) ** 2;
 
       if (other.faction === 'hostile') {
-        const maxSq = u.role === 'dragon' ? 196 : u.role === 'unicorn' ? 16 : 81;
+        const maxSq = u.role === 'dragon' ? 256 : u.role === 'unicorn' ? 25 : 81;
         if (dSq <= maxSq && dSq < bestScore) {
           bestScore = dSq;
           target = other;
         }
       } else if (isFrenzied && other.role !== u.role) {
-        if (dSq <= 100 && dSq + 6 < bestScore) {
+        if (dSq <= 121 && dSq + 6 < bestScore) {
           bestScore = dSq + 6;
           target = other;
         }
-      } else if (isPredatorRole(u.role) && isPreyAnimalRole(other.role)) {
+      } else if (
+        u.role === 'dragon' &&
+        (other.role === 'dinosaur' || other.role === 'bear' || other.role === 'wolf')
+      ) {
+        if (dSq <= 81 && dSq + 12 < bestScore) {
+          bestScore = dSq + 12;
+          target = other;
+        }
+      } else if (isPredatorRole(u.role) && u.role !== 'dragon' && isPreyAnimalRole(other.role)) {
         if (dSq <= 49 && dSq + 10 < bestScore) {
           bestScore = dSq + 10;
           target = other;
@@ -4857,18 +4869,87 @@ function stepWildlifeAI(
       if (dist <= def.attackRange) {
         u.state = 'fighting';
         if (u.actionCooldown <= 0) {
-          u.actionCooldown = u.role === 'wolf' ? 0.75 : u.role === 'dragon' ? 1.05 : 0.95;
+          u.actionCooldown = u.role === 'wolf' ? 0.72 : u.role === 'dragon' ? 1.15 : 0.9;
+          u.attackAnimTimer = u.role === 'dragon' ? 0.78 : 0.48;
+          u.attackTargetX = target.x;
+          u.attackTargetZ = target.z;
           const dmg = def.attackDamage * (isFrenzied ? 1.8 : 1.0);
           target.hp -= dmg;
+
           if (u.role === 'dragon') {
+            const dragonGlowHex =
+              (u.appearanceSeed ?? 1) % 4 === 1
+                ? '#4ade80'
+                : (u.appearanceSeed ?? 1) % 4 === 2
+                  ? '#facc15'
+                  : (u.appearanceSeed ?? 1) % 4 === 3
+                    ? '#38bdf8'
+                    : '#ff6b35';
             state.pendingVfx.push({
               id: nextEntityId('vfx'),
-              type: 'hit_spark',
+              type: 'dragon_fire_breath',
+              variant: 'fire_breath',
+              originX: u.x,
+              originZ: u.z,
               x: target.x,
-              y: 0.55,
+              y: 0,
               z: target.z,
-              radius: 1.35,
-              color: '#ff6b35',
+              radius: 1.9,
+              color: dragonGlowHex,
+              createdAt: Date.now(),
+            });
+            // Fire breath splashes heat onto adjacent foes & ignites unbuilt dry ground
+            for (const splashTarget of state.units) {
+              if (
+                splashTarget.id !== target.id &&
+                splashTarget.id !== u.id &&
+                splashTarget.state !== 'ko' &&
+                !splashTarget.statusEffects.shielded &&
+                splashTarget.role !== 'dragon' &&
+                splashTarget.faction !== 'civilization'
+              ) {
+                const sdSq = (splashTarget.x - target.x) ** 2 + (splashTarget.z - target.z) ** 2;
+                if (sdSq <= 2.56) {
+                  splashTarget.hp -= dmg * 0.35;
+                }
+              }
+            }
+            const tTile = getTile(state, target.x, target.z);
+            if (tTile && tTile.height > 0 && !tTile.buildingId && tTile.terrain !== 'rock' && tTile.terrain !== 'snow') {
+              tTile.onFireTimer = Math.max(tTile.onFireTimer, 4.0);
+            }
+          } else {
+            const variant =
+              u.role === 'wolf'
+                ? 'bite'
+                : u.role === 'bear'
+                  ? 'slam'
+                  : u.role === 'dinosaur'
+                    ? 'crunch'
+                    : u.role === 'unicorn'
+                      ? 'horn_blast'
+                      : 'peck';
+            const color =
+              u.role === 'wolf'
+                ? '#f87171'
+                : u.role === 'bear'
+                  ? '#f59e0b'
+                  : u.role === 'dinosaur'
+                    ? '#fb923c'
+                    : u.role === 'unicorn'
+                      ? '#f472b6'
+                      : '#fde047';
+            state.pendingVfx.push({
+              id: nextEntityId('vfx'),
+              type: 'animal_attack',
+              variant,
+              originX: u.x,
+              originZ: u.z,
+              x: target.x,
+              y: 0,
+              z: target.z,
+              radius: u.role === 'dinosaur' ? 1.55 : u.role === 'bear' ? 1.35 : 1.05,
+              color,
               createdAt: Date.now(),
             });
           }
@@ -4887,11 +4968,11 @@ function stepWildlifeAI(
     }
   }
 
-  // Natural wandering across matching biome tiles
+  // Natural wandering across matching biome tiles (livelier cadence)
   const distToTarget = Math.hypot(u.targetX - u.x, u.targetZ - u.z);
   const currentTileInvalid = !isFlying && (!curTile || curTile.height <= 0);
-  if (distToTarget < 0.35 || currentTileInvalid || (u.state === 'idle' && Math.random() < dt * 0.45)) {
-    const roamRadius = isFlying ? 15 : isPredatorRole(u.role) ? 9 : 6;
+  if (distToTarget < 0.35 || currentTileInvalid || (u.state === 'idle' && Math.random() < dt * 0.85)) {
+    const roamRadius = isFlying ? 18 : isPredatorRole(u.role) ? 10 : 6.5;
     let chosen: TileData | null = null;
     for (let attempt = 0; attempt < 8; attempt++) {
       const candX = Math.max(2, Math.min(gs - 3, Math.round(u.x + (Math.random() - 0.5) * roamRadius * 2)));
@@ -4915,7 +4996,7 @@ function stepWildlifeAI(
     const dz = u.targetZ - u.z;
     const dist = Math.hypot(dx, dz);
     if (dist > 0.1) {
-      const pace = isFlying ? 0.92 : isPreyAnimalRole(u.role) ? 0.65 : 0.78;
+      const pace = isFlying ? 0.98 : isPreyAnimalRole(u.role) ? 0.72 : 0.84;
       const nx = u.x + (dx / dist) * moveSpeed * pace * dt;
       const nz = u.z + (dz / dist) * moveSpeed * pace * dt;
       const nt = getTile(state, nx, nz);

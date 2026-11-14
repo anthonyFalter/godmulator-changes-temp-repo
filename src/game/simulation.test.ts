@@ -1352,7 +1352,8 @@ test('world seeds 7 initial animals and 2 mythical beasts with 3D meshes, unicor
 
     const mesh = createUnitGroup(role, 'wildlife', 0, 'human', i * 17);
     assert.ok(mesh instanceof THREE.Group, `${role} 3D builder should return a THREE.Group`);
-    assert.ok(mesh.children.length >= 4, `${role} 3D model should have multiple articulated parts`);
+    assert.ok(mesh.getObjectByName('head_pivot'), `${role} mesh should expose articulated head_pivot`);
+    assert.ok(mesh.getObjectByName('tail_pivot'), `${role} mesh should expose articulated tail_pivot`);
     if (role === 'dragon' || role === 'chicken') {
       assert.ok(mesh.getObjectByName('wing_l'), `${role} mesh should expose wing_l pivot`);
       assert.ok(mesh.getObjectByName('wing_r'), `${role} mesh should expose wing_r pivot`);
@@ -1362,7 +1363,8 @@ test('world seeds 7 initial animals and 2 mythical beasts with 3D meshes, unicor
   // Verify all 3 dinosaur morphs (T-Rex, Triceratops, Stegosaurus) build cleanly
   for (let seed = 0; seed < 3; seed++) {
     const dinoMesh = createUnitGroup('dinosaur', 'wildlife', 0, 'human', seed);
-    assert.ok(dinoMesh.children.length >= 6, `Dinosaur morph ${seed} should build rich voxel geometry`);
+    assert.ok(dinoMesh.getObjectByName('head_pivot'), `Dinosaur morph ${seed} should have head_pivot`);
+    assert.ok(dinoMesh.getObjectByName('tail_pivot'), `Dinosaur morph ${seed} should have tail_pivot`);
   }
 
   // Verify Unicorn heals nearby injured citizen and blooms scorched tile (in a clean meadow away from predators)
@@ -1418,6 +1420,71 @@ test('world seeds 7 initial animals and 2 mythical beasts with 3D meshes, unicor
   const cowCountAfter = state.units.filter((u) => u.role === 'cow').length;
   assert.equal(cowCountAfter, cowCountBefore, 'Divine shield must not harm peaceful wildlife');
 });
+
+test('colossal dragon shoots directional dragon_fire_breath VFX and animals trigger distinct animated strike VFX', () => {
+  const dragonMesh = createUnitGroup('dragon', 'wildlife', 0, 'human', 1);
+  dragonMesh.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(dragonMesh);
+  const width = box.max.x - box.min.x;
+  const length = box.max.z - box.min.z;
+  assert.ok(width >= 3.8, `Dragon wingspan should be imposing (>= 3.8 units, got ${width.toFixed(2)})`);
+  assert.ok(length >= 2.8, `Dragon nose-to-tail length should be imposing (>= 2.8 units, got ${length.toFixed(2)})`);
+  assert.ok(dragonMesh.getObjectByName('jaw_pivot'), 'Dragon mesh must expose articulated jaw_pivot');
+  assert.ok(dragonMesh.getObjectByName('wing_outer_l'), 'Dragon mesh must expose outer wing_outer_l segment');
+  assert.ok(dragonMesh.getObjectByName('wing_outer_r'), 'Dragon mesh must expose outer wing_outer_r segment');
+
+  const state = createInitialSimulationState(128, 'DRAGON-BREATH-TEST');
+  state.sandboxFreeMode = true;
+  state.wildlifeSeeded = true;
+  for (let dz = -5; dz <= 5; dz++) {
+    for (let dx = -5; dx <= 5; dx++) {
+      const t = getTile(state, 64 + dx, 64 + dz)!;
+      t.height = 2;
+      t.terrain = 'grass';
+      t.resourceNode = 'none';
+      t.resourceAmount = 0;
+      t.buildingId = null;
+      t.onFireTimer = 0;
+    }
+  }
+
+  const drg = spawnUnit(state, 'dragon', 64, 64).unit!;
+  const foe = spawnUnit(state, 'raider_behemoth', 66, 65).unit!;
+  drg.actionCooldown = 0;
+  state.pendingVfx.length = 0;
+
+  stepSimulation(state, 0.15);
+
+  const fireVfx = state.pendingVfx.find((v) => v.type === 'dragon_fire_breath');
+  assert.ok(fireVfx, 'Dragon attack must emit directional dragon_fire_breath VFX');
+  assert.equal(fireVfx!.variant, 'fire_breath');
+  assert.ok(typeof fireVfx!.originX === 'number' && typeof fireVfx!.originZ === 'number', 'Fire breath must include origin coords');
+  assert.ok((drg.attackAnimTimer ?? 0) > 0, 'Dragon must enter attackAnimTimer state to animate jaw & swoop');
+  assert.ok(getTile(state, foe.x, foe.z)!.onFireTimer > 0, 'Dragon fire breath should ignite target tile');
+
+  // Verify Wolf ('bite') and Bear ('slam') emit distinct animal_attack VFX and set attackAnimTimer
+  state.units = [];
+  state.pendingVfx.length = 0;
+  const wolf = spawnUnit(state, 'wolf', 62, 64).unit!;
+  const prey = spawnUnit(state, 'raider_swarmer', 62.5, 64).unit!;
+  void prey;
+  wolf.actionCooldown = 0;
+  stepSimulation(state, 0.1);
+  const biteVfx = state.pendingVfx.find((v) => v.type === 'animal_attack' && v.variant === 'bite');
+  assert.ok(biteVfx, 'Wolf attack should emit animal_attack bite VFX');
+  assert.ok((wolf.attackAnimTimer ?? 0) > 0, 'Wolf should trigger attackAnimTimer pounce animation');
+
+  state.units = [];
+  state.pendingVfx.length = 0;
+  const bear = spawnUnit(state, 'bear', 64, 64).unit!;
+  spawnUnit(state, 'raider_swarmer', 64.8, 64);
+  bear.actionCooldown = 0;
+  stepSimulation(state, 0.1);
+  const slamVfx = state.pendingVfx.find((v) => v.type === 'animal_attack' && v.variant === 'slam');
+  assert.ok(slamVfx, 'Bear attack should emit animal_attack slam VFX');
+  assert.ok((bear.attackAnimTimer ?? 0) > 0, 'Bear should trigger attackAnimTimer rear-up slam animation');
+});
+
 
 
 
