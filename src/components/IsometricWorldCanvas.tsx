@@ -2517,7 +2517,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             const rSq = qh.radius * qh.radius * 1.44;
             if (distSq <= rSq) {
               const strength = (1 - Math.sqrt(distSq) / (qh.radius * 1.2)) * Math.min(1, qh.remaining / 1.0);
-              quakeJoltY += Math.sin(elapsed * 54 + t.x * 3.1 + t.z * 2.7) * 0.14 * strength;
+              quakeJoltY += Math.sin(elapsed * 42 + t.x * 3.1 + t.z * 2.7) * 0.075 * strength;
             }
           }
         }
@@ -3943,8 +3943,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             if (fx.deferImpact) {
               executeGodPowerImpact(simRef.current, fx.powerType as GodPowerType, fx.tx, fx.tz);
             }
-            trauma = 1.0;
-            hitstopTimer = 0.05;
+            trauma = Math.max(trauma, 0.64);
+            hitstopTimer = 0.04;
             triggerLightFlash(fx.tx, fx.ty + 1.5, fx.tz, '#e07a2b', 28);
             spawnParticleBurst(fx.tx, fx.ty + 0.35, fx.tz, 64, '#a88b70', fx.radius * 0.95, 5.8, 1.35);
             spawnParticleBurst(fx.tx, fx.ty + 0.35, fx.tz, 34, '#e07a2b', fx.radius * 0.72, 6.4, 1.15);
@@ -4126,20 +4126,37 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         camera.updateProjectionMatrix();
       }
 
-      // Sustained earthquake tremor keeps camera trauma energized for full multi-second screen shake
-      const hasActiveQuake = (simRef.current.activeHazards ?? []).some(
-        (h) => h.kind === 'earthquake_zone' && h.remaining > 0,
-      );
-      if (hasActiveQuake) {
-        trauma = Math.max(trauma, 0.78);
+      // Sustained earthquake tremor keeps a subtle, tapering camera rumble during active quake zones
+      let maxQuakeFade = 0;
+      const hazards = simRef.current.activeHazards ?? [];
+      for (let hi = 0; hi < hazards.length; hi++) {
+        const hz = hazards[hi];
+        if (hz.kind === 'earthquake_zone' && hz.remaining > 0) {
+          const fade = Math.min(1, hz.remaining / Math.max(1, hz.duration || 4));
+          if (fade > maxQuakeFade) maxQuakeFade = fade;
+        }
+      }
+      if (maxQuakeFade > 0) {
+        const quakeFloor = 0.24 + 0.24 * maxQuakeFade;
+        if (trauma > quakeFloor) {
+          trauma = Math.max(quakeFloor, trauma - dt * 1.5);
+        } else {
+          trauma = quakeFloor;
+        }
       } else {
-        trauma = Math.max(0, trauma - dt * 1.8);
+        trauma = Math.max(0, trauma - dt * 2.0);
       }
       const shakePower = trauma * trauma;
       const shakeHoriz =
-        frustumSize * 0.032 * shakePower * (Math.sin(elapsedTotal * 56) * 0.65 + (Math.random() - 0.5) * 0.7);
+        frustumSize *
+        0.013 *
+        shakePower *
+        (Math.sin(elapsedTotal * 38) * 0.6 + Math.sin(elapsedTotal * 61) * 0.25 + (Math.random() - 0.5) * 0.3);
       const shakeVert =
-        frustumSize * 0.026 * shakePower * (Math.cos(elapsedTotal * 49) * 0.65 + (Math.random() - 0.5) * 0.7);
+        frustumSize *
+        0.01 *
+        shakePower *
+        (Math.cos(elapsedTotal * 33) * 0.6 + Math.cos(elapsedTotal * 53) * 0.25 + (Math.random() - 0.5) * 0.3);
       const shakeRightX = Math.cos(camYaw) * shakeHoriz;
       const shakeRightZ = -Math.sin(camYaw) * shakeHoriz;
 
@@ -4170,7 +4187,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         camTarget.z + shakeRightZ,
       );
       if (shakePower > 0.002) {
-        camera.rotation.z += Math.sin(elapsedTotal * 43) * 0.024 * shakePower;
+        camera.rotation.z += Math.sin(elapsedTotal * 34) * 0.008 * shakePower;
       }
 
       renderer.render(scene, camera);
