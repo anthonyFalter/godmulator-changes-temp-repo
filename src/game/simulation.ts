@@ -31,6 +31,7 @@ const VILLAGE_NAMES = [
 ];
 
 export const SETTLEMENT_AWARENESS_RADIUS = 22;
+export const YEARS_PER_SEC_AT_1X = 0.1;
 
 let idCounter = 1000;
 export function nextEntityId(prefix: string): string {
@@ -50,8 +51,9 @@ export function getTile(state: SimulationState, x: number, z: number): TileData 
 }
 
 export function formatYearLabel(year: number): string {
-  if (year < 0) return `${Math.abs(Math.round(year)).toLocaleString()} BCE`;
-  return `${Math.round(year).toLocaleString()} CE`;
+  const wholeYear = Math.floor(year + 1e-6);
+  if (wholeYear < 0) return `${Math.abs(wholeYear).toLocaleString()} BCE`;
+  return `${wholeYear.toLocaleString()} CE`;
 }
 
 export function canAfford(current: Resources, cost: Partial<Resources>, sandboxFree = false): boolean {
@@ -1100,7 +1102,7 @@ function transformSettlementEnvironment(
   if (villageBuildings.length === 0) return;
 
   const sampleBld =
-    villageBuildings[Math.floor(Math.abs(state.year) + villageBuildings.length * 7) % villageBuildings.length];
+    villageBuildings[Math.floor(Math.abs(state.year * 10) + villageBuildings.length * 7) % villageBuildings.length];
   if (!sampleBld || sampleBld.constructionProgress < 100) return;
 
   // 1. Era-driven road & high-tech terrain transformation around completed buildings
@@ -1112,7 +1114,7 @@ function transformSettlementEnvironment(
     [1, 1],
     [-1, -1],
   ];
-  const pickOff = offsets[Math.floor(Math.abs(state.year * 3) + sampleBld.tileX) % offsets.length];
+  const pickOff = offsets[Math.floor(Math.abs(state.year * 30) + sampleBld.tileX) % offsets.length];
   const adj = getTile(state, sampleBld.tileX + pickOff[0], sampleBld.tileZ + pickOff[1]);
   if (adj && adj.height > 0 && !adj.buildingId) {
     if (
@@ -1359,19 +1361,9 @@ export function stepSimulation(state: SimulationState, rawDt: number): void {
 function stepSimulationSingle(state: SimulationState, dt: number): void {
   if (dt <= 0) return;
 
-  // 1. Advance historical year based on epoch speed (only once mortals walk the earth)
+  // 1. Advance historical year at 1 year per 10 seconds on 1x speed (once mortals walk the earth)
   if (state.population > 0 || state.buildings.length > 0) {
-    const yearsPerSec =
-      state.epochIndex === 0
-        ? 120
-        : state.epochIndex === 1
-          ? 60
-          : state.epochIndex === 2
-            ? 15
-            : state.epochIndex === 3
-              ? 4
-              : 2;
-    state.year += yearsPerSec * dt;
+    state.year += YEARS_PER_SEC_AT_1X * dt;
   }
 
   if (state.goldenAgeTimer > 0) {
