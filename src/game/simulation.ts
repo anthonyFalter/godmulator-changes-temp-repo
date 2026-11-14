@@ -427,6 +427,17 @@ export function spawnUnit(
   return { ok: true, unit };
 }
 
+export function isCultivableSoil(t: TileData): boolean {
+  if (t.height <= 0 || t.height >= 6) return false;
+  if (t.onFireTimer > 0 || t.cursedTimer > 0) return false;
+  return (
+    t.terrain === 'grass' ||
+    t.terrain === 'fertile' ||
+    t.terrain === 'forest' ||
+    t.terrain === 'savanna'
+  );
+}
+
 export function applyTerrainTool(
   state: SimulationState,
   toolType: TerrainToolType,
@@ -443,11 +454,9 @@ export function applyTerrainTool(
   if (!state.sandboxFreeMode && state.resources.faith < def.faithCost) {
     return { ok: false, reason: 'Need more Faith to sculpt terrain' };
   }
-  if (!state.sandboxFreeMode) {
-    state.resources.faith = Math.max(0, state.resources.faith - def.faithCost);
-  }
 
   const targetFlattenHeight = Math.max(1, centerTile.height);
+  let modifiedCount = 0;
 
   for (let dz = -brushRadius; dz <= brushRadius; dz++) {
     for (let dx = -brushRadius; dx <= brushRadius; dx++) {
@@ -457,73 +466,152 @@ export function applyTerrainTool(
 
       switch (toolType) {
         case 'raise': {
-          t.height = Math.min(8, t.height + 1);
-          if (t.height >= 7) {
-            t.terrain = 'snow';
-          } else if (t.height >= 5) {
-            t.terrain = 'rock';
-          } else if (t.height >= 1 && (t.terrain === 'deep_water' || t.terrain === 'shallow_water')) {
-            t.terrain = 'grass';
+          modifiedCount++;
+          if (t.height === 0 && t.terrain === 'deep_water') {
+            t.terrain = 'shallow_water';
+          } else if (t.height === 0) {
+            t.height = 1;
+            t.terrain = 'sand';
+          } else {
+            t.height = Math.min(8, t.height + 1);
+            if (t.height >= 7) {
+              t.terrain = 'snow';
+              if (t.resourceNode === 'berry_bush' || t.resourceNode === 'timber_grove') {
+                t.resourceNode = 'none';
+                t.resourceAmount = 0;
+              }
+            } else if (t.height >= 5) {
+              if (t.terrain !== 'scorched' && t.terrain !== 'crystal_field') {
+                t.terrain = 'rock';
+              }
+              if (t.resourceNode === 'berry_bush') {
+                t.resourceNode = 'none';
+                t.resourceAmount = 0;
+              }
+            } else if (t.height >= 2 && t.terrain === 'sand') {
+              t.terrain = 'savanna';
+            }
           }
           break;
         }
         case 'lower': {
-          t.height = Math.max(0, t.height - 1);
+          modifiedCount++;
           if (t.height === 0) {
-            t.terrain = 'shallow_water';
-            t.resourceNode = 'none';
-            t.resourceAmount = 0;
+            if (t.terrain !== 'deep_water') {
+              t.terrain = 'deep_water';
+            }
+          } else {
+            t.height = Math.max(0, t.height - 1);
+            if (t.height === 0) {
+              t.terrain = 'shallow_water';
+              t.resourceNode = 'none';
+              t.resourceAmount = 0;
+              t.onFireTimer = 0;
+            } else if (t.height <= 6 && t.terrain === 'snow') {
+              t.terrain = 'rock';
+            } else if (t.height <= 4 && t.terrain === 'rock') {
+              t.terrain = 'savanna';
+            }
           }
           break;
         }
         case 'flatten': {
-          t.height = targetFlattenHeight;
-          if (t.height > 0 && (t.terrain === 'deep_water' || t.terrain === 'shallow_water')) {
-            t.terrain = 'grass';
+          if (t.height === 0 && centerTile.height > 0) {
+            if (t.terrain === 'shallow_water') {
+              t.height = 1;
+              t.terrain = 'sand';
+              modifiedCount++;
+            }
+          } else if (t.height > 0) {
+            t.height = targetFlattenHeight;
+            if (t.height >= 7) t.terrain = 'snow';
+            else if (t.height >= 5 && t.terrain !== 'scorched') t.terrain = 'rock';
+            else if (t.height < 5 && (t.terrain === 'snow' || t.terrain === 'rock')) t.terrain = 'savanna';
+            modifiedCount++;
           }
           break;
         }
         case 'stone_road': {
-          if (t.height === 0) t.height = 1;
-          t.terrain = 'stone_road';
+          // Only pave on solid land above water
+          if (t.height > 0) {
+            t.terrain = 'stone_road';
+            if (!t.buildingId && (t.resourceNode === 'berry_bush' || t.resourceNode === 'timber_grove')) {
+              t.resourceNode = 'none';
+              t.resourceAmount = 0;
+            }
+            modifiedCount++;
+          }
           break;
         }
         case 'fertile_meadow': {
-          if (t.height === 0) t.height = 1;
-          t.terrain = 'fertile';
-          if (!t.buildingId) {
-            t.resourceNode = 'berry_bush';
-            t.resourceAmount = 220;
+          // Only cultivate living, non-dead soil (never on scorched ash, bare rock, snow, sand, swamp, or water)
+          if (isCultivableSoil(t)) {
+            t.terrain = 'fertile';
+            if (!t.buildingId) {
+              t.resourceNode = 'berry_bush';
+              t.resourceAmount = 220;
+            }
+            modifiedCount++;
           }
           break;
         }
         case 'plant_forest': {
-          if (t.height === 0) t.height = 1;
-          t.terrain = 'forest';
-          if (!t.buildingId) {
-            t.resourceNode = 'timber_grove';
-            t.resourceAmount = 260;
+          // Only plant trees on living, cultivable land (never on scorched dead earth, rock, snow, sand, swamp, or water)
+          if (isCultivableSoil(t)) {
+            t.terrain = 'forest';
+            if (!t.buildingId) {
+              t.resourceNode = 'timber_grove';
+              t.resourceAmount = 260;
+            }
+            modifiedCount++;
           }
           break;
         }
         case 'seed_ore': {
-          if (t.height === 0) t.height = 2;
-          t.terrain = 'rock';
-          if (!t.buildingId) {
-            t.resourceNode = (t.x + t.z) % 3 === 0 ? 'crystal_monolith' : 'ore_vein';
-            t.resourceAmount = 350;
+          if (t.height > 0) {
+            if (t.terrain !== 'scorched' && t.terrain !== 'snow') {
+              t.terrain = 'rock';
+            }
+            if (!t.buildingId) {
+              t.resourceNode = (t.x + t.z) % 3 === 0 ? 'crystal_monolith' : 'ore_vein';
+              t.resourceAmount = 350;
+            }
+            modifiedCount++;
           }
           break;
         }
         case 'carve_river': {
-          t.height = 0;
-          t.terrain = 'shallow_water';
-          t.resourceNode = 'none';
-          t.resourceAmount = 0;
+          modifiedCount++;
+          if (t.height >= 3) {
+            t.height = Math.max(1, t.height - 2);
+            if (t.terrain === 'snow' || t.terrain === 'rock') t.terrain = 'rock';
+          } else if (t.height > 0) {
+            t.height = 0;
+            t.terrain = 'shallow_water';
+            t.resourceNode = 'none';
+            t.resourceAmount = 0;
+            t.onFireTimer = 0;
+          } else {
+            t.terrain = 'deep_water';
+          }
           break;
         }
       }
     }
+  }
+
+  if (modifiedCount === 0) {
+    if (toolType === 'plant_forest' || toolType === 'fertile_meadow') {
+      return {
+        ok: false,
+        reason: 'Cannot cultivate dead or barren land — revive soil with Rain or Bless first!',
+      };
+    }
+    return { ok: false, reason: 'Cannot apply tool on this terrain' };
+  }
+
+  if (!state.sandboxFreeMode) {
+    state.resources.faith = Math.max(0, state.resources.faith - def.faithCost);
   }
 
   state.pendingVfx.push({
@@ -652,12 +740,13 @@ export function executeGodPowerImpact(
           t.onFireTimer = 0;
           t.cursedTimer = 0;
           t.blessedTimer = 25;
-          if (t.terrain === 'scorched') {
+          const wasScorched = t.terrain === 'scorched';
+          if (wasScorched) {
             t.terrain = 'grass';
           } else if ((t.terrain === 'sand' || t.terrain === 'savanna') && dSq <= rSq * 0.75) {
             t.terrain = dSq <= rSq * 0.3 ? 'fertile' : 'grass';
           }
-          if (!t.buildingId) {
+          if (!t.buildingId && !wasScorched) {
             if (t.resourceNode === 'berry_bush' || t.resourceNode === 'timber_grove') {
               t.resourceAmount = Math.min(420, t.resourceAmount + 130);
             } else if (
@@ -666,7 +755,7 @@ export function executeGodPowerImpact(
               (t.terrain === 'grass' || t.terrain === 'fertile') &&
               ((t.x * 31 + t.z * 17 + Math.round(state.year * 10)) & 7) === 0
             ) {
-              // Sparse natural sprouts on bare soil — no wall-to-wall tree spam
+              // Sparse natural sprouts on bare living soil — no wall-to-wall tree spam
               t.terrain = 'fertile';
               t.resourceNode = 'berry_bush';
               t.resourceAmount = 200;
@@ -867,12 +956,13 @@ export function executeGodPowerImpact(
           t.cursedTimer = 30;
           t.blessedTimer = 0;
           if (!t.buildingId) {
-            if (dSq <= 4.5) {
-              t.terrain = 'scorched';
-            } else if (dSq <= rSq * 0.58) {
-              t.terrain = 'swamp';
-            } else if (t.terrain === 'fertile' || t.terrain === 'grass' || t.terrain === 'forest') {
-              t.terrain = 'savanna';
+            // Dynamic degradation based on existing biome instead of overwriting rock/snow into mud
+            if (t.terrain === 'fertile' || t.terrain === 'forest') {
+              t.terrain = dSq <= rSq * 0.45 ? 'swamp' : 'savanna';
+            } else if (t.terrain === 'grass') {
+              t.terrain = dSq <= 4.5 ? 'scorched' : dSq <= rSq * 0.6 ? 'swamp' : 'savanna';
+            } else if (t.terrain === 'savanna' || t.terrain === 'sand') {
+              t.terrain = dSq <= rSq * 0.5 ? 'scorched' : 'sand';
             }
           }
           if (t.resourceNode === 'berry_bush' || t.resourceNode === 'timber_grove') {
@@ -911,8 +1001,12 @@ export function executeGodPowerImpact(
         const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
         if (dSq <= rSq && t.height > 0) {
           t.cursedTimer = 20;
-          if (!t.buildingId && dSq <= rSq * 0.65 && (t.terrain === 'grass' || t.terrain === 'fertile')) {
-            t.terrain = 'swamp';
+          if (!t.buildingId && dSq <= rSq * 0.65) {
+            if (t.terrain === 'fertile' || t.terrain === 'grass' || t.terrain === 'forest') {
+              t.terrain = 'swamp';
+            } else if (t.terrain === 'savanna') {
+              t.terrain = dSq <= rSq * 0.3 ? 'swamp' : 'sand';
+            }
           }
           if (t.resourceNode === 'berry_bush') {
             t.resourceAmount = Math.floor(t.resourceAmount * 0.35);
@@ -926,21 +1020,27 @@ export function executeGodPowerImpact(
 
     case 'lightning_smite': {
       isHeavy = true;
+      const isWaterStrike =
+        !centerTile ||
+        centerTile.height === 0 ||
+        centerTile.terrain === 'deep_water' ||
+        centerTile.terrain === 'shallow_water';
+      const effectiveRSq = isWaterStrike ? (r * 1.45) ** 2 : rSq;
+
       for (const u of state.units) {
         const dSq = (u.x - targetX) ** 2 + (u.z - targetZ) ** 2;
-        if (dSq <= rSq && u.state !== 'ko') {
+        if (dSq <= effectiveRSq && u.state !== 'ko') {
           if (u.faction === 'hostile') {
             u.hp = 0;
             u.state = 'ko';
             u.koTimer = 0.45;
             state.totalRaidersDefeated += 1;
           } else if (!u.statusEffects.shielded) {
-            u.hp = Math.max(0, u.hp - 95);
+            u.hp = Math.max(0, u.hp - (isWaterStrike ? 115 : 95));
             if (u.hp <= 0) {
               u.state = 'ko';
               u.koTimer = 0.45;
             } else {
-              // High-voltage radial knockback
               const dist = Math.max(0.25, Math.sqrt(dSq));
               u.x = Math.max(1, Math.min(state.gridSize - 2, u.x + ((u.x - targetX) / dist) * 2.4));
               u.z = Math.max(1, Math.min(state.gridSize - 2, u.z + ((u.z - targetZ) / dist) * 2.4));
@@ -960,8 +1060,19 @@ export function executeGodPowerImpact(
           if (dSq <= 2.2 && t.height >= 2 && !t.buildingId) {
             t.height = Math.max(1, t.height - 1);
           }
-          t.terrain = t.terrain === 'sand' ? 'crystal_field' : 'scorched';
-          t.onFireTimer = dSq <= 0.5 ? 5 : 0;
+          // Sand fuses into fulgurite crystal_field; snow melts to rock; vegetation chars to scorched
+          if (t.terrain === 'sand') {
+            t.terrain = 'crystal_field';
+            if (!t.buildingId && dSq <= 1.2) {
+              t.resourceNode = 'crystal_monolith';
+              t.resourceAmount = 320;
+            }
+          } else if (t.terrain === 'snow') {
+            t.terrain = 'rock';
+          } else {
+            t.terrain = 'scorched';
+          }
+          t.onFireTimer = dSq <= 0.5 && t.terrain !== 'rock' ? 5 : 0;
           if (!t.buildingId && t.resourceNode === 'timber_grove') {
             t.resourceNode = 'none';
             t.resourceAmount = 0;
@@ -969,7 +1080,9 @@ export function executeGodPowerImpact(
           }
         } else if (dSq <= rSq && t.height > 0) {
           if (dSq <= 10.5 && !t.buildingId) {
-            t.terrain = t.terrain === 'sand' ? 'crystal_field' : 'scorched';
+            if (t.terrain === 'sand') t.terrain = 'crystal_field';
+            else if (t.terrain === 'snow') t.terrain = 'rock';
+            else t.terrain = 'scorched';
             if (t.resourceNode === 'timber_grove') {
               t.resourceNode = 'none';
               t.resourceAmount = 0;
@@ -989,24 +1102,140 @@ export function executeGodPowerImpact(
           }
         }
       }
-      addChronicle(state, 'Chain Lightning shattered the earth, blasting targets and igniting fires!', 'warning');
+      addChronicle(
+        state,
+        isWaterStrike
+          ? 'Chain Lightning electrified the sea across an expanded conductive radius!'
+          : 'Chain Lightning shattered the earth, blasting targets and igniting fires!',
+        'warning',
+      );
       break;
     }
 
     case 'meteor_strike': {
       isHeavy = true;
-      const baseH = centerTile ? Math.max(2, centerTile.height) : 3;
+      const isWaterImpact =
+        !centerTile ||
+        centerTile.height === 0 ||
+        centerTile.terrain === 'deep_water' ||
+        centerTile.terrain === 'shallow_water';
+
+      if (isWaterImpact) {
+        // OCEAN / WATER ASTEROID IMPACT: Never creates new land! Deepens impact trench & unleashes a massive Tsunami wave scaled to asteroid size
+        const tsunamiMaxRadius = r * 3.8; // ~23.5 tiles reach for r=6.2
+        state.activeHazards.push({
+          id: nextEntityId('haz'),
+          kind: 'tsunami_wave',
+          x: targetX,
+          z: targetZ,
+          currentRadius: 1.2,
+          maxRadius: tsunamiMaxRadius,
+          radius: r,
+          remaining: 4.5,
+          duration: 4.5,
+          tickTimer: 0,
+        });
+
+        // Deepen shallow water in the impact core to deep_water & flood/erode immediate shoreline
+        for (const t of state.tiles) {
+          const dx = t.x - targetX;
+          const dz = t.z - targetZ;
+          const dSq = dx * dx + dz * dz;
+          if (dSq <= (r * 1.55) ** 2) {
+            t.onFireTimer = 0;
+            t.cursedTimer = 0;
+            if (t.height === 0) {
+              if (dSq <= rSq * 0.85) {
+                t.terrain = 'deep_water';
+              }
+            } else if (t.height === 1) {
+              // Low shoreline right next to ocean asteroid impact is submerged or washed into wet sand
+              if (!t.buildingId && dSq <= (r * 1.15) ** 2) {
+                t.height = 0;
+                t.terrain = 'shallow_water';
+                t.resourceNode = 'none';
+                t.resourceAmount = 0;
+              } else {
+                t.terrain = 'sand';
+                if (t.resourceNode === 'berry_bush' || t.resourceNode === 'timber_grove') {
+                  t.resourceNode = 'none';
+                  t.resourceAmount = 0;
+                }
+              }
+            } else if (t.height === 2 && dSq <= (r * 1.35) ** 2) {
+              if (!t.buildingId && dSq <= (r * 0.95) ** 2) {
+                t.height = 1;
+                t.terrain = 'sand';
+              } else if (t.terrain !== 'rock' && t.terrain !== 'snow') {
+                t.terrain = 'swamp';
+              }
+              if (t.resourceNode === 'berry_bush' || t.resourceNode === 'timber_grove') {
+                t.resourceNode = 'none';
+                t.resourceAmount = 0;
+              }
+            }
+          }
+        }
+
+        // Immediate inner blast wave on naval/coastal units & buildings
+        for (const b of state.buildings) {
+          const dSq = (b.tileX - targetX) ** 2 + (b.tileZ - targetZ) ** 2;
+          if (dSq <= (r * 1.45) ** 2 && b.shieldTimer <= 0) {
+            b.hp = Math.max(0, b.hp - 160);
+          }
+        }
+        for (const u of state.units) {
+          const dSq = (u.x - targetX) ** 2 + (u.z - targetZ) ** 2;
+          if (dSq <= (r * 1.6) ** 2 && u.state !== 'ko' && !u.statusEffects.shielded) {
+            u.hp = Math.max(0, u.hp - 110);
+            if (u.hp <= 0) {
+              u.state = 'ko';
+              u.koTimer = 0.5;
+              if (u.faction === 'hostile') state.totalRaidersDefeated += 1;
+            } else {
+              const dist = Math.max(0.3, Math.sqrt(dSq));
+              u.x = Math.max(1, Math.min(state.gridSize - 2, u.x + ((u.x - targetX) / dist) * 5.0));
+              u.z = Math.max(1, Math.min(state.gridSize - 2, u.z + ((u.z - targetZ) / dist) * 5.0));
+            }
+          }
+        }
+
+        addChronicle(
+          state,
+          'Asteroid plunged into the sea, unleashing a colossal Tsunami wave across the coastlines!',
+          'warning',
+        );
+        break;
+      }
+
+      // LAND ASTEROID IMPACT: Carves crater relative to existing land elevation without turning ocean tiles into land
+      const baseH = Math.max(2, centerTile.height);
+      let waterTilesInRadius = 0;
+      let waterSumX = 0;
+      let waterSumZ = 0;
       for (const t of state.tiles) {
         const dx = t.x - targetX;
         const dz = t.z - targetZ;
         const dSq = dx * dx + dz * dz;
         if (dSq <= rSq) {
+          if (t.height === 0) {
+            // Water tiles stay water (never raise land in water!)
+            waterTilesInRadius++;
+            waterSumX += t.x;
+            waterSumZ += t.z;
+            t.terrain = dSq <= 12.0 ? 'deep_water' : 'shallow_water';
+            t.onFireTimer = 0;
+            continue;
+          }
+
+          const tileH = Math.max(1, t.height);
+          const wasSand = t.terrain === 'sand';
           const angleNoise = ((((t.x * 73856093) ^ (t.z * 19349663)) & 255) / 255.0 - 0.5) * 0.85;
           const effDSq = dSq + angleNoise;
 
           if (dSq <= 4.2) {
             // 1. Deep circular molten impact pit (height - 2)
-            t.height = Math.max(1, baseH - 2);
+            t.height = Math.max(1, Math.min(baseH, tileH) - 2);
             t.terrain = 'scorched';
             if (dx === 0 && dz === 0) {
               t.onFireTimer = 5;
@@ -1023,26 +1252,27 @@ export function executeGodPowerImpact(
             }
           } else if (effDSq <= 13.5) {
             // 2. Clean circular stepped inner crater bowl (height - 1, charred volcanic obsidian & magma cracks)
-            t.height = Math.max(1, baseH - 1);
+            t.height = Math.max(1, Math.min(baseH, tileH) - 1);
             t.terrain = 'scorched';
             t.onFireTimer = 0;
             if (!t.buildingId) {
               t.resourceNode = 'none';
               t.resourceAmount = 0;
             }
-          } else if (effDSq <= 23.5 && t.height > 0 && !t.buildingId) {
+          } else if (effDSq <= 23.5 && !t.buildingId) {
             // 3. Continuous 360-degree circular raised rocky crater rim (height + 1)
-            t.height = Math.min(8, baseH + 1);
-            t.terrain = effDSq <= 19.2 ? 'rock' : 'scorched';
+            t.height = Math.min(8, tileH + 1);
+            // Desert sand fuses into glassy crystal_field on the rim; normal earth upheaves rock
+            t.terrain = effDSq <= 19.2 ? (wasSand ? 'crystal_field' : 'rock') : 'scorched';
             t.onFireTimer = 0;
             if (t.resourceNode === 'timber_grove' || t.resourceNode === 'berry_bush') {
               t.resourceNode = 'none';
               t.resourceAmount = 0;
             } else if (t.resourceNode === 'none' && ((t.x * 11 + t.z * 7) % 10 === 0)) {
-              t.resourceNode = 'stone_outcrop';
+              t.resourceNode = wasSand ? 'crystal_monolith' : 'stone_outcrop';
               t.resourceAmount = 260;
             }
-          } else if (t.height > 0 && !t.buildingId) {
+          } else if (!t.buildingId) {
             // 4. Outer scorched blast ring with sparse peripheral brushfires
             t.terrain = 'scorched';
             if (t.resourceNode === 'timber_grove' || t.resourceNode === 'berry_bush') {
@@ -1057,6 +1287,25 @@ export function executeGodPowerImpact(
           }
         }
       }
+
+      // If the land impact hit right on a coastline with water nearby, also trigger a coastal tsunami wave from the water center
+      if (waterTilesInRadius >= 6) {
+        const waveOriginX = Math.round(waterSumX / waterTilesInRadius);
+        const waveOriginZ = Math.round(waterSumZ / waterTilesInRadius);
+        state.activeHazards.push({
+          id: nextEntityId('haz'),
+          kind: 'tsunami_wave',
+          x: waveOriginX,
+          z: waveOriginZ,
+          currentRadius: 1.5,
+          maxRadius: r * 3.2,
+          radius: r,
+          remaining: 3.8,
+          duration: 3.8,
+          tickTimer: 0,
+        });
+      }
+
       for (const b of state.buildings) {
         const dSq = (b.tileX - targetX) ** 2 + (b.tileZ - targetZ) ** 2;
         if (dSq <= rSq && b.shieldTimer <= 0) {
@@ -1087,28 +1336,68 @@ export function executeGodPowerImpact(
 
     case 'terraform_beam': {
       isHeavy = true;
-      const targetH = centerTile ? Math.max(2, Math.min(6, (centerTile.height || 2) + 1)) : 3;
-      for (const t of state.tiles) {
-        const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
-        if (dSq <= rSq) {
-          t.height = dSq <= rSq * 0.65 ? targetH : Math.max(1, targetH - 1);
-          t.onFireTimer = 0;
-          t.cursedTimer = 0;
-          t.blessedTimer = 30;
-          if (!t.buildingId) {
-            if (state.epochIndex >= 5) {
-              t.terrain = 'crystal_field';
-            } else if (dSq <= 3.5) {
-              t.terrain = 'stone_road';
-            } else if (dSq > rSq * 0.55) {
-              t.terrain = 'fertile';
-            } else {
-              t.terrain = 'grass';
+      const isWaterTarget =
+        !centerTile ||
+        centerTile.height === 0 ||
+        centerTile.terrain === 'deep_water' ||
+        centerTile.terrain === 'shallow_water';
+
+      if (isWaterTarget) {
+        // Oceanic Terraform: Raises a natural volcanic/coral island atoll from the sea floor
+        for (const t of state.tiles) {
+          const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
+          if (dSq <= rSq) {
+            t.onFireTimer = 0;
+            t.cursedTimer = 0;
+            t.blessedTimer = 30;
+            if (dSq <= rSq * 0.38) {
+              t.height = Math.max(2, t.height);
+              t.terrain = state.epochIndex >= 5 ? 'crystal_field' : 'fertile';
+            } else if (dSq <= rSq * 0.72) {
+              t.height = Math.max(1, t.height);
+              t.terrain = t.height >= 2 ? 'grass' : 'sand';
+            } else if (t.height === 0) {
+              t.terrain = 'shallow_water';
             }
           }
         }
+        addChronicle(state, 'Orbital Terraform raised a lush sanctuary island atoll from the sea!', 'divine');
+      } else {
+        // Land Terraform: Dynamically terraces & upgrades existing land biomes without overwriting ocean water
+        const targetH = Math.max(2, Math.min(6, centerTile.height + 1));
+        for (const t of state.tiles) {
+          const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
+          if (dSq <= rSq) {
+            t.onFireTimer = 0;
+            t.cursedTimer = 0;
+            t.blessedTimer = 30;
+            if (t.height === 0) {
+              // Shallow coastal shoals without stamping hard land circles into the ocean
+              if (dSq <= rSq * 0.65 && t.terrain === 'deep_water') {
+                t.terrain = 'shallow_water';
+              }
+              continue;
+            }
+            t.height = dSq <= rSq * 0.62 ? targetH : Math.max(1, targetH - 1);
+            if (!t.buildingId) {
+              if (state.epochIndex >= 5 && dSq <= rSq * 0.5) {
+                t.terrain = 'crystal_field';
+              } else if (t.terrain === 'scorched') {
+                t.terrain = dSq <= rSq * 0.5 ? 'grass' : 'savanna';
+              } else if (t.terrain === 'sand' || t.terrain === 'swamp') {
+                t.terrain = dSq <= rSq * 0.55 ? 'fertile' : 'grass';
+              } else if (t.terrain === 'rock' || t.terrain === 'snow') {
+                t.terrain = t.height >= 5 ? 'rock' : 'grass';
+              } else if (t.terrain === 'savanna') {
+                t.terrain = 'grass';
+              } else if (t.terrain === 'grass' && dSq <= rSq * 0.65) {
+                t.terrain = 'fertile';
+              }
+            }
+          }
+        }
+        addChronicle(state, 'Orbital Terraform sculpted and revitalized the terrain into a stepped plateau!', 'divine');
       }
-      addChronicle(state, 'Orbital Terraform Beam sculpted a grand stepped citadel plateau!', 'divine');
       break;
     }
 
@@ -1976,6 +2265,136 @@ function stepSimulationSingle(state: SimulationState, dt: number): void {
         }
       }
     }
+
+    // Continuous radial expansion & coastal sweep for Tsunami waves (spawned when an Asteroid hits water)
+    if (haz.kind === 'tsunami_wave') {
+      const progress = Math.max(0, Math.min(1, 1 - haz.remaining / Math.max(0.1, haz.duration)));
+      const maxR = haz.maxRadius ?? haz.radius * 3.8;
+      const prevR = haz.currentRadius ?? 1.0;
+      // Fast initial surge that gradually decelerates at maximum reach
+      const nextR = 1.0 + (maxR - 1.0) * (1 - Math.pow(1 - progress, 1.65));
+      haz.currentRadius = nextR;
+
+      const innerBandSq = Math.max(0, prevR - 1.8) ** 2;
+      const outerBandSq = (nextR + 0.9) ** 2;
+
+      for (const t of state.tiles) {
+        const dx = t.x - haz.x;
+        const dz = t.z - haz.z;
+        const dSq = dx * dx + dz * dz;
+        if (dSq >= innerBandSq && dSq <= outerBandSq) {
+          t.onFireTimer = 0;
+          t.cursedTimer = 0;
+          if (t.height === 0) {
+            if (dSq <= (haz.radius * 1.15) ** 2) {
+              t.terrain = 'deep_water';
+            }
+          } else if (t.height === 1) {
+            // Tsunami wave crashes over low-lying coastal land (height 1)
+            if (!t.buildingId && dSq <= (haz.radius * 1.65) ** 2) {
+              // Submerge inner low shoreline into shallow sea
+              t.height = 0;
+              t.terrain = 'shallow_water';
+              t.resourceNode = 'none';
+              t.resourceAmount = 0;
+            } else if (!t.buildingId && dSq <= (haz.radius * 2.35) ** 2 && ((t.x * 13 + t.z * 7) & 3) === 0) {
+              // Carve tidal flood pools further along the low coast
+              t.height = 0;
+              t.terrain = 'shallow_water';
+              t.resourceNode = 'none';
+              t.resourceAmount = 0;
+            } else {
+              // Wash grass, forest, fertile meadows, roads, or scorched soil into wet coastal sand & marshland
+              if (t.terrain !== 'rock' && t.terrain !== 'snow' && t.terrain !== 'crystal_field') {
+                t.terrain = dSq <= (haz.radius * 2.55) ** 2 ? 'sand' : 'swamp';
+              }
+              if (t.resourceNode === 'berry_bush' || t.resourceNode === 'timber_grove') {
+                t.resourceNode = 'none';
+                t.resourceAmount = 0;
+              }
+            }
+          } else if (t.height === 2) {
+            // Towering tsunami wave surges onto mid-elevation coastal plains (height 2)
+            if (!t.buildingId && dSq <= (haz.radius * 1.25) ** 2) {
+              // Erode coastal bluffs down to beach level
+              t.height = 1;
+              t.terrain = 'sand';
+              if (t.resourceNode === 'berry_bush' || t.resourceNode === 'timber_grove') {
+                t.resourceNode = 'none';
+                t.resourceAmount = 0;
+              }
+            } else if (dSq <= (maxR * 0.9) ** 2) {
+              // Inundate grass, forest, fertile, savanna, roads, and scorched land into waterlogged swamp or sand
+              if (
+                t.terrain === 'grass' ||
+                t.terrain === 'fertile' ||
+                t.terrain === 'forest' ||
+                t.terrain === 'savanna' ||
+                t.terrain === 'scorched' ||
+                t.terrain === 'stone_road'
+              ) {
+                t.terrain = dSq <= (haz.radius * 1.8) ** 2 && ((t.x + t.z) & 1) === 0 ? 'sand' : 'swamp';
+              }
+              if (
+                t.resourceNode === 'berry_bush' ||
+                (t.resourceNode === 'timber_grove' && dSq <= (haz.radius * 2.45) ** 2)
+              ) {
+                t.resourceNode = 'none';
+                t.resourceAmount = 0;
+              }
+            }
+          } else if (t.height === 3 && dSq <= (maxR * 0.68) ** 2) {
+            // Heavy wave spray & run-up on height 3 coastal hills
+            if (
+              t.terrain === 'scorched' ||
+              t.terrain === 'savanna' ||
+              t.terrain === 'forest' ||
+              t.terrain === 'fertile'
+            ) {
+              t.terrain = dSq <= (haz.radius * 1.7) ** 2 ? 'swamp' : 'grass';
+            }
+            if (t.resourceNode === 'berry_bush' && dSq <= (haz.radius * 1.8) ** 2) {
+              t.resourceNode = 'none';
+              t.resourceAmount = 0;
+            }
+          }
+        }
+      }
+
+      // Sweep units outward along the tsunami wave front on water and low/mid land
+      for (const u of state.units) {
+        const dx = u.x - haz.x;
+        const dz = u.z - haz.z;
+        const dist = Math.hypot(dx, dz);
+        if (Math.abs(dist - nextR) <= 2.2 && dist > 0.2 && u.state !== 'ko' && !u.statusEffects.shielded) {
+          const uTile = getTile(state, Math.round(u.x), Math.round(u.z));
+          if (!uTile || uTile.height <= 3) {
+            const push = 7.5 * dt;
+            u.x = Math.max(1, Math.min(state.gridSize - 2, u.x + (dx / dist) * push));
+            u.z = Math.max(1, Math.min(state.gridSize - 2, u.z + (dz / dist) * push));
+            u.hp = Math.max(0, u.hp - 36 * dt);
+            if (u.hp <= 0) {
+              u.state = 'ko';
+              u.koTimer = 0.45;
+              if (u.faction === 'hostile') state.totalRaidersDefeated += 1;
+            }
+          }
+        }
+      }
+
+      // Flood surge damage to unshielded coastal buildings (height <= 3)
+      for (const b of state.buildings) {
+        const dist = Math.hypot(b.tileX - haz.x, b.tileZ - haz.z);
+        if (Math.abs(dist - nextR) <= 2.0 && b.shieldTimer <= 0) {
+          const bTile = getTile(state, b.tileX, b.tileZ);
+          if (!bTile || bTile.height <= 3) {
+            const dmgRate = !bTile || bTile.height <= 1 ? 85 : 55;
+            b.hp = Math.max(0, b.hp - dmgRate * dt);
+          }
+        }
+      }
+    }
+
     if (haz.remaining > 0) {
       remainingHazards.push(haz);
     }

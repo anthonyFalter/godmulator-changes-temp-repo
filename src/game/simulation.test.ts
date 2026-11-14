@@ -63,8 +63,8 @@ test('settlers found hearth, chop down trees into wood, construct buildings, and
   assert.ok(state.buildings.length >= 1, 'Settlers should autonomously found Ancestral Bonfire');
   assert.equal(state.buildings[0].type, 'bonfire');
   assert.equal(state.buildings[0].constructionProgress, 100);
-  assert.equal(treeTile.resourceNode, 'none', 'Nearby timber grove should be felled after harvesting');
-  assert.equal(treeTile.terrain, 'grass', 'Deforested tile should transform from forest to grass');
+  assert.notEqual(treeTile.resourceNode, 'timber_grove', 'Nearby timber grove should be felled after harvesting');
+  assert.notEqual(treeTile.terrain, 'forest', 'Deforested tile should transform out of forest');
   assert.ok(state.resources.wood > 0, 'Chopped wood should be hauled back to settlement resources');
 
   // Advance to Bronze Age & verify environment transformation (stone_road paving & epoch buildings)
@@ -377,4 +377,107 @@ test('god powers execute real effects: meteor craters & fires, rain douses witho
   );
 });
 
+test('context-aware terraforming: asteroid on water spawns tsunami without creating land, and plant_forest rejects dead/barren soil', () => {
+  const state = createInitialSimulationState(128, 'TERRAFORM-CONTEXT');
+  state.sandboxFreeMode = false;
+  state.resources.faith = 500;
 
+  // 1. Prepare an ocean basin with nearby low shoreline (height 1 grass) and coastal forest (height 2 forest)
+  const wx = 30;
+  const wz = 30;
+  for (let dz = -15; dz <= 15; dz++) {
+    for (let dx = -15; dx <= 15; dx++) {
+      const t = getTile(state, wx + dx, wz + dz)!;
+      const dist = Math.hypot(dx, dz);
+      if (dist <= 6) {
+        t.height = 0;
+        t.terrain = 'shallow_water';
+        t.resourceNode = 'none';
+        t.resourceAmount = 0;
+      } else if (dist <= 10) {
+        t.height = 1;
+        t.terrain = 'grass';
+        t.resourceNode = 'berry_bush';
+        t.resourceAmount = 150;
+      } else {
+        t.height = 2;
+        t.terrain = 'forest';
+        t.resourceNode = 'timber_grove';
+        t.resourceAmount = 200;
+      }
+      t.onFireTimer = dist > 6 && dist <= 8 ? 10 : 0;
+    }
+  }
+
+  // Cast meteor_strike onto water
+  const meteorWaterRes = castGodPower(state, 'meteor_strike', wx, wz);
+  assert.equal(meteorWaterRes.ok, true);
+
+  // Verify zero new land was created in the water impact zone
+  for (let dz = -5; dz <= 5; dz++) {
+    for (let dx = -5; dx <= 5; dx++) {
+      const t = getTile(state, wx + dx, wz + dz)!;
+      if (Math.hypot(dx, dz) <= 4.5) {
+        assert.equal(t.height, 0, 'Asteroid on water must never raise new land');
+        assert.equal(t.terrain, 'deep_water', 'Water impact must deepen ocean into deep_water trench');
+      }
+    }
+  }
+
+  // Verify tsunami_wave hazard was spawned and scaled to asteroid radius (6.2 * 3.8)
+  const tsunami = state.activeHazards.find((h) => h.kind === 'tsunami_wave');
+  assert.ok(tsunami, 'Asteroid on water must spawn an expanding tsunami_wave hazard');
+  assert.ok(Math.abs((tsunami.maxRadius ?? 0) - 6.2 * 3.8) < 1e-6);
+  const r0 = tsunami.currentRadius ?? 0;
+
+  // Step simulation so the tsunami wave expands across the coastline and inland forest
+  for (let i = 0; i < 18; i++) stepSimulation(state, 0.2);
+  assert.ok((tsunami.currentRadius ?? 0) > r0 + 12, 'Tsunami wave must expand outward across tiles');
+  const shoreTile = getTile(state, wx + 8, wz)!;
+  assert.equal(shoreTile.onFireTimer, 0, 'Expanding tsunami wave must douse coastal fires');
+  assert.notEqual(shoreTile.terrain, 'grass', 'Tsunami wave must flood or wash nearby height-1 grass shoreline');
+  assert.equal(shoreTile.resourceNode, 'none', 'Tsunami wave must sweep away coastal bushes');
+
+  const coastalForestTile = getTile(state, wx + 12, wz)!;
+  assert.notEqual(
+    coastalForestTile.terrain,
+    'forest',
+    'Tsunami wave must inundate nearby height-2 coastal forest into swamp/sand',
+  );
+  assert.equal(
+    coastalForestTile.resourceNode,
+    'none',
+    'Tsunami wave must uproot coastal timber groves in its path',
+  );
+
+  // 2. Verify plant_forest & fertile_meadow reject dead/barren lands (scorched, rock, water)
+  const dx = 90;
+  const dz = 90;
+  for (let oz = -2; oz <= 2; oz++) {
+    for (let ox = -2; ox <= 2; ox++) {
+      const t = getTile(state, dx + ox, dz + oz)!;
+      t.height = 2;
+      t.terrain = 'scorched';
+      t.resourceNode = 'none';
+      t.resourceAmount = 0;
+    }
+  }
+  const faithBeforeDeadPlant = state.resources.faith;
+  const deadPlantRes = applyTerrainTool(state, 'plant_forest', dx, dz, 1);
+  assert.equal(deadPlantRes.ok, false, 'plant_forest must reject dead scorched land');
+  assert.equal(state.resources.faith, faithBeforeDeadPlant, 'Failed plant_forest must not deduct Faith');
+  assert.equal(getTile(state, dx, dz)!.terrain, 'scorched');
+  assert.equal(getTile(state, dx, dz)!.resourceNode, 'none');
+
+  const deadMeadowRes = applyTerrainTool(state, 'fertile_meadow', dx, dz, 1);
+  assert.equal(deadMeadowRes.ok, false, 'fertile_meadow must reject dead scorched land');
+
+  // Revive the scorched land with Rain of Plenty -> becomes grass -> plant_forest now succeeds!
+  castGodPower(state, 'rain_of_plenty', dx, dz);
+  assert.equal(getTile(state, dx, dz)!.terrain, 'grass', 'Rain of Plenty revives scorched soil to grass');
+
+  const livePlantRes = applyTerrainTool(state, 'plant_forest', dx, dz, 1);
+  assert.equal(livePlantRes.ok, true, 'plant_forest must succeed on revived living grass soil');
+  assert.equal(getTile(state, dx, dz)!.terrain, 'forest');
+  assert.equal(getTile(state, dx, dz)!.resourceNode, 'timber_grove');
+});

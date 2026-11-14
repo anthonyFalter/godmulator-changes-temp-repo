@@ -252,7 +252,7 @@ export interface VisualEffectEvent {
 
 export interface ActiveHazardZone {
   id: string;
-  kind: 'rain_cloud' | 'plague_cloud' | 'shield_dome' | 'wormhole_rift';
+  kind: 'rain_cloud' | 'plague_cloud' | 'shield_dome' | 'wormhole_rift' | 'tsunami_wave';
   x: number;
   z: number;
   targetX?: number;
@@ -263,6 +263,8 @@ export interface ActiveHazardZone {
   arrivalDuration?: number;
   impactPending?: boolean;
   currentSpeed?: number;
+  currentRadius?: number;
+  maxRadius?: number;
   radius: number;
   remaining: number;
   duration: number;
