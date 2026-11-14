@@ -481,3 +481,59 @@ test('context-aware terraforming: asteroid on water spawns tsunami without creat
   assert.equal(getTile(state, dx, dz)!.terrain, 'forest');
   assert.equal(getTile(state, dx, dz)!.resourceNode, 'timber_grove');
 });
+
+test('black hole (wormhole_rift) pulls entities smoothly every frame along an inward spiral without teleporting or walking away', () => {
+  const state = createInitialSimulationState(128, 'BLACK-HOLE-SMOOTH');
+  state.sandboxFreeMode = true;
+  const bx = 64;
+  const bz = 64;
+  for (let dz = -10; dz <= 10; dz++) {
+    for (let dx = -10; dx <= 10; dx++) {
+      const t = getTile(state, bx + dx, bz + dz)!;
+      t.height = 2;
+      t.terrain = 'grass';
+      t.resourceNode = 'none';
+      t.resourceAmount = 0;
+    }
+  }
+
+  // Spawn a unit 5 tiles away from the black hole center and try to give it a distant walk target
+  const uRes = spawnUnit(state, 'human', bx + 5, bz);
+  assert.equal(uRes.ok, true);
+  const unit = uRes.unit!;
+  unit.x = bx + 5;
+  unit.z = bz;
+  unit.targetX = bx + 20;
+  unit.targetZ = bz + 20;
+  unit.state = 'moving';
+
+  const castRes = castGodPower(state, 'wormhole_ascension', bx, bz);
+  assert.equal(castRes.ok, true);
+
+  let prevDist = Math.hypot(unit.x - bx, unit.z - bz);
+  assert.equal(prevDist, 5);
+
+  // Step 25 frames at 0.05s (50ms) per frame and verify smooth, continuous inward pull on EVERY frame
+  for (let i = 0; i < 25; i++) {
+    const prevX = unit.x;
+    const prevZ = unit.z;
+    stepSimulation(state, 0.05);
+    const curDist = Math.hypot(unit.x - bx, unit.z - bz);
+    const frameStepDist = Math.hypot(unit.x - prevX, unit.z - prevZ);
+
+    assert.ok(
+      curDist < prevDist,
+      `Unit must move closer to black hole on every 50ms frame (frame ${i}: ${curDist} < ${prevDist})`,
+    );
+    assert.ok(
+      frameStepDist > 0.02 && frameStepDist < 0.85,
+      `Frame movement must be smooth and continuous, never teleporting (${frameStepDist})`,
+    );
+    prevDist = curDist;
+  }
+
+  // Verify the unit also spiraled tangentially (z changed from bz) and arrived near the Event Horizon core
+  assert.notEqual(unit.z, bz, 'Unit must spiral tangentially around the accretion disk as it is pulled in');
+  assert.ok(prevDist < 1.5, `Unit should be smoothly drawn close to the singularity core, got ${prevDist}`);
+});
+

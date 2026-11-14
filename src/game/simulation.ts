@@ -2249,17 +2249,50 @@ function stepSimulationSingle(state: SimulationState, dt: number): void {
             u.statusEffects.plagued = Math.max(u.statusEffects.plagued ?? 0, 16);
           }
         }
-      } else if (haz.kind === 'wormhole_rift') {
-        for (const u of state.units) {
-          const dx = haz.x - u.x;
-          const dz = haz.z - u.z;
-          const dSq = dx * dx + dz * dz;
-          if (dSq <= rSq && dSq > 0.25 && u.state !== 'ko' && !u.statusEffects.shielded) {
-            const dist = Math.sqrt(dSq);
-            u.x += (dx / dist) * 1.1;
-            u.z += (dz / dist) * 1.1;
+      }
+    }
+
+    // Continuous every-frame gravitational pull & orbital accretion spiral for Black Hole (wormhole_rift)
+    if (haz.kind === 'wormhole_rift') {
+      const pullRadius = haz.radius * 1.65;
+      const captureRadius = haz.radius * 1.45;
+      for (const u of state.units) {
+        if (u.state === 'ko' || u.statusEffects.shielded) continue;
+        const dx = u.x - haz.x;
+        const dz = u.z - haz.z;
+        const dist = Math.hypot(dx, dz);
+        if (dist <= pullRadius) {
+          const normDist = Math.min(1, dist / pullRadius);
+          const gravityStrength = 1.0 + Math.pow(1 - normDist, 1.5) * 2.6;
+          const inwardSpeed = 1.45 * gravityStrength;
+          const orbitLinearSpeed = 1.25 + (1 - normDist) * 2.2;
+
+          const curAngle = Math.atan2(dz, dx);
+          const nextDist = Math.max(0.24, dist - inwardSpeed * dt);
+          const angularSpeed = orbitLinearSpeed / Math.max(0.35, nextDist);
+          const nextAngle = curAngle + angularSpeed * dt;
+
+          u.x = Math.max(1, Math.min(state.gridSize - 2, haz.x + Math.cos(nextAngle) * nextDist));
+          u.z = Math.max(1, Math.min(state.gridSize - 2, haz.z + Math.sin(nextAngle) * nextDist));
+
+          if (dist <= captureRadius) {
+            // Lock unit gaze & state toward the singularity so walking AI never fights the gravity well
+            u.targetX = haz.x;
+            u.targetZ = haz.z;
+            u.state = 'moving';
+          }
+
+          // Tidal crushing damage to hostiles near Event Horizon; cosmic blessing for civilization units
+          if (dist <= 2.5) {
             if (u.faction === 'hostile') {
-              u.hp -= 12;
+              u.hp = Math.max(0, u.hp - 36 * dt);
+              if (u.hp <= 0) {
+                u.state = 'ko';
+                u.koTimer = 0.45;
+                state.totalRaidersDefeated += 1;
+              }
+            } else {
+              u.statusEffects.blessed = Math.max(u.statusEffects.blessed ?? 0, 25);
             }
           }
         }
@@ -2517,10 +2550,19 @@ function stepSimulationSingle(state: SimulationState, dt: number): void {
 
     if (u.actionCooldown > 0) u.actionCooldown = Math.max(0, u.actionCooldown - dt);
 
-    if (u.faction === 'hostile') {
-      stepHostileUnitAI(state, u, def, moveSpeed, dt);
-    } else {
-      stepCivilianUnitAI(state, u, def, moveSpeed, dt);
+    // If unit is captured inside a Black Hole (wormhole_rift) gravity well, suppress normal walking AI so it spirals smoothly without walking away
+    const capturedByBlackHole =
+      !u.statusEffects.shielded &&
+      (state.activeHazards ?? []).some(
+        (h) => h.kind === 'wormhole_rift' && Math.hypot(u.x - h.x, u.z - h.z) <= h.radius * 1.45,
+      );
+
+    if (!capturedByBlackHole) {
+      if (u.faction === 'hostile') {
+        stepHostileUnitAI(state, u, def, moveSpeed, dt);
+      } else {
+        stepCivilianUnitAI(state, u, def, moveSpeed, dt);
+      }
     }
 
     remainingUnits.push(u);

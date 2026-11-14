@@ -475,6 +475,45 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       }
     }
 
+    function spawnInwardPullParticles(
+      cx: number,
+      cy: number,
+      cz: number,
+      count: number,
+      hexColor: string,
+      outerRadius = 6.5,
+      sizeMult = 0.95,
+    ) {
+      const baseCol = new THREE.Color(hexColor);
+      for (let i = 0; i < count; i++) {
+        const p = particles[particleHead];
+        particleHead = (particleHead + 1) % MAX_PARTICLES;
+        p.active = true;
+        const angle = Math.random() * Math.PI * 2;
+        const r = outerRadius * (0.45 + Math.random() * 0.55);
+        const sx = cx + Math.cos(angle) * r;
+        const sy = cy + 0.1 + Math.random() * 0.9;
+        const sz = cz + Math.sin(angle) * r;
+        p.x = sx;
+        p.y = sy;
+        p.z = sz;
+        const travelTime = 0.48 + Math.random() * 0.32;
+        // Aim velocity inward + tangential swirl so particles visibly spiral into the singularity core at (cx, cy + 1.8, cz)
+        const rx = (cx - sx) / travelTime;
+        const rz = (cz - sz) / travelTime;
+        const tx = -Math.sin(angle) * 2.8;
+        const tz = Math.cos(angle) * 2.8;
+        p.vx = rx + tx;
+        p.vy = (cy + 1.8 - sy) / travelTime;
+        p.vz = rz + tz;
+        p.gravity = 0;
+        p.maxLife = travelTime;
+        p.life = travelTime;
+        p.size = (0.75 + Math.random() * 0.95) * sizeMult;
+        p.color.copy(baseCol).offsetHSL((Math.random() - 0.5) * 0.08, 0, (Math.random() - 0.5) * 0.2);
+      }
+    }
+
     // Active Tile Fire Flames & Smoke Plumes (Zero-GC InstancedMesh for burning tiles)
     const MAX_FIRE_TILES = 320;
     const fireOuterGeo = new THREE.BoxGeometry(0.28, 0.68, 0.28);
@@ -529,6 +568,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       phase: number;
     }
 
+    interface VortexMote {
+      mesh: THREE.Mesh;
+      baseAngle: number;
+      phase: number;
+      speed: number;
+    }
+
     interface HazardVisual {
       kind: 'rain_cloud' | 'plague_cloud' | 'shield_dome' | 'wormhole_rift' | 'tsunami_wave';
       group: THREE.Group;
@@ -536,6 +582,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       drops?: { mesh: THREE.Mesh; offsetY: number; speed: number; baseX: number; baseZ: number }[];
       spores?: { mesh: THREE.Mesh; angle: number; dist: number; phase: number; height: number }[];
       waveSegments?: TsunamiWaveSegment[];
+      gravityRings?: THREE.Mesh[];
+      vortexMotes?: VortexMote[];
       ringMesh?: THREE.Mesh;
       secondaryRingMesh?: THREE.Mesh;
       waveWallMesh?: THREE.Mesh;
@@ -774,7 +822,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         return { kind, group, materials, waveSegments };
       }
 
-      // wormhole_rift — spinning black hole event horizon + twin gyroscopic accretion rings + cosmic beam
+      // wormhole_rift — spinning black hole event horizon + contracting gravity-well funnel rings + inward-spiraling accretion shards
       const ringMat = new THREE.MeshBasicMaterial({
         color: 0xc77dff,
         transparent: true,
@@ -786,9 +834,49 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         opacity: 0.9,
       });
       const coreMat = new THREE.MeshBasicMaterial({
-        color: 0x10002b,
+        color: 0x070012,
       });
-      materials.push(ringMat, cyanRingMat, coreMat);
+      const gravRingMat1 = new THREE.MeshBasicMaterial({
+        color: 0x9d4edd,
+        transparent: true,
+        opacity: 0.75,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
+      const gravRingMat2 = new THREE.MeshBasicMaterial({
+        color: 0x56cfe1,
+        transparent: true,
+        opacity: 0.75,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
+      const gravRingMat3 = new THREE.MeshBasicMaterial({
+        color: 0xe0aaff,
+        transparent: true,
+        opacity: 0.75,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
+      const motePurpleMat = new THREE.MeshBasicMaterial({
+        color: 0xe0aaff,
+        transparent: true,
+        opacity: 0.92,
+      });
+      const moteCyanMat = new THREE.MeshBasicMaterial({
+        color: 0x72efdd,
+        transparent: true,
+        opacity: 0.92,
+      });
+      materials.push(
+        ringMat,
+        cyanRingMat,
+        coreMat,
+        gravRingMat1,
+        gravRingMat2,
+        gravRingMat3,
+        motePurpleMat,
+        moteCyanMat,
+      );
 
       const torus1 = new THREE.Mesh(sharedRiftTorusGeo, ringMat);
       torus1.position.y = 1.8;
@@ -803,8 +891,42 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
       const core = new THREE.Mesh(sharedRiftCoreGeo, coreMat);
       core.position.y = 1.8;
+      core.scale.setScalar(1.08);
       group.add(core);
-      return { kind, group, materials, ringMesh: torus1, secondaryRingMesh: torus2 };
+
+      // 3 Concentric Gravity-Well Rings that continuously contract inward from the outer pull radius into the core
+      const gravMats = [gravRingMat1, gravRingMat2, gravRingMat3];
+      const gravityRings: THREE.Mesh[] = [];
+      for (let i = 0; i < 3; i++) {
+        const gRing = new THREE.Mesh(sharedHazRingGeo, gravMats[i]);
+        gRing.position.y = 0.15;
+        group.add(gRing);
+        gravityRings.push(gRing);
+      }
+
+      // 24 Inward-Spiraling Accretion Shards sucked from the ground perimeter up into the Event Horizon
+      const vortexMotes: VortexMote[] = [];
+      for (let i = 0; i < 24; i++) {
+        const m = new THREE.Mesh(sharedHazSphereGeo, i % 2 === 0 ? motePurpleMat : moteCyanMat);
+        m.scale.setScalar(0.28);
+        group.add(m);
+        vortexMotes.push({
+          mesh: m,
+          baseAngle: (i / 24) * Math.PI * 2,
+          phase: (i / 24) + (i % 5) * 0.07,
+          speed: 0.65 + (i % 4) * 0.14,
+        });
+      }
+
+      return {
+        kind,
+        group,
+        materials,
+        ringMesh: torus1,
+        secondaryRingMesh: torus2,
+        gravityRings,
+        vortexMotes,
+      };
     }
 
     // One-shot Animated Power VFX (Sculpted Craggy Asteroid dive + fireball dome, Multi-fork Lightning, Orbital Beams, Shockwaves)
@@ -2410,6 +2532,26 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         const tile = simState.tiles[tz * simState.gridSize + tx];
         const groundY = tile ? Math.max(0.18, tile.height * HEIGHT_STEP + 0.25) : 0.5;
 
+        // Check if unit is being pulled by an active Black Hole (wormhole_rift) for 3D levitation & vortex spiral tilt
+        let blackHolePullFrac = 0;
+        let blackHoleAngle = 0;
+        if (!u.statusEffects.shielded && simState.activeHazards) {
+          for (let hi = 0; hi < simState.activeHazards.length; hi++) {
+            const hz = simState.activeHazards[hi];
+            if (hz.kind === 'wormhole_rift') {
+              const pullR = hz.radius * 1.65;
+              const d = Math.hypot(u.x - hz.x, u.z - hz.z);
+              if (d <= pullR) {
+                const frac = Math.max(0, Math.min(1, 1 - d / pullR));
+                if (frac > blackHolePullFrac) {
+                  blackHolePullFrac = frac;
+                  blackHoleAngle = Math.atan2(hz.z - u.z, hz.x - u.x);
+                }
+              }
+            }
+          }
+        }
+
         const isMoving = u.state === 'moving';
         const isWorking =
           u.state === 'gathering' || u.state === 'building' || u.state === 'fighting';
@@ -2418,22 +2560,39 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           : isWorking
             ? Math.abs(Math.sin(elapsed * 14 + u.z * 2)) * 0.04
             : 0;
-        uGroup.position.set(u.x, groundY + walkBob, u.z);
+        const levitateY =
+          blackHolePullFrac > 0
+            ? Math.pow(blackHolePullFrac, 1.3) * 1.65 +
+              Math.sin(elapsed * 9 + u.x * 2) * 0.12 * blackHolePullFrac
+            : 0;
+        uGroup.position.set(u.x, groundY + walkBob * (1 - blackHolePullFrac) + levitateY, u.z);
 
-        // Face movement/target direction
-        const dx = u.targetX - u.x;
-        const dz = u.targetZ - u.z;
-        if (dx * dx + dz * dz > 0.01) {
-          uGroup.rotation.y = Math.atan2(dx, dz);
+        // Face movement/target direction (or spiral tangent when pulled into Black Hole)
+        if (blackHolePullFrac > 0.15) {
+          uGroup.rotation.y = blackHoleAngle + elapsed * 3.5 * blackHolePullFrac;
+        } else {
+          const dx = u.targetX - u.x;
+          const dz = u.targetZ - u.z;
+          if (dx * dx + dz * dz > 0.01) {
+            uGroup.rotation.y = Math.atan2(dx, dz);
+          }
         }
 
-        // KO topple, movement sway, & active chop/hammer nod
+        // KO topple, Black Hole 3D vortex tumble/spaghettification, or normal movement sway
         if (u.state === 'ko') {
           uGroup.rotation.z = THREE.MathUtils.damp(uGroup.rotation.z, Math.PI / 2, 12, dt);
           uGroup.rotation.x = 0;
+          uGroup.scale.setScalar(1);
+        } else if (blackHolePullFrac > 0) {
+          uGroup.rotation.z = blackHolePullFrac * 0.92 * Math.sin(elapsed * 7.5 + u.x);
+          uGroup.rotation.x = blackHolePullFrac * 0.72 * Math.cos(elapsed * 6.5 + u.z);
+          // Slight gravitational compression as unit approaches the Event Horizon core
+          const bhScale = Math.max(0.58, 1 - Math.pow(blackHolePullFrac, 1.8) * 0.38);
+          uGroup.scale.setScalar(bhScale);
         } else {
           uGroup.rotation.z = isMoving ? Math.sin(elapsed * 11 + u.z * 2) * 0.08 : 0;
           uGroup.rotation.x = isWorking ? Math.sin(elapsed * 16 + u.x) * 0.22 : 0;
+          uGroup.scale.setScalar(1);
         }
 
         const heldTool = uGroup.getObjectByName('held_tool');
@@ -2587,14 +2746,60 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             (0.26 + Math.sin(elapsed * 5) * 0.06) * fade;
         } else if (hv.kind === 'wormhole_rift') {
           if (hv.ringMesh) {
-            hv.ringMesh.rotation.z = elapsed * 4.2;
-            hv.ringMesh.rotation.y = elapsed * 1.8;
+            hv.ringMesh.rotation.z = elapsed * 4.8;
+            hv.ringMesh.rotation.y = elapsed * 2.1;
           }
           if (hv.secondaryRingMesh) {
-            hv.secondaryRingMesh.rotation.x = elapsed * 3.1;
-            hv.secondaryRingMesh.rotation.z = -elapsed * 2.4;
+            hv.secondaryRingMesh.rotation.x = elapsed * 3.6;
+            hv.secondaryRingMesh.rotation.z = -elapsed * 2.8;
           }
-          const pulse = (0.95 + Math.sin(elapsed * 9) * 0.14) * fade;
+          // Animate 3 concentric gravity-well rings continuously contracting from outer pull radius into the singularity core
+          if (hv.gravityRings) {
+            const maxPullR = haz.radius * 1.55;
+            for (let gi = 0; gi < hv.gravityRings.length; gi++) {
+              const gRing = hv.gravityRings[gi];
+              const cycle = (elapsed * 0.85 + gi / hv.gravityRings.length) % 1; // 0 (outer rim) -> 1 (swallowed at core)
+              const easeIn = Math.pow(cycle, 1.55);
+              const curRingR = Math.max(0.2, maxPullR * (1 - easeIn));
+              gRing.scale.setScalar(curRingR);
+              gRing.position.y = 0.1 + easeIn * 1.7;
+              gRing.rotation.z = elapsed * (2.2 + gi * 0.8);
+              const gMat = hv.materials[3 + gi] as THREE.MeshBasicMaterial | undefined;
+              if (gMat) {
+                gMat.opacity = Math.sin(cycle * Math.PI) * 0.82 * fade;
+              }
+            }
+          }
+          // Animate 24 accretion shards spiraling inward & upward from the ground perimeter into the Event Horizon at y=1.8
+          if (hv.vortexMotes) {
+            const maxMoteR = haz.radius * 1.5;
+            for (let mi = 0; mi < hv.vortexMotes.length; mi++) {
+              const vm = hv.vortexMotes[mi];
+              const cycle = (elapsed * vm.speed + vm.phase) % 1; // 0 (outer rim) -> 1 (core)
+              const inward = Math.pow(cycle, 1.4);
+              const r = Math.max(0.12, maxMoteR * (1 - inward));
+              // Spiral angle accelerates as radius shrinks (conservation of angular momentum)
+              const theta = vm.baseAngle + elapsed * 2.8 + inward * 8.5;
+              const my = 0.15 + Math.pow(cycle, 1.65) * 1.65;
+              vm.mesh.position.set(Math.cos(theta) * r, my, Math.sin(theta) * r);
+              vm.mesh.rotation.set(elapsed * 5 + mi, theta, elapsed * 4);
+              const s = 0.16 + Math.sin(cycle * Math.PI) * 0.24;
+              vm.mesh.scale.set(s * 1.4, s * 0.7, s);
+            }
+          }
+          // Continuous stream of inward-sucking cosmic dust & debris particles
+          if (Math.random() < 0.65) {
+            spawnInwardPullParticles(
+              haz.x,
+              hy,
+              haz.z,
+              2,
+              Math.random() < 0.5 ? '#c77dff' : '#56cfe1',
+              haz.radius * 1.45,
+              0.95,
+            );
+          }
+          const pulse = (0.95 + Math.sin(elapsed * 9) * 0.12) * fade;
           hv.group.scale.setScalar(Math.max(0.05, pulse));
         } else if (hv.kind === 'tsunami_wave') {
           hv.group.position.set(haz.x, 0, haz.z);
