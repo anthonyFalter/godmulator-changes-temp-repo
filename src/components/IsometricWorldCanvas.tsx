@@ -3558,13 +3558,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             isMoving && !isDragon
               ? Math.sin(elapsed * bobFreq + seedPhase) * (u.role === 'chicken' ? 0.12 : 0.08)
               : isDragon && isMoving
-                ? Math.sin(elapsed * 2.2 + seedPhase) * 0.1
+                ? Math.sin(elapsed * 3.2 + seedPhase) * 0.38 + Math.sin(elapsed * 1.6) * 0.18
                 : 0;
           uGroup.rotation.x = isDragon
             ? isAttacking
-              ? -0.18
+              ? -0.35 + Math.sin(elapsed * 6.8) * 0.15
               : isMoving
-                ? 0.08 + Math.sin(elapsed * 3.1 + seedPhase) * 0.08
+                ? 0.15 + Math.sin(elapsed * 3.1 + seedPhase) * 0.12
                 : Math.sin(elapsed * 3.1 + seedPhase) * 0.05
             : isWorking && !isAnimal
               ? Math.sin(elapsed * 16 + u.x) * 0.22

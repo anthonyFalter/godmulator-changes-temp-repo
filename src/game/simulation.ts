@@ -5018,15 +5018,24 @@ function stepWildlifeAI(
       if (dist <= def.attackRange) {
         if (u.role === 'dragon') {
           u.state = 'moving';
-          const fDist = Math.hypot(target.x - u.x, target.z - u.z);
-          if (fDist > 0.5) {
-            const nx = u.x + ((target.x - u.x) / fDist) * moveSpeed * 1.15 * dt;
-            const nz = u.z + ((target.z - u.z) / fDist) * moveSpeed * 1.15 * dt;
+          const flightPhase = state.year * 2.5 + ((u.appearanceSeed ?? 1) % 13);
+          const strafeX = target.x + Math.cos(flightPhase) * 4.5;
+          const strafeZ = target.z + Math.sin(flightPhase) * 4.5;
+          u.targetX = strafeX;
+          u.targetZ = strafeZ;
+
+          const sDist = Math.hypot(strafeX - u.x, strafeZ - u.z);
+          if (sDist > 0.2) {
+            const nx = u.x + ((strafeX - u.x) / sDist) * moveSpeed * 1.25 * dt;
+            const nz = u.z + ((strafeZ - u.z) / sDist) * moveSpeed * 1.25 * dt;
             u.x = Math.max(1, Math.min(gs - 2, nx));
             u.z = Math.max(1, Math.min(gs - 2, nz));
           }
           if (u.actionCooldown <= 0) {
             const dmg = def.attackDamage * (isFrenzied ? 1.8 : 1.0);
+            u.attackAnimTimer = 0.78;
+            u.attackTargetX = target.x;
+            u.attackTargetZ = target.z;
             emitDragonBreathAt(target.x, target.z, dmg, { unitTarget: target });
           }
           return;
@@ -5168,15 +5177,24 @@ function stepWildlifeAI(
         if (dist <= def.attackRange) {
           if (u.role === 'dragon') {
             u.state = 'moving';
-            const fDist = Math.hypot(envTarget.x - u.x, envTarget.z - u.z);
-            if (fDist > 0.5) {
-              const nx = u.x + ((envTarget.x - u.x) / fDist) * moveSpeed * 1.15 * dt;
-              const nz = u.z + ((envTarget.z - u.z) / fDist) * moveSpeed * 1.15 * dt;
+            const flightPhase = state.year * 2.5 + ((u.appearanceSeed ?? 1) % 13);
+            const strafeX = envTarget.x + Math.cos(flightPhase) * 4.5;
+            const strafeZ = envTarget.z + Math.sin(flightPhase) * 4.5;
+            u.targetX = strafeX;
+            u.targetZ = strafeZ;
+
+            const sDist = Math.hypot(strafeX - u.x, strafeZ - u.z);
+            if (sDist > 0.2) {
+              const nx = u.x + ((strafeX - u.x) / sDist) * moveSpeed * 1.25 * dt;
+              const nz = u.z + ((strafeZ - u.z) / sDist) * moveSpeed * 1.25 * dt;
               u.x = Math.max(1, Math.min(gs - 2, nx));
               u.z = Math.max(1, Math.min(gs - 2, nz));
             }
             if (u.actionCooldown <= 0) {
               const dmg = def.attackDamage * (isFrenzied ? 1.8 : 1.0);
+              u.attackAnimTimer = 0.78;
+              u.attackTargetX = envTarget.x;
+              u.attackTargetZ = envTarget.z;
               emitDragonBreathAt(envTarget.x, envTarget.z, dmg, {
                 buildingTarget: envTarget.kind === 'building' ? envTarget.building : undefined,
                 isEnvAttack: true,
