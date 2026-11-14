@@ -46,8 +46,12 @@ export type TerrainType =
   | 'grass'
   | 'fertile'
   | 'forest'
+  | 'savanna'
+  | 'swamp'
+  | 'highland'
   | 'stone_road'
   | 'rock'
+  | 'snow'
   | 'scorched'
   | 'crystal_field';
 
@@ -240,6 +244,7 @@ export type GameLifecycleState = 'title' | 'playing' | 'paused' | 'gameover';
 export type LightingPreset = 'noon' | 'dusk' | 'night' | 'dawn' | 'auto';
 
 export interface SimulationState {
+  seed: number;
   gridSize: number;
   tiles: TileData[];
   epochIndex: number;

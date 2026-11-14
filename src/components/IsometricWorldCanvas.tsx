@@ -200,7 +200,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     const unitsGroup = new THREE.Group();
     worldGroup.add(terrainGroup, nodesGroup, buildingsGroup, unitsGroup);
 
-    // Instanced terrain system (10 draw calls total regardless of map size!)
+    // Instanced terrain system (14 draw calls total regardless of map size!)
     const TERRAIN_TYPES: TerrainType[] = [
       'deep_water',
       'shallow_water',
@@ -208,8 +208,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       'grass',
       'fertile',
       'forest',
+      'savanna',
+      'swamp',
+      'highland',
       'stone_road',
       'rock',
+      'snow',
       'scorched',
       'crystal_field',
     ];
@@ -277,6 +281,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     const ambForestInsts = makePropInstancedList(variantLib.ambientForest, variantLib.standardMat, false);
     const ambSandInsts = makePropInstancedList(variantLib.ambientSand, variantLib.standardMat, false);
     const ambRockInsts = makePropInstancedList(variantLib.ambientRock, variantLib.standardMat, false);
+    const ambSnowInsts = makePropInstancedList(variantLib.ambientSnow, variantLib.standardMat, false);
+    const ambSavannaInsts = makePropInstancedList(variantLib.ambientSavanna, variantLib.standardMat, false);
+    const ambSwampInsts = makePropInstancedList(variantLib.ambientSwamp, variantLib.standardMat, false);
+    const ambHighlandInsts = makePropInstancedList(variantLib.ambientHighland, variantLib.standardMat, false);
 
     const allPropInsts = [
       ...timberInsts,
@@ -288,6 +296,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       ...ambForestInsts,
       ...ambSandInsts,
       ...ambRockInsts,
+      ...ambSnowInsts,
+      ...ambSavannaInsts,
+      ...ambSwampInsts,
+      ...ambHighlandInsts,
     ];
 
     const TERRAIN_CODE: Record<string, number> = {
@@ -297,10 +309,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       grass: 3,
       fertile: 4,
       forest: 5,
-      stone_road: 6,
-      rock: 7,
-      scorched: 8,
-      crystal_field: 9,
+      savanna: 6,
+      swamp: 7,
+      highland: 8,
+      stone_road: 9,
+      rock: 10,
+      snow: 11,
+      scorched: 12,
+      crystal_field: 13,
     };
     const NODE_CODE: Record<string, number> = {
       none: 0,
@@ -571,15 +587,30 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     const _propAxisY = new THREE.Vector3(0, 1, 0);
     const _propQuat = new THREE.Quaternion();
     const _propScale = new THREE.Vector3(1, 1, 1);
+    let lastSyncedSim: SimulationState = sim;
 
     function syncSceneFromSimulation(simState: SimulationState, dt: number, elapsed: number) {
+      let propsNeedSync = false;
+
+      if (simState !== lastSyncedSim) {
+        lastSyncedSim = simState;
+        propsNeedSync = true;
+        for (let i = 0; i < simState.tiles.length; i++) {
+          const t = simState.tiles[i];
+          tileCurrentY[i] = Math.max(0.18, t.height * HEIGHT_STEP + 0.25);
+          tileLastNodeY[i] = -999;
+          tilePropSig[i] = -1;
+        }
+        const newCenter = (simState.gridSize - 1) / 2;
+        camDesiredTarget.set(newCenter, 1.2, newCenter);
+        camTarget.set(newCenter, 1.2, newCenter);
+      }
+
       // 1. Update instanced terrain tiles & detect if props/nodes need matrix rebuild
       for (const tType of TERRAIN_TYPES) {
         const inst = terrainInstancedMap.get(tType)!;
         inst.count = 0;
       }
-
-      let propsNeedSync = false;
 
       for (let i = 0; i < simState.tiles.length; i++) {
         const t = simState.tiles[i];
@@ -634,7 +665,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
           const curY = tileCurrentY[i];
           // Deterministic spatial hash so clusters & rotations are rich and never flicker
-          const h = Math.abs(((t.x * 73856093) ^ (t.z * 19349663)) | 0);
+          const h = Math.abs(((t.x * 73856093) ^ (t.z * 19349663) ^ (simState.seed * 2654435761)) | 0);
           const rotStep = (h >> 2) & 3;
           _propQuat.setFromAxisAngle(_propAxisY, rotStep * (Math.PI / 2));
           _dummyPos.set(t.x, curY, t.z);
@@ -652,16 +683,24 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           } else if (t.resourceNode === 'crystal_monolith') {
             targetInst = crystalInsts[h % crystalInsts.length];
           } else {
-            // Ambient multi-object sub-tile details on open land for lively map density
+            // Ambient multi-object sub-tile details on open land for lively biome density
             const chance = (h >> 4) % 100;
             if ((t.terrain === 'grass' || t.terrain === 'fertile') && chance < 48) {
               targetInst = ambGrassInsts[h % ambGrassInsts.length];
             } else if (t.terrain === 'forest' && chance < 60) {
               targetInst = ambForestInsts[h % ambForestInsts.length];
-            } else if (t.terrain === 'sand' && chance < 40) {
+            } else if (t.terrain === 'sand' && chance < 44) {
               targetInst = ambSandInsts[h % ambSandInsts.length];
             } else if (t.terrain === 'rock' && chance < 45) {
               targetInst = ambRockInsts[h % ambRockInsts.length];
+            } else if (t.terrain === 'snow' && chance < 42) {
+              targetInst = ambSnowInsts[h % ambSnowInsts.length];
+            } else if (t.terrain === 'savanna' && chance < 50) {
+              targetInst = ambSavannaInsts[h % ambSavannaInsts.length];
+            } else if (t.terrain === 'swamp' && chance < 55) {
+              targetInst = ambSwampInsts[h % ambSwampInsts.length];
+            } else if (t.terrain === 'highland' && chance < 48) {
+              targetInst = ambHighlandInsts[h % ambHighlandInsts.length];
             }
           }
 

@@ -155,6 +155,34 @@ export function getTerrainMaterial(terrain: TerrainType): THREE.MeshStandardMate
         metalness: 0.05,
       });
       break;
+    case 'savanna':
+      topMat = new THREE.MeshStandardMaterial({
+        map: getPixelArtTexture('savanna', '#ab964c', '#c9b363', '#827134', 'grass'),
+        roughness: 0.85,
+        metalness: 0.05,
+      });
+      break;
+    case 'swamp':
+      topMat = new THREE.MeshStandardMaterial({
+        map: getPixelArtTexture('swamp', '#365242', '#4c6e57', '#23382c', 'fertile'),
+        roughness: 0.72,
+        metalness: 0.08,
+      });
+      break;
+    case 'highland':
+      topMat = new THREE.MeshStandardMaterial({
+        map: getPixelArtTexture('highland', '#5b6e56', '#778767', '#3d4c3e', 'grass'),
+        roughness: 0.82,
+        metalness: 0.08,
+      });
+      break;
+    case 'snow':
+      topMat = new THREE.MeshStandardMaterial({
+        map: getPixelArtTexture('snow', '#d6e3e8', '#eff6fa', '#a5bac4', 'grass'),
+        roughness: 0.68,
+        metalness: 0.06,
+      });
+      break;
     case 'stone_road':
       topMat = new THREE.MeshStandardMaterial({
         map: getPixelArtTexture('stone_road', '#a89482', '#c9b49f', '#6e5e50', 'stone'),
@@ -379,6 +407,10 @@ export interface NodeVariantLibrary {
   ambientForest: THREE.BufferGeometry[];
   ambientSand: THREE.BufferGeometry[];
   ambientRock: THREE.BufferGeometry[];
+  ambientSnow: THREE.BufferGeometry[];
+  ambientSavanna: THREE.BufferGeometry[];
+  ambientSwamp: THREE.BufferGeometry[];
+  ambientHighland: THREE.BufferGeometry[];
   standardMat: THREE.MeshStandardMaterial;
   crystalMat: THREE.MeshStandardMaterial;
 }
@@ -624,6 +656,14 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     addColoredBox(p, 0.08, 0.04, 0.08, -0.22, 0.02, -0.14, 0xe8b4a2);
     ambientSand.push(finalizeMergedParts(p));
   }
+  {
+    // Desert cactus & sandstone pebbles
+    const p: THREE.BufferGeometry[] = [];
+    addColoredBox(p, 0.09, 0.28, 0.09, -0.16, 0.14, -0.14, 0x528246);
+    addColoredBox(p, 0.12, 0.07, 0.07, -0.1, 0.18, -0.14, 0x528246);
+    addColoredBox(p, 0.08, 0.12, 0.08, 0.2, 0.06, 0.18, 0xa8926d);
+    ambientSand.push(finalizeMergedParts(p));
+  }
 
   const ambientRock: THREE.BufferGeometry[] = [];
   {
@@ -646,6 +686,65 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     ambientRock.push(finalizeMergedParts(p));
   }
 
+  const ambientSnow: THREE.BufferGeometry[] = [];
+  {
+    const p: THREE.BufferGeometry[] = [];
+    addColoredBox(p, 0.22, 0.08, 0.2, -0.12, 0.04, -0.1, 0xe8f2f5);
+    addColoredBox(p, 0.14, 0.1, 0.14, 0.18, 0.05, 0.16, 0x89a1ab);
+    ambientSnow.push(finalizeMergedParts(p));
+  }
+  {
+    const p: THREE.BufferGeometry[] = [];
+    addColoredBox(p, 0.12, 0.18, 0.12, -0.18, 0.09, 0.14, 0x7bc9d9); // ice crystal shard
+    addColoredBox(p, 0.16, 0.06, 0.16, 0.16, 0.03, -0.16, 0xc7dce3);
+    ambientSnow.push(finalizeMergedParts(p));
+  }
+
+  const ambientSavanna: THREE.BufferGeometry[] = [];
+  {
+    const p: THREE.BufferGeometry[] = [];
+    addColoredBox(p, 0.09, 0.15, 0.09, -0.18, 0.075, -0.14, 0xc9af53);
+    addColoredBox(p, 0.08, 0.12, 0.08, 0.18, 0.06, 0.18, 0xb89c42);
+    addColoredBox(p, 0.12, 0.07, 0.12, -0.14, 0.035, 0.2, 0x87765a);
+    ambientSavanna.push(finalizeMergedParts(p));
+  }
+  {
+    const p: THREE.BufferGeometry[] = [];
+    addColoredBox(p, 0.18, 0.12, 0.18, 0.14, 0.06, -0.14, 0x7b8c42); // dry scrub bush
+    addColoredBox(p, 0.08, 0.1, 0.08, -0.2, 0.05, 0.12, 0xd4bb63);
+    ambientSavanna.push(finalizeMergedParts(p));
+  }
+
+  const ambientSwamp: THREE.BufferGeometry[] = [];
+  {
+    const p: THREE.BufferGeometry[] = [];
+    addColoredBox(p, 0.05, 0.2, 0.05, -0.18, 0.1, -0.16, 0x4b7043); // cattail reed
+    addColoredBox(p, 0.07, 0.07, 0.07, -0.18, 0.2, -0.16, 0x5c3e28);
+    addColoredBox(p, 0.16, 0.03, 0.16, 0.16, 0.015, 0.16, 0x5d8a55); // lily pad
+    ambientSwamp.push(finalizeMergedParts(p));
+  }
+  {
+    const p: THREE.BufferGeometry[] = [];
+    addColoredBox(p, 0.14, 0.08, 0.14, -0.14, 0.04, 0.18, 0x3b5e43);
+    addColoredBox(p, 0.07, 0.09, 0.07, 0.2, 0.045, -0.14, 0x8bc98d); // glow moss cap
+    ambientSwamp.push(finalizeMergedParts(p));
+  }
+
+  const ambientHighland: THREE.BufferGeometry[] = [];
+  {
+    const p: THREE.BufferGeometry[] = [];
+    addColoredBox(p, 0.14, 0.09, 0.14, -0.18, 0.045, -0.14, 0x6b7d5e);
+    addColoredBox(p, 0.08, 0.08, 0.08, 0.18, 0.04, 0.16, 0x9b6b9e); // purple heather
+    addColoredBox(p, 0.1, 0.07, 0.1, 0.14, 0.035, -0.18, 0x667073);
+    ambientHighland.push(finalizeMergedParts(p));
+  }
+  {
+    const p: THREE.BufferGeometry[] = [];
+    addColoredBox(p, 0.16, 0.1, 0.14, 0.16, 0.05, -0.12, 0x5d676b);
+    addColoredBox(p, 0.1, 0.08, 0.1, -0.2, 0.04, 0.18, 0x87628a);
+    ambientHighland.push(finalizeMergedParts(p));
+  }
+
   cachedVariantLib = {
     timber,
     berry,
@@ -656,6 +755,10 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     ambientForest,
     ambientSand,
     ambientRock,
+    ambientSnow,
+    ambientSavanna,
+    ambientSwamp,
+    ambientHighland,
     standardMat: new THREE.MeshStandardMaterial({
       vertexColors: true,
       roughness: 0.78,

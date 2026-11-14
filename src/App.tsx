@@ -44,7 +44,15 @@ const RESOURCE_KEYS: { key: keyof Resources; label: string }[] = [
 ];
 
 export default function App() {
-  const simRef = useRef(createInitialSimulationState(128));
+  const simRef = useRef(
+    createInitialSimulationState(
+      128,
+      typeof window !== 'undefined'
+        ? new URLSearchParams(window.location.search).get('seed') ?? undefined
+        : undefined,
+    ),
+  );
+  const [seedInput, setSeedInput] = useState<string>(() => String(simRef.current.seed));
 
   const [gameState, setGameState] = useState<GameLifecycleState>(() => {
     if (typeof window !== 'undefined') {
@@ -101,17 +109,24 @@ export default function App() {
     setGameState('playing');
   }, []);
 
-  const handleRestartGame = useCallback(() => {
+  const handleGenerateSeededWorld = useCallback((explicitSeed?: string | number) => {
     if (document.activeElement instanceof HTMLElement) {
       document.activeElement.blur();
     }
-    simRef.current = createInitialSimulationState(128);
+    const nextSim = createInitialSimulationState(128, explicitSeed);
+    simRef.current = nextSim;
+    setSeedInput(String(nextSim.seed));
+    setHoverTile({ x: 64, z: 64 });
     soundEngine.playBuild();
-    document.body.dataset.state = 'playing';
-    setGameState('playing');
-    setStatusFeedback('New world generated in the Prehistoric Age');
+    setStatusFeedback(`Generated new world · Seed ${nextSim.seed}`);
     setHudTick((t) => t + 1);
   }, []);
+
+  const handleRestartGame = useCallback(() => {
+    handleGenerateSeededWorld(undefined);
+    document.body.dataset.state = 'playing';
+    setGameState('playing');
+  }, [handleGenerateSeededWorld]);
 
   const handleToggleMute = useCallback(() => {
     soundEngine.muted = !soundEngine.muted;
@@ -280,7 +295,7 @@ export default function App() {
               Sculpt terraced stone worlds, guide mortal settlements from prehistoric bonfires to interstellar Dyson relays, and wield benevolent miracles or cataclysmic wrath in a pixelated 3D isometric sandbox.
             </p>
 
-            <div className="flex flex-wrap items-center gap-4 mb-6">
+            <div className="flex flex-wrap items-center gap-4 mb-5">
               <button
                 type="button"
                 data-start="true"
@@ -298,6 +313,40 @@ export default function App() {
                 className="px-5 py-3 bg-[#26211c] hover:bg-[#332c25] text-[#ede8df] font-medium text-sm rounded-sm transition-colors cursor-pointer whitespace-nowrap shrink-0"
               >
                 Enter Free God Sandbox
+              </button>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 mb-5 text-xs">
+              <label htmlFor="title-seed-input" className="text-[#9e9486]">
+                World Seed
+              </label>
+              <input
+                id="title-seed-input"
+                type="text"
+                value={seedInput}
+                onChange={(e) => setSeedInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleGenerateSeededWorld(seedInput || undefined);
+                  }
+                }}
+                className="w-32 px-2.5 py-1.5 bg-[#24201b] text-[#ede8df] tabular-nums rounded-sm outline-none focus:ring-1 focus:ring-[#f5b742]"
+                placeholder="Random seed"
+              />
+              <button
+                type="button"
+                onClick={() => handleGenerateSeededWorld(seedInput || undefined)}
+                className="px-2.5 py-1.5 bg-[#26211c] hover:bg-[#332c25] text-[#f5b742] font-medium rounded-sm cursor-pointer"
+              >
+                Apply Seed
+              </button>
+              <button
+                type="button"
+                onClick={() => handleGenerateSeededWorld(undefined)}
+                className="px-2.5 py-1.5 bg-[#26211c] hover:bg-[#332c25] text-[#cfc6b8] font-medium rounded-sm cursor-pointer"
+              >
+                Randomize
               </button>
             </div>
 
@@ -561,8 +610,10 @@ export default function App() {
               </span>
               {inspectedTile && (
                 <span className="hidden sm:inline text-xs text-[#9e9486] tabular-nums whitespace-nowrap">
-                  · Tile ({inspectedTile.x}, {inspectedTile.z}) Elev {inspectedTile.height}
-                  {inspectedBuilding ? ` · ${inspectedBuilding.type.replace('_', ' ')}` : ''}
+                  · Tile ({inspectedTile.x}, {inspectedTile.z}) Elev {inspectedTile.height} ·{' '}
+                  {inspectedBuilding
+                    ? inspectedBuilding.type.replace('_', ' ')
+                    : inspectedTile.terrain.replace('_', ' ')}
                 </span>
               )}
               <button
@@ -867,7 +918,7 @@ export default function App() {
                       })}
                     </div>
 
-                    {/* Pixel Crunch & Lighting Controls */}
+                    {/* Pixel Crunch, Lighting & World Seed Controls */}
                     <div className="flex flex-wrap items-center gap-3 text-xs">
                       <div className="flex items-center gap-1">
                         <span className="text-[#9e9486]">Pixel Scale:</span>
@@ -908,6 +959,37 @@ export default function App() {
                           </button>
                         ))}
                       </div>
+
+                      <div className="flex items-center gap-1">
+                        <span className="text-[#9e9486]">Seed:</span>
+                        <input
+                          type="text"
+                          aria-label="World Seed"
+                          value={seedInput}
+                          onChange={(e) => setSeedInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleGenerateSeededWorld(seedInput || undefined);
+                            }
+                          }}
+                          className="w-24 px-2 py-1 bg-[#24201b] text-[#ede8df] tabular-nums rounded-sm outline-none focus:ring-1 focus:ring-[#f5b742]"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleGenerateSeededWorld(seedInput || undefined)}
+                          className="px-2 py-1 bg-[#24201b] hover:bg-[#302a23] text-[#f5b742] rounded-sm cursor-pointer whitespace-nowrap"
+                        >
+                          Load
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleGenerateSeededWorld(undefined)}
+                          className="px-2 py-1 bg-[#24201b] hover:bg-[#302a23] text-[#cfc6b8] rounded-sm cursor-pointer whitespace-nowrap"
+                        >
+                          New Random
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -916,10 +998,10 @@ export default function App() {
                 {activeCategory === 'inspect' && (
                   <div className="flex flex-wrap items-center justify-between gap-4 text-xs text-[#cfc6b8]">
                     <div>
-                      Click any structure, unit, or terrain terrace to inspect its status, elevation, and divine aura.
+                      Click any structure, unit, or terrain terrace to inspect its status, elevation, and biome.
                     </div>
                     <div className="tabular-nums text-[#9e9486]">
-                      Structures Built: {sim.totalStructuresBuilt} · Miracles Cast: {sim.totalMiraclesCast} · Raiders Defeated: {sim.totalRaidersDefeated}
+                      World Seed: {sim.seed} · Structures Built: {sim.totalStructuresBuilt} · Miracles Cast: {sim.totalMiraclesCast} · Raiders Defeated: {sim.totalRaidersDefeated}
                     </div>
                   </div>
                 )}

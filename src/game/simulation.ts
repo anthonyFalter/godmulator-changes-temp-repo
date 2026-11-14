@@ -17,6 +17,7 @@ import {
   UnitEntity,
   UnitRole,
 } from './types';
+import { generateWorldTiles, normalizeSeed } from './worldGen';
 
 const CITIZEN_NAMES = [
   'Kaelen', 'Lyra', 'Theron', 'Vesper', 'Oakhart', 'Soren', 'Mira', 'Darian',
@@ -65,104 +66,12 @@ export function deductCost(current: Resources, cost: Partial<Resources>, sandbox
   return next;
 }
 
-export function createInitialSimulationState(gridSize = 128): SimulationState {
-  const tiles: TileData[] = [];
-  const center = (gridSize - 1) / 2;
-  const maxRadius = Math.max(10, gridSize * 0.46);
-
-  for (let z = 0; z < gridSize; z++) {
-    for (let x = 0; x < gridSize; x++) {
-      const dx = x - center;
-      const dz = z - center;
-      const dist = Math.sqrt(dx * dx + dz * dz);
-      const normDist = dist / maxRadius;
-
-      // Multi-octave continent & archipelago heightfield scaled to gridSize
-      const macroWave = Math.sin(x * 0.085 + 1.1) * Math.cos(z * 0.078 - 0.7) * 1.9;
-      const mesoWave = Math.sin(x * 0.19 - z * 0.16) * 1.05;
-      const microWave = Math.cos((x + z) * 0.41) * 0.45;
-      const falloff = Math.pow(normDist, 1.85) * 4.7;
-      const rawHeight = 3.35 - falloff + macroWave + mesoWave + microWave;
-
-      let height = Math.max(0, Math.min(7, Math.round(rawHeight)));
-
-      // Carve a scenic winding river / harbor channel sweeping through the south-east quadrant
-      const riverCenter = dz * 0.68 + Math.sin(dz * 0.14) * 3.2;
-      if (Math.abs(dx - riverCenter) < 1.65 && dx > 2 && dz > 2) {
-        height = Math.min(height, 0);
-      }
-
-      // Flatten central acropolis plaza so initial settlement sits on a grand terrace
-      if (dist < 4.5) {
-        height = 3;
-      } else if (dist >= 4.5 && dist < 7.2) {
-        height = Math.max(2, Math.min(4, height));
-      }
-
-      let terrain: TileData['terrain'] = 'grass';
-      let resourceNode: TileData['resourceNode'] = 'none';
-      let resourceAmount = 0;
-
-      // Smooth grove clusters so forests, meadows, and mineral ridges form natural regions
-      const groveWave = Math.sin(x * 0.21 + 0.4) * Math.cos(z * 0.24 - 1.1);
-      const nearStart = dist >= 4.2 && dist <= 9.5;
-
-      if (height === 0) {
-        terrain = normDist > 0.86 ? 'deep_water' : 'shallow_water';
-      } else if (height === 1) {
-        terrain = (x + z) % 3 === 0 ? 'sand' : 'fertile';
-        if (terrain === 'fertile' && ((x * 7 + z * 13) % 7 === 0 && groveWave > -0.25)) {
-          resourceNode = 'berry_bush';
-          resourceAmount = 180;
-        }
-      } else if (height >= 5) {
-        terrain = 'rock';
-        if ((x * 3 + z * 5) % 5 === 0) {
-          resourceNode = height >= 6 ? 'crystal_monolith' : 'ore_vein';
-          resourceAmount = 320;
-        } else if ((x * 7 + z * 11) % 6 === 0) {
-          resourceNode = 'stone_outcrop';
-          resourceAmount = 260;
-        }
-      } else {
-        // Mid-elevation terraces (2..4)
-        if (dist < 3.2) {
-          terrain = 'stone_road';
-        } else if (groveWave > 0.22 || (nearStart && (x * 11 + z * 5) % 5 === 0)) {
-          terrain = 'forest';
-          if ((x * 5 + z * 3) % 2 === 0 || (x + z * 3) % 5 === 0) {
-            resourceNode = 'timber_grove';
-            resourceAmount = 240;
-          }
-        } else if (groveWave < -0.3 || (nearStart && (x * 5 + z * 9) % 7 === 0)) {
-          terrain = 'fertile';
-          if ((x * 7 + z * 5) % 3 === 0) {
-            resourceNode = 'berry_bush';
-            resourceAmount = 200;
-          }
-        } else if ((x * 13 + z * 3) % 19 === 0 && dist > 4.8) {
-          terrain = 'rock';
-          resourceNode = (x + z) % 2 === 0 ? 'stone_outcrop' : 'ore_vein';
-          resourceAmount = 260;
-        } else {
-          terrain = 'grass';
-        }
-      }
-
-      tiles.push({
-        x,
-        z,
-        height,
-        terrain,
-        resourceNode,
-        resourceAmount,
-        blessedTimer: 0,
-        cursedTimer: 0,
-        onFireTimer: 0,
-        buildingId: null,
-      });
-    }
-  }
+export function createInitialSimulationState(
+  gridSize = 128,
+  seedInput?: number | string,
+): SimulationState {
+  const seed = normalizeSeed(seedInput);
+  const tiles = generateWorldTiles(gridSize, seed);
 
   const cx = Math.floor(gridSize / 2);
   const cz = Math.floor(gridSize / 2);
@@ -259,13 +168,14 @@ export function createInitialSimulationState(gridSize = 128): SimulationState {
     {
       id: 'chr_1',
       yearLabel: '10,000 BCE',
-      text: 'The First Hearth is kindled on the high stone terrace. Guide your mortals from flint to the stars.',
+      text: `The First Hearth is kindled (World Seed ${seed}). Guide your mortals from flint to the stars.`,
       tone: 'divine',
       timestamp: Date.now(),
     },
   ];
 
   const state: SimulationState = {
+    seed,
     gridSize,
     tiles,
     epochIndex: 0,
@@ -552,7 +462,9 @@ export function applyTerrainTool(
       switch (toolType) {
         case 'raise': {
           t.height = Math.min(8, t.height + 1);
-          if (t.height >= 5) {
+          if (t.height >= 7) {
+            t.terrain = 'snow';
+          } else if (t.height >= 5) {
             t.terrain = 'rock';
           } else if (t.height >= 1 && (t.terrain === 'deep_water' || t.terrain === 'shallow_water')) {
             t.terrain = 'grass';

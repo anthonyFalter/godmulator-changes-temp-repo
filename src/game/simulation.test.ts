@@ -101,3 +101,27 @@ test('simulation step advances resources, year, and processes hostile raider enc
   assert.ok(state.resources.food > foodBefore);
   assert.ok(state.year > yearBefore);
 });
+
+test('seed pipeline produces deterministic identical worlds for same seed and distinct biomes across seeds', () => {
+  const w1 = createInitialSimulationState(128, 'AEON-42');
+  const w2 = createInitialSimulationState(128, 'AEON-42');
+  const w3 = createInitialSimulationState(128, 999111);
+
+  assert.equal(w1.seed, w2.seed);
+  assert.notEqual(w1.seed, w3.seed);
+
+  let diffCount = 0;
+  const biomeSet = new Set<string>();
+  for (let i = 0; i < w1.tiles.length; i++) {
+    assert.equal(w1.tiles[i].height, w2.tiles[i].height);
+    assert.equal(w1.tiles[i].terrain, w2.tiles[i].terrain);
+    assert.equal(w1.tiles[i].resourceNode, w2.tiles[i].resourceNode);
+    if (w1.tiles[i].height !== w3.tiles[i].height || w1.tiles[i].terrain !== w3.tiles[i].terrain) {
+      diffCount += 1;
+    }
+    biomeSet.add(w1.tiles[i].terrain);
+  }
+
+  assert.ok(diffCount > 4000, `Expected distinct terrain across seeds, got ${diffCount} diffs`);
+  assert.ok(biomeSet.size >= 6, `Expected diverse biomes, got ${[...biomeSet].join(', ')}`);
+});
