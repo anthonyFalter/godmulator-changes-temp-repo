@@ -6,8 +6,12 @@ import {
   createBuildingGroup,
   createUnitGroup,
   getNodeVariantLibrary,
-  getTerrainMaterial,
 } from '../game/meshBuilders';
+import {
+  createOceanFoamSystem,
+  createSkyCloudSystem,
+  createStyledTerrainSystem,
+} from '../game/skyAndSea';
 import { getSettlementAnchor, stepSimulation } from '../game/simulation';
 import {
   ActiveTool,
@@ -200,6 +204,15 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     const unitsGroup = new THREE.Group();
     worldGroup.add(terrainGroup, nodesGroup, buildingsGroup, unitsGroup);
 
+    // Animated pixelated ocean, coastal surf foam, reef foam, & sculpted drifting sky clouds
+    const oceanFoam = createOceanFoamSystem(sim.gridSize);
+    oceanFoam.updateMap(sim.tiles);
+    worldGroup.add(oceanFoam.mesh);
+
+    const skyClouds = createSkyCloudSystem(sim.gridSize);
+    worldGroup.add(skyClouds.shadowGroup);
+    worldGroup.add(skyClouds.group);
+
     // Instanced terrain system (14 draw calls total regardless of map size!)
     const TERRAIN_TYPES: TerrainType[] = [
       'deep_water',
@@ -217,8 +230,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       'scorched',
       'crystal_field',
     ];
-    const tileGeo = new THREE.BoxGeometry(0.98, 1.0, 0.98);
+    const tileGeo = new THREE.BoxGeometry(1.0, 1.0, 1.0);
     tileGeo.translate(0, -0.5, 0);
+
+    const styledTerrain = createStyledTerrainSystem(sim.gridSize);
+    styledTerrain.updateMap(sim.tiles);
 
     const terrainInstancedMap = new Map<TerrainType, THREE.InstancedMesh>();
     const terrainInstancedList: THREE.InstancedMesh[] = [];
@@ -229,7 +245,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     );
 
     for (const tType of TERRAIN_TYPES) {
-      const mat = getTerrainMaterial(tType);
+      const mat = styledTerrain.getMaterials(tType);
       const inst = new THREE.InstancedMesh(tileGeo, mat, sim.tiles.length);
       inst.frustumCulled = false;
       inst.boundingSphere = worldBoundsSphere;
@@ -247,7 +263,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     const tileLastNodeY = new Float32Array(sim.tiles.length);
     for (let i = 0; i < sim.tiles.length; i++) {
       const t = sim.tiles[i];
-      const y0 = Math.max(0.18, t.height * HEIGHT_STEP + 0.25);
+      const y0 = t.height === 0 ? 0.12 : t.height * HEIGHT_STEP + 0.25;
       tileCurrentY[i] = y0;
       tileLastNodeY[i] = -999;
       tilePropSig[i] = -1;
@@ -592,12 +608,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     function syncSceneFromSimulation(simState: SimulationState, dt: number, elapsed: number) {
       let propsNeedSync = false;
 
-      if (simState !== lastSyncedSim) {
+      let waterMapNeedsSync = simState !== lastSyncedSim;
+        if (simState !== lastSyncedSim) {
         lastSyncedSim = simState;
         propsNeedSync = true;
         for (let i = 0; i < simState.tiles.length; i++) {
           const t = simState.tiles[i];
-          tileCurrentY[i] = Math.max(0.18, t.height * HEIGHT_STEP + 0.25);
+          tileCurrentY[i] = t.height === 0 ? 0.12 : t.height * HEIGHT_STEP + 0.25;
           tileLastNodeY[i] = -999;
           tilePropSig[i] = -1;
         }
@@ -606,7 +623,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         camTarget.set(newCenter, 1.2, newCenter);
       }
 
-      // 1. Update instanced terrain tiles & detect if props/nodes need matrix rebuild
+      // 1. Update instanced terrain tiles & detect if props/nodes/water-map need rebuild
       for (const tType of TERRAIN_TYPES) {
         const inst = terrainInstancedMap.get(tType)!;
         inst.count = 0;
@@ -614,9 +631,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
       for (let i = 0; i < simState.tiles.length; i++) {
         const t = simState.tiles[i];
-        const waterWave =
-          t.height === 0 ? Math.sin(elapsed * 2.4 + t.x * 0.7 + t.z * 0.7) * 0.035 : 0;
-        const targetTopY = Math.max(0.18, t.height * HEIGHT_STEP + 0.25) + waterWave;
+        // Water base boxes sit cleanly submerged under the animated shader ocean surface so boxes provide
+        // raycast targets & world edges without Z-fighting through animated wave troughs
+        const targetTopY = t.height === 0 ? 0.12 : t.height * HEIGHT_STEP + 0.25;
         const curY =
           Math.abs(tileCurrentY[i] - targetTopY) > 0.001
             ? THREE.MathUtils.damp(tileCurrentY[i], targetTopY, 12, dt)
@@ -640,14 +657,24 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             ((NODE_CODE[t.resourceNode] ?? 0) << 1) |
             (t.buildingId ? 1 : 0);
           if (tilePropSig[i] !== sig || Math.abs(curY - tileLastNodeY[i]) > 0.002) {
+            if (tilePropSig[i] <= 0) waterMapNeedsSync = true;
             tilePropSig[i] = sig;
             tileLastNodeY[i] = curY;
             propsNeedSync = true;
           }
-        } else if (tilePropSig[i] !== 0) {
-          tilePropSig[i] = 0;
-          propsNeedSync = true;
+        } else {
+          const waterSig = t.terrain === 'deep_water' ? -2 : -3;
+          if (tilePropSig[i] !== waterSig) {
+            tilePropSig[i] = waterSig;
+            propsNeedSync = true;
+            waterMapNeedsSync = true;
+          }
         }
+      }
+
+      if (waterMapNeedsSync) {
+        oceanFoam.updateMap(simState.tiles);
+        styledTerrain.updateMap(simState.tiles);
       }
 
       for (const inst of terrainInstancedList) {
@@ -1046,6 +1073,15 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         scene.fog.color.copy(_bgColor);
       }
 
+      // Animate sculpted sky clouds & ocean coastal/reef/whitecap foaming
+      const atmosSpeed =
+        propsRef.current.timeScale === 0
+          ? 0.35
+          : 1 + Math.min(3, Math.max(0, propsRef.current.timeScale - 1)) * 0.25;
+      skyClouds.update(dt * atmosSpeed, elapsedTotal, preset);
+      oceanFoam.updateFrame(elapsedTotal, preset);
+      styledTerrain.updateFrame(elapsedTotal);
+
       // Smooth exponential camera damping + decaying trauma shake
       camYaw = THREE.MathUtils.damp(camYaw, camDesiredYaw, 8, dt);
       camTarget.x = THREE.MathUtils.damp(camTarget.x, camDesiredTarget.x, 8, dt);
@@ -1120,6 +1156,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('blur', clearInputs);
+      skyClouds.dispose();
+      oceanFoam.dispose();
+      styledTerrain.dispose();
       renderer.dispose();
     };
   }, [cameraActionRef, simRef]);
