@@ -379,6 +379,17 @@ export const TerrainPixelIcon: React.FC<{ tool: TerrainToolType; className?: str
           <rect x="10" y="8" width="3" height="4" fill="#b8ada1" />
         </svg>
       );
+    case 'rail_track':
+      return (
+        <svg viewBox="0 0 16 16" className={className} aria-hidden="true" shapeRendering="crispEdges">
+          <rect x="2" y="4" width="12" height="8" fill="#524d47" />
+          <rect x="3" y="5" width="2" height="6" fill="#8d5b3c" />
+          <rect x="7" y="5" width="2" height="6" fill="#8d5b3c" />
+          <rect x="11" y="5" width="2" height="6" fill="#8d5b3c" />
+          <rect x="1" y="5" width="14" height="2" fill="#cbd5e1" />
+          <rect x="1" y="9" width="14" height="2" fill="#cbd5e1" />
+        </svg>
+      );
     case 'fertile_meadow':
       return (
         <svg viewBox="0 0 16 16" className={className} aria-hidden="true" shapeRendering="crispEdges">
@@ -523,6 +534,27 @@ export const BuildingPixelIcon: React.FC<{ building: BuildingType; className?: s
           <rect x="7" y="2" width="2" height="11" fill="#56cfe1" />
           <rect x="4" y="6" width="8" height="7" fill="#334155" />
           <rect x="5" y="8" width="6" height="2" fill="#90e0ef" />
+        </svg>
+      );
+    case 'rail_station':
+      return (
+        <svg viewBox="0 0 16 16" className={className} aria-hidden="true" shapeRendering="crispEdges">
+          <rect x="2" y="4" width="12" height="3" fill="#b54d38" />
+          <rect x="3" y="7" width="10" height="4" fill="#cbd5e1" />
+          <rect x="5" y="8" width="6" height="2" fill="#56cfe1" />
+          <rect x="1" y="11" width="14" height="2" fill="#64748b" />
+          <rect x="2" y="13" width="12" height="1" fill="#ffd166" />
+        </svg>
+      );
+    case 'airport':
+      return (
+        <svg viewBox="0 0 16 16" className={className} aria-hidden="true" shapeRendering="crispEdges">
+          <rect x="1" y="10" width="14" height="4" fill="#334155" />
+          <rect x="2" y="12" width="3" height="1" fill="#f8fafc" />
+          <rect x="7" y="12" width="3" height="1" fill="#f8fafc" />
+          <rect x="11" y="3" width="3" height="7" fill="#94a3b8" />
+          <rect x="10" y="2" width="5" height="2" fill="#56cfe1" />
+          <rect x="3" y="6" width="6" height="4" fill="#e2e8f0" />
         </svg>
       );
     case 'launch_arcology':

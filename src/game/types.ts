@@ -4,6 +4,7 @@ export type EpochId =
   | 'medieval'
   | 'industrial'
   | 'atomic'
+  | 'information'
   | 'orbital'
   | 'interstellar';
 
@@ -50,6 +51,7 @@ export type TerrainType =
   | 'swamp'
   | 'highland'
   | 'stone_road'
+  | 'rail_track'
   | 'rock'
   | 'snow'
   | 'scorched'
@@ -88,8 +90,10 @@ export type BuildingType =
   | 'observatory'
   | 'steam_foundry'
   | 'dynamo_plant'
+  | 'rail_station'
   | 'fission_reactor'
   | 'cyber_institute'
+  | 'airport'
   | 'launch_arcology'
   | 'dyson_spire';
 
@@ -217,7 +221,8 @@ export type TerrainToolType =
   | 'plant_forest'
   | 'seed_ore'
   | 'carve_river'
-  | 'stone_road';
+  | 'stone_road'
+  | 'rail_track';
 
 export interface TerrainToolDefinition {
   type: TerrainToolType;
@@ -225,6 +230,28 @@ export interface TerrainToolDefinition {
   summary: string;
   faithCost: number;
   color: string;
+}
+
+export type VehicleType = 'train' | 'car' | 'plane';
+
+export interface VehicleEntity {
+  id: string;
+  type: VehicleType;
+  species: SpeciesId;
+  settlementId: string;
+  epochLevel: number;
+  x: number;
+  y: number;
+  z: number;
+  heading: number;
+  pitch: number;
+  bank: number;
+  speed: number;
+  path: Array<{ x: number; z: number }>;
+  pathIndex: number;
+  variantSeed: number;
+  flightPhase?: 'parked' | 'takeoff' | 'cruise' | 'landing';
+  phaseTimer?: number;
 }
 
 export type ToolCategory = 'powers' | 'terrain' | 'build' | 'spawn' | 'epochs' | 'inspect';
@@ -292,6 +319,7 @@ export interface SimulationState {
   rates: Resources;
   buildings: BuildingEntity[];
   units: UnitEntity[];
+  vehicles?: VehicleEntity[];
   population: number;
   populationCap: number;
   happiness: number; // 0..100

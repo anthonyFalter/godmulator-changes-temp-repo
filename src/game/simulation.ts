@@ -17,6 +17,7 @@ import {
   TileData,
   UnitEntity,
   UnitRole,
+  VehicleEntity,
 } from './types';
 import { generateWorldTiles, normalizeSeed } from './worldGen';
 
@@ -50,7 +51,7 @@ const ORC_VILLAGE_NAMES = [
 ];
 
 export const SETTLEMENT_AWARENESS_RADIUS = 22;
-export const MAX_CITY_BUILDINGS = 20;
+export const MAX_CITY_BUILDINGS = 32;
 export const MAX_WORLD_CITIES = 8;
 export const YEARS_PER_SEC_AT_1X = 0.1;
 
@@ -58,8 +59,9 @@ export function getMaxCityBuildings(epochIndex: number): number {
   if (epochIndex <= 0) return 8;
   if (epochIndex === 1) return 12;
   if (epochIndex === 2) return 15;
-  if (epochIndex === 3) return 17;
-  if (epochIndex === 4) return 19;
+  if (epochIndex === 3) return 21; // Industrial: dense brick tenement cities + rail
+  if (epochIndex === 4) return 25; // Atomic: mid-rise urban blocks + airport
+  if (epochIndex === 5) return 29; // Information: high-density skyscraper metropolis + metro
   return MAX_CITY_BUILDINGS;
 }
 
@@ -171,6 +173,7 @@ export function createInitialSimulationState(
     },
     buildings: [],
     units: [],
+    vehicles: [],
     population: 0,
     populationCap: 0,
     happiness: 85,
@@ -345,6 +348,9 @@ export function placeBuilding(
   if (newBuilding.epochLevel >= 1 || state.epochIndex >= 1) {
     paveSettlementStreetsNear(state, tile.x, tile.z, settlementId);
   }
+  if (buildingType === 'rail_station' || state.epochIndex >= 3) {
+    paveSettlementRailNetwork(state, settlementId);
+  }
 
   for (const u of state.units) {
     if (u.faction === 'civilization' && u.state !== 'ko' && !u.settlementId) {
@@ -368,10 +374,10 @@ export function placeBuilding(
   const villageName = state.settlementNames[settlementId];
   addChronicle(state, `Constructed ${def.name} in ${villageName} at (${tile.x}, ${tile.z}).`, 'build');
 
-  if (buildingType === 'dyson_spire' && state.epochIndex < 6) {
-    state.epochIndex = 6;
+  if (buildingType === 'dyson_spire' && state.epochIndex < 7) {
+    state.epochIndex = 7;
     state.epochProgress = 100;
-    addChronicle(state, 'The Dyson Ascension Relay pierces the heavens! Interstellar Age achieved!', 'epoch');
+    addChronicle(state, 'The Dyson Ascension Relay pierces the heavens! Star Age achieved!', 'epoch');
   }
 
   recalculateRatesAndCaps(state);
@@ -561,6 +567,18 @@ export function applyTerrainTool(
           if (t.height > 0) {
             t.terrain = 'stone_road';
             if (!t.buildingId && (t.resourceNode === 'berry_bush' || t.resourceNode === 'timber_grove')) {
+              t.resourceNode = 'none';
+              t.resourceAmount = 0;
+            }
+            modifiedCount++;
+          }
+          break;
+        }
+        case 'rail_track': {
+          if (t.height > 0 && !t.buildingId) {
+            t.terrain = 'rail_track';
+            t.farmSettlementId = undefined;
+            if (t.resourceNode === 'berry_bush' || t.resourceNode === 'timber_grove') {
               t.resourceNode = 'none';
               t.resourceAmount = 0;
             }
@@ -1377,7 +1395,7 @@ export function executeGodPowerImpact(
             t.blessedTimer = 30;
             if (dSq <= rSq * 0.38) {
               t.height = Math.max(2, t.height);
-              t.terrain = state.epochIndex >= 5 ? 'crystal_field' : 'fertile';
+              t.terrain = state.epochIndex >= 6 ? 'crystal_field' : 'fertile';
             } else if (dSq <= rSq * 0.72) {
               t.height = Math.max(1, t.height);
               t.terrain = t.height >= 2 ? 'grass' : 'sand';
@@ -1405,7 +1423,7 @@ export function executeGodPowerImpact(
             }
             t.height = dSq <= rSq * 0.62 ? targetH : Math.max(1, targetH - 1);
             if (!t.buildingId) {
-              if (state.epochIndex >= 5 && dSq <= rSq * 0.5) {
+              if (state.epochIndex >= 6 && dSq <= rSq * 0.5) {
                 t.terrain = 'crystal_field';
               } else if (t.terrain === 'scorched') {
                 t.terrain = dSq <= rSq * 0.5 ? 'grass' : 'savanna';
@@ -1633,36 +1651,121 @@ export function isSettlementRoadTile(dx: number, dz: number, variant: number): b
   const adx = Math.abs(dx);
   const adz = Math.abs(dz);
   const maxD = Math.max(adx, adz);
-  if (maxD > 11) return false;
+  if (maxD > 13) return false;
 
   switch (variant & 3) {
     case 0: {
-      // Variant 0: Perimeter Loop & Crossroads (encloses 3x3 green cottage blocks like reference architecture)
-      const onPerimeterLoop = (maxD === 4 || maxD === 8) && adx <= maxD && adz <= maxD;
-      const onCrossAvenue = (dx === 0 && dz >= -10 && dz <= 10) || (dz === 0 && dx >= -10 && dx <= 10);
+      // Variant 0: Perimeter Loops & Crossroads (scales outward for dense urbanized blocks)
+      const onPerimeterLoop = (maxD === 4 || maxD === 8 || maxD === 12) && adx <= maxD && adz <= maxD;
+      const onCrossAvenue = (dx === 0 && dz >= -12 && dz <= 12) || (dz === 0 && dx >= -12 && dx <= 12);
       return onPerimeterLoop || onCrossAvenue;
     }
     case 1: {
       // Variant 1: Twin Boulevards & Cross Streets
-      const onBoulevard = (dz === -5 || dz === -1 || dz === 3 || dz === 7) && adx <= 10;
-      const onCross = (dx === -2 || dx === 2 || dx === -6 || dx === 6) && adz <= 9;
+      const onBoulevard = (dz === -9 || dz === -5 || dz === -1 || dz === 3 || dz === 7 || dz === 11) && adx <= 12;
+      const onCross = (dx === -10 || dx === -6 || dx === -2 || dx === 2 || dx === 6 || dx === 10) && adz <= 11;
       return onBoulevard || onCross;
     }
     case 2: {
       // Variant 2: Civic Plaza Ring & Radial Spokes
       const onRing = maxD === 2 || maxD === 6 || maxD === 10;
-      const onSpoke = (dx === 0 && adz >= 2 && adz <= 10) || (dz === 0 && adx >= 2 && adx <= 10);
+      const onSpoke = (dx === 0 && adz >= 2 && adz <= 12) || (dz === 0 && adx >= 2 && adx <= 12);
       return onRing || onSpoke;
     }
     default: {
-      // Variant 3: Winding Village Commons with staggered T-junctions
-      const onMainSpine = (dz === 1 && dx >= -10 && dx <= 10) || (dx === -1 && dz >= -10 && dz <= 10);
+      // Variant 3: Urban Commons with staggered T-junctions & outer ring
+      const onMainSpine = (dz === 1 && dx >= -12 && dx <= 12) || (dx === -1 && dz >= -12 && dz <= 12);
       const onLoopBranch =
         (dx === 3 && dz >= -6 && dz <= 7) ||
         (dx === -5 && dz >= -4 && dz <= 6) ||
         (dz === -3 && dx >= -6 && dx <= 6) ||
-        (dz === 5 && dx >= -6 && dx <= 6);
+        (dz === 5 && dx >= -6 && dx <= 6) ||
+        maxD === 10;
       return onMainSpine || onLoopBranch;
+    }
+  }
+}
+
+function paveRailTileIfClean(state: SimulationState, x: number, z: number): boolean {
+  const t = getTile(state, x, z);
+  if (!t || t.height <= 0 || t.buildingId) return false;
+  if (t.terrain === 'stone_road' || t.terrain === 'crystal_field' || t.terrain === 'rail_track') return false;
+  if (t.resourceNode === 'berry_bush' || t.resourceNode === 'timber_grove') {
+    t.resourceNode = 'none';
+    t.resourceAmount = 0;
+  }
+  t.terrain = 'rail_track';
+  t.farmSettlementId = undefined;
+  return true;
+}
+
+export function paveSettlementRailNetwork(state: SimulationState, settlementId = 'city_default'): void {
+  const villageBuildings = state.buildings.filter((b) => (b.settlementId ?? 'city_default') === settlementId);
+  if (villageBuildings.length === 0) return;
+
+  const anchor = getSettlementAnchorForId(state, settlementId);
+  const variant = getSettlementLayoutVariant(state, settlementId, anchor.x, anchor.z);
+  // Choose a perimeter metro loop ring that minimizes road overlap for each street layout
+  const metroRadius = (variant & 3) === 0 ? 6 : (variant & 3) === 1 ? 8 : 8;
+
+  for (let d = -metroRadius; d <= metroRadius; d++) {
+    paveRailTileIfClean(state, anchor.x + d, anchor.z - metroRadius);
+    paveRailTileIfClean(state, anchor.x + d, anchor.z + metroRadius);
+    paveRailTileIfClean(state, anchor.x - metroRadius, anchor.z + d);
+    paveRailTileIfClean(state, anchor.x + metroRadius, anchor.z + d);
+  }
+
+  // Link any rail_station in this settlement directly to the city metro loop
+  for (const b of villageBuildings) {
+    if (b.type !== 'rail_station') continue;
+    const targetRingX =
+      Math.abs(b.tileX - anchor.x) >= Math.abs(b.tileZ - anchor.z)
+        ? anchor.x + (b.tileX >= anchor.x ? metroRadius : -metroRadius)
+        : b.tileX;
+    const targetRingZ =
+      Math.abs(b.tileZ - anchor.z) > Math.abs(b.tileX - anchor.x)
+        ? anchor.z + (b.tileZ >= anchor.z ? metroRadius : -metroRadius)
+        : b.tileZ;
+    let cx = b.tileX;
+    let cz = b.tileZ;
+    let guard = 0;
+    while ((cx !== targetRingX || cz !== targetRingZ) && guard < 24) {
+      guard += 1;
+      if (cx !== targetRingX) cx += cx < targetRingX ? 1 : -1;
+      else if (cz !== targetRingZ) cz += cz < targetRingZ ? 1 : -1;
+      paveRailTileIfClean(state, cx, cz);
+    }
+  }
+
+  // Inter-city railway corridor linking this city's metro ring to the nearest other settlement
+  const allSids = Array.from(new Set(state.buildings.map((b) => b.settlementId ?? 'city_default')));
+  if (allSids.length > 1) {
+    let nearestOther: { x: number; z: number } | null = null;
+    let bestDist = Infinity;
+    for (const otherSid of allSids) {
+      if (otherSid === settlementId) continue;
+      const oa = getSettlementAnchorForId(state, otherSid);
+      const d = Math.hypot(oa.x - anchor.x, oa.z - anchor.z);
+      if (d < bestDist && d > 12) {
+        bestDist = d;
+        nearestOther = oa;
+      }
+    }
+    if (nearestOther) {
+      let cx = anchor.x + (nearestOther.x >= anchor.x ? metroRadius : -metroRadius);
+      let cz = anchor.z + 2;
+      const tx = nearestOther.x;
+      const tz = nearestOther.z + 2;
+      let steps = 0;
+      while ((cx !== tx || cz !== tz) && steps < state.gridSize * 2) {
+        steps += 1;
+        if (Math.abs(cx - tx) >= Math.abs(cz - tz) && cx !== tx) {
+          cx += cx < tx ? 1 : -1;
+        } else if (cz !== tz) {
+          cz += cz < tz ? 1 : -1;
+        }
+        paveRailTileIfClean(state, cx, cz);
+      }
     }
   }
 }
@@ -1686,7 +1789,14 @@ function paveSettlementStreetsNear(
     for (let dx = -3; dx <= 3; dx++) {
       const t = getTile(state, bx + dx, bz + dz);
       if (!t || t.height <= 0 || t.buildingId || t.resourceNode !== 'none') continue;
-      if (t.terrain === 'deep_water' || t.terrain === 'shallow_water' || t.terrain === 'crystal_field') continue;
+      if (
+        t.terrain === 'deep_water' ||
+        t.terrain === 'shallow_water' ||
+        t.terrain === 'crystal_field' ||
+        t.terrain === 'rail_track'
+      ) {
+        continue;
+      }
       const relX = t.x - anchor.x;
       const relZ = t.z - anchor.z;
       if (isSettlementRoadTile(relX, relZ, variant)) {
@@ -1722,7 +1832,8 @@ function paveSettlementStreetsNear(
           nt.height > 0 &&
           !nt.buildingId &&
           nt.resourceNode === 'none' &&
-          nt.terrain !== 'crystal_field'
+          nt.terrain !== 'crystal_field' &&
+          nt.terrain !== 'rail_track'
         ) {
           nt.terrain = 'stone_road';
           nt.farmSettlementId = undefined;
@@ -1761,8 +1872,8 @@ function findBuildableTileNear(
 
         if (!emergencyFallback) emergencyFallback = t;
 
-        // Never place buildings on existing roads or designated street corridors!
-        if (t.terrain === 'stone_road' || isSettlementRoadTile(dx, dz, variant)) {
+        // Never place buildings on existing roads, rail tracks, or designated street corridors!
+        if (t.terrain === 'stone_road' || t.terrain === 'rail_track' || isSettlementRoadTile(dx, dz, variant)) {
           continue;
         }
 
@@ -1846,7 +1957,7 @@ export function advanceEpoch(
   state.epochIndex += 1;
   state.epochProgress = 0;
 
-  const epochYears = [-10000, -3000, 1150, 1860, 1975, 2110, 2450];
+  const epochYears = [-10000, -3000, 1150, 1860, 1965, 2015, 2130, 2480];
   state.year = epochYears[state.epochIndex] ?? state.year + 500;
 
   // Heal existing structures and kick off their individual progression toward the new epoch
@@ -1863,22 +1974,26 @@ export function advanceEpoch(
 
   const anchor = getSettlementAnchor(state);
 
-  // Transform street network around each independent settlement & erect epoch landmark
+  // Transform street & rail transit network around each independent settlement & erect epoch landmark
   if (state.buildings.length > 0) {
     const settlementIds = Array.from(new Set(state.buildings.map((b) => b.settlementId ?? 'city_default')));
 
     for (const sid of settlementIds) {
       const cityAnchor = getSettlementAnchorForId(state, sid);
       const variant = getSettlementLayoutVariant(state, sid, cityAnchor.x, cityAnchor.z);
-      for (let dz = -5; dz <= 5; dz++) {
-        for (let dx = -5; dx <= 5; dx++) {
+      const radius = state.epochIndex >= 3 ? 9 : 5;
+      for (let dz = -radius; dz <= radius; dz++) {
+        for (let dx = -radius; dx <= radius; dx++) {
           if (!isSettlementRoadTile(dx, dz, variant)) continue;
           const pt = getTile(state, cityAnchor.x + dx, cityAnchor.z + dz);
-          if (pt && pt.height > 0 && !pt.buildingId && pt.resourceNode === 'none') {
+          if (pt && pt.height > 0 && !pt.buildingId && pt.resourceNode === 'none' && pt.terrain !== 'rail_track') {
             pt.terrain = 'stone_road';
             pt.farmSettlementId = undefined;
           }
         }
+      }
+      if (state.epochIndex >= 3) {
+        paveSettlementRailNetwork(state, sid);
       }
     }
 
@@ -1889,9 +2004,9 @@ export function advanceEpoch(
     const epochBuildings = BUILDINGS.filter((b) => b.epoch === nextEpoch.id);
     if (epochBuildings.length > 0) {
       const bDef = epochBuildings[0];
-      const padTile = findBuildableTileNear(state, primaryAnchor.x, primaryAnchor.z, 12, primarySid);
+      const padTile = findBuildableTileNear(state, primaryAnchor.x, primaryAnchor.z, 15, primarySid);
       if (padTile) {
-        if (padTile.terrain === 'stone_road') padTile.terrain = 'grass';
+        if (padTile.terrain === 'stone_road' || padTile.terrain === 'rail_track') padTile.terrain = 'grass';
         padTile.resourceNode = 'none';
         padTile.resourceAmount = 0;
         const primarySpecies: SpeciesId = state.settlementSpecies?.[primarySid] ?? 'human';
@@ -1914,11 +2029,14 @@ export function advanceEpoch(
         state.buildings.push(newBld);
         state.totalStructuresBuilt += 1;
         paveSettlementStreetsNear(state, padTile.x, padTile.z, primarySid);
+        if (state.epochIndex >= 3) {
+          paveSettlementRailNetwork(state, primarySid);
+        }
       }
     }
 
     const bonusRole: UnitRole =
-      state.epochIndex >= 5 ? 'astro_engineer' : state.epochIndex >= 2 ? 'scholar' : 'builder';
+      state.epochIndex >= 6 ? 'astro_engineer' : state.epochIndex >= 2 ? 'scholar' : 'builder';
     spawnUnit(state, bonusRole, primaryAnchor.x, primaryAnchor.z, true, primarySid);
   }
 
@@ -1992,7 +2110,7 @@ function pickDesiredAutobuildType(
   if (villageBuildings.length >= maxCityBuildings) return null;
 
   const countType = (t: BuildingType) => villageBuildings.filter((b) => b.type === t).length;
-  const targetCottages = Math.min(12, Math.max(4, Math.floor(villagePop * 0.85)));
+  const targetCottages = Math.min(18, Math.max(4, Math.floor(villagePop * 0.9)));
 
   if (countType('bonfire') === 0) return 'bonfire';
   if (countType('forager_hut') < Math.min(4, targetCottages)) return 'forager_hut';
@@ -2019,20 +2137,30 @@ function pickDesiredAutobuildType(
     if (countType('guildhall') < 3) return 'guildhall';
   }
   if (state.epochIndex >= 3) {
+    if (countType('rail_station') < 1) return 'rail_station';
     if (countType('steam_foundry') < 2) return 'steam_foundry';
     if (countType('dynamo_plant') < 2) return 'dynamo_plant';
-    if (countType('forager_hut') < Math.min(10, targetCottages)) return 'forager_hut';
+    if (countType('guildhall') < 4) return 'guildhall';
+    if (countType('forager_hut') < Math.min(12, targetCottages)) return 'forager_hut';
   }
   if (state.epochIndex >= 4) {
+    if (countType('airport') < 1) return 'airport';
     if (countType('fission_reactor') < 2) return 'fission_reactor';
     if (countType('cyber_institute') < 2) return 'cyber_institute';
-    if (countType('forager_hut') < Math.min(11, targetCottages)) return 'forager_hut';
+    if (countType('guildhall') < 5) return 'guildhall';
+    if (countType('forager_hut') < Math.min(14, targetCottages)) return 'forager_hut';
   }
   if (state.epochIndex >= 5) {
+    if (countType('rail_station') < 2) return 'rail_station';
+    if (countType('cyber_institute') < 3) return 'cyber_institute';
+    if (countType('guildhall') < 7) return 'guildhall';
+    if (countType('forager_hut') < Math.min(16, targetCottages)) return 'forager_hut';
+  }
+  if (state.epochIndex >= 6) {
     if (countType('launch_arcology') < 2) return 'launch_arcology';
     if (countType('forager_hut') < targetCottages) return 'forager_hut';
   }
-  if (state.epochIndex >= 6) {
+  if (state.epochIndex >= 7) {
     if (countType('dyson_spire') < 1) return 'dyson_spire';
   }
   if (countType('forager_hut') < targetCottages) return 'forager_hut';
@@ -2052,12 +2180,15 @@ function transformSettlementEnvironment(
 
   const sid = sampleBld.settlementId ?? 'city_default';
   const ownTile = getTile(state, sampleBld.tileX, sampleBld.tileZ);
-  if (ownTile && ownTile.terrain === 'stone_road') {
+  if (ownTile && (ownTile.terrain === 'stone_road' || ownTile.terrain === 'rail_track')) {
     ownTile.terrain = 'grass';
   }
 
-  // 1. Era-driven street network & high-tech terrain transformation around completed buildings
+  // 1. Era-driven street, rail & high-tech terrain transformation around completed buildings
   paveSettlementStreetsNear(state, sampleBld.tileX, sampleBld.tileZ, sid);
+  if (state.epochIndex >= 3 && (sampleBld.type === 'rail_station' || villageBuildings.length >= 6)) {
+    paveSettlementRailNetwork(state, sid);
+  }
 
   const offsets = [
     [1, 0],
@@ -2071,10 +2202,11 @@ function transformSettlementEnvironment(
   const adj = getTile(state, sampleBld.tileX + pickOff[0], sampleBld.tileZ + pickOff[1]);
   if (adj && adj.height > 0 && !adj.buildingId) {
     if (
-      sampleBld.epochLevel >= 5 &&
+      sampleBld.epochLevel >= 6 &&
       (sampleBld.type === 'launch_arcology' || sampleBld.type === 'dyson_spire') &&
       (adj.x + adj.z) % 4 === 0 &&
-      adj.terrain !== 'stone_road'
+      adj.terrain !== 'stone_road' &&
+      adj.terrain !== 'rail_track'
     ) {
       adj.terrain = 'crystal_field';
       if (adj.resourceNode === 'none') {
@@ -2596,7 +2728,17 @@ function stepSimulationSingle(state: SimulationState, dt: number): void {
     state.epochProgress = Math.max(0, Math.min(100, avgPct));
 
     const completedCount = state.buildings.filter((b) => b.constructionProgress >= 100).length;
-    const requiredStructures = Math.max(2, (state.epochIndex + 1) * 2);
+    // Lengthen Industrial -> Atomic -> Information -> Orbital progression with higher urbanization milestones
+    const requiredStructures =
+      state.epochIndex < 3
+        ? Math.max(2, (state.epochIndex + 1) * 2)
+        : state.epochIndex === 3
+          ? 10
+          : state.epochIndex === 4
+            ? 14
+            : state.epochIndex === 5
+              ? 18
+              : 20;
     if (completedCount >= requiredStructures && canAfford(state.resources, nextEpoch.unlockCost, false)) {
       advanceEpoch(state, false);
     }
@@ -2955,7 +3097,7 @@ function stepSimulationSingle(state: SimulationState, dt: number): void {
           y: (bTile?.height ?? 2) * 0.45,
           z: b.tileZ,
           radius: 1.4,
-          color: b.epochLevel >= 5 ? '#56cfe1' : '#f5b742',
+          color: b.epochLevel >= 6 ? '#56cfe1' : b.epochLevel >= 5 ? '#3a86ff' : '#f5b742',
           createdAt: Date.now(),
         });
       }
@@ -3049,6 +3191,396 @@ function stepSimulationSingle(state: SimulationState, dt: number): void {
     }
     return true;
   });
+
+  // 9. Update transit vehicles (Trains on rail_track, Cars on stone_road, Planes at airports)
+  stepVehicles(state, dt);
+}
+
+const VEHICLE_DIRS: ReadonlyArray<[number, number]> = [
+  [1, 0],
+  [-1, 0],
+  [0, 1],
+  [0, -1],
+];
+
+function wrapAngleRad(angle: number): number {
+  let a = angle;
+  while (a > Math.PI) a -= Math.PI * 2;
+  while (a < -Math.PI) a += Math.PI * 2;
+  return a;
+}
+
+function stepVehicles(state: SimulationState, dt: number): void {
+  if (!state.vehicles) state.vehicles = [];
+
+  // Prune vehicles that belong to an age before transit unlocked
+  state.vehicles = state.vehicles.filter((v) => {
+    if (v.type === 'plane') {
+      return (
+        state.epochIndex >= 4 &&
+        state.buildings.some((b) => b.type === 'airport' && b.constructionProgress >= 100)
+      );
+    }
+    if (v.type === 'train') return state.epochIndex >= 3;
+    if (v.type === 'car') return state.epochIndex >= 3;
+    return false;
+  });
+
+  const settlementIds = Array.from(
+    new Set(
+      state.buildings
+        .filter((b) => b.constructionProgress >= 100)
+        .map((b) => b.settlementId ?? 'city_default'),
+    ),
+  );
+
+  // A. Maintain active trains (Industrial+)
+  if (state.epochIndex >= 3) {
+    const targetPerCity = state.epochIndex >= 5 ? 2 : 1;
+    for (const sid of settlementIds) {
+      if (state.vehicles.filter((v) => v.type === 'train').length >= 8) break;
+      const existingCount = state.vehicles.filter((v) => v.type === 'train' && v.settlementId === sid).length;
+      if (existingCount >= targetPerCity) continue;
+      const anchor = getSettlementAnchorForId(state, sid);
+      const railCandidates: TileData[] = [];
+      for (let dz = -14; dz <= 14; dz++) {
+        for (let dx = -14; dx <= 14; dx++) {
+          const rt = getTile(state, anchor.x + dx, anchor.z + dz);
+          if (rt && rt.terrain === 'rail_track') {
+            railCandidates.push(rt);
+          }
+        }
+      }
+      if (railCandidates.length >= 4) {
+        const startTile = railCandidates[(existingCount * 7) % railCandidates.length];
+        let nextTile = startTile;
+        for (const [ox, oz] of VEHICLE_DIRS) {
+          const nb = getTile(state, startTile.x + ox, startTile.z + oz);
+          if (nb && nb.terrain === 'rail_track') {
+            nextTile = nb;
+            break;
+          }
+        }
+        const sp: SpeciesId = state.settlementSpecies?.[sid] ?? 'human';
+        state.vehicles.push({
+          id: nextEntityId('veh_trn'),
+          type: 'train',
+          species: sp,
+          settlementId: sid,
+          epochLevel: state.epochIndex,
+          x: startTile.x,
+          y: 0.03,
+          z: startTile.z,
+          heading: Math.atan2(nextTile.x - startTile.x, nextTile.z - startTile.z),
+          pitch: 0,
+          bank: 0,
+          speed: 3.0,
+          path: [
+            { x: startTile.x, z: startTile.z },
+            { x: nextTile.x, z: nextTile.z },
+          ],
+          pathIndex: 1,
+          variantSeed: railCandidates.length + existingCount,
+        });
+      }
+    }
+  }
+
+  // B. Maintain active automobiles (Industrial+)
+  if (state.epochIndex >= 3) {
+    const targetCarsPerCity =
+      state.epochIndex === 3 ? 2 : state.epochIndex === 4 ? 4 : 6;
+    for (const sid of settlementIds) {
+      if (state.vehicles.filter((v) => v.type === 'car').length >= 24) break;
+      const existingCount = state.vehicles.filter((v) => v.type === 'car' && v.settlementId === sid).length;
+      if (existingCount >= targetCarsPerCity) continue;
+      const anchor = getSettlementAnchorForId(state, sid);
+      const roadCandidates: TileData[] = [];
+      for (let dz = -14; dz <= 14; dz++) {
+        for (let dx = -14; dx <= 14; dx++) {
+          const rt = getTile(state, anchor.x + dx, anchor.z + dz);
+          if (rt && rt.terrain === 'stone_road') {
+            roadCandidates.push(rt);
+          }
+        }
+      }
+      if (roadCandidates.length >= 4) {
+        const startTile = roadCandidates[(existingCount * 5 + 1) % roadCandidates.length];
+        let nextTile = startTile;
+        for (const [ox, oz] of VEHICLE_DIRS) {
+          const nb = getTile(state, startTile.x + ox, startTile.z + oz);
+          if (nb && nb.terrain === 'stone_road') {
+            nextTile = nb;
+            break;
+          }
+        }
+        const sp: SpeciesId = state.settlementSpecies?.[sid] ?? 'human';
+        state.vehicles.push({
+          id: nextEntityId('veh_car'),
+          type: 'car',
+          species: sp,
+          settlementId: sid,
+          epochLevel: state.epochIndex,
+          x: startTile.x,
+          y: state.epochIndex >= 6 ? 0.14 : 0.02,
+          z: startTile.z,
+          heading: Math.atan2(nextTile.x - startTile.x, nextTile.z - startTile.z),
+          pitch: 0,
+          bank: 0,
+          speed: 2.6,
+          path: [
+            { x: startTile.x, z: startTile.z },
+            { x: nextTile.x, z: nextTile.z },
+          ],
+          pathIndex: 1,
+          variantSeed: existingCount + startTile.x * 7 + startTile.z * 13,
+        });
+      }
+    }
+  }
+
+  // C. Maintain active aircraft at completed airports (Atomic+)
+  const airports = state.buildings.filter((b) => b.type === 'airport' && b.constructionProgress >= 100);
+  if (state.epochIndex >= 4 && airports.length > 0) {
+    const targetPlanesPerAirport = state.epochIndex >= 5 ? 2 : 1;
+    for (const ap of airports) {
+      if (state.vehicles.filter((v) => v.type === 'plane').length >= 6) break;
+      const apSid = ap.settlementId ?? 'city_default';
+      const existingAtSid = state.vehicles.filter(
+        (v) => v.type === 'plane' && v.settlementId === apSid,
+      ).length;
+      if (existingAtSid >= targetPlanesPerAirport) continue;
+      const sp: SpeciesId = ap.species ?? state.settlementSpecies?.[apSid] ?? 'human';
+      state.vehicles.push({
+        id: nextEntityId('veh_pln'),
+        type: 'plane',
+        species: sp,
+        settlementId: apSid,
+        epochLevel: state.epochIndex,
+        x: ap.tileX,
+        y: 0.06,
+        z: ap.tileZ,
+        heading: Math.PI / 2,
+        pitch: 0,
+        bank: 0,
+        speed: 4.5,
+        path: [{ x: ap.tileX, z: ap.tileZ }],
+        pathIndex: 0,
+        variantSeed: ap.tileX + existingAtSid * 17,
+        flightPhase: 'parked',
+        phaseTimer: existingAtSid * 1.4,
+      });
+    }
+  }
+
+  // D. Advance every vehicle smoothly
+  for (const v of state.vehicles) {
+    v.epochLevel = state.epochIndex;
+
+    if (v.type === 'train') {
+      v.speed =
+        state.epochIndex <= 3 ? 2.9 : state.epochIndex === 4 ? 4.0 : state.epochIndex === 5 ? 5.4 : 6.8;
+      v.y = state.epochIndex >= 6 ? 0.14 : 0.03;
+      const target = v.path[1] ?? v.path[0] ?? { x: v.x, z: v.z };
+      const dx = target.x - v.x;
+      const dz = target.z - v.z;
+      const dist = Math.hypot(dx, dz);
+      const step = v.speed * dt;
+      if (dist > step && dist > 0.02) {
+        v.x += (dx / dist) * step;
+        v.z += (dz / dist) * step;
+        const desiredHeading = Math.atan2(dx, dz);
+        v.heading += wrapAngleRad(desiredHeading - v.heading) * Math.min(1, dt * 12);
+      } else {
+        v.x = target.x;
+        v.z = target.z;
+        const prev = v.path[0] ?? target;
+        const candidates: Array<{ x: number; z: number }> = [];
+        for (const [ox, oz] of VEHICLE_DIRS) {
+          const nx = Math.round(target.x + ox);
+          const nz = Math.round(target.z + oz);
+          const nt = getTile(state, nx, nz);
+          if (!nt) continue;
+          if (nt.terrain === 'rail_track') {
+            candidates.push({ x: nx, z: nz });
+          } else if (nt.terrain === 'stone_road') {
+            // Allow smooth grade crossing across a 1-tile road onto continuation rail_track
+            const beyond = getTile(state, nx + ox, nz + oz);
+            if (beyond && beyond.terrain === 'rail_track') {
+              candidates.push({ x: beyond.x, z: beyond.z });
+            }
+          }
+        }
+        const nonReverse = candidates.filter(
+          (c) => Math.abs(c.x - prev.x) > 0.2 || Math.abs(c.z - prev.z) > 0.2,
+        );
+        const pool = nonReverse.length > 0 ? nonReverse : candidates;
+        if (pool.length > 0) {
+          const pickIdx = (v.variantSeed + Math.round(target.x * 3 + target.z * 5)) % pool.length;
+          const nextPt = pool[Math.abs(pickIdx)];
+          v.path = [{ x: target.x, z: target.z }, nextPt];
+        }
+      }
+    } else if (v.type === 'car') {
+      v.speed =
+        state.epochIndex <= 3 ? 2.2 : state.epochIndex === 4 ? 3.2 : state.epochIndex === 5 ? 4.2 : 5.2;
+      v.y = state.epochIndex >= 6 ? 0.14 : 0.02;
+      const target = v.path[1] ?? v.path[0] ?? { x: v.x, z: v.z };
+      const dx = target.x - v.x;
+      const dz = target.z - v.z;
+      const dist = Math.hypot(dx, dz);
+      const step = v.speed * dt;
+      if (dist > step && dist > 0.02) {
+        v.x += (dx / dist) * step;
+        v.z += (dz / dist) * step;
+        const desiredHeading = Math.atan2(dx, dz);
+        v.heading += wrapAngleRad(desiredHeading - v.heading) * Math.min(1, dt * 14);
+      } else {
+        v.x = target.x;
+        v.z = target.z;
+        const prev = v.path[0] ?? target;
+        const candidates: Array<{ x: number; z: number }> = [];
+        for (const [ox, oz] of VEHICLE_DIRS) {
+          const nx = Math.round(target.x + ox);
+          const nz = Math.round(target.z + oz);
+          const nt = getTile(state, nx, nz);
+          if (nt && nt.terrain === 'stone_road') {
+            candidates.push({ x: nx, z: nz });
+          }
+        }
+        const nonReverse = candidates.filter(
+          (c) => Math.abs(c.x - prev.x) > 0.2 || Math.abs(c.z - prev.z) > 0.2,
+        );
+        const pool = nonReverse.length > 0 ? nonReverse : candidates;
+        if (pool.length > 0) {
+          const pickIdx =
+            (v.variantSeed + Math.floor(Math.abs(state.year * 100)) + Math.round(target.x + target.z)) %
+            pool.length;
+          const nextPt = pool[Math.abs(pickIdx)];
+          v.path = [{ x: target.x, z: target.z }, nextPt];
+        }
+      }
+    } else if (v.type === 'plane') {
+      const homeAirport =
+        airports.find((a) => (a.settlementId ?? 'city_default') === v.settlementId) ?? airports[0];
+      if (!homeAirport) continue;
+
+      const cruiseAlt = 4.6 + (v.variantSeed % 3) * 0.5;
+      const cruiseSpeed = state.epochIndex <= 4 ? 5.0 : state.epochIndex === 5 ? 6.8 : 8.5;
+      v.phaseTimer = (v.phaseTimer ?? 0) + dt;
+
+      if (v.flightPhase === 'parked' || !v.flightPhase) {
+        v.x = homeAirport.tileX;
+        v.z = homeAirport.tileZ;
+        v.y = 0.06;
+        v.pitch = 0;
+        v.bank = 0;
+        if (v.phaseTimer >= 1.2) {
+          // Build flight plan: fly to another airport (if any) or scenic circuit across cities
+          const waypoints: Array<{ x: number; z: number }> = [];
+          const destAirport =
+            airports.length > 1
+              ? airports[(airports.indexOf(homeAirport) + 1) % airports.length]
+              : homeAirport;
+          const midA = {
+            x: Math.max(6, Math.min(state.gridSize - 7, homeAirport.tileX + 12)),
+            z: Math.max(6, Math.min(state.gridSize - 7, homeAirport.tileZ + 4)),
+          };
+          waypoints.push(midA);
+          if (destAirport !== homeAirport) {
+            waypoints.push({ x: destAirport.tileX, z: destAirport.tileZ });
+          } else {
+            const otherCities = settlementIds.filter((s) => s !== v.settlementId);
+            if (otherCities.length > 0) {
+              const oa = getSettlementAnchorForId(state, otherCities[v.variantSeed % otherCities.length]);
+              waypoints.push({ x: oa.x, z: oa.z });
+            } else {
+              waypoints.push({
+                x: Math.max(6, Math.min(state.gridSize - 7, homeAirport.tileX + 14)),
+                z: Math.max(6, Math.min(state.gridSize - 7, homeAirport.tileZ - 12)),
+              });
+              waypoints.push({
+                x: Math.max(6, Math.min(state.gridSize - 7, homeAirport.tileX - 10)),
+                z: Math.max(6, Math.min(state.gridSize - 7, homeAirport.tileZ - 10)),
+              });
+            }
+          }
+          waypoints.push({ x: homeAirport.tileX - 6, z: homeAirport.tileZ + 2 });
+          waypoints.push({ x: homeAirport.tileX, z: homeAirport.tileZ });
+          v.path = waypoints;
+          v.pathIndex = 0;
+          v.flightPhase = 'takeoff';
+          v.phaseTimer = 0;
+          v.heading = Math.PI / 2;
+        }
+      } else if (v.flightPhase === 'takeoff') {
+        const takeoffDur = 2.0;
+        const frac = Math.min(1, v.phaseTimer / takeoffDur);
+        const runwaySpeed = cruiseSpeed * (0.35 + 0.65 * frac);
+        const wp = v.path[0] ?? { x: v.x + 10, z: v.z };
+        const desiredHeading = Math.atan2(wp.x - v.x, wp.z - v.z);
+        v.heading += wrapAngleRad(desiredHeading - v.heading) * Math.min(1, dt * 3.5);
+        v.x += Math.sin(v.heading) * runwaySpeed * dt;
+        v.z += Math.cos(v.heading) * runwaySpeed * dt;
+        v.y = 0.06 + frac * frac * (cruiseAlt - 0.06);
+        v.pitch = -0.26 * Math.sin(frac * Math.PI);
+        v.bank = 0;
+        if (frac >= 1) {
+          v.flightPhase = 'cruise';
+          v.phaseTimer = 0;
+          v.pathIndex = Math.min(v.path.length - 1, 1);
+        }
+      } else if (v.flightPhase === 'cruise') {
+        const wp = v.path[v.pathIndex] ?? { x: homeAirport.tileX, z: homeAirport.tileZ };
+        const dx = wp.x - v.x;
+        const dz = wp.z - v.z;
+        const dist = Math.hypot(dx, dz);
+        const desiredHeading = Math.atan2(dx, dz);
+        const turnDelta = wrapAngleRad(desiredHeading - v.heading);
+        const maxTurn = 2.4 * dt;
+        const appliedTurn = Math.max(-maxTurn, Math.min(maxTurn, turnDelta));
+        v.heading = wrapAngleRad(v.heading + appliedTurn);
+        v.bank = Math.max(-0.42, Math.min(0.42, (appliedTurn / Math.max(0.001, dt)) * 0.22));
+        v.pitch = 0;
+        v.y += (cruiseAlt - v.y) * Math.min(1, dt * 4);
+        v.x += Math.sin(v.heading) * cruiseSpeed * dt;
+        v.z += Math.cos(v.heading) * cruiseSpeed * dt;
+
+        if (dist < 2.2) {
+          if (v.pathIndex < v.path.length - 2) {
+            v.pathIndex += 1;
+          } else {
+            v.flightPhase = 'landing';
+            v.phaseTimer = 0;
+          }
+        }
+      } else if (v.flightPhase === 'landing') {
+        const dest = v.path[v.path.length - 1] ?? { x: homeAirport.tileX, z: homeAirport.tileZ };
+        const dx = dest.x - v.x;
+        const dz = dest.z - v.z;
+        const dist = Math.hypot(dx, dz);
+        const approachSpeed = cruiseSpeed * Math.max(0.35, Math.min(0.85, dist / 8));
+        const desiredHeading = Math.atan2(dx, dz);
+        const turnDelta = wrapAngleRad(desiredHeading - v.heading);
+        v.heading = wrapAngleRad(v.heading + Math.max(-2.5 * dt, Math.min(2.5 * dt, turnDelta)));
+        v.bank = Math.max(-0.28, Math.min(0.28, turnDelta * 0.5));
+        v.pitch = 0.14;
+        if (dist > 0.35) {
+          v.x += (dx / dist) * approachSpeed * dt;
+          v.z += (dz / dist) * approachSpeed * dt;
+          v.y = Math.max(0.06, Math.min(cruiseAlt, (dist / 8.0) * cruiseAlt));
+        } else {
+          v.x = dest.x;
+          v.z = dest.z;
+          v.y = 0.06;
+          v.pitch = 0;
+          v.bank = 0;
+          v.flightPhase = 'parked';
+          v.phaseTimer = 0;
+        }
+      }
+    }
+  }
 }
 
 function stepHostileUnitAI(

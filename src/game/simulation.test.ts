@@ -572,14 +572,15 @@ test('individual buildings start at primitive epochLevel 0 and progressively upg
   assert.equal(hearth.epochLevel, 1, 'Hearth should upgrade to Bronze Age (epochLevel 1)');
   assert.equal(hut.epochLevel, 1, 'Forager hut should upgrade to Bronze Age (epochLevel 1)');
 
-  // Advance through Classical (2), Industrial (3), Atomic (4), to Orbital Age (5) and verify buildings progress step-by-step to Orbital sci-fi
-  while (state.epochIndex < 5) {
+  // Advance through Classical (2), Industrial (3), Atomic (4), Info Age (5), to Orbital Age (6) and verify buildings progress step-by-step
+  while (state.epochIndex < 6) {
     advanceEpoch(state, true);
-    for (let i = 0; i < 35; i++) stepSimulation(state, 0.2);
+    for (let i = 0; i < 40; i++) stepSimulation(state, 0.2);
   }
-  assert.equal(state.epochIndex, 5);
-  assert.equal(hearth.epochLevel, 5, 'Hearth must progress all the way to Orbital Age (epochLevel 5 techno-modern)');
-  assert.equal(hut.epochLevel, 5, 'Forager hut must progress all the way to Orbital Age (epochLevel 5 bio-dome)');
+  assert.equal(state.epochIndex, 6);
+  assert.equal(EPOCHS[state.epochIndex].id, 'orbital');
+  assert.equal(hearth.epochLevel, 6, 'Hearth must progress all the way to Orbital Age (epochLevel 6 techno-modern)');
+  assert.equal(hut.epochLevel, 6, 'Forager hut must progress all the way to Orbital Age (epochLevel 6 bio-dome)');
 });
 
 test('city layout planner builds unblocked street networks and never places buildings on stone_road tiles', () => {
@@ -824,4 +825,103 @@ test('each race maintains its own distinct species architectural identity on bui
     );
   }
 });
+
+test('Industrial to Information Age pacing includes Info Age, metro railways, cars, trains, and airport planes', () => {
+  assert.equal(EPOCHS[3].id, 'industrial');
+  assert.equal(EPOCHS[4].id, 'atomic');
+  assert.equal(EPOCHS[5].id, 'information');
+  assert.equal(EPOCHS[6].id, 'orbital');
+  assert.ok(
+    EPOCHS[4].unlockCost.knowledge > EPOCHS[2].unlockCost.knowledge * 4,
+    'Industrial -> Atomic unlock cost should lengthen modern era',
+  );
+  assert.ok(
+    EPOCHS[5].unlockCost.knowledge >= 1100,
+    'Atomic -> Information Age unlock cost should provide extended progression',
+  );
+  assert.ok(getMaxCityBuildings(5) >= 28, 'Information Age cities must allow high urbanization (>= 28 buildings)');
+
+  const state = createInitialSimulationState(128, 'TRANSIT-AVIATION');
+  state.sandboxFreeMode = true;
+  state.resources.food = 10000;
+  state.resources.wood = 10000;
+  state.resources.stone = 10000;
+  state.resources.ore = 10000;
+  state.resources.energy = 5000;
+  state.resources.alloy = 5000;
+  state.resources.knowledge = 10000;
+
+  const cx = 64;
+  const cz = 64;
+  for (let dz = -16; dz <= 16; dz++) {
+    for (let dx = -16; dx <= 16; dx++) {
+      const t = getTile(state, cx + dx, cz + dz)!;
+      t.height = 2;
+      t.terrain = 'grass';
+      t.resourceNode = 'none';
+      t.resourceAmount = 0;
+    }
+  }
+
+  for (let i = 0; i < 6; i++) {
+    spawnUnit(state, 'human', cx + (i % 3) - 1, cz + Math.floor(i / 3) - 1, true);
+  }
+  for (let i = 0; i < 20; i++) stepSimulation(state, 0.2);
+
+  // Advance to Industrial (3) -> rails & cars/trains unlock
+  while (state.epochIndex < 3) advanceEpoch(state, true);
+  assert.equal(state.epochIndex, 3);
+
+  const railRes = placeBuilding(state, 'rail_station', cx + 4, cz + 2);
+  assert.equal(railRes.ok, true);
+  const railTiles = state.tiles.filter((t) => t.terrain === 'rail_track');
+  assert.ok(railTiles.length >= 12, `Industrial Age should lay metro/rail tracks around city, got ${railTiles.length}`);
+
+  // Advance to Information Age (5) and place an Airport
+  while (state.epochIndex < 5) advanceEpoch(state, true);
+  assert.equal(state.epochIndex, 5);
+  const airRes = placeBuilding(state, 'airport', cx - 6, cz - 4);
+  assert.equal(airRes.ok, true);
+
+  for (const b of state.buildings) {
+    b.constructionProgress = 100;
+  }
+
+  // Step simulation so vehicles spawn and move along roads, rails, and airspace
+  for (let i = 0; i < 40; i++) {
+    stepSimulation(state, 0.25);
+  }
+
+  const vehicles = state.vehicles ?? [];
+  const trains = vehicles.filter((v) => v.type === 'train');
+  const cars = vehicles.filter((v) => v.type === 'car');
+  const planes = vehicles.filter((v) => v.type === 'plane');
+
+  assert.ok(trains.length >= 1, `Should spawn moving metro/trains on rail_track, got ${trains.length}`);
+  assert.ok(cars.length >= 1, `Should spawn moving automobiles on stone_road, got ${cars.length}`);
+  assert.ok(planes.length >= 1, `Should spawn aircraft at Airport, got ${planes.length}`);
+
+  // Record positions & step further to confirm real locomotion and flight takeoff/cruise
+  const carBefore = { x: cars[0].x, z: cars[0].z };
+  const trainBefore = { x: trains[0].x, z: trains[0].z };
+  let sawPlaneAirborne = planes[0].y > 0.2 || planes[0].flightPhase === 'cruise' || planes[0].flightPhase === 'takeoff';
+
+  for (let i = 0; i < 45; i++) {
+    stepSimulation(state, 0.2);
+    if ((planes[0]?.y ?? 0) > 0.4 || planes[0]?.flightPhase === 'cruise') {
+      sawPlaneAirborne = true;
+    }
+  }
+
+  assert.ok(
+    Math.hypot(cars[0].x - carBefore.x, cars[0].z - carBefore.z) > 0.2,
+    'Cars must drive continuously along road network',
+  );
+  assert.ok(
+    Math.hypot(trains[0].x - trainBefore.x, trains[0].z - trainBefore.z) > 0.2,
+    'Trains/metros must travel continuously along rail network',
+  );
+  assert.ok(sawPlaneAirborne, 'Airport aircraft must take off and become airborne');
+});
+
 

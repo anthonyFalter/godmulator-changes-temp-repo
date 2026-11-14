@@ -608,6 +608,7 @@ const STYLED_TERRAIN_CODE: Record<TerrainType, number> = {
   snow: 11,
   scorched: 12,
   crystal_field: 13,
+  rail_track: 14,
 };
 
 export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem {
@@ -701,7 +702,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         return c;
       } else if (code < 4.5) {
         // Cultivated city farm plots evolve across ages; untouched river valleys remain lush wildflower meadows
-        if (isCultivatedFarm && uEpoch >= 4.5) {
+        if (isCultivatedFarm && uEpoch >= 5.5) {
           // Orbital & Interstellar Ages: Techno-modern hydroponic bio-agri deck with glowing cyan/emerald nutrient channels
           vec2 fPix = floor(subUv * 16.0);
           float border = step(fPix.x, 1.0) + step(14.0, fPix.x) + step(fPix.y, 1.0) + step(14.0, fPix.y);
@@ -804,7 +805,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         if (detail > 0.88) c = mix(c, obsidian, 0.7);
         c = mix(c, lavaGlow, fineCrack * (0.75 + 0.25 * pulse));
         return mix(c, lavaHot, hotCore * pulse);
-      } else {
+      } else if (code < 13.5) {
         // Crystal Field: luminous geometric arcane/sci-fi circuit plating
         vec2 cGrid = abs(fract(pixPos * 2.0) - 0.5);
         float trace = step(0.41, max(cGrid.x, cGrid.y));
@@ -814,6 +815,8 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         vec3 sh   = landSrgb(34.0, 50.0, 62.0);
         vec3 c = mix(sh, base, step(0.45, waveA));
         return mix(c, hi, trace * (0.55 + 0.45 * pulse));
+      } else {
+        return landSrgb(96.0, 90.0, 84.0);
       }
     }
 
@@ -953,23 +956,23 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         vec3 c = mix(base, hi, step(0.55, toneSeed));
         return mix(c, sh, mortar * 0.82);
 
-      } else if (uEpoch < 4.5) {
-        // Atomic / Modern Age: Asphalt roadway with directional centerlines, 90-degree curved lane lines & junction crosswalks
-        vec3 asphalt = landSrgb(54.0, 60.0, 68.0);
-        vec3 curbCol = landSrgb(142.0, 150.0, 158.0);
-        vec3 laneYellow = landSrgb(242.0, 202.0, 78.0);
-        vec3 markWhite  = landSrgb(230.0, 236.0, 242.0);
+      } else if (uEpoch < 5.5) {
+        // Atomic & Information Ages: Asphalt roadway with directional centerlines, 90-degree curved lane lines & urban crosswalks
+        bool isInfoAge = uEpoch >= 4.5;
+        vec3 asphalt = isInfoAge ? landSrgb(44.0, 50.0, 58.0) : landSrgb(54.0, 60.0, 68.0);
+        vec3 curbCol = isInfoAge ? landSrgb(164.0, 174.0, 184.0) : landSrgb(142.0, 150.0, 158.0);
+        vec3 laneYellow = landSrgb(245.0, 206.0, 72.0);
+        vec3 markWhite  = landSrgb(236.0, 242.0, 248.0);
 
         if (dRoad > 0.29) {
-          return mix(curbCol, asphalt, 0.12);
+          return mix(curbCol, asphalt, 0.10);
         }
 
-        vec3 c = mix(asphalt, landSrgb(64.0, 70.0, 78.0), step(0.86, noiseVal) * 0.55);
+        vec3 c = mix(asphalt, landSrgb(62.0, 68.0, 76.0), step(0.86, noiseVal) * 0.55);
 
         if (connCount < 0.5) {
           return c;
         } else if (isJunction) {
-          // Clean open central intersection + white zebra crosswalk bars at every connected entrance
           bool inLaneX = abs(rp.x - 0.5) < 0.24;
           bool inLaneY = abs(rp.y - 0.5) < 0.24;
           float xwalk = 0.0;
@@ -978,9 +981,8 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
           if (rW && abs(roadPix.x - 1.5) < 0.75 && inLaneY && mod(roadPix.y, 2.0) < 1.0) xwalk = 1.0;
           if (rE && abs(roadPix.x - 13.5) < 0.75 && inLaneY && mod(roadPix.y, 2.0) < 1.0) xwalk = 1.0;
 
-          return mix(c, markWhite, xwalk * 0.88);
+          return mix(c, markWhite, xwalk * (isInfoAge ? 0.94 : 0.88));
         } else if (isTurn) {
-          // Smooth 90-degree quarter-circle yellow dashed centerline around the curve
           float arcDist = abs(length(rp - ic) - 0.5);
           float arcAng = atan(abs(rp.y - ic.y), abs(rp.x - ic.x) + 0.0001);
           float arcDash = step(fract(arcAng / 1.5707963 * 3.0), 0.55);
@@ -990,16 +992,21 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
           float dash = step(mod(roadPix.y, 4.0), 1.5);
           float endCap = step(dRoad, 0.22);
           float line = step(abs(rp.x - 0.5), 0.04) * dash * endCap;
+          // Edge white lane stripes in Info Age
+          float edgeLine = isInfoAge ? step(abs(abs(rp.x - 0.5) - 0.23), 0.025) : 0.0;
+          c = mix(c, markWhite, edgeLine * 0.45);
           return mix(c, laneYellow, line * 0.92);
         } else {
           float dash = step(mod(roadPix.x, 4.0), 1.5);
           float endCap = step(dRoad, 0.22);
           float line = step(abs(rp.y - 0.5), 0.04) * dash * endCap;
+          float edgeLine = isInfoAge ? step(abs(abs(rp.y - 0.5) - 0.23), 0.025) : 0.0;
+          c = mix(c, markWhite, edgeLine * 0.45);
           return mix(c, laneYellow, line * 0.92);
         }
 
       } else {
-        // Orbital & Interstellar Ages (uEpoch >= 4.5): Directional titanium mag-lev transit deck & curved cyan guide rails
+        // Orbital & Interstellar Ages (uEpoch >= 5.5): Directional titanium mag-lev transit deck & curved cyan guide rails
         vec3 alloyDeck = landSrgb(38.0, 50.0, 64.0);
         vec3 alloySeam = landSrgb(24.0, 32.0, 42.0);
         vec3 cyanNeon  = landSrgb(86.0, 207.0, 225.0);
@@ -1012,7 +1019,6 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         if (isJunction && onCenterHub) segJoint = 0.0;
         vec3 c = mix(alloyDeck, alloySeam, segJoint * 0.75);
 
-        // Twin cyan guide rails trace dRoad symmetrically along straights, bends, T-junctions & crossroads
         float rail = step(abs(dRoad - 0.235), 0.038);
         float pulse = 0.0;
         float flowOffset = floor(tTime * 8.0);
@@ -1039,6 +1045,105 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         }
 
         return mix(c, cyanNeon, clamp(rail * 0.78 + pulse, 0.0, 1.0));
+      }
+    }
+
+    vec3 computeRailColor(
+      vec2 pixPos,
+      vec2 subUv,
+      float tTime,
+      bool tN,
+      bool tS,
+      bool tW,
+      bool tE,
+      vec3 marginCol
+    ) {
+      vec2 rPix = floor(subUv * 16.0);
+      vec2 rp = (rPix + 0.5) / 16.0;
+
+      bool turnNE = tN && tE && !tS && !tW;
+      bool turnNW = tN && tW && !tS && !tE;
+      bool turnSE = tS && tE && !tN && !tW;
+      bool turnSW = tS && tW && !tN && !tE;
+      bool isTurn = turnNE || turnNW || turnSE || turnSW;
+      bool isStraightNS = (tN || tS) && !tW && !tE;
+      bool isStraightWE = (tW || tE) && !tN && !tS;
+      float connCount = (tN ? 1.0 : 0.0) + (tS ? 1.0 : 0.0) + (tW ? 1.0 : 0.0) + (tE ? 1.0 : 0.0);
+
+      vec2 ic = vec2(0.5);
+      if (turnNE) ic = vec2(1.0, 0.0);
+      else if (turnNW) ic = vec2(0.0, 0.0);
+      else if (turnSE) ic = vec2(1.0, 1.0);
+      else if (turnSW) ic = vec2(0.0, 1.0);
+
+      float dTrack = length(rp - vec2(0.5));
+      if (isTurn) {
+        dTrack = abs(length(rp - ic) - 0.5);
+      } else {
+        if (tN) dTrack = min(dTrack, length(vec2(rp.x - 0.5, max(0.0, rp.y - 0.5))));
+        if (tS) dTrack = min(dTrack, length(vec2(rp.x - 0.5, max(0.0, 0.5 - rp.y))));
+        if (tW) dTrack = min(dTrack, length(vec2(max(0.0, rp.x - 0.5), rp.y - 0.5)));
+        if (tE) dTrack = min(dTrack, length(vec2(max(0.0, 0.5 - rp.x), rp.y - 0.5)));
+        if (connCount < 0.5) {
+          dTrack = abs(rp.x - 0.5);
+        }
+      }
+
+      if (dTrack > 0.34) {
+        return marginCol;
+      }
+
+      float noiseVal = landHash12(pixPos * 16.0);
+      bool armVertical = isStraightNS ||
+        (tN && rp.y < 0.5 && abs(rp.x - 0.5) <= abs(rp.y - 0.5)) ||
+        (tS && rp.y >= 0.5 && abs(rp.x - 0.5) <= abs(rp.y - 0.5));
+      if (isStraightWE) armVertical = false;
+
+      float tieMask = 0.0;
+      if (isTurn) {
+        float arcAng = atan(abs(rp.y - ic.y), abs(rp.x - ic.x) + 0.0001);
+        tieMask = step(0.55, fract(arcAng / 1.5707963 * 6.0));
+      } else if (connCount >= 3.0 && max(abs(rp.x - 0.5), abs(rp.y - 0.5)) < 0.25) {
+        tieMask = max(step(mod(rPix.x, 3.0), 0.9), step(mod(rPix.y, 3.0), 0.9));
+      } else {
+        tieMask = armVertical ? step(mod(rPix.y, 3.0), 0.9) : step(mod(rPix.x, 3.0), 0.9);
+      }
+
+      if (uEpoch < 4.5) {
+        // Industrial Age: Crushed stone ballast + oak sleepers + gleaming twin iron rails
+        vec3 ballast = mix(landSrgb(104.0, 96.0, 88.0), landSrgb(126.0, 118.0, 108.0), step(0.55, noiseVal));
+        vec3 sleeper = landSrgb(88.0, 56.0, 34.0);
+        vec3 steel = landSrgb(208.0, 218.0, 230.0);
+        vec3 rustEdge = landSrgb(112.0, 84.0, 68.0);
+        vec3 c = mix(ballast, sleeper, tieMask * step(dTrack, 0.23));
+        float railLine = step(abs(dTrack - 0.125), 0.036);
+        float railRim = step(abs(dTrack - 0.145), 0.02);
+        c = mix(c, rustEdge, railRim * 0.55);
+        return mix(c, steel, railLine * 0.95);
+      } else if (uEpoch < 5.5) {
+        // Information Age Metro Transit: Concrete slab track, safety-yellow curb stripe & energized third rail
+        vec3 slab = mix(landSrgb(88.0, 94.0, 104.0), landSrgb(106.0, 114.0, 126.0), step(0.65, noiseVal));
+        vec3 plinth = landSrgb(58.0, 64.0, 72.0);
+        vec3 safetyYellow = landSrgb(245.0, 198.0, 64.0);
+        vec3 chromeRail = landSrgb(228.0, 238.0, 248.0);
+        vec3 c = mix(slab, plinth, tieMask * step(dTrack, 0.24));
+        if (dTrack > 0.26 && dTrack < 0.31) {
+          return safetyYellow;
+        }
+        float thirdRail = step(abs(dTrack - 0.21), 0.024);
+        float mainRails = step(abs(dTrack - 0.125), 0.036);
+        c = mix(c, landSrgb(218.0, 138.0, 52.0), thirdRail * 0.85);
+        return mix(c, chromeRail, mainRails * 0.96);
+      } else {
+        // Orbital & Interstellar: High-speed Mag-Lev Guideway with pulsing plasma levitation coil
+        vec3 deck = landSrgb(30.0, 42.0, 56.0);
+        vec3 seam = landSrgb(18.0, 26.0, 36.0);
+        vec3 neon = landSrgb(86.0, 207.0, 225.0);
+        float pulse = 0.65 + 0.35 * sin(tTime * 6.0 - (pixPos.x + pixPos.y) * 2.5);
+        vec3 c = mix(deck, seam, tieMask * 0.45);
+        float coreStrip = step(dTrack, 0.055) * pulse;
+        float sideRails = step(abs(dTrack - 0.15), 0.032);
+        return mix(c, neon, clamp(coreStrip + sideRails * 0.88, 0.0, 1.0));
       }
     }
   `;
@@ -1144,7 +1249,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
       roughness,
       metalness,
     });
-    topMat.customProgramCacheKey = () => 'aeon_land_top_pixel_v5';
+    topMat.customProgramCacheKey = () => 'aeon_land_top_pixel_v6';
     topMat.onBeforeCompile = (shader) => {
       shader.uniforms.uTime = sharedTime;
       shader.uniforms.uEpoch = sharedEpoch;
@@ -1185,9 +1290,9 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
           float cW = decodeTerrain(nW);
           float cE = decodeTerrain(nE);
 
-          // 0. Sub-tile 16x16 pixelated circular corner rounding so craters, rims & biomes form smooth pixel circles
+          // 0. Sub-tile 16x16 pixelated circular corner rounding (skip crisp roads & rails)
           float cornerR = 0.46;
-          if (myCode != 9.0) {
+          if (myCode != 9.0 && myCode != 14.0) {
             if (subUv.x < cornerR && subUv.y < cornerR && cN != myCode && cW != myCode && (cN == cW || cN == 12.0 || cW == 12.0)) {
               if (length(vec2(cornerR, cornerR) - subUv) > cornerR * 0.92) {
                 myCode = (cN == 12.0) ? cN : cW;
@@ -1209,7 +1314,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
 
           vec3 col;
 
-          // 0b. Connected Street Ribbon & Orientation-Aware Markings for stone_road (myCode == 9.0):
+          // 0b. Connected Street Ribbon (stone_road = 9.0) & Grade Crossing Rails:
           if (abs(myCode - 9.0) < 0.5) {
             bool rN = abs(cN - 9.0) < 0.5;
             bool rS = abs(cS - 9.0) < 0.5;
@@ -1221,39 +1326,78 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
             bool rSE = abs(decodeTerrain(sampleLandTile(tileCoord + vec2( 1.0,  1.0))) - 9.0) < 0.5;
 
             float marginBiome = 3.0;
-            if (!rN && subUv.y < 0.35 && cN >= 2.0 && abs(cN - 9.0) > 0.5) {
+            if (!rN && subUv.y < 0.35 && cN >= 2.0 && abs(cN - 9.0) > 0.5 && abs(cN - 14.0) > 0.5) {
               marginBiome = cN;
-            } else if (!rS && subUv.y > 0.65 && cS >= 2.0 && abs(cS - 9.0) > 0.5) {
+            } else if (!rS && subUv.y > 0.65 && cS >= 2.0 && abs(cS - 9.0) > 0.5 && abs(cS - 14.0) > 0.5) {
               marginBiome = cS;
-            } else if (!rW && subUv.x < 0.35 && cW >= 2.0 && abs(cW - 9.0) > 0.5) {
+            } else if (!rW && subUv.x < 0.35 && cW >= 2.0 && abs(cW - 9.0) > 0.5 && abs(cW - 14.0) > 0.5) {
               marginBiome = cW;
-            } else if (!rE && subUv.x > 0.65 && cE >= 2.0 && abs(cE - 9.0) > 0.5) {
+            } else if (!rE && subUv.x > 0.65 && cE >= 2.0 && abs(cE - 9.0) > 0.5 && abs(cE - 14.0) > 0.5) {
               marginBiome = cE;
-            } else if (!rN && cN >= 2.0 && abs(cN - 9.0) > 0.5) {
+            } else if (!rN && cN >= 2.0 && abs(cN - 9.0) > 0.5 && abs(cN - 14.0) > 0.5) {
               marginBiome = cN;
-            } else if (!rS && cS >= 2.0 && abs(cS - 9.0) > 0.5) {
+            } else if (!rS && cS >= 2.0 && abs(cS - 9.0) > 0.5 && abs(cS - 14.0) > 0.5) {
               marginBiome = cS;
-            } else if (!rW && cW >= 2.0 && abs(cW - 9.0) > 0.5) {
+            } else if (!rW && cW >= 2.0 && abs(cW - 9.0) > 0.5 && abs(cW - 14.0) > 0.5) {
               marginBiome = cW;
-            } else if (!rE && cE >= 2.0 && abs(cE - 9.0) > 0.5) {
+            } else if (!rE && cE >= 2.0 && abs(cE - 9.0) > 0.5 && abs(cE - 14.0) > 0.5) {
               marginBiome = cE;
             }
             vec3 marginCol = computeBiomeColor(marginBiome, pixPos, chunkPos, subUv, uTime, false);
             col = computeRoadColor(pixPos, subUv, uTime, rN, rS, rW, rE, rNW, rNE, rSW, rSE, marginCol);
+
+            // Overlay gleaming steel crossing rails when adjacent opposing neighbors are rail_track (14.0)
+            bool crossWE = abs(cW - 14.0) < 0.5 && abs(cE - 14.0) < 0.5;
+            bool crossNS = abs(cN - 14.0) < 0.5 && abs(cS - 14.0) < 0.5;
+            if (crossWE) {
+              float railStrip = step(abs(abs(subUv.y - 0.5) - 0.125), 0.036);
+              col = mix(col, landSrgb(218.0, 228.0, 240.0), railStrip * 0.92);
+            }
+            if (crossNS) {
+              float railStrip = step(abs(abs(subUv.x - 0.5) - 0.125), 0.036);
+              col = mix(col, landSrgb(218.0, 228.0, 240.0), railStrip * 0.92);
+            }
+          } else if (abs(myCode - 14.0) < 0.5) {
+            // 0c. Connected Metro / Railway Track (rail_track = 14.0)
+            bool tN = abs(cN - 14.0) < 0.5 || (abs(cN - 9.0) < 0.5 && abs(cS - 14.0) < 0.5);
+            bool tS = abs(cS - 14.0) < 0.5 || (abs(cS - 9.0) < 0.5 && abs(cN - 14.0) < 0.5);
+            bool tW = abs(cW - 14.0) < 0.5 || (abs(cW - 9.0) < 0.5 && abs(cE - 14.0) < 0.5);
+            bool tE = abs(cE - 14.0) < 0.5 || (abs(cE - 9.0) < 0.5 && abs(cW - 14.0) < 0.5);
+
+            float marginBiome = 3.0;
+            if (!tN && subUv.y < 0.35 && cN >= 2.0 && abs(cN - 14.0) > 0.5 && abs(cN - 9.0) > 0.5) {
+              marginBiome = cN;
+            } else if (!tS && subUv.y > 0.65 && cS >= 2.0 && abs(cS - 14.0) > 0.5 && abs(cS - 9.0) > 0.5) {
+              marginBiome = cS;
+            } else if (!tW && subUv.x < 0.35 && cW >= 2.0 && abs(cW - 14.0) > 0.5 && abs(cW - 9.0) > 0.5) {
+              marginBiome = cW;
+            } else if (!tE && subUv.x > 0.65 && cE >= 2.0 && abs(cE - 14.0) > 0.5 && abs(cE - 9.0) > 0.5) {
+              marginBiome = cE;
+            } else if (!tN && cN >= 2.0 && abs(cN - 14.0) > 0.5 && abs(cN - 9.0) > 0.5) {
+              marginBiome = cN;
+            } else if (!tS && cS >= 2.0 && abs(cS - 14.0) > 0.5 && abs(cS - 9.0) > 0.5) {
+              marginBiome = cS;
+            } else if (!tW && cW >= 2.0 && abs(cW - 14.0) > 0.5 && abs(cW - 9.0) > 0.5) {
+              marginBiome = cW;
+            } else if (!tE && cE >= 2.0 && abs(cE - 14.0) > 0.5 && abs(cE - 9.0) > 0.5) {
+              marginBiome = cE;
+            }
+            vec3 marginCol = computeBiomeColor(marginBiome, pixPos, chunkPos, subUv, uTime, false);
+            col = computeRailColor(pixPos, subUv, uTime, tN, tS, tW, tE, marginCol);
           } else {
             col = computeBiomeColor(myCode, pixPos, chunkPos, subUv, uTime, self.a > 0.5);
           }
 
-          // 1. Cross-biome organic pixel dithering along shared terrace seams (except crisp stone roads)
-          if (myCode != 9.0) {
+          // 1. Cross-biome organic pixel dithering along shared terrace seams (except crisp roads & rails)
+          if (myCode != 9.0 && myCode != 14.0) {
             float ditherRng = landHash12(pixPos * 16.0);
-            if (hN == myHeight && cN != myCode && cN != 9.0 && subUv.y < 0.24 && ditherRng > subUv.y * 3.8) {
+            if (hN == myHeight && cN != myCode && cN != 9.0 && cN != 14.0 && subUv.y < 0.24 && ditherRng > subUv.y * 3.8) {
               col = computeBiomeColor(cN, pixPos, chunkPos, subUv, uTime, nN.a > 0.5);
-            } else if (hS == myHeight && cS != myCode && cS != 9.0 && (1.0 - subUv.y) < 0.24 && ditherRng > (1.0 - subUv.y) * 3.8) {
+            } else if (hS == myHeight && cS != myCode && cS != 9.0 && cS != 14.0 && (1.0 - subUv.y) < 0.24 && ditherRng > (1.0 - subUv.y) * 3.8) {
               col = computeBiomeColor(cS, pixPos, chunkPos, subUv, uTime, nS.a > 0.5);
-            } else if (hW == myHeight && cW != myCode && cW != 9.0 && subUv.x < 0.24 && ditherRng > subUv.x * 3.8) {
+            } else if (hW == myHeight && cW != myCode && cW != 9.0 && cW != 14.0 && subUv.x < 0.24 && ditherRng > subUv.x * 3.8) {
               col = computeBiomeColor(cW, pixPos, chunkPos, subUv, uTime, nW.a > 0.5);
-            } else if (hE == myHeight && cE != myCode && cE != 9.0 && (1.0 - subUv.x) < 0.24 && ditherRng > (1.0 - subUv.x) * 3.8) {
+            } else if (hE == myHeight && cE != myCode && cE != 9.0 && cE != 14.0 && (1.0 - subUv.x) < 0.24 && ditherRng > (1.0 - subUv.x) * 3.8) {
               col = computeBiomeColor(cE, pixPos, chunkPos, subUv, uTime, nE.a > 0.5);
             }
           }

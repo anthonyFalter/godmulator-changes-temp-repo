@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { BuildingType, ResourceNodeType, SpeciesId, TerrainType, UnitRole } from './types';
+import { BuildingType, ResourceNodeType, SpeciesId, TerrainType, UnitRole, VehicleType } from './types';
 
 const textureCache = new Map<string, THREE.CanvasTexture>();
 
@@ -188,6 +188,13 @@ export function getTerrainMaterial(terrain: TerrainType): THREE.MeshStandardMate
         map: getPixelArtTexture('stone_road', '#a89482', '#c9b49f', '#6e5e50', 'stone'),
         roughness: 0.65,
         metalness: 0.1,
+      });
+      break;
+    case 'rail_track':
+      topMat = new THREE.MeshStandardMaterial({
+        map: getPixelArtTexture('rail_track', '#5a544e', '#cbd5e1', '#3b2e25', 'stone'),
+        roughness: 0.72,
+        metalness: 0.25,
       });
       break;
     case 'rock':
@@ -1044,6 +1051,8 @@ export function createBuildingGroup(
     type === 'ziggurat' ||
     type === 'launch_arcology' ||
     type === 'dyson_spire' ||
+    type === 'airport' ||
+    type === 'rail_station' ||
     (type === 'bonfire' && epochIndex >= 2);
   group.add(createContactShadow(isMonumental ? 1.28 : 0.92));
 
@@ -1156,7 +1165,7 @@ export function createBuildingGroup(
     const ridgeAlongZ = opts.ridgeAlongZ ?? false;
 
     const trimMat =
-      epochIndex >= 5 ? raceTechTrimMat : isOrc ? orcBasaltMat : isElf ? elfMossStoneMat : epochIndex >= 3 ? darkStoneMat : stoneMat;
+      epochIndex >= 6 ? raceTechTrimMat : isOrc ? orcBasaltMat : isElf ? elfMossStoneMat : epochIndex >= 3 ? darkStoneMat : stoneMat;
     const foundation = new THREE.Mesh(new THREE.BoxGeometry(w + 0.04, 0.05, d + 0.04), trimMat);
     foundation.position.set(cx, 0.025, cz);
     foundation.receiveShadow = true;
@@ -1183,10 +1192,10 @@ export function createBuildingGroup(
       }
     }
 
-    const windowMat = epochIndex >= 5 ? raceGlowMat : isOrc ? orcMagmaGlowMat : doorDarkMat;
+    const windowMat = epochIndex >= 6 ? raceGlowMat : isOrc ? orcMagmaGlowMat : doorDarkMat;
     const door = new THREE.Mesh(
       new THREE.BoxGeometry(0.11, 0.19, 0.03),
-      epochIndex >= 5 ? raceGlowMat : doorDarkMat,
+      epochIndex >= 6 ? raceGlowMat : doorDarkMat,
     );
     door.position.set(cx - w * 0.12, 0.145, cz + d * 0.5 + 0.008);
     group.add(door);
@@ -1254,7 +1263,7 @@ export function createBuildingGroup(
     // Moss-marble octagonal plinth
     const plinth = new THREE.Mesh(
       new THREE.CylinderGeometry(radius + 0.06, radius + 0.09, 0.06, 8),
-      epochIndex >= 5 ? elfJadeRoofMat : elfMossStoneMat,
+      epochIndex >= 6 ? elfJadeRoofMat : elfMossStoneMat,
     );
     plinth.position.set(cx, 0.03, cz);
     plinth.receiveShadow = true;
@@ -1277,7 +1286,7 @@ export function createBuildingGroup(
         const a = (c / 4) * Math.PI * 2 + Math.PI / 4;
         const col = new THREE.Mesh(
           new THREE.BoxGeometry(0.04, th + 0.02, 0.04),
-          epochIndex >= 5 ? elfAquaGlowMat : elfHeartwoodMat,
+          epochIndex >= 6 ? elfAquaGlowMat : elfHeartwoodMat,
         );
         col.position.set(cx + Math.cos(a) * r * 0.95, curY + th * 0.5, cz + Math.sin(a) * r * 0.95);
         group.add(col);
@@ -1287,7 +1296,7 @@ export function createBuildingGroup(
         // Luminous arched doorway on front +Z
         const archDoor = new THREE.Mesh(
           new THREE.BoxGeometry(0.11, Math.min(0.22, th * 0.68), 0.04),
-          opts.glowTrim || epochIndex >= 5 ? elfAquaGlowMat : elfHeartwoodMat,
+          opts.glowTrim || epochIndex >= 6 ? elfAquaGlowMat : elfHeartwoodMat,
         );
         archDoor.position.set(cx, curY + Math.min(0.11, th * 0.34), cz + r * 0.96);
         group.add(archDoor);
@@ -1317,7 +1326,7 @@ export function createBuildingGroup(
     // Golden / Starlight Spire Finial
     const finial = new THREE.Mesh(
       new THREE.ConeGeometry(0.045, 0.22, 6),
-      epochIndex >= 5 ? elfAquaGlowMat : goldMat,
+      epochIndex >= 6 ? elfAquaGlowMat : goldMat,
     );
     finial.position.set(cx, curY + 0.16, cz);
     group.add(finial);
@@ -1343,7 +1352,7 @@ export function createBuildingGroup(
     // Thick basalt / iron plinth
     const plinth = new THREE.Mesh(
       new THREE.BoxGeometry(w + 0.1, 0.07, d + 0.1),
-      epochIndex >= 5 ? orcGunmetalMat : orcBasaltMat,
+      epochIndex >= 6 ? orcGunmetalMat : orcBasaltMat,
     );
     plinth.position.set(cx, 0.035, cz);
     plinth.receiveShadow = true;
@@ -1464,7 +1473,7 @@ export function createBuildingGroup(
           group.add(flame);
         } else {
           // Elven Ep 2+: Grand Celestial Starwell Moon Sanctuary (Tall Jade-and-Pearl Pagoda Spire + Moon Rings)
-          const isSciFi = epochIndex >= 5;
+          const isSciFi = epochIndex >= 6;
           const daisMat = isSciFi ? elfPearlTechMat : elfMossStoneMat;
           const bodyMat = isSciFi ? elfPearlTechMat : elfBirchMat;
           const roofMat = isSciFi ? elfJadeRoofMat : epochIndex >= 3 ? elfVerdigrisMat : elfJadeRoofMat;
@@ -1562,8 +1571,8 @@ export function createBuildingGroup(
           cauldron.name = 'flicker_flame';
           group.add(cauldron);
         } else {
-          // Orc Ep 2+: Obsidian Fang War-Citadel -> Gunmetal Dreadnought Citadel (Ep 5+)
-          const isSciFi = epochIndex >= 5;
+          // Orc Ep 2+: Obsidian Fang War-Citadel -> Gunmetal Dreadnought Citadel (Ep 6+)
+          const isSciFi = epochIndex >= 6;
           const hullMat = isSciFi ? orcGunmetalMat : orcBasaltMat;
           const trimMat = isSciFi ? orcIronMat : orcCrimsonMat;
           const fireMat = orcMagmaGlowMat;
@@ -1679,7 +1688,7 @@ export function createBuildingGroup(
         flameOuter.name = 'flicker_flame';
         group.add(flameOuter);
       } else {
-        const isSciFi = epochIndex >= 5;
+        const isSciFi = epochIndex >= 6;
         const baseStepMat = isSciFi ? darkTechMat : darkStoneMat;
         const spireMat = isSciFi ? techMat : marbleWhiteMat;
         const brazierFireMat = isSciFi ? glowCyanMat : flameMat;
@@ -1810,8 +1819,18 @@ export function createBuildingGroup(
             tiers: 2,
             glowTrim: true,
           });
+        } else if (epochIndex === 5) {
+          // Elven Ep 5 (Info Age): Sylvan Eco-Skyscraper (Tall Pearl & Emerald Curtain-Wall Tower)
+          addElfPagodaPavilion({
+            radius: 0.35,
+            h: 0.36,
+            wallMat: elfPearlTechMat,
+            roofMat: elfVerdigrisMat,
+            tiers: 3,
+            glowTrim: true,
+          });
         } else {
-          // Elven Ep 5-6: Pearl-Lotus Orbital Bio-Domes with Glowing Aqua Petals
+          // Elven Ep 6+: Pearl-Lotus Orbital Bio-Domes with Glowing Aqua Petals
           addElfPagodaPavilion({
             radius: 0.34,
             h: 0.32,
@@ -1868,18 +1887,36 @@ export function createBuildingGroup(
             withBanner: variant === 1 || variant === 3,
           });
         } else if (epochIndex <= 4) {
-          // Orc Ep 3-4: Riveted Rust-Iron Barracks Bunkers
+          // Orc Ep 3-4: Riveted Rust-Iron Barracks Bunkers & Multi-Story Industrial Housing
           addOrcBastionHut({
             w: 0.64,
-            h: 0.36,
+            h: epochIndex === 4 ? 0.48 : 0.36,
             d: 0.52,
             wallMat: epochIndex === 4 ? orcGunmetalMat : orcIronMat,
             roofMat: orcCrimsonMat,
             tuskMat: orcIronMat,
             withBanner: true,
           });
+        } else if (epochIndex === 5) {
+          // Orc Ep 5 (Info Age): Heavy Brutalist Steel High-Rise Arcology Block with Crimson Window Slits
+          const towerH = 0.85 + (variant % 3) * 0.24;
+          const podium = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.18, 0.66), orcBasaltMat);
+          podium.position.y = 0.09;
+          group.add(podium);
+          const block = new THREE.Mesh(new THREE.BoxGeometry(0.58, towerH, 0.52), orcGunmetalMat);
+          block.position.y = 0.18 + towerH * 0.5;
+          block.castShadow = true;
+          group.add(block);
+          for (let f = 0; f < 3; f++) {
+            const band = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.05, 0.54), orcMagmaGlowMat);
+            band.position.y = 0.34 + f * (towerH * 0.28);
+            group.add(band);
+          }
+          const crown = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.12, 0.38), orcCrimsonMat);
+          crown.position.y = 0.24 + towerH;
+          group.add(crown);
         } else {
-          // Orc Ep 5-6: Gunmetal Armored Siege Pods with Crimson Plasma Vent
+          // Orc Ep 6+: Gunmetal Armored Siege Pods with Crimson Plasma Vent
           addOrcBastionHut({
             w: 0.66,
             h: 0.34,
@@ -1896,7 +1933,7 @@ export function createBuildingGroup(
         break;
       }
 
-      // HUMAN Houses across all epochs
+      // HUMAN Houses -> Brick Tenements (Ep 3) -> Concrete Mid-Rises (Ep 4) -> Glass Skyscrapers (Ep 5) -> Bio-Habitats (Ep 6+)
       if (epochIndex === 0) {
         const earthPad = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.44, 0.05, 8), mudEarthMat);
         earthPad.position.y = 0.025;
@@ -1986,29 +2023,74 @@ export function createBuildingGroup(
           });
         }
       } else if (epochIndex === 3) {
+        // Industrial Age: Brick urban rowhouses & 2-story tenements
         addVoxelCottage({
-          w: variant % 2 === 0 ? 0.6 : 0.66,
-          h: 0.36,
-          d: 0.5,
+          w: variant % 2 === 0 ? 0.62 : 0.68,
+          h: 0.44,
+          d: 0.52,
           wallMat: variant === 3 ? stoneMat : brickMat,
           roofMat: darkStoneMat,
           chimneyMat: brickMat,
           chimneySide: variant % 2 === 0 ? 'left' : 'right',
           ridgeAlongZ: false,
-          timberTrim: true,
+          timberTrim: false,
         });
+        const upperWin = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.08, 0.54), flameMat);
+        upperWin.position.y = 0.36;
+        group.add(upperWin);
       } else if (epochIndex === 4) {
-        addVoxelCottage({
-          w: 0.64,
-          h: 0.36,
-          d: 0.52,
-          wallMat: concreteMat,
-          roofMat: darkStoneMat,
-          chimneyMat: concreteMat,
-          chimneySide: 'right',
-          ridgeAlongZ: false,
-        });
+        // Atomic Age: Multi-story urban concrete apartment mid-rise with rooftop water tower
+        const midH = 0.58 + (variant % 2) * 0.18;
+        const base = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.08, 0.6), darkStoneMat);
+        base.position.y = 0.04;
+        group.add(base);
+        const block = new THREE.Mesh(new THREE.BoxGeometry(0.6, midH, 0.54), concreteMat);
+        block.position.y = 0.08 + midH * 0.5;
+        block.castShadow = true;
+        block.receiveShadow = true;
+        group.add(block);
+        for (let f = 0; f < 2; f++) {
+          const winBand = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.06, 0.56), glowCyanMat);
+          winBand.position.y = 0.24 + f * 0.22;
+          group.add(winBand);
+        }
+        const roofTrim = new THREE.Mesh(new THREE.BoxGeometry(0.64, 0.06, 0.58), darkStoneMat);
+        roofTrim.position.y = 0.1 + midH;
+        group.add(roofTrim);
+        const waterTank = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.14, 8), woodMat);
+        waterTank.position.set(0.16, 0.2 + midH, -0.1);
+        group.add(waterTank);
+      } else if (epochIndex === 5) {
+        // Information Age: High-Density Glass & Steel Skyscraper (varied skyline heights)
+        const towerH = 0.92 + variant * 0.22;
+        const lobby = new THREE.Mesh(new THREE.BoxGeometry(0.74, 0.18, 0.68), darkStoneMat);
+        lobby.position.y = 0.09;
+        lobby.castShadow = true;
+        group.add(lobby);
+        const shaft = new THREE.Mesh(new THREE.BoxGeometry(0.56, towerH, 0.52), blueRoofMat);
+        shaft.position.y = 0.18 + towerH * 0.5;
+        shaft.castShadow = true;
+        shaft.receiveShadow = true;
+        group.add(shaft);
+        const floors = 3 + (variant % 2);
+        for (let f = 0; f < floors; f++) {
+          const glassBand = new THREE.Mesh(
+            new THREE.BoxGeometry(0.58, 0.065, 0.54),
+            f % 2 === 0 ? glowCyanMat : concreteMat,
+          );
+          glassBand.position.y = 0.3 + f * ((towerH - 0.16) / floors);
+          group.add(glassBand);
+        }
+        const crown = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.12, 0.36), techMat);
+        crown.position.y = 0.24 + towerH;
+        group.add(crown);
+        if (variant % 2 === 0) {
+          const antenna = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.025, 0.32, 6), techMat);
+          antenna.position.y = 0.42 + towerH;
+          group.add(antenna);
+        }
       } else {
+        // Orbital & Interstellar: Techno-Modern Bio-Dome Habitat
         addVoxelCottage({
           w: 0.64,
           h: 0.32,
@@ -2045,7 +2127,7 @@ export function createBuildingGroup(
           group.add(halo);
         } else {
           // Elven Ep 1+: Twin Crescent Moon-Gate Shrine with levitating starlight crystal
-          const isSciFi = epochIndex >= 5;
+          const isSciFi = epochIndex >= 6;
           const dais = new THREE.Mesh(
             new THREE.CylinderGeometry(0.36, 0.42, 0.1, 8),
             isSciFi ? elfPearlTechMat : elfMossStoneMat,
@@ -2095,7 +2177,7 @@ export function createBuildingGroup(
           }
         } else {
           // Orc Ep 1+: Obsidian Fang & Twin Iron-Horn War Altar
-          const isSciFi = epochIndex >= 5;
+          const isSciFi = epochIndex >= 6;
           const dais = new THREE.Mesh(
             new THREE.BoxGeometry(0.72, 0.14, 0.72),
             isSciFi ? orcGunmetalMat : orcBasaltMat,
@@ -2140,7 +2222,7 @@ export function createBuildingGroup(
         maskCrest.position.y = 0.68;
         group.add(maskCrest);
       } else {
-        const isSciFi = epochIndex >= 5;
+        const isSciFi = epochIndex >= 6;
         const baseMat = isSciFi ? darkTechMat : stoneMat;
         const pillarMat = isSciFi ? techMat : stoneMat;
         const trimMat = isSciFi ? glowCyanMat : darkStoneMat;
@@ -2207,16 +2289,15 @@ export function createBuildingGroup(
 
     case 'granary': {
       if (isElf) {
-        if (epochIndex <= 4) {
+        if (epochIndex <= 5) {
           addElfPagodaPavilion({
             radius: 0.34,
             h: 0.3,
             wallMat: epochIndex >= 3 ? elfBirchMat : elfHeartwoodMat,
             roofMat: epochIndex >= 3 ? elfVerdigrisMat : elfJadeRoofMat,
-            tiers: 1,
+            tiers: epochIndex >= 4 ? 2 : 1,
             glowTrim: true,
           });
-          // Golden harvest urn beside pavilion
           const urn = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.11, 0.22, 8), goldMat);
           urn.position.set(-0.28, 0.14, 0.24);
           group.add(urn);
@@ -2241,14 +2322,14 @@ export function createBuildingGroup(
           w: 0.68,
           h: 0.34,
           d: 0.54,
-          wallMat: epochIndex >= 5 ? orcGunmetalMat : epochIndex >= 3 ? orcIronMat : orcCharredLogMat,
+          wallMat: epochIndex >= 6 ? orcGunmetalMat : epochIndex >= 3 ? orcIronMat : orcCharredLogMat,
           roofMat: orcCrimsonMat,
-          tuskMat: epochIndex >= 5 ? orcMagmaGlowMat : orcBoneMat,
+          tuskMat: epochIndex >= 6 ? orcMagmaGlowMat : orcBoneMat,
           withBanner: true,
         });
         const drumSilo = new THREE.Mesh(
           new THREE.CylinderGeometry(0.15, 0.16, 0.56, 7),
-          epochIndex >= 5 ? orcMagmaGlowMat : orcIronMat,
+          epochIndex >= 6 ? orcMagmaGlowMat : orcIronMat,
         );
         drumSilo.position.set(-0.26, 0.3, -0.2);
         drumSilo.castShadow = true;
@@ -2256,7 +2337,7 @@ export function createBuildingGroup(
         break;
       }
 
-      // HUMAN Granary / Market
+      // HUMAN Granary / Urban Market Depot
       if (epochIndex <= 2) {
         const floorPad = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.07, 0.58), tanPlasterMat);
         floorPad.position.y = 0.035;
@@ -2304,21 +2385,21 @@ export function createBuildingGroup(
         const ridgeBeam = new THREE.Mesh(new THREE.BoxGeometry(0.64, 0.07, 0.38), woodMat);
         ridgeBeam.position.y = 0.55;
         group.add(ridgeBeam);
-      } else if (epochIndex <= 4) {
+      } else if (epochIndex <= 5) {
         addVoxelCottage({
-          w: 0.66,
-          h: 0.36,
-          d: 0.54,
+          w: 0.68,
+          h: epochIndex === 5 ? 0.48 : 0.36,
+          d: 0.56,
           wallMat: epochIndex === 3 ? brickMat : concreteMat,
-          roofMat: epochIndex === 3 ? redRoofMat : darkStoneMat,
+          roofMat: epochIndex === 3 ? redRoofMat : epochIndex === 5 ? blueRoofMat : darkStoneMat,
           chimneySide: 'none',
           timberTrim: epochIndex === 3,
         });
         const silo = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.15, 0.15, 0.62, 8),
+          new THREE.CylinderGeometry(0.15, 0.15, epochIndex === 5 ? 0.72 : 0.62, 8),
           epochIndex === 3 ? woodMat : concreteMat,
         );
-        silo.position.set(-0.26, 0.34, -0.18);
+        silo.position.set(-0.26, 0.36, -0.18);
         silo.castShadow = true;
         group.add(silo);
       } else {
@@ -2339,16 +2420,15 @@ export function createBuildingGroup(
 
     case 'guildhall': {
       if (isElf) {
-        // Elven Three-Tiered Lore-Pagoda -> Orbital Sanctuary Spire
         addElfPagodaPavilion({
-          radius: 0.33,
-          h: 0.3,
+          radius: 0.34,
+          h: epochIndex === 5 ? 0.38 : 0.3,
           wallMat: epochIndex >= 5 ? elfPearlTechMat : elfBirchMat,
-          roofMat: epochIndex >= 5 ? elfJadeRoofMat : epochIndex >= 3 ? elfVerdigrisMat : elfJadeRoofMat,
+          roofMat: epochIndex >= 6 ? elfJadeRoofMat : epochIndex >= 3 ? elfVerdigrisMat : elfJadeRoofMat,
           tiers: epochIndex >= 5 ? 3 : 2,
           glowTrim: true,
         });
-        if (epochIndex >= 5) {
+        if (epochIndex >= 6) {
           const halo = new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.03, 6, 14), elfAquaGlowMat);
           halo.position.y = 0.92;
           halo.rotation.x = Math.PI / 2;
@@ -2359,18 +2439,18 @@ export function createBuildingGroup(
       }
 
       if (isOrc) {
-        if (epochIndex < 5) {
+        if (epochIndex < 6) {
           addOrcBastionHut({
             w: 0.72,
-            h: 0.4,
+            h: epochIndex === 5 ? 0.66 : 0.4,
             d: 0.56,
-            wallMat: epochIndex >= 3 ? orcIronMat : orcBasaltMat,
+            wallMat: epochIndex >= 4 ? orcGunmetalMat : epochIndex >= 3 ? orcIronMat : orcBasaltMat,
             roofMat: orcCrimsonMat,
-            tuskMat: orcBoneMat,
+            tuskMat: epochIndex >= 5 ? orcMagmaGlowMat : orcBoneMat,
             withBanner: true,
           });
         } else {
-          // Orc Ep 5+: Heavy Dreadnought War-Spire
+          // Orc Ep 6+: Heavy Dreadnought War-Spire
           const base = new THREE.Mesh(new THREE.BoxGeometry(0.74, 0.32, 0.66), orcGunmetalMat);
           base.position.y = 0.16;
           group.add(base);
@@ -2389,7 +2469,7 @@ export function createBuildingGroup(
         break;
       }
 
-      // HUMAN Guildhall
+      // HUMAN Guildhall -> Clocktower City Hall (Ep 3-4) -> Downtown Corporate Skyscraper (Ep 5) -> Orbital Spire (Ep 6+)
       if (epochIndex <= 2) {
         addVoxelCottage({
           w: 0.66,
@@ -2413,9 +2493,9 @@ export function createBuildingGroup(
         group.add(planter);
       } else if (epochIndex <= 4) {
         addVoxelCottage({
-          w: 0.7,
-          h: 0.42,
-          d: 0.56,
+          w: 0.72,
+          h: 0.46,
+          d: 0.58,
           wallMat: epochIndex === 3 ? brickMat : concreteMat,
           roofMat: blueRoofMat,
           chimneyMat: epochIndex === 3 ? brickMat : concreteMat,
@@ -2423,6 +2503,39 @@ export function createBuildingGroup(
           ridgeAlongZ: false,
           timberTrim: epochIndex === 3,
         });
+        // Civic clock tower on top
+        const clkShaft = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.42, 0.2), epochIndex === 3 ? brickMat : concreteMat);
+        clkShaft.position.set(0, 0.78, 0);
+        clkShaft.castShadow = true;
+        group.add(clkShaft);
+        const clkDial = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.14, 0.22), goldMat);
+        clkDial.position.set(0, 0.86, 0);
+        group.add(clkDial);
+        const clkCap = new THREE.Mesh(new THREE.ConeGeometry(0.14, 0.18, 4), darkStoneMat);
+        clkCap.position.set(0, 1.08, 0);
+        clkCap.rotation.y = Math.PI / 4;
+        group.add(clkCap);
+      } else if (epochIndex === 5) {
+        // Info Age: Tall Corporate Downtown Skyscraper
+        const podium = new THREE.Mesh(new THREE.BoxGeometry(0.76, 0.24, 0.7), darkStoneMat);
+        podium.position.y = 0.12;
+        podium.castShadow = true;
+        group.add(podium);
+        const mainTower = new THREE.Mesh(new THREE.BoxGeometry(0.56, 1.12, 0.52), blueRoofMat);
+        mainTower.position.y = 0.8;
+        mainTower.castShadow = true;
+        group.add(mainTower);
+        for (let f = 0; f < 4; f++) {
+          const band = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.07, 0.54), glowCyanMat);
+          band.position.y = 0.4 + f * 0.24;
+          group.add(band);
+        }
+        const penthouse = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.22, 0.34), techMat);
+        penthouse.position.y = 1.46;
+        group.add(penthouse);
+        const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.035, 0.38, 6), techMat);
+        mast.position.y = 1.72;
+        group.add(mast);
       } else {
         const base = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.32, 0.64), darkTechMat);
         base.position.y = 0.16;
@@ -2452,16 +2565,16 @@ export function createBuildingGroup(
 
     case 'smeltery': {
       const wallM = isElf
-        ? epochIndex >= 5
+        ? epochIndex >= 6
           ? elfPearlTechMat
           : elfMossStoneMat
         : isOrc
-          ? epochIndex >= 5
+          ? epochIndex >= 6
             ? orcGunmetalMat
             : epochIndex >= 3
               ? orcIronMat
               : orcBasaltMat
-          : epochIndex >= 5
+          : epochIndex >= 6
             ? darkTechMat
             : epochIndex <= 1
               ? tanPlasterMat
@@ -2472,7 +2585,7 @@ export function createBuildingGroup(
         ? elfJadeRoofMat
         : isOrc
           ? orcCrimsonMat
-          : epochIndex >= 5
+          : epochIndex >= 6
             ? techMat
             : epochIndex <= 1
               ? woodMat
@@ -2487,7 +2600,7 @@ export function createBuildingGroup(
           tiers: 1,
           glowTrim: true,
         });
-        const sunForge = new THREE.Mesh(new THREE.OctahedronGeometry(0.14, 0), epochIndex >= 5 ? elfAquaGlowMat : goldMat);
+        const sunForge = new THREE.Mesh(new THREE.OctahedronGeometry(0.14, 0), epochIndex >= 6 ? elfAquaGlowMat : goldMat);
         sunForge.position.set(0.24, 0.18, 0.24);
         sunForge.name = 'spin_part';
         group.add(sunForge);
@@ -2498,7 +2611,7 @@ export function createBuildingGroup(
           d: 0.52,
           wallMat: wallM,
           roofMat: roofM,
-          tuskMat: epochIndex >= 5 ? orcMagmaGlowMat : orcBoneMat,
+          tuskMat: epochIndex >= 6 ? orcMagmaGlowMat : orcBoneMat,
           withBanner: true,
         });
         const blastStack = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.14, 0.78, 7), orcIronMat);
@@ -2509,7 +2622,7 @@ export function createBuildingGroup(
         magmaVat.position.set(0.22, 0.12, 0.26);
         magmaVat.name = 'flicker_flame';
         group.add(magmaVat);
-      } else if (epochIndex >= 5) {
+      } else if (epochIndex >= 6) {
         addVoxelCottage({
           w: 0.64,
           h: 0.34,
@@ -2554,8 +2667,7 @@ export function createBuildingGroup(
 
     case 'observatory': {
       if (isElf) {
-        // Elven Astral Astrolabe Spire
-        const baseMat = epochIndex >= 5 ? elfPearlTechMat : elfBirchMat;
+        const baseMat = epochIndex >= 6 ? elfPearlTechMat : elfBirchMat;
         const spire = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.28, 0.74, 8), baseMat);
         spire.position.y = 0.37;
         spire.castShadow = true;
@@ -2567,7 +2679,7 @@ export function createBuildingGroup(
 
         const astrolabe = new THREE.Mesh(
           new THREE.TorusGeometry(0.25, 0.032, 6, 16),
-          epochIndex >= 5 ? elfAquaGlowMat : goldMat,
+          epochIndex >= 6 ? elfAquaGlowMat : goldMat,
         );
         astrolabe.position.y = 0.96;
         astrolabe.rotation.x = 0.45;
@@ -2577,8 +2689,7 @@ export function createBuildingGroup(
       }
 
       if (isOrc) {
-        // Orcish Spiked Iron War-Watchtower & Magma Lens
-        const towerMat = epochIndex >= 5 ? orcGunmetalMat : orcBasaltMat;
+        const towerMat = epochIndex >= 6 ? orcGunmetalMat : orcBasaltMat;
         const bastion = new THREE.Mesh(new THREE.BoxGeometry(0.66, 0.34, 0.66), towerMat);
         bastion.position.y = 0.17;
         group.add(bastion);
@@ -2590,7 +2701,7 @@ export function createBuildingGroup(
 
         const spikedDome = new THREE.Mesh(
           new THREE.SphereGeometry(0.26, 8, 6, 0, Math.PI * 2, 0, Math.PI / 2),
-          epochIndex >= 5 ? orcGunmetalMat : orcCrimsonMat,
+          epochIndex >= 6 ? orcGunmetalMat : orcCrimsonMat,
         );
         spikedDome.position.y = 0.8;
         group.add(spikedDome);
@@ -2602,7 +2713,7 @@ export function createBuildingGroup(
         break;
       }
 
-      if (epochIndex >= 5) {
+      if (epochIndex >= 6) {
         const tower = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.32, 0.68, 8), techMat);
         tower.position.y = 0.36;
         tower.castShadow = true;
@@ -2632,7 +2743,7 @@ export function createBuildingGroup(
 
         const tower = new THREE.Mesh(
           new THREE.CylinderGeometry(0.25, 0.3, 0.56, 8),
-          epochIndex === 3 ? brickMat : marbleWhiteMat,
+          epochIndex === 3 ? brickMat : epochIndex >= 4 ? concreteMat : marbleWhiteMat,
         );
         tower.position.y = 0.48;
         tower.castShadow = true;
@@ -2644,7 +2755,7 @@ export function createBuildingGroup(
 
         const dome = new THREE.Mesh(
           new THREE.SphereGeometry(0.25, 10, 8, 0, Math.PI * 2, 0, Math.PI / 2),
-          epochIndex === 4 ? techMat : goldMat,
+          epochIndex >= 4 ? techMat : goldMat,
         );
         dome.position.y = 0.77;
         group.add(dome);
@@ -2664,14 +2775,14 @@ export function createBuildingGroup(
         addElfPagodaPavilion({
           radius: 0.34,
           h: 0.36,
-          wallMat: epochIndex >= 5 ? elfPearlTechMat : elfBirchMat,
-          roofMat: epochIndex >= 5 ? elfJadeRoofMat : elfVerdigrisMat,
+          wallMat: epochIndex >= 6 ? elfPearlTechMat : elfBirchMat,
+          roofMat: epochIndex >= 6 ? elfJadeRoofMat : elfVerdigrisMat,
           tiers: 1,
           glowTrim: true,
         });
         const coil = new THREE.Mesh(
           new THREE.OctahedronGeometry(0.18, 0),
-          epochIndex >= 5 || type === 'dynamo_plant' ? elfAquaGlowMat : goldMat,
+          epochIndex >= 6 || type === 'dynamo_plant' ? elfAquaGlowMat : goldMat,
         );
         coil.position.set(0.22, 0.72, 0.12);
         coil.name = 'spin_part';
@@ -2684,9 +2795,9 @@ export function createBuildingGroup(
           w: 0.72,
           h: 0.38,
           d: 0.6,
-          wallMat: epochIndex >= 5 ? orcGunmetalMat : orcIronMat,
+          wallMat: epochIndex >= 6 ? orcGunmetalMat : orcIronMat,
           roofMat: orcCrimsonMat,
-          tuskMat: epochIndex >= 5 ? orcMagmaGlowMat : orcIronMat,
+          tuskMat: epochIndex >= 6 ? orcMagmaGlowMat : orcIronMat,
           withBanner: true,
         });
         for (const sx of [-0.22, 0.04]) {
@@ -2702,7 +2813,7 @@ export function createBuildingGroup(
         break;
       }
 
-      if (epochIndex >= 5) {
+      if (epochIndex >= 6) {
         addVoxelCottage({
           w: 0.72,
           h: 0.38,
@@ -2724,7 +2835,7 @@ export function createBuildingGroup(
           w: 0.7,
           h: 0.36,
           d: 0.6,
-          wallMat: epochIndex === 4 ? concreteMat : brickMat,
+          wallMat: epochIndex >= 4 ? concreteMat : brickMat,
           roofMat: darkStoneMat,
           chimneySide: 'none',
           timberTrim: true,
@@ -2756,10 +2867,10 @@ export function createBuildingGroup(
       const baseMat = isElf
         ? elfPearlTechMat
         : isOrc
-          ? epochIndex >= 5
+          ? epochIndex >= 6
             ? orcGunmetalMat
             : orcIronMat
-          : epochIndex >= 5
+          : epochIndex >= 6
             ? techMat
             : concreteMat;
       const baseBlock = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.3, 0.72), baseMat);
@@ -2770,7 +2881,7 @@ export function createBuildingGroup(
       if (type === 'fission_reactor') {
         const coolingTower = new THREE.Mesh(
           new THREE.CylinderGeometry(0.2, 0.3, 0.72, isElf ? 8 : 10),
-          isElf ? elfJadeRoofMat : isOrc ? orcBasaltMat : epochIndex >= 5 ? darkTechMat : concreteMat,
+          isElf ? elfJadeRoofMat : isOrc ? orcBasaltMat : epochIndex >= 6 ? darkTechMat : concreteMat,
         );
         coolingTower.position.set(-0.1, 0.52, -0.08);
         coolingTower.castShadow = true;
@@ -2778,26 +2889,155 @@ export function createBuildingGroup(
 
         const coreGlow = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.36, 0.24), raceGlowMat);
         coreGlow.position.set(0.2, 0.48, 0.18);
-        if (epochIndex >= 5) coreGlow.name = 'spin_part';
+        if (epochIndex >= 6) coreGlow.name = 'spin_part';
         group.add(coreGlow);
       } else {
-        const tower1 = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.82, 0.42), baseMat);
-        tower1.position.y = 0.56;
+        const tower1 = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.96, 0.46), baseMat);
+        tower1.position.y = 0.64;
         tower1.castShadow = true;
         group.add(tower1);
 
-        const dataRing = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.1, 0.52), raceGlowMat);
-        dataRing.position.y = 0.8;
+        const dataRing = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.1, 0.54), raceGlowMat);
+        dataRing.position.y = 0.92;
         dataRing.name = 'spin_part';
         group.add(dataRing);
 
         const spireAntenna = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.03, 0.05, 0.38, 6),
-          epochIndex >= 5 ? raceGlowMat : raceAccentMat,
+          new THREE.CylinderGeometry(0.03, 0.05, 0.42, 6),
+          epochIndex >= 6 ? raceGlowMat : raceAccentMat,
         );
-        spireAntenna.position.y = 1.12;
+        spireAntenna.position.y = 1.28;
         group.add(spireAntenna);
       }
+      break;
+    }
+
+    case 'rail_station': {
+      // Transit Station: Brick Railway Depot (Ep 3) -> Commuter Terminal (Ep 4) -> Glass Metro Hub (Ep 5) -> Maglev Portal (Ep 6+)
+      const platformMat = epochIndex >= 6 ? raceTechTrimMat : isOrc ? orcBasaltMat : isElf ? elfMossStoneMat : darkStoneMat;
+      const platform = new THREE.Mesh(new THREE.BoxGeometry(0.88, 0.08, 0.84), platformMat);
+      platform.position.y = 0.04;
+      platform.receiveShadow = true;
+      group.add(platform);
+
+      // Yellow safety strip on platform edge
+      const safetyTrim = new THREE.Mesh(
+        new THREE.BoxGeometry(0.88, 0.03, 0.08),
+        epochIndex >= 6 ? raceGlowMat : goldMat,
+      );
+      safetyTrim.position.set(0, 0.085, 0.36);
+      group.add(safetyTrim);
+
+      if (isElf) {
+        addElfPagodaPavilion({
+          cx: 0,
+          cz: -0.06,
+          radius: 0.32,
+          h: 0.3,
+          wallMat: epochIndex >= 5 ? elfPearlTechMat : elfBirchMat,
+          roofMat: epochIndex >= 5 ? elfJadeRoofMat : elfVerdigrisMat,
+          tiers: 1,
+          glowTrim: true,
+        });
+      } else if (isOrc) {
+        addOrcBastionHut({
+          cx: 0,
+          cz: -0.06,
+          w: 0.7,
+          h: 0.3,
+          d: 0.5,
+          wallMat: epochIndex >= 5 ? orcGunmetalMat : orcIronMat,
+          roofMat: orcCrimsonMat,
+          tuskMat: epochIndex >= 5 ? orcMagmaGlowMat : orcIronMat,
+          withBanner: true,
+        });
+      } else {
+        const wallM = epochIndex >= 6 ? techMat : epochIndex === 5 ? blueRoofMat : epochIndex === 4 ? concreteMat : brickMat;
+        const roofM = epochIndex >= 6 ? darkTechMat : epochIndex >= 4 ? concreteMat : redRoofMat;
+
+        const concourse = new THREE.Mesh(new THREE.BoxGeometry(0.74, 0.28, 0.44), wallM);
+        concourse.position.set(0, 0.22, -0.1);
+        concourse.castShadow = true;
+        group.add(concourse);
+
+        const canopy = new THREE.Mesh(new THREE.BoxGeometry(0.84, 0.07, 0.66), roofM);
+        canopy.position.set(0, 0.4, 0.04);
+        canopy.castShadow = true;
+        group.add(canopy);
+
+        const archSign = new THREE.Mesh(
+          new THREE.BoxGeometry(0.32, 0.1, 0.08),
+          epochIndex >= 5 ? glowCyanMat : goldMat,
+        );
+        archSign.position.set(0, 0.48, 0.34);
+        group.add(archSign);
+      }
+
+      // Elevated station clock / transit pylon
+      const clockMast = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.34, 0.1), platformMat);
+      clockMast.position.set(-0.32, 0.42, 0.26);
+      group.add(clockMast);
+      const signalBeacon = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.12), raceGlowMat);
+      signalBeacon.position.set(-0.32, 0.62, 0.26);
+      group.add(signalBeacon);
+      break;
+    }
+
+    case 'airport': {
+      // Airport: Asphalt Runway Apron, Passenger Terminal & Rotating Radar Control Tower
+      const tarmac = new THREE.Mesh(
+        new THREE.BoxGeometry(0.94, 0.06, 0.94),
+        isElf ? elfMossStoneMat : isOrc ? orcBasaltMat : darkStoneMat,
+      );
+      tarmac.position.y = 0.03;
+      tarmac.receiveShadow = true;
+      group.add(tarmac);
+
+      // Painted runway stripes along Z
+      for (const rz of [-0.26, 0.0, 0.26]) {
+        const stripe = new THREE.Mesh(
+          new THREE.BoxGeometry(0.08, 0.015, 0.14),
+          epochIndex >= 6 ? raceGlowMat : whitePlasterMat,
+        );
+        stripe.position.set(-0.18, 0.065, rz);
+        group.add(stripe);
+      }
+
+      // Passenger Terminal Concourse (+X side)
+      const termWall = isElf ? elfPearlTechMat : isOrc ? orcGunmetalMat : epochIndex >= 6 ? techMat : concreteMat;
+      const termRoof = isElf ? elfJadeRoofMat : isOrc ? orcCrimsonMat : blueRoofMat;
+      const terminal = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.24, 0.56), termWall);
+      terminal.position.set(0.22, 0.18, -0.06);
+      terminal.castShadow = true;
+      group.add(terminal);
+      const termCap = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.06, 0.62), termRoof);
+      termCap.position.set(0.22, 0.33, -0.06);
+      group.add(termCap);
+      const gateGlass = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.1, 0.44), raceGlowMat);
+      gateGlass.position.set(0.03, 0.2, -0.06);
+      group.add(gateGlass);
+
+      // Air Traffic Control Tower
+      const towerShaft = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.08, 0.12, 0.72, isElf ? 8 : 6),
+        isOrc ? orcIronMat : termWall,
+      );
+      towerShaft.position.set(0.26, 0.42, 0.28);
+      towerShaft.castShadow = true;
+      group.add(towerShaft);
+
+      const controlCab = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.14, 0.14, 8), raceGlowMat);
+      controlCab.position.set(0.26, 0.82, 0.28);
+      group.add(controlCab);
+
+      const cabRoof = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.05, 8), termRoof);
+      cabRoof.position.set(0.26, 0.91, 0.28);
+      group.add(cabRoof);
+
+      const radarBar = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.04, 0.06), goldMat);
+      radarBar.position.set(0.26, 0.98, 0.28);
+      radarBar.name = 'spin_part';
+      group.add(radarBar);
       break;
     }
 
@@ -2888,10 +3128,10 @@ export function createUnitGroup(
   });
 
   const outfitColors: Record<UnitRole, number> = {
-    human: epochLevel >= 5 ? 0xd8dee9 : epochLevel >= 3 ? 0x3b6e8c : 0x4ea8de,
-    elf: epochLevel >= 5 ? 0x80ed99 : 0x388e5a,
-    orc: epochLevel >= 5 ? 0x9b2226 : 0x8d3b2b,
-    villager: epochLevel >= 5 ? 0xd8dee9 : epochLevel >= 3 ? 0x3b6e8c : 0x4ea8de,
+    human: epochLevel >= 6 ? 0xd8dee9 : epochLevel >= 3 ? 0x3b6e8c : 0x4ea8de,
+    elf: epochLevel >= 6 ? 0x80ed99 : 0x388e5a,
+    orc: epochLevel >= 6 ? 0x9b2226 : 0x8d3b2b,
+    villager: epochLevel >= 6 ? 0xd8dee9 : epochLevel >= 3 ? 0x3b6e8c : 0x4ea8de,
     forager: 0x52b788,
     miner: 0xe09f3e,
     builder: 0xd97736,
@@ -2908,7 +3148,7 @@ export function createUnitGroup(
     color: outfitColors[role] ?? 0x4ea8de,
     roughness: epochLevel >= 4 ? 0.35 : 0.55,
     metalness:
-      role === 'warrior' || role === 'astro_engineer' || epochLevel >= 4 ? 0.45 : 0.1,
+      role === 'warrior' || role === 'astro_engineer' || epochLevel >= 5 ? 0.45 : 0.1,
   });
 
   const bootMat = new THREE.MeshStandardMaterial({
@@ -2984,14 +3224,14 @@ export function createUnitGroup(
     faction === 'hostile'
       ? 0x222222
       : resolvedSpecies === 'elf'
-        ? epochLevel >= 4
+        ? epochLevel >= 5
           ? 0x72efdd
           : 0xf5b742
         : resolvedSpecies === 'orc'
           ? epochLevel >= 2
             ? 0x5c677d
             : 0x2b2522
-          : role === 'astro_engineer' || epochLevel >= 5
+          : role === 'astro_engineer' || epochLevel >= 6
             ? 0xeceff4
             : role === 'priest' || role === 'warrior' || epochLevel === 1
               ? 0xe9b44c
@@ -3078,3 +3318,252 @@ export function createUnitGroup(
 
   return group;
 }
+
+export function createVehicleGroup(
+  type: VehicleType,
+  epochLevel: number,
+  species: SpeciesId = 'human',
+  variantSeed = 0,
+): THREE.Group {
+  const group = new THREE.Group();
+  const isElf = species === 'elf';
+  const isOrc = species === 'orc';
+  const variant = Math.abs(variantSeed);
+
+  const raceBodyHex = isElf
+    ? epochLevel >= 5
+      ? 0xd8f3dc
+      : 0x2ec4b6
+    : isOrc
+      ? 0x9b2226
+      : epochLevel <= 3
+        ? 0x3b4252
+        : epochLevel === 4
+          ? variant % 3 === 1
+            ? 0xf4a261
+            : 0x3a86ff
+          : epochLevel === 5
+            ? variant % 4 === 0
+              ? 0xe63946
+              : variant % 4 === 1
+                ? 0x00b4d8
+                : variant % 4 === 2
+                  ? 0xe5e7eb
+                  : 0x4361ee
+            : 0xe2e8f0;
+
+  const bodyMat = new THREE.MeshStandardMaterial({
+    color: raceBodyHex,
+    roughness: epochLevel >= 5 ? 0.25 : 0.48,
+    metalness: epochLevel >= 5 ? 0.55 : 0.25,
+  });
+  const trimMat = new THREE.MeshStandardMaterial({
+    color: isOrc ? 0x2b2d42 : isElf ? 0xf5b742 : 0x334155,
+    roughness: 0.4,
+    metalness: 0.5,
+  });
+  const glassMat = new THREE.MeshStandardMaterial({
+    color: isOrc ? 0xff7b54 : 0x90e0ef,
+    emissive: isOrc ? 0xd62828 : 0x48bfe3,
+    emissiveIntensity: epochLevel >= 5 ? 0.55 : 0.25,
+    roughness: 0.15,
+  });
+  const tireMat = new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.85 });
+  const headlightMat = new THREE.MeshBasicMaterial({ color: 0xfff3bf });
+  const taillightMat = new THREE.MeshBasicMaterial({ color: 0xef4444 });
+  const glowMat = new THREE.MeshBasicMaterial({
+    color: isElf ? 0x52f2c8 : isOrc ? 0xff5421 : 0x56cfe1,
+  });
+
+  if (type === 'car') {
+    group.add(createContactShadow(0.42));
+    const isBus = epochLevel >= 4 && variant % 4 === 0;
+    const isHover = epochLevel >= 6;
+    const len = isBus ? 0.5 : 0.36;
+    const wid = isBus ? 0.22 : 0.2;
+    const h = isBus ? 0.18 : 0.11;
+
+    const chassis = new THREE.Mesh(new THREE.BoxGeometry(wid, h, len), bodyMat);
+    chassis.position.y = isHover ? 0.13 : 0.085;
+    chassis.castShadow = true;
+    group.add(chassis);
+
+    if (!isBus) {
+      const cabin = new THREE.Mesh(
+        new THREE.BoxGeometry(wid * 0.86, 0.09, len * 0.54),
+        isHover ? glassMat : bodyMat,
+      );
+      cabin.position.set(0, isHover ? 0.21 : 0.165, -0.02);
+      cabin.castShadow = true;
+      group.add(cabin);
+
+      const windshield = new THREE.Mesh(new THREE.BoxGeometry(wid * 0.88, 0.06, len * 0.56), glassMat);
+      windshield.position.set(0, isHover ? 0.2 : 0.155, -0.01);
+      group.add(windshield);
+    } else {
+      const busWindows = new THREE.Mesh(new THREE.BoxGeometry(wid + 0.01, 0.07, len * 0.86), glassMat);
+      busWindows.position.set(0, isHover ? 0.16 : 0.125, 0);
+      group.add(busWindows);
+    }
+
+    if (isHover) {
+      const hoverPad = new THREE.Mesh(new THREE.BoxGeometry(wid * 0.9, 0.03, len * 0.82), glowMat);
+      hoverPad.position.y = 0.06;
+      group.add(hoverPad);
+    } else {
+      const wheelGeo = new THREE.BoxGeometry(0.04, 0.075, 0.075);
+      for (const [wx, wz] of [
+        [-wid * 0.5, len * 0.3],
+        [wid * 0.5, len * 0.3],
+        [-wid * 0.5, -len * 0.3],
+        [wid * 0.5, -len * 0.3],
+      ]) {
+        const w = new THREE.Mesh(wheelGeo, tireMat);
+        w.position.set(wx, 0.038, wz);
+        group.add(w);
+      }
+    }
+
+    for (const lx of [-wid * 0.3, wid * 0.3]) {
+      const hl = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.035, 0.02), headlightMat);
+      hl.position.set(lx, 0.09, len * 0.5 + 0.005);
+      group.add(hl);
+      const tl = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.035, 0.02), taillightMat);
+      tl.position.set(lx, 0.09, -len * 0.5 - 0.005);
+      group.add(tl);
+    }
+    return group;
+  }
+
+  if (type === 'train') {
+    group.add(createContactShadow(0.62));
+    const isMaglev = epochLevel >= 6;
+    const isMetro = epochLevel === 5;
+    const isSteam = epochLevel <= 3;
+
+    // Front Locomotive / Lead Metro Car (+Z) + Linked Passenger Coach (-Z)
+    const leadZ = 0.24;
+    const coachZ = -0.26;
+    const railBaseY = isMaglev ? 0.14 : 0.09;
+
+    const leadMat = isSteam ? trimMat : bodyMat;
+    const leadBody = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.22, 0.44), leadMat);
+    leadBody.position.set(0, railBaseY + 0.11, leadZ);
+    leadBody.castShadow = true;
+    group.add(leadBody);
+
+    if (isSteam) {
+      const boiler = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 0.3, 8), trimMat);
+      boiler.rotation.x = Math.PI / 2;
+      boiler.position.set(0, railBaseY + 0.22, leadZ + 0.06);
+      group.add(boiler);
+      const stack = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.05, 0.14, 6), trimMat);
+      stack.position.set(0, railBaseY + 0.33, leadZ + 0.14);
+      group.add(stack);
+    } else {
+      const aeroNose = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.14, 0.12), glassMat);
+      aeroNose.position.set(0, railBaseY + 0.11, leadZ + 0.22);
+      group.add(aeroNose);
+      const leadWin = new THREE.Mesh(new THREE.BoxGeometry(0.33, 0.08, 0.32), glassMat);
+      leadWin.position.set(0, railBaseY + 0.14, leadZ);
+      group.add(leadWin);
+    }
+
+    // Coach car trailing behind
+    const coachBody = new THREE.Mesh(new THREE.BoxGeometry(0.31, 0.21, 0.42), bodyMat);
+    coachBody.position.set(0, railBaseY + 0.105, coachZ);
+    coachBody.castShadow = true;
+    group.add(coachBody);
+
+    const coachWin = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.08, 0.34), glassMat);
+    coachWin.position.set(0, railBaseY + 0.14, coachZ);
+    group.add(coachWin);
+
+    if (isMetro || isMaglev) {
+      const roofAccent = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.03, 0.86), glowMat);
+      roofAccent.position.set(0, railBaseY + 0.23, 0);
+      group.add(roofAccent);
+    }
+
+    const headLamp = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.05, 0.025), headlightMat);
+    headLamp.position.set(0, railBaseY + 0.08, leadZ + 0.24);
+    group.add(headLamp);
+    return group;
+  }
+
+  // Aircraft ('plane') aligned +Z forward with swept X wingspan
+  const fuselageMat = isElf ? bodyMat : isOrc ? trimMat : new THREE.MeshStandardMaterial({ color: 0xf1f5f9, roughness: 0.32, metalness: 0.35 });
+  const wingMat = bodyMat;
+  const isProp = epochLevel <= 4;
+  const isOrbitalShuttle = epochLevel >= 6;
+
+  // Fuselage
+  const fuselage = new THREE.Mesh(
+    new THREE.BoxGeometry(isOrbitalShuttle ? 0.24 : 0.2, 0.2, isOrbitalShuttle ? 0.96 : 1.06),
+    fuselageMat,
+  );
+  fuselage.position.y = 0.2;
+  fuselage.castShadow = true;
+  group.add(fuselage);
+
+  // Nose cone
+  const nose = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.26, 6), fuselageMat);
+  nose.rotation.x = Math.PI / 2;
+  nose.position.set(0, 0.2, 0.64);
+  group.add(nose);
+
+  // Cockpit glass
+  const cockpit = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.09, 0.22), glassMat);
+  cockpit.position.set(0, 0.28, 0.42);
+  group.add(cockpit);
+
+  // Passenger window stripe
+  const cabStrip = new THREE.Mesh(new THREE.BoxGeometry(0.21, 0.045, 0.56), glassMat);
+  cabStrip.position.set(0, 0.22, 0.02);
+  group.add(cabStrip);
+
+  // Main Wings
+  const wingSpan = isOrbitalShuttle ? 1.18 : 1.38;
+  const mainWing = new THREE.Mesh(new THREE.BoxGeometry(wingSpan, 0.05, 0.34), wingMat);
+  mainWing.position.set(0, 0.18, 0.04);
+  mainWing.castShadow = true;
+  group.add(mainWing);
+
+  // Tailplane + Vertical Stabilizer
+  const hTail = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.04, 0.18), wingMat);
+  hTail.position.set(0, 0.22, -0.44);
+  group.add(hTail);
+  const vTail = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.26, 0.22), wingMat);
+  vTail.position.set(0, 0.36, -0.44);
+  vTail.castShadow = true;
+  group.add(vTail);
+
+  // Engines (Propellers in Atomic vs Twin Jet Pods / Plasma Thrusters in Info/Orbital)
+  for (const ex of [-0.36, 0.36]) {
+    const pod = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.055, 0.06, 0.22, 6),
+      isOrbitalShuttle ? glowMat : trimMat,
+    );
+    pod.rotation.x = Math.PI / 2;
+    pod.position.set(ex, 0.14, 0.12);
+    group.add(pod);
+
+    if (isProp) {
+      const prop = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.035, 0.02), headlightMat);
+      prop.position.set(ex, 0.14, 0.25);
+      prop.name = 'spin_prop';
+      group.add(prop);
+    }
+  }
+
+  // Wingtip Navigation Lights (Red port / Emerald starboard)
+  const portLight = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.04, 0.05), taillightMat);
+  portLight.position.set(-wingSpan * 0.5, 0.19, 0.04);
+  group.add(portLight);
+  const stbdLight = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.04, 0.05), glowMat);
+  stbdLight.position.set(wingSpan * 0.5, 0.19, 0.04);
+  group.add(stbdLight);
+
+  return group;
+}
+

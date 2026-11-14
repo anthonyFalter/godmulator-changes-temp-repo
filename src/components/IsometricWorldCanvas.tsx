@@ -5,6 +5,7 @@ import { EPOCHS, GOD_POWERS } from '../game/catalog';
 import {
   createBuildingGroup,
   createUnitGroup,
+  createVehicleGroup,
   getNodeVariantLibrary,
 } from '../game/meshBuilders';
 import {
@@ -25,6 +26,7 @@ import {
   LightingPreset,
   SimulationState,
   TerrainType,
+  VehicleType,
 } from '../game/types';
 
 interface IsometricWorldCanvasProps {
@@ -214,7 +216,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     const nodesGroup = new THREE.Group();
     const buildingsGroup = new THREE.Group();
     const unitsGroup = new THREE.Group();
-    worldGroup.add(terrainGroup, nodesGroup, buildingsGroup, unitsGroup);
+    const vehiclesGroup = new THREE.Group();
+    worldGroup.add(terrainGroup, nodesGroup, buildingsGroup, unitsGroup, vehiclesGroup);
 
     // Animated pixelated ocean, coastal surf foam, reef foam, & sculpted drifting sky clouds
     const oceanFoam = createOceanFoamSystem(sim.gridSize);
@@ -225,7 +228,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     worldGroup.add(skyClouds.shadowGroup);
     worldGroup.add(skyClouds.group);
 
-    // Instanced terrain system (14 draw calls total regardless of map size!)
+    // Instanced terrain system (15 draw calls total regardless of map size!)
     const TERRAIN_TYPES: TerrainType[] = [
       'deep_water',
       'shallow_water',
@@ -241,6 +244,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       'snow',
       'scorched',
       'crystal_field',
+      'rail_track',
     ];
     const tileGeo = new THREE.BoxGeometry(1.0, 1.0, 1.0);
     tileGeo.translate(0, -0.5, 0);
@@ -349,6 +353,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       snow: 11,
       scorched: 12,
       crystal_field: 13,
+      rail_track: 14,
     };
     const NODE_CODE: Record<string, number> = {
       none: 0,
@@ -366,6 +371,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     const unitMeshes = new Map<
       string,
       { group: THREE.Group; epochLevel: number; role: string; species: string }
+    >();
+    const vehicleMeshes = new Map<
+      string,
+      { group: THREE.Group; epochLevel: number; type: VehicleType; species: string }
     >();
 
     const skirtMat = new THREE.MeshStandardMaterial({
@@ -2426,7 +2435,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           if (t.resourceNode === 'timber_grove') {
             targetInst = timberInsts[h % timberInsts.length];
           } else if (t.resourceNode === 'berry_bush') {
-            if (t.farmSettlementId && simState.epochIndex >= 4) {
+            if (t.farmSettlementId && simState.epochIndex >= 6) {
               targetInst = sciFiFarmInsts[h % sciFiFarmInsts.length];
             } else if (t.farmSettlementId && simState.epochIndex >= 1) {
               targetInst = farmCropInsts[h % farmCropInsts.length];
@@ -2507,10 +2516,21 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         const tN = b.tileZ - 1 >= 0 ? simState.tiles[(b.tileZ - 1) * gs + b.tileX] : undefined;
         const tW = b.tileX - 1 >= 0 ? simState.tiles[b.tileZ * gs + (b.tileX - 1)] : undefined;
         let rotY = (((b.tileX * 19 + b.tileZ * 7) & 1) === 0 ? 0 : Math.PI / 2);
-        if (tS?.terrain === 'stone_road') rotY = 0;
-        else if (tE?.terrain === 'stone_road') rotY = Math.PI / 2;
-        else if (tN?.terrain === 'stone_road') rotY = Math.PI;
-        else if (tW?.terrain === 'stone_road') rotY = -Math.PI / 2;
+        if (b.type === 'rail_station') {
+          if (tS?.terrain === 'rail_track') rotY = 0;
+          else if (tE?.terrain === 'rail_track') rotY = Math.PI / 2;
+          else if (tN?.terrain === 'rail_track') rotY = Math.PI;
+          else if (tW?.terrain === 'rail_track') rotY = -Math.PI / 2;
+          else if (tS?.terrain === 'stone_road') rotY = 0;
+          else if (tE?.terrain === 'stone_road') rotY = Math.PI / 2;
+          else if (tN?.terrain === 'stone_road') rotY = Math.PI;
+          else if (tW?.terrain === 'stone_road') rotY = -Math.PI / 2;
+        } else {
+          if (tS?.terrain === 'stone_road') rotY = 0;
+          else if (tE?.terrain === 'stone_road') rotY = Math.PI / 2;
+          else if (tN?.terrain === 'stone_road') rotY = Math.PI;
+          else if (tW?.terrain === 'stone_road') rotY = -Math.PI / 2;
+        }
         entry.group.rotation.y = rotY;
 
         entry.group.position.set(b.tileX, groundY, b.tileZ);
@@ -2686,6 +2706,61 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         if (!activeUnitIds.has(id)) {
           unitsGroup.remove(uEntry.group);
           unitMeshes.delete(id);
+        }
+      }
+
+      // 3b. Sync vehicles (cars on roads, trains/metros on railways, planes & shuttles in flight)
+      const activeVehicleIds = new Set<string>();
+      for (const v of simState.vehicles ?? []) {
+        activeVehicleIds.add(v.id);
+        let vEntry = vehicleMeshes.get(v.id);
+        if (
+          !vEntry ||
+          vEntry.epochLevel !== v.epochLevel ||
+          vEntry.type !== v.type ||
+          vEntry.species !== v.species
+        ) {
+          if (vEntry) vehiclesGroup.remove(vEntry.group);
+          const seedHash =
+            Math.abs(Math.round(v.x * 13 + v.z * 7)) + v.id.charCodeAt(v.id.length - 1);
+          const group = createVehicleGroup(v.type, v.epochLevel, v.species, seedHash);
+          vehiclesGroup.add(group);
+          vEntry = { group, epochLevel: v.epochLevel, type: v.type, species: v.species };
+          vehicleMeshes.set(v.id, vEntry);
+        }
+        const vGroup = vEntry.group;
+        const vtx = Math.round(THREE.MathUtils.clamp(v.x, 0, simState.gridSize - 1));
+        const vtz = Math.round(THREE.MathUtils.clamp(v.z, 0, simState.gridSize - 1));
+        const vTile = simState.tiles[vtz * simState.gridSize + vtx];
+        const groundY = vTile ? Math.max(0.18, vTile.height * HEIGHT_STEP + 0.25) : 0.5;
+
+        if (v.type === 'car') {
+          // Right-hand lane offset perpendicular to forward heading
+          const laneX = -Math.cos(v.heading) * 0.14;
+          const laneZ = Math.sin(v.heading) * 0.14;
+          vGroup.position.set(v.x + laneX, groundY + v.y, v.z + laneZ);
+        } else if (v.type === 'plane') {
+          const minAirFloor = v.flightPhase === 'cruise' ? 3.85 : groundY;
+          const planeY = Math.max(groundY + v.y, minAirFloor + Math.max(0, v.y - 2.0));
+          vGroup.position.set(v.x, planeY, v.z);
+        } else {
+          vGroup.position.set(v.x, groundY + v.y + 0.01, v.z);
+        }
+
+        vGroup.rotation.order = 'YXZ';
+        vGroup.rotation.set(v.pitch, v.heading, v.bank);
+
+        for (const child of vGroup.children) {
+          if (child.name === 'spin_prop') {
+            child.rotation.z += dt * 28;
+          }
+        }
+      }
+
+      for (const [id, vEntry] of vehicleMeshes.entries()) {
+        if (!activeVehicleIds.has(id)) {
+          vehiclesGroup.remove(vEntry.group);
+          vehicleMeshes.delete(id);
         }
       }
 
