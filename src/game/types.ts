@@ -244,7 +244,7 @@ export interface TerrainToolDefinition {
   color: string;
 }
 
-export type VehicleType = 'train' | 'car' | 'plane';
+export type VehicleType = 'train' | 'car' | 'plane' | 'roadster';
 
 export interface VehicleEntity {
   id: string;
@@ -264,6 +264,10 @@ export interface VehicleEntity {
   variantSeed: number;
   flightPhase?: 'parked' | 'takeoff' | 'cruise' | 'landing';
   phaseTimer?: number;
+  stuntPhase?: 'cruise' | 'charge' | 'launch_flip' | 'hover_spin' | 'barrel_roll';
+  stuntTimer?: number;
+  stuntDuration?: number;
+  thrusterActive?: boolean;
 }
 
 export type ToolCategory = 'powers' | 'terrain' | 'build' | 'spawn' | 'epochs' | 'inspect';

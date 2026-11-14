@@ -210,11 +210,20 @@ export default function App() {
 
       if (activeTool.kind === 'inspect') {
         const tile = getTile(sim, tileX, tileZ);
+        const nearbyRoadster = (sim.vehicles ?? []).find(
+          (v) => v.type === 'roadster' && Math.hypot(v.x - tileX, v.z - tileZ) <= 1.15,
+        );
         const nearbyUnit = sim.units.find(
           (u) => u.state !== 'ko' && Math.hypot(u.x - tileX, u.z - tileZ) <= 0.85,
         );
         const bld = sim.buildings.find((b) => b.tileX === tileX && b.tileZ === tileZ);
-        if (nearbyUnit) {
+        if (nearbyRoadster) {
+          const modeLabel =
+            nearbyRoadster.stuntPhase && nearbyRoadster.stuntPhase !== 'cruise'
+              ? `Propulsion Stunt: ${nearbyRoadster.stuntPhase.replace('_', ' ')}`
+              : 'Cruising with SpaceX Thrusters Armed';
+          setStatusFeedback(`Tesla Roadster Easter Egg (${modeLabel})`);
+        } else if (nearbyUnit) {
           const label =
             nearbyUnit.ageStage === 'child'
               ? `${nearbyUnit.species} child`

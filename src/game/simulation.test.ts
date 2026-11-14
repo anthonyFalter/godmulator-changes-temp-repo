@@ -17,7 +17,7 @@ import {
   stepSimulation,
 } from './simulation';
 import { EPOCHS, SPECIES_UNITS } from './catalog';
-import { createUnitGroup } from './meshBuilders';
+import { createUnitGroup, createVehicleGroup } from './meshBuilders';
 import * as THREE from 'three';
 
 test('initial state starts as uninhabited wilderness with zero settlements or units', () => {
@@ -1149,5 +1149,62 @@ test('Earthquakes randomize into short, long, branching, and mountain-forming fa
   }
   assert.ok(mountainCount >= 6, `Orogenic uplift earthquake should raise new mountains (height>=5), got ${mountainCount}`);
 });
+
+test('Tesla Roadster Easter egg spawns in modern cities and uses thruster propulsion for aerial stunts', () => {
+  const state = createInitialSimulationState(128, 'ROADSTER-EASTER-EGG');
+  state.sandboxFreeMode = true;
+
+  for (let dz = -8; dz <= 8; dz++) {
+    for (let dx = -8; dx <= 8; dx++) {
+      const t = getTile(state, 64 + dx, 64 + dz)!;
+      t.height = 2;
+      t.terrain = dz === 0 || dx === 0 ? 'stone_road' : 'grass';
+      t.resourceNode = 'none';
+      t.resourceAmount = 0;
+      t.buildingId = null;
+    }
+  }
+
+  const hut = placeBuilding(state, 'forager_hut', 65, 65);
+  assert.equal(hut.ok, true, hut.reason);
+
+  // Advance to Information Age (epochIndex === 5)
+  for (let i = 0; i < 5; i++) {
+    advanceEpoch(state, true);
+  }
+  assert.equal(state.epochIndex, 5);
+
+  stepSimulation(state, 0.25);
+
+  const roadster = (state.vehicles ?? []).find((v) => v.type === 'roadster');
+  assert.ok(roadster, 'Information Age city with streets should spawn the Tesla Roadster Easter egg');
+
+  let sawThrustersActive = false;
+  let maxAirAltitude = 0;
+  let sawAerialRotation = false;
+  let sawPostStuntLanding = false;
+
+  for (let i = 0; i < 40; i++) {
+    stepSimulation(state, 0.2);
+    if (roadster!.thrusterActive) sawThrustersActive = true;
+    if (roadster!.y > maxAirAltitude) maxAirAltitude = roadster!.y;
+    if (Math.abs(roadster!.pitch) > 0.5 || Math.abs(roadster!.bank) > 0.5) {
+      sawAerialRotation = true;
+    }
+    if (sawThrustersActive && maxAirAltitude > 1.0 && roadster!.stuntPhase === 'cruise' && !roadster!.thrusterActive) {
+      sawPostStuntLanding = true;
+    }
+  }
+
+  assert.equal(sawThrustersActive, true, 'Roadster must fire its SpaceX cold-gas thrusters');
+  assert.ok(maxAirAltitude >= 1.2, `Roadster propulsion stunts should launch airborne (maxY=${maxAirAltitude.toFixed(2)})`);
+  assert.equal(sawAerialRotation, true, 'Roadster should perform flips, rolls, or spins mid-air');
+  assert.equal(sawPostStuntLanding, true, 'Roadster should touch back down into road cruise after completing stunt');
+
+  const roadsterMesh = createVehicleGroup('roadster', 5, 'human', 0);
+  const plumes = roadsterMesh.children.filter((c) => c.name === 'thruster_plume');
+  assert.ok(plumes.length >= 4, `Roadster 3D model should include thruster plume meshes, got ${plumes.length}`);
+});
+
 
 

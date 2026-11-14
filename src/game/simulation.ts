@@ -3731,6 +3731,7 @@ function stepVehicles(state: SimulationState, dt: number): void {
     }
     if (v.type === 'train') return state.epochIndex >= 3;
     if (v.type === 'car') return state.epochIndex >= 3;
+    if (v.type === 'roadster') return state.epochIndex >= 5;
     return false;
   });
 
@@ -3843,6 +3844,68 @@ function stepVehicles(state: SimulationState, dt: number): void {
           pathIndex: 1,
           variantSeed: existingCount + startTile.x * 7 + startTile.z * 13,
         });
+      }
+    }
+  }
+
+  // B2. Easter Egg: Latest Tesla Roadster with SpaceX Cold-Gas Thruster Stunts (Information Age+)
+  if (state.epochIndex >= 5) {
+    for (const sid of settlementIds) {
+      if (state.vehicles.filter((v) => v.type === 'roadster').length >= 2) break;
+      const alreadyHas = state.vehicles.some((v) => v.type === 'roadster' && v.settlementId === sid);
+      if (alreadyHas) continue;
+      const anchor = getSettlementAnchorForId(state, sid);
+      const roadCandidates: TileData[] = [];
+      for (let dz = -14; dz <= 14; dz++) {
+        for (let dx = -14; dx <= 14; dx++) {
+          const rt = getTile(state, anchor.x + dx, anchor.z + dz);
+          if (rt && rt.terrain === 'stone_road') {
+            roadCandidates.push(rt);
+          }
+        }
+      }
+      if (roadCandidates.length >= 6) {
+        const startTile = roadCandidates[Math.floor(roadCandidates.length / 2)];
+        let nextTile = startTile;
+        for (const [ox, oz] of VEHICLE_DIRS) {
+          const nb = getTile(state, startTile.x + ox, startTile.z + oz);
+          if (nb && nb.terrain === 'stone_road') {
+            nextTile = nb;
+            break;
+          }
+        }
+        const sp: SpeciesId = state.settlementSpecies?.[sid] ?? 'human';
+        const roadsterCount = state.vehicles.filter((v) => v.type === 'roadster').length;
+        state.vehicles.push({
+          id: nextEntityId('veh_rds'),
+          type: 'roadster',
+          species: sp,
+          settlementId: sid,
+          epochLevel: state.epochIndex,
+          x: startTile.x,
+          y: state.epochIndex >= 6 ? 0.12 : 0.02,
+          z: startTile.z,
+          heading: Math.atan2(nextTile.x - startTile.x, nextTile.z - startTile.z),
+          pitch: 0,
+          bank: 0,
+          speed: 6.4,
+          path: [
+            { x: startTile.x, z: startTile.z },
+            { x: nextTile.x, z: nextTile.z },
+          ],
+          pathIndex: 1,
+          variantSeed: roadsterCount * 17 + startTile.x * 3 + startTile.z * 11,
+          stuntPhase: 'cruise',
+          stuntTimer: 2.2 + roadsterCount * 1.1,
+          stuntDuration: 2.2,
+          thrusterActive: false,
+        });
+        const cityName = state.settlementNames?.[sid] ?? 'the metropolis';
+        addChronicle(
+          state,
+          `Easter Egg: A thruster-equipped Tesla Roadster hit the streets of ${cityName} pulling aerial propulsion stunts!`,
+          'divine',
+        );
       }
     }
   }
@@ -3966,6 +4029,123 @@ function stepVehicles(state: SimulationState, dt: number): void {
             pool.length;
           const nextPt = pool[Math.abs(pickIdx)];
           v.path = [{ x: target.x, z: target.z }, nextPt];
+        }
+      }
+    } else if (v.type === 'roadster') {
+      const baseRoadY = state.epochIndex >= 6 ? 0.12 : 0.02;
+      const baseCruiseSpeed = state.epochIndex >= 6 ? 7.2 : 6.2;
+      const stuntPhase = v.stuntPhase ?? 'cruise';
+      v.stuntTimer = (v.stuntTimer ?? 2.5) - dt;
+
+      // Advance along stone_road network cleanly so aerial stunts stay centered over city corridors
+      const target = v.path[1] ?? v.path[0] ?? { x: v.x, z: v.z };
+      const dx = target.x - v.x;
+      const dz = target.z - v.z;
+      const dist = Math.hypot(dx, dz);
+      const speedMult =
+        stuntPhase === 'charge'
+          ? 0.45
+          : stuntPhase === 'cruise'
+            ? 1.0
+            : 1.38;
+      v.speed = baseCruiseSpeed * speedMult;
+      const step = v.speed * dt;
+      if (dist > step && dist > 0.02) {
+        v.x += (dx / dist) * step;
+        v.z += (dz / dist) * step;
+        if (stuntPhase !== 'hover_spin') {
+          const desiredHeading = Math.atan2(dx, dz);
+          v.heading += wrapAngleRad(desiredHeading - v.heading) * Math.min(1, dt * 16);
+        }
+      } else {
+        v.x = target.x;
+        v.z = target.z;
+        const prev = v.path[0] ?? target;
+        const candidates: Array<{ x: number; z: number }> = [];
+        for (const [ox, oz] of VEHICLE_DIRS) {
+          const nx = Math.round(target.x + ox);
+          const nz = Math.round(target.z + oz);
+          const nt = getTile(state, nx, nz);
+          if (nt && nt.terrain === 'stone_road') {
+            candidates.push({ x: nx, z: nz });
+          }
+        }
+        const nonReverse = candidates.filter(
+          (c) => Math.abs(c.x - prev.x) > 0.2 || Math.abs(c.z - prev.z) > 0.2,
+        );
+        const pool = nonReverse.length > 0 ? nonReverse : candidates;
+        if (pool.length > 0) {
+          const pickIdx =
+            (v.variantSeed + Math.floor(Math.abs(state.year * 140)) + Math.round(target.x * 3 + target.z)) %
+            pool.length;
+          const nextPt = pool[Math.abs(pickIdx)];
+          v.path = [{ x: target.x, z: target.z }, nextPt];
+        }
+      }
+
+      if (stuntPhase === 'cruise') {
+        v.y = baseRoadY;
+        v.pitch = 0;
+        v.bank = 0;
+        v.thrusterActive = false;
+        if (v.stuntTimer <= 0) {
+          v.stuntPhase = 'charge';
+          v.stuntDuration = 0.34;
+          v.stuntTimer = 0.34;
+          v.thrusterActive = true;
+        }
+      } else if (stuntPhase === 'charge') {
+        const dur = Math.max(0.1, v.stuntDuration ?? 0.34);
+        const p = Math.min(1, Math.max(0, 1 - (v.stuntTimer ?? 0) / dur));
+        v.y = baseRoadY + p * 0.14;
+        v.pitch = -0.22 * p;
+        v.bank = 0;
+        v.thrusterActive = true;
+        if ((v.stuntTimer ?? 0) <= 0) {
+          const tricks: Array<'launch_flip' | 'barrel_roll' | 'hover_spin'> = [
+            'launch_flip',
+            'barrel_roll',
+            'hover_spin',
+          ];
+          const nextTrick = tricks[Math.abs(v.variantSeed) % tricks.length];
+          v.variantSeed += 1;
+          v.stuntPhase = nextTrick;
+          const trickDur = nextTrick === 'hover_spin' ? 1.65 : nextTrick === 'launch_flip' ? 1.55 : 1.45;
+          v.stuntDuration = trickDur;
+          v.stuntTimer = trickDur;
+          v.thrusterActive = true;
+        }
+      } else {
+        // Aerial propulsion stunt arc
+        const dur = Math.max(0.4, v.stuntDuration ?? 1.5);
+        const p = Math.min(1, Math.max(0, 1 - (v.stuntTimer ?? 0) / dur));
+        const arc = Math.sin(p * Math.PI);
+        v.thrusterActive = p < 0.88;
+        if (stuntPhase === 'launch_flip') {
+          v.y = baseRoadY + arc * 2.45;
+          v.pitch = -p * Math.PI * 2;
+          v.bank = 0;
+        } else if (stuntPhase === 'barrel_roll') {
+          v.y = baseRoadY + arc * 2.15;
+          v.pitch = -0.18 * arc;
+          v.bank = p * Math.PI * 2;
+        } else {
+          // hover_spin: VTOL cold-gas levitation + 720-degree thruster spin
+          v.y = baseRoadY + arc * 1.95;
+          v.pitch = -0.12 * arc;
+          v.bank = Math.sin(p * Math.PI * 2) * 0.24;
+          v.heading = wrapAngleRad(v.heading + dt * 9.8);
+        }
+
+        if ((v.stuntTimer ?? 0) <= 0) {
+          v.stuntPhase = 'cruise';
+          const cooldown = 3.2 + (Math.abs(v.variantSeed) % 3) * 0.9;
+          v.stuntDuration = cooldown;
+          v.stuntTimer = cooldown;
+          v.y = baseRoadY;
+          v.pitch = 0;
+          v.bank = 0;
+          v.thrusterActive = false;
         }
       }
     } else if (v.type === 'plane') {

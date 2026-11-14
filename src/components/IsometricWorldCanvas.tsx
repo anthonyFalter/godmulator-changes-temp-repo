@@ -3041,6 +3041,23 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           const laneX = -Math.cos(v.heading) * 0.14;
           const laneZ = Math.sin(v.heading) * 0.14;
           vGroup.position.set(v.x + laneX, groundY + v.y, v.z + laneZ);
+        } else if (v.type === 'roadster') {
+          const laneScale = v.y > 0.25 ? Math.max(0, 1 - (v.y - 0.25) * 0.8) : 1;
+          const laneX = -Math.cos(v.heading) * 0.12 * laneScale;
+          const laneZ = Math.sin(v.heading) * 0.12 * laneScale;
+          vGroup.position.set(v.x + laneX, groundY + v.y, v.z + laneZ);
+          if (v.thrusterActive && Math.random() < 0.75) {
+            spawnParticleBurst(
+              v.x + laneX,
+              groundY + v.y + 0.08,
+              v.z + laneZ,
+              2,
+              Math.random() < 0.55 ? '#38bdf8' : '#e0f2fe',
+              0.25,
+              1.6,
+              0.42,
+            );
+          }
         } else if (v.type === 'plane') {
           const minAirFloor = v.flightPhase === 'cruise' ? 3.85 : groundY;
           const planeY = Math.max(groundY + v.y, minAirFloor + Math.max(0, v.y - 2.0));
@@ -3055,6 +3072,16 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         for (const child of vGroup.children) {
           if (child.name === 'spin_prop') {
             child.rotation.z += dt * 28;
+          } else if (child.name === 'thruster_plume') {
+            const active = Boolean(v.thrusterActive);
+            child.visible = active;
+            if (active) {
+              const flicker = 0.8 + Math.sin(elapsed * 48 + child.position.x * 30) * 0.28;
+              child.scale.set(0.9 + (flicker - 0.8) * 0.4, flicker, 0.9 + (flicker - 0.8) * 0.4);
+            }
+          } else if (child.name === 'contact_shadow') {
+            const shadowFade = Math.max(0.25, 1 - Math.max(0, v.y - 0.1) * 0.25);
+            child.scale.setScalar(shadowFade);
           }
         }
       }

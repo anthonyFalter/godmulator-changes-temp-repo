@@ -3887,6 +3887,135 @@ export function createVehicleGroup(
     color: isElf ? 0x52f2c8 : isOrc ? 0xff5421 : 0x56cfe1,
   });
 
+  if (type === 'roadster') {
+    const contactShadow = createContactShadow(0.46);
+    contactShadow.name = 'contact_shadow';
+    group.add(contactShadow);
+
+    const roadsterPaintHex =
+      variant % 3 === 1 ? 0xf8fafc : variant % 3 === 2 ? 0x1e293b : 0xd90429;
+    const roadsterMat = new THREE.MeshStandardMaterial({
+      color: roadsterPaintHex,
+      roughness: 0.14,
+      metalness: 0.78,
+    });
+    const carbonMat = new THREE.MeshStandardMaterial({
+      color: 0x0f172a,
+      roughness: 0.52,
+      metalness: 0.35,
+    });
+    const alloyMat = new THREE.MeshStandardMaterial({
+      color: 0xe2e8f0,
+      roughness: 0.22,
+      metalness: 0.86,
+    });
+    const thrusterBodyMat = new THREE.MeshStandardMaterial({
+      color: 0x475569,
+      roughness: 0.35,
+      metalness: 0.75,
+    });
+    const coldGasOuterMat = new THREE.MeshBasicMaterial({
+      color: 0x38bdf8,
+      transparent: true,
+      opacity: 0.85,
+    });
+    const coldGasCoreMat = new THREE.MeshBasicMaterial({
+      color: 0xe0f2fe,
+    });
+
+    // Low-slung wedge chassis + carbon front splitter & rear diffuser
+    const lowerBody = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.085, 0.44), roadsterMat);
+    lowerBody.position.set(0, 0.08, 0);
+    lowerBody.castShadow = true;
+    group.add(lowerBody);
+
+    const noseSlope = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.055, 0.16), roadsterMat);
+    noseSlope.position.set(0, 0.068, 0.19);
+    noseSlope.rotation.x = 0.14;
+    group.add(noseSlope);
+
+    const frontSplitter = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.02, 0.09), carbonMat);
+    frontSplitter.position.set(0, 0.042, 0.22);
+    group.add(frontSplitter);
+
+    const rearDeck = new THREE.Mesh(new THREE.BoxGeometry(0.245, 0.055, 0.14), roadsterMat);
+    rearDeck.position.set(0, 0.115, -0.15);
+    group.add(rearDeck);
+
+    // Targa open-top cockpit, panoramic raked windshield, rollbar & dual sport seats
+    const cockpitTub = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.04, 0.18), carbonMat);
+    cockpitTub.position.set(0, 0.125, -0.01);
+    group.add(cockpitTub);
+
+    const windshield = new THREE.Mesh(new THREE.BoxGeometry(0.19, 0.065, 0.11), glassMat);
+    windshield.position.set(0, 0.15, 0.05);
+    windshield.rotation.x = -0.38;
+    group.add(windshield);
+
+    const targaHoop = new THREE.Mesh(new THREE.BoxGeometry(0.195, 0.065, 0.045), roadsterMat);
+    targaHoop.position.set(0, 0.155, -0.09);
+    group.add(targaHoop);
+
+    // 4 low-profile sport wheels + bright turbine alloy rims
+    const wheelGeo = new THREE.BoxGeometry(0.045, 0.085, 0.085);
+    const rimGeo = new THREE.BoxGeometry(0.05, 0.045, 0.045);
+    for (const [wx, wz] of [
+      [-0.12, 0.14],
+      [0.12, 0.14],
+      [-0.125, -0.14],
+      [0.125, -0.14],
+    ]) {
+      const w = new THREE.Mesh(wheelGeo, tireMat);
+      w.position.set(wx, 0.042, wz);
+      group.add(w);
+      const rim = new THREE.Mesh(rimGeo, alloyMat);
+      rim.position.set(wx, 0.042, wz);
+      group.add(rim);
+    }
+
+    // Sleek LED headlight blades & full-width crimson taillight bar
+    for (const lx of [-0.075, 0.075]) {
+      const hl = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.022, 0.02), headlightMat);
+      hl.position.set(lx, 0.072, 0.255);
+      group.add(hl);
+    }
+    const tailBar = new THREE.Mesh(new THREE.BoxGeometry(0.21, 0.024, 0.02), taillightMat);
+    tailBar.position.set(0, 0.115, -0.228);
+    group.add(tailBar);
+
+    // SpaceX Cold-Gas Thruster Nozzles (twin rear rocket pods + twin belly VTOL nozzles)
+    const nozzleGeo = new THREE.CylinderGeometry(0.022, 0.032, 0.06, 8);
+    nozzleGeo.rotateX(Math.PI / 2);
+    for (const nx of [-0.055, 0.055]) {
+      const rearPod = new THREE.Mesh(nozzleGeo, thrusterBodyMat);
+      rearPod.position.set(nx, 0.085, -0.235);
+      group.add(rearPod);
+
+      const plumeOuter = new THREE.Mesh(new THREE.ConeGeometry(0.038, 0.28, 7), coldGasOuterMat);
+      plumeOuter.rotation.x = -Math.PI / 2;
+      plumeOuter.position.set(nx, 0.085, -0.39);
+      plumeOuter.name = 'thruster_plume';
+      plumeOuter.visible = false;
+      group.add(plumeOuter);
+
+      const plumeCore = new THREE.Mesh(new THREE.ConeGeometry(0.02, 0.18, 6), coldGasCoreMat);
+      plumeCore.rotation.x = -Math.PI / 2;
+      plumeCore.position.set(nx, 0.085, -0.34);
+      plumeCore.name = 'thruster_plume';
+      plumeCore.visible = false;
+      group.add(plumeCore);
+
+      // Belly VTOL cold-gas jets for vertical jumps / hover spins
+      const vtolPlume = new THREE.Mesh(new THREE.ConeGeometry(0.036, 0.24, 7), coldGasOuterMat);
+      vtolPlume.rotation.x = Math.PI;
+      vtolPlume.position.set(nx, -0.07, 0);
+      vtolPlume.name = 'thruster_plume';
+      vtolPlume.visible = false;
+      group.add(vtolPlume);
+    }
+    return group;
+  }
+
   if (type === 'car') {
     group.add(createContactShadow(0.42));
     const isBus = epochLevel >= 4 && variant % 4 === 0;
