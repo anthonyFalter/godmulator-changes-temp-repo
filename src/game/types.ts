@@ -283,6 +283,18 @@ export interface ChronicleEvent {
   timestamp: number;
 }
 
+export type EarthquakeShapeKind = 'short_rupture' | 'long_rift' | 'branching_fault' | 'orogenic_uplift';
+
+export interface EarthquakeFaultSegment {
+  x1: number;
+  z1: number;
+  x2: number;
+  z2: number;
+  width: number;
+  upliftBias: number;
+  isBranch?: boolean;
+}
+
 export interface VisualEffectEvent {
   id: string;
   type: GodPowerType | 'terrain_sculpt' | 'build_complete' | 'hit_spark' | 'epoch_up';
@@ -293,6 +305,9 @@ export interface VisualEffectEvent {
   color: string;
   createdAt: number;
   deferImpact?: boolean;
+  faultSegments?: EarthquakeFaultSegment[];
+  quakeShapeKind?: EarthquakeShapeKind;
+  quakeExtent?: number;
 }
 
 export interface ActiveHazardZone {
@@ -314,6 +329,9 @@ export interface ActiveHazardZone {
   remaining: number;
   duration: number;
   tickTimer: number;
+  faultSegments?: EarthquakeFaultSegment[];
+  quakeShapeKind?: EarthquakeShapeKind;
+  quakeExtent?: number;
 }
 
 export type GameLifecycleState = 'title' | 'playing' | 'paused' | 'gameover';

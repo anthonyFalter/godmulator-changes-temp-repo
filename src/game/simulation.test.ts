@@ -5,7 +5,9 @@ import {
   applyTerrainTool,
   castGodPower,
   createInitialSimulationState,
+  executeGodPowerImpact,
   formatYearLabel,
+  generateEarthquakeFaultNetwork,
   getMaxCityBuildings,
   getMaxCityFarmFields,
   getTile,
@@ -1095,4 +1097,57 @@ test('Individuals in every race have unique appearance diversity, different skin
   }
   assert.equal(kid.ageStage, 'adult', 'Children must mature into adults after childhood duration elapses');
 });
+
+test('Earthquakes randomize into short, long, branching, and mountain-forming fault shapes', () => {
+  const seenKinds = new Set<string>();
+  const extents: number[] = [];
+  let sawBranches = false;
+  let orogenicPlan: ReturnType<typeof generateEarthquakeFaultNetwork> | null = null;
+
+  for (let i = 0; i < 48; i++) {
+    const plan = generateEarthquakeFaultNetwork(64, 64, 5.5);
+    seenKinds.add(plan.quakeShapeKind);
+    extents.push(plan.quakeExtent);
+    if (plan.faultSegments.some((s) => s.isBranch)) {
+      sawBranches = true;
+    }
+    if (plan.quakeShapeKind === 'orogenic_uplift' && !orogenicPlan) {
+      orogenicPlan = plan;
+    }
+  }
+
+  assert.equal(seenKinds.size, 4, `Expected all 4 earthquake archetypes across casts, got ${[...seenKinds].join(', ')}`);
+  assert.ok(sawBranches, 'Branching/spurred fault networks must generate forked branch segments');
+  const minExtent = Math.min(...extents);
+  const maxExtent = Math.max(...extents);
+  assert.ok(maxExtent - minExtent >= 4.0, `Earthquakes should vary sharply in length/reach (min=${minExtent.toFixed(1)}, max=${maxExtent.toFixed(1)})`);
+
+  // Verify orogenic_uplift actively builds mountain terrain (height >= 5, mountain/snow) from flat grass plains
+  const state = createInitialSimulationState(128, 'OROGENIC-MOUNTAIN');
+  for (let dz = -16; dz <= 16; dz++) {
+    for (let dx = -16; dx <= 16; dx++) {
+      const t = getTile(state, 64 + dx, 64 + dz)!;
+      t.height = 2;
+      t.terrain = 'grass';
+      t.resourceNode = 'none';
+      t.resourceAmount = 0;
+      t.buildingId = null;
+    }
+  }
+
+  assert.ok(orogenicPlan, 'Expected at least one orogenic_uplift sample');
+  executeGodPowerImpact(state, 'earthquake', 64, 64, orogenicPlan!);
+
+  let mountainCount = 0;
+  for (let dz = -16; dz <= 16; dz++) {
+    for (let dx = -16; dx <= 16; dx++) {
+      const t = getTile(state, 64 + dx, 64 + dz)!;
+      if (t.height >= 5 && (t.terrain === 'mountain' || t.terrain === 'snow')) {
+        mountainCount++;
+      }
+    }
+  }
+  assert.ok(mountainCount >= 6, `Orogenic uplift earthquake should raise new mountains (height>=5), got ${mountainCount}`);
+});
+
 

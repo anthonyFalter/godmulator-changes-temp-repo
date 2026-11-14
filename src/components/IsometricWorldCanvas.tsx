@@ -14,6 +14,7 @@ import {
   createStyledTerrainSystem,
 } from '../game/skyAndSea';
 import {
+  closestFaultDistanceSq,
   executeGodPowerImpact,
   getSettlementAnchor,
   stepSimulation,
@@ -21,6 +22,8 @@ import {
 import { soundEngine } from '../game/sound';
 import {
   ActiveTool,
+  EarthquakeFaultSegment,
+  EarthquakeShapeKind,
   GameLifecycleState,
   GodPowerType,
   LightingPreset,
@@ -606,6 +609,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     const sharedWaveFaceGeo = new THREE.BoxGeometry(1.12, 1.48, 0.92);
     const sharedWaveLipGeo = new THREE.BoxGeometry(1.16, 0.62, 1.05);
     const sharedWaveFoamGeo = new THREE.BoxGeometry(1.22, 0.44, 0.68);
+    const sharedFaultCrackGeo = new THREE.BoxGeometry(1, 0.14, 1);
 
     interface TsunamiWaveSegment {
       group: THREE.Group;
@@ -641,12 +645,17 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       waveWallMesh?: THREE.Mesh;
       cloudBody?: THREE.Group;
       currentY?: number;
+      crackMeshes?: THREE.Mesh[];
+      faultSegments?: EarthquakeFaultSegment[];
     }
     const hazardMeshes = new Map<string, HazardVisual>();
 
     function createHazardVisual(
       kind: HazardVisual['kind'],
       radius: number,
+      faultSegments?: EarthquakeFaultSegment[],
+      originX = 0,
+      originZ = 0,
     ): HazardVisual {
       const group = new THREE.Group();
       const materials: THREE.Material[] = [];
@@ -878,30 +887,55 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         const quakeRingMat = new THREE.MeshBasicMaterial({
           color: 0xe07a2b,
           transparent: true,
-          opacity: 0.78,
+          opacity: 0.52,
           side: THREE.DoubleSide,
           depthWrite: false,
         });
         const crackMat = new THREE.MeshBasicMaterial({
           color: 0xffaa44,
           transparent: true,
-          opacity: 0.72,
-          side: THREE.DoubleSide,
+          opacity: 0.78,
           depthWrite: false,
         });
         materials.push(quakeRingMat, crackMat);
 
         const ringMesh = new THREE.Mesh(sharedHazRingGeo, quakeRingMat);
         ringMesh.position.y = 0.08;
-        ringMesh.scale.setScalar(radius * 0.92);
+        ringMesh.scale.setScalar(Math.min(4.8, radius * 0.48));
         group.add(ringMesh);
 
-        const secondaryRingMesh = new THREE.Mesh(sharedRuneSquareGeo, crackMat);
-        secondaryRingMesh.position.y = 0.11;
-        secondaryRingMesh.scale.setScalar(radius * 0.56);
-        group.add(secondaryRingMesh);
+        const crackMeshes: THREE.Mesh[] = [];
+        const segs =
+          faultSegments && faultSegments.length > 0
+            ? faultSegments
+            : [{ x1: originX - 3, z1: originZ, x2: originX + 3, z2: originZ, width: 1, upliftBias: 0.5 }];
 
-        return { kind, group, materials, ringMesh, secondaryRingMesh };
+        for (let si = 0; si < segs.length; si++) {
+          const s = segs[si];
+          const dx = s.x2 - s.x1;
+          const dz = s.z2 - s.z1;
+          const len = Math.max(0.6, Math.hypot(dx, dz));
+          const midX = (s.x1 + s.x2) * 0.5 - originX;
+          const midZ = (s.z1 + s.z2) * 0.5 - originZ;
+          const angle = Math.atan2(dz, dx);
+
+          const crack = new THREE.Mesh(sharedFaultCrackGeo, crackMat);
+          crack.position.set(midX, 0.14, midZ);
+          crack.rotation.y = -angle;
+          crack.scale.set(len + 0.35, 0.55, Math.max(0.24, s.width * (s.isBranch ? 0.34 : 0.48)));
+          crack.userData.baseScaleZ = crack.scale.z;
+          group.add(crack);
+          crackMeshes.push(crack);
+        }
+
+        return {
+          kind,
+          group,
+          materials,
+          ringMesh,
+          crackMeshes,
+          faultSegments: segs,
+        };
       }
 
       // wormhole_rift — spinning black hole event horizon + contracting gravity-well funnel rings + inward-spiraling accretion shards
@@ -1177,6 +1211,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       strataRings?: THREE.Mesh[];
       motes?: PowerMote[];
       spikes?: THREE.Mesh[];
+      crackMeshes?: THREE.Mesh[];
+      faultSegments?: EarthquakeFaultSegment[];
+      quakeShapeKind?: EarthquakeShapeKind;
       particleEmitTimer?: number;
       colorHex: string;
     }
@@ -1196,6 +1233,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       radius: number,
       colorHex: string,
       deferImpact = false,
+      faultSegments?: EarthquakeFaultSegment[],
+      quakeShapeKind?: EarthquakeShapeKind,
     ) {
       const group = new THREE.Group();
       const materials: THREE.Material[] = [];
@@ -2147,15 +2186,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         const quakeAmberMat = new THREE.MeshBasicMaterial({
           color: 0xe07a2b,
           transparent: true,
-          opacity: 0.9,
+          opacity: 0.72,
           side: THREE.DoubleSide,
           depthWrite: false,
         });
         const quakeHotMat = new THREE.MeshBasicMaterial({
           color: 0xffbe5c,
           transparent: true,
-          opacity: 0.85,
-          side: THREE.DoubleSide,
+          opacity: 0.9,
           depthWrite: false,
         });
         const spireMat = new THREE.MeshStandardMaterial({
@@ -2170,27 +2208,58 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         ringMesh.scale.setScalar(0.5);
         group.add(ringMesh);
 
-        const outerRingMesh = new THREE.Mesh(sharedHazRingGeo, quakeHotMat);
-        outerRingMesh.position.set(tx, ty + 0.16, tz);
-        outerRingMesh.scale.setScalar(0.35);
-        group.add(outerRingMesh);
+        const segs =
+          faultSegments && faultSegments.length > 0
+            ? faultSegments
+            : [{ x1: tx - 3, z1: tz, x2: tx + 3, z2: tz, width: 1, upliftBias: 0.6 }];
 
-        const faultAngle = (((Math.round(tx) * 19 + Math.round(tz) * 37) & 31) / 32) * Math.PI;
-        const cosA = Math.cos(faultAngle);
-        const sinA = Math.sin(faultAngle);
-
+        const crackMeshes: THREE.Mesh[] = [];
         const spikes: THREE.Mesh[] = [];
-        for (let i = 0; i < 14; i++) {
-          const along = ((i / 13) - 0.5) * radius * 1.65;
-          const side = (i % 2 === 0 ? 1 : -1) * (1.2 + (i % 3) * 0.45);
-          const sx = tx + along * cosA - side * sinA;
-          const sz = tz + along * sinA + side * cosA;
-          const sp = new THREE.Mesh(sharedPillarSpikeGeo, spireMat);
-          sp.position.set(sx, ty, sz);
-          sp.rotation.set(((i % 5) - 2) * 0.14, faultAngle + i * 0.4, ((i % 3) - 1) * 0.16);
-          sp.scale.set(0.85, 0.01, 0.85);
-          group.add(sp);
-          spikes.push(sp);
+        const isOrogenic = quakeShapeKind === 'orogenic_uplift';
+
+        for (let si = 0; si < segs.length; si++) {
+          const s = segs[si];
+          const dx = s.x2 - s.x1;
+          const dz = s.z2 - s.z1;
+          const len = Math.max(0.6, Math.hypot(dx, dz));
+          const angle = Math.atan2(dz, dx);
+
+          const crack = new THREE.Mesh(sharedFaultCrackGeo, quakeHotMat);
+          crack.position.set((s.x1 + s.x2) * 0.5, ty + 0.15, (s.z1 + s.z2) * 0.5);
+          crack.rotation.y = -angle;
+          crack.scale.set(0.01, 0.7, Math.max(0.28, s.width * (s.isBranch ? 0.36 : 0.54)));
+          crack.userData.targetLen = len + 0.4;
+          crack.userData.revealOffset = Math.min(0.6, (si / Math.max(1, segs.length)) * 0.42);
+          group.add(crack);
+          crackMeshes.push(crack);
+
+          const spireCount = isOrogenic ? 4 : s.isBranch ? 2 : 3;
+          const perpX = -dz / len;
+          const perpZ = dx / len;
+          for (let k = 0; k < spireCount; k++) {
+            const frac = (k + 0.5) / spireCount;
+            const alongX = s.x1 + dx * frac;
+            const alongZ = s.z1 + dz * frac;
+            const sideSign = (si + k) % 2 === 0 ? 1 : -1;
+            const lateral = (isOrogenic ? 0.55 + ((k * 37) % 10) * 0.14 : 0.9 + ((k * 23) % 10) * 0.13) * s.width;
+            const sp = new THREE.Mesh(sharedPillarSpikeGeo, spireMat);
+            sp.position.set(alongX + perpX * lateral * sideSign, ty, alongZ + perpZ * lateral * sideSign);
+            sp.rotation.set(
+              (((si * 7 + k) % 5) - 2) * 0.15,
+              angle + k * 0.9,
+              (((si + k * 3) % 3) - 1) * 0.18,
+            );
+            const targetH = isOrogenic
+              ? 1.15 + ((si + k * 3) % 4) * 0.38
+              : 0.55 + Math.max(0, s.upliftBias) * 0.45 + ((si + k) % 3) * 0.25;
+            const targetW = isOrogenic ? 1.08 : 0.78 + (s.isBranch ? -0.1 : 0.12);
+            sp.userData.targetH = targetH;
+            sp.userData.targetW = targetW;
+            sp.userData.revealOffset = Math.min(0.65, (si / Math.max(1, segs.length)) * 0.45 + frac * 0.12);
+            sp.scale.set(targetW, 0.01, targetW);
+            group.add(sp);
+            spikes.push(sp);
+          }
         }
 
         burstFxGroup.add(group);
@@ -2200,7 +2269,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           group,
           materials,
           age: 0,
-          duration: 3.4,
+          duration: quakeShapeKind === 'short_rupture' ? 2.6 : quakeShapeKind === 'long_rift' ? 3.8 : 3.3,
           impactDelay: 0.06,
           deferImpact,
           tx,
@@ -2209,8 +2278,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           radius,
           impactFired: false,
           ringMesh,
-          outerRingMesh,
+          crackMeshes,
           spikes,
+          faultSegments: segs,
+          quakeShapeKind,
           particleEmitTimer: 0,
           colorHex,
         });
@@ -2477,7 +2548,29 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       }
 
       const activeTsunamis = (simState.activeHazards ?? []).filter((h) => h.kind === 'tsunami_wave');
-      const activeQuakes = (simState.activeHazards ?? []).filter((h) => h.kind === 'earthquake_zone');
+      const activeQuakes = (simState.activeHazards ?? [])
+        .filter((h) => h.kind === 'earthquake_zone')
+        .map((qh) => {
+          let minX = qh.x - qh.radius * 1.25;
+          let maxX = qh.x + qh.radius * 1.25;
+          let minZ = qh.z - qh.radius * 1.25;
+          let maxZ = qh.z + qh.radius * 1.25;
+          if (qh.faultSegments) {
+            for (let si = 0; si < qh.faultSegments.length; si++) {
+              const seg = qh.faultSegments[si];
+              const pad = seg.width * 3.0 + 1.5;
+              if (seg.x1 - pad < minX) minX = seg.x1 - pad;
+              if (seg.x2 - pad < minX) minX = seg.x2 - pad;
+              if (seg.x1 + pad > maxX) maxX = seg.x1 + pad;
+              if (seg.x2 + pad > maxX) maxX = seg.x2 + pad;
+              if (seg.z1 - pad < minZ) minZ = seg.z1 - pad;
+              if (seg.z2 - pad < minZ) minZ = seg.z2 - pad;
+              if (seg.z1 + pad > maxZ) maxZ = seg.z1 + pad;
+              if (seg.z2 + pad > maxZ) maxZ = seg.z2 + pad;
+            }
+          }
+          return { qh, minX, maxX, minZ, maxZ };
+        });
 
       for (let i = 0; i < simState.tiles.length; i++) {
         const t = simState.tiles[i];
@@ -2510,13 +2603,26 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         let quakeJoltY = 0;
         if (activeQuakes.length > 0 && t.height > 0) {
           for (let qi = 0; qi < activeQuakes.length; qi++) {
-            const qh = activeQuakes[qi];
-            const dx = t.x - qh.x;
-            const dz = t.z - qh.z;
-            const distSq = dx * dx + dz * dz;
-            const rSq = qh.radius * qh.radius * 1.44;
-            if (distSq <= rSq) {
-              const strength = (1 - Math.sqrt(distSq) / (qh.radius * 1.2)) * Math.min(1, qh.remaining / 1.0);
+            const { qh, minX, maxX, minZ, maxZ } = activeQuakes[qi];
+            if (t.x < minX || t.x > maxX || t.z < minZ || t.z > maxZ) continue;
+            const segs = qh.faultSegments;
+            let strength = 0;
+            if (segs && segs.length > 0) {
+              const hit = closestFaultDistanceSq(t.x, t.z, segs);
+              const reach = (hit.segment?.width ?? 1) * 3.1;
+              if (hit.distSq <= reach * reach) {
+                strength = (1 - Math.sqrt(hit.distSq) / reach) * Math.min(1, qh.remaining / 1.0);
+              }
+            } else {
+              const dx = t.x - qh.x;
+              const dz = t.z - qh.z;
+              const distSq = dx * dx + dz * dz;
+              const rSq = qh.radius * qh.radius * 1.44;
+              if (distSq <= rSq) {
+                strength = (1 - Math.sqrt(distSq) / (qh.radius * 1.2)) * Math.min(1, qh.remaining / 1.0);
+              }
+            }
+            if (strength > 0) {
               quakeJoltY += Math.sin(elapsed * 42 + t.x * 3.1 + t.z * 2.7) * 0.075 * strength;
             }
           }
@@ -2974,6 +3080,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             vfx.radius,
             vfx.color,
             Boolean(vfx.deferImpact),
+            vfx.faultSegments,
+            vfx.quakeShapeKind,
           );
         }
       }
@@ -2984,7 +3092,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         activeHazIds.add(haz.id);
         let hv = hazardMeshes.get(haz.id);
         if (!hv) {
-          hv = createHazardVisual(haz.kind, haz.radius);
+          hv = createHazardVisual(haz.kind, haz.radius, haz.faultSegments, haz.x, haz.z);
           hazardsGroup.add(hv.group);
           hazardMeshes.set(haz.id, hv);
         }
@@ -3187,21 +3295,36 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         } else if (hv.kind === 'earthquake_zone') {
           const pulseWave = (elapsed * 1.45) % 1;
           if (hv.ringMesh) {
-            hv.ringMesh.scale.setScalar(haz.radius * (0.45 + pulseWave * 0.72));
-            (hv.materials[0] as THREE.MeshBasicMaterial).opacity = Math.sin(pulseWave * Math.PI) * 0.72 * fade;
+            hv.ringMesh.scale.setScalar(Math.min(5.2, haz.radius * 0.45) * (0.45 + pulseWave * 0.65));
+            (hv.materials[0] as THREE.MeshBasicMaterial).opacity = Math.sin(pulseWave * Math.PI) * 0.48 * fade;
           }
-          if (hv.secondaryRingMesh) {
-            hv.secondaryRingMesh.rotation.z = Math.sin(elapsed * 26) * 0.28;
-            hv.secondaryRingMesh.scale.setScalar(haz.radius * (0.48 + Math.sin(elapsed * 14) * 0.08));
-            (hv.materials[1] as THREE.MeshBasicMaterial).opacity = 0.62 * fade;
+          if (hv.crackMeshes) {
+            for (let ci = 0; ci < hv.crackMeshes.length; ci++) {
+              const cm = hv.crackMeshes[ci];
+              const baseZ = (cm.userData.baseScaleZ as number) || 0.35;
+              cm.scale.z = baseZ * (0.85 + Math.sin(elapsed * 16 + ci * 1.4) * 0.25);
+            }
+            (hv.materials[1] as THREE.MeshBasicMaterial).opacity = (0.58 + Math.sin(elapsed * 12) * 0.16) * fade;
           }
-          if (Math.random() < 0.7) {
-            const ang = Math.random() * Math.PI * 2;
-            const dist = Math.random() * haz.radius * 0.85;
+          const segs = hv.faultSegments ?? haz.faultSegments;
+          if (Math.random() < 0.72) {
+            let px = haz.x;
+            let pz = haz.z;
+            if (segs && segs.length > 0) {
+              const s = segs[Math.floor(Math.random() * segs.length)];
+              const u = Math.random();
+              px = s.x1 + (s.x2 - s.x1) * u + (Math.random() - 0.5) * s.width * 1.4;
+              pz = s.z1 + (s.z2 - s.z1) * u + (Math.random() - 0.5) * s.width * 1.4;
+            } else {
+              const ang = Math.random() * Math.PI * 2;
+              const dist = Math.random() * haz.radius * 0.8;
+              px = haz.x + Math.cos(ang) * dist;
+              pz = haz.z + Math.sin(ang) * dist;
+            }
             spawnParticleBurst(
-              haz.x + Math.cos(ang) * dist,
+              px,
               hy + 0.15,
-              haz.z + Math.sin(ang) * dist,
+              pz,
               2,
               Math.random() < 0.5 ? '#c2a88d' : '#e07a2b',
               0.7,
@@ -3941,33 +4064,54 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           if (fx.age >= fx.impactDelay && !fx.impactFired) {
             fx.impactFired = true;
             if (fx.deferImpact) {
-              executeGodPowerImpact(simRef.current, fx.powerType as GodPowerType, fx.tx, fx.tz);
+              executeGodPowerImpact(simRef.current, fx.powerType as GodPowerType, fx.tx, fx.tz, {
+                faultSegments: fx.faultSegments,
+                quakeShapeKind: fx.quakeShapeKind,
+                quakeExtent: fx.radius,
+              });
             }
             trauma = Math.max(trauma, 0.64);
             hitstopTimer = 0.04;
             triggerLightFlash(fx.tx, fx.ty + 1.5, fx.tz, '#e07a2b', 28);
-            spawnParticleBurst(fx.tx, fx.ty + 0.35, fx.tz, 64, '#a88b70', fx.radius * 0.95, 5.8, 1.35);
-            spawnParticleBurst(fx.tx, fx.ty + 0.35, fx.tz, 34, '#e07a2b', fx.radius * 0.72, 6.4, 1.15);
+            const segs = fx.faultSegments;
+            if (segs && segs.length > 0) {
+              for (let si = 0; si < segs.length; si++) {
+                const s = segs[si];
+                const mx = (s.x1 + s.x2) * 0.5;
+                const mz = (s.z1 + s.z2) * 0.5;
+                spawnParticleBurst(mx, fx.ty + 0.35, mz, 10, '#a88b70', s.width * 1.4, 5.2, 1.25);
+                spawnParticleBurst(mx, fx.ty + 0.35, mz, 6, '#e07a2b', s.width * 1.1, 6.0, 1.05);
+              }
+            } else {
+              spawnParticleBurst(fx.tx, fx.ty + 0.35, fx.tz, 48, '#a88b70', fx.radius * 0.85, 5.8, 1.35);
+              spawnParticleBurst(fx.tx, fx.ty + 0.35, fx.tz, 26, '#e07a2b', fx.radius * 0.65, 6.4, 1.15);
+            }
           }
           const phase = Math.min(1, fx.age / fx.duration);
           const env = 1 - phase;
-          const shockCycle = (fx.age * 1.6) % 1;
-          fx.ringMesh.scale.setScalar(0.5 + shockCycle * fx.radius * 1.4);
-          (fx.materials[0] as THREE.MeshBasicMaterial).opacity = Math.sin(shockCycle * Math.PI) * 0.85 * env;
-          if (fx.outerRingMesh) {
-            const shockCycle2 = (fx.age * 1.6 + 0.5) % 1;
-            fx.outerRingMesh.scale.setScalar(0.35 + shockCycle2 * fx.radius * 1.5);
-            (fx.materials[1] as THREE.MeshBasicMaterial).opacity = Math.sin(shockCycle2 * Math.PI) * 0.78 * env;
+          const shockCycle = (fx.age * 1.5) % 1;
+          fx.ringMesh.scale.setScalar(0.5 + shockCycle * Math.min(6.2, fx.radius * 0.62));
+          (fx.materials[0] as THREE.MeshBasicMaterial).opacity = Math.sin(shockCycle * Math.PI) * 0.62 * env;
+          if (fx.crackMeshes) {
+            for (let ci = 0; ci < fx.crackMeshes.length; ci++) {
+              const cm = fx.crackMeshes[ci];
+              const revealOffset = (cm.userData.revealOffset as number) || 0;
+              const targetLen = (cm.userData.targetLen as number) || 3;
+              const segProg = Math.min(1, Math.max(0.01, (fx.age - revealOffset) / 0.25));
+              cm.scale.x = targetLen * segProg;
+            }
+            (fx.materials[1] as THREE.MeshBasicMaterial).opacity = 0.88 * env;
           }
           if (fx.spikes) {
-            const upPhase = Math.min(1, fx.age / 0.24);
             const dropPhase = fx.age > fx.duration - 0.65 ? Math.max(0, (fx.duration - fx.age) / 0.65) : 1;
-            const spikeAmp = upPhase * dropPhase;
             for (let si = 0; si < fx.spikes.length; si++) {
               const sp = fx.spikes[si];
-              const hVar = 0.55 + (si % 3) * 0.32;
-              sp.scale.set(0.82, Math.max(0.01, hVar * spikeAmp), 0.82);
-              sp.position.y = fx.ty + Math.sin(elapsedTotal * 48 + si) * 0.08 * env;
+              const revealOffset = (sp.userData.revealOffset as number) || 0;
+              const upPhase = Math.min(1, Math.max(0.01, (fx.age - revealOffset) / 0.26));
+              const targetH = (sp.userData.targetH as number) || 0.8;
+              const targetW = (sp.userData.targetW as number) || 0.82;
+              sp.scale.set(targetW, Math.max(0.01, targetH * upPhase * dropPhase), targetW);
+              sp.position.y = fx.ty + Math.sin(elapsedTotal * 42 + si) * 0.06 * env;
             }
           }
         } else if (fx.kind === 'ripple_ring' && fx.ringMesh) {
@@ -4242,6 +4386,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       sharedWaveFaceGeo.dispose();
       sharedWaveLipGeo.dispose();
       sharedWaveFoamGeo.dispose();
+      sharedFaultCrackGeo.dispose();
       sharedMeteorGeo.dispose();
       sharedMeteorAuraGeo.dispose();
       sharedExplosionDomeGeo.dispose();
