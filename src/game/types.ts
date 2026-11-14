@@ -138,6 +138,17 @@ export type SpeciesId = 'human' | 'elf' | 'orc';
 
 export type UnitAgeStage = 'child' | 'adult';
 
+export type AnimalRole =
+  | 'cow'
+  | 'bear'
+  | 'wolf'
+  | 'chicken'
+  | 'pig'
+  | 'capybara'
+  | 'dinosaur'
+  | 'dragon'
+  | 'unicorn';
+
 export type UnitRole =
   | 'human'
   | 'elf'
@@ -152,15 +163,17 @@ export type UnitRole =
   | 'astro_engineer'
   | 'raider_swarmer'
   | 'raider_ranged'
-  | 'raider_behemoth';
+  | 'raider_behemoth'
+  | AnimalRole;
 
 export type UnitStatusEffect = 'blessed' | 'cursed' | 'plagued' | 'frenzied' | 'shielded';
 
 export interface UnitDefinition {
   role: UnitRole;
   species?: SpeciesId;
+  category?: 'civilization' | 'hostile' | 'animal' | 'mythical';
   name: string;
-  faction: 'civilization' | 'hostile';
+  faction: 'civilization' | 'hostile' | 'wildlife';
   roleSummary: string;
   cost: Partial<Resources>;
   maxHp: number;
@@ -175,7 +188,7 @@ export interface UnitEntity {
   name: string;
   role: UnitRole;
   species: SpeciesId;
-  faction: 'civilization' | 'hostile';
+  faction: 'civilization' | 'hostile' | 'wildlife';
   x: number;
   z: number;
   targetX: number;
@@ -376,4 +389,6 @@ export interface SimulationState {
   harvestWindowTimer?: number;
   settlementNames?: Record<string, string>;
   settlementSpecies?: Record<string, SpeciesId>;
+  wildlifeSeeded?: boolean;
+  wildlifeRespawnTimer?: number;
 }

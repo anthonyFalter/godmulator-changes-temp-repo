@@ -3180,18 +3180,30 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         const isMoving = u.state === 'moving';
         const isWorking =
           u.state === 'gathering' || u.state === 'building' || u.state === 'fighting';
-        const bobFreq = unitAgeStage === 'child' ? 14.5 : 11;
-        const walkBob = isMoving
-          ? Math.abs(Math.sin(elapsed * bobFreq + u.x * 3)) * (unitAgeStage === 'child' ? 0.095 : 0.08)
-          : isWorking
-            ? Math.abs(Math.sin(elapsed * 14 + u.z * 2)) * 0.04
+        const isDragon = u.role === 'dragon';
+        const bobFreq = u.role === 'chicken' ? 16 : unitAgeStage === 'child' ? 14.5 : 11;
+        const walkBob = isDragon
+          ? 0
+          : isMoving
+            ? Math.abs(Math.sin(elapsed * bobFreq + u.x * 3)) *
+              (u.role === 'chicken' ? 0.1 : unitAgeStage === 'child' ? 0.095 : 0.08)
+            : isWorking
+              ? Math.abs(Math.sin(elapsed * 14 + u.z * 2)) * 0.04
+              : 0;
+        const flightHoverY =
+          isDragon && u.state !== 'ko'
+            ? (isWorking ? 0.95 : 1.55) + Math.sin(elapsed * 3.6 + (u.appearanceSeed ?? 1)) * 0.24
             : 0;
         const levitateY =
           blackHolePullFrac > 0
             ? Math.pow(blackHolePullFrac, 1.3) * 1.65 +
               Math.sin(elapsed * 9 + u.x * 2) * 0.12 * blackHolePullFrac
             : 0;
-        uGroup.position.set(u.x, groundY + walkBob * (1 - blackHolePullFrac) + levitateY, u.z);
+        uGroup.position.set(
+          u.x,
+          groundY + (walkBob + flightHoverY) * (1 - blackHolePullFrac) + levitateY,
+          u.z,
+        );
 
         // Face movement/target direction (or spiral tangent when pulled into Black Hole)
         if (blackHolePullFrac > 0.15) {
@@ -3216,9 +3228,36 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           const bhScale = Math.max(0.58, 1 - Math.pow(blackHolePullFrac, 1.8) * 0.38);
           uGroup.scale.setScalar(bhScale);
         } else {
-          uGroup.rotation.z = isMoving ? Math.sin(elapsed * 11 + u.z * 2) * 0.08 : 0;
-          uGroup.rotation.x = isWorking ? Math.sin(elapsed * 16 + u.x) * 0.22 : 0;
+          uGroup.rotation.z = isMoving && !isDragon ? Math.sin(elapsed * 11 + u.z * 2) * 0.08 : 0;
+          uGroup.rotation.x = isDragon && isMoving
+            ? -0.08 + Math.sin(elapsed * 3.6 + (u.appearanceSeed ?? 1)) * 0.06
+            : isWorking
+              ? Math.sin(elapsed * 16 + u.x) * 0.22
+              : 0;
           uGroup.scale.setScalar(1);
+        }
+
+        const wingL = uGroup.getObjectByName('wing_l');
+        const wingR = uGroup.getObjectByName('wing_r');
+        if (wingL && wingR && u.state !== 'ko') {
+          if (isDragon) {
+            const flap = Math.sin(elapsed * 9.5 + (u.appearanceSeed ?? 1)) * 0.58;
+            wingL.rotation.z = flap;
+            wingR.rotation.z = -flap;
+          } else if (u.role === 'chicken' && isMoving) {
+            const flutter = Math.sin(elapsed * 22 + u.x) * 0.45;
+            wingL.rotation.z = flutter;
+            wingR.rotation.z = -flutter;
+          } else {
+            wingL.rotation.z = 0;
+            wingR.rotation.z = 0;
+          }
+        }
+
+        const unitShadow = uGroup.getObjectByName('contact_shadow');
+        if (unitShadow) {
+          const totalAir = flightHoverY + levitateY;
+          unitShadow.scale.setScalar(Math.max(0.28, 1 - totalAir * 0.25));
         }
 
         const heldTool = uGroup.getObjectByName('held_tool');

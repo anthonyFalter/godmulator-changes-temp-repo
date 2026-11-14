@@ -16,7 +16,7 @@ import {
   spawnUnit,
   stepSimulation,
 } from './simulation';
-import { EPOCHS, SPECIES_UNITS } from './catalog';
+import { ANIMAL_UNITS, EPOCHS, MYTHICAL_BEAST_UNITS, SPECIES_UNITS } from './catalog';
 import { createUnitGroup, createVehicleGroup } from './meshBuilders';
 import * as THREE from 'three';
 
@@ -1294,6 +1294,131 @@ test('dedicated airport runways host plane takeoffs/landings and Epoch 5+ metro 
     'Elevated Epoch 5 metro train should omit ground contact shadow disc while riding on viaduct',
   );
 });
+
+test('world seeds 7 initial animals and 2 mythical beasts with 3D meshes, unicorn healing, and dragon combat', () => {
+  const state = createInitialSimulationState(128, 'WILDLIFE-ARK-9');
+  assert.equal(state.units.length, 0, 'Initial state starts empty before simulation starts ticking');
+
+  // Stepping simulation lazily populates natural wildlife without inflating civ population
+  stepSimulation(state, 0.25);
+
+  const expectedRoles = [
+    'cow',
+    'bear',
+    'wolf',
+    'chicken',
+    'pig',
+    'capybara',
+    'dinosaur',
+    'dragon',
+    'unicorn',
+  ] as const;
+
+  assert.equal(state.population, 0, 'Ambient wildlife must not inflate civilization population');
+  assert.equal(
+    state.units.some((u) => u.faction === 'hostile'),
+    false,
+    'Ambient wildlife must not count as hostile raiders',
+  );
+  for (const role of expectedRoles) {
+    assert.ok(
+      state.units.some((u) => u.role === role && u.faction === 'wildlife'),
+      `World seeding should include wildlife role ${role}`,
+    );
+  }
+
+  // Verify catalog sizes & manual spawning + distinct 3D meshes for all animals & mythical beasts
+  assert.equal(ANIMAL_UNITS.length, 7);
+  assert.equal(MYTHICAL_BEAST_UNITS.length, 2);
+  state.sandboxFreeMode = true;
+
+  const flatX = 64;
+  const flatZ = 64;
+  for (let dz = -4; dz <= 4; dz++) {
+    for (let dx = -4; dx <= 4; dx++) {
+      const t = getTile(state, flatX + dx, flatZ + dz)!;
+      t.height = 2;
+      t.terrain = dz === 0 && dx === 0 ? 'scorched' : 'grass';
+      t.resourceNode = 'none';
+      t.resourceAmount = 0;
+      t.buildingId = null;
+    }
+  }
+
+  for (let i = 0; i < expectedRoles.length; i++) {
+    const role = expectedRoles[i];
+    const res = spawnUnit(state, role, flatX + (i % 3) - 1, flatZ + Math.floor(i / 3) - 1);
+    assert.equal(res.ok, true, `Should spawn ${role}: ${res.reason ?? ''}`);
+
+    const mesh = createUnitGroup(role, 'wildlife', 0, 'human', i * 17);
+    assert.ok(mesh instanceof THREE.Group, `${role} 3D builder should return a THREE.Group`);
+    assert.ok(mesh.children.length >= 4, `${role} 3D model should have multiple articulated parts`);
+    if (role === 'dragon' || role === 'chicken') {
+      assert.ok(mesh.getObjectByName('wing_l'), `${role} mesh should expose wing_l pivot`);
+      assert.ok(mesh.getObjectByName('wing_r'), `${role} mesh should expose wing_r pivot`);
+    }
+  }
+
+  // Verify all 3 dinosaur morphs (T-Rex, Triceratops, Stegosaurus) build cleanly
+  for (let seed = 0; seed < 3; seed++) {
+    const dinoMesh = createUnitGroup('dinosaur', 'wildlife', 0, 'human', seed);
+    assert.ok(dinoMesh.children.length >= 6, `Dinosaur morph ${seed} should build rich voxel geometry`);
+  }
+
+  // Verify Unicorn heals nearby injured citizen and blooms scorched tile (in a clean meadow away from predators)
+  const uniX = 36;
+  const uniZ = 36;
+  for (let dz = -3; dz <= 3; dz++) {
+    for (let dx = -3; dx <= 3; dx++) {
+      const t = getTile(state, uniX + dx, uniZ + dz)!;
+      t.height = 2;
+      t.terrain = dz === 0 && dx === 0 ? 'scorched' : 'grass';
+      t.resourceNode = 'none';
+      t.resourceAmount = 0;
+      t.buildingId = null;
+      t.onFireTimer = 0;
+    }
+  }
+  const injuredRes = spawnUnit(state, 'human', uniX, uniZ);
+  assert.equal(injuredRes.ok, true);
+  const injured = injuredRes.unit!;
+  injured.hp = 40;
+  injured.statusEffects.plagued = 10;
+
+  const uniRes = spawnUnit(state, 'unicorn', uniX, uniZ);
+  assert.equal(uniRes.ok, true);
+  uniRes.unit!.actionCooldown = 0;
+
+  // Verify Dragon attacks nearby hostile raider and ignores fire damage
+  const raiderRes = spawnUnit(state, 'raider_swarmer', flatX + 2, flatZ + 2);
+  assert.equal(raiderRes.ok, true);
+  const raider = raiderRes.unit!;
+  const initialRaiderHp = raider.hp;
+
+  const dragonRes = spawnUnit(state, 'dragon', flatX + 1, flatZ + 1);
+  assert.equal(dragonRes.ok, true);
+  const dragon = dragonRes.unit!;
+  dragon.actionCooldown = 0;
+  const initialDragonHp = dragon.hp;
+  getTile(state, Math.round(dragon.x), Math.round(dragon.z))!.onFireTimer = 5;
+
+  for (let i = 0; i < 15; i++) {
+    stepSimulation(state, 0.2);
+  }
+
+  assert.ok(injured.hp > 40, `Unicorn should heal nearby injured unit (hp=${injured.hp})`);
+  assert.equal(injured.statusEffects.plagued, undefined, 'Unicorn aura should cleanse plague');
+  assert.equal(getTile(state, uniX, uniZ)!.terrain, 'blossom', 'Unicorn aura should bloom scorched earth');
+  assert.ok(raider.hp < initialRaiderHp, `Dragon should breathe fire on hostile raiders (hp=${raider.hp}/${initialRaiderHp})`);
+  assert.equal(dragon.hp, initialDragonHp, 'Dragon should be immune to ground fire tiles');
+
+  // Divine shield should not repel or damage friendly wildlife
+  const cowCountBefore = state.units.filter((u) => u.role === 'cow').length;
+  executeGodPowerImpact(state, 'divine_shield', flatX, flatZ);
+  const cowCountAfter = state.units.filter((u) => u.role === 'cow').length;
+  assert.equal(cowCountAfter, cowCountBefore, 'Divine shield must not harm peaceful wildlife');
+});
+
 
 
 

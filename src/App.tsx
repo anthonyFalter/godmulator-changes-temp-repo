@@ -1,8 +1,10 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  ANIMAL_UNITS,
   BUILDINGS,
   EPOCHS,
   GOD_POWERS,
+  MYTHICAL_BEAST_UNITS,
   SPECIES_UNITS,
   TERRAIN_TOOLS,
   UNITS,
@@ -224,10 +226,13 @@ export default function App() {
               : 'Cruising with SpaceX Thrusters Armed';
           setStatusFeedback(`Tesla Roadster Easter Egg (${modeLabel})`);
         } else if (nearbyUnit) {
+          const def = UNITS.find((d) => d.role === nearbyUnit.role);
           const label =
-            nearbyUnit.ageStage === 'child'
-              ? `${nearbyUnit.species} child`
-              : `${nearbyUnit.species} ${nearbyUnit.role}`;
+            nearbyUnit.faction === 'wildlife'
+              ? `${def?.category === 'mythical' ? 'Mythical Beast' : 'Animal'} • ${def?.name ?? nearbyUnit.role}`
+              : nearbyUnit.ageStage === 'child'
+                ? `${nearbyUnit.species} child`
+                : `${nearbyUnit.species} ${nearbyUnit.role}`;
           setStatusFeedback(`${nearbyUnit.name} (${label}, ${Math.round(nearbyUnit.hp)}/${nearbyUnit.maxHp} HP)`);
         } else if (bld) {
           const def = BUILDINGS.find((d) => d.type === bld.type);
@@ -857,10 +862,10 @@ export default function App() {
                   </div>
                 )}
 
-                {/* TAB 4: SPECIES UNITS (Strictly 3 Species: Human, Elf, Orc + Free Mode & Raiders) */}
+                {/* TAB 4: SPECIES UNITS + ANIMALS & MYTHICAL BEASTS */}
                 {activeCategory === 'spawn' && (
                   <div className="flex flex-wrap items-center justify-center gap-2">
-                    <div className="flex flex-wrap items-center gap-1.5">
+                    <div className="flex flex-wrap items-center justify-center gap-1.5">
                       {SPECIES_UNITS.map((u) => {
                         const isSelected =
                           activeTool.kind === 'spawn' && activeTool.unit === u.role;
@@ -894,6 +899,46 @@ export default function App() {
                             </span>
                             {badge && (
                               <span className="font-pixel-num text-[9px] text-[#ffd166] leading-none">
+                                {badge}
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+
+                      <span className="w-px h-7 bg-[#3a332b] mx-0.5 hidden sm:inline-block" aria-hidden="true" />
+
+                      {[...ANIMAL_UNITS, ...MYTHICAL_BEAST_UNITS].map((u) => {
+                        const isSelected =
+                          activeTool.kind === 'spawn' && activeTool.unit === u.role;
+                        const isFree = sim.sandboxFreeMode;
+                        const badge = primaryCostNumber(u.cost, isFree);
+                        const isMythic = u.category === 'mythical';
+
+                        return (
+                          <button
+                            key={u.role}
+                            type="button"
+                            onClick={() => {
+                              setActiveTool({ kind: 'spawn', unit: u.role });
+                              soundEngine.playClick();
+                              setStatusFeedback(u.name);
+                            }}
+                            onMouseEnter={() =>
+                              setHoveredHint({
+                                title: isMythic ? `${u.name} (Mythical Beast)` : u.name,
+                                cost: formatCompactCost(u.cost, isFree),
+                                detail: u.roleSummary,
+                              })
+                            }
+                            aria-label={u.name}
+                            className={`relative w-11 h-11 flex items-center justify-center cursor-pointer ${
+                              isSelected ? 'px-slot-active' : 'px-slot'
+                            }`}
+                          >
+                            <UnitPixelIcon role={u.role} className="w-7 h-7" />
+                            {badge && (
+                              <span className="absolute bottom-0.5 right-1 font-pixel-num text-[8px] text-[#ffd166] leading-none">
                                 {badge}
                               </span>
                             )}

@@ -643,6 +643,148 @@ export const UnitPixelIcon: React.FC<{ role: UnitRole; className?: string }> = (
     );
   }
 
+  if (role === 'cow') {
+    return (
+      <svg viewBox="0 0 16 16" className={className} aria-hidden="true" shapeRendering="crispEdges">
+        <rect x="3" y="3" width="2" height="2" fill="#e8dec8" />
+        <rect x="11" y="3" width="2" height="2" fill="#e8dec8" />
+        <rect x="4" y="4" width="8" height="6" fill="#f8fafc" />
+        <rect x="4" y="5" width="3" height="3" fill="#1e2026" />
+        <rect x="9" y="4" width="3" height="2" fill="#1e2026" />
+        <rect x="5" y="6" width="1" height="1" fill="#16161a" />
+        <rect x="10" y="6" width="1" height="1" fill="#16161a" />
+        <rect x="5" y="8" width="6" height="3" fill="#f4b6c2" />
+        <rect x="4" y="11" width="2" height="3" fill="#f8fafc" />
+        <rect x="10" y="11" width="2" height="3" fill="#f8fafc" />
+      </svg>
+    );
+  }
+
+  if (role === 'pig') {
+    return (
+      <svg viewBox="0 0 16 16" className={className} aria-hidden="true" shapeRendering="crispEdges">
+        <rect x="3" y="4" width="2" height="2" fill="#e88d9a" />
+        <rect x="11" y="4" width="2" height="2" fill="#e88d9a" />
+        <rect x="4" y="5" width="8" height="6" fill="#f4a5ae" />
+        <rect x="5" y="7" width="1" height="1" fill="#16161a" />
+        <rect x="10" y="7" width="1" height="1" fill="#16161a" />
+        <rect x="6" y="8" width="4" height="3" fill="#f9bec7" />
+        <rect x="7" y="9" width="1" height="1" fill="#b56576" />
+        <rect x="9" y="9" width="1" height="1" fill="#b56576" />
+        <rect x="5" y="11" width="2" height="3" fill="#f4a5ae" />
+        <rect x="9" y="11" width="2" height="3" fill="#f4a5ae" />
+      </svg>
+    );
+  }
+
+  if (role === 'chicken') {
+    return (
+      <svg viewBox="0 0 16 16" className={className} aria-hidden="true" shapeRendering="crispEdges">
+        <rect x="7" y="2" width="3" height="2" fill="#d62828" />
+        <rect x="5" y="4" width="5" height="4" fill="#f8fafc" />
+        <rect x="10" y="5" width="3" height="2" fill="#f59e0b" />
+        <rect x="8" y="5" width="1" height="1" fill="#16161a" />
+        <rect x="4" y="8" width="7" height="4" fill="#e2e8f0" />
+        <rect x="2" y="7" width="2" height="3" fill="#cbd5e1" />
+        <rect x="6" y="12" width="1" height="2" fill="#f59e0b" />
+        <rect x="9" y="12" width="1" height="2" fill="#f59e0b" />
+      </svg>
+    );
+  }
+
+  if (role === 'capybara') {
+    return (
+      <svg viewBox="0 0 16 16" className={className} aria-hidden="true" shapeRendering="crispEdges">
+        <rect x="9" y="3" width="2" height="2" fill="#5c3d2e" />
+        <rect x="7" y="4" width="6" height="5" fill="#9c6644" />
+        <rect x="11" y="6" width="3" height="3" fill="#5c3d2e" />
+        <rect x="10" y="5" width="1" height="1" fill="#16161a" />
+        <rect x="3" y="7" width="8" height="5" fill="#8b5a3c" />
+        <rect x="4" y="12" width="2" height="2" fill="#5c3d2e" />
+        <rect x="9" y="12" width="2" height="2" fill="#5c3d2e" />
+      </svg>
+    );
+  }
+
+  if (role === 'wolf') {
+    return (
+      <svg viewBox="0 0 16 16" className={className} aria-hidden="true" shapeRendering="crispEdges">
+        <rect x="4" y="3" width="2" height="3" fill="#7b848f" />
+        <rect x="10" y="3" width="2" height="3" fill="#7b848f" />
+        <rect x="4" y="5" width="8" height="5" fill="#7b848f" />
+        <rect x="5" y="7" width="1" height="1" fill="#fbbf24" />
+        <rect x="10" y="7" width="1" height="1" fill="#fbbf24" />
+        <rect x="6" y="8" width="4" height="3" fill="#cbd5e1" />
+        <rect x="7" y="10" width="2" height="1" fill="#1e2026" />
+        <rect x="4" y="10" width="2" height="4" fill="#7b848f" />
+        <rect x="10" y="10" width="2" height="4" fill="#7b848f" />
+      </svg>
+    );
+  }
+
+  if (role === 'bear') {
+    return (
+      <svg viewBox="0 0 16 16" className={className} aria-hidden="true" shapeRendering="crispEdges">
+        <rect x="3" y="3" width="2" height="2" fill="#6f4528" />
+        <rect x="11" y="3" width="2" height="2" fill="#6f4528" />
+        <rect x="4" y="4" width="8" height="6" fill="#6f4528" />
+        <rect x="5" y="6" width="1" height="1" fill="#16161a" />
+        <rect x="10" y="6" width="1" height="1" fill="#16161a" />
+        <rect x="6" y="7" width="4" height="3" fill="#b08968" />
+        <rect x="7" y="8" width="2" height="1" fill="#1e2026" />
+        <rect x="3" y="10" width="10" height="4" fill="#5c381f" />
+      </svg>
+    );
+  }
+
+  if (role === 'dinosaur') {
+    return (
+      <svg viewBox="0 0 16 16" className={className} aria-hidden="true" shapeRendering="crispEdges">
+        <rect x="7" y="2" width="6" height="4" fill="#3b7a48" />
+        <rect x="9" y="3" width="1" height="1" fill="#fbbf24" />
+        <rect x="9" y="6" width="4" height="1" fill="#f4ecd8" />
+        <rect x="5" y="6" width="5" height="5" fill="#3b7a48" />
+        <rect x="6" y="7" width="3" height="3" fill="#c2b280" />
+        <rect x="2" y="9" width="3" height="2" fill="#3b7a48" />
+        <rect x="6" y="11" width="2" height="3" fill="#2d6a4f" />
+        <rect x="9" y="11" width="2" height="3" fill="#2d6a4f" />
+      </svg>
+    );
+  }
+
+  if (role === 'dragon') {
+    return (
+      <svg viewBox="0 0 16 16" className={className} aria-hidden="true" shapeRendering="crispEdges">
+        <rect x="2" y="3" width="4" height="4" fill="#7f1d1d" />
+        <rect x="10" y="3" width="4" height="4" fill="#7f1d1d" />
+        <rect x="6" y="2" width="1" height="2" fill="#f1e6d2" />
+        <rect x="9" y="2" width="1" height="2" fill="#f1e6d2" />
+        <rect x="6" y="4" width="4" height="4" fill="#b91c1c" />
+        <rect x="7" y="5" width="2" height="1" fill="#ff6b35" />
+        <rect x="5" y="8" width="6" height="4" fill="#b91c1c" />
+        <rect x="7" y="8" width="2" height="4" fill="#f59e0b" />
+        <rect x="5" y="12" width="2" height="2" fill="#991b1b" />
+        <rect x="9" y="12" width="2" height="2" fill="#991b1b" />
+      </svg>
+    );
+  }
+
+  if (role === 'unicorn') {
+    return (
+      <svg viewBox="0 0 16 16" className={className} aria-hidden="true" shapeRendering="crispEdges">
+        <rect x="9" y="1" width="2" height="3" fill="#ffd166" />
+        <rect x="6" y="4" width="2" height="4" fill="#f472b6" />
+        <rect x="5" y="5" width="2" height="3" fill="#72efdd" />
+        <rect x="8" y="4" width="5" height="4" fill="#fafafa" />
+        <rect x="10" y="5" width="1" height="1" fill="#38bdf8" />
+        <rect x="4" y="8" width="7" height="4" fill="#fafafa" />
+        <rect x="2" y="9" width="2" height="3" fill="#c084fc" />
+        <rect x="4" y="12" width="2" height="2" fill="#f5b742" />
+        <rect x="9" y="12" width="2" height="2" fill="#f5b742" />
+      </svg>
+    );
+  }
+
   if (role === 'human' || role === 'villager') {
     return (
       <svg viewBox="0 0 16 16" className={className} aria-hidden="true" shapeRendering="crispEdges">

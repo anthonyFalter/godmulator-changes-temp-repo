@@ -459,8 +459,21 @@ export function spawnUnit(
   const maxHp = ageStage === 'child' ? Math.max(45, Math.round(def.maxHp * 0.68)) : def.maxHp;
   const growthTimer = ageStage === 'child' ? 22 + (appearanceSeed % 12) : undefined;
 
+  const CREATURE_NAMES: Partial<Record<UnitRole, string[]>> = {
+    cow: ['Bessie', 'Daisy', 'Clover', 'Buttercup', 'Mooana'],
+    pig: ['Porky', 'Truffle', 'Hamlet', 'Rosie', 'Pip'],
+    chicken: ['Nugget', 'Sunny', 'Pippin', 'Clucky', 'Henrietta'],
+    capybara: ['Gort', 'Mochi', 'Coconut', 'Boba', 'Chill'],
+    wolf: ['Fang', 'Fenrir', 'Timber', 'Shadow', 'Ash'],
+    bear: ['Barnaby', 'Kodiak', 'Ursa', 'Grizz', 'Bramble'],
+    dinosaur: ['Rex', 'Spike', 'Terra', 'Chomper', 'Raptor'],
+    dragon: ['Ignis', 'Pyre', 'Zephyr', 'Vermithrax', 'Drakon'],
+    unicorn: ['Lumina', 'Aurelia', 'Starlight', 'Celeste', 'Seraph'],
+  };
+
   const namePool =
-    species === 'elf' ? ELF_NAMES : species === 'orc' ? ORC_NAMES : CITIZEN_NAMES;
+    CREATURE_NAMES[role] ??
+    (species === 'elf' ? ELF_NAMES : species === 'orc' ? ORC_NAMES : CITIZEN_NAMES);
   const nameIdx = Math.abs(appearanceSeed + state.units.length * 7) % namePool.length;
 
   const unit: UnitEntity = {
@@ -928,7 +941,7 @@ export function executeGodPowerImpact(
     case 'blessing': {
       for (const u of state.units) {
         const dSq = (u.x - targetX) ** 2 + (u.z - targetZ) ** 2;
-        if (dSq <= rSq && u.faction === 'civilization' && u.state !== 'ko') {
+        if (dSq <= rSq && u.faction !== 'hostile' && u.state !== 'ko') {
           u.hp = u.maxHp;
           u.statusEffects.blessed = 32;
           delete u.statusEffects.cursed;
@@ -1162,7 +1175,7 @@ export function executeGodPowerImpact(
             delete u.statusEffects.plagued;
             delete u.statusEffects.cursed;
             u.hp = u.maxHp;
-          } else if (u.state !== 'ko') {
+          } else if (u.faction === 'hostile' && u.state !== 'ko') {
             // Shockwave repels hostile raiders outside the sanctuary dome!
             const dist = Math.max(0.25, Math.sqrt(dSq));
             u.x = Math.max(1, Math.min(state.gridSize - 2, targetX + ((u.x - targetX) / dist) * (r + 1.5)));
@@ -3327,7 +3340,19 @@ function stepSimulationSingle(state: SimulationState, dt: number): void {
     state.resources[k] = Math.max(0, state.resources[k] + passiveRates[k] * goldenMult * dt);
   }
 
-  // 4. Autonomous Civilization Planner (hearth founding, expansion, population growth, environment transformation)
+  // 4. Autonomous Civilization Planner & Wild Ecology Seeding
+  if (!state.wildlifeSeeded) {
+    state.wildlifeSeeded = true;
+    seedWorldWildlife(state);
+  }
+  state.wildlifeRespawnTimer = (state.wildlifeRespawnTimer ?? 0) + dt;
+  if (state.wildlifeRespawnTimer >= 26) {
+    state.wildlifeRespawnTimer = 0;
+    const livingWildlife = state.units.filter((u) => u.faction === 'wildlife' && u.state !== 'ko').length;
+    if (livingWildlife < 20) {
+      seedWorldWildlife(state, 4);
+    }
+  }
   stepCivilizationPlanner(state, dt);
 
   // 5. Real Epoch progression check & organic Epoch Ascension
@@ -3838,6 +3863,8 @@ function stepSimulationSingle(state: SimulationState, dt: number): void {
     if (!capturedByBlackHole) {
       if (u.faction === 'hostile') {
         stepHostileUnitAI(state, u, def, moveSpeed, dt);
+      } else if (u.faction === 'wildlife') {
+        stepWildlifeAI(state, u, def, moveSpeed, dt);
       } else {
         stepCivilianUnitAI(state, u, def, moveSpeed, dt);
       }
@@ -4586,6 +4613,321 @@ function stepHostileUnitAI(
     const dz = (nearestCiv.z - u.z) / dist;
     u.x += dx * moveSpeed * dt;
     u.z += dz * moveSpeed * dt;
+  }
+}
+
+function isPredatorRole(role: UnitRole): boolean {
+  return role === 'wolf' || role === 'bear' || role === 'dinosaur' || role === 'dragon';
+}
+
+function isPreyAnimalRole(role: UnitRole): boolean {
+  return role === 'cow' || role === 'pig' || role === 'chicken' || role === 'capybara';
+}
+
+function tileMatchesWildlifeHabitat(state: SimulationState, t: TileData, role: UnitRole): boolean {
+  if (t.height <= 0) return false;
+  if (role === 'cow') return t.terrain === 'grass' || t.terrain === 'fertile' || t.terrain === 'savanna';
+  if (role === 'chicken') return t.terrain === 'grass' || t.terrain === 'fertile' || t.terrain === 'blossom';
+  if (role === 'pig') return t.terrain === 'grass' || t.terrain === 'forest' || t.terrain === 'swamp' || t.terrain === 'fertile';
+  if (role === 'capybara') {
+    if (t.terrain === 'swamp' || t.terrain === 'jungle') return true;
+    if (t.terrain === 'sand' || t.terrain === 'grass' || t.terrain === 'fertile') {
+      const gs = state.gridSize;
+      for (const [ox, oz] of [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ]) {
+        const nt = getTile(state, t.x + ox, t.z + oz);
+        if (nt && (nt.terrain === 'shallow_water' || nt.terrain === 'swamp')) return true;
+      }
+    }
+    return false;
+  }
+  if (role === 'wolf') return t.terrain === 'forest' || t.terrain === 'taiga' || t.terrain === 'tundra' || t.terrain === 'highland';
+  if (role === 'bear') return t.terrain === 'forest' || t.terrain === 'taiga' || t.terrain === 'mountain' || t.terrain === 'tundra';
+  if (role === 'dinosaur') return t.terrain === 'jungle' || t.terrain === 'badlands' || t.terrain === 'highland';
+  if (role === 'dragon') return t.terrain === 'mountain' || t.terrain === 'badlands' || t.terrain === 'rock' || t.terrain === 'highland';
+  if (role === 'unicorn') return t.terrain === 'blossom' || t.terrain === 'forest' || t.terrain === 'fertile' || t.terrain === 'grass';
+  return true;
+}
+
+export function seedWorldWildlife(state: SimulationState, maxToAdd?: number): void {
+  const gs = state.gridSize;
+  const quotas: Array<{ role: UnitRole; count: number; predator: boolean }> = maxToAdd
+    ? [
+        { role: 'cow', count: 1, predator: false },
+        { role: 'pig', count: 1, predator: false },
+        { role: 'chicken', count: 1, predator: false },
+        { role: 'capybara', count: 1, predator: false },
+      ]
+    : [
+        { role: 'cow', count: 4, predator: false },
+        { role: 'pig', count: 4, predator: false },
+        { role: 'chicken', count: 5, predator: false },
+        { role: 'capybara', count: 4, predator: false },
+        { role: 'wolf', count: 4, predator: true },
+        { role: 'bear', count: 3, predator: true },
+        { role: 'dinosaur', count: 3, predator: true },
+        { role: 'unicorn', count: 2, predator: false },
+        { role: 'dragon', count: 2, predator: true },
+      ];
+
+  const isNearCivilization = (tx: number, tz: number, safeDist: number) => {
+    for (const b of state.buildings) {
+      if (Math.hypot(b.tileX - tx, b.tileZ - tz) < safeDist) return true;
+    }
+    for (const u of state.units) {
+      if (u.faction === 'civilization' && Math.hypot(u.x - tx, u.z - tz) < safeDist) return true;
+    }
+    return false;
+  };
+
+  let spawnedTotal = 0;
+  let cursor = (state.seed * 2654435761 + state.units.length * 19349663) >>> 0;
+  const nextRand = () => {
+    cursor = (Math.imul(cursor, 1664525) + 1013904223) >>> 0;
+    return cursor / 4294967296;
+  };
+
+  for (const q of quotas) {
+    if (maxToAdd !== undefined && spawnedTotal >= maxToAdd) break;
+    let placed = 0;
+    const minCivDist = q.predator ? 16 : 6;
+
+    // Pass 1: habitat-matched tiles
+    for (let attempt = 0; attempt < 90 && placed < q.count; attempt++) {
+      const tx = 4 + Math.floor(nextRand() * (gs - 8));
+      const tz = 4 + Math.floor(nextRand() * (gs - 8));
+      const t = getTile(state, tx, tz);
+      if (!t || t.height <= 0 || t.buildingId || t.onFireTimer > 0) continue;
+      if (!tileMatchesWildlifeHabitat(state, t, q.role)) continue;
+      if (isNearCivilization(tx, tz, minCivDist)) continue;
+      const res = spawnUnit(state, q.role, tx, tz, true);
+      if (res.ok) {
+        placed++;
+        spawnedTotal++;
+      }
+    }
+
+    // Pass 2: fallback any dry wilderness tile
+    for (let attempt = 0; attempt < 40 && placed < q.count; attempt++) {
+      const tx = 4 + Math.floor(nextRand() * (gs - 8));
+      const tz = 4 + Math.floor(nextRand() * (gs - 8));
+      const t = getTile(state, tx, tz);
+      if (!t || t.height <= 0 || t.buildingId || t.onFireTimer > 0) continue;
+      if (isNearCivilization(tx, tz, minCivDist)) continue;
+      const res = spawnUnit(state, q.role, tx, tz, true);
+      if (res.ok) {
+        placed++;
+        spawnedTotal++;
+      }
+    }
+  }
+}
+
+function stepWildlifeAI(
+  state: SimulationState,
+  u: UnitEntity,
+  def: typeof UNITS[number],
+  moveSpeed: number,
+  dt: number,
+): void {
+  const gs = state.gridSize;
+  const isFlying = u.role === 'dragon';
+  const curTile = getTile(state, u.x, u.z);
+  if (curTile && curTile.onFireTimer > 0 && !u.statusEffects.shielded && !isFlying) {
+    u.hp -= 10 * dt;
+  }
+
+  // Unicorn Mythical Aura: gently blesses & heals nearby friendly citizens and revives scorched earth
+  if (u.role === 'unicorn' && u.actionCooldown <= 0) {
+    let blessedAny = false;
+    for (const other of state.units) {
+      if (other.faction === 'civilization' && other.state !== 'ko') {
+        const dSq = (other.x - u.x) ** 2 + (other.z - u.z) ** 2;
+        if (dSq <= 20.25 && (other.hp < other.maxHp || other.statusEffects.plagued || other.statusEffects.cursed)) {
+          other.hp = Math.min(other.maxHp, other.hp + 14);
+          delete other.statusEffects.plagued;
+          delete other.statusEffects.cursed;
+          blessedAny = true;
+        }
+      }
+    }
+    const rx = Math.round(u.x);
+    const rz = Math.round(u.z);
+    for (let dz = -2; dz <= 2; dz++) {
+      for (let dx = -2; dx <= 2; dx++) {
+        const nt = getTile(state, rx + dx, rz + dz);
+        if (nt && nt.height > 0 && nt.terrain === 'scorched') {
+          nt.terrain = 'blossom';
+          blessedAny = true;
+        }
+      }
+    }
+    if (blessedAny) {
+      u.actionCooldown = 1.6;
+      state.pendingVfx.push({
+        id: nextEntityId('vfx'),
+        type: 'hit_spark',
+        x: u.x,
+        y: 0.6,
+        z: u.z,
+        radius: 1.3,
+        color: '#f472b6',
+        createdAt: Date.now(),
+      });
+    } else {
+      u.actionCooldown = 1.0;
+    }
+  }
+
+  // Prey flee behavior from predators & hostile raiders
+  if (isPreyAnimalRole(u.role)) {
+    let threat: UnitEntity | null = null;
+    let bestThreatDistSq = 20.25; // 4.5 tiles
+    for (const other of state.units) {
+      if (other.id === u.id || other.state === 'ko') continue;
+      if (other.faction === 'hostile' || isPredatorRole(other.role)) {
+        const dSq = (other.x - u.x) ** 2 + (other.z - u.z) ** 2;
+        if (dSq < bestThreatDistSq) {
+          bestThreatDistSq = dSq;
+          threat = other;
+        }
+      }
+    }
+    if (threat) {
+      const dist = Math.max(0.2, Math.sqrt(bestThreatDistSq));
+      const fx = Math.max(2, Math.min(gs - 3, u.x + ((u.x - threat.x) / dist) * 4.5));
+      const fz = Math.max(2, Math.min(gs - 3, u.z + ((u.z - threat.z) / dist) * 4.5));
+      u.targetX = fx;
+      u.targetZ = fz;
+      u.state = 'moving';
+      const nextX = u.x + ((fx - u.x) / Math.max(0.2, Math.hypot(fx - u.x, fz - u.z))) * moveSpeed * 1.35 * dt;
+      const nextZ = u.z + ((fz - u.z) / Math.max(0.2, Math.hypot(fx - u.x, fz - u.z))) * moveSpeed * 1.35 * dt;
+      const nextTile = getTile(state, nextX, nextZ);
+      if (nextTile && nextTile.height > 0) {
+        u.x = Math.max(1, Math.min(gs - 2, nextX));
+        u.z = Math.max(1, Math.min(gs - 2, nextZ));
+      }
+      return;
+    }
+  }
+
+  // Predators & Dragons combat / hunting
+  if (isPredatorRole(u.role) || u.role === 'unicorn') {
+    let target: UnitEntity | null = null;
+    let bestScore = Infinity;
+    const isFrenzied = Boolean(u.statusEffects.frenzied);
+
+    for (const other of state.units) {
+      if (other.id === u.id || other.state === 'ko' || other.statusEffects.shielded) continue;
+      const dSq = (other.x - u.x) ** 2 + (other.z - u.z) ** 2;
+
+      if (other.faction === 'hostile') {
+        const maxSq = u.role === 'dragon' ? 196 : u.role === 'unicorn' ? 16 : 81;
+        if (dSq <= maxSq && dSq < bestScore) {
+          bestScore = dSq;
+          target = other;
+        }
+      } else if (isFrenzied && other.role !== u.role) {
+        if (dSq <= 100 && dSq + 6 < bestScore) {
+          bestScore = dSq + 6;
+          target = other;
+        }
+      } else if (isPredatorRole(u.role) && isPreyAnimalRole(other.role)) {
+        if (dSq <= 49 && dSq + 10 < bestScore) {
+          bestScore = dSq + 10;
+          target = other;
+        }
+      } else if (isPredatorRole(u.role) && other.faction === 'civilization' && dSq <= 5.5) {
+        // Territorial close-range defense only
+        if (dSq + 16 < bestScore) {
+          bestScore = dSq + 16;
+          target = other;
+        }
+      }
+    }
+
+    if (target) {
+      const dist = Math.hypot(target.x - u.x, target.z - u.z);
+      u.targetX = target.x;
+      u.targetZ = target.z;
+      if (dist <= def.attackRange) {
+        u.state = 'fighting';
+        if (u.actionCooldown <= 0) {
+          u.actionCooldown = u.role === 'wolf' ? 0.75 : u.role === 'dragon' ? 1.05 : 0.95;
+          const dmg = def.attackDamage * (isFrenzied ? 1.8 : 1.0);
+          target.hp -= dmg;
+          if (u.role === 'dragon') {
+            state.pendingVfx.push({
+              id: nextEntityId('vfx'),
+              type: 'hit_spark',
+              x: target.x,
+              y: 0.55,
+              z: target.z,
+              radius: 1.35,
+              color: '#ff6b35',
+              createdAt: Date.now(),
+            });
+          }
+        }
+      } else {
+        u.state = 'moving';
+        const nx = u.x + ((target.x - u.x) / dist) * moveSpeed * dt;
+        const nz = u.z + ((target.z - u.z) / dist) * moveSpeed * dt;
+        const nt = getTile(state, nx, nz);
+        if (isFlying || (nt && nt.height > 0)) {
+          u.x = Math.max(1, Math.min(gs - 2, nx));
+          u.z = Math.max(1, Math.min(gs - 2, nz));
+        }
+      }
+      return;
+    }
+  }
+
+  // Natural wandering across matching biome tiles
+  const distToTarget = Math.hypot(u.targetX - u.x, u.targetZ - u.z);
+  const currentTileInvalid = !isFlying && (!curTile || curTile.height <= 0);
+  if (distToTarget < 0.35 || currentTileInvalid || (u.state === 'idle' && Math.random() < dt * 0.45)) {
+    const roamRadius = isFlying ? 15 : isPredatorRole(u.role) ? 9 : 6;
+    let chosen: TileData | null = null;
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const candX = Math.max(2, Math.min(gs - 3, Math.round(u.x + (Math.random() - 0.5) * roamRadius * 2)));
+      const candZ = Math.max(2, Math.min(gs - 3, Math.round(u.z + (Math.random() - 0.5) * roamRadius * 2)));
+      const ct = getTile(state, candX, candZ);
+      if (!ct || ct.height <= 0) continue;
+      chosen = ct;
+      if (tileMatchesWildlifeHabitat(state, ct, u.role)) break;
+    }
+    if (chosen) {
+      u.targetX = chosen.x + (Math.random() - 0.5) * 0.4;
+      u.targetZ = chosen.z + (Math.random() - 0.5) * 0.4;
+      u.state = 'moving';
+    } else {
+      u.state = 'idle';
+    }
+  }
+
+  if (u.state === 'moving') {
+    const dx = u.targetX - u.x;
+    const dz = u.targetZ - u.z;
+    const dist = Math.hypot(dx, dz);
+    if (dist > 0.1) {
+      const pace = isFlying ? 0.92 : isPreyAnimalRole(u.role) ? 0.65 : 0.78;
+      const nx = u.x + (dx / dist) * moveSpeed * pace * dt;
+      const nz = u.z + (dz / dist) * moveSpeed * pace * dt;
+      const nt = getTile(state, nx, nz);
+      if (isFlying || (nt && nt.height > 0)) {
+        u.x = Math.max(1, Math.min(gs - 2, nx));
+        u.z = Math.max(1, Math.min(gs - 2, nz));
+      } else {
+        u.state = 'idle';
+      }
+    } else {
+      u.state = 'idle';
+    }
   }
 }
 
