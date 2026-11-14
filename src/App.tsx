@@ -21,15 +21,21 @@ import {
 import { soundEngine } from './game/sound';
 import {
   ActiveTool,
-  BuildingType,
   GameLifecycleState,
-  GodPowerType,
   LightingPreset,
   Resources,
   ToolCategory,
-  UnitRole,
 } from './game/types';
-import { ResourceIconSvg, TitleEmblemSvg } from './components/GameIcons';
+import {
+  BuildingPixelIcon,
+  HudPixelIcon,
+  PowerPixelIcon,
+  ResourceIconSvg,
+  TabPixelIcon,
+  TerrainPixelIcon,
+  TitleEmblemSvg,
+  UnitPixelIcon,
+} from './components/GameIcons';
 import { IsometricWorldCanvas } from './components/IsometricWorldCanvas';
 
 const RESOURCE_KEYS: { key: keyof Resources; label: string }[] = [
@@ -37,11 +43,36 @@ const RESOURCE_KEYS: { key: keyof Resources; label: string }[] = [
   { key: 'wood', label: 'Wood' },
   { key: 'stone', label: 'Stone' },
   { key: 'ore', label: 'Ore' },
-  { key: 'knowledge', label: 'Knowledge' },
+  { key: 'knowledge', label: 'Research' },
   { key: 'energy', label: 'Energy' },
   { key: 'alloy', label: 'Alloy' },
   { key: 'faith', label: 'Faith' },
 ];
+
+interface HoveredHint {
+  title: string;
+  cost: string;
+  detail: string;
+}
+
+function formatCompactCost(cost: Partial<Resources>, isFree: boolean): string {
+  if (isFree) return 'Free';
+  const entries = Object.entries(cost).filter(([, v]) => (v ?? 0) > 0);
+  if (entries.length === 0) return 'Free';
+  return entries
+    .map(([k, v]) => {
+      const label = k === 'knowledge' ? 'Res' : k[0].toUpperCase() + k.slice(1);
+      return `${v} ${label}`;
+    })
+    .join(', ');
+}
+
+function primaryCostNumber(cost: Partial<Resources>, isFree: boolean): string {
+  if (isFree) return '';
+  const entries = Object.entries(cost).filter(([, v]) => (v ?? 0) > 0);
+  if (entries.length === 0) return '';
+  return String(entries[0][1]);
+}
 
 export default function App() {
   const simRef = useRef(
@@ -75,9 +106,8 @@ export default function App() {
   const [chronicleOpen, setChronicleOpen] = useState<boolean>(false);
   const [muted, setMuted] = useState<boolean>(false);
   const [hoverTile, setHoverTile] = useState<{ x: number; z: number } | null>({ x: 64, z: 64 });
-  const [statusFeedback, setStatusFeedback] = useState<string>(
-    'Wilderness awaits · Click dry land to spawn Settler Citizens and spark civilization',
-  );
+  const [hoveredHint, setHoveredHint] = useState<HoveredHint | null>(null);
+  const [statusFeedback, setStatusFeedback] = useState<string>('Click land to spawn a Villager');
 
   // Snapshot counter triggered at <= 6 Hz from canvas loop or user actions
   const [, setHudTick] = useState(0);
@@ -95,7 +125,6 @@ export default function App() {
     centerHome: false,
   });
 
-  // Sync document.body.dataset.state
   useEffect(() => {
     document.body.dataset.state = gameState;
   }, [gameState]);
@@ -120,7 +149,7 @@ export default function App() {
     setActiveCategory('spawn');
     setActiveTool({ kind: 'spawn', unit: 'villager' });
     soundEngine.playBuild();
-    setStatusFeedback(`Untouched world · Seed ${nextSim.seed} · Click land to spawn Settler Citizens`);
+    setStatusFeedback(`Seed ${nextSim.seed} ready`);
     setHudTick((t) => t + 1);
   }, []);
 
@@ -135,7 +164,6 @@ export default function App() {
     setMuted(soundEngine.muted);
   }, []);
 
-  // Global keyboard shortcuts
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
@@ -174,87 +202,86 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [gameState, handleStartGame, handleToggleMute]);
 
-  const handleTileInteract = useCallback((tileX: number, tileZ: number) => {
-    const sim = simRef.current;
-    sim.selectedTile = { x: tileX, z: tileZ };
+  const handleTileInteract = useCallback(
+    (tileX: number, tileZ: number) => {
+      const sim = simRef.current;
+      sim.selectedTile = { x: tileX, z: tileZ };
 
-    if (activeTool.kind === 'inspect') {
-      const tile = getTile(sim, tileX, tileZ);
-      const bld = sim.buildings.find((b) => b.tileX === tileX && b.tileZ === tileZ);
-      if (bld) {
-        const def = BUILDINGS.find((d) => d.type === bld.type);
-        setStatusFeedback(
-          `Inspecting ${def?.name ?? bld.type} · Integrity ${Math.round(bld.hp)}/${bld.maxHp}`,
-        );
-      } else if (tile) {
-        setStatusFeedback(
-          `Terrace (${tileX}, ${tileZ}) · Elevation ${tile.height} · Surface ${tile.terrain.replace('_', ' ')}`,
-        );
+      if (activeTool.kind === 'inspect') {
+        const tile = getTile(sim, tileX, tileZ);
+        const bld = sim.buildings.find((b) => b.tileX === tileX && b.tileZ === tileZ);
+        if (bld) {
+          const def = BUILDINGS.find((d) => d.type === bld.type);
+          setStatusFeedback(`${def?.name ?? bld.type} (${Math.round(bld.hp)}/${bld.maxHp} HP)`);
+        } else if (tile) {
+          setStatusFeedback(`${tile.terrain.replace('_', ' ')} (${tileX}, ${tileZ})`);
+        }
+        soundEngine.playClick();
+        setHudTick((t) => t + 1);
+        return;
       }
-      soundEngine.playClick();
-      setHudTick((t) => t + 1);
-      return;
-    }
 
-    if (activeTool.kind === 'power') {
-      const res = castGodPower(sim, activeTool.power, tileX, tileZ);
-      if (res.ok) {
+      if (activeTool.kind === 'power') {
+        const res = castGodPower(sim, activeTool.power, tileX, tileZ);
         const def = GOD_POWERS.find((p) => p.type === activeTool.power);
-        if (res.isHeavy) soundEngine.playHeavyImpact();
-        else if (def?.category === 'Wrathful') soundEngine.playCurse();
-        else soundEngine.playBlessing();
-        setStatusFeedback(`${def?.name} unleashed at (${tileX}, ${tileZ})`);
-      } else {
-        setStatusFeedback(res.reason || 'Cannot cast power');
+        if (res.ok) {
+          if (res.isHeavy) soundEngine.playHeavyImpact();
+          else if (def?.category === 'Wrathful') soundEngine.playCurse();
+          else soundEngine.playBlessing();
+          setStatusFeedback(`${def?.name} cast`);
+        } else {
+          setStatusFeedback(res.reason || 'Need more Faith');
+        }
+        setHudTick((t) => t + 1);
+        return;
       }
-      setHudTick((t) => t + 1);
-      return;
-    }
 
-    if (activeTool.kind === 'terrain') {
-      const res = applyTerrainTool(sim, activeTool.tool, tileX, tileZ, brushRadius);
-      if (res.ok) {
+      if (activeTool.kind === 'terrain') {
+        const res = applyTerrainTool(sim, activeTool.tool, tileX, tileZ, brushRadius);
         const def = TERRAIN_TOOLS.find((t) => t.type === activeTool.tool);
-        soundEngine.playSculpt();
-        setStatusFeedback(`${def?.name} sculpted at (${tileX}, ${tileZ})`);
-      } else {
-        setStatusFeedback(res.reason || 'Cannot sculpt terrain');
+        if (res.ok) {
+          soundEngine.playSculpt();
+          setStatusFeedback(`${def?.name} applied`);
+        } else {
+          setStatusFeedback(res.reason || 'Cannot edit tile');
+        }
+        setHudTick((t) => t + 1);
+        return;
       }
-      setHudTick((t) => t + 1);
-      return;
-    }
 
-    if (activeTool.kind === 'build') {
-      const res = placeBuilding(sim, activeTool.building, tileX, tileZ);
-      if (res.ok) {
+      if (activeTool.kind === 'build') {
+        const res = placeBuilding(sim, activeTool.building, tileX, tileZ);
         const def = BUILDINGS.find((b) => b.type === activeTool.building);
-        soundEngine.playBuild();
-        setStatusFeedback(`Built ${def?.name} at (${tileX}, ${tileZ})`);
-      } else {
-        setStatusFeedback(res.reason || 'Cannot place structure here');
+        if (res.ok) {
+          soundEngine.playBuild();
+          setStatusFeedback(`Placed ${def?.name}`);
+        } else {
+          setStatusFeedback(res.reason || 'Cannot build here');
+        }
+        setHudTick((t) => t + 1);
+        return;
       }
-      setHudTick((t) => t + 1);
-      return;
-    }
 
-    if (activeTool.kind === 'spawn') {
-      const res = spawnUnit(sim, activeTool.unit, tileX, tileZ);
-      if (res.ok) {
+      if (activeTool.kind === 'spawn') {
+        const res = spawnUnit(sim, activeTool.unit, tileX, tileZ);
         const def = UNITS.find((u) => u.role === activeTool.unit);
-        soundEngine.playSpawn();
-        setStatusFeedback(`Spawned ${def?.name} at (${tileX}, ${tileZ})`);
-      } else {
-        setStatusFeedback(res.reason || 'Cannot spawn unit here');
+        if (res.ok) {
+          soundEngine.playSpawn();
+          setStatusFeedback(`Spawned ${def?.name}`);
+        } else {
+          setStatusFeedback(res.reason || 'Cannot spawn here');
+        }
+        setHudTick((t) => t + 1);
       }
-      setHudTick((t) => t + 1);
-    }
-  }, [activeTool, brushRadius]);
+    },
+    [activeTool, brushRadius],
+  );
 
   const handleAdvanceEpoch = (divineLeap: boolean) => {
     const res = advanceEpoch(simRef.current, divineLeap);
     if (res.ok && res.newEpoch) {
       soundEngine.playEpochAscend();
-      setStatusFeedback(`Civilization ascended to the ${res.newEpoch.name}`);
+      setStatusFeedback(`Entered ${res.newEpoch.name}`);
       setHudTick((t) => t + 1);
     } else if (res.reason) {
       setStatusFeedback(res.reason);
@@ -271,9 +298,23 @@ export default function App() {
     : undefined;
   const hostileCount = sim.units.filter((u) => u.faction === 'hostile' && u.state !== 'ko').length;
 
+  const activeToolLabel = (() => {
+    if (activeTool.kind === 'inspect') return 'Inspect';
+    if (activeTool.kind === 'power') {
+      return GOD_POWERS.find((p) => p.type === activeTool.power)?.name ?? 'Power';
+    }
+    if (activeTool.kind === 'terrain') {
+      return TERRAIN_TOOLS.find((t) => t.type === activeTool.tool)?.name ?? 'Land';
+    }
+    if (activeTool.kind === 'build') {
+      return BUILDINGS.find((b) => b.type === activeTool.building)?.name ?? 'Build';
+    }
+    return UNITS.find((u) => u.role === activeTool.unit)?.name ?? 'Unit';
+  })();
+
   return (
-    <main className="relative w-screen h-screen overflow-hidden bg-[#141210] text-[#ede8df]">
-      {/* 3D Pixelated Isometric World Canvas (100% Full Viewport) */}
+    <main className="relative w-screen h-screen overflow-hidden bg-[#141210] text-[#f2ece1]">
+      {/* 3D Pixelated Isometric World Canvas */}
       <IsometricWorldCanvas
         simRef={simRef}
         gameState={gameState}
@@ -290,21 +331,21 @@ export default function App() {
 
       {/* TITLE SCREEN OVERLAY */}
       {gameState === 'title' && (
-        <div className="fixed inset-0 z-30 flex items-center justify-start px-8 md:px-16 pointer-events-auto bg-gradient-to-r from-[#141210]/92 via-[#141210]/65 to-transparent">
-          <div className="max-w-lg py-10 px-8 bg-[#181512] shadow-2xl">
+        <div className="fixed inset-0 z-30 flex items-center justify-start px-6 md:px-14 pointer-events-none">
+          <div className="pointer-events-auto w-full max-w-sm px-panel p-6">
             <TitleEmblemSvg />
-            <p className="text-base text-[#cfc6b8] leading-relaxed mb-6">
-              Sculpt terraced stone worlds, guide mortal settlements from prehistoric bonfires to interstellar Dyson relays, and wield benevolent miracles or cataclysmic wrath in a pixelated 3D isometric sandbox.
+            <p className="text-sm text-[#cfc6b8] mb-5 leading-snug">
+              Shape the land, spawn villagers, and guide towns from Stone Age to the stars.
             </p>
 
-            <div className="flex flex-wrap items-center gap-4 mb-5">
+            <div className="flex items-center gap-3 mb-5">
               <button
                 type="button"
                 data-start="true"
                 onClick={handleStartGame}
-                className="px-6 py-3 bg-[#d97736] hover:bg-[#e88846] text-[#141210] font-semibold text-base rounded-sm transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                className="px-btn-primary px-6 py-2.5 text-sm font-bold cursor-pointer whitespace-nowrap shrink-0 focus-visible:outline-2 focus-visible:outline-[#ffd166]"
               >
-                Start Simulation
+                Play
               </button>
               <button
                 type="button"
@@ -312,15 +353,15 @@ export default function App() {
                   simRef.current.sandboxFreeMode = true;
                   handleStartGame();
                 }}
-                className="px-5 py-3 bg-[#26211c] hover:bg-[#332c25] text-[#ede8df] font-medium text-sm rounded-sm transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                className="px-btn px-5 py-2.5 text-sm font-semibold cursor-pointer whitespace-nowrap shrink-0 focus-visible:outline-2 focus-visible:outline-[#ffd166]"
               >
-                Enter Free God Sandbox
+                Sandbox
               </button>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2 mb-5 text-xs">
-              <label htmlFor="title-seed-input" className="text-[#9e9486]">
-                World Seed
+            <div className="flex items-center gap-2 mb-4 text-xs">
+              <label htmlFor="title-seed-input" className="text-[#a89f91] shrink-0">
+                Seed
               </label>
               <input
                 id="title-seed-input"
@@ -333,167 +374,128 @@ export default function App() {
                     handleGenerateSeededWorld(seedInput || undefined);
                   }
                 }}
-                className="w-32 px-2.5 py-1.5 bg-[#24201b] text-[#ede8df] tabular-nums rounded-sm outline-none focus:ring-1 focus:ring-[#f5b742]"
-                placeholder="Random seed"
+                className="px-panel-inset w-28 px-2 py-1.5 text-xs text-[#f2ece1] font-pixel-num outline-none focus:ring-2 focus:ring-[#f5b742]"
+                placeholder="Seed"
               />
               <button
                 type="button"
                 onClick={() => handleGenerateSeededWorld(seedInput || undefined)}
-                className="px-2.5 py-1.5 bg-[#26211c] hover:bg-[#332c25] text-[#f5b742] font-medium rounded-sm cursor-pointer"
+                className="px-btn px-2.5 py-1.5 text-xs font-semibold text-[#f5b742] cursor-pointer whitespace-nowrap shrink-0"
               >
-                Apply Seed
+                Apply
               </button>
               <button
                 type="button"
                 onClick={() => handleGenerateSeededWorld(undefined)}
-                className="px-2.5 py-1.5 bg-[#26211c] hover:bg-[#332c25] text-[#cfc6b8] font-medium rounded-sm cursor-pointer"
+                className="px-btn px-2.5 py-1.5 text-xs font-semibold cursor-pointer whitespace-nowrap shrink-0"
               >
-                Randomize
+                Random
               </button>
             </div>
 
-            <div className="text-xs text-[#9e9486] tabular-nums">
-              WASD or Arrow Keys Pan · Scroll Zoom · Click Tile to Cast or Build · Space Pause · H Hide Dock
+            <div className="text-xs text-[#9e9486]">
+              WASD Pan / Scroll Zoom / Space Pause / H Hide UI
             </div>
           </div>
         </div>
       )}
 
-      {/* PLAYING HUD OVERLAY (Pointer Pass-Through so >= 85% center viewport is unobstructed) */}
+      {/* PLAYING HUD OVERLAY */}
       {gameState !== 'title' && (
-        <div className="fixed inset-0 z-20 pointer-events-none flex flex-col justify-between p-3 md:p-4">
-          {/* TOP PERIMETER BAR: Left Resource & Epoch Cluster + Right Utility Controls */}
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            {/* Top-Left Cluster: Epoch + 8 Live Resources */}
-            <div className="pointer-events-auto bg-[#181512]/95 px-3 py-2 shadow-xl flex flex-wrap items-center gap-x-3.5 gap-y-1.5">
-              {/* Current Epoch & Year */}
-              <div className="pr-1">
-                <div className="flex items-baseline gap-1.5">
-                  <span className="font-display font-bold text-sm text-[#f5b742] whitespace-nowrap">
+        <div className="fixed inset-0 z-20 pointer-events-none flex flex-col justify-between p-2.5 md:p-3">
+          {/* TOP BAR: Compact Age + Clean Resource Row + Speed & Controls */}
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            {/* Top-Left: Age, Year, Pop */}
+            <div className="pointer-events-auto px-panel px-3 py-1.5 flex items-center gap-3">
+              <div>
+                <div className="flex items-baseline gap-2">
+                  <span className="font-bold text-sm text-[#f5b742] whitespace-nowrap">
                     {currentEpoch.name}
                   </span>
-                  <span aria-hidden="true" className="text-[#6e655a]">·</span>
-                  <span className="text-xs text-[#cfc6b8] tabular-nums whitespace-nowrap">
+                  <span className="font-pixel-num text-[11px] text-[#e8e0d2] whitespace-nowrap">
                     {formatYearLabel(sim.year)}
                   </span>
                 </div>
-                <div className="flex items-center gap-1.5 text-[11px] text-[#a89f91] tabular-nums mt-0.5">
-                  <span>Pop {sim.population}/{sim.populationCap}</span>
-                  <span aria-hidden="true">·</span>
-                  <span>Morale {Math.round(sim.happiness)}%</span>
-                  {nextEpoch && (
-                    <>
-                      <span aria-hidden="true">·</span>
-                      <span>Next Age {sim.epochProgress}%</span>
-                    </>
+                <div className="flex items-center gap-2.5 text-xs text-[#b8afa2] tabular-nums mt-0.5">
+                  <span>
+                    Pop <span className="font-pixel-num text-[10px]">{sim.population}/{sim.populationCap}</span>
+                  </span>
+                  <span className="font-pixel-num text-[10px]">{Math.round(sim.happiness)}%</span>
+                  {hostileCount > 0 && (
+                    <span className="text-[#ff6b6b]">Foes {hostileCount}</span>
                   )}
                   {sim.goldenAgeTimer > 0 && (
-                    <>
-                      <span aria-hidden="true">·</span>
-                      <span className="text-[#ffd166] font-medium">
-                        Golden Age {Math.ceil(sim.goldenAgeTimer)}s
-                      </span>
-                    </>
-                  )}
-                  {hostileCount > 0 && (
-                    <>
-                      <span aria-hidden="true">·</span>
-                      <span className="text-[#e63946] font-semibold">
-                        Raiders {hostileCount}
-                      </span>
-                    </>
+                    <span className="text-[#ffd166]">{Math.ceil(sim.goldenAgeTimer)}s</span>
                   )}
                 </div>
               </div>
 
-              {/* 8 Resources with Hero-to-Kicker hierarchy & Tabular Numerals */}
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                {RESOURCE_KEYS.map(({ key, label }) => {
-                  const amount = Math.floor(sim.resources[key]);
-                  const rate = Math.round(sim.rates[key]);
-                  return (
-                    <div
-                      key={key}
-                      data-testid={`resource-${key}`}
-                      className="flex items-center gap-1"
-                    >
-                      <ResourceIconSvg resource={key} className="w-3.5 h-3.5 shrink-0" />
-                      <div>
-                        <div className="flex items-baseline gap-0.5 tabular-nums">
-                          <span className="text-xs font-bold text-[#ede8df]">
-                            {amount}
-                          </span>
-                          <span
-                            className={`text-[10px] ${
-                              rate < 0 ? 'text-[#e76f51]' : 'text-[#7ec88b]'
-                            }`}
-                          >
-                            {rate >= 0 ? `+${rate}/s` : `${rate}/s`}
-                          </span>
-                        </div>
-                        <div className="text-[10px] text-[#9e9486] leading-none">
-                          {label}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Quick Advance Age Action when available */}
               {nextEpoch && (
                 <button
                   type="button"
                   onClick={() => handleAdvanceEpoch(true)}
-                  className="px-2.5 py-1.5 bg-[#d97736] hover:bg-[#e88846] text-[#141210] font-semibold text-xs rounded-sm transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                  className="px-btn-primary px-2.5 py-1.5 text-xs font-bold cursor-pointer whitespace-nowrap shrink-0"
                   title={`Advance to ${nextEpoch.name}`}
                 >
-                  Advance Age
+                  Next Age
                 </button>
               )}
             </div>
 
-            {/* Top-Right Cluster: Time Multipliers, Camera Controls & Utility Buttons */}
-            <div className="pointer-events-auto flex items-center gap-1.5 bg-[#181512]/95 px-2.5 py-2 shadow-xl">
-              {/* Speed Selector */}
-              <div className="flex items-center gap-1" role="group" aria-label="Simulation Speed">
-                {[
-                  { scale: 0, label: '0x' },
-                  { scale: 1, label: '1x' },
-                  { scale: 2, label: '2x' },
-                  { scale: 5, label: '5x' },
-                  { scale: 10, label: '10x' },
-                ].map((s) => (
-                  <button
-                    key={s.scale}
-                    type="button"
-                    onClick={() => {
-                      setTimeScale(s.scale);
-                      soundEngine.playClick();
-                    }}
-                    className={`px-2 py-1 text-xs font-semibold tabular-nums rounded-sm transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
-                      timeScale === s.scale
-                        ? 'bg-[#d97736] text-[#141210]'
-                        : 'bg-[#24201b] text-[#cfc6b8] hover:bg-[#302a23]'
-                    }`}
+            {/* Top-Center: Clean Pixel Icon + Count Resource Strip */}
+            <div className="pointer-events-auto px-panel px-2.5 py-1.5 flex items-center gap-2.5 md:gap-3.5">
+              {RESOURCE_KEYS.map(({ key, label }) => {
+                const amount = Math.floor(sim.resources[key]);
+                const rate = Math.round(sim.rates[key]);
+                const rateText = rate >= 0 ? `+${rate}/s` : `${rate}/s`;
+                return (
+                  <div
+                    key={key}
+                    data-testid={`resource-${key}`}
+                    title={`${label}: ${amount} (${rateText})`}
+                    className="flex flex-col items-center min-w-[34px]"
                   >
-                    {s.label}
-                  </button>
-                ))}
-              </div>
+                    <ResourceIconSvg resource={key} className="w-4 h-4 pixelated-canvas" />
+                    <span className="font-pixel-num text-[10px] text-[#f2ece1] leading-tight mt-0.5">
+                      {amount}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
 
-              {/* Camera Rotate & Center */}
+            {/* Top-Right: Time Speed + Pixel Icon Utilities */}
+            <div className="pointer-events-auto px-panel px-2 py-1.5 flex items-center gap-1">
+              {[0, 1, 2, 5, 10].map((scale) => (
+                <button
+                  key={scale}
+                  type="button"
+                  onClick={() => {
+                    setTimeScale(scale);
+                    soundEngine.playClick();
+                  }}
+                  title={scale === 1 ? '1x (1 year / 10s)' : `${scale}x speed`}
+                  className={`px-2 py-1 font-pixel-num text-[11px] cursor-pointer whitespace-nowrap shrink-0 ${
+                    timeScale === scale ? 'px-btn-active font-bold' : 'px-btn'
+                  }`}
+                >
+                  {scale}x
+                </button>
+              ))}
+
+              <span className="w-1" aria-hidden="true" />
+
               <button
                 type="button"
                 onClick={() => {
                   cameraActionRef.current.rotateDelta -= Math.PI / 4;
                   soundEngine.playClick();
                 }}
-                className="px-2 py-1 bg-[#24201b] hover:bg-[#302a23] text-xs text-[#cfc6b8] rounded-sm cursor-pointer whitespace-nowrap shrink-0"
-                aria-label="Rotate Camera Left"
-                title="Rotate Camera Left ([)"
+                className="px-btn w-7 h-7 flex items-center justify-center cursor-pointer"
+                aria-label="Rotate Left"
+                title="Rotate Left ([)"
               >
-                ↺
+                <HudPixelIcon kind="rotateLeft" />
               </button>
               <button
                 type="button"
@@ -501,11 +503,11 @@ export default function App() {
                   cameraActionRef.current.centerHome = true;
                   soundEngine.playClick();
                 }}
-                className="px-2 py-1 bg-[#24201b] hover:bg-[#302a23] text-xs text-[#cfc6b8] rounded-sm cursor-pointer whitespace-nowrap shrink-0"
-                aria-label="Center Settlement"
-                title="Center on Hearth"
+                className="px-btn w-7 h-7 flex items-center justify-center cursor-pointer"
+                aria-label="Center Camera"
+                title="Center on Town"
               >
-                Center
+                <HudPixelIcon kind="center" />
               </button>
               <button
                 type="button"
@@ -513,30 +515,26 @@ export default function App() {
                   cameraActionRef.current.rotateDelta += Math.PI / 4;
                   soundEngine.playClick();
                 }}
-                className="px-2 py-1 bg-[#24201b] hover:bg-[#302a23] text-xs text-[#cfc6b8] rounded-sm cursor-pointer whitespace-nowrap shrink-0"
-                aria-label="Rotate Camera Right"
-                title="Rotate Camera Right (])"
+                className="px-btn w-7 h-7 flex items-center justify-center cursor-pointer"
+                aria-label="Rotate Right"
+                title="Rotate Right (])"
               >
-                ↻
+                <HudPixelIcon kind="rotateRight" />
               </button>
-
-              {/* Chronicle Toggle */}
               <button
                 type="button"
                 onClick={() => {
                   setChronicleOpen((prev) => !prev);
                   soundEngine.playClick();
                 }}
-                className={`px-2 py-1 text-xs font-medium rounded-sm cursor-pointer whitespace-nowrap shrink-0 ${
-                  chronicleOpen
-                    ? 'bg-[#f5b742] text-[#141210]'
-                    : 'bg-[#24201b] text-[#cfc6b8] hover:bg-[#302a23]'
+                className={`w-7 h-7 flex items-center justify-center cursor-pointer ${
+                  chronicleOpen ? 'px-btn-active' : 'px-btn'
                 }`}
+                aria-label="World Log"
+                title="World Log"
               >
-                Chronicle
+                <HudPixelIcon kind="log" />
               </button>
-
-              {/* Mute [M], Pause [P], Restart [R] */}
               <button
                 type="button"
                 tabIndex={-1}
@@ -544,10 +542,11 @@ export default function App() {
                   e.currentTarget.blur();
                   handleToggleMute();
                 }}
-                aria-label={muted ? 'Unmute Audio' : 'Mute Audio'}
-                className="px-2 py-1 bg-[#24201b] hover:bg-[#302a23] text-xs text-[#cfc6b8] rounded-sm cursor-pointer whitespace-nowrap shrink-0"
+                className="px-btn w-7 h-7 flex items-center justify-center cursor-pointer"
+                aria-label={muted ? 'Unmute' : 'Mute'}
+                title={muted ? 'Unmute (M)' : 'Mute (M)'}
               >
-                {muted ? 'Muted' : 'Audio'}
+                <HudPixelIcon kind={muted ? 'audioOff' : 'audioOn'} />
               </button>
               <button
                 type="button"
@@ -556,10 +555,11 @@ export default function App() {
                   e.currentTarget.blur();
                   setGameState((prev) => (prev === 'paused' ? 'playing' : 'paused'));
                 }}
-                aria-label="Pause Simulation"
-                className="px-2 py-1 bg-[#24201b] hover:bg-[#302a23] text-xs text-[#cfc6b8] rounded-sm cursor-pointer whitespace-nowrap shrink-0"
+                className="px-btn w-7 h-7 flex items-center justify-center cursor-pointer"
+                aria-label="Pause"
+                title="Pause (P)"
               >
-                Pause
+                <HudPixelIcon kind={gameState === 'paused' ? 'play' : 'pause'} />
               </button>
               <button
                 type="button"
@@ -568,41 +568,41 @@ export default function App() {
                   e.currentTarget.blur();
                   handleRestartGame();
                 }}
+                className="px-btn w-7 h-7 flex items-center justify-center cursor-pointer"
                 aria-label="Reset World"
-                className="px-2 py-1 bg-[#24201b] hover:bg-[#302a23] text-xs text-[#cfc6b8] rounded-sm cursor-pointer whitespace-nowrap shrink-0"
+                title="New World"
               >
-                Reset
+                <HudPixelIcon kind="reset" />
               </button>
             </div>
           </div>
 
-          {/* OPTIONAL CHRONICLE DRAWER (Top-Right Drop Panel when opened) */}
+          {/* WORLD LOG DRAWER */}
           {chronicleOpen && (
-            <div className="pointer-events-auto self-end w-full max-w-md bg-[#181512]/95 p-4 shadow-2xl max-h-64 overflow-y-auto">
+            <div className="pointer-events-auto self-end w-full max-w-sm px-panel p-3 max-h-56 overflow-y-auto">
               <div className="flex items-center justify-between mb-2">
-                <h2 className="font-display font-semibold text-sm text-[#f5b742]">
-                  Sacred Annals of Civilization
-                </h2>
+                <h2 className="font-bold text-sm text-[#f5b742]">World Log</h2>
                 <button
                   type="button"
                   onClick={() => setChronicleOpen(false)}
-                  className="text-xs text-[#9e9486] hover:text-[#ede8df] cursor-pointer"
+                  className="px-btn px-2 py-0.5 text-xs cursor-pointer"
                 >
                   Close
                 </button>
               </div>
               <div className="space-y-1.5 text-xs">
                 {sim.chronicle.map((entry) => (
-                  <div key={entry.id} className="text-[#cfc6b8] leading-snug">
-                    <span className="text-[#9e9486] tabular-nums">{entry.yearLabel}</span>
-                    <span aria-hidden="true" className="mx-1.5 text-[#6e655a]">·</span>
+                  <div key={entry.id} className="leading-snug flex gap-2">
+                    <span className="font-pixel-num text-[10px] text-[#9e9486] shrink-0 pt-0.5">
+                      {entry.yearLabel}
+                    </span>
                     <span
                       className={
                         entry.tone === 'epoch'
-                          ? 'text-[#ffd166] font-medium'
+                          ? 'text-[#ffd166]'
                           : entry.tone === 'warning'
-                            ? 'text-[#f4a261]'
-                            : 'text-[#ede8df]'
+                            ? 'text-[#ff8f6b]'
+                            : 'text-[#e8e0d2]'
                       }
                     >
                       {entry.text}
@@ -613,119 +613,96 @@ export default function App() {
             </div>
           )}
 
-          {/* UNIFIED COLLAPSIBLE BOTTOM CONTROL DOCK */}
-          <div className="pointer-events-auto self-center w-full max-w-[960px] flex flex-col items-center">
-            {/* Collapse / Expand Zen Mode Toggle Tab */}
-            <div className="flex items-center gap-3 bg-[#181512]/95 px-4 py-1 shadow-lg">
-              <span className="text-xs text-[#cfc6b8] truncate max-w-[440px]">
-                {statusFeedback}
-              </span>
-              {inspectedTile && (
-                <span className="hidden sm:inline text-xs text-[#9e9486] tabular-nums whitespace-nowrap">
-                  · Tile ({inspectedTile.x}, {inspectedTile.z}) Elev {inspectedTile.height} ·{' '}
-                  {inspectedBuilding
-                    ? `${inspectedBuilding.settlementId && sim.settlementNames?.[inspectedBuilding.settlementId] ? `${sim.settlementNames[inspectedBuilding.settlementId]} · ` : ''}${inspectedBuilding.type.replace('_', ' ')}${inspectedBuilding.constructionProgress < 100 ? ` (${Math.floor(inspectedBuilding.constructionProgress)}%)` : ''}`
-                    : inspectedTile.resourceNode !== 'none'
-                      ? `${inspectedTile.terrain.replace('_', ' ')} (${inspectedTile.resourceNode.replace('_', ' ')} ${inspectedTile.resourceAmount})`
-                      : inspectedTile.terrain.replace('_', ' ')}
-                </span>
-              )}
-              <button
-                type="button"
-                onClick={() => setDockCollapsed((prev) => !prev)}
-                className="text-xs font-semibold text-[#f5b742] hover:text-[#ffd166] cursor-pointer whitespace-nowrap shrink-0 ml-2"
-              >
-                {dockCollapsed ? '▴ Show Controls [H]' : '▾ Hide Controls [H]'}
-              </button>
-            </div>
+          {/* BOTTOM PIXEL TOOLBAR DOCK */}
+          <div className="pointer-events-auto self-center relative flex flex-col items-center max-w-full">
+            {/* Hover Tooltip */}
+            {!dockCollapsed && hoveredHint && (
+              <div className="px-panel px-3 py-1.5 mb-2 flex items-center gap-3 text-xs whitespace-nowrap pointer-events-none">
+                <span className="font-bold text-[#f5b742]">{hoveredHint.title}</span>
+                <span className="text-[#80ed99] font-semibold tabular-nums">{hoveredHint.cost}</span>
+                <span className="text-[#cfc6b8]">{hoveredHint.detail}</span>
+              </div>
+            )}
 
-            {!dockCollapsed && (
-              <div className="w-full bg-[#181512]/96 px-4 py-3 shadow-2xl">
-                {/* Dock Category Navigation Bar */}
-                <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-                  <div className="flex flex-wrap items-center gap-1.5" role="tablist" aria-label="God Toolkit Categories">
-                    {(
-                      [
-                        { id: 'powers', label: 'Divine Powers' },
-                        { id: 'terrain', label: 'Terrain Sculpt' },
-                        { id: 'build', label: 'Build Structures' },
-                        { id: 'spawn', label: 'Spawn Beings' },
-                        { id: 'epochs', label: 'Epochs & Visuals' },
-                        { id: 'inspect', label: 'Inspect' },
-                      ] as { id: ToolCategory; label: string }[]
-                    ).map((tab) => (
-                      <button
-                        key={tab.id}
-                        type="button"
-                        role="tab"
-                        aria-selected={activeCategory === tab.id}
-                        onClick={() => {
-                          setActiveCategory(tab.id);
-                          if (tab.id === 'inspect') {
-                            setActiveTool({ kind: 'inspect' });
-                          } else if (tab.id === 'powers' && activeTool.kind !== 'power') {
-                            setActiveTool({ kind: 'power', power: 'blessing' });
-                          } else if (tab.id === 'terrain' && activeTool.kind !== 'terrain') {
-                            setActiveTool({ kind: 'terrain', tool: 'raise' });
-                          } else if (tab.id === 'build' && activeTool.kind !== 'build') {
-                            const epochBld =
-                              BUILDINGS.find((b) => b.epoch === currentEpoch.id)?.type || 'ziggurat';
-                            setActiveTool({ kind: 'build', building: epochBld });
-                          } else if (tab.id === 'spawn' && activeTool.kind !== 'spawn') {
-                            setActiveTool({ kind: 'spawn', unit: 'villager' });
-                          }
-                          soundEngine.playClick();
-                        }}
-                        className={`px-3 py-1.5 text-xs font-semibold rounded-sm transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
-                          activeCategory === tab.id
-                            ? 'bg-[#d97736] text-[#141210]'
-                            : 'bg-[#24201b] text-[#cfc6b8] hover:bg-[#302a23]'
-                        }`}
-                      >
-                        {tab.label}
-                      </button>
-                    ))}
-                  </div>
-
-                  {/* Quick Sandbox Free Toggle & Raider Wave Trigger */}
-                  <div className="flex items-center gap-2">
+            {/* Folder Tabs Row */}
+            <div className="flex items-end justify-between w-full gap-2 px-1">
+              <div className="flex items-end gap-1" role="tablist" aria-label="Tools">
+                {(
+                  [
+                    { id: 'powers', label: 'Powers' },
+                    { id: 'terrain', label: 'Land' },
+                    { id: 'build', label: 'Build' },
+                    { id: 'spawn', label: 'Units' },
+                    { id: 'epochs', label: 'World' },
+                    { id: 'inspect', label: 'Inspect' },
+                  ] as { id: ToolCategory; label: string }[]
+                ).map((tab) => {
+                  const isActive = !dockCollapsed && activeCategory === tab.id;
+                  return (
                     <button
+                      key={tab.id}
                       type="button"
+                      role="tab"
+                      aria-selected={isActive}
                       onClick={() => {
-                        simRef.current.sandboxFreeMode = !simRef.current.sandboxFreeMode;
+                        setDockCollapsed(false);
+                        setActiveCategory(tab.id);
+                        if (tab.id === 'inspect') {
+                          setActiveTool({ kind: 'inspect' });
+                        } else if (tab.id === 'powers' && activeTool.kind !== 'power') {
+                          setActiveTool({ kind: 'power', power: 'blessing' });
+                        } else if (tab.id === 'terrain' && activeTool.kind !== 'terrain') {
+                          setActiveTool({ kind: 'terrain', tool: 'raise' });
+                        } else if (tab.id === 'build' && activeTool.kind !== 'build') {
+                          const epochBld =
+                            BUILDINGS.find((b) => b.epoch === currentEpoch.id)?.type || 'bonfire';
+                          setActiveTool({ kind: 'build', building: epochBld });
+                        } else if (tab.id === 'spawn' && activeTool.kind !== 'spawn') {
+                          setActiveTool({ kind: 'spawn', unit: 'villager' });
+                        }
                         soundEngine.playClick();
-                        setHudTick((t) => t + 1);
                       }}
-                      className={`px-2.5 py-1 text-xs font-medium rounded-sm cursor-pointer whitespace-nowrap shrink-0 ${
-                        sim.sandboxFreeMode
-                          ? 'bg-[#6a994e] text-[#141210] font-semibold'
-                          : 'bg-[#24201b] text-[#a89f91] hover:text-[#ede8df]'
+                      className={`px-2.5 py-1.5 flex items-center gap-1.5 text-xs font-semibold cursor-pointer whitespace-nowrap shrink-0 ${
+                        isActive ? 'px-tab-active' : 'px-tab'
                       }`}
                     >
-                      {sim.sandboxFreeMode ? 'Free God Mode: On' : 'Free God Mode: Off'}
+                      <TabPixelIcon category={tab.id} className="w-4 h-4" />
+                      <span className="hidden sm:inline">{tab.label}</span>
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        spawnRaiderWave(simRef.current);
-                        soundEngine.playCurse();
-                        setStatusFeedback('Spawned hostile raider party on the frontier!');
-                        setHudTick((t) => t + 1);
-                      }}
-                      className="px-2.5 py-1 bg-[#2c1d1b] hover:bg-[#3d2623] text-[#f4a261] text-xs font-medium rounded-sm cursor-pointer whitespace-nowrap shrink-0"
-                    >
-                      Spawn Raider Wave
-                    </button>
-                  </div>
-                </div>
+                  );
+                })}
+              </div>
 
-                {/* TAB 1: DIVINE POWERS (Miracles, Blessings, Curses, Cataclysms) */}
+              <div className="flex items-end gap-1.5 pb-1">
+                <span className="hidden md:inline px-panel px-2.5 py-1 text-xs text-[#cfc6b8] tabular-nums whitespace-nowrap">
+                  {activeToolLabel}
+                  {inspectedTile ? ` (${inspectedTile.x}, ${inspectedTile.z})` : ''}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setDockCollapsed((prev) => !prev)}
+                  className="px-btn px-2.5 py-1 text-xs font-semibold text-[#f5b742] cursor-pointer whitespace-nowrap shrink-0"
+                  title="Toggle Dock (H)"
+                >
+                  {dockCollapsed ? 'Show [H]' : 'Hide [H]'}
+                </button>
+              </div>
+            </div>
+
+            {/* Active Pixel Dock Panel */}
+            {!dockCollapsed && (
+              <div
+                className="px-panel px-3 py-2.5 max-w-[95vw]"
+                onMouseLeave={() => setHoveredHint(null)}
+              >
+                {/* TAB 1: POWERS (Icon Slots) */}
                 {activeCategory === 'powers' && (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2">
+                  <div className="flex flex-wrap items-center justify-center gap-1.5">
                     {GOD_POWERS.map((power) => {
                       const isSelected =
                         activeTool.kind === 'power' && activeTool.power === power.type;
-                      const affordable = sim.sandboxFreeMode || sim.resources.faith >= power.faithCost;
+                      const affordable =
+                        sim.sandboxFreeMode || sim.resources.faith >= power.faithCost;
                       return (
                         <button
                           key={power.type}
@@ -733,55 +710,39 @@ export default function App() {
                           onClick={() => {
                             setActiveTool({ kind: 'power', power: power.type });
                             soundEngine.playClick();
-                            setStatusFeedback(`${power.name} ready · ${power.summary}`);
+                            setStatusFeedback(power.name);
                           }}
-                          className={`p-2 text-left rounded-sm transition-colors cursor-pointer ${
-                            isSelected
-                              ? 'bg-[#33291e] ring-2 ring-[#f5b742]'
-                              : 'bg-[#221e1a] hover:bg-[#2b2620]'
-                          } ${!affordable ? 'opacity-60' : ''}`}
+                          onMouseEnter={() =>
+                            setHoveredHint({
+                              title: `${power.name} [${power.keyHint}]`,
+                              cost: sim.sandboxFreeMode ? 'Free' : `${power.faithCost} Faith`,
+                              detail: power.summary,
+                            })
+                          }
+                          aria-label={power.name}
+                          className={`relative w-11 h-11 flex items-center justify-center cursor-pointer ${
+                            isSelected ? 'px-slot-active' : 'px-slot'
+                          } ${!affordable ? 'opacity-55' : ''}`}
                         >
-                          <div className="flex items-center justify-between gap-1">
-                            <span className="text-xs font-semibold text-[#ede8df] truncate">
-                              {power.name}
+                          <PowerPixelIcon power={power.type} className="w-7 h-7" />
+                          <span className="absolute top-0.5 left-1 font-pixel-num text-[8px] text-[#9e9486] leading-none">
+                            {power.keyHint}
+                          </span>
+                          {!sim.sandboxFreeMode && (
+                            <span className="absolute bottom-0.5 right-1 font-pixel-num text-[8px] text-[#ffd166] leading-none">
+                              {power.faithCost}
                             </span>
-                            <span className="text-[11px] font-semibold text-[#ffd166] tabular-nums shrink-0">
-                              {sim.sandboxFreeMode ? 'Free' : `${power.faithCost} Faith`}
-                            </span>
-                          </div>
-                          <div className="text-[11px] text-[#9e9486] truncate mt-0.5">
-                            {power.category} · [{power.keyHint}]
-                          </div>
+                          )}
                         </button>
                       );
                     })}
                   </div>
                 )}
 
-                {/* TAB 2: TERRAIN SCULPTING */}
+                {/* TAB 2: LAND SCULPTING (Icon Slots + Brush Size) */}
                 {activeCategory === 'terrain' && (
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between text-xs text-[#cfc6b8]">
-                      <span>Select a terrain brush and click any map tile to sculpt elevation and ecosystems</span>
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[#9e9486]">Brush Radius:</span>
-                        {[1, 2, 3].map((r) => (
-                          <button
-                            key={r}
-                            type="button"
-                            onClick={() => setBrushRadius(r)}
-                            className={`px-2 py-0.5 text-xs font-semibold tabular-nums rounded-sm cursor-pointer ${
-                              brushRadius === r
-                                ? 'bg-[#d97736] text-[#141210]'
-                                : 'bg-[#24201b] text-[#cfc6b8]'
-                            }`}
-                          >
-                            {r}x
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-8 gap-2">
+                  <div className="flex flex-wrap items-center justify-center gap-2">
+                    <div className="flex flex-wrap items-center gap-1.5">
                       {TERRAIN_TOOLS.map((tool) => {
                         const isSelected =
                           activeTool.kind === 'terrain' && activeTool.tool === tool.type;
@@ -792,37 +753,57 @@ export default function App() {
                             onClick={() => {
                               setActiveTool({ kind: 'terrain', tool: tool.type });
                               soundEngine.playClick();
-                              setStatusFeedback(`${tool.name} brush active · ${tool.summary}`);
+                              setStatusFeedback(tool.name);
                             }}
-                            className={`p-2 text-left rounded-sm transition-colors cursor-pointer ${
-                              isSelected
-                                ? 'bg-[#33291e] ring-2 ring-[#56cfe1]'
-                                : 'bg-[#221e1a] hover:bg-[#2b2620]'
+                            onMouseEnter={() =>
+                              setHoveredHint({
+                                title: tool.name,
+                                cost: sim.sandboxFreeMode ? 'Free' : `${tool.faithCost} Faith`,
+                                detail: tool.summary,
+                              })
+                            }
+                            aria-label={tool.name}
+                            className={`relative w-11 h-11 flex items-center justify-center cursor-pointer ${
+                              isSelected ? 'px-slot-active' : 'px-slot'
                             }`}
                           >
-                            <div className="text-xs font-semibold text-[#ede8df] truncate">
-                              {tool.name}
-                            </div>
-                            <div className="text-[11px] text-[#9e9486] tabular-nums mt-0.5">
-                              {sim.sandboxFreeMode ? 'Free' : `${tool.faithCost} Faith`}
-                            </div>
+                            <TerrainPixelIcon tool={tool.type} className="w-7 h-7" />
+                            {!sim.sandboxFreeMode && (
+                              <span className="absolute bottom-0.5 right-1 font-pixel-num text-[8px] text-[#ffd166] leading-none">
+                                {tool.faithCost}
+                              </span>
+                            )}
                           </button>
                         );
                       })}
                     </div>
+
+                    <div className="flex items-center gap-1 pl-2">
+                      <span className="text-xs text-[#a89f91] mr-1">Size</span>
+                      {[1, 2, 3].map((r) => (
+                        <button
+                          key={r}
+                          type="button"
+                          onClick={() => setBrushRadius(r)}
+                          className={`px-2 py-1 font-pixel-num text-[11px] cursor-pointer ${
+                            brushRadius === r ? 'px-btn-active font-bold' : 'px-btn'
+                          }`}
+                        >
+                          {r}x
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 )}
 
-                {/* TAB 3: BASE BUILDING (14 Structures across 7 Ages) */}
+                {/* TAB 3: BUILD STRUCTURES (Icon Slots) */}
                 {activeCategory === 'build' && (
-                  <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-2 max-h-36 overflow-y-auto pr-1">
+                  <div className="flex flex-wrap items-center justify-center gap-1.5">
                     {BUILDINGS.map((bld) => {
                       const isSelected =
                         activeTool.kind === 'build' && activeTool.building === bld.type;
                       const affordable = canAfford(sim.resources, bld.cost, sim.sandboxFreeMode);
-                      const costSummary = Object.entries(bld.cost)
-                        .map(([k, v]) => `${v} ${k.slice(0, 3)}`)
-                        .join(' · ');
+                      const badge = primaryCostNumber(bld.cost, sim.sandboxFreeMode);
 
                       return (
                         <button
@@ -831,79 +812,110 @@ export default function App() {
                           onClick={() => {
                             setActiveTool({ kind: 'build', building: bld.type });
                             soundEngine.playClick();
-                            setStatusFeedback(`${bld.name} selected · ${bld.roleSummary}`);
+                            setStatusFeedback(bld.name);
                           }}
-                          className={`p-2 text-left rounded-sm transition-colors cursor-pointer ${
-                            isSelected
-                              ? 'bg-[#33291e] ring-2 ring-[#80ed99]'
-                              : 'bg-[#221e1a] hover:bg-[#2b2620]'
-                          } ${!affordable ? 'opacity-65' : ''}`}
+                          onMouseEnter={() =>
+                            setHoveredHint({
+                              title: bld.name,
+                              cost: formatCompactCost(bld.cost, sim.sandboxFreeMode),
+                              detail: bld.roleSummary,
+                            })
+                          }
+                          aria-label={bld.name}
+                          className={`relative w-11 h-11 flex items-center justify-center cursor-pointer ${
+                            isSelected ? 'px-slot-active' : 'px-slot'
+                          } ${!affordable ? 'opacity-55' : ''}`}
                         >
-                          <div className="text-xs font-semibold text-[#ede8df] truncate">
-                            {bld.name}
-                          </div>
-                          <div className="text-[11px] text-[#f5b742] truncate tabular-nums">
-                            {sim.sandboxFreeMode ? 'Free' : costSummary}
-                          </div>
-                          <div className="text-[10px] text-[#9e9486] truncate">
-                            {bld.roleSummary}
-                          </div>
+                          <BuildingPixelIcon building={bld.type} className="w-7 h-7" />
+                          {badge && (
+                            <span className="absolute bottom-0.5 right-1 font-pixel-num text-[8px] text-[#f5b742] leading-none">
+                              {badge}
+                            </span>
+                          )}
                         </button>
                       );
                     })}
                   </div>
                 )}
 
-                {/* TAB 4: SPAWN UNITS & BEINGS */}
+                {/* TAB 4: UNITS (Icon Slots + Free Mode & Raiders) */}
                 {activeCategory === 'spawn' && (
-                  <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-2">
-                    {UNITS.map((u) => {
-                      const isSelected =
-                        activeTool.kind === 'spawn' && activeTool.unit === u.role;
-                      const costSummary =
-                        u.faction === 'hostile' || sim.sandboxFreeMode
-                          ? 'Free Spawn'
-                          : Object.entries(u.cost)
-                              .map(([k, v]) => `${v} ${k}`)
-                              .join(' · ');
-                      return (
-                        <button
-                          key={u.role}
-                          type="button"
-                          onClick={() => {
-                            setActiveTool({ kind: 'spawn', unit: u.role });
-                            soundEngine.playClick();
-                            setStatusFeedback(`${u.name} spawner active · ${u.roleSummary}`);
-                          }}
-                          className={`p-2 text-left rounded-sm transition-colors cursor-pointer ${
-                            isSelected
-                              ? 'bg-[#33291e] ring-2 ring-[#f5b742]'
-                              : 'bg-[#221e1a] hover:bg-[#2b2620]'
-                          }`}
-                        >
-                          <div className="text-xs font-semibold text-[#ede8df] truncate">
-                            {u.name}
-                          </div>
-                          <div className="text-[11px] text-[#f4a261] truncate tabular-nums">
-                            {costSummary}
-                          </div>
-                          <div className="text-[10px] text-[#9e9486] truncate">
-                            {u.roleSummary}
-                          </div>
-                        </button>
-                      );
-                    })}
+                  <div className="flex flex-wrap items-center justify-center gap-2">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {UNITS.map((u) => {
+                        const isSelected =
+                          activeTool.kind === 'spawn' && activeTool.unit === u.role;
+                        const isFree = u.faction === 'hostile' || sim.sandboxFreeMode;
+                        const badge = primaryCostNumber(u.cost, isFree);
+
+                        return (
+                          <button
+                            key={u.role}
+                            type="button"
+                            onClick={() => {
+                              setActiveTool({ kind: 'spawn', unit: u.role });
+                              soundEngine.playClick();
+                              setStatusFeedback(u.name);
+                            }}
+                            onMouseEnter={() =>
+                              setHoveredHint({
+                                title: u.name,
+                                cost: formatCompactCost(u.cost, isFree),
+                                detail: u.roleSummary,
+                              })
+                            }
+                            aria-label={u.name}
+                            className={`relative w-11 h-11 flex items-center justify-center cursor-pointer ${
+                              isSelected ? 'px-slot-active' : 'px-slot'
+                            }`}
+                          >
+                            <UnitPixelIcon role={u.role} className="w-7 h-7" />
+                            {badge && (
+                              <span className="absolute bottom-0.5 right-1 font-pixel-num text-[8px] text-[#ffd166] leading-none">
+                                {badge}
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <div className="flex items-center gap-1.5 pl-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          simRef.current.sandboxFreeMode = !simRef.current.sandboxFreeMode;
+                          soundEngine.playClick();
+                          setHudTick((t) => t + 1);
+                        }}
+                        className={`px-2.5 py-1.5 text-xs font-semibold cursor-pointer whitespace-nowrap ${
+                          sim.sandboxFreeMode ? 'px-btn-active' : 'px-btn'
+                        }`}
+                      >
+                        {sim.sandboxFreeMode ? 'Free: On' : 'Free: Off'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          spawnRaiderWave(simRef.current);
+                          soundEngine.playCurse();
+                          setStatusFeedback('Raiders spawned');
+                          setHudTick((t) => t + 1);
+                        }}
+                        className="px-btn px-2.5 py-1.5 text-xs font-semibold text-[#ff8f6b] cursor-pointer whitespace-nowrap"
+                      >
+                        Raiders
+                      </button>
+                    </div>
                   </div>
                 )}
 
-                {/* TAB 5: EPOCHS,PIXELATION & ATMOSPHERE */}
+                {/* TAB 5: WORLD (Ages, Pixel Scale, Sky, Seed) */}
                 {activeCategory === 'epochs' && (
-                  <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
-                    {/* 7 Epochs Stepper */}
-                    <div className="flex flex-wrap items-center gap-1.5">
+                  <div className="flex flex-col gap-2">
+                    <div className="flex flex-wrap items-center justify-center gap-1">
                       {EPOCHS.map((ep) => {
                         const isCurrent = sim.epochIndex === ep.index;
-                        const isReached = sim.epochIndex >= ep.index;
                         return (
                           <button
                             key={ep.id}
@@ -914,59 +926,45 @@ export default function App() {
                                 b.epochLevel = ep.index;
                               }
                               soundEngine.playEpochAscend();
-                              setStatusFeedback(`Shifted civilization to ${ep.name} (${ep.yearLabel})`);
+                              setStatusFeedback(ep.name);
                               setHudTick((t) => t + 1);
                             }}
-                            className={`px-2.5 py-1.5 text-left rounded-sm transition-colors cursor-pointer ${
-                              isCurrent
-                                ? 'bg-[#d97736] text-[#141210] font-semibold'
-                                : isReached
-                                  ? 'bg-[#2b251f] text-[#ede8df]'
-                                  : 'bg-[#201c18] text-[#9e9486] hover:text-[#ede8df]'
+                            className={`px-2.5 py-1 text-xs font-semibold cursor-pointer whitespace-nowrap ${
+                              isCurrent ? 'px-btn-active' : 'px-btn'
                             }`}
                           >
-                            <div className="text-xs whitespace-nowrap">{ep.name}</div>
-                            <div className="text-[10px] opacity-80 tabular-nums">{ep.yearLabel}</div>
+                            {ep.name}
                           </button>
                         );
                       })}
                     </div>
 
-                    {/* Pixel Crunch, Lighting & World Seed Controls */}
-                    <div className="flex flex-wrap items-center gap-3 text-xs">
+                    <div className="flex flex-wrap items-center justify-center gap-3 text-xs">
                       <div className="flex items-center gap-1">
-                        <span className="text-[#9e9486]">Pixel Scale:</span>
-                        {[
-                          { val: 1, label: '1x Crisp' },
-                          { val: 2, label: '2x Pixel' },
-                          { val: 3, label: '3x Voxel' },
-                        ].map((px) => (
+                        <span className="text-[#a89f91]">Pixel</span>
+                        {[1, 2, 3].map((val) => (
                           <button
-                            key={px.val}
+                            key={val}
                             type="button"
-                            onClick={() => setPixelScale(px.val)}
-                            className={`px-2 py-1 rounded-sm cursor-pointer whitespace-nowrap ${
-                              pixelScale === px.val
-                                ? 'bg-[#f5b742] text-[#141210] font-semibold'
-                                : 'bg-[#24201b] text-[#cfc6b8]'
+                            onClick={() => setPixelScale(val)}
+                            className={`px-2 py-0.5 font-pixel-num text-[11px] cursor-pointer ${
+                              pixelScale === val ? 'px-btn-active font-bold' : 'px-btn'
                             }`}
                           >
-                            {px.label}
+                            {val}x
                           </button>
                         ))}
                       </div>
 
                       <div className="flex items-center gap-1">
-                        <span className="text-[#9e9486]">Lighting:</span>
+                        <span className="text-[#a89f91]">Sky</span>
                         {(['noon', 'dusk', 'night', 'dawn'] as LightingPreset[]).map((lp) => (
                           <button
                             key={lp}
                             type="button"
                             onClick={() => setLightingPreset(lp)}
-                            className={`px-2 py-1 capitalize rounded-sm cursor-pointer ${
-                              lightingPreset === lp
-                                ? 'bg-[#56cfe1] text-[#141210] font-semibold'
-                                : 'bg-[#24201b] text-[#cfc6b8]'
+                            className={`px-2 py-0.5 capitalize text-xs cursor-pointer ${
+                              lightingPreset === lp ? 'px-btn-active font-bold' : 'px-btn'
                             }`}
                           >
                             {lp}
@@ -975,7 +973,7 @@ export default function App() {
                       </div>
 
                       <div className="flex items-center gap-1">
-                        <span className="text-[#9e9486]">Seed:</span>
+                        <span className="text-[#a89f91]">Seed</span>
                         <input
                           type="text"
                           aria-label="World Seed"
@@ -987,36 +985,42 @@ export default function App() {
                               handleGenerateSeededWorld(seedInput || undefined);
                             }
                           }}
-                          className="w-24 px-2 py-1 bg-[#24201b] text-[#ede8df] tabular-nums rounded-sm outline-none focus:ring-1 focus:ring-[#f5b742]"
+                          className="px-panel-inset w-24 px-2 py-0.5 font-pixel-num text-[11px] text-[#f2ece1] outline-none"
                         />
                         <button
                           type="button"
                           onClick={() => handleGenerateSeededWorld(seedInput || undefined)}
-                          className="px-2 py-1 bg-[#24201b] hover:bg-[#302a23] text-[#f5b742] rounded-sm cursor-pointer whitespace-nowrap"
+                          className="px-btn px-2 py-0.5 text-xs text-[#f5b742] cursor-pointer"
                         >
                           Load
                         </button>
                         <button
                           type="button"
                           onClick={() => handleGenerateSeededWorld(undefined)}
-                          className="px-2 py-1 bg-[#24201b] hover:bg-[#302a23] text-[#cfc6b8] rounded-sm cursor-pointer whitespace-nowrap"
+                          className="px-btn px-2 py-0.5 text-xs cursor-pointer"
                         >
-                          New Random
+                          Random
                         </button>
                       </div>
                     </div>
                   </div>
                 )}
 
-                {/* TAB 6: INSPECT MODE */}
+                {/* TAB 6: INSPECT */}
                 {activeCategory === 'inspect' && (
-                  <div className="flex flex-wrap items-center justify-between gap-4 text-xs text-[#cfc6b8]">
-                    <div>
-                      Click any structure, unit, or terrain terrace to inspect its status, elevation, and biome.
-                    </div>
-                    <div className="tabular-nums text-[#9e9486]">
-                      World Seed: {sim.seed} · Structures Built: {sim.totalStructuresBuilt} · Miracles Cast: {sim.totalMiraclesCast} · Raiders Defeated: {sim.totalRaidersDefeated}
-                    </div>
+                  <div className="flex flex-wrap items-center justify-center gap-4 text-xs text-[#e8e0d2]">
+                    <span>{statusFeedback}</span>
+                    {inspectedTile && (
+                      <span className="text-[#f5b742] tabular-nums">
+                        ({inspectedTile.x}, {inspectedTile.z}) Height {inspectedTile.height}{' '}
+                        {inspectedBuilding
+                          ? `${inspectedBuilding.settlementId && sim.settlementNames?.[inspectedBuilding.settlementId] ? `${sim.settlementNames[inspectedBuilding.settlementId]} ` : ''}${inspectedBuilding.type.replace('_', ' ')}`
+                          : inspectedTile.terrain.replace('_', ' ')}
+                      </span>
+                    )}
+                    <span className="text-[#a89f91] tabular-nums">
+                      Seed {sim.seed} / Built {sim.totalStructuresBuilt} / Defeated {sim.totalRaidersDefeated}
+                    </span>
                   </div>
                 )}
               </div>
@@ -1030,51 +1034,49 @@ export default function App() {
         <div
           role="dialog"
           aria-modal="true"
-          aria-label="Simulation Paused"
-          className="fixed inset-0 z-40 flex items-center justify-center bg-[#141210]/80 p-4"
+          aria-label="Paused"
+          className="fixed inset-0 z-40 flex items-center justify-center bg-[#0d0c0b]/75 p-4"
         >
-          <div className="w-full max-w-md bg-[#181512] p-6 shadow-2xl">
-            <h2 className="font-display text-2xl font-bold text-[#ede8df] mb-2">
-              Simulation Paused
-            </h2>
-            <p className="text-sm text-[#a89f91] mb-6">
-              Your civilization rests in the {currentEpoch.name} ({formatYearLabel(sim.year)}).
+          <div className="w-full max-w-sm px-panel p-6">
+            <h2 className="text-2xl font-bold text-[#f5b742] mb-1">Paused</h2>
+            <p className="text-xs text-[#b8afa2] mb-5 tabular-nums">
+              {currentEpoch.name} ({formatYearLabel(sim.year)})
             </p>
 
-            <div className="grid grid-cols-3 gap-3 mb-6 bg-[#221e1a] p-3 tabular-nums">
+            <div className="grid grid-cols-3 gap-2 mb-6 px-panel-inset p-3 text-center">
               <div>
-                <div className="text-lg font-bold text-[#f5b742]">{sim.population}</div>
-                <div className="text-xs text-[#9e9486]">Citizens</div>
+                <div className="font-pixel-num text-base font-bold text-[#f5b742]">{sim.population}</div>
+                <div className="text-[11px] text-[#a89f91]">Pop</div>
               </div>
               <div>
-                <div className="text-lg font-bold text-[#ede8df]">{sim.buildings.length}</div>
-                <div className="text-xs text-[#9e9486]">Structures</div>
+                <div className="font-pixel-num text-base font-bold text-[#f2ece1]">{sim.buildings.length}</div>
+                <div className="text-[11px] text-[#a89f91]">Built</div>
               </div>
               <div>
-                <div className="text-lg font-bold text-[#56cfe1]">{sim.totalMiraclesCast}</div>
-                <div className="text-xs text-[#9e9486]">Miracles</div>
+                <div className="font-pixel-num text-base font-bold text-[#56cfe1]">{sim.totalMiraclesCast}</div>
+                <div className="text-[11px] text-[#a89f91]">Powers</div>
               </div>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2.5">
               <button
                 type="button"
                 onClick={() => setGameState('playing')}
-                className="px-5 py-2.5 bg-[#d97736] hover:bg-[#e88846] text-[#141210] font-semibold text-sm rounded-sm cursor-pointer"
+                className="px-btn-primary px-5 py-2 text-sm font-bold cursor-pointer"
               >
                 Resume
               </button>
               <button
                 type="button"
                 onClick={handleRestartGame}
-                className="px-4 py-2.5 bg-[#26211c] hover:bg-[#332c25] text-[#ede8df] text-sm rounded-sm cursor-pointer"
+                className="px-btn px-4 py-2 text-sm cursor-pointer"
               >
                 Restart
               </button>
               <button
                 type="button"
                 onClick={() => setGameState('title')}
-                className="px-4 py-2.5 bg-[#26211c] hover:bg-[#332c25] text-[#a89f91] hover:text-[#ede8df] text-sm rounded-sm cursor-pointer"
+                className="px-btn px-4 py-2 text-sm cursor-pointer"
               >
                 Title
               </button>
@@ -1083,38 +1085,36 @@ export default function App() {
         </div>
       )}
 
-      {/* VICTORY / INTERSTELLAR ASCENSION MODAL */}
+      {/* VICTORY MODAL */}
       {gameState === 'gameover' && (
         <div
           role="dialog"
           aria-modal="true"
-          aria-label="Cosmic Ascension Complete"
-          className="fixed inset-0 z-40 flex items-center justify-center bg-[#141210]/85 p-4"
+          aria-label="Victory"
+          className="fixed inset-0 z-40 flex items-center justify-center bg-[#0d0c0b]/80 p-4"
         >
-          <div className="w-full max-w-md bg-[#181512] p-6 shadow-2xl">
-            <h2 className="font-display text-2xl font-bold text-[#ffd166] mb-2">
-              Interstellar Ascension Achieved
-            </h2>
-            <p className="text-sm text-[#cfc6b8] mb-6">
-              From prehistoric flint and hearth fire, your mortal charges have harnessed stellar singularities and joined the cosmic eternals.
+          <div className="w-full max-w-sm px-panel p-6">
+            <h2 className="text-2xl font-bold text-[#ffd166] mb-1">Star Ascension</h2>
+            <p className="text-xs text-[#cfc6b8] mb-5">
+              Your world reached the stars.
             </p>
 
-            <div className="grid grid-cols-3 gap-3 mb-6 bg-[#221e1a] p-3 tabular-nums">
+            <div className="grid grid-cols-3 gap-2 mb-6 px-panel-inset p-3 text-center">
               <div>
-                <div className="text-lg font-bold text-[#ffd166]">{sim.totalStructuresBuilt}</div>
-                <div className="text-xs text-[#9e9486]">Wonders Built</div>
+                <div className="font-pixel-num text-base font-bold text-[#ffd166]">{sim.totalStructuresBuilt}</div>
+                <div className="text-[11px] text-[#a89f91]">Built</div>
               </div>
               <div>
-                <div className="text-lg font-bold text-[#56cfe1]">{sim.totalMiraclesCast}</div>
-                <div className="text-xs text-[#9e9486]">Miracles Cast</div>
+                <div className="font-pixel-num text-base font-bold text-[#56cfe1]">{sim.totalMiraclesCast}</div>
+                <div className="text-[11px] text-[#a89f91]">Powers</div>
               </div>
               <div>
-                <div className="text-lg font-bold text-[#80ed99]">{sim.population}</div>
-                <div className="text-xs text-[#9e9486]">Ascended Souls</div>
+                <div className="font-pixel-num text-base font-bold text-[#80ed99]">{sim.population}</div>
+                <div className="text-[11px] text-[#a89f91]">Pop</div>
               </div>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2.5">
               <button
                 type="button"
                 data-start="true"
@@ -1122,14 +1122,14 @@ export default function App() {
                   simRef.current.outcome = 'none';
                   setGameState('playing');
                 }}
-                className="px-5 py-2.5 bg-[#d97736] hover:bg-[#e88846] text-[#141210] font-semibold text-sm rounded-sm cursor-pointer"
+                className="px-btn-primary px-5 py-2 text-sm font-bold cursor-pointer"
               >
-                Continue Eternal Sandbox
+                Keep Playing
               </button>
               <button
                 type="button"
                 onClick={handleRestartGame}
-                className="px-4 py-2.5 bg-[#26211c] hover:bg-[#332c25] text-[#ede8df] text-sm rounded-sm cursor-pointer"
+                className="px-btn px-4 py-2 text-sm cursor-pointer"
               >
                 New World
               </button>
