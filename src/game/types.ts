@@ -74,6 +74,7 @@ export interface TileData {
   cursedTimer: number;
   onFireTimer: number;
   buildingId: string | null;
+  farmSettlementId?: string;
 }
 
 export type BuildingType =

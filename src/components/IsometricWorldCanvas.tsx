@@ -2423,9 +2423,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           if (t.resourceNode === 'timber_grove') {
             targetInst = timberInsts[h % timberInsts.length];
           } else if (t.resourceNode === 'berry_bush') {
-            if (t.terrain === 'fertile' && simState.epochIndex >= 4) {
+            if (t.farmSettlementId && simState.epochIndex >= 4) {
               targetInst = sciFiFarmInsts[h % sciFiFarmInsts.length];
-            } else if (t.terrain === 'fertile' && simState.epochIndex >= 1) {
+            } else if (t.farmSettlementId && simState.epochIndex >= 1) {
               targetInst = farmCropInsts[h % farmCropInsts.length];
             } else {
               targetInst = berryInsts[h % berryInsts.length];
@@ -2439,7 +2439,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           } else {
             // Ambient multi-object sub-tile details on open land for lively biome density
             const chance = (h >> 4) % 100;
-            if ((t.terrain === 'grass' || t.terrain === 'fertile') && chance < 48) {
+            if ((t.terrain === 'grass' || (t.terrain === 'fertile' && !t.farmSettlementId)) && chance < 48) {
               targetInst = ambGrassInsts[h % ambGrassInsts.length];
             } else if (t.terrain === 'forest' && chance < 60) {
               targetInst = ambForestInsts[h % ambForestInsts.length];

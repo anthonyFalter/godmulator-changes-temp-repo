@@ -63,6 +63,10 @@ export function getMaxCityBuildings(epochIndex: number): number {
   return MAX_CITY_BUILDINGS;
 }
 
+export function getMaxCityFarmFields(cityBuildingCount: number): number {
+  return cityBuildingCount <= 0 ? 0 : cityBuildingCount * 2;
+}
+
 let idCounter = 1000;
 export function nextEntityId(prefix: string): string {
   idCounter += 1;
@@ -331,6 +335,7 @@ export function placeBuilding(
   tile.buildingId = newBuilding.id;
   tile.resourceNode = 'none';
   tile.resourceAmount = 0;
+  tile.farmSettlementId = undefined;
   if (tile.terrain === 'stone_road') {
     tile.terrain = 'grass';
   }
@@ -1685,6 +1690,7 @@ function paveSettlementStreetsNear(
       const relZ = t.z - anchor.z;
       if (isSettlementRoadTile(relX, relZ, variant)) {
         t.terrain = 'stone_road';
+        t.farmSettlementId = undefined;
         if (Math.abs(dx) + Math.abs(dz) === 1) pavedAdjacent = true;
       }
     }
@@ -1718,6 +1724,7 @@ function paveSettlementStreetsNear(
           nt.terrain !== 'crystal_field'
         ) {
           nt.terrain = 'stone_road';
+          nt.farmSettlementId = undefined;
           break;
         }
       }
@@ -1868,6 +1875,7 @@ export function advanceEpoch(
           const pt = getTile(state, cityAnchor.x + dx, cityAnchor.z + dz);
           if (pt && pt.height > 0 && !pt.buildingId && pt.resourceNode === 'none') {
             pt.terrain = 'stone_road';
+            pt.farmSettlementId = undefined;
           }
         }
       }
@@ -2073,34 +2081,83 @@ function transformSettlementEnvironment(
     }
   }
 
-  // 2. Agricultural / hydroponic cultivation near food & civic hubs
-  if (
-    sampleBld.type === 'forager_hut' ||
-    sampleBld.type === 'granary' ||
-    sampleBld.type === 'guildhall' ||
-    sampleBld.type === 'launch_arcology'
-  ) {
-    for (let attempt = 0; attempt < 3; attempt++) {
-      const fx = sampleBld.tileX + Math.floor(Math.random() * 7) - 3;
-      const fz = sampleBld.tileZ + Math.floor(Math.random() * 7) - 3;
-      const ft = getTile(state, fx, fz);
-      if (
-        ft &&
-        ft.height > 0 &&
-        ft.height <= 4 &&
-        !ft.buildingId &&
-        ft.resourceNode === 'none' &&
-        (ft.terrain === 'grass' || ft.terrain === 'savanna' || ft.terrain === 'fertile')
-      ) {
-        ft.terrain = 'fertile';
-        ft.resourceNode = 'berry_bush';
-        ft.resourceAmount = 190;
-        break;
+  // 2. Agricultural / hydroponic cultivation near food & civic hubs (strictly capped at 200% of parent city size)
+  const maxFarmFields = getMaxCityFarmFields(villageBuildings.length);
+  const ownedFarms: TileData[] = [];
+  const scanR = SETTLEMENT_AWARENESS_RADIUS + 4;
+  const minFX = Math.max(1, anchor.x - scanR);
+  const maxFX = Math.min(state.gridSize - 2, anchor.x + scanR);
+  const minFZ = Math.max(1, anchor.z - scanR);
+  const maxFZ = Math.min(state.gridSize - 2, anchor.z + scanR);
+
+  for (let fz = minFZ; fz <= maxFZ; fz++) {
+    for (let fx = minFX; fx <= maxFX; fx++) {
+      const ft = state.tiles[fz * state.gridSize + fx];
+      if (!ft || ft.farmSettlementId !== sid) continue;
+      if (ft.buildingId || ft.height <= 0 || ft.terrain !== 'fertile') {
+        ft.farmSettlementId = undefined;
+        continue;
+      }
+      ownedFarms.push(ft);
+    }
+  }
+
+  // If the parent city shrank from raiders/disasters, reclaim outer surplus fields back to wild grassland
+  if (ownedFarms.length > maxFarmFields) {
+    ownedFarms.sort(
+      (a, b) =>
+        (b.x - anchor.x) ** 2 + (b.z - anchor.z) ** 2 - ((a.x - anchor.x) ** 2 + (a.z - anchor.z) ** 2),
+    );
+    const excess = ownedFarms.length - maxFarmFields;
+    for (let i = 0; i < excess; i++) {
+      const ex = ownedFarms[i];
+      ex.farmSettlementId = undefined;
+      ex.terrain = 'grass';
+      if (ex.resourceNode === 'berry_bush') {
+        ex.resourceNode = 'none';
+        ex.resourceAmount = 0;
+      }
+    }
+  } else {
+    // Replant crops on an already-owned fallow farm plot without expanding farmland footprint
+    const fallowPlot = ownedFarms.find((f) => f.resourceNode === 'none');
+    if (fallowPlot) {
+      fallowPlot.resourceNode = 'berry_bush';
+      fallowPlot.resourceAmount = 190;
+    } else if (
+      ownedFarms.length < maxFarmFields &&
+      (sampleBld.type === 'forager_hut' ||
+        sampleBld.type === 'granary' ||
+        sampleBld.type === 'guildhall' ||
+        sampleBld.type === 'launch_arcology' ||
+        sampleBld.type === 'bonfire')
+    ) {
+      const variant = getSettlementLayoutVariant(state, sid, anchor.x, anchor.z);
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const fx = sampleBld.tileX + Math.floor(Math.random() * 9) - 4;
+        const fz = sampleBld.tileZ + Math.floor(Math.random() * 9) - 4;
+        const ft = getTile(state, fx, fz);
+        if (
+          ft &&
+          ft.height > 0 &&
+          ft.height <= 4 &&
+          !ft.buildingId &&
+          !ft.farmSettlementId &&
+          ft.resourceNode === 'none' &&
+          !isSettlementRoadTile(ft.x - anchor.x, ft.z - anchor.z, variant) &&
+          (ft.terrain === 'grass' || ft.terrain === 'savanna' || ft.terrain === 'fertile')
+        ) {
+          ft.terrain = 'fertile';
+          ft.resourceNode = 'berry_bush';
+          ft.resourceAmount = 190;
+          ft.farmSettlementId = sid;
+          break;
+        }
       }
     }
   }
 
-  // 3. Natural woodland & wild flora regrowth outside this settlement's urban core
+  // 3. Natural woodland regrowth outside this settlement's urban core
   const rx = Math.max(2, Math.min(state.gridSize - 3, anchor.x + Math.floor(Math.random() * 44) - 22));
   const rz = Math.max(2, Math.min(state.gridSize - 3, anchor.z + Math.floor(Math.random() * 44) - 22));
   const wt = getTile(state, rx, rz);
@@ -2109,15 +2166,11 @@ function transformSettlementEnvironment(
     wt.height > 0 &&
     !wt.buildingId &&
     wt.resourceNode === 'none' &&
+    wt.terrain === 'forest' &&
     Math.hypot(rx - anchor.x, rz - anchor.z) > 8
   ) {
-    if (wt.terrain === 'forest') {
-      wt.resourceNode = 'timber_grove';
-      wt.resourceAmount = 220;
-    } else if (wt.terrain === 'fertile') {
-      wt.resourceNode = 'berry_bush';
-      wt.resourceAmount = 180;
-    }
+    wt.resourceNode = 'timber_grove';
+    wt.resourceAmount = 220;
   }
 }
 
@@ -2371,6 +2424,7 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
             else if (site.resourceNode === 'stone_outcrop') state.resources.stone += 12;
             site.resourceNode = 'none';
             site.resourceAmount = 0;
+            site.farmSettlementId = undefined;
             if (site.terrain === 'stone_road') {
               site.terrain = 'grass';
             }
@@ -2392,6 +2446,7 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
               shieldTimer: 0,
             };
             site.buildingId = siteBld.id;
+            site.farmSettlementId = undefined;
             state.buildings.push(siteBld);
             state.totalStructuresBuilt += 1;
             paveSettlementStreetsNear(state, site.x, site.z, sid);
@@ -3464,8 +3519,7 @@ function stepCivilianUnitAI(
           targetTile.resourceAmount = 0;
 
           if (oldNode === 'timber_grove' && targetTile.terrain === 'forest') {
-            targetTile.terrain =
-              state.epochIndex >= 1 && (targetTile.x + targetTile.z) % 3 === 0 ? 'fertile' : 'grass';
+            targetTile.terrain = 'grass';
           } else if ((oldNode === 'stone_outcrop' || oldNode === 'ore_vein') && targetTile.terrain === 'rock') {
             targetTile.terrain = 'highland';
           }

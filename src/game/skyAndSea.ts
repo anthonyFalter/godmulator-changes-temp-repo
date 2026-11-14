@@ -671,7 +671,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
       return floor(t.r * 255.0 / 16.0 + 0.5);
     }
 
-    vec3 computeBiomeColor(float code, vec2 pixPos, vec2 chunkPos, vec2 subUv, float tTime) {
+    vec3 computeBiomeColor(float code, vec2 pixPos, vec2 chunkPos, vec2 subUv, float tTime, bool isCultivatedFarm) {
       float waveA = landNoise(chunkPos * 0.42);
       float waveB = landNoise(chunkPos * 0.92 + vec2(11.3, 7.1));
       float detail = landHash12(pixPos * 16.0);
@@ -696,8 +696,8 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         if (detail > 0.91) c = mix(c, hi, 0.75);
         return c;
       } else if (code < 4.5) {
-        // Fertile / Farming Fields: evolves across ages from wildflower meadow -> plowed crop furrows -> Sci-Fi Hydroponic Bio-Grid
-        if (uEpoch >= 4.5) {
+        // Cultivated city farm plots evolve across ages; untouched river valleys remain lush wildflower meadows
+        if (isCultivatedFarm && uEpoch >= 4.5) {
           // Orbital & Interstellar Ages: Techno-modern hydroponic bio-agri deck with glowing cyan/emerald nutrient channels
           vec2 fPix = floor(subUv * 16.0);
           float border = step(fPix.x, 1.0) + step(14.0, fPix.x) + step(fPix.y, 1.0) + step(14.0, fPix.y);
@@ -708,8 +708,8 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
           vec3 cyanGlow = landSrgb(86.0, 207.0, 225.0);
           vec3 c = mix(bioGreen, deckCol, clamp(border, 0.0, 1.0) * 0.85);
           return mix(c, cyanGlow, channel * (0.65 + 0.35 * pulse));
-        } else if (uEpoch >= 1.5) {
-          // Classical -> Atomic Ages: Plowed agricultural crop furrows with golden wheat/grain rows
+        } else if (isCultivatedFarm && uEpoch >= 1.0) {
+          // Bronze -> Atomic Ages: Plowed agricultural crop furrows with golden wheat/grain rows
           vec2 fPix = floor(subUv * 16.0);
           float furrow = mod(fPix.y, 4.0);
           vec3 soilDark = landSrgb(92.0, 68.0, 44.0);
@@ -718,7 +718,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
           vec3 c = mix(soilDark, cropGreen, step(1.5, furrow));
           return mix(c, wheatGold, step(2.8, furrow));
         } else {
-          // Prehistoric & Early Bronze: Lush river-valley emerald meadow swells & wildflower speckles
+          // Natural River Valley & Prehistoric Plot: Lush emerald meadow swells & wildflower speckles
           float wind = sin(pixPos.x * 0.7 + pixPos.y * 0.5 - tTime * 1.5) * 0.08;
           vec3 deep  = landSrgb(68.0, 108.0, 56.0);
           vec3 base  = landSrgb(98.0, 146.0, 74.0);
@@ -968,7 +968,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
       roughness,
       metalness,
     });
-    topMat.customProgramCacheKey = () => 'aeon_land_top_pixel_v3';
+    topMat.customProgramCacheKey = () => 'aeon_land_top_pixel_v4';
     topMat.onBeforeCompile = (shader) => {
       shader.uniforms.uTime = sharedTime;
       shader.uniforms.uEpoch = sharedEpoch;
@@ -1031,7 +1031,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
             }
           }
 
-          vec3 col = computeBiomeColor(myCode, pixPos, chunkPos, subUv, uTime);
+          vec3 col = computeBiomeColor(myCode, pixPos, chunkPos, subUv, uTime, self.a > 0.5);
 
           // 0b. Connected Street Ribbon Shaping for stone_road (myCode == 9.0):
           // Keeps road tiles continuous across connected neighbors while framing non-connected edges with grass margins
@@ -1043,21 +1043,26 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
             float margin = 0.14;
             bool onGrassMargin = false;
             float fallbackBiome = 3.0;
+            bool fallbackFarm = false;
             if (!rN && subUv.y < margin) {
               onGrassMargin = true;
               fallbackBiome = (cN >= 2.0 && cN <= 8.0) ? cN : 3.0;
+              fallbackFarm = nN.a > 0.5;
             } else if (!rS && (1.0 - subUv.y) < margin) {
               onGrassMargin = true;
               fallbackBiome = (cS >= 2.0 && cS <= 8.0) ? cS : 3.0;
+              fallbackFarm = nS.a > 0.5;
             } else if (!rW && subUv.x < margin) {
               onGrassMargin = true;
               fallbackBiome = (cW >= 2.0 && cW <= 8.0) ? cW : 3.0;
+              fallbackFarm = nW.a > 0.5;
             } else if (!rE && (1.0 - subUv.x) < margin) {
               onGrassMargin = true;
               fallbackBiome = (cE >= 2.0 && cE <= 8.0) ? cE : 3.0;
+              fallbackFarm = nE.a > 0.5;
             }
             if (onGrassMargin) {
-              col = computeBiomeColor(fallbackBiome, pixPos, chunkPos, subUv, uTime);
+              col = computeBiomeColor(fallbackBiome, pixPos, chunkPos, subUv, uTime, fallbackFarm);
             } else {
               // Subtle darker road curb line right inside the grass margin
               float curbMargin = 0.20;
@@ -1076,13 +1081,13 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
           if (myCode != 9.0) {
             float ditherRng = landHash12(pixPos * 16.0);
             if (hN == myHeight && cN != myCode && cN != 9.0 && subUv.y < 0.24 && ditherRng > subUv.y * 3.8) {
-              col = computeBiomeColor(cN, pixPos, chunkPos, subUv, uTime);
+              col = computeBiomeColor(cN, pixPos, chunkPos, subUv, uTime, nN.a > 0.5);
             } else if (hS == myHeight && cS != myCode && cS != 9.0 && (1.0 - subUv.y) < 0.24 && ditherRng > (1.0 - subUv.y) * 3.8) {
-              col = computeBiomeColor(cS, pixPos, chunkPos, subUv, uTime);
+              col = computeBiomeColor(cS, pixPos, chunkPos, subUv, uTime, nS.a > 0.5);
             } else if (hW == myHeight && cW != myCode && cW != 9.0 && subUv.x < 0.24 && ditherRng > subUv.x * 3.8) {
-              col = computeBiomeColor(cW, pixPos, chunkPos, subUv, uTime);
+              col = computeBiomeColor(cW, pixPos, chunkPos, subUv, uTime, nW.a > 0.5);
             } else if (hE == myHeight && cE != myCode && cE != 9.0 && (1.0 - subUv.x) < 0.24 && ditherRng > (1.0 - subUv.x) * 3.8) {
-              col = computeBiomeColor(cE, pixPos, chunkPos, subUv, uTime);
+              col = computeBiomeColor(cE, pixPos, chunkPos, subUv, uTime, nE.a > 0.5);
             }
           }
 
@@ -1135,7 +1140,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
       data[idx] = Math.min(255, code * 16);
       data[idx + 1] = Math.min(255, t.height * 28);
       data[idx + 2] = Math.abs(((t.x * 73856093) ^ (t.z * 19349663)) | 0) & 255;
-      data[idx + 3] = 255;
+      data[idx + 3] = t.farmSettlementId ? 255 : 0;
     }
     landMapTex.needsUpdate = true;
   };

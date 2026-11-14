@@ -7,6 +7,7 @@ import {
   createInitialSimulationState,
   formatYearLabel,
   getMaxCityBuildings,
+  getMaxCityFarmFields,
   getTile,
   placeBuilding,
   spawnRaiderWave,
@@ -706,6 +707,57 @@ test('cities respect max building size caps and launch settler expeditions to fo
   assert.ok(
     distBetweenCities >= 24,
     `Second city must be founded in a distant location (>= 24 tiles away), got ${distBetweenCities.toFixed(1)}`,
+  );
+});
+
+test('city farming fields are strictly capped at 200% of parent city size and never take over open land', () => {
+  const state = createInitialSimulationState(128, 'FARM-CAP-200');
+  state.sandboxFreeMode = true;
+  state.autoBuildEnabled = false;
+  state.resources.food = 1000;
+
+  const cx = 64;
+  const cz = 64;
+  for (let dz = -18; dz <= 18; dz++) {
+    for (let dx = -18; dx <= 18; dx++) {
+      const t = getTile(state, cx + dx, cz + dz)!;
+      t.height = 2;
+      t.terrain = 'grass';
+      t.resourceNode = 'none';
+      t.resourceAmount = 0;
+    }
+  }
+
+  // Place a 3-building city with settlers (max farm fields = 200% of 3 = 6 tiles)
+  assert.equal(placeBuilding(state, 'bonfire', cx, cz).ok, true);
+  assert.equal(placeBuilding(state, 'forager_hut', cx + 2, cz).ok, true);
+  assert.equal(placeBuilding(state, 'granary', cx - 2, cz).ok, true);
+  const sid = state.buildings[0].settlementId!;
+  spawnUnit(state, 'human', cx, cz + 1, true, sid);
+  spawnUnit(state, 'human', cx + 1, cz + 1, true, sid);
+  const maxAllowedFarms = getMaxCityFarmFields(3);
+  assert.equal(maxAllowedFarms, 6);
+
+  // Step for a long period to verify farming never expands past 200% of the parent city size
+  for (let i = 0; i < 200; i++) {
+    stepSimulation(state, 0.3);
+  }
+
+  const cityBuildings = state.buildings.filter((b) => b.settlementId === sid);
+  const farmTiles = state.tiles.filter((t) => t.farmSettlementId === sid);
+  const regionalFertileTiles = state.tiles.filter(
+    (t) => t.terrain === 'fertile' && Math.abs(t.x - cx) <= 18 && Math.abs(t.z - cz) <= 18,
+  );
+
+  assert.equal(cityBuildings.length, 3);
+  assert.ok(farmTiles.length > 0, 'City should cultivate farming fields near its food hubs');
+  assert.ok(
+    farmTiles.length <= maxAllowedFarms,
+    `City of ${cityBuildings.length} buildings must never exceed ${maxAllowedFarms} (200%) farming fields, got ${farmTiles.length}`,
+  );
+  assert.ok(
+    regionalFertileTiles.length <= maxAllowedFarms,
+    `Fertile crop spread around city must remain bounded by city cap (${regionalFertileTiles.length} <= ${maxAllowedFarms})`,
   );
 });
 
