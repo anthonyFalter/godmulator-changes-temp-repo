@@ -551,11 +551,72 @@ export const UnitPixelIcon: React.FC<{ role: UnitRole; className?: string }> = (
   role,
   className = 'w-7 h-7 pixelated-canvas',
 }) => {
+  if (role === 'elf') {
+    return (
+      <svg viewBox="0 0 16 16" className={className} aria-hidden="true" shapeRendering="crispEdges">
+        {/* Golden circlet & hair */}
+        <rect x="6" y="1" width="4" height="2" fill="#f5b742" />
+        <rect x="5" y="3" width="6" height="1" fill="#ffd166" />
+        {/* Pointed Elf ears */}
+        <rect x="3" y="4" width="3" height="2" fill="#f7dec8" />
+        <rect x="10" y="4" width="3" height="2" fill="#f7dec8" />
+        {/* Face */}
+        <rect x="6" y="4" width="4" height="2" fill="#f7dec8" />
+        {/* Emerald tunic */}
+        <rect x="5" y="6" width="6" height="5" fill="#388e5a" />
+        <rect x="7" y="6" width="2" height="5" fill="#80ed99" />
+        {/* Bow / Staff */}
+        <rect x="12" y="2" width="1" height="9" fill="#d97736" />
+        <rect x="13" y="4" width="1" height="5" fill="#ffd166" />
+        {/* Legs */}
+        <rect x="5" y="11" width="2" height="3" fill="#4a3b2c" />
+        <rect x="9" y="11" width="2" height="3" fill="#4a3b2c" />
+      </svg>
+    );
+  }
+
+  if (role === 'orc') {
+    return (
+      <svg viewBox="0 0 16 16" className={className} aria-hidden="true" shapeRendering="crispEdges">
+        {/* Iron helm / brow */}
+        <rect x="5" y="2" width="6" height="2" fill="#2b2522" />
+        {/* Broad green head */}
+        <rect x="4" y="4" width="8" height="3" fill="#6a994e" />
+        {/* Tusks */}
+        <rect x="5" y="6" width="1" height="2" fill="#f2ece1" />
+        <rect x="10" y="6" width="1" height="2" fill="#f2ece1" />
+        {/* Crimson armor torso */}
+        <rect x="4" y="7" width="8" height="4" fill="#9b2226" />
+        <rect x="3" y="7" width="1" height="3" fill="#6a994e" />
+        {/* Heavy axe */}
+        <rect x="12" y="3" width="2" height="8" fill="#94a3b8" />
+        <rect x="13" y="3" width="2" height="3" fill="#e5e7eb" />
+        {/* Legs */}
+        <rect x="5" y="11" width="2" height="3" fill="#3d2b1f" />
+        <rect x="9" y="11" width="2" height="3" fill="#3d2b1f" />
+      </svg>
+    );
+  }
+
+  if (role === 'human' || role === 'villager') {
+    return (
+      <svg viewBox="0 0 16 16" className={className} aria-hidden="true" shapeRendering="crispEdges">
+        <rect x="6" y="2" width="4" height="2" fill="#7c4f31" />
+        <rect x="6" y="4" width="4" height="2" fill="#f2cba5" />
+        <rect x="5" y="6" width="6" height="5" fill="#4ea8de" />
+        <rect x="7" y="6" width="2" height="2" fill="#ffd166" />
+        <rect x="3" y="7" width="2" height="3" fill="#f2cba5" />
+        <rect x="11" y="7" width="2" height="3" fill="#f2cba5" />
+        <rect x="5" y="11" width="2" height="3" fill="#463a31" />
+        <rect x="9" y="11" width="2" height="3" fill="#463a31" />
+      </svg>
+    );
+  }
+
   const palette: Record<
-    UnitRole,
+    string,
     { shirt: string; hat: string; skin: string; item?: string }
   > = {
-    villager: { shirt: '#4ea8de', hat: '#6b4423', skin: '#f2cba5' },
     forager: { shirt: '#6a994e', hat: '#386641', skin: '#f2cba5', item: '#ffd166' },
     miner: { shirt: '#8f8478', hat: '#f5b742', skin: '#f2cba5', item: '#cbd5e1' },
     builder: { shirt: '#d97736', hat: '#b07d56', skin: '#f2cba5', item: '#94a3b8' },
@@ -567,22 +628,16 @@ export const UnitPixelIcon: React.FC<{ role: UnitRole; className?: string }> = (
     raider_ranged: { shirt: '#6c2b35', hat: '#3d2226', skin: '#d4a373', item: '#a86f46' },
     raider_behemoth: { shirt: '#4a1c24', hat: '#1f181a', skin: '#8d5b3c', item: '#e63946' },
   };
-  const p = palette[role] ?? palette.villager;
+  const p = palette[role] ?? { shirt: '#4ea8de', hat: '#6b4423', skin: '#f2cba5' };
 
   return (
     <svg viewBox="0 0 16 16" className={className} aria-hidden="true" shapeRendering="crispEdges">
-      {/* Hat / Hair */}
       <rect x="6" y="2" width="4" height="2" fill={p.hat} />
-      {/* Face */}
       <rect x="6" y="4" width="4" height="2" fill={p.skin} />
-      {/* Torso */}
       <rect x="5" y="6" width="6" height="5" fill={p.shirt} />
-      {/* Arms */}
       <rect x="3" y="7" width="2" height="3" fill={p.skin} />
       <rect x="11" y="7" width="2" height="3" fill={p.skin} />
-      {/* Held tool/badge */}
       {p.item && <rect x="12" y="4" width="2" height="4" fill={p.item} />}
-      {/* Legs */}
       <rect x="5" y="11" width="2" height="3" fill="#463a31" />
       <rect x="9" y="11" width="2" height="3" fill="#463a31" />
     </svg>

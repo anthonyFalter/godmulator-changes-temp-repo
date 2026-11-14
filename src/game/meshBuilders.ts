@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { BuildingType, ResourceNodeType, TerrainType, UnitRole } from './types';
+import { BuildingType, ResourceNodeType, SpeciesId, TerrainType, UnitRole } from './types';
 
 const textureCache = new Map<string, THREE.CanvasTexture>();
 
@@ -1202,16 +1202,32 @@ export function createUnitGroup(
   role: UnitRole,
   faction: 'civilization' | 'hostile',
   epochLevel = 0,
+  species: SpeciesId = 'human',
 ): THREE.Group {
   const group = new THREE.Group();
-  group.add(createContactShadow(0.58));
+  group.add(createContactShadow(species === 'orc' ? 0.68 : 0.58));
+
+  const resolvedSpecies: SpeciesId =
+    role === 'elf' ? 'elf' : role === 'orc' ? 'orc' : role === 'human' ? 'human' : species;
+
+  const skinHex =
+    faction === 'hostile'
+      ? 0x8f5656
+      : resolvedSpecies === 'orc'
+        ? 0x5b8c42
+        : resolvedSpecies === 'elf'
+          ? 0xf4dcc8
+          : 0xe8be9e;
 
   const skinMat = new THREE.MeshStandardMaterial({
-    color: faction === 'hostile' ? 0x8f5656 : 0xe8be9e,
+    color: skinHex,
     roughness: 0.65,
   });
 
   const outfitColors: Record<UnitRole, number> = {
+    human: epochLevel >= 5 ? 0xd8dee9 : epochLevel >= 3 ? 0x3b6e8c : 0x4ea8de,
+    elf: epochLevel >= 5 ? 0x80ed99 : 0x388e5a,
+    orc: epochLevel >= 5 ? 0x9b2226 : 0x8d3b2b,
     villager: epochLevel >= 5 ? 0xd8dee9 : epochLevel >= 3 ? 0x3b6e8c : 0x4ea8de,
     forager: 0x52b788,
     miner: 0xe09f3e,
@@ -1232,48 +1248,104 @@ export function createUnitGroup(
       role === 'warrior' || role === 'astro_engineer' || epochLevel >= 4 ? 0.45 : 0.1,
   });
 
-  const bootMat = new THREE.MeshStandardMaterial({ color: 0x3d2b1f, roughness: 0.8 });
-  const scale = role === 'raider_behemoth' ? 1.45 : 1.0;
+  const bootMat = new THREE.MeshStandardMaterial({
+    color: resolvedSpecies === 'elf' ? 0x4a3b2c : 0x3d2b1f,
+    roughness: 0.8,
+  });
+  const scale =
+    role === 'raider_behemoth'
+      ? 1.45
+      : resolvedSpecies === 'orc'
+        ? 1.14
+        : resolvedSpecies === 'elf'
+          ? 0.98
+          : 1.0;
+  const widthMult = resolvedSpecies === 'orc' ? 1.24 : resolvedSpecies === 'elf' ? 0.86 : 1.0;
 
   // 1. Legs
-  const legL = new THREE.Mesh(new THREE.BoxGeometry(0.08 * scale, 0.14 * scale, 0.08 * scale), bootMat);
-  legL.position.set(-0.05 * scale, 0.07 * scale, 0);
+  const legL = new THREE.Mesh(
+    new THREE.BoxGeometry(0.08 * scale * widthMult, 0.14 * scale, 0.08 * scale),
+    bootMat,
+  );
+  legL.position.set(-0.055 * scale * widthMult, 0.07 * scale, 0);
   group.add(legL);
 
-  const legR = new THREE.Mesh(new THREE.BoxGeometry(0.08 * scale, 0.14 * scale, 0.08 * scale), bootMat);
-  legR.position.set(0.05 * scale, 0.07 * scale, 0);
+  const legR = new THREE.Mesh(
+    new THREE.BoxGeometry(0.08 * scale * widthMult, 0.14 * scale, 0.08 * scale),
+    bootMat,
+  );
+  legR.position.set(0.055 * scale * widthMult, 0.07 * scale, 0);
   group.add(legR);
 
   // 2. Torso
-  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.2 * scale, 0.22 * scale, 0.14 * scale), tunicMat);
+  const torso = new THREE.Mesh(
+    new THREE.BoxGeometry(0.2 * scale * widthMult, 0.22 * scale, 0.14 * scale),
+    tunicMat,
+  );
   torso.position.y = 0.24 * scale;
   torso.castShadow = true;
   group.add(torso);
 
-  // 3. Head
-  const head = new THREE.Mesh(new THREE.BoxGeometry(0.18 * scale, 0.18 * scale, 0.18 * scale), skinMat);
+  // 3. Head (+ species ears / tusks)
+  const head = new THREE.Mesh(
+    new THREE.BoxGeometry(0.18 * scale * widthMult, 0.18 * scale, 0.18 * scale),
+    skinMat,
+  );
   head.position.y = 0.44 * scale;
   head.castShadow = true;
   group.add(head);
 
-  // 4. Hat / Helmet / Visor evolving across epochs
+  if (resolvedSpecies === 'elf' && faction === 'civilization') {
+    const earGeo = new THREE.BoxGeometry(0.08 * scale, 0.045 * scale, 0.04 * scale);
+    const earL = new THREE.Mesh(earGeo, skinMat);
+    earL.position.set(-0.12 * scale, 0.45 * scale, -0.01 * scale);
+    earL.rotation.z = 0.35;
+    group.add(earL);
+    const earR = new THREE.Mesh(earGeo, skinMat);
+    earR.position.set(0.12 * scale, 0.45 * scale, -0.01 * scale);
+    earR.rotation.z = -0.35;
+    group.add(earR);
+  } else if (resolvedSpecies === 'orc') {
+    const tuskMat = new THREE.MeshStandardMaterial({ color: 0xf4ecd8, roughness: 0.45 });
+    const tuskGeo = new THREE.BoxGeometry(0.03 * scale, 0.055 * scale, 0.03 * scale);
+    const tuskL = new THREE.Mesh(tuskGeo, tuskMat);
+    tuskL.position.set(-0.055 * scale, 0.40 * scale, 0.1 * scale);
+    group.add(tuskL);
+    const tuskR = new THREE.Mesh(tuskGeo, tuskMat);
+    tuskR.position.set(0.055 * scale, 0.40 * scale, 0.1 * scale);
+    group.add(tuskR);
+  }
+
+  // 4. Hat / Helmet / Circlet evolving across epochs
   const hatColor =
     faction === 'hostile'
       ? 0x222222
-      : role === 'astro_engineer' || epochLevel >= 5
-        ? 0xeceff4
-        : role === 'priest' || role === 'warrior' || epochLevel === 1
-          ? 0xe9b44c
-          : epochLevel >= 2
-            ? 0x8d99ae
-            : 0x4a3423;
+      : resolvedSpecies === 'elf'
+        ? epochLevel >= 4
+          ? 0x72efdd
+          : 0xf5b742
+        : resolvedSpecies === 'orc'
+          ? epochLevel >= 2
+            ? 0x5c677d
+            : 0x2b2522
+          : role === 'astro_engineer' || epochLevel >= 5
+            ? 0xeceff4
+            : role === 'priest' || role === 'warrior' || epochLevel === 1
+              ? 0xe9b44c
+              : epochLevel >= 2
+                ? 0x8d99ae
+                : 0x4a3423;
   const hatMat = new THREE.MeshStandardMaterial({
     color: hatColor,
     roughness: 0.4,
-    metalness: role === 'warrior' || epochLevel >= 1 ? 0.55 : 0.1,
+    metalness: role === 'warrior' || resolvedSpecies === 'elf' || epochLevel >= 1 ? 0.55 : 0.1,
   });
   const hat = new THREE.Mesh(
-    new THREE.BoxGeometry(0.2 * scale, (epochLevel >= 2 ? 0.09 : 0.07) * scale, 0.2 * scale),
+    new THREE.BoxGeometry(
+      0.2 * scale * widthMult,
+      (resolvedSpecies === 'elf' ? 0.05 : epochLevel >= 2 ? 0.09 : 0.07) * scale,
+      0.2 * scale,
+    ),
     hatMat,
   );
   hat.position.y = 0.55 * scale;
@@ -1281,21 +1353,37 @@ export function createUnitGroup(
 
   if (faction === 'civilization' && epochLevel >= 4) {
     const visor = new THREE.Mesh(
-      new THREE.BoxGeometry(0.16 * scale, 0.05 * scale, 0.04 * scale),
+      new THREE.BoxGeometry(0.16 * scale * widthMult, 0.05 * scale, 0.04 * scale),
       new THREE.MeshBasicMaterial({ color: 0x56cfe1 }),
     );
     visor.position.set(0, 0.45 * scale, 0.095 * scale);
     group.add(visor);
   }
 
-  // 5. Held Tool / Weapon / Staff
+  // 5. Held Tool / Weapon / Bow-Staff
   const toolMat = new THREE.MeshStandardMaterial({
-    color: role === 'priest' || role === 'scholar' ? 0xf5b742 : epochLevel >= 4 ? 0x56cfe1 : 0xadb5bd,
+    color:
+      resolvedSpecies === 'elf'
+        ? 0xf5b742
+        : resolvedSpecies === 'orc'
+          ? 0xd62828
+          : role === 'priest' || role === 'scholar'
+            ? 0xf5b742
+            : epochLevel >= 4
+              ? 0x56cfe1
+              : 0xadb5bd,
     metalness: 0.6,
     roughness: 0.3,
   });
-  const tool = new THREE.Mesh(new THREE.BoxGeometry(0.05 * scale, 0.28 * scale, 0.05 * scale), toolMat);
-  tool.position.set(0.14 * scale, 0.28 * scale, 0.08 * scale);
+  const tool = new THREE.Mesh(
+    new THREE.BoxGeometry(
+      (resolvedSpecies === 'orc' ? 0.08 : 0.05) * scale,
+      (resolvedSpecies === 'elf' ? 0.34 : 0.28) * scale,
+      0.05 * scale,
+    ),
+    toolMat,
+  );
+  tool.position.set(0.14 * scale * widthMult, 0.28 * scale, 0.08 * scale);
   tool.rotation.x = 0.35;
   tool.name = 'held_tool';
   group.add(tool);

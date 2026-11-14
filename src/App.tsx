@@ -3,6 +3,7 @@ import {
   BUILDINGS,
   EPOCHS,
   GOD_POWERS,
+  SPECIES_UNITS,
   TERRAIN_TOOLS,
   UNITS,
 } from './game/catalog';
@@ -97,7 +98,7 @@ export default function App() {
   const [activeCategory, setActiveCategory] = useState<ToolCategory>('spawn');
   const [activeTool, setActiveTool] = useState<ActiveTool>({
     kind: 'spawn',
-    unit: 'villager',
+    unit: 'human',
   });
   const [brushRadius, setBrushRadius] = useState<number>(1);
   const [pixelScale, setPixelScale] = useState<number>(2);
@@ -107,7 +108,7 @@ export default function App() {
   const [muted, setMuted] = useState<boolean>(false);
   const [hoverTile, setHoverTile] = useState<{ x: number; z: number } | null>({ x: 64, z: 64 });
   const [hoveredHint, setHoveredHint] = useState<HoveredHint | null>(null);
-  const [statusFeedback, setStatusFeedback] = useState<string>('Click land to spawn a Villager');
+  const [statusFeedback, setStatusFeedback] = useState<string>('Click land to spawn a Human');
 
   // Snapshot counter triggered at <= 6 Hz from canvas loop or user actions
   const [, setHudTick] = useState(0);
@@ -147,7 +148,7 @@ export default function App() {
     setSeedInput(String(nextSim.seed));
     setHoverTile({ x: 64, z: 64 });
     setActiveCategory('spawn');
-    setActiveTool({ kind: 'spawn', unit: 'villager' });
+    setActiveTool({ kind: 'spawn', unit: 'human' });
     soundEngine.playBuild();
     setStatusFeedback(`Seed ${nextSim.seed} ready`);
     setHudTick((t) => t + 1);
@@ -335,7 +336,7 @@ export default function App() {
           <div className="pointer-events-auto w-full max-w-sm px-panel p-6">
             <TitleEmblemSvg />
             <p className="text-sm text-[#cfc6b8] mb-5 leading-snug">
-              Shape the land, spawn villagers, and guide towns from Stone Age to the stars.
+              Shape the land, spawn Humans, Elves, or Orcs, and guide towns to the stars.
             </p>
 
             <div className="flex items-center gap-3 mb-5">
@@ -658,7 +659,7 @@ export default function App() {
                             BUILDINGS.find((b) => b.epoch === currentEpoch.id)?.type || 'bonfire';
                           setActiveTool({ kind: 'build', building: epochBld });
                         } else if (tab.id === 'spawn' && activeTool.kind !== 'spawn') {
-                          setActiveTool({ kind: 'spawn', unit: 'villager' });
+                          setActiveTool({ kind: 'spawn', unit: 'human' });
                         }
                         soundEngine.playClick();
                       }}
@@ -838,14 +839,14 @@ export default function App() {
                   </div>
                 )}
 
-                {/* TAB 4: UNITS (Icon Slots + Free Mode & Raiders) */}
+                {/* TAB 4: SPECIES UNITS (Strictly 3 Species: Human, Elf, Orc + Free Mode & Raiders) */}
                 {activeCategory === 'spawn' && (
                   <div className="flex flex-wrap items-center justify-center gap-2">
                     <div className="flex flex-wrap items-center gap-1.5">
-                      {UNITS.map((u) => {
+                      {SPECIES_UNITS.map((u) => {
                         const isSelected =
                           activeTool.kind === 'spawn' && activeTool.unit === u.role;
-                        const isFree = u.faction === 'hostile' || sim.sandboxFreeMode;
+                        const isFree = sim.sandboxFreeMode;
                         const badge = primaryCostNumber(u.cost, isFree);
 
                         return (
@@ -865,13 +866,16 @@ export default function App() {
                               })
                             }
                             aria-label={u.name}
-                            className={`relative w-11 h-11 flex items-center justify-center cursor-pointer ${
+                            className={`relative px-2.5 h-11 flex items-center gap-2 cursor-pointer ${
                               isSelected ? 'px-slot-active' : 'px-slot'
                             }`}
                           >
                             <UnitPixelIcon role={u.role} className="w-7 h-7" />
+                            <span className="text-xs font-bold text-[#f2ece1] whitespace-nowrap">
+                              {u.name}
+                            </span>
                             {badge && (
-                              <span className="absolute bottom-0.5 right-1 font-pixel-num text-[8px] text-[#ffd166] leading-none">
+                              <span className="font-pixel-num text-[9px] text-[#ffd166] leading-none">
                                 {badge}
                               </span>
                             )}

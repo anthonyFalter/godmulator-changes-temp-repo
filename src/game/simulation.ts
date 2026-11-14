@@ -12,6 +12,7 @@ import {
   GodPowerType,
   Resources,
   SimulationState,
+  SpeciesId,
   TerrainToolType,
   TileData,
   UnitEntity,
@@ -25,9 +26,27 @@ const CITIZEN_NAMES = [
   'Rowan', 'Freya', 'Gideon', 'Isolde', 'Zarek', 'Ariadne', 'Cyrus', 'Veda',
 ];
 
+const ELF_NAMES = [
+  'Aelar', 'Sylva', 'Luthien', 'Faelar', 'Elowen', 'Caelum', 'Thalia', 'Vaelis',
+  'Sariel', 'Lyra', 'Nym', 'Orophin',
+];
+
+const ORC_NAMES = [
+  'Grom', 'Thrak', 'Karg', 'Morg', 'Zug', 'Urzul', 'Bruk', 'Grish',
+  'Drog', 'Skarn', 'Vorg', 'Ruk',
+];
+
 const VILLAGE_NAMES = [
-  'Aurelia', 'Valen', 'Oakhaven', 'Khor', 'Solis', 'Veld', 'Thar', 'Selen',
-  'Cyra', 'Nadir', 'Barrow', 'Ilios', 'Kaelholm', 'Vespera', 'Myra', 'Aldenreach',
+  'Aurelia', 'Valen', 'Oakhaven', 'Solis', 'Veld', 'Selen',
+  'Cyra', 'Ilios', 'Aldenreach', 'Highford', 'Sunvale', 'Stonebridge',
+];
+
+const ELF_VILLAGE_NAMES = [
+  'Sylvaria', 'Starleaf', 'Lothal', 'Greenbough', 'Moonwell', 'Aethelgard',
+];
+
+const ORC_VILLAGE_NAMES = [
+  'Khor', 'Thar', 'Gromhold', 'Ironcrag', 'Bloodaxe', 'Ashpeak',
 ];
 
 export const SETTLEMENT_AWARENESS_RADIUS = 22;
@@ -145,6 +164,7 @@ export function createInitialSimulationState(
     sandboxFreeMode: false,
     chronicle: initialChronicle,
     pendingVfx: [],
+    activeHazards: [],
     totalMiraclesCast: 0,
     totalStructuresBuilt: 0,
     totalRaidersDefeated: 0,
@@ -156,6 +176,7 @@ export function createInitialSimulationState(
     harvestRates: emptyResources(),
     harvestWindowTimer: 0,
     settlementNames: {},
+    settlementSpecies: {},
   };
 
   recalculateRatesAndCaps(state);
@@ -272,8 +293,11 @@ export function placeBuilding(
   const nearby = findLocalSettlementBuilding(state, tile.x, tile.z, SETTLEMENT_AWARENESS_RADIUS);
   const settlementId = nearby?.settlementId ?? nextEntityId('city');
   if (!state.settlementNames) state.settlementNames = {};
+  if (!state.settlementSpecies) state.settlementSpecies = {};
+  const species: SpeciesId = state.settlementSpecies[settlementId] ?? 'human';
+  state.settlementSpecies[settlementId] = species;
   if (!state.settlementNames[settlementId]) {
-    state.settlementNames[settlementId] = createVillageName(state);
+    state.settlementNames[settlementId] = createVillageName(state, species);
   }
 
   const newBuilding: BuildingEntity = {
@@ -354,21 +378,31 @@ export function spawnUnit(
     state.resources = deductCost(state.resources, def.cost, false);
   }
 
+  const species: SpeciesId =
+    def.species ?? (role === 'elf' ? 'elf' : role === 'orc' ? 'orc' : 'human');
+
   let resolvedSettlementId = settlementIdOverride;
   if (def.faction === 'civilization' && !resolvedSettlementId) {
     const nearbyBld = findLocalSettlementBuilding(state, tile.x, tile.z, SETTLEMENT_AWARENESS_RADIUS);
     if (nearbyBld?.settlementId) {
-      resolvedSettlementId = nearbyBld.settlementId;
+      const bSpecies = state.settlementSpecies?.[nearbyBld.settlementId] ?? 'human';
+      if (bSpecies === species) {
+        resolvedSettlementId = nearbyBld.settlementId;
+      }
     }
   }
+
+  const namePool =
+    species === 'elf' ? ELF_NAMES : species === 'orc' ? ORC_NAMES : CITIZEN_NAMES;
 
   const unit: UnitEntity = {
     id: nextEntityId('unit'),
     name:
       def.faction === 'hostile'
         ? def.name
-        : CITIZEN_NAMES[(state.units.length * 3 + Math.floor(x + z)) % CITIZEN_NAMES.length],
+        : namePool[(state.units.length * 3 + Math.floor(x + z)) % namePool.length],
     role,
+    species,
     faction: def.faction,
     settlementId: resolvedSettlementId,
     x: tile.x + (Math.random() - 0.5) * 0.35,
@@ -529,6 +563,7 @@ export function castGodPower(
   const centerTile = getTile(state, targetX, targetZ);
   const baseHeight = centerTile ? centerTile.height * 0.45 : 1.2;
 
+  if (!state.activeHazards) state.activeHazards = [];
   let isHeavy = false;
 
   switch (powerType) {
@@ -550,34 +585,72 @@ export function castGodPower(
           b.cursedTimer = 0;
         }
       }
-      state.happiness = Math.min(100, state.happiness + 8);
-      addChronicle(state, 'Divine Blessing bestowed! Citizens healed and inspired.', 'divine');
-      break;
-    }
-
-    case 'rain_of_plenty': {
       for (const t of state.tiles) {
         const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
         if (dSq <= rSq && t.height > 0) {
           t.onFireTimer = 0;
           t.cursedTimer = 0;
           t.blessedTimer = 25;
+          if (t.terrain === 'scorched' || t.terrain === 'swamp') {
+            t.terrain = 'grass';
+          }
+        }
+      }
+      state.happiness = Math.min(100, state.happiness + 10);
+      addChronicle(state, 'Blessing healed citizens, repaired structures, and cleansed soil.', 'divine');
+      break;
+    }
+
+    case 'rain_of_plenty': {
+      // Summon an active 8s rainstorm cloud that extinguishes fires and hydrates dry land
+      state.activeHazards.push({
+        id: nextEntityId('haz'),
+        kind: 'rain_cloud',
+        x: targetX,
+        z: targetZ,
+        radius: r,
+        remaining: 8.0,
+        duration: 8.0,
+        tickTimer: 0,
+      });
+
+      for (const t of state.tiles) {
+        const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
+        if (dSq <= rSq && t.height > 0) {
+          t.onFireTimer = 0;
+          t.cursedTimer = 0;
+          t.blessedTimer = 20;
+          if (t.terrain === 'scorched') {
+            t.terrain = 'grass';
+          } else if (t.terrain === 'sand' && dSq <= rSq * 0.6) {
+            t.terrain = 'grass';
+          }
           if (!t.buildingId) {
-            if ((t.x + t.z) % 2 === 0) {
+            if (t.resourceNode === 'berry_bush' || t.resourceNode === 'timber_grove') {
+              t.resourceAmount = Math.min(350, t.resourceAmount + 90);
+            } else if (
+              t.resourceNode === 'none' &&
+              (t.terrain === 'grass' || t.terrain === 'fertile') &&
+              ((t.x * 31 + t.z * 17 + Math.round(state.year * 10)) & 7) === 0
+            ) {
+              // Only occasional natural sprouts on bare soil — no wall-to-wall tree spam
               t.terrain = 'fertile';
               t.resourceNode = 'berry_bush';
-              t.resourceAmount = 260;
-            } else {
-              t.terrain = 'forest';
-              t.resourceNode = 'timber_grove';
-              t.resourceAmount = 280;
+              t.resourceAmount = 180;
             }
           }
         }
       }
-      state.resources.food += 75;
-      state.resources.wood += 60;
-      addChronicle(state, 'Rain of Plenty turns the land into lush orchards and timber groves.', 'divine');
+      // Also extinguish burning units/cure mild heat
+      for (const u of state.units) {
+        const dSq = (u.x - targetX) ** 2 + (u.z - targetZ) ** 2;
+        if (dSq <= rSq && u.state !== 'ko') {
+          u.hp = Math.min(u.maxHp, u.hp + 15);
+        }
+      }
+      state.resources.food += 35;
+      state.resources.wood += 20;
+      addChronicle(state, 'Rainstorm doused fires and hydrated the soil.', 'divine');
       break;
     }
 
@@ -590,7 +663,13 @@ export function castGodPower(
           u.statusEffects.blessed = 20;
         }
       }
-      addChronicle(state, 'A Divine Eureka illuminates mortal minds (+140 Knowledge)!', 'divine');
+      for (const b of state.buildings) {
+        const dSq = (b.tileX - targetX) ** 2 + (b.tileZ - targetZ) ** 2;
+        if (dSq <= rSq && b.constructionProgress < 100) {
+          b.constructionProgress = Math.min(100, b.constructionProgress + 50);
+        }
+      }
+      addChronicle(state, 'Insight sparked +140 Research and sped nearby construction.', 'divine');
       break;
     }
 
@@ -606,11 +685,30 @@ export function castGodPower(
           u.statusEffects.blessed = 30;
         }
       }
-      addChronicle(state, 'A Golden Age dawns! Civilization output doubled for 30 seconds.', 'epoch');
+      // Inspire a baby boom across active towns
+      const settlementIds = Array.from(new Set(state.buildings.map((b) => b.settlementId ?? 'city_default')));
+      for (const sid of settlementIds) {
+        const hub = state.buildings.find((b) => b.settlementId === sid && b.constructionProgress >= 100);
+        if (hub) {
+          const sp = state.settlementSpecies?.[sid] ?? 'human';
+          spawnUnit(state, sp, hub.tileX, hub.tileZ, true, sid);
+        }
+      }
+      addChronicle(state, 'Golden Age doubled output for 30s and swelled towns.', 'epoch');
       break;
     }
 
     case 'divine_shield': {
+      state.activeHazards.push({
+        id: nextEntityId('haz'),
+        kind: 'shield_dome',
+        x: targetX,
+        z: targetZ,
+        radius: r,
+        remaining: 12.0,
+        duration: 12.0,
+        tickTimer: 0,
+      });
       for (const b of state.buildings) {
         const dSq = (b.tileX - targetX) ** 2 + (b.tileZ - targetZ) ** 2;
         if (dSq <= rSq) {
@@ -622,10 +720,15 @@ export function castGodPower(
         const dSq = (u.x - targetX) ** 2 + (u.z - targetZ) ** 2;
         if (dSq <= rSq && u.faction === 'civilization') {
           u.statusEffects.shielded = 30;
+          delete u.statusEffects.plagued;
           u.hp = u.maxHp;
         }
       }
-      addChronicle(state, 'Aegis Sanctuary shields your structures and mortals from harm.', 'divine');
+      for (const t of state.tiles) {
+        const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
+        if (dSq <= rSq) t.onFireTimer = 0;
+      }
+      addChronicle(state, 'Protective dome shielded nearby towns and citizens.', 'divine');
       break;
     }
 
@@ -634,21 +737,31 @@ export function castGodPower(
         const dSq = (u.x - targetX) ** 2 + (u.z - targetZ) ** 2;
         if (dSq <= rSq && u.state !== 'ko') {
           u.statusEffects.frenzied = 25;
+          // Drop passive work so enraged units immediately seek combat
+          u.carryingAmount = 0;
+          u.carryingType = null;
+          u.actionCooldown = 0;
         }
       }
-      addChronicle(state, 'Zealot Frenzy ignites! Units surge with +150% combat ferocity.', 'warning');
+      addChronicle(state, 'Fury enraged units in the area for +150% combat damage!', 'warning');
       break;
     }
 
     case 'curse': {
       for (const u of state.units) {
         const dSq = (u.x - targetX) ** 2 + (u.z - targetZ) ** 2;
-        if (dSq <= rSq && u.state !== 'ko') {
+        if (dSq <= rSq && u.state !== 'ko' && !u.statusEffects.shielded) {
           u.statusEffects.cursed = 25;
           delete u.statusEffects.blessed;
-          if (u.faction === 'hostile') {
-            u.hp = Math.max(10, u.hp - 45);
-          }
+          u.hp = Math.max(5, u.hp - 35);
+        }
+      }
+      for (const b of state.buildings) {
+        const dSq = (b.tileX - targetX) ** 2 + (b.tileZ - targetZ) ** 2;
+        if (dSq <= rSq && b.shieldTimer <= 0) {
+          b.cursedTimer = 25;
+          b.blessedTimer = 0;
+          b.hp = Math.max(10, b.hp - 35);
         }
       }
       for (const t of state.tiles) {
@@ -656,21 +769,42 @@ export function castGodPower(
         if (dSq <= rSq && t.height > 0) {
           t.cursedTimer = 25;
           t.blessedTimer = 0;
+          if (t.terrain === 'fertile') t.terrain = 'savanna';
+          if (t.resourceNode === 'berry_bush') {
+            t.resourceAmount = Math.floor(t.resourceAmount * 0.5);
+          }
         }
       }
-      addChronicle(state, 'Shadow Hex cast upon the land, sapping strength and withering soil.', 'warning');
+      state.happiness = Math.max(15, state.happiness - 6);
+      addChronicle(state, 'Curse withered crops and weakened targets.', 'warning');
       break;
     }
 
     case 'plague_miasma': {
+      state.activeHazards.push({
+        id: nextEntityId('haz'),
+        kind: 'plague_cloud',
+        x: targetX,
+        z: targetZ,
+        radius: r,
+        remaining: 12.0,
+        duration: 12.0,
+        tickTimer: 0,
+      });
       for (const u of state.units) {
         const dSq = (u.x - targetX) ** 2 + (u.z - targetZ) ** 2;
         if (dSq <= rSq && !u.statusEffects.shielded) {
           u.statusEffects.plagued = 22;
         }
       }
+      for (const t of state.tiles) {
+        const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
+        if (dSq <= rSq && t.resourceNode === 'berry_bush') {
+          t.resourceAmount = Math.floor(t.resourceAmount * 0.45);
+        }
+      }
       state.happiness = Math.max(20, state.happiness - 10);
-      addChronicle(state, 'Virulent Miasma released! Mortal healers scramble to contain the contagion.', 'warning');
+      addChronicle(state, 'Toxic plague cloud spread across the area!', 'warning');
       break;
     }
 
@@ -685,19 +819,39 @@ export function castGodPower(
             u.koTimer = 0.45;
             state.totalRaidersDefeated += 1;
           } else if (!u.statusEffects.shielded) {
-            u.hp = Math.max(0, u.hp - 65);
+            u.hp = Math.max(0, u.hp - 85);
             if (u.hp <= 0) {
               u.state = 'ko';
               u.koTimer = 0.45;
+            } else {
+              // Radial electrical knockback
+              const dist = Math.max(0.25, Math.sqrt(dSq));
+              u.x = Math.max(1, Math.min(state.gridSize - 2, u.x + ((u.x - targetX) / dist) * 1.4));
+              u.z = Math.max(1, Math.min(state.gridSize - 2, u.z + ((u.z - targetZ) / dist) * 1.4));
             }
           }
         }
       }
-      if (centerTile && centerTile.height > 0) {
-        centerTile.terrain = 'scorched';
-        centerTile.onFireTimer = 10;
+      for (const b of state.buildings) {
+        const dSq = (b.tileX - targetX) ** 2 + (b.tileZ - targetZ) ** 2;
+        if (dSq <= rSq && b.shieldTimer <= 0) {
+          b.hp = Math.max(0, b.hp - 70);
+        }
       }
-      addChronicle(state, 'Celestial Smite strikes from the heavens with blinding thunder!', 'warning');
+      for (const t of state.tiles) {
+        const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
+        if (dSq <= 2.2 && t.height > 0) {
+          t.terrain = 'scorched';
+          t.onFireTimer = 10;
+        } else if (
+          dSq <= rSq &&
+          t.height > 0 &&
+          (t.terrain === 'forest' || t.terrain === 'savanna' || t.terrain === 'fertile')
+        ) {
+          t.onFireTimer = Math.max(t.onFireTimer, 8);
+        }
+      }
+      addChronicle(state, 'Lightning struck the ground, blasting targets and starting fires!', 'warning');
       break;
     }
 
@@ -706,61 +860,95 @@ export function castGodPower(
       for (const t of state.tiles) {
         const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
         if (dSq <= rSq) {
-          if (dSq <= 2.2) {
-            t.height = Math.max(1, t.height - 1);
+          if (dSq <= 2.4) {
+            // Deep crater core
+            t.height = Math.max(1, t.height - 2);
             t.terrain = 'scorched';
             t.onFireTimer = 14;
             if (!t.buildingId) {
               t.resourceNode = 'ore_vein';
               t.resourceAmount = 420;
             }
-          } else if (t.height > 0 && !t.buildingId && (t.x + t.z) % 2 === 0) {
-            t.terrain = 'rock';
-            t.resourceNode = 'crystal_monolith';
-            t.resourceAmount = 360;
+          } else if (dSq <= 8.5) {
+            // Inner crater slope & burning debris
+            t.height = Math.max(1, t.height - 1);
+            t.terrain = 'scorched';
+            t.onFireTimer = 10;
+            if (!t.buildingId && t.resourceNode === 'timber_grove') {
+              t.resourceNode = 'none';
+              t.resourceAmount = 0;
+            }
+          } else if (t.height > 0 && !t.buildingId) {
+            // Crater rim upheaval & brush fire
+            if (t.terrain === 'forest' || t.terrain === 'savanna') {
+              t.onFireTimer = 9;
+            }
+            if ((t.x + t.z) % 3 === 0) {
+              t.terrain = 'rock';
+              t.height = Math.min(8, t.height + 1);
+            }
           }
+        }
+      }
+      for (const b of state.buildings) {
+        const dSq = (b.tileX - targetX) ** 2 + (b.tileZ - targetZ) ** 2;
+        if (dSq <= rSq && b.shieldTimer <= 0) {
+          const dmg = dSq <= 4.0 ? 260 : 120;
+          b.hp = Math.max(0, b.hp - dmg);
         }
       }
       for (const u of state.units) {
         const dSq = (u.x - targetX) ** 2 + (u.z - targetZ) ** 2;
         if (dSq <= rSq && u.state !== 'ko' && !u.statusEffects.shielded) {
-          u.hp = Math.max(0, u.hp - 140);
+          u.hp = Math.max(0, u.hp - 165);
           if (u.hp <= 0) {
             u.state = 'ko';
             u.koTimer = 0.5;
             if (u.faction === 'hostile') state.totalRaidersDefeated += 1;
+          } else {
+            const dist = Math.max(0.3, Math.sqrt(dSq));
+            u.x = Math.max(1, Math.min(state.gridSize - 2, u.x + ((u.x - targetX) / dist) * 2.4));
+            u.z = Math.max(1, Math.min(state.gridSize - 2, u.z + ((u.z - targetZ) / dist) * 2.4));
           }
         }
       }
       state.resources.ore += 90;
       state.resources.alloy += 35;
-      addChronicle(state, 'Starfall Meteor craters the earth, depositing star-iron and rare alloy veins!', 'warning');
+      addChronicle(state, 'Meteor carved a blazing crater and deposited ore veins!', 'warning');
       break;
     }
 
     case 'terraform_beam': {
       isHeavy = true;
-      const targetH = centerTile ? Math.max(3, centerTile.height) : 3;
+      const targetH = centerTile ? Math.max(1, centerTile.height || 2) : 2;
       for (const t of state.tiles) {
         const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
         if (dSq <= rSq) {
           t.height = targetH;
-          t.terrain = dSq <= 2.5 ? 'stone_road' : 'crystal_field';
           t.onFireTimer = 0;
           t.cursedTimer = 0;
-          t.blessedTimer = 30;
-          if (!t.buildingId && dSq > 2.5 && (t.x + t.z) % 2 === 0) {
-            t.resourceNode = 'crystal_monolith';
-            t.resourceAmount = 400;
+          t.blessedTimer = 25;
+          if (!t.buildingId) {
+            t.terrain = state.epochIndex >= 5 ? 'crystal_field' : dSq > 9.0 ? 'fertile' : 'grass';
           }
         }
       }
-      addChronicle(state, 'Genesis Terraformer levels a radiant terrace of crystal monoliths.', 'divine');
+      addChronicle(state, 'Terraform leveled the ground into a clean buildable plateau.', 'divine');
       break;
     }
 
     case 'wormhole_ascension': {
       isHeavy = true;
+      state.activeHazards.push({
+        id: nextEntityId('haz'),
+        kind: 'wormhole_rift',
+        x: targetX,
+        z: targetZ,
+        radius: r,
+        remaining: 6.5,
+        duration: 6.5,
+        tickTimer: 0,
+      });
       state.resources.energy += 200;
       state.resources.alloy += 120;
       state.resources.knowledge += 150;
@@ -770,11 +958,18 @@ export function castGodPower(
         centerTile.resourceNode = 'crystal_monolith';
         centerTile.resourceAmount = 500;
       }
-      addChronicle(
-        state,
-        'Stellar Singularity opened! +200 Energy, +120 Alloy, and +150 Knowledge harvested from the cosmos.',
-        'epoch',
-      );
+      for (const u of state.units) {
+        const dSq = (u.x - targetX) ** 2 + (u.z - targetZ) ** 2;
+        if (dSq <= rSq && u.faction === 'hostile' && u.state !== 'ko') {
+          u.hp = Math.max(0, u.hp - 90);
+          if (u.hp <= 0) {
+            u.state = 'ko';
+            u.koTimer = 0.45;
+            state.totalRaidersDefeated += 1;
+          }
+        }
+      }
+      addChronicle(state, 'Cosmic Rift opened (+200 Energy, +120 Alloy, +150 Research).', 'epoch');
       break;
     }
   }
@@ -795,9 +990,15 @@ export function castGodPower(
   return { ok: true, isHeavy };
 }
 
-function createVillageName(state: SimulationState): string {
+function createVillageName(state: SimulationState, species: SpeciesId = 'human'): string {
   const used = new Set(Object.values(state.settlementNames ?? {}));
-  for (const name of VILLAGE_NAMES) {
+  const pool =
+    species === 'elf'
+      ? ELF_VILLAGE_NAMES
+      : species === 'orc'
+        ? ORC_VILLAGE_NAMES
+        : VILLAGE_NAMES;
+  for (const name of pool) {
     if (!used.has(name)) return name;
   }
   return `Haven ${used.size + 1}`;
@@ -1041,22 +1242,6 @@ function recordHarvestDeposit(
   state.harvestAccumulator[key] += amount;
 }
 
-function chooseNeededSpecialistRole(state: SimulationState, villageCivs: UnitEntity[]): UnitRole {
-  const countRole = (r: UnitRole) => villageCivs.filter((u) => u.role === r).length;
-  const pop = villageCivs.length;
-
-  if (countRole('forager') < Math.max(1, Math.floor(pop * 0.28))) return 'forager';
-  if (countRole('builder') < Math.max(1, Math.floor(pop * 0.2))) return 'builder';
-  if (countRole('miner') < Math.max(1, Math.floor(pop * 0.22))) return 'miner';
-  if (countRole('warrior') < Math.max(1, Math.floor(pop * 0.14))) return 'warrior';
-  if (state.epochIndex >= 1 && countRole('priest') < Math.max(1, Math.floor(pop * 0.12))) return 'priest';
-  if (state.epochIndex >= 1 && countRole('scholar') < Math.max(1, Math.floor(pop * 0.16))) return 'scholar';
-  if (state.epochIndex >= 5 && countRole('astro_engineer') < Math.max(1, Math.floor(pop * 0.16))) {
-    return 'astro_engineer';
-  }
-  return 'villager';
-}
-
 function pickDesiredAutobuildType(
   state: SimulationState,
   villageBuildings: BuildingEntity[],
@@ -1200,15 +1385,19 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
   state.civPlanTimer = 0;
 
   if (!state.settlementNames) state.settlementNames = {};
+  if (!state.settlementSpecies) state.settlementSpecies = {};
 
-  // 1. Bind local homeless settlers or let distant pioneers found their own independent village!
+  // 1. Bind local homeless settlers to same-species settlement or found their own village!
   for (const pioneer of activeCivs) {
     if (pioneer.settlementId) continue;
 
     const nearbyBld = findLocalSettlementBuilding(state, pioneer.x, pioneer.z, SETTLEMENT_AWARENESS_RADIUS);
     if (nearbyBld?.settlementId) {
-      pioneer.settlementId = nearbyBld.settlementId;
-      continue;
+      const bSpecies = state.settlementSpecies[nearbyBld.settlementId] ?? 'human';
+      if (bSpecies === pioneer.species) {
+        pioneer.settlementId = nearbyBld.settlementId;
+        continue;
+      }
     }
 
     const px = Math.round(pioneer.x);
@@ -1225,8 +1414,10 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
       siteTile.resourceAmount = 0;
 
       const newSettlementId = nextEntityId('city');
-      const villageName = createVillageName(state);
+      const sp = pioneer.species ?? 'human';
+      const villageName = createVillageName(state, sp);
       state.settlementNames[newSettlementId] = villageName;
+      state.settlementSpecies[newSettlementId] = sp;
 
       const hearth: BuildingEntity = {
         id: nextEntityId('bld'),
@@ -1246,16 +1437,20 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
       state.buildings.push(hearth);
       state.totalStructuresBuilt += 1;
 
-      // Adopt all homeless pioneers nearby this newly staked hearth
+      // Adopt nearby homeless pioneers of the same species
       for (const other of activeCivs) {
-        if (!other.settlementId && Math.hypot(other.x - siteTile.x, other.z - siteTile.z) <= SETTLEMENT_AWARENESS_RADIUS) {
+        if (
+          !other.settlementId &&
+          other.species === sp &&
+          Math.hypot(other.x - siteTile.x, other.z - siteTile.z) <= SETTLEMENT_AWARENESS_RADIUS
+        ) {
           other.settlementId = newSettlementId;
         }
       }
 
       addChronicle(
         state,
-        `Mortal pioneers found ${villageName} at (${siteTile.x}, ${siteTile.z})!`,
+        `${sp[0].toUpperCase() + sp.slice(1)} pioneers founded ${villageName} at (${siteTile.x}, ${siteTile.z}).`,
         'build',
       );
       recalculateRatesAndCaps(state);
@@ -1266,8 +1461,9 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
   for (const b of state.buildings) {
     if (!b.settlementId) {
       b.settlementId = 'city_default';
+      if (!state.settlementSpecies['city_default']) state.settlementSpecies['city_default'] = 'human';
       if (!state.settlementNames['city_default']) {
-        state.settlementNames['city_default'] = createVillageName(state);
+        state.settlementNames['city_default'] = createVillageName(state, 'human');
       }
     }
   }
@@ -1284,6 +1480,7 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
     const villageUnits = activeCivs.filter((u) => u.settlementId === sid);
     const completedBuildings = villageBuildings.filter((b) => b.constructionProgress >= 100);
     const hasCompletedHearth = completedBuildings.length > 0;
+    const villageSpecies: SpeciesId = state.settlementSpecies[sid] ?? villageUnits[0]?.species ?? 'human';
 
     let villagePopCap = hasCompletedHearth ? epoch.populationBonus : 0;
     for (const b of completedBuildings) {
@@ -1291,7 +1488,7 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
       if (def) villagePopCap += def.popCapBonus;
     }
 
-    // Autonomous Population Growth for THIS village
+    // Autonomous Population Growth for THIS village in its own species
     if (
       hasCompletedHearth &&
       villageUnits.length < villagePopCap &&
@@ -1299,9 +1496,8 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
       state.happiness >= 35
     ) {
       state.resources.food -= 20;
-      const role = chooseNeededSpecialistRole(state, villageUnits);
       const spawnHub = completedBuildings[0];
-      spawnUnit(state, role, spawnHub.tileX, spawnHub.tileZ, true, sid);
+      spawnUnit(state, villageSpecies, spawnHub.tileX, spawnHub.tileZ, true, sid);
     }
 
     // Autonomous Construction Planner scoped to THIS village
@@ -1436,18 +1632,108 @@ function stepSimulationSingle(state: SimulationState, dt: number): void {
     state.epochProgress = 0;
   }
 
-  // 6. Update tile timers
+  // 6. Active hazards (rain clouds, plague clouds, wormholes) & real tile fires
+  if (!state.activeHazards) state.activeHazards = [];
+  const remainingHazards = [];
+  for (const haz of state.activeHazards) {
+    haz.remaining -= dt;
+    haz.tickTimer += dt;
+    if (haz.tickTimer >= 0.45) {
+      haz.tickTimer -= 0.45;
+      const rSq = haz.radius * haz.radius;
+      if (haz.kind === 'rain_cloud') {
+        for (const t of state.tiles) {
+          const dSq = (t.x - haz.x) ** 2 + (t.z - haz.z) ** 2;
+          if (dSq <= rSq && t.height > 0) {
+            t.onFireTimer = 0;
+            t.cursedTimer = 0;
+            if (t.terrain === 'scorched') t.terrain = 'grass';
+          }
+        }
+      } else if (haz.kind === 'plague_cloud') {
+        for (const u of state.units) {
+          const dSq = (u.x - haz.x) ** 2 + (u.z - haz.z) ** 2;
+          if (dSq <= rSq && u.state !== 'ko' && !u.statusEffects.shielded && !u.statusEffects.blessed) {
+            u.statusEffects.plagued = Math.max(u.statusEffects.plagued ?? 0, 16);
+          }
+        }
+      } else if (haz.kind === 'wormhole_rift') {
+        for (const u of state.units) {
+          const dx = haz.x - u.x;
+          const dz = haz.z - u.z;
+          const dSq = dx * dx + dz * dz;
+          if (dSq <= rSq && dSq > 0.25 && u.state !== 'ko' && !u.statusEffects.shielded) {
+            const dist = Math.sqrt(dSq);
+            u.x += (dx / dist) * 1.1;
+            u.z += (dz / dist) * 1.1;
+            if (u.faction === 'hostile') {
+              u.hp -= 12;
+            }
+          }
+        }
+      }
+    }
+    if (haz.remaining > 0) {
+      remainingHazards.push(haz);
+    }
+  }
+  state.activeHazards = remainingHazards;
+
   for (const t of state.tiles) {
     if (t.blessedTimer > 0) t.blessedTimer = Math.max(0, t.blessedTimer - dt);
     if (t.cursedTimer > 0) t.cursedTimer = Math.max(0, t.cursedTimer - dt);
-    if (t.onFireTimer > 0) t.onFireTimer = Math.max(0, t.onFireTimer - dt);
+    if (t.onFireTimer > 0) {
+      const prevTimer = t.onFireTimer;
+      t.onFireTimer = Math.max(0, t.onFireTimer - dt);
+      if (t.height <= 0) {
+        t.onFireTimer = 0;
+        continue;
+      }
+      // Burn vegetation down to scorched earth as fire consumes the tile
+      if (t.resourceAmount > 0 && (t.resourceNode === 'timber_grove' || t.resourceNode === 'berry_bush')) {
+        t.resourceAmount = Math.max(0, t.resourceAmount - 26 * dt);
+        if (t.resourceAmount <= 0) {
+          t.resourceNode = 'none';
+          t.terrain = 'scorched';
+        }
+      } else if (t.onFireTimer === 0 && (t.terrain === 'forest' || t.terrain === 'savanna')) {
+        t.terrain = 'scorched';
+      }
+      // Occasional slow wildfire spread to 1 dry/forest neighbor
+      if (Math.floor(prevTimer) !== Math.floor(t.onFireTimer) && Math.random() < 0.14) {
+        const dirs = [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ];
+        const d = dirs[(t.x + t.z + Math.floor(prevTimer)) & 3];
+        const nb = getTile(state, t.x + d[0], t.z + d[1]);
+        if (
+          nb &&
+          nb.height > 0 &&
+          nb.onFireTimer <= 0 &&
+          nb.blessedTimer <= 0 &&
+          (nb.terrain === 'forest' || nb.terrain === 'savanna' || nb.terrain === 'fertile')
+        ) {
+          nb.onFireTimer = 5.5;
+        }
+      }
+    }
   }
 
-  // 7. Update building timers
+  // 7. Update building timers & fire/curse damage
   for (const b of state.buildings) {
     if (b.blessedTimer > 0) b.blessedTimer = Math.max(0, b.blessedTimer - dt);
-    if (b.cursedTimer > 0) b.cursedTimer = Math.max(0, b.cursedTimer - dt);
+    if (b.cursedTimer > 0) {
+      b.cursedTimer = Math.max(0, b.cursedTimer - dt);
+      if (b.shieldTimer <= 0) b.hp = Math.max(0, b.hp - 1.8 * dt);
+    }
     if (b.shieldTimer > 0) b.shieldTimer = Math.max(0, b.shieldTimer - dt);
+    const bTile = getTile(state, b.tileX, b.tileZ);
+    if (bTile && bTile.onFireTimer > 0 && b.shieldTimer <= 0) {
+      b.hp = Math.max(0, b.hp - 12 * dt);
+    }
     b.epochLevel = Math.max(b.epochLevel, epoch.index);
   }
 
@@ -1695,42 +1981,64 @@ function stepCivilianUnitAI(
   moveSpeed: number,
   dt: number,
 ): void {
-  // 0. Bind nomadic units only if a settlement is within local awareness radius
+  // 0. Bind nomadic units only if a same-species settlement is within local awareness radius
   if (!u.settlementId) {
     const nearbyBld = findLocalSettlementBuilding(state, u.x, u.z, SETTLEMENT_AWARENESS_RADIUS);
     if (nearbyBld?.settlementId) {
-      u.settlementId = nearbyBld.settlementId;
-    }
-  }
-
-  // 1. Combat defense (Warriors, Frenzied citizens, or self-defense vs adjacent raiders)
-  let nearestHostile: UnitEntity | null = null;
-  let hostileDistSq = Infinity;
-  for (const other of state.units) {
-    if (other.faction === 'hostile' && other.state !== 'ko') {
-      const dSq = (other.x - u.x) ** 2 + (other.z - u.z) ** 2;
-      if (dSq < hostileDistSq) {
-        hostileDistSq = dSq;
-        nearestHostile = other;
+      const bSpecies = state.settlementSpecies?.[nearbyBld.settlementId] ?? 'human';
+      if (bSpecies === u.species) {
+        u.settlementId = nearbyBld.settlementId;
       }
     }
   }
 
-  if (nearestHostile && (u.role === 'warrior' || u.statusEffects.frenzied || hostileDistSq < 10)) {
-    const dist = Math.sqrt(hostileDistSq);
+  // Burning tile hurts unshielded units
+  const curTile = getTile(state, u.x, u.z);
+  if (curTile && curTile.onFireTimer > 0 && !u.statusEffects.shielded) {
+    u.hp -= 10 * dt;
+  }
+
+  // 1. Combat defense (Warriors, Frenzied berserkers, Orc border clashes, or self-defense vs raiders)
+  let nearestEnemy: UnitEntity | null = null;
+  let enemyDistSq = Infinity;
+  for (const other of state.units) {
+    if (other.id === u.id || other.state === 'ko') continue;
+    const isHostileRaider = other.faction === 'hostile';
+    const isRivalFrenzy = Boolean(u.statusEffects.frenzied && other.species !== u.species);
+    const isOrcSkirmish =
+      u.species === 'orc' && other.species !== 'orc' && other.faction === 'civilization';
+    if (!isHostileRaider && !isRivalFrenzy && !isOrcSkirmish) continue;
+
+    const dSq = (other.x - u.x) ** 2 + (other.z - u.z) ** 2;
+    const maxEngageSq = isHostileRaider ? Infinity : isRivalFrenzy ? 100 : 36;
+    if (dSq <= maxEngageSq && dSq < enemyDistSq) {
+      enemyDistSq = dSq;
+      nearestEnemy = other;
+    }
+  }
+
+  if (
+    nearestEnemy &&
+    (u.role === 'warrior' ||
+      u.statusEffects.frenzied ||
+      (u.species === 'orc' && enemyDistSq <= 36) ||
+      enemyDistSq < 10)
+  ) {
+    const dist = Math.sqrt(enemyDistSq);
     if (dist <= def.attackRange) {
       u.state = 'fighting';
       if (u.actionCooldown <= 0) {
         u.actionCooldown = u.statusEffects.frenzied ? 0.45 : 0.8;
-        const dmg = def.attackDamage * (u.statusEffects.frenzied ? 2.5 : 1.0);
-        nearestHostile.hp -= dmg;
+        const speciesCombatMult = u.species === 'orc' ? 1.3 : 1.0;
+        const dmg = def.attackDamage * speciesCombatMult * (u.statusEffects.frenzied ? 2.5 : 1.0);
+        nearestEnemy.hp -= dmg;
       }
     } else {
       u.state = 'moving';
-      u.targetX = nearestHostile.x;
-      u.targetZ = nearestHostile.z;
-      const dx = (nearestHostile.x - u.x) / dist;
-      const dz = (nearestHostile.z - u.z) / dist;
+      u.targetX = nearestEnemy.x;
+      u.targetZ = nearestEnemy.z;
+      const dx = (nearestEnemy.x - u.x) / dist;
+      const dz = (nearestEnemy.z - u.z) / dist;
       u.x += dx * moveSpeed * dt;
       u.z += dz * moveSpeed * dt;
     }
@@ -1766,7 +2074,7 @@ function stepCivilianUnitAI(
   if (
     unfinished &&
     u.carryingAmount === 0 &&
-    (u.role === 'builder' || u.role === 'villager' || villageBuildings.length <= 2)
+    (u.role === 'builder' || u.role === 'villager' || u.species === 'human' || villageBuildings.length <= 2)
   ) {
     const dx = unfinished.tileX - u.x;
     const dz = unfinished.tileZ - u.z;
@@ -1780,7 +2088,8 @@ function stepCivilianUnitAI(
     } else {
       u.state = 'building';
       const buildSpeed =
-        (u.role === 'builder' ? 28 : 16) * (u.statusEffects.blessed ? 1.6 : 1.0);
+        (u.role === 'builder' ? 28 : u.species === 'human' ? 22 : 16) *
+        (u.statusEffects.blessed ? 1.6 : 1.0);
       unfinished.constructionProgress = Math.min(100, unfinished.constructionProgress + buildSpeed * dt);
       unfinished.hp = Math.min(unfinished.maxHp, unfinished.hp + 20 * dt);
       if (unfinished.constructionProgress >= 100) {

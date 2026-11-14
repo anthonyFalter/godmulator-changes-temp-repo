@@ -120,7 +120,12 @@ export interface BuildingEntity {
   settlementId?: string;
 }
 
+export type SpeciesId = 'human' | 'elf' | 'orc';
+
 export type UnitRole =
+  | 'human'
+  | 'elf'
+  | 'orc'
   | 'villager'
   | 'forager'
   | 'miner'
@@ -137,6 +142,7 @@ export type UnitStatusEffect = 'blessed' | 'cursed' | 'plagued' | 'frenzied' | '
 
 export interface UnitDefinition {
   role: UnitRole;
+  species?: SpeciesId;
   name: string;
   faction: 'civilization' | 'hostile';
   roleSummary: string;
@@ -152,6 +158,7 @@ export interface UnitEntity {
   id: string;
   name: string;
   role: UnitRole;
+  species: SpeciesId;
   faction: 'civilization' | 'hostile';
   x: number;
   z: number;
@@ -242,6 +249,17 @@ export interface VisualEffectEvent {
   createdAt: number;
 }
 
+export interface ActiveHazardZone {
+  id: string;
+  kind: 'rain_cloud' | 'plague_cloud' | 'shield_dome' | 'wormhole_rift';
+  x: number;
+  z: number;
+  radius: number;
+  remaining: number;
+  duration: number;
+  tickTimer: number;
+}
+
 export type GameLifecycleState = 'title' | 'playing' | 'paused' | 'gameover';
 
 export type LightingPreset = 'noon' | 'dusk' | 'night' | 'dawn' | 'auto';
@@ -265,6 +283,7 @@ export interface SimulationState {
   sandboxFreeMode: boolean;
   chronicle: ChronicleEvent[];
   pendingVfx: VisualEffectEvent[];
+  activeHazards: ActiveHazardZone[];
   totalMiraclesCast: number;
   totalStructuresBuilt: number;
   totalRaidersDefeated: number;
@@ -276,4 +295,5 @@ export interface SimulationState {
   harvestRates?: Resources;
   harvestWindowTimer?: number;
   settlementNames?: Record<string, string>;
+  settlementSpecies?: Record<string, SpeciesId>;
 }

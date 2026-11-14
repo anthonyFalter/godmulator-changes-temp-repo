@@ -12,7 +12,7 @@ import {
   spawnUnit,
   stepSimulation,
 } from './simulation';
-import { EPOCHS } from './catalog';
+import { EPOCHS, SPECIES_UNITS } from './catalog';
 
 test('initial state starts as uninhabited wilderness with zero settlements or units', () => {
   const state = createInitialSimulationState(128, 'WILD-1');
@@ -254,5 +254,102 @@ test('faraway settlers found separate independent villages and never trek to the
     Math.hypot(u2Res.unit!.x - 96, u2Res.unit!.z - 96) < 12,
     'Faraway settler must remain near their own village instead of walking across the map to (24,24)',
   );
+});
+
+test('playable catalog exposes strictly 3 species (human, elf, orc) that found separate species settlements', () => {
+  assert.deepEqual(
+    SPECIES_UNITS.map((u) => u.role),
+    ['human', 'elf', 'orc'],
+  );
+
+  const state = createInitialSimulationState(128, 'SPECIES-3');
+  state.sandboxFreeMode = true;
+  for (let dz = -4; dz <= 4; dz++) {
+    for (let dx = -4; dx <= 4; dx++) {
+      const t = getTile(state, 64 + dx, 64 + dz)!;
+      t.height = 2;
+      t.terrain = 'grass';
+      t.resourceNode = 'none';
+      t.resourceAmount = 0;
+    }
+  }
+
+  const hRes = spawnUnit(state, 'human', 62, 64);
+  const eRes = spawnUnit(state, 'elf', 66, 64);
+  const oRes = spawnUnit(state, 'orc', 64, 67);
+  assert.equal(hRes.unit?.species, 'human');
+  assert.equal(eRes.unit?.species, 'elf');
+  assert.equal(oRes.unit?.species, 'orc');
+
+  for (let i = 0; i < 30; i++) stepSimulation(state, 0.1);
+
+  assert.ok(hRes.unit?.settlementId);
+  assert.ok(eRes.unit?.settlementId);
+  assert.ok(oRes.unit?.settlementId);
+  assert.notEqual(hRes.unit?.settlementId, eRes.unit?.settlementId);
+  assert.notEqual(eRes.unit?.settlementId, oRes.unit?.settlementId);
+  assert.equal(state.settlementSpecies?.[hRes.unit!.settlementId!], 'human');
+  assert.equal(state.settlementSpecies?.[eRes.unit!.settlementId!], 'elf');
+  assert.equal(state.settlementSpecies?.[oRes.unit!.settlementId!], 'orc');
+});
+
+test('god powers execute real effects: meteor craters & fires, rain douses without tree spam, plague/shield/terraform work', () => {
+  const state = createInitialSimulationState(128, 'POWERS-REAL');
+  state.sandboxFreeMode = true;
+  const cx = 64;
+  const cz = 64;
+  for (let dz = -5; dz <= 5; dz++) {
+    for (let dx = -5; dx <= 5; dx++) {
+      const t = getTile(state, cx + dx, cz + dz)!;
+      t.height = 4;
+      t.terrain = 'grass';
+      t.resourceNode = 'none';
+      t.resourceAmount = 0;
+    }
+  }
+
+  // 1. Meteor craters, scorches, ignites fires, and deposits ore_vein
+  const meteorRes = castGodPower(state, 'meteor_strike', cx, cz);
+  assert.equal(meteorRes.ok, true);
+  const center = getTile(state, cx, cz)!;
+  assert.equal(center.height, 2);
+  assert.equal(center.terrain, 'scorched');
+  assert.ok(center.onFireTimer > 0, 'Meteor impact should ignite fire');
+  assert.equal(center.resourceNode, 'ore_vein', 'Meteor crater core should deposit ore');
+
+  // 2. Rain extinguishes fires, revives scorched soil, creates rain_cloud hazard, and does not checkerboard trees
+  const rainRes = castGodPower(state, 'rain_of_plenty', cx, cz);
+  assert.equal(rainRes.ok, true);
+  assert.equal(center.onFireTimer, 0, 'Rain must extinguish active fire');
+  assert.equal(center.terrain, 'grass', 'Rain must restore scorched ground to grass');
+  assert.ok(
+    state.activeHazards.some((h) => h.kind === 'rain_cloud'),
+    'Rain must spawn lingering rain_cloud hazard',
+  );
+  let spawnedNodes = 0;
+  for (let dz = -4; dz <= 4; dz++) {
+    for (let dx = -4; dx <= 4; dx++) {
+      const t = getTile(state, cx + dx, cz + dz)!;
+      if (t.resourceNode === 'timber_grove' || t.resourceNode === 'berry_bush') {
+        spawnedNodes += 1;
+      }
+    }
+  }
+  assert.ok(spawnedNodes < 15, `Rain must not spam checkerboard trees/bushes, got ${spawnedNodes}`);
+
+  // 3. Divine Shield protects target from Lightning Smite & spawns shield_dome
+  const unitRes = spawnUnit(state, 'human', cx, cz);
+  assert.equal(unitRes.ok, true);
+  const target = unitRes.unit!;
+  castGodPower(state, 'divine_shield', cx, cz);
+  assert.ok(state.activeHazards.some((h) => h.kind === 'shield_dome'));
+  castGodPower(state, 'lightning_smite', cx, cz);
+  assert.equal(target.hp, target.maxHp, 'Shielded unit must take zero lightning damage');
+
+  // 4. Plague Miasma creates lingering plague_cloud and infects unshielded unit nearby
+  delete target.statusEffects.shielded;
+  castGodPower(state, 'plague_miasma', cx, cz);
+  assert.ok(state.activeHazards.some((h) => h.kind === 'plague_cloud'));
+  assert.ok((target.statusEffects.plagued ?? 0) > 0);
 });
 
