@@ -114,6 +114,7 @@ export interface BuildingEntity {
   maxHp: number;
   constructionProgress: number; // 0..100
   epochLevel: number;
+  upgradeProgress?: number; // 0..100 progress toward next epochLevel
   blessedTimer: number;
   cursedTimer: number;
   shieldTimer: number;

@@ -302,6 +302,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
     const timberInsts = makePropInstancedList(variantLib.timber, variantLib.standardMat, true);
     const berryInsts = makePropInstancedList(variantLib.berry, variantLib.standardMat, true);
+    const farmCropInsts = makePropInstancedList(variantLib.farmCrop, variantLib.standardMat, true);
+    const sciFiFarmInsts = makePropInstancedList(variantLib.sciFiFarm, variantLib.crystalMat, true);
     const stoneInsts = makePropInstancedList(variantLib.stone, variantLib.standardMat, true);
     const oreInsts = makePropInstancedList(variantLib.ore, variantLib.standardMat, true);
     const crystalInsts = makePropInstancedList(variantLib.crystal, variantLib.crystalMat, true);
@@ -317,6 +319,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     const allPropInsts = [
       ...timberInsts,
       ...berryInsts,
+      ...farmCropInsts,
+      ...sciFiFarmInsts,
       ...stoneInsts,
       ...oreInsts,
       ...crystalInsts,
@@ -2288,13 +2292,19 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     const _propQuat = new THREE.Quaternion();
     const _propScale = new THREE.Vector3(1, 1, 1);
     let lastSyncedSim: SimulationState = sim;
+    let lastSyncedEpochIndex = sim.epochIndex;
 
     function syncSceneFromSimulation(simState: SimulationState, dt: number, elapsed: number) {
       let propsNeedSync = false;
+      if (simState.epochIndex !== lastSyncedEpochIndex) {
+        lastSyncedEpochIndex = simState.epochIndex;
+        propsNeedSync = true;
+      }
 
       let waterMapNeedsSync = simState !== lastSyncedSim;
-        if (simState !== lastSyncedSim) {
+      if (simState !== lastSyncedSim) {
         lastSyncedSim = simState;
+        lastSyncedEpochIndex = simState.epochIndex;
         propsNeedSync = true;
         for (let i = 0; i < simState.tiles.length; i++) {
           const t = simState.tiles[i];
@@ -2413,7 +2423,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           if (t.resourceNode === 'timber_grove') {
             targetInst = timberInsts[h % timberInsts.length];
           } else if (t.resourceNode === 'berry_bush') {
-            targetInst = berryInsts[h % berryInsts.length];
+            if (t.terrain === 'fertile' && simState.epochIndex >= 4) {
+              targetInst = sciFiFarmInsts[h % sciFiFarmInsts.length];
+            } else if (t.terrain === 'fertile' && simState.epochIndex >= 1) {
+              targetInst = farmCropInsts[h % farmCropInsts.length];
+            } else {
+              targetInst = berryInsts[h % berryInsts.length];
+            }
           } else if (t.resourceNode === 'stone_outcrop') {
             targetInst = stoneInsts[h % stoneInsts.length];
           } else if (t.resourceNode === 'ore_vein') {
@@ -3735,7 +3751,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           : 1 + Math.min(3, Math.max(0, propsRef.current.timeScale - 1)) * 0.25;
       skyClouds.update(dt * atmosSpeed, elapsedTotal, preset);
       oceanFoam.updateFrame(elapsedTotal, preset);
-      styledTerrain.updateFrame(elapsedTotal);
+      styledTerrain.updateFrame(elapsedTotal, simRef.current.epochIndex);
 
       // Smooth exponential camera damping + decaying trauma shake
       camYaw = THREE.MathUtils.damp(camYaw, camDesiredYaw, 8, dt);

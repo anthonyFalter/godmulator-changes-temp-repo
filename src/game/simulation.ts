@@ -300,6 +300,7 @@ export function placeBuilding(
     state.settlementNames[settlementId] = createVillageName(state, species);
   }
 
+  const baseEpochIdx = Math.max(0, EPOCHS.findIndex((e) => e.id === def.epoch));
   const newBuilding: BuildingEntity = {
     id: nextEntityId('bld'),
     type: buildingType,
@@ -309,7 +310,8 @@ export function placeBuilding(
     hp: def.maxHp,
     maxHp: def.maxHp,
     constructionProgress: 100,
-    epochLevel: state.epochIndex,
+    epochLevel: state.epochIndex === 0 ? 0 : baseEpochIdx,
+    upgradeProgress: 0,
     blessedTimer: 0,
     cursedTimer: 0,
     shieldTimer: 0,
@@ -1651,17 +1653,19 @@ export function advanceEpoch(
   const epochYears = [-10000, -3000, 1150, 1860, 1975, 2110, 2450];
   state.year = epochYears[state.epochIndex] ?? state.year + 500;
 
-  // Upgrade existing structures visually to the new epoch level and heal them
+  // Heal existing structures and kick off their individual progression toward the new epoch
   for (const b of state.buildings) {
-    b.epochLevel = state.epochIndex;
     b.hp = b.maxHp;
+    if (b.epochLevel < state.epochIndex) {
+      b.upgradeProgress = Math.max(b.upgradeProgress ?? 0, divineLeapOverride ? 35 : 18);
+    }
   }
 
   const anchor = getSettlementAnchor(state);
 
   // Transform civic plaza around each independent settlement & erect epoch landmark
   if (state.buildings.length > 0) {
-    const plazaTerrain = state.epochIndex >= 5 ? 'crystal_field' : 'stone_road';
+    const plazaTerrain = 'stone_road';
     const settlementIds = Array.from(new Set(state.buildings.map((b) => b.settlementId ?? 'city_default')));
 
     for (const sid of settlementIds) {
@@ -1686,7 +1690,7 @@ export function advanceEpoch(
       const bDef = epochBuildings[0];
       const padTile = findBuildableTileNear(state, primaryAnchor.x, primaryAnchor.z, 12);
       if (padTile) {
-        padTile.terrain = state.epochIndex >= 5 ? 'crystal_field' : 'stone_road';
+        padTile.terrain = 'stone_road';
         padTile.resourceNode = 'none';
         padTile.resourceAmount = 0;
         const newBld: BuildingEntity = {
@@ -1836,16 +1840,17 @@ function transformSettlementEnvironment(
   const adj = getTile(state, sampleBld.tileX + pickOff[0], sampleBld.tileZ + pickOff[1]);
   if (adj && adj.height > 0 && !adj.buildingId) {
     if (
-      state.epochIndex >= 5 &&
-      (sampleBld.type === 'launch_arcology' || sampleBld.type === 'dyson_spire')
+      sampleBld.epochLevel >= 5 &&
+      (sampleBld.type === 'launch_arcology' || sampleBld.type === 'dyson_spire') &&
+      (adj.x + adj.z) % 4 === 0
     ) {
       adj.terrain = 'crystal_field';
-      if (adj.resourceNode === 'none' && (adj.x + adj.z) % 3 === 0) {
+      if (adj.resourceNode === 'none') {
         adj.resourceNode = 'crystal_monolith';
         adj.resourceAmount = 320;
       }
     } else if (
-      state.epochIndex >= 3 &&
+      sampleBld.epochLevel >= 3 &&
       (sampleBld.type === 'steam_foundry' || sampleBld.type === 'fission_reactor')
     ) {
       if (adj.resourceNode === 'none') {
@@ -1855,16 +1860,17 @@ function transformSettlementEnvironment(
         adj.resourceAmount = 0;
         adj.terrain = 'stone_road';
       }
-    } else if (state.epochIndex >= 1 && adj.resourceNode === 'none') {
+    } else if (sampleBld.epochLevel >= 1 && adj.resourceNode === 'none') {
       adj.terrain = 'stone_road';
     }
   }
 
-  // 2. Agricultural cultivation near food & civic hubs (forager_hut, granary, guildhall)
+  // 2. Agricultural / hydroponic cultivation near food & civic hubs
   if (
     sampleBld.type === 'forager_hut' ||
     sampleBld.type === 'granary' ||
-    sampleBld.type === 'guildhall'
+    sampleBld.type === 'guildhall' ||
+    sampleBld.type === 'launch_arcology'
   ) {
     for (let attempt = 0; attempt < 3; attempt++) {
       const fx = sampleBld.tileX + Math.floor(Math.random() * 7) - 3;
@@ -1961,7 +1967,8 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
         hp: def.maxHp,
         maxHp: def.maxHp,
         constructionProgress: 30,
-        epochLevel: state.epochIndex,
+        epochLevel: 0,
+        upgradeProgress: 0,
         blessedTimer: 0,
         cursedTimer: 0,
         shieldTimer: 0,
@@ -2047,7 +2054,8 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
             else if (site.resourceNode === 'stone_outcrop') state.resources.stone += 12;
             site.resourceNode = 'none';
             site.resourceAmount = 0;
-            if (state.epochIndex >= 1) site.terrain = 'stone_road';
+            const baseEpochIdx = Math.max(0, EPOCHS.findIndex((e) => e.id === def.epoch));
+            if (baseEpochIdx >= 1) site.terrain = 'stone_road';
 
             const siteBld: BuildingEntity = {
               id: nextEntityId('bld'),
@@ -2058,7 +2066,8 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
               hp: def.maxHp,
               maxHp: def.maxHp,
               constructionProgress: 12,
-              epochLevel: state.epochIndex,
+              epochLevel: baseEpochIdx,
+              upgradeProgress: 0,
               blessedTimer: 0,
               cursedTimer: 0,
               shieldTimer: 0,
@@ -2489,7 +2498,33 @@ function stepSimulationSingle(state: SimulationState, dt: number): void {
     if (bTile && bTile.onFireTimer > 0 && b.shieldTimer <= 0) {
       b.hp = Math.max(0, b.hp - 12 * dt);
     }
-    b.epochLevel = Math.max(b.epochLevel, epoch.index);
+    // Individual building age progression: completed structures upgrade step-by-step from primitive huts/sticks up to Orbital/Interstellar sci-fi
+    if (b.constructionProgress >= 100 && b.epochLevel < state.epochIndex) {
+      const epochGap = state.epochIndex - b.epochLevel;
+      const idOffset = ((b.id.charCodeAt(b.id.length - 1) + b.tileX * 3 + b.tileZ * 5) % 7) * 0.08;
+      const blessBoost = b.blessedTimer > 0 ? 1.65 : 1.0;
+      const passiveUpgradeRate = (16 + epochGap * 9) * (0.82 + idOffset) * blessBoost;
+      b.upgradeProgress = (b.upgradeProgress ?? 0) + passiveUpgradeRate * dt;
+      if (b.upgradeProgress >= 100) {
+        b.upgradeProgress = 0;
+        b.epochLevel = Math.min(state.epochIndex, b.epochLevel + 1);
+        b.maxHp += 40;
+        b.hp = Math.min(b.maxHp, b.hp + 55);
+        if (bTile && b.epochLevel >= 1 && bTile.terrain !== 'crystal_field') {
+          bTile.terrain = 'stone_road';
+        }
+        state.pendingVfx.push({
+          id: nextEntityId('vfx'),
+          type: 'build_complete',
+          x: b.tileX,
+          y: (bTile?.height ?? 2) * 0.45,
+          z: b.tileZ,
+          radius: 1.4,
+          color: b.epochLevel >= 5 ? '#56cfe1' : '#f5b742',
+          createdAt: Date.now(),
+        });
+      }
+    }
   }
 
   // 8. Update unit AI & status effects
@@ -2877,6 +2912,33 @@ function stepCivilianUnitAI(
         );
         recalculateRatesAndCaps(state);
       }
+    }
+    return;
+  }
+
+  // 3b. Builders and villagers actively upgrade older-epoch buildings in their settlement toward the current age
+  const upgradeTarget = villageBuildings.find(
+    (b) => b.constructionProgress >= 100 && b.epochLevel < state.epochIndex,
+  );
+  if (
+    upgradeTarget &&
+    u.carryingAmount === 0 &&
+    (u.role === 'builder' || u.role === 'villager')
+  ) {
+    const dx = upgradeTarget.tileX - u.x;
+    const dz = upgradeTarget.tileZ - u.z;
+    const dist = Math.hypot(dx, dz);
+    u.targetX = upgradeTarget.tileX;
+    u.targetZ = upgradeTarget.tileZ;
+    if (dist > 1.05) {
+      u.state = 'moving';
+      u.x += (dx / dist) * moveSpeed * dt;
+      u.z += (dz / dist) * moveSpeed * dt;
+    } else {
+      u.state = 'building';
+      const upgSpeed = (u.role === 'builder' ? 32 : 20) * (u.statusEffects.blessed ? 1.6 : 1.0);
+      upgradeTarget.upgradeProgress = (upgradeTarget.upgradeProgress ?? 0) + upgSpeed * dt;
+      upgradeTarget.hp = Math.min(upgradeTarget.maxHp, upgradeTarget.hp + 15 * dt);
     }
     return;
   }

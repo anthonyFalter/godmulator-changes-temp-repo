@@ -589,7 +589,7 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
 export interface StyledTerrainSystem {
   getMaterials: (terrain: TerrainType) => THREE.MeshStandardMaterial[];
   updateMap: (tiles: TileData[]) => void;
-  updateFrame: (elapsed: number) => void;
+  updateFrame: (elapsed: number, epochIndex?: number) => void;
   dispose: () => void;
 }
 
@@ -625,11 +625,13 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
   landMapTex.flipY = false;
 
   const sharedTime = { value: 0 };
+  const sharedEpoch = { value: 0 };
   const sharedGridSize = { value: gridSize };
   const sharedLandMap = { value: landMapTex };
 
   const glslHelpers = `
     uniform float uTime;
+    uniform float uEpoch;
     uniform float uGridSize;
     uniform sampler2D uLandMap;
     varying vec3 vLandWorldPos;
@@ -694,19 +696,42 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         if (detail > 0.91) c = mix(c, hi, 0.75);
         return c;
       } else if (code < 4.5) {
-        // Fertile: lush river-valley emerald meadow swells & wildflower speckles
-        float wind = sin(pixPos.x * 0.7 + pixPos.y * 0.5 - tTime * 1.5) * 0.08;
-        vec3 deep  = landSrgb(68.0, 108.0, 56.0);
-        vec3 base  = landSrgb(98.0, 146.0, 74.0);
-        vec3 hi    = landSrgb(138.0, 184.0, 96.0);
-        vec3 c = mix(deep, base, step(0.32, patchVal));
-        c = mix(c, hi, step(0.62, patchVal + wind));
-        if (detail > 0.945) {
-          c = landSrgb(236.0, 198.0, 92.0); // Wildflower blossom fleck
-        } else if (detail < 0.035) {
-          c = landSrgb(214.0, 104.0, 98.0); // Poppy/berry blossom fleck
+        // Fertile / Farming Fields: evolves across ages from wildflower meadow -> plowed crop furrows -> Sci-Fi Hydroponic Bio-Grid
+        if (uEpoch >= 4.5) {
+          // Orbital & Interstellar Ages: Techno-modern hydroponic bio-agri deck with glowing cyan/emerald nutrient channels
+          vec2 fPix = floor(subUv * 16.0);
+          float border = step(fPix.x, 1.0) + step(14.0, fPix.x) + step(fPix.y, 1.0) + step(14.0, fPix.y);
+          float channel = step(abs(fPix.y - 7.5), 1.0);
+          float pulse = 0.65 + 0.35 * sin(tTime * 2.8 + (pixPos.x + pixPos.y) * 1.2);
+          vec3 deckCol = landSrgb(36.0, 50.0, 60.0);
+          vec3 bioGreen = landSrgb(68.0, 186.0, 134.0);
+          vec3 cyanGlow = landSrgb(86.0, 207.0, 225.0);
+          vec3 c = mix(bioGreen, deckCol, clamp(border, 0.0, 1.0) * 0.85);
+          return mix(c, cyanGlow, channel * (0.65 + 0.35 * pulse));
+        } else if (uEpoch >= 1.5) {
+          // Classical -> Atomic Ages: Plowed agricultural crop furrows with golden wheat/grain rows
+          vec2 fPix = floor(subUv * 16.0);
+          float furrow = mod(fPix.y, 4.0);
+          vec3 soilDark = landSrgb(92.0, 68.0, 44.0);
+          vec3 cropGreen = landSrgb(112.0, 158.0, 74.0);
+          vec3 wheatGold = landSrgb(224.0, 178.0, 76.0);
+          vec3 c = mix(soilDark, cropGreen, step(1.5, furrow));
+          return mix(c, wheatGold, step(2.8, furrow));
+        } else {
+          // Prehistoric & Early Bronze: Lush river-valley emerald meadow swells & wildflower speckles
+          float wind = sin(pixPos.x * 0.7 + pixPos.y * 0.5 - tTime * 1.5) * 0.08;
+          vec3 deep  = landSrgb(68.0, 108.0, 56.0);
+          vec3 base  = landSrgb(98.0, 146.0, 74.0);
+          vec3 hi    = landSrgb(138.0, 184.0, 96.0);
+          vec3 c = mix(deep, base, step(0.32, patchVal));
+          c = mix(c, hi, step(0.62, patchVal + wind));
+          if (detail > 0.945) {
+            c = landSrgb(236.0, 198.0, 92.0); // Wildflower blossom fleck
+          } else if (detail < 0.035) {
+            c = landSrgb(214.0, 104.0, 98.0); // Poppy/berry blossom fleck
+          }
+          return c;
         }
-        return c;
       } else if (code < 5.5) {
         // Forest: deep mossy canopy floor patches & dappled light specks
         vec3 base = landSrgb(62.0, 96.0, 68.0);
@@ -740,19 +765,50 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         vec3 c = mix(sh, base, step(0.34, patchVal));
         return mix(c, hi, step(0.65, patchVal));
       } else if (code < 9.5) {
-        // Stone Road: stepped artisanal cobblestone slabs
+        // Road Network: progresses across ages from Dirt/Wood Path -> Cobblestone -> Asphalt Highway -> Orbital Sci-Fi Mag-Lev Road
         vec2 roadPix = floor(subUv * 16.0);
-        float rowIdx = floor(roadPix.y / 4.0);
-        float colShift = mod(rowIdx, 2.0) * 4.0;
-        float mortarY = step(3.0, mod(roadPix.y, 4.0));
-        float mortarX = step(7.0, mod(roadPix.x + colShift, 8.0));
-        float mortar = max(mortarX, mortarY);
-        float toneSeed = landHash12(tileCoordFallback(pixPos) + vec2(rowIdx, floor((roadPix.x + colShift) / 8.0)));
-        vec3 base = landSrgb(168.0, 148.0, 130.0);
-        vec3 hi   = landSrgb(202.0, 182.0, 158.0);
-        vec3 sh   = landSrgb(110.0, 95.0, 82.0);
-        vec3 c = mix(base, hi, step(0.55, toneSeed));
-        return mix(c, sh, mortar * 0.85);
+        if (uEpoch < 1.5) {
+          // Prehistoric & Bronze Ages: Trodden warm earth & wooden log/plank footpath (no grey stone/concrete!)
+          float plankSeam = step(3.0, mod(roadPix.y, 4.0));
+          float edgeDirt = step(roadPix.x, 1.0) + step(14.0, roadPix.x);
+          vec3 dirtBase = landSrgb(138.0, 106.0, 72.0);
+          vec3 woodPlank = landSrgb(162.0, 124.0, 84.0);
+          vec3 darkMud = landSrgb(98.0, 72.0, 46.0);
+          vec3 c = mix(woodPlank, dirtBase, clamp(edgeDirt, 0.0, 1.0));
+          return mix(c, darkMud, plankSeam * 0.7);
+        } else if (uEpoch < 3.5) {
+          // Classical & Industrial Ages: Artisanal cobblestone & masonry road
+          float rowIdx = floor(roadPix.y / 4.0);
+          float colShift = mod(rowIdx, 2.0) * 4.0;
+          float mortarY = step(3.0, mod(roadPix.y, 4.0));
+          float mortarX = step(7.0, mod(roadPix.x + colShift, 8.0));
+          float mortar = max(mortarX, mortarY);
+          float toneSeed = landHash12(tileCoordFallback(pixPos) + vec2(rowIdx, floor((roadPix.x + colShift) / 8.0)));
+          vec3 base = landSrgb(168.0, 148.0, 130.0);
+          vec3 hi   = landSrgb(202.0, 182.0, 158.0);
+          vec3 sh   = landSrgb(110.0, 95.0, 82.0);
+          vec3 c = mix(base, hi, step(0.55, toneSeed));
+          return mix(c, sh, mortar * 0.85);
+        } else if (uEpoch < 4.5) {
+          // Atomic / Modern Age: Dark asphalt roadway with crisp yellow/white lane markings
+          float curb = step(roadPix.x, 1.0) + step(14.0, roadPix.x);
+          float centerDash = step(abs(roadPix.x - 7.5), 0.6) * step(2.0, mod(roadPix.y, 6.0));
+          vec3 asphalt = landSrgb(56.0, 62.0, 70.0);
+          vec3 curbCol = landSrgb(142.0, 150.0, 158.0);
+          vec3 laneLine = landSrgb(242.0, 202.0, 78.0);
+          vec3 c = mix(asphalt, curbCol, clamp(curb, 0.0, 1.0) * 0.75);
+          return mix(c, laneLine, centerDash * 0.9);
+        } else {
+          // Orbital & Interstellar Ages (uEpoch >= 4.5): Techno-modern dark titanium transit deck with glowing cyan mag-lev guide rails
+          float railEdge = step(abs(roadPix.x - 2.0), 0.6) + step(abs(roadPix.x - 13.0), 0.6);
+          float centerPulse = step(abs(roadPix.x - 7.5), 0.6) * step(1.0, mod(roadPix.y + floor(tTime * 8.0), 4.0));
+          float segJoint = step(7.0, mod(roadPix.y, 8.0));
+          vec3 alloyDeck = landSrgb(38.0, 50.0, 64.0);
+          vec3 alloySeam = landSrgb(24.0, 32.0, 42.0);
+          vec3 cyanNeon  = landSrgb(86.0, 207.0, 225.0);
+          vec3 c = mix(alloyDeck, alloySeam, segJoint * 0.75);
+          return mix(c, cyanNeon, clamp(railEdge * 0.75 + centerPulse, 0.0, 1.0));
+        }
       } else if (code < 10.5) {
         // Rock: slate & granite fracture strata
         float strata = landNoise(vec2(chunkPos.x * 0.85 + chunkPos.y * 0.35, chunkPos.y * 0.85));
@@ -842,9 +898,10 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
     roughness: 0.84,
     metalness: 0.08,
   });
-  cliffMat.customProgramCacheKey = () => 'aeon_cliff_pixel_v2';
+  cliffMat.customProgramCacheKey = () => 'aeon_cliff_pixel_v3';
   cliffMat.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = sharedTime;
+    shader.uniforms.uEpoch = sharedEpoch;
     shader.uniforms.uGridSize = sharedGridSize;
     shader.uniforms.uLandMap = sharedLandMap;
     patchVertexShader(shader);
@@ -911,9 +968,10 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
       roughness,
       metalness,
     });
-    topMat.customProgramCacheKey = () => 'aeon_land_top_pixel_v2';
+    topMat.customProgramCacheKey = () => 'aeon_land_top_pixel_v3';
     topMat.onBeforeCompile = (shader) => {
       shader.uniforms.uTime = sharedTime;
+      shader.uniforms.uEpoch = sharedEpoch;
       shader.uniforms.uGridSize = sharedGridSize;
       shader.uniforms.uLandMap = sharedLandMap;
       shader.uniforms.uDefaultCode = { value: tCode };
@@ -1043,8 +1101,9 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
     landMapTex.needsUpdate = true;
   };
 
-  const updateFrame = (elapsed: number) => {
+  const updateFrame = (elapsed: number, epochIndex = 0) => {
     sharedTime.value = elapsed;
+    sharedEpoch.value = epochIndex;
   };
 
   const getMaterials = (terrain: TerrainType) =>

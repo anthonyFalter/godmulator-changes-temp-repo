@@ -537,3 +537,47 @@ test('black hole (wormhole_rift) pulls entities smoothly every frame along an in
   assert.ok(prevDist < 1.5, `Unit should be smoothly drawn close to the singularity core, got ${prevDist}`);
 });
 
+test('individual buildings start at primitive epochLevel 0 and progressively upgrade through ages to the Orbital Age', () => {
+  const state = createInitialSimulationState(128, 'BLD-PROGRESSION');
+  state.sandboxFreeMode = true;
+  const cx = 64;
+  const cz = 64;
+  for (let dz = -6; dz <= 6; dz++) {
+    for (let dx = -6; dx <= 6; dx++) {
+      const t = getTile(state, cx + dx, cz + dz)!;
+      t.height = 2;
+      t.terrain = 'grass';
+      t.resourceNode = 'none';
+      t.resourceAmount = 0;
+    }
+  }
+
+  // Place primitive hearth & forager hut at Prehistoric Age (epochIndex 0)
+  assert.equal(placeBuilding(state, 'bonfire', cx, cz).ok, true);
+  assert.equal(placeBuilding(state, 'forager_hut', cx + 2, cz).ok, true);
+  const hearth = state.buildings.find((b) => b.type === 'bonfire')!;
+  const hut = state.buildings.find((b) => b.type === 'forager_hut')!;
+  assert.equal(hearth.epochLevel, 0, 'Hearth must start at primitive epochLevel 0 (sticks/campfire)');
+  assert.equal(hut.epochLevel, 0, 'Forager hut must start at primitive epochLevel 0 (mud/thatch/sticks)');
+
+  // Advance civilization to Bronze Age (epochIndex 1): buildings should not all snap instantly before simulation steps
+  advanceEpoch(state, true);
+  assert.equal(state.epochIndex, 1);
+  assert.equal(hearth.epochLevel, 0, 'Existing building should upgrade progressively rather than snapping on frame 0');
+
+  // Step simulation so individual buildings accumulate upgradeProgress and reach epochLevel 1
+  for (let i = 0; i < 35; i++) stepSimulation(state, 0.2);
+  assert.equal(hearth.epochLevel, 1, 'Hearth should upgrade to Bronze Age (epochLevel 1)');
+  assert.equal(hut.epochLevel, 1, 'Forager hut should upgrade to Bronze Age (epochLevel 1)');
+
+  // Advance through Classical (2), Industrial (3), Atomic (4), to Orbital Age (5) and verify buildings progress step-by-step to Orbital sci-fi
+  while (state.epochIndex < 5) {
+    advanceEpoch(state, true);
+    for (let i = 0; i < 35; i++) stepSimulation(state, 0.2);
+  }
+  assert.equal(state.epochIndex, 5);
+  assert.equal(hearth.epochLevel, 5, 'Hearth must progress all the way to Orbital Age (epochLevel 5 techno-modern)');
+  assert.equal(hut.epochLevel, 5, 'Forager hut must progress all the way to Orbital Age (epochLevel 5 bio-dome)');
+});
+
+
