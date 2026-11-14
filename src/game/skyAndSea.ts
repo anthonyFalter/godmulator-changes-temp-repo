@@ -615,6 +615,7 @@ const STYLED_TERRAIN_CODE: Record<TerrainType, number> = {
   tundra: 18,
   badlands: 19,
   blossom: 20,
+  runway: 21,
 };
 
 export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem {
@@ -1178,7 +1179,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
       }
 
       if (uEpoch < 4.5) {
-        // Industrial Age: Crushed stone ballast + oak sleepers + gleaming twin iron rails
+        // Industrial & Atomic Age: Ground-level crushed stone ballast + oak sleepers + gleaming twin steel rails
         vec3 ballast = mix(landSrgb(104.0, 96.0, 88.0), landSrgb(126.0, 118.0, 108.0), step(0.55, noiseVal));
         vec3 sleeper = landSrgb(88.0, 56.0, 34.0);
         vec3 steel = landSrgb(208.0, 218.0, 230.0);
@@ -1188,31 +1189,73 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         float railRim = step(abs(dTrack - 0.145), 0.02);
         c = mix(c, rustEdge, railRim * 0.55);
         return mix(c, steel, railLine * 0.95);
-      } else if (uEpoch < 5.5) {
-        // Information Age Metro Transit: Concrete slab track, safety-yellow curb stripe & energized third rail
-        vec3 slab = mix(landSrgb(88.0, 94.0, 104.0), landSrgb(106.0, 114.0, 126.0), step(0.65, noiseVal));
-        vec3 plinth = landSrgb(58.0, 64.0, 72.0);
-        vec3 safetyYellow = landSrgb(245.0, 198.0, 64.0);
-        vec3 chromeRail = landSrgb(228.0, 238.0, 248.0);
-        vec3 c = mix(slab, plinth, tieMask * step(dTrack, 0.24));
-        if (dTrack > 0.26 && dTrack < 0.31) {
-          return safetyYellow;
-        }
-        float thirdRail = step(abs(dTrack - 0.21), 0.024);
-        float mainRails = step(abs(dTrack - 0.125), 0.036);
-        c = mix(c, landSrgb(218.0, 138.0, 52.0), thirdRail * 0.85);
-        return mix(c, chromeRail, mainRails * 0.96);
       } else {
-        // Orbital & Interstellar: High-speed Mag-Lev Guideway with pulsing plasma levitation coil
-        vec3 deck = landSrgb(30.0, 42.0, 56.0);
-        vec3 seam = landSrgb(18.0, 26.0, 36.0);
-        vec3 neon = landSrgb(86.0, 207.0, 225.0);
-        float pulse = 0.65 + 0.35 * sin(tTime * 6.0 - (pixPos.x + pixPos.y) * 2.5);
-        vec3 c = mix(deck, seam, tieMask * 0.45);
-        float coreStrip = step(dTrack, 0.055) * pulse;
-        float sideRails = step(abs(dTrack - 0.15), 0.032);
-        return mix(c, neon, clamp(coreStrip + sideRails * 0.88, 0.0, 1.0));
+        // Information & Space Age: Clean urban transit median / plinth shadow under the 3D suspended metro pillars & viaduct
+        vec3 curb = landSrgb(72.0, 78.0, 88.0);
+        vec3 gravel = mix(landSrgb(56.0, 62.0, 70.0), landSrgb(68.0, 74.0, 84.0), step(0.55, noiseVal));
+        vec3 plazaStripe = uEpoch >= 5.5 ? landSrgb(52.0, 148.0, 168.0) : landSrgb(98.0, 128.0, 76.0);
+        vec3 c = mix(curb, gravel, step(dTrack, 0.28));
+        return mix(c, plazaStripe, step(dTrack, 0.14) * 0.65);
       }
+    }
+
+    vec3 computeRunwayColor(
+      vec2 pixPos,
+      vec2 subUv,
+      float tTime,
+      bool wN,
+      bool wS,
+      bool wW,
+      bool wE,
+      vec3 marginCol
+    ) {
+      bool verticalAxis = (wN || wS) && !(wW || wE);
+      float along = verticalAxis ? subUv.y : subUv.x;
+      float across = verticalAxis ? abs(subUv.x - 0.5) : abs(subUv.y - 0.5);
+      bool hasPrev = verticalAxis ? wN : wW;
+      bool hasNext = verticalAxis ? wS : wE;
+
+      if (across > 0.44) {
+        return marginCol;
+      }
+
+      float noiseVal = landHash12(pixPos * 16.0);
+      vec3 asphalt = mix(landSrgb(42.0, 46.0, 54.0), landSrgb(52.0, 56.0, 66.0), step(0.62, noiseVal));
+      vec3 shoulder = landSrgb(30.0, 34.0, 40.0);
+      vec3 paintWhite = landSrgb(236.0, 240.0, 246.0);
+      vec3 edgeAmber = landSrgb(235.0, 186.0, 64.0);
+
+      vec3 c = mix(asphalt, shoulder, step(0.36, across));
+
+      // Yellow edge lines
+      if (abs(across - 0.34) < 0.028) {
+        c = edgeAmber;
+      }
+
+      // Threshold piano-key stripes at runway ends
+      bool atStartThreshold = !hasPrev && along > 0.10 && along < 0.34;
+      bool atEndThreshold = !hasNext && along > 0.66 && along < 0.90;
+      if ((atStartThreshold || atEndThreshold) && across < 0.29) {
+        float barWave = fract(across * 16.0);
+        if (barWave > 0.35) {
+          c = paintWhite;
+        }
+      } else if (across < 0.036) {
+        // Dashed white centerline
+        float dash = fract(along * 2.0 + 0.12);
+        if (dash > 0.22 && dash < 0.78) {
+          c = paintWhite;
+        }
+      }
+
+      // Animated runway edge beacons
+      float beaconAlong = abs(along - 0.5);
+      if (abs(across - 0.40) < 0.035 && beaconAlong < 0.07) {
+        float pulse = 0.65 + 0.35 * sin(tTime * 4.5 - (pixPos.x + pixPos.y));
+        vec3 beaconCol = uEpoch >= 5.5 ? landSrgb(86.0, 224.0, 245.0) : landSrgb(255.0, 214.0, 102.0);
+        c = mix(c, beaconCol, 0.78 * pulse);
+      }
+      return c;
     }
   `;
 
@@ -1434,16 +1477,18 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
             vec3 marginCol = computeBiomeColor(marginBiome, pixPos, chunkPos, subUv, uTime, false);
             col = computeRoadColor(pixPos, subUv, uTime, rN, rS, rW, rE, rNW, rNE, rSW, rSE, marginCol);
 
-            // Overlay gleaming steel crossing rails when adjacent opposing neighbors are rail_track (14.0)
-            bool crossWE = abs(cW - 14.0) < 0.5 && abs(cE - 14.0) < 0.5;
-            bool crossNS = abs(cN - 14.0) < 0.5 && abs(cS - 14.0) < 0.5;
-            if (crossWE) {
-              float railStrip = step(abs(abs(subUv.y - 0.5) - 0.125), 0.036);
-              col = mix(col, landSrgb(218.0, 228.0, 240.0), railStrip * 0.92);
-            }
-            if (crossNS) {
-              float railStrip = step(abs(abs(subUv.x - 0.5) - 0.125), 0.036);
-              col = mix(col, landSrgb(218.0, 228.0, 240.0), railStrip * 0.92);
+            // Overlay gleaming steel crossing rails only for ground-level rail crossings (uEpoch < 4.5); elevated metro bridges overhead
+            if (uEpoch < 4.5) {
+              bool crossWE = abs(cW - 14.0) < 0.5 && abs(cE - 14.0) < 0.5;
+              bool crossNS = abs(cN - 14.0) < 0.5 && abs(cS - 14.0) < 0.5;
+              if (crossWE) {
+                float railStrip = step(abs(abs(subUv.y - 0.5) - 0.125), 0.036);
+                col = mix(col, landSrgb(218.0, 228.0, 240.0), railStrip * 0.92);
+              }
+              if (crossNS) {
+                float railStrip = step(abs(abs(subUv.x - 0.5) - 0.125), 0.036);
+                col = mix(col, landSrgb(218.0, 228.0, 240.0), railStrip * 0.92);
+              }
             }
           } else if (abs(myCode - 14.0) < 0.5) {
             // 0c. Connected Metro / Railway Track (rail_track = 14.0)
@@ -1453,39 +1498,52 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
             bool tE = abs(cE - 14.0) < 0.5 || (abs(cE - 9.0) < 0.5 && abs(cW - 14.0) < 0.5);
 
             float marginBiome = 3.0;
-            if (!tN && subUv.y < 0.35 && cN >= 2.0 && abs(cN - 14.0) > 0.5 && abs(cN - 9.0) > 0.5) {
+            if (!tN && subUv.y < 0.35 && cN >= 2.0 && abs(cN - 14.0) > 0.5 && abs(cN - 9.0) > 0.5 && abs(cN - 21.0) > 0.5) {
               marginBiome = cN;
-            } else if (!tS && subUv.y > 0.65 && cS >= 2.0 && abs(cS - 14.0) > 0.5 && abs(cS - 9.0) > 0.5) {
+            } else if (!tS && subUv.y > 0.65 && cS >= 2.0 && abs(cS - 14.0) > 0.5 && abs(cS - 9.0) > 0.5 && abs(cS - 21.0) > 0.5) {
               marginBiome = cS;
-            } else if (!tW && subUv.x < 0.35 && cW >= 2.0 && abs(cW - 14.0) > 0.5 && abs(cW - 9.0) > 0.5) {
+            } else if (!tW && subUv.x < 0.35 && cW >= 2.0 && abs(cW - 14.0) > 0.5 && abs(cW - 9.0) > 0.5 && abs(cW - 21.0) > 0.5) {
               marginBiome = cW;
-            } else if (!tE && subUv.x > 0.65 && cE >= 2.0 && abs(cE - 14.0) > 0.5 && abs(cE - 9.0) > 0.5) {
+            } else if (!tE && subUv.x > 0.65 && cE >= 2.0 && abs(cE - 14.0) > 0.5 && abs(cE - 9.0) > 0.5 && abs(cE - 21.0) > 0.5) {
               marginBiome = cE;
-            } else if (!tN && cN >= 2.0 && abs(cN - 14.0) > 0.5 && abs(cN - 9.0) > 0.5) {
+            } else if (!tN && cN >= 2.0 && abs(cN - 14.0) > 0.5 && abs(cN - 9.0) > 0.5 && abs(cN - 21.0) > 0.5) {
               marginBiome = cN;
-            } else if (!tS && cS >= 2.0 && abs(cS - 14.0) > 0.5 && abs(cS - 9.0) > 0.5) {
+            } else if (!tS && cS >= 2.0 && abs(cS - 14.0) > 0.5 && abs(cS - 9.0) > 0.5 && abs(cS - 21.0) > 0.5) {
               marginBiome = cS;
-            } else if (!tW && cW >= 2.0 && abs(cW - 14.0) > 0.5 && abs(cW - 9.0) > 0.5) {
+            } else if (!tW && cW >= 2.0 && abs(cW - 14.0) > 0.5 && abs(cW - 9.0) > 0.5 && abs(cW - 21.0) > 0.5) {
               marginBiome = cW;
-            } else if (!tE && cE >= 2.0 && abs(cE - 14.0) > 0.5 && abs(cE - 9.0) > 0.5) {
+            } else if (!tE && cE >= 2.0 && abs(cE - 14.0) > 0.5 && abs(cE - 9.0) > 0.5 && abs(cE - 21.0) > 0.5) {
               marginBiome = cE;
             }
             vec3 marginCol = computeBiomeColor(marginBiome, pixPos, chunkPos, subUv, uTime, false);
             col = computeRailColor(pixPos, subUv, uTime, tN, tS, tW, tE, marginCol);
+          } else if (abs(myCode - 21.0) < 0.5) {
+            // 0d. Dedicated Airport Runway (runway = 21.0)
+            bool wN = abs(cN - 21.0) < 0.5;
+            bool wS = abs(cS - 21.0) < 0.5;
+            bool wW = abs(cW - 21.0) < 0.5;
+            bool wE = abs(cE - 21.0) < 0.5;
+            float marginBiome = 3.0;
+            if (!wN && cN >= 2.0 && abs(cN - 21.0) > 0.5 && abs(cN - 9.0) > 0.5) marginBiome = cN;
+            else if (!wS && cS >= 2.0 && abs(cS - 21.0) > 0.5 && abs(cS - 9.0) > 0.5) marginBiome = cS;
+            else if (!wW && cW >= 2.0 && abs(cW - 21.0) > 0.5 && abs(cW - 9.0) > 0.5) marginBiome = cW;
+            else if (!wE && cE >= 2.0 && abs(cE - 21.0) > 0.5 && abs(cE - 9.0) > 0.5) marginBiome = cE;
+            vec3 marginCol = computeBiomeColor(marginBiome, pixPos, chunkPos, subUv, uTime, false);
+            col = computeRunwayColor(pixPos, subUv, uTime, wN, wS, wW, wE, marginCol);
           } else {
             col = computeBiomeColor(myCode, pixPos, chunkPos, subUv, uTime, self.a > 0.5);
           }
 
-          // 1. Cross-biome organic pixel dithering along shared terrace seams (except crisp roads & rails)
-          if (myCode != 9.0 && myCode != 14.0) {
+          // 1. Cross-biome organic pixel dithering along shared terrace seams (except crisp roads, rails & runways)
+          if (myCode != 9.0 && myCode != 14.0 && myCode != 21.0) {
             float ditherRng = landHash12(pixPos * 16.0);
-            if (hN == myHeight && cN != myCode && cN != 9.0 && cN != 14.0 && subUv.y < 0.24 && ditherRng > subUv.y * 3.8) {
+            if (hN == myHeight && cN != myCode && cN != 9.0 && cN != 14.0 && cN != 21.0 && subUv.y < 0.24 && ditherRng > subUv.y * 3.8) {
               col = computeBiomeColor(cN, pixPos, chunkPos, subUv, uTime, nN.a > 0.5);
-            } else if (hS == myHeight && cS != myCode && cS != 9.0 && cS != 14.0 && (1.0 - subUv.y) < 0.24 && ditherRng > (1.0 - subUv.y) * 3.8) {
+            } else if (hS == myHeight && cS != myCode && cS != 9.0 && cS != 14.0 && cS != 21.0 && (1.0 - subUv.y) < 0.24 && ditherRng > (1.0 - subUv.y) * 3.8) {
               col = computeBiomeColor(cS, pixPos, chunkPos, subUv, uTime, nS.a > 0.5);
-            } else if (hW == myHeight && cW != myCode && cW != 9.0 && cW != 14.0 && subUv.x < 0.24 && ditherRng > subUv.x * 3.8) {
+            } else if (hW == myHeight && cW != myCode && cW != 9.0 && cW != 14.0 && cW != 21.0 && subUv.x < 0.24 && ditherRng > subUv.x * 3.8) {
               col = computeBiomeColor(cW, pixPos, chunkPos, subUv, uTime, nW.a > 0.5);
-            } else if (hE == myHeight && cE != myCode && cE != 9.0 && cE != 14.0 && (1.0 - subUv.x) < 0.24 && ditherRng > (1.0 - subUv.x) * 3.8) {
+            } else if (hE == myHeight && cE != myCode && cE != 9.0 && cE != 14.0 && cE != 21.0 && (1.0 - subUv.x) < 0.24 && ditherRng > (1.0 - subUv.x) * 3.8) {
               col = computeBiomeColor(cE, pixPos, chunkPos, subUv, uTime, nE.a > 0.5);
             }
           }

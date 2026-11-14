@@ -231,7 +231,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     worldGroup.add(skyClouds.shadowGroup);
     worldGroup.add(skyClouds.group);
 
-    // Instanced terrain system (21 draw calls total regardless of map size!)
+    // Instanced terrain system (22 draw calls total regardless of map size!)
     const TERRAIN_TYPES: TerrainType[] = [
       'deep_water',
       'shallow_water',
@@ -254,6 +254,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       'tundra',
       'badlands',
       'blossom',
+      'runway',
     ];
     const tileGeo = new THREE.BoxGeometry(1.0, 1.0, 1.0);
     tileGeo.translate(0, -0.5, 0);
@@ -365,6 +366,91 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       ...ambBlossomInsts,
     ];
 
+    // Elevated Metro Viaduct System (Epoch 5+ concrete / Epoch 6+ titanium-maglev on T-pillars) & Runway Beacons
+    const MAX_METRO_INST = 4096;
+    const MAX_METRO_STRIP_INST = 8192;
+    const MAX_RUNWAY_LIGHT_INST = 1024;
+    const metroGroup = new THREE.Group();
+    worldGroup.add(metroGroup);
+
+    const metroConcreteMat = new THREE.MeshStandardMaterial({
+      color: 0x8d99ae,
+      roughness: 0.78,
+      metalness: 0.08,
+    });
+    const metroParapetMat = new THREE.MeshStandardMaterial({
+      color: 0x5c677d,
+      roughness: 0.65,
+      metalness: 0.18,
+    });
+    const metroRailMat = new THREE.MeshStandardMaterial({
+      color: 0xe2e8f0,
+      roughness: 0.28,
+      metalness: 0.72,
+      emissive: 0x000000,
+      emissiveIntensity: 0,
+    });
+    const runwayBeaconMat = new THREE.MeshStandardMaterial({
+      color: 0xfde68a,
+      emissive: 0xf59e0b,
+      emissiveIntensity: 1.15,
+      roughness: 0.25,
+    });
+
+    const metroPillarGeo = new THREE.BoxGeometry(0.17, 0.64, 0.17);
+    const metroCapGeo = new THREE.BoxGeometry(0.36, 0.09, 0.36);
+    const metroDeckHubGeo = new THREE.BoxGeometry(0.58, 0.12, 0.58);
+    const metroSpanEWGeo = new THREE.BoxGeometry(1.0, 0.12, 0.58);
+    const metroSpanNSGeo = new THREE.BoxGeometry(0.58, 0.12, 1.0);
+    const metroRailHubGeo = new THREE.BoxGeometry(0.30, 0.045, 0.30);
+    const metroRailEWGeo = new THREE.BoxGeometry(1.0, 0.045, 0.06);
+    const metroRailNSGeo = new THREE.BoxGeometry(0.06, 0.045, 1.0);
+    const metroParapetEWGeo = new THREE.BoxGeometry(1.0, 0.065, 0.055);
+    const metroParapetNSGeo = new THREE.BoxGeometry(0.055, 0.065, 1.0);
+    const runwayBeaconGeo = new THREE.BoxGeometry(0.07, 0.11, 0.07);
+
+    const makeMetroInst = (
+      geo: THREE.BufferGeometry,
+      mat: THREE.Material,
+      cap: number,
+      castShadow: boolean,
+    ) => {
+      const inst = new THREE.InstancedMesh(geo, mat, cap);
+      inst.frustumCulled = false;
+      inst.boundingSphere = worldBoundsSphere;
+      inst.castShadow = castShadow;
+      inst.receiveShadow = true;
+      inst.count = 0;
+      metroGroup.add(inst);
+      return inst;
+    };
+
+    const metroPillarInst = makeMetroInst(metroPillarGeo, metroConcreteMat, MAX_METRO_INST, true);
+    const metroCapInst = makeMetroInst(metroCapGeo, metroConcreteMat, MAX_METRO_INST, true);
+    const metroDeckHubInst = makeMetroInst(metroDeckHubGeo, metroConcreteMat, MAX_METRO_INST, true);
+    const metroSpanEWInst = makeMetroInst(metroSpanEWGeo, metroConcreteMat, MAX_METRO_INST, true);
+    const metroSpanNSInst = makeMetroInst(metroSpanNSGeo, metroConcreteMat, MAX_METRO_INST, true);
+    const metroRailHubInst = makeMetroInst(metroRailHubGeo, metroRailMat, MAX_METRO_INST, false);
+    const metroRailEWInst = makeMetroInst(metroRailEWGeo, metroRailMat, MAX_METRO_STRIP_INST, false);
+    const metroRailNSInst = makeMetroInst(metroRailNSGeo, metroRailMat, MAX_METRO_STRIP_INST, false);
+    const metroParapetEWInst = makeMetroInst(metroParapetEWGeo, metroParapetMat, MAX_METRO_STRIP_INST, true);
+    const metroParapetNSInst = makeMetroInst(metroParapetNSGeo, metroParapetMat, MAX_METRO_STRIP_INST, true);
+    const runwayBeaconInst = makeMetroInst(runwayBeaconGeo, runwayBeaconMat, MAX_RUNWAY_LIGHT_INST, false);
+
+    const allMetroInsts = [
+      metroPillarInst,
+      metroCapInst,
+      metroDeckHubInst,
+      metroSpanEWInst,
+      metroSpanNSInst,
+      metroRailHubInst,
+      metroRailEWInst,
+      metroRailNSInst,
+      metroParapetEWInst,
+      metroParapetNSInst,
+      runwayBeaconInst,
+    ];
+
     const TERRAIN_CODE: Record<string, number> = {
       deep_water: 0,
       shallow_water: 1,
@@ -387,6 +473,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       tundra: 18,
       badlands: 19,
       blossom: 20,
+      runway: 21,
     };
     const NODE_CODE: Record<string, number> = {
       none: 0,
@@ -2515,6 +2602,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     const _propAxisY = new THREE.Vector3(0, 1, 0);
     const _propQuat = new THREE.Quaternion();
     const _propScale = new THREE.Vector3(1, 1, 1);
+    const _metroEuler = new THREE.Euler();
     let lastSyncedSim: SimulationState = sim;
     let lastSyncedEpochIndex = sim.epochIndex;
 
@@ -2762,6 +2850,180 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
         for (const pInst of allPropInsts) {
           pInst.instanceMatrix.needsUpdate = true;
+        }
+
+        // Rebuild Elevated Metro Viaducts (Epoch 5+) & Dedicated Runway Edge Beacons
+        for (const mInst of allMetroInsts) mInst.count = 0;
+
+        if (simState.epochIndex >= 6) {
+          metroConcreteMat.color.setHex(0xcbd5e1);
+          metroConcreteMat.metalness = 0.28;
+          metroConcreteMat.roughness = 0.42;
+          metroParapetMat.color.setHex(0x334155);
+          metroRailMat.color.setHex(0x56cfe1);
+          metroRailMat.emissive.setHex(0x38bdf8);
+          metroRailMat.emissiveIntensity = 0.95;
+        } else {
+          metroConcreteMat.color.setHex(0x8d99ae);
+          metroConcreteMat.metalness = 0.08;
+          metroConcreteMat.roughness = 0.78;
+          metroParapetMat.color.setHex(0x5c677d);
+          metroRailMat.color.setHex(0xe2e8f0);
+          metroRailMat.emissive.setHex(0x000000);
+          metroRailMat.emissiveIntensity = 0;
+        }
+
+        const gs = simState.gridSize;
+        const bldTypeAt = new Map<number, string>();
+        for (let bi = 0; bi < simState.buildings.length; bi++) {
+          const bld = simState.buildings[bi];
+          bldTypeAt.set(bld.tileZ * gs + bld.tileX, bld.type);
+        }
+
+        const isRailOrStationAt = (tx: number, tz: number) => {
+          if (tx < 0 || tz < 0 || tx >= gs || tz >= gs) return false;
+          const tileIdx = tz * gs + tx;
+          const tile = simState.tiles[tileIdx];
+          if (!tile || tile.height <= 0) return false;
+          return tile.terrain === 'rail_track' || bldTypeAt.get(tileIdx) === 'rail_station';
+        };
+
+        const isElevatedNodeAt = (tx: number, tz: number) => {
+          if (tx < 0 || tz < 0 || tx >= gs || tz >= gs) return false;
+          const tileIdx = tz * gs + tx;
+          const tile = simState.tiles[tileIdx];
+          if (!tile || tile.height <= 0) return false;
+          if (tile.terrain === 'rail_track' || bldTypeAt.get(tileIdx) === 'rail_station') {
+            return true;
+          }
+          if (tile.terrain === 'stone_road') {
+            const ewBridge = isRailOrStationAt(tx - 1, tz) && isRailOrStationAt(tx + 1, tz);
+            const nsBridge = isRailOrStationAt(tx, tz - 1) && isRailOrStationAt(tx, tz + 1);
+            return ewBridge || nsBridge;
+          }
+          return false;
+        };
+
+        const pushInst = (
+          inst: THREE.InstancedMesh,
+          px: number,
+          py: number,
+          pz: number,
+          qx = 0,
+          qy = 0,
+          qz = 0,
+          sx = 1,
+          sy = 1,
+          sz = 1,
+        ) => {
+          if (inst.count >= inst.instanceMatrix.count) return;
+          _dummyPos.set(px, py, pz);
+          if (qx !== 0 || qy !== 0 || qz !== 0) {
+            _metroEuler.set(qx, qy, qz);
+            _propQuat.setFromEuler(_metroEuler);
+          } else {
+            _propQuat.identity();
+          }
+          _dummyScale.set(sx, sy, sz);
+          _dummyMatrix.compose(_dummyPos, _propQuat, _dummyScale);
+          const slot = inst.count;
+          inst.count = slot + 1;
+          inst.setMatrixAt(slot, _dummyMatrix);
+        };
+
+        const elevatedActive = simState.epochIndex >= 5;
+        for (let i = 0; i < simState.tiles.length; i++) {
+          const t = simState.tiles[i];
+          if (t.height <= 0) continue;
+          const curY = tileCurrentY[i];
+
+          // Runway perimeter beacons (all epochs once airport runway exists)
+          if (t.terrain === 'runway') {
+            const nRunway = t.z > 0 && simState.tiles[(t.z - 1) * gs + t.x]?.terrain === 'runway';
+            const sRunway = t.z + 1 < gs && simState.tiles[(t.z + 1) * gs + t.x]?.terrain === 'runway';
+            const wRunway = t.x > 0 && simState.tiles[t.z * gs + (t.x - 1)]?.terrain === 'runway';
+            const eRunway = t.x + 1 < gs && simState.tiles[t.z * gs + (t.x + 1)]?.terrain === 'runway';
+            if ((eRunway || wRunway) && !nRunway && !sRunway) {
+              pushInst(runwayBeaconInst, t.x, curY + 0.055, t.z - 0.43);
+              pushInst(runwayBeaconInst, t.x, curY + 0.055, t.z + 0.43);
+            } else if ((nRunway || sRunway) && !eRunway && !wRunway) {
+              pushInst(runwayBeaconInst, t.x - 0.43, curY + 0.055, t.z);
+              pushInst(runwayBeaconInst, t.x + 0.43, curY + 0.055, t.z);
+            } else {
+              if (!nRunway) pushInst(runwayBeaconInst, t.x, curY + 0.055, t.z - 0.43);
+              if (!sRunway) pushInst(runwayBeaconInst, t.x, curY + 0.055, t.z + 0.43);
+              if (!wRunway) pushInst(runwayBeaconInst, t.x - 0.43, curY + 0.055, t.z);
+              if (!eRunway) pushInst(runwayBeaconInst, t.x + 0.43, curY + 0.055, t.z);
+            }
+          }
+
+          if (!elevatedActive) continue;
+
+          const nodeHere = isElevatedNodeAt(t.x, t.z);
+          if (!nodeHere) continue;
+
+          const isStationHere = bldTypeAt.get(i) === 'rail_station';
+          const isRoadBridgeHere = t.terrain === 'stone_road';
+
+          // Support pillar + flared T-cap on elevated rail tiles (skip pillars in road traffic lanes & inside stations)
+          if (t.terrain === 'rail_track' && !isStationHere) {
+            pushInst(metroPillarInst, t.x, curY + 0.32, t.z);
+            pushInst(metroCapInst, t.x, curY + 0.60, t.z);
+          }
+          // Elevated deck hub + top rail plate on track tiles & 4-way road-crossing spans
+          if (t.terrain === 'rail_track' || isRoadBridgeHere) {
+            pushInst(metroDeckHubInst, t.x, curY + 0.68, t.z);
+            pushInst(metroRailHubInst, t.x, curY + 0.75, t.z);
+          }
+
+          // Connect East (+X) neighbor if it forms a continuous viaduct span
+          if (t.x + 1 < gs && isElevatedNodeAt(t.x + 1, t.z)) {
+            const eastIdx = t.z * gs + (t.x + 1);
+            const eastTile = simState.tiles[eastIdx];
+            const eastIsRoad = eastTile.terrain === 'stone_road';
+            const eastIsStation = bldTypeAt.get(eastIdx) === 'rail_station';
+            // Connect if at least one end is rail_track (or road bridge connecting rail_tracks)
+            if (t.terrain === 'rail_track' || eastTile.terrain === 'rail_track' || !eastIsStation) {
+              if (!(isRoadBridgeHere && eastIsRoad)) {
+                const nextY = tileCurrentY[eastIdx];
+                const dy = nextY - curY;
+                const spanLen = Math.hypot(1, dy);
+                const slopeZ = Math.atan2(dy, 1);
+                const midY = (curY + nextY) * 0.5;
+                pushInst(metroSpanEWInst, t.x + 0.5, midY + 0.68, t.z, 0, 0, slopeZ, spanLen, 1, 1);
+                pushInst(metroRailEWInst, t.x + 0.5, midY + 0.755, t.z - 0.14, 0, 0, slopeZ, spanLen, 1, 1);
+                pushInst(metroRailEWInst, t.x + 0.5, midY + 0.755, t.z + 0.14, 0, 0, slopeZ, spanLen, 1, 1);
+                pushInst(metroParapetEWInst, t.x + 0.5, midY + 0.76, t.z - 0.27, 0, 0, slopeZ, spanLen, 1, 1);
+                pushInst(metroParapetEWInst, t.x + 0.5, midY + 0.76, t.z + 0.27, 0, 0, slopeZ, spanLen, 1, 1);
+              }
+            }
+          }
+
+          // Connect South (+Z) neighbor if it forms a continuous viaduct span
+          if (t.z + 1 < gs && isElevatedNodeAt(t.x, t.z + 1)) {
+            const southIdx = (t.z + 1) * gs + t.x;
+            const southTile = simState.tiles[southIdx];
+            const southIsRoad = southTile.terrain === 'stone_road';
+            const southIsStation = bldTypeAt.get(southIdx) === 'rail_station';
+            if (t.terrain === 'rail_track' || southTile.terrain === 'rail_track' || !southIsStation) {
+              if (!(isRoadBridgeHere && southIsRoad)) {
+                const nextY = tileCurrentY[southIdx];
+                const dy = nextY - curY;
+                const spanLen = Math.hypot(1, dy);
+                const slopeX = -Math.atan2(dy, 1);
+                const midY = (curY + nextY) * 0.5;
+                pushInst(metroSpanNSInst, t.x, midY + 0.68, t.z + 0.5, slopeX, 0, 0, 1, 1, spanLen);
+                pushInst(metroRailNSInst, t.x - 0.14, midY + 0.755, t.z + 0.5, slopeX, 0, 0, 1, 1, spanLen);
+                pushInst(metroRailNSInst, t.x + 0.14, midY + 0.755, t.z + 0.5, slopeX, 0, 0, 1, 1, spanLen);
+                pushInst(metroParapetNSInst, t.x - 0.27, midY + 0.76, t.z + 0.5, slopeX, 0, 0, 1, 1, spanLen);
+                pushInst(metroParapetNSInst, t.x + 0.27, midY + 0.76, t.z + 0.5, slopeX, 0, 0, 1, 1, spanLen);
+              }
+            }
+          }
+        }
+
+        for (const mInst of allMetroInsts) {
+          mInst.instanceMatrix.needsUpdate = true;
         }
       }
 
@@ -4425,6 +4687,21 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       skyClouds.dispose();
       oceanFoam.dispose();
       styledTerrain.dispose();
+      metroConcreteMat.dispose();
+      metroParapetMat.dispose();
+      metroRailMat.dispose();
+      runwayBeaconMat.dispose();
+      metroPillarGeo.dispose();
+      metroCapGeo.dispose();
+      metroDeckHubGeo.dispose();
+      metroSpanEWGeo.dispose();
+      metroSpanNSGeo.dispose();
+      metroRailHubGeo.dispose();
+      metroRailEWGeo.dispose();
+      metroRailNSGeo.dispose();
+      metroParapetEWGeo.dispose();
+      metroParapetNSGeo.dispose();
+      runwayBeaconGeo.dispose();
       renderer.dispose();
     };
   }, [cameraActionRef, simRef]);

@@ -58,6 +58,7 @@ export type TerrainType =
   | 'blossom'
   | 'stone_road'
   | 'rail_track'
+  | 'runway'
   | 'rock'
   | 'snow'
   | 'scorched'

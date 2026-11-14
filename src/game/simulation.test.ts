@@ -1206,5 +1206,95 @@ test('Tesla Roadster Easter egg spawns in modern cities and uses thruster propul
   assert.ok(plumes.length >= 4, `Roadster 3D model should include thruster plume meshes, got ${plumes.length}`);
 });
 
+test('dedicated airport runways host plane takeoffs/landings and Epoch 5+ metro trains ride elevated above ground', () => {
+  const state = createInitialSimulationState(128, 'METRO-RUNWAY-TEST');
+  state.sandboxFreeMode = true;
+
+  for (let dz = -10; dz <= 10; dz++) {
+    for (let dx = -10; dx <= 10; dx++) {
+      const t = getTile(state, 64 + dx, 64 + dz)!;
+      t.height = 2;
+      t.terrain = dz === 0 ? 'rail_track' : 'grass';
+      t.resourceNode = 'none';
+      t.resourceAmount = 0;
+      t.buildingId = null;
+    }
+  }
+
+  // Advance to Atomic Age (epochIndex === 4) so rail_station & airport are unlocked and rail is still ground-level
+  for (let i = 0; i < 4; i++) {
+    advanceEpoch(state, true);
+  }
+  assert.equal(state.epochIndex, 4);
+
+  const stationRes = placeBuilding(state, 'rail_station', 60, 64);
+  assert.equal(stationRes.ok, true, stationRes.reason);
+  const airportRes = placeBuilding(state, 'airport', 64, 59);
+  assert.equal(airportRes.ok, true, airportRes.reason);
+
+  // Verify dedicated flat runway strip was automatically graded & paved near airport
+  const runwayTiles = state.tiles.filter((t) => t.terrain === 'runway');
+  assert.ok(
+    runwayTiles.length >= 4,
+    `Placing an airport must pave a dedicated multi-tile runway strip (got ${runwayTiles.length})`,
+  );
+  const runwayHeights = new Set(runwayTiles.map((t) => t.height));
+  assert.equal(runwayHeights.size, 1, 'All runway strip tiles must be leveled to a uniform height');
+
+  stepSimulation(state, 0.25);
+
+  const train = (state.vehicles ?? []).find((v) => v.type === 'train');
+  const plane = (state.vehicles ?? []).find((v) => v.type === 'plane');
+  assert.ok(train, 'Rail station must spawn a train on rail_track tiles');
+  assert.ok(plane, 'Airport must spawn a plane');
+  assert.ok(train!.y < 0.15, `Epoch 4 trains should still run on ground ballast (y=${train!.y})`);
+
+  // Verify plane begins on the runway strip, rolls down the runway on takeoff, climbs, and completes a flight circuit
+  const nearRunway = (x: number, z: number) =>
+    runwayTiles.some((rt) => Math.hypot(rt.x - x, rt.z - z) <= 1.25);
+  assert.equal(
+    nearRunway(plane!.x, plane!.z),
+    true,
+    `Parked plane should align directly on the dedicated runway (${plane!.x.toFixed(1)}, ${plane!.z.toFixed(1)})`,
+  );
+
+  let sawTakeoffOnRunway = false;
+  let sawClimbAirborne = false;
+  for (let i = 0; i < 45; i++) {
+    stepSimulation(state, 0.2);
+    if (plane!.flightPhase === 'takeoff' && plane!.y <= 0.12 && nearRunway(plane!.x, plane!.z)) {
+      sawTakeoffOnRunway = true;
+    }
+    if ((plane!.flightPhase === 'takeoff' || plane!.flightPhase === 'cruise') && plane!.y > 2.5) {
+      sawClimbAirborne = true;
+    }
+  }
+  assert.equal(sawTakeoffOnRunway, true, 'Plane should roll along the dedicated runway strip during takeoff');
+  assert.equal(sawClimbAirborne, true, 'Plane should climb airborne after clearing the runway');
+
+  // Advance to Information Age (epochIndex === 5): trains must elevate onto the suspended metro viaduct
+  advanceEpoch(state, true);
+  assert.equal(state.epochIndex, 5);
+  stepSimulation(state, 0.25);
+  assert.ok(
+    train!.y >= 0.75,
+    `Epoch 5+ elevated metro trains must ride suspended above ground (y=${train!.y})`,
+  );
+
+  // Verify Epoch 5 elevated metro trains omit ground contact_shadow disc (unlike ground Epoch 3 trains)
+  const groundTrainMesh = createVehicleGroup('train', 3, 'human', 0);
+  const elevatedTrainMesh = createVehicleGroup('train', 5, 'human', 0);
+  assert.ok(
+    groundTrainMesh.children.some((c) => c.name === 'contact_shadow'),
+    'Ground-level Epoch 3 train should cast a ground contact shadow disc',
+  );
+  assert.equal(
+    elevatedTrainMesh.children.some((c) => c.name === 'contact_shadow'),
+    false,
+    'Elevated Epoch 5 metro train should omit ground contact shadow disc while riding on viaduct',
+  );
+});
+
+
 
 

@@ -205,6 +205,13 @@ export function getTerrainMaterial(terrain: TerrainType): THREE.MeshStandardMate
         metalness: 0.25,
       });
       break;
+    case 'runway':
+      topMat = new THREE.MeshStandardMaterial({
+        map: getPixelArtTexture('runway', '#2b303a', '#f8fafc', '#1e232b', 'stone'),
+        roughness: 0.78,
+        metalness: 0.12,
+      });
+      break;
     case 'rock':
       topMat = new THREE.MeshStandardMaterial({
         map: getPixelArtTexture('rock', '#536267', '#6f8187', '#354145', 'stone'),
@@ -292,6 +299,7 @@ const sharedShadowMat = new THREE.MeshBasicMaterial({
 
 function createContactShadow(scale = 1.0): THREE.Mesh {
   const m = new THREE.Mesh(sharedShadowGeo, sharedShadowMat);
+  m.name = 'contact_shadow';
   m.scale.setScalar(scale);
   m.position.y = 0.015;
   return m;
@@ -3248,71 +3256,134 @@ export function createBuildingGroup(
         group.add(archSign);
       }
 
+      // Elevated upper-level metro platform & viaduct columns for Information/Space Ages (epochIndex >= 5)
+      if (epochIndex >= 5) {
+        for (const px of [-0.34, 0.34]) {
+          const pier = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.64, 0.16), platformMat);
+          pier.position.set(px, 0.38, 0.24);
+          pier.castShadow = true;
+          group.add(pier);
+        }
+        const upperDeck = new THREE.Mesh(new THREE.BoxGeometry(0.94, 0.1, 0.44), platformMat);
+        upperDeck.position.set(0, 0.72, 0.22);
+        upperDeck.castShadow = true;
+        upperDeck.receiveShadow = true;
+        group.add(upperDeck);
+
+        const upperEdge = new THREE.Mesh(
+          new THREE.BoxGeometry(0.94, 0.035, 0.06),
+          epochIndex >= 6 ? glowCyanMat : goldMat,
+        );
+        upperEdge.position.set(0, 0.775, 0.41);
+        group.add(upperEdge);
+
+        const upperCanopy = new THREE.Mesh(
+          new THREE.BoxGeometry(0.86, 0.05, 0.32),
+          epochIndex >= 6 ? darkTechMat : concreteMat,
+        );
+        upperCanopy.position.set(0, 1.0, 0.2);
+        upperCanopy.castShadow = true;
+        group.add(upperCanopy);
+
+        for (const sx of [-0.3, 0.3]) {
+          const strut = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.24, 0.05), platformMat);
+          strut.position.set(sx, 0.88, 0.12);
+          group.add(strut);
+        }
+      }
+
       // Elevated station clock / transit pylon
-      const clockMast = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.34, 0.1), platformMat);
-      clockMast.position.set(-0.32, 0.42, 0.26);
+      const clockMast = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.44, 0.1), platformMat);
+      clockMast.position.set(-0.34, epochIndex >= 5 ? 0.62 : 0.42, 0.26);
       group.add(clockMast);
       const signalBeacon = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.12), raceGlowMat);
-      signalBeacon.position.set(-0.32, 0.62, 0.26);
+      signalBeacon.position.set(-0.34, epochIndex >= 5 ? 0.88 : 0.62, 0.26);
       group.add(signalBeacon);
       break;
     }
 
     case 'airport': {
-      // Airport: Asphalt Runway Apron, Passenger Terminal & Rotating Radar Control Tower
+      // Airport Hub: Taxiway Apron, Hangar Vault, Glass Boarding Terminal, Jetbridge & Radar ATC Tower
       const tarmac = new THREE.Mesh(
-        new THREE.BoxGeometry(0.94, 0.06, 0.94),
+        new THREE.BoxGeometry(0.96, 0.06, 0.96),
         isElf ? elfMossStoneMat : isOrc ? orcBasaltMat : darkStoneMat,
       );
       tarmac.position.y = 0.03;
       tarmac.receiveShadow = true;
       group.add(tarmac);
 
-      // Painted runway stripes along Z
-      for (const rz of [-0.26, 0.0, 0.26]) {
-        const stripe = new THREE.Mesh(
-          new THREE.BoxGeometry(0.08, 0.015, 0.14),
-          epochIndex >= 6 ? raceGlowMat : whitePlasterMat,
-        );
-        stripe.position.set(-0.18, 0.065, rz);
-        group.add(stripe);
-      }
+      // Yellow taxiway apron guide strip connecting terminal out toward adjacent runway tiles
+      const taxiGuide = new THREE.Mesh(
+        new THREE.BoxGeometry(0.1, 0.015, 0.42),
+        epochIndex >= 6 ? raceGlowMat : goldMat,
+      );
+      taxiGuide.position.set(-0.24, 0.065, 0.22);
+      group.add(taxiGuide);
 
-      // Passenger Terminal Concourse (+X side)
       const termWall = isElf ? elfPearlTechMat : isOrc ? orcGunmetalMat : epochIndex >= 6 ? techMat : concreteMat;
       const termRoof = isElf ? elfJadeRoofMat : isOrc ? orcCrimsonMat : blueRoofMat;
-      const terminal = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.24, 0.56), termWall);
-      terminal.position.set(0.22, 0.18, -0.06);
+
+      // Arched Aircraft Hangar (-X / -Z quadrant)
+      const hangarBody = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.22, 0.34), termWall);
+      hangarBody.position.set(-0.2, 0.17, -0.22);
+      hangarBody.castShadow = true;
+      group.add(hangarBody);
+      const hangarRoof = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.19, 0.19, 0.38, 8, 1, false, 0, Math.PI),
+        termRoof,
+      );
+      hangarRoof.rotation.z = Math.PI / 2;
+      hangarRoof.position.set(-0.2, 0.28, -0.22);
+      group.add(hangarRoof);
+      const hangarBay = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.16, 0.04), darkTechMat);
+      hangarBay.position.set(-0.2, 0.14, -0.04);
+      group.add(hangarBay);
+
+      // Passenger Terminal Concourse (+X side) + Boarding Jetbridge
+      const terminal = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.26, 0.56), termWall);
+      terminal.position.set(0.22, 0.19, -0.08);
       terminal.castShadow = true;
       group.add(terminal);
-      const termCap = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.06, 0.62), termRoof);
-      termCap.position.set(0.22, 0.33, -0.06);
+      const termCap = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.06, 0.62), termRoof);
+      termCap.position.set(0.22, 0.35, -0.08);
       group.add(termCap);
-      const gateGlass = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.1, 0.44), raceGlowMat);
-      gateGlass.position.set(0.03, 0.2, -0.06);
+      const gateGlass = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.11, 0.44), raceGlowMat);
+      gateGlass.position.set(0.02, 0.21, -0.08);
       group.add(gateGlass);
+      const jetbridge = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.08, 0.1), termWall);
+      jetbridge.position.set(-0.04, 0.19, 0.14);
+      group.add(jetbridge);
 
       // Air Traffic Control Tower
       const towerShaft = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.08, 0.12, 0.72, isElf ? 8 : 6),
+        new THREE.CylinderGeometry(0.08, 0.12, 0.78, isElf ? 8 : 6),
         isOrc ? orcIronMat : termWall,
       );
-      towerShaft.position.set(0.26, 0.42, 0.28);
+      towerShaft.position.set(0.26, 0.45, 0.28);
       towerShaft.castShadow = true;
       group.add(towerShaft);
 
-      const controlCab = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.14, 0.14, 8), raceGlowMat);
-      controlCab.position.set(0.26, 0.82, 0.28);
+      const controlCab = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.14, 0.14, 8), raceGlowMat);
+      controlCab.position.set(0.26, 0.88, 0.28);
       group.add(controlCab);
 
-      const cabRoof = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.05, 8), termRoof);
-      cabRoof.position.set(0.26, 0.91, 0.28);
+      const cabRoof = new THREE.Mesh(new THREE.CylinderGeometry(0.21, 0.21, 0.05, 8), termRoof);
+      cabRoof.position.set(0.26, 0.97, 0.28);
       group.add(cabRoof);
 
-      const radarBar = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.04, 0.06), goldMat);
-      radarBar.position.set(0.26, 0.98, 0.28);
+      const radarBar = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.04, 0.06), goldMat);
+      radarBar.position.set(0.26, 1.04, 0.28);
       radarBar.name = 'spin_part';
       group.add(radarBar);
+
+      // Windsock mast
+      const sockPole = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.34, 5), concreteMat);
+      sockPole.position.set(-0.38, 0.23, 0.34);
+      group.add(sockPole);
+      const windSock = new THREE.Mesh(new THREE.ConeGeometry(0.045, 0.14, 6), redRoofMat);
+      windSock.rotation.z = -Math.PI / 2;
+      windSock.position.set(-0.31, 0.38, 0.34);
+      group.add(windSock);
       break;
     }
 
@@ -4077,15 +4148,17 @@ export function createVehicleGroup(
   }
 
   if (type === 'train') {
-    group.add(createContactShadow(0.62));
     const isMaglev = epochLevel >= 6;
     const isMetro = epochLevel === 5;
     const isSteam = epochLevel <= 3;
+    if (!isMetro && !isMaglev) {
+      group.add(createContactShadow(0.62));
+    }
 
     // Front Locomotive / Lead Metro Car (+Z) + Linked Passenger Coach (-Z)
     const leadZ = 0.24;
     const coachZ = -0.26;
-    const railBaseY = isMaglev ? 0.14 : 0.09;
+    const railBaseY = isMetro || isMaglev ? 0.02 : 0.09;
 
     const leadMat = isSteam ? trimMat : bodyMat;
     const leadBody = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.22, 0.44), leadMat);

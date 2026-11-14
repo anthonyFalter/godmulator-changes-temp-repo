@@ -343,7 +343,7 @@ export function placeBuilding(
   tile.resourceNode = 'none';
   tile.resourceAmount = 0;
   tile.farmSettlementId = undefined;
-  if (tile.terrain === 'stone_road') {
+  if (tile.terrain === 'stone_road' || tile.terrain === 'runway') {
     tile.terrain = 'grass';
   }
   state.buildings.push(newBuilding);
@@ -353,6 +353,9 @@ export function placeBuilding(
   }
   if (buildingType === 'rail_station' || state.epochIndex >= 3) {
     paveSettlementRailNetwork(state, settlementId);
+  }
+  if (buildingType === 'airport') {
+    paveAirportRunwayForBuilding(state, tile.x, tile.z);
   }
 
   for (const u of state.units) {
@@ -2137,7 +2140,14 @@ export function isSettlementRoadTile(dx: number, dz: number, variant: number): b
 function paveRailTileIfClean(state: SimulationState, x: number, z: number): boolean {
   const t = getTile(state, x, z);
   if (!t || t.height <= 0 || t.buildingId) return false;
-  if (t.terrain === 'stone_road' || t.terrain === 'crystal_field' || t.terrain === 'rail_track') return false;
+  if (
+    t.terrain === 'stone_road' ||
+    t.terrain === 'crystal_field' ||
+    t.terrain === 'rail_track' ||
+    t.terrain === 'runway'
+  ) {
+    return false;
+  }
   if (t.resourceNode === 'berry_bush' || t.resourceNode === 'timber_grove') {
     t.resourceNode = 'none';
     t.resourceAmount = 0;
@@ -2145,6 +2155,141 @@ function paveRailTileIfClean(state: SimulationState, x: number, z: number): bool
   t.terrain = 'rail_track';
   t.farmSettlementId = undefined;
   return true;
+}
+
+export function paveAirportRunwayForBuilding(
+  state: SimulationState,
+  apX: number,
+  apZ: number,
+): TileData[] {
+  const apTile = getTile(state, apX, apZ);
+  const targetHeight = Math.max(1, Math.min(5, apTile && apTile.height > 0 ? apTile.height : 2));
+
+  // If airport already has >= 4 contiguous runway tiles nearby, return them
+  const existing: TileData[] = [];
+  for (let dz = -3; dz <= 3; dz++) {
+    for (let dx = -3; dx <= 3; dx++) {
+      const rt = getTile(state, apX + dx, apZ + dz);
+      if (rt && rt.terrain === 'runway' && !rt.buildingId) {
+        existing.push(rt);
+      }
+    }
+  }
+  if (existing.length >= 4) return existing;
+
+  type CandidateStrip = { tiles: TileData[]; score: number };
+  let best: CandidateStrip | null = null;
+
+  const evalStrip = (coords: Array<[number, number]>) => {
+    const tiles: TileData[] = [];
+    let score = 0;
+    for (const [cx, cz] of coords) {
+      const t = getTile(state, cx, cz);
+      if (!t || t.height <= 0 || t.buildingId || t.terrain === 'deep_water' || t.terrain === 'shallow_water') {
+        return;
+      }
+      if (t.terrain === 'rail_track') return;
+      tiles.push(t);
+      if (t.terrain === 'runway') score += 20;
+      else if (t.terrain === 'stone_road') score -= 12;
+      else if (t.resourceNode !== 'none') score -= 4;
+      else score += 6;
+      score -= Math.abs(t.height - targetHeight) * 5;
+    }
+    if (!best || score > best.score) {
+      best = { tiles, score };
+    }
+  };
+
+  // Try horizontal (W-E) and vertical (N-S) 5-tile runways along each side of the airport terminal
+  for (const offset of [1, -1, 2, -2]) {
+    for (const shift of [0, 1, -1, 2, -2]) {
+      const horiz: Array<[number, number]> = [];
+      const vert: Array<[number, number]> = [];
+      for (let k = -2; k <= 2; k++) {
+        horiz.push([apX + shift + k, apZ + offset]);
+        vert.push([apX + offset, apZ + shift + k]);
+      }
+      evalStrip(horiz);
+      evalStrip(vert);
+    }
+  }
+
+  if (!best) {
+    // Shorter 3-tile emergency strip fallback if tightly surrounded by water/buildings
+    for (const offset of [1, -1]) {
+      const horiz: Array<[number, number]> = [
+        [apX - 1, apZ + offset],
+        [apX, apZ + offset],
+        [apX + 1, apZ + offset],
+      ];
+      const vert: Array<[number, number]> = [
+        [apX + offset, apZ - 1],
+        [apX + offset, apZ],
+        [apX + offset, apZ + 1],
+      ];
+      evalStrip(horiz);
+      evalStrip(vert);
+    }
+  }
+
+  if (!best) return [];
+  for (const rt of (best as CandidateStrip).tiles) {
+    rt.height = targetHeight;
+    rt.terrain = 'runway';
+    rt.farmSettlementId = undefined;
+    rt.onFireTimer = 0;
+    if (rt.resourceNode !== 'none') {
+      rt.resourceNode = 'none';
+      rt.resourceAmount = 0;
+    }
+  }
+  return (best as CandidateStrip).tiles;
+}
+
+function findAirportRunwayEndpoints(
+  state: SimulationState,
+  ap: BuildingEntity,
+): { start: { x: number; z: number }; end: { x: number; z: number }; heading: number } {
+  const runwayTiles: TileData[] = [];
+  for (let dz = -4; dz <= 4; dz++) {
+    for (let dx = -4; dx <= 4; dx++) {
+      const rt = getTile(state, ap.tileX + dx, ap.tileZ + dz);
+      if (rt && rt.terrain === 'runway') {
+        runwayTiles.push(rt);
+      }
+    }
+  }
+  if (runwayTiles.length >= 2) {
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minZ = Infinity;
+    let maxZ = -Infinity;
+    for (const rt of runwayTiles) {
+      if (rt.x < minX) minX = rt.x;
+      if (rt.x > maxX) maxX = rt.x;
+      if (rt.z < minZ) minZ = rt.z;
+      if (rt.z > maxZ) maxZ = rt.z;
+    }
+    const spanX = maxX - minX;
+    const spanZ = maxZ - minZ;
+    if (spanX >= spanZ) {
+      const zAvg = runwayTiles.reduce((s, t) => s + t.z, 0) / runwayTiles.length;
+      const start = { x: minX, z: zAvg };
+      const end = { x: maxX, z: zAvg };
+      return { start, end, heading: Math.atan2(end.x - start.x, end.z - start.z) };
+    } else {
+      const xAvg = runwayTiles.reduce((s, t) => s + t.x, 0) / runwayTiles.length;
+      const start = { x: xAvg, z: minZ };
+      const end = { x: xAvg, z: maxZ };
+      return { start, end, heading: Math.atan2(end.x - start.x, end.z - start.z) };
+    }
+  }
+  return {
+    start: { x: ap.tileX - 1.5, z: ap.tileZ },
+    end: { x: ap.tileX + 1.5, z: ap.tileZ },
+    heading: Math.PI / 2,
+  };
 }
 
 export function paveSettlementRailNetwork(state: SimulationState, settlementId = 'city_default'): void {
@@ -2241,7 +2386,8 @@ function paveSettlementStreetsNear(
         t.terrain === 'deep_water' ||
         t.terrain === 'shallow_water' ||
         t.terrain === 'crystal_field' ||
-        t.terrain === 'rail_track'
+        t.terrain === 'rail_track' ||
+        t.terrain === 'runway'
       ) {
         continue;
       }
@@ -2281,7 +2427,8 @@ function paveSettlementStreetsNear(
           !nt.buildingId &&
           nt.resourceNode === 'none' &&
           nt.terrain !== 'crystal_field' &&
-          nt.terrain !== 'rail_track'
+          nt.terrain !== 'rail_track' &&
+          nt.terrain !== 'runway'
         ) {
           nt.terrain = 'stone_road';
           nt.farmSettlementId = undefined;
@@ -2320,8 +2467,13 @@ function findBuildableTileNear(
 
         if (!emergencyFallback) emergencyFallback = t;
 
-        // Never place buildings on existing roads, rail tracks, or designated street corridors!
-        if (t.terrain === 'stone_road' || t.terrain === 'rail_track' || isSettlementRoadTile(dx, dz, variant)) {
+        // Never place buildings on existing roads, rail tracks, runways, or designated street corridors!
+        if (
+          t.terrain === 'stone_road' ||
+          t.terrain === 'rail_track' ||
+          t.terrain === 'runway' ||
+          isSettlementRoadTile(dx, dz, variant)
+        ) {
           continue;
         }
 
@@ -2628,14 +2780,19 @@ function transformSettlementEnvironment(
 
   const sid = sampleBld.settlementId ?? 'city_default';
   const ownTile = getTile(state, sampleBld.tileX, sampleBld.tileZ);
-  if (ownTile && (ownTile.terrain === 'stone_road' || ownTile.terrain === 'rail_track')) {
+  if (ownTile && (ownTile.terrain === 'stone_road' || ownTile.terrain === 'rail_track' || ownTile.terrain === 'runway')) {
     ownTile.terrain = 'grass';
   }
 
-  // 1. Era-driven street, rail & high-tech terrain transformation around completed buildings
+  // 1. Era-driven street, rail, runway & high-tech terrain transformation around completed buildings
   paveSettlementStreetsNear(state, sampleBld.tileX, sampleBld.tileZ, sid);
   if (state.epochIndex >= 3 && (sampleBld.type === 'rail_station' || villageBuildings.length >= 6)) {
     paveSettlementRailNetwork(state, sid);
+  }
+  for (const b of villageBuildings) {
+    if (b.type === 'airport' && b.constructionProgress >= 100) {
+      paveAirportRunwayForBuilding(state, b.tileX, b.tileZ);
+    }
   }
 
   const offsets = [
@@ -2654,7 +2811,8 @@ function transformSettlementEnvironment(
       (sampleBld.type === 'launch_arcology' || sampleBld.type === 'dyson_spire') &&
       (adj.x + adj.z) % 4 === 0 &&
       adj.terrain !== 'stone_road' &&
-      adj.terrain !== 'rail_track'
+      adj.terrain !== 'rail_track' &&
+      adj.terrain !== 'runway'
     ) {
       adj.terrain = 'crystal_field';
       if (adj.resourceNode === 'none') {
@@ -3951,7 +4109,8 @@ function stepVehicles(state: SimulationState, dt: number): void {
     if (v.type === 'train') {
       v.speed =
         state.epochIndex <= 3 ? 2.9 : state.epochIndex === 4 ? 4.0 : state.epochIndex === 5 ? 5.4 : 6.8;
-      v.y = state.epochIndex >= 6 ? 0.14 : 0.03;
+      // Information Age (5) and Space Age (6+) trains ride high on suspended viaducts above streets!
+      v.y = state.epochIndex >= 5 ? 0.78 : 0.03;
       const target = v.path[1] ?? v.path[0] ?? { x: v.x, z: v.z };
       const dx = target.x - v.x;
       const dz = target.z - v.z;
@@ -4153,28 +4312,37 @@ function stepVehicles(state: SimulationState, dt: number): void {
         airports.find((a) => (a.settlementId ?? 'city_default') === v.settlementId) ?? airports[0];
       if (!homeAirport) continue;
 
+      const rwy = findAirportRunwayEndpoints(state, homeAirport);
+      const rwyDirX = Math.sin(rwy.heading);
+      const rwyDirZ = Math.cos(rwy.heading);
       const cruiseAlt = 4.6 + (v.variantSeed % 3) * 0.5;
       const cruiseSpeed = state.epochIndex <= 4 ? 5.0 : state.epochIndex === 5 ? 6.8 : 8.5;
       v.phaseTimer = (v.phaseTimer ?? 0) + dt;
 
       if (v.flightPhase === 'parked' || !v.flightPhase) {
-        v.x = homeAirport.tileX;
-        v.z = homeAirport.tileZ;
+        // Sit on the runway threshold and smoothly turn toward takeoff heading
+        v.x += (rwy.start.x - v.x) * Math.min(1, dt * 4.5);
+        v.z += (rwy.start.z - v.z) * Math.min(1, dt * 4.5);
         v.y = 0.06;
         v.pitch = 0;
         v.bank = 0;
-        if (v.phaseTimer >= 1.2) {
-          // Build flight plan: fly to another airport (if any) or scenic circuit across cities
+        v.heading = wrapAngleRad(v.heading + wrapAngleRad(rwy.heading - v.heading) * Math.min(1, dt * 4.5));
+        if (v.phaseTimer >= 1.4) {
+          v.x = rwy.start.x;
+          v.z = rwy.start.z;
+          v.heading = rwy.heading;
           const waypoints: Array<{ x: number; z: number }> = [];
           const destAirport =
             airports.length > 1
               ? airports[(airports.indexOf(homeAirport) + 1) % airports.length]
               : homeAirport;
-          const midA = {
-            x: Math.max(6, Math.min(state.gridSize - 7, homeAirport.tileX + 12)),
-            z: Math.max(6, Math.min(state.gridSize - 7, homeAirport.tileZ + 4)),
+          const climbTarget = {
+            x: Math.max(6, Math.min(state.gridSize - 7, rwy.end.x + rwyDirX * 10)),
+            z: Math.max(6, Math.min(state.gridSize - 7, rwy.end.z + rwyDirZ * 10)),
           };
-          waypoints.push(midA);
+          waypoints.push({ x: rwy.end.x, z: rwy.end.z });
+          waypoints.push(climbTarget);
+
           if (destAirport !== homeAirport) {
             waypoints.push({ x: destAirport.tileX, z: destAirport.tileZ });
           } else {
@@ -4183,36 +4351,65 @@ function stepVehicles(state: SimulationState, dt: number): void {
               const oa = getSettlementAnchorForId(state, otherCities[v.variantSeed % otherCities.length]);
               waypoints.push({ x: oa.x, z: oa.z });
             } else {
+              const perpX = -rwyDirZ;
+              const perpZ = rwyDirX;
               waypoints.push({
-                x: Math.max(6, Math.min(state.gridSize - 7, homeAirport.tileX + 14)),
-                z: Math.max(6, Math.min(state.gridSize - 7, homeAirport.tileZ - 12)),
+                x: Math.max(6, Math.min(state.gridSize - 7, homeAirport.tileX + rwyDirX * 12 + perpX * 11)),
+                z: Math.max(6, Math.min(state.gridSize - 7, homeAirport.tileZ + rwyDirZ * 12 + perpZ * 11)),
               });
               waypoints.push({
-                x: Math.max(6, Math.min(state.gridSize - 7, homeAirport.tileX - 10)),
-                z: Math.max(6, Math.min(state.gridSize - 7, homeAirport.tileZ - 10)),
+                x: Math.max(6, Math.min(state.gridSize - 7, homeAirport.tileX + rwyDirX * 10 - perpX * 11)),
+                z: Math.max(6, Math.min(state.gridSize - 7, homeAirport.tileZ + rwyDirZ * 10 - perpZ * 11)),
               });
             }
           }
-          waypoints.push({ x: homeAirport.tileX - 6, z: homeAirport.tileZ + 2 });
-          waypoints.push({ x: homeAirport.tileX, z: homeAirport.tileZ });
+
+          // Final approach straight onto the far runway end, then roll back down the tarmac to park at threshold
+          waypoints.push({
+            x: Math.max(5, Math.min(state.gridSize - 6, rwy.end.x + rwyDirX * 6.0)),
+            z: Math.max(5, Math.min(state.gridSize - 6, rwy.end.z + rwyDirZ * 6.0)),
+          });
+          waypoints.push({ x: rwy.end.x, z: rwy.end.z });
+          waypoints.push({ x: rwy.start.x, z: rwy.start.z });
+
           v.path = waypoints;
           v.pathIndex = 0;
           v.flightPhase = 'takeoff';
           v.phaseTimer = 0;
-          v.heading = Math.PI / 2;
         }
       } else if (v.flightPhase === 'takeoff') {
-        const takeoffDur = 2.0;
+        const takeoffDur = 2.4;
         const frac = Math.min(1, v.phaseTimer / takeoffDur);
-        const runwaySpeed = cruiseSpeed * (0.35 + 0.65 * frac);
-        const wp = v.path[0] ?? { x: v.x + 10, z: v.z };
-        const desiredHeading = Math.atan2(wp.x - v.x, wp.z - v.z);
-        v.heading += wrapAngleRad(desiredHeading - v.heading) * Math.min(1, dt * 3.5);
-        v.x += Math.sin(v.heading) * runwaySpeed * dt;
-        v.z += Math.cos(v.heading) * runwaySpeed * dt;
-        v.y = 0.06 + frac * frac * (cruiseAlt - 0.06);
-        v.pitch = -0.26 * Math.sin(frac * Math.PI);
-        v.bank = 0;
+        const rollPortion = 0.52;
+        if (frac < rollPortion) {
+          // Ground acceleration down the dedicated runway strip
+          const rollFrac = frac / rollPortion;
+          const runwayTarget = v.path[0] ?? rwy.end;
+          const desiredHeading = Math.atan2(runwayTarget.x - v.x, runwayTarget.z - v.z);
+          v.heading = wrapAngleRad(
+            v.heading + wrapAngleRad(desiredHeading - v.heading) * Math.min(1, dt * 6.0),
+          );
+          const rollSpeed = cruiseSpeed * (0.28 + 0.58 * rollFrac);
+          v.x += Math.sin(v.heading) * rollSpeed * dt;
+          v.z += Math.cos(v.heading) * rollSpeed * dt;
+          v.y = 0.06;
+          v.pitch = rollFrac > 0.72 ? -0.14 * ((rollFrac - 0.72) / 0.28) : 0;
+          v.bank = 0;
+        } else {
+          // Wheels-up climbout after clearing the runway strip
+          const climbFrac = (frac - rollPortion) / (1 - rollPortion);
+          const climbWp = v.path[1] ?? { x: v.x + rwyDirX * 8, z: v.z + rwyDirZ * 8 };
+          const desiredHeading = Math.atan2(climbWp.x - v.x, climbWp.z - v.z);
+          v.heading = wrapAngleRad(
+            v.heading + wrapAngleRad(desiredHeading - v.heading) * Math.min(1, dt * 2.5),
+          );
+          const climbSpeed = cruiseSpeed * (0.86 + 0.14 * climbFrac);
+          v.x += Math.sin(v.heading) * climbSpeed * dt;
+          v.z += Math.cos(v.heading) * climbSpeed * dt;
+          v.y = 0.06 + climbFrac * climbFrac * (cruiseAlt - 0.06);
+          v.pitch = -0.26 * Math.sin(climbFrac * Math.PI * 0.85);
+          v.bank = 0;
+        }
         if (frac >= 1) {
           v.flightPhase = 'cruise';
           v.phaseTimer = 0;
@@ -4235,36 +4432,60 @@ function stepVehicles(state: SimulationState, dt: number): void {
         v.z += Math.cos(v.heading) * cruiseSpeed * dt;
 
         if (dist < 2.2) {
-          if (v.pathIndex < v.path.length - 2) {
+          if (v.pathIndex < v.path.length - 3) {
             v.pathIndex += 1;
           } else {
+            v.pathIndex = Math.max(0, v.path.length - 2);
             v.flightPhase = 'landing';
             v.phaseTimer = 0;
           }
         }
       } else if (v.flightPhase === 'landing') {
-        const dest = v.path[v.path.length - 1] ?? { x: homeAirport.tileX, z: homeAirport.tileZ };
-        const dx = dest.x - v.x;
-        const dz = dest.z - v.z;
+        const touchdownIdx = Math.max(0, v.path.length - 2);
+        const stopIdx = Math.max(0, v.path.length - 1);
+        const targetPt = v.path[v.pathIndex] ?? rwy.start;
+        const dx = targetPt.x - v.x;
+        const dz = targetPt.z - v.z;
         const dist = Math.hypot(dx, dz);
-        const approachSpeed = cruiseSpeed * Math.max(0.35, Math.min(0.85, dist / 8));
         const desiredHeading = Math.atan2(dx, dz);
         const turnDelta = wrapAngleRad(desiredHeading - v.heading);
-        v.heading = wrapAngleRad(v.heading + Math.max(-2.5 * dt, Math.min(2.5 * dt, turnDelta)));
-        v.bank = Math.max(-0.28, Math.min(0.28, turnDelta * 0.5));
-        v.pitch = 0.14;
-        if (dist > 0.35) {
-          v.x += (dx / dist) * approachSpeed * dt;
-          v.z += (dz / dist) * approachSpeed * dt;
-          v.y = Math.max(0.06, Math.min(cruiseAlt, (dist / 8.0) * cruiseAlt));
+
+        if (v.pathIndex <= touchdownIdx && v.path.length >= 2 && touchdownIdx !== stopIdx) {
+          // Final glide slope onto the runway touchdown threshold
+          const approachSpeed = cruiseSpeed * Math.max(0.45, Math.min(0.85, dist / 6.5));
+          v.heading = wrapAngleRad(v.heading + Math.max(-2.5 * dt, Math.min(2.5 * dt, turnDelta)));
+          v.bank = Math.max(-0.22, Math.min(0.22, turnDelta * 0.45));
+          v.pitch = 0.11;
+          if (dist > 0.65) {
+            v.x += (dx / dist) * approachSpeed * dt;
+            v.z += (dz / dist) * approachSpeed * dt;
+            v.y = Math.max(0.06, Math.min(cruiseAlt, (dist / 6.5) * cruiseAlt));
+          } else {
+            // Wheels down on the runway -> transition to tarmac rollout
+            v.x = targetPt.x;
+            v.z = targetPt.z;
+            v.y = 0.06;
+            v.pitch = 0;
+            v.bank = 0;
+            v.pathIndex = stopIdx;
+          }
         } else {
-          v.x = dest.x;
-          v.z = dest.z;
-          v.y = 0.06;
-          v.pitch = 0;
+          // Decelerating ground rollout down the runway toward terminal apron
+          const rolloutSpeed = cruiseSpeed * Math.max(0.22, Math.min(0.62, dist / 3.2));
+          v.heading = wrapAngleRad(v.heading + Math.max(-3.0 * dt, Math.min(3.0 * dt, turnDelta)));
           v.bank = 0;
-          v.flightPhase = 'parked';
-          v.phaseTimer = 0;
+          v.pitch = 0;
+          v.y = 0.06;
+          if (dist > 0.35) {
+            v.x += (dx / dist) * rolloutSpeed * dt;
+            v.z += (dz / dist) * rolloutSpeed * dt;
+          } else {
+            v.x = targetPt.x;
+            v.z = targetPt.z;
+            v.y = 0.06;
+            v.flightPhase = 'parked';
+            v.phaseTimer = 0;
+          }
         }
       }
     }
