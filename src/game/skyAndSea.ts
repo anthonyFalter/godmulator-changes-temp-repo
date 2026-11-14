@@ -637,6 +637,10 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
     varying vec3 vLandWorldPos;
     varying vec3 vLandWorldNormal;
 
+    vec2 tileCoordFallback(vec2 pixPos) {
+      return floor(pixPos);
+    }
+
     float landHash12(vec2 p) {
       vec3 p3 = fract(vec3(p.xyx) * 0.1031);
       p3 += dot(p3, p3.yzx + 33.33);
@@ -765,50 +769,8 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         vec3 c = mix(sh, base, step(0.34, patchVal));
         return mix(c, hi, step(0.65, patchVal));
       } else if (code < 9.5) {
-        // Road Network: progresses across ages from Dirt/Wood Path -> Cobblestone -> Asphalt Highway -> Orbital Sci-Fi Mag-Lev Road
-        vec2 roadPix = floor(subUv * 16.0);
-        if (uEpoch < 1.5) {
-          // Prehistoric & Bronze Ages: Trodden warm earth & wooden log/plank footpath (no grey stone/concrete!)
-          float plankSeam = step(3.0, mod(roadPix.y, 4.0));
-          float edgeDirt = step(roadPix.x, 1.0) + step(14.0, roadPix.x);
-          vec3 dirtBase = landSrgb(138.0, 106.0, 72.0);
-          vec3 woodPlank = landSrgb(162.0, 124.0, 84.0);
-          vec3 darkMud = landSrgb(98.0, 72.0, 46.0);
-          vec3 c = mix(woodPlank, dirtBase, clamp(edgeDirt, 0.0, 1.0));
-          return mix(c, darkMud, plankSeam * 0.7);
-        } else if (uEpoch < 3.5) {
-          // Classical & Industrial Ages: Artisanal cobblestone & masonry road
-          float rowIdx = floor(roadPix.y / 4.0);
-          float colShift = mod(rowIdx, 2.0) * 4.0;
-          float mortarY = step(3.0, mod(roadPix.y, 4.0));
-          float mortarX = step(7.0, mod(roadPix.x + colShift, 8.0));
-          float mortar = max(mortarX, mortarY);
-          float toneSeed = landHash12(tileCoordFallback(pixPos) + vec2(rowIdx, floor((roadPix.x + colShift) / 8.0)));
-          vec3 base = landSrgb(168.0, 148.0, 130.0);
-          vec3 hi   = landSrgb(202.0, 182.0, 158.0);
-          vec3 sh   = landSrgb(110.0, 95.0, 82.0);
-          vec3 c = mix(base, hi, step(0.55, toneSeed));
-          return mix(c, sh, mortar * 0.85);
-        } else if (uEpoch < 4.5) {
-          // Atomic / Modern Age: Dark asphalt roadway with crisp yellow/white lane markings
-          float curb = step(roadPix.x, 1.0) + step(14.0, roadPix.x);
-          float centerDash = step(abs(roadPix.x - 7.5), 0.6) * step(2.0, mod(roadPix.y, 6.0));
-          vec3 asphalt = landSrgb(56.0, 62.0, 70.0);
-          vec3 curbCol = landSrgb(142.0, 150.0, 158.0);
-          vec3 laneLine = landSrgb(242.0, 202.0, 78.0);
-          vec3 c = mix(asphalt, curbCol, clamp(curb, 0.0, 1.0) * 0.75);
-          return mix(c, laneLine, centerDash * 0.9);
-        } else {
-          // Orbital & Interstellar Ages (uEpoch >= 4.5): Techno-modern dark titanium transit deck with glowing cyan mag-lev guide rails
-          float railEdge = step(abs(roadPix.x - 2.0), 0.6) + step(abs(roadPix.x - 13.0), 0.6);
-          float centerPulse = step(abs(roadPix.x - 7.5), 0.6) * step(1.0, mod(roadPix.y + floor(tTime * 8.0), 4.0));
-          float segJoint = step(7.0, mod(roadPix.y, 8.0));
-          vec3 alloyDeck = landSrgb(38.0, 50.0, 64.0);
-          vec3 alloySeam = landSrgb(24.0, 32.0, 42.0);
-          vec3 cyanNeon  = landSrgb(86.0, 207.0, 225.0);
-          vec3 c = mix(alloyDeck, alloySeam, segJoint * 0.75);
-          return mix(c, cyanNeon, clamp(railEdge * 0.75 + centerPulse, 0.0, 1.0));
-        }
+        // Fallback road color if invoked outside neighbor-aware road path
+        return landSrgb(138.0, 106.0, 72.0);
       } else if (code < 10.5) {
         // Rock: slate & granite fracture strata
         float strata = landNoise(vec2(chunkPos.x * 0.85 + chunkPos.y * 0.35, chunkPos.y * 0.85));
@@ -855,19 +817,233 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
       }
     }
 
-    vec2 tileCoordFallback(vec2 pixPos) {
-      return floor(pixPos);
+    vec3 computeRoadColor(
+      vec2 pixPos,
+      vec2 subUv,
+      float tTime,
+      bool rN,
+      bool rS,
+      bool rW,
+      bool rE,
+      bool rNW,
+      bool rNE,
+      bool rSW,
+      bool rSE,
+      vec3 marginCol
+    ) {
+      vec2 roadPix = floor(subUv * 16.0);
+      vec2 rp = (roadPix + 0.5) / 16.0;
+
+      // Distance field to connected 4-way centerline arms (seamlessly shapes straights, turns, T-junctions & crossroads)
+      float dRoad = length(rp - vec2(0.5));
+      if (rN) dRoad = min(dRoad, length(vec2(rp.x - 0.5, max(0.0, rp.y - 0.5))));
+      if (rS) dRoad = min(dRoad, length(vec2(rp.x - 0.5, max(0.0, 0.5 - rp.y))));
+      if (rW) dRoad = min(dRoad, length(vec2(max(0.0, rp.x - 0.5), rp.y - 0.5)));
+      if (rE) dRoad = min(dRoad, length(vec2(max(0.0, 0.5 - rp.x), rp.y - 0.5)));
+
+      // If user painted a 2x2 plaza/multi-lane highway, suppress interior grass/curb corners where all 4 tiles are roads
+      if ((rp.x < 0.5 && rp.y < 0.5 && rN && rW && rNW) ||
+          (rp.x >= 0.5 && rp.y < 0.5 && rN && rE && rNE) ||
+          (rp.x < 0.5 && rp.y >= 0.5 && rS && rW && rSW) ||
+          (rp.x >= 0.5 && rp.y >= 0.5 && rS && rE && rSE)) {
+        dRoad = 0.0;
+      }
+
+      if (dRoad > 0.36) {
+        return marginCol;
+      }
+
+      float connCount = (rN ? 1.0 : 0.0) + (rS ? 1.0 : 0.0) + (rW ? 1.0 : 0.0) + (rE ? 1.0 : 0.0);
+      bool isStraightNS = (rN || rS) && !rW && !rE;
+      bool isStraightWE = (rW || rE) && !rN && !rS;
+      bool turnNE = rN && rE && !rS && !rW;
+      bool turnNW = rN && rW && !rS && !rE;
+      bool turnSE = rS && rE && !rN && !rW;
+      bool turnSW = rS && rW && !rN && !rE;
+      bool isTurn = turnNE || turnNW || turnSE || turnSW;
+      bool isJunction = connCount >= 3.0;
+      bool onCenterHub = max(abs(rp.x - 0.5), abs(rp.y - 0.5)) < 0.25;
+
+      vec2 ic = vec2(0.5);
+      if (turnNE) ic = vec2(1.0, 0.0);
+      else if (turnNW) ic = vec2(0.0, 0.0);
+      else if (turnSE) ic = vec2(1.0, 1.0);
+      else if (turnSW) ic = vec2(0.0, 1.0);
+
+      // Local dominant arm axis for planks / stone courses when in junctions or corners
+      bool armVertical = isStraightNS ||
+        (rN && rp.y < 0.5 && abs(rp.x - 0.5) <= abs(rp.y - 0.5)) ||
+        (rS && rp.y >= 0.5 && abs(rp.x - 0.5) <= abs(rp.y - 0.5));
+      if (isStraightWE) armVertical = false;
+
+      float noiseVal = landHash12(pixPos * 16.0);
+
+      if (uEpoch < 1.5) {
+        // Prehistoric & Bronze Ages: Trodden earth & wooden boardwalk planks oriented perpendicular to road direction
+        vec3 dirtBase  = landSrgb(138.0, 106.0, 72.0);
+        vec3 woodPlank = landSrgb(162.0, 124.0, 84.0);
+        vec3 darkMud   = landSrgb(98.0, 72.0, 46.0);
+
+        if (dRoad > 0.27) {
+          return mix(dirtBase, darkMud, step(0.55, noiseVal) * 0.65);
+        }
+
+        float plankSeam = 0.0;
+        if (isJunction || connCount < 0.5) {
+          if (onCenterHub) {
+            plankSeam = max(step(3.0, mod(roadPix.x, 4.0)), step(3.0, mod(roadPix.y, 4.0))) * 0.75;
+          } else {
+            plankSeam = armVertical ? step(3.0, mod(roadPix.y, 4.0)) : step(3.0, mod(roadPix.x, 4.0));
+          }
+        } else if (isTurn) {
+          float arcR = length(rp - ic);
+          float arcAng = atan(abs(rp.y - ic.y), abs(rp.x - ic.x) + 0.0001);
+          float stepPhase = fract(arcAng / 1.5707963 * 4.0);
+          plankSeam = step(0.75, stepPhase);
+          if (abs(arcR - 0.5) > 0.20) return dirtBase;
+        } else {
+          plankSeam = armVertical ? step(3.0, mod(roadPix.y, 4.0)) : step(3.0, mod(roadPix.x, 4.0));
+        }
+
+        vec3 c = mix(woodPlank, dirtBase, step(0.78, noiseVal) * 0.45);
+        return mix(c, darkMud, plankSeam * 0.72);
+
+      } else if (uEpoch < 3.5) {
+        // Classical & Industrial Ages: Oriented cobblestone courses, stone curb edges & plaza setts
+        vec3 base = landSrgb(168.0, 148.0, 130.0);
+        vec3 hi   = landSrgb(202.0, 182.0, 158.0);
+        vec3 sh   = landSrgb(110.0, 95.0, 82.0);
+        vec3 curb = landSrgb(134.0, 120.0, 106.0);
+
+        if (dRoad > 0.28) {
+          float curbJoint = step(0.78, fract((rp.x + rp.y) * 4.0));
+          return mix(curb, sh, curbJoint * 0.7);
+        }
+
+        float mortar = 0.0;
+        float toneSeed = 0.5;
+        if (isJunction || connCount < 0.5 || (isTurn && onCenterHub)) {
+          float sqX = step(3.0, mod(roadPix.x, 4.0));
+          float sqY = step(3.0, mod(roadPix.y, 4.0));
+          mortar = max(sqX, sqY);
+          toneSeed = landHash12(tileCoordFallback(pixPos) + floor(roadPix / 4.0));
+        } else if (isTurn) {
+          float arcR = length(rp - ic);
+          float arcAng = atan(abs(rp.y - ic.y), abs(rp.x - ic.x) + 0.0001);
+          float ringIdx = floor(arcR * 8.0);
+          float angIdx = floor(arcAng / 1.5707963 * 6.0 + mod(ringIdx, 2.0) * 0.5);
+          mortar = max(step(0.78, fract(arcR * 8.0)), step(0.80, fract(arcAng / 1.5707963 * 6.0 + mod(ringIdx, 2.0) * 0.5)));
+          toneSeed = landHash12(tileCoordFallback(pixPos) + vec2(ringIdx, angIdx));
+        } else if (armVertical) {
+          float rowIdx = floor(roadPix.y / 4.0);
+          float colShift = mod(rowIdx, 2.0) * 4.0;
+          float mortarY = step(3.0, mod(roadPix.y, 4.0));
+          float mortarX = step(7.0, mod(roadPix.x + colShift, 8.0));
+          mortar = max(mortarX, mortarY);
+          toneSeed = landHash12(tileCoordFallback(pixPos) + vec2(rowIdx, floor((roadPix.x + colShift) / 8.0)));
+        } else {
+          float colIdx = floor(roadPix.x / 4.0);
+          float rowShift = mod(colIdx, 2.0) * 4.0;
+          float mortarX = step(3.0, mod(roadPix.x, 4.0));
+          float mortarY = step(7.0, mod(roadPix.y + rowShift, 8.0));
+          mortar = max(mortarX, mortarY);
+          toneSeed = landHash12(tileCoordFallback(pixPos) + vec2(colIdx, floor((roadPix.y + rowShift) / 8.0)));
+        }
+
+        vec3 c = mix(base, hi, step(0.55, toneSeed));
+        return mix(c, sh, mortar * 0.82);
+
+      } else if (uEpoch < 4.5) {
+        // Atomic / Modern Age: Asphalt roadway with directional centerlines, 90-degree curved lane lines & junction crosswalks
+        vec3 asphalt = landSrgb(54.0, 60.0, 68.0);
+        vec3 curbCol = landSrgb(142.0, 150.0, 158.0);
+        vec3 laneYellow = landSrgb(242.0, 202.0, 78.0);
+        vec3 markWhite  = landSrgb(230.0, 236.0, 242.0);
+
+        if (dRoad > 0.29) {
+          return mix(curbCol, asphalt, 0.12);
+        }
+
+        vec3 c = mix(asphalt, landSrgb(64.0, 70.0, 78.0), step(0.86, noiseVal) * 0.55);
+
+        if (connCount < 0.5) {
+          return c;
+        } else if (isJunction) {
+          // Clean open central intersection + white zebra crosswalk bars at every connected entrance
+          bool inLaneX = abs(rp.x - 0.5) < 0.24;
+          bool inLaneY = abs(rp.y - 0.5) < 0.24;
+          float xwalk = 0.0;
+          if (rN && abs(roadPix.y - 1.5) < 0.75 && inLaneX && mod(roadPix.x, 2.0) < 1.0) xwalk = 1.0;
+          if (rS && abs(roadPix.y - 13.5) < 0.75 && inLaneX && mod(roadPix.x, 2.0) < 1.0) xwalk = 1.0;
+          if (rW && abs(roadPix.x - 1.5) < 0.75 && inLaneY && mod(roadPix.y, 2.0) < 1.0) xwalk = 1.0;
+          if (rE && abs(roadPix.x - 13.5) < 0.75 && inLaneY && mod(roadPix.y, 2.0) < 1.0) xwalk = 1.0;
+
+          return mix(c, markWhite, xwalk * 0.88);
+        } else if (isTurn) {
+          // Smooth 90-degree quarter-circle yellow dashed centerline around the curve
+          float arcDist = abs(length(rp - ic) - 0.5);
+          float arcAng = atan(abs(rp.y - ic.y), abs(rp.x - ic.x) + 0.0001);
+          float arcDash = step(fract(arcAng / 1.5707963 * 3.0), 0.55);
+          float curveLine = step(arcDist, 0.042) * arcDash;
+          return mix(c, laneYellow, curveLine * 0.92);
+        } else if (isStraightNS) {
+          float dash = step(mod(roadPix.y, 4.0), 1.5);
+          float endCap = step(dRoad, 0.22);
+          float line = step(abs(rp.x - 0.5), 0.04) * dash * endCap;
+          return mix(c, laneYellow, line * 0.92);
+        } else {
+          float dash = step(mod(roadPix.x, 4.0), 1.5);
+          float endCap = step(dRoad, 0.22);
+          float line = step(abs(rp.y - 0.5), 0.04) * dash * endCap;
+          return mix(c, laneYellow, line * 0.92);
+        }
+
+      } else {
+        // Orbital & Interstellar Ages (uEpoch >= 4.5): Directional titanium mag-lev transit deck & curved cyan guide rails
+        vec3 alloyDeck = landSrgb(38.0, 50.0, 64.0);
+        vec3 alloySeam = landSrgb(24.0, 32.0, 42.0);
+        vec3 cyanNeon  = landSrgb(86.0, 207.0, 225.0);
+
+        if (dRoad > 0.30) {
+          return alloySeam;
+        }
+
+        float segJoint = armVertical ? step(7.0, mod(roadPix.y, 8.0)) : step(7.0, mod(roadPix.x, 8.0));
+        if (isJunction && onCenterHub) segJoint = 0.0;
+        vec3 c = mix(alloyDeck, alloySeam, segJoint * 0.75);
+
+        // Twin cyan guide rails trace dRoad symmetrically along straights, bends, T-junctions & crossroads
+        float rail = step(abs(dRoad - 0.235), 0.038);
+        float pulse = 0.0;
+        float flowOffset = floor(tTime * 8.0);
+
+        if (connCount < 0.5) {
+          pulse = step(abs(length(rp - vec2(0.5)) - 0.11), 0.04);
+        } else if (isJunction) {
+          float hubRing = step(abs(length(rp - vec2(0.5)) - 0.13), 0.04);
+          float armPulse = 0.0;
+          if (rN && rp.y < 0.34 && abs(rp.x - 0.5) < 0.04) armPulse = step(1.0, mod(roadPix.y + flowOffset, 4.0));
+          if (rS && rp.y > 0.66 && abs(rp.x - 0.5) < 0.04) armPulse = step(1.0, mod(roadPix.y - flowOffset, 4.0));
+          if (rW && rp.x < 0.34 && abs(rp.y - 0.5) < 0.04) armPulse = step(1.0, mod(roadPix.x + flowOffset, 4.0));
+          if (rE && rp.x > 0.66 && abs(rp.y - 0.5) < 0.04) armPulse = step(1.0, mod(roadPix.x - flowOffset, 4.0));
+          pulse = max(hubRing, armPulse);
+        } else if (isTurn) {
+          float arcDist = abs(length(rp - ic) - 0.5);
+          float arcAng = atan(abs(rp.y - ic.y), abs(rp.x - ic.x) + 0.0001);
+          float arcFlow = step(0.45, fract(arcAng / 1.5707963 * 4.0 + tTime * 2.0));
+          pulse = step(arcDist, 0.042) * arcFlow;
+        } else if (isStraightNS) {
+          pulse = step(abs(rp.x - 0.5), 0.04) * step(1.0, mod(roadPix.y + flowOffset, 4.0)) * step(dRoad, 0.21);
+        } else {
+          pulse = step(abs(rp.y - 0.5), 0.04) * step(1.0, mod(roadPix.x + flowOffset, 4.0)) * step(dRoad, 0.21);
+        }
+
+        return mix(c, cyanNeon, clamp(rail * 0.78 + pulse, 0.0, 1.0));
+      }
     }
   `;
 
-  // Note: move tileCoordFallback above computeBiomeColor so GLSL 1.0 compiles cleanly in all drivers
-  const orderedHelpers = glslHelpers.replace(
-    '    float landHash12',
-    '    vec2 tileCoordFallback(vec2 pixPos) { return floor(pixPos); }\n    float landHash12',
-  ).replace(
-    '    vec2 tileCoordFallback(vec2 pixPos) {\n      return floor(pixPos);\n    }',
-    '',
-  );
+  const orderedHelpers = glslHelpers;
 
   const patchVertexShader = (shader: THREE.WebGLProgramParametersWithUniforms) => {
     shader.vertexShader =
@@ -968,7 +1144,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
       roughness,
       metalness,
     });
-    topMat.customProgramCacheKey = () => 'aeon_land_top_pixel_v4';
+    topMat.customProgramCacheKey = () => 'aeon_land_top_pixel_v5';
     topMat.onBeforeCompile = (shader) => {
       shader.uniforms.uTime = sharedTime;
       shader.uniforms.uEpoch = sharedEpoch;
@@ -1031,50 +1207,41 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
             }
           }
 
-          vec3 col = computeBiomeColor(myCode, pixPos, chunkPos, subUv, uTime, self.a > 0.5);
+          vec3 col;
 
-          // 0b. Connected Street Ribbon Shaping for stone_road (myCode == 9.0):
-          // Keeps road tiles continuous across connected neighbors while framing non-connected edges with grass margins
+          // 0b. Connected Street Ribbon & Orientation-Aware Markings for stone_road (myCode == 9.0):
           if (abs(myCode - 9.0) < 0.5) {
             bool rN = abs(cN - 9.0) < 0.5;
             bool rS = abs(cS - 9.0) < 0.5;
             bool rW = abs(cW - 9.0) < 0.5;
             bool rE = abs(cE - 9.0) < 0.5;
-            float margin = 0.14;
-            bool onGrassMargin = false;
-            float fallbackBiome = 3.0;
-            bool fallbackFarm = false;
-            if (!rN && subUv.y < margin) {
-              onGrassMargin = true;
-              fallbackBiome = (cN >= 2.0 && cN <= 8.0) ? cN : 3.0;
-              fallbackFarm = nN.a > 0.5;
-            } else if (!rS && (1.0 - subUv.y) < margin) {
-              onGrassMargin = true;
-              fallbackBiome = (cS >= 2.0 && cS <= 8.0) ? cS : 3.0;
-              fallbackFarm = nS.a > 0.5;
-            } else if (!rW && subUv.x < margin) {
-              onGrassMargin = true;
-              fallbackBiome = (cW >= 2.0 && cW <= 8.0) ? cW : 3.0;
-              fallbackFarm = nW.a > 0.5;
-            } else if (!rE && (1.0 - subUv.x) < margin) {
-              onGrassMargin = true;
-              fallbackBiome = (cE >= 2.0 && cE <= 8.0) ? cE : 3.0;
-              fallbackFarm = nE.a > 0.5;
+            bool rNW = abs(decodeTerrain(sampleLandTile(tileCoord + vec2(-1.0, -1.0))) - 9.0) < 0.5;
+            bool rNE = abs(decodeTerrain(sampleLandTile(tileCoord + vec2( 1.0, -1.0))) - 9.0) < 0.5;
+            bool rSW = abs(decodeTerrain(sampleLandTile(tileCoord + vec2(-1.0,  1.0))) - 9.0) < 0.5;
+            bool rSE = abs(decodeTerrain(sampleLandTile(tileCoord + vec2( 1.0,  1.0))) - 9.0) < 0.5;
+
+            float marginBiome = 3.0;
+            if (!rN && subUv.y < 0.35 && cN >= 2.0 && abs(cN - 9.0) > 0.5) {
+              marginBiome = cN;
+            } else if (!rS && subUv.y > 0.65 && cS >= 2.0 && abs(cS - 9.0) > 0.5) {
+              marginBiome = cS;
+            } else if (!rW && subUv.x < 0.35 && cW >= 2.0 && abs(cW - 9.0) > 0.5) {
+              marginBiome = cW;
+            } else if (!rE && subUv.x > 0.65 && cE >= 2.0 && abs(cE - 9.0) > 0.5) {
+              marginBiome = cE;
+            } else if (!rN && cN >= 2.0 && abs(cN - 9.0) > 0.5) {
+              marginBiome = cN;
+            } else if (!rS && cS >= 2.0 && abs(cS - 9.0) > 0.5) {
+              marginBiome = cS;
+            } else if (!rW && cW >= 2.0 && abs(cW - 9.0) > 0.5) {
+              marginBiome = cW;
+            } else if (!rE && cE >= 2.0 && abs(cE - 9.0) > 0.5) {
+              marginBiome = cE;
             }
-            if (onGrassMargin) {
-              col = computeBiomeColor(fallbackBiome, pixPos, chunkPos, subUv, uTime, fallbackFarm);
-            } else {
-              // Subtle darker road curb line right inside the grass margin
-              float curbMargin = 0.20;
-              bool onCurb =
-                (!rN && subUv.y < curbMargin) ||
-                (!rS && (1.0 - subUv.y) < curbMargin) ||
-                (!rW && subUv.x < curbMargin) ||
-                (!rE && (1.0 - subUv.x) < curbMargin);
-              if (onCurb) {
-                col *= 0.84;
-              }
-            }
+            vec3 marginCol = computeBiomeColor(marginBiome, pixPos, chunkPos, subUv, uTime, false);
+            col = computeRoadColor(pixPos, subUv, uTime, rN, rS, rW, rE, rNW, rNE, rSW, rSE, marginCol);
+          } else {
+            col = computeBiomeColor(myCode, pixPos, chunkPos, subUv, uTime, self.a > 0.5);
           }
 
           // 1. Cross-biome organic pixel dithering along shared terrace seams (except crisp stone roads)
