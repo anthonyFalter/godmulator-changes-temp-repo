@@ -135,6 +135,8 @@ export interface BuildingEntity {
 
 export type SpeciesId = 'human' | 'elf' | 'orc';
 
+export type UnitAgeStage = 'child' | 'adult';
+
 export type UnitRole =
   | 'human'
   | 'elf'
@@ -189,6 +191,9 @@ export interface UnitEntity {
   targetEntityId: string | null;
   harvestTimer?: number;
   settlementId?: string;
+  ageStage?: UnitAgeStage;
+  growthTimer?: number;
+  appearanceSeed?: number;
   expeditionTargetX?: number;
   expeditionTargetZ?: number;
   expeditionTimer?: number;

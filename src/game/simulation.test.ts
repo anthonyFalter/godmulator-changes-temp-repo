@@ -15,6 +15,8 @@ import {
   stepSimulation,
 } from './simulation';
 import { EPOCHS, SPECIES_UNITS } from './catalog';
+import { createUnitGroup } from './meshBuilders';
+import * as THREE from 'three';
 
 test('initial state starts as uninhabited wilderness with zero settlements or units', () => {
   const state = createInitialSimulationState(128, 'WILD-1');
@@ -1022,3 +1024,75 @@ test('Earthquake god power creates fault lines, protects ocean tiles, damages st
     'Earthquake hazard zone should expire cleanly after duration',
   );
 });
+
+test('Individuals in every race have unique appearance diversity, different skin tones, and child-to-adult growth', () => {
+  const state = createInitialSimulationState(128, 'DIVERSITY-TEST');
+  state.sandboxFreeMode = true;
+
+  for (let dz = -5; dz <= 5; dz++) {
+    for (let dx = -5; dx <= 5; dx++) {
+      const t = getTile(state, 64 + dx, 64 + dz)!;
+      t.height = 2;
+      t.terrain = 'grass';
+    }
+  }
+
+  for (const species of ['human', 'elf', 'orc'] as const) {
+    const seeds = new Set<number>();
+    const skinColors = new Set<number>();
+    const tunicColors = new Set<number>();
+    const meshHeights = new Set<number>();
+
+    for (let i = 0; i < 12; i++) {
+      const res = spawnUnit(state, species, 64 + (i % 3), 64 + Math.floor(i / 3), true, undefined, {
+        ageStage: i >= 8 ? 'child' : 'adult',
+      });
+      assert.equal(res.ok, true);
+      const u = res.unit!;
+      assert.ok(u.appearanceSeed && u.appearanceSeed > 0, 'Every unit must receive a unique appearanceSeed');
+      seeds.add(u.appearanceSeed);
+
+      const group = createUnitGroup(
+        u.role,
+        u.faction,
+        0,
+        species,
+        u.appearanceSeed,
+        u.ageStage ?? 'adult',
+      );
+      // Extract torso/head materials & height box to verify real visual diversity & smaller child stature
+      const meshes = group.children.filter((c): c is THREE.Mesh => c instanceof THREE.Mesh);
+      assert.ok(meshes.length >= 6, 'Composite unit mesh should have distinct body, head, hair, legs, and details');
+      const torsoMesh = meshes[3]; // [shadow, legL, legR, torso, ...]
+      const headMesh = meshes.find((m) => m.position.y > 0.25 && m.material instanceof THREE.MeshStandardMaterial);
+      if (torsoMesh?.material instanceof THREE.MeshStandardMaterial) {
+        tunicColors.add(torsoMesh.material.color.getHex());
+      }
+      if (headMesh?.material instanceof THREE.MeshStandardMaterial) {
+        skinColors.add(headMesh.material.color.getHex());
+      }
+      const bbox = new THREE.Box3().setFromObject(group);
+      meshHeights.add(Math.round((bbox.max.y - bbox.min.y) * 100));
+    }
+
+    assert.equal(seeds.size, 12, `All 12 ${species} individuals must have unique appearanceSeeds`);
+    assert.ok(skinColors.size >= 3, `${species} population should display multiple distinct skin tones, got ${skinColors.size}`);
+    assert.ok(tunicColors.size >= 3, `${species} population should display varied outfits, got ${tunicColors.size}`);
+    assert.ok(meshHeights.size >= 3, `${species} individuals should vary in stature & child height, got ${meshHeights.size}`);
+  }
+
+  // Test child lifecycle growing into adult naturally over time
+  const childRes = spawnUnit(state, 'human', 64, 64, true, undefined, { ageStage: 'child' });
+  assert.equal(childRes.ok, true);
+  const kid = childRes.unit!;
+  assert.equal(kid.ageStage, 'child');
+  assert.ok((kid.growthTimer ?? 0) > 0, 'Children must start with positive growthTimer');
+
+  // Step until child matures into adult
+  const steps = Math.ceil(((kid.growthTimer ?? 30) + 2) / 0.5);
+  for (let i = 0; i < steps; i++) {
+    stepSimulation(state, 0.5);
+  }
+  assert.equal(kid.ageStage, 'adult', 'Children must mature into adults after childhood duration elapses');
+});
+

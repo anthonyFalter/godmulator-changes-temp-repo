@@ -15,6 +15,7 @@ import {
   SpeciesId,
   TerrainToolType,
   TileData,
+  UnitAgeStage,
   UnitEntity,
   UnitRole,
   VehicleEntity,
@@ -391,6 +392,7 @@ export function spawnUnit(
   z: number,
   freeOverride = false,
   settlementIdOverride?: string,
+  options?: { ageStage?: UnitAgeStage; appearanceSeed?: number },
 ): { ok: boolean; reason?: string; unit?: UnitEntity } {
   const def = UNITS.find((u) => u.role === role);
   if (!def) return { ok: false, reason: 'Unknown unit role' };
@@ -423,25 +425,55 @@ export function spawnUnit(
     }
   }
 
+  const appearanceSeed =
+    options?.appearanceSeed ??
+    (Math.abs(
+      (Math.floor(Math.random() * 0x7fffffff) ^
+        Math.imul(state.units.length + 1, 2654435761) ^
+        Math.imul(Math.round(x) + 17, 73856093) ^
+        Math.imul(Math.round(z) + 31, 19349663)) |
+        1,
+    ) >>>
+      0);
+
+  let ageStage: UnitAgeStage = options?.ageStage ?? 'adult';
+  if (!options?.ageStage && def.faction === 'civilization') {
+    const isBasicRaceRole = role === 'human' || role === 'elf' || role === 'orc' || role === 'villager';
+    const adultSameSpeciesCount = state.units.filter(
+      (u) =>
+        u.faction === 'civilization' &&
+        u.species === species &&
+        u.state !== 'ko' &&
+        u.ageStage !== 'child',
+    ).length;
+    if (isBasicRaceRole && adultSameSpeciesCount >= 3 && Math.random() < 0.34) {
+      ageStage = 'child';
+    }
+  }
+
+  const maxHp = ageStage === 'child' ? Math.max(45, Math.round(def.maxHp * 0.68)) : def.maxHp;
+  const growthTimer = ageStage === 'child' ? 22 + (appearanceSeed % 12) : undefined;
+
   const namePool =
     species === 'elf' ? ELF_NAMES : species === 'orc' ? ORC_NAMES : CITIZEN_NAMES;
+  const nameIdx = Math.abs(appearanceSeed + state.units.length * 7) % namePool.length;
 
   const unit: UnitEntity = {
     id: nextEntityId('unit'),
-    name:
-      def.faction === 'hostile'
-        ? def.name
-        : namePool[(state.units.length * 3 + Math.floor(x + z)) % namePool.length],
+    name: def.faction === 'hostile' ? def.name : namePool[nameIdx],
     role,
     species,
     faction: def.faction,
     settlementId: resolvedSettlementId,
+    ageStage,
+    growthTimer,
+    appearanceSeed,
     x: tile.x + (Math.random() - 0.5) * 0.35,
     z: tile.z + (Math.random() - 0.5) * 0.35,
     targetX: tile.x,
     targetZ: tile.z,
-    hp: def.maxHp,
-    maxHp: def.maxHp,
+    hp: maxHp,
+    maxHp,
     state: 'idle',
     koTimer: 0,
     statusEffects: {},
@@ -905,8 +937,8 @@ export function executeGodPowerImpact(
         const hub = state.buildings.find((b) => b.settlementId === sid && b.constructionProgress >= 100);
         if (hub) {
           const sp = state.settlementSpecies?.[sid] ?? 'human';
-          spawnUnit(state, sp, hub.tileX, hub.tileZ, true, sid);
-          spawnUnit(state, sp, hub.tileX, hub.tileZ, true, sid);
+          spawnUnit(state, sp, hub.tileX, hub.tileZ, true, sid, { ageStage: 'child' });
+          spawnUnit(state, sp, hub.tileX, hub.tileZ, true, sid, { ageStage: 'adult' });
         }
       }
       addChronicle(state, 'Golden Age dawned! 2x output, imperial roads, and booming towns.', 'epoch');
@@ -2682,7 +2714,10 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
     ) {
       state.resources.food -= 20;
       const spawnHub = completedBuildings[0];
-      spawnUnit(state, villageSpecies, spawnHub.tileX, spawnHub.tileZ, true, sid);
+      const birthAgeStage: UnitAgeStage = villageUnits.length >= 2 ? 'child' : 'adult';
+      spawnUnit(state, villageSpecies, spawnHub.tileX, spawnHub.tileZ, true, sid, {
+        ageStage: birthAgeStage,
+      });
     }
 
     // Autonomous Construction Planner scoped to THIS village (capped at getMaxCityBuildings)
@@ -2761,11 +2796,13 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
       if (frontier) {
         const candidates = villageUnits.filter(
           (u) =>
+            u.ageStage !== 'child' &&
             u.role !== 'warrior' &&
             u.carryingAmount === 0 &&
             u.expeditionTargetX === undefined,
         );
-        const colonistPool = candidates.length >= 2 ? candidates : villageUnits;
+        const adultPool = villageUnits.filter((u) => u.ageStage !== 'child');
+        const colonistPool = candidates.length >= 2 ? candidates : adultPool;
         const maxColonistsToSend = Math.min(2, Math.max(0, villageUnits.length - 3));
         if (maxColonistsToSend > 0 && colonistPool.length >= maxColonistsToSend) {
           if (!state.sandboxFreeMode) {
@@ -3330,13 +3367,24 @@ function stepSimulationSingle(state: SimulationState, dt: number): void {
     }
 
     const def = UNITS.find((d) => d.role === u.role)!;
+    if (u.ageStage === 'child') {
+      u.growthTimer = (u.growthTimer ?? 24) - dt;
+      if (u.growthTimer <= 0) {
+        u.ageStage = 'adult';
+        u.growthTimer = undefined;
+        u.maxHp = def.maxHp;
+        u.hp = Math.min(u.maxHp, u.hp + 30);
+      }
+    }
+
     const tileUnder = getTile(state, u.x, u.z);
     const roadBoost = tileUnder?.terrain === 'stone_road' ? 1.45 : tileUnder?.terrain === 'crystal_field' ? 1.6 : 1.0;
     const statusSpeedMult =
       (u.statusEffects.blessed ? 1.6 : 1.0) *
       (u.statusEffects.frenzied ? 1.5 : 1.0) *
       (u.statusEffects.cursed ? 0.55 : 1.0);
-    const moveSpeed = def.speed * roadBoost * statusSpeedMult;
+    const ageSpeedMult = u.ageStage === 'child' ? 1.14 : 1.0;
+    const moveSpeed = def.speed * roadBoost * statusSpeedMult * ageSpeedMult;
 
     if (u.actionCooldown > 0) u.actionCooldown = Math.max(0, u.actionCooldown - dt);
 
@@ -3942,15 +3990,21 @@ function stepCivilianUnitAI(
     u.hp -= 10 * dt;
   }
 
+  const isChild = u.ageStage === 'child';
+
   // 1. Combat defense (Warriors, Frenzied berserkers, Orc border clashes, or self-defense vs raiders)
   let nearestEnemy: UnitEntity | null = null;
   let enemyDistSq = Infinity;
   for (const other of state.units) {
     if (other.id === u.id || other.state === 'ko') continue;
     const isHostileRaider = other.faction === 'hostile';
-    const isRivalFrenzy = Boolean(u.statusEffects.frenzied && other.species !== u.species);
+    const isRivalFrenzy = !isChild && Boolean(u.statusEffects.frenzied && other.species !== u.species);
     const isOrcSkirmish =
-      u.species === 'orc' && other.species !== 'orc' && other.faction === 'civilization';
+      !isChild &&
+      other.ageStage !== 'child' &&
+      u.species === 'orc' &&
+      other.species !== 'orc' &&
+      other.faction === 'civilization';
     if (!isHostileRaider && !isRivalFrenzy && !isOrcSkirmish) continue;
 
     const dSq = (other.x - u.x) ** 2 + (other.z - u.z) ** 2;
@@ -3962,6 +4016,7 @@ function stepCivilianUnitAI(
   }
 
   if (
+    !isChild &&
     nearestEnemy &&
     (u.role === 'warrior' ||
       u.statusEffects.frenzied ||
@@ -3985,6 +4040,59 @@ function stepCivilianUnitAI(
       const dz = (nearestEnemy.z - u.z) / dist;
       u.x += dx * moveSpeed * dt;
       u.z += dz * moveSpeed * dt;
+    }
+    return;
+  }
+
+  // Children stay playfully near their home settlement and forage nearby berries lightly (never fight or desert town)
+  if (isChild) {
+    const townBlds = u.settlementId
+      ? state.buildings.filter((b) => b.settlementId === u.settlementId)
+      : [];
+    if (nearestEnemy && enemyDistSq < 16 && townBlds.length > 0) {
+      const safeBld = townBlds[0];
+      const sx = safeBld.tileX - u.x;
+      const sz = safeBld.tileZ - u.z;
+      const sd = Math.hypot(sx, sz);
+      if (sd > 0.6) {
+        u.state = 'moving';
+        u.targetX = safeBld.tileX;
+        u.targetZ = safeBld.tileZ;
+        u.x += (sx / sd) * moveSpeed * 1.2 * dt;
+        u.z += (sz / sd) * moveSpeed * 1.2 * dt;
+        return;
+      }
+    }
+    const dxC = u.targetX - u.x;
+    const dzC = u.targetZ - u.z;
+    const dC = Math.hypot(dxC, dzC);
+    if (u.actionCooldown <= 0 || dC <= 0.35) {
+      u.actionCooldown = 1.4 + ((u.appearanceSeed ?? 1) % 3) * 0.4;
+      if (townBlds.length > 0) {
+        const pick = townBlds[Math.floor(Math.random() * townBlds.length)];
+        u.targetX = Math.max(1, Math.min(state.gridSize - 2, pick.tileX + (Math.random() - 0.5) * 4.5));
+        u.targetZ = Math.max(1, Math.min(state.gridSize - 2, pick.tileZ + (Math.random() - 0.5) * 4.5));
+      } else {
+        u.targetX = Math.max(1, Math.min(state.gridSize - 2, u.x + (Math.random() - 0.5) * 3.5));
+        u.targetZ = Math.max(1, Math.min(state.gridSize - 2, u.z + (Math.random() - 0.5) * 3.5));
+      }
+    }
+    const dxN = u.targetX - u.x;
+    const dzN = u.targetZ - u.z;
+    const dN = Math.hypot(dxN, dzN);
+    if (dN > 0.35) {
+      const nt = getTile(state, u.x + (dxN / dN) * moveSpeed * dt, u.z + (dzN / dN) * moveSpeed * dt);
+      if (nt && nt.height > 0) {
+        u.state = 'moving';
+        u.x = nt.x === Math.round(u.x) && nt.z === Math.round(u.z) ? u.x + (dxN / dN) * moveSpeed * dt : u.x + (dxN / dN) * moveSpeed * dt;
+        u.z += (dzN / dN) * moveSpeed * dt;
+      } else {
+        u.targetX = u.x;
+        u.targetZ = u.z;
+        u.state = 'idle';
+      }
+    } else {
+      u.state = 'idle';
     }
     return;
   }

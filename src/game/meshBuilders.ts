@@ -1,6 +1,14 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { BuildingType, ResourceNodeType, SpeciesId, TerrainType, UnitRole, VehicleType } from './types';
+import {
+  BuildingType,
+  ResourceNodeType,
+  SpeciesId,
+  TerrainType,
+  UnitAgeStage,
+  UnitRole,
+  VehicleType,
+} from './types';
 
 const textureCache = new Map<string, THREE.CanvasTexture>();
 
@@ -3373,81 +3381,182 @@ export function createUnitGroup(
   faction: 'civilization' | 'hostile',
   epochLevel = 0,
   species: SpeciesId = 'human',
+  appearanceSeed = 1,
+  ageStage: UnitAgeStage = 'adult',
 ): THREE.Group {
   const group = new THREE.Group();
-  group.add(createContactShadow(species === 'orc' ? 0.68 : 0.58));
+  const isChild = ageStage === 'child' && faction === 'civilization';
+
+  // Orthogonal deterministic hashes per individual so each person is visually distinct
+  const seed = Math.abs(Math.floor(appearanceSeed) || 1);
+  const s0 = Math.abs(Math.imul(seed ^ 0x9e3779b9, 2654435761)) >>> 0;
+  const s1 = Math.abs(Math.imul(seed ^ 0x85ebca6b, 2246822519)) >>> 0;
+  const s2 = Math.abs(Math.imul(seed ^ 0xc2b2ae35, 3266489917)) >>> 0;
+  const s3 = Math.abs(Math.imul(seed ^ 0x27d4eb2f, 668265263)) >>> 0;
 
   const resolvedSpecies: SpeciesId =
     role === 'elf' ? 'elf' : role === 'orc' ? 'orc' : role === 'human' ? 'human' : species;
 
-  const skinHex =
-    faction === 'hostile'
-      ? 0x8f5656
-      : resolvedSpecies === 'orc'
-        ? 0x5b8c42
-        : resolvedSpecies === 'elf'
-          ? 0xf4dcc8
-          : 0xe8be9e;
+  const shadowRadius = isChild ? 0.42 : species === 'orc' ? 0.68 : 0.58;
+  group.add(createContactShadow(shadowRadius));
 
+  // 1. Diverse multi-ethnic skin tones per race
+  const humanSkins = [
+    0xf8dcc8, // pale ivory
+    0xecc1a1, // warm peach
+    0xdba67b, // golden olive
+    0xc48a54, // warm tan
+    0xa5693c, // rich bronze
+    0x885028, // caramel brown
+    0x6c3d1e, // chestnut umber
+    0x4e2b16, // deep mahogany
+    0x371d0f, // dark espresso
+  ];
+  const elfSkins = [
+    0xfaeadc, // moonlit porcelain
+    0xebc3a1, // sun-elf warm fair
+    0xc98c63, // woodland bronze
+    0x996240, // forest amber brown
+    0x7d7698, // moon-elf twilight ash
+    0xd3e1ea, // frost silver-kin
+    0xe7c67f, // golden fey
+    0xa28bb0, // dusk lavender
+  ];
+  const orcSkins = [
+    0x5b8c42, // moss green
+    0x3d6930, // deep forest green
+    0x7d9e44, // chartreuse olive
+    0x636b78, // iron slate-grey
+    0x494952, // cinder charcoal
+    0x9c4d35, // mag'har russet ochre
+    0xb35f3c, // red-clay warclan
+    0x8f825b, // dune tan
+  ];
+  const hostileSkins = [0x8f5656, 0x544a4e, 0x4c6b3a, 0x5c446e, 0x9c5e42];
+
+  const skinPool =
+    faction === 'hostile'
+      ? hostileSkins
+      : resolvedSpecies === 'orc'
+        ? orcSkins
+        : resolvedSpecies === 'elf'
+          ? elfSkins
+          : humanSkins;
+  const skinHex = skinPool[s0 % skinPool.length];
   const skinMat = new THREE.MeshStandardMaterial({
     color: skinHex,
-    roughness: 0.65,
+    roughness: 0.64,
   });
 
-  const outfitColors: Record<UnitRole, number> = {
-    human: epochLevel >= 6 ? 0xd8dee9 : epochLevel >= 3 ? 0x3b6e8c : 0x4ea8de,
-    elf: epochLevel >= 6 ? 0x80ed99 : 0x388e5a,
-    orc: epochLevel >= 6 ? 0x9b2226 : 0x8d3b2b,
-    villager: epochLevel >= 6 ? 0xd8dee9 : epochLevel >= 3 ? 0x3b6e8c : 0x4ea8de,
-    forager: 0x52b788,
-    miner: 0xe09f3e,
-    builder: 0xd97736,
-    warrior: 0xd62828,
-    priest: 0xf4a261,
-    scholar: 0x7209b7,
-    astro_engineer: 0x56cfe1,
-    raider_swarmer: 0x9b2226,
-    raider_ranged: 0xae2012,
-    raider_behemoth: 0x3c096c,
+  // 2. Diverse hair color & styles
+  const humanHairs = isChild
+    ? [0x1c1917, 0x3d2817, 0x6e4228, 0x9e472a, 0xe3b549, 0xd17a36, 0x2c221e]
+    : [0x1c1917, 0x3d2817, 0x6e4228, 0x9e472a, 0xe3b549, 0xd17a36, 0xcbd5e1];
+  const elfHairs = isChild
+    ? [0xf4d35e, 0xc46d5e, 0x1e202b, 0x3a7d5c, 0xb89ce6, 0xe8eef5]
+    : [0xe8eef5, 0xf4d35e, 0x3a7d5c, 0x1e202b, 0xc46d5e, 0xb89ce6, 0x9be7dc];
+  const orcHairs = isChild
+    ? [0x18181b, 0x8c3b28, 0x4a4b52, 0xcfc7b8]
+    : [0x18181b, 0xdcd4c2, 0xb54229, 0x4a4b52, 0x633224];
+  const hairPool =
+    resolvedSpecies === 'elf' ? elfHairs : resolvedSpecies === 'orc' ? orcHairs : humanHairs;
+  const hairMat = new THREE.MeshStandardMaterial({
+    color: hairPool[(s0 >> 4) % hairPool.length],
+    roughness: 0.72,
+  });
+
+  // 3. Individual outfit & accent variety (respecting role/epoch flavor while giving unique wardrobe)
+  const roleBasePalette: Record<UnitRole, number[]> = {
+    human:
+      epochLevel >= 6
+        ? [0xd8dee9, 0x90e0ef, 0xe2e8f0, 0xc77dff, 0xf8fafc]
+        : epochLevel >= 3
+          ? [0x3b6e8c, 0x7f4f24, 0x4a5568, 0x9e2a2b, 0x2d6a4f, 0x5c4d7d]
+          : [0x4ea8de, 0xe07a5f, 0x3d405b, 0x81b29a, 0xd9a05b, 0x9b5de5, 0xc1554d],
+    elf:
+      epochLevel >= 6
+        ? [0x80ed99, 0x72efdd, 0xe0fbfc, 0xb8f2e6, 0x9d4edd]
+        : [0x388e5a, 0x2d6a4f, 0x4895ef, 0xc97b63, 0x7b2cbf, 0x8c6d46, 0x2a9d8f],
+    orc:
+      epochLevel >= 6
+        ? [0x9b2226, 0x5a189a, 0xbb3e03, 0x334155]
+        : [0x8d3b2b, 0x6b2d26, 0x495057, 0x7f4f24, 0x9b2226, 0x3f4e37],
+    villager:
+      epochLevel >= 6
+        ? [0xd8dee9, 0x72efdd, 0xcbd5e1]
+        : [0x4ea8de, 0xe07a5f, 0x52b788, 0xe9c46a, 0x8d5b4c, 0x7b68ee],
+    forager: [0x52b788, 0x74c69d, 0x40916c, 0x95d5b2],
+    miner: [0xe09f3e, 0xca6702, 0x9a6b38, 0xbb8530],
+    builder: [0xd97736, 0xbc6c25, 0xe07a5f, 0x9c6644],
+    warrior: [0xd62828, 0x9b2226, 0x495057, 0x1d3557],
+    priest: [0xf4a261, 0xf8fafc, 0xf5b742, 0x9d4edd],
+    scholar: [0x7209b7, 0x3a0ca3, 0x4361ee, 0x8338ec],
+    astro_engineer: [0x56cfe1, 0x4ea8de, 0xe0fbfc, 0x72efdd],
+    raider_swarmer: [0x9b2226, 0x6a040f, 0x370617, 0x5c374c],
+    raider_ranged: [0xae2012, 0x9b2226, 0x4a4e69, 0x7f4f24],
+    raider_behemoth: [0x3c096c, 0x240046, 0x6a040f, 0x2b2d42],
   };
+  const childTunics = [0xffb703, 0x4cc9f0, 0x80ed99, 0xf28482, 0x90dbf4, 0xf4a261, 0xc77dff];
+  const tunicChoices = isChild ? childTunics : roleBasePalette[role] ?? [0x4ea8de];
+  const tunicColor = tunicChoices[s1 % tunicChoices.length];
+
+  const sashChoices = [0xf5b742, 0xe63946, 0xf1faee, 0x2ec4b6, 0x7f4f24, 0x9d4edd, 0x52b788];
+  const sashColor = sashChoices[(s1 >> 5) % sashChoices.length];
 
   const tunicMat = new THREE.MeshStandardMaterial({
-    color: outfitColors[role] ?? 0x4ea8de,
-    roughness: epochLevel >= 4 ? 0.35 : 0.55,
+    color: tunicColor,
+    roughness: epochLevel >= 4 && !isChild ? 0.35 : 0.58,
     metalness:
-      role === 'warrior' || role === 'astro_engineer' || epochLevel >= 5 ? 0.45 : 0.1,
+      !isChild && (role === 'warrior' || role === 'astro_engineer' || epochLevel >= 5) ? 0.42 : 0.08,
+  });
+  const sashMat = new THREE.MeshStandardMaterial({
+    color: sashColor,
+    roughness: 0.55,
   });
 
-  const bootMat = new THREE.MeshStandardMaterial({
-    color: resolvedSpecies === 'elf' ? 0x4a3b2c : 0x3d2b1f,
-    roughness: 0.8,
+  const pantPalette = [0x2b2d42, 0x4a3b2c, 0x3d405b, 0x5c4738, 0x264653, 0x6b5848];
+  const pantMat = new THREE.MeshStandardMaterial({
+    color: pantPalette[(s2 >> 3) % pantPalette.length],
+    roughness: 0.78,
   });
-  const scale =
+
+  // 4. Individual height, build, and head ratio (Children noticeably smaller & rounder-headed)
+  const heightVariance = isChild
+    ? 0.62 + ((s1 & 7) / 7) * 0.11
+    : 0.90 + ((s1 & 15) / 15) * 0.22;
+  const widthVariance = isChild
+    ? 0.88 + (((s1 >> 3) & 7) / 7) * 0.11
+    : 0.90 + (((s1 >> 4) & 15) / 15) * 0.20;
+
+  const baseSpeciesScale =
     role === 'raider_behemoth'
       ? 1.45
       : resolvedSpecies === 'orc'
-        ? 1.14
+        ? 1.13
         : resolvedSpecies === 'elf'
-          ? 0.98
+          ? 0.99
           : 1.0;
-  const widthMult = resolvedSpecies === 'orc' ? 1.24 : resolvedSpecies === 'elf' ? 0.86 : 1.0;
+  const scale = baseSpeciesScale * heightVariance;
+  const widthMult =
+    (resolvedSpecies === 'orc' ? 1.22 : resolvedSpecies === 'elf' ? 0.86 : 1.0) * widthVariance;
+  const headMult = isChild ? 1.22 : 1.0;
 
   // 1. Legs
   const legL = new THREE.Mesh(
     new THREE.BoxGeometry(0.08 * scale * widthMult, 0.14 * scale, 0.08 * scale),
-    bootMat,
+    pantMat,
   );
   legL.position.set(-0.055 * scale * widthMult, 0.07 * scale, 0);
   group.add(legL);
 
   const legR = new THREE.Mesh(
     new THREE.BoxGeometry(0.08 * scale * widthMult, 0.14 * scale, 0.08 * scale),
-    bootMat,
+    pantMat,
   );
   legR.position.set(0.055 * scale * widthMult, 0.07 * scale, 0);
   group.add(legR);
 
-  // 2. Torso
+  // 2. Torso + individual belt/sash or shoulder cloak
   const torso = new THREE.Mesh(
     new THREE.BoxGeometry(0.2 * scale * widthMult, 0.22 * scale, 0.14 * scale),
     tunicMat,
@@ -3456,107 +3565,243 @@ export function createUnitGroup(
   torso.castShadow = true;
   group.add(torso);
 
-  // 3. Head (+ species ears / tusks)
-  const head = new THREE.Mesh(
-    new THREE.BoxGeometry(0.18 * scale * widthMult, 0.18 * scale, 0.18 * scale),
-    skinMat,
-  );
-  head.position.y = 0.44 * scale;
+  const bodyDetailMode = s3 % 4;
+  if (bodyDetailMode === 0 || isChild) {
+    // Vibrant waistband / collar stripe
+    const belt = new THREE.Mesh(
+      new THREE.BoxGeometry(0.215 * scale * widthMult, 0.045 * scale, 0.152 * scale),
+      sashMat,
+    );
+    belt.position.y = isChild ? 0.28 * scale : 0.18 * scale;
+    group.add(belt);
+  } else if (bodyDetailMode === 1) {
+    // Diagonal scarf / shoulder sash
+    const sash = new THREE.Mesh(
+      new THREE.BoxGeometry(0.21 * scale * widthMult, 0.055 * scale, 0.155 * scale),
+      sashMat,
+    );
+    sash.position.y = 0.31 * scale;
+    sash.rotation.z = 0.22;
+    group.add(sash);
+  } else if (bodyDetailMode === 2) {
+    // Explorer backpack or traveler cloak
+    const pack = new THREE.Mesh(
+      new THREE.BoxGeometry(0.14 * scale * widthMult, 0.16 * scale, 0.07 * scale),
+      sashMat,
+    );
+    pack.position.set(0, 0.25 * scale, -0.095 * scale);
+    group.add(pack);
+  } else if (resolvedSpecies === 'orc' || role === 'warrior') {
+    // Asymmetric pauldron guard
+    const pauldron = new THREE.Mesh(
+      new THREE.BoxGeometry(0.085 * scale * widthMult, 0.075 * scale, 0.16 * scale),
+      sashMat,
+    );
+    pauldron.position.set(-0.11 * scale * widthMult, 0.33 * scale, 0);
+    group.add(pauldron);
+  }
+
+  // 3. Head (+ species ears / tusks / facial hair)
+  const headSizeX = 0.18 * scale * widthMult * headMult;
+  const headSizeY = 0.18 * scale * headMult;
+  const headSizeZ = 0.18 * scale * headMult;
+  const headCenterY = (isChild ? 0.455 : 0.44) * scale;
+
+  const head = new THREE.Mesh(new THREE.BoxGeometry(headSizeX, headSizeY, headSizeZ), skinMat);
+  head.position.y = headCenterY;
   head.castShadow = true;
   group.add(head);
 
   if (resolvedSpecies === 'elf' && faction === 'civilization') {
-    const earGeo = new THREE.BoxGeometry(0.08 * scale, 0.045 * scale, 0.04 * scale);
+    const earGeo = new THREE.BoxGeometry(0.085 * scale, 0.045 * scale, 0.04 * scale);
     const earL = new THREE.Mesh(earGeo, skinMat);
-    earL.position.set(-0.12 * scale, 0.45 * scale, -0.01 * scale);
-    earL.rotation.z = 0.35;
+    earL.position.set(-headSizeX * 0.68, headCenterY + 0.01 * scale, -0.01 * scale);
+    earL.rotation.z = 0.36;
     group.add(earL);
     const earR = new THREE.Mesh(earGeo, skinMat);
-    earR.position.set(0.12 * scale, 0.45 * scale, -0.01 * scale);
-    earR.rotation.z = -0.35;
+    earR.position.set(headSizeX * 0.68, headCenterY + 0.01 * scale, -0.01 * scale);
+    earR.rotation.z = -0.36;
     group.add(earR);
   } else if (resolvedSpecies === 'orc') {
     const tuskMat = new THREE.MeshStandardMaterial({ color: 0xf4ecd8, roughness: 0.45 });
-    const tuskGeo = new THREE.BoxGeometry(0.03 * scale, 0.055 * scale, 0.03 * scale);
+    const tuskH = isChild ? 0.032 : 0.055;
+    const tuskGeo = new THREE.BoxGeometry(0.03 * scale, tuskH * scale, 0.03 * scale);
+    const tuskStyle = s2 % 5; // 0-3 both tusks, 4 single chipped tusk
     const tuskL = new THREE.Mesh(tuskGeo, tuskMat);
-    tuskL.position.set(-0.055 * scale, 0.40 * scale, 0.1 * scale);
+    tuskL.position.set(-0.055 * scale * headMult, headCenterY - 0.04 * scale, 0.1 * scale * headMult);
     group.add(tuskL);
-    const tuskR = new THREE.Mesh(tuskGeo, tuskMat);
-    tuskR.position.set(0.055 * scale, 0.40 * scale, 0.1 * scale);
-    group.add(tuskR);
+    if (tuskStyle !== 4) {
+      const tuskR = new THREE.Mesh(tuskGeo, tuskMat);
+      tuskR.position.set(0.055 * scale * headMult, headCenterY - 0.04 * scale, 0.1 * scale * headMult);
+      group.add(tuskR);
+    }
   }
 
-  // 4. Hat / Helmet / Circlet evolving across epochs
-  const hatColor =
-    faction === 'hostile'
-      ? 0x222222
-      : resolvedSpecies === 'elf'
-        ? epochLevel >= 5
-          ? 0x72efdd
-          : 0xf5b742
-        : resolvedSpecies === 'orc'
-          ? epochLevel >= 2
-            ? 0x5c677d
-            : 0x2b2522
-          : role === 'astro_engineer' || epochLevel >= 6
-            ? 0xeceff4
-            : role === 'priest' || role === 'warrior' || epochLevel === 1
-              ? 0xe9b44c
-              : epochLevel >= 2
-                ? 0x8d99ae
-                : 0x4a3423;
-  const hatMat = new THREE.MeshStandardMaterial({
-    color: hatColor,
-    roughness: 0.4,
-    metalness: role === 'warrior' || resolvedSpecies === 'elf' || epochLevel >= 1 ? 0.55 : 0.1,
-  });
-  const hat = new THREE.Mesh(
-    new THREE.BoxGeometry(
-      0.2 * scale * widthMult,
-      (resolvedSpecies === 'elf' ? 0.05 : epochLevel >= 2 ? 0.09 : 0.07) * scale,
-      0.2 * scale,
-    ),
-    hatMat,
-  );
-  hat.position.y = 0.55 * scale;
-  group.add(hat);
+  // Facial hair / warpaint on adults
+  if (!isChild && faction === 'civilization') {
+    if ((resolvedSpecies === 'human' || resolvedSpecies === 'orc') && (s3 % 6 === 0 || s3 % 6 === 1)) {
+      const beard = new THREE.Mesh(
+        new THREE.BoxGeometry(headSizeX * 0.72, 0.065 * scale, 0.04 * scale),
+        hairMat,
+      );
+      beard.position.set(0, headCenterY - headSizeY * 0.36, headSizeZ * 0.48);
+      group.add(beard);
+    } else if (resolvedSpecies === 'orc' && s3 % 6 === 2) {
+      // War-paint stripe
+      const paint = new THREE.Mesh(
+        new THREE.BoxGeometry(headSizeX * 1.03, 0.032 * scale, headSizeZ * 1.03),
+        sashMat,
+      );
+      paint.position.set(0, headCenterY + 0.01 * scale, 0);
+      group.add(paint);
+    }
+  }
 
-  if (faction === 'civilization' && epochLevel >= 4) {
-    const visor = new THREE.Mesh(
-      new THREE.BoxGeometry(0.16 * scale * widthMult, 0.05 * scale, 0.04 * scale),
-      new THREE.MeshBasicMaterial({ color: 0x56cfe1 }),
+  // 4. Expressive Sculpted Hairstyles + Optional Epoch Headgear
+  const hairStyle = s2 % 7;
+  const hairTopY = headCenterY + headSizeY * 0.52;
+  if (hairStyle !== 6 || isChild) {
+    // Top hair cap (skip only for bald adults on style 6)
+    const capH = hairStyle === 4 ? 0.085 : 0.055;
+    const capW = hairStyle === 4 ? headSizeX * 1.24 : headSizeX * 1.08;
+    const capD = hairStyle === 4 ? headSizeZ * 1.2 : headSizeZ * 1.08;
+    const hairCap = new THREE.Mesh(
+      new THREE.BoxGeometry(capW, capH * scale, capD),
+      hairMat,
     );
-    visor.position.set(0, 0.45 * scale, 0.095 * scale);
+    hairCap.position.set(0, hairTopY + (hairStyle === 4 ? 0.025 : 0.01) * scale, 0);
+    group.add(hairCap);
+  }
+
+  if (hairStyle === 1) {
+    // Flowing long locks down the back
+    const backHair = new THREE.Mesh(
+      new THREE.BoxGeometry(headSizeX * 1.02, 0.16 * scale, 0.06 * scale),
+      hairMat,
+    );
+    backHair.position.set(0, headCenterY - 0.04 * scale, -headSizeZ * 0.48);
+    group.add(backHair);
+  } else if (hairStyle === 2) {
+    // Twin side pigtails / hair buns (classic child & elven look)
+    const bunGeo = new THREE.BoxGeometry(0.065 * scale, 0.075 * scale, 0.065 * scale);
+    const bunL = new THREE.Mesh(bunGeo, hairMat);
+    bunL.position.set(-headSizeX * 0.62, hairTopY - 0.01 * scale, -0.02 * scale);
+    group.add(bunL);
+    const bunR = new THREE.Mesh(bunGeo, hairMat);
+    bunR.position.set(headSizeX * 0.62, hairTopY - 0.01 * scale, -0.02 * scale);
+    group.add(bunR);
+  } else if (hairStyle === 3) {
+    // Tall topknot / mohawk crest
+    const crest = new THREE.Mesh(
+      new THREE.BoxGeometry(0.055 * scale, 0.11 * scale, headSizeZ * 0.92),
+      hairMat,
+    );
+    crest.position.set(0, hairTopY + 0.06 * scale, -0.01 * scale);
+    group.add(crest);
+  } else if (hairStyle === 5) {
+    // Ponytail / braid in back
+    const tail = new THREE.Mesh(
+      new THREE.BoxGeometry(0.06 * scale, 0.13 * scale, 0.06 * scale),
+      hairMat,
+    );
+    tail.position.set(0, headCenterY - 0.01 * scale, -headSizeZ * 0.56);
+    tail.rotation.x = 0.28;
+    group.add(tail);
+  }
+
+  // Hats / Helmets / Circlets on military roles, high epochs, or select adults (never hiding children's cute hairstyles unless a small headband!)
+  const wearsHeadgear =
+    !isChild &&
+    (faction === 'hostile' ||
+      role === 'warrior' ||
+      role === 'priest' ||
+      role === 'astro_engineer' ||
+      epochLevel >= 5 ||
+      s3 % 5 === 0);
+
+  if (wearsHeadgear) {
+    const hatColor =
+      faction === 'hostile'
+        ? 0x222222
+        : resolvedSpecies === 'elf'
+          ? epochLevel >= 5
+            ? 0x72efdd
+            : 0xf5b742
+          : resolvedSpecies === 'orc'
+            ? epochLevel >= 2
+              ? 0x5c677d
+              : 0x2b2522
+            : role === 'astro_engineer' || epochLevel >= 6
+              ? 0xeceff4
+              : role === 'priest' || role === 'warrior' || epochLevel === 1
+                ? 0xe9b44c
+                : epochLevel >= 2
+                  ? 0x8d99ae
+                  : sashColor;
+    const hatMat = new THREE.MeshStandardMaterial({
+      color: hatColor,
+      roughness: 0.4,
+      metalness: role === 'warrior' || resolvedSpecies === 'elf' || epochLevel >= 1 ? 0.55 : 0.12,
+    });
+    const hat = new THREE.Mesh(
+      new THREE.BoxGeometry(
+        headSizeX * 1.12,
+        (resolvedSpecies === 'elf' ? 0.045 : epochLevel >= 2 ? 0.08 : 0.06) * scale,
+        headSizeZ * 1.12,
+      ),
+      hatMat,
+    );
+    hat.position.y = hairTopY + 0.045 * scale;
+    group.add(hat);
+  } else if (isChild && (s3 & 1) === 0) {
+    // Colorful ribbon / headband for kids
+    const band = new THREE.Mesh(
+      new THREE.BoxGeometry(headSizeX * 1.1, 0.028 * scale, headSizeZ * 1.1),
+      sashMat,
+    );
+    band.position.y = headCenterY + headSizeY * 0.34;
+    group.add(band);
+  }
+
+  if (!isChild && faction === 'civilization' && epochLevel >= 4) {
+    const visor = new THREE.Mesh(
+      new THREE.BoxGeometry(headSizeX * 0.88, 0.045 * scale, 0.04 * scale),
+      new THREE.MeshBasicMaterial({ color: resolvedSpecies === 'orc' ? 0xff7b54 : 0x56cfe1 }),
+    );
+    visor.position.set(0, headCenterY + 0.01 * scale, headSizeZ * 0.51);
     group.add(visor);
   }
 
-  // 5. Held Tool / Weapon / Bow-Staff
-  const toolMat = new THREE.MeshStandardMaterial({
-    color:
-      resolvedSpecies === 'elf'
-        ? 0xf5b742
-        : resolvedSpecies === 'orc'
-          ? 0xd62828
-          : role === 'priest' || role === 'scholar'
-            ? 0xf5b742
-            : epochLevel >= 4
-              ? 0x56cfe1
-              : 0xadb5bd,
-    metalness: 0.6,
-    roughness: 0.3,
-  });
-  const tool = new THREE.Mesh(
-    new THREE.BoxGeometry(
-      (resolvedSpecies === 'orc' ? 0.08 : 0.05) * scale,
-      (resolvedSpecies === 'elf' ? 0.34 : 0.28) * scale,
-      0.05 * scale,
-    ),
-    toolMat,
-  );
-  tool.position.set(0.14 * scale * widthMult, 0.28 * scale, 0.08 * scale);
-  tool.rotation.x = 0.35;
-  tool.name = 'held_tool';
-  group.add(tool);
+  // 5. Held Tool / Weapon / Child's Toy Stick
+  if (!isChild || s2 % 3 === 0) {
+    const toolMat = new THREE.MeshStandardMaterial({
+      color: isChild
+        ? 0x8d5b4c
+        : resolvedSpecies === 'elf'
+          ? 0xf5b742
+          : resolvedSpecies === 'orc'
+            ? 0xd62828
+            : role === 'priest' || role === 'scholar'
+              ? 0xf5b742
+              : epochLevel >= 4
+                ? 0x56cfe1
+                : 0xadb5bd,
+      metalness: isChild ? 0.05 : 0.6,
+      roughness: isChild ? 0.85 : 0.3,
+    });
+    const tool = new THREE.Mesh(
+      new THREE.BoxGeometry(
+        (isChild ? 0.035 : resolvedSpecies === 'orc' ? 0.08 : 0.05) * scale,
+        (isChild ? 0.16 : resolvedSpecies === 'elf' ? 0.34 : 0.28) * scale,
+        (isChild ? 0.035 : 0.05) * scale,
+      ),
+      toolMat,
+    );
+    tool.position.set(0.14 * scale * widthMult, 0.27 * scale, 0.08 * scale);
+    tool.rotation.x = 0.35;
+    tool.name = 'held_tool';
+    group.add(tool);
+  }
 
   // 6. Carried Resource Bundle (shown when hauling lumber, berries, stone, ore, crystals)
   const carryMat = new THREE.MeshStandardMaterial({ color: 0x8f5d38, roughness: 0.7 });
@@ -3570,7 +3815,7 @@ export function createUnitGroup(
   group.add(carryBox);
 
   // 7. Status Ring (hidden unless blessed/cursed/frenzied/plagued)
-  const auraGeo = new THREE.RingGeometry(0.22, 0.29, 12);
+  const auraGeo = new THREE.RingGeometry(0.22 * scale, 0.29 * scale, 12);
   auraGeo.rotateX(-Math.PI / 2);
   const auraMat = new THREE.MeshBasicMaterial({
     color: 0xf5b742,

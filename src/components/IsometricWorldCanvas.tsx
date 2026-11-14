@@ -400,7 +400,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     >();
     const unitMeshes = new Map<
       string,
-      { group: THREE.Group; epochLevel: number; role: string; species: string }
+      { group: THREE.Group; epochLevel: number; role: string; species: string; ageStage: string }
     >();
     const vehicleMeshes = new Map<
       string,
@@ -2752,16 +2752,34 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         let uEntry = unitMeshes.get(u.id);
         const desiredEpoch = u.faction === 'civilization' ? simState.epochIndex : 0;
         const unitSpecies = u.species ?? 'human';
+        const unitAgeStage = u.ageStage ?? 'adult';
         if (
           !uEntry ||
           uEntry.epochLevel !== desiredEpoch ||
           uEntry.role !== u.role ||
-          uEntry.species !== unitSpecies
+          uEntry.species !== unitSpecies ||
+          uEntry.ageStage !== unitAgeStage
         ) {
           if (uEntry) unitsGroup.remove(uEntry.group);
-          const group = createUnitGroup(u.role, u.faction, desiredEpoch, unitSpecies);
+          const fallbackSeed = Math.abs(
+            (u.id.charCodeAt(u.id.length - 1) * 73856093) ^ (u.id.charCodeAt(0) * 19349663),
+          );
+          const group = createUnitGroup(
+            u.role,
+            u.faction,
+            desiredEpoch,
+            unitSpecies,
+            u.appearanceSeed ?? fallbackSeed,
+            unitAgeStage,
+          );
           unitsGroup.add(group);
-          uEntry = { group, epochLevel: desiredEpoch, role: u.role, species: unitSpecies };
+          uEntry = {
+            group,
+            epochLevel: desiredEpoch,
+            role: u.role,
+            species: unitSpecies,
+            ageStage: unitAgeStage,
+          };
           unitMeshes.set(u.id, uEntry);
         }
         const uGroup = uEntry.group;
@@ -2794,8 +2812,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         const isMoving = u.state === 'moving';
         const isWorking =
           u.state === 'gathering' || u.state === 'building' || u.state === 'fighting';
+        const bobFreq = unitAgeStage === 'child' ? 14.5 : 11;
         const walkBob = isMoving
-          ? Math.abs(Math.sin(elapsed * 11 + u.x * 3)) * 0.08
+          ? Math.abs(Math.sin(elapsed * bobFreq + u.x * 3)) * (unitAgeStage === 'child' ? 0.095 : 0.08)
           : isWorking
             ? Math.abs(Math.sin(elapsed * 14 + u.z * 2)) * 0.04
             : 0;

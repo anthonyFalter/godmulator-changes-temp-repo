@@ -210,8 +210,17 @@ export default function App() {
 
       if (activeTool.kind === 'inspect') {
         const tile = getTile(sim, tileX, tileZ);
+        const nearbyUnit = sim.units.find(
+          (u) => u.state !== 'ko' && Math.hypot(u.x - tileX, u.z - tileZ) <= 0.85,
+        );
         const bld = sim.buildings.find((b) => b.tileX === tileX && b.tileZ === tileZ);
-        if (bld) {
+        if (nearbyUnit) {
+          const label =
+            nearbyUnit.ageStage === 'child'
+              ? `${nearbyUnit.species} child`
+              : `${nearbyUnit.species} ${nearbyUnit.role}`;
+          setStatusFeedback(`${nearbyUnit.name} (${label}, ${Math.round(nearbyUnit.hp)}/${nearbyUnit.maxHp} HP)`);
+        } else if (bld) {
           const def = BUILDINGS.find((d) => d.type === bld.type);
           setStatusFeedback(`${def?.name ?? bld.type} (${Math.round(bld.hp)}/${bld.maxHp} HP)`);
         } else if (tile) {
