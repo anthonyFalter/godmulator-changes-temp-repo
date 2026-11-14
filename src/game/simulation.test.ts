@@ -6,6 +6,7 @@ import {
   castGodPower,
   createInitialSimulationState,
   formatYearLabel,
+  getMaxCityBuildings,
   getTile,
   placeBuilding,
   spawnRaiderWave,
@@ -636,3 +637,75 @@ test('city layout planner builds unblocked street networks and never places buil
     assert.equal(rt.buildingId, null, `Road tile at (${rt.x},${rt.z}) must be unblocked by buildings`);
   }
 });
+
+test('cities respect max building size caps and launch settler expeditions to found distant cities', () => {
+  const state = createInitialSimulationState(128, 'COLONIZE-EXPANSION');
+  state.sandboxFreeMode = true;
+  state.resources.food = 5000;
+  state.resources.wood = 5000;
+  state.resources.stone = 5000;
+  state.resources.ore = 5000;
+  state.resources.faith = 5000;
+  state.resources.knowledge = 5000;
+
+  // Flatten habitable grass across a wide central continent so both primary city and distant frontier have room
+  for (let z = 16; z < 112; z++) {
+    for (let x = 16; x < 112; x++) {
+      const t = getTile(state, x, z)!;
+      t.height = 2;
+      t.terrain = 'grass';
+      t.resourceNode = 'none';
+      t.resourceAmount = 0;
+    }
+  }
+
+  const cx = 36;
+  const cz = 36;
+
+  // Spawn initial human settlers in the northwest region
+  for (let i = 0; i < 8; i++) {
+    spawnUnit(state, 'human', cx + (i % 3) - 1, cz + Math.floor(i / 3) - 1, true);
+  }
+
+  // Let them found their primary city and grow
+  for (let i = 0; i < 15; i++) stepSimulation(state, 0.25);
+  if (state.epochIndex < 1) advanceEpoch(state, true);
+  assert.ok(getMaxCityBuildings(state.epochIndex) >= 12);
+
+  for (let i = 0; i < 240; i++) {
+    stepSimulation(state, 0.25);
+    for (const b of state.buildings) {
+      b.constructionProgress = 100;
+    }
+  }
+
+  const maxAllowedForEpoch = getMaxCityBuildings(state.epochIndex);
+  const settlementIds = Array.from(new Set(state.buildings.map((b) => b.settlementId).filter(Boolean)));
+  assert.ok(
+    settlementIds.length >= 2,
+    `Surplus settlers must launch an expedition and found at least a 2nd city (found ${settlementIds.length})`,
+  );
+
+  // Check each city respects the per-city maximum building cap
+  for (const sid of settlementIds) {
+    const cityBuildings = state.buildings.filter((b) => b.settlementId === sid);
+    assert.ok(
+      cityBuildings.length <= maxAllowedForEpoch,
+      `City ${sid} has ${cityBuildings.length} buildings, exceeding epoch cap ${maxAllowedForEpoch}`,
+    );
+  }
+
+  // Verify the first city grew meaningfully large and the second city was founded far away (>= 24 tiles)
+  const city1Buildings = state.buildings.filter((b) => b.settlementId === settlementIds[0]);
+  const city2Buildings = state.buildings.filter((b) => b.settlementId === settlementIds[1]);
+  assert.ok(city1Buildings.length >= 6, `Primary city should grow large before/while expanding, got ${city1Buildings.length}`);
+  const distBetweenCities = Math.hypot(
+    city1Buildings[0].tileX - city2Buildings[0].tileX,
+    city1Buildings[0].tileZ - city2Buildings[0].tileZ,
+  );
+  assert.ok(
+    distBetweenCities >= 24,
+    `Second city must be founded in a distant location (>= 24 tiles away), got ${distBetweenCities.toFixed(1)}`,
+  );
+});
+

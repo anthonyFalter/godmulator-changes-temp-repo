@@ -177,6 +177,9 @@ export interface UnitEntity {
   targetEntityId: string | null;
   harvestTimer?: number;
   settlementId?: string;
+  expeditionTargetX?: number;
+  expeditionTargetZ?: number;
+  expeditionTimer?: number;
 }
 
 export type GodPowerType =

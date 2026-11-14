@@ -50,7 +50,18 @@ const ORC_VILLAGE_NAMES = [
 ];
 
 export const SETTLEMENT_AWARENESS_RADIUS = 22;
+export const MAX_CITY_BUILDINGS = 20;
+export const MAX_WORLD_CITIES = 8;
 export const YEARS_PER_SEC_AT_1X = 0.1;
+
+export function getMaxCityBuildings(epochIndex: number): number {
+  if (epochIndex <= 0) return 8;
+  if (epochIndex === 1) return 12;
+  if (epochIndex === 2) return 15;
+  if (epochIndex === 3) return 17;
+  if (epochIndex === 4) return 19;
+  return MAX_CITY_BUILDINGS;
+}
 
 let idCounter = 1000;
 export function nextEntityId(prefix: string): string {
@@ -1622,28 +1633,29 @@ export function isSettlementRoadTile(dx: number, dz: number, variant: number): b
     case 0: {
       // Variant 0: Perimeter Loop & Crossroads (encloses 3x3 green cottage blocks like reference architecture)
       const onPerimeterLoop = (maxD === 4 || maxD === 8) && adx <= maxD && adz <= maxD;
-      const onCrossAvenue = (dx === 0 && dz >= -8 && dz <= 8) || (dz === 0 && dx >= -8 && dx <= 8);
+      const onCrossAvenue = (dx === 0 && dz >= -10 && dz <= 10) || (dz === 0 && dx >= -10 && dx <= 10);
       return onPerimeterLoop || onCrossAvenue;
     }
     case 1: {
       // Variant 1: Twin Boulevards & Cross Streets
-      const onBoulevard = (dz === -1 || dz === 3) && adx <= 9;
-      const onCross = (dx === -2 || dx === 2 || dx === -6 || dx === 6) && adz <= 8;
+      const onBoulevard = (dz === -5 || dz === -1 || dz === 3 || dz === 7) && adx <= 10;
+      const onCross = (dx === -2 || dx === 2 || dx === -6 || dx === 6) && adz <= 9;
       return onBoulevard || onCross;
     }
     case 2: {
       // Variant 2: Civic Plaza Ring & Radial Spokes
-      const onRing = maxD === 2 || maxD === 6;
-      const onSpoke = (dx === 0 && adz >= 2 && adz <= 9) || (dz === 0 && adx >= 2 && adx <= 9);
+      const onRing = maxD === 2 || maxD === 6 || maxD === 10;
+      const onSpoke = (dx === 0 && adz >= 2 && adz <= 10) || (dz === 0 && adx >= 2 && adx <= 10);
       return onRing || onSpoke;
     }
     default: {
       // Variant 3: Winding Village Commons with staggered T-junctions
-      const onMainSpine = (dz === 1 && dx >= -8 && dx <= 8) || (dx === -1 && dz >= -8 && dz <= 8);
+      const onMainSpine = (dz === 1 && dx >= -10 && dx <= 10) || (dx === -1 && dz >= -10 && dz <= 10);
       const onLoopBranch =
-        (dx === 3 && dz >= -4 && dz <= 5) ||
-        (dz === -3 && dx >= -4 && dx <= 4) ||
-        (dz === 5 && dx >= -5 && dx <= 4);
+        (dx === 3 && dz >= -6 && dz <= 7) ||
+        (dx === -5 && dz >= -4 && dz <= 6) ||
+        (dz === -3 && dx >= -6 && dx <= 6) ||
+        (dz === 5 && dx >= -6 && dx <= 6);
       return onMainSpine || onLoopBranch;
     }
   }
@@ -1965,36 +1977,49 @@ function pickDesiredAutobuildType(
   villageBuildings: BuildingEntity[],
   villagePop: number,
 ): BuildingType | null {
+  const maxCityBuildings = getMaxCityBuildings(state.epochIndex);
+  if (villageBuildings.length >= maxCityBuildings) return null;
+
   const countType = (t: BuildingType) => villageBuildings.filter((b) => b.type === t).length;
-  const targetCottages = Math.min(10, Math.max(3, Math.floor(villagePop * 0.75)));
+  const targetCottages = Math.min(12, Math.max(4, Math.floor(villagePop * 0.85)));
 
   if (countType('bonfire') === 0) return 'bonfire';
-  if (countType('forager_hut') < Math.min(3, targetCottages)) return 'forager_hut';
-  if (countType('shaman_totem') < (state.epochIndex >= 1 ? 2 : 1)) return 'shaman_totem';
+  if (countType('forager_hut') < Math.min(4, targetCottages)) return 'forager_hut';
+  if (countType('shaman_totem') < 1) return 'shaman_totem';
+
+  if (state.epochIndex === 0) {
+    if (countType('forager_hut') < Math.min(6, targetCottages)) return 'forager_hut';
+    if (countType('shaman_totem') < 2) return 'shaman_totem';
+    return null;
+  }
 
   if (state.epochIndex >= 1) {
     if (countType('granary') < 1) return 'granary';
     if (countType('ziggurat') < 1) return 'ziggurat';
-    if (countType('forager_hut') < Math.min(6, targetCottages)) return 'forager_hut';
-    if (countType('granary') < 2) return 'granary';
+    if (countType('forager_hut') < Math.min(7, targetCottages)) return 'forager_hut';
     if (countType('smeltery') < 2) return 'smeltery';
+    if (countType('granary') < 2) return 'granary';
+    if (countType('shaman_totem') < 2) return 'shaman_totem';
   }
   if (state.epochIndex >= 2) {
     if (countType('guildhall') < 2) return 'guildhall';
-    if (countType('forager_hut') < targetCottages) return 'forager_hut';
+    if (countType('forager_hut') < Math.min(9, targetCottages)) return 'forager_hut';
     if (countType('observatory') < 2) return 'observatory';
     if (countType('guildhall') < 3) return 'guildhall';
   }
   if (state.epochIndex >= 3) {
     if (countType('steam_foundry') < 2) return 'steam_foundry';
     if (countType('dynamo_plant') < 2) return 'dynamo_plant';
+    if (countType('forager_hut') < Math.min(10, targetCottages)) return 'forager_hut';
   }
   if (state.epochIndex >= 4) {
     if (countType('fission_reactor') < 2) return 'fission_reactor';
     if (countType('cyber_institute') < 2) return 'cyber_institute';
+    if (countType('forager_hut') < Math.min(11, targetCottages)) return 'forager_hut';
   }
   if (state.epochIndex >= 5) {
     if (countType('launch_arcology') < 2) return 'launch_arcology';
+    if (countType('forager_hut') < targetCottages) return 'forager_hut';
   }
   if (state.epochIndex >= 6) {
     if (countType('dyson_spire') < 1) return 'dyson_spire';
@@ -2096,13 +2121,110 @@ function transformSettlementEnvironment(
   }
 }
 
+function findNewCitySite(
+  state: SimulationState,
+  fromX: number,
+  fromZ: number,
+): TileData | null {
+  const gs = state.gridSize;
+  const margin = 8;
+  const minCitySepSq = 26 * 26;
+  const activeExpeditions = state.units.filter((u) => u.expeditionTargetX !== undefined && u.expeditionTargetZ !== undefined);
+
+  let bestTile: TileData | null = null;
+  let bestScore = -Infinity;
+
+  // Coarse step-2 search across the world for fertile uninhabited valleys 28..58 tiles away
+  for (let z = margin; z < gs - margin; z += 2) {
+    for (let x = margin; x < gs - margin; x += 2) {
+      const t = getTile(state, x, z);
+      if (!t || t.height <= 0 || t.height > 4 || t.buildingId || t.onFireTimer > 0) continue;
+      if (
+        t.terrain !== 'grass' &&
+        t.terrain !== 'fertile' &&
+        t.terrain !== 'savanna' &&
+        t.terrain !== 'forest'
+      ) {
+        continue;
+      }
+
+      const distFromOrigin = Math.hypot(x - fromX, z - fromZ);
+      if (distFromOrigin < 27 || distFromOrigin > 64) continue;
+
+      let tooClose = false;
+      for (const b of state.buildings) {
+        const dSq = (b.tileX - x) ** 2 + (b.tileZ - z) ** 2;
+        if (dSq < minCitySepSq) {
+          tooClose = true;
+          break;
+        }
+      }
+      if (tooClose) continue;
+
+      for (const ex of activeExpeditions) {
+        const dSq = ((ex.expeditionTargetX ?? 0) - x) ** 2 + ((ex.expeditionTargetZ ?? 0) - z) ** 2;
+        if (dSq < minCitySepSq) {
+          tooClose = true;
+          break;
+        }
+      }
+      if (tooClose) continue;
+
+      // Require spacious buildable land around the new city center so it can grow big
+      let buildableNeighbors = 0;
+      let nearbyResources = 0;
+      for (let dz = -2; dz <= 2; dz++) {
+        for (let dx = -2; dx <= 2; dx++) {
+          const nt = getTile(state, x + dx, z + dz);
+          if (!nt || nt.height <= 0 || nt.height >= 6 || nt.buildingId) continue;
+          if (nt.terrain === 'deep_water' || nt.terrain === 'shallow_water') continue;
+          buildableNeighbors += 1;
+        }
+      }
+      if (buildableNeighbors < 16) continue;
+
+      for (let dz = -5; dz <= 5; dz += 2) {
+        for (let dx = -5; dx <= 5; dx += 2) {
+          const rt = getTile(state, x + dx, z + dz);
+          if (rt && rt.resourceNode !== 'none') nearbyResources += 1;
+        }
+      }
+
+      // Check overland connectivity so pioneers strongly prefer walkable routes on the same continent
+      let waterSamples = 0;
+      for (let s = 1; s <= 5; s++) {
+        const frac = s / 6;
+        const sx = Math.round(fromX + (x - fromX) * frac);
+        const sz = Math.round(fromZ + (z - fromZ) * frac);
+        const st = getTile(state, sx, sz);
+        if (!st || st.height <= 0) waterSamples += 1;
+      }
+
+      let score = buildableNeighbors * 2.2 + nearbyResources * 3.0;
+      if (t.terrain === 'fertile' || t.terrain === 'grass') score += 12;
+      if (t.height === 2 || t.height === 3) score += 8;
+      // Sweet spot distance ~30..44 tiles away from parent city
+      score -= Math.abs(distFromOrigin - 34) * 0.45;
+      score -= waterSamples * 24;
+      score += (((x * 31 + z * 17 + (state.seed ?? 1)) & 15) / 16) * 2.0;
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestTile = t;
+      }
+    }
+  }
+
+  return bestTile;
+}
+
 function stepCivilizationPlanner(state: SimulationState, dt: number): void {
   const activeCivs = state.units.filter((u) => u.faction === 'civilization' && u.state !== 'ko');
   if (activeCivs.length === 0) return;
 
-  const hasHomelessPioneers = activeCivs.some((u) => !u.settlementId);
+  const hasArrivedPioneers = activeCivs.some((u) => !u.settlementId && u.expeditionTargetX === undefined);
   state.civPlanTimer = (state.civPlanTimer ?? 0) + dt;
-  const interval = hasHomelessPioneers ? 0.5 : 1.8;
+  const interval = hasArrivedPioneers ? 0.5 : 1.8;
   if (state.civPlanTimer < interval) return;
   state.civPlanTimer = 0;
 
@@ -2111,7 +2233,7 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
 
   // 1. Bind local homeless settlers to same-species settlement or found their own village!
   for (const pioneer of activeCivs) {
-    if (pioneer.settlementId) continue;
+    if (pioneer.settlementId || pioneer.expeditionTargetX !== undefined) continue;
 
     const nearbyBld = findLocalSettlementBuilding(state, pioneer.x, pioneer.z, SETTLEMENT_AWARENESS_RADIUS);
     if (nearbyBld?.settlementId) {
@@ -2134,6 +2256,9 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
       else if (siteTile.resourceNode === 'berry_bush') state.resources.food += 15;
       siteTile.resourceNode = 'none';
       siteTile.resourceAmount = 0;
+      if (siteTile.terrain === 'stone_road') {
+        siteTile.terrain = 'grass';
+      }
 
       const newSettlementId = nextEntityId('city');
       const sp = pioneer.species ?? 'human';
@@ -2160,7 +2285,7 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
       state.buildings.push(hearth);
       state.totalStructuresBuilt += 1;
 
-      // Adopt nearby homeless pioneers of the same species
+      // Adopt nearby homeless/arriving pioneers of the same species
       for (const other of activeCivs) {
         if (
           !other.settlementId &&
@@ -2168,6 +2293,9 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
           Math.hypot(other.x - siteTile.x, other.z - siteTile.z) <= SETTLEMENT_AWARENESS_RADIUS
         ) {
           other.settlementId = newSettlementId;
+          other.expeditionTargetX = undefined;
+          other.expeditionTargetZ = undefined;
+          other.expeditionTimer = undefined;
         }
       }
 
@@ -2191,7 +2319,7 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
     }
   }
 
-  // 2. Step each independent village/city separately (its own growth, autobuild & terrain evolution)
+  // 2. Step each independent village/city separately (its own growth, autobuild, colonization & terrain evolution)
   const epoch = EPOCHS[state.epochIndex] || EPOCHS[0];
   const settlementIds = Array.from(new Set(state.buildings.map((b) => b.settlementId!)));
 
@@ -2223,9 +2351,15 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
       spawnUnit(state, villageSpecies, spawnHub.tileX, spawnHub.tileZ, true, sid);
     }
 
-    // Autonomous Construction Planner scoped to THIS village
+    // Autonomous Construction Planner scoped to THIS village (capped at getMaxCityBuildings)
+    const maxCityBuildings = getMaxCityBuildings(state.epochIndex);
     const activeSites = villageBuildings.filter((b) => b.constructionProgress < 100).length;
-    if (state.autoBuildEnabled && hasCompletedHearth && activeSites < 2) {
+    if (
+      state.autoBuildEnabled &&
+      hasCompletedHearth &&
+      activeSites < 2 &&
+      villageBuildings.length < maxCityBuildings
+    ) {
       const desiredType = pickDesiredAutobuildType(state, villageBuildings, villageUnits.length);
       if (desiredType) {
         const def = BUILDINGS.find((b) => b.type === desiredType);
@@ -2264,6 +2398,58 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
             const vName = state.settlementNames[sid] ?? 'Settlement';
             addChronicle(state, `Settlers of ${vName} break ground on a ${def.name} at (${site.x}, ${site.z}).`, 'build');
           }
+        }
+      }
+    }
+
+    // Autonomous Frontier Colonization:
+    // Once a city reaches max size (or grows large and crowded), surplus settlers launch an expedition to found a new city!
+    const isAtMaxCitySize = villageBuildings.length >= maxCityBuildings;
+    const isLargeAndCrowded =
+      villageBuildings.length >= Math.min(maxCityBuildings, 6) &&
+      villageUnits.length >= Math.max(7, Math.floor(villagePopCap * 0.65));
+    const hasExpeditionInProgress = activeCivs.some(
+      (u) => u.expeditionTargetX !== undefined && u.species === villageSpecies,
+    );
+
+    if (
+      hasCompletedHearth &&
+      (isAtMaxCitySize || isLargeAndCrowded) &&
+      villageUnits.length >= 5 &&
+      settlementIds.length < MAX_WORLD_CITIES &&
+      !hasExpeditionInProgress &&
+      (state.sandboxFreeMode || state.resources.food >= 30)
+    ) {
+      const frontier = findNewCitySite(state, villageAnchor.x, villageAnchor.z);
+      if (frontier) {
+        const candidates = villageUnits.filter(
+          (u) =>
+            u.role !== 'warrior' &&
+            u.carryingAmount === 0 &&
+            u.expeditionTargetX === undefined,
+        );
+        const colonistPool = candidates.length >= 2 ? candidates : villageUnits;
+        const maxColonistsToSend = Math.min(2, Math.max(0, villageUnits.length - 3));
+        if (maxColonistsToSend > 0 && colonistPool.length >= maxColonistsToSend) {
+          if (!state.sandboxFreeMode) {
+            state.resources.food = Math.max(0, state.resources.food - 25);
+          }
+          for (let c = 0; c < maxColonistsToSend; c++) {
+            const col = colonistPool[c];
+            col.settlementId = undefined;
+            col.expeditionTargetX = frontier.x;
+            col.expeditionTargetZ = frontier.z;
+            col.expeditionTimer = 0;
+            col.targetX = frontier.x;
+            col.targetZ = frontier.z;
+            col.state = 'moving';
+          }
+          const vName = state.settlementNames[sid] ?? 'Settlement';
+          addChronicle(
+            state,
+            `Pioneers from ${vName} set out to found a new city at (${frontier.x}, ${frontier.z})!`,
+            'build',
+          );
         }
       }
     }
@@ -2969,8 +3155,8 @@ function stepCivilianUnitAI(
   moveSpeed: number,
   dt: number,
 ): void {
-  // 0. Bind nomadic units only if a same-species settlement is within local awareness radius
-  if (!u.settlementId) {
+  // 0. Bind nomadic units only if a same-species settlement is within local awareness radius (never intercept colonists on expedition!)
+  if (!u.settlementId && u.expeditionTargetX === undefined) {
     const nearbyBld = findLocalSettlementBuilding(state, u.x, u.z, SETTLEMENT_AWARENESS_RADIUS);
     if (nearbyBld?.settlementId) {
       const bSpecies = state.settlementSpecies?.[nearbyBld.settlementId] ?? 'human';
@@ -3031,6 +3217,28 @@ function stepCivilianUnitAI(
       u.z += dz * moveSpeed * dt;
     }
     return;
+  }
+
+  // 1b. Colonist expedition march to distant frontier site to found a brand-new city
+  if (u.expeditionTargetX !== undefined && u.expeditionTargetZ !== undefined) {
+    u.expeditionTimer = (u.expeditionTimer ?? 0) + dt;
+    const edx = u.expeditionTargetX - u.x;
+    const edz = u.expeditionTargetZ - u.z;
+    const edist = Math.hypot(edx, edz);
+    if (edist <= 1.6 || u.expeditionTimer > 45) {
+      u.expeditionTargetX = undefined;
+      u.expeditionTargetZ = undefined;
+      u.expeditionTimer = undefined;
+      u.state = 'idle';
+    } else {
+      u.state = 'moving';
+      u.targetX = u.expeditionTargetX;
+      u.targetZ = u.expeditionTargetZ;
+      const expSpeed = moveSpeed * 1.15;
+      u.x = Math.max(1, Math.min(state.gridSize - 2, u.x + (edx / edist) * expSpeed * dt));
+      u.z = Math.max(1, Math.min(state.gridSize - 2, u.z + (edz / edist) * expSpeed * dt));
+      return;
+    }
   }
 
   // 2. Priests heal/cleanse plagued or injured allies
