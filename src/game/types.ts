@@ -247,6 +247,7 @@ export interface VisualEffectEvent {
   radius: number;
   color: string;
   createdAt: number;
+  deferImpact?: boolean;
 }
 
 export interface ActiveHazardZone {

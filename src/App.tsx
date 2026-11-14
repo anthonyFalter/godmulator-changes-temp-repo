@@ -223,12 +223,10 @@ export default function App() {
       }
 
       if (activeTool.kind === 'power') {
-        const res = castGodPower(sim, activeTool.power, tileX, tileZ);
+        const res = castGodPower(sim, activeTool.power, tileX, tileZ, { deferImpact: true });
         const def = GOD_POWERS.find((p) => p.type === activeTool.power);
         if (res.ok) {
-          if (res.isHeavy) soundEngine.playHeavyImpact();
-          else if (def?.category === 'Wrathful') soundEngine.playCurse();
-          else soundEngine.playBlessing();
+          soundEngine.playClick();
           setStatusFeedback(`${def?.name} cast`);
         } else {
           setStatusFeedback(res.reason || 'Need more Faith');

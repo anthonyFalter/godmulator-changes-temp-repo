@@ -771,14 +771,21 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         c = mix(c, hi, step(0.62, patchVal));
         return mix(c, hi, glint);
       } else if (code < 12.5) {
-        // Scorched: charred basalt with pulsing ember fissures
-        float crack = step(0.76, waveB);
-        float ember = crack * (0.45 + 0.55 * sin(tTime * 3.0 + pixPos.x * 2.0 + pixPos.y));
-        vec3 ash  = landSrgb(48.0, 36.0, 34.0);
-        vec3 charr = landSrgb(28.0, 20.0, 19.0);
-        vec3 glow = landSrgb(235.0, 94.0, 38.0);
-        vec3 c = mix(charr, ash, step(0.42, waveA));
-        return mix(c, glow, ember * 0.72);
+        // Scorched: realistic pixelated volcanic crater ash, obsidian charcoal, burnt soot & glowing magma fissures
+        float crackField = landNoise(chunkPos * 1.35 + vec2(3.7, 9.2));
+        float fineCrack = step(0.74, waveB * 0.55 + crackField * 0.45);
+        float hotCore = step(0.84, waveB * 0.55 + crackField * 0.45);
+        float pulse = 0.65 + 0.35 * sin(tTime * 3.2 + pixPos.x * 2.2 + pixPos.y * 1.8);
+        vec3 obsidian = landSrgb(22.0, 16.0, 18.0);
+        vec3 darkAsh  = landSrgb(46.0, 35.0, 33.0);
+        vec3 burntUmber = landSrgb(78.0, 48.0, 38.0);
+        vec3 lavaGlow = landSrgb(255.0, 102.0, 24.0);
+        vec3 lavaHot  = landSrgb(255.0, 208.0, 68.0);
+        vec3 c = mix(obsidian, darkAsh, step(0.34, patchVal));
+        c = mix(c, burntUmber, step(0.66, patchVal));
+        if (detail > 0.88) c = mix(c, obsidian, 0.7);
+        c = mix(c, lavaGlow, fineCrack * (0.75 + 0.25 * pulse));
+        return mix(c, lavaHot, hotCore * pulse);
       } else {
         // Crystal Field: luminous geometric arcane/sci-fi circuit plating
         vec2 cGrid = abs(fract(pixPos * 2.0) - 0.5);
@@ -835,7 +842,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
     roughness: 0.84,
     metalness: 0.08,
   });
-  cliffMat.customProgramCacheKey = () => 'aeon_cliff_pixel_v1';
+  cliffMat.customProgramCacheKey = () => 'aeon_cliff_pixel_v2';
   cliffMat.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = sharedTime;
     shader.uniforms.uGridSize = sharedGridSize;
@@ -851,19 +858,30 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         vec2 wallPix = floor(vec2(wallU, vLandWorldPos.y) * 16.0) / 16.0;
         vec2 wallChunk = floor(wallPix * 8.0) / 8.0;
 
+        vec2 cliffOwnerCoord = floor(vLandWorldPos.xz + 0.5 - vLandWorldNormal.xz * 0.25);
+        vec2 cliffNeighborCoord = floor(vLandWorldPos.xz + 0.5 + vLandWorldNormal.xz * 0.25);
+        float ownerCode = decodeTerrain(sampleLandTile(cliffOwnerCoord));
+        float neighborCode = decodeTerrain(sampleLandTile(cliffNeighborCoord));
+        bool isCraterWall = abs(ownerCode - 12.0) < 0.5 || abs(neighborCode - 12.0) < 0.5;
+
         float strata = landNoise(vec2(wallChunk.x * 0.65, wallChunk.y * 2.2));
         float brickRow = floor(wallPix.y * 4.0);
         float brickCol = floor((wallPix.x + mod(brickRow, 2.0) * 0.25) * 2.0);
         float seam = step(0.86, fract(wallPix.y * 4.0)) + step(0.91, fract((wallPix.x + mod(brickRow, 2.0) * 0.25) * 2.0));
         float brickTone = landHash12(vec2(brickCol, brickRow));
 
-        vec3 stoneBase = landSrgb(74.0, 89.0, 95.0);
-        vec3 stoneHi   = landSrgb(104.0, 122.0, 129.0);
-        vec3 stoneSh   = landSrgb(45.0, 56.0, 61.0);
+        vec3 stoneBase = isCraterWall ? landSrgb(48.0, 36.0, 34.0) : landSrgb(74.0, 89.0, 95.0);
+        vec3 stoneHi   = isCraterWall ? landSrgb(78.0, 52.0, 42.0) : landSrgb(104.0, 122.0, 129.0);
+        vec3 stoneSh   = isCraterWall ? landSrgb(24.0, 17.0, 18.0) : landSrgb(45.0, 56.0, 61.0);
 
         vec3 cliffCol = mix(stoneSh, stoneBase, step(0.32, strata * 0.7 + brickTone * 0.3));
         cliffCol = mix(cliffCol, stoneHi, step(0.68, strata * 0.65 + brickTone * 0.35));
         cliffCol = mix(cliffCol, stoneSh, clamp(seam, 0.0, 1.0) * 0.65);
+
+        if (isCraterWall) {
+          float emberVein = step(0.82, strata * 0.6 + brickTone * 0.4);
+          cliffCol = mix(cliffCol, landSrgb(245.0, 98.0, 28.0), emberVein * 0.75);
+        }
 
         // Directional side shade: cooler on west/north-facing walls, slightly brighter sun-kissed east/south cliffs
         float sunSide = clamp(dot(vLandWorldNormal, normalize(vec3(0.7, 0.2, 0.5))) * 0.5 + 0.5, 0.0, 1.0);
@@ -893,7 +911,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
       roughness,
       metalness,
     });
-    topMat.customProgramCacheKey = () => 'aeon_land_top_pixel_v1';
+    topMat.customProgramCacheKey = () => 'aeon_land_top_pixel_v2';
     topMat.onBeforeCompile = (shader) => {
       shader.uniforms.uTime = sharedTime;
       shader.uniforms.uGridSize = sharedGridSize;
@@ -933,6 +951,28 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
           float cW = decodeTerrain(nW);
           float cE = decodeTerrain(nE);
 
+          // 0. Sub-tile 16x16 pixelated circular corner rounding so craters, rims & biomes form smooth pixel circles
+          float cornerR = 0.46;
+          if (myCode != 9.0) {
+            if (subUv.x < cornerR && subUv.y < cornerR && cN != myCode && cW != myCode && (cN == cW || cN == 12.0 || cW == 12.0)) {
+              if (length(vec2(cornerR, cornerR) - subUv) > cornerR * 0.92) {
+                myCode = (cN == 12.0) ? cN : cW;
+              }
+            } else if ((1.0 - subUv.x) < cornerR && subUv.y < cornerR && cN != myCode && cE != myCode && (cN == cE || cN == 12.0 || cE == 12.0)) {
+              if (length(vec2(1.0 - cornerR, cornerR) - subUv) > cornerR * 0.92) {
+                myCode = (cN == 12.0) ? cN : cE;
+              }
+            } else if (subUv.x < cornerR && (1.0 - subUv.y) < cornerR && cS != myCode && cW != myCode && (cS == cW || cS == 12.0 || cW == 12.0)) {
+              if (length(vec2(cornerR, 1.0 - cornerR) - subUv) > cornerR * 0.92) {
+                myCode = (cS == 12.0) ? cS : cW;
+              }
+            } else if ((1.0 - subUv.x) < cornerR && (1.0 - subUv.y) < cornerR && cS != myCode && cE != myCode && (cS == cE || cS == 12.0 || cE == 12.0)) {
+              if (length(vec2(1.0 - cornerR, 1.0 - cornerR) - subUv) > cornerR * 0.92) {
+                myCode = (cS == 12.0) ? cS : cE;
+              }
+            }
+          }
+
           vec3 col = computeBiomeColor(myCode, pixPos, chunkPos, subUv, uTime);
 
           // 1. Cross-biome organic pixel dithering along shared terrace seams (except crisp stone roads)
@@ -962,24 +1002,24 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
             }
           }
 
-          // 3. Isometric Pixel-Art Cliff Edge Rim Highlight (facing lower step)
+          // 3. Isometric Pixel-Art Cliff Edge Rim Highlight (facing lower step, with circular corner rounding)
           float lowerEdge = 2.0;
           if (hS < myHeight) lowerEdge = min(lowerEdge, 1.0 - subUv.y);
           if (hE < myHeight) lowerEdge = min(lowerEdge, 1.0 - subUv.x);
           if (hN < myHeight) lowerEdge = min(lowerEdge, subUv.y);
           if (hW < myHeight) lowerEdge = min(lowerEdge, subUv.x);
-          if (lowerEdge < 0.11) {
-            col *= 1.18;
+          if (lowerEdge < 0.12) {
+            col *= (abs(myCode - 10.0) < 0.5 || abs(myCode - 12.0) < 0.5) ? 1.26 : 1.18;
           }
 
-          // 4. Crisp Terrace Base Ambient Occlusion Shadow (adjacent to taller step)
+          // 4. Crisp Terrace / Crater Bowl Base Ambient Occlusion Shadow (adjacent to taller step)
           float higherEdge = 2.0;
           if (hN > myHeight) higherEdge = min(higherEdge, subUv.y);
           if (hW > myHeight) higherEdge = min(higherEdge, subUv.x);
           if (hS > myHeight) higherEdge = min(higherEdge, 1.0 - subUv.y);
           if (hE > myHeight) higherEdge = min(higherEdge, 1.0 - subUv.x);
-          if (higherEdge < 0.18) {
-            col *= mix(0.68, 1.0, smoothstep(0.0, 0.18, higherEdge));
+          if (higherEdge < 0.22) {
+            col *= mix(0.62, 1.0, smoothstep(0.0, 0.22, higherEdge));
           }
 
           diffuseColor.rgb = col;`,

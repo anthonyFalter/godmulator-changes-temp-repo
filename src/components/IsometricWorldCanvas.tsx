@@ -12,10 +12,16 @@ import {
   createSkyCloudSystem,
   createStyledTerrainSystem,
 } from '../game/skyAndSea';
-import { getSettlementAnchor, stepSimulation } from '../game/simulation';
+import {
+  executeGodPowerImpact,
+  getSettlementAnchor,
+  stepSimulation,
+} from '../game/simulation';
+import { soundEngine } from '../game/sound';
 import {
   ActiveTool,
   GameLifecycleState,
+  GodPowerType,
   LightingPreset,
   SimulationState,
   TerrainType,
@@ -40,7 +46,7 @@ interface IsometricWorldCanvasProps {
 }
 
 const HEIGHT_STEP = 0.45;
-const MAX_PARTICLES = 160;
+const MAX_PARTICLES = 650;
 
 interface PooledParticle {
   active: boolean;
@@ -193,6 +199,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     const hearthLight = new THREE.PointLight(0xff922b, 2.4, 12, 1.6);
     hearthLight.position.set(gridCenter, 3.0, gridCenter);
     scene.add(hearthLight);
+
+    // Dynamic God Power Flash Light (illuminates terrain & structures during miracle/disaster casts)
+    const vfxFlashLight = new THREE.PointLight(0xff922b, 0, 26, 1.2);
+    vfxFlashLight.position.set(gridCenter, 6.0, gridCenter);
+    scene.add(vfxFlashLight);
 
     // Groups for terrain, nodes, buildings, units, cursor, and particles
     const worldGroup = new THREE.Group();
@@ -377,7 +388,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     worldGroup.add(reticleGroup);
 
     // Zero-GC Pooled Particle System (InstancedMesh)
-    const particleGeo = new THREE.BoxGeometry(0.14, 0.14, 0.14);
+    const particleGeo = new THREE.BoxGeometry(0.22, 0.22, 0.22);
     const particleMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
     const particleInstanced = new THREE.InstancedMesh(particleGeo, particleMat, MAX_PARTICLES);
     particleInstanced.frustumCulled = false;
@@ -404,8 +415,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       z: number,
       count: number,
       hexColor: string,
-      spread = 1.5,
-      upSpeed = 3.2,
+      spread = 1.8,
+      upSpeed = 4.5,
+      sizeMult = 1.0,
     ) {
       const baseCol = new THREE.Color(hexColor);
       for (let i = 0; i < count; i++) {
@@ -414,59 +426,71 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         p.active = true;
         const angle = Math.random() * Math.PI * 2;
         const r = Math.random() * spread;
-        p.x = x + Math.cos(angle) * r * 0.45;
-        p.y = y + 0.15 + Math.random() * 0.3;
-        p.z = z + Math.sin(angle) * r * 0.45;
-        p.vx = Math.cos(angle) * (0.8 + Math.random() * 2.2);
-        p.vy = upSpeed * (0.5 + Math.random() * 0.9);
-        p.vz = Math.sin(angle) * (0.8 + Math.random() * 2.2);
-        p.maxLife = 0.45 + Math.random() * 0.45;
+        p.x = x + Math.cos(angle) * r * 0.55;
+        p.y = y + 0.15 + Math.random() * 0.45;
+        p.z = z + Math.sin(angle) * r * 0.55;
+        const radialSpeed = (1.2 + Math.random() * 3.8) * (0.5 + spread * 0.18);
+        p.vx = Math.cos(angle) * radialSpeed;
+        p.vy = upSpeed * (0.55 + Math.random() * 1.05);
+        p.vz = Math.sin(angle) * radialSpeed;
+        p.maxLife = 0.65 + Math.random() * 0.75;
         p.life = p.maxLife;
-        p.size = 0.7 + Math.random() * 0.9;
-        p.color.copy(baseCol).offsetHSL((Math.random() - 0.5) * 0.06, 0, (Math.random() - 0.5) * 0.15);
+        p.size = (0.85 + Math.random() * 1.35) * sizeMult;
+        p.color.copy(baseCol).offsetHSL((Math.random() - 0.5) * 0.08, 0, (Math.random() - 0.5) * 0.22);
       }
     }
 
-    // Active Tile Fire Flames (Zero-GC InstancedMesh for burning tiles)
-    const MAX_FIRE_TILES = 128;
-    const fireOuterGeo = new THREE.BoxGeometry(0.46, 0.72, 0.46);
-    fireOuterGeo.translate(0, 0.36, 0);
-    const fireCoreGeo = new THREE.BoxGeometry(0.24, 0.5, 0.24);
-    fireCoreGeo.translate(0, 0.25, 0);
+    // Active Tile Fire Flames & Smoke Plumes (Zero-GC InstancedMesh for burning tiles)
+    const MAX_FIRE_TILES = 320;
+    const fireOuterGeo = new THREE.BoxGeometry(0.28, 0.68, 0.28);
+    fireOuterGeo.translate(0, 0.34, 0);
+    const fireCoreGeo = new THREE.BoxGeometry(0.16, 0.48, 0.16);
+    fireCoreGeo.translate(0, 0.24, 0);
+    const fireSmokeGeo = new THREE.BoxGeometry(0.32, 0.32, 0.32);
     const fireOuterMat = new THREE.MeshBasicMaterial({
-      color: 0xff6b1a,
+      color: 0xff5400,
       transparent: true,
-      opacity: 0.88,
+      opacity: 0.92,
     });
-    const fireCoreMat = new THREE.MeshBasicMaterial({ color: 0xffe066 });
+    const fireCoreMat = new THREE.MeshBasicMaterial({ color: 0xffee55 });
+    const fireSmokeMat = new THREE.MeshBasicMaterial({
+      color: 0x2b2d42,
+      transparent: true,
+      opacity: 0.58,
+    });
     const fireOuterInst = new THREE.InstancedMesh(fireOuterGeo, fireOuterMat, MAX_FIRE_TILES);
     const fireCoreInst = new THREE.InstancedMesh(fireCoreGeo, fireCoreMat, MAX_FIRE_TILES);
+    const fireSmokeInst = new THREE.InstancedMesh(fireSmokeGeo, fireSmokeMat, MAX_FIRE_TILES);
     fireOuterInst.frustumCulled = false;
     fireCoreInst.frustumCulled = false;
+    fireSmokeInst.frustumCulled = false;
     fireOuterInst.count = 0;
     fireCoreInst.count = 0;
-    worldGroup.add(fireOuterInst, fireCoreInst);
+    fireSmokeInst.count = 0;
+    worldGroup.add(fireOuterInst, fireCoreInst, fireSmokeInst);
 
-    // Lingering Hazard Zones (Rainstorm clouds, Plague miasma, Shield dome, Cosmic rift)
+    // Lingering Hazard Zones (Monsoon storm clouds, Plague miasma, Aegis shield dome, Singularity rift)
     const hazardsGroup = new THREE.Group();
     worldGroup.add(hazardsGroup);
 
-    const sharedHazSphereGeo = new THREE.BoxGeometry(1, 0.55, 1);
-    const sharedRainDropGeo = new THREE.BoxGeometry(0.06, 0.34, 0.06);
-    const sharedDomeGeo = new THREE.CylinderGeometry(1, 1, 2.2, 18, 1, true);
-    sharedDomeGeo.translate(0, 1.1, 0);
-    const sharedHazRingGeo = new THREE.RingGeometry(0.92, 1.0, 24);
+    const sharedHazSphereGeo = new THREE.BoxGeometry(1, 0.65, 1);
+    const sharedRainDropGeo = new THREE.BoxGeometry(0.08, 0.55, 0.08);
+    const sharedDomeGeo = new THREE.IcosahedronGeometry(1, 2);
+    const sharedDomeCylinderGeo = new THREE.CylinderGeometry(1, 1, 2.8, 24, 1, true);
+    sharedDomeCylinderGeo.translate(0, 1.4, 0);
+    const sharedHazRingGeo = new THREE.RingGeometry(0.86, 1.0, 32);
     sharedHazRingGeo.rotateX(-Math.PI / 2);
-    const sharedRiftTorusGeo = new THREE.TorusGeometry(1.15, 0.16, 6, 16);
-    const sharedRiftCoreGeo = new THREE.CylinderGeometry(0.75, 0.75, 0.08, 12);
+    const sharedRiftTorusGeo = new THREE.TorusGeometry(1.65, 0.22, 8, 24);
+    const sharedRiftCoreGeo = new THREE.SphereGeometry(0.95, 16, 12);
 
     interface HazardVisual {
       kind: 'rain_cloud' | 'plague_cloud' | 'shield_dome' | 'wormhole_rift';
       group: THREE.Group;
       materials: THREE.Material[];
-      drops?: { mesh: THREE.Mesh; offsetY: number; speed: number }[];
-      spores?: { mesh: THREE.Mesh; angle: number; dist: number; phase: number }[];
+      drops?: { mesh: THREE.Mesh; offsetY: number; speed: number; baseX: number; baseZ: number }[];
+      spores?: { mesh: THREE.Mesh; angle: number; dist: number; phase: number; height: number }[];
       ringMesh?: THREE.Mesh;
+      secondaryRingMesh?: THREE.Mesh;
     }
     const hazardMeshes = new Map<string, HazardVisual>();
 
@@ -479,142 +503,224 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
       if (kind === 'rain_cloud') {
         const cloudMat = new THREE.MeshStandardMaterial({
-          color: 0x475569,
-          roughness: 0.9,
+          color: 0x334155,
+          roughness: 0.85,
+          transparent: true,
+          opacity: 0.95,
+        });
+        const cloudBellyMat = new THREE.MeshBasicMaterial({
+          color: 0x64748b,
+          transparent: true,
+          opacity: 0.9,
+        });
+        const dropMat = new THREE.MeshBasicMaterial({
+          color: 0x72efdd,
           transparent: true,
           opacity: 0.92,
         });
-        const dropMat = new THREE.MeshBasicMaterial({
-          color: 0x56cfe1,
+        const ringMat = new THREE.MeshBasicMaterial({
+          color: 0x4ea8de,
           transparent: true,
-          opacity: 0.85,
+          opacity: 0.55,
+          side: THREE.DoubleSide,
+          depthWrite: false,
         });
-        materials.push(cloudMat, dropMat);
+        materials.push(cloudMat, cloudBellyMat, dropMat, ringMat);
 
         const puffs = [
-          { x: 0, y: 3.7, z: 0, sx: 2.6, sz: 2.3 },
-          { x: -1.1, y: 3.45, z: 0.6, sx: 1.7, sz: 1.5 },
-          { x: 1.15, y: 3.5, z: -0.5, sx: 1.8, sz: 1.6 },
-          { x: 0.4, y: 3.85, z: 0.9, sx: 1.4, sz: 1.4 },
+          { x: 0, y: 4.8, z: 0, sx: 4.4, sy: 1.2, sz: 3.8, belly: false },
+          { x: -1.9, y: 4.4, z: 1.1, sx: 2.8, sy: 1.0, sz: 2.5, belly: true },
+          { x: 2.0, y: 4.5, z: -0.9, sx: 3.0, sy: 1.1, sz: 2.6, belly: false },
+          { x: 0.8, y: 5.1, z: 1.6, sx: 2.5, sy: 1.0, sz: 2.4, belly: false },
+          { x: -1.4, y: 4.6, z: -1.5, sx: 2.6, sy: 0.95, sz: 2.4, belly: true },
+          { x: 1.6, y: 4.3, z: 1.4, sx: 2.2, sy: 0.9, sz: 2.2, belly: true },
         ];
         for (const pf of puffs) {
-          const m = new THREE.Mesh(sharedHazSphereGeo, cloudMat);
+          const m = new THREE.Mesh(sharedHazSphereGeo, pf.belly ? cloudBellyMat : cloudMat);
           m.position.set(pf.x, pf.y, pf.z);
-          m.scale.set(pf.sx, 0.9, pf.sz);
+          m.scale.set(pf.sx, pf.sy, pf.sz);
           group.add(m);
         }
 
-        const drops: { mesh: THREE.Mesh; offsetY: number; speed: number }[] = [];
-        for (let i = 0; i < 14; i++) {
-          const a = (i / 14) * Math.PI * 2 + (i % 3) * 0.4;
-          const r = ((i * 37) % 10) * 0.085 * radius;
+        const ringMesh = new THREE.Mesh(sharedHazRingGeo, ringMat);
+        ringMesh.position.y = 0.08;
+        ringMesh.scale.setScalar(radius * 0.92);
+        group.add(ringMesh);
+
+        const drops: { mesh: THREE.Mesh; offsetY: number; speed: number; baseX: number; baseZ: number }[] = [];
+        for (let i = 0; i < 36; i++) {
+          const a = (i / 36) * Math.PI * 2 + (i % 5) * 0.35;
+          const r = (0.15 + ((i * 29) % 100) / 100) * radius * 0.82;
+          const bx = Math.cos(a) * r;
+          const bz = Math.sin(a) * r;
           const dMesh = new THREE.Mesh(sharedRainDropGeo, dropMat);
-          dMesh.position.set(Math.cos(a) * r, 1.5, Math.sin(a) * r);
+          dMesh.position.set(bx, 2.2, bz);
           group.add(dMesh);
-          drops.push({ mesh: dMesh, offsetY: (i * 0.27) % 3.2, speed: 5.8 + (i % 3) * 1.1 });
+          drops.push({
+            mesh: dMesh,
+            offsetY: (i * 0.19) % 4.4,
+            speed: 7.5 + (i % 4) * 1.4,
+            baseX: bx,
+            baseZ: bz,
+          });
         }
-        return { kind, group, materials, drops };
+        return { kind, group, materials, drops, ringMesh };
       }
 
       if (kind === 'plague_cloud') {
         const sporeMat = new THREE.MeshBasicMaterial({
           color: 0x80ed99,
           transparent: true,
-          opacity: 0.62,
+          opacity: 0.78,
         });
         const darkSporeMat = new THREE.MeshBasicMaterial({
-          color: 0x38a3a5,
+          color: 0x38b000,
           transparent: true,
-          opacity: 0.5,
+          opacity: 0.65,
         });
-        materials.push(sporeMat, darkSporeMat);
-        const spores: { mesh: THREE.Mesh; angle: number; dist: number; phase: number }[] = [];
-        for (let i = 0; i < 8; i++) {
-          const angle = (i / 8) * Math.PI * 2;
-          const dist = 0.45 + (i % 3) * 0.35 * radius;
+        const ringMat = new THREE.MeshBasicMaterial({
+          color: 0x80ed99,
+          transparent: true,
+          opacity: 0.75,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        materials.push(sporeMat, darkSporeMat, ringMat);
+        const ringMesh = new THREE.Mesh(sharedHazRingGeo, ringMat);
+        ringMesh.position.y = 0.08;
+        ringMesh.scale.setScalar(radius);
+        group.add(ringMesh);
+
+        const spores: { mesh: THREE.Mesh; angle: number; dist: number; phase: number; height: number }[] = [];
+        for (let i = 0; i < 18; i++) {
+          const angle = (i / 18) * Math.PI * 2;
+          const dist = 0.35 + ((i * 37) % 10) * 0.085 * radius;
           const m = new THREE.Mesh(sharedHazSphereGeo, i % 2 === 0 ? sporeMat : darkSporeMat);
-          m.scale.set(0.85, 0.75, 0.85);
-          m.position.set(Math.cos(angle) * dist, 0.75, Math.sin(angle) * dist);
+          const s = 0.95 + (i % 3) * 0.38;
+          m.scale.set(s, s * 0.85, s);
+          const h = 0.65 + (i % 4) * 0.45;
+          m.position.set(Math.cos(angle) * dist, h, Math.sin(angle) * dist);
           group.add(m);
-          spores.push({ mesh: m, angle, dist, phase: i * 0.9 });
+          spores.push({ mesh: m, angle, dist, phase: i * 0.7, height: h });
         }
-        return { kind, group, materials, spores };
+        return { kind, group, materials, spores, ringMesh };
       }
 
       if (kind === 'shield_dome') {
         const domeMat = new THREE.MeshBasicMaterial({
-          color: 0x72efdd,
+          color: 0x56cfe1,
           transparent: true,
-          opacity: 0.22,
+          opacity: 0.28,
           side: THREE.DoubleSide,
           depthWrite: false,
+        });
+        const wireMat = new THREE.MeshBasicMaterial({
+          color: 0x90e0ef,
+          wireframe: true,
+          transparent: true,
+          opacity: 0.62,
         });
         const ringMat = new THREE.MeshBasicMaterial({
-          color: 0x90e0ef,
+          color: 0x72efdd,
           transparent: true,
-          opacity: 0.85,
+          opacity: 0.95,
           side: THREE.DoubleSide,
           depthWrite: false,
         });
-        materials.push(domeMat, ringMat);
-        const dome = new THREE.Mesh(sharedDomeGeo, domeMat);
-        dome.scale.set(radius, 1.0, radius);
+        materials.push(domeMat, wireMat, ringMat);
+
+        const dome = new THREE.Mesh(sharedDomeCylinderGeo, domeMat);
+        dome.scale.set(radius, 1.15, radius);
         group.add(dome);
+
+        const geoShell = new THREE.Mesh(sharedDomeGeo, wireMat);
+        geoShell.scale.set(radius * 0.98, radius * 0.65, radius * 0.98);
+        geoShell.position.y = 0.4;
+        group.add(geoShell);
+
         const ringMesh = new THREE.Mesh(sharedHazRingGeo, ringMat);
-        ringMesh.position.y = 0.06;
-        ringMesh.scale.setScalar(radius);
+        ringMesh.position.y = 0.08;
+        ringMesh.scale.setScalar(radius * 1.02);
         group.add(ringMesh);
-        return { kind, group, materials, ringMesh };
+        return { kind, group, materials, ringMesh, secondaryRingMesh: geoShell };
       }
 
-      // wormhole_rift
+      // wormhole_rift — spinning black hole event horizon + twin gyroscopic accretion rings + cosmic beam
       const ringMat = new THREE.MeshBasicMaterial({
         color: 0xc77dff,
+        transparent: true,
+        opacity: 0.95,
+      });
+      const cyanRingMat = new THREE.MeshBasicMaterial({
+        color: 0x56cfe1,
         transparent: true,
         opacity: 0.9,
       });
       const coreMat = new THREE.MeshBasicMaterial({
         color: 0x10002b,
-        transparent: true,
-        opacity: 0.95,
       });
-      materials.push(ringMat, coreMat);
-      const torus = new THREE.Mesh(sharedRiftTorusGeo, ringMat);
-      torus.position.y = 1.25;
-      torus.rotation.x = Math.PI / 2;
-      torus.name = 'rift_ring';
-      group.add(torus);
+      materials.push(ringMat, cyanRingMat, coreMat);
+
+      const torus1 = new THREE.Mesh(sharedRiftTorusGeo, ringMat);
+      torus1.position.y = 1.8;
+      torus1.rotation.x = Math.PI / 2;
+      group.add(torus1);
+
+      const torus2 = new THREE.Mesh(sharedRiftTorusGeo, cyanRingMat);
+      torus2.position.y = 1.8;
+      torus2.scale.setScalar(0.75);
+      torus2.rotation.x = Math.PI / 3;
+      group.add(torus2);
+
       const core = new THREE.Mesh(sharedRiftCoreGeo, coreMat);
-      core.position.y = 1.25;
+      core.position.y = 1.8;
       group.add(core);
-      return { kind, group, materials, ringMesh: torus };
+      return { kind, group, materials, ringMesh: torus1, secondaryRingMesh: torus2 };
     }
 
-    // One-shot Animated Power VFX (Meteor dive, jagged Lightning bolt, light shafts, shockwave rings)
+    // One-shot Animated Power VFX (Colossal Meteor dive + fireball dome, Multi-fork Lightning, Orbital Beams, Shockwaves)
     const burstFxGroup = new THREE.Group();
     worldGroup.add(burstFxGroup);
-    const sharedMeteorGeo = new THREE.BoxGeometry(0.85, 0.85, 0.85);
-    const sharedBoltGeo = new THREE.BoxGeometry(0.18, 4.6, 0.18);
-    const sharedBeamGeo = new THREE.CylinderGeometry(0.55, 0.85, 10, 12, 1, true);
-    sharedBeamGeo.translate(0, 5, 0);
+    const sharedMeteorGeo = new THREE.BoxGeometry(1.75, 1.75, 1.75);
+    const sharedMeteorAuraGeo = new THREE.BoxGeometry(2.35, 2.35, 2.35);
+    const sharedExplosionDomeGeo = new THREE.SphereGeometry(1, 18, 12, 0, Math.PI * 2, 0, Math.PI / 2);
+    const sharedBoltGeo = new THREE.BoxGeometry(0.34, 6.2, 0.34);
+    const sharedBeamGeo = new THREE.CylinderGeometry(0.85, 1.35, 18, 16, 1, true);
+    sharedBeamGeo.translate(0, 9, 0);
+    const sharedPillarSpikeGeo = new THREE.BoxGeometry(0.45, 2.2, 0.45);
+    sharedPillarSpikeGeo.translate(0, 1.1, 0);
 
     interface ActiveBurstFx {
       kind: 'meteor' | 'lightning' | 'beam_ring';
+      powerType: string;
       group: THREE.Group;
       materials: THREE.Material[];
       age: number;
       duration: number;
+      impactDelay: number;
+      deferImpact: boolean;
       tx: number;
       ty: number;
       tz: number;
       radius: number;
       impactFired: boolean;
-      meteorMesh?: THREE.Mesh;
+      meteorMesh?: THREE.Group;
+      boltSegments?: THREE.Mesh[];
+      forkMeshes?: THREE.Mesh[];
+      explosionDome?: THREE.Mesh;
       ringMesh?: THREE.Mesh;
+      outerRingMesh?: THREE.Mesh;
       beamMesh?: THREE.Mesh;
+      spikes?: THREE.Mesh[];
       colorHex: string;
     }
     const activeBurstFx: ActiveBurstFx[] = [];
+
+    function triggerLightFlash(x: number, y: number, z: number, hexColor: string, intensity = 16) {
+      vfxFlashLight.position.set(x, y + 4.5, z);
+      vfxFlashLight.color.set(hexColor);
+      vfxFlashLight.intensity = intensity;
+    }
 
     function spawnPowerVisualEffect(
       type: string,
@@ -623,142 +729,278 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       tz: number,
       radius: number,
       colorHex: string,
+      deferImpact = false,
     ) {
       const group = new THREE.Group();
       const materials: THREE.Material[] = [];
 
       if (type === 'meteor_strike') {
-        const rockMat = new THREE.MeshBasicMaterial({ color: 0xff5400 });
-        const ringMat = new THREE.MeshBasicMaterial({
-          color: 0xff9e00,
+        const rockMat = new THREE.MeshBasicMaterial({ color: 0xff4800 });
+        const coreGlowMat = new THREE.MeshBasicMaterial({
+          color: 0xffee55,
+          transparent: true,
+          opacity: 0.88,
+        });
+        const domeMat = new THREE.MeshBasicMaterial({
+          color: 0xff6b00,
           transparent: true,
           opacity: 0.0,
           side: THREE.DoubleSide,
           depthWrite: false,
         });
-        materials.push(rockMat, ringMat);
-        const meteorMesh = new THREE.Mesh(sharedMeteorGeo, rockMat);
-        meteorMesh.position.set(tx + 4.5, ty + 16, tz - 4.5);
-        group.add(meteorMesh);
+        const ringMat = new THREE.MeshBasicMaterial({
+          color: 0xffaa00,
+          transparent: true,
+          opacity: 0.65,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        const outerRingMat = new THREE.MeshBasicMaterial({
+          color: 0xff2a00,
+          transparent: true,
+          opacity: 0.0,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        materials.push(rockMat, coreGlowMat, domeMat, ringMat, outerRingMat);
+
+        const meteorGroup = new THREE.Group();
+        const meteorRock = new THREE.Mesh(sharedMeteorGeo, rockMat);
+        const meteorAura = new THREE.Mesh(sharedMeteorAuraGeo, coreGlowMat);
+        meteorGroup.add(meteorRock, meteorAura);
+        meteorGroup.position.set(tx + 8.5, ty + 25, tz - 8.5);
+        group.add(meteorGroup);
+
+        const explosionDome = new THREE.Mesh(sharedExplosionDomeGeo, domeMat);
+        explosionDome.position.set(tx, ty + 0.05, tz);
+        explosionDome.scale.setScalar(0.2);
+        explosionDome.visible = false;
+        group.add(explosionDome);
+
         const ringMesh = new THREE.Mesh(sharedHazRingGeo, ringMat);
-        ringMesh.position.set(tx, ty + 0.08, tz);
-        ringMesh.scale.setScalar(0.3);
+        ringMesh.position.set(tx, ty + 0.12, tz);
+        ringMesh.scale.setScalar(radius * 0.85);
         group.add(ringMesh);
+
+        const outerRingMesh = new THREE.Mesh(sharedHazRingGeo, outerRingMat);
+        outerRingMesh.position.set(tx, ty + 0.16, tz);
+        outerRingMesh.scale.setScalar(0.2);
+        outerRingMesh.visible = false;
+        group.add(outerRingMesh);
+
+        // Erupting magma debris pillars around crater rim
+        const spikes: THREE.Mesh[] = [];
+        for (let i = 0; i < 8; i++) {
+          const a = (i / 8) * Math.PI * 2;
+          const sp = new THREE.Mesh(sharedPillarSpikeGeo, i % 2 === 0 ? rockMat : coreGlowMat);
+          sp.position.set(tx + Math.cos(a) * (radius * 0.58), ty, tz + Math.sin(a) * (radius * 0.58));
+          sp.rotation.z = Math.cos(a) * -0.35;
+          sp.rotation.x = Math.sin(a) * 0.35;
+          sp.scale.set(1, 0.01, 1);
+          sp.visible = false;
+          group.add(sp);
+          spikes.push(sp);
+        }
+
         burstFxGroup.add(group);
         activeBurstFx.push({
           kind: 'meteor',
+          powerType: type,
           group,
           materials,
           age: 0,
-          duration: 0.85,
+          duration: 1.55,
+          impactDelay: 0.48,
+          deferImpact,
           tx,
           ty,
           tz,
           radius,
           impactFired: false,
-          meteorMesh,
+          meteorMesh: meteorGroup,
+          explosionDome,
           ringMesh,
+          outerRingMesh,
+          spikes,
           colorHex,
         });
         return;
       }
 
       if (type === 'lightning_smite') {
+        triggerLightFlash(tx, ty + 10, tz, '#90e0ef', 8);
         const boltMat = new THREE.MeshBasicMaterial({
-          color: 0xe0fbfc,
+          color: 0xffffff,
           transparent: true,
           opacity: 1,
         });
-        const ringMat = new THREE.MeshBasicMaterial({
-          color: 0x90e0ef,
+        const arcMat = new THREE.MeshBasicMaterial({
+          color: 0x48bfe3,
           transparent: true,
           opacity: 0.95,
+        });
+        const domeMat = new THREE.MeshBasicMaterial({
+          color: 0x90e0ef,
+          transparent: true,
+          opacity: 0.85,
           side: THREE.DoubleSide,
           depthWrite: false,
         });
-        materials.push(boltMat, ringMat);
+        const ringMat = new THREE.MeshBasicMaterial({
+          color: 0xe0fbfc,
+          transparent: true,
+          opacity: 1.0,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        materials.push(boltMat, arcMat, domeMat, ringMat);
 
-        // 3 jagged zig-zag sky-to-ground segments
-        const segOffsets = [
-          { x: 0.35, y: 11.2, z: -0.25, rz: 0.18 },
-          { x: -0.25, y: 6.8, z: 0.2, rz: -0.22 },
-          { x: 0.05, y: 2.3, z: 0, rz: 0.1 },
+        // Main sky-to-ground trunk bolt segments (revealed top-to-bottom as bolt descends)
+        const mainSegments = [
+          { x: 0.4, y: 16.5, z: -0.3, rz: 0.18, rx: -0.1, scale: 1.2 },
+          { x: -0.35, y: 11.2, z: 0.25, rz: -0.24, rx: 0.14, scale: 1.15 },
+          { x: 0.25, y: 6.2, z: -0.15, rz: 0.2, rx: -0.12, scale: 1.1 },
+          { x: 0, y: 2.2, z: 0, rz: -0.1, rx: 0.05, scale: 1.25 },
         ];
-        for (const s of segOffsets) {
+        const boltSegments: THREE.Mesh[] = [];
+        for (const s of mainSegments) {
           const seg = new THREE.Mesh(sharedBoltGeo, boltMat);
           seg.position.set(tx + s.x, ty + s.y, tz + s.z);
-          seg.rotation.z = s.rz;
+          seg.rotation.set(s.rx, 0, s.rz);
+          seg.scale.set(s.scale, 1, s.scale);
+          seg.visible = false;
           group.add(seg);
+          boltSegments.push(seg);
         }
+
+        const forkMeshes: THREE.Mesh[] = [];
+        for (let f = 0; f < 4; f++) {
+          const fa = (f / 4) * Math.PI * 2 + 0.4;
+          const fr = radius * 0.48;
+          const fork = new THREE.Mesh(sharedBoltGeo, arcMat);
+          fork.position.set(tx + Math.cos(fa) * fr, ty + 3.2, tz + Math.sin(fa) * fr);
+          fork.rotation.set(Math.sin(fa) * 0.42, 0, Math.cos(fa) * -0.42);
+          fork.scale.set(0.65, 1.1, 0.65);
+          fork.visible = false;
+          group.add(fork);
+          forkMeshes.push(fork);
+        }
+
+        const explosionDome = new THREE.Mesh(sharedExplosionDomeGeo, domeMat);
+        explosionDome.position.set(tx, ty + 0.05, tz);
+        explosionDome.scale.setScalar(0.3);
+        explosionDome.visible = false;
+        group.add(explosionDome);
+
         const ringMesh = new THREE.Mesh(sharedHazRingGeo, ringMat);
-        ringMesh.position.set(tx, ty + 0.08, tz);
+        ringMesh.position.set(tx, ty + 0.12, tz);
+        ringMesh.scale.setScalar(radius * 0.6);
         group.add(ringMesh);
+
+        const outerRingMesh = new THREE.Mesh(sharedHazRingGeo, arcMat);
+        outerRingMesh.position.set(tx, ty + 0.16, tz);
+        outerRingMesh.visible = false;
+        group.add(outerRingMesh);
+
         burstFxGroup.add(group);
         activeBurstFx.push({
           kind: 'lightning',
+          powerType: type,
           group,
           materials,
           age: 0,
-          duration: 0.38,
+          duration: 0.86,
+          impactDelay: 0.22,
+          deferImpact,
           tx,
           ty,
           tz,
           radius,
-          impactFired: true,
+          impactFired: false,
+          boltSegments,
+          forkMeshes,
+          explosionDome,
           ringMesh,
+          outerRingMesh,
           colorHex,
         });
         return;
       }
 
+      // All other powers: descending celestial/orbital beam -> ground touchdown -> shockwave rings & monolith spikes
       const ringMat = new THREE.MeshBasicMaterial({
         color: colorHex,
         transparent: true,
-        opacity: 0.9,
+        opacity: 0.75,
         side: THREE.DoubleSide,
         depthWrite: false,
       });
-      materials.push(ringMat);
+      const outerRingMat = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0.85,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
+      const beamMat = new THREE.MeshBasicMaterial({
+        color: colorHex,
+        transparent: true,
+        opacity: 0.58,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
+      materials.push(ringMat, outerRingMat, beamMat);
+
       const ringMesh = new THREE.Mesh(sharedHazRingGeo, ringMat);
-      ringMesh.position.set(tx, ty + 0.08, tz);
+      ringMesh.position.set(tx, ty + 0.1, tz);
+      ringMesh.scale.setScalar(radius * 0.75);
       group.add(ringMesh);
 
-      let beamMesh: THREE.Mesh | undefined;
-      if (
-        type === 'blessing' ||
-        type === 'eureka' ||
-        type === 'golden_age' ||
-        type === 'terraform_beam' ||
-        type === 'epoch_up'
-      ) {
-        const beamMat = new THREE.MeshBasicMaterial({
-          color: colorHex,
-          transparent: true,
-          opacity: 0.34,
-          side: THREE.DoubleSide,
-          depthWrite: false,
-        });
-        materials.push(beamMat);
-        beamMesh = new THREE.Mesh(sharedBeamGeo, beamMat);
-        beamMesh.position.set(tx, ty, tz);
-        beamMesh.scale.set(radius * 0.35, 1, radius * 0.35);
-        group.add(beamMesh);
+      const outerRingMesh = new THREE.Mesh(sharedHazRingGeo, outerRingMat);
+      outerRingMesh.position.set(tx, ty + 0.45, tz);
+      outerRingMesh.visible = false;
+      group.add(outerRingMesh);
+
+      const beamMesh = new THREE.Mesh(sharedBeamGeo, beamMat);
+      beamMesh.position.set(tx, ty + 14, tz);
+      const beamWidth =
+        type === 'golden_age' || type === 'terraform_beam' ? radius * 0.58 : radius * 0.42;
+      beamMesh.scale.set(beamWidth * 0.35, 1.2, beamWidth * 0.35);
+      group.add(beamMesh);
+
+      // Erupting crystal/golden/crimson/necrotic pillars around the power zone
+      const spikes: THREE.Mesh[] = [];
+      const spikeCount = type === 'golden_age' || type === 'terraform_beam' ? 8 : 6;
+      for (let i = 0; i < spikeCount; i++) {
+        const a = (i / spikeCount) * Math.PI * 2;
+        const dist = radius * 0.52;
+        const sp = new THREE.Mesh(sharedPillarSpikeGeo, i % 2 === 0 ? ringMat : outerRingMat);
+        sp.position.set(tx + Math.cos(a) * dist, ty, tz + Math.sin(a) * dist);
+        sp.scale.set(0.85, 0.01, 0.85);
+        sp.visible = false;
+        group.add(sp);
+        spikes.push(sp);
       }
 
       burstFxGroup.add(group);
       activeBurstFx.push({
         kind: 'beam_ring',
+        powerType: type,
         group,
         materials,
         age: 0,
-        duration: 0.72,
+        duration: 1.2,
+        impactDelay: 0.28,
+        deferImpact,
         tx,
         ty,
         tz,
         radius,
-        impactFired: true,
+        impactFired: false,
         ringMesh,
+        outerRingMesh,
         beamMesh,
+        spikes,
         colorHex,
       });
     }
@@ -1013,6 +1255,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
       if (waterMapNeedsSync) {
         oceanFoam.updateMap(simState.tiles);
+      }
+      if (propsNeedSync || waterMapNeedsSync) {
         styledTerrain.updateMap(simState.tiles);
       }
 
@@ -1238,30 +1482,25 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         }
       }
 
-      // 4. Consume pending VFX bursts & trigger real 3D power animations
+      // 4. Consume pending VFX bursts & trigger dramatic 3D power animations
       while (simState.pendingVfx.length > 0) {
         const vfx = simState.pendingVfx.shift()!;
-        const isHeavy =
-          vfx.type === 'meteor_strike' ||
-          vfx.type === 'lightning_smite' ||
-          vfx.type === 'terraform_beam' ||
-          vfx.type === 'epoch_up' ||
-          vfx.type === 'wormhole_ascension';
-        if (vfx.type !== 'meteor_strike') {
-          if (isHeavy) {
-            trauma = Math.min(1.0, trauma + 0.65);
-            hitstopTimer = 0.06;
-            spawnParticleBurst(vfx.x, vfx.y + 0.3, vfx.z, 28, vfx.color, vfx.radius * 0.7, 4.8);
-          } else {
-            spawnParticleBurst(vfx.x, vfx.y + 0.2, vfx.z, 12, vfx.color, vfx.radius * 0.45, 2.8);
-          }
-        }
-        if (vfx.type !== 'hit_spark' && vfx.type !== 'build_complete') {
-          spawnPowerVisualEffect(vfx.type, vfx.x, vfx.y, vfx.z, vfx.radius, vfx.color);
+        if (vfx.type === 'hit_spark' || vfx.type === 'build_complete') {
+          spawnParticleBurst(vfx.x, vfx.y + 0.2, vfx.z, 20, vfx.color, vfx.radius * 0.5, 3.5, 0.9);
+        } else {
+          spawnPowerVisualEffect(
+            vfx.type,
+            vfx.x,
+            vfx.y,
+            vfx.z,
+            vfx.radius,
+            vfx.color,
+            Boolean(vfx.deferImpact),
+          );
         }
       }
 
-      // 5. Sync lingering hazard zones (rain clouds, plague clouds, shield domes, cosmic rifts)
+      // 5. Sync lingering hazard zones (monsoon rain clouds, plague clouds, shield domes, cosmic rifts)
       const activeHazIds = new Set<string>();
       for (const haz of simState.activeHazards ?? []) {
         activeHazIds.add(haz.id);
@@ -1275,37 +1514,49 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         const hy = ht ? Math.max(0.25, ht.height * HEIGHT_STEP + 0.25) : 0.8;
         hv.group.position.set(haz.x, hy, haz.z);
 
-        const fade = Math.min(1, haz.remaining / 1.0);
+        const fade = Math.min(1, haz.remaining / 1.2);
         if (hv.drops) {
           for (const d of hv.drops) {
-            const dropY = 3.2 - ((elapsed * d.speed + d.offsetY) % 3.2);
+            const dropY = 4.4 - ((elapsed * d.speed + d.offsetY) % 4.4);
             d.mesh.position.y = dropY;
           }
+          if (hv.ringMesh) {
+            hv.ringMesh.scale.setScalar(haz.radius * (0.82 + Math.sin(elapsed * 5) * 0.1));
+          }
           for (const m of hv.materials) {
-            if ('opacity' in m) (m as THREE.MeshBasicMaterial).opacity = 0.88 * fade;
+            if ('opacity' in m) (m as THREE.MeshBasicMaterial).opacity = 0.9 * fade;
           }
         } else if (hv.spores) {
           for (const sp of hv.spores) {
-            const a = sp.angle + elapsed * 0.75;
+            const a = sp.angle + elapsed * 1.1;
             sp.mesh.position.set(
               Math.cos(a) * sp.dist,
-              0.7 + Math.sin(elapsed * 2.5 + sp.phase) * 0.25,
+              sp.height + Math.sin(elapsed * 3.2 + sp.phase) * 0.35,
               Math.sin(a) * sp.dist,
             );
+            sp.mesh.rotation.y = elapsed * 1.5 + sp.phase;
+          }
+          if (hv.ringMesh) {
+            hv.ringMesh.rotation.z = -elapsed * 0.8;
           }
           for (const m of hv.materials) {
-            if ('opacity' in m) (m as THREE.MeshBasicMaterial).opacity = 0.58 * fade;
+            if ('opacity' in m) (m as THREE.MeshBasicMaterial).opacity = 0.72 * fade;
           }
         } else if (hv.kind === 'shield_dome') {
-          if (hv.ringMesh) hv.ringMesh.rotation.z = elapsed * 0.5;
+          if (hv.ringMesh) hv.ringMesh.rotation.z = elapsed * 0.9;
+          if (hv.secondaryRingMesh) hv.secondaryRingMesh.rotation.y = -elapsed * 0.6;
           (hv.materials[0] as THREE.MeshBasicMaterial).opacity =
-            (0.2 + Math.sin(elapsed * 4) * 0.04) * fade;
+            (0.26 + Math.sin(elapsed * 5) * 0.06) * fade;
         } else if (hv.kind === 'wormhole_rift') {
           if (hv.ringMesh) {
-            hv.ringMesh.rotation.z = elapsed * 3.2;
-            hv.ringMesh.rotation.y = elapsed * 1.4;
+            hv.ringMesh.rotation.z = elapsed * 4.2;
+            hv.ringMesh.rotation.y = elapsed * 1.8;
           }
-          const pulse = (0.9 + Math.sin(elapsed * 8) * 0.12) * fade;
+          if (hv.secondaryRingMesh) {
+            hv.secondaryRingMesh.rotation.x = elapsed * 3.1;
+            hv.secondaryRingMesh.rotation.z = -elapsed * 2.4;
+          }
+          const pulse = (0.95 + Math.sin(elapsed * 9) * 0.14) * fade;
           hv.group.scale.setScalar(Math.max(0.05, pulse));
         }
       }
@@ -1317,30 +1568,46 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         }
       }
 
-      // 6. Sync active tile fire flames (burning tiles)
+      // 6. Sync active tile fire flames & smoke plumes (burning tiles, skipping ore_vein center so crater core is clear)
       let fireCount = 0;
       for (let i = 0; i < simState.tiles.length && fireCount < MAX_FIRE_TILES; i++) {
         const t = simState.tiles[i];
-        if (t.onFireTimer > 0 && t.height > 0) {
-          const fy = t.height * HEIGHT_STEP + 0.25;
-          const flick = 0.8 + Math.sin(elapsed * 19 + t.x * 3 + t.z * 7) * 0.25;
-          const w = 0.85 + Math.cos(elapsed * 15 + t.x) * 0.12;
+        if (t.onFireTimer > 0 && t.height > 0 && t.resourceNode !== 'ore_vein') {
+          const fy = tileCurrentY[i] || t.height * HEIGHT_STEP + 0.25;
+          const flick = 0.85 + Math.sin(elapsed * 22 + t.x * 3 + t.z * 7) * 0.3;
+          const w = 0.88 + Math.cos(elapsed * 17 + t.x) * 0.15;
           _dummyPos.set(t.x, fy, t.z);
           _dummyScale.set(w, flick, w);
           _dummyMatrix.compose(_dummyPos, _dummyQuat, _dummyScale);
           fireOuterInst.setMatrixAt(fireCount, _dummyMatrix);
 
-          _dummyScale.set(w * 0.8, flick * 1.05, w * 0.8);
+          _dummyScale.set(w * 0.76, flick * 1.1, w * 0.76);
           _dummyMatrix.compose(_dummyPos, _dummyQuat, _dummyScale);
           fireCoreInst.setMatrixAt(fireCount, _dummyMatrix);
+
+          // Rising animated smoke puff above each burning tile
+          const smokeCycle = (elapsed * 1.8 + (t.x * 0.37 + t.z * 0.53)) % 1.0;
+          const smokeY = fy + 0.65 + smokeCycle * 1.9;
+          const smokeScale = (0.45 + smokeCycle * 0.7) * (1 - smokeCycle * 0.45);
+          _dummyPos.set(
+            t.x + Math.sin(elapsed * 3 + t.z) * 0.16,
+            smokeY,
+            t.z + Math.cos(elapsed * 3 + t.x) * 0.16,
+          );
+          _dummyScale.setScalar(smokeScale);
+          _dummyMatrix.compose(_dummyPos, _dummyQuat, _dummyScale);
+          fireSmokeInst.setMatrixAt(fireCount, _dummyMatrix);
+
           fireCount++;
         }
       }
       fireOuterInst.count = fireCount;
       fireCoreInst.count = fireCount;
+      fireSmokeInst.count = fireCount;
       if (fireCount > 0) {
         fireOuterInst.instanceMatrix.needsUpdate = true;
         fireCoreInst.instanceMatrix.needsUpdate = true;
+        fireSmokeInst.instanceMatrix.needsUpdate = true;
       }
     }
 
@@ -1417,6 +1684,199 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         stepSimulation(simRef.current, dt * 0.35);
       }
 
+      // Update animated one-shot power VFX BEFORE syncSceneFromSimulation so when a projectile/bolt/beam
+      // impacts the ground (`!fx.impactFired`), `executeGodPowerImpact` mutates the tiles and
+      // `syncSceneFromSimulation` immediately updates the 3D terrain & shader texture in the exact same frame!
+      for (let i = activeBurstFx.length - 1; i >= 0; i--) {
+        const fx = activeBurstFx[i];
+        fx.age += dt;
+
+        if (fx.kind === 'meteor' && fx.meteorMesh && fx.ringMesh) {
+          const dropPhase = Math.min(1, fx.age / fx.impactDelay);
+          if (dropPhase < 1) {
+            const easeIn = dropPhase * dropPhase;
+            const mx = fx.tx + 8.5 * (1 - easeIn);
+            const my = fx.ty + 25 * (1 - easeIn) + 0.4;
+            const mz = fx.tz - 8.5 * (1 - easeIn);
+            fx.meteorMesh.position.set(mx, my, mz);
+            fx.meteorMesh.rotation.x += dt * 14;
+            fx.meteorMesh.rotation.y += dt * 11;
+            // Contracting warning reticle on the ground before impact
+            fx.ringMesh.scale.setScalar(fx.radius * (0.95 - dropPhase * 0.72));
+            (fx.materials[3] as THREE.MeshBasicMaterial).opacity = 0.35 + dropPhase * 0.55;
+            spawnParticleBurst(mx, my, mz, 5, '#ff6b00', 0.85, 1.6, 1.35);
+            spawnParticleBurst(mx, my, mz, 3, '#ffee55', 0.45, 1.1, 1.05);
+          } else {
+            if (!fx.impactFired) {
+              fx.impactFired = true;
+              if (fx.deferImpact) {
+                executeGodPowerImpact(simRef.current, fx.powerType as GodPowerType, fx.tx, fx.tz);
+                soundEngine.playHeavyImpact();
+              }
+              fx.meteorMesh.visible = false;
+              if (fx.explosionDome) fx.explosionDome.visible = true;
+              if (fx.outerRingMesh) fx.outerRingMesh.visible = true;
+              trauma = Math.min(1.0, trauma + 1.0);
+              hitstopTimer = 0.07;
+              triggerLightFlash(fx.tx, fx.ty, fx.tz, '#ff6b00', 28);
+              spawnParticleBurst(fx.tx, fx.ty + 0.5, fx.tz, 95, '#ff5400', fx.radius * 1.05, 8.5, 1.65);
+              spawnParticleBurst(fx.tx, fx.ty + 0.6, fx.tz, 45, '#ffee55', fx.radius * 0.65, 10.0, 1.35);
+              if (fx.spikes) {
+                for (const sp of fx.spikes) sp.visible = true;
+              }
+            }
+            const wavePhase = Math.min(1, (fx.age - fx.impactDelay) / (fx.duration - fx.impactDelay));
+            const easeOut = 1 - (1 - wavePhase) * (1 - wavePhase);
+            if (fx.explosionDome) {
+              fx.explosionDome.scale.setScalar(0.6 + easeOut * fx.radius * 1.05);
+              (fx.materials[2] as THREE.MeshBasicMaterial).opacity = (1 - wavePhase) * 0.88;
+            }
+            fx.ringMesh.scale.setScalar(0.6 + easeOut * fx.radius * 1.35);
+            (fx.materials[3] as THREE.MeshBasicMaterial).opacity = (1 - wavePhase) * 0.95;
+            if (fx.outerRingMesh) {
+              fx.outerRingMesh.scale.setScalar(0.3 + wavePhase * fx.radius * 1.75);
+              (fx.materials[4] as THREE.MeshBasicMaterial).opacity = (1 - wavePhase) * 0.85;
+            }
+            if (fx.spikes) {
+              const spikeH = Math.sin(wavePhase * Math.PI) * 1.85;
+              for (const sp of fx.spikes) {
+                sp.scale.set(1.1, Math.max(0.05, spikeH), 1.1);
+              }
+            }
+          }
+        } else if (fx.kind === 'lightning' && fx.ringMesh) {
+          const strikePhase = Math.min(1, fx.age / fx.impactDelay);
+          if (strikePhase < 1) {
+            // Reveal sky-to-ground bolt segments sequentially from top to ground
+            if (fx.boltSegments) {
+              const visibleCount = Math.max(1, Math.ceil(strikePhase * fx.boltSegments.length));
+              for (let sIdx = 0; sIdx < fx.boltSegments.length; sIdx++) {
+                fx.boltSegments[sIdx].visible = sIdx < visibleCount;
+              }
+            }
+            fx.ringMesh.scale.setScalar(fx.radius * (0.65 - strikePhase * 0.4));
+            (fx.materials[3] as THREE.MeshBasicMaterial).opacity = 0.4 + strikePhase * 0.5;
+          } else {
+            if (!fx.impactFired) {
+              fx.impactFired = true;
+              if (fx.deferImpact) {
+                executeGodPowerImpact(simRef.current, fx.powerType as GodPowerType, fx.tx, fx.tz);
+                soundEngine.playHeavyImpact();
+              }
+              if (fx.boltSegments) {
+                for (const seg of fx.boltSegments) seg.visible = true;
+              }
+              if (fx.forkMeshes) {
+                for (const fk of fx.forkMeshes) fk.visible = true;
+              }
+              if (fx.explosionDome) fx.explosionDome.visible = true;
+              if (fx.outerRingMesh) fx.outerRingMesh.visible = true;
+              trauma = Math.min(1.0, trauma + 0.85);
+              hitstopTimer = 0.06;
+              triggerLightFlash(fx.tx, fx.ty, fx.tz, '#90e0ef', 25);
+              spawnParticleBurst(fx.tx, fx.ty + 0.35, fx.tz, 65, '#48bfe3', fx.radius * 0.85, 6.8, 1.35);
+              spawnParticleBurst(fx.tx, fx.ty + 0.25, fx.tz, 30, '#ffffff', fx.radius * 0.45, 8.2, 1.15);
+            }
+            const wavePhase = Math.min(1, (fx.age - fx.impactDelay) / (fx.duration - fx.impactDelay));
+            const easeOut = 1 - (1 - wavePhase) * (1 - wavePhase);
+            fx.ringMesh.scale.setScalar(0.6 + easeOut * fx.radius * 1.45);
+            if (fx.outerRingMesh) {
+              fx.outerRingMesh.scale.setScalar(0.3 + wavePhase * fx.radius * 1.85);
+            }
+            if (fx.explosionDome) {
+              fx.explosionDome.scale.setScalar(0.8 + easeOut * fx.radius * 0.85);
+            }
+            // Rapid high-voltage strobe flash
+            const strobe =
+              wavePhase < 0.45
+                ? Math.floor(fx.age * 45) % 2 === 0
+                  ? 1.0
+                  : 0.65
+                : 1 - (wavePhase - 0.45) / 0.55;
+            for (const m of fx.materials) {
+              (m as THREE.MeshBasicMaterial).opacity = Math.max(0, strobe);
+            }
+          }
+        } else if (fx.kind === 'beam_ring' && fx.ringMesh) {
+          const descentPhase = Math.min(1, fx.age / fx.impactDelay);
+          const baseBeamWidth =
+            fx.powerType === 'golden_age' || fx.powerType === 'terraform_beam'
+              ? fx.radius * 0.58
+              : fx.radius * 0.42;
+          if (descentPhase < 1) {
+            // Beam descends from sky to ground before impact
+            if (fx.beamMesh) {
+              fx.beamMesh.position.y = fx.ty + 14 * (1 - descentPhase);
+              const w = baseBeamWidth * (0.35 + descentPhase * 0.65);
+              fx.beamMesh.scale.set(w, 1.2, w);
+              fx.beamMesh.rotation.y += dt * 4.0;
+            }
+            fx.ringMesh.scale.setScalar(fx.radius * (0.8 - descentPhase * 0.45));
+            (fx.materials[0] as THREE.MeshBasicMaterial).opacity = 0.45 + descentPhase * 0.45;
+          } else {
+            if (!fx.impactFired) {
+              fx.impactFired = true;
+              if (fx.deferImpact) {
+                const isHeavyImpact = executeGodPowerImpact(
+                  simRef.current,
+                  fx.powerType as GodPowerType,
+                  fx.tx,
+                  fx.tz,
+                );
+                const pDef = GOD_POWERS.find((p) => p.type === fx.powerType);
+                if (fx.powerType === 'terraform_beam' || fx.powerType === 'wormhole_ascension') {
+                  soundEngine.playHeavyImpact();
+                } else if (pDef?.category === 'Wrathful') {
+                  soundEngine.playCurse();
+                } else {
+                  soundEngine.playBlessing();
+                }
+                if (isHeavyImpact) {
+                  trauma = Math.min(1.0, trauma + 0.65);
+                  hitstopTimer = 0.05;
+                }
+              }
+              if (fx.beamMesh) fx.beamMesh.position.y = fx.ty;
+              if (fx.outerRingMesh) fx.outerRingMesh.visible = true;
+              if (fx.spikes) {
+                for (const sp of fx.spikes) sp.visible = true;
+              }
+              triggerLightFlash(fx.tx, fx.ty, fx.tz, fx.colorHex, 18);
+              spawnParticleBurst(fx.tx, fx.ty + 0.35, fx.tz, 60, fx.colorHex, fx.radius * 0.85, 6.2, 1.3);
+              spawnParticleBurst(fx.tx, fx.ty + 0.25, fx.tz, 24, '#ffffff', fx.radius * 0.45, 7.2, 1.1);
+            }
+            const wavePhase = Math.min(1, (fx.age - fx.impactDelay) / (fx.duration - fx.impactDelay));
+            const easeOut = 1 - (1 - wavePhase) * (1 - wavePhase);
+            fx.ringMesh.scale.setScalar(0.5 + easeOut * fx.radius * 1.35);
+            (fx.materials[0] as THREE.MeshBasicMaterial).opacity = (1 - wavePhase) * 0.95;
+            if (fx.outerRingMesh) {
+              fx.outerRingMesh.scale.setScalar(0.4 + wavePhase * fx.radius * 1.05);
+              fx.outerRingMesh.position.y = fx.ty + 0.25 + wavePhase * 4.8;
+              (fx.materials[1] as THREE.MeshBasicMaterial).opacity = (1 - wavePhase) * 0.88;
+            }
+            if (fx.beamMesh && fx.materials[2]) {
+              fx.beamMesh.rotation.y += dt * 3.5;
+              const pulseWidth = baseBeamWidth * (1.15 - wavePhase * 0.65);
+              fx.beamMesh.scale.set(pulseWidth, 1.2, pulseWidth);
+              (fx.materials[2] as THREE.MeshBasicMaterial).opacity = (1 - wavePhase) * 0.58;
+            }
+            if (fx.spikes) {
+              const spikeH = Math.sin(wavePhase * Math.PI) * 1.65;
+              for (const sp of fx.spikes) {
+                sp.scale.set(0.95, Math.max(0.05, spikeH), 0.95);
+                sp.rotation.y += dt * 2.5;
+              }
+            }
+          }
+        }
+
+        if (fx.age >= fx.duration) {
+          burstFxGroup.remove(fx.group);
+          for (const m of fx.materials) m.dispose();
+          activeBurstFx.splice(i, 1);
+        }
+      }
+
       syncSceneFromSimulation(simRef.current, dt, elapsedTotal);
 
       // Update pooled particles in-place
@@ -1438,13 +1898,19 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           particleInstanced.setMatrixAt(i, _dummyMatrix);
           continue;
         }
-        p.vy -= 9.5 * dt; // Gravity
+        p.vy -= 11.5 * dt; // Gravity
         p.x += p.vx * dt;
         p.y += p.vy * dt;
         p.z += p.vz * dt;
+        if (p.y < 0.22 && p.vy < 0) {
+          p.y = 0.22;
+          p.vy = -p.vy * 0.42;
+          p.vx *= 0.78;
+          p.vz *= 0.78;
+        }
         const ratio = p.life / p.maxLife;
-        _dummyPos.set(p.x, Math.max(0.1, p.y), p.z);
-        _dummyScale.setScalar(p.size * ratio);
+        _dummyPos.set(p.x, Math.max(0.15, p.y), p.z);
+        _dummyScale.setScalar(p.size * (0.35 + ratio * 0.65));
         _dummyMatrix.compose(_dummyPos, _dummyQuat, _dummyScale);
         particleInstanced.setMatrixAt(i, _dummyMatrix);
         particleInstanced.setColorAt(i, p.color);
@@ -1452,55 +1918,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       particleInstanced.instanceMatrix.needsUpdate = true;
       if (particleInstanced.instanceColor) particleInstanced.instanceColor.needsUpdate = true;
 
-      // Update animated one-shot power VFX (falling meteor, jagged lightning bolt, beams, shockwaves)
-      for (let i = activeBurstFx.length - 1; i >= 0; i--) {
-        const fx = activeBurstFx[i];
-        fx.age += dt;
-        const tNorm = Math.min(1, fx.age / fx.duration);
-
-        if (fx.kind === 'meteor' && fx.meteorMesh && fx.ringMesh) {
-          const dropPhase = Math.min(1, fx.age / 0.32);
-          if (dropPhase < 1) {
-            const easeIn = dropPhase * dropPhase;
-            const mx = fx.tx + 4.5 * (1 - easeIn);
-            const my = fx.ty + 16 * (1 - easeIn) + 0.3;
-            const mz = fx.tz - 4.5 * (1 - easeIn);
-            fx.meteorMesh.position.set(mx, my, mz);
-            fx.meteorMesh.rotation.x += dt * 10;
-            fx.meteorMesh.rotation.y += dt * 8;
-            spawnParticleBurst(mx, my, mz, 2, '#ff7b00', 0.4, 1.2);
-          } else {
-            if (!fx.impactFired) {
-              fx.impactFired = true;
-              fx.meteorMesh.visible = false;
-              trauma = Math.min(1.0, trauma + 0.85);
-              hitstopTimer = 0.06;
-              spawnParticleBurst(fx.tx, fx.ty + 0.4, fx.tz, 34, fx.colorHex, fx.radius * 0.8, 5.5);
-            }
-            const wavePhase = Math.min(1, (fx.age - 0.32) / (fx.duration - 0.32));
-            fx.ringMesh.scale.setScalar(0.5 + wavePhase * fx.radius * 1.15);
-            (fx.materials[1] as THREE.MeshBasicMaterial).opacity = (1 - wavePhase) * 0.92;
-          }
-        } else if (fx.kind === 'lightning' && fx.ringMesh) {
-          fx.ringMesh.scale.setScalar(0.5 + tNorm * fx.radius * 1.3);
-          const flash = tNorm < 0.35 ? 1 : 1 - (tNorm - 0.35) / 0.65;
-          for (const m of fx.materials) {
-            (m as THREE.MeshBasicMaterial).opacity = flash;
-          }
-        } else if (fx.kind === 'beam_ring' && fx.ringMesh) {
-          fx.ringMesh.scale.setScalar(0.4 + tNorm * fx.radius * 1.15);
-          (fx.materials[0] as THREE.MeshBasicMaterial).opacity = (1 - tNorm) * 0.9;
-          if (fx.beamMesh && fx.materials[1]) {
-            fx.beamMesh.rotation.y += dt * 2.5;
-            (fx.materials[1] as THREE.MeshBasicMaterial).opacity = (1 - tNorm) * 0.38;
-          }
-        }
-
-        if (fx.age >= fx.duration) {
-          burstFxGroup.remove(fx.group);
-          for (const m of fx.materials) m.dispose();
-          activeBurstFx.splice(i, 1);
-        }
+      if (vfxFlashLight.intensity > 0.05) {
+        vfxFlashLight.intensity = THREE.MathUtils.damp(vfxFlashLight.intensity, 0, 5.5, dt);
+      } else {
+        vfxFlashLight.intensity = 0;
       }
 
       // Update Hover Reticle position & radius
@@ -1654,17 +2075,23 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       }
       fireOuterGeo.dispose();
       fireCoreGeo.dispose();
+      fireSmokeGeo.dispose();
       fireOuterMat.dispose();
       fireCoreMat.dispose();
+      fireSmokeMat.dispose();
       sharedHazSphereGeo.dispose();
       sharedRainDropGeo.dispose();
       sharedDomeGeo.dispose();
+      sharedDomeCylinderGeo.dispose();
       sharedHazRingGeo.dispose();
       sharedRiftTorusGeo.dispose();
       sharedRiftCoreGeo.dispose();
       sharedMeteorGeo.dispose();
+      sharedMeteorAuraGeo.dispose();
+      sharedExplosionDomeGeo.dispose();
       sharedBoltGeo.dispose();
       sharedBeamGeo.dispose();
+      sharedPillarSpikeGeo.dispose();
       skyClouds.dispose();
       oceanFoam.dispose();
       styledTerrain.dispose();
