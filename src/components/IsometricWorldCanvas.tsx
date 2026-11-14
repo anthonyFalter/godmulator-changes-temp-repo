@@ -678,11 +678,112 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       return { kind, group, materials, ringMesh: torus1, secondaryRingMesh: torus2 };
     }
 
-    // One-shot Animated Power VFX (Colossal Meteor dive + fireball dome, Multi-fork Lightning, Orbital Beams, Shockwaves)
+    // One-shot Animated Power VFX (Sculpted Craggy Asteroid dive + fireball dome, Multi-fork Lightning, Orbital Beams, Shockwaves)
     const burstFxGroup = new THREE.Group();
     worldGroup.add(burstFxGroup);
-    const sharedMeteorGeo = new THREE.BoxGeometry(2.05, 2.05, 2.05);
-    const sharedMeteorAuraGeo = new THREE.BoxGeometry(2.75, 2.75, 2.75);
+
+    // Build a sculpted, craggy, crater-pitted space-rock asteroid with vertex-colored dark chondrite crust & glowing magma fissures
+    const sharedMeteorGeo = (() => {
+      const base = new THREE.IcosahedronGeometry(1.55, 2).toNonIndexed();
+      const pos = base.attributes.position;
+      const colors = new Float32Array(pos.count * 3);
+      const craters = [
+        new THREE.Vector3(0.72, 0.48, 0.5).normalize(),
+        new THREE.Vector3(-0.78, 0.25, 0.56).normalize(),
+        new THREE.Vector3(0.15, -0.86, 0.48).normalize(),
+        new THREE.Vector3(-0.35, 0.68, -0.64).normalize(),
+        new THREE.Vector3(0.62, -0.38, -0.68).normalize(),
+        new THREE.Vector3(-0.52, -0.58, -0.62).normalize(),
+      ];
+      const v = new THREE.Vector3();
+      const n = new THREE.Vector3();
+      const colCrustDark = new THREE.Color('#241a18');
+      const colCrustMid = new THREE.Color('#3f302b');
+      const colCrustHi = new THREE.Color('#5c4740');
+      const colScorch = new THREE.Color('#9e3312');
+      const colLava = new THREE.Color('#ff5400');
+      const colLavaHot = new THREE.Color('#ffee55');
+      const tmpCol = new THREE.Color();
+
+      // Process triangle-by-triangle so each rock facet has crisp flat-shaded pixel-art rock contrast
+      for (let i = 0; i < pos.count; i++) {
+        v.fromBufferAttribute(pos, i);
+        n.copy(v).normalize();
+
+        // Multi-frequency rocky crag & ridge displacement
+        const crag =
+          Math.sin(n.x * 4.5 + n.y * 3.2) * 0.2 +
+          Math.cos(n.y * 6.1 - n.z * 5.4) * 0.15 +
+          Math.sin(n.z * 8.3 + n.x * 7.1) * 0.1;
+
+        // Carve impact craters & raised rims into the asteroid surface
+        let craterDelta = 0;
+        for (const cDir of craters) {
+          const d = n.dot(cDir);
+          if (d > 0.78) {
+            const depth = (d - 0.78) / 0.22;
+            craterDelta -= depth * 0.34;
+          } else if (d > 0.66) {
+            const rim = 1 - Math.abs(d - 0.72) / 0.06;
+            craterDelta += Math.max(0, rim) * 0.11;
+          }
+        }
+
+        const rawScale = 1.0 + crag + craterDelta;
+        const snappedScale = Math.round(rawScale * 18) / 18;
+
+        // Asymmetric potato/bolide proportions (not a sphere or cube!)
+        v.x *= snappedScale * 1.28;
+        v.y *= snappedScale * 0.92;
+        v.z *= snappedScale * 1.08;
+        pos.setXYZ(i, v.x, v.y, v.z);
+
+        // Fissure & crater magma glow in deep crevices, dark charred chondrite rock on outer ridges
+        const fissureWave = Math.sin(n.x * 9.5 - n.z * 8.2) * Math.cos(n.y * 9.1);
+        const depthMetric = snappedScale + fissureWave * 0.08;
+
+        if (depthMetric < 0.84) {
+          tmpCol.copy(colLavaHot).lerp(colLava, Math.max(0, (depthMetric - 0.72) / 0.12));
+        } else if (depthMetric < 0.94) {
+          tmpCol.copy(colLava).lerp(colScorch, (depthMetric - 0.84) / 0.1);
+        } else if (depthMetric < 1.04) {
+          tmpCol.copy(colCrustDark).lerp(colCrustMid, (depthMetric - 0.94) / 0.1);
+        } else {
+          tmpCol.copy(colCrustMid).lerp(colCrustHi, Math.min(1, (depthMetric - 1.04) / 0.18));
+        }
+
+        colors[i * 3] = tmpCol.r;
+        colors[i * 3 + 1] = tmpCol.g;
+        colors[i * 3 + 2] = tmpCol.b;
+      }
+
+      base.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+      base.computeVertexNormals();
+      return base;
+    })();
+
+    // Streamlined teardrop/parabolic atmospheric plasma sheath & tail (instead of a 3D box!)
+    const sharedMeteorAuraGeo = (() => {
+      const aura = new THREE.IcosahedronGeometry(1.95, 2);
+      const pos = aura.attributes.position;
+      const v = new THREE.Vector3();
+      for (let i = 0; i < pos.count; i++) {
+        v.fromBufferAttribute(pos, i);
+        // Stretch trailing upper-back wake along (+1, +2.2, -1) flight axis into a comet teardrop
+        const trailDot = (v.x * 0.38 + v.y * 0.84 - v.z * 0.38) / 1.95;
+        if (trailDot > 0) {
+          const stretch = 1 + trailDot * 1.85;
+          v.x += 0.38 * trailDot * 2.4;
+          v.y += 0.84 * trailDot * 2.4;
+          v.z -= 0.38 * trailDot * 2.4;
+          v.multiplyScalar(1 - trailDot * 0.22 + stretch * 0.08);
+        }
+        pos.setXYZ(i, v.x, v.y, v.z);
+      }
+      aura.computeVertexNormals();
+      return aura;
+    })();
+
     const sharedExplosionDomeGeo = new THREE.SphereGeometry(1, 20, 14, 0, Math.PI * 2, 0, Math.PI / 2);
     const sharedBoltGeo = new THREE.BoxGeometry(0.34, 6.2, 0.34);
     const sharedBeamGeo = new THREE.CylinderGeometry(0.85, 1.35, 18, 16, 1, true);
@@ -705,6 +806,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       radius: number;
       impactFired: boolean;
       meteorMesh?: THREE.Group;
+      meteorRockCore?: THREE.Object3D;
       boltSegments?: THREE.Mesh[];
       forkMeshes?: THREE.Mesh[];
       explosionDome?: THREE.Mesh;
@@ -737,11 +839,19 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       const materials: THREE.Material[] = [];
 
       if (type === 'meteor_strike') {
-        const rockMat = new THREE.MeshBasicMaterial({ color: 0xff4800 });
+        const rockMat = new THREE.MeshStandardMaterial({
+          vertexColors: true,
+          flatShading: true,
+          roughness: 0.78,
+          metalness: 0.15,
+          emissive: new THREE.Color(0xff4500),
+          emissiveIntensity: 0.42,
+        });
         const coreGlowMat = new THREE.MeshBasicMaterial({
-          color: 0xffee55,
+          color: 0xff7b00,
           transparent: true,
-          opacity: 0.9,
+          opacity: 0.42,
+          depthWrite: false,
         });
         const domeMat = new THREE.MeshBasicMaterial({
           color: 0xff5400,
@@ -789,12 +899,26 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         );
 
         const meteorGroup = new THREE.Group();
+        const meteorRockCore = new THREE.Group();
         const meteorRock = new THREE.Mesh(sharedMeteorGeo, rockMat);
-        const meteorRockCross = new THREE.Mesh(sharedMeteorGeo, rockMat);
-        meteorRockCross.rotation.set(0.78, 0.78, 0.4);
-        meteorRockCross.scale.setScalar(0.92);
+        // Protruding rocky sub-boulders embedded into the main asteroid body for an unmistakable irregular silhouette
+        const lobeOffsets = [
+          { x: 0.95, y: 0.35, z: -0.45, s: 0.48, rx: 0.5, ry: 1.1 },
+          { x: -0.88, y: -0.42, z: 0.52, s: 0.52, rx: 1.4, ry: 0.3 },
+          { x: 0.25, y: 0.78, z: 0.72, s: 0.42, rx: 2.1, ry: 0.8 },
+          { x: -0.45, y: -0.68, z: -0.65, s: 0.45, rx: 0.9, ry: 1.9 },
+        ];
+        for (const lb of lobeOffsets) {
+          const lobe = new THREE.Mesh(sharedMeteorGeo, rockMat);
+          lobe.position.set(lb.x, lb.y, lb.z);
+          lobe.scale.setScalar(lb.s);
+          lobe.rotation.set(lb.rx, lb.ry, 0.4);
+          meteorRockCore.add(lobe);
+        }
+        meteorRockCore.add(meteorRock);
+
         const meteorAura = new THREE.Mesh(sharedMeteorAuraGeo, coreGlowMat);
-        meteorGroup.add(meteorRock, meteorRockCross, meteorAura);
+        meteorGroup.add(meteorRockCore, meteorAura);
         meteorGroup.position.set(tx + 15.5, ty + 34, tz - 15.5);
         group.add(meteorGroup);
 
@@ -856,6 +980,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           radius,
           impactFired: false,
           meteorMesh: meteorGroup,
+          meteorRockCore,
           explosionDome,
           innerDomeMesh,
           shockWallMesh,
@@ -1739,8 +1864,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             const my = fx.ty + 34 * (1 - easeIn) + 0.4;
             const mz = fx.tz - 15.5 * (1 - easeIn);
             fx.meteorMesh.position.set(mx, my, mz);
-            fx.meteorMesh.rotation.x += dt * 11;
-            fx.meteorMesh.rotation.y += dt * 9;
+            if (fx.meteorRockCore) {
+              fx.meteorRockCore.rotation.x += dt * 5.8;
+              fx.meteorRockCore.rotation.y += dt * 4.4;
+              fx.meteorRockCore.rotation.z += dt * 3.2;
+            }
+            (fx.materials[0] as THREE.MeshStandardMaterial).emissiveIntensity = 0.38 + easeIn * 0.65;
             // Dynamic atmospheric entry light following the falling asteroid
             vfxFlashLight.position.set(mx, Math.max(fx.ty + 3, my), mz);
             vfxFlashLight.color.set('#ff7b00');
