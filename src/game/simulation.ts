@@ -320,6 +320,7 @@ export function placeBuilding(
     id: nextEntityId('bld'),
     type: buildingType,
     settlementId,
+    species,
     tileX: tile.x,
     tileZ: tile.z,
     hp: def.maxHp,
@@ -1893,10 +1894,12 @@ export function advanceEpoch(
         if (padTile.terrain === 'stone_road') padTile.terrain = 'grass';
         padTile.resourceNode = 'none';
         padTile.resourceAmount = 0;
+        const primarySpecies: SpeciesId = state.settlementSpecies?.[primarySid] ?? 'human';
         const newBld: BuildingEntity = {
           id: nextEntityId('bld'),
           type: bDef.type,
           settlementId: primarySid,
+          species: primarySpecies,
           tileX: padTile.x,
           tileZ: padTile.z,
           hp: bDef.maxHp,
@@ -2323,6 +2326,7 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
         id: nextEntityId('bld'),
         type: 'bonfire',
         settlementId: newSettlementId,
+        species: sp,
         tileX: siteTile.x,
         tileZ: siteTile.z,
         hp: def.maxHp,
@@ -2434,6 +2438,7 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
               id: nextEntityId('bld'),
               type: desiredType,
               settlementId: sid,
+              species: villageSpecies,
               tileX: site.x,
               tileZ: site.z,
               hp: def.maxHp,

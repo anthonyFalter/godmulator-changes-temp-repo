@@ -120,6 +120,7 @@ export interface BuildingEntity {
   cursedTimer: number;
   shieldTimer: number;
   settlementId?: string;
+  species?: SpeciesId;
 }
 
 export type SpeciesId = 'human' | 'elf' | 'orc';

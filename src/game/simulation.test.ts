@@ -761,3 +761,67 @@ test('city farming fields are strictly capped at 200% of parent city size and ne
   );
 });
 
+test('each race maintains its own distinct species architectural identity on buildings across ages', () => {
+  const state = createInitialSimulationState(128, 'RACIAL-ARCH-3');
+  state.sandboxFreeMode = true;
+  state.resources.food = 3000;
+  state.resources.wood = 3000;
+  state.resources.stone = 3000;
+  state.resources.ore = 3000;
+  state.resources.knowledge = 3000;
+
+  const sites: Array<{ sp: 'human' | 'elf' | 'orc'; x: number; z: number }> = [
+    { sp: 'human', x: 24, z: 24 },
+    { sp: 'elf', x: 64, z: 64 },
+    { sp: 'orc', x: 100, z: 100 },
+  ];
+
+  for (const s of sites) {
+    for (let dz = -8; dz <= 8; dz++) {
+      for (let dx = -8; dx <= 8; dx++) {
+        const t = getTile(state, s.x + dx, s.z + dz)!;
+        t.height = 2;
+        t.terrain = 'grass';
+        t.resourceNode = 'none';
+        t.resourceAmount = 0;
+      }
+    }
+    for (let i = 0; i < 4; i++) {
+      spawnUnit(state, s.sp, s.x + (i % 2), s.z + Math.floor(i / 2), true);
+    }
+  }
+
+  for (let i = 0; i < 60; i++) {
+    stepSimulation(state, 0.25);
+    for (const b of state.buildings) {
+      b.constructionProgress = 100;
+    }
+  }
+
+  advanceEpoch(state, true);
+  advanceEpoch(state, true);
+  for (let i = 0; i < 50; i++) {
+    stepSimulation(state, 0.25);
+    for (const b of state.buildings) {
+      b.constructionProgress = 100;
+    }
+  }
+
+  const humanBlds = state.buildings.filter((b) => b.species === 'human');
+  const elfBlds = state.buildings.filter((b) => b.species === 'elf');
+  const orcBlds = state.buildings.filter((b) => b.species === 'orc');
+
+  assert.ok(humanBlds.length >= 2, `Human city should construct multiple species-tagged buildings, got ${humanBlds.length}`);
+  assert.ok(elfBlds.length >= 2, `Elven city should construct multiple species-tagged buildings, got ${elfBlds.length}`);
+  assert.ok(orcBlds.length >= 2, `Orcish city should construct multiple species-tagged buildings, got ${orcBlds.length}`);
+
+  for (const b of state.buildings) {
+    assert.ok(b.settlementId, 'Every building must belong to a settlement');
+    assert.equal(
+      b.species,
+      state.settlementSpecies?.[b.settlementId!],
+      'Each building species must match its parent settlement race',
+    );
+  }
+});
+

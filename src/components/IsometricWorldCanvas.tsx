@@ -359,7 +359,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       crystal_monolith: 5,
     };
 
-    const buildingMeshes = new Map<string, { group: THREE.Group; epochLevel: number; type: string }>();
+    const buildingMeshes = new Map<
+      string,
+      { group: THREE.Group; epochLevel: number; type: string; species: string }
+    >();
     const unitMeshes = new Map<
       string,
       { group: THREE.Group; epochLevel: number; role: string; species: string }
@@ -2477,14 +2480,23 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         const tile = simState.tiles[b.tileZ * simState.gridSize + b.tileX];
         const groundY = tile ? Math.max(0.18, tile.height * HEIGHT_STEP + 0.25) : 1.0;
 
+        const bSpecies =
+          b.species ??
+          (b.settlementId ? simState.settlementSpecies?.[b.settlementId] : undefined) ??
+          'human';
         let entry = buildingMeshes.get(b.id);
-        if (!entry || entry.epochLevel !== b.epochLevel || entry.type !== b.type) {
+        if (
+          !entry ||
+          entry.epochLevel !== b.epochLevel ||
+          entry.type !== b.type ||
+          entry.species !== bSpecies
+        ) {
           if (entry) buildingsGroup.remove(entry.group);
           const variantSeed = b.tileX * 31 + b.tileZ * 17;
-          const group = createBuildingGroup(b.type, b.epochLevel, variantSeed);
+          const group = createBuildingGroup(b.type, b.epochLevel, variantSeed, bSpecies);
           group.position.set(b.tileX, groundY, b.tileZ);
           buildingsGroup.add(group);
-          entry = { group, epochLevel: b.epochLevel, type: b.type };
+          entry = { group, epochLevel: b.epochLevel, type: b.type, species: bSpecies };
           buildingMeshes.set(b.id, entry);
         }
 
