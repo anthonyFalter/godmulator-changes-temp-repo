@@ -5016,51 +5016,63 @@ function stepWildlifeAI(
       u.targetX = target.x;
       u.targetZ = target.z;
       if (dist <= def.attackRange) {
+        if (u.role === 'dragon') {
+          u.state = 'moving';
+          const fDist = Math.hypot(target.x - u.x, target.z - u.z);
+          if (fDist > 0.5) {
+            const nx = u.x + ((target.x - u.x) / fDist) * moveSpeed * 1.15 * dt;
+            const nz = u.z + ((target.z - u.z) / fDist) * moveSpeed * 1.15 * dt;
+            u.x = Math.max(1, Math.min(gs - 2, nx));
+            u.z = Math.max(1, Math.min(gs - 2, nz));
+          }
+          if (u.actionCooldown <= 0) {
+            const dmg = def.attackDamage * (isFrenzied ? 1.8 : 1.0);
+            emitDragonBreathAt(target.x, target.z, dmg, { unitTarget: target });
+          }
+          return;
+        }
+
         u.state = 'fighting';
         if (u.actionCooldown <= 0) {
           const dmg = def.attackDamage * (isFrenzied ? 1.8 : 1.0);
-          if (u.role === 'dragon') {
-            emitDragonBreathAt(target.x, target.z, dmg, { unitTarget: target });
-          } else {
-            u.actionCooldown = u.role === 'wolf' ? 0.72 : 0.9;
-            u.attackAnimTimer = 0.48;
-            u.attackTargetX = target.x;
-            u.attackTargetZ = target.z;
-            target.hp -= dmg;
-            const variant =
-              u.role === 'wolf'
-                ? 'bite'
-                : u.role === 'bear'
-                  ? 'slam'
-                  : u.role === 'dinosaur'
-                    ? 'crunch'
-                    : u.role === 'unicorn'
-                      ? 'horn_blast'
-                      : 'peck';
-            const color =
-              u.role === 'wolf'
-                ? '#f87171'
-                : u.role === 'bear'
-                  ? '#f59e0b'
-                  : u.role === 'dinosaur'
-                    ? '#fb923c'
-                    : u.role === 'unicorn'
-                      ? '#f472b6'
-                      : '#fde047';
-            state.pendingVfx.push({
-              id: nextEntityId('vfx'),
-              type: 'animal_attack',
-              variant,
-              originX: u.x,
-              originZ: u.z,
-              x: target.x,
-              y: 0,
-              z: target.z,
-              radius: u.role === 'dinosaur' ? 1.55 : u.role === 'bear' ? 1.35 : 1.05,
-              color,
-              createdAt: Date.now(),
-            });
-          }
+          u.actionCooldown = u.role === 'wolf' ? 0.72 : 0.9;
+          u.attackAnimTimer = 0.48;
+          u.attackTargetX = target.x;
+          u.attackTargetZ = target.z;
+          target.hp -= dmg;
+          const variant =
+            u.role === 'wolf'
+              ? 'bite'
+              : u.role === 'bear'
+                ? 'slam'
+                : u.role === 'dinosaur'
+                  ? 'crunch'
+                  : u.role === 'unicorn'
+                    ? 'horn_blast'
+                    : 'peck';
+          const color =
+            u.role === 'wolf'
+              ? '#f87171'
+              : u.role === 'bear'
+                ? '#f59e0b'
+                : u.role === 'dinosaur'
+                  ? '#fb923c'
+                  : u.role === 'unicorn'
+                    ? '#f472b6'
+                    : '#fde047';
+          state.pendingVfx.push({
+            id: nextEntityId('vfx'),
+            type: 'animal_attack',
+            variant,
+            originX: u.x,
+            originZ: u.z,
+            x: target.x,
+            y: 0,
+            z: target.z,
+            radius: u.role === 'dinosaur' ? 1.55 : u.role === 'bear' ? 1.35 : 1.05,
+            color,
+            createdAt: Date.now(),
+          });
         }
       } else {
         u.state = 'moving';
@@ -5142,69 +5154,91 @@ function stepWildlifeAI(
       }
 
       if (envTarget) {
+        if (u.role === 'dinosaur' && envTarget.kind === 'tile') {
+          if (envTarget.tile.resourceAmount > 120 && Math.random() < dt * 0.2) {
+            envTarget = null;
+          }
+        }
+      }
+
+      if (envTarget) {
         const dist = Math.hypot(envTarget.x - u.x, envTarget.z - u.z);
         u.targetX = envTarget.x;
         u.targetZ = envTarget.z;
         if (dist <= def.attackRange) {
-          u.state = 'fighting';
-          if (u.actionCooldown <= 0) {
-            const dmg = def.attackDamage * (isFrenzied ? 1.8 : 1.0);
-            if (u.role === 'dragon') {
+          if (u.role === 'dragon') {
+            u.state = 'moving';
+            const fDist = Math.hypot(envTarget.x - u.x, envTarget.z - u.z);
+            if (fDist > 0.5) {
+              const nx = u.x + ((envTarget.x - u.x) / fDist) * moveSpeed * 1.15 * dt;
+              const nz = u.z + ((envTarget.z - u.z) / fDist) * moveSpeed * 1.15 * dt;
+              u.x = Math.max(1, Math.min(gs - 2, nx));
+              u.z = Math.max(1, Math.min(gs - 2, nz));
+            }
+            if (u.actionCooldown <= 0) {
+              const dmg = def.attackDamage * (isFrenzied ? 1.8 : 1.0);
               emitDragonBreathAt(envTarget.x, envTarget.z, dmg, {
                 buildingTarget: envTarget.kind === 'building' ? envTarget.building : undefined,
                 isEnvAttack: true,
               });
-            } else {
-              u.actionCooldown = isFrenzied ? 0.95 : 2.6;
-              u.attackAnimTimer = 0.48;
-              u.attackTargetX = envTarget.x;
-              u.attackTargetZ = envTarget.z;
-              if (envTarget.kind === 'building' && envTarget.building.shieldTimer <= 0) {
-                envTarget.building.hp = Math.max(0, envTarget.building.hp - dmg * 0.7);
-              } else if (envTarget.kind === 'tile') {
-                const et = envTarget.tile;
-                et.resourceAmount = Math.max(0, et.resourceAmount - (u.role === 'dinosaur' ? 120 : 85));
-                if (et.resourceAmount <= 0) {
-                  et.resourceNode = 'none';
-                  if (et.terrain === 'forest' || et.terrain === 'jungle') {
-                    et.terrain = 'grass';
-                  }
-                }
-              }
-              const variant =
-                u.role === 'wolf'
-                  ? 'bite'
-                  : u.role === 'bear'
-                    ? 'slam'
-                    : u.role === 'dinosaur'
-                      ? 'crunch'
-                      : u.role === 'unicorn'
-                        ? 'horn_blast'
-                        : 'peck';
-              const color =
-                u.role === 'wolf'
-                  ? '#f87171'
-                  : u.role === 'bear'
-                    ? '#f59e0b'
-                    : u.role === 'dinosaur'
-                      ? '#fb923c'
-                      : u.role === 'unicorn'
-                        ? '#f472b6'
-                        : '#fde047';
-              state.pendingVfx.push({
-                id: nextEntityId('vfx'),
-                type: 'animal_attack',
-                variant,
-                originX: u.x,
-                originZ: u.z,
-                x: envTarget.x,
-                y: 0,
-                z: envTarget.z,
-                radius: u.role === 'dinosaur' ? 1.55 : u.role === 'bear' ? 1.35 : 1.05,
-                color,
-                createdAt: Date.now(),
-              });
             }
+            return;
+          }
+
+          u.state = 'fighting';
+          if (u.actionCooldown <= 0) {
+            const dmg = def.attackDamage * (isFrenzied ? 1.8 : 1.0);
+            u.actionCooldown = isFrenzied ? 0.95 : 2.6;
+            u.attackAnimTimer = 0.48;
+            u.attackTargetX = envTarget.x;
+            u.attackTargetZ = envTarget.z;
+            if (envTarget.kind === 'building' && envTarget.building.shieldTimer <= 0) {
+              envTarget.building.hp = Math.max(0, envTarget.building.hp - dmg * 0.7);
+            } else if (envTarget.kind === 'tile') {
+              const et = envTarget.tile;
+              et.resourceAmount = Math.max(0, et.resourceAmount - (u.role === 'dinosaur' ? 120 : 85));
+              if (et.resourceAmount <= 0) {
+                et.resourceNode = 'none';
+                if (et.terrain === 'forest' || et.terrain === 'jungle') {
+                  et.terrain = 'grass';
+                }
+              } else if (u.role === 'dinosaur' && et.resourceAmount > 100 && Math.random() < 0.25) {
+                u.state = 'moving';
+              }
+            }
+            const variant =
+              u.role === 'wolf'
+                ? 'bite'
+                : u.role === 'bear'
+                  ? 'slam'
+                  : u.role === 'dinosaur'
+                    ? 'crunch'
+                    : u.role === 'unicorn'
+                      ? 'horn_blast'
+                      : 'peck';
+            const color =
+              u.role === 'wolf'
+                ? '#f87171'
+                : u.role === 'bear'
+                  ? '#f59e0b'
+                  : u.role === 'dinosaur'
+                    ? '#fb923c'
+                    : u.role === 'unicorn'
+                      ? '#f472b6'
+                      : '#fde047';
+            state.pendingVfx.push({
+              id: nextEntityId('vfx'),
+              type: 'animal_attack',
+              variant,
+              originX: u.x,
+              originZ: u.z,
+              x: envTarget.x,
+              y: 0,
+              z: envTarget.z,
+              radius: u.role === 'dinosaur' ? 1.55 : u.role === 'bear' ? 1.35 : 1.05,
+              color,
+              createdAt: Date.now(),
+            });
           }
         } else {
           u.state = 'moving';
