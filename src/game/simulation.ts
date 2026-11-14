@@ -609,17 +609,42 @@ export function executeGodPowerImpact(
     }
 
     case 'rain_of_plenty': {
-      // Summon an active 10s monsoon storm cloud that extinguishes fires and hydrates dry land
-      state.activeHazards.push({
-        id: nextEntityId('haz'),
-        kind: 'rain_cloud',
-        x: targetX,
-        z: targetZ,
-        radius: r,
-        remaining: 10.0,
-        duration: 10.0,
-        tickTimer: 0,
-      });
+      // Check if an arriving rain_cloud was already spawned at cast time (when deferImpact: true)
+      const existingCloud = state.activeHazards.find(
+        (h) =>
+          h.kind === 'rain_cloud' &&
+          h.impactPending &&
+          Math.hypot((h.targetX ?? h.x) - targetX, (h.targetZ ?? h.z) - targetZ) < 1.5,
+      );
+      if (existingCloud) {
+        existingCloud.arrivalRemaining = 0;
+        existingCloud.impactPending = false;
+        existingCloud.x = targetX - (existingCloud.windX ?? 0.78) * 1.5;
+        existingCloud.z = targetZ - (existingCloud.windZ ?? 0.62) * 1.5;
+        existingCloud.currentSpeed = 0.55;
+      } else {
+        const windAngle = 0.58 + (((targetX * 17 + targetZ * 31) & 7) - 3.5) * 0.08;
+        const windX = Math.cos(windAngle);
+        const windZ = Math.sin(windAngle);
+        state.activeHazards.push({
+          id: nextEntityId('haz'),
+          kind: 'rain_cloud',
+          x: targetX - windX * 1.5,
+          z: targetZ - windZ * 1.5,
+          targetX,
+          targetZ,
+          windX,
+          windZ,
+          arrivalRemaining: 0,
+          arrivalDuration: 0.72,
+          impactPending: false,
+          currentSpeed: 0.55,
+          radius: r,
+          remaining: 10.5,
+          duration: 10.5,
+          tickTimer: 0,
+        });
+      }
 
       for (const t of state.tiles) {
         const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
@@ -1166,6 +1191,31 @@ export function castGodPower(
 
   if (!deferImpact) {
     isHeavy = executeGodPowerImpact(state, powerType, targetX, targetZ);
+  } else if (powerType === 'rain_of_plenty') {
+    // Spawn the monsoon cloud upwind immediately so it rushes fast into the summoned spot (targetX, targetZ)
+    if (!state.activeHazards) state.activeHazards = [];
+    const windAngle = 0.58 + (((targetX * 17 + targetZ * 31) & 7) - 3.5) * 0.08;
+    const windX = Math.cos(windAngle);
+    const windZ = Math.sin(windAngle);
+    const startDist = 18.5;
+    state.activeHazards.push({
+      id: nextEntityId('haz'),
+      kind: 'rain_cloud',
+      x: targetX - windX * startDist,
+      z: targetZ - windZ * startDist,
+      targetX,
+      targetZ,
+      windX,
+      windZ,
+      arrivalRemaining: 0.72,
+      arrivalDuration: 0.72,
+      impactPending: true,
+      currentSpeed: 42,
+      radius: def.radius,
+      remaining: 10.5,
+      duration: 10.5,
+      tickTimer: 0,
+    });
   }
 
   state.totalMiraclesCast += 1;
@@ -1830,10 +1880,64 @@ function stepSimulationSingle(state: SimulationState, dt: number): void {
   if (!state.activeHazards) state.activeHazards = [];
   const remainingHazards = [];
   for (const haz of state.activeHazards) {
-    haz.remaining -= dt;
+    if (haz.kind === 'rain_cloud') {
+      const tx = haz.targetX ?? haz.x;
+      const tz = haz.targetZ ?? haz.z;
+      const wx = haz.windX ?? 0.78;
+      const wz = haz.windZ ?? 0.62;
+      const arrDur = Math.max(0.1, haz.arrivalDuration ?? 0.72);
+
+      if ((haz.arrivalRemaining ?? 0) > 0) {
+        // Phase 1: Move fast from upwind to arrive at the summoned target spot
+        const arriveDt = Math.min(dt, 0.045);
+        haz.arrivalRemaining = Math.max(0, (haz.arrivalRemaining ?? 0) - arriveDt);
+        const u = 1 - haz.arrivalRemaining / arrDur; // 0 -> 1
+        // Smooth fast swoop from -18.5 tiles upwind to -1.5 tiles at target entry
+        const s = -1.5 - 17.0 * Math.pow(1 - u, 2.4);
+        haz.currentSpeed = Math.max(0.6, (17.0 * 2.4 * Math.pow(1 - u, 1.4)) / arrDur);
+        haz.x = tx + wx * s;
+        haz.z = tz + wz * s;
+        if (haz.arrivalRemaining <= 0 && haz.impactPending) {
+          executeGodPowerImpact(state, 'rain_of_plenty', tx, tz);
+        }
+      } else {
+        // Phase 2 & 3: Linger moving slowly at summoned spot depending on duration rate, then accelerate fast as it expires
+        haz.remaining -= dt;
+        const totalDur = Math.max(0.1, haz.duration);
+        const progress = Math.max(0, Math.min(1, 1 - haz.remaining / totalDur));
+        const lingerSplit = 0.6; // First 60% of duration lingers slowly over target; final 40% accelerates away
+        const lingerDistance = 3.5; // -1.5 to +2.0 tiles across the summoned target zone
+        const lingerTime = lingerSplit * totalDur;
+        const baseSlowSpeed = lingerDistance / Math.max(0.1, lingerTime); // ~0.55 tiles/s (scales with timeScale/dt)
+
+        let s: number;
+        let perpOffset: number;
+        if (progress <= lingerSplit) {
+          // Phase 2: Slow drift right across the summoned area
+          const lingerFrac = progress / lingerSplit;
+          s = -1.5 + lingerDistance * lingerFrac;
+          haz.currentSpeed = baseSlowSpeed;
+          perpOffset = Math.sin(progress * Math.PI * 3.0) * 0.42;
+        } else {
+          // Phase 3: Slowly becomes fast as it expires (smooth acceleration ramp)
+          const expireFrac = (progress - lingerSplit) / (1 - lingerSplit); // 0 -> 1
+          const expireTime = (1 - lingerSplit) * totalDur;
+          const accelDist = 23.0;
+          s = 2.0 + baseSlowSpeed * expireTime * expireFrac + accelDist * Math.pow(expireFrac, 2.8);
+          haz.currentSpeed =
+            baseSlowSpeed + (accelDist * 2.8 * Math.pow(expireFrac, 1.8)) / Math.max(0.1, expireTime);
+          perpOffset = Math.sin(progress * Math.PI * 3.0) * 0.42 * (1 - expireFrac * 0.65);
+        }
+        haz.x = tx + wx * s - wz * perpOffset;
+        haz.z = tz + wz * s + wx * perpOffset;
+      }
+    } else {
+      haz.remaining -= dt;
+    }
+
     haz.tickTimer += dt;
-    if (haz.tickTimer >= 0.45) {
-      haz.tickTimer -= 0.45;
+    if (haz.tickTimer >= 0.35) {
+      haz.tickTimer -= 0.35;
       const rSq = haz.radius * haz.radius;
       if (haz.kind === 'rain_cloud') {
         for (const t of state.tiles) {
@@ -1841,7 +1945,12 @@ function stepSimulationSingle(state: SimulationState, dt: number): void {
           if (dSq <= rSq && t.height > 0) {
             t.onFireTimer = 0;
             t.cursedTimer = 0;
-            if (t.terrain === 'scorched') t.terrain = 'grass';
+            t.blessedTimer = Math.max(t.blessedTimer, 16);
+            if (t.terrain === 'scorched') {
+              t.terrain = 'grass';
+            } else if ((t.terrain === 'sand' || t.terrain === 'savanna') && dSq <= rSq * 0.55) {
+              t.terrain = 'grass';
+            }
           }
         }
       } else if (haz.kind === 'plague_cloud') {

@@ -255,6 +255,14 @@ export interface ActiveHazardZone {
   kind: 'rain_cloud' | 'plague_cloud' | 'shield_dome' | 'wormhole_rift';
   x: number;
   z: number;
+  targetX?: number;
+  targetZ?: number;
+  windX?: number;
+  windZ?: number;
+  arrivalRemaining?: number;
+  arrivalDuration?: number;
+  impactPending?: boolean;
+  currentSpeed?: number;
   radius: number;
   remaining: number;
   duration: number;

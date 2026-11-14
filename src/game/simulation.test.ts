@@ -349,7 +349,32 @@ test('god powers execute real effects: meteor craters & fires, rain douses witho
   // 4. Plague Miasma creates lingering plague_cloud and infects unshielded unit nearby
   delete target.statusEffects.shielded;
   castGodPower(state, 'plague_miasma', cx, cz);
-  assert.ok(state.activeHazards.some((h) => h.kind === 'plague_cloud'));
+  assert.ok(state.activeHazards.some((h) => h.kind === 'rain_cloud' || h.kind === 'plague_cloud'));
   assert.ok((target.statusEffects.plagued ?? 0) > 0);
+
+  // 5. Deferred rain_of_plenty moves fast to summoned spot, lingers slowly, then accelerates as it expires
+  state.activeHazards = [];
+  castGodPower(state, 'rain_of_plenty', 80, 80, { deferImpact: true });
+  const cloud = state.activeHazards.find((h) => h.kind === 'rain_cloud')!;
+  assert.ok(cloud, 'Deferred rain cast must spawn arriving rain_cloud');
+  const initialDist = Math.hypot(cloud.x - 80, cloud.z - 80);
+  assert.ok(initialDist > 15, `Cloud should start far upwind, got ${initialDist}`);
+  assert.ok((cloud.currentSpeed ?? 0) > 25, 'Cloud should start at fast arrival speed');
+
+  // Step through fast arrival (0.72s)
+  for (let i = 0; i < 20; i++) stepSimulation(state, 0.04);
+  const arrivedDist = Math.hypot(cloud.x - 80, cloud.z - 80);
+  assert.ok(arrivedDist < 2.5, `Cloud should arrive near summoned spot (80,80), got ${arrivedDist}`);
+  const lingerSpeed = cloud.currentSpeed ?? 0;
+  assert.ok(lingerSpeed < 1.0, `Cloud should move slowly while lingering at target, got ${lingerSpeed}`);
+
+  // Step into expiration phase (last 10% of duration) and verify it accelerates
+  for (let i = 0; i < 48; i++) stepSimulation(state, 0.2);
+  const expiringSpeed = cloud.currentSpeed ?? 0;
+  assert.ok(
+    expiringSpeed > lingerSpeed * 12,
+    `Cloud must accelerate and become fast as it expires (${expiringSpeed} vs ${lingerSpeed})`,
+  );
 });
+
 

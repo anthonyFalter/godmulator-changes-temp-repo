@@ -491,6 +491,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       spores?: { mesh: THREE.Mesh; angle: number; dist: number; phase: number; height: number }[];
       ringMesh?: THREE.Mesh;
       secondaryRingMesh?: THREE.Mesh;
+      cloudBody?: THREE.Group;
+      currentY?: number;
     }
     const hazardMeshes = new Map<string, HazardVisual>();
 
@@ -527,6 +529,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         });
         materials.push(cloudMat, cloudBellyMat, dropMat, ringMat);
 
+        const cloudBody = new THREE.Group();
         const puffs = [
           { x: 0, y: 4.8, z: 0, sx: 4.4, sy: 1.2, sz: 3.8, belly: false },
           { x: -1.9, y: 4.4, z: 1.1, sx: 2.8, sy: 1.0, sz: 2.5, belly: true },
@@ -539,8 +542,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           const m = new THREE.Mesh(sharedHazSphereGeo, pf.belly ? cloudBellyMat : cloudMat);
           m.position.set(pf.x, pf.y, pf.z);
           m.scale.set(pf.sx, pf.sy, pf.sz);
-          group.add(m);
+          cloudBody.add(m);
         }
+        group.add(cloudBody);
 
         const ringMesh = new THREE.Mesh(sharedHazRingGeo, ringMat);
         ringMesh.position.y = 0.08;
@@ -548,8 +552,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         group.add(ringMesh);
 
         const drops: { mesh: THREE.Mesh; offsetY: number; speed: number; baseX: number; baseZ: number }[] = [];
-        for (let i = 0; i < 36; i++) {
-          const a = (i / 36) * Math.PI * 2 + (i % 5) * 0.35;
+        for (let i = 0; i < 40; i++) {
+          const a = (i / 40) * Math.PI * 2 + (i % 5) * 0.35;
           const r = (0.15 + ((i * 29) % 100) / 100) * radius * 0.82;
           const bx = Math.cos(a) * r;
           const bz = Math.sin(a) * r;
@@ -564,7 +568,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             baseZ: bz,
           });
         }
-        return { kind, group, materials, drops, ringMesh };
+        return { kind, group, materials, drops, ringMesh, cloudBody };
       }
 
       if (kind === 'plague_cloud') {
@@ -792,7 +796,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     sharedPillarSpikeGeo.translate(0, 1.1, 0);
 
     interface ActiveBurstFx {
-      kind: 'meteor' | 'lightning' | 'beam_ring';
+      kind: 'meteor' | 'lightning' | 'rain_summon' | 'beam_ring';
       powerType: string;
       group: THREE.Group;
       materials: THREE.Material[];
@@ -1085,6 +1089,55 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           boltSegments,
           forkMeshes,
           explosionDome,
+          ringMesh,
+          outerRingMesh,
+          colorHex,
+        });
+        return;
+      }
+
+      if (type === 'rain_of_plenty') {
+        const ringMat = new THREE.MeshBasicMaterial({
+          color: 0x4ea8de,
+          transparent: true,
+          opacity: 0.72,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        const outerRingMat = new THREE.MeshBasicMaterial({
+          color: 0x72efdd,
+          transparent: true,
+          opacity: 0.85,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        materials.push(ringMat, outerRingMat);
+
+        const ringMesh = new THREE.Mesh(sharedHazRingGeo, ringMat);
+        ringMesh.position.set(tx, ty + 0.1, tz);
+        ringMesh.scale.setScalar(radius * 0.92);
+        group.add(ringMesh);
+
+        const outerRingMesh = new THREE.Mesh(sharedHazRingGeo, outerRingMat);
+        outerRingMesh.position.set(tx, ty + 0.14, tz);
+        outerRingMesh.scale.setScalar(radius * 1.25);
+        group.add(outerRingMesh);
+
+        burstFxGroup.add(group);
+        activeBurstFx.push({
+          kind: 'rain_summon',
+          powerType: type,
+          group,
+          materials,
+          age: 0,
+          duration: 1.5,
+          impactDelay: 0.72,
+          deferImpact,
+          tx,
+          ty,
+          tz,
+          radius,
+          impactFired: false,
           ringMesh,
           outerRingMesh,
           colorHex,
@@ -1676,20 +1729,52 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           hazardMeshes.set(haz.id, hv);
         }
         const ht = getTileFromArray(simState, haz.x, haz.z);
-        const hy = ht ? Math.max(0.25, ht.height * HEIGHT_STEP + 0.25) : 0.8;
+        const targetHy = ht ? Math.max(0.25, ht.height * HEIGHT_STEP + 0.25) : 0.8;
+        const hy =
+          hv.currentY === undefined
+            ? targetHy
+            : THREE.MathUtils.damp(hv.currentY, targetHy, 8, dt);
+        hv.currentY = hy;
         hv.group.position.set(haz.x, hy, haz.z);
 
-        const fade = Math.min(1, haz.remaining / 1.2);
+        const fade = Math.min(1, haz.remaining / 1.35);
         if (hv.drops) {
+          const speed = haz.currentSpeed ?? 0.55;
+          const wx = haz.windX ?? 0.78;
+          const wz = haz.windZ ?? 0.62;
+          // Normalized wind-speed factor (0 during slow linger, up to 1 during fast arrival & fast expiration)
+          const speedNorm = Math.min(1, Math.max(0, (speed - 0.6) / 16.0));
+
+          if (hv.cloudBody) {
+            const windYaw = Math.atan2(wz, wx);
+            hv.cloudBody.rotation.y = -windYaw;
+            // Aerodynamic stretch along wind axis when moving fast; gentle vertical billow when lingering slowly
+            const stretchX = 1.0 + speedNorm * 0.36 + Math.sin(elapsed * 3.2) * 0.04 * (1 - speedNorm);
+            const squashY = 1.0 - speedNorm * 0.14 + Math.cos(elapsed * 3.8) * 0.05 * (1 - speedNorm);
+            hv.cloudBody.scale.set(stretchX, squashY, 1.0 - speedNorm * 0.08);
+            hv.cloudBody.position.y = Math.sin(elapsed * 2.6) * 0.18 * (1 - speedNorm * 0.6);
+          }
+
           for (const d of hv.drops) {
-            const dropY = 4.4 - ((elapsed * d.speed + d.offsetY) % 4.4);
-            d.mesh.position.y = dropY;
+            const fallProgress = ((elapsed * (d.speed + speedNorm * 4.5) + d.offsetY) % 4.4) / 4.4;
+            const dropY = 4.4 * (1 - fallProgress);
+            // Raindrops slant backward against the wind when the cloud is racing fast
+            const windLag = fallProgress * speedNorm * 1.65;
+            d.mesh.position.set(d.baseX - wx * windLag, dropY, d.baseZ - wz * windLag);
+            d.mesh.rotation.z = wx * speedNorm * 0.42;
+            d.mesh.rotation.x = -wz * speedNorm * 0.42;
           }
           if (hv.ringMesh) {
-            hv.ringMesh.scale.setScalar(haz.radius * (0.82 + Math.sin(elapsed * 5) * 0.1));
+            hv.ringMesh.scale.setScalar(
+              haz.radius * (0.84 + Math.sin(elapsed * 5) * 0.08) * (1 - speedNorm * 0.22),
+            );
           }
+          const arriveAlpha =
+            (haz.arrivalRemaining ?? 0) > 0
+              ? Math.min(1, 0.35 + (1 - (haz.arrivalRemaining ?? 0) / (haz.arrivalDuration ?? 0.72)) * 0.65)
+              : 1;
           for (const m of hv.materials) {
-            if ('opacity' in m) (m as THREE.MeshBasicMaterial).opacity = 0.9 * fade;
+            if ('opacity' in m) (m as THREE.MeshBasicMaterial).opacity = 0.9 * fade * arriveAlpha;
           }
         } else if (hv.spores) {
           for (const sp of hv.spores) {
@@ -1990,6 +2075,56 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
                 : 1 - (wavePhase - 0.45) / 0.55;
             for (const m of fx.materials) {
               (m as THREE.MeshBasicMaterial).opacity = Math.max(0, strobe);
+            }
+          }
+        } else if (fx.kind === 'rain_summon' && fx.ringMesh) {
+          const arrivalPhase = Math.min(1, fx.age / fx.impactDelay);
+          // Keep the arriving rain_cloud locked to the 0.72s real-time fast swoop into (fx.tx, fx.tz)
+          const arrivingCloud = simRef.current.activeHazards?.find(
+            (h) =>
+              h.kind === 'rain_cloud' &&
+              h.impactPending &&
+              Math.hypot((h.targetX ?? h.x) - fx.tx, (h.targetZ ?? h.z) - fx.tz) < 1.5,
+          );
+          if (arrivalPhase < 1) {
+            if (arrivingCloud) {
+              const arrDur = Math.max(0.1, arrivingCloud.arrivalDuration ?? 0.72);
+              arrivingCloud.arrivalRemaining = Math.max(0.001, (1 - arrivalPhase) * arrDur);
+              const wx = arrivingCloud.windX ?? 0.78;
+              const wz = arrivingCloud.windZ ?? 0.62;
+              const s = -1.5 - 17.0 * Math.pow(1 - arrivalPhase, 2.4);
+              arrivingCloud.currentSpeed = Math.max(
+                0.6,
+                (17.0 * 2.4 * Math.pow(1 - arrivalPhase, 1.4)) / arrDur,
+              );
+              arrivingCloud.x = fx.tx + wx * s;
+              arrivingCloud.z = fx.tz + wz * s;
+            }
+            // Contracting aqua summon rings on the ground where the rain was summoned
+            fx.ringMesh.scale.setScalar(fx.radius * (0.95 - arrivalPhase * 0.52));
+            (fx.materials[0] as THREE.MeshBasicMaterial).opacity = 0.35 + arrivalPhase * 0.55;
+            if (fx.outerRingMesh) {
+              fx.outerRingMesh.scale.setScalar(fx.radius * (1.3 - arrivalPhase * 0.65));
+              (fx.materials[1] as THREE.MeshBasicMaterial).opacity = 0.25 + arrivalPhase * 0.55;
+            }
+          } else {
+            if (!fx.impactFired) {
+              fx.impactFired = true;
+              if (fx.deferImpact) {
+                executeGodPowerImpact(simRef.current, fx.powerType as GodPowerType, fx.tx, fx.tz);
+                soundEngine.playBlessing();
+              }
+              triggerLightFlash(fx.tx, fx.ty, fx.tz, '#72efdd', 14);
+              spawnParticleBurst(fx.tx, fx.ty + 0.25, fx.tz, 45, '#4ea8de', fx.radius * 0.85, 4.8, 1.15);
+              spawnParticleBurst(fx.tx, fx.ty + 0.2, fx.tz, 24, '#72efdd', fx.radius * 0.5, 5.4, 1.0);
+            }
+            const splashPhase = Math.min(1, (fx.age - fx.impactDelay) / (fx.duration - fx.impactDelay));
+            const easeOut = 1 - (1 - splashPhase) * (1 - splashPhase);
+            fx.ringMesh.scale.setScalar(0.45 + easeOut * fx.radius * 1.15);
+            (fx.materials[0] as THREE.MeshBasicMaterial).opacity = (1 - splashPhase) * 0.85;
+            if (fx.outerRingMesh) {
+              fx.outerRingMesh.scale.setScalar(0.65 + splashPhase * fx.radius * 1.35);
+              (fx.materials[1] as THREE.MeshBasicMaterial).opacity = (1 - splashPhase) * 0.75;
             }
           }
         } else if (fx.kind === 'beam_ring' && fx.ringMesh) {
