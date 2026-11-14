@@ -623,7 +623,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       spread = 0.45,
     ) {
       const baseCol = new THREE.Color(hexColor);
-      const hotCol = new THREE.Color(0xfff3b0);
+      const hotCol = baseCol.clone().lerp(new THREE.Color(0xffffff), 0.52);
+      const deepCol = baseCol.clone().multiplyScalar(0.76);
       const dx = tx - ox;
       const dy = ty - oy;
       const dz = tz - oz;
@@ -646,10 +647,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         p.maxLife = travelSec * (0.75 + Math.random() * 0.55);
         p.life = p.maxLife;
         p.size = 1.15 + Math.random() * 1.45;
-        if (Math.random() < 0.35) {
+        const roll = Math.random();
+        if (roll < 0.24) {
           p.color.copy(hotCol);
+        } else if (roll < 0.48) {
+          p.color.copy(deepCol);
         } else {
-          p.color.copy(baseCol).offsetHSL((Math.random() - 0.5) * 0.06, 0, (Math.random() - 0.5) * 0.15);
+          p.color.copy(baseCol).offsetHSL((Math.random() - 0.5) * 0.03, 0, (Math.random() - 0.5) * 0.12);
         }
       }
     }
@@ -701,11 +705,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     fireCoreGeo.translate(0, 0.24, 0);
     const fireSmokeGeo = new THREE.BoxGeometry(0.32, 0.32, 0.32);
     const fireOuterMat = new THREE.MeshBasicMaterial({
-      color: 0xff5400,
+      color: 0xffffff,
       transparent: true,
       opacity: 0.92,
     });
-    const fireCoreMat = new THREE.MeshBasicMaterial({ color: 0xffee55 });
+    const fireCoreMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
     const fireSmokeMat = new THREE.MeshBasicMaterial({
       color: 0x2b2d42,
       transparent: true,
@@ -714,6 +718,15 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     const fireOuterInst = new THREE.InstancedMesh(fireOuterGeo, fireOuterMat, MAX_FIRE_TILES);
     const fireCoreInst = new THREE.InstancedMesh(fireCoreGeo, fireCoreMat, MAX_FIRE_TILES);
     const fireSmokeInst = new THREE.InstancedMesh(fireSmokeGeo, fireSmokeMat, MAX_FIRE_TILES);
+    const _defaultFireOuterCol = new THREE.Color(0xff5400);
+    const _defaultFireCoreCol = new THREE.Color(0xffee55);
+    const _fireOuterCol = new THREE.Color();
+    const _fireCoreCol = new THREE.Color();
+    const _whiteCol = new THREE.Color(0xffffff);
+    for (let fi = 0; fi < MAX_FIRE_TILES; fi++) {
+      fireOuterInst.setColorAt(fi, _defaultFireOuterCol);
+      fireCoreInst.setColorAt(fi, _defaultFireCoreCol);
+    }
     fireOuterInst.frustumCulled = false;
     fireCoreInst.frustumCulled = false;
     fireSmokeInst.frustumCulled = false;
@@ -2502,17 +2515,18 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     ) {
       const group = new THREE.Group();
       const outerCol = new THREE.Color(colorHex);
+      const coreCol = outerCol.clone().lerp(new THREE.Color(0xffffff), 0.54);
       const outerMat = new THREE.MeshBasicMaterial({
         color: outerCol,
         transparent: true,
-        opacity: 0.78,
+        opacity: 0.82,
         side: THREE.DoubleSide,
         depthWrite: false,
       });
       const coreMat = new THREE.MeshBasicMaterial({
-        color: 0xfff3b0,
+        color: coreCol,
         transparent: true,
-        opacity: 0.92,
+        opacity: 0.94,
         side: THREE.DoubleSide,
         depthWrite: false,
       });
@@ -4175,6 +4189,16 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           _dummyMatrix.compose(_dummyPos, _dummyQuat, _dummyScale);
           fireCoreInst.setMatrixAt(fireCount, _dummyMatrix);
 
+          if (t.fireColor) {
+            _fireOuterCol.set(t.fireColor);
+            _fireCoreCol.copy(_fireOuterCol).lerp(_whiteCol, 0.5);
+            fireOuterInst.setColorAt(fireCount, _fireOuterCol);
+            fireCoreInst.setColorAt(fireCount, _fireCoreCol);
+          } else {
+            fireOuterInst.setColorAt(fireCount, _defaultFireOuterCol);
+            fireCoreInst.setColorAt(fireCount, _defaultFireCoreCol);
+          }
+
           // Rising animated smoke puff above each burning tile
           const smokeCycle = (elapsed * 1.8 + (t.x * 0.37 + t.z * 0.53)) % 1.0;
           const smokeY = fy + 0.65 + smokeCycle * 1.9;
@@ -4198,6 +4222,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         fireOuterInst.instanceMatrix.needsUpdate = true;
         fireCoreInst.instanceMatrix.needsUpdate = true;
         fireSmokeInst.instanceMatrix.needsUpdate = true;
+        if (fireOuterInst.instanceColor) fireOuterInst.instanceColor.needsUpdate = true;
+        if (fireCoreInst.instanceColor) fireCoreInst.instanceColor.needsUpdate = true;
       }
     }
 
@@ -4931,6 +4957,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             }
           }
         } else if (fx.kind === 'dragon_flame' && fx.flameOuterCone && fx.flameCoreCone && fx.ringMesh) {
+          if (fx.age >= fx.impactDelay && !fx.impactFired) {
+            fx.impactFired = true;
+            spawnParticleBurst(fx.tx, fx.ty + 0.15, fx.tz, 18, fx.colorHex, 1.25, 4.6, 1.2);
+          }
           const prog = Math.min(1, fx.age / fx.duration);
           const extendProg = Math.min(1, prog / 0.16);
           const fadeOut = prog > 0.68 ? Math.max(0, 1 - (prog - 0.68) / 0.32) : 1;
@@ -4940,7 +4970,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
           fx.flameOuterCone.scale.set(coneScale, coneScale, Math.max(0.15, reach));
           fx.flameCoreCone.scale.set(coneScale * 0.85, coneScale * 0.85, Math.max(0.15, reach * 0.94));
-          (fx.materials[0] as THREE.MeshBasicMaterial).opacity = 0.78 * fadeOut;
+          (fx.materials[0] as THREE.MeshBasicMaterial).opacity = 0.82 * fadeOut;
           (fx.materials[1] as THREE.MeshBasicMaterial).opacity = 0.94 * fadeOut;
 
           fx.ringMesh.scale.setScalar(0.35 + prog * 1.85);

@@ -82,6 +82,7 @@ export interface TileData {
   blessedTimer: number;
   cursedTimer: number;
   onFireTimer: number;
+  fireColor?: string;
   buildingId: string | null;
   farmSettlementId?: string;
 }

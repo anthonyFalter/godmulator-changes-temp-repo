@@ -4,6 +4,7 @@ import {
   GOD_POWERS,
   TERRAIN_TOOLS,
   UNITS,
+  getDragonVariant,
 } from './catalog';
 import {
   BuildingEntity,
@@ -3698,6 +3699,7 @@ function stepSimulationSingle(state: SimulationState, dt: number): void {
       t.onFireTimer = Math.max(0, t.onFireTimer - dt);
       if (t.height <= 0) {
         t.onFireTimer = 0;
+        t.fireColor = undefined;
         continue;
       }
       // Burn vegetation down to scorched earth as fire consumes the tile
@@ -3709,12 +3711,19 @@ function stepSimulationSingle(state: SimulationState, dt: number): void {
         }
       } else if (
         t.onFireTimer === 0 &&
-        (t.terrain === 'forest' || t.terrain === 'savanna' || t.terrain === 'taiga' || t.terrain === 'blossom')
+        (t.terrain === 'forest' ||
+          t.terrain === 'jungle' ||
+          t.terrain === 'savanna' ||
+          t.terrain === 'taiga' ||
+          t.terrain === 'blossom')
       ) {
         t.terrain = 'scorched';
       }
+      if (t.onFireTimer === 0) {
+        t.fireColor = undefined;
+      }
       // Occasional slow wildfire spread to 1 dry/forest neighbor
-      if (Math.floor(prevTimer) !== Math.floor(t.onFireTimer) && Math.random() < 0.14) {
+      if (t.onFireTimer > 0 && Math.floor(prevTimer) !== Math.floor(t.onFireTimer) && Math.random() < 0.14) {
         const dirs = [
           [1, 0],
           [-1, 0],
@@ -3729,14 +3738,18 @@ function stepSimulationSingle(state: SimulationState, dt: number): void {
           nb.onFireTimer <= 0 &&
           nb.blessedTimer <= 0 &&
           (nb.terrain === 'forest' ||
+            nb.terrain === 'jungle' ||
             nb.terrain === 'savanna' ||
             nb.terrain === 'fertile' ||
             nb.terrain === 'taiga' ||
             nb.terrain === 'blossom')
         ) {
           nb.onFireTimer = 5.5;
+          nb.fireColor = t.fireColor;
         }
       }
+    } else if (t.fireColor !== undefined) {
+      t.fireColor = undefined;
     }
   }
 
@@ -3811,6 +3824,7 @@ function stepSimulationSingle(state: SimulationState, dt: number): void {
         if (
           other.id !== u.id &&
           other.state !== 'ko' &&
+          other.role !== 'unicorn' &&
           !other.statusEffects.plagued &&
           !other.statusEffects.shielded &&
           !other.statusEffects.blessed
@@ -4820,6 +4834,141 @@ function stepWildlifeAI(
     }
   }
 
+  const emitDragonBreathAt = (
+    targetX: number,
+    targetZ: number,
+    dmg: number,
+    options?: {
+      unitTarget?: UnitEntity;
+      buildingTarget?: BuildingEntity;
+      isEnvAttack?: boolean;
+    },
+  ) => {
+    const dragonGlowHex = getDragonVariant(u.appearanceSeed).glowHex;
+    u.actionCooldown = options?.isEnvAttack ? 1.25 : 1.15;
+    u.attackAnimTimer = 0.78;
+    u.attackTargetX = targetX;
+    u.attackTargetZ = targetZ;
+
+    if (options?.unitTarget) {
+      options.unitTarget.hp -= dmg;
+    }
+    if (options?.buildingTarget && options.buildingTarget.shieldTimer <= 0) {
+      options.buildingTarget.hp = Math.max(0, options.buildingTarget.hp - dmg * 0.85);
+    }
+
+    state.pendingVfx.push({
+      id: nextEntityId('vfx'),
+      type: 'dragon_fire_breath',
+      variant: 'fire_breath',
+      originX: u.x,
+      originZ: u.z,
+      x: targetX,
+      y: 0,
+      z: targetZ,
+      radius: 2.0,
+      color: dragonGlowHex,
+      createdAt: Date.now(),
+    });
+
+    // Fire breath splashes heat onto adjacent foes & buildings
+    for (const splashTarget of state.units) {
+      if (
+        splashTarget.id !== options?.unitTarget?.id &&
+        splashTarget.id !== u.id &&
+        splashTarget.state !== 'ko' &&
+        !splashTarget.statusEffects.shielded &&
+        splashTarget.role !== 'dragon' &&
+        (splashTarget.faction !== 'civilization' || Boolean(options?.buildingTarget) || isFrenzied)
+      ) {
+        const sdSq = (splashTarget.x - targetX) ** 2 + (splashTarget.z - targetZ) ** 2;
+        if (sdSq <= 2.56) {
+          splashTarget.hp -= dmg * 0.35;
+        }
+      }
+    }
+    for (const sb of state.buildings) {
+      if (sb.id !== options?.buildingTarget?.id && sb.hp > 0 && sb.shieldTimer <= 0) {
+        const bdSq = (sb.tileX - targetX) ** 2 + (sb.tileZ - targetZ) ** 2;
+        if (bdSq <= 2.25) {
+          sb.hp = Math.max(0, sb.hp - dmg * 0.3);
+        }
+      }
+    }
+
+    // Scorch & ignite the struck tile and adjacent dry vegetation in the dragon's fire color
+    const igniteTile = (tile: TileData | undefined, directHit: boolean) => {
+      if (!tile || tile.height <= 0 || tile.terrain === 'rock' || tile.terrain === 'snow') return;
+      if (tile.buildingId && !options?.buildingTarget) return;
+      if (!tile.buildingId && tile.blessedTimer > 0 && !directHit) return;
+
+      tile.onFireTimer = Math.max(tile.onFireTimer, directHit ? 5.5 : 4.2);
+      tile.fireColor = dragonGlowHex;
+
+      if (!tile.buildingId) {
+        if (tile.resourceNode === 'timber_grove' || tile.resourceNode === 'berry_bush') {
+          tile.resourceAmount = Math.max(0, tile.resourceAmount - (directHit ? 140 : 55));
+          if (tile.resourceAmount <= 0) {
+            tile.resourceNode = 'none';
+            tile.terrain = 'scorched';
+          }
+        } else if (tile.resourceNode === 'stone_outcrop' || tile.resourceNode === 'crystal_monolith') {
+          if (directHit) {
+            tile.resourceAmount = Math.max(0, tile.resourceAmount - 95);
+            if (tile.resourceAmount <= 0) {
+              tile.resourceNode = 'none';
+              tile.terrain = 'scorched';
+            }
+          }
+        } else if (
+          directHit &&
+          (tile.terrain === 'forest' ||
+            tile.terrain === 'jungle' ||
+            tile.terrain === 'taiga' ||
+            tile.terrain === 'blossom' ||
+            tile.terrain === 'savanna' ||
+            tile.terrain === 'fertile' ||
+            tile.terrain === 'grass')
+        ) {
+          tile.terrain = 'scorched';
+        }
+      }
+    };
+
+    const tTile = getTile(state, targetX, targetZ);
+    igniteTile(tTile, true);
+    if (tTile) {
+      let spreadCount = 0;
+      for (const [ox, oz] of [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ]) {
+        if (spreadCount >= 2) break;
+        const nb = getTile(state, tTile.x + ox, tTile.z + oz);
+        if (
+          nb &&
+          nb.height > 0 &&
+          !nb.buildingId &&
+          nb.onFireTimer <= 0 &&
+          (nb.resourceNode === 'timber_grove' ||
+            nb.resourceNode === 'berry_bush' ||
+            nb.terrain === 'forest' ||
+            nb.terrain === 'jungle' ||
+            nb.terrain === 'taiga' ||
+            nb.terrain === 'blossom' ||
+            nb.terrain === 'savanna' ||
+            nb.terrain === 'fertile' ||
+            nb.terrain === 'grass')
+        ) {
+          igniteTile(nb, false);
+          spreadCount++;
+        }
+      }
+    }
+  };
+
   // Predators, Dragons, Unicorns & Frenzied Animals combat / hunting
   if (isPredatorRole(u.role) || u.role === 'unicorn' || isFrenzied) {
     let target: UnitEntity | null = null;
@@ -4869,56 +5018,15 @@ function stepWildlifeAI(
       if (dist <= def.attackRange) {
         u.state = 'fighting';
         if (u.actionCooldown <= 0) {
-          u.actionCooldown = u.role === 'wolf' ? 0.72 : u.role === 'dragon' ? 1.15 : 0.9;
-          u.attackAnimTimer = u.role === 'dragon' ? 0.78 : 0.48;
-          u.attackTargetX = target.x;
-          u.attackTargetZ = target.z;
           const dmg = def.attackDamage * (isFrenzied ? 1.8 : 1.0);
-          target.hp -= dmg;
-
           if (u.role === 'dragon') {
-            const dragonGlowHex =
-              (u.appearanceSeed ?? 1) % 4 === 1
-                ? '#4ade80'
-                : (u.appearanceSeed ?? 1) % 4 === 2
-                  ? '#facc15'
-                  : (u.appearanceSeed ?? 1) % 4 === 3
-                    ? '#38bdf8'
-                    : '#ff6b35';
-            state.pendingVfx.push({
-              id: nextEntityId('vfx'),
-              type: 'dragon_fire_breath',
-              variant: 'fire_breath',
-              originX: u.x,
-              originZ: u.z,
-              x: target.x,
-              y: 0,
-              z: target.z,
-              radius: 1.9,
-              color: dragonGlowHex,
-              createdAt: Date.now(),
-            });
-            // Fire breath splashes heat onto adjacent foes & ignites unbuilt dry ground
-            for (const splashTarget of state.units) {
-              if (
-                splashTarget.id !== target.id &&
-                splashTarget.id !== u.id &&
-                splashTarget.state !== 'ko' &&
-                !splashTarget.statusEffects.shielded &&
-                splashTarget.role !== 'dragon' &&
-                splashTarget.faction !== 'civilization'
-              ) {
-                const sdSq = (splashTarget.x - target.x) ** 2 + (splashTarget.z - target.z) ** 2;
-                if (sdSq <= 2.56) {
-                  splashTarget.hp -= dmg * 0.35;
-                }
-              }
-            }
-            const tTile = getTile(state, target.x, target.z);
-            if (tTile && tTile.height > 0 && !tTile.buildingId && tTile.terrain !== 'rock' && tTile.terrain !== 'snow') {
-              tTile.onFireTimer = Math.max(tTile.onFireTimer, 4.0);
-            }
+            emitDragonBreathAt(target.x, target.z, dmg, { unitTarget: target });
           } else {
+            u.actionCooldown = u.role === 'wolf' ? 0.72 : 0.9;
+            u.attackAnimTimer = 0.48;
+            u.attackTargetX = target.x;
+            u.attackTargetZ = target.z;
+            target.hp -= dmg;
             const variant =
               u.role === 'wolf'
                 ? 'bite'
@@ -4965,6 +5073,151 @@ function stepWildlifeAI(
         }
       }
       return;
+    }
+
+    // Environmental rampage: Dragons torch buildings, trees, bushes, rocks & flammable terrain;
+    // Dinosaurs, Bears & Frenzied beasts smash nearby structures, trees, bushes & boulders.
+    const canAttackEnv =
+      u.role === 'dragon' || u.role === 'dinosaur' || u.role === 'bear' || isFrenzied;
+    if (canAttackEnv) {
+      type EnvTarget =
+        | { kind: 'building'; building: BuildingEntity; x: number; z: number; score: number }
+        | { kind: 'tile'; tile: TileData; x: number; z: number; score: number };
+      let envTarget: EnvTarget | null = null;
+      const envRange = u.role === 'dragon' ? 11 : isFrenzied ? 7 : 5;
+      const envRangeSq = envRange * envRange;
+
+      if (u.role === 'dragon' || u.role === 'dinosaur' || isFrenzied) {
+        for (const b of state.buildings) {
+          if (b.hp <= 0 || b.shieldTimer > 0) continue;
+          const dSq = (b.tileX - u.x) ** 2 + (b.tileZ - u.z) ** 2;
+          if (dSq <= envRangeSq) {
+            const score = Math.sqrt(dSq) + (u.role === 'dragon' ? 0.8 : 1.5);
+            if (!envTarget || score < envTarget.score) {
+              envTarget = { kind: 'building', building: b, x: b.tileX, z: b.tileZ, score };
+            }
+          }
+        }
+      }
+
+      const ux = Math.round(u.x);
+      const uz = Math.round(u.z);
+      const minX = Math.max(1, ux - envRange);
+      const maxX = Math.min(gs - 2, ux + envRange);
+      const minZ = Math.max(1, uz - envRange);
+      const maxZ = Math.min(gs - 2, uz + envRange);
+      const seedBias = (u.appearanceSeed ?? 1) & 7;
+
+      for (let tz = minZ; tz <= maxZ; tz++) {
+        for (let tx = minX; tx <= maxX; tx++) {
+          const tile = state.tiles[tz * gs + tx];
+          if (!tile || tile.height <= 0 || tile.buildingId || tile.onFireTimer > 0 || tile.blessedTimer > 0) {
+            continue;
+          }
+          const dSq = (tx - u.x) ** 2 + (tz - u.z) ** 2;
+          if (dSq > envRangeSq) continue;
+
+          const hasDestructibleProp =
+            tile.resourceNode === 'timber_grove' ||
+            tile.resourceNode === 'berry_bush' ||
+            ((u.role === 'dragon' || u.role === 'dinosaur') &&
+              (tile.resourceNode === 'stone_outcrop' || tile.resourceNode === 'crystal_monolith'));
+          const isFlammableBiome =
+            u.role === 'dragon' &&
+            (tile.terrain === 'forest' ||
+              tile.terrain === 'jungle' ||
+              tile.terrain === 'taiga' ||
+              tile.terrain === 'blossom' ||
+              tile.terrain === 'savanna' ||
+              tile.terrain === 'fertile' ||
+              tile.terrain === 'grass');
+
+          if (!hasDestructibleProp && !isFlammableBiome) continue;
+          const jitter = (((tx * 13 + tz * 7 + seedBias) & 7) / 7) * 0.45;
+          const score = Math.sqrt(dSq) + (hasDestructibleProp ? 0.4 : 4.2) + jitter;
+          if (!envTarget || score < envTarget.score) {
+            envTarget = { kind: 'tile', tile, x: tx, z: tz, score };
+          }
+        }
+      }
+
+      if (envTarget) {
+        const dist = Math.hypot(envTarget.x - u.x, envTarget.z - u.z);
+        u.targetX = envTarget.x;
+        u.targetZ = envTarget.z;
+        if (dist <= def.attackRange) {
+          u.state = 'fighting';
+          if (u.actionCooldown <= 0) {
+            const dmg = def.attackDamage * (isFrenzied ? 1.8 : 1.0);
+            if (u.role === 'dragon') {
+              emitDragonBreathAt(envTarget.x, envTarget.z, dmg, {
+                buildingTarget: envTarget.kind === 'building' ? envTarget.building : undefined,
+                isEnvAttack: true,
+              });
+            } else {
+              u.actionCooldown = isFrenzied ? 0.95 : 2.6;
+              u.attackAnimTimer = 0.48;
+              u.attackTargetX = envTarget.x;
+              u.attackTargetZ = envTarget.z;
+              if (envTarget.kind === 'building' && envTarget.building.shieldTimer <= 0) {
+                envTarget.building.hp = Math.max(0, envTarget.building.hp - dmg * 0.7);
+              } else if (envTarget.kind === 'tile') {
+                const et = envTarget.tile;
+                et.resourceAmount = Math.max(0, et.resourceAmount - (u.role === 'dinosaur' ? 120 : 85));
+                if (et.resourceAmount <= 0) {
+                  et.resourceNode = 'none';
+                  if (et.terrain === 'forest' || et.terrain === 'jungle') {
+                    et.terrain = 'grass';
+                  }
+                }
+              }
+              const variant =
+                u.role === 'wolf'
+                  ? 'bite'
+                  : u.role === 'bear'
+                    ? 'slam'
+                    : u.role === 'dinosaur'
+                      ? 'crunch'
+                      : u.role === 'unicorn'
+                        ? 'horn_blast'
+                        : 'peck';
+              const color =
+                u.role === 'wolf'
+                  ? '#f87171'
+                  : u.role === 'bear'
+                    ? '#f59e0b'
+                    : u.role === 'dinosaur'
+                      ? '#fb923c'
+                      : u.role === 'unicorn'
+                        ? '#f472b6'
+                        : '#fde047';
+              state.pendingVfx.push({
+                id: nextEntityId('vfx'),
+                type: 'animal_attack',
+                variant,
+                originX: u.x,
+                originZ: u.z,
+                x: envTarget.x,
+                y: 0,
+                z: envTarget.z,
+                radius: u.role === 'dinosaur' ? 1.55 : u.role === 'bear' ? 1.35 : 1.05,
+                color,
+                createdAt: Date.now(),
+              });
+            }
+          }
+        } else {
+          u.state = 'moving';
+          const nx = u.x + ((envTarget.x - u.x) / dist) * moveSpeed * dt;
+          const nz = u.z + ((envTarget.z - u.z) / dist) * moveSpeed * dt;
+          const nt = getTile(state, nx, nz);
+          if (isFlying || (nt && nt.height > 0)) {
+            u.x = Math.max(1, Math.min(gs - 2, nx));
+            u.z = Math.max(1, Math.min(gs - 2, nz));
+          }
+        }
+        return;
+      }
     }
   }
 

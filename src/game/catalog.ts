@@ -813,3 +813,26 @@ export const TERRAIN_TOOLS: TerrainToolDefinition[] = [
     color: '#3a86ff',
   },
 ];
+
+export interface DragonVariantPalette {
+  name: string;
+  body: number;
+  belly: number;
+  wing: number;
+  glow: number;
+  glowHex: string;
+}
+
+export const DRAGON_VARIANTS: DragonVariantPalette[] = [
+  { name: 'Crimson Ember', body: 0xb91c1c, belly: 0xf59e0b, wing: 0x7f1d1d, glow: 0xff5420, glowHex: '#ff5420' },
+  { name: 'Jade Wyrm', body: 0x15803d, belly: 0xd9f99d, wing: 0x14532d, glow: 0x22c55e, glowHex: '#22c55e' },
+  { name: 'Solar Aureate', body: 0xd97706, belly: 0xfef3c7, wing: 0x92400e, glow: 0xfacc15, glowHex: '#facc15' },
+  { name: 'Void Astral', body: 0x312e81, belly: 0x7dd3fc, wing: 0x1e1b4b, glow: 0x38bdf8, glowHex: '#38bdf8' },
+];
+
+export function getDragonVariant(appearanceSeed?: number): DragonVariantPalette {
+  const seed = Math.abs(Math.floor(appearanceSeed ?? 1) || 1);
+  const s0 = Math.abs(Math.imul(seed ^ 0x9e3779b9, 2654435761)) >>> 0;
+  return DRAGON_VARIANTS[s0 % DRAGON_VARIANTS.length];
+}
+

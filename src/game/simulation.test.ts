@@ -16,7 +16,7 @@ import {
   spawnUnit,
   stepSimulation,
 } from './simulation';
-import { ANIMAL_UNITS, EPOCHS, MYTHICAL_BEAST_UNITS, SPECIES_UNITS } from './catalog';
+import { ANIMAL_UNITS, DRAGON_VARIANTS, EPOCHS, MYTHICAL_BEAST_UNITS, SPECIES_UNITS, getDragonVariant } from './catalog';
 import { createUnitGroup, createVehicleGroup } from './meshBuilders';
 import * as THREE from 'three';
 
@@ -1484,6 +1484,129 @@ test('colossal dragon shoots directional dragon_fire_breath VFX and animals trig
   assert.ok(slamVfx, 'Bear attack should emit animal_attack slam VFX');
   assert.ok((bear.attackAnimTimer ?? 0) > 0, 'Bear should trigger attackAnimTimer rear-up slam animation');
 });
+
+test('dragons breathe fire matching their scale color and actively attack trees and buildings in the environment', () => {
+  // 1. Verify all 4 dragon color variants produce matching fire_maw 3D material & dragon_fire_breath VFX colors
+  const seenVariants = new Set<string>();
+  for (let seed = 1; seed <= 40 && seenVariants.size < DRAGON_VARIANTS.length; seed++) {
+    const palette = getDragonVariant(seed);
+    if (seenVariants.has(palette.name)) continue;
+    seenVariants.add(palette.name);
+
+    const mesh = createUnitGroup('dragon', 'wildlife', 0, 'human', seed);
+    const maw = mesh.getObjectByName('fire_maw') as THREE.Mesh | undefined;
+    assert.ok(maw, `Dragon seed ${seed} must expose fire_maw`);
+    const mawMat = maw!.material as THREE.MeshStandardMaterial;
+    assert.equal(
+      mawMat.color.getHex(),
+      palette.glow,
+      `${palette.name} fire_maw color must match variant glow`,
+    );
+
+    const state = createInitialSimulationState(128, `DRG-COL-${seed}`);
+    state.sandboxFreeMode = true;
+    state.wildlifeSeeded = true;
+    for (let dz = -4; dz <= 4; dz++) {
+      for (let dx = -4; dx <= 4; dx++) {
+        const t = getTile(state, 64 + dx, 64 + dz)!;
+        t.height = 2;
+        t.terrain = 'grass';
+        t.resourceNode = 'none';
+        t.resourceAmount = 0;
+        t.buildingId = null;
+        t.onFireTimer = 0;
+      }
+    }
+    const treeTile = getTile(state, 66, 64)!;
+    treeTile.terrain = 'forest';
+    treeTile.resourceNode = 'timber_grove';
+    treeTile.resourceAmount = 100;
+
+    const dragon = spawnUnit(state, 'dragon', 64, 64, false, undefined, { appearanceSeed: seed }).unit!;
+    dragon.actionCooldown = 0;
+    state.pendingVfx.length = 0;
+
+    stepSimulation(state, 0.15);
+
+    const breathVfx = state.pendingVfx.find((v) => v.type === 'dragon_fire_breath');
+    assert.ok(breathVfx, `${palette.name} dragon should attack nearby forest tree with fire breath`);
+    assert.equal(
+      breathVfx!.color,
+      palette.glowHex,
+      `${palette.name} dragon must spew fire matching its own color (${palette.glowHex})`,
+    );
+    assert.ok(treeTile.onFireTimer > 0, 'Targeted tree tile must catch fire');
+    assert.equal(
+      treeTile.fireColor,
+      palette.glowHex,
+      'Ignited tile ground fire must carry the dragon breath fireColor',
+    );
+    assert.equal(treeTile.resourceNode, 'none', 'Direct dragon fire blast should burn away the tree');
+    assert.equal(treeTile.terrain, 'scorched', 'Burned tree tile should scorch into scorched terrain');
+  }
+  assert.equal(seenVariants.size, DRAGON_VARIANTS.length, 'Should verify all 4 dragon color variants');
+
+  // 2. Verify dragons attack nearby unshielded buildings even when no units are around
+  const bldState = createInitialSimulationState(128, 'DRG-ENV-BLD');
+  bldState.sandboxFreeMode = true;
+  bldState.wildlifeSeeded = true;
+  for (let dz = -5; dz <= 5; dz++) {
+    for (let dx = -5; dx <= 5; dx++) {
+      const t = getTile(bldState, 64 + dx, 64 + dz)!;
+      t.height = 2;
+      t.terrain = 'grass';
+      t.resourceNode = 'none';
+      t.resourceAmount = 0;
+      t.buildingId = null;
+      t.onFireTimer = 0;
+    }
+  }
+  const bRes = placeBuilding(bldState, 'forager_hut', 66, 64);
+  assert.equal(bRes.ok, true);
+  const hut = bldState.buildings[bldState.buildings.length - 1];
+  const initialHp = hut.hp;
+
+  const drg = spawnUnit(bldState, 'dragon', 64, 64).unit!;
+  drg.actionCooldown = 0;
+  bldState.pendingVfx.length = 0;
+  stepSimulation(bldState, 0.15);
+
+  assert.ok(hut.hp < initialHp, `Dragon should damage nearby building (hp=${hut.hp}/${initialHp})`);
+  assert.ok(
+    bldState.pendingVfx.some((v) => v.type === 'dragon_fire_breath'),
+    'Dragon attacking a building must emit dragon_fire_breath VFX',
+  );
+
+  // 3. Verify dinosaur can also smash nearby environmental trees when no combat units are present
+  const dinoState = createInitialSimulationState(128, 'DINO-ENV-TREE');
+  dinoState.sandboxFreeMode = true;
+  dinoState.wildlifeSeeded = true;
+  for (let dz = -4; dz <= 4; dz++) {
+    for (let dx = -4; dx <= 4; dx++) {
+      const t = getTile(dinoState, 64 + dx, 64 + dz)!;
+      t.height = 2;
+      t.terrain = 'grass';
+      t.resourceNode = 'none';
+      t.resourceAmount = 0;
+      t.buildingId = null;
+      t.onFireTimer = 0;
+    }
+  }
+  const bushTile = getTile(dinoState, 65, 64)!;
+  bushTile.resourceNode = 'berry_bush';
+  bushTile.resourceAmount = 100;
+  const dino = spawnUnit(dinoState, 'dinosaur', 64, 64).unit!;
+  dino.actionCooldown = 0;
+  dinoState.pendingVfx.length = 0;
+
+  stepSimulation(dinoState, 0.1);
+  assert.equal(bushTile.resourceNode, 'none', 'Dinosaur should smash nearby berry bush');
+  assert.ok(
+    dinoState.pendingVfx.some((v) => v.type === 'animal_attack' && v.variant === 'crunch'),
+    'Dinosaur smashing environment should emit crunch animal_attack VFX',
+  );
+});
+
 
 
 

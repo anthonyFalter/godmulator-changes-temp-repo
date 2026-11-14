@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { getDragonVariant } from './catalog';
 import {
   BuildingType,
   ResourceNodeType,
@@ -4024,23 +4025,18 @@ function buildCreatureUnitGroup(
     // Colossal winged dragon (~2.35x body volume, ~4.2-unit wingspan, openable fire jaw & multi-segment wings)
     shadowRadius = 1.65;
     auraRadius = 0.92;
-    const dragonVariants = [
-      { body: 0xb91c1c, belly: 0xf59e0b, wing: 0x7f1d1d, glow: 0xff6b35 }, // Crimson Ember
-      { body: 0x15803d, belly: 0xd9f99d, wing: 0x14532d, glow: 0x4ade80 }, // Jade Wyrm
-      { body: 0xd97706, belly: 0xfef3c7, wing: 0x92400e, glow: 0xfacc15 }, // Solar Aureate
-      { body: 0x312e81, belly: 0x7dd3fc, wing: 0x1e1b4b, glow: 0x38bdf8 }, // Void Astral
-    ];
-    const dv = dragonVariants[s0 % dragonVariants.length];
-    const scaleMat = mat(dv.body, 0.38, 0.34);
-    const bellyMat = mat(dv.belly, 0.45, 0.2, dv.glow, 0.22);
-    const wingMat = mat(dv.wing, 0.52, 0.16, 0, 0);
+    const dragonSeed = Number(group.userData.appearanceSeed ?? 1);
+    const palette = getDragonVariant(dragonSeed);
+    const scaleMat = mat(palette.body, 0.38, 0.34);
+    const bellyMat = mat(palette.belly, 0.45, 0.2, palette.glow, 0.22);
+    const wingMat = mat(palette.wing, 0.52, 0.16, 0, 0);
     wingMat.side = THREE.DoubleSide;
     const hornMat = mat(0xf4e8d2, 0.32, 0.28);
-    const eyeMat = mat(dv.glow, 0.18, 0.1, dv.glow, 1.25);
+    const eyeMat = mat(palette.glow, 0.18, 0.1, palette.glow, 1.25);
     const mawGlowMat = new THREE.MeshStandardMaterial({
-      color: 0xffb703,
-      emissive: new THREE.Color(dv.glow),
-      emissiveIntensity: 1.4,
+      color: palette.glow,
+      emissive: new THREE.Color(palette.glow),
+      emissiveIntensity: 1.45,
       roughness: 0.2,
       metalness: 0.1,
     });
@@ -4295,6 +4291,7 @@ export function createUnitGroup(
 
   // Orthogonal deterministic hashes per individual so each person is visually distinct
   const seed = Math.abs(Math.floor(appearanceSeed) || 1);
+  group.userData.appearanceSeed = seed;
   const s0 = Math.abs(Math.imul(seed ^ 0x9e3779b9, 2654435761)) >>> 0;
   const s1 = Math.abs(Math.imul(seed ^ 0x85ebca6b, 2246822519)) >>> 0;
   const s2 = Math.abs(Math.imul(seed ^ 0xc2b2ae35, 3266489917)) >>> 0;
