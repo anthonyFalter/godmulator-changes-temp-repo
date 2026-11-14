@@ -320,8 +320,14 @@ export function placeBuilding(
   tile.buildingId = newBuilding.id;
   tile.resourceNode = 'none';
   tile.resourceAmount = 0;
+  if (tile.terrain === 'stone_road') {
+    tile.terrain = 'grass';
+  }
   state.buildings.push(newBuilding);
   state.totalStructuresBuilt += 1;
+  if (newBuilding.epochLevel >= 1 || state.epochIndex >= 1) {
+    paveSettlementStreetsNear(state, tile.x, tile.z, settlementId);
+  }
 
   for (const u of state.units) {
     if (u.faction === 'civilization' && u.state !== 'ko' && !u.settlementId) {
@@ -836,11 +842,11 @@ export function executeGodPowerImpact(
           t.cursedTimer = 0;
           t.blessedTimer = 35;
           if (t.buildingId) {
-            t.terrain = 'stone_road';
+            if (t.terrain === 'stone_road') t.terrain = 'grass';
           } else if (t.terrain === 'scorched' || t.terrain === 'savanna' || t.terrain === 'swamp') {
             t.terrain = 'fertile';
           } else if (t.terrain === 'grass' && dSq <= rSq * 0.5 && t.resourceNode === 'none') {
-            t.terrain = dSq <= 4.5 || t.x === targetX || t.z === targetZ ? 'stone_road' : 'fertile';
+            t.terrain = (t.x === targetX || t.z === targetZ) && dSq > 1.5 ? 'stone_road' : 'fertile';
           }
         }
       }
@@ -1560,29 +1566,19 @@ function findLocalSettlementBuilding(
 function getSettlementAnchorForId(state: SimulationState, settlementId: string): { x: number; z: number } {
   const matching = state.buildings.filter((b) => (b.settlementId ?? 'city_default') === settlementId);
   if (matching.length === 0) return getSettlementAnchor(state);
-  let sx = 0;
-  let sz = 0;
-  for (const b of matching) {
-    sx += b.tileX;
-    sz += b.tileZ;
-  }
+  const hearth = matching.find((b) => b.type === 'bonfire') ?? matching[0];
   return {
-    x: Math.round(sx / matching.length),
-    z: Math.round(sz / matching.length),
+    x: hearth.tileX,
+    z: hearth.tileZ,
   };
 }
 
 export function getSettlementAnchor(state: SimulationState): { x: number; z: number } {
   if (state.buildings.length > 0) {
-    let sx = 0;
-    let sz = 0;
-    for (const b of state.buildings) {
-      sx += b.tileX;
-      sz += b.tileZ;
-    }
+    const primaryHearth = state.buildings.find((b) => b.type === 'bonfire') ?? state.buildings[0];
     return {
-      x: Math.round(sx / state.buildings.length),
-      z: Math.round(sz / state.buildings.length),
+      x: primaryHearth.tileX,
+      z: primaryHearth.tileZ,
     };
   }
   const civs = state.units.filter((u) => u.faction === 'civilization' && u.state !== 'ko');
@@ -1602,29 +1598,209 @@ export function getSettlementAnchor(state: SimulationState): { x: number; z: num
   return { x: c, z: c };
 }
 
+function getSettlementLayoutVariant(
+  state: SimulationState,
+  settlementId: string,
+  ox: number,
+  oz: number,
+): number {
+  let hash = Math.abs((ox * 31 + oz * 17 + (state.seed ?? 7)) | 0);
+  for (let i = 0; i < settlementId.length; i++) {
+    hash = (hash * 33 + settlementId.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash) % 4;
+}
+
+export function isSettlementRoadTile(dx: number, dz: number, variant: number): boolean {
+  if (dx === 0 && dz === 0) return false; // Founding hearth sits at (0,0)
+  const adx = Math.abs(dx);
+  const adz = Math.abs(dz);
+  const maxD = Math.max(adx, adz);
+  if (maxD > 11) return false;
+
+  switch (variant & 3) {
+    case 0: {
+      // Variant 0: Perimeter Loop & Crossroads (encloses 3x3 green cottage blocks like reference architecture)
+      const onPerimeterLoop = (maxD === 4 || maxD === 8) && adx <= maxD && adz <= maxD;
+      const onCrossAvenue = (dx === 0 && dz >= -8 && dz <= 8) || (dz === 0 && dx >= -8 && dx <= 8);
+      return onPerimeterLoop || onCrossAvenue;
+    }
+    case 1: {
+      // Variant 1: Twin Boulevards & Cross Streets
+      const onBoulevard = (dz === -1 || dz === 3) && adx <= 9;
+      const onCross = (dx === -2 || dx === 2 || dx === -6 || dx === 6) && adz <= 8;
+      return onBoulevard || onCross;
+    }
+    case 2: {
+      // Variant 2: Civic Plaza Ring & Radial Spokes
+      const onRing = maxD === 2 || maxD === 6;
+      const onSpoke = (dx === 0 && adz >= 2 && adz <= 9) || (dz === 0 && adx >= 2 && adx <= 9);
+      return onRing || onSpoke;
+    }
+    default: {
+      // Variant 3: Winding Village Commons with staggered T-junctions
+      const onMainSpine = (dz === 1 && dx >= -8 && dx <= 8) || (dx === -1 && dz >= -8 && dz <= 8);
+      const onLoopBranch =
+        (dx === 3 && dz >= -4 && dz <= 5) ||
+        (dz === -3 && dx >= -4 && dx <= 4) ||
+        (dz === 5 && dx >= -5 && dx <= 4);
+      return onMainSpine || onLoopBranch;
+    }
+  }
+}
+
+function paveSettlementStreetsNear(
+  state: SimulationState,
+  bx: number,
+  bz: number,
+  settlementId = 'city_default',
+): void {
+  const anchor = getSettlementAnchorForId(state, settlementId);
+  const variant = getSettlementLayoutVariant(state, settlementId, anchor.x, anchor.z);
+
+  const ownTile = getTile(state, bx, bz);
+  if (ownTile && ownTile.buildingId && ownTile.terrain === 'stone_road') {
+    ownTile.terrain = 'grass';
+  }
+
+  let pavedAdjacent = false;
+  for (let dz = -3; dz <= 3; dz++) {
+    for (let dx = -3; dx <= 3; dx++) {
+      const t = getTile(state, bx + dx, bz + dz);
+      if (!t || t.height <= 0 || t.buildingId || t.resourceNode !== 'none') continue;
+      if (t.terrain === 'deep_water' || t.terrain === 'shallow_water' || t.terrain === 'crystal_field') continue;
+      const relX = t.x - anchor.x;
+      const relZ = t.z - anchor.z;
+      if (isSettlementRoadTile(relX, relZ, variant)) {
+        t.terrain = 'stone_road';
+        if (Math.abs(dx) + Math.abs(dz) === 1) pavedAdjacent = true;
+      }
+    }
+  }
+
+  // Ensure every completed building has at least 1 unblocked street tile along its frontage
+  if (!pavedAdjacent) {
+    const dirs = [
+      [0, 1],
+      [1, 0],
+      [0, -1],
+      [-1, 0],
+    ];
+    for (const [ox, oz] of dirs) {
+      const nt = getTile(state, bx + ox, bz + oz);
+      if (nt && nt.height > 0 && !nt.buildingId && nt.resourceNode === 'none') {
+        if (nt.terrain === 'stone_road') {
+          pavedAdjacent = true;
+          break;
+        }
+      }
+    }
+    if (!pavedAdjacent) {
+      for (const [ox, oz] of dirs) {
+        const nt = getTile(state, bx + ox, bz + oz);
+        if (
+          nt &&
+          nt.height > 0 &&
+          !nt.buildingId &&
+          nt.resourceNode === 'none' &&
+          nt.terrain !== 'crystal_field'
+        ) {
+          nt.terrain = 'stone_road';
+          break;
+        }
+      }
+    }
+  }
+}
+
 function findBuildableTileNear(
   state: SimulationState,
   anchorX: number,
   anchorZ: number,
   maxRadius = 18,
+  settlementId = 'city_default',
 ): TileData | null {
-  let fallback: TileData | null = null;
-  for (let r = 2; r <= maxRadius; r++) {
+  const anchorTile = getTile(state, anchorX, anchorZ);
+  const preferredHeight = anchorTile && anchorTile.height > 0 ? anchorTile.height : 2;
+  const variant = getSettlementLayoutVariant(state, settlementId, anchorX, anchorZ);
+  const villageBuildings = state.buildings.filter(
+    (b) => (b.settlementId ?? 'city_default') === settlementId,
+  );
+
+  let bestLot: TileData | null = null;
+  let bestScore = Infinity;
+  let emergencyFallback: TileData | null = null;
+
+  for (let r = 1; r <= maxRadius; r++) {
     for (let dz = -r; dz <= r; dz++) {
       for (let dx = -r; dx <= r; dx++) {
         if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
         const t = getTile(state, anchorX + dx, anchorZ + dz);
         if (!t || t.height <= 0 || t.height >= 6 || t.buildingId) continue;
         if (t.terrain === 'deep_water' || t.terrain === 'shallow_water') continue;
-        if (t.resourceNode === 'none') {
-          return t;
+
+        if (!emergencyFallback) emergencyFallback = t;
+
+        // Never place buildings on existing roads or designated street corridors!
+        if (t.terrain === 'stone_road' || isSettlementRoadTile(dx, dz, variant)) {
+          continue;
         }
-        if (!fallback) fallback = t;
+
+        // Check cardinal neighbors for street frontage & unblocked access
+        const cardinals = [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ];
+        let touchesStreet = false;
+        let openCardinalNeighbors = 0;
+        for (const [cx, cz] of cardinals) {
+          const nt = getTile(state, t.x + cx, t.z + cz);
+          if (!nt || nt.height <= 0) continue;
+          if (!nt.buildingId) openCardinalNeighbors += 1;
+          if (
+            nt.terrain === 'stone_road' ||
+            isSettlementRoadTile(dx + cx, dz + cz, variant)
+          ) {
+            touchesStreet = true;
+          }
+        }
+        // Avoid boxing in a building where all 4 sides would be blocked
+        if (openCardinalNeighbors === 0) continue;
+
+        // Check proximity to existing village buildings to form cohesive cottage clusters
+        let nearCottageCount = 0;
+        for (const b of villageBuildings) {
+          const bDist = Math.max(Math.abs(b.tileX - t.x), Math.abs(b.tileZ - t.z));
+          if (bDist === 1) nearCottageCount += 2;
+          else if (bDist === 2) nearCottageCount += 1;
+        }
+
+        const dist = Math.hypot(dx, dz);
+        let score = dist * 2.4;
+        if (touchesStreet) score -= 18;
+        if (nearCottageCount > 0) score -= Math.min(14, nearCottageCount * 4.5);
+        if (t.height === preferredHeight) score -= 8;
+        else score += Math.abs(t.height - preferredHeight) * 5;
+        if (t.resourceNode === 'none') score -= 7;
+        else score += 9;
+
+        // Deterministic micro-tiebreaker for organic neighborhood variety
+        const tieBreaker = (((t.x * 37 + t.z * 19 + variant * 13) & 15) / 16) * 1.4;
+        score += tieBreaker;
+
+        if (score < bestScore) {
+          bestScore = score;
+          bestLot = t;
+        }
       }
     }
-    if (fallback) return fallback;
+    if (bestLot && r >= 4 && bestScore < -10) {
+      return bestLot;
+    }
   }
-  return fallback;
+  return bestLot ?? emergencyFallback;
 }
 
 export function advanceEpoch(
@@ -1656,6 +1832,10 @@ export function advanceEpoch(
   // Heal existing structures and kick off their individual progression toward the new epoch
   for (const b of state.buildings) {
     b.hp = b.maxHp;
+    const bTile = getTile(state, b.tileX, b.tileZ);
+    if (bTile && bTile.terrain === 'stone_road') {
+      bTile.terrain = 'grass';
+    }
     if (b.epochLevel < state.epochIndex) {
       b.upgradeProgress = Math.max(b.upgradeProgress ?? 0, divineLeapOverride ? 35 : 18);
     }
@@ -1663,19 +1843,19 @@ export function advanceEpoch(
 
   const anchor = getSettlementAnchor(state);
 
-  // Transform civic plaza around each independent settlement & erect epoch landmark
+  // Transform street network around each independent settlement & erect epoch landmark
   if (state.buildings.length > 0) {
-    const plazaTerrain = 'stone_road';
     const settlementIds = Array.from(new Set(state.buildings.map((b) => b.settlementId ?? 'city_default')));
 
     for (const sid of settlementIds) {
       const cityAnchor = getSettlementAnchorForId(state, sid);
-      for (let dz = -2; dz <= 2; dz++) {
-        for (let dx = -2; dx <= 2; dx++) {
-          if (dx * dx + dz * dz > 5) continue;
+      const variant = getSettlementLayoutVariant(state, sid, cityAnchor.x, cityAnchor.z);
+      for (let dz = -5; dz <= 5; dz++) {
+        for (let dx = -5; dx <= 5; dx++) {
+          if (!isSettlementRoadTile(dx, dz, variant)) continue;
           const pt = getTile(state, cityAnchor.x + dx, cityAnchor.z + dz);
           if (pt && pt.height > 0 && !pt.buildingId && pt.resourceNode === 'none') {
-            pt.terrain = plazaTerrain;
+            pt.terrain = 'stone_road';
           }
         }
       }
@@ -1684,13 +1864,13 @@ export function advanceEpoch(
     const primarySid = settlementIds[0];
     const primaryAnchor = getSettlementAnchorForId(state, primarySid);
 
-    // Erect the signature landmark of the newly reached age if space is available
+    // Erect the signature landmark of the newly reached age on an unblocked lot
     const epochBuildings = BUILDINGS.filter((b) => b.epoch === nextEpoch.id);
     if (epochBuildings.length > 0) {
       const bDef = epochBuildings[0];
-      const padTile = findBuildableTileNear(state, primaryAnchor.x, primaryAnchor.z, 12);
+      const padTile = findBuildableTileNear(state, primaryAnchor.x, primaryAnchor.z, 12, primarySid);
       if (padTile) {
-        padTile.terrain = 'stone_road';
+        if (padTile.terrain === 'stone_road') padTile.terrain = 'grass';
         padTile.resourceNode = 'none';
         padTile.resourceAmount = 0;
         const newBld: BuildingEntity = {
@@ -1710,6 +1890,7 @@ export function advanceEpoch(
         padTile.buildingId = newBld.id;
         state.buildings.push(newBld);
         state.totalStructuresBuilt += 1;
+        paveSettlementStreetsNear(state, padTile.x, padTile.z, primarySid);
       }
     }
 
@@ -1785,19 +1966,24 @@ function pickDesiredAutobuildType(
   villagePop: number,
 ): BuildingType | null {
   const countType = (t: BuildingType) => villageBuildings.filter((b) => b.type === t).length;
+  const targetCottages = Math.min(10, Math.max(3, Math.floor(villagePop * 0.75)));
 
   if (countType('bonfire') === 0) return 'bonfire';
-  if (countType('forager_hut') < Math.min(4, Math.max(1, Math.floor(villagePop / 4)))) return 'forager_hut';
+  if (countType('forager_hut') < Math.min(3, targetCottages)) return 'forager_hut';
   if (countType('shaman_totem') < (state.epochIndex >= 1 ? 2 : 1)) return 'shaman_totem';
 
   if (state.epochIndex >= 1) {
+    if (countType('granary') < 1) return 'granary';
+    if (countType('ziggurat') < 1) return 'ziggurat';
+    if (countType('forager_hut') < Math.min(6, targetCottages)) return 'forager_hut';
     if (countType('granary') < 2) return 'granary';
     if (countType('smeltery') < 2) return 'smeltery';
-    if (countType('ziggurat') < 1) return 'ziggurat';
   }
   if (state.epochIndex >= 2) {
     if (countType('guildhall') < 2) return 'guildhall';
+    if (countType('forager_hut') < targetCottages) return 'forager_hut';
     if (countType('observatory') < 2) return 'observatory';
+    if (countType('guildhall') < 3) return 'guildhall';
   }
   if (state.epochIndex >= 3) {
     if (countType('steam_foundry') < 2) return 'steam_foundry';
@@ -1813,6 +1999,7 @@ function pickDesiredAutobuildType(
   if (state.epochIndex >= 6) {
     if (countType('dyson_spire') < 1) return 'dyson_spire';
   }
+  if (countType('forager_hut') < targetCottages) return 'forager_hut';
   return null;
 }
 
@@ -1827,7 +2014,15 @@ function transformSettlementEnvironment(
     villageBuildings[Math.floor(Math.abs(state.year * 10) + villageBuildings.length * 7) % villageBuildings.length];
   if (!sampleBld || sampleBld.constructionProgress < 100) return;
 
-  // 1. Era-driven road & high-tech terrain transformation around completed buildings
+  const sid = sampleBld.settlementId ?? 'city_default';
+  const ownTile = getTile(state, sampleBld.tileX, sampleBld.tileZ);
+  if (ownTile && ownTile.terrain === 'stone_road') {
+    ownTile.terrain = 'grass';
+  }
+
+  // 1. Era-driven street network & high-tech terrain transformation around completed buildings
+  paveSettlementStreetsNear(state, sampleBld.tileX, sampleBld.tileZ, sid);
+
   const offsets = [
     [1, 0],
     [-1, 0],
@@ -1842,26 +2037,14 @@ function transformSettlementEnvironment(
     if (
       sampleBld.epochLevel >= 5 &&
       (sampleBld.type === 'launch_arcology' || sampleBld.type === 'dyson_spire') &&
-      (adj.x + adj.z) % 4 === 0
+      (adj.x + adj.z) % 4 === 0 &&
+      adj.terrain !== 'stone_road'
     ) {
       adj.terrain = 'crystal_field';
       if (adj.resourceNode === 'none') {
         adj.resourceNode = 'crystal_monolith';
         adj.resourceAmount = 320;
       }
-    } else if (
-      sampleBld.epochLevel >= 3 &&
-      (sampleBld.type === 'steam_foundry' || sampleBld.type === 'fission_reactor')
-    ) {
-      if (adj.resourceNode === 'none') {
-        adj.terrain = 'stone_road';
-      } else if (adj.resourceNode === 'timber_grove' && adj.blessedTimer <= 0) {
-        adj.resourceNode = 'none';
-        adj.resourceAmount = 0;
-        adj.terrain = 'stone_road';
-      }
-    } else if (sampleBld.epochLevel >= 1 && adj.resourceNode === 'none') {
-      adj.terrain = 'stone_road';
     }
   }
 
@@ -2047,15 +2230,17 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
       if (desiredType) {
         const def = BUILDINGS.find((b) => b.type === desiredType);
         if (def && canAfford(state.resources, def.cost, false)) {
-          const site = findBuildableTileNear(state, villageAnchor.x, villageAnchor.z, 18);
+          const site = findBuildableTileNear(state, villageAnchor.x, villageAnchor.z, 18, sid);
           if (site) {
             state.resources = deductCost(state.resources, def.cost, false);
             if (site.resourceNode === 'timber_grove') state.resources.wood += 12;
             else if (site.resourceNode === 'stone_outcrop') state.resources.stone += 12;
             site.resourceNode = 'none';
             site.resourceAmount = 0;
+            if (site.terrain === 'stone_road') {
+              site.terrain = 'grass';
+            }
             const baseEpochIdx = Math.max(0, EPOCHS.findIndex((e) => e.id === def.epoch));
-            if (baseEpochIdx >= 1) site.terrain = 'stone_road';
 
             const siteBld: BuildingEntity = {
               id: nextEntityId('bld'),
@@ -2075,6 +2260,7 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
             site.buildingId = siteBld.id;
             state.buildings.push(siteBld);
             state.totalStructuresBuilt += 1;
+            paveSettlementStreetsNear(state, site.x, site.z, sid);
             const vName = state.settlementNames[sid] ?? 'Settlement';
             addChronicle(state, `Settlers of ${vName} break ground on a ${def.name} at (${site.x}, ${site.z}).`, 'build');
           }
@@ -2510,8 +2696,11 @@ function stepSimulationSingle(state: SimulationState, dt: number): void {
         b.epochLevel = Math.min(state.epochIndex, b.epochLevel + 1);
         b.maxHp += 40;
         b.hp = Math.min(b.maxHp, b.hp + 55);
-        if (bTile && b.epochLevel >= 1 && bTile.terrain !== 'crystal_field') {
-          bTile.terrain = 'stone_road';
+        if (bTile && bTile.terrain === 'stone_road') {
+          bTile.terrain = 'grass';
+        }
+        if (b.epochLevel >= 1) {
+          paveSettlementStreetsNear(state, b.tileX, b.tileZ, b.settlementId ?? 'city_default');
         }
         state.pendingVfx.push({
           id: nextEntityId('vfx'),

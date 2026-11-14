@@ -852,34 +852,61 @@ export function createResourceNodeGroup(nodeType: ResourceNodeType, variant = 0)
   return group;
 }
 
-export function createBuildingGroup(type: BuildingType, epochIndex: number): THREE.Group {
+export function createBuildingGroup(
+  type: BuildingType,
+  epochIndex: number,
+  variantSeed = 0,
+): THREE.Group {
   const group = new THREE.Group();
-  group.add(createContactShadow(1.35));
+  const isMonumental =
+    type === 'ziggurat' ||
+    type === 'launch_arcology' ||
+    type === 'dyson_spire' ||
+    (type === 'bonfire' && epochIndex >= 2);
+  group.add(createContactShadow(isMonumental ? 1.28 : 0.92));
 
-  // Age-specific materials so structures start as sticks/mud/thatch and progress to orbital techno-modern sci-fi
+  const variant = Math.abs(variantSeed) % 4;
+
+  // Age-specific & architectural materials
   const mudEarthMat = new THREE.MeshStandardMaterial({
     map: getPixelArtTexture('bld_mud_earth', '#6b4c35', '#856147', '#4d3523', 'wood'),
     roughness: 0.92,
   });
   const stickWoodMat = new THREE.MeshStandardMaterial({
-    map: getPixelArtTexture('bld_stick_wood', '#523620', '#6e492c', '#382314', 'wood'),
+    map: getPixelArtTexture('bld_stick_wood', '#4a301c', '#634127', '#332012', 'wood'),
     roughness: 0.88,
   });
   const thatchMat = new THREE.MeshStandardMaterial({
     map: getPixelArtTexture('bld_thatch_straw', '#cfa657', '#e3bd6f', '#9c7834', 'roof'),
     roughness: 0.85,
   });
+  const goldenRoofMat = new THREE.MeshStandardMaterial({
+    map: getPixelArtTexture('bld_roof_gold_straw', '#eec643', '#f7d969', '#c99b26', 'roof'),
+    roughness: 0.72,
+  });
+  const whitePlasterMat = new THREE.MeshStandardMaterial({
+    map: getPixelArtTexture('bld_white_plaster', '#f0ede6', '#faf8f5', '#d0cbc0', 'stone'),
+    roughness: 0.74,
+  });
+  const marbleWhiteMat = new THREE.MeshStandardMaterial({
+    map: getPixelArtTexture('bld_marble_white', '#e8ebed', '#f7f9fa', '#bdc3c7', 'stone'),
+    roughness: 0.58,
+  });
+  const tanPlasterMat = new THREE.MeshStandardMaterial({
+    map: getPixelArtTexture('bld_tan_plaster', '#dcc59a', '#ebd8b2', '#b3986b', 'stone'),
+    roughness: 0.78,
+  });
   const adobeMat = new THREE.MeshStandardMaterial({
     map: getPixelArtTexture('bld_adobe_clay', '#b5895a', '#cfa372', '#87623a', 'stone'),
     roughness: 0.82,
   });
   const stoneMat = new THREE.MeshStandardMaterial({
-    map: getPixelArtTexture('bld_stone', '#8f8478', '#b0a496', '#5c534b', 'stone'),
+    map: getPixelArtTexture('bld_stone', '#8c9296', '#a8afb3', '#616669', 'stone'),
     roughness: 0.75,
   });
   const darkStoneMat = new THREE.MeshStandardMaterial({
-    map: getPixelArtTexture('bld_dark_stone', '#465459', '#607178', '#2c363a', 'stone'),
-    roughness: 0.7,
+    map: getPixelArtTexture('bld_dark_stone', '#42494d', '#586066', '#282d30', 'stone'),
+    roughness: 0.72,
   });
   const brickMat = new THREE.MeshStandardMaterial({
     map: getPixelArtTexture('bld_brick_ind', '#9e4238', '#b85348', '#6e2922', 'stone'),
@@ -890,20 +917,24 @@ export function createBuildingGroup(type: BuildingType, epochIndex: number): THR
     roughness: 0.58,
   });
   const woodMat = new THREE.MeshStandardMaterial({
-    map: getPixelArtTexture('bld_wood', '#7d5338', '#9e6b49', '#523522', 'wood'),
+    map: getPixelArtTexture('bld_wood', '#8a4f28', '#a86438', '#5c3318', 'wood'),
     roughness: 0.8,
   });
   const redRoofMat = new THREE.MeshStandardMaterial({
-    map: getPixelArtTexture('bld_roof_red', '#b84239', '#d95b50', '#7d2923', 'roof'),
-    roughness: 0.6,
+    map: getPixelArtTexture('bld_roof_red', '#a82e24', '#c93e32', '#731d16', 'roof'),
+    roughness: 0.65,
   });
   const blueRoofMat = new THREE.MeshStandardMaterial({
-    map: getPixelArtTexture('bld_roof_blue', '#3b5bdb', '#5c7cfa', '#263b8c', 'roof'),
-    roughness: 0.55,
+    map: getPixelArtTexture('bld_roof_blue', '#2744a6', '#3b5bdb', '#182b6e', 'roof'),
+    roughness: 0.58,
   });
   const greenAwningMat = new THREE.MeshStandardMaterial({
-    map: getPixelArtTexture('bld_awning_green', '#3f8f65', '#5eb586', '#286143', 'roof'),
-    roughness: 0.65,
+    map: getPixelArtTexture('bld_awning_green', '#3f8f4e', '#5cb86c', '#266132', 'roof'),
+    roughness: 0.68,
+  });
+  const doorDarkMat = new THREE.MeshStandardMaterial({
+    color: 0x261a12,
+    roughness: 0.9,
   });
   const goldMat = new THREE.MeshStandardMaterial({
     color: 0xe9b44c,
@@ -911,9 +942,9 @@ export function createBuildingGroup(type: BuildingType, epochIndex: number): THR
     roughness: 0.25,
   });
   const flameMat = new THREE.MeshStandardMaterial({
-    color: 0xff922b,
-    emissive: 0xf76707,
-    emissiveIntensity: 0.85,
+    color: 0xffb703,
+    emissive: 0xfb8500,
+    emissiveIntensity: 0.95,
     roughness: 0.2,
   });
   const techMat = new THREE.MeshStandardMaterial({
@@ -933,66 +964,162 @@ export function createBuildingGroup(type: BuildingType, epochIndex: number): THR
     roughness: 0.18,
   });
 
-  // Age-appropriate foundation plinth (NEVER concrete or grey stone in the Prehistoric Age!)
-  if (epochIndex === 0) {
-    // Prehistoric Age: Packed earth & mud mound ringed by wooden sticks
-    const earthMound = new THREE.Mesh(new THREE.CylinderGeometry(0.46, 0.52, 0.08, 8), mudEarthMat);
-    earthMound.position.y = 0.04;
-    earthMound.receiveShadow = true;
-    group.add(earthMound);
+  // Helper: Builds a multi-layer stair-stepped voxel pitched gable roof with solid stepped gable walls
+  const addSteppedGableRoof = (
+    cx: number,
+    baseY: number,
+    cz: number,
+    spanW: number,
+    lengthD: number,
+    layers: number,
+    layerH: number,
+    roofMaterial: THREE.Material,
+    gableWallMat: THREE.Material,
+    ridgeAlongZ = true,
+  ) => {
+    for (let i = 0; i < layers; i++) {
+      const frac = 1 - (i / layers) * 0.78;
+      const curSpan = spanW * frac;
+      const y = baseY + i * layerH + layerH * 0.5;
 
-    for (let i = 0; i < 6; i++) {
-      const a = (i / 6) * Math.PI * 2;
-      const stake = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.14, 0.05), stickWoodMat);
-      stake.position.set(Math.cos(a) * 0.42, 0.07, Math.sin(a) * 0.42);
-      stake.rotation.z = (i % 2 === 0 ? 1 : -1) * 0.1;
-      group.add(stake);
+      const slabW = ridgeAlongZ ? curSpan : lengthD + 0.06;
+      const slabD = ridgeAlongZ ? lengthD + 0.06 : curSpan;
+      const roofSlab = new THREE.Mesh(new THREE.BoxGeometry(slabW, layerH, slabD), roofMaterial);
+      roofSlab.position.set(cx, y, cz);
+      roofSlab.castShadow = true;
+      roofSlab.receiveShadow = true;
+      group.add(roofSlab);
+
+      // Solid stepped gable wall infill underneath the eaves on both ends
+      if (i < layers - 1) {
+        const gableSpan = Math.max(0.08, curSpan - 0.08);
+        const gW = ridgeAlongZ ? gableSpan : lengthD * 0.92;
+        const gD = ridgeAlongZ ? lengthD * 0.92 : gableSpan;
+        const gableFill = new THREE.Mesh(new THREE.BoxGeometry(gW, layerH, gD), gableWallMat);
+        gableFill.position.set(cx, y - layerH * 0.15, cz);
+        group.add(gableFill);
+      }
     }
-  } else if (epochIndex === 1) {
-    // Bronze Age: Sun-baked ochre adobe mudbrick platform
-    const plinth = new THREE.Mesh(new THREE.BoxGeometry(0.84, 0.12, 0.84), adobeMat);
-    plinth.position.y = 0.06;
-    plinth.receiveShadow = true;
-    plinth.castShadow = true;
-    group.add(plinth);
-  } else if (epochIndex === 2) {
-    // Classical / Iron Age: Dressed limestone & cobblestone plinth
-    const plinth = new THREE.Mesh(new THREE.BoxGeometry(0.88, 0.14, 0.88), stoneMat);
-    plinth.position.y = 0.07;
-    plinth.receiveShadow = true;
-    plinth.castShadow = true;
-    group.add(plinth);
-  } else if (epochIndex === 3) {
-    // Industrial Steam Age: Dark masonry & iron plinth
-    const plinth = new THREE.Mesh(new THREE.BoxGeometry(0.88, 0.14, 0.88), darkStoneMat);
-    plinth.position.y = 0.07;
-    plinth.receiveShadow = true;
-    plinth.castShadow = true;
-    group.add(plinth);
-  } else if (epochIndex === 4) {
-    // Atomic Age: Modernist architectural concrete foundation pad
-    const plinth = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.14, 0.9), concreteMat);
-    plinth.position.y = 0.07;
-    plinth.receiveShadow = true;
-    plinth.castShadow = true;
-    group.add(plinth);
-  } else {
-    // Orbital & Interstellar Ages (epochIndex >= 5): Techno-modern sci-fi titanium deck with cyan neon circuit trim
-    const plinth = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.14, 0.92), darkTechMat);
-    plinth.position.y = 0.07;
-    plinth.receiveShadow = true;
-    plinth.castShadow = true;
-    group.add(plinth);
+  };
 
-    const neonTrim = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.035, 0.95), glowCyanMat);
-    neonTrim.position.y = 0.11;
-    group.add(neonTrim);
-  }
+  // Helper: Builds a complete stepped-voxel cottage / house (walls, stepped gable roof, door, windows, chimney)
+  const addVoxelCottage = (opts: {
+    cx?: number;
+    cz?: number;
+    w: number;
+    h: number;
+    d: number;
+    wallMat: THREE.Material;
+    roofMat: THREE.Material;
+    chimneyMat?: THREE.Material;
+    chimneySide?: 'left' | 'right' | 'front_right' | 'none';
+    ridgeAlongZ?: boolean;
+    timberTrim?: boolean;
+  }) => {
+    const cx = opts.cx ?? 0;
+    const cz = opts.cz ?? 0;
+    const { w, h, d, wallMat, roofMat } = opts;
+    const ridgeAlongZ = opts.ridgeAlongZ ?? false;
+
+    // Subtle foundation trim fitted tightly to the house footprint (no oversized grey slab!)
+    const trimMat = epochIndex >= 5 ? darkTechMat : epochIndex >= 3 ? darkStoneMat : stoneMat;
+    const foundation = new THREE.Mesh(new THREE.BoxGeometry(w + 0.04, 0.05, d + 0.04), trimMat);
+    foundation.position.set(cx, 0.025, cz);
+    foundation.receiveShadow = true;
+    group.add(foundation);
+
+    // Main structural walls
+    const walls = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), wallMat);
+    walls.position.set(cx, 0.05 + h * 0.5, cz);
+    walls.castShadow = true;
+    walls.receiveShadow = true;
+    group.add(walls);
+
+    // Optional dark timber corner posts & wall beams (like the red-roofed & blue-roofed houses in reference)
+    if (opts.timberTrim) {
+      const postCorners = [
+        [-w * 0.5, -d * 0.5],
+        [w * 0.5, -d * 0.5],
+        [-w * 0.5, d * 0.5],
+        [w * 0.5, d * 0.5],
+      ];
+      for (const [px, pz] of postCorners) {
+        const post = new THREE.Mesh(new THREE.BoxGeometry(0.055, h + 0.02, 0.055), stickWoodMat);
+        post.position.set(cx + px, 0.05 + h * 0.5, cz + pz);
+        group.add(post);
+      }
+    }
+
+    // Recessed dark doorway & windows
+    const door = new THREE.Mesh(
+      new THREE.BoxGeometry(0.11, 0.19, 0.03),
+      epochIndex >= 5 ? glowCyanMat : doorDarkMat,
+    );
+    door.position.set(cx - w * 0.12, 0.145, cz + d * 0.5 + 0.008);
+    group.add(door);
+
+    const winFront = new THREE.Mesh(
+      new THREE.BoxGeometry(0.09, 0.09, 0.03),
+      epochIndex >= 5 ? glowCyanMat : doorDarkMat,
+    );
+    winFront.position.set(cx + w * 0.2, 0.22, cz + d * 0.5 + 0.008);
+    group.add(winFront);
+
+    const winSide = new THREE.Mesh(
+      new THREE.BoxGeometry(0.03, 0.09, 0.09),
+      epochIndex >= 5 ? glowCyanMat : doorDarkMat,
+    );
+    winSide.position.set(cx + w * 0.5 + 0.008, 0.22, cz);
+    group.add(winSide);
+
+    // 5-layer stair-stepped pitched voxel roof
+    const eaveW = ridgeAlongZ ? w + 0.12 : w + 0.08;
+    const eaveD = ridgeAlongZ ? d + 0.08 : d + 0.12;
+    addSteppedGableRoof(
+      cx,
+      0.05 + h,
+      cz,
+      ridgeAlongZ ? eaveW : eaveD,
+      ridgeAlongZ ? eaveD : eaveW,
+      5,
+      0.062,
+      roofMat,
+      wallMat,
+      ridgeAlongZ,
+    );
+
+    // Stepped voxel side chimney (white plaster or stone chimney rising beside the roof slope)
+    if (opts.chimneySide && opts.chimneySide !== 'none') {
+      const cMat = opts.chimneyMat ?? whitePlasterMat;
+      const chH = h + 0.34;
+      const chX =
+        opts.chimneySide === 'left'
+          ? cx - w * 0.34
+          : opts.chimneySide === 'right'
+            ? cx + w * 0.34
+            : cx + w * 0.22;
+      const chZ =
+        opts.chimneySide === 'front_right' ? cz + d * 0.46 : cz - d * 0.12;
+      const chimney = new THREE.Mesh(new THREE.BoxGeometry(0.11, chH, 0.11), cMat);
+      chimney.position.set(chX, 0.05 + chH * 0.5, chZ);
+      chimney.castShadow = true;
+      group.add(chimney);
+
+      const flue = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.04, 0.13), darkStoneMat);
+      flue.position.set(chX, 0.05 + chH + 0.02, chZ);
+      group.add(flue);
+    }
+  };
 
   switch (type) {
-    case 'bonfire': {
-      if (epochIndex === 0) {
+    case 'bonfire':
+    case 'ziggurat': {
+      if (type === 'bonfire' && epochIndex === 0) {
         // Prehistoric Hearth: Primitive wooden stick tripod, crossed logs, and campfire ring on packed dirt
+        const earthMound = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.46, 0.06, 8), mudEarthMat);
+        earthMound.position.y = 0.03;
+        group.add(earthMound);
+
         for (let i = 0; i < 3; i++) {
           const a = (i / 3) * Math.PI * 2 + 0.3;
           const pole = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.56, 0.05), stickWoodMat);
@@ -1003,357 +1130,539 @@ export function createBuildingGroup(type: BuildingType, epochIndex: number): THR
           group.add(pole);
         }
         const logs1 = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.08, 0.1), stickWoodMat);
-        logs1.position.y = 0.11;
+        logs1.position.y = 0.09;
         logs1.rotation.y = 0.4;
         group.add(logs1);
         const logs2 = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.08, 0.1), woodMat);
-        logs2.position.y = 0.13;
+        logs2.position.y = 0.11;
         logs2.rotation.y = -0.7;
         group.add(logs2);
 
         const flameOuter = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.3, 0.2), flameMat);
-        flameOuter.position.y = 0.28;
+        flameOuter.position.y = 0.26;
         flameOuter.name = 'flicker_flame';
         group.add(flameOuter);
 
         const flameCore = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.2, 0.1), goldMat);
-        flameCore.position.y = 0.42;
+        flameCore.position.y = 0.4;
         group.add(flameCore);
-      } else if (epochIndex >= 5) {
-        // Orbital / Interstellar Techno-Modern Nexus Core: White titanium pylons + levitating cyan plasma ring
-        const coreDeck = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.4, 0.14, 8), techMat);
-        coreDeck.position.y = 0.2;
-        group.add(coreDeck);
-
-        const corners = [
-          [-0.28, -0.28],
-          [0.28, -0.28],
-          [-0.28, 0.28],
-          [0.28, 0.28],
-        ];
-        for (const [cx, cz] of corners) {
-          const pylon = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.68, 0.1), techMat);
-          pylon.position.set(cx, 0.46, cz);
-          pylon.castShadow = true;
-          group.add(pylon);
-
-          const strip = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.48, 0.04), glowCyanMat);
-          strip.position.set(cx, 0.48, cz);
-          group.add(strip);
-        }
-
-        const holoRing = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.035, 6, 12), glowCyanMat);
-        holoRing.position.y = 0.64;
-        holoRing.rotation.x = Math.PI / 2;
-        holoRing.name = 'spin_part';
-        group.add(holoRing);
-
-        const plasmaCore = new THREE.Mesh(new THREE.OctahedronGeometry(0.15, 0), glowCyanMat);
-        plasmaCore.position.y = 0.56;
-        plasmaCore.name = 'flicker_flame';
-        group.add(plasmaCore);
-      } else {
-        // Bronze (1), Classical (2), Industrial (3), Atomic (4) Civic Hearth progression
-        const tierMat =
-          epochIndex === 1
-            ? adobeMat
-            : epochIndex === 2
-              ? stoneMat
-              : epochIndex === 3
-                ? brickMat
-                : concreteMat;
-        const pillarMat =
-          epochIndex === 1
-            ? woodMat
-            : epochIndex === 2
-              ? stoneMat
-              : epochIndex === 3
-                ? darkStoneMat
-                : concreteMat;
-
-        const step2 = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.12, 0.7), tierMat);
-        step2.position.y = 0.2;
+      } else if (type === 'bonfire' && epochIndex === 1) {
+        // Early Bronze Village Hearth: Stepped stone/adobe hearth with 4 corner fire braziers
+        const step1 = new THREE.Mesh(new THREE.BoxGeometry(0.76, 0.1, 0.76), darkStoneMat);
+        step1.position.y = 0.05;
+        group.add(step1);
+        const step2 = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.12, 0.56), adobeMat);
+        step2.position.y = 0.16;
         group.add(step2);
 
         const corners = [
-          [-0.28, -0.28],
-          [0.28, -0.28],
-          [-0.28, 0.28],
-          [0.28, 0.28],
+          [-0.26, -0.26],
+          [0.26, -0.26],
+          [-0.26, 0.26],
+          [0.26, 0.26],
         ];
         for (const [cx, cz] of corners) {
-          const pillar = new THREE.Mesh(
-            new THREE.BoxGeometry(0.11, 0.44 + epochIndex * 0.05, 0.11),
-            pillarMat,
-          );
-          pillar.position.set(cx, 0.44, cz);
+          const pillar = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.36, 0.11), marbleWhiteMat);
+          pillar.position.set(cx, 0.28, cz);
           pillar.castShadow = true;
           group.add(pillar);
         }
 
-        const logs = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.1, 0.26), woodMat);
-        logs.position.y = 0.3;
-        group.add(logs);
-
-        const flameOuter = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.32, 0.2), flameMat);
-        flameOuter.position.y = 0.46;
+        const flameOuter = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.3, 0.18), flameMat);
+        flameOuter.position.y = 0.34;
         flameOuter.name = 'flicker_flame';
         group.add(flameOuter);
+      } else {
+        // Grand Twin-Spired Stepped Monument (matches centerpiece of reference image, evolving to Sci-Fi in Epoch 5+)
+        const isSciFi = epochIndex >= 5;
+        const baseStepMat = isSciFi ? darkTechMat : darkStoneMat;
+        const spireMat = isSciFi ? techMat : marbleWhiteMat;
+        const brazierFireMat = isSciFi ? glowCyanMat : flameMat;
 
-        const flameCore = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.22, 0.1), goldMat);
-        flameCore.position.y = 0.62;
-        group.add(flameCore);
+        // 3-tier dark charcoal stepped stone base platform
+        const tier1 = new THREE.Mesh(new THREE.BoxGeometry(0.96, 0.11, 0.96), baseStepMat);
+        tier1.position.y = 0.055;
+        tier1.receiveShadow = true;
+        tier1.castShadow = true;
+        group.add(tier1);
+
+        const tier2 = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.11, 0.78), baseStepMat);
+        tier2.position.y = 0.165;
+        tier2.receiveShadow = true;
+        tier2.castShadow = true;
+        group.add(tier2);
+
+        const tier3 = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.1, 0.6), baseStepMat);
+        tier3.position.y = 0.27;
+        tier3.castShadow = true;
+        group.add(tier3);
+
+        // 4 corner stepped brazier pedestals with glowing golden flames (or cyan plasma in Orbital age)
+        const brazierCorners = [
+          [-0.36, -0.36],
+          [0.36, -0.36],
+          [-0.36, 0.36],
+          [0.36, 0.36],
+        ];
+        for (const [bx, bz] of brazierCorners) {
+          const ped = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.14, 0.16), baseStepMat);
+          ped.position.set(bx, 0.18, bz);
+          ped.castShadow = true;
+          group.add(ped);
+
+          const bowl = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.05, 0.12), spireMat);
+          bowl.position.set(bx, 0.265, bz);
+          group.add(bowl);
+
+          const fire = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.14, 0.08), brazierFireMat);
+          fire.position.set(bx, 0.36, bz);
+          fire.name = 'flicker_flame';
+          group.add(fire);
+        }
+
+        // Twin Towering Stepped White Marble / Titanium Spires rising on Left (-X) & Right (+X)
+        const spireSides = [-0.18, 0.18];
+        for (const sx of spireSides) {
+          // Outer buttress step
+          const buttress = new THREE.Mesh(
+            new THREE.BoxGeometry(0.14, 0.28, 0.34),
+            spireMat,
+          );
+          buttress.position.set(sx + Math.sign(sx) * 0.08, 0.36, 0);
+          buttress.castShadow = true;
+          group.add(buttress);
+
+          // 6 tapering vertical voxel segments forming the tall stepped spire
+          const segWidths = [0.22, 0.2, 0.18, 0.15, 0.12, 0.09];
+          const segDepths = [0.3, 0.26, 0.22, 0.18, 0.14, 0.1];
+          let curY = 0.32;
+          for (let s = 0; s < segWidths.length; s++) {
+            const segH = 0.18;
+            const seg = new THREE.Mesh(
+              new THREE.BoxGeometry(segWidths[s], segH, segDepths[s]),
+              spireMat,
+            );
+            // Taper slightly inward toward the inner canyon
+            const shiftX = sx - Math.sign(sx) * (s * 0.008);
+            seg.position.set(shiftX, curY + segH * 0.5, 0);
+            seg.castShadow = true;
+            seg.receiveShadow = true;
+            group.add(seg);
+            curY += segH;
+          }
+
+          if (isSciFi) {
+            const neonStrip = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.92, 0.05), glowCyanMat);
+            neonStrip.position.set(sx, 0.82, 0.12);
+            group.add(neonStrip);
+          }
+        }
+
+        // Central sacred flame / plasma core between the twin spires
+        const centerFlame = new THREE.Mesh(
+          new THREE.BoxGeometry(0.1, 0.22, 0.1),
+          brazierFireMat,
+        );
+        centerFlame.position.set(0, 0.44, 0);
+        centerFlame.name = 'flicker_flame';
+        group.add(centerFlame);
+
+        if (isSciFi) {
+          const haloRing = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.03, 6, 12), glowCyanMat);
+          haloRing.position.y = 1.15;
+          haloRing.rotation.x = Math.PI / 2;
+          haloRing.name = 'spin_part';
+          group.add(haloRing);
+        }
       }
       break;
     }
 
     case 'forager_hut': {
       if (epochIndex === 0) {
-        // Prehistoric Age: Primitive mud-and-stick conical thatch hut with crossed wooden ridge poles
-        const mudWall = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.36, 0.24, 7), mudEarthMat);
-        mudWall.position.y = 0.18;
-        mudWall.castShadow = true;
-        group.add(mudWall);
+        // Prehistoric Age: 4 randomized variants of primitive stick & stepped-thatch huts
+        const earthPad = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.44, 0.05, 8), mudEarthMat);
+        earthPad.position.y = 0.025;
+        group.add(earthPad);
 
-        const thatchCone = new THREE.Mesh(new THREE.ConeGeometry(0.44, 0.48, 7), thatchMat);
-        thatchCone.position.y = 0.5;
-        thatchCone.castShadow = true;
-        group.add(thatchCone);
-
-        // Crossed wooden sticks protruding from the peak + stick drying rack outside
-        for (let i = 0; i < 3; i++) {
-          const a = (i / 3) * Math.PI * 2;
-          const stick = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.68, 0.04), stickWoodMat);
-          stick.position.set(Math.cos(a) * 0.12, 0.46, Math.sin(a) * 0.12);
-          stick.rotation.z = -Math.cos(a) * 0.42;
-          stick.rotation.x = Math.sin(a) * 0.42;
-          group.add(stick);
+        if (variant % 2 === 0) {
+          // Stepped primitive thatch A-frame hut with crossed ridge poles
+          addSteppedGableRoof(0, 0.05, 0, 0.62, 0.58, 5, 0.075, thatchMat, mudEarthMat, variant === 0);
+          const door = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.18, 0.04), doorDarkMat);
+          door.position.set(0, 0.14, 0.3);
+          group.add(door);
+        } else {
+          // Wattle-and-daub round mud wall + stepped thatch cone
+          const mudWall = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.34, 0.22, 8), mudEarthMat);
+          mudWall.position.y = 0.15;
+          mudWall.castShadow = true;
+          group.add(mudWall);
+          for (let s = 0; s < 4; s++) {
+            const r = 0.38 - s * 0.08;
+            const tier = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.75, r, 0.09, 8), thatchMat);
+            tier.position.y = 0.28 + s * 0.085;
+            tier.castShadow = true;
+            group.add(tier);
+          }
         }
 
-        const rackPostL = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.24, 0.04), stickWoodMat);
-        rackPostL.position.set(0.28, 0.18, 0.28);
-        group.add(rackPostL);
-        const rackPostR = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.24, 0.04), stickWoodMat);
-        rackPostR.position.set(0.1, 0.18, 0.34);
-        group.add(rackPostR);
-        const rackBar = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.04, 0.04), woodMat);
-        rackBar.position.set(0.19, 0.28, 0.31);
-        rackBar.rotation.y = -0.3;
+        // Stick drying rack outside
+        const rackL = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.22, 0.035), stickWoodMat);
+        rackL.position.set(0.28, 0.14, 0.26);
+        group.add(rackL);
+        const rackR = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.22, 0.035), stickWoodMat);
+        rackR.position.set(0.12, 0.14, 0.32);
+        group.add(rackR);
+        const rackBar = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.035, 0.035), woodMat);
+        rackBar.position.set(0.2, 0.23, 0.29);
+        rackBar.rotation.y = -0.35;
         group.add(rackBar);
-      } else if (epochIndex === 1) {
-        // Bronze Age: Sun-baked ochre adobe mudbrick dwelling with timber beams & straw thatch canopy
-        const adobeWalls = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.38, 0.58), adobeMat);
-        adobeWalls.position.y = 0.31;
-        adobeWalls.castShadow = true;
-        group.add(adobeWalls);
-
-        const thatchRoof = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.1, 0.64), thatchMat);
-        thatchRoof.position.y = 0.54;
-        thatchRoof.castShadow = true;
-        group.add(thatchRoof);
-
-        const canopy = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.06, 0.22), thatchMat);
-        canopy.position.set(0, 0.38, 0.36);
-        group.add(canopy);
-
-        const amphora = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 0.18, 6), redRoofMat);
-        amphora.position.set(0.24, 0.21, 0.32);
-        group.add(amphora);
-      } else if (epochIndex >= 5) {
-        // Orbital & Interstellar Sci-Fi: Techno-modern Hydroponic Bio-Dome Habitat Pod
-        const podBase = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.34, 0.64), techMat);
-        podBase.position.y = 0.31;
-        podBase.castShadow = true;
-        group.add(podBase);
-
+      } else if (epochIndex <= 2) {
+        // Bronze & Classical Village Cottages (directly matching the 4 cottage styles in reference image!)
+        if (variant === 0) {
+          // V0: Classic Whitewashed Cottage with 5-Layer Stepped Golden Straw Roof & Left White Chimney
+          addVoxelCottage({
+            w: 0.58,
+            h: 0.3,
+            d: 0.48,
+            wallMat: whitePlasterMat,
+            roofMat: goldenRoofMat,
+            chimneyMat: whitePlasterMat,
+            chimneySide: 'left',
+            ridgeAlongZ: false,
+          });
+        } else if (variant === 1) {
+          // V1: Elongated Whitewashed Village Longhouse with Stepped Golden Roof & Right White Chimney
+          addVoxelCottage({
+            w: 0.68,
+            h: 0.29,
+            d: 0.46,
+            wallMat: whitePlasterMat,
+            roofMat: goldenRoofMat,
+            chimneyMat: whitePlasterMat,
+            chimneySide: 'right',
+            ridgeAlongZ: false,
+          });
+        } else if (variant === 2) {
+          // V2: Cozy L-Wing Whitewashed Cottage with Stepped Golden Roof & Side Extension
+          addVoxelCottage({
+            cx: -0.05,
+            cz: -0.04,
+            w: 0.54,
+            h: 0.3,
+            d: 0.46,
+            wallMat: whitePlasterMat,
+            roofMat: goldenRoofMat,
+            chimneyMat: whitePlasterMat,
+            chimneySide: 'left',
+            ridgeAlongZ: false,
+          });
+          // Small side porch wing
+          addSteppedGableRoof(0.2, 0.24, 0.14, 0.34, 0.32, 3, 0.05, goldenRoofMat, whitePlasterMat, true);
+          const wingWall = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.2, 0.28), whitePlasterMat);
+          wingWall.position.set(0.2, 0.14, 0.14);
+          wingWall.castShadow = true;
+          group.add(wingWall);
+        } else {
+          // V3: Crimson-Stepped-Roof Timber-Framed Lodge (matches top-center red-roofed building in reference image!)
+          addVoxelCottage({
+            w: 0.62,
+            h: 0.32,
+            d: 0.48,
+            wallMat: tanPlasterMat,
+            roofMat: redRoofMat,
+            chimneyMat: stoneMat,
+            chimneySide: 'right',
+            ridgeAlongZ: false,
+            timberTrim: true,
+          });
+        }
+      } else if (epochIndex === 3) {
+        // Industrial Age: Red-brick & dark-slate stepped-roof Victorian townhouses
+        addVoxelCottage({
+          w: variant % 2 === 0 ? 0.6 : 0.66,
+          h: 0.36,
+          d: 0.5,
+          wallMat: variant === 3 ? stoneMat : brickMat,
+          roofMat: darkStoneMat,
+          chimneyMat: brickMat,
+          chimneySide: variant % 2 === 0 ? 'left' : 'right',
+          ridgeAlongZ: false,
+          timberTrim: true,
+        });
+      } else if (epochIndex === 4) {
+        // Atomic Age: Stepped mid-century architectural concrete & glass residence
+        addVoxelCottage({
+          w: 0.64,
+          h: 0.36,
+          d: 0.52,
+          wallMat: concreteMat,
+          roofMat: darkStoneMat,
+          chimneyMat: concreteMat,
+          chimneySide: 'right',
+          ridgeAlongZ: false,
+        });
+      } else {
+        // Orbital & Interstellar Sci-Fi: Techno-modern White-Titanium Stepped Arcology Pod + Cyan Bio-Dome
+        addVoxelCottage({
+          w: 0.64,
+          h: 0.32,
+          d: 0.52,
+          wallMat: techMat,
+          roofMat: darkTechMat,
+          chimneyMat: glowCyanMat,
+          chimneySide: 'none',
+          ridgeAlongZ: false,
+        });
         const bioDome = new THREE.Mesh(
-          new THREE.SphereGeometry(0.32, 10, 8, 0, Math.PI * 2, 0, Math.PI / 2),
+          new THREE.SphereGeometry(0.2, 10, 8, 0, Math.PI * 2, 0, Math.PI / 2),
           glowCyanMat,
         );
-        bioDome.position.y = 0.48;
+        bioDome.position.set(0.18, 0.58, 0);
         group.add(bioDome);
-
-        const solarRing = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.05, 0.14), darkTechMat);
-        solarRing.position.set(0, 0.86, 0);
-        solarRing.name = 'spin_part';
-        group.add(solarRing);
-
-        const neonVisor = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.08, 0.04), glowCyanMat);
-        neonVisor.position.set(0, 0.34, 0.33);
-        group.add(neonVisor);
-      } else {
-        // Classical (2), Industrial (3), Atomic (4) Lodge progression
-        const wallMat =
-          epochIndex === 2 ? woodMat : epochIndex === 3 ? brickMat : concreteMat;
-        const roofMaterial =
-          epochIndex === 2 ? redRoofMat : epochIndex === 3 ? darkStoneMat : concreteMat;
-
-        const walls = new THREE.Mesh(new THREE.BoxGeometry(0.66, 0.42, 0.62), wallMat);
-        walls.position.y = 0.35;
-        walls.castShadow = true;
-        group.add(walls);
-
-        const roof1 = new THREE.Mesh(new THREE.BoxGeometry(0.76, 0.16, 0.72), roofMaterial);
-        roof1.position.y = 0.62;
-        roof1.castShadow = true;
-        group.add(roof1);
-
-        if (epochIndex <= 3) {
-          const roof2 = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.14, 0.52), roofMaterial);
-          roof2.position.y = 0.76;
-          group.add(roof2);
-        }
-
-        const awning = new THREE.Mesh(
-          new THREE.BoxGeometry(0.46, 0.08, 0.24),
-          epochIndex === 4 ? techMat : greenAwningMat,
-        );
-        awning.position.set(0, 0.42, 0.36);
-        group.add(awning);
-
-        const barrel = new THREE.Mesh(
-          new THREE.BoxGeometry(0.14, 0.18, 0.14),
-          epochIndex === 4 ? darkStoneMat : woodMat,
-        );
-        barrel.position.set(0.26, 0.23, 0.34);
-        group.add(barrel);
       }
       break;
     }
 
     case 'shaman_totem': {
       if (epochIndex === 0) {
-        // Prehistoric Age: Hand-carved wooden totem pole & stick fetishes on packed earth
-        const earthBase = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.3, 0.14, 6), mudEarthMat);
-        earthBase.position.y = 0.14;
+        // Prehistoric Age: Hand-carved wooden totem pole & stick torches on packed earth
+        const earthBase = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.3, 0.1, 6), mudEarthMat);
+        earthBase.position.y = 0.05;
         group.add(earthBase);
 
-        const totemPole = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.68, 0.18), stickWoodMat);
-        totemPole.position.y = 0.52;
+        const totemPole = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.64, 0.16), stickWoodMat);
+        totemPole.position.y = 0.37;
         totemPole.castShadow = true;
         group.add(totemPole);
 
-        const woodenWings = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.1, 0.08), thatchMat);
-        woodenWings.position.y = 0.68;
+        const woodenWings = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.09, 0.08), thatchMat);
+        woodenWings.position.y = 0.54;
         group.add(woodenWings);
 
-        const maskCrest = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.14, 0.22), redRoofMat);
-        maskCrest.position.y = 0.84;
+        const maskCrest = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.14, 0.2), redRoofMat);
+        maskCrest.position.y = 0.68;
         group.add(maskCrest);
-
-        const torchL = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.22, 0.06), stickWoodMat);
-        torchL.position.set(-0.22, 0.2, 0.2);
-        group.add(torchL);
-        const flameL = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.12, 0.08), flameMat);
-        flameL.position.set(-0.22, 0.34, 0.2);
-        group.add(flameL);
-
-        const torchR = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.22, 0.06), stickWoodMat);
-        torchR.position.set(0.22, 0.2, 0.2);
-        group.add(torchR);
-        const flameR = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.12, 0.08), flameMat);
-        flameR.position.set(0.22, 0.34, 0.2);
-        group.add(flameR);
-      } else if (epochIndex >= 5) {
-        // Orbital & Interstellar Sci-Fi: Psionic Holo-Sanctum Spire
-        const altar = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.24, 0.58), darkTechMat);
-        altar.position.y = 0.26;
-        group.add(altar);
-
-        const spire = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.78, 0.2), techMat);
-        spire.position.y = 0.74;
-        spire.castShadow = true;
-        group.add(spire);
-
-        const holoWings = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.1, 0.12), glowCyanMat);
-        holoWings.position.y = 0.92;
-        holoWings.name = 'spin_part';
-        group.add(holoWings);
-
-        const beaconL = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.18, 0.08), glowCyanMat);
-        beaconL.position.set(-0.2, 0.44, 0.2);
-        group.add(beaconL);
-        const beaconR = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.18, 0.08), glowCyanMat);
-        beaconR.position.set(0.2, 0.44, 0.2);
-        group.add(beaconR);
       } else {
-        const altarMat =
-          epochIndex === 1 ? adobeMat : epochIndex === 4 ? concreteMat : darkStoneMat;
-        const shaftMat =
-          epochIndex === 1 ? adobeMat : epochIndex === 3 ? brickMat : epochIndex === 4 ? concreteMat : stoneMat;
+        // Open-Frame 4-Pillar Stone Shrine Monument (matches top-left & right grey stone shrine in reference image!)
+        const isSciFi = epochIndex >= 5;
+        const baseMat = isSciFi ? darkTechMat : stoneMat;
+        const pillarMat = isSciFi ? techMat : stoneMat;
+        const trimMat = isSciFi ? glowCyanMat : darkStoneMat;
 
-        const altar = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.24, 0.56), altarMat);
-        altar.position.y = 0.26;
-        group.add(altar);
+        // 2-tier stepped stone pedestal with protruding cardinal steps
+        const base1 = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.09, 0.68), baseMat);
+        base1.position.y = 0.045;
+        base1.receiveShadow = true;
+        base1.castShadow = true;
+        group.add(base1);
 
-        const totemShaft = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.65, 0.22), shaftMat);
-        totemShaft.position.y = 0.68;
-        totemShaft.castShadow = true;
-        group.add(totemShaft);
+        const stepNS = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.07, 0.78), baseMat);
+        stepNS.position.y = 0.035;
+        group.add(stepNS);
+        const stepEW = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.07, 0.32), baseMat);
+        stepEW.position.y = 0.035;
+        group.add(stepEW);
 
-        const wings = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.12, 0.14), goldMat);
-        wings.position.y = 0.82;
-        group.add(wings);
+        const base2 = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.08, 0.56), trimMat);
+        base2.position.y = 0.13;
+        group.add(base2);
 
-        const candleL = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.16, 0.08), flameMat);
-        candleL.position.set(-0.2, 0.44, 0.2);
-        group.add(candleL);
+        // 4 corner stone pillars
+        const pOffsets = [
+          [-0.21, -0.21],
+          [0.21, -0.21],
+          [-0.21, 0.21],
+          [0.21, 0.21],
+        ];
+        for (const [px, pz] of pOffsets) {
+          const pillar = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.32, 0.1), pillarMat);
+          pillar.position.set(px, 0.33, pz);
+          pillar.castShadow = true;
+          group.add(pillar);
+        }
 
-        const candleR = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.16, 0.08), flameMat);
-        candleR.position.set(0.2, 0.44, 0.2);
-        group.add(candleR);
+        // Open square stone top lintel frame (4 beams framing an open sky center)
+        const beamN = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.09, 0.11), pillarMat);
+        beamN.position.set(0, 0.53, -0.21);
+        beamN.castShadow = true;
+        group.add(beamN);
+
+        const beamS = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.09, 0.11), pillarMat);
+        beamS.position.set(0, 0.53, 0.21);
+        beamS.castShadow = true;
+        group.add(beamS);
+
+        const beamW = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.09, 0.56), pillarMat);
+        beamW.position.set(-0.21, 0.53, 0);
+        beamW.castShadow = true;
+        group.add(beamW);
+
+        const beamE = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.09, 0.56), pillarMat);
+        beamE.position.set(0.21, 0.53, 0);
+        beamE.castShadow = true;
+        group.add(beamE);
+
+        // Central sacred relic / crystal inside the open stone frame
+        const relic = new THREE.Mesh(
+          new THREE.BoxGeometry(0.14, 0.16, 0.14),
+          isSciFi ? glowCyanMat : epochIndex >= 2 ? goldMat : stoneMat,
+        );
+        relic.position.y = 0.25;
+        if (isSciFi) relic.name = 'spin_part';
+        group.add(relic);
       }
       break;
     }
 
     case 'granary': {
-      if (epochIndex >= 5) {
-        // Orbital & Interstellar Sci-Fi: Automated Cryo-Synthesizer & Nutrient Silo
-        const body = new THREE.Mesh(new THREE.BoxGeometry(0.74, 0.48, 0.7), techMat);
-        body.position.y = 0.38;
-        body.castShadow = true;
-        group.add(body);
+      if (epochIndex <= 2) {
+        // Open-Colonnade Timber Market Pavilion (matches the brown slatted-roof market pavilion in reference image!)
+        const floorPad = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.07, 0.58), tanPlasterMat);
+        floorPad.position.y = 0.035;
+        floorPad.receiveShadow = true;
+        group.add(floorPad);
 
-        const cryoSilo = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.74, 10), darkTechMat);
-        cryoSilo.position.set(-0.22, 0.5, -0.18);
-        cryoSilo.castShadow = true;
-        group.add(cryoSilo);
+        // 6 wooden support columns around the open market stall
+        const colCoords = [
+          [-0.27, -0.22],
+          [0, -0.22],
+          [0.27, -0.22],
+          [-0.27, 0.22],
+          [0, 0.22],
+          [0.27, 0.22],
+        ];
+        for (const [cx, cz] of colCoords) {
+          const col = new THREE.Mesh(new THREE.BoxGeometry(0.065, 0.34, 0.065), tanPlasterMat);
+          col.position.set(cx, 0.24, cz);
+          col.castShadow = true;
+          group.add(col);
+        }
 
-        const siloGlowRing = new THREE.Mesh(new THREE.CylinderGeometry(0.21, 0.21, 0.12, 10), glowCyanMat);
-        siloGlowRing.position.set(-0.22, 0.64, -0.18);
-        group.add(siloGlowRing);
+        // Colorful market grain sacks & amphorae inside the pavilion (blue, gold, crimson)
+        const sackBlue = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.14, 0.14), blueRoofMat);
+        sackBlue.position.set(-0.12, 0.14, 0.05);
+        group.add(sackBlue);
 
-        const holoCanopy = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.06, 0.26), glowCyanMat);
-        holoCanopy.position.set(0.08, 0.48, 0.38);
-        group.add(holoCanopy);
-      } else {
-        const bodyMat =
-          epochIndex <= 1 ? adobeMat : epochIndex === 2 ? stoneMat : epochIndex === 3 ? brickMat : concreteMat;
-        const siloMat = epochIndex <= 1 ? thatchMat : epochIndex >= 4 ? concreteMat : woodMat;
+        const sackGold = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.15, 0.13), goldenRoofMat);
+        sackGold.position.set(0.12, 0.145, -0.04);
+        group.add(sackGold);
 
-        const body = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.46, 0.68), bodyMat);
-        body.position.y = 0.37;
-        body.castShadow = true;
-        group.add(body);
+        const sackRed = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.12), redRoofMat);
+        sackRed.position.set(0.14, 0.13, 0.12);
+        group.add(sackRed);
 
-        const silo = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.64, 8), siloMat);
-        silo.position.set(-0.22, 0.46, -0.18);
+        // Brown timber eaves & slatted pergola roof tiers
+        const roofBase = new THREE.Mesh(new THREE.BoxGeometry(0.74, 0.07, 0.64), woodMat);
+        roofBase.position.y = 0.44;
+        roofBase.castShadow = true;
+        group.add(roofBase);
+
+        for (let r = -2; r <= 2; r++) {
+          const rafter = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.06, 0.07), stickWoodMat);
+          rafter.position.set(0, 0.5, r * 0.12);
+          rafter.castShadow = true;
+          group.add(rafter);
+        }
+
+        const ridgeBeam = new THREE.Mesh(new THREE.BoxGeometry(0.64, 0.07, 0.38), woodMat);
+        ridgeBeam.position.y = 0.55;
+        group.add(ridgeBeam);
+      } else if (epochIndex <= 4) {
+        // Industrial / Atomic Granary & Logistics Storehouse
+        addVoxelCottage({
+          w: 0.66,
+          h: 0.36,
+          d: 0.54,
+          wallMat: epochIndex === 3 ? brickMat : concreteMat,
+          roofMat: epochIndex === 3 ? redRoofMat : darkStoneMat,
+          chimneySide: 'none',
+          timberTrim: epochIndex === 3,
+        });
+        const silo = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.15, 0.15, 0.62, 8),
+          epochIndex === 3 ? woodMat : concreteMat,
+        );
+        silo.position.set(-0.26, 0.34, -0.18);
         silo.castShadow = true;
         group.add(silo);
+      } else {
+        // Orbital & Interstellar Sci-Fi: Automated Cryo-Synthesizer Pavilion
+        addVoxelCottage({
+          w: 0.68,
+          h: 0.34,
+          d: 0.54,
+          wallMat: techMat,
+          roofMat: darkTechMat,
+          chimneySide: 'none',
+        });
+        const cryoSilo = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.68, 10), glowCyanMat);
+        cryoSilo.position.set(-0.24, 0.38, -0.18);
+        group.add(cryoSilo);
+      }
+      break;
+    }
 
-        const siloCap = new THREE.Mesh(
-          new THREE.ConeGeometry(0.22, 0.2, 8),
-          epochIndex <= 1 ? thatchMat : goldMat,
-        );
-        siloCap.position.set(-0.22, 0.88, -0.18);
-        group.add(siloCap);
+    case 'guildhall': {
+      if (epochIndex <= 2) {
+        // Half-Timbered Blue-Stepped-Roof Guildhall with Tall Front Chimney & Greenery Porch (matches bottom-right of reference image!)
+        addVoxelCottage({
+          w: 0.66,
+          h: 0.33,
+          d: 0.52,
+          wallMat: tanPlasterMat,
+          roofMat: blueRoofMat,
+          chimneyMat: tanPlasterMat,
+          chimneySide: 'front_right',
+          ridgeAlongZ: false,
+          timberTrim: true,
+        });
 
-        const awning = new THREE.Mesh(
-          new THREE.BoxGeometry(0.52, 0.08, 0.26),
-          epochIndex <= 1 ? thatchMat : greenAwningMat,
-        );
-        awning.position.set(0.08, 0.46, 0.38);
-        group.add(awning);
+        // Timber front porch overhang & lush green garden boxes
+        const porchRoof = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.05, 0.18), woodMat);
+        porchRoof.position.set(-0.1, 0.28, 0.33);
+        porchRoof.castShadow = true;
+        group.add(porchRoof);
+
+        const planter = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.12, 0.12), greenAwningMat);
+        planter.position.set(-0.12, 0.11, 0.32);
+        group.add(planter);
+      } else if (epochIndex <= 4) {
+        addVoxelCottage({
+          w: 0.7,
+          h: 0.42,
+          d: 0.56,
+          wallMat: epochIndex === 3 ? brickMat : concreteMat,
+          roofMat: blueRoofMat,
+          chimneyMat: epochIndex === 3 ? brickMat : concreteMat,
+          chimneySide: 'front_right',
+          ridgeAlongZ: false,
+          timberTrim: epochIndex === 3,
+        });
+      } else {
+        // Orbital & Interstellar Sci-Fi: High-Rise Techno-Modern Civic Spire
+        const base = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.32, 0.64), darkTechMat);
+        base.position.y = 0.16;
+        base.castShadow = true;
+        group.add(base);
+
+        const tower = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.68, 0.48), techMat);
+        tower.position.y = 0.66;
+        tower.castShadow = true;
+        group.add(tower);
+
+        const neonBand1 = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.05, 0.52), glowCyanMat);
+        neonBand1.position.y = 0.54;
+        group.add(neonBand1);
+
+        const neonBand2 = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.05, 0.52), glowCyanMat);
+        neonBand2.position.y = 0.82;
+        group.add(neonBand2);
+
+        const crownRing = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.07, 0.38), glowCyanMat);
+        crownRing.position.y = 1.08;
+        crownRing.name = 'spin_part';
+        group.add(crownRing);
       }
       break;
     }
@@ -1361,163 +1670,45 @@ export function createBuildingGroup(type: BuildingType, epochIndex: number): THR
     case 'smeltery': {
       if (epochIndex >= 5) {
         // Orbital & Interstellar Sci-Fi: Matter Nano-Fabricator & Plasma Forge
-        const hall = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.44, 0.68), darkTechMat);
-        hall.position.y = 0.36;
-        hall.castShadow = true;
-        group.add(hall);
-
-        const plasmaColumn = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.16, 0.84, 8), techMat);
-        plasmaColumn.position.set(-0.16, 0.56, -0.14);
-        group.add(plasmaColumn);
-
-        const plasmaVat = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.18, 0.26), glowCyanMat);
-        plasmaVat.position.set(0.18, 0.26, 0.18);
+        addVoxelCottage({
+          w: 0.64,
+          h: 0.34,
+          d: 0.52,
+          wallMat: darkTechMat,
+          roofMat: techMat,
+          chimneySide: 'none',
+        });
+        const plasmaVat = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.16, 0.24), glowCyanMat);
+        plasmaVat.position.set(0.2, 0.14, 0.26);
         group.add(plasmaVat);
 
-        const laserRing = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.08, 0.38), glowCyanMat);
-        laserRing.position.set(-0.16, 0.86, -0.14);
+        const laserRing = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.07, 0.34), glowCyanMat);
+        laserRing.position.set(-0.16, 0.78, -0.12);
         laserRing.name = 'spin_part';
         group.add(laserRing);
       } else {
-        const hallMat =
-          epochIndex <= 1 ? adobeMat : epochIndex === 2 ? darkStoneMat : epochIndex === 3 ? brickMat : concreteMat;
-        const chimneyMat = epochIndex <= 1 ? adobeMat : epochIndex === 3 ? brickMat : stoneMat;
+        // Stepped-roof Blacksmith & Smeltery Forge with tall stone blast furnace chimney & glowing molten vat
+        addVoxelCottage({
+          w: 0.6,
+          h: 0.32,
+          d: 0.48,
+          wallMat: epochIndex <= 1 ? tanPlasterMat : epochIndex === 2 ? stoneMat : brickMat,
+          roofMat: epochIndex <= 1 ? woodMat : redRoofMat,
+          chimneyMat: darkStoneMat,
+          chimneySide: 'left',
+          ridgeAlongZ: false,
+          timberTrim: true,
+        });
 
-        const hall = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.4, 0.64), hallMat);
-        hall.position.y = 0.34;
-        hall.castShadow = true;
-        group.add(hall);
+        const furnace = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.68, 0.22), darkStoneMat);
+        furnace.position.set(-0.2, 0.36, -0.14);
+        furnace.castShadow = true;
+        group.add(furnace);
 
-        const chimney = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.78, 0.24), chimneyMat);
-        chimney.position.set(-0.16, 0.53, -0.14);
-        chimney.castShadow = true;
-        group.add(chimney);
-
-        const vat = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.16, 0.24), flameMat);
-        vat.position.set(0.18, 0.24, 0.18);
-        group.add(vat);
-
-        const roof = new THREE.Mesh(
-          new THREE.BoxGeometry(0.44, 0.12, 0.58),
-          epochIndex <= 1 ? thatchMat : redRoofMat,
-        );
-        roof.position.set(0.12, 0.58, 0);
-        group.add(roof);
-      }
-      break;
-    }
-
-    case 'ziggurat': {
-      if (epochIndex >= 5) {
-        // Orbital & Interstellar Sci-Fi: Astral Pyramid Arcology with Levitating Cyan Ring
-        const tier1 = new THREE.Mesh(new THREE.BoxGeometry(0.86, 0.22, 0.86), darkTechMat);
-        tier1.position.y = 0.25;
-        tier1.castShadow = true;
-        group.add(tier1);
-
-        const tier2 = new THREE.Mesh(new THREE.BoxGeometry(0.66, 0.22, 0.66), techMat);
-        tier2.position.y = 0.47;
-        tier2.castShadow = true;
-        group.add(tier2);
-
-        const tier3 = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.22, 0.46), darkTechMat);
-        tier3.position.y = 0.69;
-        tier3.castShadow = true;
-        group.add(tier3);
-
-        const sanctum = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.24, 0.26), glowCyanMat);
-        sanctum.position.y = 0.92;
-        sanctum.name = 'spin_part';
-        group.add(sanctum);
-      } else {
-        const t1Mat = epochIndex <= 1 ? adobeMat : epochIndex === 4 ? concreteMat : darkStoneMat;
-        const t2Mat = epochIndex <= 1 ? adobeMat : epochIndex === 3 ? brickMat : stoneMat;
-
-        const tier1 = new THREE.Mesh(new THREE.BoxGeometry(0.86, 0.22, 0.86), t1Mat);
-        tier1.position.y = 0.25;
-        tier1.castShadow = true;
-        group.add(tier1);
-
-        const tier2 = new THREE.Mesh(new THREE.BoxGeometry(0.66, 0.22, 0.66), t2Mat);
-        tier2.position.y = 0.47;
-        tier2.castShadow = true;
-        group.add(tier2);
-
-        const tier3 = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.22, 0.46), t1Mat);
-        tier3.position.y = 0.69;
-        tier3.castShadow = true;
-        group.add(tier3);
-
-        const stairs = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.56, 0.32), t2Mat);
-        stairs.position.set(0, 0.38, 0.36);
-        stairs.rotation.x = -0.35;
-        group.add(stairs);
-
-        const sanctum = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.22, 0.24), goldMat);
-        sanctum.position.y = 0.9;
-        group.add(sanctum);
-
-        const brazier = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.2, 0.14), flameMat);
-        brazier.position.y = 1.08;
-        group.add(brazier);
-      }
-      break;
-    }
-
-    case 'guildhall': {
-      if (epochIndex >= 5) {
-        // Orbital & Interstellar Sci-Fi: High-Rise Techno-Modern Civic Spire
-        const base = new THREE.Mesh(new THREE.BoxGeometry(0.76, 0.36, 0.72), darkTechMat);
-        base.position.y = 0.32;
-        base.castShadow = true;
-        group.add(base);
-
-        const tower = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.68, 0.54), techMat);
-        tower.position.y = 0.82;
-        tower.castShadow = true;
-        group.add(tower);
-
-        const neonBand1 = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.06, 0.58), glowCyanMat);
-        neonBand1.position.y = 0.68;
-        group.add(neonBand1);
-
-        const neonBand2 = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.06, 0.58), glowCyanMat);
-        neonBand2.position.y = 0.96;
-        group.add(neonBand2);
-
-        const crownRing = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.08, 0.42), glowCyanMat);
-        crownRing.position.y = 1.24;
-        crownRing.name = 'spin_part';
-        group.add(crownRing);
-      } else {
-        const lowerMat = epochIndex === 3 ? brickMat : epochIndex === 4 ? concreteMat : stoneMat;
-        const upperMat = epochIndex === 3 ? brickMat : epochIndex === 4 ? concreteMat : woodMat;
-        const roofMat = epochIndex === 4 ? darkStoneMat : blueRoofMat;
-
-        const stoneBase = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.32, 0.68), lowerMat);
-        stoneBase.position.y = 0.3;
-        stoneBase.castShadow = true;
-        group.add(stoneBase);
-
-        const timberUpper = new THREE.Mesh(new THREE.BoxGeometry(0.76, 0.34, 0.72), upperMat);
-        timberUpper.position.y = 0.63;
-        timberUpper.castShadow = true;
-        group.add(timberUpper);
-
-        const roofLow = new THREE.Mesh(new THREE.BoxGeometry(0.82, 0.16, 0.78), roofMat);
-        roofLow.position.y = 0.88;
-        roofLow.castShadow = true;
-        group.add(roofLow);
-
-        if (epochIndex < 4) {
-          const roofPeak = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.16, 0.74), roofMat);
-          roofPeak.position.y = 1.04;
-          group.add(roofPeak);
-        }
-
-        const lantern = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.14, 0.1), flameMat);
-        lantern.position.set(0.32, 0.42, 0.38);
-        group.add(lantern);
+        const moltenVat = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.12, 0.2), flameMat);
+        moltenVat.position.set(0.2, 0.12, 0.26);
+        moltenVat.name = 'flicker_flame';
+        group.add(moltenVat);
       }
       break;
     }
@@ -1525,50 +1716,55 @@ export function createBuildingGroup(type: BuildingType, epochIndex: number): THR
     case 'observatory': {
       if (epochIndex >= 5) {
         // Orbital & Interstellar Sci-Fi: Deep-Space Subspace Telemetry Array
-        const tower = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.34, 0.76, 8), techMat);
-        tower.position.y = 0.52;
+        const tower = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.32, 0.68, 8), techMat);
+        tower.position.y = 0.36;
         tower.castShadow = true;
         group.add(tower);
 
-        const collar = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.08, 0.68), glowCyanMat);
-        collar.position.y = 0.86;
+        const collar = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.07, 0.62), glowCyanMat);
+        collar.position.y = 0.7;
         group.add(collar);
 
         const dome = new THREE.Mesh(
-          new THREE.SphereGeometry(0.28, 10, 8, 0, Math.PI * 2, 0, Math.PI / 2),
+          new THREE.SphereGeometry(0.26, 10, 8, 0, Math.PI * 2, 0, Math.PI / 2),
           darkTechMat,
         );
-        dome.position.y = 0.9;
+        dome.position.y = 0.74;
         group.add(dome);
 
-        const dish = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.06, 0.14, 8), glowCyanMat);
-        dish.position.set(0.12, 1.18, 0.12);
+        const dish = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.05, 0.12, 8), glowCyanMat);
+        dish.position.set(0.1, 1.02, 0.1);
         dish.rotation.z = -0.5;
         dish.name = 'spin_part';
         group.add(dish);
       } else {
-        const towerMat = epochIndex === 3 ? brickMat : epochIndex === 4 ? concreteMat : stoneMat;
-        const tower = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.34, 0.72, 8), towerMat);
-        tower.position.y = 0.5;
+        // Classical / Industrial Stepped Stone & Marble Astronomy Tower with Golden Dome
+        const base = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.28, 0.62), whitePlasterMat);
+        base.position.y = 0.16;
+        base.castShadow = true;
+        group.add(base);
+
+        const tower = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.25, 0.3, 0.56, 8),
+          epochIndex === 3 ? brickMat : marbleWhiteMat,
+        );
+        tower.position.y = 0.48;
         tower.castShadow = true;
         group.add(tower);
 
-        const balcony = new THREE.Mesh(
-          new THREE.BoxGeometry(0.68, 0.08, 0.68),
-          epochIndex === 4 ? concreteMat : woodMat,
-        );
-        balcony.position.y = 0.84;
+        const balcony = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.07, 0.6), woodMat);
+        balcony.position.y = 0.74;
         group.add(balcony);
 
         const dome = new THREE.Mesh(
-          new THREE.SphereGeometry(0.28, 10, 8, 0, Math.PI * 2, 0, Math.PI / 2),
+          new THREE.SphereGeometry(0.25, 10, 8, 0, Math.PI * 2, 0, Math.PI / 2),
           epochIndex === 4 ? techMat : goldMat,
         );
-        dome.position.y = 0.88;
+        dome.position.y = 0.77;
         group.add(dome);
 
-        const scope = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.07, 0.38, 6), darkStoneMat);
-        scope.position.set(0.14, 1.04, 0.14);
+        const scope = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.06, 0.34, 6), darkStoneMat);
+        scope.position.set(0.12, 0.92, 0.12);
         scope.rotation.z = -0.6;
         scope.rotation.x = 0.4;
         group.add(scope);
@@ -1580,46 +1776,48 @@ export function createBuildingGroup(type: BuildingType, epochIndex: number): THR
     case 'dynamo_plant': {
       if (epochIndex >= 5) {
         // Orbital & Interstellar Sci-Fi: Antimatter & Zero-Point Capacitor Plant
-        const factoryHall = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.48, 0.74), techMat);
-        factoryHall.position.y = 0.38;
-        factoryHall.castShadow = true;
-        group.add(factoryHall);
-
-        const pylon1 = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.11, 0.88, 8), darkTechMat);
-        pylon1.position.set(-0.24, 0.68, -0.22);
+        addVoxelCottage({
+          w: 0.72,
+          h: 0.38,
+          d: 0.62,
+          wallMat: techMat,
+          roofMat: darkTechMat,
+          chimneySide: 'none',
+        });
+        const pylon1 = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 0.82, 8), darkTechMat);
+        pylon1.position.set(-0.22, 0.54, -0.18);
         group.add(pylon1);
 
-        const pylon2 = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.11, 0.88, 8), darkTechMat);
-        pylon2.position.set(0.04, 0.68, -0.22);
-        group.add(pylon2);
-
-        const energyRing = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.32, 0.32), glowCyanMat);
-        energyRing.position.set(0.2, 0.72, 0.14);
+        const energyRing = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.28, 0.28), glowCyanMat);
+        energyRing.position.set(0.18, 0.68, 0.12);
         energyRing.name = 'spin_part';
         group.add(energyRing);
       } else {
-        const hallMat =
-          epochIndex === 4 ? concreteMat : type === 'steam_foundry' ? brickMat : darkStoneMat;
-        const factoryHall = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.48, 0.74), hallMat);
-        factoryHall.position.y = 0.38;
-        factoryHall.castShadow = true;
-        group.add(factoryHall);
+        addVoxelCottage({
+          w: 0.7,
+          h: 0.36,
+          d: 0.6,
+          wallMat: epochIndex === 4 ? concreteMat : brickMat,
+          roofMat: darkStoneMat,
+          chimneySide: 'none',
+          timberTrim: true,
+        });
 
-        const stack1 = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.11, 0.85, 8), darkStoneMat);
-        stack1.position.set(-0.24, 0.68, -0.22);
+        const stack1 = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.1, 0.82, 8), darkStoneMat);
+        stack1.position.set(-0.22, 0.54, -0.18);
         stack1.castShadow = true;
         group.add(stack1);
 
-        const stack2 = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.11, 0.75, 8), darkStoneMat);
-        stack2.position.set(0.02, 0.62, -0.22);
+        const stack2 = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.1, 0.72, 8), darkStoneMat);
+        stack2.position.set(0.02, 0.48, -0.18);
         stack2.castShadow = true;
         group.add(stack2);
 
         const coil = new THREE.Mesh(
-          new THREE.BoxGeometry(0.28, 0.28, 0.28),
+          new THREE.BoxGeometry(0.24, 0.24, 0.24),
           type === 'dynamo_plant' ? glowCyanMat : goldMat,
         );
-        coil.position.set(0.2, 0.68, 0.14);
+        coil.position.set(0.18, 0.64, 0.12);
         coil.name = 'spin_part';
         group.add(coil);
       }
@@ -1628,92 +1826,89 @@ export function createBuildingGroup(type: BuildingType, epochIndex: number): THR
 
     case 'fission_reactor':
     case 'cyber_institute': {
-      // Atomic concrete/steel -> Orbital/Interstellar white titanium & glowing cyan core
       const baseMat = epochIndex >= 5 ? techMat : concreteMat;
-      const baseBlock = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.36, 0.78), baseMat);
-      baseBlock.position.y = 0.32;
+      const baseBlock = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.3, 0.72), baseMat);
+      baseBlock.position.y = 0.18;
       baseBlock.castShadow = true;
       group.add(baseBlock);
 
       if (type === 'fission_reactor') {
         const coolingTower = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.22, 0.32, 0.76, 10),
+          new THREE.CylinderGeometry(0.2, 0.3, 0.72, 10),
           epochIndex >= 5 ? darkTechMat : concreteMat,
         );
-        coolingTower.position.set(-0.12, 0.66, -0.1);
+        coolingTower.position.set(-0.1, 0.52, -0.08);
         coolingTower.castShadow = true;
         group.add(coolingTower);
 
-        const coreGlow = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.38, 0.26), glowCyanMat);
-        coreGlow.position.set(0.22, 0.62, 0.2);
+        const coreGlow = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.36, 0.24), glowCyanMat);
+        coreGlow.position.set(0.2, 0.48, 0.18);
         if (epochIndex >= 5) coreGlow.name = 'spin_part';
         group.add(coreGlow);
       } else {
-        const tower1 = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.88, 0.44), baseMat);
-        tower1.position.y = 0.68;
+        const tower1 = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.82, 0.42), baseMat);
+        tower1.position.y = 0.56;
         tower1.castShadow = true;
         group.add(tower1);
 
-        const dataRing = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.12, 0.54), glowCyanMat);
-        dataRing.position.y = 0.92;
+        const dataRing = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.1, 0.52), glowCyanMat);
+        dataRing.position.y = 0.8;
         dataRing.name = 'spin_part';
         group.add(dataRing);
 
         const spireAntenna = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.03, 0.05, 0.4, 6),
+          new THREE.CylinderGeometry(0.03, 0.05, 0.38, 6),
           epochIndex >= 5 ? glowCyanMat : goldMat,
         );
-        spireAntenna.position.y = 1.24;
+        spireAntenna.position.y = 1.12;
         group.add(spireAntenna);
       }
       break;
     }
 
     case 'launch_arcology': {
-      // Orbital launch pad & techno-modern starship arcology
-      const pad = new THREE.Mesh(new THREE.BoxGeometry(0.86, 0.22, 0.86), darkTechMat);
-      pad.position.y = 0.24;
+      const pad = new THREE.Mesh(new THREE.BoxGeometry(0.84, 0.16, 0.84), darkTechMat);
+      pad.position.y = 0.08;
       group.add(pad);
 
-      const gantry = new THREE.Mesh(new THREE.BoxGeometry(0.18, 1.15, 0.18), glowCyanMat);
-      gantry.position.set(-0.26, 0.78, -0.22);
+      const gantry = new THREE.Mesh(new THREE.BoxGeometry(0.16, 1.1, 0.16), glowCyanMat);
+      gantry.position.set(-0.24, 0.68, -0.2);
       gantry.castShadow = true;
       group.add(gantry);
 
-      const rocketBody = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.18, 0.92, 8), techMat);
-      rocketBody.position.set(0.08, 0.76, 0.06);
+      const rocketBody = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.17, 0.88, 8), techMat);
+      rocketBody.position.set(0.08, 0.64, 0.06);
       rocketBody.castShadow = true;
       group.add(rocketBody);
 
-      const noseCone = new THREE.Mesh(new THREE.ConeGeometry(0.14, 0.3, 8), goldMat);
-      noseCone.position.set(0.08, 1.36, 0.06);
+      const noseCone = new THREE.Mesh(new THREE.ConeGeometry(0.13, 0.28, 8), goldMat);
+      noseCone.position.set(0.08, 1.22, 0.06);
       group.add(noseCone);
 
-      const thrusterGlow = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.14, 0.22), flameMat);
-      thrusterGlow.position.set(0.08, 0.32, 0.06);
+      const thrusterGlow = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.12, 0.2), flameMat);
+      thrusterGlow.position.set(0.08, 0.2, 0.06);
       group.add(thrusterGlow);
       break;
     }
 
     case 'dyson_spire': {
-      // Interstellar Ascension Monument: dark alloy & gold pyramid with levitating rings & skyward beam
-      const tier1 = new THREE.Mesh(new THREE.BoxGeometry(0.88, 0.26, 0.88), darkTechMat);
-      tier1.position.y = 0.26;
+      const tier1 = new THREE.Mesh(new THREE.BoxGeometry(0.86, 0.2, 0.86), darkTechMat);
+      tier1.position.y = 0.1;
       group.add(tier1);
 
-      const obelisk = new THREE.Mesh(new THREE.ConeGeometry(0.32, 1.25, 4), goldMat);
-      obelisk.position.y = 0.95;
+      const obelisk = new THREE.Mesh(new THREE.ConeGeometry(0.3, 1.2, 4), goldMat);
+      obelisk.position.y = 0.8;
       obelisk.castShadow = true;
       group.add(obelisk);
 
-      const haloRing = new THREE.Mesh(new THREE.TorusGeometry(0.36, 0.05, 6, 12), glowCyanMat);
-      haloRing.position.y = 1.15;
+      const haloRing = new THREE.Mesh(new THREE.TorusGeometry(0.34, 0.045, 6, 12), glowCyanMat);
+      haloRing.position.y = 1.02;
       haloRing.rotation.x = Math.PI / 2;
       haloRing.name = 'spin_part';
       group.add(haloRing);
 
-      const skyBeam = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 3.2, 8), glowCyanMat);
-      skyBeam.position.y = 2.4;
+      const skyBeam = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.065, 3.0, 8), glowCyanMat);
+      skyBeam.position.y = 2.2;
       group.add(skyBeam);
       break;
     }

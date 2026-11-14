@@ -580,4 +580,59 @@ test('individual buildings start at primitive epochLevel 0 and progressively upg
   assert.equal(hut.epochLevel, 5, 'Forager hut must progress all the way to Orbital Age (epochLevel 5 bio-dome)');
 });
 
+test('city layout planner builds unblocked street networks and never places buildings on stone_road tiles', () => {
+  const state = createInitialSimulationState(128, 'CITY-LAYOUT-TEST');
+  state.sandboxFreeMode = true;
+  state.resources.food = 2000;
+  state.resources.wood = 2000;
+  state.resources.stone = 2000;
+  state.resources.ore = 2000;
+  state.resources.faith = 2000;
+  state.resources.knowledge = 2000;
 
+  const cx = 64;
+  const cz = 64;
+  for (let dz = -14; dz <= 14; dz++) {
+    for (let dx = -14; dx <= 14; dx++) {
+      const t = getTile(state, cx + dx, cz + dz)!;
+      t.height = 2;
+      t.terrain = 'grass';
+      t.resourceNode = 'none';
+      t.resourceAmount = 0;
+    }
+  }
+
+  // Spawn settlers & advance to Classical Age so streets and cottages are actively planned
+  for (let i = 0; i < 8; i++) {
+    spawnUnit(state, 'human', cx + (i % 3) - 1, cz + Math.floor(i / 3) - 1, true);
+  }
+  for (let i = 0; i < 40; i++) stepSimulation(state, 0.2);
+  advanceEpoch(state, true); // Bronze
+  advanceEpoch(state, true); // Classical
+
+  for (let i = 0; i < 80; i++) {
+    stepSimulation(state, 0.25);
+    for (const b of state.buildings) {
+      b.constructionProgress = 100;
+    }
+  }
+
+  assert.ok(state.buildings.length >= 6, `City should grow multiple buildings, got ${state.buildings.length}`);
+
+  // Verify NO building sits on a stone_road tile (buildings never block roads)
+  for (const b of state.buildings) {
+    const bTile = getTile(state, b.tileX, b.tileZ)!;
+    assert.notEqual(
+      bTile.terrain,
+      'stone_road',
+      `Building ${b.type} at (${b.tileX},${b.tileZ}) must not sit on and block a stone_road tile`,
+    );
+  }
+
+  // Verify road tiles exist in the settlement and none of them have a buildingId
+  const roadTiles = state.tiles.filter((t) => t.terrain === 'stone_road');
+  assert.ok(roadTiles.length >= 8, `Settlement should have a connected street network, got ${roadTiles.length} road tiles`);
+  for (const rt of roadTiles) {
+    assert.equal(rt.buildingId, null, `Road tile at (${rt.x},${rt.z}) must be unblocked by buildings`);
+  }
+});

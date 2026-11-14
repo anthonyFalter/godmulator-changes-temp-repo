@@ -1033,6 +1033,45 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
 
           vec3 col = computeBiomeColor(myCode, pixPos, chunkPos, subUv, uTime);
 
+          // 0b. Connected Street Ribbon Shaping for stone_road (myCode == 9.0):
+          // Keeps road tiles continuous across connected neighbors while framing non-connected edges with grass margins
+          if (abs(myCode - 9.0) < 0.5) {
+            bool rN = abs(cN - 9.0) < 0.5;
+            bool rS = abs(cS - 9.0) < 0.5;
+            bool rW = abs(cW - 9.0) < 0.5;
+            bool rE = abs(cE - 9.0) < 0.5;
+            float margin = 0.14;
+            bool onGrassMargin = false;
+            float fallbackBiome = 3.0;
+            if (!rN && subUv.y < margin) {
+              onGrassMargin = true;
+              fallbackBiome = (cN >= 2.0 && cN <= 8.0) ? cN : 3.0;
+            } else if (!rS && (1.0 - subUv.y) < margin) {
+              onGrassMargin = true;
+              fallbackBiome = (cS >= 2.0 && cS <= 8.0) ? cS : 3.0;
+            } else if (!rW && subUv.x < margin) {
+              onGrassMargin = true;
+              fallbackBiome = (cW >= 2.0 && cW <= 8.0) ? cW : 3.0;
+            } else if (!rE && (1.0 - subUv.x) < margin) {
+              onGrassMargin = true;
+              fallbackBiome = (cE >= 2.0 && cE <= 8.0) ? cE : 3.0;
+            }
+            if (onGrassMargin) {
+              col = computeBiomeColor(fallbackBiome, pixPos, chunkPos, subUv, uTime);
+            } else {
+              // Subtle darker road curb line right inside the grass margin
+              float curbMargin = 0.20;
+              bool onCurb =
+                (!rN && subUv.y < curbMargin) ||
+                (!rS && (1.0 - subUv.y) < curbMargin) ||
+                (!rW && subUv.x < curbMargin) ||
+                (!rE && (1.0 - subUv.x) < curbMargin);
+              if (onCurb) {
+                col *= 0.84;
+              }
+            }
+          }
+
           // 1. Cross-biome organic pixel dithering along shared terrace seams (except crisp stone roads)
           if (myCode != 9.0) {
             float ditherRng = landHash12(pixPos * 16.0);

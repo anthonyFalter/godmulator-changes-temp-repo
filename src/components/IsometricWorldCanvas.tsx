@@ -2480,12 +2480,26 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         let entry = buildingMeshes.get(b.id);
         if (!entry || entry.epochLevel !== b.epochLevel || entry.type !== b.type) {
           if (entry) buildingsGroup.remove(entry.group);
-          const group = createBuildingGroup(b.type, b.epochLevel);
+          const variantSeed = b.tileX * 31 + b.tileZ * 17;
+          const group = createBuildingGroup(b.type, b.epochLevel, variantSeed);
           group.position.set(b.tileX, groundY, b.tileZ);
           buildingsGroup.add(group);
           entry = { group, epochLevel: b.epochLevel, type: b.type };
           buildingMeshes.set(b.id, entry);
         }
+
+        // Orient building doorway (+Z in local space) toward adjacent street or deterministic cardinal angle
+        const gs = simState.gridSize;
+        const tS = b.tileZ + 1 < gs ? simState.tiles[(b.tileZ + 1) * gs + b.tileX] : undefined;
+        const tE = b.tileX + 1 < gs ? simState.tiles[b.tileZ * gs + (b.tileX + 1)] : undefined;
+        const tN = b.tileZ - 1 >= 0 ? simState.tiles[(b.tileZ - 1) * gs + b.tileX] : undefined;
+        const tW = b.tileX - 1 >= 0 ? simState.tiles[b.tileZ * gs + (b.tileX - 1)] : undefined;
+        let rotY = (((b.tileX * 19 + b.tileZ * 7) & 1) === 0 ? 0 : Math.PI / 2);
+        if (tS?.terrain === 'stone_road') rotY = 0;
+        else if (tE?.terrain === 'stone_road') rotY = Math.PI / 2;
+        else if (tN?.terrain === 'stone_road') rotY = Math.PI;
+        else if (tW?.terrain === 'stone_road') rotY = -Math.PI / 2;
+        entry.group.rotation.y = rotY;
 
         entry.group.position.set(b.tileX, groundY, b.tileZ);
         const buildScaleY =
