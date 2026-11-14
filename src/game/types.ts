@@ -117,6 +117,7 @@ export interface BuildingEntity {
   blessedTimer: number;
   cursedTimer: number;
   shieldTimer: number;
+  settlementId?: string;
 }
 
 export type UnitRole =
@@ -167,6 +168,7 @@ export interface UnitEntity {
   windupTimer: number;
   targetEntityId: string | null;
   harvestTimer?: number;
+  settlementId?: string;
 }
 
 export type GodPowerType =
@@ -273,4 +275,5 @@ export interface SimulationState {
   harvestAccumulator?: Resources;
   harvestRates?: Resources;
   harvestWindowTimer?: number;
+  settlementNames?: Record<string, string>;
 }

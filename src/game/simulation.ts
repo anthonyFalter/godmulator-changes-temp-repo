@@ -25,6 +25,13 @@ const CITIZEN_NAMES = [
   'Rowan', 'Freya', 'Gideon', 'Isolde', 'Zarek', 'Ariadne', 'Cyrus', 'Veda',
 ];
 
+const VILLAGE_NAMES = [
+  'Aurelia', 'Valen', 'Oakhaven', 'Khor', 'Solis', 'Veld', 'Thar', 'Selen',
+  'Cyra', 'Nadir', 'Barrow', 'Ilios', 'Kaelholm', 'Vespera', 'Myra', 'Aldenreach',
+];
+
+export const SETTLEMENT_AWARENESS_RADIUS = 22;
+
 let idCounter = 1000;
 export function nextEntityId(prefix: string): string {
   idCounter += 1;
@@ -146,6 +153,7 @@ export function createInitialSimulationState(
     harvestAccumulator: emptyResources(),
     harvestRates: emptyResources(),
     harvestWindowTimer: 0,
+    settlementNames: {},
   };
 
   recalculateRatesAndCaps(state);
@@ -154,8 +162,14 @@ export function createInitialSimulationState(
 
 export function recalculateRatesAndCaps(state: SimulationState): void {
   const epoch = EPOCHS[state.epochIndex] || EPOCHS[0];
-  const hasSettlement = state.buildings.some((b) => b.constructionProgress >= 100);
-  let popCap = hasSettlement ? epoch.populationBonus : 0;
+  const activeSettlementIds = new Set<string>();
+  for (const b of state.buildings) {
+    if (b.constructionProgress >= 100) {
+      activeSettlementIds.add(b.settlementId ?? 'city_default');
+    }
+  }
+  const hasSettlement = activeSettlementIds.size > 0;
+  let popCap = activeSettlementIds.size * epoch.populationBonus;
 
   const rates: Resources = {
     food: 0,
@@ -253,9 +267,17 @@ export function placeBuilding(
 
   state.resources = deductCost(state.resources, def.cost, state.sandboxFreeMode);
 
+  const nearby = findLocalSettlementBuilding(state, tile.x, tile.z, SETTLEMENT_AWARENESS_RADIUS);
+  const settlementId = nearby?.settlementId ?? nextEntityId('city');
+  if (!state.settlementNames) state.settlementNames = {};
+  if (!state.settlementNames[settlementId]) {
+    state.settlementNames[settlementId] = createVillageName(state);
+  }
+
   const newBuilding: BuildingEntity = {
     id: nextEntityId('bld'),
     type: buildingType,
+    settlementId,
     tileX: tile.x,
     tileZ: tile.z,
     hp: def.maxHp,
@@ -273,6 +295,14 @@ export function placeBuilding(
   state.buildings.push(newBuilding);
   state.totalStructuresBuilt += 1;
 
+  for (const u of state.units) {
+    if (u.faction === 'civilization' && u.state !== 'ko' && !u.settlementId) {
+      if (Math.hypot(u.x - tile.x, u.z - tile.z) <= SETTLEMENT_AWARENESS_RADIUS) {
+        u.settlementId = settlementId;
+      }
+    }
+  }
+
   state.pendingVfx.push({
     id: nextEntityId('vfx'),
     type: 'build_complete',
@@ -284,7 +314,8 @@ export function placeBuilding(
     createdAt: Date.now(),
   });
 
-  addChronicle(state, `Constructed ${def.name} at terrace (${tile.x}, ${tile.z}).`, 'build');
+  const villageName = state.settlementNames[settlementId];
+  addChronicle(state, `Constructed ${def.name} in ${villageName} at (${tile.x}, ${tile.z}).`, 'build');
 
   if (buildingType === 'dyson_spire' && state.epochIndex < 6) {
     state.epochIndex = 6;
@@ -302,6 +333,7 @@ export function spawnUnit(
   x: number,
   z: number,
   freeOverride = false,
+  settlementIdOverride?: string,
 ): { ok: boolean; reason?: string; unit?: UnitEntity } {
   const def = UNITS.find((u) => u.role === role);
   if (!def) return { ok: false, reason: 'Unknown unit role' };
@@ -320,6 +352,14 @@ export function spawnUnit(
     state.resources = deductCost(state.resources, def.cost, false);
   }
 
+  let resolvedSettlementId = settlementIdOverride;
+  if (def.faction === 'civilization' && !resolvedSettlementId) {
+    const nearbyBld = findLocalSettlementBuilding(state, tile.x, tile.z, SETTLEMENT_AWARENESS_RADIUS);
+    if (nearbyBld?.settlementId) {
+      resolvedSettlementId = nearbyBld.settlementId;
+    }
+  }
+
   const unit: UnitEntity = {
     id: nextEntityId('unit'),
     name:
@@ -328,6 +368,7 @@ export function spawnUnit(
         : CITIZEN_NAMES[(state.units.length * 3 + Math.floor(x + z)) % CITIZEN_NAMES.length],
     role,
     faction: def.faction,
+    settlementId: resolvedSettlementId,
     x: tile.x + (Math.random() - 0.5) * 0.35,
     z: tile.z + (Math.random() - 0.5) * 0.35,
     targetX: tile.x,
@@ -339,7 +380,7 @@ export function spawnUnit(
     statusEffects: {},
     carryingType: null,
     carryingAmount: 0,
-      actionCooldown: 0,
+    actionCooldown: 0,
     windupTimer: 0,
     targetEntityId: null,
     harvestTimer: 0,
@@ -752,6 +793,47 @@ export function castGodPower(
   return { ok: true, isHeavy };
 }
 
+function createVillageName(state: SimulationState): string {
+  const used = new Set(Object.values(state.settlementNames ?? {}));
+  for (const name of VILLAGE_NAMES) {
+    if (!used.has(name)) return name;
+  }
+  return `Haven ${used.size + 1}`;
+}
+
+function findLocalSettlementBuilding(
+  state: SimulationState,
+  x: number,
+  z: number,
+  maxRadius = SETTLEMENT_AWARENESS_RADIUS,
+): BuildingEntity | null {
+  let nearest: BuildingEntity | null = null;
+  let bestDistSq = maxRadius * maxRadius;
+  for (const b of state.buildings) {
+    const dSq = (b.tileX - x) ** 2 + (b.tileZ - z) ** 2;
+    if (dSq <= bestDistSq) {
+      bestDistSq = dSq;
+      nearest = b;
+    }
+  }
+  return nearest;
+}
+
+function getSettlementAnchorForId(state: SimulationState, settlementId: string): { x: number; z: number } {
+  const matching = state.buildings.filter((b) => (b.settlementId ?? 'city_default') === settlementId);
+  if (matching.length === 0) return getSettlementAnchor(state);
+  let sx = 0;
+  let sz = 0;
+  for (const b of matching) {
+    sx += b.tileX;
+    sz += b.tileZ;
+  }
+  return {
+    x: Math.round(sx / matching.length),
+    z: Math.round(sz / matching.length),
+  };
+}
+
 export function getSettlementAnchor(state: SimulationState): { x: number; z: number } {
   if (state.buildings.length > 0) {
     let sx = 0;
@@ -841,24 +923,32 @@ export function advanceEpoch(
 
   const anchor = getSettlementAnchor(state);
 
-  // Transform civic plaza around existing settlement to match the new epoch
+  // Transform civic plaza around each independent settlement & erect epoch landmark
   if (state.buildings.length > 0) {
     const plazaTerrain = state.epochIndex >= 5 ? 'crystal_field' : 'stone_road';
-    for (let dz = -2; dz <= 2; dz++) {
-      for (let dx = -2; dx <= 2; dx++) {
-        if (dx * dx + dz * dz > 5) continue;
-        const pt = getTile(state, anchor.x + dx, anchor.z + dz);
-        if (pt && pt.height > 0 && !pt.buildingId && pt.resourceNode === 'none') {
-          pt.terrain = plazaTerrain;
+    const settlementIds = Array.from(new Set(state.buildings.map((b) => b.settlementId ?? 'city_default')));
+
+    for (const sid of settlementIds) {
+      const cityAnchor = getSettlementAnchorForId(state, sid);
+      for (let dz = -2; dz <= 2; dz++) {
+        for (let dx = -2; dx <= 2; dx++) {
+          if (dx * dx + dz * dz > 5) continue;
+          const pt = getTile(state, cityAnchor.x + dx, cityAnchor.z + dz);
+          if (pt && pt.height > 0 && !pt.buildingId && pt.resourceNode === 'none') {
+            pt.terrain = plazaTerrain;
+          }
         }
       }
     }
+
+    const primarySid = settlementIds[0];
+    const primaryAnchor = getSettlementAnchorForId(state, primarySid);
 
     // Erect the signature landmark of the newly reached age if space is available
     const epochBuildings = BUILDINGS.filter((b) => b.epoch === nextEpoch.id);
     if (epochBuildings.length > 0) {
       const bDef = epochBuildings[0];
-      const padTile = findBuildableTileNear(state, anchor.x, anchor.z, 12);
+      const padTile = findBuildableTileNear(state, primaryAnchor.x, primaryAnchor.z, 12);
       if (padTile) {
         padTile.terrain = state.epochIndex >= 5 ? 'crystal_field' : 'stone_road';
         padTile.resourceNode = 'none';
@@ -866,6 +956,7 @@ export function advanceEpoch(
         const newBld: BuildingEntity = {
           id: nextEntityId('bld'),
           type: bDef.type,
+          settlementId: primarySid,
           tileX: padTile.x,
           tileZ: padTile.z,
           hp: bDef.maxHp,
@@ -884,7 +975,7 @@ export function advanceEpoch(
 
     const bonusRole: UnitRole =
       state.epochIndex >= 5 ? 'astro_engineer' : state.epochIndex >= 2 ? 'scholar' : 'builder';
-    spawnUnit(state, bonusRole, anchor.x, anchor.z, true);
+    spawnUnit(state, bonusRole, primaryAnchor.x, primaryAnchor.z, true, primarySid);
   }
 
   const centerTile = getTile(state, anchor.x, anchor.z);
@@ -948,10 +1039,9 @@ function recordHarvestDeposit(
   state.harvestAccumulator[key] += amount;
 }
 
-function chooseNeededSpecialistRole(state: SimulationState): UnitRole {
-  const civs = state.units.filter((u) => u.faction === 'civilization' && u.state !== 'ko');
-  const countRole = (r: UnitRole) => civs.filter((u) => u.role === r).length;
-  const pop = civs.length;
+function chooseNeededSpecialistRole(state: SimulationState, villageCivs: UnitEntity[]): UnitRole {
+  const countRole = (r: UnitRole) => villageCivs.filter((u) => u.role === r).length;
+  const pop = villageCivs.length;
 
   if (countRole('forager') < Math.max(1, Math.floor(pop * 0.28))) return 'forager';
   if (countRole('builder') < Math.max(1, Math.floor(pop * 0.2))) return 'builder';
@@ -965,12 +1055,15 @@ function chooseNeededSpecialistRole(state: SimulationState): UnitRole {
   return 'villager';
 }
 
-function pickDesiredAutobuildType(state: SimulationState): BuildingType | null {
-  const countType = (t: BuildingType) => state.buildings.filter((b) => b.type === t).length;
-  const pop = state.population;
+function pickDesiredAutobuildType(
+  state: SimulationState,
+  villageBuildings: BuildingEntity[],
+  villagePop: number,
+): BuildingType | null {
+  const countType = (t: BuildingType) => villageBuildings.filter((b) => b.type === t).length;
 
   if (countType('bonfire') === 0) return 'bonfire';
-  if (countType('forager_hut') < Math.min(4, Math.max(1, Math.floor(pop / 4)))) return 'forager_hut';
+  if (countType('forager_hut') < Math.min(4, Math.max(1, Math.floor(villagePop / 4)))) return 'forager_hut';
   if (countType('shaman_totem') < (state.epochIndex >= 1 ? 2 : 1)) return 'shaman_totem';
 
   if (state.epochIndex >= 1) {
@@ -999,11 +1092,15 @@ function pickDesiredAutobuildType(state: SimulationState): BuildingType | null {
   return null;
 }
 
-function transformSettlementEnvironment(state: SimulationState, anchor: { x: number; z: number }): void {
-  if (state.buildings.length === 0) return;
+function transformSettlementEnvironment(
+  state: SimulationState,
+  anchor: { x: number; z: number },
+  villageBuildings: BuildingEntity[],
+): void {
+  if (villageBuildings.length === 0) return;
 
   const sampleBld =
-    state.buildings[Math.floor(Math.abs(state.year) + state.buildings.length * 7) % state.buildings.length];
+    villageBuildings[Math.floor(Math.abs(state.year) + villageBuildings.length * 7) % villageBuildings.length];
   if (!sampleBld || sampleBld.constructionProgress < 100) return;
 
   // 1. Era-driven road & high-tech terrain transformation around completed buildings
@@ -1034,13 +1131,11 @@ function transformSettlementEnvironment(state: SimulationState, anchor: { x: num
       if (adj.resourceNode === 'none') {
         adj.terrain = 'stone_road';
       } else if (adj.resourceNode === 'timber_grove' && adj.blessedTimer <= 0) {
-        // Industrial expansion clears adjacent timber
         adj.resourceNode = 'none';
         adj.resourceAmount = 0;
         adj.terrain = 'stone_road';
       }
     } else if (state.epochIndex >= 1 && adj.resourceNode === 'none') {
-      // Bronze & Medieval towns pave cobblestone walkways
       adj.terrain = 'stone_road';
     }
   }
@@ -1071,9 +1166,9 @@ function transformSettlementEnvironment(state: SimulationState, anchor: { x: num
     }
   }
 
-  // 3. Natural woodland & wild flora regrowth far from urban core
-  const rx = Math.max(2, Math.min(state.gridSize - 3, anchor.x + Math.floor(Math.random() * 52) - 26));
-  const rz = Math.max(2, Math.min(state.gridSize - 3, anchor.z + Math.floor(Math.random() * 52) - 26));
+  // 3. Natural woodland & wild flora regrowth outside this settlement's urban core
+  const rx = Math.max(2, Math.min(state.gridSize - 3, anchor.x + Math.floor(Math.random() * 44) - 22));
+  const rz = Math.max(2, Math.min(state.gridSize - 3, anchor.z + Math.floor(Math.random() * 44) - 22));
   const wt = getTile(state, rx, rz);
   if (
     wt &&
@@ -1096,16 +1191,24 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
   const activeCivs = state.units.filter((u) => u.faction === 'civilization' && u.state !== 'ko');
   if (activeCivs.length === 0) return;
 
+  const hasHomelessPioneers = activeCivs.some((u) => !u.settlementId);
   state.civPlanTimer = (state.civPlanTimer ?? 0) + dt;
-  const interval = state.buildings.length === 0 ? 0.5 : 1.8;
+  const interval = hasHomelessPioneers ? 0.5 : 1.8;
   if (state.civPlanTimer < interval) return;
   state.civPlanTimer = 0;
 
-  const anchor = getSettlementAnchor(state);
+  if (!state.settlementNames) state.settlementNames = {};
 
-  // 1. Founding the Very First Hearth when homeless settlers exist
-  if (state.buildings.length === 0) {
-    const pioneer = activeCivs[0];
+  // 1. Bind local homeless settlers or let distant pioneers found their own independent village!
+  for (const pioneer of activeCivs) {
+    if (pioneer.settlementId) continue;
+
+    const nearbyBld = findLocalSettlementBuilding(state, pioneer.x, pioneer.z, SETTLEMENT_AWARENESS_RADIUS);
+    if (nearbyBld?.settlementId) {
+      pioneer.settlementId = nearbyBld.settlementId;
+      continue;
+    }
+
     const px = Math.round(pioneer.x);
     const pz = Math.round(pioneer.z);
     let siteTile: TileData | undefined = getTile(state, px, pz);
@@ -1119,9 +1222,14 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
       siteTile.resourceNode = 'none';
       siteTile.resourceAmount = 0;
 
+      const newSettlementId = nextEntityId('city');
+      const villageName = createVillageName(state);
+      state.settlementNames[newSettlementId] = villageName;
+
       const hearth: BuildingEntity = {
         id: nextEntityId('bld'),
         type: 'bonfire',
+        settlementId: newSettlementId,
         tileX: siteTile.x,
         tileZ: siteTile.z,
         hp: def.maxHp,
@@ -1135,71 +1243,108 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
       siteTile.buildingId = hearth.id;
       state.buildings.push(hearth);
       state.totalStructuresBuilt += 1;
+
+      // Adopt all homeless pioneers nearby this newly staked hearth
+      for (const other of activeCivs) {
+        if (!other.settlementId && Math.hypot(other.x - siteTile.x, other.z - siteTile.z) <= SETTLEMENT_AWARENESS_RADIUS) {
+          other.settlementId = newSettlementId;
+        }
+      }
+
       addChronicle(
         state,
-        `Mortal pioneers stake their first Ancestral Bonfire at (${siteTile.x}, ${siteTile.z})!`,
+        `Mortal pioneers found ${villageName} at (${siteTile.x}, ${siteTile.z})!`,
         'build',
       );
       recalculateRatesAndCaps(state);
     }
-    return;
   }
 
-  // 2. Autonomous Population Growth from food surplus & housing capacity
-  const hasCompletedHearth = state.buildings.some((b) => b.constructionProgress >= 100);
-  if (
-    hasCompletedHearth &&
-    state.population < state.populationCap &&
-    state.resources.food >= 28 &&
-    state.happiness >= 35
-  ) {
-    state.resources.food -= 20;
-    const role = chooseNeededSpecialistRole(state);
-    const spawnHub =
-      state.buildings.find((b) => b.constructionProgress >= 100) ?? state.buildings[0];
-    spawnUnit(state, role, spawnHub.tileX, spawnHub.tileZ, true);
-  }
-
-  // 3. Autonomous Construction Planner (builds structures appropriate for current epoch)
-  const activeSites = state.buildings.filter((b) => b.constructionProgress < 100).length;
-  if (state.autoBuildEnabled && hasCompletedHearth && activeSites < 2) {
-    const desiredType = pickDesiredAutobuildType(state);
-    if (desiredType) {
-      const def = BUILDINGS.find((b) => b.type === desiredType);
-      if (def && canAfford(state.resources, def.cost, false)) {
-        const site = findBuildableTileNear(state, anchor.x, anchor.z, 22);
-        if (site) {
-          state.resources = deductCost(state.resources, def.cost, false);
-          if (site.resourceNode === 'timber_grove') state.resources.wood += 12;
-          else if (site.resourceNode === 'stone_outcrop') state.resources.stone += 12;
-          site.resourceNode = 'none';
-          site.resourceAmount = 0;
-          if (state.epochIndex >= 1) site.terrain = 'stone_road';
-
-          const siteBld: BuildingEntity = {
-            id: nextEntityId('bld'),
-            type: desiredType,
-            tileX: site.x,
-            tileZ: site.z,
-            hp: def.maxHp,
-            maxHp: def.maxHp,
-            constructionProgress: 12,
-            epochLevel: state.epochIndex,
-            blessedTimer: 0,
-            cursedTimer: 0,
-            shieldTimer: 0,
-          };
-          site.buildingId = siteBld.id;
-          state.buildings.push(siteBld);
-          state.totalStructuresBuilt += 1;
-          addChronicle(state, `Settlers break ground on a ${def.name} at (${site.x}, ${site.z}).`, 'build');
-        }
+  // Ensure legacy buildings have a settlementId
+  for (const b of state.buildings) {
+    if (!b.settlementId) {
+      b.settlementId = 'city_default';
+      if (!state.settlementNames['city_default']) {
+        state.settlementNames['city_default'] = createVillageName(state);
       }
     }
   }
 
-  // 4. Era-based Environment Transformation (roads, farms, industrial/crystal footprints)
-  transformSettlementEnvironment(state, anchor);
+  // 2. Step each independent village/city separately (its own growth, autobuild & terrain evolution)
+  const epoch = EPOCHS[state.epochIndex] || EPOCHS[0];
+  const settlementIds = Array.from(new Set(state.buildings.map((b) => b.settlementId!)));
+
+  for (const sid of settlementIds) {
+    const villageBuildings = state.buildings.filter((b) => b.settlementId === sid);
+    if (villageBuildings.length === 0) continue;
+
+    const villageAnchor = getSettlementAnchorForId(state, sid);
+    const villageUnits = activeCivs.filter((u) => u.settlementId === sid);
+    const completedBuildings = villageBuildings.filter((b) => b.constructionProgress >= 100);
+    const hasCompletedHearth = completedBuildings.length > 0;
+
+    let villagePopCap = hasCompletedHearth ? epoch.populationBonus : 0;
+    for (const b of completedBuildings) {
+      const def = BUILDINGS.find((d) => d.type === b.type);
+      if (def) villagePopCap += def.popCapBonus;
+    }
+
+    // Autonomous Population Growth for THIS village
+    if (
+      hasCompletedHearth &&
+      villageUnits.length < villagePopCap &&
+      state.resources.food >= 28 &&
+      state.happiness >= 35
+    ) {
+      state.resources.food -= 20;
+      const role = chooseNeededSpecialistRole(state, villageUnits);
+      const spawnHub = completedBuildings[0];
+      spawnUnit(state, role, spawnHub.tileX, spawnHub.tileZ, true, sid);
+    }
+
+    // Autonomous Construction Planner scoped to THIS village
+    const activeSites = villageBuildings.filter((b) => b.constructionProgress < 100).length;
+    if (state.autoBuildEnabled && hasCompletedHearth && activeSites < 2) {
+      const desiredType = pickDesiredAutobuildType(state, villageBuildings, villageUnits.length);
+      if (desiredType) {
+        const def = BUILDINGS.find((b) => b.type === desiredType);
+        if (def && canAfford(state.resources, def.cost, false)) {
+          const site = findBuildableTileNear(state, villageAnchor.x, villageAnchor.z, 18);
+          if (site) {
+            state.resources = deductCost(state.resources, def.cost, false);
+            if (site.resourceNode === 'timber_grove') state.resources.wood += 12;
+            else if (site.resourceNode === 'stone_outcrop') state.resources.stone += 12;
+            site.resourceNode = 'none';
+            site.resourceAmount = 0;
+            if (state.epochIndex >= 1) site.terrain = 'stone_road';
+
+            const siteBld: BuildingEntity = {
+              id: nextEntityId('bld'),
+              type: desiredType,
+              settlementId: sid,
+              tileX: site.x,
+              tileZ: site.z,
+              hp: def.maxHp,
+              maxHp: def.maxHp,
+              constructionProgress: 12,
+              epochLevel: state.epochIndex,
+              blessedTimer: 0,
+              cursedTimer: 0,
+              shieldTimer: 0,
+            };
+            site.buildingId = siteBld.id;
+            state.buildings.push(siteBld);
+            state.totalStructuresBuilt += 1;
+            const vName = state.settlementNames[sid] ?? 'Settlement';
+            addChronicle(state, `Settlers of ${vName} break ground on a ${def.name} at (${site.x}, ${site.z}).`, 'build');
+          }
+        }
+      }
+    }
+
+    // Era-based Environment Transformation around THIS village
+    transformSettlementEnvironment(state, villageAnchor, villageBuildings);
+  }
 }
 
 export function stepSimulation(state: SimulationState, rawDt: number): void {
@@ -1531,18 +1676,23 @@ function findNearestDropoffBuilding(
   state: SimulationState,
   x: number,
   z: number,
+  settlementId?: string,
 ): BuildingEntity | null {
   let best: BuildingEntity | null = null;
-  let bestDistSq = Infinity;
+  let bestDistSq = settlementId ? Infinity : SETTLEMENT_AWARENESS_RADIUS ** 2;
   for (const b of state.buildings) {
     if (b.constructionProgress < 100) continue;
+    if (settlementId && b.settlementId !== settlementId) continue;
     const dSq = (b.tileX - x) ** 2 + (b.tileZ - z) ** 2;
-    if (dSq < bestDistSq) {
+    if (dSq <= bestDistSq) {
       bestDistSq = dSq;
       best = b;
     }
   }
-  if (!best && state.buildings.length > 0) return state.buildings[0];
+  if (!best && settlementId) {
+    // Allow dropping off at own settlement's founding hearth while under construction
+    best = state.buildings.find((b) => b.settlementId === settlementId) ?? null;
+  }
   return best;
 }
 
@@ -1553,6 +1703,14 @@ function stepCivilianUnitAI(
   moveSpeed: number,
   dt: number,
 ): void {
+  // 0. Bind nomadic units only if a settlement is within local awareness radius
+  if (!u.settlementId) {
+    const nearbyBld = findLocalSettlementBuilding(state, u.x, u.z, SETTLEMENT_AWARENESS_RADIUS);
+    if (nearbyBld?.settlementId) {
+      u.settlementId = nearbyBld.settlementId;
+    }
+  }
+
   // 1. Combat defense (Warriors, Frenzied citizens, or self-defense vs adjacent raiders)
   let nearestHostile: UnitEntity | null = null;
   let hostileDistSq = Infinity;
@@ -1607,12 +1765,16 @@ function stepCivilianUnitAI(
     }
   }
 
-  // 3. Construct or repair unfinished settlement buildings (Builders & Villagers prioritize this)
-  const unfinished = state.buildings.find((b) => b.constructionProgress < 100);
+  const villageBuildings = u.settlementId
+    ? state.buildings.filter((b) => b.settlementId === u.settlementId)
+    : [];
+
+  // 3. Construct or repair unfinished buildings belonging strictly to this citizen's settlement
+  const unfinished = villageBuildings.find((b) => b.constructionProgress < 100);
   if (
     unfinished &&
     u.carryingAmount === 0 &&
-    (u.role === 'builder' || u.role === 'villager' || state.buildings.length <= 2)
+    (u.role === 'builder' || u.role === 'villager' || villageBuildings.length <= 2)
   ) {
     const dx = unfinished.tileX - u.x;
     const dz = unfinished.tileZ - u.z;
@@ -1642,9 +1804,10 @@ function stepCivilianUnitAI(
           color: '#f5b742',
           createdAt: Date.now(),
         });
+        const vName = (unfinished.settlementId && state.settlementNames?.[unfinished.settlementId]) || 'Settlement';
         addChronicle(
           state,
-          `Construction completed: ${bDef?.name ?? unfinished.type} at (${unfinished.tileX}, ${unfinished.tileZ}).`,
+          `${vName} completed ${bDef?.name ?? unfinished.type} at (${unfinished.tileX}, ${unfinished.tileZ}).`,
           'build',
         );
         recalculateRatesAndCaps(state);
@@ -1653,10 +1816,10 @@ function stepCivilianUnitAI(
     return;
   }
 
-  // 4. Hauling harvested resources back to settlement storage
+  // 4. Hauling harvested resources back to OWN settlement storage
   const carryCap = u.role === 'forager' || u.role === 'miner' ? 12 : 8;
   if (u.carryingAmount >= carryCap && u.carryingType) {
-    const dropoff = findNearestDropoffBuilding(state, u.x, u.z);
+    const dropoff = findNearestDropoffBuilding(state, u.x, u.z, u.settlementId);
     if (dropoff) {
       const dx = dropoff.tileX - u.x;
       const dz = dropoff.tileZ - u.z;
@@ -1678,16 +1841,16 @@ function stepCivilianUnitAI(
     }
   }
 
-  // 5. Dedicated Sanctum / Research / Engineering duties when structures exist
-  if ((u.role === 'priest' || u.role === 'scholar' || u.role === 'astro_engineer') && state.buildings.length > 0) {
+  // 5. Dedicated Sanctum / Research / Engineering duties within OWN settlement
+  if ((u.role === 'priest' || u.role === 'scholar' || u.role === 'astro_engineer') && villageBuildings.length > 0) {
     const targetBld =
-      state.buildings.find((b) =>
+      villageBuildings.find((b) =>
         u.role === 'priest'
           ? b.type === 'shaman_totem' || b.type === 'ziggurat'
           : u.role === 'scholar'
             ? b.type === 'observatory' || b.type === 'cyber_institute' || b.type === 'shaman_totem'
             : b.type === 'launch_arcology' || b.type === 'dyson_spire' || b.type === 'fission_reactor',
-      ) ?? findNearestDropoffBuilding(state, u.x, u.z);
+      ) ?? findNearestDropoffBuilding(state, u.x, u.z, u.settlementId);
 
     if (targetBld) {
       const dx = targetBld.tileX - u.x;
@@ -1838,14 +2001,14 @@ function stepCivilianUnitAI(
       return;
     }
 
-    // Patrol around settlement if no resource nodes within 42 tiles
-    if (state.buildings.length > 0) {
-      const b = state.buildings[u.id.charCodeAt(u.id.length - 1) % state.buildings.length];
+    // Patrol around OWN settlement if no resource nodes are nearby
+    if (villageBuildings.length > 0) {
+      const b = villageBuildings[u.id.charCodeAt(u.id.length - 1) % villageBuildings.length];
       u.targetX = b.tileX + (Math.random() - 0.5) * 4;
       u.targetZ = b.tileZ + (Math.random() - 0.5) * 4;
     } else {
-      u.targetX = Math.max(2, Math.min(state.gridSize - 3, u.x + (Math.random() - 0.5) * 6));
-      u.targetZ = Math.max(2, Math.min(state.gridSize - 3, u.z + (Math.random() - 0.5) * 6));
+      u.targetX = Math.max(2, Math.min(state.gridSize - 3, u.x + (Math.random() - 0.5) * 4));
+      u.targetZ = Math.max(2, Math.min(state.gridSize - 3, u.z + (Math.random() - 0.5) * 4));
     }
   } else if (distToTarget > 0.35) {
     u.state = 'moving';

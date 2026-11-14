@@ -191,3 +191,54 @@ test('seed pipeline produces deterministic identical worlds for same seed and di
   assert.ok(diffCount > 4000, `Expected distinct terrain across seeds, got ${diffCount} diffs`);
   assert.ok(biomeSet.size >= 6, `Expected diverse biomes, got ${[...biomeSet].join(', ')}`);
 });
+
+test('faraway settlers found separate independent villages and never trek to the first city', () => {
+  const state = createInitialSimulationState(128, 'MULTI-VILLAGE');
+  const sites = [
+    { x: 24, z: 24 },
+    { x: 96, z: 96 },
+  ];
+  for (const s of sites) {
+    for (let dz = -3; dz <= 3; dz++) {
+      for (let dx = -3; dx <= 3; dx++) {
+        const t = getTile(state, s.x + dx, s.z + dz)!;
+        t.height = 2;
+        t.terrain = 'grass';
+        t.resourceNode = 'none';
+        t.resourceAmount = 0;
+      }
+    }
+    const berry = getTile(state, s.x + 2, s.z)!;
+    berry.terrain = 'fertile';
+    berry.resourceNode = 'berry_bush';
+    berry.resourceAmount = 120;
+  }
+
+  // 1. Spawn settler 1 near (24, 24) and let them found Village 1
+  const u1 = spawnUnit(state, 'villager', 24, 24);
+  assert.equal(u1.ok, true);
+  for (let i = 0; i < 60; i++) stepSimulation(state, 0.1);
+
+  assert.equal(state.buildings.length, 1);
+  const v1Id = state.buildings[0].settlementId;
+  assert.ok(v1Id, 'First village should have a settlementId');
+
+  // 2. Spawn settler 2 far away at (96, 96) — beyond 22-tile awareness radius
+  const u2Res = spawnUnit(state, 'villager', 96, 96);
+  assert.equal(u2Res.ok, true);
+  assert.equal(u2Res.unit?.settlementId, undefined, 'Faraway settler must not know about Village 1 on spawn');
+
+  // Step 8s so faraway settler founds Village 2 and stays local
+  for (let i = 0; i < 80; i++) stepSimulation(state, 0.1);
+
+  const distinctSettlements = new Set(state.buildings.map((b) => b.settlementId));
+  assert.equal(distinctSettlements.size, 2, 'Two distant pioneer bands must found two independent villages');
+
+  const v2Id = u2Res.unit!.settlementId;
+  assert.ok(v2Id && v2Id !== v1Id, 'Faraway settler must belong to Village 2, not Village 1');
+  assert.ok(
+    Math.hypot(u2Res.unit!.x - 96, u2Res.unit!.z - 96) < 12,
+    'Faraway settler must remain near their own village instead of walking across the map to (24,24)',
+  );
+});
+

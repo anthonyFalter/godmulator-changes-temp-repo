@@ -624,7 +624,7 @@ export default function App() {
                 <span className="hidden sm:inline text-xs text-[#9e9486] tabular-nums whitespace-nowrap">
                   · Tile ({inspectedTile.x}, {inspectedTile.z}) Elev {inspectedTile.height} ·{' '}
                   {inspectedBuilding
-                    ? `${inspectedBuilding.type.replace('_', ' ')}${inspectedBuilding.constructionProgress < 100 ? ` (${Math.floor(inspectedBuilding.constructionProgress)}%)` : ''}`
+                    ? `${inspectedBuilding.settlementId && sim.settlementNames?.[inspectedBuilding.settlementId] ? `${sim.settlementNames[inspectedBuilding.settlementId]} · ` : ''}${inspectedBuilding.type.replace('_', ' ')}${inspectedBuilding.constructionProgress < 100 ? ` (${Math.floor(inspectedBuilding.constructionProgress)}%)` : ''}`
                     : inspectedTile.resourceNode !== 'none'
                       ? `${inspectedTile.terrain.replace('_', ' ')} (${inspectedTile.resourceNode.replace('_', ' ')} ${inspectedTile.resourceAmount})`
                       : inspectedTile.terrain.replace('_', ' ')}
