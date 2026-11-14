@@ -1,6 +1,6 @@
 {
-  "name": "Aeon: Isometric God & Civilization Simulator",
-  "description": "A 3D pixelated isometric RTS god simulator guiding civilizations from the Prehistoric Age to the Interstellar Age with base-building, deep resource management, terrain sculpting, and divine powers.",
+  "name": "Godmulator",
+  "description": "Wreak havoc or bless your creations in this fun, 3d pixelated god simulator game.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
