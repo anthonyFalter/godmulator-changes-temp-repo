@@ -166,6 +166,7 @@ export interface UnitEntity {
   actionCooldown: number;
   windupTimer: number;
   targetEntityId: string | null;
+  harvestTimer?: number;
 }
 
 export type GodPowerType =
@@ -268,4 +269,8 @@ export interface SimulationState {
   selectedEntityId: string | null;
   selectedTile: { x: number; z: number } | null;
   outcome: 'none' | 'ascension_victory' | 'collapse_defeat';
+  civPlanTimer?: number;
+  harvestAccumulator?: Resources;
+  harvestRates?: Resources;
+  harvestWindowTimer?: number;
 }

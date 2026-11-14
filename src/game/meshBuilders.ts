@@ -1198,7 +1198,11 @@ export function createBuildingGroup(type: BuildingType, epochIndex: number): THR
   return group;
 }
 
-export function createUnitGroup(role: UnitRole, faction: 'civilization' | 'hostile'): THREE.Group {
+export function createUnitGroup(
+  role: UnitRole,
+  faction: 'civilization' | 'hostile',
+  epochLevel = 0,
+): THREE.Group {
   const group = new THREE.Group();
   group.add(createContactShadow(0.58));
 
@@ -1208,7 +1212,7 @@ export function createUnitGroup(role: UnitRole, faction: 'civilization' | 'hosti
   });
 
   const outfitColors: Record<UnitRole, number> = {
-    villager: 0x4ea8de,
+    villager: epochLevel >= 5 ? 0xd8dee9 : epochLevel >= 3 ? 0x3b6e8c : 0x4ea8de,
     forager: 0x52b788,
     miner: 0xe09f3e,
     builder: 0xd97736,
@@ -1223,8 +1227,9 @@ export function createUnitGroup(role: UnitRole, faction: 'civilization' | 'hosti
 
   const tunicMat = new THREE.MeshStandardMaterial({
     color: outfitColors[role] ?? 0x4ea8de,
-    roughness: 0.55,
-    metalness: role === 'warrior' || role === 'astro_engineer' ? 0.45 : 0.1,
+    roughness: epochLevel >= 4 ? 0.35 : 0.55,
+    metalness:
+      role === 'warrior' || role === 'astro_engineer' || epochLevel >= 4 ? 0.45 : 0.1,
   });
 
   const bootMat = new THREE.MeshStandardMaterial({ color: 0x3d2b1f, roughness: 0.8 });
@@ -1251,36 +1256,62 @@ export function createUnitGroup(role: UnitRole, faction: 'civilization' | 'hosti
   head.castShadow = true;
   group.add(head);
 
-  // 4. Hat / Helmet / Hair
+  // 4. Hat / Helmet / Visor evolving across epochs
   const hatColor =
-    role === 'priest' || role === 'warrior'
-      ? 0xffd166
-      : role === 'astro_engineer'
-        ? 0xffffff
-        : faction === 'hostile'
-          ? 0x222222
-          : 0x4a3423;
+    faction === 'hostile'
+      ? 0x222222
+      : role === 'astro_engineer' || epochLevel >= 5
+        ? 0xeceff4
+        : role === 'priest' || role === 'warrior' || epochLevel === 1
+          ? 0xe9b44c
+          : epochLevel >= 2
+            ? 0x8d99ae
+            : 0x4a3423;
   const hatMat = new THREE.MeshStandardMaterial({
     color: hatColor,
     roughness: 0.4,
-    metalness: role === 'warrior' ? 0.6 : 0.1,
+    metalness: role === 'warrior' || epochLevel >= 1 ? 0.55 : 0.1,
   });
-  const hat = new THREE.Mesh(new THREE.BoxGeometry(0.2 * scale, 0.07 * scale, 0.2 * scale), hatMat);
+  const hat = new THREE.Mesh(
+    new THREE.BoxGeometry(0.2 * scale, (epochLevel >= 2 ? 0.09 : 0.07) * scale, 0.2 * scale),
+    hatMat,
+  );
   hat.position.y = 0.55 * scale;
   group.add(hat);
 
+  if (faction === 'civilization' && epochLevel >= 4) {
+    const visor = new THREE.Mesh(
+      new THREE.BoxGeometry(0.16 * scale, 0.05 * scale, 0.04 * scale),
+      new THREE.MeshBasicMaterial({ color: 0x56cfe1 }),
+    );
+    visor.position.set(0, 0.45 * scale, 0.095 * scale);
+    group.add(visor);
+  }
+
   // 5. Held Tool / Weapon / Staff
   const toolMat = new THREE.MeshStandardMaterial({
-    color: role === 'priest' || role === 'scholar' ? 0xf5b742 : 0xadb5bd,
+    color: role === 'priest' || role === 'scholar' ? 0xf5b742 : epochLevel >= 4 ? 0x56cfe1 : 0xadb5bd,
     metalness: 0.6,
     roughness: 0.3,
   });
   const tool = new THREE.Mesh(new THREE.BoxGeometry(0.05 * scale, 0.28 * scale, 0.05 * scale), toolMat);
   tool.position.set(0.14 * scale, 0.28 * scale, 0.08 * scale);
   tool.rotation.x = 0.35;
+  tool.name = 'held_tool';
   group.add(tool);
 
-  // 6. Status Ring (hidden unless blessed/cursed/frenzied/plagued)
+  // 6. Carried Resource Bundle (shown when hauling lumber, berries, stone, ore, crystals)
+  const carryMat = new THREE.MeshStandardMaterial({ color: 0x8f5d38, roughness: 0.7 });
+  const carryBox = new THREE.Mesh(
+    new THREE.BoxGeometry(0.13 * scale, 0.13 * scale, 0.13 * scale),
+    carryMat,
+  );
+  carryBox.position.set(0, 0.27 * scale, 0.14 * scale);
+  carryBox.visible = false;
+  carryBox.name = 'carry_box';
+  group.add(carryBox);
+
+  // 7. Status Ring (hidden unless blessed/cursed/frenzied/plagued)
   const auraGeo = new THREE.RingGeometry(0.22, 0.29, 12);
   auraGeo.rotateX(-Math.PI / 2);
   const auraMat = new THREE.MeshBasicMaterial({

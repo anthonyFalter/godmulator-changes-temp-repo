@@ -63,10 +63,10 @@ export default function App() {
   });
 
   const [timeScale, setTimeScale] = useState<number>(1);
-  const [activeCategory, setActiveCategory] = useState<ToolCategory>('powers');
+  const [activeCategory, setActiveCategory] = useState<ToolCategory>('spawn');
   const [activeTool, setActiveTool] = useState<ActiveTool>({
-    kind: 'power',
-    power: 'blessing',
+    kind: 'spawn',
+    unit: 'villager',
   });
   const [brushRadius, setBrushRadius] = useState<number>(1);
   const [pixelScale, setPixelScale] = useState<number>(2);
@@ -76,7 +76,7 @@ export default function App() {
   const [muted, setMuted] = useState<boolean>(false);
   const [hoverTile, setHoverTile] = useState<{ x: number; z: number } | null>({ x: 64, z: 64 });
   const [statusFeedback, setStatusFeedback] = useState<string>(
-    'Click any terrace tile to bestow Divine Blessing or select a tool below',
+    'Wilderness awaits · Click dry land to spawn Settler Citizens and spark civilization',
   );
 
   // Snapshot counter triggered at <= 6 Hz from canvas loop or user actions
@@ -117,8 +117,10 @@ export default function App() {
     simRef.current = nextSim;
     setSeedInput(String(nextSim.seed));
     setHoverTile({ x: 64, z: 64 });
+    setActiveCategory('spawn');
+    setActiveTool({ kind: 'spawn', unit: 'villager' });
     soundEngine.playBuild();
-    setStatusFeedback(`Generated new world · Seed ${nextSim.seed}`);
+    setStatusFeedback(`Untouched world · Seed ${nextSim.seed} · Click land to spawn Settler Citizens`);
     setHudTick((t) => t + 1);
   }, []);
 
@@ -379,6 +381,12 @@ export default function App() {
                   <span>Pop {sim.population}/{sim.populationCap}</span>
                   <span aria-hidden="true">·</span>
                   <span>Morale {Math.round(sim.happiness)}%</span>
+                  {nextEpoch && (
+                    <>
+                      <span aria-hidden="true">·</span>
+                      <span>Next Age {sim.epochProgress}%</span>
+                    </>
+                  )}
                   {sim.goldenAgeTimer > 0 && (
                     <>
                       <span aria-hidden="true">·</span>
@@ -415,8 +423,12 @@ export default function App() {
                           <span className="text-xs font-bold text-[#ede8df]">
                             {amount}
                           </span>
-                          <span className="text-[10px] text-[#7ec88b]">
-                            +{rate}/s
+                          <span
+                            className={`text-[10px] ${
+                              rate < 0 ? 'text-[#e76f51]' : 'text-[#7ec88b]'
+                            }`}
+                          >
+                            {rate >= 0 ? `+${rate}/s` : `${rate}/s`}
                           </span>
                         </div>
                         <div className="text-[10px] text-[#9e9486] leading-none">
@@ -612,8 +624,10 @@ export default function App() {
                 <span className="hidden sm:inline text-xs text-[#9e9486] tabular-nums whitespace-nowrap">
                   · Tile ({inspectedTile.x}, {inspectedTile.z}) Elev {inspectedTile.height} ·{' '}
                   {inspectedBuilding
-                    ? inspectedBuilding.type.replace('_', ' ')
-                    : inspectedTile.terrain.replace('_', ' ')}
+                    ? `${inspectedBuilding.type.replace('_', ' ')}${inspectedBuilding.constructionProgress < 100 ? ` (${Math.floor(inspectedBuilding.constructionProgress)}%)` : ''}`
+                    : inspectedTile.resourceNode !== 'none'
+                      ? `${inspectedTile.terrain.replace('_', ' ')} (${inspectedTile.resourceNode.replace('_', ' ')} ${inspectedTile.resourceAmount})`
+                      : inspectedTile.terrain.replace('_', ' ')}
                 </span>
               )}
               <button

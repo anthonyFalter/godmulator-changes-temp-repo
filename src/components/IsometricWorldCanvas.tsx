@@ -8,7 +8,7 @@ import {
   getNodeVariantLibrary,
   getTerrainMaterial,
 } from '../game/meshBuilders';
-import { stepSimulation } from '../game/simulation';
+import { getSettlementAnchor, stepSimulation } from '../game/simulation';
 import {
   ActiveTool,
   GameLifecycleState,
@@ -328,7 +328,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     };
 
     const buildingMeshes = new Map<string, { group: THREE.Group; epochLevel: number; type: string }>();
-    const unitMeshes = new Map<string, THREE.Group>();
+    const unitMeshes = new Map<string, { group: THREE.Group; epochLevel: number; role: string }>();
 
     const skirtMat = new THREE.MeshStandardMaterial({
       color: 0x1b262b,
@@ -734,6 +734,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         }
 
         entry.group.position.set(b.tileX, groundY, b.tileZ);
+        const buildScaleY =
+          b.constructionProgress < 100 ? 0.22 + 0.78 * (b.constructionProgress / 100) : 1;
+        entry.group.scale.y = buildScaleY;
 
         // Animate flickering flames or rotating dynamo/cyber/dyson rings
         for (const child of entry.group.children) {
@@ -746,6 +749,18 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         }
       }
 
+      if (simState.buildings.length > 0) {
+        const primary = simState.buildings[0];
+        const pt = simState.tiles[primary.tileZ * simState.gridSize + primary.tileX];
+        hearthLight.position.set(
+          primary.tileX,
+          (pt ? Math.max(0.18, pt.height * HEIGHT_STEP + 0.25) : 1.0) + 1.8,
+          primary.tileZ,
+        );
+      } else {
+        hearthLight.position.set(gridCenter, 3.0, gridCenter);
+      }
+
       for (const [id, entry] of buildingMeshes.entries()) {
         if (!activeBldIds.has(id)) {
           buildingsGroup.remove(entry.group);
@@ -753,16 +768,20 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         }
       }
 
-      // 3. Sync units with gait bob, squash-and-stretch, and KO topple transition
+      // 3. Sync units with gait bob, work chop animation, carried resources, and epoch gear
       const activeUnitIds = new Set<string>();
       for (const u of simState.units) {
         activeUnitIds.add(u.id);
-        let uGroup = unitMeshes.get(u.id);
-        if (!uGroup) {
-          uGroup = createUnitGroup(u.role, u.faction);
-          unitsGroup.add(uGroup);
-          unitMeshes.set(u.id, uGroup);
+        let uEntry = unitMeshes.get(u.id);
+        const desiredEpoch = u.faction === 'civilization' ? simState.epochIndex : 0;
+        if (!uEntry || uEntry.epochLevel !== desiredEpoch || uEntry.role !== u.role) {
+          if (uEntry) unitsGroup.remove(uEntry.group);
+          const group = createUnitGroup(u.role, u.faction, desiredEpoch);
+          unitsGroup.add(group);
+          uEntry = { group, epochLevel: desiredEpoch, role: u.role };
+          unitMeshes.set(u.id, uEntry);
         }
+        const uGroup = uEntry.group;
 
         const tx = Math.round(THREE.MathUtils.clamp(u.x, 0, simState.gridSize - 1));
         const tz = Math.round(THREE.MathUtils.clamp(u.z, 0, simState.gridSize - 1));
@@ -770,22 +789,49 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         const groundY = tile ? Math.max(0.18, tile.height * HEIGHT_STEP + 0.25) : 0.5;
 
         const isMoving = u.state === 'moving';
-        const walkBob = isMoving ? Math.abs(Math.sin(elapsed * 11 + u.x * 3)) * 0.08 : 0;
+        const isWorking =
+          u.state === 'gathering' || u.state === 'building' || u.state === 'fighting';
+        const walkBob = isMoving
+          ? Math.abs(Math.sin(elapsed * 11 + u.x * 3)) * 0.08
+          : isWorking
+            ? Math.abs(Math.sin(elapsed * 14 + u.z * 2)) * 0.04
+            : 0;
         uGroup.position.set(u.x, groundY + walkBob, u.z);
 
-        // Face movement direction
+        // Face movement/target direction
         const dx = u.targetX - u.x;
         const dz = u.targetZ - u.z;
         if (dx * dx + dz * dz > 0.01) {
-          const targetRot = Math.atan2(dx, dz);
-          uGroup.rotation.y = targetRot;
+          uGroup.rotation.y = Math.atan2(dx, dz);
         }
 
-        // KO topple transition
+        // KO topple, movement sway, & active chop/hammer nod
         if (u.state === 'ko') {
           uGroup.rotation.z = THREE.MathUtils.damp(uGroup.rotation.z, Math.PI / 2, 12, dt);
+          uGroup.rotation.x = 0;
         } else {
           uGroup.rotation.z = isMoving ? Math.sin(elapsed * 11 + u.z * 2) * 0.08 : 0;
+          uGroup.rotation.x = isWorking ? Math.sin(elapsed * 16 + u.x) * 0.22 : 0;
+        }
+
+        const heldTool = uGroup.getObjectByName('held_tool');
+        if (heldTool) {
+          heldTool.rotation.x = isWorking ? 0.45 + Math.sin(elapsed * 18) * 0.65 : 0.35;
+        }
+
+        const carryBox = uGroup.getObjectByName('carry_box') as THREE.Mesh | undefined;
+        if (carryBox) {
+          if (u.carryingAmount > 0 && u.carryingType) {
+            carryBox.visible = true;
+            const cMat = carryBox.material as THREE.MeshStandardMaterial;
+            if (u.carryingType === 'wood') cMat.color.setHex(0x7d4e2d);
+            else if (u.carryingType === 'food') cMat.color.setHex(0xd94e34);
+            else if (u.carryingType === 'stone') cMat.color.setHex(0x8f8b82);
+            else if (u.carryingType === 'ore') cMat.color.setHex(0xe08e36);
+            else cMat.color.setHex(0x56cfe1);
+          } else {
+            carryBox.visible = false;
+          }
         }
 
         // Status ring aura
@@ -813,9 +859,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         }
       }
 
-      for (const [id, group] of unitMeshes.entries()) {
+      for (const [id, uEntry] of unitMeshes.entries()) {
         if (!activeUnitIds.has(id)) {
-          unitsGroup.remove(group);
+          unitsGroup.remove(uEntry.group);
           unitMeshes.delete(id);
         }
       }
@@ -862,7 +908,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         camAct.zoomDelta = 0;
       }
       if (camAct.centerHome) {
-        camDesiredTarget.set(gridCenter, 1.2, gridCenter);
+        const anchor = getSettlementAnchor(simRef.current);
+        camDesiredTarget.set(anchor.x, 1.2, anchor.z);
         desiredFrustum = 14.5;
         camAct.centerHome = false;
       }
@@ -991,7 +1038,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         _bgColor.set(epochDef.skyColor);
         keyLight.color.setHex(0xffdfb0);
         keyLight.intensity = 1.9;
-        hearthLight.intensity = 2.3 + Math.sin(elapsedTotal * 10) * 0.25;
+        hearthLight.intensity =
+          (simRef.current.buildings.length > 0 ? 2.3 : 0.45) + Math.sin(elapsedTotal * 10) * 0.2;
       }
       scene.background = _bgColor;
       if (scene.fog instanceof THREE.FogExp2) {

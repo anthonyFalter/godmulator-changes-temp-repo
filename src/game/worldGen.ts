@@ -180,11 +180,9 @@ export function generateWorldTiles(gridSize: number, rawSeed: number): TileData[
 
       let h = Math.max(0, Math.min(8, Math.round(rawElevation)));
 
-      // Guarantee central acropolis terrace & dry starter plateau
-      if (dist < 4.5) {
-        h = 3;
-      } else if (dist < 7.8) {
-        h = Math.max(2, Math.min(4, h));
+      // Ensure central starting view has natural dry landmass rather than deep sea
+      if (dist < 6.5 && h === 0) {
+        h = 2;
       }
 
       heightGrid[idx] = h;
@@ -334,8 +332,6 @@ export function generateWorldTiles(gridSize: number, rawSeed: number): TileData[
           }
           terrain = nearLand || normDist < 0.8 ? 'shallow_water' : 'deep_water';
         }
-      } else if (dist < 3.2) {
-        terrain = 'stone_road';
       } else if (h >= 7 || (h === 6 && temp < 0.44)) {
         // High alpine snow peaks
         terrain = 'snow';
@@ -459,22 +455,6 @@ export function generateWorldTiles(gridSize: number, rawSeed: number): TileData[
             resourceNode = 'stone_outcrop';
             resourceAmount = 240;
           }
-        }
-      }
-
-      // Guarantee a few starter timber/berry/stone nodes just outside the central stone plaza
-      if (dist >= 4.2 && dist <= 8.5 && resourceNode === 'none') {
-        if ((x + z * 3 + seed) % 13 === 0) {
-          terrain = 'forest';
-          resourceNode = 'timber_grove';
-          resourceAmount = 240;
-        } else if ((x * 3 + z + seed) % 17 === 0) {
-          terrain = 'fertile';
-          resourceNode = 'berry_bush';
-          resourceAmount = 200;
-        } else if ((x * 5 + z * 2 + seed) % 23 === 0) {
-          resourceNode = 'stone_outcrop';
-          resourceAmount = 250;
         }
       }
 

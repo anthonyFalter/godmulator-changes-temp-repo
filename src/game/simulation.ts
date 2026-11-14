@@ -66,6 +66,19 @@ export function deductCost(current: Resources, cost: Partial<Resources>, sandbox
   return next;
 }
 
+function emptyResources(): Resources {
+  return {
+    food: 0,
+    wood: 0,
+    stone: 0,
+    ore: 0,
+    knowledge: 0,
+    energy: 0,
+    alloy: 0,
+    faith: 0,
+  };
+}
+
 export function createInitialSimulationState(
   gridSize = 128,
   seedInput?: number | string,
@@ -76,99 +89,11 @@ export function createInitialSimulationState(
   const cx = Math.floor(gridSize / 2);
   const cz = Math.floor(gridSize / 2);
 
-  const initialBuildings: BuildingEntity[] = [
-    {
-      id: 'bld_bonfire_1',
-      type: 'bonfire',
-      tileX: cx,
-      tileZ: cz,
-      hp: 350,
-      maxHp: 350,
-      constructionProgress: 100,
-      epochLevel: 0,
-      blessedTimer: 0,
-      cursedTimer: 0,
-      shieldTimer: 0,
-    },
-    {
-      id: 'bld_forager_1',
-      type: 'forager_hut',
-      tileX: cx - 2,
-      tileZ: cz - 1,
-      hp: 220,
-      maxHp: 220,
-      constructionProgress: 100,
-      epochLevel: 0,
-      blessedTimer: 0,
-      cursedTimer: 0,
-      shieldTimer: 0,
-    },
-    {
-      id: 'bld_totem_1',
-      type: 'shaman_totem',
-      tileX: cx + 2,
-      tileZ: cz - 1,
-      hp: 260,
-      maxHp: 260,
-      constructionProgress: 100,
-      epochLevel: 0,
-      blessedTimer: 0,
-      cursedTimer: 0,
-      shieldTimer: 0,
-    },
-  ];
-
-  for (const b of initialBuildings) {
-    const t = tiles[getTileIndex(b.tileX, b.tileZ, gridSize)];
-    if (t) {
-      t.buildingId = b.id;
-      t.resourceNode = 'none';
-      t.resourceAmount = 0;
-    }
-  }
-
-  const starterRoles: UnitRole[] = [
-    'villager',
-    'forager',
-    'miner',
-    'builder',
-    'warrior',
-    'priest',
-    'scholar',
-  ];
-
-  const initialUnits: UnitEntity[] = starterRoles.map((role, idx) => {
-    const def = UNITS.find((u) => u.role === role)!;
-    const angle = (idx / starterRoles.length) * Math.PI * 2;
-    const ux = cx + Math.cos(angle) * 2.2;
-    const uz = cz + Math.sin(angle) * 2.2;
-    return {
-      id: `unit_${idx + 1}`,
-      name: CITIZEN_NAMES[idx % CITIZEN_NAMES.length],
-      role,
-      faction: 'civilization',
-      x: ux,
-      z: uz,
-      targetX: ux,
-      targetZ: uz,
-      hp: def.maxHp,
-      maxHp: def.maxHp,
-      state: 'idle',
-      koTimer: 0,
-      statusEffects: {},
-      carryingType: null,
-      carryingAmount: 0,
-      actionCooldown: 0,
-      windupTimer: 0,
-      targetEntityId: null,
-    };
-  });
-
   const initialChronicle: ChronicleEvent[] = [
     {
       id: 'chr_1',
       yearLabel: '10,000 BCE',
-      text: `The First Hearth is kindled (World Seed ${seed}). Guide your mortals from flint to the stars.`,
+      text: `An untouched world awakens (World Seed ${seed}). Spawn Settler Citizens on land to spark civilization.`,
       tone: 'divine',
       timestamp: Date.now(),
     },
@@ -179,44 +104,48 @@ export function createInitialSimulationState(
     gridSize,
     tiles,
     epochIndex: 0,
-    epochProgress: 15,
+    epochProgress: 0,
     year: -10000,
     resources: {
-      food: 160,
-      wood: 140,
-      stone: 110,
-      ore: 45,
-      knowledge: 25,
-      energy: 10,
-      alloy: 10,
-      faith: 120,
-    },
-    rates: {
-      food: 6,
-      wood: 4,
-      stone: 2,
-      ore: 1,
-      knowledge: 3,
+      food: 0,
+      wood: 0,
+      stone: 0,
+      ore: 0,
+      knowledge: 0,
       energy: 0,
       alloy: 0,
-      faith: 6,
+      faith: 150,
     },
-    buildings: initialBuildings,
-    units: initialUnits,
-    population: initialUnits.length,
-    populationCap: 28,
-    happiness: 88,
+    rates: {
+      food: 0,
+      wood: 0,
+      stone: 0,
+      ore: 0,
+      knowledge: 0,
+      energy: 0,
+      alloy: 0,
+      faith: 2,
+    },
+    buildings: [],
+    units: [],
+    population: 0,
+    populationCap: 0,
+    happiness: 85,
     goldenAgeTimer: 0,
     autoBuildEnabled: true,
     sandboxFreeMode: false,
     chronicle: initialChronicle,
     pendingVfx: [],
     totalMiraclesCast: 0,
-    totalStructuresBuilt: initialBuildings.length,
+    totalStructuresBuilt: 0,
     totalRaidersDefeated: 0,
     selectedEntityId: null,
     selectedTile: { x: cx, z: cz },
     outcome: 'none',
+    civPlanTimer: 0,
+    harvestAccumulator: emptyResources(),
+    harvestRates: emptyResources(),
+    harvestWindowTimer: 0,
   };
 
   recalculateRatesAndCaps(state);
@@ -225,17 +154,18 @@ export function createInitialSimulationState(
 
 export function recalculateRatesAndCaps(state: SimulationState): void {
   const epoch = EPOCHS[state.epochIndex] || EPOCHS[0];
-  let popCap = epoch.populationBonus;
+  const hasSettlement = state.buildings.some((b) => b.constructionProgress >= 100);
+  let popCap = hasSettlement ? epoch.populationBonus : 0;
 
   const rates: Resources = {
-    food: 1,
-    wood: 1,
-    stone: 1,
+    food: 0,
+    wood: 0,
+    stone: 0,
     ore: 0,
-    knowledge: 1 + state.epochIndex,
-    energy: state.epochIndex >= 3 ? 2 : 0,
-    alloy: state.epochIndex >= 3 ? 1 : 0,
-    faith: 2,
+    knowledge: 0,
+    energy: 0,
+    alloy: 0,
+    faith: 2, // Ambient cosmic Faith regeneration so God is never soft-locked
   };
 
   for (const b of state.buildings) {
@@ -245,7 +175,7 @@ export function recalculateRatesAndCaps(state: SimulationState): void {
     popCap += def.popCapBonus;
 
     const blessMult = b.blessedTimer > 0 ? 1.75 : b.cursedTimer > 0 ? 0.5 : 1.0;
-    const epochMult = 1 + state.epochIndex * 0.18;
+    const epochMult = 1 + state.epochIndex * 0.16;
 
     for (const [k, v] of Object.entries(def.productionPerSec)) {
       const key = k as keyof Resources;
@@ -253,41 +183,29 @@ export function recalculateRatesAndCaps(state: SimulationState): void {
     }
   }
 
-  // Citizen specialist contributions
   let civCount = 0;
   for (const u of state.units) {
-    if (u.faction !== 'civilization' || u.state === 'ko') continue;
-    civCount += 1;
-    const mult = u.statusEffects.blessed ? 1.8 : u.statusEffects.cursed ? 0.5 : 1.0;
-    if (u.role === 'forager') {
-      rates.food += 1.5 * mult;
-      rates.wood += 1.5 * mult;
-    } else if (u.role === 'miner') {
-      rates.stone += 1.5 * mult;
-      rates.ore += 1.2 * mult;
-    } else if (u.role === 'priest') {
-      rates.faith += 2.2 * mult;
-    } else if (u.role === 'scholar') {
-      rates.knowledge += 2.8 * mult;
-    } else if (u.role === 'astro_engineer') {
-      rates.energy += 3.0 * mult;
-      rates.alloy += 2.5 * mult;
-      rates.knowledge += 2.0 * mult;
+    if (u.faction === 'civilization' && u.state !== 'ko') {
+      civCount += 1;
     }
   }
 
-  // Food upkeep is gentle so resources stay net positive when managed
-  const foodUpkeep = Math.max(0, Math.floor(civCount * 0.35));
-  rates.food = Math.max(1, rates.food - foodUpkeep);
+  // Merge measured citizen harvesting & research haul rates (no passive fake income from idle units)
+  const measured = state.harvestRates;
+  if (measured) {
+    for (const k of Object.keys(rates) as (keyof Resources)[]) {
+      rates[k] += measured[k] ?? 0;
+    }
+  }
 
-  if (state.goldenAgeTimer > 0) {
-    for (const k of Object.keys(rates) as (keyof Resources)[]) {
-      rates[k] = Math.round(rates[k] * 2);
-    }
-  } else {
-    for (const k of Object.keys(rates) as (keyof Resources)[]) {
-      rates[k] = Math.round(rates[k]);
-    }
+  if (civCount > 4) {
+    const foodUpkeep = Math.floor((civCount - 4) * 0.18);
+    rates.food = Math.max(hasSettlement ? 0 : -foodUpkeep, rates.food - foodUpkeep);
+  }
+
+  const mult = state.goldenAgeTimer > 0 ? 2 : 1;
+  for (const k of Object.keys(rates) as (keyof Resources)[]) {
+    rates[k] = Math.round(rates[k] * mult);
   }
 
   state.rates = rates;
@@ -421,9 +339,10 @@ export function spawnUnit(
     statusEffects: {},
     carryingType: null,
     carryingAmount: 0,
-    actionCooldown: 0,
+      actionCooldown: 0,
     windupTimer: 0,
     targetEntityId: null,
+    harvestTimer: 0,
   };
 
   state.units.push(unit);
@@ -833,6 +752,61 @@ export function castGodPower(
   return { ok: true, isHeavy };
 }
 
+export function getSettlementAnchor(state: SimulationState): { x: number; z: number } {
+  if (state.buildings.length > 0) {
+    let sx = 0;
+    let sz = 0;
+    for (const b of state.buildings) {
+      sx += b.tileX;
+      sz += b.tileZ;
+    }
+    return {
+      x: Math.round(sx / state.buildings.length),
+      z: Math.round(sz / state.buildings.length),
+    };
+  }
+  const civs = state.units.filter((u) => u.faction === 'civilization' && u.state !== 'ko');
+  if (civs.length > 0) {
+    let sx = 0;
+    let sz = 0;
+    for (const u of civs) {
+      sx += u.x;
+      sz += u.z;
+    }
+    return {
+      x: Math.round(sx / civs.length),
+      z: Math.round(sz / civs.length),
+    };
+  }
+  const c = Math.floor(state.gridSize / 2);
+  return { x: c, z: c };
+}
+
+function findBuildableTileNear(
+  state: SimulationState,
+  anchorX: number,
+  anchorZ: number,
+  maxRadius = 18,
+): TileData | null {
+  let fallback: TileData | null = null;
+  for (let r = 2; r <= maxRadius; r++) {
+    for (let dz = -r; dz <= r; dz++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+        const t = getTile(state, anchorX + dx, anchorZ + dz);
+        if (!t || t.height <= 0 || t.height >= 6 || t.buildingId) continue;
+        if (t.terrain === 'deep_water' || t.terrain === 'shallow_water') continue;
+        if (t.resourceNode === 'none') {
+          return t;
+        }
+        if (!fallback) fallback = t;
+      }
+    }
+    if (fallback) return fallback;
+  }
+  return fallback;
+}
+
 export function advanceEpoch(
   state: SimulationState,
   divineLeapOverride = false,
@@ -865,56 +839,61 @@ export function advanceEpoch(
     b.hp = b.maxHp;
   }
 
-  // Automatically erect the new Epoch's signature structures on nearby open terrace tiles
-  const cx = Math.floor(state.gridSize / 2);
-  const cz = Math.floor(state.gridSize / 2);
-  const epochBuildings = BUILDINGS.filter((b) => b.epoch === nextEpoch.id);
-  const spiralOffsets = [
-    [0, -2], [-2, 1], [2, 1], [0, 2], [-3, -1], [3, -1],
-    [-2, -3], [2, -3], [-3, 2], [3, 2], [0, -4], [0, 4],
-  ];
-  for (const bDef of epochBuildings) {
-    for (const [ox, oz] of spiralOffsets) {
-      const tx = cx + ox;
-      const tz = cz + oz;
-      const tile = getTile(state, tx, tz);
-      if (tile && tile.height > 0 && !tile.buildingId) {
-        tile.terrain = 'stone_road';
+  const anchor = getSettlementAnchor(state);
+
+  // Transform civic plaza around existing settlement to match the new epoch
+  if (state.buildings.length > 0) {
+    const plazaTerrain = state.epochIndex >= 5 ? 'crystal_field' : 'stone_road';
+    for (let dz = -2; dz <= 2; dz++) {
+      for (let dx = -2; dx <= 2; dx++) {
+        if (dx * dx + dz * dz > 5) continue;
+        const pt = getTile(state, anchor.x + dx, anchor.z + dz);
+        if (pt && pt.height > 0 && !pt.buildingId && pt.resourceNode === 'none') {
+          pt.terrain = plazaTerrain;
+        }
+      }
+    }
+
+    // Erect the signature landmark of the newly reached age if space is available
+    const epochBuildings = BUILDINGS.filter((b) => b.epoch === nextEpoch.id);
+    if (epochBuildings.length > 0) {
+      const bDef = epochBuildings[0];
+      const padTile = findBuildableTileNear(state, anchor.x, anchor.z, 12);
+      if (padTile) {
+        padTile.terrain = state.epochIndex >= 5 ? 'crystal_field' : 'stone_road';
+        padTile.resourceNode = 'none';
+        padTile.resourceAmount = 0;
         const newBld: BuildingEntity = {
           id: nextEntityId('bld'),
           type: bDef.type,
-          tileX: tx,
-          tileZ: tz,
+          tileX: padTile.x,
+          tileZ: padTile.z,
           hp: bDef.maxHp,
           maxHp: bDef.maxHp,
-          constructionProgress: 100,
+          constructionProgress: divineLeapOverride ? 100 : 25,
           epochLevel: state.epochIndex,
           blessedTimer: 15,
           cursedTimer: 0,
           shieldTimer: 0,
         };
-        tile.buildingId = newBld.id;
-        tile.resourceNode = 'none';
-        tile.resourceAmount = 0;
+        padTile.buildingId = newBld.id;
         state.buildings.push(newBld);
         state.totalStructuresBuilt += 1;
-        break;
       }
     }
+
+    const bonusRole: UnitRole =
+      state.epochIndex >= 5 ? 'astro_engineer' : state.epochIndex >= 2 ? 'scholar' : 'builder';
+    spawnUnit(state, bonusRole, anchor.x, anchor.z, true);
   }
 
-  // Spawn 2 celebration specialists for the new age
-  const bonusRole: UnitRole =
-    state.epochIndex >= 5 ? 'astro_engineer' : state.epochIndex >= 3 ? 'scholar' : 'builder';
-  spawnUnit(state, bonusRole, cx + 1, cz + 1, true);
-
-  const centerTile = getTile(state, cx, cz);
+  const centerTile = getTile(state, anchor.x, anchor.z);
   state.pendingVfx.push({
     id: nextEntityId('vfx'),
     type: 'epoch_up',
-    x: cx,
+    x: anchor.x,
     y: (centerTile?.height ?? 3) * 0.45,
-    z: cz,
+    z: anchor.z,
     radius: 6.5,
     color: nextEpoch.accentColor,
     createdAt: Date.now(),
@@ -931,16 +910,15 @@ export function advanceEpoch(
 }
 
 export function spawnRaiderWave(state: SimulationState): void {
-  const cx = Math.floor(state.gridSize / 2);
-  const cz = Math.floor(state.gridSize / 2);
-  const ringDist = Math.min(Math.floor(state.gridSize * 0.4), 16);
+  const anchor = getSettlementAnchor(state);
+  const ringDist = Math.min(Math.floor(state.gridSize * 0.35), 18);
   const archetypes: UnitRole[] = ['raider_swarmer', 'raider_ranged', 'raider_behemoth'];
 
   let spawnedCount = 0;
   for (let i = 0; i < 3; i++) {
     const role = archetypes[i % archetypes.length];
-    const rx = Math.max(2, Math.min(state.gridSize - 3, i % 2 === 0 ? cx - ringDist : cx + ringDist));
-    const rz = Math.max(2, Math.min(state.gridSize - 3, cz + (i - 1) * 4));
+    const rx = Math.max(2, Math.min(state.gridSize - 3, i % 2 === 0 ? anchor.x - ringDist : anchor.x + ringDist));
+    const rz = Math.max(2, Math.min(state.gridSize - 3, anchor.z + (i - 1) * 4));
     const tile = getTile(state, rx, rz);
     if (tile && tile.height === 0) {
       tile.height = 1;
@@ -959,58 +937,384 @@ export function spawnRaiderWave(state: SimulationState): void {
   }
 }
 
+function recordHarvestDeposit(
+  state: SimulationState,
+  key: keyof Resources,
+  amount: number,
+): void {
+  if (amount <= 0) return;
+  state.resources[key] += amount;
+  if (!state.harvestAccumulator) state.harvestAccumulator = emptyResources();
+  state.harvestAccumulator[key] += amount;
+}
+
+function chooseNeededSpecialistRole(state: SimulationState): UnitRole {
+  const civs = state.units.filter((u) => u.faction === 'civilization' && u.state !== 'ko');
+  const countRole = (r: UnitRole) => civs.filter((u) => u.role === r).length;
+  const pop = civs.length;
+
+  if (countRole('forager') < Math.max(1, Math.floor(pop * 0.28))) return 'forager';
+  if (countRole('builder') < Math.max(1, Math.floor(pop * 0.2))) return 'builder';
+  if (countRole('miner') < Math.max(1, Math.floor(pop * 0.22))) return 'miner';
+  if (countRole('warrior') < Math.max(1, Math.floor(pop * 0.14))) return 'warrior';
+  if (state.epochIndex >= 1 && countRole('priest') < Math.max(1, Math.floor(pop * 0.12))) return 'priest';
+  if (state.epochIndex >= 1 && countRole('scholar') < Math.max(1, Math.floor(pop * 0.16))) return 'scholar';
+  if (state.epochIndex >= 5 && countRole('astro_engineer') < Math.max(1, Math.floor(pop * 0.16))) {
+    return 'astro_engineer';
+  }
+  return 'villager';
+}
+
+function pickDesiredAutobuildType(state: SimulationState): BuildingType | null {
+  const countType = (t: BuildingType) => state.buildings.filter((b) => b.type === t).length;
+  const pop = state.population;
+
+  if (countType('bonfire') === 0) return 'bonfire';
+  if (countType('forager_hut') < Math.min(4, Math.max(1, Math.floor(pop / 4)))) return 'forager_hut';
+  if (countType('shaman_totem') < (state.epochIndex >= 1 ? 2 : 1)) return 'shaman_totem';
+
+  if (state.epochIndex >= 1) {
+    if (countType('granary') < 2) return 'granary';
+    if (countType('smeltery') < 2) return 'smeltery';
+    if (countType('ziggurat') < 1) return 'ziggurat';
+  }
+  if (state.epochIndex >= 2) {
+    if (countType('guildhall') < 2) return 'guildhall';
+    if (countType('observatory') < 2) return 'observatory';
+  }
+  if (state.epochIndex >= 3) {
+    if (countType('steam_foundry') < 2) return 'steam_foundry';
+    if (countType('dynamo_plant') < 2) return 'dynamo_plant';
+  }
+  if (state.epochIndex >= 4) {
+    if (countType('fission_reactor') < 2) return 'fission_reactor';
+    if (countType('cyber_institute') < 2) return 'cyber_institute';
+  }
+  if (state.epochIndex >= 5) {
+    if (countType('launch_arcology') < 2) return 'launch_arcology';
+  }
+  if (state.epochIndex >= 6) {
+    if (countType('dyson_spire') < 1) return 'dyson_spire';
+  }
+  return null;
+}
+
+function transformSettlementEnvironment(state: SimulationState, anchor: { x: number; z: number }): void {
+  if (state.buildings.length === 0) return;
+
+  const sampleBld =
+    state.buildings[Math.floor(Math.abs(state.year) + state.buildings.length * 7) % state.buildings.length];
+  if (!sampleBld || sampleBld.constructionProgress < 100) return;
+
+  // 1. Era-driven road & high-tech terrain transformation around completed buildings
+  const offsets = [
+    [1, 0],
+    [-1, 0],
+    [0, 1],
+    [0, -1],
+    [1, 1],
+    [-1, -1],
+  ];
+  const pickOff = offsets[Math.floor(Math.abs(state.year * 3) + sampleBld.tileX) % offsets.length];
+  const adj = getTile(state, sampleBld.tileX + pickOff[0], sampleBld.tileZ + pickOff[1]);
+  if (adj && adj.height > 0 && !adj.buildingId) {
+    if (
+      state.epochIndex >= 5 &&
+      (sampleBld.type === 'launch_arcology' || sampleBld.type === 'dyson_spire')
+    ) {
+      adj.terrain = 'crystal_field';
+      if (adj.resourceNode === 'none' && (adj.x + adj.z) % 3 === 0) {
+        adj.resourceNode = 'crystal_monolith';
+        adj.resourceAmount = 320;
+      }
+    } else if (
+      state.epochIndex >= 3 &&
+      (sampleBld.type === 'steam_foundry' || sampleBld.type === 'fission_reactor')
+    ) {
+      if (adj.resourceNode === 'none') {
+        adj.terrain = 'stone_road';
+      } else if (adj.resourceNode === 'timber_grove' && adj.blessedTimer <= 0) {
+        // Industrial expansion clears adjacent timber
+        adj.resourceNode = 'none';
+        adj.resourceAmount = 0;
+        adj.terrain = 'stone_road';
+      }
+    } else if (state.epochIndex >= 1 && adj.resourceNode === 'none') {
+      // Bronze & Medieval towns pave cobblestone walkways
+      adj.terrain = 'stone_road';
+    }
+  }
+
+  // 2. Agricultural cultivation near food & civic hubs (forager_hut, granary, guildhall)
+  if (
+    sampleBld.type === 'forager_hut' ||
+    sampleBld.type === 'granary' ||
+    sampleBld.type === 'guildhall'
+  ) {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const fx = sampleBld.tileX + Math.floor(Math.random() * 7) - 3;
+      const fz = sampleBld.tileZ + Math.floor(Math.random() * 7) - 3;
+      const ft = getTile(state, fx, fz);
+      if (
+        ft &&
+        ft.height > 0 &&
+        ft.height <= 4 &&
+        !ft.buildingId &&
+        ft.resourceNode === 'none' &&
+        (ft.terrain === 'grass' || ft.terrain === 'savanna' || ft.terrain === 'fertile')
+      ) {
+        ft.terrain = 'fertile';
+        ft.resourceNode = 'berry_bush';
+        ft.resourceAmount = 190;
+        break;
+      }
+    }
+  }
+
+  // 3. Natural woodland & wild flora regrowth far from urban core
+  const rx = Math.max(2, Math.min(state.gridSize - 3, anchor.x + Math.floor(Math.random() * 52) - 26));
+  const rz = Math.max(2, Math.min(state.gridSize - 3, anchor.z + Math.floor(Math.random() * 52) - 26));
+  const wt = getTile(state, rx, rz);
+  if (
+    wt &&
+    wt.height > 0 &&
+    !wt.buildingId &&
+    wt.resourceNode === 'none' &&
+    Math.hypot(rx - anchor.x, rz - anchor.z) > 8
+  ) {
+    if (wt.terrain === 'forest') {
+      wt.resourceNode = 'timber_grove';
+      wt.resourceAmount = 220;
+    } else if (wt.terrain === 'fertile') {
+      wt.resourceNode = 'berry_bush';
+      wt.resourceAmount = 180;
+    }
+  }
+}
+
+function stepCivilizationPlanner(state: SimulationState, dt: number): void {
+  const activeCivs = state.units.filter((u) => u.faction === 'civilization' && u.state !== 'ko');
+  if (activeCivs.length === 0) return;
+
+  state.civPlanTimer = (state.civPlanTimer ?? 0) + dt;
+  const interval = state.buildings.length === 0 ? 0.5 : 1.8;
+  if (state.civPlanTimer < interval) return;
+  state.civPlanTimer = 0;
+
+  const anchor = getSettlementAnchor(state);
+
+  // 1. Founding the Very First Hearth when homeless settlers exist
+  if (state.buildings.length === 0) {
+    const pioneer = activeCivs[0];
+    const px = Math.round(pioneer.x);
+    const pz = Math.round(pioneer.z);
+    let siteTile: TileData | undefined = getTile(state, px, pz);
+    if (!siteTile || siteTile.height <= 0 || siteTile.buildingId) {
+      siteTile = findBuildableTileNear(state, px, pz, 8) ?? undefined;
+    }
+    if (siteTile && siteTile.height > 0 && !siteTile.buildingId) {
+      const def = BUILDINGS.find((b) => b.type === 'bonfire')!;
+      if (siteTile.resourceNode === 'timber_grove') state.resources.wood += 15;
+      else if (siteTile.resourceNode === 'berry_bush') state.resources.food += 15;
+      siteTile.resourceNode = 'none';
+      siteTile.resourceAmount = 0;
+
+      const hearth: BuildingEntity = {
+        id: nextEntityId('bld'),
+        type: 'bonfire',
+        tileX: siteTile.x,
+        tileZ: siteTile.z,
+        hp: def.maxHp,
+        maxHp: def.maxHp,
+        constructionProgress: 30,
+        epochLevel: state.epochIndex,
+        blessedTimer: 0,
+        cursedTimer: 0,
+        shieldTimer: 0,
+      };
+      siteTile.buildingId = hearth.id;
+      state.buildings.push(hearth);
+      state.totalStructuresBuilt += 1;
+      addChronicle(
+        state,
+        `Mortal pioneers stake their first Ancestral Bonfire at (${siteTile.x}, ${siteTile.z})!`,
+        'build',
+      );
+      recalculateRatesAndCaps(state);
+    }
+    return;
+  }
+
+  // 2. Autonomous Population Growth from food surplus & housing capacity
+  const hasCompletedHearth = state.buildings.some((b) => b.constructionProgress >= 100);
+  if (
+    hasCompletedHearth &&
+    state.population < state.populationCap &&
+    state.resources.food >= 28 &&
+    state.happiness >= 35
+  ) {
+    state.resources.food -= 20;
+    const role = chooseNeededSpecialistRole(state);
+    const spawnHub =
+      state.buildings.find((b) => b.constructionProgress >= 100) ?? state.buildings[0];
+    spawnUnit(state, role, spawnHub.tileX, spawnHub.tileZ, true);
+  }
+
+  // 3. Autonomous Construction Planner (builds structures appropriate for current epoch)
+  const activeSites = state.buildings.filter((b) => b.constructionProgress < 100).length;
+  if (state.autoBuildEnabled && hasCompletedHearth && activeSites < 2) {
+    const desiredType = pickDesiredAutobuildType(state);
+    if (desiredType) {
+      const def = BUILDINGS.find((b) => b.type === desiredType);
+      if (def && canAfford(state.resources, def.cost, false)) {
+        const site = findBuildableTileNear(state, anchor.x, anchor.z, 22);
+        if (site) {
+          state.resources = deductCost(state.resources, def.cost, false);
+          if (site.resourceNode === 'timber_grove') state.resources.wood += 12;
+          else if (site.resourceNode === 'stone_outcrop') state.resources.stone += 12;
+          site.resourceNode = 'none';
+          site.resourceAmount = 0;
+          if (state.epochIndex >= 1) site.terrain = 'stone_road';
+
+          const siteBld: BuildingEntity = {
+            id: nextEntityId('bld'),
+            type: desiredType,
+            tileX: site.x,
+            tileZ: site.z,
+            hp: def.maxHp,
+            maxHp: def.maxHp,
+            constructionProgress: 12,
+            epochLevel: state.epochIndex,
+            blessedTimer: 0,
+            cursedTimer: 0,
+            shieldTimer: 0,
+          };
+          site.buildingId = siteBld.id;
+          state.buildings.push(siteBld);
+          state.totalStructuresBuilt += 1;
+          addChronicle(state, `Settlers break ground on a ${def.name} at (${site.x}, ${site.z}).`, 'build');
+        }
+      }
+    }
+  }
+
+  // 4. Era-based Environment Transformation (roads, farms, industrial/crystal footprints)
+  transformSettlementEnvironment(state, anchor);
+}
+
 export function stepSimulation(state: SimulationState, rawDt: number): void {
-  const dt = Math.min(Math.max(rawDt, 0), 0.1);
+  let remainingDt = Math.min(Math.max(rawDt, 0), 1.5);
+  while (remainingDt > 0.0001) {
+    const stepDt = Math.min(remainingDt, 0.1);
+    remainingDt -= stepDt;
+    stepSimulationSingle(state, stepDt);
+  }
+}
+
+function stepSimulationSingle(state: SimulationState, dt: number): void {
   if (dt <= 0) return;
 
-  // 1. Advance historical year based on epoch speed
-  const yearsPerSec =
-    state.epochIndex === 0
-      ? 120
-      : state.epochIndex === 1
-        ? 60
-        : state.epochIndex === 2
-          ? 15
-          : state.epochIndex === 3
-            ? 4
-            : 2;
-  state.year += yearsPerSec * dt;
+  // 1. Advance historical year based on epoch speed (only once mortals walk the earth)
+  if (state.population > 0 || state.buildings.length > 0) {
+    const yearsPerSec =
+      state.epochIndex === 0
+        ? 120
+        : state.epochIndex === 1
+          ? 60
+          : state.epochIndex === 2
+            ? 15
+            : state.epochIndex === 3
+              ? 4
+              : 2;
+    state.year += yearsPerSec * dt;
+  }
 
   if (state.goldenAgeTimer > 0) {
     state.goldenAgeTimer = Math.max(0, state.goldenAgeTimer - dt);
   }
 
-  // 2. Accumulate resources
+  // 2. Smoothly measure actual citizen harvest deposits over rolling 3s window
+  state.harvestWindowTimer = (state.harvestWindowTimer ?? 0) + dt;
+  if (state.harvestWindowTimer >= 3.0) {
+    const win = state.harvestWindowTimer;
+    const acc = state.harvestAccumulator ?? emptyResources();
+    const prev = state.harvestRates ?? emptyResources();
+    const nextRates = emptyResources();
+    for (const k of Object.keys(nextRates) as (keyof Resources)[]) {
+      nextRates[k] = prev[k] * 0.35 + (acc[k] / win) * 0.65;
+    }
+    state.harvestRates = nextRates;
+    state.harvestAccumulator = emptyResources();
+    state.harvestWindowTimer = 0;
+  }
+
+  // 3. Accumulate passive completed-building production & apply population food upkeep
   recalculateRatesAndCaps(state);
-  for (const k of Object.keys(state.rates) as (keyof Resources)[]) {
-    state.resources[k] = Math.max(0, state.resources[k] + state.rates[k] * dt);
+  const epoch = EPOCHS[state.epochIndex] || EPOCHS[0];
+  const passiveRates = emptyResources();
+  passiveRates.faith = 2;
+  for (const b of state.buildings) {
+    if (b.constructionProgress < 100) continue;
+    const def = BUILDINGS.find((d) => d.type === b.type);
+    if (!def) continue;
+    const blessMult = b.blessedTimer > 0 ? 1.75 : b.cursedTimer > 0 ? 0.5 : 1.0;
+    const epochMult = 1 + state.epochIndex * 0.16;
+    for (const [k, v] of Object.entries(def.productionPerSec)) {
+      const key = k as keyof Resources;
+      passiveRates[key] += (v ?? 0) * blessMult * epochMult;
+    }
+  }
+  const foodUpkeep = state.population > 4 ? (state.population - 4) * 0.18 : 0;
+  passiveRates.food = Math.max(-foodUpkeep, passiveRates.food - foodUpkeep);
+  const goldenMult = state.goldenAgeTimer > 0 ? 2 : 1;
+  for (const k of Object.keys(passiveRates) as (keyof Resources)[]) {
+    state.resources[k] = Math.max(0, state.resources[k] + passiveRates[k] * goldenMult * dt);
   }
 
-  // 3. Epoch progression bar
-  if (state.epochIndex < EPOCHS.length - 1) {
+  // 4. Autonomous Civilization Planner (hearth founding, expansion, population growth, environment transformation)
+  stepCivilizationPlanner(state, dt);
+
+  // 5. Real Epoch progression check & organic Epoch Ascension
+  if (state.epochIndex < EPOCHS.length - 1 && state.buildings.some((b) => b.constructionProgress >= 100)) {
     const nextEpoch = EPOCHS[state.epochIndex + 1];
-    const reqKnow = Math.max(50, nextEpoch.unlockCost.knowledge);
-    const ratio = Math.min(100, Math.round((state.resources.knowledge / reqKnow) * 100));
-    state.epochProgress = Math.max(state.epochProgress, ratio);
-  } else {
+    let ratioSum = 0;
+    let ratioCount = 0;
+    for (const [k, reqVal] of Object.entries(nextEpoch.unlockCost)) {
+      if ((reqVal ?? 0) > 0) {
+        ratioSum += Math.min(1, state.resources[k as keyof Resources] / reqVal);
+        ratioCount += 1;
+      }
+    }
+    const avgPct = ratioCount > 0 ? Math.round((ratioSum / ratioCount) * 100) : 0;
+    state.epochProgress = Math.max(0, Math.min(100, avgPct));
+
+    const completedCount = state.buildings.filter((b) => b.constructionProgress >= 100).length;
+    const requiredStructures = Math.max(2, (state.epochIndex + 1) * 2);
+    if (completedCount >= requiredStructures && canAfford(state.resources, nextEpoch.unlockCost, false)) {
+      advanceEpoch(state, false);
+    }
+  } else if (state.epochIndex >= EPOCHS.length - 1) {
     state.epochProgress = 100;
+  } else {
+    state.epochProgress = 0;
   }
 
-  // 4. Update tile timers
+  // 6. Update tile timers
   for (const t of state.tiles) {
     if (t.blessedTimer > 0) t.blessedTimer = Math.max(0, t.blessedTimer - dt);
     if (t.cursedTimer > 0) t.cursedTimer = Math.max(0, t.cursedTimer - dt);
     if (t.onFireTimer > 0) t.onFireTimer = Math.max(0, t.onFireTimer - dt);
   }
 
-  // 5. Update building timers
+  // 7. Update building timers
   for (const b of state.buildings) {
     if (b.blessedTimer > 0) b.blessedTimer = Math.max(0, b.blessedTimer - dt);
     if (b.cursedTimer > 0) b.cursedTimer = Math.max(0, b.cursedTimer - dt);
     if (b.shieldTimer > 0) b.shieldTimer = Math.max(0, b.shieldTimer - dt);
+    b.epochLevel = Math.max(b.epochLevel, epoch.index);
   }
 
-  // 6. Update unit AI & status effects
+  // 8. Update unit AI & status effects
   const remainingUnits: UnitEntity[] = [];
 
   for (const u of state.units) {
@@ -1022,7 +1326,6 @@ export function stepSimulation(state: SimulationState, rawDt: number): void {
       continue;
     }
 
-    // Status timers
     for (const eff of Object.keys(u.statusEffects) as (keyof typeof u.statusEffects)[]) {
       const val = u.statusEffects[eff] ?? 0;
       if (val > 0) {
@@ -1032,10 +1335,8 @@ export function stepSimulation(state: SimulationState, rawDt: number): void {
       }
     }
 
-    // Plague damage & contagion
     if (u.statusEffects.plagued) {
       u.hp -= 4.5 * dt;
-      // Contagion to very close unshielded units
       for (const other of state.units) {
         if (
           other.id !== u.id &&
@@ -1062,7 +1363,7 @@ export function stepSimulation(state: SimulationState, rawDt: number): void {
 
     const def = UNITS.find((d) => d.role === u.role)!;
     const tileUnder = getTile(state, u.x, u.z);
-    const roadBoost = tileUnder?.terrain === 'stone_road' ? 1.45 : 1.0;
+    const roadBoost = tileUnder?.terrain === 'stone_road' ? 1.45 : tileUnder?.terrain === 'crystal_field' ? 1.6 : 1.0;
     const statusSpeedMult =
       (u.statusEffects.blessed ? 1.6 : 1.0) *
       (u.statusEffects.frenzied ? 1.5 : 1.0) *
@@ -1072,10 +1373,6 @@ export function stepSimulation(state: SimulationState, rawDt: number): void {
     if (u.actionCooldown > 0) u.actionCooldown = Math.max(0, u.actionCooldown - dt);
 
     if (u.faction === 'hostile') {
-      // 3 distinct hostile AI policies:
-      // 1) raider_swarmer: rushes nearest civilian unit
-      // 2) raider_ranged: kites at distance 3.0..4.2 from nearest unit/building
-      // 3) raider_behemoth: targets buildings with a telegraph windup slam
       stepHostileUnitAI(state, u, def, moveSpeed, dt);
     } else {
       stepCivilianUnitAI(state, u, def, moveSpeed, dt);
@@ -1086,13 +1383,9 @@ export function stepSimulation(state: SimulationState, rawDt: number): void {
 
   state.units = remainingUnits;
 
-  // Remove destroyed buildings (always keep at least the main bonfire standing at 20% HP unless smited)
-  state.buildings = state.buildings.filter((b, idx) => {
+  // Remove destroyed buildings (preserve primary hearth if others stand, collapse if all fail)
+  state.buildings = state.buildings.filter((b) => {
     if (b.hp <= 0) {
-      if (idx === 0) {
-        b.hp = Math.round(b.maxHp * 0.25);
-        return true;
-      }
       const t = getTile(state, b.tileX, b.tileZ);
       if (t && t.buildingId === b.id) t.buildingId = null;
       return false;
@@ -1109,7 +1402,6 @@ function stepHostileUnitAI(
   dt: number,
 ): void {
   if (u.role === 'raider_behemoth') {
-    // Policy 3: Line-of-Sight Siege Charger — seeks nearest structure
     let nearestBld: BuildingEntity | null = null;
     let bestDistSq = Infinity;
     for (const b of state.buildings) {
@@ -1138,11 +1430,10 @@ function stepHostileUnitAI(
         u.x += dx * moveSpeed * dt;
         u.z += dz * moveSpeed * dt;
       }
+      return;
     }
-    return;
   }
 
-  // Find nearest civilian unit
   let nearestCiv: UnitEntity | null = null;
   let bestDistSq = Infinity;
   for (const other of state.units) {
@@ -1159,7 +1450,6 @@ function stepHostileUnitAI(
   const dist = Math.sqrt(bestDistSq);
 
   if (u.role === 'raider_ranged') {
-    // Policy 2: Kiter/Ranged — backs away if civilian gets closer than 2.2 tiles, fires between 2.2..4.2
     if (dist < 2.1) {
       u.state = 'moving';
       const dx = (u.x - nearestCiv.x) / Math.max(0.1, dist);
@@ -1184,7 +1474,6 @@ function stepHostileUnitAI(
     return;
   }
 
-  // Policy 1: Swarmer — fast direct pursuit & rapid melee
   if (dist <= def.attackRange) {
     u.state = 'fighting';
     if (u.actionCooldown <= 0) {
@@ -1202,6 +1491,61 @@ function stepHostileUnitAI(
   }
 }
 
+function findNearestResourceTile(
+  state: SimulationState,
+  ux: number,
+  uz: number,
+  preferredNodes: TileData['resourceNode'][],
+): TileData | null {
+  const rx = Math.round(ux);
+  const rz = Math.round(uz);
+  let bestTile: TileData | null = null;
+  let bestScore = Infinity;
+
+  for (const radius of [12, 24, 42]) {
+    const minX = Math.max(1, rx - radius);
+    const maxX = Math.min(state.gridSize - 2, rx + radius);
+    const minZ = Math.max(1, rz - radius);
+    const maxZ = Math.min(state.gridSize - 2, rz + radius);
+
+    for (let tz = minZ; tz <= maxZ; tz++) {
+      for (let tx = minX; tx <= maxX; tx++) {
+        const t = state.tiles[tz * state.gridSize + tx];
+        if (!t || t.height <= 0 || t.resourceAmount <= 0 || t.resourceNode === 'none') continue;
+        const prefIdx = preferredNodes.indexOf(t.resourceNode);
+        if (prefIdx === -1) continue;
+        const dist = Math.hypot(tx - ux, tz - uz);
+        const score = dist + prefIdx * 3.5;
+        if (score < bestScore) {
+          bestScore = score;
+          bestTile = t;
+        }
+      }
+    }
+    if (bestTile) return bestTile;
+  }
+  return bestTile;
+}
+
+function findNearestDropoffBuilding(
+  state: SimulationState,
+  x: number,
+  z: number,
+): BuildingEntity | null {
+  let best: BuildingEntity | null = null;
+  let bestDistSq = Infinity;
+  for (const b of state.buildings) {
+    if (b.constructionProgress < 100) continue;
+    const dSq = (b.tileX - x) ** 2 + (b.tileZ - z) ** 2;
+    if (dSq < bestDistSq) {
+      bestDistSq = dSq;
+      best = b;
+    }
+  }
+  if (!best && state.buildings.length > 0) return state.buildings[0];
+  return best;
+}
+
 function stepCivilianUnitAI(
   state: SimulationState,
   u: UnitEntity,
@@ -1209,7 +1553,7 @@ function stepCivilianUnitAI(
   moveSpeed: number,
   dt: number,
 ): void {
-  // 1. Check if hostile raiders are nearby (Warriors or Frenzied citizens engage!)
+  // 1. Combat defense (Warriors, Frenzied citizens, or self-defense vs adjacent raiders)
   let nearestHostile: UnitEntity | null = null;
   let hostileDistSq = Infinity;
   for (const other of state.units) {
@@ -1222,7 +1566,7 @@ function stepCivilianUnitAI(
     }
   }
 
-  if (nearestHostile && (u.role === 'warrior' || u.statusEffects.frenzied || hostileDistSq < 12)) {
+  if (nearestHostile && (u.role === 'warrior' || u.statusEffects.frenzied || hostileDistSq < 10)) {
     const dist = Math.sqrt(hostileDistSq);
     if (dist <= def.attackRange) {
       u.state = 'fighting';
@@ -1263,60 +1607,251 @@ function stepCivilianUnitAI(
     }
   }
 
-  // 3. Move toward targetX, targetZ or pick a new productive task around the settlement
-  const dx = u.targetX - u.x;
-  const dz = u.targetZ - u.z;
-  const distToTarget = Math.sqrt(dx * dx + dz * dz);
+  // 3. Construct or repair unfinished settlement buildings (Builders & Villagers prioritize this)
+  const unfinished = state.buildings.find((b) => b.constructionProgress < 100);
+  if (
+    unfinished &&
+    u.carryingAmount === 0 &&
+    (u.role === 'builder' || u.role === 'villager' || state.buildings.length <= 2)
+  ) {
+    const dx = unfinished.tileX - u.x;
+    const dz = unfinished.tileZ - u.z;
+    const dist = Math.hypot(dx, dz);
+    u.targetX = unfinished.tileX;
+    u.targetZ = unfinished.tileZ;
+    if (dist > 1.05) {
+      u.state = 'moving';
+      u.x += (dx / dist) * moveSpeed * dt;
+      u.z += (dz / dist) * moveSpeed * dt;
+    } else {
+      u.state = 'building';
+      const buildSpeed =
+        (u.role === 'builder' ? 28 : 16) * (u.statusEffects.blessed ? 1.6 : 1.0);
+      unfinished.constructionProgress = Math.min(100, unfinished.constructionProgress + buildSpeed * dt);
+      unfinished.hp = Math.min(unfinished.maxHp, unfinished.hp + 20 * dt);
+      if (unfinished.constructionProgress >= 100) {
+        const bDef = BUILDINGS.find((d) => d.type === unfinished.type);
+        const tile = getTile(state, unfinished.tileX, unfinished.tileZ);
+        state.pendingVfx.push({
+          id: nextEntityId('vfx'),
+          type: 'build_complete',
+          x: unfinished.tileX,
+          y: (tile?.height ?? 2) * 0.45,
+          z: unfinished.tileZ,
+          radius: 1.5,
+          color: '#f5b742',
+          createdAt: Date.now(),
+        });
+        addChronicle(
+          state,
+          `Construction completed: ${bDef?.name ?? unfinished.type} at (${unfinished.tileX}, ${unfinished.tileZ}).`,
+          'build',
+        );
+        recalculateRatesAndCaps(state);
+      }
+    }
+    return;
+  }
 
-  if (distToTarget > 0.25) {
-    u.state = 'moving';
-    u.x += (dx / distToTarget) * moveSpeed * dt;
-    u.z += (dz / distToTarget) * moveSpeed * dt;
-  } else {
-    // Reached destination: perform role activity briefly then pick next destination
-    if (u.actionCooldown <= 0) {
-      u.actionCooldown = 2.2 + (u.id.charCodeAt(u.id.length - 1) % 3) * 0.6;
+  // 4. Hauling harvested resources back to settlement storage
+  const carryCap = u.role === 'forager' || u.role === 'miner' ? 12 : 8;
+  if (u.carryingAmount >= carryCap && u.carryingType) {
+    const dropoff = findNearestDropoffBuilding(state, u.x, u.z);
+    if (dropoff) {
+      const dx = dropoff.tileX - u.x;
+      const dz = dropoff.tileZ - u.z;
+      const dist = Math.hypot(dx, dz);
+      u.targetX = dropoff.tileX;
+      u.targetZ = dropoff.tileZ;
+      if (dist > 1.1) {
+        u.state = 'moving';
+        u.x += (dx / dist) * moveSpeed * dt;
+        u.z += (dz / dist) * moveSpeed * dt;
+      } else {
+        recordHarvestDeposit(state, u.carryingType, u.carryingAmount);
+        u.carryingAmount = 0;
+        u.carryingType = null;
+        u.actionCooldown = 0.25;
+        u.state = 'idle';
+      }
+      return;
+    }
+  }
 
-      // Pick a nearby resource node or building within local radius (avoids full 128x128 scan)
-      const ux = Math.round(u.x);
-      const uz = Math.round(u.z);
-      const searchR = 14;
-      const minX = Math.max(1, ux - searchR);
-      const maxX = Math.min(state.gridSize - 2, ux + searchR);
-      const minZ = Math.max(1, uz - searchR);
-      const maxZ = Math.min(state.gridSize - 2, uz + searchR);
-      const candidateTiles: TileData[] = [];
-      for (let tz = minZ; tz <= maxZ; tz++) {
-        for (let tx = minX; tx <= maxX; tx++) {
-          const t = state.tiles[tz * state.gridSize + tx];
-          if (t && t.height > 0 && (t.resourceNode !== 'none' || t.buildingId !== null)) {
-            candidateTiles.push(t);
+  // 5. Dedicated Sanctum / Research / Engineering duties when structures exist
+  if ((u.role === 'priest' || u.role === 'scholar' || u.role === 'astro_engineer') && state.buildings.length > 0) {
+    const targetBld =
+      state.buildings.find((b) =>
+        u.role === 'priest'
+          ? b.type === 'shaman_totem' || b.type === 'ziggurat'
+          : u.role === 'scholar'
+            ? b.type === 'observatory' || b.type === 'cyber_institute' || b.type === 'shaman_totem'
+            : b.type === 'launch_arcology' || b.type === 'dyson_spire' || b.type === 'fission_reactor',
+      ) ?? findNearestDropoffBuilding(state, u.x, u.z);
+
+    if (targetBld) {
+      const dx = targetBld.tileX - u.x;
+      const dz = targetBld.tileZ - u.z;
+      const dist = Math.hypot(dx, dz);
+      u.targetX = targetBld.tileX;
+      u.targetZ = targetBld.tileZ;
+      if (dist > 1.35) {
+        u.state = 'moving';
+        u.x += (dx / dist) * moveSpeed * dt;
+        u.z += (dz / dist) * moveSpeed * dt;
+      } else {
+        u.state = u.role === 'priest' ? 'praying' : 'researching';
+        u.harvestTimer = (u.harvestTimer ?? 0) + dt * (u.statusEffects.blessed ? 1.7 : 1.0);
+        if (u.harvestTimer >= 1.2) {
+          u.harvestTimer -= 1.2;
+          if (u.role === 'priest') {
+            recordHarvestDeposit(state, 'faith', 2.8);
+          } else if (u.role === 'scholar') {
+            recordHarvestDeposit(state, 'knowledge', 3.4 + state.epochIndex * 1.1);
+          } else {
+            recordHarvestDeposit(state, 'energy', 4.0);
+            recordHarvestDeposit(state, 'alloy', 2.5);
+            recordHarvestDeposit(state, 'knowledge', 2.2);
           }
         }
       }
-
-      if (candidateTiles.length > 0) {
-        const chosen =
-          candidateTiles[
-            (Math.floor(Math.abs(state.year) + u.x * 7 + u.z * 11) + u.id.charCodeAt(u.id.length - 1)) %
-              candidateTiles.length
-          ];
-        u.targetX = chosen.x + (Math.random() - 0.5) * 0.4;
-        u.targetZ = chosen.z + (Math.random() - 0.5) * 0.4;
-      } else if (state.buildings.length > 0) {
-        const b = state.buildings[u.id.charCodeAt(u.id.length - 1) % state.buildings.length];
-        u.targetX = b.tileX + (Math.random() - 0.5) * 2.0;
-        u.targetZ = b.tileZ + (Math.random() - 0.5) * 2.0;
-      }
-    } else {
-      u.state =
-        u.role === 'priest'
-          ? 'praying'
-          : u.role === 'scholar'
-            ? 'researching'
-            : u.role === 'builder'
-              ? 'building'
-              : 'gathering';
+      return;
     }
+  }
+
+  // 6. Real Gathering Loop (Chopping trees, foraging berries, mining stone/ore/crystals)
+  const dxT = u.targetX - u.x;
+  const dzT = u.targetZ - u.z;
+  const distToTarget = Math.hypot(dxT, dzT);
+  const targetTile = getTile(state, u.targetX, u.targetZ);
+
+  if (
+    targetTile &&
+    targetTile.height > 0 &&
+    targetTile.resourceNode !== 'none' &&
+    targetTile.resourceAmount > 0
+  ) {
+    if (distToTarget > 0.95) {
+      u.state = 'moving';
+      u.x += (dxT / distToTarget) * moveSpeed * dt;
+      u.z += (dzT / distToTarget) * moveSpeed * dt;
+    } else {
+      u.state = 'gathering';
+      const workMult =
+        (def.harvestRate / 6) *
+        (u.statusEffects.blessed ? 1.75 : 1.0) *
+        (u.statusEffects.cursed ? 0.5 : 1.0);
+      u.harvestTimer = (u.harvestTimer ?? 0) + dt * workMult;
+      if (u.harvestTimer >= 0.8) {
+        u.harvestTimer -= 0.8;
+        const take = Math.min(targetTile.resourceAmount, 8 + Math.round(def.harvestRate * 0.5));
+        targetTile.resourceAmount -= take;
+
+        const yieldType: keyof Resources =
+          targetTile.resourceNode === 'timber_grove'
+            ? 'wood'
+            : targetTile.resourceNode === 'berry_bush'
+              ? 'food'
+              : targetTile.resourceNode === 'stone_outcrop'
+                ? 'stone'
+                : targetTile.resourceNode === 'ore_vein'
+                  ? 'ore'
+                  : state.epochIndex >= 4
+                    ? 'energy'
+                    : 'knowledge';
+
+        if (!u.carryingType || u.carryingType === yieldType) {
+          u.carryingType = yieldType;
+          u.carryingAmount += take;
+        } else {
+          // Deposit previous small bundle automatically if switching node type
+          recordHarvestDeposit(state, u.carryingType, u.carryingAmount);
+          u.carryingType = yieldType;
+          u.carryingAmount = take;
+        }
+
+        // If node depleted: fell tree / clear bush / exhaust quarry & transform terrain!
+        if (targetTile.resourceAmount <= 0) {
+          const oldNode = targetTile.resourceNode;
+          targetTile.resourceNode = 'none';
+          targetTile.resourceAmount = 0;
+
+          if (oldNode === 'timber_grove' && targetTile.terrain === 'forest') {
+            targetTile.terrain =
+              state.epochIndex >= 1 && (targetTile.x + targetTile.z) % 3 === 0 ? 'fertile' : 'grass';
+          } else if ((oldNode === 'stone_outcrop' || oldNode === 'ore_vein') && targetTile.terrain === 'rock') {
+            targetTile.terrain = 'highland';
+          }
+
+          state.pendingVfx.push({
+            id: nextEntityId('vfx'),
+            type: 'hit_spark',
+            x: targetTile.x,
+            y: targetTile.height * 0.45,
+            z: targetTile.z,
+            radius: 0.9,
+            color:
+              oldNode === 'timber_grove'
+                ? '#7a5032'
+                : oldNode === 'berry_bush'
+                  ? '#7ec88b'
+                  : '#b0a99f',
+            createdAt: Date.now(),
+          });
+        }
+      }
+    }
+    return;
+  }
+
+  // 7. Pick next resource node matching role & settlement shortages
+  if (u.actionCooldown <= 0) {
+    u.actionCooldown = 0.6;
+    let preferred: TileData['resourceNode'][];
+    if (u.role === 'forager') {
+      preferred =
+        state.resources.food <= state.resources.wood
+          ? ['berry_bush', 'timber_grove']
+          : ['timber_grove', 'berry_bush'];
+    } else if (u.role === 'miner') {
+      preferred =
+        state.resources.ore < state.resources.stone
+          ? ['ore_vein', 'stone_outcrop', 'crystal_monolith']
+          : ['stone_outcrop', 'ore_vein', 'crystal_monolith'];
+    } else {
+      // Villagers & others dynamically balance food, wood, stone, ore
+      const pairs: [TileData['resourceNode'], number][] = [
+        ['berry_bush', state.resources.food],
+        ['timber_grove', state.resources.wood],
+        ['stone_outcrop', state.resources.stone],
+        ['ore_vein', state.resources.ore + (state.epochIndex === 0 ? 40 : 0)],
+      ];
+      pairs.sort((a, b) => a[1] - b[1]);
+      preferred = pairs.map((p) => p[0]);
+    }
+
+    const nodeTile = findNearestResourceTile(state, u.x, u.z, preferred);
+    if (nodeTile) {
+      u.targetX = nodeTile.x + ((u.id.charCodeAt(u.id.length - 1) % 3) - 1) * 0.2;
+      u.targetZ = nodeTile.z + ((u.id.charCodeAt(0) % 3) - 1) * 0.2;
+      u.state = 'moving';
+      return;
+    }
+
+    // Patrol around settlement if no resource nodes within 42 tiles
+    if (state.buildings.length > 0) {
+      const b = state.buildings[u.id.charCodeAt(u.id.length - 1) % state.buildings.length];
+      u.targetX = b.tileX + (Math.random() - 0.5) * 4;
+      u.targetZ = b.tileZ + (Math.random() - 0.5) * 4;
+    } else {
+      u.targetX = Math.max(2, Math.min(state.gridSize - 3, u.x + (Math.random() - 0.5) * 6));
+      u.targetZ = Math.max(2, Math.min(state.gridSize - 3, u.z + (Math.random() - 0.5) * 6));
+    }
+  } else if (distToTarget > 0.35) {
+    u.state = 'moving';
+    u.x += (dxT / distToTarget) * moveSpeed * dt;
+    u.z += (dzT / distToTarget) * moveSpeed * dt;
+  } else {
+    u.state = 'idle';
   }
 }
