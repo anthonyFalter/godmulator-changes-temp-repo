@@ -155,7 +155,7 @@ export default function App() {
     unit: 'human',
   });
   const [brushRadius, setBrushRadius] = useState<number>(1);
-  const [pixelScale, setPixelScale] = useState<number>(3);
+  const pixelScale = 3;
   const [lightingPreset, setLightingPreset] = useState<LightingPreset>('noon');
   const [dockCollapsed, setDockCollapsed] = useState<boolean>(false);
   const [chronicleOpen, setChronicleOpen] = useState<boolean>(false);
@@ -1299,51 +1299,6 @@ export default function App() {
                     {muted ? 'Off' : 'On'}
                   </button>
                 </div>
-
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <label htmlFor="pixel-scale-slider" className="text-[#e8e0d2]">
-                      Pixel Scale
-                    </label>
-                    <span className="font-bold text-[#f5b742] tabular-nums">
-                      {pixelScale}x
-                    </span>
-                  </div>
-                  <input
-                    id="pixel-scale-slider"
-                    type="range"
-                    min={1}
-                    max={4}
-                    step={1}
-                    value={pixelScale}
-                    onChange={(e) => {
-                      setPixelScale(Number(e.target.value));
-                      soundEngine.playClick();
-                    }}
-                    className="px-range w-full"
-                  />
-                </div>
-
-                <div>
-                  <span className="block text-[#e8e0d2] mb-1.5">Sky Lighting</span>
-                  <div className="grid grid-cols-4 gap-1.5">
-                    {(['noon', 'dusk', 'night', 'dawn'] as LightingPreset[]).map((lp) => (
-                      <button
-                        key={lp}
-                        type="button"
-                        onClick={() => {
-                          setLightingPreset(lp);
-                          soundEngine.playClick();
-                        }}
-                        className={`py-1.5 capitalize cursor-pointer ${
-                          lightingPreset === lp ? 'px-btn-active font-bold' : 'px-btn'
-                        }`}
-                      >
-                        {lp}
-                      </button>
-                    ))}
-                  </div>
-                </div>
               </div>
 
               <button
@@ -1579,6 +1534,23 @@ export default function App() {
                 title="New World"
               >
                 <HudPixelIcon kind="reset" />
+              </button>
+              <button
+                type="button"
+                tabIndex={-1}
+                data-testid="hud-settings-btn"
+                onClick={(e) => {
+                  e.currentTarget.blur();
+                  soundEngine.playClick();
+                  setGameState((prev) => (prev === 'paused' ? 'playing' : 'paused'));
+                }}
+                className={`w-7 h-7 flex items-center justify-center cursor-pointer ${
+                  gameState === 'paused' ? 'px-btn-active' : 'px-btn'
+                }`}
+                aria-label="Settings"
+                title="Settings (Esc)"
+              >
+                <HudPixelIcon kind="settings" />
               </button>
             </div>
           </div>
@@ -2225,56 +2197,70 @@ export default function App() {
         </div>
       )}
 
-      {/* PAUSE MODAL */}
+      {/* IN-GAME SETTINGS / PAUSE MODAL */}
       {gameState === 'paused' && (
         <div
           role="dialog"
           aria-modal="true"
-          aria-label="Paused"
+          aria-label="Settings"
+          data-testid="ingame-settings-modal"
           className="fixed inset-0 z-40 flex items-center justify-center bg-[#0d0c0b]/75 p-4"
         >
-          <div className="w-full max-w-sm px-panel p-6">
-            <h2 className="text-2xl font-bold text-[#f5b742] mb-1">Paused</h2>
-            <p className="text-xs text-[#b8afa2] mb-5 tabular-nums">
-              {currentEpoch.name} ({formatYearLabel(sim.year)})
-            </p>
+          <div className="w-full max-w-sm px-panel p-6 space-y-5">
+            <div className="flex items-baseline justify-between">
+              <h2 className="text-lg font-bold text-[#f5b742]">Settings</h2>
+              <span className="text-xs text-[#b8afa2] tabular-nums">
+                {currentEpoch.name} ({formatYearLabel(sim.year)})
+              </span>
+            </div>
 
-            <div className="grid grid-cols-3 gap-2 mb-6 px-panel-inset p-3 text-center">
-              <div>
-                <div className="font-pixel-num text-base font-bold text-[#f5b742]">{sim.population}</div>
-                <div className="text-[11px] text-[#a89f91]">Pop</div>
-              </div>
-              <div>
-                <div className="font-pixel-num text-base font-bold text-[#f2ece1]">{sim.buildings.length}</div>
-                <div className="text-[11px] text-[#a89f91]">Built</div>
-              </div>
-              <div>
-                <div className="font-pixel-num text-base font-bold text-[#56cfe1]">{sim.totalMiraclesCast}</div>
-                <div className="text-[11px] text-[#a89f91]">Powers</div>
+            <div className="space-y-4 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-[#e8e0d2]">Sound Effects</span>
+                <button
+                  type="button"
+                  onClick={handleToggleMute}
+                  className={`px-3 py-1.5 font-semibold cursor-pointer ${
+                    !muted ? 'px-btn-active font-bold' : 'px-btn'
+                  }`}
+                >
+                  {muted ? 'Off' : 'On'}
+                </button>
               </div>
             </div>
 
-            <div className="flex items-center gap-2.5">
+            <div className="flex flex-col gap-2">
               <button
                 type="button"
-                onClick={() => setGameState('playing')}
-                className="px-btn-primary px-5 py-2 text-sm font-bold cursor-pointer"
+                onClick={() => {
+                  soundEngine.playClick();
+                  setGameState('playing');
+                }}
+                className="px-btn-primary w-full py-2.5 text-sm font-bold cursor-pointer"
               >
                 Resume
               </button>
               <button
                 type="button"
-                onClick={handleRestartGame}
-                className="px-btn px-4 py-2 text-sm cursor-pointer"
+                onClick={() => {
+                  soundEngine.playClick();
+                  handleRestartGame();
+                }}
+                className="px-btn w-full py-2 text-xs font-semibold cursor-pointer"
               >
-                Restart
+                Restart World
               </button>
               <button
                 type="button"
-                onClick={() => setGameState('title')}
-                className="px-btn px-4 py-2 text-sm cursor-pointer"
+                data-testid="ingame-main-menu-btn"
+                onClick={() => {
+                  soundEngine.playClick();
+                  setTitleMenuStep('main');
+                  setGameState('title');
+                }}
+                className="px-btn w-full py-2 text-xs font-semibold cursor-pointer"
               >
-                Title
+                Main Menu
               </button>
             </div>
           </div>

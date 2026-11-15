@@ -918,7 +918,8 @@ export const HudPixelIcon: React.FC<{
     | 'audioOff'
     | 'pause'
     | 'play'
-    | 'reset';
+    | 'reset'
+    | 'settings';
   className?: string;
 }> = ({ kind, className = 'w-4 h-4 pixelated-canvas' }) => {
   switch (kind) {
@@ -999,6 +1000,17 @@ export const HudPixelIcon: React.FC<{
           <rect x="6" y="4" width="2" height="8" fill="currentColor" />
           <rect x="8" y="5" width="2" height="6" fill="currentColor" />
           <rect x="10" y="7" width="2" height="2" fill="currentColor" />
+        </svg>
+      );
+    case 'settings':
+      return (
+        <svg viewBox="0 0 16 16" className={className} aria-hidden="true" shapeRendering="crispEdges">
+          <rect x="7" y="2" width="2" height="2" fill="currentColor" />
+          <rect x="7" y="12" width="2" height="2" fill="currentColor" />
+          <rect x="2" y="7" width="2" height="2" fill="currentColor" />
+          <rect x="12" y="7" width="2" height="2" fill="currentColor" />
+          <rect x="4" y="4" width="8" height="8" fill="currentColor" />
+          <rect x="6" y="6" width="4" height="4" fill="#181512" />
         </svg>
       );
     case 'reset':
