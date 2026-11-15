@@ -229,6 +229,8 @@ export interface UnitEntity {
   genes?: string[];
   items?: string[];
   bornYear?: number;
+  ageYears?: number;
+  maxLifespan?: number;
   kills?: number;
 }
 
@@ -307,7 +309,7 @@ export type ZoneOverlayType = 'kingdoms' | 'kings' | 'territories' | 'biomes' | 
 
 export type ZoneToggleState = Record<ZoneOverlayType, boolean>;
 
-export type ToolCategory = 'powers' | 'terrain' | 'build' | 'spawn' | 'zones' | 'epochs' | 'inspect';
+export type ToolCategory = 'powers' | 'terrain' | 'build' | 'spawn' | 'zones' | 'rules' | 'epochs' | 'inspect';
 
 export type ActiveTool =
   | { kind: 'inspect' }
@@ -391,6 +393,21 @@ export type GameLifecycleState = 'title' | 'playing' | 'paused' | 'gameover';
 
 export type LightingPreset = 'noon' | 'dusk' | 'night' | 'dawn' | 'auto';
 
+export type GraphicsQualityPreset = 'high' | 'balanced' | 'fast' | 'custom';
+export type ShadowQualityOption = 'on' | 'fast' | 'off';
+export type SkyCloudsQualityOption = 'full' | 'reduced' | 'off';
+export type FoliageDetailOption = 'full' | 'medium' | 'low';
+export type ParticleDetailOption = 'full' | 'reduced' | 'low';
+
+export interface GraphicsSettings {
+  preset: GraphicsQualityPreset;
+  shadows: ShadowQualityOption;
+  cloudsAndSky: SkyCloudsQualityOption;
+  foliageDensity: FoliageDetailOption;
+  particles: ParticleDetailOption;
+  autoOptimizeFps: boolean;
+}
+
 export type WorldTemplateId =
   | 'realistic'
   | 'fantastic'
@@ -406,6 +423,10 @@ export interface WorldRulesConfig {
   wildfireSpread: boolean;
   autoBuildEnabled: boolean;
   sandboxFreeMode: boolean;
+  immortalEntities: boolean;
+  dayNightCycle: boolean;
+  allowReproduction: boolean;
+  animalAttacks: boolean;
   startingEpochIndex: number;
   startingSettlers: 'none' | 'pioneers' | 'colony';
 }
@@ -460,4 +481,5 @@ export interface SimulationState {
   settlementKingdoms?: Record<string, string>;
   wildlifeSeeded?: boolean;
   wildlifeRespawnTimer?: number;
+  raiderWaveTimer?: number;
 }

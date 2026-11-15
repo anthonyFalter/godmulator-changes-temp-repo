@@ -6,7 +6,9 @@ import {
   UNITS,
   getDinosaurVariant,
   getDragonVariant,
+  getUnitMaxLifespan,
 } from './catalog';
+export { getUnitMaxLifespan };
 import {
   BuildingEntity,
   BuildingType,
@@ -29,6 +31,9 @@ import {
 } from './types';
 import { generateUnitGenes, generateUnitItems } from './entityInspector';
 import { generateWorldTiles, normalizeSeed } from './worldGen';
+
+const BUILDING_BY_TYPE = new Map(BUILDINGS.map((d) => [d.type, d]));
+const UNIT_BY_ROLE = new Map(UNITS.map((d) => [d.role, d]));
 
 const CITIZEN_NAMES = [
   'Kaelen', 'Lyra', 'Theron', 'Vesper', 'Oakhart', 'Soren', 'Mira', 'Darian',
@@ -140,6 +145,10 @@ export const DEFAULT_WORLD_RULES: WorldRulesConfig = {
   wildfireSpread: true,
   autoBuildEnabled: true,
   sandboxFreeMode: false,
+  immortalEntities: false,
+  dayNightCycle: false,
+  allowReproduction: true,
+  animalAttacks: true,
   startingEpochIndex: 0,
   startingSettlers: 'none',
 };
@@ -177,6 +186,10 @@ export const WORLD_TEMPLATES: WorldTemplatePreset[] = [
       wildfireSpread: true,
       autoBuildEnabled: true,
       sandboxFreeMode: false,
+      immortalEntities: false,
+      dayNightCycle: false,
+      allowReproduction: true,
+      animalAttacks: true,
       startingEpochIndex: 0,
       startingSettlers: 'pioneers',
     },
@@ -199,6 +212,10 @@ export const WORLD_TEMPLATES: WorldTemplatePreset[] = [
       wildfireSpread: true,
       autoBuildEnabled: true,
       sandboxFreeMode: false,
+      immortalEntities: false,
+      dayNightCycle: false,
+      allowReproduction: true,
+      animalAttacks: true,
       startingEpochIndex: 0,
       startingSettlers: 'pioneers',
     },
@@ -221,6 +238,10 @@ export const WORLD_TEMPLATES: WorldTemplatePreset[] = [
       wildfireSpread: true,
       autoBuildEnabled: true,
       sandboxFreeMode: false,
+      immortalEntities: false,
+      dayNightCycle: false,
+      allowReproduction: true,
+      animalAttacks: true,
       startingEpochIndex: 6,
       startingSettlers: 'colony',
     },
@@ -243,6 +264,10 @@ export const WORLD_TEMPLATES: WorldTemplatePreset[] = [
       wildfireSpread: true,
       autoBuildEnabled: true,
       sandboxFreeMode: false,
+      immortalEntities: false,
+      dayNightCycle: false,
+      allowReproduction: true,
+      animalAttacks: true,
       startingEpochIndex: 0,
       startingSettlers: 'pioneers',
     },
@@ -265,6 +290,10 @@ export const WORLD_TEMPLATES: WorldTemplatePreset[] = [
       wildfireSpread: true,
       autoBuildEnabled: true,
       sandboxFreeMode: false,
+      immortalEntities: false,
+      dayNightCycle: false,
+      allowReproduction: true,
+      animalAttacks: true,
       startingEpochIndex: 0,
       startingSettlers: 'pioneers',
     },
@@ -732,7 +761,7 @@ export function spawnUnit(
   z: number,
   freeOverride = false,
   settlementIdOverride?: string,
-  options?: { ageStage?: UnitAgeStage; appearanceSeed?: number },
+  options?: { ageStage?: UnitAgeStage; appearanceSeed?: number; ageYears?: number; maxLifespan?: number },
 ): { ok: boolean; reason?: string; unit?: UnitEntity } {
   const def = UNITS.find((u) => u.role === role);
   if (!def) return { ok: false, reason: 'Unknown unit role' };
@@ -816,6 +845,15 @@ export function spawnUnit(
     (species === 'elf' ? ELF_NAMES : species === 'orc' ? ORC_NAMES : CITIZEN_NAMES);
   const nameIdx = Math.abs(appearanceSeed + state.units.length * 7) % namePool.length;
 
+  const genes = generateUnitGenes(role, species, appearanceSeed, dinoDiet);
+  const maxLifespan = getUnitMaxLifespan({
+    role,
+    species,
+    appearanceSeed,
+    genes,
+    maxLifespan: options?.maxLifespan,
+  });
+
   const unit: UnitEntity = {
     id: nextEntityId('unit'),
     name: def.faction === 'hostile' ? def.name : namePool[nameIdx],
@@ -843,9 +881,11 @@ export function spawnUnit(
     targetEntityId: null,
     harvestTimer: 0,
     favorite: false,
-    genes: generateUnitGenes(role, species, appearanceSeed, dinoDiet),
+    genes,
     items: generateUnitItems(role, species, state.epochIndex, appearanceSeed, dinoDiet),
     bornYear: state.year,
+    ageYears: Math.max(0, options?.ageYears ?? 0),
+    maxLifespan,
     kills: 0,
   };
 
@@ -3589,7 +3629,7 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
       else if (siteTile.resourceNode === 'berry_bush') state.resources.food += 15;
       siteTile.resourceNode = 'none';
       siteTile.resourceAmount = 0;
-      if (siteTile.terrain === 'stone_road') {
+      if (siteTile.terrain === 'stone_road' || siteTile.terrain === 'forest') {
         siteTile.terrain = 'grass';
       }
 
@@ -3703,8 +3743,9 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
       if (def) villagePopCap += def.popCapBonus;
     }
 
-    // Autonomous Population Growth for THIS village in its own species
+    // Autonomous Population Growth for THIS village in its own species (obeys God Rule allowReproduction)
     if (
+      state.worldRules?.allowReproduction !== false &&
       hasCompletedHearth &&
       villageUnits.length < villagePopCap &&
       state.resources.food >= 28 &&
@@ -3730,6 +3771,7 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
 
     if (
       state.autoBuildEnabled &&
+      state.worldRules?.autoBuildEnabled !== false &&
       hasCompletedHearth &&
       !orcSlowSkip &&
       activeSites < (villageSpecies === 'human' ? 2 : 1) &&
@@ -3747,7 +3789,7 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
             site.resourceNode = 'none';
             site.resourceAmount = 0;
             site.farmSettlementId = undefined;
-            if (site.terrain === 'stone_road') {
+            if (site.terrain === 'stone_road' || site.terrain === 'forest') {
               site.terrain = 'grass';
             }
             const baseEpochIdx = Math.max(0, EPOCHS.findIndex((e) => e.id === def.epoch));
@@ -3858,8 +3900,8 @@ export function stepSimulation(state: SimulationState, rawDt: number): void {
 function stepSimulationSingle(state: SimulationState, dt: number): void {
   if (dt <= 0) return;
 
-  // 1. Advance historical year at 1 year per 10 seconds on 1x speed (once mortals walk the earth)
-  if (state.population > 0 || state.buildings.length > 0) {
+  // 1. Advance historical year at 1 year per 10 seconds on 1x speed (whenever creatures or structures inhabit the world)
+  if (state.population > 0 || state.units.length > 0 || state.buildings.length > 0) {
     state.year += YEARS_PER_SEC_AT_1X * dt;
   }
 
@@ -3889,7 +3931,7 @@ function stepSimulationSingle(state: SimulationState, dt: number): void {
   const paceMult = state.sandboxFreeMode ? 1.0 : 0.62;
   for (const b of state.buildings) {
     if (b.constructionProgress < 100) continue;
-    const def = BUILDINGS.find((d) => d.type === b.type);
+    const def = BUILDING_BY_TYPE.get(b.type);
     if (!def) continue;
     const blessMult = b.blessedTimer > 0 ? 1.75 : b.cursedTimer > 0 ? 0.5 : 1.0;
     const epochMult = 1 + Math.min(4, state.epochIndex) * 0.1;
@@ -3917,18 +3959,32 @@ function stepSimulationSingle(state: SimulationState, dt: number): void {
     state.resources[k] = Math.max(0, state.resources[k] + passiveRates[k] * goldenMult * dt);
   }
 
-  // 4. Autonomous Civilization Planner & Wild Ecology Seeding
+  // 4. Autonomous Civilization Planner, Raider Waves & Wild Ecology Seeding
   if (!state.wildlifeSeeded) {
     state.wildlifeSeeded = true;
     seedWorldWildlife(state);
   }
-  state.wildlifeRespawnTimer = (state.wildlifeRespawnTimer ?? 0) + dt;
-  if (state.wildlifeRespawnTimer >= 26) {
-    state.wildlifeRespawnTimer = 0;
-    const livingWildlife = state.units.filter((u) => u.faction === 'wildlife' && u.state !== 'ko').length;
-    if (livingWildlife < 20) {
-      seedWorldWildlife(state, 4);
+  if (state.worldRules?.allowReproduction !== false) {
+    state.wildlifeRespawnTimer = (state.wildlifeRespawnTimer ?? 0) + dt;
+    if (state.wildlifeRespawnTimer >= 26) {
+      state.wildlifeRespawnTimer = 0;
+      const livingWildlife = state.units.filter((u) => u.faction === 'wildlife' && u.state !== 'ko').length;
+      if (livingWildlife < 20) {
+        seedWorldWildlife(state, 4);
+      }
     }
+  }
+  if (state.worldRules?.raiderWaves && state.buildings.some((b) => b.constructionProgress >= 100)) {
+    state.raiderWaveTimer = (state.raiderWaveTimer ?? 0) + dt;
+    if (state.raiderWaveTimer >= 85) {
+      state.raiderWaveTimer = 0;
+      const activeRaiders = state.units.filter((u) => u.faction === 'hostile' && u.state !== 'ko').length;
+      if (activeRaiders < 9) {
+        spawnRaiderWave(state);
+      }
+    }
+  } else {
+    state.raiderWaveTimer = 0;
   }
   stepCivilizationPlanner(state, dt);
 
@@ -4289,8 +4345,9 @@ function stepSimulationSingle(state: SimulationState, dt: number): void {
   }
   state.activeHazards = remainingHazards;
 
-  const pendingFireIgnitions = new Map<TileData, { duration: number; fireColor?: string }>();
-  for (const t of state.tiles) {
+  let pendingFireIgnitions: Map<TileData, { duration: number; fireColor?: string }> | null = null;
+  for (let i = 0; i < state.tiles.length; i++) {
+    const t = state.tiles[i];
     if (t.blessedTimer > 0) t.blessedTimer = Math.max(0, t.blessedTimer - dt);
     if (t.cursedTimer > 0) t.cursedTimer = Math.max(0, t.cursedTimer - dt);
     if (t.onFireTimer > 0) {
@@ -4343,7 +4400,7 @@ function stepSimulationSingle(state: SimulationState, dt: number): void {
         ] as const) {
           const nb = getTile(state, t.x + ox, t.z + oz);
           if (!nb || nb.height <= 0 || nb.onFireTimer > 0 || nb.blessedTimer > 0) continue;
-          if (pendingFireIgnitions.has(nb)) continue;
+          if (pendingFireIgnitions?.has(nb)) continue;
           const rate = getTileFlammabilityRate(state, nb) * distWeight * sourceHeatBoost;
           if (rate <= 0) continue;
           const igniteProb = 1 - Math.exp(-rate * dt);
@@ -4358,6 +4415,7 @@ function stepSimulationSingle(state: SimulationState, dt: number): void {
                 : nb.terrain === 'grass' && nb.resourceNode === 'none' && !nb.farmSettlementId
                   ? 2.6
                   : 3.4;
+            if (!pendingFireIgnitions) pendingFireIgnitions = new Map();
             pendingFireIgnitions.set(nb, {
               duration: childDuration,
               fireColor: t.fireColor,
@@ -4373,12 +4431,28 @@ function stepSimulationSingle(state: SimulationState, dt: number): void {
       t.fireColor = undefined;
     }
   }
-  for (const [nb, ign] of pendingFireIgnitions) {
-    nb.onFireTimer = ign.duration;
-    nb.fireColor = ign.fireColor;
+  if (pendingFireIgnitions) {
+    for (const [nb, ign] of pendingFireIgnitions) {
+      nb.onFireTimer = ign.duration;
+      nb.fireColor = ign.fireColor;
+    }
   }
 
   // 7. Update building timers & fire/curse damage
+  // Precompute living citizen presence and building counts per settlement once (O(U + B) instead of O(B * (U + B)))
+  const livingCitizenSids = new Set<string>();
+  for (let i = 0; i < state.units.length; i++) {
+    const u = state.units[i];
+    if (u.faction === 'civilization' && u.state !== 'ko' && u.hp > 0 && u.settlementId) {
+      livingCitizenSids.add(u.settlementId);
+    }
+  }
+  const bldCountBySid = new Map<string, number>();
+  for (let i = 0; i < state.buildings.length; i++) {
+    const sid = state.buildings[i].settlementId ?? 'city_default';
+    bldCountBySid.set(sid, (bldCountBySid.get(sid) ?? 0) + 1);
+  }
+
   for (const b of state.buildings) {
     if (b.blessedTimer > 0) b.blessedTimer = Math.max(0, b.blessedTimer - dt);
     if (b.cursedTimer > 0) {
@@ -4394,11 +4468,9 @@ function stepSimulationSingle(state: SimulationState, dt: number): void {
     const bSpecies: SpeciesId =
       b.species ?? (b.settlementId ? state.settlementSpecies?.[b.settlementId] : undefined) ?? 'human';
     const bSid = b.settlementId ?? 'city_default';
-    const hasLivingCitizensInSettlement = state.units.some(
-      (u) => u.faction === 'civilization' && u.state !== 'ko' && u.hp > 0 && u.settlementId === bSid,
-    );
+    const hasLivingCitizensInSettlement = livingCitizenSids.has(bSid);
     if (!hasLivingCitizensInSettlement && !state.sandboxFreeMode) {
-      const settlementBldCount = state.buildings.filter((ob) => (ob.settlementId ?? 'city_default') === bSid).length;
+      const settlementBldCount = bldCountBySid.get(bSid) ?? 0;
       const inEnemyTerritory = state.buildings.some(
         (ob) =>
           (ob.settlementId ?? 'city_default') !== bSid &&
@@ -4457,6 +4529,8 @@ function stepSimulationSingle(state: SimulationState, dt: number): void {
 
   // 8. Update unit AI & status effects
   const remainingUnits: UnitEntity[] = [];
+  const hazardsList = state.activeHazards ?? [];
+  const hasWormholeRift = hazardsList.some((h) => h.kind === 'wormhole_rift');
 
   for (const u of state.units) {
     if (u.state === 'ko') {
@@ -4495,6 +4569,27 @@ function stepSimulationSingle(state: SimulationState, dt: number): void {
       }
     }
 
+    if (u.maxLifespan === undefined) {
+      u.maxLifespan = getUnitMaxLifespan(u);
+    }
+    const immortalEntities = state.worldRules?.immortalEntities === true;
+    u.ageYears = (u.ageYears ?? Math.max(0, state.year - (u.bornYear ?? state.year))) + YEARS_PER_SEC_AT_1X * dt;
+
+    if (!immortalEntities && u.ageYears >= u.maxLifespan) {
+      u.hp = 0;
+      u.state = 'ko';
+      u.koTimer = 0.45;
+      if (u.isKing) {
+        addChronicle(
+          state,
+          `${u.name} passed away peacefully of old age at ${Math.floor(u.ageYears)} years.`,
+          'divine',
+        );
+      }
+      remainingUnits.push(u);
+      continue;
+    }
+
     if (u.hp <= 0) {
       u.state = 'ko';
       u.koTimer = 0.45;
@@ -4503,7 +4598,7 @@ function stepSimulationSingle(state: SimulationState, dt: number): void {
       continue;
     }
 
-    const def = UNITS.find((d) => d.role === u.role)!;
+    const def = UNIT_BY_ROLE.get(u.role)!;
     if (u.ageStage === 'child') {
       u.growthTimer = (u.growthTimer ?? 24) - dt;
       if (u.growthTimer <= 0) {
@@ -4530,8 +4625,9 @@ function stepSimulationSingle(state: SimulationState, dt: number): void {
 
     // If unit is captured inside a Black Hole (wormhole_rift) gravity well, suppress normal walking AI so it spirals smoothly without walking away
     const capturedByBlackHole =
+      hasWormholeRift &&
       !u.statusEffects.shielded &&
-      (state.activeHazards ?? []).some(
+      hazardsList.some(
         (h) => h.kind === 'wormhole_rift' && Math.hypot(u.x - h.x, u.z - h.z) <= h.radius * 1.45,
       );
 
@@ -4614,6 +4710,7 @@ function wrapAngleRad(angle: number): number {
 
 function stepVehicles(state: SimulationState, dt: number): void {
   if (!state.vehicles) state.vehicles = [];
+  if (state.epochIndex < 3 && state.vehicles.length === 0) return;
 
   // Prune vehicles that belong to an age before transit unlocked
   state.vehicles = state.vehicles.filter((v) => {
@@ -5825,7 +5922,7 @@ function stepWildlifeAI(
 
     const tTile = getTile(state, targetX, targetZ);
     igniteTile(tTile, true);
-    if (tTile) {
+    if (tTile && state.worldRules?.wildfireSpread !== false) {
       let spreadCount = 0;
       for (const [ox, oz] of [
         [1, 0],
@@ -5905,9 +6002,10 @@ function stepWildlifeAI(
   };
 
   const isPredator = isPredatorRole(u.role, u.appearanceSeed);
+  const allowAnimalAttacks = state.worldRules?.animalAttacks !== false;
 
-  // Predators (Carnivores + Dragons), Unicorns & Frenzied Animals combat / hunting
-  if (isPredator || u.role === 'unicorn' || isFrenzied) {
+  // Predators (Carnivores + Dragons), Unicorns & Frenzied Animals combat / hunting (obeys God Rule animalAttacks unless Frenzied)
+  if ((allowAnimalAttacks && (isPredator || u.role === 'unicorn')) || isFrenzied) {
     const isCarnivoreDino = u.role === 'dinosaur' && isCarnivoreAnimal(u.role, u.appearanceSeed);
     let target: UnitEntity | null = null;
     let bestScore = Infinity;

@@ -29,6 +29,7 @@ import {
   SPECIES_UNITS,
   getDinosaurVariant,
   getDragonVariant,
+  getUnitMaxLifespan,
 } from './catalog';
 import { getEntityInspectProfile, toggleUnitFavorite } from './entityInspector';
 import {
@@ -39,6 +40,13 @@ import {
   inspectTileZones,
 } from './zones';
 import { createUnitGroup, createVehicleGroup } from './meshBuilders';
+import {
+  DEFAULT_GRAPHICS_SETTINGS,
+  applyGraphicsPreset,
+  inferGraphicsPreset,
+  resolveGraphicsProfile,
+  sanitizeGraphicsSettings,
+} from './graphics';
 import * as THREE from 'three';
 
 test('initial state starts as uninhabited wilderness with zero settlements or units', () => {
@@ -2497,5 +2505,242 @@ test('same-race units spawned on other parts of the map form independent cities,
     'Independent human kingdoms must display distinct zone colors',
   );
 });
+
+test('graphics presets, profile resolution, auto-trim levels, and settings sanitization preserve defaults and scale cleanly', () => {
+  assert.deepEqual(DEFAULT_GRAPHICS_SETTINGS, {
+    preset: 'high',
+    shadows: 'on',
+    cloudsAndSky: 'full',
+    foliageDensity: 'full',
+    particles: 'full',
+    autoOptimizeFps: true,
+  });
+
+  // Default High preset resolves to full fidelity matching original look
+  const highProfile = resolveGraphicsProfile(DEFAULT_GRAPHICS_SETTINGS, 0);
+  assert.equal(highProfile.shadowsEnabled, true);
+  assert.equal(highProfile.shadowMapSize, 1024);
+  assert.equal(highProfile.shadowUpdateStride, 1);
+  assert.equal(highProfile.cloudsAndSky, 'full');
+  assert.equal(highProfile.foliageFactor, 1.0);
+  assert.equal(highProfile.particleScale, 1.0);
+
+  // Balanced & Fast presets
+  const balanced = applyGraphicsPreset('balanced', true);
+  assert.equal(balanced.preset, 'balanced');
+  assert.equal(balanced.shadows, 'fast');
+  const balancedProfile = resolveGraphicsProfile(balanced, 0);
+  assert.equal(balancedProfile.shadowsEnabled, true);
+  assert.equal(balancedProfile.shadowMapSize, 512);
+  assert.equal(balancedProfile.shadowUpdateStride, 1);
+  assert.equal(balancedProfile.cloudsAndSky, 'reduced');
+  assert.equal(balancedProfile.foliageFactor, 0.55);
+  assert.equal(balancedProfile.particleScale, 0.55);
+
+  const fast = applyGraphicsPreset('fast', false);
+  assert.equal(fast.preset, 'fast');
+  assert.equal(fast.autoOptimizeFps, false);
+  const fastProfile = resolveGraphicsProfile(fast, 2);
+  assert.equal(fastProfile.shadowsEnabled, false);
+  assert.equal(fastProfile.cloudsAndSky, 'off');
+  assert.equal(fastProfile.foliageFactor, 0.22);
+  assert.equal(fastProfile.particleScale, 0.25);
+
+  // inferGraphicsPreset detects presets vs custom combinations
+  assert.equal(inferGraphicsPreset(DEFAULT_GRAPHICS_SETTINGS), 'high');
+  assert.equal(inferGraphicsPreset(balanced), 'balanced');
+  assert.equal(inferGraphicsPreset(fast), 'fast');
+  assert.equal(
+    inferGraphicsPreset({
+      ...DEFAULT_GRAPHICS_SETTINGS,
+      shadows: 'off',
+    }),
+    'custom',
+  );
+
+  // Auto-trim levels 1 & 2 dynamically scale down lightweight runtime effects without shadow RT reallocations
+  const trim1 = resolveGraphicsProfile(DEFAULT_GRAPHICS_SETTINGS, 1);
+  assert.equal(trim1.shadowsEnabled, true);
+  assert.equal(trim1.shadowMapSize, 1024);
+  assert.equal(trim1.shadowUpdateStride, 1);
+  assert.equal(trim1.cloudsAndSky, 'reduced');
+  assert.equal(trim1.particleScale, 0.55);
+  assert.equal(trim1.foliageFactor, 1.0);
+
+  const trim2 = resolveGraphicsProfile(DEFAULT_GRAPHICS_SETTINGS, 2);
+  assert.equal(trim2.shadowsEnabled, true);
+  assert.equal(trim2.shadowMapSize, 1024);
+  assert.equal(trim2.shadowUpdateStride, 3);
+  assert.equal(trim2.cloudsAndSky, 'off');
+  assert.equal(trim2.foliageFactor, 0.55);
+  assert.equal(trim2.particleScale, 0.25);
+
+  const manualHigh = { ...DEFAULT_GRAPHICS_SETTINGS, autoOptimizeFps: false };
+  const trimDisabled = resolveGraphicsProfile(manualHigh, 2);
+  assert.deepEqual(trimDisabled, highProfile);
+
+  // sanitizeGraphicsSettings safely handles corrupt/partial values
+  assert.deepEqual(sanitizeGraphicsSettings(null), DEFAULT_GRAPHICS_SETTINGS);
+  assert.deepEqual(sanitizeGraphicsSettings('bad'), DEFAULT_GRAPHICS_SETTINGS);
+  const partial = sanitizeGraphicsSettings({
+    shadows: 'fast',
+    cloudsAndSky: 'invalid',
+    foliageDensity: 'medium',
+    particles: 'reduced',
+    autoOptimizeFps: false,
+  });
+  assert.equal(partial.shadows, 'fast');
+  assert.equal(partial.cloudsAndSky, 'full');
+  assert.equal(partial.foliageDensity, 'medium');
+  assert.equal(partial.particles, 'reduced');
+  assert.equal(partial.autoOptimizeFps, false);
+  assert.equal(partial.preset, 'custom');
+});
+
+test('all entities have fixed species lifespans (elves 200+, dragons 500+), die of old age when mortal, and survive epoch leaps', () => {
+  const state = createInitialSimulationState(64, 'LIFESPAN-TEST');
+  state.wildlifeSeeded = true;
+  for (const t of state.tiles) {
+    if (t.x >= 20 && t.x <= 44 && t.z >= 20 && t.z <= 44) {
+      t.height = 2;
+      t.terrain = 'grass';
+      t.resourceNode = 'none';
+      t.buildingId = null;
+    }
+  }
+
+  const humanRes = spawnUnit(state, 'human', 24, 24, true, undefined, { ageYears: 20, maxLifespan: 80 });
+  const elfRes = spawnUnit(state, 'elf', 32, 30, true);
+  const dragonRes = spawnUnit(state, 'dragon', 40, 40, true);
+  const orcRes = spawnUnit(state, 'orc', 36, 30, true);
+  const chickenRes = spawnUnit(state, 'chicken', 38, 30, true);
+
+  assert.equal(humanRes.ok, true);
+  assert.equal(elfRes.ok, true);
+  assert.equal(dragonRes.ok, true);
+  assert.equal(orcRes.ok, true);
+  assert.equal(chickenRes.ok, true);
+
+  const human = humanRes.unit!;
+  const elf = elfRes.unit!;
+  const dragon = dragonRes.unit!;
+  const orc = orcRes.unit!;
+  const chicken = chickenRes.unit!;
+
+  assert.ok((human.maxLifespan ?? 0) >= 75 && (human.maxLifespan ?? 0) <= 110);
+  assert.ok((elf.maxLifespan ?? 0) >= 200, `Elves must live 200+ years, got ${elf.maxLifespan}`);
+  assert.ok((dragon.maxLifespan ?? 0) >= 500, `Dragons must live 500+ years, got ${dragon.maxLifespan}`);
+  assert.ok((orc.maxLifespan ?? 0) >= 55 && (orc.maxLifespan ?? 0) <= 85);
+  assert.ok((chicken.maxLifespan ?? 0) >= 8 && (chicken.maxLifespan ?? 0) <= 15);
+  assert.equal(getUnitMaxLifespan({ role: 'unicorn', species: 'human', appearanceSeed: 42 }) >= 350, true);
+
+  // Epoch leap jumps state.year forward by thousands of years — must NOT kill living units prematurely!
+  advanceEpoch(state, true);
+  stepSimulation(state, 0.5);
+  assert.notEqual(elf.state, 'ko', 'Elves should survive epoch calendar year jump');
+  assert.notEqual(dragon.state, 'ko', 'Dragons should survive epoch calendar year jump');
+
+  // Inspector profile reports lifespan when mortal
+  const elfProfile = getEntityInspectProfile(state, elf);
+  assert.equal(elfProfile.informations.immortal, false);
+  assert.ok((elfProfile.informations.maxLifespan ?? 0) >= 200);
+
+  // Enable Immortal Entities rule -> even an ancient unit past maxLifespan survives
+  state.worldRules!.animalAttacks = false;
+  state.worldRules!.immortalEntities = true;
+  human.ageYears = 95;
+  stepSimulation(state, 0.5);
+  assert.notEqual(human.state, 'ko', 'Immortal Entities rule must protect entities past maxLifespan');
+  assert.equal(getEntityInspectProfile(state, human).informations.immortal, true);
+  assert.equal(getEntityInspectProfile(state, human).informations.maxLifespan, null);
+
+  // Disable Immortal Entities -> mortal unit past maxLifespan passes away cleanly & successor King crowns
+  state.sandboxFreeMode = true;
+  const bldRes = placeBuilding(state, 'bonfire', 24, 24);
+  assert.equal(bldRes.ok, true);
+  const sid = state.buildings[0].settlementId;
+  const heirRes = spawnUnit(state, 'human', 24, 24, true, sid, {
+    ageStage: 'adult',
+    ageYears: 10,
+    maxLifespan: 85,
+  });
+  assert.equal(heirRes.ok, true);
+  human.settlementId = sid;
+  human.kingdomId = state.settlementKingdoms?.[sid!];
+  human.isKing = true;
+  state.worldRules!.immortalEntities = false;
+  for (let i = 0; i < 6; i++) stepSimulation(state, 0.25);
+  assert.equal(human.state, 'ko', 'Mortal unit past maxLifespan must pass away naturally');
+  assert.equal(heirRes.unit!.isKing, true, 'Successor must be crowned King after previous King dies of old age');
+});
+
+test('God Rules live toggles govern wildfireSpread, allowReproduction, and animalAttacks', () => {
+  // 1. Wildfire Spread OFF prevents fire propagation across adjacent tiles
+  const fireState = createInitialSimulationState(64, 'GOD-RULE-FIRE');
+  fireState.wildlifeSeeded = true;
+  fireState.worldRules!.wildfireSpread = false;
+  for (let dz = -2; dz <= 2; dz++) {
+    for (let dx = -2; dx <= 2; dx++) {
+      const t = getTile(fireState, 32 + dx, 32 + dz)!;
+      t.height = 2;
+      t.terrain = 'forest';
+      t.resourceNode = 'none';
+      t.buildingId = null;
+    }
+  }
+  const centerFire = getTile(fireState, 32, 32)!;
+  centerFire.onFireTimer = 4.0;
+  for (let i = 0; i < 10; i++) stepSimulation(fireState, 0.25);
+  const neighborFire = getTile(fireState, 33, 32)!;
+  assert.equal(neighborFire.onFireTimer, 0, 'wildfireSpread=false must prevent fire from spreading to neighbors');
+
+  // 2. Reproduction OFF prevents autonomous village births even with surplus food
+  const popState = createInitialSimulationState(64, 'GOD-RULE-REPRO');
+  popState.wildlifeSeeded = true;
+  popState.sandboxFreeMode = true;
+  popState.resources.food = 500;
+  popState.worldRules!.allowReproduction = false;
+  for (let dz = -3; dz <= 3; dz++) {
+    for (let dx = -3; dx <= 3; dx++) {
+      const t = getTile(popState, 32 + dx, 32 + dz)!;
+      t.height = 2;
+      t.terrain = 'grass';
+      t.resourceNode = 'none';
+      t.buildingId = null;
+    }
+  }
+  placeBuilding(popState, 'bonfire', 32, 32);
+  popState.buildings[0].constructionProgress = 100;
+  placeBuilding(popState, 'forager_hut', 34, 32);
+  popState.buildings[1].constructionProgress = 100;
+  spawnUnit(popState, 'human', 32, 32, true);
+  spawnUnit(popState, 'human', 33, 32, true);
+  const beforeCount = popState.units.filter((u) => u.faction === 'civilization' && u.state !== 'ko').length;
+  for (let i = 0; i < 20; i++) stepSimulation(popState, 0.5);
+  const afterCount = popState.units.filter((u) => u.faction === 'civilization' && u.state !== 'ko').length;
+  assert.equal(afterCount, beforeCount, 'allowReproduction=false must stop settlements from spawning new citizens');
+
+  // 3. Animal Attacks OFF keeps predators & dragons peaceful toward nearby prey
+  const calmState = createInitialSimulationState(64, 'GOD-RULE-ANIMALS');
+  calmState.wildlifeSeeded = true;
+  calmState.worldRules!.animalAttacks = false;
+  for (let dz = -3; dz <= 3; dz++) {
+    for (let dx = -3; dx <= 3; dx++) {
+      const t = getTile(calmState, 32 + dx, 32 + dz)!;
+      t.height = 2;
+      t.terrain = 'grass';
+      t.resourceNode = 'none';
+      t.buildingId = null;
+    }
+  }
+  const wolfRes = spawnUnit(calmState, 'wolf', 32, 32, true);
+  const chickenRes = spawnUnit(calmState, 'chicken', 33, 32, true);
+  const startHp = chickenRes.unit!.hp;
+  for (let i = 0; i < 10; i++) stepSimulation(calmState, 0.25);
+  assert.equal(chickenRes.unit!.hp, startHp, 'animalAttacks=false must stop predators from attacking prey');
+  assert.notEqual(wolfRes.unit!.state, 'fighting', 'Wolf should not enter combat when animalAttacks=false');
+});
+
+
 
 

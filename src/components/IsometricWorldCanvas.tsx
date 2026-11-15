@@ -17,6 +17,11 @@ import {
   createWorldUnderglowSystem,
 } from '../game/skyAndSea';
 import {
+  DEFAULT_GRAPHICS_SETTINGS,
+  ResolvedGraphicsProfile,
+  resolveGraphicsProfile,
+} from '../game/graphics';
+import {
   closestFaultDistanceSq,
   executeGodPowerImpact,
   getSettlementAnchor,
@@ -29,6 +34,7 @@ import {
   EarthquakeShapeKind,
   GameLifecycleState,
   GodPowerType,
+  GraphicsSettings,
   LightingPreset,
   SimulationState,
   TerrainType,
@@ -45,6 +51,7 @@ interface IsometricWorldCanvasProps {
   brushRadius: number;
   pixelScale: number;
   lightingPreset: LightingPreset;
+  graphicsSettings?: GraphicsSettings;
   cameraActionRef: React.MutableRefObject<{
     rotateDelta: number;
     zoomDelta: number;
@@ -99,6 +106,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
   brushRadius,
   pixelScale,
   lightingPreset,
+  graphicsSettings = DEFAULT_GRAPHICS_SETTINGS,
   cameraActionRef,
   hoveredEntityId = null,
   selectedEntityId = null,
@@ -123,6 +131,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     brushRadius,
     pixelScale,
     lightingPreset,
+    graphicsSettings,
     hoveredEntityId,
     selectedEntityId,
     followingEntityId,
@@ -143,6 +152,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       brushRadius,
       pixelScale,
       lightingPreset,
+      graphicsSettings,
       hoveredEntityId,
       selectedEntityId,
       followingEntityId,
@@ -161,6 +171,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     brushRadius,
     pixelScale,
     lightingPreset,
+    graphicsSettings,
     hoveredEntityId,
     selectedEntityId,
     followingEntityId,
@@ -234,12 +245,15 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     hemiLight.position.set(0, 30, 0);
     scene.add(hemiLight);
 
+    const initialGfxProfile = resolveGraphicsProfile(propsRef.current.graphicsSettings, 0);
     const keyLight = new THREE.DirectionalLight(0xffdfb0, 1.85);
     keyLight.position.set(gridCenter + 12, 28, gridCenter + 8);
     keyLight.target.position.set(gridCenter, 0, gridCenter);
     keyLight.castShadow = !isSoftwareGl;
-    keyLight.shadow.mapSize.width = 1024;
-    keyLight.shadow.mapSize.height = 1024;
+    keyLight.shadow.mapSize.width = initialGfxProfile.shadowMapSize;
+    keyLight.shadow.mapSize.height = initialGfxProfile.shadowMapSize;
+    keyLight.shadow.intensity = !isSoftwareGl && initialGfxProfile.shadowsEnabled ? 1 : 0;
+    renderer.shadowMap.autoUpdate = !isSoftwareGl && initialGfxProfile.shadowsEnabled;
     let shadowBounds = 18;
     keyLight.shadow.camera.left = -shadowBounds;
     keyLight.shadow.camera.right = shadowBounds;
@@ -327,13 +341,15 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
     const terrainInstancedMap = new Map<TerrainType, THREE.InstancedMesh>();
     const terrainInstancedList: THREE.InstancedMesh[] = [];
+    const terrainInstIndexMap = new Map<THREE.InstancedMesh, number>();
     const terrainInstanceToTile = new Map<THREE.InstancedMesh, Int32Array>();
     const worldBoundsSphere = new THREE.Sphere(
       new THREE.Vector3(gridCenter, 2, gridCenter),
       sim.gridSize * 1.1,
     );
 
-    for (const tType of TERRAIN_TYPES) {
+    for (let tIdx = 0; tIdx < TERRAIN_TYPES.length; tIdx++) {
+      const tType = TERRAIN_TYPES[tIdx];
       const mat = styledTerrain.getMaterials(tType);
       const inst = new THREE.InstancedMesh(tileGeo, mat, sim.tiles.length);
       inst.frustumCulled = false;
@@ -344,12 +360,19 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       terrainGroup.add(inst);
       terrainInstancedMap.set(tType, inst);
       terrainInstancedList.push(inst);
+      terrainInstIndexMap.set(inst, tIdx);
       terrainInstanceToTile.set(inst, new Int32Array(sim.tiles.length));
     }
 
     const tileCurrentY = new Float32Array(sim.tiles.length);
     const tilePropSig = new Int32Array(sim.tiles.length);
     const tileLastNodeY = new Float32Array(sim.tiles.length);
+    const tileTerrainCode = new Int8Array(sim.tiles.length).fill(-1);
+    const tileSlotIndex = new Int32Array(sim.tiles.length);
+    const tileBucketIdx = new Int8Array(sim.tiles.length).fill(-1);
+    const tileBucketInst: (THREE.InstancedMesh | null)[] = new Array(sim.tiles.length).fill(null);
+    const tileHadHazard = new Uint8Array(sim.tiles.length);
+    const instNeedsUpload = new Uint8Array(TERRAIN_TYPES.length);
     for (let i = 0; i < sim.tiles.length; i++) {
       const t = sim.tiles[i];
       const y0 = t.height === 0 ? 0.12 : t.height * HEIGHT_STEP + 0.25;
@@ -402,7 +425,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     const ambBadlandsInsts = makePropInstancedList(variantLib.ambientBadlands, variantLib.standardMat, false);
     const ambBlossomInsts = makePropInstancedList(variantLib.ambientBlossom, variantLib.standardMat, false);
 
-    const allPropInsts = [
+    const resourcePropInsts: THREE.InstancedMesh[] = [
       ...timberInsts,
       ...timberJungleInsts,
       ...timberTaigaInsts,
@@ -413,6 +436,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       ...stoneInsts,
       ...oreInsts,
       ...crystalInsts,
+    ];
+
+    const ambientPropInsts: THREE.InstancedMesh[] = [
       ...ambGrassInsts,
       ...ambForestInsts,
       ...ambSandInsts,
@@ -428,6 +454,29 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       ...ambBadlandsInsts,
       ...ambBlossomInsts,
     ];
+
+    const allPropInsts: THREE.InstancedMesh[] = [...resourcePropInsts, ...ambientPropInsts];
+    const ambientPropSet = new Set<THREE.InstancedMesh>(ambientPropInsts);
+    const ambTierCounts = new Map<THREE.InstancedMesh, { low: number; med: number; full: number }>();
+    const ambMedStage = new Map<THREE.InstancedMesh, number[]>();
+    const ambFullStage = new Map<THREE.InstancedMesh, number[]>();
+    for (const inst of ambientPropInsts) {
+      ambTierCounts.set(inst, { low: 0, med: 0, full: 0 });
+      ambMedStage.set(inst, []);
+      ambFullStage.set(inst, []);
+    }
+    const tileTerrainSig = new Int32Array(sim.tiles.length).fill(-1);
+    const tileMetroSig = new Int32Array(sim.tiles.length).fill(-1);
+
+    function applyAmbientFoliageFactor(factor: number) {
+      const tier = factor < 0.35 ? 'low' : factor < 0.75 ? 'med' : 'full';
+      for (let i = 0; i < ambientPropInsts.length; i++) {
+        const inst = ambientPropInsts[i];
+        const tc = ambTierCounts.get(inst);
+        if (!tc) continue;
+        inst.count = tier === 'low' ? tc.low : tier === 'med' ? tc.med : tc.full;
+      }
+    }
 
     // Elevated Metro Viaduct System (Epoch 5+ concrete / Epoch 6+ titanium-maglev on T-pillars) & Runway Beacons
     const MAX_METRO_INST = 4096;
@@ -547,18 +596,59 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       crystal_monolith: 5,
     };
 
-    const buildingMeshes = new Map<
-      string,
-      { group: THREE.Group; epochLevel: number; type: string; species: string }
-    >();
-    const unitMeshes = new Map<
-      string,
-      { group: THREE.Group; epochLevel: number; role: string; species: string; ageStage: string }
-    >();
-    const vehicleMeshes = new Map<
-      string,
-      { group: THREE.Group; epochLevel: number; type: VehicleType; species: string }
-    >();
+    interface BuildingMeshEntry {
+      group: THREE.Group;
+      epochLevel: number;
+      type: string;
+      species: string;
+      flickerFlames: THREE.Object3D[];
+      spinParts: THREE.Object3D[];
+      cachedRotY: number;
+      seenStamp: number;
+    }
+    interface UnitMeshEntry {
+      group: THREE.Group;
+      epochLevel: number;
+      role: string;
+      species: string;
+      ageStage: string;
+      bodyPivot?: THREE.Object3D;
+      headPivot?: THREE.Object3D;
+      jawPivot?: THREE.Object3D;
+      tailPivot?: THREE.Object3D;
+      wingL?: THREE.Object3D;
+      wingR?: THREE.Object3D;
+      wingOuterL?: THREE.Object3D;
+      wingOuterR?: THREE.Object3D;
+      fireMaw?: THREE.Mesh;
+      legFL?: THREE.Object3D;
+      legFR?: THREE.Object3D;
+      legBL?: THREE.Object3D;
+      legBR?: THREE.Object3D;
+      legL?: THREE.Object3D;
+      legR?: THREE.Object3D;
+      contactShadow?: THREE.Object3D;
+      heldTool?: THREE.Object3D;
+      carryBox?: THREE.Mesh;
+      statusRing?: THREE.Mesh;
+      lastCarryType: string | null;
+      lastStatusKey: number;
+      seenStamp: number;
+    }
+    interface VehicleMeshEntry {
+      group: THREE.Group;
+      epochLevel: number;
+      type: VehicleType;
+      species: string;
+      spinProps: THREE.Object3D[];
+      thrusterPlumes: THREE.Object3D[];
+      contactShadows: THREE.Object3D[];
+      seenStamp: number;
+    }
+
+    const buildingMeshes = new Map<string, BuildingMeshEntry>();
+    const unitMeshes = new Map<string, UnitMeshEntry>();
+    const vehicleMeshes = new Map<string, VehicleMeshEntry>();
 
     const skirtMat = new THREE.MeshStandardMaterial({
       color: 0x26353e,
@@ -709,6 +799,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     const particleMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
     const particleInstanced = new THREE.InstancedMesh(particleGeo, particleMat, MAX_PARTICLES);
     particleInstanced.frustumCulled = false;
+    particleInstanced.count = 0;
     worldGroup.add(particleInstanced);
 
     const particles: PooledParticle[] = Array.from({ length: MAX_PARTICLES }, () => ({
@@ -725,7 +816,31 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       size: 1,
       color: new THREE.Color(0xffffff),
     }));
-    let particleHead = 0;
+    let activeParticleCount = 0;
+    let particleOverwriteCursor = 0;
+
+    let activeGfxProfile: ResolvedGraphicsProfile = { ...initialGfxProfile };
+
+    const allocParticleSlot = (): PooledParticle => {
+      if (activeParticleCount < MAX_PARTICLES) {
+        return particles[activeParticleCount++];
+      }
+      const p = particles[particleOverwriteCursor];
+      particleOverwriteCursor = (particleOverwriteCursor + 1) % MAX_PARTICLES;
+      return p;
+    };
+
+    const getScaledParticleCount = (rawCount: number): number => {
+      const scale = activeGfxProfile.particleScale;
+      if (scale >= 0.99) return rawCount;
+      if (activeParticleCount > MAX_PARTICLES * 0.85 && scale < 0.5) return 0;
+      return Math.max(1, Math.round(rawCount * scale));
+    };
+
+    const _burstBaseCol = new THREE.Color();
+    const _burstHotCol = new THREE.Color();
+    const _burstDeepCol = new THREE.Color();
+    const _whiteColorConst = new THREE.Color(0xffffff);
 
     function spawnParticleBurst(
       x: number,
@@ -737,10 +852,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       upSpeed = 4.5,
       sizeMult = 1.0,
     ) {
-      const baseCol = new THREE.Color(hexColor);
-      for (let i = 0; i < count; i++) {
-        const p = particles[particleHead];
-        particleHead = (particleHead + 1) % MAX_PARTICLES;
+      const n = getScaledParticleCount(count);
+      if (n <= 0) return;
+      _burstBaseCol.set(hexColor);
+      for (let i = 0; i < n; i++) {
+        const p = allocParticleSlot();
         p.active = true;
         const angle = Math.random() * Math.PI * 2;
         const r = Math.random() * spread;
@@ -755,7 +871,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         p.maxLife = 0.65 + Math.random() * 0.75;
         p.life = p.maxLife;
         p.size = (0.85 + Math.random() * 1.35) * sizeMult;
-        p.color.copy(baseCol).offsetHSL((Math.random() - 0.5) * 0.08, 0, (Math.random() - 0.5) * 0.22);
+        p.color.copy(_burstBaseCol).offsetHSL((Math.random() - 0.5) * 0.08, 0, (Math.random() - 0.5) * 0.22);
       }
     }
 
@@ -770,10 +886,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       sizeMult = 0.95,
       lifeSec = 1.5,
     ) {
-      const baseCol = new THREE.Color(hexColor);
-      for (let i = 0; i < count; i++) {
-        const p = particles[particleHead];
-        particleHead = (particleHead + 1) % MAX_PARTICLES;
+      const n = getScaledParticleCount(count);
+      if (n <= 0) return;
+      _burstBaseCol.set(hexColor);
+      for (let i = 0; i < n; i++) {
+        const p = allocParticleSlot();
         p.active = true;
         const angle = Math.random() * Math.PI * 2;
         const r = Math.sqrt(Math.random()) * radius;
@@ -787,7 +904,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         p.maxLife = lifeSec * (0.75 + Math.random() * 0.45);
         p.life = p.maxLife;
         p.size = (0.75 + Math.random() * 0.95) * sizeMult;
-        p.color.copy(baseCol).offsetHSL((Math.random() - 0.5) * 0.06, 0, (Math.random() - 0.5) * 0.2);
+        p.color.copy(_burstBaseCol).offsetHSL((Math.random() - 0.5) * 0.06, 0, (Math.random() - 0.5) * 0.2);
       }
     }
 
@@ -802,18 +919,19 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       hexColor: string,
       spread = 0.45,
     ) {
-      const baseCol = new THREE.Color(hexColor);
-      const hotCol = baseCol.clone().lerp(new THREE.Color(0xffffff), 0.52);
-      const deepCol = baseCol.clone().multiplyScalar(0.76);
+      const n = getScaledParticleCount(count);
+      if (n <= 0) return;
+      _burstBaseCol.set(hexColor);
+      _burstHotCol.copy(_burstBaseCol).lerp(_whiteColorConst, 0.52);
+      _burstDeepCol.copy(_burstBaseCol).multiplyScalar(0.76);
       const dx = tx - ox;
       const dy = ty - oy;
       const dz = tz - oz;
       const len = Math.max(0.3, Math.hypot(dx, dy, dz));
       const speedBase = Math.max(5.5, len * 2.6);
       const travelSec = Math.min(0.62, len / speedBase);
-      for (let i = 0; i < count; i++) {
-        const p = particles[particleHead];
-        particleHead = (particleHead + 1) % MAX_PARTICLES;
+      for (let i = 0; i < n; i++) {
+        const p = allocParticleSlot();
         p.active = true;
         const along = Math.random() * 0.22;
         p.x = ox + dx * along + (Math.random() - 0.5) * 0.24;
@@ -829,11 +947,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         p.size = 1.15 + Math.random() * 1.45;
         const roll = Math.random();
         if (roll < 0.24) {
-          p.color.copy(hotCol);
+          p.color.copy(_burstHotCol);
         } else if (roll < 0.48) {
-          p.color.copy(deepCol);
+          p.color.copy(_burstDeepCol);
         } else {
-          p.color.copy(baseCol).offsetHSL((Math.random() - 0.5) * 0.03, 0, (Math.random() - 0.5) * 0.12);
+          p.color.copy(_burstBaseCol).offsetHSL((Math.random() - 0.5) * 0.03, 0, (Math.random() - 0.5) * 0.12);
         }
       }
     }
@@ -847,10 +965,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       outerRadius = 6.5,
       sizeMult = 0.95,
     ) {
-      const baseCol = new THREE.Color(hexColor);
-      for (let i = 0; i < count; i++) {
-        const p = particles[particleHead];
-        particleHead = (particleHead + 1) % MAX_PARTICLES;
+      const n = getScaledParticleCount(count);
+      if (n <= 0) return;
+      _burstBaseCol.set(hexColor);
+      for (let i = 0; i < n; i++) {
+        const p = allocParticleSlot();
         p.active = true;
         const angle = Math.random() * Math.PI * 2;
         const r = outerRadius * (0.45 + Math.random() * 0.55);
@@ -873,7 +992,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         p.maxLife = travelTime;
         p.life = travelTime;
         p.size = (0.75 + Math.random() * 0.95) * sizeMult;
-        p.color.copy(baseCol).offsetHSL((Math.random() - 0.5) * 0.08, 0, (Math.random() - 0.5) * 0.2);
+        p.color.copy(_burstBaseCol).offsetHSL((Math.random() - 0.5) * 0.08, 0, (Math.random() - 0.5) * 0.2);
       }
     }
 
@@ -973,6 +1092,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       currentY?: number;
       crackMeshes?: THREE.Mesh[];
       faultSegments?: EarthquakeFaultSegment[];
+      seenStamp: number;
     }
     const hazardMeshes = new Map<string, HazardVisual>();
 
@@ -1051,7 +1171,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             baseZ: bz,
           });
         }
-        return { kind, group, materials, drops, ringMesh, cloudBody };
+        return { kind, group, materials, drops, ringMesh, cloudBody, seenStamp: 0 };
       }
 
       if (kind === 'plague_cloud') {
@@ -1090,7 +1210,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           group.add(m);
           spores.push({ mesh: m, angle, dist, phase: i * 0.7, height: h });
         }
-        return { kind, group, materials, spores, ringMesh };
+        return { kind, group, materials, spores, ringMesh, seenStamp: 0 };
       }
 
       if (kind === 'shield_dome') {
@@ -1129,7 +1249,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         ringMesh.position.y = 0.08;
         ringMesh.scale.setScalar(radius * 1.02);
         group.add(ringMesh);
-        return { kind, group, materials, ringMesh, secondaryRingMesh: geoShell };
+        return { kind, group, materials, ringMesh, secondaryRingMesh: geoShell, seenStamp: 0 };
       }
 
       if (kind === 'tsunami_wave') {
@@ -1206,7 +1326,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         buildWaveRing(40, false);
         buildWaveRing(28, true);
 
-        return { kind, group, materials, waveSegments };
+        return { kind, group, materials, waveSegments, seenStamp: 0 };
       }
 
       if (kind === 'earthquake_zone') {
@@ -1261,6 +1381,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           ringMesh,
           crackMeshes,
           faultSegments: segs,
+          seenStamp: 0,
         };
       }
 
@@ -1368,6 +1489,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         secondaryRingMesh: torus2,
         gravityRings,
         vortexMotes,
+        seenStamp: 0,
       };
     }
 
@@ -2756,7 +2878,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       const uEntry = sourceUnitId ? unitMeshes.get(sourceUnitId) : undefined;
       if (uEntry) {
         uEntry.group.updateMatrixWorld(true);
-        const mawObj = uEntry.group.getObjectByName('fire_maw') ?? uEntry.group;
+        const mawObj = uEntry.fireMaw ?? uEntry.group;
         mawObj.getWorldPosition(_mawWorldPos);
         mouthX = _mawWorldPos.x;
         mouthY = _mawWorldPos.y;
@@ -3089,6 +3211,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       }
     };
 
+    let hoverRaycastTimer = 0;
+
     const onPointerDown = (e: PointerEvent) => {
       if (e.button === 2 || e.button === 1 || e.shiftKey) {
         isPointerDragging = true;
@@ -3099,6 +3223,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       isPointerDragging = false;
       dragStartClient = { x: e.clientX, y: e.clientY };
       pointerDownMoved = false;
+      hoverRaycastTimer = performance.now();
       updateHoverTile(e.clientX, e.clientY);
     };
 
@@ -3127,7 +3252,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         return;
       }
 
-      updateHoverTile(e.clientX, e.clientY);
+      const nowMs = performance.now();
+      if (nowMs - hoverRaycastTimer >= 32) {
+        hoverRaycastTimer = nowMs;
+        updateHoverTile(e.clientX, e.clientY);
+      }
     };
 
     const onPointerLeave = () => {
@@ -3147,6 +3276,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         return;
       }
       if (!pointerDownMoved && e.button === 0 && propsRef.current.gameState === 'playing') {
+        hoverRaycastTimer = performance.now();
         updateHoverTile(e.clientX, e.clientY);
         if (propsRef.current.activeTool.kind === 'inspect') {
           propsRef.current.onSelectEntity?.(hoveredEntityInternal);
@@ -3197,11 +3327,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     const _dummyPos = new THREE.Vector3();
     const _dummyQuat = new THREE.Quaternion();
     const _dummyScale = new THREE.Vector3();
-    const _bgColor = new THREE.Color();
+    const _bgColor = new THREE.Color('#273345');
+    const _targetBgColor = new THREE.Color('#273345');
+    const _targetLightColor = new THREE.Color(0xffdfb0);
 
     let lastTime = performance.now();
     let hudSyncAccumulator = 0;
     let elapsedTotal = 0;
+    let dayNightClock = 0;
     let lastAppliedPixelScale = propsRef.current.pixelScale;
     let frameId = 0;
 
@@ -3225,12 +3358,29 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     const _propQuat = new THREE.Quaternion();
     const _propScale = new THREE.Vector3(1, 1, 1);
     const _metroEuler = new THREE.Euler();
+    const _zoneProjVec = new THREE.Vector3();
+    const _kingProjVec = new THREE.Vector3();
+    const bldTypeAtCache = new Map<number, string>();
     let lastSyncedSim: SimulationState = sim;
     let lastSyncedEpochIndex = sim.epochIndex;
     let lastSpaceSeed = sim.seed;
     let lastZoneOverlayVersion = -1;
+    let syncFrameStamp = 0;
+    let lastSyncedBuildingCount = -1;
+
+    type ActiveHazardItem = NonNullable<SimulationState['activeHazards']>[number];
+    const activeTsunamis: ActiveHazardItem[] = [];
+    const activeQuakes: {
+      qh: ActiveHazardItem;
+      minX: number;
+      maxX: number;
+      minZ: number;
+      maxZ: number;
+    }[] = [];
 
     function syncSceneFromSimulation(simState: SimulationState, dt: number, elapsed: number) {
+      syncFrameStamp++;
+
       const zb = propsRef.current.zoneOverlayBuffers;
       if (zb && zb.version !== lastZoneOverlayVersion) {
         lastZoneOverlayVersion = zb.version;
@@ -3239,20 +3389,34 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       }
 
       let propsNeedSync = false;
+      let metroNeedsSync = false;
+      let terrainMapDirty = false;
       if (simState.epochIndex !== lastSyncedEpochIndex) {
         lastSyncedEpochIndex = simState.epochIndex;
         propsNeedSync = true;
+        metroNeedsSync = true;
+      }
+      if (simState.buildings.length !== lastSyncedBuildingCount) {
+        lastSyncedBuildingCount = simState.buildings.length;
+        metroNeedsSync = true;
       }
 
       let waterMapNeedsSync = simState !== lastSyncedSim;
       if (simState !== lastSyncedSim) {
         lastSyncedSim = simState;
         lastSyncedEpochIndex = simState.epochIndex;
+        lastSyncedBuildingCount = simState.buildings.length;
         propsNeedSync = true;
+        metroNeedsSync = true;
+        terrainMapDirty = true;
         if (simState.seed !== lastSpaceSeed) {
           lastSpaceSeed = simState.seed;
           pixelSpace.setSeed(lastSpaceSeed);
         }
+        tileTerrainCode.fill(-1);
+        tileTerrainSig.fill(-1);
+        tileMetroSig.fill(-1);
+        tileHadHazard.fill(0);
         for (let i = 0; i < simState.tiles.length; i++) {
           const t = simState.tiles[i];
           tileCurrentY[i] = t.height === 0 ? 0.12 : t.height * HEIGHT_STEP + 0.25;
@@ -3266,42 +3430,82 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           propsRef.current.gameState === 'title' ? 22 : getWholeMapFrustum(simState.gridSize);
       }
 
-      // 1. Update instanced terrain tiles & detect if props/nodes/water-map need rebuild
-      for (const tType of TERRAIN_TYPES) {
-        const inst = terrainInstancedMap.get(tType)!;
-        inst.count = 0;
+      // 1. Collect active terrain-deforming hazards without heap allocations
+      activeTsunamis.length = 0;
+      let activeQuakeCount = 0;
+      const hazardsList = simState.activeHazards;
+      if (hazardsList && hazardsList.length > 0) {
+        for (let hi = 0; hi < hazardsList.length; hi++) {
+          const h = hazardsList[hi];
+          if (h.kind === 'tsunami_wave') {
+            activeTsunamis.push(h);
+          } else if (h.kind === 'earthquake_zone') {
+            let minX = h.x - h.radius * 1.25;
+            let maxX = h.x + h.radius * 1.25;
+            let minZ = h.z - h.radius * 1.25;
+            let maxZ = h.z + h.radius * 1.25;
+            if (h.faultSegments) {
+              for (let si = 0; si < h.faultSegments.length; si++) {
+                const seg = h.faultSegments[si];
+                const pad = seg.width * 3.0 + 1.5;
+                if (seg.x1 - pad < minX) minX = seg.x1 - pad;
+                if (seg.x2 - pad < minX) minX = seg.x2 - pad;
+                if (seg.x1 + pad > maxX) maxX = seg.x1 + pad;
+                if (seg.x2 + pad > maxX) maxX = seg.x2 + pad;
+                if (seg.z1 - pad < minZ) minZ = seg.z1 - pad;
+                if (seg.z2 - pad < minZ) minZ = seg.z2 - pad;
+                if (seg.z1 + pad > maxZ) maxZ = seg.z1 + pad;
+                if (seg.z2 + pad > maxZ) maxZ = seg.z2 + pad;
+              }
+            }
+            if (activeQuakeCount < activeQuakes.length) {
+              const entry = activeQuakes[activeQuakeCount];
+              entry.qh = h;
+              entry.minX = minX;
+              entry.maxX = maxX;
+              entry.minZ = minZ;
+              entry.maxZ = maxZ;
+            } else {
+              activeQuakes.push({ qh: h, minX, maxX, minZ, maxZ });
+            }
+            activeQuakeCount++;
+          }
+        }
+      }
+      const hasTsunamis = activeTsunamis.length > 0;
+      const hasQuakes = activeQuakeCount > 0;
+
+      // Detect whether any tile changed terrain bucket (if not, reuse existing InstancedMesh slots & upload only moved tiles)
+      let bucketsDirty = waterMapNeedsSync;
+      const tiles = simState.tiles;
+      const tileCount = tiles.length;
+      if (!bucketsDirty) {
+        for (let i = 0; i < tileCount; i++) {
+          const tCode = TERRAIN_CODE[tiles[i].terrain] ?? 3;
+          if (tileTerrainCode[i] !== tCode) {
+            bucketsDirty = true;
+            break;
+          }
+        }
       }
 
-      const activeTsunamis = (simState.activeHazards ?? []).filter((h) => h.kind === 'tsunami_wave');
-      const activeQuakes = (simState.activeHazards ?? [])
-        .filter((h) => h.kind === 'earthquake_zone')
-        .map((qh) => {
-          let minX = qh.x - qh.radius * 1.25;
-          let maxX = qh.x + qh.radius * 1.25;
-          let minZ = qh.z - qh.radius * 1.25;
-          let maxZ = qh.z + qh.radius * 1.25;
-          if (qh.faultSegments) {
-            for (let si = 0; si < qh.faultSegments.length; si++) {
-              const seg = qh.faultSegments[si];
-              const pad = seg.width * 3.0 + 1.5;
-              if (seg.x1 - pad < minX) minX = seg.x1 - pad;
-              if (seg.x2 - pad < minX) minX = seg.x2 - pad;
-              if (seg.x1 + pad > maxX) maxX = seg.x1 + pad;
-              if (seg.x2 + pad > maxX) maxX = seg.x2 + pad;
-              if (seg.z1 - pad < minZ) minZ = seg.z1 - pad;
-              if (seg.z2 - pad < minZ) minZ = seg.z2 - pad;
-              if (seg.z1 + pad > maxZ) maxZ = seg.z1 + pad;
-              if (seg.z2 + pad > maxZ) maxZ = seg.z2 + pad;
-            }
-          }
-          return { qh, minX, maxX, minZ, maxZ };
-        });
+      if (bucketsDirty) {
+        for (let tIdx = 0; tIdx < terrainInstancedList.length; tIdx++) {
+          terrainInstancedList[tIdx].count = 0;
+          instNeedsUpload[tIdx] = 0;
+        }
+      } else {
+        instNeedsUpload.fill(0);
+      }
 
-      for (let i = 0; i < simState.tiles.length; i++) {
-        const t = simState.tiles[i];
-        // Water base boxes sit cleanly submerged under the animated shader ocean surface unless lifted by a 3D Tsunami swell
+      _dummyQuat.identity();
+
+      for (let i = 0; i < tileCount; i++) {
+        const t = tiles[i];
         let targetTopY = t.height === 0 ? 0.12 : t.height * HEIGHT_STEP + 0.25;
-        if (activeTsunamis.length > 0 && t.height <= 2) {
+        let hasHazardEffect = false;
+
+        if (hasTsunamis && t.height <= 2) {
           for (let ti = 0; ti < activeTsunamis.length; ti++) {
             const th = activeTsunamis[ti];
             const curR = th.currentRadius ?? th.radius;
@@ -3315,19 +3519,22 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
               } else {
                 targetTopY += bell * 0.26 * fade;
               }
+              hasHazardEffect = true;
             } else if (curR > 3.8 && t.height === 0) {
               const wakeR = curR * 0.65;
               const diffWake = Math.abs(dist - wakeR);
               if (diffWake < 1.9) {
                 const wakeBell = Math.cos((diffWake / 1.9) * (Math.PI * 0.5));
                 targetTopY = Math.max(targetTopY, 0.34 + wakeBell * 0.68 * fade);
+                hasHazardEffect = true;
               }
             }
           }
         }
+
         let quakeJoltY = 0;
-        if (activeQuakes.length > 0 && t.height > 0) {
-          for (let qi = 0; qi < activeQuakes.length; qi++) {
+        if (hasQuakes && t.height > 0) {
+          for (let qi = 0; qi < activeQuakeCount; qi++) {
             const { qh, minX, maxX, minZ, maxZ } = activeQuakes[qi];
             if (t.x < minX || t.x > maxX || t.z < minZ || t.z > maxZ) continue;
             const segs = qh.faultSegments;
@@ -3349,31 +3556,69 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             }
             if (strength > 0) {
               quakeJoltY += Math.sin(elapsed * 42 + t.x * 3.1 + t.z * 2.7) * 0.075 * strength;
+              hasHazardEffect = true;
             }
           }
         }
+
+        const prevY = tileCurrentY[i];
         const curY =
-          Math.abs(tileCurrentY[i] - targetTopY) > 0.001
-            ? THREE.MathUtils.damp(tileCurrentY[i], targetTopY, 14, dt)
+          Math.abs(prevY - targetTopY) > 0.001
+            ? THREE.MathUtils.damp(prevY, targetTopY, 14, dt)
             : targetTopY;
         tileCurrentY[i] = curY;
 
-        const inst = terrainInstancedMap.get(t.terrain) ?? terrainInstancedMap.get('grass')!;
-        const slot = inst.count;
-        inst.count = slot + 1;
-        terrainInstanceToTile.get(inst)![slot] = i;
-
         const renderTopY = curY + quakeJoltY;
-        _dummyPos.set(t.x, renderTopY, t.z);
-        _dummyQuat.identity();
-        _dummyScale.set(1, Math.max(0.2, renderTopY + 0.6), 1);
-        _dummyMatrix.compose(_dummyPos, _dummyQuat, _dummyScale);
-        inst.setMatrixAt(slot, _dummyMatrix);
+
+        if (bucketsDirty) {
+          const tCode = TERRAIN_CODE[t.terrain] ?? 3;
+          const inst = terrainInstancedMap.get(t.terrain) ?? terrainInstancedMap.get('grass')!;
+          const bIdx = terrainInstIndexMap.get(inst) ?? 0;
+          const slot = inst.count;
+          inst.count = slot + 1;
+          terrainInstanceToTile.get(inst)![slot] = i;
+          tileTerrainCode[i] = tCode;
+          tileBucketIdx[i] = bIdx;
+          tileBucketInst[i] = inst;
+          tileSlotIndex[i] = slot;
+
+          _dummyPos.set(t.x, renderTopY, t.z);
+          _dummyScale.set(1, Math.max(0.2, renderTopY + 0.6), 1);
+          _dummyMatrix.compose(_dummyPos, _dummyQuat, _dummyScale);
+          inst.setMatrixAt(slot, _dummyMatrix);
+          instNeedsUpload[bIdx] = 1;
+          tileHadHazard[i] = hasHazardEffect || quakeJoltY !== 0 ? 1 : 0;
+        } else if (curY !== prevY || quakeJoltY !== 0 || tileHadHazard[i] !== 0) {
+          const inst = tileBucketInst[i];
+          if (inst) {
+            _dummyPos.set(t.x, renderTopY, t.z);
+            _dummyScale.set(1, Math.max(0.2, renderTopY + 0.6), 1);
+            _dummyMatrix.compose(_dummyPos, _dummyQuat, _dummyScale);
+            inst.setMatrixAt(tileSlotIndex[i], _dummyMatrix);
+            instNeedsUpload[tileBucketIdx[i]] = 1;
+          }
+          tileHadHazard[i] = hasHazardEffect || quakeJoltY !== 0 ? 1 : 0;
+        }
+
+        const tCode = TERRAIN_CODE[t.terrain] ?? 3;
+        const terrSig = (t.height << 7) | (tCode << 1) | (t.farmSettlementId ? 1 : 0);
+        if (tileTerrainSig[i] !== terrSig) {
+          tileTerrainSig[i] = terrSig;
+          terrainMapDirty = true;
+        }
+        const mSig =
+          t.terrain === 'rail_track' || t.terrain === 'runway' || t.terrain === 'stone_road'
+            ? (t.height << 5) | tCode
+            : 0;
+        if (tileMetroSig[i] !== mSig) {
+          tileMetroSig[i] = mSig;
+          metroNeedsSync = true;
+        }
 
         if (t.height > 0) {
           const sig =
             (t.height << 12) |
-            ((TERRAIN_CODE[t.terrain] ?? 3) << 6) |
+            (tCode << 6) |
             ((NODE_CODE[t.resourceNode] ?? 0) << 1) |
             (t.buildingId ? 1 : 0);
           if (tilePropSig[i] !== sig || Math.abs(curY - tileLastNodeY[i]) > 0.002) {
@@ -3395,18 +3640,30 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       if (waterMapNeedsSync) {
         oceanFoam.updateMap(simState.tiles);
       }
-      if (propsNeedSync || waterMapNeedsSync) {
+      if (terrainMapDirty || waterMapNeedsSync) {
         styledTerrain.updateMap(simState.tiles);
       }
 
-      for (const inst of terrainInstancedList) {
-        if (inst.count > 0) {
-          inst.instanceMatrix.needsUpdate = true;
+      for (let tIdx = 0; tIdx < terrainInstancedList.length; tIdx++) {
+        if (instNeedsUpload[tIdx]) {
+          const inst = terrainInstancedList[tIdx];
+          if (inst.count > 0) {
+            inst.instanceMatrix.clearUpdateRanges();
+            inst.instanceMatrix.addUpdateRange(0, inst.count * 16);
+            inst.instanceMatrix.needsUpdate = true;
+          }
+          instNeedsUpload[tIdx] = 0;
         }
       }
 
       if (propsNeedSync) {
-        for (const pInst of allPropInsts) pInst.count = 0;
+        for (let i = 0; i < resourcePropInsts.length; i++) resourcePropInsts[i].count = 0;
+        for (let i = 0; i < ambientPropInsts.length; i++) {
+          const inst = ambientPropInsts[i];
+          inst.count = 0;
+          ambMedStage.get(inst)!.length = 0;
+          ambFullStage.get(inst)!.length = 0;
+        }
 
         for (let i = 0; i < simState.tiles.length; i++) {
           const t = simState.tiles[i];
@@ -3421,6 +3678,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           _dummyMatrix.compose(_dummyPos, _propQuat, _propScale);
 
           let targetInst: THREE.InstancedMesh | null = null;
+          let ambThresh = 0;
           if (t.resourceNode === 'timber_grove') {
             if (t.terrain === 'jungle') {
               targetInst = timberJungleInsts[h % timberJungleInsts.length];
@@ -3446,36 +3704,68 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           } else if (t.resourceNode === 'crystal_monolith') {
             targetInst = crystalInsts[h % crystalInsts.length];
           } else {
-            // Ambient multi-object sub-tile details on open land for lively biome density
+            // Ambient multi-object sub-tile details partitioned into contiguous Low / Med / Full tiers
             const chance = (h >> 4) % 100;
-            if ((t.terrain === 'grass' || (t.terrain === 'fertile' && !t.farmSettlementId)) && chance < 48) {
-              targetInst = ambGrassInsts[h % ambGrassInsts.length];
-            } else if (t.terrain === 'forest' && chance < 60) {
-              targetInst = ambForestInsts[h % ambForestInsts.length];
-            } else if (t.terrain === 'sand' && chance < 44) {
-              targetInst = ambSandInsts[h % ambSandInsts.length];
-            } else if (t.terrain === 'rock' && chance < 45) {
-              targetInst = ambRockInsts[h % ambRockInsts.length];
-            } else if (t.terrain === 'snow' && chance < 42) {
-              targetInst = ambSnowInsts[h % ambSnowInsts.length];
-            } else if (t.terrain === 'savanna' && chance < 50) {
-              targetInst = ambSavannaInsts[h % ambSavannaInsts.length];
-            } else if (t.terrain === 'swamp' && chance < 55) {
-              targetInst = ambSwampInsts[h % ambSwampInsts.length];
-            } else if (t.terrain === 'highland' && chance < 48) {
-              targetInst = ambHighlandInsts[h % ambHighlandInsts.length];
-            } else if (t.terrain === 'jungle' && chance < 72) {
-              targetInst = ambJungleInsts[h % ambJungleInsts.length];
-            } else if (t.terrain === 'mountain' && chance < 62) {
-              targetInst = ambMountainInsts[h % ambMountainInsts.length];
-            } else if (t.terrain === 'taiga' && chance < 58) {
-              targetInst = ambTaigaInsts[h % ambTaigaInsts.length];
-            } else if (t.terrain === 'tundra' && chance < 52) {
-              targetInst = ambTundraInsts[h % ambTundraInsts.length];
-            } else if (t.terrain === 'badlands' && chance < 58) {
-              targetInst = ambBadlandsInsts[h % ambBadlandsInsts.length];
-            } else if (t.terrain === 'blossom' && chance < 66) {
-              targetInst = ambBlossomInsts[h % ambBlossomInsts.length];
+            if (t.terrain === 'grass' || (t.terrain === 'fertile' && !t.farmSettlementId)) {
+              ambThresh = 48;
+              if (chance < ambThresh) targetInst = ambGrassInsts[h % ambGrassInsts.length];
+            } else if (t.terrain === 'forest') {
+              ambThresh = 60;
+              if (chance < ambThresh) targetInst = ambForestInsts[h % ambForestInsts.length];
+            } else if (t.terrain === 'sand') {
+              ambThresh = 44;
+              if (chance < ambThresh) targetInst = ambSandInsts[h % ambSandInsts.length];
+            } else if (t.terrain === 'rock') {
+              ambThresh = 45;
+              if (chance < ambThresh) targetInst = ambRockInsts[h % ambRockInsts.length];
+            } else if (t.terrain === 'snow') {
+              ambThresh = 42;
+              if (chance < ambThresh) targetInst = ambSnowInsts[h % ambSnowInsts.length];
+            } else if (t.terrain === 'savanna') {
+              ambThresh = 50;
+              if (chance < ambThresh) targetInst = ambSavannaInsts[h % ambSavannaInsts.length];
+            } else if (t.terrain === 'swamp') {
+              ambThresh = 55;
+              if (chance < ambThresh) targetInst = ambSwampInsts[h % ambSwampInsts.length];
+            } else if (t.terrain === 'highland') {
+              ambThresh = 48;
+              if (chance < ambThresh) targetInst = ambHighlandInsts[h % ambHighlandInsts.length];
+            } else if (t.terrain === 'jungle') {
+              ambThresh = 72;
+              if (chance < ambThresh) targetInst = ambJungleInsts[h % ambJungleInsts.length];
+            } else if (t.terrain === 'mountain') {
+              ambThresh = 62;
+              if (chance < ambThresh) targetInst = ambMountainInsts[h % ambMountainInsts.length];
+            } else if (t.terrain === 'taiga') {
+              ambThresh = 58;
+              if (chance < ambThresh) targetInst = ambTaigaInsts[h % ambTaigaInsts.length];
+            } else if (t.terrain === 'tundra') {
+              ambThresh = 52;
+              if (chance < ambThresh) targetInst = ambTundraInsts[h % ambTundraInsts.length];
+            } else if (t.terrain === 'badlands') {
+              ambThresh = 58;
+              if (chance < ambThresh) targetInst = ambBadlandsInsts[h % ambBadlandsInsts.length];
+            } else if (t.terrain === 'blossom') {
+              ambThresh = 66;
+              if (chance < ambThresh) targetInst = ambBlossomInsts[h % ambBlossomInsts.length];
+            }
+
+            if (targetInst && ambientPropSet.has(targetInst)) {
+              if (chance < ambThresh * 0.22) {
+                if (targetInst.count < targetInst.instanceMatrix.count) {
+                  const pSlot = targetInst.count;
+                  targetInst.count = pSlot + 1;
+                  targetInst.setMatrixAt(pSlot, _dummyMatrix);
+                }
+              } else {
+                const els = _dummyMatrix.elements;
+                const stage =
+                  chance < ambThresh * 0.55
+                    ? ambMedStage.get(targetInst)!
+                    : ambFullStage.get(targetInst)!;
+                for (let k = 0; k < 16; k++) stage.push(els[k]);
+              }
+              targetInst = null;
             }
           }
 
@@ -3486,10 +3776,50 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           }
         }
 
-        for (const pInst of allPropInsts) {
-          pInst.instanceMatrix.needsUpdate = true;
+        for (let i = 0; i < resourcePropInsts.length; i++) {
+          const pInst = resourcePropInsts[i];
+          if (pInst.count > 0) {
+            pInst.instanceMatrix.clearUpdateRanges();
+            pInst.instanceMatrix.addUpdateRange(0, pInst.count * 16);
+            pInst.instanceMatrix.needsUpdate = true;
+          }
         }
 
+        for (let i = 0; i < ambientPropInsts.length; i++) {
+          const pInst = ambientPropInsts[i];
+          const lowCount = pInst.count;
+          const cap = pInst.instanceMatrix.count;
+          const arr = pInst.instanceMatrix.array as Float32Array;
+          const med = ambMedStage.get(pInst)!;
+          const full = ambFullStage.get(pInst)!;
+
+          let cursor = lowCount;
+          let outOff = cursor * 16;
+          for (let m = 0; m < med.length && cursor < cap; m += 16) {
+            for (let k = 0; k < 16; k++) arr[outOff + k] = med[m + k];
+            outOff += 16;
+            cursor++;
+          }
+          const medCount = cursor;
+
+          for (let f = 0; f < full.length && cursor < cap; f += 16) {
+            for (let k = 0; k < 16; k++) arr[outOff + k] = full[f + k];
+            outOff += 16;
+            cursor++;
+          }
+          const fullCount = cursor;
+
+          ambTierCounts.set(pInst, { low: lowCount, med: medCount, full: fullCount });
+          if (fullCount > 0) {
+            pInst.instanceMatrix.clearUpdateRanges();
+            pInst.instanceMatrix.addUpdateRange(0, fullCount * 16);
+            pInst.instanceMatrix.needsUpdate = true;
+          }
+        }
+        applyAmbientFoliageFactor(appliedFoliageFactor);
+      }
+
+      if (metroNeedsSync) {
         // Rebuild Elevated Metro Viaducts (Epoch 5+) & Dedicated Runway Edge Beacons
         for (const mInst of allMetroInsts) mInst.count = 0;
 
@@ -3512,10 +3842,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         }
 
         const gs = simState.gridSize;
-        const bldTypeAt = new Map<number, string>();
+        bldTypeAtCache.clear();
         for (let bi = 0; bi < simState.buildings.length; bi++) {
           const bld = simState.buildings[bi];
-          bldTypeAt.set(bld.tileZ * gs + bld.tileX, bld.type);
+          bldTypeAtCache.set(bld.tileZ * gs + bld.tileX, bld.type);
         }
 
         const isRailOrStationAt = (tx: number, tz: number) => {
@@ -3523,7 +3853,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           const tileIdx = tz * gs + tx;
           const tile = simState.tiles[tileIdx];
           if (!tile || tile.height <= 0) return false;
-          return tile.terrain === 'rail_track' || bldTypeAt.get(tileIdx) === 'rail_station';
+          return tile.terrain === 'rail_track' || bldTypeAtCache.get(tileIdx) === 'rail_station';
         };
 
         const isElevatedNodeAt = (tx: number, tz: number) => {
@@ -3531,7 +3861,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           const tileIdx = tz * gs + tx;
           const tile = simState.tiles[tileIdx];
           if (!tile || tile.height <= 0) return false;
-          if (tile.terrain === 'rail_track' || bldTypeAt.get(tileIdx) === 'rail_station') {
+          if (tile.terrain === 'rail_track' || bldTypeAtCache.get(tileIdx) === 'rail_station') {
             return true;
           }
           if (tile.terrain === 'stone_road') {
@@ -3600,27 +3930,23 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           const nodeHere = isElevatedNodeAt(t.x, t.z);
           if (!nodeHere) continue;
 
-          const isStationHere = bldTypeAt.get(i) === 'rail_station';
+          const isStationHere = bldTypeAtCache.get(i) === 'rail_station';
           const isRoadBridgeHere = t.terrain === 'stone_road';
 
-          // Support pillar + flared T-cap on elevated rail tiles (skip pillars in road traffic lanes & inside stations)
           if (t.terrain === 'rail_track' && !isStationHere) {
             pushInst(metroPillarInst, t.x, curY + 0.32, t.z);
             pushInst(metroCapInst, t.x, curY + 0.60, t.z);
           }
-          // Elevated deck hub + top rail plate on track tiles & 4-way road-crossing spans
           if (t.terrain === 'rail_track' || isRoadBridgeHere) {
             pushInst(metroDeckHubInst, t.x, curY + 0.68, t.z);
             pushInst(metroRailHubInst, t.x, curY + 0.75, t.z);
           }
 
-          // Connect East (+X) neighbor if it forms a continuous viaduct span
           if (t.x + 1 < gs && isElevatedNodeAt(t.x + 1, t.z)) {
             const eastIdx = t.z * gs + (t.x + 1);
             const eastTile = simState.tiles[eastIdx];
             const eastIsRoad = eastTile.terrain === 'stone_road';
-            const eastIsStation = bldTypeAt.get(eastIdx) === 'rail_station';
-            // Connect if at least one end is rail_track (or road bridge connecting rail_tracks)
+            const eastIsStation = bldTypeAtCache.get(eastIdx) === 'rail_station';
             if (t.terrain === 'rail_track' || eastTile.terrain === 'rail_track' || !eastIsStation) {
               if (!(isRoadBridgeHere && eastIsRoad)) {
                 const nextY = tileCurrentY[eastIdx];
@@ -3637,12 +3963,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             }
           }
 
-          // Connect South (+Z) neighbor if it forms a continuous viaduct span
           if (t.z + 1 < gs && isElevatedNodeAt(t.x, t.z + 1)) {
             const southIdx = (t.z + 1) * gs + t.x;
             const southTile = simState.tiles[southIdx];
             const southIsRoad = southTile.terrain === 'stone_road';
-            const southIsStation = bldTypeAt.get(southIdx) === 'rail_station';
+            const southIsStation = bldTypeAtCache.get(southIdx) === 'rail_station';
             if (t.terrain === 'rail_track' || southTile.terrain === 'rail_track' || !southIsStation) {
               if (!(isRoadBridgeHere && southIsRoad)) {
                 const nextY = tileCurrentY[southIdx];
@@ -3661,45 +3986,22 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         }
 
         for (const mInst of allMetroInsts) {
-          mInst.instanceMatrix.needsUpdate = true;
+          if (mInst.count > 0) {
+            mInst.instanceMatrix.clearUpdateRanges();
+            mInst.instanceMatrix.addUpdateRange(0, mInst.count * 16);
+            mInst.instanceMatrix.needsUpdate = true;
+          }
         }
       }
 
-      // 2. Sync buildings
-      const activeBldIds = new Set<string>();
-      for (const b of simState.buildings) {
-        activeBldIds.add(b.id);
-        const tile = simState.tiles[b.tileZ * simState.gridSize + b.tileX];
-        const groundY = tile ? Math.max(0.18, tile.height * HEIGHT_STEP + 0.25) : 1.0;
-
-        const bSpecies =
-          b.species ??
-          (b.settlementId ? simState.settlementSpecies?.[b.settlementId] : undefined) ??
-          'human';
-        let entry = buildingMeshes.get(b.id);
-        if (
-          !entry ||
-          entry.epochLevel !== b.epochLevel ||
-          entry.type !== b.type ||
-          entry.species !== bSpecies
-        ) {
-          if (entry) buildingsGroup.remove(entry.group);
-          const variantSeed = b.tileX * 31 + b.tileZ * 17;
-          const group = createBuildingGroup(b.type, b.epochLevel, variantSeed, bSpecies);
-          group.position.set(b.tileX, groundY, b.tileZ);
-          buildingsGroup.add(group);
-          entry = { group, epochLevel: b.epochLevel, type: b.type, species: bSpecies };
-          buildingMeshes.set(b.id, entry);
-        }
-
-        // Orient building doorway (+Z in local space) toward adjacent street or deterministic cardinal angle
-        const gs = simState.gridSize;
-        const tS = b.tileZ + 1 < gs ? simState.tiles[(b.tileZ + 1) * gs + b.tileX] : undefined;
-        const tE = b.tileX + 1 < gs ? simState.tiles[b.tileZ * gs + (b.tileX + 1)] : undefined;
-        const tN = b.tileZ - 1 >= 0 ? simState.tiles[(b.tileZ - 1) * gs + b.tileX] : undefined;
-        const tW = b.tileX - 1 >= 0 ? simState.tiles[b.tileZ * gs + (b.tileX - 1)] : undefined;
-        let rotY = (((b.tileX * 19 + b.tileZ * 7) & 1) === 0 ? 0 : Math.PI / 2);
-        if (b.type === 'rail_station') {
+      const gsBld = simState.gridSize;
+      const computeBuildingRotY = (bx: number, bz: number, bType: string) => {
+        const tS = bz + 1 < gsBld ? simState.tiles[(bz + 1) * gsBld + bx] : undefined;
+        const tE = bx + 1 < gsBld ? simState.tiles[bz * gsBld + (bx + 1)] : undefined;
+        const tN = bz - 1 >= 0 ? simState.tiles[(bz - 1) * gsBld + bx] : undefined;
+        const tW = bx - 1 >= 0 ? simState.tiles[bz * gsBld + (bx - 1)] : undefined;
+        let rotY = ((bx * 19 + bz * 7) & 1) === 0 ? 0 : Math.PI / 2;
+        if (bType === 'rail_station') {
           if (tS?.terrain === 'rail_track') rotY = 0;
           else if (tE?.terrain === 'rail_track') rotY = Math.PI / 2;
           else if (tN?.terrain === 'rail_track') rotY = Math.PI;
@@ -3714,27 +4016,83 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           else if (tN?.terrain === 'stone_road') rotY = Math.PI;
           else if (tW?.terrain === 'stone_road') rotY = -Math.PI / 2;
         }
-        entry.group.rotation.y = rotY;
+        return rotY;
+      };
 
-        entry.group.position.set(b.tileX, groundY, b.tileZ);
+      // 2. Sync buildings (cached animated children + road orientation)
+      for (let bi = 0; bi < simState.buildings.length; bi++) {
+        const b = simState.buildings[bi];
+        const tile = simState.tiles[b.tileZ * gsBld + b.tileX];
+        const groundY = tile ? Math.max(0.18, tile.height * HEIGHT_STEP + 0.25) : 1.0;
+
+        const bSpecies =
+          b.species ??
+          (b.settlementId ? simState.settlementSpecies?.[b.settlementId] : undefined) ??
+          'human';
+        let entry = buildingMeshes.get(b.id);
+        let createdOrRebuilt = false;
+        if (
+          !entry ||
+          entry.epochLevel !== b.epochLevel ||
+          entry.type !== b.type ||
+          entry.species !== bSpecies
+        ) {
+          if (entry) buildingsGroup.remove(entry.group);
+          const variantSeed = b.tileX * 31 + b.tileZ * 17;
+          const group = createBuildingGroup(b.type, b.epochLevel, variantSeed, bSpecies);
+          group.position.set(b.tileX, groundY, b.tileZ);
+          buildingsGroup.add(group);
+          const flickerFlames: THREE.Object3D[] = [];
+          const spinParts: THREE.Object3D[] = [];
+          for (let ci = 0; ci < group.children.length; ci++) {
+            const ch = group.children[ci];
+            if (ch.name === 'flicker_flame') flickerFlames.push(ch);
+            else if (ch.name === 'spin_part') spinParts.push(ch);
+          }
+          const rotY = computeBuildingRotY(b.tileX, b.tileZ, b.type);
+          group.rotation.y = rotY;
+          entry = {
+            group,
+            epochLevel: b.epochLevel,
+            type: b.type,
+            species: bSpecies,
+            flickerFlames,
+            spinParts,
+            cachedRotY: rotY,
+            seenStamp: syncFrameStamp,
+          };
+          buildingMeshes.set(b.id, entry);
+          createdOrRebuilt = true;
+        } else {
+          entry.seenStamp = syncFrameStamp;
+          if (propsNeedSync) {
+            entry.cachedRotY = computeBuildingRotY(b.tileX, b.tileZ, b.type);
+            entry.group.rotation.y = entry.cachedRotY;
+          }
+        }
+
+        if (!createdOrRebuilt && entry.group.position.y !== groundY) {
+          entry.group.position.y = groundY;
+        }
         const buildScaleY =
           b.constructionProgress < 100 ? 0.22 + 0.78 * (b.constructionProgress / 100) : 1;
-        entry.group.scale.y = buildScaleY;
+        if (entry.group.scale.y !== buildScaleY) {
+          entry.group.scale.y = buildScaleY;
+        }
 
-        // Animate flickering flames or rotating dynamo/cyber/dyson rings
-        for (const child of entry.group.children) {
-          if (child.name === 'flicker_flame') {
-            const s = 0.92 + Math.sin(elapsed * 14 + b.tileX) * 0.14;
-            child.scale.set(s, 0.9 + Math.cos(elapsed * 18) * 0.18, s);
-          } else if (child.name === 'spin_part') {
-            child.rotation.y += dt * 1.8;
-          }
+        for (let fi = 0; fi < entry.flickerFlames.length; fi++) {
+          const flame = entry.flickerFlames[fi];
+          const s = 0.92 + Math.sin(elapsed * 14 + b.tileX) * 0.14;
+          flame.scale.set(s, 0.9 + Math.cos(elapsed * 18) * 0.18, s);
+        }
+        for (let si = 0; si < entry.spinParts.length; si++) {
+          entry.spinParts[si].rotation.y += dt * 1.8;
         }
       }
 
       if (simState.buildings.length > 0) {
         const primary = simState.buildings[0];
-        const pt = simState.tiles[primary.tileZ * simState.gridSize + primary.tileX];
+        const pt = simState.tiles[primary.tileZ * gsBld + primary.tileX];
         hearthLight.position.set(
           primary.tileX,
           (pt ? Math.max(0.18, pt.height * HEIGHT_STEP + 0.25) : 1.0) + 1.8,
@@ -3745,16 +4103,15 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       }
 
       for (const [id, entry] of buildingMeshes.entries()) {
-        if (!activeBldIds.has(id)) {
+        if (entry.seenStamp !== syncFrameStamp) {
           buildingsGroup.remove(entry.group);
           buildingMeshes.delete(id);
         }
       }
 
-      // 3. Sync units with gait bob, work chop animation, carried resources, species, and epoch gear
-      const activeUnitIds = new Set<string>();
-      for (const u of simState.units) {
-        activeUnitIds.add(u.id);
+      // 3. Sync units with cached limb/status references
+      for (let ui = 0; ui < simState.units.length; ui++) {
+        const u = simState.units[ui];
         let uEntry = unitMeshes.get(u.id);
         const desiredEpoch = u.faction === 'civilization' ? simState.epochIndex : 0;
         const unitSpecies = u.species ?? 'human';
@@ -3785,22 +4142,45 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             role: u.role,
             species: unitSpecies,
             ageStage: unitAgeStage,
+            bodyPivot: group.getObjectByName('body_pivot'),
+            headPivot: group.getObjectByName('head_pivot'),
+            jawPivot: group.getObjectByName('jaw_pivot'),
+            tailPivot: group.getObjectByName('tail_pivot'),
+            wingL: group.getObjectByName('wing_l'),
+            wingR: group.getObjectByName('wing_r'),
+            wingOuterL: group.getObjectByName('wing_outer_l'),
+            wingOuterR: group.getObjectByName('wing_outer_r'),
+            fireMaw: group.getObjectByName('fire_maw') as THREE.Mesh | undefined,
+            legFL: group.getObjectByName('leg_fl'),
+            legFR: group.getObjectByName('leg_fr'),
+            legBL: group.getObjectByName('leg_bl'),
+            legBR: group.getObjectByName('leg_br'),
+            legL: group.getObjectByName('leg_l'),
+            legR: group.getObjectByName('leg_r'),
+            contactShadow: group.getObjectByName('contact_shadow'),
+            heldTool: group.getObjectByName('held_tool'),
+            carryBox: group.getObjectByName('carry_box') as THREE.Mesh | undefined,
+            statusRing: group.getObjectByName('status_ring') as THREE.Mesh | undefined,
+            lastCarryType: '__unset__',
+            lastStatusKey: -1,
+            seenStamp: syncFrameStamp,
           };
           unitMeshes.set(u.id, uEntry);
+        } else {
+          uEntry.seenStamp = syncFrameStamp;
         }
         const uGroup = uEntry.group;
 
-        const tx = Math.round(THREE.MathUtils.clamp(u.x, 0, simState.gridSize - 1));
-        const tz = Math.round(THREE.MathUtils.clamp(u.z, 0, simState.gridSize - 1));
-        const tile = simState.tiles[tz * simState.gridSize + tx];
+        const tx = Math.round(THREE.MathUtils.clamp(u.x, 0, gsBld - 1));
+        const tz = Math.round(THREE.MathUtils.clamp(u.z, 0, gsBld - 1));
+        const tile = simState.tiles[tz * gsBld + tx];
         const groundY = tile ? Math.max(0.18, tile.height * HEIGHT_STEP + 0.25) : 0.5;
 
-        // Check if unit is being pulled by an active Black Hole (wormhole_rift) for 3D levitation & vortex spiral tilt
         let blackHolePullFrac = 0;
         let blackHoleAngle = 0;
-        if (!u.statusEffects.shielded && simState.activeHazards) {
-          for (let hi = 0; hi < simState.activeHazards.length; hi++) {
-            const hz = simState.activeHazards[hi];
+        if (!u.statusEffects.shielded && hazardsList) {
+          for (let hi = 0; hi < hazardsList.length; hi++) {
+            const hz = hazardsList[hi];
             if (hz.kind === 'wormhole_rift') {
               const pullR = hz.radius * 1.65;
               const d = Math.hypot(u.x - hz.x, u.z - hz.z);
@@ -3894,7 +4274,6 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         const flightHoverY = Math.max(0, finalUnitY - groundY);
         uGroup.position.set(u.x, finalUnitY, u.z);
 
-        // Smoothly damped facing direction & turn-rate banking calculation
         let dragonYawDelta = 0;
         if (blackHolePullFrac > 0.15) {
           uGroup.rotation.y = blackHoleAngle + elapsed * 3.5 * blackHolePullFrac;
@@ -3937,7 +4316,6 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           }
         }
 
-        // KO topple, Black Hole 3D vortex tumble/spaghettification, or aerodynamic flight/stride sway
         if (u.state === 'ko') {
           uGroup.rotation.z = THREE.MathUtils.damp(uGroup.rotation.z, Math.PI / 2, 12, dt);
           uGroup.rotation.x = 0;
@@ -3966,15 +4344,16 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           uGroup.scale.setScalar(1);
         }
 
-        // Articulated creature animation (wings, head grazing/pecking/prowling, jaw snapping, tail wagging, legs)
-        const bodyPivot = uGroup.getObjectByName('body_pivot');
-        const headPivot = uGroup.getObjectByName('head_pivot');
-        const jawPivot = uGroup.getObjectByName('jaw_pivot');
-        const tailPivot = uGroup.getObjectByName('tail_pivot');
-        const wingL = uGroup.getObjectByName('wing_l');
-        const wingR = uGroup.getObjectByName('wing_r');
-        const wingOuterL = uGroup.getObjectByName('wing_outer_l');
-        const wingOuterR = uGroup.getObjectByName('wing_outer_r');
+        const {
+          bodyPivot,
+          headPivot,
+          jawPivot,
+          tailPivot,
+          wingL,
+          wingR,
+          wingOuterL,
+          wingOuterR,
+        } = uEntry;
 
         if (isAnimal && u.state !== 'ko') {
           if (bodyPivot) {
@@ -3983,7 +4362,6 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             if (isAttacking) {
               const s = Math.sin(atkProg * Math.PI);
               if (u.role === 'bear') {
-                // Towering rear-up followed by heavy slam
                 bodyPitch = atkProg < 0.45 ? -0.58 * (atkProg / 0.45) : -0.58 + 0.88 * ((atkProg - 0.45) / 0.55);
                 bodyForward = atkProg > 0.45 ? 0.22 * Math.sin(((atkProg - 0.45) / 0.55) * Math.PI) : -0.08;
               } else if (u.role === 'unicorn') {
@@ -3996,7 +4374,6 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             }
             bodyPivot.rotation.x = bodyPitch;
             bodyPivot.position.z = bodyForward;
-            // Subtle idle chest breathing
             const breath = isMoving ? 0 : Math.sin(elapsed * 3.4 + seedPhase) * 0.035;
             if (u.role !== 'dinosaur') {
               bodyPivot.scale.y = 1 + breath;
@@ -4018,7 +4395,6 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
               headPivot.rotation.x = Math.sin(atkProg * Math.PI) * (u.role === 'chicken' ? 0.65 : 0.42);
               headPivot.rotation.y = 0;
             } else if (u.role === 'chicken') {
-              // Brisk pecking & alert side-glances
               const peckCycle = (elapsed * 1.4 + seedPhase) % 3.2;
               const isPecking = !isMoving && peckCycle < 0.7;
               headPivot.rotation.x = isPecking
@@ -4028,7 +4404,6 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
                   : 0;
               headPivot.rotation.y = !isMoving && !isPecking ? Math.sin(elapsed * 2.2 + seedPhase) * 0.38 : 0;
             } else if (isGrazingAnim) {
-              // Gentle chewing/browsing head dip while eating plants
               headPivot.rotation.x = 0.28 + Math.sin(atkProg * Math.PI * 2) * 0.22;
               headPivot.rotation.y = Math.sin(elapsed * 2.1 + seedPhase) * 0.1;
             } else if (
@@ -4038,14 +4413,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
               u.role === 'unicorn' ||
               isHerbivoreDino
             ) {
-              // Periodic grazing dip when idle, subtle look around
               const grazeWave = Math.max(0, Math.sin(elapsed * 0.75 + seedPhase));
               headPivot.rotation.x = !isMoving
                 ? grazeWave * (u.role === 'unicorn' ? 0.28 : isHerbivoreDino ? 0.36 : 0.45)
                 : Math.sin(elapsed * bobFreq + seedPhase) * 0.08;
               headPivot.rotation.y = !isMoving ? Math.sin(elapsed * 1.3 + seedPhase) * 0.24 : 0;
             } else {
-              // Wolf, Bear, Carnivore Dinosaur alert scanning
               headPivot.rotation.x = isMoving ? Math.sin(elapsed * bobFreq + seedPhase) * 0.07 : Math.sin(elapsed * 2.1 + seedPhase) * 0.06;
               headPivot.rotation.y = !isMoving ? Math.sin(elapsed * 1.7 + seedPhase) * 0.35 : 0;
             }
@@ -4057,7 +4430,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
                 ? 0.64
                 : 0.06 + Math.max(0, Math.sin(elapsed * 2.0 + seedPhase)) * 0.1;
               jawPivot.rotation.x = THREE.MathUtils.damp(jawPivot.rotation.x, targetJaw, 12, dt);
-              const mawObj = uGroup.getObjectByName('fire_maw') as THREE.Mesh | undefined;
+              const mawObj = uEntry.fireMaw;
               if (mawObj && mawObj.material instanceof THREE.MeshStandardMaterial) {
                 const cd = u.dragonBreathCooldown ?? 0;
                 const targetGlow = isDragonStrafing
@@ -4073,7 +4446,6 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
                 );
               }
             } else if (isAttacking) {
-              // Open wide then snap shut cleanly
               jawPivot.rotation.x = Math.sin(atkProg * Math.PI) * 0.68;
             } else {
               jawPivot.rotation.x = Math.max(0, Math.sin(elapsed * 2.4 + seedPhase)) * 0.14;
@@ -4099,16 +4471,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           const strideFreq = isMoving ? bobFreq : 0;
           const legAmp = isMoving ? (u.role === 'wolf' || u.role === 'unicorn' ? 0.62 : 0.48) : 0;
           const legPhase = elapsed * strideFreq + seedPhase;
-          const legFL = uGroup.getObjectByName('leg_fl');
-          const legFR = uGroup.getObjectByName('leg_fr');
-          const legBL = uGroup.getObjectByName('leg_bl');
-          const legBR = uGroup.getObjectByName('leg_br');
-          const legL = uGroup.getObjectByName('leg_l');
-          const legR = uGroup.getObjectByName('leg_r');
+          const { legFL, legFR, legBL, legBR, legL, legR } = uEntry;
 
           if (legFL && legFR && legBL && legBR) {
             if (isDragon) {
-              // Tucked aerodynamic flight legs
               legFL.rotation.x = 0.52;
               legFR.rotation.x = 0.52;
               legBL.rotation.x = 0.68;
@@ -4136,7 +4502,6 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
         if (wingL && wingR && u.state !== 'ko') {
           if (isDragon) {
-            // Spread wide in a steady aerodynamic glide when carpet-bombing; beat powerfully when turning/climbing
             const wingFreq = u.dragonRunPhase === 'turn' ? 7.4 : 6.2;
             const targetFlap = isDragonStrafing
               ? 0.14 + Math.sin(elapsed * 2.6 + seedPhase) * 0.1
@@ -4160,147 +4525,188 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           }
         }
 
-        const unitShadow = uGroup.getObjectByName('contact_shadow');
+        const unitShadow = uEntry.contactShadow;
         if (unitShadow) {
           const totalAir = flightHoverY + levitateY + pounceHopY;
           unitShadow.scale.setScalar(Math.max(0.28, 1 - totalAir * 0.18));
         }
 
-        const heldTool = uGroup.getObjectByName('held_tool');
+        const heldTool = uEntry.heldTool;
         if (heldTool) {
           heldTool.rotation.x = isWorking ? 0.45 + Math.sin(elapsed * 18) * 0.65 : 0.35;
         }
 
-        const carryBox = uGroup.getObjectByName('carry_box') as THREE.Mesh | undefined;
+        const carryBox = uEntry.carryBox;
         if (carryBox) {
-          if (u.carryingAmount > 0 && u.carryingType) {
-            carryBox.visible = true;
-            const cMat = carryBox.material as THREE.MeshStandardMaterial;
-            if (u.carryingType === 'wood') cMat.color.setHex(0x7d4e2d);
-            else if (u.carryingType === 'food') cMat.color.setHex(0xd94e34);
-            else if (u.carryingType === 'stone') cMat.color.setHex(0x8f8b82);
-            else if (u.carryingType === 'ore') cMat.color.setHex(0xe08e36);
-            else cMat.color.setHex(0x56cfe1);
-          } else {
-            carryBox.visible = false;
+          const carryType = u.carryingAmount > 0 && u.carryingType ? u.carryingType : null;
+          if (carryType !== uEntry.lastCarryType) {
+            uEntry.lastCarryType = carryType;
+            if (carryType) {
+              carryBox.visible = true;
+              const cMat = carryBox.material as THREE.MeshStandardMaterial;
+              if (carryType === 'wood') cMat.color.setHex(0x7d4e2d);
+              else if (carryType === 'food') cMat.color.setHex(0xd94e34);
+              else if (carryType === 'stone') cMat.color.setHex(0x8f8b82);
+              else if (carryType === 'ore') cMat.color.setHex(0xe08e36);
+              else cMat.color.setHex(0x56cfe1);
+            } else {
+              carryBox.visible = false;
+            }
           }
         }
 
-        // Status ring aura
-        const statusRing = uGroup.getObjectByName('status_ring') as THREE.Mesh | undefined;
+        const statusRing = uEntry.statusRing;
         if (statusRing) {
-          const mat = statusRing.material as THREE.MeshBasicMaterial;
-          if (u.statusEffects.blessed) {
-            mat.color.setHex(0xf5b742);
-            mat.opacity = 0.85;
-          } else if (u.statusEffects.shielded) {
-            mat.color.setHex(0x72efdd);
-            mat.opacity = 0.85;
-          } else if (u.statusEffects.frenzied) {
-            mat.color.setHex(0xe63946);
-            mat.opacity = 0.85;
-          } else if (u.statusEffects.plagued) {
-            mat.color.setHex(0x80ed99);
-            mat.opacity = 0.85;
-          } else if (u.statusEffects.cursed) {
-            mat.color.setHex(0x9d4edd);
-            mat.opacity = 0.85;
-          } else {
-            mat.opacity = 0.0;
+          const statusKey = u.statusEffects.blessed
+            ? 1
+            : u.statusEffects.shielded
+              ? 2
+              : u.statusEffects.frenzied
+                ? 3
+                : u.statusEffects.plagued
+                  ? 4
+                  : u.statusEffects.cursed
+                    ? 5
+                    : 0;
+          if (statusKey !== uEntry.lastStatusKey) {
+            uEntry.lastStatusKey = statusKey;
+            const mat = statusRing.material as THREE.MeshBasicMaterial;
+            if (statusKey === 1) {
+              mat.color.setHex(0xf5b742);
+              mat.opacity = 0.85;
+            } else if (statusKey === 2) {
+              mat.color.setHex(0x72efdd);
+              mat.opacity = 0.85;
+            } else if (statusKey === 3) {
+              mat.color.setHex(0xe63946);
+              mat.opacity = 0.85;
+            } else if (statusKey === 4) {
+              mat.color.setHex(0x80ed99);
+              mat.opacity = 0.85;
+            } else if (statusKey === 5) {
+              mat.color.setHex(0x9d4edd);
+              mat.opacity = 0.85;
+            } else {
+              mat.opacity = 0.0;
+            }
           }
         }
       }
 
       for (const [id, uEntry] of unitMeshes.entries()) {
-        if (!activeUnitIds.has(id)) {
+        if (uEntry.seenStamp !== syncFrameStamp) {
           unitsGroup.remove(uEntry.group);
           unitMeshes.delete(id);
         }
       }
 
-      // 3b. Sync vehicles (cars on roads, trains/metros on railways, planes & shuttles in flight)
-      const activeVehicleIds = new Set<string>();
-      for (const v of simState.vehicles ?? []) {
-        activeVehicleIds.add(v.id);
-        let vEntry = vehicleMeshes.get(v.id);
-        if (
-          !vEntry ||
-          vEntry.epochLevel !== v.epochLevel ||
-          vEntry.type !== v.type ||
-          vEntry.species !== v.species
-        ) {
-          if (vEntry) vehiclesGroup.remove(vEntry.group);
-          const seedHash =
-            Math.abs(Math.round(v.x * 13 + v.z * 7)) + v.id.charCodeAt(v.id.length - 1);
-          const group = createVehicleGroup(v.type, v.epochLevel, v.species, seedHash);
-          vehiclesGroup.add(group);
-          vEntry = { group, epochLevel: v.epochLevel, type: v.type, species: v.species };
-          vehicleMeshes.set(v.id, vEntry);
-        }
-        const vGroup = vEntry.group;
-        const vtx = Math.round(THREE.MathUtils.clamp(v.x, 0, simState.gridSize - 1));
-        const vtz = Math.round(THREE.MathUtils.clamp(v.z, 0, simState.gridSize - 1));
-        const vTile = simState.tiles[vtz * simState.gridSize + vtx];
-        const groundY = vTile ? Math.max(0.18, vTile.height * HEIGHT_STEP + 0.25) : 0.5;
-
-        if (v.type === 'car') {
-          // Right-hand lane offset perpendicular to forward heading
-          const laneX = -Math.cos(v.heading) * 0.14;
-          const laneZ = Math.sin(v.heading) * 0.14;
-          vGroup.position.set(v.x + laneX, groundY + v.y, v.z + laneZ);
-        } else if (v.type === 'roadster') {
-          const laneScale = v.y > 0.25 ? Math.max(0, 1 - (v.y - 0.25) * 0.8) : 1;
-          const laneX = -Math.cos(v.heading) * 0.12 * laneScale;
-          const laneZ = Math.sin(v.heading) * 0.12 * laneScale;
-          vGroup.position.set(v.x + laneX, groundY + v.y, v.z + laneZ);
-          if (v.thrusterActive && Math.random() < 0.75) {
-            spawnParticleBurst(
-              v.x + laneX,
-              groundY + v.y + 0.08,
-              v.z + laneZ,
-              2,
-              Math.random() < 0.55 ? '#38bdf8' : '#e0f2fe',
-              0.25,
-              1.6,
-              0.42,
-            );
-          }
-        } else if (v.type === 'plane') {
-          const minAirFloor = v.flightPhase === 'cruise' ? 3.85 : groundY;
-          const planeY = Math.max(groundY + v.y, minAirFloor + Math.max(0, v.y - 2.0));
-          vGroup.position.set(v.x, planeY, v.z);
-        } else {
-          vGroup.position.set(v.x, groundY + v.y + 0.01, v.z);
-        }
-
-        vGroup.rotation.order = 'YXZ';
-        vGroup.rotation.set(v.pitch, v.heading, v.bank);
-
-        for (const child of vGroup.children) {
-          if (child.name === 'spin_prop') {
-            child.rotation.z += dt * 28;
-          } else if (child.name === 'thruster_plume') {
-            const active = Boolean(v.thrusterActive);
-            child.visible = active;
-            if (active) {
-              const flicker = 0.8 + Math.sin(elapsed * 48 + child.position.x * 30) * 0.28;
-              child.scale.set(0.9 + (flicker - 0.8) * 0.4, flicker, 0.9 + (flicker - 0.8) * 0.4);
+      // 3b. Sync vehicles with cached animated children
+      const vehicles = simState.vehicles;
+      if (vehicles && vehicles.length > 0) {
+        for (let vi = 0; vi < vehicles.length; vi++) {
+          const v = vehicles[vi];
+          let vEntry = vehicleMeshes.get(v.id);
+          if (
+            !vEntry ||
+            vEntry.epochLevel !== v.epochLevel ||
+            vEntry.type !== v.type ||
+            vEntry.species !== v.species
+          ) {
+            if (vEntry) vehiclesGroup.remove(vEntry.group);
+            const seedHash =
+              Math.abs(Math.round(v.x * 13 + v.z * 7)) + v.id.charCodeAt(v.id.length - 1);
+            const group = createVehicleGroup(v.type, v.epochLevel, v.species, seedHash);
+            vehiclesGroup.add(group);
+            const spinProps: THREE.Object3D[] = [];
+            const thrusterPlumes: THREE.Object3D[] = [];
+            const contactShadows: THREE.Object3D[] = [];
+            for (let ci = 0; ci < group.children.length; ci++) {
+              const ch = group.children[ci];
+              if (ch.name === 'spin_prop') spinProps.push(ch);
+              else if (ch.name === 'thruster_plume') thrusterPlumes.push(ch);
+              else if (ch.name === 'contact_shadow') contactShadows.push(ch);
             }
-          } else if (child.name === 'contact_shadow') {
+            vEntry = {
+              group,
+              epochLevel: v.epochLevel,
+              type: v.type,
+              species: v.species,
+              spinProps,
+              thrusterPlumes,
+              contactShadows,
+              seenStamp: syncFrameStamp,
+            };
+            vehicleMeshes.set(v.id, vEntry);
+          } else {
+            vEntry.seenStamp = syncFrameStamp;
+          }
+          const vGroup = vEntry.group;
+          const vtx = Math.round(THREE.MathUtils.clamp(v.x, 0, gsBld - 1));
+          const vtz = Math.round(THREE.MathUtils.clamp(v.z, 0, gsBld - 1));
+          const vTile = simState.tiles[vtz * gsBld + vtx];
+          const groundY = vTile ? Math.max(0.18, vTile.height * HEIGHT_STEP + 0.25) : 0.5;
+
+          if (v.type === 'car') {
+            const laneX = -Math.cos(v.heading) * 0.14;
+            const laneZ = Math.sin(v.heading) * 0.14;
+            vGroup.position.set(v.x + laneX, groundY + v.y, v.z + laneZ);
+          } else if (v.type === 'roadster') {
+            const laneScale = v.y > 0.25 ? Math.max(0, 1 - (v.y - 0.25) * 0.8) : 1;
+            const laneX = -Math.cos(v.heading) * 0.12 * laneScale;
+            const laneZ = Math.sin(v.heading) * 0.12 * laneScale;
+            vGroup.position.set(v.x + laneX, groundY + v.y, v.z + laneZ);
+            if (v.thrusterActive && Math.random() < 0.75) {
+              spawnParticleBurst(
+                v.x + laneX,
+                groundY + v.y + 0.08,
+                v.z + laneZ,
+                2,
+                Math.random() < 0.55 ? '#38bdf8' : '#e0f2fe',
+                0.25,
+                1.6,
+                0.42,
+              );
+            }
+          } else if (v.type === 'plane') {
+            const minAirFloor = v.flightPhase === 'cruise' ? 3.85 : groundY;
+            const planeY = Math.max(groundY + v.y, minAirFloor + Math.max(0, v.y - 2.0));
+            vGroup.position.set(v.x, planeY, v.z);
+          } else {
+            vGroup.position.set(v.x, groundY + v.y + 0.01, v.z);
+          }
+
+          vGroup.rotation.order = 'YXZ';
+          vGroup.rotation.set(v.pitch, v.heading, v.bank);
+
+          for (let spi = 0; spi < vEntry.spinProps.length; spi++) {
+            vEntry.spinProps[spi].rotation.z += dt * 28;
+          }
+          const thrusterActive = Boolean(v.thrusterActive);
+          for (let tpi = 0; tpi < vEntry.thrusterPlumes.length; tpi++) {
+            const plume = vEntry.thrusterPlumes[tpi];
+            plume.visible = thrusterActive;
+            if (thrusterActive) {
+              const flicker = 0.8 + Math.sin(elapsed * 48 + plume.position.x * 30) * 0.28;
+              plume.scale.set(0.9 + (flicker - 0.8) * 0.4, flicker, 0.9 + (flicker - 0.8) * 0.4);
+            }
+          }
+          if (vEntry.contactShadows.length > 0) {
             const shadowFade = Math.max(0.25, 1 - Math.max(0, v.y - 0.1) * 0.25);
-            child.scale.setScalar(shadowFade);
+            for (let csi = 0; csi < vEntry.contactShadows.length; csi++) {
+              vEntry.contactShadows[csi].scale.setScalar(shadowFade);
+            }
           }
         }
       }
 
       for (const [id, vEntry] of vehicleMeshes.entries()) {
-        if (!activeVehicleIds.has(id)) {
+        if (vEntry.seenStamp !== syncFrameStamp) {
           vehiclesGroup.remove(vEntry.group);
           vehicleMeshes.delete(id);
         }
       }
 
-      // 4. Consume pending VFX bursts & trigger dramatic 3D power & creature combat animations
+      // 4. Consume pending VFX bursts
       while (simState.pendingVfx.length > 0) {
         const vfx = simState.pendingVfx.shift()!;
         const vTile = getTileFromArray(simState, vfx.x, vfx.z);
@@ -4354,259 +4760,256 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         }
       }
 
-      // 5. Sync lingering hazard zones (monsoon rain clouds, plague clouds, shield domes, cosmic rifts)
-      const activeHazIds = new Set<string>();
-      for (const haz of simState.activeHazards ?? []) {
-        activeHazIds.add(haz.id);
-        let hv = hazardMeshes.get(haz.id);
-        if (!hv) {
-          hv = createHazardVisual(haz.kind, haz.radius, haz.faultSegments, haz.x, haz.z);
-          hazardsGroup.add(hv.group);
-          hazardMeshes.set(haz.id, hv);
-        }
-        const ht = getTileFromArray(simState, haz.x, haz.z);
-        const targetHy = ht ? Math.max(0.25, ht.height * HEIGHT_STEP + 0.25) : 0.8;
-        const hy =
-          hv.currentY === undefined
-            ? targetHy
-            : THREE.MathUtils.damp(hv.currentY, targetHy, 8, dt);
-        hv.currentY = hy;
-        hv.group.position.set(haz.x, hy, haz.z);
+      // 5. Sync lingering hazard zones
+      if (hazardsList && hazardsList.length > 0) {
+        for (let hi = 0; hi < hazardsList.length; hi++) {
+          const haz = hazardsList[hi];
+          let hv = hazardMeshes.get(haz.id);
+          if (!hv) {
+            hv = createHazardVisual(haz.kind, haz.radius, haz.faultSegments, haz.x, haz.z);
+            hazardsGroup.add(hv.group);
+            hazardMeshes.set(haz.id, hv);
+          }
+          hv.seenStamp = syncFrameStamp;
+          const ht = getTileFromArray(simState, haz.x, haz.z);
+          const targetHy = ht ? Math.max(0.25, ht.height * HEIGHT_STEP + 0.25) : 0.8;
+          const hy =
+            hv.currentY === undefined
+              ? targetHy
+              : THREE.MathUtils.damp(hv.currentY, targetHy, 8, dt);
+          hv.currentY = hy;
+          hv.group.position.set(haz.x, hy, haz.z);
 
-        const fade = Math.min(1, haz.remaining / 1.35);
-        if (hv.drops) {
-          const speed = haz.currentSpeed ?? 0.55;
-          const wx = haz.windX ?? 0.78;
-          const wz = haz.windZ ?? 0.62;
-          // Normalized wind-speed factor (0 during slow linger, up to 1 during fast arrival & fast expiration)
-          const speedNorm = Math.min(1, Math.max(0, (speed - 0.6) / 16.0));
+          const fade = Math.min(1, haz.remaining / 1.35);
+          if (hv.drops) {
+            const speed = haz.currentSpeed ?? 0.55;
+            const wx = haz.windX ?? 0.78;
+            const wz = haz.windZ ?? 0.62;
+            const speedNorm = Math.min(1, Math.max(0, (speed - 0.6) / 16.0));
 
-          if (hv.cloudBody) {
-            const windYaw = Math.atan2(wz, wx);
-            hv.cloudBody.rotation.y = -windYaw;
-            // Aerodynamic stretch along wind axis when moving fast; gentle vertical billow when lingering slowly
-            const stretchX = 1.0 + speedNorm * 0.36 + Math.sin(elapsed * 3.2) * 0.04 * (1 - speedNorm);
-            const squashY = 1.0 - speedNorm * 0.14 + Math.cos(elapsed * 3.8) * 0.05 * (1 - speedNorm);
-            hv.cloudBody.scale.set(stretchX, squashY, 1.0 - speedNorm * 0.08);
-            hv.cloudBody.position.y = Math.sin(elapsed * 2.6) * 0.18 * (1 - speedNorm * 0.6);
-          }
+            if (hv.cloudBody) {
+              const windYaw = Math.atan2(wz, wx);
+              hv.cloudBody.rotation.y = -windYaw;
+              const stretchX = 1.0 + speedNorm * 0.36 + Math.sin(elapsed * 3.2) * 0.04 * (1 - speedNorm);
+              const squashY = 1.0 - speedNorm * 0.14 + Math.cos(elapsed * 3.8) * 0.05 * (1 - speedNorm);
+              hv.cloudBody.scale.set(stretchX, squashY, 1.0 - speedNorm * 0.08);
+              hv.cloudBody.position.y = Math.sin(elapsed * 2.6) * 0.18 * (1 - speedNorm * 0.6);
+            }
 
-          for (const d of hv.drops) {
-            const fallProgress = ((elapsed * (d.speed + speedNorm * 4.5) + d.offsetY) % 4.4) / 4.4;
-            const dropY = 4.4 * (1 - fallProgress);
-            // Raindrops slant backward against the wind when the cloud is racing fast
-            const windLag = fallProgress * speedNorm * 1.65;
-            d.mesh.position.set(d.baseX - wx * windLag, dropY, d.baseZ - wz * windLag);
-            d.mesh.rotation.z = wx * speedNorm * 0.42;
-            d.mesh.rotation.x = -wz * speedNorm * 0.42;
-          }
-          if (hv.ringMesh) {
-            hv.ringMesh.scale.setScalar(
-              haz.radius * (0.84 + Math.sin(elapsed * 5) * 0.08) * (1 - speedNorm * 0.22),
-            );
-          }
-          const arriveAlpha =
-            (haz.arrivalRemaining ?? 0) > 0
-              ? Math.min(1, 0.35 + (1 - (haz.arrivalRemaining ?? 0) / (haz.arrivalDuration ?? 0.72)) * 0.65)
-              : 1;
-          for (const m of hv.materials) {
-            if ('opacity' in m) (m as THREE.MeshBasicMaterial).opacity = 0.9 * fade * arriveAlpha;
-          }
-        } else if (hv.spores) {
-          for (const sp of hv.spores) {
-            const a = sp.angle + elapsed * 1.1;
-            sp.mesh.position.set(
-              Math.cos(a) * sp.dist,
-              sp.height + Math.sin(elapsed * 3.2 + sp.phase) * 0.35,
-              Math.sin(a) * sp.dist,
-            );
-            sp.mesh.rotation.y = elapsed * 1.5 + sp.phase;
-          }
-          if (hv.ringMesh) {
-            hv.ringMesh.rotation.z = -elapsed * 0.8;
-          }
-          for (const m of hv.materials) {
-            if ('opacity' in m) (m as THREE.MeshBasicMaterial).opacity = 0.72 * fade;
-          }
-        } else if (hv.kind === 'shield_dome') {
-          if (hv.ringMesh) hv.ringMesh.rotation.z = elapsed * 0.9;
-          if (hv.secondaryRingMesh) hv.secondaryRingMesh.rotation.y = -elapsed * 0.6;
-          (hv.materials[0] as THREE.MeshBasicMaterial).opacity =
-            (0.26 + Math.sin(elapsed * 5) * 0.06) * fade;
-        } else if (hv.kind === 'wormhole_rift') {
-          if (hv.ringMesh) {
-            hv.ringMesh.rotation.z = elapsed * 4.8;
-            hv.ringMesh.rotation.y = elapsed * 2.1;
-          }
-          if (hv.secondaryRingMesh) {
-            hv.secondaryRingMesh.rotation.x = elapsed * 3.6;
-            hv.secondaryRingMesh.rotation.z = -elapsed * 2.8;
-          }
-          // Animate 3 concentric gravity-well rings continuously contracting from outer pull radius into the singularity core
-          if (hv.gravityRings) {
-            const maxPullR = haz.radius * 1.55;
-            for (let gi = 0; gi < hv.gravityRings.length; gi++) {
-              const gRing = hv.gravityRings[gi];
-              const cycle = (elapsed * 0.85 + gi / hv.gravityRings.length) % 1; // 0 (outer rim) -> 1 (swallowed at core)
-              const easeIn = Math.pow(cycle, 1.55);
-              const curRingR = Math.max(0.2, maxPullR * (1 - easeIn));
-              gRing.scale.setScalar(curRingR);
-              gRing.position.y = 0.1 + easeIn * 1.7;
-              gRing.rotation.z = elapsed * (2.2 + gi * 0.8);
-              const gMat = hv.materials[3 + gi] as THREE.MeshBasicMaterial | undefined;
-              if (gMat) {
-                gMat.opacity = Math.sin(cycle * Math.PI) * 0.82 * fade;
+            for (let di = 0; di < hv.drops.length; di++) {
+              const d = hv.drops[di];
+              const fallProgress = ((elapsed * (d.speed + speedNorm * 4.5) + d.offsetY) % 4.4) / 4.4;
+              const dropY = 4.4 * (1 - fallProgress);
+              const windLag = fallProgress * speedNorm * 1.65;
+              d.mesh.position.set(d.baseX - wx * windLag, dropY, d.baseZ - wz * windLag);
+              d.mesh.rotation.z = wx * speedNorm * 0.42;
+              d.mesh.rotation.x = -wz * speedNorm * 0.42;
+            }
+            if (hv.ringMesh) {
+              hv.ringMesh.scale.setScalar(
+                haz.radius * (0.84 + Math.sin(elapsed * 5) * 0.08) * (1 - speedNorm * 0.22),
+              );
+            }
+            const arriveAlpha =
+              (haz.arrivalRemaining ?? 0) > 0
+                ? Math.min(1, 0.35 + (1 - (haz.arrivalRemaining ?? 0) / (haz.arrivalDuration ?? 0.72)) * 0.65)
+                : 1;
+            for (let mi = 0; mi < hv.materials.length; mi++) {
+              const m = hv.materials[mi];
+              if ('opacity' in m) (m as THREE.MeshBasicMaterial).opacity = 0.9 * fade * arriveAlpha;
+            }
+          } else if (hv.spores) {
+            for (let si = 0; si < hv.spores.length; si++) {
+              const sp = hv.spores[si];
+              const a = sp.angle + elapsed * 1.1;
+              sp.mesh.position.set(
+                Math.cos(a) * sp.dist,
+                sp.height + Math.sin(elapsed * 3.2 + sp.phase) * 0.35,
+                Math.sin(a) * sp.dist,
+              );
+              sp.mesh.rotation.y = elapsed * 1.5 + sp.phase;
+            }
+            if (hv.ringMesh) {
+              hv.ringMesh.rotation.z = -elapsed * 0.8;
+            }
+            for (let mi = 0; mi < hv.materials.length; mi++) {
+              const m = hv.materials[mi];
+              if ('opacity' in m) (m as THREE.MeshBasicMaterial).opacity = 0.72 * fade;
+            }
+          } else if (hv.kind === 'shield_dome') {
+            if (hv.ringMesh) hv.ringMesh.rotation.z = elapsed * 0.9;
+            if (hv.secondaryRingMesh) hv.secondaryRingMesh.rotation.y = -elapsed * 0.6;
+            (hv.materials[0] as THREE.MeshBasicMaterial).opacity =
+              (0.26 + Math.sin(elapsed * 5) * 0.06) * fade;
+          } else if (hv.kind === 'wormhole_rift') {
+            if (hv.ringMesh) {
+              hv.ringMesh.rotation.z = elapsed * 4.8;
+              hv.ringMesh.rotation.y = elapsed * 2.1;
+            }
+            if (hv.secondaryRingMesh) {
+              hv.secondaryRingMesh.rotation.x = elapsed * 3.6;
+              hv.secondaryRingMesh.rotation.z = -elapsed * 2.8;
+            }
+            if (hv.gravityRings) {
+              const maxPullR = haz.radius * 1.55;
+              for (let gi = 0; gi < hv.gravityRings.length; gi++) {
+                const gRing = hv.gravityRings[gi];
+                const cycle = (elapsed * 0.85 + gi / hv.gravityRings.length) % 1;
+                const easeIn = Math.pow(cycle, 1.55);
+                const curRingR = Math.max(0.2, maxPullR * (1 - easeIn));
+                gRing.scale.setScalar(curRingR);
+                gRing.position.y = 0.1 + easeIn * 1.7;
+                gRing.rotation.z = elapsed * (2.2 + gi * 0.8);
+                const gMat = hv.materials[3 + gi] as THREE.MeshBasicMaterial | undefined;
+                if (gMat) {
+                  gMat.opacity = Math.sin(cycle * Math.PI) * 0.82 * fade;
+                }
               }
             }
-          }
-          // Animate 24 accretion shards spiraling inward & upward from the ground perimeter into the Event Horizon at y=1.8
-          if (hv.vortexMotes) {
-            const maxMoteR = haz.radius * 1.5;
-            for (let mi = 0; mi < hv.vortexMotes.length; mi++) {
-              const vm = hv.vortexMotes[mi];
-              const cycle = (elapsed * vm.speed + vm.phase) % 1; // 0 (outer rim) -> 1 (core)
-              const inward = Math.pow(cycle, 1.4);
-              const r = Math.max(0.12, maxMoteR * (1 - inward));
-              // Spiral angle accelerates as radius shrinks (conservation of angular momentum)
-              const theta = vm.baseAngle + elapsed * 2.8 + inward * 8.5;
-              const my = 0.15 + Math.pow(cycle, 1.65) * 1.65;
-              vm.mesh.position.set(Math.cos(theta) * r, my, Math.sin(theta) * r);
-              vm.mesh.rotation.set(elapsed * 5 + mi, theta, elapsed * 4);
-              const s = 0.16 + Math.sin(cycle * Math.PI) * 0.24;
-              vm.mesh.scale.set(s * 1.4, s * 0.7, s);
-            }
-          }
-          // Continuous stream of inward-sucking cosmic dust & debris particles
-          if (Math.random() < 0.65) {
-            spawnInwardPullParticles(
-              haz.x,
-              hy,
-              haz.z,
-              2,
-              Math.random() < 0.5 ? '#c77dff' : '#56cfe1',
-              haz.radius * 1.45,
-              0.95,
-            );
-          }
-          const pulse = (0.95 + Math.sin(elapsed * 9) * 0.12) * fade;
-          hv.group.scale.setScalar(Math.max(0.05, pulse));
-        } else if (hv.kind === 'tsunami_wave') {
-          hv.group.position.set(haz.x, 0, haz.z);
-          const curR = haz.currentRadius ?? haz.radius;
-          const maxR = haz.maxRadius ?? haz.radius * 3.8;
-          const expandProg = Math.min(1, curR / Math.max(1, maxR));
-
-          if (hv.waveSegments) {
-            const primaryCount = 40;
-            const wakeCount = 28;
-            for (let si = 0; si < hv.waveSegments.length; si++) {
-              const seg = hv.waveSegments[si];
-              const baseR = seg.isWake ? Math.max(0.7, curR * 0.65) : curR;
-              const rippledR = baseR + Math.sin(elapsed * 5.8 + seg.phase * 2.0) * 0.28;
-              const dx = Math.cos(seg.angle) * rippledR;
-              const dz = Math.sin(seg.angle) * rippledR;
-              const wx = haz.x + dx;
-              const wz = haz.z + dz;
-              const segTile = getTileFromArray(simState, wx, wz);
-
-              // High mountain cliffs (height >= 4) block the tsunami wave from climbing over them
-              if (!segTile || segTile.height >= 4) {
-                seg.group.visible = false;
-                continue;
+            if (hv.vortexMotes) {
+              const maxMoteR = haz.radius * 1.5;
+              for (let mi = 0; mi < hv.vortexMotes.length; mi++) {
+                const vm = hv.vortexMotes[mi];
+                const cycle = (elapsed * vm.speed + vm.phase) % 1;
+                const inward = Math.pow(cycle, 1.4);
+                const r = Math.max(0.12, maxMoteR * (1 - inward));
+                const theta = vm.baseAngle + elapsed * 2.8 + inward * 8.5;
+                const my = 0.15 + Math.pow(cycle, 1.65) * 1.65;
+                vm.mesh.position.set(Math.cos(theta) * r, my, Math.sin(theta) * r);
+                vm.mesh.rotation.set(elapsed * 5 + mi, theta, elapsed * 4);
+                const s = 0.16 + Math.sin(cycle * Math.PI) * 0.24;
+                vm.mesh.scale.set(s * 1.4, s * 0.7, s);
               }
-              seg.group.visible = true;
-
-              const baseY = segTile.height === 0 ? 0.32 : segTile.height * HEIGHT_STEP + 0.22;
-              // Tsunami shoals and rears up taller as it hits shallow water and coastal land (height 1-2)
-              const shoalMult =
-                segTile.height === 1 ? 1.24 : segTile.height === 2 ? 0.96 : segTile.height === 3 ? 0.56 : 1.05;
-              const wakeMult = seg.isWake ? 0.62 : 1.0;
-              const undulation = 0.88 + Math.sin(elapsed * 8.5 + seg.phase * 2.5) * 0.18;
-              const waveH = Math.max(
-                0.22,
-                (1.22 - expandProg * 0.36) * shoalMult * wakeMult * undulation * fade,
+            }
+            if (Math.random() < 0.65) {
+              spawnInwardPullParticles(
+                haz.x,
+                hy,
+                haz.z,
+                2,
+                Math.random() < 0.5 ? '#c77dff' : '#56cfe1',
+                haz.radius * 1.45,
+                0.95,
               );
-              const segCount = seg.isWake ? wakeCount : primaryCount;
-              const arcWidth = Math.max(0.68, ((2 * Math.PI * rippledR) / segCount) * 1.14);
+            }
+            const pulse = (0.95 + Math.sin(elapsed * 9) * 0.12) * fade;
+            hv.group.scale.setScalar(Math.max(0.05, pulse));
+          } else if (hv.kind === 'tsunami_wave') {
+            hv.group.position.set(haz.x, 0, haz.z);
+            const curR = haz.currentRadius ?? haz.radius;
+            const maxR = haz.maxRadius ?? haz.radius * 3.8;
+            const expandProg = Math.min(1, curR / Math.max(1, maxR));
 
-              seg.group.position.set(dx, baseY, dz);
-              // Orient radially outward in direction of wave travel and pitch forward as it curls/breaks on shore
-              const breakPitch =
-                0.1 + Math.sin(elapsed * 9.2 + seg.phase) * 0.1 + (segTile.height >= 1 ? 0.2 : 0);
-              seg.group.rotation.set(breakPitch, Math.atan2(dx, dz), 0);
-              seg.group.scale.set(
-                arcWidth,
-                waveH,
-                (seg.isWake ? 0.78 : 1.18) * (0.92 + Math.cos(elapsed * 7.2 + seg.phase) * 0.12),
-              );
+            if (hv.waveSegments) {
+              const primaryCount = 40;
+              const wakeCount = 28;
+              for (let si = 0; si < hv.waveSegments.length; si++) {
+                const seg = hv.waveSegments[si];
+                const baseR = seg.isWake ? Math.max(0.7, curR * 0.65) : curR;
+                const rippledR = baseR + Math.sin(elapsed * 5.8 + seg.phase * 2.0) * 0.28;
+                const dx = Math.cos(seg.angle) * rippledR;
+                const dz = Math.sin(seg.angle) * rippledR;
+                const wx = haz.x + dx;
+                const wz = haz.z + dz;
+                const segTile = getTileFromArray(simState, wx, wz);
 
-              // Spawn breaking whitewater surf spray where the wave crests and crashes onto coastal land
-              if (!seg.isWake && ((si + Math.floor(elapsed * 30)) % 7 === 0)) {
-                const isLandBreak = segTile.height >= 1;
-                spawnParticleBurst(
-                  wx,
-                  baseY + waveH * 1.35,
-                  wz,
-                  isLandBreak ? 3 : 1,
-                  isLandBreak ? '#ffffff' : '#e0fbfc',
-                  isLandBreak ? 0.85 : 0.45,
-                  isLandBreak ? 3.6 : 2.2,
-                  isLandBreak ? 1.25 : 0.95,
+                if (!segTile || segTile.height >= 4) {
+                  seg.group.visible = false;
+                  continue;
+                }
+                seg.group.visible = true;
+
+                const baseY = segTile.height === 0 ? 0.32 : segTile.height * HEIGHT_STEP + 0.22;
+                const shoalMult =
+                  segTile.height === 1 ? 1.24 : segTile.height === 2 ? 0.96 : segTile.height === 3 ? 0.56 : 1.05;
+                const wakeMult = seg.isWake ? 0.62 : 1.0;
+                const undulation = 0.88 + Math.sin(elapsed * 8.5 + seg.phase * 2.5) * 0.18;
+                const waveH = Math.max(
+                  0.22,
+                  (1.22 - expandProg * 0.36) * shoalMult * wakeMult * undulation * fade,
                 );
+                const segCount = seg.isWake ? wakeCount : primaryCount;
+                const arcWidth = Math.max(0.68, ((2 * Math.PI * rippledR) / segCount) * 1.14);
+
+                seg.group.position.set(dx, baseY, dz);
+                const breakPitch =
+                  0.1 + Math.sin(elapsed * 9.2 + seg.phase) * 0.1 + (segTile.height >= 1 ? 0.2 : 0);
+                seg.group.rotation.set(breakPitch, Math.atan2(dx, dz), 0);
+                seg.group.scale.set(
+                  arcWidth,
+                  waveH,
+                  (seg.isWake ? 0.78 : 1.18) * (0.92 + Math.cos(elapsed * 7.2 + seg.phase) * 0.12),
+                );
+
+                if (!seg.isWake && ((si + Math.floor(elapsed * 30)) % 7 === 0)) {
+                  const isLandBreak = segTile.height >= 1;
+                  spawnParticleBurst(
+                    wx,
+                    baseY + waveH * 1.35,
+                    wz,
+                    isLandBreak ? 3 : 1,
+                    isLandBreak ? '#ffffff' : '#e0fbfc',
+                    isLandBreak ? 0.85 : 0.45,
+                    isLandBreak ? 3.6 : 2.2,
+                    isLandBreak ? 1.25 : 0.95,
+                  );
+                }
               }
             }
-          }
-          (hv.materials[0] as THREE.MeshStandardMaterial).opacity = 0.86 * fade;
-          (hv.materials[1] as THREE.MeshStandardMaterial).opacity = 0.9 * fade;
-          (hv.materials[2] as THREE.MeshBasicMaterial).opacity = 0.94 * fade;
-          (hv.materials[3] as THREE.MeshBasicMaterial).opacity = 0.98 * fade;
-        } else if (hv.kind === 'earthquake_zone') {
-          const pulseWave = (elapsed * 1.45) % 1;
-          if (hv.ringMesh) {
-            hv.ringMesh.scale.setScalar(Math.min(5.2, haz.radius * 0.45) * (0.45 + pulseWave * 0.65));
-            (hv.materials[0] as THREE.MeshBasicMaterial).opacity = Math.sin(pulseWave * Math.PI) * 0.48 * fade;
-          }
-          if (hv.crackMeshes) {
-            for (let ci = 0; ci < hv.crackMeshes.length; ci++) {
-              const cm = hv.crackMeshes[ci];
-              const baseZ = (cm.userData.baseScaleZ as number) || 0.35;
-              cm.scale.z = baseZ * (0.85 + Math.sin(elapsed * 16 + ci * 1.4) * 0.25);
+            (hv.materials[0] as THREE.MeshStandardMaterial).opacity = 0.86 * fade;
+            (hv.materials[1] as THREE.MeshStandardMaterial).opacity = 0.9 * fade;
+            (hv.materials[2] as THREE.MeshBasicMaterial).opacity = 0.94 * fade;
+            (hv.materials[3] as THREE.MeshBasicMaterial).opacity = 0.98 * fade;
+          } else if (hv.kind === 'earthquake_zone') {
+            const pulseWave = (elapsed * 1.45) % 1;
+            if (hv.ringMesh) {
+              hv.ringMesh.scale.setScalar(Math.min(5.2, haz.radius * 0.45) * (0.45 + pulseWave * 0.65));
+              (hv.materials[0] as THREE.MeshBasicMaterial).opacity = Math.sin(pulseWave * Math.PI) * 0.48 * fade;
             }
-            (hv.materials[1] as THREE.MeshBasicMaterial).opacity = (0.58 + Math.sin(elapsed * 12) * 0.16) * fade;
-          }
-          const segs = hv.faultSegments ?? haz.faultSegments;
-          if (Math.random() < 0.72) {
-            let px = haz.x;
-            let pz = haz.z;
-            if (segs && segs.length > 0) {
-              const s = segs[Math.floor(Math.random() * segs.length)];
-              const u = Math.random();
-              px = s.x1 + (s.x2 - s.x1) * u + (Math.random() - 0.5) * s.width * 1.4;
-              pz = s.z1 + (s.z2 - s.z1) * u + (Math.random() - 0.5) * s.width * 1.4;
-            } else {
-              const ang = Math.random() * Math.PI * 2;
-              const dist = Math.random() * haz.radius * 0.8;
-              px = haz.x + Math.cos(ang) * dist;
-              pz = haz.z + Math.sin(ang) * dist;
+            if (hv.crackMeshes) {
+              for (let ci = 0; ci < hv.crackMeshes.length; ci++) {
+                const cm = hv.crackMeshes[ci];
+                const baseZ = (cm.userData.baseScaleZ as number) || 0.35;
+                cm.scale.z = baseZ * (0.85 + Math.sin(elapsed * 16 + ci * 1.4) * 0.25);
+              }
+              (hv.materials[1] as THREE.MeshBasicMaterial).opacity = (0.58 + Math.sin(elapsed * 12) * 0.16) * fade;
             }
-            spawnParticleBurst(
-              px,
-              hy + 0.15,
-              pz,
-              2,
-              Math.random() < 0.5 ? '#c2a88d' : '#e07a2b',
-              0.7,
-              3.2,
-              0.85,
-            );
+            const segs = hv.faultSegments ?? haz.faultSegments;
+            if (Math.random() < 0.72) {
+              let px = haz.x;
+              let pz = haz.z;
+              if (segs && segs.length > 0) {
+                const s = segs[Math.floor(Math.random() * segs.length)];
+                const u = Math.random();
+                px = s.x1 + (s.x2 - s.x1) * u + (Math.random() - 0.5) * s.width * 1.4;
+                pz = s.z1 + (s.z2 - s.z1) * u + (Math.random() - 0.5) * s.width * 1.4;
+              } else {
+                const ang = Math.random() * Math.PI * 2;
+                const dist = Math.random() * haz.radius * 0.8;
+                px = haz.x + Math.cos(ang) * dist;
+                pz = haz.z + Math.sin(ang) * dist;
+              }
+              spawnParticleBurst(
+                px,
+                hy + 0.15,
+                pz,
+                2,
+                Math.random() < 0.5 ? '#c2a88d' : '#e07a2b',
+                0.7,
+                3.2,
+                0.85,
+              );
+            }
           }
         }
       }
-      for (const [id, hv] of hazardMeshes.entries()) {
-        if (!activeHazIds.has(id)) {
-          hazardsGroup.remove(hv.group);
-          for (const m of hv.materials) m.dispose();
-          hazardMeshes.delete(id);
+      if (hazardMeshes.size > 0) {
+        for (const [id, hv] of hazardMeshes.entries()) {
+          if (hv.seenStamp !== syncFrameStamp) {
+            hazardsGroup.remove(hv.group);
+            for (const m of hv.materials) m.dispose();
+            hazardMeshes.delete(id);
+          }
         }
       }
 
@@ -4632,7 +5035,6 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             _fireTintCol.copy(_whiteCol);
           }
 
-          // Primary camera-facing animated pixel flame sprite
           _dummyPos.set(t.x, fy, t.z);
           _dummyScale.set(pulse * 0.96, pulse * (0.95 + fadeEnv * 0.15), 1);
           _dummyMatrix.compose(_dummyPos, _dummyQuat, _dummyScale);
@@ -4644,7 +5046,6 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           fireColorArray[fireSpriteCount * 3 + 2] = _fireTintCol.b;
           fireSpriteCount++;
 
-          // Secondary offset side tongue for richer volumetric pixel fire silhouette
           if (fireSpriteCount < MAX_FIRE_SPRITES) {
             const ox = Math.sin(phase * Math.PI * 2) * 0.22;
             const oz = Math.cos(phase * Math.PI * 2) * 0.18;
@@ -4660,7 +5061,6 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             fireSpriteCount++;
           }
 
-          // Rising animated pixel smoke puff sprite above each burning tile
           const smokeCycle = (elapsed * 1.45 + (t.x * 0.37 + t.z * 0.53)) % 1.0;
           const smokeY = fy + 0.82 + smokeCycle * 1.95;
           const smokeScale = (0.55 + smokeCycle * 0.78) * (0.85 + 0.3 * intensityBoost);
@@ -4698,12 +5098,103 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       return simState.tiles[iz * simState.gridSize + ix];
     }
 
+    let emaFrameMs = 16.7;
+    let autoTrimLevel: 0 | 1 | 2 = 0;
+    let autoTrimCooldown = 2.5;
+    let gfxStaggerCooldown = 0;
+    let shadowFrameCounter = 0;
+    let appliedShadowsEnabled = initialGfxProfile.shadowsEnabled;
+    let appliedShadowMapSize: 512 | 1024 = initialGfxProfile.shadowMapSize;
+    let appliedShadowStride: 1 | 3 = initialGfxProfile.shadowUpdateStride;
+    let appliedCloudsQuality: 'full' | 'reduced' | 'off' = initialGfxProfile.cloudsAndSky;
+    let appliedFoliageFactor = initialGfxProfile.foliageFactor;
+
+    skyClouds.setQuality(appliedCloudsQuality);
+    pixelSpace.setQuality(appliedCloudsQuality);
+    worldUnderglow.mesh.visible = appliedCloudsQuality !== 'off';
+
     function tick() {
       const now = performance.now();
-      const rawDt = (now - lastTime) / 1000;
+      const rawMs = now - lastTime;
+      const rawDt = rawMs / 1000;
       lastTime = now;
       const dt = Math.min(Math.max(rawDt, 0.001), 0.05);
       elapsedTotal += dt;
+
+      const currentGameState = propsRef.current.gameState;
+      if (prevGameState !== currentGameState && currentGameState === 'playing') {
+        autoTrimCooldown = 3.5;
+        emaFrameMs = 16.7;
+      }
+
+      // Auto-Optimize FPS monitor with hysteresis cooldown (active gameplay only)
+      const gfxSettings = propsRef.current.graphicsSettings;
+      if (!isSoftwareGl && gfxSettings.autoOptimizeFps && currentGameState === 'playing') {
+        const clampedMs = Math.min(120, Math.max(4, rawMs));
+        emaFrameMs = emaFrameMs * 0.92 + clampedMs * 0.08;
+        if (autoTrimCooldown > 0) {
+          autoTrimCooldown = Math.max(0, autoTrimCooldown - dt);
+        } else if (emaFrameMs > 28 && autoTrimLevel < 2) {
+          autoTrimLevel = (autoTrimLevel + 1) as 0 | 1 | 2;
+          autoTrimCooldown = 2.5;
+        } else if (emaFrameMs < 15.0 && autoTrimLevel > 0) {
+          autoTrimLevel = (autoTrimLevel - 1) as 0 | 1 | 2;
+          autoTrimCooldown = 4.0;
+        }
+      } else if (!gfxSettings.autoOptimizeFps) {
+        autoTrimLevel = 0;
+      }
+
+      activeGfxProfile = resolveGraphicsProfile(gfxSettings, autoTrimLevel);
+
+      // Scalar shadow update cadence (zero reallocation/shader compile cost)
+      const wantShadows = !isSoftwareGl && activeGfxProfile.shadowsEnabled;
+      const wantStride = activeGfxProfile.shadowUpdateStride;
+      if (wantStride !== appliedShadowStride) {
+        appliedShadowStride = wantStride;
+        if (appliedShadowsEnabled) {
+          renderer.shadowMap.autoUpdate = wantStride <= 1;
+        }
+      }
+      if (appliedShadowsEnabled && appliedShadowStride > 1) {
+        shadowFrameCounter = (shadowFrameCounter + 1) % appliedShadowStride;
+        if (shadowFrameCounter === 0) {
+          renderer.shadowMap.needsUpdate = true;
+        }
+      }
+
+      // Stagger heavy graphics/pipeline subsystem changes across separate frames so toggling
+      // presets or multiple features never triggers a single-frame stall
+      if (gfxStaggerCooldown > 0) {
+        gfxStaggerCooldown--;
+      } else if (activeGfxProfile.cloudsAndSky !== appliedCloudsQuality) {
+        appliedCloudsQuality = activeGfxProfile.cloudsAndSky;
+        skyClouds.setQuality(appliedCloudsQuality);
+        pixelSpace.setQuality(appliedCloudsQuality);
+        worldUnderglow.mesh.visible = appliedCloudsQuality !== 'off';
+        gfxStaggerCooldown = 2;
+      } else if (Math.abs(activeGfxProfile.foliageFactor - appliedFoliageFactor) > 0.01) {
+        appliedFoliageFactor = activeGfxProfile.foliageFactor;
+        applyAmbientFoliageFactor(appliedFoliageFactor);
+        gfxStaggerCooldown = 2;
+      } else if (wantShadows !== appliedShadowsEnabled) {
+        appliedShadowsEnabled = wantShadows;
+        // Adjust intensity & autoUpdate rather than toggling shadowMap.enabled/castShadow so
+        // Three.js never recompiles 60+ shaders synchronously on toggle
+        keyLight.shadow.intensity = wantShadows ? 1 : 0;
+        renderer.shadowMap.autoUpdate = wantShadows && appliedShadowStride <= 1;
+        if (wantShadows) renderer.shadowMap.needsUpdate = true;
+        gfxStaggerCooldown = 2;
+      } else if (wantShadows && activeGfxProfile.shadowMapSize !== appliedShadowMapSize) {
+        appliedShadowMapSize = activeGfxProfile.shadowMapSize;
+        keyLight.shadow.mapSize.set(appliedShadowMapSize, appliedShadowMapSize);
+        if (keyLight.shadow.map) {
+          keyLight.shadow.map.dispose();
+          keyLight.shadow.map = null;
+        }
+        renderer.shadowMap.needsUpdate = true;
+        gfxStaggerCooldown = 2;
+      }
 
       if (lastAppliedPixelScale !== propsRef.current.pixelScale) {
         lastAppliedPixelScale = propsRef.current.pixelScale;
@@ -4712,7 +5203,6 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
       // Camera action requests from HUD buttons & game state lifecycle transitions
       const camAct = cameraActionRef.current;
-      const currentGameState = propsRef.current.gameState;
       const isPlayTransition =
         Boolean(camAct.playTransition) ||
         (prevGameState === 'title' && currentGameState === 'playing');
@@ -5589,7 +6079,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           const uEntry = unitMeshes.get(fx.sourceUnitId);
           if (uEntry) {
             uEntry.group.updateMatrixWorld(true);
-            const mawObj = uEntry.group.getObjectByName('fire_maw') ?? uEntry.group;
+            const mawObj = uEntry.fireMaw ?? uEntry.group;
             mawObj.getWorldPosition(_mawWorldPos);
             fx.ox = _mawWorldPos.x;
             fx.oy = _mawWorldPos.y;
@@ -5627,23 +6117,19 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         }
       }
 
-      // Update pooled particles in-place
-      for (let i = 0; i < MAX_PARTICLES; i++) {
+      // Update compact active pooled particles in-place (swap-remove expired slots)
+      const hadParticles = activeParticleCount > 0;
+      for (let i = 0; i < activeParticleCount; ) {
         const p = particles[i];
-        if (!p.active) {
-          _dummyScale.setScalar(0);
-          _dummyPos.set(0, -100, 0);
-          _dummyMatrix.compose(_dummyPos, _dummyQuat, _dummyScale);
-          particleInstanced.setMatrixAt(i, _dummyMatrix);
-          continue;
-        }
         p.life -= dt;
         if (p.life <= 0) {
           p.active = false;
-          _dummyScale.setScalar(0);
-          _dummyPos.set(0, -100, 0);
-          _dummyMatrix.compose(_dummyPos, _dummyQuat, _dummyScale);
-          particleInstanced.setMatrixAt(i, _dummyMatrix);
+          activeParticleCount--;
+          if (i < activeParticleCount) {
+            const last = particles[activeParticleCount];
+            particles[activeParticleCount] = p;
+            particles[i] = last;
+          }
           continue;
         }
         p.vy -= p.gravity * dt; // Gravity (positive falls down, negative floats skyward)
@@ -5662,9 +6148,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         _dummyMatrix.compose(_dummyPos, _dummyQuat, _dummyScale);
         particleInstanced.setMatrixAt(i, _dummyMatrix);
         particleInstanced.setColorAt(i, p.color);
+        i++;
       }
-      particleInstanced.instanceMatrix.needsUpdate = true;
-      if (particleInstanced.instanceColor) particleInstanced.instanceColor.needsUpdate = true;
+      particleInstanced.count = activeParticleCount;
+      if (activeParticleCount > 0 || hadParticles) {
+        particleInstanced.instanceMatrix.needsUpdate = true;
+        if (particleInstanced.instanceColor) particleInstanced.instanceColor.needsUpdate = true;
+      }
 
       if (vfxFlashLight.intensity > 0.05) {
         vfxFlashLight.intensity = THREE.MathUtils.damp(vfxFlashLight.intensity, 0, 5.5, dt);
@@ -5829,31 +6319,58 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         reticleGroup.visible = false;
       }
 
-      // Update lighting preset & epoch atmosphere
-      const preset = propsRef.current.lightingPreset;
+      // Update lighting preset (with live Day/Night Cycle support) & epoch atmosphere
+      const rawPreset = propsRef.current.lightingPreset;
+      const isCycleActive =
+        rawPreset === 'auto' || simRef.current.worldRules?.dayNightCycle === true;
+      let preset: 'noon' | 'dusk' | 'night' | 'dawn';
+      if (isCycleActive) {
+        const cycleRate =
+          propsRef.current.timeScale === 0
+            ? 0.25
+            : Math.min(2.4, Math.max(0.75, propsRef.current.timeScale * 0.7));
+        dayNightClock += dt * cycleRate;
+        const phase = ((dayNightClock % 64) / 64);
+        preset =
+          phase < 0.2
+            ? 'dawn'
+            : phase < 0.56
+              ? 'noon'
+              : phase < 0.76
+                ? 'dusk'
+                : 'night';
+      } else {
+        preset = rawPreset;
+      }
+
       const epochDef = EPOCHS[simRef.current.epochIndex] || EPOCHS[0];
+      let targetLightIntensity = 1.9;
       if (preset === 'night') {
-        _bgColor.set('#0e151a');
-        keyLight.color.setHex(0x6c8ead);
-        keyLight.intensity = 0.75;
+        _targetBgColor.set('#0e151a');
+        _targetLightColor.setHex(0x6c8ead);
+        targetLightIntensity = 0.75;
         hearthLight.intensity = 3.6 + Math.sin(elapsedTotal * 12) * 0.4;
       } else if (preset === 'dusk') {
-        _bgColor.set('#221c24');
-        keyLight.color.setHex(0xf48c42);
-        keyLight.intensity = 1.65;
+        _targetBgColor.set('#221c24');
+        _targetLightColor.setHex(0xf48c42);
+        targetLightIntensity = 1.65;
         hearthLight.intensity = 2.8;
       } else if (preset === 'dawn') {
-        _bgColor.set('#1f2933');
-        keyLight.color.setHex(0xffb5a7);
-        keyLight.intensity = 1.5;
+        _targetBgColor.set('#1f2933');
+        _targetLightColor.setHex(0xffb5a7);
+        targetLightIntensity = 1.5;
         hearthLight.intensity = 2.2;
       } else {
-        _bgColor.set(epochDef.skyColor);
-        keyLight.color.setHex(0xffdfb0);
-        keyLight.intensity = 1.9;
+        _targetBgColor.set(epochDef.skyColor);
+        _targetLightColor.setHex(0xffdfb0);
+        targetLightIntensity = 1.9;
         hearthLight.intensity =
           (simRef.current.buildings.length > 0 ? 2.3 : 0.45) + Math.sin(elapsedTotal * 10) * 0.2;
       }
+      const lightBlend = Math.min(1, dt * (isCycleActive ? 1.8 : 6.0));
+      _bgColor.lerp(_targetBgColor, lightBlend);
+      keyLight.color.lerp(_targetLightColor, lightBlend);
+      keyLight.intensity += (targetLightIntensity - keyLight.intensity) * lightBlend;
       scene.background = _bgColor;
       if (scene.fog instanceof THREE.FogExp2) {
         scene.fog.color.copy(_bgColor);
@@ -5872,12 +6389,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         preset,
       });
 
-      worldUnderglow.update(
-        elapsedTotal,
-        preset,
-        simRef.current.epochIndex,
-        propsRef.current.pixelScale || 3,
-      );
+      if (appliedCloudsQuality !== 'off') {
+        worldUnderglow.update(
+          elapsedTotal,
+          preset,
+          simRef.current.epochIndex,
+          propsRef.current.pixelScale || 3,
+        );
+      }
       if (preset === 'dusk') {
         glowTrimMat.color.set('#d98078');
         glowTrimMat.opacity = 0.4;
@@ -5992,21 +6511,28 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         const cWidth = container?.clientWidth || window.innerWidth;
         const cHeight = container?.clientHeight || window.innerHeight;
         const gSize = curSim.gridSize;
-        const zoneProjVec = new THREE.Vector3();
         for (let i = 0; i < labelLayer.children.length; i++) {
           const el = labelLayer.children[i] as HTMLElement;
           const tx = Number(el.dataset.tileX);
           const tz = Number(el.dataset.tileZ);
           const tile = curSim.tiles[tz * gSize + tx];
           const worldY = Math.max(0.5, (tile ? tile.height : 1) * HEIGHT_STEP) + 1.8;
-          zoneProjVec.set(tx, worldY, tz).project(camera);
-          const sx = (zoneProjVec.x * 0.5 + 0.5) * cWidth;
-          const sy = (-zoneProjVec.y * 0.5 + 0.5) * cHeight;
-          if (zoneProjVec.z > 1 || sx < -120 || sx > cWidth + 120 || sy < -60 || sy > cHeight + 60) {
-            el.style.opacity = '0';
-          } else {
-            el.style.opacity = '1';
-            el.style.transform = `translate3d(${Math.round(sx)}px, ${Math.round(sy)}px, 0) translate(-50%, -100%)`;
+          _zoneProjVec.set(tx, worldY, tz).project(camera);
+          const sx = (_zoneProjVec.x * 0.5 + 0.5) * cWidth;
+          const sy = (-_zoneProjVec.y * 0.5 + 0.5) * cHeight;
+          const offscreen =
+            _zoneProjVec.z > 1 || sx < -120 || sx > cWidth + 120 || sy < -60 || sy > cHeight + 60;
+          const nextOpacity = offscreen ? '0' : '1';
+          if (el.dataset.lastOpacity !== nextOpacity) {
+            el.dataset.lastOpacity = nextOpacity;
+            el.style.opacity = nextOpacity;
+          }
+          if (!offscreen) {
+            const nextTransform = `translate3d(${Math.round(sx)}px, ${Math.round(sy)}px, 0) translate(-50%, -100%)`;
+            if (el.dataset.lastTransform !== nextTransform) {
+              el.dataset.lastTransform = nextTransform;
+              el.style.transform = nextTransform;
+            }
           }
         }
       }
@@ -6017,7 +6543,6 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         const cWidth = container?.clientWidth || window.innerWidth;
         const cHeight = container?.clientHeight || window.innerHeight;
         const gSize = curSim.gridSize;
-        const kingProjVec = new THREE.Vector3();
         for (let i = 0; i < kingLayer.children.length; i++) {
           const el = kingLayer.children[i] as HTMLElement;
           const unitId = el.dataset.unitId;
@@ -6025,7 +6550,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             ? curSim.units.find((u) => u.id === unitId && u.state !== 'ko')
             : undefined;
           if (!kingUnit) {
-            el.style.opacity = '0';
+            if (el.dataset.lastOpacity !== '0') {
+              el.dataset.lastOpacity = '0';
+              el.style.opacity = '0';
+            }
             continue;
           }
           const uGrp = unitMeshes.get(kingUnit.id)?.group;
@@ -6035,14 +6563,22 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           const baseY = uGrp
             ? uGrp.position.y
             : Math.max(0.5, (tile ? tile.height : 1) * HEIGHT_STEP);
-          kingProjVec.set(kx, baseY + 1.45, kz).project(camera);
-          const sx = (kingProjVec.x * 0.5 + 0.5) * cWidth;
-          const sy = (-kingProjVec.y * 0.5 + 0.5) * cHeight;
-          if (kingProjVec.z > 1 || sx < -120 || sx > cWidth + 120 || sy < -60 || sy > cHeight + 60) {
-            el.style.opacity = '0';
-          } else {
-            el.style.opacity = '1';
-            el.style.transform = `translate3d(${Math.round(sx)}px, ${Math.round(sy)}px, 0) translate(-50%, -100%)`;
+          _kingProjVec.set(kx, baseY + 1.45, kz).project(camera);
+          const sx = (_kingProjVec.x * 0.5 + 0.5) * cWidth;
+          const sy = (-_kingProjVec.y * 0.5 + 0.5) * cHeight;
+          const offscreen =
+            _kingProjVec.z > 1 || sx < -120 || sx > cWidth + 120 || sy < -60 || sy > cHeight + 60;
+          const nextOpacity = offscreen ? '0' : '1';
+          if (el.dataset.lastOpacity !== nextOpacity) {
+            el.dataset.lastOpacity = nextOpacity;
+            el.style.opacity = nextOpacity;
+          }
+          if (!offscreen) {
+            const nextTransform = `translate3d(${Math.round(sx)}px, ${Math.round(sy)}px, 0) translate(-50%, -100%)`;
+            if (el.dataset.lastTransform !== nextTransform) {
+              el.dataset.lastTransform = nextTransform;
+              el.style.transform = nextTransform;
+            }
           }
         }
       }

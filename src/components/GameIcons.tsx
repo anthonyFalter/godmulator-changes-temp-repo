@@ -194,6 +194,18 @@ export const TabPixelIcon: React.FC<{ category: ToolCategory; className?: string
           <rect x="2" y="7" width="12" height="2" fill="#f8fafc" />
         </svg>
       );
+    case 'rules':
+      return (
+        <svg viewBox="0 0 16 16" className={className} aria-hidden="true" shapeRendering="crispEdges">
+          {/* Carved Divine Law Tablet & Scales */}
+          <rect x="3" y="2" width="10" height="12" fill="#5b554e" />
+          <rect x="4" y="3" width="8" height="10" fill="#8f8478" />
+          <rect x="5" y="4" width="6" height="2" fill="#ffd166" />
+          <rect x="5" y="7" width="6" height="1" fill="#fff3bf" />
+          <rect x="5" y="9" width="4" height="1" fill="#fff3bf" />
+          <rect x="5" y="11" width="5" height="1" fill="#56cfe1" />
+        </svg>
+      );
     case 'epochs':
       return (
         <svg viewBox="0 0 16 16" className={className} aria-hidden="true" shapeRendering="crispEdges">

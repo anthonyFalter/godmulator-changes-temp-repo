@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { LightingPreset, TerrainType, TileData } from './types';
+import { LightingPreset, SkyCloudsQualityOption, TerrainType, TileData } from './types';
 import { createRng, normalizeSeed } from './worldGen';
 
 function addSteppedPuff(
@@ -124,13 +124,14 @@ interface CloudInstanceData {
   rotY: number;
   phase: number;
   bobAmp: number;
-  mesh: THREE.Mesh;
-  shadowMesh: THREE.Mesh;
+  variant: number;
+  slot: number;
 }
 
 export interface SkyCloudSystem {
   group: THREE.Group;
   shadowGroup: THREE.Group;
+  setQuality: (quality: SkyCloudsQualityOption) => void;
   update: (dt: number, elapsed: number, preset: LightingPreset) => void;
   dispose: () => void;
 }
@@ -163,22 +164,53 @@ export function createSkyCloudSystem(gridSize: number): SkyCloudSystem {
   const pad = 18;
   const span = gridSize + pad * 2;
 
+  const variantCapacities = variants.map(() => 0);
+  for (let i = 0; i < cloudCount; i++) {
+    variantCapacities[i % variants.length]++;
+  }
+
+  const cloudInsts: THREE.InstancedMesh[] = [];
+  const shadowInsts: THREE.InstancedMesh[] = [];
+  const variantFullCounts = variantCapacities.slice();
+
+  for (let v = 0; v < variants.length; v++) {
+    const cap = Math.max(1, variantCapacities[v]);
+    const cInst = new THREE.InstancedMesh(variants[v], cloudMat, cap);
+    cInst.castShadow = false;
+    cInst.receiveShadow = false;
+    cInst.frustumCulled = false;
+    cInst.renderOrder = 4;
+    cInst.count = cap;
+    group.add(cInst);
+    cloudInsts.push(cInst);
+
+    const sInst = new THREE.InstancedMesh(variants[v], shadowMat, cap);
+    sInst.castShadow = false;
+    sInst.receiveShadow = false;
+    sInst.frustumCulled = false;
+    sInst.renderOrder = 2;
+    sInst.count = cap;
+    shadowGroup.add(sInst);
+    shadowInsts.push(sInst);
+  }
+
   let rng = 133791;
   const nextRand = () => {
     rng = (rng * 1664525 + 1013904223) >>> 0;
     return rng / 4294967296;
   };
 
+  const _yAxis = new THREE.Vector3(0, 1, 0);
+  const _pos = new THREE.Vector3();
+  const _quat = new THREE.Quaternion();
+  const _scale = new THREE.Vector3();
+  const _mat = new THREE.Matrix4();
+  const variantQuats: THREE.Quaternion[] = [];
+  const variantSlotCursor = variants.map(() => 0);
+
   for (let i = 0; i < cloudCount; i++) {
     const variant = i % variants.length;
-    const geo = variants[variant];
-    const mesh = new THREE.Mesh(geo, cloudMat);
-    mesh.castShadow = false;
-    mesh.receiveShadow = false;
-    mesh.renderOrder = 4;
-
-    const shadowMesh = new THREE.Mesh(geo, shadowMat);
-    shadowMesh.renderOrder = 2;
+    const slot = variantSlotCursor[variant]++;
 
     const scaleBase = 1.0 + nextRand() * 1.1;
     const scaleX = scaleBase * (0.92 + nextRand() * 0.25);
@@ -197,16 +229,18 @@ export function createSkyCloudSystem(gridSize: number): SkyCloudSystem {
     const rotY = Math.floor(nextRand() * 8) * (Math.PI / 4);
     const phase = nextRand() * Math.PI * 2;
 
-    mesh.position.set(x, y, z);
-    mesh.rotation.y = rotY;
-    mesh.scale.set(scaleX, scaleY, scaleZ);
+    const q = new THREE.Quaternion().setFromAxisAngle(_yAxis, rotY);
+    variantQuats.push(q);
 
-    shadowMesh.position.set(x - 2.4, 0.32, z - 1.8);
-    shadowMesh.rotation.y = rotY;
-    shadowMesh.scale.set(scaleX * 0.88, 0.02, scaleZ * 0.88);
+    _pos.set(x, y, z);
+    _scale.set(scaleX, scaleY, scaleZ);
+    _mat.compose(_pos, q, _scale);
+    cloudInsts[variant].setMatrixAt(slot, _mat);
 
-    group.add(mesh);
-    shadowGroup.add(shadowMesh);
+    _pos.set(x - 2.4, 0.32, z - 1.8);
+    _scale.set(scaleX * 0.88, 0.02, scaleZ * 0.88);
+    _mat.compose(_pos, q, _scale);
+    shadowInsts[variant].setMatrixAt(slot, _mat);
 
     clouds.push({
       x,
@@ -220,15 +254,38 @@ export function createSkyCloudSystem(gridSize: number): SkyCloudSystem {
       rotY,
       phase,
       bobAmp: 0.08 + nextRand() * 0.07,
-      mesh,
-      shadowMesh,
+      variant,
+      slot,
     });
   }
+
+  for (let v = 0; v < variants.length; v++) {
+    cloudInsts[v].instanceMatrix.needsUpdate = true;
+    shadowInsts[v].instanceMatrix.needsUpdate = true;
+  }
+
+  let currentQuality: SkyCloudsQualityOption = 'full';
+
+  const setQuality = (quality: SkyCloudsQualityOption) => {
+    if (currentQuality === quality) return;
+    currentQuality = quality;
+    const isOff = quality === 'off';
+    group.visible = !isOff;
+    shadowGroup.visible = !isOff;
+    for (let v = 0; v < variants.length; v++) {
+      const fullCap = variantFullCounts[v];
+      const count = isOff ? 0 : quality === 'reduced' ? Math.ceil(fullCap * 0.5) : fullCap;
+      cloudInsts[v].count = count;
+      shadowInsts[v].count = count;
+    }
+  };
 
   const _targetTint = new THREE.Color('#f7fbff');
   const _curTint = new THREE.Color('#f7fbff');
 
   const update = (dt: number, elapsed: number, preset: LightingPreset) => {
+    if (currentQuality === 'off') return;
+
     if (preset === 'night') {
       _targetTint.set('#637ea1');
       cloudMat.opacity = 0.72;
@@ -250,7 +307,11 @@ export function createSkyCloudSystem(gridSize: number): SkyCloudSystem {
     _curTint.lerp(_targetTint, Math.min(1, dt * 4));
     cloudMat.color.copy(_curTint);
 
-    for (const c of clouds) {
+    for (let i = 0; i < clouds.length; i++) {
+      const c = clouds[i];
+      const activeLimit = cloudInsts[c.variant].count;
+      if (c.slot >= activeLimit) continue;
+
       const breeze = 1.0 + Math.sin(elapsed * 0.35 + c.phase) * 0.14;
       c.x += c.vx * breeze * dt;
       c.z += (c.vz + Math.cos(elapsed * 0.25 + c.phase) * 0.1) * dt;
@@ -262,12 +323,24 @@ export function createSkyCloudSystem(gridSize: number): SkyCloudSystem {
 
       const bobY = Math.sin(elapsed * 0.9 + c.phase) * c.bobAmp;
       const puffPulse = 1.0 + Math.sin(elapsed * 0.75 + c.phase) * 0.025;
+      _quat.copy(variantQuats[i]);
 
-      c.mesh.position.set(c.x, c.y + bobY, c.z);
-      c.mesh.scale.set(c.scaleX * puffPulse, c.scaleY, c.scaleZ * puffPulse);
+      _pos.set(c.x, c.y + bobY, c.z);
+      _scale.set(c.scaleX * puffPulse, c.scaleY, c.scaleZ * puffPulse);
+      _mat.compose(_pos, _quat, _scale);
+      cloudInsts[c.variant].setMatrixAt(c.slot, _mat);
 
-      c.shadowMesh.position.set(c.x - 2.4, 0.32, c.z - 1.8);
-      c.shadowMesh.scale.set(c.scaleX * 0.88 * puffPulse, 0.02, c.scaleZ * 0.88 * puffPulse);
+      _pos.set(c.x - 2.4, 0.32, c.z - 1.8);
+      _scale.set(c.scaleX * 0.88 * puffPulse, 0.02, c.scaleZ * 0.88 * puffPulse);
+      _mat.compose(_pos, _quat, _scale);
+      shadowInsts[c.variant].setMatrixAt(c.slot, _mat);
+    }
+
+    for (let v = 0; v < variants.length; v++) {
+      if (cloudInsts[v].count > 0) {
+        cloudInsts[v].instanceMatrix.needsUpdate = true;
+        shadowInsts[v].instanceMatrix.needsUpdate = true;
+      }
     }
   };
 
@@ -277,7 +350,7 @@ export function createSkyCloudSystem(gridSize: number): SkyCloudSystem {
     shadowMat.dispose();
   };
 
-  return { group, shadowGroup, update, dispose };
+  return { group, shadowGroup, setQuality, update, dispose };
 }
 
 export interface OceanFoamSystem {
@@ -318,7 +391,8 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
   zoneIdTex.wrapT = THREE.ClampToEdgeWrapping;
   zoneIdTex.flipY = false;
 
-  const geo = new THREE.PlaneGeometry(gridSize, gridSize, gridSize, gridSize);
+  const oceanSegs = Math.min(64, gridSize);
+  const geo = new THREE.PlaneGeometry(gridSize, gridSize, oceanSegs, oceanSegs);
   geo.rotateX(-Math.PI / 2);
 
   const uniforms = THREE.UniformsUtils.merge([
@@ -1872,6 +1946,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
 export interface PixelSpaceSystem {
   mesh: THREE.Mesh;
   setSeed: (seed: number) => void;
+  setQuality: (quality: SkyCloudsQualityOption) => void;
   update: (params: {
     elapsed: number;
     width: number;
@@ -1950,13 +2025,14 @@ export function createPixelSpaceSystem(initialSeed: number): PixelSpaceSystem {
     uCoreColor: { value: new THREE.Color('#ffdca8') },
     uPresetTint: { value: new THREE.Color('#0a0d18') },
     uPresetStrength: { value: 1.0 },
+    uSpaceQuality: { value: 2.0 },
   };
 
   const material = new THREE.ShaderMaterial({
     uniforms,
     fog: false,
     transparent: false,
-    depthTest: false,
+    depthTest: true,
     depthWrite: false,
     vertexShader: `
       void main() {
@@ -1984,6 +2060,7 @@ export function createPixelSpaceSystem(initialSeed: number): PixelSpaceSystem {
       uniform vec3 uCoreColor;
       uniform vec3 uPresetTint;
       uniform float uPresetStrength;
+      uniform float uSpaceQuality;
 
       float hash12(vec2 p) {
         vec3 p3 = fract(vec3(p.xyx) * 0.1031);
@@ -2107,6 +2184,12 @@ export function createPixelSpaceSystem(initialSeed: number): PixelSpaceSystem {
       }
 
       void main() {
+        if (uSpaceQuality < 0.5) {
+          vec3 fastVoid = mix(uVoidColor, uPresetTint, 0.25) * uPresetStrength;
+          gl_FragColor = vec4(fastVoid, 1.0);
+          return;
+        }
+
         vec2 pix = floor(gl_FragCoord.xy / uPixelStep);
         vec2 res = max(vec2(32.0), floor(uResolution / uPixelStep));
         vec2 halfRes = 0.5 * res;
@@ -2116,6 +2199,25 @@ export function createPixelSpaceSystem(initialSeed: number): PixelSpaceSystem {
         float zoomScale = mix(0.88, 1.28, clamp((uFrustumSize - 7.5) / 85.0, 0.0, 1.0));
         vec2 skyOrigin = uCamPan * 0.55;
         vec2 skyP = rot2(pCentered * zoomScale, uCamYaw) + skyOrigin;
+
+        if (uSpaceQuality < 1.5) {
+          // Balanced fast mode: soft gradient nebula band + crisp mid/hero stars without heavy 4-octave FBM noise
+          vec2 mwCoord = rot2(floor(skyP), uBandAngle);
+          float distFromAxis = mwCoord.y - uBandOffset;
+          float bandWidth = max(48.0, uBandWidth);
+          float mwProfile = exp(-(distFromAxis * distFromAxis) / (bandWidth * bandWidth));
+          float dither = bayer4x4(pix);
+          float ditheredBand = floor(mwProfile * 0.72 * 5.0 + dither) / 5.0;
+          vec3 spaceCol = mix(uVoidColor, uPresetTint, 0.16);
+          spaceCol = mix(spaceCol, uBandColorA, smoothstep(0.0, 0.45, ditheredBand));
+          spaceCol = mix(spaceCol, uBandColorB, smoothstep(0.4, 0.95, ditheredBand) * 0.65);
+          spaceCol *= uPresetStrength;
+          vec3 starsMid = evalStarLayer(pix, halfRes, skyP, skyOrigin, zoomScale, 13.0, 0.20, 0.12, 37.0, mwProfile * 0.5, 0.05);
+          vec3 starsHero = evalStarLayer(pix, halfRes, skyP, skyOrigin, zoomScale, 28.0, 0.22, 0.16, 79.0, mwProfile * 0.3, 0.24);
+          spaceCol += starsMid * 0.9 + starsHero * 1.2;
+          gl_FragColor = vec4(spaceCol, 1.0);
+          return;
+        }
 
         // Snap cosmic nebula coordinates to integer sky pixels for crisp pixel-art cohesion
         vec2 skyPix = floor(skyP);
@@ -2221,7 +2323,7 @@ export function createPixelSpaceSystem(initialSeed: number): PixelSpaceSystem {
 
   const mesh = new THREE.Mesh(geo, material);
   mesh.frustumCulled = false;
-  mesh.renderOrder = -100;
+  mesh.renderOrder = 10;
 
   const setSeed = (rawSeed: number) => {
     const seed = normalizeSeed(rawSeed);
@@ -2294,12 +2396,16 @@ export function createPixelSpaceSystem(initialSeed: number): PixelSpaceSystem {
     uniforms.uPresetStrength.value += (targetStrength - uniforms.uPresetStrength.value) * 0.08;
   };
 
+  const setQuality = (quality: SkyCloudsQualityOption) => {
+    uniforms.uSpaceQuality.value = quality === 'off' ? 0.0 : quality === 'reduced' ? 1.0 : 2.0;
+  };
+
   const dispose = () => {
     geo.dispose();
     material.dispose();
   };
 
-  return { mesh, setSeed, update, dispose };
+  return { mesh, setSeed, setQuality, update, dispose };
 }
 
 export interface WorldUnderglowSystem {

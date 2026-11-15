@@ -2,8 +2,10 @@ import {
   BuildingDefinition,
   EpochDefinition,
   GodPowerDefinition,
+  SpeciesId,
   TerrainToolDefinition,
   UnitDefinition,
+  UnitRole,
 } from './types';
 
 export const EPOCHS: EpochDefinition[] = [
@@ -854,4 +856,74 @@ export function getDinosaurVariant(appearanceSeed?: number): DinosaurVariantInfo
   }
   return { morph: 2, speciesName: 'Stegosaurus', diet: 'herbivore' };
 }
+
+export function getUnitMaxLifespan(unit: {
+  role: UnitRole;
+  species: SpeciesId;
+  appearanceSeed?: number;
+  genes?: string[];
+  maxLifespan?: number;
+}): number {
+  if (typeof unit.maxLifespan === 'number' && Number.isFinite(unit.maxLifespan) && unit.maxLifespan > 0) {
+    return Math.round(unit.maxLifespan);
+  }
+  const seed = Math.abs(Math.floor(unit.appearanceSeed ?? 1));
+  let base: number;
+  switch (unit.role) {
+    case 'dragon':
+      base = 500 + (seed % 65);
+      break;
+    case 'unicorn':
+      base = 350 + (seed % 70);
+      break;
+    case 'dinosaur':
+      base = 65 + (seed % 26);
+      break;
+    case 'bear':
+      base = 28 + (seed % 8);
+      break;
+    case 'cow':
+      base = 18 + (seed % 7);
+      break;
+    case 'wolf':
+      base = 16 + (seed % 7);
+      break;
+    case 'pig':
+      base = 15 + (seed % 6);
+      break;
+    case 'capybara':
+      base = 12 + (seed % 5);
+      break;
+    case 'chicken':
+      base = 8 + (seed % 5);
+      break;
+    case 'raider_swarmer':
+    case 'raider_ranged':
+    case 'raider_behemoth':
+      base = 50 + (seed % 16);
+      break;
+    default:
+      if (unit.species === 'elf') {
+        base = 215 + (seed % 50);
+      } else if (unit.species === 'orc') {
+        base = 55 + (seed % 14);
+      } else {
+        base = 75 + (seed % 18);
+      }
+      break;
+  }
+
+  let geneBonus = 0;
+  if (unit.genes) {
+    for (const g of unit.genes) {
+      if (g === 'Hardy Constitution') geneBonus += 12;
+      else if (g === 'Ancient Wyrmblood') geneBonus += 60;
+      else if (g === 'Alpha Stature') geneBonus += 5;
+      else if (g === 'Starleaf Resonance') geneBonus += 18;
+    }
+  }
+
+  return base + geneBonus;
+}
+
 

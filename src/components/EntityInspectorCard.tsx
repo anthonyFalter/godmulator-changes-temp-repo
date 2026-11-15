@@ -267,9 +267,13 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
               {/* Demographic & Location Data: Clean Key-Value Pairs */}
               <div className="space-y-1.5 pt-1 text-xs text-[#b8afa2]">
                 <div className="flex items-center justify-between">
-                  <span className="text-[#8f8679]">Stage</span>
+                  <span className="text-[#8f8679]">Stage &amp; Lifespan</span>
                   <span className="text-[#f2ece1] tabular-nums font-medium">
-                    {profile.informations.ageStageLabel} ({profile.informations.ageYears}y)
+                    {profile.informations.ageStageLabel} ({profile.informations.ageYears}y /{' '}
+                    {profile.informations.immortal
+                      ? 'Immortal'
+                      : `${profile.informations.maxLifespan ?? '?'}y`}
+                    )
                   </span>
                 </div>
                 <div className="flex items-center justify-between">

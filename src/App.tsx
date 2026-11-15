@@ -10,6 +10,7 @@ import {
   UNITS,
 } from './game/catalog';
 import {
+  DEFAULT_WORLD_RULES,
   WORLD_TEMPLATES,
   advanceEpoch,
   applyTerrainTool,
@@ -28,15 +29,18 @@ import { toggleUnitFavorite } from './game/entityInspector';
 import {
   ActiveTool,
   GameLifecycleState,
+  GraphicsSettings,
   LightingPreset,
   Resources,
   ToolCategory,
   UnitEntity,
   WorldGenConfig,
+  WorldRulesConfig,
   WorldTemplateId,
   ZoneOverlayType,
   ZoneToggleState,
 } from './game/types';
+import { loadGraphicsSettings, saveGraphicsSettings } from './game/graphics';
 import {
   DEFAULT_ZONE_TOGGLES,
   buildZoneOverlayTextures,
@@ -45,6 +49,7 @@ import {
   inspectTileZones,
 } from './game/zones';
 import { EntityInspectorCard } from './components/EntityInspectorCard';
+import { GraphicsSettingsPanel } from './components/GraphicsSettingsPanel';
 import {
   BuildingPixelIcon,
   HudPixelIcon,
@@ -74,6 +79,67 @@ interface HoveredHint {
   cost: string;
   detail: string;
 }
+
+type BooleanWorldRuleKey = {
+  [K in keyof WorldRulesConfig]: WorldRulesConfig[K] extends boolean ? K : never;
+}[keyof WorldRulesConfig];
+
+const GOD_RULE_SWITCHES: ReadonlyArray<{
+  key: BooleanWorldRuleKey;
+  label: string;
+  summary: string;
+}> = [
+  {
+    key: 'immortalEntities',
+    label: 'Immortal Entities',
+    summary: 'Prevents old-age death (off: Humans ~80y, Elves 200+y, Dragons 500+y)',
+  },
+  {
+    key: 'wildfireSpread',
+    label: 'Fire Spread',
+    summary: 'Wildfires and dragon flames spread across dry timber and grass',
+  },
+  {
+    key: 'dayNightCycle',
+    label: 'Day / Night Cycle',
+    summary: 'Sky cycles continuously between dawn, noon, dusk & night',
+  },
+  {
+    key: 'allowReproduction',
+    label: 'Reproduction',
+    summary: 'Settlements birth children and wild wildlife herds repopulate',
+  },
+  {
+    key: 'animalAttacks',
+    label: 'Animal Attacks',
+    summary: 'Predators, dinosaurs, and dragons actively hunt & raid villages',
+  },
+  {
+    key: 'autoBuildEnabled',
+    label: 'Auto-Build Cities',
+    summary: 'Towns autonomously expand with huts, shrines & landmarks',
+  },
+  {
+    key: 'raiderWaves',
+    label: 'Raider Waves',
+    summary: 'Periodic hostile raider warbands assault settled kingdoms',
+  },
+  {
+    key: 'allowFantasy',
+    label: 'Fantasy Creatures',
+    summary: 'Enables Elves, Orcs, Dragons & Unicorns in spawns and wilds',
+  },
+  {
+    key: 'allowDinosaurs',
+    label: 'Dinosaurs',
+    summary: 'Allows prehistoric dinosaurs in wild ecosystems & spawns',
+  },
+  {
+    key: 'sandboxFreeMode',
+    label: 'Sandbox Free Mode',
+    summary: 'Grants limitless Faith and removes construction/power costs',
+  },
+];
 
 function formatCompactCost(cost: Partial<Resources>, isFree: boolean): string {
   if (isFree) return 'Free';
@@ -157,6 +223,9 @@ export default function App() {
   });
   const [brushRadius, setBrushRadius] = useState<number>(1);
   const pixelScale = 3;
+  const [graphicsSettings, setGraphicsSettings] = useState<GraphicsSettings>(() =>
+    loadGraphicsSettings(),
+  );
   const [lightingPreset, setLightingPreset] = useState<LightingPreset>('noon');
   const [dockCollapsed, setDockCollapsed] = useState<boolean>(false);
   const [chronicleOpen, setChronicleOpen] = useState<boolean>(false);
@@ -271,6 +340,7 @@ export default function App() {
       setSelectedEntityId(null);
       selectedEntityIdRef.current = null;
       setFollowingEntityId(null);
+      setLightingPreset(nextSim.worldRules?.dayNightCycle ? 'auto' : 'noon');
       setActiveCategory('spawn');
       setActiveTool({ kind: 'spawn', unit: 'human' });
       soundEngine.playBuild();
@@ -324,6 +394,7 @@ export default function App() {
         setSelectedEntityId(null);
         selectedEntityIdRef.current = null;
         setFollowingEntityId(null);
+        setLightingPreset(builtSim.worldRules?.dayNightCycle ? 'auto' : 'noon');
         setActiveCategory('spawn');
         setActiveTool({ kind: 'spawn', unit: 'human' });
         setHudTick((t) => t + 1);
@@ -368,6 +439,11 @@ export default function App() {
     setMuted(soundEngine.muted);
   }, []);
 
+  const handleUpdateGraphicsSettings = useCallback((next: GraphicsSettings) => {
+    setGraphicsSettings(next);
+    saveGraphicsSettings(next);
+  }, []);
+
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
@@ -384,31 +460,23 @@ export default function App() {
         return;
       }
 
-      if (e.code === 'Escape' || e.code === 'KeyP') {
+      if (gameState === 'paused' && e.code === 'Escape') {
         e.preventDefault();
-        setGameState((prev) => (prev === 'playing' ? 'paused' : prev === 'paused' ? 'playing' : prev));
+        setGameState('playing');
         return;
       }
 
       if (gameState !== 'playing') return;
 
+      // Only preserve the Hide dock keybind (H); all power & toolbar keybinds removed
       if (e.code === 'KeyH') {
         setDockCollapsed((prev) => !prev);
-      } else if (e.code === 'KeyM') {
-        handleToggleMute();
-      } else if (e.code === 'Space') {
-        e.preventDefault();
-        setTimeScale((prev) => (prev === 0 ? 1 : 0));
-      } else if (e.code === 'BracketLeft') {
-        cameraActionRef.current.rotateDelta -= Math.PI / 4;
-      } else if (e.code === 'BracketRight') {
-        cameraActionRef.current.rotateDelta += Math.PI / 4;
       }
     };
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [gameState, handleToggleMute]);
+  }, [gameState]);
 
   const handleSelectEntity = useCallback((unitId: string | null) => {
     selectedEntityIdRef.current = unitId;
@@ -568,6 +636,35 @@ export default function App() {
     }
   };
 
+  const handleToggleGodRule = useCallback((key: BooleanWorldRuleKey) => {
+    const s = simRef.current;
+    const currentRules: WorldRulesConfig = s.worldRules ?? { ...DEFAULT_WORLD_RULES };
+    const nextValue = !currentRules[key];
+    const updatedRules: WorldRulesConfig = {
+      ...currentRules,
+      [key]: nextValue,
+    };
+    s.worldRules = updatedRules;
+    if (key === 'autoBuildEnabled') {
+      s.autoBuildEnabled = nextValue;
+    } else if (key === 'sandboxFreeMode') {
+      s.sandboxFreeMode = nextValue;
+    } else if (key === 'dayNightCycle') {
+      setLightingPreset(nextValue ? 'auto' : 'noon');
+    }
+    setWorldConfig((prev) => ({
+      ...prev,
+      rules: {
+        ...prev.rules,
+        [key]: nextValue,
+      },
+    }));
+    const meta = GOD_RULE_SWITCHES.find((r) => r.key === key);
+    setStatusFeedback(`${meta?.label ?? key}: ${nextValue ? 'ON' : 'OFF'}`);
+    soundEngine.playClick();
+    setHudTick((t) => t + 1);
+  }, []);
+
   const isInspectTabActive = activeCategory === 'inspect' && activeTool.kind === 'inspect';
   const anyZoneActive =
     activeZones.kingdoms ||
@@ -578,11 +675,27 @@ export default function App() {
   const shouldComputeZones =
     anyZoneActive || isInspectTabActive || activeCategory === 'zones';
 
-  // Compute dynamic land & sea zones (cached by simulation year / building count / unit count)
+  // Compute dynamic land & sea zones & gather HUD unit lists in a single pass
   const sim = simRef.current;
-  const livingKings = sim.units.filter(
-    (u) => u.isKing && u.state !== 'ko' && u.faction === 'civilization',
-  );
+  const livingKings: UnitEntity[] = [];
+  const favoriteUnits: UnitEntity[] = [];
+  let hoveredUnit: UnitEntity | null = null;
+  let selectedUnit: UnitEntity | null = null;
+  for (let ui = 0; ui < sim.units.length; ui++) {
+    const u = sim.units[ui];
+    if (u.state === 'ko') continue;
+    if (u.isKing && u.faction === 'civilization') {
+      livingKings.push(u);
+    }
+    if (u.favorite) {
+      favoriteUnits.push(u);
+    }
+    if (isInspectTabActive) {
+      if (hoveredEntityId && u.id === hoveredEntityId) hoveredUnit = u;
+      if (selectedEntityId && u.id === selectedEntityId) selectedUnit = u;
+    }
+  }
+
   const zoneCacheKey = shouldComputeZones
     ? `${sim.seed}:${Math.floor(sim.year)}:${sim.buildings.length}:${sim.units.length}:${Math.floor(hudTick / 3)}`
     : 'idle';
@@ -601,6 +714,9 @@ export default function App() {
   const zoneOverlayVersionRef = useRef(0);
   const zoneColorBufRef = useRef<Uint8Array | undefined>(undefined);
   const zoneIdBufRef = useRef<Uint8Array | undefined>(undefined);
+
+  const zoneHighlightHoverTile =
+    isInspectTabActive || activeCategory === 'zones' ? hoverTile : null;
 
   const zoneOverlayBuffers = useMemo(() => {
     zoneOverlayVersionRef.current += 1;
@@ -625,12 +741,10 @@ export default function App() {
       };
     }
 
-    const highlightHoverTile =
-      isInspectTabActive || activeCategory === 'zones' ? hoverTile : null;
     const packed = buildZoneOverlayTextures(
       worldZones,
       activeZones,
-      highlightHoverTile,
+      zoneHighlightHoverTile,
       zoneColorBufRef.current,
       zoneIdBufRef.current,
     );
@@ -647,7 +761,7 @@ export default function App() {
       labels: packed.labels,
       kingdomColors,
     };
-  }, [worldZones, activeZones, anyZoneActive, isInspectTabActive, activeCategory, hoverTile]);
+  }, [worldZones, activeZones, anyZoneActive, zoneHighlightHoverTile]);
 
   const handleToggleZone = useCallback((zoneType: ZoneOverlayType, label: string) => {
     setActiveZones((prev) => {
@@ -667,16 +781,6 @@ export default function App() {
   const inspectedBuilding = hoverTile
     ? sim.buildings.find((b) => b.tileX === hoverTile.x && b.tileZ === hoverTile.z)
     : undefined;
-  const hostileCount = sim.units.filter((u) => u.faction === 'hostile' && u.state !== 'ko').length;
-  const hoveredUnit =
-    isInspectTabActive && hoveredEntityId
-      ? sim.units.find((u) => u.id === hoveredEntityId && u.state !== 'ko') ?? null
-      : null;
-  const selectedUnit =
-    isInspectTabActive && selectedEntityId
-      ? sim.units.find((u) => u.id === selectedEntityId && u.state !== 'ko') ?? null
-      : null;
-  const favoriteUnits = sim.units.filter((u) => u.favorite && u.state !== 'ko');
 
   const activeToolLabel = (() => {
     if (activeTool.kind === 'inspect') return 'Inspect';
@@ -704,6 +808,7 @@ export default function App() {
         brushRadius={brushRadius}
         pixelScale={pixelScale}
         lightingPreset={lightingPreset}
+        graphicsSettings={graphicsSettings}
         cameraActionRef={cameraActionRef}
         hoveredEntityId={isInspectTabActive ? hoveredEntityId : null}
         selectedEntityId={isInspectTabActive ? selectedEntityId : null}
@@ -1187,24 +1292,16 @@ export default function App() {
 
               {/* Concise Rule Switches */}
               <div>
-                <div className="text-xs text-[#b8afa2] mb-1.5">Rules</div>
-                <div className="grid grid-cols-2 gap-2">
-                  {(
-                    [
-                      { key: 'allowFantasy' as const, label: 'Fantasy Creatures' },
-                      { key: 'allowDinosaurs' as const, label: 'Dinosaurs' },
-                      { key: 'wildfireSpread' as const, label: 'Wildfire Spread' },
-                      { key: 'raiderWaves' as const, label: 'Raider Waves' },
-                      { key: 'autoBuildEnabled' as const, label: 'Auto-Build Cities' },
-                      { key: 'sandboxFreeMode' as const, label: 'Sandbox Free Mode' },
-                    ]
-                  ).map((rule) => {
+                <div className="text-xs text-[#b8afa2] mb-1.5">God Rules</div>
+                <div className="grid grid-cols-2 gap-1.5 max-h-[210px] overflow-y-auto pr-0.5">
+                  {GOD_RULE_SWITCHES.map((rule) => {
                     const isOn = worldConfig.rules[rule.key];
                     return (
                       <button
                         key={rule.key}
                         type="button"
                         aria-pressed={isOn}
+                        title={rule.summary}
                         data-testid={`rule-toggle-${rule.key}`}
                         onClick={() => {
                           soundEngine.playClick();
@@ -1216,11 +1313,11 @@ export default function App() {
                             },
                           }));
                         }}
-                        className={`px-3 py-2.5 flex items-center justify-between text-xs cursor-pointer ${
+                        className={`px-3 py-2 flex items-center justify-between text-xs cursor-pointer ${
                           isOn ? 'px-slot-active font-bold text-[#f2ece1]' : 'px-slot text-[#b8afa2]'
                         }`}
                       >
-                        <span>{rule.label}</span>
+                        <span className="truncate pr-2">{rule.label}</span>
                         <span
                           className={`w-2.5 h-2.5 border border-[#0b0a09] shrink-0 ${
                             isOn ? 'bg-[#80ed99]' : 'bg-[#34302a]'
@@ -1285,7 +1382,7 @@ export default function App() {
           {titleMenuStep === 'settings' && (
             <div
               data-testid="start-settings-modal"
-              className="pointer-events-auto w-full max-w-sm px-panel p-6 space-y-5"
+              className="pointer-events-auto w-full max-w-md px-panel p-6 space-y-5"
             >
               <div className="flex items-center justify-between">
                 <h2 className="text-lg font-bold text-[#f5b742]">Settings</h2>
@@ -1314,6 +1411,11 @@ export default function App() {
                     {muted ? 'Off' : 'On'}
                   </button>
                 </div>
+
+                <GraphicsSettingsPanel
+                  settings={graphicsSettings}
+                  onChange={handleUpdateGraphicsSettings}
+                />
               </div>
 
               <button
@@ -1357,10 +1459,9 @@ export default function App() {
                   3D pixel god simulator with procedural continents, dynamic land &amp; sea zones, and multi-epoch civilizations.
                 </p>
                 <div className="pt-1 text-[#b8afa2] space-y-1">
-                  <div>WASD / Right-Drag — Pan</div>
-                  <div>[ ] or Q / E — Rotate 45°</div>
+                  <div>WASD / Arrows / Right-Drag — Pan</div>
                   <div>Scroll — Zoom</div>
-                  <div>Space — Pause</div>
+                  <div>H — Hide / Show Toolbar</div>
                 </div>
               </div>
 
@@ -1469,7 +1570,7 @@ export default function App() {
                 }}
                 className="px-btn w-7 h-7 flex items-center justify-center cursor-pointer"
                 aria-label="Rotate Left"
-                title="Rotate Left ([)"
+                title="Rotate Left"
               >
                 <HudPixelIcon kind="rotateLeft" />
               </button>
@@ -1493,7 +1594,7 @@ export default function App() {
                 }}
                 className="px-btn w-7 h-7 flex items-center justify-center cursor-pointer"
                 aria-label="Rotate Right"
-                title="Rotate Right (])"
+                title="Rotate Right"
               >
                 <HudPixelIcon kind="rotateRight" />
               </button>
@@ -1520,7 +1621,7 @@ export default function App() {
                 }}
                 className="px-btn w-7 h-7 flex items-center justify-center cursor-pointer"
                 aria-label={muted ? 'Unmute' : 'Mute'}
-                title={muted ? 'Unmute (M)' : 'Mute (M)'}
+                title={muted ? 'Unmute' : 'Mute'}
               >
                 <HudPixelIcon kind={muted ? 'audioOff' : 'audioOn'} />
               </button>
@@ -1550,7 +1651,7 @@ export default function App() {
                   gameState === 'paused' ? 'px-btn-active' : 'px-btn'
                 }`}
                 aria-label="Settings"
-                title="Settings (Esc)"
+                title="Settings"
               >
                 <HudPixelIcon kind="settings" />
               </button>
@@ -1630,6 +1731,7 @@ export default function App() {
                     { id: 'build', label: 'Build' },
                     { id: 'spawn', label: 'Units' },
                     { id: 'zones', label: 'Zones' },
+                    { id: 'rules', label: 'God Rules' },
                     { id: 'epochs', label: 'World' },
                     { id: 'inspect', label: 'Inspect' },
                   ] as { id: ToolCategory; label: string }[]
@@ -1646,6 +1748,7 @@ export default function App() {
                   return (
                     <button
                       key={tab.id}
+                      data-testid={`tab-${tab.id}`}
                       type="button"
                       role="tab"
                       aria-selected={isActive}
@@ -1654,8 +1757,8 @@ export default function App() {
                         setActiveCategory(tab.id);
                         if (tab.id === 'inspect') {
                           setActiveTool({ kind: 'inspect' });
-                        } else if (tab.id === 'zones') {
-                          // Switch to non-destructive inspect cursor while browsing zones
+                        } else if (tab.id === 'zones' || tab.id === 'rules') {
+                          // Switch to non-destructive inspect cursor while browsing zones or God Rules
                           setActiveTool({ kind: 'inspect' });
                         } else {
                           setHoveredEntityId(null);
@@ -1705,7 +1808,7 @@ export default function App() {
             {/* Active Pixel Dock Panel */}
             {!dockCollapsed && (
               <div
-                className="px-panel px-3 py-2.5 max-w-[680px] w-full max-h-[114px] min-h-[72px] overflow-y-auto overflow-x-hidden pr-1"
+                className="px-panel px-3 py-2.5 max-w-[740px] w-full max-h-[124px] min-h-[72px] overflow-y-auto overflow-x-hidden pr-1"
                 onMouseLeave={() => setHoveredHint(null)}
               >
                 {/* TAB 1: POWERS (Icon Slots) */}
@@ -1727,7 +1830,7 @@ export default function App() {
                           }}
                           onMouseEnter={() =>
                             setHoveredHint({
-                              title: `${power.name} [${power.keyHint}]`,
+                              title: power.name,
                               cost: sim.sandboxFreeMode ? 'Free' : `${power.faithCost} Faith`,
                               detail: power.summary,
                             })
@@ -1738,9 +1841,6 @@ export default function App() {
                           } ${!affordable ? 'opacity-55' : ''}`}
                         >
                           <PowerPixelIcon power={power.type} className="w-7 h-7" />
-                          <span className="absolute top-0.5 left-1 font-pixel-num text-[8px] text-[#9e9486] leading-none">
-                            {power.keyHint}
-                          </span>
                           {!sim.sandboxFreeMode && (
                             <span className="absolute bottom-0.5 right-1 font-pixel-num text-[8px] text-[#ffd166] leading-none">
                               {power.faithCost}
@@ -2055,7 +2155,55 @@ export default function App() {
                   </div>
                 )}
 
-                {/* TAB 6: WORLD (Ages, Pixel Scale, Sky, Seed) */}
+                {/* TAB 5B: GOD RULES (Live World Laws) */}
+                {activeCategory === 'rules' && (
+                  <div
+                    className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-1.5"
+                    data-testid="god-rules-panel"
+                  >
+                    {GOD_RULE_SWITCHES.map((rule) => {
+                      const activeRules = sim.worldRules ?? DEFAULT_WORLD_RULES;
+                      const isOn =
+                        rule.key === 'autoBuildEnabled'
+                          ? sim.autoBuildEnabled
+                          : rule.key === 'sandboxFreeMode'
+                            ? sim.sandboxFreeMode
+                            : rule.key === 'dayNightCycle'
+                              ? Boolean(activeRules.dayNightCycle || lightingPreset === 'auto')
+                              : Boolean(activeRules[rule.key]);
+                      return (
+                        <button
+                          key={rule.key}
+                          type="button"
+                          aria-pressed={isOn}
+                          data-testid={`god-rule-${rule.key}`}
+                          onClick={() => handleToggleGodRule(rule.key)}
+                          onMouseEnter={() =>
+                            setHoveredHint({
+                              title: rule.label,
+                              cost: isOn ? 'Active' : 'Disabled',
+                              detail: rule.summary,
+                            })
+                          }
+                          className={`px-2.5 h-9 flex items-center justify-between gap-2 text-[11px] cursor-pointer ${
+                            isOn
+                              ? 'px-slot-active font-bold text-[#f2ece1]'
+                              : 'px-slot text-[#9d9486]'
+                          }`}
+                        >
+                          <span className="truncate">{rule.label}</span>
+                          <span
+                            className={`w-2.5 h-2.5 border border-[#0b0a09] shrink-0 ${
+                              isOn ? 'bg-[#80ed99]' : 'bg-[#34302a]'
+                            }`}
+                          />
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* TAB 6: WORLD (Ages, Sky, Seed) */}
                 {activeCategory === 'epochs' && (
                   <div className="flex flex-col gap-2">
                     <div className="flex flex-wrap items-center justify-center gap-1">
@@ -2087,18 +2235,31 @@ export default function App() {
                     <div className="flex flex-wrap items-center justify-center gap-3 text-xs">
                       <div className="flex items-center gap-1">
                         <span className="text-[#a89f91]">Sky</span>
-                        {(['noon', 'dusk', 'night', 'dawn'] as LightingPreset[]).map((lp) => (
-                          <button
-                            key={lp}
-                            type="button"
-                            onClick={() => setLightingPreset(lp)}
-                            className={`px-2 py-0.5 capitalize text-xs cursor-pointer ${
-                              lightingPreset === lp ? 'px-btn-active font-bold' : 'px-btn'
-                            }`}
-                          >
-                            {lp}
-                          </button>
-                        ))}
+                        {(['auto', 'noon', 'dusk', 'night', 'dawn'] as LightingPreset[]).map((lp) => {
+                          const isSkyActive =
+                            lp === 'auto'
+                              ? lightingPreset === 'auto' || Boolean(sim.worldRules?.dayNightCycle)
+                              : lightingPreset === lp && !sim.worldRules?.dayNightCycle;
+                          return (
+                            <button
+                              key={lp}
+                              type="button"
+                              onClick={() => {
+                                setLightingPreset(lp);
+                                if (!simRef.current.worldRules) {
+                                  simRef.current.worldRules = { ...DEFAULT_WORLD_RULES };
+                                }
+                                simRef.current.worldRules.dayNightCycle = lp === 'auto';
+                                setHudTick((t) => t + 1);
+                              }}
+                              className={`px-2 py-0.5 capitalize text-xs cursor-pointer ${
+                                isSkyActive ? 'px-btn-active font-bold' : 'px-btn'
+                              }`}
+                            >
+                              {lp === 'auto' ? 'Cycle' : lp}
+                            </button>
+                          );
+                        })}
                       </div>
 
                       <div className="flex items-center gap-1">
@@ -2188,7 +2349,7 @@ export default function App() {
           data-testid="ingame-settings-modal"
           className="fixed inset-0 z-40 flex items-center justify-center bg-[#0d0c0b]/75 p-4"
         >
-          <div className="w-full max-w-sm px-panel p-6 space-y-5">
+          <div className="w-full max-w-md px-panel p-6 space-y-5">
             <div className="flex items-baseline justify-between">
               <h2 className="text-lg font-bold text-[#f5b742]">Settings</h2>
               <span className="text-xs text-[#b8afa2] tabular-nums">
@@ -2209,6 +2370,11 @@ export default function App() {
                   {muted ? 'Off' : 'On'}
                 </button>
               </div>
+
+              <GraphicsSettingsPanel
+                settings={graphicsSettings}
+                onChange={handleUpdateGraphicsSettings}
+              />
             </div>
 
             <div className="flex flex-col gap-2">
