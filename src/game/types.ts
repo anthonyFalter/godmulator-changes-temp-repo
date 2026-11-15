@@ -167,7 +167,7 @@ export type UnitRole =
   | 'raider_behemoth'
   | AnimalRole;
 
-export type UnitStatusEffect = 'blessed' | 'cursed' | 'plagued' | 'frenzied' | 'shielded';
+export type UnitStatusEffect = 'blessed' | 'cursed' | 'plagued' | 'frenzied' | 'shielded' | 'frozen';
 
 export interface UnitDefinition {
   role: UnitRole;
@@ -232,20 +232,34 @@ export interface UnitEntity {
   ageYears?: number;
   maxLifespan?: number;
   kills?: number;
+  altitude?: number;
+  vzVertical?: number;
+  vxAir?: number;
+  vzAir?: number;
+  fallDamageArmed?: boolean;
+  draggedByPlayer?: boolean;
 }
 
 export type GodPowerType =
+  | 'drag_entity'
   | 'blessing'
-  | 'curse'
   | 'rain_of_plenty'
   | 'eureka'
   | 'golden_age'
   | 'divine_shield'
+  | 'heat_wave'
+  | 'freeze_snap'
+  | 'bloodlust_frenzy'
+  | 'curse'
+  | 'plague_miasma'
   | 'lightning_smite'
+  | 'bomb'
+  | 'cluster_bomb'
+  | 'mega_bomb'
+  | 'tornado'
+  | 'tsunami'
   | 'meteor_strike'
   | 'earthquake'
-  | 'plague_miasma'
-  | 'bloodlust_frenzy'
   | 'terraform_beam'
   | 'wormhole_ascension';
 
@@ -338,6 +352,8 @@ export interface EarthquakeFaultSegment {
   isBranch?: boolean;
 }
 
+export type BrushInputMode = 'tap' | 'hold';
+
 export interface VisualEffectEvent {
   id: string;
   type:
@@ -347,7 +363,8 @@ export interface VisualEffectEvent {
     | 'hit_spark'
     | 'epoch_up'
     | 'dragon_fire_breath'
-    | 'animal_attack';
+    | 'animal_attack'
+    | 'blackhole_explosion';
   x: number;
   y: number;
   z: number;
@@ -367,13 +384,22 @@ export interface VisualEffectEvent {
 
 export interface ActiveHazardZone {
   id: string;
-  kind: 'rain_cloud' | 'plague_cloud' | 'shield_dome' | 'wormhole_rift' | 'tsunami_wave' | 'earthquake_zone';
+  kind:
+    | 'rain_cloud'
+    | 'plague_cloud'
+    | 'shield_dome'
+    | 'wormhole_rift'
+    | 'tsunami_wave'
+    | 'earthquake_zone'
+    | 'tornado_vortex';
   x: number;
   z: number;
   targetX?: number;
   targetZ?: number;
   windX?: number;
   windZ?: number;
+  heading?: number;
+  exploded?: boolean;
   arrivalRemaining?: number;
   arrivalDuration?: number;
   impactPending?: boolean;

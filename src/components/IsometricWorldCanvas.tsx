@@ -22,14 +22,18 @@ import {
   resolveGraphicsProfile,
 } from '../game/graphics';
 import {
+  beginDragUnit,
   closestFaultDistanceSq,
   executeGodPowerImpact,
   getSettlementAnchor,
+  releaseDragUnit,
   stepSimulation,
+  updateDragUnit,
 } from '../game/simulation';
 import { soundEngine } from '../game/sound';
 import {
   ActiveTool,
+  BrushInputMode,
   EarthquakeFaultSegment,
   EarthquakeShapeKind,
   GameLifecycleState,
@@ -49,6 +53,7 @@ interface IsometricWorldCanvasProps {
   timeScale: number;
   activeTool: ActiveTool;
   brushRadius: number;
+  brushInputMode?: BrushInputMode;
   pixelScale: number;
   lightingPreset: LightingPreset;
   graphicsSettings?: GraphicsSettings;
@@ -104,6 +109,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
   timeScale,
   activeTool,
   brushRadius,
+  brushInputMode = 'hold',
   pixelScale,
   lightingPreset,
   graphicsSettings = DEFAULT_GRAPHICS_SETTINGS,
@@ -129,6 +135,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     timeScale,
     activeTool,
     brushRadius,
+    brushInputMode,
     pixelScale,
     lightingPreset,
     graphicsSettings,
@@ -150,6 +157,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       timeScale,
       activeTool,
       brushRadius,
+      brushInputMode,
       pixelScale,
       lightingPreset,
       graphicsSettings,
@@ -169,6 +177,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     timeScale,
     activeTool,
     brushRadius,
+    brushInputMode,
     pixelScale,
     lightingPreset,
     graphicsSettings,
@@ -769,6 +778,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
     const hoverHighlightRig = createEntityHighlightRig(0x56cfe1);
     const selectedHighlightRig = createEntityHighlightRig(0xffd166);
+    const dragHighlightRig = createEntityHighlightRig(0x00f5d4);
 
     const MAX_FAVORITE_STARS = 64;
     const favoriteStarGeo = new THREE.OctahedronGeometry(0.14, 0);
@@ -1055,6 +1065,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     const sharedWaveLipGeo = new THREE.BoxGeometry(1.16, 0.62, 1.05);
     const sharedWaveFoamGeo = new THREE.BoxGeometry(1.22, 0.44, 0.68);
     const sharedFaultCrackGeo = new THREE.BoxGeometry(1, 0.14, 1);
+    const sharedTornadoRingGeo = new THREE.TorusGeometry(1.0, 0.24, 6, 16);
+    sharedTornadoRingGeo.rotateX(Math.PI / 2);
+    const sharedTornadoCapGeo = new THREE.BoxGeometry(2.6, 0.75, 2.6);
+    const sharedDebrisCubeGeo = new THREE.BoxGeometry(0.32, 0.32, 0.32);
 
     interface TsunamiWaveSegment {
       group: THREE.Group;
@@ -1070,12 +1084,22 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       speed: number;
     }
 
+    interface OrbitingDebris {
+      mesh: THREE.Mesh;
+      angle: number;
+      dist: number;
+      height: number;
+      speed: number;
+      tilt: number;
+    }
+
     interface HazardVisual {
       kind:
         | 'rain_cloud'
         | 'plague_cloud'
         | 'shield_dome'
         | 'wormhole_rift'
+        | 'tornado_vortex'
         | 'tsunami_wave'
         | 'earthquake_zone';
       group: THREE.Group;
@@ -1085,6 +1109,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       waveSegments?: TsunamiWaveSegment[];
       gravityRings?: THREE.Mesh[];
       vortexMotes?: VortexMote[];
+      tornadoRings?: THREE.Mesh[];
+      debrisChunks?: OrbitingDebris[];
       ringMesh?: THREE.Mesh;
       secondaryRingMesh?: THREE.Mesh;
       waveWallMesh?: THREE.Mesh;
@@ -1385,6 +1411,89 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         };
       }
 
+      if (kind === 'tornado_vortex') {
+        const funnelOuterMat = new THREE.MeshBasicMaterial({
+          color: 0xa5b4fc,
+          transparent: true,
+          opacity: 0.72,
+        });
+        const funnelCoreMat = new THREE.MeshBasicMaterial({
+          color: 0xe2e8f0,
+          transparent: true,
+          opacity: 0.85,
+        });
+        const stormCapMat = new THREE.MeshStandardMaterial({
+          color: 0x334155,
+          roughness: 0.9,
+          transparent: true,
+          opacity: 0.92,
+        });
+        const dustRingMat = new THREE.MeshBasicMaterial({
+          color: 0x94a3b8,
+          transparent: true,
+          opacity: 0.65,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        const debrisWoodMat = new THREE.MeshStandardMaterial({ color: 0x6b4f35, roughness: 0.85 });
+        const debrisLeafMat = new THREE.MeshStandardMaterial({ color: 0x4f772d, roughness: 0.8 });
+        materials.push(funnelOuterMat, funnelCoreMat, stormCapMat, dustRingMat, debrisWoodMat, debrisLeafMat);
+
+        const ringMesh = new THREE.Mesh(sharedHazRingGeo, dustRingMat);
+        ringMesh.position.y = 0.08;
+        ringMesh.scale.setScalar(radius * 0.9);
+        group.add(ringMesh);
+
+        const tornadoRings: THREE.Mesh[] = [];
+        const tierCount = 8;
+        for (let ti = 0; ti < tierCount; ti++) {
+          const frac = ti / (tierCount - 1);
+          const ringScale = 0.45 + Math.pow(frac, 1.35) * 2.35;
+          const rMesh = new THREE.Mesh(sharedTornadoRingGeo, ti % 2 === 0 ? funnelCoreMat : funnelOuterMat);
+          rMesh.position.y = 0.35 + frac * 5.8;
+          rMesh.scale.set(ringScale, 0.7 + frac * 0.55, ringScale);
+          group.add(rMesh);
+          tornadoRings.push(rMesh);
+        }
+
+        const cloudBody = new THREE.Group();
+        const cap1 = new THREE.Mesh(sharedTornadoCapGeo, stormCapMat);
+        cap1.position.set(0, 6.45, 0);
+        cap1.scale.set(1.45, 1.0, 1.35);
+        const cap2 = new THREE.Mesh(sharedTornadoCapGeo, stormCapMat);
+        cap2.position.set(0.9, 6.85, -0.6);
+        cap2.scale.set(1.05, 0.8, 1.05);
+        cloudBody.add(cap1, cap2);
+        group.add(cloudBody);
+
+        const debrisChunks: OrbitingDebris[] = [];
+        for (let di = 0; di < 14; di++) {
+          const frac = di / 14;
+          const dMesh = new THREE.Mesh(sharedDebrisCubeGeo, di % 2 === 0 ? debrisLeafMat : debrisWoodMat);
+          dMesh.scale.setScalar(0.65 + (di % 3) * 0.25);
+          group.add(dMesh);
+          debrisChunks.push({
+            mesh: dMesh,
+            angle: (di / 14) * Math.PI * 2,
+            dist: 0.75 + frac * 2.15,
+            height: 0.4 + frac * 5.2,
+            speed: 5.5 + (1 - frac) * 4.5,
+            tilt: (di % 5) * 0.4,
+          });
+        }
+
+        return {
+          kind,
+          group,
+          materials,
+          ringMesh,
+          tornadoRings,
+          cloudBody,
+          debrisChunks,
+          seenStamp: 0,
+        };
+      }
+
       // wormhole_rift — spinning black hole event horizon + contracting gravity-well funnel rings + inward-spiraling accretion shards
       const ringMat = new THREE.MeshBasicMaterial({
         color: 0xc77dff,
@@ -1481,6 +1590,29 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         });
       }
 
+      // 16 Orbiting Terrain Chunks ripped from the ground around the black hole
+      const earthGrassMat = new THREE.MeshStandardMaterial({ color: 0x588157, roughness: 0.85 });
+      const earthSoilMat = new THREE.MeshStandardMaterial({ color: 0x6c4e38, roughness: 0.9 });
+      const earthRockMat = new THREE.MeshStandardMaterial({ color: 0x6c757d, roughness: 0.8 });
+      const earthCrystalMat = new THREE.MeshBasicMaterial({ color: 0xc77dff });
+      materials.push(earthGrassMat, earthSoilMat, earthRockMat, earthCrystalMat);
+      const chunkMats = [earthGrassMat, earthSoilMat, earthRockMat, earthCrystalMat];
+      const debrisChunks: OrbitingDebris[] = [];
+      for (let ci = 0; ci < 16; ci++) {
+        const cMesh = new THREE.Mesh(sharedDebrisCubeGeo, chunkMats[ci % chunkMats.length]);
+        const s = 0.72 + (ci % 4) * 0.22;
+        cMesh.scale.set(s * 1.15, s * 0.85, s);
+        group.add(cMesh);
+        debrisChunks.push({
+          mesh: cMesh,
+          angle: (ci / 16) * Math.PI * 2,
+          dist: (0.28 + (ci % 5) * 0.16) * radius,
+          height: 0.5 + (ci % 4) * 0.65,
+          speed: 2.8 + (4 - (ci % 4)) * 0.95,
+          tilt: ci * 0.55,
+        });
+      }
+
       return {
         kind,
         group,
@@ -1489,6 +1621,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         secondaryRingMesh: torus2,
         gravityRings,
         vortexMotes,
+        debrisChunks,
         seenStamp: 0,
       };
     }
@@ -1622,6 +1755,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     const sharedSlashBladeGeo = new THREE.BoxGeometry(0.85, 0.09, 0.14);
     const sharedSlamClawGeo = new THREE.BoxGeometry(0.14, 0.1, 0.95);
     const sharedHornStarGeo = new THREE.OctahedronGeometry(0.28, 0);
+    const sharedBombSphereGeo = new THREE.IcosahedronGeometry(0.45, 1);
+    const sharedMushroomStemGeo = new THREE.CylinderGeometry(0.72, 1.35, 1.0, 14);
+    sharedMushroomStemGeo.translate(0, 0.5, 0);
+    const sharedMushroomCapGeo = new THREE.SphereGeometry(1.0, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.68);
 
     interface PowerMote {
       mesh: THREE.Mesh;
@@ -1646,6 +1783,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         | 'plague_eruption'
         | 'terraform_strata'
         | 'rift_implosion'
+        | 'blackhole_explosion'
+        | 'bomb_drop'
+        | 'cluster_drop'
+        | 'mega_bomb_drop'
+        | 'heat_wave_burst'
+        | 'freeze_snap_burst'
+        | 'tornado_summon'
+        | 'tsunami_summon'
         | 'earthquake_quake'
         | 'dragon_flame'
         | 'animal_strike'
@@ -1669,6 +1814,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       impactFired: boolean;
       meteorMesh?: THREE.Group;
       meteorRockCore?: THREE.Object3D;
+      bombMeshes?: THREE.Mesh[];
+      mushroomStem?: THREE.Mesh;
+      mushroomCap?: THREE.Mesh;
       boltSegments?: THREE.Mesh[];
       forkMeshes?: THREE.Mesh[];
       explosionDome?: THREE.Mesh;
@@ -1690,6 +1838,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       particleEmitTimer?: number;
       colorHex: string;
     }
+    const MAX_BURST_FX = 36;
     const activeBurstFx: ActiveBurstFx[] = [];
 
     function triggerLightFlash(x: number, y: number, z: number, hexColor: string, intensity = 16) {
@@ -1709,6 +1858,18 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       faultSegments?: EarthquakeFaultSegment[],
       quakeShapeKind?: EarthquakeShapeKind,
     ) {
+      // Bound simultaneous active bursts for smooth performance during continuous S-pattern painting
+      if (activeBurstFx.length >= MAX_BURST_FX) {
+        const dropIdx = activeBurstFx.findIndex((f) => f.impactFired || !f.deferImpact);
+        const idx = dropIdx >= 0 ? dropIdx : 0;
+        const old = activeBurstFx[idx];
+        if (old) {
+          burstFxGroup.remove(old.group);
+          for (const m of old.materials) m.dispose();
+          activeBurstFx.splice(idx, 1);
+        }
+      }
+
       const group = new THREE.Group();
       const materials: THREE.Material[] = [];
 
@@ -2761,6 +2922,482 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         return;
       }
 
+      if (type === 'blackhole_explosion') {
+        const flashDomeMat = new THREE.MeshBasicMaterial({
+          color: 0xffffff,
+          transparent: true,
+          opacity: 0.98,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        const plasmaDomeMat = new THREE.MeshBasicMaterial({
+          color: 0xc77dff,
+          transparent: true,
+          opacity: 0.9,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        const shockWallMat = new THREE.MeshBasicMaterial({
+          color: 0x56cfe1,
+          transparent: true,
+          opacity: 0.85,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        const ringMat = new THREE.MeshBasicMaterial({
+          color: 0xe0aaff,
+          transparent: true,
+          opacity: 0.95,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        materials.push(flashDomeMat, plasmaDomeMat, shockWallMat, ringMat);
+
+        const innerDomeMesh = new THREE.Mesh(sharedExplosionDomeGeo, flashDomeMat);
+        innerDomeMesh.position.set(tx, ty + 0.35, tz);
+        group.add(innerDomeMesh);
+
+        const explosionDome = new THREE.Mesh(sharedExplosionDomeGeo, plasmaDomeMat);
+        explosionDome.position.set(tx, ty + 0.15, tz);
+        group.add(explosionDome);
+
+        const shockWallMesh = new THREE.Mesh(sharedDomeCylinderGeo, shockWallMat);
+        shockWallMesh.position.set(tx, ty + 0.05, tz);
+        group.add(shockWallMesh);
+
+        const ringMesh = new THREE.Mesh(sharedHazRingGeo, ringMat);
+        ringMesh.position.set(tx, ty + 0.18, tz);
+        group.add(ringMesh);
+
+        const outerRingMesh = new THREE.Mesh(sharedHazRingGeo, shockWallMat);
+        outerRingMesh.position.set(tx, ty + 0.22, tz);
+        group.add(outerRingMesh);
+
+        triggerLightFlash(tx, ty + 3, tz, '#e0aaff', 55);
+        soundEngine.playMegaExplosion();
+        trauma = 1.0;
+        hitstopTimer = 0.09;
+        spawnParticleBurst(tx, ty + 1.5, tz, 110, '#e0aaff', radius * 1.35, 13.5, 1.8);
+        spawnParticleBurst(tx, ty + 1.4, tz, 75, '#56cfe1', radius * 1.1, 14.5, 1.5);
+        spawnParticleBurst(tx, ty + 1.0, tz, 55, '#ff9e00', radius * 0.9, 10.0, 1.65);
+
+        burstFxGroup.add(group);
+        activeBurstFx.push({
+          kind: 'blackhole_explosion',
+          powerType: type,
+          group,
+          materials,
+          age: 0,
+          duration: 1.95,
+          impactDelay: 0,
+          deferImpact: false,
+          tx,
+          ty,
+          tz,
+          radius,
+          impactFired: true,
+          innerDomeMesh,
+          explosionDome,
+          shockWallMesh,
+          ringMesh,
+          outerRingMesh,
+          colorHex,
+        });
+        return;
+      }
+
+      if (type === 'bomb') {
+        const bombMat = new THREE.MeshStandardMaterial({ color: 0x22262e, roughness: 0.65, metalness: 0.4 });
+        const flameMat = new THREE.MeshBasicMaterial({
+          color: 0xff6b35,
+          transparent: true,
+          opacity: 0.92,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        const ringMat = new THREE.MeshBasicMaterial({
+          color: 0xffbe0b,
+          transparent: true,
+          opacity: 0.88,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        materials.push(bombMat, flameMat, ringMat);
+
+        const bombMesh = new THREE.Mesh(sharedBombSphereGeo, bombMat);
+        bombMesh.position.set(tx, ty + 14, tz);
+        bombMesh.scale.setScalar(1.1);
+        group.add(bombMesh);
+
+        const explosionDome = new THREE.Mesh(sharedExplosionDomeGeo, flameMat);
+        explosionDome.position.set(tx, ty + 0.06, tz);
+        explosionDome.visible = false;
+        group.add(explosionDome);
+
+        const ringMesh = new THREE.Mesh(sharedHazRingGeo, ringMat);
+        ringMesh.position.set(tx, ty + 0.12, tz);
+        ringMesh.scale.setScalar(radius * 0.85);
+        group.add(ringMesh);
+
+        soundEngine.playBombFuse();
+        burstFxGroup.add(group);
+        activeBurstFx.push({
+          kind: 'bomb_drop',
+          powerType: type,
+          group,
+          materials,
+          age: 0,
+          duration: 1.45,
+          impactDelay: 0.36,
+          deferImpact,
+          tx,
+          ty,
+          tz,
+          radius,
+          impactFired: false,
+          bombMeshes: [bombMesh],
+          explosionDome,
+          ringMesh,
+          colorHex,
+        });
+        return;
+      }
+
+      if (type === 'cluster_bomb') {
+        const canisterMat = new THREE.MeshStandardMaterial({ color: 0x3f4756, roughness: 0.55, metalness: 0.45 });
+        const fireballMat = new THREE.MeshBasicMaterial({
+          color: 0xff5400,
+          transparent: true,
+          opacity: 0.92,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        const flashMat = new THREE.MeshBasicMaterial({
+          color: 0xffee55,
+          transparent: true,
+          opacity: 0.95,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        materials.push(canisterMat, fireballMat, flashMat);
+
+        const bombMeshes: THREE.Mesh[] = [];
+        for (let b = 0; b < 6; b++) {
+          const bm = new THREE.Mesh(sharedBombSphereGeo, canisterMat);
+          const ang = (b / 6) * Math.PI * 2;
+          bm.userData.offX = Math.cos(ang) * radius * 0.62;
+          bm.userData.offZ = Math.sin(ang) * radius * 0.62;
+          bm.position.set(tx, ty + 16, tz);
+          bm.scale.setScalar(0.8);
+          group.add(bm);
+          bombMeshes.push(bm);
+        }
+
+        const explosionDome = new THREE.Mesh(sharedExplosionDomeGeo, fireballMat);
+        explosionDome.position.set(tx, ty + 0.06, tz);
+        explosionDome.visible = false;
+        group.add(explosionDome);
+
+        const ringMesh = new THREE.Mesh(sharedHazRingGeo, fireballMat);
+        ringMesh.position.set(tx, ty + 0.12, tz);
+        ringMesh.scale.setScalar(radius * 0.9);
+        group.add(ringMesh);
+
+        const outerRingMesh = new THREE.Mesh(sharedHazRingGeo, flashMat);
+        outerRingMesh.position.set(tx, ty + 0.16, tz);
+        outerRingMesh.visible = false;
+        group.add(outerRingMesh);
+
+        soundEngine.playBombFuse();
+        burstFxGroup.add(group);
+        activeBurstFx.push({
+          kind: 'cluster_drop',
+          powerType: type,
+          group,
+          materials,
+          age: 0,
+          duration: 1.85,
+          impactDelay: 0.44,
+          deferImpact,
+          tx,
+          ty,
+          tz,
+          radius,
+          impactFired: false,
+          bombMeshes,
+          explosionDome,
+          ringMesh,
+          outerRingMesh,
+          colorHex,
+        });
+        return;
+      }
+
+      if (type === 'mega_bomb') {
+        const warheadMat = new THREE.MeshStandardMaterial({
+          color: 0x1b1e24,
+          emissive: 0xff3b30,
+          emissiveIntensity: 0.45,
+          roughness: 0.45,
+          metalness: 0.55,
+        });
+        const flashMat = new THREE.MeshBasicMaterial({
+          color: 0xfff3b0,
+          transparent: true,
+          opacity: 0.96,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        const stemMat = new THREE.MeshBasicMaterial({
+          color: 0xff6b35,
+          transparent: true,
+          opacity: 0.92,
+        });
+        const capMat = new THREE.MeshBasicMaterial({
+          color: 0xffaa00,
+          transparent: true,
+          opacity: 0.94,
+        });
+        const shockMat = new THREE.MeshBasicMaterial({
+          color: 0xff3b30,
+          transparent: true,
+          opacity: 0.88,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        materials.push(warheadMat, flashMat, stemMat, capMat, shockMat);
+
+        const warhead = new THREE.Mesh(sharedBombSphereGeo, warheadMat);
+        warhead.position.set(tx, ty + 28, tz);
+        warhead.scale.set(1.65, 2.35, 1.65);
+        group.add(warhead);
+
+        const explosionDome = new THREE.Mesh(sharedExplosionDomeGeo, flashMat);
+        explosionDome.position.set(tx, ty + 0.08, tz);
+        explosionDome.visible = false;
+        group.add(explosionDome);
+
+        const mushroomStem = new THREE.Mesh(sharedMushroomStemGeo, stemMat);
+        mushroomStem.position.set(tx, ty + 0.1, tz);
+        mushroomStem.visible = false;
+        group.add(mushroomStem);
+
+        const mushroomCap = new THREE.Mesh(sharedMushroomCapGeo, capMat);
+        mushroomCap.position.set(tx, ty + 1.0, tz);
+        mushroomCap.visible = false;
+        group.add(mushroomCap);
+
+        const shockWallMesh = new THREE.Mesh(sharedDomeCylinderGeo, flashMat);
+        shockWallMesh.position.set(tx, ty + 0.06, tz);
+        shockWallMesh.visible = false;
+        group.add(shockWallMesh);
+
+        const ringMesh = new THREE.Mesh(sharedHazRingGeo, shockMat);
+        ringMesh.position.set(tx, ty + 0.12, tz);
+        ringMesh.scale.setScalar(radius * 0.95);
+        group.add(ringMesh);
+
+        const outerRingMesh = new THREE.Mesh(sharedHazRingGeo, flashMat);
+        outerRingMesh.position.set(tx, ty + 0.16, tz);
+        outerRingMesh.visible = false;
+        group.add(outerRingMesh);
+
+        soundEngine.playMeteorIncoming();
+        burstFxGroup.add(group);
+        activeBurstFx.push({
+          kind: 'mega_bomb_drop',
+          powerType: type,
+          group,
+          materials,
+          age: 0,
+          duration: 3.1,
+          impactDelay: 0.58,
+          deferImpact,
+          tx,
+          ty,
+          tz,
+          radius,
+          impactFired: false,
+          bombMeshes: [warhead],
+          explosionDome,
+          mushroomStem,
+          mushroomCap,
+          shockWallMesh,
+          ringMesh,
+          outerRingMesh,
+          colorHex,
+        });
+        return;
+      }
+
+      if (type === 'heat_wave') {
+        const ringMat = new THREE.MeshBasicMaterial({
+          color: 0xff7b00,
+          transparent: true,
+          opacity: 0.9,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        const innerMat = new THREE.MeshBasicMaterial({
+          color: 0xffbe0b,
+          transparent: true,
+          opacity: 0.88,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        const hazeMat = new THREE.MeshBasicMaterial({
+          color: 0xff922b,
+          transparent: true,
+          opacity: 0.35,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        materials.push(ringMat, innerMat, hazeMat);
+
+        const ringMesh = new THREE.Mesh(sharedHazRingGeo, ringMat);
+        ringMesh.position.set(tx, ty + 0.14, tz);
+        group.add(ringMesh);
+
+        const outerRingMesh = new THREE.Mesh(sharedHazRingGeo, innerMat);
+        outerRingMesh.position.set(tx, ty + 0.22, tz);
+        group.add(outerRingMesh);
+
+        const shockWallMesh = new THREE.Mesh(sharedDomeCylinderGeo, hazeMat);
+        shockWallMesh.position.set(tx, ty + 0.06, tz);
+        group.add(shockWallMesh);
+
+        burstFxGroup.add(group);
+        activeBurstFx.push({
+          kind: 'heat_wave_burst',
+          powerType: type,
+          group,
+          materials,
+          age: 0,
+          duration: 1.55,
+          impactDelay: 0.14,
+          deferImpact,
+          tx,
+          ty,
+          tz,
+          radius,
+          impactFired: false,
+          ringMesh,
+          outerRingMesh,
+          shockWallMesh,
+          colorHex,
+        });
+        return;
+      }
+
+      if (type === 'freeze_snap') {
+        const frostMat = new THREE.MeshBasicMaterial({
+          color: 0x7dd3fc,
+          transparent: true,
+          opacity: 0.92,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        const iceMat = new THREE.MeshStandardMaterial({
+          color: 0xe0f2fe,
+          emissive: 0x38bdf8,
+          emissiveIntensity: 0.35,
+          roughness: 0.25,
+          transparent: true,
+          opacity: 0.9,
+        });
+        materials.push(frostMat, iceMat);
+
+        const ringMesh = new THREE.Mesh(sharedHazRingGeo, frostMat);
+        ringMesh.position.set(tx, ty + 0.14, tz);
+        group.add(ringMesh);
+
+        const outerRingMesh = new THREE.Mesh(sharedHazRingGeo, frostMat);
+        outerRingMesh.position.set(tx, ty + 0.2, tz);
+        group.add(outerRingMesh);
+
+        const spikes: THREE.Mesh[] = [];
+        for (let si = 0; si < 14; si++) {
+          const ang = (si / 14) * Math.PI * 2 + (si % 3) * 0.2;
+          const dist = (0.28 + ((si * 31) % 70) / 100) * radius * 0.85;
+          const sp = new THREE.Mesh(sharedPillarSpikeGeo, iceMat);
+          sp.position.set(tx + Math.cos(ang) * dist, ty, tz + Math.sin(ang) * dist);
+          sp.rotation.set(Math.sin(ang) * 0.35, ang, Math.cos(ang) * -0.35);
+          sp.scale.set(0.85, 0.01, 0.85);
+          group.add(sp);
+          spikes.push(sp);
+        }
+
+        burstFxGroup.add(group);
+        activeBurstFx.push({
+          kind: 'freeze_snap_burst',
+          powerType: type,
+          group,
+          materials,
+          age: 0,
+          duration: 1.75,
+          impactDelay: 0.14,
+          deferImpact,
+          tx,
+          ty,
+          tz,
+          radius,
+          impactFired: false,
+          ringMesh,
+          outerRingMesh,
+          spikes,
+          colorHex,
+        });
+        return;
+      }
+
+      if (type === 'tornado' || type === 'tsunami') {
+        const isTornado = type === 'tornado';
+        const ringMat = new THREE.MeshBasicMaterial({
+          color: isTornado ? 0xa5b4fc : 0x00b4d8,
+          transparent: true,
+          opacity: 0.9,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        const outerMat = new THREE.MeshBasicMaterial({
+          color: 0xe0fbfc,
+          transparent: true,
+          opacity: 0.85,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        materials.push(ringMat, outerMat);
+
+        const ringMesh = new THREE.Mesh(sharedHazRingGeo, ringMat);
+        ringMesh.position.set(tx, ty + 0.14, tz);
+        group.add(ringMesh);
+
+        const outerRingMesh = new THREE.Mesh(sharedHazRingGeo, outerMat);
+        outerRingMesh.position.set(tx, ty + 0.2, tz);
+        group.add(outerRingMesh);
+
+        burstFxGroup.add(group);
+        activeBurstFx.push({
+          kind: isTornado ? 'tornado_summon' : 'tsunami_summon',
+          powerType: type,
+          group,
+          materials,
+          age: 0,
+          duration: 1.0,
+          impactDelay: 0.18,
+          deferImpact,
+          tx,
+          ty,
+          tz,
+          radius,
+          impactFired: false,
+          ringMesh,
+          outerRingMesh,
+          colorHex,
+        });
+        return;
+      }
+
       // Utility events (terrain_sculpt, epoch_up): Clean ground ripple without any beam pillar
       const ringMat = new THREE.MeshBasicMaterial({
         color: colorHex,
@@ -3149,6 +3786,23 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     let dragStartClient = { x: 0, y: 0 };
     let pointerDownMoved = false;
 
+    let draggedUnitId: string | null = null;
+    const _dragPlaneNormal = new THREE.Vector3(0, 1, 0);
+    const dragPlane = new THREE.Plane(_dragPlaneNormal, -1.5);
+    const _dragIntersectPt = new THREE.Vector3();
+    let lastDragWorld = { x: 0, z: 0, time: 0 };
+    let dragVelocity = { x: 0, z: 0 };
+
+    let isHoldPainting = false;
+    let lastPaintTile: { x: number; z: number } | null = null;
+    const paintedStrokeTiles = new Set<string>();
+    let lastHoldCastTime = 0;
+    let lastHoldCastPos: { x: number; z: number } | null = null;
+
+    const isDragPowerActive = () =>
+      propsRef.current.activeTool.kind === 'power' &&
+      propsRef.current.activeTool.power === 'drag_entity';
+
     let renderWidth = 320;
     let renderHeight = 180;
 
@@ -3183,7 +3837,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
       raycaster.setFromCamera(pointerNdc, camera);
 
-      if (propsRef.current.activeTool.kind === 'inspect') {
+      if (propsRef.current.activeTool.kind === 'inspect' || isDragPowerActive()) {
         const pickedUnit = pickLivingUnitAtRay(raycaster.ray);
         if (pickedUnit !== hoveredEntityInternal) {
           hoveredEntityInternal = pickedUnit;
@@ -3211,6 +3865,53 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       }
     };
 
+    const applyHoldStrokeToTile = (tx: number, tz: number, nowMs: number) => {
+      const tool = propsRef.current.activeTool;
+      if (tool.kind === 'terrain' || tool.kind === 'build') {
+        const sx = lastPaintTile ? lastPaintTile.x : tx;
+        const sz = lastPaintTile ? lastPaintTile.z : tz;
+        let x0 = sx;
+        let z0 = sz;
+        const dx = Math.abs(tx - sx);
+        const dz = Math.abs(tz - sz);
+        const stepX = sx < tx ? 1 : -1;
+        const stepZ = sz < tz ? 1 : -1;
+        let err = dx - dz;
+        for (let guard = 0; guard < 128; guard++) {
+          const key = `${x0},${z0}`;
+          if (!paintedStrokeTiles.has(key)) {
+            paintedStrokeTiles.add(key);
+            propsRef.current.onTileInteract(x0, z0);
+          }
+          if (x0 === tx && z0 === tz) break;
+          const e2 = 2 * err;
+          if (e2 > -dz) {
+            err -= dz;
+            x0 += stepX;
+          }
+          if (e2 < dx) {
+            err += dx;
+            z0 += stepZ;
+          }
+        }
+        lastPaintTile = { x: tx, z: tz };
+      } else if (tool.kind === 'spawn' || (tool.kind === 'power' && tool.power !== 'drag_entity')) {
+        const minMs = tool.kind === 'spawn' ? 85 : 145;
+        const minDist = tool.kind === 'spawn' ? 0.9 : 1.5;
+        const movedEnough =
+          !lastHoldCastPos || Math.hypot(tx - lastHoldCastPos.x, tz - lastHoldCastPos.z) >= minDist;
+        if (
+          !lastHoldCastPos ||
+          (nowMs - lastHoldCastTime >= minMs && movedEnough) ||
+          nowMs - lastHoldCastTime >= 260
+        ) {
+          lastHoldCastTime = nowMs;
+          lastHoldCastPos = { x: tx, z: tz };
+          propsRef.current.onTileInteract(tx, tz);
+        }
+      }
+    };
+
     let hoverRaycastTimer = 0;
 
     const onPointerDown = (e: PointerEvent) => {
@@ -3223,8 +3924,41 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       isPointerDragging = false;
       dragStartClient = { x: e.clientX, y: e.clientY };
       pointerDownMoved = false;
-      hoverRaycastTimer = performance.now();
+      const nowMs = performance.now();
+      hoverRaycastTimer = nowMs;
       updateHoverTile(e.clientX, e.clientY);
+
+      if (e.button === 0 && !e.altKey && propsRef.current.gameState === 'playing') {
+        if (isDragPowerActive()) {
+          const picked = hoveredEntityInternal ?? pickLivingUnitAtRay(raycaster.ray);
+          if (picked) {
+            const grabbed = beginDragUnit(simRef.current, picked);
+            if (grabbed) {
+              draggedUnitId = grabbed.id;
+              const ht = getTileFromArray(simRef.current, grabbed.x, grabbed.z);
+              const planeY = (ht ? Math.max(0.25, ht.height * HEIGHT_STEP + 0.25) : 0.6) + 1.55;
+              dragPlane.set(_dragPlaneNormal, -planeY);
+              lastDragWorld = { x: grabbed.x, z: grabbed.z, time: nowMs };
+              dragVelocity = { x: 0, z: 0 };
+              soundEngine.playGrab();
+              propsRef.current.onSyncHud();
+              return;
+            }
+          }
+        } else if (
+          propsRef.current.brushInputMode === 'hold' &&
+          propsRef.current.activeTool.kind !== 'inspect'
+        ) {
+          isHoldPainting = true;
+          paintedStrokeTiles.clear();
+          lastPaintTile = null;
+          lastHoldCastPos = null;
+          lastHoldCastTime = 0;
+          if (hoveredTileCoords) {
+            applyHoldStrokeToTile(hoveredTileCoords.x, hoveredTileCoords.z, nowMs);
+          }
+        }
+      }
     };
 
     const onPointerMove = (e: PointerEvent) => {
@@ -3232,6 +3966,29 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       const dy = e.clientY - dragStartClient.y;
       if (Math.abs(dx) + Math.abs(dy) > 6) {
         pointerDownMoved = true;
+      }
+
+      if (draggedUnitId) {
+        const rect = renderer.domElement.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) {
+          pointerNdc.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+          pointerNdc.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+          raycaster.setFromCamera(pointerNdc, camera);
+          if (raycaster.ray.intersectPlane(dragPlane, _dragIntersectPt)) {
+            const nowMs = performance.now();
+            const dtDrag = Math.max(0.008, (nowMs - lastDragWorld.time) / 1000);
+            const gMax = simRef.current.gridSize - 2;
+            const nx = THREE.MathUtils.clamp(_dragIntersectPt.x, 1, gMax);
+            const nz = THREE.MathUtils.clamp(_dragIntersectPt.z, 1, gMax);
+            const vxRaw = (nx - lastDragWorld.x) / dtDrag;
+            const vzRaw = (nz - lastDragWorld.z) / dtDrag;
+            dragVelocity.x = dragVelocity.x * 0.45 + vxRaw * 0.55;
+            dragVelocity.z = dragVelocity.z * 0.45 + vzRaw * 0.55;
+            lastDragWorld = { x: nx, z: nz, time: nowMs };
+            updateDragUnit(simRef.current, draggedUnitId, nx, nz, 2.8);
+          }
+        }
+        return;
       }
 
       if (isPointerDragging || (e.buttons === 1 && e.altKey)) {
@@ -3253,14 +4010,24 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       }
 
       const nowMs = performance.now();
-      if (nowMs - hoverRaycastTimer >= 32) {
+      const throttleMs = isHoldPainting ? 16 : 32;
+      if (nowMs - hoverRaycastTimer >= throttleMs) {
         hoverRaycastTimer = nowMs;
         updateHoverTile(e.clientX, e.clientY);
+        if (
+          isHoldPainting &&
+          (e.buttons & 1) === 1 &&
+          propsRef.current.gameState === 'playing' &&
+          propsRef.current.brushInputMode === 'hold' &&
+          hoveredTileCoords
+        ) {
+          applyHoldStrokeToTile(hoveredTileCoords.x, hoveredTileCoords.z, nowMs);
+        }
       }
     };
 
     const onPointerLeave = () => {
-      if (hoveredEntityInternal !== null) {
+      if (hoveredEntityInternal !== null && !draggedUnitId) {
         hoveredEntityInternal = null;
         propsRef.current.onHoverEntityChange?.(null);
       }
@@ -3271,6 +4038,21 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     };
 
     const onPointerUp = (e: PointerEvent) => {
+      if (draggedUnitId) {
+        releaseDragUnit(simRef.current, draggedUnitId, dragVelocity.x, dragVelocity.z);
+        draggedUnitId = null;
+        dragVelocity = { x: 0, z: 0 };
+        soundEngine.playThrow();
+        propsRef.current.onSyncHud();
+        return;
+      }
+      if (isHoldPainting) {
+        isHoldPainting = false;
+        paintedStrokeTiles.clear();
+        lastPaintTile = null;
+        lastHoldCastPos = null;
+        return;
+      }
       if (isPointerDragging) {
         isPointerDragging = false;
         return;
@@ -3281,7 +4063,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         if (propsRef.current.activeTool.kind === 'inspect') {
           propsRef.current.onSelectEntity?.(hoveredEntityInternal);
         }
-        if (hoveredTileCoords) {
+        if (hoveredTileCoords && !isDragPowerActive()) {
           propsRef.current.onTileInteract(hoveredTileCoords.x, hoveredTileCoords.z);
         }
       }
@@ -3305,6 +4087,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     const clearInputs = () => {
       keysPressed.clear();
       isPointerDragging = false;
+      isHoldPainting = false;
+      paintedStrokeTiles.clear();
+      lastPaintTile = null;
+      lastHoldCastPos = null;
+      if (draggedUnitId) {
+        releaseDragUnit(simRef.current, draggedUnitId, 0, 0);
+        draggedUnitId = null;
+      }
     };
 
     const domElem = renderer.domElement;
@@ -4218,6 +5008,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         const isHerbivoreDino =
           u.role === 'dinosaur' && getDinosaurVariant(u.appearanceSeed).diet === 'herbivore';
 
+        const isFrozen = Boolean(u.statusEffects.frozen);
+        const simAltitude = u.altitude ?? 0;
+        const isAirborneVisual = simAltitude > 0.35 || Boolean(u.draggedByPlayer);
+
         const bobFreq =
           u.role === 'chicken'
             ? 17
@@ -4228,7 +5022,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
                 : unitAgeStage === 'child'
                   ? 14.5
                   : 11;
-        const walkBob = isDragon
+        const walkBob = isDragon || isFrozen || isAirborneVisual
           ? 0
           : isMoving
             ? Math.abs(Math.sin(elapsed * bobFreq + seedPhase)) *
@@ -4243,7 +5037,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
               ? Math.abs(Math.sin(elapsed * 14 + seedPhase)) * (isAnimal ? 0.025 : 0.05)
               : 0;
         const pounceHopY =
-          isAttacking && !isDragon && u.role !== 'bear'
+          isAttacking && !isFrozen && !isDragon && u.role !== 'bear'
             ? Math.sin(atkProg * Math.PI) * (u.role === 'wolf' ? 0.42 : u.role === 'chicken' ? 0.24 : 0.16)
             : 0;
         const isDragonStrafing =
@@ -4261,9 +5055,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             ? Math.pow(blackHolePullFrac, 1.3) * 1.65 +
               Math.sin(elapsed * 9 + u.x * 2) * 0.12 * blackHolePullFrac
             : 0;
+        const airborneAltY =
+          blackHolePullFrac > 0
+            ? Math.max(simAltitude * 0.55, levitateY)
+            : simAltitude * 0.55;
         let finalUnitY =
-          groundY + (walkBob + pounceHopY + targetHoverY) * (1 - blackHolePullFrac) + levitateY;
-        if (isDragon && u.state !== 'ko' && blackHolePullFrac <= 0) {
+          groundY + (walkBob + pounceHopY + targetHoverY) * (1 - blackHolePullFrac) + airborneAltY;
+        if (isDragon && u.state !== 'ko' && blackHolePullFrac <= 0 && !u.draggedByPlayer) {
           const prevDragonY =
             typeof uGroup.userData.smoothWorldY === 'number'
               ? uGroup.userData.smoothWorldY
@@ -4325,6 +5123,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           uGroup.rotation.x = blackHolePullFrac * 0.72 * Math.cos(elapsed * 6.5 + u.z);
           const bhScale = Math.max(0.58, 1 - Math.pow(blackHolePullFrac, 1.8) * 0.38);
           uGroup.scale.setScalar(bhScale);
+        } else if (isAirborneVisual && !isDragon) {
+          uGroup.rotation.z = Math.sin(elapsed * 16 + seedPhase) * 0.44;
+          uGroup.rotation.x = Math.cos(elapsed * 13 + seedPhase) * 0.32;
+          uGroup.scale.setScalar(1);
         } else if (isDragon) {
           const targetBank = THREE.MathUtils.clamp(dragonYawDelta * 1.45, -0.48, 0.48);
           const targetPitch = isDragonStrafing
@@ -4336,11 +5138,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           uGroup.rotation.x = THREE.MathUtils.damp(uGroup.rotation.x, targetPitch, 7.0, dt);
           uGroup.scale.setScalar(1);
         } else {
-          uGroup.rotation.z = isMoving
+          uGroup.rotation.z = !isFrozen && isMoving
             ? Math.sin(elapsed * bobFreq + seedPhase) * (u.role === 'chicken' ? 0.12 : 0.08)
             : 0;
           uGroup.rotation.x =
-            isWorking && !isAnimal ? Math.sin(elapsed * 16 + u.x) * 0.22 : 0;
+            !isFrozen && isWorking && !isAnimal ? Math.sin(elapsed * 16 + u.x) * 0.22 : 0;
           uGroup.scale.setScalar(1);
         }
 
@@ -4527,13 +5329,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
         const unitShadow = uEntry.contactShadow;
         if (unitShadow) {
-          const totalAir = flightHoverY + levitateY + pounceHopY;
+          const totalAir = flightHoverY + airborneAltY + pounceHopY;
           unitShadow.scale.setScalar(Math.max(0.28, 1 - totalAir * 0.18));
         }
 
         const heldTool = uEntry.heldTool;
         if (heldTool) {
-          heldTool.rotation.x = isWorking ? 0.45 + Math.sin(elapsed * 18) * 0.65 : 0.35;
+          heldTool.rotation.x = isWorking && !isFrozen ? 0.45 + Math.sin(elapsed * 18) * 0.65 : 0.35;
         }
 
         const carryBox = uEntry.carryBox;
@@ -4557,17 +5359,19 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
         const statusRing = uEntry.statusRing;
         if (statusRing) {
-          const statusKey = u.statusEffects.blessed
-            ? 1
-            : u.statusEffects.shielded
-              ? 2
-              : u.statusEffects.frenzied
-                ? 3
-                : u.statusEffects.plagued
-                  ? 4
-                  : u.statusEffects.cursed
-                    ? 5
-                    : 0;
+          const statusKey = u.statusEffects.frozen
+            ? 6
+            : u.statusEffects.blessed
+              ? 1
+              : u.statusEffects.shielded
+                ? 2
+                : u.statusEffects.frenzied
+                  ? 3
+                  : u.statusEffects.plagued
+                    ? 4
+                    : u.statusEffects.cursed
+                      ? 5
+                      : 0;
           if (statusKey !== uEntry.lastStatusKey) {
             uEntry.lastStatusKey = statusKey;
             const mat = statusRing.material as THREE.MeshBasicMaterial;
@@ -4586,6 +5390,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             } else if (statusKey === 5) {
               mat.color.setHex(0x9d4edd);
               mat.opacity = 0.85;
+            } else if (statusKey === 6) {
+              mat.color.setHex(0x7dd3fc);
+              mat.opacity = 0.92;
             } else {
               mat.opacity = 0.0;
             }
@@ -4881,6 +5688,19 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
                 vm.mesh.scale.set(s * 1.4, s * 0.7, s);
               }
             }
+            if (hv.debrisChunks) {
+              for (let ci = 0; ci < hv.debrisChunks.length; ci++) {
+                const dc = hv.debrisChunks[ci];
+                const a = dc.angle + elapsed * dc.speed;
+                const orbitR = dc.dist * (0.72 + Math.sin(elapsed * 1.8 + dc.tilt) * 0.22);
+                dc.mesh.position.set(
+                  Math.cos(a) * orbitR,
+                  dc.height + Math.sin(elapsed * 3.5 + ci) * 0.45,
+                  Math.sin(a) * orbitR,
+                );
+                dc.mesh.rotation.set(elapsed * 3.8 + dc.tilt, elapsed * 4.5, dc.tilt);
+              }
+            }
             if (Math.random() < 0.65) {
               spawnInwardPullParticles(
                 haz.x,
@@ -4894,6 +5714,42 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             }
             const pulse = (0.95 + Math.sin(elapsed * 9) * 0.12) * fade;
             hv.group.scale.setScalar(Math.max(0.05, pulse));
+          } else if (hv.kind === 'tornado_vortex') {
+            if (hv.ringMesh) {
+              hv.ringMesh.rotation.z = elapsed * 5.2;
+              hv.ringMesh.scale.setScalar(haz.radius * (0.85 + Math.sin(elapsed * 8) * 0.12) * fade);
+            }
+            if (hv.tornadoRings) {
+              for (let ti = 0; ti < hv.tornadoRings.length; ti++) {
+                const tr = hv.tornadoRings[ti];
+                const frac = ti / Math.max(1, hv.tornadoRings.length - 1);
+                const wobbleX = Math.sin(elapsed * 6.5 - frac * 2.4) * (0.18 + frac * 0.45);
+                const wobbleZ = Math.cos(elapsed * 5.8 - frac * 2.4) * (0.18 + frac * 0.45);
+                tr.position.set(wobbleX, 0.35 + frac * 5.8, wobbleZ);
+                tr.rotation.y = elapsed * (8.5 - frac * 4.0) + ti * 0.6;
+              }
+            }
+            if (hv.cloudBody) {
+              hv.cloudBody.rotation.y = elapsed * 1.4;
+              hv.cloudBody.position.x = Math.sin(elapsed * 6.5 - 2.4) * 0.5;
+              hv.cloudBody.position.z = Math.cos(elapsed * 5.8 - 2.4) * 0.5;
+            }
+            if (hv.debrisChunks) {
+              for (let di = 0; di < hv.debrisChunks.length; di++) {
+                const dc = hv.debrisChunks[di];
+                const a = dc.angle + elapsed * dc.speed;
+                dc.mesh.position.set(
+                  Math.cos(a) * dc.dist,
+                  dc.height + Math.sin(elapsed * 5 + di) * 0.35,
+                  Math.sin(a) * dc.dist,
+                );
+                dc.mesh.rotation.set(elapsed * 6 + di, elapsed * 5, dc.tilt);
+              }
+            }
+            if (Math.random() < 0.6) {
+              spawnRisingParticles(haz.x, hy, haz.z, 2, '#cbd5e1', haz.radius * 0.85, 5.5, 0.9, 1.1);
+            }
+            hv.group.scale.setScalar(Math.max(0.1, fade));
           } else if (hv.kind === 'tsunami_wave') {
             hv.group.position.set(haz.x, 0, haz.z);
             const curR = haz.currentRadius ?? haz.radius;
@@ -6042,6 +6898,244 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           }
           (fx.materials[0] as THREE.MeshBasicMaterial).opacity = env * 0.95;
           (fx.materials[1] as THREE.MeshBasicMaterial).opacity = env * 0.9;
+        } else if (fx.kind === 'blackhole_explosion' && fx.ringMesh) {
+          const prog = Math.min(1, fx.age / fx.duration);
+          const easeOut = 1 - Math.pow(1 - prog, 2.5);
+          const env = Math.max(0, 1 - prog);
+          if (fx.innerDomeMesh && fx.materials[0]) {
+            const fProg = Math.min(1, prog * 1.75);
+            fx.innerDomeMesh.scale.setScalar(1.0 + fProg * fx.radius * 1.45);
+            (fx.materials[0] as THREE.MeshBasicMaterial).opacity = Math.max(0, (1 - fProg) * 0.95);
+          }
+          if (fx.explosionDome && fx.materials[1]) {
+            fx.explosionDome.scale.setScalar(0.8 + easeOut * fx.radius * 1.75);
+            (fx.materials[1] as THREE.MeshBasicMaterial).opacity = Math.pow(env, 1.3) * 0.9;
+          }
+          if (fx.shockWallMesh && fx.materials[2]) {
+            const wR = 0.8 + easeOut * fx.radius * 2.4;
+            fx.shockWallMesh.scale.set(wR, 0.7 + Math.sin(prog * Math.PI) * 2.1, wR);
+            (fx.materials[2] as THREE.MeshBasicMaterial).opacity = Math.pow(env, 1.4) * 0.72;
+          }
+          fx.ringMesh.scale.setScalar(0.6 + easeOut * fx.radius * 2.75);
+          (fx.materials[3] as THREE.MeshBasicMaterial).opacity = Math.pow(env, 1.2) * 0.95;
+          if (fx.outerRingMesh) {
+            fx.outerRingMesh.scale.setScalar(0.4 + prog * fx.radius * 3.2);
+          }
+        } else if (fx.kind === 'bomb_drop' && fx.ringMesh) {
+          const dropPhase = Math.min(1, fx.age / fx.impactDelay);
+          if (dropPhase < 1) {
+            if (fx.bombMeshes?.[0]) {
+              const bm = fx.bombMeshes[0];
+              bm.position.set(fx.tx, fx.ty + 14 * (1 - dropPhase * dropPhase) + 0.35, fx.tz);
+              bm.rotation.x += dt * 7;
+              bm.rotation.z += dt * 5;
+            }
+            fx.ringMesh.scale.setScalar(fx.radius * (0.95 - dropPhase * 0.55));
+            (fx.materials[2] as THREE.MeshBasicMaterial).opacity = 0.35 + dropPhase * 0.55;
+          } else {
+            if (!fx.impactFired) {
+              fx.impactFired = true;
+              if (fx.bombMeshes?.[0]) fx.bombMeshes[0].visible = false;
+              if (fx.explosionDome) fx.explosionDome.visible = true;
+              if (fx.deferImpact) {
+                executeGodPowerImpact(simRef.current, fx.powerType as GodPowerType, fx.tx, fx.tz);
+              }
+              soundEngine.playHeavyImpact();
+              trauma = Math.min(1.0, trauma + 0.58);
+              triggerLightFlash(fx.tx, fx.ty + 1.5, fx.tz, '#ffbe0b', 28);
+              spawnParticleBurst(fx.tx, fx.ty + 0.4, fx.tz, 65, '#ff5400', fx.radius * 1.15, 9.2, 1.45);
+              spawnParticleBurst(fx.tx, fx.ty + 0.5, fx.tz, 35, '#2b2d42', fx.radius * 0.85, 7.5, 1.7);
+            }
+            const wavePhase = Math.min(1, (fx.age - fx.impactDelay) / (fx.duration - fx.impactDelay));
+            const easeOut = 1 - Math.pow(1 - wavePhase, 2.2);
+            if (fx.explosionDome) {
+              fx.explosionDome.scale.setScalar(0.5 + easeOut * fx.radius * 1.18);
+              (fx.materials[1] as THREE.MeshBasicMaterial).opacity = Math.pow(1 - wavePhase, 1.3) * 0.92;
+            }
+            fx.ringMesh.scale.setScalar(0.5 + easeOut * fx.radius * 1.85);
+            (fx.materials[2] as THREE.MeshBasicMaterial).opacity = (1 - wavePhase) * 0.9;
+          }
+        } else if (fx.kind === 'cluster_drop' && fx.ringMesh) {
+          const dropPhase = Math.min(1, fx.age / fx.impactDelay);
+          if (dropPhase < 1) {
+            const ease = dropPhase * dropPhase;
+            if (fx.bombMeshes) {
+              for (const bm of fx.bombMeshes) {
+                const ox = (bm.userData.offX as number) || 0;
+                const oz = (bm.userData.offZ as number) || 0;
+                bm.position.set(fx.tx + ox * dropPhase, fx.ty + 16 * (1 - ease) + 0.35, fx.tz + oz * dropPhase);
+                bm.rotation.x += dt * 8;
+              }
+            }
+            fx.ringMesh.scale.setScalar(fx.radius * (1.0 - dropPhase * 0.45));
+          } else {
+            if (!fx.impactFired) {
+              fx.impactFired = true;
+              if (fx.bombMeshes) {
+                for (const bm of fx.bombMeshes) {
+                  bm.visible = false;
+                  spawnParticleBurst(bm.position.x, fx.ty + 0.4, bm.position.z, 18, '#ff5400', 2.2, 8.8, 1.4);
+                }
+              }
+              if (fx.explosionDome) fx.explosionDome.visible = true;
+              if (fx.outerRingMesh) fx.outerRingMesh.visible = true;
+              if (fx.deferImpact) {
+                executeGodPowerImpact(simRef.current, fx.powerType as GodPowerType, fx.tx, fx.tz);
+              }
+              soundEngine.playMegaExplosion();
+              trauma = Math.min(1.0, trauma + 0.8);
+              hitstopTimer = 0.05;
+              triggerLightFlash(fx.tx, fx.ty + 2, fx.tz, '#ff5400', 38);
+              spawnParticleBurst(fx.tx, fx.ty + 0.5, fx.tz, 60, '#ffee55', fx.radius * 1.25, 10.5, 1.5);
+            }
+            const wavePhase = Math.min(1, (fx.age - fx.impactDelay) / (fx.duration - fx.impactDelay));
+            const easeOut = 1 - Math.pow(1 - wavePhase, 2.2);
+            if (fx.explosionDome) {
+              fx.explosionDome.scale.setScalar(0.8 + easeOut * fx.radius * 1.28);
+              (fx.materials[1] as THREE.MeshBasicMaterial).opacity = Math.pow(1 - wavePhase, 1.2) * 0.9;
+            }
+            fx.ringMesh.scale.setScalar(0.8 + easeOut * fx.radius * 2.1);
+            (fx.materials[1] as THREE.MeshBasicMaterial).opacity = (1 - wavePhase) * 0.88;
+            if (fx.outerRingMesh) {
+              fx.outerRingMesh.scale.setScalar(0.5 + wavePhase * fx.radius * 2.5);
+              (fx.materials[2] as THREE.MeshBasicMaterial).opacity = (1 - wavePhase) * 0.82;
+            }
+          }
+        } else if (fx.kind === 'mega_bomb_drop' && fx.ringMesh) {
+          const dropPhase = Math.min(1, fx.age / fx.impactDelay);
+          if (dropPhase < 1) {
+            const easeIn = Math.pow(dropPhase, 1.75);
+            if (fx.bombMeshes?.[0]) {
+              const bm = fx.bombMeshes[0];
+              bm.position.set(fx.tx, fx.ty + 28 * (1 - easeIn) + 0.6, fx.tz);
+              bm.rotation.y += dt * 4.5;
+            }
+            fx.ringMesh.scale.setScalar(fx.radius * (1.1 - dropPhase * 0.75));
+            (fx.materials[4] as THREE.MeshBasicMaterial).opacity = 0.3 + dropPhase * 0.65;
+          } else {
+            if (!fx.impactFired) {
+              fx.impactFired = true;
+              if (fx.bombMeshes?.[0]) fx.bombMeshes[0].visible = false;
+              if (fx.explosionDome) fx.explosionDome.visible = true;
+              if (fx.mushroomStem) fx.mushroomStem.visible = true;
+              if (fx.mushroomCap) fx.mushroomCap.visible = true;
+              if (fx.shockWallMesh) fx.shockWallMesh.visible = true;
+              if (fx.outerRingMesh) fx.outerRingMesh.visible = true;
+              if (fx.deferImpact) {
+                executeGodPowerImpact(simRef.current, fx.powerType as GodPowerType, fx.tx, fx.tz);
+              }
+              soundEngine.playMegaExplosion();
+              trauma = 1.0;
+              hitstopTimer = 0.14;
+              triggerLightFlash(fx.tx, fx.ty + 3.5, fx.tz, '#fff3b0', 65);
+              spawnParticleBurst(fx.tx, fx.ty + 0.6, fx.tz, 140, '#ff5400', fx.radius * 1.45, 13.5, 1.9);
+              spawnParticleBurst(fx.tx, fx.ty + 0.8, fx.tz, 85, '#ffee55', fx.radius * 1.1, 15.5, 1.55);
+              spawnParticleBurst(fx.tx, fx.ty + 1.0, fx.tz, 55, '#2b2d42', fx.radius * 0.9, 9.5, 2.2);
+            }
+            const wavePhase = Math.min(1, (fx.age - fx.impactDelay) / (fx.duration - fx.impactDelay));
+            const easeOut = 1 - Math.pow(1 - wavePhase, 2.4);
+            const env = Math.max(0, 1 - wavePhase);
+            if (fx.explosionDome && fx.materials[1]) {
+              const flashFade = Math.max(0, 1 - wavePhase * 2.2);
+              fx.explosionDome.scale.setScalar(1.0 + easeOut * fx.radius * 1.45);
+              (fx.materials[1] as THREE.MeshBasicMaterial).opacity = flashFade * 0.95;
+            }
+            const stemHeight = Math.min(12.5, 1.5 + easeOut * 11.5);
+            const stemWidth = 1.1 + easeOut * 1.65;
+            if (fx.mushroomStem && fx.materials[2]) {
+              fx.mushroomStem.scale.set(stemWidth, stemHeight, stemWidth);
+              (fx.materials[2] as THREE.MeshBasicMaterial).opacity = Math.pow(env, 0.9) * 0.92;
+            }
+            if (fx.mushroomCap && fx.materials[3]) {
+              const capR = 1.6 + easeOut * (fx.radius * 0.72);
+              fx.mushroomCap.position.y = fx.ty + stemHeight * 0.92;
+              fx.mushroomCap.scale.set(capR, capR * 0.62, capR);
+              (fx.materials[3] as THREE.MeshBasicMaterial).opacity = Math.pow(env, 0.85) * 0.94;
+            }
+            if (fx.shockWallMesh && fx.materials[1]) {
+              const wallR = 1.0 + easeOut * fx.radius * 2.55;
+              fx.shockWallMesh.scale.set(wallR, 0.7 + Math.sin(wavePhase * Math.PI) * 1.85, wallR);
+            }
+            fx.ringMesh.scale.setScalar(0.8 + easeOut * fx.radius * 2.9);
+            (fx.materials[4] as THREE.MeshBasicMaterial).opacity = Math.pow(env, 1.15) * 0.92;
+            if (fx.outerRingMesh) {
+              fx.outerRingMesh.scale.setScalar(0.6 + wavePhase * fx.radius * 3.5);
+            }
+          }
+        } else if (fx.kind === 'heat_wave_burst' && fx.ringMesh) {
+          if (fx.age >= fx.impactDelay && !fx.impactFired) {
+            fx.impactFired = true;
+            if (fx.deferImpact) {
+              executeGodPowerImpact(simRef.current, fx.powerType as GodPowerType, fx.tx, fx.tz);
+            }
+            soundEngine.playHeatWave();
+            triggerLightFlash(fx.tx, fx.ty + 1.5, fx.tz, '#ff7b00', 22);
+            spawnRisingParticles(fx.tx, fx.ty, fx.tz, 45, '#ff7b00', fx.radius * 0.95, 3.6, 1.15, 1.5);
+            spawnRisingParticles(fx.tx, fx.ty, fx.tz, 24, '#ffbe0b', fx.radius * 0.8, 4.2, 1.0, 1.4);
+          }
+          const prog = Math.min(1, fx.age / fx.duration);
+          const easeOut = 1 - Math.pow(1 - prog, 2);
+          const env = Math.max(0, 1 - prog);
+          fx.ringMesh.scale.setScalar(0.4 + easeOut * fx.radius * 1.25);
+          (fx.materials[0] as THREE.MeshBasicMaterial).opacity = env * 0.9;
+          if (fx.outerRingMesh) {
+            fx.outerRingMesh.scale.setScalar(0.2 + prog * fx.radius * 1.4);
+            (fx.materials[1] as THREE.MeshBasicMaterial).opacity = env * 0.85;
+          }
+          if (fx.shockWallMesh && fx.materials[2]) {
+            fx.shockWallMesh.scale.set(0.5 + easeOut * fx.radius * 1.05, 1.2 + prog * 1.4, 0.5 + easeOut * fx.radius * 1.05);
+            (fx.materials[2] as THREE.MeshBasicMaterial).opacity = Math.sin(prog * Math.PI) * 0.35;
+          }
+        } else if (fx.kind === 'freeze_snap_burst' && fx.ringMesh) {
+          if (fx.age >= fx.impactDelay && !fx.impactFired) {
+            fx.impactFired = true;
+            if (fx.deferImpact) {
+              executeGodPowerImpact(simRef.current, fx.powerType as GodPowerType, fx.tx, fx.tz);
+            }
+            soundEngine.playFreeze();
+            triggerLightFlash(fx.tx, fx.ty + 1.5, fx.tz, '#7dd3fc', 22);
+            spawnParticleBurst(fx.tx, fx.ty + 0.35, fx.tz, 55, '#bae6fd', fx.radius * 0.95, 5.2, 1.15);
+            spawnRisingParticles(fx.tx, fx.ty, fx.tz, 28, '#38bdf8', fx.radius * 0.9, 2.4, 1.05, 1.6);
+          }
+          const prog = Math.min(1, fx.age / fx.duration);
+          const easeOut = 1 - Math.pow(1 - prog, 2.2);
+          const env = Math.max(0, 1 - prog);
+          fx.ringMesh.scale.setScalar(0.4 + easeOut * fx.radius * 1.3);
+          if (fx.outerRingMesh) {
+            fx.outerRingMesh.scale.setScalar(0.25 + prog * fx.radius * 1.5);
+          }
+          if (fx.spikes) {
+            const spikeH = prog < 0.25 ? (prog / 0.25) * 1.4 : 1.4 * Math.max(0.01, (1 - prog) / 0.75);
+            for (const sp of fx.spikes) {
+              sp.scale.set(0.85, spikeH, 0.85);
+            }
+          }
+          (fx.materials[0] as THREE.MeshBasicMaterial).opacity = env * 0.92;
+          if (fx.materials[1]) (fx.materials[1] as THREE.MeshStandardMaterial).opacity = env * 0.9;
+        } else if ((fx.kind === 'tornado_summon' || fx.kind === 'tsunami_summon') && fx.ringMesh) {
+          if (fx.age >= fx.impactDelay && !fx.impactFired) {
+            fx.impactFired = true;
+            if (fx.deferImpact) {
+              executeGodPowerImpact(simRef.current, fx.powerType as GodPowerType, fx.tx, fx.tz);
+            }
+            if (fx.kind === 'tornado_summon') {
+              soundEngine.playTornado();
+              trauma = Math.min(1.0, trauma + 0.45);
+              spawnRisingParticles(fx.tx, fx.ty, fx.tz, 36, '#cbd5e1', fx.radius, 5.5, 1.15, 1.4);
+            } else {
+              soundEngine.playTsunami();
+              trauma = Math.min(1.0, trauma + 0.72);
+              spawnParticleBurst(fx.tx, fx.ty + 0.5, fx.tz, 75, '#00b4d8', fx.radius * 1.2, 11.0, 1.6);
+              spawnParticleBurst(fx.tx, fx.ty + 0.6, fx.tz, 45, '#e0fbfc', fx.radius, 12.5, 1.35);
+            }
+          }
+          const prog = Math.min(1, fx.age / fx.duration);
+          fx.ringMesh.scale.setScalar(0.3 + prog * fx.radius * 1.6);
+          (fx.materials[0] as THREE.MeshBasicMaterial).opacity = (1 - prog) * 0.9;
+          if (fx.outerRingMesh) {
+            fx.outerRingMesh.scale.setScalar(0.2 + prog * fx.radius * 1.9);
+            (fx.materials[1] as THREE.MeshBasicMaterial).opacity = (1 - prog) * 0.82;
+          }
         } else if (fx.kind === 'ripple_ring' && fx.ringMesh) {
           if (fx.age >= fx.impactDelay && !fx.impactFired) {
             fx.impactFired = true;
@@ -6165,18 +7259,42 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       const isInspectMode =
         propsRef.current.gameState === 'playing' &&
         propsRef.current.activeTool.kind === 'inspect';
+      const isDragMode =
+        propsRef.current.gameState === 'playing' &&
+        isDragPowerActive();
 
-      if (!isInspectMode && hoveredEntityInternal !== null) {
+      if (!isInspectMode && !isDragMode && hoveredEntityInternal !== null) {
         hoveredEntityInternal = null;
         propsRef.current.onHoverEntityChange?.(null);
       }
 
-      const activeHoverUnitId = isInspectMode
-        ? (propsRef.current.hoveredEntityId ?? hoveredEntityInternal)
-        : null;
+      const activeHoverUnitId =
+        isInspectMode || isDragMode
+          ? (propsRef.current.hoveredEntityId ?? hoveredEntityInternal)
+          : null;
       const activeSelectedUnitId = isInspectMode
         ? propsRef.current.selectedEntityId
         : null;
+
+      // Update Telekinesis Drag Highlight Rig
+      const draggedTargetUnit = draggedUnitId
+        ? simRef.current.units.find((u) => u.id === draggedUnitId && u.state !== 'ko')
+        : undefined;
+      if (draggedTargetUnit) {
+        const metrics = getUnitInspectMetrics(draggedTargetUnit);
+        const uGrp = unitMeshes.get(draggedTargetUnit.id)?.group;
+        const dx = uGrp ? uGrp.position.x : draggedTargetUnit.x;
+        const dy = uGrp ? uGrp.position.y : 2.0;
+        const dz = uGrp ? uGrp.position.z : draggedTargetUnit.z;
+        dragHighlightRig.group.visible = true;
+        dragHighlightRig.group.position.set(dx, dy, dz);
+        dragHighlightRig.ringRoot.scale.setScalar(metrics.ringScale * (1.1 + Math.sin(elapsedTotal * 12) * 0.1));
+        dragHighlightRig.ringRoot.rotation.y = elapsedTotal * 4.5;
+        dragHighlightRig.pointer.position.y = metrics.bodyHeight + 0.5 + Math.sin(elapsedTotal * 8) * 0.12;
+        dragHighlightRig.pointer.rotation.y = elapsedTotal * 5;
+      } else {
+        dragHighlightRig.group.visible = false;
+      }
 
       // Update Hover Highlight Ring (cyan pulsing enclosure + diamond pointer for hovered living unit)
       const hoverTargetUnit = activeHoverUnitId
@@ -6289,7 +7407,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       if (
         hoveredTileCoords &&
         propsRef.current.gameState === 'playing' &&
-        !(isInspectMode && hoverTargetUnit)
+        !draggedUnitId &&
+        !((isInspectMode || isDragMode) && hoverTargetUnit)
       ) {
         reticleGroup.visible = true;
         const ht =
@@ -6304,10 +7423,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         let hexColor = '#f5b742';
         if (tool.kind === 'power') {
           const pDef = GOD_POWERS.find((p) => p.type === tool.power);
-          radiusScale = pDef ? pDef.radius * 1.65 : 2.5;
+          radiusScale = tool.power === 'drag_entity' ? 0.95 : pDef ? pDef.radius * 1.65 : 2.5;
           hexColor = pDef ? pDef.color : '#f5b742';
         } else if (tool.kind === 'terrain') {
-          radiusScale = (propsRef.current.brushRadius + 0.5) * 1.5;
+          const br = Math.max(0, propsRef.current.brushRadius);
+          radiusScale = br <= 0 ? 0.82 : (br + 0.5) * 1.4;
           hexColor = '#56cfe1';
         } else if (tool.kind === 'build') {
           radiusScale = 1.15;
@@ -6615,6 +7735,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       window.removeEventListener('blur', clearInputs);
       hoverHighlightRig.dispose();
       selectedHighlightRig.dispose();
+      dragHighlightRig.dispose();
       favoriteStarGeo.dispose();
       favoriteStarMat.dispose();
       kingCrownGeo.dispose();
@@ -6640,6 +7761,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       sharedWaveLipGeo.dispose();
       sharedWaveFoamGeo.dispose();
       sharedFaultCrackGeo.dispose();
+      sharedTornadoRingGeo.dispose();
+      sharedTornadoCapGeo.dispose();
+      sharedDebrisCubeGeo.dispose();
       sharedMeteorGeo.dispose();
       sharedMeteorAuraGeo.dispose();
       sharedExplosionDomeGeo.dispose();
@@ -6648,6 +7772,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       sharedOrbMoteGeo.dispose();
       sharedShardMoteGeo.dispose();
       sharedPillarSpikeGeo.dispose();
+      sharedBombSphereGeo.dispose();
+      sharedMushroomStemGeo.dispose();
+      sharedMushroomCapGeo.dispose();
       pixelSpace.dispose();
       worldUnderglow.dispose();
       skirtGeo.dispose();

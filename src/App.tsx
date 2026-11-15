@@ -28,6 +28,7 @@ import { soundEngine } from './game/sound';
 import { toggleUnitFavorite } from './game/entityInspector';
 import {
   ActiveTool,
+  BrushInputMode,
   GameLifecycleState,
   GraphicsSettings,
   LightingPreset,
@@ -221,7 +222,8 @@ export default function App() {
     kind: 'spawn',
     unit: 'human',
   });
-  const [brushRadius, setBrushRadius] = useState<number>(1);
+  const [brushRadius, setBrushRadius] = useState<number>(0);
+  const [brushInputMode, setBrushInputMode] = useState<BrushInputMode>('hold');
   const pixelScale = 3;
   const [graphicsSettings, setGraphicsSettings] = useState<GraphicsSettings>(() =>
     loadGraphicsSettings(),
@@ -572,9 +574,23 @@ export default function App() {
         const res = castGodPower(sim, activeTool.power, tileX, tileZ, { deferImpact: true });
         const def = GOD_POWERS.find((p) => p.type === activeTool.power);
         if (res.ok) {
-          if (activeTool.power === 'meteor_strike') soundEngine.playMeteorIncoming();
-          else if (activeTool.power === 'earthquake') soundEngine.playEarthquake();
-          else soundEngine.playClick();
+          if (activeTool.power === 'meteor_strike' || activeTool.power === 'mega_bomb') {
+            soundEngine.playMeteorIncoming();
+          } else if (activeTool.power === 'earthquake') {
+            soundEngine.playEarthquake();
+          } else if (activeTool.power === 'tornado') {
+            soundEngine.playTornado();
+          } else if (activeTool.power === 'tsunami') {
+            soundEngine.playTsunami();
+          } else if (activeTool.power === 'freeze_snap') {
+            soundEngine.playFreeze();
+          } else if (activeTool.power === 'heat_wave') {
+            soundEngine.playHeatWave();
+          } else if (activeTool.power === 'bomb' || activeTool.power === 'cluster_bomb') {
+            soundEngine.playBombFuse();
+          } else {
+            soundEngine.playClick();
+          }
           setStatusFeedback(`${def?.name} cast`);
         } else {
           setStatusFeedback(res.reason || 'Need more Faith');
@@ -806,6 +822,7 @@ export default function App() {
         timeScale={timeScale}
         activeTool={activeTool}
         brushRadius={brushRadius}
+        brushInputMode={brushInputMode}
         pixelScale={pixelScale}
         lightingPreset={lightingPreset}
         graphicsSettings={graphicsSettings}
@@ -1800,6 +1817,33 @@ export default function App() {
               </div>
 
               <div className="flex items-end gap-1.5 pb-1">
+                {(activeCategory === 'powers' ||
+                  activeCategory === 'terrain' ||
+                  activeCategory === 'build' ||
+                  activeCategory === 'spawn') && (
+                  <button
+                    type="button"
+                    data-testid="toggle-input-mode"
+                    onClick={() => {
+                      setBrushInputMode((prev) => {
+                        const next = prev === 'hold' ? 'tap' : 'hold';
+                        setStatusFeedback(
+                          next === 'hold'
+                            ? 'Hold & drag mode: paint or cast continuously'
+                            : 'Tap mode: single click per cast',
+                        );
+                        return next;
+                      });
+                      soundEngine.playClick();
+                    }}
+                    className={`px-2 py-1 text-xs font-semibold cursor-pointer whitespace-nowrap shrink-0 ${
+                      brushInputMode === 'hold' ? 'px-btn-active text-[#80ed99]' : 'px-btn text-[#e8e0d2]'
+                    }`}
+                    title="Switch between Hold-to-Paint/Cast and Single Tap"
+                  >
+                    {brushInputMode === 'hold' ? 'Hold' : 'Tap'}
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => setDockCollapsed((prev) => !prev)}
@@ -1814,7 +1858,7 @@ export default function App() {
             {/* Active Pixel Dock Panel */}
             {!dockCollapsed && (
               <div
-                className="px-panel px-3 py-2.5 max-w-[740px] w-full max-h-[124px] min-h-[72px] overflow-y-auto overflow-x-hidden pr-1"
+                className="px-panel px-3 py-2.5 max-w-[740px] w-full max-h-[148px] min-h-[72px] overflow-y-auto overflow-x-hidden pr-1"
                 onMouseLeave={() => setHoveredHint(null)}
               >
                 {/* TAB 1: POWERS (Icon Slots) */}
@@ -1899,18 +1943,25 @@ export default function App() {
 
                     <div className="flex items-center gap-1 pl-2">
                       <span className="text-xs text-[#a89f91] mr-1">Size</span>
-                      {[1, 2, 3].map((r) => (
-                        <button
-                          key={r}
-                          type="button"
-                          onClick={() => setBrushRadius(r)}
-                          className={`px-2 py-1 font-pixel-num text-[11px] cursor-pointer ${
-                            brushRadius === r ? 'px-btn-active font-bold' : 'px-btn'
-                          }`}
-                        >
-                          {r}x
-                        </button>
-                      ))}
+                      {[1, 2, 3].map((size) => {
+                        const radiusVal = size - 1;
+                        return (
+                          <button
+                            key={size}
+                            type="button"
+                            data-testid={`land-size-${size}x`}
+                            onClick={() => {
+                              setBrushRadius(radiusVal);
+                              soundEngine.playClick();
+                            }}
+                            className={`px-2 py-1 font-pixel-num text-[11px] cursor-pointer ${
+                              brushRadius === radiusVal ? 'px-btn-active font-bold' : 'px-btn'
+                            }`}
+                          >
+                            {size}x
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 )}

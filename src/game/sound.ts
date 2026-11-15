@@ -104,6 +104,45 @@ class SoundEngine {
       setTimeout(() => this.playTone(n, 0.42, 'triangle', 0.07, 1.02), idx * 75);
     });
   }
+
+  public playBombFuse(): void {
+    this.playTone(540, 0.14, 'triangle', 0.05, 0.65);
+  }
+
+  public playMegaExplosion(): void {
+    this.playTone(75, 1.4, 'sawtooth', 0.17, 0.22);
+    setTimeout(() => this.playTone(46, 1.6, 'square', 0.15, 0.28), 55);
+    setTimeout(() => this.playTone(36, 1.85, 'triangle', 0.16, 0.35), 140);
+  }
+
+  public playFreeze(): void {
+    [987.77, 1318.51, 1760].forEach((n, idx) => {
+      setTimeout(() => this.playTone(n, 0.22, 'sine', 0.05, 0.92), idx * 45);
+    });
+  }
+
+  public playHeatWave(): void {
+    this.playTone(210, 0.45, 'sawtooth', 0.07, 1.35);
+    setTimeout(() => this.playTone(310, 0.38, 'triangle', 0.06, 0.72), 60);
+  }
+
+  public playTornado(): void {
+    this.playTone(135, 0.7, 'sawtooth', 0.08, 1.65);
+    setTimeout(() => this.playTone(240, 0.6, 'triangle', 0.07, 0.65), 110);
+  }
+
+  public playTsunami(): void {
+    this.playTone(92, 0.95, 'triangle', 0.13, 0.48);
+    setTimeout(() => this.playTone(148, 0.75, 'sine', 0.09, 0.62), 90);
+  }
+
+  public playGrab(): void {
+    this.playTone(420, 0.1, 'sine', 0.06, 1.45);
+  }
+
+  public playThrow(): void {
+    this.playTone(520, 0.14, 'triangle', 0.07, 0.52);
+  }
 }
 
 export const soundEngine = new SoundEngine();

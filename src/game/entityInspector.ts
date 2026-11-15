@@ -557,11 +557,13 @@ export function getEntityInspectProfile(
   );
 
   const attackMult = unit.statusEffects.frenzied ? 1.45 : unit.statusEffects.blessed ? 1.2 : 1;
-  const speedMult = unit.statusEffects.frenzied
-    ? 1.35
-    : unit.statusEffects.cursed || unit.statusEffects.plagued
-      ? 0.78
-      : 1;
+  const speedMult = unit.statusEffects.frozen
+    ? 0.08
+    : unit.statusEffects.frenzied
+      ? 1.35
+      : unit.statusEffects.cursed || unit.statusEffects.plagued
+        ? 0.78
+        : 1;
 
   const baseAtk = def?.attackDamage ?? 8;
   const baseRng = def?.attackRange ?? 1.2;

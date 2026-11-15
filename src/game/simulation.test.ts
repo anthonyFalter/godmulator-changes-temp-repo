@@ -4,6 +4,7 @@ import {
   WORLD_TEMPLATES,
   advanceEpoch,
   applyTerrainTool,
+  beginDragUnit,
   castGodPower,
   createInitialSimulationState,
   createWorldConfigFromTemplate,
@@ -17,9 +18,11 @@ import {
   isCarnivoreAnimal,
   isHerbivoreAnimal,
   placeBuilding,
+  releaseDragUnit,
   spawnRaiderWave,
   spawnUnit,
   stepSimulation,
+  updateDragUnit,
 } from './simulation';
 import {
   ANIMAL_UNITS,
@@ -2746,6 +2749,196 @@ test('God Rules live toggles govern wildfireSpread, allowReproduction, and anima
   assert.equal(chickenRes.unit!.hp, startHp, 'animalAttacks=false must stop predators from attacking prey');
   assert.notEqual(wolfRes.unit!.state, 'fighting', 'Wolf should not enter combat when animalAttacks=false');
 });
+
+test('1x land brush (brushRadius=0) paints strictly a single tile instead of a 5-tile cross', () => {
+  const state = createInitialSimulationState(64, 'BRUSH-1X-SINGLE');
+  state.sandboxFreeMode = true;
+  const cx = 32;
+  const cz = 32;
+  for (let dz = -2; dz <= 2; dz++) {
+    for (let dx = -2; dx <= 2; dx++) {
+      const t = getTile(state, cx + dx, cz + dz)!;
+      t.height = 2;
+      t.terrain = 'grass';
+      t.resourceNode = 'none';
+      t.buildingId = null;
+    }
+  }
+
+  // Paint rail_track at 1x (brushRadius = 0) along three collinear tiles (cx..cx+2, cz)
+  assert.equal(applyTerrainTool(state, 'rail_track', cx, cz, 0).ok, true);
+  assert.equal(applyTerrainTool(state, 'rail_track', cx + 1, cz, 0).ok, true);
+  assert.equal(applyTerrainTool(state, 'rail_track', cx + 2, cz, 0).ok, true);
+
+  assert.equal(getTile(state, cx, cz)!.terrain, 'rail_track');
+  assert.equal(getTile(state, cx + 1, cz)!.terrain, 'rail_track');
+  assert.equal(getTile(state, cx + 2, cz)!.terrain, 'rail_track');
+  // Adjacent perpendicular tiles must stay untouched grass (no '+' cross!)
+  assert.equal(getTile(state, cx, cz - 1)!.terrain, 'grass', '1x brush must not paint northern neighbor');
+  assert.equal(getTile(state, cx, cz + 1)!.terrain, 'grass', '1x brush must not paint southern neighbor');
+  assert.equal(getTile(state, cx - 1, cz)!.terrain, 'grass', '1x brush must not paint western neighbor');
+
+  // Verify raise at 1x (brushRadius = 0) raises strictly 1 tile
+  const beforeCenterH = getTile(state, cx, cz - 2)!.height;
+  assert.equal(applyTerrainTool(state, 'raise', cx, cz - 2, 0).ok, true);
+  assert.equal(getTile(state, cx, cz - 2)!.height, beforeCenterH + 1);
+  assert.equal(getTile(state, cx + 1, cz - 2)!.height, 2);
+  assert.equal(getTile(state, cx - 1, cz - 2)!.height, 2);
+});
+
+test('strengthened meteor, lightning, and tsunami kill targets and destroy buildings', () => {
+  const state = createInitialSimulationState(64, 'POWER-LETHAL');
+  state.sandboxFreeMode = true;
+  state.wildlifeSeeded = true;
+  for (const t of state.tiles) {
+    if (t.x >= 10 && t.x <= 54 && t.z >= 10 && t.z <= 54) {
+      t.height = 2;
+      t.terrain = 'grass';
+      t.resourceNode = 'none';
+      t.buildingId = null;
+    }
+  }
+
+  // 1. Asteroid (meteor_strike) one-shots high-HP buildings in core blast
+  const b1 = placeBuilding(state, 'fission_reactor', 20, 20);
+  assert.equal(b1.ok, true);
+  const reactor = state.buildings.find((b) => b.tileX === 20 && b.tileZ === 20)!;
+  reactor.hp = 1200;
+  reactor.maxHp = 1200;
+  castGodPower(state, 'meteor_strike', 20, 20);
+  assert.equal(reactor.hp, 0, 'Meteor strike must one-shot buildings within core blast');
+
+  // 2. Lightning destroys buildings cleanly
+  const b2 = placeBuilding(state, 'forager_hut', 36, 20);
+  assert.equal(b2.ok, true);
+  const hut = state.buildings.find((b) => b.tileX === 36 && b.tileZ === 20)!;
+  castGodPower(state, 'lightning_smite', 36, 20);
+  assert.equal(hut.hp, 0, 'Lightning smite must destroy buildings near impact');
+
+  // 3. Tsunami kills non-flying NPCs and wrecks coastal buildings
+  const b3 = placeBuilding(state, 'bonfire', 40, 40);
+  assert.equal(b3.ok, true);
+  const coastalNpc = spawnUnit(state, 'human', 42, 40, true);
+  const coastalDragon = spawnUnit(state, 'dragon', 42, 41, true);
+  assert.equal(coastalNpc.ok, true);
+  assert.equal(coastalDragon.ok, true);
+  castGodPower(state, 'tsunami', 38, 40);
+  for (let i = 0; i < 12; i++) stepSimulation(state, 0.2);
+  assert.equal(coastalNpc.unit!.state, 'ko', 'Tsunami surge must kill unshielded non-flying NPCs');
+  assert.notEqual(coastalDragon.unit!.state, 'ko', 'Flying dragon survives tsunami surge');
+});
+
+test('black hole orbits & lifts entities, erodes terrain, then explodes into supernova scattering units with fall damage', () => {
+  const state = createInitialSimulationState(64, 'BLACKHOLE-SUPERNOVA');
+  state.sandboxFreeMode = true;
+  state.wildlifeSeeded = true;
+  const bx = 32;
+  const bz = 32;
+  for (let dz = -12; dz <= 12; dz++) {
+    for (let dx = -12; dx <= 12; dx++) {
+      const t = getTile(state, bx + dx, bz + dz)!;
+      t.height = 3;
+      t.terrain = 'forest';
+      t.resourceNode = 'timber_grove';
+      t.resourceAmount = 120;
+      t.buildingId = null;
+    }
+  }
+
+  const cowRes = spawnUnit(state, 'cow', bx + 4, bz, true);
+  const dragonRes = spawnUnit(state, 'dragon', bx + 3, bz + 2, true);
+  assert.equal(cowRes.ok, true);
+  assert.equal(dragonRes.ok, true);
+  const cow = cowRes.unit!;
+  const dragon = dragonRes.unit!;
+
+  castGodPower(state, 'wormhole_ascension', bx, bz);
+
+  // Step 2.0s during orbiting phase: cow is pulled in and lifted into orbit
+  for (let i = 0; i < 20; i++) stepSimulation(state, 0.1);
+  assert.ok((cow.altitude ?? 0) > 0.5, `Trapped entity must be lifted into black hole orbit (alt=${cow.altitude})`);
+
+  // Step past 5.5s so supernova explosion fires
+  let sawExplosionVfx = false;
+  for (let i = 0; i < 45; i++) {
+    stepSimulation(state, 0.1);
+    if (state.pendingVfx.some((v) => v.type === 'blackhole_explosion')) {
+      sawExplosionVfx = true;
+    }
+  }
+  assert.equal(sawExplosionVfx, true, 'Black hole must emit blackhole_explosion supernova VFX on collapse');
+
+  // Step through ballistic scatter & landing impact
+  for (let i = 0; i < 45; i++) stepSimulation(state, 0.1);
+  const scatterDist = Math.hypot(cow.x - bx, cow.z - bz);
+  assert.ok(scatterDist > 3.5, `Supernova must scatter entities outward across the map (dist=${scatterDist})`);
+  assert.ok(cow.hp < cow.maxHp || cow.state === 'ko', 'Land animal must take lethal/heavy fall damage on landing');
+  assert.notEqual(dragon.state, 'ko', 'Flying dragon must not suffer fatal ground fall damage');
+});
+
+test('new powers (heat_wave, freeze_snap, tornado, bomb, cluster_bomb, mega_bomb) and drag_entity telekinesis work end to end', () => {
+  const state = createInitialSimulationState(64, 'NEW-POWERS');
+  state.sandboxFreeMode = true;
+  state.wildlifeSeeded = true;
+  for (const t of state.tiles) {
+    if (t.x >= 8 && t.x <= 56 && t.z >= 8 && t.z <= 56) {
+      t.height = 2;
+      t.terrain = 'grass';
+      t.resourceNode = 'none';
+      t.buildingId = null;
+    }
+  }
+
+  // 1. Freeze Snap freezes units & extinguishes fires; Heat Wave melts frost & ignites ground
+  const centerTile = getTile(state, 20, 20)!;
+  centerTile.onFireTimer = 5.0;
+  const hRes = spawnUnit(state, 'human', 20, 20, true);
+  assert.equal(hRes.ok, true);
+  const human = hRes.unit!;
+
+  castGodPower(state, 'freeze_snap', 20, 20);
+  assert.equal(centerTile.onFireTimer, 0, 'Freeze snap must extinguish fires');
+  assert.ok((human.statusEffects.frozen ?? 0) > 0, 'Freeze snap must freeze nearby units');
+  assert.equal(centerTile.terrain, 'snow');
+
+  castGodPower(state, 'heat_wave', 20, 20);
+  assert.equal(human.statusEffects.frozen, undefined, 'Heat wave must thaw frozen units');
+  assert.notEqual(centerTile.terrain, 'snow', 'Heat wave must melt snow');
+
+  // 2. Tornado spawns moving tornado_vortex that lifts & tosses units
+  const wolfRes = spawnUnit(state, 'wolf', 32, 32, true);
+  castGodPower(state, 'tornado', 32, 32);
+  const tornado = state.activeHazards.find((h) => h.kind === 'tornado_vortex');
+  assert.ok(tornado, 'Tornado must spawn tornado_vortex hazard');
+  const tStartX = tornado.x;
+  const tStartZ = tornado.z;
+  for (let i = 0; i < 12; i++) stepSimulation(state, 0.1);
+  assert.ok(Math.hypot(tornado.x - tStartX, tornado.z - tStartZ) > 1.0, 'Tornado must roam across the map');
+  assert.ok((wolfRes.unit!.altitude ?? 0) > 0 || wolfRes.unit!.hp < wolfRes.unit!.maxHp);
+
+  // 3. Bomb, Cluster Bomb, Mega Bomb (Tsar Bomb) shatter structures
+  placeBuilding(state, 'guildhall', 46, 20);
+  const guild = state.buildings.find((b) => b.tileX === 46 && b.tileZ === 20)!;
+  guild.hp = 1500;
+  guild.maxHp = 1500;
+  castGodPower(state, 'mega_bomb', 46, 20);
+  assert.equal(guild.hp, 0, 'Tsar Bomb must completely obliterate buildings in blast radius');
+
+  // 4. Telekinesis Drag Tool grabs, moves, and drops unit with fall damage
+  const pigRes = spawnUnit(state, 'pig', 16, 44, true);
+  assert.equal(pigRes.ok, true);
+  const pig = pigRes.unit!;
+  beginDragUnit(state, pig.id);
+  assert.equal(pig.draggedByPlayer, true);
+  updateDragUnit(state, pig.id, 24, 44, 5.5);
+  assert.equal(Math.round(pig.x), 24);
+  assert.ok((pig.altitude ?? 0) >= 5.0);
+  releaseDragUnit(state, pig.id, 6, 0);
+  assert.equal(pig.draggedByPlayer, false);
+  for (let i = 0; i < 20; i++) stepSimulation(state, 0.1);
+  assert.ok(pig.hp < pig.maxHp || pig.state === 'ko', 'Dropping animal from high altitude must inflict fall damage');
+});
+
 
 
 

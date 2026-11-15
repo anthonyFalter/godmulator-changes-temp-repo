@@ -36,6 +36,8 @@ function formatEffectName(effect: UnitStatusEffect): string {
       return 'Plagued';
     case 'cursed':
       return 'Cursed';
+    case 'frozen':
+      return 'Frozen';
   }
 }
 

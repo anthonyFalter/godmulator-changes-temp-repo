@@ -929,11 +929,12 @@ export function applyTerrainTool(
   }
 
   const targetFlattenHeight = Math.max(1, centerTile.height);
+  const clampedRadius = Math.max(0, Math.floor(brushRadius));
   let modifiedCount = 0;
 
-  for (let dz = -brushRadius; dz <= brushRadius; dz++) {
-    for (let dx = -brushRadius; dx <= brushRadius; dx++) {
-      if (dx * dx + dz * dz > brushRadius * brushRadius + 0.5) continue;
+  for (let dz = -clampedRadius; dz <= clampedRadius; dz++) {
+    for (let dx = -clampedRadius; dx <= clampedRadius; dx++) {
+      if (clampedRadius > 0 && dx * dx + dz * dz > clampedRadius * clampedRadius + 0.5) continue;
       const t = getTile(state, centerX + dx, centerZ + dz);
       if (!t) continue;
 
@@ -1726,14 +1727,17 @@ export function executeGodPowerImpact(
             u.koTimer = 0.45;
             state.totalRaidersDefeated += 1;
           } else if (!u.statusEffects.shielded) {
-            u.hp = Math.max(0, u.hp - (isWaterStrike ? 115 : 95));
+            u.hp = Math.max(0, u.hp - (isWaterStrike ? 235 : 185));
             if (u.hp <= 0) {
               u.state = 'ko';
               u.koTimer = 0.45;
             } else {
               const dist = Math.max(0.25, Math.sqrt(dSq));
-              u.x = Math.max(1, Math.min(state.gridSize - 2, u.x + ((u.x - targetX) / dist) * 2.4));
-              u.z = Math.max(1, Math.min(state.gridSize - 2, u.z + ((u.z - targetZ) / dist) * 2.4));
+              u.x = Math.max(1, Math.min(state.gridSize - 2, u.x + ((u.x - targetX) / dist) * 2.8));
+              u.z = Math.max(1, Math.min(state.gridSize - 2, u.z + ((u.z - targetZ) / dist) * 2.8));
+              u.altitude = Math.max(u.altitude ?? 0, 0.8);
+              u.vzVertical = Math.max(u.vzVertical ?? 0, 5.5);
+              u.fallDamageArmed = true;
             }
           }
         }
@@ -1741,10 +1745,11 @@ export function executeGodPowerImpact(
       for (const b of state.buildings) {
         const dSq = (b.tileX - targetX) ** 2 + (b.tileZ - targetZ) ** 2;
         if (dSq <= rSq && b.shieldTimer <= 0) {
-          b.hp = Math.max(0, b.hp - 110);
+          const coreDmg = dSq <= (r * 0.68) ** 2 ? 390 : 240;
+          b.hp = Math.max(0, b.hp - coreDmg);
           const bt = getTile(state, b.tileX, b.tileZ);
           if (bt && bt.height > 0 && bt.blessedTimer <= 0 && b.hp > 0) {
-            bt.onFireTimer = Math.max(bt.onFireTimer, 6.5);
+            bt.onFireTimer = Math.max(bt.onFireTimer, 8.0);
           }
         }
       }
@@ -1880,22 +1885,30 @@ export function executeGodPowerImpact(
         // Immediate inner blast wave on naval/coastal units & buildings
         for (const b of state.buildings) {
           const dSq = (b.tileX - targetX) ** 2 + (b.tileZ - targetZ) ** 2;
-          if (dSq <= (r * 1.45) ** 2 && b.shieldTimer <= 0) {
-            b.hp = Math.max(0, b.hp - 160);
+          if (dSq <= (r * 1.45) ** 2) {
+            if (b.shieldTimer <= 0) {
+              b.hp = dSq <= rSq ? 0 : Math.max(0, b.hp - 650);
+            } else {
+              b.shieldTimer = 0;
+              b.hp = Math.max(0, b.hp - 180);
+            }
           }
         }
         for (const u of state.units) {
           const dSq = (u.x - targetX) ** 2 + (u.z - targetZ) ** 2;
           if (dSq <= (r * 1.6) ** 2 && u.state !== 'ko' && !u.statusEffects.shielded) {
-            u.hp = Math.max(0, u.hp - 110);
+            u.hp = Math.max(0, u.hp - (dSq <= rSq ? 600 : 260));
             if (u.hp <= 0) {
               u.state = 'ko';
               u.koTimer = 0.5;
               if (u.faction === 'hostile') state.totalRaidersDefeated += 1;
             } else {
               const dist = Math.max(0.3, Math.sqrt(dSq));
-              u.x = Math.max(1, Math.min(state.gridSize - 2, u.x + ((u.x - targetX) / dist) * 5.0));
-              u.z = Math.max(1, Math.min(state.gridSize - 2, u.z + ((u.z - targetZ) / dist) * 5.0));
+              u.vxAir = ((u.x - targetX) / dist) * 9.0;
+              u.vzAir = ((u.z - targetZ) / dist) * 9.0;
+              u.altitude = Math.max(u.altitude ?? 0, 1.4);
+              u.vzVertical = 9.5;
+              u.fallDamageArmed = true;
             }
           }
         }
@@ -2024,29 +2037,38 @@ export function executeGodPowerImpact(
 
       for (const b of state.buildings) {
         const dSq = (b.tileX - targetX) ** 2 + (b.tileZ - targetZ) ** 2;
-        if (dSq <= rSq && b.shieldTimer <= 0) {
-          const dmg = dSq <= 9.0 ? 360 : 180;
-          b.hp = Math.max(0, b.hp - dmg);
+        if (dSq <= rSq) {
+          if (b.shieldTimer <= 0) {
+            // Asteroid impact one-shots buildings inside core blast radius and demolishes outer ring
+            b.hp = dSq <= (r * 0.85) ** 2 ? 0 : Math.max(0, b.hp - 750);
+          } else {
+            b.shieldTimer = 0;
+            b.hp = Math.max(0, b.hp - 220);
+          }
         }
       }
       for (const u of state.units) {
         const dSq = (u.x - targetX) ** 2 + (u.z - targetZ) ** 2;
         if (dSq <= rSq && u.state !== 'ko' && !u.statusEffects.shielded) {
-          u.hp = Math.max(0, u.hp - 195);
+          const coreHit = dSq <= (r * 0.68) ** 2;
+          u.hp = Math.max(0, u.hp - (coreHit ? 650 : 280));
           if (u.hp <= 0) {
             u.state = 'ko';
             u.koTimer = 0.5;
             if (u.faction === 'hostile') state.totalRaidersDefeated += 1;
           } else {
             const dist = Math.max(0.3, Math.sqrt(dSq));
-            u.x = Math.max(1, Math.min(state.gridSize - 2, u.x + ((u.x - targetX) / dist) * 3.8));
-            u.z = Math.max(1, Math.min(state.gridSize - 2, u.z + ((u.z - targetZ) / dist) * 3.8));
+            u.vxAir = ((u.x - targetX) / dist) * 8.5;
+            u.vzAir = ((u.z - targetZ) / dist) * 8.5;
+            u.altitude = Math.max(u.altitude ?? 0, 1.6);
+            u.vzVertical = 10.5;
+            u.fallDamageArmed = true;
           }
         }
       }
       state.resources.ore += 110;
       state.resources.alloy += 45;
-      addChronicle(state, 'Cataclysmic Meteor carved a circular volcanic crater and raised a rocky rim!', 'warning');
+      addChronicle(state, 'Cataclysmic Meteor obliterated structures, carved a crater & raised a rocky rim!', 'warning');
       break;
     }
 
@@ -2125,9 +2147,10 @@ export function executeGodPowerImpact(
         x: targetX,
         z: targetZ,
         radius: r,
-        remaining: 9.0,
-        duration: 9.0,
+        remaining: 5.5,
+        duration: 5.5,
         tickTimer: 0,
+        exploded: false,
       });
       state.resources.energy += 220;
       state.resources.alloy += 140;
@@ -2160,7 +2183,354 @@ export function executeGodPowerImpact(
           }
         }
       }
-      addChronicle(state, 'Singularity Rift crystallized the terrain and surged cosmic resources!', 'epoch');
+      addChronicle(state, 'Black Hole singularity tore open, orbiting land & life before critical collapse!', 'epoch');
+      break;
+    }
+
+    case 'drag_entity': {
+      isHeavy = false;
+      break;
+    }
+
+    case 'heat_wave': {
+      isHeavy = true;
+      const allowSpread = state.worldRules?.wildfireSpread !== false;
+      for (const t of state.tiles) {
+        const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
+        if (dSq > rSq) continue;
+        t.blessedTimer = 0;
+        if (t.height === 0) {
+          // Boil shallow coastal puddles dry near the hot epicenter
+          if (t.terrain === 'shallow_water' && dSq <= rSq * 0.35 && !t.buildingId) {
+            t.height = 1;
+            t.terrain = 'sand';
+          }
+          continue;
+        }
+        if (t.terrain === 'snow' || t.terrain === 'tundra') {
+          t.terrain = dSq <= rSq * 0.45 ? 'grass' : 'rock';
+        } else if (t.terrain === 'swamp') {
+          t.terrain = 'savanna';
+        } else if (t.terrain === 'fertile' || t.terrain === 'blossom') {
+          t.terrain = dSq <= rSq * 0.45 ? 'scorched' : 'savanna';
+          t.farmSettlementId = undefined;
+        } else if (t.terrain === 'grass' || t.terrain === 'taiga') {
+          t.terrain = dSq <= rSq * 0.38 ? 'scorched' : 'savanna';
+        }
+        const flammable =
+          t.resourceNode === 'timber_grove' ||
+          t.resourceNode === 'berry_bush' ||
+          t.terrain === 'forest' ||
+          t.terrain === 'jungle' ||
+          t.terrain === 'savanna' ||
+          t.terrain === 'scorched' ||
+          Boolean(t.buildingId);
+        if (flammable && (dSq <= 4.5 || (allowSpread && ((t.x * 13 + t.z * 7) % 3 === 0)))) {
+          t.onFireTimer = Math.max(t.onFireTimer, 6.5);
+        }
+      }
+      for (const u of state.units) {
+        const dSq = (u.x - targetX) ** 2 + (u.z - targetZ) ** 2;
+        if (dSq <= rSq && u.state !== 'ko' && !u.statusEffects.shielded) {
+          delete u.statusEffects.frozen;
+          const dmg = u.role === 'dragon' ? 0 : 75;
+          u.hp = Math.max(0, u.hp - dmg);
+          if (u.hp <= 0) {
+            u.state = 'ko';
+            u.koTimer = 0.45;
+            if (u.faction === 'hostile') state.totalRaidersDefeated += 1;
+          }
+        }
+      }
+      for (const b of state.buildings) {
+        const dSq = (b.tileX - targetX) ** 2 + (b.tileZ - targetZ) ** 2;
+        if (dSq <= rSq && b.shieldTimer <= 0) {
+          b.hp = Math.max(0, b.hp - 55);
+        }
+      }
+      addChronicle(state, 'Scorching Heat Wave parched rivers, melted snow & ignited dry wildfires!', 'warning');
+      break;
+    }
+
+    case 'freeze_snap': {
+      isHeavy = false;
+      for (const t of state.tiles) {
+        const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
+        if (dSq > rSq) continue;
+        t.onFireTimer = 0;
+        t.fireColor = undefined;
+        t.cursedTimer = 0;
+        if (t.height === 0) {
+          // Freeze shallow shoreline shelf near epicenter
+          if (t.terrain === 'shallow_water' && dSq <= rSq * 0.3 && !t.buildingId) {
+            t.terrain = 'snow';
+            t.height = 1;
+          }
+          continue;
+        }
+        if (!t.buildingId) {
+          if (dSq <= rSq * 0.55) {
+            t.terrain = 'snow';
+          } else if (
+            t.terrain === 'grass' ||
+            t.terrain === 'fertile' ||
+            t.terrain === 'savanna' ||
+            t.terrain === 'swamp' ||
+            t.terrain === 'scorched' ||
+            t.terrain === 'blossom'
+          ) {
+            t.terrain = 'tundra';
+          }
+        }
+      }
+      for (const u of state.units) {
+        const dSq = (u.x - targetX) ** 2 + (u.z - targetZ) ** 2;
+        if (dSq <= rSq && u.state !== 'ko' && !u.statusEffects.shielded) {
+          u.statusEffects.frozen = 7.5;
+          u.hp = Math.max(0, u.hp - 28);
+          if (u.hp <= 0) {
+            u.state = 'ko';
+            u.koTimer = 0.45;
+            if (u.faction === 'hostile') state.totalRaidersDefeated += 1;
+          }
+        }
+      }
+      addChronicle(state, 'Sub-Zero Deep Freeze extinguished all fires and locked units in frost!', 'divine');
+      break;
+    }
+
+    case 'tornado': {
+      isHeavy = true;
+      const heading = (((targetX * 17 + targetZ * 31) & 63) / 64) * Math.PI * 2;
+      state.activeHazards.push({
+        id: nextEntityId('haz'),
+        kind: 'tornado_vortex',
+        x: targetX,
+        z: targetZ,
+        heading,
+        radius: r,
+        remaining: 11.0,
+        duration: 11.0,
+        tickTimer: 0,
+      });
+      addChronicle(state, 'A roaring Tornado cyclone touched down, sweeping across the realm!', 'warning');
+      break;
+    }
+
+    case 'tsunami': {
+      isHeavy = true;
+      const tsunamiMaxRadius = r * 4.0;
+      state.activeHazards.push({
+        id: nextEntityId('haz'),
+        kind: 'tsunami_wave',
+        x: targetX,
+        z: targetZ,
+        currentRadius: 1.5,
+        maxRadius: tsunamiMaxRadius,
+        radius: r,
+        remaining: 5.0,
+        duration: 5.0,
+        tickTimer: 0,
+      });
+      for (const b of state.buildings) {
+        const dSq = (b.tileX - targetX) ** 2 + (b.tileZ - targetZ) ** 2;
+        if (dSq <= rSq && b.shieldTimer <= 0) {
+          b.hp = Math.max(0, b.hp - 360);
+        }
+      }
+      for (const u of state.units) {
+        const dSq = (u.x - targetX) ** 2 + (u.z - targetZ) ** 2;
+        if (dSq <= rSq && u.state !== 'ko' && u.role !== 'dragon' && !u.statusEffects.shielded) {
+          u.hp = 0;
+          u.state = 'ko';
+          u.koTimer = 0.5;
+          if (u.faction === 'hostile') state.totalRaidersDefeated += 1;
+        }
+      }
+      addChronicle(state, 'A towering Tsunami surged forth, drowning shores and smashing coastal towns!', 'warning');
+      break;
+    }
+
+    case 'bomb': {
+      isHeavy = true;
+      for (const t of state.tiles) {
+        const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
+        if (dSq > rSq) continue;
+        if (t.height === 0) {
+          t.onFireTimer = 0;
+          continue;
+        }
+        if (dSq <= 3.2 && !t.buildingId && t.height >= 2) {
+          t.height = Math.max(1, t.height - 1);
+        }
+        if (!t.buildingId) {
+          t.terrain = 'scorched';
+          if (t.resourceNode === 'timber_grove' || t.resourceNode === 'berry_bush') {
+            t.resourceNode = 'none';
+            t.resourceAmount = 0;
+          }
+        }
+        if (dSq <= 2.2) {
+          t.onFireTimer = Math.max(t.onFireTimer, 4.5);
+        }
+      }
+      for (const b of state.buildings) {
+        const dSq = (b.tileX - targetX) ** 2 + (b.tileZ - targetZ) ** 2;
+        if (dSq <= rSq && b.shieldTimer <= 0) {
+          b.hp = Math.max(0, b.hp - (dSq <= 4.5 ? 520 : 280));
+        }
+      }
+      for (const u of state.units) {
+        const dSq = (u.x - targetX) ** 2 + (u.z - targetZ) ** 2;
+        if (dSq <= rSq && u.state !== 'ko' && !u.statusEffects.shielded) {
+          u.hp = Math.max(0, u.hp - (dSq <= 4.0 ? 220 : 120));
+          if (u.hp <= 0) {
+            u.state = 'ko';
+            u.koTimer = 0.45;
+            if (u.faction === 'hostile') state.totalRaidersDefeated += 1;
+          } else {
+            const dist = Math.max(0.25, Math.sqrt(dSq));
+            u.vxAir = ((u.x - targetX) / dist) * 7.5;
+            u.vzAir = ((u.z - targetZ) / dist) * 7.5;
+            u.altitude = Math.max(u.altitude ?? 0, 1.2);
+            u.vzVertical = 7.5;
+            u.fallDamageArmed = true;
+          }
+        }
+      }
+      addChronicle(state, 'High-explosive Bomb blew open a crater and shattered nearby buildings!', 'warning');
+      break;
+    }
+
+    case 'cluster_bomb': {
+      isHeavy = true;
+      const subOffsets: ReadonlyArray<[number, number]> = [
+        [0, 0],
+        [-3.2, -1.8],
+        [3.0, -2.2],
+        [-2.5, 3.1],
+        [2.8, 2.7],
+        [0.4, -3.6],
+      ];
+      for (const [ox, oz] of subOffsets) {
+        const sx = Math.round(targetX + ox);
+        const sz = Math.round(targetZ + oz);
+        const subR = 2.6;
+        const subRSq = subR * subR;
+        for (const t of state.tiles) {
+          const dSq = (t.x - sx) ** 2 + (t.z - sz) ** 2;
+          if (dSq > subRSq || t.height === 0) continue;
+          if (dSq <= 1.8 && !t.buildingId && t.height >= 2) {
+            t.height = Math.max(1, t.height - 1);
+          }
+          if (!t.buildingId) {
+            t.terrain = 'scorched';
+            if (t.resourceNode === 'timber_grove' || t.resourceNode === 'berry_bush') {
+              t.resourceNode = 'none';
+              t.resourceAmount = 0;
+            }
+          }
+          if (dSq <= 1.5) t.onFireTimer = Math.max(t.onFireTimer, 5.5);
+        }
+      }
+      for (const b of state.buildings) {
+        const dSq = (b.tileX - targetX) ** 2 + (b.tileZ - targetZ) ** 2;
+        if (dSq <= rSq && b.shieldTimer <= 0) {
+          b.hp = Math.max(0, b.hp - 620);
+        }
+      }
+      for (const u of state.units) {
+        const dSq = (u.x - targetX) ** 2 + (u.z - targetZ) ** 2;
+        if (dSq <= rSq && u.state !== 'ko' && !u.statusEffects.shielded) {
+          u.hp = Math.max(0, u.hp - 260);
+          if (u.hp <= 0) {
+            u.state = 'ko';
+            u.koTimer = 0.45;
+            if (u.faction === 'hostile') state.totalRaidersDefeated += 1;
+          } else {
+            const dist = Math.max(0.25, Math.sqrt(dSq));
+            u.vxAir = ((u.x - targetX) / dist) * 8.5;
+            u.vzAir = ((u.z - targetZ) / dist) * 8.5;
+            u.altitude = Math.max(u.altitude ?? 0, 1.5);
+            u.vzVertical = 9.0;
+            u.fallDamageArmed = true;
+          }
+        }
+      }
+      addChronicle(state, 'Cluster Bomb carpet strike saturated the zone in chain blasts!', 'warning');
+      break;
+    }
+
+    case 'mega_bomb': {
+      isHeavy = true;
+      for (const t of state.tiles) {
+        const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
+        if (dSq > (r + 2.5) ** 2) continue;
+        if (t.height === 0) {
+          t.onFireTimer = 0;
+          if (dSq <= rSq * 0.5) t.terrain = 'deep_water';
+          continue;
+        }
+        if (dSq <= rSq * 0.25) {
+          t.height = Math.max(1, t.height - 2);
+          t.terrain = 'scorched';
+          if (!t.buildingId) {
+            t.resourceNode = 'none';
+            t.resourceAmount = 0;
+          }
+          if (dSq <= 4.0) t.onFireTimer = 9.0;
+        } else if (dSq <= rSq * 0.72) {
+          t.height = Math.max(1, t.height - 1);
+          t.terrain = 'scorched';
+          if (!t.buildingId) {
+            t.resourceNode = 'none';
+            t.resourceAmount = 0;
+          }
+          if (((t.x * 13 + t.z * 7) & 3) === 0) t.onFireTimer = Math.max(t.onFireTimer, 8.5);
+        } else if (dSq <= rSq) {
+          if (!t.buildingId) {
+            t.terrain = 'scorched';
+            if (t.resourceNode === 'timber_grove' || t.resourceNode === 'berry_bush') {
+              t.resourceNode = 'none';
+              t.resourceAmount = 0;
+            }
+          }
+          if (((t.x * 17 + t.z * 23) & 3) === 0) t.onFireTimer = Math.max(t.onFireTimer, 8.5);
+        } else if (t.blessedTimer <= 0 && !t.buildingId && ((t.x * 11 + t.z * 19) % 3 === 0)) {
+          t.onFireTimer = Math.max(t.onFireTimer, 7.0);
+        }
+      }
+      for (const b of state.buildings) {
+        const dSq = (b.tileX - targetX) ** 2 + (b.tileZ - targetZ) ** 2;
+        if (dSq <= rSq) {
+          if (b.shieldTimer <= 0) {
+            b.hp = 0; // Tsar Bomb completely obliterates all unshielded structures in blast radius
+          } else {
+            b.shieldTimer = 0;
+            b.hp = Math.max(0, b.hp - 500);
+          }
+        }
+      }
+      for (const u of state.units) {
+        const dSq = (u.x - targetX) ** 2 + (u.z - targetZ) ** 2;
+        if (dSq <= (r * 1.2) ** 2 && u.state !== 'ko' && !u.statusEffects.shielded) {
+          const core = dSq <= (r * 0.78) ** 2;
+          u.hp = Math.max(0, u.hp - (core ? 1500 : 350));
+          if (u.hp <= 0) {
+            u.state = 'ko';
+            u.koTimer = 0.55;
+            if (u.faction === 'hostile') state.totalRaidersDefeated += 1;
+          } else {
+            const dist = Math.max(0.3, Math.sqrt(dSq));
+            u.vxAir = ((u.x - targetX) / dist) * 14.0;
+            u.vzAir = ((u.z - targetZ) / dist) * 14.0;
+            u.altitude = Math.max(u.altitude ?? 0, 2.2);
+            u.vzVertical = 14.5;
+            u.fallDamageArmed = true;
+          }
+        }
+      }
+      addChronicle(state, 'TSAR BOMB DETONATION! A towering mushroom cloud vaporized everything nearby!', 'warning');
       break;
     }
 
@@ -2383,7 +2753,10 @@ export function castGodPower(
 
   const deferImpact = Boolean(options?.deferImpact);
   let isHeavy =
-    powerType !== 'blessing' && powerType !== 'rain_of_plenty';
+    powerType !== 'blessing' &&
+    powerType !== 'rain_of_plenty' &&
+    powerType !== 'freeze_snap' &&
+    powerType !== 'drag_entity';
 
   const earthquakePlan =
     powerType === 'earthquake' ? generateEarthquakeFaultNetwork(targetX, targetZ, def.radius) : null;
@@ -4155,15 +4528,57 @@ function stepSimulationSingle(state: SimulationState, dt: number): void {
             }
           }
         }
+      } else if (haz.kind === 'wormhole_rift') {
+        // Gradually tear & excavate terrain blocks around the black hole into its swirling vortex
+        const ripR = haz.radius * 1.05;
+        const ripRSq = ripR * ripR;
+        let erodedThisTick = 0;
+        for (const t of state.tiles) {
+          const dSq = (t.x - haz.x) ** 2 + (t.z - haz.z) ** 2;
+          if (dSq > ripRSq || t.height === 0 || t.buildingId) continue;
+          if (t.resourceNode === 'timber_grove' || t.resourceNode === 'berry_bush') {
+            t.resourceNode = 'none';
+            t.resourceAmount = 0;
+            t.terrain = 'scorched';
+            erodedThisTick++;
+          } else if (erodedThisTick < 3 && dSq <= (haz.radius * 0.78) ** 2 && t.height >= 2) {
+            const hash = Math.abs((t.x * 73856093) ^ (t.z * 19349663) ^ Math.floor(haz.remaining * 10));
+            if ((hash & 3) === 0) {
+              t.height = Math.max(1, t.height - 1);
+              t.terrain = dSq <= 4.0 ? 'scorched' : 'crystal_field';
+              erodedThisTick++;
+            }
+          }
+        }
+      } else if (haz.kind === 'tornado_vortex') {
+        // Tear up trees, crops & scatter debris along the tornado's ground track
+        const tearRSq = (haz.radius * 0.72) ** 2;
+        for (const t of state.tiles) {
+          const dSq = (t.x - haz.x) ** 2 + (t.z - haz.z) ** 2;
+          if (dSq > tearRSq || t.height === 0 || t.buildingId) continue;
+          t.onFireTimer = 0;
+          if (t.resourceNode === 'timber_grove' || t.resourceNode === 'berry_bush') {
+            t.resourceNode = 'none';
+            t.resourceAmount = 0;
+            t.terrain = 'grass';
+            t.farmSettlementId = undefined;
+          }
+        }
       }
     }
 
-    // Continuous every-frame gravitational pull & orbital accretion spiral for Black Hole (wormhole_rift)
+    // Continuous every-frame gravitational pull, terrain/building shear, orbital elevation & final Supernova Explosion for Black Hole (wormhole_rift)
     if (haz.kind === 'wormhole_rift') {
       const pullRadius = haz.radius * 1.65;
       const captureRadius = haz.radius * 1.45;
+      for (const b of state.buildings) {
+        const dSq = (b.tileX - haz.x) ** 2 + (b.tileZ - haz.z) ** 2;
+        if (dSq <= (haz.radius * 0.88) ** 2 && b.shieldTimer <= 0) {
+          b.hp = Math.max(0, b.hp - 125 * dt);
+        }
+      }
       for (const u of state.units) {
-        if (u.state === 'ko' || u.statusEffects.shielded) continue;
+        if (u.state === 'ko' || u.statusEffects.shielded || u.draggedByPlayer) continue;
         const dx = u.x - haz.x;
         const dz = u.z - haz.z;
         const dist = Math.hypot(dx, dz);
@@ -4171,7 +4586,7 @@ function stepSimulationSingle(state: SimulationState, dt: number): void {
           const normDist = Math.min(1, dist / pullRadius);
           const gravityStrength = 1.0 + Math.pow(1 - normDist, 1.5) * 2.6;
           const inwardSpeed = 1.45 * gravityStrength;
-          const orbitLinearSpeed = 1.25 + (1 - normDist) * 2.2;
+          const orbitLinearSpeed = 1.45 + (1 - normDist) * 3.1;
 
           const curAngle = Math.atan2(dz, dx);
           const nextDist = Math.max(0.24, dist - inwardSpeed * dt);
@@ -4181,36 +4596,141 @@ function stepSimulationSingle(state: SimulationState, dt: number): void {
           u.x = Math.max(1, Math.min(state.gridSize - 2, haz.x + Math.cos(nextAngle) * nextDist));
           u.z = Math.max(1, Math.min(state.gridSize - 2, haz.z + Math.sin(nextAngle) * nextDist));
 
+          // Lift orbiting entities smoothly up into the accretion funnel
+          const targetOrbitAlt = 0.85 + (1 - normDist) * 2.4;
+          const curAlt = u.altitude ?? 0;
+          u.altitude = curAlt + (targetOrbitAlt - curAlt) * Math.min(1, dt * 4.5);
+          u.vzVertical = 0;
+
           if (dist <= captureRadius) {
-            // Lock unit gaze & state toward the singularity so walking AI never fights the gravity well
             u.targetX = haz.x;
             u.targetZ = haz.z;
             u.state = 'moving';
           }
 
-          // Tidal crushing damage to hostiles near Event Horizon; cosmic blessing for civilization units
-          if (dist <= 2.5) {
-            if (u.faction === 'hostile') {
-              u.hp = Math.max(0, u.hp - 36 * dt);
-              if (u.hp <= 0) {
-                u.state = 'ko';
-                u.koTimer = 0.45;
-                state.totalRaidersDefeated += 1;
-              }
-            } else {
-              u.statusEffects.blessed = Math.max(u.statusEffects.blessed ?? 0, 25);
+          if (dist <= 2.5 && u.faction === 'hostile') {
+            u.hp = Math.max(0, u.hp - 36 * dt);
+            if (u.hp <= 0) {
+              u.state = 'ko';
+              u.koTimer = 0.45;
+              state.totalRaidersDefeated += 1;
             }
+          }
+        }
+      }
+
+      // Final Collapse & Supernova Explosion when Black Hole timer reaches 0
+      if (haz.remaining <= 0 && !haz.exploded) {
+        haz.exploded = true;
+        const cTile = getTile(state, Math.round(haz.x), Math.round(haz.z));
+        state.pendingVfx.push({
+          id: nextEntityId('vfx'),
+          type: 'blackhole_explosion',
+          x: haz.x,
+          y: cTile ? cTile.height * 0.45 : 1.0,
+          z: haz.z,
+          radius: haz.radius * 1.45,
+          color: '#e0aaff',
+          createdAt: Date.now(),
+        });
+        for (const b of state.buildings) {
+          const dSq = (b.tileX - haz.x) ** 2 + (b.tileZ - haz.z) ** 2;
+          if (dSq <= (haz.radius * 1.05) ** 2 && b.shieldTimer <= 0) {
+            b.hp = 0;
+          }
+        }
+        for (const t of state.tiles) {
+          const dSq = (t.x - haz.x) ** 2 + (t.z - haz.z) ** 2;
+          if (dSq <= (haz.radius * 0.82) ** 2 && t.height > 0 && !t.buildingId) {
+            if (t.height >= 2) t.height = Math.max(1, t.height - 1);
+            t.terrain = dSq <= 6.0 ? 'scorched' : 'crystal_field';
+            if (t.resourceNode === 'timber_grove' || t.resourceNode === 'berry_bush') {
+              t.resourceNode = 'none';
+              t.resourceAmount = 0;
+            }
+          }
+        }
+        // Fling all trapped / orbiting entities violently outward to random places across the map with high fall damage!
+        for (let ui = 0; ui < state.units.length; ui++) {
+          const u = state.units[ui];
+          if (u.state === 'ko' || u.statusEffects.shielded || u.draggedByPlayer) continue;
+          const dist = Math.hypot(u.x - haz.x, u.z - haz.z);
+          if (dist <= haz.radius * 2.15) {
+            const seed = Math.abs((u.appearanceSeed ?? ui * 131) + Math.round(haz.x * 17 + ui * 37));
+            const scatterAngle = ((seed % 360) / 360) * Math.PI * 2 + Math.random() * 0.45;
+            const flingSpeed = 12 + (seed % 14) + Math.random() * 6;
+            u.vxAir = Math.cos(scatterAngle) * flingSpeed;
+            u.vzAir = Math.sin(scatterAngle) * flingSpeed;
+            u.altitude = Math.max(2.6, u.altitude ?? 2.6);
+            u.vzVertical = 12.5 + Math.random() * 5.5;
+            u.fallDamageArmed = true;
+          }
+        }
+        addChronicle(state, 'The Black Hole collapsed in a violent Supernova, scattering entities across the realm!', 'warning');
+      }
+    }
+
+    // Roaming Cyclone Vortex (tornado_vortex): wanders across land/water, lifts, spins & flings units + shreds buildings
+    if (haz.kind === 'tornado_vortex') {
+      const steer = Math.sin((haz.duration - haz.remaining) * 1.45 + haz.x * 0.3) * 0.85;
+      haz.heading = (haz.heading ?? 0) + steer * dt;
+      const moveSpd = 4.6;
+      haz.x += Math.cos(haz.heading) * moveSpd * dt;
+      haz.z += Math.sin(haz.heading) * moveSpd * dt;
+      if (haz.x < 4 || haz.x > state.gridSize - 5) {
+        haz.heading = Math.PI - haz.heading;
+        haz.x = Math.max(4, Math.min(state.gridSize - 5, haz.x));
+      }
+      if (haz.z < 4 || haz.z > state.gridSize - 5) {
+        haz.heading = -haz.heading;
+        haz.z = Math.max(4, Math.min(state.gridSize - 5, haz.z));
+      }
+
+      const funnelPullR = haz.radius * 1.5;
+      for (const b of state.buildings) {
+        const dSq = (b.tileX - haz.x) ** 2 + (b.tileZ - haz.z) ** 2;
+        if (dSq <= (haz.radius * 0.82) ** 2 && b.shieldTimer <= 0) {
+          b.hp = Math.max(0, b.hp - 135 * dt);
+        }
+      }
+      for (const u of state.units) {
+        if (u.state === 'ko' || u.statusEffects.shielded || u.draggedByPlayer) continue;
+        const dx = u.x - haz.x;
+        const dz = u.z - haz.z;
+        const dist = Math.hypot(dx, dz);
+        if (dist <= funnelPullR) {
+          const normDist = Math.min(1, dist / funnelPullR);
+          const curAngle = Math.atan2(dz, dx);
+          const nextDist = Math.max(0.55, dist - 3.6 * (1 - normDist * 0.4) * dt);
+          const nextAngle = curAngle + (5.2 + (1 - normDist) * 4.5) * dt;
+          u.x = Math.max(1, Math.min(state.gridSize - 2, haz.x + Math.cos(nextAngle) * nextDist));
+          u.z = Math.max(1, Math.min(state.gridSize - 2, haz.z + Math.sin(nextAngle) * nextDist));
+          u.altitude = Math.min(5.0, (u.altitude ?? 0) + (4.2 - normDist * 2.0) * dt);
+          u.vzVertical = 0;
+          u.fallDamageArmed = (u.altitude ?? 0) >= 1.6;
+          u.hp = Math.max(0, u.hp - 22 * dt);
+          if (u.hp <= 0) {
+            u.state = 'ko';
+            u.koTimer = 0.45;
+            if (u.faction === 'hostile') state.totalRaidersDefeated += 1;
+          } else if (dist <= 1.35 && Math.random() < dt * 2.2) {
+            // Eject unit violently upward & outward from the top of the funnel!
+            const ejectAngle = nextAngle + 0.5;
+            u.vxAir = Math.cos(ejectAngle) * (10 + Math.random() * 6);
+            u.vzAir = Math.sin(ejectAngle) * (10 + Math.random() * 6);
+            u.altitude = Math.max(3.4, u.altitude ?? 3.4);
+            u.vzVertical = 9.5 + Math.random() * 4.0;
+            u.fallDamageArmed = true;
           }
         }
       }
     }
 
-    // Continuous radial expansion & coastal sweep for Tsunami waves (spawned when an Asteroid hits water)
+    // Continuous radial expansion & coastal sweep for Tsunami waves (Asteroid water impact OR direct Tsunami power)
     if (haz.kind === 'tsunami_wave') {
       const progress = Math.max(0, Math.min(1, 1 - haz.remaining / Math.max(0.1, haz.duration)));
       const maxR = haz.maxRadius ?? haz.radius * 3.8;
       const prevR = haz.currentRadius ?? 1.0;
-      // Fast initial surge that gradually decelerates at maximum reach
       const nextR = 1.0 + (maxR - 1.0) * (1 - Math.pow(1 - progress, 1.65));
       haz.currentRadius = nextR;
 
@@ -4229,21 +4749,17 @@ function stepSimulationSingle(state: SimulationState, dt: number): void {
               t.terrain = 'deep_water';
             }
           } else if (t.height === 1) {
-            // Tsunami wave crashes over low-lying coastal land (height 1)
             if (!t.buildingId && dSq <= (haz.radius * 1.65) ** 2) {
-              // Submerge inner low shoreline into shallow sea
               t.height = 0;
               t.terrain = 'shallow_water';
               t.resourceNode = 'none';
               t.resourceAmount = 0;
             } else if (!t.buildingId && dSq <= (haz.radius * 2.35) ** 2 && ((t.x * 13 + t.z * 7) & 3) === 0) {
-              // Carve tidal flood pools further along the low coast
               t.height = 0;
               t.terrain = 'shallow_water';
               t.resourceNode = 'none';
               t.resourceAmount = 0;
             } else {
-              // Wash grass, forest, fertile meadows, roads, or scorched soil into wet coastal sand & marshland
               if (t.terrain !== 'rock' && t.terrain !== 'mountain' && t.terrain !== 'snow' && t.terrain !== 'crystal_field') {
                 t.terrain = dSq <= (haz.radius * 2.55) ** 2 ? 'sand' : 'swamp';
               }
@@ -4253,9 +4769,7 @@ function stepSimulationSingle(state: SimulationState, dt: number): void {
               }
             }
           } else if (t.height === 2) {
-            // Towering tsunami wave surges onto mid-elevation coastal plains (height 2)
             if (!t.buildingId && dSq <= (haz.radius * 1.25) ** 2) {
-              // Erode coastal bluffs down to beach level
               t.height = 1;
               t.terrain = 'sand';
               if (t.resourceNode === 'berry_bush' || t.resourceNode === 'timber_grove') {
@@ -4263,7 +4777,6 @@ function stepSimulationSingle(state: SimulationState, dt: number): void {
                 t.resourceAmount = 0;
               }
             } else if (dSq <= (maxR * 0.9) ** 2) {
-              // Inundate grass, forest, fertile, savanna, jungle, blossom, taiga, roads, and scorched land into waterlogged swamp or sand
               if (
                 t.terrain === 'grass' ||
                 t.terrain === 'fertile' ||
@@ -4286,7 +4799,6 @@ function stepSimulationSingle(state: SimulationState, dt: number): void {
               }
             }
           } else if (t.height === 3 && dSq <= (maxR * 0.68) ** 2) {
-            // Heavy wave spray & run-up on height 3 coastal hills
             if (
               t.terrain === 'scorched' ||
               t.terrain === 'savanna' ||
@@ -4305,18 +4817,19 @@ function stepSimulationSingle(state: SimulationState, dt: number): void {
         }
       }
 
-      // Sweep units outward along the tsunami wave front on water and low/mid land
+      // Lethal drowning & surge crushing on non-flying NPCs & wildlife caught in the crashing tsunami crest
       for (const u of state.units) {
         const dx = u.x - haz.x;
         const dz = u.z - haz.z;
         const dist = Math.hypot(dx, dz);
-        if (Math.abs(dist - nextR) <= 2.2 && dist > 0.2 && u.state !== 'ko' && !u.statusEffects.shielded) {
+        if (Math.abs(dist - nextR) <= 2.45 && dist > 0.2 && u.state !== 'ko' && u.role !== 'dragon' && !u.statusEffects.shielded && !u.draggedByPlayer) {
           const uTile = getTile(state, Math.round(u.x), Math.round(u.z));
           if (!uTile || uTile.height <= 3) {
-            const push = 7.5 * dt;
+            const push = 9.0 * dt;
             u.x = Math.max(1, Math.min(state.gridSize - 2, u.x + (dx / dist) * push));
             u.z = Math.max(1, Math.min(state.gridSize - 2, u.z + (dz / dist) * push));
-            u.hp = Math.max(0, u.hp - 36 * dt);
+            const surgeDmgRate = !uTile || uTile.height <= 1 ? 520 : uTile.height === 2 ? 420 : 280;
+            u.hp = Math.max(0, u.hp - surgeDmgRate * dt);
             if (u.hp <= 0) {
               u.state = 'ko';
               u.koTimer = 0.45;
@@ -4326,13 +4839,13 @@ function stepSimulationSingle(state: SimulationState, dt: number): void {
         }
       }
 
-      // Flood surge damage to unshielded coastal buildings (height <= 3)
+      // Crushing flood surge damage to unshielded coastal buildings (height <= 3)
       for (const b of state.buildings) {
         const dist = Math.hypot(b.tileX - haz.x, b.tileZ - haz.z);
-        if (Math.abs(dist - nextR) <= 2.0 && b.shieldTimer <= 0) {
+        if (Math.abs(dist - nextR) <= 2.35 && b.shieldTimer <= 0) {
           const bTile = getTile(state, b.tileX, b.tileZ);
           if (!bTile || bTile.height <= 3) {
-            const dmgRate = !bTile || bTile.height <= 1 ? 85 : 55;
+            const dmgRate = !bTile || bTile.height <= 1 ? 650 : bTile.height === 2 ? 420 : 240;
             b.hp = Math.max(0, b.hp - dmgRate * dt);
           }
         }
@@ -4614,7 +5127,8 @@ function stepSimulationSingle(state: SimulationState, dt: number): void {
     const statusSpeedMult =
       (u.statusEffects.blessed ? 1.6 : 1.0) *
       (u.statusEffects.frenzied ? 1.5 : 1.0) *
-      (u.statusEffects.cursed ? 0.55 : 1.0);
+      (u.statusEffects.cursed ? 0.55 : 1.0) *
+      (u.statusEffects.frozen ? 0.06 : 1.0);
     const ageSpeedMult = u.ageStage === 'child' ? 1.14 : 1.0;
     const moveSpeed = def.speed * roadBoost * statusSpeedMult * ageSpeedMult;
 
@@ -4623,15 +5137,85 @@ function stepSimulationSingle(state: SimulationState, dt: number): void {
       u.dragonBreathCooldown = Math.max(0, u.dragonBreathCooldown - dt);
     }
 
-    // If unit is captured inside a Black Hole (wormhole_rift) gravity well, suppress normal walking AI so it spirals smoothly without walking away
     const capturedByBlackHole =
       hasWormholeRift &&
       !u.statusEffects.shielded &&
       hazardsList.some(
         (h) => h.kind === 'wormhole_rift' && Math.hypot(u.x - h.x, u.z - h.z) <= h.radius * 1.45,
       );
+    const capturedByTornado =
+      !u.statusEffects.shielded &&
+      hazardsList.some(
+        (h) => h.kind === 'tornado_vortex' && Math.hypot(u.x - h.x, u.z - h.z) <= h.radius * 1.35,
+      );
 
-    if (!capturedByBlackHole) {
+    // Airborne ballistic arc & fall-damage resolution (Black Hole flings, Tornado tosses, Bombs, Drag-Tool drops)
+    let isAirborneOrDragged = Boolean(u.draggedByPlayer);
+    if (!u.draggedByPlayer && !capturedByBlackHole && !capturedByTornado) {
+      const alt = u.altitude ?? 0;
+      const vz = u.vzVertical ?? 0;
+      if (alt > 0 || vz !== 0) {
+        isAirborneOrDragged = true;
+        if (u.vxAir) {
+          u.x += u.vxAir * dt;
+          if (u.x < 1 || u.x > state.gridSize - 2) {
+            u.x = Math.max(1, Math.min(state.gridSize - 2, u.x));
+            u.vxAir *= -0.35;
+          }
+        }
+        if (u.vzAir) {
+          u.z += u.vzAir * dt;
+          if (u.z < 1 || u.z > state.gridSize - 2) {
+            u.z = Math.max(1, Math.min(state.gridSize - 2, u.z));
+            u.vzAir *= -0.35;
+          }
+        }
+        const nextVz = vz - 22.0 * dt;
+        const nextAlt = alt + nextVz * dt;
+        if (nextAlt <= 0) {
+          const impactSpeed = Math.abs(nextVz);
+          u.altitude = 0;
+          u.vzVertical = 0;
+          u.vxAir = 0;
+          u.vzAir = 0;
+          u.targetX = u.x;
+          u.targetZ = u.z;
+          if (u.fallDamageArmed) {
+            u.fallDamageArmed = false;
+            const landTile = getTile(state, Math.round(u.x), Math.round(u.z));
+            const isWaterLanding = !landTile || landTile.height === 0;
+            if (u.role !== 'dragon' && !u.statusEffects.shielded && impactSpeed > 5.5) {
+              const fallDmg = isWaterLanding
+                ? Math.max(0, Math.round((impactSpeed - 8.0) * 3.5))
+                : Math.max(30, Math.round(impactSpeed * 12.5));
+              if (fallDmg > 0) {
+                u.hp = Math.max(0, u.hp - fallDmg);
+                state.pendingVfx.push({
+                  id: nextEntityId('vfx'),
+                  type: 'hit_spark',
+                  x: u.x,
+                  y: (landTile?.height ?? 0) * 0.45 + 0.25,
+                  z: u.z,
+                  radius: 1.05,
+                  color: isWaterLanding ? '#4ea8de' : '#ff6b6b',
+                  createdAt: Date.now(),
+                });
+                if (u.hp <= 0) {
+                  u.state = 'ko';
+                  u.koTimer = 0.45;
+                  if (u.faction === 'hostile') state.totalRaidersDefeated += 1;
+                }
+              }
+            }
+          }
+        } else {
+          u.altitude = nextAlt;
+          u.vzVertical = nextVz;
+        }
+      }
+    }
+
+    if (!capturedByBlackHole && !capturedByTornado && !isAirborneOrDragged && u.state !== 'ko' && !u.statusEffects.frozen) {
       if (u.faction === 'hostile') {
         stepHostileUnitAI(state, u, def, moveSpeed, dt);
       } else if (u.faction === 'wildlife') {
@@ -7424,3 +8008,63 @@ function stepCivilianUnitAI(
     u.state = 'idle';
   }
 }
+
+export function beginDragUnit(state: SimulationState, unitId: string): UnitEntity | null {
+  const unit = state.units.find((u) => u.id === unitId && u.state !== 'ko');
+  if (!unit) return null;
+  unit.draggedByPlayer = true;
+  unit.vxAir = 0;
+  unit.vzAir = 0;
+  unit.vzVertical = 0;
+  unit.altitude = Math.max(unit.altitude ?? 0, 2.2);
+  unit.fallDamageArmed = true;
+  unit.state = 'idle';
+  return unit;
+}
+
+export function updateDragUnit(
+  state: SimulationState,
+  unitId: string,
+  worldX: number,
+  worldZ: number,
+  altitude = 2.6,
+): UnitEntity | null {
+  const unit = state.units.find((u) => u.id === unitId && u.state !== 'ko');
+  if (!unit) return null;
+  const maxCoord = state.gridSize - 2;
+  unit.draggedByPlayer = true;
+  unit.x = Math.max(1, Math.min(maxCoord, worldX));
+  unit.z = Math.max(1, Math.min(maxCoord, worldZ));
+  unit.targetX = unit.x;
+  unit.targetZ = unit.z;
+  unit.altitude = Math.max(1.2, altitude);
+  unit.vzVertical = 0;
+  unit.fallDamageArmed = true;
+  return unit;
+}
+
+export function releaseDragUnit(
+  state: SimulationState,
+  unitId: string,
+  throwVx = 0,
+  throwVz = 0,
+): UnitEntity | null {
+  const unit = state.units.find((u) => u.id === unitId);
+  if (!unit) return null;
+  unit.draggedByPlayer = false;
+  if (unit.state === 'ko') return unit;
+  const maxSpeed = 24;
+  const spd = Math.hypot(throwVx, throwVz);
+  if (spd > maxSpeed && spd > 0.001) {
+    unit.vxAir = (throwVx / spd) * maxSpeed;
+    unit.vzAir = (throwVz / spd) * maxSpeed;
+  } else {
+    unit.vxAir = throwVx;
+    unit.vzAir = throwVz;
+  }
+  unit.altitude = Math.max(unit.altitude ?? 1.5, 1.5);
+  unit.vzVertical = Math.min(8.5, Math.max(-2.0, spd * 0.35));
+  unit.fallDamageArmed = true;
+  return unit;
+}
+
