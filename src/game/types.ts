@@ -224,6 +224,7 @@ export interface UnitEntity {
   expeditionTargetZ?: number;
   expeditionTimer?: number;
   favorite?: boolean;
+  isKing?: boolean;
   genes?: string[];
   items?: string[];
   bornYear?: number;

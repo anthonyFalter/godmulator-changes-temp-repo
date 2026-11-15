@@ -59,6 +59,7 @@ interface IsometricWorldCanvasProps {
     colorData: Uint8Array;
     idData: Uint8Array;
     anyActive: boolean;
+    kingdomsActive?: boolean;
     version: number;
     labels?: ZoneMapLabel[];
   };
@@ -110,6 +111,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 }) => {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const zoneLabelsLayerRef = useRef<HTMLDivElement | null>(null);
+  const kingMarkersLayerRef = useRef<HTMLDivElement | null>(null);
 
   // Store latest props in refs so WebGLRenderer mounts once and never tears down on HUD updates
   const propsRef = useRef({
@@ -687,6 +689,18 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     favoriteStarsInst.count = 0;
     favoriteStarsInst.frustumCulled = false;
     worldGroup.add(favoriteStarsInst);
+
+    const MAX_KING_CROWNS = 16;
+    const kingCrownGeo = new THREE.CylinderGeometry(0.22, 0.14, 0.18, 6);
+    const kingCrownMat = new THREE.MeshBasicMaterial({ color: 0xffb703 });
+    const kingCrownsInst = new THREE.InstancedMesh(
+      kingCrownGeo,
+      kingCrownMat,
+      MAX_KING_CROWNS,
+    );
+    kingCrownsInst.count = 0;
+    kingCrownsInst.frustumCulled = false;
+    worldGroup.add(kingCrownsInst);
 
     // Zero-GC Pooled Particle System (InstancedMesh)
     const particleGeo = new THREE.BoxGeometry(0.22, 0.22, 0.22);
@@ -3349,6 +3363,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
         const renderTopY = curY + quakeJoltY;
         _dummyPos.set(t.x, renderTopY, t.z);
+        _dummyQuat.identity();
         _dummyScale.set(1, Math.max(0.2, renderTopY + 0.6), 1);
         _dummyMatrix.compose(_dummyPos, _dummyQuat, _dummyScale);
         inst.setMatrixAt(slot, _dummyMatrix);
@@ -5720,31 +5735,61 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         selectedHighlightRig.group.visible = false;
       }
 
-      // Update Persistent Golden Star Markers above Favorited Living Units
+      // Update Persistent Golden Star Markers above Favorited Living Units & Royal Crowns above Kings
       let favCount = 0;
+      let kingCount = 0;
       const simUnitsList = simRef.current.units;
-      for (let i = 0; i < simUnitsList.length && favCount < MAX_FAVORITE_STARS; i++) {
+      for (let i = 0; i < simUnitsList.length; i++) {
         const fu = simUnitsList[i];
-        if (!fu.favorite || fu.state === 'ko') continue;
-        const metrics = getUnitInspectMetrics(fu);
-        const uGrp = unitMeshes.get(fu.id)?.group;
-        const fx = uGrp ? uGrp.position.x : fu.x;
-        const fy =
-          (uGrp ? uGrp.position.y : 0.5) +
-          metrics.bodyHeight +
-          0.32 +
-          Math.sin(elapsedTotal * 3.8 + favCount * 1.1) * 0.06;
-        const fz = uGrp ? uGrp.position.z : fu.z;
-        _dummyPos.set(fx, fy, fz);
-        _dummyQuat.setFromAxisAngle(_propAxisY, elapsedTotal * 2.2 + favCount);
-        _dummyScale.set(1.1, 1.35, 1.1);
-        _dummyMatrix.compose(_dummyPos, _dummyQuat, _dummyScale);
-        favoriteStarsInst.setMatrixAt(favCount, _dummyMatrix);
-        favCount++;
+        if (fu.state === 'ko') continue;
+        if (fu.favorite && favCount < MAX_FAVORITE_STARS) {
+          const metrics = getUnitInspectMetrics(fu);
+          const uGrp = unitMeshes.get(fu.id)?.group;
+          const fx = uGrp ? uGrp.position.x : fu.x;
+          const fy =
+            (uGrp ? uGrp.position.y : 0.5) +
+            metrics.bodyHeight +
+            0.32 +
+            Math.sin(elapsedTotal * 3.8 + favCount * 1.1) * 0.06;
+          const fz = uGrp ? uGrp.position.z : fu.z;
+          _dummyPos.set(fx, fy, fz);
+          _dummyQuat.setFromAxisAngle(_propAxisY, elapsedTotal * 2.2 + favCount);
+          _dummyScale.set(1.1, 1.35, 1.1);
+          _dummyMatrix.compose(_dummyPos, _dummyQuat, _dummyScale);
+          favoriteStarsInst.setMatrixAt(favCount, _dummyMatrix);
+          favCount++;
+        }
+        if (
+          propsRef.current.zoneOverlayBuffers?.kingdomsActive &&
+          fu.isKing &&
+          fu.faction === 'civilization' &&
+          kingCount < MAX_KING_CROWNS
+        ) {
+          const metrics = getUnitInspectMetrics(fu);
+          const uGrp = unitMeshes.get(fu.id)?.group;
+          const kx = uGrp ? uGrp.position.x : fu.x;
+          const ky =
+            (uGrp ? uGrp.position.y : 0.5) +
+            metrics.bodyHeight +
+            0.22 +
+            Math.sin(elapsedTotal * 3.0 + kingCount) * 0.04;
+          const kz = uGrp ? uGrp.position.z : fu.z;
+          _dummyPos.set(kx, ky, kz);
+          _dummyQuat.setFromAxisAngle(_propAxisY, elapsedTotal * 1.6 + kingCount);
+          _dummyScale.set(1.0, 1.0, 1.0);
+          _dummyMatrix.compose(_dummyPos, _dummyQuat, _dummyScale);
+          kingCrownsInst.setMatrixAt(kingCount, _dummyMatrix);
+          kingCount++;
+        }
       }
+      _dummyQuat.identity();
       favoriteStarsInst.count = favCount;
       if (favCount > 0) {
         favoriteStarsInst.instanceMatrix.needsUpdate = true;
+      }
+      kingCrownsInst.count = kingCount;
+      if (kingCount > 0) {
+        kingCrownsInst.instanceMatrix.needsUpdate = true;
       }
 
       // Update Hover Reticle position & radius
@@ -5962,6 +6007,38 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         }
       }
 
+      // Update floating screen-space King Crown markers on the map
+      const kingLayer = kingMarkersLayerRef.current;
+      if (kingLayer && kingLayer.children.length > 0) {
+        const cWidth = container?.clientWidth || window.innerWidth;
+        const cHeight = container?.clientHeight || window.innerHeight;
+        const gSize = sim.gridSize;
+        const kingProjVec = new THREE.Vector3();
+        for (let i = 0; i < kingLayer.children.length; i++) {
+          const el = kingLayer.children[i] as HTMLElement;
+          const unitId = el.dataset.unitId;
+          const kingUnit = unitId ? sim.units.find((u) => u.id === unitId && u.state !== 'ko') : undefined;
+          if (!kingUnit) {
+            el.style.opacity = '0';
+            continue;
+          }
+          const uGrp = unitMeshes.get(kingUnit.id)?.group;
+          const kx = uGrp ? uGrp.position.x : kingUnit.x;
+          const kz = uGrp ? uGrp.position.z : kingUnit.z;
+          const tile = sim.tiles[Math.round(kz) * gSize + Math.round(kx)];
+          const baseY = uGrp ? uGrp.position.y : Math.max(0.5, (tile ? tile.height : 1) * HEIGHT_STEP);
+          kingProjVec.set(kx, baseY + 1.35, kz).project(camera);
+          const sx = (kingProjVec.x * 0.5 + 0.5) * cWidth;
+          const sy = (-kingProjVec.y * 0.5 + 0.5) * cHeight;
+          if (kingProjVec.z > 1 || sx < -80 || sx > cWidth + 80 || sy < -60 || sy > cHeight + 60) {
+            el.style.opacity = '0';
+          } else {
+            el.style.opacity = '1';
+            el.style.transform = `translate3d(${Math.round(sx)}px, ${Math.round(sy)}px, 0) translate(-50%, -100%)`;
+          }
+        }
+      }
+
       // Throttle React HUD state synchronization to <= 6 Hz so we never setState at 60Hz
       hudSyncAccumulator += dt;
       if (hudSyncAccumulator >= 0.18) {
@@ -5994,6 +6071,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       selectedHighlightRig.dispose();
       favoriteStarGeo.dispose();
       favoriteStarMat.dispose();
+      kingCrownGeo.dispose();
+      kingCrownMat.dispose();
       for (const hv of hazardMeshes.values()) {
         for (const m of hv.materials) m.dispose();
       }
@@ -6054,6 +6133,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
   }, [cameraActionRef, simRef]);
 
   const activeLabels = zoneOverlayBuffers?.labels ?? [];
+  const kingdomsZoneOn = Boolean(zoneOverlayBuffers?.kingdomsActive);
+  const activeKings =
+    gameState !== 'title' && kingdomsZoneOn
+      ? simRef.current.units.filter(
+          (u) => u.isKing && u.state !== 'ko' && u.faction === 'civilization',
+        )
+      : [];
 
   return (
     <>
@@ -6062,6 +6148,50 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         data-testid="isometric-world-canvas"
         className="fixed inset-0 w-full h-full bg-[#141210] overflow-hidden"
       />
+      {gameState !== 'title' && activeKings.length > 0 && (
+        <div
+          ref={kingMarkersLayerRef}
+          data-testid="king-map-markers-layer"
+          className="fixed inset-0 z-10 pointer-events-none overflow-hidden select-none"
+        >
+          {activeKings.map((king) => {
+            const borderHex =
+              king.species === 'elf'
+                ? '#10b981'
+                : king.species === 'orc'
+                  ? '#ef4444'
+                  : '#3b82f6';
+            return (
+              <div
+                key={king.id}
+                data-testid={`king-map-marker-${king.id}`}
+                data-unit-id={king.id}
+                style={{
+                  backgroundColor: '#191613',
+                  borderColor: borderHex,
+                  left: 0,
+                  top: 0,
+                }}
+                className="absolute px-1.5 py-0.5 border-2 flex items-center gap-1 whitespace-nowrap"
+              >
+                <svg
+                  viewBox="0 0 12 10"
+                  className="w-3.5 h-3 shrink-0"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M1 8h10V9H1V8zm0-5l2.5 2.5L6 2l2.5 3.5L11 3v4H1V3z"
+                    fill="#ffd166"
+                  />
+                </svg>
+                <span className="text-[10px] font-bold text-[#ffd166]">
+                  {king.name}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
       {gameState !== 'title' && activeLabels.length > 0 && (
         <div
           ref={zoneLabelsLayerRef}

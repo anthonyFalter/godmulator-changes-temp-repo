@@ -471,6 +471,12 @@ function getSubtitleAndFaction(
     return { subtitle: `${def?.name ?? cap(unit.role)} • Hostile`, factionLabel: 'Hostile' };
   }
   const speciesLabel = cap(unit.species);
+  if (unit.isKing) {
+    return {
+      subtitle: `${speciesLabel} King`,
+      factionLabel: 'Civilization',
+    };
+  }
   const roleLabel =
     unit.ageStage === 'child'
       ? 'Child'

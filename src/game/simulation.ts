@@ -47,16 +47,16 @@ const ORC_NAMES = [
 ];
 
 const VILLAGE_NAMES = [
-  'Aurelia', 'Valen', 'Oakhaven', 'Solis', 'Veld', 'Selen',
-  'Cyra', 'Ilios', 'Aldenreach', 'Highford', 'Sunvale', 'Stonebridge',
+  'New Aurelia', 'Silver Valen', 'Oak Haven', 'Sun Harbor', 'High Veld', 'Dawn Hold',
+  'Star Crest', 'Iron Ford', 'Gold Vale', 'Stone Bridge', 'River Watch', 'Crown Point',
 ];
 
 const ELF_VILLAGE_NAMES = [
-  'Sylvaria', 'Starleaf', 'Lothal', 'Greenbough', 'Moonwell', 'Aethelgard',
+  'Sylvan Glade', 'Star Leaf', 'Silver Bough', 'Moon Well', 'Aether Grove', 'Crystal Spire',
 ];
 
 const ORC_VILLAGE_NAMES = [
-  'Khor', 'Thar', 'Gromhold', 'Ironcrag', 'Bloodaxe', 'Ashpeak',
+  'Khor Crag', 'Thar Hold', 'Grom Peak', 'Iron Skull', 'Blood Axe', 'Ash Ridge',
 ];
 
 export const SETTLEMENT_AWARENESS_RADIUS = 22;
@@ -502,6 +502,7 @@ export function createInitialSimulationState(
     }
   }
 
+  ensureSettlementKings(state);
   recalculateRatesAndCaps(state);
   return state;
 }
@@ -535,11 +536,24 @@ export function recalculateRatesAndCaps(state: SimulationState): void {
     popCap += def.popCapBonus;
 
     const blessMult = b.blessedTimer > 0 ? 1.75 : b.cursedTimer > 0 ? 0.5 : 1.0;
-    const epochMult = 1 + state.epochIndex * 0.16;
+    const epochMult = 1 + Math.min(4, state.epochIndex) * 0.1;
+    const bSpecies: SpeciesId = b.species ?? (b.settlementId ? state.settlementSpecies?.[b.settlementId] : undefined) ?? 'human';
+    const paceMult = state.sandboxFreeMode ? 1.0 : 0.62;
 
     for (const [k, v] of Object.entries(def.productionPerSec)) {
       const key = k as keyof Resources;
-      rates[key] += (v ?? 0) * blessMult * epochMult;
+      let spMult = 1.0;
+      if (bSpecies === 'human') {
+        if (key === 'knowledge' || key === 'energy' || key === 'alloy') spMult = 1.3;
+      } else if (bSpecies === 'elf') {
+        if (key === 'faith' || key === 'knowledge') spMult = 1.25;
+        else if (key === 'ore' || key === 'alloy') spMult = 0.78;
+      } else if (bSpecies === 'orc') {
+        if (key === 'knowledge' || key === 'energy') spMult = 0.35;
+        else if (key === 'alloy') spMult = 0.5;
+        else if (key === 'food' || key === 'ore') spMult = 1.15;
+      }
+      rates[key] += (v ?? 0) * blessMult * epochMult * spMult * paceMult;
     }
   }
 
@@ -3052,6 +3066,7 @@ function pickDesiredAutobuildType(
   state: SimulationState,
   villageBuildings: BuildingEntity[],
   villagePop: number,
+  species: SpeciesId = 'human',
 ): BuildingType | null {
   const maxCityBuildings = getMaxCityBuildings(state.epochIndex);
   if (villageBuildings.length >= maxCityBuildings) return null;
@@ -3063,35 +3078,59 @@ function pickDesiredAutobuildType(
   if (countType('forager_hut') < Math.min(4, targetCottages)) return 'forager_hut';
   if (countType('shaman_totem') < 1) return 'shaman_totem';
 
+  // Elves strongly prioritize magical & arcane-tech sanctums
+  if (species === 'elf' && countType('shaman_totem') < 2) return 'shaman_totem';
+
   if (state.epochIndex === 0) {
     if (countType('forager_hut') < Math.min(6, targetCottages)) return 'forager_hut';
-    if (countType('shaman_totem') < 2) return 'shaman_totem';
+    if (countType('shaman_totem') < (species === 'elf' ? 3 : 2)) return 'shaman_totem';
+    return null;
+  }
+
+  // Orcs are barbarian clans that build more huts/granaries/forges before slowly adopting higher-age structures
+  if (species === 'orc') {
+    if (countType('forager_hut') < Math.min(8, targetCottages)) return 'forager_hut';
+    if (countType('granary') < 2) return 'granary';
+    if (countType('smeltery') < 2) return 'smeltery';
+    if (state.epochIndex >= 2 && countType('guildhall') < 2) return 'guildhall';
+    if (state.epochIndex >= 2 && countType('observatory') < 1 && villageBuildings.length >= 10) return 'observatory';
+    if (state.epochIndex >= 3 && countType('steam_foundry') < 2) return 'steam_foundry';
+    if (state.epochIndex >= 3 && countType('rail_station') < 1 && villageBuildings.length >= 12) return 'rail_station';
+    if (state.epochIndex >= 4 && countType('fission_reactor') < 1 && villageBuildings.length >= 15) return 'fission_reactor';
+    if (state.epochIndex >= 5 && countType('cyber_institute') < 1 && villageBuildings.length >= 18) return 'cyber_institute';
+    if (state.epochIndex >= 6 && countType('launch_arcology') < 1 && villageBuildings.length >= 20) return 'launch_arcology';
+    if (countType('forager_hut') < targetCottages) return 'forager_hut';
     return null;
   }
 
   if (state.epochIndex >= 1) {
     if (countType('granary') < 1) return 'granary';
+    if (species === 'elf' && countType('ziggurat') < 2) return 'ziggurat';
+    if (species === 'human' && countType('smeltery') < 2) return 'smeltery';
     if (countType('ziggurat') < 1) return 'ziggurat';
     if (countType('forager_hut') < Math.min(7, targetCottages)) return 'forager_hut';
-    if (countType('smeltery') < 2) return 'smeltery';
+    if (countType('smeltery') < (species === 'elf' ? 1 : 2)) return 'smeltery';
     if (countType('granary') < 2) return 'granary';
-    if (countType('shaman_totem') < 2) return 'shaman_totem';
+    if (countType('shaman_totem') < (species === 'elf' ? 3 : 2)) return 'shaman_totem';
   }
   if (state.epochIndex >= 2) {
+    if (species === 'elf' && countType('observatory') < 2) return 'observatory';
     if (countType('guildhall') < 2) return 'guildhall';
     if (countType('forager_hut') < Math.min(9, targetCottages)) return 'forager_hut';
-    if (countType('observatory') < 2) return 'observatory';
+    if (countType('observatory') < (species === 'human' || species === 'elf' ? 2 : 1)) return 'observatory';
     if (countType('guildhall') < 3) return 'guildhall';
   }
   if (state.epochIndex >= 3) {
     if (countType('rail_station') < 1) return 'rail_station';
-    if (countType('steam_foundry') < 2) return 'steam_foundry';
+    if (species === 'human' && countType('dynamo_plant') < 2) return 'dynamo_plant';
+    if (countType('steam_foundry') < (species === 'elf' ? 1 : 2)) return 'steam_foundry';
     if (countType('dynamo_plant') < 2) return 'dynamo_plant';
     if (countType('guildhall') < 4) return 'guildhall';
     if (countType('forager_hut') < Math.min(12, targetCottages)) return 'forager_hut';
   }
   if (state.epochIndex >= 4) {
     if (countType('airport') < 1) return 'airport';
+    if (species === 'elf' && countType('cyber_institute') < 2) return 'cyber_institute';
     if (countType('fission_reactor') < 2) return 'fission_reactor';
     if (countType('cyber_institute') < 2) return 'cyber_institute';
     if (countType('guildhall') < 5) return 'guildhall';
@@ -3112,6 +3151,58 @@ function pickDesiredAutobuildType(
   }
   if (countType('forager_hut') < targetCottages) return 'forager_hut';
   return null;
+}
+
+export function ensureSettlementKings(state: SimulationState): void {
+  const activeSettlements = new Set<string>();
+  for (const b of state.buildings) {
+    if (b.settlementId) activeSettlements.add(b.settlementId);
+  }
+  for (const u of state.units) {
+    if (u.faction === 'civilization' && u.state !== 'ko' && u.settlementId) {
+      activeSettlements.add(u.settlementId);
+    } else {
+      u.isKing = false;
+    }
+  }
+
+  for (const sid of activeSettlements) {
+    const members = state.units.filter(
+      (u) => u.faction === 'civilization' && u.state !== 'ko' && u.settlementId === sid,
+    );
+    if (members.length === 0) continue;
+
+    const currentKings = members.filter((u) => u.isKing);
+    if (currentKings.length === 1) continue;
+    if (currentKings.length > 1) {
+      for (let i = 1; i < currentKings.length; i++) {
+        currentKings[i].isKing = false;
+      }
+      continue;
+    }
+
+    // Crown the strongest adult (or citizen) in this kingdom
+    const adults = members.filter((u) => u.ageStage !== 'child');
+    const pool = adults.length > 0 ? adults : members;
+    pool.sort((a, b) => {
+      const aScore = (a.role === 'warrior' ? 50 : 0) + a.maxHp + (a.kills ?? 0) * 15;
+      const bScore = (b.role === 'warrior' ? 50 : 0) + b.maxHp + (b.kills ?? 0) * 15;
+      return bScore - aScore;
+    });
+    const monarch = pool[0];
+    if (monarch) {
+      monarch.isKing = true;
+      monarch.ageStage = 'adult';
+      if (!monarch.name.startsWith('King ')) {
+        monarch.name = `King ${monarch.name}`;
+      }
+      const royalHp = monarch.species === 'orc' ? 260 : monarch.species === 'elf' ? 190 : 175;
+      if (monarch.maxHp < royalHp) {
+        monarch.maxHp = royalHp;
+        monarch.hp = royalHp;
+      }
+    }
+  }
 }
 
 function transformSettlementEnvironment(
@@ -3503,15 +3594,23 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
     }
 
     // Autonomous Construction Planner scoped to THIS village (capped at getMaxCityBuildings)
+    // Orcs progress way slower than other races; Humans progress fastest
     const maxCityBuildings = getMaxCityBuildings(state.epochIndex);
     const activeSites = villageBuildings.filter((b) => b.constructionProgress < 100).length;
+    const orcSlowSkip =
+      villageSpecies === 'orc' &&
+      !state.sandboxFreeMode &&
+      villageBuildings.length >= 2 &&
+      Math.floor(Math.abs(state.year * 10)) % 3 !== 0;
+
     if (
       state.autoBuildEnabled &&
       hasCompletedHearth &&
-      activeSites < 2 &&
+      !orcSlowSkip &&
+      activeSites < (villageSpecies === 'human' ? 2 : 1) &&
       villageBuildings.length < maxCityBuildings
     ) {
-      const desiredType = pickDesiredAutobuildType(state, villageBuildings, villageUnits.length);
+      const desiredType = pickDesiredAutobuildType(state, villageBuildings, villageUnits.length, villageSpecies);
       if (desiredType) {
         const def = BUILDINGS.find((b) => b.type === desiredType);
         if (def && canAfford(state.resources, def.cost, false)) {
@@ -3613,6 +3712,9 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
     // Era-based Environment Transformation around THIS village
     transformSettlementEnvironment(state, villageAnchor, villageBuildings);
   }
+
+  // Ensure every active kingdom/settlement has 1 living King marked on the map
+  ensureSettlementKings(state);
 }
 
 export function stepSimulation(state: SimulationState, rawDt: number): void {
@@ -3653,18 +3755,30 @@ function stepSimulationSingle(state: SimulationState, dt: number): void {
 
   // 3. Accumulate passive completed-building production & apply population food upkeep
   recalculateRatesAndCaps(state);
-  const epoch = EPOCHS[state.epochIndex] || EPOCHS[0];
   const passiveRates = emptyResources();
   passiveRates.faith = 2;
+  const paceMult = state.sandboxFreeMode ? 1.0 : 0.62;
   for (const b of state.buildings) {
     if (b.constructionProgress < 100) continue;
     const def = BUILDINGS.find((d) => d.type === b.type);
     if (!def) continue;
     const blessMult = b.blessedTimer > 0 ? 1.75 : b.cursedTimer > 0 ? 0.5 : 1.0;
-    const epochMult = 1 + state.epochIndex * 0.16;
+    const epochMult = 1 + Math.min(4, state.epochIndex) * 0.1;
+    const bSpecies: SpeciesId = b.species ?? (b.settlementId ? state.settlementSpecies?.[b.settlementId] : undefined) ?? 'human';
     for (const [k, v] of Object.entries(def.productionPerSec)) {
       const key = k as keyof Resources;
-      passiveRates[key] += (v ?? 0) * blessMult * epochMult;
+      let spMult = 1.0;
+      if (bSpecies === 'human') {
+        if (key === 'knowledge' || key === 'energy' || key === 'alloy') spMult = 1.3;
+      } else if (bSpecies === 'elf') {
+        if (key === 'faith' || key === 'knowledge') spMult = 1.25;
+        else if (key === 'ore' || key === 'alloy') spMult = 0.78;
+      } else if (bSpecies === 'orc') {
+        if (key === 'knowledge' || key === 'energy') spMult = 0.35;
+        else if (key === 'alloy') spMult = 0.5;
+        else if (key === 'food' || key === 'ore') spMult = 1.15;
+      }
+      passiveRates[key] += (v ?? 0) * blessMult * epochMult * spMult * paceMult;
     }
   }
   const foodUpkeep = state.population > 4 ? (state.population - 4) * 0.18 : 0;
@@ -3703,19 +3817,41 @@ function stepSimulationSingle(state: SimulationState, dt: number): void {
     const avgPct = ratioCount > 0 ? Math.round((ratioSum / ratioCount) * 100) : 0;
     state.epochProgress = Math.max(0, Math.min(100, avgPct));
 
-    const completedCount = state.buildings.filter((b) => b.constructionProgress >= 100).length;
-    // Lengthen Industrial -> Atomic -> Information -> Orbital progression with higher urbanization milestones
+    const completedBlds = state.buildings.filter((b) => b.constructionProgress >= 100);
+    const completedCount = completedBlds.length;
+    // Lengthen Industrial -> Atomic -> Information -> Orbital -> Star progression with higher urbanization & tech readiness
     const requiredStructures =
-      state.epochIndex < 3
-        ? Math.max(2, (state.epochIndex + 1) * 2)
-        : state.epochIndex === 3
-          ? 10
-          : state.epochIndex === 4
-            ? 14
-            : state.epochIndex === 5
-              ? 18
-              : 20;
-    if (completedCount >= requiredStructures && canAfford(state.resources, nextEpoch.unlockCost, false)) {
+      state.epochIndex === 0
+        ? 2
+        : state.epochIndex === 1
+          ? 5
+          : state.epochIndex === 2
+            ? 8
+            : state.epochIndex === 3
+              ? 12
+              : state.epochIndex === 4
+                ? 16
+                : state.epochIndex === 5
+                  ? 22
+                  : 26;
+
+    // For late ages (especially Information Age -> Orbital Age -> Star Age), require buildings to actually upgrade into the current age first
+    const upgradedCount = completedBlds.filter((b) => b.epochLevel >= state.epochIndex).length;
+    const upgradeReady =
+      state.epochIndex < 4 || upgradedCount >= Math.ceil(completedCount * 0.75);
+    const lateTechReady =
+      state.epochIndex === 5
+        ? completedBlds.some((b) => b.type === 'cyber_institute' || b.type === 'fission_reactor')
+        : state.epochIndex === 6
+          ? completedBlds.some((b) => b.type === 'launch_arcology')
+          : true;
+
+    if (
+      completedCount >= requiredStructures &&
+      upgradeReady &&
+      lateTechReady &&
+      canAfford(state.resources, nextEpoch.unlockCost, false)
+    ) {
       advanceEpoch(state, false);
     }
   } else if (state.epochIndex >= EPOCHS.length - 1) {
@@ -4125,12 +4261,45 @@ function stepSimulationSingle(state: SimulationState, dt: number): void {
     if (bTile && bTile.onFireTimer > 0 && b.shieldTimer <= 0) {
       b.hp = Math.max(0, b.hp - 12 * dt);
     }
-    // Individual building age progression: completed structures upgrade step-by-step from primitive huts/sticks up to Orbital/Interstellar sci-fi
+    // Individual building age progression & abandoned/intruding structure decay
+    const bSpecies: SpeciesId =
+      b.species ?? (b.settlementId ? state.settlementSpecies?.[b.settlementId] : undefined) ?? 'human';
+    const bSid = b.settlementId ?? 'city_default';
+    const hasLivingCitizensInSettlement = state.units.some(
+      (u) => u.faction === 'civilization' && u.state !== 'ko' && u.hp > 0 && u.settlementId === bSid,
+    );
+    if (!hasLivingCitizensInSettlement && !state.sandboxFreeMode) {
+      const settlementBldCount = state.buildings.filter((ob) => (ob.settlementId ?? 'city_default') === bSid).length;
+      const inEnemyTerritory = state.buildings.some(
+        (ob) =>
+          (ob.settlementId ?? 'city_default') !== bSid &&
+          (ob.species ?? 'human') !== bSpecies &&
+          (ob.tileX - b.tileX) ** 2 + (ob.tileZ - b.tileZ) ** 2 <= 24 * 24,
+      );
+      if (settlementBldCount <= 1 && b.constructionProgress < 100) {
+        // Unfinished single structure planted by a killed intruder collapses immediately
+        b.hp = 0;
+      } else {
+        // Abandoned buildings decay so surrounding kingdom territory slowly creeps in until destroyed
+        b.hp = Math.max(0, b.hp - (inEnemyTerritory ? 28 : 12) * dt);
+      }
+    } else if (bSpecies === 'elf' && b.constructionProgress >= 100 && b.hp < b.maxHp) {
+      b.hp = Math.min(b.maxHp, b.hp + 1.5 * dt);
+    }
     if (b.constructionProgress >= 100 && b.epochLevel < state.epochIndex) {
       const epochGap = state.epochIndex - b.epochLevel;
       const idOffset = ((b.id.charCodeAt(b.id.length - 1) + b.tileX * 3 + b.tileZ * 5) % 7) * 0.08;
       const blessBoost = b.blessedTimer > 0 ? 1.65 : 1.0;
-      const passiveUpgradeRate = (16 + epochGap * 9) * (0.82 + idOffset) * blessBoost;
+      const speciesUpgradeMult =
+        bSpecies === 'human'
+          ? 1.25
+          : bSpecies === 'elf'
+            ? 0.78
+            : state.sandboxFreeMode
+              ? 0.65
+              : 0.28;
+      const baseRate = state.sandboxFreeMode ? 16 + epochGap * 9 : (6.5 + epochGap * 3.5) * (b.epochLevel >= 5 ? 0.55 : 1.0);
+      const passiveUpgradeRate = baseRate * (0.82 + idOffset) * blessBoost * speciesUpgradeMult;
       b.upgradeProgress = (b.upgradeProgress ?? 0) + passiveUpgradeRate * dt;
       if (b.upgradeProgress >= 100) {
         b.upgradeProgress = 0;
@@ -4252,15 +4421,45 @@ function stepSimulationSingle(state: SimulationState, dt: number): void {
 
   state.units = remainingUnits;
 
-  // Remove destroyed buildings (preserve primary hearth if others stand, collapse if all fail)
+  // Remove destroyed buildings and immediately clean up wiped-out settlements & their zones
+  const destroyedSettlementIds = new Set<string>();
   state.buildings = state.buildings.filter((b) => {
     if (b.hp <= 0) {
       const t = getTile(state, b.tileX, b.tileZ);
       if (t && t.buildingId === b.id) t.buildingId = null;
+      if (b.settlementId) destroyedSettlementIds.add(b.settlementId);
+      state.pendingVfx.push({
+        id: nextEntityId('vfx'),
+        type: 'hit_spark',
+        x: b.tileX,
+        y: (t?.height ?? 2) * 0.45 + 0.3,
+        z: b.tileZ,
+        radius: 1.2,
+        color: '#ff6b6b',
+        createdAt: Date.now(),
+      });
       return false;
     }
     return true;
   });
+
+  if (destroyedSettlementIds.size > 0) {
+    for (const sid of destroyedSettlementIds) {
+      const stillHasBlds = state.buildings.some((b) => b.settlementId === sid);
+      const stillHasUnits = state.units.some(
+        (u) => u.faction === 'civilization' && u.state !== 'ko' && u.hp > 0 && u.settlementId === sid,
+      );
+      if (!stillHasBlds && !stillHasUnits) {
+        if (state.settlementNames) delete state.settlementNames[sid];
+        if (state.settlementSpecies) delete state.settlementSpecies[sid];
+        for (const t of state.tiles) {
+          if (t.farmSettlementId === sid) {
+            t.farmSettlementId = undefined;
+          }
+        }
+      }
+    }
+  }
 
   // 9. Update transit vehicles (Trains on rail_track, Cars on stone_road, Planes at airports)
   stepVehicles(state, dt);
@@ -6137,13 +6336,19 @@ function findNearestResourceTile(
   ux: number,
   uz: number,
   preferredNodes: TileData['resourceNode'][],
+  unit?: UnitEntity,
 ): TileData | null {
   const rx = Math.round(ux);
   const rz = Math.round(uz);
+  const indivHash = unit
+    ? Math.abs((unit.appearanceSeed ?? 1) * 31 + unit.id.charCodeAt(unit.id.length - 1) * 17)
+    : 0;
+  const isHelperPersonality = indivHash % 2 === 0;
+
   let bestTile: TileData | null = null;
   let bestScore = Infinity;
 
-  for (const radius of [12, 24, 42]) {
+  for (const radius of [14, 26, 42]) {
     const minX = Math.max(1, rx - radius);
     const maxX = Math.min(state.gridSize - 2, rx + radius);
     const minZ = Math.max(1, rz - radius);
@@ -6155,8 +6360,47 @@ function findNearestResourceTile(
         if (!t || t.height <= 0 || t.resourceAmount <= 0 || t.resourceNode === 'none') continue;
         const prefIdx = preferredNodes.indexOf(t.resourceNode);
         if (prefIdx === -1) continue;
+
         const dist = Math.hypot(tx - ux, tz - uz);
-        const score = dist + prefIdx * 3.5;
+        let score = dist + prefIdx * 3.2;
+
+        if (unit) {
+          // Count how many fellow villagers are already heading to or working at this node
+          let workersOnNode = 0;
+          for (const other of state.units) {
+            if (
+              other.id !== unit.id &&
+              other.faction === 'civilization' &&
+              other.state !== 'ko' &&
+              Math.abs(other.targetX - tx) < 0.85 &&
+              Math.abs(other.targetZ - tz) < 0.85
+            ) {
+              workersOnNode++;
+            }
+          }
+
+          if (
+            (t.resourceNode === 'timber_grove' ||
+              t.resourceNode === 'stone_outcrop' ||
+              t.resourceNode === 'ore_vein') &&
+            workersOnNode === 1 &&
+            dist <= 12 &&
+            isHelperPersonality
+          ) {
+            // Context-sensitive cooperation: help a single person cut a tree or quarry stone together!
+            score -= 4.8;
+          } else if (workersOnNode >= 2 || (t.resourceNode === 'berry_bush' && workersOnNode >= 1)) {
+            // Avoid crowding onto the same node so individuals spread out naturally across the territory
+            score += workersOnNode * 20;
+          } else if (workersOnNode === 1) {
+            score += 4.5;
+          }
+
+          // Personal spatial scatter so individuals don't pick identical nodes in lockstep
+          const personalJitter = (((tx * 19 + tz * 37 + indivHash) % 13) / 13) * 3.8;
+          score += personalJitter;
+        }
+
         if (score < bestScore) {
           bestScore = score;
           bestTile = t;
@@ -6196,9 +6440,16 @@ function stepCivilianUnitAI(
   state: SimulationState,
   u: UnitEntity,
   def: typeof UNITS[number],
-  moveSpeed: number,
+  baseMoveSpeed: number,
   dt: number,
 ): void {
+  const indivHash = Math.abs((u.appearanceSeed ?? 1) * 31 + u.id.charCodeAt(u.id.length - 1) * 17);
+  // Subtle individual walking pace variation so citizens never march like robotic clones
+  const moveSpeed = baseMoveSpeed * (0.92 + (indivHash % 17) * 0.01);
+  const personalAngle = ((indivHash % 12) / 12) * Math.PI * 2;
+  const personalOffsetX = Math.cos(personalAngle) * 0.38;
+  const personalOffsetZ = Math.sin(personalAngle) * 0.38;
+
   // 0. Bind nomadic units only if a same-species settlement is within local awareness radius (never intercept colonists on expedition!)
   if (!u.settlementId && u.expeditionTargetX === undefined) {
     const nearbyBld = findLocalSettlementBuilding(state, u.x, u.z, SETTLEMENT_AWARENESS_RADIUS);
@@ -6218,50 +6469,171 @@ function stepCivilianUnitAI(
 
   const isChild = u.ageStage === 'child';
 
-  // 1. Combat defense (Warriors, Frenzied berserkers, Orc border clashes, or self-defense vs raiders)
+  // 1. Combat defense, Cooperative City Defense & Racial Combat Doctrines:
+  // - Humans: Fast tech progress, but rely heavily on technology (weaker without completed tech structures, stronger with them)
+  // - Elves: Peaceful (never initiate unprovoked wars outside their territory), use ranged magic & magic technology to fight and heal
+  // - Orcs: Barbarians (fierce melee attackers and border skirmishers, but very slow builders/researchers)
+  const allOwnSettlementBlds = u.settlementId
+    ? state.buildings.filter((b) => b.settlementId === u.settlementId)
+    : [];
+  const ownVillageBuildings = allOwnSettlementBlds.filter((b) => b.constructionProgress >= 100);
+  const homeAnchor =
+    allOwnSettlementBlds.length > 0
+      ? { x: allOwnSettlementBlds[0].tileX, z: allOwnSettlementBlds[0].tileZ }
+      : { x: u.x, z: u.z };
+
+  const hasHumanTechSupport =
+    u.species !== 'human' ||
+    state.epochIndex === 0 ||
+    ownVillageBuildings.some(
+      (b) =>
+        b.type === 'smeltery' ||
+        b.type === 'observatory' ||
+        b.type === 'steam_foundry' ||
+        b.type === 'dynamo_plant' ||
+        b.type === 'fission_reactor' ||
+        b.type === 'cyber_institute' ||
+        b.type === 'launch_arcology' ||
+        b.type === 'dyson_spire',
+    );
+  const hasElfArcaneTech =
+    u.species === 'elf' &&
+    ownVillageBuildings.some(
+      (b) =>
+        b.type === 'shaman_totem' ||
+        b.type === 'ziggurat' ||
+        b.type === 'observatory' ||
+        b.type === 'cyber_institute' ||
+        b.type === 'dyson_spire',
+    );
+
+  // Elves passively weave restorative magic for themselves & nearby kin
+  if (u.species === 'elf' && u.hp < u.maxHp) {
+    u.hp = Math.min(u.maxHp, u.hp + (hasElfArcaneTech ? 2.5 : 1.2) * dt);
+  }
+
   let nearestEnemy: UnitEntity | null = null;
   let enemyDistSq = Infinity;
   for (const other of state.units) {
-    if (other.id === u.id || other.state === 'ko') continue;
+    if (other.id === u.id || other.state === 'ko' || other.hp <= 0) continue;
     const isHostileRaider = other.faction === 'hostile';
-    const isRivalFrenzy = !isChild && Boolean(u.statusEffects.frenzied && other.species !== u.species);
+    const isDangerousBeastNearCity =
+      other.faction === 'wildlife' &&
+      (other.role === 'dragon' || other.role === 'wolf' || other.role === 'bear') &&
+      other.state === 'fighting' &&
+      (other.x - homeAnchor.x) ** 2 + (other.z - homeAnchor.z) ** 2 <= 18 * 18;
+
+    // Foreign race trespassing inside this kingdom's territory or attacking a fellow citizen!
+    const isForeignIntruderInCity =
+      !isChild &&
+      other.ageStage !== 'child' &&
+      other.faction === 'civilization' &&
+      other.species !== u.species &&
+      allOwnSettlementBlds.some(
+        (b) => (other.x - b.tileX) ** 2 + (other.z - b.tileZ) ** 2 <= 18 * 18,
+      );
+
+    // Helping a fellow citizen who is in combat nearby
+    const isAttackingKin =
+      other.faction === 'civilization' &&
+      other.species !== u.species &&
+      other.state === 'fighting' &&
+      (other.x - u.x) ** 2 + (other.z - u.z) ** 2 <= 16 * 16;
+
+    const isRivalFrenzy =
+      !isChild && Boolean(u.statusEffects.frenzied && other.species !== u.species);
     const isOrcSkirmish =
       !isChild &&
       other.ageStage !== 'child' &&
       u.species === 'orc' &&
       other.species !== 'orc' &&
       other.faction === 'civilization';
-    if (!isHostileRaider && !isRivalFrenzy && !isOrcSkirmish) continue;
+
+    if (
+      !isHostileRaider &&
+      !isDangerousBeastNearCity &&
+      !isForeignIntruderInCity &&
+      !isAttackingKin &&
+      !isRivalFrenzy &&
+      !isOrcSkirmish
+    ) {
+      continue;
+    }
 
     const dSq = (other.x - u.x) ** 2 + (other.z - u.z) ** 2;
-    const maxEngageSq = isHostileRaider ? Infinity : isRivalFrenzy ? 100 : 36;
+    const maxEngageSq = isHostileRaider
+      ? Infinity
+      : isForeignIntruderInCity || isAttackingKin || isDangerousBeastNearCity
+        ? 20 * 20
+        : isRivalFrenzy
+          ? 100
+          : isOrcSkirmish
+            ? 64
+            : 36;
     if (dSq <= maxEngageSq && dSq < enemyDistSq) {
       enemyDistSq = dSq;
       nearestEnemy = other;
     }
   }
 
+  let speciesCombatMult = 1.0;
+  if (u.species === 'orc') {
+    speciesCombatMult = 1.42;
+  } else if (u.species === 'elf') {
+    speciesCombatMult = hasElfArcaneTech ? 1.35 : 1.15;
+  } else if (u.species === 'human') {
+    speciesCombatMult = hasHumanTechSupport ? 1.0 + state.epochIndex * 0.08 : 0.68;
+  }
+  const kingMult = u.isKing ? 1.35 : 1.0;
+
   if (
     !isChild &&
     nearestEnemy &&
     (u.role === 'warrior' ||
+      u.isKing ||
       u.statusEffects.frenzied ||
-      (u.species === 'orc' && enemyDistSq <= 36) ||
-      enemyDistSq < 10)
+      (u.species === 'orc' && enemyDistSq <= 64) ||
+      enemyDistSq <= 18 * 18)
   ) {
     const dist = Math.sqrt(enemyDistSq);
-    if (dist <= def.attackRange) {
+    const effectiveRange = u.species === 'elf' ? Math.max(3.4, def.attackRange) : def.attackRange;
+    if (dist <= effectiveRange) {
       u.state = 'fighting';
       if (u.actionCooldown <= 0) {
-        u.actionCooldown = u.statusEffects.frenzied ? 0.45 : 0.8;
-        const speciesCombatMult = u.species === 'orc' ? 1.3 : 1.0;
-        const dmg = def.attackDamage * speciesCombatMult * (u.statusEffects.frenzied ? 2.5 : 1.0);
+        u.actionCooldown = u.statusEffects.frenzied ? 0.45 : u.species === 'elf' ? 0.72 : 0.8;
+        if (u.species === 'elf') {
+          if (!u.statusEffects.shielded && hasElfArcaneTech && Math.random() < 0.28) {
+            u.statusEffects.shielded = 4.0;
+          }
+          const eTile = getTile(state, nearestEnemy.x, nearestEnemy.z);
+          state.pendingVfx.push({
+            id: nextEntityId('vfx'),
+            type: 'hit_spark',
+            x: nearestEnemy.x,
+            y: (eTile?.height ?? 2) * 0.45 + 0.35,
+            z: nearestEnemy.z,
+            originX: u.x,
+            originY: (curTile?.height ?? 2) * 0.45 + 0.35,
+            originZ: u.z,
+            radius: 0.75,
+            color: hasElfArcaneTech ? '#56cfe1' : '#c084fc',
+            createdAt: Date.now(),
+          });
+        }
+        const dmg =
+          def.attackDamage *
+          speciesCombatMult *
+          kingMult *
+          (u.statusEffects.frenzied ? 2.5 : 1.0);
         nearestEnemy.hp -= dmg;
+        if (nearestEnemy.hp <= 0) {
+          u.kills = (u.kills ?? 0) + 1;
+        }
       }
     } else {
       u.state = 'moving';
-      u.targetX = nearestEnemy.x;
-      u.targetZ = nearestEnemy.z;
+      u.targetX = nearestEnemy.x + personalOffsetX * 0.5;
+      u.targetZ = nearestEnemy.z + personalOffsetZ * 0.5;
       const dx = (nearestEnemy.x - u.x) / dist;
       const dz = (nearestEnemy.z - u.z) / dist;
       u.x += dx * moveSpeed * dt;
@@ -6270,11 +6642,75 @@ function stepCivilianUnitAI(
     return;
   }
 
+  // 1a. Attack & Destroy Foreign Race Buildings Built Inside or Encroaching on This Kingdom's Territory!
+  if (!isChild && allOwnSettlementBlds.length > 0) {
+    let nearestForeignBld: BuildingEntity | null = null;
+    let bestForeignBldDistSq = Infinity;
+    for (const b of state.buildings) {
+      if (b.hp <= 0) continue;
+      const bSp = b.species ?? (b.settlementId ? state.settlementSpecies?.[b.settlementId] : undefined) ?? 'human';
+      if (bSp === u.species) continue;
+      const distToHomeSq = (b.tileX - homeAnchor.x) ** 2 + (b.tileZ - homeAnchor.z) ** 2;
+      const distToUnitSq = (b.tileX - u.x) ** 2 + (b.tileZ - u.z) ** 2;
+      const encroachingHome = distToHomeSq <= 24 * 24 || allOwnSettlementBlds.some(
+        (ob) => (ob.tileX - b.tileX) ** 2 + (ob.tileZ - b.tileZ) ** 2 <= 18 * 18,
+      );
+      if (!encroachingHome && !(u.species === 'orc' && distToUnitSq <= 16 * 16) && !u.statusEffects.frenzied) {
+        continue;
+      }
+      if (distToUnitSq < bestForeignBldDistSq) {
+        bestForeignBldDistSq = distToUnitSq;
+        nearestForeignBld = b;
+      }
+    }
+
+    if (nearestForeignBld) {
+      const bDist = Math.sqrt(bestForeignBldDistSq);
+      const effectiveRange = u.species === 'elf' ? Math.max(3.4, def.attackRange) : Math.max(1.45, def.attackRange);
+      if (bDist <= effectiveRange) {
+        u.state = 'fighting';
+        if (u.actionCooldown <= 0) {
+          u.actionCooldown = u.statusEffects.frenzied ? 0.45 : 0.75;
+          const bldDmg =
+            def.attackDamage *
+            speciesCombatMult *
+            kingMult *
+            1.65 *
+            (u.statusEffects.frenzied ? 2.2 : 1.0);
+          if (nearestForeignBld.shieldTimer <= 0) {
+            nearestForeignBld.hp = Math.max(0, nearestForeignBld.hp - bldDmg);
+          }
+          const bTile = getTile(state, nearestForeignBld.tileX, nearestForeignBld.tileZ);
+          state.pendingVfx.push({
+            id: nextEntityId('vfx'),
+            type: 'hit_spark',
+            x: nearestForeignBld.tileX,
+            y: (bTile?.height ?? 2) * 0.45 + 0.35,
+            z: nearestForeignBld.tileZ,
+            originX: u.species === 'elf' ? u.x : undefined,
+            originY: u.species === 'elf' ? (curTile?.height ?? 2) * 0.45 + 0.35 : undefined,
+            originZ: u.species === 'elf' ? u.z : undefined,
+            radius: 0.85,
+            color: u.species === 'elf' ? '#56cfe1' : '#ff9f68',
+            createdAt: Date.now(),
+          });
+        }
+      } else {
+        u.state = 'moving';
+        u.targetX = nearestForeignBld.tileX + personalOffsetX;
+        u.targetZ = nearestForeignBld.tileZ + personalOffsetZ;
+        const dx = (u.targetX - u.x) / Math.max(0.1, bDist);
+        const dz = (u.targetZ - u.z) / Math.max(0.1, bDist);
+        u.x += dx * moveSpeed * dt;
+        u.z += dz * moveSpeed * dt;
+      }
+      return;
+    }
+  }
+
   // Children stay playfully near their home settlement and forage nearby berries lightly (never fight or desert town)
   if (isChild) {
-    const townBlds = u.settlementId
-      ? state.buildings.filter((b) => b.settlementId === u.settlementId)
-      : [];
+    const townBlds = allOwnSettlementBlds;
     if (nearestEnemy && enemyDistSq < 16 && townBlds.length > 0) {
       const safeBld = townBlds[0];
       const sx = safeBld.tileX - u.x;
@@ -6285,7 +6721,7 @@ function stepCivilianUnitAI(
         u.targetX = safeBld.tileX;
         u.targetZ = safeBld.tileZ;
         u.x += (sx / sd) * moveSpeed * 1.2 * dt;
-        u.z += (sz / sd) * moveSpeed * 1.2 * dt;
+        u.z += (sz / sd) * moveSpeed * dt;
         return;
       }
     }
@@ -6310,7 +6746,7 @@ function stepCivilianUnitAI(
       const nt = getTile(state, u.x + (dxN / dN) * moveSpeed * dt, u.z + (dzN / dN) * moveSpeed * dt);
       if (nt && nt.height > 0) {
         u.state = 'moving';
-        u.x = nt.x === Math.round(u.x) && nt.z === Math.round(u.z) ? u.x + (dxN / dN) * moveSpeed * dt : u.x + (dxN / dN) * moveSpeed * dt;
+        u.x += (dxN / dN) * moveSpeed * dt;
         u.z += (dzN / dN) * moveSpeed * dt;
       } else {
         u.targetX = u.x;
@@ -6345,16 +6781,17 @@ function stepCivilianUnitAI(
     }
   }
 
-  // 2. Priests heal/cleanse plagued or injured allies
-  if (u.role === 'priest') {
+  // 2. Priests & Elves heal/cleanse plagued or injured allies nearby
+  if (u.role === 'priest' || (u.species === 'elf' && indivHash % 3 === 0)) {
     for (const ally of state.units) {
       if (
         ally.faction === 'civilization' &&
+        ally.species === u.species &&
         ally.state !== 'ko' &&
-        (ally.hp < ally.maxHp || ally.statusEffects.plagued || ally.statusEffects.cursed)
+        (ally.hp < ally.maxHp * 0.85 || ally.statusEffects.plagued || ally.statusEffects.cursed)
       ) {
         const dSq = (ally.x - u.x) ** 2 + (ally.z - u.z) ** 2;
-        if (dSq <= 9) {
+        if (dSq <= 12) {
           u.state = 'praying';
           ally.hp = Math.min(ally.maxHp, ally.hp + 15 * dt);
           delete ally.statusEffects.plagued;
@@ -6365,30 +6802,52 @@ function stepCivilianUnitAI(
     }
   }
 
-  const villageBuildings = u.settlementId
-    ? state.buildings.filter((b) => b.settlementId === u.settlementId)
-    : [];
+  const villageBuildings = allOwnSettlementBlds;
 
-  // 3. Construct or repair unfinished buildings belonging strictly to this citizen's settlement
-  const unfinished = villageBuildings.find((b) => b.constructionProgress < 100);
-  if (
-    unfinished &&
-    u.carryingAmount === 0 &&
-    (u.role === 'builder' || u.role === 'villager' || u.species === 'human' || villageBuildings.length <= 2)
-  ) {
-    const dx = unfinished.tileX - u.x;
-    const dz = unfinished.tileZ - u.z;
+  // 3. Construct or repair unfinished buildings belonging to this citizen's settlement
+  // Cap builders per construction site to 2 so the whole town doesn't march in a single-file line!
+  const unfinished = villageBuildings.find((b) => {
+    if (b.constructionProgress >= 100) return false;
+    const buildersHere = state.units.filter(
+      (other) =>
+        other.id !== u.id &&
+        other.settlementId === u.settlementId &&
+        other.state !== 'ko' &&
+        Math.hypot(other.targetX - b.tileX, other.targetZ - b.tileZ) <= 1.2,
+    ).length;
+    return buildersHere < 2;
+  });
+
+  const isBuilderInclined =
+    u.role === 'builder' ||
+    villageBuildings.length <= 1 ||
+    indivHash % 3 === 0 ||
+    (unfinished && Math.hypot(unfinished.tileX - u.x, unfinished.tileZ - u.z) <= 8);
+
+  if (unfinished && u.carryingAmount === 0 && isBuilderInclined) {
+    const destX = unfinished.tileX + personalOffsetX;
+    const destZ = unfinished.tileZ + personalOffsetZ;
+    const dx = destX - u.x;
+    const dz = destZ - u.z;
     const dist = Math.hypot(dx, dz);
-    u.targetX = unfinished.tileX;
-    u.targetZ = unfinished.tileZ;
+    u.targetX = destX;
+    u.targetZ = destZ;
     if (dist > 1.05) {
       u.state = 'moving';
       u.x += (dx / dist) * moveSpeed * dt;
       u.z += (dz / dist) * moveSpeed * dt;
     } else {
       u.state = 'building';
+      const speciesBuildBase =
+        u.species === 'human'
+          ? 25
+          : u.species === 'elf'
+            ? 16
+            : state.sandboxFreeMode
+              ? 14
+              : 8.5;
       const buildSpeed =
-        (u.role === 'builder' ? 28 : u.species === 'human' ? 22 : 16) *
+        (u.role === 'builder' ? 28 : speciesBuildBase) *
         (u.statusEffects.blessed ? 1.6 : 1.0);
       unfinished.constructionProgress = Math.min(100, unfinished.constructionProgress + buildSpeed * dt);
       unfinished.hp = Math.min(unfinished.maxHp, unfinished.hp + 20 * dt);
@@ -6417,27 +6876,38 @@ function stepCivilianUnitAI(
     return;
   }
 
-  // 3b. Builders and villagers actively upgrade older-epoch buildings in their settlement toward the current age
-  const upgradeTarget = villageBuildings.find(
-    (b) => b.constructionProgress >= 100 && b.epochLevel < state.epochIndex,
-  );
+  // 3b. Builders and mason-inclined villagers upgrade older-epoch buildings (max 1-2 per building)
+  const upgradeTarget = villageBuildings.find((b) => {
+    if (b.constructionProgress < 100 || b.epochLevel >= state.epochIndex) return false;
+    const upgradersHere = state.units.filter(
+      (other) =>
+        other.id !== u.id &&
+        other.settlementId === u.settlementId &&
+        other.state !== 'ko' &&
+        Math.hypot(other.targetX - b.tileX, other.targetZ - b.tileZ) <= 1.2,
+    ).length;
+    return upgradersHere < 1;
+  });
   if (
     upgradeTarget &&
     u.carryingAmount === 0 &&
-    (u.role === 'builder' || u.role === 'villager')
+    (u.role === 'builder' || (u.role === 'villager' && indivHash % 4 === 0))
   ) {
-    const dx = upgradeTarget.tileX - u.x;
-    const dz = upgradeTarget.tileZ - u.z;
+    const destX = upgradeTarget.tileX + personalOffsetX;
+    const destZ = upgradeTarget.tileZ + personalOffsetZ;
+    const dx = destX - u.x;
+    const dz = destZ - u.z;
     const dist = Math.hypot(dx, dz);
-    u.targetX = upgradeTarget.tileX;
-    u.targetZ = upgradeTarget.tileZ;
+    u.targetX = destX;
+    u.targetZ = destZ;
     if (dist > 1.05) {
       u.state = 'moving';
       u.x += (dx / dist) * moveSpeed * dt;
       u.z += (dz / dist) * moveSpeed * dt;
     } else {
       u.state = 'building';
-      const upgSpeed = (u.role === 'builder' ? 32 : 20) * (u.statusEffects.blessed ? 1.6 : 1.0);
+      const speciesUpgMult = u.species === 'human' ? 1.25 : u.species === 'elf' ? 0.85 : 0.35;
+      const upgSpeed = (u.role === 'builder' ? 28 : 18) * speciesUpgMult * (u.statusEffects.blessed ? 1.6 : 1.0);
       upgradeTarget.upgradeProgress = (upgradeTarget.upgradeProgress ?? 0) + upgSpeed * dt;
       upgradeTarget.hp = Math.min(upgradeTarget.maxHp, upgradeTarget.hp + 15 * dt);
     }
@@ -6449,11 +6919,13 @@ function stepCivilianUnitAI(
   if (u.carryingAmount >= carryCap && u.carryingType) {
     const dropoff = findNearestDropoffBuilding(state, u.x, u.z, u.settlementId);
     if (dropoff) {
-      const dx = dropoff.tileX - u.x;
-      const dz = dropoff.tileZ - u.z;
+      const destX = dropoff.tileX + personalOffsetX * 0.7;
+      const destZ = dropoff.tileZ + personalOffsetZ * 0.7;
+      const dx = destX - u.x;
+      const dz = destZ - u.z;
       const dist = Math.hypot(dx, dz);
-      u.targetX = dropoff.tileX;
-      u.targetZ = dropoff.tileZ;
+      u.targetX = destX;
+      u.targetZ = destZ;
       if (dist > 1.1) {
         u.state = 'moving';
         u.x += (dx / dist) * moveSpeed * dt;
@@ -6462,7 +6934,7 @@ function stepCivilianUnitAI(
         recordHarvestDeposit(state, u.carryingType, u.carryingAmount);
         u.carryingAmount = 0;
         u.carryingType = null;
-        u.actionCooldown = 0.25;
+        u.actionCooldown = 0.25 + (indivHash % 5) * 0.1;
         u.state = 'idle';
       }
       return;
@@ -6481,28 +6953,31 @@ function stepCivilianUnitAI(
       ) ?? findNearestDropoffBuilding(state, u.x, u.z, u.settlementId);
 
     if (targetBld) {
-      const dx = targetBld.tileX - u.x;
-      const dz = targetBld.tileZ - u.z;
+      const destX = targetBld.tileX + personalOffsetX;
+      const destZ = targetBld.tileZ + personalOffsetZ;
+      const dx = destX - u.x;
+      const dz = destZ - u.z;
       const dist = Math.hypot(dx, dz);
-      u.targetX = targetBld.tileX;
-      u.targetZ = targetBld.tileZ;
+      u.targetX = destX;
+      u.targetZ = destZ;
       if (dist > 1.35) {
         u.state = 'moving';
         u.x += (dx / dist) * moveSpeed * dt;
         u.z += (dz / dist) * moveSpeed * dt;
       } else {
         u.state = u.role === 'priest' ? 'praying' : 'researching';
-        u.harvestTimer = (u.harvestTimer ?? 0) + dt * (u.statusEffects.blessed ? 1.7 : 1.0);
+        const researchPace = u.species === 'human' ? 1.3 : u.species === 'elf' ? 1.1 : 0.38;
+        u.harvestTimer = (u.harvestTimer ?? 0) + dt * researchPace * (u.statusEffects.blessed ? 1.7 : 1.0);
         if (u.harvestTimer >= 1.2) {
           u.harvestTimer -= 1.2;
           if (u.role === 'priest') {
-            recordHarvestDeposit(state, 'faith', 2.8);
+            recordHarvestDeposit(state, 'faith', u.species === 'elf' ? 3.6 : 2.6);
           } else if (u.role === 'scholar') {
-            recordHarvestDeposit(state, 'knowledge', 3.4 + state.epochIndex * 1.1);
+            recordHarvestDeposit(state, 'knowledge', 2.8 + state.epochIndex * 0.8);
           } else {
-            recordHarvestDeposit(state, 'energy', 4.0);
-            recordHarvestDeposit(state, 'alloy', 2.5);
-            recordHarvestDeposit(state, 'knowledge', 2.2);
+            recordHarvestDeposit(state, 'energy', 3.2);
+            recordHarvestDeposit(state, 'alloy', 2.0);
+            recordHarvestDeposit(state, 'knowledge', 1.8);
           }
         }
       }
@@ -6514,7 +6989,7 @@ function stepCivilianUnitAI(
   const dxT = u.targetX - u.x;
   const dzT = u.targetZ - u.z;
   const distToTarget = Math.hypot(dxT, dzT);
-  const targetTile = getTile(state, u.targetX, u.targetZ);
+  const targetTile = getTile(state, Math.round(u.targetX), Math.round(u.targetZ));
 
   if (
     targetTile &&
@@ -6528,8 +7003,18 @@ function stepCivilianUnitAI(
       u.z += (dzT / distToTarget) * moveSpeed * dt;
     } else {
       u.state = 'gathering';
+      // Cooperative bonus when a fellow citizen is helping chop the same tree / mine the same rock!
+      const hasHelperHere = state.units.some(
+        (other) =>
+          other.id !== u.id &&
+          other.faction === 'civilization' &&
+          other.state === 'gathering' &&
+          Math.hypot(other.x - targetTile.x, other.z - targetTile.z) <= 1.5,
+      );
+      const coopMult = hasHelperHere ? 1.35 : 1.0;
       const workMult =
         (def.harvestRate / 6) *
+        coopMult *
         (u.statusEffects.blessed ? 1.75 : 1.0) *
         (u.statusEffects.cursed ? 0.5 : 1.0);
       u.harvestTimer = (u.harvestTimer ?? 0) + dt * workMult;
@@ -6594,9 +7079,45 @@ function stepCivilianUnitAI(
     return;
   }
 
-  // 7. Pick next resource node matching role & settlement shortages
+  // 7. Pick next individual task: help a nearby ally cut a tree, gather according to personal specialty, or patrol town
   if (u.actionCooldown <= 0) {
-    u.actionCooldown = 0.6;
+    u.actionCooldown = 0.65 + (indivHash % 5) * 0.15;
+
+    // Context-sensitive helping: if a fellow villager is cutting a tree or mining nearby alone, go help them!
+    if (indivHash % 2 === 0 && u.role !== 'warrior') {
+      const allyChopping = state.units.find((other) => {
+        if (
+          other.id === u.id ||
+          other.settlementId !== u.settlementId ||
+          other.state !== 'gathering'
+        ) {
+          return false;
+        }
+        const d = Math.hypot(other.x - u.x, other.z - u.z);
+        if (d > 11) return false;
+        const ot = getTile(state, Math.round(other.targetX), Math.round(other.targetZ));
+        if (!ot || (ot.resourceNode !== 'timber_grove' && ot.resourceNode !== 'stone_outcrop' && ot.resourceNode !== 'ore_vein')) {
+          return false;
+        }
+        const helpersAlready = state.units.filter(
+          (w) =>
+            w.id !== u.id &&
+            w.state !== 'ko' &&
+            Math.hypot(w.targetX - ot.x, w.targetZ - ot.z) <= 1.2,
+        ).length;
+        return helpersAlready === 1;
+      });
+
+      if (allyChopping) {
+        const otX = Math.round(allyChopping.targetX);
+        const otZ = Math.round(allyChopping.targetZ);
+        u.targetX = otX + personalOffsetX;
+        u.targetZ = otZ + personalOffsetZ;
+        u.state = 'moving';
+        return;
+      }
+    }
+
     let preferred: TileData['resourceNode'][];
     if (u.role === 'forager') {
       preferred =
@@ -6609,33 +7130,55 @@ function stepCivilianUnitAI(
           ? ['ore_vein', 'stone_outcrop', 'crystal_monolith']
           : ['stone_outcrop', 'ore_vein', 'crystal_monolith'];
     } else {
-      // Villagers & others dynamically balance food, wood, stone, ore
-      const pairs: [TileData['resourceNode'], number][] = [
-        ['berry_bush', state.resources.food],
-        ['timber_grove', state.resources.wood],
-        ['stone_outcrop', state.resources.stone],
-        ['ore_vein', state.resources.ore + (state.epochIndex === 0 ? 40 : 0)],
-      ];
-      pairs.sort((a, b) => a[1] - b[1]);
-      preferred = pairs.map((p) => p[0]);
+      // Give each individual their own vocational preference (Forester, Forager, Quarrier, Prospector, or Balanced)
+      const vocation = indivHash % 5;
+      if (state.resources.food < 15) {
+        preferred = ['berry_bush', 'timber_grove', 'stone_outcrop', 'ore_vein'];
+      } else if (state.resources.wood < 15) {
+        preferred = ['timber_grove', 'berry_bush', 'stone_outcrop', 'ore_vein'];
+      } else if (vocation === 0) {
+        preferred = ['timber_grove', 'berry_bush', 'stone_outcrop', 'ore_vein'];
+      } else if (vocation === 1) {
+        preferred = ['berry_bush', 'timber_grove', 'stone_outcrop', 'ore_vein'];
+      } else if (vocation === 2) {
+        preferred = ['stone_outcrop', 'timber_grove', 'ore_vein', 'berry_bush'];
+      } else if (vocation === 3) {
+        preferred = ['ore_vein', 'stone_outcrop', 'crystal_monolith', 'timber_grove', 'berry_bush'];
+      } else {
+        const pairs: [TileData['resourceNode'], number][] = [
+          ['berry_bush', state.resources.food],
+          ['timber_grove', state.resources.wood],
+          ['stone_outcrop', state.resources.stone],
+          ['ore_vein', state.resources.ore + (state.epochIndex === 0 ? 40 : 0)],
+        ];
+        pairs.sort((a, b) => a[1] - b[1]);
+        preferred = pairs.map((p) => p[0]);
+      }
     }
 
-    const nodeTile = findNearestResourceTile(state, u.x, u.z, preferred);
-    if (nodeTile) {
-      u.targetX = nodeTile.x + ((u.id.charCodeAt(u.id.length - 1) % 3) - 1) * 0.2;
-      u.targetZ = nodeTile.z + ((u.id.charCodeAt(0) % 3) - 1) * 0.2;
-      u.state = 'moving';
-      return;
+    // Kings and Guards prefer patrolling their city streets when not in combat, only gathering occasionally
+    const shouldPatrolTown =
+      (u.isKing || u.role === 'warrior' || (indivHash + Math.floor(state.year * 10)) % 8 === 0) &&
+      villageBuildings.length >= 2;
+
+    if (!shouldPatrolTown) {
+      const nodeTile = findNearestResourceTile(state, u.x, u.z, preferred, u);
+      if (nodeTile) {
+        u.targetX = nodeTile.x + personalOffsetX;
+        u.targetZ = nodeTile.z + personalOffsetZ;
+        u.state = 'moving';
+        return;
+      }
     }
 
-    // Patrol around OWN settlement if no resource nodes are nearby
+    // Patrol or stroll around OWN settlement
     if (villageBuildings.length > 0) {
-      const b = villageBuildings[u.id.charCodeAt(u.id.length - 1) % villageBuildings.length];
-      u.targetX = b.tileX + (Math.random() - 0.5) * 4;
-      u.targetZ = b.tileZ + (Math.random() - 0.5) * 4;
+      const b = villageBuildings[(indivHash + Math.floor(Math.random() * villageBuildings.length)) % villageBuildings.length];
+      u.targetX = Math.max(2, Math.min(state.gridSize - 3, b.tileX + (Math.random() - 0.5) * 6));
+      u.targetZ = Math.max(2, Math.min(state.gridSize - 3, b.tileZ + (Math.random() - 0.5) * 6));
     } else {
-      u.targetX = Math.max(2, Math.min(state.gridSize - 3, u.x + (Math.random() - 0.5) * 4));
-      u.targetZ = Math.max(2, Math.min(state.gridSize - 3, u.z + (Math.random() - 0.5) * 4));
+      u.targetX = Math.max(2, Math.min(state.gridSize - 3, u.x + (Math.random() - 0.5) * 5));
+      u.targetZ = Math.max(2, Math.min(state.gridSize - 3, u.z + (Math.random() - 0.5) * 5));
     }
   } else if (distToTarget > 0.35) {
     u.state = 'moving';

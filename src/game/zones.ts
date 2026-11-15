@@ -181,7 +181,7 @@ const BIOME_META: Record<
     baseTempC: 16,
   },
   sand: {
-    name: 'Sunlit Dunes & Shore',
+    name: 'Sunlit Dunes',
     category: 'Terrestrial',
     color: [250, 204, 21],
     baseTempC: 27,
@@ -199,13 +199,13 @@ const BIOME_META: Record<
     baseTempC: 20,
   },
   forest: {
-    name: 'Ancient Woodlands',
+    name: 'Ancient Woods',
     category: 'Terrestrial',
     color: [22, 163, 74],
     baseTempC: 15,
   },
   jungle: {
-    name: 'Tropical Rainforest',
+    name: 'Tropical Jungle',
     category: 'Terrestrial',
     color: [13, 148, 136],
     baseTempC: 28,
@@ -217,13 +217,13 @@ const BIOME_META: Record<
     baseTempC: 30,
   },
   swamp: {
-    name: 'Mire & Mangroves',
+    name: 'Mire Marsh',
     category: 'Terrestrial',
     color: [101, 163, 13],
     baseTempC: 23,
   },
   highland: {
-    name: 'Windy Foothills',
+    name: 'Windy Hills',
     category: 'Terrestrial',
     color: [168, 162, 158],
     baseTempC: 11,
@@ -235,67 +235,67 @@ const BIOME_META: Record<
     baseTempC: 4,
   },
   taiga: {
-    name: 'Boreal Pinewoods',
+    name: 'Boreal Taiga',
     category: 'Terrestrial',
     color: [20, 184, 166],
     baseTempC: 5,
   },
   tundra: {
-    name: 'Permafrost Steppe',
+    name: 'Frozen Tundra',
     category: 'Terrestrial',
     color: [125, 211, 252],
     baseTempC: -3,
   },
   badlands: {
-    name: 'Crimson Badlands',
+    name: 'Red Badlands',
     category: 'Terrestrial',
     color: [234, 88, 12],
     baseTempC: 34,
   },
   blossom: {
-    name: 'Sakura Blossom Grove',
+    name: 'Blossom Grove',
     category: 'Terrestrial',
     color: [244, 114, 182],
     baseTempC: 19,
   },
   stone_road: {
-    name: 'Paved Tradeway',
+    name: 'Stone Road',
     category: 'Civilized',
     color: [214, 211, 209],
     baseTempC: 20,
   },
   rail_track: {
-    name: 'Iron Rail Corridor',
+    name: 'Rail Track',
     category: 'Civilized',
     color: [161, 161, 170],
     baseTempC: 21,
   },
   runway: {
-    name: 'Aerodrome Tarmac',
+    name: 'Airfield Runway',
     category: 'Civilized',
     color: [113, 113, 122],
     baseTempC: 22,
   },
   rock: {
-    name: 'Craggy Bedrock',
+    name: 'Rocky Crags',
     category: 'Terrestrial',
     color: [120, 113, 108],
     baseTempC: 10,
   },
   snow: {
-    name: 'Frostbound Glacial',
+    name: 'Glacial Snow',
     category: 'Terrestrial',
     color: [226, 232, 240],
     baseTempC: -11,
   },
   scorched: {
-    name: 'Ashen Caldera',
+    name: 'Ashen Waste',
     category: 'Cataclysmic',
     color: [220, 38, 38],
     baseTempC: 42,
   },
   crystal_field: {
-    name: 'Arcane Crystal Fields',
+    name: 'Crystal Fields',
     category: 'Cataclysmic',
     color: [232, 121, 249],
     baseTempC: 7,
@@ -341,7 +341,7 @@ const THERMAL_BAND_META: Array<{
   {
     zoneId: 4,
     bandId: 'warm',
-    name: 'Subtropical Warmth',
+    name: 'Tropical Warmth',
     rangeLabel: '23°C – 31°C (73°F – 88°F)',
     color: [251, 191, 36],
     maxThreshold: 31,
@@ -388,6 +388,9 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
     name: string;
     species: SpeciesId;
     buildingCount: number;
+    completedCount: number;
+    sumHp: number;
+    sumMaxHp: number;
     sumX: number;
     sumZ: number;
     anchorCount: number;
@@ -403,12 +406,15 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
     if (!rec) {
       const sp = sim.settlementSpecies?.[sid] ?? fallbackSpecies;
       const defaultLabel =
-        sp === 'elf' ? 'Sylvan Enclave' : sp === 'orc' ? 'Iron Warcamp' : 'Haven Hold';
+        sp === 'elf' ? 'Sylvan Glade' : sp === 'orc' ? 'Iron Crag' : 'Haven Hold';
       rec = {
         id: sid,
         name: sim.settlementNames?.[sid] || defaultLabel,
         species: sp,
         buildingCount: 0,
+        completedCount: 0,
+        sumHp: 0,
+        sumMaxHp: 0,
         sumX: x,
         sumZ: z,
         anchorCount: 1,
@@ -422,18 +428,22 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
   };
 
   for (const b of sim.buildings) {
+    if (b.hp <= 0) continue;
     const sid = b.settlementId || 'city_default';
     const rec = ensureSettlement(sid, b.species || 'human', b.tileX, b.tileZ);
     rec.buildingCount++;
+    if (b.constructionProgress >= 100) rec.completedCount++;
+    rec.sumHp += Math.max(0, b.hp);
+    rec.sumMaxHp += Math.max(1, b.maxHp);
     rec.sumX += b.tileX;
     rec.sumZ += b.tileZ;
     rec.anchorCount++;
     if (b.epochLevel > rec.maxEpoch) rec.maxEpoch = b.epochLevel;
   }
 
-  // Group civilization units into their settlement (or nearest matching settlement / camp)
+  // Group living civilization units into their settlement (or nearest matching settlement / camp)
   for (const u of sim.units) {
-    if (u.faction !== 'civilization') continue;
+    if (u.faction !== 'civilization' || u.state === 'ko' || u.hp <= 0) continue;
     let sid = u.settlementId;
     if (!sid || !settlementTable.has(sid)) {
       let bestDistSq = 28 * 28;
@@ -461,12 +471,20 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
   }
 
   const settlementIdToZoneId = new Map<string, number>();
+  const settlementStartCost = new Float32Array(256);
+  const maxCostByZone = new Float32Array(256);
   const kCost = new Float32Array(totalTiles);
   kCost.fill(1e9);
   const queueIdx: number[] = [];
 
   let kIdxCounter = 0;
   settlementTable.forEach((s) => {
+    const pop = s.adults + s.children;
+    // If a lone foreign unit was killed while planting an unfinished structure (0 pop, 0 completed buildings), remove its zone immediately!
+    if (pop === 0 && s.completedCount === 0) {
+      return;
+    }
+
     const zoneId = Math.min(254, ++kIdxCounter);
     settlementIdToZoneId.set(s.id, zoneId);
     const palette = KINGDOM_PALETTES[s.species] || KINGDOM_PALETTES.human;
@@ -483,7 +501,7 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
       speciesLabel: s.species === 'human' ? 'Human Kingdom' : s.species === 'elf' ? 'Elven Realm' : 'Orcish Dominion',
       color,
       hexColor: rgbToHex(color),
-      population: s.adults + s.children,
+      population: pop,
       adultCount: s.adults,
       childCount: s.children,
       buildingCount: s.buildingCount,
@@ -497,22 +515,35 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
       centerZ: cz,
     });
 
+    const hpRatio = s.sumMaxHp > 0 ? Math.max(0.05, Math.min(1, s.sumHp / s.sumMaxHp)) : 1;
+    if (pop === 0) {
+      // Unpopulated ghost structures shrink as their HP decays/takes damage so enemy territory slowly creeps in!
+      settlementStartCost[zoneId] = (1 - hpRatio) * 5.2;
+      maxCostByZone[zoneId] = Math.max(1.2, 5.8 * hpRatio);
+    } else {
+      settlementStartCost[zoneId] = 0;
+      const bonus = Math.min(7.5, s.buildingCount * 0.4 + pop * 0.16);
+      maxCostByZone[zoneId] = 8.5 + bonus;
+    }
+
     const cIdx = cz * size + cx;
-    kCost[cIdx] = 0;
+    kCost[cIdx] = settlementStartCost[zoneId];
     kingdomMap[cIdx] = zoneId;
     queueIdx.push(cIdx);
   });
 
   // Seed from buildings
   for (const b of sim.buildings) {
+    if (b.hp <= 0) continue;
     const sid = b.settlementId || 'city_default';
     const zoneId = settlementIdToZoneId.get(sid);
     if (!zoneId) continue;
     const bx = Math.max(0, Math.min(size - 1, Math.round(b.tileX)));
     const bz = Math.max(0, Math.min(size - 1, Math.round(b.tileZ)));
     const bIdx = bz * size + bx;
-    if (kCost[bIdx] > 0) {
-      kCost[bIdx] = 0;
+    const seedCost = settlementStartCost[zoneId];
+    if (kCost[bIdx] > seedCost) {
+      kCost[bIdx] = seedCost;
       kingdomMap[bIdx] = zoneId;
       queueIdx.push(bIdx);
     }
@@ -525,19 +556,21 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
       const zoneId = settlementIdToZoneId.get(tile.farmSettlementId);
       if (zoneId) {
         const info = kingdomsById.get(zoneId);
-        if (info) info.farmTileCount++;
-        if (kCost[i] > 0.4) {
-          kCost[i] = 0.4;
-          kingdomMap[i] = zoneId;
-          queueIdx.push(i);
+        if (info && info.population > 0) {
+          info.farmTileCount++;
+          if (kCost[i] > 0.4) {
+            kCost[i] = 0.4;
+            kingdomMap[i] = zoneId;
+            queueIdx.push(i);
+          }
         }
       }
     }
   }
 
-  // Seed lightly from citizen positions
+  // Seed lightly from living citizen positions
   for (const u of sim.units) {
-    if (u.faction !== 'civilization') continue;
+    if (u.faction !== 'civilization' || u.state === 'ko' || u.hp <= 0) continue;
     const sid = u.settlementId || `nomad_${u.species}`;
     const zoneId = settlementIdToZoneId.get(sid) || settlementIdToZoneId.get('city_default');
     if (!zoneId) continue;
@@ -550,13 +583,6 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
       queueIdx.push(uIdx);
     }
   }
-
-  // Max kingdom expansion budget scales organically with buildings & population
-  const maxCostByZone = new Float32Array(256);
-  kingdomsById.forEach((info, zid) => {
-    const bonus = Math.min(7.5, info.buildingCount * 0.4 + info.population * 0.16);
-    maxCostByZone[zid] = 8.5 + bonus;
-  });
 
   const dirs8 = [
     [-1, 0, 1.0],
@@ -720,7 +746,7 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
     switch (species) {
       case 'wolf':
         return {
-          titlePrefix: 'Wolf Pack Hunting Grounds',
+          titlePrefix: 'Wolf Pack',
           speciesLabel: 'Dire Wolf Pack',
           diet: 'Carnivore',
           domainType: 'Terrestrial',
@@ -732,7 +758,7 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
         };
       case 'bear':
         return {
-          titlePrefix: 'Ursine Den Territory',
+          titlePrefix: 'Bear Den',
           speciesLabel: 'Grizzly Bear',
           diet: 'Carnivore',
           domainType: 'Terrestrial',
@@ -744,7 +770,7 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
         };
       case 'dragon':
         return {
-          titlePrefix: 'Dragon Roost Dominion',
+          titlePrefix: 'Dragon Roost',
           speciesLabel: 'Elder Dragon',
           diet: 'Apex',
           domainType: 'Aerial & Coastal',
@@ -757,7 +783,7 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
       case 'dinosaur':
         return isDinoHerb
           ? {
-              titlePrefix: 'Herbivore Dino Grazing Basin',
+              titlePrefix: 'Dino Herd',
               speciesLabel: 'Herbivore Dinosaur',
               diet: 'Herbivore',
               domainType: 'Terrestrial',
@@ -768,7 +794,7 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
               canEnterLand: true,
             }
           : {
-              titlePrefix: 'Apex Theropod Stalking Zone',
+              titlePrefix: 'Raptor Pack',
               speciesLabel: 'Carnivore Dinosaur',
               diet: 'Carnivore',
               domainType: 'Terrestrial',
@@ -780,7 +806,7 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
             };
       case 'capybara':
         return {
-          titlePrefix: 'Capybara Lagoon & Wetland',
+          titlePrefix: 'Capybara Lagoon',
           speciesLabel: 'Giant Capybara',
           diet: 'Herbivore',
           domainType: 'Amphibious (Land & Sea)',
@@ -792,7 +818,7 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
         };
       case 'unicorn':
         return {
-          titlePrefix: 'Unicorn Sanctuary Glade',
+          titlePrefix: 'Unicorn Glade',
           speciesLabel: 'Starlight Unicorn',
           diet: 'Herbivore',
           domainType: 'Terrestrial',
@@ -804,7 +830,7 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
         };
       case 'cow':
         return {
-          titlePrefix: 'Cattle Pasture Range',
+          titlePrefix: 'Cattle Pasture',
           speciesLabel: 'Highland Cattle',
           diet: 'Herbivore',
           domainType: 'Terrestrial',
@@ -816,7 +842,7 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
         };
       case 'pig':
         return {
-          titlePrefix: 'Wild Boar Foraging Sounder',
+          titlePrefix: 'Boar Thicket',
           speciesLabel: 'Rooting Boar',
           diet: 'Omnivore',
           domainType: 'Terrestrial',
@@ -828,7 +854,7 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
         };
       case 'chicken':
         return {
-          titlePrefix: 'Fowl Nesting Thicket',
+          titlePrefix: 'Fowl Roost',
           speciesLabel: 'Wild Fowl',
           diet: 'Herbivore',
           domainType: 'Terrestrial',
@@ -840,7 +866,7 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
         };
       case 'raider':
         return {
-          titlePrefix: 'Raider Outlaw Encampment',
+          titlePrefix: 'Raider Camp',
           speciesLabel: 'Hostile Raiders',
           diet: 'Carnivore',
           domainType: 'Terrestrial',
@@ -852,7 +878,7 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
         };
       default:
         return {
-          titlePrefix: idx % 2 === 0 ? 'Coral Reef Shoal Territory' : 'Pelagic Leviathan Grounds',
+          titlePrefix: idx % 2 === 0 ? 'Reef Shoal' : 'Deep Pod',
           speciesLabel: idx % 2 === 0 ? 'Reef Shoals' : 'Pelagic Fauna',
           diet: 'Marine',
           domainType: 'Marine Waters',
@@ -873,7 +899,7 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
     territoriesById.set(c.zoneId, {
       zoneId: c.zoneId,
       id: `territory-${c.zoneId}`,
-      name: `${meta.titlePrefix} #${c.zoneId}`,
+      name: meta.titlePrefix,
       species: c.species,
       speciesLabel: meta.speciesLabel,
       diet: meta.diet,
@@ -942,7 +968,7 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
         territoriesById.set(zid, {
           zoneId: zid,
           id: `marine-territory-${zid}`,
-          name: `${meta.titlePrefix} #${marineBasinIdx}`,
+          name: meta.titlePrefix,
           species: 'aquatic',
           speciesLabel: meta.speciesLabel,
           diet: meta.diet,

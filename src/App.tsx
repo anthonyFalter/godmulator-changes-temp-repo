@@ -612,6 +612,7 @@ export default function App() {
         colorData: zoneColorBufRef.current,
         idData: zoneIdBufRef.current!,
         anyActive: false,
+        kingdomsActive: false,
         version: zoneOverlayVersionRef.current,
         labels: [],
       };
@@ -632,6 +633,7 @@ export default function App() {
       colorData: packed.colorData,
       idData: packed.idData,
       anyActive: packed.anyActive,
+      kingdomsActive: Boolean(activeZones.kingdoms),
       version: zoneOverlayVersionRef.current,
       labels: packed.labels,
     };
