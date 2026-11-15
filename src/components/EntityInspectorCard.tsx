@@ -4,7 +4,7 @@ import {
   Star,
   X,
 } from 'lucide-react';
-import { getEntityInspectProfile } from '../game/entityInspector';
+import { getEntityInspectProfile, isIntrinsicGene } from '../game/entityInspector';
 import { SimulationState, UnitEntity, UnitStatusEffect } from '../game/types';
 import { UnitPixelIcon } from './GameIcons';
 
@@ -62,7 +62,7 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
     <aside
       aria-label="Entity Information"
       data-testid="entity-inspector-panel"
-      className="pointer-events-auto fixed left-3 top-16 z-20 w-[316px] max-h-[calc(100vh-8.5rem)] px-panel p-4 flex flex-col gap-3.5 overflow-y-auto"
+      className="pointer-events-auto fixed left-3 top-20 z-20 w-[316px] max-h-[calc(100vh-10rem)] px-panel p-4 flex flex-col gap-3.5 overflow-y-auto"
     >
       {profile && displayUnit ? (
         <>
@@ -84,20 +84,8 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                 </h2>
                 <div className="text-xs text-[#cfc6b8] leading-tight mt-0.5 truncate">
                   <span>{profile.subtitle}</span>
-                  <span className="text-[#8f8679] mx-1.5" aria-hidden="true">
-                    ·
-                  </span>
-                  <span className="text-[#a89f91]">{profile.factionLabel}</span>
                 </div>
-                <div className="text-[11px] leading-tight mt-1">
-                  {isShowingHovered && !isSelectedDisplayed ? (
-                    <span className="text-[#56cfe1]">Hover preview · Click to pin</span>
-                  ) : isFollowing ? (
-                    <span className="text-[#80ed99] font-medium">Following with camera</span>
-                  ) : (
-                    <span className="text-[#f5b742]">Pinned entity</span>
-                  )}
-                </div>
+
               </div>
             </div>
 
@@ -226,25 +214,6 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
           {/* TAB CONTENT: PROFILE */}
           {activeTab === 'profile' && (
             <div className="space-y-3 text-xs">
-              {/* Diet & Foraging */}
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <span className="font-semibold text-[#f2ece1]">Diet</span>
-                  <span className="text-[#8f8679]" aria-hidden="true">
-                    ·
-                  </span>
-                  <span
-                    data-testid="inspector-entity-diet"
-                    className="font-medium text-[#ffd166]"
-                  >
-                    {profile.diet.category}
-                  </span>
-                </div>
-                <p className="text-[#b8afa2] leading-relaxed text-[11px]">
-                  {profile.diet.detail}
-                </p>
-              </div>
-
               {/* Combat & Movement Attributes: Clean Tabular Metric Strip */}
               <div className="grid grid-cols-3 gap-2 pt-1 text-center">
                 <div className="bg-[#191613] p-2">
@@ -349,21 +318,51 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                 </div>
               </div>
 
-              {/* Genetics & Lineage: Clean Unboxed List */}
+              {/* Genetics & Lineage: Clean Unboxed List with Intrinsic vs Rare Distinction */}
               <div className="space-y-1.5 pt-1">
-                <div className="font-semibold text-[#f2ece1]">Genetics &amp; Lineage</div>
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-[#f2ece1]">Genetics &amp; Lineage</span>
+                  <span className="text-[10px] text-[#8f8679] tabular-nums">
+                    {profile.genes.length} {profile.genes.length === 1 ? 'trait' : 'traits'}
+                  </span>
+                </div>
                 <div
-                  className="space-y-1 text-xs"
+                  className="space-y-1.5 text-xs"
                   data-testid="inspector-entity-genes"
                 >
-                  {profile.genes.map((gene) => (
-                    <div key={gene} className="flex items-baseline gap-2 text-[#56cfe1]">
-                      <span className="text-[#3a7d8a]" aria-hidden="true">
-                        •
-                      </span>
-                      <span>{gene}</span>
-                    </div>
-                  ))}
+                  {profile.genes.map((gene, idx) => {
+                    const isIntrinsic = isIntrinsicGene(gene) || idx === 0;
+                    return (
+                      <div
+                        key={gene}
+                        className="flex items-baseline justify-between gap-2"
+                      >
+                        <div className="flex items-baseline gap-2 min-w-0">
+                          <span
+                            className={isIntrinsic ? 'text-[#3a7d8a]' : 'text-[#d97706]'}
+                            aria-hidden="true"
+                          >
+                            •
+                          </span>
+                          <span
+                            className={`truncate ${
+                              isIntrinsic ? 'text-[#56cfe1]' : 'text-[#ffd166] font-medium'
+                            }`}
+                          >
+                            {gene}
+                          </span>
+                        </div>
+                        <span
+                          className={`text-[10px] whitespace-nowrap tabular-nums ${
+                            isIntrinsic ? 'text-[#8f8679]' : 'text-[#ffd166]'
+                          }`}
+                        >
+                          {isIntrinsic ? 'Intrinsic' : 'Rare Mutation'}
+                        </span>
+                      </div>
+                    );
+                  })}
+
                 </div>
               </div>
             </div>
@@ -420,14 +419,10 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
         </>
       ) : (
         <div className="space-y-2 text-xs text-[#cfc6b8]">
-          <h2 className="font-bold text-[#f5b742] text-sm">Entity Inspector</h2>
+          <h2 className="font-bold text-[#f5b742] text-sm">Inspect Tool</h2>
           <p className="text-[11px] text-[#a89f91] leading-relaxed">
-            Hover over any living person, wildlife, dinosaur, or dragon to inspect diet,
-            attributes, equipment, and genetics.
+            Click any creature to view their stats.
           </p>
-          <div className="text-[10px] text-[#7d756b] pt-1">
-            Click any creature in the world to pin its card and toggle favorites.
-          </div>
 
           {/* Quick-Access to Starred Entities when idle */}
           {favoriteUnits.length > 0 && (

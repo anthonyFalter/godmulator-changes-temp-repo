@@ -528,9 +528,6 @@ export default function App() {
                     Pop <span className="font-pixel-num text-[10px]">{sim.population}/{sim.populationCap}</span>
                   </span>
                   <span className="font-pixel-num text-[10px]">{Math.round(sim.happiness)}%</span>
-                  {hostileCount > 0 && (
-                    <span className="text-[#ff6b6b]">Foes {hostileCount}</span>
-                  )}
                   {sim.goldenAgeTimer > 0 && (
                     <span className="text-[#ffd166]">{Math.ceil(sim.goldenAgeTimer)}s</span>
                   )}
@@ -799,10 +796,6 @@ export default function App() {
               </div>
 
               <div className="flex items-end gap-1.5 pb-1">
-                <span className="hidden md:inline px-panel px-2.5 py-1 text-xs text-[#cfc6b8] tabular-nums whitespace-nowrap">
-                  {activeToolLabel}
-                  {inspectedTile ? ` (${inspectedTile.x}, ${inspectedTile.z})` : ''}
-                </span>
                 <button
                   type="button"
                   onClick={() => setDockCollapsed((prev) => !prev)}
@@ -1170,9 +1163,7 @@ export default function App() {
                           : inspectedTile.terrain.replace('_', ' ')}
                       </span>
                     )}
-                    <span className="text-[#a89f91] tabular-nums">
-                      Seed {sim.seed} / Built {sim.totalStructuresBuilt} / Defeated {sim.totalRaidersDefeated}
-                    </span>
+
                   </div>
                 )}
               </div>

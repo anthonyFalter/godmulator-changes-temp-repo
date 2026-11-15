@@ -53,63 +53,67 @@ export interface EntityInspectProfile {
   favorite: boolean;
 }
 
-const GENE_POOLS: Record<
-  'civilization' | 'herbivore' | 'carnivore' | 'dragon' | 'unicorn' | 'hostile',
+export const RARE_GENE_POOLS: Record<
+  'civilization' | 'elf' | 'orc' | 'herbivore' | 'carnivore' | 'dragon' | 'unicorn' | 'hostile',
   string[]
 > = {
   civilization: [
-    'Builder’s Grit',
+    'Iron Lung',
     'Keen Horizon Sight',
     'Nimble Stride',
     'Hardy Constitution',
     'Swift Hands',
-    'Storied Ancestry',
-    'Iron Lung',
+    'Photographic Recall',
     'Resilient Spirit',
+    'Storied Ancestry',
+  ],
+  elf: [
+    'Fey Sight',
+    'Whispering Stride',
+    'Starleaf Resonance',
+    'Moonlit Grace',
+  ],
+  orc: [
+    'Berserker Heart',
+    'Iron Skull',
+    'Unyielding Sinew',
+    'Crag-Hide',
   ],
   herbivore: [
-    'Meadow Grazer',
-    'Startle Reflex',
-    'Thick Hide',
-    'Forager’s Nose',
+    'Albino Coat',
+    'Hyper-Vigilance',
+    'Thick Winter Pelt',
     'Fleet-Footed',
-    'Herd Instinct',
-    'Gentle Temper',
-    'Dense Coat',
+    'Alpha Stature',
+    'Dense Bone Density',
   ],
   carnivore: [
-    'Apex Instinct',
-    'Serrated Dentition',
-    'Pack Tracker',
-    'Adrenaline Surge',
-    'Nightstalker Vision',
     'Bone-Crusher Jaw',
+    'Serrated Dentition',
+    'Hyper-Predatory Scent',
+    'Nightstalker Vision',
     'Relentless Pursuit',
     'Armored Pelt',
   ],
   dragon: [
     'Pyroclast Gland',
-    'Obsidian Scales',
-    'Thermic Wingbeat',
     'Ancient Wyrmblood',
     'Volcanic Heart',
+    'Thermic Wingbeat',
     'Sky-Sovereign Gaze',
   ],
   unicorn: [
     'Starlight Mane',
-    'Fey Grace',
-    'Pure Aura',
+    'Aether Resonance',
     'Moonbound Stride',
     'Blossom Affinity',
-    'Radiant Horn',
   ],
   hostile: [
     'Battle-Hardened',
-    'Pillager’s Greed',
     'Frenzied Nerve',
+    'Scarred Veteran',
     'Brutal Might',
     'Iron Stomach',
-    'Scarred Veteran',
   ],
 };
 
@@ -134,6 +138,89 @@ function pickFromPool(pool: string[], seed: number, count: number, offset = 0): 
   return picked;
 }
 
+export function getUnitIntrinsicGene(
+  role: UnitRole,
+  species: SpeciesId,
+  appearanceSeed = 1,
+  dinoDiet?: 'carnivore' | 'herbivore',
+): string {
+  const seed = Math.abs(Math.floor(appearanceSeed) || 1);
+  if (role === 'dragon') {
+    const variant = getDragonVariant(seed);
+    return `${variant.name} Scales`;
+  }
+  if (role === 'unicorn') {
+    return 'Celestial Fey Horn';
+  }
+  if (role === 'dinosaur') {
+    const variant = getDinosaurVariant(seed);
+    const diet = dinoDiet ?? variant.diet;
+    if (diet === 'carnivore' || variant.morph === 0) {
+      return 'Apex Theropod Physiology';
+    }
+    if (variant.morph === 1) {
+      return 'Ceratopsian Crest';
+    }
+    return 'Dorsal Bone Plates';
+  }
+  if (role === 'wolf') {
+    return 'Canine Pack Instinct';
+  }
+  if (role === 'bear') {
+    return 'Ursine Heavy Frame';
+  }
+  if (role === 'cow') {
+    return 'Ruminant Digestion';
+  }
+  if (role === 'pig') {
+    return 'Keen Foraging Snout';
+  }
+  if (role === 'chicken') {
+    return 'Avian Plumage';
+  }
+  if (role === 'capybara') {
+    return 'Semi-Aquatic Fur';
+  }
+  if (
+    role === 'raider_swarmer' ||
+    role === 'raider_ranged' ||
+    role === 'raider_behemoth'
+  ) {
+    return 'Pillager Grit';
+  }
+  if (species === 'elf') {
+    return 'Elven Longevity';
+  }
+  if (species === 'orc') {
+    return 'Orcish Brawn';
+  }
+  return 'Human Adaptability';
+}
+
+export function isIntrinsicGene(gene: string): boolean {
+  if (gene.endsWith('Scales') || gene.endsWith('Lineage')) return true;
+  const INTRINSIC_SET = new Set([
+    'Human Adaptability',
+    'Elven Longevity',
+    'Orcish Brawn',
+    'Celestial Fey Horn',
+    'Apex Theropod Physiology',
+    'Ceratopsian Crest',
+    'Dorsal Bone Plates',
+    'Canine Pack Instinct',
+    'Ursine Heavy Frame',
+    'Ruminant Digestion',
+    'Keen Foraging Snout',
+    'Avian Plumage',
+    'Semi-Aquatic Fur',
+    'Pillager Grit',
+    'Adaptable Spark',
+    'Armored Herbivore',
+    'Prehistoric Apex',
+  ]);
+  return INTRINSIC_SET.has(gene);
+}
+
 export function generateUnitGenes(
   role: UnitRole,
   species: SpeciesId,
@@ -141,42 +228,46 @@ export function generateUnitGenes(
   dinoDiet?: 'carnivore' | 'herbivore',
 ): string[] {
   const seed = Math.abs(Math.floor(appearanceSeed) || 1);
-  if (role === 'dragon') {
-    const variant = getDragonVariant(seed);
-    return [
-      `${variant.name} Lineage`,
-      ...pickFromPool(GENE_POOLS.dragon, seed, 2, 1),
-    ];
+  const intrinsic = getUnitIntrinsicGene(role, species, seed, dinoDiet);
+  const genes: string[] = [intrinsic];
+
+  // Most units express only their intrinsic lineage trait.
+  // ~18% chance of expressing an extra rare mutation if RNG chosen.
+  const roll = seededHash(seed, 77) % 100;
+  if (roll < 18) {
+    let pool: string[];
+    if (role === 'dragon') {
+      pool = RARE_GENE_POOLS.dragon;
+    } else if (role === 'unicorn') {
+      pool = RARE_GENE_POOLS.unicorn;
+    } else if (role === 'dinosaur') {
+      const diet = dinoDiet ?? getDinosaurVariant(seed).diet;
+      pool = diet === 'carnivore' ? RARE_GENE_POOLS.carnivore : RARE_GENE_POOLS.herbivore;
+    } else if (role === 'wolf' || role === 'bear') {
+      pool = RARE_GENE_POOLS.carnivore;
+    } else if (role === 'cow' || role === 'pig' || role === 'chicken' || role === 'capybara') {
+      pool = RARE_GENE_POOLS.herbivore;
+    } else if (
+      role === 'raider_swarmer' ||
+      role === 'raider_ranged' ||
+      role === 'raider_behemoth'
+    ) {
+      pool = RARE_GENE_POOLS.hostile;
+    } else if (species === 'elf') {
+      pool = RARE_GENE_POOLS.elf;
+    } else if (species === 'orc') {
+      pool = RARE_GENE_POOLS.orc;
+    } else {
+      pool = RARE_GENE_POOLS.civilization;
+    }
+
+    // Ultra-rare individuals (~2% chance) express a second mutation, otherwise 1
+    const count = roll < 2 ? 2 : 1;
+    const rareGenes = pickFromPool(pool, seed, count, 7);
+    genes.push(...rareGenes);
   }
-  if (role === 'unicorn') {
-    return pickFromPool(GENE_POOLS.unicorn, seed, 3, 2);
-  }
-  if (role === 'dinosaur') {
-    const diet = dinoDiet ?? getDinosaurVariant(seed).diet;
-    const pool = diet === 'carnivore' ? GENE_POOLS.carnivore : GENE_POOLS.herbivore;
-    const prefix = diet === 'carnivore' ? 'Prehistoric Apex' : 'Armored Herbivore';
-    return [prefix, ...pickFromPool(pool, seed, 2, 3)];
-  }
-  if (role === 'wolf' || role === 'bear') {
-    return pickFromPool(GENE_POOLS.carnivore, seed, 3, 4);
-  }
-  if (role === 'cow' || role === 'pig' || role === 'chicken' || role === 'capybara') {
-    return pickFromPool(GENE_POOLS.herbivore, seed, 3, 5);
-  }
-  if (
-    role === 'raider_swarmer' ||
-    role === 'raider_ranged' ||
-    role === 'raider_behemoth'
-  ) {
-    return pickFromPool(GENE_POOLS.hostile, seed, 3, 6);
-  }
-  const speciesGene =
-    species === 'elf'
-      ? 'Elven Longevity'
-      : species === 'orc'
-        ? 'Orcish Brawn'
-        : 'Adaptable Spark';
-  return [speciesGene, ...pickFromPool(GENE_POOLS.civilization, seed, 2, 7)];
+
+  return genes;
 }
 
 export function generateUnitItems(
