@@ -115,6 +115,7 @@ export default function App() {
   const [hoveredEntityId, setHoveredEntityId] = useState<string | null>(null);
   const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
   const selectedEntityIdRef = useRef<string | null>(null);
+  const [followingEntityId, setFollowingEntityId] = useState<string | null>(null);
   const [hoveredHint, setHoveredHint] = useState<HoveredHint | null>(null);
   const [statusFeedback, setStatusFeedback] = useState<string>('Click land to spawn a Human');
 
@@ -164,6 +165,7 @@ export default function App() {
     setHoveredEntityId(null);
     setSelectedEntityId(null);
     selectedEntityIdRef.current = null;
+    setFollowingEntityId(null);
     setActiveCategory('spawn');
     setActiveTool({ kind: 'spawn', unit: 'human' });
     soundEngine.playBuild();
@@ -223,7 +225,9 @@ export default function App() {
   const handleSelectEntity = useCallback((unitId: string | null) => {
     selectedEntityIdRef.current = unitId;
     setSelectedEntityId(unitId);
-    if (unitId) {
+    if (!unitId) {
+      setFollowingEntityId(null);
+    } else {
       const unit = simRef.current.units.find((u) => u.id === unitId && u.state !== 'ko');
       if (unit) {
         setStatusFeedback(`Selected ${unit.name} (${Math.round(unit.hp)}/${unit.maxHp} HP)`);
@@ -242,8 +246,21 @@ export default function App() {
   }, []);
 
   const handleFocusEntity = useCallback((unit: UnitEntity) => {
-    cameraActionRef.current.focusTarget = { x: unit.x, z: unit.z, zoom: 11.5 };
-    soundEngine.playClick();
+    setFollowingEntityId((prev) => {
+      if (prev === unit.id) {
+        soundEngine.playClick();
+        setStatusFeedback(`Stopped following ${unit.name}`);
+        return null;
+      }
+      cameraActionRef.current.focusTarget = { x: unit.x, z: unit.z, zoom: 11.5 };
+      soundEngine.playClick();
+      setStatusFeedback(`Following ${unit.name} with camera`);
+      return unit.id;
+    });
+  }, []);
+
+  const handleBreakFollow = useCallback(() => {
+    setFollowingEntityId(null);
   }, []);
 
   const handleTileInteract = useCallback(
@@ -410,10 +427,12 @@ export default function App() {
         cameraActionRef={cameraActionRef}
         hoveredEntityId={isInspectTabActive ? hoveredEntityId : null}
         selectedEntityId={isInspectTabActive ? selectedEntityId : null}
+        followingEntityId={isInspectTabActive ? followingEntityId : null}
         onTileInteract={handleTileInteract}
         onHoverTileChange={setHoverTile}
         onHoverEntityChange={setHoveredEntityId}
         onSelectEntity={handleSelectEntity}
+        onBreakFollow={handleBreakFollow}
         onSyncHud={syncHud}
       />
 
@@ -708,6 +727,7 @@ export default function App() {
               hoveredUnit={hoveredUnit}
               selectedUnit={selectedUnit}
               favoriteUnits={favoriteUnits}
+              followingEntityId={followingEntityId}
               onToggleFavorite={handleToggleFavoriteEntity}
               onSelectUnit={handleSelectEntity}
               onFocusUnit={handleFocusEntity}
@@ -752,6 +772,7 @@ export default function App() {
                           setActiveTool({ kind: 'inspect' });
                         } else {
                           setHoveredEntityId(null);
+                          setFollowingEntityId(null);
                           if (tab.id === 'powers' && activeTool.kind !== 'power') {
                             setActiveTool({ kind: 'power', power: 'blessing' });
                           } else if (tab.id === 'terrain' && activeTool.kind !== 'terrain') {

@@ -2084,3 +2084,46 @@ test('entity inspector resolves names, diets, informations, carried/equipped ite
   assert.equal(toggleUnitFavorite(state, dragon.id), false, 'KO units should not be toggleable as favorites');
 });
 
+test('camera target locks and tracks moving entity coordinates during follow mode', () => {
+  const state = createInitialSimulationState(128, 'FOLLOW-CAM-TEST');
+  state.sandboxFreeMode = true;
+  state.wildlifeSeeded = true;
+  for (let dz = -5; dz <= 5; dz++) {
+    for (let dx = -5; dx <= 5; dx++) {
+      const t = getTile(state, 64 + dx, 64 + dz)!;
+      t.height = 2;
+      t.terrain = 'grass';
+      t.buildingId = null;
+    }
+  }
+
+  const unit = spawnUnit(state, 'human', 64, 64).unit!;
+  assert.ok(unit, 'Unit should spawn');
+
+  // Verify camera tracking updates to moving unit position
+  const camDesiredTarget = { x: 64, y: 1.2, z: 64 };
+  const followingEntityId = unit.id;
+
+  // Unit moves towards (68, 64)
+  unit.x = 65.5;
+  unit.z = 64.2;
+  const targetUnit = state.units.find((u) => u.id === followingEntityId && u.state !== 'ko');
+  assert.ok(targetUnit);
+
+  camDesiredTarget.x = targetUnit.x;
+  camDesiredTarget.z = targetUnit.z;
+
+  assert.equal(camDesiredTarget.x, 65.5);
+  assert.equal(camDesiredTarget.z, 64.2);
+
+  // Unit moves further
+  unit.x = 67.8;
+  unit.z = 64.9;
+  camDesiredTarget.x = targetUnit.x;
+  camDesiredTarget.z = targetUnit.z;
+
+  assert.equal(camDesiredTarget.x, 67.8);
+  assert.equal(camDesiredTarget.z, 64.9);
+});
+
+

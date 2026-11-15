@@ -1,17 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Crosshair,
-  Dna,
-  Heart,
-  Package,
-  Shield,
-  Sparkles,
   Star,
-  Swords,
-  Utensils,
   X,
 } from 'lucide-react';
-import { DietCategory, getEntityInspectProfile } from '../game/entityInspector';
+import { getEntityInspectProfile } from '../game/entityInspector';
 import { SimulationState, UnitEntity, UnitStatusEffect } from '../game/types';
 import { UnitPixelIcon } from './GameIcons';
 
@@ -20,49 +13,26 @@ interface EntityInspectorCardProps {
   hoveredUnit: UnitEntity | null;
   selectedUnit: UnitEntity | null;
   favoriteUnits: UnitEntity[];
+  followingEntityId?: string | null;
   onToggleFavorite: (unitId: string) => void;
   onSelectUnit: (unitId: string | null) => void;
   onFocusUnit: (unit: UnitEntity) => void;
 }
 
-function getDietColors(category: DietCategory): string {
-  switch (category) {
-    case 'Herbivore':
-    case 'Fey Herbivore':
-      return 'text-[#80ed99] border-[#4f9d69] bg-[#16271d]';
-    case 'Carnivore':
-    case 'Pyro-Carnivore':
-      return 'text-[#ff8f6b] border-[#a8432b] bg-[#2a1714]';
-    default:
-      return 'text-[#ffd166] border-[#a37b2c] bg-[#261f12]';
-  }
-}
+type InspectorTab = 'profile' | 'traits' | 'favorites';
 
-function getFactionAccent(faction: 'Civilization' | 'Hostile' | 'Wildlife' | 'Mythical'): string {
-  switch (faction) {
-    case 'Civilization':
-      return 'text-[#56cfe1]';
-    case 'Hostile':
-      return 'text-[#ff758f]';
-    case 'Mythical':
-      return 'text-[#ffd166]';
-    default:
-      return 'text-[#80ed99]';
-  }
-}
-
-function formatStatusLabel(effect: UnitStatusEffect): { label: string; cls: string } {
+function formatEffectName(effect: UnitStatusEffect): string {
   switch (effect) {
     case 'blessed':
-      return { label: 'Blessed', cls: 'text-[#ffd166] border-[#9e7724] bg-[#272011]' };
+      return 'Blessed';
     case 'shielded':
-      return { label: 'Shielded', cls: 'text-[#72efdd] border-[#2d8a7e] bg-[#132624]' };
+      return 'Shielded';
     case 'frenzied':
-      return { label: 'Frenzied', cls: 'text-[#ff758f] border-[#a32943] bg-[#291319]' };
+      return 'Frenzied';
     case 'plagued':
-      return { label: 'Plagued', cls: 'text-[#80ed99] border-[#428c54] bg-[#152418]' };
+      return 'Plagued';
     case 'cursed':
-      return { label: 'Cursed', cls: 'text-[#c77dff] border-[#6e3aa6] bg-[#21152c]' };
+      return 'Cursed';
   }
 }
 
@@ -71,72 +41,82 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
   hoveredUnit,
   selectedUnit,
   favoriteUnits,
+  followingEntityId,
   onToggleFavorite,
   onSelectUnit,
   onFocusUnit,
 }) => {
+  const [activeTab, setActiveTab] = useState<InspectorTab>('profile');
+
   const displayUnit = hoveredUnit ?? selectedUnit;
   const isShowingHovered = Boolean(hoveredUnit);
-  const isSelectedDisplayed = Boolean(displayUnit && selectedUnit && displayUnit.id === selectedUnit.id);
+  const isSelectedDisplayed = Boolean(
+    displayUnit && selectedUnit && displayUnit.id === selectedUnit.id,
+  );
+  const isFollowing = Boolean(
+    displayUnit && followingEntityId && displayUnit.id === followingEntityId,
+  );
   const profile = displayUnit ? getEntityInspectProfile(sim, displayUnit) : null;
 
   return (
     <aside
-      aria-label="Entity Inspector"
+      aria-label="Entity Information"
       data-testid="entity-inspector-panel"
-      className="pointer-events-auto fixed left-3 top-16 z-20 w-[300px] sm:w-[324px] max-h-[calc(100vh-11.5rem)] flex flex-col gap-2 overflow-y-auto"
+      className="pointer-events-auto fixed left-3 top-16 z-20 w-[316px] max-h-[calc(100vh-8.5rem)] px-panel p-4 flex flex-col gap-3.5 overflow-y-auto"
     >
       {profile && displayUnit ? (
-        <div className="px-panel p-3 flex flex-col gap-2.5">
-          {/* Header: Icon + Name + Hover/Selected Badge + Actions */}
-          <div className="flex items-start justify-between gap-2">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <div className="px-panel-inset w-11 h-11 flex items-center justify-center shrink-0">
+        <>
+          {/* Header Block: Avatar, Name, Affordance & Primary Action Buttons */}
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <div
+                className="w-11 h-11 shrink-0 flex items-center justify-center bg-[#191613] border border-[#2f2720]"
+                aria-hidden="true"
+              >
                 <UnitPixelIcon role={displayUnit.role} className="w-8 h-8" />
               </div>
               <div className="min-w-0">
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <h2
-                    className="text-sm font-bold text-[#f2ece1] truncate"
-                    data-testid="inspector-entity-name"
-                  >
-                    {profile.name}
-                  </h2>
-                  <span
-                    className={`font-pixel-num text-[9px] px-1.5 py-0.5 border leading-none ${
-                      isShowingHovered && !isSelectedDisplayed
-                        ? 'text-[#56cfe1] border-[#337c8c] bg-[#112228]'
-                        : 'text-[#ffd166] border-[#997325] bg-[#261f11]'
-                    }`}
-                  >
-                    {isShowingHovered && !isSelectedDisplayed ? 'HOVERED' : 'SELECTED'}
-                  </span>
-                </div>
-                <div className="text-[11px] text-[#cfc6b8] leading-tight mt-0.5 flex items-center gap-1.5 flex-wrap">
+                <h2
+                  className="text-sm font-bold text-[#f2ece1] truncate leading-tight"
+                  data-testid="inspector-entity-name"
+                >
+                  {profile.name}
+                </h2>
+                <div className="text-xs text-[#cfc6b8] leading-tight mt-0.5 truncate">
                   <span>{profile.subtitle}</span>
-                  <span className={`font-semibold ${getFactionAccent(profile.factionLabel)}`}>
-                    • {profile.factionLabel}
+                  <span className="text-[#8f8679] mx-1.5" aria-hidden="true">
+                    ·
                   </span>
+                  <span className="text-[#a89f91]">{profile.factionLabel}</span>
+                </div>
+                <div className="text-[11px] leading-tight mt-1">
+                  {isShowingHovered && !isSelectedDisplayed ? (
+                    <span className="text-[#56cfe1]">Hover preview · Click to pin</span>
+                  ) : isFollowing ? (
+                    <span className="text-[#80ed99] font-medium">Following with camera</span>
+                  ) : (
+                    <span className="text-[#f5b742]">Pinned entity</span>
+                  )}
                 </div>
               </div>
             </div>
 
-            <div className="flex items-center gap-1 shrink-0">
+            {/* Action Buttons: 36x36 touch-friendly affordances */}
+            <div className="flex items-center gap-1 shrink-0 pt-0.5">
               {isSelectedDisplayed ? (
                 <button
                   type="button"
                   data-testid="inspector-favorite-btn"
                   onClick={() => onToggleFavorite(displayUnit.id)}
                   aria-label={profile.favorite ? 'Unfavorite entity' : 'Favorite entity'}
-                  title={profile.favorite ? 'Remove from Favorites' : 'Add to Favorites'}
-                  className={`w-7 h-7 flex items-center justify-center cursor-pointer ${
-                    profile.favorite ? 'px-btn-active text-[#ffd166]' : 'px-btn text-[#cfc6b8]'
+                  title={profile.favorite ? 'Remove from favorites' : 'Add to favorites'}
+                  className={`w-8 h-8 flex items-center justify-center cursor-pointer transition-colors ${
+                    profile.favorite
+                      ? 'px-btn-active text-[#ffd166]'
+                      : 'px-btn text-[#a89f91] hover:text-[#ffd166]'
                   }`}
                 >
-                  <Star
-                    className="w-4 h-4"
-                    fill={profile.favorite ? '#ffd166' : 'none'}
-                  />
+                  <Star className="w-4 h-4" fill={profile.favorite ? '#ffd166' : 'none'} />
                 </button>
               ) : (
                 <button
@@ -147,8 +127,8 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                     if (!profile.favorite) onToggleFavorite(displayUnit.id);
                   }}
                   aria-label="Select and favorite entity"
-                  title="Select & Favorite (or click creature in world to select)"
-                  className="px-btn w-7 h-7 flex items-center justify-center cursor-pointer text-[#cfc6b8] hover:text-[#ffd166]"
+                  title="Select & Favorite"
+                  className="px-btn w-8 h-8 flex items-center justify-center cursor-pointer text-[#a89f91] hover:text-[#ffd166] transition-colors"
                 >
                   <Star className="w-4 h-4" fill={profile.favorite ? '#ffd166' : 'none'} />
                 </button>
@@ -158,11 +138,15 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                 <button
                   type="button"
                   onClick={() => onFocusUnit(selectedUnit)}
-                  aria-label="Center camera on selected entity"
-                  title="Focus Camera"
-                  className="px-btn w-7 h-7 flex items-center justify-center cursor-pointer text-[#56cfe1]"
+                  aria-label={isFollowing ? 'Stop following entity' : 'Follow entity with camera'}
+                  title={isFollowing ? 'Following entity · Click to stop' : 'Follow entity with camera'}
+                  className={`w-8 h-8 flex items-center justify-center cursor-pointer transition-colors ${
+                    isFollowing
+                      ? 'px-btn-active text-[#80ed99] border-[#40916c]'
+                      : 'px-btn text-[#56cfe1] hover:text-[#80ed99]'
+                  }`}
                 >
-                  <Crosshair className="w-3.5 h-3.5" />
+                  <Crosshair className="w-4 h-4" />
                 </button>
               )}
 
@@ -170,236 +154,312 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                 <button
                   type="button"
                   onClick={() => onSelectUnit(null)}
-                  aria-label="Clear selected entity"
-                  title="Unpin Selection"
-                  className="px-btn w-7 h-7 flex items-center justify-center cursor-pointer text-[#a89f91]"
+                  aria-label="Unpin selection"
+                  title="Unpin selection"
+                  className="px-btn w-8 h-8 flex items-center justify-center cursor-pointer text-[#8f8679] hover:text-[#f2ece1] transition-colors"
                 >
-                  <X className="w-3.5 h-3.5" />
+                  <X className="w-4 h-4" />
                 </button>
               )}
             </div>
           </div>
 
-          {/* HP Bar */}
-          <div className="px-panel-inset px-2 py-1.5">
-            <div className="flex items-center justify-between text-[11px] mb-1">
-              <span className="flex items-center gap-1 text-[#cfc6b8] font-semibold">
-                <Heart className="w-3 h-3 text-[#ff6b6b]" fill="#ff6b6b" />
-                Health
-              </span>
-              <span className="font-pixel-num text-[10px] text-[#f2ece1]">
+          {/* Integrated Health Gauge: Clean unboxed layout with tabular figures */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-[#a89f91]">Health</span>
+              <span className="font-pixel-num text-[11px] text-[#f2ece1] tabular-nums">
                 {profile.informations.hp} / {profile.informations.maxHp}
               </span>
             </div>
-            <div className="w-full h-2 bg-[#14110f] border border-[#3a332b] overflow-hidden">
+            <div className="w-full h-1.5 bg-[#191613] overflow-hidden">
               <div
-                className="h-full transition-all duration-150"
+                className="h-full transition-all duration-200"
                 style={{
                   width: `${profile.informations.hpPercent}%`,
                   backgroundColor:
-                    profile.informations.hpPercent > 55
+                    profile.informations.hpPercent > 50
                       ? '#80ed99'
                       : profile.informations.hpPercent > 25
                         ? '#f5b742'
-                        : '#e63946',
+                        : '#ff6b6b',
                 }}
               />
             </div>
           </div>
 
-          {/* Diet */}
-          <div className="px-panel-inset px-2.5 py-2">
-            <div className="flex items-center justify-between gap-2 mb-1">
-              <span className="flex items-center gap-1.5 text-[11px] font-bold text-[#f5b742] uppercase tracking-wider">
-                <Utensils className="w-3 h-3" />
-                Diet
-              </span>
-              <span
-                data-testid="inspector-entity-diet"
-                className={`text-[10px] font-bold px-1.5 py-0.5 border leading-none ${getDietColors(
-                  profile.diet.category,
-                )}`}
+          {/* Progressive Disclosure: Clean Segmented Navigation (No Pill Badges) */}
+          <div className="flex items-center gap-1 border-b border-[#2c2620] pb-2 text-xs">
+            <button
+              type="button"
+              onClick={() => setActiveTab('profile')}
+              className={`px-2.5 py-1 font-semibold cursor-pointer transition-colors whitespace-nowrap ${
+                activeTab === 'profile' ? 'px-btn-active text-[#f5b742]' : 'px-btn text-[#a89f91]'
+              }`}
+            >
+              Profile
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('traits')}
+              className={`px-2.5 py-1 font-semibold cursor-pointer transition-colors whitespace-nowrap ${
+                activeTab === 'traits' ? 'px-btn-active text-[#f5b742]' : 'px-btn text-[#a89f91]'
+              }`}
+            >
+              Traits &amp; Gear
+            </button>
+            {favoriteUnits.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setActiveTab('favorites')}
+                className={`px-2.5 py-1 font-semibold cursor-pointer transition-colors whitespace-nowrap ${
+                  activeTab === 'favorites'
+                    ? 'px-btn-active text-[#ffd166]'
+                    : 'px-btn text-[#a89f91]'
+                }`}
               >
-                {profile.diet.category}
-              </span>
-            </div>
-            <p className="text-[11px] text-[#cfc6b8] leading-snug">{profile.diet.detail}</p>
+                Favorites ({favoriteUnits.length})
+              </button>
+            )}
           </div>
 
-          {/* Informations */}
-          <div className="px-panel-inset px-2.5 py-2">
-            <div className="flex items-center gap-1.5 text-[11px] font-bold text-[#f5b742] uppercase tracking-wider mb-1.5">
-              <Shield className="w-3 h-3" />
-              Informations
+          {/* TAB CONTENT: PROFILE */}
+          {activeTab === 'profile' && (
+            <div className="space-y-3 text-xs">
+              {/* Diet & Foraging */}
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-[#f2ece1]">Diet</span>
+                  <span className="text-[#8f8679]" aria-hidden="true">
+                    ·
+                  </span>
+                  <span
+                    data-testid="inspector-entity-diet"
+                    className="font-medium text-[#ffd166]"
+                  >
+                    {profile.diet.category}
+                  </span>
+                </div>
+                <p className="text-[#b8afa2] leading-relaxed text-[11px]">
+                  {profile.diet.detail}
+                </p>
+              </div>
+
+              {/* Combat & Movement Attributes: Clean Tabular Metric Strip */}
+              <div className="grid grid-cols-3 gap-2 pt-1 text-center">
+                <div className="bg-[#191613] p-2">
+                  <div className="text-[10px] text-[#8f8679]">Attack</div>
+                  <div className="font-pixel-num text-sm font-bold text-[#ff9f68] tabular-nums mt-0.5">
+                    {profile.informations.attackDamage}
+                  </div>
+                </div>
+                <div className="bg-[#191613] p-2">
+                  <div className="text-[10px] text-[#8f8679]">Range</div>
+                  <div className="font-pixel-num text-sm font-bold text-[#f2ece1] tabular-nums mt-0.5">
+                    {profile.informations.attackRange}
+                  </div>
+                </div>
+                <div className="bg-[#191613] p-2">
+                  <div className="text-[10px] text-[#8f8679]">Speed</div>
+                  <div className="font-pixel-num text-sm font-bold text-[#56cfe1] tabular-nums mt-0.5">
+                    {profile.informations.speed}
+                  </div>
+                </div>
+              </div>
+
+              {/* Dragon Flame Breath if applicable */}
+              {profile.informations.breathCooldown !== null && (
+                <div className="flex items-center justify-between text-xs bg-[#191613] px-2.5 py-1.5">
+                  <span className="text-[#b8afa2]">Flame breath</span>
+                  <span className="font-pixel-num text-[11px] text-[#f5b742] tabular-nums">
+                    {profile.informations.breathCooldown <= 0
+                      ? 'Ready'
+                      : `${profile.informations.breathCooldown}s`}
+                  </span>
+                </div>
+              )}
+
+              {/* Status Effects: Clean inline typography (No Pill Badges) */}
+              {profile.informations.statusEffects.length > 0 && (
+                <div className="space-y-1 pt-1">
+                  <div className="text-[11px] text-[#8f8679]">Active effects</div>
+                  <div className="text-xs text-[#80ed99] flex flex-wrap gap-x-2 gap-y-0.5">
+                    {profile.informations.statusEffects.map((eff) => (
+                      <span key={eff}>· {formatEffectName(eff)}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Demographic & Location Data: Clean Key-Value Pairs */}
+              <div className="space-y-1.5 pt-1 text-xs text-[#b8afa2]">
+                <div className="flex items-center justify-between">
+                  <span className="text-[#8f8679]">Stage</span>
+                  <span className="text-[#f2ece1] tabular-nums font-medium">
+                    {profile.informations.ageStageLabel} ({profile.informations.ageYears}y)
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[#8f8679]">Activity</span>
+                  <span className="text-[#80ed99] font-medium">
+                    {profile.informations.activity}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[#8f8679]">Home</span>
+                  <span className="text-[#f2ece1] truncate max-w-[170px] text-right font-medium">
+                    {profile.informations.settlementName ?? 'Wilderness'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[#8f8679]">Location</span>
+                  <span className="font-pixel-num text-[11px] text-[#cfc6b8] tabular-nums">
+                    ({profile.informations.tileX}, {profile.informations.tileZ})
+                  </span>
+                </div>
+              </div>
             </div>
-            <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
-              <div className="text-[#a89f91]">Stage</div>
-              <div className="text-[#f2ece1] text-right font-semibold tabular-nums">
-                {profile.informations.ageStageLabel} ({profile.informations.ageYears}y)
-              </div>
+          )}
 
-              <div className="text-[#a89f91]">Activity</div>
-              <div className="text-[#80ed99] text-right font-semibold">
-                {profile.informations.activity}
-              </div>
-
-              <div className="text-[#a89f91]">Home</div>
-              <div className="text-[#f2ece1] text-right truncate">
-                {profile.informations.settlementName ?? 'Wilderness'}
-              </div>
-
-              <div className="text-[#a89f91]">Coords</div>
-              <div className="font-pixel-num text-[10px] text-[#cfc6b8] text-right">
-                ({profile.informations.tileX}, {profile.informations.tileZ})
-              </div>
-            </div>
-
-            <div className="mt-2 pt-1.5 border-t border-[#322b24] flex items-center justify-between gap-2 text-[11px]">
-              <span className="flex items-center gap-1 text-[#ff9f68] font-semibold tabular-nums">
-                <Swords className="w-3 h-3" />
-                ATK {profile.informations.attackDamage}
-              </span>
-              <span className="text-[#cfc6b8] tabular-nums">
-                RNG {profile.informations.attackRange}
-              </span>
-              <span className="text-[#56cfe1] tabular-nums">
-                SPD {profile.informations.speed}
-              </span>
-            </div>
-
-            {profile.informations.breathCooldown !== null && (
-              <div className="mt-1.5 pt-1.5 border-t border-[#322b24] flex items-center justify-between text-[11px]">
-                <span className="text-[#ff8f6b] font-semibold">Flame Breath</span>
-                <span className="font-pixel-num text-[10px] text-[#ffd166]">
-                  {profile.informations.breathCooldown <= 0
-                    ? 'READY'
-                    : `${profile.informations.breathCooldown}s`}
-                </span>
-              </div>
-            )}
-
-            {profile.informations.statusEffects.length > 0 && (
-              <div className="mt-2 flex flex-wrap gap-1">
-                {profile.informations.statusEffects.map((eff) => {
-                  const badge = formatStatusLabel(eff);
-                  return (
-                    <span
-                      key={eff}
-                      className={`inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 border ${badge.cls}`}
+          {/* TAB CONTENT: TRAITS & GEAR */}
+          {activeTab === 'traits' && (
+            <div className="space-y-3.5 text-xs">
+              {/* Equipment & Cargo: Clean Unboxed List */}
+              <div className="space-y-1.5">
+                <div className="font-semibold text-[#f2ece1]">Equipment &amp; Cargo</div>
+                <div
+                  className="space-y-1 text-xs"
+                  data-testid="inspector-entity-items"
+                >
+                  {profile.items.map((item) => (
+                    <div
+                      key={item}
+                      className={`flex items-baseline gap-2 ${
+                        item.startsWith('Carrying ')
+                          ? 'text-[#80ed99] font-medium'
+                          : 'text-[#cfc6b8]'
+                      }`}
                     >
-                      <Sparkles className="w-2.5 h-2.5" />
-                      {badge.label}
-                    </span>
+                      <span className="text-[#8f8679]" aria-hidden="true">
+                        •
+                      </span>
+                      <span>{item}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Genetics & Lineage: Clean Unboxed List */}
+              <div className="space-y-1.5 pt-1">
+                <div className="font-semibold text-[#f2ece1]">Genetics &amp; Lineage</div>
+                <div
+                  className="space-y-1 text-xs"
+                  data-testid="inspector-entity-genes"
+                >
+                  {profile.genes.map((gene) => (
+                    <div key={gene} className="flex items-baseline gap-2 text-[#56cfe1]">
+                      <span className="text-[#3a7d8a]" aria-hidden="true">
+                        •
+                      </span>
+                      <span>{gene}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB CONTENT: FAVORITES LIST */}
+          {activeTab === 'favorites' && favoriteUnits.length > 0 && (
+            <div className="space-y-2 text-xs">
+              <div className="text-[11px] text-[#8f8679]">
+                Click an entity to select and center the camera:
+              </div>
+              <div className="space-y-1.5 max-h-48 overflow-y-auto pr-0.5">
+                {favoriteUnits.map((fav) => {
+                  const isCurrent = selectedUnit?.id === fav.id;
+                  return (
+                    <div
+                      key={fav.id}
+                      className={`flex items-center justify-between gap-2 p-1.5 transition-colors ${
+                        isCurrent
+                          ? 'bg-[#292218] border border-[#f5b742]'
+                          : 'bg-[#191613] hover:bg-[#201c18]'
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onSelectUnit(fav.id);
+                          onFocusUnit(fav);
+                        }}
+                        className="flex items-center gap-2 min-w-0 flex-1 text-left cursor-pointer"
+                        title="Select & focus camera"
+                      >
+                        <UnitPixelIcon role={fav.role} className="w-5 h-5 shrink-0" />
+                        <span className="font-semibold text-[#f2ece1] truncate">{fav.name}</span>
+                        <span className="font-pixel-num text-[10px] text-[#80ed99] tabular-nums shrink-0">
+                          {Math.round(fav.hp)}hp
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onToggleFavorite(fav.id)}
+                        aria-label={`Unfavorite ${fav.name}`}
+                        className="text-[#ffd166] hover:text-[#ff8f6b] cursor-pointer p-1"
+                        title="Unfavorite"
+                      >
+                        <Star className="w-3.5 h-3.5" fill="#ffd166" />
+                      </button>
+                    </div>
                   );
                 })}
               </div>
-            )}
-          </div>
-
-          {/* Items */}
-          <div className="px-panel-inset px-2.5 py-2">
-            <div className="flex items-center gap-1.5 text-[11px] font-bold text-[#f5b742] uppercase tracking-wider mb-1.5">
-              <Package className="w-3 h-3" />
-              Items
-            </div>
-            <div className="flex flex-wrap gap-1" data-testid="inspector-entity-items">
-              {profile.items.map((item) => (
-                <span
-                  key={item}
-                  className={`text-[10px] px-1.5 py-0.5 border leading-tight ${
-                    item.startsWith('Carrying ')
-                      ? 'text-[#80ed99] border-[#3d7a51] bg-[#142319] font-semibold'
-                      : 'text-[#e8dfd1] border-[#3d352c] bg-[#1e1a16]'
-                  }`}
-                >
-                  {item}
-                </span>
-              ))}
-            </div>
-          </div>
-
-          {/* Genes */}
-          <div className="px-panel-inset px-2.5 py-2">
-            <div className="flex items-center gap-1.5 text-[11px] font-bold text-[#f5b742] uppercase tracking-wider mb-1.5">
-              <Dna className="w-3 h-3" />
-              Genes
-            </div>
-            <div className="flex flex-wrap gap-1" data-testid="inspector-entity-genes">
-              {profile.genes.map((gene) => (
-                <span
-                  key={gene}
-                  className="text-[10px] px-1.5 py-0.5 border border-[#325b66] bg-[#122026] text-[#8be3f0] leading-tight"
-                >
-                  {gene}
-                </span>
-              ))}
-            </div>
-          </div>
-
-          {!isSelectedDisplayed && (
-            <div className="text-[10px] text-[#a89f91] leading-tight">
-              Click entity in world to pin &amp; toggle favorite.
             </div>
           )}
-        </div>
+        </>
       ) : (
-        <div className="px-panel px-3 py-2.5 text-xs text-[#cfc6b8]">
-          <div className="font-bold text-[#f5b742] mb-0.5">Entity Inspector</div>
-          <p className="text-[11px] text-[#b8afa2] leading-snug">
-            Hover over any living creature to view its diet, stats, items, and genes. Click to select &amp; favorite.
+        <div className="space-y-2 text-xs text-[#cfc6b8]">
+          <h2 className="font-bold text-[#f5b742] text-sm">Entity Inspector</h2>
+          <p className="text-[11px] text-[#a89f91] leading-relaxed">
+            Hover over any living person, wildlife, dinosaur, or dragon to inspect diet,
+            attributes, equipment, and genetics.
           </p>
-        </div>
-      )}
-
-      {/* Favorited Living Entities Quick-Access List */}
-      {favoriteUnits.length > 0 && (
-        <div className="px-panel p-2.5">
-          <div className="flex items-center justify-between mb-1.5">
-            <span className="flex items-center gap-1 text-[11px] font-bold text-[#ffd166] uppercase tracking-wider">
-              <Star className="w-3 h-3" fill="#ffd166" />
-              Favorites ({favoriteUnits.length})
-            </span>
+          <div className="text-[10px] text-[#7d756b] pt-1">
+            Click any creature in the world to pin its card and toggle favorites.
           </div>
-          <div className="flex flex-col gap-1 max-h-32 overflow-y-auto">
-            {favoriteUnits.map((fav) => {
-              const isCurrent = selectedUnit?.id === fav.id;
-              return (
-                <div
-                  key={fav.id}
-                  className={`flex items-center justify-between gap-1.5 px-1.5 py-1 border text-[11px] ${
-                    isCurrent
-                      ? 'border-[#f5b742] bg-[#2a2215]'
-                      : 'border-[#3a332b] bg-[#191613]'
-                  }`}
-                >
+
+          {/* Quick-Access to Starred Entities when idle */}
+          {favoriteUnits.length > 0 && (
+            <div className="pt-2 border-t border-[#2c2620] space-y-1.5">
+              <div className="text-[11px] font-semibold text-[#ffd166]">
+                Favorited Creatures ({favoriteUnits.length})
+              </div>
+              <div className="space-y-1 max-h-36 overflow-y-auto">
+                {favoriteUnits.map((fav) => (
                   <button
+                    key={fav.id}
                     type="button"
                     onClick={() => {
                       onSelectUnit(fav.id);
                       onFocusUnit(fav);
                     }}
-                    className="flex items-center gap-1.5 min-w-0 flex-1 text-left cursor-pointer"
-                    title="Select & focus camera"
+                    className="w-full flex items-center justify-between gap-2 p-1.5 bg-[#191613] hover:bg-[#201c18] text-left cursor-pointer transition-colors"
                   >
-                    <UnitPixelIcon role={fav.role} className="w-4 h-4 shrink-0" />
-                    <span className="font-semibold text-[#f2ece1] truncate">{fav.name}</span>
-                    <span className="font-pixel-num text-[9px] text-[#80ed99] shrink-0">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <UnitPixelIcon role={fav.role} className="w-4 h-4 shrink-0" />
+                      <span className="font-medium text-[#f2ece1] truncate text-[11px]">
+                        {fav.name}
+                      </span>
+                    </div>
+                    <span className="font-pixel-num text-[10px] text-[#80ed99] tabular-nums">
                       {Math.round(fav.hp)}hp
                     </span>
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => onToggleFavorite(fav.id)}
-                    aria-label={`Unfavorite ${fav.name}`}
-                    className="text-[#ffd166] hover:text-[#ff8f6b] cursor-pointer px-1"
-                    title="Unfavorite"
-                  >
-                    <Star className="w-3 h-3" fill="#ffd166" />
-                  </button>
-                </div>
-              );
-            })}
-          </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </aside>

@@ -52,10 +52,12 @@ interface IsometricWorldCanvasProps {
   }>;
   hoveredEntityId?: string | null;
   selectedEntityId?: string | null;
+  followingEntityId?: string | null;
   onTileInteract: (tileX: number, tileZ: number) => void;
   onHoverTileChange: (tile: { x: number; z: number } | null) => void;
   onHoverEntityChange?: (unitId: string | null) => void;
   onSelectEntity?: (unitId: string | null) => void;
+  onBreakFollow?: () => void;
   onSyncHud: () => void;
 }
 
@@ -88,10 +90,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
   cameraActionRef,
   hoveredEntityId = null,
   selectedEntityId = null,
+  followingEntityId = null,
   onTileInteract,
   onHoverTileChange,
   onHoverEntityChange,
   onSelectEntity,
+  onBreakFollow,
   onSyncHud,
 }) => {
   const mountRef = useRef<HTMLDivElement | null>(null);
@@ -106,10 +110,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     lightingPreset,
     hoveredEntityId,
     selectedEntityId,
+    followingEntityId,
     onTileInteract,
     onHoverTileChange,
     onHoverEntityChange,
     onSelectEntity,
+    onBreakFollow,
     onSyncHud,
   });
 
@@ -123,10 +129,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       lightingPreset,
       hoveredEntityId,
       selectedEntityId,
+      followingEntityId,
       onTileInteract,
       onHoverTileChange,
       onHoverEntityChange,
       onSelectEntity,
+      onBreakFollow,
       onSyncHud,
     };
   }, [
@@ -138,10 +146,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     lightingPreset,
     hoveredEntityId,
     selectedEntityId,
+    followingEntityId,
     onTileInteract,
     onHoverTileChange,
     onHoverEntityChange,
     onSelectEntity,
+    onBreakFollow,
     onSyncHud,
   ]);
 
@@ -3074,6 +3084,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         camDesiredTarget.x = THREE.MathUtils.clamp(camDesiredTarget.x, 2, sim.gridSize - 3);
         camDesiredTarget.z = THREE.MathUtils.clamp(camDesiredTarget.z, 2, sim.gridSize - 3);
         dragStartClient = { x: e.clientX, y: e.clientY };
+        if (propsRef.current.followingEntityId) {
+          propsRef.current.onBreakFollow?.();
+        }
         return;
       }
 
@@ -4659,6 +4672,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         camDesiredTarget.set(anchor.x, 1.2, anchor.z);
         desiredFrustum = 14.5;
         camAct.centerHome = false;
+        if (propsRef.current.followingEntityId) {
+          propsRef.current.onBreakFollow?.();
+        }
       }
       if (camAct.focusTarget) {
         camDesiredTarget.set(camAct.focusTarget.x, 1.2, camAct.focusTarget.z);
@@ -4675,24 +4691,54 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       const rightX = Math.cos(camYaw);
       const rightZ = -Math.sin(camYaw);
 
+      let panKeyMoved = false;
       if (keysPressed.has('KeyW') || keysPressed.has('ArrowUp')) {
         camDesiredTarget.x += forwardX * panSpeed;
         camDesiredTarget.z += forwardZ * panSpeed;
+        panKeyMoved = true;
       }
       if (keysPressed.has('KeyS') || keysPressed.has('ArrowDown')) {
         camDesiredTarget.x -= forwardX * panSpeed;
         camDesiredTarget.z -= forwardZ * panSpeed;
+        panKeyMoved = true;
       }
       if (keysPressed.has('KeyA') || keysPressed.has('ArrowLeft')) {
         camDesiredTarget.x -= rightX * panSpeed;
         camDesiredTarget.z -= rightZ * panSpeed;
+        panKeyMoved = true;
       }
       if (keysPressed.has('KeyD') || keysPressed.has('ArrowRight')) {
         camDesiredTarget.x += rightX * panSpeed;
         camDesiredTarget.z += rightZ * panSpeed;
+        panKeyMoved = true;
       }
-      camDesiredTarget.x = THREE.MathUtils.clamp(camDesiredTarget.x, 2, sim.gridSize - 3);
-      camDesiredTarget.z = THREE.MathUtils.clamp(camDesiredTarget.z, 2, sim.gridSize - 3);
+
+      if (panKeyMoved && propsRef.current.followingEntityId) {
+        propsRef.current.onBreakFollow?.();
+      }
+
+      // Live Entity Camera Tracking: Smoothly follow moving or flying creatures frame-by-frame
+      const activeFollowId = propsRef.current.followingEntityId;
+      if (activeFollowId && !panKeyMoved && !isPointerDragging) {
+        const followUnit = simRef.current.units.find(
+          (u) => u.id === activeFollowId && u.state !== 'ko',
+        );
+        if (followUnit) {
+          const uGroup = unitMeshes.get(activeFollowId)?.group;
+          const targetX = uGroup ? uGroup.position.x : followUnit.x;
+          const targetY = uGroup ? Math.max(1.2, uGroup.position.y * 0.8) : 1.2;
+          const targetZ = uGroup ? uGroup.position.z : followUnit.z;
+
+          camDesiredTarget.x = THREE.MathUtils.clamp(targetX, 2, sim.gridSize - 3);
+          camDesiredTarget.y = targetY;
+          camDesiredTarget.z = THREE.MathUtils.clamp(targetZ, 2, sim.gridSize - 3);
+        } else {
+          propsRef.current.onBreakFollow?.();
+        }
+      } else {
+        camDesiredTarget.x = THREE.MathUtils.clamp(camDesiredTarget.x, 2, sim.gridSize - 3);
+        camDesiredTarget.z = THREE.MathUtils.clamp(camDesiredTarget.z, 2, sim.gridSize - 3);
+      }
 
       // Advance simulation when in 'playing' (or gentle ambient motion in 'title')
       if (hitstopTimer > 0) {
@@ -5740,10 +5786,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       styledTerrain.updateFrame(elapsedTotal, simRef.current.epochIndex);
 
       // Smooth exponential camera damping + decaying trauma shake
+      const followDamp = propsRef.current.followingEntityId ? 11 : 8;
       camYaw = THREE.MathUtils.damp(camYaw, camDesiredYaw, 8, dt);
-      camTarget.x = THREE.MathUtils.damp(camTarget.x, camDesiredTarget.x, 8, dt);
-      camTarget.y = THREE.MathUtils.damp(camTarget.y, camDesiredTarget.y, 8, dt);
-      camTarget.z = THREE.MathUtils.damp(camTarget.z, camDesiredTarget.z, 8, dt);
+      camTarget.x = THREE.MathUtils.damp(camTarget.x, camDesiredTarget.x, followDamp, dt);
+      camTarget.y = THREE.MathUtils.damp(camTarget.y, camDesiredTarget.y, followDamp, dt);
+      camTarget.z = THREE.MathUtils.damp(camTarget.z, camDesiredTarget.z, followDamp, dt);
 
       if (Math.abs(frustumSize - desiredFrustum) > 0.01 && container) {
         frustumSize = THREE.MathUtils.damp(frustumSize, desiredFrustum, 8, dt);
