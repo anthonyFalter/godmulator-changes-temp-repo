@@ -4,6 +4,7 @@ import {
   GOD_POWERS,
   TERRAIN_TOOLS,
   UNITS,
+  getDinosaurVariant,
   getDragonVariant,
 } from './catalog';
 import {
@@ -460,6 +461,7 @@ export function spawnUnit(
   const maxHp = ageStage === 'child' ? Math.max(45, Math.round(def.maxHp * 0.68)) : def.maxHp;
   const growthTimer = ageStage === 'child' ? 22 + (appearanceSeed % 12) : undefined;
 
+  const dinoDiet = role === 'dinosaur' ? getDinosaurVariant(appearanceSeed).diet : undefined;
   const CREATURE_NAMES: Partial<Record<UnitRole, string[]>> = {
     cow: ['Bessie', 'Daisy', 'Clover', 'Buttercup', 'Mooana'],
     pig: ['Porky', 'Truffle', 'Hamlet', 'Rosie', 'Pip'],
@@ -467,7 +469,10 @@ export function spawnUnit(
     capybara: ['Gort', 'Mochi', 'Coconut', 'Boba', 'Chill'],
     wolf: ['Fang', 'Fenrir', 'Timber', 'Shadow', 'Ash'],
     bear: ['Barnaby', 'Kodiak', 'Ursa', 'Grizz', 'Bramble'],
-    dinosaur: ['Rex', 'Spike', 'Terra', 'Chomper', 'Raptor'],
+    dinosaur:
+      dinoDiet === 'carnivore'
+        ? ['Rex', 'Chomper', 'Raptor', 'Fangjaw', 'Gorgon']
+        : ['Spike', 'Terra', 'Trixie', 'Bronty', 'Ankylo'],
     dragon: ['Ignis', 'Pyre', 'Zephyr', 'Vermithrax', 'Drakon'],
     unicorn: ['Lumina', 'Aurelia', 'Starlight', 'Celeste', 'Seraph'],
   };
@@ -1354,6 +1359,10 @@ export function executeGodPowerImpact(
         const dSq = (b.tileX - targetX) ** 2 + (b.tileZ - targetZ) ** 2;
         if (dSq <= rSq && b.shieldTimer <= 0) {
           b.hp = Math.max(0, b.hp - 110);
+          const bt = getTile(state, b.tileX, b.tileZ);
+          if (bt && bt.height > 0 && bt.blessedTimer <= 0 && b.hp > 0) {
+            bt.onFireTimer = Math.max(bt.onFireTimer, 6.5);
+          }
         }
       }
       for (const t of state.tiles) {
@@ -1374,14 +1383,14 @@ export function executeGodPowerImpact(
           } else {
             t.terrain = 'scorched';
           }
-          t.onFireTimer = dSq <= 0.5 && t.terrain !== 'rock' ? 5 : 0;
+          t.onFireTimer = dSq <= 0.5 && t.terrain !== 'rock' ? 6.0 : 0;
           if (!t.buildingId && t.resourceNode === 'timber_grove') {
             t.resourceNode = 'none';
             t.resourceAmount = 0;
             state.resources.wood += 10;
           }
-        } else if (dSq <= rSq && t.height > 0) {
-          if (dSq <= 10.5 && !t.buildingId) {
+        } else if (dSq <= rSq * 1.18 && t.height > 0) {
+          if (dSq <= 6.25 && !t.buildingId) {
             if (t.terrain === 'sand') t.terrain = 'crystal_field';
             else if (t.terrain === 'snow') t.terrain = 'rock';
             else t.terrain = 'scorched';
@@ -1392,8 +1401,11 @@ export function executeGodPowerImpact(
             }
           }
           if (
-            dSq > 8.5 &&
-            (t.terrain === 'forest' ||
+            dSq > 5.2 &&
+            t.blessedTimer <= 0 &&
+            (t.resourceNode === 'timber_grove' ||
+              t.resourceNode === 'berry_bush' ||
+              t.terrain === 'forest' ||
               t.terrain === 'savanna' ||
               t.terrain === 'fertile' ||
               t.terrain === 'grass' ||
@@ -1401,8 +1413,8 @@ export function executeGodPowerImpact(
               t.terrain === 'blossom' ||
               t.terrain === 'jungle')
           ) {
-            if ((t.x * 13 + t.z * 7) % 6 === 0) {
-              t.onFireTimer = Math.max(t.onFireTimer, 8);
+            if (t.resourceNode === 'timber_grove' || (t.x * 13 + t.z * 7) % 3 === 0) {
+              t.onFireTimer = Math.max(t.onFireTimer, 7.5);
             }
           }
         }
@@ -1578,17 +1590,33 @@ export function executeGodPowerImpact(
               t.resourceAmount = 260;
             }
           } else if (!t.buildingId) {
-            // 4. Outer scorched blast ring with sparse peripheral brushfires
+            // 4. Outer scorched blast ring with hot crater embers
             t.terrain = 'scorched';
             if (t.resourceNode === 'timber_grove' || t.resourceNode === 'berry_bush') {
               t.resourceNode = 'none';
               t.resourceAmount = 0;
             }
-            if ((t.x * 19 + t.z * 31) % 8 === 0) {
+            if (dSq >= 26 && (t.x * 19 + t.z * 31) % 4 === 0) {
               t.onFireTimer = 9;
             } else {
               t.onFireTimer = 0;
             }
+          }
+        } else if (dSq <= (r + 1.8) ** 2 && t.height > 0 && t.blessedTimer <= 0) {
+          // 5. Hot meteor ejecta embers scatter just beyond the crater lip, igniting surrounding forests, brush & structures
+          const hasFlammableCover =
+            t.resourceNode === 'timber_grove' ||
+            t.resourceNode === 'berry_bush' ||
+            t.terrain === 'forest' ||
+            t.terrain === 'jungle' ||
+            t.terrain === 'taiga' ||
+            t.terrain === 'blossom' ||
+            t.terrain === 'savanna' ||
+            t.terrain === 'fertile' ||
+            t.terrain === 'grass' ||
+            Boolean(t.buildingId);
+          if (hasFlammableCover && (t.resourceNode === 'timber_grove' || (t.x * 17 + t.z * 23) % 3 === 0)) {
+            t.onFireTimer = Math.max(t.onFireTimer, 7.5);
           }
         }
       }
@@ -3691,11 +3719,11 @@ function stepSimulationSingle(state: SimulationState, dt: number): void {
   }
   state.activeHazards = remainingHazards;
 
+  const pendingFireIgnitions = new Map<TileData, { duration: number; fireColor?: string }>();
   for (const t of state.tiles) {
     if (t.blessedTimer > 0) t.blessedTimer = Math.max(0, t.blessedTimer - dt);
     if (t.cursedTimer > 0) t.cursedTimer = Math.max(0, t.cursedTimer - dt);
     if (t.onFireTimer > 0) {
-      const prevTimer = t.onFireTimer;
       t.onFireTimer = Math.max(0, t.onFireTimer - dt);
       if (t.height <= 0) {
         t.onFireTimer = 0;
@@ -3708,6 +3736,7 @@ function stepSimulationSingle(state: SimulationState, dt: number): void {
         if (t.resourceAmount <= 0) {
           t.resourceNode = 'none';
           t.terrain = 'scorched';
+          t.farmSettlementId = undefined;
         }
       } else if (
         t.onFireTimer === 0 &&
@@ -3715,42 +3744,68 @@ function stepSimulationSingle(state: SimulationState, dt: number): void {
           t.terrain === 'jungle' ||
           t.terrain === 'savanna' ||
           t.terrain === 'taiga' ||
-          t.terrain === 'blossom')
+          t.terrain === 'blossom' ||
+          t.terrain === 'fertile' ||
+          t.terrain === 'grass')
       ) {
         t.terrain = 'scorched';
+        t.farmSettlementId = undefined;
       }
+
+      // Wildfire spread from any burning tile (meteor embers, lightning, dragon fire, war-braziers)
+      if (t.onFireTimer > 1.0) {
+        const sourceHeatBoost =
+          t.resourceNode === 'timber_grove' ||
+          t.terrain === 'forest' ||
+          t.terrain === 'jungle' ||
+          t.terrain === 'scorched'
+            ? 1.15
+            : 1.0;
+        for (const [ox, oz, distWeight] of [
+          [1, 0, 1.0],
+          [-1, 0, 1.0],
+          [0, 1, 1.0],
+          [0, -1, 1.0],
+          [1, 1, 0.35],
+          [-1, 1, 0.35],
+          [1, -1, 0.35],
+          [-1, -1, 0.35],
+        ] as const) {
+          const nb = getTile(state, t.x + ox, t.z + oz);
+          if (!nb || nb.height <= 0 || nb.onFireTimer > 0 || nb.blessedTimer > 0) continue;
+          if (pendingFireIgnitions.has(nb)) continue;
+          const rate = getTileFlammabilityRate(state, nb) * distWeight * sourceHeatBoost;
+          if (rate <= 0) continue;
+          const igniteProb = 1 - Math.exp(-rate * dt);
+          if (Math.random() < igniteProb) {
+            const childDuration =
+              nb.buildingId ||
+              nb.resourceNode === 'timber_grove' ||
+              nb.terrain === 'forest' ||
+              nb.terrain === 'jungle' ||
+              nb.terrain === 'taiga'
+                ? 3.8
+                : nb.terrain === 'grass' && nb.resourceNode === 'none' && !nb.farmSettlementId
+                  ? 2.6
+                  : 3.4;
+            pendingFireIgnitions.set(nb, {
+              duration: childDuration,
+              fireColor: t.fireColor,
+            });
+          }
+        }
+      }
+
       if (t.onFireTimer === 0) {
         t.fireColor = undefined;
-      }
-      // Occasional slow wildfire spread to 1 dry/forest neighbor
-      if (t.onFireTimer > 0 && Math.floor(prevTimer) !== Math.floor(t.onFireTimer) && Math.random() < 0.14) {
-        const dirs = [
-          [1, 0],
-          [-1, 0],
-          [0, 1],
-          [0, -1],
-        ];
-        const d = dirs[(t.x + t.z + Math.floor(prevTimer)) & 3];
-        const nb = getTile(state, t.x + d[0], t.z + d[1]);
-        if (
-          nb &&
-          nb.height > 0 &&
-          nb.onFireTimer <= 0 &&
-          nb.blessedTimer <= 0 &&
-          (nb.terrain === 'forest' ||
-            nb.terrain === 'jungle' ||
-            nb.terrain === 'savanna' ||
-            nb.terrain === 'fertile' ||
-            nb.terrain === 'taiga' ||
-            nb.terrain === 'blossom')
-        ) {
-          nb.onFireTimer = 5.5;
-          nb.fireColor = t.fireColor;
-        }
       }
     } else if (t.fireColor !== undefined) {
       t.fireColor = undefined;
     }
+  }
+  for (const [nb, ign] of pendingFireIgnitions) {
+    nb.onFireTimer = ign.duration;
+    nb.fireColor = ign.fireColor;
   }
 
   // 7. Update building timers & fire/curse damage
@@ -4630,15 +4685,66 @@ function stepHostileUnitAI(
   }
 }
 
-function isPredatorRole(role: UnitRole): boolean {
-  return role === 'wolf' || role === 'bear' || role === 'dinosaur' || role === 'dragon';
+function getTileFlammabilityRate(state: SimulationState, t: TileData): number {
+  if (!t || t.height <= 0 || t.onFireTimer > 0 || t.blessedTimer > 0) return 0;
+  if (t.buildingId) {
+    const bld = state.buildings.find((b) => b.id === t.buildingId);
+    if (!bld || bld.hp <= 0 || bld.shieldTimer > 0 || bld.blessedTimer > 0) return 0;
+    return 0.11;
+  }
+  if (t.resourceNode === 'timber_grove') return 0.21;
+  if (t.resourceNode === 'berry_bush') return 0.11;
+  if (t.terrain === 'forest' || t.terrain === 'jungle' || t.terrain === 'taiga') {
+    return 0.15;
+  }
+  if (t.terrain === 'savanna' || t.terrain === 'blossom' || t.terrain === 'fertile') {
+    return 0.1;
+  }
+  if (t.terrain === 'grass') {
+    return t.farmSettlementId ? 0.06 : 0.025;
+  }
+  return 0;
+}
+
+export function isCarnivoreAnimal(role: UnitRole, appearanceSeed?: number): boolean {
+  if (role === 'wolf' || role === 'bear') return true;
+  if (role === 'dinosaur') return getDinosaurVariant(appearanceSeed).diet === 'carnivore';
+  return false;
+}
+
+export function isHerbivoreAnimal(role: UnitRole, appearanceSeed?: number): boolean {
+  if (role === 'cow' || role === 'pig' || role === 'chicken' || role === 'capybara') return true;
+  if (role === 'dinosaur') return getDinosaurVariant(appearanceSeed).diet === 'herbivore';
+  return false;
+}
+
+function isPredatorRole(role: UnitRole, appearanceSeed?: number): boolean {
+  return role === 'dragon' || isCarnivoreAnimal(role, appearanceSeed);
 }
 
 function isPreyAnimalRole(role: UnitRole): boolean {
   return role === 'cow' || role === 'pig' || role === 'chicken' || role === 'capybara';
 }
 
-function tileMatchesWildlifeHabitat(state: SimulationState, t: TileData, role: UnitRole): boolean {
+function tileIsPlantGrazeGround(t: TileData, allowTrees: boolean): boolean {
+  if (t.height <= 0 || t.buildingId || t.onFireTimer > 0 || t.cursedTimer > 0) return false;
+  if (t.resourceNode === 'berry_bush' && t.resourceAmount > 0) return true;
+  if (allowTrees && t.resourceNode === 'timber_grove' && t.resourceAmount > 0) return true;
+  return (
+    t.terrain === 'fertile' ||
+    t.terrain === 'blossom' ||
+    t.terrain === 'grass' ||
+    t.terrain === 'savanna' ||
+    (allowTrees && (t.terrain === 'forest' || t.terrain === 'jungle'))
+  );
+}
+
+function tileMatchesWildlifeHabitat(
+  state: SimulationState,
+  t: TileData,
+  role: UnitRole,
+  appearanceSeed?: number,
+): boolean {
   if (t.height <= 0) return false;
   if (role === 'cow') return t.terrain === 'grass' || t.terrain === 'fertile' || t.terrain === 'savanna';
   if (role === 'chicken') return t.terrain === 'grass' || t.terrain === 'fertile' || t.terrain === 'blossom';
@@ -4646,7 +4752,6 @@ function tileMatchesWildlifeHabitat(state: SimulationState, t: TileData, role: U
   if (role === 'capybara') {
     if (t.terrain === 'swamp' || t.terrain === 'jungle') return true;
     if (t.terrain === 'sand' || t.terrain === 'grass' || t.terrain === 'fertile') {
-      const gs = state.gridSize;
       for (const [ox, oz] of [
         [1, 0],
         [-1, 0],
@@ -4661,15 +4766,34 @@ function tileMatchesWildlifeHabitat(state: SimulationState, t: TileData, role: U
   }
   if (role === 'wolf') return t.terrain === 'forest' || t.terrain === 'taiga' || t.terrain === 'tundra' || t.terrain === 'highland';
   if (role === 'bear') return t.terrain === 'forest' || t.terrain === 'taiga' || t.terrain === 'mountain' || t.terrain === 'tundra';
-  if (role === 'dinosaur') return t.terrain === 'jungle' || t.terrain === 'badlands' || t.terrain === 'highland';
+  if (role === 'dinosaur') {
+    if (getDinosaurVariant(appearanceSeed).diet === 'herbivore') {
+      return (
+        t.terrain === 'jungle' ||
+        t.terrain === 'forest' ||
+        t.terrain === 'fertile' ||
+        t.terrain === 'savanna' ||
+        t.terrain === 'blossom'
+      );
+    }
+    return t.terrain === 'jungle' || t.terrain === 'badlands' || t.terrain === 'highland' || t.terrain === 'savanna';
+  }
   if (role === 'dragon') return t.terrain === 'mountain' || t.terrain === 'badlands' || t.terrain === 'rock' || t.terrain === 'highland';
   if (role === 'unicorn') return t.terrain === 'blossom' || t.terrain === 'forest' || t.terrain === 'fertile' || t.terrain === 'grass';
   return true;
 }
 
+function findDeterministicDinoSeedForMorph(targetMorph: 0 | 1 | 2, base: number): number {
+  for (let offset = 1; offset < 64; offset++) {
+    const candidate = Math.max(1, base + offset);
+    if (getDinosaurVariant(candidate).morph === targetMorph) return candidate;
+  }
+  return 1;
+}
+
 export function seedWorldWildlife(state: SimulationState, maxToAdd?: number): void {
   const gs = state.gridSize;
-  const quotas: Array<{ role: UnitRole; count: number; predator: boolean }> = maxToAdd
+  const quotas: Array<{ role: UnitRole; count: number; predator: boolean; appearanceSeed?: number }> = maxToAdd
     ? [
         { role: 'cow', count: 1, predator: false },
         { role: 'pig', count: 1, predator: false },
@@ -4683,7 +4807,9 @@ export function seedWorldWildlife(state: SimulationState, maxToAdd?: number): vo
         { role: 'capybara', count: 4, predator: false },
         { role: 'wolf', count: 4, predator: true },
         { role: 'bear', count: 3, predator: true },
-        { role: 'dinosaur', count: 3, predator: true },
+        { role: 'dinosaur', count: 1, predator: false, appearanceSeed: findDeterministicDinoSeedForMorph(1, 10) },
+        { role: 'dinosaur', count: 1, predator: false, appearanceSeed: findDeterministicDinoSeedForMorph(2, 20) },
+        { role: 'dinosaur', count: 2, predator: true, appearanceSeed: findDeterministicDinoSeedForMorph(0, 30) },
         { role: 'unicorn', count: 2, predator: false },
         { role: 'dragon', count: 2, predator: true },
       ];
@@ -4716,9 +4842,13 @@ export function seedWorldWildlife(state: SimulationState, maxToAdd?: number): vo
       const tz = 4 + Math.floor(nextRand() * (gs - 8));
       const t = getTile(state, tx, tz);
       if (!t || t.height <= 0 || t.buildingId || t.onFireTimer > 0) continue;
-      if (!tileMatchesWildlifeHabitat(state, t, q.role)) continue;
+      if (!tileMatchesWildlifeHabitat(state, t, q.role, q.appearanceSeed)) continue;
       if (isNearCivilization(tx, tz, minCivDist)) continue;
-      const res = spawnUnit(state, q.role, tx, tz, true);
+      const seedForSlot =
+        q.appearanceSeed !== undefined
+          ? findDeterministicDinoSeedForMorph(getDinosaurVariant(q.appearanceSeed).morph, q.appearanceSeed + placed * 7)
+          : undefined;
+      const res = spawnUnit(state, q.role, tx, tz, true, undefined, seedForSlot ? { appearanceSeed: seedForSlot } : undefined);
       if (res.ok) {
         placed++;
         spawnedTotal++;
@@ -4732,7 +4862,11 @@ export function seedWorldWildlife(state: SimulationState, maxToAdd?: number): vo
       const t = getTile(state, tx, tz);
       if (!t || t.height <= 0 || t.buildingId || t.onFireTimer > 0) continue;
       if (isNearCivilization(tx, tz, minCivDist)) continue;
-      const res = spawnUnit(state, q.role, tx, tz, true);
+      const seedForSlot =
+        q.appearanceSeed !== undefined
+          ? findDeterministicDinoSeedForMorph(getDinosaurVariant(q.appearanceSeed).morph, q.appearanceSeed + placed * 7)
+          : undefined;
+      const res = spawnUnit(state, q.role, tx, tz, true, undefined, seedForSlot ? { appearanceSeed: seedForSlot } : undefined);
       if (res.ok) {
         placed++;
         spawnedTotal++;
@@ -4801,14 +4935,20 @@ function stepWildlifeAI(
   }
 
   const isFrenzied = Boolean(u.statusEffects.frenzied);
+  const isHerbivore = isHerbivoreAnimal(u.role, u.appearanceSeed);
 
-  // Prey flee behavior from predators & hostile raiders (unless frenzied!)
-  if (isPreyAnimalRole(u.role) && !isFrenzied) {
+  // Herbivore behavior: ONLY flee carnivores/hostiles and eat plants (never attack units or smash buildings/rocks unless frenzied!)
+  if (isHerbivore && !isFrenzied) {
     let threat: UnitEntity | null = null;
-    let bestThreatDistSq = 20.25; // 4.5 tiles
+    let bestThreatDistSq = u.role === 'dinosaur' ? 42.25 : 25.0; // 6.5 tiles for herbivore dinos, 5.0 tiles for small prey
     for (const other of state.units) {
       if (other.id === u.id || other.state === 'ko') continue;
-      if (other.faction === 'hostile' || isPredatorRole(other.role)) {
+      if (
+        other.faction === 'hostile' ||
+        other.role === 'dragon' ||
+        isCarnivoreAnimal(other.role, other.appearanceSeed) ||
+        Boolean(other.statusEffects.frenzied)
+      ) {
         const dSq = (other.x - u.x) ** 2 + (other.z - u.z) ** 2;
         if (dSq < bestThreatDistSq) {
           bestThreatDistSq = dSq;
@@ -4817,20 +4957,113 @@ function stepWildlifeAI(
       }
     }
     if (threat) {
-      const dist = Math.max(0.2, Math.sqrt(bestThreatDistSq));
-      const fx = Math.max(2, Math.min(gs - 3, u.x + ((u.x - threat.x) / dist) * 5.0));
-      const fz = Math.max(2, Math.min(gs - 3, u.z + ((u.z - threat.z) / dist) * 5.0));
-      u.targetX = fx;
-      u.targetZ = fz;
-      u.state = 'moving';
-      const nextX = u.x + ((fx - u.x) / Math.max(0.2, Math.hypot(fx - u.x, fz - u.z))) * moveSpeed * 1.45 * dt;
-      const nextZ = u.z + ((fz - u.z) / Math.max(0.2, Math.hypot(fx - u.x, fz - u.z))) * moveSpeed * 1.45 * dt;
-      const nextTile = getTile(state, nextX, nextZ);
-      if (nextTile && nextTile.height > 0) {
-        u.x = Math.max(1, Math.min(gs - 2, nextX));
-        u.z = Math.max(1, Math.min(gs - 2, nextZ));
+      const baseAngle = Math.atan2(u.z - threat.z, u.x - threat.x);
+      const fleeBurst = u.role === 'dinosaur' ? 1.38 : 1.45;
+      const stepDist = moveSpeed * fleeBurst * dt;
+      let moved = false;
+      for (const offset of [0, 0.55, -0.55, 1.15, -1.15, 1.8, -1.8, 2.4, -2.4]) {
+        const ang = baseAngle + offset;
+        const dirX = Math.cos(ang);
+        const dirZ = Math.sin(ang);
+        const fx = Math.max(2, Math.min(gs - 3, u.x + dirX * 5.0));
+        const fz = Math.max(2, Math.min(gs - 3, u.z + dirZ * 5.0));
+        const nextX = u.x + dirX * stepDist;
+        const nextZ = u.z + dirZ * stepDist;
+        const nextTile = getTile(state, nextX, nextZ);
+        if (nextTile && nextTile.height > 0 && nextTile.onFireTimer <= 0) {
+          u.targetX = fx;
+          u.targetZ = fz;
+          u.state = 'moving';
+          u.x = Math.max(1, Math.min(gs - 2, nextX));
+          u.z = Math.max(1, Math.min(gs - 2, nextZ));
+          moved = true;
+          break;
+        }
+      }
+      if (!moved) {
+        u.state = 'moving';
       }
       return;
+    }
+
+    // Herbivore plant-foraging: seek berry bushes (and trees for herbivore dinosaurs) to eat
+    const canEatTrees = u.role === 'dinosaur';
+    const plantSearchRange = canEatTrees ? 9 : 7;
+    const plantRangeSq = plantSearchRange * plantSearchRange;
+    const ux = Math.round(u.x);
+    const uz = Math.round(u.z);
+    const minX = Math.max(1, ux - plantSearchRange);
+    const maxX = Math.min(gs - 2, ux + plantSearchRange);
+    const minZ = Math.max(1, uz - plantSearchRange);
+    const maxZ = Math.min(gs - 2, uz + plantSearchRange);
+    let bestPlantTile: TileData | null = null;
+    let bestPlantScore = Infinity;
+
+    for (let tz = minZ; tz <= maxZ; tz++) {
+      for (let tx = minX; tx <= maxX; tx++) {
+        const tile = state.tiles[tz * gs + tx];
+        if (!tile || tile.height <= 0 || tile.buildingId || tile.onFireTimer > 0 || tile.cursedTimer > 0) {
+          continue;
+        }
+        const isBerry = tile.resourceNode === 'berry_bush' && tile.resourceAmount > 0;
+        const isTree = canEatTrees && tile.resourceNode === 'timber_grove' && tile.resourceAmount > 0;
+        if (!isBerry && !isTree) continue;
+        const dSq = (tx - u.x) ** 2 + (tz - u.z) ** 2;
+        if (dSq > plantRangeSq) continue;
+        const score = Math.sqrt(dSq) + (isBerry ? 0 : 1.2);
+        if (score < bestPlantScore) {
+          bestPlantScore = score;
+          bestPlantTile = tile;
+        }
+      }
+    }
+
+    if (bestPlantTile) {
+      const dist = Math.hypot(bestPlantTile.x - u.x, bestPlantTile.z - u.z);
+      const eatRange = canEatTrees ? 1.55 : 1.25;
+      u.targetX = bestPlantTile.x;
+      u.targetZ = bestPlantTile.z;
+      if (dist <= eatRange) {
+        u.state = 'gathering';
+        if (u.actionCooldown <= 0) {
+          const eatAmt = canEatTrees ? 45 : 24;
+          bestPlantTile.resourceAmount = Math.max(0, bestPlantTile.resourceAmount - eatAmt);
+          if (bestPlantTile.resourceAmount <= 0) {
+            bestPlantTile.resourceNode = 'none';
+          }
+          u.hp = Math.min(u.maxHp, u.hp + (canEatTrees ? 14 : 6));
+          u.actionCooldown = canEatTrees ? 1.8 : 2.1;
+          u.attackAnimTimer = 0.42;
+          u.attackTargetX = bestPlantTile.x;
+          u.attackTargetZ = bestPlantTile.z;
+          state.pendingVfx.push({
+            id: nextEntityId('vfx'),
+            type: 'hit_spark',
+            x: bestPlantTile.x,
+            y: 0.45,
+            z: bestPlantTile.z,
+            radius: canEatTrees ? 0.95 : 0.7,
+            color: '#80ed99',
+            createdAt: Date.now(),
+          });
+        }
+      } else {
+        u.state = 'moving';
+        const grazeSpeed = moveSpeed * (canEatTrees ? 0.88 : 0.8);
+        const nx = u.x + ((bestPlantTile.x - u.x) / dist) * grazeSpeed * dt;
+        const nz = u.z + ((bestPlantTile.z - u.z) / dist) * grazeSpeed * dt;
+        const nt = getTile(state, nx, nz);
+        if (nt && nt.height > 0 && nt.onFireTimer <= 0) {
+          u.x = Math.max(1, Math.min(gs - 2, nx));
+          u.z = Math.max(1, Math.min(gs - 2, nz));
+        }
+      }
+      return;
+    }
+
+    // Gentle passive grazing recovery when resting on lush plant biomes
+    if (curTile && tileIsPlantGrazeGround(curTile, canEatTrees) && u.hp < u.maxHp) {
+      u.hp = Math.min(u.maxHp, u.hp + 1.5 * dt);
     }
   }
 
@@ -5019,8 +5252,11 @@ function stepWildlifeAI(
     return { dirX: nextDirX, dirZ: nextDirZ, angleDiff: remDiff };
   };
 
-  // Predators, Dragons, Unicorns & Frenzied Animals combat / hunting
-  if (isPredatorRole(u.role) || u.role === 'unicorn' || isFrenzied) {
+  const isPredator = isPredatorRole(u.role, u.appearanceSeed);
+
+  // Predators (Carnivores + Dragons), Unicorns & Frenzied Animals combat / hunting
+  if (isPredator || u.role === 'unicorn' || isFrenzied) {
+    const isCarnivoreDino = u.role === 'dinosaur' && isCarnivoreAnimal(u.role, u.appearanceSeed);
     let target: UnitEntity | null = null;
     let bestScore = Infinity;
 
@@ -5029,7 +5265,7 @@ function stepWildlifeAI(
       const dSq = (other.x - u.x) ** 2 + (other.z - u.z) ** 2;
 
       if (other.faction === 'hostile') {
-        const maxSq = u.role === 'dragon' ? 256 : u.role === 'unicorn' ? 25 : 100;
+        const maxSq = u.role === 'dragon' ? 256 : u.role === 'unicorn' ? 25 : isCarnivoreDino ? 121 : 100;
         if (dSq <= maxSq && dSq < bestScore) {
           bestScore = dSq;
           target = other;
@@ -5047,33 +5283,59 @@ function stepWildlifeAI(
           bestScore = dSq + 10;
           target = other;
         }
-      } else if (
-        u.role === 'dinosaur' &&
-        (isPreyAnimalRole(other.role) || other.role === 'wolf' || other.role === 'bear')
-      ) {
-        if (dSq <= 100 && dSq + 8 < bestScore) {
-          bestScore = dSq + 8;
-          target = other;
+      } else if (isCarnivoreDino) {
+        // Apex carnivore dinosaur specialty: hunts herbivore dinosaurs, prey animals, rival wolves/bears & nearby citizens
+        if (isHerbivoreAnimal(other.role, other.appearanceSeed) && dSq <= 121) {
+          const herbBias = other.role === 'dinosaur' ? 4 : 6;
+          if (dSq + herbBias < bestScore) {
+            bestScore = dSq + herbBias;
+            target = other;
+          }
+        } else if ((other.role === 'wolf' || other.role === 'bear') && dSq <= 100) {
+          if (dSq + 9 < bestScore) {
+            bestScore = dSq + 9;
+            target = other;
+          }
+        } else if (other.faction === 'civilization' && dSq <= 36) {
+          if (dSq + 14 < bestScore) {
+            bestScore = dSq + 14;
+            target = other;
+          }
         }
-      } else if (isPredatorRole(u.role) && u.role !== 'dragon' && isPreyAnimalRole(other.role)) {
-        if (dSq <= 64 && dSq + 10 < bestScore) {
-          bestScore = dSq + 10;
-          target = other;
+      } else if (u.role === 'wolf') {
+        // Wolf specialty: swift pack predator targeting small/medium herbivores (chicken, pig, capybara, cow)
+        if (isPreyAnimalRole(other.role) && dSq <= 100) {
+          const preyBias =
+            other.role === 'chicken' ? 2 : other.role === 'pig' || other.role === 'capybara' ? 4 : 7;
+          if (dSq + preyBias < bestScore) {
+            bestScore = dSq + preyBias;
+            target = other;
+          }
+        } else if (other.faction === 'civilization' && dSq <= 5.5) {
+          if (dSq + 14 < bestScore) {
+            bestScore = dSq + 14;
+            target = other;
+          }
         }
-      } else if (
-        isPredatorRole(u.role) &&
-        other.faction === 'civilization' &&
-        dSq <= (u.role === 'dinosaur' ? 36 : 5.5)
-      ) {
-        if (dSq + 14 < bestScore) {
-          bestScore = dSq + 14;
-          target = other;
+      } else if (u.role === 'bear') {
+        // Bear specialty: heavy predator hunting herbivores, rival wolves & close trespassers
+        if ((isPreyAnimalRole(other.role) || other.role === 'wolf') && dSq <= 81) {
+          const bearBias = other.role === 'wolf' ? 8 : 5;
+          if (dSq + bearBias < bestScore) {
+            bestScore = dSq + bearBias;
+            target = other;
+          }
+        } else if (other.faction === 'civilization' && dSq <= 6.25) {
+          if (dSq + 14 < bestScore) {
+            bestScore = dSq + 14;
+            target = other;
+          }
         }
       }
     }
 
-    // Environmental rampage: Dragons torch buildings, trees, bushes, rocks & flammable terrain;
-    // Dinosaurs, Bears & Frenzied beasts smash nearby structures, trees, bushes & boulders.
+    // Environmental rampage: Dragons remain unchanged (torch everything);
+    // Carnivore dinosaurs smash buildings, trees, bushes & boulders; Bears smash trees, bushes & nearby structures; Frenzied beasts smash surroundings.
     type EnvTarget =
       | { kind: 'building'; building: BuildingEntity; x: number; z: number; score: number }
       | { kind: 'tile'; tile: TileData; x: number; z: number; score: number };
@@ -5083,13 +5345,13 @@ function stepWildlifeAI(
       !target &&
       (u.role === 'dragon' ||
         isFrenzied ||
-        ((u.role === 'dinosaur' || u.role === 'bear') && u.actionCooldown <= 0.35));
+        ((isCarnivoreDino || u.role === 'bear') && u.actionCooldown <= 0.35));
 
     if (canAttackEnv) {
       const envRange = u.role === 'dragon' ? 12 : isFrenzied ? 7 : 5;
       const envRangeSq = envRange * envRange;
 
-      if (u.role === 'dragon' || u.role === 'dinosaur' || isFrenzied) {
+      if (u.role === 'dragon' || isCarnivoreDino || isFrenzied) {
         for (const b of state.buildings) {
           if (b.hp <= 0 || b.shieldTimer > 0) continue;
           const dSq = (b.tileX - u.x) ** 2 + (b.tileZ - u.z) ** 2;
@@ -5122,7 +5384,7 @@ function stepWildlifeAI(
           const hasDestructibleProp =
             tile.resourceNode === 'timber_grove' ||
             tile.resourceNode === 'berry_bush' ||
-            ((u.role === 'dragon' || u.role === 'dinosaur') &&
+            ((u.role === 'dragon' || isCarnivoreDino) &&
               (tile.resourceNode === 'stone_outcrop' || tile.resourceNode === 'crystal_monolith'));
           const isFlammableBiome =
             u.role === 'dragon' &&
@@ -5505,15 +5767,15 @@ function stepWildlifeAI(
     currentTileInvalid ||
     (u.state === 'idle' && Math.random() < dt * 0.85)
   ) {
-    const roamRadius = isFlying ? 18 : isPredatorRole(u.role) ? 10 : 6.5;
+    const roamRadius = isFlying ? 18 : isPredator ? 10 : 6.5;
     let chosen: TileData | null = null;
     for (let attempt = 0; attempt < 8; attempt++) {
       const candX = Math.max(2, Math.min(gs - 3, Math.round(u.x + (Math.random() - 0.5) * roamRadius * 2)));
       const candZ = Math.max(2, Math.min(gs - 3, Math.round(u.z + (Math.random() - 0.5) * roamRadius * 2)));
       const ct = getTile(state, candX, candZ);
-      if (!ct || ct.height <= 0) continue;
+      if (!ct || ct.height <= 0 || ct.onFireTimer > 0) continue;
       chosen = ct;
-      if (tileMatchesWildlifeHabitat(state, ct, u.role)) break;
+      if (tileMatchesWildlifeHabitat(state, ct, u.role, u.appearanceSeed)) break;
     }
     if (chosen) {
       u.targetX = chosen.x + (Math.random() - 0.5) * 0.4;
@@ -5535,7 +5797,7 @@ function stepWildlifeAI(
       const dz = u.targetZ - u.z;
       const dist = Math.hypot(dx, dz);
       if (dist > 0.1) {
-        const pace = isPreyAnimalRole(u.role) ? 0.72 : 0.84;
+        const pace = isHerbivore ? 0.72 : 0.84;
         const nx = u.x + (dx / dist) * moveSpeed * pace * dt;
         const nz = u.z + (dz / dist) * moveSpeed * pace * dt;
         const nt = getTile(state, nx, nz);

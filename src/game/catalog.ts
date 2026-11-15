@@ -427,7 +427,7 @@ export const ANIMAL_UNITS: UnitDefinition[] = [
     category: 'animal',
     name: 'Dinosaur',
     faction: 'wildlife',
-    roleSummary: 'Colossal prehistoric primeval beast',
+    roleSummary: 'Prehistoric herbivores & apex carnivores',
     cost: { faith: 22 },
     maxHp: 360,
     speed: 2.45,
@@ -834,5 +834,24 @@ export function getDragonVariant(appearanceSeed?: number): DragonVariantPalette 
   const seed = Math.abs(Math.floor(appearanceSeed ?? 1) || 1);
   const s0 = Math.abs(Math.imul(seed ^ 0x9e3779b9, 2654435761)) >>> 0;
   return DRAGON_VARIANTS[s0 % DRAGON_VARIANTS.length];
+}
+
+export interface DinosaurVariantInfo {
+  morph: 0 | 1 | 2;
+  speciesName: 'Tyrannosaur' | 'Triceratops' | 'Stegosaurus';
+  diet: 'carnivore' | 'herbivore';
+}
+
+export function getDinosaurVariant(appearanceSeed?: number): DinosaurVariantInfo {
+  const seed = Math.abs(Math.floor(appearanceSeed ?? 1) || 1);
+  const s0 = Math.abs(Math.imul(seed ^ 0x9e3779b9, 2654435761)) >>> 0;
+  const morph = (s0 % 3) as 0 | 1 | 2;
+  if (morph === 0) {
+    return { morph: 0, speciesName: 'Tyrannosaur', diet: 'carnivore' };
+  }
+  if (morph === 1) {
+    return { morph: 1, speciesName: 'Triceratops', diet: 'herbivore' };
+  }
+  return { morph: 2, speciesName: 'Stegosaurus', diet: 'herbivore' };
 }
 

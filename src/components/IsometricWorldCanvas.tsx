@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { EPOCHS, GOD_POWERS } from '../game/catalog';
+import { EPOCHS, GOD_POWERS, getDinosaurVariant } from '../game/catalog';
 import {
   createBuildingGroup,
   createUnitGroup,
@@ -3566,7 +3566,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         const atkTimer = u.attackAnimTimer ?? 0;
         const atkDur = isDragon ? 0.78 : 0.48;
         const atkProg = atkTimer > 0 ? THREE.MathUtils.clamp(1 - atkTimer / atkDur, 0, 1) : 0;
-        const isAttacking = atkTimer > 0 && u.state !== 'ko';
+        const isGrazingAnim = isAnimal && u.state === 'gathering';
+        const isAttacking = atkTimer > 0 && u.state !== 'ko' && !isGrazingAnim;
+        const isHerbivoreDino =
+          u.role === 'dinosaur' && getDinosaurVariant(u.appearanceSeed).diet === 'herbivore';
 
         const bobFreq =
           u.role === 'chicken'
@@ -3590,7 +3593,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
                     ? 0.095
                     : 0.08)
             : isWorking
-              ? Math.abs(Math.sin(elapsed * 14 + seedPhase)) * 0.05
+              ? Math.abs(Math.sin(elapsed * 14 + seedPhase)) * (isAnimal ? 0.025 : 0.05)
               : 0;
         const pounceHopY =
           isAttacking && !isDragon && u.role !== 'bear'
@@ -3757,15 +3760,25 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
                   ? Math.sin(elapsed * 17 + seedPhase) * 0.22
                   : 0;
               headPivot.rotation.y = !isMoving && !isPecking ? Math.sin(elapsed * 2.2 + seedPhase) * 0.38 : 0;
-            } else if (u.role === 'cow' || u.role === 'pig' || u.role === 'capybara' || u.role === 'unicorn') {
+            } else if (isGrazingAnim) {
+              // Gentle chewing/browsing head dip while eating plants
+              headPivot.rotation.x = 0.28 + Math.sin(atkProg * Math.PI * 2) * 0.22;
+              headPivot.rotation.y = Math.sin(elapsed * 2.1 + seedPhase) * 0.1;
+            } else if (
+              u.role === 'cow' ||
+              u.role === 'pig' ||
+              u.role === 'capybara' ||
+              u.role === 'unicorn' ||
+              isHerbivoreDino
+            ) {
               // Periodic grazing dip when idle, subtle look around
               const grazeWave = Math.max(0, Math.sin(elapsed * 0.75 + seedPhase));
               headPivot.rotation.x = !isMoving
-                ? grazeWave * (u.role === 'unicorn' ? 0.28 : 0.45)
+                ? grazeWave * (u.role === 'unicorn' ? 0.28 : isHerbivoreDino ? 0.36 : 0.45)
                 : Math.sin(elapsed * bobFreq + seedPhase) * 0.08;
               headPivot.rotation.y = !isMoving ? Math.sin(elapsed * 1.3 + seedPhase) * 0.24 : 0;
             } else {
-              // Wolf, Bear, Dinosaur alert scanning
+              // Wolf, Bear, Carnivore Dinosaur alert scanning
               headPivot.rotation.x = isMoving ? Math.sin(elapsed * bobFreq + seedPhase) * 0.07 : Math.sin(elapsed * 2.1 + seedPhase) * 0.06;
               headPivot.rotation.y = !isMoving ? Math.sin(elapsed * 1.7 + seedPhase) * 0.35 : 0;
             }
