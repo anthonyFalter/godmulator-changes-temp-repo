@@ -389,9 +389,42 @@ export type GameLifecycleState = 'title' | 'playing' | 'paused' | 'gameover';
 
 export type LightingPreset = 'noon' | 'dusk' | 'night' | 'dawn' | 'auto';
 
+export type WorldTemplateId =
+  | 'realistic'
+  | 'fantastic'
+  | 'scifi'
+  | 'prehistoric'
+  | 'archipelago'
+  | 'custom';
+
+export interface WorldRulesConfig {
+  allowFantasy: boolean;
+  allowDinosaurs: boolean;
+  raiderWaves: boolean;
+  wildfireSpread: boolean;
+  autoBuildEnabled: boolean;
+  sandboxFreeMode: boolean;
+  startingEpochIndex: number;
+  startingSettlers: 'none' | 'pioneers' | 'colony';
+}
+
+export interface WorldGenConfig {
+  worldName: string;
+  template: WorldTemplateId;
+  gridSize: number;
+  seed: number;
+  seaLevel: 'low' | 'normal' | 'high';
+  mountainDensity: 'low' | 'normal' | 'high';
+  climate: 'cold' | 'temperate' | 'warm';
+  rules: WorldRulesConfig;
+}
+
 export interface SimulationState {
   seed: number;
   gridSize: number;
+  worldName?: string;
+  worldTemplate?: WorldTemplateId;
+  worldRules?: WorldRulesConfig;
   tiles: TileData[];
   epochIndex: number;
   epochProgress: number; // 0..100 toward next epoch

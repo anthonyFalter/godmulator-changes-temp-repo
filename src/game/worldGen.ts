@@ -114,7 +114,18 @@ export function createNoise2D(seed: number) {
   return { sample, fbm, ridged };
 }
 
-export function generateWorldTiles(gridSize: number, rawSeed: number): TileData[] {
+export interface WorldGenOptions {
+  seaLevelBias?: 'low' | 'normal' | 'high';
+  mountainBias?: 'low' | 'normal' | 'high';
+  climateBias?: 'cold' | 'balanced' | 'warm';
+  allowFantasyBiomes?: boolean;
+}
+
+export function generateWorldTiles(
+  gridSize: number,
+  rawSeed: number,
+  options?: WorldGenOptions,
+): TileData[] {
   const seed = normalizeSeed(rawSeed);
   const rng = createRng(seed ^ 0x9e3779b9);
 
@@ -139,8 +150,16 @@ export function generateWorldTiles(gridSize: number, rawSeed: number): TileData[
   // Seeded world-flavor parameters so each seed shifts continent style, mountain vigor, & climate
   const worldStyle = rng(); // archipelago / twin-bay / grand-continent
   const warpAmp = 6.5 + rng() * 5.0;
-  const ridgeStrength = 7.4 + rng() * 2.8;
-  const climateBiasTemp = (rng() - 0.5) * 0.16;
+  const mountainMult =
+    options?.mountainBias === 'high' ? 1.25 : options?.mountainBias === 'low' ? 0.68 : 1.0;
+  const ridgeStrength = (7.4 + rng() * 2.8) * mountainMult;
+  const seaOffset =
+    options?.seaLevelBias === 'high' ? -0.58 : options?.seaLevelBias === 'low' ? 0.48 : 0.0;
+  const userTempOffset =
+    options?.climateBias === 'warm' ? 0.14 : options?.climateBias === 'cold' ? -0.14 : 0.0;
+  const allowFantasyBiomes = options?.allowFantasyBiomes ?? true;
+
+  const climateBiasTemp = (rng() - 0.5) * 0.16 + userTempOffset;
   const climateBiasMoist = (rng() - 0.5) * 0.14;
   const ridgeAngle = rng() * Math.PI;
   const cosR = Math.cos(ridgeAngle);
@@ -176,6 +195,7 @@ export function generateWorldTiles(gridSize: number, rawSeed: number): TileData[
 
       const rawElevation =
         1.15 +
+        seaOffset +
         (macroLand - 0.42) * 5.2 +
         (detailHills - 0.5) * 2.0 +
         mountainBoost -
@@ -347,7 +367,7 @@ export function generateWorldTiles(gridSize: number, rawSeed: number): TileData[
         // High alpine snow summits crowning towering mountain ranges
         terrain = 'snow';
         if (roll < 0.14) {
-          resourceNode = 'crystal_monolith';
+          resourceNode = allowFantasyBiomes ? 'crystal_monolith' : 'ore_vein';
           resourceAmount = 380;
         } else if (roll < 0.36) {
           resourceNode = 'stone_outcrop';
@@ -355,7 +375,7 @@ export function generateWorldTiles(gridSize: number, rawSeed: number): TileData[
         }
       } else if (h >= 5) {
         // Jagged tectonic Mountain crags & mineral-rich alpine peaks
-        const mysticPocket = moist > 0.65 && temp < 0.46;
+        const mysticPocket = allowFantasyBiomes && moist > 0.65 && temp < 0.46;
         if (mysticPocket) {
           terrain = 'crystal_field';
           if (roll < 0.38) {

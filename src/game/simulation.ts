@@ -23,6 +23,9 @@ import {
   UnitEntity,
   UnitRole,
   VehicleEntity,
+  WorldGenConfig,
+  WorldRulesConfig,
+  WorldTemplateId,
 } from './types';
 import { generateUnitGenes, generateUnitItems } from './entityInspector';
 import { generateWorldTiles, normalizeSeed } from './worldGen';
@@ -130,42 +133,246 @@ function emptyResources(): Resources {
   };
 }
 
+export const DEFAULT_WORLD_RULES: WorldRulesConfig = {
+  allowFantasy: true,
+  allowDinosaurs: true,
+  raiderWaves: false,
+  wildfireSpread: true,
+  autoBuildEnabled: true,
+  sandboxFreeMode: false,
+  startingEpochIndex: 0,
+  startingSettlers: 'none',
+};
+
+export interface WorldTemplatePreset {
+  id: WorldTemplateId;
+  name: string;
+  tagline: string;
+  description: string;
+  badge: string;
+  accentColor: string;
+  defaultWorldName: string;
+  seaLevel: 'low' | 'normal' | 'high';
+  mountainDensity: 'low' | 'normal' | 'high';
+  climate: 'cold' | 'temperate' | 'warm';
+  rules: WorldRulesConfig;
+}
+
+export const WORLD_TEMPLATES: WorldTemplatePreset[] = [
+  {
+    id: 'realistic',
+    name: 'Realistic',
+    tagline: 'Humans & natural wildlife',
+    description: 'Standard terrestrial biomes with no fantasy creatures.',
+    badge: 'Historical',
+    accentColor: '#80ed99',
+    defaultWorldName: 'Terra',
+    seaLevel: 'normal',
+    mountainDensity: 'normal',
+    climate: 'temperate',
+    rules: {
+      allowFantasy: false,
+      allowDinosaurs: false,
+      raiderWaves: false,
+      wildfireSpread: true,
+      autoBuildEnabled: true,
+      sandboxFreeMode: false,
+      startingEpochIndex: 0,
+      startingSettlers: 'pioneers',
+    },
+  },
+  {
+    id: 'fantastic',
+    name: 'Fantastic',
+    tagline: 'Elves, Orcs & Dragons',
+    description: 'High fantasy realm with mythic beasts and crystal groves.',
+    badge: 'Fantasy',
+    accentColor: '#c084fc',
+    defaultWorldName: 'Aethelgard',
+    seaLevel: 'normal',
+    mountainDensity: 'high',
+    climate: 'temperate',
+    rules: {
+      allowFantasy: true,
+      allowDinosaurs: true,
+      raiderWaves: true,
+      wildfireSpread: true,
+      autoBuildEnabled: true,
+      sandboxFreeMode: false,
+      startingEpochIndex: 0,
+      startingSettlers: 'pioneers',
+    },
+  },
+  {
+    id: 'scifi',
+    name: 'Sci-Fi',
+    tagline: 'Orbital Age start',
+    description: 'Begins in 2150 CE with an established orbital colony.',
+    badge: 'Orbital',
+    accentColor: '#56cfe1',
+    defaultWorldName: 'Helios',
+    seaLevel: 'normal',
+    mountainDensity: 'normal',
+    climate: 'temperate',
+    rules: {
+      allowFantasy: false,
+      allowDinosaurs: false,
+      raiderWaves: false,
+      wildfireSpread: true,
+      autoBuildEnabled: true,
+      sandboxFreeMode: false,
+      startingEpochIndex: 6,
+      startingSettlers: 'colony',
+    },
+  },
+  {
+    id: 'prehistoric',
+    name: 'Prehistoric',
+    tagline: 'Dinosaurs & jungles',
+    description: 'Warm primeval continent roaming with Dinosaurs.',
+    badge: 'Primeval',
+    accentColor: '#fb923c',
+    defaultWorldName: 'Pangaea',
+    seaLevel: 'low',
+    mountainDensity: 'high',
+    climate: 'warm',
+    rules: {
+      allowFantasy: false,
+      allowDinosaurs: true,
+      raiderWaves: false,
+      wildfireSpread: true,
+      autoBuildEnabled: true,
+      sandboxFreeMode: false,
+      startingEpochIndex: 0,
+      startingSettlers: 'pioneers',
+    },
+  },
+  {
+    id: 'archipelago',
+    name: 'Archipelago',
+    tagline: 'Island chains & seas',
+    description: 'Scattered islands and coastal lagoons.',
+    badge: 'Islands',
+    accentColor: '#38bdf8',
+    defaultWorldName: 'Azure Isles',
+    seaLevel: 'high',
+    mountainDensity: 'normal',
+    climate: 'warm',
+    rules: {
+      allowFantasy: true,
+      allowDinosaurs: false,
+      raiderWaves: false,
+      wildfireSpread: true,
+      autoBuildEnabled: true,
+      sandboxFreeMode: false,
+      startingEpochIndex: 0,
+      startingSettlers: 'pioneers',
+    },
+  },
+  {
+    id: 'custom',
+    name: 'Custom',
+    tagline: 'Tune land & climate',
+    description: 'Manually adjust sea level, relief, and climate.',
+    badge: 'Custom',
+    accentColor: '#f5b742',
+    defaultWorldName: 'Eden',
+    seaLevel: 'normal',
+    mountainDensity: 'normal',
+    climate: 'temperate',
+    rules: {
+      ...DEFAULT_WORLD_RULES,
+    },
+  },
+];
+
+export function createWorldConfigFromTemplate(
+  templateId: WorldTemplateId,
+  overrides?: Partial<WorldGenConfig>,
+): WorldGenConfig {
+  const preset = WORLD_TEMPLATES.find((t) => t.id === templateId) ?? WORLD_TEMPLATES[0];
+  return {
+    worldName: overrides?.worldName ?? preset.defaultWorldName,
+    seed: overrides?.seed ?? normalizeSeed(undefined),
+    gridSize: overrides?.gridSize ?? 128,
+    template: templateId,
+    seaLevel: overrides?.seaLevel ?? preset.seaLevel,
+    mountainDensity: overrides?.mountainDensity ?? preset.mountainDensity,
+    climate: overrides?.climate ?? preset.climate,
+    rules: {
+      ...preset.rules,
+      ...(overrides?.rules ?? {}),
+    },
+  };
+}
+
 export function createInitialSimulationState(
   gridSize = 128,
   seedInput?: number | string,
+  config?: Partial<WorldGenConfig>,
 ): SimulationState {
-  const seed = normalizeSeed(seedInput);
-  const tiles = generateWorldTiles(gridSize, seed);
+  const resolvedGridSize = Math.max(32, Math.min(256, Math.round(config?.gridSize ?? gridSize)));
+  const seed = normalizeSeed(config?.seed ?? seedInput);
+  const template: WorldTemplateId = config?.template ?? 'fantastic';
+  const rules: WorldRulesConfig = {
+    ...DEFAULT_WORLD_RULES,
+    ...(config?.rules ?? {}),
+  };
 
-  const cx = Math.floor(gridSize / 2);
-  const cz = Math.floor(gridSize / 2);
+  const seaLevelBias = config?.seaLevel ?? 'normal';
+  const mountainBias = config?.mountainDensity ?? 'normal';
+  const climateBias =
+    config?.climate === 'cold'
+      ? 'cold'
+      : config?.climate === 'warm'
+        ? 'warm'
+        : 'balanced';
+
+  const tiles = generateWorldTiles(resolvedGridSize, seed, {
+    seaLevelBias,
+    mountainBias,
+    climateBias,
+    allowFantasyBiomes: rules.allowFantasy,
+  });
+
+  const cx = Math.floor(resolvedGridSize / 2);
+  const cz = Math.floor(resolvedGridSize / 2);
+
+  const startingEpochIdx = Math.max(0, Math.min(EPOCHS.length - 1, rules.startingEpochIndex ?? 0));
+  const startingEpoch = EPOCHS[startingEpochIdx] || EPOCHS[0];
+  const startingYearMap = [-10000, -3000, 500, 1820, 1955, 2005, 2150, 2400];
+  const startingYear = startingYearMap[startingEpochIdx] ?? -10000;
+
+  const isAdvancedStart = startingEpochIdx >= 4;
+  const isSciFiStart = startingEpochIdx >= 6;
+  const worldTitle = config?.worldName?.trim() || 'Untouched World';
 
   const initialChronicle: ChronicleEvent[] = [
     {
       id: 'chr_1',
-      yearLabel: '10,000 BCE',
-      text: `An untouched world awakens (World Seed ${seed}). Spawn Settler Citizens on land to spark civilization.`,
-      tone: 'divine',
+      yearLabel: formatYearLabel(startingYear),
+      text: `${worldTitle} awakens in the ${startingEpoch.name} (Seed ${seed}).`,
+      tone: startingEpochIdx > 0 ? 'epoch' : 'divine',
       timestamp: Date.now(),
     },
   ];
 
   const state: SimulationState = {
     seed,
-    gridSize,
+    gridSize: resolvedGridSize,
     tiles,
-    epochIndex: 0,
+    epochIndex: startingEpochIdx,
     epochProgress: 0,
-    year: -10000,
+    year: startingYear,
     resources: {
-      food: 0,
-      wood: 0,
-      stone: 0,
-      ore: 0,
-      knowledge: 0,
-      energy: 0,
-      alloy: 0,
-      faith: 150,
+      food: isSciFiStart ? 600 : isAdvancedStart ? 250 : rules.startingSettlers === 'colony' ? 120 : 0,
+      wood: isSciFiStart ? 500 : isAdvancedStart ? 220 : rules.startingSettlers === 'colony' ? 100 : 0,
+      stone: isSciFiStart ? 500 : isAdvancedStart ? 220 : rules.startingSettlers === 'colony' ? 80 : 0,
+      ore: isSciFiStart ? 420 : isAdvancedStart ? 160 : 0,
+      knowledge: isSciFiStart ? 850 : isAdvancedStart ? 300 : 0,
+      energy: isSciFiStart ? 600 : isAdvancedStart ? 180 : 0,
+      alloy: isSciFiStart ? 450 : isAdvancedStart ? 120 : 0,
+      faith: isSciFiStart ? 300 : 150,
     },
     rates: {
       food: 0,
@@ -182,10 +389,10 @@ export function createInitialSimulationState(
     vehicles: [],
     population: 0,
     populationCap: 0,
-    happiness: 85,
+    happiness: 88,
     goldenAgeTimer: 0,
-    autoBuildEnabled: true,
-    sandboxFreeMode: false,
+    autoBuildEnabled: rules.autoBuildEnabled,
+    sandboxFreeMode: rules.sandboxFreeMode,
     chronicle: initialChronicle,
     pendingVfx: [],
     activeHazards: [],
@@ -201,7 +408,99 @@ export function createInitialSimulationState(
     harvestWindowTimer: 0,
     settlementNames: {},
     settlementSpecies: {},
+    worldName: worldTitle,
+    worldTemplate: template,
+    worldRules: rules,
   };
+
+  // Seed starting wildlife if a world config was explicitly provided
+  if (config) {
+    seedWorldWildlife(state);
+    state.wildlifeSeeded = true;
+  }
+
+  // Spawn starting pioneers or an established colony if configured
+  if (config && rules.startingSettlers !== 'none') {
+    let landTile: TileData | undefined;
+    let bestDist = Infinity;
+    for (const t of state.tiles) {
+      if (t.height >= 1 && t.height <= 3 && !t.buildingId && t.terrain !== 'mountain') {
+        const d = Math.hypot(t.x - cx, t.z - cz);
+        if (d < bestDist) {
+          bestDist = d;
+          landTile = t;
+        }
+      }
+    }
+
+    if (landTile) {
+      state.selectedTile = { x: landTile.x, z: landTile.z };
+      if (rules.startingSettlers === 'colony') {
+        const colonyBuilds: BuildingType[] =
+          startingEpochIdx >= 6
+            ? [
+                'bonfire',
+                'forager_hut',
+                'forager_hut',
+                'granary',
+                'steam_foundry',
+                'observatory',
+                'fission_reactor',
+                'launch_arcology',
+              ]
+            : startingEpochIdx >= 3
+              ? [
+                  'bonfire',
+                  'forager_hut',
+                  'forager_hut',
+                  'granary',
+                  'smeltery',
+                  'guildhall',
+                  'steam_foundry',
+                ]
+              : ['bonfire', 'forager_hut', 'forager_hut', 'shaman_totem'];
+
+        const prevFree = state.sandboxFreeMode;
+        state.sandboxFreeMode = true;
+        let bIdx = 0;
+        for (let r = 0; r <= 7 && bIdx < colonyBuilds.length; r++) {
+          for (let dz = -r; dz <= r && bIdx < colonyBuilds.length; dz++) {
+            for (let dx = -r; dx <= r && bIdx < colonyBuilds.length; dx++) {
+              if (Math.abs(dx) !== r && Math.abs(dz) !== r) continue;
+              const tx = landTile.x + dx * 2;
+              const tz = landTile.z + dz * 2;
+              const cand = getTile(state, tx, tz);
+              if (!cand || cand.height <= 0 || cand.height >= 4 || cand.buildingId) continue;
+              const bType = colonyBuilds[bIdx];
+              const res = placeBuilding(state, bType, tx, tz);
+              if (res.ok) {
+                const placedBld = state.buildings[state.buildings.length - 1];
+                if (placedBld) {
+                  placedBld.constructionProgress = 100;
+                  placedBld.epochLevel = startingEpochIdx;
+                }
+                bIdx += 1;
+              }
+            }
+          }
+        }
+        state.sandboxFreeMode = prevFree;
+
+        const settlerCount = startingEpochIdx >= 6 ? 8 : 6;
+        for (let i = 0; i < settlerCount; i++) {
+          const sx = Math.max(2, Math.min(resolvedGridSize - 3, landTile.x + ((i % 3) - 1)));
+          const sz = Math.max(2, Math.min(resolvedGridSize - 3, landTile.z + (Math.floor(i / 3) - 1)));
+          spawnUnit(state, 'human', sx, sz, true);
+        }
+      } else if (rules.startingSettlers === 'pioneers') {
+        for (let i = 0; i < 4; i++) {
+          const sx = Math.max(2, Math.min(resolvedGridSize - 3, landTile.x + ((i % 2) * 2 - 1)));
+          const sz = Math.max(2, Math.min(resolvedGridSize - 3, landTile.z + (Math.floor(i / 2) * 2 - 1)));
+          spawnUnit(state, 'human', sx, sz, true);
+        }
+      }
+    }
+  }
 
   recalculateRatesAndCaps(state);
   return state;
@@ -3759,7 +4058,7 @@ function stepSimulationSingle(state: SimulationState, dt: number): void {
       }
 
       // Wildfire spread from any burning tile (meteor embers, lightning, dragon fire, war-braziers)
-      if (t.onFireTimer > 1.0) {
+      if (t.onFireTimer > 1.0 && state.worldRules?.wildfireSpread !== false) {
         const sourceHeatBoost =
           t.resourceNode === 'timber_grove' ||
           t.terrain === 'forest' ||
@@ -4802,7 +5101,11 @@ function findDeterministicDinoSeedForMorph(targetMorph: 0 | 1 | 2, base: number)
 
 export function seedWorldWildlife(state: SimulationState, maxToAdd?: number): void {
   const gs = state.gridSize;
-  const quotas: Array<{ role: UnitRole; count: number; predator: boolean; appearanceSeed?: number }> = maxToAdd
+  const allowFantasy = state.worldRules?.allowFantasy !== false;
+  const allowDinosaurs = state.worldRules?.allowDinosaurs !== false;
+  const isPrehistoric = state.worldTemplate === 'prehistoric';
+
+  const baseQuotas: Array<{ role: UnitRole; count: number; predator: boolean; appearanceSeed?: number }> = maxToAdd
     ? [
         { role: 'cow', count: 1, predator: false },
         { role: 'pig', count: 1, predator: false },
@@ -4816,12 +5119,18 @@ export function seedWorldWildlife(state: SimulationState, maxToAdd?: number): vo
         { role: 'capybara', count: 4, predator: false },
         { role: 'wolf', count: 4, predator: true },
         { role: 'bear', count: 3, predator: true },
-        { role: 'dinosaur', count: 1, predator: false, appearanceSeed: findDeterministicDinoSeedForMorph(1, 10) },
-        { role: 'dinosaur', count: 1, predator: false, appearanceSeed: findDeterministicDinoSeedForMorph(2, 20) },
-        { role: 'dinosaur', count: 2, predator: true, appearanceSeed: findDeterministicDinoSeedForMorph(0, 30) },
+        { role: 'dinosaur', count: isPrehistoric ? 3 : 1, predator: false, appearanceSeed: findDeterministicDinoSeedForMorph(1, 10) },
+        { role: 'dinosaur', count: isPrehistoric ? 3 : 1, predator: false, appearanceSeed: findDeterministicDinoSeedForMorph(2, 20) },
+        { role: 'dinosaur', count: isPrehistoric ? 4 : 2, predator: true, appearanceSeed: findDeterministicDinoSeedForMorph(0, 30) },
         { role: 'unicorn', count: 2, predator: false },
         { role: 'dragon', count: 2, predator: true },
       ];
+
+  const quotas = baseQuotas.filter((q) => {
+    if (!allowFantasy && (q.role === 'unicorn' || q.role === 'dragon')) return false;
+    if (!allowDinosaurs && q.role === 'dinosaur') return false;
+    return true;
+  });
 
   const isNearCivilization = (tx: number, tz: number, safeDist: number) => {
     for (const b of state.buildings) {

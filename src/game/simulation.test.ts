@@ -1,10 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  WORLD_TEMPLATES,
   advanceEpoch,
   applyTerrainTool,
   castGodPower,
   createInitialSimulationState,
+  createWorldConfigFromTemplate,
   executeGodPowerImpact,
   formatYearLabel,
   generateEarthquakeFaultNetwork,
@@ -2313,5 +2315,59 @@ test('zones feature defaults to off, dynamically contours across land and sea, a
   assert.equal(onPack.idData[centerPixelOffset + 2], 255, 'Hovered zone must have hover highlight byte = 255');
 });
 
+test('World Creator templates (Realistic, Fantastic, Sci-Fi Orbital) and map sizes up to 256x256 apply rules accurately', () => {
+  const templateIds = WORLD_TEMPLATES.map((t) => t.id);
+  assert.ok(templateIds.includes('realistic'));
+  assert.ok(templateIds.includes('fantastic'));
+  assert.ok(templateIds.includes('scifi'));
+  assert.ok(templateIds.includes('prehistoric'));
+  assert.ok(templateIds.includes('archipelago'));
+  assert.ok(templateIds.includes('custom'));
 
+  // 1. Realistic template: no fantasy creatures (dragons/unicorns) and no crystal_field biomes
+  const realisticCfg = createWorldConfigFromTemplate('realistic', { seed: 4242, gridSize: 96 });
+  assert.equal(realisticCfg.rules.allowFantasy, false);
+  assert.equal(realisticCfg.rules.allowDinosaurs, false);
+  const realisticSim = createInitialSimulationState(realisticCfg.gridSize, realisticCfg.seed, realisticCfg);
+  assert.equal(realisticSim.gridSize, 96);
+  assert.equal(
+    realisticSim.units.some((u) => u.role === 'dragon' || u.role === 'unicorn' || u.role === 'dinosaur'),
+    false,
+    'Realistic template must not spawn fantasy creatures or dinosaurs',
+  );
+  assert.equal(
+    realisticSim.tiles.some((t) => t.terrain === 'crystal_field'),
+    false,
+    'Realistic template must not generate arcane crystal_field terrain',
+  );
+  assert.ok(realisticSim.population >= 4, 'Realistic template spawns starting pioneer settlers');
 
+  // 2. Fantastic template: includes fantasy creatures (dragons/unicorns)
+  const fantasticCfg = createWorldConfigFromTemplate('fantastic', { seed: 7777, gridSize: 128 });
+  assert.equal(fantasticCfg.rules.allowFantasy, true);
+  const fantasticSim = createInitialSimulationState(fantasticCfg.gridSize, fantasticCfg.seed, fantasticCfg);
+  assert.equal(
+    fantasticSim.units.some((u) => u.role === 'dragon' || u.role === 'unicorn'),
+    true,
+    'Fantastic template should spawn mythical creatures (Dragons / Unicorns)',
+  );
+
+  // 3. Sci-Fi Orbital template: starts right in the Orbital Age (epochIndex = 6, 2150 CE) with an established colony
+  const scifiCfg = createWorldConfigFromTemplate('scifi', { seed: 9999, gridSize: 128 });
+  assert.equal(scifiCfg.rules.startingEpochIndex, 6);
+  assert.equal(scifiCfg.rules.startingSettlers, 'colony');
+  const scifiSim = createInitialSimulationState(scifiCfg.gridSize, scifiCfg.seed, scifiCfg);
+  assert.equal(scifiSim.epochIndex, 6, 'Sci-Fi template must start at Orbital Age (epochIndex 6)');
+  assert.equal(scifiSim.year, 2150, 'Sci-Fi template must start at year 2150 CE');
+  assert.ok(scifiSim.buildings.length >= 4, 'Sci-Fi template should start with an established colony');
+  assert.ok(
+    scifiSim.buildings.every((b) => b.epochLevel === 6),
+    'Sci-Fi starting buildings should be upgraded to Orbital Age level 6',
+  );
+  assert.ok(scifiSim.population >= 6, 'Sci-Fi colony should have starting citizens');
+
+  // 4. Max map size 256x256 ("Only for beefy computers!") generates 65,536 tiles cleanly
+  const colossalSim = createInitialSimulationState(256, 12345);
+  assert.equal(colossalSim.gridSize, 256);
+  assert.equal(colossalSim.tiles.length, 256 * 256);
+});

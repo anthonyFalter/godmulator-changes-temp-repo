@@ -9,14 +9,18 @@ import {
   ZoneOverlayType,
 } from '../game/types';
 
-export const TitleEmblemSvg: React.FC = () => (
-  <div className="flex items-center gap-3.5 mb-3">
+export const TitleEmblemSvg: React.FC<{ centered?: boolean }> = ({ centered = true }) => (
+  <div
+    className={`flex items-center gap-3 ${
+      centered ? 'justify-center' : 'justify-start'
+    }`}
+  >
     {/* Stepped pixel ziggurat & flame emblem */}
     <svg
       viewBox="0 0 16 16"
-      className="w-12 h-12 shrink-0 pixelated-canvas"
+      className="w-10 h-10 shrink-0 pixelated-canvas"
       role="img"
-      aria-label="Aeon Emblem"
+      aria-label="Godmulator Emblem"
       shapeRendering="crispEdges"
     >
       {/* Flame */}
@@ -35,13 +39,8 @@ export const TitleEmblemSvg: React.FC = () => (
       <rect x="3" y="9" width="10" height="1" fill="#d6ccc0" />
       <rect x="2" y="11" width="12" height="1" fill="#a89e92" />
     </svg>
-    <div>
-      <div className="font-display font-bold text-3xl tracking-wide text-[#f5b742] leading-none">
-        AEON
-      </div>
-      <div className="text-xs text-[#c7bdb0] mt-1">
-        Pixel God Sandbox
-      </div>
+    <div className="font-display font-bold text-3xl tracking-normal text-[#f5b742] leading-none">
+      Godmulator
     </div>
   </div>
 );

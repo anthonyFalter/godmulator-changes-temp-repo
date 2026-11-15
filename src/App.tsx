@@ -10,17 +10,19 @@ import {
   UNITS,
 } from './game/catalog';
 import {
+  WORLD_TEMPLATES,
   advanceEpoch,
   applyTerrainTool,
   canAfford,
   castGodPower,
   createInitialSimulationState,
+  createWorldConfigFromTemplate,
   formatYearLabel,
   getTile,
   placeBuilding,
-  spawnRaiderWave,
   spawnUnit,
 } from './game/simulation';
+import { normalizeSeed } from './game/worldGen';
 import { soundEngine } from './game/sound';
 import { toggleUnitFavorite } from './game/entityInspector';
 import {
@@ -30,6 +32,8 @@ import {
   Resources,
   ToolCategory,
   UnitEntity,
+  WorldGenConfig,
+  WorldTemplateId,
   ZoneOverlayType,
   ZoneToggleState,
 } from './game/types';
@@ -89,6 +93,42 @@ function primaryCostNumber(cost: Partial<Resources>, isFree: boolean): string {
   return String(entries[0][1]);
 }
 
+type TitleMenuStep =
+  | 'main'
+  | 'settings'
+  | 'credits'
+  | 'create_world'
+  | 'world_rules'
+  | 'loading_world';
+
+const GAME_VERSION = 'v0.6.0';
+
+const UPDATE_LOG_ENTRIES = [
+  {
+    version: 'v0.6.0',
+    items: [
+      'World creator & templates',
+      'Map sizes up to 256×256',
+      'Customizable world rules',
+    ],
+  },
+  {
+    version: 'v0.5.0',
+    items: [
+      'Kingdom, territory & biome zones',
+      'Shoreline & sea border overlays',
+      'Zone hover inspection',
+    ],
+  },
+  {
+    version: 'v0.4.0',
+    items: [
+      'Seeded pixel Milky Way skybox',
+      'Smooth 45° camera intro zoom',
+    ],
+  },
+];
+
 export default function App() {
   const simRef = useRef(
     createInitialSimulationState(
@@ -115,7 +155,7 @@ export default function App() {
     unit: 'human',
   });
   const [brushRadius, setBrushRadius] = useState<number>(1);
-  const pixelScale = 3;
+  const [pixelScale, setPixelScale] = useState<number>(3);
   const [lightingPreset, setLightingPreset] = useState<LightingPreset>('noon');
   const [dockCollapsed, setDockCollapsed] = useState<boolean>(false);
   const [chronicleOpen, setChronicleOpen] = useState<boolean>(false);
@@ -130,6 +170,20 @@ export default function App() {
   const [activeZones, setActiveZones] = useState<ZoneToggleState>(() => ({
     ...DEFAULT_ZONE_TOGGLES,
   }));
+
+  // Start UI navigation & World Creation Wizard state
+  const [titleMenuStep, setTitleMenuStep] = useState<TitleMenuStep>('main');
+  const [updateLogCollapsed, setUpdateLogCollapsed] = useState<boolean>(false);
+  const [worldConfig, setWorldConfig] = useState<WorldGenConfig>(() =>
+    createWorldConfigFromTemplate('fantastic', {
+      seed: simRef.current.seed,
+      gridSize: 128,
+    }),
+  );
+  const [loadingProgress, setLoadingProgress] = useState<number>(0);
+  const [loadingStageText, setLoadingStageText] = useState<string>(
+    'Sculpting continental plates...',
+  );
 
   // Snapshot counter triggered at <= 6 Hz from canvas loop or user actions
   const [hudTick, setHudTick] = useState(0);
@@ -169,24 +223,139 @@ export default function App() {
     setGameState('playing');
   }, []);
 
-  const handleGenerateSeededWorld = useCallback((explicitSeed?: string | number) => {
-    if (document.activeElement instanceof HTMLElement) {
-      document.activeElement.blur();
-    }
-    const nextSim = createInitialSimulationState(128, explicitSeed);
-    simRef.current = nextSim;
-    setSeedInput(String(nextSim.seed));
-    setHoverTile({ x: 64, z: 64 });
-    setHoveredEntityId(null);
-    setSelectedEntityId(null);
-    selectedEntityIdRef.current = null;
-    setFollowingEntityId(null);
-    setActiveCategory('spawn');
-    setActiveTool({ kind: 'spawn', unit: 'human' });
-    soundEngine.playBuild();
-    setStatusFeedback(`Seed ${nextSim.seed} ready`);
-    setHudTick((t) => t + 1);
+  const handleSelectTemplate = useCallback((templateId: WorldTemplateId) => {
+    soundEngine.playClick();
+    setWorldConfig((prev) => {
+      const next = createWorldConfigFromTemplate(templateId, {
+        seed: prev.seed,
+        gridSize: prev.gridSize,
+      });
+      // Update rotating background preview at 128x128 so the player sees the template's biome & sea level live
+      const previewSim = createInitialSimulationState(128, next.seed, {
+        ...next,
+        gridSize: 128,
+      });
+      simRef.current = previewSim;
+      setSeedInput(String(previewSim.seed));
+      setHudTick((t) => t + 1);
+      return next;
+    });
   }, []);
+
+  const handleGenerateSeededWorld = useCallback(
+    (explicitSeed?: string | number, customConfig?: Partial<WorldGenConfig>) => {
+      if (document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur();
+      }
+      const resolvedSeed = normalizeSeed(explicitSeed);
+      const mergedConfig: WorldGenConfig = {
+        ...worldConfig,
+        ...(customConfig ?? {}),
+        seed: resolvedSeed,
+      };
+      const nextSim = createInitialSimulationState(
+        mergedConfig.gridSize,
+        resolvedSeed,
+        mergedConfig,
+      );
+      simRef.current = nextSim;
+      setSeedInput(String(nextSim.seed));
+      setWorldConfig((prev) => ({
+        ...prev,
+        ...(customConfig ?? {}),
+        seed: nextSim.seed,
+      }));
+      const half = Math.floor(nextSim.gridSize / 2);
+      setHoverTile({ x: half, z: half });
+      setHoveredEntityId(null);
+      setSelectedEntityId(null);
+      selectedEntityIdRef.current = null;
+      setFollowingEntityId(null);
+      setActiveCategory('spawn');
+      setActiveTool({ kind: 'spawn', unit: 'human' });
+      soundEngine.playBuild();
+      setStatusFeedback(`${mergedConfig.worldName} (Seed ${nextSim.seed}) ready`);
+      setHudTick((t) => t + 1);
+    },
+    [worldConfig],
+  );
+
+  // Begin step 3: Loading World -> build configured world & smoothly transition into playing state
+  const handleBeginWorldLoading = useCallback(() => {
+    soundEngine.playBuild();
+    setLoadingProgress(10);
+    setLoadingStageText('Generating terrain...');
+    setTitleMenuStep('loading_world');
+  }, []);
+
+  useEffect(() => {
+    if (gameState !== 'title' || titleMenuStep !== 'loading_world') return;
+
+    const stages = [
+      { pct: 35, text: 'Generating terrain...' },
+      { pct: 65, text: 'Seeding biomes...' },
+      { pct: 90, text: 'Spawning life...' },
+      { pct: 100, text: 'Ready' },
+    ];
+
+    const timers: number[] = [];
+
+    // Generate the actual configured world state on the second step
+    timers.push(
+      window.setTimeout(() => {
+        setLoadingProgress(stages[0].pct);
+        setLoadingStageText(stages[0].text);
+      }, 120),
+    );
+
+    timers.push(
+      window.setTimeout(() => {
+        setLoadingProgress(stages[1].pct);
+        setLoadingStageText(stages[1].text);
+        const builtSim = createInitialSimulationState(
+          worldConfig.gridSize,
+          worldConfig.seed,
+          worldConfig,
+        );
+        simRef.current = builtSim;
+        setSeedInput(String(builtSim.seed));
+        const center = Math.floor(builtSim.gridSize / 2);
+        setHoverTile({ x: center, z: center });
+        setHoveredEntityId(null);
+        setSelectedEntityId(null);
+        selectedEntityIdRef.current = null;
+        setFollowingEntityId(null);
+        setActiveCategory('spawn');
+        setActiveTool({ kind: 'spawn', unit: 'human' });
+        setHudTick((t) => t + 1);
+      }, 320),
+    );
+
+    timers.push(
+      window.setTimeout(() => {
+        setLoadingProgress(stages[2].pct);
+        setLoadingStageText(stages[2].text);
+      }, 560),
+    );
+
+    timers.push(
+      window.setTimeout(() => {
+        setLoadingProgress(stages[3].pct);
+        setLoadingStageText(stages[3].text);
+      }, 760),
+    );
+
+    timers.push(
+      window.setTimeout(() => {
+        setTitleMenuStep('main');
+        handleStartGame();
+      }, 940),
+    );
+
+    return () => {
+      for (const id of timers) window.clearTimeout(id);
+    };
+  }, [gameState, titleMenuStep, worldConfig, handleStartGame]);
 
   const handleRestartGame = useCallback(() => {
     handleGenerateSeededWorld(undefined);
@@ -205,9 +374,13 @@ export default function App() {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
 
       if (gameState === 'title') {
-        if (e.code === 'Enter' || e.code === 'Space') {
+        if (e.code === 'Escape') {
           e.preventDefault();
-          handleStartGame();
+          setTitleMenuStep((prev) => {
+            if (prev === 'world_rules') return 'create_world';
+            if (prev === 'create_world' || prev === 'settings' || prev === 'credits') return 'main';
+            return prev;
+          });
         }
         return;
       }
@@ -236,7 +409,7 @@ export default function App() {
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [gameState, handleStartGame, handleToggleMute]);
+  }, [gameState, handleToggleMute]);
 
   const handleSelectEntity = useCallback((unitId: string | null) => {
     selectedEntityIdRef.current = unitId;
@@ -508,6 +681,7 @@ export default function App() {
     <main className="relative w-screen h-screen overflow-hidden bg-[#141210] text-[#f2ece1]">
       {/* 3D Pixelated Isometric World Canvas */}
       <IsometricWorldCanvas
+        key={sim.gridSize}
         simRef={simRef}
         gameState={gameState}
         timeScale={timeScale}
@@ -530,72 +704,708 @@ export default function App() {
 
       {/* TITLE SCREEN OVERLAY */}
       {gameState === 'title' && (
-        <div className="fixed inset-0 z-30 flex items-center justify-start px-6 md:px-14 pointer-events-none">
-          <div className="pointer-events-auto w-full max-w-sm px-panel p-6">
-            <TitleEmblemSvg />
-            <p className="text-sm text-[#cfc6b8] mb-5 leading-snug">
-              Shape the land, spawn Humans, Elves, or Orcs, and guide towns to the stars.
-            </p>
-
-            <div className="flex items-center gap-3 mb-5">
+        <div className="fixed inset-0 z-30 pointer-events-none flex items-center justify-center p-4">
+          {/* LEFT COLLAPSIBLE UPDATE LOG */}
+          <aside
+            aria-label="Update Log"
+            data-testid="start-update-log"
+            className="pointer-events-auto fixed left-4 top-4 z-30"
+          >
+            {updateLogCollapsed ? (
               <button
                 type="button"
-                data-start="true"
-                onClick={handleStartGame}
-                className="px-btn-primary px-6 py-2.5 text-sm font-bold cursor-pointer whitespace-nowrap shrink-0 focus-visible:outline-2 focus-visible:outline-[#ffd166]"
+                data-testid="toggle-update-log"
+                onClick={() => {
+                  setUpdateLogCollapsed(false);
+                  soundEngine.playClick();
+                }}
+                className="px-panel px-3 py-2 flex items-center gap-2 text-xs font-semibold text-[#e8e0d2] cursor-pointer hover:text-[#f5b742]"
               >
-                Play
+                <HudPixelIcon kind="log" className="w-4 h-4 text-[#f5b742]" />
+                <span>Updates</span>
               </button>
+            ) : (
+              <div className="px-panel w-60 p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-sm font-bold text-[#f5b742]">Updates</span>
+                  <button
+                    type="button"
+                    data-testid="toggle-update-log"
+                    onClick={() => {
+                      setUpdateLogCollapsed(true);
+                      soundEngine.playClick();
+                    }}
+                    className="text-xs text-[#a89f91] hover:text-[#f2ece1] cursor-pointer"
+                  >
+                    Hide
+                  </button>
+                </div>
+
+                <div className="space-y-3.5 text-xs">
+                  {UPDATE_LOG_ENTRIES.map((entry) => (
+                    <div key={entry.version}>
+                      <div className="font-bold text-[#e8e0d2] tabular-nums mb-1">
+                        {entry.version}
+                      </div>
+                      <ul className="space-y-0.5 text-[#b8afa2] leading-snug">
+                        {entry.items.map((item, idx) => (
+                          <li key={idx}>• {item}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </aside>
+
+          {/* BOTTOM-LEFT VERSION */}
+          <div
+            data-testid="game-version-badge"
+            className="pointer-events-auto fixed left-4 bottom-4 z-30 text-xs text-[#cfc6b8] tabular-nums select-none drop-shadow-[0_2px_0_#0b0a09]"
+          >
+            Godmulator {GAME_VERSION}
+          </div>
+
+          {/* MAIN START MENU (Optically Centered) */}
+          {titleMenuStep === 'main' && (
+            <div
+              data-testid="start-menu-main"
+              className="pointer-events-auto w-full max-w-[280px] px-panel p-6 -translate-y-3 flex flex-col items-center gap-6"
+            >
+              <TitleEmblemSvg centered />
+
+              <div className="w-full flex flex-col gap-2.5">
+                <button
+                  type="button"
+                  data-start="true"
+                  data-testid="start-play-btn"
+                  onClick={() => {
+                    soundEngine.playClick();
+                    setTitleMenuStep('create_world');
+                  }}
+                  className="px-btn-primary w-full min-h-[44px] py-2.5 text-base font-bold cursor-pointer focus-visible:outline-2 focus-visible:outline-[#ffd166]"
+                >
+                  Play
+                </button>
+
+                <button
+                  type="button"
+                  data-testid="start-settings-btn"
+                  onClick={() => {
+                    soundEngine.playClick();
+                    setTitleMenuStep('settings');
+                  }}
+                  className="px-btn w-full min-h-[44px] py-2.5 text-sm font-semibold cursor-pointer focus-visible:outline-2 focus-visible:outline-[#ffd166]"
+                >
+                  Settings
+                </button>
+
+                <button
+                  type="button"
+                  data-testid="start-credits-btn"
+                  onClick={() => {
+                    soundEngine.playClick();
+                    setTitleMenuStep('credits');
+                  }}
+                  className="px-btn w-full min-h-[44px] py-2.5 text-sm font-semibold cursor-pointer focus-visible:outline-2 focus-visible:outline-[#ffd166]"
+                >
+                  Credits
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* STEP 1: CREATE WORLD */}
+          {titleMenuStep === 'create_world' && (
+            <div
+              data-testid="create-world-modal"
+              className="pointer-events-auto w-full max-w-md px-panel p-6 space-y-5"
+            >
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-bold text-[#f5b742]">Create World</h2>
+                <button
+                  type="button"
+                  onClick={() => {
+                    soundEngine.playClick();
+                    setTitleMenuStep('main');
+                  }}
+                  className="text-xs text-[#b8afa2] hover:text-[#f2ece1] cursor-pointer"
+                >
+                  Back
+                </button>
+              </div>
+
+              {/* Name & Seed */}
+              <div className="grid grid-cols-2 gap-3 text-xs">
+                <div>
+                  <label htmlFor="create-world-name" className="block text-[#b8afa2] mb-1">
+                    Name
+                  </label>
+                  <div className="flex gap-1">
+                    <input
+                      id="create-world-name"
+                      type="text"
+                      value={worldConfig.worldName}
+                      onChange={(e) =>
+                        setWorldConfig((prev) => ({ ...prev, worldName: e.target.value }))
+                      }
+                      className="px-panel-inset w-full px-2.5 py-2 text-xs text-[#f2ece1] outline-none focus:border-[#f5b742]"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const names = [
+                          'Aethelgard',
+                          'Terra',
+                          'Helios',
+                          'Solaria',
+                          'Eldoria',
+                          'Pangaea',
+                          'Hyperion',
+                          'Valkyria',
+                        ];
+                        const pick = names[Math.floor(Math.random() * names.length)];
+                        setWorldConfig((prev) => ({ ...prev, worldName: pick }));
+                        soundEngine.playClick();
+                      }}
+                      className="px-btn px-2.5 text-xs cursor-pointer shrink-0"
+                      title="Random Name"
+                    >
+                      ↻
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label htmlFor="title-seed-input" className="block text-[#b8afa2] mb-1">
+                    Seed
+                  </label>
+                  <div className="flex gap-1">
+                    <input
+                      id="title-seed-input"
+                      type="text"
+                      value={seedInput}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setSeedInput(val);
+                        setWorldConfig((prev) => ({
+                          ...prev,
+                          seed: normalizeSeed(val || undefined),
+                        }));
+                      }}
+                      className="px-panel-inset w-full px-2.5 py-2 text-xs text-[#f2ece1] tabular-nums outline-none focus:border-[#f5b742]"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const newSeed = normalizeSeed(undefined);
+                        setSeedInput(String(newSeed));
+                        setWorldConfig((prev) => {
+                          const updated = { ...prev, seed: newSeed };
+                          const previewSim = createInitialSimulationState(128, newSeed, {
+                            ...updated,
+                            gridSize: 128,
+                          });
+                          simRef.current = previewSim;
+                          setHudTick((t) => t + 1);
+                          return updated;
+                        });
+                        soundEngine.playBuild();
+                      }}
+                      className="px-btn px-2.5 text-xs cursor-pointer shrink-0"
+                      title="Random Seed"
+                    >
+                      ↻
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Templates */}
+              <div>
+                <div className="text-xs text-[#b8afa2] mb-1.5">Template</div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {WORLD_TEMPLATES.map((tpl) => {
+                    const isSelected = worldConfig.template === tpl.id;
+                    return (
+                      <button
+                        key={tpl.id}
+                        type="button"
+                        data-testid={`template-${tpl.id}`}
+                        onClick={() => handleSelectTemplate(tpl.id)}
+                        className={`p-2.5 text-left cursor-pointer ${
+                          isSelected ? 'px-slot-active' : 'px-slot'
+                        }`}
+                      >
+                        <div className="text-xs font-bold text-[#f2ece1]">{tpl.name}</div>
+                        <div className="text-[11px] text-[#9e9486] leading-tight mt-0.5">
+                          {tpl.tagline}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Map Size Slider */}
+              <div>
+                <div className="flex items-center justify-between text-xs mb-2">
+                  <label htmlFor="map-size-slider" className="text-[#b8afa2]">
+                    Map Size
+                  </label>
+                  <span className="font-bold text-[#f2ece1] tabular-nums">
+                    {worldConfig.gridSize}×{worldConfig.gridSize}
+                  </span>
+                </div>
+                <input
+                  id="map-size-slider"
+                  data-testid="map-size-slider"
+                  type="range"
+                  min={64}
+                  max={256}
+                  step={32}
+                  value={worldConfig.gridSize}
+                  onChange={(e) => {
+                    const nextSize = Number(e.target.value);
+                    setWorldConfig((prev) => ({ ...prev, gridSize: nextSize }));
+                    soundEngine.playClick();
+                  }}
+                  className="px-range w-full"
+                />
+                <div className="flex justify-between text-[11px] text-[#8f8478] tabular-nums mt-1">
+                  <span>64</span>
+                  <span>128</span>
+                  <span>192</span>
+                  <span>256</span>
+                </div>
+                {worldConfig.gridSize === 256 && (
+                  <div
+                    data-testid="beefy-computer-warning"
+                    className="text-xs text-[#ff8f6b] font-semibold mt-1.5"
+                  >
+                    Only for beefy computers!
+                  </div>
+                )}
+              </div>
+
+              {/* Custom Geography (Progressive Disclosure when Custom is active) */}
+              {worldConfig.template === 'custom' && (
+                <div className="grid grid-cols-3 gap-2.5 text-xs pt-1">
+                  <div>
+                    <span className="block text-[#b8afa2] mb-1">Sea Level</span>
+                    <div className="grid grid-cols-3 gap-1">
+                      {(['low', 'normal', 'high'] as const).map((lvl) => (
+                        <button
+                          key={lvl}
+                          type="button"
+                          onClick={() => {
+                            soundEngine.playClick();
+                            setWorldConfig((prev) => ({ ...prev, seaLevel: lvl }));
+                          }}
+                          className={`py-1 text-[11px] capitalize cursor-pointer ${
+                            worldConfig.seaLevel === lvl ? 'px-btn-active font-bold' : 'px-btn'
+                          }`}
+                        >
+                          {lvl}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <span className="block text-[#b8afa2] mb-1">Relief</span>
+                    <div className="grid grid-cols-3 gap-1">
+                      {(['low', 'normal', 'high'] as const).map((mtn) => (
+                        <button
+                          key={mtn}
+                          type="button"
+                          onClick={() => {
+                            soundEngine.playClick();
+                            setWorldConfig((prev) => ({ ...prev, mountainDensity: mtn }));
+                          }}
+                          className={`py-1 text-[11px] capitalize cursor-pointer ${
+                            worldConfig.mountainDensity === mtn ? 'px-btn-active font-bold' : 'px-btn'
+                          }`}
+                        >
+                          {mtn}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <span className="block text-[#b8afa2] mb-1">Climate</span>
+                    <div className="grid grid-cols-3 gap-1">
+                      {(['cold', 'temperate', 'warm'] as const).map((clim) => (
+                        <button
+                          key={clim}
+                          type="button"
+                          onClick={() => {
+                            soundEngine.playClick();
+                            setWorldConfig((prev) => ({ ...prev, climate: clim }));
+                          }}
+                          className={`py-1 text-[11px] capitalize cursor-pointer ${
+                            worldConfig.climate === clim ? 'px-btn-active font-bold' : 'px-btn'
+                          }`}
+                        >
+                          {clim === 'temperate' ? 'mild' : clim}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="flex items-center justify-between gap-3 pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    soundEngine.playClick();
+                    setTitleMenuStep('main');
+                  }}
+                  className="px-btn px-4 py-2.5 text-xs font-semibold cursor-pointer"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="button"
+                  data-testid="next-world-rules-btn"
+                  onClick={() => {
+                    soundEngine.playClick();
+                    setTitleMenuStep('world_rules');
+                  }}
+                  className="px-btn-primary px-5 py-2.5 text-sm font-bold cursor-pointer"
+                >
+                  World Rules →
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* STEP 2: INITIAL WORLD RULES */}
+          {titleMenuStep === 'world_rules' && (
+            <div
+              data-testid="world-rules-modal"
+              className="pointer-events-auto w-full max-w-md px-panel p-6 space-y-5"
+            >
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-bold text-[#f5b742]">World Rules</h2>
+                <button
+                  type="button"
+                  onClick={() => {
+                    soundEngine.playClick();
+                    setTitleMenuStep('create_world');
+                  }}
+                  className="text-xs text-[#b8afa2] hover:text-[#f2ece1] cursor-pointer"
+                >
+                  Back
+                </button>
+              </div>
+
+              {/* Starting Age Slider */}
+              <div>
+                <div className="flex items-center justify-between text-xs mb-2">
+                  <label htmlFor="starting-age-slider" className="text-[#b8afa2]">
+                    Starting Age
+                  </label>
+                  <span className="font-bold text-[#f2ece1]">
+                    {EPOCHS[worldConfig.rules.startingEpochIndex]?.name}
+                  </span>
+                </div>
+                <input
+                  id="starting-age-slider"
+                  data-testid="starting-age-slider"
+                  type="range"
+                  min={0}
+                  max={EPOCHS.length - 1}
+                  step={1}
+                  value={worldConfig.rules.startingEpochIndex}
+                  onChange={(e) => {
+                    const idx = Number(e.target.value);
+                    setWorldConfig((prev) => ({
+                      ...prev,
+                      rules: { ...prev.rules, startingEpochIndex: idx },
+                    }));
+                    soundEngine.playClick();
+                  }}
+                  className="px-range w-full"
+                />
+              </div>
+
+              {/* Starting Settlers */}
+              <div>
+                <div className="text-xs text-[#b8afa2] mb-1.5">Starting Settlers</div>
+                <div className="grid grid-cols-3 gap-2">
+                  {(
+                    [
+                      { id: 'none', label: 'None' },
+                      { id: 'pioneers', label: 'Pioneers' },
+                      { id: 'colony', label: 'Colony' },
+                    ] as const
+                  ).map((opt) => {
+                    const isSel = worldConfig.rules.startingSettlers === opt.id;
+                    return (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        data-testid={`rule-settlers-${opt.id}`}
+                        onClick={() => {
+                          soundEngine.playClick();
+                          setWorldConfig((prev) => ({
+                            ...prev,
+                            rules: { ...prev.rules, startingSettlers: opt.id },
+                          }));
+                        }}
+                        className={`py-2 text-xs font-semibold cursor-pointer ${
+                          isSel ? 'px-btn-active font-bold' : 'px-btn'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Concise Rule Switches */}
+              <div>
+                <div className="text-xs text-[#b8afa2] mb-1.5">Rules</div>
+                <div className="grid grid-cols-2 gap-2">
+                  {(
+                    [
+                      { key: 'allowFantasy' as const, label: 'Fantasy Creatures' },
+                      { key: 'allowDinosaurs' as const, label: 'Dinosaurs' },
+                      { key: 'wildfireSpread' as const, label: 'Wildfire Spread' },
+                      { key: 'raiderWaves' as const, label: 'Raider Waves' },
+                      { key: 'autoBuildEnabled' as const, label: 'Auto-Build Cities' },
+                      { key: 'sandboxFreeMode' as const, label: 'Sandbox Free Mode' },
+                    ]
+                  ).map((rule) => {
+                    const isOn = worldConfig.rules[rule.key];
+                    return (
+                      <button
+                        key={rule.key}
+                        type="button"
+                        aria-pressed={isOn}
+                        data-testid={`rule-toggle-${rule.key}`}
+                        onClick={() => {
+                          soundEngine.playClick();
+                          setWorldConfig((prev) => ({
+                            ...prev,
+                            rules: {
+                              ...prev.rules,
+                              [rule.key]: !prev.rules[rule.key],
+                            },
+                          }));
+                        }}
+                        className={`px-3 py-2.5 flex items-center justify-between text-xs cursor-pointer ${
+                          isOn ? 'px-slot-active font-bold text-[#f2ece1]' : 'px-slot text-[#b8afa2]'
+                        }`}
+                      >
+                        <span>{rule.label}</span>
+                        <span
+                          className={`w-2.5 h-2.5 border border-[#0b0a09] shrink-0 ${
+                            isOn ? 'bg-[#80ed99]' : 'bg-[#34302a]'
+                          }`}
+                        />
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="flex items-center justify-between gap-3 pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    soundEngine.playClick();
+                    setTitleMenuStep('create_world');
+                  }}
+                  className="px-btn px-4 py-2.5 text-xs font-semibold cursor-pointer"
+                >
+                  Back
+                </button>
+
+                <button
+                  type="button"
+                  data-testid="launch-world-btn"
+                  onClick={handleBeginWorldLoading}
+                  className="px-btn-primary px-6 py-2.5 text-sm font-bold cursor-pointer"
+                >
+                  Create World →
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* STEP 3: LOADING WORLD */}
+          {titleMenuStep === 'loading_world' && (
+            <div
+              data-testid="loading-world-modal"
+              className="pointer-events-auto w-full max-w-xs px-panel p-6 text-center space-y-3"
+            >
+              <div className="text-base font-bold text-[#f5b742]">
+                {worldConfig.worldName}
+              </div>
+
+              <div className="px-panel-inset w-full h-4 p-0.5 overflow-hidden">
+                <div
+                  className="h-full bg-[#f5b742] transition-all duration-150"
+                  style={{ width: `${loadingProgress}%` }}
+                />
+              </div>
+
+              <div className="flex items-center justify-between text-xs text-[#b8afa2] tabular-nums">
+                <span className="truncate pr-2">{loadingStageText}</span>
+                <span className="text-[#f2ece1] font-bold">{loadingProgress}%</span>
+              </div>
+            </div>
+          )}
+
+          {/* SETTINGS */}
+          {titleMenuStep === 'settings' && (
+            <div
+              data-testid="start-settings-modal"
+              className="pointer-events-auto w-full max-w-sm px-panel p-6 space-y-5"
+            >
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-bold text-[#f5b742]">Settings</h2>
+                <button
+                  type="button"
+                  onClick={() => {
+                    soundEngine.playClick();
+                    setTitleMenuStep('main');
+                  }}
+                  className="text-xs text-[#b8afa2] hover:text-[#f2ece1] cursor-pointer"
+                >
+                  Back
+                </button>
+              </div>
+
+              <div className="space-y-4 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-[#e8e0d2]">Sound Effects</span>
+                  <button
+                    type="button"
+                    onClick={handleToggleMute}
+                    className={`px-3 py-1.5 font-semibold cursor-pointer ${
+                      !muted ? 'px-btn-active font-bold' : 'px-btn'
+                    }`}
+                  >
+                    {muted ? 'Off' : 'On'}
+                  </button>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label htmlFor="pixel-scale-slider" className="text-[#e8e0d2]">
+                      Pixel Scale
+                    </label>
+                    <span className="font-bold text-[#f5b742] tabular-nums">
+                      {pixelScale}x
+                    </span>
+                  </div>
+                  <input
+                    id="pixel-scale-slider"
+                    type="range"
+                    min={1}
+                    max={4}
+                    step={1}
+                    value={pixelScale}
+                    onChange={(e) => {
+                      setPixelScale(Number(e.target.value));
+                      soundEngine.playClick();
+                    }}
+                    className="px-range w-full"
+                  />
+                </div>
+
+                <div>
+                  <span className="block text-[#e8e0d2] mb-1.5">Sky Lighting</span>
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {(['noon', 'dusk', 'night', 'dawn'] as LightingPreset[]).map((lp) => (
+                      <button
+                        key={lp}
+                        type="button"
+                        onClick={() => {
+                          setLightingPreset(lp);
+                          soundEngine.playClick();
+                        }}
+                        className={`py-1.5 capitalize cursor-pointer ${
+                          lightingPreset === lp ? 'px-btn-active font-bold' : 'px-btn'
+                        }`}
+                      >
+                        {lp}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
               <button
                 type="button"
                 onClick={() => {
-                  simRef.current.sandboxFreeMode = true;
-                  handleStartGame();
+                  soundEngine.playClick();
+                  setTitleMenuStep('main');
                 }}
-                className="px-btn px-5 py-2.5 text-sm font-semibold cursor-pointer whitespace-nowrap shrink-0 focus-visible:outline-2 focus-visible:outline-[#ffd166]"
+                className="px-btn-primary w-full py-2.5 text-sm font-bold cursor-pointer"
               >
-                Sandbox
+                Done
               </button>
             </div>
+          )}
 
-            <div className="flex items-center gap-2 mb-4 text-xs">
-              <label htmlFor="title-seed-input" className="text-[#a89f91] shrink-0">
-                Seed
-              </label>
-              <input
-                id="title-seed-input"
-                type="text"
-                value={seedInput}
-                onChange={(e) => setSeedInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    handleGenerateSeededWorld(seedInput || undefined);
-                  }
-                }}
-                className="px-panel-inset w-28 px-2 py-1.5 text-xs text-[#f2ece1] font-pixel-num outline-none focus:ring-2 focus:ring-[#f5b742]"
-                placeholder="Seed"
-              />
+          {/* CREDITS */}
+          {titleMenuStep === 'credits' && (
+            <div
+              data-testid="start-credits-modal"
+              className="pointer-events-auto w-full max-w-sm px-panel p-6 space-y-4"
+            >
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-bold text-[#f5b742]">Credits</h2>
+                <button
+                  type="button"
+                  onClick={() => {
+                    soundEngine.playClick();
+                    setTitleMenuStep('main');
+                  }}
+                  className="text-xs text-[#b8afa2] hover:text-[#f2ece1] cursor-pointer"
+                >
+                  Back
+                </button>
+              </div>
+
+              <div className="space-y-2.5 text-xs text-[#cfc6b8] leading-relaxed">
+                <div className="text-[#f2ece1] font-bold">
+                  Godmulator {GAME_VERSION}
+                </div>
+                <p>
+                  3D pixel god simulator with procedural continents, dynamic land &amp; sea zones, and multi-epoch civilizations.
+                </p>
+                <div className="pt-1 text-[#b8afa2] space-y-1">
+                  <div>WASD / Right-Drag — Pan</div>
+                  <div>[ ] or Q / E — Rotate 45°</div>
+                  <div>Scroll — Zoom</div>
+                  <div>Space — Pause</div>
+                </div>
+              </div>
+
               <button
                 type="button"
-                onClick={() => handleGenerateSeededWorld(seedInput || undefined)}
-                className="px-btn px-2.5 py-1.5 text-xs font-semibold text-[#f5b742] cursor-pointer whitespace-nowrap shrink-0"
+                onClick={() => {
+                  soundEngine.playClick();
+                  setTitleMenuStep('main');
+                }}
+                className="px-btn-primary w-full py-2.5 text-sm font-bold cursor-pointer"
               >
-                Apply
-              </button>
-              <button
-                type="button"
-                onClick={() => handleGenerateSeededWorld(undefined)}
-                className="px-btn px-2.5 py-1.5 text-xs font-semibold cursor-pointer whitespace-nowrap shrink-0"
-              >
-                Random
+                Back
               </button>
             </div>
-
-            <div className="text-xs text-[#9e9486]">
-              WASD Pan / Scroll Zoom / Space Pause / H Hide UI
-            </div>
-          </div>
+          )}
         </div>
       )}
 
@@ -1070,7 +1880,11 @@ export default function App() {
                 {activeCategory === 'spawn' && (
                   <div className="flex flex-wrap items-center justify-start gap-2">
                     <div className="flex flex-wrap items-center justify-start gap-1.5">
-                      {SPECIES_UNITS.map((u) => {
+                      {SPECIES_UNITS.filter(
+                        (u) =>
+                          sim.worldRules?.allowFantasy !== false ||
+                          (u.role !== 'elf' && u.role !== 'orc'),
+                      ).map((u) => {
                         const isSelected =
                           activeTool.kind === 'spawn' && activeTool.unit === u.role;
                         const isFree = sim.sandboxFreeMode;
@@ -1112,7 +1926,12 @@ export default function App() {
 
                       <span className="w-px h-7 bg-[#3a332b] mx-0.5 hidden sm:inline-block" aria-hidden="true" />
 
-                      {[...ANIMAL_UNITS, ...MYTHICAL_BEAST_UNITS].map((u) => {
+                      {[
+                        ...ANIMAL_UNITS.filter(
+                          (u) => sim.worldRules?.allowDinosaurs !== false || u.role !== 'dinosaur',
+                        ),
+                        ...(sim.worldRules?.allowFantasy !== false ? MYTHICAL_BEAST_UNITS : []),
+                      ].map((u) => {
                         const isSelected =
                           activeTool.kind === 'spawn' && activeTool.unit === u.role;
                         const isFree = sim.sandboxFreeMode;
@@ -1150,8 +1969,7 @@ export default function App() {
                         );
                       })}
                     </div>
-
-                    </div>
+                  </div>
                 )}
 
                 {/* TAB 5: ZONES (Toggle Buttons for Kingdoms, Animal Territories, Biomes, Temperatures) */}

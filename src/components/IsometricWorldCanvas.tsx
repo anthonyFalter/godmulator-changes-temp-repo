@@ -206,18 +206,20 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     pmremGenerator.dispose();
 
     // Orthographic camera for authentic isometric projection
+    const sim = simRef.current;
+    const getWholeMapFrustum = (gs: number) => Math.round(gs * (105 / 128));
     const aspect = Math.max(1, container.clientWidth) / Math.max(1, container.clientHeight);
-    let frustumSize = propsRef.current.gameState === 'title' ? 22 : 105;
+    let frustumSize =
+      propsRef.current.gameState === 'title' ? 22 : getWholeMapFrustum(sim.gridSize);
     const camera = new THREE.OrthographicCamera(
       (-frustumSize * aspect) / 2,
       (frustumSize * aspect) / 2,
       frustumSize / 2,
       -frustumSize / 2,
-      -120,
-      220,
+      -260,
+      420,
     );
 
-    const sim = simRef.current;
     const gridCenter = (sim.gridSize - 1) / 2;
 
     // 3-Point Warm/Cool Studio + Temple Torch Lighting Rig
@@ -2920,7 +2922,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     const camDesiredTarget = new THREE.Vector3(gridCenter, 1.2, gridCenter);
     let camYaw = Math.PI / 4; // 45 deg true isometric
     let camDesiredYaw = Math.PI / 4;
-    let desiredFrustum = propsRef.current.gameState === 'title' ? 22 : 105;
+    let desiredFrustum =
+      propsRef.current.gameState === 'title' ? 22 : getWholeMapFrustum(sim.gridSize);
     let prevGameState: GameLifecycleState = propsRef.current.gameState;
     let trauma = 0;
     let hitstopTimer = 0;
@@ -3130,7 +3133,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      desiredFrustum = THREE.MathUtils.clamp(desiredFrustum + e.deltaY * 0.015, 7.5, 105);
+      const maxZoomOut = Math.max(105, getWholeMapFrustum(simRef.current.gridSize));
+      desiredFrustum = THREE.MathUtils.clamp(desiredFrustum + e.deltaY * 0.015, 7.5, maxZoomOut);
     };
 
     const onKeyDown = (e: KeyboardEvent) => {
@@ -3232,7 +3236,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         const newCenter = (simState.gridSize - 1) / 2;
         camDesiredTarget.set(newCenter, 1.2, newCenter);
         camTarget.set(newCenter, 1.2, newCenter);
-        desiredFrustum = propsRef.current.gameState === 'title' ? 22 : 105;
+        desiredFrustum =
+          propsRef.current.gameState === 'title' ? 22 : getWholeMapFrustum(simState.gridSize);
       }
 
       // 1. Update instanced terrain tiles & detect if props/nodes/water-map need rebuild
@@ -4697,7 +4702,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         camDesiredTarget.set(center, 1.2, center);
 
         // Zoom out so the player can see the whole map
-        desiredFrustum = 105;
+        desiredFrustum = getWholeMapFrustum(simRef.current.gridSize);
 
         if (propsRef.current.followingEntityId) {
           propsRef.current.onBreakFollow?.();
@@ -4710,12 +4715,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       }
       prevGameState = currentGameState;
 
+      const maxZoomOut = Math.max(105, getWholeMapFrustum(simRef.current.gridSize));
       if (camAct.rotateDelta !== 0) {
         camDesiredYaw += camAct.rotateDelta;
         camAct.rotateDelta = 0;
       }
       if (camAct.zoomDelta !== 0) {
-        desiredFrustum = THREE.MathUtils.clamp(desiredFrustum + camAct.zoomDelta, 7.5, 105);
+        desiredFrustum = THREE.MathUtils.clamp(desiredFrustum + camAct.zoomDelta, 7.5, maxZoomOut);
         camAct.zoomDelta = 0;
       }
       if (camAct.centerHome) {
@@ -4730,7 +4736,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       if (camAct.focusTarget) {
         camDesiredTarget.set(camAct.focusTarget.x, 1.2, camAct.focusTarget.z);
         if (camAct.focusTarget.zoom !== undefined) {
-          desiredFrustum = THREE.MathUtils.clamp(camAct.focusTarget.zoom, 7.5, 105);
+          desiredFrustum = THREE.MathUtils.clamp(camAct.focusTarget.zoom, 7.5, maxZoomOut);
         }
         camAct.focusTarget = null;
       }
