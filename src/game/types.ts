@@ -238,6 +238,9 @@ export interface UnitEntity {
   vzAir?: number;
   fallDamageArmed?: boolean;
   draggedByPlayer?: boolean;
+  dragTargetX?: number;
+  dragTargetZ?: number;
+  dragTargetAltitude?: number;
 }
 
 export type GodPowerType =
@@ -253,9 +256,6 @@ export type GodPowerType =
   | 'curse'
   | 'plague_miasma'
   | 'lightning_smite'
-  | 'bomb'
-  | 'cluster_bomb'
-  | 'mega_bomb'
   | 'tornado'
   | 'tsunami'
   | 'meteor_strike'
@@ -391,7 +391,13 @@ export interface ActiveHazardZone {
     | 'wormhole_rift'
     | 'tsunami_wave'
     | 'earthquake_zone'
-    | 'tornado_vortex';
+    | 'tornado_vortex'
+    | 'heat_wave_zone'
+    | 'freeze_wave_zone'
+    | 'blessing_wave'
+    | 'curse_wave'
+    | 'frenzy_wave'
+    | 'terraform_wave';
   x: number;
   z: number;
   targetX?: number;
@@ -406,6 +412,9 @@ export interface ActiveHazardZone {
   currentSpeed?: number;
   currentRadius?: number;
   maxRadius?: number;
+  waveWaterTarget?: boolean;
+  waveTargetHeight?: number;
+  waveEpochIdx?: number;
   radius: number;
   remaining: number;
   duration: number;

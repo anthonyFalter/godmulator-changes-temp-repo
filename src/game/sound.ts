@@ -105,10 +105,6 @@ class SoundEngine {
     });
   }
 
-  public playBombFuse(): void {
-    this.playTone(540, 0.14, 'triangle', 0.05, 0.65);
-  }
-
   public playMegaExplosion(): void {
     this.playTone(75, 1.4, 'sawtooth', 0.17, 0.22);
     setTimeout(() => this.playTone(46, 1.6, 'square', 0.15, 0.28), 55);

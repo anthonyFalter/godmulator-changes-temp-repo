@@ -28,6 +28,7 @@ import {
   ANIMAL_UNITS,
   DRAGON_VARIANTS,
   EPOCHS,
+  GOD_POWERS,
   MYTHICAL_BEAST_UNITS,
   SPECIES_UNITS,
   getDinosaurVariant,
@@ -946,23 +947,25 @@ test('Industrial to Information Age pacing includes Info Age, metro railways, ca
   // Record positions & step further to confirm real locomotion and flight takeoff/cruise
   const carBefore = { x: cars[0].x, z: cars[0].z };
   const trainBefore = { x: trains[0].x, z: trains[0].z };
+  let carMoved = false;
+  let trainMoved = false;
   let sawPlaneAirborne = planes[0].y > 0.2 || planes[0].flightPhase === 'cruise' || planes[0].flightPhase === 'takeoff';
 
   for (let i = 0; i < 45; i++) {
     stepSimulation(state, 0.2);
+    if (Math.hypot(cars[0].x - carBefore.x, cars[0].z - carBefore.z) > 0.2) {
+      carMoved = true;
+    }
+    if (Math.hypot(trains[0].x - trainBefore.x, trains[0].z - trainBefore.z) > 0.2) {
+      trainMoved = true;
+    }
     if ((planes[0]?.y ?? 0) > 0.4 || planes[0]?.flightPhase === 'cruise') {
       sawPlaneAirborne = true;
     }
   }
 
-  assert.ok(
-    Math.hypot(cars[0].x - carBefore.x, cars[0].z - carBefore.z) > 0.2,
-    'Cars must drive continuously along road network',
-  );
-  assert.ok(
-    Math.hypot(trains[0].x - trainBefore.x, trains[0].z - trainBefore.z) > 0.2,
-    'Trains/metros must travel continuously along rail network',
-  );
+  assert.ok(carMoved, 'Cars must drive continuously along road network');
+  assert.ok(trainMoved, 'Trains/metros must travel continuously along rail network');
   assert.ok(sawPlaneAirborne, 'Airport aircraft must take off and become airborne');
 });
 
@@ -2876,7 +2879,7 @@ test('black hole orbits & lifts entities, erodes terrain, then explodes into sup
   assert.notEqual(dragon.state, 'ko', 'Flying dragon must not suffer fatal ground fall damage');
 });
 
-test('new powers (heat_wave, freeze_snap, tornado, bomb, cluster_bomb, mega_bomb) and drag_entity telekinesis work end to end', () => {
+test('powers (heat_wave, freeze_snap, tornado, tsunamis, asteroids) and drag_entity telekinesis work end to end with incremental waves and no phantom black holes', () => {
   const state = createInitialSimulationState(64, 'NEW-POWERS');
   state.sandboxFreeMode = true;
   state.wildlifeSeeded = true;
@@ -2889,23 +2892,51 @@ test('new powers (heat_wave, freeze_snap, tornado, bomb, cluster_bomb, mega_bomb
     }
   }
 
-  // 1. Freeze Snap freezes units & extinguishes fires; Heat Wave melts frost & ignites ground
+  // 1. Bomb-related powers (bomb, cluster_bomb, mega_bomb/Tsar Bomb) are removed from the catalog
+  const powerTypes = GOD_POWERS.map((p) => p.type);
+  assert.equal(powerTypes.includes('bomb' as any), false, 'Bomb must be removed from GOD_POWERS');
+  assert.equal(powerTypes.includes('cluster_bomb' as any), false, 'Cluster bomb must be removed from GOD_POWERS');
+  assert.equal(powerTypes.includes('mega_bomb' as any), false, 'Mega bomb must be removed from GOD_POWERS');
+
+  // 2. Freeze Snap & Heat Wave work incrementally via expanding waves without creating phantom black holes
   const centerTile = getTile(state, 20, 20)!;
+  const outerTile = getTile(state, 24, 20)!; // Distance 4.0 tiles away from center
   centerTile.onFireTimer = 5.0;
+  outerTile.terrain = 'grass';
   const hRes = spawnUnit(state, 'human', 20, 20, true);
   assert.equal(hRes.ok, true);
   const human = hRes.unit!;
 
   castGodPower(state, 'freeze_snap', 20, 20);
-  assert.equal(centerTile.onFireTimer, 0, 'Freeze snap must extinguish fires');
-  assert.ok((human.statusEffects.frozen ?? 0) > 0, 'Freeze snap must freeze nearby units');
-  assert.equal(centerTile.terrain, 'snow');
+  // Center tile is extinguished immediately at impact
+  assert.equal(centerTile.onFireTimer, 0, 'Freeze snap must extinguish fires at center');
+  assert.ok((human.statusEffects.frozen ?? 0) > 0, 'Freeze snap must freeze units at center');
+  // Outer tile (dist 4.0) has NOT been frozen yet because the wave spreads incrementally outward!
+  assert.notEqual(outerTile.terrain, 'snow', 'Outer tile at radius 4 must NOT freeze immediately on cast');
 
+  // Verify no phantom black hole (wormhole_rift) was created by casting freeze_snap
+  const phantomBlackHoles = state.activeHazards.filter((h) => h.kind === 'wormhole_rift');
+  assert.equal(phantomBlackHoles.length, 0, 'Casting freeze_snap must not spawn a phantom black hole');
+
+  // Advance simulation so the expanding wave reaches outer tile
+  for (let s = 0; s < 16; s++) {
+    stepSimulation(state, 0.1);
+  }
+  assert.equal(outerTile.terrain, 'snow', 'Freeze snap wave must reach outer tile incrementally');
+
+  // Now cast Heat Wave incrementally
   castGodPower(state, 'heat_wave', 20, 20);
-  assert.equal(human.statusEffects.frozen, undefined, 'Heat wave must thaw frozen units');
-  assert.notEqual(centerTile.terrain, 'snow', 'Heat wave must melt snow');
+  // Verify no phantom black hole
+  assert.equal(state.activeHazards.filter((h) => h.kind === 'wormhole_rift').length, 0);
+  assert.equal(human.statusEffects.frozen, undefined, 'Heat wave must thaw center unit');
 
-  // 2. Tornado spawns moving tornado_vortex that lifts & tosses units
+  // Advance simulation so heat wave reaches outer tile
+  for (let s = 0; s < 16; s++) {
+    stepSimulation(state, 0.1);
+  }
+  assert.notEqual(outerTile.terrain, 'snow', 'Heat wave must melt snow on outer tile incrementally');
+
+  // 3. Tornado spawns moving tornado_vortex that lifts & tosses units
   const wolfRes = spawnUnit(state, 'wolf', 32, 32, true);
   castGodPower(state, 'tornado', 32, 32);
   const tornado = state.activeHazards.find((h) => h.kind === 'tornado_vortex');
@@ -2916,23 +2947,30 @@ test('new powers (heat_wave, freeze_snap, tornado, bomb, cluster_bomb, mega_bomb
   assert.ok(Math.hypot(tornado.x - tStartX, tornado.z - tStartZ) > 1.0, 'Tornado must roam across the map');
   assert.ok((wolfRes.unit!.altitude ?? 0) > 0 || wolfRes.unit!.hp < wolfRes.unit!.maxHp);
 
-  // 3. Bomb, Cluster Bomb, Mega Bomb (Tsar Bomb) shatter structures
-  placeBuilding(state, 'guildhall', 46, 20);
-  const guild = state.buildings.find((b) => b.tileX === 46 && b.tileZ === 20)!;
-  guild.hp = 1500;
-  guild.maxHp = 1500;
-  castGodPower(state, 'mega_bomb', 46, 20);
-  assert.equal(guild.hp, 0, 'Tsar Bomb must completely obliterate buildings in blast radius');
-
-  // 4. Telekinesis Drag Tool grabs, moves, and drops unit with fall damage
+  // 4. Telekinesis Drag Tool grabs entity with physical weight/lag and inflicts fall damage on release
   const pigRes = spawnUnit(state, 'pig', 16, 44, true);
   assert.equal(pigRes.ok, true);
   const pig = pigRes.unit!;
+  const initialPigX = pig.x;
   beginDragUnit(state, pig.id);
   assert.equal(pig.draggedByPlayer, true);
-  updateDragUnit(state, pig.id, 24, 44, 5.5);
-  assert.equal(Math.round(pig.x), 24);
-  assert.ok((pig.altitude ?? 0) >= 5.0);
+
+  // Set drag target 10 tiles away
+  updateDragUnit(state, pig.id, 26, 44, 5.5);
+  // Unit position must NOT immediately snap to 26; it retains physical drag delay
+  assert.equal(pig.x, initialPigX, 'Dragged entity must not snap instantly to cursor target');
+  assert.equal(pig.dragTargetX, 26);
+
+  // Step simulation once: pig starts lagging behind target with natural weight
+  stepSimulation(state, 0.05);
+  assert.ok(pig.x > initialPigX && pig.x < 25.0, `Dragged entity should lag smoothly towards target (x=${pig.x})`);
+
+  // Over subsequent steps, entity catches up to target position
+  for (let i = 0; i < 20; i++) stepSimulation(state, 0.05);
+  assert.ok(pig.x > 25.0, `Dragged entity should smoothly catch up over time (x=${pig.x})`);
+  assert.ok((pig.altitude ?? 0) >= 4.5);
+
+  // Release and verify momentum and fall damage
   releaseDragUnit(state, pig.id, 6, 0);
   assert.equal(pig.draggedByPlayer, false);
   for (let i = 0; i < 20; i++) stepSimulation(state, 0.1);

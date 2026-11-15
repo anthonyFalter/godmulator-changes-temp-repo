@@ -574,7 +574,7 @@ export default function App() {
         const res = castGodPower(sim, activeTool.power, tileX, tileZ, { deferImpact: true });
         const def = GOD_POWERS.find((p) => p.type === activeTool.power);
         if (res.ok) {
-          if (activeTool.power === 'meteor_strike' || activeTool.power === 'mega_bomb') {
+          if (activeTool.power === 'meteor_strike') {
             soundEngine.playMeteorIncoming();
           } else if (activeTool.power === 'earthquake') {
             soundEngine.playEarthquake();
@@ -586,8 +586,6 @@ export default function App() {
             soundEngine.playFreeze();
           } else if (activeTool.power === 'heat_wave') {
             soundEngine.playHeatWave();
-          } else if (activeTool.power === 'bomb' || activeTool.power === 'cluster_bomb') {
-            soundEngine.playBombFuse();
           } else {
             soundEngine.playClick();
           }
