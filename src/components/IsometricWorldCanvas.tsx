@@ -5118,7 +5118,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       const rawMs = now - lastTime;
       const rawDt = rawMs / 1000;
       lastTime = now;
-      const dt = Math.min(Math.max(rawDt, 0.001), 0.05);
+      const dt = Math.min(Math.max(rawDt, 0.001), 0.15);
       elapsedTotal += dt;
 
       const currentGameState = propsRef.current.gameState;
@@ -6326,9 +6326,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       let preset: 'noon' | 'dusk' | 'night' | 'dawn';
       if (isCycleActive) {
         const cycleRate =
-          propsRef.current.timeScale === 0
-            ? 0.25
-            : Math.min(2.4, Math.max(0.75, propsRef.current.timeScale * 0.7));
+          propsRef.current.gameState === 'title'
+            ? 0.35
+            : Math.max(0, propsRef.current.timeScale);
         dayNightClock += dt * cycleRate;
         const phase = ((dayNightClock % 64) / 64);
         preset =
@@ -6412,9 +6412,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       }
 
       const atmosSpeed =
-        propsRef.current.timeScale === 0
-          ? 0.35
-          : 1 + Math.min(3, Math.max(0, propsRef.current.timeScale - 1)) * 0.25;
+        propsRef.current.gameState === 'title'
+          ? 0.5
+          : propsRef.current.timeScale === 0
+            ? 0
+            : Math.min(8, Math.max(0.25, propsRef.current.timeScale));
       skyClouds.update(dt * atmosSpeed, elapsedTotal, preset);
       oceanFoam.updateFrame(elapsedTotal, preset);
       styledTerrain.updateFrame(elapsedTotal, simRef.current.epochIndex);

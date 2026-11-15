@@ -67,7 +67,7 @@ const ORC_VILLAGE_NAMES = [
 export const SETTLEMENT_AWARENESS_RADIUS = 12;
 export const MAX_CITY_BUILDINGS = 32;
 export const MAX_WORLD_CITIES = 8;
-export const YEARS_PER_SEC_AT_1X = 0.1;
+export const YEARS_PER_SEC_AT_1X = 1.0;
 
 export function getMaxCityBuildings(epochIndex: number): number {
   if (epochIndex <= 0) return 8;
@@ -3889,7 +3889,7 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
 }
 
 export function stepSimulation(state: SimulationState, rawDt: number): void {
-  let remainingDt = Math.min(Math.max(rawDt, 0), 1.5);
+  let remainingDt = Math.min(Math.max(rawDt, 0), 3.0);
   while (remainingDt > 0.0001) {
     const stepDt = Math.min(remainingDt, 0.1);
     remainingDt -= stepDt;
@@ -3900,7 +3900,7 @@ export function stepSimulation(state: SimulationState, rawDt: number): void {
 function stepSimulationSingle(state: SimulationState, dt: number): void {
   if (dt <= 0) return;
 
-  // 1. Advance historical year at 1 year per 10 seconds on 1x speed (whenever creatures or structures inhabit the world)
+  // 1. Advance historical year at 1 year per second on 1x speed (scales directly with speed multiplier)
   if (state.population > 0 || state.units.length > 0 || state.buildings.length > 0) {
     state.year += YEARS_PER_SEC_AT_1X * dt;
   }

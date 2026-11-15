@@ -191,7 +191,7 @@ test('advancing epochs progresses from Prehistoric all the way to Interstellar A
   assert.equal(EPOCHS[state.epochIndex].id, 'interstellar');
 });
 
-test('simulation step advances year at 1 year per 10 seconds on 1x speed and spawns raiders cleanly', () => {
+test('simulation step advances year at 1 year per second on 1x speed, scales with multiplier, and spawns raiders cleanly', () => {
   const state = createInitialSimulationState(128, 55555);
   spawnUnit(state, 'villager', 64, 64);
   const yearBefore = state.year;
@@ -201,20 +201,26 @@ test('simulation step advances year at 1 year per 10 seconds on 1x speed and spa
   const hostiles = state.units.filter((u) => u.faction === 'hostile');
   assert.equal(hostiles.length, 3);
 
-  // 9 seconds at 1x speed should still be 10,000 BCE (< 1 full year elapsed)
-  for (let i = 0; i < 90; i++) {
+  // 0.9 seconds at 1x speed should still be 10,000 BCE (< 1 full year elapsed)
+  for (let i = 0; i < 9; i++) {
     stepSimulation(state, 0.1);
   }
   assert.ok(state.year > yearBefore);
   assert.ok(Math.abs(state.year - (yearBefore + 0.9)) < 1e-6);
   assert.equal(formatYearLabel(state.year), '10,000 BCE');
 
-  // 1 more second completes 10 seconds -> advances 1 full year to 9,999 BCE
-  for (let i = 0; i < 10; i++) {
-    stepSimulation(state, 0.1);
-  }
+  // 0.1 more second completes 1 full second -> advances 1 full year to 9,999 BCE
+  stepSimulation(state, 0.1);
   assert.ok(Math.abs(state.year - (yearBefore + 1.0)) < 1e-6);
   assert.equal(formatYearLabel(state.year), '9,999 BCE');
+
+  // 10x speed (dt = 0.1 * 10 = 1.0 per tick) advances 10 full years in 1 real second
+  const yearBefore10x = state.year;
+  for (let i = 0; i < 10; i++) {
+    stepSimulation(state, 0.1 * 10);
+  }
+  assert.ok(Math.abs(state.year - (yearBefore10x + 10.0)) < 1e-6);
+  assert.equal(formatYearLabel(state.year), '9,989 BCE');
 });
 
 test('seed pipeline produces deterministic identical worlds for same seed and distinct biomes across seeds', () => {

@@ -1551,7 +1551,13 @@ export default function App() {
                     setTimeScale(scale);
                     soundEngine.playClick();
                   }}
-                  title={scale === 1 ? '1x (1 year / 10s)' : `${scale}x speed`}
+                  title={
+                    scale === 0
+                      ? 'Pause time'
+                      : scale === 0.5
+                        ? '0.5x (1 year / 2s)'
+                        : `${scale}x (${scale} ${scale === 1 ? 'year' : 'years'} / sec)`
+                  }
                   className={`px-2 py-1 font-pixel-num text-[11px] cursor-pointer whitespace-nowrap shrink-0 ${
                     timeScale === scale ? 'px-btn-active font-bold' : 'px-btn'
                   }`}
