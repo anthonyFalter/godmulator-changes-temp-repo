@@ -1,0 +1,178 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    --font-display: 'Pixelify Sans', ui-monospace, monospace;
+    --font-sans: 'Pixelify Sans', ui-monospace, monospace;
+    --font-pixel-num: 'Silkscreen', ui-monospace, monospace;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background-color: #141210;
+    color: #f2ece1;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+  }
+
+  h1, h2, .font-display {
+    font-family: var(--font-display);
+    text-wrap: balance;
+  }
+}
+
+.font-pixel-num {
+  font-family: var(--font-pixel-num);
+  font-variant-numeric: tabular-nums;
+}
+
+.pixelated-canvas {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Crisp Pixel-Art UI Surfaces & Bevels (Zero gradients, zero translucent blur, zero pill curves) */
+.px-panel {
+  background-color: #211f1c;
+  border: 2px solid #0b0a09;
+  box-shadow:
+    inset 2px 2px 0 0 #464038,
+    inset -2px -2px 0 0 #13110f,
+    0 4px 0 0 rgba(11, 10, 9, 0.72);
+}
+
+.px-panel-inset {
+  background-color: #161513;
+  border: 2px solid #0b0a09;
+  box-shadow:
+    inset 2px 2px 0 0 #0d0c0b,
+    inset -2px -2px 0 0 #34302a;
+}
+
+.px-btn {
+  background-color: #302c27;
+  color: #e8e0d2;
+  border: 2px solid #0b0a09;
+  box-shadow:
+    inset 2px 2px 0 0 #524b42,
+    inset -2px -2px 0 0 #1c1916;
+  transition: transform 60ms steps(2), background-color 80ms linear;
+}
+
+.px-btn:hover {
+  background-color: #3d3730;
+  color: #ffffff;
+}
+
+.px-btn:active {
+  transform: translateY(1px);
+  box-shadow:
+    inset 2px 2px 0 0 #1c1916,
+    inset -2px -2px 0 0 #524b42;
+}
+
+.px-btn-primary {
+  background-color: #d97736;
+  color: #141210;
+  border: 2px solid #0b0a09;
+  box-shadow:
+    inset 2px 2px 0 0 #f7a663,
+    inset -2px -2px 0 0 #9b4b19;
+  transition: transform 60ms steps(2), background-color 80ms linear;
+}
+
+.px-btn-primary:hover {
+  background-color: #ea8844;
+}
+
+.px-btn-primary:active {
+  transform: translateY(1px);
+  box-shadow:
+    inset 2px 2px 0 0 #9b4b19,
+    inset -2px -2px 0 0 #f7a663;
+}
+
+.px-btn-active {
+  background-color: #f5b742;
+  color: #141210;
+  border: 2px solid #0b0a09;
+  box-shadow:
+    inset 2px 2px 0 0 #ffe08a,
+    inset -2px -2px 0 0 #b87c18;
+}
+
+.px-tab {
+  background-color: #292521;
+  color: #c7bdb0;
+  border: 2px solid #0b0a09;
+  border-bottom: 0;
+  box-shadow:
+    inset 2px 2px 0 0 #453e36,
+    inset -2px 0 0 0 #161411;
+}
+
+.px-tab:hover {
+  background-color: #36302a;
+  color: #f2ece1;
+}
+
+.px-tab-active {
+  background-color: #211f1c;
+  color: #f5b742;
+  border: 2px solid #0b0a09;
+  border-bottom: 2px solid #211f1c;
+  margin-bottom: -2px;
+  position: relative;
+  z-index: 2;
+  box-shadow:
+    inset 2px 2px 0 0 #6b6154,
+    inset -2px 0 0 0 #13110f;
+}
+
+.px-slot {
+  background-color: #181614;
+  border: 2px solid #0b0a09;
+  box-shadow:
+    inset 2px 2px 0 0 #100e0d,
+    inset -2px -2px 0 0 #39342e;
+  transition: transform 60ms steps(2), background-color 80ms linear;
+}
+
+.px-slot:hover {
+  background-color: #26231f;
+  box-shadow:
+    inset 2px 2px 0 0 #595146,
+    inset -2px -2px 0 0 #12100e;
+}
+
+.px-slot-active {
+  background-color: #2e281d;
+  border: 2px solid #f5b742;
+  box-shadow:
+    0 0 0 2px #0b0a09,
+    inset 2px 2px 0 0 #ffe08a,
+    inset -2px -2px 0 0 #8f6114;
+}
+
+/* Crisp pixel scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #141210;
+  border-left: 2px solid #0b0a09;
+}
+::-webkit-scrollbar-thumb {
+  background: #464038;
+  border: 2px solid #0b0a09;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #5e564b;
+}

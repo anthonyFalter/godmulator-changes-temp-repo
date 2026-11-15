@@ -1,0 +1,6 @@
+{
+  "name": "Godmulator",
+  "description": "Wreak havoc or bless your creations in this fun, 3d pixelated god simulator game.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

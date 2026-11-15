@@ -1,0 +1,584 @@
+import { ResourceNodeType, TerrainType, TileData } from './types';
+
+/**
+ * Normalizes an optional numeric or string seed into a deterministic 32-bit unsigned integer.
+ * When omitted or blank, produces a fresh random 6-digit seed.
+ */
+export function normalizeSeed(input?: number | string): number {
+  if (typeof input === 'number' && Number.isFinite(input)) {
+    return (Math.abs(Math.floor(input)) >>> 0) || 1;
+  }
+  if (typeof input === 'string') {
+    const trimmed = input.trim();
+    if (trimmed.length > 0) {
+      const parsed = Number(trimmed);
+      if (Number.isFinite(parsed) && /^\d+$/.test(trimmed)) {
+        return (Math.abs(Math.floor(parsed)) >>> 0) || 1;
+      }
+      let hash = 2166136261;
+      for (let i = 0; i < trimmed.length; i++) {
+        hash ^= trimmed.charCodeAt(i);
+        hash = Math.imul(hash, 16777619);
+      }
+      return (hash >>> 0) || 1;
+    }
+  }
+  return Math.floor(100000 + Math.random() * 900000);
+}
+
+/**
+ * Deterministic Mulberry32 PRNG returning floats in [0, 1).
+ */
+export function createRng(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) | 0;
+    let t = Math.imul(state ^ (state >>> 15), 1 | state);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/**
+ * Seeded 2D gradient/value noise with FBM and ridged-multifractal octaves
+ * for organic continents, sweeping mountain ranges, and distinct climate zones.
+ */
+export function createNoise2D(seed: number) {
+  const rng = createRng(seed);
+  const perm = new Uint8Array(512);
+  const vals = new Float32Array(256);
+  const p = new Uint8Array(256);
+  for (let i = 0; i < 256; i++) {
+    p[i] = i;
+    vals[i] = rng();
+  }
+  for (let i = 255; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    const tmp = p[i];
+    p[i] = p[j];
+    p[j] = tmp;
+  }
+  for (let i = 0; i < 512; i++) {
+    perm[i] = p[i & 255];
+  }
+
+  const fade = (t: number) => t * t * t * (t * (t * 6 - 15) + 10);
+  const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+
+  const sample = (x: number, y: number): number => {
+    const xi = Math.floor(x) & 255;
+    const yi = Math.floor(y) & 255;
+    const xf = x - Math.floor(x);
+    const yf = y - Math.floor(y);
+    const u = fade(xf);
+    const v = fade(yf);
+
+    const aa = vals[perm[perm[xi] + yi]];
+    const ab = vals[perm[perm[xi] + yi + 1]];
+    const ba = vals[perm[perm[xi + 1] + yi]];
+    const bb = vals[perm[perm[xi + 1] + yi + 1]];
+
+    return lerp(lerp(aa, ba, u), lerp(ab, bb, u), v);
+  };
+
+  const fbm = (x: number, y: number, octaves = 4, lacunarity = 2.0, gain = 0.5): number => {
+    let total = 0;
+    let amplitude = 1;
+    let frequency = 1;
+    let maxAmp = 0;
+    for (let i = 0; i < octaves; i++) {
+      total += sample(x * frequency, y * frequency) * amplitude;
+      maxAmp += amplitude;
+      amplitude *= gain;
+      frequency *= lacunarity;
+    }
+    return total / maxAmp;
+  };
+
+  const ridged = (x: number, y: number, octaves = 4, lacunarity = 2.1, gain = 0.5): number => {
+    let total = 0;
+    let amplitude = 1;
+    let frequency = 1;
+    let maxAmp = 0;
+    for (let i = 0; i < octaves; i++) {
+      const n = sample(x * frequency, y * frequency);
+      const ridge = 1.0 - Math.abs(n * 2.0 - 1.0);
+      total += ridge * ridge * amplitude;
+      maxAmp += amplitude;
+      amplitude *= gain;
+      frequency *= lacunarity;
+    }
+    return total / maxAmp;
+  };
+
+  return { sample, fbm, ridged };
+}
+
+export function generateWorldTiles(gridSize: number, rawSeed: number): TileData[] {
+  const seed = normalizeSeed(rawSeed);
+  const rng = createRng(seed ^ 0x9e3779b9);
+
+  // Separate uncorrelated noise channels derived from the master seed
+  const elevNoise = createNoise2D(seed + 101);
+  const ridgeNoise = createNoise2D(seed + 2029);
+  const warpNoise = createNoise2D(seed + 4049);
+  const tempNoise = createNoise2D(seed + 7079);
+  const moistNoise = createNoise2D(seed + 9091);
+  const biomeNoise = createNoise2D(seed + 5113);
+
+  const center = (gridSize - 1) / 2;
+  const maxRadius = Math.max(8, gridSize * 0.47);
+  const totalTiles = gridSize * gridSize;
+
+  const heightGrid = new Int32Array(totalTiles);
+  const tempGrid = new Float32Array(totalTiles);
+  const moistGrid = new Float32Array(totalTiles);
+  const biomeVarGrid = new Float32Array(totalTiles);
+  const riverMask = new Uint8Array(totalTiles);
+
+  // Seeded world-flavor parameters so each seed shifts continent style, mountain vigor, & climate
+  const worldStyle = rng(); // archipelago / twin-bay / grand-continent
+  const warpAmp = 6.5 + rng() * 5.0;
+  const ridgeStrength = 7.4 + rng() * 2.8;
+  const climateBiasTemp = (rng() - 0.5) * 0.16;
+  const climateBiasMoist = (rng() - 0.5) * 0.14;
+  const ridgeAngle = rng() * Math.PI;
+  const cosR = Math.cos(ridgeAngle);
+  const sinR = Math.sin(ridgeAngle);
+
+  // Stage 1 & 2: Domain-warped tectonic elevation + temperature + moisture fields
+  for (let z = 0; z < gridSize; z++) {
+    for (let x = 0; x < gridSize; x++) {
+      const idx = z * gridSize + x;
+      const dx = x - center;
+      const dz = z - center;
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      const normDist = dist / maxRadius;
+
+      // Domain warp coordinates so coastlines & ridges bend organically
+      const wx = x + (warpNoise.fbm(x * 0.032, z * 0.032, 3) - 0.5) * warpAmp;
+      const wz = z + (warpNoise.fbm(x * 0.032 + 37.2, z * 0.032 + 19.7, 3) - 0.5) * warpAmp;
+
+      // Continent base mass
+      const macroLand = elevNoise.fbm(wx * 0.026, wz * 0.026, 4);
+      const detailHills = elevNoise.fbm(wx * 0.075 + 11.4, wz * 0.075 - 5.2, 3);
+
+      // Oriented mountain tectonic ridges (capable of rising into towering alpine chains up to height 10)
+      const rx = wx * cosR - wz * sinR;
+      const rz = wx * sinR + wz * cosR;
+      const mountainBelt = ridgeNoise.ridged(rx * 0.024, rz * 0.036, 4);
+      const ridgeExcess = Math.max(0, mountainBelt - 0.42);
+      const mountainBoost = Math.pow(ridgeExcess * 1.9, 1.25) * ridgeStrength;
+
+      // Continent falloff profile (varies between broad mainland and fragmented archipelago)
+      const falloffPower = 1.65 + worldStyle * 0.55;
+      const edgeFalloff = Math.pow(normDist, falloffPower) * (3.6 + worldStyle * 1.1);
+
+      const rawElevation =
+        1.15 +
+        (macroLand - 0.42) * 5.2 +
+        (detailHills - 0.5) * 2.0 +
+        mountainBoost -
+        edgeFalloff;
+
+      let h = Math.max(0, Math.min(10, Math.round(rawElevation)));
+
+      // Ensure central starting view has natural dry landmass rather than deep sea or impassable spire
+      if (dist < 6.5 && h === 0) {
+        h = 2;
+      } else if (dist < 4.5 && h > 4) {
+        h = 3;
+      }
+
+      heightGrid[idx] = h;
+
+      // Temperature drops at higher altitudes and follows a contrast-stretched warped latitude gradient
+      const latFactor = Math.sin((z / Math.max(1, gridSize)) * Math.PI) * 0.14;
+      const tempBase = 0.5 + (tempNoise.fbm(wx * 0.024 + 5.1, wz * 0.024 + 8.3, 3) - 0.5) * 1.75;
+      const rawTemp =
+        tempBase +
+        latFactor -
+        Math.max(0, h - 3) * 0.065 +
+        climateBiasTemp;
+      tempGrid[idx] = Math.max(0, Math.min(1, rawTemp));
+
+      // Moisture field (contrast-stretched for clear deserts, jungles, swamps, and temperate meadows)
+      const moistBase = 0.5 + (moistNoise.fbm(wx * 0.027 + 21.7, wz * 0.027 - 14.3, 4) - 0.5) * 1.75;
+      const rawMoist =
+        moistBase +
+        (h === 1 ? 0.06 : 0) +
+        climateBiasMoist;
+      moistGrid[idx] = Math.max(0, Math.min(1, rawMoist));
+
+      const rawBiomeVar = 0.5 + (biomeNoise.fbm(wx * 0.036 - 12.4, wz * 0.036 + 29.1, 3) - 0.5) * 1.85;
+      biomeVarGrid[idx] = Math.max(0, Math.min(1, rawBiomeVar));
+    }
+  }
+
+  // Stage 3: Seeded Hydrology — trace meandering rivers from mountain springs to coast
+  const springCandidates: number[] = [];
+  for (let z = 6; z < gridSize - 6; z += 4) {
+    for (let x = 6; x < gridSize - 6; x += 4) {
+      const idx = z * gridSize + x;
+      const distCenter = Math.hypot(x - center, z - center);
+      if (heightGrid[idx] >= 4 && distCenter > 11) {
+        springCandidates.push(idx);
+      }
+    }
+  }
+
+  const riverCount = Math.min(5, Math.max(2, Math.floor(gridSize / 26)));
+  for (let r = 0; r < riverCount && springCandidates.length > 0; r++) {
+    const pick = Math.floor(rng() * springCandidates.length);
+    let currIdx = springCandidates.splice(pick, 1)[0];
+    let cx = currIdx % gridSize;
+    let cz = Math.floor(currIdx / gridSize);
+    let dirX = rng() - 0.5;
+    let dirZ = rng() - 0.5;
+
+    const maxSteps = gridSize * 2;
+    for (let step = 0; step < maxSteps; step++) {
+      if (cx <= 1 || cx >= gridSize - 2 || cz <= 1 || cz >= gridSize - 2) break;
+      const distFromHome = Math.hypot(cx - center, cz - center);
+      if (distFromHome < 6.5) break; // Never flood the starter acropolis
+
+      const idx = cz * gridSize + cx;
+      if (step > 3 && heightGrid[idx] === 0 && riverMask[idx] === 0) {
+        break; // Reached ocean or lake
+      }
+
+      // Carve river bed (1-tile or 2-tile wide channel)
+      heightGrid[idx] = 0;
+      riverMask[idx] = 1;
+      if (step > 12 && cx + 1 < gridSize - 1 && Math.hypot(cx + 1 - center, cz - center) > 6.5) {
+        heightGrid[idx + 1] = 0;
+        riverMask[idx + 1] = 1;
+      }
+
+      // Hydrate neighboring banks
+      for (let oz = -3; oz <= 3; oz++) {
+        for (let ox = -3; ox <= 3; ox++) {
+          const nx = cx + ox;
+          const nz = cz + oz;
+          if (nx < 0 || nx >= gridSize || nz < 0 || nz >= gridSize) continue;
+          const nIdx = nz * gridSize + nx;
+          const d = Math.hypot(ox, oz);
+          moistGrid[nIdx] = Math.min(1, moistGrid[nIdx] + Math.max(0, 0.28 - d * 0.07));
+        }
+      }
+
+      // Pick lowest neighbor with momentum so rivers meander naturally instead of getting stuck
+      let bestX = cx;
+      let bestZ = cz;
+      let bestScore = Infinity;
+      const dirs = [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ];
+      for (const [ox, oz] of dirs) {
+        const nx = cx + ox;
+        const nz = cz + oz;
+        if (nx <= 0 || nx >= gridSize - 1 || nz <= 0 || nz >= gridSize - 1) continue;
+        const nIdx = nz * gridSize + nx;
+        if (riverMask[nIdx] === 1) continue;
+        const dotMomentum = ox * dirX + oz * dirZ;
+        const score = heightGrid[nIdx] * 1.4 - dotMomentum * 0.8 + rng() * 0.75;
+        if (score < bestScore) {
+          bestScore = score;
+          bestX = nx;
+          bestZ = nz;
+        }
+      }
+
+      if (bestX === cx && bestZ === cz) break;
+      dirX = dirX * 0.55 + (bestX - cx) * 0.45;
+      dirZ = dirZ * 0.55 + (bestZ - cz) * 0.45;
+      cx = bestX;
+      cz = bestZ;
+    }
+  }
+
+  // Stage 4 & 5: Biome Classification & Contextual 1-4 Object Resource Node Seeding
+  const tiles: TileData[] = new Array(totalTiles);
+
+  for (let z = 0; z < gridSize; z++) {
+    for (let x = 0; x < gridSize; x++) {
+      const idx = z * gridSize + x;
+      const h = heightGrid[idx];
+      const temp = tempGrid[idx];
+      const moist = moistGrid[idx];
+      const bVar = biomeVarGrid[idx];
+      const dx = x - center;
+      const dz = z - center;
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      const normDist = dist / maxRadius;
+
+      // Local deterministic tile hash for crisp non-grid resource placement
+      const tileHash = Math.abs(((x * 73856093) ^ (z * 19349663) ^ (seed * 83492791)) | 0);
+      const roll = (tileHash % 1000) / 1000;
+
+      let terrain: TerrainType = 'grass';
+      let resourceNode: ResourceNodeType = 'none';
+      let resourceAmount = 0;
+
+      if (h === 0) {
+        if (riverMask[idx] === 1) {
+          terrain = 'shallow_water';
+        } else {
+          // Shallow coastal shelf next to land, deep water further out
+          let nearLand = false;
+          for (let oz = -2; oz <= 2 && !nearLand; oz++) {
+            for (let ox = -2; ox <= 2; ox++) {
+              const nx = x + ox;
+              const nz = z + oz;
+              if (nx >= 0 && nx < gridSize && nz >= 0 && nz < gridSize) {
+                if (heightGrid[nz * gridSize + nx] > 0) {
+                  nearLand = true;
+                  break;
+                }
+              }
+            }
+          }
+          terrain = nearLand || normDist < 0.8 ? 'shallow_water' : 'deep_water';
+        }
+      } else if (h >= 8 || (h >= 7 && temp < 0.45)) {
+        // High alpine snow summits crowning towering mountain ranges
+        terrain = 'snow';
+        if (roll < 0.14) {
+          resourceNode = 'crystal_monolith';
+          resourceAmount = 380;
+        } else if (roll < 0.36) {
+          resourceNode = 'stone_outcrop';
+          resourceAmount = 290;
+        }
+      } else if (h >= 5) {
+        // Jagged tectonic Mountain crags & mineral-rich alpine peaks
+        const mysticPocket = moist > 0.65 && temp < 0.46;
+        if (mysticPocket) {
+          terrain = 'crystal_field';
+          if (roll < 0.38) {
+            resourceNode = 'crystal_monolith';
+            resourceAmount = 360;
+          }
+        } else {
+          terrain = h >= 6 || roll > 0.28 ? 'mountain' : 'rock';
+          if (roll < 0.24) {
+            resourceNode = 'ore_vein';
+            resourceAmount = 340;
+          } else if (roll < 0.48) {
+            resourceNode = 'stone_outcrop';
+            resourceAmount = 280;
+          }
+        }
+      } else if (h === 4) {
+        // Foothills, canyon mesas, boreal taiga ridges & tropical cloud-forest slopes
+        if (temp > 0.56 && moist < 0.38 && bVar > 0.46) {
+          terrain = 'badlands';
+          if (roll < 0.2) {
+            resourceNode = 'ore_vein';
+            resourceAmount = 300;
+          } else if (roll < 0.38) {
+            resourceNode = 'stone_outcrop';
+            resourceAmount = 250;
+          }
+        } else if (temp > 0.54 && moist > 0.58) {
+          terrain = 'jungle';
+          if (roll < 0.54) {
+            resourceNode = 'timber_grove';
+            resourceAmount = 260;
+          } else if (roll < 0.68) {
+            resourceNode = 'berry_bush';
+            resourceAmount = 210;
+          }
+        } else if (temp < 0.34) {
+          terrain = moist > 0.48 ? 'taiga' : 'tundra';
+          if (terrain === 'taiga' && roll < 0.48) {
+            resourceNode = 'timber_grove';
+            resourceAmount = 240;
+          } else if (roll < 0.24) {
+            resourceNode = 'stone_outcrop';
+            resourceAmount = 250;
+          }
+        } else if (moist > 0.58 && temp >= 0.34) {
+          terrain = bVar > 0.62 ? 'blossom' : 'forest';
+          if (roll < 0.52) {
+            resourceNode = 'timber_grove';
+            resourceAmount = 240;
+          }
+        } else if (temp > 0.64 && moist < 0.34) {
+          terrain = 'mountain';
+          if (roll < 0.3) {
+            resourceNode = roll < 0.15 ? 'ore_vein' : 'stone_outcrop';
+            resourceAmount = 260;
+          }
+        } else {
+          terrain = 'highland';
+          if (roll < 0.2) {
+            resourceNode = 'stone_outcrop';
+            resourceAmount = 240;
+          } else if (roll < 0.3) {
+            resourceNode = 'timber_grove';
+            resourceAmount = 220;
+          }
+        }
+      } else {
+        // Lowlands & Mid-elevation terraces (h = 1..3)
+        const isCoast =
+          h === 1 &&
+          ((x > 0 && heightGrid[idx - 1] === 0) ||
+            (x < gridSize - 1 && heightGrid[idx + 1] === 0) ||
+            (z > 0 && heightGrid[idx - gridSize] === 0) ||
+            (z < gridSize - 1 && heightGrid[idx + gridSize] === 0));
+
+        if (temp > 0.58 && moist < 0.36 && h >= 2 && bVar > 0.49 && dist > 7.0) {
+          // Terracotta Red-Rock Badlands Canyon
+          terrain = 'badlands';
+          if (roll < 0.16) {
+            resourceNode = 'stone_outcrop';
+            resourceAmount = 250;
+          } else if (roll < 0.26) {
+            resourceNode = 'ore_vein';
+            resourceAmount = 300;
+          }
+        } else if (temp > 0.64 && moist < 0.35 && dist > 6.5) {
+          // Arid Desert Dunes
+          terrain = 'sand';
+          if (roll < 0.14) {
+            resourceNode = 'stone_outcrop';
+            resourceAmount = 240;
+          } else if (roll < 0.19) {
+            resourceNode = 'ore_vein';
+            resourceAmount = 280;
+          }
+        } else if (isCoast && moist < 0.62 && dist > 6.0) {
+          // Coastal sandy beach
+          terrain = 'sand';
+        } else if (temp < 0.32 && dist > 7.0) {
+          // Frigid Sub-Arctic Tundra & Frost-Tipped Boreal Taiga
+          if (moist > 0.47) {
+            terrain = 'taiga';
+            if (roll < 0.5) {
+              resourceNode = 'timber_grove';
+              resourceAmount = 240;
+            }
+          } else {
+            terrain = 'tundra';
+            if (roll < 0.15) {
+              resourceNode = 'stone_outcrop';
+              resourceAmount = 240;
+            } else if (roll < 0.21) {
+              resourceNode = 'ore_vein';
+              resourceAmount = 270;
+            }
+          }
+        } else if (temp < 0.41 && moist > 0.48 && dist > 6.5) {
+          // Cool Evergreen Boreal Taiga
+          terrain = 'taiga';
+          if (roll < 0.54) {
+            resourceNode = 'timber_grove';
+            resourceAmount = 250;
+          } else if (roll < 0.62) {
+            resourceNode = 'berry_bush';
+            resourceAmount = 190;
+          }
+        } else if (temp > 0.55 && moist > 0.56 && dist > 5.5) {
+          // Lush Tropical Rainforest Jungle
+          terrain = 'jungle';
+          if (roll < 0.6) {
+            resourceNode = 'timber_grove';
+            resourceAmount = 280;
+          } else if (roll < 0.76) {
+            resourceNode = 'berry_bush';
+            resourceAmount = 220;
+          }
+        } else if (h <= 2 && moist > 0.68 && temp > 0.38 && dist > 6.0) {
+          // Misty Wetland Swamp
+          terrain = 'swamp';
+          if (roll < 0.36) {
+            resourceNode = 'timber_grove';
+            resourceAmount = 220;
+          } else if (roll < 0.46) {
+            resourceNode = 'berry_bush';
+            resourceAmount = 190;
+          }
+        } else if (
+          temp >= 0.39 &&
+          temp <= 0.62 &&
+          moist > 0.47 &&
+          bVar > 0.58 &&
+          dist > 6.0
+        ) {
+          // Blooming Cherry Blossom Sakura Grove
+          terrain = 'blossom';
+          if (roll < 0.44) {
+            resourceNode = 'timber_grove';
+            resourceAmount = 240;
+          } else if (roll < 0.56) {
+            resourceNode = 'berry_bush';
+            resourceAmount = 200;
+          }
+        } else if (temp > 0.56 && moist < 0.48 && dist > 5.5) {
+          // Golden Savanna Steppe
+          terrain = 'savanna';
+          if (roll < 0.18) {
+            resourceNode = 'timber_grove';
+            resourceAmount = 210;
+          } else if (roll < 0.28) {
+            resourceNode = 'stone_outcrop';
+            resourceAmount = 220;
+          } else if (roll < 0.35) {
+            resourceNode = 'berry_bush';
+            resourceAmount = 180;
+          }
+        } else if (moist > 0.54) {
+          // Lush Woodland Forest
+          terrain = 'forest';
+          if (roll < 0.58) {
+            resourceNode = 'timber_grove';
+            resourceAmount = 250;
+          }
+        } else if (moist > 0.44 || h === 1) {
+          // Fertile River Valley & Meadow
+          terrain = 'fertile';
+          if (roll < 0.36) {
+            resourceNode = 'berry_bush';
+            resourceAmount = 210;
+          } else if (roll < 0.45) {
+            resourceNode = 'timber_grove';
+            resourceAmount = 220;
+          }
+        } else {
+          // Temperate Grassland Plains
+          terrain = 'grass';
+          if (roll < 0.14) {
+            resourceNode = 'timber_grove';
+            resourceAmount = 220;
+          } else if (roll < 0.22) {
+            resourceNode = 'berry_bush';
+            resourceAmount = 190;
+          } else if (roll < 0.26 && dist > 5.0) {
+            resourceNode = 'stone_outcrop';
+            resourceAmount = 240;
+          }
+        }
+      }
+
+      tiles[idx] = {
+        x,
+        z,
+        height: h,
+        terrain,
+        resourceNode,
+        resourceAmount,
+        blessedTimer: 0,
+        cursedTimer: 0,
+        onFireTimer: 0,
+        buildingId: null,
+      };
+    }
+  }
+
+  return tiles;
+}
