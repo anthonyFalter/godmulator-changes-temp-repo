@@ -10,8 +10,10 @@ import {
 } from '../game/meshBuilders';
 import {
   createOceanFoamSystem,
+  createPixelSpaceSystem,
   createSkyCloudSystem,
   createStyledTerrainSystem,
+  createWorldUnderglowSystem,
 } from '../game/skyAndSea';
 import {
   closestFaultDistanceSq,
@@ -152,8 +154,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     container.appendChild(renderer.domElement);
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color('#1a2428');
-    scene.fog = new THREE.FogExp2('#1a2428', 0.014);
+    scene.background = new THREE.Color('#070b14');
+    scene.fog = new THREE.FogExp2('#0c131d', 0.0085);
 
     const pmremGenerator = new THREE.PMREMGenerator(renderer);
     scene.environment = pmremGenerator.fromScene(new RoomEnvironment(), 0.04).texture;
@@ -221,6 +223,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     const unitsGroup = new THREE.Group();
     const vehiclesGroup = new THREE.Group();
     worldGroup.add(terrainGroup, nodesGroup, buildingsGroup, unitsGroup, vehiclesGroup);
+
+    // Seeded pixelated deep-space & Milky Way galaxy backdrop behind the floating world
+    const pixelSpace = createPixelSpaceSystem(sim.seed);
+    scene.add(pixelSpace.mesh);
+
+    // Subtle Bayer-dithered pixelated glow beneath & around the floating world diorama
+    const worldUnderglow = createWorldUnderglowSystem(sim.gridSize);
+    worldGroup.add(worldUnderglow.mesh);
 
     // Animated pixelated ocean, coastal surf foam, reef foam, & sculpted drifting sky clouds
     const oceanFoam = createOceanFoamSystem(sim.gridSize);
@@ -498,15 +508,38 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     >();
 
     const skirtMat = new THREE.MeshStandardMaterial({
-      color: 0x1b262b,
-      roughness: 0.9,
+      color: 0x26353e,
+      emissive: 0x0b1620,
+      emissiveIntensity: 0.45,
+      roughness: 0.88,
     });
-    const baseSkirt = new THREE.Mesh(
-      new THREE.BoxGeometry(sim.gridSize + 1.0, 1.8, sim.gridSize + 1.0),
-      skirtMat,
-    );
+    const skirtGeo = new THREE.BoxGeometry(sim.gridSize + 0.9, 1.8, sim.gridSize + 0.9);
+    const baseSkirt = new THREE.Mesh(skirtGeo, skirtMat);
     baseSkirt.position.set(gridCenter, -0.95, gridCenter);
     worldGroup.add(baseSkirt);
+
+    // Crisp illuminated slate-stone diorama rim framing the ocean edge against deep space
+    const rimMat = new THREE.MeshStandardMaterial({
+      color: 0x526e7d,
+      emissive: 0x162a38,
+      emissiveIntensity: 0.45,
+      roughness: 0.72,
+    });
+    const rimGeo = new THREE.BoxGeometry(sim.gridSize + 1.35, 0.24, sim.gridSize + 1.35);
+    const baseRim = new THREE.Mesh(rimGeo, rimMat);
+    baseRim.position.set(gridCenter, 0.14, gridCenter);
+    worldGroup.add(baseRim);
+
+    // Subtle celestial trim along the underside of the diorama slab matching the underglow
+    const glowTrimMat = new THREE.MeshBasicMaterial({
+      color: 0x48bfe3,
+      transparent: true,
+      opacity: 0.42,
+    });
+    const glowTrimGeo = new THREE.BoxGeometry(sim.gridSize + 1.1, 0.12, sim.gridSize + 1.1);
+    const baseGlowTrim = new THREE.Mesh(glowTrimGeo, glowTrimMat);
+    baseGlowTrim.position.set(gridCenter, -1.8, gridCenter);
+    worldGroup.add(baseGlowTrim);
 
     // Hover / Tool Brush Reticle Ring
     const reticleGroup = new THREE.Group();
@@ -2772,6 +2805,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     let dragStartClient = { x: 0, y: 0 };
     let pointerDownMoved = false;
 
+    let renderWidth = 320;
+    let renderHeight = 180;
+
     const updateSize = () => {
       if (!container) return;
       const w = Math.max(1, container.clientWidth);
@@ -2779,6 +2815,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       const pxScale = Math.max(1, propsRef.current.pixelScale || 3);
       const rw = Math.max(160, Math.floor(w / pxScale));
       const rh = Math.max(100, Math.floor(h / pxScale));
+      renderWidth = rw;
+      renderHeight = rh;
 
       renderer.setSize(rw, rh, false);
       const newAspect = w / h;
@@ -2867,7 +2905,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      desiredFrustum = THREE.MathUtils.clamp(desiredFrustum + e.deltaY * 0.015, 7.5, 64);
+      desiredFrustum = THREE.MathUtils.clamp(desiredFrustum + e.deltaY * 0.015, 7.5, 105);
     };
 
     const onKeyDown = (e: KeyboardEvent) => {
@@ -2933,6 +2971,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     const _metroEuler = new THREE.Euler();
     let lastSyncedSim: SimulationState = sim;
     let lastSyncedEpochIndex = sim.epochIndex;
+    let lastSpaceSeed = sim.seed;
 
     function syncSceneFromSimulation(simState: SimulationState, dt: number, elapsed: number) {
       let propsNeedSync = false;
@@ -2946,6 +2985,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         lastSyncedSim = simState;
         lastSyncedEpochIndex = simState.epochIndex;
         propsNeedSync = true;
+        if (simState.seed !== lastSpaceSeed) {
+          lastSpaceSeed = simState.seed;
+          pixelSpace.setSeed(lastSpaceSeed);
+        }
         for (let i = 0; i < simState.tiles.length; i++) {
           const t = simState.tiles[i];
           tileCurrentY[i] = t.height === 0 ? 0.12 : t.height * HEIGHT_STEP + 0.25;
@@ -4353,7 +4396,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         camAct.rotateDelta = 0;
       }
       if (camAct.zoomDelta !== 0) {
-        desiredFrustum = THREE.MathUtils.clamp(desiredFrustum + camAct.zoomDelta, 7.5, 64);
+        desiredFrustum = THREE.MathUtils.clamp(desiredFrustum + camAct.zoomDelta, 7.5, 105);
         camAct.zoomDelta = 0;
       }
       if (camAct.centerHome) {
@@ -5297,7 +5340,39 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         scene.fog.color.copy(_bgColor);
       }
 
-      // Animate sculpted sky clouds & ocean coastal/reef/whitecap foaming
+      // Animate pixelated starry space backdrop, sculpted sky clouds & ocean coastal/reef/whitecap foaming
+      pixelSpace.update({
+        elapsed: elapsedTotal,
+        width: renderWidth,
+        height: renderHeight,
+        pixelScale: propsRef.current.pixelScale || 3,
+        camYaw,
+        camX: camTarget.x,
+        camZ: camTarget.z,
+        frustumSize,
+        preset,
+      });
+
+      worldUnderglow.update(
+        elapsedTotal,
+        preset,
+        simRef.current.epochIndex,
+        propsRef.current.pixelScale || 3,
+      );
+      if (preset === 'dusk') {
+        glowTrimMat.color.set('#d98078');
+        glowTrimMat.opacity = 0.4;
+      } else if (preset === 'night') {
+        glowTrimMat.color.set('#56cfe1');
+        glowTrimMat.opacity = 0.5;
+      } else if (preset === 'dawn') {
+        glowTrimMat.color.set('#7fd4e6');
+        glowTrimMat.opacity = 0.42;
+      } else {
+        glowTrimMat.color.set('#4eb8d4');
+        glowTrimMat.opacity = 0.38;
+      }
+
       const atmosSpeed =
         propsRef.current.timeScale === 0
           ? 0.35
@@ -5449,6 +5524,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       sharedOrbMoteGeo.dispose();
       sharedShardMoteGeo.dispose();
       sharedPillarSpikeGeo.dispose();
+      pixelSpace.dispose();
+      worldUnderglow.dispose();
+      skirtGeo.dispose();
+      skirtMat.dispose();
+      rimGeo.dispose();
+      rimMat.dispose();
+      glowTrimGeo.dispose();
+      glowTrimMat.dispose();
       skyClouds.dispose();
       oceanFoam.dispose();
       styledTerrain.dispose();
