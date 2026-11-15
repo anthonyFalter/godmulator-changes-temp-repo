@@ -52,16 +52,8 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
   onFocusUnit,
 }) => {
   const [activeTab, setActiveTab] = useState<InspectorTab>('profile');
-  const anyZoneActive = Boolean(
-    activeZones &&
-      (activeZones.kingdoms ||
-        activeZones.territories ||
-        activeZones.biomes ||
-        activeZones.temperature),
-  );
 
   const displayUnit = hoveredUnit ?? selectedUnit;
-  const isShowingHovered = Boolean(hoveredUnit);
   const isSelectedDisplayed = Boolean(
     displayUnit && selectedUnit && displayUnit.id === selectedUnit.id,
   );
@@ -430,35 +422,21 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
           )}
         </>
       ) : (
-        <div className="space-y-3 text-xs text-[#cfc6b8]" data-testid="zone-inspector-content">
-          <div className="flex items-center justify-between border-b border-[#2c2620] pb-2">
-            <div>
-              <h2 className="font-bold text-[#f5b742] text-sm">Inspect Tool &amp; Zones</h2>
-              <p className="text-[11px] text-[#a89f91]">
-                {hoveredZoneInfo
-                  ? `Tile (${hoveredZoneInfo.tileX}, ${hoveredZoneInfo.tileZ}) · ${
-                      hoveredZoneInfo.isWater ? 'Sea / Waters' : `Land Elev ${hoveredZoneInfo.elevation}`
-                    }`
-                  : 'Hover map tiles or creatures to inspect'}
-              </p>
-            </div>
-            {hoveredZoneInfo && (
-              <span className="font-pixel-num text-xs font-bold text-[#ffd166] tabular-nums bg-[#191613] px-2 py-1 border border-[#2f2720]">
-                {hoveredZoneInfo.tileTempC}°C
-              </span>
-            )}
-          </div>
+        <div className="space-y-2.5 text-xs text-[#cfc6b8]" data-testid="zone-inspector-content">
+          <h2 className="font-bold text-[#f5b742] text-sm">Inspect Tool</h2>
 
-          {hoveredZoneInfo ? (
+          {hoveredZoneInfo &&
+          ((activeZones?.kingdoms && hoveredZoneInfo.kingdom) ||
+            (activeZones?.territories && hoveredZoneInfo.territory) ||
+            (activeZones?.biomes && hoveredZoneInfo.biomeZone) ||
+            (activeZones?.temperature && hoveredZoneInfo.temperatureZone)) ? (
             <div className="space-y-2.5">
               {/* 1. Kingdom / City Zone */}
-              {(!anyZoneActive || activeZones?.kingdoms || hoveredZoneInfo.kingdom) && (
+              {activeZones?.kingdoms && hoveredZoneInfo.kingdom && (
                 <div
                   className="bg-[#191613] p-2.5 border-l-2 space-y-1.5"
                   style={{
-                    borderLeftColor: hoveredZoneInfo.kingdom
-                      ? hoveredZoneInfo.kingdom.hexColor
-                      : '#475569',
+                    borderLeftColor: hoveredZoneInfo.kingdom.hexColor,
                   }}
                   data-testid="inspect-zone-kingdom"
                 >
@@ -466,58 +444,46 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                     <div className="flex items-center gap-1.5 min-w-0">
                       <ZonePixelIcon zone="kingdoms" className="w-4 h-4 shrink-0" />
                       <span className="font-bold text-[#f2ece1] truncate">
-                        {hoveredZoneInfo.kingdom ? hoveredZoneInfo.kingdom.name : 'Unclaimed Frontier'}
+                        {hoveredZoneInfo.kingdom.name}
                       </span>
                     </div>
-                    {hoveredZoneInfo.kingdom && (
-                      <span className="text-[10px] font-semibold text-[#ffd166] shrink-0">
-                        {hoveredZoneInfo.isKingdomMaritime ? 'Maritime Waters' : 'Core Land'}
-                      </span>
-                    )}
+                    <span className="text-[10px] font-semibold text-[#ffd166] shrink-0">
+                      {hoveredZoneInfo.isKingdomMaritime ? 'Maritime Waters' : 'Core Land'}
+                    </span>
                   </div>
-                  {hoveredZoneInfo.kingdom ? (
-                    <>
-                      <div className="text-[11px] text-[#a89f91] flex items-center justify-between">
-                        <span>{hoveredZoneInfo.kingdom.speciesLabel}</span>
-                        <span>{hoveredZoneInfo.kingdom.epochName}</span>
+                  <div className="text-[11px] text-[#a89f91] flex items-center justify-between">
+                    <span>{hoveredZoneInfo.kingdom.speciesLabel}</span>
+                    <span>{hoveredZoneInfo.kingdom.epochName}</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-1.5 pt-1 text-center">
+                    <div className="bg-[#12100e] px-1.5 py-1">
+                      <div className="text-[9px] text-[#8f8679]">Population</div>
+                      <div className="font-pixel-num text-xs font-bold text-[#80ed99] tabular-nums">
+                        {hoveredZoneInfo.kingdom.population}
                       </div>
-                      <div className="grid grid-cols-3 gap-1.5 pt-1 text-center">
-                        <div className="bg-[#12100e] px-1.5 py-1">
-                          <div className="text-[9px] text-[#8f8679]">Population</div>
-                          <div className="font-pixel-num text-xs font-bold text-[#80ed99] tabular-nums">
-                            {hoveredZoneInfo.kingdom.population}
-                          </div>
-                        </div>
-                        <div className="bg-[#12100e] px-1.5 py-1">
-                          <div className="text-[9px] text-[#8f8679]">Buildings</div>
-                          <div className="font-pixel-num text-xs font-bold text-[#f5b742] tabular-nums">
-                            {hoveredZoneInfo.kingdom.buildingCount}
-                          </div>
-                        </div>
-                        <div className="bg-[#12100e] px-1.5 py-1">
-                          <div className="text-[9px] text-[#8f8679]">Land / Sea</div>
-                          <div className="font-pixel-num text-[11px] font-bold text-[#56cfe1] tabular-nums">
-                            {hoveredZoneInfo.kingdom.landTileCount}/{hoveredZoneInfo.kingdom.seaTileCount}
-                          </div>
-                        </div>
-                      </div>
-                    </>
-                  ) : (
-                    <div className="text-[11px] text-[#8f8679]">
-                      Outside kingdom borders ({hoveredZoneInfo.isWater ? 'Open High Seas' : 'Wilderness'})
                     </div>
-                  )}
+                    <div className="bg-[#12100e] px-1.5 py-1">
+                      <div className="text-[9px] text-[#8f8679]">Buildings</div>
+                      <div className="font-pixel-num text-xs font-bold text-[#f5b742] tabular-nums">
+                        {hoveredZoneInfo.kingdom.buildingCount}
+                      </div>
+                    </div>
+                    <div className="bg-[#12100e] px-1.5 py-1">
+                      <div className="text-[9px] text-[#8f8679]">Land / Sea</div>
+                      <div className="font-pixel-num text-[11px] font-bold text-[#56cfe1] tabular-nums">
+                        {hoveredZoneInfo.kingdom.landTileCount}/{hoveredZoneInfo.kingdom.seaTileCount}
+                      </div>
+                    </div>
+                  </div>
                 </div>
               )}
 
               {/* 2. Animal Territory Zone */}
-              {(!anyZoneActive || activeZones?.territories || hoveredZoneInfo.territory) && (
+              {activeZones?.territories && hoveredZoneInfo.territory && (
                 <div
                   className="bg-[#191613] p-2.5 border-l-2 space-y-1.5"
                   style={{
-                    borderLeftColor: hoveredZoneInfo.territory
-                      ? hoveredZoneInfo.territory.hexColor
-                      : '#475569',
+                    borderLeftColor: hoveredZoneInfo.territory.hexColor,
                   }}
                   data-testid="inspect-zone-territory"
                 >
@@ -525,48 +491,36 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                     <div className="flex items-center gap-1.5 min-w-0">
                       <ZonePixelIcon zone="territories" className="w-4 h-4 shrink-0" />
                       <span className="font-bold text-[#f2ece1] truncate">
-                        {hoveredZoneInfo.territory
-                          ? hoveredZoneInfo.territory.name
-                          : 'No Active Beast Territory'}
+                        {hoveredZoneInfo.territory.name}
                       </span>
                     </div>
-                    {hoveredZoneInfo.territory && (
-                      <span className="text-[10px] font-semibold text-[#fb923c] shrink-0">
-                        {hoveredZoneInfo.territory.diet}
-                      </span>
-                    )}
+                    <span className="text-[10px] font-semibold text-[#fb923c] shrink-0">
+                      {hoveredZoneInfo.territory.diet}
+                    </span>
                   </div>
-                  {hoveredZoneInfo.territory ? (
-                    <>
-                      <div className="text-[11px] text-[#a89f91] flex items-center justify-between">
-                        <span>{hoveredZoneInfo.territory.speciesLabel}</span>
-                        <span className="text-[#56cfe1]">{hoveredZoneInfo.territory.domainType}</span>
-                      </div>
-                      <div className="flex items-center justify-between text-[11px] pt-0.5 text-[#cfc6b8]">
-                        <span>
-                          Pack / Herd:{' '}
-                          <strong className="font-pixel-num text-[#f2ece1] tabular-nums">
-                            {hoveredZoneInfo.territory.animalCount}
-                          </strong>
-                        </span>
-                        <span>
-                          Domain:{' '}
-                          <strong className="font-pixel-num text-[#f2ece1] tabular-nums">
-                            {hoveredZoneInfo.territory.landTileCount}L / {hoveredZoneInfo.territory.seaTileCount}S
-                          </strong>
-                        </span>
-                      </div>
-                    </>
-                  ) : (
-                    <div className="text-[11px] text-[#8f8679]">
-                      Untamed expanse with no dominant pack or shoal
-                    </div>
-                  )}
+                  <div className="text-[11px] text-[#a89f91] flex items-center justify-between">
+                    <span>{hoveredZoneInfo.territory.speciesLabel}</span>
+                    <span className="text-[#56cfe1]">{hoveredZoneInfo.territory.domainType}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[11px] pt-0.5 text-[#cfc6b8]">
+                    <span>
+                      Pack / Herd:{' '}
+                      <strong className="font-pixel-num text-[#f2ece1] tabular-nums">
+                        {hoveredZoneInfo.territory.animalCount}
+                      </strong>
+                    </span>
+                    <span>
+                      Domain:{' '}
+                      <strong className="font-pixel-num text-[#f2ece1] tabular-nums">
+                        {hoveredZoneInfo.territory.landTileCount}L / {hoveredZoneInfo.territory.seaTileCount}S
+                      </strong>
+                    </span>
+                  </div>
                 </div>
               )}
 
               {/* 3. Biome Zone */}
-              {hoveredZoneInfo.biomeZone && (!anyZoneActive || activeZones?.biomes) && (
+              {activeZones?.biomes && hoveredZoneInfo.biomeZone && (
                 <div
                   className="bg-[#191613] p-2.5 border-l-2 space-y-1"
                   style={{ borderLeftColor: hoveredZoneInfo.biomeZone.hexColor }}
@@ -602,7 +556,7 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
               )}
 
               {/* 4. Temperature Zone */}
-              {hoveredZoneInfo.temperatureZone && (!anyZoneActive || activeZones?.temperature) && (
+              {activeZones?.temperature && hoveredZoneInfo.temperatureZone && (
                 <div
                   className="bg-[#191613] p-2.5 border-l-2 space-y-1"
                   style={{ borderLeftColor: hoveredZoneInfo.temperatureZone.hexColor }}
@@ -626,41 +580,9 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
               )}
             </div>
           ) : (
-            <p className="text-[11px] text-[#a89f91] leading-relaxed">
-              Move the cursor over the world map to inspect Kingdom borders, Animal Territories, Biome regions, and Temperatures, or click any creature to view their stats.
+            <p className="text-xs text-[#a89f91]">
+              Start hovering on something to see their stats!
             </p>
-          )}
-
-          {/* Quick-Access to Starred Entities when idle */}
-          {favoriteUnits.length > 0 && (
-            <div className="pt-2 border-t border-[#2c2620] space-y-1.5">
-              <div className="text-[11px] font-semibold text-[#ffd166]">
-                Favorited Creatures ({favoriteUnits.length})
-              </div>
-              <div className="space-y-1 max-h-36 overflow-y-auto">
-                {favoriteUnits.map((fav) => (
-                  <button
-                    key={fav.id}
-                    type="button"
-                    onClick={() => {
-                      onSelectUnit(fav.id);
-                      onFocusUnit(fav);
-                    }}
-                    className="w-full flex items-center justify-between gap-2 p-1.5 bg-[#191613] hover:bg-[#201c18] text-left cursor-pointer transition-colors"
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <UnitPixelIcon role={fav.role} className="w-4 h-4 shrink-0" />
-                      <span className="font-medium text-[#f2ece1] truncate text-[11px]">
-                        {fav.name}
-                      </span>
-                    </div>
-                    <span className="font-pixel-num text-[10px] text-[#80ed99] tabular-nums">
-                      {Math.round(fav.hp)}hp
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
           )}
         </div>
       )}

@@ -160,7 +160,7 @@ export default function App() {
   const [dockCollapsed, setDockCollapsed] = useState<boolean>(false);
   const [chronicleOpen, setChronicleOpen] = useState<boolean>(false);
   const [muted, setMuted] = useState<boolean>(false);
-  const [hoverTile, setHoverTile] = useState<{ x: number; z: number } | null>({ x: 64, z: 64 });
+  const [hoverTile, setHoverTile] = useState<{ x: number; z: number } | null>(null);
   const [hoveredEntityId, setHoveredEntityId] = useState<string | null>(null);
   const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
   const selectedEntityIdRef = useRef<string | null>(null);
@@ -265,8 +265,7 @@ export default function App() {
         ...(customConfig ?? {}),
         seed: nextSim.seed,
       }));
-      const half = Math.floor(nextSim.gridSize / 2);
-      setHoverTile({ x: half, z: half });
+      setHoverTile(null);
       setHoveredEntityId(null);
       setSelectedEntityId(null);
       selectedEntityIdRef.current = null;
@@ -319,8 +318,7 @@ export default function App() {
         );
         simRef.current = builtSim;
         setSeedInput(String(builtSim.seed));
-        const center = Math.floor(builtSim.gridSize / 2);
-        setHoverTile({ x: center, z: center });
+        setHoverTile(null);
         setHoveredEntityId(null);
         setSelectedEntityId(null);
         selectedEntityIdRef.current = null;

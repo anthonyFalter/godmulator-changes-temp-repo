@@ -3064,6 +3064,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             propsRef.current.onHoverTileChange(hoveredTileCoords);
           }
         }
+      } else if (hoveredTileCoords !== null) {
+        hoveredTileCoords = null;
+        propsRef.current.onHoverTileChange(null);
       }
     };
 
@@ -3112,6 +3115,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       if (hoveredEntityInternal !== null) {
         hoveredEntityInternal = null;
         propsRef.current.onHoverEntityChange?.(null);
+      }
+      if (hoveredTileCoords !== null) {
+        hoveredTileCoords = null;
+        propsRef.current.onHoverTileChange(null);
       }
     };
 
