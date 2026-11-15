@@ -133,11 +133,13 @@ export default function App() {
     rotateDelta: number;
     zoomDelta: number;
     centerHome: boolean;
+    playTransition?: boolean;
     focusTarget?: { x: number; z: number; zoom?: number } | null;
   }>({
     rotateDelta: 0,
     zoomDelta: 0,
     centerHome: false,
+    playTransition: false,
     focusTarget: null,
   });
 
@@ -150,6 +152,7 @@ export default function App() {
       document.activeElement.blur();
     }
     soundEngine.playEpochAscend();
+    cameraActionRef.current.playTransition = true;
     document.body.dataset.state = 'playing';
     setGameState('playing');
   }, []);
@@ -175,6 +178,7 @@ export default function App() {
 
   const handleRestartGame = useCallback(() => {
     handleGenerateSeededWorld(undefined);
+    cameraActionRef.current.playTransition = true;
     document.body.dataset.state = 'playing';
     setGameState('playing');
   }, [handleGenerateSeededWorld]);

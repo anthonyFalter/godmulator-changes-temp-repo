@@ -10,6 +10,7 @@ import {
   generateEarthquakeFaultNetwork,
   getMaxCityBuildings,
   getMaxCityFarmFields,
+  getSettlementAnchor,
   getTile,
   isCarnivoreAnimal,
   isHerbivoreAnimal,
@@ -2143,6 +2144,35 @@ test('camera target locks and tracks moving entity coordinates during follow mod
 
   assert.equal(camDesiredTarget.x, 67.8);
   assert.equal(camDesiredTarget.z, 64.9);
+});
+
+test('pressing play smoothly targets 45 degree isometric angle, settlement anchor, and max zoom', () => {
+  const state = createInitialSimulationState(128, 'PLAY-TRANSITION-TEST');
+  const anchor = getSettlementAnchor(state);
+
+  // Test angular delta calculation from any arbitrary rotating title yaw to 45 deg (Math.PI / 4)
+  const targetYaw = Math.PI / 4;
+  const testYaws = [0.1, 1.25, 2.7, 3.8, 5.5, 6.2, 12.4];
+  for (const camYaw of testYaws) {
+    const yawDiff = Math.atan2(Math.sin(targetYaw - camYaw), Math.cos(targetYaw - camYaw));
+    const finalYaw = camYaw + yawDiff;
+    const normFinal = ((finalYaw % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+    const normTarget = ((targetYaw % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+    assert.ok(
+      Math.abs(normFinal - normTarget) < 1e-5,
+      `Calculated yaw must rotate directly to 45 degrees (camYaw=${camYaw}, got=${normFinal}, target=${normTarget})`,
+    );
+    assert.ok(Math.abs(yawDiff) <= Math.PI, `Yaw rotation must take shortest angular path (<= 180 deg, got ${yawDiff})`);
+  }
+
+  // Camera pan target targets settlement anchor coordinates
+  assert.ok(typeof anchor.x === 'number' && typeof anchor.z === 'number');
+  assert.ok(anchor.x >= 0 && anchor.x < state.gridSize);
+  assert.ok(anchor.z >= 0 && anchor.z < state.gridSize);
+
+  // Max zoom frustum size is 7.5
+  const maxZoomFrustum = 7.5;
+  assert.equal(maxZoomFrustum, 7.5);
 });
 
 

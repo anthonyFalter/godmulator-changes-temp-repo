@@ -48,6 +48,7 @@ interface IsometricWorldCanvasProps {
     rotateDelta: number;
     zoomDelta: number;
     centerHome: boolean;
+    playTransition?: boolean;
     focusTarget?: { x: number; z: number; zoom?: number } | null;
   }>;
   hoveredEntityId?: string | null;
@@ -196,7 +197,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
     // Orthographic camera for authentic isometric projection
     const aspect = Math.max(1, container.clientWidth) / Math.max(1, container.clientHeight);
-    let frustumSize = 15;
+    let frustumSize = propsRef.current.gameState === 'title' ? 22 : 7.5;
     const camera = new THREE.OrthographicCamera(
       (-frustumSize * aspect) / 2,
       (frustumSize * aspect) / 2,
@@ -2909,7 +2910,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     const camDesiredTarget = new THREE.Vector3(gridCenter, 1.2, gridCenter);
     let camYaw = Math.PI / 4; // 45 deg true isometric
     let camDesiredYaw = Math.PI / 4;
-    let desiredFrustum = 14.5;
+    let desiredFrustum = propsRef.current.gameState === 'title' ? 22 : 7.5;
+    let prevGameState: GameLifecycleState = propsRef.current.gameState;
     let trauma = 0;
     let hitstopTimer = 0;
 
@@ -3210,8 +3212,16 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           tilePropSig[i] = -1;
         }
         const newCenter = (simState.gridSize - 1) / 2;
-        camDesiredTarget.set(newCenter, 1.2, newCenter);
-        camTarget.set(newCenter, 1.2, newCenter);
+        if (propsRef.current.gameState === 'title') {
+          camDesiredTarget.set(newCenter, 1.2, newCenter);
+          camTarget.set(newCenter, 1.2, newCenter);
+          desiredFrustum = 22;
+        } else {
+          const anchor = getSettlementAnchor(simState);
+          camDesiredTarget.set(anchor.x, 1.2, anchor.z);
+          camTarget.set(anchor.x, 1.2, anchor.z);
+          desiredFrustum = 7.5;
+        }
       }
 
       // 1. Update instanced terrain tiles & detect if props/nodes/water-map need rebuild
@@ -4657,8 +4667,38 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         updateSize();
       }
 
-      // Camera action requests from HUD buttons
+      // Camera action requests from HUD buttons & game state lifecycle transitions
       const camAct = cameraActionRef.current;
+      const currentGameState = propsRef.current.gameState;
+      const isPlayTransition =
+        Boolean(camAct.playTransition) ||
+        (prevGameState === 'title' && currentGameState === 'playing');
+
+      if (isPlayTransition) {
+        camAct.playTransition = false;
+        // Smoothly rotate to 45 degrees (true isometric view: Math.PI / 4) taking the shortest angular path
+        const targetYaw = Math.PI / 4;
+        const yawDiff = Math.atan2(Math.sin(targetYaw - camYaw), Math.cos(targetYaw - camYaw));
+        camDesiredYaw = camYaw + yawDiff;
+
+        // Smoothly pan in to settlement / town center
+        const anchor = getSettlementAnchor(simRef.current);
+        camDesiredTarget.set(anchor.x, 1.2, anchor.z);
+
+        // Zoom to max zoom (closest allowed orthographic frustum)
+        desiredFrustum = 7.5;
+
+        if (propsRef.current.followingEntityId) {
+          propsRef.current.onBreakFollow?.();
+        }
+      } else if (prevGameState !== 'title' && currentGameState === 'title') {
+        // Return to title screen: overview zoom and center on island
+        desiredFrustum = 22;
+        const center = (simRef.current.gridSize - 1) / 2;
+        camDesiredTarget.set(center, 1.2, center);
+      }
+      prevGameState = currentGameState;
+
       if (camAct.rotateDelta !== 0) {
         camDesiredYaw += camAct.rotateDelta;
         camAct.rotateDelta = 0;
@@ -4670,7 +4710,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       if (camAct.centerHome) {
         const anchor = getSettlementAnchor(simRef.current);
         camDesiredTarget.set(anchor.x, 1.2, anchor.z);
-        desiredFrustum = 14.5;
+        desiredFrustum = 7.5;
         camAct.centerHome = false;
         if (propsRef.current.followingEntityId) {
           propsRef.current.onBreakFollow?.();
