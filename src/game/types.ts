@@ -219,6 +219,7 @@ export interface UnitEntity {
   dragonAnchorX?: number;
   dragonAnchorZ?: number;
   dragonTurnSign?: number;
+  dragonBreathCooldown?: number;
   expeditionTargetX?: number;
   expeditionTargetZ?: number;
   expeditionTimer?: number;

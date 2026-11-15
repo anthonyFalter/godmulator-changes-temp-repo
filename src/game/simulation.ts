@@ -3921,6 +3921,9 @@ function stepSimulationSingle(state: SimulationState, dt: number): void {
     const moveSpeed = def.speed * roadBoost * statusSpeedMult * ageSpeedMult;
 
     if (u.actionCooldown > 0) u.actionCooldown = Math.max(0, u.actionCooldown - dt);
+    if (u.dragonBreathCooldown && u.dragonBreathCooldown > 0) {
+      u.dragonBreathCooldown = Math.max(0, u.dragonBreathCooldown - dt);
+    }
 
     // If unit is captured inside a Black Hole (wormhole_rift) gravity well, suppress normal walking AI so it spirals smoothly without walking away
     const capturedByBlackHole =
@@ -5079,9 +5082,11 @@ function stepWildlifeAI(
     },
   ) => {
     const dragonGlowHex = getDragonVariant(u.appearanceSeed).glowHex;
-    u.actionCooldown =
-      options?.cooldownOverride ?? (options?.isEnvAttack ? 0.42 : 0.38);
-    u.attackAnimTimer = 0.78;
+    const defaultBreathCd = isFrenzied ? 3.2 : 4.6;
+    const breathCd = options?.cooldownOverride ?? defaultBreathCd;
+    u.dragonBreathCooldown = breathCd;
+    u.actionCooldown = Math.max(u.actionCooldown, breathCd);
+    u.attackAnimTimer = 0.85;
     u.attackTargetX = targetX;
     u.attackTargetZ = targetZ;
 
@@ -5406,25 +5411,26 @@ function stepWildlifeAI(
       }
     }
 
-    // Specialized 3-phase Dragon Gliding Carpet-Bombing & Banking Turn AI
+    // Specialized 3-phase Dragon Gliding Breath-Run & Banking Orbit AI (gated by breath cooldown)
     if (
       u.role === 'dragon' &&
       (target || envTarget || u.dragonRunPhase === 'strafe' || u.dragonRunPhase === 'turn')
     ) {
-      const dmg = def.attackDamage * (isFrenzied ? 1.8 : 1.0);
+      const dmg = def.attackDamage * (isFrenzied ? 1.65 : 1.0);
+      const canBreathe = (u.dragonBreathCooldown ?? 0) <= 0 && u.actionCooldown <= 0;
       const hasLiveGoal = Boolean(target || envTarget);
       const goalX = target ? target.x : envTarget ? envTarget.x : (u.dragonAnchorX ?? u.x);
       const goalZ = target ? target.z : envTarget ? envTarget.z : (u.dragonAnchorZ ?? u.z);
       const distToGoal = Math.hypot(goalX - u.x, goalZ - u.z);
 
-      // First-time engagement when spawning directly in attack range: line up and begin strafe run immediately
-      if (u.dragonRunPhase === undefined && hasLiveGoal && distToGoal <= def.attackRange) {
+      // First-time engagement when spawning directly in attack range with breath ready: begin strafe immediately
+      if (u.dragonRunPhase === undefined && hasLiveGoal && distToGoal <= def.attackRange && canBreathe) {
         if (distToGoal > 0.05) {
           u.dragonRunDirX = (goalX - u.x) / distToGoal;
           u.dragonRunDirZ = (goalZ - u.z) / distToGoal;
         }
         u.dragonRunPhase = 'strafe';
-        u.dragonRunTimer = 1.35;
+        u.dragonRunTimer = 0.95;
         u.dragonAnchorX = goalX;
         u.dragonAnchorZ = goalZ;
       } else if (u.dragonRunPhase === undefined) {
@@ -5434,7 +5440,7 @@ function stepWildlifeAI(
       }
 
       if (u.dragonRunPhase === 'strafe') {
-        u.dragonRunTimer = Math.max(0, (u.dragonRunTimer ?? 1.2) - dt);
+        u.dragonRunTimer = Math.max(0, (u.dragonRunTimer ?? 0.95) - dt);
         let dirX = u.dragonRunDirX ?? 1;
         let dirZ = u.dragonRunDirZ ?? 0;
 
@@ -5455,7 +5461,7 @@ function stepWildlifeAI(
           u.dragonAnchorZ = envTarget.z;
         }
 
-        // Glide smoothly forward through the target zone while carpet-bombing
+        // Glide smoothly forward through the target zone while firing a single decisive breath burst
         const glideSpeed = moveSpeed * 1.18;
         u.x = Math.max(2, Math.min(gs - 3, u.x + dirX * glideSpeed * dt));
         u.z = Math.max(2, Math.min(gs - 3, u.z + dirZ * glideSpeed * dt));
@@ -5466,7 +5472,7 @@ function stepWildlifeAI(
         u.attackTargetX = u.x + dirX * 2.4;
         u.attackTargetZ = u.z + dirZ * 2.4;
 
-        if (u.actionCooldown <= 0) {
+        if ((u.dragonBreathCooldown ?? 0) <= 0 && u.actionCooldown <= 0) {
           const forwardCheckX = u.x + dirX * 1.8;
           const forwardCheckZ = u.z + dirZ * 1.8;
           if (
@@ -5476,7 +5482,6 @@ function stepWildlifeAI(
           ) {
             emitDragonBreathAt(target.x, target.z, dmg, {
               unitTarget: target,
-              cooldownOverride: 0.36,
             });
           } else if (
             envTarget &&
@@ -5486,30 +5491,29 @@ function stepWildlifeAI(
             emitDragonBreathAt(envTarget.x, envTarget.z, dmg, {
               buildingTarget: envTarget.kind === 'building' ? envTarget.building : undefined,
               isEnvAttack: true,
-              cooldownOverride: 0.36,
             });
           } else {
             const bombX = Math.max(1, Math.min(gs - 2, forwardCheckX));
             const bombZ = Math.max(1, Math.min(gs - 2, forwardCheckZ));
             emitDragonBreathAt(bombX, bombZ, dmg, {
               isEnvAttack: true,
-              cooldownOverride: 0.36,
             });
           }
+          // Complete a brief fly-over tail after discharging fire before banking to recharge
+          u.dragonRunTimer = Math.min(u.dragonRunTimer, 0.52);
         }
 
         if (u.dragonRunTimer <= 0) {
           u.dragonRunPhase = 'turn';
-          u.dragonRunTimer = 1.4;
+          u.dragonRunTimer = 1.65;
           u.dragonTurnSign = ((u.appearanceSeed ?? 1) + Math.round(u.x + u.z)) % 2 === 0 ? 1 : -1;
-          u.actionCooldown = Math.max(u.actionCooldown, 0.72);
           u.attackAnimTimer = 0;
         }
         return;
       }
 
       if (u.dragonRunPhase === 'turn') {
-        u.dragonRunTimer = Math.max(0, (u.dragonRunTimer ?? 1.2) - dt);
+        u.dragonRunTimer = Math.max(0, (u.dragonRunTimer ?? 1.4) - dt);
         u.attackAnimTimer = 0;
         if (hasLiveGoal) {
           u.dragonAnchorX = goalX;
@@ -5529,15 +5533,15 @@ function stepWildlifeAI(
         let dirZ = u.dragonRunDirZ ?? 0;
         let remDiff = rawDiff;
 
-        // Fly out slightly if too close to the anchor before banking back around
-        if (distAnchor < 3.2 && Math.abs(rawDiff) > 0.9) {
-          const gentleAngle = curAngle + (u.dragonTurnSign ?? 1) * 1.15 * dt;
+        // Fly out smoothly if too close to anchor or while recharging breath cooldown
+        if (distAnchor < 4.5 && Math.abs(rawDiff) > 0.85) {
+          const gentleAngle = curAngle + (u.dragonTurnSign ?? 1) * 1.1 * dt;
           dirX = Math.cos(gentleAngle);
           dirZ = Math.sin(gentleAngle);
           u.dragonRunDirX = dirX;
           u.dragonRunDirZ = dirZ;
         } else {
-          const steered = steerDragonToward(anchorX, anchorZ, 2.85, u.dragonTurnSign ?? 1);
+          const steered = steerDragonToward(anchorX, anchorZ, 2.55, u.dragonTurnSign ?? 1);
           dirX = steered.dirX;
           dirZ = steered.dirZ;
           remDiff = steered.angleDiff;
@@ -5550,12 +5554,12 @@ function stepWildlifeAI(
         u.targetX = u.x + dirX * 6.0;
         u.targetZ = u.z + dirZ * 6.0;
 
-        if (u.dragonRunTimer <= 0 || (distAnchor >= 2.0 && Math.abs(remDiff) <= 0.32)) {
+        if (u.dragonRunTimer <= 0 || (canBreathe && distAnchor >= 2.2 && Math.abs(remDiff) <= 0.32)) {
           if (!hasLiveGoal) {
             u.dragonRunPhase = undefined;
-          } else if (distToGoal <= def.attackRange && Math.abs(remDiff) <= 0.4) {
+          } else if (canBreathe && distToGoal <= def.attackRange && Math.abs(remDiff) <= 0.4) {
             u.dragonRunPhase = 'strafe';
-            u.dragonRunTimer = 1.35;
+            u.dragonRunTimer = 0.95;
           } else {
             u.dragonRunPhase = 'approach';
           }
@@ -5563,7 +5567,7 @@ function stepWildlifeAI(
         return;
       }
 
-      // Phase: 'approach' — smoothly bank & glide toward the target until lined up in attack range
+      // Phase: 'approach' — circle/orbit while recharging breath cooldown, then dive into strafe range when ready
       u.dragonAnchorX = goalX;
       u.dragonAnchorZ = goalZ;
       const curAngle = Math.atan2(u.dragonRunDirZ ?? 0, u.dragonRunDirX ?? 1);
@@ -5577,22 +5581,23 @@ function stepWildlifeAI(
       let dirZ = u.dragonRunDirZ ?? 0;
       let remDiff = rawDiff;
 
-      if (distToGoal < 3.0 && Math.abs(rawDiff) > 0.85) {
-        // Gain turning room so the dragon never orbits tightly in place
+      const minOrbitDist = canBreathe ? 3.0 : 5.8;
+      if (distToGoal < minOrbitDist && (!canBreathe || Math.abs(rawDiff) > 0.85)) {
+        // Maintain a graceful aerial orbit until breath cooldown recovers
         const bankSign = u.dragonTurnSign ?? (rawDiff >= 0 ? 1 : -1);
-        const nextAngle = curAngle + bankSign * 1.35 * dt;
+        const nextAngle = curAngle + bankSign * 1.15 * dt;
         dirX = Math.cos(nextAngle);
         dirZ = Math.sin(nextAngle);
         u.dragonRunDirX = dirX;
         u.dragonRunDirZ = dirZ;
       } else {
-        const steered = steerDragonToward(goalX, goalZ, 3.0);
+        const steered = steerDragonToward(goalX, goalZ, canBreathe ? 3.0 : 2.1);
         dirX = steered.dirX;
         dirZ = steered.dirZ;
         remDiff = steered.angleDiff;
       }
 
-      const approachSpeed = moveSpeed * 1.1;
+      const approachSpeed = moveSpeed * (canBreathe ? 1.1 : 0.96);
       u.x = Math.max(2, Math.min(gs - 3, u.x + dirX * approachSpeed * dt));
       u.z = Math.max(2, Math.min(gs - 3, u.z + dirZ * approachSpeed * dt));
       u.state = 'moving';
@@ -5600,17 +5605,15 @@ function stepWildlifeAI(
       u.targetZ = u.z + dirZ * 6.0;
 
       const updatedDist = Math.hypot(goalX - u.x, goalZ - u.z);
-      if (updatedDist <= def.attackRange && Math.abs(remDiff) <= 0.42) {
+      if (canBreathe && updatedDist <= def.attackRange && Math.abs(remDiff) <= 0.42) {
         u.dragonRunPhase = 'strafe';
-        u.dragonRunTimer = 1.35;
-        if (u.actionCooldown <= 0) {
-          emitDragonBreathAt(goalX, goalZ, dmg, {
-            unitTarget: target ?? undefined,
-            buildingTarget: envTarget?.kind === 'building' ? envTarget.building : undefined,
-            isEnvAttack: !target,
-            cooldownOverride: 0.36,
-          });
-        }
+        u.dragonRunTimer = 0.95;
+        emitDragonBreathAt(goalX, goalZ, dmg, {
+          unitTarget: target ?? undefined,
+          buildingTarget: envTarget?.kind === 'building' ? envTarget.building : undefined,
+          isEnvAttack: !target,
+        });
+        u.dragonRunTimer = 0.52;
       }
       return;
     }

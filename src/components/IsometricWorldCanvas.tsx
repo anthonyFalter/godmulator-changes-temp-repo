@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { EPOCHS, GOD_POWERS, getDinosaurVariant } from '../game/catalog';
+import { createAnimatedFireSpriteBundle } from '../game/fireSprites';
 import {
   createBuildingGroup,
   createUnitGroup,
@@ -730,43 +731,46 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       }
     }
 
-    // Active Tile Fire Flames & Smoke Plumes (Zero-GC InstancedMesh for burning tiles)
+    // Active Tile Fire Flames & Smoke Plumes (Zero-GC Instanced Billboarded Animated Pixel-Art Sprites)
     const MAX_FIRE_TILES = 320;
-    const fireOuterGeo = new THREE.BoxGeometry(0.28, 0.68, 0.28);
-    fireOuterGeo.translate(0, 0.34, 0);
-    const fireCoreGeo = new THREE.BoxGeometry(0.16, 0.48, 0.16);
-    fireCoreGeo.translate(0, 0.24, 0);
-    const fireSmokeGeo = new THREE.BoxGeometry(0.32, 0.32, 0.32);
-    const fireOuterMat = new THREE.MeshBasicMaterial({
-      color: 0xffffff,
-      transparent: true,
-      opacity: 0.92,
-    });
-    const fireCoreMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-    const fireSmokeMat = new THREE.MeshBasicMaterial({
-      color: 0x2b2d42,
-      transparent: true,
-      opacity: 0.58,
-    });
-    const fireOuterInst = new THREE.InstancedMesh(fireOuterGeo, fireOuterMat, MAX_FIRE_TILES);
-    const fireCoreInst = new THREE.InstancedMesh(fireCoreGeo, fireCoreMat, MAX_FIRE_TILES);
-    const fireSmokeInst = new THREE.InstancedMesh(fireSmokeGeo, fireSmokeMat, MAX_FIRE_TILES);
-    const _defaultFireOuterCol = new THREE.Color(0xff5400);
-    const _defaultFireCoreCol = new THREE.Color(0xffee55);
-    const _fireOuterCol = new THREE.Color();
-    const _fireCoreCol = new THREE.Color();
-    const _whiteCol = new THREE.Color(0xffffff);
-    for (let fi = 0; fi < MAX_FIRE_TILES; fi++) {
-      fireOuterInst.setColorAt(fi, _defaultFireOuterCol);
-      fireCoreInst.setColorAt(fi, _defaultFireCoreCol);
-    }
-    fireOuterInst.frustumCulled = false;
-    fireCoreInst.frustumCulled = false;
+    const MAX_FIRE_SPRITES = MAX_FIRE_TILES * 2;
+    const spriteBundle = createAnimatedFireSpriteBundle();
+
+    const fireSpriteGeo = spriteBundle.fireGeometry.clone();
+    const fireDataArray = new Float32Array(MAX_FIRE_SPRITES * 2);
+    const fireColorArray = new Float32Array(MAX_FIRE_SPRITES * 3);
+    const fireDataAttr = new THREE.InstancedBufferAttribute(fireDataArray, 2);
+    fireDataAttr.setUsage(THREE.DynamicDrawUsage);
+    const fireColorAttr = new THREE.InstancedBufferAttribute(fireColorArray, 3);
+    fireColorAttr.setUsage(THREE.DynamicDrawUsage);
+    fireSpriteGeo.setAttribute('aFireData', fireDataAttr);
+    fireSpriteGeo.setAttribute('aFireColor', fireColorAttr);
+
+    const fireSmokeGeo = spriteBundle.smokeGeometry.clone();
+    const smokeDataArray = new Float32Array(MAX_FIRE_TILES * 2);
+    const smokeDataAttr = new THREE.InstancedBufferAttribute(smokeDataArray, 2);
+    smokeDataAttr.setUsage(THREE.DynamicDrawUsage);
+    fireSmokeGeo.setAttribute('aSmokeData', smokeDataAttr);
+
+    const fireSpriteInst = new THREE.InstancedMesh(
+      fireSpriteGeo,
+      spriteBundle.fireMaterial,
+      MAX_FIRE_SPRITES,
+    );
+    const fireSmokeInst = new THREE.InstancedMesh(
+      fireSmokeGeo,
+      spriteBundle.smokeMaterial,
+      MAX_FIRE_TILES,
+    );
+    const _fireTintCol = new THREE.Color(1, 1, 1);
+    const _whiteCol = new THREE.Color(1, 1, 1);
+    fireSpriteInst.frustumCulled = false;
     fireSmokeInst.frustumCulled = false;
-    fireOuterInst.count = 0;
-    fireCoreInst.count = 0;
+    fireSpriteInst.renderOrder = 3;
+    fireSmokeInst.renderOrder = 4;
+    fireSpriteInst.count = 0;
     fireSmokeInst.count = 0;
-    worldGroup.add(fireOuterInst, fireCoreInst, fireSmokeInst);
+    worldGroup.add(fireSpriteInst, fireSmokeInst);
 
     // Lingering Hazard Zones (Monsoon storm clouds, Plague miasma, Aegis shield dome, Singularity rift)
     const hazardsGroup = new THREE.Group();
@@ -2576,15 +2580,17 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       const coreCol = outerCol.clone().lerp(new THREE.Color(0xffffff), 0.54);
       const outerMat = new THREE.MeshBasicMaterial({
         color: outerCol,
+        map: spriteBundle.breathScrollTexture,
         transparent: true,
-        opacity: 0.82,
+        opacity: 0.86,
         side: THREE.DoubleSide,
         depthWrite: false,
       });
       const coreMat = new THREE.MeshBasicMaterial({
         color: coreCol,
+        map: spriteBundle.breathScrollTexture,
         transparent: true,
-        opacity: 0.94,
+        opacity: 0.96,
         side: THREE.DoubleSide,
         depthWrite: false,
       });
@@ -3790,6 +3796,21 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
                 ? 0.64
                 : 0.06 + Math.max(0, Math.sin(elapsed * 2.0 + seedPhase)) * 0.1;
               jawPivot.rotation.x = THREE.MathUtils.damp(jawPivot.rotation.x, targetJaw, 12, dt);
+              const mawObj = uGroup.getObjectByName('fire_maw') as THREE.Mesh | undefined;
+              if (mawObj && mawObj.material instanceof THREE.MeshStandardMaterial) {
+                const cd = u.dragonBreathCooldown ?? 0;
+                const targetGlow = isDragonStrafing
+                  ? 2.15
+                  : cd > 1.2
+                    ? 0.42
+                    : 1.15 + Math.sin(elapsed * 8.0 + seedPhase) * 0.25;
+                mawObj.material.emissiveIntensity = THREE.MathUtils.damp(
+                  mawObj.material.emissiveIntensity,
+                  targetGlow,
+                  8,
+                  dt,
+                );
+              }
             } else if (isAttacking) {
               // Open wide then snap shut cleanly
               jawPivot.rotation.x = Math.sin(atkProg * Math.PI) * 0.68;
@@ -4328,58 +4349,84 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         }
       }
 
-      // 6. Sync active tile fire flames & smoke plumes (burning tiles, skipping ore_vein center so crater core is clear)
-      let fireCount = 0;
-      for (let i = 0; i < simState.tiles.length && fireCount < MAX_FIRE_TILES; i++) {
+      // 6. Sync active tile fire animated sprites & billowing smoke sprites
+      spriteBundle.fireMaterial.uniforms.uTime.value = elapsed;
+      spriteBundle.smokeMaterial.uniforms.uTime.value = elapsed;
+      spriteBundle.breathScrollTexture.offset.y = -((elapsed * 4.2) % 1.0);
+
+      let fireTileCount = 0;
+      let fireSpriteCount = 0;
+      for (let i = 0; i < simState.tiles.length && fireTileCount < MAX_FIRE_TILES; i++) {
         const t = simState.tiles[i];
         if (t.onFireTimer > 0 && t.height > 0 && t.resourceNode !== 'ore_vein') {
           const fy = tileCurrentY[i] || t.height * HEIGHT_STEP + 0.25;
-          const flick = 0.85 + Math.sin(elapsed * 22 + t.x * 3 + t.z * 7) * 0.3;
-          const w = 0.88 + Math.cos(elapsed * 17 + t.x) * 0.15;
-          _dummyPos.set(t.x, fy, t.z);
-          _dummyScale.set(w, flick, w);
-          _dummyMatrix.compose(_dummyPos, _dummyQuat, _dummyScale);
-          fireOuterInst.setMatrixAt(fireCount, _dummyMatrix);
-
-          _dummyScale.set(w * 0.76, flick * 1.1, w * 0.76);
-          _dummyMatrix.compose(_dummyPos, _dummyQuat, _dummyScale);
-          fireCoreInst.setMatrixAt(fireCount, _dummyMatrix);
+          const phase = ((t.x * 13 + t.z * 29) & 31) / 32;
+          const fadeEnv = Math.min(1, t.onFireTimer / 0.8);
+          const intensityBoost = t.buildingId || t.resourceNode === 'timber_grove' ? 1.16 : 0.94;
+          const pulse = (0.9 + Math.sin(elapsed * 16 + t.x * 3 + t.z * 7) * 0.12) * intensityBoost;
 
           if (t.fireColor) {
-            _fireOuterCol.set(t.fireColor);
-            _fireCoreCol.copy(_fireOuterCol).lerp(_whiteCol, 0.5);
-            fireOuterInst.setColorAt(fireCount, _fireOuterCol);
-            fireCoreInst.setColorAt(fireCount, _fireCoreCol);
+            _fireTintCol.set(t.fireColor);
           } else {
-            fireOuterInst.setColorAt(fireCount, _defaultFireOuterCol);
-            fireCoreInst.setColorAt(fireCount, _defaultFireCoreCol);
+            _fireTintCol.copy(_whiteCol);
           }
 
-          // Rising animated smoke puff above each burning tile
-          const smokeCycle = (elapsed * 1.8 + (t.x * 0.37 + t.z * 0.53)) % 1.0;
-          const smokeY = fy + 0.65 + smokeCycle * 1.9;
-          const smokeScale = (0.45 + smokeCycle * 0.7) * (1 - smokeCycle * 0.45);
-          _dummyPos.set(
-            t.x + Math.sin(elapsed * 3 + t.z) * 0.16,
-            smokeY,
-            t.z + Math.cos(elapsed * 3 + t.x) * 0.16,
-          );
-          _dummyScale.setScalar(smokeScale);
+          // Primary camera-facing animated pixel flame sprite
+          _dummyPos.set(t.x, fy, t.z);
+          _dummyScale.set(pulse * 0.96, pulse * (0.95 + fadeEnv * 0.15), 1);
           _dummyMatrix.compose(_dummyPos, _dummyQuat, _dummyScale);
-          fireSmokeInst.setMatrixAt(fireCount, _dummyMatrix);
+          fireSpriteInst.setMatrixAt(fireSpriteCount, _dummyMatrix);
+          fireDataArray[fireSpriteCount * 2] = phase;
+          fireDataArray[fireSpriteCount * 2 + 1] = 0.94 * fadeEnv;
+          fireColorArray[fireSpriteCount * 3] = _fireTintCol.r;
+          fireColorArray[fireSpriteCount * 3 + 1] = _fireTintCol.g;
+          fireColorArray[fireSpriteCount * 3 + 2] = _fireTintCol.b;
+          fireSpriteCount++;
 
-          fireCount++;
+          // Secondary offset side tongue for richer volumetric pixel fire silhouette
+          if (fireSpriteCount < MAX_FIRE_SPRITES) {
+            const ox = Math.sin(phase * Math.PI * 2) * 0.22;
+            const oz = Math.cos(phase * Math.PI * 2) * 0.18;
+            _dummyPos.set(t.x + ox, fy + 0.04, t.z + oz);
+            _dummyScale.set(pulse * 0.64, pulse * 0.72, 1);
+            _dummyMatrix.compose(_dummyPos, _dummyQuat, _dummyScale);
+            fireSpriteInst.setMatrixAt(fireSpriteCount, _dummyMatrix);
+            fireDataArray[fireSpriteCount * 2] = (phase + 0.43) % 1.0;
+            fireDataArray[fireSpriteCount * 2 + 1] = 0.85 * fadeEnv;
+            fireColorArray[fireSpriteCount * 3] = _fireTintCol.r;
+            fireColorArray[fireSpriteCount * 3 + 1] = _fireTintCol.g;
+            fireColorArray[fireSpriteCount * 3 + 2] = _fireTintCol.b;
+            fireSpriteCount++;
+          }
+
+          // Rising animated pixel smoke puff sprite above each burning tile
+          const smokeCycle = (elapsed * 1.45 + (t.x * 0.37 + t.z * 0.53)) % 1.0;
+          const smokeY = fy + 0.82 + smokeCycle * 1.95;
+          const smokeScale = (0.55 + smokeCycle * 0.78) * (0.85 + 0.3 * intensityBoost);
+          _dummyPos.set(
+            t.x + Math.sin(elapsed * 2.6 + t.z) * 0.2,
+            smokeY,
+            t.z + Math.cos(elapsed * 2.6 + t.x) * 0.2,
+          );
+          _dummyScale.set(smokeScale, smokeScale, 1);
+          _dummyMatrix.compose(_dummyPos, _dummyQuat, _dummyScale);
+          fireSmokeInst.setMatrixAt(fireTileCount, _dummyMatrix);
+          smokeDataArray[fireTileCount * 2] = (phase + smokeCycle * 0.5) % 1.0;
+          smokeDataArray[fireTileCount * 2 + 1] = Math.sin(smokeCycle * Math.PI) * 0.58 * fadeEnv;
+
+          fireTileCount++;
         }
       }
-      fireOuterInst.count = fireCount;
-      fireCoreInst.count = fireCount;
-      fireSmokeInst.count = fireCount;
-      if (fireCount > 0) {
-        fireOuterInst.instanceMatrix.needsUpdate = true;
-        fireCoreInst.instanceMatrix.needsUpdate = true;
+      fireSpriteInst.count = fireSpriteCount;
+      fireSmokeInst.count = fireTileCount;
+      if (fireSpriteCount > 0) {
+        fireSpriteInst.instanceMatrix.needsUpdate = true;
+        fireDataAttr.needsUpdate = true;
+        fireColorAttr.needsUpdate = true;
+      }
+      if (fireTileCount > 0) {
         fireSmokeInst.instanceMatrix.needsUpdate = true;
-        if (fireOuterInst.instanceColor) fireOuterInst.instanceColor.needsUpdate = true;
-        if (fireCoreInst.instanceColor) fireCoreInst.instanceColor.needsUpdate = true;
+        smokeDataAttr.needsUpdate = true;
       }
     }
 
@@ -5511,12 +5558,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       for (const fx of activeBurstFx) {
         for (const m of fx.materials) m.dispose();
       }
-      fireOuterGeo.dispose();
-      fireCoreGeo.dispose();
+      fireSpriteGeo.dispose();
       fireSmokeGeo.dispose();
-      fireOuterMat.dispose();
-      fireCoreMat.dispose();
-      fireSmokeMat.dispose();
+      spriteBundle.dispose();
       sharedHazSphereGeo.dispose();
       sharedRainDropGeo.dispose();
       sharedDomeGeo.dispose();

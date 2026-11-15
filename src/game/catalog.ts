@@ -443,7 +443,7 @@ export const MYTHICAL_BEAST_UNITS: UnitDefinition[] = [
     category: 'mythical',
     name: 'Dragon',
     faction: 'wildlife',
-    roleSummary: 'Soaring fire-breathing winged drake',
+    roleSummary: 'Soaring drake with cooldown fire breath',
     cost: { faith: 45 },
     maxHp: 560,
     speed: 4.1,

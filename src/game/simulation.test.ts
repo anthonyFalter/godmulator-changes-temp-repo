@@ -1648,7 +1648,7 @@ test('dragons execute gliding carpet-bombing strafe runs before banking to turn 
   const startX = dragon.x;
   let sawStrafe = false;
   let sawTurn = false;
-  let breathCountDuringStrafe = 0;
+  let breathCountDuringFirstWindow = 0;
 
   for (let step = 0; step < 36; step++) {
     stepSimulation(state, 0.1);
@@ -1661,22 +1661,60 @@ test('dragons execute gliding carpet-bombing strafe runs before banking to turn 
     for (const v of state.pendingVfx) {
       if (v.type === 'dragon_fire_breath') {
         assert.equal(v.sourceUnitId, dragon.id, 'Dragon breath VFX must carry sourceUnitId for 3D jaw tracking');
-        breathCountDuringStrafe++;
+        breathCountDuringFirstWindow++;
       }
     }
     state.pendingVfx.length = 0;
   }
 
-  assert.ok(sawStrafe, 'Dragon must enter gliding strafe phase when carpet-bombing target');
+  assert.ok(sawStrafe, 'Dragon must enter gliding strafe phase when engaging target');
   assert.ok(sawTurn, 'Dragon must transition to banking turn phase after gliding past target');
+  assert.equal(
+    breathCountDuringFirstWindow,
+    1,
+    `Dragon breath cooldown must prevent every-second spam during initial 3.6s window (got ${breathCountDuringFirstWindow})`,
+  );
   assert.ok(
-    breathCountDuringStrafe >= 2,
-    `Dragon should spew multiple fire blasts while gliding across target (got ${breathCountDuringStrafe})`,
+    (dragon.dragonBreathCooldown ?? 0) > 0,
+    'Dragon should remain on fire breath cooldown right after a 3.6s pass',
   );
   assert.ok(
     Math.hypot(dragon.x - startX, dragon.z - 64) > 1.5,
-    'Dragon must glide across the map while carpet-bombing rather than stopping in 1 spot',
+    'Dragon must glide across the map rather than stopping in 1 spot',
   );
+
+  // Advance another ~2.5s so cooldown finishes and confirm the dragon can breathe again cleanly
+  let followUpBreaths = 0;
+  for (let step = 0; step < 25; step++) {
+    stepSimulation(state, 0.1);
+    for (const v of state.pendingVfx) {
+      if (v.type === 'dragon_fire_breath' && v.sourceUnitId === dragon.id) {
+        followUpBreaths++;
+      }
+    }
+    state.pendingVfx.length = 0;
+  }
+  assert.ok(followUpBreaths >= 1, 'Dragon should resume fire breath once cooldown finishes');
+
+  // Verify detailed dragon mesh keeps draw calls compact and reuses cached merged geometry across spawns
+  const dragonPreview = createUnitGroup('dragon', 'wildlife', 0, 'human', 1);
+  const dragonPreview2 = createUnitGroup('dragon', 'wildlife', 0, 'human', 2);
+  let meshCount = 0;
+  const geos1: THREE.BufferGeometry[] = [];
+  const geos2: THREE.BufferGeometry[] = [];
+  dragonPreview.traverse((obj) => {
+    if ((obj as THREE.Mesh).isMesh) {
+      meshCount++;
+      geos1.push((obj as THREE.Mesh).geometry);
+    }
+  });
+  dragonPreview2.traverse((obj) => {
+    if ((obj as THREE.Mesh).isMesh) {
+      geos2.push((obj as THREE.Mesh).geometry);
+    }
+  });
+  assert.ok(meshCount <= 36, `Detailed dragon should use merged cached geometry to prevent lag (meshes=${meshCount})`);
+  assert.equal(geos1[0], geos2[0], 'Dragon spawns must reuse cached merged geometry instances');
 
   // Verify carnivore dinosaur does not stay locked on a tough stone outcrop when far from destroying it
   const carnivoreSeed = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].find((s) => getDinosaurVariant(s).diet === 'carnivore')!;
