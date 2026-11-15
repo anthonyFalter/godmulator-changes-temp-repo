@@ -197,7 +197,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
     // Orthographic camera for authentic isometric projection
     const aspect = Math.max(1, container.clientWidth) / Math.max(1, container.clientHeight);
-    let frustumSize = propsRef.current.gameState === 'title' ? 22 : 7.5;
+    let frustumSize = propsRef.current.gameState === 'title' ? 22 : 105;
     const camera = new THREE.OrthographicCamera(
       (-frustumSize * aspect) / 2,
       (frustumSize * aspect) / 2,
@@ -2910,7 +2910,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     const camDesiredTarget = new THREE.Vector3(gridCenter, 1.2, gridCenter);
     let camYaw = Math.PI / 4; // 45 deg true isometric
     let camDesiredYaw = Math.PI / 4;
-    let desiredFrustum = propsRef.current.gameState === 'title' ? 22 : 7.5;
+    let desiredFrustum = propsRef.current.gameState === 'title' ? 22 : 105;
     let prevGameState: GameLifecycleState = propsRef.current.gameState;
     let trauma = 0;
     let hitstopTimer = 0;
@@ -3212,16 +3212,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           tilePropSig[i] = -1;
         }
         const newCenter = (simState.gridSize - 1) / 2;
-        if (propsRef.current.gameState === 'title') {
-          camDesiredTarget.set(newCenter, 1.2, newCenter);
-          camTarget.set(newCenter, 1.2, newCenter);
-          desiredFrustum = 22;
-        } else {
-          const anchor = getSettlementAnchor(simState);
-          camDesiredTarget.set(anchor.x, 1.2, anchor.z);
-          camTarget.set(anchor.x, 1.2, anchor.z);
-          desiredFrustum = 7.5;
-        }
+        camDesiredTarget.set(newCenter, 1.2, newCenter);
+        camTarget.set(newCenter, 1.2, newCenter);
+        desiredFrustum = propsRef.current.gameState === 'title' ? 22 : 105;
       }
 
       // 1. Update instanced terrain tiles & detect if props/nodes/water-map need rebuild
@@ -4681,12 +4674,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         const yawDiff = Math.atan2(Math.sin(targetYaw - camYaw), Math.cos(targetYaw - camYaw));
         camDesiredYaw = camYaw + yawDiff;
 
-        // Smoothly pan in to settlement / town center
-        const anchor = getSettlementAnchor(simRef.current);
-        camDesiredTarget.set(anchor.x, 1.2, anchor.z);
+        // Smoothly center on the whole map so the entire island is in view
+        const center = (simRef.current.gridSize - 1) / 2;
+        camDesiredTarget.set(center, 1.2, center);
 
-        // Zoom to max zoom (closest allowed orthographic frustum)
-        desiredFrustum = 7.5;
+        // Zoom out so the player can see the whole map
+        desiredFrustum = 105;
 
         if (propsRef.current.followingEntityId) {
           propsRef.current.onBreakFollow?.();
@@ -4710,7 +4703,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       if (camAct.centerHome) {
         const anchor = getSettlementAnchor(simRef.current);
         camDesiredTarget.set(anchor.x, 1.2, anchor.z);
-        desiredFrustum = 7.5;
+        desiredFrustum = 14.5;
         camAct.centerHome = false;
         if (propsRef.current.followingEntityId) {
           propsRef.current.onBreakFollow?.();

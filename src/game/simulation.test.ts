@@ -1042,6 +1042,7 @@ test('Earthquake god power creates fault lines, protects ocean tiles, damages st
 test('Individuals in every race have unique appearance diversity, different skin tones, and child-to-adult growth', () => {
   const state = createInitialSimulationState(128, 'DIVERSITY-TEST');
   state.sandboxFreeMode = true;
+  state.wildlifeSeeded = true;
 
   for (let dz = -5; dz <= 5; dz++) {
     for (let dx = -5; dx <= 5; dx++) {
@@ -2146,9 +2147,9 @@ test('camera target locks and tracks moving entity coordinates during follow mod
   assert.equal(camDesiredTarget.z, 64.9);
 });
 
-test('pressing play smoothly targets 45 degree isometric angle, settlement anchor, and max zoom', () => {
+test('pressing play smoothly targets 45 degree isometric angle, centers world, and zooms out to see whole map', () => {
   const state = createInitialSimulationState(128, 'PLAY-TRANSITION-TEST');
-  const anchor = getSettlementAnchor(state);
+  const worldCenter = (state.gridSize - 1) / 2;
 
   // Test angular delta calculation from any arbitrary rotating title yaw to 45 deg (Math.PI / 4)
   const targetYaw = Math.PI / 4;
@@ -2165,14 +2166,12 @@ test('pressing play smoothly targets 45 degree isometric angle, settlement ancho
     assert.ok(Math.abs(yawDiff) <= Math.PI, `Yaw rotation must take shortest angular path (<= 180 deg, got ${yawDiff})`);
   }
 
-  // Camera pan target targets settlement anchor coordinates
-  assert.ok(typeof anchor.x === 'number' && typeof anchor.z === 'number');
-  assert.ok(anchor.x >= 0 && anchor.x < state.gridSize);
-  assert.ok(anchor.z >= 0 && anchor.z < state.gridSize);
+  // Camera pan target centers the whole map
+  assert.equal(worldCenter, 63.5);
 
-  // Max zoom frustum size is 7.5
-  const maxZoomFrustum = 7.5;
-  assert.equal(maxZoomFrustum, 7.5);
+  // Whole map overview frustum size is 105 (zoomed out)
+  const wholeMapZoomFrustum = 105;
+  assert.equal(wholeMapZoomFrustum, 105);
 });
 
 
