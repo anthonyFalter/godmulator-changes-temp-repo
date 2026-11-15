@@ -73,6 +73,8 @@ export interface BiomeZoneInfo {
   resourceCount: number;
   wildlifeCount: number;
   isAquatic: boolean;
+  centerX: number;
+  centerZ: number;
 }
 
 export type ThermalBandId = 'freezing' | 'cold' | 'temperate' | 'warm' | 'scorching';
@@ -90,6 +92,18 @@ export interface TemperatureZoneInfo {
   maxTempC: number;
   avgTempC: number;
   effectSummary: string;
+  centerX: number;
+  centerZ: number;
+}
+
+export interface ZoneMapLabel {
+  id: string;
+  name: string;
+  population: number | null;
+  hexColor: string;
+  tileX: number;
+  tileZ: number;
+  isHovered: boolean;
 }
 
 export interface WorldZonesData {
@@ -1096,10 +1110,14 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
       resourceCount: 0,
       wildlifeCount: 0,
       isAquatic: b === 'deep_water' || b === 'shallow_water',
+      centerX: Math.floor(size / 2),
+      centerZ: Math.floor(size / 2),
     });
   });
 
   const elevSumByBiome = new Float64Array(32);
+  const sumXByBiome = new Float64Array(32);
+  const sumZByBiome = new Float64Array(32);
   for (let i = 0; i < totalTiles; i++) {
     const tile = tiles[i];
     const zid = biomeToZoneId.get(tile.terrain) || 1;
@@ -1108,6 +1126,8 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
     if (info) {
       info.tileCount++;
       elevSumByBiome[zid] += tile.height;
+      sumXByBiome[zid] += tile.x;
+      sumZByBiome[zid] += tile.z;
       if (tile.resourceNode && tile.resourceNode !== 'none') {
         info.resourceCount++;
       }
@@ -1127,6 +1147,10 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
     if (info.tileCount > 0) {
       info.worldPercent = Math.round((info.tileCount / totalTiles) * 1000) / 10;
       info.avgElevation = Math.round((elevSumByBiome[zid] / info.tileCount) * 10) / 10;
+      const cx = Math.round(sumXByBiome[zid] / info.tileCount);
+      const cz = Math.round(sumZByBiome[zid] / info.tileCount);
+      info.centerX = Math.max(2, Math.min(size - 3, cx));
+      info.centerZ = Math.max(2, Math.min(size - 3, cz));
     }
   });
 
@@ -1138,6 +1162,8 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
   const tempBandsById = new Map<number, TemperatureZoneInfo>();
 
   const tempSumByBand = new Float64Array(8);
+  const sumXByTemp = new Float64Array(8);
+  const sumZByTemp = new Float64Array(8);
   for (const bMeta of THERMAL_BAND_META) {
     tempBandsById.set(bMeta.zoneId, {
       bandId: bMeta.bandId,
@@ -1152,6 +1178,8 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
       maxTempC: -99,
       avgTempC: 0,
       effectSummary: bMeta.effectSummary,
+      centerX: Math.floor(size / 2),
+      centerZ: Math.floor(size / 2),
     });
   }
 
@@ -1244,6 +1272,8 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
       if (info) {
         info.tileCount++;
         tempSumByBand[bandId] += clampedC;
+        sumXByTemp[bandId] += x;
+        sumZByTemp[bandId] += z;
         if (clampedC < info.minTempC) info.minTempC = clampedC;
         if (clampedC > info.maxTempC) info.maxTempC = clampedC;
       }
@@ -1254,6 +1284,10 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
     if (info.tileCount > 0) {
       info.worldPercent = Math.round((info.tileCount / totalTiles) * 1000) / 10;
       info.avgTempC = Math.round((tempSumByBand[bid] / info.tileCount) * 10) / 10;
+      const cx = Math.round(sumXByTemp[bid] / info.tileCount);
+      const cz = Math.round(sumZByTemp[bid] / info.tileCount);
+      info.centerX = Math.max(2, Math.min(size - 3, cx));
+      info.centerZ = Math.max(2, Math.min(size - 3, cz));
     } else {
       info.minTempC = 0;
       info.maxTempC = 0;
@@ -1333,7 +1367,7 @@ export function buildZoneOverlayTextures(
   hoveredTile: { x: number; z: number } | null,
   colorDataOut?: Uint8Array,
   idDataOut?: Uint8Array
-): { colorData: Uint8Array; idData: Uint8Array; anyActive: boolean } {
+): { colorData: Uint8Array; idData: Uint8Array; anyActive: boolean; labels: ZoneMapLabel[] } {
   const size = zones.gridSize;
   const totalTiles = size * size;
   const colorData =
@@ -1350,7 +1384,7 @@ export function buildZoneOverlayTextures(
   if (!anyActive) {
     colorData.fill(0);
     idData.fill(0);
-    return { colorData, idData, anyActive: false };
+    return { colorData, idData, anyActive: false, labels: [] };
   }
 
   let hoveredKingdomId = 0;
@@ -1393,7 +1427,7 @@ export function buildZoneOverlayTextures(
         gAcc += info.color[1] * w;
         bAcc += info.color[2] * w;
         wAcc += w;
-        alphaMax = Math.max(alphaMax, 118);
+        alphaMax = Math.max(alphaMax, 148);
         primaryId = tid + 200;
         styleFlag = 2;
         if (hoveredTempId > 0 && tid === hoveredTempId) isHovered = 255;
@@ -1409,7 +1443,7 @@ export function buildZoneOverlayTextures(
         gAcc += info.color[1] * w;
         bAcc += info.color[2] * w;
         wAcc += w;
-        alphaMax = Math.max(alphaMax, 125);
+        alphaMax = Math.max(alphaMax, 156);
         if (primaryId !== 0) secondaryId = primaryId;
         primaryId = bid + 150;
         if (hoveredBiomeId > 0 && bid === hoveredBiomeId) isHovered = 255;
@@ -1426,7 +1460,7 @@ export function buildZoneOverlayTextures(
           gAcc += info.color[1] * w;
           bAcc += info.color[2] * w;
           wAcc += w;
-          alphaMax = Math.max(alphaMax, zones.territoryIsSea[i] ? 132 : 148);
+          alphaMax = Math.max(alphaMax, zones.territoryIsSea[i] ? 168 : 185);
           if (primaryId !== 0) secondaryId = primaryId;
           primaryId = trId + 80;
           if (zones.territoryIsSea[i]) styleFlag = 1;
@@ -1445,7 +1479,7 @@ export function buildZoneOverlayTextures(
           gAcc += info.color[1] * w;
           bAcc += info.color[2] * w;
           wAcc += w;
-          alphaMax = Math.max(alphaMax, zones.kingdomIsSea[i] ? 136 : 164);
+          alphaMax = Math.max(alphaMax, zones.kingdomIsSea[i] ? 176 : 196);
           if (primaryId !== 0) secondaryId = primaryId;
           primaryId = kid;
           if (zones.kingdomIsSea[i]) styleFlag = 1;
@@ -1476,5 +1510,63 @@ export function buildZoneOverlayTextures(
     }
   }
 
-  return { colorData, idData, anyActive: true };
+  const labels: ZoneMapLabel[] = [];
+  if (toggles.kingdoms) {
+    zones.kingdomsById.forEach((k) => {
+      labels.push({
+        id: `kingdom-${k.zoneId}`,
+        name: k.name,
+        population: k.population,
+        hexColor: k.hexColor,
+        tileX: k.centerX,
+        tileZ: k.centerZ,
+        isHovered: k.zoneId === hoveredKingdomId,
+      });
+    });
+  }
+  if (toggles.territories) {
+    zones.territoriesById.forEach((t) => {
+      labels.push({
+        id: `territory-${t.zoneId}`,
+        name: t.name,
+        population: t.animalCount,
+        hexColor: t.hexColor,
+        tileX: t.centerX,
+        tileZ: t.centerZ,
+        isHovered: t.zoneId === hoveredTerritoryId,
+      });
+    });
+  }
+  if (toggles.biomes) {
+    zones.biomesById.forEach((b) => {
+      if (b.tileCount >= 24) {
+        labels.push({
+          id: `biome-${b.zoneId}`,
+          name: b.name,
+          population: null,
+          hexColor: b.hexColor,
+          tileX: b.centerX,
+          tileZ: b.centerZ,
+          isHovered: b.zoneId === hoveredBiomeId,
+        });
+      }
+    });
+  }
+  if (toggles.temperature) {
+    zones.tempBandsById.forEach((tm) => {
+      if (tm.tileCount >= 24) {
+        labels.push({
+          id: `temp-${tm.zoneId}`,
+          name: tm.name,
+          population: null,
+          hexColor: tm.hexColor,
+          tileX: tm.centerX,
+          tileZ: tm.centerZ,
+          isHovered: tm.zoneId === hoveredTempId,
+        });
+      }
+    });
+  }
+
+  return { colorData, idData, anyActive: true, labels };
 }

@@ -35,6 +35,7 @@ import {
   UnitEntity,
   VehicleType,
 } from '../game/types';
+import { ZoneMapLabel } from '../game/zones';
 
 interface IsometricWorldCanvasProps {
   simRef: React.MutableRefObject<SimulationState>;
@@ -59,6 +60,7 @@ interface IsometricWorldCanvasProps {
     idData: Uint8Array;
     anyActive: boolean;
     version: number;
+    labels?: ZoneMapLabel[];
   };
   onTileInteract: (tileX: number, tileZ: number) => void;
   onHoverTileChange: (tile: { x: number; z: number } | null) => void;
@@ -107,6 +109,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
   onSyncHud,
 }) => {
   const mountRef = useRef<HTMLDivElement | null>(null);
+  const zoneLabelsLayerRef = useRef<HTMLDivElement | null>(null);
 
   // Store latest props in refs so WebGLRenderer mounts once and never tears down on HUD updates
   const propsRef = useRef({
@@ -5934,6 +5937,31 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
       renderer.render(scene, camera);
 
+      // Update floating screen-space Zone headers (Zone Name + Population if any)
+      const labelLayer = zoneLabelsLayerRef.current;
+      if (labelLayer && labelLayer.children.length > 0) {
+        const cWidth = container?.clientWidth || window.innerWidth;
+        const cHeight = container?.clientHeight || window.innerHeight;
+        const gSize = sim.gridSize;
+        const zoneProjVec = new THREE.Vector3();
+        for (let i = 0; i < labelLayer.children.length; i++) {
+          const el = labelLayer.children[i] as HTMLElement;
+          const tx = Number(el.dataset.tileX);
+          const tz = Number(el.dataset.tileZ);
+          const tile = sim.tiles[tz * gSize + tx];
+          const worldY = Math.max(0.5, (tile ? tile.height : 1) * HEIGHT_STEP) + 1.8;
+          zoneProjVec.set(tx, worldY, tz).project(camera);
+          const sx = (zoneProjVec.x * 0.5 + 0.5) * cWidth;
+          const sy = (-zoneProjVec.y * 0.5 + 0.5) * cHeight;
+          if (zoneProjVec.z > 1 || sx < -120 || sx > cWidth + 120 || sy < -60 || sy > cHeight + 60) {
+            el.style.opacity = '0';
+          } else {
+            el.style.opacity = '1';
+            el.style.transform = `translate3d(${Math.round(sx)}px, ${Math.round(sy)}px, 0) translate(-50%, -100%)`;
+          }
+        }
+      }
+
       // Throttle React HUD state synchronization to <= 6 Hz so we never setState at 60Hz
       hudSyncAccumulator += dt;
       if (hudSyncAccumulator >= 0.18) {
@@ -6025,11 +6053,53 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     };
   }, [cameraActionRef, simRef]);
 
+  const activeLabels = zoneOverlayBuffers?.labels ?? [];
+
   return (
-    <div
-      ref={mountRef}
-      data-testid="isometric-world-canvas"
-      className="fixed inset-0 w-full h-full bg-[#141210] overflow-hidden"
-    />
+    <>
+      <div
+        ref={mountRef}
+        data-testid="isometric-world-canvas"
+        className="fixed inset-0 w-full h-full bg-[#141210] overflow-hidden"
+      />
+      {gameState !== 'title' && activeLabels.length > 0 && (
+        <div
+          ref={zoneLabelsLayerRef}
+          data-testid="zone-map-labels-layer"
+          className="fixed inset-0 z-10 pointer-events-none overflow-hidden select-none"
+        >
+          {activeLabels.map((lbl) => (
+            <div
+              key={lbl.id}
+              data-testid={`zone-map-label-${lbl.id}`}
+              data-tile-x={lbl.tileX}
+              data-tile-z={lbl.tileZ}
+              style={{
+                borderColor: lbl.hexColor,
+                left: 0,
+                top: 0,
+              }}
+              className={`absolute px-2 py-0.5 bg-[#12100e]/95 border-2 shadow-[0_2px_0_#070605] flex items-center gap-1.5 whitespace-nowrap ${
+                lbl.isHovered ? 'scale-110 z-20' : 'z-10'
+              }`}
+            >
+              <span
+                className="w-2 h-2 shrink-0"
+                style={{ backgroundColor: lbl.hexColor }}
+                aria-hidden="true"
+              />
+              <span className="text-[11px] font-bold text-[#f2ece1]">
+                {lbl.name}
+              </span>
+              {lbl.population !== null && (
+                <span className="font-pixel-num text-[10px] font-bold text-[#ffd166] tabular-nums">
+                  {lbl.population}
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </>
   );
 };

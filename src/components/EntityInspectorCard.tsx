@@ -7,7 +7,7 @@ import {
 import { getEntityInspectProfile, isIntrinsicGene } from '../game/entityInspector';
 import { SimulationState, UnitEntity, UnitStatusEffect, ZoneToggleState } from '../game/types';
 import { TileZoneInspection } from '../game/zones';
-import { UnitPixelIcon, ZonePixelIcon } from './GameIcons';
+import { UnitPixelIcon } from './GameIcons';
 
 interface EntityInspectorCardProps {
   sim: SimulationState;
@@ -430,152 +430,58 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
             (activeZones?.territories && hoveredZoneInfo.territory) ||
             (activeZones?.biomes && hoveredZoneInfo.biomeZone) ||
             (activeZones?.temperature && hoveredZoneInfo.temperatureZone)) ? (
-            <div className="space-y-2.5">
-              {/* 1. Kingdom / City Zone */}
+            <div className="space-y-2">
               {activeZones?.kingdoms && hoveredZoneInfo.kingdom && (
                 <div
-                  className="bg-[#191613] p-2.5 border-l-2 space-y-1.5"
-                  style={{
-                    borderLeftColor: hoveredZoneInfo.kingdom.hexColor,
-                  }}
+                  className="bg-[#191613] px-3 py-2 border-l-4 flex items-center justify-between gap-2"
+                  style={{ borderLeftColor: hoveredZoneInfo.kingdom.hexColor }}
                   data-testid="inspect-zone-kingdom"
                 >
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <ZonePixelIcon zone="kingdoms" className="w-4 h-4 shrink-0" />
-                      <span className="font-bold text-[#f2ece1] truncate">
-                        {hoveredZoneInfo.kingdom.name}
-                      </span>
-                    </div>
-                    <span className="text-[10px] font-semibold text-[#ffd166] shrink-0">
-                      {hoveredZoneInfo.isKingdomMaritime ? 'Maritime Waters' : 'Core Land'}
-                    </span>
-                  </div>
-                  <div className="text-[11px] text-[#a89f91] flex items-center justify-between">
-                    <span>{hoveredZoneInfo.kingdom.speciesLabel}</span>
-                    <span>{hoveredZoneInfo.kingdom.epochName}</span>
-                  </div>
-                  <div className="grid grid-cols-3 gap-1.5 pt-1 text-center">
-                    <div className="bg-[#12100e] px-1.5 py-1">
-                      <div className="text-[9px] text-[#8f8679]">Population</div>
-                      <div className="font-pixel-num text-xs font-bold text-[#80ed99] tabular-nums">
-                        {hoveredZoneInfo.kingdom.population}
-                      </div>
-                    </div>
-                    <div className="bg-[#12100e] px-1.5 py-1">
-                      <div className="text-[9px] text-[#8f8679]">Buildings</div>
-                      <div className="font-pixel-num text-xs font-bold text-[#f5b742] tabular-nums">
-                        {hoveredZoneInfo.kingdom.buildingCount}
-                      </div>
-                    </div>
-                    <div className="bg-[#12100e] px-1.5 py-1">
-                      <div className="text-[9px] text-[#8f8679]">Land / Sea</div>
-                      <div className="font-pixel-num text-[11px] font-bold text-[#56cfe1] tabular-nums">
-                        {hoveredZoneInfo.kingdom.landTileCount}/{hoveredZoneInfo.kingdom.seaTileCount}
-                      </div>
-                    </div>
-                  </div>
+                  <span className="font-bold text-[#f2ece1] truncate">
+                    {hoveredZoneInfo.kingdom.name}
+                  </span>
+                  <span className="font-pixel-num text-xs font-bold text-[#80ed99] tabular-nums shrink-0">
+                    Pop {hoveredZoneInfo.kingdom.population}
+                  </span>
                 </div>
               )}
 
-              {/* 2. Animal Territory Zone */}
               {activeZones?.territories && hoveredZoneInfo.territory && (
                 <div
-                  className="bg-[#191613] p-2.5 border-l-2 space-y-1.5"
-                  style={{
-                    borderLeftColor: hoveredZoneInfo.territory.hexColor,
-                  }}
+                  className="bg-[#191613] px-3 py-2 border-l-4 flex items-center justify-between gap-2"
+                  style={{ borderLeftColor: hoveredZoneInfo.territory.hexColor }}
                   data-testid="inspect-zone-territory"
                 >
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <ZonePixelIcon zone="territories" className="w-4 h-4 shrink-0" />
-                      <span className="font-bold text-[#f2ece1] truncate">
-                        {hoveredZoneInfo.territory.name}
-                      </span>
-                    </div>
-                    <span className="text-[10px] font-semibold text-[#fb923c] shrink-0">
-                      {hoveredZoneInfo.territory.diet}
-                    </span>
-                  </div>
-                  <div className="text-[11px] text-[#a89f91] flex items-center justify-between">
-                    <span>{hoveredZoneInfo.territory.speciesLabel}</span>
-                    <span className="text-[#56cfe1]">{hoveredZoneInfo.territory.domainType}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-[11px] pt-0.5 text-[#cfc6b8]">
-                    <span>
-                      Pack / Herd:{' '}
-                      <strong className="font-pixel-num text-[#f2ece1] tabular-nums">
-                        {hoveredZoneInfo.territory.animalCount}
-                      </strong>
-                    </span>
-                    <span>
-                      Domain:{' '}
-                      <strong className="font-pixel-num text-[#f2ece1] tabular-nums">
-                        {hoveredZoneInfo.territory.landTileCount}L / {hoveredZoneInfo.territory.seaTileCount}S
-                      </strong>
-                    </span>
-                  </div>
+                  <span className="font-bold text-[#f2ece1] truncate">
+                    {hoveredZoneInfo.territory.name}
+                  </span>
+                  <span className="font-pixel-num text-xs font-bold text-[#fb923c] tabular-nums shrink-0">
+                    Pop {hoveredZoneInfo.territory.animalCount}
+                  </span>
                 </div>
               )}
 
-              {/* 3. Biome Zone */}
               {activeZones?.biomes && hoveredZoneInfo.biomeZone && (
                 <div
-                  className="bg-[#191613] p-2.5 border-l-2 space-y-1"
+                  className="bg-[#191613] px-3 py-2 border-l-4 flex items-center justify-between gap-2"
                   style={{ borderLeftColor: hoveredZoneInfo.biomeZone.hexColor }}
                   data-testid="inspect-zone-biome"
                 >
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <ZonePixelIcon zone="biomes" className="w-4 h-4 shrink-0" />
-                      <span className="font-bold text-[#f2ece1] truncate">
-                        {hoveredZoneInfo.biomeZone.name}
-                      </span>
-                    </div>
-                    <span className="text-[10px] text-[#80ed99] font-semibold">
-                      {hoveredZoneInfo.biomeZone.category}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between text-[11px] text-[#a89f91]">
-                    <span>
-                      Coverage:{' '}
-                      <strong className="font-pixel-num text-[#f2ece1] tabular-nums">
-                        {hoveredZoneInfo.biomeZone.worldPercent}%
-                      </strong>{' '}
-                      ({hoveredZoneInfo.biomeZone.tileCount} tiles)
-                    </span>
-                    <span>
-                      Nodes:{' '}
-                      <strong className="font-pixel-num text-[#ffd166] tabular-nums">
-                        {hoveredZoneInfo.biomeZone.resourceCount}
-                      </strong>
-                    </span>
-                  </div>
+                  <span className="font-bold text-[#f2ece1] truncate">
+                    {hoveredZoneInfo.biomeZone.name}
+                  </span>
                 </div>
               )}
 
-              {/* 4. Temperature Zone */}
               {activeZones?.temperature && hoveredZoneInfo.temperatureZone && (
                 <div
-                  className="bg-[#191613] p-2.5 border-l-2 space-y-1"
+                  className="bg-[#191613] px-3 py-2 border-l-4 flex items-center justify-between gap-2"
                   style={{ borderLeftColor: hoveredZoneInfo.temperatureZone.hexColor }}
                   data-testid="inspect-zone-temperature"
                 >
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <ZonePixelIcon zone="temperature" className="w-4 h-4 shrink-0" />
-                      <span className="font-bold text-[#f2ece1] truncate">
-                        {hoveredZoneInfo.temperatureZone.name}
-                      </span>
-                    </div>
-                    <span className="font-pixel-num text-[11px] font-bold text-[#f5b742] tabular-nums">
-                      {hoveredZoneInfo.tileTempC}°C / {hoveredZoneInfo.tileTempF}°F
-                    </span>
-                  </div>
-                  <div className="text-[10px] text-[#a89f91] leading-snug">
-                    {hoveredZoneInfo.temperatureZone.effectSummary}
-                  </div>
+                  <span className="font-bold text-[#f2ece1] truncate">
+                    {hoveredZoneInfo.temperatureZone.name}
+                  </span>
                 </div>
               )}
             </div>

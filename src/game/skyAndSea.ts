@@ -530,6 +530,11 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
             vec4 zSW = sampleZoneId(tileCoord + vec2(-1.0, 1.0));
             vec4 zSE = sampleZoneId(tileCoord + vec2(1.0, 1.0));
 
+            vec4 zN2 = sampleZoneId(tileCoord + vec2(0.0, -2.0));
+            vec4 zS2 = sampleZoneId(tileCoord + vec2(0.0, 2.0));
+            vec4 zW2 = sampleZoneId(tileCoord + vec2(-2.0, 0.0));
+            vec4 zE2 = sampleZoneId(tileCoord + vec2(2.0, 0.0));
+
             bool diffN = abs(zN.r - zId.r) > 0.002 || abs(zN.g - zId.g) > 0.002;
             bool diffS = abs(zS.r - zId.r) > 0.002 || abs(zS.g - zId.g) > 0.002;
             bool diffW = abs(zW.r - zId.r) > 0.002 || abs(zW.g - zId.g) > 0.002;
@@ -540,31 +545,36 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
             bool diffSW = abs(zSW.r - zId.r) > 0.002 || abs(zSW.g - zId.g) > 0.002;
             bool diffSE = abs(zSE.r - zId.r) > 0.002 || abs(zSE.g - zId.g) > 0.002;
 
-            float bw = 2.0 / 16.0;
-            bool onBorder =
-              (diffN && subUv.y < bw) ||
-              (diffS && subUv.y > 1.0 - bw) ||
-              (diffW && subUv.x < bw) ||
-              (diffE && subUv.x > 1.0 - bw) ||
-              (diffNW && subUv.x < bw && subUv.y < bw) ||
-              (diffNE && subUv.x > 1.0 - bw && subUv.y < bw) ||
-              (diffSW && subUv.x < bw && subUv.y > 1.0 - bw) ||
-              (diffSE && subUv.x > 1.0 - bw && subUv.y > 1.0 - bw);
+            bool diffN2 = abs(zN2.r - zId.r) > 0.002 || abs(zN2.g - zId.g) > 0.002;
+            bool diffS2 = abs(zS2.r - zId.r) > 0.002 || abs(zS2.g - zId.g) > 0.002;
+            bool diffW2 = abs(zW2.r - zId.r) > 0.002 || abs(zW2.g - zId.g) > 0.002;
+            bool diffE2 = abs(zE2.r - zId.r) > 0.002 || abs(zE2.g - zId.g) > 0.002;
 
-            vec2 subPix = floor(subUv * 16.0);
-            float checker = mod(subPix.x + subPix.y, 2.0);
+            bool isOuterBorderTile = diffN || diffS || diffW || diffE || diffNW || diffNE || diffSW || diffSE;
+            bool isInnerBorderTile = !isOuterBorderTile && (diffN2 || diffS2 || diffW2 || diffE2);
+
+            float outerDarkW = 0.44;
+            bool onDarkOuterStroke =
+              (diffN && subUv.y < outerDarkW) ||
+              (diffS && subUv.y > 1.0 - outerDarkW) ||
+              (diffW && subUv.x < outerDarkW) ||
+              (diffE && subUv.x > 1.0 - outerDarkW) ||
+              (diffNW && subUv.x < outerDarkW && subUv.y < outerDarkW) ||
+              (diffNE && subUv.x > 1.0 - outerDarkW && subUv.y < outerDarkW) ||
+              (diffSW && subUv.x < outerDarkW && subUv.y > 1.0 - outerDarkW) ||
+              (diffSE && subUv.x > 1.0 - outerDarkW && subUv.y > 1.0 - outerDarkW);
+
             bool isHovered = zId.b > 0.5;
-            float hoverPulse = isHovered ? (0.14 + 0.08 * sin(uTime * 5.0)) : 0.0;
+            float hoverPulse = isHovered ? (0.16 + 0.08 * sin(uTime * 5.0)) : 0.0;
 
-            if (onBorder) {
-              // Nautical dashed/beaded border on water, solid bright when hovered
-              float dash = mod(floor((pixPos.x + pixPos.y) * 8.0), 2.0);
-              float borderMix = isHovered ? 0.96 : (dash > 0.5 ? 0.92 : 0.62);
-              vec3 borderCol = isHovered ? mix(zCol.rgb, vec3(1.0), 0.42) : mix(zCol.rgb, vec3(1.0), 0.18);
-              color = mix(color, borderCol, borderMix);
+            if (onDarkOuterStroke) {
+              color = mix(color, vec3(0.03, 0.025, 0.02), 0.94);
+            } else if (isOuterBorderTile || isInnerBorderTile) {
+              vec3 borderCol = mix(zCol.rgb, vec3(1.0), isHovered ? 0.58 : 0.34);
+              color = mix(color, borderCol, isOuterBorderTile ? 0.96 : 0.90);
             } else {
-              float baseAlpha = zCol.a * (0.34 + 0.14 * checker) + hoverPulse;
-              color = mix(color, zCol.rgb, clamp(baseAlpha, 0.0, 0.72));
+              float baseAlpha = zCol.a * 0.52 + hoverPulse;
+              color = mix(color, zCol.rgb, clamp(baseAlpha, 0.0, 0.78));
             }
           }
         }
@@ -1499,17 +1509,27 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
           cliffCol *= mix(0.68, 1.0, smoothstep(0.26, 0.48, vLandWorldPos.y));
         }
 
+        diffuseColor.rgb = cliffCol;`,
+      )
+      .replace(
+        '#include <dithering_fragment>',
+        `#include <dithering_fragment>
         if (uZoneActive > 0.5) {
           vec4 zCol = sampleLandZoneColor(cliffOwnerCoord);
           vec4 zId = sampleLandZoneId(cliffOwnerCoord);
+          vec4 zNbId = sampleLandZoneId(cliffNeighborCoord);
           if (zCol.a > 0.01) {
-            vec3 zLin = pow(zCol.rgb, vec3(2.2));
-            float hBoost = zId.b > 0.5 ? 0.16 : 0.0;
-            cliffCol = mix(cliffCol, zLin, clamp(zCol.a * 0.42 + hBoost, 0.0, 0.68));
+            bool diffCliff = abs(zNbId.r - zId.r) > 0.002 || abs(zNbId.g - zId.g) > 0.002;
+            bool isHovered = zId.b > 0.5;
+            if (diffCliff) {
+              vec3 rimCol = mix(zCol.rgb, vec3(1.0), isHovered ? 0.58 : 0.34);
+              gl_FragColor.rgb = mix(gl_FragColor.rgb, rimCol, 0.94);
+            } else {
+              float hBoost = isHovered ? 0.16 : 0.0;
+              gl_FragColor.rgb = mix(gl_FragColor.rgb, zCol.rgb, clamp(zCol.a * 0.52 + hBoost, 0.0, 0.76));
+            }
           }
-        }
-
-        diffuseColor.rgb = cliffCol;`,
+        }`,
       );
   };
   createdMaterials.push(cliffMat);
@@ -1528,7 +1548,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
       roughness,
       metalness,
     });
-    topMat.customProgramCacheKey = () => 'aeon_land_top_pixel_v8';
+    topMat.customProgramCacheKey = () => 'aeon_land_top_pixel_v9';
     topMat.onBeforeCompile = (shader) => {
       shader.uniforms.uTime = sharedTime;
       shader.uniforms.uEpoch = sharedEpoch;
@@ -1732,7 +1752,12 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
             col *= mix(0.62, 1.0, smoothstep(0.0, 0.22, higherEdge));
           }
 
-          // 5. Dynamic Contoured Zone Overlay (Kingdoms, Animal Territories, Biomes, Temperatures)
+          diffuseColor.rgb = col;`,
+        )
+        .replace(
+          '#include <dithering_fragment>',
+          `#include <dithering_fragment>
+          // 5. Post-Lighting Bold Contoured Zone Overlay (Kingdoms, Animal Territories, Biomes, Temperatures)
           if (uZoneActive > 0.5) {
             vec4 zCol = sampleLandZoneColor(tileCoord);
             vec4 zId = sampleLandZoneId(tileCoord);
@@ -1746,6 +1771,11 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
               vec4 zSW = sampleLandZoneId(tileCoord + vec2(-1.0, 1.0));
               vec4 zSE = sampleLandZoneId(tileCoord + vec2(1.0, 1.0));
 
+              vec4 zN2 = sampleLandZoneId(tileCoord + vec2(0.0, -2.0));
+              vec4 zS2 = sampleLandZoneId(tileCoord + vec2(0.0, 2.0));
+              vec4 zW2 = sampleLandZoneId(tileCoord + vec2(-2.0, 0.0));
+              vec4 zE2 = sampleLandZoneId(tileCoord + vec2(2.0, 0.0));
+
               bool diffN = abs(zN.r - zId.r) > 0.002 || abs(zN.g - zId.g) > 0.002;
               bool diffS = abs(zS.r - zId.r) > 0.002 || abs(zS.g - zId.g) > 0.002;
               bool diffW = abs(zW.r - zId.r) > 0.002 || abs(zW.g - zId.g) > 0.002;
@@ -1756,34 +1786,39 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
               bool diffSW = abs(zSW.r - zId.r) > 0.002 || abs(zSW.g - zId.g) > 0.002;
               bool diffSE = abs(zSE.r - zId.r) > 0.002 || abs(zSE.g - zId.g) > 0.002;
 
-              float bw = 2.0 / 16.0;
-              bool onBorder =
-                (diffN && subUv.y < bw) ||
-                (diffS && subUv.y > 1.0 - bw) ||
-                (diffW && subUv.x < bw) ||
-                (diffE && subUv.x > 1.0 - bw) ||
-                (diffNW && subUv.x < bw && subUv.y < bw) ||
-                (diffNE && subUv.x > 1.0 - bw && subUv.y < bw) ||
-                (diffSW && subUv.x < bw && subUv.y > 1.0 - bw) ||
-                (diffSE && subUv.x > 1.0 - bw && subUv.y > 1.0 - bw);
+              bool diffN2 = abs(zN2.r - zId.r) > 0.002 || abs(zN2.g - zId.g) > 0.002;
+              bool diffS2 = abs(zS2.r - zId.r) > 0.002 || abs(zS2.g - zId.g) > 0.002;
+              bool diffW2 = abs(zW2.r - zId.r) > 0.002 || abs(zW2.g - zId.g) > 0.002;
+              bool diffE2 = abs(zE2.r - zId.r) > 0.002 || abs(zE2.g - zId.g) > 0.002;
 
-              vec3 zLinear = pow(zCol.rgb, vec3(2.2));
-              vec2 subPix = floor(subUv * 16.0);
-              float checker = mod(subPix.x + subPix.y, 2.0);
+              bool isOuterBorderTile = diffN || diffS || diffW || diffE || diffNW || diffNE || diffSW || diffSE;
+              bool isInnerBorderTile = !isOuterBorderTile && (diffN2 || diffS2 || diffW2 || diffE2);
+
+              float outerDarkW = 0.44;
+              bool onDarkOuterStroke =
+                (diffN && subUv.y < outerDarkW) ||
+                (diffS && subUv.y > 1.0 - outerDarkW) ||
+                (diffW && subUv.x < outerDarkW) ||
+                (diffE && subUv.x > 1.0 - outerDarkW) ||
+                (diffNW && subUv.x < outerDarkW && subUv.y < outerDarkW) ||
+                (diffNE && subUv.x > 1.0 - outerDarkW && subUv.y < outerDarkW) ||
+                (diffSW && subUv.x < outerDarkW && subUv.y > 1.0 - outerDarkW) ||
+                (diffSE && subUv.x > 1.0 - outerDarkW && subUv.y > 1.0 - outerDarkW);
+
               bool isHovered = zId.b > 0.5;
               float hoverPulse = isHovered ? (0.16 + 0.09 * sin(uTime * 5.0)) : 0.0;
 
-              if (onBorder) {
-                vec3 rimCol = isHovered ? mix(zLinear, vec3(1.0), 0.45) : mix(zLinear, vec3(1.0), 0.16);
-                col = mix(col, rimCol, isHovered ? 0.96 : 0.88);
+              if (onDarkOuterStroke) {
+                gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(0.03, 0.025, 0.02), 0.94);
+              } else if (isOuterBorderTile || isInnerBorderTile) {
+                vec3 rimCol = mix(zCol.rgb, vec3(1.0), isHovered ? 0.58 : 0.34);
+                gl_FragColor.rgb = mix(gl_FragColor.rgb, rimCol, isOuterBorderTile ? 0.96 : 0.90);
               } else {
-                float fillAlpha = zCol.a * (0.42 + 0.16 * checker) + hoverPulse;
-                col = mix(col, zLinear, clamp(fillAlpha, 0.0, 0.78));
+                float fillAlpha = zCol.a * 0.54 + hoverPulse;
+                gl_FragColor.rgb = mix(gl_FragColor.rgb, zCol.rgb, clamp(fillAlpha, 0.0, 0.78));
               }
             }
-          }
-
-          diffuseColor.rgb = col;`,
+          }`,
         );
     };
 

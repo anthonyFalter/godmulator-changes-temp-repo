@@ -613,6 +613,7 @@ export default function App() {
         idData: zoneIdBufRef.current!,
         anyActive: false,
         version: zoneOverlayVersionRef.current,
+        labels: [],
       };
     }
 
@@ -632,6 +633,7 @@ export default function App() {
       idData: packed.idData,
       anyActive: packed.anyActive,
       version: zoneOverlayVersionRef.current,
+      labels: packed.labels,
     };
   }, [worldZones, activeZones, anyZoneActive, isInspectTabActive, activeCategory, hoverTile]);
 
@@ -2039,35 +2041,6 @@ export default function App() {
                         </button>
                       )}
                     </div>
-
-                    {/* Live Hovered Zone Readout inside Zones Tab */}
-                    {hoveredZoneInfo && (
-                      <div
-                        className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#cfc6b8] bg-[#191613] px-2.5 py-1.5 border border-[#2f2720]"
-                        data-testid="zones-tab-hover-readout"
-                      >
-                        <span className="font-pixel-num text-[#f5b742] tabular-nums">
-                          ({hoveredZoneInfo.tileX}, {hoveredZoneInfo.tileZ})
-                        </span>
-                        {hoveredZoneInfo.kingdom && (
-                          <span className="text-[#80ed99] font-semibold">
-                            {hoveredZoneInfo.kingdom.name} (Pop {hoveredZoneInfo.kingdom.population}
-                            {hoveredZoneInfo.isKingdomMaritime ? ' · Sea' : ''})
-                          </span>
-                        )}
-                        {hoveredZoneInfo.territory && (
-                          <span className="text-[#fb923c] font-semibold">
-                            {hoveredZoneInfo.territory.name} ({hoveredZoneInfo.territory.animalCount})
-                          </span>
-                        )}
-                        {hoveredZoneInfo.biomeZone && (
-                          <span className="text-[#56cfe1]">{hoveredZoneInfo.biomeZone.name}</span>
-                        )}
-                        <span className="font-pixel-num text-[#ffd166] tabular-nums">
-                          {hoveredZoneInfo.tileTempC}°C ({hoveredZoneInfo.temperatureZone?.name})
-                        </span>
-                      </div>
-                    )}
                   </div>
                 )}
 
