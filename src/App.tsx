@@ -22,13 +22,16 @@ import {
   spawnUnit,
 } from './game/simulation';
 import { soundEngine } from './game/sound';
+import { toggleUnitFavorite } from './game/entityInspector';
 import {
   ActiveTool,
   GameLifecycleState,
   LightingPreset,
   Resources,
   ToolCategory,
+  UnitEntity,
 } from './game/types';
+import { EntityInspectorCard } from './components/EntityInspectorCard';
 import {
   BuildingPixelIcon,
   HudPixelIcon,
@@ -109,6 +112,9 @@ export default function App() {
   const [chronicleOpen, setChronicleOpen] = useState<boolean>(false);
   const [muted, setMuted] = useState<boolean>(false);
   const [hoverTile, setHoverTile] = useState<{ x: number; z: number } | null>({ x: 64, z: 64 });
+  const [hoveredEntityId, setHoveredEntityId] = useState<string | null>(null);
+  const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
+  const selectedEntityIdRef = useRef<string | null>(null);
   const [hoveredHint, setHoveredHint] = useState<HoveredHint | null>(null);
   const [statusFeedback, setStatusFeedback] = useState<string>('Click land to spawn a Human');
 
@@ -122,10 +128,16 @@ export default function App() {
     setHudTick((t) => t + 1);
   }, [gameState]);
 
-  const cameraActionRef = useRef({
+  const cameraActionRef = useRef<{
+    rotateDelta: number;
+    zoomDelta: number;
+    centerHome: boolean;
+    focusTarget?: { x: number; z: number; zoom?: number } | null;
+  }>({
     rotateDelta: 0,
     zoomDelta: 0,
     centerHome: false,
+    focusTarget: null,
   });
 
   useEffect(() => {
@@ -149,6 +161,9 @@ export default function App() {
     simRef.current = nextSim;
     setSeedInput(String(nextSim.seed));
     setHoverTile({ x: 64, z: 64 });
+    setHoveredEntityId(null);
+    setSelectedEntityId(null);
+    selectedEntityIdRef.current = null;
     setActiveCategory('spawn');
     setActiveTool({ kind: 'spawn', unit: 'human' });
     soundEngine.playBuild();
@@ -205,6 +220,32 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [gameState, handleStartGame, handleToggleMute]);
 
+  const handleSelectEntity = useCallback((unitId: string | null) => {
+    selectedEntityIdRef.current = unitId;
+    setSelectedEntityId(unitId);
+    if (unitId) {
+      const unit = simRef.current.units.find((u) => u.id === unitId && u.state !== 'ko');
+      if (unit) {
+        setStatusFeedback(`Selected ${unit.name} (${Math.round(unit.hp)}/${unit.maxHp} HP)`);
+      }
+    }
+    setHudTick((t) => t + 1);
+  }, []);
+
+  const handleToggleFavoriteEntity = useCallback((unitId: string) => {
+    const unit = simRef.current.units.find((u) => u.id === unitId && u.state !== 'ko');
+    if (!unit) return;
+    const isFav = toggleUnitFavorite(simRef.current, unitId);
+    soundEngine.playClick();
+    setStatusFeedback(isFav ? `Favorited ${unit.name}` : `Unfavorited ${unit.name}`);
+    setHudTick((t) => t + 1);
+  }, []);
+
+  const handleFocusEntity = useCallback((unit: UnitEntity) => {
+    cameraActionRef.current.focusTarget = { x: unit.x, z: unit.z, zoom: 11.5 };
+    soundEngine.playClick();
+  }, []);
+
   const handleTileInteract = useCallback(
     (tileX: number, tileZ: number) => {
       const sim = simRef.current;
@@ -212,20 +253,23 @@ export default function App() {
 
       if (activeTool.kind === 'inspect') {
         const tile = getTile(sim, tileX, tileZ);
+        const pickedUnit = selectedEntityIdRef.current
+          ? sim.units.find((u) => u.id === selectedEntityIdRef.current && u.state !== 'ko')
+          : undefined;
         const nearbyRoadster = (sim.vehicles ?? []).find(
           (v) => v.type === 'roadster' && Math.hypot(v.x - tileX, v.z - tileZ) <= 1.15,
         );
-        const nearbyUnit = sim.units.find(
-          (u) => u.state !== 'ko' && Math.hypot(u.x - tileX, u.z - tileZ) <= 0.85,
-        );
+        const nearbyUnit =
+          pickedUnit ??
+          sim.units.find(
+            (u) => u.state !== 'ko' && Math.hypot(u.x - tileX, u.z - tileZ) <= 0.85,
+          );
         const bld = sim.buildings.find((b) => b.tileX === tileX && b.tileZ === tileZ);
-        if (nearbyRoadster) {
-          const modeLabel =
-            nearbyRoadster.stuntPhase && nearbyRoadster.stuntPhase !== 'cruise'
-              ? `Propulsion Stunt: ${nearbyRoadster.stuntPhase.replace('_', ' ')}`
-              : 'Cruising with SpaceX Thrusters Armed';
-          setStatusFeedback(`Tesla Roadster Easter Egg (${modeLabel})`);
-        } else if (nearbyUnit) {
+        if (nearbyUnit) {
+          if (!selectedEntityIdRef.current) {
+            selectedEntityIdRef.current = nearbyUnit.id;
+            setSelectedEntityId(nearbyUnit.id);
+          }
           const def = UNITS.find((d) => d.role === nearbyUnit.role);
           const label =
             nearbyUnit.faction === 'wildlife'
@@ -234,6 +278,12 @@ export default function App() {
                 ? `${nearbyUnit.species} child`
                 : `${nearbyUnit.species} ${nearbyUnit.role}`;
           setStatusFeedback(`${nearbyUnit.name} (${label}, ${Math.round(nearbyUnit.hp)}/${nearbyUnit.maxHp} HP)`);
+        } else if (nearbyRoadster) {
+          const modeLabel =
+            nearbyRoadster.stuntPhase && nearbyRoadster.stuntPhase !== 'cruise'
+              ? `Propulsion Stunt: ${nearbyRoadster.stuntPhase.replace('_', ' ')}`
+              : 'Cruising with SpaceX Thrusters Armed';
+          setStatusFeedback(`Tesla Roadster Easter Egg (${modeLabel})`);
         } else if (bld) {
           const def = BUILDINGS.find((d) => d.type === bld.type);
           setStatusFeedback(`${def?.name ?? bld.type} (${Math.round(bld.hp)}/${bld.maxHp} HP)`);
@@ -321,6 +371,16 @@ export default function App() {
     ? sim.buildings.find((b) => b.tileX === hoverTile.x && b.tileZ === hoverTile.z)
     : undefined;
   const hostileCount = sim.units.filter((u) => u.faction === 'hostile' && u.state !== 'ko').length;
+  const isInspectTabActive = activeCategory === 'inspect' && activeTool.kind === 'inspect';
+  const hoveredUnit =
+    isInspectTabActive && hoveredEntityId
+      ? sim.units.find((u) => u.id === hoveredEntityId && u.state !== 'ko') ?? null
+      : null;
+  const selectedUnit =
+    isInspectTabActive && selectedEntityId
+      ? sim.units.find((u) => u.id === selectedEntityId && u.state !== 'ko') ?? null
+      : null;
+  const favoriteUnits = sim.units.filter((u) => u.favorite && u.state !== 'ko');
 
   const activeToolLabel = (() => {
     if (activeTool.kind === 'inspect') return 'Inspect';
@@ -348,8 +408,12 @@ export default function App() {
         pixelScale={pixelScale}
         lightingPreset={lightingPreset}
         cameraActionRef={cameraActionRef}
+        hoveredEntityId={isInspectTabActive ? hoveredEntityId : null}
+        selectedEntityId={isInspectTabActive ? selectedEntityId : null}
         onTileInteract={handleTileInteract}
         onHoverTileChange={setHoverTile}
+        onHoverEntityChange={setHoveredEntityId}
+        onSelectEntity={handleSelectEntity}
         onSyncHud={syncHud}
       />
 
@@ -637,6 +701,19 @@ export default function App() {
             </div>
           )}
 
+          {/* ENTITY INSPECTOR PANEL (strictly visible only on Inspect tab during play) */}
+          {gameState === 'playing' && isInspectTabActive && (
+            <EntityInspectorCard
+              sim={sim}
+              hoveredUnit={hoveredUnit}
+              selectedUnit={selectedUnit}
+              favoriteUnits={favoriteUnits}
+              onToggleFavorite={handleToggleFavoriteEntity}
+              onSelectUnit={handleSelectEntity}
+              onFocusUnit={handleFocusEntity}
+            />
+          )}
+
           {/* BOTTOM PIXEL TOOLBAR DOCK */}
           <div className="pointer-events-auto self-center relative flex flex-col items-center max-w-full">
             {/* Hover Tooltip */}
@@ -673,16 +750,19 @@ export default function App() {
                         setActiveCategory(tab.id);
                         if (tab.id === 'inspect') {
                           setActiveTool({ kind: 'inspect' });
-                        } else if (tab.id === 'powers' && activeTool.kind !== 'power') {
-                          setActiveTool({ kind: 'power', power: 'blessing' });
-                        } else if (tab.id === 'terrain' && activeTool.kind !== 'terrain') {
-                          setActiveTool({ kind: 'terrain', tool: 'raise' });
-                        } else if (tab.id === 'build' && activeTool.kind !== 'build') {
-                          const epochBld =
-                            BUILDINGS.find((b) => b.epoch === currentEpoch.id)?.type || 'bonfire';
-                          setActiveTool({ kind: 'build', building: epochBld });
-                        } else if (tab.id === 'spawn' && activeTool.kind !== 'spawn') {
-                          setActiveTool({ kind: 'spawn', unit: 'human' });
+                        } else {
+                          setHoveredEntityId(null);
+                          if (tab.id === 'powers' && activeTool.kind !== 'power') {
+                            setActiveTool({ kind: 'power', power: 'blessing' });
+                          } else if (tab.id === 'terrain' && activeTool.kind !== 'terrain') {
+                            setActiveTool({ kind: 'terrain', tool: 'raise' });
+                          } else if (tab.id === 'build' && activeTool.kind !== 'build') {
+                            const epochBld =
+                              BUILDINGS.find((b) => b.epoch === currentEpoch.id)?.type || 'bonfire';
+                            setActiveTool({ kind: 'build', building: epochBld });
+                          } else if (tab.id === 'spawn' && activeTool.kind !== 'spawn') {
+                            setActiveTool({ kind: 'spawn', unit: 'human' });
+                          }
                         }
                         soundEngine.playClick();
                       }}

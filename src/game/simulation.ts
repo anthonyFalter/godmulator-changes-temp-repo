@@ -24,6 +24,7 @@ import {
   UnitRole,
   VehicleEntity,
 } from './types';
+import { generateUnitGenes, generateUnitItems } from './entityInspector';
 import { generateWorldTiles, normalizeSeed } from './worldGen';
 
 const CITIZEN_NAMES = [
@@ -507,6 +508,11 @@ export function spawnUnit(
     windupTimer: 0,
     targetEntityId: null,
     harvestTimer: 0,
+    favorite: false,
+    genes: generateUnitGenes(role, species, appearanceSeed, dinoDiet),
+    items: generateUnitItems(role, species, state.epochIndex, appearanceSeed, dinoDiet),
+    bornYear: state.year,
+    kills: 0,
   };
 
   state.units.push(unit);

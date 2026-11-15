@@ -223,6 +223,11 @@ export interface UnitEntity {
   expeditionTargetX?: number;
   expeditionTargetZ?: number;
   expeditionTimer?: number;
+  favorite?: boolean;
+  genes?: string[];
+  items?: string[];
+  bornYear?: number;
+  kills?: number;
 }
 
 export type GodPowerType =

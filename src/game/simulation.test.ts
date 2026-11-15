@@ -27,6 +27,7 @@ import {
   getDinosaurVariant,
   getDragonVariant,
 } from './catalog';
+import { getEntityInspectProfile, toggleUnitFavorite } from './entityInspector';
 import { createUnitGroup, createVehicleGroup } from './meshBuilders';
 import * as THREE from 'three';
 
@@ -2028,3 +2029,58 @@ test('wildfire spreads from meteors, lightning, and other fire sources across fl
   }
   assert.ok(genericSpread > 0, 'Fire on a single source tile must spread to adjacent forest/building neighbors');
 });
+
+test('entity inspector resolves names, diets, informations, carried/equipped items, genes, and favorite toggling', () => {
+  const state = createInitialSimulationState(128, 'INSPECT-TEST');
+  state.sandboxFreeMode = true;
+  state.wildlifeSeeded = true;
+  for (let dz = -3; dz <= 3; dz++) {
+    for (let dx = -3; dx <= 3; dx++) {
+      const t = getTile(state, 64 + dx, 64 + dz)!;
+      t.height = 2;
+      t.terrain = 'grass';
+      t.resourceNode = 'none';
+      t.buildingId = null;
+    }
+  }
+
+  const human = spawnUnit(state, 'human', 64, 64).unit!;
+  human.carryingType = 'wood';
+  human.carryingAmount = 12;
+  human.statusEffects.blessed = 8;
+
+  const humanProfile = getEntityInspectProfile(state, human);
+  assert.equal(humanProfile.name, human.name);
+  assert.equal(humanProfile.diet.category, 'Omnivore');
+  assert.ok(humanProfile.items[0].includes('Carrying 12 Wood'), 'Should show carried cargo item');
+  assert.ok(humanProfile.items.length >= 3, 'Should include equipped/epoch items plus cargo');
+  assert.ok(humanProfile.genes.length >= 3, 'Should include deterministic genetic traits');
+  assert.ok(humanProfile.informations.statusEffects.includes('blessed'));
+
+  const dinoSeeds = Array.from({ length: 24 }, (_, idx) => idx + 1);
+  const carnSeed = dinoSeeds.find((s) => getDinosaurVariant(s).diet === 'carnivore')!;
+  const herbSeed = dinoSeeds.find((s) => getDinosaurVariant(s).diet === 'herbivore')!;
+
+  const trex = spawnUnit(state, 'dinosaur', 65, 64, false, undefined, { appearanceSeed: carnSeed }).unit!;
+  const trike = spawnUnit(state, 'dinosaur', 63, 64, false, undefined, { appearanceSeed: herbSeed }).unit!;
+  const dragon = spawnUnit(state, 'dragon', 64, 65).unit!;
+  dragon.dragonBreathCooldown = 3.2;
+  const unicorn = spawnUnit(state, 'unicorn', 64, 63).unit!;
+
+  assert.equal(getEntityInspectProfile(state, trex).diet.category, 'Carnivore');
+  assert.equal(getEntityInspectProfile(state, trike).diet.category, 'Herbivore');
+  const dragonProfile = getEntityInspectProfile(state, dragon);
+  assert.equal(dragonProfile.diet.category, 'Pyro-Carnivore');
+  assert.equal(dragonProfile.informations.breathCooldown, 3.2);
+  assert.equal(getEntityInspectProfile(state, unicorn).diet.category, 'Fey Herbivore');
+
+  assert.equal(Boolean(dragon.favorite), false);
+  assert.equal(toggleUnitFavorite(state, dragon.id), true);
+  assert.equal(getEntityInspectProfile(state, dragon).favorite, true);
+  assert.equal(toggleUnitFavorite(state, dragon.id), false);
+  assert.equal(getEntityInspectProfile(state, dragon).favorite, false);
+
+  dragon.state = 'ko';
+  assert.equal(toggleUnitFavorite(state, dragon.id), false, 'KO units should not be toggleable as favorites');
+});
+

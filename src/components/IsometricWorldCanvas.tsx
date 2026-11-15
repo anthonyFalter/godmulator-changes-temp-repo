@@ -32,6 +32,7 @@ import {
   LightingPreset,
   SimulationState,
   TerrainType,
+  UnitEntity,
   VehicleType,
 } from '../game/types';
 
@@ -47,9 +48,14 @@ interface IsometricWorldCanvasProps {
     rotateDelta: number;
     zoomDelta: number;
     centerHome: boolean;
+    focusTarget?: { x: number; z: number; zoom?: number } | null;
   }>;
+  hoveredEntityId?: string | null;
+  selectedEntityId?: string | null;
   onTileInteract: (tileX: number, tileZ: number) => void;
   onHoverTileChange: (tile: { x: number; z: number } | null) => void;
+  onHoverEntityChange?: (unitId: string | null) => void;
+  onSelectEntity?: (unitId: string | null) => void;
   onSyncHud: () => void;
 }
 
@@ -80,8 +86,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
   pixelScale,
   lightingPreset,
   cameraActionRef,
+  hoveredEntityId = null,
+  selectedEntityId = null,
   onTileInteract,
   onHoverTileChange,
+  onHoverEntityChange,
+  onSelectEntity,
   onSyncHud,
 }) => {
   const mountRef = useRef<HTMLDivElement | null>(null);
@@ -94,8 +104,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     brushRadius,
     pixelScale,
     lightingPreset,
+    hoveredEntityId,
+    selectedEntityId,
     onTileInteract,
     onHoverTileChange,
+    onHoverEntityChange,
+    onSelectEntity,
     onSyncHud,
   });
 
@@ -107,8 +121,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       brushRadius,
       pixelScale,
       lightingPreset,
+      hoveredEntityId,
+      selectedEntityId,
       onTileInteract,
       onHoverTileChange,
+      onHoverEntityChange,
+      onSelectEntity,
       onSyncHud,
     };
   }, [
@@ -118,8 +136,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     brushRadius,
     pixelScale,
     lightingPreset,
+    hoveredEntityId,
+    selectedEntityId,
     onTileInteract,
     onHoverTileChange,
+    onHoverEntityChange,
+    onSelectEntity,
     onSyncHud,
   ]);
 
@@ -557,6 +579,88 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     reticleMesh.position.y = 0.04;
     reticleGroup.add(reticleMesh);
     worldGroup.add(reticleGroup);
+
+    // Inspect Mode Entity Highlight Rigs (Zero-mutation overlay rings, corner posts & overhead pointer)
+    const createEntityHighlightRig = (colorHex: number) => {
+      const group = new THREE.Group();
+      group.visible = false;
+
+      const outerGeo = new THREE.RingGeometry(0.62, 0.8, 24);
+      outerGeo.rotateX(-Math.PI / 2);
+      const innerGeo = new THREE.RingGeometry(0.4, 0.48, 24);
+      innerGeo.rotateX(-Math.PI / 2);
+      const postGeo = new THREE.BoxGeometry(0.09, 0.45, 0.09);
+      const pointerGeo = new THREE.OctahedronGeometry(0.18, 0);
+
+      const ringMat = new THREE.MeshBasicMaterial({
+        color: colorHex,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.92,
+        depthWrite: false,
+      });
+      const bracketMat = new THREE.MeshBasicMaterial({
+        color: colorHex,
+        transparent: true,
+        opacity: 0.88,
+      });
+
+      const ringRoot = new THREE.Group();
+      const outerRing = new THREE.Mesh(outerGeo, ringMat);
+      outerRing.position.y = 0.05;
+      const innerRing = new THREE.Mesh(innerGeo, ringMat);
+      innerRing.position.y = 0.06;
+      ringRoot.add(outerRing, innerRing);
+
+      const cornerOffsets: [number, number][] = [
+        [-0.58, -0.58],
+        [0.58, -0.58],
+        [-0.58, 0.58],
+        [0.58, 0.58],
+      ];
+      for (const [cx, cz] of cornerOffsets) {
+        const post = new THREE.Mesh(postGeo, bracketMat);
+        post.position.set(cx, 0.24, cz);
+        ringRoot.add(post);
+      }
+
+      const pointer = new THREE.Mesh(pointerGeo, bracketMat);
+      pointer.position.set(0, 1.85, 0);
+
+      group.add(ringRoot, pointer);
+      worldGroup.add(group);
+
+      return {
+        group,
+        ringRoot,
+        pointer,
+        ringMat,
+        bracketMat,
+        dispose: () => {
+          outerGeo.dispose();
+          innerGeo.dispose();
+          postGeo.dispose();
+          pointerGeo.dispose();
+          ringMat.dispose();
+          bracketMat.dispose();
+        },
+      };
+    };
+
+    const hoverHighlightRig = createEntityHighlightRig(0x56cfe1);
+    const selectedHighlightRig = createEntityHighlightRig(0xffd166);
+
+    const MAX_FAVORITE_STARS = 64;
+    const favoriteStarGeo = new THREE.OctahedronGeometry(0.14, 0);
+    const favoriteStarMat = new THREE.MeshBasicMaterial({ color: 0xffd166 });
+    const favoriteStarsInst = new THREE.InstancedMesh(
+      favoriteStarGeo,
+      favoriteStarMat,
+      MAX_FAVORITE_STARS,
+    );
+    favoriteStarsInst.count = 0;
+    favoriteStarsInst.frustumCulled = false;
+    worldGroup.add(favoriteStarsInst);
 
     // Zero-GC Pooled Particle System (InstancedMesh)
     const particleGeo = new THREE.BoxGeometry(0.22, 0.22, 0.22);
@@ -2807,6 +2911,74 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       x: Math.floor(gridCenter),
       z: Math.floor(gridCenter),
     };
+    let hoveredEntityInternal: string | null = null;
+    const _pickCenter = new THREE.Vector3();
+    const _pickDelta = new THREE.Vector3();
+
+    const getUnitInspectMetrics = (u: UnitEntity) => {
+      if (u.role === 'dragon') {
+        return { pickRadius: 1.65, ringScale: 1.75, bodyHeight: 1.55, centerOffsetY: 0.65 };
+      }
+      if (u.role === 'dinosaur') {
+        return { pickRadius: 1.05, ringScale: 1.32, bodyHeight: 1.8, centerOffsetY: 0.78 };
+      }
+      if (u.role === 'bear' || u.role === 'unicorn') {
+        return { pickRadius: 0.82, ringScale: 1.15, bodyHeight: 1.38, centerOffsetY: 0.56 };
+      }
+      if (u.role === 'raider_behemoth') {
+        return { pickRadius: 0.78, ringScale: 1.15, bodyHeight: 1.52, centerOffsetY: 0.68 };
+      }
+      if (u.role === 'cow' || u.role === 'pig' || u.role === 'wolf' || u.role === 'capybara') {
+        return { pickRadius: 0.68, ringScale: 0.96, bodyHeight: 0.98, centerOffsetY: 0.42 };
+      }
+      if (u.role === 'chicken') {
+        return { pickRadius: 0.54, ringScale: 0.76, bodyHeight: 0.78, centerOffsetY: 0.32 };
+      }
+      if (u.ageStage === 'child') {
+        return { pickRadius: 0.54, ringScale: 0.78, bodyHeight: 1.04, centerOffsetY: 0.45 };
+      }
+      return { pickRadius: 0.65, ringScale: 0.92, bodyHeight: 1.35, centerOffsetY: 0.62 };
+    };
+
+    const pickLivingUnitAtRay = (ray: THREE.Ray): string | null => {
+      const simUnits = simRef.current.units;
+      const gSize = simRef.current.gridSize;
+      let bestId: string | null = null;
+      let bestScore = Infinity;
+
+      for (let i = 0; i < simUnits.length; i++) {
+        const u = simUnits[i];
+        if (u.state === 'ko') continue;
+        const metrics = getUnitInspectMetrics(u);
+        const uGroup = unitMeshes.get(u.id)?.group;
+        let ux = u.x;
+        let uz = u.z;
+        let uy = 0.5;
+        if (uGroup) {
+          ux = uGroup.position.x;
+          uy = uGroup.position.y;
+          uz = uGroup.position.z;
+        } else {
+          const tx = Math.round(THREE.MathUtils.clamp(u.x, 0, gSize - 1));
+          const tz = Math.round(THREE.MathUtils.clamp(u.z, 0, gSize - 1));
+          const t = simRef.current.tiles[tz * gSize + tx];
+          uy = t ? Math.max(0.18, t.height * HEIGHT_STEP + 0.25) : 0.5;
+        }
+
+        _pickCenter.set(ux, uy + metrics.centerOffsetY, uz);
+        const distSq = ray.distanceSqToPoint(_pickCenter);
+        if (distSq <= metrics.pickRadius * metrics.pickRadius) {
+          const along = _pickDelta.subVectors(_pickCenter, ray.origin).dot(ray.direction);
+          const score = along + distSq * 0.35;
+          if (score < bestScore) {
+            bestScore = score;
+            bestId = u.id;
+          }
+        }
+      }
+      return bestId;
+    };
+
     let isPointerDragging = false;
     let dragStartClient = { x: 0, y: 0 };
     let pointerDownMoved = false;
@@ -2844,6 +3016,18 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       pointerNdc.y = -((clientY - rect.top) / rect.height) * 2 + 1;
 
       raycaster.setFromCamera(pointerNdc, camera);
+
+      if (propsRef.current.activeTool.kind === 'inspect') {
+        const pickedUnit = pickLivingUnitAtRay(raycaster.ray);
+        if (pickedUnit !== hoveredEntityInternal) {
+          hoveredEntityInternal = pickedUnit;
+          propsRef.current.onHoverEntityChange?.(pickedUnit);
+        }
+      } else if (hoveredEntityInternal !== null) {
+        hoveredEntityInternal = null;
+        propsRef.current.onHoverEntityChange?.(null);
+      }
+
       const hits = raycaster.intersectObjects(terrainInstancedList, false);
       if (hits.length > 0 && hits[0].instanceId !== undefined) {
         const hitInst = hits[0].object as THREE.InstancedMesh;
@@ -2896,6 +3080,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       updateHoverTile(e.clientX, e.clientY);
     };
 
+    const onPointerLeave = () => {
+      if (hoveredEntityInternal !== null) {
+        hoveredEntityInternal = null;
+        propsRef.current.onHoverEntityChange?.(null);
+      }
+    };
+
     const onPointerUp = (e: PointerEvent) => {
       if (isPointerDragging) {
         isPointerDragging = false;
@@ -2903,6 +3094,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       }
       if (!pointerDownMoved && e.button === 0 && propsRef.current.gameState === 'playing') {
         updateHoverTile(e.clientX, e.clientY);
+        if (propsRef.current.activeTool.kind === 'inspect') {
+          propsRef.current.onSelectEntity?.(hoveredEntityInternal);
+        }
         if (hoveredTileCoords) {
           propsRef.current.onTileInteract(hoveredTileCoords.x, hoveredTileCoords.z);
         }
@@ -2931,6 +3125,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     const domElem = renderer.domElement;
     domElem.addEventListener('pointerdown', onPointerDown);
     domElem.addEventListener('pointermove', onPointerMove);
+    domElem.addEventListener('pointerleave', onPointerLeave);
     window.addEventListener('pointerup', onPointerUp);
     domElem.addEventListener('wheel', onWheel, { passive: false });
     domElem.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -4465,6 +4660,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         desiredFrustum = 14.5;
         camAct.centerHome = false;
       }
+      if (camAct.focusTarget) {
+        camDesiredTarget.set(camAct.focusTarget.x, 1.2, camAct.focusTarget.z);
+        if (camAct.focusTarget.zoom !== undefined) {
+          desiredFrustum = THREE.MathUtils.clamp(camAct.focusTarget.zoom, 7.5, 105);
+        }
+        camAct.focusTarget = null;
+      }
 
       // Keyboard WASD / Arrow camera pan & Q/E rotate (scales with zoom for 128x128 navigation)
       const panSpeed = Math.max(12, frustumSize * 1.15) * dt;
@@ -5340,8 +5542,104 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         vfxFlashLight.intensity = 0;
       }
 
+      const isInspectMode =
+        propsRef.current.gameState === 'playing' &&
+        propsRef.current.activeTool.kind === 'inspect';
+
+      if (!isInspectMode && hoveredEntityInternal !== null) {
+        hoveredEntityInternal = null;
+        propsRef.current.onHoverEntityChange?.(null);
+      }
+
+      const activeHoverUnitId = isInspectMode
+        ? (propsRef.current.hoveredEntityId ?? hoveredEntityInternal)
+        : null;
+      const activeSelectedUnitId = isInspectMode
+        ? propsRef.current.selectedEntityId
+        : null;
+
+      // Update Hover Highlight Ring (cyan pulsing enclosure + diamond pointer for hovered living unit)
+      const hoverTargetUnit = activeHoverUnitId
+        ? simRef.current.units.find((u) => u.id === activeHoverUnitId && u.state !== 'ko')
+        : undefined;
+      if (hoverTargetUnit) {
+        const metrics = getUnitInspectMetrics(hoverTargetUnit);
+        const uGrp = unitMeshes.get(hoverTargetUnit.id)?.group;
+        const hx = uGrp ? uGrp.position.x : hoverTargetUnit.x;
+        const hy = uGrp ? uGrp.position.y : 0.5;
+        const hz = uGrp ? uGrp.position.z : hoverTargetUnit.z;
+        const pulse = 1 + Math.sin(elapsedTotal * 7.5) * 0.08;
+        hoverHighlightRig.group.visible = true;
+        hoverHighlightRig.group.position.set(hx, hy, hz);
+        hoverHighlightRig.ringRoot.scale.setScalar(metrics.ringScale * pulse);
+        hoverHighlightRig.ringRoot.rotation.y = elapsedTotal * 1.4;
+        hoverHighlightRig.pointer.position.y =
+          metrics.bodyHeight + 0.45 + Math.sin(elapsedTotal * 5.2) * 0.09;
+        hoverHighlightRig.pointer.rotation.y = elapsedTotal * 2.6;
+        hoverHighlightRig.ringMat.opacity = 0.78 + Math.sin(elapsedTotal * 7.5) * 0.18;
+      } else {
+        hoverHighlightRig.group.visible = false;
+      }
+
+      // Update Selected Highlight Ring (warm amber-gold enclosure)
+      const selectedTargetUnit =
+        activeSelectedUnitId && activeSelectedUnitId !== activeHoverUnitId
+          ? simRef.current.units.find((u) => u.id === activeSelectedUnitId && u.state !== 'ko')
+          : activeSelectedUnitId && activeSelectedUnitId === activeHoverUnitId
+            ? hoverTargetUnit
+            : undefined;
+      if (selectedTargetUnit) {
+        const metrics = getUnitInspectMetrics(selectedTargetUnit);
+        const uGrp = unitMeshes.get(selectedTargetUnit.id)?.group;
+        const sx = uGrp ? uGrp.position.x : selectedTargetUnit.x;
+        const sy = uGrp ? uGrp.position.y : 0.5;
+        const sz = uGrp ? uGrp.position.z : selectedTargetUnit.z;
+        const ringPad = selectedTargetUnit.id === activeHoverUnitId ? 1.18 : 1.0;
+        selectedHighlightRig.group.visible = true;
+        selectedHighlightRig.group.position.set(sx, sy, sz);
+        selectedHighlightRig.ringRoot.scale.setScalar(metrics.ringScale * ringPad);
+        selectedHighlightRig.ringRoot.rotation.y = -elapsedTotal * 0.9;
+        selectedHighlightRig.pointer.visible = selectedTargetUnit.id !== activeHoverUnitId;
+        selectedHighlightRig.pointer.position.y =
+          metrics.bodyHeight + 0.48 + Math.sin(elapsedTotal * 4.2) * 0.07;
+        selectedHighlightRig.pointer.rotation.y = -elapsedTotal * 2.1;
+      } else {
+        selectedHighlightRig.group.visible = false;
+      }
+
+      // Update Persistent Golden Star Markers above Favorited Living Units
+      let favCount = 0;
+      const simUnitsList = simRef.current.units;
+      for (let i = 0; i < simUnitsList.length && favCount < MAX_FAVORITE_STARS; i++) {
+        const fu = simUnitsList[i];
+        if (!fu.favorite || fu.state === 'ko') continue;
+        const metrics = getUnitInspectMetrics(fu);
+        const uGrp = unitMeshes.get(fu.id)?.group;
+        const fx = uGrp ? uGrp.position.x : fu.x;
+        const fy =
+          (uGrp ? uGrp.position.y : 0.5) +
+          metrics.bodyHeight +
+          0.32 +
+          Math.sin(elapsedTotal * 3.8 + favCount * 1.1) * 0.06;
+        const fz = uGrp ? uGrp.position.z : fu.z;
+        _dummyPos.set(fx, fy, fz);
+        _dummyQuat.setFromAxisAngle(_propAxisY, elapsedTotal * 2.2 + favCount);
+        _dummyScale.set(1.1, 1.35, 1.1);
+        _dummyMatrix.compose(_dummyPos, _dummyQuat, _dummyScale);
+        favoriteStarsInst.setMatrixAt(favCount, _dummyMatrix);
+        favCount++;
+      }
+      favoriteStarsInst.count = favCount;
+      if (favCount > 0) {
+        favoriteStarsInst.instanceMatrix.needsUpdate = true;
+      }
+
       // Update Hover Reticle position & radius
-      if (hoveredTileCoords && propsRef.current.gameState === 'playing') {
+      if (
+        hoveredTileCoords &&
+        propsRef.current.gameState === 'playing' &&
+        !(isInspectMode && hoverTargetUnit)
+      ) {
         reticleGroup.visible = true;
         const ht =
           simRef.current.tiles[
@@ -5547,11 +5845,16 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       resizeObserver.disconnect();
       domElem.removeEventListener('pointerdown', onPointerDown);
       domElem.removeEventListener('pointermove', onPointerMove);
+      domElem.removeEventListener('pointerleave', onPointerLeave);
       window.removeEventListener('pointerup', onPointerUp);
       domElem.removeEventListener('wheel', onWheel);
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('blur', clearInputs);
+      hoverHighlightRig.dispose();
+      selectedHighlightRig.dispose();
+      favoriteStarGeo.dispose();
+      favoriteStarMat.dispose();
       for (const hv of hazardMeshes.values()) {
         for (const m of hv.materials) m.dispose();
       }
