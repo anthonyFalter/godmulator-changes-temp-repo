@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { LightingPreset, TerrainType, TileData } from './types';
+import { createRng, normalizeSeed } from './worldGen';
 
 function addSteppedPuff(
   parts: THREE.BufferGeometry[],
@@ -1617,4 +1618,582 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
 
   return { getMaterials, updateMap, updateFrame, dispose };
 }
+
+export interface PixelSpaceSystem {
+  mesh: THREE.Mesh;
+  setSeed: (seed: number) => void;
+  update: (params: {
+    elapsed: number;
+    width: number;
+    height: number;
+    pixelScale: number;
+    camYaw: number;
+    camX: number;
+    camZ: number;
+    frustumSize: number;
+    preset: LightingPreset;
+  }) => void;
+  dispose: () => void;
+}
+
+interface SpacePalette {
+  voidHex: string;
+  bandAHex: string;
+  bandBHex: string;
+  coreHex: string;
+}
+
+const SPACE_PALETTES: SpacePalette[] = [
+  {
+    voidHex: '#050711',
+    bandAHex: '#17234a',
+    bandBHex: '#50468f',
+    coreHex: '#ffdca8',
+  },
+  {
+    voidHex: '#040910',
+    bandAHex: '#112c3e',
+    bandBHex: '#2f7b82',
+    coreHex: '#ffe7ba',
+  },
+  {
+    voidHex: '#080510',
+    bandAHex: '#24163b',
+    bandBHex: '#7d346b',
+    coreHex: '#ffe0cf',
+  },
+  {
+    voidHex: '#05070e',
+    bandAHex: '#172440',
+    bandBHex: '#3762a3',
+    coreHex: '#ffcf91',
+  },
+  {
+    voidHex: '#05080d',
+    bandAHex: '#14223d',
+    bandBHex: '#46549c',
+    coreHex: '#fff0d1',
+  },
+];
+
+export function createPixelSpaceSystem(initialSeed: number): PixelSpaceSystem {
+  const geo = new THREE.PlaneGeometry(2, 2);
+
+  const uniforms = {
+    uTime: { value: 0 },
+    uResolution: { value: new THREE.Vector2(320, 180) },
+    uPixelStep: { value: 1.0 },
+    uCamYaw: { value: Math.PI / 4 },
+    uCamPan: { value: new THREE.Vector2(63.5, 63.5) },
+    uFrustumSize: { value: 14.5 },
+    uSeedVec: { value: new THREE.Vector2(0, 0) },
+    uBandAngle: { value: 0.65 },
+    uBandOffset: { value: 0.0 },
+    uBandWidth: { value: 120.0 },
+    uBandCurve: { value: 26.0 },
+    uCoreShift: { value: 0.0 },
+    uSecondStrength: { value: 0.45 },
+    uSecondAngle: { value: -0.45 },
+    uVoidColor: { value: new THREE.Color('#050711') },
+    uBandColorA: { value: new THREE.Color('#17234a') },
+    uBandColorB: { value: new THREE.Color('#50468f') },
+    uCoreColor: { value: new THREE.Color('#ffdca8') },
+    uPresetTint: { value: new THREE.Color('#0a0d18') },
+    uPresetStrength: { value: 1.0 },
+  };
+
+  const material = new THREE.ShaderMaterial({
+    uniforms,
+    fog: false,
+    transparent: false,
+    depthTest: false,
+    depthWrite: false,
+    vertexShader: `
+      void main() {
+        gl_Position = vec4(position.xy, 0.9999, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform float uTime;
+      uniform vec2 uResolution;
+      uniform float uPixelStep;
+      uniform float uCamYaw;
+      uniform vec2 uCamPan;
+      uniform float uFrustumSize;
+      uniform vec2 uSeedVec;
+      uniform float uBandAngle;
+      uniform float uBandOffset;
+      uniform float uBandWidth;
+      uniform float uBandCurve;
+      uniform float uCoreShift;
+      uniform float uSecondStrength;
+      uniform float uSecondAngle;
+      uniform vec3 uVoidColor;
+      uniform vec3 uBandColorA;
+      uniform vec3 uBandColorB;
+      uniform vec3 uCoreColor;
+      uniform vec3 uPresetTint;
+      uniform float uPresetStrength;
+
+      float hash12(vec2 p) {
+        vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+        p3 += dot(p3, p3.yzx + 33.33);
+        return fract((p3.x + p3.y) * p3.z);
+      }
+
+      vec2 hash22(vec2 p) {
+        vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973));
+        p3 += dot(p3, p3.yzx + 33.33);
+        return fract((p3.xx + p3.yz) * p3.zy);
+      }
+
+      float vnoise(vec2 p) {
+        vec2 i = floor(p);
+        vec2 f = fract(p);
+        vec2 u = f * f * (3.0 - 2.0 * f);
+        float a = hash12(i);
+        float b = hash12(i + vec2(1.0, 0.0));
+        float c = hash12(i + vec2(0.0, 1.0));
+        float d = hash12(i + vec2(1.0, 1.0));
+        return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+      }
+
+      float fbm(vec2 p) {
+        float v = 0.0;
+        float a = 0.5;
+        mat2 rot = mat2(0.8, -0.6, 0.6, 0.8);
+        for (int i = 0; i < 4; i++) {
+          v += a * vnoise(p);
+          p = rot * p * 2.02 + vec2(17.1, 31.7);
+          a *= 0.5;
+        }
+        return v;
+      }
+
+      vec2 rot2(vec2 v, float a) {
+        float s = sin(a);
+        float c = cos(a);
+        return vec2(v.x * c - v.y * s, v.x * s + v.y * c);
+      }
+
+      // Branchless 4x4 ordered Bayer matrix in [0.03125 .. 0.96875]
+      float bayer4x4(vec2 pix) {
+        vec2 p = mod(floor(pix), 4.0);
+        float hx = step(2.0, p.x);
+        float hy = step(2.0, p.y);
+        float lx = mod(p.x, 2.0);
+        float ly = mod(p.y, 2.0);
+        float mLow = 2.0 * abs(lx - ly) + ly;
+        float mHigh = 2.0 * abs(hx - hy) + hy;
+        return (4.0 * mLow + mHigh + 0.5) / 16.0;
+      }
+
+      vec3 starColorFromTemp(float t) {
+        if (t < 0.24) return vec3(0.62, 0.82, 1.0);       // Blue-white giant
+        if (t < 0.58) return vec3(0.95, 0.97, 1.0);       // Crisp white star
+        if (t < 0.82) return vec3(1.0, 0.91, 0.68);       // Warm golden star
+        return vec3(1.0, 0.72, 0.54);                     // Ember orange dwarf
+      }
+
+      // Evaluates one pixel-snapped star layer with crisp 1px dots, + crosses, or ✦ hero bursts
+      vec3 evalStarLayer(
+        vec2 pix,
+        vec2 halfRes,
+        vec2 skyP,
+        vec2 skyOrigin,
+        float zoomScale,
+        float cellSize,
+        float padFrac,
+        float density,
+        float seedBias,
+        float bandMask,
+        float heroChance
+      ) {
+        vec2 cell = floor(skyP / cellSize);
+        vec2 rnd = hash22(cell + uSeedVec + vec2(seedBias, seedBias * 1.7));
+        float prob = hash12(cell * 1.37 + uSeedVec + vec2(seedBias * 2.3, 9.1));
+
+        float localDensity = clamp(density + bandMask * density * 1.55, 0.0, 0.92);
+        if (prob > localDensity) {
+          return vec3(0.0);
+        }
+
+        vec2 starSky = (cell + padFrac + (1.0 - 2.0 * padFrac) * rnd) * cellSize;
+        vec2 starScreen = floor(rot2(starSky - skyOrigin, -uCamYaw) / zoomScale + halfRes + 0.5);
+        vec2 sd = abs(pix - starScreen);
+
+        float shapeRoll = hash12(cell + vec2(41.3, 19.7) + uSeedVec);
+        float bright = 0.42 + 0.58 * hash12(cell + vec2(7.9, 63.1) + uSeedVec);
+        float twinklePhase = hash12(cell + vec2(88.2, 13.4)) * 6.2831;
+        float twinkleSpeed = 1.6 + hash12(cell + vec2(3.1, 51.9)) * 2.8;
+        // Quantized retro twinkle step
+        float twinkle = 0.72 + 0.28 * floor(0.5 + 0.5 * sin(uTime * twinkleSpeed + twinklePhase) * 2.0 + 0.5) * 0.5;
+
+        float mask = 0.0;
+        if (shapeRoll < heroChance) {
+          // 5px crisp pixel-art starburst + cross
+          float arm = step(sd.x, 0.5) * step(sd.y, 2.1) + step(sd.y, 0.5) * step(sd.x, 2.1);
+          float core = step(sd.x, 0.5) * step(sd.y, 0.5);
+          if (arm > 0.5) {
+            mask = core > 0.5 ? 1.0 : 0.48 * twinkle;
+          }
+        } else if (shapeRoll < heroChance * 3.0) {
+          // 3px crisp + diamond star
+          if (sd.x + sd.y < 1.2) {
+            mask = (sd.x < 0.5 && sd.y < 0.5) ? 1.0 : 0.45 * twinkle;
+          }
+        } else {
+          // Crisp single-pixel star
+          if (sd.x < 0.5 && sd.y < 0.5) {
+            mask = 1.0;
+          }
+        }
+
+        if (mask <= 0.001) return vec3(0.0);
+
+        float tempRoll = hash12(cell + vec2(93.7, 27.3) + uSeedVec);
+        vec3 col = starColorFromTemp(tempRoll);
+        return col * bright * twinkle * mask;
+      }
+
+      void main() {
+        vec2 pix = floor(gl_FragCoord.xy / uPixelStep);
+        vec2 res = max(vec2(32.0), floor(uResolution / uPixelStep));
+        vec2 halfRes = 0.5 * res;
+        vec2 pCentered = pix - halfRes;
+
+        // Subtle zoom response keeps stars razor-sharp while revealing wider Milky Way vistas when zoomed out
+        float zoomScale = mix(0.88, 1.28, clamp((uFrustumSize - 7.5) / 85.0, 0.0, 1.0));
+        vec2 skyOrigin = uCamPan * 0.55;
+        vec2 skyP = rot2(pCentered * zoomScale, uCamYaw) + skyOrigin;
+
+        // Snap cosmic nebula coordinates to integer sky pixels for crisp pixel-art cohesion
+        vec2 skyPix = floor(skyP);
+
+        // 1. Primary Milky Way Galaxy Strip (tilted, gently curved, with bright core & dark dust rift)
+        vec2 mwCoord = rot2(skyPix, uBandAngle);
+        float curve = sin(mwCoord.x * 0.011 + uSeedVec.x * 0.1) * uBandCurve
+                    + cos(mwCoord.x * 0.023 - uSeedVec.y * 0.1) * (uBandCurve * 0.45);
+        float warp = (fbm(mwCoord * 0.012 + uSeedVec * 0.05) - 0.5) * 44.0;
+        float distFromAxis = mwCoord.y - uBandOffset - curve - warp;
+
+        float bandWidth = max(48.0, uBandWidth);
+        float mwProfile = exp(-(distFromAxis * distFromAxis) / (bandWidth * bandWidth));
+
+        // Bright Galactic Core bulge along the Milky Way strip
+        float coreDist = length(vec2((mwCoord.x - uCoreShift) * 0.42, distFromAxis * 1.15));
+        float coreBulge = exp(-(coreDist * coreDist) / (bandWidth * bandWidth * 0.85));
+
+        // Secondary intersecting galactic filament / spiral spur
+        vec2 secCoord = rot2(skyPix - vec2(uCoreShift * 0.3, uBandOffset * 0.4), uSecondAngle);
+        float secWarp = (fbm(secCoord * 0.016 + uSeedVec * 0.09 + vec2(42.0, 19.0)) - 0.5) * 30.0;
+        float secDist = secCoord.y + secWarp;
+        float secProfile = uSecondStrength * exp(-(secDist * secDist) / (bandWidth * bandWidth * 0.42));
+
+        // Wispy nebula cloud density & dark interstellar dust lane cutting through the Milky Way
+        float nebNoiseA = fbm(mwCoord * 0.018 + uSeedVec * 0.07);
+        float nebNoiseB = fbm(mwCoord * 0.042 - uSeedVec * 0.11 + vec2(13.0, 7.0));
+        float cloudDetail = clamp(nebNoiseA * 0.65 + nebNoiseB * 0.45, 0.0, 1.0);
+
+        float dustRidge = 1.0 - abs(fbm(vec2(mwCoord.x * 0.022, distFromAxis * 0.045) + uSeedVec * 0.04) * 2.0 - 1.0);
+        float dustCenterMask = exp(-(distFromAxis * distFromAxis) / (bandWidth * bandWidth * 0.14));
+        float darkRift = smoothstep(0.45, 0.88, dustRidge) * dustCenterMask * 0.78;
+
+        float rawGalaxy = clamp((mwProfile * (0.42 + 0.85 * cloudDetail) + secProfile * (0.45 + 0.7 * nebNoiseB)) * (1.0 - darkRift), 0.0, 1.0);
+        float coreGlow = clamp(coreBulge * (1.0 - darkRift * 0.68) * (0.65 + 0.45 * nebNoiseA), 0.0, 1.0);
+
+        // 4x4 Bayer ordered dithering -> transforms continuous galaxy glow into crisp pixel-art bands
+        float dither = bayer4x4(pix);
+        float ditheredBand = floor(rawGalaxy * 5.0 + dither) / 5.0;
+        float ditheredCore = floor(coreGlow * 4.0 + dither) / 4.0;
+
+        vec3 spaceCol = mix(uVoidColor, uPresetTint, 0.16);
+        spaceCol = mix(spaceCol, uBandColorA, smoothstep(0.0, 0.45, ditheredBand));
+        spaceCol = mix(spaceCol, uBandColorB, smoothstep(0.35, 0.95, ditheredBand) * 0.88);
+        spaceCol = mix(spaceCol, uCoreColor, ditheredCore * 0.56);
+        spaceCol *= uPresetStrength;
+
+        // 2. Distant Seeded Pixel Spiral / Elliptical Galaxies in the deep field
+        float galCellSize = 116.0;
+        vec2 galCell = floor(skyP / galCellSize);
+        float galChance = hash12(galCell + uSeedVec + vec2(101.3, 213.7));
+        if (galChance < 0.30) {
+          vec2 galOff = hash22(galCell + uSeedVec + vec2(17.2, 83.4));
+          vec2 galCenter = (galCell + 0.28 + 0.44 * galOff) * galCellSize;
+          vec2 gd = floor(skyP - galCenter);
+          float tilt = hash12(galCell + vec2(9.1, 4.7)) * 3.14159;
+          vec2 gr = rot2(gd, tilt);
+          float ellip = length(vec2(gr.x * 0.58, gr.y * 1.35));
+          float galSize = 4.5 + hash12(galCell + vec2(33.1, 12.8)) * 5.5;
+          if (ellip < galSize) {
+            float angle = atan(gr.y * 1.35, gr.x * 0.58 + 0.0001);
+            float arms = 0.5 + 0.5 * sin(angle * 2.0 - ellip * 0.9);
+            float gGlow = exp(-(ellip * ellip) / (galSize * galSize * 0.34)) * (0.55 + 0.45 * arms);
+            float gDith = floor(gGlow * 3.0 + dither) / 3.0;
+            vec3 galHue = mix(uBandColorB, uCoreColor, exp(-ellip * 0.45));
+            spaceCol += galHue * gDith * 0.42 * uPresetStrength;
+          }
+        }
+
+        // 3. Multi-layer Pixel-Snapped Starfields
+        float starBoost = clamp(rawGalaxy * 1.25 + coreGlow * 0.6, 0.0, 1.0);
+        // Micro star dust densely packed along the Milky Way strips
+        vec3 starsDust = evalStarLayer(pix, halfRes, skyP, skyOrigin, zoomScale, 7.0, 0.22, 0.09, 11.0, starBoost, 0.0);
+        // Medium field stars across space
+        vec3 starsMid = evalStarLayer(pix, halfRes, skyP, skyOrigin, zoomScale, 13.0, 0.20, 0.14, 37.0, starBoost * 0.7, 0.05);
+        // Sparse bright twinkling diamond/cross hero stars
+        vec3 starsHero = evalStarLayer(pix, halfRes, skyP, skyOrigin, zoomScale, 28.0, 0.22, 0.18, 79.0, starBoost * 0.4, 0.26);
+
+        spaceCol += starsDust * 0.58 + starsMid * 0.9 + starsHero * 1.25;
+
+        // 4. Subtle Periodic Pixel Shooting Star
+        float meteorEpoch = floor(uTime / 9.5);
+        float meteorPhase = fract(uTime / 9.5);
+        if (meteorPhase < 0.09) {
+          float tM = meteorPhase / 0.09;
+          vec2 mSeed = hash22(vec2(meteorEpoch, 17.0) + uSeedVec);
+          vec2 mStart = (mSeed - 0.5) * res * 0.82;
+          vec2 mDir = normalize(vec2(0.75 + mSeed.x * 0.35, -0.45 - mSeed.y * 0.35));
+          vec2 mHead = floor(mStart + mDir * tM * 95.0);
+          vec2 rel = pix - (mHead + halfRes);
+          float along = dot(rel, -mDir);
+          float perp = abs(dot(rel, vec2(-mDir.y, mDir.x)));
+          if (perp < 0.7 && along >= 0.0 && along < 12.0) {
+            float fade = (1.0 - along / 12.0) * sin(tM * 3.14159);
+            spaceCol += vec3(0.85, 0.95, 1.0) * fade * 0.85;
+          }
+        }
+
+        gl_FragColor = vec4(spaceCol, 1.0);
+      }
+    `,
+  });
+
+  const mesh = new THREE.Mesh(geo, material);
+  mesh.frustumCulled = false;
+  mesh.renderOrder = -100;
+
+  const setSeed = (rawSeed: number) => {
+    const seed = normalizeSeed(rawSeed);
+    const rng = createRng(seed ^ 0x517cc1b7);
+
+    uniforms.uSeedVec.value.set(rng() * 500 + 13.7, rng() * 500 + 29.3);
+    uniforms.uBandAngle.value = (rng() - 0.5) * Math.PI;
+    uniforms.uBandOffset.value = (rng() - 0.5) * 48;
+    uniforms.uBandWidth.value = 82 + rng() * 68;
+    uniforms.uBandCurve.value = 12 + rng() * 26;
+    uniforms.uCoreShift.value = (rng() - 0.5) * 140;
+    uniforms.uSecondStrength.value = 0.2 + rng() * 0.45;
+    uniforms.uSecondAngle.value = uniforms.uBandAngle.value + (rng() > 0.5 ? 1 : -1) * (0.45 + rng() * 0.6);
+
+    const palette = SPACE_PALETTES[Math.floor(rng() * SPACE_PALETTES.length)];
+    uniforms.uVoidColor.value.set(palette.voidHex);
+    uniforms.uBandColorA.value.set(palette.bandAHex);
+    uniforms.uBandColorB.value.set(palette.bandBHex);
+    uniforms.uCoreColor.value.set(palette.coreHex);
+  };
+
+  setSeed(initialSeed);
+
+  const _targetTint = new THREE.Color('#0a0d18');
+
+  const update = ({
+    elapsed,
+    width,
+    height,
+    pixelScale,
+    camYaw,
+    camX,
+    camZ,
+    frustumSize,
+    preset,
+  }: {
+    elapsed: number;
+    width: number;
+    height: number;
+    pixelScale: number;
+    camYaw: number;
+    camX: number;
+    camZ: number;
+    frustumSize: number;
+    preset: LightingPreset;
+  }) => {
+    uniforms.uTime.value = elapsed;
+    uniforms.uResolution.value.set(Math.max(1, width), Math.max(1, height));
+    uniforms.uPixelStep.value = pixelScale <= 1 ? 2.0 : 1.0;
+    uniforms.uCamYaw.value = camYaw;
+    uniforms.uCamPan.value.set(camX, camZ);
+    uniforms.uFrustumSize.value = frustumSize;
+
+    let targetStrength = 0.92;
+    if (preset === 'night') {
+      _targetTint.set('#050712');
+      targetStrength = 1.08;
+    } else if (preset === 'dusk') {
+      _targetTint.set('#261529');
+      targetStrength = 0.96;
+    } else if (preset === 'dawn') {
+      _targetTint.set('#142236');
+      targetStrength = 0.92;
+    } else {
+      _targetTint.set('#0a101d');
+      targetStrength = 0.94;
+    }
+
+    uniforms.uPresetTint.value.lerp(_targetTint, 0.08);
+    uniforms.uPresetStrength.value += (targetStrength - uniforms.uPresetStrength.value) * 0.08;
+  };
+
+  const dispose = () => {
+    geo.dispose();
+    material.dispose();
+  };
+
+  return { mesh, setSeed, update, dispose };
+}
+
+export interface WorldUnderglowSystem {
+  mesh: THREE.Mesh;
+  update: (elapsed: number, preset: LightingPreset, epochIndex: number, pixelScale: number) => void;
+  dispose: () => void;
+}
+
+export function createWorldUnderglowSystem(gridSize: number): WorldUnderglowSystem {
+  const margin = 18;
+  const totalSize = gridSize + margin * 2;
+  const geo = new THREE.PlaneGeometry(totalSize, totalSize, 1, 1);
+  geo.rotateX(-Math.PI / 2);
+
+  const uniforms = {
+    uTime: { value: 0 },
+    uHalfExtent: { value: gridSize * 0.5 + 0.55 },
+    uMargin: { value: margin - 1.5 },
+    uPixelStep: { value: 1.0 },
+    uInnerColor: { value: new THREE.Color('#48bfe3') },
+    uOuterColor: { value: new THREE.Color('#273e7a') },
+    uIntensity: { value: 0.44 },
+  };
+
+  const material = new THREE.ShaderMaterial({
+    uniforms,
+    fog: false,
+    transparent: true,
+    depthTest: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    vertexShader: `
+      varying vec2 vLocalXZ;
+      void main() {
+        vLocalXZ = position.xz;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform float uTime;
+      uniform float uHalfExtent;
+      uniform float uMargin;
+      uniform float uPixelStep;
+      uniform vec3 uInnerColor;
+      uniform vec3 uOuterColor;
+      uniform float uIntensity;
+
+      varying vec2 vLocalXZ;
+
+      float bayer4x4(vec2 pix) {
+        vec2 p = mod(floor(pix), 4.0);
+        float hx = step(2.0, p.x);
+        float hy = step(2.0, p.y);
+        float lx = mod(p.x, 2.0);
+        float ly = mod(p.y, 2.0);
+        float mLow = 2.0 * abs(lx - ly) + ly;
+        float mHigh = 2.0 * abs(hx - hy) + hy;
+        return (4.0 * mLow + mHigh + 0.5) / 16.0;
+      }
+
+      void main() {
+        // Snap world-space glow footprint to 4x4 pixel-art texels per tile
+        vec2 pixXZ = floor(vLocalXZ * 4.0) / 4.0;
+        vec2 q = abs(pixXZ) - vec2(uHalfExtent);
+        float boxDist = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
+
+        if (boxDist > uMargin) {
+          discard;
+        }
+
+        float d = max(0.0, boxDist);
+        float pulse = 0.92 + 0.08 * sin(uTime * 1.15);
+
+        // Soft outer halo falloff + subtle crisp rim right beneath the slab border
+        float halo = exp(-d * 0.21) * smoothstep(uMargin, 0.0, d);
+        float rim = exp(-d * 1.45) * 0.28;
+        float raw = clamp((halo * 0.82 + rim) * pulse, 0.0, 1.0);
+
+        // 4x4 Bayer dithering on screen pixels so the glow has crisp retro pixel-art bands
+        vec2 screenPix = floor(gl_FragCoord.xy / uPixelStep);
+        float dither = bayer4x4(screenPix);
+        float stepped = floor(raw * 6.0 + dither) / 6.0;
+
+        if (stepped <= 0.01) {
+          discard;
+        }
+
+        vec3 col = mix(uOuterColor, uInnerColor, clamp(stepped * 1.15, 0.0, 1.0));
+        gl_FragColor = vec4(col, stepped * uIntensity);
+      }
+    `,
+  });
+
+  const mesh = new THREE.Mesh(geo, material);
+  const center = (gridSize - 1) / 2;
+  mesh.position.set(center, -1.88, center);
+  mesh.renderOrder = 0;
+
+  const _innerTarget = new THREE.Color('#48bfe3');
+  const _outerTarget = new THREE.Color('#273e7a');
+
+  const update = (
+    elapsed: number,
+    preset: LightingPreset,
+    epochIndex: number,
+    pixelScale: number,
+  ) => {
+    uniforms.uTime.value = elapsed;
+    uniforms.uPixelStep.value = pixelScale <= 1 ? 2.0 : 1.0;
+
+    let targetIntensity = 0.42;
+    if (preset === 'night') {
+      _innerTarget.set('#56cfe1');
+      _outerTarget.set('#3a358c');
+      targetIntensity = 0.52;
+    } else if (preset === 'dusk') {
+      _innerTarget.set('#e08a7e');
+      _outerTarget.set('#3d346b');
+      targetIntensity = 0.46;
+    } else if (preset === 'dawn') {
+      _innerTarget.set('#7fd4e6');
+      _outerTarget.set('#354f82');
+      targetIntensity = 0.44;
+    } else {
+      _innerTarget.set('#4eb8d4');
+      _outerTarget.set('#223b6e');
+      targetIntensity = 0.42;
+    }
+
+    if (epochIndex >= 6) {
+      targetIntensity += 0.06;
+    }
+
+    uniforms.uInnerColor.value.lerp(_innerTarget, 0.08);
+    uniforms.uOuterColor.value.lerp(_outerTarget, 0.08);
+    uniforms.uIntensity.value += (targetIntensity - uniforms.uIntensity.value) * 0.08;
+  };
+
+  const dispose = () => {
+    geo.dispose();
+    material.dispose();
+  };
+
+  return { mesh, update, dispose };
+}
+
 

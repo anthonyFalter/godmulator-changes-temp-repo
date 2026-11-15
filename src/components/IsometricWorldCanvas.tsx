@@ -1,7 +1,8 @@
 import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { EPOCHS, GOD_POWERS } from '../game/catalog';
+import { EPOCHS, GOD_POWERS, getDinosaurVariant } from '../game/catalog';
+import { createAnimatedFireSpriteBundle } from '../game/fireSprites';
 import {
   createBuildingGroup,
   createUnitGroup,
@@ -10,8 +11,10 @@ import {
 } from '../game/meshBuilders';
 import {
   createOceanFoamSystem,
+  createPixelSpaceSystem,
   createSkyCloudSystem,
   createStyledTerrainSystem,
+  createWorldUnderglowSystem,
 } from '../game/skyAndSea';
 import {
   closestFaultDistanceSq,
@@ -29,6 +32,7 @@ import {
   LightingPreset,
   SimulationState,
   TerrainType,
+  UnitEntity,
   VehicleType,
 } from '../game/types';
 
@@ -44,9 +48,16 @@ interface IsometricWorldCanvasProps {
     rotateDelta: number;
     zoomDelta: number;
     centerHome: boolean;
+    focusTarget?: { x: number; z: number; zoom?: number } | null;
   }>;
+  hoveredEntityId?: string | null;
+  selectedEntityId?: string | null;
+  followingEntityId?: string | null;
   onTileInteract: (tileX: number, tileZ: number) => void;
   onHoverTileChange: (tile: { x: number; z: number } | null) => void;
+  onHoverEntityChange?: (unitId: string | null) => void;
+  onSelectEntity?: (unitId: string | null) => void;
+  onBreakFollow?: () => void;
   onSyncHud: () => void;
 }
 
@@ -77,8 +88,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
   pixelScale,
   lightingPreset,
   cameraActionRef,
+  hoveredEntityId = null,
+  selectedEntityId = null,
+  followingEntityId = null,
   onTileInteract,
   onHoverTileChange,
+  onHoverEntityChange,
+  onSelectEntity,
+  onBreakFollow,
   onSyncHud,
 }) => {
   const mountRef = useRef<HTMLDivElement | null>(null);
@@ -91,8 +108,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     brushRadius,
     pixelScale,
     lightingPreset,
+    hoveredEntityId,
+    selectedEntityId,
+    followingEntityId,
     onTileInteract,
     onHoverTileChange,
+    onHoverEntityChange,
+    onSelectEntity,
+    onBreakFollow,
     onSyncHud,
   });
 
@@ -104,8 +127,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       brushRadius,
       pixelScale,
       lightingPreset,
+      hoveredEntityId,
+      selectedEntityId,
+      followingEntityId,
       onTileInteract,
       onHoverTileChange,
+      onHoverEntityChange,
+      onSelectEntity,
+      onBreakFollow,
       onSyncHud,
     };
   }, [
@@ -115,8 +144,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     brushRadius,
     pixelScale,
     lightingPreset,
+    hoveredEntityId,
+    selectedEntityId,
+    followingEntityId,
     onTileInteract,
     onHoverTileChange,
+    onHoverEntityChange,
+    onSelectEntity,
+    onBreakFollow,
     onSyncHud,
   ]);
 
@@ -152,8 +187,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     container.appendChild(renderer.domElement);
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color('#1a2428');
-    scene.fog = new THREE.FogExp2('#1a2428', 0.014);
+    scene.background = new THREE.Color('#070b14');
+    scene.fog = new THREE.FogExp2('#0c131d', 0.0085);
 
     const pmremGenerator = new THREE.PMREMGenerator(renderer);
     scene.environment = pmremGenerator.fromScene(new RoomEnvironment(), 0.04).texture;
@@ -221,6 +256,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     const unitsGroup = new THREE.Group();
     const vehiclesGroup = new THREE.Group();
     worldGroup.add(terrainGroup, nodesGroup, buildingsGroup, unitsGroup, vehiclesGroup);
+
+    // Seeded pixelated deep-space & Milky Way galaxy backdrop behind the floating world
+    const pixelSpace = createPixelSpaceSystem(sim.seed);
+    scene.add(pixelSpace.mesh);
+
+    // Subtle Bayer-dithered pixelated glow beneath & around the floating world diorama
+    const worldUnderglow = createWorldUnderglowSystem(sim.gridSize);
+    worldGroup.add(worldUnderglow.mesh);
 
     // Animated pixelated ocean, coastal surf foam, reef foam, & sculpted drifting sky clouds
     const oceanFoam = createOceanFoamSystem(sim.gridSize);
@@ -498,15 +541,38 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     >();
 
     const skirtMat = new THREE.MeshStandardMaterial({
-      color: 0x1b262b,
-      roughness: 0.9,
+      color: 0x26353e,
+      emissive: 0x0b1620,
+      emissiveIntensity: 0.45,
+      roughness: 0.88,
     });
-    const baseSkirt = new THREE.Mesh(
-      new THREE.BoxGeometry(sim.gridSize + 1.0, 1.8, sim.gridSize + 1.0),
-      skirtMat,
-    );
+    const skirtGeo = new THREE.BoxGeometry(sim.gridSize + 0.9, 1.8, sim.gridSize + 0.9);
+    const baseSkirt = new THREE.Mesh(skirtGeo, skirtMat);
     baseSkirt.position.set(gridCenter, -0.95, gridCenter);
     worldGroup.add(baseSkirt);
+
+    // Crisp illuminated slate-stone diorama rim framing the ocean edge against deep space
+    const rimMat = new THREE.MeshStandardMaterial({
+      color: 0x526e7d,
+      emissive: 0x162a38,
+      emissiveIntensity: 0.45,
+      roughness: 0.72,
+    });
+    const rimGeo = new THREE.BoxGeometry(sim.gridSize + 1.35, 0.24, sim.gridSize + 1.35);
+    const baseRim = new THREE.Mesh(rimGeo, rimMat);
+    baseRim.position.set(gridCenter, 0.14, gridCenter);
+    worldGroup.add(baseRim);
+
+    // Subtle celestial trim along the underside of the diorama slab matching the underglow
+    const glowTrimMat = new THREE.MeshBasicMaterial({
+      color: 0x48bfe3,
+      transparent: true,
+      opacity: 0.42,
+    });
+    const glowTrimGeo = new THREE.BoxGeometry(sim.gridSize + 1.1, 0.12, sim.gridSize + 1.1);
+    const baseGlowTrim = new THREE.Mesh(glowTrimGeo, glowTrimMat);
+    baseGlowTrim.position.set(gridCenter, -1.8, gridCenter);
+    worldGroup.add(baseGlowTrim);
 
     // Hover / Tool Brush Reticle Ring
     const reticleGroup = new THREE.Group();
@@ -523,6 +589,88 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     reticleMesh.position.y = 0.04;
     reticleGroup.add(reticleMesh);
     worldGroup.add(reticleGroup);
+
+    // Inspect Mode Entity Highlight Rigs (Zero-mutation overlay rings, corner posts & overhead pointer)
+    const createEntityHighlightRig = (colorHex: number) => {
+      const group = new THREE.Group();
+      group.visible = false;
+
+      const outerGeo = new THREE.RingGeometry(0.62, 0.8, 24);
+      outerGeo.rotateX(-Math.PI / 2);
+      const innerGeo = new THREE.RingGeometry(0.4, 0.48, 24);
+      innerGeo.rotateX(-Math.PI / 2);
+      const postGeo = new THREE.BoxGeometry(0.09, 0.45, 0.09);
+      const pointerGeo = new THREE.OctahedronGeometry(0.18, 0);
+
+      const ringMat = new THREE.MeshBasicMaterial({
+        color: colorHex,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.92,
+        depthWrite: false,
+      });
+      const bracketMat = new THREE.MeshBasicMaterial({
+        color: colorHex,
+        transparent: true,
+        opacity: 0.88,
+      });
+
+      const ringRoot = new THREE.Group();
+      const outerRing = new THREE.Mesh(outerGeo, ringMat);
+      outerRing.position.y = 0.05;
+      const innerRing = new THREE.Mesh(innerGeo, ringMat);
+      innerRing.position.y = 0.06;
+      ringRoot.add(outerRing, innerRing);
+
+      const cornerOffsets: [number, number][] = [
+        [-0.58, -0.58],
+        [0.58, -0.58],
+        [-0.58, 0.58],
+        [0.58, 0.58],
+      ];
+      for (const [cx, cz] of cornerOffsets) {
+        const post = new THREE.Mesh(postGeo, bracketMat);
+        post.position.set(cx, 0.24, cz);
+        ringRoot.add(post);
+      }
+
+      const pointer = new THREE.Mesh(pointerGeo, bracketMat);
+      pointer.position.set(0, 1.85, 0);
+
+      group.add(ringRoot, pointer);
+      worldGroup.add(group);
+
+      return {
+        group,
+        ringRoot,
+        pointer,
+        ringMat,
+        bracketMat,
+        dispose: () => {
+          outerGeo.dispose();
+          innerGeo.dispose();
+          postGeo.dispose();
+          pointerGeo.dispose();
+          ringMat.dispose();
+          bracketMat.dispose();
+        },
+      };
+    };
+
+    const hoverHighlightRig = createEntityHighlightRig(0x56cfe1);
+    const selectedHighlightRig = createEntityHighlightRig(0xffd166);
+
+    const MAX_FAVORITE_STARS = 64;
+    const favoriteStarGeo = new THREE.OctahedronGeometry(0.14, 0);
+    const favoriteStarMat = new THREE.MeshBasicMaterial({ color: 0xffd166 });
+    const favoriteStarsInst = new THREE.InstancedMesh(
+      favoriteStarGeo,
+      favoriteStarMat,
+      MAX_FAVORITE_STARS,
+    );
+    favoriteStarsInst.count = 0;
+    favoriteStarsInst.frustumCulled = false;
+    worldGroup.add(favoriteStarsInst);
 
     // Zero-GC Pooled Particle System (InstancedMesh)
     const particleGeo = new THREE.BoxGeometry(0.22, 0.22, 0.22);
@@ -697,43 +845,46 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       }
     }
 
-    // Active Tile Fire Flames & Smoke Plumes (Zero-GC InstancedMesh for burning tiles)
+    // Active Tile Fire Flames & Smoke Plumes (Zero-GC Instanced Billboarded Animated Pixel-Art Sprites)
     const MAX_FIRE_TILES = 320;
-    const fireOuterGeo = new THREE.BoxGeometry(0.28, 0.68, 0.28);
-    fireOuterGeo.translate(0, 0.34, 0);
-    const fireCoreGeo = new THREE.BoxGeometry(0.16, 0.48, 0.16);
-    fireCoreGeo.translate(0, 0.24, 0);
-    const fireSmokeGeo = new THREE.BoxGeometry(0.32, 0.32, 0.32);
-    const fireOuterMat = new THREE.MeshBasicMaterial({
-      color: 0xffffff,
-      transparent: true,
-      opacity: 0.92,
-    });
-    const fireCoreMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-    const fireSmokeMat = new THREE.MeshBasicMaterial({
-      color: 0x2b2d42,
-      transparent: true,
-      opacity: 0.58,
-    });
-    const fireOuterInst = new THREE.InstancedMesh(fireOuterGeo, fireOuterMat, MAX_FIRE_TILES);
-    const fireCoreInst = new THREE.InstancedMesh(fireCoreGeo, fireCoreMat, MAX_FIRE_TILES);
-    const fireSmokeInst = new THREE.InstancedMesh(fireSmokeGeo, fireSmokeMat, MAX_FIRE_TILES);
-    const _defaultFireOuterCol = new THREE.Color(0xff5400);
-    const _defaultFireCoreCol = new THREE.Color(0xffee55);
-    const _fireOuterCol = new THREE.Color();
-    const _fireCoreCol = new THREE.Color();
-    const _whiteCol = new THREE.Color(0xffffff);
-    for (let fi = 0; fi < MAX_FIRE_TILES; fi++) {
-      fireOuterInst.setColorAt(fi, _defaultFireOuterCol);
-      fireCoreInst.setColorAt(fi, _defaultFireCoreCol);
-    }
-    fireOuterInst.frustumCulled = false;
-    fireCoreInst.frustumCulled = false;
+    const MAX_FIRE_SPRITES = MAX_FIRE_TILES * 2;
+    const spriteBundle = createAnimatedFireSpriteBundle();
+
+    const fireSpriteGeo = spriteBundle.fireGeometry.clone();
+    const fireDataArray = new Float32Array(MAX_FIRE_SPRITES * 2);
+    const fireColorArray = new Float32Array(MAX_FIRE_SPRITES * 3);
+    const fireDataAttr = new THREE.InstancedBufferAttribute(fireDataArray, 2);
+    fireDataAttr.setUsage(THREE.DynamicDrawUsage);
+    const fireColorAttr = new THREE.InstancedBufferAttribute(fireColorArray, 3);
+    fireColorAttr.setUsage(THREE.DynamicDrawUsage);
+    fireSpriteGeo.setAttribute('aFireData', fireDataAttr);
+    fireSpriteGeo.setAttribute('aFireColor', fireColorAttr);
+
+    const fireSmokeGeo = spriteBundle.smokeGeometry.clone();
+    const smokeDataArray = new Float32Array(MAX_FIRE_TILES * 2);
+    const smokeDataAttr = new THREE.InstancedBufferAttribute(smokeDataArray, 2);
+    smokeDataAttr.setUsage(THREE.DynamicDrawUsage);
+    fireSmokeGeo.setAttribute('aSmokeData', smokeDataAttr);
+
+    const fireSpriteInst = new THREE.InstancedMesh(
+      fireSpriteGeo,
+      spriteBundle.fireMaterial,
+      MAX_FIRE_SPRITES,
+    );
+    const fireSmokeInst = new THREE.InstancedMesh(
+      fireSmokeGeo,
+      spriteBundle.smokeMaterial,
+      MAX_FIRE_TILES,
+    );
+    const _fireTintCol = new THREE.Color(1, 1, 1);
+    const _whiteCol = new THREE.Color(1, 1, 1);
+    fireSpriteInst.frustumCulled = false;
     fireSmokeInst.frustumCulled = false;
-    fireOuterInst.count = 0;
-    fireCoreInst.count = 0;
+    fireSpriteInst.renderOrder = 3;
+    fireSmokeInst.renderOrder = 4;
+    fireSpriteInst.count = 0;
     fireSmokeInst.count = 0;
-    worldGroup.add(fireOuterInst, fireCoreInst, fireSmokeInst);
+    worldGroup.add(fireSpriteInst, fireSmokeInst);
 
     // Lingering Hazard Zones (Monsoon storm clouds, Plague miasma, Aegis shield dome, Singularity rift)
     const hazardsGroup = new THREE.Group();
@@ -2543,15 +2694,17 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       const coreCol = outerCol.clone().lerp(new THREE.Color(0xffffff), 0.54);
       const outerMat = new THREE.MeshBasicMaterial({
         color: outerCol,
+        map: spriteBundle.breathScrollTexture,
         transparent: true,
-        opacity: 0.82,
+        opacity: 0.86,
         side: THREE.DoubleSide,
         depthWrite: false,
       });
       const coreMat = new THREE.MeshBasicMaterial({
         color: coreCol,
+        map: spriteBundle.breathScrollTexture,
         transparent: true,
-        opacity: 0.94,
+        opacity: 0.96,
         side: THREE.DoubleSide,
         depthWrite: false,
       });
@@ -2768,9 +2921,80 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       x: Math.floor(gridCenter),
       z: Math.floor(gridCenter),
     };
+    let hoveredEntityInternal: string | null = null;
+    const _pickCenter = new THREE.Vector3();
+    const _pickDelta = new THREE.Vector3();
+
+    const getUnitInspectMetrics = (u: UnitEntity) => {
+      if (u.role === 'dragon') {
+        return { pickRadius: 1.65, ringScale: 1.75, bodyHeight: 1.55, centerOffsetY: 0.65 };
+      }
+      if (u.role === 'dinosaur') {
+        return { pickRadius: 1.05, ringScale: 1.32, bodyHeight: 1.8, centerOffsetY: 0.78 };
+      }
+      if (u.role === 'bear' || u.role === 'unicorn') {
+        return { pickRadius: 0.82, ringScale: 1.15, bodyHeight: 1.38, centerOffsetY: 0.56 };
+      }
+      if (u.role === 'raider_behemoth') {
+        return { pickRadius: 0.78, ringScale: 1.15, bodyHeight: 1.52, centerOffsetY: 0.68 };
+      }
+      if (u.role === 'cow' || u.role === 'pig' || u.role === 'wolf' || u.role === 'capybara') {
+        return { pickRadius: 0.68, ringScale: 0.96, bodyHeight: 0.98, centerOffsetY: 0.42 };
+      }
+      if (u.role === 'chicken') {
+        return { pickRadius: 0.54, ringScale: 0.76, bodyHeight: 0.78, centerOffsetY: 0.32 };
+      }
+      if (u.ageStage === 'child') {
+        return { pickRadius: 0.54, ringScale: 0.78, bodyHeight: 1.04, centerOffsetY: 0.45 };
+      }
+      return { pickRadius: 0.65, ringScale: 0.92, bodyHeight: 1.35, centerOffsetY: 0.62 };
+    };
+
+    const pickLivingUnitAtRay = (ray: THREE.Ray): string | null => {
+      const simUnits = simRef.current.units;
+      const gSize = simRef.current.gridSize;
+      let bestId: string | null = null;
+      let bestScore = Infinity;
+
+      for (let i = 0; i < simUnits.length; i++) {
+        const u = simUnits[i];
+        if (u.state === 'ko') continue;
+        const metrics = getUnitInspectMetrics(u);
+        const uGroup = unitMeshes.get(u.id)?.group;
+        let ux = u.x;
+        let uz = u.z;
+        let uy = 0.5;
+        if (uGroup) {
+          ux = uGroup.position.x;
+          uy = uGroup.position.y;
+          uz = uGroup.position.z;
+        } else {
+          const tx = Math.round(THREE.MathUtils.clamp(u.x, 0, gSize - 1));
+          const tz = Math.round(THREE.MathUtils.clamp(u.z, 0, gSize - 1));
+          const t = simRef.current.tiles[tz * gSize + tx];
+          uy = t ? Math.max(0.18, t.height * HEIGHT_STEP + 0.25) : 0.5;
+        }
+
+        _pickCenter.set(ux, uy + metrics.centerOffsetY, uz);
+        const distSq = ray.distanceSqToPoint(_pickCenter);
+        if (distSq <= metrics.pickRadius * metrics.pickRadius) {
+          const along = _pickDelta.subVectors(_pickCenter, ray.origin).dot(ray.direction);
+          const score = along + distSq * 0.35;
+          if (score < bestScore) {
+            bestScore = score;
+            bestId = u.id;
+          }
+        }
+      }
+      return bestId;
+    };
+
     let isPointerDragging = false;
     let dragStartClient = { x: 0, y: 0 };
     let pointerDownMoved = false;
+
+    let renderWidth = 320;
+    let renderHeight = 180;
 
     const updateSize = () => {
       if (!container) return;
@@ -2779,6 +3003,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       const pxScale = Math.max(1, propsRef.current.pixelScale || 3);
       const rw = Math.max(160, Math.floor(w / pxScale));
       const rh = Math.max(100, Math.floor(h / pxScale));
+      renderWidth = rw;
+      renderHeight = rh;
 
       renderer.setSize(rw, rh, false);
       const newAspect = w / h;
@@ -2800,6 +3026,18 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       pointerNdc.y = -((clientY - rect.top) / rect.height) * 2 + 1;
 
       raycaster.setFromCamera(pointerNdc, camera);
+
+      if (propsRef.current.activeTool.kind === 'inspect') {
+        const pickedUnit = pickLivingUnitAtRay(raycaster.ray);
+        if (pickedUnit !== hoveredEntityInternal) {
+          hoveredEntityInternal = pickedUnit;
+          propsRef.current.onHoverEntityChange?.(pickedUnit);
+        }
+      } else if (hoveredEntityInternal !== null) {
+        hoveredEntityInternal = null;
+        propsRef.current.onHoverEntityChange?.(null);
+      }
+
       const hits = raycaster.intersectObjects(terrainInstancedList, false);
       if (hits.length > 0 && hits[0].instanceId !== undefined) {
         const hitInst = hits[0].object as THREE.InstancedMesh;
@@ -2846,10 +3084,20 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         camDesiredTarget.x = THREE.MathUtils.clamp(camDesiredTarget.x, 2, sim.gridSize - 3);
         camDesiredTarget.z = THREE.MathUtils.clamp(camDesiredTarget.z, 2, sim.gridSize - 3);
         dragStartClient = { x: e.clientX, y: e.clientY };
+        if (propsRef.current.followingEntityId) {
+          propsRef.current.onBreakFollow?.();
+        }
         return;
       }
 
       updateHoverTile(e.clientX, e.clientY);
+    };
+
+    const onPointerLeave = () => {
+      if (hoveredEntityInternal !== null) {
+        hoveredEntityInternal = null;
+        propsRef.current.onHoverEntityChange?.(null);
+      }
     };
 
     const onPointerUp = (e: PointerEvent) => {
@@ -2859,6 +3107,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       }
       if (!pointerDownMoved && e.button === 0 && propsRef.current.gameState === 'playing') {
         updateHoverTile(e.clientX, e.clientY);
+        if (propsRef.current.activeTool.kind === 'inspect') {
+          propsRef.current.onSelectEntity?.(hoveredEntityInternal);
+        }
         if (hoveredTileCoords) {
           propsRef.current.onTileInteract(hoveredTileCoords.x, hoveredTileCoords.z);
         }
@@ -2867,7 +3118,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      desiredFrustum = THREE.MathUtils.clamp(desiredFrustum + e.deltaY * 0.015, 7.5, 64);
+      desiredFrustum = THREE.MathUtils.clamp(desiredFrustum + e.deltaY * 0.015, 7.5, 105);
     };
 
     const onKeyDown = (e: KeyboardEvent) => {
@@ -2887,6 +3138,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     const domElem = renderer.domElement;
     domElem.addEventListener('pointerdown', onPointerDown);
     domElem.addEventListener('pointermove', onPointerMove);
+    domElem.addEventListener('pointerleave', onPointerLeave);
     window.addEventListener('pointerup', onPointerUp);
     domElem.addEventListener('wheel', onWheel, { passive: false });
     domElem.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -2933,6 +3185,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     const _metroEuler = new THREE.Euler();
     let lastSyncedSim: SimulationState = sim;
     let lastSyncedEpochIndex = sim.epochIndex;
+    let lastSpaceSeed = sim.seed;
 
     function syncSceneFromSimulation(simState: SimulationState, dt: number, elapsed: number) {
       let propsNeedSync = false;
@@ -2946,6 +3199,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         lastSyncedSim = simState;
         lastSyncedEpochIndex = simState.epochIndex;
         propsNeedSync = true;
+        if (simState.seed !== lastSpaceSeed) {
+          lastSpaceSeed = simState.seed;
+          pixelSpace.setSeed(lastSpaceSeed);
+        }
         for (let i = 0; i < simState.tiles.length; i++) {
           const t = simState.tiles[i];
           tileCurrentY[i] = t.height === 0 ? 0.12 : t.height * HEIGHT_STEP + 0.25;
@@ -3523,7 +3780,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         const atkTimer = u.attackAnimTimer ?? 0;
         const atkDur = isDragon ? 0.78 : 0.48;
         const atkProg = atkTimer > 0 ? THREE.MathUtils.clamp(1 - atkTimer / atkDur, 0, 1) : 0;
-        const isAttacking = atkTimer > 0 && u.state !== 'ko';
+        const isGrazingAnim = isAnimal && u.state === 'gathering';
+        const isAttacking = atkTimer > 0 && u.state !== 'ko' && !isGrazingAnim;
+        const isHerbivoreDino =
+          u.role === 'dinosaur' && getDinosaurVariant(u.appearanceSeed).diet === 'herbivore';
 
         const bobFreq =
           u.role === 'chicken'
@@ -3547,7 +3807,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
                     ? 0.095
                     : 0.08)
             : isWorking
-              ? Math.abs(Math.sin(elapsed * 14 + seedPhase)) * 0.05
+              ? Math.abs(Math.sin(elapsed * 14 + seedPhase)) * (isAnimal ? 0.025 : 0.05)
               : 0;
         const pounceHopY =
           isAttacking && !isDragon && u.role !== 'bear'
@@ -3714,15 +3974,25 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
                   ? Math.sin(elapsed * 17 + seedPhase) * 0.22
                   : 0;
               headPivot.rotation.y = !isMoving && !isPecking ? Math.sin(elapsed * 2.2 + seedPhase) * 0.38 : 0;
-            } else if (u.role === 'cow' || u.role === 'pig' || u.role === 'capybara' || u.role === 'unicorn') {
+            } else if (isGrazingAnim) {
+              // Gentle chewing/browsing head dip while eating plants
+              headPivot.rotation.x = 0.28 + Math.sin(atkProg * Math.PI * 2) * 0.22;
+              headPivot.rotation.y = Math.sin(elapsed * 2.1 + seedPhase) * 0.1;
+            } else if (
+              u.role === 'cow' ||
+              u.role === 'pig' ||
+              u.role === 'capybara' ||
+              u.role === 'unicorn' ||
+              isHerbivoreDino
+            ) {
               // Periodic grazing dip when idle, subtle look around
               const grazeWave = Math.max(0, Math.sin(elapsed * 0.75 + seedPhase));
               headPivot.rotation.x = !isMoving
-                ? grazeWave * (u.role === 'unicorn' ? 0.28 : 0.45)
+                ? grazeWave * (u.role === 'unicorn' ? 0.28 : isHerbivoreDino ? 0.36 : 0.45)
                 : Math.sin(elapsed * bobFreq + seedPhase) * 0.08;
               headPivot.rotation.y = !isMoving ? Math.sin(elapsed * 1.3 + seedPhase) * 0.24 : 0;
             } else {
-              // Wolf, Bear, Dinosaur alert scanning
+              // Wolf, Bear, Carnivore Dinosaur alert scanning
               headPivot.rotation.x = isMoving ? Math.sin(elapsed * bobFreq + seedPhase) * 0.07 : Math.sin(elapsed * 2.1 + seedPhase) * 0.06;
               headPivot.rotation.y = !isMoving ? Math.sin(elapsed * 1.7 + seedPhase) * 0.35 : 0;
             }
@@ -3734,6 +4004,21 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
                 ? 0.64
                 : 0.06 + Math.max(0, Math.sin(elapsed * 2.0 + seedPhase)) * 0.1;
               jawPivot.rotation.x = THREE.MathUtils.damp(jawPivot.rotation.x, targetJaw, 12, dt);
+              const mawObj = uGroup.getObjectByName('fire_maw') as THREE.Mesh | undefined;
+              if (mawObj && mawObj.material instanceof THREE.MeshStandardMaterial) {
+                const cd = u.dragonBreathCooldown ?? 0;
+                const targetGlow = isDragonStrafing
+                  ? 2.15
+                  : cd > 1.2
+                    ? 0.42
+                    : 1.15 + Math.sin(elapsed * 8.0 + seedPhase) * 0.25;
+                mawObj.material.emissiveIntensity = THREE.MathUtils.damp(
+                  mawObj.material.emissiveIntensity,
+                  targetGlow,
+                  8,
+                  dt,
+                );
+              }
             } else if (isAttacking) {
               // Open wide then snap shut cleanly
               jawPivot.rotation.x = Math.sin(atkProg * Math.PI) * 0.68;
@@ -4272,58 +4557,84 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         }
       }
 
-      // 6. Sync active tile fire flames & smoke plumes (burning tiles, skipping ore_vein center so crater core is clear)
-      let fireCount = 0;
-      for (let i = 0; i < simState.tiles.length && fireCount < MAX_FIRE_TILES; i++) {
+      // 6. Sync active tile fire animated sprites & billowing smoke sprites
+      spriteBundle.fireMaterial.uniforms.uTime.value = elapsed;
+      spriteBundle.smokeMaterial.uniforms.uTime.value = elapsed;
+      spriteBundle.breathScrollTexture.offset.y = -((elapsed * 4.2) % 1.0);
+
+      let fireTileCount = 0;
+      let fireSpriteCount = 0;
+      for (let i = 0; i < simState.tiles.length && fireTileCount < MAX_FIRE_TILES; i++) {
         const t = simState.tiles[i];
         if (t.onFireTimer > 0 && t.height > 0 && t.resourceNode !== 'ore_vein') {
           const fy = tileCurrentY[i] || t.height * HEIGHT_STEP + 0.25;
-          const flick = 0.85 + Math.sin(elapsed * 22 + t.x * 3 + t.z * 7) * 0.3;
-          const w = 0.88 + Math.cos(elapsed * 17 + t.x) * 0.15;
-          _dummyPos.set(t.x, fy, t.z);
-          _dummyScale.set(w, flick, w);
-          _dummyMatrix.compose(_dummyPos, _dummyQuat, _dummyScale);
-          fireOuterInst.setMatrixAt(fireCount, _dummyMatrix);
-
-          _dummyScale.set(w * 0.76, flick * 1.1, w * 0.76);
-          _dummyMatrix.compose(_dummyPos, _dummyQuat, _dummyScale);
-          fireCoreInst.setMatrixAt(fireCount, _dummyMatrix);
+          const phase = ((t.x * 13 + t.z * 29) & 31) / 32;
+          const fadeEnv = Math.min(1, t.onFireTimer / 0.8);
+          const intensityBoost = t.buildingId || t.resourceNode === 'timber_grove' ? 1.16 : 0.94;
+          const pulse = (0.9 + Math.sin(elapsed * 16 + t.x * 3 + t.z * 7) * 0.12) * intensityBoost;
 
           if (t.fireColor) {
-            _fireOuterCol.set(t.fireColor);
-            _fireCoreCol.copy(_fireOuterCol).lerp(_whiteCol, 0.5);
-            fireOuterInst.setColorAt(fireCount, _fireOuterCol);
-            fireCoreInst.setColorAt(fireCount, _fireCoreCol);
+            _fireTintCol.set(t.fireColor);
           } else {
-            fireOuterInst.setColorAt(fireCount, _defaultFireOuterCol);
-            fireCoreInst.setColorAt(fireCount, _defaultFireCoreCol);
+            _fireTintCol.copy(_whiteCol);
           }
 
-          // Rising animated smoke puff above each burning tile
-          const smokeCycle = (elapsed * 1.8 + (t.x * 0.37 + t.z * 0.53)) % 1.0;
-          const smokeY = fy + 0.65 + smokeCycle * 1.9;
-          const smokeScale = (0.45 + smokeCycle * 0.7) * (1 - smokeCycle * 0.45);
-          _dummyPos.set(
-            t.x + Math.sin(elapsed * 3 + t.z) * 0.16,
-            smokeY,
-            t.z + Math.cos(elapsed * 3 + t.x) * 0.16,
-          );
-          _dummyScale.setScalar(smokeScale);
+          // Primary camera-facing animated pixel flame sprite
+          _dummyPos.set(t.x, fy, t.z);
+          _dummyScale.set(pulse * 0.96, pulse * (0.95 + fadeEnv * 0.15), 1);
           _dummyMatrix.compose(_dummyPos, _dummyQuat, _dummyScale);
-          fireSmokeInst.setMatrixAt(fireCount, _dummyMatrix);
+          fireSpriteInst.setMatrixAt(fireSpriteCount, _dummyMatrix);
+          fireDataArray[fireSpriteCount * 2] = phase;
+          fireDataArray[fireSpriteCount * 2 + 1] = 0.94 * fadeEnv;
+          fireColorArray[fireSpriteCount * 3] = _fireTintCol.r;
+          fireColorArray[fireSpriteCount * 3 + 1] = _fireTintCol.g;
+          fireColorArray[fireSpriteCount * 3 + 2] = _fireTintCol.b;
+          fireSpriteCount++;
 
-          fireCount++;
+          // Secondary offset side tongue for richer volumetric pixel fire silhouette
+          if (fireSpriteCount < MAX_FIRE_SPRITES) {
+            const ox = Math.sin(phase * Math.PI * 2) * 0.22;
+            const oz = Math.cos(phase * Math.PI * 2) * 0.18;
+            _dummyPos.set(t.x + ox, fy + 0.04, t.z + oz);
+            _dummyScale.set(pulse * 0.64, pulse * 0.72, 1);
+            _dummyMatrix.compose(_dummyPos, _dummyQuat, _dummyScale);
+            fireSpriteInst.setMatrixAt(fireSpriteCount, _dummyMatrix);
+            fireDataArray[fireSpriteCount * 2] = (phase + 0.43) % 1.0;
+            fireDataArray[fireSpriteCount * 2 + 1] = 0.85 * fadeEnv;
+            fireColorArray[fireSpriteCount * 3] = _fireTintCol.r;
+            fireColorArray[fireSpriteCount * 3 + 1] = _fireTintCol.g;
+            fireColorArray[fireSpriteCount * 3 + 2] = _fireTintCol.b;
+            fireSpriteCount++;
+          }
+
+          // Rising animated pixel smoke puff sprite above each burning tile
+          const smokeCycle = (elapsed * 1.45 + (t.x * 0.37 + t.z * 0.53)) % 1.0;
+          const smokeY = fy + 0.82 + smokeCycle * 1.95;
+          const smokeScale = (0.55 + smokeCycle * 0.78) * (0.85 + 0.3 * intensityBoost);
+          _dummyPos.set(
+            t.x + Math.sin(elapsed * 2.6 + t.z) * 0.2,
+            smokeY,
+            t.z + Math.cos(elapsed * 2.6 + t.x) * 0.2,
+          );
+          _dummyScale.set(smokeScale, smokeScale, 1);
+          _dummyMatrix.compose(_dummyPos, _dummyQuat, _dummyScale);
+          fireSmokeInst.setMatrixAt(fireTileCount, _dummyMatrix);
+          smokeDataArray[fireTileCount * 2] = (phase + smokeCycle * 0.5) % 1.0;
+          smokeDataArray[fireTileCount * 2 + 1] = Math.sin(smokeCycle * Math.PI) * 0.58 * fadeEnv;
+
+          fireTileCount++;
         }
       }
-      fireOuterInst.count = fireCount;
-      fireCoreInst.count = fireCount;
-      fireSmokeInst.count = fireCount;
-      if (fireCount > 0) {
-        fireOuterInst.instanceMatrix.needsUpdate = true;
-        fireCoreInst.instanceMatrix.needsUpdate = true;
+      fireSpriteInst.count = fireSpriteCount;
+      fireSmokeInst.count = fireTileCount;
+      if (fireSpriteCount > 0) {
+        fireSpriteInst.instanceMatrix.needsUpdate = true;
+        fireDataAttr.needsUpdate = true;
+        fireColorAttr.needsUpdate = true;
+      }
+      if (fireTileCount > 0) {
         fireSmokeInst.instanceMatrix.needsUpdate = true;
-        if (fireOuterInst.instanceColor) fireOuterInst.instanceColor.needsUpdate = true;
-        if (fireCoreInst.instanceColor) fireCoreInst.instanceColor.needsUpdate = true;
+        smokeDataAttr.needsUpdate = true;
       }
     }
 
@@ -4353,7 +4664,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         camAct.rotateDelta = 0;
       }
       if (camAct.zoomDelta !== 0) {
-        desiredFrustum = THREE.MathUtils.clamp(desiredFrustum + camAct.zoomDelta, 7.5, 64);
+        desiredFrustum = THREE.MathUtils.clamp(desiredFrustum + camAct.zoomDelta, 7.5, 105);
         camAct.zoomDelta = 0;
       }
       if (camAct.centerHome) {
@@ -4361,6 +4672,16 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         camDesiredTarget.set(anchor.x, 1.2, anchor.z);
         desiredFrustum = 14.5;
         camAct.centerHome = false;
+        if (propsRef.current.followingEntityId) {
+          propsRef.current.onBreakFollow?.();
+        }
+      }
+      if (camAct.focusTarget) {
+        camDesiredTarget.set(camAct.focusTarget.x, 1.2, camAct.focusTarget.z);
+        if (camAct.focusTarget.zoom !== undefined) {
+          desiredFrustum = THREE.MathUtils.clamp(camAct.focusTarget.zoom, 7.5, 105);
+        }
+        camAct.focusTarget = null;
       }
 
       // Keyboard WASD / Arrow camera pan & Q/E rotate (scales with zoom for 128x128 navigation)
@@ -4370,24 +4691,54 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       const rightX = Math.cos(camYaw);
       const rightZ = -Math.sin(camYaw);
 
+      let panKeyMoved = false;
       if (keysPressed.has('KeyW') || keysPressed.has('ArrowUp')) {
         camDesiredTarget.x += forwardX * panSpeed;
         camDesiredTarget.z += forwardZ * panSpeed;
+        panKeyMoved = true;
       }
       if (keysPressed.has('KeyS') || keysPressed.has('ArrowDown')) {
         camDesiredTarget.x -= forwardX * panSpeed;
         camDesiredTarget.z -= forwardZ * panSpeed;
+        panKeyMoved = true;
       }
       if (keysPressed.has('KeyA') || keysPressed.has('ArrowLeft')) {
         camDesiredTarget.x -= rightX * panSpeed;
         camDesiredTarget.z -= rightZ * panSpeed;
+        panKeyMoved = true;
       }
       if (keysPressed.has('KeyD') || keysPressed.has('ArrowRight')) {
         camDesiredTarget.x += rightX * panSpeed;
         camDesiredTarget.z += rightZ * panSpeed;
+        panKeyMoved = true;
       }
-      camDesiredTarget.x = THREE.MathUtils.clamp(camDesiredTarget.x, 2, sim.gridSize - 3);
-      camDesiredTarget.z = THREE.MathUtils.clamp(camDesiredTarget.z, 2, sim.gridSize - 3);
+
+      if (panKeyMoved && propsRef.current.followingEntityId) {
+        propsRef.current.onBreakFollow?.();
+      }
+
+      // Live Entity Camera Tracking: Smoothly follow moving or flying creatures frame-by-frame
+      const activeFollowId = propsRef.current.followingEntityId;
+      if (activeFollowId && !panKeyMoved && !isPointerDragging) {
+        const followUnit = simRef.current.units.find(
+          (u) => u.id === activeFollowId && u.state !== 'ko',
+        );
+        if (followUnit) {
+          const uGroup = unitMeshes.get(activeFollowId)?.group;
+          const targetX = uGroup ? uGroup.position.x : followUnit.x;
+          const targetY = uGroup ? Math.max(1.2, uGroup.position.y * 0.8) : 1.2;
+          const targetZ = uGroup ? uGroup.position.z : followUnit.z;
+
+          camDesiredTarget.x = THREE.MathUtils.clamp(targetX, 2, sim.gridSize - 3);
+          camDesiredTarget.y = targetY;
+          camDesiredTarget.z = THREE.MathUtils.clamp(targetZ, 2, sim.gridSize - 3);
+        } else {
+          propsRef.current.onBreakFollow?.();
+        }
+      } else {
+        camDesiredTarget.x = THREE.MathUtils.clamp(camDesiredTarget.x, 2, sim.gridSize - 3);
+        camDesiredTarget.z = THREE.MathUtils.clamp(camDesiredTarget.z, 2, sim.gridSize - 3);
+      }
 
       // Advance simulation when in 'playing' (or gentle ambient motion in 'title')
       if (hitstopTimer > 0) {
@@ -5237,8 +5588,104 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         vfxFlashLight.intensity = 0;
       }
 
+      const isInspectMode =
+        propsRef.current.gameState === 'playing' &&
+        propsRef.current.activeTool.kind === 'inspect';
+
+      if (!isInspectMode && hoveredEntityInternal !== null) {
+        hoveredEntityInternal = null;
+        propsRef.current.onHoverEntityChange?.(null);
+      }
+
+      const activeHoverUnitId = isInspectMode
+        ? (propsRef.current.hoveredEntityId ?? hoveredEntityInternal)
+        : null;
+      const activeSelectedUnitId = isInspectMode
+        ? propsRef.current.selectedEntityId
+        : null;
+
+      // Update Hover Highlight Ring (cyan pulsing enclosure + diamond pointer for hovered living unit)
+      const hoverTargetUnit = activeHoverUnitId
+        ? simRef.current.units.find((u) => u.id === activeHoverUnitId && u.state !== 'ko')
+        : undefined;
+      if (hoverTargetUnit) {
+        const metrics = getUnitInspectMetrics(hoverTargetUnit);
+        const uGrp = unitMeshes.get(hoverTargetUnit.id)?.group;
+        const hx = uGrp ? uGrp.position.x : hoverTargetUnit.x;
+        const hy = uGrp ? uGrp.position.y : 0.5;
+        const hz = uGrp ? uGrp.position.z : hoverTargetUnit.z;
+        const pulse = 1 + Math.sin(elapsedTotal * 7.5) * 0.08;
+        hoverHighlightRig.group.visible = true;
+        hoverHighlightRig.group.position.set(hx, hy, hz);
+        hoverHighlightRig.ringRoot.scale.setScalar(metrics.ringScale * pulse);
+        hoverHighlightRig.ringRoot.rotation.y = elapsedTotal * 1.4;
+        hoverHighlightRig.pointer.position.y =
+          metrics.bodyHeight + 0.45 + Math.sin(elapsedTotal * 5.2) * 0.09;
+        hoverHighlightRig.pointer.rotation.y = elapsedTotal * 2.6;
+        hoverHighlightRig.ringMat.opacity = 0.78 + Math.sin(elapsedTotal * 7.5) * 0.18;
+      } else {
+        hoverHighlightRig.group.visible = false;
+      }
+
+      // Update Selected Highlight Ring (warm amber-gold enclosure)
+      const selectedTargetUnit =
+        activeSelectedUnitId && activeSelectedUnitId !== activeHoverUnitId
+          ? simRef.current.units.find((u) => u.id === activeSelectedUnitId && u.state !== 'ko')
+          : activeSelectedUnitId && activeSelectedUnitId === activeHoverUnitId
+            ? hoverTargetUnit
+            : undefined;
+      if (selectedTargetUnit) {
+        const metrics = getUnitInspectMetrics(selectedTargetUnit);
+        const uGrp = unitMeshes.get(selectedTargetUnit.id)?.group;
+        const sx = uGrp ? uGrp.position.x : selectedTargetUnit.x;
+        const sy = uGrp ? uGrp.position.y : 0.5;
+        const sz = uGrp ? uGrp.position.z : selectedTargetUnit.z;
+        const ringPad = selectedTargetUnit.id === activeHoverUnitId ? 1.18 : 1.0;
+        selectedHighlightRig.group.visible = true;
+        selectedHighlightRig.group.position.set(sx, sy, sz);
+        selectedHighlightRig.ringRoot.scale.setScalar(metrics.ringScale * ringPad);
+        selectedHighlightRig.ringRoot.rotation.y = -elapsedTotal * 0.9;
+        selectedHighlightRig.pointer.visible = selectedTargetUnit.id !== activeHoverUnitId;
+        selectedHighlightRig.pointer.position.y =
+          metrics.bodyHeight + 0.48 + Math.sin(elapsedTotal * 4.2) * 0.07;
+        selectedHighlightRig.pointer.rotation.y = -elapsedTotal * 2.1;
+      } else {
+        selectedHighlightRig.group.visible = false;
+      }
+
+      // Update Persistent Golden Star Markers above Favorited Living Units
+      let favCount = 0;
+      const simUnitsList = simRef.current.units;
+      for (let i = 0; i < simUnitsList.length && favCount < MAX_FAVORITE_STARS; i++) {
+        const fu = simUnitsList[i];
+        if (!fu.favorite || fu.state === 'ko') continue;
+        const metrics = getUnitInspectMetrics(fu);
+        const uGrp = unitMeshes.get(fu.id)?.group;
+        const fx = uGrp ? uGrp.position.x : fu.x;
+        const fy =
+          (uGrp ? uGrp.position.y : 0.5) +
+          metrics.bodyHeight +
+          0.32 +
+          Math.sin(elapsedTotal * 3.8 + favCount * 1.1) * 0.06;
+        const fz = uGrp ? uGrp.position.z : fu.z;
+        _dummyPos.set(fx, fy, fz);
+        _dummyQuat.setFromAxisAngle(_propAxisY, elapsedTotal * 2.2 + favCount);
+        _dummyScale.set(1.1, 1.35, 1.1);
+        _dummyMatrix.compose(_dummyPos, _dummyQuat, _dummyScale);
+        favoriteStarsInst.setMatrixAt(favCount, _dummyMatrix);
+        favCount++;
+      }
+      favoriteStarsInst.count = favCount;
+      if (favCount > 0) {
+        favoriteStarsInst.instanceMatrix.needsUpdate = true;
+      }
+
       // Update Hover Reticle position & radius
-      if (hoveredTileCoords && propsRef.current.gameState === 'playing') {
+      if (
+        hoveredTileCoords &&
+        propsRef.current.gameState === 'playing' &&
+        !(isInspectMode && hoverTargetUnit)
+      ) {
         reticleGroup.visible = true;
         const ht =
           simRef.current.tiles[
@@ -5297,7 +5744,39 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         scene.fog.color.copy(_bgColor);
       }
 
-      // Animate sculpted sky clouds & ocean coastal/reef/whitecap foaming
+      // Animate pixelated starry space backdrop, sculpted sky clouds & ocean coastal/reef/whitecap foaming
+      pixelSpace.update({
+        elapsed: elapsedTotal,
+        width: renderWidth,
+        height: renderHeight,
+        pixelScale: propsRef.current.pixelScale || 3,
+        camYaw,
+        camX: camTarget.x,
+        camZ: camTarget.z,
+        frustumSize,
+        preset,
+      });
+
+      worldUnderglow.update(
+        elapsedTotal,
+        preset,
+        simRef.current.epochIndex,
+        propsRef.current.pixelScale || 3,
+      );
+      if (preset === 'dusk') {
+        glowTrimMat.color.set('#d98078');
+        glowTrimMat.opacity = 0.4;
+      } else if (preset === 'night') {
+        glowTrimMat.color.set('#56cfe1');
+        glowTrimMat.opacity = 0.5;
+      } else if (preset === 'dawn') {
+        glowTrimMat.color.set('#7fd4e6');
+        glowTrimMat.opacity = 0.42;
+      } else {
+        glowTrimMat.color.set('#4eb8d4');
+        glowTrimMat.opacity = 0.38;
+      }
+
       const atmosSpeed =
         propsRef.current.timeScale === 0
           ? 0.35
@@ -5307,10 +5786,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       styledTerrain.updateFrame(elapsedTotal, simRef.current.epochIndex);
 
       // Smooth exponential camera damping + decaying trauma shake
+      const followDamp = propsRef.current.followingEntityId ? 11 : 8;
       camYaw = THREE.MathUtils.damp(camYaw, camDesiredYaw, 8, dt);
-      camTarget.x = THREE.MathUtils.damp(camTarget.x, camDesiredTarget.x, 8, dt);
-      camTarget.y = THREE.MathUtils.damp(camTarget.y, camDesiredTarget.y, 8, dt);
-      camTarget.z = THREE.MathUtils.damp(camTarget.z, camDesiredTarget.z, 8, dt);
+      camTarget.x = THREE.MathUtils.damp(camTarget.x, camDesiredTarget.x, followDamp, dt);
+      camTarget.y = THREE.MathUtils.damp(camTarget.y, camDesiredTarget.y, followDamp, dt);
+      camTarget.z = THREE.MathUtils.damp(camTarget.z, camDesiredTarget.z, followDamp, dt);
 
       if (Math.abs(frustumSize - desiredFrustum) > 0.01 && container) {
         frustumSize = THREE.MathUtils.damp(frustumSize, desiredFrustum, 8, dt);
@@ -5412,23 +5892,25 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       resizeObserver.disconnect();
       domElem.removeEventListener('pointerdown', onPointerDown);
       domElem.removeEventListener('pointermove', onPointerMove);
+      domElem.removeEventListener('pointerleave', onPointerLeave);
       window.removeEventListener('pointerup', onPointerUp);
       domElem.removeEventListener('wheel', onWheel);
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('blur', clearInputs);
+      hoverHighlightRig.dispose();
+      selectedHighlightRig.dispose();
+      favoriteStarGeo.dispose();
+      favoriteStarMat.dispose();
       for (const hv of hazardMeshes.values()) {
         for (const m of hv.materials) m.dispose();
       }
       for (const fx of activeBurstFx) {
         for (const m of fx.materials) m.dispose();
       }
-      fireOuterGeo.dispose();
-      fireCoreGeo.dispose();
+      fireSpriteGeo.dispose();
       fireSmokeGeo.dispose();
-      fireOuterMat.dispose();
-      fireCoreMat.dispose();
-      fireSmokeMat.dispose();
+      spriteBundle.dispose();
       sharedHazSphereGeo.dispose();
       sharedRainDropGeo.dispose();
       sharedDomeGeo.dispose();
@@ -5449,6 +5931,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       sharedOrbMoteGeo.dispose();
       sharedShardMoteGeo.dispose();
       sharedPillarSpikeGeo.dispose();
+      pixelSpace.dispose();
+      worldUnderglow.dispose();
+      skirtGeo.dispose();
+      skirtMat.dispose();
+      rimGeo.dispose();
+      rimMat.dispose();
+      glowTrimGeo.dispose();
+      glowTrimMat.dispose();
       skyClouds.dispose();
       oceanFoam.dispose();
       styledTerrain.dispose();

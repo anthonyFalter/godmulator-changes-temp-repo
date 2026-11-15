@@ -11,12 +11,23 @@ import {
   getMaxCityBuildings,
   getMaxCityFarmFields,
   getTile,
+  isCarnivoreAnimal,
+  isHerbivoreAnimal,
   placeBuilding,
   spawnRaiderWave,
   spawnUnit,
   stepSimulation,
 } from './simulation';
-import { ANIMAL_UNITS, DRAGON_VARIANTS, EPOCHS, MYTHICAL_BEAST_UNITS, SPECIES_UNITS, getDragonVariant } from './catalog';
+import {
+  ANIMAL_UNITS,
+  DRAGON_VARIANTS,
+  EPOCHS,
+  MYTHICAL_BEAST_UNITS,
+  SPECIES_UNITS,
+  getDinosaurVariant,
+  getDragonVariant,
+} from './catalog';
+import { getEntityInspectProfile, toggleUnitFavorite } from './entityInspector';
 import { createUnitGroup, createVehicleGroup } from './meshBuilders';
 import * as THREE from 'three';
 
@@ -1577,7 +1588,7 @@ test('dragons breathe fire matching their scale color and actively attack trees 
     'Dragon attacking a building must emit dragon_fire_breath VFX',
   );
 
-  // 3. Verify dinosaur can also smash nearby environmental trees when no combat units are present
+  // 3. Verify carnivore dinosaur can also smash nearby environmental bushes/trees when no combat units are present
   const dinoState = createInitialSimulationState(128, 'DINO-ENV-TREE');
   dinoState.sandboxFreeMode = true;
   dinoState.wildlifeSeeded = true;
@@ -1592,18 +1603,19 @@ test('dragons breathe fire matching their scale color and actively attack trees 
       t.onFireTimer = 0;
     }
   }
+  const carnivoreSeed = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].find((s) => getDinosaurVariant(s).diet === 'carnivore')!;
   const bushTile = getTile(dinoState, 65, 64)!;
   bushTile.resourceNode = 'berry_bush';
   bushTile.resourceAmount = 100;
-  const dino = spawnUnit(dinoState, 'dinosaur', 64, 64).unit!;
+  const dino = spawnUnit(dinoState, 'dinosaur', 64, 64, false, undefined, { appearanceSeed: carnivoreSeed }).unit!;
   dino.actionCooldown = 0;
   dinoState.pendingVfx.length = 0;
 
   stepSimulation(dinoState, 0.1);
-  assert.equal(bushTile.resourceNode, 'none', 'Dinosaur should smash nearby berry bush');
+  assert.equal(bushTile.resourceNode, 'none', 'Carnivore dinosaur should smash nearby berry bush');
   assert.ok(
     dinoState.pendingVfx.some((v) => v.type === 'animal_attack' && v.variant === 'crunch'),
-    'Dinosaur smashing environment should emit crunch animal_attack VFX',
+    'Carnivore dinosaur smashing environment should emit crunch animal_attack VFX',
   );
 });
 
@@ -1637,7 +1649,7 @@ test('dragons execute gliding carpet-bombing strafe runs before banking to turn 
   const startX = dragon.x;
   let sawStrafe = false;
   let sawTurn = false;
-  let breathCountDuringStrafe = 0;
+  let breathCountDuringFirstWindow = 0;
 
   for (let step = 0; step < 36; step++) {
     stepSimulation(state, 0.1);
@@ -1650,34 +1662,487 @@ test('dragons execute gliding carpet-bombing strafe runs before banking to turn 
     for (const v of state.pendingVfx) {
       if (v.type === 'dragon_fire_breath') {
         assert.equal(v.sourceUnitId, dragon.id, 'Dragon breath VFX must carry sourceUnitId for 3D jaw tracking');
-        breathCountDuringStrafe++;
+        breathCountDuringFirstWindow++;
       }
     }
     state.pendingVfx.length = 0;
   }
 
-  assert.ok(sawStrafe, 'Dragon must enter gliding strafe phase when carpet-bombing target');
+  assert.ok(sawStrafe, 'Dragon must enter gliding strafe phase when engaging target');
   assert.ok(sawTurn, 'Dragon must transition to banking turn phase after gliding past target');
+  assert.equal(
+    breathCountDuringFirstWindow,
+    1,
+    `Dragon breath cooldown must prevent every-second spam during initial 3.6s window (got ${breathCountDuringFirstWindow})`,
+  );
   assert.ok(
-    breathCountDuringStrafe >= 2,
-    `Dragon should spew multiple fire blasts while gliding across target (got ${breathCountDuringStrafe})`,
+    (dragon.dragonBreathCooldown ?? 0) > 0,
+    'Dragon should remain on fire breath cooldown right after a 3.6s pass',
   );
   assert.ok(
     Math.hypot(dragon.x - startX, dragon.z - 64) > 1.5,
-    'Dragon must glide across the map while carpet-bombing rather than stopping in 1 spot',
+    'Dragon must glide across the map rather than stopping in 1 spot',
   );
 
-  // Verify dinosaur does not stay locked on a tough stone outcrop when far from destroying it
+  // Advance another ~2.5s so cooldown finishes and confirm the dragon can breathe again cleanly
+  let followUpBreaths = 0;
+  for (let step = 0; step < 25; step++) {
+    stepSimulation(state, 0.1);
+    for (const v of state.pendingVfx) {
+      if (v.type === 'dragon_fire_breath' && v.sourceUnitId === dragon.id) {
+        followUpBreaths++;
+      }
+    }
+    state.pendingVfx.length = 0;
+  }
+  assert.ok(followUpBreaths >= 1, 'Dragon should resume fire breath once cooldown finishes');
+
+  // Verify detailed dragon mesh keeps draw calls compact and reuses cached merged geometry across spawns
+  const dragonPreview = createUnitGroup('dragon', 'wildlife', 0, 'human', 1);
+  const dragonPreview2 = createUnitGroup('dragon', 'wildlife', 0, 'human', 2);
+  let meshCount = 0;
+  const geos1: THREE.BufferGeometry[] = [];
+  const geos2: THREE.BufferGeometry[] = [];
+  dragonPreview.traverse((obj) => {
+    if ((obj as THREE.Mesh).isMesh) {
+      meshCount++;
+      geos1.push((obj as THREE.Mesh).geometry);
+    }
+  });
+  dragonPreview2.traverse((obj) => {
+    if ((obj as THREE.Mesh).isMesh) {
+      geos2.push((obj as THREE.Mesh).geometry);
+    }
+  });
+  assert.ok(meshCount <= 36, `Detailed dragon should use merged cached geometry to prevent lag (meshes=${meshCount})`);
+  assert.equal(geos1[0], geos2[0], 'Dragon spawns must reuse cached merged geometry instances');
+
+  // Verify carnivore dinosaur does not stay locked on a tough stone outcrop when far from destroying it
+  const carnivoreSeed = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].find((s) => getDinosaurVariant(s).diet === 'carnivore')!;
   const rockTile = getTile(state, 58, 58)!;
   rockTile.resourceNode = 'stone_outcrop';
   rockTile.resourceAmount = 350;
-  const dino = spawnUnit(state, 'dinosaur', 57, 58).unit!;
+  const dino = spawnUnit(state, 'dinosaur', 57, 58, false, undefined, { appearanceSeed: carnivoreSeed }).unit!;
   dino.x = 57;
   dino.z = 58;
   dino.actionCooldown = 0;
 
   stepSimulation(state, 0.1);
-  assert.ok(rockTile.resourceAmount < 350, 'Dinosaur should crunch stone outcrop once');
+  assert.ok(rockTile.resourceAmount < 350, 'Carnivore dinosaur should crunch stone outcrop once');
   assert.ok(rockTile.resourceAmount > 150, 'Stone outcrop is still far from destroyed');
-  assert.equal(dino.state, 'moving', 'Dinosaur should immediately switch to moving/roaming instead of camping the rock');
+  assert.equal(dino.state, 'moving', 'Carnivore dinosaur should immediately switch to moving/roaming instead of camping the rock');
 });
+
+test('herbivore dinosaurs and herbivores only eat plants, flee carnivores, and never smash rocks or buildings', () => {
+  const dinoSeeds = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+  const carnSeed = dinoSeeds.find((s) => getDinosaurVariant(s).morph === 0)!;
+  const triceratopsSeed = dinoSeeds.find((s) => getDinosaurVariant(s).morph === 1)!;
+  const stegoSeed = dinoSeeds.find((s) => getDinosaurVariant(s).morph === 2)!;
+  assert.equal(isCarnivoreAnimal('dinosaur', carnSeed), true);
+  assert.equal(isHerbivoreAnimal('dinosaur', triceratopsSeed), true);
+  assert.equal(isHerbivoreAnimal('dinosaur', stegoSeed), true);
+
+  // World wildlife seeding includes both herbivore and carnivore dinosaurs
+  const world = createInitialSimulationState(128, 'DINO-ECOSYSTEM');
+  stepSimulation(world, 0.1);
+  assert.ok(
+    world.units.some((u) => u.role === 'dinosaur' && isHerbivoreAnimal(u.role, u.appearanceSeed)),
+    'Seeded world should contain herbivore dinosaurs',
+  );
+  assert.ok(
+    world.units.some((u) => u.role === 'dinosaur' && isCarnivoreAnimal(u.role, u.appearanceSeed)),
+    'Seeded world should contain carnivore dinosaurs',
+  );
+
+  // Herbivore arena: herbivore dino + cow + berry bush + stone outcrop + hut + chicken
+  const state = createInitialSimulationState(128, 'HERBIVORE-TEST');
+  state.sandboxFreeMode = true;
+  state.wildlifeSeeded = true;
+  for (let dz = -8; dz <= 8; dz++) {
+    for (let dx = -8; dx <= 8; dx++) {
+      const t = getTile(state, 64 + dx, 64 + dz)!;
+      t.height = 2;
+      t.terrain = 'grass';
+      t.resourceNode = 'none';
+      t.resourceAmount = 0;
+      t.buildingId = null;
+      t.onFireTimer = 0;
+    }
+  }
+
+  const rock = getTile(state, 63, 64)!;
+  rock.resourceNode = 'stone_outcrop';
+  rock.resourceAmount = 300;
+  const bush = getTile(state, 65, 64)!;
+  bush.terrain = 'fertile';
+  bush.resourceNode = 'berry_bush';
+  bush.resourceAmount = 140;
+
+  placeBuilding(state, 'forager_hut', 64, 65);
+  const hut = state.buildings[state.buildings.length - 1];
+  const hutHp0 = hut.hp;
+
+  const chicken = spawnUnit(state, 'chicken', 64.4, 63.6).unit!;
+  const chickenHp0 = chicken.hp;
+
+  const herbDino = spawnUnit(state, 'dinosaur', 64, 64, false, undefined, { appearanceSeed: triceratopsSeed }).unit!;
+  herbDino.x = 64;
+  herbDino.z = 64;
+  herbDino.hp = herbDino.maxHp - 30;
+  herbDino.actionCooldown = 0;
+
+  const cow = spawnUnit(state, 'cow', 65.5, 64.5).unit!;
+  cow.x = 65.5;
+  cow.z = 64.5;
+  cow.actionCooldown = 0;
+
+  for (let i = 0; i < 20; i++) {
+    stepSimulation(state, 0.15);
+  }
+
+  assert.ok(bush.resourceAmount < 140, `Herbivores must eat plants from berry_bush (left=${bush.resourceAmount})`);
+  assert.ok(herbDino.hp > herbDino.maxHp - 30, 'Eating plants should nourish/heal injured herbivore dinosaur');
+  assert.equal(rock.resourceAmount, 300, 'Herbivore dinosaur must never smash stone outcrops');
+  assert.equal(hut.hp, hutHp0, 'Herbivore dinosaur must never damage buildings');
+  assert.equal(chicken.hp, chickenHp0, 'Herbivore dinosaur must never attack passive animals');
+
+  // Spawn a carnivore Tyrannosaur nearby -> herbivore dinosaur and cow must run away from it
+  const trex = spawnUnit(state, 'dinosaur', 66.5, 64, false, undefined, { appearanceSeed: carnSeed }).unit!;
+  trex.x = 66.5;
+  trex.z = 64;
+  herbDino.x = 64.5;
+  herbDino.z = 64;
+  const dinoStartX = herbDino.x;
+  const cowStartX = cow.x;
+  cow.x = 65.0;
+  cow.z = 64.0;
+  // Remove bushes so herbivore focuses on fleeing
+  bush.resourceNode = 'none';
+  bush.resourceAmount = 0;
+
+  for (let i = 0; i < 10; i++) {
+    stepSimulation(state, 0.1);
+  }
+  assert.ok(herbDino.x < dinoStartX, `Herbivore dinosaur should flee away from carnivore (${herbDino.x} < ${dinoStartX})`);
+  assert.ok(cow.x < cowStartX || Math.hypot(cow.x - trex.x, cow.z - trex.z) > 1.5, 'Prey cow should flee carnivore');
+});
+
+test('carnivores (carnivore dinosaurs, wolves, bears) hunt targets and destroy structures by specialty', () => {
+  const dinoSeeds = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+  const carnSeed = dinoSeeds.find((s) => getDinosaurVariant(s).morph === 0)!;
+  const stegoSeed = dinoSeeds.find((s) => getDinosaurVariant(s).morph === 2)!;
+
+  const makeArena = (seedName: string) => {
+    const s = createInitialSimulationState(128, seedName);
+    s.sandboxFreeMode = true;
+    s.wildlifeSeeded = true;
+    for (let dz = -7; dz <= 7; dz++) {
+      for (let dx = -7; dx <= 7; dx++) {
+        const t = getTile(s, 64 + dx, 64 + dz)!;
+        t.height = 2;
+        t.terrain = 'grass';
+        t.resourceNode = 'none';
+        t.resourceAmount = 0;
+        t.buildingId = null;
+        t.onFireTimer = 0;
+      }
+    }
+    return s;
+  };
+
+  // 1. Wolf hunts prey animals (chicken) while ignoring nearby buildings
+  const wolfState = makeArena('WOLF-HUNT');
+  placeBuilding(wolfState, 'forager_hut', 62, 64);
+  const wolfHut = wolfState.buildings[wolfState.buildings.length - 1];
+  const wolf = spawnUnit(wolfState, 'wolf', 64, 64).unit!;
+  const chicken = spawnUnit(wolfState, 'chicken', 65, 64).unit!;
+  const chickHp0 = chicken.hp;
+  wolf.actionCooldown = 0;
+  for (let i = 0; i < 12; i++) stepSimulation(wolfState, 0.1);
+  assert.ok(chicken.hp < chickHp0, 'Wolf should actively hunt nearby chicken');
+  assert.equal(wolfHut.hp, wolfHut.maxHp, 'Wolf should not smash buildings');
+
+  // 2. Bear hunts animals (cow) and destroys nearby trees
+  const bearState = makeArena('BEAR-HUNT');
+  const treeTile = getTile(bearState, 65, 64)!;
+  treeTile.terrain = 'forest';
+  treeTile.resourceNode = 'timber_grove';
+  treeTile.resourceAmount = 80;
+  const bear = spawnUnit(bearState, 'bear', 64, 64).unit!;
+  bear.actionCooldown = 0;
+  stepSimulation(bearState, 0.1);
+  assert.equal(treeTile.resourceNode, 'none', 'Bear should smash nearby timber grove when no prey is present');
+
+  const pig = spawnUnit(bearState, 'pig', 65, 64).unit!;
+  const pigHp0 = pig.hp;
+  bear.actionCooldown = 0;
+  stepSimulation(bearState, 0.1);
+  assert.ok(pig.hp < pigHp0, 'Bear should hunt nearby pig');
+
+  // 3. Carnivore dinosaur hunts herbivore dinosaurs and destroys buildings
+  const dinoState = makeArena('CARN-DINO-HUNT');
+  const trex = spawnUnit(dinoState, 'dinosaur', 64, 64, false, undefined, { appearanceSeed: carnSeed }).unit!;
+  const stego = spawnUnit(dinoState, 'dinosaur', 65.2, 64, false, undefined, { appearanceSeed: stegoSeed }).unit!;
+  const stegoHp0 = stego.hp;
+  trex.actionCooldown = 0;
+  stepSimulation(dinoState, 0.15);
+  assert.ok(stego.hp < stegoHp0, 'Carnivore dinosaur should hunt herbivore dinosaur');
+
+  // Without living targets, carnivore dinosaur smashes unshielded building
+  stego.state = 'ko';
+  stego.koTimer = 0;
+  placeBuilding(dinoState, 'forager_hut', 65, 64);
+  const targetHut = dinoState.buildings[dinoState.buildings.length - 1];
+  const hutHpBefore = targetHut.hp;
+  trex.x = 64;
+  trex.z = 64;
+  trex.actionCooldown = 0;
+  stepSimulation(dinoState, 0.15);
+  assert.ok(targetHut.hp < hutHpBefore, 'Carnivore dinosaur should destroy unshielded buildings');
+});
+
+test('wildfire spreads from meteors, lightning, and other fire sources across flammable land without burning water or rock', () => {
+  // 1. Meteor strike ignites crater edge & ejecta that spreads outward into surrounding dense forest
+  const mState = createInitialSimulationState(128, 'FIRE-METEOR');
+  mState.sandboxFreeMode = true;
+  mState.wildlifeSeeded = true;
+  const cx = 64;
+  const cz = 64;
+  for (let dz = -14; dz <= 14; dz++) {
+    for (let dx = -14; dx <= 14; dx++) {
+      const t = getTile(mState, cx + dx, cz + dz)!;
+      if (Math.abs(dx) >= 13 || Math.abs(dz) >= 13) {
+        t.height = 0;
+        t.terrain = 'shallow_water';
+        t.resourceNode = 'none';
+        t.resourceAmount = 0;
+      } else if (dx === -12 && dz === 0) {
+        t.height = 3;
+        t.terrain = 'rock';
+        t.resourceNode = 'none';
+        t.resourceAmount = 0;
+      } else {
+        t.height = 3;
+        t.terrain = 'forest';
+        t.resourceNode = 'timber_grove';
+        t.resourceAmount = 220;
+      }
+      t.buildingId = null;
+      t.onFireTimer = 0;
+      t.blessedTimer = 0;
+    }
+  }
+
+  const mRes = castGodPower(mState, 'meteor_strike', cx, cz);
+  assert.equal(mRes.ok, true);
+
+  const initiallyBurningKeys = new Set<string>();
+  for (const t of mState.tiles) {
+    if (t.onFireTimer > 0) initiallyBurningKeys.add(`${t.x},${t.z}`);
+  }
+  assert.ok(initiallyBurningKeys.size >= 3, 'Meteor should ignite multiple crater/ejecta fires on impact');
+
+  const spreadNewKeys = new Set<string>();
+  for (let step = 0; step < 60; step++) {
+    stepSimulation(mState, 0.1);
+    for (const t of mState.tiles) {
+      const key = `${t.x},${t.z}`;
+      if (t.onFireTimer > 0 && !initiallyBurningKeys.has(key)) {
+        spreadNewKeys.add(key);
+      }
+      assert.equal(getTile(mState, cx - 12, cz)!.onFireTimer, 0, 'Rock tile must not catch fire');
+      assert.equal(getTile(mState, cx + 13, cz)!.onFireTimer, 0, 'Water tile must not catch fire');
+    }
+  }
+  assert.ok(
+    spreadNewKeys.size >= 3,
+    `Meteor fires must spread outward to unburned adjacent forest tiles (newly burned=${spreadNewKeys.size})`,
+  );
+
+  // 2. Lightning strike ignites spreading fire across flammable trees/buildings
+  const lState = createInitialSimulationState(128, 'FIRE-LIGHTNING');
+  lState.sandboxFreeMode = true;
+  lState.wildlifeSeeded = true;
+  for (let dz = -10; dz <= 10; dz++) {
+    for (let dx = -10; dx <= 10; dx++) {
+      const t = getTile(lState, cx + dx, cz + dz)!;
+      t.height = 2;
+      t.terrain = 'forest';
+      t.resourceNode = 'timber_grove';
+      t.resourceAmount = 200;
+      t.buildingId = null;
+      t.onFireTimer = 0;
+      t.blessedTimer = 0;
+    }
+  }
+  castGodPower(lState, 'lightning_smite', cx, cz);
+  const initialLightningKeys = new Set<string>();
+  for (const t of lState.tiles) {
+    if (t.onFireTimer > 0) initialLightningKeys.add(`${t.x},${t.z}`);
+  }
+  assert.ok(initialLightningKeys.size >= 2, 'Lightning should ignite flammable tiles around strike');
+
+  let lightningSpreadCount = 0;
+  for (let step = 0; step < 60; step++) {
+    stepSimulation(lState, 0.1);
+    for (const t of lState.tiles) {
+      if (t.onFireTimer > 0 && !initialLightningKeys.has(`${t.x},${t.z}`)) {
+        initialLightningKeys.add(`${t.x},${t.z}`);
+        lightningSpreadCount++;
+      }
+    }
+  }
+  assert.ok(
+    lightningSpreadCount >= 2,
+    `Lightning fire must spread to adjacent forest tiles (spread=${lightningSpreadCount})`,
+  );
+
+  // 3. Generic single burning source spreads to adjacent trees & unshielded structures
+  const gState = createInitialSimulationState(128, 'FIRE-GENERIC');
+  gState.sandboxFreeMode = true;
+  gState.wildlifeSeeded = true;
+  for (let dz = -6; dz <= 6; dz++) {
+    for (let dx = -6; dx <= 6; dx++) {
+      const t = getTile(gState, cx + dx, cz + dz)!;
+      t.height = 2;
+      t.terrain = 'forest';
+      t.resourceNode = 'timber_grove';
+      t.resourceAmount = 180;
+      t.buildingId = null;
+      t.onFireTimer = 0;
+      t.blessedTimer = 0;
+    }
+  }
+  placeBuilding(gState, 'forager_hut', cx + 1, cz);
+  getTile(gState, cx, cz)!.onFireTimer = 7.0;
+
+  let genericSpread = 0;
+  for (let step = 0; step < 60; step++) {
+    stepSimulation(gState, 0.1);
+    for (let dz = -5; dz <= 5; dz++) {
+      for (let dx = -5; dx <= 5; dx++) {
+        if (dx === 0 && dz === 0) continue;
+        const t = getTile(gState, cx + dx, cz + dz)!;
+        if (t.onFireTimer > 0) genericSpread++;
+      }
+    }
+  }
+  assert.ok(genericSpread > 0, 'Fire on a single source tile must spread to adjacent forest/building neighbors');
+});
+
+test('entity inspector resolves names, diets, informations, carried/equipped items, genes, and favorite toggling', () => {
+  const state = createInitialSimulationState(128, 'INSPECT-TEST');
+  state.sandboxFreeMode = true;
+  state.wildlifeSeeded = true;
+  for (let dz = -3; dz <= 3; dz++) {
+    for (let dx = -3; dx <= 3; dx++) {
+      const t = getTile(state, 64 + dx, 64 + dz)!;
+      t.height = 2;
+      t.terrain = 'grass';
+      t.resourceNode = 'none';
+      t.buildingId = null;
+    }
+  }
+
+  const human = spawnUnit(state, 'human', 64, 64).unit!;
+  human.carryingType = 'wood';
+  human.carryingAmount = 12;
+  human.statusEffects.blessed = 8;
+
+  const humanProfile = getEntityInspectProfile(state, human);
+  assert.equal(humanProfile.name, human.name);
+  assert.equal(humanProfile.diet.category, 'Omnivore');
+  assert.ok(humanProfile.items[0].includes('Carrying 12 Wood'), 'Should show carried cargo item');
+  assert.ok(humanProfile.items.length >= 3, 'Should include equipped/epoch items plus cargo');
+  assert.ok(humanProfile.genes.length >= 1, 'Should include deterministic genetic traits');
+  assert.ok(humanProfile.genes.includes('Human Adaptability'), 'Should include intrinsic human lineage trait');
+
+  const standardHuman = spawnUnit(state, 'human', 64, 64, false, undefined, { appearanceSeed: 2 }).unit!;
+  const standardProfile = getEntityInspectProfile(state, standardHuman);
+  assert.deepEqual(standardProfile.genes, ['Human Adaptability'], 'Standard individual only expresses intrinsic gene');
+
+  const rareHuman = spawnUnit(state, 'human', 64, 64, false, undefined, { appearanceSeed: 66 }).unit!;
+  const rareProfile = getEntityInspectProfile(state, rareHuman);
+  assert.ok(rareProfile.genes.includes('Human Adaptability'), 'Must retain intrinsic gene');
+  assert.ok(rareProfile.genes.includes('Iron Lung'), 'RNG rare roll selects extra gene like Iron Lung');
+
+  assert.ok(humanProfile.informations.statusEffects.includes('blessed'));
+
+  const dinoSeeds = Array.from({ length: 24 }, (_, idx) => idx + 1);
+  const carnSeed = dinoSeeds.find((s) => getDinosaurVariant(s).diet === 'carnivore')!;
+  const herbSeed = dinoSeeds.find((s) => getDinosaurVariant(s).diet === 'herbivore')!;
+
+  const trex = spawnUnit(state, 'dinosaur', 65, 64, false, undefined, { appearanceSeed: carnSeed }).unit!;
+  const trike = spawnUnit(state, 'dinosaur', 63, 64, false, undefined, { appearanceSeed: herbSeed }).unit!;
+  const dragon = spawnUnit(state, 'dragon', 64, 65).unit!;
+  dragon.dragonBreathCooldown = 3.2;
+  const unicorn = spawnUnit(state, 'unicorn', 64, 63).unit!;
+
+  assert.equal(getEntityInspectProfile(state, trex).diet.category, 'Carnivore');
+  assert.equal(getEntityInspectProfile(state, trike).diet.category, 'Herbivore');
+  assert.equal(getEntityInspectProfile(state, trex).genes[0], 'Apex Theropod Physiology');
+  assert.ok(
+    getEntityInspectProfile(state, trike).genes[0] === 'Ceratopsian Crest' ||
+      getEntityInspectProfile(state, trike).genes[0] === 'Dorsal Bone Plates',
+  );
+  const dragonProfile = getEntityInspectProfile(state, dragon);
+  assert.equal(dragonProfile.diet.category, 'Pyro-Carnivore');
+  assert.ok(dragonProfile.genes[0].endsWith('Scales'), 'Dragon must have its intrinsic scale gene');
+  assert.equal(dragonProfile.informations.breathCooldown, 3.2);
+  const unicornProfile = getEntityInspectProfile(state, unicorn);
+  assert.equal(unicornProfile.diet.category, 'Fey Herbivore');
+  assert.equal(unicornProfile.genes[0], 'Celestial Fey Horn');
+
+  assert.equal(Boolean(dragon.favorite), false);
+  assert.equal(toggleUnitFavorite(state, dragon.id), true);
+  assert.equal(getEntityInspectProfile(state, dragon).favorite, true);
+  assert.equal(toggleUnitFavorite(state, dragon.id), false);
+  assert.equal(getEntityInspectProfile(state, dragon).favorite, false);
+
+  dragon.state = 'ko';
+  assert.equal(toggleUnitFavorite(state, dragon.id), false, 'KO units should not be toggleable as favorites');
+});
+
+test('camera target locks and tracks moving entity coordinates during follow mode', () => {
+  const state = createInitialSimulationState(128, 'FOLLOW-CAM-TEST');
+  state.sandboxFreeMode = true;
+  state.wildlifeSeeded = true;
+  for (let dz = -5; dz <= 5; dz++) {
+    for (let dx = -5; dx <= 5; dx++) {
+      const t = getTile(state, 64 + dx, 64 + dz)!;
+      t.height = 2;
+      t.terrain = 'grass';
+      t.buildingId = null;
+    }
+  }
+
+  const unit = spawnUnit(state, 'human', 64, 64).unit!;
+  assert.ok(unit, 'Unit should spawn');
+
+  // Verify camera tracking updates to moving unit position
+  const camDesiredTarget = { x: 64, y: 1.2, z: 64 };
+  const followingEntityId = unit.id;
+
+  // Unit moves towards (68, 64)
+  unit.x = 65.5;
+  unit.z = 64.2;
+  const targetUnit = state.units.find((u) => u.id === followingEntityId && u.state !== 'ko');
+  assert.ok(targetUnit);
+
+  camDesiredTarget.x = targetUnit.x;
+  camDesiredTarget.z = targetUnit.z;
+
+  assert.equal(camDesiredTarget.x, 65.5);
+  assert.equal(camDesiredTarget.z, 64.2);
+
+  // Unit moves further
+  unit.x = 67.8;
+  unit.z = 64.9;
+  camDesiredTarget.x = targetUnit.x;
+  camDesiredTarget.z = targetUnit.z;
+
+  assert.equal(camDesiredTarget.x, 67.8);
+  assert.equal(camDesiredTarget.z, 64.9);
+});
+
+

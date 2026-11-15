@@ -219,9 +219,15 @@ export interface UnitEntity {
   dragonAnchorX?: number;
   dragonAnchorZ?: number;
   dragonTurnSign?: number;
+  dragonBreathCooldown?: number;
   expeditionTargetX?: number;
   expeditionTargetZ?: number;
   expeditionTimer?: number;
+  favorite?: boolean;
+  genes?: string[];
+  items?: string[];
+  bornYear?: number;
+  kills?: number;
 }
 
 export type GodPowerType =

@@ -22,13 +22,16 @@ import {
   spawnUnit,
 } from './game/simulation';
 import { soundEngine } from './game/sound';
+import { toggleUnitFavorite } from './game/entityInspector';
 import {
   ActiveTool,
   GameLifecycleState,
   LightingPreset,
   Resources,
   ToolCategory,
+  UnitEntity,
 } from './game/types';
+import { EntityInspectorCard } from './components/EntityInspectorCard';
 import {
   BuildingPixelIcon,
   HudPixelIcon,
@@ -109,6 +112,10 @@ export default function App() {
   const [chronicleOpen, setChronicleOpen] = useState<boolean>(false);
   const [muted, setMuted] = useState<boolean>(false);
   const [hoverTile, setHoverTile] = useState<{ x: number; z: number } | null>({ x: 64, z: 64 });
+  const [hoveredEntityId, setHoveredEntityId] = useState<string | null>(null);
+  const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
+  const selectedEntityIdRef = useRef<string | null>(null);
+  const [followingEntityId, setFollowingEntityId] = useState<string | null>(null);
   const [hoveredHint, setHoveredHint] = useState<HoveredHint | null>(null);
   const [statusFeedback, setStatusFeedback] = useState<string>('Click land to spawn a Human');
 
@@ -122,10 +129,16 @@ export default function App() {
     setHudTick((t) => t + 1);
   }, [gameState]);
 
-  const cameraActionRef = useRef({
+  const cameraActionRef = useRef<{
+    rotateDelta: number;
+    zoomDelta: number;
+    centerHome: boolean;
+    focusTarget?: { x: number; z: number; zoom?: number } | null;
+  }>({
     rotateDelta: 0,
     zoomDelta: 0,
     centerHome: false,
+    focusTarget: null,
   });
 
   useEffect(() => {
@@ -149,6 +162,10 @@ export default function App() {
     simRef.current = nextSim;
     setSeedInput(String(nextSim.seed));
     setHoverTile({ x: 64, z: 64 });
+    setHoveredEntityId(null);
+    setSelectedEntityId(null);
+    selectedEntityIdRef.current = null;
+    setFollowingEntityId(null);
     setActiveCategory('spawn');
     setActiveTool({ kind: 'spawn', unit: 'human' });
     soundEngine.playBuild();
@@ -205,6 +222,47 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [gameState, handleStartGame, handleToggleMute]);
 
+  const handleSelectEntity = useCallback((unitId: string | null) => {
+    selectedEntityIdRef.current = unitId;
+    setSelectedEntityId(unitId);
+    if (!unitId) {
+      setFollowingEntityId(null);
+    } else {
+      const unit = simRef.current.units.find((u) => u.id === unitId && u.state !== 'ko');
+      if (unit) {
+        setStatusFeedback(`Selected ${unit.name} (${Math.round(unit.hp)}/${unit.maxHp} HP)`);
+      }
+    }
+    setHudTick((t) => t + 1);
+  }, []);
+
+  const handleToggleFavoriteEntity = useCallback((unitId: string) => {
+    const unit = simRef.current.units.find((u) => u.id === unitId && u.state !== 'ko');
+    if (!unit) return;
+    const isFav = toggleUnitFavorite(simRef.current, unitId);
+    soundEngine.playClick();
+    setStatusFeedback(isFav ? `Favorited ${unit.name}` : `Unfavorited ${unit.name}`);
+    setHudTick((t) => t + 1);
+  }, []);
+
+  const handleFocusEntity = useCallback((unit: UnitEntity) => {
+    setFollowingEntityId((prev) => {
+      if (prev === unit.id) {
+        soundEngine.playClick();
+        setStatusFeedback(`Stopped following ${unit.name}`);
+        return null;
+      }
+      cameraActionRef.current.focusTarget = { x: unit.x, z: unit.z, zoom: 11.5 };
+      soundEngine.playClick();
+      setStatusFeedback(`Following ${unit.name} with camera`);
+      return unit.id;
+    });
+  }, []);
+
+  const handleBreakFollow = useCallback(() => {
+    setFollowingEntityId(null);
+  }, []);
+
   const handleTileInteract = useCallback(
     (tileX: number, tileZ: number) => {
       const sim = simRef.current;
@@ -212,20 +270,23 @@ export default function App() {
 
       if (activeTool.kind === 'inspect') {
         const tile = getTile(sim, tileX, tileZ);
+        const pickedUnit = selectedEntityIdRef.current
+          ? sim.units.find((u) => u.id === selectedEntityIdRef.current && u.state !== 'ko')
+          : undefined;
         const nearbyRoadster = (sim.vehicles ?? []).find(
           (v) => v.type === 'roadster' && Math.hypot(v.x - tileX, v.z - tileZ) <= 1.15,
         );
-        const nearbyUnit = sim.units.find(
-          (u) => u.state !== 'ko' && Math.hypot(u.x - tileX, u.z - tileZ) <= 0.85,
-        );
+        const nearbyUnit =
+          pickedUnit ??
+          sim.units.find(
+            (u) => u.state !== 'ko' && Math.hypot(u.x - tileX, u.z - tileZ) <= 0.85,
+          );
         const bld = sim.buildings.find((b) => b.tileX === tileX && b.tileZ === tileZ);
-        if (nearbyRoadster) {
-          const modeLabel =
-            nearbyRoadster.stuntPhase && nearbyRoadster.stuntPhase !== 'cruise'
-              ? `Propulsion Stunt: ${nearbyRoadster.stuntPhase.replace('_', ' ')}`
-              : 'Cruising with SpaceX Thrusters Armed';
-          setStatusFeedback(`Tesla Roadster Easter Egg (${modeLabel})`);
-        } else if (nearbyUnit) {
+        if (nearbyUnit) {
+          if (!selectedEntityIdRef.current) {
+            selectedEntityIdRef.current = nearbyUnit.id;
+            setSelectedEntityId(nearbyUnit.id);
+          }
           const def = UNITS.find((d) => d.role === nearbyUnit.role);
           const label =
             nearbyUnit.faction === 'wildlife'
@@ -234,6 +295,12 @@ export default function App() {
                 ? `${nearbyUnit.species} child`
                 : `${nearbyUnit.species} ${nearbyUnit.role}`;
           setStatusFeedback(`${nearbyUnit.name} (${label}, ${Math.round(nearbyUnit.hp)}/${nearbyUnit.maxHp} HP)`);
+        } else if (nearbyRoadster) {
+          const modeLabel =
+            nearbyRoadster.stuntPhase && nearbyRoadster.stuntPhase !== 'cruise'
+              ? `Propulsion Stunt: ${nearbyRoadster.stuntPhase.replace('_', ' ')}`
+              : 'Cruising with SpaceX Thrusters Armed';
+          setStatusFeedback(`Tesla Roadster Easter Egg (${modeLabel})`);
         } else if (bld) {
           const def = BUILDINGS.find((d) => d.type === bld.type);
           setStatusFeedback(`${def?.name ?? bld.type} (${Math.round(bld.hp)}/${bld.maxHp} HP)`);
@@ -321,6 +388,16 @@ export default function App() {
     ? sim.buildings.find((b) => b.tileX === hoverTile.x && b.tileZ === hoverTile.z)
     : undefined;
   const hostileCount = sim.units.filter((u) => u.faction === 'hostile' && u.state !== 'ko').length;
+  const isInspectTabActive = activeCategory === 'inspect' && activeTool.kind === 'inspect';
+  const hoveredUnit =
+    isInspectTabActive && hoveredEntityId
+      ? sim.units.find((u) => u.id === hoveredEntityId && u.state !== 'ko') ?? null
+      : null;
+  const selectedUnit =
+    isInspectTabActive && selectedEntityId
+      ? sim.units.find((u) => u.id === selectedEntityId && u.state !== 'ko') ?? null
+      : null;
+  const favoriteUnits = sim.units.filter((u) => u.favorite && u.state !== 'ko');
 
   const activeToolLabel = (() => {
     if (activeTool.kind === 'inspect') return 'Inspect';
@@ -348,8 +425,14 @@ export default function App() {
         pixelScale={pixelScale}
         lightingPreset={lightingPreset}
         cameraActionRef={cameraActionRef}
+        hoveredEntityId={isInspectTabActive ? hoveredEntityId : null}
+        selectedEntityId={isInspectTabActive ? selectedEntityId : null}
+        followingEntityId={isInspectTabActive ? followingEntityId : null}
         onTileInteract={handleTileInteract}
         onHoverTileChange={setHoverTile}
+        onHoverEntityChange={setHoveredEntityId}
+        onSelectEntity={handleSelectEntity}
+        onBreakFollow={handleBreakFollow}
         onSyncHud={syncHud}
       />
 
@@ -445,9 +528,6 @@ export default function App() {
                     Pop <span className="font-pixel-num text-[10px]">{sim.population}/{sim.populationCap}</span>
                   </span>
                   <span className="font-pixel-num text-[10px]">{Math.round(sim.happiness)}%</span>
-                  {hostileCount > 0 && (
-                    <span className="text-[#ff6b6b]">Foes {hostileCount}</span>
-                  )}
                   {sim.goldenAgeTimer > 0 && (
                     <span className="text-[#ffd166]">{Math.ceil(sim.goldenAgeTimer)}s</span>
                   )}
@@ -637,6 +717,20 @@ export default function App() {
             </div>
           )}
 
+          {/* ENTITY INSPECTOR PANEL (strictly visible only on Inspect tab during play) */}
+          {gameState === 'playing' && isInspectTabActive && (
+            <EntityInspectorCard
+              sim={sim}
+              hoveredUnit={hoveredUnit}
+              selectedUnit={selectedUnit}
+              favoriteUnits={favoriteUnits}
+              followingEntityId={followingEntityId}
+              onToggleFavorite={handleToggleFavoriteEntity}
+              onSelectUnit={handleSelectEntity}
+              onFocusUnit={handleFocusEntity}
+            />
+          )}
+
           {/* BOTTOM PIXEL TOOLBAR DOCK */}
           <div className="pointer-events-auto self-center relative flex flex-col items-center max-w-full">
             {/* Hover Tooltip */}
@@ -673,16 +767,20 @@ export default function App() {
                         setActiveCategory(tab.id);
                         if (tab.id === 'inspect') {
                           setActiveTool({ kind: 'inspect' });
-                        } else if (tab.id === 'powers' && activeTool.kind !== 'power') {
-                          setActiveTool({ kind: 'power', power: 'blessing' });
-                        } else if (tab.id === 'terrain' && activeTool.kind !== 'terrain') {
-                          setActiveTool({ kind: 'terrain', tool: 'raise' });
-                        } else if (tab.id === 'build' && activeTool.kind !== 'build') {
-                          const epochBld =
-                            BUILDINGS.find((b) => b.epoch === currentEpoch.id)?.type || 'bonfire';
-                          setActiveTool({ kind: 'build', building: epochBld });
-                        } else if (tab.id === 'spawn' && activeTool.kind !== 'spawn') {
-                          setActiveTool({ kind: 'spawn', unit: 'human' });
+                        } else {
+                          setHoveredEntityId(null);
+                          setFollowingEntityId(null);
+                          if (tab.id === 'powers' && activeTool.kind !== 'power') {
+                            setActiveTool({ kind: 'power', power: 'blessing' });
+                          } else if (tab.id === 'terrain' && activeTool.kind !== 'terrain') {
+                            setActiveTool({ kind: 'terrain', tool: 'raise' });
+                          } else if (tab.id === 'build' && activeTool.kind !== 'build') {
+                            const epochBld =
+                              BUILDINGS.find((b) => b.epoch === currentEpoch.id)?.type || 'bonfire';
+                            setActiveTool({ kind: 'build', building: epochBld });
+                          } else if (tab.id === 'spawn' && activeTool.kind !== 'spawn') {
+                            setActiveTool({ kind: 'spawn', unit: 'human' });
+                          }
                         }
                         soundEngine.playClick();
                       }}
@@ -698,10 +796,6 @@ export default function App() {
               </div>
 
               <div className="flex items-end gap-1.5 pb-1">
-                <span className="hidden md:inline px-panel px-2.5 py-1 text-xs text-[#cfc6b8] tabular-nums whitespace-nowrap">
-                  {activeToolLabel}
-                  {inspectedTile ? ` (${inspectedTile.x}, ${inspectedTile.z})` : ''}
-                </span>
                 <button
                   type="button"
                   onClick={() => setDockCollapsed((prev) => !prev)}
@@ -716,12 +810,12 @@ export default function App() {
             {/* Active Pixel Dock Panel */}
             {!dockCollapsed && (
               <div
-                className="px-panel px-3 py-2.5 max-w-[95vw]"
+                className="px-panel px-3 py-2.5 max-w-[680px] w-full max-h-[114px] min-h-[72px] overflow-y-auto overflow-x-hidden pr-1"
                 onMouseLeave={() => setHoveredHint(null)}
               >
                 {/* TAB 1: POWERS (Icon Slots) */}
                 {activeCategory === 'powers' && (
-                  <div className="flex flex-wrap items-center justify-center gap-1.5">
+                  <div className="flex flex-wrap items-center justify-start gap-1.5">
                     {GOD_POWERS.map((power) => {
                       const isSelected =
                         activeTool.kind === 'power' && activeTool.power === power.type;
@@ -765,7 +859,7 @@ export default function App() {
 
                 {/* TAB 2: LAND SCULPTING (Icon Slots + Brush Size) */}
                 {activeCategory === 'terrain' && (
-                  <div className="flex flex-wrap items-center justify-center gap-2">
+                  <div className="flex flex-wrap items-center justify-start gap-2">
                     <div className="flex flex-wrap items-center gap-1.5">
                       {TERRAIN_TOOLS.map((tool) => {
                         const isSelected =
@@ -822,7 +916,7 @@ export default function App() {
 
                 {/* TAB 3: BUILD STRUCTURES (Icon Slots) */}
                 {activeCategory === 'build' && (
-                  <div className="flex flex-wrap items-center justify-center gap-1.5">
+                  <div className="flex flex-wrap items-center justify-start gap-1.5">
                     {BUILDINGS.map((bld) => {
                       const isSelected =
                         activeTool.kind === 'build' && activeTool.building === bld.type;
@@ -864,8 +958,8 @@ export default function App() {
 
                 {/* TAB 4: SPECIES UNITS + ANIMALS & MYTHICAL BEASTS */}
                 {activeCategory === 'spawn' && (
-                  <div className="flex flex-wrap items-center justify-center gap-2">
-                    <div className="flex flex-wrap items-center justify-center gap-1.5">
+                  <div className="flex flex-wrap items-center justify-start gap-2">
+                    <div className="flex flex-wrap items-center justify-start gap-1.5">
                       {SPECIES_UNITS.map((u) => {
                         const isSelected =
                           activeTool.kind === 'spawn' && activeTool.unit === u.role;
@@ -947,34 +1041,7 @@ export default function App() {
                       })}
                     </div>
 
-                    <div className="flex items-center gap-1.5 pl-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          simRef.current.sandboxFreeMode = !simRef.current.sandboxFreeMode;
-                          soundEngine.playClick();
-                          setHudTick((t) => t + 1);
-                        }}
-                        className={`px-2.5 py-1.5 text-xs font-semibold cursor-pointer whitespace-nowrap ${
-                          sim.sandboxFreeMode ? 'px-btn-active' : 'px-btn'
-                        }`}
-                      >
-                        {sim.sandboxFreeMode ? 'Free: On' : 'Free: Off'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          spawnRaiderWave(simRef.current);
-                          soundEngine.playCurse();
-                          setStatusFeedback('Raiders spawned');
-                          setHudTick((t) => t + 1);
-                        }}
-                        className="px-btn px-2.5 py-1.5 text-xs font-semibold text-[#ff8f6b] cursor-pointer whitespace-nowrap"
-                      >
-                        Raiders
-                      </button>
                     </div>
-                  </div>
                 )}
 
                 {/* TAB 5: WORLD (Ages, Pixel Scale, Sky, Seed) */}
@@ -1069,9 +1136,7 @@ export default function App() {
                           : inspectedTile.terrain.replace('_', ' ')}
                       </span>
                     )}
-                    <span className="text-[#a89f91] tabular-nums">
-                      Seed {sim.seed} / Built {sim.totalStructuresBuilt} / Defeated {sim.totalRaidersDefeated}
-                    </span>
+
                   </div>
                 )}
               </div>

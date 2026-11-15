@@ -3448,6 +3448,374 @@ export function createBuildingGroup(
   return group;
 }
 
+interface DragonGeoTemplate {
+  bodyScale: THREE.BufferGeometry;
+  bodyBelly: THREE.BufferGeometry;
+  bodyHorn: THREE.BufferGeometry;
+  headScale: THREE.BufferGeometry;
+  headBelly: THREE.BufferGeometry;
+  headHorn: THREE.BufferGeometry;
+  headEye: THREE.BufferGeometry;
+  jawBelly: THREE.BufferGeometry;
+  jawHorn: THREE.BufferGeometry;
+  tailScale: THREE.BufferGeometry;
+  tailBelly: THREE.BufferGeometry;
+  tailHorn: THREE.BufferGeometry;
+  wingInnerBoneL: THREE.BufferGeometry;
+  wingInnerMemL: THREE.BufferGeometry;
+  wingInnerHornL: THREE.BufferGeometry;
+  wingInnerBoneR: THREE.BufferGeometry;
+  wingInnerMemR: THREE.BufferGeometry;
+  wingInnerHornR: THREE.BufferGeometry;
+  wingOuterBoneL: THREE.BufferGeometry;
+  wingOuterMemL: THREE.BufferGeometry;
+  wingOuterBoneR: THREE.BufferGeometry;
+  wingOuterMemR: THREE.BufferGeometry;
+  legScale: THREE.BufferGeometry;
+  legHorn: THREE.BufferGeometry;
+}
+
+let cachedDragonGeoTemplate: DragonGeoTemplate | null = null;
+const cachedDragonPaletteMats = new Map<
+  string,
+  {
+    scaleMat: THREE.MeshStandardMaterial;
+    bellyMat: THREE.MeshStandardMaterial;
+    wingMat: THREE.MeshStandardMaterial;
+    hornMat: THREE.MeshStandardMaterial;
+    eyeMat: THREE.MeshStandardMaterial;
+  }
+>();
+
+function mergeCleanParts(parts: THREE.BufferGeometry[]): THREE.BufferGeometry {
+  const prepped: THREE.BufferGeometry[] = [];
+  for (const g of parts) {
+    const clean = g.index ? g.toNonIndexed() : g.clone();
+    if (clean.attributes.uv) clean.deleteAttribute('uv');
+    if (clean.attributes.color) clean.deleteAttribute('color');
+    if (!clean.attributes.normal) clean.computeVertexNormals();
+    prepped.push(clean);
+    g.dispose();
+  }
+  const merged = mergeGeometries(prepped, false);
+  for (const p of prepped) p.dispose();
+  if (!merged) {
+    return new THREE.BoxGeometry(0.1, 0.1, 0.1);
+  }
+  return merged;
+}
+
+function makeTransformedBox(
+  w: number,
+  h: number,
+  d: number,
+  x: number,
+  y: number,
+  z: number,
+  rx = 0,
+  ry = 0,
+  rz = 0,
+): THREE.BufferGeometry {
+  const g = new THREE.BoxGeometry(w, h, d);
+  if (rx) g.rotateX(rx);
+  if (ry) g.rotateY(ry);
+  if (rz) g.rotateZ(rz);
+  g.translate(x, y, z);
+  return g;
+}
+
+function makeTransformedCone(
+  r: number,
+  h: number,
+  seg: number,
+  x: number,
+  y: number,
+  z: number,
+  rx = 0,
+  ry = 0,
+  rz = 0,
+): THREE.BufferGeometry {
+  const g = new THREE.ConeGeometry(r, h, seg);
+  if (rx) g.rotateX(rx);
+  if (ry) g.rotateY(ry);
+  if (rz) g.rotateZ(rz);
+  g.translate(x, y, z);
+  return g;
+}
+
+function makeWingTriangleGeo(tris: Array<[number, number, number]>): THREE.BufferGeometry {
+  const arr = new Float32Array(tris.length * 3);
+  for (let i = 0; i < tris.length; i++) {
+    arr[i * 3] = tris[i][0];
+    arr[i * 3 + 1] = tris[i][1];
+    arr[i * 3 + 2] = tris[i][2];
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(arr, 3));
+  geo.computeVertexNormals();
+  return geo;
+}
+
+function getDragonGeoTemplate(): DragonGeoTemplate {
+  if (cachedDragonGeoTemplate) return cachedDragonGeoTemplate;
+
+  // 1. Torso & Shoulders
+  const bodyScaleParts: THREE.BufferGeometry[] = [
+    makeTransformedBox(0.7, 0.56, 0.84, 0, 0.6, 0.16), // Muscular thorax
+    makeTransformedBox(0.58, 0.44, 0.44, 0, 0.55, 0.54, 0.14), // Pectoral chest
+    makeTransformedBox(0.48, 0.42, 0.52, 0, 0.56, -0.44, -0.06), // Tapered waist & pelvis
+    makeTransformedBox(0.24, 0.3, 0.38, -0.36, 0.67, 0.28, 0, 0, 0.14), // Left shoulder pauldron
+    makeTransformedBox(0.24, 0.3, 0.38, 0.36, 0.67, 0.28, 0, 0, -0.14), // Right shoulder pauldron
+    makeTransformedBox(0.2, 0.26, 0.34, -0.28, 0.57, -0.42, 0, 0, 0.1), // Left hip armor
+    makeTransformedBox(0.2, 0.26, 0.34, 0.28, 0.57, -0.42, 0, 0, -0.1), // Right hip armor
+  ];
+  const bodyBellyParts: THREE.BufferGeometry[] = [];
+  for (let bi = 0; bi < 6; bi++) {
+    const bz = 0.54 - bi * 0.21;
+    const bw = 0.54 - Math.abs(bi - 2) * 0.045;
+    const by = 0.33 + (bi >= 4 ? 0.03 : 0);
+    bodyBellyParts.push(makeTransformedBox(bw, 0.11, 0.2, 0, by, bz, bi === 0 ? -0.18 : 0));
+  }
+  const bodyHornParts: THREE.BufferGeometry[] = [
+    // Swept collar spikes flanking the neck base
+    makeTransformedCone(0.065, 0.28, 4, -0.25, 0.9, 0.52, -0.58, 0, 0.38),
+    makeTransformedCone(0.065, 0.28, 4, 0.25, 0.9, 0.52, -0.58, 0, -0.38),
+  ];
+  for (let si = 0; si < 6; si++) {
+    const spineH = 0.28 - si * 0.022;
+    bodyHornParts.push(
+      makeTransformedCone(0.062, spineH, 4, 0, 0.93 - si * 0.015, 0.48 - si * 0.21, -0.42),
+    );
+  }
+
+  // 2. Serpentine Neck & Horned Skull (relative to head_pivot at (0, 0.72, 0.62))
+  const headScaleParts: THREE.BufferGeometry[] = [
+    // S-curved 3-segment neck
+    makeTransformedBox(0.36, 0.34, 0.34, 0, 0.12, 0.1, 0.54),
+    makeTransformedBox(0.32, 0.34, 0.32, 0, 0.36, 0.24, 0.26),
+    makeTransformedBox(0.3, 0.26, 0.28, 0, 0.54, 0.36, 0.06),
+    // Angular cranium + elongated snout bridge + flared brow/cheek armor
+    makeTransformedBox(0.48, 0.3, 0.42, 0, 0.66, 0.56),
+    makeTransformedBox(0.34, 0.21, 0.38, 0, 0.63, 0.88),
+    makeTransformedBox(0.24, 0.17, 0.16, 0, 0.62, 1.07),
+    // Twin fierce brow ridges
+    makeTransformedBox(0.14, 0.09, 0.36, -0.2, 0.79, 0.65, 0.16, -0.14, 0.22),
+    makeTransformedBox(0.14, 0.09, 0.36, 0.2, 0.79, 0.65, 0.16, 0.14, -0.22),
+    // Flared cheekbone armor
+    makeTransformedBox(0.1, 0.16, 0.28, -0.25, 0.58, 0.6, 0, -0.18),
+    makeTransformedBox(0.1, 0.16, 0.28, 0.25, 0.58, 0.6, 0, 0.18),
+    // Twin raised nostrils
+    makeTransformedBox(0.06, 0.06, 0.08, -0.075, 0.72, 1.04),
+    makeTransformedBox(0.06, 0.06, 0.08, 0.075, 0.72, 1.04),
+  ];
+  const headBellyParts: THREE.BufferGeometry[] = [
+    makeTransformedBox(0.24, 0.14, 0.26, 0, 0.14, 0.2, 0.48),
+    makeTransformedBox(0.22, 0.14, 0.24, 0, 0.34, 0.33, 0.24),
+    // Glowing lateral neck heat-vents
+    makeTransformedBox(0.35, 0.07, 0.12, 0, 0.24, 0.24, 0.36),
+    makeTransformedBox(0.33, 0.07, 0.12, 0, 0.4, 0.34, 0.18),
+  ];
+  const headHornParts: THREE.BufferGeometry[] = [
+    // Neck dorsal crests
+    makeTransformedCone(0.048, 0.2, 4, 0, 0.24, 0.02, -0.45),
+    makeTransformedCone(0.045, 0.18, 4, 0, 0.46, 0.14, -0.45),
+    makeTransformedCone(0.045, 0.18, 4, 0, 0.68, 0.32, -0.55),
+    // Nasal horn & brow crest
+    makeTransformedCone(0.055, 0.22, 4, 0, 0.78, 0.99, 0.42),
+    // Two-stage sweeping great horns (base + backward curved tip)
+    makeTransformedCone(0.09, 0.4, 5, -0.17, 0.87, 0.42, -0.72, 0, 0.26),
+    makeTransformedCone(0.058, 0.34, 5, -0.25, 0.99, 0.18, -1.12, 0, 0.34),
+    makeTransformedCone(0.09, 0.4, 5, 0.17, 0.87, 0.42, -0.72, 0, -0.26),
+    makeTransformedCone(0.058, 0.34, 5, 0.25, 0.99, 0.18, -1.12, 0, -0.34),
+    // Secondary temple/cheek horns
+    makeTransformedCone(0.05, 0.24, 4, -0.26, 0.74, 0.44, -0.95, 0, 0.65),
+    makeTransformedCone(0.05, 0.24, 4, 0.26, 0.74, 0.44, -0.95, 0, -0.65),
+    // Upper fangs along snout edge
+    makeTransformedCone(0.028, 0.095, 4, -0.11, 0.51, 0.88, Math.PI),
+    makeTransformedCone(0.028, 0.095, 4, 0.11, 0.51, 0.88, Math.PI),
+    makeTransformedCone(0.026, 0.09, 4, -0.08, 0.51, 1.06, Math.PI),
+    makeTransformedCone(0.026, 0.09, 4, 0.08, 0.51, 1.06, Math.PI),
+  ];
+  const headEyeParts: THREE.BufferGeometry[] = [
+    makeTransformedBox(0.055, 0.06, 0.11, -0.21, 0.71, 0.68),
+    makeTransformedBox(0.055, 0.06, 0.11, 0.21, 0.71, 0.68),
+  ];
+
+  // 3. Lower Jaw (relative to jaw_pivot at (0, 0.48, 0.46))
+  const jawBellyParts: THREE.BufferGeometry[] = [
+    makeTransformedBox(0.35, 0.1, 0.5, 0, -0.04, 0.24),
+    makeTransformedBox(0.24, 0.09, 0.2, 0, -0.02, 0.52),
+  ];
+  const jawHornParts: THREE.BufferGeometry[] = [
+    makeTransformedCone(0.042, 0.16, 4, 0, -0.1, 0.44, -2.55), // Chin spike
+    makeTransformedCone(0.032, 0.11, 4, -0.12, 0.04, 0.44),
+    makeTransformedCone(0.032, 0.11, 4, 0.12, 0.04, 0.44),
+    makeTransformedCone(0.026, 0.09, 4, -0.09, 0.04, 0.58),
+    makeTransformedCone(0.026, 0.09, 4, 0.09, 0.04, 0.58),
+  ];
+
+  // 4. Barbed Sinuous Tail (relative to tail_pivot at (0, 0.56, -0.68))
+  const tailScaleParts: THREE.BufferGeometry[] = [
+    makeTransformedBox(0.36, 0.32, 0.56, 0, 0.0, -0.26),
+    makeTransformedBox(0.26, 0.24, 0.52, 0, 0.04, -0.72, 0.14),
+    makeTransformedBox(0.18, 0.16, 0.48, 0, 0.14, -1.16, 0.28),
+    makeTransformedBox(0.11, 0.11, 0.4, 0, 0.28, -1.54, 0.34),
+  ];
+  const tailBellyParts: THREE.BufferGeometry[] = [
+    makeTransformedBox(0.26, 0.08, 0.46, 0, -0.14, -0.26),
+    makeTransformedBox(0.18, 0.07, 0.42, 0, -0.07, -0.7, 0.14),
+    makeTransformedBox(0.12, 0.06, 0.36, 0, 0.06, -1.12, 0.28),
+  ];
+  const tailHornParts: THREE.BufferGeometry[] = [
+    makeTransformedCone(0.046, 0.18, 4, 0, 0.22, -0.24, -0.45),
+    makeTransformedCone(0.042, 0.16, 4, 0, 0.22, -0.58, -0.45),
+    makeTransformedCone(0.036, 0.15, 4, 0, 0.26, -0.92, -0.55),
+    makeTransformedCone(0.032, 0.14, 4, 0, 0.36, -1.28, -0.62),
+    // Halberd diamond tail spade + twin lateral barbs
+    makeTransformedCone(0.17, 0.42, 4, 0, 0.4, -1.84, -Math.PI / 2 + 0.34, Math.PI / 4),
+    makeTransformedCone(0.055, 0.24, 4, -0.14, 0.35, -1.72, -1.2, -0.55),
+    makeTransformedCone(0.055, 0.24, 4, 0.14, 0.35, -1.72, -1.2, 0.55),
+  ];
+
+  // 5. Detailed Bat-Like Multi-Spar Scalloped Wings (symmetric Left & Right)
+  const buildWingSide = (sign: -1 | 1) => {
+    const innerBones: THREE.BufferGeometry[] = [
+      // Heavy armored leading wing arm + elbow joint + two radiating inner finger ribs
+      makeTransformedBox(1.06, 0.1, 0.14, sign * 0.52, 0.06, 0.06),
+      makeTransformedBox(0.22, 0.14, 0.18, sign * 1.0, 0.07, 0.06), // Wrist joint knuckle
+      makeTransformedBox(0.08, 0.05, 0.72, sign * 0.52, 0.04, -0.32, 0, sign * -0.12), // Mid rib
+      makeTransformedBox(0.07, 0.05, 0.62, sign * 0.84, 0.04, -0.3, 0, sign * 0.18), // Outer rib
+    ];
+    const innerHorns: THREE.BufferGeometry[] = [
+      makeTransformedCone(0.048, 0.22, 4, sign * 1.04, 0.12, 0.19, 0.9, 0, sign * -0.2), // Wing wrist claw
+    ];
+    // Scalloped inner wing membrane web
+    const innerMem = makeWingTriangleGeo([
+      [0, 0.05, 0.02], [sign * 0.52, 0.06, 0.02], [sign * 0.45, 0.03, -0.74],
+      [0, 0.05, 0.02], [sign * 0.45, 0.03, -0.74], [0, 0.02, -0.58],
+      [sign * 0.52, 0.06, 0.02], [sign * 1.02, 0.05, 0.02], [sign * 0.94, 0.02, -0.68],
+      [sign * 0.52, 0.06, 0.02], [sign * 0.94, 0.02, -0.68], [sign * 0.45, 0.03, -0.74],
+      // Scalloped notches at trailing edge
+      [0, 0.02, -0.58], [sign * 0.24, 0.02, -0.52], [sign * 0.45, 0.03, -0.74],
+      [sign * 0.45, 0.03, -0.74], [sign * 0.72, 0.02, -0.56], [sign * 0.94, 0.02, -0.68],
+    ]);
+
+    // Outer wing fingers (swept main leading phalanx + 3 fanned finger spars)
+    const outerBones: THREE.BufferGeometry[] = [
+      makeTransformedBox(1.16, 0.08, 0.11, sign * 0.56, 0.01, -0.12, 0, sign * -0.24), // Main leading spar
+      makeTransformedBox(1.02, 0.05, 0.07, sign * 0.45, 0.0, -0.34, 0, sign * -0.52), // Finger 2
+      makeTransformedBox(0.84, 0.045, 0.06, sign * 0.28, -0.01, -0.46, 0, sign * -0.88), // Finger 3
+      makeTransformedBox(0.64, 0.04, 0.055, sign * 0.08, -0.02, -0.48, 0, sign * -1.24), // Finger 4
+    ];
+    // 3-bay scalloped outer bat-wing membrane
+    const outerMem = makeWingTriangleGeo([
+      // Bay 1: leading tip -> finger 2 tip
+      [0, 0.02, 0.0], [sign * 1.12, 0.01, -0.26], [sign * 0.84, -0.01, -0.66],
+      [0, 0.02, 0.0], [sign * 0.84, -0.01, -0.66], [sign * 0.66, 0.0, -0.38],
+      // Bay 2: finger 2 -> finger 3
+      [0, 0.02, 0.0], [sign * 0.84, -0.01, -0.66], [sign * 0.46, -0.02, -0.82],
+      [0, 0.02, 0.0], [sign * 0.46, -0.02, -0.82], [sign * 0.36, 0.0, -0.56],
+      // Bay 3: finger 3 -> trailing root
+      [0, 0.02, 0.0], [sign * 0.46, -0.02, -0.82], [sign * 0.06, -0.02, -0.76],
+      [0, 0.02, 0.0], [sign * 0.06, -0.02, -0.76], [sign * -0.08, -0.01, -0.68],
+    ]);
+
+    return {
+      innerBone: mergeCleanParts(innerBones),
+      innerMem,
+      innerHorn: mergeCleanParts(innerHorns),
+      outerBone: mergeCleanParts(outerBones),
+      outerMem,
+    };
+  };
+
+  const leftWing = buildWingSide(-1);
+  const rightWing = buildWingSide(1);
+
+  // 6. Digitigrade Clawed Legs (reused across all 4 limbs)
+  const legScaleParts: THREE.BufferGeometry[] = [
+    makeTransformedBox(0.2, 0.22, 0.22, 0, -0.08, -0.02, -0.18), // Muscular thigh
+    makeTransformedBox(0.14, 0.22, 0.14, 0, -0.24, 0.04, 0.24), // Angled shin
+  ];
+  const legHornParts: THREE.BufferGeometry[] = [
+    makeTransformedBox(0.18, 0.06, 0.16, 0, -0.35, 0.07), // Foot pad
+    makeTransformedCone(0.03, 0.12, 4, -0.065, -0.36, 0.19, Math.PI / 2), // Left talon
+    makeTransformedCone(0.032, 0.14, 4, 0, -0.36, 0.21, Math.PI / 2), // Center talon
+    makeTransformedCone(0.03, 0.12, 4, 0.065, -0.36, 0.19, Math.PI / 2), // Right talon
+    makeTransformedCone(0.026, 0.1, 4, 0, -0.33, -0.04, -1.2), // Rear ankle spur
+  ];
+
+  cachedDragonGeoTemplate = {
+    bodyScale: mergeCleanParts(bodyScaleParts),
+    bodyBelly: mergeCleanParts(bodyBellyParts),
+    bodyHorn: mergeCleanParts(bodyHornParts),
+    headScale: mergeCleanParts(headScaleParts),
+    headBelly: mergeCleanParts(headBellyParts),
+    headHorn: mergeCleanParts(headHornParts),
+    headEye: mergeCleanParts(headEyeParts),
+    jawBelly: mergeCleanParts(jawBellyParts),
+    jawHorn: mergeCleanParts(jawHornParts),
+    tailScale: mergeCleanParts(tailScaleParts),
+    tailBelly: mergeCleanParts(tailBellyParts),
+    tailHorn: mergeCleanParts(tailHornParts),
+    wingInnerBoneL: leftWing.innerBone,
+    wingInnerMemL: leftWing.innerMem,
+    wingInnerHornL: leftWing.innerHorn,
+    wingInnerBoneR: rightWing.innerBone,
+    wingInnerMemR: rightWing.innerMem,
+    wingInnerHornR: rightWing.innerHorn,
+    wingOuterBoneL: leftWing.outerBone,
+    wingOuterMemL: leftWing.outerMem,
+    wingOuterBoneR: rightWing.outerBone,
+    wingOuterMemR: rightWing.outerMem,
+    legScale: mergeCleanParts(legScaleParts),
+    legHorn: mergeCleanParts(legHornParts),
+  };
+
+  return cachedDragonGeoTemplate;
+}
+
+function getDragonPaletteMaterials(palette: ReturnType<typeof getDragonVariant>) {
+  let mats = cachedDragonPaletteMats.get(palette.name);
+  if (!mats) {
+    const wingMat = new THREE.MeshStandardMaterial({
+      color: palette.wing,
+      roughness: 0.54,
+      metalness: 0.14,
+      side: THREE.DoubleSide,
+    });
+    mats = {
+      scaleMat: new THREE.MeshStandardMaterial({
+        color: palette.body,
+        roughness: 0.36,
+        metalness: 0.36,
+      }),
+      bellyMat: new THREE.MeshStandardMaterial({
+        color: palette.belly,
+        roughness: 0.44,
+        metalness: 0.22,
+        emissive: new THREE.Color(palette.glow),
+        emissiveIntensity: 0.2,
+      }),
+      wingMat,
+      hornMat: new THREE.MeshStandardMaterial({
+        color: 0xf4e8d2,
+        roughness: 0.3,
+        metalness: 0.28,
+      }),
+      eyeMat: new THREE.MeshStandardMaterial({
+        color: palette.glow,
+        roughness: 0.18,
+        metalness: 0.1,
+        emissive: new THREE.Color(palette.glow),
+        emissiveIntensity: 1.35,
+      }),
+    };
+    cachedDragonPaletteMats.set(palette.name, mats);
+  }
+  return mats;
+}
+
 function buildCreatureUnitGroup(
   group: THREE.Group,
   role: UnitRole,
@@ -4022,17 +4390,13 @@ function buildCreatureUnitGroup(
       if (c.name.startsWith('leg_')) c.scale.setScalar(dinoScale);
     });
   } else if (role === 'dragon') {
-    // Colossal winged dragon (~2.35x body volume, ~4.2-unit wingspan, openable fire jaw & multi-segment wings)
+    // Detailed, geometry-merged colossal winged dragon (~4.3-unit wingspan, sculpted horned head, fangs, scalloped wings, barbed tail)
     shadowRadius = 1.65;
     auraRadius = 0.92;
     const dragonSeed = Number(group.userData.appearanceSeed ?? 1);
     const palette = getDragonVariant(dragonSeed);
-    const scaleMat = mat(palette.body, 0.38, 0.34);
-    const bellyMat = mat(palette.belly, 0.45, 0.2, palette.glow, 0.22);
-    const wingMat = mat(palette.wing, 0.52, 0.16, 0, 0);
-    wingMat.side = THREE.DoubleSide;
-    const hornMat = mat(0xf4e8d2, 0.32, 0.28);
-    const eyeMat = mat(palette.glow, 0.18, 0.1, palette.glow, 1.25);
+    const geo = getDragonGeoTemplate();
+    const { scaleMat, bellyMat, wingMat, hornMat, eyeMat } = getDragonPaletteMaterials(palette);
     const mawGlowMat = new THREE.MeshStandardMaterial({
       color: palette.glow,
       emissive: new THREE.Color(palette.glow),
@@ -4042,128 +4406,72 @@ function buildCreatureUnitGroup(
     });
     mawGlowMat.name = 'dragon_maw_mat';
 
-    // Massive muscular body & armored glowing keel
-    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.54, 1.38), scaleMat);
-    torso.position.set(0, 0.58, 0);
-    torso.castShadow = true;
-    bodyPivot.add(torso);
+    // Merged armored torso, ventral keel plates, and dorsal spine ridge
+    const bodyScaleMesh = new THREE.Mesh(geo.bodyScale, scaleMat);
+    bodyScaleMesh.castShadow = true;
+    bodyPivot.add(bodyScaleMesh);
+    bodyPivot.add(new THREE.Mesh(geo.bodyBelly, bellyMat));
+    bodyPivot.add(new THREE.Mesh(geo.bodyHorn, hornMat));
 
-    const chestArmor = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.2, 1.18), bellyMat);
-    chestArmor.position.set(0, 0.35, 0.04);
-    bodyPivot.add(chestArmor);
-
-    // Dorsal spine ridge crests
-    for (let si = 0; si < 5; si++) {
-      const spine = new THREE.Mesh(new THREE.ConeGeometry(0.065, 0.24, 4), hornMat);
-      spine.position.set(0, 0.94, 0.45 - si * 0.25);
-      spine.rotation.x = -0.35;
-      bodyPivot.add(spine);
-    }
-
-    // Articulated arched serpentine neck + horned skull + snapping lower jaw
+    // Articulated arched S-neck, horned skull, brow ridges, nostrils, upper fangs & glowing eyes
     const headPivot = makePivot('head_pivot', 0, 0.72, 0.62);
-    const neck = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.68, 0.36), scaleMat);
-    neck.position.set(0, 0.26, 0.18);
-    neck.rotation.x = 0.42;
-    neck.castShadow = true;
-    headPivot.add(neck);
+    const headScaleMesh = new THREE.Mesh(geo.headScale, scaleMat);
+    headScaleMesh.castShadow = true;
+    headPivot.add(headScaleMesh);
+    headPivot.add(new THREE.Mesh(geo.headBelly, bellyMat));
+    headPivot.add(new THREE.Mesh(geo.headHorn, hornMat));
+    headPivot.add(new THREE.Mesh(geo.headEye, eyeMat));
 
-    const skull = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.32, 0.68), scaleMat);
-    skull.position.set(0, 0.62, 0.56);
-    skull.castShadow = true;
-    headPivot.add(skull);
-
-    const snoutCrest = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.22, 4), hornMat);
-    snoutCrest.position.set(0, 0.82, 0.82);
-    snoutCrest.rotation.x = 0.35;
-    headPivot.add(snoutCrest);
-
-    const fireMaw = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.12, 0.26), mawGlowMat);
-    fireMaw.position.set(0, 0.49, 0.78);
+    const fireMaw = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.12, 0.28), mawGlowMat);
+    fireMaw.position.set(0, 0.51, 0.84);
     fireMaw.name = 'fire_maw';
     headPivot.add(fireMaw);
 
     const jawPivot = makePivot('jaw_pivot', 0, 0.48, 0.46);
-    const lowerJaw = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.12, 0.58), bellyMat);
-    lowerJaw.position.set(0, -0.04, 0.24);
-    jawPivot.add(lowerJaw);
-    for (const fx of [-0.12, 0.12]) {
-      const fang = new THREE.Mesh(new THREE.ConeGeometry(0.032, 0.11, 4), hornMat);
-      fang.position.set(fx, 0.04, 0.48);
-      jawPivot.add(fang);
-    }
+    jawPivot.add(new THREE.Mesh(geo.jawBelly, bellyMat));
+    jawPivot.add(new THREE.Mesh(geo.jawHorn, hornMat));
     headPivot.add(jawPivot);
-
-    for (const hx of [-0.18, 0.18]) {
-      const horn = new THREE.Mesh(new THREE.ConeGeometry(0.085, 0.55, 5), hornMat);
-      horn.rotation.x = -0.82;
-      horn.rotation.z = hx < 0 ? 0.26 : -0.26;
-      horn.position.set(hx, 0.92, 0.36);
-      headPivot.add(horn);
-
-      const eye = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.065, 0.08), eyeMat);
-      eye.position.set(hx * 1.25, 0.68, 0.68);
-      headPivot.add(eye);
-    }
     bodyPivot.add(headPivot);
 
-    // Sweeping articulated spiked tail
+    // Sweeping articulated sinuous tail with ventral plates & halberd tail spade
     const tailPivot = makePivot('tail_pivot', 0, 0.56, -0.68);
-    const tail1 = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.32, 0.88), scaleMat);
-    tail1.position.set(0, 0, -0.4);
-    tailPivot.add(tail1);
-    const tail2 = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 0.78), scaleMat);
-    tail2.position.set(0, 0.08, -1.08);
-    tail2.rotation.x = 0.22;
-    tailPivot.add(tail2);
-    const tailSpade = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.38, 4), hornMat);
-    tailSpade.rotation.x = -Math.PI / 2;
-    tailSpade.position.set(0, 0.18, -1.52);
-    tailPivot.add(tailSpade);
+    tailPivot.add(new THREE.Mesh(geo.tailScale, scaleMat));
+    tailPivot.add(new THREE.Mesh(geo.tailBelly, bellyMat));
+    tailPivot.add(new THREE.Mesh(geo.tailHorn, hornMat));
     bodyPivot.add(tailPivot);
 
-    // Massive 2-segment swept dragon wings (~4.2 units wide total!)
+    // Massive 2-segment scalloped multi-spar dragon wings (~4.3 units total span!)
     const wingPivotL = makePivot('wing_l', -0.34, 0.78, 0.16);
-    const wingInnerBoneL = new THREE.Mesh(new THREE.BoxGeometry(1.05, 0.09, 0.13), scaleMat);
-    wingInnerBoneL.position.set(-0.52, 0.06, 0.06);
-    wingPivotL.add(wingInnerBoneL);
-    const wingInnerMemL = new THREE.Mesh(new THREE.BoxGeometry(1.02, 0.035, 0.78), wingMat);
-    wingInnerMemL.position.set(-0.52, 0.03, -0.3);
-    wingInnerMemL.castShadow = true;
-    wingPivotL.add(wingInnerMemL);
+    const wingBoneL = new THREE.Mesh(geo.wingInnerBoneL, scaleMat);
+    wingBoneL.castShadow = true;
+    wingPivotL.add(wingBoneL);
+    const wingMemMeshL = new THREE.Mesh(geo.wingInnerMemL, wingMat);
+    wingMemMeshL.castShadow = true;
+    wingPivotL.add(wingMemMeshL);
+    wingPivotL.add(new THREE.Mesh(geo.wingInnerHornL, hornMat));
 
     const wingOuterL = makePivot('wing_outer_l', -1.02, 0.06, 0.05);
-    const wingOuterBoneL = new THREE.Mesh(new THREE.BoxGeometry(1.08, 0.075, 0.11), scaleMat);
-    wingOuterBoneL.position.set(-0.52, 0.0, -0.14);
-    wingOuterBoneL.rotation.y = -0.28;
-    wingOuterL.add(wingOuterBoneL);
-    const wingOuterMemL = new THREE.Mesh(new THREE.BoxGeometry(1.05, 0.03, 0.64), wingMat);
-    wingOuterMemL.position.set(-0.5, -0.01, -0.42);
-    wingOuterMemL.rotation.y = -0.22;
-    wingOuterMemL.castShadow = true;
-    wingOuterL.add(wingOuterMemL);
+    wingOuterL.add(new THREE.Mesh(geo.wingOuterBoneL, scaleMat));
+    const wingOuterMemMeshL = new THREE.Mesh(geo.wingOuterMemL, wingMat);
+    wingOuterMemMeshL.castShadow = true;
+    wingOuterL.add(wingOuterMemMeshL);
     wingPivotL.add(wingOuterL);
     bodyPivot.add(wingPivotL);
 
     const wingPivotR = makePivot('wing_r', 0.34, 0.78, 0.16);
-    const wingInnerBoneR = new THREE.Mesh(new THREE.BoxGeometry(1.05, 0.09, 0.13), scaleMat);
-    wingInnerBoneR.position.set(0.52, 0.06, 0.06);
-    wingPivotR.add(wingInnerBoneR);
-    const wingInnerMemR = new THREE.Mesh(new THREE.BoxGeometry(1.02, 0.035, 0.78), wingMat);
-    wingInnerMemR.position.set(0.52, 0.03, -0.3);
-    wingInnerMemR.castShadow = true;
-    wingPivotR.add(wingInnerMemR);
+    const wingBoneR = new THREE.Mesh(geo.wingInnerBoneR, scaleMat);
+    wingBoneR.castShadow = true;
+    wingPivotR.add(wingBoneR);
+    const wingMemMeshR = new THREE.Mesh(geo.wingInnerMemR, wingMat);
+    wingMemMeshR.castShadow = true;
+    wingPivotR.add(wingMemMeshR);
+    wingPivotR.add(new THREE.Mesh(geo.wingInnerHornR, hornMat));
 
     const wingOuterR = makePivot('wing_outer_r', 1.02, 0.06, 0.05);
-    const wingOuterBoneR = new THREE.Mesh(new THREE.BoxGeometry(1.08, 0.075, 0.11), scaleMat);
-    wingOuterBoneR.position.set(0.52, 0.0, -0.14);
-    wingOuterBoneR.rotation.y = 0.28;
-    wingOuterR.add(wingOuterBoneR);
-    const wingOuterMemR = new THREE.Mesh(new THREE.BoxGeometry(1.05, 0.03, 0.64), wingMat);
-    wingOuterMemR.position.set(0.5, -0.01, -0.42);
-    wingOuterMemR.rotation.y = 0.22;
-    wingOuterMemR.castShadow = true;
-    wingOuterR.add(wingOuterMemR);
+    wingOuterR.add(new THREE.Mesh(geo.wingOuterBoneR, scaleMat));
+    const wingOuterMemMeshR = new THREE.Mesh(geo.wingOuterMemR, wingMat);
+    wingOuterMemMeshR.castShadow = true;
+    wingOuterR.add(wingOuterMemMeshR);
     wingPivotR.add(wingOuterR);
     bodyPivot.add(wingPivotR);
 
@@ -4174,12 +4482,8 @@ function buildCreatureUnitGroup(
       ['leg_br', 0.28, -0.42],
     ] as const) {
       const legPivot = makePivot(name, lx, 0.38, lz);
-      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.36, 0.16), scaleMat);
-      leg.position.set(0, -0.18, 0);
-      legPivot.add(leg);
-      const claw = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.07, 0.22), hornMat);
-      claw.position.set(0, -0.35, 0.06);
-      legPivot.add(claw);
+      legPivot.add(new THREE.Mesh(geo.legScale, scaleMat));
+      legPivot.add(new THREE.Mesh(geo.legHorn, hornMat));
       bodyPivot.add(legPivot);
     }
   } else {
