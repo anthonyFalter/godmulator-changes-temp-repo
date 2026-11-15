@@ -6075,11 +6075,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
               data-tile-x={lbl.tileX}
               data-tile-z={lbl.tileZ}
               style={{
-                borderColor: lbl.hexColor,
+                backgroundColor: `color-mix(in srgb, ${lbl.hexColor} 28%, #161310)`,
+                borderColor: `color-mix(in srgb, ${lbl.hexColor} 55%, #000000)`,
                 left: 0,
                 top: 0,
               }}
-              className={`absolute px-2 py-0.5 bg-[#12100e]/95 border-2 shadow-[0_2px_0_#070605] flex items-center gap-1.5 whitespace-nowrap ${
+              className={`absolute px-2 py-0.5 border-2 flex items-center gap-1.5 whitespace-nowrap ${
                 lbl.isHovered ? 'scale-110 z-20' : 'z-10'
               }`}
             >

@@ -568,10 +568,11 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
             float hoverPulse = isHovered ? (0.16 + 0.08 * sin(uTime * 5.0)) : 0.0;
 
             if (onDarkOuterStroke) {
-              color = mix(color, vec3(0.03, 0.025, 0.02), 0.94);
+              vec3 darkBorderCol = zCol.rgb * (isHovered ? 0.52 : 0.36);
+              color = mix(color, darkBorderCol, 0.96);
             } else if (isOuterBorderTile || isInnerBorderTile) {
-              vec3 borderCol = mix(zCol.rgb, vec3(1.0), isHovered ? 0.58 : 0.34);
-              color = mix(color, borderCol, isOuterBorderTile ? 0.96 : 0.90);
+              vec3 borderCol = zCol.rgb * (isHovered ? 0.64 : 0.46);
+              color = mix(color, borderCol, isOuterBorderTile ? 0.95 : 0.90);
             } else {
               float baseAlpha = zCol.a * 0.52 + hoverPulse;
               color = mix(color, zCol.rgb, clamp(baseAlpha, 0.0, 0.78));
@@ -1522,8 +1523,8 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
             bool diffCliff = abs(zNbId.r - zId.r) > 0.002 || abs(zNbId.g - zId.g) > 0.002;
             bool isHovered = zId.b > 0.5;
             if (diffCliff) {
-              vec3 rimCol = mix(zCol.rgb, vec3(1.0), isHovered ? 0.58 : 0.34);
-              gl_FragColor.rgb = mix(gl_FragColor.rgb, rimCol, 0.94);
+              vec3 rimCol = zCol.rgb * (isHovered ? 0.56 : 0.40);
+              gl_FragColor.rgb = mix(gl_FragColor.rgb, rimCol, 0.95);
             } else {
               float hBoost = isHovered ? 0.16 : 0.0;
               gl_FragColor.rgb = mix(gl_FragColor.rgb, zCol.rgb, clamp(zCol.a * 0.52 + hBoost, 0.0, 0.76));
@@ -1809,10 +1810,11 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
               float hoverPulse = isHovered ? (0.16 + 0.09 * sin(uTime * 5.0)) : 0.0;
 
               if (onDarkOuterStroke) {
-                gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(0.03, 0.025, 0.02), 0.94);
+                vec3 outerCol = zCol.rgb * (isHovered ? 0.52 : 0.36);
+                gl_FragColor.rgb = mix(gl_FragColor.rgb, outerCol, 0.96);
               } else if (isOuterBorderTile || isInnerBorderTile) {
-                vec3 rimCol = mix(zCol.rgb, vec3(1.0), isHovered ? 0.58 : 0.34);
-                gl_FragColor.rgb = mix(gl_FragColor.rgb, rimCol, isOuterBorderTile ? 0.96 : 0.90);
+                vec3 rimCol = zCol.rgb * (isHovered ? 0.64 : 0.46);
+                gl_FragColor.rgb = mix(gl_FragColor.rgb, rimCol, isOuterBorderTile ? 0.95 : 0.90);
               } else {
                 float fillAlpha = zCol.a * 0.54 + hoverPulse;
                 gl_FragColor.rgb = mix(gl_FragColor.rgb, zCol.rgb, clamp(fillAlpha, 0.0, 0.78));

@@ -1427,7 +1427,7 @@ export default function App() {
 
             {/* Top-Right: Time Speed + Pixel Icon Utilities */}
             <div className="pointer-events-auto px-panel px-2 py-1.5 flex items-center gap-1">
-              {[0, 1, 2, 5, 10].map((scale) => (
+              {[0, 0.5, 1, 2, 5, 10].map((scale) => (
                 <button
                   key={scale}
                   type="button"
@@ -1508,19 +1508,6 @@ export default function App() {
                 title={muted ? 'Unmute (M)' : 'Mute (M)'}
               >
                 <HudPixelIcon kind={muted ? 'audioOff' : 'audioOn'} />
-              </button>
-              <button
-                type="button"
-                tabIndex={-1}
-                onClick={(e) => {
-                  e.currentTarget.blur();
-                  setGameState((prev) => (prev === 'paused' ? 'playing' : 'paused'));
-                }}
-                className="px-btn w-7 h-7 flex items-center justify-center cursor-pointer"
-                aria-label="Pause"
-                title="Pause (P)"
-              >
-                <HudPixelIcon kind={gameState === 'paused' ? 'play' : 'pause'} />
               </button>
               <button
                 type="button"
