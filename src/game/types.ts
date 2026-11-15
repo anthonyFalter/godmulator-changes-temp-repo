@@ -301,7 +301,11 @@ export interface VehicleEntity {
   thrusterActive?: boolean;
 }
 
-export type ToolCategory = 'powers' | 'terrain' | 'build' | 'spawn' | 'epochs' | 'inspect';
+export type ZoneOverlayType = 'kingdoms' | 'territories' | 'biomes' | 'temperature';
+
+export type ZoneToggleState = Record<ZoneOverlayType, boolean>;
+
+export type ToolCategory = 'powers' | 'terrain' | 'build' | 'spawn' | 'zones' | 'epochs' | 'inspect';
 
 export type ActiveTool =
   | { kind: 'inspect' }

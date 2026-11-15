@@ -54,6 +54,12 @@ interface IsometricWorldCanvasProps {
   hoveredEntityId?: string | null;
   selectedEntityId?: string | null;
   followingEntityId?: string | null;
+  zoneOverlayBuffers?: {
+    colorData: Uint8Array;
+    idData: Uint8Array;
+    anyActive: boolean;
+    version: number;
+  };
   onTileInteract: (tileX: number, tileZ: number) => void;
   onHoverTileChange: (tile: { x: number; z: number } | null) => void;
   onHoverEntityChange?: (unitId: string | null) => void;
@@ -92,6 +98,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
   hoveredEntityId = null,
   selectedEntityId = null,
   followingEntityId = null,
+  zoneOverlayBuffers,
   onTileInteract,
   onHoverTileChange,
   onHoverEntityChange,
@@ -112,6 +119,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     hoveredEntityId,
     selectedEntityId,
     followingEntityId,
+    zoneOverlayBuffers,
     onTileInteract,
     onHoverTileChange,
     onHoverEntityChange,
@@ -131,6 +139,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       hoveredEntityId,
       selectedEntityId,
       followingEntityId,
+      zoneOverlayBuffers,
       onTileInteract,
       onHoverTileChange,
       onHoverEntityChange,
@@ -148,6 +157,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     hoveredEntityId,
     selectedEntityId,
     followingEntityId,
+    zoneOverlayBuffers,
     onTileInteract,
     onHoverTileChange,
     onHoverEntityChange,
@@ -3188,8 +3198,16 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     let lastSyncedSim: SimulationState = sim;
     let lastSyncedEpochIndex = sim.epochIndex;
     let lastSpaceSeed = sim.seed;
+    let lastZoneOverlayVersion = -1;
 
     function syncSceneFromSimulation(simState: SimulationState, dt: number, elapsed: number) {
+      const zb = propsRef.current.zoneOverlayBuffers;
+      if (zb && zb.version !== lastZoneOverlayVersion) {
+        lastZoneOverlayVersion = zb.version;
+        oceanFoam.updateZones(zb.colorData, zb.idData, zb.anyActive);
+        styledTerrain.updateZones(zb.colorData, zb.idData, zb.anyActive);
+      }
+
       let propsNeedSync = false;
       if (simState.epochIndex !== lastSyncedEpochIndex) {
         lastSyncedEpochIndex = simState.epochIndex;

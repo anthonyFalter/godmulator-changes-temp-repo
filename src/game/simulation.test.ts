@@ -29,6 +29,12 @@ import {
   getDragonVariant,
 } from './catalog';
 import { getEntityInspectProfile, toggleUnitFavorite } from './entityInspector';
+import {
+  DEFAULT_ZONE_TOGGLES,
+  buildZoneOverlayTextures,
+  computeWorldZones,
+  inspectTileZones,
+} from './zones';
 import { createUnitGroup, createVehicleGroup } from './meshBuilders';
 import * as THREE from 'three';
 
@@ -2173,5 +2179,139 @@ test('pressing play smoothly targets 45 degree isometric angle, centers world, a
   const wholeMapZoomFrustum = 105;
   assert.equal(wholeMapZoomFrustum, 105);
 });
+
+test('zones feature defaults to off, dynamically contours across land and sea, and supports hover inspection', () => {
+  // 1. Default toggles must all be OFF by default
+  assert.deepEqual(DEFAULT_ZONE_TOGGLES, {
+    kingdoms: false,
+    territories: false,
+    biomes: false,
+    temperature: false,
+  });
+
+  const state = createInitialSimulationState(128, 'ZONES-LAND-SEA-TEST');
+  state.sandboxFreeMode = true;
+  state.wildlifeSeeded = true;
+
+  // Sculpt a coastal peninsula at (50, 50):
+  // x <= 50 is dry land (height 2, grass), x = 51..54 is shallow_water (height 0), x >= 55 is deep_water (height 0)
+  for (let z = 42; z <= 58; z++) {
+    for (let x = 42; x <= 60; x++) {
+      const t = getTile(state, x, z)!;
+      t.resourceNode = 'none';
+      t.buildingId = null;
+      if (x <= 50) {
+        t.height = 2;
+        t.terrain = 'grass';
+      } else if (x <= 54) {
+        t.height = 0;
+        t.terrain = 'shallow_water';
+      } else {
+        t.height = 0;
+        t.terrain = 'deep_water';
+      }
+    }
+  }
+
+  // Place a mountain wall to the west (x = 45) to verify non-circular topographic shaping
+  for (let z = 44; z <= 56; z++) {
+    const mt = getTile(state, 45, z)!;
+    mt.height = 9;
+    mt.terrain = 'mountain';
+  }
+
+  // Build a paved road heading north from (49, 49) to (49, 43)
+  for (let z = 43; z <= 49; z++) {
+    const rt = getTile(state, 49, z)!;
+    rt.terrain = 'stone_road';
+  }
+
+  // Found a Human coastal kingdom at (49, 50) with 3 citizens
+  const placed = placeBuilding(state, 'bonfire', 49, 50);
+  assert.ok(placed.ok, 'Coastal settlement bonfire should place');
+  spawnUnit(state, 'human', 49, 50);
+  spawnUnit(state, 'human', 48, 50);
+  spawnUnit(state, 'human', 49, 49);
+
+  // Spawn a terrestrial wolf pack on an inland meadow at (25, 25) bordered by water at x >= 27
+  for (let z = 20; z <= 30; z++) {
+    for (let x = 20; x <= 32; x++) {
+      const t = getTile(state, x, z)!;
+      t.resourceNode = 'none';
+      t.buildingId = null;
+      if (x <= 26) {
+        t.height = 2;
+        t.terrain = 'forest';
+      } else {
+        t.height = 0;
+        t.terrain = 'shallow_water';
+      }
+    }
+  }
+  spawnUnit(state, 'wolf', 25, 25);
+  spawnUnit(state, 'wolf', 24, 25);
+
+  // Spawn an amphibious capybara herd on the shoreline at (50, 55) next to shallow_water (51, 55)
+  spawnUnit(state, 'capybara', 50, 55);
+  spawnUnit(state, 'capybara', 50, 54);
+
+  const zones = computeWorldZones(state);
+
+  // Verify Kingdom zone includes population = 3 and claims BOTH land and adjacent maritime sea water
+  assert.equal(zones.kingdomsById.size, 1);
+  const kingdom = Array.from(zones.kingdomsById.values())[0];
+  assert.equal(kingdom.population, 3);
+  assert.ok(kingdom.landTileCount > 10, 'Kingdom should claim surrounding land tiles');
+  assert.ok(
+    kingdom.seaTileCount > 5,
+    'Intelligent kingdom on coast must dynamically claim adjacent maritime sea tiles',
+  );
+
+  // Verify non-circular shaping: road north (49, 43) is reached easily while mountain barrier behind (43, 50) is blocked/resisted
+  const roadReachIdx = 43 * state.gridSize + 49;
+  const behindMountainIdx = 50 * state.gridSize + 42;
+  assert.equal(zones.kingdomMap[roadReachIdx], kingdom.zoneId, 'Kingdom expands further along stone road');
+  assert.equal(zones.kingdomMap[behindMountainIdx], 0, 'Mountain ridge blocks circular expansion');
+
+  // Verify terrestrial Wolf territory strictly stays on land (seaTileCount === 0)
+  const wolfTerritory = Array.from(zones.territoriesById.values()).find((t) => t.species === 'wolf')!;
+  assert.ok(wolfTerritory, 'Wolf territory should exist');
+  assert.ok(wolfTerritory.landTileCount > 5, 'Wolf territory covers forest land');
+  assert.equal(wolfTerritory.seaTileCount, 0, 'Terrestrial wolf territory must stop at the coastline and never enter sea');
+
+  // Verify amphibious Capybara territory spans both land and shallow sea lagoons
+  const capyTerritory = Array.from(zones.territoriesById.values()).find((t) => t.species === 'capybara')!;
+  assert.ok(capyTerritory, 'Capybara territory should exist');
+  assert.ok(capyTerritory.landTileCount > 0, 'Capybara territory includes coastal land');
+  assert.ok(capyTerritory.seaTileCount > 0, 'Amphibious capybara territory dynamically extends into shallow sea waters');
+
+  // Verify hover inspection with inspectTileZones returns complete zone info on both land and sea
+  const landInspect = inspectTileZones(zones, state, 49, 50)!;
+  assert.ok(landInspect.kingdom);
+  assert.equal(landInspect.kingdom?.name, kingdom.name);
+  assert.equal(landInspect.kingdom?.population, 3);
+  assert.equal(landInspect.isKingdomMaritime, false);
+  assert.ok(landInspect.biomeZone);
+  assert.ok(landInspect.temperatureZone);
+
+  const seaInspect = inspectTileZones(zones, state, 51, 50)!;
+  assert.ok(seaInspect.kingdom, 'Hovering coastal water next to kingdom should inspect its maritime zone');
+  assert.equal(seaInspect.isKingdomMaritime, true);
+
+  // Verify buildZoneOverlayTextures returns all zeros when toggles are off, and populates buffers when toggled on
+  const offPack = buildZoneOverlayTextures(zones, DEFAULT_ZONE_TOGGLES, { x: 49, z: 50 });
+  assert.equal(offPack.anyActive, false);
+
+  const onPack = buildZoneOverlayTextures(
+    zones,
+    { kingdoms: true, territories: true, biomes: false, temperature: false },
+    { x: 49, z: 50 },
+  );
+  assert.equal(onPack.anyActive, true);
+  const centerPixelOffset = (50 * state.gridSize + 49) * 4;
+  assert.ok(onPack.colorData[centerPixelOffset + 3] > 0, 'Active zone tile must have non-zero alpha');
+  assert.equal(onPack.idData[centerPixelOffset + 2], 255, 'Hovered zone must have hover highlight byte = 255');
+});
+
 
 

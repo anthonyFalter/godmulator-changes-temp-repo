@@ -6,6 +6,7 @@ import {
   TerrainToolType,
   ToolCategory,
   UnitRole,
+  ZoneOverlayType,
 } from '../game/types';
 
 export const TitleEmblemSvg: React.FC = () => (
@@ -183,6 +184,17 @@ export const TabPixelIcon: React.FC<{ category: ToolCategory; className?: string
           <rect x="9" y="11" width="2" height="3" fill="#5c4033" />
         </svg>
       );
+    case 'zones':
+      return (
+        <svg viewBox="0 0 16 16" className={className} aria-hidden="true" shapeRendering="crispEdges">
+          <rect x="2" y="2" width="5" height="5" fill="#3b82f6" />
+          <rect x="9" y="2" width="5" height="5" fill="#10b981" />
+          <rect x="2" y="9" width="5" height="5" fill="#f59e0b" />
+          <rect x="9" y="9" width="5" height="5" fill="#ef4444" />
+          <rect x="7" y="2" width="2" height="12" fill="#f8fafc" />
+          <rect x="2" y="7" width="12" height="2" fill="#f8fafc" />
+        </svg>
+      );
     case 'epochs':
       return (
         <svg viewBox="0 0 16 16" className={className} aria-hidden="true" shapeRendering="crispEdges">
@@ -202,6 +214,72 @@ export const TabPixelIcon: React.FC<{ category: ToolCategory; className?: string
           <rect x="5" y="5" width="4" height="3" fill="#caf0f8" />
           <rect x="10" y="9" width="2" height="2" fill="#a86f46" />
           <rect x="12" y="11" width="2" height="3" fill="#7c4f31" />
+        </svg>
+      );
+  }
+};
+
+export const ZonePixelIcon: React.FC<{ zone: ZoneOverlayType; className?: string }> = ({
+  zone,
+  className = 'w-7 h-7 pixelated-canvas',
+}) => {
+  switch (zone) {
+    case 'kingdoms':
+      return (
+        <svg viewBox="0 0 16 16" className={className} aria-hidden="true" shapeRendering="crispEdges">
+          {/* Crown & Maritime Banner */}
+          <rect x="2" y="11" width="12" height="3" fill="#2563eb" />
+          <rect x="3" y="5" width="2" height="6" fill="#fbbf24" />
+          <rect x="7" y="3" width="2" height="8" fill="#fde047" />
+          <rect x="11" y="5" width="2" height="6" fill="#fbbf24" />
+          <rect x="3" y="9" width="10" height="2" fill="#f59e0b" />
+          <rect x="5" y="7" width="2" height="2" fill="#f59e0b" />
+          <rect x="9" y="7" width="2" height="2" fill="#f59e0b" />
+          <rect x="7" y="10" width="2" height="1" fill="#ef4444" />
+          <rect x="4" y="13" width="8" height="1" fill="#38bdf8" />
+        </svg>
+      );
+    case 'territories':
+      return (
+        <svg viewBox="0 0 16 16" className={className} aria-hidden="true" shapeRendering="crispEdges">
+          {/* Beast Paw & Territory Border */}
+          <rect x="3" y="4" width="2" height="3" fill="#fb923c" />
+          <rect x="6" y="2" width="2" height="3" fill="#fdba74" />
+          <rect x="9" y="2" width="2" height="3" fill="#fdba74" />
+          <rect x="11" y="5" width="2" height="3" fill="#fb923c" />
+          <rect x="5" y="7" width="6" height="5" fill="#ea580c" />
+          <rect x="4" y="9" width="8" height="3" fill="#c2410c" />
+          <rect x="6" y="8" width="4" height="2" fill="#fed7aa" />
+          <rect x="2" y="13" width="12" height="2" fill="#2dd4bf" />
+        </svg>
+      );
+    case 'biomes':
+      return (
+        <svg viewBox="0 0 16 16" className={className} aria-hidden="true" shapeRendering="crispEdges">
+          {/* Land Canopy & Sea Wave */}
+          <rect x="5" y="2" width="6" height="3" fill="#4ade80" />
+          <rect x="3" y="5" width="10" height="3" fill="#22c55e" />
+          <rect x="4" y="8" width="8" height="2" fill="#16a34a" />
+          <rect x="7" y="10" width="2" height="2" fill="#854d0e" />
+          <rect x="2" y="12" width="12" height="3" fill="#0284c7" />
+          <rect x="3" y="12" width="4" height="1" fill="#7dd3fc" />
+          <rect x="9" y="13" width="4" height="1" fill="#7dd3fc" />
+        </svg>
+      );
+    case 'temperature':
+    default:
+      return (
+        <svg viewBox="0 0 16 16" className={className} aria-hidden="true" shapeRendering="crispEdges">
+          {/* Pixel Thermometer with Cold -> Hot bands */}
+          <rect x="6" y="2" width="4" height="8" fill="#334155" />
+          <rect x="7" y="3" width="2" height="2" fill="#38bdf8" />
+          <rect x="7" y="5" width="2" height="2" fill="#4ade80" />
+          <rect x="7" y="7" width="2" height="3" fill="#fb923c" />
+          <rect x="5" y="10" width="6" height="4" fill="#ef4444" />
+          <rect x="6" y="11" width="2" height="2" fill="#fca5a5" />
+          <rect x="11" y="3" width="2" height="1" fill="#94a3b8" />
+          <rect x="11" y="6" width="2" height="1" fill="#94a3b8" />
+          <rect x="11" y="9" width="2" height="1" fill="#94a3b8" />
         </svg>
       );
   }

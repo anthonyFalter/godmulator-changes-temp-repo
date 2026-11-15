@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ANIMAL_UNITS,
   BUILDINGS,
@@ -30,7 +30,15 @@ import {
   Resources,
   ToolCategory,
   UnitEntity,
+  ZoneOverlayType,
+  ZoneToggleState,
 } from './game/types';
+import {
+  DEFAULT_ZONE_TOGGLES,
+  buildZoneOverlayTextures,
+  computeWorldZones,
+  inspectTileZones,
+} from './game/zones';
 import { EntityInspectorCard } from './components/EntityInspectorCard';
 import {
   BuildingPixelIcon,
@@ -41,6 +49,7 @@ import {
   TerrainPixelIcon,
   TitleEmblemSvg,
   UnitPixelIcon,
+  ZonePixelIcon,
 } from './components/GameIcons';
 import { IsometricWorldCanvas } from './components/IsometricWorldCanvas';
 
@@ -118,9 +127,12 @@ export default function App() {
   const [followingEntityId, setFollowingEntityId] = useState<string | null>(null);
   const [hoveredHint, setHoveredHint] = useState<HoveredHint | null>(null);
   const [statusFeedback, setStatusFeedback] = useState<string>('Click land to spawn a Human');
+  const [activeZones, setActiveZones] = useState<ZoneToggleState>(() => ({
+    ...DEFAULT_ZONE_TOGGLES,
+  }));
 
   // Snapshot counter triggered at <= 6 Hz from canvas loop or user actions
-  const [, setHudTick] = useState(0);
+  const [hudTick, setHudTick] = useState(0);
   const syncHud = useCallback(() => {
     const s = simRef.current;
     if (s.outcome === 'ascension_victory' && gameState === 'playing') {
@@ -384,7 +396,83 @@ export default function App() {
     }
   };
 
+  const isInspectTabActive = activeCategory === 'inspect' && activeTool.kind === 'inspect';
+  const anyZoneActive =
+    activeZones.kingdoms ||
+    activeZones.territories ||
+    activeZones.biomes ||
+    activeZones.temperature;
+  const shouldComputeZones =
+    anyZoneActive || isInspectTabActive || activeCategory === 'zones';
+
+  // Compute dynamic land & sea zones (cached by simulation year / building count / unit count)
   const sim = simRef.current;
+  const zoneCacheKey = shouldComputeZones
+    ? `${sim.seed}:${Math.floor(sim.year)}:${sim.buildings.length}:${sim.units.length}:${Math.floor(hudTick / 3)}`
+    : 'idle';
+
+  const worldZones = useMemo(() => {
+    if (!shouldComputeZones) return null;
+    return computeWorldZones(simRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shouldComputeZones, zoneCacheKey]);
+
+  const hoveredZoneInfo = useMemo(() => {
+    if (!worldZones || !hoverTile) return null;
+    return inspectTileZones(worldZones, simRef.current, hoverTile.x, hoverTile.z);
+  }, [worldZones, hoverTile]);
+
+  const zoneOverlayVersionRef = useRef(0);
+  const zoneColorBufRef = useRef<Uint8Array | undefined>(undefined);
+  const zoneIdBufRef = useRef<Uint8Array | undefined>(undefined);
+
+  const zoneOverlayBuffers = useMemo(() => {
+    zoneOverlayVersionRef.current += 1;
+    if (!worldZones || !anyZoneActive) {
+      const len = simRef.current.gridSize * simRef.current.gridSize * 4;
+      if (!zoneColorBufRef.current || zoneColorBufRef.current.length !== len) {
+        zoneColorBufRef.current = new Uint8Array(len);
+        zoneIdBufRef.current = new Uint8Array(len);
+      } else {
+        zoneColorBufRef.current.fill(0);
+        zoneIdBufRef.current!.fill(0);
+      }
+      return {
+        colorData: zoneColorBufRef.current,
+        idData: zoneIdBufRef.current!,
+        anyActive: false,
+        version: zoneOverlayVersionRef.current,
+      };
+    }
+
+    const highlightHoverTile =
+      isInspectTabActive || activeCategory === 'zones' ? hoverTile : null;
+    const packed = buildZoneOverlayTextures(
+      worldZones,
+      activeZones,
+      highlightHoverTile,
+      zoneColorBufRef.current,
+      zoneIdBufRef.current,
+    );
+    zoneColorBufRef.current = packed.colorData;
+    zoneIdBufRef.current = packed.idData;
+    return {
+      colorData: packed.colorData,
+      idData: packed.idData,
+      anyActive: packed.anyActive,
+      version: zoneOverlayVersionRef.current,
+    };
+  }, [worldZones, activeZones, anyZoneActive, isInspectTabActive, activeCategory, hoverTile]);
+
+  const handleToggleZone = useCallback((zoneType: ZoneOverlayType, label: string) => {
+    setActiveZones((prev) => {
+      const nextVal = !prev[zoneType];
+      setStatusFeedback(`${label}: ${nextVal ? 'ON' : 'OFF'}`);
+      return { ...prev, [zoneType]: nextVal };
+    });
+    soundEngine.playClick();
+  }, []);
+
   const currentEpoch = EPOCHS[sim.epochIndex] || EPOCHS[0];
   const nextEpoch = sim.epochIndex < EPOCHS.length - 1 ? EPOCHS[sim.epochIndex + 1] : null;
   const inspectedTile = hoverTile ? getTile(sim, hoverTile.x, hoverTile.z) : null;
@@ -392,7 +480,6 @@ export default function App() {
     ? sim.buildings.find((b) => b.tileX === hoverTile.x && b.tileZ === hoverTile.z)
     : undefined;
   const hostileCount = sim.units.filter((u) => u.faction === 'hostile' && u.state !== 'ko').length;
-  const isInspectTabActive = activeCategory === 'inspect' && activeTool.kind === 'inspect';
   const hoveredUnit =
     isInspectTabActive && hoveredEntityId
       ? sim.units.find((u) => u.id === hoveredEntityId && u.state !== 'ko') ?? null
@@ -432,6 +519,7 @@ export default function App() {
         hoveredEntityId={isInspectTabActive ? hoveredEntityId : null}
         selectedEntityId={isInspectTabActive ? selectedEntityId : null}
         followingEntityId={isInspectTabActive ? followingEntityId : null}
+        zoneOverlayBuffers={zoneOverlayBuffers}
         onTileInteract={handleTileInteract}
         onHoverTileChange={setHoverTile}
         onHoverEntityChange={setHoveredEntityId}
@@ -721,7 +809,7 @@ export default function App() {
             </div>
           )}
 
-          {/* ENTITY INSPECTOR PANEL (strictly visible only on Inspect tab during play) */}
+          {/* ENTITY & ZONE INSPECTOR PANEL (visible on Inspect tab during play) */}
           {gameState === 'playing' && isInspectTabActive && (
             <EntityInspectorCard
               sim={sim}
@@ -729,6 +817,8 @@ export default function App() {
               selectedUnit={selectedUnit}
               favoriteUnits={favoriteUnits}
               followingEntityId={followingEntityId}
+              hoveredZoneInfo={hoveredZoneInfo}
+              activeZones={activeZones}
               onToggleFavorite={handleToggleFavoriteEntity}
               onSelectUnit={handleSelectEntity}
               onFocusUnit={handleFocusEntity}
@@ -755,11 +845,19 @@ export default function App() {
                     { id: 'terrain', label: 'Land' },
                     { id: 'build', label: 'Build' },
                     { id: 'spawn', label: 'Units' },
+                    { id: 'zones', label: 'Zones' },
                     { id: 'epochs', label: 'World' },
                     { id: 'inspect', label: 'Inspect' },
                   ] as { id: ToolCategory; label: string }[]
                 ).map((tab) => {
                   const isActive = !dockCollapsed && activeCategory === tab.id;
+                  const activeZoneCount =
+                    tab.id === 'zones'
+                      ? Number(activeZones.kingdoms) +
+                        Number(activeZones.territories) +
+                        Number(activeZones.biomes) +
+                        Number(activeZones.temperature)
+                      : 0;
                   return (
                     <button
                       key={tab.id}
@@ -770,6 +868,9 @@ export default function App() {
                         setDockCollapsed(false);
                         setActiveCategory(tab.id);
                         if (tab.id === 'inspect') {
+                          setActiveTool({ kind: 'inspect' });
+                        } else if (tab.id === 'zones') {
+                          // Switch to non-destructive inspect cursor while browsing zones
                           setActiveTool({ kind: 'inspect' });
                         } else {
                           setHoveredEntityId(null);
@@ -794,6 +895,11 @@ export default function App() {
                     >
                       <TabPixelIcon category={tab.id} className="w-4 h-4" />
                       <span className="hidden sm:inline">{tab.label}</span>
+                      {activeZoneCount > 0 && (
+                        <span className="font-pixel-num text-[9px] text-[#80ed99] tabular-nums">
+                          {activeZoneCount}
+                        </span>
+                      )}
                     </button>
                   );
                 })}
@@ -1048,7 +1154,136 @@ export default function App() {
                     </div>
                 )}
 
-                {/* TAB 5: WORLD (Ages, Pixel Scale, Sky, Seed) */}
+                {/* TAB 5: ZONES (Toggle Buttons for Kingdoms, Animal Territories, Biomes, Temperatures) */}
+                {activeCategory === 'zones' && (
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Zone Overlays">
+                      {(
+                        [
+                          {
+                            id: 'kingdoms' as ZoneOverlayType,
+                            label: 'Kingdoms & Cities',
+                            shortLabel: 'Kingdoms',
+                            count: worldZones ? worldZones.kingdomsById.size : 0,
+                            summary:
+                              'Toggle dynamic land & maritime sea borders and population counts for all Cities & Kingdoms',
+                          },
+                          {
+                            id: 'territories' as ZoneOverlayType,
+                            label: 'Animal Territories',
+                            shortLabel: 'Territories',
+                            count: worldZones ? worldZones.territoriesById.size : 0,
+                            summary:
+                              'Toggle habitat-contoured hunting & grazing territories across land, lagoons, and sea shoals',
+                          },
+                          {
+                            id: 'biomes' as ZoneOverlayType,
+                            label: 'Biome Zones',
+                            shortLabel: 'Biomes',
+                            count: worldZones
+                              ? Array.from(worldZones.biomesById.values()).filter((b) => b.tileCount > 0).length
+                              : 0,
+                            summary:
+                              'Toggle ecological land & marine biome regions, resource density, and world coverage',
+                          },
+                          {
+                            id: 'temperature' as ZoneOverlayType,
+                            label: 'Temperatures',
+                            shortLabel: 'Temperatures',
+                            count: worldZones
+                              ? Array.from(worldZones.tempBandsById.values()).filter((t) => t.tileCount > 0).length
+                              : 5,
+                            summary:
+                              'Toggle contoured thermal bands shaped by latitude, elevation peaks, wildfires, and foundries',
+                          },
+                        ]
+                      ).map((zItem) => {
+                        const isOn = activeZones[zItem.id];
+                        return (
+                          <button
+                            key={zItem.id}
+                            type="button"
+                            aria-pressed={isOn}
+                            aria-label={zItem.label}
+                            data-testid={`zone-toggle-${zItem.id}`}
+                            onClick={() => handleToggleZone(zItem.id, zItem.label)}
+                            onMouseEnter={() =>
+                              setHoveredHint({
+                                title: zItem.label,
+                                cost: isOn ? 'ON (Active)' : 'OFF',
+                                detail: zItem.summary,
+                              })
+                            }
+                            className={`relative px-2.5 h-11 flex items-center gap-2 cursor-pointer transition-colors ${
+                              isOn ? 'px-slot-active' : 'px-slot'
+                            }`}
+                          >
+                            <ZonePixelIcon zone={zItem.id} className="w-7 h-7 shrink-0" />
+                            <div className="flex flex-col items-start leading-tight">
+                              <span className="text-xs font-bold text-[#f2ece1] whitespace-nowrap">
+                                {zItem.shortLabel}
+                              </span>
+                              <span
+                                className={`font-pixel-num text-[9px] tabular-nums ${
+                                  isOn ? 'text-[#80ed99]' : 'text-[#9e9486]'
+                                }`}
+                              >
+                                {isOn ? `ON · ${zItem.count}` : 'OFF'}
+                              </span>
+                            </div>
+                          </button>
+                        );
+                      })}
+
+                      {anyZoneActive && (
+                        <button
+                          type="button"
+                          data-testid="zone-clear-all"
+                          onClick={() => {
+                            setActiveZones({ ...DEFAULT_ZONE_TOGGLES });
+                            setStatusFeedback('All zone overlays hidden');
+                            soundEngine.playClick();
+                          }}
+                          className="px-btn px-2.5 h-9 text-xs text-[#ff8f6b] cursor-pointer whitespace-nowrap"
+                          title="Turn off all zone overlays"
+                        >
+                          Clear All
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Live Hovered Zone Readout inside Zones Tab */}
+                    {hoveredZoneInfo && (
+                      <div
+                        className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#cfc6b8] bg-[#191613] px-2.5 py-1.5 border border-[#2f2720]"
+                        data-testid="zones-tab-hover-readout"
+                      >
+                        <span className="font-pixel-num text-[#f5b742] tabular-nums">
+                          ({hoveredZoneInfo.tileX}, {hoveredZoneInfo.tileZ})
+                        </span>
+                        {hoveredZoneInfo.kingdom && (
+                          <span className="text-[#80ed99] font-semibold">
+                            {hoveredZoneInfo.kingdom.name} (Pop {hoveredZoneInfo.kingdom.population}
+                            {hoveredZoneInfo.isKingdomMaritime ? ' · Sea' : ''})
+                          </span>
+                        )}
+                        {hoveredZoneInfo.territory && (
+                          <span className="text-[#fb923c] font-semibold">
+                            {hoveredZoneInfo.territory.name} ({hoveredZoneInfo.territory.animalCount})
+                          </span>
+                        )}
+                        {hoveredZoneInfo.biomeZone && (
+                          <span className="text-[#56cfe1]">{hoveredZoneInfo.biomeZone.name}</span>
+                        )}
+                        <span className="font-pixel-num text-[#ffd166] tabular-nums">
+                          {hoveredZoneInfo.tileTempC}°C ({hoveredZoneInfo.temperatureZone?.name})
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* TAB 6: WORLD (Ages, Pixel Scale, Sky, Seed) */}
                 {activeCategory === 'epochs' && (
                   <div className="flex flex-col gap-2">
                     <div className="flex flex-wrap items-center justify-center gap-1">
@@ -1128,9 +1363,9 @@ export default function App() {
                   </div>
                 )}
 
-                {/* TAB 6: INSPECT */}
+                {/* TAB 7: INSPECT */}
                 {activeCategory === 'inspect' && (
-                  <div className="flex flex-wrap items-center justify-center gap-4 text-xs text-[#e8e0d2]">
+                  <div className="flex flex-wrap items-center justify-center gap-3 text-xs text-[#e8e0d2]">
                     <span>{statusFeedback}</span>
                     {inspectedTile && (
                       <span className="text-[#f5b742] tabular-nums">
@@ -1140,7 +1375,30 @@ export default function App() {
                           : inspectedTile.terrain.replace('_', ' ')}
                       </span>
                     )}
-
+                    {hoveredZoneInfo && (
+                      <>
+                        {hoveredZoneInfo.kingdom && (
+                          <span className="text-[#80ed99] font-semibold">
+                            Kingdom: {hoveredZoneInfo.kingdom.name} (Pop {hoveredZoneInfo.kingdom.population}
+                            {hoveredZoneInfo.isKingdomMaritime ? ' · Maritime Waters' : ''})
+                          </span>
+                        )}
+                        {hoveredZoneInfo.territory && (
+                          <span className="text-[#fb923c] font-semibold">
+                            Territory: {hoveredZoneInfo.territory.name} ({hoveredZoneInfo.territory.animalCount}{' '}
+                            {hoveredZoneInfo.territory.speciesLabel})
+                          </span>
+                        )}
+                        {hoveredZoneInfo.biomeZone && (
+                          <span className="text-[#56cfe1]">
+                            Biome: {hoveredZoneInfo.biomeZone.name}
+                          </span>
+                        )}
+                        <span className="font-pixel-num text-[#ffd166] tabular-nums">
+                          Temp: {hoveredZoneInfo.tileTempC}°C ({hoveredZoneInfo.temperatureZone?.name})
+                        </span>
+                      </>
+                    )}
                   </div>
                 )}
               </div>
