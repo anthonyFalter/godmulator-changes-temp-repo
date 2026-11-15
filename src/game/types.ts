@@ -206,6 +206,7 @@ export interface UnitEntity {
   targetEntityId: string | null;
   harvestTimer?: number;
   settlementId?: string;
+  kingdomId?: string;
   ageStage?: UnitAgeStage;
   growthTimer?: number;
   appearanceSeed?: number;
@@ -302,7 +303,7 @@ export interface VehicleEntity {
   thrusterActive?: boolean;
 }
 
-export type ZoneOverlayType = 'kingdoms' | 'territories' | 'biomes' | 'temperature';
+export type ZoneOverlayType = 'kingdoms' | 'kings' | 'territories' | 'biomes' | 'temperature';
 
 export type ZoneToggleState = Record<ZoneOverlayType, boolean>;
 
@@ -456,6 +457,7 @@ export interface SimulationState {
   harvestWindowTimer?: number;
   settlementNames?: Record<string, string>;
   settlementSpecies?: Record<string, SpeciesId>;
+  settlementKingdoms?: Record<string, string>;
   wildlifeSeeded?: boolean;
   wildlifeRespawnTimer?: number;
 }

@@ -59,7 +59,7 @@ const ORC_VILLAGE_NAMES = [
   'Khor Crag', 'Thar Hold', 'Grom Peak', 'Iron Skull', 'Blood Axe', 'Ash Ridge',
 ];
 
-export const SETTLEMENT_AWARENESS_RADIUS = 22;
+export const SETTLEMENT_AWARENESS_RADIUS = 12;
 export const MAX_CITY_BUILDINGS = 32;
 export const MAX_WORLD_CITIES = 8;
 export const YEARS_PER_SEC_AT_1X = 0.1;
@@ -408,6 +408,7 @@ export function createInitialSimulationState(
     harvestWindowTimer: 0,
     settlementNames: {},
     settlementSpecies: {},
+    settlementKingdoms: {},
     worldName: worldTitle,
     worldTemplate: template,
     worldRules: rules,
@@ -493,6 +494,17 @@ export function createInitialSimulationState(
           spawnUnit(state, 'human', sx, sz, true);
         }
       } else if (rules.startingSettlers === 'pioneers') {
+        const prevFree = state.sandboxFreeMode;
+        state.sandboxFreeMode = true;
+        const hearthRes = placeBuilding(state, 'bonfire', landTile.x, landTile.z);
+        if (hearthRes.ok) {
+          const placedBld = state.buildings[state.buildings.length - 1];
+          if (placedBld) {
+            placedBld.constructionProgress = 100;
+            placedBld.epochLevel = startingEpochIdx;
+          }
+        }
+        state.sandboxFreeMode = prevFree;
         for (let i = 0; i < 4; i++) {
           const sx = Math.max(2, Math.min(resolvedGridSize - 3, landTile.x + ((i % 2) * 2 - 1)));
           const sz = Math.max(2, Math.min(resolvedGridSize - 3, landTile.z + (Math.floor(i / 2) * 2 - 1)));
@@ -631,10 +643,14 @@ export function placeBuilding(
   const settlementId = nearby?.settlementId ?? nextEntityId('city');
   if (!state.settlementNames) state.settlementNames = {};
   if (!state.settlementSpecies) state.settlementSpecies = {};
+  if (!state.settlementKingdoms) state.settlementKingdoms = {};
   const species: SpeciesId = state.settlementSpecies[settlementId] ?? 'human';
   state.settlementSpecies[settlementId] = species;
   if (!state.settlementNames[settlementId]) {
     state.settlementNames[settlementId] = createVillageName(state, species);
+  }
+  if (!state.settlementKingdoms[settlementId]) {
+    state.settlementKingdoms[settlementId] = settlementId;
   }
 
   const baseEpochIdx = Math.max(0, EPOCHS.findIndex((e) => e.id === def.epoch));
@@ -674,10 +690,12 @@ export function placeBuilding(
     paveAirportRunwayForBuilding(state, tile.x, tile.z);
   }
 
+  const placedKingdomId = getKingdomId(state, settlementId);
   for (const u of state.units) {
     if (u.faction === 'civilization' && u.state !== 'ko' && !u.settlementId) {
       if (Math.hypot(u.x - tile.x, u.z - tile.z) <= SETTLEMENT_AWARENESS_RADIUS) {
         u.settlementId = settlementId;
+        u.kingdomId = placedKingdomId;
       }
     }
   }
@@ -702,6 +720,7 @@ export function placeBuilding(
     addChronicle(state, 'The Dyson Ascension Relay pierces the heavens! Star Age achieved!', 'epoch');
   }
 
+  ensureSettlementKings(state);
   recalculateRatesAndCaps(state);
   return { ok: true };
 }
@@ -745,6 +764,7 @@ export function spawnUnit(
       }
     }
   }
+  const resolvedKingdomId = resolvedSettlementId ? getKingdomId(state, resolvedSettlementId) : undefined;
 
   const appearanceSeed =
     options?.appearanceSeed ??
@@ -758,7 +778,7 @@ export function spawnUnit(
       0);
 
   let ageStage: UnitAgeStage = options?.ageStage ?? 'adult';
-  if (!options?.ageStage && def.faction === 'civilization') {
+  if (!options?.ageStage && def.faction === 'civilization' && resolvedSettlementId) {
     const isBasicRaceRole = role === 'human' || role === 'elf' || role === 'orc' || role === 'villager';
     const adultSameSpeciesCount = state.units.filter(
       (u) =>
@@ -803,6 +823,7 @@ export function spawnUnit(
     species,
     faction: def.faction,
     settlementId: resolvedSettlementId,
+    kingdomId: resolvedKingdomId,
     ageStage,
     growthTimer,
     appearanceSeed,
@@ -829,6 +850,9 @@ export function spawnUnit(
   };
 
   state.units.push(unit);
+  if (def.faction === 'civilization') {
+    ensureSettlementKings(state);
+  }
   recalculateRatesAndCaps(state);
   return { ok: true, unit };
 }
@@ -2392,6 +2416,10 @@ function createVillageName(state: SimulationState, species: SpeciesId = 'human')
   return `Haven ${used.size + 1}`;
 }
 
+function getKingdomId(state: SimulationState, settlementId: string): string {
+  return state.settlementKingdoms?.[settlementId] ?? settlementId;
+}
+
 function findLocalSettlementBuilding(
   state: SimulationState,
   x: number,
@@ -3154,34 +3182,54 @@ function pickDesiredAutobuildType(
 }
 
 export function ensureSettlementKings(state: SimulationState): void {
-  const activeSettlements = new Set<string>();
+  if (!state.settlementKingdoms) state.settlementKingdoms = {};
+
+  const activeKingdoms = new Set<string>();
   for (const b of state.buildings) {
-    if (b.settlementId) activeSettlements.add(b.settlementId);
-  }
-  for (const u of state.units) {
-    if (u.faction === 'civilization' && u.state !== 'ko' && u.settlementId) {
-      activeSettlements.add(u.settlementId);
-    } else {
-      u.isKing = false;
+    if (b.settlementId) {
+      activeKingdoms.add(getKingdomId(state, b.settlementId));
     }
   }
 
-  for (const sid of activeSettlements) {
-    const members = state.units.filter(
-      (u) => u.faction === 'civilization' && u.state !== 'ko' && u.settlementId === sid,
-    );
-    if (members.length === 0) continue;
-
-    const currentKings = members.filter((u) => u.isKing);
-    if (currentKings.length === 1) continue;
-    if (currentKings.length > 1) {
-      for (let i = 1; i < currentKings.length; i++) {
-        currentKings[i].isKing = false;
-      }
+  for (const u of state.units) {
+    if (u.faction !== 'civilization' || u.state === 'ko' || u.hp <= 0) {
+      u.isKing = false;
       continue;
     }
+    if (u.settlementId) {
+      const kid = getKingdomId(state, u.settlementId);
+      u.kingdomId = kid;
+      activeKingdoms.add(kid);
+    } else if (u.kingdomId) {
+      activeKingdoms.add(u.kingdomId);
+    }
+  }
 
-    // Crown the strongest adult (or citizen) in this kingdom
+  const demoteExtraKing = (u: UnitEntity) => {
+    u.isKing = false;
+    if (u.name.startsWith('King ')) {
+      u.name = u.name.slice(5);
+    }
+  };
+
+  const crownGroupMonarch = (members: UnitEntity[]) => {
+    if (members.length === 0) return;
+    const currentKings = members.filter((u) => u.isKing);
+    if (currentKings.length === 1) return;
+    if (currentKings.length > 1) {
+      // Keep the highest-scoring / established monarch and demote any duplicates from branched zones
+      currentKings.sort((a, b) => {
+        const aScore = (a.role === 'warrior' ? 50 : 0) + a.maxHp + (a.kills ?? 0) * 15;
+        const bScore = (b.role === 'warrior' ? 50 : 0) + b.maxHp + (b.kills ?? 0) * 15;
+        return bScore - aScore;
+      });
+      for (let i = 1; i < currentKings.length; i++) {
+        demoteExtraKing(currentKings[i]);
+      }
+      return;
+    }
+
+    // Crown the strongest adult (or citizen) across the entire kingdom (all its branched-out zones)
     const adults = members.filter((u) => u.ageStage !== 'child');
     const pool = adults.length > 0 ? adults : members;
     pool.sort((a, b) => {
@@ -3201,6 +3249,51 @@ export function ensureSettlementKings(state: SimulationState): void {
         monarch.maxHp = royalHp;
         monarch.hp = royalHp;
       }
+    }
+  };
+
+  for (const kid of activeKingdoms) {
+    const members = state.units.filter(
+      (u) =>
+        u.faction === 'civilization' &&
+        u.state !== 'ko' &&
+        u.hp > 0 &&
+        (u.settlementId ? getKingdomId(state, u.settlementId) : u.kingdomId) === kid,
+    );
+    crownGroupMonarch(members);
+  }
+
+  // Also ensure unattached pioneer bands on unclaimed land (grouped locally within 16 tiles) have 1 King per band
+  for (const sp of ['human', 'elf', 'orc'] as SpeciesId[]) {
+    const unattached = state.units.filter(
+      (u) =>
+        u.faction === 'civilization' &&
+        u.state !== 'ko' &&
+        u.hp > 0 &&
+        u.species === sp &&
+        !u.settlementId &&
+        !u.kingdomId &&
+        u.expeditionTargetX === undefined &&
+        !state.buildings.some(
+          (b) =>
+            (b.species ?? (b.settlementId ? state.settlementSpecies?.[b.settlementId] : undefined) ?? 'human') !== sp &&
+            Math.hypot(b.tileX - u.x, b.tileZ - u.z) <= 14,
+        ),
+    );
+    const bands: UnitEntity[][] = [];
+    for (const p of unattached) {
+      let placedBand = false;
+      for (const band of bands) {
+        if (Math.hypot(band[0].x - p.x, band[0].z - p.z) <= SETTLEMENT_AWARENESS_RADIUS + 4) {
+          band.push(p);
+          placedBand = true;
+          break;
+        }
+      }
+      if (!placedBand) bands.push([p]);
+    }
+    for (const band of bands) {
+      crownGroupMonarch(band);
     }
   }
 }
@@ -3468,6 +3561,7 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
 
   if (!state.settlementNames) state.settlementNames = {};
   if (!state.settlementSpecies) state.settlementSpecies = {};
+  if (!state.settlementKingdoms) state.settlementKingdoms = {};
 
   // 1. Bind local homeless settlers to same-species settlement or found their own village!
   for (const pioneer of activeCivs) {
@@ -3478,6 +3572,7 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
       const bSpecies = state.settlementSpecies[nearbyBld.settlementId] ?? 'human';
       if (bSpecies === pioneer.species) {
         pioneer.settlementId = nearbyBld.settlementId;
+        pioneer.kingdomId = getKingdomId(state, nearbyBld.settlementId);
         continue;
       }
     }
@@ -3503,6 +3598,35 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
       const villageName = createVillageName(state, sp);
       state.settlementNames[newSettlementId] = villageName;
       state.settlementSpecies[newSettlementId] = sp;
+
+      const isKingdomAlive = (kid: string) =>
+        state.buildings.some((b) => b.settlementId && getKingdomId(state, b.settlementId) === kid && b.hp > 0) ||
+        activeCivs.some(
+          (u) =>
+            u.id !== pioneer.id &&
+            (u.settlementId ? getKingdomId(state, u.settlementId) : u.kingdomId) === kid,
+        );
+
+      let resolvedKingdomId: string | undefined;
+      if (pioneer.kingdomId && isKingdomAlive(pioneer.kingdomId)) {
+        resolvedKingdomId = pioneer.kingdomId;
+      }
+      if (!resolvedKingdomId) {
+        const companion = activeCivs.find(
+          (other) =>
+            other.species === sp &&
+            other.kingdomId &&
+            Math.hypot(other.x - siteTile!.x, other.z - siteTile!.z) <= SETTLEMENT_AWARENESS_RADIUS &&
+            isKingdomAlive(other.kingdomId),
+        );
+        if (companion?.kingdomId) {
+          resolvedKingdomId = companion.kingdomId;
+        }
+      }
+      if (!resolvedKingdomId) {
+        resolvedKingdomId = newSettlementId;
+      }
+      state.settlementKingdoms[newSettlementId] = resolvedKingdomId;
 
       const hearth: BuildingEntity = {
         id: nextEntityId('bld'),
@@ -3532,6 +3656,7 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
           Math.hypot(other.x - siteTile.x, other.z - siteTile.z) <= SETTLEMENT_AWARENESS_RADIUS
         ) {
           other.settlementId = newSettlementId;
+          other.kingdomId = resolvedKingdomId;
           other.expeditionTargetX = undefined;
           other.expeditionTargetZ = undefined;
           other.expeditionTimer = undefined;
@@ -3661,8 +3786,9 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
     const isLargeAndCrowded =
       villageBuildings.length >= Math.min(maxCityBuildings, 6) &&
       villageUnits.length >= Math.max(7, Math.floor(villagePopCap * 0.65));
+    const sidKingdomId = getKingdomId(state, sid);
     const hasExpeditionInProgress = activeCivs.some(
-      (u) => u.expeditionTargetX !== undefined && u.species === villageSpecies,
+      (u) => u.expeditionTargetX !== undefined && u.kingdomId === sidKingdomId,
     );
 
     if (
@@ -3677,20 +3803,23 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
       if (frontier) {
         const candidates = villageUnits.filter(
           (u) =>
+            !u.isKing &&
             u.ageStage !== 'child' &&
             u.role !== 'warrior' &&
             u.carryingAmount === 0 &&
             u.expeditionTargetX === undefined,
         );
-        const adultPool = villageUnits.filter((u) => u.ageStage !== 'child');
+        const adultPool = villageUnits.filter((u) => !u.isKing && u.ageStage !== 'child');
         const colonistPool = candidates.length >= 2 ? candidates : adultPool;
         const maxColonistsToSend = Math.min(2, Math.max(0, villageUnits.length - 3));
         if (maxColonistsToSend > 0 && colonistPool.length >= maxColonistsToSend) {
           if (!state.sandboxFreeMode) {
             state.resources.food = Math.max(0, state.resources.food - 25);
           }
+          const parentKingdomId = getKingdomId(state, sid);
           for (let c = 0; c < maxColonistsToSend; c++) {
             const col = colonistPool[c];
+            col.kingdomId = parentKingdomId;
             col.settlementId = undefined;
             col.expeditionTargetX = frontier.x;
             col.expeditionTargetZ = frontier.z;
@@ -4452,6 +4581,7 @@ function stepSimulationSingle(state: SimulationState, dt: number): void {
       if (!stillHasBlds && !stillHasUnits) {
         if (state.settlementNames) delete state.settlementNames[sid];
         if (state.settlementSpecies) delete state.settlementSpecies[sid];
+        if (state.settlementKingdoms) delete state.settlementKingdoms[sid];
         for (const t of state.tiles) {
           if (t.farmSettlementId === sid) {
             t.farmSettlementId = undefined;
@@ -4460,6 +4590,9 @@ function stepSimulationSingle(state: SimulationState, dt: number): void {
       }
     }
   }
+
+  // 8b. Guarantee strictly 1 living King per kingdom on every tick (handles immediate succession when a King falls)
+  ensureSettlementKings(state);
 
   // 9. Update transit vehicles (Trains on rail_track, Cars on stone_road, Planes at airports)
   stepVehicles(state, dt);
@@ -6457,6 +6590,7 @@ function stepCivilianUnitAI(
       const bSpecies = state.settlementSpecies?.[nearbyBld.settlementId] ?? 'human';
       if (bSpecies === u.species) {
         u.settlementId = nearbyBld.settlementId;
+        u.kingdomId = getKingdomId(state, nearbyBld.settlementId);
       }
     }
   }
@@ -7134,7 +7268,7 @@ function stepCivilianUnitAI(
       const vocation = indivHash % 5;
       if (state.resources.food < 15) {
         preferred = ['berry_bush', 'timber_grove', 'stone_outcrop', 'ore_vein'];
-      } else if (state.resources.wood < 15) {
+      } else if (state.resources.wood < 15 || villageBuildings.length <= 1) {
         preferred = ['timber_grove', 'berry_bush', 'stone_outcrop', 'ore_vein'];
       } else if (vocation === 0) {
         preferred = ['timber_grove', 'berry_bush', 'stone_outcrop', 'ore_vein'];
@@ -7156,9 +7290,13 @@ function stepCivilianUnitAI(
       }
     }
 
-    // Kings and Guards prefer patrolling their city streets when not in combat, only gathering occasionally
+    const ownSettlementPop = state.units.filter(
+      (other) => other.faction === 'civilization' && other.state !== 'ko' && other.settlementId === u.settlementId,
+    ).length;
+
+    // Kings and Guards prefer patrolling their city streets once settled, while pitching in during early founding
     const shouldPatrolTown =
-      (u.isKing || u.role === 'warrior' || (indivHash + Math.floor(state.year * 10)) % 8 === 0) &&
+      ((u.isKing && ownSettlementPop >= 4) || u.role === 'warrior' || (indivHash + Math.floor(state.year * 10)) % 8 === 0) &&
       villageBuildings.length >= 2;
 
     if (!shouldPatrolTown) {

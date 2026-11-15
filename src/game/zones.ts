@@ -12,6 +12,7 @@ export type { ZoneOverlayType, ZoneToggleState };
 
 export const DEFAULT_ZONE_TOGGLES: ZoneToggleState = {
   kingdoms: false,
+  kings: false,
   territories: false,
   biomes: false,
   temperature: false,
@@ -442,11 +443,13 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
   }
 
   // Group living civilization units into their settlement (or nearest matching settlement / camp)
+  const resolvedUnitSid = new Map<string, string>();
+  const nomadCamps: Array<{ id: string; species: SpeciesId; x: number; z: number }> = [];
   for (const u of sim.units) {
     if (u.faction !== 'civilization' || u.state === 'ko' || u.hp <= 0) continue;
     let sid = u.settlementId;
     if (!sid || !settlementTable.has(sid)) {
-      let bestDistSq = 28 * 28;
+      let bestDistSq = 12 * 12;
       let bestSid: string | null = null;
       settlementTable.forEach((cand) => {
         if (cand.species !== u.species) return;
@@ -458,8 +461,38 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
           bestSid = cand.id;
         }
       });
-      sid = bestSid || u.settlementId || `nomad_${u.species}`;
+      if (!bestSid && u.kingdomId) {
+        let bestKingdomDistSq = Infinity;
+        settlementTable.forEach((cand) => {
+          if ((sim.settlementKingdoms?.[cand.id] ?? cand.id) !== u.kingdomId) return;
+          const cx = cand.sumX / cand.anchorCount;
+          const cz = cand.sumZ / cand.anchorCount;
+          const d2 = (u.x - cx) * (u.x - cx) + (u.z - cz) * (u.z - cz);
+          if (d2 < bestKingdomDistSq) {
+            bestKingdomDistSq = d2;
+            bestSid = cand.id;
+          }
+        });
+      }
+      if (!bestSid && !u.settlementId) {
+        if (u.kingdomId) {
+          bestSid = `nomad_${u.kingdomId}`;
+        } else {
+          const existingCamp = nomadCamps.find(
+            (c) => c.species === u.species && (c.x - u.x) ** 2 + (c.z - u.z) ** 2 <= 16 * 16,
+          );
+          if (existingCamp) {
+            bestSid = existingCamp.id;
+          } else {
+            const newCampId = `nomad_${u.species}_${nomadCamps.length + 1}`;
+            nomadCamps.push({ id: newCampId, species: u.species, x: u.x, z: u.z });
+            bestSid = newCampId;
+          }
+        }
+      }
+      sid = bestSid || u.settlementId || `nomad_${u.kingdomId || u.species}`;
     }
+    resolvedUnitSid.set(u.id, sid);
     const rec = ensureSettlement(sid, u.species, u.x, u.z);
     if (u.ageStage === 'child') rec.children++;
     else rec.adults++;
@@ -477,6 +510,7 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
   kCost.fill(1e9);
   const queueIdx: number[] = [];
 
+  const kingdomColorIndex = new Map<string, number>();
   let kIdxCounter = 0;
   settlementTable.forEach((s) => {
     const pop = s.adults + s.children;
@@ -487,8 +521,14 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
 
     const zoneId = Math.min(254, ++kIdxCounter);
     settlementIdToZoneId.set(s.id, zoneId);
+    const rootKingdomId = sim.settlementKingdoms?.[s.id] ?? s.id;
+    let colorSlot = kingdomColorIndex.get(rootKingdomId);
+    if (colorSlot === undefined) {
+      colorSlot = kingdomColorIndex.size;
+      kingdomColorIndex.set(rootKingdomId, colorSlot);
+    }
     const palette = KINGDOM_PALETTES[s.species] || KINGDOM_PALETTES.human;
-    const color = palette[(zoneId - 1) % palette.length];
+    const color = palette[colorSlot % palette.length];
     const cx = Math.max(0, Math.min(size - 1, Math.round(s.sumX / s.anchorCount)));
     const cz = Math.max(0, Math.min(size - 1, Math.round(s.sumZ / s.anchorCount)));
     const epochDef = EPOCHS[Math.max(0, Math.min(EPOCHS.length - 1, s.maxEpoch))];
@@ -568,10 +608,11 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
     }
   }
 
-  // Seed lightly from living citizen positions
+  // Seed lightly from living citizen positions (excluding colonists currently trekking far afield)
   for (const u of sim.units) {
     if (u.faction !== 'civilization' || u.state === 'ko' || u.hp <= 0) continue;
-    const sid = u.settlementId || `nomad_${u.species}`;
+    if (u.expeditionTargetX !== undefined) continue;
+    const sid = resolvedUnitSid.get(u.id) || u.settlementId || `nomad_${u.kingdomId || u.species}`;
     const zoneId = settlementIdToZoneId.get(sid) || settlementIdToZoneId.get('city_default');
     if (!zoneId) continue;
     const ux = Math.max(0, Math.min(size - 1, Math.round(u.x)));
@@ -1596,3 +1637,23 @@ export function buildZoneOverlayTextures(
 
   return { colorData, idData, anyActive: true, labels };
 }
+
+/**
+ * Returns a lookup map from settlementId / rootKingdomId to the kingdom's hex color
+ * so King map markers always match their kingdom's exact zone color.
+ */
+export function extractKingdomColorsMap(
+  zones: WorldZonesData,
+  sim: SimulationState,
+): Record<string, string> {
+  const map: Record<string, string> = {};
+  zones.kingdomsById.forEach((k) => {
+    map[k.settlementId] = k.hexColor;
+    const rootId = sim.settlementKingdoms?.[k.settlementId] ?? k.settlementId;
+    if (!map[rootId]) {
+      map[rootId] = k.hexColor;
+    }
+  });
+  return map;
+}
+

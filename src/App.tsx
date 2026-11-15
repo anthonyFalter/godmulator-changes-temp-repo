@@ -41,6 +41,7 @@ import {
   DEFAULT_ZONE_TOGGLES,
   buildZoneOverlayTextures,
   computeWorldZones,
+  extractKingdomColorsMap,
   inspectTileZones,
 } from './game/zones';
 import { EntityInspectorCard } from './components/EntityInspectorCard';
@@ -570,6 +571,7 @@ export default function App() {
   const isInspectTabActive = activeCategory === 'inspect' && activeTool.kind === 'inspect';
   const anyZoneActive =
     activeZones.kingdoms ||
+    activeZones.kings ||
     activeZones.territories ||
     activeZones.biomes ||
     activeZones.temperature;
@@ -578,6 +580,9 @@ export default function App() {
 
   // Compute dynamic land & sea zones (cached by simulation year / building count / unit count)
   const sim = simRef.current;
+  const livingKings = sim.units.filter(
+    (u) => u.isKing && u.state !== 'ko' && u.faction === 'civilization',
+  );
   const zoneCacheKey = shouldComputeZones
     ? `${sim.seed}:${Math.floor(sim.year)}:${sim.buildings.length}:${sim.units.length}:${Math.floor(hudTick / 3)}`
     : 'idle';
@@ -613,8 +618,10 @@ export default function App() {
         idData: zoneIdBufRef.current!,
         anyActive: false,
         kingdomsActive: false,
+        kingsActive: false,
         version: zoneOverlayVersionRef.current,
         labels: [],
+        kingdomColors: {} as Record<string, string>,
       };
     }
 
@@ -629,13 +636,16 @@ export default function App() {
     );
     zoneColorBufRef.current = packed.colorData;
     zoneIdBufRef.current = packed.idData;
+    const kingdomColors = extractKingdomColorsMap(worldZones, simRef.current);
     return {
       colorData: packed.colorData,
       idData: packed.idData,
       anyActive: packed.anyActive,
       kingdomsActive: Boolean(activeZones.kingdoms),
+      kingsActive: Boolean(activeZones.kings),
       version: zoneOverlayVersionRef.current,
       labels: packed.labels,
+      kingdomColors,
     };
   }, [worldZones, activeZones, anyZoneActive, isInspectTabActive, activeCategory, hoverTile]);
 
@@ -643,6 +653,9 @@ export default function App() {
     setActiveZones((prev) => {
       const nextVal = !prev[zoneType];
       setStatusFeedback(`${label}: ${nextVal ? 'ON' : 'OFF'}`);
+      if (zoneType === 'kingdoms') {
+        return { ...prev, kingdoms: nextVal, kings: nextVal };
+      }
       return { ...prev, [zoneType]: nextVal };
     });
     soundEngine.playClick();
@@ -1625,6 +1638,7 @@ export default function App() {
                   const activeZoneCount =
                     tab.id === 'zones'
                       ? Number(activeZones.kingdoms) +
+                        Number(activeZones.kings) +
                         Number(activeZones.territories) +
                         Number(activeZones.biomes) +
                         Number(activeZones.temperature)
@@ -1933,7 +1947,7 @@ export default function App() {
                   </div>
                 )}
 
-                {/* TAB 5: ZONES (Toggle Buttons for Kingdoms, Animal Territories, Biomes, Temperatures) */}
+                {/* TAB 5: ZONES (Toggle Buttons for Kingdoms, Kings, Animal Territories, Biomes, Temperatures) */}
                 {activeCategory === 'zones' && (
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Zone Overlays">
@@ -1946,6 +1960,14 @@ export default function App() {
                             count: worldZones ? worldZones.kingdomsById.size : 0,
                             summary:
                               'Toggle dynamic land & maritime sea borders and population counts for all Cities & Kingdoms',
+                          },
+                          {
+                            id: 'kings' as ZoneOverlayType,
+                            label: 'Kingdom Kings',
+                            shortLabel: 'Kings',
+                            count: livingKings.length,
+                            summary:
+                              'Toggle floating royal crown icons and name labels for every Kingdom King',
                           },
                           {
                             id: 'territories' as ZoneOverlayType,

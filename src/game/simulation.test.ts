@@ -35,6 +35,7 @@ import {
   DEFAULT_ZONE_TOGGLES,
   buildZoneOverlayTextures,
   computeWorldZones,
+  extractKingdomColorsMap,
   inspectTileZones,
 } from './zones';
 import { createUnitGroup, createVehicleGroup } from './meshBuilders';
@@ -2186,6 +2187,7 @@ test('zones feature defaults to off, dynamically contours across land and sea, a
   // 1. Default toggles must all be OFF by default
   assert.deepEqual(DEFAULT_ZONE_TOGGLES, {
     kingdoms: false,
+    kings: false,
     territories: false,
     biomes: false,
     temperature: false,
@@ -2306,7 +2308,7 @@ test('zones feature defaults to off, dynamically contours across land and sea, a
 
   const onPack = buildZoneOverlayTextures(
     zones,
-    { kingdoms: true, territories: true, biomes: false, temperature: false },
+    { kingdoms: true, kings: false, territories: true, biomes: false, temperature: false },
     { x: 49, z: 50 },
   );
   assert.equal(onPack.anyActive, true);
@@ -2371,3 +2373,129 @@ test('World Creator templates (Realistic, Fantastic, Sci-Fi Orbital) and map siz
   assert.equal(colossalSim.gridSize, 256);
   assert.equal(colossalSim.tiles.length, 256 * 256);
 });
+
+test('kingdoms maintain strictly 1 King across all branched-out zones', () => {
+  const state = createInitialSimulationState(128, 'SINGLE-KING-BRANCH');
+  state.sandboxFreeMode = true;
+  state.wildlifeSeeded = true;
+  state.resources.food = 5000;
+  state.resources.wood = 5000;
+  state.resources.stone = 5000;
+
+  for (let z = 20; z < 108; z++) {
+    for (let x = 20; x < 108; x++) {
+      const t = getTile(state, x, z)!;
+      t.height = 2;
+      t.terrain = 'grass';
+      t.resourceNode = 'none';
+      t.resourceAmount = 0;
+      t.buildingId = null;
+    }
+  }
+
+  for (let i = 0; i < 8; i++) {
+    spawnUnit(state, 'human', 36 + (i % 3) - 1, 36 + Math.floor(i / 3) - 1, true);
+  }
+  for (let i = 0; i < 15; i++) stepSimulation(state, 0.25);
+  advanceEpoch(state, true);
+
+  for (let i = 0; i < 240; i++) {
+    stepSimulation(state, 0.25);
+    for (const b of state.buildings) {
+      b.constructionProgress = 100;
+    }
+  }
+
+  const settlementIds = Array.from(new Set(state.buildings.map((b) => b.settlementId).filter(Boolean))) as string[];
+  assert.ok(settlementIds.length >= 2, `Expected kingdom to branch into >= 2 zones, got ${settlementIds.length}`);
+
+  const rootKingdoms = new Set(settlementIds.map((sid) => state.settlementKingdoms?.[sid] ?? sid));
+  assert.equal(rootKingdoms.size, 1, 'Branched-out settlement zones must share the same root kingdom');
+
+  const kings = state.units.filter((u) => u.isKing && u.state !== 'ko' && u.faction === 'civilization');
+  assert.equal(kings.length, 1, `Expected strictly 1 King across all branched zones, found ${kings.length}`);
+
+  // All branched zones of the same kingdom share the same zone color
+  const zones = computeWorldZones(state);
+  const kingdomZones = Array.from(zones.kingdomsById.values());
+  assert.ok(kingdomZones.length >= 2);
+  const colors = new Set(kingdomZones.map((k) => k.hexColor));
+  assert.equal(colors.size, 1, 'Branched-out zones of the same kingdom should share their kingdom color');
+
+  const colorMap = extractKingdomColorsMap(zones, state);
+  const king = kings[0];
+  const resolvedKingColor =
+    (king.settlementId && colorMap[king.settlementId]) ||
+    (king.kingdomId && colorMap[king.kingdomId]);
+  assert.equal(resolvedKingColor, kingdomZones[0].hexColor, 'King label color must match their kingdom zone color');
+
+  // If the monarch falls, exactly 1 successor is crowned across the kingdom
+  kings[0].hp = 0;
+  kings[0].state = 'ko';
+  stepSimulation(state, 0.25);
+  const newKings = state.units.filter((u) => u.isKing && u.state !== 'ko' && u.faction === 'civilization');
+  assert.equal(newKings.length, 1, 'Exactly 1 successor King should be crowned for the kingdom');
+});
+
+test('same-race units spawned on other parts of the map form independent cities, kingdoms, and their own Kings', () => {
+  const state = createInitialSimulationState(128, 'INDEPENDENT-REALMS');
+  state.sandboxFreeMode = true;
+  state.wildlifeSeeded = true;
+
+  for (let z = 20; z < 110; z++) {
+    for (let x = 20; x < 110; x++) {
+      const t = getTile(state, x, z)!;
+      t.height = 2;
+      t.terrain = 'grass';
+      t.resourceNode = 'none';
+      t.resourceAmount = 0;
+      t.buildingId = null;
+    }
+  }
+
+  // Colony 1 (Human) at (30, 30)
+  for (let i = 0; i < 4; i++) {
+    const res = spawnUnit(state, 'human', 30 + (i % 2), 30 + Math.floor(i / 2), true);
+    assert.equal(res.ok, true);
+  }
+  for (let i = 0; i < 15; i++) stepSimulation(state, 0.1);
+  assert.equal(state.buildings.length, 1);
+  const colony1Id = state.buildings[0].settlementId!;
+  const kingdom1Id = state.settlementKingdoms?.[colony1Id] ?? colony1Id;
+
+  // Spawn another Human group ~28 tiles away at (58, 30) — should NOT merge into Colony 1's kingdom
+  const group2: string[] = [];
+  for (let i = 0; i < 3; i++) {
+    const res = spawnUnit(state, 'human', 58 + i, 30, true);
+    assert.equal(res.ok, true);
+    assert.equal(res.unit?.settlementId, undefined, 'Independent settlers must not auto-join Colony 1');
+    assert.equal(res.unit?.kingdomId, undefined, 'Independent settlers must not auto-ally with Colony 1');
+    assert.equal(res.unit?.ageStage, 'adult', 'Pioneers spawned on unclaimed land must spawn as adults');
+    group2.push(res.unit!.id);
+  }
+
+  // Step 4s so group 2 builds its own city hearth & crowns its own King
+  for (let i = 0; i < 40; i++) stepSimulation(state, 0.1);
+
+  assert.equal(state.buildings.length, 2, 'Independent human group must found its own separate city');
+  const colony2Bld = state.buildings.find((b) => b.settlementId !== colony1Id)!;
+  assert.ok(colony2Bld, 'Second city must have a distinct settlementId');
+  const kingdom2Id = state.settlementKingdoms?.[colony2Bld.settlementId!] ?? colony2Bld.settlementId!;
+  assert.notEqual(kingdom2Id, kingdom1Id, 'Second city must form its own independent kingdom');
+
+  const kings = state.units.filter((u) => u.isKing && u.state !== 'ko' && u.faction === 'civilization');
+  assert.equal(kings.length, 2, 'Each independent human kingdom must crown its own King');
+  const kingKingdoms = new Set(kings.map((k) => k.kingdomId ?? k.settlementId));
+  assert.equal(kingKingdoms.size, 2, 'Each King must rule a separate kingdom');
+
+  const zones = computeWorldZones(state);
+  const kingdomZones = Array.from(zones.kingdomsById.values());
+  assert.equal(kingdomZones.length, 2);
+  assert.notEqual(
+    kingdomZones[0].hexColor,
+    kingdomZones[1].hexColor,
+    'Independent human kingdoms must display distinct zone colors',
+  );
+});
+
+

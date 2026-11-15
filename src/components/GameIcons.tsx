@@ -238,6 +238,23 @@ export const ZonePixelIcon: React.FC<{ zone: ZoneOverlayType; className?: string
           <rect x="4" y="13" width="8" height="1" fill="#38bdf8" />
         </svg>
       );
+    case 'kings':
+      return (
+        <svg viewBox="0 0 16 16" className={className} aria-hidden="true" shapeRendering="crispEdges">
+          {/* Royal Monarch Crown & Jewels */}
+          <rect x="7" y="1" width="2" height="2" fill="#fff3bf" />
+          <rect x="2" y="4" width="2" height="7" fill="#ffd166" />
+          <rect x="7" y="3" width="2" height="8" fill="#ffd166" />
+          <rect x="12" y="4" width="2" height="7" fill="#ffd166" />
+          <rect x="4" y="7" width="3" height="4" fill="#f59e0b" />
+          <rect x="9" y="7" width="3" height="4" fill="#f59e0b" />
+          <rect x="2" y="10" width="12" height="3" fill="#d97706" />
+          <rect x="3" y="11" width="2" height="1" fill="#38bdf8" />
+          <rect x="7" y="10" width="2" height="2" fill="#ef4444" />
+          <rect x="11" y="11" width="2" height="1" fill="#10b981" />
+          <rect x="2" y="13" width="12" height="1" fill="#fff3bf" />
+        </svg>
+      );
     case 'territories':
       return (
         <svg viewBox="0 0 16 16" className={className} aria-hidden="true" shapeRendering="crispEdges">

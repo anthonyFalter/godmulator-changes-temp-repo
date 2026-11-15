@@ -60,8 +60,10 @@ interface IsometricWorldCanvasProps {
     idData: Uint8Array;
     anyActive: boolean;
     kingdomsActive?: boolean;
+    kingsActive?: boolean;
     version: number;
     labels?: ZoneMapLabel[];
+    kingdomColors?: Record<string, string>;
   };
   onTileInteract: (tileX: number, tileZ: number) => void;
   onHoverTileChange: (tile: { x: number; z: number } | null) => void;
@@ -3116,8 +3118,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
         camDesiredTarget.x -= (dx * rightX + dy * forwardX) * panFactor;
         camDesiredTarget.z -= (dx * rightZ + dy * forwardZ) * panFactor;
-        camDesiredTarget.x = THREE.MathUtils.clamp(camDesiredTarget.x, 2, sim.gridSize - 3);
-        camDesiredTarget.z = THREE.MathUtils.clamp(camDesiredTarget.z, 2, sim.gridSize - 3);
+        camDesiredTarget.x = THREE.MathUtils.clamp(camDesiredTarget.x, 2, simRef.current.gridSize - 3);
+        camDesiredTarget.z = THREE.MathUtils.clamp(camDesiredTarget.z, 2, simRef.current.gridSize - 3);
         dragStartClient = { x: e.clientX, y: e.clientY };
         if (propsRef.current.followingEntityId) {
           propsRef.current.onBreakFollow?.();
@@ -4811,15 +4813,15 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           const targetY = uGroup ? Math.max(1.2, uGroup.position.y * 0.8) : 1.2;
           const targetZ = uGroup ? uGroup.position.z : followUnit.z;
 
-          camDesiredTarget.x = THREE.MathUtils.clamp(targetX, 2, sim.gridSize - 3);
+          camDesiredTarget.x = THREE.MathUtils.clamp(targetX, 2, simRef.current.gridSize - 3);
           camDesiredTarget.y = targetY;
-          camDesiredTarget.z = THREE.MathUtils.clamp(targetZ, 2, sim.gridSize - 3);
+          camDesiredTarget.z = THREE.MathUtils.clamp(targetZ, 2, simRef.current.gridSize - 3);
         } else {
           propsRef.current.onBreakFollow?.();
         }
       } else {
-        camDesiredTarget.x = THREE.MathUtils.clamp(camDesiredTarget.x, 2, sim.gridSize - 3);
-        camDesiredTarget.z = THREE.MathUtils.clamp(camDesiredTarget.z, 2, sim.gridSize - 3);
+        camDesiredTarget.x = THREE.MathUtils.clamp(camDesiredTarget.x, 2, simRef.current.gridSize - 3);
+        camDesiredTarget.z = THREE.MathUtils.clamp(camDesiredTarget.z, 2, simRef.current.gridSize - 3);
       }
 
       // Advance simulation when in 'playing' (or gentle ambient motion in 'title')
@@ -5760,7 +5762,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           favCount++;
         }
         if (
-          propsRef.current.zoneOverlayBuffers?.kingdomsActive &&
+          (propsRef.current.zoneOverlayBuffers?.kingsActive ||
+            propsRef.current.zoneOverlayBuffers?.kingdomsActive) &&
           fu.isKing &&
           fu.faction === 'civilization' &&
           kingCount < MAX_KING_CROWNS
@@ -5983,17 +5986,18 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       renderer.render(scene, camera);
 
       // Update floating screen-space Zone headers (Zone Name + Population if any)
+      const curSim = simRef.current;
       const labelLayer = zoneLabelsLayerRef.current;
       if (labelLayer && labelLayer.children.length > 0) {
         const cWidth = container?.clientWidth || window.innerWidth;
         const cHeight = container?.clientHeight || window.innerHeight;
-        const gSize = sim.gridSize;
+        const gSize = curSim.gridSize;
         const zoneProjVec = new THREE.Vector3();
         for (let i = 0; i < labelLayer.children.length; i++) {
           const el = labelLayer.children[i] as HTMLElement;
           const tx = Number(el.dataset.tileX);
           const tz = Number(el.dataset.tileZ);
-          const tile = sim.tiles[tz * gSize + tx];
+          const tile = curSim.tiles[tz * gSize + tx];
           const worldY = Math.max(0.5, (tile ? tile.height : 1) * HEIGHT_STEP) + 1.8;
           zoneProjVec.set(tx, worldY, tz).project(camera);
           const sx = (zoneProjVec.x * 0.5 + 0.5) * cWidth;
@@ -6012,12 +6016,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       if (kingLayer && kingLayer.children.length > 0) {
         const cWidth = container?.clientWidth || window.innerWidth;
         const cHeight = container?.clientHeight || window.innerHeight;
-        const gSize = sim.gridSize;
+        const gSize = curSim.gridSize;
         const kingProjVec = new THREE.Vector3();
         for (let i = 0; i < kingLayer.children.length; i++) {
           const el = kingLayer.children[i] as HTMLElement;
           const unitId = el.dataset.unitId;
-          const kingUnit = unitId ? sim.units.find((u) => u.id === unitId && u.state !== 'ko') : undefined;
+          const kingUnit = unitId
+            ? curSim.units.find((u) => u.id === unitId && u.state !== 'ko')
+            : undefined;
           if (!kingUnit) {
             el.style.opacity = '0';
             continue;
@@ -6025,12 +6031,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           const uGrp = unitMeshes.get(kingUnit.id)?.group;
           const kx = uGrp ? uGrp.position.x : kingUnit.x;
           const kz = uGrp ? uGrp.position.z : kingUnit.z;
-          const tile = sim.tiles[Math.round(kz) * gSize + Math.round(kx)];
-          const baseY = uGrp ? uGrp.position.y : Math.max(0.5, (tile ? tile.height : 1) * HEIGHT_STEP);
-          kingProjVec.set(kx, baseY + 1.35, kz).project(camera);
+          const tile = curSim.tiles[Math.round(kz) * gSize + Math.round(kx)];
+          const baseY = uGrp
+            ? uGrp.position.y
+            : Math.max(0.5, (tile ? tile.height : 1) * HEIGHT_STEP);
+          kingProjVec.set(kx, baseY + 1.45, kz).project(camera);
           const sx = (kingProjVec.x * 0.5 + 0.5) * cWidth;
           const sy = (-kingProjVec.y * 0.5 + 0.5) * cHeight;
-          if (kingProjVec.z > 1 || sx < -80 || sx > cWidth + 80 || sy < -60 || sy > cHeight + 60) {
+          if (kingProjVec.z > 1 || sx < -120 || sx > cWidth + 120 || sy < -60 || sy > cHeight + 60) {
             el.style.opacity = '0';
           } else {
             el.style.opacity = '1';
@@ -6133,9 +6141,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
   }, [cameraActionRef, simRef]);
 
   const activeLabels = zoneOverlayBuffers?.labels ?? [];
-  const kingdomsZoneOn = Boolean(zoneOverlayBuffers?.kingdomsActive);
+  const kingsOverlayOn = Boolean(
+    zoneOverlayBuffers?.kingsActive || zoneOverlayBuffers?.kingdomsActive,
+  );
   const activeKings =
-    gameState !== 'title' && kingdomsZoneOn
+    gameState !== 'title' && kingsOverlayOn
       ? simRef.current.units.filter(
           (u) => u.isKing && u.state !== 'ko' && u.faction === 'civilization',
         )
@@ -6152,41 +6162,75 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         <div
           ref={kingMarkersLayerRef}
           data-testid="king-map-markers-layer"
-          className="fixed inset-0 z-10 pointer-events-none overflow-hidden select-none"
+          className="fixed inset-0 z-20 pointer-events-none overflow-hidden select-none"
         >
           {activeKings.map((king) => {
-            const borderHex =
+            const simState = simRef.current;
+            const rootKingdomId =
+              (king.settlementId && simState.settlementKingdoms?.[king.settlementId]) ||
+              king.kingdomId ||
+              king.settlementId;
+            const fallbackSpeciesHex =
               king.species === 'elf'
                 ? '#10b981'
                 : king.species === 'orc'
                   ? '#ef4444'
                   : '#3b82f6';
+            const kingdomHex =
+              (king.settlementId && zoneOverlayBuffers?.kingdomColors?.[king.settlementId]) ||
+              (rootKingdomId && zoneOverlayBuffers?.kingdomColors?.[rootKingdomId]) ||
+              fallbackSpeciesHex;
+            const kingdomName =
+              (rootKingdomId && simState.settlementNames?.[rootKingdomId]) ||
+              (king.settlementId && simState.settlementNames?.[king.settlementId]) ||
+              null;
             return (
               <div
                 key={king.id}
                 data-testid={`king-map-marker-${king.id}`}
                 data-unit-id={king.id}
+                data-kingdom-color={kingdomHex}
                 style={{
-                  backgroundColor: '#191613',
-                  borderColor: borderHex,
+                  backgroundColor: `color-mix(in srgb, ${kingdomHex} 28%, #161310)`,
+                  borderColor: `color-mix(in srgb, ${kingdomHex} 55%, #000000)`,
                   left: 0,
                   top: 0,
+                  boxShadow: '0 2px 0 #0b0a09',
                 }}
-                className="absolute px-1.5 py-0.5 border-2 flex items-center gap-1 whitespace-nowrap"
+                className="absolute px-2 py-0.5 border-2 flex items-center gap-1.5 whitespace-nowrap"
               >
                 <svg
-                  viewBox="0 0 12 10"
-                  className="w-3.5 h-3 shrink-0"
+                  viewBox="0 0 16 14"
+                  className="w-4 h-3.5 shrink-0"
                   aria-hidden="true"
+                  shapeRendering="crispEdges"
                 >
-                  <path
-                    d="M1 8h10V9H1V8zm0-5l2.5 2.5L6 2l2.5 3.5L11 3v4H1V3z"
-                    fill="#ffd166"
-                  />
+                  <rect x="7" y="0" width="2" height="2" fill="#fff3bf" />
+                  <rect x="1" y="3" width="2" height="7" fill="#ffd166" />
+                  <rect x="7" y="2" width="2" height="8" fill="#ffd166" />
+                  <rect x="13" y="3" width="2" height="7" fill="#ffd166" />
+                  <rect x="3" y="6" width="4" height="4" fill="#f59e0b" />
+                  <rect x="9" y="6" width="4" height="4" fill="#f59e0b" />
+                  <rect x="1" y="9" width="14" height="3" fill="#d97706" />
+                  <rect x="3" y="10" width="2" height="1" fill="#38bdf8" />
+                  <rect x="7" y="9" width="2" height="2" fill={kingdomHex} />
+                  <rect x="11" y="10" width="2" height="1" fill="#10b981" />
+                  <rect x="1" y="12" width="14" height="1" fill="#fff3bf" />
                 </svg>
-                <span className="text-[10px] font-bold text-[#ffd166]">
+                <span
+                  className="text-[11px] font-bold leading-none"
+                  style={{ color: `color-mix(in srgb, ${kingdomHex} 78%, #ffffff)` }}
+                >
                   {king.name}
                 </span>
+                {kingdomName && (
+                  <span
+                    className="text-[10px] font-semibold leading-none"
+                    style={{ color: `color-mix(in srgb, ${kingdomHex} 45%, #e5dfd3)` }}
+                  >
+                    · {kingdomName}
+                  </span>
+                )}
               </div>
             );
           })}
