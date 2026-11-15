@@ -810,12 +810,12 @@ export default function App() {
             {/* Active Pixel Dock Panel */}
             {!dockCollapsed && (
               <div
-                className="px-panel px-3 py-2.5 max-w-[95vw]"
+                className="px-panel px-3 py-2.5 max-w-[680px] w-full max-h-[114px] min-h-[72px] overflow-y-auto overflow-x-hidden pr-1"
                 onMouseLeave={() => setHoveredHint(null)}
               >
                 {/* TAB 1: POWERS (Icon Slots) */}
                 {activeCategory === 'powers' && (
-                  <div className="flex flex-wrap items-center justify-center gap-1.5">
+                  <div className="flex flex-wrap items-center justify-start gap-1.5">
                     {GOD_POWERS.map((power) => {
                       const isSelected =
                         activeTool.kind === 'power' && activeTool.power === power.type;
@@ -859,7 +859,7 @@ export default function App() {
 
                 {/* TAB 2: LAND SCULPTING (Icon Slots + Brush Size) */}
                 {activeCategory === 'terrain' && (
-                  <div className="flex flex-wrap items-center justify-center gap-2">
+                  <div className="flex flex-wrap items-center justify-start gap-2">
                     <div className="flex flex-wrap items-center gap-1.5">
                       {TERRAIN_TOOLS.map((tool) => {
                         const isSelected =
@@ -916,7 +916,7 @@ export default function App() {
 
                 {/* TAB 3: BUILD STRUCTURES (Icon Slots) */}
                 {activeCategory === 'build' && (
-                  <div className="flex flex-wrap items-center justify-center gap-1.5">
+                  <div className="flex flex-wrap items-center justify-start gap-1.5">
                     {BUILDINGS.map((bld) => {
                       const isSelected =
                         activeTool.kind === 'build' && activeTool.building === bld.type;
@@ -958,8 +958,8 @@ export default function App() {
 
                 {/* TAB 4: SPECIES UNITS + ANIMALS & MYTHICAL BEASTS */}
                 {activeCategory === 'spawn' && (
-                  <div className="flex flex-wrap items-center justify-center gap-2">
-                    <div className="flex flex-wrap items-center justify-center gap-1.5">
+                  <div className="flex flex-wrap items-center justify-start gap-2">
+                    <div className="flex flex-wrap items-center justify-start gap-1.5">
                       {SPECIES_UNITS.map((u) => {
                         const isSelected =
                           activeTool.kind === 'spawn' && activeTool.unit === u.role;
@@ -1041,34 +1041,7 @@ export default function App() {
                       })}
                     </div>
 
-                    <div className="flex items-center gap-1.5 pl-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          simRef.current.sandboxFreeMode = !simRef.current.sandboxFreeMode;
-                          soundEngine.playClick();
-                          setHudTick((t) => t + 1);
-                        }}
-                        className={`px-2.5 py-1.5 text-xs font-semibold cursor-pointer whitespace-nowrap ${
-                          sim.sandboxFreeMode ? 'px-btn-active' : 'px-btn'
-                        }`}
-                      >
-                        {sim.sandboxFreeMode ? 'Free: On' : 'Free: Off'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          spawnRaiderWave(simRef.current);
-                          soundEngine.playCurse();
-                          setStatusFeedback('Raiders spawned');
-                          setHudTick((t) => t + 1);
-                        }}
-                        className="px-btn px-2.5 py-1.5 text-xs font-semibold text-[#ff8f6b] cursor-pointer whitespace-nowrap"
-                      >
-                        Raiders
-                      </button>
                     </div>
-                  </div>
                 )}
 
                 {/* TAB 5: WORLD (Ages, Pixel Scale, Sky, Seed) */}
