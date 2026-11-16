@@ -8475,7 +8475,7 @@ function stepWildlifeAI(
       const dx = tx - u.x;
       const dz = tz - u.z;
       const dist = Math.hypot(dx, dz);
-      if (dist <= 2.4) {
+      if (dist <= 4.8) {
         u.state = 'fighting';
         if (u.actionCooldown <= 0) {
           u.actionCooldown = 1.15;
@@ -8493,7 +8493,7 @@ function stepWildlifeAI(
             x: tx,
             y: 0.25,
             z: tz,
-            radius: 1.9,
+            radius: 3.6,
             color: '#38bdf8',
             createdAt: Date.now(),
           });

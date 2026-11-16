@@ -6087,7 +6087,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           if (uEntry.leviathanSilhouette) uEntry.leviathanSilhouette.visible = isSubmerged;
           if (uEntry.leviathanSurfaced) uEntry.leviathanSurfaced.visible = !isSubmerged;
           if (!isSubmerged && Math.random() < 0.35) {
-            spawnParticleBurst(u.x, 0.28, u.z, 2, '#e0fbfc', 1.4, 2.2, 0.75);
+            spawnParticleBurst(u.x, 0.32, u.z, 4, '#e0fbfc', 2.6, 4.5, 0.85);
           }
         }
 

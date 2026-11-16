@@ -4886,135 +4886,215 @@ function buildCreatureUnitGroup(
     }
   } else if (role === 'leviathan') {
     // Leviathan ("The Bloop"):
-    // 1. `leviathan_silhouette`: Colossal dark abyssal silhouette roaming beneath the sea surface
-    // 2. `leviathan_surfaced`: Breaching wide-mouthed Bloop sea behemoth with cavernous maw, rows of giant teeth, bioluminescent abyssal eyes, dorsal fins & splash ring
-    shadowRadius = 1.95;
-    auraRadius = 1.15;
+    // 1. `leviathan_silhouette`: Colossal dark abyssal silhouette roaming beneath the sea surface (~8.6 tiles length, ~5.8 tiles flipper span)
+    // 2. `leviathan_surfaced`: Breaching wide-mouthed Bloop sea behemoth with cavernous maw, rows of giant teeth, bioluminescent abyssal eyes, dorsal fins & double splash ring
+    shadowRadius = 4.8;
+    auraRadius = 2.8;
 
     const silGroup = new THREE.Group();
     silGroup.name = 'leviathan_silhouette';
     const silMat = new THREE.MeshBasicMaterial({
-      color: 0x031224,
+      color: 0x021226,
       transparent: true,
-      opacity: 0.72,
+      opacity: 0.76,
       depthWrite: false,
     });
-    const silBody = new THREE.Mesh(new THREE.BoxGeometry(1.35, 0.12, 2.25), silMat);
+    // Colossal abyssal silhouette components spanning ~8.6 tiles in length and ~5.8 tiles wingspan across flippers
+    const silBody = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.18, 5.2), silMat);
     silBody.position.set(0, -0.06, 0);
     silGroup.add(silBody);
-    const silHead = new THREE.Mesh(new THREE.BoxGeometry(1.65, 0.1, 0.95), silMat);
-    silHead.position.set(0, -0.06, 0.92);
+
+    const silHead = new THREE.Mesh(new THREE.BoxGeometry(3.9, 0.16, 2.4), silMat);
+    silHead.position.set(0, -0.06, 2.4);
     silGroup.add(silHead);
-    for (const fx of [-1.05, 1.05]) {
-      const silFlipper = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.06, 0.48), silMat);
-      silFlipper.position.set(fx, -0.07, 0.24);
-      silFlipper.rotation.y = fx < 0 ? 0.38 : -0.38;
+
+    const silSnout = new THREE.Mesh(new THREE.BoxGeometry(2.9, 0.14, 1.0), silMat);
+    silSnout.position.set(0, -0.06, 3.8);
+    silGroup.add(silSnout);
+
+    // Sweeping front pectoral flippers
+    for (const fx of [-2.35, 2.35]) {
+      const silFlipper = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.08, 1.2), silMat);
+      silFlipper.position.set(fx, -0.07, 0.65);
+      silFlipper.rotation.y = fx < 0 ? 0.36 : -0.36;
       silGroup.add(silFlipper);
     }
-    const silTail = new THREE.Mesh(new THREE.BoxGeometry(1.15, 0.06, 0.55), silMat);
-    silTail.position.set(0, -0.07, -1.35);
-    silGroup.add(silTail);
+    // Secondary pelvic flippers
+    for (const fx of [-1.8, 1.8]) {
+      const silPelvic = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.08, 0.8), silMat);
+      silPelvic.position.set(fx, -0.07, -1.8);
+      silPelvic.rotation.y = fx < 0 ? 0.28 : -0.28;
+      silGroup.add(silPelvic);
+    }
+    // Tail stem & fluke silhouette
+    const silTailStem = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.1, 1.8), silMat);
+    silTailStem.position.set(0, -0.07, -2.2);
+    silGroup.add(silTailStem);
+
+    const silTailFluke = new THREE.Mesh(new THREE.BoxGeometry(3.3, 0.08, 1.3), silMat);
+    silTailFluke.position.set(0, -0.07, -3.3);
+    silGroup.add(silTailFluke);
     group.add(silGroup);
 
     const surfGroup = new THREE.Group();
     surfGroup.name = 'leviathan_surfaced';
     const skinHex = s0 % 2 === 0 ? 0x133c55 : 0x1b4965;
     const bellyHex = 0x5fa8d3;
-    const skinMat = mat(skinHex, 0.48, 0.15);
+    const skinMat = mat(skinHex, 0.45, 0.15);
     const bellyMat = mat(bellyHex, 0.55, 0.08);
-    const mawInMat = mat(0x3b0d1e, 0.7, 0.05);
+    const mawInMat = mat(0x350818, 0.72, 0.05);
     const toothMat = mat(0xf8fafc, 0.3, 0.1);
-    const eyeGlowMat = mat(0x72efdd, 0.2, 0.1, 0x48bfe3, 1.35);
+    const eyeGlowMat = mat(0x72efdd, 0.2, 0.1, 0x48bfe3, 1.5);
+    const barnacleMat = mat(0x8da4af, 0.85, 0.05);
     const foamMat = new THREE.MeshBasicMaterial({
       color: 0xe0fbfc,
       transparent: true,
-      opacity: 0.85,
+      opacity: 0.88,
+    });
+    const foamOuterMat = new THREE.MeshBasicMaterial({
+      color: 0xcaf0f8,
+      transparent: true,
+      opacity: 0.55,
     });
 
-    // Colossal bulbous Bloop torso & arched back
-    const torso = new THREE.Mesh(new THREE.BoxGeometry(1.42, 0.88, 1.85), skinMat);
-    torso.position.set(0, 0.42, -0.12);
+    // Colossal bulbous Bloop torso & arched titan back
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(3.3, 1.95, 4.4), skinMat);
+    torso.position.set(0, 0.95, -0.2);
     torso.castShadow = true;
     surfGroup.add(torso);
 
-    const belly = new THREE.Mesh(new THREE.BoxGeometry(1.26, 0.28, 1.65), bellyMat);
-    belly.position.set(0, 0.14, -0.05);
+    // Ventral throat pleats / whale-like belly ridges
+    const belly = new THREE.Mesh(new THREE.BoxGeometry(2.95, 0.65, 3.8), bellyMat);
+    belly.position.set(0, 0.32, -0.1);
     surfGroup.add(belly);
 
-    // Wide-mouthed Bloop upper head & hinged lower jaw with rows of megaphone-like conical teeth
-    const headPivot = makePivot('head_pivot', 0, 0.48, 0.68);
-    const upperSkull = new THREE.Mesh(new THREE.BoxGeometry(1.56, 0.48, 0.92), skinMat);
-    upperSkull.position.set(0, 0.22, 0.36);
-    upperSkull.rotation.x = -0.14;
+    // Prehistoric barnacle / calcified ridge clusters on back
+    for (let ci = 0; ci < 6; ci++) {
+      const bx = (ci % 2 === 0 ? 1 : -1) * (0.65 + (ci % 3) * 0.35);
+      const bz = 0.8 - ci * 0.65;
+      const barnacle = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.28, 0.35), barnacleMat);
+      barnacle.position.set(bx, 1.95, bz);
+      surfGroup.add(barnacle);
+    }
+
+    // Wide-mouthed Bloop upper head & hinged lower jaw with cavernous maw & conical teeth
+    const headPivot = makePivot('head_pivot', 0, 1.05, 1.6);
+    const upperSkull = new THREE.Mesh(new THREE.BoxGeometry(3.6, 1.1, 2.2), skinMat);
+    upperSkull.position.set(0, 0.52, 0.85);
+    upperSkull.rotation.x = -0.12;
     upperSkull.castShadow = true;
     headPivot.add(upperSkull);
 
-    const mawCavity = new THREE.Mesh(new THREE.BoxGeometry(1.36, 0.34, 0.74), mawInMat);
-    mawCavity.position.set(0, 0.02, 0.36);
+    // Tapered snout front
+    const snout = new THREE.Mesh(new THREE.BoxGeometry(3.0, 0.85, 0.95), skinMat);
+    snout.position.set(0, 0.4, 2.1);
+    snout.rotation.x = -0.15;
+    snout.castShadow = true;
+    headPivot.add(snout);
+
+    // Cavernous oral cavity
+    const mawCavity = new THREE.Mesh(new THREE.BoxGeometry(3.1, 0.75, 1.8), mawInMat);
+    mawCavity.position.set(0, 0.05, 0.85);
     headPivot.add(mawCavity);
 
-    // 6 glowing abyssal eyes (3 on each side of the wide Bloop head)
+    // 6 glowing abyssal bioluminescent eyes (3 on each flank of the colossal Bloop head)
     for (const side of [-1, 1]) {
       for (let ei = 0; ei < 3; ei++) {
-        const eye = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.09, 0.09), eyeGlowMat);
-        eye.position.set(side * 0.79, 0.28 + (ei % 2) * 0.08, 0.56 - ei * 0.18);
+        const eye = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.2, 0.2), eyeGlowMat);
+        eye.position.set(side * 1.84, 0.65 + (ei % 2) * 0.18, 1.25 - ei * 0.42);
         headPivot.add(eye);
       }
     }
 
-    // Upper teeth row
-    for (let ti = -3; ti <= 3; ti++) {
-      const fang = new THREE.Mesh(new THREE.ConeGeometry(0.055, 0.22, 4), toothMat);
+    // Upper teeth row: 11 conical fangs along upper jaw
+    for (let ti = -5; ti <= 5; ti++) {
+      const fang = new THREE.Mesh(new THREE.ConeGeometry(0.11, 0.46, 5), toothMat);
       fang.rotation.x = Math.PI;
-      fang.position.set(ti * 0.19, -0.02, 0.76);
+      fang.position.set(ti * 0.29, -0.04, 1.75 - Math.abs(ti) * 0.06);
       headPivot.add(fang);
     }
 
-    const jawPivot = makePivot('jaw_pivot', 0, 0.02, 0.12);
-    const lowerJaw = new THREE.Mesh(new THREE.BoxGeometry(1.48, 0.24, 0.88), bellyMat);
-    lowerJaw.position.set(0, -0.14, 0.34);
+    // Hinged lower jaw
+    const jawPivot = makePivot('jaw_pivot', 0, 0.05, 0.25);
+    const lowerJaw = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.55, 2.0), bellyMat);
+    lowerJaw.position.set(0, -0.32, 0.8);
     jawPivot.add(lowerJaw);
-    for (let ti = -3; ti <= 3; ti++) {
-      const fang = new THREE.Mesh(new THREE.ConeGeometry(0.055, 0.22, 4), toothMat);
-      fang.position.set(ti * 0.18, 0.04, 0.72);
+
+    const chinTip = new THREE.Mesh(new THREE.BoxGeometry(2.7, 0.45, 0.9), bellyMat);
+    chinTip.position.set(0, -0.28, 1.95);
+    jawPivot.add(chinTip);
+
+    // Lower teeth row: 11 conical fangs
+    for (let ti = -5; ti <= 5; ti++) {
+      const fang = new THREE.Mesh(new THREE.ConeGeometry(0.11, 0.46, 5), toothMat);
+      fang.position.set(ti * 0.28, 0.1, 1.68 - Math.abs(ti) * 0.05);
       jawPivot.add(fang);
     }
     headPivot.add(jawPivot);
     surfGroup.add(headPivot);
 
-    // Dorsal ridge spines & sweeping pectoral fins
-    for (let di = 0; di < 4; di++) {
+    // Dorsal ridge spines along titanic arched back
+    for (let di = 0; di < 5; di++) {
       const fin = new THREE.Mesh(
-        new THREE.BoxGeometry(0.12, 0.38 - di * 0.06, 0.26),
+        new THREE.BoxGeometry(0.24, 0.85 - di * 0.12, 0.58),
         skinMat,
       );
-      fin.position.set(0, 0.92 - di * 0.05, 0.15 - di * 0.36);
+      fin.position.set(0, 2.05 - di * 0.12, 0.5 - di * 0.85);
       fin.rotation.x = -0.28;
       surfGroup.add(fin);
     }
+
+    // Sweeping front pectoral flippers
     for (const side of [-1, 1]) {
-      const flipper = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.12, 0.48), skinMat);
-      flipper.position.set(side * 1.02, 0.22, 0.18);
+      const flipper = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.28, 1.15), skinMat);
+      flipper.position.set(side * 2.35, 0.52, 0.45);
       flipper.rotation.z = -side * 0.22;
       flipper.rotation.y = -side * 0.32;
       surfGroup.add(flipper);
     }
 
+    // Secondary pelvic fins
+    for (const side of [-1, 1]) {
+      const pelvic = new THREE.Mesh(new THREE.BoxGeometry(1.35, 0.22, 0.75), skinMat);
+      pelvic.position.set(side * 1.85, 0.42, -1.5);
+      pelvic.rotation.z = -side * 0.18;
+      pelvic.rotation.y = -side * 0.25;
+      surfGroup.add(pelvic);
+    }
+
     // Articulated tail fluke
-    const tailPivot = makePivot('tail_pivot', 0, 0.34, -1.02);
-    const tailStem = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.42, 0.78), skinMat);
-    tailStem.position.set(0, 0, -0.34);
+    const tailPivot = makePivot('tail_pivot', 0, 0.78, -2.4);
+    const tailStem = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.95, 1.9), skinMat);
+    tailStem.position.set(0, 0, -0.85);
     tailPivot.add(tailStem);
-    const tailFluke = new THREE.Mesh(new THREE.BoxGeometry(1.36, 0.1, 0.46), skinMat);
-    tailFluke.position.set(0, 0.04, -0.82);
+
+    const tailEnd = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.65, 1.2), skinMat);
+    tailEnd.position.set(0, 0.02, -2.0);
+    tailPivot.add(tailEnd);
+
+    const tailFluke = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.24, 1.15), skinMat);
+    tailFluke.position.set(0, 0.08, -2.4);
     tailPivot.add(tailFluke);
+
+    // Left and right tail fluke wing tips
+    for (const side of [-1, 1]) {
+      const flukeTip = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.18, 0.65), skinMat);
+      flukeTip.position.set(side * 1.85, 0.1, -2.55);
+      flukeTip.rotation.y = -side * 0.35;
+      tailPivot.add(flukeTip);
+    }
     surfGroup.add(tailPivot);
 
-    // Churning white seafoam breach ring around the surfaced Leviathan
-    const splashRing = new THREE.Mesh(new THREE.RingGeometry(1.15, 1.58, 16), foamMat);
+    // Churning white seafoam breach rings around the colossal Leviathan
+    const splashRing = new THREE.Mesh(new THREE.RingGeometry(2.8, 4.2, 28), foamMat);
     splashRing.rotation.x = -Math.PI / 2;
-    splashRing.position.set(0, 0.06, 0.1);
+    splashRing.position.set(0, 0.08, 0.2);
     surfGroup.add(splashRing);
+
+    const outerSplashRing = new THREE.Mesh(new THREE.RingGeometry(4.3, 5.4, 24), foamOuterMat);
+    outerSplashRing.rotation.x = -Math.PI / 2;
+    outerSplashRing.position.set(0, 0.06, 0.2);
+    surfGroup.add(outerSplashRing);
 
     bodyPivot.add(surfGroup);
   } else {

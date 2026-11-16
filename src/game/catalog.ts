@@ -476,7 +476,7 @@ export const MYTHICAL_BEAST_UNITS: UnitDefinition[] = [
     maxHp: 680,
     speed: 3.4,
     attackDamage: 58,
-    attackRange: 2.6,
+    attackRange: 4.8,
     harvestRate: 0,
   },
 ];
