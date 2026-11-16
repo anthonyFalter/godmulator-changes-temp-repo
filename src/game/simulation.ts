@@ -6333,8 +6333,9 @@ function stepVehicles(state: SimulationState, dt: number): void {
       );
     }
     if (v.type === 'warship') return vEpoch >= 1;
-    if (v.type === 'glider' || v.type === 'airship') return vEpoch >= 2;
-    if (v.type === 'train' || v.type === 'car' || v.type === 'tank') return vEpoch >= 3;
+    if (v.type === 'train' || v.type === 'car' || v.type === 'tank' || v.type === 'glider' || v.type === 'airship') {
+      return vEpoch >= 3;
+    }
     if (v.type === 'bomber_plane' || v.type === 'helicopter' || v.type === 'orc_flyer') return vEpoch >= 4;
     if (v.type === 'roadster') return vEpoch >= 5;
     if (v.type === 'orbital_gunship') return vEpoch >= 6;
@@ -6957,10 +6958,10 @@ function stepVehicles(state: SimulationState, dt: number): void {
   }
 
   // E. Military Battle Vehicles (Historical Timeline Progression):
-  //    - Sea: Warship (Epoch 1 Bronze Oared Galley -> Epoch 2 Sailing Galleon -> Epoch 3 Steam Ironclad -> Epoch 4 Gun Destroyer -> Epoch 5 Missile Destroyer -> Epoch 6+ Plasma Cruiser)
+  //    - Sea: Warship (Epoch 1 Bronze Oared Galley -> Epoch 2 Sailing Galleon -> Epoch 3 Steam Ironclad -> Epoch 4 Gun Destroyer -> Epoch 5 Stealth Missile Destroyer -> Epoch 6+ Plasma Cruiser)
   //    - Land: Tank (Epoch 3 WWI Riveted Trench Tank -> Epoch 4 Atomic Cast-Turret Tank -> Epoch 5 Composite MBT -> Epoch 6+ Hover Railgun Tank)
-  //    - Fixed-Wing Air (NON-HOVERING): Glider (Epoch 2 Unpowered Scout Glider -> Epoch 3 Propeller Biplane Fighter) -> Bomber Plane (Epoch 4 Multi-Engine Prop Heavy Bomber -> Epoch 5 Supersonic Stealth Jet Bomber -> Epoch 6+ Plasma Delta Bomber)
-  //    - Lighter-Than-Air / Rotor / VTOL Air: Airship (Epoch 2 Hot-Air Balloon / Sky-Barge / Waaagh-Blimp -> Epoch 3 Rigid Zeppelin Dirigible) -> Helicopter / Orc Flyer (Epoch 4 Huey Utility Chopper / Orc Deff-Kopter -> Epoch 5 AH-64 Apache Attack Gunship) -> Orbital Gunship (Epoch 6+)
+  //    - Fixed-Wing Air (NON-HOVERING): Propeller Biplane Fighter ('glider', Epoch 3 Industrial) -> Bomber Plane (Epoch 4 Multi-Engine Prop Heavy Bomber -> Epoch 5 Supersonic Stealth Jet Bomber -> Epoch 6+ Plasma Delta Bomber)
+  //    - Lighter-Than-Air / Rotor / VTOL Air: Rigid Airship / Sky-Ship (Epoch 3 Industrial) -> Helicopter / Orc Flyer (Epoch 4 Utility Chopper / Orc Skull-Chopper -> Epoch 5 Attack Gunship / Dread-Kopter) -> Orbital Gunship (Epoch 6+)
   const getEvolvedMilitaryAirType = (
     currentType: VehicleType,
     epochIdx: number,
@@ -7030,20 +7031,20 @@ function stepVehicles(state: SimulationState, dt: number): void {
     }
     if (mType === 'airship' || mType === 'orc_flyer') {
       return {
-        maxHp: mType === 'airship' ? Math.round(220 * (1 + Math.max(0, e - 2) * 0.22)) : Math.round(210 * (1 + Math.max(0, e - 4) * 0.25)),
-        speed: (mType === 'orc_flyer' ? 5.1 : e >= 3 ? 4.3 : 3.5) + Math.max(0, e - 2) * 0.35,
+        maxHp: mType === 'airship' ? Math.round(220 * (1 + Math.max(0, e - 3) * 0.22)) : Math.round(210 * (1 + Math.max(0, e - 4) * 0.25)),
+        speed: (mType === 'orc_flyer' ? 5.1 : 4.3) + Math.max(0, e - 3) * 0.35,
         fireRange: mType === 'airship' ? 10.2 : 8.5,
-        fireCooldown: Math.max(1.25, 1.8 - Math.max(0, e - 2) * 0.12),
-        dmg: Math.round((mType === 'orc_flyer' ? 32 : 28) * (1 + Math.max(0, e - 2) * 0.24)),
+        fireCooldown: Math.max(1.25, 1.8 - Math.max(0, e - 3) * 0.12),
+        dmg: Math.round((mType === 'orc_flyer' ? 32 : 28) * (1 + Math.max(0, e - 3) * 0.24)),
         cruiseY: mType === 'airship' ? 4.0 : 3.4,
       };
     }
     return {
-      maxHp: Math.round(135 * (1 + Math.max(0, e - 2) * 0.28)),
-      speed: (e >= 3 ? 6.4 : 5.1) + Math.max(0, e - 2) * 0.45,
-      fireRange: e >= 3 ? 8.2 : 7.0,
-      fireCooldown: e >= 3 ? 1.35 : 1.7,
-      dmg: Math.round((e >= 3 ? 26 : 19) * (1 + Math.max(0, e - 2) * 0.25)),
+      maxHp: Math.round(145 * (1 + Math.max(0, e - 3) * 0.28)),
+      speed: 6.4 + Math.max(0, e - 3) * 0.45,
+      fireRange: 8.2,
+      fireCooldown: 1.35,
+      dmg: Math.round(26 * (1 + Math.max(0, e - 3) * 0.25)),
       cruiseY: 3.1,
     };
   };
@@ -7155,14 +7156,14 @@ function stepVehicles(state: SimulationState, dt: number): void {
           }
         }
 
-        // 3. Fixed-Wing Fighter / Bomber branch (Epoch 2+ Scout Glider -> Epoch 3 Propeller Biplane Fighter -> Epoch 4 Prop Heavy Bomber -> Epoch 5+ Stealth Jet Bomber)
-        if (cityEpoch >= 2 && cityMilitary.length < 4 && !hasType('glider') && !hasType('bomber_plane')) {
+        // 3. Fixed-Wing Fighter / Bomber branch (Epoch 3 Industrial Propeller Biplane Fighter -> Epoch 4 Prop Heavy Bomber -> Epoch 5+ Stealth Jet / Plasma Bomber; ZERO aircraft in Medieval!)
+        if (cityEpoch >= 3 && cityMilitary.length < 4 && !hasType('glider') && !hasType('bomber_plane')) {
           const targetFixedType = getEvolvedMilitaryAirType('glider', cityEpoch, sp);
           trySpawnMilitary(targetFixedType, anchor.x, anchor.z);
         }
 
-        // 4. Lighter-Than-Air / Rotor / VTOL Assault branch (Epoch 2 Hot-Air Balloon -> Epoch 3 Rigid Zeppelin -> Epoch 4 Huey / Orc Deff-Kopter -> Epoch 5 Apache Gunship -> Epoch 6+ Orbital Gunship)
-        if (cityEpoch >= 2 && cityMilitary.length < 4) {
+        // 4. Lighter-Than-Air / Rotor / VTOL Assault branch (Epoch 3 Industrial Rigid Zeppelin / Sky-Ship -> Epoch 4 Chopper / Orc Skull-Chopper -> Epoch 5 Attack Gunship -> Epoch 6+ Orbital Gunship; ZERO airships in Medieval!)
+        if (cityEpoch >= 3 && cityMilitary.length < 4) {
           const targetHoverType = getEvolvedMilitaryAirType('airship', cityEpoch, sp);
           if (
             !hasType('airship') &&

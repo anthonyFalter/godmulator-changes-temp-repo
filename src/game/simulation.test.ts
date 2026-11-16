@@ -3328,20 +3328,23 @@ test('War Update Follow-Up: military vehicles evolve through epochs in simulatio
   assert.ok(shipBronze, 'Bronze Age coastal city should field a Bronze Oared Galley warship');
   const bronzeShipMaxHp = shipBronze.maxHp ?? 0;
 
-  // Advance to Medieval/Exploration (Epoch 2 -> Unpowered Scout Glider + Hot-Air Balloon Airship spawn)
+  // Advance to Medieval (Epoch 2 -> Sailing Galleon warship ONLY; NO airships, NO gliders, NO aircraft!)
   state.epochIndex = 2;
   stepSimulation(state, 0.2);
-  const fixedWing = (state.vehicles ?? []).find((v) => v.isMilitary && v.type === 'glider');
-  const hoverCraft = (state.vehicles ?? []).find((v) => v.isMilitary && v.type === 'airship');
-  assert.ok(fixedWing, 'Medieval/Exploration city should field an unpowered Scout Glider');
-  assert.ok(hoverCraft, 'Medieval/Exploration city should field a Hot-Air Balloon Airship');
+  assert.equal(
+    (state.vehicles ?? []).find((v) => v.isMilitary && (v.type === 'glider' || v.type === 'airship')),
+    undefined,
+    'Medieval Era city must NEVER field airships, gliders, or aircraft',
+  );
   assert.ok((shipBronze.maxHp ?? 0) > bronzeShipMaxHp, 'Warship maxHp should scale up with Epoch');
 
   // Advance to Industrial (Epoch 3 -> Propeller Biplane Fighter + Rigid Zeppelin Dirigible + WWI Trench Tank; NO helicopters or jets!)
   state.epochIndex = 3;
   stepSimulation(state, 0.2);
-  assert.equal(fixedWing.type, 'glider', 'Industrial Age fixed-wing stays Propeller Biplane Fighter (no jets in Industrial Age)');
-  assert.equal(hoverCraft.type, 'airship', 'Industrial Age lighter-than-air stays Rigid Zeppelin Airship (no Apache choppers in Industrial Age)');
+  const fixedWing = (state.vehicles ?? []).find((v) => v.isMilitary && v.type === 'glider');
+  const hoverCraft = (state.vehicles ?? []).find((v) => v.isMilitary && v.type === 'airship');
+  assert.ok(fixedWing, 'Industrial Age city should field a Propeller Biplane Fighter (glider)');
+  assert.ok(hoverCraft, 'Industrial Age city should field a Rigid Zeppelin Airship');
   const industrialTankVeh = (state.vehicles ?? []).find((v) => v.isMilitary && v.type === 'tank');
   assert.ok(industrialTankVeh && industrialTankVeh.y < 0.12, 'Industrial Age city should field a ground WWI Trench Tank');
 
@@ -3799,19 +3802,19 @@ test('Rebellions trigger more frequently and respect allowRebellion world rule',
   );
 });
 
-test('War vehicles use distinct 3D architectures per race (human vs elf vs orc)', () => {
+test('War vehicles use distinct 3D architectures per race AND evolve structurally across ages', () => {
   const vehicleTypes = [
-    { type: 'glider' as const, epoch: 2 },
+    { type: 'glider' as const, epoch: 3 },
     { type: 'helicopter' as const, epoch: 4 },
     { type: 'tank' as const, epoch: 4 },
     { type: 'warship' as const, epoch: 4 },
-    { type: 'airship' as const, epoch: 4 },
+    { type: 'airship' as const, epoch: 3 },
     { type: 'bomber_plane' as const, epoch: 5 },
     { type: 'orbital_gunship' as const, epoch: 6 },
   ];
 
   const signature = (g: ReturnType<typeof createVehicleGroup>) =>
-    `${g.children.length}:${g.children.map((c) => `${c.type[0]}@${Math.round(c.position.x * 10)},${Math.round(c.position.z * 10)}`).join('|')}`;
+    `${g.children.length}:${g.children.map((c) => `${c.type[0]}@${Math.round(c.position.x * 10)},${Math.round(c.position.y * 10)},${Math.round(c.position.z * 10)}`).join('|')}`;
 
   for (const { type, epoch } of vehicleTypes) {
     const h = createVehicleGroup(type, epoch, 'human', 1);
@@ -3824,26 +3827,77 @@ test('War vehicles use distinct 3D architectures per race (human vs elf vs orc)'
     assert.notEqual(sigH, sigO, `${type} human vs orc must have distinct 3D architecture`);
     assert.notEqual(sigE, sigO, `${type} elf vs orc must have distinct 3D architecture`);
   }
+
+  // Every race must visibly evolve geometry across epochs (no reused same-model silhouettes across ages!)
+  for (const sp of ['human', 'elf', 'orc'] as const) {
+    const shipSigs = [1, 2, 3, 4, 5, 6, 7].map((ep) => signature(createVehicleGroup('warship', ep, sp, 1)));
+    assert.equal(new Set(shipSigs).size, shipSigs.length, `${sp} warship must evolve structurally across epochs 1..7`);
+
+    const tankSigs = [3, 4, 5, 6, 7].map((ep) => signature(createVehicleGroup('tank', ep, sp, 1)));
+    assert.equal(new Set(tankSigs).size, tankSigs.length, `${sp} tank must evolve structurally across epochs 3..7`);
+
+    const bomberSigs = [4, 5, 6, 7].map((ep) => signature(createVehicleGroup('bomber_plane', ep, sp, 1)));
+    assert.equal(new Set(bomberSigs).size, bomberSigs.length, `${sp} bomber_plane must evolve structurally across epochs 4..7`);
+
+    const gunship6 = signature(createVehicleGroup('orbital_gunship', 6, sp, 1));
+    const gunship7 = signature(createVehicleGroup('orbital_gunship', 7, sp, 1));
+    assert.notEqual(gunship6, gunship7, `${sp} orbital_gunship must upgrade in Star Era (7)`);
+
+    if (sp === 'orc') {
+      const f4 = signature(createVehicleGroup('orc_flyer', 4, 'orc', 1));
+      const f5 = signature(createVehicleGroup('orc_flyer', 5, 'orc', 1));
+      assert.notEqual(f4, f5, 'orc_flyer must evolve between Atomic (4) and Info (5)');
+    } else {
+      const h4 = signature(createVehicleGroup('helicopter', 4, sp, 1));
+      const h5 = signature(createVehicleGroup('helicopter', 5, sp, 1));
+      assert.notEqual(h4, h5, `${sp} helicopter must evolve between Atomic (4) and Info (5)`);
+    }
+  }
 });
 
-test('Historical War Vehicle Timeline & Mortality: no choppers/jets in Industrial Age, and vehicles perish when population or kingdom falls', () => {
-  // 1. Verify 3D vehicle models match historical epochs (Medieval unpowered vs Industrial propeller vs Atomic prop bomber/Huey vs Info Age jet/Apache)
-  const medievalGlider = createVehicleGroup('glider', 2, 'human', 1);
+test('Historical War Vehicle Timeline & Mortality: no airships in Medieval, no choppers/jets in Industrial Age, and vehicles perish when population or kingdom falls', () => {
+  // 1. Verify 3D vehicle models match historical epochs (Industrial propeller -> Atomic prop bomber/Huey -> Info Age jet/Apache)
   const industrialBiplane = createVehicleGroup('glider', 3, 'human', 1);
-  assert.equal(medievalGlider.getObjectByName('spin_prop'), undefined, 'Medieval glider must be unpowered (no propeller)');
   assert.ok(industrialBiplane.getObjectByName('spin_prop'), 'Industrial glider must be a motorized propeller biplane fighter');
 
-  const medievalBalloon = createVehicleGroup('airship', 2, 'human', 1);
   const industrialZeppelin = createVehicleGroup('airship', 3, 'human', 1);
-  assert.equal(medievalBalloon.getObjectByName('spin_prop'), undefined, 'Medieval hot-air balloon must not have motorized propellers');
+  const industrialElfAirship = createVehicleGroup('airship', 3, 'elf', 1);
+  const industrialOrcAirship = createVehicleGroup('airship', 3, 'orc', 1);
   assert.ok(industrialZeppelin.getObjectByName('spin_prop'), 'Industrial rigid zeppelin must have motorized propellers');
+  assert.ok(industrialElfAirship.getObjectByName('spin_prop'), 'Industrial Elf solar dirigible must have wind-propellers');
+  assert.ok(industrialOrcAirship.getObjectByName('spin_prop'), 'Industrial Orc war-dirigible must have iron propellers');
 
   const atomicPropBomber = createVehicleGroup('bomber_plane', 4, 'human', 1);
   const infoStealthJet = createVehicleGroup('bomber_plane', 5, 'human', 1);
   assert.ok(atomicPropBomber.getObjectByName('spin_prop'), 'Atomic Age heavy bomber must use multi-engine propellers');
   assert.equal(infoStealthJet.getObjectByName('spin_prop'), undefined, 'Information Age stealth jet bomber must be jet-powered (no propellers)');
 
-  // 2. Vehicles are destroyed and stop roaming when their settlement/kingdom loses all population or buildings
+  // 2. Medieval Era (epochIndex = 2) spawns warships ONLY — zero airships or gliders!
+  const medievalState = createInitialSimulationState(96, 'MEDIEVAL-NO-AIR-TEST');
+  medievalState.sandboxFreeMode = true;
+  medievalState.wildlifeSeeded = true;
+  medievalState.epochIndex = 2; // Medieval Era
+  for (let z = 20; z <= 70; z++) {
+    for (let x = 20; x <= 70; x++) {
+      const t = getTile(medievalState, x, z)!;
+      t.height = x >= 56 ? 0 : 2;
+      t.terrain = x >= 56 ? 'deep_water' : 'stone_road';
+      t.resourceNode = 'none';
+      t.buildingId = null;
+    }
+  }
+  placeBuilding(medievalState, 'bonfire', 46, 44);
+  const medCitizen = spawnUnit(medievalState, 'human', 46, 45, true).unit!;
+  medCitizen.settlementId = medievalState.buildings[0].settlementId;
+  for (let i = 0; i < 4; i++) stepSimulation(medievalState, 0.25);
+  assert.ok((medievalState.vehicles ?? []).some((v) => v.type === 'warship'), 'Medieval coastal city should field naval warships');
+  assert.equal(
+    (medievalState.vehicles ?? []).some((v) => v.type === 'airship' || v.type === 'glider' || v.type === 'tank'),
+    false,
+    'Medieval Era must NEVER spawn airships, gliders, or tanks',
+  );
+
+  // 3. Vehicles are destroyed and stop roaming when their settlement/kingdom loses all population or buildings
   const state = createInitialSimulationState(96, 'VEH-MORTALITY-TEST');
   state.sandboxFreeMode = true;
   state.wildlifeSeeded = true;
