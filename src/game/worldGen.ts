@@ -427,20 +427,20 @@ export function generateWorldTiles(
     }
   }
 
-  // Stage 3.5: Localized Warm Coral Reef Zones (sparse regional reef lagoons, NEVER spread across every shoreline)
+  // Stage 3.5: Localized Warm Coral Reef Zones (vibrant regional reef lagoons & atolls across warm waters)
   const reefZoneMask = new Uint8Array(totalTiles);
   const reefCandidates: number[] = [];
-  for (let z = 8; z < gridSize - 8; z += 3) {
-    for (let x = 8; x < gridSize - 8; x += 3) {
+  for (let z = 6; z < gridSize - 6; z += 2) {
+    for (let x = 6; x < gridSize - 6; x += 2) {
       const idx = z * gridSize + x;
       if (heightGrid[idx] !== 0 || riverMask[idx] === 1 || lakeMask[idx] === 1) continue;
-      if (tempGrid[idx] < 0.44) continue;
+      if (tempGrid[idx] < 0.38) continue;
       if (isScrapSea) {
         if (Math.hypot(x - center, z - center) > 6) reefCandidates.push(idx);
       } else {
         let touchesCoastOrShoal = false;
-        for (let oz = -4; oz <= 4 && !touchesCoastOrShoal; oz += 2) {
-          for (let ox = -4; ox <= 4; ox += 2) {
+        for (let oz = -5; oz <= 5 && !touchesCoastOrShoal; oz += 2) {
+          for (let ox = -5; ox <= 5; ox += 2) {
             const nx = x + ox;
             const nz = z + oz;
             if (nx >= 0 && nx < gridSize && nz >= 0 && nz < gridSize) {
@@ -455,15 +455,17 @@ export function generateWorldTiles(
       }
     }
   }
-  const desiredReefZones = isScrapSea ? 3 : 2;
+  const desiredReefZones = isScrapSea
+    ? Math.max(6, Math.min(10, Math.round(gridSize / 15)))
+    : Math.max(5, Math.min(8, Math.round(gridSize / 18)));
   const chosenReefCenters: Array<{ x: number; z: number; radius: number }> = [];
-  for (let attempt = 0; attempt < 40 && chosenReefCenters.length < desiredReefZones && reefCandidates.length > 0; attempt++) {
+  for (let attempt = 0; attempt < 80 && chosenReefCenters.length < desiredReefZones && reefCandidates.length > 0; attempt++) {
     const pick = Math.floor(rng() * reefCandidates.length);
     const rIdx = reefCandidates.splice(pick, 1)[0];
     const rx = rIdx % gridSize;
     const rz = Math.floor(rIdx / gridSize);
-    if (chosenReefCenters.some((c) => Math.hypot(c.x - rx, c.z - rz) < 30)) continue;
-    const radius = isScrapSea ? 5.2 + rng() * 2.2 : 4.2 + rng() * 1.8;
+    if (chosenReefCenters.some((c) => Math.hypot(c.x - rx, c.z - rz) < 18)) continue;
+    const radius = isScrapSea ? 8.5 + rng() * 3.5 : 7.2 + rng() * 3.2;
     chosenReefCenters.push({ x: rx, z: rz, radius });
     const rCeil = Math.ceil(radius + 2);
     for (let oz = -rCeil; oz <= rCeil; oz++) {
@@ -473,7 +475,7 @@ export function generateWorldTiles(
         if (nx <= 1 || nx >= gridSize - 2 || nz <= 1 || nz >= gridSize - 2) continue;
         const nIdx = nz * gridSize + nx;
         if (heightGrid[nIdx] !== 0 || riverMask[nIdx] === 1 || lakeMask[nIdx] === 1) continue;
-        const wobble = (reefNoise.fbm(nx * 0.14 + attempt * 5.3, nz * 0.14 - 3.1, 2) - 0.5) * 2.4;
+        const wobble = (reefNoise.fbm(nx * 0.12 + attempt * 5.3, nz * 0.12 - 3.1, 2) - 0.5) * 2.8;
         if (Math.hypot(ox, oz) + wobble <= radius) {
           reefZoneMask[nIdx] = 1;
         }
@@ -524,7 +526,7 @@ export function generateWorldTiles(
             if (roll < 0.14 || (isStarterShoal && roll < 0.28)) {
               resourceNode = 'scrap_flotsam';
               resourceAmount = 340;
-            } else if (isWarmReefZone && roll < 0.62) {
+            } else if (isWarmReefZone && roll < 0.86) {
               resourceNode = 'coral_reef';
               resourceAmount = 260;
             }
@@ -546,9 +548,12 @@ export function generateWorldTiles(
           }
           terrain = nearLand || normDist < 0.78 || isWarmReefZone ? 'shallow_water' : 'deep_water';
 
-          if (isWarmReefZone && roll < 0.64) {
+          if (isWarmReefZone && roll < 0.86) {
             resourceNode = 'coral_reef';
-            resourceAmount = 250;
+            resourceAmount = 260;
+          } else if (nearLand && temp > 0.48 && roll < 0.16) {
+            resourceNode = 'coral_reef';
+            resourceAmount = 240;
           } else if (terrain === 'deep_water' && roll < 0.015) {
             resourceNode = 'scrap_flotsam';
             resourceAmount = 260;

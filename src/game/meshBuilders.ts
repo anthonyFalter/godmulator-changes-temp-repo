@@ -1079,64 +1079,99 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     ambientBlossom.push(finalizeMergedParts(p));
   }
 
-  // 7a. Submerged Warm-Ocean Coral Reef Clusters (3D staghorn, tube, brain coral & tall sea-grass strictly under y=0.165 so they sit on the sandy seabed below the y=0.295 water plane)
+  // 7a. Submerged Warm-Ocean Coral Reef Clusters (Voluminous 3D staghorn antlers, giant brain domes, azure tube chimneys, sunburst fans & thick kelp fronds)
   const coralReef: THREE.BufferGeometry[] = [];
   {
     const p: THREE.BufferGeometry[] = [];
-    // Lush emerald seagrass blades
-    addColoredBox(p, 0.045, 0.14, 0.045, -0.30, 0.065, -0.22, 0x2d8a4e);
-    addColoredBox(p, 0.04, 0.12, 0.04, -0.22, 0.055, -0.28, 0x52b788);
-    addColoredBox(p, 0.045, 0.15, 0.045, 0.28, 0.07, -0.24, 0x3ea862);
-    // Magenta tube coral cluster
-    addColoredBox(p, 0.09, 0.145, 0.09, -0.06, 0.068, 0.04, 0xf72585);
-    addColoredBox(p, 0.07, 0.12, 0.07, -0.14, 0.055, 0.11, 0xff4d9e);
-    addColoredBox(p, 0.06, 0.10, 0.06, 0.02, 0.045, 0.12, 0xd90479);
-    // Brain coral & golden horn fan
-    addColoredBox(p, 0.18, 0.08, 0.16, 0.18, 0.035, 0.14, 0x7209b7);
-    addColoredBox(p, 0.14, 0.04, 0.12, 0.18, 0.09, 0.14, 0x9d4edd);
-    addColoredBox(p, 0.08, 0.135, 0.05, 0.12, 0.062, -0.12, 0xffbe0b, 0.35);
-    addColoredBox(p, 0.13, 0.09, 0.11, -0.18, 0.04, 0.24, 0x00bbf9);
+    // Warm ocean sand base shelf & calcified crimson crust
+    addColoredBox(p, 0.68, 0.03, 0.64, 0.0, 0.015, 0.0, 0xdfcb95);
+    addColoredBox(p, 0.54, 0.035, 0.50, -0.04, 0.035, 0.02, 0x9b2226);
+    // Main branching staghorn trunk in electric magenta
+    addColoredBox(p, 0.22, 0.11, 0.20, -0.06, 0.08, -0.04, 0xf72585);
+    addColoredBox(p, 0.18, 0.045, 0.18, -0.06, 0.1425, -0.04, 0xff4d9e);
+    // Outreaching antler branches with contrasting luminous yellow growth tips
+    addColoredBox(p, 0.32, 0.055, 0.16, -0.20, 0.115, 0.04, 0xf72585);
+    addColoredBox(p, 0.14, 0.045, 0.14, -0.28, 0.1425, 0.04, 0xffea00);
+    addColoredBox(p, 0.30, 0.055, 0.16, 0.12, 0.11, -0.12, 0xff0055);
+    addColoredBox(p, 0.13, 0.045, 0.13, 0.22, 0.1425, -0.12, 0xffea00);
+    addColoredBox(p, 0.16, 0.06, 0.16, -0.04, 0.13, -0.20, 0xff595e);
+    // Giant Golden Horn Fan Coral
+    addColoredBox(p, 0.34, 0.12, 0.09, 0.18, 0.08, 0.18, 0xffb703, 0.42);
+    addColoredBox(p, 0.36, 0.04, 0.095, 0.18, 0.1425, 0.18, 0xfb8500, 0.42);
+    // Broad Emerald Kelp Fronds
+    addColoredBox(p, 0.10, 0.16, 0.08, -0.28, 0.08, -0.22, 0x2dc653);
+    addColoredBox(p, 0.09, 0.14, 0.09, -0.20, 0.07, -0.26, 0x52b788);
+    addColoredBox(p, 0.10, 0.155, 0.08, 0.28, 0.078, -0.24, 0x25a244);
+    // Cyan Bubble Anemone Cushion
+    addColoredBox(p, 0.20, 0.075, 0.20, -0.18, 0.055, 0.22, 0x00bbf9);
+    addColoredBox(p, 0.14, 0.05, 0.14, -0.18, 0.105, 0.22, 0x48cae4);
     coralReef.push(finalizeMergedParts(p));
   }
   {
     const p: THREE.BufferGeometry[] = [];
-    // Seagrass fronds
-    addColoredBox(p, 0.045, 0.145, 0.045, -0.26, 0.068, 0.18, 0x3ea862);
-    addColoredBox(p, 0.04, 0.125, 0.04, 0.26, 0.058, 0.22, 0x2d8a4e);
-    addColoredBox(p, 0.04, 0.13, 0.04, -0.04, 0.06, -0.28, 0x52b788);
-    // Golden sunburst staghorn & flame coral
-    addColoredBox(p, 0.08, 0.15, 0.08, 0.06, 0.07, 0.02, 0xffbe0b);
-    addColoredBox(p, 0.16, 0.05, 0.06, 0.06, 0.11, 0.02, 0xfb8500);
-    addColoredBox(p, 0.07, 0.11, 0.07, -0.14, 0.05, -0.08, 0xff595e);
-    addColoredBox(p, 0.15, 0.07, 0.14, -0.20, 0.03, -0.18, 0xff758f);
-    // Azure bubble coral & sea fan
-    addColoredBox(p, 0.14, 0.10, 0.14, 0.20, 0.045, -0.14, 0x4361ee);
-    addColoredBox(p, 0.11, 0.13, 0.05, -0.08, 0.06, 0.22, 0x48cae4, -0.35);
+    // Warm ocean sand base shelf
+    addColoredBox(p, 0.66, 0.03, 0.66, 0.0, 0.015, 0.0, 0xdfcb95);
+    // Voluminous Stepped Brain Coral Dome in royal violet, lilac & deep indigo
+    addColoredBox(p, 0.52, 0.05, 0.48, 0.10, 0.035, -0.06, 0x5e17eb);
+    addColoredBox(p, 0.44, 0.05, 0.40, 0.10, 0.08, -0.06, 0x7209b7);
+    addColoredBox(p, 0.32, 0.045, 0.30, 0.10, 0.1225, -0.06, 0x9d4edd);
+    addColoredBox(p, 0.20, 0.035, 0.20, 0.10, 0.1475, -0.06, 0xc77dff);
+    // Tall Azure Tube Coral Chimneys with glowing rims
+    addColoredBox(p, 0.22, 0.13, 0.22, -0.22, 0.08, 0.14, 0x0077b6);
+    addColoredBox(p, 0.24, 0.035, 0.24, -0.22, 0.1475, 0.14, 0x90e0ef);
+    addColoredBox(p, 0.18, 0.105, 0.18, -0.12, 0.068, 0.26, 0x00b4d8);
+    addColoredBox(p, 0.20, 0.03, 0.20, -0.12, 0.125, 0.26, 0x48cae4);
+    // Golden Sea Pickles / Sponges
+    addColoredBox(p, 0.12, 0.11, 0.12, -0.24, 0.065, -0.16, 0xd4d700);
+    addColoredBox(p, 0.14, 0.035, 0.14, -0.24, 0.13, -0.16, 0xeeef20);
+    // Broad Kelp Ribbons
+    addColoredBox(p, 0.09, 0.16, 0.09, 0.28, 0.08, 0.22, 0x2dc653);
+    addColoredBox(p, 0.08, 0.135, 0.08, 0.20, 0.068, 0.26, 0x52b788);
+    addColoredBox(p, 0.09, 0.155, 0.08, -0.04, 0.078, -0.28, 0x25a244);
     coralReef.push(finalizeMergedParts(p));
   }
   {
     const p: THREE.BufferGeometry[] = [];
-    // Dense sunken seagrass & colorful coral mound garden
-    addColoredBox(p, 0.05, 0.15, 0.05, 0.24, 0.07, -0.22, 0x2d8a4e);
-    addColoredBox(p, 0.04, 0.12, 0.04, 0.30, 0.055, -0.14, 0x52b788);
-    addColoredBox(p, 0.045, 0.14, 0.045, -0.28, 0.065, -0.12, 0x3ea862);
-    addColoredBox(p, 0.20, 0.085, 0.18, 0.0, 0.038, 0.0, 0x4361ee); // indigo reef base
-    addColoredBox(p, 0.12, 0.13, 0.12, 0.02, 0.06, 0.02, 0x00bbf9); // cyan crest
-    addColoredBox(p, 0.08, 0.145, 0.08, -0.18, 0.068, 0.18, 0xf72585); // magenta pillar
-    addColoredBox(p, 0.09, 0.125, 0.09, 0.20, 0.058, 0.16, 0xff9f1c); // tangerine pillar
-    addColoredBox(p, 0.11, 0.09, 0.06, -0.12, 0.04, -0.22, 0xc77dff, 0.4); // lavender fan
+    // Warm ocean sand base shelf
+    addColoredBox(p, 0.65, 0.03, 0.65, 0.0, 0.015, 0.0, 0xdfcb95);
+    // Dual Sunburst Horn Fan Corals in radiant gold and sunset orange
+    addColoredBox(p, 0.40, 0.13, 0.09, -0.06, 0.08, 0.02, 0xffb703, -0.35);
+    addColoredBox(p, 0.42, 0.035, 0.095, -0.06, 0.1475, 0.02, 0xfb8500, -0.35);
+    addColoredBox(p, 0.30, 0.105, 0.08, -0.18, 0.065, -0.18, 0xffd000, 0.48);
+    addColoredBox(p, 0.32, 0.03, 0.085, -0.18, 0.125, -0.18, 0xff9e00, 0.48);
+    // Multi-tier Electric Bubble Coral in turquoise, cyan & deep azure
+    addColoredBox(p, 0.30, 0.095, 0.28, 0.20, 0.06, -0.12, 0x06d6a0);
+    addColoredBox(p, 0.22, 0.065, 0.20, 0.18, 0.13, -0.10, 0x48cae4);
+    addColoredBox(p, 0.24, 0.08, 0.22, 0.22, 0.055, 0.16, 0x118ab2);
+    // Crimson Flame Coral Spire with hot pink crown
+    addColoredBox(p, 0.16, 0.13, 0.16, 0.02, 0.08, 0.24, 0xef233c);
+    addColoredBox(p, 0.18, 0.035, 0.18, 0.02, 0.1475, 0.24, 0xff758f);
+    // Tall Kelp Fronds
+    addColoredBox(p, 0.10, 0.165, 0.08, -0.28, 0.083, 0.20, 0x2dc653);
+    addColoredBox(p, 0.09, 0.145, 0.08, -0.22, 0.073, 0.26, 0x3ea862);
     coralReef.push(finalizeMergedParts(p));
   }
   {
     const p: THREE.BufferGeometry[] = [];
-    // Seagrass meadow tuft with scattered mini-corals (creates organic transitions near sandy gaps)
-    addColoredBox(p, 0.045, 0.14, 0.045, -0.18, 0.065, -0.18, 0x2d8a4e);
-    addColoredBox(p, 0.04, 0.12, 0.04, -0.10, 0.055, -0.22, 0x52b788);
-    addColoredBox(p, 0.045, 0.135, 0.045, 0.16, 0.062, 0.20, 0x3ea862);
-    addColoredBox(p, 0.04, 0.11, 0.04, 0.24, 0.05, 0.14, 0x2d8a4e);
-    addColoredBox(p, 0.13, 0.085, 0.13, 0.14, 0.038, -0.12, 0xff595e);
-    addColoredBox(p, 0.10, 0.125, 0.10, -0.20, 0.058, 0.12, 0x9d4edd);
-    addColoredBox(p, 0.08, 0.115, 0.08, 0.02, 0.052, 0.04, 0xffd166);
+    // Deep crimson reef rock & sand base
+    addColoredBox(p, 0.70, 0.03, 0.70, 0.0, 0.015, 0.0, 0xdfcb95);
+    addColoredBox(p, 0.58, 0.035, 0.54, 0.0, 0.035, 0.0, 0x6a040f);
+    // 4 Broad, High-Density Kelp / Seagrass Fronds
+    addColoredBox(p, 0.11, 0.165, 0.09, -0.26, 0.083, -0.20, 0x1b4332);
+    addColoredBox(p, 0.10, 0.155, 0.09, -0.18, 0.078, -0.26, 0x2d6a4f);
+    addColoredBox(p, 0.10, 0.160, 0.09, 0.26, 0.080, -0.22, 0x40916c);
+    addColoredBox(p, 0.09, 0.140, 0.09, 0.20, 0.070, -0.26, 0x52b788);
+    // Chunky Hot Magenta Column with Coral Pink Crest
+    addColoredBox(p, 0.24, 0.12, 0.22, -0.16, 0.08, 0.14, 0xf72585);
+    addColoredBox(p, 0.26, 0.035, 0.24, -0.16, 0.1475, 0.14, 0xff70a6);
+    // Radiant Orange Antler Shelf with Tangerine Crest
+    addColoredBox(p, 0.26, 0.10, 0.18, 0.20, 0.07, 0.14, 0xff9f1c);
+    addColoredBox(p, 0.28, 0.035, 0.19, 0.20, 0.1275, 0.14, 0xffbe0b);
+    // Glowing Cyan Sea Cushion
+    addColoredBox(p, 0.26, 0.07, 0.24, -0.02, 0.045, 0.22, 0x00f5d4);
+    // Deep Violet Brain Coral
+    addColoredBox(p, 0.22, 0.085, 0.22, 0.14, 0.055, -0.08, 0x7209b7);
+    addColoredBox(p, 0.16, 0.035, 0.16, 0.14, 0.105, -0.08, 0x9d4edd);
     coralReef.push(finalizeMergedParts(p));
   }
 

@@ -5503,7 +5503,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           const rotStep = (h >> 2) & 3;
           _propQuat.setFromAxisAngle(_propAxisY, rotStep * (Math.PI / 2));
           _dummyPos.set(t.x, curY, t.z);
+          if (t.resourceNode === 'coral_reef') {
+            const scaleXZ = 1.18 + ((h >> 4) % 3) * 0.06;
+            _propScale.set(scaleXZ, 1.02, scaleXZ);
+          } else {
+            _propScale.set(1, 1, 1);
+          }
           _dummyMatrix.compose(_dummyPos, _propQuat, _propScale);
+          _propScale.set(1, 1, 1);
 
           let targetInst: THREE.InstancedMesh | null = null;
           let ambThresh = 0;
