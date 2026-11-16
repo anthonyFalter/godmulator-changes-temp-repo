@@ -182,11 +182,56 @@ type TitleMenuStep =
   | 'world_rules'
   | 'loading_world';
 
-const GAME_VERSION = 'v1.0.0';
+const GAME_VERSION = 'v1.1.0';
 
-const UPDATE_LOG_ENTRIES = [
+export interface UpdateLogEntry {
+  version: string;
+  isMajor?: boolean;
+  items: string[];
+}
+
+const UPDATE_LOG_ENTRIES: UpdateLogEntry[] = [
+  {
+    version: 'v1.1.0 - Sea Update',
+    isMajor: true,
+    items: [
+      'Ocean wildlife & colossal mythical Leviathan roaming as deep silhouettes & breaching with gaping jaws',
+      'Floating sea towns, oceanic platforms, and water walkways/piers across coastal channels',
+      'Swimming mechanics with fatigue & drowning if stranded far from shore',
+      'Randomized warm coral reef generation below tropical ocean waters',
+      'Ocean hazards: swirling whirlpools, rogue waves, and rare sunken Atlantis ruins',
+      'Freshwater inland lakes and lively shallow river systems',
+      'New World Creator template: "Scrap Sea" with flotsam and salvageable scraps',
+    ],
+  },
+  {
+    version: 'v1.0.3 - Day-Night Cycle & Lighting',
+    items: [
+      'Realistic day-night cycle with directional sunlight, dusk/dawn golden hours & midnight moonlit shading',
+      'Epoch-dependent city lights: campfires in Prehistoric, street lanterns in Medieval, gas lamposts in Industrial, neon skyline in Modern',
+      'Capped simulation speed to 5× max for smoother pacing and visual fidelity',
+    ],
+  },
+  {
+    version: 'v1.0.2 - Mobile & Touch Support',
+    items: [
+      'Multi-touch gestures: pinch-to-zoom, two-finger twist map rotation, and smooth single-finger drag panning',
+      'Full support for portrait and landscape orientations on phones and tablets',
+      'Responsive, zero-overflow top HUD for small mobile screens',
+      'Dedicated mobile pan mode toggle and touch-optimized controls',
+    ],
+  },
+  {
+    version: 'v1.0.1 - War Vehicle Evolution & Timeline',
+    items: [
+      'Restored unique 3D vehicle designs per race (Human steel tanks/warships, Elf arcane gliders/skyships, Orc scrap dreadnoughts)',
+      'Historical timeline fixes: no airships in Medieval era, no helicopters or jets in Industrial Age',
+      'Vehicles perish naturally when crew population or home kingdom falls',
+    ],
+  },
   {
     version: 'v1.0.0 - War Update',
+    isMajor: true,
     items: [
       'Wars, peace treaties & Alliances map overlay (Blue Allies, Red Enemies)',
       'City rebellions are more common and can split off provinces (toggle in World Rules)',
@@ -944,7 +989,7 @@ export default function App() {
                 <span>Updates</span>
               </button>
             ) : (
-              <div className="px-panel w-[min(17rem,calc(100vw-16px))] sm:w-60 p-3 sm:p-4 max-h-[calc(100dvh-24px)] flex flex-col">
+              <div className="px-panel w-[min(17.5rem,calc(100vw-16px))] sm:w-64 p-3 sm:p-4 max-h-[calc(100dvh-24px)] flex flex-col">
                 <div className="flex items-center justify-between mb-2.5 sm:mb-3 shrink-0">
                   <span className="text-sm font-bold text-[#f5b742]">Updates</span>
                   <button
@@ -960,10 +1005,14 @@ export default function App() {
                   </button>
                 </div>
 
-                <div className="space-y-3.5 text-xs max-h-[55dvh] sm:max-h-52 overflow-y-auto pr-1" data-testid="update-log-scroll">
-                  {UPDATE_LOG_ENTRIES.slice(0, 3).map((entry) => (
+                <div className="space-y-3 text-xs max-h-[55dvh] sm:max-h-60 overflow-y-auto pr-1" data-testid="update-log-scroll">
+                  {UPDATE_LOG_ENTRIES.map((entry) => (
                     <div key={entry.version}>
-                      <div className="font-bold text-[#e8e0d2] tabular-nums mb-1">
+                      <div
+                        className={`font-bold tabular-nums mb-1 ${
+                          entry.isMajor ? 'text-[#f5b742]' : 'text-[#e8e0d2]'
+                        }`}
+                      >
                         {entry.version}
                       </div>
                       <ul className="space-y-0.5 text-[#b8afa2] leading-snug">

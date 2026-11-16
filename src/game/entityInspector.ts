@@ -296,7 +296,7 @@ export function generateUnitItems(
     return ['Spiraled Ivory Horn', 'Aether Garland', 'Dewdrop Hooves'];
   }
   if (role === 'leviathan') {
-    return ['Cavernous Bloop Maw', 'Abyssal Barnacle Hide', 'Trench Sonar Organ'];
+    return ['Cavernous Leviathan Maw', 'Abyssal Barnacle Hide', 'Trench Sonar Organ'];
   }
   if (role === 'dinosaur') {
     const info = getDinosaurVariant(seed);

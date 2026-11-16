@@ -937,7 +937,7 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
       case 'leviathan':
         return {
           titlePrefix: 'Leviathan Abyss',
-          speciesLabel: 'Leviathans (Bloop)',
+          speciesLabel: 'Leviathans',
           diet: 'Apex',
           domainType: 'Marine Waters',
           color: [14, 165, 233],

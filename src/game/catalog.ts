@@ -471,7 +471,7 @@ export const MYTHICAL_BEAST_UNITS: UnitDefinition[] = [
     category: 'mythical',
     name: 'Leviathan',
     faction: 'wildlife',
-    roleSummary: 'Colossal Bloop sea monster: lurks as a deep silhouette & breaches to devour prey',
+    roleSummary: 'Colossal mythical Leviathan: lurks as a deep silhouette & breaches to devour prey',
     cost: { faith: 45 },
     maxHp: 680,
     speed: 3.4,
@@ -980,8 +980,9 @@ export function getUnitMaxLifespan(unit: {
   let geneBonus = 0;
   if (unit.genes) {
     for (const g of unit.genes) {
-      if (g === 'Hardy Constitution') geneBonus += 12;
-      else if (g === 'Ancient Wyrmblood') geneBonus += 60;
+      if (g === 'Hardy Constitution') {
+        geneBonus += unit.role === 'chicken' ? 3 : unit.role === 'capybara' ? 4 : 12;
+      } else if (g === 'Ancient Wyrmblood') geneBonus += 60;
       else if (g === 'Alpha Stature') geneBonus += 5;
       else if (g === 'Starleaf Resonance') geneBonus += 18;
     }
