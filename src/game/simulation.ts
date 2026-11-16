@@ -1645,6 +1645,14 @@ function applyExpandingWaveSlice(
           b.hp = Math.max(0, b.hp - 55);
         }
       }
+      for (const v of state.vehicles ?? []) {
+        if (appliedIds.has(v.id)) continue;
+        const dSq = (v.x - targetX) ** 2 + (v.z - targetZ) ** 2;
+        if (dSq <= unitMaxSq && dSq <= maxRSq) {
+          appliedIds.add(v.id);
+          v.hp = Math.max(0, (v.hp ?? 100) - 70);
+        }
+      }
       break;
     }
 
@@ -1690,6 +1698,14 @@ function applyExpandingWaveSlice(
             u.koTimer = 0.45;
             if (u.faction === 'hostile') state.totalRaidersDefeated += 1;
           }
+        }
+      }
+      for (const v of state.vehicles ?? []) {
+        if (appliedIds.has(v.id)) continue;
+        const dSq = (v.x - targetX) ** 2 + (v.z - targetZ) ** 2;
+        if (dSq <= unitMaxSq && dSq <= maxRSq) {
+          appliedIds.add(v.id);
+          v.hp = Math.max(0, (v.hp ?? 100) - 35);
         }
       }
       break;
@@ -1746,6 +1762,14 @@ function applyExpandingWaveSlice(
           }
         }
       }
+      for (const v of state.vehicles ?? []) {
+        if (appliedIds.has(v.id)) continue;
+        const dSq = (v.x - targetX) ** 2 + (v.z - targetZ) ** 2;
+        if (dSq <= unitMaxSq && dSq <= maxRSq) {
+          appliedIds.add(v.id);
+          v.hp = v.maxHp ?? 150;
+        }
+      }
       break;
     }
 
@@ -1794,6 +1818,14 @@ function applyExpandingWaveSlice(
           b.cursedTimer = 30;
           b.blessedTimer = 0;
           b.hp = Math.max(10, b.hp - 55);
+        }
+      }
+      for (const v of state.vehicles ?? []) {
+        if (appliedIds.has(v.id)) continue;
+        const dSq = (v.x - targetX) ** 2 + (v.z - targetZ) ** 2;
+        if (dSq <= unitMaxSq && dSq <= maxRSq) {
+          appliedIds.add(v.id);
+          v.hp = Math.max(0, (v.hp ?? 100) - 55);
         }
       }
       break;
@@ -2265,6 +2297,12 @@ export function executeGodPowerImpact(
           }
         }
       }
+      for (const v of state.vehicles ?? []) {
+        const dSq = (v.x - targetX) ** 2 + (v.z - targetZ) ** 2;
+        if (dSq <= effectiveRSq) {
+          v.hp = Math.max(0, (v.hp ?? 100) - (isWaterStrike ? 280 : 230));
+        }
+      }
       for (const t of state.tiles) {
         const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
         if (dSq <= 4.5 && t.height > 0) {
@@ -2424,6 +2462,12 @@ export function executeGodPowerImpact(
             }
           }
         }
+        for (const v of state.vehicles ?? []) {
+          const dSq = (v.x - targetX) ** 2 + (v.z - targetZ) ** 2;
+          if (dSq <= (r * 1.6) ** 2) {
+            v.hp = dSq <= rSq ? 0 : Math.max(0, (v.hp ?? 100) - 420);
+          }
+        }
 
         addChronicle(
           state,
@@ -2578,6 +2622,12 @@ export function executeGodPowerImpact(
           }
         }
       }
+      for (const v of state.vehicles ?? []) {
+        const dSq = (v.x - targetX) ** 2 + (v.z - targetZ) ** 2;
+        if (dSq <= rSq) {
+          v.hp = dSq <= (r * 0.85) ** 2 ? 0 : Math.max(0, (v.hp ?? 100) - 520);
+        }
+      }
       state.resources.ore += 110;
       state.resources.alloy += 45;
       addChronicle(state, 'Cataclysmic Meteor obliterated structures, carved a crater & raised a rocky rim!', 'warning');
@@ -2662,6 +2712,12 @@ export function executeGodPowerImpact(
           } else {
             u.statusEffects.blessed = 25;
           }
+        }
+      }
+      for (const v of state.vehicles ?? []) {
+        const dSq = (v.x - targetX) ** 2 + (v.z - targetZ) ** 2;
+        if (dSq <= rSq) {
+          v.hp = Math.max(0, (v.hp ?? 100) - 120);
         }
       }
       addChronicle(state, 'Black Hole singularity tore open, orbiting land & life before critical collapse!', 'epoch');
@@ -2768,6 +2824,12 @@ export function executeGodPowerImpact(
           u.state = 'ko';
           u.koTimer = 0.5;
           if (u.faction === 'hostile') state.totalRaidersDefeated += 1;
+        }
+      }
+      for (const v of state.vehicles ?? []) {
+        const dSq = (v.x - targetX) ** 2 + (v.z - targetZ) ** 2;
+        if (dSq <= rSq) {
+          v.hp = (v.y ?? 0) <= 2.5 ? 0 : Math.max(0, (v.hp ?? 100) - 180);
         }
       }
       addChronicle(state, 'A towering Tsunami surged forth, drowning shores and smashing coastal towns!', 'warning');
@@ -2947,6 +3009,15 @@ export function executeGodPowerImpact(
             u.x = Math.max(1, Math.min(state.gridSize - 2, u.x + (dx / dist) * 2.1));
             u.z = Math.max(1, Math.min(state.gridSize - 2, u.z + (dz / dist) * 2.1));
           }
+        }
+      }
+      for (const v of state.vehicles ?? []) {
+        if ((v.y ?? 0) > 1.8) continue;
+        const dSq = (v.x - targetX) ** 2 + (v.z - targetZ) ** 2;
+        const segHit = closestFaultDistanceSq(v.x, v.z, faultSegments);
+        const segReachSq = ((segHit.segment?.width ?? 1) * 2.2 + 1.6) ** 2;
+        if (dSq <= rSq || segHit.distSq <= segReachSq) {
+          v.hp = Math.max(0, (v.hp ?? 100) - 160);
         }
       }
 
@@ -5321,6 +5392,15 @@ function stepSimulationSingle(
             }
           }
         }
+        for (const v of state.vehicles ?? []) {
+          if ((v.y ?? 0) > 1.8) continue;
+          const dSq = (v.x - haz.x) ** 2 + (v.z - haz.z) ** 2;
+          const segHit = segs && segs.length > 0 ? closestFaultDistanceSq(v.x, v.z, segs) : null;
+          const segReachSq = segHit?.segment ? (segHit.segment.width * 2.1 + 1.5) ** 2 : -1;
+          if (dSq <= aftershockRSq || (segHit && segHit.distSq <= segReachSq)) {
+            v.hp = Math.max(0, (v.hp ?? 100) - 28);
+          }
+        }
       } else if (haz.kind === 'wormhole_rift') {
         // Gradually tear & excavate terrain blocks around the black hole into its swirling vortex
         const ripR = haz.radius * 1.05;
@@ -5432,6 +5512,12 @@ function stepSimulationSingle(
             b.hp = 0;
           }
         }
+        for (const v of state.vehicles ?? []) {
+          const dSq = (v.x - haz.x) ** 2 + (v.z - haz.z) ** 2;
+          if (dSq <= (haz.radius * 1.45) ** 2) {
+            v.hp = 0;
+          }
+        }
         for (const t of state.tiles) {
           const dSq = (t.x - haz.x) ** 2 + (t.z - haz.z) ** 2;
           if (dSq <= (haz.radius * 0.82) ** 2 && t.height > 0 && !t.buildingId) {
@@ -5484,6 +5570,12 @@ function stepSimulationSingle(
         const dSq = (b.tileX - haz.x) ** 2 + (b.tileZ - haz.z) ** 2;
         if (dSq <= (haz.radius * 0.82) ** 2 && b.shieldTimer <= 0) {
           b.hp = Math.max(0, b.hp - 135 * dt);
+        }
+      }
+      for (const v of state.vehicles ?? []) {
+        const dist = Math.hypot(v.x - haz.x, v.z - haz.z);
+        if (dist <= funnelPullR) {
+          v.hp = Math.max(0, (v.hp ?? 100) - 140 * dt);
         }
       }
       for (const u of state.units) {
@@ -5632,7 +5724,7 @@ function stepSimulationSingle(
         }
       }
 
-      // Crushing flood surge damage to unshielded coastal buildings (height <= 3)
+      // Crushing flood surge damage to unshielded coastal buildings (height <= 3) and ground/naval vehicles
       for (const b of state.buildings) {
         const dist = Math.hypot(b.tileX - haz.x, b.tileZ - haz.z);
         if (Math.abs(dist - nextR) <= 2.35 && b.shieldTimer <= 0) {
@@ -5641,6 +5733,13 @@ function stepSimulationSingle(
             const dmgRate = !bTile || bTile.height <= 1 ? 650 : bTile.height === 2 ? 420 : 240;
             b.hp = Math.max(0, b.hp - dmgRate * dt);
           }
+        }
+      }
+      for (const v of state.vehicles ?? []) {
+        if ((v.y ?? 0) > 2.5) continue;
+        const dist = Math.hypot(v.x - haz.x, v.z - haz.z);
+        if (Math.abs(dist - nextR) <= 2.45) {
+          v.hp = Math.max(0, (v.hp ?? 100) - 520 * dt);
         }
       }
     }
@@ -6138,43 +6237,120 @@ function stepVehicles(state: SimulationState, dt: number): void {
   if (!state.vehicles) state.vehicles = [];
   if (state.epochIndex < 1 && state.vehicles.length === 0) return;
 
-  const activeSettlementSet = new Set(
-    state.buildings.filter((b) => b.hp > 0).map((b) => b.settlementId ?? 'city_default'),
-  );
+  const standingBldsBySid = new Map<string, number>();
+  const completedBldsBySid = new Map<string, number>();
+  const maxBldEpochBySid = new Map<string, number>();
+  for (const b of state.buildings) {
+    if (b.hp <= 0) continue;
+    const sid = b.settlementId ?? 'city_default';
+    standingBldsBySid.set(sid, (standingBldsBySid.get(sid) ?? 0) + 1);
+    if (b.constructionProgress >= 100) {
+      completedBldsBySid.set(sid, (completedBldsBySid.get(sid) ?? 0) + 1);
+      const prevMax = maxBldEpochBySid.get(sid) ?? 0;
+      if (b.epochLevel > prevMax) maxBldEpochBySid.set(sid, b.epochLevel);
+    }
+  }
 
-  // Prune vehicles whose age is unreached, home settlement fell, or HP reached 0
+  let totalLivingCivUnits = 0;
+  const livingCitizensBySid = new Map<string, number>();
+  const livingCitizensByKid = new Map<string, number>();
+  const unattachedCivUnits: UnitEntity[] = [];
+  for (const u of state.units) {
+    if (u.faction !== 'civilization' || u.state === 'ko' || u.hp <= 0) continue;
+    totalLivingCivUnits++;
+    if (u.settlementId) {
+      livingCitizensBySid.set(u.settlementId, (livingCitizensBySid.get(u.settlementId) ?? 0) + 1);
+      const kid = u.kingdomId ?? getKingdomId(state, u.settlementId);
+      if (kid) {
+        livingCitizensByKid.set(kid, (livingCitizensByKid.get(kid) ?? 0) + 1);
+      }
+    } else if (u.kingdomId) {
+      livingCitizensByKid.set(u.kingdomId, (livingCitizensByKid.get(u.kingdomId) ?? 0) + 1);
+      unattachedCivUnits.push(u);
+    } else {
+      unattachedCivUnits.push(u);
+    }
+  }
+
+  // A settlement can only field or sustain vehicles if it still has standing buildings AND a living population!
+  const isSettlementAliveAndPopulated = (sid: string): boolean => {
+    if ((standingBldsBySid.get(sid) ?? 0) <= 0) return false;
+    if (totalLivingCivUnits <= 0) return false;
+    if ((livingCitizensBySid.get(sid) ?? 0) > 0) return true;
+    const kid = getKingdomId(state, sid);
+    if (kid && (livingCitizensByKid.get(kid) ?? 0) > 0) return true;
+    if (unattachedCivUnits.length > 0) {
+      const anchor = getSettlementAnchorForId(state, sid);
+      const maxDistSq = (SETTLEMENT_AWARENESS_RADIUS + 4) ** 2;
+      for (const u of unattachedCivUnits) {
+        if ((u.x - anchor.x) ** 2 + (u.z - anchor.z) ** 2 <= maxDistSq) {
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+
+  // Compute each settlement's actual technological epoch so newly founded primitive settlements don't prematurely field future war machines
+  const getSettlementTechEpoch = (sid: string): number => {
+    if (state.sandboxFreeMode || standingBldsBySid.size <= 1) return state.epochIndex;
+    const maxBldEpoch = maxBldEpochBySid.get(sid) ?? 0;
+    const completedCount = completedBldsBySid.get(sid) ?? 0;
+    if (completedCount >= 6) return state.epochIndex;
+    if (completedCount >= 3) return Math.min(state.epochIndex, Math.max(maxBldEpoch + 1, 1));
+    return Math.min(state.epochIndex, maxBldEpoch);
+  };
+
+  // Prune vehicles whose HP reached 0, whose settlement/kingdom has fallen or lost all population, or whose epoch is unreached
   state.vehicles = state.vehicles.filter((v) => {
-    if (v.isMilitary && (v.hp ?? 100) <= 0) return false;
-    if (v.isMilitary && !activeSettlementSet.has(v.settlementId)) return false;
+    if (v.hp === undefined) v.hp = v.maxHp ?? 100;
+    if (v.maxHp === undefined) v.maxHp = Math.max(100, v.hp);
+    const aliveSettlement = isSettlementAliveAndPopulated(v.settlementId);
+    if (v.hp <= 0 || !aliveSettlement) {
+      state.pendingVfx.push({
+        id: nextEntityId('vfx'),
+        type: 'hit_spark',
+        x: v.x,
+        y: (v.y ?? 0.1) + 0.35,
+        z: v.z,
+        radius: v.isMilitary ? 1.85 : 1.25,
+        color: '#ff6b35',
+        createdAt: Date.now(),
+      });
+      return false;
+    }
+    const vEpoch = getSettlementTechEpoch(v.settlementId);
     if (v.type === 'plane') {
       return (
-        state.epochIndex >= 4 &&
-        state.buildings.some((b) => b.type === 'airport' && b.constructionProgress >= 100)
+        vEpoch >= 4 &&
+        state.buildings.some(
+          (b) =>
+            b.hp > 0 &&
+            b.type === 'airport' &&
+            b.constructionProgress >= 100 &&
+            (b.settlementId ?? 'city_default') === v.settlementId,
+        )
       );
     }
-    if (v.type === 'train') return state.epochIndex >= 3;
-    if (v.type === 'car') return state.epochIndex >= 3;
-    if (v.type === 'roadster') return state.epochIndex >= 5;
-    if (v.type === 'glider' || v.type === 'warship') return state.epochIndex >= 1;
-    if (v.type === 'airship' || v.type === 'orc_flyer') return state.epochIndex >= 2;
-    if (v.type === 'tank' || v.type === 'helicopter') return state.epochIndex >= 3;
-    if (v.type === 'bomber_plane') return state.epochIndex >= 4;
-    if (v.type === 'orbital_gunship') return state.epochIndex >= 6;
+    if (v.type === 'warship') return vEpoch >= 1;
+    if (v.type === 'glider' || v.type === 'airship') return vEpoch >= 2;
+    if (v.type === 'train' || v.type === 'car' || v.type === 'tank') return vEpoch >= 3;
+    if (v.type === 'bomber_plane' || v.type === 'helicopter' || v.type === 'orc_flyer') return vEpoch >= 4;
+    if (v.type === 'roadster') return vEpoch >= 5;
+    if (v.type === 'orbital_gunship') return vEpoch >= 6;
     return false;
   });
 
-  const settlementIds = Array.from(
-    new Set(
-      state.buildings
-        .filter((b) => b.constructionProgress >= 100)
-        .map((b) => b.settlementId ?? 'city_default'),
-    ),
+  const settlementIds = Array.from(completedBldsBySid.keys()).filter((sid) =>
+    isSettlementAliveAndPopulated(sid),
   );
 
-  // A. Maintain active trains (Industrial+)
+  // A. Maintain active trains (Industrial Epoch 3+)
   if (state.epochIndex >= 3) {
-    const targetPerCity = state.epochIndex >= 5 ? 2 : 1;
     for (const sid of settlementIds) {
+      const cityEpoch = getSettlementTechEpoch(sid);
+      if (cityEpoch < 3) continue;
+      const targetPerCity = cityEpoch >= 5 ? 2 : 1;
       if (state.vehicles.filter((v) => v.type === 'train').length >= 8) break;
       const existingCount = state.vehicles.filter((v) => v.type === 'train' && v.settlementId === sid).length;
       if (existingCount >= targetPerCity) continue;
@@ -6204,7 +6380,9 @@ function stepVehicles(state: SimulationState, dt: number): void {
           type: 'train',
           species: sp,
           settlementId: sid,
-          epochLevel: state.epochIndex,
+          hp: 160,
+          maxHp: 160,
+          epochLevel: cityEpoch,
           x: startTile.x,
           y: 0.03,
           z: startTile.z,
@@ -6223,11 +6401,12 @@ function stepVehicles(state: SimulationState, dt: number): void {
     }
   }
 
-  // B. Maintain active automobiles (Industrial+)
+  // B. Maintain active automobiles (Industrial Epoch 3+)
   if (state.epochIndex >= 3) {
-    const targetCarsPerCity =
-      state.epochIndex === 3 ? 2 : state.epochIndex === 4 ? 4 : 6;
     for (const sid of settlementIds) {
+      const cityEpoch = getSettlementTechEpoch(sid);
+      if (cityEpoch < 3) continue;
+      const targetCarsPerCity = cityEpoch === 3 ? 2 : cityEpoch === 4 ? 4 : 6;
       if (state.vehicles.filter((v) => v.type === 'car').length >= 24) break;
       const existingCount = state.vehicles.filter((v) => v.type === 'car' && v.settlementId === sid).length;
       if (existingCount >= targetCarsPerCity) continue;
@@ -6257,9 +6436,11 @@ function stepVehicles(state: SimulationState, dt: number): void {
           type: 'car',
           species: sp,
           settlementId: sid,
-          epochLevel: state.epochIndex,
+          hp: 90,
+          maxHp: 90,
+          epochLevel: cityEpoch,
           x: startTile.x,
-          y: state.epochIndex >= 6 ? 0.14 : 0.02,
+          y: cityEpoch >= 6 ? 0.14 : 0.02,
           z: startTile.z,
           heading: Math.atan2(nextTile.x - startTile.x, nextTile.z - startTile.z),
           pitch: 0,
@@ -6276,9 +6457,11 @@ function stepVehicles(state: SimulationState, dt: number): void {
     }
   }
 
-  // B2. Easter Egg: Latest Tesla Roadster with SpaceX Cold-Gas Thruster Stunts (Information Age+)
+  // B2. Easter Egg: Latest Tesla Roadster with SpaceX Cold-Gas Thruster Stunts (Information Age Epoch 5+)
   if (state.epochIndex >= 5) {
     for (const sid of settlementIds) {
+      const cityEpoch = getSettlementTechEpoch(sid);
+      if (cityEpoch < 5) continue;
       if (state.vehicles.filter((v) => v.type === 'roadster').length >= 2) break;
       const alreadyHas = state.vehicles.some((v) => v.type === 'roadster' && v.settlementId === sid);
       if (alreadyHas) continue;
@@ -6309,9 +6492,11 @@ function stepVehicles(state: SimulationState, dt: number): void {
           type: 'roadster',
           species: sp,
           settlementId: sid,
-          epochLevel: state.epochIndex,
+          hp: 110,
+          maxHp: 110,
+          epochLevel: cityEpoch,
           x: startTile.x,
-          y: state.epochIndex >= 6 ? 0.12 : 0.02,
+          y: cityEpoch >= 6 ? 0.12 : 0.02,
           z: startTile.z,
           heading: Math.atan2(nextTile.x - startTile.x, nextTile.z - startTile.z),
           pitch: 0,
@@ -6338,13 +6523,21 @@ function stepVehicles(state: SimulationState, dt: number): void {
     }
   }
 
-  // C. Maintain active aircraft at completed airports (Atomic+)
-  const airports = state.buildings.filter((b) => b.type === 'airport' && b.constructionProgress >= 100);
+  // C. Maintain active aircraft at completed airports (Atomic Epoch 4+)
+  const airports = state.buildings.filter(
+    (b) =>
+      b.hp > 0 &&
+      b.type === 'airport' &&
+      b.constructionProgress >= 100 &&
+      isSettlementAliveAndPopulated(b.settlementId ?? 'city_default'),
+  );
   if (state.epochIndex >= 4 && airports.length > 0) {
-    const targetPlanesPerAirport = state.epochIndex >= 5 ? 2 : 1;
     for (const ap of airports) {
       if (state.vehicles.filter((v) => v.type === 'plane').length >= 6) break;
       const apSid = ap.settlementId ?? 'city_default';
+      const cityEpoch = getSettlementTechEpoch(apSid);
+      if (cityEpoch < 4) continue;
+      const targetPlanesPerAirport = cityEpoch >= 5 ? 2 : 1;
       const existingAtSid = state.vehicles.filter(
         (v) => v.type === 'plane' && v.settlementId === apSid,
       ).length;
@@ -6355,7 +6548,9 @@ function stepVehicles(state: SimulationState, dt: number): void {
         type: 'plane',
         species: sp,
         settlementId: apSid,
-        epochLevel: state.epochIndex,
+        hp: 140,
+        maxHp: 140,
+        epochLevel: cityEpoch,
         x: ap.tileX,
         y: 0.06,
         z: ap.tileZ,
@@ -6374,7 +6569,7 @@ function stepVehicles(state: SimulationState, dt: number): void {
 
   // D. Advance every vehicle smoothly
   for (const v of state.vehicles) {
-    v.epochLevel = state.epochIndex;
+    v.epochLevel = getSettlementTechEpoch(v.settlementId);
 
     if (v.type === 'train') {
       v.speed =
@@ -6761,11 +6956,11 @@ function stepVehicles(state: SimulationState, dt: number): void {
     }
   }
 
-  // E. Military Battle Vehicles:
-  //    - Sea: Warship (Galley -> Galleon -> Ironclad -> Missile Destroyer -> Plasma Cruiser)
-  //    - Land: Tank (Riveted Heavy Tank -> Composite MBT -> Hover Railgun Tank)
-  //    - Fixed-Wing Air (NON-HOVERING): Glider / Prop Fighter (Epochs 1-3) -> Bomber / Stealth / Plasma Plane (Epochs 4+)
-  //    - Hover / Rotor / VTOL Air: Airship / Orc Chopper (Epoch 2) -> Attack Helicopter / Orc Assault Chopper (Epochs 3-5) -> Orbital Gunship (Epochs 6+)
+  // E. Military Battle Vehicles (Historical Timeline Progression):
+  //    - Sea: Warship (Epoch 1 Bronze Oared Galley -> Epoch 2 Sailing Galleon -> Epoch 3 Steam Ironclad -> Epoch 4 Gun Destroyer -> Epoch 5 Missile Destroyer -> Epoch 6+ Plasma Cruiser)
+  //    - Land: Tank (Epoch 3 WWI Riveted Trench Tank -> Epoch 4 Atomic Cast-Turret Tank -> Epoch 5 Composite MBT -> Epoch 6+ Hover Railgun Tank)
+  //    - Fixed-Wing Air (NON-HOVERING): Glider (Epoch 2 Unpowered Scout Glider -> Epoch 3 Propeller Biplane Fighter) -> Bomber Plane (Epoch 4 Multi-Engine Prop Heavy Bomber -> Epoch 5 Supersonic Stealth Jet Bomber -> Epoch 6+ Plasma Delta Bomber)
+  //    - Lighter-Than-Air / Rotor / VTOL Air: Airship (Epoch 2 Hot-Air Balloon / Sky-Barge / Waaagh-Blimp -> Epoch 3 Rigid Zeppelin Dirigible) -> Helicopter / Orc Flyer (Epoch 4 Huey Utility Chopper / Orc Deff-Kopter -> Epoch 5 AH-64 Apache Attack Gunship) -> Orbital Gunship (Epoch 6+)
   const getEvolvedMilitaryAirType = (
     currentType: VehicleType,
     epochIdx: number,
@@ -6776,8 +6971,7 @@ function stepVehicles(state: SimulationState, dt: number): void {
       return epochIdx >= 4 ? 'bomber_plane' : 'glider';
     }
     if (epochIdx >= 6) return 'orbital_gunship';
-    if (sp === 'orc') return 'orc_flyer';
-    if (epochIdx >= 3) return 'helicopter';
+    if (epochIdx >= 4) return sp === 'orc' ? 'orc_flyer' : 'helicopter';
     return 'airship';
   };
 
@@ -6806,11 +7000,11 @@ function stepVehicles(state: SimulationState, dt: number): void {
     }
     if (mType === 'helicopter') {
       return {
-        maxHp: Math.round(215 * (1 + Math.max(0, e - 3) * 0.24)),
-        speed: 4.8 + Math.max(0, e - 3) * 0.55,
+        maxHp: Math.round(215 * (1 + Math.max(0, e - 4) * 0.24)),
+        speed: 4.9 + Math.max(0, e - 4) * 0.55,
         fireRange: 9.2,
-        fireCooldown: Math.max(0.85, 1.35 - Math.max(0, e - 3) * 0.14),
-        dmg: Math.round(26 * (1 + Math.max(0, e - 3) * 0.28)),
+        fireCooldown: Math.max(0.85, 1.35 - Math.max(0, e - 4) * 0.14),
+        dmg: Math.round(28 * (1 + Math.max(0, e - 4) * 0.28)),
         cruiseY: 3.55,
       };
     }
@@ -6827,7 +7021,7 @@ function stepVehicles(state: SimulationState, dt: number): void {
     if (mType === 'bomber_plane') {
       return {
         maxHp: Math.round(240 * (1 + Math.max(0, e - 4) * 0.25)),
-        speed: 7.8 + Math.max(0, e - 4) * 0.8,
+        speed: 7.4 + Math.max(0, e - 4) * 0.85,
         fireRange: 11.4,
         fireCooldown: Math.max(1.65, 2.35 - Math.max(0, e - 4) * 0.18),
         dmg: Math.round(52 * (1 + Math.max(0, e - 4) * 0.28)),
@@ -6836,35 +7030,36 @@ function stepVehicles(state: SimulationState, dt: number): void {
     }
     if (mType === 'airship' || mType === 'orc_flyer') {
       return {
-        maxHp: mType === 'airship' ? Math.round(220 * (1 + Math.max(0, e - 2) * 0.22)) : Math.round(195 * (1 + Math.max(0, e - 2) * 0.25)),
-        speed: (mType === 'orc_flyer' ? 5.1 : 3.9) + Math.max(0, e - 2) * 0.45,
-        fireRange: mType === 'airship' ? 10.2 : 8.2,
+        maxHp: mType === 'airship' ? Math.round(220 * (1 + Math.max(0, e - 2) * 0.22)) : Math.round(210 * (1 + Math.max(0, e - 4) * 0.25)),
+        speed: (mType === 'orc_flyer' ? 5.1 : e >= 3 ? 4.3 : 3.5) + Math.max(0, e - 2) * 0.35,
+        fireRange: mType === 'airship' ? 10.2 : 8.5,
         fireCooldown: Math.max(1.25, 1.8 - Math.max(0, e - 2) * 0.12),
-        dmg: Math.round((mType === 'orc_flyer' ? 30 : 28) * (1 + Math.max(0, e - 2) * 0.24)),
-        cruiseY: mType === 'airship' ? 4.0 : 3.3,
+        dmg: Math.round((mType === 'orc_flyer' ? 32 : 28) * (1 + Math.max(0, e - 2) * 0.24)),
+        cruiseY: mType === 'airship' ? 4.0 : 3.4,
       };
     }
     return {
-      maxHp: Math.round(125 * tierBoost),
-      speed: 5.8 + Math.min(2.2, (e - 1) * 0.42),
-      fireRange: 7.6,
-      fireCooldown: 1.55,
-      dmg: Math.round(22 * tierBoost),
+      maxHp: Math.round(135 * (1 + Math.max(0, e - 2) * 0.28)),
+      speed: (e >= 3 ? 6.4 : 5.1) + Math.max(0, e - 2) * 0.45,
+      fireRange: e >= 3 ? 8.2 : 7.0,
+      fireCooldown: e >= 3 ? 1.35 : 1.7,
+      dmg: Math.round((e >= 3 ? 26 : 19) * (1 + Math.max(0, e - 2) * 0.25)),
       cruiseY: 3.1,
     };
   };
 
   if (state.epochIndex >= 1 && settlementIds.length > 0) {
-    // 0. Evolve existing military vehicles automatically when civilization advances through the ages
+    // 0. Evolve existing military vehicles automatically as their home settlement advances through the ages
     for (const v of state.vehicles) {
       if (!v.isMilitary || (v.hp ?? 0) <= 0) continue;
+      const cityEpoch = getSettlementTechEpoch(v.settlementId);
       const desiredType =
         v.type === 'warship' || v.type === 'tank'
           ? v.type
-          : getEvolvedMilitaryAirType(v.type, state.epochIndex, v.species);
-      const nextStats = getMilitaryVehicleStats(desiredType, state.epochIndex);
-      if (v.type !== desiredType || v.maxHp !== nextStats.maxHp || v.speed !== nextStats.speed || v.epochLevel !== state.epochIndex) {
-        const evolvedTier = v.type !== desiredType;
+          : getEvolvedMilitaryAirType(v.type, cityEpoch, v.species);
+      const nextStats = getMilitaryVehicleStats(desiredType, cityEpoch);
+      if (v.type !== desiredType || v.maxHp !== nextStats.maxHp || v.speed !== nextStats.speed || v.epochLevel !== cityEpoch) {
+        const evolvedTier = v.type !== desiredType || v.epochLevel !== cityEpoch;
         const oldMax = Math.max(1, v.maxHp ?? nextStats.maxHp);
         const curHp = v.hp ?? oldMax;
         v.type = desiredType;
@@ -6874,7 +7069,7 @@ function stepVehicles(state: SimulationState, dt: number): void {
           : Math.min(nextStats.maxHp, Math.max(1, Math.round((curHp / oldMax) * nextStats.maxHp)));
         v.speed = nextStats.speed;
         v.y = nextStats.cruiseY;
-        v.epochLevel = state.epochIndex;
+        v.epochLevel = cityEpoch;
         if (evolvedTier) {
           state.pendingVfx.push({
             id: nextEntityId('vfx'),
@@ -6894,6 +7089,8 @@ function stepVehicles(state: SimulationState, dt: number): void {
     if (militaryVehiclesCount < 24) {
       for (const sid of settlementIds) {
         if (state.vehicles.filter((v) => v.isMilitary).length >= 24) break;
+        const cityEpoch = getSettlementTechEpoch(sid);
+        if (cityEpoch < 1) continue;
         const sp: SpeciesId = state.settlementSpecies?.[sid] ?? 'human';
         const kid = getKingdomId(state, sid);
         const anchor = getSettlementAnchorForId(state, sid);
@@ -6901,7 +7098,7 @@ function stepVehicles(state: SimulationState, dt: number): void {
         const hasType = (t: VehicleType) => cityMilitary.some((v) => v.type === t);
 
         const trySpawnMilitary = (mType: VehicleType, sx: number, sz: number) => {
-          const stats = getMilitaryVehicleStats(mType, state.epochIndex);
+          const stats = getMilitaryVehicleStats(mType, cityEpoch);
           state.vehicles!.push({
             id: nextEntityId('veh_mil'),
             type: mType,
@@ -6913,7 +7110,7 @@ function stepVehicles(state: SimulationState, dt: number): void {
             maxHp: stats.maxHp,
             attackCooldown: 0.6,
             strafeExtendTimer: 0,
-            epochLevel: state.epochIndex,
+            epochLevel: cityEpoch,
             x: sx,
             y: stats.cruiseY,
             z: sz,
@@ -6928,8 +7125,8 @@ function stepVehicles(state: SimulationState, dt: number): void {
           cityMilitary.push(state.vehicles![state.vehicles!.length - 1]);
         };
 
-        // 1. Seaborne Warship if coastal water exists nearby (Bronze Galley -> Ironclad -> Destroyer -> Plasma Cruiser)
-        if (state.epochIndex >= 1 && !hasType('warship') && cityMilitary.length < 4) {
+        // 1. Seaborne Warship if coastal water exists nearby (Epoch 1+ Bronze Galley -> Galleon -> Steam Ironclad -> Destroyer -> Plasma Cruiser)
+        if (cityEpoch >= 1 && !hasType('warship') && cityMilitary.length < 4) {
           let coastalWater: TileData | null = null;
           for (let r = 4; r <= 18 && !coastalWater; r += 2) {
             for (let a = 0; a < 8; a++) {
@@ -6948,8 +7145,8 @@ function stepVehicles(state: SimulationState, dt: number): void {
           }
         }
 
-        // 2. Ground Battle Vehicle (Industrial Tank -> Composite MBT -> Hover Railgun Tank at Epoch 3+)
-        if (state.epochIndex >= 3 && !hasType('tank') && cityMilitary.length < 4) {
+        // 2. Ground Battle Vehicle (Epoch 3+ WWI Riveted Trench Tank -> Cast-Turret Tank -> Composite MBT -> Hover Railgun Tank)
+        if (cityEpoch >= 3 && !hasType('tank') && cityMilitary.length < 4) {
           const tankX = Math.max(2, Math.min(state.gridSize - 3, anchor.x + 2));
           const tankZ = Math.max(2, Math.min(state.gridSize - 3, anchor.z + 2));
           const tt = getTile(state, tankX, tankZ);
@@ -6958,15 +7155,15 @@ function stepVehicles(state: SimulationState, dt: number): void {
           }
         }
 
-        // 3. Fixed-Wing Fighter / Bomber branch (non-hovering strafe & bombing passes)
-        const targetFixedType = getEvolvedMilitaryAirType('glider', state.epochIndex, sp);
-        if (cityMilitary.length < 4 && !hasType('glider') && !hasType('bomber_plane')) {
+        // 3. Fixed-Wing Fighter / Bomber branch (Epoch 2+ Scout Glider -> Epoch 3 Propeller Biplane Fighter -> Epoch 4 Prop Heavy Bomber -> Epoch 5+ Stealth Jet Bomber)
+        if (cityEpoch >= 2 && cityMilitary.length < 4 && !hasType('glider') && !hasType('bomber_plane')) {
+          const targetFixedType = getEvolvedMilitaryAirType('glider', cityEpoch, sp);
           trySpawnMilitary(targetFixedType, anchor.x, anchor.z);
         }
 
-        // 4. Hover / Rotor / VTOL Assault branch (Airship / Orc Chopper -> Attack Helicopter -> Orbital Gunship)
-        if (state.epochIndex >= 2 && cityMilitary.length < 4) {
-          const targetHoverType = getEvolvedMilitaryAirType('airship', state.epochIndex, sp);
+        // 4. Lighter-Than-Air / Rotor / VTOL Assault branch (Epoch 2 Hot-Air Balloon -> Epoch 3 Rigid Zeppelin -> Epoch 4 Huey / Orc Deff-Kopter -> Epoch 5 Apache Gunship -> Epoch 6+ Orbital Gunship)
+        if (cityEpoch >= 2 && cityMilitary.length < 4) {
+          const targetHoverType = getEvolvedMilitaryAirType('airship', cityEpoch, sp);
           if (
             !hasType('airship') &&
             !hasType('helicopter') &&
@@ -7266,6 +7463,14 @@ function stepVehicles(state: SimulationState, dt: number): void {
             targetUnit.hp -= dmg;
             targetUnit.lastAttackerId = v.id;
             targetUnit.underAttackTimer = 8.0;
+            // Defenders, hostile raiders & apex beasts return anti-vehicle counter-fire/wear so war vehicles are never immortal
+            const counterFire =
+              targetUnit.role === 'dragon'
+                ? 22
+                : targetUnit.faction === 'hostile' || targetUnit.role === 'warrior' || targetUnit.isKing
+                  ? 12
+                  : 7;
+            v.hp = Math.max(0, (v.hp ?? 100) - counterFire);
           } else if (targetVeh) {
             targetVeh.hp = Math.max(0, (targetVeh.hp ?? 100) - dmg);
             if (targetVeh.hp <= 0) {
@@ -7282,6 +7487,8 @@ function stepVehicles(state: SimulationState, dt: number): void {
             }
           } else if (targetBld) {
             targetBld.hp = Math.max(0, targetBld.hp - dmg * 1.35);
+            // Fortified settlements return defensive flak/turret fire against attacking vehicles
+            v.hp = Math.max(0, (v.hp ?? 100) - 8);
           }
         }
       }
@@ -7957,6 +8164,15 @@ function stepWildlifeAI(
         const bdSq = (sb.tileX - targetX) ** 2 + (sb.tileZ - targetZ) ** 2;
         if (bdSq <= 2.25) {
           sb.hp = Math.max(0, sb.hp - dmg * 0.3);
+        }
+      }
+    }
+    if (state.vehicles) {
+      for (const sv of state.vehicles) {
+        if ((sv.hp ?? 100) <= 0) continue;
+        const vdSq = (sv.x - targetX) ** 2 + (sv.z - targetZ) ** 2;
+        if (vdSq <= 3.24) {
+          sv.hp = Math.max(0, (sv.hp ?? 100) - dmg * 0.65);
         }
       }
     }
@@ -9365,6 +9581,16 @@ function stepCivilianUnitAI(
                 if (cand.hp <= 0) u.kills = (u.kills ?? 0) + 1;
               }
             }
+            if (state.vehicles) {
+              for (const ev of state.vehicles) {
+                if ((ev.hp ?? 100) <= 0) continue;
+                const vKid = ev.kingdomId ?? getKingdomId(state, ev.settlementId);
+                if (myKingdomId && vKid === myKingdomId) continue;
+                if (Math.hypot(ev.x - nearestEnemy.x, ev.z - nearestEnemy.z) <= weaponSplash + 0.6) {
+                  ev.hp = Math.max(0, (ev.hp ?? 100) - strikeDmg * 0.55);
+                }
+              }
+            }
           }
         }
       }
@@ -9380,8 +9606,74 @@ function stepCivilianUnitAI(
     return;
   }
 
-  // 1a. Attack & Destroy Enemy Buildings belonging to Kingdoms at War!
+  // 1a. Attack & Destroy Enemy Vehicles or Enemy Buildings belonging to Kingdoms at War!
   if (!isChild && (allOwnSettlementBlds.length > 0 || u.isRebel)) {
+    if (state.vehicles && state.vehicles.length > 0) {
+      let nearestEnemyVeh: VehicleEntity | null = null;
+      let bestVehDistSq = Infinity;
+      for (const ev of state.vehicles) {
+        if ((ev.hp ?? 100) <= 0) continue;
+        const vKid = ev.kingdomId ?? getKingdomId(state, ev.settlementId);
+        if (myKingdomId && vKid && myKingdomId === vKid) continue;
+        const atWarWithVeh = Boolean(
+          warsEnabled && myKingdomId && vKid && areKingdomsAtWar(state, myKingdomId, vKid),
+        );
+        if (!atWarWithVeh && !u.statusEffects.frenzied) continue;
+        const distToHomeSq = (ev.x - homeAnchor.x) ** 2 + (ev.z - homeAnchor.z) ** 2;
+        const distToUnitSq = (ev.x - u.x) ** 2 + (ev.z - u.z) ** 2;
+        if (distToHomeSq > 26 * 26 && distToUnitSq > 20 * 20 && !u.statusEffects.frenzied) continue;
+        if (distToUnitSq < bestVehDistSq) {
+          bestVehDistSq = distToUnitSq;
+          nearestEnemyVeh = ev;
+        }
+      }
+
+      if (nearestEnemyVeh) {
+        const vDist = Math.sqrt(bestVehDistSq);
+        const antiVehRange =
+          myEpoch >= 3 && u.species !== 'orc'
+            ? 7.5
+            : u.species === 'elf'
+              ? 6.5
+              : Math.max(3.2, def.attackRange + 1.8);
+        if (vDist <= antiVehRange) {
+          u.state = 'fighting';
+          if (u.actionCooldown <= 0) {
+            u.actionCooldown = u.statusEffects.frenzied ? 0.45 : 0.72;
+            const vehDmg =
+              def.attackDamage *
+              speciesCombatMult *
+              kingMult *
+              1.45 *
+              (u.statusEffects.frenzied ? 2.0 : 1.0);
+            nearestEnemyVeh.hp = Math.max(0, (nearestEnemyVeh.hp ?? 100) - vehDmg);
+            state.pendingVfx.push({
+              id: nextEntityId('vfx'),
+              type: myEpoch >= 3 || u.species === 'elf' ? 'projectile_tracer' : 'hit_spark',
+              vfxSubtype:
+                u.species === 'elf'
+                  ? 'arcane_bolt'
+                  : myEpoch >= 5
+                    ? 'missile'
+                    : myEpoch >= 3
+                      ? 'bullet'
+                      : undefined,
+              x: nearestEnemyVeh.x,
+              y: (nearestEnemyVeh.y ?? 0.2) + 0.35,
+              z: nearestEnemyVeh.z,
+              originX: u.x,
+              originY: (curTile?.height ?? 2) * 0.45 + 0.35,
+              originZ: u.z,
+              radius: 1.0,
+              color: u.species === 'elf' ? '#56cfe1' : u.species === 'orc' ? '#ff4d4d' : '#ffd166',
+              createdAt: Date.now(),
+            });
+          }
+          return;
+        }
+      }
+    }
+
     let nearestForeignBld: BuildingEntity | null = null;
     let bestForeignBldDistSq = Infinity;
     for (const b of state.buildings) {

@@ -82,8 +82,8 @@ test('settlers found hearth, chop down trees into wood, construct buildings, and
   // Prepare flat grass center + adjacent timber grove so behavior is deterministic & fast
   const cx = 64;
   const cz = 64;
-  for (let dz = -4; dz <= 4; dz++) {
-    for (let dx = -4; dx <= 4; dx++) {
+  for (let dz = -12; dz <= 12; dz++) {
+    for (let dx = -12; dx <= 12; dx++) {
       const t = getTile(state, cx + dx, cz + dz)!;
       t.height = 2;
       t.terrain = 'grass';
@@ -94,15 +94,18 @@ test('settlers found hearth, chop down trees into wood, construct buildings, and
   const treeTile = getTile(state, cx + 1, cz)!;
   treeTile.terrain = 'forest';
   treeTile.resourceNode = 'timber_grove';
-  treeTile.resourceAmount = 24;
+  treeTile.resourceAmount = 16;
+  const berryTile = getTile(state, cx - 1, cz)!;
+  berryTile.resourceNode = 'berry_bush';
+  berryTile.resourceAmount = 24;
 
   const s1 = spawnUnit(state, 'villager', cx, cz);
   const s2 = spawnUnit(state, 'villager', cx, cz);
   assert.equal(s1.ok, true);
   assert.equal(s2.ok, true);
 
-  // Step 40s of simulation at 0.1s increments
-  for (let i = 0; i < 400; i++) {
+  // Step 55s of simulation at 0.1s increments (accounting for gather-before-build pacing)
+  for (let i = 0; i < 550; i++) {
     stepSimulation(state, 0.1);
   }
 
@@ -1281,6 +1284,7 @@ test('dedicated airport runways host plane takeoffs/landings and Epoch 5+ metro 
   assert.equal(stationRes.ok, true, stationRes.reason);
   const airportRes = placeBuilding(state, 'airport', 64, 59);
   assert.equal(airportRes.ok, true, airportRes.reason);
+  spawnUnit(state, 'human', 61, 63, true);
 
   // Verify dedicated flat runway strip was automatically graded & paved near airport
   const runwayTiles = state.tiles.filter((t) => t.terrain === 'runway');
@@ -3314,32 +3318,38 @@ test('War Update Follow-Up: military vehicles evolve through epochs in simulatio
     }
   }
   placeBuilding(state, 'bonfire', 48, 44);
-  state.epochIndex = 1; // Bronze Age
+  spawnUnit(state, 'human', 48, 45, true);
+  state.epochIndex = 1; // Bronze Age (only coastal Bronze Galley warship — no aircraft yet!)
   for (let i = 0; i < 6; i++) stepSimulation(state, 0.25);
 
-  const fixedBronze = (state.vehicles ?? []).find((v) => v.isMilitary && v.type === 'glider');
+  const earlyGlider = (state.vehicles ?? []).find((v) => v.isMilitary && v.type === 'glider');
   const shipBronze = (state.vehicles ?? []).find((v) => v.isMilitary && v.type === 'warship');
-  assert.ok(fixedBronze, 'Bronze Age city should field a glider');
-  assert.ok(shipBronze, 'Bronze Age coastal city should field a warship');
+  assert.equal(earlyGlider, undefined, 'Bronze Age city must not field aircraft/gliders');
+  assert.ok(shipBronze, 'Bronze Age coastal city should field a Bronze Oared Galley warship');
   const bronzeShipMaxHp = shipBronze.maxHp ?? 0;
 
-  // Advance to Medieval/Exploration (Epoch 2 -> Airship hoverer spawns alongside glider/biplane)
+  // Advance to Medieval/Exploration (Epoch 2 -> Unpowered Scout Glider + Hot-Air Balloon Airship spawn)
   state.epochIndex = 2;
   stepSimulation(state, 0.2);
+  const fixedWing = (state.vehicles ?? []).find((v) => v.isMilitary && v.type === 'glider');
   const hoverCraft = (state.vehicles ?? []).find((v) => v.isMilitary && v.type === 'airship');
-  assert.ok(hoverCraft, 'Medieval/Exploration city should field an Airship in the hover branch');
-  assert.equal(fixedBronze.type, 'glider', 'Fixed-wing branch stays fixed-wing into biplane era');
+  assert.ok(fixedWing, 'Medieval/Exploration city should field an unpowered Scout Glider');
+  assert.ok(hoverCraft, 'Medieval/Exploration city should field a Hot-Air Balloon Airship');
   assert.ok((shipBronze.maxHp ?? 0) > bronzeShipMaxHp, 'Warship maxHp should scale up with Epoch');
 
-  // Advance to Industrial (Epoch 3 -> Airship evolves to Helicopter; Glider stays fixed-wing)
+  // Advance to Industrial (Epoch 3 -> Propeller Biplane Fighter + Rigid Zeppelin Dirigible + WWI Trench Tank; NO helicopters or jets!)
   state.epochIndex = 3;
   stepSimulation(state, 0.2);
-  assert.equal(hoverCraft.type, 'helicopter', 'Airship should evolve into Helicopter in Industrial epoch');
+  assert.equal(fixedWing.type, 'glider', 'Industrial Age fixed-wing stays Propeller Biplane Fighter (no jets in Industrial Age)');
+  assert.equal(hoverCraft.type, 'airship', 'Industrial Age lighter-than-air stays Rigid Zeppelin Airship (no Apache choppers in Industrial Age)');
+  const industrialTankVeh = (state.vehicles ?? []).find((v) => v.isMilitary && v.type === 'tank');
+  assert.ok(industrialTankVeh && industrialTankVeh.y < 0.12, 'Industrial Age city should field a ground WWI Trench Tank');
 
-  // Advance to Atomic (Epoch 4 -> Glider evolves to Bomber Plane)
+  // Advance to Atomic (Epoch 4 -> Biplane evolves to Prop Heavy Bomber; Zeppelin evolves to Utility Helicopter)
   state.epochIndex = 4;
   stepSimulation(state, 0.2);
-  assert.equal(fixedBronze.type, 'bomber_plane', 'Glider should evolve into Bomber Plane in Atomic epoch');
+  assert.equal(fixedWing.type, 'bomber_plane', 'Biplane should evolve into Heavy Bomber Plane in Atomic epoch');
+  assert.equal(hoverCraft.type, 'helicopter', 'Airship should evolve into Helicopter in Atomic epoch');
 
   // Advance to Space/Orbital (Epoch 6 -> Helicopter evolves to Orbital Gunship + Hover Tank)
   state.epochIndex = 6;
@@ -3349,7 +3359,7 @@ test('War Update Follow-Up: military vehicles evolve through epochs in simulatio
     'orbital_gunship',
     'Helicopter should evolve into Orbital Gunship in Space epoch',
   );
-  assert.equal(fixedBronze.type, 'bomber_plane', 'Fixed-wing Bomber Plane stays fixed-wing (upgrades to plasma jet)');
+  assert.equal(fixedWing.type, 'bomber_plane', 'Fixed-wing Bomber Plane stays fixed-wing (upgrades to plasma jet)');
   const tankVeh = (state.vehicles ?? []).find((v) => v.isMilitary && v.type === 'tank');
   assert.ok(tankVeh && tankVeh.y > 0.15, 'Space Age tank should hover above terrain');
 });
@@ -3496,6 +3506,8 @@ test('War Update Model & VFX Overhaul: fixed-wing planes never hover, helicopter
   const sidA = state.buildings[0].settlementId!;
   const sidB = state.buildings[1].settlementId!;
   setKingdomRelation(state, sidA, sidB, 'war');
+  const crewA = spawnUnit(state, 'human', 22, 45, true).unit!;
+  crewA.settlementId = sidA;
 
   const bomberId = 'test_bomber_1';
   state.vehicles = [
@@ -3814,3 +3826,78 @@ test('War vehicles use distinct 3D architectures per race (human vs elf vs orc)'
   }
 });
 
+test('Historical War Vehicle Timeline & Mortality: no choppers/jets in Industrial Age, and vehicles perish when population or kingdom falls', () => {
+  // 1. Verify 3D vehicle models match historical epochs (Medieval unpowered vs Industrial propeller vs Atomic prop bomber/Huey vs Info Age jet/Apache)
+  const medievalGlider = createVehicleGroup('glider', 2, 'human', 1);
+  const industrialBiplane = createVehicleGroup('glider', 3, 'human', 1);
+  assert.equal(medievalGlider.getObjectByName('spin_prop'), undefined, 'Medieval glider must be unpowered (no propeller)');
+  assert.ok(industrialBiplane.getObjectByName('spin_prop'), 'Industrial glider must be a motorized propeller biplane fighter');
+
+  const medievalBalloon = createVehicleGroup('airship', 2, 'human', 1);
+  const industrialZeppelin = createVehicleGroup('airship', 3, 'human', 1);
+  assert.equal(medievalBalloon.getObjectByName('spin_prop'), undefined, 'Medieval hot-air balloon must not have motorized propellers');
+  assert.ok(industrialZeppelin.getObjectByName('spin_prop'), 'Industrial rigid zeppelin must have motorized propellers');
+
+  const atomicPropBomber = createVehicleGroup('bomber_plane', 4, 'human', 1);
+  const infoStealthJet = createVehicleGroup('bomber_plane', 5, 'human', 1);
+  assert.ok(atomicPropBomber.getObjectByName('spin_prop'), 'Atomic Age heavy bomber must use multi-engine propellers');
+  assert.equal(infoStealthJet.getObjectByName('spin_prop'), undefined, 'Information Age stealth jet bomber must be jet-powered (no propellers)');
+
+  // 2. Vehicles are destroyed and stop roaming when their settlement/kingdom loses all population or buildings
+  const state = createInitialSimulationState(96, 'VEH-MORTALITY-TEST');
+  state.sandboxFreeMode = true;
+  state.wildlifeSeeded = true;
+  state.epochIndex = 3; // Industrial Age
+  for (let z = 20; z <= 70; z++) {
+    for (let x = 20; x <= 70; x++) {
+      const t = getTile(state, x, z)!;
+      t.height = x >= 56 ? 0 : 2;
+      t.terrain = x >= 56 ? 'deep_water' : 'stone_road';
+      t.resourceNode = 'none';
+      t.buildingId = null;
+    }
+  }
+
+  placeBuilding(state, 'bonfire', 46, 44);
+  const citizen = spawnUnit(state, 'human', 46, 45, true).unit!;
+  citizen.settlementId = state.buildings[0].settlementId;
+
+  for (let i = 0; i < 4; i++) stepSimulation(state, 0.25);
+
+  assert.ok((state.vehicles ?? []).length >= 3, 'Populated Industrial city should field ground, air, and naval vehicles');
+  assert.equal(
+    (state.vehicles ?? []).some((v) => v.type === 'helicopter' || v.type === 'bomber_plane'),
+    false,
+    'Industrial Age city must NEVER field helicopters or jet/heavy bombers',
+  );
+
+  // Kill all civilization population -> all vehicles (civilian & military) must be destroyed and stop roaming!
+  for (const u of state.units) {
+    if (u.faction === 'civilization') {
+      u.hp = 0;
+      u.state = 'ko';
+    }
+  }
+  stepSimulation(state, 0.25);
+  assert.equal(
+    (state.vehicles ?? []).length,
+    0,
+    'All vehicles must be destroyed and stop roaming when no living population remains',
+  );
+
+  // Respawn population and vehicles, then destroy the settlement's buildings -> vehicles must also be destroyed
+  const citizen2 = spawnUnit(state, 'human', 46, 45, true).unit!;
+  citizen2.settlementId = state.buildings[0].settlementId;
+  stepSimulation(state, 0.25);
+  assert.ok((state.vehicles ?? []).length >= 2, 'Repopulated city should field vehicles again');
+
+  for (const b of state.buildings) {
+    b.hp = 0;
+  }
+  stepSimulation(state, 0.25);
+  assert.equal(
+    (state.vehicles ?? []).length,
+    0,
+    'All vehicles must be destroyed when their home kingdom/settlement falls',
+  );
+});

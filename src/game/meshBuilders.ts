@@ -5850,11 +5850,11 @@ export function createVehicleGroup(
   }
 
   if (type === 'glider') {
-    // Fixed-wing Glider (Epoch 1) -> Fighter (Epoch 2-3). ZERO top helicopter rotors!
-    const isBiplaneFighter = epochLevel >= 2;
+    // Fixed-wing Scout Glider (Epoch 2 Medieval: unpowered) -> Propeller Biplane Fighter (Epoch 3 Industrial: spinning front propeller, ZERO jets/rotors!)
+    const isBiplaneFighter = epochLevel >= 3;
 
     if (isElf) {
-      // Majestic Elf Celestial Sun-Hawk: golden crescent bow-ring chassis, 4 layered feathered crystal pinions, beak crest & trailing phoenix tail ribbons
+      // Majestic Elf Celestial Sun-Hawk: golden crescent bow-ring chassis, layered feathered crystal pinions, beak crest & trailing phoenix tail ribbons
       const ivoryMat = new THREE.MeshStandardMaterial({ color: 0xfefae0, roughness: 0.18, metalness: 0.38 });
       const goldMat = new THREE.MeshStandardMaterial({ color: 0xffb703, roughness: 0.18, metalness: 0.88 });
 
@@ -5903,11 +5903,22 @@ export function createVehicleGroup(
         tailRibbon.position.set(side * 0.12, 0.23, -0.54);
         group.add(tailRibbon);
       }
+
+      if (isBiplaneFighter) {
+        const sunPropGroup = new THREE.Group();
+        sunPropGroup.name = 'spin_prop';
+        sunPropGroup.position.set(0, 0.21, 0.72);
+        sunPropGroup.add(
+          new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.032, 0.016), goldMat),
+          new THREE.Mesh(new THREE.BoxGeometry(0.032, 0.32, 0.016), goldMat),
+        );
+        group.add(sunPropGroup);
+      }
       return group;
     }
 
     if (isOrc) {
-      // Intimidating Orc Gore-Talon Bat-Bomber: brutal skull-ram prow, spiked iron spine, jagged blood-red bat-talon wings & roaring furnace exhaust
+      // Intimidating Orc Gore-Talon Bat-Fighter: brutal skull-ram prow, spiked iron spine & jagged blood-red bat-talon wings (with nose propeller in Industrial Epoch 3)
       const ironMat = new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.62, metalness: 0.78 });
       const bloodMat = new THREE.MeshStandardMaterial({ color: 0x991b1b, roughness: 0.54, metalness: 0.28 });
       const boneMat = new THREE.MeshStandardMaterial({ color: 0xe7e5e4, roughness: 0.42 });
@@ -5959,17 +5970,23 @@ export function createVehicleGroup(
         group.add(wingHook);
       }
 
-      // Dorsal Spine Spikes & Roaring Rear Furnace Cone
+      // Dorsal Spine Spikes & Industrial Nose Propeller (Epoch 3)
       for (const sz of [0.16, -0.06, -0.28]) {
         const dorsalSpike = new THREE.Mesh(new THREE.ConeGeometry(0.045, 0.2, 4), boneMat);
         dorsalSpike.rotation.x = -0.35;
         dorsalSpike.position.set(0, 0.34, sz);
         group.add(dorsalSpike);
       }
-      const furnaceMouth = new THREE.Mesh(new THREE.ConeGeometry(0.11, 0.26, 6), glowMat);
-      furnaceMouth.rotation.x = -Math.PI / 2;
-      furnaceMouth.position.set(0, 0.2, -0.48);
-      group.add(furnaceMouth);
+      if (isBiplaneFighter) {
+        const nosePropGroup = new THREE.Group();
+        nosePropGroup.name = 'spin_prop';
+        nosePropGroup.position.set(0, 0.19, 0.72);
+        nosePropGroup.add(
+          new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.044, 0.02), ironMat),
+          new THREE.Mesh(new THREE.BoxGeometry(0.044, 0.36, 0.02), bloodMat),
+        );
+        group.add(nosePropGroup);
+      }
       return group;
     }
 
@@ -5984,7 +6001,7 @@ export function createVehicleGroup(
       metalness: isBiplaneFighter ? 0.55 : 0.12,
     });
 
-    // Human Fixed-wing Glider -> Biplane Prop Fighter
+    // Human Fixed-wing Wooden Glider (Epoch 2) -> WWI Propeller Biplane Fighter (Epoch 3)
     const fuselage = new THREE.Mesh(
       new THREE.CylinderGeometry(0.065, 0.038, isBiplaneFighter ? 0.96 : 0.88, 8),
       sparMat,
@@ -6063,8 +6080,8 @@ export function createVehicleGroup(
   }
 
   if (type === 'helicopter') {
-    // Pure Assault Helicopter / Sylvan Astrolabe Sanctum / Orc Skull-Saw Chopper (Epoch 3-5): Top blades on spin_rotor + tail prop on spin_prop
-    const isStealthGunship = epochLevel >= 4;
+    // Rotorcraft (Epoch 4 Atomic: Early Utility Huey Chopper -> Epoch 5 Info Age: Modern Apache Attack Gunship)
+    const isApacheGunship = epochLevel >= 5;
     if (isElf) {
       // Majestic Elf Celestial Lotus Sanctum: vertical floating crystal obelisk core encircled by spinning golden astrolabe rings & lotus petal rotors (zero human helicopter cabin/tailboom!)
       const ivoryMat = new THREE.MeshStandardMaterial({ color: 0xfefae0, roughness: 0.18, metalness: 0.42 });
@@ -6216,25 +6233,46 @@ export function createVehicleGroup(
     }
 
     const heliMat = new THREE.MeshStandardMaterial({
-      color: isStealthGunship ? 0x334155 : 0x4b5563,
-      roughness: isStealthGunship ? 0.34 : 0.45,
-      metalness: isStealthGunship ? 0.62 : 0.48,
+      color: isApacheGunship ? 0x334155 : 0x4d5d3b,
+      roughness: isApacheGunship ? 0.34 : 0.48,
+      metalness: isApacheGunship ? 0.62 : 0.38,
     });
 
-    const cabin = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.22, 0.62), heliMat);
-    cabin.position.set(0, 0.2, 0.08);
-    cabin.castShadow = true;
-    group.add(cabin);
+    if (!isApacheGunship) {
+      // Epoch 4 (Atomic Age 1965 CE): Classic UH-1 Huey / Bell Bubble-Canopy Utility Chopper (NO Apache stub-wings or Hellfire pods)
+      const hueyBody = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.13, 0.54, 8), heliMat);
+      hueyBody.rotation.x = Math.PI / 2;
+      hueyBody.scale.set(1.0, 0.92, 1.0);
+      hueyBody.position.set(0, 0.21, 0.06);
+      hueyBody.castShadow = true;
+      group.add(hueyBody);
 
-    const cockpitNose = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.14, 0.3, 8), glassMat);
-    cockpitNose.rotation.x = Math.PI / 2;
-    cockpitNose.position.set(0, 0.21, 0.48);
-    group.add(cockpitNose);
+      const bubbleCanopy = new THREE.Mesh(new THREE.SphereGeometry(0.145, 8, 8), glassMat);
+      bubbleCanopy.scale.set(0.95, 0.85, 1.25);
+      bubbleCanopy.position.set(0, 0.22, 0.32);
+      group.add(bubbleCanopy);
 
-    const chinTurret = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.025, 0.22, 6), trimMat);
-    chinTurret.rotation.x = Math.PI / 2;
-    chinTurret.position.set(0, 0.1, 0.56);
-    group.add(chinTurret);
+      const topTurbine = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.075, 0.28, 7), trimMat);
+      topTurbine.rotation.x = Math.PI / 2;
+      topTurbine.position.set(0, 0.34, -0.02);
+      group.add(topTurbine);
+    } else {
+      // Epoch 5+ (Info Age 2015 CE): Modern AH-64 Apache Attack Gunship with tandem armored cockpit, chin gun & stub-wing missile pods
+      const cabin = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.22, 0.62), heliMat);
+      cabin.position.set(0, 0.2, 0.08);
+      cabin.castShadow = true;
+      group.add(cabin);
+
+      const cockpitNose = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.14, 0.3, 8), glassMat);
+      cockpitNose.rotation.x = Math.PI / 2;
+      cockpitNose.position.set(0, 0.21, 0.48);
+      group.add(cockpitNose);
+
+      const chinTurret = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.025, 0.22, 6), trimMat);
+      chinTurret.rotation.x = Math.PI / 2;
+      chinTurret.position.set(0, 0.1, 0.56);
+      group.add(chinTurret);
+    }
 
     const tailBoom = new THREE.Mesh(new THREE.CylinderGeometry(0.036, 0.075, 0.64, 7), heliMat);
     tailBoom.rotation.x = Math.PI / 2;
@@ -6258,18 +6296,20 @@ export function createVehicleGroup(
         group.add(leg);
       }
 
-      const pylonArm = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.04, 0.12), trimMat);
-      pylonArm.position.set(sx * 1.15, 0.19, 0.05);
-      group.add(pylonArm);
-      const rocketPod = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.28, 7), bodyMat);
-      rocketPod.rotation.x = Math.PI / 2;
-      rocketPod.position.set(sx * 1.65, 0.18, 0.08);
-      group.add(rocketPod);
+      if (isApacheGunship) {
+        const pylonArm = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.04, 0.12), trimMat);
+        pylonArm.position.set(sx * 1.15, 0.19, 0.05);
+        group.add(pylonArm);
+        const rocketPod = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.28, 7), bodyMat);
+        rocketPod.rotation.x = Math.PI / 2;
+        rocketPod.position.set(sx * 1.65, 0.18, 0.08);
+        group.add(rocketPod);
 
-      const engineNacelle = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.065, 0.34, 7), trimMat);
-      engineNacelle.rotation.x = Math.PI / 2;
-      engineNacelle.position.set(sx * 0.72, 0.33, -0.02);
-      group.add(engineNacelle);
+        const engineNacelle = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.065, 0.34, 7), trimMat);
+        engineNacelle.rotation.x = Math.PI / 2;
+        engineNacelle.position.set(sx * 0.72, 0.33, -0.02);
+        group.add(engineNacelle);
+      }
     }
 
     const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.04, 0.18, 6), trimMat);
@@ -6282,8 +6322,11 @@ export function createVehicleGroup(
     const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.04, 8), trimMat);
     mainRotor.add(hub);
     const blade1 = new THREE.Mesh(new THREE.BoxGeometry(1.36, 0.022, 0.075), trimMat);
-    const blade2 = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.022, 1.36), trimMat);
-    mainRotor.add(blade1, blade2);
+    mainRotor.add(blade1);
+    if (isApacheGunship) {
+      const blade2 = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.022, 1.36), trimMat);
+      mainRotor.add(blade2);
+    }
     group.add(mainRotor);
 
     const tailRotor = new THREE.Group();
@@ -6429,10 +6472,11 @@ export function createVehicleGroup(
       return group;
     }
 
-    // Human Tank (Industrial -> Modern Composite -> Hover Railgun)
+    // Human Tank (Industrial WWI Trench Tank -> Atomic Cast-Turret Tank -> Info Age Composite MBT -> Orbital Hover Railgun)
     const isModernHuman = isModernComposite;
+    const isInfoAgeMBT = epochLevel === 5;
     const armorMat = new THREE.MeshStandardMaterial({
-      color: isOrbitalHover ? 0xe2e8f0 : isModernHuman ? 0x3b4252 : 0x57534e,
+      color: isOrbitalHover ? 0xe2e8f0 : isInfoAgeMBT ? 0x3b4252 : isModernHuman ? 0x4d5d3b : 0x57534e,
       roughness: isOrbitalHover ? 0.24 : isModernHuman ? 0.38 : 0.58,
       metalness: isOrbitalHover ? 0.78 : isModernHuman ? 0.56 : 0.45,
     });
@@ -6898,7 +6942,7 @@ export function createVehicleGroup(
   }
 
   if (type === 'airship') {
-    const isRigidZeppelin = epochLevel >= 4 && epochLevel < 6;
+    const isRigidZeppelin = epochLevel >= 3 && epochLevel < 6;
     const isIonCruiser = epochLevel >= 6;
 
     if (isElf) {
@@ -6943,7 +6987,7 @@ export function createVehicleGroup(
     }
 
     if (isOrc) {
-      // Orc Waaagh-Blimp: riveted red/iron banded war-balloon + underslung iron bomb-gondola + tusk prow & twin stacks
+      // Orc Waaagh-Blimp: riveted red/iron banded war-balloon + underslung iron bomb-gondola + tusk prow
       const orcBag = new THREE.MeshStandardMaterial({ color: 0x7f1d1d, roughness: 0.62, metalness: 0.28 });
       const balloon = new THREE.Mesh(new THREE.CylinderGeometry(0.29, 0.25, 1.12, 8), orcBag);
       balloon.rotation.x = Math.PI / 2;
@@ -6970,31 +7014,33 @@ export function createVehicleGroup(
       slit.position.set(0, 0.16, 0.38);
       group.add(slit);
 
-      for (const ex of [-0.26, 0.26]) {
-        const pod = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.075, 0.3, 6), bodyMat);
-        pod.rotation.x = Math.PI / 2;
-        pod.position.set(ex, 0.24, -0.08);
-        group.add(pod);
-        const prop = new THREE.Group();
-        prop.name = 'spin_prop';
-        prop.position.set(ex, 0.24, 0.1);
-        prop.add(
-          new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.036, 0.02), headlightMat),
-          new THREE.Mesh(new THREE.BoxGeometry(0.036, 0.26, 0.02), headlightMat),
-        );
-        group.add(prop);
+      if (isRigidZeppelin) {
+        for (const ex of [-0.26, 0.26]) {
+          const pod = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.075, 0.3, 6), bodyMat);
+          pod.rotation.x = Math.PI / 2;
+          pod.position.set(ex, 0.24, -0.08);
+          group.add(pod);
+          const prop = new THREE.Group();
+          prop.name = 'spin_prop';
+          prop.position.set(ex, 0.24, 0.1);
+          prop.add(
+            new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.036, 0.02), headlightMat),
+            new THREE.Mesh(new THREE.BoxGeometry(0.036, 0.26, 0.02), headlightMat),
+          );
+          group.add(prop);
+        }
       }
       return group;
     }
 
-    // Human Rigid Airship -> Ion Sky-Cruiser
+    // Human Medieval Hot-Air War Balloon (Epoch 2) -> Industrial Rigid Zeppelin Dirigible (Epoch 3+) -> Ion Sky-Cruiser (Epoch 6+)
     const bagMat = new THREE.MeshStandardMaterial({
       color: isIonCruiser ? 0xe2e8f0 : isRigidZeppelin ? 0x94a3b8 : 0xf4ecd8,
-      roughness: isIonCruiser ? 0.24 : isRigidZeppelin ? 0.36 : 0.62,
-      metalness: isIonCruiser ? 0.78 : isRigidZeppelin ? 0.55 : 0.12,
+      roughness: isIonCruiser ? 0.24 : isRigidZeppelin ? 0.36 : 0.68,
+      metalness: isIonCruiser ? 0.78 : isRigidZeppelin ? 0.55 : 0.08,
     });
     const envelope = new THREE.Mesh(
-      new THREE.CylinderGeometry(isIonCruiser ? 0.28 : 0.26, 0.22, isIonCruiser ? 1.32 : 1.18, 10),
+      new THREE.CylinderGeometry(isIonCruiser ? 0.28 : 0.26, 0.22, isIonCruiser ? 1.32 : isRigidZeppelin ? 1.24 : 0.96, 10),
       bagMat,
     );
     envelope.rotation.x = Math.PI / 2;
@@ -7003,21 +7049,21 @@ export function createVehicleGroup(
     group.add(envelope);
     const nose = new THREE.Mesh(new THREE.SphereGeometry(0.27, 8, 8), isIonCruiser ? glassMat : trimMat);
     nose.scale.set(1, 1, 1.25);
-    nose.position.set(0, 0.44, isIonCruiser ? 0.64 : 0.56);
+    nose.position.set(0, 0.44, isIonCruiser ? 0.64 : isRigidZeppelin ? 0.58 : 0.46);
     group.add(nose);
     const sternCone = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.34, 8), bagMat);
     sternCone.rotation.x = -Math.PI / 2;
-    sternCone.position.set(0, 0.44, -0.72);
+    sternCone.position.set(0, 0.44, isRigidZeppelin ? -0.74 : -0.62);
     group.add(sternCone);
-    const gondola = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.16, isRigidZeppelin ? 0.66 : 0.54), trimMat);
+    const gondola = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.16, isRigidZeppelin ? 0.66 : 0.44), trimMat);
     gondola.position.set(0, 0.12, 0.04);
     gondola.castShadow = true;
     group.add(gondola);
     const tailV = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.38, 0.24), bodyMat);
-    tailV.position.set(0, 0.44, -0.58);
+    tailV.position.set(0, 0.44, isRigidZeppelin ? -0.6 : -0.48);
     group.add(tailV);
     const tailH = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.04, 0.22), bodyMat);
-    tailH.position.set(0, 0.44, -0.58);
+    tailH.position.set(0, 0.44, isRigidZeppelin ? -0.6 : -0.48);
     group.add(tailH);
 
     if (isIonCruiser) {
@@ -7034,7 +7080,7 @@ export function createVehicleGroup(
       const bellyRing = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.04, 0.46), glowMat);
       bellyRing.position.set(0, 0.03, 0.02);
       group.add(bellyRing);
-    } else {
+    } else if (isRigidZeppelin) {
       for (const px of [-0.3, 0.3]) {
         const pod = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.06, 0.24, 7), trimMat);
         pod.rotation.x = Math.PI / 2;
