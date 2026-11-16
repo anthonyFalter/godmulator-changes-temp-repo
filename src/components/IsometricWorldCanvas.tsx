@@ -30,6 +30,7 @@ import {
 import {
   TouchPoint,
   TwoFingerState,
+  computeDynamicPixelScale,
   computeTwoFingerCameraDelta,
   computeTwoFingerState,
   getResponsiveMaxZoomOut,
@@ -4491,19 +4492,31 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
     let renderWidth = 320;
     let renderHeight = 180;
+    let currentDynamicPixelScale = computeDynamicPixelScale(
+      desiredFrustum,
+      simRef.current.gridSize,
+      getCurrentAspect(),
+      propsRef.current.pixelScale || 3,
+    );
 
     const updateSize = () => {
       if (!container) return;
       const w = Math.max(1, container.clientWidth);
       const h = Math.max(1, container.clientHeight);
-      const pxScale = Math.max(1, propsRef.current.pixelScale || 3);
+      const newAspect = w / h;
+      currentDynamicPixelScale = computeDynamicPixelScale(
+        frustumSize,
+        simRef.current.gridSize,
+        newAspect,
+        propsRef.current.pixelScale || 3,
+      );
+      const pxScale = currentDynamicPixelScale;
       const rw = Math.max(160, Math.floor(w / pxScale));
       const rh = Math.max(100, Math.floor(h / pxScale));
       renderWidth = rw;
       renderHeight = rh;
 
       renderer.setSize(rw, rh, false);
-      const newAspect = w / h;
       const maxZoomOut = getResponsiveMaxZoomOut(simRef.current.gridSize, newAspect);
       if (propsRef.current.gameState === 'title') {
         desiredFrustum = getResponsiveTitleFrustum(newAspect);
@@ -9075,7 +9088,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         elapsed: elapsedTotal,
         width: renderWidth,
         height: renderHeight,
-        pixelScale: propsRef.current.pixelScale || 3,
+        pixelScale: currentDynamicPixelScale,
         camYaw,
         camX: camTarget.x,
         camZ: camTarget.z,
@@ -9088,7 +9101,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           elapsedTotal,
           preset,
           epochIdx,
-          propsRef.current.pixelScale || 3,
+          currentDynamicPixelScale,
         );
       }
       if (preset === 'dusk') {
@@ -9130,16 +9143,42 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       camTarget.y = THREE.MathUtils.damp(camTarget.y, camDesiredTarget.y, followDamp, dt);
       camTarget.z = THREE.MathUtils.damp(camTarget.z, camDesiredTarget.z, followDamp, dt);
 
-      if (Math.abs(frustumSize - desiredFrustum) > 0.01 && container) {
-        frustumSize = THREE.MathUtils.damp(frustumSize, desiredFrustum, 8, dt);
+      if (container) {
         const w = Math.max(1, container.clientWidth);
         const h = Math.max(1, container.clientHeight);
         const newAspect = w / h;
-        camera.left = (-frustumSize * newAspect) / 2;
-        camera.right = (frustumSize * newAspect) / 2;
-        camera.top = frustumSize / 2;
-        camera.bottom = -frustumSize / 2;
-        camera.updateProjectionMatrix();
+
+        if (Math.abs(frustumSize - desiredFrustum) > 0.01) {
+          frustumSize = THREE.MathUtils.damp(frustumSize, desiredFrustum, 8, dt);
+          camera.left = (-frustumSize * newAspect) / 2;
+          camera.right = (frustumSize * newAspect) / 2;
+          camera.top = frustumSize / 2;
+          camera.bottom = -frustumSize / 2;
+          camera.updateProjectionMatrix();
+        }
+
+        // Dynamically and smoothly interpolate pixel scale from 3x (zoomed in) to 2x (fully zoomed out)
+        const targetDynamicPixelScale = computeDynamicPixelScale(
+          frustumSize,
+          simRef.current.gridSize,
+          newAspect,
+          propsRef.current.pixelScale || 3,
+        );
+        if (Math.abs(currentDynamicPixelScale - targetDynamicPixelScale) > 0.001) {
+          currentDynamicPixelScale = THREE.MathUtils.damp(
+            currentDynamicPixelScale,
+            targetDynamicPixelScale,
+            8,
+            dt,
+          );
+          const rw = Math.max(160, Math.floor(w / currentDynamicPixelScale));
+          const rh = Math.max(100, Math.floor(h / currentDynamicPixelScale));
+          if (rw !== renderWidth || rh !== renderHeight) {
+            renderWidth = rw;
+            renderHeight = rh;
+            renderer.setSize(rw, rh, false);
+          }
+        }
       }
 
       // Sustained earthquake tremor keeps a subtle, tapering camera rumble during active quake zones

@@ -59,6 +59,7 @@ import {
   resolveGraphicsProfile,
   sanitizeGraphicsSettings,
 } from './graphics';
+import { computeDynamicPixelScale, getResponsiveMaxZoomOut } from './cameraTouch';
 import * as THREE from 'three';
 
 test('initial state starts as uninhabited wilderness with zero settlements or units', () => {
@@ -4088,4 +4089,41 @@ test('Sea Update: localized warm coral reefs stay submerged, scrap_sea has pure 
     assert.notEqual(eSig, oSig, `Epoch ${ep} elf vs orc passenger_ship must have distinct 3D architecture`);
   }
 });
+
+test('Smooth dynamic pixel scale: 3x when zoomed in down to 2x when fully zoomed out', () => {
+  const gridSize = 128;
+  const aspect = 16 / 9;
+  const maxZoom = getResponsiveMaxZoomOut(gridSize, aspect);
+
+  // When fully zoomed in (frustum <= 8.0)
+  assert.equal(computeDynamicPixelScale(8.0, gridSize, aspect), 3.0);
+  assert.equal(computeDynamicPixelScale(6.0, gridSize, aspect), 3.0);
+
+  // When zooming out slightly, scale smoothly glides through 2.98, 2.97, 2.xx
+  const s10 = computeDynamicPixelScale(10.0, gridSize, aspect);
+  const s12 = computeDynamicPixelScale(12.0, gridSize, aspect);
+  assert.ok(s10 < 3.0 && s10 > 2.97, `s10 was ${s10}`);
+  assert.ok(s12 < s10 && s12 > 2.95, `s12 was ${s12}`);
+
+  // When midway through zoom range
+  const midFrustum = (8.0 + maxZoom) / 2;
+  const sMid = computeDynamicPixelScale(midFrustum, gridSize, aspect);
+  assert.ok(Math.abs(sMid - 2.5) < 0.05, `Midway zoom should be ~2.5, got ${sMid}`);
+
+  // When fully zoomed out (frustum >= maxZoom)
+  assert.equal(computeDynamicPixelScale(maxZoom, gridSize, aspect), 2.0);
+  assert.equal(computeDynamicPixelScale(maxZoom + 50, gridSize, aspect), 2.0);
+
+  // Strictly monotonically decreasing as frustum increases (zooming out)
+  let prevScale = 3.0;
+  for (let f = 8.0; f < maxZoom; f += 5.0) {
+    const sc = computeDynamicPixelScale(f, gridSize, aspect);
+    assert.ok(sc <= prevScale, `Pixel scale must not increase when zooming out: ${sc} > ${prevScale}`);
+    prevScale = sc;
+  }
+  const finalScale = computeDynamicPixelScale(maxZoom, gridSize, aspect);
+  assert.ok(finalScale <= prevScale);
+  assert.equal(finalScale, 2.0);
+});
+
 
