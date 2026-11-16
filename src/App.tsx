@@ -19,6 +19,8 @@ import {
   createInitialSimulationState,
   createWorldConfigFromTemplate,
   formatYearLabel,
+  getKingdomId,
+  getKingdomRelation,
   getTile,
   placeBuilding,
   spawnUnit,
@@ -126,6 +128,16 @@ const GOD_RULE_SWITCHES: ReadonlyArray<{
     summary: 'Periodic hostile raider warbands assault settled kingdoms',
   },
   {
+    key: 'warsEnabled',
+    label: 'Wars',
+    summary: 'Allows kingdoms to declare war, build battle vehicles, and engage in racial combat',
+  },
+  {
+    key: 'allowRebellion',
+    label: 'Citizens Can Rebel',
+    summary: 'Unhappy or crowded citizens can break away into rebel city-states and rival kingdoms',
+  },
+  {
     key: 'allowFantasy',
     label: 'Fantasy Creatures',
     summary: 'Enables Elves, Orcs, Dragons & Unicorns in spawns and wilds',
@@ -169,9 +181,19 @@ type TitleMenuStep =
   | 'world_rules'
   | 'loading_world';
 
-const GAME_VERSION = 'v0.6.0';
+const GAME_VERSION = 'v1.0.0';
 
 const UPDATE_LOG_ENTRIES = [
+  {
+    version: 'v1.0.0 - War Update',
+    items: [
+      'Wars, chance-based peace & Alliances zone map (Blue Allies, Red Enemies)',
+      'Environment-shattering racial ultimates: Human Nukes, Elf Arcane Cataclysm, Orc Battlewill avatar & wide slashes',
+      'Age-evolving multi-domain war vehicles: gliders, warships, airships, orc flyers, tanks, bombers & orbital gunships',
+      'City rebellions forming rival city-states + God Rules (Wars, Citizens Can Rebel)',
+      'HUD polish: unified left-aligned 2-row scrollable hotbar, inspect & spacing fixes',
+    ],
+  },
   {
     version: 'v0.6.0',
     items: [
@@ -242,6 +264,7 @@ export default function App() {
   const [activeZones, setActiveZones] = useState<ZoneToggleState>(() => ({
     ...DEFAULT_ZONE_TOGGLES,
   }));
+  const [selectedAllianceKingdomId, setSelectedAllianceKingdomId] = useState<string | null>(null);
 
   // Start UI navigation & World Creation Wizard state
   const [titleMenuStep, setTitleMenuStep] = useState<TitleMenuStep>('main');
@@ -342,6 +365,7 @@ export default function App() {
       setSelectedEntityId(null);
       selectedEntityIdRef.current = null;
       setFollowingEntityId(null);
+      setSelectedAllianceKingdomId(null);
       setLightingPreset(nextSim.worldRules?.dayNightCycle ? 'auto' : 'noon');
       setActiveCategory('spawn');
       setActiveTool({ kind: 'spawn', unit: 'human' });
@@ -396,6 +420,7 @@ export default function App() {
         setSelectedEntityId(null);
         selectedEntityIdRef.current = null;
         setFollowingEntityId(null);
+        setSelectedAllianceKingdomId(null);
         setLightingPreset(builtSim.worldRules?.dayNightCycle ? 'auto' : 'noon');
         setActiveCategory('spawn');
         setActiveTool({ kind: 'spawn', unit: 'human' });
@@ -521,12 +546,39 @@ export default function App() {
     setFollowingEntityId(null);
   }, []);
 
+  const worldZonesRef = useRef<ReturnType<typeof computeWorldZones> | null>(null);
+
   const handleTileInteract = useCallback(
     (tileX: number, tileZ: number) => {
       const sim = simRef.current;
       sim.selectedTile = { x: tileX, z: tileZ };
 
       if (activeTool.kind === 'inspect') {
+        const currentZones = worldZonesRef.current;
+        if (activeZones.alliances && currentZones) {
+          const zInspect = inspectTileZones(currentZones, sim, tileX, tileZ);
+          if (zInspect?.kingdom) {
+            const rootId = getKingdomId(sim, zInspect.kingdom.settlementId);
+            setSelectedAllianceKingdomId(rootId);
+            const seenRoots = new Set<string>([rootId]);
+            let allyCount = 0;
+            let enemyCount = 0;
+            currentZones.kingdomsById.forEach((kItem) => {
+              const otherRoot = getKingdomId(sim, kItem.settlementId);
+              if (seenRoots.has(otherRoot)) return;
+              seenRoots.add(otherRoot);
+              const rel = getKingdomRelation(sim, rootId, otherRoot);
+              if (rel === 'allied') allyCount++;
+              else if (rel === 'war') enemyCount++;
+            });
+            setStatusFeedback(
+              `${zInspect.kingdom.name}: ${allyCount} Allies (Blue) · ${enemyCount} Enemies (Red)`,
+            );
+            soundEngine.playClick();
+            setHudTick((t) => t + 1);
+            return;
+          }
+        }
         const tile = getTile(sim, tileX, tileZ);
         const pickedUnit = selectedEntityIdRef.current
           ? sim.units.find((u) => u.id === selectedEntityIdRef.current && u.state !== 'ko')
@@ -635,7 +687,7 @@ export default function App() {
         setHudTick((t) => t + 1);
       }
     },
-    [activeTool, brushRadius],
+    [activeTool, brushRadius, activeZones.alliances],
   );
 
   const handleAdvanceEpoch = (divineLeap: boolean) => {
@@ -685,7 +737,8 @@ export default function App() {
     activeZones.kings ||
     activeZones.territories ||
     activeZones.biomes ||
-    activeZones.temperature;
+    activeZones.temperature ||
+    activeZones.alliances;
   const shouldComputeZones =
     anyZoneActive || isInspectTabActive || activeCategory === 'zones';
 
@@ -719,6 +772,7 @@ export default function App() {
     return computeWorldZones(simRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shouldComputeZones, zoneCacheKey]);
+  worldZonesRef.current = worldZones;
 
   const hoveredZoneInfo = useMemo(() => {
     if (!worldZones || !hoverTile) return null;
@@ -761,6 +815,13 @@ export default function App() {
       zoneHighlightHoverTile,
       zoneColorBufRef.current,
       zoneIdBufRef.current,
+      activeZones.alliances
+        ? {
+            selectedAllianceKingdomId,
+            kingdomRelations: simRef.current.kingdomRelations,
+            settlementKingdoms: simRef.current.settlementKingdoms,
+          }
+        : undefined,
     );
     zoneColorBufRef.current = packed.colorData;
     zoneIdBufRef.current = packed.idData;
@@ -769,18 +830,36 @@ export default function App() {
       colorData: packed.colorData,
       idData: packed.idData,
       anyActive: packed.anyActive,
-      kingdomsActive: Boolean(activeZones.kingdoms),
+      kingdomsActive: Boolean(activeZones.kingdoms || activeZones.alliances),
       kingsActive: Boolean(activeZones.kings),
       version: zoneOverlayVersionRef.current,
       labels: packed.labels,
       kingdomColors,
     };
-  }, [worldZones, activeZones, anyZoneActive, zoneHighlightHoverTile]);
+  }, [
+    worldZones,
+    activeZones,
+    anyZoneActive,
+    zoneHighlightHoverTile,
+    selectedAllianceKingdomId,
+    zoneCacheKey,
+  ]);
 
   const handleToggleZone = useCallback((zoneType: ZoneOverlayType, label: string) => {
     setActiveZones((prev) => {
       const nextVal = !prev[zoneType];
-      setStatusFeedback(`${label}: ${nextVal ? 'ON' : 'OFF'}`);
+      if (zoneType === 'alliances') {
+        if (!nextVal) {
+          setSelectedAllianceKingdomId(null);
+        }
+        setStatusFeedback(
+          nextVal
+            ? 'Alliances ON · Click any kingdom zone to view Allies (Blue) & Enemies (Red)'
+            : `${label}: OFF`,
+        );
+      } else {
+        setStatusFeedback(`${label}: ${nextVal ? 'ON' : 'OFF'}`);
+      }
       if (zoneType === 'kingdoms') {
         return { ...prev, kingdoms: nextVal, kings: nextVal };
       }
@@ -1764,7 +1843,8 @@ export default function App() {
                         Number(activeZones.kings) +
                         Number(activeZones.territories) +
                         Number(activeZones.biomes) +
-                        Number(activeZones.temperature)
+                        Number(activeZones.temperature) +
+                        Number(activeZones.alliances)
                       : 0;
                   return (
                     <button
@@ -2117,6 +2197,14 @@ export default function App() {
                               'Toggle dynamic land & maritime sea borders and population counts for all Cities & Kingdoms',
                           },
                           {
+                            id: 'alliances' as ZoneOverlayType,
+                            label: 'Alliances & Wars',
+                            shortLabel: 'Alliances',
+                            count: worldZones ? worldZones.kingdomsById.size : 0,
+                            summary:
+                              'Click a kingdom zone to highlight itself & allies in Blue and war enemies in Red',
+                          },
+                          {
                             id: 'kings' as ZoneOverlayType,
                             label: 'Kingdom Kings',
                             shortLabel: 'Kings',
@@ -2191,12 +2279,29 @@ export default function App() {
                         );
                       })}
 
+                      {activeZones.alliances && (
+                        <div className="px-slot px-2.5 h-9 flex items-center gap-2.5 text-[10px] text-[#cfc6b8] whitespace-nowrap">
+                          <span className="flex items-center gap-1">
+                            <span className="w-2.5 h-2.5 bg-[#3b82f6] border border-[#0b0a09] inline-block" />
+                            <span>Ally</span>
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <span className="w-2.5 h-2.5 bg-[#ef4444] border border-[#0b0a09] inline-block" />
+                            <span>Enemy</span>
+                          </span>
+                          {!selectedAllianceKingdomId && (
+                            <span className="text-[#ffd166]">Click a kingdom</span>
+                          )}
+                        </div>
+                      )}
+
                       {anyZoneActive && (
                         <button
                           type="button"
                           data-testid="zone-clear-all"
                           onClick={() => {
                             setActiveZones({ ...DEFAULT_ZONE_TOGGLES });
+                            setSelectedAllianceKingdomId(null);
                             setStatusFeedback('All zone overlays hidden');
                             soundEngine.playClick();
                           }}

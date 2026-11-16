@@ -294,6 +294,22 @@ export const ZonePixelIcon: React.FC<{ zone: ZoneOverlayType; className?: string
           <rect x="9" y="13" width="4" height="1" fill="#7dd3fc" />
         </svg>
       );
+    case 'alliances':
+      return (
+        <svg viewBox="0 0 16 16" className={className} aria-hidden="true" shapeRendering="crispEdges">
+          {/* Dual Alliance (Blue) vs War Enemy (Red) Heraldic Shields */}
+          <rect x="2" y="3" width="5" height="6" fill="#2563eb" />
+          <rect x="3" y="4" width="3" height="3" fill="#60a5fa" />
+          <rect x="3" y="9" width="3" height="2" fill="#1d4ed8" />
+          <rect x="4" y="11" width="1" height="1" fill="#93c5fd" />
+          <rect x="9" y="3" width="5" height="6" fill="#dc2626" />
+          <rect x="10" y="4" width="3" height="3" fill="#f87171" />
+          <rect x="10" y="9" width="3" height="2" fill="#b91c1c" />
+          <rect x="11" y="11" width="1" height="1" fill="#fca5a5" />
+          <rect x="7" y="6" width="2" height="2" fill="#fde047" />
+          <rect x="6" y="13" width="4" height="1" fill="#e5e7eb" />
+        </svg>
+      );
     case 'temperature':
     default:
       return (

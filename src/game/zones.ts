@@ -1,6 +1,7 @@
 import { EPOCHS, getDinosaurVariant } from './catalog';
 import {
   AnimalRole,
+  DiplomaticRelation,
   SimulationState,
   SpeciesId,
   TerrainType,
@@ -16,6 +17,7 @@ export const DEFAULT_ZONE_TOGGLES: ZoneToggleState = {
   territories: false,
   biomes: false,
   temperature: false,
+  alliances: false,
 };
 
 export interface KingdomZoneInfo {
@@ -1428,12 +1430,29 @@ export function inspectTileZones(
  *     B = hover highlight flag (255 if this tile belongs to the currently hovered zone)
  *     A = style flags (1: maritime/sea stipple, 2: thermal gradient)
  */
+export interface AllianceOverlayOptions {
+  selectedAllianceKingdomId?: string | null;
+  kingdomRelations?: Record<string, DiplomaticRelation>;
+  settlementKingdoms?: Record<string, string>;
+}
+
+function resolveKingdomRelationPair(
+  relations: Record<string, DiplomaticRelation> | undefined,
+  kA: string,
+  kB: string,
+): DiplomaticRelation {
+  if (!relations || kA === kB) return kA === kB ? 'allied' : 'neutral';
+  const key = kA < kB ? `${kA}::${kB}` : `${kB}::${kA}`;
+  return relations[key] ?? 'neutral';
+}
+
 export function buildZoneOverlayTextures(
   zones: WorldZonesData,
   toggles: ZoneToggleState,
   hoveredTile: { x: number; z: number } | null,
   colorDataOut?: Uint8Array,
-  idDataOut?: Uint8Array
+  idDataOut?: Uint8Array,
+  allianceOptions?: AllianceOverlayOptions,
 ): { colorData: Uint8Array; idData: Uint8Array; anyActive: boolean; labels: ZoneMapLabel[] } {
   const size = zones.gridSize;
   const totalTiles = size * size;
@@ -1447,7 +1466,11 @@ export function buildZoneOverlayTextures(
       : new Uint8Array(totalTiles * 4);
 
   const anyActive =
-    toggles.kingdoms || toggles.territories || toggles.biomes || toggles.temperature;
+    toggles.kingdoms ||
+    toggles.territories ||
+    toggles.biomes ||
+    toggles.temperature ||
+    toggles.alliances;
   if (!anyActive) {
     colorData.fill(0);
     idData.fill(0);
@@ -1467,11 +1490,35 @@ export function buildZoneOverlayTextures(
     hoveredTile.z < size
   ) {
     const hIdx = hoveredTile.z * size + hoveredTile.x;
-    if (toggles.kingdoms) hoveredKingdomId = zones.kingdomMap[hIdx];
+    if (toggles.kingdoms || toggles.alliances) hoveredKingdomId = zones.kingdomMap[hIdx];
     if (toggles.territories) hoveredTerritoryId = zones.territoryMap[hIdx];
     if (toggles.biomes) hoveredBiomeId = zones.biomeMap[hIdx];
     if (toggles.temperature) hoveredTempId = zones.tempBandMap[hIdx];
   }
+
+  const selectedRootKingdomId = allianceOptions?.selectedAllianceKingdomId ?? null;
+  const relations = allianceOptions?.kingdomRelations;
+  const settlementKingdoms = allianceOptions?.settlementKingdoms;
+
+  const getAllianceRgb = (
+    settlementId: string,
+  ): { rgb: [number, number, number]; hex: string } => {
+    const rootId = settlementKingdoms?.[settlementId] ?? settlementId;
+    if (!selectedRootKingdomId) {
+      return { rgb: [110, 128, 152], hex: '#94a3b8' };
+    }
+    if (rootId === selectedRootKingdomId) {
+      return { rgb: [37, 99, 235], hex: '#3b82f6' };
+    }
+    const rel = resolveKingdomRelationPair(relations, selectedRootKingdomId, rootId);
+    if (rel === 'allied') {
+      return { rgb: [59, 130, 246], hex: '#60a5fa' };
+    }
+    if (rel === 'war') {
+      return { rgb: [239, 68, 68], hex: '#ef4444' };
+    }
+    return { rgb: [108, 117, 125], hex: '#94a3b8' };
+  };
 
   for (let i = 0; i < totalTiles; i++) {
     let rAcc = 0;
@@ -1536,7 +1583,7 @@ export function buildZoneOverlayTextures(
       }
     }
 
-    if (toggles.kingdoms) {
+    if (toggles.kingdoms && !toggles.alliances) {
       const kid = zones.kingdomMap[i];
       if (kid > 0) {
         const info = zones.kingdomsById.get(kid);
@@ -1547,6 +1594,26 @@ export function buildZoneOverlayTextures(
           bAcc += info.color[2] * w;
           wAcc += w;
           alphaMax = Math.max(alphaMax, zones.kingdomIsSea[i] ? 176 : 196);
+          if (primaryId !== 0) secondaryId = primaryId;
+          primaryId = kid;
+          if (zones.kingdomIsSea[i]) styleFlag = 1;
+          if (hoveredKingdomId > 0 && kid === hoveredKingdomId) isHovered = 255;
+        }
+      }
+    }
+
+    if (toggles.alliances) {
+      const kid = zones.kingdomMap[i];
+      if (kid > 0) {
+        const info = zones.kingdomsById.get(kid);
+        if (info) {
+          const aCol = getAllianceRgb(info.settlementId);
+          const w = 2.4;
+          rAcc += aCol.rgb[0] * w;
+          gAcc += aCol.rgb[1] * w;
+          bAcc += aCol.rgb[2] * w;
+          wAcc += w;
+          alphaMax = Math.max(alphaMax, zones.kingdomIsSea[i] ? 182 : 210);
           if (primaryId !== 0) secondaryId = primaryId;
           primaryId = kid;
           if (zones.kingdomIsSea[i]) styleFlag = 1;
@@ -1578,7 +1645,20 @@ export function buildZoneOverlayTextures(
   }
 
   const labels: ZoneMapLabel[] = [];
-  if (toggles.kingdoms) {
+  if (toggles.alliances) {
+    zones.kingdomsById.forEach((k) => {
+      const aCol = getAllianceRgb(k.settlementId);
+      labels.push({
+        id: `alliance-${k.zoneId}`,
+        name: k.name,
+        population: k.population,
+        hexColor: aCol.hex,
+        tileX: k.centerX,
+        tileZ: k.centerZ,
+        isHovered: k.zoneId === hoveredKingdomId,
+      });
+    });
+  } else if (toggles.kingdoms) {
     zones.kingdomsById.forEach((k) => {
       labels.push({
         id: `kingdom-${k.zoneId}`,

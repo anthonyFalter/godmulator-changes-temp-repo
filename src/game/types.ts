@@ -241,6 +241,14 @@ export interface UnitEntity {
   dragTargetX?: number;
   dragTargetZ?: number;
   dragTargetAltitude?: number;
+  lastAttackerId?: string;
+  underAttackTimer?: number;
+  weaponCooldown?: number;
+  isRebel?: boolean;
+  battlewillActive?: number;
+  battlewillCooldown?: number;
+  battlewillSlashTimer?: number;
+  battlewillHeading?: number;
 }
 
 export type GodPowerType =
@@ -293,13 +301,30 @@ export interface TerrainToolDefinition {
   color: string;
 }
 
-export type VehicleType = 'train' | 'car' | 'plane' | 'roadster';
+export type VehicleType =
+  | 'train'
+  | 'car'
+  | 'plane'
+  | 'roadster'
+  | 'glider'
+  | 'tank'
+  | 'warship'
+  | 'airship'
+  | 'helicopter'
+  | 'bomber_plane'
+  | 'orc_flyer'
+  | 'orbital_gunship';
 
 export interface VehicleEntity {
   id: string;
   type: VehicleType;
   species: SpeciesId;
   settlementId: string;
+  kingdomId?: string;
+  isMilitary?: boolean;
+  hp?: number;
+  maxHp?: number;
+  attackCooldown?: number;
   epochLevel: number;
   x: number;
   y: number;
@@ -313,13 +338,22 @@ export interface VehicleEntity {
   variantSeed: number;
   flightPhase?: 'parked' | 'takeoff' | 'cruise' | 'landing';
   phaseTimer?: number;
+  strafeExtendTimer?: number;
   stuntPhase?: 'cruise' | 'charge' | 'launch_flip' | 'hover_spin' | 'barrel_roll';
   stuntTimer?: number;
   stuntDuration?: number;
   thrusterActive?: boolean;
 }
 
-export type ZoneOverlayType = 'kingdoms' | 'kings' | 'territories' | 'biomes' | 'temperature';
+export type DiplomaticRelation = 'allied' | 'neutral' | 'war';
+
+export type ZoneOverlayType =
+  | 'kingdoms'
+  | 'kings'
+  | 'territories'
+  | 'biomes'
+  | 'temperature'
+  | 'alliances';
 
 export type ZoneToggleState = Record<ZoneOverlayType, boolean>;
 
@@ -364,7 +398,11 @@ export interface VisualEffectEvent {
     | 'epoch_up'
     | 'dragon_fire_breath'
     | 'animal_attack'
-    | 'blackhole_explosion';
+    | 'blackhole_explosion'
+    | 'nuke_blast'
+    | 'arcane_cataclysm'
+    | 'battlewill_slash'
+    | 'projectile_tracer';
   x: number;
   y: number;
   z: number;
@@ -373,6 +411,7 @@ export interface VisualEffectEvent {
   originZ?: number;
   sourceUnitId?: string;
   variant?: 'bite' | 'slam' | 'crunch' | 'peck' | 'horn_blast' | 'fire_breath';
+  vfxSubtype?: 'bullet' | 'cannon_shell' | 'bomb' | 'missile' | 'arcane_bolt' | 'plasma_beam';
   radius: number;
   color: string;
   createdAt: number;
@@ -462,6 +501,8 @@ export interface WorldRulesConfig {
   dayNightCycle: boolean;
   allowReproduction: boolean;
   animalAttacks: boolean;
+  allowRebellion: boolean;
+  warsEnabled: boolean;
   startingEpochIndex: number;
   startingSettlers: 'none' | 'pioneers' | 'colony';
 }
@@ -514,6 +555,10 @@ export interface SimulationState {
   settlementNames?: Record<string, string>;
   settlementSpecies?: Record<string, SpeciesId>;
   settlementKingdoms?: Record<string, string>;
+  kingdomRelations?: Record<string, DiplomaticRelation>;
+  kingdomPeacefulTraits?: Record<string, boolean>;
+  diplomacyTimer?: number;
+  rebellionTimer?: number;
   wildlifeSeeded?: boolean;
   wildlifeRespawnTimer?: number;
   raiderWaveTimer?: number;

@@ -4,6 +4,7 @@ import {
   WORLD_TEMPLATES,
   advanceEpoch,
   applyTerrainTool,
+  areKingdomsAtWar,
   beginDragUnit,
   castGodPower,
   createInitialSimulationState,
@@ -11,17 +12,23 @@ import {
   executeGodPowerImpact,
   formatYearLabel,
   generateEarthquakeFaultNetwork,
+  getKingdomId,
+  getKingdomRelation,
   getMaxCityBuildings,
   getMaxCityFarmFields,
   getSettlementAnchor,
   getTile,
+  initializeKingdomDiplomacyPair,
   isCarnivoreAnimal,
   isHerbivoreAnimal,
   placeBuilding,
   releaseDragUnit,
+  rollKingdomPeacefulTrait,
+  setKingdomRelation,
   spawnRaiderWave,
   spawnUnit,
   stepSimulation,
+  triggerCityRebellion,
   updateDragUnit,
 } from './simulation';
 import {
@@ -2211,6 +2218,7 @@ test('zones feature defaults to off, dynamically contours across land and sea, a
     territories: false,
     biomes: false,
     temperature: false,
+    alliances: false,
   });
 
   const state = createInitialSimulationState(128, 'ZONES-LAND-SEA-TEST');
@@ -2328,7 +2336,7 @@ test('zones feature defaults to off, dynamically contours across land and sea, a
 
   const onPack = buildZoneOverlayTextures(
     zones,
-    { kingdoms: true, kings: false, territories: true, biomes: false, temperature: false },
+    { kingdoms: true, kings: false, territories: true, biomes: false, temperature: false, alliances: false },
     { x: 49, z: 50 },
   );
   assert.equal(onPack.anyActive, true);
@@ -2977,7 +2985,595 @@ test('powers (heat_wave, freeze_snap, tornado, tsunamis, asteroids) and drag_ent
   assert.ok(pig.hp < pig.maxHp || pig.state === 'ko', 'Dropping animal from high altitude must inflict fall damage');
 });
 
+test('War Update: chance-based Human/Elf peace vs barbaric Orcs with rare peaceful Orc roll & warsEnabled toggle', () => {
+  const state = createInitialSimulationState(96, 'DIPLOMACY-TEST');
+  state.sandboxFreeMode = true;
 
+  let humanPeaceCount = 0;
+  let orcPeaceCount = 0;
+  for (let i = 0; i < 80; i++) {
+    const s = createInitialSimulationState(64, `D-${i}`);
+    if (rollKingdomPeacefulTrait(s, `k-h-${i}`, 'human')) humanPeaceCount++;
+    if (rollKingdomPeacefulTrait(s, `k-o-${i}`, 'orc')) orcPeaceCount++;
+  }
+  assert.ok(humanPeaceCount >= 40, `Expected Humans to usually be peaceful (${humanPeaceCount}/80)`);
+  assert.ok(orcPeaceCount < humanPeaceCount && orcPeaceCount > 0 && orcPeaceCount <= 25,
+    `Expected Orcs to rarely roll peaceful (${orcPeaceCount}/80)`);
 
+  // Verify peaceful Human + Elf kingdoms can start allied or neutral rather than forced war
+  state.kingdomPeacefulTraits = state.kingdomPeacefulTraits ?? {};
+  state.kingdomPeacefulTraits['h-1'] = true;
+  state.kingdomPeacefulTraits['e-1'] = true;
+  const relHE = initializeKingdomDiplomacyPair(state, 'h-1', 'human', 'e-1', 'elf');
+  assert.notEqual(relHE, 'war', 'Peaceful Human and Elf kingdoms should not force instant war');
 
+  // Verify default non-peaceful Orc starts at war
+  state.kingdomPeacefulTraits['o-1'] = false;
+  const relHO = initializeKingdomDiplomacyPair(state, 'h-1', 'human', 'o-1', 'orc');
+  assert.equal(relHO, 'war', 'Barbaric Orc kingdom must start hostile (war)');
 
+  // When warsEnabled is false, areKingdomsAtWar must return false even if pair relation is war
+  state.worldRules = { ...state.worldRules!, warsEnabled: false };
+  assert.equal(areKingdomsAtWar(state, 'h-1', 'o-1'), false, 'Disabling Wars rule must suppress active war state');
+  state.worldRules = { ...state.worldRules!, warsEnabled: true };
+  assert.equal(areKingdomsAtWar(state, 'h-1', 'o-1'), true);
+});
+
+test('War Update: universal self-defense + rivaling racial weapons (Human Nuke, Elf Cataclysm, Orc attached Battlewill)', () => {
+  const state = createInitialSimulationState(96, 'RACIAL-WAR-WEAPONS');
+  state.sandboxFreeMode = true;
+  state.wildlifeSeeded = true;
+  state.epochIndex = 5; // Atomic/Information era so Nukes, Arcane Cataclysm & Battlewill are unlocked
+  for (let z = 15; z <= 75; z++) {
+    for (let x = 15; x <= 75; x++) {
+      const t = getTile(state, x, z)!;
+      t.height = 2;
+      t.terrain = 'grass';
+      t.resourceNode = 'none';
+      t.buildingId = null;
+    }
+  }
+
+  // 1. Self-defense: Citizen under attack fights back against a wolf instead of ignoring it
+  const defenderRes = spawnUnit(state, 'human', 40, 40, true);
+  const wolfRes = spawnUnit(state, 'wolf', 41.2, 40, true);
+  assert.ok(defenderRes.ok && wolfRes.ok);
+  const defender = defenderRes.unit!;
+  const wolf = wolfRes.unit!;
+  defender.weaponCooldown = 0;
+  for (let i = 0; i < 8; i++) stepSimulation(state, 0.25);
+  assert.ok(
+    wolf.hp < wolf.maxHp || wolf.state === 'ko',
+    'Human citizen under predator attack must actively defend and damage the attacker',
+  );
+
+  // 2. Rivaling superweapons across Human, Elf, and Orc
+  // Clear old units & hearth buildings and place settlements far enough apart so they stay distinct
+  state.units = [];
+  state.buildings = [];
+  for (const t of state.tiles) t.buildingId = null;
+  state.pendingVfx = [];
+  placeBuilding(state, 'bonfire', 20, 42);
+  placeBuilding(state, 'bonfire', 68, 42);
+  const sIds = Array.from(new Set(state.buildings.map((b) => b.settlementId!)));
+  assert.equal(sIds.length, 2);
+  setKingdomRelation(state, sIds[0], sIds[1], 'war');
+
+  // Human Nuke vs Enemy Orc
+  const hBomber = spawnUnit(state, 'human', 42, 44, true).unit!;
+  hBomber.settlementId = sIds[0];
+  hBomber.weaponCooldown = 0;
+  const oTarget1 = spawnUnit(state, 'orc', 45.5, 44, true).unit!;
+  oTarget1.settlementId = sIds[1];
+  oTarget1.hp = 500;
+  oTarget1.maxHp = 500;
+
+  for (let i = 0; i < 6; i++) stepSimulation(state, 0.1);
+  const sawNuke = state.pendingVfx.some((v) => v.type === 'nuke_blast');
+  assert.ok(sawNuke, 'Industrial/Atomic Human combatant should fire Nuke Bomb VFX in wartime combat');
+
+  // Elf Arcane Cataclysm
+  state.units = [];
+  state.pendingVfx = [];
+  const eMage = spawnUnit(state, 'elf', 42, 48, true).unit!;
+  eMage.settlementId = sIds[0];
+  eMage.weaponCooldown = 0;
+  const oTarget2 = spawnUnit(state, 'orc', 45.5, 48, true).unit!;
+  oTarget2.settlementId = sIds[1];
+  oTarget2.hp = 500;
+  oTarget2.maxHp = 500;
+
+  for (let i = 0; i < 6; i++) stepSimulation(state, 0.1);
+  const sawCataclysm = state.pendingVfx.some((v) => v.type === 'arcane_cataclysm');
+  assert.ok(sawCataclysm, 'Advanced Elf combatant should unleash Arcane Cataclysm VFX rivaling Nukes');
+
+  // Orc Battlewill: manifests as attached state on caster, emits battlewill_slash VFX, spawns ZERO summon units
+  state.units = [];
+  state.pendingVfx = [];
+  const oWarlord = spawnUnit(state, 'orc', 42, 52, true).unit!;
+  oWarlord.settlementId = sIds[1];
+  oWarlord.battlewillCooldown = 0;
+  oWarlord.weaponCooldown = 0;
+  const hTarget = spawnUnit(state, 'human', 44.2, 52, true).unit!;
+  hTarget.settlementId = sIds[0];
+  hTarget.hp = 500;
+  hTarget.maxHp = 500;
+
+  const initialUnitCount = state.units.length;
+  for (let i = 0; i < 6; i++) stepSimulation(state, 0.1);
+  assert.ok((oWarlord.battlewillActive ?? 0) > 0, 'Orc caster must activate attached Battlewill extension');
+  assert.ok(
+    state.pendingVfx.some((v) => v.type === 'battlewill_slash'),
+    'Orc Battlewill must unleash wide battlewill_slash VFX',
+  );
+  assert.ok(
+    state.units.length <= initialUnitCount,
+    'Orc Battlewill must NOT spawn an autonomous summon UnitEntity',
+  );
+
+  // Verify 3D Orc mesh contains attached battlewill_avatar + battlewill_sword_pivot child nodes
+  const orcGroup = createUnitGroup('warrior', 'civilization', 5, 'orc', 11, 'adult');
+  assert.ok(orcGroup.getObjectByName('battlewill_avatar'), 'Orc 3D mesh must include battlewill_avatar child');
+  assert.ok(
+    orcGroup.getObjectByName('battlewill_sword_pivot'),
+    'Orc 3D mesh must include battlewill_sword_pivot greatsword',
+  );
+});
+
+test('War Update: multi-domain battle vehicles (land, air, sea, orbital) spawn and have valid 3D meshes', () => {
+  const vehicleTypes = [
+    'glider',
+    'tank',
+    'warship',
+    'airship',
+    'helicopter',
+    'orc_flyer',
+    'bomber_plane',
+    'orbital_gunship',
+  ] as const;
+
+  for (const vt of vehicleTypes) {
+    const species = vt === 'orc_flyer' ? 'orc' : 'human';
+    const mesh = createVehicleGroup(vt, 6, species, 42);
+    assert.ok(mesh instanceof THREE.Group, `Vehicle ${vt} should construct a THREE.Group`);
+    assert.ok(mesh.children.length >= 2, `Vehicle ${vt} should have multi-part 3D geometry`);
+  }
+
+  // Verify runtime military vehicle spawning & engagement during active war in Atomic/Orbital age
+  const state = createInitialSimulationState(96, 'VEHICLES-WAR-TEST');
+  state.sandboxFreeMode = true;
+  state.wildlifeSeeded = true;
+  state.epochIndex = 5;
+  for (let z = 15; z <= 75; z++) {
+    for (let x = 15; x <= 75; x++) {
+      const t = getTile(state, x, z)!;
+      t.resourceNode = 'none';
+      t.buildingId = null;
+      if (x >= 68) {
+        t.height = 0;
+        t.terrain = 'deep_water';
+      } else {
+        t.height = 2;
+        t.terrain = 'grass';
+      }
+    }
+  }
+  placeBuilding(state, 'bonfire', 22, 44);
+  placeBuilding(state, 'bonfire', 62, 44);
+  const sIds = Array.from(new Set(state.buildings.map((b) => b.settlementId!)));
+  assert.equal(sIds.length, 2);
+  setKingdomRelation(state, sIds[0], sIds[1], 'war');
+  for (let i = 0; i < 4; i++) {
+    const u1 = spawnUnit(state, 'human', 22, 44 + i * 0.5, true).unit!;
+    u1.settlementId = sIds[0];
+    const u2 = spawnUnit(state, 'orc', 62, 44 + i * 0.5, true).unit!;
+    u2.settlementId = sIds[1];
+  }
+
+  for (let i = 0; i < 30; i++) stepSimulation(state, 0.4);
+  const militaryVehicles = (state.vehicles ?? []).filter((v) => v.isMilitary);
+  assert.ok(militaryVehicles.length > 0, 'Warring settlements should field military battle vehicles');
+});
+
+test('War Update: city rebellions spawn splinter kingdoms at war & honor allowRebellion rule', () => {
+  const state = createInitialSimulationState(96, 'REBELLION-TEST');
+  state.sandboxFreeMode = true;
+  state.wildlifeSeeded = true;
+  for (let z = 25; z <= 65; z++) {
+    for (let x = 25; x <= 65; x++) {
+      const t = getTile(state, x, z)!;
+      t.height = 2;
+      t.terrain = 'grass';
+      t.resourceNode = 'none';
+      t.buildingId = null;
+    }
+  }
+  placeBuilding(state, 'bonfire', 45, 45);
+  const parentSettlementId = state.buildings[0].settlementId!;
+  const c1 = spawnUnit(state, 'human', 46, 45, true).unit!;
+  c1.settlementId = parentSettlementId;
+  c1.isKing = false;
+  const c2 = spawnUnit(state, 'human', 44, 45, true).unit!;
+  c2.settlementId = parentSettlementId;
+  c2.isKing = false;
+  const c3 = spawnUnit(state, 'human', 45, 46, true).unit!;
+  c3.settlementId = parentSettlementId;
+  c3.isKing = false;
+
+  // Respects allowRebellion = false
+  state.worldRules = { ...state.worldRules!, allowRebellion: false };
+  const blocked = triggerCityRebellion(state, parentSettlementId);
+  assert.equal(blocked, false, 'Rebellion must be blocked when Citizens Can Rebel rule is OFF');
+
+  // Succeeds when allowRebellion = true
+  state.worldRules = { ...state.worldRules!, allowRebellion: true };
+  const rebelled = triggerCityRebellion(state, parentSettlementId);
+  assert.equal(rebelled, true, 'Citizen should rebel when rule is ON');
+  const rebelUnit = state.units.find((u) => u.isRebel);
+  assert.ok(rebelUnit, 'At least one citizen should be marked isRebel');
+  assert.ok(rebelUnit.kingdomId, 'Rebel must belong to a splinter kingdomId');
+  assert.equal(
+    getKingdomRelation(state, getKingdomId(state, parentSettlementId), rebelUnit.kingdomId!),
+    'war',
+    'Rebel splinter faction must enter war with parent kingdom',
+  );
+});
+
+test('War Update: Alliances zone highlights clicked kingdom & allies in Blue and enemies in Red', () => {
+  const state = createInitialSimulationState(96, 'ALLIANCE-ZONE-TEST');
+  state.sandboxFreeMode = true;
+  state.wildlifeSeeded = true;
+  for (let z = 15; z <= 75; z++) {
+    for (let x = 15; x <= 75; x++) {
+      const t = getTile(state, x, z)!;
+      t.height = 2;
+      t.terrain = 'grass';
+      t.resourceNode = 'none';
+      t.buildingId = null;
+    }
+  }
+
+  placeBuilding(state, 'bonfire', 20, 26); // Kingdom A
+  placeBuilding(state, 'bonfire', 46, 26); // Kingdom B (Ally)
+  placeBuilding(state, 'bonfire', 70, 26); // Kingdom C (Enemy)
+
+  const kA = state.buildings[0].settlementId!;
+  const kB = state.buildings[1].settlementId!;
+  const kC = state.buildings[2].settlementId!;
+  spawnUnit(state, 'human', 20, 26, true).unit!.settlementId = kA;
+  spawnUnit(state, 'elf', 46, 26, true).unit!.settlementId = kB;
+  spawnUnit(state, 'orc', 70, 26, true).unit!.settlementId = kC;
+
+  setKingdomRelation(state, kA, kB, 'allied');
+  setKingdomRelation(state, kA, kC, 'war');
+
+  const zones = computeWorldZones(state);
+  const packed = buildZoneOverlayTextures(
+    zones,
+    { ...DEFAULT_ZONE_TOGGLES, alliances: true },
+    null,
+    undefined,
+    undefined,
+    {
+      selectedAllianceKingdomId: getKingdomId(state, kA),
+      kingdomRelations: state.kingdomRelations,
+      settlementKingdoms: state.settlementKingdoms,
+    },
+  );
+  assert.equal(packed.anyActive, true);
+
+  const offA = (26 * state.gridSize + 20) * 4;
+  const offB = (26 * state.gridSize + 46) * 4;
+  const offC = (26 * state.gridSize + 70) * 4;
+
+  // Clicked kingdom A & Ally B -> Blue dominant (B > R)
+  assert.ok(packed.colorData[offA + 2] > packed.colorData[offA], 'Clicked kingdom should render Blue');
+  assert.ok(packed.colorData[offB + 2] > packed.colorData[offB], 'Allied kingdom should render Blue');
+  // War enemy C -> Red dominant (R > B)
+  assert.ok(packed.colorData[offC] > packed.colorData[offC + 2], 'Enemy kingdom at war should render Red');
+});
+
+test('War Update Follow-Up: military vehicles evolve through epochs in simulation and 3D geometry', () => {
+  // 1. 3D Mesh geometry distinctly evolves across Epochs for warship, tank, airship, bomber, gunship
+  const bronzeShip = createVehicleGroup('warship', 1, 'human', 1);
+  const ironcladShip = createVehicleGroup('warship', 3, 'human', 1);
+  const orbitalShip = createVehicleGroup('warship', 6, 'human', 1);
+  assert.notEqual(
+    bronzeShip.children.length,
+    ironcladShip.children.length,
+    'Bronze galley warship and Industrial ironclad should differ structurally',
+  );
+  assert.notEqual(
+    ironcladShip.children.length,
+    orbitalShip.children.length,
+    'Industrial ironclad and Orbital plasma cruiser should differ structurally',
+  );
+
+  const indTank = createVehicleGroup('tank', 3, 'human', 2);
+  const hoverTank = createVehicleGroup('tank', 6, 'human', 2);
+  assert.notEqual(
+    indTank.children.length,
+    hoverTank.children.length,
+    'Industrial tank and Space Age hover-railgun tank must differ in geometry parts',
+  );
+
+  // 2. Simulation evolves fixed-wing (glider -> bomber_plane) and hover/VTOL (airship -> helicopter -> orbital_gunship) cleanly
+  const state = createInitialSimulationState(96, 'VEH-EVOLVE-TEST');
+  state.sandboxFreeMode = true;
+  state.wildlifeSeeded = true;
+  for (let z = 15; z <= 75; z++) {
+    for (let x = 15; x <= 75; x++) {
+      const t = getTile(state, x, z)!;
+      t.resourceNode = 'none';
+      t.buildingId = null;
+      t.height = x >= 58 ? 0 : 2;
+      t.terrain = x >= 58 ? 'deep_water' : 'grass';
+    }
+  }
+  placeBuilding(state, 'bonfire', 48, 44);
+  state.epochIndex = 1; // Bronze Age
+  for (let i = 0; i < 6; i++) stepSimulation(state, 0.25);
+
+  const fixedBronze = (state.vehicles ?? []).find((v) => v.isMilitary && v.type === 'glider');
+  const shipBronze = (state.vehicles ?? []).find((v) => v.isMilitary && v.type === 'warship');
+  assert.ok(fixedBronze, 'Bronze Age city should field a glider');
+  assert.ok(shipBronze, 'Bronze Age coastal city should field a warship');
+  const bronzeShipMaxHp = shipBronze.maxHp ?? 0;
+
+  // Advance to Medieval/Exploration (Epoch 2 -> Airship hoverer spawns alongside glider/biplane)
+  state.epochIndex = 2;
+  stepSimulation(state, 0.2);
+  const hoverCraft = (state.vehicles ?? []).find((v) => v.isMilitary && v.type === 'airship');
+  assert.ok(hoverCraft, 'Medieval/Exploration city should field an Airship in the hover branch');
+  assert.equal(fixedBronze.type, 'glider', 'Fixed-wing branch stays fixed-wing into biplane era');
+  assert.ok((shipBronze.maxHp ?? 0) > bronzeShipMaxHp, 'Warship maxHp should scale up with Epoch');
+
+  // Advance to Industrial (Epoch 3 -> Airship evolves to Helicopter; Glider stays fixed-wing)
+  state.epochIndex = 3;
+  stepSimulation(state, 0.2);
+  assert.equal(hoverCraft.type, 'helicopter', 'Airship should evolve into Helicopter in Industrial epoch');
+
+  // Advance to Atomic (Epoch 4 -> Glider evolves to Bomber Plane)
+  state.epochIndex = 4;
+  stepSimulation(state, 0.2);
+  assert.equal(fixedBronze.type, 'bomber_plane', 'Glider should evolve into Bomber Plane in Atomic epoch');
+
+  // Advance to Space/Orbital (Epoch 6 -> Helicopter evolves to Orbital Gunship + Hover Tank)
+  state.epochIndex = 6;
+  stepSimulation(state, 0.2);
+  assert.equal(
+    hoverCraft.type,
+    'orbital_gunship',
+    'Helicopter should evolve into Orbital Gunship in Space epoch',
+  );
+  assert.equal(fixedBronze.type, 'bomber_plane', 'Fixed-wing Bomber Plane stays fixed-wing (upgrades to plasma jet)');
+  const tankVeh = (state.vehicles ?? []).find((v) => v.isMilitary && v.type === 'tank');
+  assert.ok(tankVeh && tankVeh.y > 0.15, 'Space Age tank should hover above terrain');
+});
+
+test('War Update Follow-Up: Nukes, Elf Arcane Cataclysm, and Orc Battlewill destroy environment, craters, and structures', () => {
+  const setupFlatArena = (seed: string) => {
+    const state = createInitialSimulationState(96, seed);
+    state.sandboxFreeMode = true;
+    state.wildlifeSeeded = true;
+    state.epochIndex = 5;
+    for (let z = 12; z <= 84; z++) {
+      for (let x = 12; x <= 84; x++) {
+        const t = getTile(state, x, z)!;
+        t.height = 4;
+        t.terrain = 'grass';
+        t.resourceNode = 'timber_grove';
+        t.resourceAmount = 120;
+        t.buildingId = null;
+      }
+    }
+    return state;
+  };
+
+  // 1. Human Nuke environment & structure destruction
+  {
+    const s = setupFlatArena('NUKE-ENV-TEST');
+    placeBuilding(s, 'bonfire', 18, 44);
+    placeBuilding(s, 'bonfire', 48, 44);
+    placeBuilding(s, 'forager_hut', 49, 44);
+    const sidA = s.buildings[0].settlementId!;
+    const sidB = s.buildings[1].settlementId!;
+    setKingdomRelation(s, sidA, sidB, 'war');
+
+    const hNuker = spawnUnit(s, 'human', 43, 44, true).unit!;
+    hNuker.settlementId = sidA;
+    hNuker.weaponCooldown = 0;
+    const enemy = spawnUnit(s, 'orc', 47, 44, true).unit!;
+    enemy.settlementId = sidB;
+    enemy.hp = 800;
+    enemy.maxHp = 800;
+
+    for (let i = 0; i < 5; i++) stepSimulation(s, 0.1);
+    const craterCenter = getTile(s, 47, 44)!;
+    assert.ok(craterCenter.height < 4, 'Human Nuke must crater terrain height at blast epicenter');
+    assert.equal(craterCenter.terrain, 'scorched', 'Human Nuke must scorch terrain tiles');
+    assert.equal(craterCenter.resourceNode, 'none', 'Human Nuke must obliterate forest trees in blast radius');
+    const enemyHouse = s.buildings.find((b) => b.settlementId === sidB && b.type === 'forager_hut');
+    assert.ok(!enemyHouse || enemyHouse.hp < 80, 'Human Nuke must devastate enemy buildings in blast zone');
+  }
+
+  // 2. Elf Arcane Cataclysm crystalline environment destruction
+  {
+    const s = setupFlatArena('ARCANE-ENV-TEST');
+    placeBuilding(s, 'bonfire', 18, 44);
+    placeBuilding(s, 'bonfire', 48, 44);
+    const sidA = s.buildings[0].settlementId!;
+    const sidB = s.buildings[1].settlementId!;
+    setKingdomRelation(s, sidA, sidB, 'war');
+
+    const eMage = spawnUnit(s, 'elf', 43, 44, true).unit!;
+    eMage.settlementId = sidA;
+    eMage.weaponCooldown = 0;
+    const enemy = spawnUnit(s, 'orc', 47, 44, true).unit!;
+    enemy.settlementId = sidB;
+    enemy.hp = 800;
+    enemy.maxHp = 800;
+
+    for (let i = 0; i < 5; i++) stepSimulation(s, 0.1);
+    const arcaneCenter = getTile(s, 47, 44)!;
+    assert.ok(arcaneCenter.height < 4, 'Elf Arcane Cataclysm must shatter & crater ground elevation');
+    assert.equal(arcaneCenter.terrain, 'crystal_field', 'Elf Cataclysm must transform blast ground to crystal_field');
+    assert.equal(arcaneCenter.resourceNode, 'none', 'Elf Cataclysm must wipe out trees/flora in blast');
+  }
+
+  // 3. Orc Battlewill tectonic slash environment destruction
+  {
+    const s = setupFlatArena('BATTLEWILL-ENV-TEST');
+    placeBuilding(s, 'bonfire', 18, 44);
+    placeBuilding(s, 'bonfire', 48, 44);
+    const sidA = s.buildings[0].settlementId!;
+    const sidB = s.buildings[1].settlementId!;
+    setKingdomRelation(s, sidA, sidB, 'war');
+
+    const oWarlord = spawnUnit(s, 'orc', 44, 44, true).unit!;
+    oWarlord.settlementId = sidA;
+    oWarlord.battlewillCooldown = 0;
+    oWarlord.weaponCooldown = 0;
+    const enemy = spawnUnit(s, 'human', 46.5, 44, true).unit!;
+    enemy.settlementId = sidB;
+    enemy.hp = 800;
+    enemy.maxHp = 800;
+
+    for (let i = 0; i < 5; i++) stepSimulation(s, 0.1);
+    const slashTile = getTile(s, 46, 44)!;
+    assert.ok(slashTile.height < 4, 'Orc Battlewill wide slash must carve lowered tectonic scar into ground');
+    assert.ok(
+      slashTile.terrain === 'scorched' || slashTile.terrain === 'badlands' || slashTile.terrain === 'rock',
+      'Orc Battlewill slash must scar terrain ground biome',
+    );
+    assert.equal(slashTile.resourceNode, 'none', 'Orc Battlewill slash must splinter trees in cleave path');
+  }
+});
+
+test('War Update Model & VFX Overhaul: fixed-wing planes never hover, helicopters spin horizontally, weapons & VFX scale cleanly', () => {
+  // 1. Fixed-wing planes NEVER contain overhead helicopter 'spin_rotor', while helicopters & orc_flyers DO
+  const gliderMesh = createVehicleGroup('glider', 2, 'human', 1);
+  const bomberMesh = createVehicleGroup('bomber_plane', 5, 'human', 1);
+  const civPlaneMesh = createVehicleGroup('plane', 4, 'human', 1);
+  assert.equal(gliderMesh.getObjectByName('spin_rotor'), undefined, 'Glider/biplane must not have helicopter top rotor');
+  assert.equal(bomberMesh.getObjectByName('spin_rotor'), undefined, 'Bomber plane must not have helicopter top rotor');
+  assert.equal(civPlaneMesh.getObjectByName('spin_rotor'), undefined, 'Civilian plane must not have helicopter top rotor');
+
+  const heliMesh = createVehicleGroup('helicopter', 4, 'human', 1);
+  const orcChopperMesh = createVehicleGroup('orc_flyer', 4, 'orc', 1);
+  assert.ok(heliMesh.getObjectByName('spin_rotor'), 'Helicopter must have horizontal top spin_rotor');
+  assert.ok(heliMesh.getObjectByName('spin_prop'), 'Helicopter must have tail spin_prop');
+  assert.ok(orcChopperMesh.getObjectByName('spin_rotor'), 'Orc chopper must have horizontal top spin_rotor');
+  assert.ok(orcChopperMesh.getObjectByName('spin_prop'), 'Orc chopper must have tail spin_prop');
+
+  // 2. Held unit weapons are multi-part 3D groups per race & age
+  const elfStaff = createUnitGroup('priest', 'civilization', 3, 'elf', 7, 'adult').getObjectByName('held_tool');
+  const humanRifle = createUnitGroup('warrior', 'civilization', 5, 'human', 7, 'adult').getObjectByName('held_tool');
+  const orcCleaver = createUnitGroup('warrior', 'civilization', 5, 'orc', 7, 'adult').getObjectByName('held_tool');
+  assert.ok(elfStaff && elfStaff.children.length >= 2, 'Elf weapon should be multi-part 3D runestaff');
+  assert.ok(humanRifle && humanRifle.children.length >= 3, 'Modern human rifle should be multi-part 3D weapon');
+  assert.ok(orcCleaver && orcCleaver.children.length >= 2, 'Orc weapon should be multi-part 3D cleaver');
+
+  // 3. Fixed-wing plane NEVER stops/hovers even when engaged inside fireRange; makes continuous forward bombing passes
+  const state = createInitialSimulationState(96, 'PLANE-NO-HOVER-TEST');
+  state.sandboxFreeMode = true;
+  state.wildlifeSeeded = true;
+  state.epochIndex = 4; // Atomic Age
+  for (let z = 12; z <= 84; z++) {
+    for (let x = 12; x <= 84; x++) {
+      const t = getTile(state, x, z)!;
+      t.height = 2;
+      t.terrain = 'grass';
+      t.resourceNode = 'none';
+      t.buildingId = null;
+    }
+  }
+  placeBuilding(state, 'bonfire', 22, 44);
+  placeBuilding(state, 'bonfire', 52, 44);
+  const sidA = state.buildings[0].settlementId!;
+  const sidB = state.buildings[1].settlementId!;
+  setKingdomRelation(state, sidA, sidB, 'war');
+
+  const bomberId = 'test_bomber_1';
+  state.vehicles = [
+    {
+      id: bomberId,
+      type: 'bomber_plane',
+      species: 'human',
+      settlementId: sidA,
+      kingdomId: getKingdomId(state, sidA),
+      isMilitary: true,
+      hp: 300,
+      maxHp: 300,
+      attackCooldown: 0,
+      strafeExtendTimer: 0,
+      epochLevel: 4,
+      x: 46,
+      y: 5.2,
+      z: 38,
+      heading: 0, // Pointed straight +Z toward enemy at (46, 44)
+      pitch: 0,
+      bank: 0,
+      speed: 7.8,
+      path: [{ x: 46, z: 38 }],
+      pathIndex: 0,
+      variantSeed: 1,
+    },
+    {
+      id: 'test_heli_1',
+      type: 'helicopter',
+      species: 'human',
+      settlementId: sidA,
+      kingdomId: getKingdomId(state, sidA),
+      isMilitary: true,
+      hp: 260,
+      maxHp: 260,
+      attackCooldown: 0,
+      epochLevel: 4,
+      x: 42,
+      y: 3.55,
+      z: 44,
+      heading: Math.PI / 2,
+      pitch: 0,
+      bank: 0,
+      speed: 5.3,
+      path: [{ x: 42, z: 44 }],
+      pathIndex: 0,
+      variantSeed: 2,
+    },
+  ];
+
+  const enemy = spawnUnit(state, 'orc', 46, 44, true).unit!;
+  enemy.settlementId = sidB;
+  enemy.hp = 1200;
+  enemy.maxHp = 1200;
+
+  let totalPlaneMovement = 0;
+  let lastBx = 46;
+  let lastBz = 38;
+  const collectedSubtypes = new Set<string>();
+
+  for (let i = 0; i < 16; i++) {
+    stepSimulation(state, 0.15);
+    const bomber = state.vehicles.find((v) => v.id === bomberId)!;
+    const stepMove = Math.hypot(bomber.x - lastBx, bomber.z - lastBz);
+    totalPlaneMovement += stepMove;
+    assert.ok(stepMove > 0.7, `Fixed-wing bomber must never stop/hover in combat (moved ${stepMove.toFixed(2)})`);
+    lastBx = bomber.x;
+    lastBz = bomber.z;
+    for (const vfx of state.pendingVfx) {
+      if (vfx.vfxSubtype) collectedSubtypes.add(vfx.vfxSubtype);
+    }
+    state.pendingVfx = [];
+  }
+
+  const heli = state.vehicles.find((v) => v.id === 'test_heli_1')!;
+  const bomberEnd = state.vehicles.find((v) => v.id === bomberId)!;
+  assert.ok(totalPlaneMovement > 15, 'Fixed-wing plane must continuously streak across target zone');
+  assert.ok((bomberEnd.strafeExtendTimer ?? 0) >= 0, 'Fixed-wing plane tracks strafe extend state');
+  assert.ok(Math.hypot(heli.x - 42, heli.z - 44) < 2.0, 'Hovering helicopter holds standoff combat orbit');
+  assert.ok(
+    collectedSubtypes.has('bomb') || collectedSubtypes.has('missile') || collectedSubtypes.has('bullet'),
+    'War update combat must emit rich vfxSubtype events',
+  );
+});

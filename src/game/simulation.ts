@@ -14,6 +14,7 @@ import {
   BuildingEntity,
   BuildingType,
   ChronicleEvent,
+  DiplomaticRelation,
   EarthquakeFaultSegment,
   EarthquakeShapeKind,
   GodPowerType,
@@ -26,6 +27,8 @@ import {
   UnitEntity,
   UnitRole,
   VehicleEntity,
+  VehicleType,
+  VisualEffectEvent,
   WorldGenConfig,
   WorldRulesConfig,
   WorldTemplateId,
@@ -150,6 +153,8 @@ export const DEFAULT_WORLD_RULES: WorldRulesConfig = {
   dayNightCycle: false,
   allowReproduction: true,
   animalAttacks: true,
+  allowRebellion: true,
+  warsEnabled: true,
   startingEpochIndex: 0,
   startingSettlers: 'none',
 };
@@ -191,6 +196,8 @@ export const WORLD_TEMPLATES: WorldTemplatePreset[] = [
       dayNightCycle: false,
       allowReproduction: true,
       animalAttacks: true,
+      allowRebellion: true,
+      warsEnabled: true,
       startingEpochIndex: 0,
       startingSettlers: 'pioneers',
     },
@@ -217,6 +224,8 @@ export const WORLD_TEMPLATES: WorldTemplatePreset[] = [
       dayNightCycle: false,
       allowReproduction: true,
       animalAttacks: true,
+      allowRebellion: true,
+      warsEnabled: true,
       startingEpochIndex: 0,
       startingSettlers: 'pioneers',
     },
@@ -243,6 +252,8 @@ export const WORLD_TEMPLATES: WorldTemplatePreset[] = [
       dayNightCycle: false,
       allowReproduction: true,
       animalAttacks: true,
+      allowRebellion: true,
+      warsEnabled: true,
       startingEpochIndex: 6,
       startingSettlers: 'colony',
     },
@@ -269,6 +280,8 @@ export const WORLD_TEMPLATES: WorldTemplatePreset[] = [
       dayNightCycle: false,
       allowReproduction: true,
       animalAttacks: true,
+      allowRebellion: true,
+      warsEnabled: true,
       startingEpochIndex: 0,
       startingSettlers: 'pioneers',
     },
@@ -295,6 +308,8 @@ export const WORLD_TEMPLATES: WorldTemplatePreset[] = [
       dayNightCycle: false,
       allowReproduction: true,
       animalAttacks: true,
+      allowRebellion: true,
+      warsEnabled: true,
       startingEpochIndex: 0,
       startingSettlers: 'pioneers',
     },
@@ -439,6 +454,10 @@ export function createInitialSimulationState(
     settlementNames: {},
     settlementSpecies: {},
     settlementKingdoms: {},
+    kingdomRelations: {},
+    kingdomPeacefulTraits: {},
+    diplomacyTimer: 0,
+    rebellionTimer: 0,
     worldName: worldTitle,
     worldTemplate: template,
     worldRules: rules,
@@ -2830,8 +2849,297 @@ function createVillageName(state: SimulationState, species: SpeciesId = 'human')
   return `Haven ${used.size + 1}`;
 }
 
-function getKingdomId(state: SimulationState, settlementId: string): string {
+export function getKingdomId(state: SimulationState, settlementId: string): string {
   return state.settlementKingdoms?.[settlementId] ?? settlementId;
+}
+
+export function getKingdomPairKey(kA: string, kB: string): string {
+  return kA < kB ? `${kA}::${kB}` : `${kB}::${kA}`;
+}
+
+export function getKingdomRelation(
+  state: SimulationState,
+  kA: string,
+  kB: string,
+): DiplomaticRelation {
+  if (!kA || !kB || kA === kB) return kA === kB ? 'allied' : 'neutral';
+  return state.kingdomRelations?.[getKingdomPairKey(kA, kB)] ?? 'neutral';
+}
+
+export function setKingdomRelation(
+  state: SimulationState,
+  kA: string,
+  kB: string,
+  relation: DiplomaticRelation,
+): void {
+  if (!kA || !kB || kA === kB) return;
+  if (!state.kingdomRelations) state.kingdomRelations = {};
+  state.kingdomRelations[getKingdomPairKey(kA, kB)] = relation;
+}
+
+function deterministicUnitFloat(seed: number, strA: string, strB = ''): number {
+  let h = (seed ^ 0x9e3779b9) >>> 0;
+  for (let i = 0; i < strA.length; i++) {
+    h = Math.imul(h ^ strA.charCodeAt(i), 16777619) >>> 0;
+  }
+  for (let i = 0; i < strB.length; i++) {
+    h = Math.imul(h ^ strB.charCodeAt(i), 16777619) >>> 0;
+  }
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+}
+
+export function rollKingdomPeacefulTrait(
+  state: SimulationState,
+  kingdomId: string,
+  species: SpeciesId,
+  rollOverride?: number,
+): boolean {
+  if (!state.kingdomPeacefulTraits) state.kingdomPeacefulTraits = {};
+  if (state.kingdomPeacefulTraits[kingdomId] !== undefined && rollOverride === undefined) {
+    return state.kingdomPeacefulTraits[kingdomId];
+  }
+  const r = rollOverride ?? deterministicUnitFloat(state.seed ?? 1, kingdomId, species);
+  // Humans & Elves have a high chance of peaceful diplomacy; Orcs are barbaric by default with a rare peace chance
+  const peaceProb = species === 'orc' ? 0.12 : species === 'elf' ? 0.82 : 0.74;
+  const isPeaceful = r < peaceProb;
+  state.kingdomPeacefulTraits[kingdomId] = isPeaceful;
+  return isPeaceful;
+}
+
+export function areKingdomsAtWar(
+  state: SimulationState,
+  kA?: string,
+  kB?: string,
+): boolean {
+  if (state.worldRules?.warsEnabled === false) return false;
+  if (!kA || !kB || kA === kB) return false;
+  return getKingdomRelation(state, kA, kB) === 'war';
+}
+
+export function initializeKingdomDiplomacyPair(
+  state: SimulationState,
+  kA: string,
+  spA: SpeciesId,
+  kB: string,
+  spB: SpeciesId,
+): DiplomaticRelation {
+  if (!kA || !kB || kA === kB) return 'allied';
+  if (!state.kingdomRelations) state.kingdomRelations = {};
+  const key = getKingdomPairKey(kA, kB);
+  const existing = state.kingdomRelations[key];
+  if (existing) return existing;
+
+  const pA = rollKingdomPeacefulTrait(state, kA, spA);
+  const pB = rollKingdomPeacefulTrait(state, kB, spB);
+  const pairRoll = deterministicUnitFloat((state.seed ?? 1) + 73, key, `${spA}_${spB}`);
+  const warsOn = state.worldRules?.warsEnabled !== false;
+
+  let rel: DiplomaticRelation = 'neutral';
+  if (!pA || !pB) {
+    // At least one side is barbaric/belligerent (e.g., standard Orcs)
+    const bothOrcOrVsOrc = spA === 'orc' || spB === 'orc';
+    if (warsOn && (bothOrcOrVsOrc ? pairRoll < 0.9 : pairRoll < 0.48)) {
+      rel = 'war';
+    } else {
+      rel = 'neutral';
+    }
+  } else {
+    // Both kingdoms rolled peaceful inclinations -> form alliance or cordial peace
+    rel = pairRoll < 0.62 ? 'allied' : 'neutral';
+  }
+  state.kingdomRelations[key] = rel;
+  return rel;
+}
+
+function getActiveKingdomSummaries(
+  state: SimulationState,
+): Array<{ kingdomId: string; species: SpeciesId; name: string }> {
+  const map = new Map<string, { kingdomId: string; species: SpeciesId; name: string }>();
+  for (const b of state.buildings) {
+    if (b.hp <= 0) continue;
+    const sid = b.settlementId ?? 'city_default';
+    const kid = getKingdomId(state, sid);
+    if (!map.has(kid)) {
+      const sp = b.species ?? state.settlementSpecies?.[sid] ?? 'human';
+      const name = state.settlementNames?.[kid] ?? state.settlementNames?.[sid] ?? kid;
+      map.set(kid, { kingdomId: kid, species: sp, name });
+    }
+  }
+  for (const u of state.units) {
+    if (u.faction !== 'civilization' || u.state === 'ko' || u.hp <= 0) continue;
+    const kid = u.settlementId ? getKingdomId(state, u.settlementId) : u.kingdomId;
+    if (kid && !map.has(kid)) {
+      map.set(kid, { kingdomId: kid, species: u.species, name: state.settlementNames?.[kid] ?? kid });
+    }
+  }
+  return Array.from(map.values());
+}
+
+export function triggerCityRebellion(
+  state: SimulationState,
+  sid: string,
+): boolean {
+  if (state.worldRules?.allowRebellion === false) return false;
+  const parentBuildings = state.buildings.filter((b) => (b.settlementId ?? 'city_default') === sid && b.hp > 0);
+  if (parentBuildings.length === 0) return false;
+
+  const anchor = getSettlementAnchorForId(state, sid);
+  const parentKingdomId = getKingdomId(state, sid);
+  const parentSpecies: SpeciesId =
+    state.settlementSpecies?.[sid] ?? parentBuildings[0]?.species ?? 'human';
+  const parentName = state.settlementNames?.[sid] ?? 'City';
+
+  const candidates = state.units.filter(
+    (u) =>
+      u.faction === 'civilization' &&
+      u.state !== 'ko' &&
+      u.hp > 0 &&
+      u.settlementId === sid &&
+      !u.isKing &&
+      u.ageStage !== 'child' &&
+      u.expeditionTargetX === undefined,
+  );
+  if (candidates.length < 2) return false;
+
+  const rebelCount = Math.min(3, Math.max(2, Math.floor(candidates.length * 0.45)));
+  const rebelUnits = candidates.slice(0, rebelCount);
+  const rebelKingdomId = nextEntityId('rebel_city');
+
+  // Find a defensible breakaway camp site 10..24 tiles away
+  let rebelSite: TileData | null = null;
+  const gs = state.gridSize;
+  for (let r = 10; r <= 24 && !rebelSite; r += 2) {
+    for (let angleStep = 0; angleStep < 12; angleStep++) {
+      const ang = (angleStep / 12) * Math.PI * 2 + (state.year % 6.28);
+      const tx = Math.max(4, Math.min(gs - 5, Math.round(anchor.x + Math.cos(ang) * r)));
+      const tz = Math.max(4, Math.min(gs - 5, Math.round(anchor.z + Math.sin(ang) * r)));
+      const t = getTile(state, tx, tz);
+      if (
+        t &&
+        t.height >= 1 &&
+        t.height <= 4 &&
+        !t.buildingId &&
+        t.onFireTimer <= 0 &&
+        !state.buildings.some((b) => Math.hypot(b.tileX - tx, b.tileZ - tz) < 8)
+      ) {
+        rebelSite = t;
+        break;
+      }
+    }
+  }
+  if (!rebelSite) {
+    rebelSite = findNewCitySite(state, anchor.x, anchor.z);
+  }
+
+  for (let i = 0; i < rebelUnits.length; i++) {
+    const ru = rebelUnits[i];
+    ru.isRebel = true;
+    ru.settlementId = undefined;
+    ru.kingdomId = rebelKingdomId;
+    if (i === 0) {
+      ru.role = 'warrior';
+      ru.maxHp = Math.max(ru.maxHp, 155);
+      ru.hp = ru.maxHp;
+      ru.isKing = true;
+      if (!ru.name.startsWith('King ')) ru.name = `King ${ru.name}`;
+    }
+    if (rebelSite) {
+      ru.expeditionTargetX = rebelSite.x;
+      ru.expeditionTargetZ = rebelSite.z;
+      ru.expeditionTimer = 0;
+      ru.targetX = rebelSite.x;
+      ru.targetZ = rebelSite.z;
+      ru.state = 'moving';
+    }
+  }
+
+  if (!state.kingdomPeacefulTraits) state.kingdomPeacefulTraits = {};
+  state.kingdomPeacefulTraits[rebelKingdomId] = false;
+  if (state.worldRules?.warsEnabled !== false) {
+    setKingdomRelation(state, parentKingdomId, rebelKingdomId, 'war');
+  } else {
+    setKingdomRelation(state, parentKingdomId, rebelKingdomId, 'neutral');
+  }
+  addChronicle(
+    state,
+    `Rebellion erupted in ${parentName}! ${rebelUnits.length} ${parentSpecies} separatists broke away to forge a rival city-state.`,
+    'warning',
+  );
+  return true;
+}
+
+function stepKingdomDiplomacyAndRebellions(state: SimulationState, dt: number): void {
+  const kingdoms = getActiveKingdomSummaries(state);
+  if (kingdoms.length > 1) {
+    for (let i = 0; i < kingdoms.length; i++) {
+      for (let j = i + 1; j < kingdoms.length; j++) {
+        initializeKingdomDiplomacyPair(
+          state,
+          kingdoms[i].kingdomId,
+          kingdoms[i].species,
+          kingdoms[j].kingdomId,
+          kingdoms[j].species,
+        );
+      }
+    }
+  }
+
+  state.diplomacyTimer = (state.diplomacyTimer ?? 0) + dt;
+  if (state.diplomacyTimer >= 14 && kingdoms.length > 1) {
+    state.diplomacyTimer = 0;
+    const warsOn = state.worldRules?.warsEnabled !== false;
+    for (let i = 0; i < kingdoms.length; i++) {
+      for (let j = i + 1; j < kingdoms.length; j++) {
+        const kA = kingdoms[i];
+        const kB = kingdoms[j];
+        const rel = getKingdomRelation(state, kA.kingdomId, kB.kingdomId);
+        const roll = Math.random();
+        const peaceA = rollKingdomPeacefulTrait(state, kA.kingdomId, kA.species);
+        const peaceB = rollKingdomPeacefulTrait(state, kB.kingdomId, kB.species);
+        if (warsOn && rel === 'neutral') {
+          const warChance = !peaceA || !peaceB ? 0.35 : 0.08;
+          if (roll < warChance) {
+            setKingdomRelation(state, kA.kingdomId, kB.kingdomId, 'war');
+            addChronicle(state, `War declared between ${kA.name} and ${kB.name}!`, 'warning');
+          } else if (peaceA && peaceB && roll > 0.72) {
+            setKingdomRelation(state, kA.kingdomId, kB.kingdomId, 'allied');
+            addChronicle(state, `${kA.name} and ${kB.name} signed a pact of alliance.`, 'divine');
+          }
+        } else if (rel === 'war' && peaceA && peaceB && roll < 0.14) {
+          setKingdomRelation(state, kA.kingdomId, kB.kingdomId, 'neutral');
+          addChronicle(state, `${kA.name} and ${kB.name} agreed to a ceasefire.`, 'divine');
+        }
+      }
+    }
+  }
+
+  if (state.worldRules?.allowRebellion !== false) {
+    state.rebellionTimer = (state.rebellionTimer ?? 0) + dt;
+    if (state.rebellionTimer >= 22) {
+      state.rebellionTimer = 0;
+      const settlementIds = Array.from(
+        new Set(
+          state.buildings
+            .filter((b) => b.constructionProgress >= 100 && b.settlementId)
+            .map((b) => b.settlementId!),
+        ),
+      );
+      if (settlementIds.length < MAX_WORLD_CITIES) {
+        for (const sid of settlementIds) {
+          const cityUnits = state.units.filter(
+            (u) => u.faction === 'civilization' && u.state !== 'ko' && u.settlementId === sid && !u.isKing && u.ageStage !== 'child',
+          );
+          if (cityUnits.length < 4) continue;
+          const unrestProb = state.happiness < 55 ? 0.42 : cityUnits.length >= 7 ? 0.18 : 0.07;
+          if (Math.random() < unrestProb) {
+            triggerCityRebellion(state, sid);
+            break;
+          }
+        }
+      }
+    }
+  }
 }
 
 function findLocalSettlementBuilding(
@@ -3984,9 +4292,10 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
     const nearbyBld = findLocalSettlementBuilding(state, pioneer.x, pioneer.z, SETTLEMENT_AWARENESS_RADIUS);
     if (nearbyBld?.settlementId) {
       const bSpecies = state.settlementSpecies[nearbyBld.settlementId] ?? 'human';
-      if (bSpecies === pioneer.species) {
+      const bKid = getKingdomId(state, nearbyBld.settlementId);
+      if (bSpecies === pioneer.species && (!pioneer.isRebel || bKid === pioneer.kingdomId)) {
         pioneer.settlementId = nearbyBld.settlementId;
-        pioneer.kingdomId = getKingdomId(state, nearbyBld.settlementId);
+        pioneer.kingdomId = bKid;
         continue;
       }
     }
@@ -4022,7 +4331,9 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
         );
 
       let resolvedKingdomId: string | undefined;
-      if (pioneer.kingdomId && isKingdomAlive(pioneer.kingdomId)) {
+      if (pioneer.isRebel && pioneer.kingdomId) {
+        resolvedKingdomId = pioneer.kingdomId;
+      } else if (pioneer.kingdomId && isKingdomAlive(pioneer.kingdomId)) {
         resolvedKingdomId = pioneer.kingdomId;
       }
       if (!resolvedKingdomId) {
@@ -4372,6 +4683,7 @@ function stepSimulationSingle(
   } else {
     state.raiderWaveTimer = 0;
   }
+  stepKingdomDiplomacyAndRebellions(state, dt);
   stepCivilizationPlanner(state, dt);
 
   // 5. Real Epoch progression check & organic Epoch Ascension
@@ -5176,6 +5488,25 @@ function stepSimulationSingle(
     const moveSpeed = def.speed * roadBoost * statusSpeedMult * ageSpeedMult;
 
     if (u.actionCooldown > 0) u.actionCooldown = Math.max(0, u.actionCooldown - dt);
+    if (u.weaponCooldown && u.weaponCooldown > 0) {
+      u.weaponCooldown = Math.max(0, u.weaponCooldown - dt);
+    }
+    if (u.underAttackTimer && u.underAttackTimer > 0) {
+      u.underAttackTimer = Math.max(0, u.underAttackTimer - dt);
+      if (u.underAttackTimer <= 0) u.lastAttackerId = undefined;
+    }
+    if (u.attackAnimTimer && u.attackAnimTimer > 0) {
+      u.attackAnimTimer = Math.max(0, u.attackAnimTimer - dt);
+    }
+    if (u.battlewillActive && u.battlewillActive > 0) {
+      u.battlewillActive = Math.max(0, u.battlewillActive - dt);
+    }
+    if (u.battlewillCooldown && u.battlewillCooldown > 0) {
+      u.battlewillCooldown = Math.max(0, u.battlewillCooldown - dt);
+    }
+    if (u.battlewillSlashTimer && u.battlewillSlashTimer > 0) {
+      u.battlewillSlashTimer = Math.max(0, u.battlewillSlashTimer - dt);
+    }
     if (u.dragonBreathCooldown && u.dragonBreathCooldown > 0) {
       u.dragonBreathCooldown = Math.max(0, u.dragonBreathCooldown - dt);
     }
@@ -5337,10 +5668,16 @@ function wrapAngleRad(angle: number): number {
 
 function stepVehicles(state: SimulationState, dt: number): void {
   if (!state.vehicles) state.vehicles = [];
-  if (state.epochIndex < 3 && state.vehicles.length === 0) return;
+  if (state.epochIndex < 1 && state.vehicles.length === 0) return;
 
-  // Prune vehicles that belong to an age before transit unlocked
+  const activeSettlementSet = new Set(
+    state.buildings.filter((b) => b.hp > 0).map((b) => b.settlementId ?? 'city_default'),
+  );
+
+  // Prune vehicles whose age is unreached, home settlement fell, or HP reached 0
   state.vehicles = state.vehicles.filter((v) => {
+    if (v.isMilitary && (v.hp ?? 100) <= 0) return false;
+    if (v.isMilitary && !activeSettlementSet.has(v.settlementId)) return false;
     if (v.type === 'plane') {
       return (
         state.epochIndex >= 4 &&
@@ -5350,6 +5687,11 @@ function stepVehicles(state: SimulationState, dt: number): void {
     if (v.type === 'train') return state.epochIndex >= 3;
     if (v.type === 'car') return state.epochIndex >= 3;
     if (v.type === 'roadster') return state.epochIndex >= 5;
+    if (v.type === 'glider' || v.type === 'warship') return state.epochIndex >= 1;
+    if (v.type === 'airship' || v.type === 'orc_flyer') return state.epochIndex >= 2;
+    if (v.type === 'tank' || v.type === 'helicopter') return state.epochIndex >= 3;
+    if (v.type === 'bomber_plane') return state.epochIndex >= 4;
+    if (v.type === 'orbital_gunship') return state.epochIndex >= 6;
     return false;
   });
 
@@ -5950,6 +6292,630 @@ function stepVehicles(state: SimulationState, dt: number): void {
       }
     }
   }
+
+  // E. Military Battle Vehicles:
+  //    - Sea: Warship (Galley -> Galleon -> Ironclad -> Missile Destroyer -> Plasma Cruiser)
+  //    - Land: Tank (Riveted Heavy Tank -> Composite MBT -> Hover Railgun Tank)
+  //    - Fixed-Wing Air (NON-HOVERING): Glider / Prop Fighter (Epochs 1-3) -> Bomber / Stealth / Plasma Plane (Epochs 4+)
+  //    - Hover / Rotor / VTOL Air: Airship / Orc Chopper (Epoch 2) -> Attack Helicopter / Orc Assault Chopper (Epochs 3-5) -> Orbital Gunship (Epochs 6+)
+  const getEvolvedMilitaryAirType = (
+    currentType: VehicleType,
+    epochIdx: number,
+    sp: SpeciesId,
+  ): VehicleType => {
+    if (currentType === 'warship' || currentType === 'tank') return currentType;
+    if (currentType === 'glider' || currentType === 'bomber_plane') {
+      return epochIdx >= 4 ? 'bomber_plane' : 'glider';
+    }
+    if (epochIdx >= 6) return 'orbital_gunship';
+    if (sp === 'orc') return 'orc_flyer';
+    if (epochIdx >= 3) return 'helicopter';
+    return 'airship';
+  };
+
+  const getMilitaryVehicleStats = (mType: VehicleType, epochIdx: number) => {
+    const e = Math.max(1, epochIdx);
+    const tierBoost = 1 + (e - 1) * 0.24;
+    if (mType === 'warship') {
+      return {
+        maxHp: Math.round(210 * tierBoost),
+        speed: 2.9 + Math.min(3.0, (e - 1) * 0.45),
+        fireRange: e >= 6 ? 12.5 : e >= 4 ? 11.0 : 9.5,
+        fireCooldown: Math.max(1.25, 2.25 - (e - 1) * 0.16),
+        dmg: Math.round(30 * (1 + (e - 1) * 0.3)),
+        cruiseY: e >= 6 ? 0.24 : 0.14,
+      };
+    }
+    if (mType === 'tank') {
+      return {
+        maxHp: Math.round(260 * (1 + Math.max(0, e - 3) * 0.26)),
+        speed: e >= 6 ? 4.4 : 2.7 + Math.max(0, e - 3) * 0.42,
+        fireRange: e >= 6 ? 10.2 : 7.8 + Math.max(0, e - 3) * 0.5,
+        fireCooldown: Math.max(1.3, 2.05 - Math.max(0, e - 3) * 0.18),
+        dmg: Math.round(36 * (1 + Math.max(0, e - 3) * 0.32)),
+        cruiseY: e >= 6 ? 0.24 : 0.05,
+      };
+    }
+    if (mType === 'helicopter') {
+      return {
+        maxHp: Math.round(215 * (1 + Math.max(0, e - 3) * 0.24)),
+        speed: 4.8 + Math.max(0, e - 3) * 0.55,
+        fireRange: 9.2,
+        fireCooldown: Math.max(0.85, 1.35 - Math.max(0, e - 3) * 0.14),
+        dmg: Math.round(26 * (1 + Math.max(0, e - 3) * 0.28)),
+        cruiseY: 3.55,
+      };
+    }
+    if (mType === 'orbital_gunship') {
+      return {
+        maxHp: Math.round(360 * (1 + Math.max(0, e - 6) * 0.3)),
+        speed: 8.4 + Math.max(0, e - 6) * 0.9,
+        fireRange: 13.0,
+        fireCooldown: Math.max(1.05, 1.45 - Math.max(0, e - 6) * 0.15),
+        dmg: Math.round(48 * (1 + Math.max(0, e - 6) * 0.35)),
+        cruiseY: 6.4,
+      };
+    }
+    if (mType === 'bomber_plane') {
+      return {
+        maxHp: Math.round(240 * (1 + Math.max(0, e - 4) * 0.25)),
+        speed: 7.8 + Math.max(0, e - 4) * 0.8,
+        fireRange: 11.4,
+        fireCooldown: Math.max(1.65, 2.35 - Math.max(0, e - 4) * 0.18),
+        dmg: Math.round(52 * (1 + Math.max(0, e - 4) * 0.28)),
+        cruiseY: 5.2,
+      };
+    }
+    if (mType === 'airship' || mType === 'orc_flyer') {
+      return {
+        maxHp: mType === 'airship' ? Math.round(220 * (1 + Math.max(0, e - 2) * 0.22)) : Math.round(195 * (1 + Math.max(0, e - 2) * 0.25)),
+        speed: (mType === 'orc_flyer' ? 5.1 : 3.9) + Math.max(0, e - 2) * 0.45,
+        fireRange: mType === 'airship' ? 10.2 : 8.2,
+        fireCooldown: Math.max(1.25, 1.8 - Math.max(0, e - 2) * 0.12),
+        dmg: Math.round((mType === 'orc_flyer' ? 30 : 28) * (1 + Math.max(0, e - 2) * 0.24)),
+        cruiseY: mType === 'airship' ? 4.0 : 3.3,
+      };
+    }
+    return {
+      maxHp: Math.round(125 * tierBoost),
+      speed: 5.8 + Math.min(2.2, (e - 1) * 0.42),
+      fireRange: 7.6,
+      fireCooldown: 1.55,
+      dmg: Math.round(22 * tierBoost),
+      cruiseY: 3.1,
+    };
+  };
+
+  if (state.epochIndex >= 1 && settlementIds.length > 0) {
+    // 0. Evolve existing military vehicles automatically when civilization advances through the ages
+    for (const v of state.vehicles) {
+      if (!v.isMilitary || (v.hp ?? 0) <= 0) continue;
+      const desiredType =
+        v.type === 'warship' || v.type === 'tank'
+          ? v.type
+          : getEvolvedMilitaryAirType(v.type, state.epochIndex, v.species);
+      const nextStats = getMilitaryVehicleStats(desiredType, state.epochIndex);
+      if (v.type !== desiredType || v.maxHp !== nextStats.maxHp || v.speed !== nextStats.speed || v.epochLevel !== state.epochIndex) {
+        const evolvedTier = v.type !== desiredType;
+        const oldMax = Math.max(1, v.maxHp ?? nextStats.maxHp);
+        const curHp = v.hp ?? oldMax;
+        v.type = desiredType;
+        v.maxHp = nextStats.maxHp;
+        v.hp = evolvedTier
+          ? Math.min(nextStats.maxHp, Math.max(1, Math.round((curHp / oldMax) * nextStats.maxHp + nextStats.maxHp * 0.25)))
+          : Math.min(nextStats.maxHp, Math.max(1, Math.round((curHp / oldMax) * nextStats.maxHp)));
+        v.speed = nextStats.speed;
+        v.y = nextStats.cruiseY;
+        v.epochLevel = state.epochIndex;
+        if (evolvedTier) {
+          state.pendingVfx.push({
+            id: nextEntityId('vfx'),
+            type: 'build_complete',
+            x: v.x,
+            y: nextStats.cruiseY,
+            z: v.z,
+            radius: 1.6,
+            color: desiredType === 'orbital_gunship' ? '#56cfe1' : '#ffd166',
+            createdAt: Date.now(),
+          });
+        }
+      }
+    }
+
+    const militaryVehiclesCount = state.vehicles.filter((v) => v.isMilitary).length;
+    if (militaryVehiclesCount < 24) {
+      for (const sid of settlementIds) {
+        if (state.vehicles.filter((v) => v.isMilitary).length >= 24) break;
+        const sp: SpeciesId = state.settlementSpecies?.[sid] ?? 'human';
+        const kid = getKingdomId(state, sid);
+        const anchor = getSettlementAnchorForId(state, sid);
+        const cityMilitary = state.vehicles.filter((v) => v.isMilitary && v.settlementId === sid);
+        const hasType = (t: VehicleType) => cityMilitary.some((v) => v.type === t);
+
+        const trySpawnMilitary = (mType: VehicleType, sx: number, sz: number) => {
+          const stats = getMilitaryVehicleStats(mType, state.epochIndex);
+          state.vehicles!.push({
+            id: nextEntityId('veh_mil'),
+            type: mType,
+            species: sp,
+            settlementId: sid,
+            kingdomId: kid,
+            isMilitary: true,
+            hp: stats.maxHp,
+            maxHp: stats.maxHp,
+            attackCooldown: 0.6,
+            strafeExtendTimer: 0,
+            epochLevel: state.epochIndex,
+            x: sx,
+            y: stats.cruiseY,
+            z: sz,
+            heading: Math.random() * Math.PI * 2,
+            pitch: 0,
+            bank: 0,
+            speed: stats.speed,
+            path: [{ x: sx, z: sz }],
+            pathIndex: 0,
+            variantSeed: cityMilitary.length + Math.round(sx * 3 + sz * 7),
+          });
+          cityMilitary.push(state.vehicles![state.vehicles!.length - 1]);
+        };
+
+        // 1. Seaborne Warship if coastal water exists nearby (Bronze Galley -> Ironclad -> Destroyer -> Plasma Cruiser)
+        if (state.epochIndex >= 1 && !hasType('warship') && cityMilitary.length < 4) {
+          let coastalWater: TileData | null = null;
+          for (let r = 4; r <= 18 && !coastalWater; r += 2) {
+            for (let a = 0; a < 8; a++) {
+              const ang = (a / 8) * Math.PI * 2;
+              const wx = Math.round(anchor.x + Math.cos(ang) * r);
+              const wz = Math.round(anchor.z + Math.sin(ang) * r);
+              const wt = getTile(state, wx, wz);
+              if (wt && wt.height === 0) {
+                coastalWater = wt;
+                break;
+              }
+            }
+          }
+          if (coastalWater) {
+            trySpawnMilitary('warship', coastalWater.x, coastalWater.z);
+          }
+        }
+
+        // 2. Ground Battle Vehicle (Industrial Tank -> Composite MBT -> Hover Railgun Tank at Epoch 3+)
+        if (state.epochIndex >= 3 && !hasType('tank') && cityMilitary.length < 4) {
+          const tankX = Math.max(2, Math.min(state.gridSize - 3, anchor.x + 2));
+          const tankZ = Math.max(2, Math.min(state.gridSize - 3, anchor.z + 2));
+          const tt = getTile(state, tankX, tankZ);
+          if (tt && tt.height >= 1 && tt.height <= 5) {
+            trySpawnMilitary('tank', tt.x, tt.z);
+          }
+        }
+
+        // 3. Fixed-Wing Fighter / Bomber branch (non-hovering strafe & bombing passes)
+        const targetFixedType = getEvolvedMilitaryAirType('glider', state.epochIndex, sp);
+        if (cityMilitary.length < 4 && !hasType('glider') && !hasType('bomber_plane')) {
+          trySpawnMilitary(targetFixedType, anchor.x, anchor.z);
+        }
+
+        // 4. Hover / Rotor / VTOL Assault branch (Airship / Orc Chopper -> Attack Helicopter -> Orbital Gunship)
+        if (state.epochIndex >= 2 && cityMilitary.length < 4) {
+          const targetHoverType = getEvolvedMilitaryAirType('airship', state.epochIndex, sp);
+          if (
+            !hasType('airship') &&
+            !hasType('helicopter') &&
+            !hasType('orc_flyer') &&
+            !hasType('orbital_gunship')
+          ) {
+            trySpawnMilitary(targetHoverType, anchor.x - 1.5, anchor.z + 1.5);
+          }
+        }
+      }
+    }
+
+    // Update & fight with military vehicles
+    for (const v of state.vehicles) {
+      if (!v.isMilitary || (v.hp ?? 0) <= 0) continue;
+      if ((v.attackCooldown ?? 0) > 0) v.attackCooldown = Math.max(0, (v.attackCooldown ?? 0) - dt);
+      if ((v.strafeExtendTimer ?? 0) > 0) v.strafeExtendTimer = Math.max(0, (v.strafeExtendTimer ?? 0) - dt);
+      const myKid = v.kingdomId ?? getKingdomId(state, v.settlementId);
+      const anchor = getSettlementAnchorForId(state, v.settlementId);
+
+      // Find nearest valid threat: hostile raiders, marauding predators near territory, wartime units/buildings/vehicles
+      let targetX: number | null = null;
+      let targetZ: number | null = null;
+      let targetUnit: UnitEntity | null = null;
+      let targetBld: BuildingEntity | null = null;
+      let targetVeh: VehicleEntity | null = null;
+      let bestDistSq = 28 * 28;
+
+      for (const other of state.units) {
+        if (other.state === 'ko' || other.hp <= 0) continue;
+        const isThreat =
+          other.faction === 'hostile' ||
+          (other.faction === 'wildlife' &&
+            (other.role === 'dragon' ||
+              (other.role === 'dinosaur' && isCarnivoreAnimal(other.role, other.appearanceSeed))) &&
+            Math.hypot(other.x - anchor.x, other.z - anchor.z) <= 22) ||
+          (other.faction === 'civilization' &&
+            other.ageStage !== 'child' &&
+            areKingdomsAtWar(
+              state,
+              myKid,
+              other.settlementId ? getKingdomId(state, other.settlementId) : other.kingdomId,
+            ));
+        if (!isThreat) continue;
+        const dSq = (other.x - v.x) ** 2 + (other.z - v.z) ** 2;
+        if (dSq < bestDistSq) {
+          bestDistSq = dSq;
+          targetUnit = other;
+          targetX = other.x;
+          targetZ = other.z;
+        }
+      }
+
+      if (!targetUnit) {
+        for (const ov of state.vehicles) {
+          if (!ov.isMilitary || ov.id === v.id || (ov.hp ?? 0) <= 0) continue;
+          const oKid = ov.kingdomId ?? getKingdomId(state, ov.settlementId);
+          if (!areKingdomsAtWar(state, myKid, oKid)) continue;
+          const dSq = (ov.x - v.x) ** 2 + (ov.z - v.z) ** 2;
+          if (dSq < bestDistSq) {
+            bestDistSq = dSq;
+            targetVeh = ov;
+            targetX = ov.x;
+            targetZ = ov.z;
+          }
+        }
+      }
+
+      if (!targetUnit && !targetVeh) {
+        for (const b of state.buildings) {
+          if (b.hp <= 0 || b.shieldTimer > 0) continue;
+          const bKid = b.settlementId ? getKingdomId(state, b.settlementId) : undefined;
+          if (!areKingdomsAtWar(state, myKid, bKid)) continue;
+          const dSq = (b.tileX - v.x) ** 2 + (b.tileZ - v.z) ** 2;
+          if (dSq < bestDistSq) {
+            bestDistSq = dSq;
+            targetBld = b;
+            targetX = b.tileX;
+            targetZ = b.tileZ;
+          }
+        }
+      }
+
+      const vStats = getMilitaryVehicleStats(v.type, state.epochIndex);
+      const isNaval = v.type === 'warship';
+      const isGround = v.type === 'tank';
+      const isFixedWing = v.type === 'glider' || v.type === 'bomber_plane';
+      const isHoverTank = isGround && state.epochIndex >= 6;
+      const cruiseY = vStats.cruiseY;
+      v.y = cruiseY;
+
+      let goalX: number;
+      let goalZ: number;
+      if (targetX !== null && targetZ !== null) {
+        if (isFixedWing && (v.strafeExtendTimer ?? 0) > 0) {
+          // Fixed-wing planes NEVER stop or hover over target: extend straight past after pass, then bank around
+          goalX = Math.max(3, Math.min(state.gridSize - 4, v.x + Math.sin(v.heading) * 14));
+          goalZ = Math.max(3, Math.min(state.gridSize - 4, v.z + Math.cos(v.heading) * 14));
+        } else {
+          goalX = targetX;
+          goalZ = targetZ;
+        }
+      } else {
+        // Patrol smoothly around home city (or coastal ring for warships)
+        const patrolOrbit = isNaval ? 10 + (v.variantSeed % 5) : isFixedWing ? 11 + (v.variantSeed % 6) : 7 + (v.variantSeed % 7);
+        const patrolAngle = (state.year * (isGround ? 0.32 : isFixedWing ? 0.85 : 0.65) + v.variantSeed * 1.37) % (Math.PI * 2);
+        goalX = Math.max(3, Math.min(state.gridSize - 4, anchor.x + Math.cos(patrolAngle) * patrolOrbit));
+        goalZ = Math.max(3, Math.min(state.gridSize - 4, anchor.z + Math.sin(patrolAngle) * patrolOrbit));
+      }
+
+      const dx = goalX - v.x;
+      const dz = goalZ - v.z;
+      const dist = Math.hypot(dx, dz);
+      const targetDist = targetX !== null && targetZ !== null ? Math.hypot(targetX - v.x, targetZ - v.z) : dist;
+      const fireRange = vStats.fireRange;
+
+      if (isFixedWing && targetX !== null && targetZ !== null && targetDist <= 2.6 && (v.strafeExtendTimer ?? 0) <= 0) {
+        v.strafeExtendTimer = 1.9;
+      }
+
+      const turnRate = isFixedWing ? 2.15 : v.type === 'helicopter' || v.type === 'orc_flyer' || v.type === 'orbital_gunship' ? 3.4 : 2.3;
+      let attackBearingDelta = 0;
+
+      if (dist > 0.15 || isFixedWing) {
+        const desiredHeading = dist > 0.15 ? Math.atan2(dx, dz) : v.heading;
+        const turnDelta = wrapAngleRad(desiredHeading - v.heading);
+        v.heading = wrapAngleRad(v.heading + Math.max(-turnRate * dt, Math.min(turnRate * dt, turnDelta)));
+        v.bank = isNaval || isGround ? 0 : Math.max(-0.46, Math.min(0.46, turnDelta * (isFixedWing ? 0.62 : 0.4)));
+        v.pitch = isFixedWing ? -0.05 : v.type === 'helicopter' || v.type === 'orc_flyer' ? (dist > fireRange * 0.72 ? 0.12 : 0.02) : 0;
+
+        const shouldCloseIn = isFixedWing || targetX === null || targetDist > fireRange * 0.72;
+        if (shouldCloseIn) {
+          const step = v.speed * dt;
+          const nx = Math.max(1, Math.min(state.gridSize - 2, v.x + Math.sin(v.heading) * step));
+          const nz = Math.max(1, Math.min(state.gridSize - 2, v.z + Math.cos(v.heading) * step));
+          const nextTile = getTile(state, Math.round(nx), Math.round(nz));
+          if (isNaval) {
+            if (nextTile && nextTile.height === 0) {
+              v.x = nx;
+              v.z = nz;
+            } else {
+              // Steer along coastline
+              v.heading = wrapAngleRad(v.heading + 1.2 * dt);
+            }
+          } else if (isGround) {
+            if (nextTile && (isHoverTank ? nextTile.height <= 6 : nextTile.height >= 1 && nextTile.height <= 5)) {
+              v.x = nx;
+              v.z = nz;
+            } else {
+              v.heading = wrapAngleRad(v.heading + 1.4 * dt);
+            }
+          } else {
+            v.x = nx;
+            v.z = nz;
+            // Fixed-wing turns gracefully around map edges if extending toward border
+            if (isFixedWing && (nx <= 2.5 || nx >= state.gridSize - 3.5 || nz <= 2.5 || nz >= state.gridSize - 3.5)) {
+              v.heading = wrapAngleRad(v.heading + 1.6 * dt);
+            }
+          }
+        }
+      }
+
+      if (targetX !== null && targetZ !== null) {
+        attackBearingDelta = Math.abs(wrapAngleRad(Math.atan2(targetX - v.x, targetZ - v.z) - v.heading));
+      }
+
+      const canPlaneAttack =
+        !isFixedWing || attackBearingDelta <= 0.92 || (v.type === 'bomber_plane' && targetDist <= 5.5);
+
+      if (targetX !== null && targetZ !== null && targetDist <= fireRange && canPlaneAttack && (v.attackCooldown ?? 0) <= 0) {
+        v.attackCooldown = vStats.fireCooldown;
+        const dmg = vStats.dmg;
+        const tracerColor =
+          v.type === 'orbital_gunship' || (state.epochIndex >= 6 && (v.type === 'tank' || v.type === 'warship' || v.type === 'bomber_plane'))
+            ? '#56cfe1'
+            : v.species === 'elf'
+              ? '#c084fc'
+              : v.species === 'orc'
+                ? '#ff3b30'
+                : '#ffd166';
+        const hitTile = getTile(state, targetX, targetZ);
+        const hitY = (hitTile?.height ?? 2) * 0.45 + 0.35;
+
+        const vfxSubtype: VisualEffectEvent['vfxSubtype'] =
+          v.type === 'orbital_gunship' || (state.epochIndex >= 6 && (v.type === 'tank' || v.type === 'warship' || v.type === 'bomber_plane'))
+            ? 'plasma_beam'
+            : v.species === 'elf' && state.epochIndex >= 2 && v.type !== 'glider'
+              ? 'arcane_bolt'
+              : v.type === 'bomber_plane'
+                ? targetDist <= 6.2
+                  ? 'bomb'
+                  : 'bullet'
+                : v.type === 'glider'
+                  ? 'bullet'
+                  : v.type === 'helicopter' || v.type === 'orc_flyer'
+                    ? Math.floor(state.year * 10 + v.variantSeed) % 2 === 0
+                      ? 'missile'
+                      : 'bullet'
+                    : 'cannon_shell';
+
+        // Evolved Atomic+ Bombers & Orbital Gunships deliver miniature tactical warhead / plasma strikes in combat
+        const isStrategicPayload =
+          (v.type === 'bomber_plane' || v.type === 'orbital_gunship') &&
+          state.epochIndex >= 4 &&
+          Math.floor(state.year * 10 + v.variantSeed) % 3 === 0;
+
+        if (isStrategicPayload) {
+          const splashDmg = dmg * 1.9;
+          if (v.type === 'bomber_plane') {
+            // Also drop a visible falling bomb into target just before detonation
+            state.pendingVfx.push({
+              id: nextEntityId('vfx'),
+              type: 'projectile_tracer',
+              vfxSubtype: 'bomb',
+              originX: v.x,
+              originY: cruiseY + 0.1,
+              originZ: v.z,
+              x: targetX,
+              y: hitY,
+              z: targetZ,
+              radius: 2.1,
+              color: '#ff9e00',
+              createdAt: Date.now(),
+            });
+          }
+          state.pendingVfx.push({
+            id: nextEntityId('vfx'),
+            type: v.species === 'elf' ? 'arcane_cataclysm' : 'nuke_blast',
+            originX: v.x,
+            originY: cruiseY + 0.25,
+            originZ: v.z,
+            x: targetX,
+            y: hitY,
+            z: targetZ,
+            radius: 3.4,
+            color: v.species === 'elf' ? '#c084fc' : '#ff9e00',
+            createdAt: Date.now(),
+          });
+          applySuperweaponEnvironmentImpact(
+            state,
+            targetX,
+            targetZ,
+            3.2,
+            v.species === 'elf' ? 'arcane' : 'nuke',
+          );
+          for (const ou of state.units) {
+            if (ou.state === 'ko' || ou.hp <= 0 || ou.statusEffects.shielded) continue;
+            if (ou.ageStage === 'child') continue;
+            const oKid =
+              ou.faction === 'civilization'
+                ? ou.settlementId
+                  ? getKingdomId(state, ou.settlementId)
+                  : ou.kingdomId
+                : undefined;
+            if (myKid && oKid === myKid) continue;
+            if (Math.hypot(ou.x - targetX, ou.z - targetZ) <= 3.2) {
+              ou.hp -= splashDmg;
+              ou.lastAttackerId = v.id;
+              ou.underAttackTimer = 8.0;
+            }
+          }
+          for (const ob of state.buildings) {
+            if (ob.hp <= 0 || ob.shieldTimer > 0) continue;
+            const bKid = ob.settlementId ? getKingdomId(state, ob.settlementId) : undefined;
+            if (myKid && bKid === myKid) continue;
+            if (Math.hypot(ob.tileX - targetX, ob.tileZ - targetZ) <= 3.0) {
+              ob.hp = Math.max(0, ob.hp - splashDmg * 1.45);
+            }
+          }
+        } else {
+          state.pendingVfx.push({
+            id: nextEntityId('vfx'),
+            type: 'projectile_tracer',
+            vfxSubtype,
+            originX: v.x,
+            originY: cruiseY + 0.25,
+            originZ: v.z,
+            x: targetX,
+            y: hitY,
+            z: targetZ,
+            radius:
+              v.type === 'tank' || v.type === 'bomber_plane' || v.type === 'orbital_gunship' || v.type === 'warship'
+                ? 1.55
+                : 1.05,
+            color: tracerColor,
+            createdAt: Date.now(),
+          });
+
+          if (targetUnit) {
+            targetUnit.hp -= dmg;
+            targetUnit.lastAttackerId = v.id;
+            targetUnit.underAttackTimer = 8.0;
+          } else if (targetVeh) {
+            targetVeh.hp = Math.max(0, (targetVeh.hp ?? 100) - dmg);
+            if (targetVeh.hp <= 0) {
+              state.pendingVfx.push({
+                id: nextEntityId('vfx'),
+                type: 'hit_spark',
+                x: targetVeh.x,
+                y: targetVeh.y + 0.4,
+                z: targetVeh.z,
+                radius: 2.0,
+                color: '#ff6b35',
+                createdAt: Date.now(),
+              });
+            }
+          } else if (targetBld) {
+            targetBld.hp = Math.max(0, targetBld.hp - dmg * 1.35);
+          }
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Environmental destruction for rivaling racial superweapons:
+ * - Human Nuke: deep blast crater, scorched/vitrified wasteland, obliterates trees/resources/crops & sparks rim fires
+ * - Elf Arcane Cataclysm: crystalline arcane crater, shattered flora/minerals, jagged crystal_field scars
+ * - Orc Battlewill Slash: wide directional tectonic slash trench, splintered forest/boulders, rock/badlands/scorched cleave path
+ */
+function applySuperweaponEnvironmentImpact(
+  state: SimulationState,
+  cx: number,
+  cz: number,
+  radius: number,
+  mode: 'nuke' | 'arcane' | 'battlewill',
+  slashHeadingRad?: number,
+): void {
+  const minX = Math.max(0, Math.floor(cx - radius - 1));
+  const maxX = Math.min(state.gridSize - 1, Math.ceil(cx + radius + 1));
+  const minZ = Math.max(0, Math.floor(cz - radius - 1));
+  const maxZ = Math.min(state.gridSize - 1, Math.ceil(cz + radius + 1));
+
+  for (let z = minZ; z <= maxZ; z++) {
+    for (let x = minX; x <= maxX; x++) {
+      const t = getTile(state, x, z);
+      if (!t) continue;
+      const dx = x - cx;
+      const dz = z - cz;
+      const d = Math.hypot(dx, dz);
+      if (d > radius) continue;
+
+      if (mode === 'battlewill' && slashHeadingRad !== undefined && d > 2.4) {
+        const tileAng = Math.atan2(dx, dz);
+        const angDiff = Math.abs(wrapAngleRad(tileAng - slashHeadingRad));
+        if (angDiff > 1.28) continue;
+      }
+
+      t.blessedTimer = 0;
+
+      if (t.height === 0) {
+        if (d <= radius * 0.55) {
+          t.terrain = 'deep_water';
+        }
+        t.onFireTimer = 0;
+        continue;
+      }
+
+      // Clear environmental cover: trees, berry bushes, outcrops, farms & inner craters
+      if (t.resourceNode === 'timber_grove' || t.resourceNode === 'berry_bush') {
+        t.resourceNode = 'none';
+        t.resourceAmount = 0;
+      } else if (d <= radius * 0.72 && t.resourceNode !== 'none') {
+        t.resourceNode = 'none';
+        t.resourceAmount = 0;
+      }
+      if (t.farmSettlementId) {
+        t.farmSettlementId = undefined;
+      }
+
+      if (mode === 'nuke') {
+        const wasSand = t.terrain === 'sand';
+        if (d <= radius * 0.36) {
+          t.height = Math.max(1, t.height - 2);
+          t.terrain = 'scorched';
+          t.onFireTimer = state.worldRules?.wildfireSpread ? 6.0 : 0;
+        } else if (d <= radius * 0.68) {
+          t.height = Math.max(1, t.height - 1);
+          t.terrain = 'scorched';
+          if (state.worldRules?.wildfireSpread && (t.x * 13 + t.z * 7) % 3 === 0) {
+            t.onFireTimer = 6.5;
+          }
+        } else if (!t.buildingId) {
+          t.terrain = wasSand ? 'crystal_field' : 'scorched';
+          if (state.worldRules?.wildfireSpread && (t.x * 17 + t.z * 11) % 4 === 0) {
+            t.onFireTimer = 5.0;
+          }
+        }
+      } else if (mode === 'arcane') {
+        if (d <= radius * 0.36) {
+          t.height = Math.max(1, t.height - 2);
+          t.terrain = 'crystal_field';
+        } else if (d <= radius * 0.68) {
+          t.height = Math.max(1, t.height - 1);
+          t.terrain = (t.x + t.z) % 3 === 0 ? 'scorched' : 'crystal_field';
+        } else if (!t.buildingId) {
+          t.terrain = 'crystal_field';
+          if (t.resourceNode === 'none' && (t.x * 19 + t.z * 23) % 13 === 0) {
+            t.resourceNode = 'crystal_monolith';
+            t.resourceAmount = 220;
+          }
+        }
+      } else {
+        // Orc Battlewill tectonic cleave trench
+        if (d >= 1.4 && d <= radius * 0.72) {
+          t.height = Math.max(1, t.height - (d <= radius * 0.52 ? 2 : 1));
+          t.terrain = (t.x + t.z) % 2 === 0 ? 'scorched' : 'badlands';
+        } else if (!t.buildingId) {
+          t.terrain = (t.x * 7 + t.z * 5) % 3 === 0 ? 'rock' : 'scorched';
+        }
+        if (state.worldRules?.wildfireSpread && (t.x * 11 + t.z * 17) % 5 === 0) {
+          t.onFireTimer = 4.5;
+        }
+      }
+    }
+  }
 }
 
 function stepHostileUnitAI(
@@ -6020,6 +6986,8 @@ function stepHostileUnitAI(
         u.actionCooldown = 1.1;
         if (!nearestCiv.statusEffects.shielded) {
           nearestCiv.hp -= def.attackDamage;
+          nearestCiv.lastAttackerId = u.id;
+          nearestCiv.underAttackTimer = 8.0;
         }
       }
     } else {
@@ -6038,6 +7006,8 @@ function stepHostileUnitAI(
       u.actionCooldown = 0.75;
       if (!nearestCiv.statusEffects.shielded) {
         nearestCiv.hp -= def.attackDamage;
+        nearestCiv.lastAttackerId = u.id;
+        nearestCiv.underAttackTimer = 8.0;
       }
     }
   } else {
@@ -6463,6 +7433,8 @@ function stepWildlifeAI(
 
     if (options?.unitTarget) {
       options.unitTarget.hp -= dmg;
+      options.unitTarget.lastAttackerId = u.id;
+      options.unitTarget.underAttackTimer = 8.0;
     }
     if (options?.buildingTarget && options.buildingTarget.shieldTimer <= 0) {
       options.buildingTarget.hp = Math.max(0, options.buildingTarget.hp - dmg * 0.85);
@@ -6496,6 +7468,8 @@ function stepWildlifeAI(
         const sdSq = (splashTarget.x - targetX) ** 2 + (splashTarget.z - targetZ) ** 2;
         if (sdSq <= 2.56) {
           splashTarget.hp -= dmg * 0.35;
+          splashTarget.lastAttackerId = u.id;
+          splashTarget.underAttackTimer = 8.0;
         }
       }
     }
@@ -7003,6 +7977,8 @@ function stepWildlifeAI(
           u.attackTargetX = target.x;
           u.attackTargetZ = target.z;
           target.hp -= dmg;
+          target.lastAttackerId = u.id;
+          target.underAttackTimer = 8.0;
           const variant =
             u.role === 'wolf'
               ? 'bite'
@@ -7371,64 +8347,86 @@ function stepCivilianUnitAI(
     u.hp = Math.min(u.maxHp, u.hp + (hasElfArcaneTech ? 2.5 : 1.2) * dt);
   }
 
+  const myKingdomId = u.settlementId ? getKingdomId(state, u.settlementId) : u.kingdomId;
+  const warsEnabled = state.worldRules?.warsEnabled !== false;
+  const maxOwnedEpoch = ownVillageBuildings.reduce((acc, b) => Math.max(acc, b.epochLevel), state.epochIndex);
+  const myEpoch = Math.max(state.epochIndex, maxOwnedEpoch);
+
   let nearestEnemy: UnitEntity | null = null;
   let enemyDistSq = Infinity;
   for (const other of state.units) {
     if (other.id === u.id || other.state === 'ko' || other.hp <= 0) continue;
+    const isDirectAttacker = (u.underAttackTimer ?? 0) > 0 && other.id === u.lastAttackerId;
     const isHostileRaider = other.faction === 'hostile';
-    const isDangerousBeastNearCity =
+    const isDangerousBeast =
       other.faction === 'wildlife' &&
-      (other.role === 'dragon' || other.role === 'wolf' || other.role === 'bear') &&
-      other.state === 'fighting' &&
-      (other.x - homeAnchor.x) ** 2 + (other.z - homeAnchor.z) ** 2 <= 18 * 18;
+      (other.role === 'dragon' ||
+        other.role === 'wolf' ||
+        other.role === 'bear' ||
+        (other.role === 'dinosaur' && isCarnivoreAnimal(other.role, other.appearanceSeed))) &&
+      (isDirectAttacker ||
+        other.state === 'fighting' ||
+        (other.x - u.x) ** 2 + (other.z - u.z) ** 2 <= 8 * 8 ||
+        (allOwnSettlementBlds.length > 0 &&
+          (other.x - homeAnchor.x) ** 2 + (other.z - homeAnchor.z) ** 2 <= 18 * 18));
 
-    // Foreign race trespassing inside this kingdom's territory or attacking a fellow citizen!
-    const isForeignIntruderInCity =
+    const otherKingdomId =
+      other.faction === 'civilization'
+        ? other.settlementId
+          ? getKingdomId(state, other.settlementId)
+          : other.kingdomId
+        : undefined;
+    const isSameKingdom = Boolean(myKingdomId && otherKingdomId && myKingdomId === otherKingdomId);
+    const isKingdomWar =
       !isChild &&
-      other.ageStage !== 'child' &&
+      warsEnabled &&
       other.faction === 'civilization' &&
-      other.species !== u.species &&
-      allOwnSettlementBlds.some(
-        (b) => (other.x - b.tileX) ** 2 + (other.z - b.tileZ) ** 2 <= 18 * 18,
-      );
+      other.ageStage !== 'child' &&
+      !isSameKingdom &&
+      Boolean(myKingdomId && otherKingdomId && areKingdomsAtWar(state, myKingdomId, otherKingdomId));
 
-    // Helping a fellow citizen who is in combat nearby
+    // Helping a fellow allied citizen who is actively under attack or fighting
     const isAttackingKin =
       other.faction === 'civilization' &&
-      other.species !== u.species &&
+      !isSameKingdom &&
       other.state === 'fighting' &&
-      (other.x - u.x) ** 2 + (other.z - u.z) ** 2 <= 16 * 16;
+      (other.x - u.x) ** 2 + (other.z - u.z) ** 2 <= 14 * 14 &&
+      (isKingdomWar ||
+        state.units.some(
+          (ally) =>
+            ally.faction === 'civilization' &&
+            ally.id !== u.id &&
+            ((ally.settlementId && ally.settlementId === u.settlementId) ||
+              (myKingdomId && ally.kingdomId === myKingdomId)) &&
+            ally.lastAttackerId === other.id,
+        ));
 
     const isRivalFrenzy =
-      !isChild && Boolean(u.statusEffects.frenzied && other.species !== u.species);
-    const isOrcSkirmish =
-      !isChild &&
-      other.ageStage !== 'child' &&
-      u.species === 'orc' &&
-      other.species !== 'orc' &&
-      other.faction === 'civilization';
+      !isChild && Boolean(u.statusEffects.frenzied && !isSameKingdom);
 
     if (
+      !isDirectAttacker &&
       !isHostileRaider &&
-      !isDangerousBeastNearCity &&
-      !isForeignIntruderInCity &&
+      !isDangerousBeast &&
+      !isKingdomWar &&
       !isAttackingKin &&
-      !isRivalFrenzy &&
-      !isOrcSkirmish
+      !isRivalFrenzy
     ) {
       continue;
     }
 
     const dSq = (other.x - u.x) ** 2 + (other.z - u.z) ** 2;
-    const maxEngageSq = isHostileRaider
+    const maxEngageSq = isDirectAttacker || isHostileRaider
       ? Infinity
-      : isForeignIntruderInCity || isAttackingKin || isDangerousBeastNearCity
-        ? 20 * 20
-        : isRivalFrenzy
-          ? 100
-          : isOrcSkirmish
-            ? 64
-            : 36;
+      : isKingdomWar
+        ? u.role === 'warrior' || u.isKing || u.species === 'orc'
+          ? 28 * 28
+          : 18 * 18
+        : isAttackingKin || isDangerousBeast
+          ? 20 * 20
+          : isRivalFrenzy
+            ? 144
+            : 100;
     if (dSq <= maxEngageSq && dSq < enemyDistSq) {
       enemyDistSq = dSq;
       nearestEnemy = other;
@@ -7437,56 +8435,346 @@ function stepCivilianUnitAI(
 
   let speciesCombatMult = 1.0;
   if (u.species === 'orc') {
-    speciesCombatMult = 1.42;
+    speciesCombatMult = 1.48;
   } else if (u.species === 'elf') {
-    speciesCombatMult = hasElfArcaneTech ? 1.35 : 1.15;
+    speciesCombatMult = hasElfArcaneTech ? 1.38 : 1.18;
   } else if (u.species === 'human') {
-    speciesCombatMult = hasHumanTechSupport ? 1.0 + state.epochIndex * 0.08 : 0.68;
+    speciesCombatMult = hasHumanTechSupport ? 1.05 + myEpoch * 0.1 : 0.74;
   }
   const kingMult = u.isKing ? 1.35 : 1.0;
 
-  if (
-    !isChild &&
-    nearestEnemy &&
-    (u.role === 'warrior' ||
-      u.isKing ||
-      u.statusEffects.frenzied ||
-      (u.species === 'orc' && enemyDistSq <= 64) ||
-      enemyDistSq <= 18 * 18)
-  ) {
+  if (!isChild && nearestEnemy) {
     const dist = Math.sqrt(enemyDistSq);
-    const effectiveRange = u.species === 'elf' ? Math.max(3.4, def.attackRange) : def.attackRange;
+    const hasHumanGuns = u.species === 'human' && myEpoch >= 3;
+    const hasElfGuns = u.species === 'elf' && myEpoch >= 3;
+    const orcCanBattlewill =
+      u.species === 'orc' && (myEpoch >= 4 || (myEpoch >= 3 && (u.role === 'warrior' || u.isKing)));
+
+    const effectiveRange =
+      u.species === 'human'
+        ? hasHumanGuns
+          ? 5.8
+          : myEpoch >= 1
+            ? Math.max(2.0, def.attackRange)
+            : def.attackRange
+        : u.species === 'elf'
+          ? hasElfGuns
+            ? 6.2
+            : Math.max(4.2, def.attackRange)
+          : (u.battlewillActive ?? 0) > 0 || (orcCanBattlewill && (u.battlewillCooldown ?? 0) <= 0)
+            ? 4.2
+            : Math.max(1.85, def.attackRange);
+
     if (dist <= effectiveRange) {
       u.state = 'fighting';
+      u.attackTargetX = nearestEnemy.x;
+      u.attackTargetZ = nearestEnemy.z;
+
+      // Activate Orc Battlewill Avatar Extension (follows caster physically, NOT an autonomous summon!)
+      if (orcCanBattlewill && (u.battlewillActive ?? 0) <= 0 && (u.battlewillCooldown ?? 0) <= 0) {
+        u.battlewillActive = 9.0;
+        u.battlewillCooldown = 14.0;
+        u.battlewillHeading = Math.atan2(nearestEnemy.x - u.x, nearestEnemy.z - u.z);
+      }
+
       if (u.actionCooldown <= 0) {
-        u.actionCooldown = u.statusEffects.frenzied ? 0.45 : u.species === 'elf' ? 0.72 : 0.8;
-        if (u.species === 'elf') {
-          if (!u.statusEffects.shielded && hasElfArcaneTech && Math.random() < 0.28) {
-            u.statusEffects.shielded = 4.0;
-          }
-          const eTile = getTile(state, nearestEnemy.x, nearestEnemy.z);
-          state.pendingVfx.push({
-            id: nextEntityId('vfx'),
-            type: 'hit_spark',
-            x: nearestEnemy.x,
-            y: (eTile?.height ?? 2) * 0.45 + 0.35,
-            z: nearestEnemy.z,
-            originX: u.x,
-            originY: (curTile?.height ?? 2) * 0.45 + 0.35,
-            originZ: u.z,
-            radius: 0.75,
-            color: hasElfArcaneTech ? '#56cfe1' : '#c084fc',
-            createdAt: Date.now(),
-          });
-        }
-        const dmg =
+        u.actionCooldown = u.statusEffects.frenzied ? 0.45 : u.species === 'elf' ? 0.68 : 0.78;
+        u.attackAnimTimer = 0.45;
+
+        const baseDmg =
           def.attackDamage *
           speciesCombatMult *
           kingMult *
-          (u.statusEffects.frenzied ? 2.5 : 1.0);
-        nearestEnemy.hp -= dmg;
-        if (nearestEnemy.hp <= 0) {
-          u.kills = (u.kills ?? 0) + 1;
+          (u.statusEffects.frenzied ? 2.4 : 1.0);
+        const enemyTile = getTile(state, nearestEnemy.x, nearestEnemy.z);
+        const originY = (curTile?.height ?? 2) * 0.45 + 0.42;
+        const targetY = (enemyTile?.height ?? 2) * 0.45 + 0.35;
+
+        // Rivaling Racial Ultimate Weapons / Techniques:
+        // 1. Human Nuke Bomb (Atomic Age+ Epoch 4+)
+        // 2. Elf Arcane Cataclysm (Atomic Age+ Epoch 4+)
+        // 3. Orc Battlewill Wide Greatsword Slash (Battlewill active + weaponCooldown <= 0)
+        const triggerHumanNuke =
+          u.species === 'human' &&
+          myEpoch >= 4 &&
+          (u.weaponCooldown ?? 0) <= 0 &&
+          (u.role === 'warrior' || u.isKing || dist > 2.2);
+        const triggerElfCataclysm =
+          u.species === 'elf' &&
+          myEpoch >= 4 &&
+          (u.weaponCooldown ?? 0) <= 0 &&
+          (u.role === 'warrior' || u.role === 'priest' || u.isKing || dist > 2.2);
+        const triggerOrcBattlewillSlash =
+          u.species === 'orc' &&
+          (u.battlewillActive ?? 0) > 0 &&
+          (u.weaponCooldown ?? 0) <= 0;
+
+        if (triggerHumanNuke) {
+          u.weaponCooldown = 13.0;
+          const blastRadius = 6.8;
+          const blastDmg = Math.max(240, baseDmg * 5.8);
+          state.pendingVfx.push({
+            id: nextEntityId('vfx'),
+            type: 'nuke_blast',
+            x: nearestEnemy.x,
+            y: targetY,
+            z: nearestEnemy.z,
+            originX: u.x,
+            originY,
+            originZ: u.z,
+            radius: blastRadius,
+            color: '#ff9e00',
+            createdAt: Date.now(),
+          });
+          applySuperweaponEnvironmentImpact(state, nearestEnemy.x, nearestEnemy.z, 6.4, 'nuke');
+          for (const candidate of state.units) {
+            if (candidate.state === 'ko' || candidate.hp <= 0 || candidate.statusEffects.shielded) continue;
+            if (candidate.ageStage === 'child' && candidate.id !== nearestEnemy.id) continue;
+            const cKid =
+              candidate.faction === 'civilization'
+                ? candidate.settlementId
+                  ? getKingdomId(state, candidate.settlementId)
+                  : candidate.kingdomId
+                : undefined;
+            if (candidate.id === u.id || (myKingdomId && cKid === myKingdomId)) continue;
+            const candDist = Math.hypot(candidate.x - nearestEnemy.x, candidate.z - nearestEnemy.z);
+            if (candDist <= blastRadius) {
+              const dmgScale = candDist <= 3.8 ? 1.0 : 0.68;
+              candidate.hp -= blastDmg * dmgScale;
+              candidate.lastAttackerId = u.id;
+              candidate.underAttackTimer = 8.0;
+              if (candidate.hp <= 0) {
+                u.kills = (u.kills ?? 0) + 1;
+              } else {
+                const safeDist = Math.max(0.35, candDist);
+                candidate.vxAir = ((candidate.x - nearestEnemy.x) / safeDist) * 7.5;
+                candidate.vzAir = ((candidate.z - nearestEnemy.z) / safeDist) * 7.5;
+                candidate.altitude = Math.max(candidate.altitude ?? 0, 1.1);
+                candidate.vzVertical = 7.2;
+                candidate.fallDamageArmed = true;
+              }
+            }
+          }
+          for (const v of state.vehicles ?? []) {
+            if (!v.isMilitary || (v.hp ?? 0) <= 0) continue;
+            const vKid = v.kingdomId ?? getKingdomId(state, v.settlementId);
+            if (myKingdomId && vKid === myKingdomId) continue;
+            if (Math.hypot(v.x - nearestEnemy.x, v.z - nearestEnemy.z) <= blastRadius) {
+              v.hp = Math.max(0, (v.hp ?? 100) - blastDmg * 0.9);
+            }
+          }
+          for (const b of state.buildings) {
+            if (b.hp <= 0) continue;
+            const bKid = b.settlementId ? getKingdomId(state, b.settlementId) : undefined;
+            if (myKingdomId && bKid === myKingdomId) continue;
+            const bDist = Math.hypot(b.tileX - nearestEnemy.x, b.tileZ - nearestEnemy.z);
+            if (bDist <= 5.8) {
+              if (b.shieldTimer > 0) {
+                if (bDist <= 3.2) b.shieldTimer = 0;
+                else continue;
+              }
+              b.hp = bDist <= 3.0 ? 0 : Math.max(0, b.hp - blastDmg * 1.45);
+            }
+          }
+        } else if (triggerElfCataclysm) {
+          u.weaponCooldown = 13.0;
+          const cataclysmRadius = 6.5;
+          const arcaneDmg = Math.max(240, baseDmg * 5.8);
+          state.pendingVfx.push({
+            id: nextEntityId('vfx'),
+            type: 'arcane_cataclysm',
+            x: nearestEnemy.x,
+            y: targetY,
+            z: nearestEnemy.z,
+            originX: u.x,
+            originY,
+            originZ: u.z,
+            radius: cataclysmRadius,
+            color: '#c084fc',
+            createdAt: Date.now(),
+          });
+          applySuperweaponEnvironmentImpact(state, nearestEnemy.x, nearestEnemy.z, 6.0, 'arcane');
+          for (const candidate of state.units) {
+            if (candidate.state === 'ko' || candidate.hp <= 0) continue;
+            const cKid =
+              candidate.faction === 'civilization'
+                ? candidate.settlementId
+                  ? getKingdomId(state, candidate.settlementId)
+                  : candidate.kingdomId
+                : undefined;
+            if (myKingdomId && cKid === myKingdomId) {
+              if (Math.hypot(candidate.x - u.x, candidate.z - u.z) <= 5.0) {
+                candidate.hp = Math.min(candidate.maxHp, candidate.hp + 40);
+              }
+              continue;
+            }
+            const candDist = Math.hypot(candidate.x - nearestEnemy.x, candidate.z - nearestEnemy.z);
+            if (
+              !candidate.statusEffects.shielded &&
+              (candidate.ageStage !== 'child' || candidate.id === nearestEnemy.id) &&
+              candDist <= cataclysmRadius
+            ) {
+              const dmgScale = candDist <= 3.8 ? 1.0 : 0.7;
+              candidate.hp -= arcaneDmg * dmgScale;
+              candidate.lastAttackerId = u.id;
+              candidate.underAttackTimer = 8.0;
+              if (candidate.hp <= 0) {
+                u.kills = (u.kills ?? 0) + 1;
+              } else {
+                const safeDist = Math.max(0.35, candDist);
+                candidate.vxAir = ((candidate.x - nearestEnemy.x) / safeDist) * 7.0;
+                candidate.vzAir = ((candidate.z - nearestEnemy.z) / safeDist) * 7.0;
+                candidate.altitude = Math.max(candidate.altitude ?? 0, 1.0);
+                candidate.vzVertical = 6.8;
+                candidate.fallDamageArmed = true;
+              }
+            }
+          }
+          for (const v of state.vehicles ?? []) {
+            if (!v.isMilitary || (v.hp ?? 0) <= 0) continue;
+            const vKid = v.kingdomId ?? getKingdomId(state, v.settlementId);
+            if (myKingdomId && vKid === myKingdomId) continue;
+            if (Math.hypot(v.x - nearestEnemy.x, v.z - nearestEnemy.z) <= cataclysmRadius) {
+              v.hp = Math.max(0, (v.hp ?? 100) - arcaneDmg * 0.9);
+            }
+          }
+          for (const b of state.buildings) {
+            if (b.hp <= 0) continue;
+            const bKid = b.settlementId ? getKingdomId(state, b.settlementId) : undefined;
+            if (myKingdomId && bKid === myKingdomId) continue;
+            const bDist = Math.hypot(b.tileX - nearestEnemy.x, b.tileZ - nearestEnemy.z);
+            if (bDist <= 5.6) {
+              if (b.shieldTimer > 0) {
+                if (bDist <= 3.0) b.shieldTimer = 0;
+                else continue;
+              }
+              b.hp = bDist <= 2.8 ? 0 : Math.max(0, b.hp - arcaneDmg * 1.4);
+            }
+          }
+        } else if (triggerOrcBattlewillSlash) {
+          u.weaponCooldown = 11.0;
+          u.battlewillSlashTimer = 0.75;
+          const slashHeading = Math.atan2(nearestEnemy.x - u.x, nearestEnemy.z - u.z);
+          u.battlewillHeading = slashHeading;
+          const cleaveRadius = 6.4;
+          const cleaveDmg = Math.max(240, baseDmg * 5.8);
+          state.pendingVfx.push({
+            id: nextEntityId('vfx'),
+            type: 'battlewill_slash',
+            x: nearestEnemy.x,
+            y: targetY,
+            z: nearestEnemy.z,
+            originX: u.x,
+            originY,
+            originZ: u.z,
+            sourceUnitId: u.id,
+            radius: cleaveRadius,
+            color: '#ff3b30',
+            createdAt: Date.now(),
+          });
+          applySuperweaponEnvironmentImpact(state, u.x, u.z, 6.2, 'battlewill', slashHeading);
+          for (const candidate of state.units) {
+            if (candidate.state === 'ko' || candidate.hp <= 0 || candidate.statusEffects.shielded) continue;
+            if (candidate.ageStage === 'child' && candidate.id !== nearestEnemy.id) continue;
+            const cKid =
+              candidate.faction === 'civilization'
+                ? candidate.settlementId
+                  ? getKingdomId(state, candidate.settlementId)
+                  : candidate.kingdomId
+                : undefined;
+            if (candidate.id === u.id || (myKingdomId && cKid === myKingdomId)) continue;
+            const candDist = Math.hypot(candidate.x - u.x, candidate.z - u.z);
+            const candAngDiff = Math.abs(wrapAngleRad(Math.atan2(candidate.x - u.x, candidate.z - u.z) - slashHeading));
+            const inSlash = candDist <= 4.0 || (candDist <= cleaveRadius && candAngDiff <= 1.3);
+            if (inSlash) {
+              candidate.hp -= cleaveDmg;
+              candidate.lastAttackerId = u.id;
+              candidate.underAttackTimer = 8.0;
+              if (candidate.hp <= 0) {
+                u.kills = (u.kills ?? 0) + 1;
+              } else {
+                const safeDist = Math.max(0.35, candDist);
+                candidate.vxAir = ((candidate.x - u.x) / safeDist) * 8.2;
+                candidate.vzAir = ((candidate.z - u.z) / safeDist) * 8.2;
+                candidate.altitude = Math.max(candidate.altitude ?? 0, 1.15);
+                candidate.vzVertical = 7.4;
+                candidate.fallDamageArmed = true;
+              }
+            }
+          }
+          for (const v of state.vehicles ?? []) {
+            if (!v.isMilitary || (v.hp ?? 0) <= 0) continue;
+            const vKid = v.kingdomId ?? getKingdomId(state, v.settlementId);
+            if (myKingdomId && vKid === myKingdomId) continue;
+            if (Math.hypot(v.x - u.x, v.z - u.z) <= cleaveRadius) {
+              v.hp = Math.max(0, (v.hp ?? 100) - cleaveDmg * 0.9);
+            }
+          }
+          for (const b of state.buildings) {
+            if (b.hp <= 0) continue;
+            const bKid = b.settlementId ? getKingdomId(state, b.settlementId) : undefined;
+            if (myKingdomId && bKid === myKingdomId) continue;
+            const bDist = Math.hypot(b.tileX - u.x, b.tileZ - u.z);
+            const bAngDiff = Math.abs(wrapAngleRad(Math.atan2(b.tileX - u.x, b.tileZ - u.z) - slashHeading));
+            if (bDist <= 3.6 || (bDist <= 5.8 && bAngDiff <= 1.28)) {
+              if (b.shieldTimer > 0) {
+                if (bDist <= 3.2) b.shieldTimer = 0;
+                else continue;
+              }
+              b.hp = bDist <= 3.0 ? 0 : Math.max(0, b.hp - cleaveDmg * 1.45);
+            }
+          }
+        } else {
+          // Standard racial weapon / gun / magic bolt / barbaric axe strike
+          if (hasHumanGuns || hasElfGuns || u.species === 'elf') {
+            if (u.species === 'elf' && !u.statusEffects.shielded && hasElfArcaneTech && Math.random() < 0.28) {
+              u.statusEffects.shielded = 4.0;
+            }
+            const unitVfxSubtype: VisualEffectEvent['vfxSubtype'] =
+              state.epochIndex >= 6 && (hasHumanGuns || hasElfGuns)
+                ? 'plasma_beam'
+                : u.species === 'elf'
+                  ? 'arcane_bolt'
+                  : 'bullet';
+            state.pendingVfx.push({
+              id: nextEntityId('vfx'),
+              type: hasHumanGuns || hasElfGuns || (u.species === 'elf' && state.epochIndex >= 2) ? 'projectile_tracer' : 'hit_spark',
+              vfxSubtype: unitVfxSubtype,
+              x: nearestEnemy.x,
+              y: targetY,
+              z: nearestEnemy.z,
+              originX: u.x,
+              originY,
+              originZ: u.z,
+              radius: hasHumanGuns || hasElfGuns ? 0.95 : 0.82,
+              color: hasHumanGuns
+                ? state.epochIndex >= 6
+                  ? '#56cfe1'
+                  : '#ffd166'
+                : hasElfArcaneTech
+                  ? '#56cfe1'
+                  : '#c084fc',
+              createdAt: Date.now(),
+            });
+          } else {
+            state.pendingVfx.push({
+              id: nextEntityId('vfx'),
+              type: 'hit_spark',
+              x: nearestEnemy.x,
+              y: targetY,
+              z: nearestEnemy.z,
+              radius: (u.battlewillActive ?? 0) > 0 ? 1.2 : 0.7,
+              color: u.species === 'orc' ? '#ff4d4d' : '#fca311',
+              createdAt: Date.now(),
+            });
+          }
+          const strikeDmg = baseDmg * ((u.battlewillActive ?? 0) > 0 ? 1.5 : 1.0);
+          nearestEnemy.hp -= strikeDmg;
+          nearestEnemy.lastAttackerId = u.id;
+          nearestEnemy.underAttackTimer = 8.0;
+          if (nearestEnemy.hp <= 0) {
+            u.kills = (u.kills ?? 0) + 1;
+          }
         }
       }
     } else {
@@ -7501,22 +8789,22 @@ function stepCivilianUnitAI(
     return;
   }
 
-  // 1a. Attack & Destroy Foreign Race Buildings Built Inside or Encroaching on This Kingdom's Territory!
-  if (!isChild && allOwnSettlementBlds.length > 0) {
+  // 1a. Attack & Destroy Enemy Buildings belonging to Kingdoms at War!
+  if (!isChild && (allOwnSettlementBlds.length > 0 || u.isRebel)) {
     let nearestForeignBld: BuildingEntity | null = null;
     let bestForeignBldDistSq = Infinity;
     for (const b of state.buildings) {
       if (b.hp <= 0) continue;
-      const bSp = b.species ?? (b.settlementId ? state.settlementSpecies?.[b.settlementId] : undefined) ?? 'human';
-      if (bSp === u.species) continue;
+      const bKid = b.settlementId ? getKingdomId(state, b.settlementId) : undefined;
+      if (myKingdomId && bKid && myKingdomId === bKid) continue;
+      const atWarWithBld = Boolean(
+        warsEnabled && myKingdomId && bKid && areKingdomsAtWar(state, myKingdomId, bKid),
+      );
+      if (!atWarWithBld && !u.statusEffects.frenzied) continue;
       const distToHomeSq = (b.tileX - homeAnchor.x) ** 2 + (b.tileZ - homeAnchor.z) ** 2;
       const distToUnitSq = (b.tileX - u.x) ** 2 + (b.tileZ - u.z) ** 2;
-      const encroachingHome = distToHomeSq <= 24 * 24 || allOwnSettlementBlds.some(
-        (ob) => (ob.tileX - b.tileX) ** 2 + (ob.tileZ - b.tileZ) ** 2 <= 18 * 18,
-      );
-      if (!encroachingHome && !(u.species === 'orc' && distToUnitSq <= 16 * 16) && !u.statusEffects.frenzied) {
-        continue;
-      }
+      const encroachingHome = distToHomeSq <= 26 * 26 || distToUnitSq <= 24 * 24;
+      if (!encroachingHome && !u.statusEffects.frenzied) continue;
       if (distToUnitSq < bestForeignBldDistSq) {
         bestForeignBldDistSq = distToUnitSq;
         nearestForeignBld = b;
@@ -7525,7 +8813,12 @@ function stepCivilianUnitAI(
 
     if (nearestForeignBld) {
       const bDist = Math.sqrt(bestForeignBldDistSq);
-      const effectiveRange = u.species === 'elf' ? Math.max(3.4, def.attackRange) : Math.max(1.45, def.attackRange);
+      const effectiveRange =
+        myEpoch >= 3 && u.species !== 'orc'
+          ? 5.2
+          : u.species === 'elf'
+            ? Math.max(3.8, def.attackRange)
+            : Math.max(1.6, def.attackRange);
       if (bDist <= effectiveRange) {
         u.state = 'fighting';
         if (u.actionCooldown <= 0) {
@@ -7542,15 +8835,15 @@ function stepCivilianUnitAI(
           const bTile = getTile(state, nearestForeignBld.tileX, nearestForeignBld.tileZ);
           state.pendingVfx.push({
             id: nextEntityId('vfx'),
-            type: 'hit_spark',
+            type: myEpoch >= 3 && u.species !== 'orc' ? 'projectile_tracer' : 'hit_spark',
             x: nearestForeignBld.tileX,
             y: (bTile?.height ?? 2) * 0.45 + 0.35,
             z: nearestForeignBld.tileZ,
-            originX: u.species === 'elf' ? u.x : undefined,
-            originY: u.species === 'elf' ? (curTile?.height ?? 2) * 0.45 + 0.35 : undefined,
-            originZ: u.species === 'elf' ? u.z : undefined,
-            radius: 0.85,
-            color: u.species === 'elf' ? '#56cfe1' : '#ff9f68',
+            originX: u.species === 'elf' || myEpoch >= 3 ? u.x : undefined,
+            originY: u.species === 'elf' || myEpoch >= 3 ? (curTile?.height ?? 2) * 0.45 + 0.35 : undefined,
+            originZ: u.species === 'elf' || myEpoch >= 3 ? u.z : undefined,
+            radius: 0.9,
+            color: u.species === 'elf' ? '#56cfe1' : u.species === 'orc' ? '#ff4d4d' : '#ff9f68',
             createdAt: Date.now(),
           });
         }
