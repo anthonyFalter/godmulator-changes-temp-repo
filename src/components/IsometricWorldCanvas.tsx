@@ -8,7 +8,13 @@ import {
   createUnitGroup,
   createVehicleGroup,
   getNodeVariantLibrary,
+  updateBuildingNightMaterials,
 } from '../game/meshBuilders';
+import {
+  clampSimulationSpeed,
+  getEpochCityLightProfile,
+  getTimeOfDayLightingState,
+} from '../game/dayNightLighting';
 import {
   createOceanFoamSystem,
   createPixelSpaceSystem,
@@ -300,10 +306,18 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     rimLight.position.set(-16, 15, -16);
     scene.add(rimLight);
 
-    // Warm sacred bonfire / torch point light at settlement heart
-    const hearthLight = new THREE.PointLight(0xff922b, 2.4, 12, 1.6);
+    // Warm sacred bonfire / torch point light at settlement heart + cluster point lights for active cities at night
+    const hearthLight = new THREE.PointLight(0xff922b, 2.4, 14, 1.5);
     hearthLight.position.set(gridCenter, 3.0, gridCenter);
     scene.add(hearthLight);
+
+    const cityClusterLights: THREE.PointLight[] = [];
+    for (let ci = 0; ci < 4; ci++) {
+      const cLight = new THREE.PointLight(0xffa62b, 0, 12, 1.5);
+      cLight.position.set(gridCenter, 2.5, gridCenter);
+      scene.add(cLight);
+      cityClusterLights.push(cLight);
+    }
 
     // Dynamic God Power Flash Light (illuminates terrain & structures during miracle/disaster casts)
     const vfxFlashLight = new THREE.PointLight(0xff922b, 0, 26, 1.2);
@@ -367,7 +381,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     tileGeo.translate(0, -0.5, 0);
 
     const styledTerrain = createStyledTerrainSystem(sim.gridSize);
-    styledTerrain.updateMap(sim.tiles);
+    styledTerrain.updateMap(sim.tiles, sim.buildings, sim.settlementSpecies);
 
     const terrainInstancedMap = new Map<TerrainType, THREE.InstancedMesh>();
     const terrainInstancedList: THREE.InstancedMesh[] = [];
@@ -538,6 +552,17 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       emissiveIntensity: 1.15,
       roughness: 0.25,
     });
+    const streetPoleMat = new THREE.MeshStandardMaterial({
+      color: 0x4a3525,
+      roughness: 0.78,
+      metalness: 0.15,
+    });
+    const streetLampGlowMat = new THREE.MeshStandardMaterial({
+      color: 0xffb703,
+      emissive: 0xff8811,
+      emissiveIntensity: 0.35,
+      roughness: 0.2,
+    });
 
     const metroPillarGeo = new THREE.BoxGeometry(0.17, 0.64, 0.17);
     const metroCapGeo = new THREE.BoxGeometry(0.36, 0.09, 0.36);
@@ -550,6 +575,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     const metroParapetEWGeo = new THREE.BoxGeometry(1.0, 0.065, 0.055);
     const metroParapetNSGeo = new THREE.BoxGeometry(0.055, 0.065, 1.0);
     const runwayBeaconGeo = new THREE.BoxGeometry(0.07, 0.11, 0.07);
+    const streetPoleGeo = new THREE.BoxGeometry(0.042, 1.0, 0.042);
+    const streetLampHeadGeo = new THREE.BoxGeometry(0.085, 0.085, 0.085);
 
     const makeMetroInst = (
       geo: THREE.BufferGeometry,
@@ -578,6 +605,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     const metroParapetEWInst = makeMetroInst(metroParapetEWGeo, metroParapetMat, MAX_METRO_STRIP_INST, true);
     const metroParapetNSInst = makeMetroInst(metroParapetNSGeo, metroParapetMat, MAX_METRO_STRIP_INST, true);
     const runwayBeaconInst = makeMetroInst(runwayBeaconGeo, runwayBeaconMat, MAX_RUNWAY_LIGHT_INST, false);
+    const streetPoleInst = makeMetroInst(streetPoleGeo, streetPoleMat, MAX_METRO_INST, false);
+    const streetLampHeadInst = makeMetroInst(streetLampHeadGeo, streetLampGlowMat, MAX_METRO_INST, false);
 
     const allMetroInsts = [
       metroPillarInst,
@@ -591,6 +620,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       metroParapetEWInst,
       metroParapetNSInst,
       runwayBeaconInst,
+      streetPoleInst,
+      streetLampHeadInst,
     ];
 
     const TERRAIN_CODE: Record<string, number> = {
@@ -5022,10 +5053,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         lastSyncedEpochIndex = simState.epochIndex;
         propsNeedSync = true;
         metroNeedsSync = true;
+        terrainMapDirty = true;
       }
       if (simState.buildings.length !== lastSyncedBuildingCount) {
         lastSyncedBuildingCount = simState.buildings.length;
         metroNeedsSync = true;
+        terrainMapDirty = true;
       }
 
       let waterMapNeedsSync = simState !== lastSyncedSim;
@@ -5270,7 +5303,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         oceanFoam.updateMap(simState.tiles);
       }
       if (terrainMapDirty || waterMapNeedsSync) {
-        styledTerrain.updateMap(simState.tiles);
+        styledTerrain.updateMap(simState.tiles, simState.buildings, simState.settlementSpecies);
       }
 
       for (let tIdx = 0; tIdx < terrainInstancedList.length; tIdx++) {
@@ -5551,6 +5584,42 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
               if (!sRunway) pushInst(runwayBeaconInst, t.x, curY + 0.055, t.z + 0.43);
               if (!wRunway) pushInst(runwayBeaconInst, t.x - 0.43, curY + 0.055, t.z);
               if (!eRunway) pushInst(runwayBeaconInst, t.x + 0.43, curY + 0.055, t.z);
+            }
+          }
+
+          // Age-dependent street & settlement illumination fixtures along stone_road tiles and plazas
+          if (t.terrain === 'stone_road' && !bldTypeAtCache.has(i) && ((t.x + t.z) & 1) === 0) {
+            const ep = simState.epochIndex;
+            const sideSign = ((t.x * 13 + t.z * 7) & 1) === 0 ? 1 : -1;
+            const nRoad = t.z > 0 && simState.tiles[(t.z - 1) * gs + t.x]?.terrain === 'stone_road';
+            const sRoad = t.z + 1 < gs && simState.tiles[(t.z + 1) * gs + t.x]?.terrain === 'stone_road';
+            const offX = nRoad || sRoad ? sideSign * 0.34 : 0.18;
+            const offZ = nRoad || sRoad ? 0.18 : sideSign * 0.34;
+            const fx = t.x + offX;
+            const fz = t.z + offZ;
+
+            if (ep === 0) {
+              // Prehistoric: wooden torch stake or low campfire ember mound along paths
+              pushInst(streetPoleInst, fx, curY + 0.09, fz, 0, 0, 0, 1.15, 0.18, 1.15);
+              pushInst(streetLampHeadInst, fx, curY + 0.21, fz, 0, 0.4, 0, 1.35, 1.5, 1.35);
+            } else if (ep <= 2) {
+              // Bronze & Medieval: timber lantern post / flaming iron brazier stand
+              pushInst(streetPoleInst, fx, curY + 0.17, fz, 0, 0, 0, 1.0, 0.34, 1.0);
+              pushInst(streetLampHeadInst, fx, curY + 0.37, fz, 0, 0, 0, 1.15, 1.25, 1.15);
+            } else if (ep === 3) {
+              // Industrial Age: Victorian cast-iron gaslight lamppost with warm glass head
+              pushInst(streetPoleInst, fx, curY + 0.22, fz, 0, 0, 0, 0.9, 0.44, 0.9);
+              pushInst(streetLampHeadInst, fx, curY + 0.47, fz, 0, 0, 0, 1.1, 1.35, 1.1);
+            } else if (ep <= 5) {
+              // Modern & Information Ages: tall steel cobra-head streetlight pole + overhanging sodium/LED head
+              pushInst(streetPoleInst, fx, curY + 0.28, fz, 0, 0, 0, 0.82, 0.56, 0.82);
+              const armInX = fx - Math.sign(offX || 1) * 0.07;
+              const armInZ = fz - Math.sign(offZ || 1) * 0.07;
+              pushInst(streetLampHeadInst, armInX, curY + 0.58, armInZ, 0, 0, 0, 1.45, 0.72, 1.45);
+            } else {
+              // Orbital & Interstellar: sleek cyan/gold plasma luminaire pylon
+              pushInst(streetPoleInst, fx, curY + 0.25, fz, 0, 0, 0, 0.88, 0.5, 0.88);
+              pushInst(streetLampHeadInst, fx, curY + 0.53, fz, 0, 0.78, 0, 1.15, 1.65, 1.15);
             }
           }
 
@@ -7140,11 +7209,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         camDesiredTarget.z = THREE.MathUtils.clamp(camDesiredTarget.z, 2, simRef.current.gridSize - 3);
       }
 
-      // Advance simulation when in 'playing' (or gentle ambient motion in 'title')
+      // Advance simulation when in 'playing' (or gentle ambient motion in 'title') — clamped to 5x max speed
+      const clampedSimSpeed = clampSimulationSpeed(propsRef.current.timeScale);
       if (hitstopTimer > 0) {
         hitstopTimer = Math.max(0, hitstopTimer - dt);
-      } else if (propsRef.current.gameState === 'playing' && propsRef.current.timeScale > 0) {
-        stepSimulation(simRef.current, dt * propsRef.current.timeScale, { skipDragStep: true });
+      } else if (propsRef.current.gameState === 'playing' && clampedSimSpeed > 0) {
+        stepSimulation(simRef.current, dt * clampedSimSpeed, { skipDragStep: true });
       } else if (propsRef.current.gameState === 'title') {
         // Live World Camera Tour on Title Screen
         camDesiredYaw += dt * 0.18;
@@ -8565,61 +8635,152 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         reticleGroup.visible = false;
       }
 
-      // Update lighting preset (with live Day/Night Cycle support) & epoch atmosphere
+      // Update lighting preset (with live Day/Night Cycle support: Dawn, Noon, Dusk, Night, Midnight) & epoch atmosphere
       const rawPreset = propsRef.current.lightingPreset;
       const isCycleActive =
         rawPreset === 'auto' || simRef.current.worldRules?.dayNightCycle === true;
-      let preset: 'noon' | 'dusk' | 'night' | 'dawn';
+      let cyclePhase01 = 0.35;
       if (isCycleActive) {
         const cycleRate =
           propsRef.current.gameState === 'title'
             ? 0.35
-            : Math.max(0, propsRef.current.timeScale);
+            : clampSimulationSpeed(propsRef.current.timeScale);
         dayNightClock += dt * cycleRate;
-        const phase = ((dayNightClock % 64) / 64);
-        preset =
-          phase < 0.2
-            ? 'dawn'
-            : phase < 0.56
-              ? 'noon'
-              : phase < 0.76
-                ? 'dusk'
-                : 'night';
-      } else {
-        preset = rawPreset;
+        cyclePhase01 = (dayNightClock % 80) / 80;
       }
 
-      const epochDef = EPOCHS[simRef.current.epochIndex] || EPOCHS[0];
-      let targetLightIntensity = 1.9;
-      if (preset === 'night') {
-        _targetBgColor.set('#0e151a');
-        _targetLightColor.setHex(0x6c8ead);
-        targetLightIntensity = 0.75;
-        hearthLight.intensity = 3.6 + Math.sin(elapsedTotal * 12) * 0.4;
+      const todState = getTimeOfDayLightingState(
+        isCycleActive ? 'auto' : rawPreset,
+        cyclePhase01,
+      );
+      const preset = todState.preset;
+      const currentDarkness = todState.darkness;
+      const epochIdx = simRef.current.epochIndex;
+      const epochDef = EPOCHS[epochIdx] || EPOCHS[0];
+
+      if (preset === 'midnight') {
+        _targetBgColor.set('#050811');
+      } else if (preset === 'night') {
+        _targetBgColor.set('#0b121c');
       } else if (preset === 'dusk') {
-        _targetBgColor.set('#221c24');
-        _targetLightColor.setHex(0xf48c42);
-        targetLightIntensity = 1.65;
-        hearthLight.intensity = 2.8;
+        _targetBgColor.set('#221826');
       } else if (preset === 'dawn') {
-        _targetBgColor.set('#1f2933');
-        _targetLightColor.setHex(0xffb5a7);
-        targetLightIntensity = 1.5;
-        hearthLight.intensity = 2.2;
+        _targetBgColor.set('#1f2836');
       } else {
         _targetBgColor.set(epochDef.skyColor);
-        _targetLightColor.setHex(0xffdfb0);
-        targetLightIntensity = 1.9;
-        hearthLight.intensity =
-          (simRef.current.buildings.length > 0 ? 2.3 : 0.45) + Math.sin(elapsedTotal * 10) * 0.2;
       }
-      const lightBlend = Math.min(1, dt * (isCycleActive ? 1.8 : 6.0));
+      _targetLightColor.setHex(todState.keyColorHex);
+
+      const lightBlend = Math.min(1, dt * (isCycleActive ? 2.4 : 6.0));
       _bgColor.lerp(_targetBgColor, lightBlend);
       keyLight.color.lerp(_targetLightColor, lightBlend);
-      keyLight.intensity += (targetLightIntensity - keyLight.intensity) * lightBlend;
+      keyLight.intensity += (todState.keyIntensity - keyLight.intensity) * lightBlend;
+
+      // Dynamically tint hemisphere sky/ground fill, rim light, PBR environment intensity, and exposure
+      _targetLightColor.setHex(todState.hemiSkyHex);
+      hemiLight.color.lerp(_targetLightColor, lightBlend);
+      _targetLightColor.setHex(todState.hemiGroundHex);
+      hemiLight.groundColor.lerp(_targetLightColor, lightBlend);
+      hemiLight.intensity += (todState.hemiIntensity - hemiLight.intensity) * lightBlend;
+
+      _targetLightColor.setHex(todState.rimColorHex);
+      rimLight.color.lerp(_targetLightColor, lightBlend);
+      rimLight.intensity += (todState.rimIntensity - rimLight.intensity) * lightBlend;
+      rimLight.position.set(todState.rimOffset[0], todState.rimOffset[1], todState.rimOffset[2]);
+
+      scene.environmentIntensity = THREE.MathUtils.lerp(
+        scene.environmentIntensity ?? 1.0,
+        todState.environmentIntensity,
+        lightBlend,
+      );
+      renderer.toneMappingExposure = THREE.MathUtils.lerp(
+        renderer.toneMappingExposure,
+        todState.toneMappingExposure,
+        lightBlend,
+      );
+
       scene.background = _bgColor;
       if (scene.fog instanceof THREE.FogExp2) {
         scene.fog.color.copy(_bgColor);
+      }
+
+      // Age-dependent city, window, campfire, lamppost, and street illumination at dark hours
+      updateBuildingNightMaterials(currentDarkness, elapsedTotal);
+
+      const blds = simRef.current.buildings;
+      const primarySpecies =
+        blds.length > 0
+          ? blds[0].species ??
+            (blds[0].settlementId
+              ? simRef.current.settlementSpecies?.[blds[0].settlementId]
+              : undefined) ??
+            'human'
+          : 'human';
+      const cityLightProfile = getEpochCityLightProfile(
+        epochIdx,
+        primarySpecies,
+        currentDarkness,
+        elapsedTotal,
+      );
+
+      // Update 3D street fixture materials according to current epoch & darkness
+      if (epochIdx === 0) {
+        streetPoleMat.color.setHex(0x4a301c);
+        streetPoleMat.metalness = 0.05;
+      } else if (epochIdx <= 2) {
+        streetPoleMat.color.setHex(0x5c3a21);
+        streetPoleMat.metalness = 0.18;
+      } else if (epochIdx === 3) {
+        streetPoleMat.color.setHex(0x282d33);
+        streetPoleMat.metalness = 0.68;
+      } else if (epochIdx <= 5) {
+        streetPoleMat.color.setHex(0x64748b);
+        streetPoleMat.metalness = 0.62;
+      } else {
+        streetPoleMat.color.setHex(0xcbd5e1);
+        streetPoleMat.metalness = 0.75;
+      }
+      streetLampGlowMat.color.setHex(
+        currentDarkness > 0.12 ? cityLightProfile.primaryHex : 0x475569,
+      );
+      streetLampGlowMat.emissive.setHex(cityLightProfile.primaryHex);
+      streetLampGlowMat.emissiveIntensity = cityLightProfile.streetFixtureEmissiveIntensity;
+      runwayBeaconMat.emissiveIntensity = 0.55 + currentDarkness * 2.25;
+
+      // Update settlement heart light & distributed city cluster point lights
+      hearthLight.color.setHex(cityLightProfile.primaryHex);
+      hearthLight.distance = cityLightProfile.pointLightDistance;
+      hearthLight.intensity =
+        blds.length > 0
+          ? Math.max(0.85, cityLightProfile.pointLightIntensity)
+          : 0.35 * (1 - currentDarkness * 0.5);
+
+      for (let ci = 0; ci < cityClusterLights.length; ci++) {
+        const cLight = cityClusterLights[ci];
+        if (blds.length > ci + 1 && currentDarkness > 0.08) {
+          const step = Math.max(1, Math.floor(blds.length / (cityClusterLights.length + 1)));
+          const bld = blds[Math.min(blds.length - 1, (ci + 1) * step)];
+          const bTile = simRef.current.tiles[bld.tileZ * simRef.current.gridSize + bld.tileX];
+          const by = (bTile ? Math.max(0.18, bTile.height * HEIGHT_STEP + 0.25) : 1.0) + 1.65;
+          cLight.position.set(bld.tileX, by, bld.tileZ);
+          const bSpec =
+            bld.species ??
+            (bld.settlementId
+              ? simRef.current.settlementSpecies?.[bld.settlementId]
+              : undefined) ??
+            primarySpecies;
+          const bProf = getEpochCityLightProfile(
+            bld.epochLevel ?? epochIdx,
+            bSpec,
+            currentDarkness,
+            elapsedTotal + ci * 1.3,
+          );
+          cLight.color.setHex(ci % 2 === 0 ? bProf.primaryHex : bProf.secondaryHex);
+          cLight.distance = bProf.pointLightDistance;
+          cLight.intensity = bProf.pointLightIntensity * 0.85;
+        } else {
+          cLight.intensity = 0;
+        }
       }
 
       // Animate pixelated starry space backdrop, sculpted sky clouds & ocean coastal/reef/whitecap foaming
@@ -8639,13 +8800,16 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         worldUnderglow.update(
           elapsedTotal,
           preset,
-          simRef.current.epochIndex,
+          epochIdx,
           propsRef.current.pixelScale || 3,
         );
       }
       if (preset === 'dusk') {
         glowTrimMat.color.set('#d98078');
         glowTrimMat.opacity = 0.4;
+      } else if (preset === 'midnight') {
+        glowTrimMat.color.set('#3a86ff');
+        glowTrimMat.opacity = 0.56;
       } else if (preset === 'night') {
         glowTrimMat.color.set('#56cfe1');
         glowTrimMat.opacity = 0.5;
@@ -8660,12 +8824,17 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       const atmosSpeed =
         propsRef.current.gameState === 'title'
           ? 0.5
-          : propsRef.current.timeScale === 0
+          : clampedSimSpeed === 0
             ? 0
-            : Math.min(8, Math.max(0.25, propsRef.current.timeScale));
+            : Math.min(5, Math.max(0.25, clampedSimSpeed));
       skyClouds.update(dt * atmosSpeed, elapsedTotal, preset);
       oceanFoam.updateFrame(elapsedTotal, preset);
-      styledTerrain.updateFrame(elapsedTotal, simRef.current.epochIndex);
+      styledTerrain.updateFrame(
+        elapsedTotal,
+        epochIdx,
+        isCycleActive ? 'auto' : preset,
+        cyclePhase01,
+      );
 
       // Smooth exponential camera damping + decaying trauma shake
       const followDamp = propsRef.current.followingEntityId ? 11 : 8;
@@ -8720,9 +8889,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       const shakeRightX = Math.cos(camYaw) * shakeHoriz;
       const shakeRightZ = -Math.sin(camYaw) * shakeHoriz;
 
-      // Keep directional keyLight tracking camTarget so shadows stay crisp across 128x128
+      // Keep directional keyLight tracking camTarget with time-of-day sun/moon angle & shadow direction
       keyLight.target.position.set(camTarget.x, 0, camTarget.z);
-      keyLight.position.set(camTarget.x + 12, 28, camTarget.z + 8);
+      keyLight.position.set(
+        camTarget.x + todState.keyOffset[0],
+        todState.keyOffset[1],
+        camTarget.z + todState.keyOffset[2],
+      );
       const desiredShadowBounds = Math.max(18, Math.min(48, frustumSize * 1.2));
       if (Math.abs(shadowBounds - desiredShadowBounds) > 1.5) {
         shadowBounds = desiredShadowBounds;

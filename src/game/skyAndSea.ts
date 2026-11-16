@@ -1,6 +1,14 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { LightingPreset, SkyCloudsQualityOption, TerrainType, TileData } from './types';
+import {
+  BuildingEntity,
+  LightingPreset,
+  SkyCloudsQualityOption,
+  SpeciesId,
+  TerrainType,
+  TileData,
+} from './types';
+import { getTimeOfDayLightingState } from './dayNightLighting';
 import { createRng, normalizeSeed } from './worldGen';
 
 function addSteppedPuff(
@@ -286,16 +294,20 @@ export function createSkyCloudSystem(gridSize: number): SkyCloudSystem {
   const update = (dt: number, elapsed: number, preset: LightingPreset) => {
     if (currentQuality === 'off') return;
 
-    if (preset === 'night') {
-      _targetTint.set('#637ea1');
-      cloudMat.opacity = 0.72;
-      shadowMat.opacity = 0.05;
+    if (preset === 'midnight') {
+      _targetTint.set('#3b5175');
+      cloudMat.opacity = 0.62;
+      shadowMat.opacity = 0.03;
+    } else if (preset === 'night') {
+      _targetTint.set('#587499');
+      cloudMat.opacity = 0.70;
+      shadowMat.opacity = 0.04;
     } else if (preset === 'dusk') {
-      _targetTint.set('#ffae85');
+      _targetTint.set('#ff9b73');
       cloudMat.opacity = 0.86;
       shadowMat.opacity = 0.08;
     } else if (preset === 'dawn') {
-      _targetTint.set('#ffdad4');
+      _targetTint.set('#ffc8bf');
       cloudMat.opacity = 0.85;
       shadowMat.opacity = 0.08;
     } else {
@@ -719,7 +731,13 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
     const mu = material.uniforms;
     mu.uTime.value = elapsed;
 
-    if (preset === 'night') {
+    if (preset === 'midnight') {
+      _shallowTarget.set('#102b3a');
+      _deepTarget.set('#06131d');
+      _crestTarget.set('#1d4b63');
+      _foamTarget.set('#8db2cc');
+      _mintTarget.set('#3f6b85');
+    } else if (preset === 'night') {
       _shallowTarget.set('#1a4357');
       _deepTarget.set('#0c212e');
       _crestTarget.set('#2c6680');
@@ -775,9 +793,18 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
 
 export interface StyledTerrainSystem {
   getMaterials: (terrain: TerrainType) => THREE.MeshStandardMaterial[];
-  updateMap: (tiles: TileData[]) => void;
+  updateMap: (
+    tiles: TileData[],
+    buildings?: BuildingEntity[],
+    settlementSpecies?: Record<string, SpeciesId>,
+  ) => void;
   updateZones: (colorData: Uint8Array, idData: Uint8Array, anyActive: boolean) => void;
-  updateFrame: (elapsed: number, epochIndex?: number) => void;
+  updateFrame: (
+    elapsed: number,
+    epochIndex?: number,
+    preset?: LightingPreset,
+    cyclePhase01?: number,
+  ) => void;
   dispose: () => void;
 }
 
@@ -836,6 +863,19 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
   zoneIdTex.wrapT = THREE.ClampToEdgeWrapping;
   zoneIdTex.flipY = false;
 
+  const cityLightBytes = new Uint8Array(gridSize * gridSize * 4);
+  const cityLightTex = new THREE.DataTexture(
+    cityLightBytes,
+    gridSize,
+    gridSize,
+    THREE.RGBAFormat,
+  );
+  cityLightTex.magFilter = THREE.LinearFilter;
+  cityLightTex.minFilter = THREE.LinearFilter;
+  cityLightTex.wrapS = THREE.ClampToEdgeWrapping;
+  cityLightTex.wrapT = THREE.ClampToEdgeWrapping;
+  cityLightTex.flipY = false;
+
   const sharedTime = { value: 0 };
   const sharedEpoch = { value: 0 };
   const sharedGridSize = { value: gridSize };
@@ -843,6 +883,11 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
   const sharedZoneColorMap = { value: zoneColorTex };
   const sharedZoneIdMap = { value: zoneIdTex };
   const sharedZoneActive = { value: 0 };
+  const sharedCityLightMap = { value: cityLightTex };
+  const sharedDarkness = { value: 0.0 };
+  const sharedSunDir = { value: new THREE.Vector3(0.38, 0.88, 0.26).normalize() };
+  const sharedSunTint = { value: new THREE.Vector3(1.02, 1.0, 0.98) };
+  const sharedShadowTint = { value: new THREE.Vector3(0.82, 0.88, 0.95) };
 
   const glslHelpers = `
     uniform float uTime;
@@ -852,6 +897,11 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
     uniform sampler2D uZoneColorMap;
     uniform sampler2D uZoneIdMap;
     uniform float uZoneActive;
+    uniform sampler2D uCityLightMap;
+    uniform float uDarkness;
+    uniform vec3 uSunDir;
+    uniform vec3 uSunTint;
+    uniform vec3 uShadowTint;
     varying vec3 vLandWorldPos;
     varying vec3 vLandWorldNormal;
 
@@ -895,12 +945,165 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
       return texture2D(uZoneIdMap, (clamped + 0.5) / uGridSize);
     }
 
+    vec4 sampleCityLightSmooth(vec2 gridPos) {
+      vec2 clamped = clamp(gridPos, vec2(0.5), vec2(uGridSize - 0.5));
+      return texture2D(uCityLightMap, clamped / uGridSize);
+    }
+
     float decodeHeight(vec4 t) {
       return floor(t.g * 255.0 / 20.0 + 0.5);
     }
 
     float decodeTerrain(vec4 t) {
       return floor(t.r * 255.0 / 8.0 + 0.5);
+    }
+
+    vec3 computeCityNightGlow(
+      vec2 pixPos,
+      vec2 tileCoord,
+      vec2 subUv,
+      float myCode,
+      float tTime,
+      float epochVal,
+      float darknessVal
+    ) {
+      if (darknessVal <= 0.03) return vec3(0.0);
+      vec4 cl = sampleCityLightSmooth(pixPos);
+      float bldHeat = cl.r;
+      float roadHeat = cl.g;
+      float specCode = cl.b;
+      float centerFlag = cl.a;
+
+      if (bldHeat < 0.02 && roadHeat < 0.02 && abs(myCode - 9.0) > 0.5 && abs(myCode - 14.0) > 0.5 && abs(myCode - 21.0) > 0.5) {
+        return vec3(0.0);
+      }
+
+      float nightStrength = pow(clamp(darknessVal, 0.0, 1.0), 0.78);
+      float tileHash = landHash12(tileCoord);
+      bool isElfSpec = specCode > 0.45 && specCode < 0.78;
+      bool isOrcSpec = specCode >= 0.78;
+
+      // Pixel-stepped radial falloff for crisp pixel-art light pools
+      float steppedBld = floor(bldHeat * 5.0 + 0.35) / 5.0;
+      float steppedRoad = floor(roadHeat * 4.0 + 0.3) / 4.0;
+
+      if (epochVal < 0.5) {
+        // PREHISTORIC / STONE AGE: Flickering warm campfires, hearth bonfires & wooden fire-torches
+        float flicker = 0.82 + 0.18 * sin(tTime * 13.0 + tileHash * 6.2831) * cos(tTime * 19.0 + tileCoord.x);
+        vec3 fireCore = isElfSpec
+          ? landSrgb(82.0, 242.0, 200.0)
+          : isOrcSpec
+            ? landSrgb(255.0, 72.0, 20.0)
+            : landSrgb(255.0, 183.0, 3.0);
+        vec3 fireOuter = isElfSpec
+          ? landSrgb(32.0, 168.0, 140.0)
+          : isOrcSpec
+            ? landSrgb(198.0, 38.0, 12.0)
+            : landSrgb(245.0, 110.0, 22.0);
+        // Sub-tile flickering ember hearth spot near hut/bonfire center
+        float distCenter = length(subUv - vec2(0.5));
+        float hearthSpot = centerFlag > 0.4 ? smoothstep(0.46, 0.08, distCenter) : 0.0;
+        float pool = clamp(steppedBld * 0.95 + steppedRoad * 0.45 + hearthSpot * 0.65, 0.0, 1.35) * flicker;
+        vec3 fireCol = mix(fireOuter, fireCore, clamp(bldHeat * 0.75 + hearthSpot * 0.6, 0.0, 1.0));
+        return fireCol * pool * nightStrength * 0.88;
+      } else if (epochVal < 2.5) {
+        // BRONZE & MEDIEVAL AGES: Flaming iron braziers, wall torches, lantern posts & candlelit windows
+        float torchFlicker = 0.88 + 0.12 * sin(tTime * 9.5 + tileHash * 6.2831);
+        vec3 lanternCore = isElfSpec
+          ? landSrgb(100.0, 245.0, 214.0)
+          : isOrcSpec
+            ? landSrgb(255.0, 94.0, 36.0)
+            : landSrgb(255.0, 204.0, 84.0);
+        vec3 lanternWarm = isElfSpec
+          ? landSrgb(46.0, 196.0, 182.0)
+          : isOrcSpec
+            ? landSrgb(214.0, 52.0, 18.0)
+            : landSrgb(242.0, 138.0, 36.0);
+        float streetSpot = 0.0;
+        if (abs(myCode - 9.0) < 0.5) {
+          float dCornerA = length(subUv - vec2(0.22, 0.22));
+          float dCornerB = length(subUv - vec2(0.78, 0.78));
+          streetSpot = max(smoothstep(0.42, 0.06, dCornerA), smoothstep(0.42, 0.06, dCornerB)) * 0.85;
+        }
+        float pool = clamp(steppedBld * 0.92 + steppedRoad * 0.55 + streetSpot, 0.0, 1.4) * torchFlicker;
+        vec3 col = mix(lanternWarm, lanternCore, clamp(bldHeat * 0.6 + streetSpot * 0.7, 0.0, 1.0));
+        return col * pool * nightStrength * 0.90;
+      } else if (epochVal < 3.5) {
+        // INDUSTRIAL AGE: Cast-iron Victorian gaslight lampposts along streets, railway lamps & foundry furnace glow
+        float gasHum = 0.95 + 0.05 * sin(tTime * 7.0 + tileHash * 6.2831);
+        vec3 gasGold = isElfSpec
+          ? landSrgb(114.0, 239.0, 221.0)
+          : isOrcSpec
+            ? landSrgb(255.0, 118.0, 44.0)
+            : landSrgb(255.0, 214.0, 102.0);
+        vec3 gasAmber = isElfSpec
+          ? landSrgb(64.0, 192.0, 178.0)
+          : isOrcSpec
+            ? landSrgb(218.0, 62.0, 24.0)
+            : landSrgb(245.0, 158.0, 42.0);
+        float lampPool = 0.0;
+        if (abs(myCode - 9.0) < 0.5 || abs(myCode - 14.0) < 0.5) {
+          float dLamp1 = length(subUv - vec2(0.18, 0.25));
+          float dLamp2 = length(subUv - vec2(0.82, 0.75));
+          lampPool = max(smoothstep(0.45, 0.05, dLamp1), smoothstep(0.45, 0.05, dLamp2)) * 0.95;
+        }
+        float pool = clamp(steppedBld * 0.95 + steppedRoad * 0.62 + lampPool, 0.0, 1.45) * gasHum;
+        vec3 col = mix(gasAmber, gasGold, clamp(lampPool * 0.8 + bldHeat * 0.5, 0.0, 1.0));
+        return col * pool * nightStrength * 0.94;
+      } else if (epochVal < 5.5) {
+        // MODERN / ATOMIC & INFORMATION AGES: Bright sodium/LED streetlamps, lit highway lanes, skyscraper block glow & neon
+        bool isInfo = epochVal >= 4.5;
+        vec3 streetCol = isElfSpec
+          ? landSrgb(128.0, 255.0, 230.0)
+          : isOrcSpec
+            ? landSrgb(255.0, 136.0, 56.0)
+            : isInfo
+              ? landSrgb(224.0, 242.0, 254.0)
+              : landSrgb(255.0, 232.0, 156.0);
+        vec3 cityBlockCol = isElfSpec
+          ? landSrgb(72.0, 202.0, 228.0)
+          : isOrcSpec
+            ? landSrgb(255.0, 84.0, 33.0)
+            : isInfo
+              ? mix(landSrgb(255.0, 214.0, 120.0), landSrgb(86.0, 207.0, 225.0), step(0.5, tileHash))
+              : landSrgb(255.0, 198.0, 92.0);
+        float streetCone = 0.0;
+        if (abs(myCode - 9.0) < 0.5) {
+          float dL1 = length(subUv - vec2(0.20, 0.22));
+          float dL2 = length(subUv - vec2(0.80, 0.78));
+          streetCone = max(smoothstep(0.48, 0.04, dL1), smoothstep(0.48, 0.04, dL2));
+        } else if (abs(myCode - 21.0) < 0.5) {
+          // Runway centerline & edge night lighting
+          float across = min(abs(subUv.x - 0.5), abs(subUv.y - 0.5));
+          streetCone = step(across, 0.05) * 0.85 + step(abs(across - 0.36), 0.04) * 0.95;
+        }
+        float pool = clamp(steppedBld * 1.05 + steppedRoad * 0.68 + streetCone * 0.95, 0.0, 1.55);
+        vec3 col = mix(cityBlockCol, streetCol, clamp(streetCone * 0.75 + steppedRoad * 0.35, 0.0, 1.0));
+        return col * pool * nightStrength * 0.98;
+      } else {
+        // ORBITAL & INTERSTELLAR AGES: Bioluminescent arcology grids, cyan/gold plasma conduits & star-city halos
+        float pulse = 0.92 + 0.08 * sin(tTime * 3.4 + (tileCoord.x + tileCoord.y) * 0.5);
+        vec3 neonPrimary = isElfSpec
+          ? landSrgb(82.0, 242.0, 200.0)
+          : isOrcSpec
+            ? landSrgb(255.0, 84.0, 33.0)
+            : landSrgb(86.0, 207.0, 225.0);
+        vec3 neonAccent = isElfSpec
+          ? landSrgb(255.0, 218.0, 118.0)
+          : isOrcSpec
+            ? landSrgb(255.0, 183.0, 3.0)
+            : landSrgb(255.0, 214.0, 102.0);
+        float gridLine = 0.0;
+        if (abs(myCode - 9.0) < 0.5 || abs(myCode - 14.0) < 0.5) {
+          gridLine = 0.85;
+        } else if (bldHeat > 0.25) {
+          float borderRim = max(step(0.88, abs(subUv.x - 0.5) * 2.0), step(0.88, abs(subUv.y - 0.5) * 2.0));
+          gridLine = borderRim * 0.45;
+        }
+        float pool = clamp(steppedBld * 1.08 + steppedRoad * 0.75 + gridLine * 0.65, 0.0, 1.6) * pulse;
+        vec3 col = mix(neonPrimary, neonAccent, clamp(centerFlag * 0.55 + gridLine * 0.4, 0.0, 1.0));
+        return col * pool * nightStrength;
+      }
     }
 
     vec3 computeBiomeColor(float code, vec2 pixPos, vec2 chunkPos, vec2 subUv, float tTime, bool isCultivatedFarm) {
@@ -1510,7 +1713,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
     roughness: 0.84,
     metalness: 0.08,
   });
-  cliffMat.customProgramCacheKey = () => 'aeon_cliff_pixel_v5';
+  cliffMat.customProgramCacheKey = () => 'aeon_cliff_pixel_v6';
   cliffMat.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = sharedTime;
     shader.uniforms.uEpoch = sharedEpoch;
@@ -1519,6 +1722,11 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
     shader.uniforms.uZoneColorMap = sharedZoneColorMap;
     shader.uniforms.uZoneIdMap = sharedZoneIdMap;
     shader.uniforms.uZoneActive = sharedZoneActive;
+    shader.uniforms.uCityLightMap = sharedCityLightMap;
+    shader.uniforms.uDarkness = sharedDarkness;
+    shader.uniforms.uSunDir = sharedSunDir;
+    shader.uniforms.uSunTint = sharedSunTint;
+    shader.uniforms.uShadowTint = sharedShadowTint;
     patchVertexShader(shader);
 
     shader.fragmentShader =
@@ -1575,9 +1783,10 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
           cliffCol = mix(cliffCol, landSrgb(245.0, 98.0, 28.0), emberVein * 0.75);
         }
 
-        // Directional side shade: cooler on west/north-facing walls, slightly brighter sun-kissed east/south cliffs
-        float sunSide = clamp(dot(vLandWorldNormal, normalize(vec3(0.7, 0.2, 0.5))) * 0.5 + 0.5, 0.0, 1.0);
-        cliffCol *= mix(0.82, 1.12, sunSide);
+        // Dynamic time-of-day directional cliff face shading (east sunrise vs west sunset vs indigo midnight)
+        float sunSide = clamp(dot(vLandWorldNormal, normalize(uSunDir)) * 0.5 + 0.5, 0.0, 1.0);
+        vec3 todCliffGrade = mix(uShadowTint * 0.78, uSunTint * 1.14, sunSide);
+        cliffCol *= todCliffGrade;
 
         // Darken submerged base slightly like damp shoreline rock
         if (vLandWorldPos.y < 0.48) {
@@ -1589,6 +1798,18 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
       .replace(
         '#include <dithering_fragment>',
         `#include <dithering_fragment>
+        if (uDarkness > 0.03) {
+          vec3 cliffNightGlow = computeCityNightGlow(
+            cliffOwnerCoord + vec2(0.5),
+            cliffOwnerCoord,
+            vec2(0.5),
+            ownerCode,
+            uTime,
+            uEpoch,
+            uDarkness
+          );
+          gl_FragColor.rgb += cliffNightGlow * 0.45;
+        }
         if (uZoneActive > 0.5) {
           vec4 zCol = sampleLandZoneColor(cliffOwnerCoord);
           vec4 zId = sampleLandZoneId(cliffOwnerCoord);
@@ -1623,7 +1844,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
       roughness,
       metalness,
     });
-    topMat.customProgramCacheKey = () => 'aeon_land_top_pixel_v9';
+    topMat.customProgramCacheKey = () => 'aeon_land_top_pixel_v10';
     topMat.onBeforeCompile = (shader) => {
       shader.uniforms.uTime = sharedTime;
       shader.uniforms.uEpoch = sharedEpoch;
@@ -1632,6 +1853,11 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
       shader.uniforms.uZoneColorMap = sharedZoneColorMap;
       shader.uniforms.uZoneIdMap = sharedZoneIdMap;
       shader.uniforms.uZoneActive = sharedZoneActive;
+      shader.uniforms.uCityLightMap = sharedCityLightMap;
+      shader.uniforms.uDarkness = sharedDarkness;
+      shader.uniforms.uSunDir = sharedSunDir;
+      shader.uniforms.uSunTint = sharedSunTint;
+      shader.uniforms.uShadowTint = sharedShadowTint;
       shader.uniforms.uDefaultCode = { value: tCode };
       patchVertexShader(shader);
 
@@ -1807,31 +2033,70 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
             }
           }
 
-          // 3. Isometric Pixel-Art Cliff Edge Rim Highlight (facing lower step, with circular corner rounding)
+          // 3. Isometric Pixel-Art Cliff Edge Rim Highlight (directional sun-kissed rim)
           float lowerEdge = 2.0;
-          if (hS < myHeight) lowerEdge = min(lowerEdge, 1.0 - subUv.y);
-          if (hE < myHeight) lowerEdge = min(lowerEdge, 1.0 - subUv.x);
-          if (hN < myHeight) lowerEdge = min(lowerEdge, subUv.y);
-          if (hW < myHeight) lowerEdge = min(lowerEdge, subUv.x);
+          vec2 rimNormal = vec2(0.0);
+          if (hS < myHeight && (1.0 - subUv.y) < lowerEdge) { lowerEdge = 1.0 - subUv.y; rimNormal = vec2(0.0, 1.0); }
+          if (hE < myHeight && (1.0 - subUv.x) < lowerEdge) { lowerEdge = 1.0 - subUv.x; rimNormal = vec2(1.0, 0.0); }
+          if (hN < myHeight && subUv.y < lowerEdge) { lowerEdge = subUv.y; rimNormal = vec2(0.0, -1.0); }
+          if (hW < myHeight && subUv.x < lowerEdge) { lowerEdge = subUv.x; rimNormal = vec2(-1.0, 0.0); }
           if (lowerEdge < 0.12) {
-            col *= (abs(myCode - 10.0) < 0.5 || abs(myCode - 12.0) < 0.5 || abs(myCode - 16.0) < 0.5) ? 1.26 : 1.18;
+            float sunRimAlign = clamp(dot(rimNormal, normalize(uSunDir.xz + vec2(0.0001))) * 0.5 + 0.5, 0.0, 1.0);
+            float rimBoost = (abs(myCode - 10.0) < 0.5 || abs(myCode - 12.0) < 0.5 || abs(myCode - 16.0) < 0.5) ? 1.26 : 1.18;
+            col *= mix(vec3(1.02), uSunTint * rimBoost, 0.45 + 0.55 * sunRimAlign);
           }
 
-          // 4. Crisp Terrace / Crater Bowl Base Ambient Occlusion Shadow (adjacent to taller step)
+          // 4. Directional Terrace Cast Shadow & Base Ambient Occlusion (longer at low-angle Dawn & Dusk!)
+          float lowAngleReach = mix(0.24, 0.48, clamp(1.0 - uSunDir.y, 0.0, 1.0));
+          float shadowMask = 0.0;
+          if (hE > myHeight && uSunDir.x > 0.1 && (1.0 - subUv.x) < lowAngleReach) {
+            shadowMask = max(shadowMask, 1.0 - (1.0 - subUv.x) / lowAngleReach);
+          }
+          if (hW > myHeight && uSunDir.x < -0.1 && subUv.x < lowAngleReach) {
+            shadowMask = max(shadowMask, 1.0 - subUv.x / lowAngleReach);
+          }
+          if (hS > myHeight && uSunDir.z > 0.1 && (1.0 - subUv.y) < lowAngleReach) {
+            shadowMask = max(shadowMask, 1.0 - (1.0 - subUv.y) / lowAngleReach);
+          }
+          if (hN > myHeight && uSunDir.z < -0.1 && subUv.y < lowAngleReach) {
+            shadowMask = max(shadowMask, 1.0 - subUv.y / lowAngleReach);
+          }
+
           float higherEdge = 2.0;
           if (hN > myHeight) higherEdge = min(higherEdge, subUv.y);
           if (hW > myHeight) higherEdge = min(higherEdge, subUv.x);
           if (hS > myHeight) higherEdge = min(higherEdge, 1.0 - subUv.y);
           if (hE > myHeight) higherEdge = min(higherEdge, 1.0 - subUv.x);
           if (higherEdge < 0.22) {
-            col *= mix(0.62, 1.0, smoothstep(0.0, 0.22, higherEdge));
+            shadowMask = max(shadowMask, (1.0 - smoothstep(0.0, 0.22, higherEdge)) * 0.75);
           }
+          if (shadowMask > 0.01) {
+            col *= mix(vec3(1.0), uShadowTint * 0.62, clamp(shadowMask, 0.0, 1.0));
+          }
+
+          // 4b. Atmospheric Time-of-Day Color Grading across all terrain biomes (Dawn rose-gold, Dusk amber-violet, Night/Midnight deep indigo)
+          float slopeSun = clamp(((hW - hE) * uSunDir.x + (hN - hS) * uSunDir.z) * 0.35 + 0.5, 0.0, 1.0);
+          vec3 todBiomeGrade = mix(uShadowTint, uSunTint, mix(0.68, 0.34, uDarkness) * (0.65 + 0.35 * slopeSun));
+          col *= todBiomeGrade;
 
           diffuseColor.rgb = col;`,
         )
         .replace(
           '#include <dithering_fragment>',
           `#include <dithering_fragment>
+          // 4c. Post-Lighting Age-Dependent City & Road Nighttime Illumination Pools
+          if (uDarkness > 0.03) {
+            vec3 nightCityGlow = computeCityNightGlow(
+              pixPos,
+              tileCoord,
+              subUv,
+              myCode,
+              uTime,
+              uEpoch,
+              uDarkness
+            );
+            gl_FragColor.rgb += nightCityGlow * 0.62;
+          }
           // 5. Post-Lighting Bold Contoured Zone Overlay (Kingdoms, Animal Territories, Biomes, Temperatures)
           if (uZoneActive > 0.5) {
             vec4 zCol = sampleLandZoneColor(tileCoord);
@@ -1902,7 +2167,13 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
     terrainMaterialMap.set(tType, [cliffMat, cliffMat, topMat, cliffMat, cliffMat, cliffMat]);
   }
 
-  const updateMap = (tiles: TileData[]) => {
+  const updateMap = (
+    tiles: TileData[],
+    buildings?: BuildingEntity[],
+    settlementSpecies?: Record<string, SpeciesId>,
+  ) => {
+    cityLightBytes.fill(0);
+
     for (let i = 0; i < tiles.length; i++) {
       const t = tiles[i];
       const idx = i * 4;
@@ -1911,8 +2182,70 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
       data[idx + 1] = Math.min(255, t.height * 20);
       data[idx + 2] = Math.abs(((t.x * 73856093) ^ (t.z * 19349663)) | 0) & 255;
       data[idx + 3] = t.farmSettlementId ? 255 : 0;
+
+      if (t.height > 0 && (t.terrain === 'stone_road' || t.terrain === 'rail_track' || t.terrain === 'runway')) {
+        cityLightBytes[idx + 1] = Math.max(cityLightBytes[idx + 1], 240);
+        cityLightBytes[idx + 2] = 64;
+        for (let dz = -1; dz <= 1; dz++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            if (dx === 0 && dz === 0) continue;
+            const nx = t.x + dx;
+            const nz = t.z + dz;
+            if (nx < 0 || nz < 0 || nx >= gridSize || nz >= gridSize) continue;
+            const nIdx = (nz * gridSize + nx) * 4;
+            const spill = Math.abs(dx) + Math.abs(dz) === 1 ? 135 : 75;
+            if (spill > cityLightBytes[nIdx + 1]) {
+              cityLightBytes[nIdx + 1] = spill;
+            }
+            if (cityLightBytes[nIdx + 2] === 0) cityLightBytes[nIdx + 2] = 64;
+          }
+        }
+      }
     }
+
+    if (buildings && buildings.length > 0) {
+      for (let bi = 0; bi < buildings.length; bi++) {
+        const b = buildings[bi];
+        const bSpec =
+          b.species ??
+          (b.settlementId && settlementSpecies ? settlementSpecies[b.settlementId] : undefined) ??
+          'human';
+        const specByte = bSpec === 'elf' ? 160 : bSpec === 'orc' ? 235 : 64;
+        const isMajor =
+          b.type === 'bonfire' ||
+          b.type === 'ziggurat' ||
+          b.type === 'guildhall' ||
+          b.type === 'airport' ||
+          b.type === 'launch_arcology' ||
+          b.type === 'dyson_spire' ||
+          b.type === 'fission_reactor';
+        const radius = isMajor ? 4 : 3;
+
+        for (let dz = -radius; dz <= radius; dz++) {
+          for (let dx = -radius; dx <= radius; dx++) {
+            const nx = b.tileX + dx;
+            const nz = b.tileZ + dz;
+            if (nx < 0 || nz < 0 || nx >= gridSize || nz >= gridSize) continue;
+            const dist = Math.hypot(dx, dz);
+            if (dist > radius + 0.25) continue;
+            const falloff = Math.max(0, 1 - dist / (radius + 0.35));
+            const heatByte = Math.min(255, Math.round(Math.pow(falloff, 0.85) * 255));
+            const cIdx = (nz * gridSize + nx) * 4;
+            if (heatByte > cityLightBytes[cIdx]) {
+              cityLightBytes[cIdx] = heatByte;
+              cityLightBytes[cIdx + 2] = specByte;
+            }
+            if (dx === 0 && dz === 0) {
+              cityLightBytes[cIdx + 3] = 255;
+              cityLightBytes[cIdx + 2] = specByte;
+            }
+          }
+        }
+      }
+    }
+
     landMapTex.needsUpdate = true;
+    cityLightTex.needsUpdate = true;
   };
 
   const updateZones = (colorData: Uint8Array, idData: Uint8Array, anyActive: boolean) => {
@@ -1925,9 +2258,34 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
     }
   };
 
-  const updateFrame = (elapsed: number, epochIndex = 0) => {
+  const _targetSunDir = new THREE.Vector3();
+  const _targetSunTint = new THREE.Vector3();
+  const _targetShadowTint = new THREE.Vector3();
+
+  const updateFrame = (
+    elapsed: number,
+    epochIndex = 0,
+    preset: LightingPreset = 'noon',
+    cyclePhase01 = 0,
+  ) => {
     sharedTime.value = elapsed;
     sharedEpoch.value = epochIndex;
+
+    const tod = getTimeOfDayLightingState(preset, cyclePhase01);
+    sharedDarkness.value += (tod.darkness - sharedDarkness.value) * 0.08;
+
+    _targetSunDir.set(tod.keyOffset[0], tod.keyOffset[1], tod.keyOffset[2]).normalize();
+    sharedSunDir.value.lerp(_targetSunDir, 0.08).normalize();
+
+    _targetSunTint.set(tod.terrainSunTint[0], tod.terrainSunTint[1], tod.terrainSunTint[2]);
+    sharedSunTint.value.lerp(_targetSunTint, 0.08);
+
+    _targetShadowTint.set(
+      tod.terrainShadowTint[0],
+      tod.terrainShadowTint[1],
+      tod.terrainShadowTint[2],
+    );
+    sharedShadowTint.value.lerp(_targetShadowTint, 0.08);
   };
 
   const getMaterials = (terrain: TerrainType) =>
@@ -1938,6 +2296,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
     landMapTex.dispose();
     zoneColorTex.dispose();
     zoneIdTex.dispose();
+    cityLightTex.dispose();
   };
 
   return { getMaterials, updateMap, updateZones, updateFrame, dispose };
@@ -2378,7 +2737,10 @@ export function createPixelSpaceSystem(initialSeed: number): PixelSpaceSystem {
     uniforms.uFrustumSize.value = frustumSize;
 
     let targetStrength = 0.92;
-    if (preset === 'night') {
+    if (preset === 'midnight') {
+      _targetTint.set('#02040a');
+      targetStrength = 1.16;
+    } else if (preset === 'night') {
       _targetTint.set('#050712');
       targetStrength = 1.08;
     } else if (preset === 'dusk') {
@@ -2517,7 +2879,11 @@ export function createWorldUnderglowSystem(gridSize: number): WorldUnderglowSyst
     uniforms.uPixelStep.value = pixelScale <= 1 ? 2.0 : 1.0;
 
     let targetIntensity = 0.42;
-    if (preset === 'night') {
+    if (preset === 'midnight') {
+      _innerTarget.set('#4368b8');
+      _outerTarget.set('#1a1647');
+      targetIntensity = 0.56;
+    } else if (preset === 'night') {
       _innerTarget.set('#56cfe1');
       _outerTarget.set('#3a358c');
       targetIntensity = 0.52;

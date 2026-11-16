@@ -44,6 +44,7 @@ import {
   ZoneToggleState,
 } from './game/types';
 import { loadGraphicsSettings, saveGraphicsSettings } from './game/graphics';
+import { SIMULATION_SPEED_OPTIONS, clampSimulationSpeed } from './game/dayNightLighting';
 import {
   DEFAULT_ZONE_TOGGLES,
   buildZoneOverlayTextures,
@@ -1734,12 +1735,12 @@ export default function App() {
               className="pointer-events-auto px-panel px-1.5 sm:px-2 py-1 sm:py-1.5 flex flex-wrap items-center justify-between sm:justify-start gap-1 w-full sm:w-auto max-w-full order-3"
             >
               <div className="flex items-center gap-0.5 sm:gap-1">
-                {[0, 0.5, 1, 2, 5, 10].map((scale) => (
+                {SIMULATION_SPEED_OPTIONS.map((scale) => (
                   <button
                     key={scale}
                     type="button"
                     onClick={() => {
-                      setTimeScale(scale);
+                      setTimeScale(clampSimulationSpeed(scale));
                       soundEngine.playClick();
                     }}
                     title={
@@ -2481,9 +2482,9 @@ export default function App() {
                     </div>
 
                     <div className="flex flex-wrap items-center justify-center gap-3 text-xs">
-                      <div className="flex items-center gap-1">
+                      <div className="flex flex-wrap items-center gap-1">
                         <span className="text-[#a89f91]">Sky</span>
-                        {(['auto', 'noon', 'dusk', 'night', 'dawn'] as LightingPreset[]).map((lp) => {
+                        {(['auto', 'dawn', 'noon', 'dusk', 'night', 'midnight'] as LightingPreset[]).map((lp) => {
                           const isSkyActive =
                             lp === 'auto'
                               ? lightingPreset === 'auto' || Boolean(sim.worldRules?.dayNightCycle)

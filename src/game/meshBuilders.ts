@@ -1320,8 +1320,65 @@ function getBuildingMaterials(): Record<string, THREE.MeshStandardMaterial> {
       emissiveIntensity: 0.95,
       roughness: 0.18,
     }),
+    windowWarmMat: new THREE.MeshStandardMaterial({
+      color: 0x3b2d22,
+      emissive: 0xffa62b,
+      emissiveIntensity: 0.05,
+      roughness: 0.25,
+    }),
+    windowModernWarmMat: new THREE.MeshStandardMaterial({
+      color: 0x334155,
+      emissive: 0xffd166,
+      emissiveIntensity: 0.08,
+      roughness: 0.2,
+    }),
+    windowModernCoolMat: new THREE.MeshStandardMaterial({
+      color: 0x334155,
+      emissive: 0x56cfe1,
+      emissiveIntensity: 0.08,
+      roughness: 0.2,
+    }),
+    beaconRedMat: new THREE.MeshStandardMaterial({
+      color: 0xef4444,
+      emissive: 0xff2a2a,
+      emissiveIntensity: 0.35,
+      roughness: 0.2,
+    }),
   };
   return sharedBuildingMats;
+}
+
+export function updateBuildingNightMaterials(darkness: number, elapsed: number): void {
+  const M = getBuildingMaterials();
+  const d = THREE.MathUtils.clamp(darkness, 0, 1);
+  const nightSmooth = d * d * (3 - 2 * d);
+  const flicker =
+    1 +
+    (Math.sin(elapsed * 11.3) * 0.12 +
+      Math.cos(elapsed * 17.9 + 1.4) * 0.08 +
+      Math.sin(elapsed * 27.1 + 0.6) * 0.05) *
+      (0.35 + 0.65 * nightSmooth);
+
+  // Warm cottage / lantern / gaslight / tenement windows
+  M.windowWarmMat.color.setHex(nightSmooth > 0.2 ? 0xffcb69 : 0x3b2d22);
+  M.windowWarmMat.emissiveIntensity = (0.04 + nightSmooth * 2.15) * (0.94 + 0.06 * flicker);
+
+  // Modern & Information Age skyscraper & apartment windows
+  M.windowModernWarmMat.color.setHex(nightSmooth > 0.2 ? 0xffe194 : 0x334155);
+  M.windowModernWarmMat.emissiveIntensity = 0.08 + nightSmooth * 2.35;
+
+  M.windowModernCoolMat.color.setHex(nightSmooth > 0.2 ? 0x90e0ef : 0x334155);
+  M.windowModernCoolMat.emissiveIntensity = 0.08 + nightSmooth * 2.25;
+
+  // Pulsing red rooftop aviation warning beacons
+  const beaconPulse = 0.5 + 0.5 * Math.sin(elapsed * 4.2);
+  M.beaconRedMat.emissiveIntensity = 0.25 + nightSmooth * (0.9 + beaconPulse * 2.2);
+
+  // Campfires, braziers, furnaces, and racial magical/magma/neon glows intensify at dark hours
+  M.flameMat.emissiveIntensity = (0.95 + nightSmooth * 1.85) * flicker;
+  M.glowCyanMat.emissiveIntensity = 0.85 + nightSmooth * 1.45;
+  M.elfAquaGlowMat.emissiveIntensity = 0.9 + nightSmooth * 1.55;
+  M.orcMagmaGlowMat.emissiveIntensity = (0.95 + nightSmooth * 1.65) * (0.92 + 0.08 * flicker);
 }
 
 export function createBuildingGroup(
@@ -1382,6 +1439,10 @@ export function createBuildingGroup(
     orcGunmetalMat,
     orcBoneMat,
     orcMagmaGlowMat,
+    windowWarmMat,
+    windowModernWarmMat,
+    windowModernCoolMat,
+    beaconRedMat,
   } = M;
 
   const isElf = species === 'elf';
@@ -1390,6 +1451,31 @@ export function createBuildingGroup(
   const raceTechWallMat = isElf ? elfPearlTechMat : isOrc ? orcGunmetalMat : techMat;
   const raceTechTrimMat = isElf ? elfJadeRoofMat : isOrc ? orcIronMat : darkTechMat;
   const raceAccentMat = isElf ? goldMat : isOrc ? orcCrimsonMat : goldMat;
+
+  // Helper: Prehistoric outdoor stone-ring campfire with crossed logs & flickering flame
+  const addPrehistoricCampfire = (cx: number, cz: number, fireMat: THREE.Material = flameMat) => {
+    for (let s = 0; s < 6; s++) {
+      const a = (s / 6) * Math.PI * 2;
+      const stone = new THREE.Mesh(
+        new THREE.BoxGeometry(0.055, 0.04, 0.055),
+        isOrc ? orcBasaltMat : isElf ? elfMossStoneMat : stoneMat,
+      );
+      stone.position.set(cx + Math.cos(a) * 0.095, 0.025, cz + Math.sin(a) * 0.095);
+      group.add(stone);
+    }
+    const log1 = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.032, 0.035), stickWoodMat);
+    log1.position.set(cx, 0.032, cz);
+    log1.rotation.y = 0.55;
+    group.add(log1);
+    const log2 = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.032, 0.035), stickWoodMat);
+    log2.position.set(cx, 0.038, cz);
+    log2.rotation.y = -0.65;
+    group.add(log2);
+    const emberCore = new THREE.Mesh(new THREE.ConeGeometry(0.065, 0.14, 5), fireMat);
+    emberCore.position.set(cx, 0.095, cz);
+    emberCore.name = 'flicker_flame';
+    group.add(emberCore);
+  };
 
   // Helper: Builds a multi-layer stair-stepped voxel pitched gable roof with solid stepped gable walls
   const addSteppedGableRoof = (
@@ -1476,7 +1562,16 @@ export function createBuildingGroup(
       }
     }
 
-    const windowMat = epochIndex >= 6 ? raceGlowMat : isOrc ? orcMagmaGlowMat : doorDarkMat;
+    const windowMat =
+      epochIndex >= 6
+        ? raceGlowMat
+        : isOrc
+          ? orcMagmaGlowMat
+          : isElf
+            ? elfAquaGlowMat
+            : epochIndex >= 4
+              ? windowModernWarmMat
+              : windowWarmMat;
     const door = new THREE.Mesh(
       new THREE.BoxGeometry(0.11, 0.19, 0.03),
       epochIndex >= 6 ? raceGlowMat : doorDarkMat,
@@ -1484,13 +1579,29 @@ export function createBuildingGroup(
     door.position.set(cx - w * 0.12, 0.145, cz + d * 0.5 + 0.008);
     group.add(door);
 
-    const winFront = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.09, 0.03), windowMat);
+    // Warm porch/doorway lantern or torch sconce beside the entrance
+    const porchLantern = new THREE.Mesh(
+      new THREE.BoxGeometry(0.042, 0.058, 0.042),
+      epochIndex >= 6 ? raceGlowMat : isOrc ? orcMagmaGlowMat : isElf ? elfAquaGlowMat : flameMat,
+    );
+    porchLantern.position.set(cx - w * 0.28, 0.22, cz + d * 0.5 + 0.02);
+    group.add(porchLantern);
+
+    const winFront = new THREE.Mesh(new THREE.BoxGeometry(0.095, 0.095, 0.03), windowMat);
     winFront.position.set(cx + w * 0.2, 0.22, cz + d * 0.5 + 0.008);
     group.add(winFront);
 
-    const winSide = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.09, 0.09), windowMat);
-    winSide.position.set(cx + w * 0.5 + 0.008, 0.22, cz);
-    group.add(winSide);
+    const winBack = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.095, 0.03), windowMat);
+    winBack.position.set(cx + w * 0.14, 0.22, cz - d * 0.5 - 0.008);
+    group.add(winBack);
+
+    const winSideR = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.095, 0.095), windowMat);
+    winSideR.position.set(cx + w * 0.5 + 0.008, 0.22, cz);
+    group.add(winSideR);
+
+    const winSideL = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.095, 0.095), windowMat);
+    winSideL.position.set(cx - w * 0.5 - 0.008, 0.22, cz);
+    group.add(winSideL);
 
     const eaveW = ridgeAlongZ ? w + 0.12 : w + 0.08;
     const eaveD = ridgeAlongZ ? d + 0.08 : d + 0.12;
@@ -1580,10 +1691,22 @@ export function createBuildingGroup(
         // Luminous arched doorway on front +Z
         const archDoor = new THREE.Mesh(
           new THREE.BoxGeometry(0.11, Math.min(0.22, th * 0.68), 0.04),
-          opts.glowTrim || epochIndex >= 6 ? elfAquaGlowMat : elfHeartwoodMat,
+          opts.glowTrim || epochIndex >= 1 ? elfAquaGlowMat : elfHeartwoodMat,
         );
         archDoor.position.set(cx, curY + Math.min(0.11, th * 0.34), cz + r * 0.96);
         group.add(archDoor);
+      }
+
+      // Luminous sylvan moon-windows on lateral & back faces
+      if (epochIndex >= 1) {
+        for (const sx of [-1, 1]) {
+          const moonWin = new THREE.Mesh(
+            new THREE.BoxGeometry(0.035, Math.min(0.12, th * 0.45), 0.085),
+            elfAquaGlowMat,
+          );
+          moonWin.position.set(cx + sx * r * 0.94, curY + th * 0.54, cz);
+          group.add(moonWin);
+        }
       }
 
       // Flared upturned canopy eaves + tapered leaf cone roof
@@ -1665,7 +1788,7 @@ export function createBuildingGroup(
       group.add(rib);
     }
 
-    // Iron-banded doorway & fiery slit window
+    // Iron-banded doorway & fiery slit windows on front, back, and sides
     const door = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.21, 0.04), doorDarkMat);
     door.position.set(cx, 0.175, cz + d * 0.5 + 0.012);
     group.add(door);
@@ -1673,6 +1796,12 @@ export function createBuildingGroup(
     const slitWin = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.06, 0.035), orcMagmaGlowMat);
     slitWin.position.set(cx, 0.07 + h * 0.72, cz + d * 0.5 + 0.012);
     group.add(slitWin);
+
+    for (const sx of [-1, 1]) {
+      const sideSlit = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.06, 0.14), orcMagmaGlowMat);
+      sideSlit.position.set(cx + sx * (w * 0.5 + 0.012), 0.07 + h * 0.65, cz);
+      group.add(sideSlit);
+    }
 
     // Heavy pitched roof slabs
     addSteppedGableRoof(cx, 0.07 + h, cz, d + 0.12, w + 0.08, 4, 0.075, roofMat, wallMat, false);
@@ -2061,7 +2190,7 @@ export function createBuildingGroup(
     case 'forager_hut': {
       if (isElf) {
         if (epochIndex === 0) {
-          // Elven Ep 0: Leaf-canopy arbor wigwams & elevated woven tree-bower pods
+          // Elven Ep 0: Leaf-canopy arbor wigwams & elevated woven tree-bower pods + glowing campfire
           addElfPagodaPavilion({
             radius: 0.3,
             h: 0.22,
@@ -2069,6 +2198,7 @@ export function createBuildingGroup(
             roofMat: elfLeafRoofMat,
             tiers: 1,
           });
+          addPrehistoricCampfire(0.26, 0.26, flameMat);
         } else if (epochIndex <= 2) {
           // Elven Ep 1-2: Sylvan Ivory-Birch & Jade-Roof Pagoda Villas (4 graceful variants)
           addElfPagodaPavilion({
@@ -2135,7 +2265,7 @@ export function createBuildingGroup(
 
       if (isOrc) {
         if (epochIndex === 0) {
-          // Orc Ep 0: Animal-Hide War Yurts & Tusk-Braced Lean-Tos
+          // Orc Ep 0: Animal-Hide War Yurts & Tusk-Braced Lean-Tos + outdoor stone-ring campfire
           const earth = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.46, 0.06, 7), orcBasaltMat);
           earth.position.y = 0.03;
           group.add(earth);
@@ -2159,6 +2289,7 @@ export function createBuildingGroup(
             tusk.rotation.z = -Math.sign(sx) * 0.4;
             group.add(tusk);
           }
+          addPrehistoricCampfire(0.26, 0.28, orcMagmaGlowMat);
         } else if (epochIndex <= 2) {
           // Orc Ep 1-2: Basalt & Charred-Log Bastion Longhouses with Jutting Tusks
           addOrcBastionHut({
@@ -2199,6 +2330,9 @@ export function createBuildingGroup(
           const crown = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.12, 0.38), orcCrimsonMat);
           crown.position.y = 0.24 + towerH;
           group.add(crown);
+          const beacon = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.05), beaconRedMat);
+          beacon.position.set(0, 0.33 + towerH, 0);
+          group.add(beacon);
         } else {
           // Orc Ep 6+: Gunmetal Armored Siege Pods with Crimson Plasma Vent
           addOrcBastionHut({
@@ -2225,7 +2359,7 @@ export function createBuildingGroup(
 
         if (variant % 2 === 0) {
           addSteppedGableRoof(0, 0.05, 0, 0.62, 0.58, 5, 0.075, thatchMat, mudEarthMat, variant === 0);
-          const door = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.18, 0.04), doorDarkMat);
+          const door = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.18, 0.04), windowWarmMat);
           door.position.set(0, 0.14, 0.3);
           group.add(door);
         } else {
@@ -2233,6 +2367,9 @@ export function createBuildingGroup(
           mudWall.position.y = 0.15;
           mudWall.castShadow = true;
           group.add(mudWall);
+          const doorGlow = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.16, 0.04), windowWarmMat);
+          doorGlow.position.set(0, 0.12, 0.32);
+          group.add(doorGlow);
           for (let s = 0; s < 4; s++) {
             const r = 0.38 - s * 0.08;
             const tier = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.75, r, 0.09, 8), thatchMat);
@@ -2252,6 +2389,8 @@ export function createBuildingGroup(
         rackBar.position.set(0.2, 0.23, 0.29);
         rackBar.rotation.y = -0.35;
         group.add(rackBar);
+        // Outdoor prehistoric stone-ring campfire beside the hut
+        addPrehistoricCampfire(-0.24, 0.28, flameMat);
       } else if (epochIndex <= 2) {
         if (variant === 0) {
           addVoxelCottage({
@@ -2319,11 +2458,11 @@ export function createBuildingGroup(
           ridgeAlongZ: false,
           timberTrim: false,
         });
-        const upperWin = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.08, 0.54), flameMat);
+        const upperWin = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.085, 0.55), windowWarmMat);
         upperWin.position.y = 0.36;
         group.add(upperWin);
       } else if (epochIndex === 4) {
-        // Atomic Age: Multi-story urban concrete apartment mid-rise with rooftop water tower
+        // Atomic Age: Multi-story urban concrete apartment mid-rise with rooftop water tower & lit window bands
         const midH = 0.58 + (variant % 2) * 0.18;
         const base = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.08, 0.6), darkStoneMat);
         base.position.y = 0.04;
@@ -2333,9 +2472,12 @@ export function createBuildingGroup(
         block.castShadow = true;
         block.receiveShadow = true;
         group.add(block);
-        for (let f = 0; f < 2; f++) {
-          const winBand = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.06, 0.56), glowCyanMat);
-          winBand.position.y = 0.24 + f * 0.22;
+        for (let f = 0; f < 3; f++) {
+          const winBand = new THREE.Mesh(
+            new THREE.BoxGeometry(0.62, 0.055, 0.56),
+            f % 2 === 0 ? windowModernWarmMat : windowModernCoolMat,
+          );
+          winBand.position.y = 0.2 + f * 0.17;
           group.add(winBand);
         }
         const roofTrim = new THREE.Mesh(new THREE.BoxGeometry(0.64, 0.06, 0.58), darkStoneMat);
@@ -2344,25 +2486,31 @@ export function createBuildingGroup(
         const waterTank = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.14, 8), woodMat);
         waterTank.position.set(0.16, 0.2 + midH, -0.1);
         group.add(waterTank);
+        const roofBeacon = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.045, 0.045), beaconRedMat);
+        roofBeacon.position.set(-0.18, 0.16 + midH, 0.14);
+        group.add(roofBeacon);
       } else if (epochIndex === 5) {
-        // Information Age: High-Density Glass & Steel Skyscraper (varied skyline heights)
+        // Information Age: High-Density Glass & Steel Skyscraper (varied skyline heights + warm/cyan window grid)
         const towerH = 0.92 + variant * 0.22;
         const lobby = new THREE.Mesh(new THREE.BoxGeometry(0.74, 0.18, 0.68), darkStoneMat);
         lobby.position.y = 0.09;
         lobby.castShadow = true;
         group.add(lobby);
+        const lobbyGlow = new THREE.Mesh(new THREE.BoxGeometry(0.76, 0.06, 0.7), windowModernWarmMat);
+        lobbyGlow.position.y = 0.09;
+        group.add(lobbyGlow);
         const shaft = new THREE.Mesh(new THREE.BoxGeometry(0.56, towerH, 0.52), blueRoofMat);
         shaft.position.y = 0.18 + towerH * 0.5;
         shaft.castShadow = true;
         shaft.receiveShadow = true;
         group.add(shaft);
-        const floors = 3 + (variant % 2);
+        const floors = 4 + (variant % 2);
         for (let f = 0; f < floors; f++) {
           const glassBand = new THREE.Mesh(
-            new THREE.BoxGeometry(0.58, 0.065, 0.54),
-            f % 2 === 0 ? glowCyanMat : concreteMat,
+            new THREE.BoxGeometry(0.58, 0.06, 0.54),
+            (f + variant) % 2 === 0 ? windowModernWarmMat : windowModernCoolMat,
           );
-          glassBand.position.y = 0.3 + f * ((towerH - 0.16) / floors);
+          glassBand.position.y = 0.28 + f * ((towerH - 0.14) / floors);
           group.add(glassBand);
         }
         const crown = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.12, 0.36), techMat);
@@ -2372,6 +2520,13 @@ export function createBuildingGroup(
           const antenna = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.025, 0.32, 6), techMat);
           antenna.position.y = 0.42 + towerH;
           group.add(antenna);
+          const beacon = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.05), beaconRedMat);
+          beacon.position.y = 0.59 + towerH;
+          group.add(beacon);
+        } else {
+          const beacon = new THREE.Mesh(new THREE.BoxGeometry(0.048, 0.048, 0.048), beaconRedMat);
+          beacon.position.y = 0.32 + towerH;
+          group.add(beacon);
         }
       } else {
         // Orbital & Interstellar: Techno-Modern Bio-Dome Habitat
@@ -2810,7 +2965,10 @@ export function createBuildingGroup(
         mainTower.castShadow = true;
         group.add(mainTower);
         for (let f = 0; f < 4; f++) {
-          const band = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.07, 0.54), glowCyanMat);
+          const band = new THREE.Mesh(
+            new THREE.BoxGeometry(0.58, 0.07, 0.54),
+            f % 2 === 0 ? windowModernWarmMat : windowModernCoolMat,
+          );
           band.position.y = 0.4 + f * 0.24;
           group.add(band);
         }
@@ -2820,6 +2978,9 @@ export function createBuildingGroup(
         const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.035, 0.38, 6), techMat);
         mast.position.y = 1.72;
         group.add(mast);
+        const topBeacon = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.055, 0.055), beaconRedMat);
+        topBeacon.position.y = 1.93;
+        group.add(topBeacon);
       } else {
         const base = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.32, 0.64), darkTechMat);
         base.position.y = 0.16;
