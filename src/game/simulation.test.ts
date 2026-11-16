@@ -4090,7 +4090,7 @@ test('Sea Update: localized warm coral reefs stay submerged, scrap_sea has pure 
   }
 });
 
-test('Smooth dynamic pixel scale: 3x when zoomed in down to 2x when fully zoomed out', () => {
+test('Smooth dynamic pixel scale: 3x when zoomed in down to 1.0x when fully zoomed out', () => {
   const gridSize = 128;
   const aspect = 16 / 9;
   const maxZoom = getResponsiveMaxZoomOut(gridSize, aspect);
@@ -4102,17 +4102,17 @@ test('Smooth dynamic pixel scale: 3x when zoomed in down to 2x when fully zoomed
   // When zooming out slightly, scale smoothly glides through 2.98, 2.97, 2.xx
   const s10 = computeDynamicPixelScale(10.0, gridSize, aspect);
   const s12 = computeDynamicPixelScale(12.0, gridSize, aspect);
-  assert.ok(s10 < 3.0 && s10 > 2.97, `s10 was ${s10}`);
-  assert.ok(s12 < s10 && s12 > 2.95, `s12 was ${s12}`);
+  assert.ok(s10 < 3.0 && s10 > 2.95, `s10 was ${s10}`);
+  assert.ok(s12 < s10 && s12 > 2.90, `s12 was ${s12}`);
 
-  // When midway through zoom range
+  // When midway through zoom range (halfway between 3.0 and 1.0 is ~2.0)
   const midFrustum = (8.0 + maxZoom) / 2;
   const sMid = computeDynamicPixelScale(midFrustum, gridSize, aspect);
-  assert.ok(Math.abs(sMid - 2.5) < 0.05, `Midway zoom should be ~2.5, got ${sMid}`);
+  assert.ok(Math.abs(sMid - 2.0) < 0.05, `Midway zoom should be ~2.0, got ${sMid}`);
 
   // When fully zoomed out (frustum >= maxZoom)
-  assert.equal(computeDynamicPixelScale(maxZoom, gridSize, aspect), 2.0);
-  assert.equal(computeDynamicPixelScale(maxZoom + 50, gridSize, aspect), 2.0);
+  assert.equal(computeDynamicPixelScale(maxZoom, gridSize, aspect), 1.0);
+  assert.equal(computeDynamicPixelScale(maxZoom + 50, gridSize, aspect), 1.0);
 
   // Strictly monotonically decreasing as frustum increases (zooming out)
   let prevScale = 3.0;
@@ -4123,7 +4123,7 @@ test('Smooth dynamic pixel scale: 3x when zoomed in down to 2x when fully zoomed
   }
   const finalScale = computeDynamicPixelScale(maxZoom, gridSize, aspect);
   assert.ok(finalScale <= prevScale);
-  assert.equal(finalScale, 2.0);
+  assert.equal(finalScale, 1.0);
 });
 
 
