@@ -268,6 +268,7 @@ export default function App() {
   // Start UI navigation & World Creation Wizard state
   const [titleMenuStep, setTitleMenuStep] = useState<TitleMenuStep>('main');
   const [updateLogCollapsed, setUpdateLogCollapsed] = useState<boolean>(false);
+  const [showTemplatesDropdown, setShowTemplatesDropdown] = useState<boolean>(false);
   const [worldConfig, setWorldConfig] = useState<WorldGenConfig>(() =>
     createWorldConfigFromTemplate('fantastic', {
       seed: simRef.current.seed,
@@ -1135,30 +1136,51 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Templates */}
+              {/* Templates Dropdown (borderless button with title line and directional arrow) */}
               <div>
-                <div className="text-xs text-[#b8afa2] mb-1.5">Template</div>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                  {WORLD_TEMPLATES.map((tpl) => {
-                    const isSelected = worldConfig.template === tpl.id;
-                    return (
-                      <button
-                        key={tpl.id}
-                        type="button"
-                        data-testid={`template-${tpl.id}`}
-                        onClick={() => handleSelectTemplate(tpl.id)}
-                        className={`p-2.5 text-left cursor-pointer ${
-                          isSelected ? 'px-slot-active' : 'px-slot'
-                        }`}
-                      >
-                        <div className="text-xs font-bold text-[#f2ece1]">{tpl.name}</div>
-                        <div className="text-[11px] text-[#9e9486] leading-tight mt-0.5">
-                          {tpl.tagline}
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
+                <button
+                  type="button"
+                  data-testid="templates-dropdown-toggle"
+                  aria-expanded={showTemplatesDropdown}
+                  onClick={() => {
+                    soundEngine.playClick();
+                    setShowTemplatesDropdown((prev) => !prev);
+                  }}
+                  className="w-full flex items-center justify-between py-1 bg-transparent border-0 outline-none text-xs text-[#b8afa2] hover:text-[#f2ece1] cursor-pointer select-none"
+                >
+                  <span>
+                    Templates{' '}
+                    <span className="text-[#f5b742] font-semibold">
+                      ({WORLD_TEMPLATES.find((t) => t.id === worldConfig.template)?.name ?? 'Fantastic'})
+                    </span>
+                  </span>
+                  <span className="text-[11px] text-[#b8afa2] leading-none">
+                    {showTemplatesDropdown ? '▾' : '▸'}
+                  </span>
+                </button>
+                {showTemplatesDropdown && (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-2">
+                    {WORLD_TEMPLATES.map((tpl) => {
+                      const isSelected = worldConfig.template === tpl.id;
+                      return (
+                        <button
+                          key={tpl.id}
+                          type="button"
+                          data-testid={`template-${tpl.id}`}
+                          onClick={() => handleSelectTemplate(tpl.id)}
+                          className={`p-2.5 text-left cursor-pointer ${
+                            isSelected ? 'px-slot-active' : 'px-slot'
+                          }`}
+                        >
+                          <div className="text-xs font-bold text-[#f2ece1]">{tpl.name}</div>
+                          <div className="text-[11px] text-[#9e9486] leading-tight mt-0.5">
+                            {tpl.tagline}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               {/* Map Size Slider */}
@@ -2277,22 +2299,6 @@ export default function App() {
                           </button>
                         );
                       })}
-
-                      {activeZones.alliances && (
-                        <div className="px-slot px-2.5 h-9 flex items-center gap-2.5 text-[10px] text-[#cfc6b8] whitespace-nowrap">
-                          <span className="flex items-center gap-1">
-                            <span className="w-2.5 h-2.5 bg-[#3b82f6] border border-[#0b0a09] inline-block" />
-                            <span>Ally</span>
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <span className="w-2.5 h-2.5 bg-[#ef4444] border border-[#0b0a09] inline-block" />
-                            <span>Enemy</span>
-                          </span>
-                          {!selectedAllianceKingdomId && (
-                            <span className="text-[#ffd166]">Click a kingdom</span>
-                          )}
-                        </div>
-                      )}
 
                       {anyZoneActive && (
                         <button

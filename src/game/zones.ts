@@ -175,31 +175,31 @@ const BIOME_META: Record<
   }
 > = {
   deep_water: {
-    name: 'Abyssal Trench',
+    name: 'Deepseas',
     category: 'Marine',
     color: [30, 64, 175],
     baseTempC: 9,
   },
   shallow_water: {
-    name: 'Coastal Shoals',
+    name: 'Shore',
     category: 'Marine',
     color: [56, 189, 248],
     baseTempC: 16,
   },
   sand: {
-    name: 'Sunlit Dunes',
+    name: 'Dunes',
     category: 'Terrestrial',
     color: [250, 204, 21],
     baseTempC: 27,
   },
   grass: {
-    name: 'Verdant Meadows',
+    name: 'Meadows',
     category: 'Terrestrial',
     color: [74, 222, 128],
     baseTempC: 18,
   },
   fertile: {
-    name: 'Lush Riverland',
+    name: 'Riverlands',
     category: 'Terrestrial',
     color: [132, 204, 22],
     baseTempC: 20,
@@ -211,97 +211,97 @@ const BIOME_META: Record<
     baseTempC: 15,
   },
   jungle: {
-    name: 'Tropical Jungle',
+    name: 'Wildwood',
     category: 'Terrestrial',
     color: [13, 148, 136],
     baseTempC: 28,
   },
   savanna: {
-    name: 'Golden Savanna',
+    name: 'Savanna',
     category: 'Terrestrial',
     color: [234, 179, 8],
     baseTempC: 30,
   },
   swamp: {
-    name: 'Mire Marsh',
+    name: 'Marshlands',
     category: 'Terrestrial',
     color: [101, 163, 13],
     baseTempC: 23,
   },
   highland: {
-    name: 'Windy Hills',
+    name: 'Highlands',
     category: 'Terrestrial',
     color: [168, 162, 158],
     baseTempC: 11,
   },
   mountain: {
-    name: 'Granite Peaks',
+    name: 'Mountains',
     category: 'Terrestrial',
     color: [148, 163, 184],
     baseTempC: 4,
   },
   taiga: {
-    name: 'Boreal Taiga',
+    name: 'Taiga',
     category: 'Terrestrial',
     color: [20, 184, 166],
     baseTempC: 5,
   },
   tundra: {
-    name: 'Frozen Tundra',
+    name: 'Tundra',
     category: 'Terrestrial',
     color: [125, 211, 252],
     baseTempC: -3,
   },
   badlands: {
-    name: 'Red Badlands',
+    name: 'Badlands',
     category: 'Terrestrial',
     color: [234, 88, 12],
     baseTempC: 34,
   },
   blossom: {
-    name: 'Blossom Grove',
+    name: 'Feywild Grove',
     category: 'Terrestrial',
     color: [244, 114, 182],
     baseTempC: 19,
   },
   stone_road: {
-    name: 'Stone Road',
+    name: 'Roads',
     category: 'Civilized',
     color: [214, 211, 209],
     baseTempC: 20,
   },
   rail_track: {
-    name: 'Rail Track',
+    name: 'Railways',
     category: 'Civilized',
     color: [161, 161, 170],
     baseTempC: 21,
   },
   runway: {
-    name: 'Airfield Runway',
+    name: 'Runway',
     category: 'Civilized',
     color: [113, 113, 122],
     baseTempC: 22,
   },
   rock: {
-    name: 'Rocky Crags',
+    name: 'Crags',
     category: 'Terrestrial',
     color: [120, 113, 108],
     baseTempC: 10,
   },
   snow: {
-    name: 'Glacial Snow',
+    name: 'Snowfields',
     category: 'Terrestrial',
     color: [226, 232, 240],
     baseTempC: -11,
   },
   scorched: {
-    name: 'Ashen Waste',
+    name: 'Scorched Lands',
     category: 'Cataclysmic',
     color: [220, 38, 38],
     baseTempC: 42,
   },
   crystal_field: {
-    name: 'Crystal Fields',
+    name: 'Crystal Glade',
     category: 'Cataclysmic',
     color: [232, 121, 249],
     baseTempC: 7,
@@ -320,47 +320,47 @@ const THERMAL_BAND_META: Array<{
   {
     zoneId: 1,
     bandId: 'freezing',
-    name: 'Glacial Freeze',
+    name: 'Freezing',
     rangeLabel: '≤ 0°C (≤ 32°F)',
     color: [96, 165, 250],
     maxThreshold: 0,
-    effectSummary: 'Frostbound tundra & peaks; suppresses wildfires and slows crop growth.',
+    effectSummary: 'Sub-zero tundra and snowfields; stops wildfires and slows crop growth.',
   },
   {
     zoneId: 2,
     bandId: 'cold',
-    name: 'Boreal Chill',
+    name: 'Cold',
     rangeLabel: '1°C – 11°C (34°F – 52°F)',
     color: [56, 189, 248],
     maxThreshold: 11,
-    effectSummary: 'Crisp highland & deep ocean currents; hardy timber and pine habitats.',
+    effectSummary: 'Cool highlands, taiga, and deepseas.',
   },
   {
     zoneId: 3,
     bandId: 'temperate',
-    name: 'Temperate Belt',
+    name: 'Temperate',
     rangeLabel: '12°C – 22°C (54°F – 72°F)',
     color: [74, 222, 128],
     maxThreshold: 22,
-    effectSummary: 'Ideal agricultural & settlement climate; balanced moisture and fauna.',
+    effectSummary: 'Balanced climate suited for settlements, farming, and forests.',
   },
   {
     zoneId: 4,
     bandId: 'warm',
-    name: 'Tropical Warmth',
+    name: 'Warm',
     rangeLabel: '23°C – 31°C (73°F – 88°F)',
     color: [251, 191, 36],
     maxThreshold: 31,
-    effectSummary: 'Lush jungles, savannas & warm lagoons; high biodiversity and dry brush.',
+    effectSummary: 'Sunlit shores, wildwood, and savanna regions.',
   },
   {
     zoneId: 5,
     bandId: 'scorching',
-    name: 'Scorching Heat',
+    name: 'Hot',
     rangeLabel: '≥ 32°C (≥ 90°F)',
     color: [239, 68, 68],
     maxThreshold: 999,
-    effectSummary: 'Extreme thermal zone from badlands, wildfires, or industrial foundries.',
+    effectSummary: 'High heat across badlands, scorched lands, and active fires.',
   },
 ];
 
@@ -804,36 +804,36 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
     switch (species) {
       case 'wolf':
         return {
-          titlePrefix: 'Wolf Pack',
-          speciesLabel: 'Dire Wolf Pack',
+          titlePrefix: 'Wolf Territory',
+          speciesLabel: 'Wolves',
           diet: 'Carnivore',
           domainType: 'Terrestrial',
           color: [248, 113, 113],
-          preferredBiomes: ['Forest', 'Taiga', 'Snow', 'Meadows'],
+          preferredBiomes: ['Ancient Woods', 'Taiga', 'Snowfields', 'Meadows'],
           canEnterShallowWater: false,
           canEnterDeepWater: false,
           canEnterLand: true,
         };
       case 'bear':
         return {
-          titlePrefix: 'Bear Den',
-          speciesLabel: 'Grizzly Bear',
+          titlePrefix: 'Bear Territory',
+          speciesLabel: 'Bears',
           diet: 'Carnivore',
           domainType: 'Terrestrial',
           color: [217, 119, 6],
-          preferredBiomes: ['Forest', 'Highlands', 'Taiga'],
+          preferredBiomes: ['Ancient Woods', 'Highlands', 'Taiga'],
           canEnterShallowWater: false,
           canEnterDeepWater: false,
           canEnterLand: true,
         };
       case 'dragon':
         return {
-          titlePrefix: 'Dragon Roost',
-          speciesLabel: 'Elder Dragon',
+          titlePrefix: 'Dragon Lair',
+          speciesLabel: 'Dragons',
           diet: 'Apex',
           domainType: 'Aerial & Coastal',
           color: [220, 38, 38],
-          preferredBiomes: ['Granite Peaks', 'Badlands', 'Caldera', 'Coastal Skies'],
+          preferredBiomes: ['Mountains', 'Badlands', 'Scorched Lands', 'Shore'],
           canEnterShallowWater: true,
           canEnterDeepWater: true,
           canEnterLand: true,
@@ -841,35 +841,35 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
       case 'dinosaur':
         return isDinoHerb
           ? {
-              titlePrefix: 'Dino Herd',
-              speciesLabel: 'Herbivore Dinosaur',
+              titlePrefix: 'Dino Territory',
+              speciesLabel: 'Herbivore Dinosaurs',
               diet: 'Herbivore',
               domainType: 'Terrestrial',
               color: [52, 211, 153],
-              preferredBiomes: ['Jungle', 'Swamp', 'Savanna'],
+              preferredBiomes: ['Wildwood', 'Marshlands', 'Savanna'],
               canEnterShallowWater: false,
               canEnterDeepWater: false,
               canEnterLand: true,
             }
           : {
-              titlePrefix: 'Raptor Pack',
-              speciesLabel: 'Carnivore Dinosaur',
+              titlePrefix: 'Raptor Territory',
+              speciesLabel: 'Carnivore Dinosaurs',
               diet: 'Carnivore',
               domainType: 'Terrestrial',
               color: [244, 63, 94],
-              preferredBiomes: ['Jungle', 'Savanna', 'Badlands'],
+              preferredBiomes: ['Wildwood', 'Savanna', 'Badlands'],
               canEnterShallowWater: false,
               canEnterDeepWater: false,
               canEnterLand: true,
             };
       case 'capybara':
         return {
-          titlePrefix: 'Capybara Lagoon',
-          speciesLabel: 'Giant Capybara',
+          titlePrefix: 'Capybara Territory',
+          speciesLabel: 'Capybaras',
           diet: 'Herbivore',
           domainType: 'Amphibious (Land & Sea)',
           color: [45, 212, 191],
-          preferredBiomes: ['Coastal Shoals', 'Swamp', 'Jungle', 'Riverland'],
+          preferredBiomes: ['Shore', 'Lake', 'Marshlands', 'Riverlands'],
           canEnterShallowWater: true,
           canEnterDeepWater: false,
           canEnterLand: true,
@@ -877,47 +877,47 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
       case 'unicorn':
         return {
           titlePrefix: 'Unicorn Glade',
-          speciesLabel: 'Starlight Unicorn',
+          speciesLabel: 'Unicorns',
           diet: 'Herbivore',
           domainType: 'Terrestrial',
           color: [232, 121, 249],
-          preferredBiomes: ['Crystal Fields', 'Sakura Grove', 'Ancient Woodlands'],
+          preferredBiomes: ['Crystal Glade', 'Feywild Grove', 'Ancient Woods'],
           canEnterShallowWater: false,
           canEnterDeepWater: false,
           canEnterLand: true,
         };
       case 'cow':
         return {
-          titlePrefix: 'Cattle Pasture',
-          speciesLabel: 'Highland Cattle',
+          titlePrefix: 'Cattle Grazing',
+          speciesLabel: 'Cattle',
           diet: 'Herbivore',
           domainType: 'Terrestrial',
           color: [163, 230, 53],
-          preferredBiomes: ['Meadows', 'Riverland', 'Savanna'],
+          preferredBiomes: ['Meadows', 'Riverlands', 'Savanna'],
           canEnterShallowWater: false,
           canEnterDeepWater: false,
           canEnterLand: true,
         };
       case 'pig':
         return {
-          titlePrefix: 'Boar Thicket',
-          speciesLabel: 'Rooting Boar',
+          titlePrefix: 'Boar Territory',
+          speciesLabel: 'Boars',
           diet: 'Omnivore',
           domainType: 'Terrestrial',
           color: [251, 146, 60],
-          preferredBiomes: ['Meadows', 'Forest', 'Swamp'],
+          preferredBiomes: ['Meadows', 'Ancient Woods', 'Marshlands'],
           canEnterShallowWater: false,
           canEnterDeepWater: false,
           canEnterLand: true,
         };
       case 'chicken':
         return {
-          titlePrefix: 'Fowl Roost',
-          speciesLabel: 'Wild Fowl',
+          titlePrefix: 'Fowl Territory',
+          speciesLabel: 'Chickens',
           diet: 'Herbivore',
           domainType: 'Terrestrial',
           color: [250, 204, 21],
-          preferredBiomes: ['Meadows', 'Shores'],
+          preferredBiomes: ['Meadows', 'Shore'],
           canEnterShallowWater: false,
           canEnterDeepWater: false,
           canEnterLand: true,
@@ -925,23 +925,23 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
       case 'raider':
         return {
           titlePrefix: 'Raider Camp',
-          speciesLabel: 'Hostile Raiders',
+          speciesLabel: 'Raiders',
           diet: 'Carnivore',
           domainType: 'Terrestrial',
           color: [185, 28, 28],
-          preferredBiomes: ['Badlands', 'Highlands', 'Steppe'],
+          preferredBiomes: ['Badlands', 'Highlands'],
           canEnterShallowWater: true,
           canEnterDeepWater: false,
           canEnterLand: true,
         };
       default:
         return {
-          titlePrefix: idx % 2 === 0 ? 'Reef Shoal' : 'Deep Pod',
-          speciesLabel: idx % 2 === 0 ? 'Reef Shoals' : 'Pelagic Fauna',
+          titlePrefix: 'Marine Shoal',
+          speciesLabel: 'Sea Life',
           diet: 'Marine',
           domainType: 'Marine Waters',
           color: idx % 2 === 0 ? [34, 211, 238] : [59, 130, 246],
-          preferredBiomes: ['Coastal Shoals', 'Abyssal Trench'],
+          preferredBiomes: ['Shore', 'Deepseas'],
           canEnterShallowWater: true,
           canEnterDeepWater: true,
           canEnterLand: false,
@@ -1184,7 +1184,7 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
       zoneId: zid,
       biome: b,
       name: meta.name,
-      regionName: `${meta.name} Zone`,
+      regionName: meta.name,
       category: meta.category,
       color: meta.color,
       hexColor: rgbToHex(meta.color),
@@ -1199,12 +1199,77 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
     });
   });
 
+  // Dedicated enclosed water zone: Lake (for enclosed inland water spaces that do not connect to the open ocean/border)
+  const LAKE_ZONE_ID = BIOME_ORDER.length + 1;
+  biomesById.set(LAKE_ZONE_ID, {
+    zoneId: LAKE_ZONE_ID,
+    biome: 'shallow_water',
+    name: 'Lake',
+    regionName: 'Lake',
+    category: 'Marine',
+    color: [14, 165, 233],
+    hexColor: rgbToHex([14, 165, 233]),
+    tileCount: 0,
+    worldPercent: 0,
+    avgElevation: 0,
+    resourceCount: 0,
+    wildlifeCount: 0,
+    isAquatic: true,
+    centerX: Math.floor(size / 2),
+    centerZ: Math.floor(size / 2),
+  });
+
+  // Identify enclosed inland water bodies (Lakes) vs open coastal Shore / Deepseas
+  const isEnclosedLakeTile = new Uint8Array(totalTiles);
+  const waterVisited = new Uint8Array(totalTiles);
+  const waterComponent: number[] = [];
+  for (let i = 0; i < totalTiles; i++) {
+    if (waterVisited[i]) continue;
+    const t0 = tiles[i];
+    if (t0.terrain !== 'shallow_water' && t0.terrain !== 'deep_water' && t0.height > 0) continue;
+    waterVisited[i] = 1;
+    waterComponent.length = 0;
+    waterComponent.push(i);
+    let touchesMapEdge = false;
+    let headW = 0;
+    while (headW < waterComponent.length) {
+      const cur = waterComponent[headW++];
+      const cx = cur % size;
+      const cz = (cur - cx) / size;
+      if (cx === 0 || cx === size - 1 || cz === 0 || cz === size - 1) {
+        touchesMapEdge = true;
+      }
+      const nbs = [
+        cx > 0 ? cur - 1 : -1,
+        cx < size - 1 ? cur + 1 : -1,
+        cz > 0 ? cur - size : -1,
+        cz < size - 1 ? cur + size : -1,
+      ];
+      for (let k = 0; k < 4; k++) {
+        const nb = nbs[k];
+        if (nb < 0 || waterVisited[nb]) continue;
+        const nt = tiles[nb];
+        if (nt.terrain === 'shallow_water' || nt.terrain === 'deep_water' || nt.height === 0) {
+          waterVisited[nb] = 1;
+          waterComponent.push(nb);
+        }
+      }
+    }
+    if (!touchesMapEdge && waterComponent.length <= Math.max(180, Math.round(totalTiles * 0.035))) {
+      for (let k = 0; k < waterComponent.length; k++) {
+        isEnclosedLakeTile[waterComponent[k]] = 1;
+      }
+    }
+  }
+
   const elevSumByBiome = new Float64Array(32);
   const sumXByBiome = new Float64Array(32);
   const sumZByBiome = new Float64Array(32);
   for (let i = 0; i < totalTiles; i++) {
     const tile = tiles[i];
-    const zid = biomeToZoneId.get(tile.terrain) || 1;
+    const zid = isEnclosedLakeTile[i]
+      ? LAKE_ZONE_ID
+      : biomeToZoneId.get(tile.terrain) || 1;
     biomeMap[i] = zid;
     const info = biomesById.get(zid);
     if (info) {
@@ -1701,7 +1766,7 @@ export function buildZoneOverlayTextures(
   }
   if (toggles.biomes) {
     zones.biomesById.forEach((b) => {
-      if (b.tileCount >= 24) {
+      if (b.tileCount >= 24 && b.name !== 'Deepseas' && b.name !== 'Shore') {
         labels.push({
           id: `biome-${b.zoneId}`,
           name: b.name,
