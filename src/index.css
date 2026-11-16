@@ -176,3 +176,42 @@
 ::-webkit-scrollbar-thumb:hover {
   background: #5e564b;
 }
+
+/* Crisp Pixel Range Slider */
+.px-range {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 10px;
+  background: #161513;
+  border: 2px solid #0b0a09;
+  box-shadow:
+    inset 2px 2px 0 0 #0d0c0b,
+    inset -2px -2px 0 0 #34302a;
+  cursor: pointer;
+}
+
+.px-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 22px;
+  background: #f5b742;
+  border: 2px solid #0b0a09;
+  box-shadow:
+    inset 2px 2px 0 0 #ffe08a,
+    inset -2px -2px 0 0 #b87c18;
+  cursor: pointer;
+}
+
+.px-range::-moz-range-thumb {
+  width: 16px;
+  height: 22px;
+  border-radius: 0;
+  background: #f5b742;
+  border: 2px solid #0b0a09;
+  box-shadow:
+    inset 2px 2px 0 0 #ffe08a,
+    inset -2px -2px 0 0 #b87c18;
+  cursor: pointer;
+}
+

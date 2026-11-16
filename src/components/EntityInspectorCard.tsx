@@ -5,7 +5,8 @@ import {
   X,
 } from 'lucide-react';
 import { getEntityInspectProfile, isIntrinsicGene } from '../game/entityInspector';
-import { SimulationState, UnitEntity, UnitStatusEffect } from '../game/types';
+import { SimulationState, UnitEntity, UnitStatusEffect, ZoneToggleState } from '../game/types';
+import { TileZoneInspection } from '../game/zones';
 import { UnitPixelIcon } from './GameIcons';
 
 interface EntityInspectorCardProps {
@@ -14,6 +15,8 @@ interface EntityInspectorCardProps {
   selectedUnit: UnitEntity | null;
   favoriteUnits: UnitEntity[];
   followingEntityId?: string | null;
+  hoveredZoneInfo?: TileZoneInspection | null;
+  activeZones?: ZoneToggleState;
   onToggleFavorite: (unitId: string) => void;
   onSelectUnit: (unitId: string | null) => void;
   onFocusUnit: (unit: UnitEntity) => void;
@@ -33,6 +36,8 @@ function formatEffectName(effect: UnitStatusEffect): string {
       return 'Plagued';
     case 'cursed':
       return 'Cursed';
+    case 'frozen':
+      return 'Frozen';
   }
 }
 
@@ -42,6 +47,8 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
   selectedUnit,
   favoriteUnits,
   followingEntityId,
+  hoveredZoneInfo = null,
+  activeZones,
   onToggleFavorite,
   onSelectUnit,
   onFocusUnit,
@@ -49,7 +56,6 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
   const [activeTab, setActiveTab] = useState<InspectorTab>('profile');
 
   const displayUnit = hoveredUnit ?? selectedUnit;
-  const isShowingHovered = Boolean(hoveredUnit);
   const isSelectedDisplayed = Boolean(
     displayUnit && selectedUnit && displayUnit.id === selectedUnit.id,
   );
@@ -263,9 +269,13 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
               {/* Demographic & Location Data: Clean Key-Value Pairs */}
               <div className="space-y-1.5 pt-1 text-xs text-[#b8afa2]">
                 <div className="flex items-center justify-between">
-                  <span className="text-[#8f8679]">Stage</span>
+                  <span className="text-[#8f8679]">Stage &amp; Lifespan</span>
                   <span className="text-[#f2ece1] tabular-nums font-medium">
-                    {profile.informations.ageStageLabel} ({profile.informations.ageYears}y)
+                    {profile.informations.ageStageLabel} ({profile.informations.ageYears}y /{' '}
+                    {profile.informations.immortal
+                      ? 'Immortal'
+                      : `${profile.informations.maxLifespan ?? '?'}y`}
+                    )
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
@@ -418,42 +428,73 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
           )}
         </>
       ) : (
-        <div className="space-y-2 text-xs text-[#cfc6b8]">
+        <div className="space-y-2.5 text-xs text-[#cfc6b8]" data-testid="zone-inspector-content">
           <h2 className="font-bold text-[#f5b742] text-sm">Inspect Tool</h2>
-          <p className="text-[11px] text-[#a89f91] leading-relaxed">
-            Click any creature to view their stats.
-          </p>
 
-          {/* Quick-Access to Starred Entities when idle */}
-          {favoriteUnits.length > 0 && (
-            <div className="pt-2 border-t border-[#2c2620] space-y-1.5">
-              <div className="text-[11px] font-semibold text-[#ffd166]">
-                Favorited Creatures ({favoriteUnits.length})
-              </div>
-              <div className="space-y-1 max-h-36 overflow-y-auto">
-                {favoriteUnits.map((fav) => (
-                  <button
-                    key={fav.id}
-                    type="button"
-                    onClick={() => {
-                      onSelectUnit(fav.id);
-                      onFocusUnit(fav);
-                    }}
-                    className="w-full flex items-center justify-between gap-2 p-1.5 bg-[#191613] hover:bg-[#201c18] text-left cursor-pointer transition-colors"
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <UnitPixelIcon role={fav.role} className="w-4 h-4 shrink-0" />
-                      <span className="font-medium text-[#f2ece1] truncate text-[11px]">
-                        {fav.name}
-                      </span>
-                    </div>
-                    <span className="font-pixel-num text-[10px] text-[#80ed99] tabular-nums">
-                      {Math.round(fav.hp)}hp
-                    </span>
-                  </button>
-                ))}
-              </div>
+          {hoveredZoneInfo &&
+          ((activeZones?.kingdoms && hoveredZoneInfo.kingdom) ||
+            (activeZones?.territories && hoveredZoneInfo.territory) ||
+            (activeZones?.biomes && hoveredZoneInfo.biomeZone) ||
+            (activeZones?.temperature && hoveredZoneInfo.temperatureZone)) ? (
+            <div className="space-y-2">
+              {activeZones?.kingdoms && hoveredZoneInfo.kingdom && (
+                <div
+                  className="bg-[#191613] px-3 py-2 border-l-4 flex items-center justify-between gap-2"
+                  style={{ borderLeftColor: hoveredZoneInfo.kingdom.hexColor }}
+                  data-testid="inspect-zone-kingdom"
+                >
+                  <span className="font-bold text-[#f2ece1] truncate">
+                    {hoveredZoneInfo.kingdom.name}
+                  </span>
+                  <span className="font-pixel-num text-xs font-bold text-[#80ed99] tabular-nums shrink-0">
+                    Pop {hoveredZoneInfo.kingdom.population}
+                  </span>
+                </div>
+              )}
+
+              {activeZones?.territories && hoveredZoneInfo.territory && (
+                <div
+                  className="bg-[#191613] px-3 py-2 border-l-4 flex items-center justify-between gap-2"
+                  style={{ borderLeftColor: hoveredZoneInfo.territory.hexColor }}
+                  data-testid="inspect-zone-territory"
+                >
+                  <span className="font-bold text-[#f2ece1] truncate">
+                    {hoveredZoneInfo.territory.name}
+                  </span>
+                  <span className="font-pixel-num text-xs font-bold text-[#fb923c] tabular-nums shrink-0">
+                    Pop {hoveredZoneInfo.territory.animalCount}
+                  </span>
+                </div>
+              )}
+
+              {activeZones?.biomes && hoveredZoneInfo.biomeZone && (
+                <div
+                  className="bg-[#191613] px-3 py-2 border-l-4 flex items-center justify-between gap-2"
+                  style={{ borderLeftColor: hoveredZoneInfo.biomeZone.hexColor }}
+                  data-testid="inspect-zone-biome"
+                >
+                  <span className="font-bold text-[#f2ece1] truncate">
+                    {hoveredZoneInfo.biomeZone.name}
+                  </span>
+                </div>
+              )}
+
+              {activeZones?.temperature && hoveredZoneInfo.temperatureZone && (
+                <div
+                  className="bg-[#191613] px-3 py-2 border-l-4 flex items-center justify-between gap-2"
+                  style={{ borderLeftColor: hoveredZoneInfo.temperatureZone.hexColor }}
+                  data-testid="inspect-zone-temperature"
+                >
+                  <span className="font-bold text-[#f2ece1] truncate">
+                    {hoveredZoneInfo.temperatureZone.name}
+                  </span>
+                </div>
+              )}
             </div>
+          ) : (
+            <p className="text-xs text-[#a89f91]">
+              Start hovering on something to see their stats!
+            </p>
           )}
         </div>
       )}

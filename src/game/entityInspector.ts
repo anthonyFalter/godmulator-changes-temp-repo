@@ -3,6 +3,7 @@ import {
   UNITS,
   getDinosaurVariant,
   getDragonVariant,
+  getUnitMaxLifespan,
 } from './catalog';
 import {
   SimulationState,
@@ -38,6 +39,8 @@ export interface EntityInspectProfile {
     hpPercent: number;
     ageStageLabel: string;
     ageYears: number;
+    maxLifespan: number | null;
+    immortal: boolean;
     settlementName: string | null;
     activity: string;
     attackDamage: number;
@@ -471,6 +474,12 @@ function getSubtitleAndFaction(
     return { subtitle: `${def?.name ?? cap(unit.role)} • Hostile`, factionLabel: 'Hostile' };
   }
   const speciesLabel = cap(unit.species);
+  if (unit.isKing) {
+    return {
+      subtitle: `${speciesLabel} King`,
+      factionLabel: 'Civilization',
+    };
+  }
   const roleLabel =
     unit.ageStage === 'child'
       ? 'Child'
@@ -548,11 +557,13 @@ export function getEntityInspectProfile(
   );
 
   const attackMult = unit.statusEffects.frenzied ? 1.45 : unit.statusEffects.blessed ? 1.2 : 1;
-  const speedMult = unit.statusEffects.frenzied
-    ? 1.35
-    : unit.statusEffects.cursed || unit.statusEffects.plagued
-      ? 0.78
-      : 1;
+  const speedMult = unit.statusEffects.frozen
+    ? 0.08
+    : unit.statusEffects.frenzied
+      ? 1.35
+      : unit.statusEffects.cursed || unit.statusEffects.plagued
+        ? 0.78
+        : 1;
 
   const baseAtk = def?.attackDamage ?? 8;
   const baseRng = def?.attackRange ?? 1.2;
@@ -564,7 +575,18 @@ export function getEntityInspectProfile(
       ? state.settlementNames[unit.settlementId]
       : null;
 
-  const ageYears = Math.max(0, Math.floor(state.year - (unit.bornYear ?? state.year)));
+  const ageYears = Math.max(
+    0,
+    Math.floor(unit.ageYears ?? (state.year - (unit.bornYear ?? state.year))),
+  );
+  const immortal = state.worldRules?.immortalEntities === true;
+  const maxLifespan = immortal ? null : getUnitMaxLifespan({
+    role: unit.role,
+    species: unit.species,
+    appearanceSeed: unit.appearanceSeed,
+    genes,
+    maxLifespan: unit.maxLifespan,
+  });
   const maxHp = Math.max(1, Math.round(unit.maxHp));
   const hp = Math.max(0, Math.round(unit.hp));
 
@@ -580,6 +602,8 @@ export function getEntityInspectProfile(
       hpPercent: Math.max(0, Math.min(100, Math.round((hp / maxHp) * 100))),
       ageStageLabel: getAgeStageLabel(unit),
       ageYears,
+      maxLifespan,
+      immortal,
       settlementName,
       activity: formatActivity(unit),
       attackDamage: Math.round(baseAtk * attackMult * ageMult),

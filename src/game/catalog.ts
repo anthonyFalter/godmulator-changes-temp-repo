@@ -2,8 +2,10 @@ import {
   BuildingDefinition,
   EpochDefinition,
   GodPowerDefinition,
+  SpeciesId,
   TerrainToolDefinition,
   UnitDefinition,
+  UnitRole,
 } from './types';
 
 export const EPOCHS: EpochDefinition[] = [
@@ -24,7 +26,7 @@ export const EPOCHS: EpochDefinition[] = [
     name: 'Bronze Age',
     yearLabel: '3,000 BCE',
     description: 'Stone towns, kilns, and stepped temples.',
-    unlockCost: { food: 75, wood: 65, stone: 45, ore: 10, knowledge: 35, energy: 0, alloy: 0, faith: 15 },
+    unlockCost: { food: 140, wood: 130, stone: 95, ore: 25, knowledge: 65, energy: 0, alloy: 0, faith: 25 },
     skyColor: '#232f33',
     accentColor: '#e09f3e',
     populationBonus: 25,
@@ -35,7 +37,7 @@ export const EPOCHS: EpochDefinition[] = [
     name: 'Medieval',
     yearLabel: '1,150 CE',
     description: 'Guildhalls, stone roads, and star towers.',
-    unlockCost: { food: 180, wood: 150, stone: 140, ore: 75, knowledge: 110, energy: 0, alloy: 0, faith: 35 },
+    unlockCost: { food: 340, wood: 300, stone: 280, ore: 160, knowledge: 210, energy: 0, alloy: 0, faith: 65 },
     skyColor: '#242b35',
     accentColor: '#c85a32',
     populationBonus: 40,
@@ -46,7 +48,7 @@ export const EPOCHS: EpochDefinition[] = [
     name: 'Industrial',
     yearLabel: '1860 CE',
     description: 'Railways, steam trains, foundries, and brick cities.',
-    unlockCost: { food: 340, wood: 260, stone: 280, ore: 210, knowledge: 260, energy: 20, alloy: 20, faith: 60 },
+    unlockCost: { food: 720, wood: 580, stone: 640, ore: 480, knowledge: 540, energy: 80, alloy: 70, faith: 130 },
     skyColor: '#26252b',
     accentColor: '#d48c46',
     populationBonus: 60,
@@ -57,7 +59,7 @@ export const EPOCHS: EpochDefinition[] = [
     name: 'Atomic Age',
     yearLabel: '1965 CE',
     description: 'Automobiles, airports, reactors, and concrete towers.',
-    unlockCost: { food: 680, wood: 480, stone: 580, ore: 500, knowledge: 640, energy: 260, alloy: 170, faith: 120 },
+    unlockCost: { food: 1350, wood: 980, stone: 1150, ore: 1050, knowledge: 1250, energy: 480, alloy: 360, faith: 220 },
     skyColor: '#1b2632',
     accentColor: '#4ea8de',
     populationBonus: 85,
@@ -68,7 +70,7 @@ export const EPOCHS: EpochDefinition[] = [
     name: 'Info Age',
     yearLabel: '2015 CE',
     description: 'Metro rapid transit, glass skyscrapers, and jetliners.',
-    unlockCost: { food: 1050, wood: 680, stone: 860, ore: 800, knowledge: 1200, energy: 660, alloy: 440, faith: 185 },
+    unlockCost: { food: 2350, wood: 1650, stone: 1950, ore: 1850, knowledge: 2600, energy: 1350, alloy: 1050, faith: 380 },
     skyColor: '#172334',
     accentColor: '#3a86ff',
     populationBonus: 110,
@@ -79,7 +81,7 @@ export const EPOCHS: EpochDefinition[] = [
     name: 'Orbital Age',
     yearLabel: '2130 CE',
     description: 'Spaceports, mag-lev transit, and arcologies.',
-    unlockCost: { food: 1450, wood: 880, stone: 1120, ore: 1080, knowledge: 1750, energy: 1120, alloy: 800, faith: 260 },
+    unlockCost: { food: 5600, wood: 3800, stone: 5100, ore: 5200, knowledge: 7800, energy: 5200, alloy: 4400, faith: 920 },
     skyColor: '#131b26',
     accentColor: '#56cfe1',
     populationBonus: 150,
@@ -90,7 +92,7 @@ export const EPOCHS: EpochDefinition[] = [
     name: 'Star Age',
     yearLabel: '2480 CE',
     description: 'Star relays and cosmic ascension.',
-    unlockCost: { food: 1950, wood: 1150, stone: 1450, ore: 1450, knowledge: 2400, energy: 1650, alloy: 1250, faith: 380 },
+    unlockCost: { food: 11500, wood: 7800, stone: 10800, ore: 11200, knowledge: 18500, energy: 14000, alloy: 12000, faith: 2200 },
     skyColor: '#0e131d',
     accentColor: '#f4a261',
     populationBonus: 220,
@@ -307,39 +309,39 @@ export const SPECIES_UNITS: UnitDefinition[] = [
     species: 'human',
     name: 'Human',
     faction: 'civilization',
-    roleSummary: 'Fast builders, adaptable towns',
+    roleSummary: 'Fast tech progress, relies on tech',
     cost: { faith: 10 },
-    maxHp: 100,
-    speed: 2.5,
-    attackDamage: 10,
-    attackRange: 1.25,
-    harvestRate: 8,
+    maxHp: 90,
+    speed: 2.55,
+    attackDamage: 9,
+    attackRange: 1.35,
+    harvestRate: 9,
   },
   {
     role: 'elf',
     species: 'elf',
     name: 'Elf',
     faction: 'civilization',
-    roleSummary: 'Swift gatherers, woodland kin',
+    roleSummary: 'Peaceful mages & arcane tech',
     cost: { faith: 12 },
-    maxHp: 90,
-    speed: 3.1,
-    attackDamage: 11,
-    attackRange: 1.8,
-    harvestRate: 10,
+    maxHp: 105,
+    speed: 3.05,
+    attackDamage: 14,
+    attackRange: 3.4,
+    harvestRate: 9,
   },
   {
     role: 'orc',
     species: 'orc',
     name: 'Orc',
     faction: 'civilization',
-    roleSummary: 'Tough miners & fierce fighters',
+    roleSummary: 'Fierce barbarians, slow progress',
     cost: { faith: 12 },
-    maxHp: 165,
-    speed: 2.35,
-    attackDamage: 20,
-    attackRange: 1.4,
-    harvestRate: 11,
+    maxHp: 185,
+    speed: 2.4,
+    attackDamage: 24,
+    attackRange: 1.45,
+    harvestRate: 10,
   },
 ];
 
@@ -617,6 +619,16 @@ export const UNITS: UnitDefinition[] = [
 
 export const GOD_POWERS: GodPowerDefinition[] = [
   {
+    type: 'drag_entity',
+    name: 'Grab',
+    category: 'Benevolent',
+    summary: 'Hold & drag any entity in 3D air and fling them',
+    faithCost: 0,
+    radius: 1.6,
+    keyHint: '',
+    color: '#38bdf8',
+  },
+  {
     type: 'blessing',
     name: 'Bless',
     category: 'Benevolent',
@@ -667,6 +679,26 @@ export const GOD_POWERS: GodPowerDefinition[] = [
     color: '#72efdd',
   },
   {
+    type: 'heat_wave',
+    name: 'Heat Wave',
+    category: 'Wrathful',
+    summary: 'Scorches temperature, dries land & ignites wildfires',
+    faithCost: 15,
+    radius: 5.5,
+    keyHint: '',
+    color: '#ff7b00',
+  },
+  {
+    type: 'freeze_snap',
+    name: 'Freeze',
+    category: 'Benevolent',
+    summary: 'Drops temp, douses fires, snows land & freezes units',
+    faithCost: 15,
+    radius: 5.5,
+    keyHint: '',
+    color: '#7dd3fc',
+  },
+  {
     type: 'bloodlust_frenzy',
     name: 'Fury',
     category: 'Wrathful',
@@ -700,17 +732,37 @@ export const GOD_POWERS: GodPowerDefinition[] = [
     type: 'lightning_smite',
     name: 'Lightning',
     category: 'Wrathful',
-    summary: 'Chain bolts, craters, shockwave & fire',
+    summary: 'Devastating bolts destroy buildings & electrify foes',
     faithCost: 20,
     radius: 4.8,
     keyHint: 'F',
     color: '#90e0ef',
   },
   {
+    type: 'tornado',
+    name: 'Tornado',
+    category: 'Wrathful',
+    summary: 'Roaming cyclone vortex lifts, spins & flings entities',
+    faithCost: 35,
+    radius: 5.2,
+    keyHint: '',
+    color: '#94a3b8',
+  },
+  {
+    type: 'tsunami',
+    name: 'Tsunami',
+    category: 'Wrathful',
+    summary: 'Colossal surging wave drowns NPCs & smashes coasts',
+    faithCost: 40,
+    radius: 6.5,
+    keyHint: '',
+    color: '#00b4d8',
+  },
+  {
     type: 'meteor_strike',
     name: 'Meteor',
     category: 'Wrathful',
-    summary: 'Deep crater, rim upheaval, fire & ore',
+    summary: 'One-shots buildings, carves deep craters & sparks tsunamis',
     faithCost: 45,
     radius: 6.2,
     keyHint: 'G',
@@ -738,9 +790,9 @@ export const GOD_POWERS: GodPowerDefinition[] = [
   },
   {
     type: 'wormhole_ascension',
-    name: 'Rift',
+    name: 'Black Hole',
     category: 'Cosmic',
-    summary: 'Black hole vortex & crystal monoliths',
+    summary: 'Orbits terrain & entities before supernova fling',
     faithCost: 50,
     radius: 6.0,
     keyHint: 'X',
@@ -854,4 +906,74 @@ export function getDinosaurVariant(appearanceSeed?: number): DinosaurVariantInfo
   }
   return { morph: 2, speciesName: 'Stegosaurus', diet: 'herbivore' };
 }
+
+export function getUnitMaxLifespan(unit: {
+  role: UnitRole;
+  species: SpeciesId;
+  appearanceSeed?: number;
+  genes?: string[];
+  maxLifespan?: number;
+}): number {
+  if (typeof unit.maxLifespan === 'number' && Number.isFinite(unit.maxLifespan) && unit.maxLifespan > 0) {
+    return Math.round(unit.maxLifespan);
+  }
+  const seed = Math.abs(Math.floor(unit.appearanceSeed ?? 1));
+  let base: number;
+  switch (unit.role) {
+    case 'dragon':
+      base = 500 + (seed % 65);
+      break;
+    case 'unicorn':
+      base = 350 + (seed % 70);
+      break;
+    case 'dinosaur':
+      base = 65 + (seed % 26);
+      break;
+    case 'bear':
+      base = 28 + (seed % 8);
+      break;
+    case 'cow':
+      base = 18 + (seed % 7);
+      break;
+    case 'wolf':
+      base = 16 + (seed % 7);
+      break;
+    case 'pig':
+      base = 15 + (seed % 6);
+      break;
+    case 'capybara':
+      base = 12 + (seed % 5);
+      break;
+    case 'chicken':
+      base = 8 + (seed % 5);
+      break;
+    case 'raider_swarmer':
+    case 'raider_ranged':
+    case 'raider_behemoth':
+      base = 50 + (seed % 16);
+      break;
+    default:
+      if (unit.species === 'elf') {
+        base = 215 + (seed % 50);
+      } else if (unit.species === 'orc') {
+        base = 55 + (seed % 14);
+      } else {
+        base = 75 + (seed % 18);
+      }
+      break;
+  }
+
+  let geneBonus = 0;
+  if (unit.genes) {
+    for (const g of unit.genes) {
+      if (g === 'Hardy Constitution') geneBonus += 12;
+      else if (g === 'Ancient Wyrmblood') geneBonus += 60;
+      else if (g === 'Alpha Stature') geneBonus += 5;
+      else if (g === 'Starleaf Resonance') geneBonus += 18;
+    }
+  }
+
+  return base + geneBonus;
+}
+
 

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { LightingPreset, TerrainType, TileData } from './types';
+import { LightingPreset, SkyCloudsQualityOption, TerrainType, TileData } from './types';
 import { createRng, normalizeSeed } from './worldGen';
 
 function addSteppedPuff(
@@ -124,13 +124,14 @@ interface CloudInstanceData {
   rotY: number;
   phase: number;
   bobAmp: number;
-  mesh: THREE.Mesh;
-  shadowMesh: THREE.Mesh;
+  variant: number;
+  slot: number;
 }
 
 export interface SkyCloudSystem {
   group: THREE.Group;
   shadowGroup: THREE.Group;
+  setQuality: (quality: SkyCloudsQualityOption) => void;
   update: (dt: number, elapsed: number, preset: LightingPreset) => void;
   dispose: () => void;
 }
@@ -163,22 +164,53 @@ export function createSkyCloudSystem(gridSize: number): SkyCloudSystem {
   const pad = 18;
   const span = gridSize + pad * 2;
 
+  const variantCapacities = variants.map(() => 0);
+  for (let i = 0; i < cloudCount; i++) {
+    variantCapacities[i % variants.length]++;
+  }
+
+  const cloudInsts: THREE.InstancedMesh[] = [];
+  const shadowInsts: THREE.InstancedMesh[] = [];
+  const variantFullCounts = variantCapacities.slice();
+
+  for (let v = 0; v < variants.length; v++) {
+    const cap = Math.max(1, variantCapacities[v]);
+    const cInst = new THREE.InstancedMesh(variants[v], cloudMat, cap);
+    cInst.castShadow = false;
+    cInst.receiveShadow = false;
+    cInst.frustumCulled = false;
+    cInst.renderOrder = 4;
+    cInst.count = cap;
+    group.add(cInst);
+    cloudInsts.push(cInst);
+
+    const sInst = new THREE.InstancedMesh(variants[v], shadowMat, cap);
+    sInst.castShadow = false;
+    sInst.receiveShadow = false;
+    sInst.frustumCulled = false;
+    sInst.renderOrder = 2;
+    sInst.count = cap;
+    shadowGroup.add(sInst);
+    shadowInsts.push(sInst);
+  }
+
   let rng = 133791;
   const nextRand = () => {
     rng = (rng * 1664525 + 1013904223) >>> 0;
     return rng / 4294967296;
   };
 
+  const _yAxis = new THREE.Vector3(0, 1, 0);
+  const _pos = new THREE.Vector3();
+  const _quat = new THREE.Quaternion();
+  const _scale = new THREE.Vector3();
+  const _mat = new THREE.Matrix4();
+  const variantQuats: THREE.Quaternion[] = [];
+  const variantSlotCursor = variants.map(() => 0);
+
   for (let i = 0; i < cloudCount; i++) {
     const variant = i % variants.length;
-    const geo = variants[variant];
-    const mesh = new THREE.Mesh(geo, cloudMat);
-    mesh.castShadow = false;
-    mesh.receiveShadow = false;
-    mesh.renderOrder = 4;
-
-    const shadowMesh = new THREE.Mesh(geo, shadowMat);
-    shadowMesh.renderOrder = 2;
+    const slot = variantSlotCursor[variant]++;
 
     const scaleBase = 1.0 + nextRand() * 1.1;
     const scaleX = scaleBase * (0.92 + nextRand() * 0.25);
@@ -197,16 +229,18 @@ export function createSkyCloudSystem(gridSize: number): SkyCloudSystem {
     const rotY = Math.floor(nextRand() * 8) * (Math.PI / 4);
     const phase = nextRand() * Math.PI * 2;
 
-    mesh.position.set(x, y, z);
-    mesh.rotation.y = rotY;
-    mesh.scale.set(scaleX, scaleY, scaleZ);
+    const q = new THREE.Quaternion().setFromAxisAngle(_yAxis, rotY);
+    variantQuats.push(q);
 
-    shadowMesh.position.set(x - 2.4, 0.32, z - 1.8);
-    shadowMesh.rotation.y = rotY;
-    shadowMesh.scale.set(scaleX * 0.88, 0.02, scaleZ * 0.88);
+    _pos.set(x, y, z);
+    _scale.set(scaleX, scaleY, scaleZ);
+    _mat.compose(_pos, q, _scale);
+    cloudInsts[variant].setMatrixAt(slot, _mat);
 
-    group.add(mesh);
-    shadowGroup.add(shadowMesh);
+    _pos.set(x - 2.4, 0.32, z - 1.8);
+    _scale.set(scaleX * 0.88, 0.02, scaleZ * 0.88);
+    _mat.compose(_pos, q, _scale);
+    shadowInsts[variant].setMatrixAt(slot, _mat);
 
     clouds.push({
       x,
@@ -220,15 +254,38 @@ export function createSkyCloudSystem(gridSize: number): SkyCloudSystem {
       rotY,
       phase,
       bobAmp: 0.08 + nextRand() * 0.07,
-      mesh,
-      shadowMesh,
+      variant,
+      slot,
     });
   }
+
+  for (let v = 0; v < variants.length; v++) {
+    cloudInsts[v].instanceMatrix.needsUpdate = true;
+    shadowInsts[v].instanceMatrix.needsUpdate = true;
+  }
+
+  let currentQuality: SkyCloudsQualityOption = 'full';
+
+  const setQuality = (quality: SkyCloudsQualityOption) => {
+    if (currentQuality === quality) return;
+    currentQuality = quality;
+    const isOff = quality === 'off';
+    group.visible = !isOff;
+    shadowGroup.visible = !isOff;
+    for (let v = 0; v < variants.length; v++) {
+      const fullCap = variantFullCounts[v];
+      const count = isOff ? 0 : quality === 'reduced' ? Math.ceil(fullCap * 0.5) : fullCap;
+      cloudInsts[v].count = count;
+      shadowInsts[v].count = count;
+    }
+  };
 
   const _targetTint = new THREE.Color('#f7fbff');
   const _curTint = new THREE.Color('#f7fbff');
 
   const update = (dt: number, elapsed: number, preset: LightingPreset) => {
+    if (currentQuality === 'off') return;
+
     if (preset === 'night') {
       _targetTint.set('#637ea1');
       cloudMat.opacity = 0.72;
@@ -250,7 +307,11 @@ export function createSkyCloudSystem(gridSize: number): SkyCloudSystem {
     _curTint.lerp(_targetTint, Math.min(1, dt * 4));
     cloudMat.color.copy(_curTint);
 
-    for (const c of clouds) {
+    for (let i = 0; i < clouds.length; i++) {
+      const c = clouds[i];
+      const activeLimit = cloudInsts[c.variant].count;
+      if (c.slot >= activeLimit) continue;
+
       const breeze = 1.0 + Math.sin(elapsed * 0.35 + c.phase) * 0.14;
       c.x += c.vx * breeze * dt;
       c.z += (c.vz + Math.cos(elapsed * 0.25 + c.phase) * 0.1) * dt;
@@ -262,12 +323,24 @@ export function createSkyCloudSystem(gridSize: number): SkyCloudSystem {
 
       const bobY = Math.sin(elapsed * 0.9 + c.phase) * c.bobAmp;
       const puffPulse = 1.0 + Math.sin(elapsed * 0.75 + c.phase) * 0.025;
+      _quat.copy(variantQuats[i]);
 
-      c.mesh.position.set(c.x, c.y + bobY, c.z);
-      c.mesh.scale.set(c.scaleX * puffPulse, c.scaleY, c.scaleZ * puffPulse);
+      _pos.set(c.x, c.y + bobY, c.z);
+      _scale.set(c.scaleX * puffPulse, c.scaleY, c.scaleZ * puffPulse);
+      _mat.compose(_pos, _quat, _scale);
+      cloudInsts[c.variant].setMatrixAt(c.slot, _mat);
 
-      c.shadowMesh.position.set(c.x - 2.4, 0.32, c.z - 1.8);
-      c.shadowMesh.scale.set(c.scaleX * 0.88 * puffPulse, 0.02, c.scaleZ * 0.88 * puffPulse);
+      _pos.set(c.x - 2.4, 0.32, c.z - 1.8);
+      _scale.set(c.scaleX * 0.88 * puffPulse, 0.02, c.scaleZ * 0.88 * puffPulse);
+      _mat.compose(_pos, _quat, _scale);
+      shadowInsts[c.variant].setMatrixAt(c.slot, _mat);
+    }
+
+    for (let v = 0; v < variants.length; v++) {
+      if (cloudInsts[v].count > 0) {
+        cloudInsts[v].instanceMatrix.needsUpdate = true;
+        shadowInsts[v].instanceMatrix.needsUpdate = true;
+      }
     }
   };
 
@@ -277,12 +350,13 @@ export function createSkyCloudSystem(gridSize: number): SkyCloudSystem {
     shadowMat.dispose();
   };
 
-  return { group, shadowGroup, update, dispose };
+  return { group, shadowGroup, setQuality, update, dispose };
 }
 
 export interface OceanFoamSystem {
   mesh: THREE.Mesh;
   updateMap: (tiles: TileData[]) => void;
+  updateZones: (colorData: Uint8Array, idData: Uint8Array, anyActive: boolean) => void;
   updateFrame: (elapsed: number, preset: LightingPreset) => void;
   dispose: () => void;
 }
@@ -301,7 +375,24 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
   waterMapTex.wrapT = THREE.ClampToEdgeWrapping;
   waterMapTex.flipY = false;
 
-  const geo = new THREE.PlaneGeometry(gridSize, gridSize, gridSize, gridSize);
+  const zoneColorBytes = new Uint8Array(gridSize * gridSize * 4);
+  const zoneColorTex = new THREE.DataTexture(zoneColorBytes, gridSize, gridSize, THREE.RGBAFormat);
+  zoneColorTex.magFilter = THREE.NearestFilter;
+  zoneColorTex.minFilter = THREE.NearestFilter;
+  zoneColorTex.wrapS = THREE.ClampToEdgeWrapping;
+  zoneColorTex.wrapT = THREE.ClampToEdgeWrapping;
+  zoneColorTex.flipY = false;
+
+  const zoneIdBytes = new Uint8Array(gridSize * gridSize * 4);
+  const zoneIdTex = new THREE.DataTexture(zoneIdBytes, gridSize, gridSize, THREE.RGBAFormat);
+  zoneIdTex.magFilter = THREE.NearestFilter;
+  zoneIdTex.minFilter = THREE.NearestFilter;
+  zoneIdTex.wrapS = THREE.ClampToEdgeWrapping;
+  zoneIdTex.wrapT = THREE.ClampToEdgeWrapping;
+  zoneIdTex.flipY = false;
+
+  const oceanSegs = Math.min(64, gridSize);
+  const geo = new THREE.PlaneGeometry(gridSize, gridSize, oceanSegs, oceanSegs);
   geo.rotateX(-Math.PI / 2);
 
   const uniforms = THREE.UniformsUtils.merge([
@@ -310,6 +401,9 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
       uTime: { value: 0 },
       uGridSize: { value: gridSize },
       uWaterMap: { value: null as THREE.DataTexture | null },
+      uZoneColorMap: { value: null as THREE.DataTexture | null },
+      uZoneIdMap: { value: null as THREE.DataTexture | null },
+      uZoneActive: { value: 0 },
       uShallowColor: { value: new THREE.Color('#2f788e') },
       uDeepColor: { value: new THREE.Color('#193f54') },
       uCrestColor: { value: new THREE.Color('#53b3ca') },
@@ -319,6 +413,8 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
   ]);
   // Assign mutable DataTexture AFTER merge so UniformsUtils.merge does not clone a stale copy
   uniforms.uWaterMap.value = waterMapTex;
+  uniforms.uZoneColorMap.value = zoneColorTex;
+  uniforms.uZoneIdMap.value = zoneIdTex;
 
   const material = new THREE.ShaderMaterial({
     uniforms,
@@ -349,6 +445,9 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
       uniform float uTime;
       uniform float uGridSize;
       uniform sampler2D uWaterMap;
+      uniform sampler2D uZoneColorMap;
+      uniform sampler2D uZoneIdMap;
+      uniform float uZoneActive;
       uniform vec3 uShallowColor;
       uniform vec3 uDeepColor;
       uniform vec3 uCrestColor;
@@ -377,6 +476,16 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
       vec4 sampleTile(vec2 coord) {
         vec2 clamped = clamp(coord, vec2(0.0), vec2(uGridSize - 1.0));
         return texture2D(uWaterMap, (clamped + 0.5) / uGridSize);
+      }
+
+      vec4 sampleZoneColor(vec2 coord) {
+        vec2 clamped = clamp(coord, vec2(0.0), vec2(uGridSize - 1.0));
+        return texture2D(uZoneColorMap, (clamped + 0.5) / uGridSize);
+      }
+
+      vec4 sampleZoneId(vec2 coord) {
+        vec2 clamped = clamp(coord, vec2(0.0), vec2(uGridSize - 1.0));
+        return texture2D(uZoneIdMap, (clamped + 0.5) / uGridSize);
       }
 
       void main() {
@@ -482,12 +591,77 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
         color = mix(color, uFoamMint, mintMask * 0.82);
         color = mix(color, uFoamColor, whiteMask * 0.98);
 
+        if (uZoneActive > 0.5) {
+          vec4 zCol = sampleZoneColor(tileCoord);
+          vec4 zId = sampleZoneId(tileCoord);
+          if (zCol.a > 0.01) {
+            vec4 zN = sampleZoneId(tileCoord + vec2(0.0, -1.0));
+            vec4 zS = sampleZoneId(tileCoord + vec2(0.0, 1.0));
+            vec4 zW = sampleZoneId(tileCoord + vec2(-1.0, 0.0));
+            vec4 zE = sampleZoneId(tileCoord + vec2(1.0, 0.0));
+            vec4 zNW = sampleZoneId(tileCoord + vec2(-1.0, -1.0));
+            vec4 zNE = sampleZoneId(tileCoord + vec2(1.0, -1.0));
+            vec4 zSW = sampleZoneId(tileCoord + vec2(-1.0, 1.0));
+            vec4 zSE = sampleZoneId(tileCoord + vec2(1.0, 1.0));
+
+            vec4 zN2 = sampleZoneId(tileCoord + vec2(0.0, -2.0));
+            vec4 zS2 = sampleZoneId(tileCoord + vec2(0.0, 2.0));
+            vec4 zW2 = sampleZoneId(tileCoord + vec2(-2.0, 0.0));
+            vec4 zE2 = sampleZoneId(tileCoord + vec2(2.0, 0.0));
+
+            bool diffN = abs(zN.r - zId.r) > 0.002 || abs(zN.g - zId.g) > 0.002;
+            bool diffS = abs(zS.r - zId.r) > 0.002 || abs(zS.g - zId.g) > 0.002;
+            bool diffW = abs(zW.r - zId.r) > 0.002 || abs(zW.g - zId.g) > 0.002;
+            bool diffE = abs(zE.r - zId.r) > 0.002 || abs(zE.g - zId.g) > 0.002;
+
+            bool diffNW = abs(zNW.r - zId.r) > 0.002 || abs(zNW.g - zId.g) > 0.002;
+            bool diffNE = abs(zNE.r - zId.r) > 0.002 || abs(zNE.g - zId.g) > 0.002;
+            bool diffSW = abs(zSW.r - zId.r) > 0.002 || abs(zSW.g - zId.g) > 0.002;
+            bool diffSE = abs(zSE.r - zId.r) > 0.002 || abs(zSE.g - zId.g) > 0.002;
+
+            bool diffN2 = abs(zN2.r - zId.r) > 0.002 || abs(zN2.g - zId.g) > 0.002;
+            bool diffS2 = abs(zS2.r - zId.r) > 0.002 || abs(zS2.g - zId.g) > 0.002;
+            bool diffW2 = abs(zW2.r - zId.r) > 0.002 || abs(zW2.g - zId.g) > 0.002;
+            bool diffE2 = abs(zE2.r - zId.r) > 0.002 || abs(zE2.g - zId.g) > 0.002;
+
+            bool isOuterBorderTile = diffN || diffS || diffW || diffE || diffNW || diffNE || diffSW || diffSE;
+            bool isInnerBorderTile = !isOuterBorderTile && (diffN2 || diffS2 || diffW2 || diffE2);
+
+            float outerDarkW = 0.44;
+            bool onDarkOuterStroke =
+              (diffN && subUv.y < outerDarkW) ||
+              (diffS && subUv.y > 1.0 - outerDarkW) ||
+              (diffW && subUv.x < outerDarkW) ||
+              (diffE && subUv.x > 1.0 - outerDarkW) ||
+              (diffNW && subUv.x < outerDarkW && subUv.y < outerDarkW) ||
+              (diffNE && subUv.x > 1.0 - outerDarkW && subUv.y < outerDarkW) ||
+              (diffSW && subUv.x < outerDarkW && subUv.y > 1.0 - outerDarkW) ||
+              (diffSE && subUv.x > 1.0 - outerDarkW && subUv.y > 1.0 - outerDarkW);
+
+            bool isHovered = zId.b > 0.5;
+            float hoverPulse = isHovered ? (0.16 + 0.08 * sin(uTime * 5.0)) : 0.0;
+
+            if (onDarkOuterStroke) {
+              vec3 darkBorderCol = zCol.rgb * (isHovered ? 0.52 : 0.36);
+              color = mix(color, darkBorderCol, 0.96);
+            } else if (isOuterBorderTile || isInnerBorderTile) {
+              vec3 borderCol = zCol.rgb * (isHovered ? 0.64 : 0.46);
+              color = mix(color, borderCol, isOuterBorderTile ? 0.95 : 0.90);
+            } else {
+              float baseAlpha = zCol.a * 0.52 + hoverPulse;
+              color = mix(color, zCol.rgb, clamp(baseAlpha, 0.0, 0.78));
+            }
+          }
+        }
+
         gl_FragColor = vec4(color, 1.0);
         #include <fog_fragment>
       }
     `,
   });
   material.uniforms.uWaterMap.value = waterMapTex;
+  material.uniforms.uZoneColorMap.value = zoneColorTex;
+  material.uniforms.uZoneIdMap.value = zoneIdTex;
 
   const mesh = new THREE.Mesh(geo, material);
   const center = (gridSize - 1) / 2;
@@ -578,18 +752,31 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
     mu.uFoamMint.value.lerp(_mintTarget, 0.08);
   };
 
+  const updateZones = (colorData: Uint8Array, idData: Uint8Array, anyActive: boolean) => {
+    material.uniforms.uZoneActive.value = anyActive ? 1 : 0;
+    if (anyActive) {
+      zoneColorBytes.set(colorData);
+      zoneIdBytes.set(idData);
+      zoneColorTex.needsUpdate = true;
+      zoneIdTex.needsUpdate = true;
+    }
+  };
+
   const dispose = () => {
     geo.dispose();
     material.dispose();
     waterMapTex.dispose();
+    zoneColorTex.dispose();
+    zoneIdTex.dispose();
   };
 
-  return { mesh, updateMap, updateFrame, dispose };
+  return { mesh, updateMap, updateZones, updateFrame, dispose };
 }
 
 export interface StyledTerrainSystem {
   getMaterials: (terrain: TerrainType) => THREE.MeshStandardMaterial[];
   updateMap: (tiles: TileData[]) => void;
+  updateZones: (colorData: Uint8Array, idData: Uint8Array, anyActive: boolean) => void;
   updateFrame: (elapsed: number, epochIndex?: number) => void;
   dispose: () => void;
 }
@@ -633,16 +820,38 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
   landMapTex.wrapT = THREE.ClampToEdgeWrapping;
   landMapTex.flipY = false;
 
+  const zoneColorBytes = new Uint8Array(gridSize * gridSize * 4);
+  const zoneColorTex = new THREE.DataTexture(zoneColorBytes, gridSize, gridSize, THREE.RGBAFormat);
+  zoneColorTex.magFilter = THREE.NearestFilter;
+  zoneColorTex.minFilter = THREE.NearestFilter;
+  zoneColorTex.wrapS = THREE.ClampToEdgeWrapping;
+  zoneColorTex.wrapT = THREE.ClampToEdgeWrapping;
+  zoneColorTex.flipY = false;
+
+  const zoneIdBytes = new Uint8Array(gridSize * gridSize * 4);
+  const zoneIdTex = new THREE.DataTexture(zoneIdBytes, gridSize, gridSize, THREE.RGBAFormat);
+  zoneIdTex.magFilter = THREE.NearestFilter;
+  zoneIdTex.minFilter = THREE.NearestFilter;
+  zoneIdTex.wrapS = THREE.ClampToEdgeWrapping;
+  zoneIdTex.wrapT = THREE.ClampToEdgeWrapping;
+  zoneIdTex.flipY = false;
+
   const sharedTime = { value: 0 };
   const sharedEpoch = { value: 0 };
   const sharedGridSize = { value: gridSize };
   const sharedLandMap = { value: landMapTex };
+  const sharedZoneColorMap = { value: zoneColorTex };
+  const sharedZoneIdMap = { value: zoneIdTex };
+  const sharedZoneActive = { value: 0 };
 
   const glslHelpers = `
     uniform float uTime;
     uniform float uEpoch;
     uniform float uGridSize;
     uniform sampler2D uLandMap;
+    uniform sampler2D uZoneColorMap;
+    uniform sampler2D uZoneIdMap;
+    uniform float uZoneActive;
     varying vec3 vLandWorldPos;
     varying vec3 vLandWorldNormal;
 
@@ -674,6 +883,16 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
     vec4 sampleLandTile(vec2 coord) {
       vec2 clamped = clamp(coord, vec2(0.0), vec2(uGridSize - 1.0));
       return texture2D(uLandMap, (clamped + 0.5) / uGridSize);
+    }
+
+    vec4 sampleLandZoneColor(vec2 coord) {
+      vec2 clamped = clamp(coord, vec2(0.0), vec2(uGridSize - 1.0));
+      return texture2D(uZoneColorMap, (clamped + 0.5) / uGridSize);
+    }
+
+    vec4 sampleLandZoneId(vec2 coord) {
+      vec2 clamped = clamp(coord, vec2(0.0), vec2(uGridSize - 1.0));
+      return texture2D(uZoneIdMap, (clamped + 0.5) / uGridSize);
     }
 
     float decodeHeight(vec4 t) {
@@ -1291,12 +1510,15 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
     roughness: 0.84,
     metalness: 0.08,
   });
-  cliffMat.customProgramCacheKey = () => 'aeon_cliff_pixel_v4';
+  cliffMat.customProgramCacheKey = () => 'aeon_cliff_pixel_v5';
   cliffMat.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = sharedTime;
     shader.uniforms.uEpoch = sharedEpoch;
     shader.uniforms.uGridSize = sharedGridSize;
     shader.uniforms.uLandMap = sharedLandMap;
+    shader.uniforms.uZoneColorMap = sharedZoneColorMap;
+    shader.uniforms.uZoneIdMap = sharedZoneIdMap;
+    shader.uniforms.uZoneActive = sharedZoneActive;
     patchVertexShader(shader);
 
     shader.fragmentShader =
@@ -1363,6 +1585,26 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         }
 
         diffuseColor.rgb = cliffCol;`,
+      )
+      .replace(
+        '#include <dithering_fragment>',
+        `#include <dithering_fragment>
+        if (uZoneActive > 0.5) {
+          vec4 zCol = sampleLandZoneColor(cliffOwnerCoord);
+          vec4 zId = sampleLandZoneId(cliffOwnerCoord);
+          vec4 zNbId = sampleLandZoneId(cliffNeighborCoord);
+          if (zCol.a > 0.01) {
+            bool diffCliff = abs(zNbId.r - zId.r) > 0.002 || abs(zNbId.g - zId.g) > 0.002;
+            bool isHovered = zId.b > 0.5;
+            if (diffCliff) {
+              vec3 rimCol = zCol.rgb * (isHovered ? 0.56 : 0.40);
+              gl_FragColor.rgb = mix(gl_FragColor.rgb, rimCol, 0.95);
+            } else {
+              float hBoost = isHovered ? 0.16 : 0.0;
+              gl_FragColor.rgb = mix(gl_FragColor.rgb, zCol.rgb, clamp(zCol.a * 0.52 + hBoost, 0.0, 0.76));
+            }
+          }
+        }`,
       );
   };
   createdMaterials.push(cliffMat);
@@ -1381,12 +1623,15 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
       roughness,
       metalness,
     });
-    topMat.customProgramCacheKey = () => 'aeon_land_top_pixel_v7';
+    topMat.customProgramCacheKey = () => 'aeon_land_top_pixel_v9';
     topMat.onBeforeCompile = (shader) => {
       shader.uniforms.uTime = sharedTime;
       shader.uniforms.uEpoch = sharedEpoch;
       shader.uniforms.uGridSize = sharedGridSize;
       shader.uniforms.uLandMap = sharedLandMap;
+      shader.uniforms.uZoneColorMap = sharedZoneColorMap;
+      shader.uniforms.uZoneIdMap = sharedZoneIdMap;
+      shader.uniforms.uZoneActive = sharedZoneActive;
       shader.uniforms.uDefaultCode = { value: tCode };
       patchVertexShader(shader);
 
@@ -1583,6 +1828,73 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
           }
 
           diffuseColor.rgb = col;`,
+        )
+        .replace(
+          '#include <dithering_fragment>',
+          `#include <dithering_fragment>
+          // 5. Post-Lighting Bold Contoured Zone Overlay (Kingdoms, Animal Territories, Biomes, Temperatures)
+          if (uZoneActive > 0.5) {
+            vec4 zCol = sampleLandZoneColor(tileCoord);
+            vec4 zId = sampleLandZoneId(tileCoord);
+            if (zCol.a > 0.01) {
+              vec4 zN = sampleLandZoneId(tileCoord + vec2(0.0, -1.0));
+              vec4 zS = sampleLandZoneId(tileCoord + vec2(0.0, 1.0));
+              vec4 zW = sampleLandZoneId(tileCoord + vec2(-1.0, 0.0));
+              vec4 zE = sampleLandZoneId(tileCoord + vec2(1.0, 0.0));
+              vec4 zNW = sampleLandZoneId(tileCoord + vec2(-1.0, -1.0));
+              vec4 zNE = sampleLandZoneId(tileCoord + vec2(1.0, -1.0));
+              vec4 zSW = sampleLandZoneId(tileCoord + vec2(-1.0, 1.0));
+              vec4 zSE = sampleLandZoneId(tileCoord + vec2(1.0, 1.0));
+
+              vec4 zN2 = sampleLandZoneId(tileCoord + vec2(0.0, -2.0));
+              vec4 zS2 = sampleLandZoneId(tileCoord + vec2(0.0, 2.0));
+              vec4 zW2 = sampleLandZoneId(tileCoord + vec2(-2.0, 0.0));
+              vec4 zE2 = sampleLandZoneId(tileCoord + vec2(2.0, 0.0));
+
+              bool diffN = abs(zN.r - zId.r) > 0.002 || abs(zN.g - zId.g) > 0.002;
+              bool diffS = abs(zS.r - zId.r) > 0.002 || abs(zS.g - zId.g) > 0.002;
+              bool diffW = abs(zW.r - zId.r) > 0.002 || abs(zW.g - zId.g) > 0.002;
+              bool diffE = abs(zE.r - zId.r) > 0.002 || abs(zE.g - zId.g) > 0.002;
+
+              bool diffNW = abs(zNW.r - zId.r) > 0.002 || abs(zNW.g - zId.g) > 0.002;
+              bool diffNE = abs(zNE.r - zId.r) > 0.002 || abs(zNE.g - zId.g) > 0.002;
+              bool diffSW = abs(zSW.r - zId.r) > 0.002 || abs(zSW.g - zId.g) > 0.002;
+              bool diffSE = abs(zSE.r - zId.r) > 0.002 || abs(zSE.g - zId.g) > 0.002;
+
+              bool diffN2 = abs(zN2.r - zId.r) > 0.002 || abs(zN2.g - zId.g) > 0.002;
+              bool diffS2 = abs(zS2.r - zId.r) > 0.002 || abs(zS2.g - zId.g) > 0.002;
+              bool diffW2 = abs(zW2.r - zId.r) > 0.002 || abs(zW2.g - zId.g) > 0.002;
+              bool diffE2 = abs(zE2.r - zId.r) > 0.002 || abs(zE2.g - zId.g) > 0.002;
+
+              bool isOuterBorderTile = diffN || diffS || diffW || diffE || diffNW || diffNE || diffSW || diffSE;
+              bool isInnerBorderTile = !isOuterBorderTile && (diffN2 || diffS2 || diffW2 || diffE2);
+
+              float outerDarkW = 0.44;
+              bool onDarkOuterStroke =
+                (diffN && subUv.y < outerDarkW) ||
+                (diffS && subUv.y > 1.0 - outerDarkW) ||
+                (diffW && subUv.x < outerDarkW) ||
+                (diffE && subUv.x > 1.0 - outerDarkW) ||
+                (diffNW && subUv.x < outerDarkW && subUv.y < outerDarkW) ||
+                (diffNE && subUv.x > 1.0 - outerDarkW && subUv.y < outerDarkW) ||
+                (diffSW && subUv.x < outerDarkW && subUv.y > 1.0 - outerDarkW) ||
+                (diffSE && subUv.x > 1.0 - outerDarkW && subUv.y > 1.0 - outerDarkW);
+
+              bool isHovered = zId.b > 0.5;
+              float hoverPulse = isHovered ? (0.16 + 0.09 * sin(uTime * 5.0)) : 0.0;
+
+              if (onDarkOuterStroke) {
+                vec3 outerCol = zCol.rgb * (isHovered ? 0.52 : 0.36);
+                gl_FragColor.rgb = mix(gl_FragColor.rgb, outerCol, 0.96);
+              } else if (isOuterBorderTile || isInnerBorderTile) {
+                vec3 rimCol = zCol.rgb * (isHovered ? 0.64 : 0.46);
+                gl_FragColor.rgb = mix(gl_FragColor.rgb, rimCol, isOuterBorderTile ? 0.95 : 0.90);
+              } else {
+                float fillAlpha = zCol.a * 0.54 + hoverPulse;
+                gl_FragColor.rgb = mix(gl_FragColor.rgb, zCol.rgb, clamp(fillAlpha, 0.0, 0.78));
+              }
+            }
+          }`,
         );
     };
 
@@ -1603,6 +1915,16 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
     landMapTex.needsUpdate = true;
   };
 
+  const updateZones = (colorData: Uint8Array, idData: Uint8Array, anyActive: boolean) => {
+    sharedZoneActive.value = anyActive ? 1 : 0;
+    if (anyActive) {
+      zoneColorBytes.set(colorData);
+      zoneIdBytes.set(idData);
+      zoneColorTex.needsUpdate = true;
+      zoneIdTex.needsUpdate = true;
+    }
+  };
+
   const updateFrame = (elapsed: number, epochIndex = 0) => {
     sharedTime.value = elapsed;
     sharedEpoch.value = epochIndex;
@@ -1614,14 +1936,17 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
   const dispose = () => {
     for (const m of createdMaterials) m.dispose();
     landMapTex.dispose();
+    zoneColorTex.dispose();
+    zoneIdTex.dispose();
   };
 
-  return { getMaterials, updateMap, updateFrame, dispose };
+  return { getMaterials, updateMap, updateZones, updateFrame, dispose };
 }
 
 export interface PixelSpaceSystem {
   mesh: THREE.Mesh;
   setSeed: (seed: number) => void;
+  setQuality: (quality: SkyCloudsQualityOption) => void;
   update: (params: {
     elapsed: number;
     width: number;
@@ -1700,13 +2025,14 @@ export function createPixelSpaceSystem(initialSeed: number): PixelSpaceSystem {
     uCoreColor: { value: new THREE.Color('#ffdca8') },
     uPresetTint: { value: new THREE.Color('#0a0d18') },
     uPresetStrength: { value: 1.0 },
+    uSpaceQuality: { value: 2.0 },
   };
 
   const material = new THREE.ShaderMaterial({
     uniforms,
     fog: false,
     transparent: false,
-    depthTest: false,
+    depthTest: true,
     depthWrite: false,
     vertexShader: `
       void main() {
@@ -1734,6 +2060,7 @@ export function createPixelSpaceSystem(initialSeed: number): PixelSpaceSystem {
       uniform vec3 uCoreColor;
       uniform vec3 uPresetTint;
       uniform float uPresetStrength;
+      uniform float uSpaceQuality;
 
       float hash12(vec2 p) {
         vec3 p3 = fract(vec3(p.xyx) * 0.1031);
@@ -1857,6 +2184,12 @@ export function createPixelSpaceSystem(initialSeed: number): PixelSpaceSystem {
       }
 
       void main() {
+        if (uSpaceQuality < 0.5) {
+          vec3 fastVoid = mix(uVoidColor, uPresetTint, 0.25) * uPresetStrength;
+          gl_FragColor = vec4(fastVoid, 1.0);
+          return;
+        }
+
         vec2 pix = floor(gl_FragCoord.xy / uPixelStep);
         vec2 res = max(vec2(32.0), floor(uResolution / uPixelStep));
         vec2 halfRes = 0.5 * res;
@@ -1866,6 +2199,25 @@ export function createPixelSpaceSystem(initialSeed: number): PixelSpaceSystem {
         float zoomScale = mix(0.88, 1.28, clamp((uFrustumSize - 7.5) / 85.0, 0.0, 1.0));
         vec2 skyOrigin = uCamPan * 0.55;
         vec2 skyP = rot2(pCentered * zoomScale, uCamYaw) + skyOrigin;
+
+        if (uSpaceQuality < 1.5) {
+          // Balanced fast mode: soft gradient nebula band + crisp mid/hero stars without heavy 4-octave FBM noise
+          vec2 mwCoord = rot2(floor(skyP), uBandAngle);
+          float distFromAxis = mwCoord.y - uBandOffset;
+          float bandWidth = max(48.0, uBandWidth);
+          float mwProfile = exp(-(distFromAxis * distFromAxis) / (bandWidth * bandWidth));
+          float dither = bayer4x4(pix);
+          float ditheredBand = floor(mwProfile * 0.72 * 5.0 + dither) / 5.0;
+          vec3 spaceCol = mix(uVoidColor, uPresetTint, 0.16);
+          spaceCol = mix(spaceCol, uBandColorA, smoothstep(0.0, 0.45, ditheredBand));
+          spaceCol = mix(spaceCol, uBandColorB, smoothstep(0.4, 0.95, ditheredBand) * 0.65);
+          spaceCol *= uPresetStrength;
+          vec3 starsMid = evalStarLayer(pix, halfRes, skyP, skyOrigin, zoomScale, 13.0, 0.20, 0.12, 37.0, mwProfile * 0.5, 0.05);
+          vec3 starsHero = evalStarLayer(pix, halfRes, skyP, skyOrigin, zoomScale, 28.0, 0.22, 0.16, 79.0, mwProfile * 0.3, 0.24);
+          spaceCol += starsMid * 0.9 + starsHero * 1.2;
+          gl_FragColor = vec4(spaceCol, 1.0);
+          return;
+        }
 
         // Snap cosmic nebula coordinates to integer sky pixels for crisp pixel-art cohesion
         vec2 skyPix = floor(skyP);
@@ -1971,7 +2323,7 @@ export function createPixelSpaceSystem(initialSeed: number): PixelSpaceSystem {
 
   const mesh = new THREE.Mesh(geo, material);
   mesh.frustumCulled = false;
-  mesh.renderOrder = -100;
+  mesh.renderOrder = 10;
 
   const setSeed = (rawSeed: number) => {
     const seed = normalizeSeed(rawSeed);
@@ -2044,12 +2396,16 @@ export function createPixelSpaceSystem(initialSeed: number): PixelSpaceSystem {
     uniforms.uPresetStrength.value += (targetStrength - uniforms.uPresetStrength.value) * 0.08;
   };
 
+  const setQuality = (quality: SkyCloudsQualityOption) => {
+    uniforms.uSpaceQuality.value = quality === 'off' ? 0.0 : quality === 'reduced' ? 1.0 : 2.0;
+  };
+
   const dispose = () => {
     geo.dispose();
     material.dispose();
   };
 
-  return { mesh, setSeed, update, dispose };
+  return { mesh, setSeed, setQuality, update, dispose };
 }
 
 export interface WorldUnderglowSystem {

@@ -6,16 +6,21 @@ import {
   TerrainToolType,
   ToolCategory,
   UnitRole,
+  ZoneOverlayType,
 } from '../game/types';
 
-export const TitleEmblemSvg: React.FC = () => (
-  <div className="flex items-center gap-3.5 mb-3">
+export const TitleEmblemSvg: React.FC<{ centered?: boolean }> = ({ centered = true }) => (
+  <div
+    className={`flex items-center gap-3 ${
+      centered ? 'justify-center' : 'justify-start'
+    }`}
+  >
     {/* Stepped pixel ziggurat & flame emblem */}
     <svg
       viewBox="0 0 16 16"
-      className="w-12 h-12 shrink-0 pixelated-canvas"
+      className="w-10 h-10 shrink-0 pixelated-canvas"
       role="img"
-      aria-label="Aeon Emblem"
+      aria-label="Godmulator Emblem"
       shapeRendering="crispEdges"
     >
       {/* Flame */}
@@ -34,13 +39,8 @@ export const TitleEmblemSvg: React.FC = () => (
       <rect x="3" y="9" width="10" height="1" fill="#d6ccc0" />
       <rect x="2" y="11" width="12" height="1" fill="#a89e92" />
     </svg>
-    <div>
-      <div className="font-display font-bold text-3xl tracking-wide text-[#f5b742] leading-none">
-        AEON
-      </div>
-      <div className="text-xs text-[#c7bdb0] mt-1">
-        Pixel God Sandbox
-      </div>
+    <div className="font-display font-bold text-3xl tracking-normal text-[#f5b742] leading-none">
+      Godmulator
     </div>
   </div>
 );
@@ -183,6 +183,29 @@ export const TabPixelIcon: React.FC<{ category: ToolCategory; className?: string
           <rect x="9" y="11" width="2" height="3" fill="#5c4033" />
         </svg>
       );
+    case 'zones':
+      return (
+        <svg viewBox="0 0 16 16" className={className} aria-hidden="true" shapeRendering="crispEdges">
+          <rect x="2" y="2" width="5" height="5" fill="#3b82f6" />
+          <rect x="9" y="2" width="5" height="5" fill="#10b981" />
+          <rect x="2" y="9" width="5" height="5" fill="#f59e0b" />
+          <rect x="9" y="9" width="5" height="5" fill="#ef4444" />
+          <rect x="7" y="2" width="2" height="12" fill="#f8fafc" />
+          <rect x="2" y="7" width="12" height="2" fill="#f8fafc" />
+        </svg>
+      );
+    case 'rules':
+      return (
+        <svg viewBox="0 0 16 16" className={className} aria-hidden="true" shapeRendering="crispEdges">
+          {/* Carved Divine Law Tablet & Scales */}
+          <rect x="3" y="2" width="10" height="12" fill="#5b554e" />
+          <rect x="4" y="3" width="8" height="10" fill="#8f8478" />
+          <rect x="5" y="4" width="6" height="2" fill="#ffd166" />
+          <rect x="5" y="7" width="6" height="1" fill="#fff3bf" />
+          <rect x="5" y="9" width="4" height="1" fill="#fff3bf" />
+          <rect x="5" y="11" width="5" height="1" fill="#56cfe1" />
+        </svg>
+      );
     case 'epochs':
       return (
         <svg viewBox="0 0 16 16" className={className} aria-hidden="true" shapeRendering="crispEdges">
@@ -202,6 +225,105 @@ export const TabPixelIcon: React.FC<{ category: ToolCategory; className?: string
           <rect x="5" y="5" width="4" height="3" fill="#caf0f8" />
           <rect x="10" y="9" width="2" height="2" fill="#a86f46" />
           <rect x="12" y="11" width="2" height="3" fill="#7c4f31" />
+        </svg>
+      );
+  }
+};
+
+export const ZonePixelIcon: React.FC<{ zone: ZoneOverlayType; className?: string }> = ({
+  zone,
+  className = 'w-7 h-7 pixelated-canvas',
+}) => {
+  switch (zone) {
+    case 'kingdoms':
+      return (
+        <svg viewBox="0 0 16 16" className={className} aria-hidden="true" shapeRendering="crispEdges">
+          {/* Crown & Maritime Banner */}
+          <rect x="2" y="11" width="12" height="3" fill="#2563eb" />
+          <rect x="3" y="5" width="2" height="6" fill="#fbbf24" />
+          <rect x="7" y="3" width="2" height="8" fill="#fde047" />
+          <rect x="11" y="5" width="2" height="6" fill="#fbbf24" />
+          <rect x="3" y="9" width="10" height="2" fill="#f59e0b" />
+          <rect x="5" y="7" width="2" height="2" fill="#f59e0b" />
+          <rect x="9" y="7" width="2" height="2" fill="#f59e0b" />
+          <rect x="7" y="10" width="2" height="1" fill="#ef4444" />
+          <rect x="4" y="13" width="8" height="1" fill="#38bdf8" />
+        </svg>
+      );
+    case 'kings':
+      return (
+        <svg viewBox="0 0 16 16" className={className} aria-hidden="true" shapeRendering="crispEdges">
+          {/* Royal Monarch Crown & Jewels */}
+          <rect x="7" y="1" width="2" height="2" fill="#fff3bf" />
+          <rect x="2" y="4" width="2" height="7" fill="#ffd166" />
+          <rect x="7" y="3" width="2" height="8" fill="#ffd166" />
+          <rect x="12" y="4" width="2" height="7" fill="#ffd166" />
+          <rect x="4" y="7" width="3" height="4" fill="#f59e0b" />
+          <rect x="9" y="7" width="3" height="4" fill="#f59e0b" />
+          <rect x="2" y="10" width="12" height="3" fill="#d97706" />
+          <rect x="3" y="11" width="2" height="1" fill="#38bdf8" />
+          <rect x="7" y="10" width="2" height="2" fill="#ef4444" />
+          <rect x="11" y="11" width="2" height="1" fill="#10b981" />
+          <rect x="2" y="13" width="12" height="1" fill="#fff3bf" />
+        </svg>
+      );
+    case 'territories':
+      return (
+        <svg viewBox="0 0 16 16" className={className} aria-hidden="true" shapeRendering="crispEdges">
+          {/* Beast Paw & Territory Border */}
+          <rect x="3" y="4" width="2" height="3" fill="#fb923c" />
+          <rect x="6" y="2" width="2" height="3" fill="#fdba74" />
+          <rect x="9" y="2" width="2" height="3" fill="#fdba74" />
+          <rect x="11" y="5" width="2" height="3" fill="#fb923c" />
+          <rect x="5" y="7" width="6" height="5" fill="#ea580c" />
+          <rect x="4" y="9" width="8" height="3" fill="#c2410c" />
+          <rect x="6" y="8" width="4" height="2" fill="#fed7aa" />
+          <rect x="2" y="13" width="12" height="2" fill="#2dd4bf" />
+        </svg>
+      );
+    case 'biomes':
+      return (
+        <svg viewBox="0 0 16 16" className={className} aria-hidden="true" shapeRendering="crispEdges">
+          {/* Land Canopy & Sea Wave */}
+          <rect x="5" y="2" width="6" height="3" fill="#4ade80" />
+          <rect x="3" y="5" width="10" height="3" fill="#22c55e" />
+          <rect x="4" y="8" width="8" height="2" fill="#16a34a" />
+          <rect x="7" y="10" width="2" height="2" fill="#854d0e" />
+          <rect x="2" y="12" width="12" height="3" fill="#0284c7" />
+          <rect x="3" y="12" width="4" height="1" fill="#7dd3fc" />
+          <rect x="9" y="13" width="4" height="1" fill="#7dd3fc" />
+        </svg>
+      );
+    case 'alliances':
+      return (
+        <svg viewBox="0 0 16 16" className={className} aria-hidden="true" shapeRendering="crispEdges">
+          {/* Dual Alliance (Blue) vs War Enemy (Red) Heraldic Shields */}
+          <rect x="2" y="3" width="5" height="6" fill="#2563eb" />
+          <rect x="3" y="4" width="3" height="3" fill="#60a5fa" />
+          <rect x="3" y="9" width="3" height="2" fill="#1d4ed8" />
+          <rect x="4" y="11" width="1" height="1" fill="#93c5fd" />
+          <rect x="9" y="3" width="5" height="6" fill="#dc2626" />
+          <rect x="10" y="4" width="3" height="3" fill="#f87171" />
+          <rect x="10" y="9" width="3" height="2" fill="#b91c1c" />
+          <rect x="11" y="11" width="1" height="1" fill="#fca5a5" />
+          <rect x="7" y="6" width="2" height="2" fill="#fde047" />
+          <rect x="6" y="13" width="4" height="1" fill="#e5e7eb" />
+        </svg>
+      );
+    case 'temperature':
+    default:
+      return (
+        <svg viewBox="0 0 16 16" className={className} aria-hidden="true" shapeRendering="crispEdges">
+          {/* Pixel Thermometer with Cold -> Hot bands */}
+          <rect x="6" y="2" width="4" height="8" fill="#334155" />
+          <rect x="7" y="3" width="2" height="2" fill="#38bdf8" />
+          <rect x="7" y="5" width="2" height="2" fill="#4ade80" />
+          <rect x="7" y="7" width="2" height="3" fill="#fb923c" />
+          <rect x="5" y="10" width="6" height="4" fill="#ef4444" />
+          <rect x="6" y="11" width="2" height="2" fill="#fca5a5" />
+          <rect x="11" y="3" width="2" height="1" fill="#94a3b8" />
+          <rect x="11" y="6" width="2" height="1" fill="#94a3b8" />
+          <rect x="11" y="9" width="2" height="1" fill="#94a3b8" />
         </svg>
       );
   }
@@ -336,6 +458,64 @@ export const PowerPixelIcon: React.FC<{ power: GodPowerType; className?: string 
           <rect x="7" y="2" width="2" height="6" fill="#b7f7e4" />
           <rect x="2" y="9" width="12" height="2" fill="#6a994e" />
           <rect x="2" y="11" width="12" height="3" fill="#7c5234" />
+        </svg>
+      );
+    case 'drag_entity':
+      return (
+        <svg viewBox="0 0 16 16" className={className} aria-hidden="true" shapeRendering="crispEdges">
+          <rect x="6" y="2" width="4" height="2" fill="#e0fbfc" />
+          <rect x="4" y="4" width="8" height="2" fill="#56cfe1" />
+          <rect x="3" y="6" width="3" height="6" fill="#38bdf8" />
+          <rect x="10" y="6" width="3" height="6" fill="#38bdf8" />
+          <rect x="4" y="12" width="3" height="2" fill="#ffd166" />
+          <rect x="9" y="12" width="3" height="2" fill="#ffd166" />
+          <rect x="7" y="8" width="2" height="3" fill="#fff3bf" />
+        </svg>
+      );
+    case 'heat_wave':
+      return (
+        <svg viewBox="0 0 16 16" className={className} aria-hidden="true" shapeRendering="crispEdges">
+          <rect x="5" y="1" width="6" height="4" fill="#fde047" />
+          <rect x="4" y="3" width="8" height="4" fill="#fb923c" />
+          <rect x="6" y="3" width="4" height="3" fill="#fff3bf" />
+          <rect x="3" y="9" width="3" height="2" fill="#ff5400" />
+          <rect x="7" y="10" width="3" height="2" fill="#ff7b00" />
+          <rect x="11" y="9" width="2" height="2" fill="#ff5400" />
+          <rect x="2" y="12" width="12" height="2" fill="#e63946" />
+        </svg>
+      );
+    case 'freeze_snap':
+      return (
+        <svg viewBox="0 0 16 16" className={className} aria-hidden="true" shapeRendering="crispEdges">
+          <rect x="7" y="1" width="2" height="14" fill="#7dd3fc" />
+          <rect x="1" y="7" width="14" height="2" fill="#7dd3fc" />
+          <rect x="3" y="3" width="2" height="2" fill="#bae6fd" />
+          <rect x="11" y="3" width="2" height="2" fill="#bae6fd" />
+          <rect x="3" y="11" width="2" height="2" fill="#bae6fd" />
+          <rect x="11" y="11" width="2" height="2" fill="#bae6fd" />
+          <rect x="6" y="6" width="4" height="4" fill="#ffffff" />
+        </svg>
+      );
+    case 'tornado':
+      return (
+        <svg viewBox="0 0 16 16" className={className} aria-hidden="true" shapeRendering="crispEdges">
+          <rect x="2" y="2" width="12" height="2" fill="#cbd5e1" />
+          <rect x="3" y="4" width="10" height="2" fill="#94a3b8" />
+          <rect x="4" y="6" width="8" height="2" fill="#cbd5e1" />
+          <rect x="5" y="8" width="6" height="2" fill="#64748b" />
+          <rect x="6" y="10" width="4" height="2" fill="#94a3b8" />
+          <rect x="7" y="12" width="2" height="3" fill="#475569" />
+        </svg>
+      );
+    case 'tsunami':
+      return (
+        <svg viewBox="0 0 16 16" className={className} aria-hidden="true" shapeRendering="crispEdges">
+          <rect x="5" y="2" width="7" height="2" fill="#e0fbfc" />
+          <rect x="3" y="4" width="9" height="3" fill="#48cae4" />
+          <rect x="2" y="7" width="8" height="3" fill="#0096c7" />
+          <rect x="8" y="4" width="3" height="2" fill="#ffffff" />
+          <rect x="1" y="10" width="14" height="4" fill="#023e8a" />
+          <rect x="2" y="11" width="4" height="1" fill="#90e0ef" />
         </svg>
       );
     case 'wormhole_ascension':
@@ -841,7 +1021,8 @@ export const HudPixelIcon: React.FC<{
     | 'audioOff'
     | 'pause'
     | 'play'
-    | 'reset';
+    | 'reset'
+    | 'settings';
   className?: string;
 }> = ({ kind, className = 'w-4 h-4 pixelated-canvas' }) => {
   switch (kind) {
@@ -922,6 +1103,17 @@ export const HudPixelIcon: React.FC<{
           <rect x="6" y="4" width="2" height="8" fill="currentColor" />
           <rect x="8" y="5" width="2" height="6" fill="currentColor" />
           <rect x="10" y="7" width="2" height="2" fill="currentColor" />
+        </svg>
+      );
+    case 'settings':
+      return (
+        <svg viewBox="0 0 16 16" className={className} aria-hidden="true" shapeRendering="crispEdges">
+          <rect x="7" y="2" width="2" height="2" fill="currentColor" />
+          <rect x="7" y="12" width="2" height="2" fill="currentColor" />
+          <rect x="2" y="7" width="2" height="2" fill="currentColor" />
+          <rect x="12" y="7" width="2" height="2" fill="currentColor" />
+          <rect x="4" y="4" width="8" height="8" fill="currentColor" />
+          <rect x="6" y="6" width="4" height="4" fill="#181512" />
         </svg>
       );
     case 'reset':

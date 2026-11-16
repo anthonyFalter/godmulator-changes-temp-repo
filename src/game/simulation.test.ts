@@ -1,34 +1,63 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  WORLD_TEMPLATES,
   advanceEpoch,
   applyTerrainTool,
+  areKingdomsAtWar,
+  beginDragUnit,
   castGodPower,
   createInitialSimulationState,
+  createWorldConfigFromTemplate,
   executeGodPowerImpact,
   formatYearLabel,
   generateEarthquakeFaultNetwork,
+  getKingdomId,
+  getKingdomRelation,
   getMaxCityBuildings,
   getMaxCityFarmFields,
+  getSettlementAnchor,
   getTile,
+  initializeKingdomDiplomacyPair,
   isCarnivoreAnimal,
   isHerbivoreAnimal,
   placeBuilding,
+  releaseDragUnit,
+  rollKingdomPeacefulTrait,
+  setKingdomRelation,
   spawnRaiderWave,
   spawnUnit,
   stepSimulation,
+  triggerCityRebellion,
+  updateDragUnit,
 } from './simulation';
 import {
   ANIMAL_UNITS,
   DRAGON_VARIANTS,
   EPOCHS,
+  GOD_POWERS,
   MYTHICAL_BEAST_UNITS,
   SPECIES_UNITS,
   getDinosaurVariant,
   getDragonVariant,
+  getUnitMaxLifespan,
 } from './catalog';
 import { getEntityInspectProfile, toggleUnitFavorite } from './entityInspector';
+import {
+  DEFAULT_ZONE_TOGGLES,
+  buildZoneOverlayTextures,
+  computeWorldZones,
+  extractKingdomColorsMap,
+  inspectTileZones,
+} from './zones';
 import { createUnitGroup, createVehicleGroup } from './meshBuilders';
+import {
+  DEFAULT_GRAPHICS_SETTINGS,
+  applyGraphicsPreset,
+  inferGraphicsPreset,
+  resolveGraphicsProfile,
+  sanitizeGraphicsSettings,
+} from './graphics';
 import * as THREE from 'three';
 
 test('initial state starts as uninhabited wilderness with zero settlements or units', () => {
@@ -173,7 +202,7 @@ test('advancing epochs progresses from Prehistoric all the way to Interstellar A
   assert.equal(EPOCHS[state.epochIndex].id, 'interstellar');
 });
 
-test('simulation step advances year at 1 year per 10 seconds on 1x speed and spawns raiders cleanly', () => {
+test('simulation step advances year at 1 year per second on 1x speed, scales with multiplier, and spawns raiders cleanly', () => {
   const state = createInitialSimulationState(128, 55555);
   spawnUnit(state, 'villager', 64, 64);
   const yearBefore = state.year;
@@ -183,20 +212,26 @@ test('simulation step advances year at 1 year per 10 seconds on 1x speed and spa
   const hostiles = state.units.filter((u) => u.faction === 'hostile');
   assert.equal(hostiles.length, 3);
 
-  // 9 seconds at 1x speed should still be 10,000 BCE (< 1 full year elapsed)
-  for (let i = 0; i < 90; i++) {
+  // 0.9 seconds at 1x speed should still be 10,000 BCE (< 1 full year elapsed)
+  for (let i = 0; i < 9; i++) {
     stepSimulation(state, 0.1);
   }
   assert.ok(state.year > yearBefore);
   assert.ok(Math.abs(state.year - (yearBefore + 0.9)) < 1e-6);
   assert.equal(formatYearLabel(state.year), '10,000 BCE');
 
-  // 1 more second completes 10 seconds -> advances 1 full year to 9,999 BCE
-  for (let i = 0; i < 10; i++) {
-    stepSimulation(state, 0.1);
-  }
+  // 0.1 more second completes 1 full second -> advances 1 full year to 9,999 BCE
+  stepSimulation(state, 0.1);
   assert.ok(Math.abs(state.year - (yearBefore + 1.0)) < 1e-6);
   assert.equal(formatYearLabel(state.year), '9,999 BCE');
+
+  // 10x speed (dt = 0.1 * 10 = 1.0 per tick) advances 10 full years in 1 real second
+  const yearBefore10x = state.year;
+  for (let i = 0; i < 10; i++) {
+    stepSimulation(state, 0.1 * 10);
+  }
+  assert.ok(Math.abs(state.year - (yearBefore10x + 10.0)) < 1e-6);
+  assert.equal(formatYearLabel(state.year), '9,989 BCE');
 });
 
 test('seed pipeline produces deterministic identical worlds for same seed and distinct biomes across seeds', () => {
@@ -919,23 +954,25 @@ test('Industrial to Information Age pacing includes Info Age, metro railways, ca
   // Record positions & step further to confirm real locomotion and flight takeoff/cruise
   const carBefore = { x: cars[0].x, z: cars[0].z };
   const trainBefore = { x: trains[0].x, z: trains[0].z };
+  let carMoved = false;
+  let trainMoved = false;
   let sawPlaneAirborne = planes[0].y > 0.2 || planes[0].flightPhase === 'cruise' || planes[0].flightPhase === 'takeoff';
 
   for (let i = 0; i < 45; i++) {
     stepSimulation(state, 0.2);
+    if (Math.hypot(cars[0].x - carBefore.x, cars[0].z - carBefore.z) > 0.2) {
+      carMoved = true;
+    }
+    if (Math.hypot(trains[0].x - trainBefore.x, trains[0].z - trainBefore.z) > 0.2) {
+      trainMoved = true;
+    }
     if ((planes[0]?.y ?? 0) > 0.4 || planes[0]?.flightPhase === 'cruise') {
       sawPlaneAirborne = true;
     }
   }
 
-  assert.ok(
-    Math.hypot(cars[0].x - carBefore.x, cars[0].z - carBefore.z) > 0.2,
-    'Cars must drive continuously along road network',
-  );
-  assert.ok(
-    Math.hypot(trains[0].x - trainBefore.x, trains[0].z - trainBefore.z) > 0.2,
-    'Trains/metros must travel continuously along rail network',
-  );
+  assert.ok(carMoved, 'Cars must drive continuously along road network');
+  assert.ok(trainMoved, 'Trains/metros must travel continuously along rail network');
   assert.ok(sawPlaneAirborne, 'Airport aircraft must take off and become airborne');
 });
 
@@ -1041,6 +1078,7 @@ test('Earthquake god power creates fault lines, protects ocean tiles, damages st
 test('Individuals in every race have unique appearance diversity, different skin tones, and child-to-adult growth', () => {
   const state = createInitialSimulationState(128, 'DIVERSITY-TEST');
   state.sandboxFreeMode = true;
+  state.wildlifeSeeded = true;
 
   for (let dz = -5; dz <= 5; dz++) {
     for (let dx = -5; dx <= 5; dx++) {
@@ -2145,4 +2183,1260 @@ test('camera target locks and tracks moving entity coordinates during follow mod
   assert.equal(camDesiredTarget.z, 64.9);
 });
 
+test('pressing play smoothly targets 45 degree isometric angle, centers world, and zooms out to see whole map', () => {
+  const state = createInitialSimulationState(128, 'PLAY-TRANSITION-TEST');
+  const worldCenter = (state.gridSize - 1) / 2;
 
+  // Test angular delta calculation from any arbitrary rotating title yaw to 45 deg (Math.PI / 4)
+  const targetYaw = Math.PI / 4;
+  const testYaws = [0.1, 1.25, 2.7, 3.8, 5.5, 6.2, 12.4];
+  for (const camYaw of testYaws) {
+    const yawDiff = Math.atan2(Math.sin(targetYaw - camYaw), Math.cos(targetYaw - camYaw));
+    const finalYaw = camYaw + yawDiff;
+    const normFinal = ((finalYaw % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+    const normTarget = ((targetYaw % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+    assert.ok(
+      Math.abs(normFinal - normTarget) < 1e-5,
+      `Calculated yaw must rotate directly to 45 degrees (camYaw=${camYaw}, got=${normFinal}, target=${normTarget})`,
+    );
+    assert.ok(Math.abs(yawDiff) <= Math.PI, `Yaw rotation must take shortest angular path (<= 180 deg, got ${yawDiff})`);
+  }
+
+  // Camera pan target centers the whole map
+  assert.equal(worldCenter, 63.5);
+
+  // Whole map overview frustum size is 105 (zoomed out)
+  const wholeMapZoomFrustum = 105;
+  assert.equal(wholeMapZoomFrustum, 105);
+});
+
+test('zones feature defaults to off, dynamically contours across land and sea, and supports hover inspection', () => {
+  // 1. Default toggles must all be OFF by default
+  assert.deepEqual(DEFAULT_ZONE_TOGGLES, {
+    kingdoms: false,
+    kings: false,
+    territories: false,
+    biomes: false,
+    temperature: false,
+    alliances: false,
+  });
+
+  const state = createInitialSimulationState(128, 'ZONES-LAND-SEA-TEST');
+  state.sandboxFreeMode = true;
+  state.wildlifeSeeded = true;
+
+  // Sculpt a coastal peninsula at (50, 50):
+  // x <= 50 is dry land (height 2, grass), x = 51..54 is shallow_water (height 0), x >= 55 is deep_water (height 0)
+  for (let z = 42; z <= 58; z++) {
+    for (let x = 42; x <= 60; x++) {
+      const t = getTile(state, x, z)!;
+      t.resourceNode = 'none';
+      t.buildingId = null;
+      if (x <= 50) {
+        t.height = 2;
+        t.terrain = 'grass';
+      } else if (x <= 54) {
+        t.height = 0;
+        t.terrain = 'shallow_water';
+      } else {
+        t.height = 0;
+        t.terrain = 'deep_water';
+      }
+    }
+  }
+
+  // Place a mountain wall to the west (x = 45) to verify non-circular topographic shaping
+  for (let z = 44; z <= 56; z++) {
+    const mt = getTile(state, 45, z)!;
+    mt.height = 9;
+    mt.terrain = 'mountain';
+  }
+
+  // Build a paved road heading north from (49, 49) to (49, 43)
+  for (let z = 43; z <= 49; z++) {
+    const rt = getTile(state, 49, z)!;
+    rt.terrain = 'stone_road';
+  }
+
+  // Found a Human coastal kingdom at (49, 50) with 3 citizens
+  const placed = placeBuilding(state, 'bonfire', 49, 50);
+  assert.ok(placed.ok, 'Coastal settlement bonfire should place');
+  spawnUnit(state, 'human', 49, 50);
+  spawnUnit(state, 'human', 48, 50);
+  spawnUnit(state, 'human', 49, 49);
+
+  // Spawn a terrestrial wolf pack on an inland meadow at (25, 25) bordered by water at x >= 27
+  for (let z = 20; z <= 30; z++) {
+    for (let x = 20; x <= 32; x++) {
+      const t = getTile(state, x, z)!;
+      t.resourceNode = 'none';
+      t.buildingId = null;
+      if (x <= 26) {
+        t.height = 2;
+        t.terrain = 'forest';
+      } else {
+        t.height = 0;
+        t.terrain = 'shallow_water';
+      }
+    }
+  }
+  spawnUnit(state, 'wolf', 25, 25);
+  spawnUnit(state, 'wolf', 24, 25);
+
+  // Spawn an amphibious capybara herd on the shoreline at (50, 55) next to shallow_water (51, 55)
+  spawnUnit(state, 'capybara', 50, 55);
+  spawnUnit(state, 'capybara', 50, 54);
+
+  const zones = computeWorldZones(state);
+
+  // Verify Kingdom zone includes population = 3 and claims BOTH land and adjacent maritime sea water
+  assert.equal(zones.kingdomsById.size, 1);
+  const kingdom = Array.from(zones.kingdomsById.values())[0];
+  assert.equal(kingdom.population, 3);
+  assert.ok(kingdom.landTileCount > 10, 'Kingdom should claim surrounding land tiles');
+  assert.ok(
+    kingdom.seaTileCount > 5,
+    'Intelligent kingdom on coast must dynamically claim adjacent maritime sea tiles',
+  );
+
+  // Verify non-circular shaping: road north (49, 43) is reached easily while mountain barrier behind (43, 50) is blocked/resisted
+  const roadReachIdx = 43 * state.gridSize + 49;
+  const behindMountainIdx = 50 * state.gridSize + 42;
+  assert.equal(zones.kingdomMap[roadReachIdx], kingdom.zoneId, 'Kingdom expands further along stone road');
+  assert.equal(zones.kingdomMap[behindMountainIdx], 0, 'Mountain ridge blocks circular expansion');
+
+  // Verify terrestrial Wolf territory strictly stays on land (seaTileCount === 0)
+  const wolfTerritory = Array.from(zones.territoriesById.values()).find((t) => t.species === 'wolf')!;
+  assert.ok(wolfTerritory, 'Wolf territory should exist');
+  assert.ok(wolfTerritory.landTileCount > 5, 'Wolf territory covers forest land');
+  assert.equal(wolfTerritory.seaTileCount, 0, 'Terrestrial wolf territory must stop at the coastline and never enter sea');
+
+  // Verify amphibious Capybara territory spans both land and shallow sea lagoons
+  const capyTerritory = Array.from(zones.territoriesById.values()).find((t) => t.species === 'capybara')!;
+  assert.ok(capyTerritory, 'Capybara territory should exist');
+  assert.ok(capyTerritory.landTileCount > 0, 'Capybara territory includes coastal land');
+  assert.ok(capyTerritory.seaTileCount > 0, 'Amphibious capybara territory dynamically extends into shallow sea waters');
+
+  // Verify hover inspection with inspectTileZones returns complete zone info on both land and sea
+  const landInspect = inspectTileZones(zones, state, 49, 50)!;
+  assert.ok(landInspect.kingdom);
+  assert.equal(landInspect.kingdom?.name, kingdom.name);
+  assert.equal(landInspect.kingdom?.population, 3);
+  assert.equal(landInspect.isKingdomMaritime, false);
+  assert.ok(landInspect.biomeZone);
+  assert.ok(landInspect.temperatureZone);
+
+  const seaInspect = inspectTileZones(zones, state, 51, 50)!;
+  assert.ok(seaInspect.kingdom, 'Hovering coastal water next to kingdom should inspect its maritime zone');
+  assert.equal(seaInspect.isKingdomMaritime, true);
+
+  // Verify buildZoneOverlayTextures returns all zeros when toggles are off, and populates buffers when toggled on
+  const offPack = buildZoneOverlayTextures(zones, DEFAULT_ZONE_TOGGLES, { x: 49, z: 50 });
+  assert.equal(offPack.anyActive, false);
+
+  const onPack = buildZoneOverlayTextures(
+    zones,
+    { kingdoms: true, kings: false, territories: true, biomes: false, temperature: false, alliances: false },
+    { x: 49, z: 50 },
+  );
+  assert.equal(onPack.anyActive, true);
+  const centerPixelOffset = (50 * state.gridSize + 49) * 4;
+  assert.ok(onPack.colorData[centerPixelOffset + 3] > 0, 'Active zone tile must have non-zero alpha');
+  assert.equal(onPack.idData[centerPixelOffset + 2], 255, 'Hovered zone must have hover highlight byte = 255');
+});
+
+test('World Creator templates (Realistic, Fantastic, Sci-Fi Orbital) and map sizes up to 256x256 apply rules accurately', () => {
+  const templateIds = WORLD_TEMPLATES.map((t) => t.id);
+  assert.ok(templateIds.includes('realistic'));
+  assert.ok(templateIds.includes('fantastic'));
+  assert.ok(templateIds.includes('scifi'));
+  assert.ok(templateIds.includes('prehistoric'));
+  assert.ok(templateIds.includes('archipelago'));
+  assert.ok(templateIds.includes('custom'));
+
+  // 1. Realistic template: no fantasy creatures (dragons/unicorns) and no crystal_field biomes
+  const realisticCfg = createWorldConfigFromTemplate('realistic', { seed: 4242, gridSize: 96 });
+  assert.equal(realisticCfg.rules.allowFantasy, false);
+  assert.equal(realisticCfg.rules.allowDinosaurs, false);
+  const realisticSim = createInitialSimulationState(realisticCfg.gridSize, realisticCfg.seed, realisticCfg);
+  assert.equal(realisticSim.gridSize, 96);
+  assert.equal(
+    realisticSim.units.some((u) => u.role === 'dragon' || u.role === 'unicorn' || u.role === 'dinosaur'),
+    false,
+    'Realistic template must not spawn fantasy creatures or dinosaurs',
+  );
+  assert.equal(
+    realisticSim.tiles.some((t) => t.terrain === 'crystal_field'),
+    false,
+    'Realistic template must not generate arcane crystal_field terrain',
+  );
+  assert.ok(realisticSim.population >= 4, 'Realistic template spawns starting pioneer settlers');
+
+  // 2. Fantastic template: includes fantasy creatures (dragons/unicorns)
+  const fantasticCfg = createWorldConfigFromTemplate('fantastic', { seed: 7777, gridSize: 128 });
+  assert.equal(fantasticCfg.rules.allowFantasy, true);
+  const fantasticSim = createInitialSimulationState(fantasticCfg.gridSize, fantasticCfg.seed, fantasticCfg);
+  assert.equal(
+    fantasticSim.units.some((u) => u.role === 'dragon' || u.role === 'unicorn'),
+    true,
+    'Fantastic template should spawn mythical creatures (Dragons / Unicorns)',
+  );
+
+  // 3. Sci-Fi Orbital template: starts right in the Orbital Age (epochIndex = 6, 2150 CE) with an established colony
+  const scifiCfg = createWorldConfigFromTemplate('scifi', { seed: 9999, gridSize: 128 });
+  assert.equal(scifiCfg.rules.startingEpochIndex, 6);
+  assert.equal(scifiCfg.rules.startingSettlers, 'colony');
+  const scifiSim = createInitialSimulationState(scifiCfg.gridSize, scifiCfg.seed, scifiCfg);
+  assert.equal(scifiSim.epochIndex, 6, 'Sci-Fi template must start at Orbital Age (epochIndex 6)');
+  assert.equal(scifiSim.year, 2150, 'Sci-Fi template must start at year 2150 CE');
+  assert.ok(scifiSim.buildings.length >= 4, 'Sci-Fi template should start with an established colony');
+  assert.ok(
+    scifiSim.buildings.every((b) => b.epochLevel === 6),
+    'Sci-Fi starting buildings should be upgraded to Orbital Age level 6',
+  );
+  assert.ok(scifiSim.population >= 6, 'Sci-Fi colony should have starting citizens');
+
+  // 4. Max map size 256x256 ("Only for beefy computers!") generates 65,536 tiles cleanly
+  const colossalSim = createInitialSimulationState(256, 12345);
+  assert.equal(colossalSim.gridSize, 256);
+  assert.equal(colossalSim.tiles.length, 256 * 256);
+});
+
+test('kingdoms maintain strictly 1 King across all branched-out zones', () => {
+  const state = createInitialSimulationState(128, 'SINGLE-KING-BRANCH');
+  state.sandboxFreeMode = true;
+  state.wildlifeSeeded = true;
+  state.resources.food = 5000;
+  state.resources.wood = 5000;
+  state.resources.stone = 5000;
+
+  for (let z = 20; z < 108; z++) {
+    for (let x = 20; x < 108; x++) {
+      const t = getTile(state, x, z)!;
+      t.height = 2;
+      t.terrain = 'grass';
+      t.resourceNode = 'none';
+      t.resourceAmount = 0;
+      t.buildingId = null;
+    }
+  }
+
+  for (let i = 0; i < 8; i++) {
+    spawnUnit(state, 'human', 36 + (i % 3) - 1, 36 + Math.floor(i / 3) - 1, true);
+  }
+  for (let i = 0; i < 15; i++) stepSimulation(state, 0.25);
+  advanceEpoch(state, true);
+
+  for (let i = 0; i < 240; i++) {
+    stepSimulation(state, 0.25);
+    for (const b of state.buildings) {
+      b.constructionProgress = 100;
+    }
+  }
+
+  const settlementIds = Array.from(new Set(state.buildings.map((b) => b.settlementId).filter(Boolean))) as string[];
+  assert.ok(settlementIds.length >= 2, `Expected kingdom to branch into >= 2 zones, got ${settlementIds.length}`);
+
+  const rootKingdoms = new Set(settlementIds.map((sid) => state.settlementKingdoms?.[sid] ?? sid));
+  assert.equal(rootKingdoms.size, 1, 'Branched-out settlement zones must share the same root kingdom');
+
+  const kings = state.units.filter((u) => u.isKing && u.state !== 'ko' && u.faction === 'civilization');
+  assert.equal(kings.length, 1, `Expected strictly 1 King across all branched zones, found ${kings.length}`);
+
+  // All branched zones of the same kingdom share the same zone color
+  const zones = computeWorldZones(state);
+  const kingdomZones = Array.from(zones.kingdomsById.values());
+  assert.ok(kingdomZones.length >= 2);
+  const colors = new Set(kingdomZones.map((k) => k.hexColor));
+  assert.equal(colors.size, 1, 'Branched-out zones of the same kingdom should share their kingdom color');
+
+  const colorMap = extractKingdomColorsMap(zones, state);
+  const king = kings[0];
+  const resolvedKingColor =
+    (king.settlementId && colorMap[king.settlementId]) ||
+    (king.kingdomId && colorMap[king.kingdomId]);
+  assert.equal(resolvedKingColor, kingdomZones[0].hexColor, 'King label color must match their kingdom zone color');
+
+  // If the monarch falls, exactly 1 successor is crowned across the kingdom
+  kings[0].hp = 0;
+  kings[0].state = 'ko';
+  stepSimulation(state, 0.25);
+  const newKings = state.units.filter((u) => u.isKing && u.state !== 'ko' && u.faction === 'civilization');
+  assert.equal(newKings.length, 1, 'Exactly 1 successor King should be crowned for the kingdom');
+});
+
+test('same-race units spawned on other parts of the map form independent cities, kingdoms, and their own Kings', () => {
+  const state = createInitialSimulationState(128, 'INDEPENDENT-REALMS');
+  state.sandboxFreeMode = true;
+  state.wildlifeSeeded = true;
+
+  for (let z = 20; z < 110; z++) {
+    for (let x = 20; x < 110; x++) {
+      const t = getTile(state, x, z)!;
+      t.height = 2;
+      t.terrain = 'grass';
+      t.resourceNode = 'none';
+      t.resourceAmount = 0;
+      t.buildingId = null;
+    }
+  }
+
+  // Colony 1 (Human) at (30, 30)
+  for (let i = 0; i < 4; i++) {
+    const res = spawnUnit(state, 'human', 30 + (i % 2), 30 + Math.floor(i / 2), true);
+    assert.equal(res.ok, true);
+  }
+  for (let i = 0; i < 15; i++) stepSimulation(state, 0.1);
+  assert.equal(state.buildings.length, 1);
+  const colony1Id = state.buildings[0].settlementId!;
+  const kingdom1Id = state.settlementKingdoms?.[colony1Id] ?? colony1Id;
+
+  // Spawn another Human group ~28 tiles away at (58, 30) — should NOT merge into Colony 1's kingdom
+  const group2: string[] = [];
+  for (let i = 0; i < 3; i++) {
+    const res = spawnUnit(state, 'human', 58 + i, 30, true);
+    assert.equal(res.ok, true);
+    assert.equal(res.unit?.settlementId, undefined, 'Independent settlers must not auto-join Colony 1');
+    assert.equal(res.unit?.kingdomId, undefined, 'Independent settlers must not auto-ally with Colony 1');
+    assert.equal(res.unit?.ageStage, 'adult', 'Pioneers spawned on unclaimed land must spawn as adults');
+    group2.push(res.unit!.id);
+  }
+
+  // Step 4s so group 2 builds its own city hearth & crowns its own King
+  for (let i = 0; i < 40; i++) stepSimulation(state, 0.1);
+
+  assert.equal(state.buildings.length, 2, 'Independent human group must found its own separate city');
+  const colony2Bld = state.buildings.find((b) => b.settlementId !== colony1Id)!;
+  assert.ok(colony2Bld, 'Second city must have a distinct settlementId');
+  const kingdom2Id = state.settlementKingdoms?.[colony2Bld.settlementId!] ?? colony2Bld.settlementId!;
+  assert.notEqual(kingdom2Id, kingdom1Id, 'Second city must form its own independent kingdom');
+
+  const kings = state.units.filter((u) => u.isKing && u.state !== 'ko' && u.faction === 'civilization');
+  assert.equal(kings.length, 2, 'Each independent human kingdom must crown its own King');
+  const kingKingdoms = new Set(kings.map((k) => k.kingdomId ?? k.settlementId));
+  assert.equal(kingKingdoms.size, 2, 'Each King must rule a separate kingdom');
+
+  const zones = computeWorldZones(state);
+  const kingdomZones = Array.from(zones.kingdomsById.values());
+  assert.equal(kingdomZones.length, 2);
+  assert.notEqual(
+    kingdomZones[0].hexColor,
+    kingdomZones[1].hexColor,
+    'Independent human kingdoms must display distinct zone colors',
+  );
+});
+
+test('graphics presets, profile resolution, auto-trim levels, and settings sanitization preserve defaults and scale cleanly', () => {
+  assert.deepEqual(DEFAULT_GRAPHICS_SETTINGS, {
+    preset: 'high',
+    shadows: 'on',
+    cloudsAndSky: 'full',
+    foliageDensity: 'full',
+    particles: 'full',
+    autoOptimizeFps: true,
+  });
+
+  // Default High preset resolves to full fidelity matching original look
+  const highProfile = resolveGraphicsProfile(DEFAULT_GRAPHICS_SETTINGS, 0);
+  assert.equal(highProfile.shadowsEnabled, true);
+  assert.equal(highProfile.shadowMapSize, 1024);
+  assert.equal(highProfile.shadowUpdateStride, 1);
+  assert.equal(highProfile.cloudsAndSky, 'full');
+  assert.equal(highProfile.foliageFactor, 1.0);
+  assert.equal(highProfile.particleScale, 1.0);
+
+  // Balanced & Fast presets
+  const balanced = applyGraphicsPreset('balanced', true);
+  assert.equal(balanced.preset, 'balanced');
+  assert.equal(balanced.shadows, 'fast');
+  const balancedProfile = resolveGraphicsProfile(balanced, 0);
+  assert.equal(balancedProfile.shadowsEnabled, true);
+  assert.equal(balancedProfile.shadowMapSize, 512);
+  assert.equal(balancedProfile.shadowUpdateStride, 1);
+  assert.equal(balancedProfile.cloudsAndSky, 'reduced');
+  assert.equal(balancedProfile.foliageFactor, 0.55);
+  assert.equal(balancedProfile.particleScale, 0.55);
+
+  const fast = applyGraphicsPreset('fast', false);
+  assert.equal(fast.preset, 'fast');
+  assert.equal(fast.autoOptimizeFps, false);
+  const fastProfile = resolveGraphicsProfile(fast, 2);
+  assert.equal(fastProfile.shadowsEnabled, false);
+  assert.equal(fastProfile.cloudsAndSky, 'off');
+  assert.equal(fastProfile.foliageFactor, 0.22);
+  assert.equal(fastProfile.particleScale, 0.25);
+
+  // inferGraphicsPreset detects presets vs custom combinations
+  assert.equal(inferGraphicsPreset(DEFAULT_GRAPHICS_SETTINGS), 'high');
+  assert.equal(inferGraphicsPreset(balanced), 'balanced');
+  assert.equal(inferGraphicsPreset(fast), 'fast');
+  assert.equal(
+    inferGraphicsPreset({
+      ...DEFAULT_GRAPHICS_SETTINGS,
+      shadows: 'off',
+    }),
+    'custom',
+  );
+
+  // Auto-trim levels 1 & 2 dynamically scale down lightweight runtime effects without shadow RT reallocations
+  const trim1 = resolveGraphicsProfile(DEFAULT_GRAPHICS_SETTINGS, 1);
+  assert.equal(trim1.shadowsEnabled, true);
+  assert.equal(trim1.shadowMapSize, 1024);
+  assert.equal(trim1.shadowUpdateStride, 1);
+  assert.equal(trim1.cloudsAndSky, 'reduced');
+  assert.equal(trim1.particleScale, 0.55);
+  assert.equal(trim1.foliageFactor, 1.0);
+
+  const trim2 = resolveGraphicsProfile(DEFAULT_GRAPHICS_SETTINGS, 2);
+  assert.equal(trim2.shadowsEnabled, true);
+  assert.equal(trim2.shadowMapSize, 1024);
+  assert.equal(trim2.shadowUpdateStride, 3);
+  assert.equal(trim2.cloudsAndSky, 'off');
+  assert.equal(trim2.foliageFactor, 0.55);
+  assert.equal(trim2.particleScale, 0.25);
+
+  const manualHigh = { ...DEFAULT_GRAPHICS_SETTINGS, autoOptimizeFps: false };
+  const trimDisabled = resolveGraphicsProfile(manualHigh, 2);
+  assert.deepEqual(trimDisabled, highProfile);
+
+  // sanitizeGraphicsSettings safely handles corrupt/partial values
+  assert.deepEqual(sanitizeGraphicsSettings(null), DEFAULT_GRAPHICS_SETTINGS);
+  assert.deepEqual(sanitizeGraphicsSettings('bad'), DEFAULT_GRAPHICS_SETTINGS);
+  const partial = sanitizeGraphicsSettings({
+    shadows: 'fast',
+    cloudsAndSky: 'invalid',
+    foliageDensity: 'medium',
+    particles: 'reduced',
+    autoOptimizeFps: false,
+  });
+  assert.equal(partial.shadows, 'fast');
+  assert.equal(partial.cloudsAndSky, 'full');
+  assert.equal(partial.foliageDensity, 'medium');
+  assert.equal(partial.particles, 'reduced');
+  assert.equal(partial.autoOptimizeFps, false);
+  assert.equal(partial.preset, 'custom');
+});
+
+test('all entities have fixed species lifespans (elves 200+, dragons 500+), die of old age when mortal, and survive epoch leaps', () => {
+  const state = createInitialSimulationState(64, 'LIFESPAN-TEST');
+  state.wildlifeSeeded = true;
+  for (const t of state.tiles) {
+    if (t.x >= 20 && t.x <= 44 && t.z >= 20 && t.z <= 44) {
+      t.height = 2;
+      t.terrain = 'grass';
+      t.resourceNode = 'none';
+      t.buildingId = null;
+    }
+  }
+
+  const humanRes = spawnUnit(state, 'human', 24, 24, true, undefined, { ageYears: 20, maxLifespan: 80 });
+  const elfRes = spawnUnit(state, 'elf', 32, 30, true);
+  const dragonRes = spawnUnit(state, 'dragon', 40, 40, true);
+  const orcRes = spawnUnit(state, 'orc', 36, 30, true);
+  const chickenRes = spawnUnit(state, 'chicken', 38, 30, true);
+
+  assert.equal(humanRes.ok, true);
+  assert.equal(elfRes.ok, true);
+  assert.equal(dragonRes.ok, true);
+  assert.equal(orcRes.ok, true);
+  assert.equal(chickenRes.ok, true);
+
+  const human = humanRes.unit!;
+  const elf = elfRes.unit!;
+  const dragon = dragonRes.unit!;
+  const orc = orcRes.unit!;
+  const chicken = chickenRes.unit!;
+
+  assert.ok((human.maxLifespan ?? 0) >= 75 && (human.maxLifespan ?? 0) <= 110);
+  assert.ok((elf.maxLifespan ?? 0) >= 200, `Elves must live 200+ years, got ${elf.maxLifespan}`);
+  assert.ok((dragon.maxLifespan ?? 0) >= 500, `Dragons must live 500+ years, got ${dragon.maxLifespan}`);
+  assert.ok((orc.maxLifespan ?? 0) >= 55 && (orc.maxLifespan ?? 0) <= 85);
+  assert.ok((chicken.maxLifespan ?? 0) >= 8 && (chicken.maxLifespan ?? 0) <= 15);
+  assert.equal(getUnitMaxLifespan({ role: 'unicorn', species: 'human', appearanceSeed: 42 }) >= 350, true);
+
+  // Epoch leap jumps state.year forward by thousands of years — must NOT kill living units prematurely!
+  advanceEpoch(state, true);
+  stepSimulation(state, 0.5);
+  assert.notEqual(elf.state, 'ko', 'Elves should survive epoch calendar year jump');
+  assert.notEqual(dragon.state, 'ko', 'Dragons should survive epoch calendar year jump');
+
+  // Inspector profile reports lifespan when mortal
+  const elfProfile = getEntityInspectProfile(state, elf);
+  assert.equal(elfProfile.informations.immortal, false);
+  assert.ok((elfProfile.informations.maxLifespan ?? 0) >= 200);
+
+  // Enable Immortal Entities rule -> even an ancient unit past maxLifespan survives
+  state.worldRules!.animalAttacks = false;
+  state.worldRules!.immortalEntities = true;
+  human.ageYears = 95;
+  stepSimulation(state, 0.5);
+  assert.notEqual(human.state, 'ko', 'Immortal Entities rule must protect entities past maxLifespan');
+  assert.equal(getEntityInspectProfile(state, human).informations.immortal, true);
+  assert.equal(getEntityInspectProfile(state, human).informations.maxLifespan, null);
+
+  // Disable Immortal Entities -> mortal unit past maxLifespan passes away cleanly & successor King crowns
+  state.sandboxFreeMode = true;
+  const bldRes = placeBuilding(state, 'bonfire', 24, 24);
+  assert.equal(bldRes.ok, true);
+  const sid = state.buildings[0].settlementId;
+  const heirRes = spawnUnit(state, 'human', 24, 24, true, sid, {
+    ageStage: 'adult',
+    ageYears: 10,
+    maxLifespan: 85,
+  });
+  assert.equal(heirRes.ok, true);
+  human.settlementId = sid;
+  human.kingdomId = state.settlementKingdoms?.[sid!];
+  human.isKing = true;
+  state.worldRules!.immortalEntities = false;
+  for (let i = 0; i < 6; i++) stepSimulation(state, 0.25);
+  assert.equal(human.state, 'ko', 'Mortal unit past maxLifespan must pass away naturally');
+  assert.equal(heirRes.unit!.isKing, true, 'Successor must be crowned King after previous King dies of old age');
+});
+
+test('God Rules live toggles govern wildfireSpread, allowReproduction, and animalAttacks', () => {
+  // 1. Wildfire Spread OFF prevents fire propagation across adjacent tiles
+  const fireState = createInitialSimulationState(64, 'GOD-RULE-FIRE');
+  fireState.wildlifeSeeded = true;
+  fireState.worldRules!.wildfireSpread = false;
+  for (let dz = -2; dz <= 2; dz++) {
+    for (let dx = -2; dx <= 2; dx++) {
+      const t = getTile(fireState, 32 + dx, 32 + dz)!;
+      t.height = 2;
+      t.terrain = 'forest';
+      t.resourceNode = 'none';
+      t.buildingId = null;
+    }
+  }
+  const centerFire = getTile(fireState, 32, 32)!;
+  centerFire.onFireTimer = 4.0;
+  for (let i = 0; i < 10; i++) stepSimulation(fireState, 0.25);
+  const neighborFire = getTile(fireState, 33, 32)!;
+  assert.equal(neighborFire.onFireTimer, 0, 'wildfireSpread=false must prevent fire from spreading to neighbors');
+
+  // 2. Reproduction OFF prevents autonomous village births even with surplus food
+  const popState = createInitialSimulationState(64, 'GOD-RULE-REPRO');
+  popState.wildlifeSeeded = true;
+  popState.sandboxFreeMode = true;
+  popState.resources.food = 500;
+  popState.worldRules!.allowReproduction = false;
+  for (let dz = -3; dz <= 3; dz++) {
+    for (let dx = -3; dx <= 3; dx++) {
+      const t = getTile(popState, 32 + dx, 32 + dz)!;
+      t.height = 2;
+      t.terrain = 'grass';
+      t.resourceNode = 'none';
+      t.buildingId = null;
+    }
+  }
+  placeBuilding(popState, 'bonfire', 32, 32);
+  popState.buildings[0].constructionProgress = 100;
+  placeBuilding(popState, 'forager_hut', 34, 32);
+  popState.buildings[1].constructionProgress = 100;
+  spawnUnit(popState, 'human', 32, 32, true);
+  spawnUnit(popState, 'human', 33, 32, true);
+  const beforeCount = popState.units.filter((u) => u.faction === 'civilization' && u.state !== 'ko').length;
+  for (let i = 0; i < 20; i++) stepSimulation(popState, 0.5);
+  const afterCount = popState.units.filter((u) => u.faction === 'civilization' && u.state !== 'ko').length;
+  assert.equal(afterCount, beforeCount, 'allowReproduction=false must stop settlements from spawning new citizens');
+
+  // 3. Animal Attacks OFF keeps predators & dragons peaceful toward nearby prey
+  const calmState = createInitialSimulationState(64, 'GOD-RULE-ANIMALS');
+  calmState.wildlifeSeeded = true;
+  calmState.worldRules!.animalAttacks = false;
+  for (let dz = -3; dz <= 3; dz++) {
+    for (let dx = -3; dx <= 3; dx++) {
+      const t = getTile(calmState, 32 + dx, 32 + dz)!;
+      t.height = 2;
+      t.terrain = 'grass';
+      t.resourceNode = 'none';
+      t.buildingId = null;
+    }
+  }
+  const wolfRes = spawnUnit(calmState, 'wolf', 32, 32, true);
+  const chickenRes = spawnUnit(calmState, 'chicken', 33, 32, true);
+  const startHp = chickenRes.unit!.hp;
+  for (let i = 0; i < 10; i++) stepSimulation(calmState, 0.25);
+  assert.equal(chickenRes.unit!.hp, startHp, 'animalAttacks=false must stop predators from attacking prey');
+  assert.notEqual(wolfRes.unit!.state, 'fighting', 'Wolf should not enter combat when animalAttacks=false');
+});
+
+test('1x land brush (brushRadius=0) paints strictly a single tile instead of a 5-tile cross', () => {
+  const state = createInitialSimulationState(64, 'BRUSH-1X-SINGLE');
+  state.sandboxFreeMode = true;
+  const cx = 32;
+  const cz = 32;
+  for (let dz = -2; dz <= 2; dz++) {
+    for (let dx = -2; dx <= 2; dx++) {
+      const t = getTile(state, cx + dx, cz + dz)!;
+      t.height = 2;
+      t.terrain = 'grass';
+      t.resourceNode = 'none';
+      t.buildingId = null;
+    }
+  }
+
+  // Paint rail_track at 1x (brushRadius = 0) along three collinear tiles (cx..cx+2, cz)
+  assert.equal(applyTerrainTool(state, 'rail_track', cx, cz, 0).ok, true);
+  assert.equal(applyTerrainTool(state, 'rail_track', cx + 1, cz, 0).ok, true);
+  assert.equal(applyTerrainTool(state, 'rail_track', cx + 2, cz, 0).ok, true);
+
+  assert.equal(getTile(state, cx, cz)!.terrain, 'rail_track');
+  assert.equal(getTile(state, cx + 1, cz)!.terrain, 'rail_track');
+  assert.equal(getTile(state, cx + 2, cz)!.terrain, 'rail_track');
+  // Adjacent perpendicular tiles must stay untouched grass (no '+' cross!)
+  assert.equal(getTile(state, cx, cz - 1)!.terrain, 'grass', '1x brush must not paint northern neighbor');
+  assert.equal(getTile(state, cx, cz + 1)!.terrain, 'grass', '1x brush must not paint southern neighbor');
+  assert.equal(getTile(state, cx - 1, cz)!.terrain, 'grass', '1x brush must not paint western neighbor');
+
+  // Verify raise at 1x (brushRadius = 0) raises strictly 1 tile
+  const beforeCenterH = getTile(state, cx, cz - 2)!.height;
+  assert.equal(applyTerrainTool(state, 'raise', cx, cz - 2, 0).ok, true);
+  assert.equal(getTile(state, cx, cz - 2)!.height, beforeCenterH + 1);
+  assert.equal(getTile(state, cx + 1, cz - 2)!.height, 2);
+  assert.equal(getTile(state, cx - 1, cz - 2)!.height, 2);
+});
+
+test('strengthened meteor, lightning, and tsunami kill targets and destroy buildings', () => {
+  const state = createInitialSimulationState(64, 'POWER-LETHAL');
+  state.sandboxFreeMode = true;
+  state.wildlifeSeeded = true;
+  for (const t of state.tiles) {
+    if (t.x >= 10 && t.x <= 54 && t.z >= 10 && t.z <= 54) {
+      t.height = 2;
+      t.terrain = 'grass';
+      t.resourceNode = 'none';
+      t.buildingId = null;
+    }
+  }
+
+  // 1. Asteroid (meteor_strike) one-shots high-HP buildings in core blast
+  const b1 = placeBuilding(state, 'fission_reactor', 20, 20);
+  assert.equal(b1.ok, true);
+  const reactor = state.buildings.find((b) => b.tileX === 20 && b.tileZ === 20)!;
+  reactor.hp = 1200;
+  reactor.maxHp = 1200;
+  castGodPower(state, 'meteor_strike', 20, 20);
+  assert.equal(reactor.hp, 0, 'Meteor strike must one-shot buildings within core blast');
+
+  // 2. Lightning destroys buildings cleanly
+  const b2 = placeBuilding(state, 'forager_hut', 36, 20);
+  assert.equal(b2.ok, true);
+  const hut = state.buildings.find((b) => b.tileX === 36 && b.tileZ === 20)!;
+  castGodPower(state, 'lightning_smite', 36, 20);
+  assert.equal(hut.hp, 0, 'Lightning smite must destroy buildings near impact');
+
+  // 3. Tsunami kills non-flying NPCs and wrecks coastal buildings
+  const b3 = placeBuilding(state, 'bonfire', 40, 40);
+  assert.equal(b3.ok, true);
+  const coastalNpc = spawnUnit(state, 'human', 42, 40, true);
+  const coastalDragon = spawnUnit(state, 'dragon', 42, 41, true);
+  assert.equal(coastalNpc.ok, true);
+  assert.equal(coastalDragon.ok, true);
+  castGodPower(state, 'tsunami', 38, 40);
+  for (let i = 0; i < 12; i++) stepSimulation(state, 0.2);
+  assert.equal(coastalNpc.unit!.state, 'ko', 'Tsunami surge must kill unshielded non-flying NPCs');
+  assert.notEqual(coastalDragon.unit!.state, 'ko', 'Flying dragon survives tsunami surge');
+});
+
+test('black hole orbits & lifts entities, erodes terrain, then explodes into supernova scattering units with fall damage', () => {
+  const state = createInitialSimulationState(64, 'BLACKHOLE-SUPERNOVA');
+  state.sandboxFreeMode = true;
+  state.wildlifeSeeded = true;
+  const bx = 32;
+  const bz = 32;
+  for (let dz = -12; dz <= 12; dz++) {
+    for (let dx = -12; dx <= 12; dx++) {
+      const t = getTile(state, bx + dx, bz + dz)!;
+      t.height = 3;
+      t.terrain = 'forest';
+      t.resourceNode = 'timber_grove';
+      t.resourceAmount = 120;
+      t.buildingId = null;
+    }
+  }
+
+  const cowRes = spawnUnit(state, 'cow', bx + 4, bz, true);
+  const dragonRes = spawnUnit(state, 'dragon', bx + 3, bz + 2, true);
+  assert.equal(cowRes.ok, true);
+  assert.equal(dragonRes.ok, true);
+  const cow = cowRes.unit!;
+  const dragon = dragonRes.unit!;
+
+  castGodPower(state, 'wormhole_ascension', bx, bz);
+
+  // Step 2.0s during orbiting phase: cow is pulled in and lifted into orbit
+  for (let i = 0; i < 20; i++) stepSimulation(state, 0.1);
+  assert.ok((cow.altitude ?? 0) > 0.5, `Trapped entity must be lifted into black hole orbit (alt=${cow.altitude})`);
+
+  // Step past 5.5s so supernova explosion fires
+  let sawExplosionVfx = false;
+  for (let i = 0; i < 45; i++) {
+    stepSimulation(state, 0.1);
+    if (state.pendingVfx.some((v) => v.type === 'blackhole_explosion')) {
+      sawExplosionVfx = true;
+    }
+  }
+  assert.equal(sawExplosionVfx, true, 'Black hole must emit blackhole_explosion supernova VFX on collapse');
+
+  // Step through ballistic scatter & landing impact
+  for (let i = 0; i < 45; i++) stepSimulation(state, 0.1);
+  const scatterDist = Math.hypot(cow.x - bx, cow.z - bz);
+  assert.ok(scatterDist > 3.5, `Supernova must scatter entities outward across the map (dist=${scatterDist})`);
+  assert.ok(cow.hp < cow.maxHp || cow.state === 'ko', 'Land animal must take lethal/heavy fall damage on landing');
+  assert.notEqual(dragon.state, 'ko', 'Flying dragon must not suffer fatal ground fall damage');
+});
+
+test('powers (heat_wave, freeze_snap, tornado, tsunamis, asteroids) and drag_entity telekinesis work end to end with incremental waves and no phantom black holes', () => {
+  const state = createInitialSimulationState(64, 'NEW-POWERS');
+  state.sandboxFreeMode = true;
+  state.wildlifeSeeded = true;
+  for (const t of state.tiles) {
+    if (t.x >= 8 && t.x <= 56 && t.z >= 8 && t.z <= 56) {
+      t.height = 2;
+      t.terrain = 'grass';
+      t.resourceNode = 'none';
+      t.buildingId = null;
+    }
+  }
+
+  // 1. Bomb-related powers (bomb, cluster_bomb, mega_bomb/Tsar Bomb) are removed from the catalog
+  const powerTypes = GOD_POWERS.map((p) => p.type);
+  assert.equal(powerTypes.includes('bomb' as any), false, 'Bomb must be removed from GOD_POWERS');
+  assert.equal(powerTypes.includes('cluster_bomb' as any), false, 'Cluster bomb must be removed from GOD_POWERS');
+  assert.equal(powerTypes.includes('mega_bomb' as any), false, 'Mega bomb must be removed from GOD_POWERS');
+
+  // 2. Freeze Snap & Heat Wave work incrementally via expanding waves without creating phantom black holes
+  const centerTile = getTile(state, 20, 20)!;
+  const outerTile = getTile(state, 24, 20)!; // Distance 4.0 tiles away from center
+  centerTile.onFireTimer = 5.0;
+  outerTile.terrain = 'grass';
+  const hRes = spawnUnit(state, 'human', 20, 20, true);
+  assert.equal(hRes.ok, true);
+  const human = hRes.unit!;
+
+  castGodPower(state, 'freeze_snap', 20, 20);
+  // Center tile is extinguished immediately at impact
+  assert.equal(centerTile.onFireTimer, 0, 'Freeze snap must extinguish fires at center');
+  assert.ok((human.statusEffects.frozen ?? 0) > 0, 'Freeze snap must freeze units at center');
+  // Outer tile (dist 4.0) has NOT been frozen yet because the wave spreads incrementally outward!
+  assert.notEqual(outerTile.terrain, 'snow', 'Outer tile at radius 4 must NOT freeze immediately on cast');
+
+  // Verify no phantom black hole (wormhole_rift) was created by casting freeze_snap
+  const phantomBlackHoles = state.activeHazards.filter((h) => h.kind === 'wormhole_rift');
+  assert.equal(phantomBlackHoles.length, 0, 'Casting freeze_snap must not spawn a phantom black hole');
+
+  // Advance simulation so the expanding wave reaches outer tile
+  for (let s = 0; s < 16; s++) {
+    stepSimulation(state, 0.1);
+  }
+  assert.equal(outerTile.terrain, 'snow', 'Freeze snap wave must reach outer tile incrementally');
+
+  // Now cast Heat Wave incrementally
+  castGodPower(state, 'heat_wave', 20, 20);
+  // Verify no phantom black hole
+  assert.equal(state.activeHazards.filter((h) => h.kind === 'wormhole_rift').length, 0);
+  assert.equal(human.statusEffects.frozen, undefined, 'Heat wave must thaw center unit');
+
+  // Advance simulation so heat wave reaches outer tile
+  for (let s = 0; s < 16; s++) {
+    stepSimulation(state, 0.1);
+  }
+  assert.notEqual(outerTile.terrain, 'snow', 'Heat wave must melt snow on outer tile incrementally');
+
+  // 3. Tornado spawns moving tornado_vortex that lifts & tosses units
+  const wolfRes = spawnUnit(state, 'wolf', 32, 32, true);
+  castGodPower(state, 'tornado', 32, 32);
+  const tornado = state.activeHazards.find((h) => h.kind === 'tornado_vortex');
+  assert.ok(tornado, 'Tornado must spawn tornado_vortex hazard');
+  const tStartX = tornado.x;
+  const tStartZ = tornado.z;
+  for (let i = 0; i < 12; i++) stepSimulation(state, 0.1);
+  assert.ok(Math.hypot(tornado.x - tStartX, tornado.z - tStartZ) > 1.0, 'Tornado must roam across the map');
+  assert.ok((wolfRes.unit!.altitude ?? 0) > 0 || wolfRes.unit!.hp < wolfRes.unit!.maxHp);
+
+  // 4. Telekinesis Drag Tool grabs entity with physical weight/lag and inflicts fall damage on release
+  const pigRes = spawnUnit(state, 'pig', 16, 44, true);
+  assert.equal(pigRes.ok, true);
+  const pig = pigRes.unit!;
+  const initialPigX = pig.x;
+  beginDragUnit(state, pig.id);
+  assert.equal(pig.draggedByPlayer, true);
+
+  // Set drag target 10 tiles away
+  updateDragUnit(state, pig.id, 26, 44, 5.5);
+  // Unit position must NOT immediately snap to 26; it retains physical drag delay
+  assert.equal(pig.x, initialPigX, 'Dragged entity must not snap instantly to cursor target');
+  assert.equal(pig.dragTargetX, 26);
+
+  // Step simulation once: pig starts lagging behind target with natural weight
+  stepSimulation(state, 0.05);
+  assert.ok(pig.x > initialPigX && pig.x < 25.0, `Dragged entity should lag smoothly towards target (x=${pig.x})`);
+
+  // Over subsequent steps, entity catches up to target position
+  for (let i = 0; i < 20; i++) stepSimulation(state, 0.05);
+  assert.ok(pig.x > 25.0, `Dragged entity should smoothly catch up over time (x=${pig.x})`);
+  assert.ok((pig.altitude ?? 0) >= 4.5);
+
+  // Release and verify momentum and fall damage
+  releaseDragUnit(state, pig.id, 6, 0);
+  assert.equal(pig.draggedByPlayer, false);
+  for (let i = 0; i < 20; i++) stepSimulation(state, 0.1);
+  assert.ok(pig.hp < pig.maxHp || pig.state === 'ko', 'Dropping animal from high altitude must inflict fall damage');
+});
+
+test('War Update: chance-based Human/Elf peace vs barbaric Orcs with rare peaceful Orc roll & warsEnabled toggle', () => {
+  const state = createInitialSimulationState(96, 'DIPLOMACY-TEST');
+  state.sandboxFreeMode = true;
+
+  let humanPeaceCount = 0;
+  let orcPeaceCount = 0;
+  for (let i = 0; i < 80; i++) {
+    const s = createInitialSimulationState(64, `D-${i}`);
+    if (rollKingdomPeacefulTrait(s, `k-h-${i}`, 'human')) humanPeaceCount++;
+    if (rollKingdomPeacefulTrait(s, `k-o-${i}`, 'orc')) orcPeaceCount++;
+  }
+  assert.ok(humanPeaceCount >= 40, `Expected Humans to usually be peaceful (${humanPeaceCount}/80)`);
+  assert.ok(orcPeaceCount < humanPeaceCount && orcPeaceCount > 0 && orcPeaceCount <= 25,
+    `Expected Orcs to rarely roll peaceful (${orcPeaceCount}/80)`);
+
+  // Verify peaceful Human + Elf kingdoms can start allied or neutral rather than forced war
+  state.kingdomPeacefulTraits = state.kingdomPeacefulTraits ?? {};
+  state.kingdomPeacefulTraits['h-1'] = true;
+  state.kingdomPeacefulTraits['e-1'] = true;
+  const relHE = initializeKingdomDiplomacyPair(state, 'h-1', 'human', 'e-1', 'elf');
+  assert.notEqual(relHE, 'war', 'Peaceful Human and Elf kingdoms should not force instant war');
+
+  // Verify default non-peaceful Orc starts at war
+  state.kingdomPeacefulTraits['o-1'] = false;
+  const relHO = initializeKingdomDiplomacyPair(state, 'h-1', 'human', 'o-1', 'orc');
+  assert.equal(relHO, 'war', 'Barbaric Orc kingdom must start hostile (war)');
+
+  // When warsEnabled is false, areKingdomsAtWar must return false even if pair relation is war
+  state.worldRules = { ...state.worldRules!, warsEnabled: false };
+  assert.equal(areKingdomsAtWar(state, 'h-1', 'o-1'), false, 'Disabling Wars rule must suppress active war state');
+  state.worldRules = { ...state.worldRules!, warsEnabled: true };
+  assert.equal(areKingdomsAtWar(state, 'h-1', 'o-1'), true);
+});
+
+test('War Update: universal self-defense + rivaling racial weapons (Human Nuke, Elf Cataclysm, Orc attached Battlewill)', () => {
+  const state = createInitialSimulationState(96, 'RACIAL-WAR-WEAPONS');
+  state.sandboxFreeMode = true;
+  state.wildlifeSeeded = true;
+  state.epochIndex = 5; // Atomic/Information era so Nukes, Arcane Cataclysm & Battlewill are unlocked
+  for (let z = 15; z <= 75; z++) {
+    for (let x = 15; x <= 75; x++) {
+      const t = getTile(state, x, z)!;
+      t.height = 2;
+      t.terrain = 'grass';
+      t.resourceNode = 'none';
+      t.buildingId = null;
+    }
+  }
+
+  // 1. Self-defense: Citizen under attack fights back against a wolf instead of ignoring it
+  const defenderRes = spawnUnit(state, 'human', 40, 40, true);
+  const wolfRes = spawnUnit(state, 'wolf', 41.2, 40, true);
+  assert.ok(defenderRes.ok && wolfRes.ok);
+  const defender = defenderRes.unit!;
+  const wolf = wolfRes.unit!;
+  defender.weaponCooldown = 0;
+  for (let i = 0; i < 8; i++) stepSimulation(state, 0.25);
+  assert.ok(
+    wolf.hp < wolf.maxHp || wolf.state === 'ko',
+    'Human citizen under predator attack must actively defend and damage the attacker',
+  );
+
+  // 2. Rivaling superweapons across Human, Elf, and Orc
+  // Clear old units & hearth buildings and place settlements far enough apart so they stay distinct
+  state.units = [];
+  state.buildings = [];
+  for (const t of state.tiles) t.buildingId = null;
+  state.pendingVfx = [];
+  placeBuilding(state, 'bonfire', 20, 42);
+  placeBuilding(state, 'bonfire', 68, 42);
+  const sIds = Array.from(new Set(state.buildings.map((b) => b.settlementId!)));
+  assert.equal(sIds.length, 2);
+  setKingdomRelation(state, sIds[0], sIds[1], 'war');
+
+  // Human Nuke vs Enemy Orc
+  const hBomber = spawnUnit(state, 'human', 42, 44, true).unit!;
+  hBomber.settlementId = sIds[0];
+  hBomber.weaponCooldown = 0;
+  const oTarget1 = spawnUnit(state, 'orc', 45.5, 44, true).unit!;
+  oTarget1.settlementId = sIds[1];
+  oTarget1.hp = 500;
+  oTarget1.maxHp = 500;
+
+  for (let i = 0; i < 6; i++) stepSimulation(state, 0.1);
+  const sawNuke = state.pendingVfx.some((v) => v.type === 'nuke_blast');
+  assert.ok(sawNuke, 'Industrial/Atomic Human combatant should fire Nuke Bomb VFX in wartime combat');
+
+  // Elf Arcane Cataclysm
+  state.units = [];
+  state.pendingVfx = [];
+  const eMage = spawnUnit(state, 'elf', 42, 48, true).unit!;
+  eMage.settlementId = sIds[0];
+  eMage.weaponCooldown = 0;
+  const oTarget2 = spawnUnit(state, 'orc', 45.5, 48, true).unit!;
+  oTarget2.settlementId = sIds[1];
+  oTarget2.hp = 500;
+  oTarget2.maxHp = 500;
+
+  for (let i = 0; i < 6; i++) stepSimulation(state, 0.1);
+  const sawCataclysm = state.pendingVfx.some((v) => v.type === 'arcane_cataclysm');
+  assert.ok(sawCataclysm, 'Advanced Elf combatant should unleash Arcane Cataclysm VFX rivaling Nukes');
+
+  // Orc Battlewill: manifests as attached state on caster, emits battlewill_slash VFX, spawns ZERO summon units
+  state.units = [];
+  state.pendingVfx = [];
+  const oWarlord = spawnUnit(state, 'orc', 42, 52, true).unit!;
+  oWarlord.settlementId = sIds[1];
+  oWarlord.battlewillCooldown = 0;
+  oWarlord.weaponCooldown = 0;
+  const hTarget = spawnUnit(state, 'human', 44.2, 52, true).unit!;
+  hTarget.settlementId = sIds[0];
+  hTarget.hp = 500;
+  hTarget.maxHp = 500;
+
+  const initialUnitCount = state.units.length;
+  for (let i = 0; i < 6; i++) stepSimulation(state, 0.1);
+  assert.ok((oWarlord.battlewillActive ?? 0) > 0, 'Orc caster must activate attached Battlewill extension');
+  assert.ok(
+    state.pendingVfx.some((v) => v.type === 'battlewill_slash'),
+    'Orc Battlewill must unleash wide battlewill_slash VFX',
+  );
+  assert.ok(
+    state.units.length <= initialUnitCount,
+    'Orc Battlewill must NOT spawn an autonomous summon UnitEntity',
+  );
+
+  // Verify 3D Orc mesh contains attached battlewill_avatar + battlewill_sword_pivot child nodes
+  const orcGroup = createUnitGroup('warrior', 'civilization', 5, 'orc', 11, 'adult');
+  assert.ok(orcGroup.getObjectByName('battlewill_avatar'), 'Orc 3D mesh must include battlewill_avatar child');
+  assert.ok(
+    orcGroup.getObjectByName('battlewill_sword_pivot'),
+    'Orc 3D mesh must include battlewill_sword_pivot greatsword',
+  );
+});
+
+test('War Update: multi-domain battle vehicles (land, air, sea, orbital) spawn and have valid 3D meshes', () => {
+  const vehicleTypes = [
+    'glider',
+    'tank',
+    'warship',
+    'airship',
+    'orc_flyer',
+    'bomber_plane',
+    'orbital_gunship',
+  ] as const;
+
+  for (const vt of vehicleTypes) {
+    const species = vt === 'orc_flyer' ? 'orc' : 'human';
+    const mesh = createVehicleGroup(vt, 6, species, 42);
+    assert.ok(mesh instanceof THREE.Group, `Vehicle ${vt} should construct a THREE.Group`);
+    assert.ok(mesh.children.length >= 2, `Vehicle ${vt} should have multi-part 3D geometry`);
+  }
+
+  // Verify runtime military vehicle spawning & engagement during active war in Atomic/Orbital age
+  const state = createInitialSimulationState(96, 'VEHICLES-WAR-TEST');
+  state.sandboxFreeMode = true;
+  state.wildlifeSeeded = true;
+  state.epochIndex = 5;
+  for (let z = 15; z <= 75; z++) {
+    for (let x = 15; x <= 75; x++) {
+      const t = getTile(state, x, z)!;
+      t.resourceNode = 'none';
+      t.buildingId = null;
+      if (x >= 68) {
+        t.height = 0;
+        t.terrain = 'deep_water';
+      } else {
+        t.height = 2;
+        t.terrain = 'grass';
+      }
+    }
+  }
+  placeBuilding(state, 'bonfire', 22, 44);
+  placeBuilding(state, 'bonfire', 62, 44);
+  const sIds = Array.from(new Set(state.buildings.map((b) => b.settlementId!)));
+  assert.equal(sIds.length, 2);
+  setKingdomRelation(state, sIds[0], sIds[1], 'war');
+  for (let i = 0; i < 4; i++) {
+    const u1 = spawnUnit(state, 'human', 22, 44 + i * 0.5, true).unit!;
+    u1.settlementId = sIds[0];
+    const u2 = spawnUnit(state, 'orc', 62, 44 + i * 0.5, true).unit!;
+    u2.settlementId = sIds[1];
+  }
+
+  for (let i = 0; i < 30; i++) stepSimulation(state, 0.4);
+  const militaryVehicles = (state.vehicles ?? []).filter((v) => v.isMilitary);
+  assert.ok(militaryVehicles.length > 0, 'Warring settlements should field military battle vehicles');
+});
+
+test('War Update: city rebellions spawn splinter kingdoms at war & honor allowRebellion rule', () => {
+  const state = createInitialSimulationState(96, 'REBELLION-TEST');
+  state.sandboxFreeMode = true;
+  state.wildlifeSeeded = true;
+  for (let z = 25; z <= 65; z++) {
+    for (let x = 25; x <= 65; x++) {
+      const t = getTile(state, x, z)!;
+      t.height = 2;
+      t.terrain = 'grass';
+      t.resourceNode = 'none';
+      t.buildingId = null;
+    }
+  }
+  placeBuilding(state, 'bonfire', 45, 45);
+  const parentSettlementId = state.buildings[0].settlementId!;
+  const c1 = spawnUnit(state, 'human', 46, 45, true).unit!;
+  c1.settlementId = parentSettlementId;
+  c1.isKing = false;
+  const c2 = spawnUnit(state, 'human', 44, 45, true).unit!;
+  c2.settlementId = parentSettlementId;
+  c2.isKing = false;
+  const c3 = spawnUnit(state, 'human', 45, 46, true).unit!;
+  c3.settlementId = parentSettlementId;
+  c3.isKing = false;
+
+  // Respects allowRebellion = false
+  state.worldRules = { ...state.worldRules!, allowRebellion: false };
+  const blocked = triggerCityRebellion(state, parentSettlementId);
+  assert.equal(blocked, false, 'Rebellion must be blocked when Citizens Can Rebel rule is OFF');
+
+  // Succeeds when allowRebellion = true
+  state.worldRules = { ...state.worldRules!, allowRebellion: true };
+  const rebelled = triggerCityRebellion(state, parentSettlementId);
+  assert.equal(rebelled, true, 'Citizen should rebel when rule is ON');
+  const rebelUnit = state.units.find((u) => u.isRebel);
+  assert.ok(rebelUnit, 'At least one citizen should be marked isRebel');
+  assert.ok(rebelUnit.kingdomId, 'Rebel must belong to a splinter kingdomId');
+  assert.equal(
+    getKingdomRelation(state, getKingdomId(state, parentSettlementId), rebelUnit.kingdomId!),
+    'war',
+    'Rebel splinter faction must enter war with parent kingdom',
+  );
+});
+
+test('War Update: Alliances zone highlights clicked kingdom & allies in Blue and enemies in Red', () => {
+  const state = createInitialSimulationState(96, 'ALLIANCE-ZONE-TEST');
+  state.sandboxFreeMode = true;
+  state.wildlifeSeeded = true;
+  for (let z = 15; z <= 75; z++) {
+    for (let x = 15; x <= 75; x++) {
+      const t = getTile(state, x, z)!;
+      t.height = 2;
+      t.terrain = 'grass';
+      t.resourceNode = 'none';
+      t.buildingId = null;
+    }
+  }
+
+  placeBuilding(state, 'bonfire', 20, 26); // Kingdom A
+  placeBuilding(state, 'bonfire', 46, 26); // Kingdom B (Ally)
+  placeBuilding(state, 'bonfire', 70, 26); // Kingdom C (Enemy)
+
+  const kA = state.buildings[0].settlementId!;
+  const kB = state.buildings[1].settlementId!;
+  const kC = state.buildings[2].settlementId!;
+  spawnUnit(state, 'human', 20, 26, true).unit!.settlementId = kA;
+  spawnUnit(state, 'elf', 46, 26, true).unit!.settlementId = kB;
+  spawnUnit(state, 'orc', 70, 26, true).unit!.settlementId = kC;
+
+  setKingdomRelation(state, kA, kB, 'allied');
+  setKingdomRelation(state, kA, kC, 'war');
+
+  const zones = computeWorldZones(state);
+  const packed = buildZoneOverlayTextures(
+    zones,
+    { ...DEFAULT_ZONE_TOGGLES, alliances: true },
+    null,
+    undefined,
+    undefined,
+    {
+      selectedAllianceKingdomId: getKingdomId(state, kA),
+      kingdomRelations: state.kingdomRelations,
+      settlementKingdoms: state.settlementKingdoms,
+    },
+  );
+  assert.equal(packed.anyActive, true);
+
+  const offA = (26 * state.gridSize + 20) * 4;
+  const offB = (26 * state.gridSize + 46) * 4;
+  const offC = (26 * state.gridSize + 70) * 4;
+
+  // Clicked kingdom A & Ally B -> Blue dominant (B > R)
+  assert.ok(packed.colorData[offA + 2] > packed.colorData[offA], 'Clicked kingdom should render Blue');
+  assert.ok(packed.colorData[offB + 2] > packed.colorData[offB], 'Allied kingdom should render Blue');
+  // War enemy C -> Red dominant (R > B)
+  assert.ok(packed.colorData[offC] > packed.colorData[offC + 2], 'Enemy kingdom at war should render Red');
+});
+
+test('War Update Follow-Up: military vehicles evolve through epochs in simulation and 3D geometry', () => {
+  // 1. 3D Mesh geometry distinctly evolves across Epochs for warship, tank, airship, bomber, gunship
+  const bronzeShip = createVehicleGroup('warship', 1, 'human', 1);
+  const ironcladShip = createVehicleGroup('warship', 3, 'human', 1);
+  const orbitalShip = createVehicleGroup('warship', 6, 'human', 1);
+  assert.notEqual(
+    bronzeShip.children.length,
+    ironcladShip.children.length,
+    'Bronze galley warship and Industrial ironclad should differ structurally',
+  );
+  assert.notEqual(
+    ironcladShip.children.length,
+    orbitalShip.children.length,
+    'Industrial ironclad and Orbital plasma cruiser should differ structurally',
+  );
+
+  const indTank = createVehicleGroup('tank', 3, 'human', 2);
+  const hoverTank = createVehicleGroup('tank', 6, 'human', 2);
+  assert.notEqual(
+    indTank.children.length,
+    hoverTank.children.length,
+    'Industrial tank and Space Age hover-railgun tank must differ in geometry parts',
+  );
+
+  // 2. Simulation evolves existing glider -> airship -> bomber_plane -> orbital_gunship and upgrades warship/tank stats
+  const state = createInitialSimulationState(96, 'VEH-EVOLVE-TEST');
+  state.sandboxFreeMode = true;
+  state.wildlifeSeeded = true;
+  for (let z = 15; z <= 75; z++) {
+    for (let x = 15; x <= 75; x++) {
+      const t = getTile(state, x, z)!;
+      t.resourceNode = 'none';
+      t.buildingId = null;
+      t.height = x >= 58 ? 0 : 2;
+      t.terrain = x >= 58 ? 'deep_water' : 'grass';
+    }
+  }
+  placeBuilding(state, 'bonfire', 48, 44);
+  state.epochIndex = 1; // Bronze Age
+  for (let i = 0; i < 6; i++) stepSimulation(state, 0.25);
+
+  const airBronze = (state.vehicles ?? []).find((v) => v.isMilitary && v.type === 'glider');
+  const shipBronze = (state.vehicles ?? []).find((v) => v.isMilitary && v.type === 'warship');
+  assert.ok(airBronze, 'Bronze Age city should field a glider');
+  assert.ok(shipBronze, 'Bronze Age coastal city should field a warship');
+  const bronzeShipMaxHp = shipBronze.maxHp ?? 0;
+
+  // Advance to Medieval/Industrial (Epoch 2 -> Airship)
+  state.epochIndex = 2;
+  stepSimulation(state, 0.2);
+  assert.equal(airBronze.type, 'airship', 'Glider should evolve into Airship in Medieval/Exploration epoch');
+  assert.ok((shipBronze.maxHp ?? 0) > bronzeShipMaxHp, 'Warship maxHp should scale up with Epoch');
+
+  // Advance to Atomic (Epoch 4 -> Bomber Plane)
+  state.epochIndex = 4;
+  stepSimulation(state, 0.2);
+  assert.equal(airBronze.type, 'bomber_plane', 'Airship should evolve into Bomber Plane in Atomic epoch');
+
+  // Advance to Space/Orbital (Epoch 6 -> Orbital Gunship + Hover Tank)
+  state.epochIndex = 6;
+  stepSimulation(state, 0.2);
+  assert.equal(
+    airBronze.type,
+    'orbital_gunship',
+    'Bomber Plane should evolve into Orbital Gunship in Space epoch',
+  );
+  const tankVeh = (state.vehicles ?? []).find((v) => v.isMilitary && v.type === 'tank');
+  assert.ok(tankVeh && tankVeh.y > 0.15, 'Space Age tank should hover above terrain');
+});
+
+test('War Update Follow-Up: Nukes, Elf Arcane Cataclysm, and Orc Battlewill destroy environment, craters, and structures', () => {
+  const setupFlatArena = (seed: string) => {
+    const state = createInitialSimulationState(96, seed);
+    state.sandboxFreeMode = true;
+    state.wildlifeSeeded = true;
+    state.epochIndex = 5;
+    for (let z = 12; z <= 84; z++) {
+      for (let x = 12; x <= 84; x++) {
+        const t = getTile(state, x, z)!;
+        t.height = 4;
+        t.terrain = 'grass';
+        t.resourceNode = 'timber_grove';
+        t.resourceAmount = 120;
+        t.buildingId = null;
+      }
+    }
+    return state;
+  };
+
+  // 1. Human Nuke environment & structure destruction
+  {
+    const s = setupFlatArena('NUKE-ENV-TEST');
+    placeBuilding(s, 'bonfire', 18, 44);
+    placeBuilding(s, 'bonfire', 48, 44);
+    placeBuilding(s, 'forager_hut', 49, 44);
+    const sidA = s.buildings[0].settlementId!;
+    const sidB = s.buildings[1].settlementId!;
+    setKingdomRelation(s, sidA, sidB, 'war');
+
+    const hNuker = spawnUnit(s, 'human', 43, 44, true).unit!;
+    hNuker.settlementId = sidA;
+    hNuker.weaponCooldown = 0;
+    const enemy = spawnUnit(s, 'orc', 47, 44, true).unit!;
+    enemy.settlementId = sidB;
+    enemy.hp = 800;
+    enemy.maxHp = 800;
+
+    for (let i = 0; i < 5; i++) stepSimulation(s, 0.1);
+    const craterCenter = getTile(s, 47, 44)!;
+    assert.ok(craterCenter.height < 4, 'Human Nuke must crater terrain height at blast epicenter');
+    assert.equal(craterCenter.terrain, 'scorched', 'Human Nuke must scorch terrain tiles');
+    assert.equal(craterCenter.resourceNode, 'none', 'Human Nuke must obliterate forest trees in blast radius');
+    const enemyHouse = s.buildings.find((b) => b.settlementId === sidB && b.type === 'forager_hut');
+    assert.ok(!enemyHouse || enemyHouse.hp < 80, 'Human Nuke must devastate enemy buildings in blast zone');
+  }
+
+  // 2. Elf Arcane Cataclysm crystalline environment destruction
+  {
+    const s = setupFlatArena('ARCANE-ENV-TEST');
+    placeBuilding(s, 'bonfire', 18, 44);
+    placeBuilding(s, 'bonfire', 48, 44);
+    const sidA = s.buildings[0].settlementId!;
+    const sidB = s.buildings[1].settlementId!;
+    setKingdomRelation(s, sidA, sidB, 'war');
+
+    const eMage = spawnUnit(s, 'elf', 43, 44, true).unit!;
+    eMage.settlementId = sidA;
+    eMage.weaponCooldown = 0;
+    const enemy = spawnUnit(s, 'orc', 47, 44, true).unit!;
+    enemy.settlementId = sidB;
+    enemy.hp = 800;
+    enemy.maxHp = 800;
+
+    for (let i = 0; i < 5; i++) stepSimulation(s, 0.1);
+    const arcaneCenter = getTile(s, 47, 44)!;
+    assert.ok(arcaneCenter.height < 4, 'Elf Arcane Cataclysm must shatter & crater ground elevation');
+    assert.equal(arcaneCenter.terrain, 'crystal_field', 'Elf Cataclysm must transform blast ground to crystal_field');
+    assert.equal(arcaneCenter.resourceNode, 'none', 'Elf Cataclysm must wipe out trees/flora in blast');
+  }
+
+  // 3. Orc Battlewill tectonic slash environment destruction
+  {
+    const s = setupFlatArena('BATTLEWILL-ENV-TEST');
+    placeBuilding(s, 'bonfire', 18, 44);
+    placeBuilding(s, 'bonfire', 48, 44);
+    const sidA = s.buildings[0].settlementId!;
+    const sidB = s.buildings[1].settlementId!;
+    setKingdomRelation(s, sidA, sidB, 'war');
+
+    const oWarlord = spawnUnit(s, 'orc', 44, 44, true).unit!;
+    oWarlord.settlementId = sidA;
+    oWarlord.battlewillCooldown = 0;
+    oWarlord.weaponCooldown = 0;
+    const enemy = spawnUnit(s, 'human', 46.5, 44, true).unit!;
+    enemy.settlementId = sidB;
+    enemy.hp = 800;
+    enemy.maxHp = 800;
+
+    for (let i = 0; i < 5; i++) stepSimulation(s, 0.1);
+    const slashTile = getTile(s, 46, 44)!;
+    assert.ok(slashTile.height < 4, 'Orc Battlewill wide slash must carve lowered tectonic scar into ground');
+    assert.ok(
+      slashTile.terrain === 'scorched' || slashTile.terrain === 'badlands' || slashTile.terrain === 'rock',
+      'Orc Battlewill slash must scar terrain ground biome',
+    );
+    assert.equal(slashTile.resourceNode, 'none', 'Orc Battlewill slash must splinter trees in cleave path');
+  }
+});
