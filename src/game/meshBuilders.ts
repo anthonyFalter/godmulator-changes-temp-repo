@@ -5584,6 +5584,79 @@ export function createVehicleGroup(
     const isModern = epochLevel === 5;
     const isBus = epochLevel >= 4 && variant % 4 === 0;
     const isHover = epochLevel >= 6;
+
+    if (isElf) {
+      // Majestic Elf Sylvan Swan-Skiff: levitating ivory-and-gold curved gondola with sweeping lotus prows & floating crystal orb
+      const ivoryMat = new THREE.MeshStandardMaterial({ color: 0xfefae0, roughness: 0.22, metalness: 0.35 });
+      const goldMat = new THREE.MeshStandardMaterial({ color: 0xffb703, roughness: 0.2, metalness: 0.85 });
+      const hullRing = new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.032, 7, 16), goldMat);
+      hullRing.rotation.x = Math.PI / 2;
+      hullRing.scale.set(0.85, 1.45, 1);
+      hullRing.position.set(0, 0.14, 0);
+      hullRing.castShadow = true;
+      group.add(hullRing);
+
+      const swanHull = new THREE.Mesh(new THREE.ConeGeometry(0.11, 0.46, 6), ivoryMat);
+      swanHull.rotation.x = Math.PI / 2;
+      swanHull.scale.set(1.1, 0.65, 1);
+      swanHull.position.set(0, 0.14, 0.02);
+      swanHull.castShadow = true;
+      group.add(swanHull);
+
+      const swanNeck = new THREE.Mesh(new THREE.ConeGeometry(0.045, 0.24, 5), goldMat);
+      swanNeck.position.set(0, 0.24, 0.22);
+      swanNeck.rotation.x = 0.45;
+      group.add(swanNeck);
+
+      for (const side of [-1, 1]) {
+        const petalFin = new THREE.Mesh(new THREE.ConeGeometry(0.055, 0.28, 4), ivoryMat);
+        petalFin.rotation.x = -Math.PI / 2;
+        petalFin.rotation.z = side * 0.55;
+        petalFin.position.set(side * 0.16, 0.17, -0.06);
+        group.add(petalFin);
+      }
+
+      const coreCrystal = new THREE.Mesh(new THREE.OctahedronGeometry(0.065, 0), glowMat);
+      coreCrystal.position.set(0, 0.25, -0.02);
+      group.add(coreCrystal);
+      return group;
+    }
+
+    if (isOrc) {
+      // Intimidating Orc Spiked War-Buggy: rusted iron cage, oversized front crusher roller, bone tusks & twin roaring exhaust pipes
+      const ironMat = new THREE.MeshStandardMaterial({ color: 0x27272a, roughness: 0.65, metalness: 0.72 });
+      const bloodMat = new THREE.MeshStandardMaterial({ color: 0x991b1b, roughness: 0.52, metalness: 0.35 });
+      const boneMat = new THREE.MeshStandardMaterial({ color: 0xe7e5e4, roughness: 0.45 });
+
+      const warFrame = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.11, 0.38), bloodMat);
+      warFrame.position.set(0, 0.11, -0.02);
+      warFrame.castShadow = true;
+      group.add(warFrame);
+
+      const frontRoller = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.065, 0.28, 8), ironMat);
+      frontRoller.rotation.z = Math.PI / 2;
+      frontRoller.position.set(0, 0.068, 0.2);
+      group.add(frontRoller);
+
+      for (const sx of [-0.14, 0.14]) {
+        const rearWheel = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.085, 0.06, 8), tireMat);
+        rearWheel.rotation.z = Math.PI / 2;
+        rearWheel.position.set(sx, 0.085, -0.14);
+        group.add(rearWheel);
+
+        const tusk = new THREE.Mesh(new THREE.ConeGeometry(0.032, 0.16, 4), boneMat);
+        tusk.rotation.x = Math.PI / 2 - 0.2;
+        tusk.position.set(sx * 0.75, 0.1, 0.27);
+        group.add(tusk);
+
+        const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.028, 0.22, 5), ironMat);
+        pipe.position.set(sx * 0.85, 0.22, -0.12);
+        pipe.rotation.x = -0.35;
+        group.add(pipe);
+      }
+      return group;
+    }
+
     const len = isBus ? 0.5 : isVintage ? 0.34 : 0.38;
     const wid = isBus ? 0.22 : isVintage ? 0.19 : 0.21;
     const h = isBus ? 0.18 : isVintage ? 0.13 : 0.1;
@@ -5676,11 +5749,61 @@ export function createVehicleGroup(
       group.add(createContactShadow(0.62));
     }
 
-    // Front Locomotive / Lead Metro Car (+Z) + Linked Passenger Coach (-Z)
     const leadZ = 0.24;
     const coachZ = -0.26;
     const railBaseY = isMetro || isMaglev ? 0.02 : 0.09;
 
+    if (isElf) {
+      // Majestic Elf Astral Leyline Serpent-Train: articulated crystalline spires & golden astrolabe halos
+      const ivoryMat = new THREE.MeshStandardMaterial({ color: 0xfefae0, roughness: 0.2, metalness: 0.4 });
+      const goldMat = new THREE.MeshStandardMaterial({ color: 0xffb703, roughness: 0.2, metalness: 0.86 });
+      for (const cz of [leadZ, coachZ]) {
+        const crystalCar = new THREE.Mesh(new THREE.OctahedronGeometry(0.18, 0), ivoryMat);
+        crystalCar.scale.set(0.85, 0.72, 1.35);
+        crystalCar.position.set(0, railBaseY + 0.14, cz);
+        crystalCar.castShadow = true;
+        group.add(crystalCar);
+
+        const halo = new THREE.Mesh(new THREE.TorusGeometry(0.17, 0.022, 6, 14), goldMat);
+        halo.position.set(0, railBaseY + 0.16, cz);
+        group.add(halo);
+      }
+      const prowLance = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.28, 6), glowMat);
+      prowLance.rotation.x = Math.PI / 2;
+      prowLance.position.set(0, railBaseY + 0.14, leadZ + 0.28);
+      group.add(prowLance);
+      return group;
+    }
+
+    if (isOrc) {
+      // Intimidating Orc Hell-Iron Juggernaut Train: cowcatcher ram spikes, furnace boiler core & heavy armored gun-car
+      const ironMat = new THREE.MeshStandardMaterial({ color: 0x27272a, roughness: 0.6, metalness: 0.75 });
+      const bloodMat = new THREE.MeshStandardMaterial({ color: 0x991b1b, roughness: 0.5, metalness: 0.35 });
+      const loco = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.26, 0.46), ironMat);
+      loco.position.set(0, railBaseY + 0.13, leadZ);
+      loco.castShadow = true;
+      group.add(loco);
+
+      const ramPlow = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.24, 4), bloodMat);
+      ramPlow.rotation.x = Math.PI / 2;
+      ramPlow.rotation.y = Math.PI / 4;
+      ramPlow.position.set(0, railBaseY + 0.1, leadZ + 0.32);
+      group.add(ramPlow);
+
+      for (const sx of [-0.09, 0.09]) {
+        const stack = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.055, 0.22, 6), bloodMat);
+        stack.position.set(sx, railBaseY + 0.34, leadZ + 0.08);
+        group.add(stack);
+      }
+
+      const gunCar = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.22, 0.42), bloodMat);
+      gunCar.position.set(0, railBaseY + 0.11, coachZ);
+      gunCar.castShadow = true;
+      group.add(gunCar);
+      return group;
+    }
+
+    // Front Locomotive / Lead Metro Car (+Z) + Linked Passenger Coach (-Z)
     const leadMat = isSteam ? trimMat : bodyMat;
     const leadBody = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.22, 0.44), leadMat);
     leadBody.position.set(0, railBaseY + 0.11, leadZ);
@@ -5729,116 +5852,137 @@ export function createVehicleGroup(
   if (type === 'glider') {
     // Fixed-wing Glider (Epoch 1) -> Fighter (Epoch 2-3). ZERO top helicopter rotors!
     const isBiplaneFighter = epochLevel >= 2;
-    const wingMat = new THREE.MeshStandardMaterial({
-      color: isElf ? 0xb8f2e6 : isOrc ? 0xb91c1c : isBiplaneFighter ? 0xe9d8a6 : 0xf4ecd8,
-      roughness: isElf ? 0.35 : 0.54,
-      metalness: isElf ? 0.32 : isBiplaneFighter ? 0.28 : 0.08,
-    });
-    const sparMat = new THREE.MeshStandardMaterial({
-      color: isElf ? 0xf5b742 : isOrc ? 0x27272a : isBiplaneFighter ? 0x475569 : 0x7f4f24,
-      roughness: 0.48,
-      metalness: isElf ? 0.62 : isBiplaneFighter ? 0.55 : 0.12,
-    });
 
     if (isElf) {
-      // Elf Crescent Star-Dart: slender alabaster/gold fuselage + gulled crescent wings + crystal prow
-      const hull = new THREE.Mesh(new THREE.CylinderGeometry(0.048, 0.028, 1.02, 8), bodyMat);
-      hull.rotation.x = Math.PI / 2;
-      hull.position.set(0, 0.17, 0);
-      hull.castShadow = true;
-      group.add(hull);
+      // Majestic Elf Celestial Sun-Hawk: golden crescent bow-ring chassis, 4 layered feathered crystal pinions, beak crest & trailing phoenix tail ribbons
+      const ivoryMat = new THREE.MeshStandardMaterial({ color: 0xfefae0, roughness: 0.18, metalness: 0.38 });
+      const goldMat = new THREE.MeshStandardMaterial({ color: 0xffb703, roughness: 0.18, metalness: 0.88 });
 
-      const crystalProw = new THREE.Mesh(new THREE.OctahedronGeometry(0.075, 0), glowMat);
-      crystalProw.scale.set(0.75, 0.75, 1.9);
-      crystalProw.position.set(0, 0.17, 0.54);
-      group.add(crystalProw);
+      // Central Golden Crescent Bow-Arc
+      const crescentArc = new THREE.Mesh(new THREE.TorusGeometry(0.38, 0.028, 7, 18, Math.PI * 1.15), goldMat);
+      crescentArc.rotation.x = Math.PI / 2;
+      crescentArc.rotation.z = -Math.PI * 0.075;
+      crescentArc.position.set(0, 0.2, 0.08);
+      crescentArc.castShadow = true;
+      group.add(crescentArc);
 
+      // Faceted Alabaster Crystal Spire Body & Golden Hawk Beak
+      const crystalSpire = new THREE.Mesh(new THREE.OctahedronGeometry(0.14, 0), ivoryMat);
+      crystalSpire.scale.set(0.65, 0.55, 3.4);
+      crystalSpire.position.set(0, 0.21, 0.06);
+      crystalSpire.castShadow = true;
+      group.add(crystalSpire);
+
+      const hawkBeak = new THREE.Mesh(new THREE.ConeGeometry(0.065, 0.34, 5), goldMat);
+      hawkBeak.rotation.x = Math.PI / 2 - 0.12;
+      hawkBeak.position.set(0, 0.21, 0.58);
+      group.add(hawkBeak);
+
+      const heartGem = new THREE.Mesh(new THREE.OctahedronGeometry(0.085, 0), glowMat);
+      heartGem.position.set(0, 0.26, 0.18);
+      group.add(heartGem);
+
+      // Layered Feathered Pinions (sweeping graceful avian silhouette, zero boxy plank wings)
       for (const side of [-1, 1]) {
-        const innerWing = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.026, 0.24), wingMat);
-        innerWing.position.set(side * 0.24, 0.19, 0.05);
-        innerWing.rotation.y = -side * 0.38;
-        innerWing.rotation.z = side * 0.12;
-        innerWing.castShadow = true;
-        group.add(innerWing);
-
-        const outerCrescent = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.022, 0.16), sparMat);
-        outerCrescent.position.set(side * 0.56, 0.21, -0.11);
-        outerCrescent.rotation.y = -side * 0.62;
-        outerCrescent.rotation.z = -side * 0.08;
-        group.add(outerCrescent);
-
-        if (isBiplaneFighter) {
-          const sunPylon = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.022, 0.26, 6), glowMat);
-          sunPylon.rotation.x = Math.PI / 2;
-          sunPylon.position.set(side * 0.28, 0.14, 0.14);
-          group.add(sunPylon);
+        for (let fi = 0; fi < 3; fi++) {
+          const featherLen = 0.58 - fi * 0.11;
+          const feather = new THREE.Mesh(
+            new THREE.ConeGeometry(0.065 - fi * 0.01, featherLen, 4),
+            fi === 1 ? glowMat : ivoryMat,
+          );
+          feather.rotation.z = -side * (Math.PI / 2 - 0.18 - fi * 0.08);
+          feather.rotation.y = -side * (0.28 + fi * 0.18);
+          feather.scale.set(1, 1, 0.32);
+          feather.position.set(side * (0.34 + fi * 0.14), 0.21 + fi * 0.025, 0.14 - fi * 0.14);
+          feather.castShadow = true;
+          group.add(feather);
         }
-      }
-
-      const canopy = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.06, 0.22), glassMat);
-      canopy.position.set(0, 0.23, 0.12);
-      group.add(canopy);
-
-      for (const side of [-1, 1]) {
-        const rearFoil = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.024, 0.12), sparMat);
-        rearFoil.position.set(side * 0.14, 0.2, -0.44);
-        rearFoil.rotation.y = -side * 0.45;
-        rearFoil.rotation.z = side * 0.32;
-        group.add(rearFoil);
+        const tailRibbon = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.52, 4), goldMat);
+        tailRibbon.rotation.x = -Math.PI / 2 + 0.18;
+        tailRibbon.rotation.y = side * 0.22;
+        tailRibbon.position.set(side * 0.12, 0.23, -0.54);
+        group.add(tailRibbon);
       }
       return group;
     }
 
     if (isOrc) {
-      // Orc Scrap War-Dart: chunky bolted frame, blunt wide stub-wings, forward iron tusks & dorsal fin
-      const hull = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.16, 0.88), sparMat);
-      hull.position.set(0, 0.16, 0);
-      hull.castShadow = true;
-      group.add(hull);
+      // Intimidating Orc Gore-Talon Bat-Bomber: brutal skull-ram prow, spiked iron spine, jagged blood-red bat-talon wings & roaring furnace exhaust
+      const ironMat = new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.62, metalness: 0.78 });
+      const bloodMat = new THREE.MeshStandardMaterial({ color: 0x991b1b, roughness: 0.54, metalness: 0.28 });
+      const boneMat = new THREE.MeshStandardMaterial({ color: 0xe7e5e4, roughness: 0.42 });
 
-      for (const tx of [-0.08, 0.08]) {
-        const tusk = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.22, 4), trimMat);
-        tusk.rotation.x = Math.PI / 2;
-        tusk.position.set(tx, 0.14, 0.52);
-        group.add(tusk);
-      }
+      // Brutalist Iron Skull-Hull & Forward Cleaver Blade
+      const skullBlock = new THREE.Mesh(new THREE.DodecahedronGeometry(0.18, 0), ironMat);
+      skullBlock.scale.set(1.05, 0.85, 2.3);
+      skullBlock.position.set(0, 0.2, 0.04);
+      skullBlock.castShadow = true;
+      group.add(skullBlock);
 
+      const noseCleaver = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.38, 3), ironMat);
+      noseCleaver.rotation.x = Math.PI / 2;
+      noseCleaver.scale.set(0.35, 1.3, 1);
+      noseCleaver.position.set(0, 0.19, 0.56);
+      group.add(noseCleaver);
+
+      // Giant Curved Bone Tusks flanking the skull jaw
       for (const side of [-1, 1]) {
-        const plankWing = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.042, 0.34), wingMat);
-        plankWing.position.set(side * 0.38, 0.18, 0.06);
-        plankWing.rotation.y = side * 0.08;
-        plankWing.castShadow = true;
-        group.add(plankWing);
+        const tusk = new THREE.Mesh(new THREE.ConeGeometry(0.055, 0.36, 4), boneMat);
+        tusk.rotation.x = Math.PI / 2 - 0.28;
+        tusk.rotation.y = side * 0.25;
+        tusk.position.set(side * 0.16, 0.15, 0.52);
+        group.add(tusk);
 
-        const wingSpike = new THREE.Mesh(new THREE.ConeGeometry(0.045, 0.18, 4), trimMat);
-        wingSpike.rotation.x = Math.PI / 2;
-        wingSpike.position.set(side * 0.68, 0.18, 0.16);
-        group.add(wingSpike);
+        // Jagged Bat-Claw Wings (3 splayed iron/crimson talons per side)
+        const wingArm = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.045, 0.68, 5), ironMat);
+        wingArm.rotation.z = side * (Math.PI / 2 - 0.22);
+        wingArm.rotation.y = side * 0.24;
+        wingArm.position.set(side * 0.38, 0.24, 0.16);
+        group.add(wingArm);
 
-        if (isBiplaneFighter) {
-          const dakkaGun = new THREE.Mesh(new THREE.CylinderGeometry(0.026, 0.03, 0.3, 6), trimMat);
-          dakkaGun.rotation.x = Math.PI / 2;
-          dakkaGun.position.set(side * 0.28, 0.12, 0.22);
-          group.add(dakkaGun);
+        for (let ci = 0; ci < 3; ci++) {
+          const clawMembrane = new THREE.Mesh(
+            new THREE.ConeGeometry(0.16, 0.56 - ci * 0.08, 3),
+            ci === 1 ? ironMat : bloodMat,
+          );
+          clawMembrane.rotation.x = -Math.PI / 2;
+          clawMembrane.rotation.z = side * (0.25 + ci * 0.22);
+          clawMembrane.scale.set(1.2, 1, 0.22);
+          clawMembrane.position.set(side * (0.28 + ci * 0.19), 0.2 - ci * 0.01, -0.04 - ci * 0.06);
+          clawMembrane.castShadow = true;
+          group.add(clawMembrane);
         }
+
+        const wingHook = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.24, 4), boneMat);
+        wingHook.rotation.x = Math.PI / 2;
+        wingHook.position.set(side * 0.68, 0.26, 0.34);
+        group.add(wingHook);
       }
 
-      const dorsalSaw = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.24, 0.26), wingMat);
-      dorsalSaw.position.set(0, 0.3, -0.34);
-      group.add(dorsalSaw);
-
-      if (isBiplaneFighter) {
-        const nosePropGroup = new THREE.Group();
-        nosePropGroup.name = 'spin_prop';
-        nosePropGroup.position.set(0, 0.16, 0.54);
-        nosePropGroup.add(
-          new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.046, 0.02), headlightMat),
-          new THREE.Mesh(new THREE.BoxGeometry(0.046, 0.36, 0.02), headlightMat),
-        );
-        group.add(nosePropGroup);
+      // Dorsal Spine Spikes & Roaring Rear Furnace Cone
+      for (const sz of [0.16, -0.06, -0.28]) {
+        const dorsalSpike = new THREE.Mesh(new THREE.ConeGeometry(0.045, 0.2, 4), boneMat);
+        dorsalSpike.rotation.x = -0.35;
+        dorsalSpike.position.set(0, 0.34, sz);
+        group.add(dorsalSpike);
       }
+      const furnaceMouth = new THREE.Mesh(new THREE.ConeGeometry(0.11, 0.26, 6), glowMat);
+      furnaceMouth.rotation.x = -Math.PI / 2;
+      furnaceMouth.position.set(0, 0.2, -0.48);
+      group.add(furnaceMouth);
       return group;
     }
+
+    const wingMat = new THREE.MeshStandardMaterial({
+      color: isBiplaneFighter ? 0xe9d8a6 : 0xf4ecd8,
+      roughness: 0.54,
+      metalness: isBiplaneFighter ? 0.28 : 0.08,
+    });
+    const sparMat = new THREE.MeshStandardMaterial({
+      color: isBiplaneFighter ? 0x475569 : 0x7f4f24,
+      roughness: 0.48,
+      metalness: isBiplaneFighter ? 0.55 : 0.12,
+    });
 
     // Human Fixed-wing Glider -> Biplane Prop Fighter
     const fuselage = new THREE.Mesh(
@@ -5919,145 +6063,160 @@ export function createVehicleGroup(
   }
 
   if (type === 'helicopter') {
-    // Pure Assault Helicopter / Sylvan Rotor Skiff (Epoch 3-5): ZERO airplane wings! Top blades on spin_rotor + tail prop on spin_prop
+    // Pure Assault Helicopter / Sylvan Astrolabe Sanctum / Orc Skull-Saw Chopper (Epoch 3-5): Top blades on spin_rotor + tail prop on spin_prop
     const isStealthGunship = epochLevel >= 4;
     if (isElf) {
-      // Elf Sylvan Dragonfly Skiff: sleek curved crystal nacelle + golden lotus rotor ring + luminous prism pods
-      const hullMat = new THREE.MeshStandardMaterial({
-        color: isStealthGunship ? 0xd8f3dc : 0x2ec4b6,
-        roughness: 0.26,
-        metalness: 0.45,
-      });
-      const pod = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.075, 0.86, 8), hullMat);
-      pod.rotation.x = Math.PI / 2;
-      pod.scale.set(1.15, 0.82, 1);
-      pod.position.set(0, 0.2, 0.1);
-      pod.castShadow = true;
-      group.add(pod);
+      // Majestic Elf Celestial Lotus Sanctum: vertical floating crystal obelisk core encircled by spinning golden astrolabe rings & lotus petal rotors (zero human helicopter cabin/tailboom!)
+      const ivoryMat = new THREE.MeshStandardMaterial({ color: 0xfefae0, roughness: 0.18, metalness: 0.42 });
+      const goldMat = new THREE.MeshStandardMaterial({ color: 0xffb703, roughness: 0.18, metalness: 0.88 });
 
-      const canopyDome = new THREE.Mesh(new THREE.SphereGeometry(0.14, 8, 8), glassMat);
-      canopyDome.scale.set(0.95, 0.72, 1.55);
-      canopyDome.position.set(0, 0.24, 0.34);
-      group.add(canopyDome);
+      // Central Vertical Floating Crystal Spire Sanctuary
+      const crystalCore = new THREE.Mesh(new THREE.OctahedronGeometry(0.24, 0), ivoryMat);
+      crystalCore.scale.set(0.82, 1.55, 0.82);
+      crystalCore.position.set(0, 0.28, 0);
+      crystalCore.castShadow = true;
+      group.add(crystalCore);
 
-      const filigreeBoom = new THREE.Mesh(new THREE.CylinderGeometry(0.024, 0.06, 0.68, 6), trimMat);
-      filigreeBoom.rotation.x = Math.PI / 2;
-      filigreeBoom.position.set(0, 0.22, -0.52);
-      group.add(filigreeBoom);
+      // Outer Golden Crescent Cradle Arch
+      const cradleArch = new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.026, 7, 18), goldMat);
+      cradleArch.rotation.y = Math.PI / 2;
+      cradleArch.position.set(0, 0.28, 0);
+      group.add(cradleArch);
 
-      const spireFin = new THREE.Mesh(new THREE.ConeGeometry(0.055, 0.32, 4), trimMat);
-      spireFin.position.set(0, 0.35, -0.82);
-      spireFin.rotation.x = -0.35;
-      group.add(spireFin);
-
-      for (const sx of [-0.22, 0.22]) {
-        const rail = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.64, 6), trimMat);
-        rail.rotation.x = Math.PI / 2;
-        rail.position.set(sx * 0.78, 0.07, 0.08);
-        group.add(rail);
-
-        const crystalLance = new THREE.Mesh(new THREE.OctahedronGeometry(0.07, 0), glowMat);
-        crystalLance.scale.set(0.85, 0.85, 2.2);
-        crystalLance.position.set(sx * 1.15, 0.19, 0.12);
-        group.add(crystalLance);
+      // 4 Floating Arcane Obelisk Pylons around the sanctum
+      for (const [px, pz] of [
+        [-0.28, 0.22],
+        [0.28, 0.22],
+        [-0.28, -0.22],
+        [0.28, -0.22],
+      ]) {
+        const obelisk = new THREE.Mesh(new THREE.OctahedronGeometry(0.08, 0), glowMat);
+        obelisk.scale.set(0.65, 2.1, 0.65);
+        obelisk.position.set(px, 0.24, pz);
+        group.add(obelisk);
       }
 
-      const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.04, 0.22, 6), trimMat);
-      mast.position.set(0, 0.38, 0.02);
-      group.add(mast);
-
+      // Majestic Overhead Spinning Lotus-Astrolabe Halo Rotor
       const mainRotor = new THREE.Group();
       mainRotor.name = 'spin_rotor';
-      mainRotor.position.set(0, 0.49, 0.02);
-      const lotusRing = new THREE.Mesh(new THREE.TorusGeometry(0.22, 0.018, 6, 12), trimMat);
-      lotusRing.rotation.x = Math.PI / 2;
-      mainRotor.add(lotusRing);
-      const blade1 = new THREE.Mesh(new THREE.BoxGeometry(1.38, 0.018, 0.06), glowMat);
-      const blade2 = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.018, 1.38), glowMat);
-      mainRotor.add(blade1, blade2);
+      mainRotor.position.set(0, 0.56, 0);
+      const outerHalo = new THREE.Mesh(new THREE.TorusGeometry(0.56, 0.022, 6, 20), goldMat);
+      outerHalo.rotation.x = Math.PI / 2;
+      mainRotor.add(outerHalo);
+      const innerHalo = new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.018, 6, 16), glowMat);
+      innerHalo.rotation.x = Math.PI / 2;
+      mainRotor.add(innerHalo);
+      for (let pi = 0; pi < 6; pi++) {
+        const ang = (pi / 6) * Math.PI * 2;
+        const petal = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.54, 4), pi % 2 === 0 ? glowMat : ivoryMat);
+        petal.rotation.x = Math.PI / 2;
+        petal.rotation.z = ang;
+        petal.scale.set(1, 1, 0.28);
+        petal.position.set(Math.sin(ang) * 0.28, 0, Math.cos(ang) * 0.28);
+        mainRotor.add(petal);
+      }
       group.add(mainRotor);
 
+      // Rear Vertical Star-Wheel Gyro (spin_prop)
       const tailRotor = new THREE.Group();
       tailRotor.name = 'spin_prop';
-      tailRotor.position.set(0.05, 0.34, -0.8);
-      tailRotor.rotation.y = Math.PI / 2;
-      tailRotor.add(
-        new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.022, 0.014), glowMat),
-        new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.24, 0.014), glowMat),
-      );
+      tailRotor.position.set(0, 0.28, -0.44);
+      const starRing = new THREE.Mesh(new THREE.TorusGeometry(0.14, 0.016, 6, 12), goldMat);
+      tailRotor.add(starRing);
+      for (let si = 0; si < 4; si++) {
+        const spoke = new THREE.Mesh(new THREE.OctahedronGeometry(0.04, 0), glowMat);
+        spoke.scale.set(0.5, 3.2, 0.5);
+        spoke.rotation.z = (si * Math.PI) / 4;
+        tailRotor.add(spoke);
+      }
       group.add(tailRotor);
       return group;
     }
 
     if (isOrc) {
-      // Orc Waaagh Deff-Kopter Gunship: chunky spiked iron fuselage + twin side thruster drums + saw-toothed rotor
-      const orcArmorMat = new THREE.MeshStandardMaterial({
-        color: isStealthGunship ? 0x3b2f2f : 0x573b32,
-        roughness: 0.62,
-        metalness: 0.45,
-      });
-      const hullBox = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.28, 0.72), orcArmorMat);
-      hullBox.position.set(0, 0.22, 0.06);
-      hullBox.castShadow = true;
-      group.add(hullBox);
+      // Intimidating Orc Gore-Grinder Skull-Chopper: massive horned iron skull-forge, twin giant spiked bone tusks, chain-linked Gatling drums & spinning buzzsaw cleaver rotor
+      const ironMat = new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.62, metalness: 0.78 });
+      const bloodMat = new THREE.MeshStandardMaterial({ color: 0x991b1b, roughness: 0.52, metalness: 0.32 });
+      const boneMat = new THREE.MeshStandardMaterial({ color: 0xe7e5e4, roughness: 0.44 });
 
-      const ramJaw = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.16, 0.28), bodyMat);
-      ramJaw.position.set(0, 0.18, 0.48);
-      group.add(ramJaw);
+      // Hulking Iron Skull Cauldron Body
+      const skullCore = new THREE.Mesh(new THREE.DodecahedronGeometry(0.28, 0), ironMat);
+      skullCore.scale.set(1.2, 1.0, 1.35);
+      skullCore.position.set(0, 0.25, 0.08);
+      skullCore.castShadow = true;
+      group.add(skullCore);
 
-      const tuskMat = new THREE.MeshStandardMaterial({ color: 0xe6ccb2, roughness: 0.48 });
-      for (const sx of [-0.14, 0.14]) {
-        const tusk = new THREE.Mesh(new THREE.ConeGeometry(0.036, 0.2, 5), tuskMat);
-        tusk.rotation.x = Math.PI / 2 - 0.18;
-        tusk.position.set(sx, 0.16, 0.65);
-        group.add(tusk);
+      // Spiked Iron Jaw-Trap & Glowing Furnace Eyes
+      const ironJaw = new THREE.Mesh(new THREE.ConeGeometry(0.24, 0.34, 4), bloodMat);
+      ironJaw.rotation.x = Math.PI / 2;
+      ironJaw.rotation.y = Math.PI / 4;
+      ironJaw.position.set(0, 0.14, 0.44);
+      group.add(ironJaw);
 
-        const twinPod = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 0.42, 7), trimMat);
-        twinPod.rotation.x = Math.PI / 2;
-        twinPod.position.set(sx * 2.1, 0.22, 0.02);
-        group.add(twinPod);
-
-        const exhaustStack = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.045, 0.24, 6), trimMat);
-        exhaustStack.position.set(sx * 1.4, 0.42, -0.18);
-        exhaustStack.rotation.x = -0.35;
-        group.add(exhaustStack);
+      for (const sx of [-0.11, 0.11]) {
+        const eyeGlow = new THREE.Mesh(new THREE.OctahedronGeometry(0.055, 0), glowMat);
+        eyeGlow.position.set(sx, 0.3, 0.36);
+        group.add(eyeGlow);
       }
 
-      const slitVisor = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.08, 0.09), glassMat);
-      slitVisor.position.set(0, 0.28, 0.43);
-      group.add(slitVisor);
+      // Colossal Curved Bone Tusks & Side Siege Gatling Barrels
+      for (const side of [-1, 1]) {
+        const megaTusk = new THREE.Mesh(new THREE.ConeGeometry(0.068, 0.44, 5), boneMat);
+        megaTusk.rotation.x = Math.PI / 2 - 0.32;
+        megaTusk.rotation.y = side * 0.28;
+        megaTusk.position.set(side * 0.22, 0.16, 0.54);
+        group.add(megaTusk);
 
-      const tailFrame = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.14, 0.62), orcArmorMat);
-      tailFrame.position.set(0, 0.25, -0.54);
-      group.add(tailFrame);
+        const gatlingDrum = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.12, 0.48, 6), bloodMat);
+        gatlingDrum.rotation.x = Math.PI / 2;
+        gatlingDrum.position.set(side * 0.36, 0.22, 0.14);
+        group.add(gatlingDrum);
 
-      const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.048, 0.058, 0.22, 6), trimMat);
-      mast.position.set(0, 0.44, 0.02);
-      group.add(mast);
+        const exhaustPipe = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.06, 0.34, 6), ironMat);
+        exhaustPipe.position.set(side * 0.26, 0.44, -0.18);
+        exhaustPipe.rotation.x = -0.42;
+        exhaustPipe.rotation.z = -side * 0.25;
+        group.add(exhaustPipe);
+      }
 
+      // Spiked Tail Mace Boom
+      const tailChain = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.08, 0.56, 5), ironMat);
+      tailChain.rotation.x = Math.PI / 2;
+      tailChain.position.set(0, 0.25, -0.46);
+      group.add(tailChain);
+
+      // Overhead Spinning 4-Cleaver Buzzsaw Rotor (spin_rotor)
       const mainRotor = new THREE.Group();
       mainRotor.name = 'spin_rotor';
-      mainRotor.position.set(0, 0.56, 0.02);
-      mainRotor.add(
-        new THREE.Mesh(new THREE.BoxGeometry(1.48, 0.03, 0.1), bodyMat),
-        new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.03, 1.48), bodyMat),
-      );
+      mainRotor.position.set(0, 0.56, 0.04);
+      const sawRing = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.032, 5, 10), bloodMat);
+      sawRing.rotation.x = Math.PI / 2;
+      mainRotor.add(sawRing);
+      for (let bi = 0; bi < 4; bi++) {
+        const ang = (bi * Math.PI) / 2;
+        const cleaverBlade = new THREE.Mesh(new THREE.ConeGeometry(0.14, 0.78, 3), ironMat);
+        cleaverBlade.rotation.x = Math.PI / 2;
+        cleaverBlade.rotation.z = ang;
+        cleaverBlade.scale.set(1, 1, 0.22);
+        cleaverBlade.position.set(Math.sin(ang) * 0.38, 0, Math.cos(ang) * 0.38);
+        mainRotor.add(cleaverBlade);
+      }
       group.add(mainRotor);
 
+      // Rear Buzzsaw Tail Chopper (spin_prop)
       const tailRotor = new THREE.Group();
       tailRotor.name = 'spin_prop';
-      tailRotor.position.set(0.09, 0.34, -0.82);
+      tailRotor.position.set(0.08, 0.28, -0.74);
       tailRotor.rotation.y = Math.PI / 2;
-      tailRotor.add(
-        new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.035, 0.02), headlightMat),
-        new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.28, 0.02), headlightMat),
-      );
+      const buzzDisc = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.025, 7), bloodMat);
+      buzzDisc.rotation.x = Math.PI / 2;
+      tailRotor.add(buzzDisc);
       group.add(tailRotor);
       return group;
     }
 
     const heliMat = new THREE.MeshStandardMaterial({
-      color: isOrc ? 0x3f3f46 : isStealthGunship ? 0x334155 : 0x4b5563,
+      color: isStealthGunship ? 0x334155 : 0x4b5563,
       roughness: isStealthGunship ? 0.34 : 0.45,
       metalness: isStealthGunship ? 0.62 : 0.48,
     });
@@ -6144,110 +6303,128 @@ export function createVehicleGroup(
     const isModernComposite = epochLevel >= 4 && epochLevel < 6;
 
     if (isElf) {
-      // Elf Sylvan Prism Strider / Arc-Chariot Tank: floating curved crescent skiff + crystalline prism turret
-      const elfHullMat = new THREE.MeshStandardMaterial({
-        color: isOrbitalHover ? 0xd8f3dc : isModernComposite ? 0x1b4332 : 0x2d6a4f,
-        roughness: 0.28,
-        metalness: 0.45,
-      });
-      const hull = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.16, 0.68, 8), elfHullMat);
-      hull.rotation.x = Math.PI / 2;
-      hull.scale.set(1.2, 0.45, 1);
-      hull.position.y = isOrbitalHover ? 0.24 : 0.16;
-      hull.castShadow = true;
-      group.add(hull);
+      // Majestic Elf Celestial Sun-Chariot & Floating Prism Sanctuary (zero treads/boxes: golden levitation rings, swan-prow arch & towering floating crystal sun-prism)
+      const ivoryMat = new THREE.MeshStandardMaterial({ color: 0xfefae0, roughness: 0.18, metalness: 0.42 });
+      const goldMat = new THREE.MeshStandardMaterial({ color: 0xffb703, roughness: 0.18, metalness: 0.88 });
+      const baseHoverY = isOrbitalHover ? 0.22 : 0.16;
 
-      const prowCrest = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.26, 6), trimMat);
-      prowCrest.rotation.x = Math.PI / 2;
-      prowCrest.position.set(0, isOrbitalHover ? 0.24 : 0.16, 0.38);
-      group.add(prowCrest);
+      // Twin Concentric Golden Levitation Rings
+      const outerHalo = new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.032, 7, 20), goldMat);
+      outerHalo.rotation.x = Math.PI / 2;
+      outerHalo.scale.set(0.92, 1.28, 1);
+      outerHalo.position.set(0, baseHoverY, 0);
+      outerHalo.castShadow = true;
+      group.add(outerHalo);
 
-      for (const sx of [-0.24, 0.24]) {
-        const hoverFin = new THREE.Mesh(new THREE.BoxGeometry(0.065, 0.08, 0.56), trimMat);
-        hoverFin.position.set(sx, isOrbitalHover ? 0.14 : 0.09, -0.02);
-        hoverFin.rotation.z = sx < 0 ? 0.22 : -0.22;
-        group.add(hoverFin);
-        const runeStrip = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.03, 0.5), glowMat);
-        runeStrip.position.set(sx, isOrbitalHover ? 0.1 : 0.06, -0.02);
-        group.add(runeStrip);
-        if (isOrbitalHover) {
-          const arcWing = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.04, 0.32), bodyMat);
-          arcWing.position.set(sx * 1.25, 0.26, -0.14);
-          group.add(arcWing);
-        }
+      const innerRuneRing = new THREE.Mesh(new THREE.TorusGeometry(0.22, 0.02, 6, 16), glowMat);
+      innerRuneRing.rotation.x = Math.PI / 2;
+      innerRuneRing.position.set(0, baseHoverY - 0.03, 0);
+      group.add(innerRuneRing);
+
+      // Sculpted Alabaster Lotus Sanctuary Platform
+      const lotusPlatform = new THREE.Mesh(new THREE.ConeGeometry(0.24, 0.18, 6), ivoryMat);
+      lotusPlatform.rotation.x = Math.PI;
+      lotusPlatform.position.set(0, baseHoverY + 0.04, 0);
+      lotusPlatform.castShadow = true;
+      group.add(lotusPlatform);
+
+      // Sweeping Swan-Wing Side Shields & Floating Crystal Sponsons
+      for (const side of [-1, 1]) {
+        const wingArch = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.48, 4), ivoryMat);
+        wingArch.rotation.x = -Math.PI / 2 + 0.25;
+        wingArch.rotation.z = side * 0.48;
+        wingArch.position.set(side * 0.28, baseHoverY + 0.12, -0.04);
+        wingArch.castShadow = true;
+        group.add(wingArch);
+
+        const crystalPylon = new THREE.Mesh(new THREE.OctahedronGeometry(0.075, 0), glowMat);
+        crystalPylon.scale.set(0.7, 1.9, 0.7);
+        crystalPylon.position.set(side * 0.34, baseHoverY + 0.18, 0.14);
+        group.add(crystalPylon);
       }
 
-      const prismTurret = new THREE.Mesh(new THREE.OctahedronGeometry(0.16, 0), bodyMat);
-      prismTurret.scale.set(1, 0.75, 1.35);
-      prismTurret.position.set(0, isOrbitalHover ? 0.34 : 0.27, -0.02);
-      prismTurret.castShadow = true;
-      group.add(prismTurret);
+      // Towering Floating Sun-Prism Obelisk Turret + Twin Golden Arc-Halo Focusers
+      const sunPrism = new THREE.Mesh(new THREE.OctahedronGeometry(0.19, 0), glowMat);
+      sunPrism.scale.set(0.85, 1.45, 0.95);
+      sunPrism.position.set(0, baseHoverY + 0.32, -0.02);
+      sunPrism.castShadow = true;
+      group.add(sunPrism);
 
-      const lanceBarrel = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.022, 0.042, isModernComposite || isOrbitalHover ? 0.54 : 0.38, 6),
-        glowMat,
-      );
-      lanceBarrel.rotation.x = Math.PI / 2;
-      lanceBarrel.position.set(0, isOrbitalHover ? 0.34 : 0.27, 0.3);
-      group.add(lanceBarrel);
+      const prismCrown = new THREE.Mesh(new THREE.TorusGeometry(0.18, 0.022, 6, 14), goldMat);
+      prismCrown.rotation.y = Math.PI / 2;
+      prismCrown.position.set(0, baseHoverY + 0.32, 0.06);
+      group.add(prismCrown);
+
+      const starLance = new THREE.Mesh(new THREE.ConeGeometry(0.055, 0.48, 6), goldMat);
+      starLance.rotation.x = Math.PI / 2;
+      starLance.position.set(0, baseHoverY + 0.32, 0.34);
+      group.add(starLance);
       return group;
     }
 
     if (isOrc) {
-      // Orc Behemoth War-Rig: brutalist spiked armor brick, dozer jaws, asymmetrical cannon casemate, twin smokestacks
-      const orcArmorMat = new THREE.MeshStandardMaterial({
-        color: isOrbitalHover ? 0x3f3f46 : 0x5c1d18,
-        roughness: 0.58,
-        metalness: isOrbitalHover ? 0.65 : 0.42,
-      });
-      const hull = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.2, 0.64), orcArmorMat);
-      hull.position.y = isOrbitalHover ? 0.22 : 0.15;
-      hull.castShadow = true;
-      group.add(hull);
+      // Intimidating Orc Skull-Crusher Siege Juggernaut: colossal spiked iron meat-grinder front roller, horned iron skull-fortress casemate, 4 bone-tusk rams & twin hell-cannon mortars
+      const ironMat = new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.65, metalness: 0.78 });
+      const bloodMat = new THREE.MeshStandardMaterial({ color: 0x991b1b, roughness: 0.52, metalness: 0.34 });
+      const boneMat = new THREE.MeshStandardMaterial({ color: 0xe7e5e4, roughness: 0.42 });
+      const baseY = isOrbitalHover ? 0.18 : 0.12;
 
-      // Spiked Dozer Ram
-      const dozerPlate = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.14, 0.08), trimMat);
-      dozerPlate.position.set(0, isOrbitalHover ? 0.17 : 0.1, 0.35);
-      dozerPlate.rotation.x = -0.3;
-      group.add(dozerPlate);
-      for (const tx of [-0.16, 0, 0.16]) {
-        const tusk = new THREE.Mesh(new THREE.ConeGeometry(0.036, 0.15, 4), headlightMat);
-        tusk.rotation.x = Math.PI / 2;
-        tusk.position.set(tx, isOrbitalHover ? 0.14 : 0.08, 0.44);
-        group.add(tusk);
+      // Giant Front Spiked Meat-Grinder Crusher Drum
+      const grinderDrum = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 0.58, 8), ironMat);
+      grinderDrum.rotation.z = Math.PI / 2;
+      grinderDrum.position.set(0, baseY + 0.03, 0.36);
+      grinderDrum.castShadow = true;
+      group.add(grinderDrum);
+
+      for (const gx of [-0.22, -0.11, 0, 0.11, 0.22]) {
+        const chewSpike = new THREE.Mesh(new THREE.ConeGeometry(0.042, 0.16, 4), boneMat);
+        chewSpike.rotation.x = Math.PI / 2;
+        chewSpike.position.set(gx, baseY + 0.04, 0.54);
+        group.add(chewSpike);
       }
 
-      for (const tx of [-0.24, 0.24]) {
-        const trackOrThruster = new THREE.Mesh(
-          new THREE.BoxGeometry(0.11, 0.13, 0.68),
-          isOrbitalHover ? glowMat : tireMat,
+      // Brutal Sloped Iron Citadel Hull & Horned Skull Casemate
+      const juggernautHull = new THREE.Mesh(new THREE.DodecahedronGeometry(0.32, 0), bloodMat);
+      juggernautHull.scale.set(1.25, 0.78, 1.35);
+      juggernautHull.position.set(0, baseY + 0.14, -0.04);
+      juggernautHull.castShadow = true;
+      group.add(juggernautHull);
+
+      const skullTower = new THREE.Mesh(new THREE.DodecahedronGeometry(0.22, 0), ironMat);
+      skullTower.scale.set(1.15, 0.95, 1.1);
+      skullTower.position.set(0, baseY + 0.32, -0.06);
+      skullTower.castShadow = true;
+      group.add(skullTower);
+
+      // Sweeping Warlord Bone Horns & Twin Belching Furnace Chimneys
+      for (const side of [-1, 1]) {
+        const megaHorn = new THREE.Mesh(new THREE.ConeGeometry(0.065, 0.42, 5), boneMat);
+        megaHorn.rotation.z = -side * 0.65;
+        megaHorn.rotation.x = 0.35;
+        megaHorn.position.set(side * 0.28, baseY + 0.42, 0.04);
+        group.add(megaHorn);
+
+        const rearWheel = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.12, 7), ironMat);
+        rearWheel.rotation.z = Math.PI / 2;
+        rearWheel.position.set(side * 0.3, baseY + 0.02, -0.22);
+        group.add(rearWheel);
+
+        const siegeMortar = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.062, 0.078, 0.48, 6),
+          isOrbitalHover ? glowMat : ironMat,
         );
-        trackOrThruster.position.set(tx, isOrbitalHover ? 0.11 : 0.07, 0);
-        group.add(trackOrThruster);
+        siegeMortar.rotation.x = Math.PI / 2 - 0.12;
+        siegeMortar.position.set(side * 0.14, baseY + 0.34, 0.24);
+        group.add(siegeMortar);
 
-        const stack = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.04, 0.22, 6), trimMat);
-        stack.position.set(tx * 0.72, 0.32, -0.22);
-        group.add(stack);
-      }
+        const smokestack = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.065, 0.34, 6), ironMat);
+        smokestack.position.set(side * 0.2, baseY + 0.42, -0.28);
+        smokestack.rotation.x = -0.3;
+        group.add(smokestack);
 
-      const bunkerTurret = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.16, 0.3), bodyMat);
-      bunkerTurret.position.set(0.03, isOrbitalHover ? 0.36 : 0.31, -0.02);
-      bunkerTurret.castShadow = true;
-      group.add(bunkerTurret);
-
-      for (const bx of [-0.04, 0.09]) {
-        const siegeGun = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.044, 0.052, isModernComposite || isOrbitalHover ? 0.42 : 0.3, 6),
-          isOrbitalHover ? glowMat : trimMat,
-        );
-        siegeGun.rotation.x = Math.PI / 2;
-        siegeGun.position.set(bx, isOrbitalHover ? 0.36 : 0.31, 0.26);
-        group.add(siegeGun);
-      }
-      if (isOrbitalHover) {
-        const megaBlade = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.05, 0.14), bodyMat);
-        megaBlade.position.set(0, 0.34, 0.24);
-        group.add(megaBlade);
+        const emberCap = new THREE.Mesh(new THREE.OctahedronGeometry(0.055, 0), glowMat);
+        emberCap.position.set(side * 0.2, baseY + 0.58, -0.33);
+        group.add(emberCap);
       }
       return group;
     }
