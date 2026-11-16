@@ -310,6 +310,7 @@ export type VehicleType =
   | 'tank'
   | 'warship'
   | 'airship'
+  | 'helicopter'
   | 'bomber_plane'
   | 'orc_flyer'
   | 'orbital_gunship';
@@ -337,6 +338,7 @@ export interface VehicleEntity {
   variantSeed: number;
   flightPhase?: 'parked' | 'takeoff' | 'cruise' | 'landing';
   phaseTimer?: number;
+  strafeExtendTimer?: number;
   stuntPhase?: 'cruise' | 'charge' | 'launch_flip' | 'hover_spin' | 'barrel_roll';
   stuntTimer?: number;
   stuntDuration?: number;
@@ -409,6 +411,7 @@ export interface VisualEffectEvent {
   originZ?: number;
   sourceUnitId?: string;
   variant?: 'bite' | 'slam' | 'crunch' | 'peck' | 'horn_blast' | 'fire_breath';
+  vfxSubtype?: 'bullet' | 'cannon_shell' | 'bomb' | 'missile' | 'arcane_bolt' | 'plasma_beam';
   radius: number;
   color: string;
   createdAt: number;

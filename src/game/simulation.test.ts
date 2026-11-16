@@ -3126,6 +3126,7 @@ test('War Update: multi-domain battle vehicles (land, air, sea, orbital) spawn a
     'tank',
     'warship',
     'airship',
+    'helicopter',
     'orc_flyer',
     'bomber_plane',
     'orbital_gunship',
@@ -3296,7 +3297,7 @@ test('War Update Follow-Up: military vehicles evolve through epochs in simulatio
     'Industrial tank and Space Age hover-railgun tank must differ in geometry parts',
   );
 
-  // 2. Simulation evolves existing glider -> airship -> bomber_plane -> orbital_gunship and upgrades warship/tank stats
+  // 2. Simulation evolves fixed-wing (glider -> bomber_plane) and hover/VTOL (airship -> helicopter -> orbital_gunship) cleanly
   const state = createInitialSimulationState(96, 'VEH-EVOLVE-TEST');
   state.sandboxFreeMode = true;
   state.wildlifeSeeded = true;
@@ -3313,31 +3314,39 @@ test('War Update Follow-Up: military vehicles evolve through epochs in simulatio
   state.epochIndex = 1; // Bronze Age
   for (let i = 0; i < 6; i++) stepSimulation(state, 0.25);
 
-  const airBronze = (state.vehicles ?? []).find((v) => v.isMilitary && v.type === 'glider');
+  const fixedBronze = (state.vehicles ?? []).find((v) => v.isMilitary && v.type === 'glider');
   const shipBronze = (state.vehicles ?? []).find((v) => v.isMilitary && v.type === 'warship');
-  assert.ok(airBronze, 'Bronze Age city should field a glider');
+  assert.ok(fixedBronze, 'Bronze Age city should field a glider');
   assert.ok(shipBronze, 'Bronze Age coastal city should field a warship');
   const bronzeShipMaxHp = shipBronze.maxHp ?? 0;
 
-  // Advance to Medieval/Industrial (Epoch 2 -> Airship)
+  // Advance to Medieval/Exploration (Epoch 2 -> Airship hoverer spawns alongside glider/biplane)
   state.epochIndex = 2;
   stepSimulation(state, 0.2);
-  assert.equal(airBronze.type, 'airship', 'Glider should evolve into Airship in Medieval/Exploration epoch');
+  const hoverCraft = (state.vehicles ?? []).find((v) => v.isMilitary && v.type === 'airship');
+  assert.ok(hoverCraft, 'Medieval/Exploration city should field an Airship in the hover branch');
+  assert.equal(fixedBronze.type, 'glider', 'Fixed-wing branch stays fixed-wing into biplane era');
   assert.ok((shipBronze.maxHp ?? 0) > bronzeShipMaxHp, 'Warship maxHp should scale up with Epoch');
 
-  // Advance to Atomic (Epoch 4 -> Bomber Plane)
+  // Advance to Industrial (Epoch 3 -> Airship evolves to Helicopter; Glider stays fixed-wing)
+  state.epochIndex = 3;
+  stepSimulation(state, 0.2);
+  assert.equal(hoverCraft.type, 'helicopter', 'Airship should evolve into Helicopter in Industrial epoch');
+
+  // Advance to Atomic (Epoch 4 -> Glider evolves to Bomber Plane)
   state.epochIndex = 4;
   stepSimulation(state, 0.2);
-  assert.equal(airBronze.type, 'bomber_plane', 'Airship should evolve into Bomber Plane in Atomic epoch');
+  assert.equal(fixedBronze.type, 'bomber_plane', 'Glider should evolve into Bomber Plane in Atomic epoch');
 
-  // Advance to Space/Orbital (Epoch 6 -> Orbital Gunship + Hover Tank)
+  // Advance to Space/Orbital (Epoch 6 -> Helicopter evolves to Orbital Gunship + Hover Tank)
   state.epochIndex = 6;
   stepSimulation(state, 0.2);
   assert.equal(
-    airBronze.type,
+    hoverCraft.type,
     'orbital_gunship',
-    'Bomber Plane should evolve into Orbital Gunship in Space epoch',
+    'Helicopter should evolve into Orbital Gunship in Space epoch',
   );
+  assert.equal(fixedBronze.type, 'bomber_plane', 'Fixed-wing Bomber Plane stays fixed-wing (upgrades to plasma jet)');
   const tankVeh = (state.vehicles ?? []).find((v) => v.isMilitary && v.type === 'tank');
   assert.ok(tankVeh && tankVeh.y > 0.15, 'Space Age tank should hover above terrain');
 });
@@ -3439,4 +3448,132 @@ test('War Update Follow-Up: Nukes, Elf Arcane Cataclysm, and Orc Battlewill dest
     );
     assert.equal(slashTile.resourceNode, 'none', 'Orc Battlewill slash must splinter trees in cleave path');
   }
+});
+
+test('War Update Model & VFX Overhaul: fixed-wing planes never hover, helicopters spin horizontally, weapons & VFX scale cleanly', () => {
+  // 1. Fixed-wing planes NEVER contain overhead helicopter 'spin_rotor', while helicopters & orc_flyers DO
+  const gliderMesh = createVehicleGroup('glider', 2, 'human', 1);
+  const bomberMesh = createVehicleGroup('bomber_plane', 5, 'human', 1);
+  const civPlaneMesh = createVehicleGroup('plane', 4, 'human', 1);
+  assert.equal(gliderMesh.getObjectByName('spin_rotor'), undefined, 'Glider/biplane must not have helicopter top rotor');
+  assert.equal(bomberMesh.getObjectByName('spin_rotor'), undefined, 'Bomber plane must not have helicopter top rotor');
+  assert.equal(civPlaneMesh.getObjectByName('spin_rotor'), undefined, 'Civilian plane must not have helicopter top rotor');
+
+  const heliMesh = createVehicleGroup('helicopter', 4, 'human', 1);
+  const orcChopperMesh = createVehicleGroup('orc_flyer', 4, 'orc', 1);
+  assert.ok(heliMesh.getObjectByName('spin_rotor'), 'Helicopter must have horizontal top spin_rotor');
+  assert.ok(heliMesh.getObjectByName('spin_prop'), 'Helicopter must have tail spin_prop');
+  assert.ok(orcChopperMesh.getObjectByName('spin_rotor'), 'Orc chopper must have horizontal top spin_rotor');
+  assert.ok(orcChopperMesh.getObjectByName('spin_prop'), 'Orc chopper must have tail spin_prop');
+
+  // 2. Held unit weapons are multi-part 3D groups per race & age
+  const elfStaff = createUnitGroup('priest', 'civilization', 3, 'elf', 7, 'adult').getObjectByName('held_tool');
+  const humanRifle = createUnitGroup('warrior', 'civilization', 5, 'human', 7, 'adult').getObjectByName('held_tool');
+  const orcCleaver = createUnitGroup('warrior', 'civilization', 5, 'orc', 7, 'adult').getObjectByName('held_tool');
+  assert.ok(elfStaff && elfStaff.children.length >= 2, 'Elf weapon should be multi-part 3D runestaff');
+  assert.ok(humanRifle && humanRifle.children.length >= 3, 'Modern human rifle should be multi-part 3D weapon');
+  assert.ok(orcCleaver && orcCleaver.children.length >= 2, 'Orc weapon should be multi-part 3D cleaver');
+
+  // 3. Fixed-wing plane NEVER stops/hovers even when engaged inside fireRange; makes continuous forward bombing passes
+  const state = createInitialSimulationState(96, 'PLANE-NO-HOVER-TEST');
+  state.sandboxFreeMode = true;
+  state.wildlifeSeeded = true;
+  state.epochIndex = 4; // Atomic Age
+  for (let z = 12; z <= 84; z++) {
+    for (let x = 12; x <= 84; x++) {
+      const t = getTile(state, x, z)!;
+      t.height = 2;
+      t.terrain = 'grass';
+      t.resourceNode = 'none';
+      t.buildingId = null;
+    }
+  }
+  placeBuilding(state, 'bonfire', 22, 44);
+  placeBuilding(state, 'bonfire', 52, 44);
+  const sidA = state.buildings[0].settlementId!;
+  const sidB = state.buildings[1].settlementId!;
+  setKingdomRelation(state, sidA, sidB, 'war');
+
+  const bomberId = 'test_bomber_1';
+  state.vehicles = [
+    {
+      id: bomberId,
+      type: 'bomber_plane',
+      species: 'human',
+      settlementId: sidA,
+      kingdomId: getKingdomId(state, sidA),
+      isMilitary: true,
+      hp: 300,
+      maxHp: 300,
+      attackCooldown: 0,
+      strafeExtendTimer: 0,
+      epochLevel: 4,
+      x: 46,
+      y: 5.2,
+      z: 38,
+      heading: 0, // Pointed straight +Z toward enemy at (46, 44)
+      pitch: 0,
+      bank: 0,
+      speed: 7.8,
+      path: [{ x: 46, z: 38 }],
+      pathIndex: 0,
+      variantSeed: 1,
+    },
+    {
+      id: 'test_heli_1',
+      type: 'helicopter',
+      species: 'human',
+      settlementId: sidA,
+      kingdomId: getKingdomId(state, sidA),
+      isMilitary: true,
+      hp: 260,
+      maxHp: 260,
+      attackCooldown: 0,
+      epochLevel: 4,
+      x: 42,
+      y: 3.55,
+      z: 44,
+      heading: Math.PI / 2,
+      pitch: 0,
+      bank: 0,
+      speed: 5.3,
+      path: [{ x: 42, z: 44 }],
+      pathIndex: 0,
+      variantSeed: 2,
+    },
+  ];
+
+  const enemy = spawnUnit(state, 'orc', 46, 44, true).unit!;
+  enemy.settlementId = sidB;
+  enemy.hp = 1200;
+  enemy.maxHp = 1200;
+
+  let totalPlaneMovement = 0;
+  let lastBx = 46;
+  let lastBz = 38;
+  const collectedSubtypes = new Set<string>();
+
+  for (let i = 0; i < 16; i++) {
+    stepSimulation(state, 0.15);
+    const bomber = state.vehicles.find((v) => v.id === bomberId)!;
+    const stepMove = Math.hypot(bomber.x - lastBx, bomber.z - lastBz);
+    totalPlaneMovement += stepMove;
+    assert.ok(stepMove > 0.7, `Fixed-wing bomber must never stop/hover in combat (moved ${stepMove.toFixed(2)})`);
+    lastBx = bomber.x;
+    lastBz = bomber.z;
+    for (const vfx of state.pendingVfx) {
+      if (vfx.vfxSubtype) collectedSubtypes.add(vfx.vfxSubtype);
+    }
+    state.pendingVfx = [];
+  }
+
+  const heli = state.vehicles.find((v) => v.id === 'test_heli_1')!;
+  const bomberEnd = state.vehicles.find((v) => v.id === bomberId)!;
+  assert.ok(totalPlaneMovement > 15, 'Fixed-wing plane must continuously streak across target zone');
+  assert.ok((bomberEnd.strafeExtendTimer ?? 0) >= 0, 'Fixed-wing plane tracks strafe extend state');
+  assert.ok(Math.hypot(heli.x - 42, heli.z - 44) < 2.0, 'Hovering helicopter holds standoff combat orbit');
+  assert.ok(
+    collectedSubtypes.has('bomb') || collectedSubtypes.has('missile') || collectedSubtypes.has('bullet'),
+    'War update combat must emit rich vfxSubtype events',
+  );
 });

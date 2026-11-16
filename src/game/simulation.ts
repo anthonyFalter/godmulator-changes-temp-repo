@@ -28,6 +28,7 @@ import {
   UnitRole,
   VehicleEntity,
   VehicleType,
+  VisualEffectEvent,
   WorldGenConfig,
   WorldRulesConfig,
   WorldTemplateId,
@@ -5688,7 +5689,7 @@ function stepVehicles(state: SimulationState, dt: number): void {
     if (v.type === 'roadster') return state.epochIndex >= 5;
     if (v.type === 'glider' || v.type === 'warship') return state.epochIndex >= 1;
     if (v.type === 'airship' || v.type === 'orc_flyer') return state.epochIndex >= 2;
-    if (v.type === 'tank') return state.epochIndex >= 3;
+    if (v.type === 'tank' || v.type === 'helicopter') return state.epochIndex >= 3;
     if (v.type === 'bomber_plane') return state.epochIndex >= 4;
     if (v.type === 'orbital_gunship') return state.epochIndex >= 6;
     return false;
@@ -6292,18 +6293,24 @@ function stepVehicles(state: SimulationState, dt: number): void {
     }
   }
 
-  // E. Military Battle Vehicles across Land (Tank), Sea (Warship), Air (Glider, Airship, Orc Flyer, Bomber), and Orbital (Orbital Gunship)
+  // E. Military Battle Vehicles:
+  //    - Sea: Warship (Galley -> Galleon -> Ironclad -> Missile Destroyer -> Plasma Cruiser)
+  //    - Land: Tank (Riveted Heavy Tank -> Composite MBT -> Hover Railgun Tank)
+  //    - Fixed-Wing Air (NON-HOVERING): Glider / Prop Fighter (Epochs 1-3) -> Bomber / Stealth / Plasma Plane (Epochs 4+)
+  //    - Hover / Rotor / VTOL Air: Airship / Orc Chopper (Epoch 2) -> Attack Helicopter / Orc Assault Chopper (Epochs 3-5) -> Orbital Gunship (Epochs 6+)
   const getEvolvedMilitaryAirType = (
     currentType: VehicleType,
     epochIdx: number,
     sp: SpeciesId,
   ): VehicleType => {
     if (currentType === 'warship' || currentType === 'tank') return currentType;
+    if (currentType === 'glider' || currentType === 'bomber_plane') {
+      return epochIdx >= 4 ? 'bomber_plane' : 'glider';
+    }
     if (epochIdx >= 6) return 'orbital_gunship';
-    if (epochIdx >= 5) return 'bomber_plane';
-    if (epochIdx >= 4) return sp === 'orc' ? 'orc_flyer' : 'bomber_plane';
-    if (epochIdx >= 2) return sp === 'orc' ? 'orc_flyer' : 'airship';
-    return 'glider';
+    if (sp === 'orc') return 'orc_flyer';
+    if (epochIdx >= 3) return 'helicopter';
+    return 'airship';
   };
 
   const getMilitaryVehicleStats = (mType: VehicleType, epochIdx: number) => {
@@ -6329,6 +6336,16 @@ function stepVehicles(state: SimulationState, dt: number): void {
         cruiseY: e >= 6 ? 0.24 : 0.05,
       };
     }
+    if (mType === 'helicopter') {
+      return {
+        maxHp: Math.round(215 * (1 + Math.max(0, e - 3) * 0.24)),
+        speed: 4.8 + Math.max(0, e - 3) * 0.55,
+        fireRange: 9.2,
+        fireCooldown: Math.max(0.85, 1.35 - Math.max(0, e - 3) * 0.14),
+        dmg: Math.round(26 * (1 + Math.max(0, e - 3) * 0.28)),
+        cruiseY: 3.55,
+      };
+    }
     if (mType === 'orbital_gunship') {
       return {
         maxHp: Math.round(360 * (1 + Math.max(0, e - 6) * 0.3)),
@@ -6342,30 +6359,30 @@ function stepVehicles(state: SimulationState, dt: number): void {
     if (mType === 'bomber_plane') {
       return {
         maxHp: Math.round(240 * (1 + Math.max(0, e - 4) * 0.25)),
-        speed: 7.2 + Math.max(0, e - 4) * 0.75,
-        fireRange: 10.8,
-        fireCooldown: Math.max(1.85, 2.6 - Math.max(0, e - 4) * 0.2),
+        speed: 7.8 + Math.max(0, e - 4) * 0.8,
+        fireRange: 11.4,
+        fireCooldown: Math.max(1.65, 2.35 - Math.max(0, e - 4) * 0.18),
         dmg: Math.round(52 * (1 + Math.max(0, e - 4) * 0.28)),
-        cruiseY: 5.1,
+        cruiseY: 5.2,
       };
     }
     if (mType === 'airship' || mType === 'orc_flyer') {
       return {
-        maxHp: mType === 'airship' ? Math.round(220 * (1 + Math.max(0, e - 2) * 0.22)) : Math.round(185 * (1 + Math.max(0, e - 2) * 0.25)),
-        speed: (mType === 'orc_flyer' ? 5.4 : 3.9) + Math.max(0, e - 2) * 0.45,
-        fireRange: mType === 'airship' ? 10.2 : 7.8,
-        fireCooldown: Math.max(1.45, 1.95 - Math.max(0, e - 2) * 0.12),
+        maxHp: mType === 'airship' ? Math.round(220 * (1 + Math.max(0, e - 2) * 0.22)) : Math.round(195 * (1 + Math.max(0, e - 2) * 0.25)),
+        speed: (mType === 'orc_flyer' ? 5.1 : 3.9) + Math.max(0, e - 2) * 0.45,
+        fireRange: mType === 'airship' ? 10.2 : 8.2,
+        fireCooldown: Math.max(1.25, 1.8 - Math.max(0, e - 2) * 0.12),
         dmg: Math.round((mType === 'orc_flyer' ? 30 : 28) * (1 + Math.max(0, e - 2) * 0.24)),
-        cruiseY: mType === 'airship' ? 4.0 : 3.2,
+        cruiseY: mType === 'airship' ? 4.0 : 3.3,
       };
     }
     return {
       maxHp: Math.round(125 * tierBoost),
-      speed: 5.2 + Math.min(2.0, (e - 1) * 0.35),
-      fireRange: 6.8,
-      fireCooldown: 1.85,
-      dmg: Math.round(20 * tierBoost),
-      cruiseY: 2.8,
+      speed: 5.8 + Math.min(2.2, (e - 1) * 0.42),
+      fireRange: 7.6,
+      fireCooldown: 1.55,
+      dmg: Math.round(22 * tierBoost),
+      cruiseY: 3.1,
     };
   };
 
@@ -6378,7 +6395,7 @@ function stepVehicles(state: SimulationState, dt: number): void {
           ? v.type
           : getEvolvedMilitaryAirType(v.type, state.epochIndex, v.species);
       const nextStats = getMilitaryVehicleStats(desiredType, state.epochIndex);
-      if (v.type !== desiredType || v.maxHp !== nextStats.maxHp || v.speed !== nextStats.speed) {
+      if (v.type !== desiredType || v.maxHp !== nextStats.maxHp || v.speed !== nextStats.speed || v.epochLevel !== state.epochIndex) {
         const evolvedTier = v.type !== desiredType;
         const oldMax = Math.max(1, v.maxHp ?? nextStats.maxHp);
         const curHp = v.hp ?? oldMax;
@@ -6406,9 +6423,9 @@ function stepVehicles(state: SimulationState, dt: number): void {
     }
 
     const militaryVehiclesCount = state.vehicles.filter((v) => v.isMilitary).length;
-    if (militaryVehiclesCount < 18) {
+    if (militaryVehiclesCount < 24) {
       for (const sid of settlementIds) {
-        if (state.vehicles.filter((v) => v.isMilitary).length >= 18) break;
+        if (state.vehicles.filter((v) => v.isMilitary).length >= 24) break;
         const sp: SpeciesId = state.settlementSpecies?.[sid] ?? 'human';
         const kid = getKingdomId(state, sid);
         const anchor = getSettlementAnchorForId(state, sid);
@@ -6427,6 +6444,7 @@ function stepVehicles(state: SimulationState, dt: number): void {
             hp: stats.maxHp,
             maxHp: stats.maxHp,
             attackCooldown: 0.6,
+            strafeExtendTimer: 0,
             epochLevel: state.epochIndex,
             x: sx,
             y: stats.cruiseY,
@@ -6439,10 +6457,11 @@ function stepVehicles(state: SimulationState, dt: number): void {
             pathIndex: 0,
             variantSeed: cityMilitary.length + Math.round(sx * 3 + sz * 7),
           });
+          cityMilitary.push(state.vehicles![state.vehicles!.length - 1]);
         };
 
-        // 1. Seaborne Warship if coastal water exists nearby (Bronze -> Ironclad -> Missile Cruiser -> Plasma Dreadnought)
-        if (state.epochIndex >= 1 && !hasType('warship') && cityMilitary.length < 3) {
+        // 1. Seaborne Warship if coastal water exists nearby (Bronze Galley -> Ironclad -> Destroyer -> Plasma Cruiser)
+        if (state.epochIndex >= 1 && !hasType('warship') && cityMilitary.length < 4) {
           let coastalWater: TileData | null = null;
           for (let r = 4; r <= 18 && !coastalWater; r += 2) {
             for (let a = 0; a < 8; a++) {
@@ -6461,8 +6480,8 @@ function stepVehicles(state: SimulationState, dt: number): void {
           }
         }
 
-        // 2. Ground Battle Vehicle (Industrial Tank -> Composite Tank -> Hover Railgun Tank at Epoch 3+)
-        if (state.epochIndex >= 3 && !hasType('tank') && cityMilitary.length < 3) {
+        // 2. Ground Battle Vehicle (Industrial Tank -> Composite MBT -> Hover Railgun Tank at Epoch 3+)
+        if (state.epochIndex >= 3 && !hasType('tank') && cityMilitary.length < 4) {
           const tankX = Math.max(2, Math.min(state.gridSize - 3, anchor.x + 2));
           const tankZ = Math.max(2, Math.min(state.gridSize - 3, anchor.z + 2));
           const tt = getTile(state, tankX, tankZ);
@@ -6471,10 +6490,23 @@ function stepVehicles(state: SimulationState, dt: number): void {
           }
         }
 
-        // 3. Evolving Aerial / Orbital craft by current epoch (Glider -> Airship/Orc Flyer -> Bomber -> Orbital Gunship)
-        const targetAirType = getEvolvedMilitaryAirType('glider', state.epochIndex, sp);
-        if (cityMilitary.length < 3 && !hasType(targetAirType)) {
-          trySpawnMilitary(targetAirType, anchor.x, anchor.z);
+        // 3. Fixed-Wing Fighter / Bomber branch (non-hovering strafe & bombing passes)
+        const targetFixedType = getEvolvedMilitaryAirType('glider', state.epochIndex, sp);
+        if (cityMilitary.length < 4 && !hasType('glider') && !hasType('bomber_plane')) {
+          trySpawnMilitary(targetFixedType, anchor.x, anchor.z);
+        }
+
+        // 4. Hover / Rotor / VTOL Assault branch (Airship / Orc Chopper -> Attack Helicopter -> Orbital Gunship)
+        if (state.epochIndex >= 2 && cityMilitary.length < 4) {
+          const targetHoverType = getEvolvedMilitaryAirType('airship', state.epochIndex, sp);
+          if (
+            !hasType('airship') &&
+            !hasType('helicopter') &&
+            !hasType('orc_flyer') &&
+            !hasType('orbital_gunship')
+          ) {
+            trySpawnMilitary(targetHoverType, anchor.x - 1.5, anchor.z + 1.5);
+          }
         }
       }
     }
@@ -6483,6 +6515,7 @@ function stepVehicles(state: SimulationState, dt: number): void {
     for (const v of state.vehicles) {
       if (!v.isMilitary || (v.hp ?? 0) <= 0) continue;
       if ((v.attackCooldown ?? 0) > 0) v.attackCooldown = Math.max(0, (v.attackCooldown ?? 0) - dt);
+      if ((v.strafeExtendTimer ?? 0) > 0) v.strafeExtendTimer = Math.max(0, (v.strafeExtendTimer ?? 0) - dt);
       const myKid = v.kingdomId ?? getKingdomId(state, v.settlementId);
       const anchor = getSettlementAnchorForId(state, v.settlementId);
 
@@ -6552,6 +6585,7 @@ function stepVehicles(state: SimulationState, dt: number): void {
       const vStats = getMilitaryVehicleStats(v.type, state.epochIndex);
       const isNaval = v.type === 'warship';
       const isGround = v.type === 'tank';
+      const isFixedWing = v.type === 'glider' || v.type === 'bomber_plane';
       const isHoverTank = isGround && state.epochIndex >= 6;
       const cruiseY = vStats.cruiseY;
       v.y = cruiseY;
@@ -6559,12 +6593,18 @@ function stepVehicles(state: SimulationState, dt: number): void {
       let goalX: number;
       let goalZ: number;
       if (targetX !== null && targetZ !== null) {
-        goalX = targetX;
-        goalZ = targetZ;
+        if (isFixedWing && (v.strafeExtendTimer ?? 0) > 0) {
+          // Fixed-wing planes NEVER stop or hover over target: extend straight past after pass, then bank around
+          goalX = Math.max(3, Math.min(state.gridSize - 4, v.x + Math.sin(v.heading) * 14));
+          goalZ = Math.max(3, Math.min(state.gridSize - 4, v.z + Math.cos(v.heading) * 14));
+        } else {
+          goalX = targetX;
+          goalZ = targetZ;
+        }
       } else {
         // Patrol smoothly around home city (or coastal ring for warships)
-        const patrolOrbit = isNaval ? 10 + (v.variantSeed % 5) : 7 + (v.variantSeed % 7);
-        const patrolAngle = (state.year * (isGround ? 0.32 : 0.65) + v.variantSeed * 1.37) % (Math.PI * 2);
+        const patrolOrbit = isNaval ? 10 + (v.variantSeed % 5) : isFixedWing ? 11 + (v.variantSeed % 6) : 7 + (v.variantSeed % 7);
+        const patrolAngle = (state.year * (isGround ? 0.32 : isFixedWing ? 0.85 : 0.65) + v.variantSeed * 1.37) % (Math.PI * 2);
         goalX = Math.max(3, Math.min(state.gridSize - 4, anchor.x + Math.cos(patrolAngle) * patrolOrbit));
         goalZ = Math.max(3, Math.min(state.gridSize - 4, anchor.z + Math.sin(patrolAngle) * patrolOrbit));
       }
@@ -6572,14 +6612,24 @@ function stepVehicles(state: SimulationState, dt: number): void {
       const dx = goalX - v.x;
       const dz = goalZ - v.z;
       const dist = Math.hypot(dx, dz);
+      const targetDist = targetX !== null && targetZ !== null ? Math.hypot(targetX - v.x, targetZ - v.z) : dist;
       const fireRange = vStats.fireRange;
 
-      if (dist > 0.4) {
-        const desiredHeading = Math.atan2(dx, dz);
+      if (isFixedWing && targetX !== null && targetZ !== null && targetDist <= 2.6 && (v.strafeExtendTimer ?? 0) <= 0) {
+        v.strafeExtendTimer = 1.9;
+      }
+
+      const turnRate = isFixedWing ? 2.15 : v.type === 'helicopter' || v.type === 'orc_flyer' || v.type === 'orbital_gunship' ? 3.4 : 2.3;
+      let attackBearingDelta = 0;
+
+      if (dist > 0.15 || isFixedWing) {
+        const desiredHeading = dist > 0.15 ? Math.atan2(dx, dz) : v.heading;
         const turnDelta = wrapAngleRad(desiredHeading - v.heading);
-        v.heading = wrapAngleRad(v.heading + Math.max(-2.6 * dt, Math.min(2.6 * dt, turnDelta)));
-        v.bank = isNaval || isGround ? 0 : Math.max(-0.32, Math.min(0.32, turnDelta * 0.45));
-        const shouldCloseIn = targetX === null || dist > fireRange * 0.72;
+        v.heading = wrapAngleRad(v.heading + Math.max(-turnRate * dt, Math.min(turnRate * dt, turnDelta)));
+        v.bank = isNaval || isGround ? 0 : Math.max(-0.46, Math.min(0.46, turnDelta * (isFixedWing ? 0.62 : 0.4)));
+        v.pitch = isFixedWing ? -0.05 : v.type === 'helicopter' || v.type === 'orc_flyer' ? (dist > fireRange * 0.72 ? 0.12 : 0.02) : 0;
+
+        const shouldCloseIn = isFixedWing || targetX === null || targetDist > fireRange * 0.72;
         if (shouldCloseIn) {
           const step = v.speed * dt;
           const nx = Math.max(1, Math.min(state.gridSize - 2, v.x + Math.sin(v.heading) * step));
@@ -6603,15 +6653,26 @@ function stepVehicles(state: SimulationState, dt: number): void {
           } else {
             v.x = nx;
             v.z = nz;
+            // Fixed-wing turns gracefully around map edges if extending toward border
+            if (isFixedWing && (nx <= 2.5 || nx >= state.gridSize - 3.5 || nz <= 2.5 || nz >= state.gridSize - 3.5)) {
+              v.heading = wrapAngleRad(v.heading + 1.6 * dt);
+            }
           }
         }
       }
 
-      if (targetX !== null && targetZ !== null && dist <= fireRange && (v.attackCooldown ?? 0) <= 0) {
+      if (targetX !== null && targetZ !== null) {
+        attackBearingDelta = Math.abs(wrapAngleRad(Math.atan2(targetX - v.x, targetZ - v.z) - v.heading));
+      }
+
+      const canPlaneAttack =
+        !isFixedWing || attackBearingDelta <= 0.92 || (v.type === 'bomber_plane' && targetDist <= 5.5);
+
+      if (targetX !== null && targetZ !== null && targetDist <= fireRange && canPlaneAttack && (v.attackCooldown ?? 0) <= 0) {
         v.attackCooldown = vStats.fireCooldown;
         const dmg = vStats.dmg;
         const tracerColor =
-          v.type === 'orbital_gunship' || (state.epochIndex >= 6 && (v.type === 'tank' || v.type === 'warship'))
+          v.type === 'orbital_gunship' || (state.epochIndex >= 6 && (v.type === 'tank' || v.type === 'warship' || v.type === 'bomber_plane'))
             ? '#56cfe1'
             : v.species === 'elf'
               ? '#c084fc'
@@ -6621,14 +6682,48 @@ function stepVehicles(state: SimulationState, dt: number): void {
         const hitTile = getTile(state, targetX, targetZ);
         const hitY = (hitTile?.height ?? 2) * 0.45 + 0.35;
 
+        const vfxSubtype: VisualEffectEvent['vfxSubtype'] =
+          v.type === 'orbital_gunship' || (state.epochIndex >= 6 && (v.type === 'tank' || v.type === 'warship' || v.type === 'bomber_plane'))
+            ? 'plasma_beam'
+            : v.species === 'elf' && state.epochIndex >= 2 && v.type !== 'glider'
+              ? 'arcane_bolt'
+              : v.type === 'bomber_plane'
+                ? targetDist <= 6.2
+                  ? 'bomb'
+                  : 'bullet'
+                : v.type === 'glider'
+                  ? 'bullet'
+                  : v.type === 'helicopter' || v.type === 'orc_flyer'
+                    ? Math.floor(state.year * 10 + v.variantSeed) % 2 === 0
+                      ? 'missile'
+                      : 'bullet'
+                    : 'cannon_shell';
+
         // Evolved Atomic+ Bombers & Orbital Gunships deliver miniature tactical warhead / plasma strikes in combat
         const isStrategicPayload =
           (v.type === 'bomber_plane' || v.type === 'orbital_gunship') &&
           state.epochIndex >= 4 &&
-          (Math.floor(state.year * 10 + v.variantSeed) % 3 === 0);
+          Math.floor(state.year * 10 + v.variantSeed) % 3 === 0;
 
         if (isStrategicPayload) {
           const splashDmg = dmg * 1.9;
+          if (v.type === 'bomber_plane') {
+            // Also drop a visible falling bomb into target just before detonation
+            state.pendingVfx.push({
+              id: nextEntityId('vfx'),
+              type: 'projectile_tracer',
+              vfxSubtype: 'bomb',
+              originX: v.x,
+              originY: cruiseY + 0.1,
+              originZ: v.z,
+              x: targetX,
+              y: hitY,
+              z: targetZ,
+              radius: 2.1,
+              color: '#ff9e00',
+              createdAt: Date.now(),
+            });
+          }
           state.pendingVfx.push({
             id: nextEntityId('vfx'),
             type: v.species === 'elf' ? 'arcane_cataclysm' : 'nuke_blast',
@@ -6677,13 +6772,17 @@ function stepVehicles(state: SimulationState, dt: number): void {
           state.pendingVfx.push({
             id: nextEntityId('vfx'),
             type: 'projectile_tracer',
+            vfxSubtype,
             originX: v.x,
             originY: cruiseY + 0.25,
             originZ: v.z,
             x: targetX,
             y: hitY,
             z: targetZ,
-            radius: v.type === 'tank' || v.type === 'bomber_plane' || v.type === 'orbital_gunship' ? 1.55 : 1.05,
+            radius:
+              v.type === 'tank' || v.type === 'bomber_plane' || v.type === 'orbital_gunship' || v.type === 'warship'
+                ? 1.55
+                : 1.05,
             color: tracerColor,
             createdAt: Date.now(),
           });
@@ -8631,17 +8730,30 @@ function stepCivilianUnitAI(
             if (u.species === 'elf' && !u.statusEffects.shielded && hasElfArcaneTech && Math.random() < 0.28) {
               u.statusEffects.shielded = 4.0;
             }
+            const unitVfxSubtype: VisualEffectEvent['vfxSubtype'] =
+              state.epochIndex >= 6 && (hasHumanGuns || hasElfGuns)
+                ? 'plasma_beam'
+                : u.species === 'elf'
+                  ? 'arcane_bolt'
+                  : 'bullet';
             state.pendingVfx.push({
               id: nextEntityId('vfx'),
-              type: hasHumanGuns || hasElfGuns ? 'projectile_tracer' : 'hit_spark',
+              type: hasHumanGuns || hasElfGuns || (u.species === 'elf' && state.epochIndex >= 2) ? 'projectile_tracer' : 'hit_spark',
+              vfxSubtype: unitVfxSubtype,
               x: nearestEnemy.x,
               y: targetY,
               z: nearestEnemy.z,
               originX: u.x,
               originY,
               originZ: u.z,
-              radius: hasHumanGuns || hasElfGuns ? 0.95 : 0.75,
-              color: hasHumanGuns ? '#ffd166' : hasElfArcaneTech ? '#56cfe1' : '#c084fc',
+              radius: hasHumanGuns || hasElfGuns ? 0.95 : 0.82,
+              color: hasHumanGuns
+                ? state.epochIndex >= 6
+                  ? '#56cfe1'
+                  : '#ffd166'
+                : hasElfArcaneTech
+                  ? '#56cfe1'
+                  : '#c084fc',
               createdAt: Date.now(),
             });
           } else {

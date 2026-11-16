@@ -653,6 +653,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       type: VehicleType;
       species: string;
       spinProps: THREE.Object3D[];
+      spinRotors: THREE.Object3D[];
       thrusterPlumes: THREE.Object3D[];
       contactShadows: THREE.Object3D[];
       seenStamp: number;
@@ -1864,7 +1865,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       slashMeshes?: THREE.Mesh[];
       flameCoreCone?: THREE.Mesh;
       flameOuterCone?: THREE.Mesh;
-      tracerMesh?: THREE.Mesh;
+      tracerMesh?: THREE.Object3D;
+      vfxSubtype?: 'bullet' | 'cannon_shell' | 'bomb' | 'missile' | 'arcane_bolt' | 'plasma_beam';
       stemMesh?: THREE.Mesh;
       capMesh?: THREE.Mesh;
       faultSegments?: EarthquakeFaultSegment[];
@@ -3507,6 +3509,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     }
 
     const sharedTracerGeo = new THREE.BoxGeometry(0.11, 0.11, 0.72);
+    const sharedShellGeo = new THREE.SphereGeometry(0.15, 7, 6);
+    const sharedBombBodyGeo = new THREE.CylinderGeometry(0.1, 0.14, 0.42, 7);
+    sharedBombBodyGeo.rotateX(Math.PI / 2);
+    const sharedMissileGeo = new THREE.CylinderGeometry(0.055, 0.08, 0.56, 7);
+    sharedMissileGeo.rotateX(Math.PI / 2);
+    const sharedArcaneBoltGeo = new THREE.OctahedronGeometry(0.22, 0);
+    const sharedPlasmaBeamGeo = new THREE.CylinderGeometry(0.075, 0.075, 1.0, 6);
+    sharedPlasmaBeamGeo.rotateX(Math.PI / 2);
     const sharedNukeStemGeo = new THREE.CylinderGeometry(0.45, 0.78, 1.0, 12);
     sharedNukeStemGeo.translate(0, 0.5, 0);
     const sharedNukeCapGeo = new THREE.SphereGeometry(1.0, 16, 12);
@@ -3528,6 +3538,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       tz: number,
       radius: number,
       colorHex: string,
+      vfxSubtype?: 'bullet' | 'cannon_shell' | 'bomb' | 'missile' | 'arcane_bolt' | 'plasma_beam',
     ) {
       if (activeBurstFx.length >= MAX_BURST_FX) {
         const dropIdx = activeBurstFx.findIndex((f) => f.impactFired || !f.deferImpact);
@@ -3544,42 +3555,122 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       const materials: THREE.Material[] = [];
 
       if (kind === 'projectile_tracer') {
+        const subtype = vfxSubtype ?? 'bullet';
+        const boltColor = colorHex || '#fde047';
         const boltMat = new THREE.MeshBasicMaterial({
-          color: colorHex || '#fde047',
+          color: subtype === 'bomb' ? '#334155' : boltColor,
           transparent: true,
           opacity: 0.96,
         });
-        const ringMat = new THREE.MeshBasicMaterial({
-          color: colorHex || '#fde047',
+        const coreMat = new THREE.MeshBasicMaterial({
+          color: subtype === 'bomb' ? '#ff9e00' : subtype === 'plasma_beam' ? '#e0fbfc' : '#ffffff',
           transparent: true,
-          opacity: 0.85,
+          opacity: 0.92,
+        });
+        const ringMat = new THREE.MeshBasicMaterial({
+          color: subtype === 'bomb' ? '#ff6b35' : boltColor,
+          transparent: true,
+          opacity: 0.88,
           side: THREE.DoubleSide,
           depthWrite: false,
         });
-        materials.push(boltMat, ringMat);
+        materials.push(boltMat, coreMat, ringMat);
 
-        const tracerMesh = new THREE.Mesh(sharedTracerGeo, boltMat);
-        const startY = oy + 0.55;
-        const endY = ty + 0.45;
-        tracerMesh.position.set(ox, startY, oz);
-        tracerMesh.lookAt(tx, endY, tz);
-        group.add(tracerMesh);
+        const startY = subtype === 'bomb' ? oy : oy + 0.45;
+        const endY = ty + 0.35;
+        let tracerObj: THREE.Object3D;
+
+        if (subtype === 'bomb') {
+          const bombGrp = new THREE.Group();
+          const casing = new THREE.Mesh(sharedBombBodyGeo, boltMat);
+          const finRing = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.28, 0.1), coreMat);
+          finRing.position.z = -0.2;
+          bombGrp.add(casing, finRing);
+          bombGrp.position.set(ox, startY, oz);
+          bombGrp.lookAt(tx, endY, tz);
+          tracerObj = bombGrp;
+        } else if (subtype === 'cannon_shell') {
+          const shellGrp = new THREE.Group();
+          const shell = new THREE.Mesh(sharedShellGeo, boltMat);
+          const glowHalo = new THREE.Mesh(new THREE.SphereGeometry(0.24, 6, 5), coreMat);
+          shellGrp.add(shell, glowHalo);
+          shellGrp.position.set(ox, startY, oz);
+          tracerObj = shellGrp;
+          // Muzzle smoke puff at cannon origin
+          spawnParticleBurst(ox, startY, oz, 5, '#cbd5e1', 0.35, 2.2, 0.6);
+        } else if (subtype === 'missile') {
+          const misGrp = new THREE.Group();
+          const body = new THREE.Mesh(sharedMissileGeo, coreMat);
+          const warhead = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.18, 6), boltMat);
+          warhead.rotation.x = Math.PI / 2;
+          warhead.position.z = 0.32;
+          misGrp.add(body, warhead);
+          misGrp.position.set(ox, startY, oz);
+          misGrp.lookAt(tx, endY, tz);
+          tracerObj = misGrp;
+        } else if (subtype === 'arcane_bolt') {
+          const arcGrp = new THREE.Group();
+          const crystal = new THREE.Mesh(sharedArcaneBoltGeo, boltMat);
+          const aura = new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.035, 5, 10), coreMat);
+          arcGrp.add(crystal, aura);
+          arcGrp.position.set(ox, startY, oz);
+          arcGrp.lookAt(tx, endY, tz);
+          tracerObj = arcGrp;
+        } else if (subtype === 'plasma_beam') {
+          const beamDist = Math.max(0.5, Math.hypot(tx - ox, endY - startY, tz - oz));
+          const beamGrp = new THREE.Group();
+          const outerBeam = new THREE.Mesh(sharedPlasmaBeamGeo, boltMat);
+          outerBeam.scale.set(1.4, 1.4, beamDist);
+          const innerBeam = new THREE.Mesh(sharedPlasmaBeamGeo, coreMat);
+          innerBeam.scale.set(0.65, 0.65, beamDist);
+          beamGrp.add(outerBeam, innerBeam);
+          beamGrp.position.set((ox + tx) * 0.5, (startY + endY) * 0.5, (oz + tz) * 0.5);
+          beamGrp.lookAt(tx, endY, tz);
+          tracerObj = beamGrp;
+        } else {
+          const tracerMesh = new THREE.Mesh(sharedTracerGeo, boltMat);
+          tracerMesh.position.set(ox, startY, oz);
+          tracerMesh.lookAt(tx, endY, tz);
+          tracerObj = tracerMesh;
+          spawnParticleBurst(ox, startY, oz, 3, '#fde047', 0.2, 1.8, 0.45);
+        }
+
+        group.add(tracerObj);
 
         const ringMesh = new THREE.Mesh(sharedHazRingGeo, ringMat);
         ringMesh.position.set(tx, ty + 0.14, tz);
-        ringMesh.scale.setScalar(0.18);
+        ringMesh.scale.setScalar(subtype === 'bomb' ? 0.25 : 0.18);
         group.add(ringMesh);
 
-        spawnParticleBurst(tx, ty + 0.35, tz, 8, colorHex || '#fde047', 0.45, 3.2, 0.72);
+        if (subtype === 'plasma_beam') {
+          spawnParticleBurst(tx, ty + 0.35, tz, 14, '#56cfe1', 0.65, 4.4, 0.85);
+        } else if (subtype !== 'bomb' && subtype !== 'cannon_shell') {
+          spawnParticleBurst(tx, ty + 0.35, tz, 8, boltColor, 0.45, 3.2, 0.72);
+        }
+
+        const dur =
+          subtype === 'bomb'
+            ? 0.42
+            : subtype === 'cannon_shell'
+              ? 0.34
+              : subtype === 'missile'
+                ? 0.3
+                : subtype === 'arcane_bolt'
+                  ? 0.25
+                  : subtype === 'plasma_beam'
+                    ? 0.22
+                    : 0.18;
+
         burstFxGroup.add(group);
         activeBurstFx.push({
           kind: 'projectile_tracer',
+          vfxSubtype: subtype,
           powerType: kind,
           group,
           materials,
           age: 0,
-          duration: 0.22,
-          impactDelay: 0.12,
+          duration: dur,
+          impactDelay: dur * 0.62,
           deferImpact: false,
           tx,
           ty: endY,
@@ -3589,7 +3680,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           oz,
           radius: Math.max(0.5, radius),
           impactFired: false,
-          tracerMesh,
+          tracerMesh: tracerObj,
           ringMesh,
           colorHex,
         });
@@ -5604,11 +5695,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             const group = createVehicleGroup(v.type, v.epochLevel, v.species, seedHash);
             vehiclesGroup.add(group);
             const spinProps: THREE.Object3D[] = [];
+            const spinRotors: THREE.Object3D[] = [];
             const thrusterPlumes: THREE.Object3D[] = [];
             const contactShadows: THREE.Object3D[] = [];
             for (let ci = 0; ci < group.children.length; ci++) {
               const ch = group.children[ci];
               if (ch.name === 'spin_prop') spinProps.push(ch);
+              else if (ch.name === 'spin_rotor') spinRotors.push(ch);
               else if (ch.name === 'thruster_plume') thrusterPlumes.push(ch);
               else if (ch.name === 'contact_shadow') contactShadows.push(ch);
             }
@@ -5618,6 +5711,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
               type: v.type,
               species: v.species,
               spinProps,
+              spinRotors,
               thrusterPlumes,
               contactShadows,
               seenStamp: syncFrameStamp,
@@ -5657,8 +5751,18 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             const minAirFloor = v.flightPhase === 'cruise' || v.type === 'bomber_plane' ? 3.85 : groundY;
             const planeY = Math.max(groundY + v.y, minAirFloor + Math.max(0, v.y - 2.0));
             vGroup.position.set(v.x, planeY, v.z);
-            if (v.type === 'bomber_plane' && Math.random() < 0.35) {
-              spawnParticleBurst(v.x, planeY - 0.1, v.z, 1, '#94a3b8', 0.15, 0.5, 0.35);
+            if (v.type === 'bomber_plane' && Math.random() < 0.45) {
+              const exColor = v.epochLevel >= 6 ? '#56cfe1' : v.epochLevel >= 5 ? '#fb923c' : '#cbd5e1';
+              spawnParticleBurst(
+                v.x - Math.sin(v.heading) * 0.48,
+                planeY + 0.16,
+                v.z - Math.cos(v.heading) * 0.48,
+                1,
+                exColor,
+                0.18,
+                0.55,
+                0.35,
+              );
             }
           } else if (v.type === 'warship') {
             const isSea = vTile?.height === 0;
@@ -5666,9 +5770,36 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
               ? 0.26 + Math.sin(elapsed * 2.2 + v.x * 0.7) * 0.035
               : groundY + v.y + 0.02;
             vGroup.position.set(v.x, shipY, v.z);
+            if (isSea && Math.random() < 0.55) {
+              // Seafoam stern wake trailing behind sailing/cruising warships
+              spawnParticleBurst(
+                v.x - Math.sin(v.heading) * 0.66,
+                shipY + 0.05,
+                v.z - Math.cos(v.heading) * 0.66,
+                2,
+                v.epochLevel >= 6 ? '#56cfe1' : '#e0f2fe',
+                0.22,
+                0.45,
+                0.42,
+              );
+            }
+            if (v.epochLevel === 3 && Math.random() < 0.38) {
+              // Industrial ironclad smokestack plumes
+              spawnParticleBurst(v.x, shipY + 0.62, v.z, 1, '#475569', 0.18, 0.9, 0.55);
+            }
+          } else if (v.type === 'helicopter') {
+            const heliY = Math.max(
+              groundY + 1.35,
+              groundY + v.y * 0.52 + 1.25 + Math.sin(elapsed * 4.2 + v.x) * 0.06,
+            );
+            vGroup.position.set(v.x, heliY, v.z);
           } else if (v.type === 'glider' || v.type === 'airship' || v.type === 'orc_flyer') {
-            const airY = Math.max(groundY + 1.05, groundY + v.y * 0.45 + 1.15);
+            const bob = v.type === 'glider' ? 0 : Math.sin(elapsed * 3.6 + v.z) * 0.05;
+            const airY = Math.max(groundY + 1.05, groundY + v.y * 0.45 + 1.15 + bob);
             vGroup.position.set(v.x, airY, v.z);
+            if (v.type === 'orc_flyer' && v.epochLevel >= 3 && Math.random() < 0.3) {
+              spawnParticleBurst(v.x, airY + 0.25, v.z, 1, '#64748b', 0.16, 0.6, 0.35);
+            }
           } else if (v.type === 'orbital_gunship') {
             const orbY = Math.max(groundY + 2.3, groundY + v.y * 0.55 + 2.2);
             vGroup.position.set(v.x, orbY, v.z);
@@ -5687,6 +5818,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
           for (let spi = 0; spi < vEntry.spinProps.length; spi++) {
             vEntry.spinProps[spi].rotation.z += dt * 28;
+          }
+          for (let sri = 0; sri < vEntry.spinRotors.length; sri++) {
+            vEntry.spinRotors[sri].rotation.y += dt * (v.type === 'warship' ? 6.5 : 26);
           }
           const thrusterActive = Boolean(v.thrusterActive);
           for (let tpi = 0; tpi < vEntry.thrusterPlumes.length; tpi++) {
@@ -5772,6 +5906,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             vfx.z,
             vfx.radius,
             vfx.color,
+            vfx.vfxSubtype,
           );
         } else {
           spawnPowerVisualEffect(
@@ -7258,18 +7393,76 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           }
         } else if (fx.kind === 'projectile_tracer' && fx.tracerMesh && fx.ringMesh) {
           const prog = Math.min(1, fx.age / fx.duration);
-          const flightT = Math.min(1, prog / 0.6);
+          const flightEndFrac = fx.vfxSubtype === 'plasma_beam' ? 0.35 : 0.65;
+          const flightT = Math.min(1, prog / flightEndFrac);
           const ox = fx.ox ?? fx.tx;
           const oy = fx.oy ?? fx.ty;
           const oz = fx.oz ?? fx.tz;
-          fx.tracerMesh.position.set(
-            ox + (fx.tx - ox) * flightT,
-            oy + (fx.ty - oy) * flightT,
-            oz + (fx.tz - oz) * flightT,
-          );
-          (fx.materials[0] as THREE.MeshBasicMaterial).opacity = flightT < 1 ? 0.96 : Math.max(0, 1 - (prog - 0.6) / 0.4);
-          fx.ringMesh.scale.setScalar(0.18 + prog * fx.radius * 1.15);
-          (fx.materials[1] as THREE.MeshBasicMaterial).opacity = (1 - prog) * 0.85;
+
+          if (fx.vfxSubtype === 'bomb') {
+            // Parabolic gravity fall + pitch nose downward + blast shockwave at touchdown
+            const curX = ox + (fx.tx - ox) * flightT;
+            const curZ = oz + (fx.tz - oz) * flightT;
+            const curY = oy + (fx.ty - oy) * (flightT * flightT);
+            fx.tracerMesh.position.set(curX, curY, curZ);
+            fx.tracerMesh.rotation.x = 0.35 + flightT * 1.15;
+            if (flightT >= 1 && !fx.impactFired) {
+              fx.impactFired = true;
+              spawnParticleBurst(fx.tx, fx.ty + 0.25, fx.tz, 28, '#ff9e00', fx.radius * 0.9, 6.2, 1.15);
+              spawnParticleBurst(fx.tx, fx.ty + 0.3, fx.tz, 16, '#475569', fx.radius * 0.7, 3.6, 1.35);
+            }
+          } else if (fx.vfxSubtype === 'cannon_shell') {
+            const horizDist = Math.hypot(fx.tx - ox, fx.tz - oz);
+            const arcPeak = Math.min(2.9, Math.max(0.45, horizDist * 0.24));
+            const curX = ox + (fx.tx - ox) * flightT;
+            const curZ = oz + (fx.tz - oz) * flightT;
+            const curY = oy + (fx.ty - oy) * flightT + 4 * flightT * (1 - flightT) * arcPeak;
+            fx.tracerMesh.position.set(curX, curY, curZ);
+            if (flightT >= 1 && !fx.impactFired) {
+              fx.impactFired = true;
+              spawnParticleBurst(fx.tx, fx.ty + 0.25, fx.tz, 18, '#ff9e00', fx.radius * 0.75, 4.8, 0.95);
+            }
+          } else if (fx.vfxSubtype === 'missile') {
+            const curX = ox + (fx.tx - ox) * flightT;
+            const curY = oy + (fx.ty - oy) * flightT + Math.sin(flightT * Math.PI) * 0.45;
+            const curZ = oz + (fx.tz - oz) * flightT;
+            fx.tracerMesh.position.set(curX, curY, curZ);
+            if (flightT < 1 && Math.random() < 0.65) {
+              spawnParticleBurst(curX, curY, curZ, 1, '#e2e8f0', 0.14, 0.4, 0.3);
+            }
+            if (flightT >= 1 && !fx.impactFired) {
+              fx.impactFired = true;
+              spawnParticleBurst(fx.tx, fx.ty + 0.25, fx.tz, 18, '#ff6b35', fx.radius * 0.7, 4.6, 0.9);
+            }
+          } else if (fx.vfxSubtype === 'arcane_bolt') {
+            const curX = ox + (fx.tx - ox) * flightT;
+            const curY = oy + (fx.ty - oy) * flightT + Math.sin(flightT * Math.PI) * 0.3;
+            const curZ = oz + (fx.tz - oz) * flightT;
+            fx.tracerMesh.position.set(curX, curY, curZ);
+            fx.tracerMesh.rotation.z = prog * 14;
+            fx.tracerMesh.rotation.y += dt * 10;
+          } else if (fx.vfxSubtype === 'plasma_beam') {
+            const beamPulse = Math.max(0.25, 1.3 - prog * 1.1);
+            fx.tracerMesh.scale.set(beamPulse, beamPulse, 1);
+          } else {
+            fx.tracerMesh.position.set(
+              ox + (fx.tx - ox) * flightT,
+              oy + (fx.ty - oy) * flightT,
+              oz + (fx.tz - oz) * flightT,
+            );
+          }
+
+          const bodyOpacity =
+            fx.vfxSubtype === 'plasma_beam'
+              ? Math.max(0, 1 - prog)
+              : flightT < 1
+                ? 0.96
+                : Math.max(0, 1 - (prog - flightEndFrac) / Math.max(0.05, 1 - flightEndFrac));
+          if (fx.materials[0]) (fx.materials[0] as THREE.MeshBasicMaterial).opacity = bodyOpacity;
+          if (fx.materials[1]) (fx.materials[1] as THREE.MeshBasicMaterial).opacity = bodyOpacity * 0.9;
+          const ringMat = fx.materials[2] ?? fx.materials[1];
+          fx.ringMesh.scale.setScalar((fx.vfxSubtype === 'bomb' ? 0.32 : 0.18) + prog * fx.radius * (fx.vfxSubtype === 'bomb' ? 1.55 : 1.15));
+          if (ringMat) (ringMat as THREE.MeshBasicMaterial).opacity = Math.max(0, (1 - prog) * 0.85);
         } else if (fx.kind === 'nuke_blast' && fx.ringMesh) {
           const prog = Math.min(1, fx.age / fx.duration);
           const easeOut = 1 - Math.pow(1 - prog, 2.3);
