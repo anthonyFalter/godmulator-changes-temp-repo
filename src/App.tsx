@@ -131,7 +131,7 @@ const GOD_RULE_SWITCHES: ReadonlyArray<{
   {
     key: 'warsEnabled',
     label: 'Wars',
-    summary: 'Allows kingdoms to declare war, build battle vehicles, and engage in racial combat',
+    summary: 'Allows kingdoms to declare war, build battle vehicles, and engage in combat between intelligent creatures',
   },
   {
     key: 'allowRebellion',
@@ -224,7 +224,7 @@ const UPDATE_LOG_ENTRIES: UpdateLogEntry[] = [
   {
     version: 'v1.0.1 - War Vehicle Evolution & Timeline',
     items: [
-      'Restored unique 3D vehicle designs per race (Human steel tanks/warships, Elf arcane gliders/skyships, Orc scrap dreadnoughts)',
+      'Restored unique 3D vehicle designs per intelligent creature (Human steel tanks/warships, Elf arcane gliders/skyships, Orc scrap dreadnoughts)',
       'Historical timeline fixes: no airships in Medieval era, no helicopters or jets in Industrial Age',
       'Vehicles perish naturally when crew population or home kingdom falls',
     ],
@@ -236,8 +236,8 @@ const UPDATE_LOG_ENTRIES: UpdateLogEntry[] = [
       'Wars, peace treaties & Alliances map overlay (Blue Allies, Red Enemies)',
       'City rebellions are more common and can split off provinces (toggle in World Rules)',
       'Per-kingdom resource stockpiles shown in Inspect; towns gather before building',
-      'Separate vehicle models per race (gliders, warships, airships, tanks, bombers)',
-      'Cooldown on racial nukes/ultimates + Elf rune beam circles & Orc mountain-cleaving slashes',
+      'Separate vehicle models for each intelligent creature (gliders, warships, airships, tanks, bombers)',
+      'Cooldown on intelligent creature nukes/ultimates + Elf rune beam circles & Orc mountain-cleaving slashes',
     ],
   },
   {
