@@ -65,6 +65,7 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
   onFocusUnit,
 }) => {
   const [activeTab, setActiveTab] = useState<InspectorTab>('profile');
+  const [minimized, setMinimized] = useState<boolean>(false);
 
   const displayUnit = hoveredUnit ?? selectedUnit;
   const isSelectedDisplayed = Boolean(
@@ -75,11 +76,24 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
   );
   const profile = displayUnit ? getEntityInspectProfile(sim, displayUnit) : null;
 
+  if (minimized) {
+    return (
+      <button
+        type="button"
+        data-testid="entity-inspector-expand"
+        onClick={() => setMinimized(false)}
+        className="pointer-events-auto px-panel px-2.5 py-1.5 text-xs font-bold text-[#f5b742] cursor-pointer self-start shrink-0"
+      >
+        {profile ? `Inspect: ${profile.name}` : 'Inspect ▾'}
+      </button>
+    );
+  }
+
   return (
     <aside
       aria-label="Entity Information"
       data-testid="entity-inspector-panel"
-      className="pointer-events-auto fixed left-3 top-20 z-20 w-[316px] max-h-[calc(100vh-10rem)] px-panel p-4 flex flex-col gap-3.5 overflow-y-auto"
+      className="pointer-events-auto absolute left-0 top-0 z-10 w-[min(316px,100%)] max-h-full px-panel p-2.5 sm:p-4 flex flex-col gap-2.5 sm:gap-3.5 overflow-y-auto"
     >
       {profile && displayUnit ? (
         <>
@@ -439,8 +453,18 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
           )}
         </>
       ) : (
-        <div className="space-y-2.5 text-xs text-[#cfc6b8]" data-testid="zone-inspector-content">
-          <h2 className="font-bold text-[#f5b742] text-sm">Inspect Tool</h2>
+        <div className="space-y-2 text-xs text-[#cfc6b8]" data-testid="zone-inspector-content">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="font-bold text-[#f5b742] text-sm">Inspect Tool</h2>
+            <button
+              type="button"
+              onClick={() => setMinimized(true)}
+              className="md:hidden px-btn px-2 py-0.5 text-[11px] text-[#b8afa2] cursor-pointer"
+              aria-label="Minimize Inspector"
+            >
+              Hide
+            </button>
+          </div>
 
           {(() => {
             const otherZonesOnly =
@@ -460,7 +484,7 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
             if (!showAnyZone || !hoveredZoneInfo) {
               return (
                 <p className="text-xs text-[#a89f91]">
-                  Start hovering on something to see their stats!
+                  Hover or tap on a unit, city, or zone to see stats!
                 </p>
               );
             }

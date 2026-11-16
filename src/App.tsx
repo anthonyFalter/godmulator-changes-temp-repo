@@ -245,6 +245,7 @@ export default function App() {
   });
   const [brushRadius, setBrushRadius] = useState<number>(0);
   const [brushInputMode, setBrushInputMode] = useState<BrushInputMode>('hold');
+  const [mobilePanMode, setMobilePanMode] = useState<boolean>(false);
   const pixelScale = 3;
   const [graphicsSettings, setGraphicsSettings] = useState<GraphicsSettings>(() =>
     loadGraphicsSettings(),
@@ -267,7 +268,9 @@ export default function App() {
 
   // Start UI navigation & World Creation Wizard state
   const [titleMenuStep, setTitleMenuStep] = useState<TitleMenuStep>('main');
-  const [updateLogCollapsed, setUpdateLogCollapsed] = useState<boolean>(false);
+  const [updateLogCollapsed, setUpdateLogCollapsed] = useState<boolean>(() =>
+    typeof window !== 'undefined' ? window.innerWidth < 768 || window.innerHeight < 540 : false,
+  );
   const [showTemplatesDropdown, setShowTemplatesDropdown] = useState<boolean>(false);
   const [worldConfig, setWorldConfig] = useState<WorldGenConfig>(() =>
     createWorldConfigFromTemplate('fantastic', {
@@ -890,7 +893,7 @@ export default function App() {
   })();
 
   return (
-    <main className="relative w-screen h-screen overflow-hidden bg-[#141210] text-[#f2ece1]">
+    <main className="relative w-[100dvw] h-[100dvh] overflow-hidden bg-[#141210] text-[#f2ece1]">
       {/* 3D Pixelated Isometric World Canvas */}
       <IsometricWorldCanvas
         key={sim.gridSize}
@@ -900,6 +903,7 @@ export default function App() {
         activeTool={activeTool}
         brushRadius={brushRadius}
         brushInputMode={brushInputMode}
+        mobilePanMode={mobilePanMode}
         pixelScale={pixelScale}
         lightingPreset={lightingPreset}
         graphicsSettings={graphicsSettings}
@@ -918,12 +922,12 @@ export default function App() {
 
       {/* TITLE SCREEN OVERLAY */}
       {gameState === 'title' && (
-        <div className="fixed inset-0 z-30 pointer-events-none flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-30 pointer-events-none flex items-center justify-center p-2 sm:p-4">
           {/* LEFT COLLAPSIBLE UPDATE LOG */}
           <aside
             aria-label="Update Log"
             data-testid="start-update-log"
-            className="pointer-events-auto fixed left-4 top-4 z-30"
+            className="pointer-events-auto fixed left-2 top-2 sm:left-4 sm:top-4 z-40 max-w-[calc(100vw-16px)]"
           >
             {updateLogCollapsed ? (
               <button
@@ -933,14 +937,14 @@ export default function App() {
                   setUpdateLogCollapsed(false);
                   soundEngine.playClick();
                 }}
-                className="px-panel px-3 py-2 flex items-center gap-2 text-xs font-semibold text-[#e8e0d2] cursor-pointer hover:text-[#f5b742]"
+                className="px-panel px-2.5 sm:px-3 py-1.5 sm:py-2 flex items-center gap-2 text-xs font-semibold text-[#e8e0d2] cursor-pointer hover:text-[#f5b742]"
               >
                 <HudPixelIcon kind="log" className="w-4 h-4 text-[#f5b742]" />
                 <span>Updates</span>
               </button>
             ) : (
-              <div className="px-panel w-60 p-4">
-                <div className="flex items-center justify-between mb-3">
+              <div className="px-panel w-[min(17rem,calc(100vw-16px))] sm:w-60 p-3 sm:p-4 max-h-[calc(100dvh-24px)] flex flex-col">
+                <div className="flex items-center justify-between mb-2.5 sm:mb-3 shrink-0">
                   <span className="text-sm font-bold text-[#f5b742]">Updates</span>
                   <button
                     type="button"
@@ -955,7 +959,7 @@ export default function App() {
                   </button>
                 </div>
 
-                <div className="space-y-3.5 text-xs max-h-52 overflow-y-auto pr-1" data-testid="update-log-scroll">
+                <div className="space-y-3.5 text-xs max-h-[55dvh] sm:max-h-52 overflow-y-auto pr-1" data-testid="update-log-scroll">
                   {UPDATE_LOG_ENTRIES.slice(0, 3).map((entry) => (
                     <div key={entry.version}>
                       <div className="font-bold text-[#e8e0d2] tabular-nums mb-1">
@@ -976,7 +980,7 @@ export default function App() {
           {/* BOTTOM-LEFT VERSION */}
           <div
             data-testid="game-version-badge"
-            className="pointer-events-auto fixed left-4 bottom-4 z-30 text-xs text-[#cfc6b8] tabular-nums select-none drop-shadow-[0_2px_0_#0b0a09]"
+            className="pointer-events-auto fixed left-2.5 bottom-2 sm:left-4 sm:bottom-4 z-30 text-[11px] sm:text-xs text-[#cfc6b8] tabular-nums select-none drop-shadow-[0_2px_0_#0b0a09]"
           >
             Godmulator {GAME_VERSION}
           </div>
@@ -985,11 +989,11 @@ export default function App() {
           {titleMenuStep === 'main' && (
             <div
               data-testid="start-menu-main"
-              className="pointer-events-auto w-full max-w-[280px] px-panel p-6 -translate-y-3 flex flex-col items-center gap-6"
+              className="pointer-events-auto w-[min(280px,calc(100vw-16px))] max-h-[calc(100dvh-20px)] overflow-y-auto px-panel p-4 sm:p-6 [@media(max-height:460px)]:p-3.5 sm:-translate-y-3 flex flex-col items-center gap-4 sm:gap-6 [@media(max-height:460px)]:gap-2.5"
             >
               <TitleEmblemSvg centered />
 
-              <div className="w-full flex flex-col gap-2.5">
+              <div className="w-full flex flex-col gap-2 sm:gap-2.5">
                 <button
                   type="button"
                   data-start="true"
@@ -998,7 +1002,7 @@ export default function App() {
                     soundEngine.playClick();
                     setTitleMenuStep('create_world');
                   }}
-                  className="px-btn-primary w-full min-h-[44px] py-2.5 text-base font-bold cursor-pointer focus-visible:outline-2 focus-visible:outline-[#ffd166]"
+                  className="px-btn-primary w-full min-h-[42px] sm:min-h-[44px] py-2 sm:py-2.5 text-base font-bold cursor-pointer focus-visible:outline-2 focus-visible:outline-[#ffd166]"
                 >
                   Play
                 </button>
@@ -1010,7 +1014,7 @@ export default function App() {
                     soundEngine.playClick();
                     setTitleMenuStep('settings');
                   }}
-                  className="px-btn w-full min-h-[44px] py-2.5 text-sm font-semibold cursor-pointer focus-visible:outline-2 focus-visible:outline-[#ffd166]"
+                  className="px-btn w-full min-h-[42px] sm:min-h-[44px] py-2 sm:py-2.5 text-sm font-semibold cursor-pointer focus-visible:outline-2 focus-visible:outline-[#ffd166]"
                 >
                   Settings
                 </button>
@@ -1022,7 +1026,7 @@ export default function App() {
                     soundEngine.playClick();
                     setTitleMenuStep('credits');
                   }}
-                  className="px-btn w-full min-h-[44px] py-2.5 text-sm font-semibold cursor-pointer focus-visible:outline-2 focus-visible:outline-[#ffd166]"
+                  className="px-btn w-full min-h-[42px] sm:min-h-[44px] py-2 sm:py-2.5 text-sm font-semibold cursor-pointer focus-visible:outline-2 focus-visible:outline-[#ffd166]"
                 >
                   Credits
                 </button>
@@ -1034,7 +1038,7 @@ export default function App() {
           {titleMenuStep === 'create_world' && (
             <div
               data-testid="create-world-modal"
-              className="pointer-events-auto w-full max-w-md px-panel p-6 space-y-5"
+              className="pointer-events-auto w-[min(28rem,calc(100vw-16px))] max-h-[calc(100dvh-16px)] overflow-y-auto px-panel p-4 sm:p-6 space-y-3.5 sm:space-y-5"
             >
               <div className="flex items-center justify-between">
                 <h2 className="text-lg font-bold text-[#f5b742]">Create World</h2>
@@ -1044,14 +1048,14 @@ export default function App() {
                     soundEngine.playClick();
                     setTitleMenuStep('main');
                   }}
-                  className="text-xs text-[#b8afa2] hover:text-[#f2ece1] cursor-pointer"
+                  className="text-xs text-[#b8afa2] hover:text-[#f2ece1] cursor-pointer px-1 py-1"
                 >
                   Back
                 </button>
               </div>
 
               {/* Name & Seed */}
-              <div className="grid grid-cols-2 gap-3 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3 text-xs">
                 <div>
                   <label htmlFor="create-world-name" className="block text-[#b8afa2] mb-1">
                     Name
@@ -1226,7 +1230,7 @@ export default function App() {
 
               {/* Custom Geography (Progressive Disclosure when Custom is active) */}
               {worldConfig.template === 'custom' && (
-                <div className="grid grid-cols-3 gap-2.5 text-xs pt-1">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs pt-1">
                   <div>
                     <span className="block text-[#b8afa2] mb-1">Sea Level</span>
                     <div className="grid grid-cols-3 gap-1">
@@ -1324,7 +1328,7 @@ export default function App() {
           {titleMenuStep === 'world_rules' && (
             <div
               data-testid="world-rules-modal"
-              className="pointer-events-auto w-full max-w-md px-panel p-6 space-y-5"
+              className="pointer-events-auto w-[min(28rem,calc(100vw-16px))] max-h-[calc(100dvh-16px)] overflow-y-auto px-panel p-4 sm:p-6 space-y-3.5 sm:space-y-5"
             >
               <div className="flex items-center justify-between">
                 <h2 className="text-lg font-bold text-[#f5b742]">World Rules</h2>
@@ -1408,7 +1412,7 @@ export default function App() {
               {/* Concise Rule Switches */}
               <div>
                 <div className="text-xs text-[#b8afa2] mb-1.5">God Rules</div>
-                <div className="grid grid-cols-2 gap-1.5 max-h-[210px] overflow-y-auto pr-0.5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-[34dvh] sm:max-h-[210px] overflow-y-auto pr-0.5">
                   {GOD_RULE_SWITCHES.map((rule) => {
                     const isOn = worldConfig.rules[rule.key];
                     return (
@@ -1473,7 +1477,7 @@ export default function App() {
           {titleMenuStep === 'loading_world' && (
             <div
               data-testid="loading-world-modal"
-              className="pointer-events-auto w-full max-w-xs px-panel p-6 text-center space-y-3"
+              className="pointer-events-auto w-[min(20rem,calc(100vw-16px))] px-panel p-5 sm:p-6 text-center space-y-3"
             >
               <div className="text-base font-bold text-[#f5b742]">
                 {worldConfig.worldName}
@@ -1497,7 +1501,7 @@ export default function App() {
           {titleMenuStep === 'settings' && (
             <div
               data-testid="start-settings-modal"
-              className="pointer-events-auto w-full max-w-md px-panel p-6 space-y-5"
+              className="pointer-events-auto w-[min(28rem,calc(100vw-16px))] max-h-[calc(100dvh-16px)] overflow-y-auto px-panel p-4 sm:p-6 space-y-4 sm:space-y-5"
             >
               <div className="flex items-center justify-between">
                 <h2 className="text-lg font-bold text-[#f5b742]">Settings</h2>
@@ -1507,7 +1511,7 @@ export default function App() {
                     soundEngine.playClick();
                     setTitleMenuStep('main');
                   }}
-                  className="text-xs text-[#b8afa2] hover:text-[#f2ece1] cursor-pointer"
+                  className="text-xs text-[#b8afa2] hover:text-[#f2ece1] cursor-pointer px-1 py-1"
                 >
                   Back
                 </button>
@@ -1550,7 +1554,7 @@ export default function App() {
           {titleMenuStep === 'credits' && (
             <div
               data-testid="start-credits-modal"
-              className="pointer-events-auto w-full max-w-sm px-panel p-6 space-y-4"
+              className="pointer-events-auto w-[min(24rem,calc(100vw-16px))] max-h-[calc(100dvh-16px)] overflow-y-auto px-panel p-4 sm:p-6 space-y-4"
             >
               <div className="flex items-center justify-between">
                 <h2 className="text-lg font-bold text-[#f5b742]">Credits</h2>
@@ -1560,7 +1564,7 @@ export default function App() {
                     soundEngine.playClick();
                     setTitleMenuStep('main');
                   }}
-                  className="text-xs text-[#b8afa2] hover:text-[#f2ece1] cursor-pointer"
+                  className="text-xs text-[#b8afa2] hover:text-[#f2ece1] cursor-pointer px-1 py-1"
                 >
                   Back
                 </button>
@@ -1574,8 +1578,9 @@ export default function App() {
                   3D pixel god simulator with procedural continents, dynamic land &amp; sea zones, and multi-epoch civilizations.
                 </p>
                 <div className="pt-1 text-[#b8afa2] space-y-1">
-                  <div>WASD / Arrows / Right-Drag — Pan</div>
-                  <div>Scroll — Zoom</div>
+                  <div>Drag / WASD / Right-Drag — Pan</div>
+                  <div>Pinch / Scroll — Zoom</div>
+                  <div>Two-Finger Twist / Buttons — Rotate</div>
                   <div>H — Hide / Show Toolbar</div>
                 </div>
               </div>
@@ -1597,27 +1602,27 @@ export default function App() {
 
       {/* PLAYING HUD OVERLAY */}
       {gameState !== 'title' && (
-        <div className="fixed inset-0 z-20 pointer-events-none flex flex-col justify-between p-2.5 md:p-3">
-          {/* TOP BAR: Compact Age + Clean Resource Row + Speed & Controls */}
-          <div className="flex flex-wrap items-start justify-between gap-2">
-            {/* Top-Left: Age, Year, Pop */}
-            <div className="pointer-events-auto px-panel px-3 py-1.5 flex items-center gap-3">
-              <div>
-                <div className="flex items-baseline gap-2">
-                  <span className="font-bold text-sm text-[#f5b742] whitespace-nowrap">
+        <div className="fixed inset-0 z-20 pointer-events-none flex flex-col justify-between gap-1 sm:gap-1.5 pt-[max(0.375rem,env(safe-area-inset-top))] pb-[max(0.375rem,env(safe-area-inset-bottom))] pl-[max(0.375rem,env(safe-area-inset-left))] pr-[max(0.375rem,env(safe-area-inset-right))] sm:p-2.5 md:p-3">
+          {/* TOP BAR: Zero-overflow responsive HUD for Portrait, Landscape, and Desktop */}
+          <div className="flex flex-wrap items-start justify-between gap-1 sm:gap-1.5 lg:gap-2 w-full">
+            {/* Row 1 Left: Age, Year, Pop, Next Age */}
+            <div className="pointer-events-auto px-panel px-2 py-1 sm:px-3 sm:py-1.5 flex items-center gap-1.5 sm:gap-3 max-w-full min-w-0 order-1">
+              <div className="min-w-0">
+                <div className="flex items-baseline gap-1.5 sm:gap-2">
+                  <span className="font-bold text-xs sm:text-sm text-[#f5b742] whitespace-nowrap truncate">
                     {currentEpoch.name}
                   </span>
-                  <span className="font-pixel-num text-[11px] text-[#e8e0d2] whitespace-nowrap">
+                  <span className="font-pixel-num text-[10px] sm:text-[11px] text-[#e8e0d2] whitespace-nowrap">
                     {formatYearLabel(sim.year)}
                   </span>
                 </div>
-                <div className="flex items-center gap-2.5 text-xs text-[#b8afa2] tabular-nums mt-0.5">
-                  <span>
+                <div className="flex items-center gap-1.5 sm:gap-2.5 text-[11px] sm:text-xs text-[#b8afa2] tabular-nums mt-0.5">
+                  <span className="whitespace-nowrap">
                     Pop <span className="font-pixel-num text-[10px]">{sim.population}/{sim.populationCap}</span>
                   </span>
-                  <span className="font-pixel-num text-[10px]">{Math.round(sim.happiness)}%</span>
+                  <span className="font-pixel-num text-[10px] whitespace-nowrap">{Math.round(sim.happiness)}%</span>
                   {sim.goldenAgeTimer > 0 && (
-                    <span className="text-[#ffd166]">{Math.ceil(sim.goldenAgeTimer)}s</span>
+                    <span className="text-[#ffd166] whitespace-nowrap">{Math.ceil(sim.goldenAgeTimer)}s</span>
                   )}
                 </div>
               </div>
@@ -1626,7 +1631,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => handleAdvanceEpoch(true)}
-                  className="px-btn-primary px-2.5 py-1.5 text-xs font-bold cursor-pointer whitespace-nowrap shrink-0"
+                  className="px-btn-primary px-1.5 sm:px-2.5 py-1 sm:py-1.5 text-[10px] sm:text-xs font-bold cursor-pointer whitespace-nowrap shrink-0"
                   title={`Advance to ${nextEpoch.name}`}
                 >
                   Next Age
@@ -1634,104 +1639,24 @@ export default function App() {
               )}
             </div>
 
-            {/* Top-Center: Clean Pixel Icon + Count Resource Strip */}
-            <div className="pointer-events-auto px-panel px-2.5 py-1.5 flex items-center gap-2.5 md:gap-3.5">
-              {RESOURCE_KEYS.map(({ key, label }) => {
-                const amount = Math.floor(sim.resources[key]);
-                const rate = Math.round(sim.rates[key]);
-                const rateText = rate >= 0 ? `+${rate}/s` : `${rate}/s`;
-                return (
-                  <div
-                    key={key}
-                    data-testid={`resource-${key}`}
-                    title={`${label}: ${amount} (${rateText})`}
-                    className="flex flex-col items-center min-w-[34px]"
-                  >
-                    <ResourceIconSvg resource={key} className="w-4 h-4 pixelated-canvas" />
-                    <span className="font-pixel-num text-[10px] text-[#f2ece1] leading-tight mt-0.5">
-                      {amount}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Top-Right: Time Speed + Pixel Icon Utilities */}
-            <div className="pointer-events-auto px-panel px-2 py-1.5 flex items-center gap-1">
-              {[0, 0.5, 1, 2, 5, 10].map((scale) => (
-                <button
-                  key={scale}
-                  type="button"
-                  onClick={() => {
-                    setTimeScale(scale);
-                    soundEngine.playClick();
-                  }}
-                  title={
-                    scale === 0
-                      ? 'Pause time'
-                      : scale === 0.5
-                        ? '0.5x (1 year / 2s)'
-                        : `${scale}x (${scale} ${scale === 1 ? 'year' : 'years'} / sec)`
-                  }
-                  className={`px-2 py-1 font-pixel-num text-[11px] cursor-pointer whitespace-nowrap shrink-0 ${
-                    timeScale === scale ? 'px-btn-active font-bold' : 'px-btn'
-                  }`}
-                >
-                  {scale}x
-                </button>
-              ))}
-
-              <span className="w-1" aria-hidden="true" />
-
-              <button
-                type="button"
-                onClick={() => {
-                  cameraActionRef.current.rotateDelta -= Math.PI / 4;
-                  soundEngine.playClick();
-                }}
-                className="px-btn w-7 h-7 flex items-center justify-center cursor-pointer"
-                aria-label="Rotate Left"
-                title="Rotate Left"
-              >
-                <HudPixelIcon kind="rotateLeft" />
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  cameraActionRef.current.centerHome = true;
-                  soundEngine.playClick();
-                }}
-                className="px-btn w-7 h-7 flex items-center justify-center cursor-pointer"
-                aria-label="Center Camera"
-                title="Center on Town"
-              >
-                <HudPixelIcon kind="center" />
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  cameraActionRef.current.rotateDelta += Math.PI / 4;
-                  soundEngine.playClick();
-                }}
-                className="px-btn w-7 h-7 flex items-center justify-center cursor-pointer"
-                aria-label="Rotate Right"
-                title="Rotate Right"
-              >
-                <HudPixelIcon kind="rotateRight" />
-              </button>
+            {/* Row 1 Right (Mobile) / Merged Desktop Right: System Utilities (Log, Mute, Reset, Settings) */}
+            <div
+              data-testid="hud-system-bar"
+              className="pointer-events-auto px-panel px-1 sm:px-1.5 py-1 sm:py-1.5 flex items-center gap-1 shrink-0 order-2 lg:order-4"
+            >
               <button
                 type="button"
                 onClick={() => {
                   setChronicleOpen((prev) => !prev);
                   soundEngine.playClick();
                 }}
-                className={`w-7 h-7 flex items-center justify-center cursor-pointer ${
+                className={`w-6 h-6 sm:w-7 sm:h-7 flex items-center justify-center cursor-pointer shrink-0 ${
                   chronicleOpen ? 'px-btn-active' : 'px-btn'
                 }`}
                 aria-label="World Log"
                 title="World Log"
               >
-                <HudPixelIcon kind="log" />
+                <HudPixelIcon kind="log" className="w-3.5 h-3.5 sm:w-4 sm:h-4 pixelated-canvas" />
               </button>
               <button
                 type="button"
@@ -1740,11 +1665,11 @@ export default function App() {
                   e.currentTarget.blur();
                   handleToggleMute();
                 }}
-                className="px-btn w-7 h-7 flex items-center justify-center cursor-pointer"
+                className="px-btn w-6 h-6 sm:w-7 sm:h-7 flex items-center justify-center cursor-pointer shrink-0"
                 aria-label={muted ? 'Unmute' : 'Mute'}
                 title={muted ? 'Unmute' : 'Mute'}
               >
-                <HudPixelIcon kind={muted ? 'audioOff' : 'audioOn'} />
+                <HudPixelIcon kind={muted ? 'audioOff' : 'audioOn'} className="w-3.5 h-3.5 sm:w-4 sm:h-4 pixelated-canvas" />
               </button>
               <button
                 type="button"
@@ -1753,11 +1678,11 @@ export default function App() {
                   e.currentTarget.blur();
                   handleRestartGame();
                 }}
-                className="px-btn w-7 h-7 flex items-center justify-center cursor-pointer"
+                className="px-btn w-6 h-6 sm:w-7 sm:h-7 flex items-center justify-center cursor-pointer shrink-0"
                 aria-label="Reset World"
                 title="New World"
               >
-                <HudPixelIcon kind="reset" />
+                <HudPixelIcon kind="reset" className="w-3.5 h-3.5 sm:w-4 sm:h-4 pixelated-canvas" />
               </button>
               <button
                 type="button"
@@ -1768,74 +1693,196 @@ export default function App() {
                   soundEngine.playClick();
                   setGameState((prev) => (prev === 'paused' ? 'playing' : 'paused'));
                 }}
-                className={`w-7 h-7 flex items-center justify-center cursor-pointer ${
+                className={`w-6 h-6 sm:w-7 sm:h-7 flex items-center justify-center cursor-pointer shrink-0 ${
                   gameState === 'paused' ? 'px-btn-active' : 'px-btn'
                 }`}
                 aria-label="Settings"
                 title="Settings"
               >
-                <HudPixelIcon kind="settings" />
+                <HudPixelIcon kind="settings" className="w-3.5 h-3.5 sm:w-4 sm:h-4 pixelated-canvas" />
               </button>
+            </div>
+
+            {/* Resources Strip */}
+            <div
+              data-testid="hud-resources-bar"
+              className="pointer-events-auto px-panel px-2 py-1 sm:px-2.5 sm:py-1.5 flex items-center justify-between sm:justify-start gap-1.5 sm:gap-2.5 md:gap-3.5 w-full sm:w-auto max-w-full overflow-x-auto no-scrollbar order-4 lg:order-2 [@media(max-height:480px)]:w-auto"
+            >
+              {RESOURCE_KEYS.map(({ key, label }) => {
+                const amount = Math.floor(sim.resources[key]);
+                const rate = Math.round(sim.rates[key]);
+                const rateText = rate >= 0 ? `+${rate}/s` : `${rate}/s`;
+                return (
+                  <div
+                    key={key}
+                    data-testid={`resource-${key}`}
+                    title={`${label}: ${amount} (${rateText})`}
+                    className="flex flex-col items-center min-w-[26px] sm:min-w-[32px] shrink-0 [@media(max-height:480px)]:flex-row [@media(max-height:480px)]:gap-1 [@media(max-height:480px)]:min-w-0"
+                  >
+                    <ResourceIconSvg resource={key} className="w-3.5 h-3.5 sm:w-4 sm:h-4 pixelated-canvas" />
+                    <span className="font-pixel-num text-[9px] sm:text-[10px] text-[#f2ece1] leading-tight mt-0.5 [@media(max-height:480px)]:mt-0">
+                      {amount}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Speed & Camera Controls Strip (wraps cleanly inside viewport, never clips off-right) */}
+            <div
+              data-testid="hud-controls-bar"
+              className="pointer-events-auto px-panel px-1.5 sm:px-2 py-1 sm:py-1.5 flex flex-wrap items-center justify-between sm:justify-start gap-1 w-full sm:w-auto max-w-full order-3"
+            >
+              <div className="flex items-center gap-0.5 sm:gap-1">
+                {[0, 0.5, 1, 2, 5, 10].map((scale) => (
+                  <button
+                    key={scale}
+                    type="button"
+                    onClick={() => {
+                      setTimeScale(scale);
+                      soundEngine.playClick();
+                    }}
+                    title={
+                      scale === 0
+                        ? 'Pause time'
+                        : scale === 0.5
+                          ? '0.5x (1 year / 2s)'
+                          : `${scale}x (${scale} ${scale === 1 ? 'year' : 'years'} / sec)`
+                    }
+                    className={`px-1 sm:px-2 py-1 font-pixel-num text-[9px] sm:text-[11px] cursor-pointer whitespace-nowrap shrink-0 ${
+                      timeScale === scale ? 'px-btn-active font-bold' : 'px-btn'
+                    }`}
+                  >
+                    {scale}x
+                  </button>
+                ))}
+              </div>
+
+              <span className="hidden sm:inline-block w-0.5 shrink-0" aria-hidden="true" />
+
+              <div className="flex items-center gap-0.5 sm:gap-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    cameraActionRef.current.zoomDelta -= 14;
+                    soundEngine.playClick();
+                  }}
+                  className="px-btn w-6 h-6 sm:w-7 sm:h-7 flex items-center justify-center cursor-pointer shrink-0"
+                  aria-label="Zoom In"
+                  title="Zoom In"
+                >
+                  <HudPixelIcon kind="zoomIn" className="w-3.5 h-3.5 sm:w-4 sm:h-4 pixelated-canvas" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    cameraActionRef.current.zoomDelta += 14;
+                    soundEngine.playClick();
+                  }}
+                  className="px-btn w-6 h-6 sm:w-7 sm:h-7 flex items-center justify-center cursor-pointer shrink-0"
+                  aria-label="Zoom Out"
+                  title="Zoom Out"
+                >
+                  <HudPixelIcon kind="zoomOut" className="w-3.5 h-3.5 sm:w-4 sm:h-4 pixelated-canvas" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    cameraActionRef.current.rotateDelta -= Math.PI / 4;
+                    soundEngine.playClick();
+                  }}
+                  className="px-btn w-6 h-6 sm:w-7 sm:h-7 flex items-center justify-center cursor-pointer shrink-0"
+                  aria-label="Rotate Left"
+                  title="Rotate Left"
+                >
+                  <HudPixelIcon kind="rotateLeft" className="w-3.5 h-3.5 sm:w-4 sm:h-4 pixelated-canvas" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    cameraActionRef.current.centerHome = true;
+                    soundEngine.playClick();
+                  }}
+                  className="px-btn w-6 h-6 sm:w-7 sm:h-7 flex items-center justify-center cursor-pointer shrink-0"
+                  aria-label="Center Camera"
+                  title="Center on Town"
+                >
+                  <HudPixelIcon kind="center" className="w-3.5 h-3.5 sm:w-4 sm:h-4 pixelated-canvas" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    cameraActionRef.current.rotateDelta += Math.PI / 4;
+                    soundEngine.playClick();
+                  }}
+                  className="px-btn w-6 h-6 sm:w-7 sm:h-7 flex items-center justify-center cursor-pointer shrink-0"
+                  aria-label="Rotate Right"
+                  title="Rotate Right"
+                >
+                  <HudPixelIcon kind="rotateRight" className="w-3.5 h-3.5 sm:w-4 sm:h-4 pixelated-canvas" />
+                </button>
+              </div>
             </div>
           </div>
 
-          {/* WORLD LOG DRAWER */}
-          {chronicleOpen && (
-            <div className="pointer-events-auto self-end w-full max-w-sm px-panel p-3 max-h-56 overflow-y-auto">
-              <div className="flex items-center justify-between mb-2">
-                <h2 className="font-bold text-sm text-[#f5b742]">World Log</h2>
-                <button
-                  type="button"
-                  onClick={() => setChronicleOpen(false)}
-                  className="px-btn px-2 py-0.5 text-xs cursor-pointer"
-                >
-                  Close
-                </button>
-              </div>
-              <div className="space-y-1.5 text-xs">
-                {sim.chronicle.map((entry) => (
-                  <div key={entry.id} className="leading-snug flex gap-2">
-                    <span className="font-pixel-num text-[10px] text-[#9e9486] shrink-0 pt-0.5">
-                      {entry.yearLabel}
-                    </span>
-                    <span
-                      className={
-                        entry.tone === 'epoch'
-                          ? 'text-[#ffd166]'
-                          : entry.tone === 'warning'
-                            ? 'text-[#ff8f6b]'
-                            : 'text-[#e8e0d2]'
-                      }
-                    >
-                      {entry.text}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          {/* MIDDLE HUD LAYER: Entity/Zone Inspector & World Log (bounded cleanly between top bar & bottom dock) */}
+          <div className="relative flex-1 min-h-0 w-full pointer-events-none">
+            {gameState === 'playing' && isInspectTabActive && (
+              <EntityInspectorCard
+                sim={sim}
+                hoveredUnit={hoveredUnit}
+                selectedUnit={selectedUnit}
+                favoriteUnits={favoriteUnits}
+                followingEntityId={followingEntityId}
+                hoveredZoneInfo={hoveredZoneInfo}
+                activeZones={activeZones}
+                onToggleFavorite={handleToggleFavoriteEntity}
+                onSelectUnit={handleSelectEntity}
+                onFocusUnit={handleFocusEntity}
+              />
+            )}
 
-          {/* ENTITY & ZONE INSPECTOR PANEL (visible on Inspect tab during play) */}
-          {gameState === 'playing' && isInspectTabActive && (
-            <EntityInspectorCard
-              sim={sim}
-              hoveredUnit={hoveredUnit}
-              selectedUnit={selectedUnit}
-              favoriteUnits={favoriteUnits}
-              followingEntityId={followingEntityId}
-              hoveredZoneInfo={hoveredZoneInfo}
-              activeZones={activeZones}
-              onToggleFavorite={handleToggleFavoriteEntity}
-              onSelectUnit={handleSelectEntity}
-              onFocusUnit={handleFocusEntity}
-            />
-          )}
+            {chronicleOpen && (
+              <div className="pointer-events-auto absolute right-0 top-0 z-20 w-[min(24rem,100%)] max-h-full px-panel p-2.5 sm:p-3 overflow-y-auto">
+                <div className="flex items-center justify-between mb-2">
+                  <h2 className="font-bold text-sm text-[#f5b742]">World Log</h2>
+                  <button
+                    type="button"
+                    onClick={() => setChronicleOpen(false)}
+                    className="px-btn px-2 py-0.5 text-xs cursor-pointer"
+                  >
+                    Close
+                  </button>
+                </div>
+                <div className="space-y-1.5 text-xs">
+                  {sim.chronicle.map((entry) => (
+                    <div key={entry.id} className="leading-snug flex gap-2">
+                      <span className="font-pixel-num text-[10px] text-[#9e9486] shrink-0 pt-0.5">
+                        {entry.yearLabel}
+                      </span>
+                      <span
+                        className={
+                          entry.tone === 'epoch'
+                            ? 'text-[#ffd166]'
+                            : entry.tone === 'warning'
+                              ? 'text-[#ff8f6b]'
+                              : 'text-[#e8e0d2]'
+                        }
+                      >
+                        {entry.text}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
 
           {/* BOTTOM PIXEL TOOLBAR DOCK */}
-          <div className="pointer-events-auto self-center relative flex flex-col items-center max-w-full">
+          <div className="pointer-events-auto self-center relative flex flex-col items-center w-full max-w-[760px]">
             {/* Hover Tooltip */}
             {!dockCollapsed && hoveredHint && (
-              <div className="px-panel px-3 py-1.5 mb-2 flex items-center gap-3 text-xs whitespace-nowrap pointer-events-none">
+              <div className="px-panel px-2.5 py-1 sm:px-3 sm:py-1.5 mb-1.5 sm:mb-2 max-w-[calc(100vw-16px)] hidden md:flex items-center gap-3 text-xs flex-wrap justify-center pointer-events-none">
                 <span className="font-bold text-[#f5b742]">{hoveredHint.title}</span>
                 <span className="text-[#80ed99] font-semibold tabular-nums">{hoveredHint.cost}</span>
                 <span className="text-[#cfc6b8]">{hoveredHint.detail}</span>
@@ -1843,8 +1890,12 @@ export default function App() {
             )}
 
             {/* Folder Tabs Row */}
-            <div className="flex items-end justify-between w-full gap-2 px-1">
-              <div className="flex items-end gap-1" role="tablist" aria-label="Tools">
+            <div className="flex items-end justify-between w-full gap-1 sm:gap-2 px-0.5 sm:px-1 min-w-0">
+              <div
+                className="flex-1 min-w-0 flex items-end gap-0.5 sm:gap-1 overflow-x-auto no-scrollbar"
+                role="tablist"
+                aria-label="Tools"
+              >
                 {(
                   [
                     { id: 'powers', label: 'Powers' },
@@ -1876,6 +1927,7 @@ export default function App() {
                       aria-selected={isActive}
                       onClick={() => {
                         setDockCollapsed(false);
+                        setMobilePanMode(false);
                         setActiveCategory(tab.id);
                         if (tab.id === 'inspect') {
                           setActiveTool({ kind: 'inspect' });
@@ -1899,11 +1951,11 @@ export default function App() {
                         }
                         soundEngine.playClick();
                       }}
-                      className={`px-2.5 py-1.5 flex items-center gap-1.5 text-xs font-semibold cursor-pointer whitespace-nowrap shrink-0 ${
+                      className={`w-7 sm:w-auto sm:px-2.5 py-1.5 flex items-center justify-center gap-0.5 sm:gap-1.5 text-xs font-semibold cursor-pointer whitespace-nowrap shrink-0 ${
                         isActive ? 'px-tab-active' : 'px-tab'
                       }`}
                     >
-                      <TabPixelIcon category={tab.id} className="w-4 h-4" />
+                      <TabPixelIcon category={tab.id} className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                       <span className="hidden sm:inline">{tab.label}</span>
                       {activeZoneCount > 0 && (
                         <span className="font-pixel-num text-[9px] text-[#80ed99] tabular-nums">
@@ -1915,7 +1967,32 @@ export default function App() {
                 })}
               </div>
 
-              <div className="flex items-end gap-1.5 pb-1">
+              <div className="flex items-end gap-0.5 sm:gap-1 pb-1 shrink-0">
+                <button
+                  type="button"
+                  data-testid="toggle-mobile-pan"
+                  aria-pressed={mobilePanMode}
+                  onClick={() => {
+                    setMobilePanMode((prev) => {
+                      const next = !prev;
+                      setStatusFeedback(
+                        next
+                          ? 'Pan mode ON: 1-finger drag moves camera'
+                          : 'Pan mode OFF: 1-finger casts active tool',
+                      );
+                      return next;
+                    });
+                    soundEngine.playClick();
+                  }}
+                  className={`px-1 sm:px-2 py-1 flex items-center gap-1 text-[10px] sm:text-xs font-semibold cursor-pointer whitespace-nowrap shrink-0 ${
+                    mobilePanMode ? 'px-btn-active font-bold' : 'px-btn text-[#e8e0d2]'
+                  }`}
+                  title="Toggle 1-Finger Pan Camera Mode"
+                  aria-label="Pan Camera Mode"
+                >
+                  <HudPixelIcon kind="pan" className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Pan</span>
+                </button>
                 {(activeCategory === 'powers' ||
                   activeCategory === 'terrain' ||
                   activeCategory === 'build' ||
@@ -1935,7 +2012,7 @@ export default function App() {
                       });
                       soundEngine.playClick();
                     }}
-                    className={`px-2 py-1 text-xs font-semibold cursor-pointer whitespace-nowrap shrink-0 ${
+                    className={`px-1 sm:px-2 py-1 text-[10px] sm:text-xs font-semibold cursor-pointer whitespace-nowrap shrink-0 ${
                       brushInputMode === 'hold' ? 'px-btn-active text-[#80ed99]' : 'px-btn text-[#e8e0d2]'
                     }`}
                     title="Switch between Hold-to-Paint/Cast and Single Tap"
@@ -1946,10 +2023,11 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => setDockCollapsed((prev) => !prev)}
-                  className="px-btn px-2.5 py-1 text-xs font-semibold text-[#f5b742] cursor-pointer whitespace-nowrap shrink-0"
+                  className="px-btn px-1 sm:px-2.5 py-1 text-[10px] sm:text-xs font-semibold text-[#f5b742] cursor-pointer whitespace-nowrap shrink-0"
                   title="Toggle Dock (H)"
                 >
-                  {dockCollapsed ? 'Show [H]' : 'Hide [H]'}
+                  <span className="sm:hidden">{dockCollapsed ? 'Show' : 'Hide'}</span>
+                  <span className="hidden sm:inline">{dockCollapsed ? 'Show [H]' : 'Hide [H]'}</span>
                 </button>
               </div>
             </div>
@@ -1957,7 +2035,7 @@ export default function App() {
             {/* Active Pixel Dock Panel */}
             {!dockCollapsed && (
               <div
-                className="px-panel px-3 py-2.5 max-w-[740px] w-full max-h-[148px] min-h-[72px] overflow-y-auto overflow-x-hidden pr-1"
+                className="px-panel px-2 sm:px-3 py-2 sm:py-2.5 max-w-[760px] w-full max-h-[124px] sm:max-h-[148px] [@media(max-height:500px)]:max-h-[82px] min-h-[60px] sm:min-h-[72px] overflow-y-auto overflow-x-hidden pr-1"
                 onMouseLeave={() => setHoveredHint(null)}
               >
                 {/* TAB 1: POWERS (Icon Slots) */}
@@ -1973,6 +2051,7 @@ export default function App() {
                           key={power.type}
                           type="button"
                           onClick={() => {
+                            setMobilePanMode(false);
                             setActiveTool({ kind: 'power', power: power.type });
                             soundEngine.playClick();
                             setStatusFeedback(power.name);
@@ -2013,6 +2092,7 @@ export default function App() {
                             key={tool.type}
                             type="button"
                             onClick={() => {
+                              setMobilePanMode(false);
                               setActiveTool({ kind: 'terrain', tool: tool.type });
                               soundEngine.playClick();
                               setStatusFeedback(tool.name);
@@ -2079,6 +2159,7 @@ export default function App() {
                           key={bld.type}
                           type="button"
                           onClick={() => {
+                            setMobilePanMode(false);
                             setActiveTool({ kind: 'build', building: bld.type });
                             soundEngine.playClick();
                             setStatusFeedback(bld.name);
@@ -2126,6 +2207,7 @@ export default function App() {
                             key={u.role}
                             type="button"
                             onClick={() => {
+                              setMobilePanMode(false);
                               setActiveTool({ kind: 'spawn', unit: u.role });
                               soundEngine.playClick();
                               setStatusFeedback(u.name);
@@ -2174,6 +2256,7 @@ export default function App() {
                             key={u.role}
                             type="button"
                             onClick={() => {
+                              setMobilePanMode(false);
                               setActiveTool({ kind: 'spawn', unit: u.role });
                               soundEngine.playClick();
                               setStatusFeedback(u.name);
@@ -2512,9 +2595,9 @@ export default function App() {
           aria-modal="true"
           aria-label="Settings"
           data-testid="ingame-settings-modal"
-          className="fixed inset-0 z-40 flex items-center justify-center bg-[#0d0c0b]/75 p-4"
+          className="fixed inset-0 z-40 flex items-center justify-center bg-[#0d0c0b]/75 p-2 sm:p-4"
         >
-          <div className="w-full max-w-md px-panel p-6 space-y-5">
+          <div className="w-[min(28rem,calc(100vw-16px))] max-h-[calc(100dvh-16px)] overflow-y-auto px-panel p-4 sm:p-6 space-y-4 sm:space-y-5">
             <div className="flex items-baseline justify-between">
               <h2 className="text-lg font-bold text-[#f5b742]">Settings</h2>
               <span className="text-xs text-[#b8afa2] tabular-nums">
@@ -2586,9 +2669,9 @@ export default function App() {
           role="dialog"
           aria-modal="true"
           aria-label="Victory"
-          className="fixed inset-0 z-40 flex items-center justify-center bg-[#0d0c0b]/80 p-4"
+          className="fixed inset-0 z-40 flex items-center justify-center bg-[#0d0c0b]/80 p-2 sm:p-4"
         >
-          <div className="w-full max-w-sm px-panel p-6">
+          <div className="w-[min(24rem,calc(100vw-16px))] max-h-[calc(100dvh-16px)] overflow-y-auto px-panel p-4 sm:p-6">
             <h2 className="text-2xl font-bold text-[#ffd166] mb-1">Star Ascension</h2>
             <p className="text-xs text-[#cfc6b8] mb-5">
               Your world reached the stars.

@@ -22,6 +22,15 @@ import {
   resolveGraphicsProfile,
 } from '../game/graphics';
 import {
+  TouchPoint,
+  TwoFingerState,
+  computeTwoFingerCameraDelta,
+  computeTwoFingerState,
+  getResponsiveMaxZoomOut,
+  getResponsiveTitleFrustum,
+  getResponsiveWholeMapFrustum,
+} from '../game/cameraTouch';
+import {
   beginDragUnit,
   closestFaultDistanceSq,
   executeGodPowerImpact,
@@ -55,6 +64,7 @@ interface IsometricWorldCanvasProps {
   activeTool: ActiveTool;
   brushRadius: number;
   brushInputMode?: BrushInputMode;
+  mobilePanMode?: boolean;
   pixelScale: number;
   lightingPreset: LightingPreset;
   graphicsSettings?: GraphicsSettings;
@@ -111,6 +121,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
   activeTool,
   brushRadius,
   brushInputMode = 'hold',
+  mobilePanMode = false,
   pixelScale,
   lightingPreset,
   graphicsSettings = DEFAULT_GRAPHICS_SETTINGS,
@@ -137,6 +148,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     activeTool,
     brushRadius,
     brushInputMode,
+    mobilePanMode,
     pixelScale,
     lightingPreset,
     graphicsSettings,
@@ -159,6 +171,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       activeTool,
       brushRadius,
       brushInputMode,
+      mobilePanMode,
       pixelScale,
       lightingPreset,
       graphicsSettings,
@@ -179,6 +192,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     activeTool,
     brushRadius,
     brushInputMode,
+    mobilePanMode,
     pixelScale,
     lightingPreset,
     graphicsSettings,
@@ -220,7 +234,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     renderer.shadowMap.enabled = !isSoftwareGl;
     renderer.shadowMap.type = THREE.BasicShadowMap; // Crisp pixel-art shadow edges
 
-    renderer.domElement.className = 'w-full h-full block pixelated-canvas outline-none';
+    renderer.domElement.className = 'w-full h-full block pixelated-canvas outline-none touch-none';
+    renderer.domElement.style.touchAction = 'none';
     renderer.domElement.tabIndex = 0;
     container.innerHTML = '';
     container.appendChild(renderer.domElement);
@@ -233,12 +248,17 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     scene.environment = pmremGenerator.fromScene(new RoomEnvironment(), 0.04).texture;
     pmremGenerator.dispose();
 
-    // Orthographic camera for authentic isometric projection
+    // Orthographic camera for authentic isometric projection (responsive to portrait & landscape)
     const sim = simRef.current;
-    const getWholeMapFrustum = (gs: number) => Math.round(gs * (105 / 128));
-    const aspect = Math.max(1, container.clientWidth) / Math.max(1, container.clientHeight);
+    const getCurrentAspect = () =>
+      Math.max(1, container.clientWidth) / Math.max(1, container.clientHeight);
+    const getWholeMapFrustum = (gs: number) =>
+      getResponsiveWholeMapFrustum(gs, getCurrentAspect());
+    const aspect = getCurrentAspect();
     let frustumSize =
-      propsRef.current.gameState === 'title' ? 22 : getWholeMapFrustum(sim.gridSize);
+      propsRef.current.gameState === 'title'
+        ? getResponsiveTitleFrustum(aspect)
+        : getWholeMapFrustum(sim.gridSize);
     const camera = new THREE.OrthographicCamera(
       (-frustumSize * aspect) / 2,
       (frustumSize * aspect) / 2,
@@ -4192,7 +4212,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     let camYaw = Math.PI / 4; // 45 deg true isometric
     let camDesiredYaw = Math.PI / 4;
     let desiredFrustum =
-      propsRef.current.gameState === 'title' ? 22 : getWholeMapFrustum(sim.gridSize);
+      propsRef.current.gameState === 'title'
+        ? getResponsiveTitleFrustum(getCurrentAspect())
+        : getWholeMapFrustum(sim.gridSize);
     let prevGameState: GameLifecycleState = propsRef.current.gameState;
     let trauma = 0;
     let hitstopTimer = 0;
@@ -4309,6 +4331,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
       renderer.setSize(rw, rh, false);
       const newAspect = w / h;
+      const maxZoomOut = getResponsiveMaxZoomOut(simRef.current.gridSize, newAspect);
+      if (propsRef.current.gameState === 'title') {
+        desiredFrustum = getResponsiveTitleFrustum(newAspect);
+        frustumSize = desiredFrustum;
+      } else if (desiredFrustum > maxZoomOut) {
+        desiredFrustum = maxZoomOut;
+      }
       camera.left = (-frustumSize * newAspect) / 2;
       camera.right = (frustumSize * newAspect) / 2;
       camera.top = frustumSize / 2;
@@ -4319,6 +4348,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     updateSize();
     const resizeObserver = new ResizeObserver(() => updateSize());
     resizeObserver.observe(container);
+    const onOrientationOrViewportChange = () => {
+      window.setTimeout(updateSize, 60);
+    };
+    window.addEventListener('orientationchange', onOrientationOrViewportChange);
+    window.visualViewport?.addEventListener('resize', updateSize);
 
     const updateHoverTile = (clientX: number, clientY: number) => {
       const rect = renderer.domElement.getBoundingClientRect();
@@ -4405,7 +4439,163 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
     let hoverRaycastTimer = 0;
 
+    // Multi-touch gesture tracking (drag/pan, two-finger pinch zoom & twist rotate)
+    const activeTouches = new Map<number, TouchPoint>();
+    type TouchGestureMode =
+      | 'none'
+      | 'one_finger_pending'
+      | 'one_finger_pan'
+      | 'one_finger_paint'
+      | 'one_finger_drag_unit'
+      | 'two_finger_transform'
+      | 'wait_all_up';
+    let touchGestureMode: TouchGestureMode = 'none';
+    let oneFingerInfo: {
+      pointerId: number;
+      startX: number;
+      startY: number;
+      lastX: number;
+      lastY: number;
+    } | null = null;
+    let twoFingerLast: TwoFingerState | null = null;
+
+    const panCameraByScreenDelta = (dx: number, dy: number, customPanFactor?: number) => {
+      const rect = renderer.domElement.getBoundingClientRect();
+      const panFactor =
+        customPanFactor ??
+        Math.max(
+          frustumSize * 0.0022,
+          (frustumSize / Math.max(260, rect.height)) * 1.3,
+        );
+      const forwardX = Math.sin(camYaw);
+      const forwardZ = Math.cos(camYaw);
+      const rightX = Math.cos(camYaw);
+      const rightZ = -Math.sin(camYaw);
+
+      camDesiredTarget.x -= (dx * rightX + dy * forwardX) * panFactor;
+      camDesiredTarget.z -= (dx * rightZ + dy * forwardZ) * panFactor;
+      camDesiredTarget.x = THREE.MathUtils.clamp(
+        camDesiredTarget.x,
+        2,
+        simRef.current.gridSize - 3,
+      );
+      camDesiredTarget.z = THREE.MathUtils.clamp(
+        camDesiredTarget.z,
+        2,
+        simRef.current.gridSize - 3,
+      );
+      if (propsRef.current.followingEntityId) {
+        propsRef.current.onBreakFollow?.();
+      }
+    };
+
+    const getTwoTouchPair = (): [TouchPoint, TouchPoint] | null => {
+      if (activeTouches.size < 2) return null;
+      const iter = activeTouches.values();
+      const first = iter.next().value;
+      const second = iter.next().value;
+      if (!first || !second) return null;
+      return [first, second];
+    };
+
     const onPointerDown = (e: PointerEvent) => {
+      if (e.pointerType === 'touch') {
+        activeTouches.set(e.pointerId, { clientX: e.clientX, clientY: e.clientY });
+
+        // 2+ fingers: switch cleanly into simultaneous pinch zoom + twist rotate + centroid pan
+        if (activeTouches.size >= 2) {
+          isPointerDragging = false;
+          isHoldPainting = false;
+          paintedStrokeTiles.clear();
+          lastPaintTile = null;
+          lastHoldCastPos = null;
+          if (draggedUnitId) {
+            releaseDragUnit(simRef.current, draggedUnitId, 0, 0);
+            draggedUnitId = null;
+            dragVelocity = { x: 0, z: 0 };
+          }
+          oneFingerInfo = null;
+          touchGestureMode = 'two_finger_transform';
+          const pair = getTwoTouchPair();
+          if (pair) {
+            twoFingerLast = computeTwoFingerState(pair[0], pair[1]);
+          }
+          return;
+        }
+
+        // Single finger touch start
+        const nowMs = performance.now();
+        hoverRaycastTimer = nowMs;
+        updateHoverTile(e.clientX, e.clientY);
+
+        if (propsRef.current.gameState !== 'playing') {
+          touchGestureMode = 'one_finger_pending';
+          oneFingerInfo = {
+            pointerId: e.pointerId,
+            startX: e.clientX,
+            startY: e.clientY,
+            lastX: e.clientX,
+            lastY: e.clientY,
+          };
+          return;
+        }
+
+        const shouldOneFingerPan =
+          propsRef.current.mobilePanMode ||
+          propsRef.current.activeTool.kind === 'inspect' ||
+          propsRef.current.brushInputMode === 'tap';
+
+        if (!shouldOneFingerPan && isDragPowerActive()) {
+          const picked = hoveredEntityInternal ?? pickLivingUnitAtRay(raycaster.ray);
+          if (picked) {
+            const grabbed = beginDragUnit(simRef.current, picked);
+            if (grabbed) {
+              draggedUnitId = grabbed.id;
+              const ht = getTileFromArray(simRef.current, grabbed.x, grabbed.z);
+              const planeY = (ht ? Math.max(0.25, ht.height * HEIGHT_STEP + 0.25) : 0.6) + 1.55;
+              dragPlane.set(_dragPlaneNormal, -planeY);
+              lastDragWorld = { x: grabbed.x, z: grabbed.z, time: nowMs };
+              dragVelocity = { x: 0, z: 0 };
+              touchGestureMode = 'one_finger_drag_unit';
+              soundEngine.playGrab();
+              propsRef.current.onSyncHud();
+              return;
+            }
+          }
+        }
+
+        if (shouldOneFingerPan || isDragPowerActive()) {
+          touchGestureMode = 'one_finger_pending';
+          oneFingerInfo = {
+            pointerId: e.pointerId,
+            startX: e.clientX,
+            startY: e.clientY,
+            lastX: e.clientX,
+            lastY: e.clientY,
+          };
+          return;
+        }
+
+        // Hold paint/cast mode with Pan disabled -> paint immediately & smoothly
+        touchGestureMode = 'one_finger_paint';
+        isHoldPainting = true;
+        paintedStrokeTiles.clear();
+        lastPaintTile = null;
+        lastHoldCastPos = null;
+        lastHoldCastTime = 0;
+        oneFingerInfo = {
+          pointerId: e.pointerId,
+          startX: e.clientX,
+          startY: e.clientY,
+          lastX: e.clientX,
+          lastY: e.clientY,
+        };
+        if (hoveredTileCoords) {
+          applyHoldStrokeToTile(hoveredTileCoords.x, hoveredTileCoords.z, nowMs);
+        }
+        return;
+      }
+
       if (e.button === 2 || e.button === 1 || e.shiftKey) {
         isPointerDragging = true;
         dragStartClient = { x: e.clientX, y: e.clientY };
@@ -4453,6 +4643,107 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     };
 
     const onPointerMove = (e: PointerEvent) => {
+      if (e.pointerType === 'touch') {
+        if (activeTouches.has(e.pointerId)) {
+          activeTouches.set(e.pointerId, { clientX: e.clientX, clientY: e.clientY });
+        }
+
+        if (touchGestureMode === 'two_finger_transform') {
+          const pair = getTwoTouchPair();
+          if (pair && twoFingerLast) {
+            const nextState = computeTwoFingerState(pair[0], pair[1]);
+            const rect = renderer.domElement.getBoundingClientRect();
+            const maxZoomOut = getResponsiveMaxZoomOut(
+              simRef.current.gridSize,
+              getCurrentAspect(),
+            );
+            const delta = computeTwoFingerCameraDelta(
+              twoFingerLast,
+              nextState,
+              desiredFrustum,
+              maxZoomOut,
+              rect.height || window.innerHeight,
+            );
+            desiredFrustum = delta.nextFrustum;
+            camDesiredYaw += delta.yawDelta;
+            if (Math.abs(delta.panScreenDx) > 0.1 || Math.abs(delta.panScreenDy) > 0.1) {
+              panCameraByScreenDelta(delta.panScreenDx, delta.panScreenDy, delta.panFactor);
+            }
+            twoFingerLast = nextState;
+          }
+          return;
+        }
+
+        if (touchGestureMode === 'wait_all_up') {
+          return;
+        }
+
+        if (touchGestureMode === 'one_finger_drag_unit' && draggedUnitId) {
+          const rect = renderer.domElement.getBoundingClientRect();
+          if (rect.width > 0 && rect.height > 0) {
+            pointerNdc.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+            pointerNdc.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+            raycaster.setFromCamera(pointerNdc, camera);
+            if (raycaster.ray.intersectPlane(dragPlane, _dragIntersectPt)) {
+              const nowMs = performance.now();
+              const dtDrag = Math.max(0.008, (nowMs - lastDragWorld.time) / 1000);
+              const gMax = simRef.current.gridSize - 2;
+              const nx = THREE.MathUtils.clamp(_dragIntersectPt.x, 1, gMax);
+              const nz = THREE.MathUtils.clamp(_dragIntersectPt.z, 1, gMax);
+              const vxRaw = (nx - lastDragWorld.x) / dtDrag;
+              const vzRaw = (nz - lastDragWorld.z) / dtDrag;
+              dragVelocity.x = dragVelocity.x * 0.45 + vxRaw * 0.55;
+              dragVelocity.z = dragVelocity.z * 0.45 + vzRaw * 0.55;
+              lastDragWorld = { x: nx, z: nz, time: nowMs };
+              updateDragUnit(simRef.current, draggedUnitId, nx, nz, 2.8);
+            }
+          }
+          return;
+        }
+
+        if (
+          (touchGestureMode === 'one_finger_pending' || touchGestureMode === 'one_finger_pan') &&
+          oneFingerInfo &&
+          e.pointerId === oneFingerInfo.pointerId
+        ) {
+          const totalDist = Math.hypot(
+            e.clientX - oneFingerInfo.startX,
+            e.clientY - oneFingerInfo.startY,
+          );
+          if (touchGestureMode === 'one_finger_pending' && totalDist > 8) {
+            touchGestureMode = 'one_finger_pan';
+          }
+          if (touchGestureMode === 'one_finger_pan') {
+            const stepDx = e.clientX - oneFingerInfo.lastX;
+            const stepDy = e.clientY - oneFingerInfo.lastY;
+            panCameraByScreenDelta(stepDx, stepDy);
+          }
+          oneFingerInfo.lastX = e.clientX;
+          oneFingerInfo.lastY = e.clientY;
+          return;
+        }
+
+        if (
+          touchGestureMode === 'one_finger_paint' &&
+          oneFingerInfo &&
+          e.pointerId === oneFingerInfo.pointerId
+        ) {
+          const nowMs = performance.now();
+          if (nowMs - hoverRaycastTimer >= 16) {
+            hoverRaycastTimer = nowMs;
+            updateHoverTile(e.clientX, e.clientY);
+            if (
+              isHoldPainting &&
+              propsRef.current.gameState === 'playing' &&
+              hoveredTileCoords
+            ) {
+              applyHoldStrokeToTile(hoveredTileCoords.x, hoveredTileCoords.z, nowMs);
+            }
+          }
+        }
+        return;
+      }
+
       const dx = e.clientX - dragStartClient.x;
       const dy = e.clientY - dragStartClient.y;
       if (Math.abs(dx) + Math.abs(dy) > 6) {
@@ -4483,20 +4774,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       }
 
       if (isPointerDragging || (e.buttons === 1 && e.altKey)) {
-        const panFactor = frustumSize * 0.0022;
-        const forwardX = Math.sin(camYaw);
-        const forwardZ = Math.cos(camYaw);
-        const rightX = Math.cos(camYaw);
-        const rightZ = -Math.sin(camYaw);
-
-        camDesiredTarget.x -= (dx * rightX + dy * forwardX) * panFactor;
-        camDesiredTarget.z -= (dx * rightZ + dy * forwardZ) * panFactor;
-        camDesiredTarget.x = THREE.MathUtils.clamp(camDesiredTarget.x, 2, simRef.current.gridSize - 3);
-        camDesiredTarget.z = THREE.MathUtils.clamp(camDesiredTarget.z, 2, simRef.current.gridSize - 3);
+        panCameraByScreenDelta(dx, dy, frustumSize * 0.0022);
         dragStartClient = { x: e.clientX, y: e.clientY };
-        if (propsRef.current.followingEntityId) {
-          propsRef.current.onBreakFollow?.();
-        }
         return;
       }
 
@@ -4529,6 +4808,68 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     };
 
     const onPointerUp = (e: PointerEvent) => {
+      if (e.pointerType === 'touch') {
+        activeTouches.delete(e.pointerId);
+
+        if (touchGestureMode === 'two_finger_transform') {
+          twoFingerLast = null;
+          touchGestureMode = activeTouches.size > 0 ? 'wait_all_up' : 'none';
+          return;
+        }
+
+        if (touchGestureMode === 'wait_all_up') {
+          if (activeTouches.size === 0) {
+            touchGestureMode = 'none';
+            oneFingerInfo = null;
+          }
+          return;
+        }
+
+        if (draggedUnitId) {
+          releaseDragUnit(simRef.current, draggedUnitId, dragVelocity.x, dragVelocity.z);
+          draggedUnitId = null;
+          dragVelocity = { x: 0, z: 0 };
+          touchGestureMode = 'none';
+          oneFingerInfo = null;
+          soundEngine.playThrow();
+          propsRef.current.onSyncHud();
+          return;
+        }
+
+        if (isHoldPainting) {
+          isHoldPainting = false;
+          paintedStrokeTiles.clear();
+          lastPaintTile = null;
+          lastHoldCastPos = null;
+          touchGestureMode = 'none';
+          oneFingerInfo = null;
+          return;
+        }
+
+        const wasTap =
+          e.type === 'pointerup' &&
+          touchGestureMode === 'one_finger_pending' &&
+          oneFingerInfo &&
+          e.pointerId === oneFingerInfo.pointerId &&
+          propsRef.current.gameState === 'playing' &&
+          !propsRef.current.mobilePanMode;
+
+        touchGestureMode = 'none';
+        oneFingerInfo = null;
+
+        if (wasTap) {
+          hoverRaycastTimer = performance.now();
+          updateHoverTile(e.clientX, e.clientY);
+          if (propsRef.current.activeTool.kind === 'inspect') {
+            propsRef.current.onSelectEntity?.(hoveredEntityInternal);
+          }
+          if (hoveredTileCoords && !isDragPowerActive()) {
+            propsRef.current.onTileInteract(hoveredTileCoords.x, hoveredTileCoords.z);
+          }
+        }
+        return;
+      }
+
       if (draggedUnitId) {
         releaseDragUnit(simRef.current, draggedUnitId, dragVelocity.x, dragVelocity.z);
         draggedUnitId = null;
@@ -4562,7 +4903,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      const maxZoomOut = Math.max(105, getWholeMapFrustum(simRef.current.gridSize));
+      const maxZoomOut = getResponsiveMaxZoomOut(simRef.current.gridSize, getCurrentAspect());
       desiredFrustum = THREE.MathUtils.clamp(desiredFrustum + e.deltaY * 0.015, 7.5, maxZoomOut);
     };
 
@@ -4577,6 +4918,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
     const clearInputs = () => {
       keysPressed.clear();
+      activeTouches.clear();
+      touchGestureMode = 'none';
+      oneFingerInfo = null;
+      twoFingerLast = null;
       isPointerDragging = false;
       isHoldPainting = false;
       paintedStrokeTiles.clear();
@@ -4593,6 +4938,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     domElem.addEventListener('pointermove', onPointerMove);
     domElem.addEventListener('pointerleave', onPointerLeave);
     window.addEventListener('pointerup', onPointerUp);
+    window.addEventListener('pointercancel', onPointerUp);
     domElem.addEventListener('wheel', onWheel, { passive: false });
     domElem.addEventListener('contextmenu', (e) => e.preventDefault());
     window.addEventListener('keydown', onKeyDown);
@@ -4708,7 +5054,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         camDesiredTarget.set(newCenter, 1.2, newCenter);
         camTarget.set(newCenter, 1.2, newCenter);
         desiredFrustum =
-          propsRef.current.gameState === 'title' ? 22 : getWholeMapFrustum(simState.gridSize);
+          propsRef.current.gameState === 'title'
+            ? getResponsiveTitleFrustum(getCurrentAspect())
+            : getWholeMapFrustum(simState.gridSize);
       }
 
       // 1. Collect active terrain-deforming hazards without heap allocations
@@ -6704,13 +7052,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         }
       } else if (prevGameState !== 'title' && currentGameState === 'title') {
         // Return to title screen: overview zoom and center on island
-        desiredFrustum = 22;
+        desiredFrustum = getResponsiveTitleFrustum(getCurrentAspect());
         const center = (simRef.current.gridSize - 1) / 2;
         camDesiredTarget.set(center, 1.2, center);
       }
       prevGameState = currentGameState;
 
-      const maxZoomOut = Math.max(105, getWholeMapFrustum(simRef.current.gridSize));
+      const maxZoomOut = getResponsiveMaxZoomOut(simRef.current.gridSize, getCurrentAspect());
       if (camAct.rotateDelta !== 0) {
         camDesiredYaw += camAct.rotateDelta;
         camAct.rotateDelta = 0;
@@ -8503,10 +8851,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       cancelAnimationFrame(frameId);
       clearTimeout(frameId);
       resizeObserver.disconnect();
+      window.removeEventListener('orientationchange', onOrientationOrViewportChange);
+      window.visualViewport?.removeEventListener('resize', updateSize);
       domElem.removeEventListener('pointerdown', onPointerDown);
       domElem.removeEventListener('pointermove', onPointerMove);
       domElem.removeEventListener('pointerleave', onPointerLeave);
       window.removeEventListener('pointerup', onPointerUp);
+      window.removeEventListener('pointercancel', onPointerUp);
       domElem.removeEventListener('wheel', onWheel);
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
@@ -8623,7 +8974,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       <div
         ref={mountRef}
         data-testid="isometric-world-canvas"
-        className="fixed inset-0 w-full h-full bg-[#141210] overflow-hidden"
+        className="fixed inset-0 w-full h-full bg-[#141210] overflow-hidden touch-none select-none"
       />
       {gameState !== 'title' && activeKings.length > 0 && (
         <div

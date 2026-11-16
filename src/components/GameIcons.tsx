@@ -1016,6 +1016,9 @@ export const HudPixelIcon: React.FC<{
     | 'rotateLeft'
     | 'rotateRight'
     | 'center'
+    | 'zoomIn'
+    | 'zoomOut'
+    | 'pan'
     | 'log'
     | 'audioOn'
     | 'audioOff'
@@ -1046,6 +1049,31 @@ export const HudPixelIcon: React.FC<{
           <rect x="8" y="5" width="2" height="2" fill="currentColor" />
           <rect x="5" y="10" width="6" height="2" fill="currentColor" />
           <rect x="3" y="5" width="2" height="5" fill="currentColor" />
+        </svg>
+      );
+    case 'zoomIn':
+      return (
+        <svg viewBox="0 0 16 16" className={className} aria-hidden="true" shapeRendering="crispEdges">
+          <rect x="7" y="3" width="2" height="10" fill="currentColor" />
+          <rect x="3" y="7" width="10" height="2" fill="currentColor" />
+        </svg>
+      );
+    case 'zoomOut':
+      return (
+        <svg viewBox="0 0 16 16" className={className} aria-hidden="true" shapeRendering="crispEdges">
+          <rect x="3" y="7" width="10" height="2" fill="currentColor" />
+        </svg>
+      );
+    case 'pan':
+      return (
+        <svg viewBox="0 0 16 16" className={className} aria-hidden="true" shapeRendering="crispEdges">
+          <rect x="7" y="1" width="2" height="14" fill="currentColor" />
+          <rect x="1" y="7" width="14" height="2" fill="currentColor" />
+          <rect x="6" y="2" width="4" height="2" fill="currentColor" />
+          <rect x="6" y="12" width="4" height="2" fill="currentColor" />
+          <rect x="2" y="6" width="2" height="4" fill="currentColor" />
+          <rect x="12" y="6" width="2" height="4" fill="currentColor" />
+          <rect x="7" y="7" width="2" height="2" fill="#f5b742" />
         </svg>
       );
     case 'center':

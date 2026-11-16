@@ -78,9 +78,9 @@ export const GraphicsSettingsPanel: React.FC<GraphicsSettingsPanelProps> = ({
       </div>
 
       {/* Overall Preset */}
-      <div className="flex items-center justify-between gap-3">
-        <span className="text-[#e8e0d2]">Preset</span>
-        <div className="grid grid-cols-3 gap-1 w-48">
+      <div className="flex items-center justify-between gap-2 sm:gap-3">
+        <span className="text-[#e8e0d2] min-w-0 truncate">Preset</span>
+        <div className="grid grid-cols-3 gap-1 w-36 sm:w-48 shrink-0">
           {PRESET_OPTIONS.map((opt) => {
             const active = settings.preset === opt.id;
             return (
@@ -92,7 +92,7 @@ export const GraphicsSettingsPanel: React.FC<GraphicsSettingsPanelProps> = ({
                   soundEngine.playClick();
                   onChange(applyGraphicsPreset(opt.id, settings.autoOptimizeFps));
                 }}
-                className={`py-1 text-[11px] cursor-pointer ${
+                className={`py-1.5 sm:py-1 text-[11px] cursor-pointer ${
                   active ? 'px-btn-active font-bold' : 'px-btn'
                 }`}
               >
@@ -104,9 +104,9 @@ export const GraphicsSettingsPanel: React.FC<GraphicsSettingsPanelProps> = ({
       </div>
 
       {/* Shadows */}
-      <div className="flex items-center justify-between gap-3">
-        <span className="text-[#e8e0d2]">Shadows</span>
-        <div className="grid grid-cols-3 gap-1 w-48">
+      <div className="flex items-center justify-between gap-2 sm:gap-3">
+        <span className="text-[#e8e0d2] min-w-0 truncate">Shadows</span>
+        <div className="grid grid-cols-3 gap-1 w-36 sm:w-48 shrink-0">
           {SHADOW_OPTIONS.map((opt) => {
             const active = settings.shadows === opt.id;
             return (
@@ -115,7 +115,7 @@ export const GraphicsSettingsPanel: React.FC<GraphicsSettingsPanelProps> = ({
                 type="button"
                 data-testid={`gfx-shadows-${opt.id}`}
                 onClick={() => updateField('shadows', opt.id)}
-                className={`py-1 text-[11px] cursor-pointer ${
+                className={`py-1.5 sm:py-1 text-[11px] cursor-pointer ${
                   active ? 'px-btn-active font-bold' : 'px-btn'
                 }`}
               >
@@ -127,9 +127,9 @@ export const GraphicsSettingsPanel: React.FC<GraphicsSettingsPanelProps> = ({
       </div>
 
       {/* Sky & Clouds */}
-      <div className="flex items-center justify-between gap-3">
-        <span className="text-[#e8e0d2]">Sky &amp; Clouds</span>
-        <div className="grid grid-cols-3 gap-1 w-48">
+      <div className="flex items-center justify-between gap-2 sm:gap-3">
+        <span className="text-[#e8e0d2] min-w-0 truncate">Sky &amp; Clouds</span>
+        <div className="grid grid-cols-3 gap-1 w-36 sm:w-48 shrink-0">
           {SKY_OPTIONS.map((opt) => {
             const active = settings.cloudsAndSky === opt.id;
             return (
@@ -138,7 +138,7 @@ export const GraphicsSettingsPanel: React.FC<GraphicsSettingsPanelProps> = ({
                 type="button"
                 data-testid={`gfx-sky-${opt.id}`}
                 onClick={() => updateField('cloudsAndSky', opt.id)}
-                className={`py-1 text-[11px] cursor-pointer ${
+                className={`py-1.5 sm:py-1 text-[11px] cursor-pointer ${
                   active ? 'px-btn-active font-bold' : 'px-btn'
                 }`}
               >
@@ -150,9 +150,9 @@ export const GraphicsSettingsPanel: React.FC<GraphicsSettingsPanelProps> = ({
       </div>
 
       {/* Foliage Detail */}
-      <div className="flex items-center justify-between gap-3">
-        <span className="text-[#e8e0d2]">Foliage Detail</span>
-        <div className="grid grid-cols-3 gap-1 w-48">
+      <div className="flex items-center justify-between gap-2 sm:gap-3">
+        <span className="text-[#e8e0d2] min-w-0 truncate">Foliage Detail</span>
+        <div className="grid grid-cols-3 gap-1 w-36 sm:w-48 shrink-0">
           {FOLIAGE_OPTIONS.map((opt) => {
             const active = settings.foliageDensity === opt.id;
             return (
@@ -161,7 +161,7 @@ export const GraphicsSettingsPanel: React.FC<GraphicsSettingsPanelProps> = ({
                 type="button"
                 data-testid={`gfx-foliage-${opt.id}`}
                 onClick={() => updateField('foliageDensity', opt.id)}
-                className={`py-1 text-[11px] cursor-pointer ${
+                className={`py-1.5 sm:py-1 text-[11px] cursor-pointer ${
                   active ? 'px-btn-active font-bold' : 'px-btn'
                 }`}
               >
@@ -173,9 +173,9 @@ export const GraphicsSettingsPanel: React.FC<GraphicsSettingsPanelProps> = ({
       </div>
 
       {/* Particles */}
-      <div className="flex items-center justify-between gap-3">
-        <span className="text-[#e8e0d2]">Particles</span>
-        <div className="grid grid-cols-3 gap-1 w-48">
+      <div className="flex items-center justify-between gap-2 sm:gap-3">
+        <span className="text-[#e8e0d2] min-w-0 truncate">Particles</span>
+        <div className="grid grid-cols-3 gap-1 w-36 sm:w-48 shrink-0">
           {PARTICLE_OPTIONS.map((opt) => {
             const active = settings.particles === opt.id;
             return (
@@ -184,7 +184,7 @@ export const GraphicsSettingsPanel: React.FC<GraphicsSettingsPanelProps> = ({
                 type="button"
                 data-testid={`gfx-particles-${opt.id}`}
                 onClick={() => updateField('particles', opt.id)}
-                className={`py-1 text-[11px] cursor-pointer ${
+                className={`py-1.5 sm:py-1 text-[11px] cursor-pointer ${
                   active ? 'px-btn-active font-bold' : 'px-btn'
                 }`}
               >
