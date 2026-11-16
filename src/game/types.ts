@@ -555,6 +555,9 @@ export interface SimulationState {
   settlementNames?: Record<string, string>;
   settlementSpecies?: Record<string, SpeciesId>;
   settlementKingdoms?: Record<string, string>;
+  kingdomResources?: Record<string, Resources>;
+  unallocatedResources?: Resources;
+  kingdomUltimateCooldowns?: Record<string, number>;
   kingdomRelations?: Record<string, DiplomaticRelation>;
   kingdomPeacefulTraits?: Record<string, boolean>;
   diplomacyTimer?: number;

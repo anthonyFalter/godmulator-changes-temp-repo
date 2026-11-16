@@ -1826,6 +1826,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         | 'dragon_flame'
         | 'animal_strike'
         | 'ripple_ring'
+        | 'weapon_spark'
         | 'nuke_blast'
         | 'arcane_cataclysm'
         | 'battlewill_slash'
@@ -1863,6 +1864,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       spikes?: THREE.Mesh[];
       crackMeshes?: THREE.Mesh[];
       slashMeshes?: THREE.Mesh[];
+      sparkShards?: THREE.Mesh[];
+      runePillars?: THREE.Mesh[];
+      skyCircleMesh?: THREE.Mesh;
+      beamCoreMesh?: THREE.Mesh;
+      beamAuraMesh?: THREE.Mesh;
+      torusCapMesh?: THREE.Mesh;
+      muzzleRingMesh?: THREE.Mesh;
+      slashBaseYaw?: number;
       flameCoreCone?: THREE.Mesh;
       flameOuterCone?: THREE.Mesh;
       tracerMesh?: THREE.Object3D;
@@ -3508,25 +3517,126 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       });
     }
 
-    const sharedTracerGeo = new THREE.BoxGeometry(0.11, 0.11, 0.72);
-    const sharedShellGeo = new THREE.SphereGeometry(0.15, 7, 6);
-    const sharedBombBodyGeo = new THREE.CylinderGeometry(0.1, 0.14, 0.42, 7);
+    const sharedTracerGeo = new THREE.BoxGeometry(0.11, 0.11, 0.78);
+    const sharedBulletCoreGeo = new THREE.BoxGeometry(0.055, 0.055, 0.58);
+    const sharedShellGeo = new THREE.SphereGeometry(0.17, 8, 6);
+    const sharedShellHaloGeo = new THREE.SphereGeometry(0.29, 8, 6);
+    const sharedBombBodyGeo = new THREE.CylinderGeometry(0.11, 0.16, 0.48, 8);
     sharedBombBodyGeo.rotateX(Math.PI / 2);
-    const sharedMissileGeo = new THREE.CylinderGeometry(0.055, 0.08, 0.56, 7);
+    const sharedBombFinGeo = new THREE.BoxGeometry(0.32, 0.32, 0.11);
+    const sharedMissileGeo = new THREE.CylinderGeometry(0.06, 0.088, 0.62, 7);
     sharedMissileGeo.rotateX(Math.PI / 2);
-    const sharedArcaneBoltGeo = new THREE.OctahedronGeometry(0.22, 0);
-    const sharedPlasmaBeamGeo = new THREE.CylinderGeometry(0.075, 0.075, 1.0, 6);
+    const sharedMissileWarheadGeo = new THREE.ConeGeometry(0.095, 0.22, 7);
+    sharedMissileWarheadGeo.rotateX(Math.PI / 2);
+    const sharedMissilePlumeGeo = new THREE.ConeGeometry(0.1, 0.48, 6);
+    sharedMissilePlumeGeo.rotateX(-Math.PI / 2);
+    const sharedArcaneBoltGeo = new THREE.OctahedronGeometry(0.24, 0);
+    const sharedArcaneRingGeo = new THREE.TorusGeometry(0.32, 0.036, 6, 14);
+    const sharedPlasmaBeamGeo = new THREE.CylinderGeometry(0.08, 0.08, 1.0, 8);
     sharedPlasmaBeamGeo.rotateX(Math.PI / 2);
-    const sharedNukeStemGeo = new THREE.CylinderGeometry(0.45, 0.78, 1.0, 12);
+    const sharedPlasmaMuzzleGeo = new THREE.OctahedronGeometry(0.26, 1);
+    const sharedSparkShardGeo = new THREE.BoxGeometry(0.075, 0.46, 0.075);
+
+    const sharedNukeStemGeo = new THREE.CylinderGeometry(0.42, 0.88, 1.0, 14);
     sharedNukeStemGeo.translate(0, 0.5, 0);
-    const sharedNukeCapGeo = new THREE.SphereGeometry(1.0, 16, 12);
-    const sharedArcaneSpireGeo = new THREE.ConeGeometry(0.85, 1.0, 8, 1, true);
+    const sharedNukeCapGeo = new THREE.SphereGeometry(1.0, 18, 14);
+    const sharedNukeTorusGeo = new THREE.TorusGeometry(0.95, 0.34, 12, 24);
+    sharedNukeTorusGeo.rotateX(Math.PI / 2);
+
+    const sharedArcaneSpireGeo = new THREE.ConeGeometry(0.88, 1.0, 10, 1, true);
     sharedArcaneSpireGeo.translate(0, 0.5, 0);
+    const sharedArcaneHaloTorusGeo = new THREE.TorusGeometry(1.0, 0.048, 6, 28);
+    sharedArcaneHaloTorusGeo.rotateX(Math.PI / 2);
+    const sharedRunePillarGeo = (() => {
+      const g = new THREE.OctahedronGeometry(0.28, 0);
+      g.scale(0.85, 2.6, 0.85);
+      return g;
+    })();
+    const sharedBeamColGeo = new THREE.CylinderGeometry(1.0, 1.0, 1.0, 16, 1, true);
+    sharedBeamColGeo.translate(0, 0.5, 0);
+
     const sharedBattlewillCrescentGeo = (() => {
-      const g = new THREE.RingGeometry(0.62, 1.0, 22, 1, -Math.PI * 0.62, Math.PI * 1.24);
+      const g = new THREE.RingGeometry(0.46, 1.0, 28, 1, -Math.PI * 0.68, Math.PI * 1.36);
       g.rotateX(-Math.PI / 2);
       return g;
     })();
+    const sharedBattlewillEdgeGeo = (() => {
+      const g = new THREE.TorusGeometry(0.96, 0.085, 6, 28, Math.PI * 1.36);
+      g.rotateX(Math.PI / 2);
+      g.rotateY(-Math.PI * 0.68);
+      return g;
+    })();
+
+    function spawnWeaponSparkVisual(
+      tx: number,
+      ty: number,
+      tz: number,
+      radius: number,
+      colorHex: string,
+    ) {
+      if (activeBurstFx.length >= MAX_BURST_FX) {
+        const dropIdx = activeBurstFx.findIndex((f) => f.impactFired || !f.deferImpact);
+        const idx = dropIdx >= 0 ? dropIdx : 0;
+        const old = activeBurstFx[idx];
+        if (old) {
+          burstFxGroup.remove(old.group);
+          for (const m of old.materials) m.dispose();
+          activeBurstFx.splice(idx, 1);
+        }
+      }
+
+      const group = new THREE.Group();
+      const baseColor = colorHex || '#fbbf24';
+      const shardMat = new THREE.MeshBasicMaterial({
+        color: baseColor,
+        transparent: true,
+        opacity: 0.96,
+      });
+      const whiteMat = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0.94,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
+      const materials: THREE.Material[] = [shardMat, whiteMat];
+
+      const ringMesh = new THREE.Mesh(sharedHazRingGeo, whiteMat);
+      ringMesh.position.set(tx, ty + 0.14, tz);
+      ringMesh.scale.setScalar(0.22);
+      group.add(ringMesh);
+
+      const sparkShards: THREE.Mesh[] = [];
+      for (let s = 0; s < 5; s++) {
+        const angle = (s / 5) * Math.PI * 2 + Math.random() * 0.4;
+        const shard = new THREE.Mesh(sharedSparkShardGeo, s % 2 === 0 ? shardMat : whiteMat);
+        shard.position.set(tx, ty + 0.35, tz);
+        shard.rotation.set(0.45 + Math.random() * 0.5, angle, (Math.random() - 0.5) * 1.1);
+        group.add(shard);
+        sparkShards.push(shard);
+      }
+
+      spawnParticleBurst(tx, ty + 0.3, tz, 14, baseColor, Math.max(0.45, radius * 0.65), 4.4, 0.85);
+      burstFxGroup.add(group);
+      activeBurstFx.push({
+        kind: 'weapon_spark',
+        powerType: 'hit_spark',
+        group,
+        materials,
+        age: 0,
+        duration: 0.34,
+        impactDelay: 0,
+        deferImpact: false,
+        tx,
+        ty,
+        tz,
+        radius: Math.max(0.55, radius),
+        impactFired: true,
+        ringMesh,
+        sparkShards,
+        colorHex: baseColor,
+      });
+    }
 
     function spawnWarWeaponVisual(
       kind: 'projectile_tracer' | 'nuke_blast' | 'arcane_cataclysm' | 'battlewill_slash',
@@ -3563,14 +3673,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           opacity: 0.96,
         });
         const coreMat = new THREE.MeshBasicMaterial({
-          color: subtype === 'bomb' ? '#ff9e00' : subtype === 'plasma_beam' ? '#e0fbfc' : '#ffffff',
+          color: subtype === 'bomb' ? '#ff9e00' : subtype === 'plasma_beam' ? '#ecfeff' : '#ffffff',
           transparent: true,
-          opacity: 0.92,
+          opacity: 0.94,
         });
         const ringMat = new THREE.MeshBasicMaterial({
           color: subtype === 'bomb' ? '#ff6b35' : boltColor,
           transparent: true,
-          opacity: 0.88,
+          opacity: 0.9,
           side: THREE.DoubleSide,
           depthWrite: false,
         });
@@ -3579,40 +3689,57 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         const startY = subtype === 'bomb' ? oy : oy + 0.45;
         const endY = ty + 0.35;
         let tracerObj: THREE.Object3D;
+        let muzzleRingMesh: THREE.Mesh | undefined;
 
         if (subtype === 'bomb') {
           const bombGrp = new THREE.Group();
           const casing = new THREE.Mesh(sharedBombBodyGeo, boltMat);
-          const finRing = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.28, 0.1), coreMat);
-          finRing.position.z = -0.2;
-          bombGrp.add(casing, finRing);
+          const finCross = new THREE.Mesh(sharedBombFinGeo, coreMat);
+          finCross.position.z = -0.22;
+          const tailGlow = new THREE.Mesh(sharedPlasmaMuzzleGeo, ringMat);
+          tailGlow.scale.setScalar(0.55);
+          tailGlow.position.z = -0.34;
+          bombGrp.add(casing, finCross, tailGlow);
           bombGrp.position.set(ox, startY, oz);
           bombGrp.lookAt(tx, endY, tz);
           tracerObj = bombGrp;
         } else if (subtype === 'cannon_shell') {
           const shellGrp = new THREE.Group();
           const shell = new THREE.Mesh(sharedShellGeo, boltMat);
-          const glowHalo = new THREE.Mesh(new THREE.SphereGeometry(0.24, 6, 5), coreMat);
-          shellGrp.add(shell, glowHalo);
+          const glowHalo = new THREE.Mesh(sharedShellHaloGeo, coreMat);
+          const wakeCone = new THREE.Mesh(sharedMissilePlumeGeo, ringMat);
+          wakeCone.position.z = -0.32;
+          shellGrp.add(shell, glowHalo, wakeCone);
           shellGrp.position.set(ox, startY, oz);
+          shellGrp.lookAt(tx, endY, tz);
           tracerObj = shellGrp;
-          // Muzzle smoke puff at cannon origin
-          spawnParticleBurst(ox, startY, oz, 5, '#cbd5e1', 0.35, 2.2, 0.6);
+          muzzleRingMesh = new THREE.Mesh(sharedHazRingGeo, ringMat);
+          muzzleRingMesh.position.set(ox, startY, oz);
+          muzzleRingMesh.scale.setScalar(0.24);
+          group.add(muzzleRingMesh);
+          spawnParticleBurst(ox, startY, oz, 7, '#e2e8f0', 0.42, 2.6, 0.7);
         } else if (subtype === 'missile') {
           const misGrp = new THREE.Group();
           const body = new THREE.Mesh(sharedMissileGeo, coreMat);
-          const warhead = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.18, 6), boltMat);
-          warhead.rotation.x = Math.PI / 2;
-          warhead.position.z = 0.32;
-          misGrp.add(body, warhead);
+          const warhead = new THREE.Mesh(sharedMissileWarheadGeo, boltMat);
+          warhead.position.z = 0.34;
+          const fins = new THREE.Mesh(sharedBombFinGeo, boltMat);
+          fins.scale.setScalar(0.65);
+          fins.position.z = -0.24;
+          const exhaust = new THREE.Mesh(sharedMissilePlumeGeo, ringMat);
+          exhaust.position.z = -0.45;
+          misGrp.add(body, warhead, fins, exhaust);
           misGrp.position.set(ox, startY, oz);
           misGrp.lookAt(tx, endY, tz);
           tracerObj = misGrp;
+          spawnParticleBurst(ox, startY, oz, 5, '#fed7aa', 0.3, 2.0, 0.5);
         } else if (subtype === 'arcane_bolt') {
           const arcGrp = new THREE.Group();
           const crystal = new THREE.Mesh(sharedArcaneBoltGeo, boltMat);
-          const aura = new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.035, 5, 10), coreMat);
-          arcGrp.add(crystal, aura);
+          const auraA = new THREE.Mesh(sharedArcaneRingGeo, coreMat);
+          const auraB = new THREE.Mesh(sharedArcaneRingGeo, ringMat);
+          auraB.rotation.x = Math.PI / 2;
+          arcGrp.add(crystal, auraA, auraB);
           arcGrp.position.set(ox, startY, oz);
           arcGrp.lookAt(tx, endY, tz);
           tracerObj = arcGrp;
@@ -3620,46 +3747,59 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           const beamDist = Math.max(0.5, Math.hypot(tx - ox, endY - startY, tz - oz));
           const beamGrp = new THREE.Group();
           const outerBeam = new THREE.Mesh(sharedPlasmaBeamGeo, boltMat);
-          outerBeam.scale.set(1.4, 1.4, beamDist);
+          outerBeam.scale.set(1.65, 1.65, beamDist);
           const innerBeam = new THREE.Mesh(sharedPlasmaBeamGeo, coreMat);
-          innerBeam.scale.set(0.65, 0.65, beamDist);
-          beamGrp.add(outerBeam, innerBeam);
+          innerBeam.scale.set(0.75, 0.75, beamDist);
+          const muzzleStar = new THREE.Mesh(sharedPlasmaMuzzleGeo, coreMat);
+          muzzleStar.position.z = -beamDist * 0.48;
+          const tipStar = new THREE.Mesh(sharedPlasmaMuzzleGeo, ringMat);
+          tipStar.scale.setScalar(1.35);
+          tipStar.position.z = beamDist * 0.48;
+          beamGrp.add(outerBeam, innerBeam, muzzleStar, tipStar);
           beamGrp.position.set((ox + tx) * 0.5, (startY + endY) * 0.5, (oz + tz) * 0.5);
           beamGrp.lookAt(tx, endY, tz);
           tracerObj = beamGrp;
         } else {
-          const tracerMesh = new THREE.Mesh(sharedTracerGeo, boltMat);
-          tracerMesh.position.set(ox, startY, oz);
-          tracerMesh.lookAt(tx, endY, tz);
-          tracerObj = tracerMesh;
-          spawnParticleBurst(ox, startY, oz, 3, '#fde047', 0.2, 1.8, 0.45);
+          const bulletGrp = new THREE.Group();
+          const outerSlug = new THREE.Mesh(sharedTracerGeo, boltMat);
+          const innerCore = new THREE.Mesh(sharedBulletCoreGeo, coreMat);
+          bulletGrp.add(outerSlug, innerCore);
+          bulletGrp.position.set(ox, startY, oz);
+          bulletGrp.lookAt(tx, endY, tz);
+          tracerObj = bulletGrp;
+          muzzleRingMesh = new THREE.Mesh(sharedHazRingGeo, coreMat);
+          muzzleRingMesh.position.set(ox, startY, oz);
+          muzzleRingMesh.scale.setScalar(0.16);
+          group.add(muzzleRingMesh);
+          spawnParticleBurst(ox, startY, oz, 4, '#fef08a', 0.22, 2.2, 0.48);
         }
 
         group.add(tracerObj);
 
         const ringMesh = new THREE.Mesh(sharedHazRingGeo, ringMat);
         ringMesh.position.set(tx, ty + 0.14, tz);
-        ringMesh.scale.setScalar(subtype === 'bomb' ? 0.25 : 0.18);
+        ringMesh.scale.setScalar(subtype === 'bomb' ? 0.28 : 0.18);
         group.add(ringMesh);
 
         if (subtype === 'plasma_beam') {
-          spawnParticleBurst(tx, ty + 0.35, tz, 14, '#56cfe1', 0.65, 4.4, 0.85);
+          spawnParticleBurst(tx, ty + 0.35, tz, 18, '#56cfe1', 0.8, 5.0, 0.92);
+          spawnParticleBurst(tx, ty + 0.4, tz, 10, '#ffffff', 0.5, 5.8, 0.65);
         } else if (subtype !== 'bomb' && subtype !== 'cannon_shell') {
-          spawnParticleBurst(tx, ty + 0.35, tz, 8, boltColor, 0.45, 3.2, 0.72);
+          spawnParticleBurst(tx, ty + 0.35, tz, 10, boltColor, 0.5, 3.6, 0.78);
         }
 
         const dur =
           subtype === 'bomb'
-            ? 0.42
+            ? 0.44
             : subtype === 'cannon_shell'
-              ? 0.34
+              ? 0.36
               : subtype === 'missile'
-                ? 0.3
+                ? 0.32
                 : subtype === 'arcane_bolt'
-                  ? 0.25
+                  ? 0.27
                   : subtype === 'plasma_beam'
-                    ? 0.22
-                    : 0.18;
+                    ? 0.25
+                    : 0.2;
 
         burstFxGroup.add(group);
         activeBurstFx.push({
@@ -3678,10 +3818,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           ox,
           oy: startY,
           oz,
-          radius: Math.max(0.5, radius),
+          radius: Math.max(0.55, radius),
           impactFired: false,
           tracerMesh: tracerObj,
           ringMesh,
+          muzzleRingMesh,
           colorHex,
         });
         return;
@@ -3689,7 +3830,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
       if (kind === 'nuke_blast') {
         const flashMat = new THREE.MeshBasicMaterial({
-          color: 0xfff8dc,
+          color: 0xfffbeb,
           transparent: true,
           opacity: 0.98,
           side: THREE.DoubleSide,
@@ -3704,6 +3845,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         const capMat = new THREE.MeshBasicMaterial({
           color: 0xff5400,
           transparent: true,
+          opacity: 0.94,
+          depthWrite: false,
+        });
+        const torusMat = new THREE.MeshBasicMaterial({
+          color: 0xfde047,
+          transparent: true,
           opacity: 0.92,
           depthWrite: false,
         });
@@ -3717,11 +3864,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         const outerRingMat = new THREE.MeshBasicMaterial({
           color: 0xdc2626,
           transparent: true,
-          opacity: 0.85,
+          opacity: 0.88,
           side: THREE.DoubleSide,
           depthWrite: false,
         });
-        materials.push(flashMat, stemMat, capMat, ringMat, outerRingMat);
+        materials.push(flashMat, stemMat, capMat, torusMat, ringMat, outerRingMat);
 
         const innerDomeMesh = new THREE.Mesh(sharedExplosionDomeGeo, flashMat);
         innerDomeMesh.position.set(tx, ty + 0.12, tz);
@@ -3729,13 +3876,18 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
         const stemMesh = new THREE.Mesh(sharedNukeStemGeo, stemMat);
         stemMesh.position.set(tx, ty + 0.1, tz);
-        stemMesh.scale.set(0.6, 0.2, 0.6);
+        stemMesh.scale.set(0.65, 0.25, 0.65);
         group.add(stemMesh);
 
         const capMesh = new THREE.Mesh(sharedNukeCapGeo, capMat);
-        capMesh.position.set(tx, ty + 0.6, tz);
-        capMesh.scale.set(0.9, 0.55, 0.9);
+        capMesh.position.set(tx, ty + 0.7, tz);
+        capMesh.scale.set(0.95, 0.55, 0.95);
         group.add(capMesh);
+
+        const torusCapMesh = new THREE.Mesh(sharedNukeTorusGeo, torusMat);
+        torusCapMesh.position.set(tx, ty + 0.7, tz);
+        torusCapMesh.scale.setScalar(0.9);
+        group.add(torusCapMesh);
 
         const ringMesh = new THREE.Mesh(sharedHazRingGeo, ringMat);
         ringMesh.position.set(tx, ty + 0.16, tz);
@@ -3745,11 +3897,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         outerRingMesh.position.set(tx, ty + 0.2, tz);
         group.add(outerRingMesh);
 
-        triggerLightFlash(tx, ty + 2.8, tz, '#ff922b', 44);
+        triggerLightFlash(tx, ty + 3.2, tz, '#ff922b', 46);
         soundEngine.playMegaExplosion();
-        trauma = Math.min(1.0, trauma + 0.56);
-        spawnParticleBurst(tx, ty + 0.6, tz, 78, '#ff6d00', radius * 1.15, 10.5, 1.65);
-        spawnParticleBurst(tx, ty + 0.8, tz, 46, '#fef08a', radius * 0.85, 12.2, 1.35);
+        trauma = Math.min(1.0, trauma + 0.58);
+        spawnParticleBurst(tx, ty + 0.6, tz, 82, '#ff6d00', radius * 1.2, 10.8, 1.7);
+        spawnParticleBurst(tx, ty + 0.8, tz, 50, '#fef08a', radius * 0.9, 12.6, 1.4);
 
         burstFxGroup.add(group);
         activeBurstFx.push({
@@ -3758,17 +3910,18 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           group,
           materials,
           age: 0,
-          duration: 2.15,
+          duration: 2.25,
           impactDelay: 0,
           deferImpact: false,
           tx,
           ty,
           tz,
-          radius: Math.max(2.5, radius),
+          radius: Math.max(2.6, radius),
           impactFired: true,
           innerDomeMesh,
           stemMesh,
           capMesh,
+          torusCapMesh,
           ringMesh,
           outerRingMesh,
           colorHex,
@@ -3777,61 +3930,127 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       }
 
       if (kind === 'arcane_cataclysm') {
-        const spireMat = new THREE.MeshBasicMaterial({
-          color: 0xe0aaff,
+        // Phase 1: Counter-rotating ground & sky Magic Circles + 6 converging Rune Pillars
+        // Phase 2: Colossal sky-splitting Magic Beam + prism dome obliteration
+        const circleMat = new THREE.MeshBasicMaterial({
+          color: 0x5eead4,
+          transparent: true,
+          opacity: 0.96,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        const runeMat = new THREE.MeshBasicMaterial({
+          color: 0xc084fc,
+          transparent: true,
+          opacity: 0.94,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        const skyMat = new THREE.MeshBasicMaterial({
+          color: 0xa78bfa,
+          transparent: true,
+          opacity: 0.92,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        const pillarMat = new THREE.MeshBasicMaterial({
+          color: 0x38bdf8,
           transparent: true,
           opacity: 0.95,
+        });
+        const beamCoreMat = new THREE.MeshBasicMaterial({
+          color: 0xf0fdff,
+          transparent: true,
+          opacity: 0,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        const beamAuraMat = new THREE.MeshBasicMaterial({
+          color: 0xa855f7,
+          transparent: true,
+          opacity: 0,
           side: THREE.DoubleSide,
           depthWrite: false,
         });
         const domeMat = new THREE.MeshBasicMaterial({
           color: 0x38bdf8,
           transparent: true,
-          opacity: 0.72,
+          opacity: 0,
           side: THREE.DoubleSide,
           depthWrite: false,
         });
-        const innerRingMat = new THREE.MeshBasicMaterial({
-          color: 0x5eead4,
-          transparent: true,
-          opacity: 0.95,
-          side: THREE.DoubleSide,
-          depthWrite: false,
-        });
-        const outerRingMat = new THREE.MeshBasicMaterial({
-          color: 0xc084fc,
-          transparent: true,
-          opacity: 0.9,
-          side: THREE.DoubleSide,
-          depthWrite: false,
-        });
-        materials.push(spireMat, domeMat, innerRingMat, outerRingMat);
+        materials.push(
+          circleMat,
+          runeMat,
+          skyMat,
+          pillarMat,
+          beamCoreMat,
+          beamAuraMat,
+          domeMat,
+        );
 
-        const stemMesh = new THREE.Mesh(sharedArcaneSpireGeo, spireMat);
+        const effRadius = Math.max(2.8, radius);
+
+        // Ground primary magic circle & inscribed rune square
+        const ringMesh = new THREE.Mesh(sharedArcaneHaloTorusGeo, circleMat);
+        ringMesh.position.set(tx, ty + 0.18, tz);
+        ringMesh.scale.setScalar(0.4);
+        group.add(ringMesh);
+
+        const thirdRingMesh = new THREE.Mesh(sharedRuneSquareGeo, runeMat);
+        thirdRingMesh.position.set(tx, ty + 0.24, tz);
+        thirdRingMesh.scale.setScalar(0.35);
+        group.add(thirdRingMesh);
+
+        // Elevated Sky Magic Circle descending overhead before firing the beam
+        const skyCircleMesh = new THREE.Mesh(sharedArcaneHaloTorusGeo, skyMat);
+        skyCircleMesh.position.set(tx, ty + 6.8, tz);
+        skyCircleMesh.scale.setScalar(0.45);
+        group.add(skyCircleMesh);
+
+        const outerRingMesh = new THREE.Mesh(sharedHazRingGeo, runeMat);
+        outerRingMesh.position.set(tx, ty + 0.16, tz);
+        outerRingMesh.scale.setScalar(0.3);
+        group.add(outerRingMesh);
+
+        // 6 Orbiting glowing Rune Pillars around the perimeter
+        const runePillars: THREE.Mesh[] = [];
+        for (let rp = 0; rp < 6; rp++) {
+          const angle = (rp / 6) * Math.PI * 2;
+          const pillar = new THREE.Mesh(sharedRunePillarGeo, pillarMat);
+          pillar.position.set(
+            tx + Math.cos(angle) * effRadius * 0.9,
+            ty + 0.85,
+            tz + Math.sin(angle) * effRadius * 0.9,
+          );
+          group.add(pillar);
+          runePillars.push(pillar);
+        }
+
+        // Phase 2 Colossal Celestial Beam + Prism Dome + Spire
+        const beamCoreMesh = new THREE.Mesh(sharedBeamColGeo, beamCoreMat);
+        beamCoreMesh.position.set(tx, ty + 0.1, tz);
+        beamCoreMesh.scale.set(0.01, 0.01, 0.01);
+        group.add(beamCoreMesh);
+
+        const beamAuraMesh = new THREE.Mesh(sharedBeamColGeo, beamAuraMat);
+        beamAuraMesh.position.set(tx, ty + 0.1, tz);
+        beamAuraMesh.scale.set(0.01, 0.01, 0.01);
+        group.add(beamAuraMesh);
+
+        const stemMesh = new THREE.Mesh(sharedArcaneSpireGeo, beamAuraMat);
         stemMesh.position.set(tx, ty + 0.1, tz);
+        stemMesh.scale.set(0.01, 0.01, 0.01);
         group.add(stemMesh);
 
         const explosionDome = new THREE.Mesh(sharedExplosionDomeGeo, domeMat);
         explosionDome.position.set(tx, ty + 0.12, tz);
+        explosionDome.scale.setScalar(0.01);
         group.add(explosionDome);
 
-        const ringMesh = new THREE.Mesh(sharedRuneSquareGeo, innerRingMat);
-        ringMesh.position.set(tx, ty + 0.22, tz);
-        group.add(ringMesh);
-
-        const outerRingMesh = new THREE.Mesh(sharedHazRingGeo, outerRingMat);
-        outerRingMesh.position.set(tx, ty + 0.16, tz);
-        group.add(outerRingMesh);
-
-        const thirdRingMesh = new THREE.Mesh(sharedRuneSquareGeo, outerRingMat);
-        thirdRingMesh.position.set(tx, ty + 1.1, tz);
-        group.add(thirdRingMesh);
-
-        triggerLightFlash(tx, ty + 2.4, tz, '#c084fc', 40);
-        soundEngine.playHeavyImpact();
-        trauma = Math.min(1.0, trauma + 0.48);
-        spawnParticleBurst(tx, ty + 0.7, tz, 68, '#c084fc', radius * 1.12, 9.6, 1.45);
-        spawnParticleBurst(tx, ty + 0.9, tz, 48, '#5eead4', radius * 0.88, 11.0, 1.25);
+        triggerLightFlash(tx, ty + 2.4, tz, '#5eead4', 24);
+        soundEngine.playBlessing();
+        spawnRisingParticles(tx, ty + 0.2, tz, 28, '#c084fc', effRadius * 0.95, 4.5, 0.8, 1.0);
 
         burstFxGroup.add(group);
         activeBurstFx.push({
@@ -3840,73 +4059,105 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           group,
           materials,
           age: 0,
-          duration: 1.85,
-          impactDelay: 0,
+          duration: 2.35,
+          impactDelay: 2.35 * 0.42,
           deferImpact: false,
           tx,
           ty,
           tz,
-          radius: Math.max(2.5, radius),
-          impactFired: true,
-          stemMesh,
-          explosionDome,
+          radius: effRadius,
+          impactFired: false,
           ringMesh,
           outerRingMesh,
           thirdRingMesh,
+          skyCircleMesh,
+          runePillars,
+          beamCoreMesh,
+          beamAuraMesh,
+          stemMesh,
+          explosionDome,
           colorHex,
         });
         return;
       }
 
-      // battlewill_slash: sweeping crimson-gold giant melee arc from Orc caster across target
+      // battlewill_slash: titanic diagonal sword slash arc able to cleave mountains & shear forests
       const arcMat = new THREE.MeshBasicMaterial({
         color: 0xef4444,
-        transparent: true,
-        opacity: 0.94,
-        side: THREE.DoubleSide,
-        depthWrite: false,
-      });
-      const goldMat = new THREE.MeshBasicMaterial({
-        color: 0xfbbf24,
         transparent: true,
         opacity: 0.96,
         side: THREE.DoubleSide,
         depthWrite: false,
       });
-      const ringMat = new THREE.MeshBasicMaterial({
-        color: 0xff6b35,
+      const goldMat = new THREE.MeshBasicMaterial({
+        color: 0xfde047,
         transparent: true,
-        opacity: 0.86,
+        opacity: 0.98,
         side: THREE.DoubleSide,
         depthWrite: false,
       });
-      materials.push(arcMat, goldMat, ringMat);
+      const fissureMat = new THREE.MeshBasicMaterial({
+        color: 0xff6b35,
+        transparent: true,
+        opacity: 0.92,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
+      materials.push(arcMat, goldMat, fissureMat);
 
-      const yaw = Math.atan2(tx - ox, tz - oz);
+      const slashBaseYaw = Math.atan2(tx - ox, tz - oz);
+      const effSlashR = Math.max(3.6, radius * 1.15);
       const slashMeshes: THREE.Mesh[] = [];
+
+      // Huge molten blade edge + wide crimson crescent wake tilted into a colossal sword cleave plane
       const outerArc = new THREE.Mesh(sharedBattlewillCrescentGeo, arcMat);
-      outerArc.position.set(ox, oy + 1.05, oz);
-      outerArc.rotation.set(0.22, -yaw + Math.PI * 0.5, 0.14);
-      outerArc.scale.setScalar(Math.max(2.2, radius));
+      outerArc.position.set(ox, oy + 1.35, oz);
+      outerArc.rotation.set(0.32, slashBaseYaw - 0.9, -0.34);
+      outerArc.scale.setScalar(effSlashR);
       group.add(outerArc);
       slashMeshes.push(outerArc);
 
-      const innerArc = new THREE.Mesh(sharedBattlewillCrescentGeo, goldMat);
-      innerArc.position.set(ox, oy + 1.12, oz);
-      innerArc.rotation.set(0.22, -yaw + Math.PI * 0.5, -0.1);
-      innerArc.scale.setScalar(Math.max(1.85, radius * 0.82));
-      group.add(innerArc);
-      slashMeshes.push(innerArc);
+      const edgeArc = new THREE.Mesh(sharedBattlewillEdgeGeo, goldMat);
+      edgeArc.position.set(ox, oy + 1.4, oz);
+      edgeArc.rotation.set(0.32, slashBaseYaw - 0.9, -0.34);
+      edgeArc.scale.setScalar(effSlashR * 1.04);
+      group.add(edgeArc);
+      slashMeshes.push(edgeArc);
 
-      const ringMesh = new THREE.Mesh(sharedHazRingGeo, ringMat);
-      ringMesh.position.set(tx, ty + 0.16, tz);
+      const trailArc = new THREE.Mesh(sharedBattlewillCrescentGeo, goldMat);
+      trailArc.position.set(ox, oy + 1.25, oz);
+      trailArc.rotation.set(-0.22, slashBaseYaw - 1.15, 0.28);
+      trailArc.scale.setScalar(effSlashR * 0.82);
+      group.add(trailArc);
+      slashMeshes.push(trailArc);
+
+      // Ground cleave fissure scar blocks radiating out across target mountain/forest
+      const crackMeshes: THREE.Mesh[] = [];
+      const dirX = Math.sin(slashBaseYaw);
+      const dirZ = Math.cos(slashBaseYaw);
+      for (let ci = 0; ci < 5; ci++) {
+        const stepDist = 1.1 + ci * 1.35;
+        const crack = new THREE.Mesh(sharedFaultCrackGeo, ci % 2 === 0 ? goldMat : fissureMat);
+        crack.position.set(ox + dirX * stepDist, ty + 0.22, oz + dirZ * stepDist);
+        crack.rotation.y = slashBaseYaw + Math.PI * 0.5 + (ci - 2) * 0.14;
+        crack.scale.set(1.3, 1.4, 0.4 + ci * 0.28);
+        group.add(crack);
+        crackMeshes.push(crack);
+      }
+
+      const ringMesh = new THREE.Mesh(sharedHazRingGeo, fissureMat);
+      ringMesh.position.set(tx, ty + 0.18, tz);
       group.add(ringMesh);
 
-      triggerLightFlash(tx, ty + 1.8, tz, '#ef4444', 36);
+      const outerRingMesh = new THREE.Mesh(sharedHazRingGeo, goldMat);
+      outerRingMesh.position.set(tx, ty + 0.22, tz);
+      group.add(outerRingMesh);
+
+      triggerLightFlash(tx, ty + 2.1, tz, '#ef4444', 42);
       soundEngine.playHeavyImpact();
-      trauma = Math.min(1.0, trauma + 0.42);
-      spawnParticleBurst(tx, ty + 0.55, tz, 60, '#ef4444', radius * 1.0, 8.8, 1.45);
-      spawnParticleBurst(tx, ty + 0.65, tz, 36, '#fbbf24', radius * 0.78, 9.5, 1.2);
+      trauma = Math.min(1.0, trauma + 0.52);
+      spawnParticleBurst(tx, ty + 0.65, tz, 68, '#ef4444', effSlashR * 0.85, 10.2, 1.55);
+      spawnParticleBurst(tx, ty + 0.85, tz, 44, '#fde047', effSlashR * 0.65, 11.4, 1.3);
 
       burstFxGroup.add(group);
       activeBurstFx.push({
@@ -3915,7 +4166,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         group,
         materials,
         age: 0,
-        duration: 0.72,
+        duration: 0.92,
         impactDelay: 0,
         deferImpact: false,
         tx,
@@ -3924,10 +4175,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         ox,
         oy,
         oz,
-        radius: Math.max(2.2, radius),
+        slashBaseYaw,
+        radius: effSlashR,
         impactFired: true,
         slashMeshes,
+        crackMeshes,
         ringMesh,
+        outerRingMesh,
         colorHex,
       });
     }
@@ -5852,7 +6106,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         const vfx = simState.pendingVfx.shift()!;
         const vTile = getTileFromArray(simState, vfx.x, vfx.z);
         const surfY = vTile ? Math.max(0.22, vTile.height * HEIGHT_STEP + 0.25) : Math.max(0.45, vfx.y);
-        if (vfx.type === 'hit_spark' || vfx.type === 'build_complete') {
+        if (vfx.type === 'hit_spark') {
+          spawnWeaponSparkVisual(vfx.x, surfY + 0.28, vfx.z, vfx.radius, vfx.color);
+        } else if (vfx.type === 'build_complete') {
           spawnParticleBurst(vfx.x, surfY + 0.25, vfx.z, 22, vfx.color, vfx.radius * 0.55, 3.8, 0.95);
         } else if (vfx.type === 'dragon_fire_breath') {
           const ox = vfx.originX ?? vfx.x;
@@ -7391,16 +7647,32 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             fx.outerRingMesh.scale.setScalar(0.2 + wavePhase * fx.radius * 1.25);
             (fx.materials[1] as THREE.MeshBasicMaterial).opacity = (1 - wavePhase) * 0.75;
           }
+        } else if (fx.kind === 'weapon_spark' && fx.ringMesh) {
+          const prog = Math.min(1, fx.age / fx.duration);
+          const easeOut = 1 - Math.pow(1 - prog, 2.2);
+          fx.ringMesh.scale.setScalar(0.22 + easeOut * fx.radius * 1.35);
+          if (fx.materials[1]) {
+            (fx.materials[1] as THREE.MeshBasicMaterial).opacity = Math.max(0, (1 - prog) * 0.94);
+          }
+          if (fx.materials[0]) {
+            (fx.materials[0] as THREE.MeshBasicMaterial).opacity = Math.max(0, (1 - prog) * 0.96);
+          }
+          if (fx.sparkShards) {
+            for (let si = 0; si < fx.sparkShards.length; si++) {
+              const s = fx.sparkShards[si];
+              s.position.y = fx.ty + 0.35 + prog * (1.2 + si * 0.14);
+              s.scale.set(1 - prog * 0.65, Math.max(0.15, 1.3 - prog * 0.95), 1 - prog * 0.65);
+            }
+          }
         } else if (fx.kind === 'projectile_tracer' && fx.tracerMesh && fx.ringMesh) {
           const prog = Math.min(1, fx.age / fx.duration);
-          const flightEndFrac = fx.vfxSubtype === 'plasma_beam' ? 0.35 : 0.65;
+          const flightEndFrac = fx.vfxSubtype === 'plasma_beam' ? 0.38 : 0.65;
           const flightT = Math.min(1, prog / flightEndFrac);
           const ox = fx.ox ?? fx.tx;
           const oy = fx.oy ?? fx.ty;
           const oz = fx.oz ?? fx.tz;
 
           if (fx.vfxSubtype === 'bomb') {
-            // Parabolic gravity fall + pitch nose downward + blast shockwave at touchdown
             const curX = ox + (fx.tx - ox) * flightT;
             const curZ = oz + (fx.tz - oz) * flightT;
             const curY = oy + (fx.ty - oy) * (flightT * flightT);
@@ -7408,41 +7680,47 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             fx.tracerMesh.rotation.x = 0.35 + flightT * 1.15;
             if (flightT >= 1 && !fx.impactFired) {
               fx.impactFired = true;
-              spawnParticleBurst(fx.tx, fx.ty + 0.25, fx.tz, 28, '#ff9e00', fx.radius * 0.9, 6.2, 1.15);
-              spawnParticleBurst(fx.tx, fx.ty + 0.3, fx.tz, 16, '#475569', fx.radius * 0.7, 3.6, 1.35);
+              spawnParticleBurst(fx.tx, fx.ty + 0.25, fx.tz, 32, '#ff9e00', fx.radius * 0.95, 6.6, 1.2);
+              spawnParticleBurst(fx.tx, fx.ty + 0.35, fx.tz, 18, '#475569', fx.radius * 0.75, 4.0, 1.4);
             }
           } else if (fx.vfxSubtype === 'cannon_shell') {
             const horizDist = Math.hypot(fx.tx - ox, fx.tz - oz);
-            const arcPeak = Math.min(2.9, Math.max(0.45, horizDist * 0.24));
+            const arcPeak = Math.min(3.1, Math.max(0.55, horizDist * 0.25));
             const curX = ox + (fx.tx - ox) * flightT;
             const curZ = oz + (fx.tz - oz) * flightT;
             const curY = oy + (fx.ty - oy) * flightT + 4 * flightT * (1 - flightT) * arcPeak;
             fx.tracerMesh.position.set(curX, curY, curZ);
+            if (flightT < 1 && Math.random() < 0.4) {
+              spawnParticleBurst(curX, curY, curZ, 1, '#94a3b8', 0.14, 0.4, 0.32);
+            }
             if (flightT >= 1 && !fx.impactFired) {
               fx.impactFired = true;
-              spawnParticleBurst(fx.tx, fx.ty + 0.25, fx.tz, 18, '#ff9e00', fx.radius * 0.75, 4.8, 0.95);
+              spawnParticleBurst(fx.tx, fx.ty + 0.25, fx.tz, 24, '#ff9e00', fx.radius * 0.85, 5.4, 1.05);
             }
           } else if (fx.vfxSubtype === 'missile') {
             const curX = ox + (fx.tx - ox) * flightT;
-            const curY = oy + (fx.ty - oy) * flightT + Math.sin(flightT * Math.PI) * 0.45;
+            const curY = oy + (fx.ty - oy) * flightT + Math.sin(flightT * Math.PI) * 0.52;
             const curZ = oz + (fx.tz - oz) * flightT;
             fx.tracerMesh.position.set(curX, curY, curZ);
-            if (flightT < 1 && Math.random() < 0.65) {
-              spawnParticleBurst(curX, curY, curZ, 1, '#e2e8f0', 0.14, 0.4, 0.3);
+            if (flightT < 1 && Math.random() < 0.75) {
+              spawnParticleBurst(curX, curY, curZ, 1, '#e2e8f0', 0.16, 0.5, 0.34);
             }
             if (flightT >= 1 && !fx.impactFired) {
               fx.impactFired = true;
-              spawnParticleBurst(fx.tx, fx.ty + 0.25, fx.tz, 18, '#ff6b35', fx.radius * 0.7, 4.6, 0.9);
+              spawnParticleBurst(fx.tx, fx.ty + 0.25, fx.tz, 24, '#ff6b35', fx.radius * 0.8, 5.2, 0.98);
             }
           } else if (fx.vfxSubtype === 'arcane_bolt') {
             const curX = ox + (fx.tx - ox) * flightT;
-            const curY = oy + (fx.ty - oy) * flightT + Math.sin(flightT * Math.PI) * 0.3;
+            const curY = oy + (fx.ty - oy) * flightT + Math.sin(flightT * Math.PI) * 0.34;
             const curZ = oz + (fx.tz - oz) * flightT;
             fx.tracerMesh.position.set(curX, curY, curZ);
-            fx.tracerMesh.rotation.z = prog * 14;
-            fx.tracerMesh.rotation.y += dt * 10;
+            fx.tracerMesh.rotation.z = prog * 16;
+            fx.tracerMesh.rotation.y += dt * 12;
+            if (flightT < 1 && Math.random() < 0.55) {
+              spawnParticleBurst(curX, curY, curZ, 1, '#c084fc', 0.14, 0.5, 0.3);
+            }
           } else if (fx.vfxSubtype === 'plasma_beam') {
-            const beamPulse = Math.max(0.25, 1.3 - prog * 1.1);
+            const beamPulse = Math.max(0.28, 1.4 - prog * 1.15);
             fx.tracerMesh.scale.set(beamPulse, beamPulse, 1);
           } else {
             fx.tracerMesh.position.set(
@@ -7459,77 +7737,178 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
                 ? 0.96
                 : Math.max(0, 1 - (prog - flightEndFrac) / Math.max(0.05, 1 - flightEndFrac));
           if (fx.materials[0]) (fx.materials[0] as THREE.MeshBasicMaterial).opacity = bodyOpacity;
-          if (fx.materials[1]) (fx.materials[1] as THREE.MeshBasicMaterial).opacity = bodyOpacity * 0.9;
+          if (fx.materials[1]) (fx.materials[1] as THREE.MeshBasicMaterial).opacity = bodyOpacity * 0.92;
           const ringMat = fx.materials[2] ?? fx.materials[1];
-          fx.ringMesh.scale.setScalar((fx.vfxSubtype === 'bomb' ? 0.32 : 0.18) + prog * fx.radius * (fx.vfxSubtype === 'bomb' ? 1.55 : 1.15));
-          if (ringMat) (ringMat as THREE.MeshBasicMaterial).opacity = Math.max(0, (1 - prog) * 0.85);
+          fx.ringMesh.scale.setScalar(
+            (fx.vfxSubtype === 'bomb' ? 0.34 : 0.2) +
+              prog * fx.radius * (fx.vfxSubtype === 'bomb' ? 1.65 : 1.2),
+          );
+          if (ringMat) (ringMat as THREE.MeshBasicMaterial).opacity = Math.max(0, (1 - prog) * 0.88);
+          if (fx.muzzleRingMesh) {
+            fx.muzzleRingMesh.scale.setScalar(0.16 + Math.min(1, prog * 3.5) * 0.55);
+          }
         } else if (fx.kind === 'nuke_blast' && fx.ringMesh) {
           const prog = Math.min(1, fx.age / fx.duration);
           const easeOut = 1 - Math.pow(1 - prog, 2.3);
           const env = Math.max(0, 1 - prog);
+          const stemH = 0.45 + Math.min(1, prog * 1.75) * (2.9 + fx.radius * 0.58);
           if (fx.innerDomeMesh && fx.materials[0]) {
-            const flashP = Math.min(1, prog * 2.5);
-            fx.innerDomeMesh.scale.setScalar(0.5 + flashP * fx.radius * 0.95);
-            (fx.materials[0] as THREE.MeshBasicMaterial).opacity = Math.max(0, (1 - flashP) * 0.96);
+            const flashP = Math.min(1, prog * 2.6);
+            fx.innerDomeMesh.scale.setScalar(0.55 + flashP * fx.radius * 1.0);
+            (fx.materials[0] as THREE.MeshBasicMaterial).opacity = Math.max(0, (1 - flashP) * 0.98);
           }
           if (fx.stemMesh && fx.materials[1]) {
-            const stemH = 0.4 + Math.min(1, prog * 1.8) * (2.6 + fx.radius * 0.55);
-            fx.stemMesh.scale.set(0.65 + prog * 0.35, stemH, 0.65 + prog * 0.35);
-            (fx.materials[1] as THREE.MeshBasicMaterial).opacity = env * 0.88;
+            fx.stemMesh.scale.set(0.68 + prog * 0.32, stemH, 0.68 + prog * 0.32);
+            (fx.materials[1] as THREE.MeshBasicMaterial).opacity = env * 0.9;
           }
           if (fx.capMesh && fx.materials[2]) {
-            const stemTop = 0.5 + Math.min(1, prog * 1.8) * (2.6 + fx.radius * 0.55);
-            fx.capMesh.position.y = fx.ty + stemTop;
-            const capW = 0.9 + easeOut * fx.radius * 0.55;
-            fx.capMesh.scale.set(capW, capW * 0.52, capW);
-            (fx.materials[2] as THREE.MeshBasicMaterial).opacity = env * 0.92;
+            fx.capMesh.position.y = fx.ty + stemH + 0.1;
+            const capW = 0.95 + easeOut * fx.radius * 0.58;
+            fx.capMesh.scale.set(capW, capW * 0.54, capW);
+            (fx.materials[2] as THREE.MeshBasicMaterial).opacity = env * 0.94;
           }
-          fx.ringMesh.scale.setScalar(0.4 + easeOut * fx.radius * 1.65);
-          (fx.materials[3] as THREE.MeshBasicMaterial).opacity = env * 0.92;
-          if (fx.outerRingMesh && fx.materials[4]) {
-            fx.outerRingMesh.scale.setScalar(0.3 + prog * fx.radius * 2.05);
-            (fx.materials[4] as THREE.MeshBasicMaterial).opacity = env * 0.8;
+          if (fx.torusCapMesh && fx.materials[3]) {
+            fx.torusCapMesh.position.y = fx.ty + stemH * 0.88;
+            const tScale = 0.72 + easeOut * fx.radius * 0.52;
+            fx.torusCapMesh.scale.setScalar(tScale);
+            fx.torusCapMesh.rotation.z = prog * 2.2;
+            (fx.materials[3] as THREE.MeshBasicMaterial).opacity = env * 0.9;
+          }
+          fx.ringMesh.scale.setScalar(0.45 + easeOut * fx.radius * 1.72);
+          (fx.materials[4] as THREE.MeshBasicMaterial).opacity = env * 0.94;
+          if (fx.outerRingMesh && fx.materials[5]) {
+            fx.outerRingMesh.scale.setScalar(0.32 + prog * fx.radius * 2.15);
+            (fx.materials[5] as THREE.MeshBasicMaterial).opacity = env * 0.82;
           }
         } else if (fx.kind === 'arcane_cataclysm' && fx.ringMesh) {
           const prog = Math.min(1, fx.age / fx.duration);
-          const easeOut = 1 - Math.pow(1 - prog, 2.2);
-          const env = Math.max(0, 1 - prog);
-          if (fx.stemMesh && fx.materials[0]) {
-            const spireH = 0.8 + easeOut * (3.6 + fx.radius * 0.6);
-            fx.stemMesh.scale.set(0.75 + prog * 0.3, spireH, 0.75 + prog * 0.3);
-            fx.stemMesh.rotation.y = prog * 3.5;
+          const beamTriggerFrac = 0.42;
+
+          if (prog < beamTriggerFrac) {
+            // PHASE 1: Magic Circle inscribes on ground + Sky Circle focuses overhead + 6 Runes orbit & converge
+            const p1 = prog / beamTriggerFrac;
+            const p1Ease = 1 - Math.pow(1 - p1, 2);
+            fx.ringMesh.scale.setScalar(0.4 + p1Ease * fx.radius * 1.15);
+            fx.ringMesh.rotation.z = p1 * 3.8;
+            (fx.materials[0] as THREE.MeshBasicMaterial).opacity = Math.min(0.98, 0.45 + p1 * 0.55);
+
+            if (fx.thirdRingMesh) {
+              fx.thirdRingMesh.scale.setScalar(0.35 + p1Ease * fx.radius * 1.1);
+              fx.thirdRingMesh.rotation.z = -p1 * 4.5;
+              (fx.materials[1] as THREE.MeshBasicMaterial).opacity = Math.min(0.95, 0.35 + p1 * 0.6);
+            }
+            if (fx.skyCircleMesh) {
+              fx.skyCircleMesh.position.y = fx.ty + 7.2 - p1Ease * 2.1;
+              fx.skyCircleMesh.scale.setScalar(0.35 + p1Ease * fx.radius * 0.95);
+              fx.skyCircleMesh.rotation.z = -p1 * 5.2;
+              (fx.materials[2] as THREE.MeshBasicMaterial).opacity = Math.min(0.95, 0.25 + p1 * 0.72);
+            }
+            if (fx.outerRingMesh) {
+              fx.outerRingMesh.scale.setScalar(0.3 + p1 * fx.radius * 1.25);
+              (fx.materials[1] as THREE.MeshBasicMaterial).opacity = (1 - p1 * 0.35) * 0.85;
+            }
+            if (fx.runePillars) {
+              const orbitR = fx.radius * (1.08 - p1Ease * 0.62);
+              for (let rp = 0; rp < fx.runePillars.length; rp++) {
+                const a = (rp / fx.runePillars.length) * Math.PI * 2 + p1 * 4.2;
+                const pillar = fx.runePillars[rp];
+                pillar.position.set(
+                  fx.tx + Math.cos(a) * orbitR,
+                  fx.ty + 0.8 + Math.sin(p1 * Math.PI) * 1.5,
+                  fx.tz + Math.sin(a) * orbitR,
+                );
+                pillar.rotation.y = a * 2;
+                pillar.scale.setScalar(0.8 + p1 * 0.55);
+              }
+              (fx.materials[3] as THREE.MeshBasicMaterial).opacity = 0.95;
+            }
+          } else {
+            // PHASE 2: Colossal Celestial Magic Beam erupts & obliterates everything in the circle!
+            if (!fx.impactFired) {
+              fx.impactFired = true;
+              triggerLightFlash(fx.tx, fx.ty + 3.2, fx.tz, '#c084fc', 48);
+              soundEngine.playMegaExplosion();
+              trauma = Math.min(1.0, trauma + 0.56);
+              spawnParticleBurst(fx.tx, fx.ty + 0.8, fx.tz, 78, '#c084fc', fx.radius * 1.2, 10.6, 1.6);
+              spawnParticleBurst(fx.tx, fx.ty + 1.0, fx.tz, 54, '#5eead4', fx.radius * 0.95, 12.0, 1.38);
+            }
+
+            const p2 = (prog - beamTriggerFrac) / (1 - beamTriggerFrac);
+            const p2Ease = 1 - Math.pow(1 - p2, 2.2);
+            const env = Math.max(0, 1 - p2);
+            const beamPulse = Math.max(0.25, 1 - p2 * 0.72);
+            const beamW = fx.radius * 0.52 * beamPulse;
+
+            if (fx.beamCoreMesh && fx.materials[4]) {
+              fx.beamCoreMesh.scale.set(beamW * 0.55, 14.5, beamW * 0.55);
+              (fx.materials[4] as THREE.MeshBasicMaterial).opacity = env * 0.98;
+            }
+            if (fx.beamAuraMesh && fx.materials[5]) {
+              fx.beamAuraMesh.scale.set(beamW * 1.22, 14.0, beamW * 1.22);
+              fx.beamAuraMesh.rotation.y = p2 * 6.0;
+              (fx.materials[5] as THREE.MeshBasicMaterial).opacity = env * 0.78;
+            }
+            if (fx.stemMesh) {
+              const spireH = 1.2 + p2Ease * (4.2 + fx.radius * 0.7);
+              fx.stemMesh.scale.set(fx.radius * 0.45 * beamPulse, spireH, fx.radius * 0.45 * beamPulse);
+              fx.stemMesh.rotation.y = -p2 * 4.5;
+            }
+            if (fx.explosionDome && fx.materials[6]) {
+              fx.explosionDome.scale.setScalar(0.5 + p2Ease * fx.radius * 1.2);
+              (fx.materials[6] as THREE.MeshBasicMaterial).opacity = env * 0.82;
+            }
+
+            fx.ringMesh.scale.setScalar(fx.radius * (1.15 + p2Ease * 0.75));
+            fx.ringMesh.rotation.z += dt * 4.2;
             (fx.materials[0] as THREE.MeshBasicMaterial).opacity = env * 0.94;
-          }
-          if (fx.explosionDome && fx.materials[1]) {
-            fx.explosionDome.scale.setScalar(0.4 + easeOut * fx.radius * 1.05);
-            (fx.materials[1] as THREE.MeshBasicMaterial).opacity = env * 0.72;
-          }
-          fx.ringMesh.scale.setScalar(0.4 + easeOut * fx.radius * 1.35);
-          fx.ringMesh.rotation.z = prog * 2.8;
-          (fx.materials[2] as THREE.MeshBasicMaterial).opacity = env * 0.94;
-          if (fx.outerRingMesh && fx.materials[3]) {
-            fx.outerRingMesh.scale.setScalar(0.35 + prog * fx.radius * 1.65);
-            (fx.materials[3] as THREE.MeshBasicMaterial).opacity = env * 0.86;
-          }
-          if (fx.thirdRingMesh) {
-            fx.thirdRingMesh.scale.setScalar(0.3 + easeOut * fx.radius * 1.1);
-            fx.thirdRingMesh.rotation.z = -prog * 3.8;
+            if (fx.thirdRingMesh) {
+              fx.thirdRingMesh.scale.setScalar(fx.radius * (1.1 + p2Ease * 0.65));
+              fx.thirdRingMesh.rotation.z -= dt * 5.0;
+              (fx.materials[1] as THREE.MeshBasicMaterial).opacity = env * 0.88;
+            }
+            if (fx.skyCircleMesh) {
+              fx.skyCircleMesh.scale.setScalar(fx.radius * (0.95 + p2Ease * 0.5));
+              fx.skyCircleMesh.rotation.z -= dt * 6.0;
+              (fx.materials[2] as THREE.MeshBasicMaterial).opacity = env * 0.9;
+            }
+            if (fx.outerRingMesh) {
+              fx.outerRingMesh.scale.setScalar(0.4 + p2Ease * fx.radius * 2.0);
+            }
+            if (fx.runePillars) {
+              for (let rp = 0; rp < fx.runePillars.length; rp++) {
+                fx.runePillars[rp].position.y += dt * 6.5;
+                fx.runePillars[rp].scale.setScalar(Math.max(0.05, 1.35 * env));
+              }
+              (fx.materials[3] as THREE.MeshBasicMaterial).opacity = env * 0.88;
+            }
           }
         } else if (fx.kind === 'battlewill_slash' && fx.ringMesh) {
           const prog = Math.min(1, fx.age / fx.duration);
-          const easeOut = 1 - Math.pow(1 - prog, 2.5);
+          const easeOut = 1 - Math.pow(1 - prog, 2.35);
           const env = Math.max(0, 1 - prog);
+          const baseYaw = fx.slashBaseYaw ?? 0;
+          const sweepAngle = baseYaw - 1.05 + easeOut * 2.15;
           if (fx.slashMeshes) {
             for (let si = 0; si < fx.slashMeshes.length; si++) {
               const sm = fx.slashMeshes[si];
-              sm.rotation.y += dt * (si === 0 ? 5.2 : 6.4);
-              sm.scale.setScalar((0.75 + easeOut * 0.55) * (si === 0 ? fx.radius : fx.radius * 0.82));
+              sm.rotation.y = sweepAngle - si * 0.14;
+              const mult = si === 0 ? 1.0 : si === 1 ? 1.05 : 0.84;
+              sm.scale.setScalar((0.72 + easeOut * 0.62) * fx.radius * mult);
             }
           }
-          (fx.materials[0] as THREE.MeshBasicMaterial).opacity = env * 0.95;
-          (fx.materials[1] as THREE.MeshBasicMaterial).opacity = env * 0.95;
-          fx.ringMesh.scale.setScalar(0.35 + easeOut * fx.radius * 1.3);
-          (fx.materials[2] as THREE.MeshBasicMaterial).opacity = env * 0.85;
+          if (fx.crackMeshes) {
+            for (let ci = 0; ci < fx.crackMeshes.length; ci++) {
+              const cr = fx.crackMeshes[ci];
+              cr.scale.set(1.2 + easeOut * 0.7, 1.4 * env + 0.1, 0.55 + easeOut * 0.5);
+            }
+          }
+          (fx.materials[0] as THREE.MeshBasicMaterial).opacity = env * 0.96;
+          (fx.materials[1] as THREE.MeshBasicMaterial).opacity = env * 0.98;
+          fx.ringMesh.scale.setScalar(0.4 + easeOut * fx.radius * 1.45);
+          if (fx.outerRingMesh) {
+            fx.outerRingMesh.scale.setScalar(0.25 + prog * fx.radius * 1.75);
+          }
+          (fx.materials[2] as THREE.MeshBasicMaterial).opacity = env * 0.9;
         }
 
         if (fx.age >= fx.duration) {
@@ -8171,6 +8550,29 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       sharedOrbMoteGeo.dispose();
       sharedShardMoteGeo.dispose();
       sharedPillarSpikeGeo.dispose();
+      sharedTracerGeo.dispose();
+      sharedBulletCoreGeo.dispose();
+      sharedShellGeo.dispose();
+      sharedShellHaloGeo.dispose();
+      sharedBombBodyGeo.dispose();
+      sharedBombFinGeo.dispose();
+      sharedMissileGeo.dispose();
+      sharedMissileWarheadGeo.dispose();
+      sharedMissilePlumeGeo.dispose();
+      sharedArcaneBoltGeo.dispose();
+      sharedArcaneRingGeo.dispose();
+      sharedPlasmaBeamGeo.dispose();
+      sharedPlasmaMuzzleGeo.dispose();
+      sharedSparkShardGeo.dispose();
+      sharedNukeStemGeo.dispose();
+      sharedNukeCapGeo.dispose();
+      sharedNukeTorusGeo.dispose();
+      sharedArcaneSpireGeo.dispose();
+      sharedArcaneHaloTorusGeo.dispose();
+      sharedRunePillarGeo.dispose();
+      sharedBeamColGeo.dispose();
+      sharedBattlewillCrescentGeo.dispose();
+      sharedBattlewillEdgeGeo.dispose();
       dragTargetReticleGeo.dispose();
       dragTargetReticleMat.dispose();
       dragTetherGeo.dispose();

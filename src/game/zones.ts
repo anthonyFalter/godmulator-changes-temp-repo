@@ -2,6 +2,7 @@ import { EPOCHS, getDinosaurVariant } from './catalog';
 import {
   AnimalRole,
   DiplomaticRelation,
+  Resources,
   SimulationState,
   SpeciesId,
   TerrainType,
@@ -23,6 +24,7 @@ export const DEFAULT_ZONE_TOGGLES: ZoneToggleState = {
 export interface KingdomZoneInfo {
   zoneId: number; // 1..255
   settlementId: string;
+  kingdomId: string;
   name: string;
   species: SpeciesId;
   speciesLabel: string;
@@ -38,6 +40,7 @@ export interface KingdomZoneInfo {
   totalTileCount: number;
   epochLevel: number;
   epochName: string;
+  resources: Resources;
   centerX: number;
   centerZ: number;
 }
@@ -535,9 +538,11 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
     const cz = Math.max(0, Math.min(size - 1, Math.round(s.sumZ / s.anchorCount)));
     const epochDef = EPOCHS[Math.max(0, Math.min(EPOCHS.length - 1, s.maxEpoch))];
 
+    const stock = sim.kingdomResources?.[rootKingdomId];
     kingdomsById.set(zoneId, {
       zoneId,
       settlementId: s.id,
+      kingdomId: rootKingdomId,
       name: s.name,
       species: s.species,
       speciesLabel: s.species === 'human' ? 'Human Kingdom' : s.species === 'elf' ? 'Elven Realm' : 'Orcish Dominion',
@@ -553,6 +558,16 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
       totalTileCount: 0,
       epochLevel: s.maxEpoch,
       epochName: epochDef ? epochDef.name : 'Prehistoric Age',
+      resources: {
+        food: Math.floor(stock?.food ?? 0),
+        wood: Math.floor(stock?.wood ?? 0),
+        stone: Math.floor(stock?.stone ?? 0),
+        ore: Math.floor(stock?.ore ?? 0),
+        knowledge: Math.floor(stock?.knowledge ?? 0),
+        energy: Math.floor(stock?.energy ?? 0),
+        alloy: Math.floor(stock?.alloy ?? 0),
+        faith: Math.floor(stock?.faith ?? 0),
+      },
       centerX: cx,
       centerZ: cz,
     });

@@ -187,34 +187,33 @@ const UPDATE_LOG_ENTRIES = [
   {
     version: 'v1.0.0 - War Update',
     items: [
-      'Wars, chance-based peace & Alliances zone map (Blue Allies, Red Enemies)',
-      'Environment-shattering racial ultimates: Human Nukes, Elf Arcane Cataclysm, Orc Battlewill avatar & wide slashes',
-      'Age-evolving multi-domain war vehicles: gliders, warships, airships, orc flyers, tanks, bombers & orbital gunships',
-      'City rebellions forming rival city-states + God Rules (Wars, Citizens Can Rebel)',
-      'HUD polish: unified left-aligned 2-row scrollable hotbar, inspect & spacing fixes',
+      'Wars, peace treaties & Alliances map overlay (Blue Allies, Red Enemies)',
+      'City rebellions are more common and can split off provinces (toggle in World Rules)',
+      'Per-kingdom resource stockpiles shown in Inspect; towns gather before building',
+      'Separate vehicle models per race (gliders, warships, airships, tanks, bombers)',
+      'Cooldown on racial nukes/ultimates + Elf rune beam circles & Orc mountain-cleaving slashes',
     ],
   },
   {
     version: 'v0.6.0',
     items: [
-      'World creator & templates',
-      'Map sizes up to 256×256',
-      'Customizable world rules',
+      'World templates & map sizes up to 256×256',
+      'World rules settings menu',
     ],
   },
   {
     version: 'v0.5.0',
     items: [
-      'Kingdom, territory & biome zones',
-      'Shoreline & sea border overlays',
-      'Zone hover inspection',
+      'Kingdom, wildlife territory & biome map layers',
+      'Coastline & sea border shading',
+      'Zone hover stats in Inspect',
     ],
   },
   {
     version: 'v0.4.0',
     items: [
       'Seeded pixel Milky Way skybox',
-      'Smooth 45° camera intro zoom',
+      'Camera intro pan from orbit',
     ],
   },
 ];
@@ -955,8 +954,8 @@ export default function App() {
                   </button>
                 </div>
 
-                <div className="space-y-3.5 text-xs">
-                  {UPDATE_LOG_ENTRIES.map((entry) => (
+                <div className="space-y-3.5 text-xs max-h-52 overflow-y-auto pr-1" data-testid="update-log-scroll">
+                  {UPDATE_LOG_ENTRIES.slice(0, 3).map((entry) => (
                     <div key={entry.version}>
                       <div className="font-bold text-[#e8e0d2] tabular-nums mb-1">
                         {entry.version}

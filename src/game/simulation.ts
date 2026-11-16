@@ -129,6 +129,17 @@ export function deductCost(current: Resources, cost: Partial<Resources>, sandbox
   return next;
 }
 
+const RESOURCE_KEYS: (keyof Resources)[] = [
+  'food',
+  'wood',
+  'stone',
+  'ore',
+  'knowledge',
+  'energy',
+  'alloy',
+  'faith',
+];
+
 function emptyResources(): Resources {
   return {
     food: 0,
@@ -140,6 +151,194 @@ function emptyResources(): Resources {
     alloy: 0,
     faith: 0,
   };
+}
+
+const lastSyncedTotalsMap = new WeakMap<SimulationState, Resources>();
+
+export function ensureKingdomResources(state: SimulationState, kingdomId: string): Resources {
+  if (!state.kingdomResources) state.kingdomResources = {};
+  if (!state.kingdomResources[kingdomId]) {
+    state.kingdomResources[kingdomId] = emptyResources();
+  }
+  return state.kingdomResources[kingdomId];
+}
+
+function getLiveKingdomIds(state: SimulationState): string[] {
+  const kids = new Set<string>();
+  for (const b of state.buildings) {
+    if (b.hp > 0 && b.settlementId) {
+      kids.add(getKingdomId(state, b.settlementId));
+    }
+  }
+  for (const u of state.units) {
+    if (u.faction === 'civilization' && u.state !== 'ko' && u.hp > 0) {
+      const kid = u.settlementId ? getKingdomId(state, u.settlementId) : u.kingdomId;
+      if (kid) kids.add(kid);
+    }
+  }
+  return Array.from(kids);
+}
+
+function computeCombinedStock(state: SimulationState): Resources {
+  const sum = emptyResources();
+  const unalloc = state.unallocatedResources;
+  if (unalloc) {
+    for (const k of RESOURCE_KEYS) {
+      sum[k] += Math.max(0, unalloc[k] ?? 0);
+    }
+  }
+  const kMap = state.kingdomResources;
+  if (kMap) {
+    for (const kid of Object.keys(kMap)) {
+      const kr = kMap[kid];
+      if (!kr) continue;
+      for (const k of RESOURCE_KEYS) {
+        sum[k] += Math.max(0, kr[k] ?? 0);
+      }
+    }
+  }
+  return sum;
+}
+
+export function syncStateResourcesFromKingdoms(state: SimulationState): void {
+  if (!state.kingdomResources) state.kingdomResources = {};
+  if (!state.unallocatedResources) state.unallocatedResources = emptyResources();
+  const sum = computeCombinedStock(state);
+  state.resources = sum;
+  lastSyncedTotalsMap.set(state, { ...sum });
+}
+
+export function reconcileAndSyncResources(state: SimulationState): void {
+  if (!state.kingdomResources) state.kingdomResources = {};
+  if (!state.unallocatedResources) state.unallocatedResources = emptyResources();
+  const kids = getLiveKingdomIds(state);
+  const prevTotal = lastSyncedTotalsMap.get(state);
+
+  if (!prevTotal) {
+    const curSum = computeCombinedStock(state);
+    for (const k of RESOURCE_KEYS) {
+      const diff = (state.resources[k] ?? 0) - curSum[k];
+      if (Math.abs(diff) > 1e-6) {
+        if (k !== 'faith' && kids.length > 0 && diff > 0) {
+          const share = diff / kids.length;
+          for (const kid of kids) {
+            const kr = ensureKingdomResources(state, kid);
+            kr[k] += share;
+          }
+        } else {
+          state.unallocatedResources[k] = Math.max(0, (state.unallocatedResources[k] ?? 0) + diff);
+        }
+      }
+    }
+    syncStateResourcesFromKingdoms(state);
+    return;
+  }
+
+  for (const k of RESOURCE_KEYS) {
+    const extVal = Math.max(0, state.resources[k] ?? 0);
+    const delta = extVal - (prevTotal[k] ?? 0);
+    if (Math.abs(delta) <= 1e-6) continue;
+
+    if (delta > 0) {
+      if (k !== 'faith' && kids.length > 0) {
+        const share = delta / kids.length;
+        for (const kid of kids) {
+          const kr = ensureKingdomResources(state, kid);
+          kr[k] += share;
+        }
+      } else {
+        state.unallocatedResources[k] = (state.unallocatedResources[k] ?? 0) + delta;
+      }
+    } else {
+      let rem = -delta;
+      if (k === 'faith') {
+        const unTake = Math.min(rem, state.unallocatedResources[k] ?? 0);
+        state.unallocatedResources[k] = Math.max(0, (state.unallocatedResources[k] ?? 0) - unTake);
+        rem -= unTake;
+      }
+      if (rem > 1e-6) {
+        const totalInK = Object.values(state.kingdomResources).reduce((acc, kr) => acc + Math.max(0, kr[k] ?? 0), 0);
+        if (totalInK > 1e-6) {
+          const ratio = Math.min(1, rem / totalInK);
+          for (const kid of Object.keys(state.kingdomResources)) {
+            const take = Math.max(0, state.kingdomResources[kid][k] ?? 0) * ratio;
+            state.kingdomResources[kid][k] = Math.max(0, state.kingdomResources[kid][k] - take);
+            rem -= take;
+          }
+        }
+      }
+      if (rem > 1e-6) {
+        state.unallocatedResources[k] = Math.max(0, (state.unallocatedResources[k] ?? 0) - rem);
+      }
+    }
+  }
+  syncStateResourcesFromKingdoms(state);
+}
+
+function grantResourcesToKingdomOrPool(
+  state: SimulationState,
+  delta: Partial<Resources>,
+  targetKingdomId?: string,
+): void {
+  reconcileAndSyncResources(state);
+  const kids = getLiveKingdomIds(state);
+  for (const [keyRaw, amt] of Object.entries(delta)) {
+    if (!amt || amt <= 0) continue;
+    const k = keyRaw as keyof Resources;
+    if (targetKingdomId && k !== 'faith') {
+      ensureKingdomResources(state, targetKingdomId)[k] += amt;
+    } else if (k !== 'faith' && kids.length > 0) {
+      const share = amt / kids.length;
+      for (const kid of kids) {
+        ensureKingdomResources(state, kid)[k] += share;
+      }
+    } else {
+      if (!state.unallocatedResources) state.unallocatedResources = emptyResources();
+      state.unallocatedResources[k] += amt;
+    }
+  }
+  syncStateResourcesFromKingdoms(state);
+}
+
+function spendWorldCost(state: SimulationState, cost: Partial<Resources>, preferKingdomId?: string): void {
+  reconcileAndSyncResources(state);
+  for (const [keyRaw, val] of Object.entries(cost)) {
+    let rem = val ?? 0;
+    if (rem <= 0) continue;
+    const k = keyRaw as keyof Resources;
+    if (preferKingdomId && state.kingdomResources?.[preferKingdomId]) {
+      const take = Math.min(rem, Math.max(0, state.kingdomResources[preferKingdomId][k] ?? 0));
+      state.kingdomResources[preferKingdomId][k] -= take;
+      rem -= take;
+    }
+    if (rem > 1e-6 && state.unallocatedResources) {
+      const take = Math.min(rem, Math.max(0, state.unallocatedResources[k] ?? 0));
+      state.unallocatedResources[k] -= take;
+      rem -= take;
+    }
+    if (rem > 1e-6 && state.kingdomResources) {
+      for (const kid of Object.keys(state.kingdomResources)) {
+        if (rem <= 1e-6) break;
+        const take = Math.min(rem, Math.max(0, state.kingdomResources[kid][k] ?? 0));
+        state.kingdomResources[kid][k] -= take;
+        rem -= take;
+      }
+    }
+  }
+  syncStateResourcesFromKingdoms(state);
+}
+
+function transferUnallocatedStockToKingdom(state: SimulationState, kingdomId: string): void {
+  if (!state.unallocatedResources) return;
+  const kr = ensureKingdomResources(state, kingdomId);
+  for (const k of RESOURCE_KEYS) {
+    if (k === 'faith') continue;
+    const avail = state.unallocatedResources[k] ?? 0;
+    if (avail > 0) {
+      kr[k] += avail;
+      state.unallocatedResources[k] = 0;
+    }
+  }
 }
 
 export const DEFAULT_WORLD_RULES: WorldRulesConfig = {
@@ -454,6 +653,9 @@ export function createInitialSimulationState(
     settlementNames: {},
     settlementSpecies: {},
     settlementKingdoms: {},
+    kingdomResources: {},
+    unallocatedResources: emptyResources(),
+    kingdomUltimateCooldowns: {},
     kingdomRelations: {},
     kingdomPeacefulTraits: {},
     diplomacyTimer: 0,
@@ -462,6 +664,12 @@ export function createInitialSimulationState(
     worldTemplate: template,
     worldRules: rules,
   };
+
+  // Seed unallocatedResources from initial starting world preset before colonies claim it
+  for (const k of RESOURCE_KEYS) {
+    state.unallocatedResources![k] = state.resources[k] ?? 0;
+  }
+  lastSyncedTotalsMap.set(state, { ...state.resources });
 
   // Seed starting wildlife if a world config was explicitly provided
   if (config) {
@@ -564,6 +772,7 @@ export function createInitialSimulationState(
   }
 
   ensureSettlementKings(state);
+  syncStateResourcesFromKingdoms(state);
   recalculateRatesAndCaps(state);
   return state;
 }
@@ -599,7 +808,7 @@ export function recalculateRatesAndCaps(state: SimulationState): void {
     const blessMult = b.blessedTimer > 0 ? 1.75 : b.cursedTimer > 0 ? 0.5 : 1.0;
     const epochMult = 1 + Math.min(4, state.epochIndex) * 0.1;
     const bSpecies: SpeciesId = b.species ?? (b.settlementId ? state.settlementSpecies?.[b.settlementId] : undefined) ?? 'human';
-    const paceMult = state.sandboxFreeMode ? 1.0 : 0.62;
+    const paceMult = state.sandboxFreeMode ? 1.0 : 0.34;
 
     for (const [k, v] of Object.entries(def.productionPerSec)) {
       const key = k as keyof Resources;
@@ -682,13 +891,21 @@ export function placeBuilding(
   if (tile.buildingId) {
     return { ok: false, reason: 'Tile already occupied by a structure' };
   }
-  if (!canAfford(state.resources, def.cost, state.sandboxFreeMode)) {
+  reconcileAndSyncResources(state);
+  const nearby = findLocalSettlementBuilding(state, tile.x, tile.z, SETTLEMENT_AWARENESS_RADIUS);
+  const candidateKingdomId = nearby?.settlementId ? getKingdomId(state, nearby.settlementId) : undefined;
+  const checkBudget =
+    candidateKingdomId && state.kingdomResources?.[candidateKingdomId] && Object.keys(state.kingdomResources).length === 1
+      ? state.resources
+      : state.resources;
+  if (!canAfford(checkBudget, def.cost, state.sandboxFreeMode)) {
     return { ok: false, reason: 'Insufficient resources for construction' };
   }
 
-  state.resources = deductCost(state.resources, def.cost, state.sandboxFreeMode);
+  if (!state.sandboxFreeMode) {
+    spendWorldCost(state, def.cost, candidateKingdomId);
+  }
 
-  const nearby = findLocalSettlementBuilding(state, tile.x, tile.z, SETTLEMENT_AWARENESS_RADIUS);
   const settlementId = nearby?.settlementId ?? nextEntityId('city');
   if (!state.settlementNames) state.settlementNames = {};
   if (!state.settlementSpecies) state.settlementSpecies = {};
@@ -701,6 +918,10 @@ export function placeBuilding(
   if (!state.settlementKingdoms[settlementId]) {
     state.settlementKingdoms[settlementId] = settlementId;
   }
+  const resolvedPlaceKid = getKingdomId(state, settlementId);
+  ensureKingdomResources(state, resolvedPlaceKid);
+  transferUnallocatedStockToKingdom(state, resolvedPlaceKid);
+  syncStateResourcesFromKingdoms(state);
 
   const baseEpochIdx = Math.max(0, EPOCHS.findIndex((e) => e.id === def.epoch));
   const newBuilding: BuildingEntity = {
@@ -741,7 +962,7 @@ export function placeBuilding(
 
   const placedKingdomId = getKingdomId(state, settlementId);
   for (const u of state.units) {
-    if (u.faction === 'civilization' && u.state !== 'ko' && !u.settlementId) {
+    if (u.faction === 'civilization' && u.state !== 'ko' && !u.settlementId && u.species === species) {
       if (Math.hypot(u.x - tile.x, u.z - tile.z) <= SETTLEMENT_AWARENESS_RADIUS) {
         u.settlementId = settlementId;
         u.kingdomId = placedKingdomId;
@@ -791,13 +1012,14 @@ export function spawnUnit(
     return { ok: false, reason: 'Units must spawn on dry land' };
   }
 
+  reconcileAndSyncResources(state);
   const isFree = freeOverride || state.sandboxFreeMode || def.faction === 'hostile';
   if (!isFree && !canAfford(state.resources, def.cost, false)) {
     return { ok: false, reason: 'Insufficient resources to train unit' };
   }
 
   if (!isFree) {
-    state.resources = deductCost(state.resources, def.cost, false);
+    spendWorldCost(state, def.cost);
   }
 
   const species: SpeciesId =
@@ -1127,8 +1349,9 @@ export function applyTerrainTool(
     return { ok: false, reason: 'Cannot apply tool on this terrain' };
   }
 
+  reconcileAndSyncResources(state);
   if (!state.sandboxFreeMode) {
-    state.resources.faith = Math.max(0, state.resources.faith - def.faithCost);
+    spendWorldCost(state, { faith: def.faithCost });
   }
 
   state.pendingVfx.push({
@@ -1774,15 +1997,14 @@ export function executeGodPowerImpact(
           u.hp = Math.min(u.maxHp, u.hp + 25);
         }
       }
-      state.resources.food += 45;
-      state.resources.wood += 25;
+      grantResourcesToKingdomOrPool(state, { food: 45, wood: 25 });
       addChronicle(state, 'Monsoon cloudburst doused all fires and revitalized parched land.', 'divine');
       break;
     }
 
     case 'eureka': {
       isHeavy = true;
-      state.resources.knowledge += 140;
+      grantResourcesToKingdomOrPool(state, { knowledge: 140 });
       state.epochProgress = Math.min(100, state.epochProgress + 22);
       for (const u of state.units) {
         const dSq = (u.x - targetX) ** 2 + (u.z - targetZ) ** 2;
@@ -1823,9 +2045,7 @@ export function executeGodPowerImpact(
       isHeavy = true;
       state.goldenAgeTimer = 35;
       state.happiness = 100;
-      state.resources.food += 120;
-      state.resources.wood += 80;
-      state.resources.faith += 60;
+      grantResourcesToKingdomOrPool(state, { food: 120, wood: 80, faith: 60 });
       for (const u of state.units) {
         if (u.faction === 'civilization' && u.state !== 'ko') {
           u.hp = u.maxHp;
@@ -2746,6 +2966,7 @@ export function executeGodPowerImpact(
     }
   }
 
+  syncStateResourcesFromKingdoms(state);
   recalculateRatesAndCaps(state);
   return isHeavy;
 }
@@ -2760,12 +2981,13 @@ export function castGodPower(
   const def = GOD_POWERS.find((p) => p.type === powerType);
   if (!def) return { ok: false, reason: 'Unknown divine power' };
 
+  reconcileAndSyncResources(state);
   if (!state.sandboxFreeMode && state.resources.faith < def.faithCost) {
     return { ok: false, reason: `Requires ${def.faithCost} Faith` };
   }
 
   if (!state.sandboxFreeMode) {
-    state.resources.faith = Math.max(0, state.resources.faith - def.faithCost);
+    spendWorldCost(state, { faith: def.faithCost });
   }
 
   const centerTile = getTile(state, targetX, targetZ);
@@ -3006,10 +3228,10 @@ export function triggerCityRebellion(
   const rebelUnits = candidates.slice(0, rebelCount);
   const rebelKingdomId = nextEntityId('rebel_city');
 
-  // Find a defensible breakaway camp site 10..24 tiles away
+  // Find a defensible breakaway camp site 18..30 tiles away (outside parent's city radius)
   let rebelSite: TileData | null = null;
   const gs = state.gridSize;
-  for (let r = 10; r <= 24 && !rebelSite; r += 2) {
+  for (let r = 18; r <= 30 && !rebelSite; r += 2) {
     for (let angleStep = 0; angleStep < 12; angleStep++) {
       const ang = (angleStep / 12) * Math.PI * 2 + (state.year % 6.28);
       const tx = Math.max(4, Math.min(gs - 5, Math.round(anchor.x + Math.cos(ang) * r)));
@@ -3021,7 +3243,7 @@ export function triggerCityRebellion(
         t.height <= 4 &&
         !t.buildingId &&
         t.onFireTimer <= 0 &&
-        !state.buildings.some((b) => Math.hypot(b.tileX - tx, b.tileZ - tz) < 8)
+        !state.buildings.some((b) => Math.hypot(b.tileX - tx, b.tileZ - tz) < 12)
       ) {
         rebelSite = t;
         break;
@@ -3032,30 +3254,87 @@ export function triggerCityRebellion(
     rebelSite = findNewCitySite(state, anchor.x, anchor.z);
   }
 
+  let rebelSettlementId: string | undefined;
+  if (rebelSite && !rebelSite.buildingId) {
+    if (!state.settlementNames) state.settlementNames = {};
+    if (!state.settlementSpecies) state.settlementSpecies = {};
+    if (!state.settlementKingdoms) state.settlementKingdoms = {};
+    rebelSettlementId = rebelKingdomId;
+    state.settlementNames[rebelSettlementId] = createVillageName(state, parentSpecies);
+    state.settlementSpecies[rebelSettlementId] = parentSpecies;
+    state.settlementKingdoms[rebelSettlementId] = rebelKingdomId;
+    const hearthDef = BUILDINGS.find((b) => b.type === 'bonfire')!;
+    const hearth: BuildingEntity = {
+      id: nextEntityId('bld'),
+      type: 'bonfire',
+      settlementId: rebelSettlementId,
+      species: parentSpecies,
+      tileX: rebelSite.x,
+      tileZ: rebelSite.z,
+      hp: hearthDef.maxHp,
+      maxHp: hearthDef.maxHp,
+      constructionProgress: 100,
+      epochLevel: Math.max(0, state.epochIndex === 0 ? 0 : 1),
+      upgradeProgress: 0,
+      blessedTimer: 0,
+      cursedTimer: 0,
+      shieldTimer: 0,
+    };
+    rebelSite.buildingId = hearth.id;
+    rebelSite.resourceNode = 'none';
+    rebelSite.resourceAmount = 0;
+    if (rebelSite.terrain === 'stone_road' || rebelSite.terrain === 'forest') {
+      rebelSite.terrain = 'grass';
+    }
+    state.buildings.push(hearth);
+  }
+
   for (let i = 0; i < rebelUnits.length; i++) {
     const ru = rebelUnits[i];
     ru.isRebel = true;
-    ru.settlementId = undefined;
+    ru.settlementId = rebelSettlementId;
     ru.kingdomId = rebelKingdomId;
+    ru.maxHp = Math.max(ru.maxHp, 155);
+    ru.hp = ru.maxHp;
     if (i === 0) {
       ru.role = 'warrior';
-      ru.maxHp = Math.max(ru.maxHp, 155);
-      ru.hp = ru.maxHp;
       ru.isKing = true;
       if (!ru.name.startsWith('King ')) ru.name = `King ${ru.name}`;
     }
     if (rebelSite) {
-      ru.expeditionTargetX = rebelSite.x;
-      ru.expeditionTargetZ = rebelSite.z;
-      ru.expeditionTimer = 0;
+      const rx = Math.max(3, Math.min(gs - 4, rebelSite.x + (i % 3) - 1));
+      const rz = Math.max(3, Math.min(gs - 4, rebelSite.z + Math.floor(i / 3)));
+      const rt = getTile(state, rx, rz);
+      if (rt && rt.height >= 1) {
+        ru.x = rx;
+        ru.z = rz;
+      } else {
+        ru.x = rebelSite.x;
+        ru.z = rebelSite.z;
+      }
+      ru.expeditionTargetX = undefined;
+      ru.expeditionTargetZ = undefined;
       ru.targetX = rebelSite.x;
       ru.targetZ = rebelSite.z;
-      ru.state = 'moving';
+      ru.state = 'idle';
     }
   }
 
   if (!state.kingdomPeacefulTraits) state.kingdomPeacefulTraits = {};
   state.kingdomPeacefulTraits[rebelKingdomId] = false;
+  // Transfer a fair share of the parent kingdom's stocked resources to the rebel movement
+  const pStock = ensureKingdomResources(state, parentKingdomId);
+  const rStock = ensureKingdomResources(state, rebelKingdomId);
+  for (const k of RESOURCE_KEYS) {
+    if (k === 'faith') continue;
+    const take = Math.floor((pStock[k] ?? 0) * 0.25);
+    if (take > 0) {
+      pStock[k] -= take;
+      rStock[k] += take;
+    }
+  }
+  syncStateResourcesFromKingdoms(state);
+
   if (state.worldRules?.warsEnabled !== false) {
     setKingdomRelation(state, parentKingdomId, rebelKingdomId, 'war');
   } else {
@@ -3116,7 +3395,7 @@ function stepKingdomDiplomacyAndRebellions(state: SimulationState, dt: number): 
 
   if (state.worldRules?.allowRebellion !== false) {
     state.rebellionTimer = (state.rebellionTimer ?? 0) + dt;
-    if (state.rebellionTimer >= 22) {
+    if (state.rebellionTimer >= 9.5) {
       state.rebellionTimer = 0;
       const settlementIds = Array.from(
         new Set(
@@ -3125,16 +3404,96 @@ function stepKingdomDiplomacyAndRebellions(state: SimulationState, dt: number): 
             .map((b) => b.settlementId!),
         ),
       );
-      if (settlementIds.length < MAX_WORLD_CITIES) {
+
+      // Multi-city empires face frequent colonial/regional secession movements
+      const settlementsByKingdom = new Map<string, string[]>();
+      for (const sid of settlementIds) {
+        const kid = getKingdomId(state, sid);
+        const list = settlementsByKingdom.get(kid) ?? [];
+        list.push(sid);
+        settlementsByKingdom.set(kid, list);
+      }
+
+      let rebellionTriggered = false;
+      for (const [kid, kSids] of settlementsByKingdom) {
+        if (kSids.length >= 2) {
+          const isEmpireAtWar = kingdoms.some(
+            (k) => k.kingdomId !== kid && areKingdomsAtWar(state, kid, k.kingdomId),
+          );
+          const isUnstableEmpire =
+            kSids.length >= 4 || isEmpireAtWar || state.happiness < 75;
+          if (!isUnstableEmpire) continue;
+
+          const satelliteSid = kSids[kSids.length - 1];
+          const satPop = state.units.filter(
+            (u) => u.faction === 'civilization' && u.state !== 'ko' && u.settlementId === satelliteSid,
+          ).length;
+          if (satPop >= 2 && Math.random() < 0.36) {
+            if (!state.settlementKingdoms) state.settlementKingdoms = {};
+            state.settlementKingdoms[satelliteSid] = satelliteSid;
+            const satUnits = state.units.filter((u) => u.settlementId === satelliteSid);
+            for (const su of satUnits) {
+              su.kingdomId = satelliteSid;
+            }
+            const satName = state.settlementNames?.[satelliteSid] ?? 'Province';
+            const parentName = state.settlementNames?.[kid] ?? 'Empire';
+            const parentStock = ensureKingdomResources(state, kid);
+            const secStock = ensureKingdomResources(state, satelliteSid);
+            for (const rk of RESOURCE_KEYS) {
+              if (rk === 'faith') continue;
+              const share = Math.floor((parentStock[rk] ?? 0) * 0.32);
+              if (share > 0) {
+                parentStock[rk] -= share;
+                secStock[rk] += share;
+              }
+            }
+            syncStateResourcesFromKingdoms(state);
+            setKingdomRelation(
+              state,
+              kid,
+              satelliteSid,
+              state.worldRules?.warsEnabled !== false ? 'war' : 'neutral',
+            );
+            addChronicle(
+              state,
+              `${satName} declared independence and seceded from ${parentName}!`,
+              'warning',
+            );
+            ensureSettlementKings(state);
+            rebellionTriggered = true;
+            break;
+          }
+        }
+      }
+
+      if (!rebellionTriggered && settlementIds.length < MAX_WORLD_CITIES) {
         for (const sid of settlementIds) {
           const cityUnits = state.units.filter(
-            (u) => u.faction === 'civilization' && u.state !== 'ko' && u.settlementId === sid && !u.isKing && u.ageStage !== 'child',
+            (u) =>
+              u.faction === 'civilization' &&
+              u.state !== 'ko' &&
+              u.settlementId === sid &&
+              !u.isKing &&
+              u.ageStage !== 'child',
           );
-          if (cityUnits.length < 4) continue;
-          const unrestProb = state.happiness < 55 ? 0.42 : cityUnits.length >= 7 ? 0.18 : 0.07;
-          if (Math.random() < unrestProb) {
-            triggerCityRebellion(state, sid);
-            break;
+          if (cityUnits.length < 3) continue;
+          const sidKid = getKingdomId(state, sid);
+          const isAtWar = kingdoms.some(
+            (k) => k.kingdomId !== sidKid && areKingdomsAtWar(state, sidKid, k.kingdomId),
+          );
+          const isLargeEmpire = (settlementsByKingdom.get(sidKid)?.length ?? 1) >= 2;
+          let unrestProb =
+            isAtWar || state.happiness < 72
+              ? cityUnits.length >= 6
+                ? 0.45
+                : 0.32
+              : cityUnits.length >= 18
+                ? 0.25
+                : 0;
+          if (isLargeEmpire && (isAtWar || state.happiness < 75)) unrestProb += 0.18;
+          if (state.happiness < 65) unrestProb += 0.22;
+          if (unrestProb > 0 && Math.random() < Math.min(0.82, unrestProb)) {
+            if (triggerCityRebellion(state, sid)) break;
           }
         }
       }
@@ -3654,6 +4013,7 @@ export function advanceEpoch(
     return { ok: false, reason: 'Already in the Interstellar Age' };
   }
 
+  reconcileAndSyncResources(state);
   const nextEpoch = EPOCHS[state.epochIndex + 1];
   const free = divineLeapOverride || state.sandboxFreeMode;
 
@@ -3662,7 +4022,7 @@ export function advanceEpoch(
   }
 
   if (!free) {
-    state.resources = deductCost(state.resources, nextEpoch.unlockCost, false);
+    spendWorldCost(state, nextEpoch.unlockCost);
   }
 
   state.epochIndex += 1;
@@ -3769,6 +4129,7 @@ export function advanceEpoch(
     'epoch',
   );
 
+  syncStateResourcesFromKingdoms(state);
   recalculateRatesAndCaps(state);
   return { ok: true, newEpoch: nextEpoch };
 }
@@ -3805,9 +4166,24 @@ function recordHarvestDeposit(
   state: SimulationState,
   key: keyof Resources,
   amount: number,
+  kingdomId?: string,
 ): void {
   if (amount <= 0) return;
-  state.resources[key] += amount;
+  if (kingdomId && key !== 'faith') {
+    ensureKingdomResources(state, kingdomId)[key] += amount;
+  } else if (key !== 'faith') {
+    const kids = getLiveKingdomIds(state);
+    if (kids.length > 0) {
+      ensureKingdomResources(state, kids[0])[key] += amount;
+    } else {
+      if (!state.unallocatedResources) state.unallocatedResources = emptyResources();
+      state.unallocatedResources[key] += amount;
+    }
+  } else {
+    if (!state.unallocatedResources) state.unallocatedResources = emptyResources();
+    state.unallocatedResources[key] += amount;
+  }
+  syncStateResourcesFromKingdoms(state);
   if (!state.harvestAccumulator) state.harvestAccumulator = emptyResources();
   state.harvestAccumulator[key] += amount;
 }
@@ -4038,7 +4414,13 @@ function transformSettlementEnvironment(
   }
 
   // 1. Era-driven street, rail, runway & high-tech terrain transformation around completed buildings
-  paveSettlementStreetsNear(state, sampleBld.tileX, sampleBld.tileZ, sid);
+  const pKid = getKingdomId(state, sid);
+  const pStock = ensureKingdomResources(state, pKid);
+  if (state.epochIndex >= 1 && (state.sandboxFreeMode || pStock.stone >= 8)) {
+    if (!state.sandboxFreeMode) pStock.stone = Math.max(0, pStock.stone - 4);
+    paveSettlementStreetsNear(state, sampleBld.tileX, sampleBld.tileZ, sid);
+    syncStateResourcesFromKingdoms(state);
+  }
   if (state.epochIndex >= 3 && (sampleBld.type === 'rail_station' || villageBuildings.length >= 6)) {
     paveSettlementRailNetwork(state, sid);
   }
@@ -4277,7 +4659,7 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
 
   const hasArrivedPioneers = activeCivs.some((u) => !u.settlementId && u.expeditionTargetX === undefined);
   state.civPlanTimer = (state.civPlanTimer ?? 0) + dt;
-  const interval = hasArrivedPioneers ? 0.5 : 1.8;
+  const interval = hasArrivedPioneers ? 0.6 : state.sandboxFreeMode ? 1.6 : 3.4;
   if (state.civPlanTimer < interval) return;
   state.civPlanTimer = 0;
 
@@ -4285,7 +4667,7 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
   if (!state.settlementSpecies) state.settlementSpecies = {};
   if (!state.settlementKingdoms) state.settlementKingdoms = {};
 
-  // 1. Bind local homeless settlers to same-species settlement or found their own village!
+  // 1. Bind local homeless settlers to same-species settlement or gather resources first before founding hearth
   for (const pioneer of activeCivs) {
     if (pioneer.settlementId || pioneer.expeditionTargetX !== undefined) continue;
 
@@ -4300,6 +4682,32 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
       }
     }
 
+    const bandPioneers = activeCivs.filter(
+      (other) =>
+        !other.settlementId &&
+        other.species === pioneer.species &&
+        Math.hypot(other.x - pioneer.x, other.z - pioneer.z) <= SETTLEMENT_AWARENESS_RADIUS,
+    );
+
+    if (!state.sandboxFreeMode && !pioneer.isRebel) {
+      const bandCarriedTotal = bandPioneers.reduce((sum, p) => sum + (p.carryingAmount ?? 0), 0);
+      const nearestGatherNode = findNearestResourceTile(
+        state,
+        pioneer.x,
+        pioneer.z,
+        ['timber_grove', 'berry_bush', 'stone_outcrop'],
+        pioneer,
+      );
+      const nodeDist = nearestGatherNode
+        ? Math.hypot(nearestGatherNode.x - pioneer.x, nearestGatherNode.z - pioneer.z)
+        : Infinity;
+      const waitedLongEnough = (pioneer.ageYears ?? 0) >= 6.0;
+      // Newly placed pioneers must gather nearby resources first before staking down a bonfire/settlement
+      if (bandCarriedTotal < 8 && nodeDist <= 14 && !waitedLongEnough) {
+        continue;
+      }
+    }
+
     const px = Math.round(pioneer.x);
     const pz = Math.round(pioneer.z);
     let siteTile: TileData | undefined = getTile(state, px, pz);
@@ -4308,8 +4716,10 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
     }
     if (siteTile && siteTile.height > 0 && !siteTile.buildingId) {
       const def = BUILDINGS.find((b) => b.type === 'bonfire')!;
-      if (siteTile.resourceNode === 'timber_grove') state.resources.wood += 15;
-      else if (siteTile.resourceNode === 'berry_bush') state.resources.food += 15;
+      let siteBonusWood = 0;
+      let siteBonusFood = 0;
+      if (siteTile.resourceNode === 'timber_grove') siteBonusWood = 10;
+      else if (siteTile.resourceNode === 'berry_bush') siteBonusFood = 10;
       siteTile.resourceNode = 'none';
       siteTile.resourceAmount = 0;
       if (siteTile.terrain === 'stone_road' || siteTile.terrain === 'forest') {
@@ -4352,6 +4762,10 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
         resolvedKingdomId = newSettlementId;
       }
       state.settlementKingdoms[newSettlementId] = resolvedKingdomId;
+      const kStock = ensureKingdomResources(state, resolvedKingdomId);
+      transferUnallocatedStockToKingdom(state, resolvedKingdomId);
+      if (siteBonusWood > 0) kStock.wood += siteBonusWood;
+      if (siteBonusFood > 0) kStock.food += siteBonusFood;
 
       const hearth: BuildingEntity = {
         id: nextEntityId('bld'),
@@ -4362,7 +4776,7 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
         tileZ: siteTile.z,
         hp: def.maxHp,
         maxHp: def.maxHp,
-        constructionProgress: 30,
+        constructionProgress: 4,
         epochLevel: 0,
         upgradeProgress: 0,
         blessedTimer: 0,
@@ -4373,7 +4787,7 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
       state.buildings.push(hearth);
       state.totalStructuresBuilt += 1;
 
-      // Adopt nearby homeless/arriving pioneers of the same species
+      // Adopt nearby homeless/arriving pioneers of the same species and deposit their gathered stock
       for (const other of activeCivs) {
         if (
           !other.settlementId &&
@@ -4385,9 +4799,17 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
           other.expeditionTargetX = undefined;
           other.expeditionTargetZ = undefined;
           other.expeditionTimer = undefined;
+          if (other.carryingType && other.carryingAmount > 0) {
+            kStock[other.carryingType] += other.carryingAmount;
+            if (!state.harvestAccumulator) state.harvestAccumulator = emptyResources();
+            state.harvestAccumulator[other.carryingType] += other.carryingAmount;
+            other.carryingAmount = 0;
+            other.carryingType = null;
+          }
         }
       }
 
+      syncStateResourcesFromKingdoms(state);
       addChronicle(
         state,
         `${sp[0].toUpperCase() + sp.slice(1)} pioneers founded ${villageName} at (${siteTile.x}, ${siteTile.z}).`,
@@ -4408,7 +4830,7 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
     }
   }
 
-  // 2. Step each independent village/city separately (its own growth, autobuild, colonization & terrain evolution)
+  // 2. Step each independent village/city separately using its kingdom's own resource stockpile
   const epoch = EPOCHS[state.epochIndex] || EPOCHS[0];
   const settlementIds = Array.from(new Set(state.buildings.map((b) => b.settlementId!)));
 
@@ -4421,6 +4843,8 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
     const completedBuildings = villageBuildings.filter((b) => b.constructionProgress >= 100);
     const hasCompletedHearth = completedBuildings.length > 0;
     const villageSpecies: SpeciesId = state.settlementSpecies[sid] ?? villageUnits[0]?.species ?? 'human';
+    const sidKingdomId = getKingdomId(state, sid);
+    const kRes = ensureKingdomResources(state, sidKingdomId);
 
     let villagePopCap = hasCompletedHearth ? epoch.populationBonus : 0;
     for (const b of completedBuildings) {
@@ -4428,15 +4852,15 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
       if (def) villagePopCap += def.popCapBonus;
     }
 
-    // Autonomous Population Growth for THIS village in its own species (obeys God Rule allowReproduction)
+    // Autonomous Population Growth drawn strictly from this kingdom's food stockpile
     if (
       state.worldRules?.allowReproduction !== false &&
       hasCompletedHearth &&
       villageUnits.length < villagePopCap &&
-      state.resources.food >= 28 &&
+      kRes.food >= 42 &&
       state.happiness >= 35
     ) {
-      state.resources.food -= 20;
+      kRes.food -= 30;
       const spawnHub = completedBuildings[0];
       const birthAgeStage: UnitAgeStage = villageUnits.length >= 2 ? 'child' : 'adult';
       spawnUnit(state, villageSpecies, spawnHub.tileX, spawnHub.tileZ, true, sid, {
@@ -4444,8 +4868,7 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
       });
     }
 
-    // Autonomous Construction Planner scoped to THIS village (capped at getMaxCityBuildings)
-    // Orcs progress way slower than other races; Humans progress fastest
+    // Autonomous Construction Planner scoped to THIS village & THIS kingdom's stocked resources
     const maxCityBuildings = getMaxCityBuildings(state.epochIndex);
     const activeSites = villageBuildings.filter((b) => b.constructionProgress < 100).length;
     const orcSlowSkip =
@@ -4459,18 +4882,19 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
       state.worldRules?.autoBuildEnabled !== false &&
       hasCompletedHearth &&
       !orcSlowSkip &&
-      activeSites < (villageSpecies === 'human' ? 2 : 1) &&
+      activeSites < 1 &&
       villageBuildings.length < maxCityBuildings
     ) {
       const desiredType = pickDesiredAutobuildType(state, villageBuildings, villageUnits.length, villageSpecies);
       if (desiredType) {
         const def = BUILDINGS.find((b) => b.type === desiredType);
-        if (def && canAfford(state.resources, def.cost, false)) {
+        if (def && canAfford(kRes, def.cost, state.sandboxFreeMode)) {
           const site = findBuildableTileNear(state, villageAnchor.x, villageAnchor.z, 18, sid);
           if (site) {
-            state.resources = deductCost(state.resources, def.cost, false);
-            if (site.resourceNode === 'timber_grove') state.resources.wood += 12;
-            else if (site.resourceNode === 'stone_outcrop') state.resources.stone += 12;
+            state.kingdomResources![sidKingdomId] = deductCost(kRes, def.cost, state.sandboxFreeMode);
+            const refreshedStock = ensureKingdomResources(state, sidKingdomId);
+            if (site.resourceNode === 'timber_grove') refreshedStock.wood += 8;
+            else if (site.resourceNode === 'stone_outcrop') refreshedStock.stone += 8;
             site.resourceNode = 'none';
             site.resourceAmount = 0;
             site.farmSettlementId = undefined;
@@ -4488,8 +4912,8 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
               tileZ: site.z,
               hp: def.maxHp,
               maxHp: def.maxHp,
-              constructionProgress: 12,
-              epochLevel: baseEpochIdx,
+              constructionProgress: 4,
+              epochLevel: state.epochIndex === 0 ? 0 : baseEpochIdx,
               upgradeProgress: 0,
               blessedTimer: 0,
               cursedTimer: 0,
@@ -4499,7 +4923,6 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
             site.farmSettlementId = undefined;
             state.buildings.push(siteBld);
             state.totalStructuresBuilt += 1;
-            paveSettlementStreetsNear(state, site.x, site.z, sid);
             const vName = state.settlementNames[sid] ?? 'Settlement';
             addChronicle(state, `Settlers of ${vName} break ground on a ${def.name} at (${site.x}, ${site.z}).`, 'build');
           }
@@ -4507,16 +4930,15 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
       }
     }
 
-    // Autonomous Frontier Colonization:
-    // Once a city reaches max size (or grows large and crowded), surplus settlers launch an expedition to found a new city!
+    // Autonomous Frontier Colonization from this kingdom's food stock
     const isAtMaxCitySize = villageBuildings.length >= maxCityBuildings;
     const isLargeAndCrowded =
       villageBuildings.length >= Math.min(maxCityBuildings, 6) &&
       villageUnits.length >= Math.max(7, Math.floor(villagePopCap * 0.65));
-    const sidKingdomId = getKingdomId(state, sid);
     const hasExpeditionInProgress = activeCivs.some(
       (u) => u.expeditionTargetX !== undefined && u.kingdomId === sidKingdomId,
     );
+    const activeStock = ensureKingdomResources(state, sidKingdomId);
 
     if (
       hasCompletedHearth &&
@@ -4524,7 +4946,7 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
       villageUnits.length >= 5 &&
       settlementIds.length < MAX_WORLD_CITIES &&
       !hasExpeditionInProgress &&
-      (state.sandboxFreeMode || state.resources.food >= 30)
+      (state.sandboxFreeMode || activeStock.food >= 55)
     ) {
       const frontier = findNewCitySite(state, villageAnchor.x, villageAnchor.z);
       if (frontier) {
@@ -4541,12 +4963,11 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
         const maxColonistsToSend = Math.min(2, Math.max(0, villageUnits.length - 3));
         if (maxColonistsToSend > 0 && colonistPool.length >= maxColonistsToSend) {
           if (!state.sandboxFreeMode) {
-            state.resources.food = Math.max(0, state.resources.food - 25);
+            activeStock.food = Math.max(0, activeStock.food - 40);
           }
-          const parentKingdomId = getKingdomId(state, sid);
           for (let c = 0; c < maxColonistsToSend; c++) {
             const col = colonistPool[c];
-            col.kingdomId = parentKingdomId;
+            col.kingdomId = sidKingdomId;
             col.settlementId = undefined;
             col.expeditionTargetX = frontier.x;
             col.expeditionTargetZ = frontier.z;
@@ -4565,11 +4986,10 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
       }
     }
 
-    // Era-based Environment Transformation around THIS village
     transformSettlementEnvironment(state, villageAnchor, villageBuildings);
   }
 
-  // Ensure every active kingdom/settlement has 1 living King marked on the map
+  syncStateResourcesFromKingdoms(state);
   ensureSettlementKings(state);
 }
 
@@ -4593,8 +5013,19 @@ function stepSimulationSingle(
 ): void {
   if (dt <= 0) return;
 
+  reconcileAndSyncResources(state);
+
   if (!options?.skipDragStep) {
     stepDraggedUnitKinematics(state, dt);
+  }
+
+  // Decrement per-kingdom ultimate weapon cooldowns
+  if (state.kingdomUltimateCooldowns) {
+    for (const kid of Object.keys(state.kingdomUltimateCooldowns)) {
+      if (state.kingdomUltimateCooldowns[kid] > 0) {
+        state.kingdomUltimateCooldowns[kid] = Math.max(0, state.kingdomUltimateCooldowns[kid] - dt);
+      }
+    }
   }
 
   // 1. Advance historical year at 1 year per second on 1x speed (scales directly with speed multiplier)
@@ -4621,11 +5052,24 @@ function stepSimulationSingle(
     state.harvestWindowTimer = 0;
   }
 
-  // 3. Accumulate passive completed-building production & apply population food upkeep
+  // 3. Accumulate passive completed-building production into each kingdom's own stockpile & apply food upkeep
   recalculateRatesAndCaps(state);
-  const passiveRates = emptyResources();
-  passiveRates.faith = 2;
-  const paceMult = state.sandboxFreeMode ? 1.0 : 0.62;
+  const paceMult = state.sandboxFreeMode ? 1.0 : 0.34;
+  const goldenMult = state.goldenAgeTimer > 0 ? 2 : 1;
+
+  if (!state.unallocatedResources) state.unallocatedResources = emptyResources();
+  state.unallocatedResources.faith += 2 * goldenMult * dt;
+
+  const prodByKid = new Map<string, Resources>();
+  const ensureProd = (kid: string) => {
+    let p = prodByKid.get(kid);
+    if (!p) {
+      p = emptyResources();
+      prodByKid.set(kid, p);
+    }
+    return p;
+  };
+
   for (const b of state.buildings) {
     if (b.constructionProgress < 100) continue;
     const def = BUILDING_BY_TYPE.get(b.type);
@@ -4633,6 +5077,9 @@ function stepSimulationSingle(
     const blessMult = b.blessedTimer > 0 ? 1.75 : b.cursedTimer > 0 ? 0.5 : 1.0;
     const epochMult = 1 + Math.min(4, state.epochIndex) * 0.1;
     const bSpecies: SpeciesId = b.species ?? (b.settlementId ? state.settlementSpecies?.[b.settlementId] : undefined) ?? 'human';
+    const bKid = b.settlementId ? getKingdomId(state, b.settlementId) : 'unowned';
+    const pRec = bKid !== 'unowned' ? ensureProd(bKid) : null;
+
     for (const [k, v] of Object.entries(def.productionPerSec)) {
       const key = k as keyof Resources;
       let spMult = 1.0;
@@ -4646,15 +5093,36 @@ function stepSimulationSingle(
         else if (key === 'alloy') spMult = 0.5;
         else if (key === 'food' || key === 'ore') spMult = 1.15;
       }
-      passiveRates[key] += (v ?? 0) * blessMult * epochMult * spMult * paceMult;
+      const addVal = (v ?? 0) * blessMult * epochMult * spMult * paceMult * goldenMult * dt;
+      if (pRec && key !== 'faith') pRec[key] += addVal;
+      else if (key === 'faith') state.unallocatedResources.faith += addVal;
     }
   }
-  const foodUpkeep = state.population > 4 ? (state.population - 4) * 0.18 : 0;
-  passiveRates.food = Math.max(-foodUpkeep, passiveRates.food - foodUpkeep);
-  const goldenMult = state.goldenAgeTimer > 0 ? 2 : 1;
-  for (const k of Object.keys(passiveRates) as (keyof Resources)[]) {
-    state.resources[k] = Math.max(0, state.resources[k] + passiveRates[k] * goldenMult * dt);
+
+  const popByKid = new Map<string, number>();
+  for (const u of state.units) {
+    if (u.faction === 'civilization' && u.state !== 'ko' && u.hp > 0) {
+      const ukid = u.settlementId ? getKingdomId(state, u.settlementId) : u.kingdomId;
+      if (ukid) popByKid.set(ukid, (popByKid.get(ukid) ?? 0) + 1);
+    }
   }
+
+  const allStockKids = new Set<string>([...prodByKid.keys(), ...popByKid.keys()]);
+  for (const kid of allStockKids) {
+    const stock = ensureKingdomResources(state, kid);
+    const prod = prodByKid.get(kid);
+    if (prod) {
+      for (const k of RESOURCE_KEYS) {
+        if (k !== 'faith') stock[k] += prod[k];
+      }
+    }
+    const kPop = popByKid.get(kid) ?? 0;
+    if (kPop > 4) {
+      const kUpkeep = (kPop - 4) * 0.18 * goldenMult * dt;
+      stock.food = Math.max(0, stock.food - kUpkeep);
+    }
+  }
+  syncStateResourcesFromKingdoms(state);
 
   // 4. Autonomous Civilization Planner, Raider Waves & Wild Ecology Seeding
   if (!state.wildlifeSeeded) {
@@ -5367,7 +5835,7 @@ function stepSimulationSingle(
             : state.sandboxFreeMode
               ? 0.65
               : 0.28;
-      const baseRate = state.sandboxFreeMode ? 16 + epochGap * 9 : (6.5 + epochGap * 3.5) * (b.epochLevel >= 5 ? 0.55 : 1.0);
+      const baseRate = state.sandboxFreeMode ? 16 + epochGap * 6 : (3.4 + epochGap * 2.0) * (b.epochLevel >= 5 ? 0.55 : 1.0);
       const passiveUpgradeRate = baseRate * (0.82 + idOffset) * blessBoost * speciesUpgradeMult;
       b.upgradeProgress = (b.upgradeProgress ?? 0) + passiveUpgradeRate * dt;
       if (b.upgradeProgress >= 100) {
@@ -6699,13 +7167,20 @@ function stepVehicles(state: SimulationState, dt: number): void {
                       : 'bullet'
                     : 'cannon_shell';
 
-        // Evolved Atomic+ Bombers & Orbital Gunships deliver miniature tactical warhead / plasma strikes in combat
+        // Evolved Atomic+ Bombers & Orbital Gunships deliver tactical payloads only when kingdom ultimate cooldown is ready against tough targets
+        const kUltReady = !myKid || (state.kingdomUltimateCooldowns?.[myKid] ?? 0) <= 0;
+        const isHighValueTarget = targetBld !== null || (targetUnit !== null && (targetUnit.maxHp >= 180 || targetUnit.isKing));
         const isStrategicPayload =
+          kUltReady &&
+          isHighValueTarget &&
           (v.type === 'bomber_plane' || v.type === 'orbital_gunship') &&
-          state.epochIndex >= 4 &&
-          Math.floor(state.year * 10 + v.variantSeed) % 3 === 0;
+          state.epochIndex >= 4;
 
         if (isStrategicPayload) {
+          if (myKid) {
+            if (!state.kingdomUltimateCooldowns) state.kingdomUltimateCooldowns = {};
+            state.kingdomUltimateCooldowns[myKid] = 42.0;
+          }
           const splashDmg = dmg * 1.9;
           if (v.type === 'bomber_plane') {
             // Also drop a visible falling bomb into target just before detonation
@@ -6903,10 +7378,14 @@ function applySuperweaponEnvironmentImpact(
           }
         }
       } else {
-        // Orc Battlewill tectonic cleave trench
-        if (d >= 1.4 && d <= radius * 0.72) {
-          t.height = Math.max(1, t.height - (d <= radius * 0.52 ? 2 : 1));
-          t.terrain = (t.x + t.z) % 2 === 0 ? 'scorched' : 'badlands';
+        // Orc Battlewill titanic sword cleave: splits towering mountains and carves rocky badland ravines
+        const slashStep = Math.max(2, Math.round(t.height * 0.55));
+        if (d <= radius * 0.55) {
+          t.height = Math.max(1, t.height >= 6 ? t.height - slashStep : t.height - 2);
+          t.terrain = (t.x + t.z) % 2 === 0 ? 'badlands' : 'scorched';
+        } else if (d <= radius * 0.85) {
+          t.height = Math.max(1, t.height - (t.height >= 6 ? 3 : 1));
+          t.terrain = (t.x + t.z) % 2 === 0 ? 'rock' : 'badlands';
         } else if (!t.buildingId) {
           t.terrain = (t.x * 7 + t.z * 5) % 3 === 0 ? 'rock' : 'scorched';
         }
@@ -8491,26 +8970,65 @@ function stepCivilianUnitAI(
         const targetY = (enemyTile?.height ?? 2) * 0.45 + 0.35;
 
         // Rivaling Racial Ultimate Weapons / Techniques:
-        // 1. Human Nuke Bomb (Atomic Age+ Epoch 4+)
-        // 2. Elf Arcane Cataclysm (Atomic Age+ Epoch 4+)
-        // 3. Orc Battlewill Wide Greatsword Slash (Battlewill active + weaponCooldown <= 0)
+        // Shared kingdom-wide ultimate cooldown (40s) + worthy-threat escalation prevents spam nuking lone soldiers!
+        const kUltReady = !myKingdomId || (state.kingdomUltimateCooldowns?.[myKingdomId] ?? 0) <= 0;
+        let nearbyEnemies = 0;
+        if (kUltReady && (u.weaponCooldown ?? 0) <= 0) {
+          for (const ce of state.units) {
+            if (ce.state === 'ko' || ce.hp <= 0) continue;
+            const ceKid =
+              ce.faction === 'civilization'
+                ? ce.settlementId
+                  ? getKingdomId(state, ce.settlementId)
+                  : ce.kingdomId
+                : undefined;
+            if (myKingdomId && ceKid === myKingdomId) continue;
+            if (
+              ce.faction === 'hostile' ||
+              ce.isKing ||
+              (myKingdomId && ceKid && areKingdomsAtWar(state, myKingdomId, ceKid))
+            ) {
+              if ((ce.x - nearestEnemy.x) ** 2 + (ce.z - nearestEnemy.z) ** 2 <= 25) {
+                nearbyEnemies++;
+                if (nearbyEnemies >= 3) break;
+              }
+            }
+          }
+        }
+        const worthyUltThreat =
+          nearestEnemy.maxHp >= 180 ||
+          Boolean(nearestEnemy.isKing) ||
+          nearestEnemy.faction === 'hostile' ||
+          (nearestEnemy.battlewillActive ?? 0) > 0 ||
+          nearbyEnemies >= 3;
+
         const triggerHumanNuke =
+          kUltReady &&
+          worthyUltThreat &&
           u.species === 'human' &&
           myEpoch >= 4 &&
           (u.weaponCooldown ?? 0) <= 0 &&
           (u.role === 'warrior' || u.isKing || dist > 2.2);
         const triggerElfCataclysm =
+          kUltReady &&
+          worthyUltThreat &&
           u.species === 'elf' &&
           myEpoch >= 4 &&
           (u.weaponCooldown ?? 0) <= 0 &&
           (u.role === 'warrior' || u.role === 'priest' || u.isKing || dist > 2.2);
         const triggerOrcBattlewillSlash =
+          kUltReady &&
+          worthyUltThreat &&
           u.species === 'orc' &&
           (u.battlewillActive ?? 0) > 0 &&
           (u.weaponCooldown ?? 0) <= 0;
 
         if (triggerHumanNuke) {
-          u.weaponCooldown = 13.0;
+          u.weaponCooldown = 18.0;
+          if (myKingdomId) {
+            if (!state.kingdomUltimateCooldowns) state.kingdomUltimateCooldowns = {};
+            state.kingdomUltimateCooldowns[myKingdomId] = 40.0;
+          }
           const blastRadius = 6.8;
           const blastDmg = Math.max(240, baseDmg * 5.8);
           state.pendingVfx.push({
@@ -8577,7 +9095,11 @@ function stepCivilianUnitAI(
             }
           }
         } else if (triggerElfCataclysm) {
-          u.weaponCooldown = 13.0;
+          u.weaponCooldown = 18.0;
+          if (myKingdomId) {
+            if (!state.kingdomUltimateCooldowns) state.kingdomUltimateCooldowns = {};
+            state.kingdomUltimateCooldowns[myKingdomId] = 40.0;
+          }
           const cataclysmRadius = 6.5;
           const arcaneDmg = Math.max(240, baseDmg * 5.8);
           state.pendingVfx.push({
@@ -8652,11 +9174,15 @@ function stepCivilianUnitAI(
             }
           }
         } else if (triggerOrcBattlewillSlash) {
-          u.weaponCooldown = 11.0;
-          u.battlewillSlashTimer = 0.75;
+          u.weaponCooldown = 16.0;
+          if (myKingdomId) {
+            if (!state.kingdomUltimateCooldowns) state.kingdomUltimateCooldowns = {};
+            state.kingdomUltimateCooldowns[myKingdomId] = 40.0;
+          }
+          u.battlewillSlashTimer = 0.85;
           const slashHeading = Math.atan2(nearestEnemy.x - u.x, nearestEnemy.z - u.z);
           u.battlewillHeading = slashHeading;
-          const cleaveRadius = 6.4;
+          const cleaveRadius = 8.4;
           const cleaveDmg = Math.max(240, baseDmg * 5.8);
           state.pendingVfx.push({
             id: nextEntityId('vfx'),
@@ -8672,7 +9198,7 @@ function stepCivilianUnitAI(
             color: '#ff3b30',
             createdAt: Date.now(),
           });
-          applySuperweaponEnvironmentImpact(state, u.x, u.z, 6.2, 'battlewill', slashHeading);
+          applySuperweaponEnvironmentImpact(state, u.x, u.z, 8.2, 'battlewill', slashHeading);
           for (const candidate of state.units) {
             if (candidate.state === 'ko' || candidate.hp <= 0 || candidate.statusEffects.shielded) continue;
             if (candidate.ageStage === 'child' && candidate.id !== nearestEnemy.id) continue;
@@ -8685,7 +9211,7 @@ function stepCivilianUnitAI(
             if (candidate.id === u.id || (myKingdomId && cKid === myKingdomId)) continue;
             const candDist = Math.hypot(candidate.x - u.x, candidate.z - u.z);
             const candAngDiff = Math.abs(wrapAngleRad(Math.atan2(candidate.x - u.x, candidate.z - u.z) - slashHeading));
-            const inSlash = candDist <= 4.0 || (candDist <= cleaveRadius && candAngDiff <= 1.3);
+            const inSlash = candDist <= 4.4 || (candDist <= cleaveRadius && candAngDiff <= 1.32);
             if (inSlash) {
               candidate.hp -= cleaveDmg;
               candidate.lastAttackerId = u.id;
@@ -8716,7 +9242,7 @@ function stepCivilianUnitAI(
             if (myKingdomId && bKid === myKingdomId) continue;
             const bDist = Math.hypot(b.tileX - u.x, b.tileZ - u.z);
             const bAngDiff = Math.abs(wrapAngleRad(Math.atan2(b.tileX - u.x, b.tileZ - u.z) - slashHeading));
-            if (bDist <= 3.6 || (bDist <= 5.8 && bAngDiff <= 1.28)) {
+            if (bDist <= 4.0 || (bDist <= 7.8 && bAngDiff <= 1.3)) {
               if (b.shieldTimer > 0) {
                 if (bDist <= 3.2) b.shieldTimer = 0;
                 else continue;
@@ -8725,35 +9251,78 @@ function stepCivilianUnitAI(
             }
           }
         } else {
-          // Standard racial weapon / gun / magic bolt / barbaric axe strike
-          if (hasHumanGuns || hasElfGuns || u.species === 'elf') {
-            if (u.species === 'elf' && !u.statusEffects.shielded && hasElfArcaneTech && Math.random() < 0.28) {
+          // Multi-weapon Racial Arsenals across epochs so troops use rifles, launchers, spells & axes instead of ultimate spam
+          const shotCycle = Math.abs(indivHash + Math.floor(state.year * 25 + (u.kills ?? 0)));
+          let isRangedShot = false;
+          let weaponSubtype: VisualEffectEvent['vfxSubtype'] = 'bullet';
+          let weaponColor = '#ffd166';
+          let weaponSplash = 0;
+
+          if (u.species === 'elf') {
+            if (u.statusEffects && !u.statusEffects.shielded && hasElfArcaneTech && shotCycle % 4 === 0) {
               u.statusEffects.shielded = 4.0;
             }
-            const unitVfxSubtype: VisualEffectEvent['vfxSubtype'] =
-              state.epochIndex >= 6 && (hasHumanGuns || hasElfGuns)
-                ? 'plasma_beam'
-                : u.species === 'elf'
-                  ? 'arcane_bolt'
-                  : 'bullet';
+            isRangedShot = myEpoch >= 1 || dist > 1.5;
+            if (myEpoch >= 6) {
+              weaponSubtype = shotCycle % 3 === 0 ? 'plasma_beam' : shotCycle % 3 === 1 ? 'arcane_bolt' : 'missile';
+              weaponColor = weaponSubtype === 'plasma_beam' ? '#56cfe1' : '#e879f9';
+              weaponSplash = weaponSubtype === 'missile' ? 1.8 : 0;
+            } else if (myEpoch >= 4) {
+              weaponSubtype = shotCycle % 4 === 0 ? 'missile' : shotCycle % 4 === 1 ? 'plasma_beam' : 'arcane_bolt';
+              weaponColor = weaponSubtype === 'plasma_beam' ? '#38bdf8' : '#c084fc';
+              weaponSplash = weaponSubtype === 'missile' ? 1.6 : 0;
+            } else {
+              weaponSubtype = shotCycle % 4 === 0 && myEpoch >= 2 ? 'cannon_shell' : 'arcane_bolt';
+              weaponColor = hasElfArcaneTech ? '#5eead4' : '#c084fc';
+            }
+          } else if (u.species === 'human') {
+            isRangedShot = hasHumanGuns || (myEpoch >= 1 && dist > 1.6);
+            if (myEpoch >= 6) {
+              weaponSubtype = shotCycle % 3 === 0 ? 'plasma_beam' : shotCycle % 3 === 1 ? 'missile' : 'cannon_shell';
+              weaponColor = weaponSubtype === 'plasma_beam' ? '#56cfe1' : '#38bdf8';
+              weaponSplash = weaponSubtype !== 'plasma_beam' ? 1.8 : 0;
+            } else if (myEpoch >= 4) {
+              weaponSubtype = shotCycle % 4 === 0 ? 'missile' : shotCycle % 4 === 1 ? 'cannon_shell' : 'bullet';
+              weaponColor = weaponSubtype === 'missile' ? '#ff6b35' : '#ffd166';
+              weaponSplash = weaponSubtype !== 'bullet' ? 1.7 : 0;
+            } else if (hasHumanGuns) {
+              weaponSubtype = shotCycle % 4 === 0 ? 'cannon_shell' : 'bullet';
+              weaponColor = '#ffd166';
+              weaponSplash = weaponSubtype === 'cannon_shell' ? 1.4 : 0;
+            } else {
+              weaponSubtype = 'bullet';
+              weaponColor = '#fca311';
+            }
+          } else {
+            // Orc arsenal: Iron axes/cleavers early -> Dakka cannons, flak shells & iron rockets later
+            isRangedShot = myEpoch >= 3 || (myEpoch >= 2 && dist > 2.2);
+            if (myEpoch >= 5) {
+              weaponSubtype = shotCycle % 3 === 0 ? 'missile' : shotCycle % 3 === 1 ? 'cannon_shell' : 'plasma_beam';
+              weaponColor = '#ff5400';
+              weaponSplash = 1.9;
+            } else if (myEpoch >= 3) {
+              weaponSubtype = shotCycle % 3 === 0 ? 'missile' : shotCycle % 3 === 1 ? 'cannon_shell' : 'bullet';
+              weaponColor = '#ff4d4d';
+              weaponSplash = weaponSubtype !== 'bullet' ? 1.65 : 0;
+            } else {
+              weaponSubtype = 'cannon_shell';
+              weaponColor = '#ff3b30';
+            }
+          }
+
+          if (isRangedShot) {
             state.pendingVfx.push({
               id: nextEntityId('vfx'),
-              type: hasHumanGuns || hasElfGuns || (u.species === 'elf' && state.epochIndex >= 2) ? 'projectile_tracer' : 'hit_spark',
-              vfxSubtype: unitVfxSubtype,
+              type: 'projectile_tracer',
+              vfxSubtype: weaponSubtype,
               x: nearestEnemy.x,
               y: targetY,
               z: nearestEnemy.z,
               originX: u.x,
               originY,
               originZ: u.z,
-              radius: hasHumanGuns || hasElfGuns ? 0.95 : 0.82,
-              color: hasHumanGuns
-                ? state.epochIndex >= 6
-                  ? '#56cfe1'
-                  : '#ffd166'
-                : hasElfArcaneTech
-                  ? '#56cfe1'
-                  : '#c084fc',
+              radius: weaponSplash > 0 ? 1.35 : 0.92,
+              color: weaponColor,
               createdAt: Date.now(),
             });
           } else {
@@ -8763,17 +9332,39 @@ function stepCivilianUnitAI(
               x: nearestEnemy.x,
               y: targetY,
               z: nearestEnemy.z,
-              radius: (u.battlewillActive ?? 0) > 0 ? 1.2 : 0.7,
-              color: u.species === 'orc' ? '#ff4d4d' : '#fca311',
+              radius: (u.battlewillActive ?? 0) > 0 ? 1.35 : 0.85,
+              color: u.species === 'orc' ? '#ff4d4d' : u.species === 'elf' ? '#5eead4' : '#fca311',
               createdAt: Date.now(),
             });
           }
-          const strikeDmg = baseDmg * ((u.battlewillActive ?? 0) > 0 ? 1.5 : 1.0);
+
+          const strikeDmg =
+            baseDmg *
+            ((u.battlewillActive ?? 0) > 0 ? 1.55 : 1.0) *
+            (weaponSplash > 0 ? 1.18 : 1.0);
           nearestEnemy.hp -= strikeDmg;
           nearestEnemy.lastAttackerId = u.id;
           nearestEnemy.underAttackTimer = 8.0;
           if (nearestEnemy.hp <= 0) {
             u.kills = (u.kills ?? 0) + 1;
+          }
+          if (weaponSplash > 0) {
+            for (const cand of state.units) {
+              if (cand.id === nearestEnemy.id || cand.id === u.id || cand.state === 'ko' || cand.hp <= 0) continue;
+              const cKid =
+                cand.faction === 'civilization'
+                  ? cand.settlementId
+                    ? getKingdomId(state, cand.settlementId)
+                    : cand.kingdomId
+                  : undefined;
+              if (myKingdomId && cKid === myKingdomId) continue;
+              if (Math.hypot(cand.x - nearestEnemy.x, cand.z - nearestEnemy.z) <= weaponSplash) {
+                cand.hp -= strikeDmg * 0.42;
+                cand.lastAttackerId = u.id;
+                cand.underAttackTimer = 6.0;
+                if (cand.hp <= 0) u.kills = (u.kills ?? 0) + 1;
+              }
+            }
           }
         }
       }
@@ -8992,17 +9583,17 @@ function stepCivilianUnitAI(
       u.state = 'building';
       const speciesBuildBase =
         u.species === 'human'
-          ? 25
+          ? 11
           : u.species === 'elf'
-            ? 16
+            ? 8
             : state.sandboxFreeMode
-              ? 14
-              : 8.5;
+              ? 12
+              : 5.5;
       const buildSpeed =
-        (u.role === 'builder' ? 28 : speciesBuildBase) *
+        (u.role === 'builder' ? 13 : speciesBuildBase) *
         (u.statusEffects.blessed ? 1.6 : 1.0);
       unfinished.constructionProgress = Math.min(100, unfinished.constructionProgress + buildSpeed * dt);
-      unfinished.hp = Math.min(unfinished.maxHp, unfinished.hp + 20 * dt);
+      unfinished.hp = Math.min(unfinished.maxHp, unfinished.hp + 14 * dt);
       if (unfinished.constructionProgress >= 100) {
         const bDef = BUILDINGS.find((d) => d.type === unfinished.type);
         const tile = getTile(state, unfinished.tileX, unfinished.tileZ);
@@ -9058,13 +9649,15 @@ function stepCivilianUnitAI(
       u.z += (dz / dist) * moveSpeed * dt;
     } else {
       u.state = 'building';
-      const speciesUpgMult = u.species === 'human' ? 1.25 : u.species === 'elf' ? 0.85 : 0.35;
-      const upgSpeed = (u.role === 'builder' ? 28 : 18) * speciesUpgMult * (u.statusEffects.blessed ? 1.6 : 1.0);
+      const speciesUpgMult = u.species === 'human' ? 1.2 : u.species === 'elf' ? 0.8 : 0.35;
+      const upgSpeed = (u.role === 'builder' ? 13 : 9) * speciesUpgMult * (u.statusEffects.blessed ? 1.5 : 1.0);
       upgradeTarget.upgradeProgress = (upgradeTarget.upgradeProgress ?? 0) + upgSpeed * dt;
-      upgradeTarget.hp = Math.min(upgradeTarget.maxHp, upgradeTarget.hp + 15 * dt);
+      upgradeTarget.hp = Math.min(upgradeTarget.maxHp, upgradeTarget.hp + 12 * dt);
     }
     return;
   }
+
+  const depositKid = myKingdomId ?? u.kingdomId;
 
   // 4. Hauling harvested resources back to OWN settlement storage
   const carryCap = u.role === 'forager' || u.role === 'miner' ? 12 : 8;
@@ -9083,7 +9676,7 @@ function stepCivilianUnitAI(
         u.x += (dx / dist) * moveSpeed * dt;
         u.z += (dz / dist) * moveSpeed * dt;
       } else {
-        recordHarvestDeposit(state, u.carryingType, u.carryingAmount);
+        recordHarvestDeposit(state, u.carryingType, u.carryingAmount, depositKid);
         u.carryingAmount = 0;
         u.carryingType = null;
         u.actionCooldown = 0.25 + (indivHash % 5) * 0.1;
@@ -9118,18 +9711,18 @@ function stepCivilianUnitAI(
         u.z += (dz / dist) * moveSpeed * dt;
       } else {
         u.state = u.role === 'priest' ? 'praying' : 'researching';
-        const researchPace = u.species === 'human' ? 1.3 : u.species === 'elf' ? 1.1 : 0.38;
+        const researchPace = u.species === 'human' ? 1.15 : u.species === 'elf' ? 1.0 : 0.35;
         u.harvestTimer = (u.harvestTimer ?? 0) + dt * researchPace * (u.statusEffects.blessed ? 1.7 : 1.0);
         if (u.harvestTimer >= 1.2) {
           u.harvestTimer -= 1.2;
           if (u.role === 'priest') {
-            recordHarvestDeposit(state, 'faith', u.species === 'elf' ? 3.6 : 2.6);
+            recordHarvestDeposit(state, 'faith', u.species === 'elf' ? 3.2 : 2.2, depositKid);
           } else if (u.role === 'scholar') {
-            recordHarvestDeposit(state, 'knowledge', 2.8 + state.epochIndex * 0.8);
+            recordHarvestDeposit(state, 'knowledge', 2.4 + state.epochIndex * 0.7, depositKid);
           } else {
-            recordHarvestDeposit(state, 'energy', 3.2);
-            recordHarvestDeposit(state, 'alloy', 2.0);
-            recordHarvestDeposit(state, 'knowledge', 1.8);
+            recordHarvestDeposit(state, 'energy', 2.8, depositKid);
+            recordHarvestDeposit(state, 'alloy', 1.8, depositKid);
+            recordHarvestDeposit(state, 'knowledge', 1.5, depositKid);
           }
         }
       }
@@ -9193,7 +9786,7 @@ function stepCivilianUnitAI(
           u.carryingAmount += take;
         } else {
           // Deposit previous small bundle automatically if switching node type
-          recordHarvestDeposit(state, u.carryingType, u.carryingAmount);
+          recordHarvestDeposit(state, u.carryingType, u.carryingAmount, depositKid);
           u.carryingType = yieldType;
           u.carryingAmount = take;
         }
@@ -9270,23 +9863,24 @@ function stepCivilianUnitAI(
       }
     }
 
+    const kStock = depositKid ? ensureKingdomResources(state, depositKid) : state.resources;
     let preferred: TileData['resourceNode'][];
     if (u.role === 'forager') {
       preferred =
-        state.resources.food <= state.resources.wood
+        kStock.food <= kStock.wood
           ? ['berry_bush', 'timber_grove']
           : ['timber_grove', 'berry_bush'];
     } else if (u.role === 'miner') {
       preferred =
-        state.resources.ore < state.resources.stone
+        kStock.ore < kStock.stone
           ? ['ore_vein', 'stone_outcrop', 'crystal_monolith']
           : ['stone_outcrop', 'ore_vein', 'crystal_monolith'];
     } else {
       // Give each individual their own vocational preference (Forester, Forager, Quarrier, Prospector, or Balanced)
       const vocation = indivHash % 5;
-      if (state.resources.food < 15) {
+      if (kStock.food < 20) {
         preferred = ['berry_bush', 'timber_grove', 'stone_outcrop', 'ore_vein'];
-      } else if (state.resources.wood < 15 || villageBuildings.length <= 1) {
+      } else if (kStock.wood < 25 || villageBuildings.length <= 1) {
         preferred = ['timber_grove', 'berry_bush', 'stone_outcrop', 'ore_vein'];
       } else if (vocation === 0) {
         preferred = ['timber_grove', 'berry_bush', 'stone_outcrop', 'ore_vein'];
@@ -9298,10 +9892,10 @@ function stepCivilianUnitAI(
         preferred = ['ore_vein', 'stone_outcrop', 'crystal_monolith', 'timber_grove', 'berry_bush'];
       } else {
         const pairs: [TileData['resourceNode'], number][] = [
-          ['berry_bush', state.resources.food],
-          ['timber_grove', state.resources.wood],
-          ['stone_outcrop', state.resources.stone],
-          ['ore_vein', state.resources.ore + (state.epochIndex === 0 ? 40 : 0)],
+          ['berry_bush', kStock.food],
+          ['timber_grove', kStock.wood],
+          ['stone_outcrop', kStock.stone],
+          ['ore_vein', kStock.ore + (state.epochIndex === 0 ? 40 : 0)],
         ];
         pairs.sort((a, b) => a[1] - b[1]);
         preferred = pairs.map((p) => p[0]);

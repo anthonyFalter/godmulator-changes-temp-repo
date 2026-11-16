@@ -765,6 +765,7 @@ test('city farming fields are strictly capped at 200% of parent city size and ne
   const state = createInitialSimulationState(128, 'FARM-CAP-200');
   state.sandboxFreeMode = true;
   state.autoBuildEnabled = false;
+  if (state.worldRules) state.worldRules.allowRebellion = false;
   state.resources.food = 1000;
 
   const cx = 64;
@@ -2406,6 +2407,7 @@ test('kingdoms maintain strictly 1 King across all branched-out zones', () => {
   const state = createInitialSimulationState(128, 'SINGLE-KING-BRANCH');
   state.sandboxFreeMode = true;
   state.wildlifeSeeded = true;
+  state.worldRules = { ...state.worldRules!, allowRebellion: false };
   state.resources.food = 5000;
   state.resources.wood = 5000;
   state.resources.stone = 5000;
@@ -3075,6 +3077,7 @@ test('War Update: universal self-defense + rivaling racial weapons (Human Nuke, 
   // Elf Arcane Cataclysm
   state.units = [];
   state.pendingVfx = [];
+  state.kingdomUltimateCooldowns = {};
   const eMage = spawnUnit(state, 'elf', 42, 48, true).unit!;
   eMage.settlementId = sIds[0];
   eMage.weaponCooldown = 0;
@@ -3577,3 +3580,237 @@ test('War Update Model & VFX Overhaul: fixed-wing planes never hover, helicopter
     'War update combat must emit rich vfxSubtype events',
   );
 });
+
+test('Racial ultimate cooldown stops spam & Orc Battlewill cleaves mountains', () => {
+  const state = createInitialSimulationState(96, 'ULT-COOLDOWN-TEST');
+  state.sandboxFreeMode = true;
+  state.wildlifeSeeded = true;
+  state.epochIndex = 4; // Atomic Age
+  for (let z = 12; z <= 84; z++) {
+    for (let x = 12; x <= 84; x++) {
+      const t = getTile(state, x, z)!;
+      t.height = 2;
+      t.terrain = 'grass';
+      t.resourceNode = 'none';
+      t.buildingId = null;
+    }
+  }
+  placeBuilding(state, 'bonfire', 20, 44);
+  placeBuilding(state, 'bonfire', 70, 44);
+  const sIds = Array.from(new Set(state.buildings.map((b) => b.settlementId!)));
+  setKingdomRelation(state, sIds[0], sIds[1], 'war');
+
+  // 1. Weak lone foot soldier (90 HP, not a King) must NOT trigger a nuke
+  const hKing = spawnUnit(state, 'human', 20, 44, true).unit!;
+  hKing.settlementId = sIds[0];
+  hKing.isKing = true;
+  const oKing = spawnUnit(state, 'orc', 70, 44, true).unit!;
+  oKing.settlementId = sIds[1];
+  oKing.isKing = true;
+  const hSoldier = spawnUnit(state, 'human', 42, 44, true).unit!;
+  hSoldier.settlementId = sIds[0];
+  hSoldier.isKing = false;
+  hSoldier.weaponCooldown = 0;
+  const weakEnemy = spawnUnit(state, 'orc', 45, 44, true).unit!;
+  weakEnemy.settlementId = sIds[1];
+  weakEnemy.isKing = false;
+  weakEnemy.hp = 90;
+  weakEnemy.maxHp = 90;
+
+  for (let i = 0; i < 6; i++) stepSimulation(state, 0.1);
+  assert.equal(
+    state.pendingVfx.some((v) => v.type === 'nuke_blast'),
+    false,
+    'Human must not waste a Nuke on a single weak non-boss enemy',
+  );
+  assert.ok(
+    state.pendingVfx.some((v) => v.type === 'projectile_tracer'),
+    'Standard enemy should be engaged with regular weapon arsenal projectiles',
+  );
+
+  // 2. Boss enemy triggers Nuke once, putting the whole kingdom on cooldown against a 2nd boss
+  state.pendingVfx = [];
+  const bossA = spawnUnit(state, 'orc', 45.2, 44, true).unit!;
+  bossA.settlementId = sIds[1];
+  bossA.hp = 600;
+  bossA.maxHp = 600;
+  hSoldier.weaponCooldown = 0;
+  for (let i = 0; i < 6; i++) stepSimulation(state, 0.1);
+  const nukeCount1 = state.pendingVfx.filter((v) => v.type === 'nuke_blast').length;
+  assert.equal(nukeCount1, 1, 'First worthy boss threat triggers 1 Nuke');
+  assert.ok(
+    (state.kingdomUltimateCooldowns?.[getKingdomId(state, sIds[0])] ?? 0) > 25,
+    'Launching racial ultimate must apply shared kingdom-wide cooldown',
+  );
+
+  // Second human ally attacks another 600 HP boss immediately -> blocked by kingdom cooldown!
+  state.pendingVfx = [];
+  const hAlly = spawnUnit(state, 'human', 42, 50, true).unit!;
+  hAlly.settlementId = sIds[0];
+  hAlly.weaponCooldown = 0;
+  const bossB = spawnUnit(state, 'orc', 45, 50, true).unit!;
+  bossB.settlementId = sIds[1];
+  bossB.hp = 600;
+  bossB.maxHp = 600;
+  for (let i = 0; i < 6; i++) stepSimulation(state, 0.1);
+  assert.equal(
+    state.pendingVfx.some((v) => v.type === 'nuke_blast'),
+    false,
+    'Second unit in same kingdom must not spam Nuke while kingdom cooldown is active',
+  );
+
+  // 3. Orc Battlewill cleaves steep mountain tiles in its wide path
+  state.units = [];
+  state.pendingVfx = [];
+  state.kingdomUltimateCooldowns = {};
+  const peakTile = getTile(state, 46, 56)!;
+  peakTile.height = 6;
+  peakTile.terrain = 'mountain';
+  const orcWarlord = spawnUnit(state, 'orc', 42, 56, true).unit!;
+  orcWarlord.settlementId = sIds[1];
+  orcWarlord.battlewillCooldown = 0;
+  orcWarlord.weaponCooldown = 0;
+  const targetOnPeak = spawnUnit(state, 'human', 46, 56, true).unit!;
+  targetOnPeak.settlementId = sIds[0];
+  targetOnPeak.hp = 700;
+  targetOnPeak.maxHp = 700;
+  for (let i = 0; i < 6; i++) stepSimulation(state, 0.1);
+  assert.ok(peakTile.height < 6, `Orc Battlewill must cleave mountain height downward (got ${peakTile.height})`);
+});
+
+test('Gather-before-build pacing, per-kingdom stockpiles, and zone inspect resources work end-to-end', () => {
+  const state = createInitialSimulationState(96, 'GATHER-STOCKPILE-TEST');
+  state.sandboxFreeMode = false;
+  state.wildlifeSeeded = true;
+  state.resources = { wood: 0, stone: 0, food: 0, ore: 0, knowledge: 0, energy: 0, alloy: 0, faith: 0 };
+  for (let z = 20; z <= 70; z++) {
+    for (let x = 20; x <= 70; x++) {
+      const t = getTile(state, x, z)!;
+      t.height = 2;
+      t.terrain = 'grass';
+      t.resourceNode = 'none';
+      t.buildingId = null;
+    }
+  }
+  // Place harvestable wood & stone right next to two fresh pioneers
+  const treeTile = getTile(state, 32, 32)!;
+  treeTile.terrain = 'forest';
+  treeTile.resourceNode = 'timber_grove';
+  const stoneTile = getTile(state, 34, 32)!;
+  stoneTile.terrain = 'rock';
+  stoneTile.resourceNode = 'stone_outcrop';
+
+  spawnUnit(state, 'human', 33, 33, true);
+  spawnUnit(state, 'human', 33.4, 33.2, true);
+
+  // Right away, in survival mode with rich nearby resources, settlers should gather BEFORE founding bonfire
+  stepSimulation(state, 0.5);
+  assert.equal(state.buildings.length, 0, 'Fresh settlers must gather nearby resources before immediately placing bonfire');
+
+  // After sufficient time, they gather >= 8 carried goods and found their settlement bonfire
+  for (let i = 0; i < 60; i++) stepSimulation(state, 0.25);
+  const bonfire = state.buildings.find((b) => b.type === 'bonfire');
+  assert.ok(bonfire, 'Settlers found bonfire after gathering resources');
+  bonfire!.constructionProgress = 100;
+
+  // Direct test of per-kingdom resource stockpile tracking & zone inspection
+  const kId = getKingdomId(state, bonfire!.settlementId!);
+  assert.ok(state.kingdomResources && state.kingdomResources[kId], 'Simulation must track per-kingdom resource stockpiles');
+  state.kingdomResources[kId].wood = 240;
+  state.kingdomResources[kId].stone = 150;
+  const zones = computeWorldZones(state);
+  const kZone = Array.from(zones.kingdomsById.values()).find((z) => z.kingdomId === kId);
+  assert.ok(kZone, 'Kingdom zone should exist for founded settlement');
+  assert.equal(kZone.resources.wood, 240, 'Inspect zone info must expose kingdom stocked wood');
+  assert.equal(kZone.resources.stone, 150, 'Inspect zone info must expose kingdom stocked stone');
+});
+
+test('Rebellions trigger more frequently and respect allowRebellion world rule', () => {
+  const setupOvercrowdedEmpire = (allowRebellion: boolean) => {
+    const s = createInitialSimulationState(96, `REBEL-${allowRebellion}`);
+    s.sandboxFreeMode = true;
+    s.wildlifeSeeded = true;
+    s.worldRules = { ...s.worldRules!, allowRebellion };
+    for (let z = 12; z <= 84; z++) {
+      for (let x = 12; x <= 84; x++) {
+        const t = getTile(s, x, z)!;
+        t.height = 2;
+        t.terrain = 'grass';
+        t.resourceNode = 'none';
+        t.buildingId = null;
+      }
+    }
+    placeBuilding(s, 'bonfire', 28, 44);
+    const sid = s.buildings[0].settlementId!;
+    placeBuilding(s, 'forager_hut', 31, 44);
+    placeBuilding(s, 'forager_hut', 31, 47);
+    for (const b of s.buildings) {
+      b.constructionProgress = 100;
+      b.settlementId = sid;
+    }
+    for (let i = 0; i < 8; i++) {
+      const u = spawnUnit(s, 'human', 28 + (i % 4), 45 + Math.floor(i / 4), true).unit!;
+      u.settlementId = sid;
+    }
+    return s;
+  };
+
+  // With allowRebellion ON and active war driving unrest, rebellion triggers reliably within 80s
+  const simOn = setupOvercrowdedEmpire(true);
+  placeBuilding(simOn, 'bonfire', 72, 44);
+  const sidMain = simOn.buildings[0].settlementId!;
+  const sidRival = simOn.buildings[simOn.buildings.length - 1].settlementId!;
+  setKingdomRelation(simOn, sidMain, sidRival, 'war');
+  const initialSettlementCount = new Set(simOn.buildings.map((b) => b.settlementId)).size;
+  for (let i = 0; i < 320; i++) stepSimulation(simOn, 0.25);
+  const afterSettlementCount = new Set(simOn.buildings.map((b) => b.settlementId)).size;
+  const hasRebels = simOn.units.some((u) => u.isRebel);
+  const hasRebelChronicle = simOn.chronicle.some(
+    (c) => c.text.includes('Rebellion') || c.text.includes('seceded'),
+  );
+  assert.ok(
+    afterSettlementCount > initialSettlementCount || hasRebels || hasRebelChronicle,
+    `Rebellion should trigger rival rebel faction/settlement (cities: ${afterSettlementCount} vs ${initialSettlementCount}, rebels: ${hasRebels}, log: ${hasRebelChronicle})`,
+  );
+
+  // With allowRebellion OFF, no rebellion ever splits the empire into rival kingdoms
+  const simOff = setupOvercrowdedEmpire(false);
+  const initOff = new Set(simOff.buildings.map((b) => getKingdomId(simOff, b.settlementId!))).size;
+  for (let i = 0; i < 320; i++) stepSimulation(simOff, 0.25);
+  const afterOff = new Set(simOff.buildings.map((b) => getKingdomId(simOff, b.settlementId!))).size;
+  assert.equal(afterOff, initOff, 'allowRebellion = false must prevent rebellions');
+  assert.equal(simOff.units.some((u) => u.isRebel), false, 'allowRebellion = false must spawn zero rebels');
+  assert.equal(
+    simOff.chronicle.some((c) => c.text.includes('Rebellion') || c.text.includes('seceded')),
+    false,
+    'allowRebellion = false must never log rebellion events',
+  );
+});
+
+test('War vehicles use distinct 3D architectures per race (human vs elf vs orc)', () => {
+  const vehicleTypes = [
+    { type: 'glider' as const, epoch: 2 },
+    { type: 'helicopter' as const, epoch: 4 },
+    { type: 'tank' as const, epoch: 4 },
+    { type: 'warship' as const, epoch: 4 },
+    { type: 'airship' as const, epoch: 4 },
+    { type: 'bomber_plane' as const, epoch: 5 },
+    { type: 'orbital_gunship' as const, epoch: 6 },
+  ];
+
+  const signature = (g: ReturnType<typeof createVehicleGroup>) =>
+    `${g.children.length}:${g.children.map((c) => `${c.type[0]}@${Math.round(c.position.x * 10)},${Math.round(c.position.z * 10)}`).join('|')}`;
+
+  for (const { type, epoch } of vehicleTypes) {
+    const h = createVehicleGroup(type, epoch, 'human', 1);
+    const e = createVehicleGroup(type, epoch, 'elf', 1);
+    const o = createVehicleGroup(type, epoch, 'orc', 1);
+    const sigH = signature(h);
+    const sigE = signature(e);
+    const sigO = signature(o);
+    assert.notEqual(sigH, sigE, `${type} human vs elf must have distinct 3D architecture`);
+    assert.notEqual(sigH, sigO, `${type} human vs orc must have distinct 3D architecture`);
+    assert.notEqual(sigE, sigO, `${type} elf vs orc must have distinct 3D architecture`);
+  }
+});
+
