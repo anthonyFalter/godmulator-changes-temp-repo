@@ -466,6 +466,19 @@ export const MYTHICAL_BEAST_UNITS: UnitDefinition[] = [
     attackRange: 1.5,
     harvestRate: 0,
   },
+  {
+    role: 'leviathan',
+    category: 'mythical',
+    name: 'Leviathan',
+    faction: 'wildlife',
+    roleSummary: 'Colossal Bloop sea monster: lurks as a deep silhouette & breaches to devour prey',
+    cost: { faith: 45 },
+    maxHp: 680,
+    speed: 3.4,
+    attackDamage: 58,
+    attackRange: 2.6,
+    harvestRate: 0,
+  },
 ];
 
 export const UNITS: UnitDefinition[] = [
@@ -921,6 +934,7 @@ export function getUnitMaxLifespan(unit: {
   let base: number;
   switch (unit.role) {
     case 'dragon':
+    case 'leviathan':
       base = 500 + (seed % 65);
       break;
     case 'unicorn':

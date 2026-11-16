@@ -50,7 +50,8 @@ import {
   extractKingdomColorsMap,
   inspectTileZones,
 } from './zones';
-import { createUnitGroup, createVehicleGroup } from './meshBuilders';
+import { createUnitGroup, createVehicleGroup, getNodeVariantLibrary } from './meshBuilders';
+import { generateWorldTiles } from './worldGen';
 import {
   DEFAULT_GRAPHICS_SETTINGS,
   applyGraphicsPreset,
@@ -1349,7 +1350,7 @@ test('dedicated airport runways host plane takeoffs/landings and Epoch 5+ metro 
   );
 });
 
-test('world seeds 7 initial animals and 2 mythical beasts with 3D meshes, unicorn healing, and dragon combat', () => {
+test('world seeds 7 initial animals and 3 mythical beasts with 3D meshes, unicorn healing, and dragon combat', () => {
   const state = createInitialSimulationState(128, 'WILDLIFE-ARK-9');
   assert.equal(state.units.length, 0, 'Initial state starts empty before simulation starts ticking');
 
@@ -1366,6 +1367,7 @@ test('world seeds 7 initial animals and 2 mythical beasts with 3D meshes, unicor
     'dinosaur',
     'dragon',
     'unicorn',
+    'leviathan',
   ] as const;
 
   assert.equal(state.population, 0, 'Ambient wildlife must not inflate civilization population');
@@ -1383,7 +1385,7 @@ test('world seeds 7 initial animals and 2 mythical beasts with 3D meshes, unicor
 
   // Verify catalog sizes & manual spawning + distinct 3D meshes for all animals & mythical beasts
   assert.equal(ANIMAL_UNITS.length, 7);
-  assert.equal(MYTHICAL_BEAST_UNITS.length, 2);
+  assert.equal(MYTHICAL_BEAST_UNITS.length, 3);
   state.sandboxFreeMode = true;
 
   const flatX = 64;
@@ -1398,10 +1400,17 @@ test('world seeds 7 initial animals and 2 mythical beasts with 3D meshes, unicor
       t.buildingId = null;
     }
   }
+  const leviathanPool = getTile(state, flatX + 4, flatZ + 4)!;
+  leviathanPool.height = 0;
+  leviathanPool.terrain = 'deep_water';
+  leviathanPool.resourceNode = 'none';
+  leviathanPool.buildingId = null;
 
   for (let i = 0; i < expectedRoles.length; i++) {
     const role = expectedRoles[i];
-    const res = spawnUnit(state, role, flatX + (i % 3) - 1, flatZ + Math.floor(i / 3) - 1);
+    const spawnX = role === 'leviathan' ? flatX + 4 : flatX + (i % 3) - 1;
+    const spawnZ = role === 'leviathan' ? flatZ + 4 : flatZ + Math.floor(i / 3) - 1;
+    const res = spawnUnit(state, role, spawnX, spawnZ);
     assert.equal(res.ok, true, `Should spawn ${role}: ${res.reason ?? ''}`);
 
     const mesh = createUnitGroup(role, 'wildlife', 0, 'human', i * 17);
@@ -1411,6 +1420,10 @@ test('world seeds 7 initial animals and 2 mythical beasts with 3D meshes, unicor
     if (role === 'dragon' || role === 'chicken') {
       assert.ok(mesh.getObjectByName('wing_l'), `${role} mesh should expose wing_l pivot`);
       assert.ok(mesh.getObjectByName('wing_r'), `${role} mesh should expose wing_r pivot`);
+    }
+    if (role === 'leviathan') {
+      assert.ok(mesh.getObjectByName('leviathan_silhouette'), 'leviathan mesh should expose submerged silhouette group');
+      assert.ok(mesh.getObjectByName('leviathan_surfaced'), 'leviathan mesh should expose surfaced Bloop group');
     }
   }
 
@@ -3955,3 +3968,124 @@ test('Historical War Vehicle Timeline & Mortality: no airships in Medieval, no c
     'All vehicles must be destroyed when their home kingdom/settlement falls',
   );
 });
+
+test('Sea Update: localized warm coral reefs stay submerged, scrap_sea has pure water + scrap_flotsam, swimming fatigues units, and ships/walkways evolve', () => {
+  // 1. Coral reef spawning is localized to warm lagoon patches (NOT blanketing all shorelines) and submerged geometries stay below y=0.295 water plane
+  const worldTiles = generateWorldTiles(128, 4242);
+  const shallowTiles = worldTiles.filter((t) => t.terrain === 'shallow_water');
+  const coralTiles = worldTiles.filter((t) => t.resourceNode === 'coral_reef');
+  assert.ok(shallowTiles.length > 50, 'World should contain shallow coastal/reef waters');
+  assert.ok(coralTiles.length >= 4, 'World should generate localized warm coral reef lagoons');
+  assert.ok(
+    coralTiles.length < shallowTiles.length * 0.45,
+    `Coral reefs must appear in localized parts rather than blanketing all shorelines (coral=${coralTiles.length}, shallow=${shallowTiles.length})`,
+  );
+
+  // Verify submerged 3D coral reef variants remain strictly under the y=0.295 ocean surface when placed on the y=0.12 seabed
+  const nodeLib = getNodeVariantLibrary();
+  assert.equal(nodeLib.coralReef.length, 4, 'Should provide 4 rich submerged coral+seagrass geometry variants');
+  for (let vi = 0; vi < nodeLib.coralReef.length; vi++) {
+    const geo = nodeLib.coralReef[vi];
+    geo.computeBoundingBox();
+    const bb = geo.boundingBox!;
+    assert.ok(bb.min.y >= -0.02, `Coral variant ${vi} must anchor on seabed (min.y=${bb.min.y})`);
+    assert.ok(
+      0.12 + bb.max.y < 0.295,
+      `Coral variant ${vi} must remain submerged under the water plane at y=0.295 (top=${0.12 + bb.max.y})`,
+    );
+  }
+
+  // 2. Scrap Sea template spawns 100% water (height === 0), scrap_flotsam resources, and localized reef shoals
+  const scrapCfg = createWorldConfigFromTemplate('scrap_sea', { seed: 5150, gridSize: 96 });
+  const scrapSim = createInitialSimulationState(scrapCfg.gridSize, scrapCfg.seed, scrapCfg);
+  assert.equal(
+    scrapSim.tiles.every((t) => t.height === 0),
+    true,
+    'scrap_sea template must generate purely aquatic tiles (height === 0)',
+  );
+  assert.ok(
+    scrapSim.tiles.some((t) => t.resourceNode === 'scrap_flotsam'),
+    'scrap_sea template must scatter salvageable scrap_flotsam across the ocean',
+  );
+  assert.ok(
+    scrapSim.buildings.length >= 1,
+    'scrap_sea template should establish an initial floating city settlement on the waves',
+  );
+
+  // 3. Open-water swimming slows down units & drains swimStamina to drowning, whereas stone_road walkways keep them dry & fast
+  const swimState = createInitialSimulationState(64, 'SWIM-FATIGUE-TEST');
+  swimState.sandboxFreeMode = true;
+  swimState.wildlifeSeeded = true;
+  for (let z = 12; z <= 52; z++) {
+    for (let x = 12; x <= 52; x++) {
+      const t = getTile(swimState, x, z)!;
+      t.height = 0;
+      t.terrain = 'deep_water';
+      t.resourceNode = 'none';
+      t.buildingId = null;
+    }
+  }
+  const anchorLand = getTile(swimState, 16, 16)!;
+  anchorLand.height = 2;
+  anchorLand.terrain = 'grass';
+  placeBuilding(swimState, 'bonfire', 16, 16);
+  const homeSettlementId = swimState.buildings[0].settlementId;
+
+  const swimmer = spawnUnit(swimState, 'human', 30, 32, true).unit!;
+  swimmer.settlementId = homeSettlementId;
+  swimmer.swimStamina = 100;
+  swimmer.targetX = 46;
+  swimmer.targetZ = 32;
+  swimmer.state = 'moving';
+
+  const startX = swimmer.x;
+  for (let i = 0; i < 12; i++) {
+    stepSimulation(swimState, 0.25);
+  }
+  const movedDist = Math.hypot(swimmer.x - startX, swimmer.z - 32);
+  assert.ok(
+    (swimmer.swimStamina ?? 100) < 100 && movedDist > 0.5,
+    `Swimmer in open deep_water should swim slowly and drain swimStamina (stamina=${swimmer.swimStamina}, moved=${movedDist.toFixed(2)})`,
+  );
+
+  // Exhausted unit in deep water eventually drowns
+  swimmer.swimStamina = 1;
+  swimmer.hp = 12;
+  for (let i = 0; i < 12; i++) {
+    stepSimulation(swimState, 0.25);
+  }
+  assert.equal(swimmer.state, 'ko', 'Exhausted swimmer stranded far in open sea should drown');
+
+  // Unit standing on a stone_road water walkway retains full stamina without drowning
+  const walkwayTile = getTile(swimState, 30, 24)!;
+  walkwayTile.terrain = 'stone_road';
+  const walker = spawnUnit(swimState, 'human', 30, 24, true).unit!;
+  walker.swimStamina = 40;
+  walker.targetX = 30;
+  walker.targetZ = 24;
+  for (let i = 0; i < 6; i++) {
+    stepSimulation(swimState, 0.25);
+  }
+  assert.ok((walker.swimStamina ?? 0) > 40, 'Water walkway (stone_road) should recover stamina and keep units dry');
+
+  // 4. Passenger ships differ structurally per race and evolve across ages
+  const shipSig = (g: ReturnType<typeof createVehicleGroup>) =>
+    `${g.children.length}:${g.children.map((c) => `${c.type[0]}@${Math.round(c.position.x * 100)},${Math.round(c.position.y * 100)},${Math.round(c.position.z * 100)}`).join('|')}`;
+
+  for (const sp of ['human', 'elf', 'orc'] as const) {
+    const p1 = createVehicleGroup('passenger_ship', 1, sp, 1);
+    const p4 = createVehicleGroup('passenger_ship', 4, sp, 1);
+    const p6 = createVehicleGroup('passenger_ship', 6, sp, 1);
+    assert.notEqual(shipSig(p1), shipSig(p6), `${sp} passenger_ship should evolve from age 1 to age 6`);
+    assert.ok(p4.children.length >= 3, `${sp} industrial/atomic passenger_ship should build multi-part hull`);
+  }
+  for (const ep of [0, 2, 3, 4, 5, 6]) {
+    const hSig = shipSig(createVehicleGroup('passenger_ship', ep, 'human', 1));
+    const eSig = shipSig(createVehicleGroup('passenger_ship', ep, 'elf', 1));
+    const oSig = shipSig(createVehicleGroup('passenger_ship', ep, 'orc', 1));
+    assert.notEqual(hSig, eSig, `Epoch ${ep} human vs elf passenger_ship must have distinct 3D architecture`);
+    assert.notEqual(hSig, oSig, `Epoch ${ep} human vs orc passenger_ship must have distinct 3D architecture`);
+    assert.notEqual(eSig, oSig, `Epoch ${ep} elf vs orc passenger_ship must have distinct 3D architecture`);
+  }
+});
+

@@ -19,6 +19,7 @@ export type DietCategory =
   | 'Carnivore'
   | 'Pyro-Carnivore'
   | 'Fey Herbivore'
+  | 'Abyssal Apex'
   | 'Omnivore'
   | 'Botanical Omnivore';
 
@@ -155,6 +156,9 @@ export function getUnitIntrinsicGene(
   if (role === 'unicorn') {
     return 'Celestial Fey Horn';
   }
+  if (role === 'leviathan') {
+    return 'Abyssal Megafauna Physiology';
+  }
   if (role === 'dinosaur') {
     const variant = getDinosaurVariant(seed);
     const diet = dinoDiet ?? variant.diet;
@@ -220,6 +224,7 @@ export function isIntrinsicGene(gene: string): boolean {
     'Adaptable Spark',
     'Armored Herbivore',
     'Prehistoric Apex',
+    'Abyssal Megafauna Physiology',
   ]);
   return INTRINSIC_SET.has(gene);
 }
@@ -289,6 +294,9 @@ export function generateUnitItems(
   }
   if (role === 'unicorn') {
     return ['Spiraled Ivory Horn', 'Aether Garland', 'Dewdrop Hooves'];
+  }
+  if (role === 'leviathan') {
+    return ['Cavernous Bloop Maw', 'Abyssal Barnacle Hide', 'Trench Sonar Organ'];
   }
   if (role === 'dinosaur') {
     const info = getDinosaurVariant(seed);
@@ -376,6 +384,11 @@ function getDietInfo(unit: UnitEntity): EntityDietInfo {
         category: 'Fey Herbivore',
         detail: 'Starlight blossoms, pure meadows & crystal springs',
       };
+    case 'leviathan':
+      return {
+        category: 'Abyssal Apex',
+        detail: 'Roams ocean trenches as a silhouette; breaches to hunt swimmers & vessels or graze air',
+      };
     case 'dinosaur': {
       const dino = getDinosaurVariant(unit.appearanceSeed);
       if (dino.diet === 'carnivore') {
@@ -460,6 +473,12 @@ function getSubtitleAndFaction(
   if (unit.role === 'unicorn') {
     return { subtitle: 'Celestial Unicorn', factionLabel: 'Mythical' };
   }
+  if (unit.role === 'leviathan') {
+    return {
+      subtitle: unit.leviathanSubmerged ? 'Abyssal Leviathan (Submerged)' : 'Abyssal Leviathan (Surfaced)',
+      factionLabel: 'Mythical',
+    };
+  }
   if (unit.role === 'dinosaur') {
     const dino = getDinosaurVariant(unit.appearanceSeed);
     return {
@@ -517,6 +536,7 @@ function formatActivity(unit: UnitEntity): string {
 function getAgeStageLabel(unit: UnitEntity): string {
   if (unit.role === 'dragon') return 'Ancient Wyrm';
   if (unit.role === 'unicorn') return 'Timeless Fey';
+  if (unit.role === 'leviathan') return 'Abyssal Titan';
   if (unit.ageStage === 'child') return 'Child';
   if (unit.faction === 'wildlife') return 'Mature';
   return 'Adult';

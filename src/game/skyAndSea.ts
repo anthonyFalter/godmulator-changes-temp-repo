@@ -419,6 +419,7 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
       uShallowColor: { value: new THREE.Color('#2f788e') },
       uDeepColor: { value: new THREE.Color('#193f54') },
       uCrestColor: { value: new THREE.Color('#53b3ca') },
+      uReefWaterColor: { value: new THREE.Color('#1ac7cf') },
       uFoamColor: { value: new THREE.Color('#f4fbff') },
       uFoamMint: { value: new THREE.Color('#9ee6f5') },
     },
@@ -432,7 +433,7 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
     uniforms,
     fog: true,
     transparent: true,
-    depthWrite: true,
+    depthWrite: false,
     vertexShader: `
       #include <fog_pars_vertex>
       uniform float uTime;
@@ -463,6 +464,7 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
       uniform vec3 uShallowColor;
       uniform vec3 uDeepColor;
       uniform vec3 uCrestColor;
+      uniform vec3 uReefWaterColor;
       uniform vec3 uFoamColor;
       uniform vec3 uFoamMint;
 
@@ -556,10 +558,43 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
         float swellB = valueNoise(chunkPos * 0.9 - vec2(uTime * 0.24, -uTime * 0.3));
         float waveField = swellA * 0.65 + swellB * 0.35;
 
+        // Feathered localized Coral Reef lagoon hue (from actual coral reef pockets without painting opaque 2D coral blobs on top)
+        float selfReef = smoothstep(0.78, 0.98, self.b);
+        float nbReef = max(
+          max(smoothstep(0.78, 0.98, nN.b) * (1.0 - subUv.y), smoothstep(0.78, 0.98, nS.b) * subUv.y),
+          max(smoothstep(0.78, 0.98, nW.b) * (1.0 - subUv.x), smoothstep(0.78, 0.98, nE.b) * subUv.x)
+        );
+        float reefMask = clamp(max(selfReef, nbReef * 0.72), 0.0, 1.0);
+        bool isRiver = self.b > 0.54 && self.b <= 0.78;
+        bool isLake = self.b > 0.25 && self.b <= 0.54;
+
         vec3 baseWater = isDeep ? uDeepColor : uShallowColor;
         // Brighter turquoise shoal water right along coastlines
         if (landDist < 1.1) {
           baseWater = mix(baseWater, mix(uShallowColor, uCrestColor, 0.45), smoothstep(1.1, 0.08, landDist));
+        }
+
+        float waterAlpha = isDeep
+          ? 0.88
+          : mix(0.56, 0.70, smoothstep(0.15, 1.15, landDist));
+
+        if (reefMask > 0.01) {
+          // Warm Coral Reef Lagoon: bright sunlit aquamarine-turquoise hue + high clarity so submerged sandy seabed & 3D corals shine through!
+          float caustic = step(0.70, valueNoise(chunkPos * 1.45 + vec2(uTime * 0.42, -uTime * 0.34)));
+          vec3 reefAqua = mix(uReefWaterColor, uCrestColor, 0.28 + caustic * 0.32);
+          baseWater = mix(baseWater, reefAqua, reefMask * 0.88);
+          waterAlpha = mix(waterAlpha, 0.36, reefMask);
+        } else if (isRiver) {
+          // Lively Shallow River: crystal-clear shallow aqua with animated current ripples showing sandy riverbed underneath
+          vec3 livelyRiverAqua = mix(uShallowColor, uCrestColor, 0.56);
+          float streamRipple = step(0.64, fract(chunkPos.x * 0.85 + chunkPos.y * 0.85 - uTime * 1.35 + swellA * 0.5));
+          baseWater = mix(baseWater, livelyRiverAqua, 0.62);
+          baseWater = mix(baseWater, uFoamMint, streamRipple * 0.44);
+          waterAlpha = 0.46;
+        } else if (isLake) {
+          // Inland Lake: serene translucent emerald-turquoise shallow water over sandy lakebed
+          baseWater = mix(baseWater, mix(uShallowColor, uReefWaterColor, 0.42), 0.56);
+          waterAlpha = 0.52;
         }
 
         // Pixelated rolling wave bands
@@ -666,7 +701,12 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
           }
         }
 
-        gl_FragColor = vec4(color, 1.0);
+        waterAlpha = clamp(waterAlpha + mintMask * 0.32 + whiteMask * 0.56, 0.0, 0.98);
+        if (uZoneActive > 0.5 && sampleZoneColor(tileCoord).a > 0.01) {
+          waterAlpha = max(waterAlpha, 0.88);
+        }
+
+        gl_FragColor = vec4(color, waterAlpha);
         #include <fog_fragment>
       }
     `,
@@ -678,7 +718,7 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
   const mesh = new THREE.Mesh(geo, material);
   const center = (gridSize - 1) / 2;
   mesh.position.set(center, 0.295, center);
-  mesh.renderOrder = 1;
+  mesh.renderOrder = 2;
 
   const updateMap = (tiles: TileData[]) => {
     for (let i = 0; i < tiles.length; i++) {
@@ -692,11 +732,11 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
         continue;
       }
 
-      const depthVal = t.terrain === 'deep_water' ? 255 : 132;
+      const depthVal = t.terrain === 'deep_water' && !t.isRiver && !t.isLake ? 255 : 132;
       data[idx] = depthVal;
 
       let touchesLand = 0;
-      let touchesOtherWater = 0;
+      let adjCoralCount = t.resourceNode === 'coral_reef' ? 2 : 0;
       for (let dz = -1; dz <= 1; dz++) {
         for (let dx = -1; dx <= 1; dx++) {
           if (dx === 0 && dz === 0) continue;
@@ -706,14 +746,22 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
           const nb = tiles[nz * gridSize + nx];
           if (nb.height > 0) {
             touchesLand = 255;
-          } else if (nb.terrain !== t.terrain) {
-            touchesOtherWater = 255;
+          } else if (nb.resourceNode === 'coral_reef') {
+            adjCoralCount += 1;
           }
         }
       }
 
       data[idx + 1] = touchesLand;
-      data[idx + 2] = touchesOtherWater;
+      // Encode water special feature in B channel:
+      // 255 = coral_reef or dense reef lagoon interior, 220 = reef lagoon fringe, 170 = shallow river, 100 = inland lake, 0 = standard sea
+      const reefByte =
+        t.resourceNode === 'coral_reef' || adjCoralCount >= 2
+          ? 255
+          : adjCoralCount === 1
+            ? 220
+            : 0;
+      data[idx + 2] = reefByte > 0 ? reefByte : t.isRiver ? 170 : t.isLake ? 100 : 0;
 
       const phaseByte = Math.abs(((t.x * 73856093) ^ (t.z * 19349663)) | 0) & 255;
       data[idx + 3] = phaseByte;
@@ -724,6 +772,7 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
   const _shallowTarget = new THREE.Color('#2f788e');
   const _deepTarget = new THREE.Color('#193f54');
   const _crestTarget = new THREE.Color('#53b3ca');
+  const _reefTarget = new THREE.Color('#1ac7cf');
   const _foamTarget = new THREE.Color('#f4fbff');
   const _mintTarget = new THREE.Color('#9ee6f5');
 
@@ -735,30 +784,35 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
       _shallowTarget.set('#102b3a');
       _deepTarget.set('#06131d');
       _crestTarget.set('#1d4b63');
+      _reefTarget.set('#135d6e');
       _foamTarget.set('#8db2cc');
       _mintTarget.set('#3f6b85');
     } else if (preset === 'night') {
       _shallowTarget.set('#1a4357');
       _deepTarget.set('#0c212e');
       _crestTarget.set('#2c6680');
+      _reefTarget.set('#187b8a');
       _foamTarget.set('#b8d6ea');
       _mintTarget.set('#5c8fa8');
     } else if (preset === 'dusk') {
       _shallowTarget.set('#376478');
       _deepTarget.set('#1f384d');
       _crestTarget.set('#d9886c');
+      _reefTarget.set('#29b3b8');
       _foamTarget.set('#ffe9dc');
       _mintTarget.set('#b3c4d4');
     } else if (preset === 'dawn') {
       _shallowTarget.set('#387487');
       _deepTarget.set('#1d4459');
       _crestTarget.set('#e8a3a0');
+      _reefTarget.set('#2ccbd0');
       _foamTarget.set('#fff3f0');
       _mintTarget.set('#b5dfe8');
     } else {
       _shallowTarget.set('#2f788e');
       _deepTarget.set('#193f54');
       _crestTarget.set('#53b3ca');
+      _reefTarget.set('#1ac7cf');
       _foamTarget.set('#f4fbff');
       _mintTarget.set('#9ee6f5');
     }
@@ -766,6 +820,7 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
     mu.uShallowColor.value.lerp(_shallowTarget, 0.08);
     mu.uDeepColor.value.lerp(_deepTarget, 0.08);
     mu.uCrestColor.value.lerp(_crestTarget, 0.08);
+    mu.uReefWaterColor.value.lerp(_reefTarget, 0.08);
     mu.uFoamColor.value.lerp(_foamTarget, 0.08);
     mu.uFoamMint.value.lerp(_mintTarget, 0.08);
   };
@@ -1112,7 +1167,24 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
       float detail = landHash12(pixPos * 16.0);
       float patchVal = waveA * 0.62 + waveB * 0.38;
 
-      if (code < 2.5) {
+      if (code < 0.5) {
+        // Deep Sea floor: abyssal marine slate & navy trench sediment
+        vec3 base = landSrgb(16.0, 38.0, 58.0);
+        vec3 hi   = landSrgb(26.0, 56.0, 82.0);
+        vec3 sh   = landSrgb(10.0, 26.0, 42.0);
+        vec3 c = mix(sh, base, step(0.34, patchVal));
+        return mix(c, hi, step(0.68, patchVal));
+      } else if (code < 1.5) {
+        // Shallow Water seabed: sunlit pale ocean sand & fine shell/silt speckles visible through translucent water
+        float ripple = sin((pixPos.x + pixPos.y * 0.7) * 3.8 + waveA * 3.0) * 0.5 + 0.5;
+        vec3 base = landSrgb(196.0, 184.0, 142.0);
+        vec3 hi   = landSrgb(220.0, 208.0, 166.0);
+        vec3 sh   = landSrgb(166.0, 154.0, 118.0);
+        vec3 c = mix(sh, base, step(0.32, patchVal + ripple * 0.14));
+        c = mix(c, hi, step(0.68, patchVal + ripple * 0.16));
+        if (detail > 0.92) c = mix(c, hi, 0.65);
+        return c;
+      } else if (code < 2.5) {
         // Sand: wind-rippled desert/beach dunes
         float ripple = sin((pixPos.x + pixPos.y * 0.65) * 4.2 + waveA * 3.5) * 0.5 + 0.5;
         vec3 base = landSrgb(203.0, 180.0, 141.0);
@@ -1844,7 +1916,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
       roughness,
       metalness,
     });
-    topMat.customProgramCacheKey = () => 'aeon_land_top_pixel_v10';
+    topMat.customProgramCacheKey = () => 'aeon_land_top_pixel_v11';
     topMat.onBeforeCompile = (shader) => {
       shader.uniforms.uTime = sharedTime;
       shader.uniforms.uEpoch = sharedEpoch;

@@ -329,7 +329,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     scene.add(worldGroup);
 
     const terrainGroup = new THREE.Group();
+    terrainGroup.renderOrder = 0;
     const nodesGroup = new THREE.Group();
+    nodesGroup.renderOrder = 1;
     const buildingsGroup = new THREE.Group();
     const unitsGroup = new THREE.Group();
     const vehiclesGroup = new THREE.Group();
@@ -419,7 +421,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     const instNeedsUpload = new Uint8Array(TERRAIN_TYPES.length);
     for (let i = 0; i < sim.tiles.length; i++) {
       const t = sim.tiles[i];
-      const y0 = t.height === 0 ? 0.12 : t.height * HEIGHT_STEP + 0.25;
+      const isWaterWalkway =
+        t.height === 0 &&
+        (t.terrain === 'stone_road' || t.terrain === 'rail_track' || t.terrain === 'runway');
+      const y0 = t.height === 0 ? (isWaterWalkway ? 0.3 : 0.12) : t.height * HEIGHT_STEP + 0.25;
       tileCurrentY[i] = y0;
       tileLastNodeY[i] = -999;
       tilePropSig[i] = -1;
@@ -454,6 +459,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     const stoneInsts = makePropInstancedList(variantLib.stone, variantLib.standardMat, true);
     const oreInsts = makePropInstancedList(variantLib.ore, variantLib.standardMat, true);
     const crystalInsts = makePropInstancedList(variantLib.crystal, variantLib.crystalMat, true);
+    const coralReefInsts = makePropInstancedList(variantLib.coralReef, variantLib.standardMat, false);
+    const scrapFlotsamInsts = makePropInstancedList(variantLib.scrapFlotsam, variantLib.standardMat, true);
+    const atlantisRuinInsts = makePropInstancedList(variantLib.atlantisRuin, variantLib.crystalMat, true);
     const ambGrassInsts = makePropInstancedList(variantLib.ambientGrass, variantLib.standardMat, false);
     const ambForestInsts = makePropInstancedList(variantLib.ambientForest, variantLib.standardMat, false);
     const ambSandInsts = makePropInstancedList(variantLib.ambientSand, variantLib.standardMat, false);
@@ -480,6 +488,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       ...stoneInsts,
       ...oreInsts,
       ...crystalInsts,
+      ...coralReefInsts,
+      ...scrapFlotsamInsts,
+      ...atlantisRuinInsts,
     ];
 
     const ambientPropInsts: THREE.InstancedMesh[] = [
@@ -655,6 +666,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       stone_outcrop: 3,
       ore_vein: 4,
       crystal_monolith: 5,
+      coral_reef: 6,
+      scrap_flotsam: 7,
+      atlantis_ruin: 8,
     };
 
     interface BuildingMeshEntry {
@@ -662,6 +676,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       epochLevel: number;
       type: string;
       species: string;
+      isWaterTile: boolean;
       flickerFlames: THREE.Object3D[];
       spinParts: THREE.Object3D[];
       cachedRotY: number;
@@ -694,6 +709,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       statusRing?: THREE.Mesh;
       battlewillAvatar?: THREE.Object3D;
       battlewillSwordPivot?: THREE.Object3D;
+      leviathanSilhouette?: THREE.Object3D;
+      leviathanSurfaced?: THREE.Object3D;
       lastCarryType: string | null;
       lastStatusKey: number;
       seenStamp: number;
@@ -1181,7 +1198,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         | 'wormhole_rift'
         | 'tornado_vortex'
         | 'tsunami_wave'
-        | 'earthquake_zone';
+        | 'earthquake_zone'
+        | 'whirlpool'
+        | 'rogue_wave';
       group: THREE.Group;
       materials: THREE.Material[];
       drops?: { mesh: THREE.Mesh; offsetY: number; speed: number; baseX: number; baseZ: number }[];
@@ -1703,6 +1722,129 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           gravityRings,
           vortexMotes,
           debrisChunks,
+          seenStamp: 0,
+        };
+      }
+
+      if (kind === 'whirlpool') {
+        const abyssMat = new THREE.MeshBasicMaterial({
+          color: 0x031926,
+          transparent: true,
+          opacity: 0.9,
+          depthWrite: false,
+        });
+        const swirlOuterMat = new THREE.MeshBasicMaterial({
+          color: 0x00b4d8,
+          transparent: true,
+          opacity: 0.78,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        const swirlFoamMat = new THREE.MeshBasicMaterial({
+          color: 0xe0fbfc,
+          transparent: true,
+          opacity: 0.92,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        materials.push(abyssMat, swirlOuterMat, swirlFoamMat);
+
+        const corePit = new THREE.Mesh(sharedHazRingGeo, abyssMat);
+        corePit.position.y = 0.02;
+        corePit.scale.setScalar(radius * 0.42);
+        group.add(corePit);
+
+        const tornadoRings: THREE.Mesh[] = [];
+        for (let ri = 0; ri < 5; ri++) {
+          const frac = (ri + 1) / 5;
+          const rMesh = new THREE.Mesh(
+            sharedTornadoRingGeo,
+            ri % 2 === 0 ? swirlFoamMat : swirlOuterMat,
+          );
+          rMesh.position.y = 0.03 + frac * 0.08;
+          const rScale = radius * (0.24 + frac * 0.72);
+          rMesh.scale.set(rScale, 0.35, rScale);
+          group.add(rMesh);
+          tornadoRings.push(rMesh);
+        }
+
+        const vortexMotes: VortexMote[] = [];
+        for (let i = 0; i < 18; i++) {
+          const m = new THREE.Mesh(sharedDebrisCubeGeo, i % 2 === 0 ? swirlFoamMat : swirlOuterMat);
+          m.scale.setScalar(0.32);
+          group.add(m);
+          vortexMotes.push({
+            mesh: m,
+            baseAngle: (i / 18) * Math.PI * 2,
+            phase: (i / 18) + (i % 4) * 0.09,
+            speed: 0.9 + (i % 3) * 0.25,
+          });
+        }
+
+        return {
+          kind,
+          group,
+          materials,
+          ringMesh: corePit,
+          tornadoRings,
+          vortexMotes,
+          seenStamp: 0,
+        };
+      }
+
+      if (kind === 'rogue_wave') {
+        const deepSwellMat = new THREE.MeshStandardMaterial({
+          color: 0x023e8a,
+          roughness: 0.38,
+          transparent: true,
+          opacity: 0.9,
+        });
+        const waveWallMat = new THREE.MeshStandardMaterial({
+          color: 0x0077b6,
+          emissive: 0x005082,
+          emissiveIntensity: 0.32,
+          roughness: 0.32,
+          transparent: true,
+          opacity: 0.94,
+        });
+        const crestFoamMat = new THREE.MeshBasicMaterial({
+          color: 0xe0fbfc,
+          transparent: true,
+          opacity: 0.98,
+        });
+        materials.push(deepSwellMat, waveWallMat, crestFoamMat);
+
+        const wallGroup = new THREE.Group();
+        const spanCount = Math.max(5, Math.round(radius * 2.2));
+        for (let si = 0; si < spanCount; si++) {
+          const u = (si / (spanCount - 1)) * 2 - 1;
+          const arch = Math.cos(u * Math.PI * 0.48);
+          const lx = u * radius * 0.95;
+          const lz = -Math.pow(u, 2) * 0.65;
+
+          const baseM = new THREE.Mesh(sharedWaveBaseGeo, deepSwellMat);
+          baseM.position.set(lx, 0.32 * arch, lz - 0.35);
+          baseM.scale.set(0.95, arch, 1.0);
+          wallGroup.add(baseM);
+
+          const faceM = new THREE.Mesh(sharedWaveFaceGeo, waveWallMat);
+          faceM.position.set(lx, 0.78 * arch, lz + 0.12);
+          faceM.scale.set(0.95, 1.15 * arch, 1.0);
+          wallGroup.add(faceM);
+
+          const foamM = new THREE.Mesh(sharedWaveFoamGeo, crestFoamMat);
+          foamM.position.set(lx, 1.55 * arch, lz + 0.68);
+          foamM.rotation.x = 0.35;
+          foamM.scale.set(1.0, arch, 1.0);
+          wallGroup.add(foamM);
+        }
+        group.add(wallGroup);
+
+        return {
+          kind,
+          group,
+          materials,
+          cloudBody: wallGroup,
           seenStamp: 0,
         };
       }
@@ -5164,7 +5306,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
       for (let i = 0; i < tileCount; i++) {
         const t = tiles[i];
-        let targetTopY = t.height === 0 ? 0.12 : t.height * HEIGHT_STEP + 0.25;
+        const isWaterWalkway =
+          t.height === 0 &&
+          (t.terrain === 'stone_road' || t.terrain === 'rail_track' || t.terrain === 'runway');
+        let targetTopY = t.height === 0 ? (isWaterWalkway ? 0.3 : 0.12) : t.height * HEIGHT_STEP + 0.25;
         let hasHazardEffect = false;
 
         if (hasTsunamis && t.height <= 2) {
@@ -5290,7 +5435,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             propsNeedSync = true;
           }
         } else {
-          const waterSig = t.terrain === 'deep_water' ? -2 : -3;
+          const waterNodeCode = NODE_CODE[t.resourceNode] ?? 0;
+          const waterFlags =
+            (waterNodeCode << 4) |
+            ((t.isRiver ? 1 : 0) << 3) |
+            ((t.isLake ? 1 : 0) << 2) |
+            ((t.buildingId ? 1 : 0) << 1) |
+            (t.terrain === 'deep_water' ? 1 : 0);
+          const waterSig = -10 - waterFlags;
           if (tilePropSig[i] !== waterSig) {
             tilePropSig[i] = waterSig;
             propsNeedSync = true;
@@ -5329,9 +5481,23 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
         for (let i = 0; i < simState.tiles.length; i++) {
           const t = simState.tiles[i];
-          if (t.height <= 0 || t.buildingId) continue;
+          if (t.buildingId) continue;
+          if (t.height <= 0) {
+            if (
+              t.resourceNode !== 'coral_reef' &&
+              t.resourceNode !== 'scrap_flotsam' &&
+              t.resourceNode !== 'atlantis_ruin'
+            ) {
+              continue;
+            }
+          }
 
-          const curY = tileCurrentY[i];
+          const curY =
+            t.height <= 0
+              ? t.resourceNode === 'coral_reef'
+                ? tileCurrentY[i]
+                : 0.25
+              : tileCurrentY[i];
           // Deterministic spatial hash so clusters & rotations are rich and never flicker
           const h = Math.abs(((t.x * 73856093) ^ (t.z * 19349663) ^ (simState.seed * 2654435761)) | 0);
           const rotStep = (h >> 2) & 3;
@@ -5341,7 +5507,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
           let targetInst: THREE.InstancedMesh | null = null;
           let ambThresh = 0;
-          if (t.resourceNode === 'timber_grove') {
+          if (t.resourceNode === 'coral_reef') {
+            targetInst = coralReefInsts[h % coralReefInsts.length];
+          } else if (t.resourceNode === 'scrap_flotsam') {
+            targetInst = scrapFlotsamInsts[h % scrapFlotsamInsts.length];
+          } else if (t.resourceNode === 'atlantis_ruin') {
+            targetInst = atlantisRuinInsts[h % atlantisRuinInsts.length];
+          } else if (t.resourceNode === 'timber_grove') {
             if (t.terrain === 'jungle') {
               targetInst = timberJungleInsts[h % timberJungleInsts.length];
             } else if (t.terrain === 'taiga') {
@@ -5514,7 +5686,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           if (tx < 0 || tz < 0 || tx >= gs || tz >= gs) return false;
           const tileIdx = tz * gs + tx;
           const tile = simState.tiles[tileIdx];
-          if (!tile || tile.height <= 0) return false;
+          if (!tile) return false;
           return tile.terrain === 'rail_track' || bldTypeAtCache.get(tileIdx) === 'rail_station';
         };
 
@@ -5522,7 +5694,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           if (tx < 0 || tz < 0 || tx >= gs || tz >= gs) return false;
           const tileIdx = tz * gs + tx;
           const tile = simState.tiles[tileIdx];
-          if (!tile || tile.height <= 0) return false;
+          if (!tile) return false;
           if (tile.terrain === 'rail_track' || bldTypeAtCache.get(tileIdx) === 'rail_station') {
             return true;
           }
@@ -5564,8 +5736,23 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         const elevatedActive = simState.epochIndex >= 5;
         for (let i = 0; i < simState.tiles.length; i++) {
           const t = simState.tiles[i];
-          if (t.height <= 0) continue;
+          const isWaterWalkway =
+            t.height === 0 &&
+            (t.terrain === 'stone_road' || t.terrain === 'rail_track' || t.terrain === 'runway');
+          if (t.height <= 0 && !isWaterWalkway) continue;
           const curY = tileCurrentY[i];
+
+          // Water walkway support pilings / pontoons under bridges & water causeways
+          if (isWaterWalkway) {
+            for (const [px, pz] of [
+              [-0.42, -0.42],
+              [0.42, -0.42],
+              [-0.42, 0.42],
+              [0.42, 0.42],
+            ] as const) {
+              pushInst(streetPoleInst, t.x + px, 0.22, t.z + pz, 0, 0, 0, 1.45, 0.24, 1.45);
+            }
+          }
 
           // Runway perimeter beacons (all epochs once airport runway exists)
           if (t.terrain === 'runway') {
@@ -5717,11 +5904,16 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         return rotY;
       };
 
-      // 2. Sync buildings (cached animated children + road orientation)
+      // 2. Sync buildings (cached animated children + road orientation + floating city foundations)
       for (let bi = 0; bi < simState.buildings.length; bi++) {
         const b = simState.buildings[bi];
         const tile = simState.tiles[b.tileZ * gsBld + b.tileX];
-        const groundY = tile ? Math.max(0.18, tile.height * HEIGHT_STEP + 0.25) : 1.0;
+        const isWaterTile = Boolean(tile && tile.height === 0);
+        const groundY = tile
+          ? isWaterTile
+            ? 0.29 + Math.sin(elapsed * 2.1 + b.tileX * 0.7 + b.tileZ * 0.5) * 0.02
+            : Math.max(0.18, tile.height * HEIGHT_STEP + 0.25)
+          : 1.0;
 
         const bSpecies =
           b.species ??
@@ -5733,11 +5925,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           !entry ||
           entry.epochLevel !== b.epochLevel ||
           entry.type !== b.type ||
-          entry.species !== bSpecies
+          entry.species !== bSpecies ||
+          entry.isWaterTile !== isWaterTile
         ) {
           if (entry) buildingsGroup.remove(entry.group);
           const variantSeed = b.tileX * 31 + b.tileZ * 17;
-          const group = createBuildingGroup(b.type, b.epochLevel, variantSeed, bSpecies);
+          const group = createBuildingGroup(b.type, b.epochLevel, variantSeed, bSpecies, isWaterTile);
           group.position.set(b.tileX, groundY, b.tileZ);
           buildingsGroup.add(group);
           const flickerFlames: THREE.Object3D[] = [];
@@ -5754,6 +5947,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             epochLevel: b.epochLevel,
             type: b.type,
             species: bSpecies,
+            isWaterTile,
             flickerFlames,
             spinParts,
             cachedRotY: rotY,
@@ -5861,6 +6055,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             statusRing: group.getObjectByName('status_ring') as THREE.Mesh | undefined,
             battlewillAvatar: group.getObjectByName('battlewill_avatar'),
             battlewillSwordPivot: group.getObjectByName('battlewill_sword_pivot'),
+            leviathanSilhouette: group.getObjectByName('leviathan_silhouette'),
+            leviathanSurfaced: group.getObjectByName('leviathan_surfaced'),
             lastCarryType: '__unset__',
             lastStatusKey: -1,
             seenStamp: syncFrameStamp,
@@ -5871,10 +6067,45 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         }
         const uGroup = uEntry.group;
 
+        // Hide units currently embarked aboard a passenger ferry/cruise ship
+        if (u.embarkedVehicleId) {
+          uGroup.visible = false;
+          continue;
+        }
+        uGroup.visible = true;
+
+        // Toggle Leviathan between submerged silhouette vs surfaced breaching monster
+        if (u.role === 'leviathan') {
+          const isSubmerged = Boolean(u.leviathanSubmerged);
+          if (uEntry.leviathanSilhouette) uEntry.leviathanSilhouette.visible = isSubmerged;
+          if (uEntry.leviathanSurfaced) uEntry.leviathanSurfaced.visible = !isSubmerged;
+          if (!isSubmerged && Math.random() < 0.35) {
+            spawnParticleBurst(u.x, 0.28, u.z, 2, '#e0fbfc', 1.4, 2.2, 0.75);
+          }
+        }
+
         const tx = Math.round(THREE.MathUtils.clamp(u.x, 0, gsBld - 1));
         const tz = Math.round(THREE.MathUtils.clamp(u.z, 0, gsBld - 1));
         const tile = simState.tiles[tz * gsBld + tx];
-        const groundY = tile ? Math.max(0.18, tile.height * HEIGHT_STEP + 0.25) : 0.5;
+        const isWaterWalkwayTile =
+          tile &&
+          tile.height === 0 &&
+          (tile.terrain === 'stone_road' ||
+            tile.terrain === 'rail_track' ||
+            tile.terrain === 'runway' ||
+            Boolean(tile.buildingId));
+        const groundY = tile
+          ? u.role === 'leviathan'
+            ? (u.leviathanSubmerged ? 0.16 : 0.34) + Math.sin(elapsed * 2.0 + u.x * 0.4) * 0.03
+            : u.isSwimming
+              ? 0.12 + Math.sin(elapsed * 5.5 + u.x) * 0.035
+              : isWaterWalkwayTile
+                ? 0.3
+                : Math.max(0.18, tile.height * HEIGHT_STEP + 0.25)
+          : 0.5;
+        if (u.isSwimming && Math.random() < 0.16) {
+          spawnParticleBurst(u.x, 0.26, u.z, 1, '#e0fbfc', 0.22, 0.85, 0.32);
+        }
 
         let blackHolePullFrac = 0;
         let blackHoleAngle = 0;
@@ -5908,6 +6139,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           u.role === 'bear' ||
           u.role === 'dinosaur' ||
           u.role === 'unicorn' ||
+          u.role === 'leviathan' ||
           isDragon;
         const seedPhase = ((u.appearanceSeed ?? 1) % 31) * 0.41;
         const atkTimer = u.attackAnimTimer ?? 0;
@@ -6435,18 +6667,18 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
                 0.35,
               );
             }
-          } else if (v.type === 'warship') {
+          } else if (v.type === 'warship' || v.type === 'passenger_ship') {
             const isSea = vTile?.height === 0;
             const shipY = isSea
               ? 0.26 + Math.sin(elapsed * 2.2 + v.x * 0.7) * 0.035
               : groundY + v.y + 0.02;
             vGroup.position.set(v.x, shipY, v.z);
             if (isSea && Math.random() < 0.55) {
-              // Seafoam stern wake trailing behind sailing/cruising warships
+              // Seafoam stern wake trailing behind sailing/cruising ships & ferries
               spawnParticleBurst(
-                v.x - Math.sin(v.heading) * 0.66,
+                v.x - Math.sin(v.heading) * 0.62,
                 shipY + 0.05,
-                v.z - Math.cos(v.heading) * 0.66,
+                v.z - Math.cos(v.heading) * 0.62,
                 2,
                 v.epochLevel >= 6 ? '#56cfe1' : '#e0f2fe',
                 0.22,
@@ -6455,8 +6687,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
               );
             }
             if (v.epochLevel === 3 && Math.random() < 0.38) {
-              // Industrial ironclad smokestack plumes
-              spawnParticleBurst(v.x, shipY + 0.62, v.z, 1, '#475569', 0.18, 0.9, 0.55);
+              // Industrial steam ferry / ironclad smokestack plumes
+              spawnParticleBurst(v.x, shipY + 0.58, v.z, 1, '#475569', 0.18, 0.9, 0.52);
             }
           } else if (v.type === 'helicopter') {
             const heliY = Math.max(
@@ -6893,6 +7125,54 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
                 0.7,
                 3.2,
                 0.85,
+              );
+            }
+          } else if (hv.kind === 'whirlpool') {
+            hv.group.position.set(haz.x, 0.24, haz.z);
+            if (hv.ringMesh) {
+              hv.ringMesh.rotation.z = -elapsed * 4.5;
+            }
+            if (hv.tornadoRings) {
+              for (let ri = 0; ri < hv.tornadoRings.length; ri++) {
+                const tr = hv.tornadoRings[ri];
+                const frac = (ri + 1) / hv.tornadoRings.length;
+                tr.rotation.y = elapsed * (7.5 - frac * 3.2);
+                const pulse = 1 + Math.sin(elapsed * 5.2 + ri) * 0.06;
+                const rScale = haz.radius * (0.24 + frac * 0.72) * pulse * fade;
+                tr.scale.set(rScale, 0.32, rScale);
+              }
+            }
+            if (hv.vortexMotes) {
+              for (let mi = 0; mi < hv.vortexMotes.length; mi++) {
+                const vm = hv.vortexMotes[mi];
+                const cycle = (elapsed * vm.speed + vm.phase) % 1;
+                const r = Math.max(0.18, haz.radius * (1 - cycle * 0.85));
+                const theta = vm.baseAngle + elapsed * 4.2 + cycle * 6.5;
+                vm.mesh.position.set(Math.cos(theta) * r, 0.05 + (1 - cycle) * 0.08, Math.sin(theta) * r);
+                vm.mesh.rotation.y = -theta;
+              }
+            }
+            if (Math.random() < 0.55) {
+              spawnParticleBurst(haz.x, 0.28, haz.z, 2, '#e0fbfc', haz.radius * 0.75, 1.8, 0.55);
+            }
+          } else if (hv.kind === 'rogue_wave') {
+            hv.group.position.set(haz.x, 0.24, haz.z);
+            const heading = haz.heading ?? 0;
+            hv.group.rotation.y = heading;
+            if (hv.cloudBody) {
+              const swell = 0.92 + Math.sin(elapsed * 7.5) * 0.14;
+              hv.cloudBody.scale.set(1, swell * fade, 1);
+            }
+            if (Math.random() < 0.7) {
+              spawnParticleBurst(
+                haz.x + (Math.random() - 0.5) * haz.radius,
+                0.85,
+                haz.z + (Math.random() - 0.5) * haz.radius,
+                2,
+                '#e0fbfc',
+                0.85,
+                2.8,
+                0.78,
               );
             }
           }

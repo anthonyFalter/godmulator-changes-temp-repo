@@ -965,6 +965,23 @@ export const UnitPixelIcon: React.FC<{ role: UnitRole; className?: string }> = (
     );
   }
 
+  if (role === 'leviathan') {
+    return (
+      <svg viewBox="0 0 16 16" className={className} aria-hidden="true" shapeRendering="crispEdges">
+        <rect x="3" y="3" width="10" height="4" fill="#133c55" />
+        <rect x="4" y="4" width="2" height="2" fill="#72efdd" />
+        <rect x="10" y="4" width="2" height="2" fill="#72efdd" />
+        <rect x="3" y="7" width="10" height="3" fill="#3b0d1e" />
+        <rect x="4" y="7" width="1" height="2" fill="#f8fafc" />
+        <rect x="6" y="7" width="1" height="2" fill="#f8fafc" />
+        <rect x="9" y="7" width="1" height="2" fill="#f8fafc" />
+        <rect x="11" y="7" width="1" height="2" fill="#f8fafc" />
+        <rect x="2" y="10" width="12" height="3" fill="#5fa8d3" />
+        <rect x="1" y="13" width="14" height="1" fill="#e0fbfc" />
+      </svg>
+    );
+  }
+
   if (role === 'human' || role === 'villager') {
     return (
       <svg viewBox="0 0 16 16" className={className} aria-hidden="true" shapeRendering="crispEdges">

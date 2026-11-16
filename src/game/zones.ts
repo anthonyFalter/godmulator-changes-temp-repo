@@ -934,6 +934,18 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
           canEnterDeepWater: false,
           canEnterLand: true,
         };
+      case 'leviathan':
+        return {
+          titlePrefix: 'Leviathan Abyss',
+          speciesLabel: 'Leviathans (Bloop)',
+          diet: 'Apex',
+          domainType: 'Marine Waters',
+          color: [14, 165, 233],
+          preferredBiomes: ['Deepseas', 'Shore'],
+          canEnterShallowWater: true,
+          canEnterDeepWater: true,
+          canEnterLand: false,
+        };
       default:
         return {
           titlePrefix: 'Marine Shoal',
@@ -975,7 +987,7 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
     });
 
     const baseBudget =
-      c.species === 'dragon'
+      c.species === 'dragon' || c.species === 'leviathan'
         ? 10.5
         : c.species === 'dinosaur' || c.species === 'wolf' || c.species === 'bear'
         ? 7.8
@@ -1066,7 +1078,7 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
     const cz = (curr - cx) / size;
     const currTile = tiles[curr];
 
-    const isAquaticOnly = info.species === 'aquatic';
+    const isAquaticOnly = info.species === 'aquatic' || info.species === 'leviathan';
     const isAmphibious = info.species === 'capybara' || info.species === 'raider';
     const isAerial = info.species === 'dragon';
 
@@ -1221,6 +1233,11 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
 
   // Identify enclosed inland water bodies (Lakes) vs open coastal Shore / Deepseas
   const isEnclosedLakeTile = new Uint8Array(totalTiles);
+  for (let i = 0; i < totalTiles; i++) {
+    if (tiles[i].isLake && tiles[i].height === 0) {
+      isEnclosedLakeTile[i] = 1;
+    }
+  }
   const waterVisited = new Uint8Array(totalTiles);
   const waterComponent: number[] = [];
   for (let i = 0; i < totalTiles; i++) {
@@ -1255,7 +1272,7 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
         }
       }
     }
-    if (!touchesMapEdge && waterComponent.length <= Math.max(180, Math.round(totalTiles * 0.035))) {
+    if (!touchesMapEdge && waterComponent.length <= Math.max(220, Math.round(totalTiles * 0.045))) {
       for (let k = 0; k < waterComponent.length; k++) {
         isEnclosedLakeTile[waterComponent[k]] = 1;
       }

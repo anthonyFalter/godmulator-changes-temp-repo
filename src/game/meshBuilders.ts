@@ -559,6 +559,9 @@ export interface NodeVariantLibrary {
   ambientSavanna: THREE.BufferGeometry[];
   ambientSwamp: THREE.BufferGeometry[];
   ambientHighland: THREE.BufferGeometry[];
+  coralReef: THREE.BufferGeometry[];
+  scrapFlotsam: THREE.BufferGeometry[];
+  atlantisRuin: THREE.BufferGeometry[];
   standardMat: THREE.MeshStandardMaterial;
   crystalMat: THREE.MeshStandardMaterial;
 }
@@ -1076,6 +1079,110 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     ambientBlossom.push(finalizeMergedParts(p));
   }
 
+  // 7a. Submerged Warm-Ocean Coral Reef Clusters (3D staghorn, tube, brain coral & tall sea-grass strictly under y=0.165 so they sit on the sandy seabed below the y=0.295 water plane)
+  const coralReef: THREE.BufferGeometry[] = [];
+  {
+    const p: THREE.BufferGeometry[] = [];
+    // Lush emerald seagrass blades
+    addColoredBox(p, 0.045, 0.14, 0.045, -0.30, 0.065, -0.22, 0x2d8a4e);
+    addColoredBox(p, 0.04, 0.12, 0.04, -0.22, 0.055, -0.28, 0x52b788);
+    addColoredBox(p, 0.045, 0.15, 0.045, 0.28, 0.07, -0.24, 0x3ea862);
+    // Magenta tube coral cluster
+    addColoredBox(p, 0.09, 0.145, 0.09, -0.06, 0.068, 0.04, 0xf72585);
+    addColoredBox(p, 0.07, 0.12, 0.07, -0.14, 0.055, 0.11, 0xff4d9e);
+    addColoredBox(p, 0.06, 0.10, 0.06, 0.02, 0.045, 0.12, 0xd90479);
+    // Brain coral & golden horn fan
+    addColoredBox(p, 0.18, 0.08, 0.16, 0.18, 0.035, 0.14, 0x7209b7);
+    addColoredBox(p, 0.14, 0.04, 0.12, 0.18, 0.09, 0.14, 0x9d4edd);
+    addColoredBox(p, 0.08, 0.135, 0.05, 0.12, 0.062, -0.12, 0xffbe0b, 0.35);
+    addColoredBox(p, 0.13, 0.09, 0.11, -0.18, 0.04, 0.24, 0x00bbf9);
+    coralReef.push(finalizeMergedParts(p));
+  }
+  {
+    const p: THREE.BufferGeometry[] = [];
+    // Seagrass fronds
+    addColoredBox(p, 0.045, 0.145, 0.045, -0.26, 0.068, 0.18, 0x3ea862);
+    addColoredBox(p, 0.04, 0.125, 0.04, 0.26, 0.058, 0.22, 0x2d8a4e);
+    addColoredBox(p, 0.04, 0.13, 0.04, -0.04, 0.06, -0.28, 0x52b788);
+    // Golden sunburst staghorn & flame coral
+    addColoredBox(p, 0.08, 0.15, 0.08, 0.06, 0.07, 0.02, 0xffbe0b);
+    addColoredBox(p, 0.16, 0.05, 0.06, 0.06, 0.11, 0.02, 0xfb8500);
+    addColoredBox(p, 0.07, 0.11, 0.07, -0.14, 0.05, -0.08, 0xff595e);
+    addColoredBox(p, 0.15, 0.07, 0.14, -0.20, 0.03, -0.18, 0xff758f);
+    // Azure bubble coral & sea fan
+    addColoredBox(p, 0.14, 0.10, 0.14, 0.20, 0.045, -0.14, 0x4361ee);
+    addColoredBox(p, 0.11, 0.13, 0.05, -0.08, 0.06, 0.22, 0x48cae4, -0.35);
+    coralReef.push(finalizeMergedParts(p));
+  }
+  {
+    const p: THREE.BufferGeometry[] = [];
+    // Dense sunken seagrass & colorful coral mound garden
+    addColoredBox(p, 0.05, 0.15, 0.05, 0.24, 0.07, -0.22, 0x2d8a4e);
+    addColoredBox(p, 0.04, 0.12, 0.04, 0.30, 0.055, -0.14, 0x52b788);
+    addColoredBox(p, 0.045, 0.14, 0.045, -0.28, 0.065, -0.12, 0x3ea862);
+    addColoredBox(p, 0.20, 0.085, 0.18, 0.0, 0.038, 0.0, 0x4361ee); // indigo reef base
+    addColoredBox(p, 0.12, 0.13, 0.12, 0.02, 0.06, 0.02, 0x00bbf9); // cyan crest
+    addColoredBox(p, 0.08, 0.145, 0.08, -0.18, 0.068, 0.18, 0xf72585); // magenta pillar
+    addColoredBox(p, 0.09, 0.125, 0.09, 0.20, 0.058, 0.16, 0xff9f1c); // tangerine pillar
+    addColoredBox(p, 0.11, 0.09, 0.06, -0.12, 0.04, -0.22, 0xc77dff, 0.4); // lavender fan
+    coralReef.push(finalizeMergedParts(p));
+  }
+  {
+    const p: THREE.BufferGeometry[] = [];
+    // Seagrass meadow tuft with scattered mini-corals (creates organic transitions near sandy gaps)
+    addColoredBox(p, 0.045, 0.14, 0.045, -0.18, 0.065, -0.18, 0x2d8a4e);
+    addColoredBox(p, 0.04, 0.12, 0.04, -0.10, 0.055, -0.22, 0x52b788);
+    addColoredBox(p, 0.045, 0.135, 0.045, 0.16, 0.062, 0.20, 0x3ea862);
+    addColoredBox(p, 0.04, 0.11, 0.04, 0.24, 0.05, 0.14, 0x2d8a4e);
+    addColoredBox(p, 0.13, 0.085, 0.13, 0.14, 0.038, -0.12, 0xff595e);
+    addColoredBox(p, 0.10, 0.125, 0.10, -0.20, 0.058, 0.12, 0x9d4edd);
+    addColoredBox(p, 0.08, 0.115, 0.08, 0.02, 0.052, 0.04, 0xffd166);
+    coralReef.push(finalizeMergedParts(p));
+  }
+
+  // 7b. Scrap Flotsam & Sea Salvage (floating driftwood rafts, rusted metal plates, salvage barrels & crates)
+  const scrapFlotsam: THREE.BufferGeometry[] = [];
+  {
+    const p: THREE.BufferGeometry[] = [];
+    addColoredBox(p, 0.44, 0.06, 0.1, -0.06, 0.01, -0.12, 0x7c5334, 0.25); // driftwood plank
+    addColoredBox(p, 0.4, 0.06, 0.1, 0.04, 0.01, 0.04, 0x634128, -0.18);
+    addColoredBox(p, 0.18, 0.16, 0.18, -0.14, 0.08, 0.12, 0xb45309, 0.4); // salvage crate
+    addColoredBox(p, 0.14, 0.18, 0.14, 0.18, 0.07, -0.1, 0x475569, 0.2, 0.5); // steel drum
+    addColoredBox(p, 0.22, 0.05, 0.18, 0.12, 0.02, 0.18, 0x94a3b8, -0.3); // scrap hull plate
+    scrapFlotsam.push(finalizeMergedParts(p));
+  }
+  {
+    const p: THREE.BufferGeometry[] = [];
+    addColoredBox(p, 0.36, 0.07, 0.28, 0.0, 0.01, 0.0, 0x6b442a, 0.15);
+    addColoredBox(p, 0.16, 0.14, 0.22, -0.12, 0.09, -0.06, 0x64748b, -0.2);
+    addColoredBox(p, 0.14, 0.14, 0.14, 0.16, 0.08, 0.12, 0xd97706, 0.35);
+    addColoredBox(p, 0.08, 0.22, 0.08, -0.2, 0.1, 0.18, 0x38bdf8, 0.2, -0.3); // salvage canister
+    scrapFlotsam.push(finalizeMergedParts(p));
+  }
+
+  // 7c. Ancient Atlantis Ruins (white marble columns, golden orichalcum rings & glowing sea-crystal obelisks rising from the waves)
+  const atlantisRuin: THREE.BufferGeometry[] = [];
+  {
+    const p: THREE.BufferGeometry[] = [];
+    addColoredBox(p, 0.64, 0.12, 0.64, 0, 0.02, 0, 0xe2e8f0); // sunken marble plaza base
+    addColoredBox(p, 0.52, 0.06, 0.52, 0, 0.09, 0, 0xf5b742); // golden orichalcum ring inlay
+    addColoredBox(p, 0.12, 0.46, 0.12, -0.2, 0.28, -0.2, 0xf8fafc); // intact fluted column
+    addColoredBox(p, 0.16, 0.06, 0.16, -0.2, 0.52, -0.2, 0xf5b742); // golden capital
+    addColoredBox(p, 0.12, 0.28, 0.12, 0.2, 0.19, -0.2, 0xf1f5f9); // broken column
+    addColoredBox(p, 0.12, 0.36, 0.12, -0.2, 0.23, 0.2, 0xf1f5f9);
+    addColoredBox(p, 0.18, 0.58, 0.18, 0.04, 0.34, 0.04, 0x48bfe3, Math.PI / 4); // glowing Atlantean crystal spire
+    atlantisRuin.push(finalizeMergedParts(p));
+  }
+  {
+    const p: THREE.BufferGeometry[] = [];
+    addColoredBox(p, 0.6, 0.12, 0.6, 0, 0.02, 0, 0xe2e8f0);
+    addColoredBox(p, 0.14, 0.48, 0.14, -0.2, 0.28, 0, 0xf8fafc);
+    addColoredBox(p, 0.14, 0.48, 0.14, 0.2, 0.28, 0, 0xf8fafc);
+    addColoredBox(p, 0.54, 0.1, 0.16, 0, 0.54, 0, 0xf5b742); // golden architrave lintel
+    addColoredBox(p, 0.16, 0.44, 0.16, 0, 0.26, 0, 0x64dfdf, Math.PI / 4);
+    atlantisRuin.push(finalizeMergedParts(p));
+  }
+
   cachedVariantLib = {
     timber,
     timberJungle,
@@ -1101,6 +1208,9 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     ambientSavanna,
     ambientSwamp,
     ambientHighland,
+    coralReef,
+    scrapFlotsam,
+    atlantisRuin,
     standardMat: new THREE.MeshStandardMaterial({
       vertexColors: true,
       roughness: 0.78,
@@ -1133,6 +1243,13 @@ export function createResourceNodeGroup(nodeType: ResourceNodeType, variant = 0)
   else if (nodeType === 'ore_vein') geo = lib.ore[idx % lib.ore.length];
   else if (nodeType === 'crystal_monolith') {
     geo = lib.crystal[idx % lib.crystal.length];
+    mat = lib.crystalMat;
+  } else if (nodeType === 'coral_reef') {
+    geo = lib.coralReef[idx % lib.coralReef.length];
+  } else if (nodeType === 'scrap_flotsam') {
+    geo = lib.scrapFlotsam[idx % lib.scrapFlotsam.length];
+  } else if (nodeType === 'atlantis_ruin') {
+    geo = lib.atlantisRuin[idx % lib.atlantisRuin.length];
     mat = lib.crystalMat;
   }
 
@@ -1386,6 +1503,7 @@ export function createBuildingGroup(
   epochIndex: number,
   variantSeed = 0,
   species: SpeciesId = 'human',
+  isWaterTile = false,
 ): THREE.Group {
   const group = new THREE.Group();
   const isMonumental =
@@ -1451,6 +1569,90 @@ export function createBuildingGroup(
   const raceTechWallMat = isElf ? elfPearlTechMat : isOrc ? orcGunmetalMat : techMat;
   const raceTechTrimMat = isElf ? elfJadeRoofMat : isOrc ? orcIronMat : darkTechMat;
   const raceAccentMat = isElf ? goldMat : isOrc ? orcCrimsonMat : goldMat;
+
+  // Floating City Foundation Platform when constructed on water (evolves across epochs & races)
+  if (isWaterTile) {
+    const platGroup = new THREE.Group();
+    platGroup.name = 'floating_city_platform';
+    if (epochIndex <= 0) {
+      // Prehistoric: Lashed log raft / Elf lotus-root pad / Orc bone-tied hide pontoon raft
+      const deckMat = isElf ? elfLeafRoofMat : isOrc ? orcCharredLogMat : stickWoodMat;
+      const floatMat = isElf ? elfHeartwoodMat : isOrc ? orcHideMat : woodMat;
+      for (let li = -3; li <= 3; li++) {
+        const log = new THREE.Mesh(new THREE.BoxGeometry(0.96, 0.06, 0.11), deckMat);
+        log.position.set(0, -0.02, li * 0.13);
+        platGroup.add(log);
+      }
+      for (const sx of [-0.44, 0.44]) {
+        const outrigger = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.09, 0.98), floatMat);
+        outrigger.position.set(sx, -0.05, 0);
+        platGroup.add(outrigger);
+      }
+      if (isOrc) {
+        for (const [cx, cz] of [
+          [-0.44, -0.44],
+          [0.44, -0.44],
+          [-0.44, 0.44],
+          [0.44, 0.44],
+        ] as const) {
+          const tusk = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.16, 4), orcBoneMat);
+          tusk.position.set(cx, 0.07, cz);
+          platGroup.add(tusk);
+        }
+      }
+    } else if (epochIndex <= 2) {
+      // Bronze & Medieval: Timber wharf / Elf moonstone & birch terrace / Orc basalt & iron-banded war-barge
+      const deckMat = isElf ? elfBirchMat : isOrc ? orcCharredLogMat : woodMat;
+      const trimM = isElf ? elfMossStoneMat : isOrc ? orcBasaltMat : stoneMat;
+      const deck = new THREE.Mesh(new THREE.BoxGeometry(0.98, 0.08, 0.98), deckMat);
+      deck.position.set(0, -0.03, 0);
+      platGroup.add(deck);
+      for (const [cx, cz] of [
+        [-0.44, -0.44],
+        [0.44, -0.44],
+        [-0.44, 0.44],
+        [0.44, 0.44],
+      ] as const) {
+        const piling = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.24, 0.11), trimM);
+        piling.position.set(cx, -0.06, cz);
+        platGroup.add(piling);
+      }
+    } else if (epochIndex <= 3) {
+      // Industrial: Riveted iron & brick caisson / Elf verdigris pontoon / Orc heavy iron forge-barge
+      const caissonMat = isElf ? elfVerdigrisMat : isOrc ? orcIronMat : brickMat;
+      const rimM = isElf ? elfHeartwoodMat : isOrc ? orcGunmetalMat : darkStoneMat;
+      const caisson = new THREE.Mesh(new THREE.BoxGeometry(0.98, 0.12, 0.98), caissonMat);
+      caisson.position.set(0, -0.05, 0);
+      platGroup.add(caisson);
+      for (const sx of [-0.46, 0.46]) {
+        const pontoon = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 1.0, 8), rimM);
+        pontoon.rotation.x = Math.PI / 2;
+        pontoon.position.set(sx, -0.08, 0);
+        platGroup.add(pontoon);
+      }
+    } else if (epochIndex <= 5) {
+      // Atomic & Modern: Reinforced offshore concrete & steel catamaran pontoon platform
+      const deckMat = isElf ? elfPearlTechMat : isOrc ? orcGunmetalMat : concreteMat;
+      const hullMat = isElf ? elfJadeRoofMat : isOrc ? orcCrimsonMat : darkTechMat;
+      const deck = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.09, 1.0), deckMat);
+      deck.position.set(0, -0.03, 0);
+      platGroup.add(deck);
+      for (const sx of [-0.42, 0.42]) {
+        const floatHull = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.12, 1.02), hullMat);
+        floatHull.position.set(sx, -0.09, 0);
+        platGroup.add(floatHull);
+      }
+    } else {
+      // Orbital & Interstellar: Anti-gravity repulsor sea-pad with glowing racial plasma rings
+      const pad = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.54, 0.1, 8), raceTechWallMat);
+      pad.position.set(0, -0.04, 0);
+      platGroup.add(pad);
+      const glowRing = new THREE.Mesh(new THREE.BoxGeometry(0.96, 0.04, 0.96), raceGlowMat);
+      glowRing.position.set(0, -0.09, 0);
+      platGroup.add(glowRing);
+    }
+    group.add(platGroup);
+  }
 
   // Helper: Prehistoric outdoor stone-ring campfire with crossed logs & flickering flame
   const addPrehistoricCampfire = (cx: number, cz: number, fireMat: THREE.Material = flameMat) => {
@@ -4647,6 +4849,139 @@ function buildCreatureUnitGroup(
       legPivot.add(new THREE.Mesh(geo.legHorn, hornMat));
       bodyPivot.add(legPivot);
     }
+  } else if (role === 'leviathan') {
+    // Leviathan ("The Bloop"):
+    // 1. `leviathan_silhouette`: Colossal dark abyssal silhouette roaming beneath the sea surface
+    // 2. `leviathan_surfaced`: Breaching wide-mouthed Bloop sea behemoth with cavernous maw, rows of giant teeth, bioluminescent abyssal eyes, dorsal fins & splash ring
+    shadowRadius = 1.95;
+    auraRadius = 1.15;
+
+    const silGroup = new THREE.Group();
+    silGroup.name = 'leviathan_silhouette';
+    const silMat = new THREE.MeshBasicMaterial({
+      color: 0x031224,
+      transparent: true,
+      opacity: 0.72,
+      depthWrite: false,
+    });
+    const silBody = new THREE.Mesh(new THREE.BoxGeometry(1.35, 0.12, 2.25), silMat);
+    silBody.position.set(0, -0.06, 0);
+    silGroup.add(silBody);
+    const silHead = new THREE.Mesh(new THREE.BoxGeometry(1.65, 0.1, 0.95), silMat);
+    silHead.position.set(0, -0.06, 0.92);
+    silGroup.add(silHead);
+    for (const fx of [-1.05, 1.05]) {
+      const silFlipper = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.06, 0.48), silMat);
+      silFlipper.position.set(fx, -0.07, 0.24);
+      silFlipper.rotation.y = fx < 0 ? 0.38 : -0.38;
+      silGroup.add(silFlipper);
+    }
+    const silTail = new THREE.Mesh(new THREE.BoxGeometry(1.15, 0.06, 0.55), silMat);
+    silTail.position.set(0, -0.07, -1.35);
+    silGroup.add(silTail);
+    group.add(silGroup);
+
+    const surfGroup = new THREE.Group();
+    surfGroup.name = 'leviathan_surfaced';
+    const skinHex = s0 % 2 === 0 ? 0x133c55 : 0x1b4965;
+    const bellyHex = 0x5fa8d3;
+    const skinMat = mat(skinHex, 0.48, 0.15);
+    const bellyMat = mat(bellyHex, 0.55, 0.08);
+    const mawInMat = mat(0x3b0d1e, 0.7, 0.05);
+    const toothMat = mat(0xf8fafc, 0.3, 0.1);
+    const eyeGlowMat = mat(0x72efdd, 0.2, 0.1, 0x48bfe3, 1.35);
+    const foamMat = new THREE.MeshBasicMaterial({
+      color: 0xe0fbfc,
+      transparent: true,
+      opacity: 0.85,
+    });
+
+    // Colossal bulbous Bloop torso & arched back
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(1.42, 0.88, 1.85), skinMat);
+    torso.position.set(0, 0.42, -0.12);
+    torso.castShadow = true;
+    surfGroup.add(torso);
+
+    const belly = new THREE.Mesh(new THREE.BoxGeometry(1.26, 0.28, 1.65), bellyMat);
+    belly.position.set(0, 0.14, -0.05);
+    surfGroup.add(belly);
+
+    // Wide-mouthed Bloop upper head & hinged lower jaw with rows of megaphone-like conical teeth
+    const headPivot = makePivot('head_pivot', 0, 0.48, 0.68);
+    const upperSkull = new THREE.Mesh(new THREE.BoxGeometry(1.56, 0.48, 0.92), skinMat);
+    upperSkull.position.set(0, 0.22, 0.36);
+    upperSkull.rotation.x = -0.14;
+    upperSkull.castShadow = true;
+    headPivot.add(upperSkull);
+
+    const mawCavity = new THREE.Mesh(new THREE.BoxGeometry(1.36, 0.34, 0.74), mawInMat);
+    mawCavity.position.set(0, 0.02, 0.36);
+    headPivot.add(mawCavity);
+
+    // 6 glowing abyssal eyes (3 on each side of the wide Bloop head)
+    for (const side of [-1, 1]) {
+      for (let ei = 0; ei < 3; ei++) {
+        const eye = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.09, 0.09), eyeGlowMat);
+        eye.position.set(side * 0.79, 0.28 + (ei % 2) * 0.08, 0.56 - ei * 0.18);
+        headPivot.add(eye);
+      }
+    }
+
+    // Upper teeth row
+    for (let ti = -3; ti <= 3; ti++) {
+      const fang = new THREE.Mesh(new THREE.ConeGeometry(0.055, 0.22, 4), toothMat);
+      fang.rotation.x = Math.PI;
+      fang.position.set(ti * 0.19, -0.02, 0.76);
+      headPivot.add(fang);
+    }
+
+    const jawPivot = makePivot('jaw_pivot', 0, 0.02, 0.12);
+    const lowerJaw = new THREE.Mesh(new THREE.BoxGeometry(1.48, 0.24, 0.88), bellyMat);
+    lowerJaw.position.set(0, -0.14, 0.34);
+    jawPivot.add(lowerJaw);
+    for (let ti = -3; ti <= 3; ti++) {
+      const fang = new THREE.Mesh(new THREE.ConeGeometry(0.055, 0.22, 4), toothMat);
+      fang.position.set(ti * 0.18, 0.04, 0.72);
+      jawPivot.add(fang);
+    }
+    headPivot.add(jawPivot);
+    surfGroup.add(headPivot);
+
+    // Dorsal ridge spines & sweeping pectoral fins
+    for (let di = 0; di < 4; di++) {
+      const fin = new THREE.Mesh(
+        new THREE.BoxGeometry(0.12, 0.38 - di * 0.06, 0.26),
+        skinMat,
+      );
+      fin.position.set(0, 0.92 - di * 0.05, 0.15 - di * 0.36);
+      fin.rotation.x = -0.28;
+      surfGroup.add(fin);
+    }
+    for (const side of [-1, 1]) {
+      const flipper = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.12, 0.48), skinMat);
+      flipper.position.set(side * 1.02, 0.22, 0.18);
+      flipper.rotation.z = -side * 0.22;
+      flipper.rotation.y = -side * 0.32;
+      surfGroup.add(flipper);
+    }
+
+    // Articulated tail fluke
+    const tailPivot = makePivot('tail_pivot', 0, 0.34, -1.02);
+    const tailStem = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.42, 0.78), skinMat);
+    tailStem.position.set(0, 0, -0.34);
+    tailPivot.add(tailStem);
+    const tailFluke = new THREE.Mesh(new THREE.BoxGeometry(1.36, 0.1, 0.46), skinMat);
+    tailFluke.position.set(0, 0.04, -0.82);
+    tailPivot.add(tailFluke);
+    surfGroup.add(tailPivot);
+
+    // Churning white seafoam breach ring around the surfaced Leviathan
+    const splashRing = new THREE.Mesh(new THREE.RingGeometry(1.15, 1.58, 16), foamMat);
+    splashRing.rotation.x = -Math.PI / 2;
+    splashRing.position.set(0, 0.06, 0.1);
+    surfGroup.add(splashRing);
+
+    bodyPivot.add(surfGroup);
   } else {
     // Unicorn: radiant ivory steed, golden spiral horn, animated legs & pastel mane
     shadowRadius = 0.68;
@@ -4771,7 +5106,8 @@ export function createUnitGroup(
     role === 'capybara' ||
     role === 'dinosaur' ||
     role === 'dragon' ||
-    role === 'unicorn'
+    role === 'unicorn' ||
+    role === 'leviathan'
   ) {
     return buildCreatureUnitGroup(group, role, s0, s1, s2, s3);
   }
@@ -7040,6 +7376,305 @@ export function createVehicleGroup(
       barrel.rotation.x = Math.PI / 2;
       barrel.position.set(0, 0.28, 0.2);
       group.add(barrel);
+    }
+    return group;
+  }
+
+  if (type === 'passenger_ship') {
+    // Evolving Civilian & Transport Ships across Epochs 0..7 and Races (Human, Elf, Orc):
+    // Epoch 0: Outrigger Canoe / Leaf-Sail Pirogue / Hide & Bone Log-Raft
+    // Epoch 1: Bronze Merchant Coaster / Swan Transport / Horned Outrigger Barge
+    // Epoch 2: Medieval Carrack / Elven Trimaran Packet / Orc Longship Transport
+    // Epoch 3: Side-Wheel Steam Ferry / Aether-Wheel Riverboat / Iron-Paddle Coal Ferry
+    // Epoch 4: Twin-Deck Car & Passenger Ferry / Hydrofoil Catamaran / Armored Troop Transport Ferry
+    // Epoch 5: Multi-Deck Luxury Cruise Ship / Solar-Sail Eco Cruise Liner / Heavy Steel Mega-Transport
+    // Epoch 6+: Orbital/Star Anti-Grav Luxury Star-Liner
+    const isPrehistoricRaft = epochLevel <= 0;
+    const isBronzeBoat = epochLevel === 1;
+    const isMedievalShip = epochLevel === 2;
+    const isSteamFerry = epochLevel === 3;
+    const isModernFerry = epochLevel === 4;
+    const isCruiseShip = epochLevel === 5;
+    const isStarLiner = epochLevel >= 6;
+
+    if (isPrehistoricRaft) {
+      const woodColor = isElf ? 0xc8b88a : isOrc ? 0x4a2c18 : 0x7c5334;
+      const logMat = new THREE.MeshStandardMaterial({ color: woodColor, roughness: 0.85 });
+      const sailMat = new THREE.MeshStandardMaterial({
+        color: isElf ? 0x52b788 : isOrc ? 0x9b2226 : 0xe9c46a,
+        roughness: 0.78,
+        side: THREE.DoubleSide,
+      });
+      for (let li = -2; li <= 2; li++) {
+        const log = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.042, 0.76, 6), logMat);
+        log.rotation.x = Math.PI / 2;
+        log.position.set(li * 0.075, 0.08, 0);
+        log.castShadow = true;
+        group.add(log);
+      }
+      const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.024, 0.48, 5), logMat);
+      mast.position.set(0, 0.32, 0.04);
+      group.add(mast);
+      const sail = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.28, 0.025), sailMat);
+      sail.position.set(0, 0.36, 0.06);
+      group.add(sail);
+      if (isElf) {
+        const outrigger = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.68, 5), logMat);
+        outrigger.rotation.x = Math.PI / 2;
+        outrigger.position.set(0.32, 0.07, 0);
+        group.add(outrigger);
+        const spar = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.025, 0.04), logMat);
+        spar.position.set(0.16, 0.1, 0);
+        group.add(spar);
+      } else if (isOrc) {
+        const boneMat = new THREE.MeshStandardMaterial({ color: 0xe5dec9, roughness: 0.7 });
+        for (const sx of [-0.14, 0.14]) {
+          const tusk = new THREE.Mesh(new THREE.ConeGeometry(0.032, 0.18, 4), boneMat);
+          tusk.rotation.x = Math.PI * 0.38;
+          tusk.position.set(sx, 0.14, 0.42);
+          group.add(tusk);
+        }
+      }
+      return group;
+    }
+
+    if (isBronzeBoat || isMedievalShip) {
+      const hullColor = isElf ? 0xf4e4c1 : isOrc ? 0x3b1d0e : 0x6b442a;
+      const hullMat = new THREE.MeshStandardMaterial({ color: hullColor, roughness: 0.65 });
+      const sailMat = new THREE.MeshStandardMaterial({
+        color: isElf ? 0xb8f2e6 : isOrc ? 0xb91c1c : 0xfef3c7,
+        roughness: 0.6,
+        side: THREE.DoubleSide,
+      });
+      const hullLen = isMedievalShip ? 1.02 : 0.86;
+      const hull = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.16, hullLen * 0.68), hullMat);
+      hull.position.y = 0.1;
+      hull.castShadow = true;
+      group.add(hull);
+
+      const bow = new THREE.Mesh(new THREE.ConeGeometry(0.22, hullLen * 0.34, 4), hullMat);
+      bow.rotation.x = Math.PI / 2;
+      bow.rotation.y = Math.PI / 4;
+      bow.position.set(0, 0.12, hullLen * 0.42);
+      group.add(bow);
+
+      const cabin = new THREE.Mesh(
+        new THREE.BoxGeometry(0.32, isMedievalShip ? 0.18 : 0.12, 0.32),
+        bodyMat,
+      );
+      cabin.position.set(0, 0.24, -0.18);
+      group.add(cabin);
+
+      const masts = isMedievalShip ? [-0.12, 0.18] : [0.05];
+      for (const mz of masts) {
+        const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.03, 0.66, 6), trimMat);
+        mast.position.set(0, 0.44, mz);
+        group.add(mast);
+        const sail = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.32, 0.03), sailMat);
+        sail.position.set(0, 0.48, mz + 0.02);
+        group.add(sail);
+      }
+      if (isElf) {
+        // Sleek twin trimaran outriggers
+        for (const side of [-1, 1]) {
+          const ama = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.08, hullLen * 0.72), hullMat);
+          ama.position.set(side * 0.32, 0.09, 0.02);
+          group.add(ama);
+        }
+      } else if (isOrc) {
+        // War-ram & iron side bucklers
+        const spike = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.28, 4), trimMat);
+        spike.rotation.x = Math.PI / 2;
+        spike.position.set(0, 0.14, hullLen * 0.62);
+        group.add(spike);
+      } else {
+        // Human raised forecastle
+        const forecastle = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.12, 0.2), bodyMat);
+        forecastle.position.set(0, 0.2, hullLen * 0.22);
+        group.add(forecastle);
+      }
+      return group;
+    }
+
+    if (isSteamFerry) {
+      // Epoch 3 Industrial: Side-Wheel Paddle Steamer Ferry / Elf Aether Riverboat / Orc Iron-Paddle Coal Ferry
+      const hullMat = new THREE.MeshStandardMaterial({
+        color: isElf ? 0x2ec4b6 : isOrc ? 0x3f3f46 : 0x334155,
+        roughness: 0.5,
+        metalness: 0.35,
+      });
+      const deckHouseMat = new THREE.MeshStandardMaterial({
+        color: isElf ? 0xfefae0 : isOrc ? 0x7f1d1d : 0xf8fafc,
+        roughness: 0.45,
+      });
+      const hull = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.16, 1.08), hullMat);
+      hull.position.y = 0.1;
+      hull.castShadow = true;
+      group.add(hull);
+
+      const promenade = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.18, 0.78), deckHouseMat);
+      promenade.position.set(0, 0.26, -0.02);
+      promenade.castShadow = true;
+      group.add(promenade);
+
+      const wheelhouse = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.12, 0.22), deckHouseMat);
+      wheelhouse.position.set(0, 0.4, 0.16);
+      group.add(wheelhouse);
+
+      if (isOrc) {
+        // Twin smoky iron stacks + angular armored ram prow
+        for (const sx of [-0.1, 0.1]) {
+          const stack = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.05, 0.36, 7), tireMat);
+          stack.position.set(sx, 0.49, -0.14);
+          group.add(stack);
+        }
+        const ram = new THREE.Mesh(new THREE.ConeGeometry(0.14, 0.28, 4), trimMat);
+        ram.rotation.x = Math.PI / 2;
+        ram.position.set(0, 0.12, 0.64);
+        group.add(ram);
+      } else if (isElf) {
+        // Arched golden canopy ribs & stern crystal lantern
+        const spire = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.32, 6), glowMat);
+        spire.position.set(0, 0.52, -0.2);
+        group.add(spire);
+        for (const side of [-1, 1]) {
+          const fin = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.2, 0.56), trimMat);
+          fin.position.set(side * 0.23, 0.24, 0.04);
+          group.add(fin);
+        }
+      } else {
+        const funnel = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.055, 0.34, 8), tireMat);
+        funnel.position.set(0, 0.48, -0.1);
+        group.add(funnel);
+      }
+
+      for (const side of [-1, 1]) {
+        const paddleWheel = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.09, 8), taillightMat);
+        paddleWheel.rotation.z = Math.PI / 2;
+        paddleWheel.position.set(side * 0.26, 0.14, 0);
+        paddleWheel.name = 'spin_prop';
+        group.add(paddleWheel);
+      }
+      return group;
+    }
+
+    if (isModernFerry) {
+      // Epoch 4 Atomic: Twin-Deck Roll-On/Roll-Off Ferry (or Elf Hydrofoil Catamaran / Orc Armored Troop Ferry)
+      const hullMat = new THREE.MeshStandardMaterial({
+        color: isElf ? 0x0d9488 : isOrc ? 0x27272a : 0x1d4ed8,
+        roughness: 0.38,
+        metalness: 0.45,
+      });
+      const superMat = new THREE.MeshStandardMaterial({
+        color: isOrc ? 0x52525b : 0xf8fafc,
+        roughness: 0.32,
+      });
+      const hull = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.18, 1.18), hullMat);
+      hull.position.y = 0.11;
+      hull.castShadow = true;
+      group.add(hull);
+
+      const deck1 = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.14, 0.94), superMat);
+      deck1.position.set(0, 0.26, -0.02);
+      group.add(deck1);
+
+      const winStrip = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.05, 0.88), glassMat);
+      winStrip.position.set(0, 0.28, -0.02);
+      group.add(winStrip);
+
+      const bridge = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.11, 0.36), superMat);
+      bridge.position.set(0, 0.38, 0.16);
+      group.add(bridge);
+
+      const funnel = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.18, 0.18), bodyMat);
+      funnel.position.set(0, 0.42, -0.24);
+      funnel.rotation.x = -0.18;
+      group.add(funnel);
+
+      if (isElf) {
+        for (const side of [-1, 1]) {
+          const foil = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.04, 0.84), glowMat);
+          foil.position.set(side * 0.3, 0.09, 0);
+          group.add(foil);
+        }
+      } else if (isOrc) {
+        const ramp = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.22, 0.07), trimMat);
+        ramp.position.set(0, 0.16, 0.62);
+        ramp.rotation.x = 0.24;
+        group.add(ramp);
+      }
+      return group;
+    }
+
+    // Epoch 5 (Cruise Ship) & Epoch 6+ (Anti-Grav Star-Liner):
+    // Multi-tiered ocean cruise liner with wrap-around glass promenade decks, lido pool deck, radar arch & sleek bow
+    const hullMat = new THREE.MeshStandardMaterial({
+      color: isStarLiner ? 0xe0f2fe : isElf ? 0xe6fcf5 : isOrc ? 0x18181b : 0xffffff,
+      roughness: 0.24,
+      metalness: isStarLiner ? 0.65 : 0.25,
+    });
+    const hullLen = isStarLiner ? 1.42 : 1.32;
+    const baseHull = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.2, hullLen * 0.72), hullMat);
+    baseHull.position.y = 0.12;
+    baseHull.castShadow = true;
+    group.add(baseHull);
+
+    const bowCone = new THREE.Mesh(new THREE.ConeGeometry(0.26, hullLen * 0.34, 4), hullMat);
+    bowCone.rotation.x = Math.PI / 2;
+    bowCone.rotation.y = Math.PI / 4;
+    bowCone.position.set(0, 0.14, hullLen * 0.44);
+    group.add(bowCone);
+
+    // 3 stepped luxury passenger cabin tiers + panoramic glass bands
+    for (let tier = 0; tier < 3; tier++) {
+      const tLen = (hullLen * 0.68) * (1 - tier * 0.14);
+      const tWidth = 0.44 - tier * 0.04;
+      const tY = 0.26 + tier * 0.11;
+      const tierBox = new THREE.Mesh(new THREE.BoxGeometry(tWidth, 0.09, tLen), hullMat);
+      tierBox.position.set(0, tY, -0.04);
+      tierBox.castShadow = true;
+      group.add(tierBox);
+
+      const glassBand = new THREE.Mesh(
+        new THREE.BoxGeometry(tWidth + 0.015, 0.04, tLen * 0.94),
+        isStarLiner ? glowMat : glassMat,
+      );
+      glassBand.position.set(0, tY + 0.01, -0.04);
+      group.add(glassBand);
+    }
+
+    // Lido deck turquoise swimming pool & iconic swept cruise funnel
+    const pool = new THREE.Mesh(
+      new THREE.BoxGeometry(0.18, 0.02, 0.24),
+      new THREE.MeshBasicMaterial({ color: 0x38bdf8 }),
+    );
+    pool.position.set(0, 0.54, 0.08);
+    group.add(pool);
+
+    const cruiseFunnel = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.2, 0.24), bodyMat);
+    cruiseFunnel.position.set(0, 0.6, -0.24);
+    cruiseFunnel.rotation.x = -0.24;
+    group.add(cruiseFunnel);
+
+    if (isElf) {
+      for (const side of [-1, 1]) {
+        const wingSail = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.34, 0.56), glowMat);
+        wingSail.position.set(side * 0.27, 0.38, -0.08);
+        wingSail.rotation.z = -side * 0.28;
+        group.add(wingSail);
+      }
+    } else if (isOrc) {
+      const prowArmour = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.18, 0.28), trimMat);
+      prowArmour.position.set(0, 0.22, hullLen * 0.34);
+      group.add(prowArmour);
+    }
+
+    if (isStarLiner) {
+      for (const ox of [-0.3, 0.3]) {
+        const hoverPod = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.05, 0.92), glowMat);
+        hoverPod.position.set(ox, 0.08, -0.02);
+        group.add(hoverPod);
+      }
     }
     return group;
   }

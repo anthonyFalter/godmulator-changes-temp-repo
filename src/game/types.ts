@@ -70,7 +70,10 @@ export type ResourceNodeType =
   | 'berry_bush'
   | 'stone_outcrop'
   | 'ore_vein'
-  | 'crystal_monolith';
+  | 'crystal_monolith'
+  | 'coral_reef'
+  | 'scrap_flotsam'
+  | 'atlantis_ruin';
 
 export interface TileData {
   x: number;
@@ -85,6 +88,8 @@ export interface TileData {
   fireColor?: string;
   buildingId: string | null;
   farmSettlementId?: string;
+  isRiver?: boolean;
+  isLake?: boolean;
 }
 
 export type BuildingType =
@@ -148,7 +153,8 @@ export type AnimalRole =
   | 'capybara'
   | 'dinosaur'
   | 'dragon'
-  | 'unicorn';
+  | 'unicorn'
+  | 'leviathan';
 
 export type UnitRole =
   | 'human'
@@ -249,6 +255,11 @@ export interface UnitEntity {
   battlewillCooldown?: number;
   battlewillSlashTimer?: number;
   battlewillHeading?: number;
+  swimStamina?: number;
+  isSwimming?: boolean;
+  embarkedVehicleId?: string | null;
+  leviathanSubmerged?: boolean;
+  leviathanSurfaceTimer?: number;
 }
 
 export type GodPowerType =
@@ -309,6 +320,7 @@ export type VehicleType =
   | 'glider'
   | 'tank'
   | 'warship'
+  | 'passenger_ship'
   | 'airship'
   | 'helicopter'
   | 'bomber_plane'
@@ -336,6 +348,9 @@ export interface VehicleEntity {
   path: Array<{ x: number; z: number }>;
   pathIndex: number;
   variantSeed: number;
+  passengerIds?: string[];
+  targetIslandX?: number;
+  targetIslandZ?: number;
   flightPhase?: 'parked' | 'takeoff' | 'cruise' | 'landing';
   phaseTimer?: number;
   strafeExtendTimer?: number;
@@ -436,7 +451,9 @@ export interface ActiveHazardZone {
     | 'blessing_wave'
     | 'curse_wave'
     | 'frenzy_wave'
-    | 'terraform_wave';
+    | 'terraform_wave'
+    | 'whirlpool'
+    | 'rogue_wave';
   x: number;
   z: number;
   targetX?: number;
@@ -488,6 +505,7 @@ export type WorldTemplateId =
   | 'scifi'
   | 'prehistoric'
   | 'archipelago'
+  | 'scrap_sea'
   | 'custom';
 
 export interface WorldRulesConfig {
@@ -565,4 +583,5 @@ export interface SimulationState {
   wildlifeSeeded?: boolean;
   wildlifeRespawnTimer?: number;
   raiderWaveTimer?: number;
+  oceanEventTimer?: number;
 }
