@@ -471,7 +471,7 @@ export function generateWorldTiles(
     const rx = rIdx % gridSize;
     const rz = Math.floor(rIdx / gridSize);
     if (chosenReefCenters.some((c) => Math.hypot(c.x - rx, c.z - rz) < 28)) continue;
-    const radius = isScrapSea ? 3.8 + rng() * 1.8 : 3.2 + rng() * 1.5;
+    const radius = isScrapSea ? 3.6 + rng() * 1.6 : 3.0 + rng() * 1.4;
     chosenReefCenters.push({ x: rx, z: rz, radius });
     const rCeil = Math.ceil(radius + 2);
     for (let oz = -rCeil; oz <= rCeil; oz++) {
@@ -481,9 +481,12 @@ export function generateWorldTiles(
         if (nx <= 1 || nx >= gridSize - 2 || nz <= 1 || nz >= gridSize - 2) continue;
         const nIdx = nz * gridSize + nx;
         if (heightGrid[nIdx] !== 0 || riverMask[nIdx] === 1 || lakeMask[nIdx] === 1) continue;
-        const wobble = (reefNoise.fbm(nx * 0.12 + attempt * 5.3, nz * 0.12 - 3.1, 2) - 0.5) * 1.8;
-        if (Math.hypot(ox, oz) + wobble <= radius) {
-          reefZoneMask[nIdx] = 1;
+        const organicWave = (reefNoise.fbm(nx * 0.22 + attempt * 5.3, nz * 0.22 - 3.1, 2) - 0.5) * 1.6;
+        const effDist = Math.hypot(ox, oz) + organicWave;
+        if (effDist <= radius * 0.72) {
+          reefZoneMask[nIdx] = 2; // Contiguous living coral reef bank
+        } else if (effDist <= radius + 0.8) {
+          if (reefZoneMask[nIdx] === 0) reefZoneMask[nIdx] = 1; // Surrounding turquoise lagoon shoal
         }
       }
     }
@@ -509,7 +512,8 @@ export function generateWorldTiles(
       const roll = (tileHash % 1000) / 1000;
       const isRiverTile = riverMask[idx] === 1;
       const isLakeTile = lakeMask[idx] === 1;
-      const isWarmReefZone = reefZoneMask[idx] === 1;
+      const isWarmReefZone = reefZoneMask[idx] >= 1;
+      const isContiguousCoralBank = reefZoneMask[idx] === 2;
 
       let terrain: TerrainType = 'grass';
       let resourceNode: ResourceNodeType = 'none';
@@ -526,35 +530,43 @@ export function generateWorldTiles(
         } else if (isScrapSea) {
           // Scrap Sea template: shoals of warm coral reefs + deep ocean trenches + floating scrap piles
           const shoalVal = reefNoise.fbm(x * 0.055 + 3.7, z * 0.055 - 9.1, 3);
-          const isStarterShoal = dist < 8.5;
-          terrain = isStarterShoal || isWarmReefZone || shoalVal > 0.46 ? 'shallow_water' : 'deep_water';
+          const starterWarp = (reefNoise.fbm(x * 0.09 - 4.2, z * 0.09 + 6.8, 2) - 0.5) * 5.5;
+          const isStarterShoal = dist + starterWarp < 8.5;
+          terrain = isStarterShoal || isWarmReefZone || shoalVal > 0.48 ? 'shallow_water' : 'deep_water';
           if (dist > 2.2) {
-            if (roll < 0.14 || (isStarterShoal && roll < 0.28)) {
-              resourceNode = 'scrap_flotsam';
-              resourceAmount = 340;
-            } else if (isWarmReefZone && roll < 0.48) {
+            if (isContiguousCoralBank && roll < 0.82) {
               resourceNode = 'coral_reef';
               resourceAmount = 260;
+            } else if (roll < 0.14 || (isStarterShoal && roll < 0.28)) {
+              resourceNode = 'scrap_flotsam';
+              resourceAmount = 340;
             }
           }
         } else {
-          // Shallow coastal shelf next to land & localized warm coral reef lagoons, deep water further out
-          let nearLand = false;
-          for (let oz = -2; oz <= 2 && !nearLand; oz++) {
-            for (let ox = -2; ox <= 2; ox++) {
+          // Organic continental shelf hugging actual island/continent coastlines (never a map-centered circle!)
+          let minLandDistSq = 999;
+          for (let oz = -5; oz <= 5; oz++) {
+            for (let ox = -5; ox <= 5; ox++) {
+              const dSq = ox * ox + oz * oz;
+              if (dSq >= minLandDistSq) continue;
               const nx = x + ox;
               const nz = z + oz;
               if (nx >= 0 && nx < gridSize && nz >= 0 && nz < gridSize) {
                 if (heightGrid[nz * gridSize + nx] > 0) {
-                  nearLand = true;
-                  break;
+                  minLandDistSq = dSq;
                 }
               }
             }
           }
-          terrain = nearLand || normDist < 0.78 || isWarmReefZone ? 'shallow_water' : 'deep_water';
+          const minLandDist = Math.sqrt(minLandDistSq);
+          const nearLand = minLandDist <= 2.5;
+          const shelfWave =
+            (reefNoise.fbm(x * 0.052 + 7.4, z * 0.052 - 4.8, 3) - 0.5) * 2.8 +
+            (warpNoise.fbm(x * 0.11 - 2.1, z * 0.11 + 5.7, 2) - 0.5) * 1.4;
+          const onContinentalShelf = minLandDist + shelfWave <= 3.8;
+          terrain = nearLand || onContinentalShelf || isWarmReefZone ? 'shallow_water' : 'deep_water';
 
-          if (isWarmReefZone && !nearLand && roll < 0.48) {
+          if (isContiguousCoralBank && !nearLand && roll < 0.84) {
             resourceNode = 'coral_reef';
             resourceAmount = 260;
           } else if (terrain === 'deep_water' && roll < 0.015) {
@@ -847,7 +859,7 @@ export function generateWorldTiles(
       tiles[pickIdx].terrain = 'shallow_water';
       tiles[pickIdx].resourceNode = 'atlantis_ruin';
       tiles[pickIdx].resourceAmount = 1200;
-      // Surround Atlantis with a shallow coral sanctuary ring
+      // Surround Atlantis with a crystal-clear shallow sanctuary lagoon so its underwater temple complex is fully visible
       for (let oz = -2; oz <= 2; oz++) {
         for (let ox = -2; ox <= 2; ox++) {
           if (ox === 0 && oz === 0) continue;
@@ -855,11 +867,11 @@ export function generateWorldTiles(
           const nz = az + oz;
           if (nx <= 1 || nx >= gridSize - 2 || nz <= 1 || nz >= gridSize - 2) continue;
           const nIdx = nz * gridSize + nx;
-          if (tiles[nIdx].height === 0 && Math.hypot(ox, oz) <= 2.3) {
+          if (tiles[nIdx].height === 0 && Math.hypot(ox, oz) <= 2.4) {
             tiles[nIdx].terrain = 'shallow_water';
-            if (tiles[nIdx].resourceNode === 'none' && (Math.abs(ox) + Math.abs(oz)) % 2 === 0) {
-              tiles[nIdx].resourceNode = 'coral_reef';
-              tiles[nIdx].resourceAmount = 320;
+            if (Math.hypot(ox, oz) <= 1.6) {
+              tiles[nIdx].resourceNode = 'none';
+              tiles[nIdx].resourceAmount = 0;
             }
           }
         }

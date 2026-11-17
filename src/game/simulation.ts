@@ -5630,8 +5630,22 @@ function stepSimulationSingle(
       const captureRadius = haz.radius * 1.45;
       for (const b of state.buildings) {
         const dSq = (b.tileX - haz.x) ** 2 + (b.tileZ - haz.z) ** 2;
-        if (dSq <= (haz.radius * 0.88) ** 2 && b.shieldTimer <= 0) {
-          b.hp = Math.max(0, b.hp - 125 * dt);
+        if (dSq <= (haz.radius * 0.95) ** 2 && b.shieldTimer <= 0) {
+          b.hp = Math.max(0, b.hp - 135 * dt);
+        }
+      }
+      for (const v of state.vehicles ?? []) {
+        const dx = v.x - haz.x;
+        const dz = v.z - haz.z;
+        const dist = Math.hypot(dx, dz);
+        if (dist <= pullRadius) {
+          const normDist = Math.min(1, dist / pullRadius);
+          const curAngle = Math.atan2(dz, dx);
+          const nextDist = Math.max(0.3, dist - (1.8 + (1 - normDist) * 2.4) * dt);
+          const nextAngle = curAngle + (2.6 + (1 - normDist) * 3.8) * dt;
+          v.x = Math.max(2, Math.min(state.gridSize - 3, haz.x + Math.cos(nextAngle) * nextDist));
+          v.z = Math.max(2, Math.min(state.gridSize - 3, haz.z + Math.sin(nextAngle) * nextDist));
+          v.hp = Math.max(0, (v.hp ?? 100) - (65 + (1 - normDist) * 95) * dt);
         }
       }
       for (const u of state.units) {
@@ -5665,13 +5679,13 @@ function stepSimulationSingle(
             u.state = 'moving';
           }
 
-          if (dist <= 2.5 && (u.faction === 'hostile' || u.role === 'leviathan')) {
-            u.hp = Math.max(0, u.hp - 36 * dt);
-            if (u.hp <= 0) {
-              u.state = 'ko';
-              u.koTimer = 0.45;
-              if (u.faction === 'hostile') state.totalRaidersDefeated += 1;
-            }
+          // Continuous gravitational tidal DOT across the active vortex
+          const dotRate = 28 + (1 - normDist) * 52;
+          u.hp = Math.max(0, u.hp - dotRate * dt);
+          if (u.hp <= 0) {
+            u.state = 'ko';
+            u.koTimer = 0.45;
+            if (u.faction === 'hostile') state.totalRaidersDefeated += 1;
           }
         }
       }
@@ -5756,14 +5770,14 @@ function stepSimulationSingle(
       const funnelPullR = haz.radius * 1.5;
       for (const b of state.buildings) {
         const dSq = (b.tileX - haz.x) ** 2 + (b.tileZ - haz.z) ** 2;
-        if (dSq <= (haz.radius * 0.82) ** 2 && b.shieldTimer <= 0) {
-          b.hp = Math.max(0, b.hp - 135 * dt);
+        if (dSq <= (haz.radius * 0.88) ** 2 && b.shieldTimer <= 0) {
+          b.hp = Math.max(0, b.hp - 140 * dt);
         }
       }
       for (const v of state.vehicles ?? []) {
         const dist = Math.hypot(v.x - haz.x, v.z - haz.z);
         if (dist <= funnelPullR) {
-          v.hp = Math.max(0, (v.hp ?? 100) - 140 * dt);
+          v.hp = Math.max(0, (v.hp ?? 100) - 145 * dt);
         }
       }
       for (const u of state.units) {
@@ -5781,7 +5795,8 @@ function stepSimulationSingle(
           u.altitude = Math.min(5.0, (u.altitude ?? 0) + (4.2 - normDist * 2.0) * dt);
           u.vzVertical = 0;
           u.fallDamageArmed = (u.altitude ?? 0) >= 1.6;
-          u.hp = Math.max(0, u.hp - 22 * dt);
+          const cycloneDot = 36 + (1 - normDist) * 48;
+          u.hp = Math.max(0, u.hp - cycloneDot * dt);
           if (u.hp <= 0) {
             u.state = 'ko';
             u.koTimer = 0.45;
@@ -5933,44 +5948,66 @@ function stepSimulationSingle(
       }
     }
 
-    // Ocean Whirlpool (varying sizes): spins ships & swimmers inward and damages entities caught in the maelstrom eye
+    // Ocean Whirlpool (varying sizes): spins ships & swimmers inward and deals lethal maelstrom DOT while active
     if (haz.kind === 'whirlpool') {
-      const pullR = haz.radius * 1.45;
-      for (const v of state.vehicles ?? []) {
-        if (v.type !== 'passenger_ship' && v.type !== 'warship') continue;
-        const dx = v.x - haz.x;
-        const dz = v.z - haz.z;
-        const dist = Math.hypot(dx, dz);
-        if (dist <= pullR && dist > 0.05) {
-          const normDist = dist / pullR;
-          const curAngle = Math.atan2(dz, dx);
-          const nextDist = Math.max(0.35, dist - (1.85 - normDist * 0.9) * dt);
-          const nextAngle = curAngle + (3.2 + (1 - normDist) * 3.8) * dt;
-          v.x = Math.max(2, Math.min(state.gridSize - 3, haz.x + Math.cos(nextAngle) * nextDist));
-          v.z = Math.max(2, Math.min(state.gridSize - 3, haz.z + Math.sin(nextAngle) * nextDist));
-          v.heading = wrapAngleRad(nextAngle + Math.PI * 0.5);
-          if (dist <= haz.radius * 0.65) {
-            v.hp = Math.max(0, (v.hp ?? 100) - 26 * dt);
+      const pullR = haz.radius * 1.5;
+      for (const t of state.tiles) {
+        if (t.height !== 0) continue;
+        const dSq = (t.x - haz.x) ** 2 + (t.z - haz.z) ** 2;
+        if (dSq <= (haz.radius * 0.95) ** 2) {
+          damageOrBleachWaterTile(t, 45 * dt, false);
+        }
+      }
+      for (const b of state.buildings) {
+        if (b.shieldTimer > 0) continue;
+        const bt = getTile(state, b.tileX, b.tileZ);
+        if (!bt || bt.height <= 1) {
+          const dist = Math.hypot(b.tileX - haz.x, b.tileZ - haz.z);
+          if (dist <= haz.radius * 1.15) {
+            b.hp = Math.max(0, b.hp - 95 * dt);
           }
         }
       }
+      for (const v of state.vehicles ?? []) {
+        if ((v.y ?? 0) > 1.8) continue;
+        const dx = v.x - haz.x;
+        const dz = v.z - haz.z;
+        const dist = Math.hypot(dx, dz);
+        if (dist <= pullR) {
+          const normDist = Math.min(1, dist / pullR);
+          const curAngle = Math.atan2(dz, dx);
+          const nextDist = Math.max(0.28, dist - (1.95 - normDist * 0.85) * dt);
+          const nextAngle = curAngle + (3.4 + (1 - normDist) * 4.2) * dt;
+          v.x = Math.max(2, Math.min(state.gridSize - 3, haz.x + Math.cos(nextAngle) * nextDist));
+          v.z = Math.max(2, Math.min(state.gridSize - 3, haz.z + Math.sin(nextAngle) * nextDist));
+          v.heading = wrapAngleRad(nextAngle + Math.PI * 0.5);
+          const vDot = 65 + (1 - normDist) * 115;
+          v.hp = Math.max(0, (v.hp ?? 100) - vDot * dt);
+        }
+      }
       for (const u of state.units) {
-        if (u.state === 'ko' || u.role === 'dragon' || u.embarkedVehicleId || u.draggedByPlayer) continue;
+        if (u.state === 'ko' || u.role === 'dragon' || u.statusEffects.shielded || u.draggedByPlayer) continue;
         const ut = getTile(state, Math.round(u.x), Math.round(u.z));
-        if (!ut || ut.height > 0) continue;
+        if (ut && ut.height > 1) continue;
         const dx = u.x - haz.x;
         const dz = u.z - haz.z;
         const dist = Math.hypot(dx, dz);
-        if (dist <= pullR && dist > 0.05) {
-          const normDist = dist / pullR;
-          const curAngle = Math.atan2(dz, dx);
-          const nextDist = Math.max(0.25, dist - (2.1 - normDist * 0.8) * dt);
-          const nextAngle = curAngle + (3.6 + (1 - normDist) * 4.2) * dt;
-          u.x = Math.max(1, Math.min(state.gridSize - 2, haz.x + Math.cos(nextAngle) * nextDist));
-          u.z = Math.max(1, Math.min(state.gridSize - 2, haz.z + Math.sin(nextAngle) * nextDist));
-          u.swimStamina = Math.max(0, (u.swimStamina ?? 100) - 24 * dt);
-          if (dist <= haz.radius * 0.6) {
-            u.hp = Math.max(0, u.hp - 32 * dt);
+        if (dist <= pullR) {
+          const normDist = Math.min(1, dist / pullR);
+          if (!u.embarkedVehicleId && dist > 0.02) {
+            const curAngle = Math.atan2(dz, dx);
+            const nextDist = Math.max(0.22, dist - (2.25 - normDist * 0.8) * dt);
+            const nextAngle = curAngle + (3.8 + (1 - normDist) * 4.6) * dt;
+            u.x = Math.max(1, Math.min(state.gridSize - 2, haz.x + Math.cos(nextAngle) * nextDist));
+            u.z = Math.max(1, Math.min(state.gridSize - 2, haz.z + Math.sin(nextAngle) * nextDist));
+          }
+          u.swimStamina = Math.max(0, (u.swimStamina ?? 100) - 36 * dt);
+          const vortexDot = 42 + (1 - normDist) * 68;
+          u.hp = Math.max(0, u.hp - vortexDot * dt);
+          if (u.hp <= 0) {
+            u.state = 'ko';
+            u.koTimer = 0.45;
+            if (u.faction === 'hostile') state.totalRaidersDefeated += 1;
           }
         }
       }
@@ -5995,24 +6032,29 @@ function stepSimulationSingle(
             v.x = Math.max(2, Math.min(state.gridSize - 3, v.x + wx * 3.8 * dt));
             v.z = Math.max(2, Math.min(state.gridSize - 3, v.z + wz * 3.8 * dt));
             v.bank = Math.sin(haz.remaining * 10) * 0.35;
-            v.hp = Math.max(0, (v.hp ?? 100) - 22 * dt);
+            v.hp = Math.max(0, (v.hp ?? 100) - 48 * dt);
           }
         }
         for (const u of state.units) {
-          if (u.state === 'ko' || u.role === 'dragon' || u.embarkedVehicleId || u.draggedByPlayer) continue;
+          if (u.state === 'ko' || u.role === 'dragon' || u.statusEffects.shielded || u.embarkedVehicleId || u.draggedByPlayer) continue;
           const dist = Math.hypot(u.x - haz.x, u.z - haz.z);
           if (dist <= crestR) {
             u.x = Math.max(1, Math.min(state.gridSize - 2, u.x + wx * 4.5 * dt));
             u.z = Math.max(1, Math.min(state.gridSize - 2, u.z + wz * 4.5 * dt));
-            u.swimStamina = Math.max(0, (u.swimStamina ?? 100) - 30 * dt);
-            u.hp = Math.max(0, u.hp - 25 * dt);
+            u.swimStamina = Math.max(0, (u.swimStamina ?? 100) - 35 * dt);
+            u.hp = Math.max(0, u.hp - 44 * dt);
+            if (u.hp <= 0) {
+              u.state = 'ko';
+              u.koTimer = 0.45;
+              if (u.faction === 'hostile') state.totalRaidersDefeated += 1;
+            }
           }
         }
         for (const b of state.buildings) {
           if (b.shieldTimer > 0) continue;
           const bt = getTile(state, b.tileX, b.tileZ);
           if (bt && bt.height === 0 && Math.hypot(b.tileX - haz.x, b.tileZ - haz.z) <= crestR * 0.85) {
-            b.hp = Math.max(0, b.hp - 18 * dt);
+            b.hp = Math.max(0, b.hp - 55 * dt);
           }
         }
       }

@@ -4222,6 +4222,94 @@ test('Sea Update: uncommon corals bleach to gray when destroyed and regenerate, 
   );
 });
 
+test('Sea Update: active vortices deal lethal DOT, shallow seas follow organic coastal shelves without circular rings, and Sunken Atlantis has a broad underwater city', () => {
+  // 1. Verify Sunken Atlantis 3D complex spans > 3.2 tiles across the seabed with raised underwater structures + emergent portal spire
+  const nodeLib = getNodeVariantLibrary();
+  assert.ok(nodeLib.atlantisRuin.length >= 2, 'Should provide Sunken Atlantis temple complex variants');
+  for (let i = 0; i < nodeLib.atlantisRuin.length; i++) {
+    const geo = nodeLib.atlantisRuin[i];
+    geo.computeBoundingBox();
+    const bb = geo.boundingBox!;
+    const widthX = bb.max.x - bb.min.x;
+    const widthZ = bb.max.z - bb.min.z;
+    assert.ok(widthX >= 3.2 && widthZ >= 3.2, `Atlantis variant ${i} must have an expansive underwater city footprint (${widthX.toFixed(2)}x${widthZ.toFixed(2)})`);
+    assert.ok(bb.max.y >= 0.8, `Atlantis variant ${i} must have emergent temple columns and portal spire above water (max.y=${bb.max.y})`);
+  }
 
+  // 2. Verify world generation does NOT create a giant circle of shallow_water inside normDist < 0.78 far from land
+  const worldTiles = generateWorldTiles(96, 8080);
+  const center = 48;
+  const maxRadius = center * 0.88;
+  let deepInsideCircleCount = 0;
+  for (const t of worldTiles) {
+    if (t.height === 0 && !t.isRiver && !t.isLake) {
+      const normDist = Math.hypot(t.x - center, t.z - center) / maxRadius;
+      if (normDist < 0.72 && t.terrain === 'deep_water') {
+        deepInsideCircleCount++;
+      }
+    }
+  }
+  assert.ok(
+    deepInsideCircleCount > 80,
+    `Open ocean inside normDist < 0.72 far from land must be deep_water rather than a giant shallow_water circle (deepInsideCircleCount=${deepInsideCircleCount})`,
+  );
 
+  // 3. Verify active vortices (whirlpool, tornado_vortex, wormhole_rift) deal continuous DOT and kill entities while active
+  const state = createInitialSimulationState(64, 'VORTEX-DOT-TEST');
+  state.sandboxFreeMode = true;
+  state.wildlifeSeeded = true;
+  for (let z = 10; z <= 54; z++) {
+    for (let x = 10; x <= 54; x++) {
+      const t = getTile(state, x, z)!;
+      t.height = 0;
+      t.terrain = 'shallow_water';
+      t.resourceNode = 'none';
+      t.buildingId = null;
+    }
+  }
 
+  // Active Whirlpool kills swimming unit via DOT
+  const swimmer = spawnUnit(state, 'human', 32, 32, true).unit!;
+  swimmer.hp = 90;
+  swimmer.maxHp = 100;
+  swimmer.swimStamina = 100;
+  state.activeHazards.push({
+    id: 'test-whirlpool',
+    kind: 'whirlpool',
+    x: 32,
+    z: 32,
+    radius: 4.5,
+    remaining: 10,
+    duration: 10,
+    tickTimer: 0,
+  });
+  for (let i = 0; i < 12; i++) {
+    stepSimulation(state, 0.25);
+  }
+  assert.equal(swimmer.hp, 0, 'Whirlpool DOT should reduce trapped unit HP to 0');
+  assert.equal(swimmer.state, 'ko', 'Whirlpool DOT must transition unit to ko state when HP reaches 0');
+
+  // Active Wormhole Rift kills friendly/neutral/hostile units via continuous gravitational DOT before supernova
+  state.activeHazards = [];
+  const landTile = getTile(state, 20, 20)!;
+  landTile.height = 2;
+  landTile.terrain = 'grass';
+  const villager = spawnUnit(state, 'human', 20.5, 20.5, true).unit!;
+  villager.hp = 85;
+  villager.maxHp = 100;
+  state.activeHazards.push({
+    id: 'test-wormhole',
+    kind: 'wormhole_rift',
+    x: 20,
+    z: 20,
+    radius: 5.0,
+    remaining: 12,
+    duration: 12,
+    tickTimer: 0,
+  });
+  for (let i = 0; i < 12; i++) {
+    stepSimulation(state, 0.25);
+  }
+  assert.equal(villager.hp, 0, 'Wormhole rift DOT should reduce trapped unit HP to 0 while active');
+  assert.equal(villager.state, 'ko', 'Wormhole rift DOT must transition unit to ko state when HP reaches 0');
+});

@@ -501,7 +501,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       false,
     );
     const scrapFlotsamInsts = makePropInstancedList(variantLib.scrapFlotsam, variantLib.standardMat, true);
-    const atlantisRuinInsts = makePropInstancedList(variantLib.atlantisRuin, variantLib.crystalMat, true);
+    const atlantisRuinInsts = makePropInstancedList(variantLib.atlantisRuin, variantLib.standardMat, true);
     const ambGrassInsts = makePropInstancedList(variantLib.ambientGrass, variantLib.standardMat, false);
     const ambForestInsts = makePropInstancedList(variantLib.ambientForest, variantLib.standardMat, false);
     const ambSandInsts = makePropInstancedList(variantLib.ambientSand, variantLib.standardMat, false);
@@ -1208,6 +1208,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     sharedTornadoRingGeo.rotateX(Math.PI / 2);
     const sharedTornadoCapGeo = new THREE.BoxGeometry(2.6, 0.75, 2.6);
     const sharedDebrisCubeGeo = new THREE.BoxGeometry(0.32, 0.32, 0.32);
+    const sharedWhirlpoolDiskGeo = new THREE.PlaneGeometry(2.0, 2.0, 1, 1);
+    sharedWhirlpoolDiskGeo.rotateX(-Math.PI / 2);
+    const sharedWhirlpoolFunnelGeo = new THREE.CylinderGeometry(0.92, 0.14, 0.26, 28, 1, true);
 
     interface TsunamiWaveSegment {
       group: THREE.Group;
@@ -1769,57 +1772,105 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       }
 
       if (kind === 'whirlpool') {
-        const abyssMat = new THREE.MeshBasicMaterial({
-          color: 0x031926,
+        const vortexFunnelShaderMat = new THREE.ShaderMaterial({
+          uniforms: {
+            uTime: { value: 0 },
+            uOpacity: { value: 0.96 },
+          },
+          vertexShader: /* glsl */ `
+            varying vec2 vUvCentered;
+            void main() {
+              vUvCentered = uv * 2.0 - 1.0;
+              gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+            }
+          `,
+          fragmentShader: /* glsl */ `
+            uniform float uTime;
+            uniform float uOpacity;
+            varying vec2 vUvCentered;
+
+            void main() {
+              // Crisp pixel-art quantization matching the isometric ocean grid
+              vec2 p = floor(vUvCentered * 22.0 + 0.5) / 22.0;
+              float r = length(p);
+              if (r > 1.0) discard;
+
+              float theta = atan(p.y, p.x);
+              // Logarithmic spiral arms pulling inward toward the abyssal throat
+              float logR = log(max(0.065, r));
+              float spiral1 = theta * 3.0 + logR * 7.8 - uTime * 6.8;
+              float spiral2 = theta * 2.0 + logR * 6.2 - uTime * 5.2 + 1.57;
+
+              float armPrimary = smoothstep(0.18, 0.78, sin(spiral1));
+              float armSecondary = smoothstep(0.38, 0.88, sin(spiral2));
+              float foamCrest = step(0.66, sin(spiral1 + 0.25)) * smoothstep(0.16, 0.32, r) * (1.0 - smoothstep(0.78, 0.96, r));
+              float innerSuctionFoam = smoothstep(0.17, 0.24, r) * (1.0 - smoothstep(0.24, 0.33, r)) * step(0.15, sin(theta * 5.0 - uTime * 9.0));
+
+              vec3 abyssCol = vec3(0.008, 0.028, 0.065);
+              vec3 trenchCol = vec3(0.016, 0.13, 0.24);
+              vec3 swirlTeal = vec3(0.04, 0.58, 0.74);
+              vec3 swirlCyan = vec3(0.32, 0.86, 0.94);
+              vec3 foamWhite = vec3(0.90, 0.99, 1.0);
+
+              // Deep funnel gradient from outer rim into the black maelstrom eye
+              float throatMask = 1.0 - smoothstep(0.08, 0.27, r);
+              vec3 col = mix(trenchCol, swirlTeal, armPrimary * 0.82);
+              col = mix(col, swirlCyan, armSecondary * 0.65);
+              col = mix(col, foamWhite, clamp(foamCrest + innerSuctionFoam * 0.85, 0.0, 1.0));
+              col = mix(col, abyssCol, throatMask);
+
+              float outerFade = 1.0 - smoothstep(0.76, 1.0, r);
+              float alpha = clamp((0.82 + foamCrest * 0.18 + throatMask * 0.18) * outerFade * uOpacity, 0.0, 0.98);
+              if (alpha < 0.05) discard;
+              gl_FragColor = vec4(col, alpha);
+            }
+          `,
           transparent: true,
-          opacity: 0.9,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+        });
+
+        const funnelWallMat = new THREE.MeshBasicMaterial({
+          color: 0x04243c,
+          transparent: true,
+          opacity: 0.72,
+          side: THREE.DoubleSide,
           depthWrite: false,
         });
         const swirlOuterMat = new THREE.MeshBasicMaterial({
-          color: 0x00b4d8,
+          color: 0x22d3ee,
           transparent: true,
-          opacity: 0.78,
-          side: THREE.DoubleSide,
+          opacity: 0.82,
           depthWrite: false,
         });
         const swirlFoamMat = new THREE.MeshBasicMaterial({
           color: 0xe0fbfc,
           transparent: true,
-          opacity: 0.92,
-          side: THREE.DoubleSide,
+          opacity: 0.94,
           depthWrite: false,
         });
-        materials.push(abyssMat, swirlOuterMat, swirlFoamMat);
+        materials.push(vortexFunnelShaderMat, funnelWallMat, swirlOuterMat, swirlFoamMat);
 
-        const corePit = new THREE.Mesh(sharedHazRingGeo, abyssMat);
-        corePit.position.y = 0.02;
-        corePit.scale.setScalar(radius * 0.42);
-        group.add(corePit);
+        const vortexDisk = new THREE.Mesh(sharedWhirlpoolDiskGeo, vortexFunnelShaderMat);
+        vortexDisk.position.y = 0.055;
+        vortexDisk.scale.setScalar(radius * 1.08);
+        group.add(vortexDisk);
 
-        const tornadoRings: THREE.Mesh[] = [];
-        for (let ri = 0; ri < 5; ri++) {
-          const frac = (ri + 1) / 5;
-          const rMesh = new THREE.Mesh(
-            sharedTornadoRingGeo,
-            ri % 2 === 0 ? swirlFoamMat : swirlOuterMat,
-          );
-          rMesh.position.y = 0.03 + frac * 0.08;
-          const rScale = radius * (0.24 + frac * 0.72);
-          rMesh.scale.set(rScale, 0.35, rScale);
-          group.add(rMesh);
-          tornadoRings.push(rMesh);
-        }
+        const funnelCone = new THREE.Mesh(sharedWhirlpoolFunnelGeo, funnelWallMat);
+        funnelCone.position.y = -0.04;
+        funnelCone.scale.set(radius * 0.88, 1.0, radius * 0.88);
+        group.add(funnelCone);
 
         const vortexMotes: VortexMote[] = [];
-        for (let i = 0; i < 18; i++) {
-          const m = new THREE.Mesh(sharedDebrisCubeGeo, i % 2 === 0 ? swirlFoamMat : swirlOuterMat);
-          m.scale.setScalar(0.32);
+        for (let i = 0; i < 20; i++) {
+          const m = new THREE.Mesh(sharedDebrisCubeGeo, i % 3 === 0 ? swirlOuterMat : swirlFoamMat);
+          m.scale.set(0.36, 0.18, 0.22);
           group.add(m);
           vortexMotes.push({
             mesh: m,
-            baseAngle: (i / 18) * Math.PI * 2,
-            phase: (i / 18) + (i % 4) * 0.09,
-            speed: 0.9 + (i % 3) * 0.25,
+            baseAngle: (i / 20) * Math.PI * 2,
+            phase: (i / 20) + (i % 5) * 0.07,
+            speed: 0.75 + (i % 4) * 0.18,
           });
         }
 
@@ -1827,8 +1878,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           kind,
           group,
           materials,
-          ringMesh: corePit,
-          tornadoRings,
+          ringMesh: vortexDisk,
+          secondaryRingMesh: funnelCone,
           vortexMotes,
           seenStamp: 0,
         };
@@ -5588,7 +5639,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
           const curY =
             t.height <= 0
-              ? t.resourceNode === 'coral_reef'
+              ? t.resourceNode === 'coral_reef' || t.resourceNode === 'atlantis_ruin'
                 ? tileCurrentY[i]
                 : 0.25
               : tileCurrentY[i];
@@ -5599,8 +5650,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           _dummyPos.set(t.x, curY, t.z);
           if (t.resourceNode === 'coral_reef') {
             const isBleached = (t.coralBleachTimer ?? 0) > 0 || t.resourceAmount <= 0;
-            const scaleXZ = (1.18 + ((h >> 4) % 3) * 0.06) * (isBleached ? 0.92 : 1.0);
-            _propScale.set(scaleXZ, isBleached ? 0.86 : 1.02, scaleXZ);
+            const scaleXZ = (1.16 + ((h >> 4) % 3) * 0.06) * (isBleached ? 0.92 : 1.0);
+            _propScale.set(scaleXZ, isBleached ? 0.86 : 0.98, scaleXZ);
           } else {
             _propScale.set(1, 1, 1);
           }
@@ -7257,31 +7308,36 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             }
           } else if (hv.kind === 'whirlpool') {
             hv.group.position.set(haz.x, 0.24, haz.z);
-            if (hv.ringMesh) {
-              hv.ringMesh.rotation.z = -elapsed * 4.5;
+            const shaderMat = hv.materials[0] as THREE.ShaderMaterial | undefined;
+            if (shaderMat && shaderMat.uniforms) {
+              shaderMat.uniforms.uTime.value = elapsed;
+              shaderMat.uniforms.uOpacity.value = 0.96 * fade;
             }
-            if (hv.tornadoRings) {
-              for (let ri = 0; ri < hv.tornadoRings.length; ri++) {
-                const tr = hv.tornadoRings[ri];
-                const frac = (ri + 1) / hv.tornadoRings.length;
-                tr.rotation.y = elapsed * (7.5 - frac * 3.2);
-                const pulse = 1 + Math.sin(elapsed * 5.2 + ri) * 0.06;
-                const rScale = haz.radius * (0.24 + frac * 0.72) * pulse * fade;
-                tr.scale.set(rScale, 0.32, rScale);
-              }
+            if (hv.ringMesh) {
+              const pulse = 1 + Math.sin(elapsed * 4.5) * 0.035;
+              hv.ringMesh.scale.setScalar(haz.radius * 1.08 * pulse * fade);
+            }
+            if (hv.secondaryRingMesh) {
+              hv.secondaryRingMesh.rotation.y = -elapsed * 6.5;
+              hv.secondaryRingMesh.scale.set(haz.radius * 0.88 * fade, 1.0, haz.radius * 0.88 * fade);
             }
             if (hv.vortexMotes) {
               for (let mi = 0; mi < hv.vortexMotes.length; mi++) {
                 const vm = hv.vortexMotes[mi];
                 const cycle = (elapsed * vm.speed + vm.phase) % 1;
-                const r = Math.max(0.18, haz.radius * (1 - cycle * 0.85));
-                const theta = vm.baseAngle + elapsed * 4.2 + cycle * 6.5;
-                vm.mesh.position.set(Math.cos(theta) * r, 0.05 + (1 - cycle) * 0.08, Math.sin(theta) * r);
-                vm.mesh.rotation.y = -theta;
+                // Exponential inward logarithmic spiral trajectory into the throat
+                const radialFrac = Math.pow(1 - cycle, 1.35);
+                const r = Math.max(0.14, haz.radius * (0.14 + radialFrac * 0.82)) * fade;
+                const theta = vm.baseAngle + elapsed * 4.8 + (1 - radialFrac) * 9.5;
+                const yDepth = -0.05 + radialFrac * 0.13;
+                vm.mesh.position.set(Math.cos(theta) * r, yDepth, Math.sin(theta) * r);
+                vm.mesh.rotation.y = -theta + Math.PI * 0.35;
+                const s = (0.22 + Math.sin(cycle * Math.PI) * 0.24) * fade;
+                vm.mesh.scale.set(s * 1.5, s * 0.65, s * 0.85);
               }
             }
-            if (Math.random() < 0.55) {
-              spawnParticleBurst(haz.x, 0.28, haz.z, 2, '#e0fbfc', haz.radius * 0.75, 1.8, 0.55);
+            if (Math.random() < 0.45) {
+              spawnParticleBurst(haz.x, 0.28, haz.z, 2, '#e0fbfc', haz.radius * 0.68, 1.6, 0.5);
             }
           } else if (hv.kind === 'rogue_wave') {
             hv.group.position.set(haz.x, 0.24, haz.z);
@@ -9503,6 +9559,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       sharedTornadoRingGeo.dispose();
       sharedTornadoCapGeo.dispose();
       sharedDebrisCubeGeo.dispose();
+      sharedWhirlpoolDiskGeo.dispose();
+      sharedWhirlpoolFunnelGeo.dispose();
       sharedMeteorGeo.dispose();
       sharedMeteorAuraGeo.dispose();
       sharedExplosionDomeGeo.dispose();

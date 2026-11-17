@@ -1080,128 +1080,254 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     ambientBlossom.push(finalizeMergedParts(p));
   }
 
-  // 7a. Submerged Warm-Ocean Coral Reef Clusters (Voluminous 3D staghorn antlers, giant brain domes, azure tube chimneys, sunburst fans & thick kelp fronds)
+  // 7a. Submerged Warm-Ocean Coral Reef Formations:
+  // Built with organic cylindrical/conical staghorn antler branches, hemispherical brain-coral boulder domes,
+  // clustered tubular barrel sponges / organ-pipe corals, and octagonal flared Acropora table plates on sculpted coralline limestone mounds.
+  const addColoredCylinder = (
+    parts: THREE.BufferGeometry[],
+    rTop: number,
+    rBot: number,
+    h: number,
+    segs: number,
+    x: number,
+    y: number,
+    z: number,
+    hex: number,
+    rotX = 0,
+    rotY = 0,
+    rotZ = 0,
+  ) => {
+    const g = new THREE.CylinderGeometry(rTop, rBot, h, segs);
+    if (rotZ !== 0) g.rotateZ(rotZ);
+    if (rotX !== 0) g.rotateX(rotX);
+    if (rotY !== 0) g.rotateY(rotY);
+    g.translate(x, y, z);
+    _tmpColor.setHex(hex);
+    const count = g.attributes.position.count;
+    const colors = new Float32Array(count * 3);
+    for (let i = 0; i < count; i++) {
+      colors[i * 3] = _tmpColor.r;
+      colors[i * 3 + 1] = _tmpColor.g;
+      colors[i * 3 + 2] = _tmpColor.b;
+    }
+    g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    parts.push(g);
+  };
+
+  const addColoredDome = (
+    parts: THREE.BufferGeometry[],
+    radius: number,
+    wSegs: number,
+    hSegs: number,
+    x: number,
+    y: number,
+    z: number,
+    hex: number,
+    scaleX = 1,
+    scaleY = 1,
+    scaleZ = 1,
+  ) => {
+    const g = new THREE.SphereGeometry(radius, wSegs, hSegs, 0, Math.PI * 2, 0, Math.PI * 0.52);
+    if (scaleX !== 1 || scaleY !== 1 || scaleZ !== 1) {
+      g.scale(scaleX, scaleY, scaleZ);
+    }
+    g.translate(x, y, z);
+    _tmpColor.setHex(hex);
+    const count = g.attributes.position.count;
+    const colors = new Float32Array(count * 3);
+    for (let i = 0; i < count; i++) {
+      colors[i * 3] = _tmpColor.r;
+      colors[i * 3 + 1] = _tmpColor.g;
+      colors[i * 3 + 2] = _tmpColor.b;
+    }
+    g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    parts.push(g);
+  };
+
+  // Sculpted natural coralline limestone & reef-sand base mound (keeps all vertices >= 0.0)
+  const addReefLimestoneMound = (
+    parts: THREE.BufferGeometry[],
+    sandHex: number,
+    rockHex: number,
+    corallineHex: number,
+  ) => {
+    addColoredCylinder(parts, 0.36, 0.42, 0.020, 8, 0.0, 0.010, 0.0, sandHex, 0, 0.2);
+    addColoredCylinder(parts, 0.28, 0.35, 0.026, 7, -0.03, 0.023, 0.02, rockHex, 0, 0.6);
+    addColoredCylinder(parts, 0.22, 0.27, 0.024, 7, 0.12, 0.020, -0.08, corallineHex, 0, -0.4);
+    addColoredCylinder(parts, 0.19, 0.24, 0.022, 6, -0.14, 0.018, -0.10, rockHex, 0, 0.9);
+  };
+
+  // Flared octagonal Acropora table plate with central pedicel stalk and luminous polyp growth rim
+  const addTableCoralPlate = (
+    parts: THREE.BufferGeometry[],
+    cx: number,
+    baseY: number,
+    cz: number,
+    radius: number,
+    stalkHex: number,
+    plateHex: number,
+    rimHex: number,
+    rotY = 0,
+  ) => {
+    addColoredCylinder(parts, radius * 0.32, radius * 0.44, 0.026, 7, cx, baseY + 0.013, cz, stalkHex, 0, rotY);
+    addColoredCylinder(parts, radius * 1.04, radius * 0.68, 0.018, 8, cx, baseY + 0.032, cz, plateHex, 0, rotY);
+    addColoredCylinder(parts, radius * 0.96, radius * 1.04, 0.010, 8, cx, baseY + 0.044, cz, rimHex, 0, rotY + 0.2);
+  };
+
+  // Radial branching Staghorn / Elkhorn coral antler thicket (tapered cylinders splaying outward with bright axial polyp tips)
+  const addStaghornThicket = (
+    parts: THREE.BufferGeometry[],
+    cx: number,
+    baseY: number,
+    cz: number,
+    scale: number,
+    stemHex: number,
+    branchHex: number,
+    tipHex: number,
+  ) => {
+    addColoredDome(parts, 0.09 * scale, 7, 4, cx, baseY, cz, stemHex, 1.2, 0.55, 1.2);
+    // Central upright antler + 6 radial angled branches
+    addColoredCylinder(parts, 0.018 * scale, 0.032 * scale, 0.078 * scale, 6, cx, baseY + 0.042 * scale, cz, branchHex);
+    addColoredDome(parts, 0.022 * scale, 6, 3, cx, baseY + 0.080 * scale, cz, tipHex, 1, 0.8, 1);
+    for (let i = 0; i < 6; i++) {
+      const ang = (i * Math.PI) / 3 + 0.25;
+      const tilt = (i % 2 === 0 ? 0.30 : 0.38);
+      const dist = 0.048 * scale;
+      const bx = cx + Math.cos(ang) * dist;
+      const bz = cz + Math.sin(ang) * dist;
+      const bh = (i % 2 === 0 ? 0.072 : 0.064) * scale;
+      addColoredCylinder(
+        parts,
+        0.016 * scale,
+        0.028 * scale,
+        bh,
+        6,
+        bx,
+        baseY + bh * 0.52,
+        bz,
+        i % 2 === 0 ? branchHex : stemHex,
+        Math.sin(ang) * tilt,
+        0,
+        -Math.cos(ang) * tilt,
+      );
+      const tx = cx + Math.cos(ang) * (dist + Math.sin(tilt) * bh * 0.46);
+      const tz = cz + Math.sin(ang) * (dist + Math.sin(tilt) * bh * 0.46);
+      const ty = baseY + Math.cos(tilt) * bh * 0.92;
+      addColoredDome(parts, 0.020 * scale, 6, 3, tx, ty, tz, tipHex, 1, 0.75, 1);
+    }
+  };
+
+  // Clustered tubular Barrel Sponges & Organ-Pipe Corals with bright osculum rims
+  const addBarrelSpongeCluster = (
+    parts: THREE.BufferGeometry[],
+    cx: number,
+    baseY: number,
+    cz: number,
+    outerHex: number,
+    rimHex: number,
+    innerHex: number,
+  ) => {
+    const tubes: [number, number, number, number][] = [
+      [0.0, 0.0, 0.056, 0.088],
+      [-0.075, 0.045, 0.044, 0.072],
+      [0.068, 0.052, 0.042, 0.066],
+      [-0.035, -0.068, 0.040, 0.062],
+      [0.058, -0.052, 0.036, 0.054],
+    ];
+    for (const [ox, oz, rad, h] of tubes) {
+      addColoredCylinder(parts, rad * 1.08, rad * 0.86, h, 7, cx + ox, baseY + h * 0.5, cz + oz, outerHex);
+      addColoredCylinder(parts, rad * 0.96, rad * 1.06, 0.012, 7, cx + ox, baseY + h + 0.004, cz + oz, rimHex);
+      addColoredCylinder(parts, rad * 0.58, rad * 0.58, 0.008, 6, cx + ox, baseY + h + 0.009, cz + oz, innerHex);
+    }
+  };
+
+  // Hemispherical grooved Brain Coral boulder dome
+  const addBrainCoralBoulder = (
+    parts: THREE.BufferGeometry[],
+    cx: number,
+    baseY: number,
+    cz: number,
+    radius: number,
+    baseHex: number,
+    grooveHex: number,
+    crestHex: number,
+  ) => {
+    addColoredDome(parts, radius, 8, 5, cx, baseY, cz, baseHex, 1.08, 0.68, 1.02);
+    addColoredDome(parts, radius * 0.88, 8, 4, cx, baseY + radius * 0.14, cz, grooveHex, 1.04, 0.64, 0.98);
+    addColoredDome(parts, radius * 0.68, 7, 4, cx, baseY + radius * 0.28, cz, crestHex, 1.0, 0.58, 0.95);
+  };
+
   const coralReef: THREE.BufferGeometry[] = [];
   {
+    // Variant 0: Great Barrier Staghorn Thicket & Rose-Gold Acropora Table Reef
     const p: THREE.BufferGeometry[] = [];
-    // Warm ocean sand base shelf & calcified crimson crust
-    addColoredBox(p, 0.68, 0.03, 0.64, 0.0, 0.015, 0.0, 0xdfcb95);
-    addColoredBox(p, 0.54, 0.035, 0.50, -0.04, 0.035, 0.02, 0x9b2226);
-    // Main branching staghorn trunk in electric magenta
-    addColoredBox(p, 0.22, 0.11, 0.20, -0.06, 0.08, -0.04, 0xf72585);
-    addColoredBox(p, 0.18, 0.045, 0.18, -0.06, 0.1425, -0.04, 0xff4d9e);
-    // Outreaching antler branches with contrasting luminous yellow growth tips
-    addColoredBox(p, 0.32, 0.055, 0.16, -0.20, 0.115, 0.04, 0xf72585);
-    addColoredBox(p, 0.14, 0.045, 0.14, -0.28, 0.1425, 0.04, 0xffea00);
-    addColoredBox(p, 0.30, 0.055, 0.16, 0.12, 0.11, -0.12, 0xff0055);
-    addColoredBox(p, 0.13, 0.045, 0.13, 0.22, 0.1425, -0.12, 0xffea00);
-    addColoredBox(p, 0.16, 0.06, 0.16, -0.04, 0.13, -0.20, 0xff595e);
-    // Giant Golden Horn Fan Coral
-    addColoredBox(p, 0.34, 0.12, 0.09, 0.18, 0.08, 0.18, 0xffb703, 0.42);
-    addColoredBox(p, 0.36, 0.04, 0.095, 0.18, 0.1425, 0.18, 0xfb8500, 0.42);
-    // Broad Emerald Kelp Fronds
-    addColoredBox(p, 0.10, 0.16, 0.08, -0.28, 0.08, -0.22, 0x2dc653);
-    addColoredBox(p, 0.09, 0.14, 0.09, -0.20, 0.07, -0.26, 0x52b788);
-    addColoredBox(p, 0.10, 0.155, 0.08, 0.28, 0.078, -0.24, 0x25a244);
-    // Cyan Bubble Anemone Cushion
-    addColoredBox(p, 0.20, 0.075, 0.20, -0.18, 0.055, 0.22, 0x00bbf9);
-    addColoredBox(p, 0.14, 0.05, 0.14, -0.18, 0.105, 0.22, 0x48cae4);
+    addReefLimestoneMound(p, 0xd8c394, 0x9c8265, 0xa85d79);
+    // Lower & upper terraced Rose-Coral Acropora table plates on SW flank
+    addTableCoralPlate(p, -0.11, 0.028, 0.08, 0.22, 0xb52b52, 0xf43f6e, 0xffb3c6, 0.15);
+    addTableCoralPlate(p, -0.07, 0.068, 0.05, 0.16, 0xd9385e, 0xff6b8b, 0xffe599, 0.55);
+    // Golden-Tangerine Staghorn Antler Thicket on NE outcrop
+    addStaghornThicket(p, 0.13, 0.032, -0.07, 1.15, 0xd9480f, 0xff7b00, 0xfff3b0);
+    // Turquoise-Mint Brain Coral Cushion on NW ledge
+    addBrainCoralBoulder(p, -0.15, 0.026, -0.14, 0.12, 0x0077b6, 0x00b4d8, 0x90e0ef);
     coralReef.push(finalizeMergedParts(p));
   }
   {
+    // Variant 1: Turquoise Brain-Coral Domes & Magenta Tubular Barrel Sponge Reef
     const p: THREE.BufferGeometry[] = [];
-    // Warm ocean sand base shelf
-    addColoredBox(p, 0.66, 0.03, 0.66, 0.0, 0.015, 0.0, 0xdfcb95);
-    // Voluminous Stepped Brain Coral Dome in royal violet, lilac & deep indigo
-    addColoredBox(p, 0.52, 0.05, 0.48, 0.10, 0.035, -0.06, 0x5e17eb);
-    addColoredBox(p, 0.44, 0.05, 0.40, 0.10, 0.08, -0.06, 0x7209b7);
-    addColoredBox(p, 0.32, 0.045, 0.30, 0.10, 0.1225, -0.06, 0x9d4edd);
-    addColoredBox(p, 0.20, 0.035, 0.20, 0.10, 0.1475, -0.06, 0xc77dff);
-    // Tall Azure Tube Coral Chimneys with glowing rims
-    addColoredBox(p, 0.22, 0.13, 0.22, -0.22, 0.08, 0.14, 0x0077b6);
-    addColoredBox(p, 0.24, 0.035, 0.24, -0.22, 0.1475, 0.14, 0x90e0ef);
-    addColoredBox(p, 0.18, 0.105, 0.18, -0.12, 0.068, 0.26, 0x00b4d8);
-    addColoredBox(p, 0.20, 0.03, 0.20, -0.12, 0.125, 0.26, 0x48cae4);
-    // Golden Sea Pickles / Sponges
-    addColoredBox(p, 0.12, 0.11, 0.12, -0.24, 0.065, -0.16, 0xd4d700);
-    addColoredBox(p, 0.14, 0.035, 0.14, -0.24, 0.13, -0.16, 0xeeef20);
-    // Broad Kelp Ribbons
-    addColoredBox(p, 0.09, 0.16, 0.09, 0.28, 0.08, 0.22, 0x2dc653);
-    addColoredBox(p, 0.08, 0.135, 0.08, 0.20, 0.068, 0.26, 0x52b788);
-    addColoredBox(p, 0.09, 0.155, 0.08, -0.04, 0.078, -0.28, 0x25a244);
+    addReefLimestoneMound(p, 0xd8c394, 0x8f7a5e, 0x9e5874);
+    // Primary hemispherical Turquoise-Aqua Brain Coral Dome
+    addBrainCoralBoulder(p, 0.09, 0.028, 0.06, 0.19, 0x006d77, 0x00b4d8, 0x90e0ef);
+    // Clustered Magenta-Violet Barrel Sponges & Organ-Pipe Corals
+    addBarrelSpongeCluster(p, -0.13, 0.030, -0.06, 0xb5179e, 0xff70a6, 0x3c096c);
+    // Warm Golden-Amber Brain Coral Cushion & Staghorn Crown on SE edge
+    addBrainCoralBoulder(p, -0.08, 0.026, 0.16, 0.13, 0xd95d39, 0xf4a261, 0xffe66d);
+    addStaghornThicket(p, 0.14, 0.028, -0.14, 0.92, 0xe85d04, 0xff9f1c, 0xfff1a8);
     coralReef.push(finalizeMergedParts(p));
   }
   {
+    // Variant 2: Sunburst Multi-Tiered Acropora Table Reef & Royal Violet Staghorn Crown
     const p: THREE.BufferGeometry[] = [];
-    // Warm ocean sand base shelf
-    addColoredBox(p, 0.65, 0.03, 0.65, 0.0, 0.015, 0.0, 0xdfcb95);
-    // Dual Sunburst Horn Fan Corals in radiant gold and sunset orange
-    addColoredBox(p, 0.40, 0.13, 0.09, -0.06, 0.08, 0.02, 0xffb703, -0.35);
-    addColoredBox(p, 0.42, 0.035, 0.095, -0.06, 0.1475, 0.02, 0xfb8500, -0.35);
-    addColoredBox(p, 0.30, 0.105, 0.08, -0.18, 0.065, -0.18, 0xffd000, 0.48);
-    addColoredBox(p, 0.32, 0.03, 0.085, -0.18, 0.125, -0.18, 0xff9e00, 0.48);
-    // Multi-tier Electric Bubble Coral in turquoise, cyan & deep azure
-    addColoredBox(p, 0.30, 0.095, 0.28, 0.20, 0.06, -0.12, 0x06d6a0);
-    addColoredBox(p, 0.22, 0.065, 0.20, 0.18, 0.13, -0.10, 0x48cae4);
-    addColoredBox(p, 0.24, 0.08, 0.22, 0.22, 0.055, 0.16, 0x118ab2);
-    // Crimson Flame Coral Spire with hot pink crown
-    addColoredBox(p, 0.16, 0.13, 0.16, 0.02, 0.08, 0.24, 0xef233c);
-    addColoredBox(p, 0.18, 0.035, 0.18, 0.02, 0.1475, 0.24, 0xff758f);
-    // Tall Kelp Fronds
-    addColoredBox(p, 0.10, 0.165, 0.08, -0.28, 0.083, 0.20, 0x2dc653);
-    addColoredBox(p, 0.09, 0.145, 0.08, -0.22, 0.073, 0.26, 0x3ea862);
+    addReefLimestoneMound(p, 0xd8c394, 0x997b5c, 0xad6278);
+    // Three cascading Sunburst-Orange & Golden-Coral Acropora Table Plates
+    addTableCoralPlate(p, -0.10, 0.026, -0.08, 0.23, 0xc9184a, 0xff5400, 0xffbd00, 0.1);
+    addTableCoralPlate(p, 0.02, 0.064, -0.02, 0.18, 0xe85d04, 0xff8500, 0xffe169, 0.45);
+    addTableCoralPlate(p, 0.14, 0.032, 0.12, 0.17, 0xd9385e, 0xff5c8a, 0xffccd5, -0.3);
+    // Royal Violet-Orchid Staghorn Antler Thicket on SW ledge
+    addStaghornThicket(p, -0.14, 0.030, 0.13, 1.05, 0x5a189a, 0x9d4edd, 0xf3c4fb);
     coralReef.push(finalizeMergedParts(p));
   }
   {
+    // Variant 3: Elkhorn Barrier Reef Crown, Seafoam Organ-Pipes & Peach Montipora Rosette
     const p: THREE.BufferGeometry[] = [];
-    // Deep crimson reef rock & sand base
-    addColoredBox(p, 0.70, 0.03, 0.70, 0.0, 0.015, 0.0, 0xdfcb95);
-    addColoredBox(p, 0.58, 0.035, 0.54, 0.0, 0.035, 0.0, 0x6a040f);
-    // 4 Broad, High-Density Kelp / Seagrass Fronds
-    addColoredBox(p, 0.11, 0.165, 0.09, -0.26, 0.083, -0.20, 0x1b4332);
-    addColoredBox(p, 0.10, 0.155, 0.09, -0.18, 0.078, -0.26, 0x2d6a4f);
-    addColoredBox(p, 0.10, 0.160, 0.09, 0.26, 0.080, -0.22, 0x40916c);
-    addColoredBox(p, 0.09, 0.140, 0.09, 0.20, 0.070, -0.26, 0x52b788);
-    // Chunky Hot Magenta Column with Coral Pink Crest
-    addColoredBox(p, 0.24, 0.12, 0.22, -0.16, 0.08, 0.14, 0xf72585);
-    addColoredBox(p, 0.26, 0.035, 0.24, -0.16, 0.1475, 0.14, 0xff70a6);
-    // Radiant Orange Antler Shelf with Tangerine Crest
-    addColoredBox(p, 0.26, 0.10, 0.18, 0.20, 0.07, 0.14, 0xff9f1c);
-    addColoredBox(p, 0.28, 0.035, 0.19, 0.20, 0.1275, 0.14, 0xffbe0b);
-    // Glowing Cyan Sea Cushion
-    addColoredBox(p, 0.26, 0.07, 0.24, -0.02, 0.045, 0.22, 0x00f5d4);
-    // Deep Violet Brain Coral
-    addColoredBox(p, 0.22, 0.085, 0.22, 0.14, 0.055, -0.08, 0x7209b7);
-    addColoredBox(p, 0.16, 0.035, 0.16, 0.14, 0.105, -0.08, 0x9d4edd);
+    addReefLimestoneMound(p, 0xd8c394, 0x8d755c, 0xa35c77);
+    // Broad Crimson-Peach Elkhorn Antler Thicket in center-west
+    addStaghornThicket(p, -0.07, 0.032, 0.04, 1.22, 0xc9184a, 0xff4d6d, 0xffe5ec);
+    // Luminous Seafoam-Cyan Organ-Pipe Tube Cluster on NE flank
+    addBarrelSpongeCluster(p, 0.14, 0.028, -0.08, 0x008b8b, 0x48cae4, 0x023e8a);
+    // Overlapping Lavender-Orchid Foliose Table Plate on SE flank
+    addTableCoralPlate(p, 0.11, 0.030, 0.13, 0.18, 0x6a1b9a, 0xab47bc, 0xf3e5f5, 0.35);
+    addBrainCoralBoulder(p, -0.16, 0.026, -0.13, 0.12, 0xe07a5f, 0xf4a261, 0xe9c46a);
     coralReef.push(finalizeMergedParts(p));
   }
 
-  // 7a-bleached. Bleached / Damaged Gray Coral Reefs (calcified ash-gray & stone-gray skeletal coral that regenerates over time)
+  // 7a-bleached. Bleached / Damaged Calcified Coral Reefs (matching organic staghorn, brain-dome, tube & table-plate silhouettes in bone/ash-gray)
   const coralReefBleached: THREE.BufferGeometry[] = [];
   {
     const p: THREE.BufferGeometry[] = [];
-    addColoredBox(p, 0.72, 0.03, 0.72, 0.0, 0.015, 0.0, 0x9ca3af);
-    addColoredBox(p, 0.58, 0.035, 0.56, 0.0, 0.035, 0.0, 0x475569);
-    addColoredBox(p, 0.10, 0.13, 0.08, -0.26, 0.07, -0.22, 0x64748b);
-    addColoredBox(p, 0.09, 0.11, 0.08, -0.20, 0.06, -0.26, 0x94a3b8);
-    addColoredBox(p, 0.10, 0.12, 0.08, 0.24, 0.065, 0.22, 0x64748b);
-    addColoredBox(p, 0.24, 0.09, 0.24, -0.14, 0.06, 0.12, 0x94a3b8);
-    addColoredBox(p, 0.18, 0.03, 0.18, -0.14, 0.11, 0.12, 0xcbd5e1);
-    addColoredBox(p, 0.22, 0.08, 0.20, 0.16, 0.055, -0.12, 0x78716c);
-    addColoredBox(p, 0.24, 0.025, 0.22, 0.16, 0.098, -0.12, 0xa8a29e);
-    addColoredBox(p, 0.22, 0.055, 0.22, 0.04, 0.04, 0.18, 0xcbd5e1);
+    addReefLimestoneMound(p, 0x9ca3af, 0x64748b, 0x78716c);
+    addTableCoralPlate(p, -0.11, 0.028, 0.08, 0.22, 0x475569, 0x94a3b8, 0xe2e8f0, 0.15);
+    addTableCoralPlate(p, -0.07, 0.068, 0.05, 0.16, 0x64748b, 0xcbd5e1, 0xf1f5f9, 0.55);
+    addStaghornThicket(p, 0.13, 0.032, -0.07, 1.15, 0x64748b, 0x94a3b8, 0xe2e8f0);
+    addBrainCoralBoulder(p, -0.15, 0.026, -0.14, 0.12, 0x4b5563, 0x9ca3af, 0xd1d5db);
     coralReefBleached.push(finalizeMergedParts(p));
   }
   {
     const p: THREE.BufferGeometry[] = [];
-    addColoredBox(p, 0.70, 0.03, 0.70, 0.0, 0.015, 0.0, 0x9ca3af);
-    addColoredBox(p, 0.56, 0.035, 0.54, 0.0, 0.035, 0.0, 0x4b5563);
-    addColoredBox(p, 0.24, 0.095, 0.22, -0.15, 0.062, -0.12, 0x94a3b8);
-    addColoredBox(p, 0.26, 0.03, 0.24, -0.15, 0.115, -0.12, 0xd1d5db);
-    addColoredBox(p, 0.22, 0.085, 0.20, 0.16, 0.058, 0.12, 0x78716c);
-    addColoredBox(p, 0.16, 0.03, 0.16, 0.16, 0.105, 0.12, 0xa8a29e);
-    addColoredBox(p, 0.20, 0.06, 0.20, -0.08, 0.045, 0.18, 0x64748b);
-    addColoredBox(p, 0.10, 0.12, 0.08, 0.24, 0.065, -0.20, 0x6b7280);
+    addReefLimestoneMound(p, 0x9ca3af, 0x57534e, 0x6b7280);
+    addBrainCoralBoulder(p, 0.09, 0.028, 0.06, 0.19, 0x475569, 0x94a3b8, 0xe2e8f0);
+    addBarrelSpongeCluster(p, -0.13, 0.030, -0.06, 0x64748b, 0xcbd5e1, 0x334155);
+    addBrainCoralBoulder(p, -0.08, 0.026, 0.16, 0.13, 0x57534e, 0xa8a29e, 0xe7e5e4);
+    addStaghornThicket(p, 0.14, 0.028, -0.14, 0.92, 0x64748b, 0x94a3b8, 0xf1f5f9);
     coralReefBleached.push(finalizeMergedParts(p));
   }
 
@@ -1225,28 +1351,114 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     scrapFlotsam.push(finalizeMergedParts(p));
   }
 
-  // 7c. Ancient Atlantis Ruins (white marble columns, golden orichalcum rings & glowing sea-crystal obelisks rising from the waves)
+  // 7c. Ancient Sunken City of Atlantis Temple Complex:
+  // Expansive ~3.5-tile submerged Atlantean metropolis featuring concentric white-marble & golden-orichalcum city rings,
+  // 4 radial sunken stepped temple pyramids rising right beneath the crystal-clear ocean surface (local y = 0.02..0.165, world y = 0.14..0.285),
+  // glowing underwater cyan ley-line canals, 8 submerged crystal-beacon obelisks, sunken aqueduct colonnades,
+  // and the emergent central marble temple colonnade & levitating portal spire rising above the waves!
   const atlantisRuin: THREE.BufferGeometry[] = [];
-  {
+  const buildAtlantisComplex = (variantIdx: number): THREE.BufferGeometry => {
     const p: THREE.BufferGeometry[] = [];
-    addColoredBox(p, 0.64, 0.12, 0.64, 0, 0.02, 0, 0xe2e8f0); // sunken marble plaza base
-    addColoredBox(p, 0.52, 0.06, 0.52, 0, 0.09, 0, 0xf5b742); // golden orichalcum ring inlay
-    addColoredBox(p, 0.12, 0.46, 0.12, -0.2, 0.28, -0.2, 0xf8fafc); // intact fluted column
-    addColoredBox(p, 0.16, 0.06, 0.16, -0.2, 0.52, -0.2, 0xf5b742); // golden capital
-    addColoredBox(p, 0.12, 0.28, 0.12, 0.2, 0.19, -0.2, 0xf1f5f9); // broken column
-    addColoredBox(p, 0.12, 0.36, 0.12, -0.2, 0.23, 0.2, 0xf1f5f9);
-    addColoredBox(p, 0.18, 0.58, 0.18, 0.04, 0.34, 0.04, 0x48bfe3, Math.PI / 4); // glowing Atlantean crystal spire
-    atlantisRuin.push(finalizeMergedParts(p));
-  }
-  {
-    const p: THREE.BufferGeometry[] = [];
-    addColoredBox(p, 0.6, 0.12, 0.6, 0, 0.02, 0, 0xe2e8f0);
-    addColoredBox(p, 0.14, 0.48, 0.14, -0.2, 0.28, 0, 0xf8fafc);
-    addColoredBox(p, 0.14, 0.48, 0.14, 0.2, 0.28, 0, 0xf8fafc);
-    addColoredBox(p, 0.54, 0.1, 0.16, 0, 0.54, 0, 0xf5b742); // golden architrave lintel
-    addColoredBox(p, 0.16, 0.44, 0.16, 0, 0.26, 0, 0x64dfdf, Math.PI / 4);
-    atlantisRuin.push(finalizeMergedParts(p));
-  }
+    // 1. EXPANSIVE SUBMERGED ATLANTEAN CITY FOUNDATION & CONCENTRIC RINGS (local y = 0.01..0.165, world y = 0.13..0.285)
+    // Outer sunken sea-marble metropolis foundation disc (diameter ~3.36 tiles)
+    addColoredCylinder(p, 1.66, 1.74, 0.036, 12, 0, 0.018, 0, 0xcbd5e1);
+    // Outer golden orichalcum city wall ring & raised perimeter walkway (clearly visible just below the water surface)
+    addColoredCylinder(p, 1.54, 1.60, 0.042, 12, 0, 0.056, 0, 0xf5b742);
+    // Submerged inner lagoon floor in deep Atlantean lapis-teal to contrast with the white marble & glowing cyan canals
+    addColoredCylinder(p, 1.44, 1.46, 0.020, 12, 0, 0.082, 0, 0x0f4c5c);
+    // Middle concentric white-marble acropolis terrace & golden orichalcum ring
+    addColoredCylinder(p, 1.14, 1.20, 0.036, 12, 0, 0.102, 0, 0xe2e8f0);
+    addColoredCylinder(p, 1.02, 1.06, 0.024, 12, 0, 0.128, 0, 0xf5b742);
+    // Inner sunken sanctum dais right beneath the water surface (local y = 0.146 -> world y = 0.266)
+    addColoredCylinder(p, 0.80, 0.86, 0.032, 12, 0, 0.146, 0, 0xf8fafc);
+
+    // Glowing Underwater Cyan Ley-Line Canals & Cross-Avenues spanning the entire 3.4-tile sunken city
+    addColoredBox(p, 3.24, 0.030, 0.22, 0, 0.118, 0, 0x00f5d4);
+    addColoredBox(p, 0.22, 0.030, 3.24, 0, 0.118, 0, 0x00f5d4);
+    addColoredBox(p, 2.50, 0.024, 0.14, 0, 0.112, 0, 0x48bfe3, Math.PI / 4);
+    addColoredBox(p, 0.14, 0.024, 2.50, 0, 0.112, 0, 0x48bfe3, Math.PI / 4);
+
+    // 4 Radial Sunken Grand Causeways & Stepped Temple Gateways at N, S, E, W (extending out to r = 1.72)
+    for (const [sx, sz, isX] of [
+      [1.46, 0, true],
+      [-1.46, 0, true],
+      [0, 1.46, false],
+      [0, -1.46, false],
+    ] as const) {
+      addColoredBox(p, isX ? 0.56 : 0.78, 0.056, isX ? 0.78 : 0.56, sx, 0.052, sz, 0xe2e8f0);
+      addColoredBox(p, isX ? 0.42 : 0.62, 0.048, isX ? 0.62 : 0.42, sx * 0.90, 0.098, sz * 0.90, 0xf5b742);
+      addColoredBox(p, isX ? 0.30 : 0.48, 0.036, isX ? 0.48 : 0.30, sx * 0.82, 0.136, sz * 0.82, 0xf8fafc);
+      // Flanking submerged gate pylons at each cardinal causeway entrance
+      const perpX = isX ? 0 : 0.34;
+      const perpZ = isX ? 0.34 : 0;
+      for (const side of [-1, 1] as const) {
+        const gx = sx + perpX * side;
+        const gz = sz + perpZ * side;
+        addColoredBox(p, 0.18, 0.11, 0.18, gx, 0.095, gz, 0xf8fafc);
+        addColoredBox(p, 0.22, 0.028, 0.22, gx, 0.152, gz, 0xf5b742);
+      }
+    }
+
+    // 4 Submerged Stepped Atlantean Temple Pyramids in the NE, NW, SE, SW City Quadrants
+    // (Rising up to local y = 0.164 / world y = 0.284 so their tiered roofs & glowing crystal shrines are unmistakably visible underwater!)
+    for (const [qx, qz] of [
+      [-0.96, -0.96],
+      [0.96, -0.96],
+      [-0.96, 0.96],
+      [0.96, 0.96],
+    ] as const) {
+      addColoredBox(p, 0.58, 0.042, 0.58, qx, 0.068, qz, 0xcbd5e1); // lower sunken pyramid tier
+      addColoredBox(p, 0.46, 0.038, 0.46, qx, 0.106, qz, 0xe2e8f0); // middle sunken pyramid tier
+      addColoredBox(p, 0.36, 0.026, 0.36, qx, 0.136, qz, 0xf5b742); // golden orichalcum frieze
+      addColoredBox(p, 0.24, 0.028, 0.24, qx, 0.154, qz, 0x00f5d4, Math.PI / 4); // glowing cyan underwater sanctum cap
+    }
+
+    // 8 Outer Sunken Colonnade Pillars & Glowing Sea-Crystal Obelisks along the city perimeter ring
+    for (let i = 0; i < 8; i++) {
+      const ang = (i * Math.PI) / 4 + Math.PI / 8;
+      const ox = Math.cos(ang) * 1.42;
+      const oz = Math.sin(ang) * 1.42;
+      addColoredCylinder(p, 0.08, 0.10, 0.09, 6, ox, 0.095, oz, 0xf1f5f9);
+      addColoredCylinder(p, 0.10, 0.10, 0.024, 6, ox, 0.146, oz, 0xf5b742);
+      addColoredCylinder(p, 0.02, 0.06, 0.028, 6, ox, 0.162, oz, 0x00f5d4);
+    }
+
+    // Fallen / Ruined Underwater Marble Columns resting on the sunken courtyard floor
+    addColoredCylinder(p, 0.065, 0.065, 0.48, 8, -0.68, 0.125, 1.18, 0xf1f5f9, 0, 0.35, Math.PI / 2);
+    addColoredCylinder(p, 0.065, 0.065, 0.46, 8, 1.18, 0.125, -0.64, 0xf1f5f9, Math.PI / 2, -0.28, 0);
+
+    // 2. EMERGENT ABOVE-WATER TEMPLE COLONNADE & PORTAL GATEWAY (rising from y = 0.16 through the water surface up to y = 0.90)
+    for (const [px, pz, colH, hasCap] of [
+      [-0.46, -0.46, 0.58, true],
+      [0.46, -0.46, variantIdx === 0 ? 0.58 : 0.40, variantIdx === 0],
+      [-0.46, 0.46, variantIdx === 0 ? 0.42 : 0.58, variantIdx !== 0],
+      [0.46, 0.46, 0.58, true],
+    ] as const) {
+      addColoredCylinder(p, 0.12, 0.14, 0.06, 8, px, 0.17, pz, 0xf5b742); // golden column base
+      addColoredCylinder(p, 0.085, 0.095, colH, 8, px, 0.18 + colH * 0.5, pz, 0xf8fafc); // fluted marble column shaft
+      if (hasCap) {
+        addColoredBox(p, 0.22, 0.06, 0.22, px, 0.20 + colH, pz, 0xf5b742); // golden orichalcum capital
+      }
+    }
+
+    // Emergent Golden Orichalcum Architrave Lintel & Temple Pediment Bridge above the waves
+    if (variantIdx === 0) {
+      addColoredBox(p, 1.16, 0.08, 0.24, 0, 0.80, -0.46, 0xf5b742);
+      addColoredBox(p, 1.08, 0.06, 0.20, 0, 0.86, -0.46, 0xf8fafc);
+    } else {
+      addColoredBox(p, 0.24, 0.08, 1.16, -0.46, 0.80, 0, 0xf5b742);
+      addColoredBox(p, 0.20, 0.06, 1.08, -0.46, 0.86, 0, 0xf8fafc);
+    }
+
+    // Central Atlantean Sanctum Altar & Levitating Sea-Crystal Portal Spire
+    addColoredCylinder(p, 0.28, 0.34, 0.10, 8, 0, 0.19, 0, 0xe2e8f0);
+    addColoredCylinder(p, 0.22, 0.26, 0.06, 8, 0, 0.26, 0, 0xf5b742);
+    addColoredBox(p, 0.22, 0.58, 0.22, 0, 0.54, 0, 0x48bfe3, Math.PI / 4); // towering glowing portal crystal
+    addColoredBox(p, 0.34, 0.05, 0.34, 0, 0.54, 0, 0xf5b742, Math.PI / 4); // floating golden orichalcum containment ring
+    return finalizeMergedParts(p);
+  };
+  atlantisRuin.push(buildAtlantisComplex(0));
+  atlantisRuin.push(buildAtlantisComplex(1));
 
   cachedVariantLib = {
     timber,

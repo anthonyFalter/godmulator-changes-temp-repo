@@ -416,10 +416,10 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
       uZoneColorMap: { value: null as THREE.DataTexture | null },
       uZoneIdMap: { value: null as THREE.DataTexture | null },
       uZoneActive: { value: 0 },
-      uShallowColor: { value: new THREE.Color('#2f788e') },
+      uShallowColor: { value: new THREE.Color('#2896ab') },
       uDeepColor: { value: new THREE.Color('#193f54') },
-      uCrestColor: { value: new THREE.Color('#53b3ca') },
-      uReefWaterColor: { value: new THREE.Color('#1ac7cf') },
+      uCrestColor: { value: new THREE.Color('#5ce1e6') },
+      uReefWaterColor: { value: new THREE.Color('#12d6df') },
       uFoamColor: { value: new THREE.Color('#f4fbff') },
       uFoamMint: { value: new THREE.Color('#9ee6f5') },
     },
@@ -514,9 +514,9 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
           discard;
         }
 
-        bool isDeep = self.r > 0.75;
+        bool isDeep = self.r > 0.78;
 
-        // 8-neighbor sampling for exact coastline (hits land) and other-water (shallow <-> deep) distances
+        // 8-neighbor sampling for exact coastline (hits land) and smooth bathymetric depth interpolation
         vec4 nN  = sampleTile(tileCoord + vec2( 0.0, -1.0));
         vec4 nS  = sampleTile(tileCoord + vec2( 0.0,  1.0));
         vec4 nW  = sampleTile(tileCoord + vec2(-1.0,  0.0));
@@ -541,67 +541,99 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
         float midLandHint = max(max(nN.g, nS.g), max(nW.g, nE.g));
         float nearCoastInfluence = self.g > 0.05 ? 1.0 : (midLandHint > 0.05 ? 0.55 : 0.0);
 
-        // 2. Exact pixel distance to other-water boundaries (shallow_water <-> deep_water)
-        float diffDist = 2.0;
-        if (nN.r  >= 0.15 && abs(nN.r  - self.r) > 0.25) diffDist = min(diffDist, subUv.y);
-        if (nS.r  >= 0.15 && abs(nS.r  - self.r) > 0.25) diffDist = min(diffDist, 1.0 - subUv.y);
-        if (nW.r  >= 0.15 && abs(nW.r  - self.r) > 0.25) diffDist = min(diffDist, subUv.x);
-        if (nE.r  >= 0.15 && abs(nE.r  - self.r) > 0.25) diffDist = min(diffDist, 1.0 - subUv.x);
-        if (nNW.r >= 0.15 && abs(nNW.r - self.r) > 0.25) diffDist = min(diffDist, length(vec2(subUv.x, subUv.y)));
-        if (nNE.r >= 0.15 && abs(nNE.r - self.r) > 0.25) diffDist = min(diffDist, length(vec2(1.0 - subUv.x, subUv.y)));
-        if (nSW.r >= 0.15 && abs(nSW.r - self.r) > 0.25) diffDist = min(diffDist, length(vec2(subUv.x, 1.0 - subUv.y)));
-        if (nSE.r >= 0.15 && abs(nSE.r - self.r) > 0.25) diffDist = min(diffDist, length(vec2(1.0 - subUv.x, 1.0 - subUv.y)));
-
         // Coarser chunky pixel coordinates (8 texels per tile) for readable wave crests & whitecaps
         vec2 chunkPos = floor(pixPos * 8.0) / 8.0;
         float swellA = valueNoise(chunkPos * 0.45 + vec2(uTime * 0.34, uTime * 0.22));
         float swellB = valueNoise(chunkPos * 0.9 - vec2(uTime * 0.24, -uTime * 0.3));
         float waveField = swellA * 0.65 + swellB * 0.35;
 
-        // Feathered localized Coral Reef lagoon hue (from actual coral reef pockets without painting opaque 2D coral blobs on top)
+        // 2. Sub-tile bilinearly interpolated bathymetric depth (0.18 at shore .. 1.0 in deep ocean)
+        // Clamping land neighbors (r < 0.15) to 0.18 ensures shoreline edges smoothly shallow out
+        float dSelf = max(0.18, self.r);
+        float dN  = nN.r  < 0.15 ? 0.18 : nN.r;
+        float dS  = nS.r  < 0.15 ? 0.18 : nS.r;
+        float dW  = nW.r  < 0.15 ? 0.18 : nW.r;
+        float dE  = nE.r  < 0.15 ? 0.18 : nE.r;
+        float dNW = nNW.r < 0.15 ? 0.18 : nNW.r;
+        float dNE = nNE.r < 0.15 ? 0.18 : nNE.r;
+        float dSW = nSW.r < 0.15 ? 0.18 : nSW.r;
+        float dSE = nSE.r < 0.15 ? 0.18 : nSE.r;
+
+        float interpW = mix(dW, dSelf, clamp(subUv.x + 0.5, 0.0, 1.0));
+        float interpE = mix(dSelf, dE, clamp(subUv.x - 0.5, 0.0, 1.0));
+        float depthX = subUv.x < 0.5 ? interpW : interpE;
+        float interpN = mix(dN, dSelf, clamp(subUv.y + 0.5, 0.0, 1.0));
+        float interpS = mix(dSelf, dS, clamp(subUv.y - 0.5, 0.0, 1.0));
+        float depthY = subUv.y < 0.5 ? interpN : interpS;
+        float cornerAvg = (dNW + dNE + dSW + dSE) * 0.25;
+        float smoothDepth = clamp(
+          (depthX * 0.42 + depthY * 0.42 + cornerAvg * 0.16) + (swellA - 0.5) * 0.045,
+          0.18,
+          1.0
+        );
+
+        // Feathered localized Coral Reef & Atlantis Sanctuary lagoon hue
         float selfReef = smoothstep(0.78, 0.98, self.b);
         float nbReef = max(
           max(smoothstep(0.78, 0.98, nN.b) * (1.0 - subUv.y), smoothstep(0.78, 0.98, nS.b) * subUv.y),
           max(smoothstep(0.78, 0.98, nW.b) * (1.0 - subUv.x), smoothstep(0.78, 0.98, nE.b) * subUv.x)
         );
-        float reefMask = clamp(max(selfReef, nbReef * 0.72), 0.0, 1.0);
+        float reefMask = clamp(max(selfReef, nbReef * 0.78), 0.0, 1.0);
         bool isRiver = self.b > 0.54 && self.b <= 0.78;
         bool isLake = self.b > 0.25 && self.b <= 0.54;
 
-        vec3 baseWater = isDeep ? uDeepColor : uShallowColor;
-        // Brighter turquoise shoal water right along coastlines
-        if (landDist < 1.1) {
-          baseWater = mix(baseWater, mix(uShallowColor, uCrestColor, 0.45), smoothstep(1.1, 0.08, landDist));
+        // Multi-stop continuous ocean color gradient from sunlit turquoise shore -> aquamarine shelf -> azure slope -> deep navy sea
+        vec3 shoreTurquoise = mix(uShallowColor, uCrestColor, 0.54);
+        vec3 midSlopeAzure  = mix(uShallowColor, uDeepColor, 0.50);
+        vec3 baseWater;
+        if (smoothDepth < 0.42) {
+          baseWater = mix(shoreTurquoise, uShallowColor, smoothstep(0.18, 0.42, smoothDepth));
+        } else if (smoothDepth < 0.72) {
+          baseWater = mix(uShallowColor, midSlopeAzure, smoothstep(0.42, 0.72, smoothDepth));
+        } else {
+          baseWater = mix(midSlopeAzure, uDeepColor, smoothstep(0.72, 0.96, smoothDepth));
         }
 
-        float waterAlpha = isDeep
-          ? 0.88
-          : mix(0.56, 0.70, smoothstep(0.15, 1.15, landDist));
+        if (landDist < 1.35) {
+          baseWater = mix(baseWater, shoreTurquoise, smoothstep(1.35, 0.06, landDist) * 0.75);
+        }
+
+        // Continuous transparency curve: crystal-clear in shallow water & coastlines (0.14..0.32), smoothly deepening into deep sea (0.85)
+        float waterAlpha = mix(
+          0.14,
+          0.85,
+          smoothstep(0.20, 0.94, smoothDepth)
+        );
+        if (landDist < 1.2) {
+          waterAlpha = min(waterAlpha, mix(0.12, 0.26, smoothstep(0.05, 1.2, landDist)));
+        }
 
         if (reefMask > 0.01) {
-          // Warm Coral Reef Lagoon: bright sunlit aquamarine-turquoise hue + high clarity so submerged sandy seabed & 3D corals shine through!
-          float caustic = step(0.70, valueNoise(chunkPos * 1.45 + vec2(uTime * 0.42, -uTime * 0.34)));
-          vec3 reefAqua = mix(uReefWaterColor, uCrestColor, 0.28 + caustic * 0.32);
-          baseWater = mix(baseWater, reefAqua, reefMask * 0.88);
-          waterAlpha = mix(waterAlpha, 0.36, reefMask);
+          // Warm Coral Reef & Atlantis Sanctuary Lagoon: ultra-transparent turquoise glass window so 3D corals & sunken city ruins shine through!
+          float caustic = step(0.78, valueNoise(chunkPos * 1.35 + vec2(uTime * 0.35, -uTime * 0.28)));
+          vec3 reefAqua = mix(uReefWaterColor, uCrestColor, 0.20 + caustic * 0.22);
+          baseWater = mix(baseWater, reefAqua, reefMask * 0.78);
+          waterAlpha = mix(waterAlpha, 0.09, reefMask);
         } else if (isRiver) {
           // Lively Shallow River: crystal-clear shallow aqua with animated current ripples showing sandy riverbed underneath
           vec3 livelyRiverAqua = mix(uShallowColor, uCrestColor, 0.56);
           float streamRipple = step(0.64, fract(chunkPos.x * 0.85 + chunkPos.y * 0.85 - uTime * 1.35 + swellA * 0.5));
           baseWater = mix(baseWater, livelyRiverAqua, 0.62);
           baseWater = mix(baseWater, uFoamMint, streamRipple * 0.44);
-          waterAlpha = 0.46;
+          waterAlpha = 0.22;
         } else if (isLake) {
           // Inland Lake: serene translucent emerald-turquoise shallow water over sandy lakebed
           baseWater = mix(baseWater, mix(uShallowColor, uReefWaterColor, 0.42), 0.56);
-          waterAlpha = 0.52;
+          waterAlpha = 0.25;
         }
 
-        // Pixelated rolling wave bands
-        float ridge = step(0.6, waveField);
-        float glint = step(0.77, waveField + 0.06 * sin(chunkPos.x * 1.1 + uTime * 2.1));
-        vec3 color = mix(baseWater, mix(baseWater, uCrestColor, 0.4), ridge * 0.55);
-        color = mix(color, uCrestColor, glint * 0.38);
+        // Pixelated rolling wave bands (suppressed over crystal-clear reef/Atlantis lagoons & shallow shoals so underwater structures aren't obscured)
+        float shallowCalm = smoothstep(0.22, 0.65, smoothDepth);
+        float calmFactor = (1.0 - reefMask * 0.90) * (0.35 + 0.65 * shallowCalm);
+        float ridge = step(0.63, waveField) * calmFactor;
+        float glint = step(0.80, waveField + 0.06 * sin(chunkPos.x * 1.1 + uTime * 2.1)) * calmFactor;
+        vec3 color = mix(baseWater, mix(baseWater, uCrestColor, 0.36), ridge * 0.44);
+        color = mix(color, uCrestColor, glint * 0.30);
 
         // --- FOAM 1: Coast hitting dry land (rhythmic crashing shoreline surge + rolling breaker ring) ---
         float coastWobble = (swellB - 0.5) * 0.26 + sin((pixPos.x - pixPos.y) * 1.1 + uTime * 2.0) * 0.06;
@@ -615,25 +647,19 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
         float coastFoamCore = step(landDist + coastWobble * 0.3, surgeLap * 0.76);
         float coastFoamMint = max(shoreCrest, breakerBand * breakerBreakup);
 
-        // --- FOAM 2: Other waters meeting (shallow_water <-> deep_water dropoff shoal foam) ---
-        float reefWobble = (swellA - 0.5) * 0.2;
-        float reefWave = sin(diffDist * 9.0 - uTime * 2.4 + (pixPos.x + pixPos.y) * 0.75);
-        float reefNoise = valueNoise(chunkPos * 1.25 + vec2(-uTime * 0.34, uTime * 0.42));
-        float reefBand = step(diffDist + reefWobble, 0.48) * step(0.38, reefNoise + reefWave * 0.26);
-        float reefCore = step(diffDist + reefWobble, 0.26) * step(0.54, reefNoise + reefWave * 0.22);
-
-        // --- FOAM 3: Random open-sea whitecaps & ephemeral bubble trails ---
+        // --- FOAM 2: Random open-sea whitecaps & ephemeral bubble trails (suppressed over coral/Atlantis lagoons & shallow water for clarity) ---
         float capA = valueNoise(chunkPos * 0.55 + vec2(uTime * 0.26, uTime * 0.16));
         float capB = valueNoise(chunkPos * 1.35 - vec2(uTime * 0.38, -uTime * 0.2));
         float capPulse = 0.5 + 0.5 * sin(uTime * 1.4 + self.a * 6.2831 + chunkPos.x * 0.3);
         float combinedCap = capA * 0.54 + capB * 0.32 + capPulse * 0.14;
 
-        float capThresh = isDeep ? 0.77 : 0.815;
-        float openFoamMint = step(capThresh, combinedCap);
-        float openFoamCore = step(capThresh + 0.042, combinedCap);
+        float capThresh = isDeep ? 0.78 : 0.88;
+        float openFoamAllow = step(reefMask, 0.10) * smoothstep(0.32, 0.65, smoothDepth);
+        float openFoamMint = step(capThresh, combinedCap) * openFoamAllow;
+        float openFoamCore = step(capThresh + 0.045, combinedCap) * openFoamAllow;
 
-        float mintMask = max(coastFoamMint, max(reefBand, openFoamMint));
-        float whiteMask = max(coastFoamCore, max(reefCore, openFoamCore));
+        float mintMask = max(coastFoamMint, openFoamMint);
+        float whiteMask = max(coastFoamCore, openFoamCore);
 
         color = mix(color, uFoamMint, mintMask * 0.82);
         color = mix(color, uFoamColor, whiteMask * 0.98);
@@ -732,37 +758,72 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
         continue;
       }
 
-      const depthVal = t.terrain === 'deep_water' && !t.isRiver && !t.isLake ? 255 : 132;
-      data[idx] = depthVal;
-
       let touchesLand = 0;
-      const isHealthyCoral =
-        t.resourceNode === 'coral_reef' && (t.coralBleachTimer ?? 0) <= 0 && t.resourceAmount > 0;
-      let adjCoralCount = isHealthyCoral ? 2 : 0;
-      for (let dz = -1; dz <= 1; dz++) {
-        for (let dx = -1; dx <= 1; dx++) {
-          if (dx === 0 && dz === 0) continue;
+      const isHealthyCoralOrAtlantis =
+        (t.resourceNode === 'coral_reef' && (t.coralBleachTimer ?? 0) <= 0 && t.resourceAmount > 0) ||
+        t.resourceNode === 'atlantis_ruin';
+      let adjCoralCount = isHealthyCoralOrAtlantis ? 2 : 0;
+
+      // Compute multi-ring distances to dry land, shallow_water, and deep_water for seamless bathymetric blending
+      let minLandDistSq = 99;
+      let minShallowDistSq = 99;
+      let minDeepDistSq = 99;
+      for (let dz = -4; dz <= 4; dz++) {
+        for (let dx = -4; dx <= 4; dx++) {
           const nx = t.x + dx;
           const nz = t.z + dz;
           if (nx < 0 || nx >= gridSize || nz < 0 || nz >= gridSize) continue;
           const nb = tiles[nz * gridSize + nx];
+          const dSq = dx * dx + dz * dz;
           if (nb.height > 0) {
-            touchesLand = 255;
-          } else if (
-            nb.resourceNode === 'coral_reef' &&
-            (nb.coralBleachTimer ?? 0) <= 0 &&
-            nb.resourceAmount > 0
-          ) {
-            adjCoralCount += 1;
+            if (dSq < minLandDistSq) minLandDistSq = dSq;
+            if (dSq < minShallowDistSq) minShallowDistSq = dSq;
+            if (Math.abs(dx) <= 1 && Math.abs(dz) <= 1 && dSq > 0) {
+              touchesLand = 255;
+            }
+          } else {
+            if (nb.terrain === 'deep_water' && !nb.isRiver && !nb.isLake) {
+              if (dSq < minDeepDistSq) minDeepDistSq = dSq;
+            } else {
+              if (dSq < minShallowDistSq) minShallowDistSq = dSq;
+            }
+            if (Math.abs(dx) <= 1 && Math.abs(dz) <= 1 && dSq > 0) {
+              if (
+                (nb.resourceNode === 'coral_reef' &&
+                  (nb.coralBleachTimer ?? 0) <= 0 &&
+                  nb.resourceAmount > 0) ||
+                nb.resourceNode === 'atlantis_ruin'
+              ) {
+                adjCoralCount += nb.resourceNode === 'atlantis_ruin' ? 2 : 1;
+              }
+            }
           }
         }
       }
 
+      let depthVal = 255;
+      if (t.isRiver || t.isLake || isHealthyCoralOrAtlantis) {
+        depthVal = 54;
+      } else if (t.terrain !== 'deep_water') {
+        // Shallow shelf: smoothly deepens from 52 along beach/lagoon interior to 146 near the deep_water dropoff
+        const landD = Math.min(4.0, Math.sqrt(minLandDistSq));
+        const deepD = Math.min(4.0, Math.sqrt(minDeepDistSq));
+        const shoreFactor = Math.max(0, Math.min(1, (landD - 1.0) / 3.0));
+        const dropoffPull = Math.max(0, Math.min(1, (3.2 - deepD) / 2.2));
+        depthVal = Math.round(52 + shoreFactor * 44 + dropoffPull * 50);
+      } else {
+        // Deep water: smoothly transitions from 166 at the shallow_water border across a 4-tile slope to 255 in open abyss
+        const shallowD = Math.min(4.5, Math.sqrt(minShallowDistSq));
+        const slopeFactor = Math.max(0, Math.min(1, (shallowD - 1.0) / 3.2));
+        depthVal = Math.round(166 + slopeFactor * 89);
+      }
+      data[idx] = Math.max(48, Math.min(255, depthVal));
+
       data[idx + 1] = touchesLand;
       // Encode water special feature in B channel:
-      // 255 = coral_reef or dense reef lagoon interior, 220 = reef lagoon fringe, 170 = shallow river, 100 = inland lake, 0 = standard sea
+      // 255 = coral_reef / atlantis_ruin or dense reef lagoon interior, 220 = reef lagoon fringe, 170 = shallow river, 100 = inland lake, 0 = standard sea
       const reefByte =
-        isHealthyCoral || adjCoralCount >= 2
+        isHealthyCoralOrAtlantis || adjCoralCount >= 2
           ? 255
           : adjCoralCount === 1
             ? 220
@@ -775,10 +836,10 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
     waterMapTex.needsUpdate = true;
   };
 
-  const _shallowTarget = new THREE.Color('#2f788e');
+  const _shallowTarget = new THREE.Color('#2896ab');
   const _deepTarget = new THREE.Color('#193f54');
-  const _crestTarget = new THREE.Color('#53b3ca');
-  const _reefTarget = new THREE.Color('#1ac7cf');
+  const _crestTarget = new THREE.Color('#5ce1e6');
+  const _reefTarget = new THREE.Color('#12d6df');
   const _foamTarget = new THREE.Color('#f4fbff');
   const _mintTarget = new THREE.Color('#9ee6f5');
 
@@ -815,10 +876,10 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
       _foamTarget.set('#fff3f0');
       _mintTarget.set('#b5dfe8');
     } else {
-      _shallowTarget.set('#2f788e');
+      _shallowTarget.set('#2896ab');
       _deepTarget.set('#193f54');
-      _crestTarget.set('#53b3ca');
-      _reefTarget.set('#1ac7cf');
+      _crestTarget.set('#5ce1e6');
+      _reefTarget.set('#12d6df');
       _foamTarget.set('#f4fbff');
       _mintTarget.set('#9ee6f5');
     }
@@ -1181,11 +1242,11 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         vec3 c = mix(sh, base, step(0.34, patchVal));
         return mix(c, hi, step(0.68, patchVal));
       } else if (code < 1.5) {
-        // Shallow Water seabed: sunlit pale ocean sand & fine shell/silt speckles visible through translucent water
+        // Shallow Water seabed: warm sunlit tropical coral sand & shell ripples shining through translucent lagoon water
         float ripple = sin((pixPos.x + pixPos.y * 0.7) * 3.8 + waveA * 3.0) * 0.5 + 0.5;
-        vec3 base = landSrgb(196.0, 184.0, 142.0);
-        vec3 hi   = landSrgb(220.0, 208.0, 166.0);
-        vec3 sh   = landSrgb(166.0, 154.0, 118.0);
+        vec3 base = landSrgb(222.0, 208.0, 166.0);
+        vec3 hi   = landSrgb(242.0, 228.0, 188.0);
+        vec3 sh   = landSrgb(192.0, 178.0, 138.0);
         vec3 c = mix(sh, base, step(0.32, patchVal + ripple * 0.14));
         c = mix(c, hi, step(0.68, patchVal + ripple * 0.16));
         if (detail > 0.92) c = mix(c, hi, 0.65);
@@ -2082,10 +2143,32 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
             col = computeRunwayColor(pixPos, subUv, uTime, wN, wS, wW, wE, marginCol);
           } else {
             col = computeBiomeColor(myCode, pixPos, chunkPos, subUv, uTime, self.a > 0.5);
+            // Smooth bathymetric seabed color transition from sunlit shallow sand -> turquoise shoal -> marine slope -> deep abyssal floor
+            if (myHeight < 0.5 && myCode < 1.5) {
+              float bSelf = self.b;
+              float bN = hN < 0.5 ? nN.b : 0.0;
+              float bS = hS < 0.5 ? nS.b : 0.0;
+              float bW = hW < 0.5 ? nW.b : 0.0;
+              float bE = hE < 0.5 ? nE.b : 0.0;
+              float bX = subUv.x < 0.5 ? mix(bW, bSelf, subUv.x + 0.5) : mix(bSelf, bE, subUv.x - 0.5);
+              float bY = subUv.y < 0.5 ? mix(bN, bSelf, subUv.y + 0.5) : mix(bSelf, bS, subUv.y - 0.5);
+              float bDepth = clamp((bX + bY) * 0.5, 0.0, 1.0);
+              vec3 shallowSandCol = computeBiomeColor(1.0, pixPos, chunkPos, subUv, uTime, false);
+              vec3 midShoalCol    = landSrgb(82.0, 146.0, 156.0);
+              vec3 slopeTealCol   = landSrgb(34.0, 82.0, 108.0);
+              vec3 deepFloorCol   = computeBiomeColor(0.0, pixPos, chunkPos, subUv, uTime, false);
+              if (bDepth < 0.42) {
+                col = mix(shallowSandCol, midShoalCol, smoothstep(0.15, 0.42, bDepth));
+              } else if (bDepth < 0.74) {
+                col = mix(midShoalCol, slopeTealCol, smoothstep(0.42, 0.74, bDepth));
+              } else {
+                col = mix(slopeTealCol, deepFloorCol, smoothstep(0.74, 0.98, bDepth));
+              }
+            }
           }
 
-          // 1. Cross-biome organic pixel dithering along shared terrace seams (except crisp roads, rails & runways)
-          if (myCode != 9.0 && myCode != 14.0 && myCode != 21.0) {
+          // 1. Cross-biome organic pixel dithering along shared terrace seams (except crisp roads, rails, runways & smooth seabed)
+          if (myCode != 9.0 && myCode != 14.0 && myCode != 21.0 && myHeight > 0.5) {
             float ditherRng = landHash12(pixPos * 16.0);
             if (hN == myHeight && cN != myCode && cN != 9.0 && cN != 14.0 && cN != 21.0 && subUv.y < 0.24 && ditherRng > subUv.y * 3.8) {
               col = computeBiomeColor(cN, pixPos, chunkPos, subUv, uTime, nN.a > 0.5);
@@ -2258,7 +2341,51 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
       const code = STYLED_TERRAIN_CODE[t.terrain] ?? 3;
       data[idx] = Math.min(255, code * 8);
       data[idx + 1] = Math.min(255, t.height * 20);
-      data[idx + 2] = Math.abs(((t.x * 73856093) ^ (t.z * 19349663)) | 0) & 255;
+      if (t.height === 0) {
+        // Encode smooth bathymetric seabed depth (0 = sunlit coastal/reef sand .. 255 = deep abyssal floor)
+        const isReefOrSanctuary =
+          (t.resourceNode === 'coral_reef' && (t.coralBleachTimer ?? 0) <= 0 && t.resourceAmount > 0) ||
+          t.resourceNode === 'atlantis_ruin' ||
+          t.isRiver ||
+          t.isLake;
+        if (isReefOrSanctuary) {
+          data[idx + 2] = 0;
+        } else {
+          let minLandDistSq = 99;
+          let minShallowDistSq = 99;
+          let minDeepDistSq = 99;
+          for (let dz = -4; dz <= 4; dz++) {
+            for (let dx = -4; dx <= 4; dx++) {
+              const nx = t.x + dx;
+              const nz = t.z + dz;
+              if (nx < 0 || nx >= gridSize || nz < 0 || nz >= gridSize) continue;
+              const nb = tiles[nz * gridSize + nx];
+              const dSq = dx * dx + dz * dz;
+              if (nb.height > 0) {
+                if (dSq < minLandDistSq) minLandDistSq = dSq;
+                if (dSq < minShallowDistSq) minShallowDistSq = dSq;
+              } else if (nb.terrain === 'deep_water' && !nb.isRiver && !nb.isLake) {
+                if (dSq < minDeepDistSq) minDeepDistSq = dSq;
+              } else {
+                if (dSq < minShallowDistSq) minShallowDistSq = dSq;
+              }
+            }
+          }
+          if (t.terrain !== 'deep_water') {
+            const landD = Math.min(4.0, Math.sqrt(minLandDistSq));
+            const deepD = Math.min(4.0, Math.sqrt(minDeepDistSq));
+            const shoreFrac = Math.max(0, Math.min(1, (landD - 1.0) / 3.0));
+            const dropFrac = Math.max(0, Math.min(1, (3.2 - deepD) / 2.2));
+            data[idx + 2] = Math.round(shoreFrac * 42 + dropFrac * 68);
+          } else {
+            const shallowD = Math.min(4.5, Math.sqrt(minShallowDistSq));
+            const slopeFrac = Math.max(0, Math.min(1, (shallowD - 1.0) / 3.2));
+            data[idx + 2] = Math.round(135 + slopeFrac * 120);
+          }
+        }
+      } else {
+        data[idx + 2] = Math.abs(((t.x * 73856093) ^ (t.z * 19349663)) | 0) & 255;
+      }
       data[idx + 3] = t.farmSettlementId ? 255 : 0;
 
       if (t.height > 0 && (t.terrain === 'stone_road' || t.terrain === 'rail_track' || t.terrain === 'runway')) {
