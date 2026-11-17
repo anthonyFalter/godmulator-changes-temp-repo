@@ -565,6 +565,7 @@ export interface NodeVariantLibrary {
   atlantisRuin: THREE.BufferGeometry[];
   standardMat: THREE.MeshStandardMaterial;
   crystalMat: THREE.MeshStandardMaterial;
+  coralReefMat: THREE.MeshStandardMaterial;
 }
 
 let cachedVariantLib: NodeVariantLibrary | null = null;
@@ -1144,20 +1145,24 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     parts.push(g);
   };
 
-  // Sculpted natural coralline limestone & reef-sand base mound (keeps all vertices >= 0.0)
+  // Sculpted coralline-algae terrace & sunlit pearl-sand reef foundation (keeps all vertices >= 0.0)
   const addReefLimestoneMound = (
     parts: THREE.BufferGeometry[],
     sandHex: number,
-    rockHex: number,
-    corallineHex: number,
+    corallineBaseHex: number,
+    corallineMidHex: number,
+    corallineCrestHex: number,
   ) => {
-    addColoredCylinder(parts, 0.36, 0.42, 0.020, 8, 0.0, 0.010, 0.0, sandHex, 0, 0.2);
-    addColoredCylinder(parts, 0.28, 0.35, 0.026, 7, -0.03, 0.023, 0.02, rockHex, 0, 0.6);
-    addColoredCylinder(parts, 0.22, 0.27, 0.024, 7, 0.12, 0.020, -0.08, corallineHex, 0, -0.4);
-    addColoredCylinder(parts, 0.19, 0.24, 0.022, 6, -0.14, 0.018, -0.10, rockHex, 0, 0.9);
+    // Broad sunlit reef-sand shoal base
+    addColoredCylinder(parts, 0.41, 0.45, 0.022, 10, 0.0, 0.011, 0.0, sandHex, 0, 0.18);
+    // Terraced coralline-algae ledges (lavender-rose, violet & coral-pink encrusted reef rock)
+    addColoredCylinder(parts, 0.33, 0.39, 0.032, 9, -0.04, 0.024, 0.03, corallineBaseHex, 0, 0.55);
+    addColoredCylinder(parts, 0.26, 0.32, 0.036, 8, 0.13, 0.028, -0.09, corallineMidHex, 0, -0.42);
+    addColoredCylinder(parts, 0.23, 0.29, 0.034, 8, -0.15, 0.026, -0.11, corallineCrestHex, 0, 0.85);
+    addColoredCylinder(parts, 0.21, 0.26, 0.030, 8, 0.10, 0.024, 0.14, corallineBaseHex, 0, 1.25);
   };
 
-  // Flared octagonal Acropora table plate with central pedicel stalk and luminous polyp growth rim
+  // Majestic Spiraling Acropora Pagoda & Table Canopy with layered gradient disks and radial glowing polyp pearls
   const addTableCoralPlate = (
     parts: THREE.BufferGeometry[],
     cx: number,
@@ -1166,15 +1171,30 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     radius: number,
     stalkHex: number,
     plateHex: number,
+    midHex: number,
     rimHex: number,
+    polypHex: number,
     rotY = 0,
   ) => {
-    addColoredCylinder(parts, radius * 0.32, radius * 0.44, 0.026, 7, cx, baseY + 0.013, cz, stalkHex, 0, rotY);
-    addColoredCylinder(parts, radius * 1.04, radius * 0.68, 0.018, 8, cx, baseY + 0.032, cz, plateHex, 0, rotY);
-    addColoredCylinder(parts, radius * 0.96, radius * 1.04, 0.010, 8, cx, baseY + 0.044, cz, rimHex, 0, rotY + 0.2);
+    // Sculpted pedicel column
+    addColoredCylinder(parts, radius * 0.28, radius * 0.42, 0.036, 8, cx, baseY + 0.018, cz, stalkHex, 0, rotY);
+    // Broad flared lower fan canopy
+    addColoredCylinder(parts, radius * 1.06, radius * 0.62, 0.022, 10, cx, baseY + 0.038, cz, plateHex, 0, rotY);
+    // Vibrant middle coral terrace
+    addColoredCylinder(parts, radius * 0.88, radius * 1.04, 0.014, 10, cx, baseY + 0.050, cz, midHex, 0, rotY + 0.18);
+    // Luminous outer growth rim
+    addColoredCylinder(parts, radius * 1.02, radius * 1.08, 0.010, 10, cx, baseY + 0.056, cz, rimHex, 0, rotY + 0.32);
+    // Radial crown of glowing polyp pearls along the canopy edge
+    const pearlCount = 8;
+    for (let pi = 0; pi < pearlCount; pi++) {
+      const ang = rotY + (pi * Math.PI * 2) / pearlCount;
+      const px = cx + Math.cos(ang) * radius * 0.86;
+      const pz = cz + Math.sin(ang) * radius * 0.86;
+      addColoredDome(parts, radius * 0.11, 6, 4, px, baseY + 0.058, pz, polypHex, 1.0, 0.72, 1.0);
+    }
   };
 
-  // Radial branching Staghorn / Elkhorn coral antler thicket (tapered cylinders splaying outward with bright axial polyp tips)
+  // Crown-of-Neptune Two-Tiered Antler Staghorn & Elkhorn Coral Grove with bioluminescent axial tips
   const addStaghornThicket = (
     parts: THREE.BufferGeometry[],
     cx: number,
@@ -1183,27 +1203,60 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     scale: number,
     stemHex: number,
     branchHex: number,
+    upperHex: number,
     tipHex: number,
   ) => {
-    addColoredDome(parts, 0.09 * scale, 7, 4, cx, baseY, cz, stemHex, 1.2, 0.55, 1.2);
-    // Central upright antler + 6 radial angled branches
-    addColoredCylinder(parts, 0.018 * scale, 0.032 * scale, 0.078 * scale, 6, cx, baseY + 0.042 * scale, cz, branchHex);
-    addColoredDome(parts, 0.022 * scale, 6, 3, cx, baseY + 0.080 * scale, cz, tipHex, 1, 0.8, 1);
+    const s = Math.min(1.02, scale);
+    addColoredDome(parts, 0.11 * s, 8, 5, cx, baseY, cz, stemHex, 1.25, 0.55, 1.25);
+    // Central royal spire + glowing crown tip
+    const centerH = 0.105 * s;
+    addColoredCylinder(parts, 0.022 * s, 0.038 * s, centerH, 7, cx, baseY + centerH * 0.5, cz, branchHex);
+    addColoredDome(parts, 0.028 * s, 6, 4, cx, baseY + centerH * 0.98, cz, tipHex, 1.0, 0.85, 1.0);
+
+    // Inner ring of 6 ascending antler tines
     for (let i = 0; i < 6; i++) {
-      const ang = (i * Math.PI) / 3 + 0.25;
-      const tilt = (i % 2 === 0 ? 0.30 : 0.38);
-      const dist = 0.048 * scale;
+      const ang = (i * Math.PI) / 3 + 0.22;
+      const tilt = i % 2 === 0 ? 0.28 : 0.34;
+      const dist = 0.046 * s;
       const bx = cx + Math.cos(ang) * dist;
       const bz = cz + Math.sin(ang) * dist;
-      const bh = (i % 2 === 0 ? 0.072 : 0.064) * scale;
+      const bh = (i % 2 === 0 ? 0.096 : 0.088) * s;
       addColoredCylinder(
         parts,
-        0.016 * scale,
-        0.028 * scale,
+        0.019 * s,
+        0.032 * s,
         bh,
         6,
         bx,
-        baseY + bh * 0.52,
+        baseY + bh * 0.5,
+        bz,
+        i % 2 === 0 ? upperHex : branchHex,
+        Math.sin(ang) * tilt,
+        0,
+        -Math.cos(ang) * tilt,
+      );
+      const tx = cx + Math.cos(ang) * (dist + Math.sin(tilt) * bh * 0.46);
+      const tz = cz + Math.sin(ang) * (dist + Math.sin(tilt) * bh * 0.46);
+      const ty = baseY + Math.cos(tilt) * bh * 0.94;
+      addColoredDome(parts, 0.024 * s, 6, 4, tx, ty, tz, tipHex, 1.0, 0.8, 1.0);
+    }
+
+    // Outer ring of 6 sweeping elkhorn branches
+    for (let i = 0; i < 6; i++) {
+      const ang = (i * Math.PI) / 3 + 0.74;
+      const tilt = 0.44;
+      const dist = 0.078 * s;
+      const bx = cx + Math.cos(ang) * dist;
+      const bz = cz + Math.sin(ang) * dist;
+      const bh = 0.076 * s;
+      addColoredCylinder(
+        parts,
+        0.017 * s,
+        0.028 * s,
+        bh,
+        6,
+        bx,
+        baseY + bh * 0.48,
         bz,
         i % 2 === 0 ? branchHex : stemHex,
         Math.sin(ang) * tilt,
@@ -1212,36 +1265,40 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
       );
       const tx = cx + Math.cos(ang) * (dist + Math.sin(tilt) * bh * 0.46);
       const tz = cz + Math.sin(ang) * (dist + Math.sin(tilt) * bh * 0.46);
-      const ty = baseY + Math.cos(tilt) * bh * 0.92;
-      addColoredDome(parts, 0.020 * scale, 6, 3, tx, ty, tz, tipHex, 1, 0.75, 1);
+      const ty = baseY + Math.cos(tilt) * bh * 0.90;
+      addColoredDome(parts, 0.022 * s, 6, 4, tx, ty, tz, tipHex, 1.0, 0.78, 1.0);
     }
   };
 
-  // Clustered tubular Barrel Sponges & Organ-Pipe Corals with bright osculum rims
+  // Fluted Organ-Pipe & Sea-Chime Barrel Sponge Cathedral with flared bioluminescent osculum crowns
   const addBarrelSpongeCluster = (
     parts: THREE.BufferGeometry[],
     cx: number,
     baseY: number,
     cz: number,
     outerHex: number,
+    midHex: number,
     rimHex: number,
     innerHex: number,
   ) => {
-    const tubes: [number, number, number, number][] = [
-      [0.0, 0.0, 0.056, 0.088],
-      [-0.075, 0.045, 0.044, 0.072],
-      [0.068, 0.052, 0.042, 0.066],
-      [-0.035, -0.068, 0.040, 0.062],
-      [0.058, -0.052, 0.036, 0.054],
+    const tubes: [number, number, number, number, boolean][] = [
+      [0.0, 0.0, 0.068, 0.118, true],
+      [-0.088, 0.052, 0.054, 0.098, false],
+      [0.082, 0.058, 0.050, 0.092, true],
+      [-0.044, -0.082, 0.048, 0.086, false],
+      [0.072, -0.064, 0.044, 0.078, true],
+      [-0.112, -0.024, 0.040, 0.070, false],
+      [0.012, 0.096, 0.042, 0.074, true],
     ];
-    for (const [ox, oz, rad, h] of tubes) {
-      addColoredCylinder(parts, rad * 1.08, rad * 0.86, h, 7, cx + ox, baseY + h * 0.5, cz + oz, outerHex);
-      addColoredCylinder(parts, rad * 0.96, rad * 1.06, 0.012, 7, cx + ox, baseY + h + 0.004, cz + oz, rimHex);
-      addColoredCylinder(parts, rad * 0.58, rad * 0.58, 0.008, 6, cx + ox, baseY + h + 0.009, cz + oz, innerHex);
+    for (const [ox, oz, rad, h, useAlt] of tubes) {
+      const col = useAlt ? outerHex : midHex;
+      addColoredCylinder(parts, rad * 1.12, rad * 0.84, h, 8, cx + ox, baseY + h * 0.5, cz + oz, col);
+      addColoredCylinder(parts, rad * 1.02, rad * 1.16, 0.014, 8, cx + ox, baseY + h + 0.005, cz + oz, rimHex);
+      addColoredCylinder(parts, rad * 0.62, rad * 0.62, 0.010, 7, cx + ox, baseY + h + 0.010, cz + oz, innerHex);
     }
   };
 
-  // Hemispherical grooved Brain Coral boulder dome
+  // Concentric Labyrinth Brain-Coral Dome & Blooming Sea-Lotus Anemone Rosette
   const addBrainCoralBoulder = (
     parts: THREE.BufferGeometry[],
     cx: number,
@@ -1251,83 +1308,128 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     baseHex: number,
     grooveHex: number,
     crestHex: number,
+    pearlHex: number,
   ) => {
-    addColoredDome(parts, radius, 8, 5, cx, baseY, cz, baseHex, 1.08, 0.68, 1.02);
-    addColoredDome(parts, radius * 0.88, 8, 4, cx, baseY + radius * 0.14, cz, grooveHex, 1.04, 0.64, 0.98);
-    addColoredDome(parts, radius * 0.68, 7, 4, cx, baseY + radius * 0.28, cz, crestHex, 1.0, 0.58, 0.95);
+    addColoredDome(parts, radius * 1.06, 9, 5, cx, baseY, cz, baseHex, 1.10, 0.52, 1.04);
+    addColoredDome(parts, radius * 0.90, 9, 5, cx, baseY + radius * 0.11, cz, grooveHex, 1.05, 0.48, 1.00);
+    addColoredDome(parts, radius * 0.72, 8, 4, cx, baseY + radius * 0.22, cz, crestHex, 1.0, 0.44, 0.96);
+    addColoredDome(parts, radius * 0.44, 7, 4, cx, baseY + radius * 0.32, cz, pearlHex, 1.0, 0.40, 1.0);
+  };
+
+  // Blooming Sea-Lotus Anemone Crown with radiating bioluminescent tentacles and pearl oral center
+  const addSeaLotusAnemone = (
+    parts: THREE.BufferGeometry[],
+    cx: number,
+    baseY: number,
+    cz: number,
+    radius: number,
+    calyxHex: number,
+    petalHex: number,
+    coreHex: number,
+  ) => {
+    addColoredCylinder(parts, radius * 0.68, radius * 0.52, 0.034, 8, cx, baseY + 0.017, cz, calyxHex);
+    const petals = 10;
+    for (let i = 0; i < petals; i++) {
+      const ang = (i * Math.PI * 2) / petals;
+      const dist = radius * 0.56;
+      const px = cx + Math.cos(ang) * dist;
+      const pz = cz + Math.sin(ang) * dist;
+      addColoredCylinder(
+        parts,
+        radius * 0.12,
+        radius * 0.18,
+        radius * 0.52,
+        6,
+        px,
+        baseY + 0.042,
+        pz,
+        i % 2 === 0 ? petalHex : calyxHex,
+        Math.sin(ang) * 0.48,
+        0,
+        -Math.cos(ang) * 0.48,
+      );
+      const tx = cx + Math.cos(ang) * (dist + radius * 0.22);
+      const tz = cz + Math.sin(ang) * (dist + radius * 0.22);
+      addColoredDome(parts, radius * 0.14, 6, 4, tx, baseY + 0.062, tz, coreHex, 1.0, 0.75, 1.0);
+    }
+    addColoredDome(parts, radius * 0.38, 8, 4, cx, baseY + 0.032, cz, coreHex, 1.0, 0.65, 1.0);
   };
 
   const coralReef: THREE.BufferGeometry[] = [];
   {
-    // Variant 0: Great Barrier Staghorn Thicket & Rose-Gold Acropora Table Reef
+    // Variant 0: Imperial Rose-Gold Pagoda Terraces, Sunburst Staghorn Crown & Neon-Aqua Sea-Lotus Sanctuary
     const p: THREE.BufferGeometry[] = [];
-    addReefLimestoneMound(p, 0xd8c394, 0x9c8265, 0xa85d79);
-    // Lower & upper terraced Rose-Coral Acropora table plates on SW flank
-    addTableCoralPlate(p, -0.11, 0.028, 0.08, 0.22, 0xb52b52, 0xf43f6e, 0xffb3c6, 0.15);
-    addTableCoralPlate(p, -0.07, 0.068, 0.05, 0.16, 0xd9385e, 0xff6b8b, 0xffe599, 0.55);
-    // Golden-Tangerine Staghorn Antler Thicket on NE outcrop
-    addStaghornThicket(p, 0.13, 0.032, -0.07, 1.15, 0xd9480f, 0xff7b00, 0xfff3b0);
-    // Turquoise-Mint Brain Coral Cushion on NW ledge
-    addBrainCoralBoulder(p, -0.15, 0.026, -0.14, 0.12, 0x0077b6, 0x00b4d8, 0x90e0ef);
+    addReefLimestoneMound(p, 0xfdf0d5, 0xc77dff, 0xe0aaff, 0xff8fa3);
+    // Three cascading Rose-Gold & Magenta Acropora Pagoda Canopies
+    addTableCoralPlate(p, -0.14, 0.026, 0.10, 0.25, 0x9d174d, 0xf43f5e, 0xfb7185, 0xffd166, 0xfff3b0, 0.15);
+    addTableCoralPlate(p, -0.06, 0.068, 0.04, 0.20, 0xbe185d, 0xff4d6d, 0xff8fa3, 0xffe5ec, 0x72efdd, 0.55);
+    addTableCoralPlate(p, 0.02, 0.104, -0.01, 0.15, 0xdb2777, 0xff758f, 0xffb3c6, 0xfff3b0, 0xffffff, 0.95);
+    // Golden-Sunburst Crown-of-Neptune Staghorn Grove on NE terrace
+    addStaghornThicket(p, 0.16, 0.036, -0.10, 1.08, 0xe85d04, 0xff7b00, 0xffaa00, 0xfff3b0);
+    // Electric Turquoise-Aqua Labyrinth Brain Dome & Blooming Sea-Lotus Anemone
+    addBrainCoralBoulder(p, -0.17, 0.028, -0.15, 0.15, 0x0077b6, 0x00b4d8, 0x48cae4, 0x90e0ef);
+    addSeaLotusAnemone(p, 0.15, 0.028, 0.16, 0.15, 0x7209b7, 0xf72585, 0x4cc9f0);
     coralReef.push(finalizeMergedParts(p));
   }
   {
-    // Variant 1: Turquoise Brain-Coral Domes & Magenta Tubular Barrel Sponge Reef
+    // Variant 1: Bioluminescent Magenta Organ-Pipe Cathedral, Turquoise Labyrinth Dome & Golden Elkhorn Crown
     const p: THREE.BufferGeometry[] = [];
-    addReefLimestoneMound(p, 0xd8c394, 0x8f7a5e, 0x9e5874);
-    // Primary hemispherical Turquoise-Aqua Brain Coral Dome
-    addBrainCoralBoulder(p, 0.09, 0.028, 0.06, 0.19, 0x006d77, 0x00b4d8, 0x90e0ef);
-    // Clustered Magenta-Violet Barrel Sponges & Organ-Pipe Corals
-    addBarrelSpongeCluster(p, -0.13, 0.030, -0.06, 0xb5179e, 0xff70a6, 0x3c096c);
-    // Warm Golden-Amber Brain Coral Cushion & Staghorn Crown on SE edge
-    addBrainCoralBoulder(p, -0.08, 0.026, 0.16, 0.13, 0xd95d39, 0xf4a261, 0xffe66d);
-    addStaghornThicket(p, 0.14, 0.028, -0.14, 0.92, 0xe85d04, 0xff9f1c, 0xfff1a8);
+    addReefLimestoneMound(p, 0xfdf0d5, 0x9d4edd, 0xc77dff, 0xf72585);
+    // Towering Magenta-Orchid & Violet Organ-Pipe Sponge Cathedral on NW flank
+    addBarrelSpongeCluster(p, -0.13, 0.032, -0.06, 0xb5179e, 0x7209b7, 0xff70a6, 0x80ffdb);
+    // Grand Turquoise-Emerald Labyrinth Brain-Coral Dome on E terrace
+    addBrainCoralBoulder(p, 0.12, 0.030, 0.07, 0.21, 0x0077b6, 0x00b4d8, 0x48cae4, 0x80ffdb);
+    // Sunlit Amber-Coral Staghorn Crown on NE ledge & Sea-Lotus Anemone on SW ledge
+    addStaghornThicket(p, 0.15, 0.034, -0.15, 1.02, 0xf48c06, 0xff9f1c, 0xffbf69, 0xffffff);
+    addSeaLotusAnemone(p, -0.10, 0.028, 0.16, 0.16, 0xe63946, 0xff758f, 0xffe66d);
     coralReef.push(finalizeMergedParts(p));
   }
   {
-    // Variant 2: Sunburst Multi-Tiered Acropora Table Reef & Royal Violet Staghorn Crown
+    // Variant 2: Sunburst Three-Tiered Acropora Spiral, Royal Violet Staghorn Grove & Cyan Lotus Garden
     const p: THREE.BufferGeometry[] = [];
-    addReefLimestoneMound(p, 0xd8c394, 0x997b5c, 0xad6278);
-    // Three cascading Sunburst-Orange & Golden-Coral Acropora Table Plates
-    addTableCoralPlate(p, -0.10, 0.026, -0.08, 0.23, 0xc9184a, 0xff5400, 0xffbd00, 0.1);
-    addTableCoralPlate(p, 0.02, 0.064, -0.02, 0.18, 0xe85d04, 0xff8500, 0xffe169, 0.45);
-    addTableCoralPlate(p, 0.14, 0.032, 0.12, 0.17, 0xd9385e, 0xff5c8a, 0xffccd5, -0.3);
-    // Royal Violet-Orchid Staghorn Antler Thicket on SW ledge
-    addStaghornThicket(p, -0.14, 0.030, 0.13, 1.05, 0x5a189a, 0x9d4edd, 0xf3c4fb);
+    addReefLimestoneMound(p, 0xfdf0d5, 0xe0aaff, 0xc77dff, 0xff9e00);
+    // Spiraling Sunburst-Coral, Tangerine & Pearl-Gold Acropora Table Canopies
+    addTableCoralPlate(p, -0.12, 0.026, -0.09, 0.26, 0xc9184a, 0xff5400, 0xff8500, 0xffbd00, 0xfff3b0, 0.12);
+    addTableCoralPlate(p, 0.02, 0.068, -0.02, 0.20, 0xe85d04, 0xff7b00, 0xffaa00, 0xffe169, 0x80ffdb, 0.48);
+    addTableCoralPlate(p, 0.15, 0.036, 0.13, 0.19, 0xd90429, 0xff4d6d, 0xff8fa3, 0xffccd5, 0xfff3b0, -0.28);
+    // Royal Violet-Amethyst Staghorn Antler Thicket on SW terrace
+    addStaghornThicket(p, -0.15, 0.034, 0.14, 1.08, 0x5a189a, 0x9d4edd, 0xc77dff, 0x80ffdb);
+    // Luminous Seafoam-Cyan Sea-Lotus Anemone on NE edge
+    addSeaLotusAnemone(p, 0.17, 0.028, -0.13, 0.15, 0x0096c7, 0x48cae4, 0xfff3b0);
     coralReef.push(finalizeMergedParts(p));
   }
   {
-    // Variant 3: Elkhorn Barrier Reef Crown, Seafoam Organ-Pipes & Peach Montipora Rosette
+    // Variant 3: Crimson-Peach Elkhorn Sanctuary, Seafoam-Aqua Organ-Pipe Chimes & Orchid Pagoda Terrace
     const p: THREE.BufferGeometry[] = [];
-    addReefLimestoneMound(p, 0xd8c394, 0x8d755c, 0xa35c77);
-    // Broad Crimson-Peach Elkhorn Antler Thicket in center-west
-    addStaghornThicket(p, -0.07, 0.032, 0.04, 1.22, 0xc9184a, 0xff4d6d, 0xffe5ec);
-    // Luminous Seafoam-Cyan Organ-Pipe Tube Cluster on NE flank
-    addBarrelSpongeCluster(p, 0.14, 0.028, -0.08, 0x008b8b, 0x48cae4, 0x023e8a);
-    // Overlapping Lavender-Orchid Foliose Table Plate on SE flank
-    addTableCoralPlate(p, 0.11, 0.030, 0.13, 0.18, 0x6a1b9a, 0xab47bc, 0xf3e5f5, 0.35);
-    addBrainCoralBoulder(p, -0.16, 0.026, -0.13, 0.12, 0xe07a5f, 0xf4a261, 0xe9c46a);
+    addReefLimestoneMound(p, 0xfdf0d5, 0xc77dff, 0xff8fa3, 0x48cae4);
+    // Sweeping Crimson-Rose & Pearl Elkhorn Antler Crown in center-west
+    addStaghornThicket(p, -0.08, 0.036, 0.04, 1.12, 0xc9184a, 0xff4d6d, 0xff8fa3, 0xfff3b0);
+    // Luminous Seafoam-Turquoise Organ-Pipe Cathedral on NE flank
+    addBarrelSpongeCluster(p, 0.14, 0.032, -0.09, 0x0096c7, 0x00b4d8, 0x72efdd, 0xfff3b0);
+    // Overlapping Royal-Orchid & Pink-Pearl Pagoda Table Canopy on SE flank
+    addTableCoralPlate(p, 0.12, 0.032, 0.14, 0.21, 0x6a1b9a, 0x9d4edd, 0xc77dff, 0xf3c4fb, 0x80ffdb, 0.35);
+    addBrainCoralBoulder(p, -0.17, 0.028, -0.14, 0.15, 0xf77f00, 0xfcbf49, 0xeae2b7, 0xffffff);
     coralReef.push(finalizeMergedParts(p));
   }
 
-  // 7a-bleached. Bleached / Damaged Calcified Coral Reefs (matching organic staghorn, brain-dome, tube & table-plate silhouettes in bone/ash-gray)
+  // 7a-bleached. Bleached / Damaged Calcified Coral Reefs (matching majestic silhouettes in calcified bone/ash-gray)
   const coralReefBleached: THREE.BufferGeometry[] = [];
   {
     const p: THREE.BufferGeometry[] = [];
-    addReefLimestoneMound(p, 0x9ca3af, 0x64748b, 0x78716c);
-    addTableCoralPlate(p, -0.11, 0.028, 0.08, 0.22, 0x475569, 0x94a3b8, 0xe2e8f0, 0.15);
-    addTableCoralPlate(p, -0.07, 0.068, 0.05, 0.16, 0x64748b, 0xcbd5e1, 0xf1f5f9, 0.55);
-    addStaghornThicket(p, 0.13, 0.032, -0.07, 1.15, 0x64748b, 0x94a3b8, 0xe2e8f0);
-    addBrainCoralBoulder(p, -0.15, 0.026, -0.14, 0.12, 0x4b5563, 0x9ca3af, 0xd1d5db);
+    addReefLimestoneMound(p, 0x9ca3af, 0x64748b, 0x94a3b8, 0x78716c);
+    addTableCoralPlate(p, -0.14, 0.026, 0.10, 0.25, 0x475569, 0x94a3b8, 0xcbd5e1, 0xe2e8f0, 0xf1f5f9, 0.15);
+    addTableCoralPlate(p, -0.06, 0.068, 0.04, 0.20, 0x64748b, 0xcbd5e1, 0xe2e8f0, 0xf1f5f9, 0xf8fafc, 0.55);
+    addStaghornThicket(p, 0.16, 0.036, -0.10, 1.08, 0x64748b, 0x94a3b8, 0xcbd5e1, 0xe2e8f0);
+    addBrainCoralBoulder(p, -0.17, 0.028, -0.15, 0.15, 0x4b5563, 0x9ca3af, 0xd1d5db, 0xe5e7eb);
     coralReefBleached.push(finalizeMergedParts(p));
   }
   {
     const p: THREE.BufferGeometry[] = [];
-    addReefLimestoneMound(p, 0x9ca3af, 0x57534e, 0x6b7280);
-    addBrainCoralBoulder(p, 0.09, 0.028, 0.06, 0.19, 0x475569, 0x94a3b8, 0xe2e8f0);
-    addBarrelSpongeCluster(p, -0.13, 0.030, -0.06, 0x64748b, 0xcbd5e1, 0x334155);
-    addBrainCoralBoulder(p, -0.08, 0.026, 0.16, 0.13, 0x57534e, 0xa8a29e, 0xe7e5e4);
-    addStaghornThicket(p, 0.14, 0.028, -0.14, 0.92, 0x64748b, 0x94a3b8, 0xf1f5f9);
+    addReefLimestoneMound(p, 0x9ca3af, 0x57534e, 0x6b7280, 0x94a3b8);
+    addBarrelSpongeCluster(p, -0.13, 0.032, -0.06, 0x64748b, 0x94a3b8, 0xcbd5e1, 0x334155);
+    addBrainCoralBoulder(p, 0.12, 0.030, 0.07, 0.21, 0x475569, 0x94a3b8, 0xcbd5e1, 0xe2e8f0);
+    addStaghornThicket(p, 0.15, 0.034, -0.15, 1.02, 0x64748b, 0x94a3b8, 0xcbd5e1, 0xf1f5f9);
+    addSeaLotusAnemone(p, -0.10, 0.028, 0.16, 0.16, 0x64748b, 0x94a3b8, 0xe2e8f0);
     coralReefBleached.push(finalizeMergedParts(p));
   }
 
@@ -1501,6 +1603,27 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
       roughness: 0.24,
       metalness: 0.35,
     }),
+    coralReefMat: (() => {
+      const m = new THREE.MeshStandardMaterial({
+        vertexColors: true,
+        roughness: 0.26,
+        metalness: 0.06,
+      });
+      m.onBeforeCompile = (shader) => {
+        shader.fragmentShader = shader.fragmentShader.replace(
+          '#include <color_fragment>',
+          `#include <color_fragment>
+          diffuseColor.rgb = pow(diffuseColor.rgb, vec3(0.92)) * 1.18;`,
+        );
+        shader.fragmentShader = shader.fragmentShader.replace(
+          '#include <emissivemap_fragment>',
+          `#include <emissivemap_fragment>
+          totalEmissiveRadiance += diffuseColor.rgb * 0.54;`,
+        );
+      };
+      m.customProgramCacheKey = () => 'coral-reef-biolum-v1';
+      return m;
+    })(),
   };
 
   return cachedVariantLib;
@@ -1524,6 +1647,7 @@ export function createResourceNodeGroup(nodeType: ResourceNodeType, variant = 0)
     mat = lib.crystalMat;
   } else if (nodeType === 'coral_reef') {
     geo = lib.coralReef[idx % lib.coralReef.length];
+    mat = lib.coralReefMat;
   } else if (nodeType === 'scrap_flotsam') {
     geo = lib.scrapFlotsam[idx % lib.scrapFlotsam.length];
   } else if (nodeType === 'atlantis_ruin') {

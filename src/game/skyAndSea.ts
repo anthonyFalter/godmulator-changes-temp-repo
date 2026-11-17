@@ -610,10 +610,10 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
 
         if (reefMask > 0.01) {
           // Warm Coral Reef & Atlantis Sanctuary Lagoon: ultra-transparent turquoise glass window so 3D corals & sunken city ruins shine through!
-          float caustic = step(0.78, valueNoise(chunkPos * 1.35 + vec2(uTime * 0.35, -uTime * 0.28)));
-          vec3 reefAqua = mix(uReefWaterColor, uCrestColor, 0.20 + caustic * 0.22);
-          baseWater = mix(baseWater, reefAqua, reefMask * 0.78);
-          waterAlpha = mix(waterAlpha, 0.09, reefMask);
+          float caustic = step(0.76, valueNoise(chunkPos * 1.35 + vec2(uTime * 0.35, -uTime * 0.28)));
+          vec3 reefAqua = mix(uReefWaterColor, uCrestColor, 0.24 + caustic * 0.28);
+          baseWater = mix(baseWater, reefAqua, reefMask * 0.84);
+          waterAlpha = mix(waterAlpha, 0.05, reefMask);
         } else if (isRiver) {
           // Lively Shallow River: crystal-clear shallow aqua with animated current ripples showing sandy riverbed underneath
           vec3 livelyRiverAqua = mix(uShallowColor, uCrestColor, 0.56);
@@ -629,7 +629,7 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
 
         // Pixelated rolling wave bands (suppressed over crystal-clear reef/Atlantis lagoons & shallow shoals so underwater structures aren't obscured)
         float shallowCalm = smoothstep(0.22, 0.65, smoothDepth);
-        float calmFactor = (1.0 - reefMask * 0.90) * (0.35 + 0.65 * shallowCalm);
+        float calmFactor = (1.0 - reefMask * 0.94) * (0.35 + 0.65 * shallowCalm);
         float ridge = step(0.63, waveField) * calmFactor;
         float glint = step(0.80, waveField + 0.06 * sin(chunkPos.x * 1.1 + uTime * 2.1)) * calmFactor;
         vec3 color = mix(baseWater, mix(baseWater, uCrestColor, 0.36), ridge * 0.44);
@@ -658,8 +658,9 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
         float openFoamMint = step(capThresh, combinedCap) * openFoamAllow;
         float openFoamCore = step(capThresh + 0.045, combinedCap) * openFoamAllow;
 
-        float mintMask = max(coastFoamMint, openFoamMint);
-        float whiteMask = max(coastFoamCore, openFoamCore);
+        float reefFoamSuppress = 1.0 - reefMask * 0.90;
+        float mintMask = max(coastFoamMint * reefFoamSuppress, openFoamMint);
+        float whiteMask = max(coastFoamCore * reefFoamSuppress, openFoamCore);
 
         color = mix(color, uFoamMint, mintMask * 0.82);
         color = mix(color, uFoamColor, whiteMask * 0.98);

@@ -427,18 +427,19 @@ export function generateWorldTiles(
     }
   }
 
-  // Stage 3.5: Uncommon Localized Warm Coral Reef Atolls (offshore shoals that do not wrap around islands)
+  // Stage 3.5: Uncommon Localized Warm Coral Reef Atolls & Coastal Sanctuary Lagoons (do not wrap 360° around islands)
   const reefZoneMask = new Uint8Array(totalTiles);
-  const reefCandidates: number[] = [];
+  const coastalReefCandidates: number[] = [];
+  const offshoreReefCandidates: number[] = [];
   for (let z = 6; z < gridSize - 6; z += 2) {
     for (let x = 6; x < gridSize - 6; x += 2) {
       const idx = z * gridSize + x;
       if (heightGrid[idx] !== 0 || riverMask[idx] === 1 || lakeMask[idx] === 1) continue;
-      if (tempGrid[idx] < 0.46) continue;
+      if (tempGrid[idx] < 0.36) continue;
       if (isScrapSea) {
-        if (Math.hypot(x - center, z - center) > 8) reefCandidates.push(idx);
+        if (Math.hypot(x - center, z - center) > 7) coastalReefCandidates.push(idx);
       } else {
-        let touchesImmediateCoast = false;
+        let touchesImmediateBeach = false;
         let nearbyLandCount = 0;
         for (let oz = -5; oz <= 5; oz++) {
           for (let ox = -5; ox <= 5; ox++) {
@@ -447,31 +448,37 @@ export function generateWorldTiles(
             if (nx >= 0 && nx < gridSize && nz >= 0 && nz < gridSize) {
               if (heightGrid[nz * gridSize + nx] > 0) {
                 nearbyLandCount++;
-                if (Math.abs(ox) <= 3 && Math.abs(oz) <= 3) {
-                  touchesImmediateCoast = true;
+                if (Math.abs(ox) <= 1 && Math.abs(oz) <= 1) {
+                  touchesImmediateBeach = true;
                 }
               }
             }
           }
         }
-        // Keep coral patches away from immediate island shorelines so they don't wrap around islands
-        if (!touchesImmediateCoast && nearbyLandCount <= 8) {
-          reefCandidates.push(idx);
+        // Prefer warm coastal lagoons 2-5 tiles off island shores so corals are clearly visible near islands without wrapping coastlines
+        if (!touchesImmediateBeach && nearbyLandCount >= 2 && nearbyLandCount <= 34) {
+          coastalReefCandidates.push(idx);
+        } else if (!touchesImmediateBeach && nearbyLandCount === 0 && Math.hypot(x - center, z - center) < maxRadius * 0.82) {
+          offshoreReefCandidates.push(idx);
         }
       }
     }
   }
+  const reefCandidates =
+    coastalReefCandidates.length >= 4
+      ? coastalReefCandidates
+      : [...coastalReefCandidates, ...offshoreReefCandidates];
   const desiredReefZones = isScrapSea
-    ? Math.max(2, Math.min(4, Math.round(gridSize / 32)))
-    : Math.max(1, Math.min(3, Math.round(gridSize / 48)));
+    ? Math.max(4, Math.min(8, Math.round(gridSize / 18)))
+    : Math.max(4, Math.min(7, Math.round(gridSize / 20)));
   const chosenReefCenters: Array<{ x: number; z: number; radius: number }> = [];
-  for (let attempt = 0; attempt < 80 && chosenReefCenters.length < desiredReefZones && reefCandidates.length > 0; attempt++) {
+  for (let attempt = 0; attempt < 120 && chosenReefCenters.length < desiredReefZones && reefCandidates.length > 0; attempt++) {
     const pick = Math.floor(rng() * reefCandidates.length);
     const rIdx = reefCandidates.splice(pick, 1)[0];
     const rx = rIdx % gridSize;
     const rz = Math.floor(rIdx / gridSize);
-    if (chosenReefCenters.some((c) => Math.hypot(c.x - rx, c.z - rz) < 28)) continue;
-    const radius = isScrapSea ? 3.6 + rng() * 1.6 : 3.0 + rng() * 1.4;
+    if (chosenReefCenters.some((c) => Math.hypot(c.x - rx, c.z - rz) < 16)) continue;
+    const radius = isScrapSea ? 3.8 + rng() * 1.5 : 3.4 + rng() * 1.3;
     chosenReefCenters.push({ x: rx, z: rz, radius });
     const rCeil = Math.ceil(radius + 2);
     for (let oz = -rCeil; oz <= rCeil; oz++) {
@@ -481,11 +488,11 @@ export function generateWorldTiles(
         if (nx <= 1 || nx >= gridSize - 2 || nz <= 1 || nz >= gridSize - 2) continue;
         const nIdx = nz * gridSize + nx;
         if (heightGrid[nIdx] !== 0 || riverMask[nIdx] === 1 || lakeMask[nIdx] === 1) continue;
-        const organicWave = (reefNoise.fbm(nx * 0.22 + attempt * 5.3, nz * 0.22 - 3.1, 2) - 0.5) * 1.6;
+        const organicWave = (reefNoise.fbm(nx * 0.22 + attempt * 5.3, nz * 0.22 - 3.1, 2) - 0.5) * 1.5;
         const effDist = Math.hypot(ox, oz) + organicWave;
-        if (effDist <= radius * 0.72) {
+        if (effDist <= radius * 0.84) {
           reefZoneMask[nIdx] = 2; // Contiguous living coral reef bank
-        } else if (effDist <= radius + 0.8) {
+        } else if (effDist <= radius + 1.0) {
           if (reefZoneMask[nIdx] === 0) reefZoneMask[nIdx] = 1; // Surrounding turquoise lagoon shoal
         }
       }
@@ -534,7 +541,7 @@ export function generateWorldTiles(
           const isStarterShoal = dist + starterWarp < 8.5;
           terrain = isStarterShoal || isWarmReefZone || shoalVal > 0.48 ? 'shallow_water' : 'deep_water';
           if (dist > 2.2) {
-            if (isContiguousCoralBank && roll < 0.82) {
+            if (isContiguousCoralBank && roll < 0.88) {
               resourceNode = 'coral_reef';
               resourceAmount = 260;
             } else if (roll < 0.14 || (isStarterShoal && roll < 0.28)) {
@@ -566,7 +573,7 @@ export function generateWorldTiles(
           const onContinentalShelf = minLandDist + shelfWave <= 3.8;
           terrain = nearLand || onContinentalShelf || isWarmReefZone ? 'shallow_water' : 'deep_water';
 
-          if (isContiguousCoralBank && !nearLand && roll < 0.84) {
+          if (isContiguousCoralBank && minLandDist > 1.2 && roll < 0.90) {
             resourceNode = 'coral_reef';
             resourceAmount = 260;
           } else if (terrain === 'deep_water' && roll < 0.015) {

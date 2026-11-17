@@ -494,7 +494,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     const stoneInsts = makePropInstancedList(variantLib.stone, variantLib.standardMat, true);
     const oreInsts = makePropInstancedList(variantLib.ore, variantLib.standardMat, true);
     const crystalInsts = makePropInstancedList(variantLib.crystal, variantLib.crystalMat, true);
-    const coralReefInsts = makePropInstancedList(variantLib.coralReef, variantLib.standardMat, false);
+    const coralReefInsts = makePropInstancedList(variantLib.coralReef, variantLib.coralReefMat, false);
     const coralReefBleachedInsts = makePropInstancedList(
       variantLib.coralReefBleached,
       variantLib.standardMat,
@@ -5666,8 +5666,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           _dummyPos.set(t.x, curY, t.z);
           if (t.resourceNode === 'coral_reef') {
             const isBleached = (t.coralBleachTimer ?? 0) > 0 || t.resourceAmount <= 0;
-            const scaleXZ = (1.16 + ((h >> 4) % 3) * 0.06) * (isBleached ? 0.92 : 1.0);
-            _propScale.set(scaleXZ, isBleached ? 0.86 : 0.98, scaleXZ);
+            const scaleXZ = (1.28 + ((h >> 4) % 3) * 0.06) * (isBleached ? 0.92 : 1.0);
+            _propScale.set(scaleXZ, isBleached ? 0.88 : 1.0, scaleXZ);
           } else {
             _propScale.set(1, 1, 1);
           }
