@@ -4126,4 +4126,102 @@ test('Smooth dynamic pixel scale: 3x when zoomed in down to 1.0x when fully zoom
   assert.equal(finalScale, 1.0);
 });
 
+test('Sea Update: uncommon corals bleach to gray when destroyed and regenerate, Leviathan takes damage & engages in mutual combat, and sea builds are destructible', () => {
+  // 1. Coral reefs are uncommon, never wrap coastlines, have bleached gray 3D variants, turn gray when destroyed, and regenerate
+  const worldTiles = generateWorldTiles(128, 4242);
+  const shallowTiles = worldTiles.filter((t) => t.terrain === 'shallow_water');
+  const coralTiles = worldTiles.filter((t) => t.resourceNode === 'coral_reef');
+  assert.ok(coralTiles.length >= 2, 'World should contain uncommon coral reef patches');
+  assert.ok(
+    coralTiles.length < shallowTiles.length * 0.25,
+    `Corals should be uncommon and never wrap every island (coral=${coralTiles.length}, shallow=${shallowTiles.length})`,
+  );
+
+  const nodeLib = getNodeVariantLibrary();
+  assert.ok(nodeLib.coralReefBleached.length >= 2, 'Should provide bleached gray coral 3D variants');
+
+  const state = createInitialSimulationState(64, 'CORAL-LEVIATHAN-COMBAT');
+  state.sandboxFreeMode = true;
+  state.wildlifeSeeded = true;
+  for (let z = 10; z <= 54; z++) {
+    for (let x = 10; x <= 54; x++) {
+      const t = getTile(state, x, z)!;
+      t.height = x < 24 ? 1 : 0;
+      t.terrain = x < 24 ? 'sand' : x < 34 ? 'shallow_water' : 'deep_water';
+      t.resourceNode = 'none';
+      t.resourceAmount = 0;
+      t.coralBleachTimer = 0;
+      t.buildingId = null;
+    }
+  }
+
+  // Place a coral reef at (28, 30) and destroy it with meteor_strike
+  const coralTile = getTile(state, 28, 30)!;
+  coralTile.resourceNode = 'coral_reef';
+  coralTile.resourceAmount = 240;
+  executeGodPowerImpact(state, 'meteor_strike', 28, 30);
+
+  assert.equal(coralTile.resourceNode, 'coral_reef', 'Destroyed coral reef remains as a bleached coral_reef node');
+  assert.equal(coralTile.resourceAmount, 0, 'Bleached coral reef has 0 resourceAmount while gray');
+  assert.ok((coralTile.coralBleachTimer ?? 0) > 10, `Bleached coral should have a regeneration timer, got ${coralTile.coralBleachTimer}`);
+
+  // Fast-forward simulation after hazard subsides until the coral regenerates back to full health
+  state.activeHazards = [];
+  coralTile.coralBleachTimer = 1.0;
+  for (let i = 0; i < 6; i++) {
+    stepSimulation(state, 0.25);
+  }
+  assert.equal(coralTile.coralBleachTimer, 0, 'Coral bleach timer should expire to 0');
+  assert.equal(coralTile.resourceAmount, 240, 'Regenerated coral should restore resourceAmount to 240');
+
+  // 2. Floating sea buildings / ports and water walkways are destructible, and Leviathan takes damage & fights back
+  placeBuilding(state, 'bonfire', 20, 30);
+  const homeSettlementId = state.buildings[0].settlementId!;
+  const portRes = placeBuilding(state, 'forager_hut', 26, 30); // Floating port/hut on shallow_water (height === 0)
+  assert.equal(portRes.ok, true, 'Should place coastal/floating structure at (26, 30)');
+  const portBuilding = state.buildings[state.buildings.length - 1]!;
+  portBuilding.settlementId = homeSettlementId;
+  portBuilding.constructionProgress = 100;
+
+  const walkway = getTile(state, 27, 30)!;
+  walkway.terrain = 'stone_road';
+
+  // Spawn a warrior on shore and a Leviathan in the water right next to the port and warrior
+  const warrior = spawnUnit(state, 'human', 23, 30, true).unit!;
+  warrior.role = 'warrior';
+  warrior.settlementId = homeSettlementId;
+  warrior.hp = 260;
+  warrior.maxHp = 260;
+
+  const leviathan = spawnUnit(state, 'leviathan', 28, 30, true).unit!;
+  const initialLeviathanHp = leviathan.hp;
+
+  // God power damages Leviathan directly
+  executeGodPowerImpact(state, 'lightning_smite', 28, 30);
+  assert.ok(leviathan.hp < initialLeviathanHp, `Leviathan must take damage from lightning_smite (${leviathan.hp} < ${initialLeviathanHp})`);
+
+  // Step combat: warrior and Leviathan should attack each other, and Leviathan should damage the port building & smash the water walkway
+  const hpBeforeCombat = leviathan.hp;
+  const portHpBefore = portBuilding.hp;
+  for (let i = 0; i < 24; i++) {
+    stepSimulation(state, 0.25);
+  }
+
+  assert.ok(
+    leviathan.hp < hpBeforeCombat,
+    `Units/defenses must actively attack and damage the Leviathan (${leviathan.hp} < ${hpBeforeCombat})`,
+  );
+  assert.ok(
+    portBuilding.hp < portHpBefore || !state.buildings.some((b) => b.id === portBuilding.id),
+    'Leviathan should damage or destroy coastal/floating sea structures',
+  );
+  assert.equal(
+    walkway.terrain,
+    'shallow_water',
+    'Leviathan breaching attack should smash water walkways back into shallow_water',
+  );
+});
+
+
+
 

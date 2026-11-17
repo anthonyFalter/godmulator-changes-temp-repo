@@ -90,6 +90,7 @@ export interface TileData {
   farmSettlementId?: string;
   isRiver?: boolean;
   isLake?: boolean;
+  coralBleachTimer?: number;
 }
 
 export type BuildingType =

@@ -736,7 +736,9 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
       data[idx] = depthVal;
 
       let touchesLand = 0;
-      let adjCoralCount = t.resourceNode === 'coral_reef' ? 2 : 0;
+      const isHealthyCoral =
+        t.resourceNode === 'coral_reef' && (t.coralBleachTimer ?? 0) <= 0 && t.resourceAmount > 0;
+      let adjCoralCount = isHealthyCoral ? 2 : 0;
       for (let dz = -1; dz <= 1; dz++) {
         for (let dx = -1; dx <= 1; dx++) {
           if (dx === 0 && dz === 0) continue;
@@ -746,7 +748,11 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
           const nb = tiles[nz * gridSize + nx];
           if (nb.height > 0) {
             touchesLand = 255;
-          } else if (nb.resourceNode === 'coral_reef') {
+          } else if (
+            nb.resourceNode === 'coral_reef' &&
+            (nb.coralBleachTimer ?? 0) <= 0 &&
+            nb.resourceAmount > 0
+          ) {
             adjCoralCount += 1;
           }
         }
@@ -756,7 +762,7 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
       // Encode water special feature in B channel:
       // 255 = coral_reef or dense reef lagoon interior, 220 = reef lagoon fringe, 170 = shallow river, 100 = inland lake, 0 = standard sea
       const reefByte =
-        t.resourceNode === 'coral_reef' || adjCoralCount >= 2
+        isHealthyCoral || adjCoralCount >= 2
           ? 255
           : adjCoralCount === 1
             ? 220

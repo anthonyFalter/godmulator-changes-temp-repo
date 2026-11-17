@@ -495,6 +495,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     const oreInsts = makePropInstancedList(variantLib.ore, variantLib.standardMat, true);
     const crystalInsts = makePropInstancedList(variantLib.crystal, variantLib.crystalMat, true);
     const coralReefInsts = makePropInstancedList(variantLib.coralReef, variantLib.standardMat, false);
+    const coralReefBleachedInsts = makePropInstancedList(
+      variantLib.coralReefBleached,
+      variantLib.standardMat,
+      false,
+    );
     const scrapFlotsamInsts = makePropInstancedList(variantLib.scrapFlotsam, variantLib.standardMat, true);
     const atlantisRuinInsts = makePropInstancedList(variantLib.atlantisRuin, variantLib.crystalMat, true);
     const ambGrassInsts = makePropInstancedList(variantLib.ambientGrass, variantLib.standardMat, false);
@@ -524,6 +529,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       ...oreInsts,
       ...crystalInsts,
       ...coralReefInsts,
+      ...coralReefBleachedInsts,
       ...scrapFlotsamInsts,
       ...atlantisRuinInsts,
     ];
@@ -5486,7 +5492,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           }
         } else {
           const waterNodeCode = NODE_CODE[t.resourceNode] ?? 0;
+          const isCoralBleached =
+            t.resourceNode === 'coral_reef' &&
+            ((t.coralBleachTimer ?? 0) > 0 || t.resourceAmount <= 0)
+              ? 1
+              : 0;
           const waterFlags =
+            (isCoralBleached << 8) |
             (waterNodeCode << 4) |
             ((t.isRiver ? 1 : 0) << 3) |
             ((t.isLake ? 1 : 0) << 2) |
@@ -5586,8 +5598,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           _propQuat.setFromAxisAngle(_propAxisY, rotStep * (Math.PI / 2));
           _dummyPos.set(t.x, curY, t.z);
           if (t.resourceNode === 'coral_reef') {
-            const scaleXZ = 1.18 + ((h >> 4) % 3) * 0.06;
-            _propScale.set(scaleXZ, 1.02, scaleXZ);
+            const isBleached = (t.coralBleachTimer ?? 0) > 0 || t.resourceAmount <= 0;
+            const scaleXZ = (1.18 + ((h >> 4) % 3) * 0.06) * (isBleached ? 0.92 : 1.0);
+            _propScale.set(scaleXZ, isBleached ? 0.86 : 1.02, scaleXZ);
           } else {
             _propScale.set(1, 1, 1);
           }
@@ -5597,7 +5610,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           let targetInst: THREE.InstancedMesh | null = null;
           let ambThresh = 0;
           if (t.resourceNode === 'coral_reef') {
-            targetInst = coralReefInsts[h % coralReefInsts.length];
+            const isBleached = (t.coralBleachTimer ?? 0) > 0 || t.resourceAmount <= 0;
+            targetInst = isBleached
+              ? coralReefBleachedInsts[h % coralReefBleachedInsts.length]
+              : coralReefInsts[h % coralReefInsts.length];
           } else if (t.resourceNode === 'scrap_flotsam') {
             targetInst = scrapFlotsamInsts[h % scrapFlotsamInsts.length];
           } else if (t.resourceNode === 'atlantis_ruin') {
@@ -6190,7 +6206,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             Boolean(tile.buildingId));
         const groundY = tile
           ? u.role === 'leviathan'
-            ? (u.leviathanSubmerged ? 0.16 : 0.34) + Math.sin(elapsed * 2.0 + u.x * 0.4) * 0.03
+            ? u.leviathanSubmerged
+              ? 0.16
+              : 0.34
             : u.isSwimming
               ? 0.12 + Math.sin(elapsed * 5.5 + u.x) * 0.035
               : isWaterWalkwayTile
@@ -6224,6 +6242,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         const isWorking =
           u.state === 'gathering' || u.state === 'building' || u.state === 'fighting';
         const isDragon = u.role === 'dragon';
+        const isLeviathan = u.role === 'leviathan';
         const isAnimal =
           u.role === 'cow' ||
           u.role === 'pig' ||
@@ -6233,7 +6252,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           u.role === 'bear' ||
           u.role === 'dinosaur' ||
           u.role === 'unicorn' ||
-          u.role === 'leviathan' ||
+          isLeviathan ||
           isDragon;
         const seedPhase = ((u.appearanceSeed ?? 1) % 31) * 0.41;
         const atkTimer = u.attackAnimTimer ?? 0;
@@ -6258,22 +6277,23 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
                 : unitAgeStage === 'child'
                   ? 14.5
                   : 11;
-        const walkBob = isDragon || isFrozen || isAirborneVisual
-          ? 0
-          : isMoving
-            ? Math.abs(Math.sin(elapsed * bobFreq + seedPhase)) *
-              (u.role === 'chicken'
-                ? 0.13
-                : u.role === 'wolf' || u.role === 'unicorn'
-                  ? 0.1
-                  : unitAgeStage === 'child'
-                    ? 0.095
-                    : 0.08)
-            : isWorking
-              ? Math.abs(Math.sin(elapsed * 14 + seedPhase)) * (isAnimal ? 0.025 : 0.05)
-              : 0;
+        const walkBob =
+          isDragon || isLeviathan || isFrozen || isAirborneVisual
+            ? 0
+            : isMoving
+              ? Math.abs(Math.sin(elapsed * bobFreq + seedPhase)) *
+                (u.role === 'chicken'
+                  ? 0.13
+                  : u.role === 'wolf' || u.role === 'unicorn'
+                    ? 0.1
+                    : unitAgeStage === 'child'
+                      ? 0.095
+                      : 0.08)
+              : isWorking
+                ? Math.abs(Math.sin(elapsed * 14 + seedPhase)) * (isAnimal ? 0.025 : 0.05)
+                : 0;
         const pounceHopY =
-          isAttacking && !isFrozen && !isDragon && u.role !== 'bear'
+          isAttacking && !isFrozen && !isDragon && !isLeviathan && u.role !== 'bear'
             ? Math.sin(atkProg * Math.PI) * (u.role === 'wolf' ? 0.42 : u.role === 'chicken' ? 0.24 : 0.16)
             : 0;
         const isDragonStrafing =
@@ -6346,7 +6366,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
               Math.sin(desiredYaw - curYaw),
               Math.cos(desiredYaw - curYaw),
             );
-            uGroup.rotation.y = curYaw + yawDiff * Math.min(1, dt * 14);
+            const turnRate = isLeviathan ? 2.4 : 14;
+            uGroup.rotation.y = curYaw + yawDiff * Math.min(1, dt * turnRate);
           }
         }
 
@@ -6381,6 +6402,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           uGroup.rotation.z = THREE.MathUtils.damp(uGroup.rotation.z, targetBank, 7.0, dt);
           uGroup.rotation.x = THREE.MathUtils.damp(uGroup.rotation.x, targetPitch, 7.0, dt);
           uGroup.scale.setScalar(1);
+        } else if (isLeviathan) {
+          // Leviathan silhouette and surfaced body glide smoothly across the water with zero side-to-side sway
+          uGroup.rotation.z = 0;
+          uGroup.rotation.x = 0;
+          uGroup.scale.setScalar(1);
         } else {
           uGroup.rotation.z = !isFrozen && isMoving
             ? Math.sin(elapsed * bobFreq + seedPhase) * (u.role === 'chicken' ? 0.12 : 0.08)
@@ -6405,7 +6431,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           if (bodyPivot) {
             let bodyPitch = 0;
             let bodyForward = 0;
-            if (isAttacking) {
+            if (isAttacking && !isLeviathan) {
               const s = Math.sin(atkProg * Math.PI);
               if (u.role === 'bear') {
                 bodyPitch = atkProg < 0.45 ? -0.58 * (atkProg / 0.45) : -0.58 + 0.88 * ((atkProg - 0.45) / 0.55);
@@ -6420,14 +6446,17 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             }
             bodyPivot.rotation.x = bodyPitch;
             bodyPivot.position.z = bodyForward;
-            const breath = isMoving ? 0 : Math.sin(elapsed * 3.4 + seedPhase) * 0.035;
+            const breath = isMoving || isLeviathan ? 0 : Math.sin(elapsed * 3.4 + seedPhase) * 0.035;
             if (u.role !== 'dinosaur') {
               bodyPivot.scale.y = 1 + breath;
             }
           }
 
           if (headPivot) {
-            if (isDragon) {
+            if (isLeviathan) {
+              headPivot.rotation.x = isAttacking ? Math.sin(atkProg * Math.PI) * 0.24 : 0;
+              headPivot.rotation.y = 0;
+            } else if (isDragon) {
               const targetHeadX = isDragonStrafing
                 ? 0.34
                 : Math.sin(elapsed * 2.2 + seedPhase) * 0.08;
@@ -6499,7 +6528,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           }
 
           if (tailPivot) {
-            if (isDragon) {
+            if (isLeviathan) {
+              tailPivot.rotation.y = u.leviathanSubmerged
+                ? 0
+                : Math.sin(elapsed * 2.0 + seedPhase) * 0.08;
+              tailPivot.rotation.x = 0;
+            } else if (isDragon) {
               const targetTailY =
                 -THREE.MathUtils.clamp(dragonYawDelta * 0.55, -0.35, 0.35) +
                 Math.sin(elapsed * (isDragonStrafing ? 3.2 : 4.5) + seedPhase) *
