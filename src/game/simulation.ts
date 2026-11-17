@@ -6006,8 +6006,21 @@ function stepSimulationSingle(
   }
 
   let pendingFireIgnitions: Map<TileData, { duration: number; fireColor?: string }> | null = null;
-  for (let i = 0; i < state.tiles.length; i++) {
-    const t = state.tiles[i];
+  const tiles = state.tiles;
+  const nTiles = tiles.length;
+  const wildfireSpreadEnabled = state.worldRules?.wildfireSpread !== false;
+  const fireSpreadOffsets: readonly [number, number, number][] = [
+    [1, 0, 1.0],
+    [-1, 0, 1.0],
+    [0, 1, 1.0],
+    [0, -1, 1.0],
+    [1, 1, 0.35],
+    [-1, 1, 0.35],
+    [1, -1, 0.35],
+    [-1, -1, 0.35],
+  ];
+  for (let i = 0; i < nTiles; i++) {
+    const t = tiles[i];
     if (t.blessedTimer > 0) t.blessedTimer = Math.max(0, t.blessedTimer - dt);
     if (t.cursedTimer > 0) t.cursedTimer = Math.max(0, t.cursedTimer - dt);
     if (t.onFireTimer > 0) {
@@ -6040,7 +6053,7 @@ function stepSimulationSingle(
       }
 
       // Wildfire spread from any burning tile (meteor embers, lightning, dragon fire, war-braziers)
-      if (t.onFireTimer > 1.0 && state.worldRules?.wildfireSpread !== false) {
+      if (t.onFireTimer > 1.0 && wildfireSpreadEnabled) {
         const sourceHeatBoost =
           t.resourceNode === 'timber_grove' ||
           t.terrain === 'forest' ||
@@ -6048,16 +6061,8 @@ function stepSimulationSingle(
           t.terrain === 'scorched'
             ? 1.15
             : 1.0;
-        for (const [ox, oz, distWeight] of [
-          [1, 0, 1.0],
-          [-1, 0, 1.0],
-          [0, 1, 1.0],
-          [0, -1, 1.0],
-          [1, 1, 0.35],
-          [-1, 1, 0.35],
-          [1, -1, 0.35],
-          [-1, -1, 0.35],
-        ] as const) {
+        for (let k = 0; k < fireSpreadOffsets.length; k++) {
+          const [ox, oz, distWeight] = fireSpreadOffsets[k];
           const nb = getTile(state, t.x + ox, t.z + oz);
           if (!nb || nb.height <= 0 || nb.onFireTimer > 0 || nb.blessedTimer > 0) continue;
           if (pendingFireIgnitions?.has(nb)) continue;
@@ -8652,31 +8657,61 @@ function stepWildlifeAI(
     const canEatTrees = u.role === 'dinosaur';
     const plantSearchRange = canEatTrees ? 9 : 7;
     const plantRangeSq = plantSearchRange * plantSearchRange;
-    const ux = Math.round(u.x);
-    const uz = Math.round(u.z);
-    const minX = Math.max(1, ux - plantSearchRange);
-    const maxX = Math.min(gs - 2, ux + plantSearchRange);
-    const minZ = Math.max(1, uz - plantSearchRange);
-    const maxZ = Math.min(gs - 2, uz + plantSearchRange);
     let bestPlantTile: TileData | null = null;
-    let bestPlantScore = Infinity;
 
-    for (let tz = minZ; tz <= maxZ; tz++) {
-      for (let tx = minX; tx <= maxX; tx++) {
-        const tile = state.tiles[tz * gs + tx];
-        if (!tile || tile.height <= 0 || tile.buildingId || tile.onFireTimer > 0 || tile.cursedTimer > 0) {
-          continue;
+    // Fast path: reuse current target tile if it is still a valid plant within foraging range
+    const curTarget = getTile(state, Math.round(u.targetX), Math.round(u.targetZ));
+    if (
+      curTarget &&
+      curTarget.height > 0 &&
+      !curTarget.buildingId &&
+      curTarget.onFireTimer <= 0 &&
+      curTarget.cursedTimer <= 0 &&
+      curTarget.resourceAmount > 0 &&
+      (curTarget.resourceNode === 'berry_bush' || (canEatTrees && curTarget.resourceNode === 'timber_grove'))
+    ) {
+      const cdSq = (curTarget.x - u.x) ** 2 + (curTarget.z - u.z) ** 2;
+      if (cdSq <= plantRangeSq) {
+        bestPlantTile = curTarget;
+      }
+    }
+
+    if (!bestPlantTile && u.actionCooldown <= 0) {
+      const ux = Math.round(u.x);
+      const uz = Math.round(u.z);
+      const minX = Math.max(1, ux - plantSearchRange);
+      const maxX = Math.min(gs - 2, ux + plantSearchRange);
+      const minZ = Math.max(1, uz - plantSearchRange);
+      const maxZ = Math.min(gs - 2, uz + plantSearchRange);
+      let bestPlantScore = Infinity;
+
+      for (let tz = minZ; tz <= maxZ; tz++) {
+        const rowOffset = tz * gs;
+        for (let tx = minX; tx <= maxX; tx++) {
+          const tile = state.tiles[rowOffset + tx];
+          if (!tile || tile.height <= 0 || tile.buildingId || tile.onFireTimer > 0 || tile.cursedTimer > 0) {
+            continue;
+          }
+          const isBerry = tile.resourceNode === 'berry_bush' && tile.resourceAmount > 0;
+          const isTree = canEatTrees && tile.resourceNode === 'timber_grove' && tile.resourceAmount > 0;
+          if (!isBerry && !isTree) continue;
+          const dSq = (tx - u.x) ** 2 + (tz - u.z) ** 2;
+          if (dSq > plantRangeSq) continue;
+          const penalty = isBerry ? 0 : 1.2;
+          if (bestPlantScore < Infinity) {
+            const maxDist = bestPlantScore - penalty;
+            if (maxDist <= 0 || dSq >= maxDist * maxDist) continue;
+          }
+          const score = Math.sqrt(dSq) + penalty;
+          if (score < bestPlantScore) {
+            bestPlantScore = score;
+            bestPlantTile = tile;
+          }
         }
-        const isBerry = tile.resourceNode === 'berry_bush' && tile.resourceAmount > 0;
-        const isTree = canEatTrees && tile.resourceNode === 'timber_grove' && tile.resourceAmount > 0;
-        if (!isBerry && !isTree) continue;
-        const dSq = (tx - u.x) ** 2 + (tz - u.z) ** 2;
-        if (dSq > plantRangeSq) continue;
-        const score = Math.sqrt(dSq) + (isBerry ? 0 : 1.2);
-        if (score < bestPlantScore) {
-          bestPlantScore = score;
-          bestPlantTile = tile;
-        }
+      }
+
+      if (!bestPlantTile) {
+        u.actionCooldown = 0.55;
       }
     }
 

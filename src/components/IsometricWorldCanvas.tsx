@@ -219,21 +219,18 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     const container = mountRef.current;
     if (!container) return;
 
-    const isSoftwareGl = (() => {
-      const probeCanvas = document.createElement('canvas');
-      const gl = probeCanvas.getContext('webgl2');
-      if (!gl) return true;
-      const ext = gl.getExtension('WEBGL_debug_renderer_info');
-      const param = ext ? ext.UNMASKED_RENDERER_WEBGL : gl.RENDERER;
-      const gpu = String(gl.getParameter(param));
-      gl.getExtension('WEBGL_lose_context')?.loseContext();
-      return /SwiftShader|llvmpipe|softpipe|Software|Basic Render/i.test(gpu);
-    })();
-
     const renderer = new THREE.WebGLRenderer({
       antialias: false, // Deliberate crisp pixel edges
       powerPreference: 'high-performance',
     });
+    const isSoftwareGl = (() => {
+      const gl = renderer.getContext();
+      if (!gl) return true;
+      const ext = gl.getExtension('WEBGL_debug_renderer_info');
+      const param = ext ? ext.UNMASKED_RENDERER_WEBGL : gl.RENDERER;
+      const gpu = String(gl.getParameter(param));
+      return /SwiftShader|llvmpipe|softpipe|Software|Basic Render/i.test(gpu);
+    })();
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.12;
@@ -395,10 +392,47 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       sim.gridSize * 1.1,
     );
 
+    const terrainCounts = new Map<TerrainType, number>();
+    for (let i = 0; i < sim.tiles.length; i++) {
+      const tt = sim.tiles[i].terrain;
+      terrainCounts.set(tt, (terrainCounts.get(tt) ?? 0) + 1);
+    }
+    const terrainHeadroom = Math.min(512, Math.ceil(sim.tiles.length * 0.04));
+
+    function ensureInstancedCapacity(
+      inst: THREE.InstancedMesh,
+      needed: number,
+      indexMap?: Map<THREE.InstancedMesh, Int32Array>,
+      maxLimit = simRef.current.tiles.length * 2,
+    ) {
+      const curCap = inst.instanceMatrix.count;
+      if (needed <= curCap) return;
+      const nextCap = Math.min(maxLimit, Math.max(needed, curCap * 2));
+      const prevArr = inst.instanceMatrix.array as Float32Array;
+      const nextArr = new Float32Array(nextCap * 16);
+      nextArr.set(prevArr);
+      const nextAttr = new THREE.InstancedBufferAttribute(nextArr, 16);
+      nextAttr.setUsage(THREE.DynamicDrawUsage);
+      inst.instanceMatrix = nextAttr;
+      if (indexMap) {
+        const prevIdx = indexMap.get(inst);
+        if (prevIdx) {
+          const nextIdx = new Int32Array(nextCap);
+          nextIdx.set(prevIdx);
+          indexMap.set(inst, nextIdx);
+        }
+      }
+    }
+
     for (let tIdx = 0; tIdx < TERRAIN_TYPES.length; tIdx++) {
       const tType = TERRAIN_TYPES[tIdx];
       const mat = styledTerrain.getMaterials(tType);
-      const inst = new THREE.InstancedMesh(tileGeo, mat, sim.tiles.length);
+      const exactCount = terrainCounts.get(tType) ?? 0;
+      const initialCap = Math.min(
+        sim.tiles.length,
+        Math.max(64, exactCount + terrainHeadroom),
+      );
+      const inst = new THREE.InstancedMesh(tileGeo, mat, initialCap);
       inst.frustumCulled = false;
       inst.boundingSphere = worldBoundsSphere;
       inst.receiveShadow = true;
@@ -408,7 +442,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       terrainInstancedMap.set(tType, inst);
       terrainInstancedList.push(inst);
       terrainInstIndexMap.set(inst, tIdx);
-      terrainInstanceToTile.set(inst, new Int32Array(sim.tiles.length));
+      terrainInstanceToTile.set(inst, new Int32Array(initialCap));
     }
 
     const tileCurrentY = new Float32Array(sim.tiles.length);
@@ -431,16 +465,16 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       tilePropSig[i] = -1;
     }
 
-    // Instanced Multi-Object Props (1-4 objects per tile across 128x128)
+    // Instanced Multi-Object Props (1-4 objects per tile, starting compactly and growing on demand)
     const variantLib = getNodeVariantLibrary();
-    const maxPropCapacity = Math.ceil(sim.tiles.length * 0.55);
+    const INITIAL_PROP_CAPACITY = 128;
     const makePropInstancedList = (
       geos: THREE.BufferGeometry[],
       mat: THREE.Material,
       castShadow: boolean,
     ) =>
       geos.map((geo) => {
-        const inst = new THREE.InstancedMesh(geo, mat, maxPropCapacity);
+        const inst = new THREE.InstancedMesh(geo, mat, INITIAL_PROP_CAPACITY);
         inst.frustumCulled = false;
         inst.boundingSphere = worldBoundsSphere;
         inst.castShadow = castShadow;
@@ -590,13 +624,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     const streetPoleGeo = new THREE.BoxGeometry(0.042, 1.0, 0.042);
     const streetLampHeadGeo = new THREE.BoxGeometry(0.085, 0.085, 0.085);
 
+    const INITIAL_METRO_CAP = 64;
     const makeMetroInst = (
       geo: THREE.BufferGeometry,
       mat: THREE.Material,
-      cap: number,
+      _cap: number,
       castShadow: boolean,
     ) => {
-      const inst = new THREE.InstancedMesh(geo, mat, cap);
+      const inst = new THREE.InstancedMesh(geo, mat, INITIAL_METRO_CAP);
       inst.frustumCulled = false;
       inst.boundingSphere = worldBoundsSphere;
       inst.castShadow = castShadow;
@@ -5180,6 +5215,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     let lastZoneOverlayVersion = -1;
     let syncFrameStamp = 0;
     let lastSyncedBuildingCount = -1;
+    let initialMapsPreuploaded = true;
+    const activeFireTileIndices: number[] = [];
 
     type ActiveHazardItem = NonNullable<SimulationState['activeHazards']>[number];
     const activeTsunamis: ActiveHazardItem[] = [];
@@ -5216,8 +5253,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         terrainMapDirty = true;
       }
 
-      let waterMapNeedsSync = simState !== lastSyncedSim;
-      if (simState !== lastSyncedSim) {
+      const simChanged = simState !== lastSyncedSim;
+      let waterMapNeedsSync = simChanged;
+      if (simChanged) {
+        initialMapsPreuploaded = false;
         lastSyncedSim = simState;
         lastSyncedEpochIndex = simState.epochIndex;
         lastSyncedBuildingCount = simState.buildings.length;
@@ -5292,19 +5331,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       const hasTsunamis = activeTsunamis.length > 0;
       const hasQuakes = activeQuakeCount > 0;
 
-      // Detect whether any tile changed terrain bucket (if not, reuse existing InstancedMesh slots & upload only moved tiles)
-      let bucketsDirty = waterMapNeedsSync;
+      // Detect initial bucket build (`syncFrameStamp === 1` or `simChanged`) and single-pass tile sync
+      const bucketsDirty = waterMapNeedsSync || syncFrameStamp === 1;
       const tiles = simState.tiles;
       const tileCount = tiles.length;
-      if (!bucketsDirty) {
-        for (let i = 0; i < tileCount; i++) {
-          const tCode = TERRAIN_CODE[tiles[i].terrain] ?? 3;
-          if (tileTerrainCode[i] !== tCode) {
-            bucketsDirty = true;
-            break;
-          }
-        }
-      }
+      activeFireTileIndices.length = 0;
 
       if (bucketsDirty) {
         for (let tIdx = 0; tIdx < terrainInstancedList.length; tIdx++) {
@@ -5316,12 +5347,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       }
 
       _dummyQuat.identity();
+      let bucketMismatchDetected = false;
 
       for (let i = 0; i < tileCount; i++) {
         const t = tiles[i];
+        const tCode = TERRAIN_CODE[t.terrain] ?? 3;
         const isWaterWalkway =
-          t.height === 0 &&
-          (t.terrain === 'stone_road' || t.terrain === 'rail_track' || t.terrain === 'runway');
+          t.height === 0 && (tCode === 9 || tCode === 14 || tCode === 21);
         let targetTopY = t.height === 0 ? (isWaterWalkway ? 0.3 : 0.12) : t.height * HEIGHT_STEP + 0.25;
         let hasHazardEffect = false;
 
@@ -5391,10 +5423,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         const renderTopY = curY + quakeJoltY;
 
         if (bucketsDirty) {
-          const tCode = TERRAIN_CODE[t.terrain] ?? 3;
           const inst = terrainInstancedMap.get(t.terrain) ?? terrainInstancedMap.get('grass')!;
           const bIdx = terrainInstIndexMap.get(inst) ?? 0;
           const slot = inst.count;
+          ensureInstancedCapacity(inst, slot + 1, terrainInstanceToTile, tileCount);
           inst.count = slot + 1;
           terrainInstanceToTile.get(inst)![slot] = i;
           tileTerrainCode[i] = tCode;
@@ -5408,28 +5440,33 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           inst.setMatrixAt(slot, _dummyMatrix);
           instNeedsUpload[bIdx] = 1;
           tileHadHazard[i] = hasHazardEffect || quakeJoltY !== 0 ? 1 : 0;
-        } else if (curY !== prevY || quakeJoltY !== 0 || tileHadHazard[i] !== 0) {
-          const inst = tileBucketInst[i];
-          if (inst) {
-            _dummyPos.set(t.x, renderTopY, t.z);
-            _dummyScale.set(1, Math.max(0.2, renderTopY + 0.6), 1);
-            _dummyMatrix.compose(_dummyPos, _dummyQuat, _dummyScale);
-            inst.setMatrixAt(tileSlotIndex[i], _dummyMatrix);
-            instNeedsUpload[tileBucketIdx[i]] = 1;
+        } else {
+          if (tileTerrainCode[i] !== tCode) {
+            bucketMismatchDetected = true;
+          } else if (curY !== prevY || quakeJoltY !== 0 || tileHadHazard[i] !== 0) {
+            const inst = tileBucketInst[i];
+            if (inst) {
+              _dummyPos.set(t.x, renderTopY, t.z);
+              _dummyScale.set(1, Math.max(0.2, renderTopY + 0.6), 1);
+              _dummyMatrix.compose(_dummyPos, _dummyQuat, _dummyScale);
+              inst.setMatrixAt(tileSlotIndex[i], _dummyMatrix);
+              instNeedsUpload[tileBucketIdx[i]] = 1;
+            }
+            tileHadHazard[i] = hasHazardEffect || quakeJoltY !== 0 ? 1 : 0;
           }
-          tileHadHazard[i] = hasHazardEffect || quakeJoltY !== 0 ? 1 : 0;
         }
 
-        const tCode = TERRAIN_CODE[t.terrain] ?? 3;
+        if (t.onFireTimer > 0 && t.height > 0 && t.resourceNode !== 'ore_vein') {
+          activeFireTileIndices.push(i);
+        }
+
         const terrSig = (t.height << 7) | (tCode << 1) | (t.farmSettlementId ? 1 : 0);
         if (tileTerrainSig[i] !== terrSig) {
           tileTerrainSig[i] = terrSig;
           terrainMapDirty = true;
         }
         const mSig =
-          t.terrain === 'rail_track' || t.terrain === 'runway' || t.terrain === 'stone_road'
-            ? (t.height << 5) | tCode
-            : 0;
+          tCode === 9 || tCode === 14 || tCode === 21 ? (t.height << 5) | tCode : 0;
         if (tileMetroSig[i] !== mSig) {
           tileMetroSig[i] = mSig;
           metroNeedsSync = true;
@@ -5442,7 +5479,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             ((NODE_CODE[t.resourceNode] ?? 0) << 1) |
             (t.buildingId ? 1 : 0);
           if (tilePropSig[i] !== sig || Math.abs(curY - tileLastNodeY[i]) > 0.002) {
-            if (tilePropSig[i] <= 0) waterMapNeedsSync = true;
+            if (tilePropSig[i] <= 0 && !initialMapsPreuploaded) waterMapNeedsSync = true;
             tilePropSig[i] = sig;
             tileLastNodeY[i] = curY;
             propsNeedSync = true;
@@ -5454,21 +5491,53 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             ((t.isRiver ? 1 : 0) << 3) |
             ((t.isLake ? 1 : 0) << 2) |
             ((t.buildingId ? 1 : 0) << 1) |
-            (t.terrain === 'deep_water' ? 1 : 0);
+            (tCode === 0 ? 1 : 0);
           const waterSig = -10 - waterFlags;
           if (tilePropSig[i] !== waterSig) {
             tilePropSig[i] = waterSig;
             propsNeedSync = true;
-            waterMapNeedsSync = true;
+            if (!initialMapsPreuploaded) waterMapNeedsSync = true;
           }
         }
       }
 
-      if (waterMapNeedsSync) {
-        oceanFoam.updateMap(simState.tiles);
+      if (bucketMismatchDetected) {
+        for (let tIdx = 0; tIdx < terrainInstancedList.length; tIdx++) {
+          terrainInstancedList[tIdx].count = 0;
+          instNeedsUpload[tIdx] = 1;
+        }
+        for (let i = 0; i < tileCount; i++) {
+          const t = tiles[i];
+          const tCode = TERRAIN_CODE[t.terrain] ?? 3;
+          const inst = terrainInstancedMap.get(t.terrain) ?? terrainInstancedMap.get('grass')!;
+          const bIdx = terrainInstIndexMap.get(inst) ?? 0;
+          const slot = inst.count;
+          ensureInstancedCapacity(inst, slot + 1, terrainInstanceToTile, tileCount);
+          inst.count = slot + 1;
+          terrainInstanceToTile.get(inst)![slot] = i;
+          tileTerrainCode[i] = tCode;
+          tileBucketIdx[i] = bIdx;
+          tileBucketInst[i] = inst;
+          tileSlotIndex[i] = slot;
+
+          const renderTopY = tileCurrentY[i];
+          _dummyPos.set(t.x, renderTopY, t.z);
+          _dummyScale.set(1, Math.max(0.2, renderTopY + 0.6), 1);
+          _dummyMatrix.compose(_dummyPos, _dummyQuat, _dummyScale);
+          inst.setMatrixAt(slot, _dummyMatrix);
+        }
+        waterMapNeedsSync = true;
       }
-      if (terrainMapDirty || waterMapNeedsSync) {
-        styledTerrain.updateMap(simState.tiles, simState.buildings, simState.settlementSpecies);
+
+      if (initialMapsPreuploaded) {
+        initialMapsPreuploaded = false;
+      } else {
+        if (waterMapNeedsSync) {
+          oceanFoam.updateMap(simState.tiles);
+        }
+        if (terrainMapDirty || waterMapNeedsSync) {
+          styledTerrain.updateMap(simState.tiles, simState.buildings, simState.settlementSpecies);
+        }
       }
 
       for (let tIdx = 0; tIdx < terrainInstancedList.length; tIdx++) {
@@ -5606,11 +5675,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
             if (targetInst && ambientPropSet.has(targetInst)) {
               if (chance < ambThresh * 0.22) {
-                if (targetInst.count < targetInst.instanceMatrix.count) {
-                  const pSlot = targetInst.count;
-                  targetInst.count = pSlot + 1;
-                  targetInst.setMatrixAt(pSlot, _dummyMatrix);
-                }
+                const pSlot = targetInst.count;
+                ensureInstancedCapacity(targetInst, pSlot + 1);
+                targetInst.count = pSlot + 1;
+                targetInst.setMatrixAt(pSlot, _dummyMatrix);
               } else {
                 const els = _dummyMatrix.elements;
                 const stage =
@@ -5623,8 +5691,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             }
           }
 
-          if (targetInst && targetInst.count < targetInst.instanceMatrix.count) {
+          if (targetInst) {
             const pSlot = targetInst.count;
+            ensureInstancedCapacity(targetInst, pSlot + 1);
             targetInst.count = pSlot + 1;
             targetInst.setMatrixAt(pSlot, _dummyMatrix);
           }
@@ -5642,10 +5711,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         for (let i = 0; i < ambientPropInsts.length; i++) {
           const pInst = ambientPropInsts[i];
           const lowCount = pInst.count;
-          const cap = pInst.instanceMatrix.count;
-          const arr = pInst.instanceMatrix.array as Float32Array;
           const med = ambMedStage.get(pInst)!;
           const full = ambFullStage.get(pInst)!;
+          const totalNeeded = lowCount + ((med.length + full.length) >> 4);
+          if (totalNeeded > pInst.instanceMatrix.count) {
+            ensureInstancedCapacity(pInst, totalNeeded);
+          }
+          const cap = pInst.instanceMatrix.count;
+          const arr = pInst.instanceMatrix.array as Float32Array;
 
           let cursor = lowCount;
           let outOff = cursor * 16;
@@ -5738,7 +5811,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           sy = 1,
           sz = 1,
         ) => {
-          if (inst.count >= inst.instanceMatrix.count) return;
+          const slot = inst.count;
+          if (slot >= MAX_METRO_STRIP_INST * 2) return;
+          ensureInstancedCapacity(inst, slot + 1, undefined, MAX_METRO_STRIP_INST * 2);
           _dummyPos.set(px, py, pz);
           if (qx !== 0 || qy !== 0 || qz !== 0) {
             _metroEuler.set(qx, qy, qz);
@@ -5748,7 +5823,6 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           }
           _dummyScale.set(sx, sy, sz);
           _dummyMatrix.compose(_dummyPos, _propQuat, _dummyScale);
-          const slot = inst.count;
           inst.count = slot + 1;
           inst.setMatrixAt(slot, _dummyMatrix);
         };
@@ -7215,7 +7289,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
       let fireTileCount = 0;
       let fireSpriteCount = 0;
-      for (let i = 0; i < simState.tiles.length && fireTileCount < MAX_FIRE_TILES; i++) {
+      for (let fi = 0; fi < activeFireTileIndices.length && fireTileCount < MAX_FIRE_TILES; fi++) {
+        const i = activeFireTileIndices[fi];
         const t = simState.tiles[i];
         if (t.onFireTimer > 0 && t.height > 0 && t.resourceNode !== 'ore_vein') {
           const fy = tileCurrentY[i] || t.height * HEIGHT_STEP + 0.25;
@@ -9330,11 +9405,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         }
       }
 
-      // Throttle React HUD state synchronization to <= 6 Hz so we never setState at 60Hz
+      // Throttle React HUD state synchronization to <= 6 Hz during gameplay so we never setState at 60Hz or during title screen
       hudSyncAccumulator += dt;
       if (hudSyncAccumulator >= 0.18) {
         hudSyncAccumulator = 0;
-        propsRef.current.onSyncHud();
+        if (currentGameState === 'playing') {
+          propsRef.current.onSyncHud();
+        }
       }
 
       if (isSoftwareGl) {
@@ -9453,6 +9530,19 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       metroParapetEWGeo.dispose();
       metroParapetNSGeo.dispose();
       runwayBeaconGeo.dispose();
+      streetPoleGeo.dispose();
+      streetLampHeadGeo.dispose();
+      streetPoleMat.dispose();
+      streetLampGlowMat.dispose();
+      tileGeo.dispose();
+      for (const inst of terrainInstancedList) inst.dispose();
+      for (const inst of allPropInsts) inst.dispose();
+      for (const inst of allMetroInsts) inst.dispose();
+      particleGeo.dispose();
+      particleMat.dispose();
+      particleInstanced.dispose();
+      favoriteStarsInst.dispose();
+      kingCrownsInst.dispose();
       renderer.dispose();
     };
   }, [cameraActionRef, simRef]);

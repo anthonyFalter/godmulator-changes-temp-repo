@@ -35,6 +35,7 @@ import {
   GraphicsSettings,
   LightingPreset,
   Resources,
+  SimulationState,
   ToolCategory,
   UnitEntity,
   WorldGenConfig,
@@ -265,14 +266,15 @@ const UPDATE_LOG_ENTRIES: UpdateLogEntry[] = [
 ];
 
 export default function App() {
-  const simRef = useRef(
-    createInitialSimulationState(
+  const simRef = useRef<SimulationState>(null!);
+  if (!simRef.current) {
+    simRef.current = createInitialSimulationState(
       128,
       typeof window !== 'undefined'
         ? new URLSearchParams(window.location.search).get('seed') ?? undefined
         : undefined,
-    ),
-  );
+    );
+  }
   const [seedInput, setSeedInput] = useState<string>(() => String(simRef.current.seed));
 
   const [gameState, setGameState] = useState<GameLifecycleState>(() => {
@@ -797,18 +799,20 @@ export default function App() {
   const favoriteUnits: UnitEntity[] = [];
   let hoveredUnit: UnitEntity | null = null;
   let selectedUnit: UnitEntity | null = null;
-  for (let ui = 0; ui < sim.units.length; ui++) {
-    const u = sim.units[ui];
-    if (u.state === 'ko') continue;
-    if (u.isKing && u.faction === 'civilization') {
-      livingKings.push(u);
-    }
-    if (u.favorite) {
-      favoriteUnits.push(u);
-    }
-    if (isInspectTabActive) {
-      if (hoveredEntityId && u.id === hoveredEntityId) hoveredUnit = u;
-      if (selectedEntityId && u.id === selectedEntityId) selectedUnit = u;
+  if (gameState !== 'title') {
+    for (let ui = 0; ui < sim.units.length; ui++) {
+      const u = sim.units[ui];
+      if (u.state === 'ko') continue;
+      if (u.isKing && u.faction === 'civilization') {
+        livingKings.push(u);
+      }
+      if (u.favorite) {
+        favoriteUnits.push(u);
+      }
+      if (isInspectTabActive) {
+        if (hoveredEntityId && u.id === hoveredEntityId) hoveredUnit = u;
+        if (selectedEntityId && u.id === selectedEntityId) selectedUnit = u;
+      }
     }
   }
 
@@ -838,17 +842,9 @@ export default function App() {
   const zoneOverlayBuffers = useMemo(() => {
     zoneOverlayVersionRef.current += 1;
     if (!worldZones || !anyZoneActive) {
-      const len = simRef.current.gridSize * simRef.current.gridSize * 4;
-      if (!zoneColorBufRef.current || zoneColorBufRef.current.length !== len) {
-        zoneColorBufRef.current = new Uint8Array(len);
-        zoneIdBufRef.current = new Uint8Array(len);
-      } else {
-        zoneColorBufRef.current.fill(0);
-        zoneIdBufRef.current!.fill(0);
-      }
       return {
-        colorData: zoneColorBufRef.current,
-        idData: zoneIdBufRef.current!,
+        colorData: new Uint8Array(0),
+        idData: new Uint8Array(0),
         anyActive: false,
         kingdomsActive: false,
         kingsActive: false,
