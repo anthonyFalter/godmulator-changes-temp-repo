@@ -1452,6 +1452,39 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
       }
     }
 
+    float sdSeg(vec2 p, vec2 a, vec2 b, out float projT) {
+      vec2 pa = p - a;
+      vec2 ba = b - a;
+      float denom = max(dot(ba, ba), 0.0001);
+      projT = clamp(dot(pa, ba) / denom, 0.0, 1.0);
+      return length(pa - ba * projT);
+    }
+
+    // Evaluates minimum distance & normalized progression t along a smooth quadratic Bezier A -> M -> B
+    float sdBezierCurve(vec2 p, vec2 a, vec2 m, vec2 b, out float outT, out vec2 outTang) {
+      float bestD = 99.0;
+      float bestT = 0.0;
+      vec2 bestDir = normalize(b - a + vec2(0.0001));
+      vec2 prevPt = a;
+      for (int i = 1; i <= 5; i++) {
+        float t = float(i) / 5.0;
+        float u = 1.0 - t;
+        vec2 curPt = u * u * a + 2.0 * u * t * m + t * t * b;
+        float segT = 0.0;
+        float d = sdSeg(p, prevPt, curPt, segT);
+        if (d < bestD) {
+          bestD = d;
+          bestT = (float(i - 1) + segT) / 5.0;
+          vec2 delta = curPt - prevPt;
+          if (length(delta) > 0.0001) bestDir = normalize(delta);
+        }
+        prevPt = curPt;
+      }
+      outT = bestT;
+      outTang = bestDir;
+      return bestD;
+    }
+
     vec3 computeRoadColor(
       vec2 pixPos,
       vec2 subUv,
@@ -1469,14 +1502,81 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
       vec2 roadPix = floor(subUv * 16.0);
       vec2 rp = (roadPix + 0.5) / 16.0;
 
-      // Distance field to connected 4-way centerline arms (seamlessly shapes straights, turns, T-junctions & crossroads)
-      float dRoad = length(rp - vec2(0.5));
-      if (rN) dRoad = min(dRoad, length(vec2(rp.x - 0.5, max(0.0, rp.y - 0.5))));
-      if (rS) dRoad = min(dRoad, length(vec2(rp.x - 0.5, max(0.0, 0.5 - rp.y))));
-      if (rW) dRoad = min(dRoad, length(vec2(max(0.0, rp.x - 0.5), rp.y - 0.5)));
-      if (rE) dRoad = min(dRoad, length(vec2(max(0.0, 0.5 - rp.x), rp.y - 0.5)));
+      // Clean diagonal arm flags: connect diagonals only where orthogonal corners don't already flood a boulevard
+      bool diagNW = rNW && !rN && !rW;
+      bool diagNE = rNE && !rN && !rE;
+      bool diagSW = rSW && !rS && !rW;
+      bool diagSE = rSE && !rS && !rE;
 
-      // If user painted a 2x2 plaza/multi-lane highway, suppress interior grass/curb corners where all 4 tiles are roads
+      // Detect wide 2-tile-wide Boulevards & Expressways (parallel neighboring road slabs)
+      bool blvdSouth = rS && ((rW && rSW) || (rE && rSE));
+      bool blvdNorth = rN && ((rW && rNW) || (rE && rNE));
+      bool blvdEast  = rE && ((rN && rNE) || (rS && rSE));
+      bool blvdWest  = rW && ((rN && rNW) || (rS && rSW));
+      bool isWideBlvd = blvdSouth || blvdNorth || blvdEast || blvdWest;
+
+      float cardCount = (rN ? 1.0 : 0.0) + (rS ? 1.0 : 0.0) + (rW ? 1.0 : 0.0) + (rE ? 1.0 : 0.0);
+      float diagCount = (diagNW ? 1.0 : 0.0) + (diagNE ? 1.0 : 0.0) + (diagSW ? 1.0 : 0.0) + (diagSE ? 1.0 : 0.0);
+      float totalConn = cardCount + diagCount;
+
+      bool turnNE = rN && rE && !rS && !rW && !diagSW;
+      bool turnNW = rN && rW && !rS && !rE && !diagSE;
+      bool turnSE = rS && rE && !rN && !rW && !diagNW;
+      bool turnSW = rS && rW && !rN && !rE && !diagNE;
+      bool isCardTurn = turnNE || turnNW || turnSE || turnSW;
+
+      vec2 ic = vec2(0.5);
+      if (turnNE) ic = vec2(1.0, 0.0);
+      else if (turnNW) ic = vec2(0.0, 0.0);
+      else if (turnSE) ic = vec2(1.0, 1.0);
+      else if (turnSW) ic = vec2(0.0, 1.0);
+
+      // Smooth 2-endpoint curve fit whenever a road enters and exits cleanly via cardinals/diagonals (e.g. W -> NE, SW -> NE, N -> SE)
+      bool isSmoothSpline = (abs(totalConn - 2.0) < 0.1) && !isWideBlvd && !isCardTurn && diagCount > 0.5;
+      vec2 splineP0 = vec2(0.5);
+      vec2 splineP2 = vec2(0.5);
+      if (isSmoothSpline) {
+        int foundPts = 0;
+        vec2 pts[8];
+        if (rN) pts[foundPts++] = vec2(0.5, 0.0);
+        if (rS) pts[foundPts++] = vec2(0.5, 1.0);
+        if (rW) pts[foundPts++] = vec2(0.0, 0.5);
+        if (rE) pts[foundPts++] = vec2(1.0, 0.5);
+        if (diagNW) pts[foundPts++] = vec2(0.0, 0.0);
+        if (diagNE) pts[foundPts++] = vec2(1.0, 0.0);
+        if (diagSW) pts[foundPts++] = vec2(0.0, 1.0);
+        if (diagSE) pts[foundPts++] = vec2(1.0, 1.0);
+        if (foundPts >= 2) {
+          splineP0 = pts[0];
+          splineP2 = pts[1];
+        } else {
+          isSmoothSpline = false;
+        }
+      }
+
+      float splineT = 0.0;
+      vec2 splineTang = vec2(1.0, 0.0);
+      float dRoad = 99.0;
+
+      if (isCardTurn) {
+        // True smooth circular quarter-turn instead of boxy square elbow
+        dRoad = abs(length(rp - ic) - 0.5);
+      } else if (isSmoothSpline) {
+        dRoad = sdBezierCurve(rp, splineP0, vec2(0.5, 0.5), splineP2, splineT, splineTang);
+      } else {
+        float tmpT = 0.0;
+        dRoad = length(rp - vec2(0.5));
+        if (rN) dRoad = min(dRoad, sdSeg(rp, vec2(0.5), vec2(0.5, 0.0), tmpT));
+        if (rS) dRoad = min(dRoad, sdSeg(rp, vec2(0.5), vec2(0.5, 1.0), tmpT));
+        if (rW) dRoad = min(dRoad, sdSeg(rp, vec2(0.5), vec2(0.0, 0.5), tmpT));
+        if (rE) dRoad = min(dRoad, sdSeg(rp, vec2(0.5), vec2(1.0, 0.5), tmpT));
+        if (diagNW) dRoad = min(dRoad, sdSeg(rp, vec2(0.5), vec2(0.0, 0.0), tmpT));
+        if (diagNE) dRoad = min(dRoad, sdSeg(rp, vec2(0.5), vec2(1.0, 0.0), tmpT));
+        if (diagSW) dRoad = min(dRoad, sdSeg(rp, vec2(0.5), vec2(0.0, 1.0), tmpT));
+        if (diagSE) dRoad = min(dRoad, sdSeg(rp, vec2(0.5), vec2(1.0, 1.0), tmpT));
+      }
+
+      // Interior quadrant continuity for multi-lane boulevards & expressways
       if ((rp.x < 0.5 && rp.y < 0.5 && rN && rW && rNW) ||
           (rp.x >= 0.5 && rp.y < 0.5 && rN && rE && rNE) ||
           (rp.x < 0.5 && rp.y >= 0.5 && rS && rW && rSW) ||
@@ -1488,33 +1588,28 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         return marginCol;
       }
 
-      float connCount = (rN ? 1.0 : 0.0) + (rS ? 1.0 : 0.0) + (rW ? 1.0 : 0.0) + (rE ? 1.0 : 0.0);
-      bool isStraightNS = (rN || rS) && !rW && !rE;
-      bool isStraightWE = (rW || rE) && !rN && !rS;
-      bool turnNE = rN && rE && !rS && !rW;
-      bool turnNW = rN && rW && !rS && !rE;
-      bool turnSE = rS && rE && !rN && !rW;
-      bool turnSW = rS && rW && !rN && !rE;
-      bool isTurn = turnNE || turnNW || turnSE || turnSW;
-      bool isJunction = connCount >= 3.0;
+      bool isStraightNS = (rN || rS) && !rW && !rE && diagCount < 0.5;
+      bool isStraightWE = (rW || rE) && !rN && !rS && diagCount < 0.5;
+      bool isJunction = totalConn >= 3.0 && !isWideBlvd;
       bool onCenterHub = max(abs(rp.x - 0.5), abs(rp.y - 0.5)) < 0.25;
 
-      vec2 ic = vec2(0.5);
-      if (turnNE) ic = vec2(1.0, 0.0);
-      else if (turnNW) ic = vec2(0.0, 0.0);
-      else if (turnSE) ic = vec2(1.0, 1.0);
-      else if (turnSW) ic = vec2(0.0, 1.0);
-
-      // Local dominant arm axis for planks / stone courses when in junctions or corners
       bool armVertical = isStraightNS ||
         (rN && rp.y < 0.5 && abs(rp.x - 0.5) <= abs(rp.y - 0.5)) ||
         (rS && rp.y >= 0.5 && abs(rp.x - 0.5) <= abs(rp.y - 0.5));
-      if (isStraightWE) armVertical = false;
+      if (isStraightWE || blvdNorth || blvdSouth) armVertical = false;
+      if (blvdEast || blvdWest) armVertical = true;
+
+      // Boulevard shared-median border mask (places green/curb/double-yellow expressway median cleanly between 2-lane strips)
+      float blvdMedian = 0.0;
+      if (blvdSouth && rp.y > 0.88) blvdMedian = 1.0;
+      if (blvdNorth && rp.y < 0.12) blvdMedian = 1.0;
+      if (blvdEast && rp.x > 0.88) blvdMedian = 1.0;
+      if (blvdWest && rp.x < 0.12) blvdMedian = 1.0;
 
       float noiseVal = landHash12(pixPos * 16.0);
 
       if (uEpoch < 1.5) {
-        // Prehistoric & Bronze Ages: Trodden earth & wooden boardwalk planks oriented perpendicular to road direction
+        // Prehistoric & Bronze Ages: Trodden earth & wooden boardwalk planks oriented perpendicular to road curve/axis
         vec3 dirtBase  = landSrgb(138.0, 106.0, 72.0);
         vec3 woodPlank = landSrgb(162.0, 124.0, 84.0);
         vec3 darkMud   = landSrgb(98.0, 72.0, 46.0);
@@ -1524,18 +1619,17 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         }
 
         float plankSeam = 0.0;
-        if (isJunction || connCount < 0.5) {
+        if (isCardTurn) {
+          float arcAng = atan(abs(rp.y - ic.y), abs(rp.x - ic.x) + 0.0001);
+          plankSeam = step(0.75, fract(arcAng / 1.5707963 * 4.0));
+        } else if (isSmoothSpline) {
+          plankSeam = step(0.74, fract(splineT * 5.0));
+        } else if (isJunction || totalConn < 0.5) {
           if (onCenterHub) {
             plankSeam = max(step(3.0, mod(roadPix.x, 4.0)), step(3.0, mod(roadPix.y, 4.0))) * 0.75;
           } else {
             plankSeam = armVertical ? step(3.0, mod(roadPix.y, 4.0)) : step(3.0, mod(roadPix.x, 4.0));
           }
-        } else if (isTurn) {
-          float arcR = length(rp - ic);
-          float arcAng = atan(abs(rp.y - ic.y), abs(rp.x - ic.x) + 0.0001);
-          float stepPhase = fract(arcAng / 1.5707963 * 4.0);
-          plankSeam = step(0.75, stepPhase);
-          if (abs(arcR - 0.5) > 0.20) return dirtBase;
         } else {
           plankSeam = armVertical ? step(3.0, mod(roadPix.y, 4.0)) : step(3.0, mod(roadPix.x, 4.0));
         }
@@ -1544,11 +1638,17 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         return mix(c, darkMud, plankSeam * 0.72);
 
       } else if (uEpoch < 3.5) {
-        // Classical & Industrial Ages: Oriented cobblestone courses, stone curb edges & plaza setts
+        // Classical & Industrial Ages: Oriented cobblestone courses, stone curb edges & tree-lined boulevard medians
         vec3 base = landSrgb(168.0, 148.0, 130.0);
         vec3 hi   = landSrgb(202.0, 182.0, 158.0);
         vec3 sh   = landSrgb(110.0, 95.0, 82.0);
         vec3 curb = landSrgb(134.0, 120.0, 106.0);
+
+        if (blvdMedian > 0.5) {
+          // Parkway boulevard median strip with greenery & dressed stone curb
+          float shrub = step(0.42, landHash12(floor(pixPos * 4.0)));
+          return mix(landSrgb(84.0, 132.0, 68.0), landSrgb(186.0, 170.0, 144.0), shrub * 0.45);
+        }
 
         if (dRoad > 0.28) {
           float curbJoint = step(0.78, fract((rp.x + rp.y) * 4.0));
@@ -1557,31 +1657,32 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
 
         float mortar = 0.0;
         float toneSeed = 0.5;
-        if (isJunction || connCount < 0.5 || (isTurn && onCenterHub)) {
-          float sqX = step(3.0, mod(roadPix.x, 4.0));
-          float sqY = step(3.0, mod(roadPix.y, 4.0));
-          mortar = max(sqX, sqY);
-          toneSeed = landHash12(tileCoordFallback(pixPos) + floor(roadPix / 4.0));
-        } else if (isTurn) {
+        if (isCardTurn) {
           float arcR = length(rp - ic);
           float arcAng = atan(abs(rp.y - ic.y), abs(rp.x - ic.x) + 0.0001);
           float ringIdx = floor(arcR * 8.0);
           float angIdx = floor(arcAng / 1.5707963 * 6.0 + mod(ringIdx, 2.0) * 0.5);
           mortar = max(step(0.78, fract(arcR * 8.0)), step(0.80, fract(arcAng / 1.5707963 * 6.0 + mod(ringIdx, 2.0) * 0.5)));
           toneSeed = landHash12(tileCoordFallback(pixPos) + vec2(ringIdx, angIdx));
+        } else if (isSmoothSpline) {
+          float sIdx = floor(splineT * 6.0);
+          float wIdx = floor(dRoad * 14.0);
+          mortar = max(step(0.78, fract(splineT * 6.0 + mod(wIdx, 2.0) * 0.5)), step(0.80, fract(dRoad * 14.0)));
+          toneSeed = landHash12(tileCoordFallback(pixPos) + vec2(sIdx, wIdx));
+        } else if (isJunction || totalConn < 0.5) {
+          float sqX = step(3.0, mod(roadPix.x, 4.0));
+          float sqY = step(3.0, mod(roadPix.y, 4.0));
+          mortar = max(sqX, sqY);
+          toneSeed = landHash12(tileCoordFallback(pixPos) + floor(roadPix / 4.0));
         } else if (armVertical) {
           float rowIdx = floor(roadPix.y / 4.0);
           float colShift = mod(rowIdx, 2.0) * 4.0;
-          float mortarY = step(3.0, mod(roadPix.y, 4.0));
-          float mortarX = step(7.0, mod(roadPix.x + colShift, 8.0));
-          mortar = max(mortarX, mortarY);
+          mortar = max(step(7.0, mod(roadPix.x + colShift, 8.0)), step(3.0, mod(roadPix.y, 4.0)));
           toneSeed = landHash12(tileCoordFallback(pixPos) + vec2(rowIdx, floor((roadPix.x + colShift) / 8.0)));
         } else {
           float colIdx = floor(roadPix.x / 4.0);
           float rowShift = mod(colIdx, 2.0) * 4.0;
-          float mortarX = step(3.0, mod(roadPix.x, 4.0));
-          float mortarY = step(7.0, mod(roadPix.y + rowShift, 8.0));
-          mortar = max(mortarX, mortarY);
+          mortar = max(step(3.0, mod(roadPix.x, 4.0)), step(7.0, mod(roadPix.y + rowShift, 8.0)));
           toneSeed = landHash12(tileCoordFallback(pixPos) + vec2(colIdx, floor((roadPix.y + rowShift) / 8.0)));
         }
 
@@ -1589,12 +1690,20 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         return mix(c, sh, mortar * 0.82);
 
       } else if (uEpoch < 5.5) {
-        // Atomic & Information Ages: Asphalt roadway with directional centerlines, 90-degree curved lane lines & urban crosswalks
+        // Atomic & Information Ages: Smooth curved asphalt highways, divided multi-lane Boulevards/Expressways & crosswalks
         bool isInfoAge = uEpoch >= 4.5;
         vec3 asphalt = isInfoAge ? landSrgb(44.0, 50.0, 58.0) : landSrgb(54.0, 60.0, 68.0);
         vec3 curbCol = isInfoAge ? landSrgb(164.0, 174.0, 184.0) : landSrgb(142.0, 150.0, 158.0);
         vec3 laneYellow = landSrgb(245.0, 206.0, 72.0);
         vec3 markWhite  = landSrgb(236.0, 242.0, 248.0);
+
+        if (blvdMedian > 0.5) {
+          // Expressway double-amber barrier + green parkway island
+          if (isInfoAge && (rp.y > 0.92 || rp.y < 0.08 || rp.x > 0.92 || rp.x < 0.08)) {
+            return landSrgb(82.0, 136.0, 74.0);
+          }
+          return laneYellow;
+        }
 
         if (dRoad > 0.29) {
           return mix(curbCol, asphalt, 0.10);
@@ -1602,7 +1711,15 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
 
         vec3 c = mix(asphalt, landSrgb(62.0, 68.0, 76.0), step(0.86, noiseVal) * 0.55);
 
-        if (connCount < 0.5) {
+        if (isWideBlvd) {
+          // Multi-lane expressway dashed white lane dividers inside each half of the boulevard
+          bool horizBlvd = blvdSouth || blvdNorth;
+          float lanePos = horizBlvd ? rp.y : rp.x;
+          float alongPix = horizBlvd ? roadPix.x : roadPix.y;
+          float dash = step(mod(alongPix, 4.0), 1.5);
+          float whiteLane = step(abs(lanePos - 0.48), 0.036) * dash;
+          return mix(c, markWhite, whiteLane * 0.90);
+        } else if (totalConn < 0.5) {
           return c;
         } else if (isJunction) {
           bool inLaneX = abs(rp.x - 0.5) < 0.24;
@@ -1614,17 +1731,24 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
           if (rE && abs(roadPix.x - 13.5) < 0.75 && inLaneY && mod(roadPix.y, 2.0) < 1.0) xwalk = 1.0;
 
           return mix(c, markWhite, xwalk * (isInfoAge ? 0.94 : 0.88));
-        } else if (isTurn) {
+        } else if (isCardTurn) {
           float arcDist = abs(length(rp - ic) - 0.5);
           float arcAng = atan(abs(rp.y - ic.y), abs(rp.x - ic.x) + 0.0001);
           float arcDash = step(fract(arcAng / 1.5707963 * 3.0), 0.55);
           float curveLine = step(arcDist, 0.042) * arcDash;
+          float edgeLine = isInfoAge ? step(abs(arcDist - 0.22), 0.025) : 0.0;
+          c = mix(c, markWhite, edgeLine * 0.42);
+          return mix(c, laneYellow, curveLine * 0.92);
+        } else if (isSmoothSpline) {
+          float splineDash = step(fract(splineT * 4.0), 0.55);
+          float curveLine = step(dRoad, 0.042) * splineDash;
+          float edgeLine = isInfoAge ? step(abs(dRoad - 0.22), 0.025) : 0.0;
+          c = mix(c, markWhite, edgeLine * 0.45);
           return mix(c, laneYellow, curveLine * 0.92);
         } else if (isStraightNS) {
           float dash = step(mod(roadPix.y, 4.0), 1.5);
           float endCap = step(dRoad, 0.22);
           float line = step(abs(rp.x - 0.5), 0.04) * dash * endCap;
-          // Edge white lane stripes in Info Age
           float edgeLine = isInfoAge ? step(abs(abs(rp.x - 0.5) - 0.23), 0.025) : 0.0;
           c = mix(c, markWhite, edgeLine * 0.45);
           return mix(c, laneYellow, line * 0.92);
@@ -1643,6 +1767,9 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         vec3 alloySeam = landSrgb(24.0, 32.0, 42.0);
         vec3 cyanNeon  = landSrgb(86.0, 207.0, 225.0);
 
+        if (blvdMedian > 0.5) {
+          return mix(cyanNeon, landSrgb(250.0, 210.0, 96.0), 0.45);
+        }
         if (dRoad > 0.30) {
           return alloySeam;
         }
@@ -1655,8 +1782,16 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         float pulse = 0.0;
         float flowOffset = floor(tTime * 8.0);
 
-        if (connCount < 0.5) {
+        if (totalConn < 0.5) {
           pulse = step(abs(length(rp - vec2(0.5)) - 0.11), 0.04);
+        } else if (isCardTurn) {
+          float arcDist = abs(length(rp - ic) - 0.5);
+          float arcAng = atan(abs(rp.y - ic.y), abs(rp.x - ic.x) + 0.0001);
+          float arcFlow = step(0.45, fract(arcAng / 1.5707963 * 4.0 + tTime * 2.0));
+          pulse = step(arcDist, 0.042) * arcFlow;
+        } else if (isSmoothSpline) {
+          float splineFlow = step(0.45, fract(splineT * 4.0 + tTime * 2.0));
+          pulse = step(dRoad, 0.042) * splineFlow;
         } else if (isJunction) {
           float hubRing = step(abs(length(rp - vec2(0.5)) - 0.13), 0.04);
           float armPulse = 0.0;
@@ -1665,12 +1800,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
           if (rW && rp.x < 0.34 && abs(rp.y - 0.5) < 0.04) armPulse = step(1.0, mod(roadPix.x + flowOffset, 4.0));
           if (rE && rp.x > 0.66 && abs(rp.y - 0.5) < 0.04) armPulse = step(1.0, mod(roadPix.x - flowOffset, 4.0));
           pulse = max(hubRing, armPulse);
-        } else if (isTurn) {
-          float arcDist = abs(length(rp - ic) - 0.5);
-          float arcAng = atan(abs(rp.y - ic.y), abs(rp.x - ic.x) + 0.0001);
-          float arcFlow = step(0.45, fract(arcAng / 1.5707963 * 4.0 + tTime * 2.0));
-          pulse = step(arcDist, 0.042) * arcFlow;
-        } else if (isStraightNS) {
+        } else if (isStraightNS || armVertical) {
           pulse = step(abs(rp.x - 0.5), 0.04) * step(1.0, mod(roadPix.y + flowOffset, 4.0)) * step(dRoad, 0.21);
         } else {
           pulse = step(abs(rp.y - 0.5), 0.04) * step(1.0, mod(roadPix.x + flowOffset, 4.0)) * step(dRoad, 0.21);
@@ -1688,19 +1818,32 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
       bool tS,
       bool tW,
       bool tE,
+      bool tNW,
+      bool tNE,
+      bool tSW,
+      bool tSE,
       vec3 marginCol
     ) {
       vec2 rPix = floor(subUv * 16.0);
       vec2 rp = (rPix + 0.5) / 16.0;
 
-      bool turnNE = tN && tE && !tS && !tW;
-      bool turnNW = tN && tW && !tS && !tE;
-      bool turnSE = tS && tE && !tN && !tW;
-      bool turnSW = tS && tW && !tN && !tE;
-      bool isTurn = turnNE || turnNW || turnSE || turnSW;
-      bool isStraightNS = (tN || tS) && !tW && !tE;
-      bool isStraightWE = (tW || tE) && !tN && !tS;
-      float connCount = (tN ? 1.0 : 0.0) + (tS ? 1.0 : 0.0) + (tW ? 1.0 : 0.0) + (tE ? 1.0 : 0.0);
+      // Diagonal rail connections exclude redundant L-corner elbows
+      bool diagNW = tNW && !tN && !tW;
+      bool diagNE = tNE && !tN && !tE;
+      bool diagSW = tSW && !tS && !tW;
+      bool diagSE = tSE && !tS && !tE;
+
+      float cardCount = (tN ? 1.0 : 0.0) + (tS ? 1.0 : 0.0) + (tW ? 1.0 : 0.0) + (tE ? 1.0 : 0.0);
+      float diagCount = (diagNW ? 1.0 : 0.0) + (diagNE ? 1.0 : 0.0) + (diagSW ? 1.0 : 0.0) + (diagSE ? 1.0 : 0.0);
+      float totalConn = cardCount + diagCount;
+
+      bool turnNE = tN && tE && !tS && !tW && diagCount < 0.5;
+      bool turnNW = tN && tW && !tS && !tE && diagCount < 0.5;
+      bool turnSE = tS && tE && !tN && !tW && diagCount < 0.5;
+      bool turnSW = tS && tW && !tN && !tE && diagCount < 0.5;
+      bool isCardTurn = turnNE || turnNW || turnSE || turnSW;
+      bool isStraightNS = (tN || tS) && !tW && !tE && diagCount < 0.5;
+      bool isStraightWE = (tW || tE) && !tN && !tS && diagCount < 0.5;
 
       vec2 ic = vec2(0.5);
       if (turnNE) ic = vec2(1.0, 0.0);
@@ -1708,15 +1851,47 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
       else if (turnSE) ic = vec2(1.0, 1.0);
       else if (turnSW) ic = vec2(0.0, 1.0);
 
+      // Fit smooth continuous Bezier curve across any 2-arm diagonal or curve-transition rail tile (e.g. W->NE, NW->SE, N->SE)
+      bool isSplineRail = (abs(totalConn - 2.0) < 0.1) && !isCardTurn && diagCount > 0.5;
+      vec2 sp0 = vec2(0.5);
+      vec2 sp2 = vec2(0.5);
+      if (isSplineRail) {
+        int found = 0;
+        vec2 pts[8];
+        if (tN) pts[found++] = vec2(0.5, 0.0);
+        if (tS) pts[found++] = vec2(0.5, 1.0);
+        if (tW) pts[found++] = vec2(0.0, 0.5);
+        if (tE) pts[found++] = vec2(1.0, 0.5);
+        if (diagNW) pts[found++] = vec2(0.0, 0.0);
+        if (diagNE) pts[found++] = vec2(1.0, 0.0);
+        if (diagSW) pts[found++] = vec2(0.0, 1.0);
+        if (diagSE) pts[found++] = vec2(1.0, 1.0);
+        if (found >= 2) {
+          sp0 = pts[0];
+          sp2 = pts[1];
+        } else {
+          isSplineRail = false;
+        }
+      }
+
+      float splineT = 0.0;
+      vec2 splineTang = vec2(1.0, 0.0);
       float dTrack = length(rp - vec2(0.5));
-      if (isTurn) {
+      if (isCardTurn) {
         dTrack = abs(length(rp - ic) - 0.5);
+      } else if (isSplineRail) {
+        dTrack = sdBezierCurve(rp, sp0, vec2(0.5, 0.5), sp2, splineT, splineTang);
       } else {
-        if (tN) dTrack = min(dTrack, length(vec2(rp.x - 0.5, max(0.0, rp.y - 0.5))));
-        if (tS) dTrack = min(dTrack, length(vec2(rp.x - 0.5, max(0.0, 0.5 - rp.y))));
-        if (tW) dTrack = min(dTrack, length(vec2(max(0.0, rp.x - 0.5), rp.y - 0.5)));
-        if (tE) dTrack = min(dTrack, length(vec2(max(0.0, 0.5 - rp.x), rp.y - 0.5)));
-        if (connCount < 0.5) {
+        float tmpT = 0.0;
+        if (tN) dTrack = min(dTrack, sdSeg(rp, vec2(0.5), vec2(0.5, 0.0), tmpT));
+        if (tS) dTrack = min(dTrack, sdSeg(rp, vec2(0.5), vec2(0.5, 1.0), tmpT));
+        if (tW) dTrack = min(dTrack, sdSeg(rp, vec2(0.5), vec2(0.0, 0.5), tmpT));
+        if (tE) dTrack = min(dTrack, sdSeg(rp, vec2(0.5), vec2(1.0, 0.5), tmpT));
+        if (diagNW) dTrack = min(dTrack, sdSeg(rp, vec2(0.5), vec2(0.0, 0.0), tmpT));
+        if (diagNE) dTrack = min(dTrack, sdSeg(rp, vec2(0.5), vec2(1.0, 0.0), tmpT));
+        if (diagSW) dTrack = min(dTrack, sdSeg(rp, vec2(0.5), vec2(0.0, 1.0), tmpT));
+        if (diagSE) dTrack = min(dTrack, sdSeg(rp, vec2(0.5), vec2(1.0, 1.0), tmpT));
+        if (totalConn < 0.5) {
           dTrack = abs(rp.x - 0.5);
         }
       }
@@ -1732,10 +1907,13 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
       if (isStraightWE) armVertical = false;
 
       float tieMask = 0.0;
-      if (isTurn) {
+      if (isCardTurn) {
         float arcAng = atan(abs(rp.y - ic.y), abs(rp.x - ic.x) + 0.0001);
         tieMask = step(0.55, fract(arcAng / 1.5707963 * 6.0));
-      } else if (connCount >= 3.0 && max(abs(rp.x - 0.5), abs(rp.y - 0.5)) < 0.25) {
+      } else if (isSplineRail) {
+        // Radial sleepers cleanly perpendicular to the smooth Bezier railway tangent
+        tieMask = step(0.56, fract(splineT * 5.0));
+      } else if (totalConn >= 3.0 && max(abs(rp.x - 0.5), abs(rp.y - 0.5)) < 0.25) {
         tieMask = max(step(mod(rPix.x, 3.0), 0.9), step(mod(rPix.y, 3.0), 0.9));
       } else {
         tieMask = armVertical ? step(mod(rPix.y, 3.0), 0.9) : step(mod(rPix.x, 3.0), 0.9);
@@ -1984,7 +2162,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
       roughness,
       metalness,
     });
-    topMat.customProgramCacheKey = () => 'aeon_land_top_pixel_v11';
+    topMat.customProgramCacheKey = () => 'aeon_land_top_pixel_v12';
     topMat.onBeforeCompile = (shader) => {
       shader.uniforms.uTime = sharedTime;
       shader.uniforms.uEpoch = sharedEpoch;
@@ -2103,11 +2281,19 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
               }
             }
           } else if (abs(myCode - 14.0) < 0.5) {
-            // 0c. Connected Metro / Railway Track (rail_track = 14.0)
+            // 0c. Connected Metro / Railway Track (rail_track = 14.0, full 8-way curve awareness)
+            float cNW = decodeTerrain(sampleLandTile(tileCoord + vec2(-1.0, -1.0)));
+            float cNE = decodeTerrain(sampleLandTile(tileCoord + vec2( 1.0, -1.0)));
+            float cSW = decodeTerrain(sampleLandTile(tileCoord + vec2(-1.0,  1.0)));
+            float cSE = decodeTerrain(sampleLandTile(tileCoord + vec2( 1.0,  1.0)));
             bool tN = abs(cN - 14.0) < 0.5 || (abs(cN - 9.0) < 0.5 && abs(cS - 14.0) < 0.5);
             bool tS = abs(cS - 14.0) < 0.5 || (abs(cS - 9.0) < 0.5 && abs(cN - 14.0) < 0.5);
             bool tW = abs(cW - 14.0) < 0.5 || (abs(cW - 9.0) < 0.5 && abs(cE - 14.0) < 0.5);
             bool tE = abs(cE - 14.0) < 0.5 || (abs(cE - 9.0) < 0.5 && abs(cW - 14.0) < 0.5);
+            bool tNW = abs(cNW - 14.0) < 0.5 || (abs(cNW - 9.0) < 0.5 && abs(cSE - 14.0) < 0.5);
+            bool tNE = abs(cNE - 14.0) < 0.5 || (abs(cNE - 9.0) < 0.5 && abs(cSW - 14.0) < 0.5);
+            bool tSW = abs(cSW - 14.0) < 0.5 || (abs(cSW - 9.0) < 0.5 && abs(cNE - 14.0) < 0.5);
+            bool tSE = abs(cSE - 14.0) < 0.5 || (abs(cSE - 9.0) < 0.5 && abs(cNW - 14.0) < 0.5);
 
             float marginBiome = 3.0;
             if (!tN && subUv.y < 0.35 && cN >= 2.0 && abs(cN - 14.0) > 0.5 && abs(cN - 9.0) > 0.5 && abs(cN - 21.0) > 0.5) {
@@ -2128,7 +2314,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
               marginBiome = cE;
             }
             vec3 marginCol = computeBiomeColor(marginBiome, pixPos, chunkPos, subUv, uTime, false);
-            col = computeRailColor(pixPos, subUv, uTime, tN, tS, tW, tE, marginCol);
+            col = computeRailColor(pixPos, subUv, uTime, tN, tS, tW, tE, tNW, tNE, tSW, tSE, marginCol);
           } else if (abs(myCode - 21.0) < 0.5) {
             // 0d. Dedicated Airport Runway (runway = 21.0)
             bool wN = abs(cN - 21.0) < 0.5;

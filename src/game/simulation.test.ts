@@ -21,6 +21,8 @@ import {
   initializeKingdomDiplomacyPair,
   isCarnivoreAnimal,
   isHerbivoreAnimal,
+  isSettlementRoadTile,
+  paveSettlementRailNetwork,
   placeBuilding,
   releaseDragUnit,
   rollKingdomPeacefulTrait,
@@ -50,7 +52,7 @@ import {
   extractKingdomColorsMap,
   inspectTileZones,
 } from './zones';
-import { createUnitGroup, createVehicleGroup, getNodeVariantLibrary } from './meshBuilders';
+import { createBuildingGroup, createUnitGroup, createVehicleGroup, getNodeVariantLibrary } from './meshBuilders';
 import { generateWorldTiles } from './worldGen';
 import {
   DEFAULT_GRAPHICS_SETTINGS,
@@ -4507,4 +4509,184 @@ test('Sea Update: Leviathan has articulated silhouette & 3D beam rig, fires 7s s
     `Eating a deep-sea island should set a long rare cooldown, got ${levi.leviathanEatIslandCooldown}`,
   );
 });
+
+test('Organic Urban Masterplans & Wide Curved Railroads: non-rectangular roads, boulevards, diagonal/Bezier rails without tiny loops', () => {
+  // 1. Verify all 4 settlement road variants generate non-rectangular curved/angled/boulevard patterns
+  for (let variant = 0; variant < 4; variant++) {
+    assert.equal(
+      isSettlementRoadTile(0, 0, variant),
+      false,
+      `Variant ${variant} must keep (0,0) clear for the central hearth`,
+    );
+    let diagonalCount = 0;
+    let curvedRingCount = 0;
+    let boulevardPairCount = 0;
+    for (let dz = -13; dz <= 13; dz++) {
+      for (let dx = -13; dx <= 13; dx++) {
+        if (!isSettlementRoadTile(dx, dz, variant)) continue;
+        // Points strictly off cardinal axes & box edges prove organic/curved/diagonal geometry
+        if (dx !== 0 && dz !== 0 && Math.abs(dx) !== Math.abs(dz)) {
+          curvedRingCount++;
+        }
+        if (Math.abs(dx) === Math.abs(dz) && Math.abs(dx) >= 3) {
+          diagonalCount++;
+        }
+        if (isSettlementRoadTile(dx, dz + 1, variant) && isSettlementRoadTile(dx + 1, dz, variant)) {
+          boulevardPairCount++;
+        }
+      }
+    }
+    assert.ok(
+      curvedRingCount >= 12,
+      `Road variant ${variant} must include curved/organic off-axis avenues (got ${curvedRingCount})`,
+    );
+    assert.ok(
+      boulevardPairCount >= 2 || diagonalCount >= 4,
+      `Road variant ${variant} must include 2-tile boulevards or diagonal expressways (blvd=${boulevardPairCount}, diag=${diagonalCount})`,
+    );
+  }
+
+  // 2. Verify wide orbital rail loops (span >= 22 tiles, zero 2x2 clumps) & curved inter-city corridors
+  const state = createInitialSimulationState(128, 'CURVED-RAIL-ARCH');
+  state.sandboxFreeMode = true;
+  state.wildlifeSeeded = true;
+  for (let z = 16; z <= 112; z++) {
+    for (let x = 16; x <= 112; x++) {
+      const t = getTile(state, x, z)!;
+      t.height = 2;
+      t.terrain = 'grass';
+      t.resourceNode = 'none';
+      t.resourceAmount = 0;
+      t.buildingId = null;
+    }
+  }
+
+  // Advance to Industrial Age and found two distant settlements + rail stations
+  while (state.epochIndex < 3) advanceEpoch(state, true);
+  assert.equal(placeBuilding(state, 'bonfire', 36, 40).ok, true);
+  assert.equal(placeBuilding(state, 'rail_station', 40, 42).ok, true);
+  const sid1 = state.buildings[0].settlementId!;
+  // Found a 2nd settlement with an offset station to force a sweeping inter-city Bezier spline
+  assert.equal(placeBuilding(state, 'bonfire', 86, 74).ok, true);
+  const sid2 = state.buildings[state.buildings.length - 1]!.settlementId!;
+  assert.equal(placeBuilding(state, 'rail_station', 82, 71).ok, true);
+
+  paveSettlementRailNetwork(state, sid1);
+  paveSettlementRailNetwork(state, sid2);
+
+  const railTiles = state.tiles.filter((t) => t.terrain === 'rail_track');
+  assert.ok(railTiles.length >= 60, `Wide orbital + inter-city rail network should pave >= 60 tiles, got ${railTiles.length}`);
+
+  // Check city-1 metro loop span around (36, 40) is wide (>= 22 tiles diameter)
+  const localRails = railTiles.filter((t) => Math.abs(t.x - 36) <= 15 && Math.abs(t.z - 40) <= 15);
+  const minX = Math.min(...localRails.map((t) => t.x));
+  const maxX = Math.max(...localRails.map((t) => t.x));
+  const minZ = Math.min(...localRails.map((t) => t.z));
+  const maxZ = Math.max(...localRails.map((t) => t.z));
+  assert.ok(maxX - minX >= 22, `Metro loop must span wide distance X >= 22 tiles, got ${maxX - minX}`);
+  assert.ok(maxZ - minZ >= 22, `Metro loop must span wide distance Z >= 22 tiles, got ${maxZ - minZ}`);
+
+  // Verify NO 2x2 solid rail blocks exist anywhere (no tiny micro-loops or blocky clumps)
+  let block2x2Count = 0;
+  for (const rt of railTiles) {
+    const e = getTile(state, rt.x + 1, rt.z)?.terrain === 'rail_track';
+    const s = getTile(state, rt.x, rt.z + 1)?.terrain === 'rail_track';
+    const se = getTile(state, rt.x + 1, rt.z + 1)?.terrain === 'rail_track';
+    if (e && s && se) block2x2Count++;
+  }
+  assert.equal(block2x2Count, 0, `Railroads must never form 2x2 solid clumps/micro-loops (found ${block2x2Count})`);
+
+  // Verify diagonal corner transitions & curves exist along the network
+  let diagConnectedCount = 0;
+  for (const rt of railTiles) {
+    const diagNeighbors = [
+      getTile(state, rt.x + 1, rt.z + 1),
+      getTile(state, rt.x - 1, rt.z + 1),
+      getTile(state, rt.x + 1, rt.z - 1),
+      getTile(state, rt.x - 1, rt.z - 1),
+    ].filter((n) => n && n.terrain === 'rail_track').length;
+    if (diagNeighbors > 0) diagConnectedCount++;
+  }
+  assert.ok(
+    diagConnectedCount >= 16,
+    `Chamfered corners and curved Bezier rails must use 8-way diagonal transitions (got ${diagConnectedCount})`,
+  );
+
+  // 3. Verify trains traverse the wide curved network continuously without getting stuck in tiny oscillations
+  assert.equal(placeBuilding(state, 'smeltery', 38, 40).ok, true);
+  for (let c = 0; c < 4; c++) {
+    spawnUnit(state, 'human', 36 + (c % 2), 40 + Math.floor(c / 2), true, sid1);
+    spawnUnit(state, 'elf', 86 + (c % 2), 74 + Math.floor(c / 2), true, sid2);
+  }
+  for (const b of state.buildings) b.constructionProgress = 100;
+  for (let i = 0; i < 30; i++) stepSimulation(state, 0.25);
+  const trains = (state.vehicles ?? []).filter((v) => v.type === 'train');
+  assert.ok(trains.length >= 1, 'Should spawn at least one train on the wide rail network');
+  const t0 = trains[0];
+  const visitedCells = new Set<string>();
+  for (let i = 0; i < 40; i++) {
+    stepSimulation(state, 0.25);
+    visitedCells.add(`${Math.round(t0.x)},${Math.round(t0.z)}`);
+  }
+  assert.ok(
+    visitedCells.size >= 8,
+    `Train must cruise cleanly across >= 8 distinct tiles instead of looping in a small trap (visited ${visitedCells.size})`,
+  );
+});
+
+test('Distinct Racial Building Architectures: Human, Elf, and Orc build unique 3D silhouettes across types', () => {
+  const summarizeGroupGeometry = (group: THREE.Group): string => {
+    const parts: string[] = [];
+    group.traverse((obj) => {
+      if (obj instanceof THREE.Mesh && obj.geometry) {
+        const geo = obj.geometry;
+        geo.computeBoundingBox();
+        const bb = geo.boundingBox;
+        const posCount = geo.getAttribute('position')?.count ?? 0;
+        const sx = bb ? (bb.max.x - bb.min.x) * obj.scale.x : 0;
+        const sy = bb ? (bb.max.y - bb.min.y) * obj.scale.y : 0;
+        const sz = bb ? (bb.max.z - bb.min.z) * obj.scale.z : 0;
+        // Signature uses geometry type, vertex count, and quantized proportions — immune to mere material recoloring
+        parts.push(`${geo.type}:${posCount}:${sx.toFixed(2)}x${sy.toFixed(2)}x${sz.toFixed(2)}`);
+      }
+    });
+    parts.sort();
+    return `${parts.length}|${parts.join(';')}`;
+  };
+
+  const cases: Array<{ type: Parameters<typeof createBuildingGroup>[0]; epoch: number }> = [
+    { type: 'forager_hut', epoch: 6 },
+    { type: 'granary', epoch: 4 },
+    { type: 'smeltery', epoch: 5 },
+    { type: 'fission_reactor', epoch: 4 },
+    { type: 'cyber_institute', epoch: 5 },
+    { type: 'rail_station', epoch: 5 },
+    { type: 'airport', epoch: 5 },
+    { type: 'launch_arcology', epoch: 6 },
+    { type: 'dyson_spire', epoch: 6 },
+  ];
+
+  for (const { type, epoch } of cases) {
+    const humanSig = summarizeGroupGeometry(createBuildingGroup(type, epoch, 0, 'human', false));
+    const elfSig = summarizeGroupGeometry(createBuildingGroup(type, epoch, 0, 'elf', false));
+    const orcSig = summarizeGroupGeometry(createBuildingGroup(type, epoch, 0, 'orc', false));
+
+    assert.notEqual(
+      elfSig,
+      humanSig,
+      `${type} (epoch ${epoch}) Elf architecture must differ structurally from Human, not merely be recolored`,
+    );
+    assert.notEqual(
+      orcSig,
+      humanSig,
+      `${type} (epoch ${epoch}) Orc architecture must differ structurally from Human, not merely be recolored`,
+    );
+    assert.notEqual(
+      orcSig,
+      elfSig,
+      `${type} (epoch ${epoch}) Orc architecture must differ structurally from Elf, not merely be recolored`,
+    );
+  }
+});
+
 

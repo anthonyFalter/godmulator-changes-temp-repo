@@ -3805,36 +3805,57 @@ export function isSettlementRoadTile(dx: number, dz: number, variant: number): b
   const adz = Math.abs(dz);
   const maxD = Math.max(adx, adz);
   if (maxD > 13) return false;
+  const r = Math.hypot(dx, dz);
 
   switch (variant & 3) {
     case 0: {
-      // Variant 0: Perimeter Loops & Crossroads (scales outward for dense urbanized blocks)
-      const onPerimeterLoop = (maxD === 4 || maxD === 8 || maxD === 12) && adx <= maxD && adz <= maxD;
-      const onCrossAvenue = (dx === 0 && dz >= -12 && dz <= 12) || (dz === 0 && dx >= -12 && dx <= 12);
-      return onPerimeterLoop || onCrossAvenue;
+      // Variant 0: Imperial Radial Ring Hub & Grand E-W Boulevard + 45-degree Diagonal Expressway
+      const onInnerRing = Math.abs(r - 4.2) <= 0.50;
+      const onMidRing = Math.abs(r - 8.6) <= 0.50;
+      const onOuterBelt = Math.abs(r - 12.6) <= 0.48;
+      // Wide 2-tile-wide Grand Boulevard East-West + North-South Spine
+      const onGrandBlvd = (dz === 0 || dz === 1) && adx <= 13;
+      const onCrossSpine = dx === 0 && adz <= 13;
+      // Long 45-degree Diagonal Expressway cutting smoothly across quadrants (no sharp 90° turns)
+      const onDiagExpressway = dx === dz && adx >= 4 && adx <= 12;
+      return onInnerRing || onMidRing || onOuterBelt || onGrandBlvd || onCrossSpine || onDiagExpressway;
     }
     case 1: {
-      // Variant 1: Twin Boulevards & Cross Streets
-      const onBoulevard = (dz === -9 || dz === -5 || dz === -1 || dz === 3 || dz === 7 || dz === 11) && adx <= 12;
-      const onCross = (dx === -10 || dx === -6 || dx === -2 || dx === 2 || dx === 6 || dx === 10) && adz <= 11;
-      return onBoulevard || onCross;
+      // Variant 1: Twin S-Curve Expressways & Sweeping Organic Crescent Avenues
+      const waveZ = Math.round(2.7 * Math.sin(dx * 0.25));
+      const onSCurveExpressway =
+        adx <= 13 && (dz === waveZ || (adx <= 6 && dz === waveZ + 1));
+      // Angled NW-SE Grand Boulevard (gentle 45° arterial crossing)
+      const onAngledBlvd = dx + dz === 1 && adx <= 11 && adz <= 11;
+      const onInnerCrescent = Math.abs(r - 5.2) <= 0.50;
+      const onOuterCrescent = Math.abs(r - 10.4) <= 0.48;
+      return onSCurveExpressway || onAngledBlvd || onInnerCrescent || onOuterCrescent;
     }
     case 2: {
-      // Variant 2: Civic Plaza Ring & Radial Spokes
-      const onRing = maxD === 2 || maxD === 6 || maxD === 10;
-      const onSpoke = (dx === 0 && adz >= 2 && adz <= 12) || (dz === 0 && adx >= 2 && adx <= 12);
-      return onRing || onSpoke;
+      // Variant 2: Rotated Elliptical Boulevard Rings & Starburst Radial Skyways
+      const rotX = dx * 0.866 - dz * 0.5;
+      const rotZ = dx * 0.5 + dz * 0.866;
+      const rEllip = Math.hypot(rotX * 0.84, rotZ * 1.16);
+      const onInnerEllip = Math.abs(rEllip - 4.4) <= 0.50;
+      const onOuterEllip = Math.abs(rEllip - 9.6) <= 0.50;
+      const onCardinalSpokes = (dx === 0 || dz === 0) && maxD <= 12;
+      const onDiagSpokes = (dx === dz || dx === -dz) && adx >= 3 && adx <= 11;
+      // 2-tile wide Grand N-S Promenade near center
+      const onNorthSouthBlvd = dx === 1 && adz <= 6;
+      return onInnerEllip || onOuterEllip || onCardinalSpokes || onDiagSpokes || onNorthSouthBlvd;
     }
     default: {
-      // Variant 3: Urban Commons with staggered T-junctions & outer ring
-      const onMainSpine = (dz === 1 && dx >= -12 && dx <= 12) || (dx === -1 && dz >= -12 && dz <= 12);
-      const onLoopBranch =
-        (dx === 3 && dz >= -6 && dz <= 7) ||
-        (dx === -5 && dz >= -4 && dz <= 6) ||
-        (dz === -3 && dx >= -6 && dx <= 6) ||
-        (dz === 5 && dx >= -6 && dx <= 6) ||
-        maxD === 10;
-      return onMainSpine || onLoopBranch;
+      // Variant 3: Riverfront Parabolic Arc Avenue, Three-Lobed Organic Beltway & Gentler 2:1 Sloped Parkway
+      const angle = Math.atan2(dz, dx);
+      const triLobeR = 9.2 + 1.5 * Math.cos(angle * 3.0);
+      const onOrganicBelt = Math.abs(r - triLobeR) <= 0.50;
+      const paraZ = Math.round(0.048 * dx * dx - 3.6);
+      const onParabolicBlvd =
+        adx <= 12 && (dz === paraZ || (adx <= 5 && dz === paraZ + 1));
+      // Gentle ~26.5 degree sloped parkway (runs 2 horizontal for 1 vertical—never an abrupt 90° turn)
+      const onSlopedParkway = adx <= 12 && dz === Math.round(dx * 0.5);
+      const onHubRing = Math.abs(r - 4.6) <= 0.48;
+      return onOrganicBelt || onParabolicBlvd || onSlopedParkway || onHubRing;
     }
   }
 }
@@ -3849,6 +3870,18 @@ function paveRailTileIfClean(state: SimulationState, x: number, z: number): bool
     t.terrain === 'runway'
   ) {
     return false;
+  }
+  // Never complete a 2x2 solid rail clump: 8-way diagonal crossings remain connected without blocky squares
+  const isRail = (tx: number, tz: number) => getTile(state, tx, tz)?.terrain === 'rail_track';
+  for (const [ox, oz] of [
+    [-1, -1],
+    [1, -1],
+    [-1, 1],
+    [1, 1],
+  ] as const) {
+    if (isRail(x + ox, z) && isRail(x, z + oz) && isRail(x + ox, z + oz)) {
+      return false;
+    }
   }
   if (t.resourceNode === 'berry_bush' || t.resourceNode === 'timber_grove') {
     t.resourceNode = 'none';
@@ -3994,73 +4027,199 @@ function findAirportRunwayEndpoints(
   };
 }
 
+/**
+ * Traces a thin, smooth 8-connected quadratic Bezier railway corridor between (sx,sz) -> (mx,mz) -> (ex,ez)
+ * without creating 90-degree zigzag staircases or 2x2 micro-loops.
+ */
+function traceSmoothRailSpline(
+  state: SimulationState,
+  sx: number,
+  sz: number,
+  mx: number,
+  mz: number,
+  ex: number,
+  ez: number,
+  avoidTightLoops = true,
+): Array<{ x: number; z: number }> {
+  const totalDist = Math.hypot(ex - sx, ez - sz);
+  const sampleCount = Math.max(8, Math.ceil(totalDist * 3.5));
+  const rawPts: Array<{ x: number; z: number }> = [];
+
+  const pushThinStep = (tx: number, tz: number) => {
+    if (rawPts.length === 0) {
+      rawPts.push({ x: tx, z: tz });
+      return;
+    }
+    let cur = rawPts[rawPts.length - 1];
+    let guard = 0;
+    while ((cur.x !== tx || cur.z !== tz) && guard < 8) {
+      guard += 1;
+      const sxStep = Math.sign(tx - cur.x);
+      const szStep = Math.sign(tz - cur.z);
+      const nx = cur.x + sxStep;
+      const nz = cur.z + szStep;
+      rawPts.push({ x: nx, z: nz });
+      cur = { x: nx, z: nz };
+    }
+  };
+
+  for (let i = 0; i <= sampleCount; i++) {
+    const t = i / sampleCount;
+    const u = 1 - t;
+    const bx = Math.round(u * u * sx + 2 * u * t * mx + t * t * ex);
+    const bz = Math.round(u * u * sz + 2 * u * t * mz + t * t * ez);
+    pushThinStep(bx, bz);
+  }
+
+  // Collapse any accidental L-elbow triads (A -> B -> C where max(|A.x-C.x|,|A.z-C.z|) === 1)
+  // so diagonal curves stay strictly 1-tile thin with zero 2x2 micro-loops or staircase zigzags
+  const cleaned: Array<{ x: number; z: number }> = [];
+  for (let i = 0; i < rawPts.length; i++) {
+    const p = rawPts[i];
+    if (cleaned.length >= 2) {
+      const a = cleaned[cleaned.length - 2];
+      if (Math.max(Math.abs(p.x - a.x), Math.abs(p.z - a.z)) <= 1) {
+        cleaned.pop();
+      }
+    }
+    if (
+      cleaned.length === 0 ||
+      cleaned[cleaned.length - 1].x !== p.x ||
+      cleaned[cleaned.length - 1].z !== p.z
+    ) {
+      cleaned.push(p);
+    }
+  }
+
+  const wouldForm2x2RailClump = (x: number, z: number): boolean => {
+    const isRail = (tx: number, tz: number) => getTile(state, tx, tz)?.terrain === 'rail_track';
+    for (const [ox, oz] of [
+      [-1, -1],
+      [1, -1],
+      [-1, 1],
+      [1, 1],
+    ] as const) {
+      if (isRail(x + ox, z) && isRail(x, z + oz) && isRail(x + ox, z + oz)) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  const paved: Array<{ x: number; z: number }> = [];
+  for (let i = 0; i < cleaned.length; i++) {
+    const pt = cleaned[i];
+    const cur = getTile(state, pt.x, pt.z);
+    if (cur && cur.terrain === 'rail_track') {
+      paved.push(pt);
+      continue;
+    }
+    if (avoidTightLoops && wouldForm2x2RailClump(pt.x, pt.z)) {
+      continue;
+    }
+    if (paveRailTileIfClean(state, pt.x, pt.z)) {
+      paved.push(pt);
+    }
+  }
+  return paved;
+}
+
 export function paveSettlementRailNetwork(state: SimulationState, settlementId = 'city_default'): void {
   const villageBuildings = state.buildings.filter((b) => (b.settlementId ?? 'city_default') === settlementId);
   if (villageBuildings.length === 0) return;
 
   const anchor = getSettlementAnchorForId(state, settlementId);
   const variant = getSettlementLayoutVariant(state, settlementId, anchor.x, anchor.z);
-  // Choose a perimeter metro loop ring that minimizes road overlap for each street layout
-  const metroRadius = (variant & 3) === 0 ? 6 : (variant & 3) === 1 ? 8 : 8;
 
-  for (let d = -metroRadius; d <= metroRadius; d++) {
-    paveRailTileIfClean(state, anchor.x + d, anchor.z - metroRadius);
-    paveRailTileIfClean(state, anchor.x + d, anchor.z + metroRadius);
-    paveRailTileIfClean(state, anchor.x - metroRadius, anchor.z + d);
-    paveRailTileIfClean(state, anchor.x + metroRadius, anchor.z + d);
-  }
+  // Wide-distance rounded orbital transit loop (radius 11..13, diameter 22..26 tiles — never a tiny tight loop!)
+  // Uses long straight tangents with wide 5-tile 45-degree chamfered corner arcs (chamfer = 5) so tracks curve gradually.
+  const metroRadius = 11 + (variant % 3); // 11, 12, or 13
+  const chamfer = 5;
+  const straightHalf = Math.max(3, metroRadius - chamfer);
 
-  // Link any rail_station in this settlement directly to the city metro loop
+  const perimeterRing: Array<{ x: number; z: number }> = [];
+  const pushRingPt = (rx: number, rz: number) => {
+    const t = getTile(state, anchor.x + rx, anchor.z + rz);
+    if (!t) return;
+    paveRailTileIfClean(state, t.x, t.z);
+    perimeterRing.push({ x: t.x, z: t.z });
+  };
+
+  // Top tangent (W -> E)
+  for (let dx = -straightHalf; dx <= straightHalf; dx++) pushRingPt(dx, -metroRadius);
+  // NE wide curve arc
+  for (let k = 1; k < chamfer; k++) pushRingPt(straightHalf + k, -metroRadius + k);
+  // East tangent (N -> S)
+  for (let dz = -straightHalf; dz <= straightHalf; dz++) pushRingPt(metroRadius, dz);
+  // SE wide curve arc
+  for (let k = 1; k < chamfer; k++) pushRingPt(metroRadius - k, straightHalf + k);
+  // Bottom tangent (E -> W)
+  for (let dx = straightHalf; dx >= -straightHalf; dx--) pushRingPt(dx, metroRadius);
+  // SW wide curve arc
+  for (let k = 1; k < chamfer; k++) pushRingPt(-straightHalf - k, metroRadius - k);
+  // West tangent (S -> N)
+  for (let dz = straightHalf; dz >= -straightHalf; dz--) pushRingPt(-metroRadius, dz);
+  // NW wide curve arc
+  for (let k = 1; k < chamfer; k++) pushRingPt(-metroRadius + k, -straightHalf - k);
+
+  // Link any rail_station smoothly onto the wide perimeter loop using a sweeping curved lead-in (not a tight box spur)
   for (const b of villageBuildings) {
-    if (b.type !== 'rail_station') continue;
-    const targetRingX =
-      Math.abs(b.tileX - anchor.x) >= Math.abs(b.tileZ - anchor.z)
-        ? anchor.x + (b.tileX >= anchor.x ? metroRadius : -metroRadius)
-        : b.tileX;
-    const targetRingZ =
-      Math.abs(b.tileZ - anchor.z) > Math.abs(b.tileX - anchor.x)
-        ? anchor.z + (b.tileZ >= anchor.z ? metroRadius : -metroRadius)
-        : b.tileZ;
-    let cx = b.tileX;
-    let cz = b.tileZ;
-    let guard = 0;
-    while ((cx !== targetRingX || cz !== targetRingZ) && guard < 24) {
-      guard += 1;
-      if (cx !== targetRingX) cx += cx < targetRingX ? 1 : -1;
-      else if (cz !== targetRingZ) cz += cz < targetRingZ ? 1 : -1;
-      paveRailTileIfClean(state, cx, cz);
+    if (b.type !== 'rail_station' || perimeterRing.length === 0) continue;
+    let bestRingPt = perimeterRing[0];
+    let bestDist = Infinity;
+    for (const rp of perimeterRing) {
+      const d = Math.hypot(rp.x - b.tileX, rp.z - b.tileZ);
+      if (d < bestDist) {
+        bestDist = d;
+        bestRingPt = rp;
+      }
     }
+    if (bestDist <= 1.6) continue;
+    // Quadratic Bezier control point swings gently tangent to the ring so station track curves into the mainline
+    const dirX = bestRingPt.x - b.tileX;
+    const dirZ = bestRingPt.z - b.tileZ;
+    const ctrlX = Math.round((b.tileX + bestRingPt.x) * 0.5 + (Math.abs(dirZ) > Math.abs(dirX) ? Math.sign(dirZ) * 2 : 0));
+    const ctrlZ = Math.round((b.tileZ + bestRingPt.z) * 0.5 + (Math.abs(dirX) >= Math.abs(dirZ) ? Math.sign(dirX) * 2 : 0));
+    traceSmoothRailSpline(state, b.tileX, b.tileZ, ctrlX, ctrlZ, bestRingPt.x, bestRingPt.z, true);
   }
 
-  // Inter-city railway corridor linking this city's metro ring to the nearest other settlement
+  // Long-distance sweeping curved Inter-City railway corridors linking settlements across the map
   const allSids = Array.from(new Set(state.buildings.map((b) => b.settlementId ?? 'city_default')));
   if (allSids.length > 1) {
-    let nearestOther: { x: number; z: number } | null = null;
-    let bestDist = Infinity;
-    for (const otherSid of allSids) {
-      if (otherSid === settlementId) continue;
-      const oa = getSettlementAnchorForId(state, otherSid);
-      const d = Math.hypot(oa.x - anchor.x, oa.z - anchor.z);
-      if (d < bestDist && d > 12) {
-        bestDist = d;
-        nearestOther = oa;
-      }
-    }
-    if (nearestOther) {
-      let cx = anchor.x + (nearestOther.x >= anchor.x ? metroRadius : -metroRadius);
-      let cz = anchor.z + 2;
-      const tx = nearestOther.x;
-      const tz = nearestOther.z + 2;
-      let steps = 0;
-      while ((cx !== tx || cz !== tz) && steps < state.gridSize * 2) {
-        steps += 1;
-        if (Math.abs(cx - tx) >= Math.abs(cz - tz) && cx !== tx) {
-          cx += cx < tx ? 1 : -1;
-        } else if (cz !== tz) {
-          cz += cz < tz ? 1 : -1;
-        }
-        paveRailTileIfClean(state, cx, cz);
-      }
+    const others = allSids
+      .filter((o) => o !== settlementId)
+      .map((o) => {
+        const oa = getSettlementAnchorForId(state, o);
+        const oVar = getSettlementLayoutVariant(state, o, oa.x, oa.z);
+        return { sid: o, anchor: oa, radius: 11 + (oVar % 3), dist: Math.hypot(oa.x - anchor.x, oa.z - anchor.z) };
+      })
+      .filter((o) => o.dist > 14)
+      .sort((a, b) => a.dist - b.dist);
+
+    for (let oi = 0; oi < Math.min(2, others.length); oi++) {
+      const other = others[oi];
+      // Canonicalize city pair ordering so A->B and B->A always follow the exact same single curved corridor
+      const selfInfo = { sid: settlementId, anchor, radius: metroRadius, variant };
+      const otherVariant = getSettlementLayoutVariant(state, other.sid, other.anchor.x, other.anchor.z);
+      const otherInfo = { sid: other.sid, anchor: other.anchor, radius: other.radius, variant: otherVariant };
+      const [cityA, cityB] = selfInfo.sid <= otherInfo.sid ? [selfInfo, otherInfo] : [otherInfo, selfInfo];
+
+      const vx = cityB.anchor.x - cityA.anchor.x;
+      const vz = cityB.anchor.z - cityA.anchor.z;
+      const len = Math.max(1, Math.hypot(vx, vz));
+      const ux = vx / len;
+      const uz = vz / len;
+      const sx = Math.round(cityA.anchor.x + ux * cityA.radius);
+      const sz = Math.round(cityA.anchor.z + uz * cityA.radius);
+      const ex = Math.round(cityB.anchor.x - ux * cityB.radius);
+      const ez = Math.round(cityB.anchor.z - uz * cityB.radius);
+
+      // Gentle long-distance lateral curve bow (18% perpendicular sweep)
+      const curveSign = (cityA.variant & 1) === 0 ? 1 : -1;
+      const bow = Math.min(14, Math.max(3, Math.round(len * 0.18))) * curveSign;
+      const mx = Math.round((sx + ex) * 0.5 - uz * bow);
+      const mz = Math.round((sz + ez) * 0.5 + ux * bow);
+      traceSmoothRailSpline(state, sx, sz, mx, mz, ex, ez, true);
     }
   }
 }
@@ -4084,8 +4243,8 @@ function paveSettlementStreetsNear(
     state.epochIndex >= 1;
 
   let pavedAdjacent = false;
-  for (let dz = -3; dz <= 3; dz++) {
-    for (let dx = -3; dx <= 3; dx++) {
+  for (let dz = -4; dz <= 4; dz++) {
+    for (let dx = -4; dx <= 4; dx++) {
       const t = getTile(state, bx + dx, bz + dz);
       if (!t || t.buildingId || t.resourceNode !== 'none') continue;
       if (t.height <= 0 && !allowWaterWalkways) continue;
@@ -4294,7 +4453,7 @@ export function advanceEpoch(
     for (const sid of settlementIds) {
       const cityAnchor = getSettlementAnchorForId(state, sid);
       const variant = getSettlementLayoutVariant(state, sid, cityAnchor.x, cityAnchor.z);
-      const radius = state.epochIndex >= 3 ? 9 : 5;
+      const radius = state.epochIndex >= 3 ? 13 : 8;
       for (let dz = -radius; dz <= radius; dz++) {
         for (let dx = -radius; dx <= radius; dx++) {
           if (!isSettlementRoadTile(dx, dz, variant)) continue;
@@ -6614,7 +6773,14 @@ const VEHICLE_DIRS: ReadonlyArray<[number, number]> = [
   [-1, 0],
   [0, 1],
   [0, -1],
+  [1, 1],
+  [1, -1],
+  [-1, 1],
+  [-1, -1],
 ];
+
+// Tracks each train's recent tile keys so trains never get trapped orbiting tight micro-loops
+const trainRecentTileHistory = new WeakMap<VehicleEntity, string[]>();
 
 function wrapAngleRad(angle: number): number {
   let a = angle;
@@ -7253,30 +7419,67 @@ function stepVehicles(state: SimulationState, dt: number): void {
         v.x = target.x;
         v.z = target.z;
         const prev = v.path[0] ?? target;
-        const candidates: Array<{ x: number; z: number }> = [];
+        const curX = Math.round(target.x);
+        const curZ = Math.round(target.z);
+
+        let history = trainRecentTileHistory.get(v);
+        if (!history) {
+          history = [];
+          trainRecentTileHistory.set(v, history);
+        }
+        const curKey = `${curX},${curZ}`;
+        if (history[history.length - 1] !== curKey) {
+          history.push(curKey);
+          if (history.length > 16) history.shift();
+        }
+
+        const candidates: Array<{ x: number; z: number; cost: number }> = [];
         for (const [ox, oz] of VEHICLE_DIRS) {
-          const nx = Math.round(target.x + ox);
-          const nz = Math.round(target.z + oz);
+          const nx = curX + ox;
+          const nz = curZ + oz;
           const nt = getTile(state, nx, nz);
           if (!nt) continue;
+          let destTile: TileData | null = null;
           if (nt.terrain === 'rail_track') {
-            candidates.push({ x: nx, z: nz });
+            destTile = nt;
           } else if (nt.terrain === 'stone_road') {
-            // Allow smooth grade crossing across a 1-tile road onto continuation rail_track
-            const beyond = getTile(state, nx + ox, nz + oz);
-            if (beyond && beyond.terrain === 'rail_track') {
-              candidates.push({ x: beyond.x, z: beyond.z });
+            // Allow smooth grade crossing across 1- or 2-tile boulevards onto continuation rail_track
+            const beyond1 = getTile(state, nx + ox, nz + oz);
+            if (beyond1 && beyond1.terrain === 'rail_track') {
+              destTile = beyond1;
+            } else if (beyond1 && beyond1.terrain === 'stone_road') {
+              const beyond2 = getTile(state, nx + ox * 2, nz + oz * 2);
+              if (beyond2 && beyond2.terrain === 'rail_track') {
+                destTile = beyond2;
+              }
             }
           }
+          if (!destTile) continue;
+
+          const isReverse = Math.abs(destTile.x - prev.x) < 0.2 && Math.abs(destTile.z - prev.z) < 0.2;
+          const candHeading = Math.atan2(destTile.x - target.x, destTile.z - target.z);
+          const angDiff = Math.abs(wrapAngleRad(candHeading - v.heading));
+          // Strongly prefer smooth gradual curves & straightaways over sharp 90° bends
+          let cost = isReverse ? 500 : angDiff * 36;
+          // Penalize turning back onto any recently traversed tile (prevents small micro-loops)
+          const recentIdx = history.lastIndexOf(`${destTile.x},${destTile.z}`);
+          if (recentIdx >= 0) {
+            cost += (recentIdx + 1) * 14;
+          }
+          candidates.push({ x: destTile.x, z: destTile.z, cost });
         }
-        const nonReverse = candidates.filter(
-          (c) => Math.abs(c.x - prev.x) > 0.2 || Math.abs(c.z - prev.z) > 0.2,
-        );
-        const pool = nonReverse.length > 0 ? nonReverse : candidates;
-        if (pool.length > 0) {
-          const pickIdx = (v.variantSeed + Math.round(target.x * 3 + target.z * 5)) % pool.length;
-          const nextPt = pool[Math.abs(pickIdx)];
-          v.path = [{ x: target.x, z: target.z }, nextPt];
+
+        if (candidates.length > 0) {
+          candidates.sort((a, b) => a.cost - b.cost);
+          // If nearly tied forward paths exist, break ties deterministically with seed
+          const bestCost = candidates[0].cost;
+          const topPool = candidates.filter((c) => c.cost <= bestCost + 6);
+          const pickIdx =
+            topPool.length === 1
+              ? 0
+              : Math.abs(v.variantSeed + curX * 3 + curZ * 5) % topPool.length;
+          const chosen = topPool[pickIdx];
+          v.path = [{ x: target.x, z: target.z }, { x: chosen.x, z: chosen.z }];
         }
       }
     } else if (v.type === 'car') {
@@ -7297,25 +7500,28 @@ function stepVehicles(state: SimulationState, dt: number): void {
         v.x = target.x;
         v.z = target.z;
         const prev = v.path[0] ?? target;
-        const candidates: Array<{ x: number; z: number }> = [];
+        const candidates: Array<{ x: number; z: number; ang: number }> = [];
         for (const [ox, oz] of VEHICLE_DIRS) {
           const nx = Math.round(target.x + ox);
           const nz = Math.round(target.z + oz);
           const nt = getTile(state, nx, nz);
           if (nt && nt.terrain === 'stone_road') {
-            candidates.push({ x: nx, z: nz });
+            const isReverse = Math.abs(nx - prev.x) < 0.2 && Math.abs(nz - prev.z) < 0.2;
+            const candHeading = Math.atan2(nx - target.x, nz - target.z);
+            const ang = isReverse ? 99 : Math.abs(wrapAngleRad(candHeading - v.heading));
+            candidates.push({ x: nx, z: nz, ang });
           }
         }
-        const nonReverse = candidates.filter(
-          (c) => Math.abs(c.x - prev.x) > 0.2 || Math.abs(c.z - prev.z) > 0.2,
-        );
-        const pool = nonReverse.length > 0 ? nonReverse : candidates;
-        if (pool.length > 0) {
+        if (candidates.length > 0) {
+          candidates.sort((a, b) => a.ang - b.ang);
+          // Favor smooth forward/diagonal curves (~75% forward bias) while still exploring crossroads
+          const smoothPool = candidates.filter((c) => c.ang <= Math.PI * 0.56);
+          const pool = smoothPool.length > 0 ? smoothPool : candidates;
           const pickIdx =
             (v.variantSeed + Math.floor(Math.abs(state.year * 100)) + Math.round(target.x + target.z)) %
             pool.length;
           const nextPt = pool[Math.abs(pickIdx)];
-          v.path = [{ x: target.x, z: target.z }, nextPt];
+          v.path = [{ x: target.x, z: target.z }, { x: nextPt.x, z: nextPt.z }];
         }
       }
     } else if (v.type === 'roadster') {
@@ -7348,25 +7554,27 @@ function stepVehicles(state: SimulationState, dt: number): void {
         v.x = target.x;
         v.z = target.z;
         const prev = v.path[0] ?? target;
-        const candidates: Array<{ x: number; z: number }> = [];
+        const candidates: Array<{ x: number; z: number; ang: number }> = [];
         for (const [ox, oz] of VEHICLE_DIRS) {
           const nx = Math.round(target.x + ox);
           const nz = Math.round(target.z + oz);
           const nt = getTile(state, nx, nz);
           if (nt && nt.terrain === 'stone_road') {
-            candidates.push({ x: nx, z: nz });
+            const isReverse = Math.abs(nx - prev.x) < 0.2 && Math.abs(nz - prev.z) < 0.2;
+            const candHeading = Math.atan2(nx - target.x, nz - target.z);
+            const ang = isReverse ? 99 : Math.abs(wrapAngleRad(candHeading - v.heading));
+            candidates.push({ x: nx, z: nz, ang });
           }
         }
-        const nonReverse = candidates.filter(
-          (c) => Math.abs(c.x - prev.x) > 0.2 || Math.abs(c.z - prev.z) > 0.2,
-        );
-        const pool = nonReverse.length > 0 ? nonReverse : candidates;
-        if (pool.length > 0) {
+        if (candidates.length > 0) {
+          candidates.sort((a, b) => a.ang - b.ang);
+          const smoothPool = candidates.filter((c) => c.ang <= Math.PI * 0.56);
+          const pool = smoothPool.length > 0 ? smoothPool : candidates;
           const pickIdx =
             (v.variantSeed + Math.floor(Math.abs(state.year * 140)) + Math.round(target.x * 3 + target.z)) %
             pool.length;
           const nextPt = pool[Math.abs(pickIdx)];
-          v.path = [{ x: target.x, z: target.z }, nextPt];
+          v.path = [{ x: target.x, z: target.z }, { x: nextPt.x, z: nextPt.z }];
         }
       }
 
