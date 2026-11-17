@@ -4313,3 +4313,198 @@ test('Sea Update: active vortices deal lethal DOT, shallow seas follow organic c
   assert.equal(villager.hp, 0, 'Wormhole rift DOT should reduce trapped unit HP to 0 while active');
   assert.equal(villager.state, 'ko', 'Wormhole rift DOT must transition unit to ko state when HP reaches 0');
 });
+
+test('Sea Update: Leviathan has articulated silhouette & 3D beam rig, fires 7s stationary Water Beam (10s CD) that destroys buildings & landmasses, performs slow-mo head-first Breach Jump (30s CD) causing omnidirectional tsunamis, and rarely eats deep-sea islands while sparing shallow-sea islands', () => {
+  // 1. Verify articulated 3D silhouette and surfaced dreadnought rig
+  const leviGroup = createUnitGroup('leviathan', 'wildlife', 77);
+  for (const name of [
+    'leviathan_silhouette',
+    'sil_head',
+    'sil_seg_0',
+    'sil_seg_1',
+    'sil_seg_2',
+    'sil_tail',
+    'sil_fin_l',
+    'sil_fin_r',
+    'leviathan_surfaced',
+    'jaw_pivot',
+    'mandible_l',
+    'mandible_r',
+    'fire_maw',
+    'leviathan_beam_group',
+    'beam_shaft',
+    'beam_impact',
+    'beam_muzzle',
+    'wing_l',
+    'wing_r',
+    'tail_pivot',
+    'leviathan_tail_mid',
+  ]) {
+    assert.ok(leviGroup.getObjectByName(name), `Leviathan 3D mesh must include articulated node "${name}"`);
+  }
+
+  // 2. Verify 7-second stationary Water Beam (10s cooldown) locks Leviathan position and destroys buildings & landmasses
+  const state = createInitialSimulationState(64, 'LEVIATHAN-BEAM-BREACH');
+  state.sandboxFreeMode = true;
+  state.wildlifeSeeded = true;
+  for (let z = 0; z < 64; z++) {
+    for (let x = 0; x < 64; x++) {
+      const t = getTile(state, x, z)!;
+      t.height = 0;
+      t.terrain = 'deep_water';
+      t.resourceNode = 'none';
+      t.resourceAmount = 0;
+      t.buildingId = null;
+    }
+  }
+
+  // Create a coastal landmass at x=22..25, z=30..32 with a building on it
+  for (let z = 29; z <= 33; z++) {
+    for (let x = 21; x <= 25; x++) {
+      const t = getTile(state, x, z)!;
+      t.height = 1;
+      t.terrain = 'sand';
+    }
+  }
+  const bRes = placeBuilding(state, 'forager_hut', 23, 31);
+  assert.equal(bRes.ok, true);
+  const coastalHut = state.buildings[state.buildings.length - 1]!;
+  coastalHut.constructionProgress = 100;
+
+  const levi = spawnUnit(state, 'leviathan', 30, 31, true).unit!;
+  levi.leviathanLeapCooldown = 25.0; // Prevent leap so water beam triggers first
+  levi.leviathanBeamCooldown = 0;
+
+  // Step once to trigger the Water Beam
+  stepSimulation(state, 0.25);
+  assert.ok(
+    (levi.leviathanBeamTimer ?? 0) > 6.5 && (levi.leviathanBeamTimer ?? 0) <= 7.0,
+    `Leviathan should initiate 7-second Water Beam, got timer=${levi.leviathanBeamTimer}`,
+  );
+  assert.equal(levi.leviathanBeamCooldown, 10.0, 'Water Beam cooldown must be set to 10.0 seconds');
+  assert.equal(levi.leviathanSubmerged, false, 'Leviathan must be surfaced with gaping maw while firing Water Beam');
+
+  const lockedX = levi.x;
+  const lockedZ = levi.z;
+  // Step through 4 seconds of the 7-second beam and verify the Leviathan cannot move and destroys both the building and landmass tiles
+  for (let i = 0; i < 16; i++) {
+    stepSimulation(state, 0.25);
+    assert.equal(levi.x, lockedX, 'Leviathan must remain stationary (x locked) during 7s Water Beam');
+    assert.equal(levi.z, lockedZ, 'Leviathan must remain stationary (z locked) during 7s Water Beam');
+  }
+
+  assert.ok(
+    !state.buildings.some((b) => b.id === coastalHut.id),
+    '7-second Water Beam must destroy buildings in its path',
+  );
+  let erodedLandCount = 0;
+  for (let z = 29; z <= 33; z++) {
+    for (let x = 21; x <= 25; x++) {
+      if (getTile(state, x, z)!.height === 0) erodedLandCount++;
+    }
+  }
+  assert.ok(erodedLandCount >= 2, `7-second Water Beam must erode/destroy landmass tiles into water, eroded=${erodedLandCount}`);
+
+  // 3. Verify Slow-Motion Head-First Breach Jump (30s cooldown, 2.2s deep dive + 4.0s slow-mo airtime + omnidirectional tsunami landing)
+  levi.leviathanBeamTimer = 0;
+  levi.leviathanBeamCooldown = 10.0;
+  levi.leviathanLeapCooldown = 0;
+  state.activeHazards = [];
+  const targetShip = spawnUnit(state, 'human', 38, 31, true).unit!;
+  targetShip.hp = 500;
+  targetShip.maxHp = 500;
+
+  stepSimulation(state, 0.25);
+  assert.ok(
+    (levi.leviathanLeapTimer ?? 0) > 5.8,
+    `Leviathan should initiate 6.2s Breach Jump sequence, got leapTimer=${levi.leviathanLeapTimer}`,
+  );
+  assert.equal(levi.leviathanLeapCooldown, 30.0, 'Breach Jump cooldown must be 30.0 seconds (non-spammable)');
+  // Phase 1 (first 2.2s, leapTimer > 4.0): submerged deep dive
+  assert.equal(levi.leviathanSubmerged, true, 'Leviathan dives underwater during first 2.2s of Breach Jump');
+  assert.ok((levi.altitude ?? 0) <= 0, 'Leviathan altitude is <= 0 while diving underwater');
+
+  // Advance into Phase 2 (slow-motion head-first breach airtime, leapTimer ~ 2.0s)
+  for (let i = 0; i < 16; i++) {
+    stepSimulation(state, 0.25);
+  }
+  assert.equal(levi.leviathanSubmerged, false, 'Leviathan breaches above water during slow-mo jump arc');
+  assert.ok((levi.altitude ?? 0) > 2.5, `Leviathan should arch high into the air in slow motion, got altitude=${levi.altitude}`);
+
+  // Advance until head-first landing (leapTimer reaches 0)
+  for (let i = 0; i < 12; i++) {
+    stepSimulation(state, 0.25);
+  }
+  assert.equal(levi.leviathanLeapTimer, 0, 'Breach Jump timer should finish at 0');
+  const tsunamiWaves = state.activeHazards.filter((h) => h.kind === 'tsunami_wave');
+  const rogueWaves = state.activeHazards.filter((h) => h.kind === 'rogue_wave');
+  assert.ok(tsunamiWaves.length >= 1, 'Head-first breach landing must trigger omnidirectional tsunami_wave');
+  assert.ok(rogueWaves.length >= 6, `Head-first breach landing must radiate rogue waves in all directions, got ${rogueWaves.length}`);
+
+  // 4. Verify Leviathan rarely eats deep-sea islands (surrounded by deep_water) but NEVER eats shallow-sea islands
+  // Create a shallow-sea island at (14, 14) surrounded by shallow_water
+  for (let dz = -4; dz <= 4; dz++) {
+    for (let dx = -4; dx <= 4; dx++) {
+      const t = getTile(state, 14 + dx, 14 + dz)!;
+      if (Math.hypot(dx, dz) <= 1.5) {
+        t.height = 1;
+        t.terrain = 'grass';
+      } else {
+        t.height = 0;
+        t.terrain = 'shallow_water';
+      }
+    }
+  }
+  // Create a deep-sea islet at (48, 48) surrounded by deep_water
+  for (let dz = -4; dz <= 4; dz++) {
+    for (let dx = -4; dx <= 4; dx++) {
+      const t = getTile(state, 48 + dx, 48 + dz)!;
+      if (Math.hypot(dx, dz) <= 1.5) {
+        t.height = 1;
+        t.terrain = 'mountain';
+      } else {
+        t.height = 0;
+        t.terrain = 'deep_water';
+      }
+    }
+  }
+
+  // Place Leviathan next to the shallow-sea island with eat cooldown ready: must NOT eat shallow-sea island
+  state.units = [levi];
+  levi.x = 17;
+  levi.z = 14;
+  levi.leviathanEatIslandCooldown = 0;
+  levi.leviathanBeamCooldown = 10;
+  levi.leviathanLeapCooldown = 30;
+  for (let i = 0; i < 8; i++) {
+    stepSimulation(state, 0.25);
+  }
+  assert.equal(
+    getTile(state, 14, 14)!.height,
+    1,
+    'Leviathan must NEVER eat islands located in shallow seas (surrounded by shallow_water)',
+  );
+
+  // Move Leviathan next to the deep-sea islet at (48, 48) with eat cooldown ready: should devour the deep-sea islet
+  levi.x = 45.8;
+  levi.z = 48;
+  levi.leviathanEatIslandCooldown = 0;
+  for (let i = 0; i < 20; i++) {
+    stepSimulation(state, 0.25);
+  }
+  assert.equal(
+    getTile(state, 48, 48)!.height,
+    0,
+    'Leviathan should devour small islands located in the deep seas (surrounded by deep_water)',
+  );
+  assert.equal(
+    getTile(state, 48, 48)!.terrain,
+    'deep_water',
+    'Devoured deep-sea island tiles should submerge into deep_water',
+  );
+  assert.ok(
+    (levi.leviathanEatIslandCooldown ?? 0) > 60,
+    `Eating a deep-sea island should set a long rare cooldown, got ${levi.leviathanEatIslandCooldown}`,
+  );
+});
+

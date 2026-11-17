@@ -753,6 +753,22 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       battlewillSwordPivot?: THREE.Object3D;
       leviathanSilhouette?: THREE.Object3D;
       leviathanSurfaced?: THREE.Object3D;
+      silHead?: THREE.Object3D;
+      silSeg0?: THREE.Object3D;
+      silSeg1?: THREE.Object3D;
+      silSeg2?: THREE.Object3D;
+      silTail?: THREE.Object3D;
+      silFinL?: THREE.Object3D;
+      silFinR?: THREE.Object3D;
+      mandibleL?: THREE.Object3D;
+      mandibleR?: THREE.Object3D;
+      leviathanTailMid?: THREE.Object3D;
+      leviathanBeamGroup?: THREE.Object3D;
+      beamShaft?: THREE.Object3D;
+      beamImpact?: THREE.Object3D;
+      beamMuzzle?: THREE.Object3D;
+      leviathanSplashInner?: THREE.Object3D;
+      leviathanSplashOuter?: THREE.Object3D;
       lastCarryType: string | null;
       lastStatusKey: number;
       seenStamp: number;
@@ -6218,6 +6234,22 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             battlewillSwordPivot: group.getObjectByName('battlewill_sword_pivot'),
             leviathanSilhouette: group.getObjectByName('leviathan_silhouette'),
             leviathanSurfaced: group.getObjectByName('leviathan_surfaced'),
+            silHead: group.getObjectByName('sil_head'),
+            silSeg0: group.getObjectByName('sil_seg_0'),
+            silSeg1: group.getObjectByName('sil_seg_1'),
+            silSeg2: group.getObjectByName('sil_seg_2'),
+            silTail: group.getObjectByName('sil_tail'),
+            silFinL: group.getObjectByName('sil_fin_l'),
+            silFinR: group.getObjectByName('sil_fin_r'),
+            mandibleL: group.getObjectByName('mandible_l'),
+            mandibleR: group.getObjectByName('mandible_r'),
+            leviathanTailMid: group.getObjectByName('leviathan_tail_mid'),
+            leviathanBeamGroup: group.getObjectByName('leviathan_beam_group'),
+            beamShaft: group.getObjectByName('beam_shaft'),
+            beamImpact: group.getObjectByName('beam_impact'),
+            beamMuzzle: group.getObjectByName('beam_muzzle'),
+            leviathanSplashInner: group.getObjectByName('leviathan_splash_inner'),
+            leviathanSplashOuter: group.getObjectByName('leviathan_splash_outer'),
             lastCarryType: '__unset__',
             lastStatusKey: -1,
             seenStamp: syncFrameStamp,
@@ -6238,10 +6270,84 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         // Toggle Leviathan between submerged silhouette vs surfaced breaching monster
         if (u.role === 'leviathan') {
           const isSubmerged = Boolean(u.leviathanSubmerged);
-          if (uEntry.leviathanSilhouette) uEntry.leviathanSilhouette.visible = isSubmerged;
-          if (uEntry.leviathanSurfaced) uEntry.leviathanSurfaced.visible = !isSubmerged;
-          if (!isSubmerged && Math.random() < 0.35) {
-            spawnParticleBurst(u.x, 0.32, u.z, 4, '#e0fbfc', 2.6, 4.5, 0.85);
+          const leapTimer = u.leviathanLeapTimer ?? 0;
+          const beamTimer = u.leviathanBeamTimer ?? 0;
+          // Phase 1 of Breach Jump (leapTimer > 4.0): dives deep beneath the waves for 2.2 seconds
+          const isDeepDivePreBreach = leapTimer > 4.0;
+          const diveFadeFrac = isDeepDivePreBreach
+            ? THREE.MathUtils.clamp((leapTimer - 4.0) / 2.2, 0, 1)
+            : 1;
+
+          if (uEntry.leviathanSilhouette) {
+            uEntry.leviathanSilhouette.visible = isSubmerged && (!isDeepDivePreBreach || diveFadeFrac > 0.12);
+            // Scale down smoothly as it dives into the abyss during the calm 2.2s pre-breach window
+            const silScale = isDeepDivePreBreach ? Math.max(0.05, Math.pow(diveFadeFrac, 1.8)) : 1.0;
+            uEntry.leviathanSilhouette.scale.setScalar(silScale);
+          }
+          if (uEntry.leviathanSurfaced) {
+            uEntry.leviathanSurfaced.visible = !isSubmerged;
+          }
+
+          // Animate terrifying undulating silhouette spine & scythe-fins when hidden
+          if (isSubmerged) {
+            const wavePhase = elapsed * 2.45 + ((u.appearanceSeed ?? 1) % 17) * 0.5;
+            if (uEntry.silHead) {
+              uEntry.silHead.position.x = Math.sin(wavePhase) * 0.08;
+              uEntry.silHead.rotation.y = Math.cos(wavePhase) * 0.14;
+            }
+            if (uEntry.silSeg0) {
+              uEntry.silSeg0.position.x = Math.sin(wavePhase - 0.85) * 0.14;
+              uEntry.silSeg0.rotation.y = Math.cos(wavePhase - 0.85) * 0.18;
+            }
+            if (uEntry.silSeg1) {
+              uEntry.silSeg1.position.x = Math.sin(wavePhase - 1.7) * 0.22;
+              uEntry.silSeg1.rotation.y = Math.cos(wavePhase - 1.7) * 0.24;
+            }
+            if (uEntry.silSeg2) {
+              uEntry.silSeg2.position.x = Math.sin(wavePhase - 2.55) * 0.3;
+              uEntry.silSeg2.rotation.y = Math.cos(wavePhase - 2.55) * 0.3;
+            }
+            if (uEntry.silTail) {
+              uEntry.silTail.position.x = Math.sin(wavePhase - 3.4) * 0.38;
+              uEntry.silTail.rotation.y = Math.cos(wavePhase - 3.4) * 0.42;
+            }
+            const finSweep = Math.sin(wavePhase * 0.8) * 0.18;
+            if (uEntry.silFinL) uEntry.silFinL.rotation.y = 0.25 + finSweep;
+            if (uEntry.silFinR) uEntry.silFinR.rotation.y = -0.25 - finSweep;
+            if (!isDeepDivePreBreach && Math.random() < 0.18) {
+              spawnParticleBurst(u.x, 0.31, u.z, 1, '#0891b2', 0.9, 1.2, 0.55);
+            }
+          } else {
+            // Surfaced ambient & breach water spray
+            if (leapTimer > 0 && leapTimer <= 4.0) {
+              if (Math.random() < 0.75) {
+                spawnParticleBurst(
+                  u.x,
+                  0.34 + (u.altitude ?? 0) * 0.65,
+                  u.z,
+                  5,
+                  '#e0fbfc',
+                  2.4,
+                  5.2,
+                  0.95,
+                );
+              }
+            } else if (Math.random() < 0.38) {
+              spawnParticleBurst(u.x, 0.34, u.z, 3, '#a5f3fc', 2.2, 3.8, 0.78);
+            }
+          }
+
+          // Pulse surface breach foam rings
+          const isAirborneLeap = leapTimer > 0 && leapTimer <= 4.0 && (u.altitude ?? 0) > 0.6;
+          if (uEntry.leviathanSplashInner) {
+            uEntry.leviathanSplashInner.visible = !isSubmerged && !isAirborneLeap;
+            const pulse = 1 + Math.sin(elapsed * 4.5) * 0.12 + (beamTimer > 0 ? 0.22 : 0);
+            uEntry.leviathanSplashInner.scale.set(pulse, pulse, 1);
+          }
+          if (uEntry.leviathanSplashOuter) {
+            uEntry.leviathanSplashOuter.visible = !isSubmerged && !isAirborneLeap;
+            const pulseOuter = 1 + Math.cos(elapsed * 3.6) * 0.16 + (beamTimer > 0 ? 0.35 : 0);
+            uEntry.leviathanSplashOuter.scale.set(pulseOuter, pulseOuter, 1);
           }
         }
 
@@ -6258,7 +6364,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         const groundY = tile
           ? u.role === 'leviathan'
             ? u.leviathanSubmerged
-              ? 0.16
+              ? 0.295
               : 0.34
             : u.isSwimming
               ? 0.12 + Math.sin(elapsed * 5.5 + u.x) * 0.035
@@ -6362,10 +6468,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             ? Math.pow(blackHolePullFrac, 1.3) * 1.65 +
               Math.sin(elapsed * 9 + u.x * 2) * 0.12 * blackHolePullFrac
             : 0;
+        const altScale = isLeviathan ? 0.72 : 0.55;
         const airborneAltY =
           blackHolePullFrac > 0
-            ? Math.max(simAltitude * 0.55, levitateY)
-            : simAltitude * 0.55;
+            ? Math.max(simAltitude * altScale, levitateY)
+            : simAltitude * altScale;
         let finalUnitY =
           groundY + (walkBob + pounceHopY + targetHoverY) * (1 - blackHolePullFrac) + airborneAltY;
         if (isDragon && u.state !== 'ko' && blackHolePullFrac <= 0 && !u.draggedByPlayer) {
@@ -6402,8 +6509,24 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             uGroup.rotation.y = curYaw + yawDiff * Math.min(1, dt * 9.5);
           }
         } else {
-          const faceX = isAttacking && u.attackTargetX !== undefined ? u.attackTargetX : u.targetX;
-          const faceZ = isAttacking && u.attackTargetZ !== undefined ? u.attackTargetZ : u.targetZ;
+          const isLeviathanBeamActive = isLeviathan && (u.leviathanBeamTimer ?? 0) > 0;
+          const isLeviathanLeapActive = isLeviathan && (u.leviathanLeapTimer ?? 0) > 0;
+          const faceX =
+            isLeviathanBeamActive && u.leviathanBeamTargetX !== undefined
+              ? u.leviathanBeamTargetX
+              : isLeviathanLeapActive && u.leviathanLeapTargetX !== undefined
+                ? u.leviathanLeapTargetX
+                : isAttacking && u.attackTargetX !== undefined
+                  ? u.attackTargetX
+                  : u.targetX;
+          const faceZ =
+            isLeviathanBeamActive && u.leviathanBeamTargetZ !== undefined
+              ? u.leviathanBeamTargetZ
+              : isLeviathanLeapActive && u.leviathanLeapTargetZ !== undefined
+                ? u.leviathanLeapTargetZ
+                : isAttacking && u.attackTargetZ !== undefined
+                  ? u.attackTargetZ
+                  : u.targetZ;
           const dx = faceX - u.x;
           const dz = faceZ - u.z;
           if (dx * dx + dz * dz > 0.005) {
@@ -6417,7 +6540,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
               Math.sin(desiredYaw - curYaw),
               Math.cos(desiredYaw - curYaw),
             );
-            const turnRate = isLeviathan ? 2.4 : 14;
+            const turnRate = isLeviathanBeamActive ? 6.5 : isLeviathan ? 2.8 : 14;
             uGroup.rotation.y = curYaw + yawDiff * Math.min(1, dt * turnRate);
           }
         }
@@ -6439,7 +6562,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           uGroup.rotation.x = blackHolePullFrac * 0.72 * Math.cos(elapsed * 6.5 + u.z);
           const bhScale = Math.max(0.58, 1 - Math.pow(blackHolePullFrac, 1.8) * 0.38);
           uGroup.scale.setScalar(bhScale);
-        } else if (isAirborneVisual && !isDragon) {
+        } else if (isAirborneVisual && !isDragon && !isLeviathan) {
           uGroup.rotation.z = Math.sin(elapsed * 16 + seedPhase) * 0.44;
           uGroup.rotation.x = Math.cos(elapsed * 13 + seedPhase) * 0.32;
           uGroup.scale.setScalar(1);
@@ -6454,9 +6577,16 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           uGroup.rotation.x = THREE.MathUtils.damp(uGroup.rotation.x, targetPitch, 7.0, dt);
           uGroup.scale.setScalar(1);
         } else if (isLeviathan) {
-          // Leviathan silhouette and surfaced body glide smoothly across the water with zero side-to-side sway
           uGroup.rotation.z = 0;
-          uGroup.rotation.x = 0;
+          const leapTimer = u.leviathanLeapTimer ?? 0;
+          if (leapTimer > 0 && leapTimer <= 4.0) {
+            // Slow-motion head-first breach arc: bursts upward head-first (-1.32 rad), arches over apex (0 rad), and plunges head-first (+1.32 rad) into the sea
+            const airProg = THREE.MathUtils.clamp((4.0 - leapTimer) / 4.0, 0, 1);
+            const targetPitch = -(1 - airProg * 2.0) * 1.32;
+            uGroup.rotation.x = THREE.MathUtils.damp(uGroup.rotation.x, targetPitch, 9.0, dt);
+          } else {
+            uGroup.rotation.x = THREE.MathUtils.damp(uGroup.rotation.x, 0, 8.0, dt);
+          }
           uGroup.scale.setScalar(1);
         } else {
           uGroup.rotation.z = !isFrozen && isMoving
@@ -6482,7 +6612,25 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           if (bodyPivot) {
             let bodyPitch = 0;
             let bodyForward = 0;
-            if (isAttacking && !isLeviathan) {
+            if (isLeviathan) {
+              const beamTimer = u.leviathanBeamTimer ?? 0;
+              const leapTimer = u.leviathanLeapTimer ?? 0;
+              if (beamTimer > 0) {
+                // Braced, shuddering recoil posture while firing the 7-second water beam
+                bodyPitch = -0.14 + Math.sin(elapsed * 22) * 0.025;
+                bodyForward = -0.12 + Math.cos(elapsed * 26) * 0.03;
+              } else if (leapTimer > 0 && leapTimer <= 4.0) {
+                // Graceful spinal flex during slow-motion breach
+                const airProg = THREE.MathUtils.clamp((4.0 - leapTimer) / 4.0, 0, 1);
+                bodyPitch = Math.sin(airProg * Math.PI) * -0.18;
+              } else if (isAttacking) {
+                const s = Math.sin(atkProg * Math.PI);
+                bodyPitch = -0.22 * s;
+                bodyForward = 0.32 * s;
+              } else {
+                bodyPitch = Math.sin(elapsed * 2.1 + seedPhase) * 0.04;
+              }
+            } else if (isAttacking) {
               const s = Math.sin(atkProg * Math.PI);
               if (u.role === 'bear') {
                 bodyPitch = atkProg < 0.45 ? -0.58 * (atkProg / 0.45) : -0.58 + 0.88 * ((atkProg - 0.45) / 0.55);
@@ -6505,8 +6653,17 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
           if (headPivot) {
             if (isLeviathan) {
-              headPivot.rotation.x = isAttacking ? Math.sin(atkProg * Math.PI) * 0.24 : 0;
-              headPivot.rotation.y = 0;
+              const beamTimer = u.leviathanBeamTimer ?? 0;
+              if (beamTimer > 0) {
+                headPivot.rotation.x = -0.08 + Math.sin(elapsed * 28) * 0.025;
+                headPivot.rotation.y = Math.cos(elapsed * 24) * 0.02;
+              } else if (isAttacking) {
+                headPivot.rotation.x = Math.sin(atkProg * Math.PI) * 0.32;
+                headPivot.rotation.y = 0;
+              } else {
+                headPivot.rotation.x = Math.sin(elapsed * 2.1 + seedPhase) * 0.07;
+                headPivot.rotation.y = Math.cos(elapsed * 1.6 + seedPhase) * 0.09;
+              }
             } else if (isDragon) {
               const targetHeadX = isDragonStrafing
                 ? 0.34
@@ -6551,7 +6708,107 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           }
 
           if (jawPivot) {
-            if (isDragon) {
+            if (isLeviathan) {
+              const beamTimer = u.leviathanBeamTimer ?? 0;
+              const leapTimer = u.leviathanLeapTimer ?? 0;
+              const isBreachingAir = leapTimer > 0 && leapTimer <= 4.0;
+              const targetJawOpen =
+                beamTimer > 0
+                  ? 0.92 + Math.sin(elapsed * 26) * 0.05
+                  : isBreachingAir
+                    ? 0.68
+                    : isAttacking
+                      ? Math.sin(atkProg * Math.PI) * 0.78
+                      : 0.1 + Math.max(0, Math.sin(elapsed * 2.1 + seedPhase)) * 0.14;
+              jawPivot.rotation.x = THREE.MathUtils.damp(jawPivot.rotation.x, targetJawOpen, 14, dt);
+
+              const targetMandibleFlare =
+                beamTimer > 0
+                  ? 0.56 + Math.sin(elapsed * 24) * 0.04
+                  : isBreachingAir
+                    ? 0.38
+                    : isAttacking
+                      ? Math.sin(atkProg * Math.PI) * 0.46
+                      : 0.05 + Math.max(0, Math.sin(elapsed * 2.1 + seedPhase)) * 0.08;
+              if (uEntry.mandibleL) {
+                uEntry.mandibleL.rotation.y = THREE.MathUtils.damp(
+                  uEntry.mandibleL.rotation.y,
+                  -targetMandibleFlare,
+                  14,
+                  dt,
+                );
+              }
+              if (uEntry.mandibleR) {
+                uEntry.mandibleR.rotation.y = THREE.MathUtils.damp(
+                  uEntry.mandibleR.rotation.y,
+                  targetMandibleFlare,
+                  14,
+                  dt,
+                );
+              }
+
+              // Glow abyssal hydro-core maw & animate 3D high-pressure water beam
+              const mawObj = uEntry.fireMaw;
+              if (mawObj && mawObj.material instanceof THREE.MeshStandardMaterial) {
+                const targetGlow =
+                  beamTimer > 0
+                    ? 3.6 + Math.sin(elapsed * 28) * 0.6
+                    : (u.leviathanBeamCooldown ?? 10) < 2.2
+                      ? 2.1 + Math.sin(elapsed * 12) * 0.4
+                      : 1.25 + Math.sin(elapsed * 4.0 + seedPhase) * 0.25;
+                mawObj.material.emissiveIntensity = THREE.MathUtils.damp(
+                  mawObj.material.emissiveIntensity,
+                  targetGlow,
+                  10,
+                  dt,
+                );
+              }
+
+              if (uEntry.leviathanBeamGroup) {
+                const showBeam =
+                  beamTimer > 0 &&
+                  !u.leviathanSubmerged &&
+                  u.leviathanBeamTargetX !== undefined &&
+                  u.leviathanBeamTargetZ !== undefined;
+                uEntry.leviathanBeamGroup.visible = showBeam;
+                if (showBeam) {
+                  const bDx = (u.leviathanBeamTargetX ?? u.x) - u.x;
+                  const bDz = (u.leviathanBeamTargetZ ?? u.z) - u.z;
+                  const beamLen = Math.max(2.0, Math.min(20.0, Math.hypot(bDx, bDz)));
+                  const pulseRadius = 1.0 + Math.sin(elapsed * 32) * 0.16;
+                  if (uEntry.beamShaft) {
+                    uEntry.beamShaft.scale.set(pulseRadius, pulseRadius, beamLen);
+                    uEntry.beamShaft.rotation.z = elapsed * 16.0;
+                  }
+                  if (uEntry.beamMuzzle) {
+                    const muzzleScale = 1.0 + Math.sin(elapsed * 28) * 0.22;
+                    uEntry.beamMuzzle.scale.setScalar(muzzleScale);
+                    uEntry.beamMuzzle.rotation.z = -elapsed * 14.0;
+                  }
+                  if (uEntry.beamImpact) {
+                    uEntry.beamImpact.position.set(0, -0.25, beamLen);
+                    const impScale = 1.0 + Math.cos(elapsed * 26) * 0.25;
+                    uEntry.beamImpact.scale.setScalar(impScale);
+                    uEntry.beamImpact.rotation.y = elapsed * 12.0;
+                  }
+                  if (Math.random() < 0.65) {
+                    const frac = Math.random();
+                    const px = u.x + bDx * frac;
+                    const pz = u.z + bDz * frac;
+                    spawnParticleBurst(
+                      px,
+                      0.45,
+                      pz,
+                      2,
+                      Math.random() < 0.5 ? '#22d3ee' : '#e0fbfc',
+                      1.8,
+                      3.6,
+                      0.55,
+                    );
+                  }
+                }
+              }
+            } else if (isDragon) {
               const targetJaw = isDragonStrafing
                 ? 0.64
                 : 0.06 + Math.max(0, Math.sin(elapsed * 2.0 + seedPhase)) * 0.1;
@@ -6580,10 +6837,16 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
           if (tailPivot) {
             if (isLeviathan) {
-              tailPivot.rotation.y = u.leviathanSubmerged
-                ? 0
-                : Math.sin(elapsed * 2.0 + seedPhase) * 0.08;
-              tailPivot.rotation.x = 0;
+              const swimFreq = (u.leviathanBeamTimer ?? 0) > 0 ? 5.2 : isMoving ? 3.4 : 2.1;
+              const swimAmp = (u.leviathanBeamTimer ?? 0) > 0 ? 0.18 : isMoving ? 0.34 : 0.22;
+              tailPivot.rotation.y = Math.sin(elapsed * swimFreq + seedPhase) * swimAmp;
+              tailPivot.rotation.x = Math.cos(elapsed * (swimFreq * 0.7) + seedPhase) * 0.1;
+              if (uEntry.leviathanTailMid) {
+                uEntry.leviathanTailMid.rotation.y =
+                  Math.sin(elapsed * swimFreq + seedPhase - 0.95) * (swimAmp * 1.35);
+                uEntry.leviathanTailMid.rotation.x =
+                  Math.cos(elapsed * (swimFreq * 0.7) + seedPhase - 0.8) * 0.14;
+              }
             } else if (isDragon) {
               const targetTailY =
                 -THREE.MathUtils.clamp(dragonYawDelta * 0.55, -0.35, 0.35) +
@@ -6632,7 +6895,25 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         }
 
         if (wingL && wingR && u.state !== 'ko') {
-          if (isDragon) {
+          if (isLeviathan) {
+            const leapTimer = u.leviathanLeapTimer ?? 0;
+            const beamTimer = u.leviathanBeamTimer ?? 0;
+            const isBreachingAir = leapTimer > 0 && leapTimer <= 4.0;
+            const finFreq = beamTimer > 0 ? 5.5 : isBreachingAir ? 2.2 : isMoving ? 3.2 : 2.0;
+            const finFlap = isBreachingAir
+              ? -0.24 + Math.sin(elapsed * finFreq + seedPhase) * 0.18
+              : Math.sin(elapsed * finFreq + seedPhase) * 0.28;
+            const finSweep = beamTimer > 0 ? -0.32 : Math.cos(elapsed * finFreq + seedPhase) * 0.16;
+            wingL.rotation.z = THREE.MathUtils.damp(wingL.rotation.z, finFlap, 9, dt);
+            wingR.rotation.z = THREE.MathUtils.damp(wingR.rotation.z, -finFlap, 9, dt);
+            wingL.rotation.y = THREE.MathUtils.damp(wingL.rotation.y, finSweep, 9, dt);
+            wingR.rotation.y = THREE.MathUtils.damp(wingR.rotation.y, -finSweep, 9, dt);
+            if (wingOuterL && wingOuterR) {
+              const rearStroke = Math.sin(elapsed * finFreq + seedPhase - 1.1) * 0.24;
+              wingOuterL.rotation.z = THREE.MathUtils.damp(wingOuterL.rotation.z, rearStroke, 9, dt);
+              wingOuterR.rotation.z = THREE.MathUtils.damp(wingOuterR.rotation.z, -rearStroke, 9, dt);
+            }
+          } else if (isDragon) {
             const wingFreq = u.dragonRunPhase === 'turn' ? 7.4 : 6.2;
             const targetFlap = isDragonStrafing
               ? 0.14 + Math.sin(elapsed * 2.6 + seedPhase) * 0.1

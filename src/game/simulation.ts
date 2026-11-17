@@ -1201,7 +1201,12 @@ export function spawnUnit(
     swimStamina: 100,
     isSwimming: isOpenWaterTile,
     leviathanSubmerged: role === 'leviathan' ? true : undefined,
-    leviathanSurfaceTimer: role === 'leviathan' ? 8 + (appearanceSeed % 8) : undefined,
+    leviathanSurfaceTimer: role === 'leviathan' ? 10 + (appearanceSeed % 8) : undefined,
+    leviathanBeamTimer: role === 'leviathan' ? 0 : undefined,
+    leviathanBeamCooldown: role === 'leviathan' ? 0 : undefined,
+    leviathanLeapTimer: role === 'leviathan' ? 0 : undefined,
+    leviathanLeapCooldown: role === 'leviathan' ? 0 : undefined,
+    leviathanEatIslandCooldown: role === 'leviathan' ? 45 + (appearanceSeed % 35) : undefined,
   };
 
   state.units.push(unit);
@@ -6472,7 +6477,12 @@ function stepSimulationSingle(
 
     // Airborne ballistic arc & fall-damage resolution (Black Hole flings, Tornado tosses, Bombs, Drag-Tool drops)
     let isAirborneOrDragged = Boolean(u.draggedByPlayer);
-    if (!u.draggedByPlayer && !capturedByBlackHole && !capturedByTornado) {
+    if (
+      !u.draggedByPlayer &&
+      !capturedByBlackHole &&
+      !capturedByTornado &&
+      !(u.role === 'leviathan' && (u.leviathanLeapTimer ?? 0) > 0)
+    ) {
       const alt = u.altitude ?? 0;
       const vz = u.vzVertical ?? 0;
       if (alt > 0 || vz !== 0) {
@@ -8639,14 +8649,306 @@ function stepWildlifeAI(
     u.hp -= 10 * dt;
   }
 
-  // Leviathan: roams open seas as an underwater silhouette (leviathanSubmerged = true),
-  // breaching to the surface (leviathanSubmerged = false) when attacking ships, swimmers, coastal units, or ports/sea builds!
+  // Leviathan:
+  // - Roams open seas as a terrifying undulating silhouette (leviathanSubmerged = true) when hidden
+  // - Unleashes a 7-second stationary high-pressure Water Beam with gaping mouth (10s cooldown) that destroys buildings, units & landmasses
+  // - Performs a slow-motion Breach Jump every 30s: dives deep for 2.2s while seas appear calm, bursts out head-first in slow motion for 4.0s,
+  //   and slams head-first back into the sea to trigger omnidirectional Tsunamis & Rogue Waves
+  // - Generates Rogue Waves when attacking, and rarely devours small islands in the deep seas (never islands in shallow seas)
   if (u.role === 'leviathan') {
     u.isSwimming = false;
     u.swimStamina = 100;
     u.leviathanSurfaceTimer = (u.leviathanSurfaceTimer ?? 10) - dt;
+    if ((u.leviathanBeamTimer ?? 0) <= 0) {
+      u.leviathanBeamCooldown = Math.max(0, (u.leviathanBeamCooldown ?? 0) - dt);
+    }
+    if ((u.leviathanLeapTimer ?? 0) <= 0) {
+      u.leviathanLeapCooldown = Math.max(0, (u.leviathanLeapCooldown ?? 0) - dt);
+    }
+    u.leviathanEatIslandCooldown = Math.max(0, (u.leviathanEatIslandCooldown ?? 60) - dt);
 
-    // Look for nearby ships, water/coastal units, or coastal/floating buildings (ports/docks) within 16 tiles
+    // Helper: checks if a land tile is part of a small island situated in the DEEP SEAS (and NOT in shallow seas)
+    const isDeepSeaIslandTile = (tx: number, tz: number): boolean => {
+      const centerT = getTile(state, tx, tz);
+      if (!centerT || centerT.height <= 0) return false;
+      let deepCount = 0;
+      let shallowCount = 0;
+      let landCount = 0;
+      for (let oz = -3; oz <= 3; oz++) {
+        for (let ox = -3; ox <= 3; ox++) {
+          const nt = getTile(state, tx + ox, tz + oz);
+          if (!nt) continue;
+          if (nt.height > 0) {
+            landCount++;
+          } else if (nt.terrain === 'deep_water') {
+            deepCount++;
+          } else if (nt.terrain === 'shallow_water') {
+            shallowCount++;
+          }
+        }
+      }
+      // Must be surrounded predominantly by deep_water with virtually no shallow_water shelf, and be a small island
+      return deepCount >= 8 && shallowCount <= deepCount * 0.2 && landCount <= 16;
+    };
+
+    // 1. ACTIVE SLOW-MOTION BREACH JUMP SEQUENCE (6.2s total: 2.2s deep dive + 4.0s slow-mo head-first arc -> omnidirectional Tsunami impact)
+    if ((u.leviathanLeapTimer ?? 0) > 0) {
+      const prevLeap = u.leviathanLeapTimer!;
+      u.leviathanLeapTimer = Math.max(0, prevLeap - dt);
+      const LEAP_TOTAL = 6.2;
+      const DIVE_DUR = 2.2;
+      const AIR_DUR = LEAP_TOTAL - DIVE_DUR; // 4.0s slow-motion airtime
+      const prevElapsed = LEAP_TOTAL - prevLeap;
+      const elapsedLeap = LEAP_TOTAL - u.leviathanLeapTimer;
+
+      if (elapsedLeap < DIVE_DUR) {
+        // Phase 1 (0.0s .. 2.2s): Deep dive — the seas appear deceptively calm above while the Leviathan gathers momentum in the abyss
+        u.leviathanSubmerged = true;
+        u.state = 'moving';
+        const diveProg = elapsedLeap / DIVE_DUR;
+        u.altitude = -1.35 * Math.sin(diveProg * Math.PI * 0.5);
+        return;
+      }
+
+      // Phase 2 (2.2s .. 6.2s): Bursts out of the ocean HEAD-FIRST in majestic slow-motion!
+      u.leviathanSubmerged = false;
+      u.state = 'fighting';
+      if (prevElapsed < DIVE_DUR && elapsedLeap >= DIVE_DUR) {
+        // Erupt from the deep!
+        const sx = u.leviathanLeapStartX ?? u.x;
+        const sz = u.leviathanLeapStartZ ?? u.z;
+        const tx = u.leviathanLeapTargetX ?? u.targetX;
+        const tz = u.leviathanLeapTargetZ ?? u.targetZ;
+        const bHeading = Math.atan2(tz - sz, tx - sx);
+        state.activeHazards.push({
+          id: nextEntityId('haz'),
+          kind: 'rogue_wave',
+          x: sx,
+          z: sz,
+          windX: Math.cos(bHeading),
+          windZ: Math.sin(bHeading),
+          heading: bHeading,
+          radius: 4.2,
+          remaining: 5.5,
+          duration: 5.5,
+          tickTimer: 0,
+        });
+        state.pendingVfx.push({
+          id: nextEntityId('vfx'),
+          type: 'tsunami',
+          x: sx,
+          y: 0.35,
+          z: sz,
+          radius: 5.2,
+          color: '#00f5d4',
+          createdAt: Date.now(),
+        });
+      }
+
+      const airProg = Math.min(1, Math.max(0, (elapsedLeap - DIVE_DUR) / AIR_DUR));
+      const sx = u.leviathanLeapStartX ?? u.x;
+      const sz = u.leviathanLeapStartZ ?? u.z;
+      const tx = u.leviathanLeapTargetX ?? u.targetX;
+      const tz = u.leviathanLeapTargetZ ?? u.targetZ;
+      u.x = Math.max(3, Math.min(gs - 4, sx + (tx - sx) * airProg));
+      u.z = Math.max(3, Math.min(gs - 4, sz + (tz - sz) * airProg));
+      u.targetX = tx;
+      u.targetZ = tz;
+      // High, slow-motion parabolic arc (reaching 5.8 units above the sea)
+      u.altitude = Math.sin(airProg * Math.PI) * 5.8;
+
+      if (u.leviathanLeapTimer <= 0) {
+        // Phase 3 (t = 6.2s): Cataclysmic HEAD-FIRST reentry impact — unleashes Tsunamis & Rogue Waves in ALL directions!
+        u.altitude = 0;
+        u.leviathanLeapCooldown = 30.0; // Strictly 30-second cooldown!
+        u.attackAnimTimer = 0.75;
+
+        // Omnidirectional radial Tsunami Wave expanding in all directions
+        state.activeHazards.push({
+          id: nextEntityId('haz'),
+          kind: 'tsunami_wave',
+          x: u.x,
+          z: u.z,
+          radius: 4.5,
+          currentRadius: 1.2,
+          maxRadius: 15.5,
+          remaining: 7.5,
+          duration: 7.5,
+          tickTimer: 0,
+        });
+
+        // 8 radial Rogue Waves surging outward in all compass directions
+        for (let dirIdx = 0; dirIdx < 8; dirIdx++) {
+          const ang = (dirIdx * Math.PI) / 4;
+          state.activeHazards.push({
+            id: nextEntityId('haz'),
+            kind: 'rogue_wave',
+            x: u.x + Math.cos(ang) * 1.5,
+            z: u.z + Math.sin(ang) * 1.5,
+            windX: Math.cos(ang),
+            windZ: Math.sin(ang),
+            heading: ang,
+            radius: 3.8,
+            remaining: 5.5,
+            duration: 5.5,
+            tickTimer: 0,
+          });
+        }
+
+        // Direct impact crushing damage around the landing point
+        for (const v of state.vehicles ?? []) {
+          if (Math.hypot(v.x - u.x, v.z - u.z) <= 5.2) {
+            v.hp = Math.max(0, (v.hp ?? 100) - 240);
+          }
+        }
+        for (const other of state.units) {
+          if (other.id === u.id || other.state === 'ko' || other.statusEffects.shielded) continue;
+          if (Math.hypot(other.x - u.x, other.z - u.z) <= 5.2) {
+            other.hp = Math.max(0, other.hp - 160);
+            if (other.hp <= 0) {
+              other.state = 'ko';
+              other.koTimer = 0.45;
+            }
+          }
+        }
+        for (const b of state.buildings) {
+          if (b.shieldTimer <= 0 && Math.hypot(b.tileX - u.x, b.tileZ - u.z) <= 5.2) {
+            b.hp = Math.max(0, b.hp - 260);
+          }
+        }
+
+        state.pendingVfx.push({
+          id: nextEntityId('vfx'),
+          type: 'tsunami',
+          x: u.x,
+          y: 0.4,
+          z: u.z,
+          radius: 7.5,
+          color: '#00bbf9',
+          createdAt: Date.now(),
+        });
+      }
+      return;
+    }
+
+    // 2. ACTIVE 7-SECOND STATIONARY WATER BEAM ATTACK (mouth gapes wide open, cannot move, destroys buildings, units & landmasses)
+    if ((u.leviathanBeamTimer ?? 0) > 0) {
+      const prevBeam = u.leviathanBeamTimer!;
+      u.leviathanBeamTimer = Math.max(0, prevBeam - dt);
+      u.leviathanSubmerged = false;
+      u.state = 'fighting';
+      u.attackAnimTimer = 0.55;
+      u.altitude = 0;
+
+      // Lock position while firing the Water Beam (cannot move during the 7-second channel!)
+      if (u.leviathanBeamOriginX !== undefined && u.leviathanBeamOriginZ !== undefined) {
+        u.x = u.leviathanBeamOriginX;
+        u.z = u.leviathanBeamOriginZ;
+      }
+
+      const btx = u.leviathanBeamTargetX ?? u.targetX;
+      const btz = u.leviathanBeamTargetZ ?? u.targetZ;
+      u.targetX = btx;
+      u.targetZ = btz;
+      u.attackTargetX = btx;
+      u.attackTargetZ = btz;
+
+      const bdx = btx - u.x;
+      const bdz = btz - u.z;
+      const bLen = Math.max(1.0, Math.hypot(bdx, bdz));
+      const dirX = bdx / bLen;
+      const dirZ = bdz / bLen;
+
+      // Helper: distance from point (px, pz) to the active Water Beam segment from (u.x, u.z) to (btx, btz)
+      const distToBeam = (px: number, pz: number): number => {
+        const vx = px - u.x;
+        const vz = pz - u.z;
+        const proj = Math.max(0, Math.min(bLen + 1.5, vx * dirX + vz * dirZ));
+        const cx = u.x + dirX * proj;
+        const cz = u.z + dirZ * proj;
+        return Math.hypot(px - cx, pz - cz);
+      };
+
+      // Destroy buildings, ships, and units caught in the pressurized Water Beam
+      for (const b of state.buildings) {
+        if (b.hp <= 0 || b.shieldTimer > 0) continue;
+        if (distToBeam(b.tileX, b.tileZ) <= 2.35) {
+          b.hp = Math.max(0, b.hp - 195 * dt);
+        }
+      }
+      for (const v of state.vehicles ?? []) {
+        if ((v.hp ?? 0) <= 0) continue;
+        if (distToBeam(v.x, v.z) <= 2.35) {
+          v.hp = Math.max(0, (v.hp ?? 100) - 210 * dt);
+        }
+      }
+      for (const other of state.units) {
+        if (other.id === u.id || other.state === 'ko' || other.statusEffects.shielded) continue;
+        if (distToBeam(other.x, other.z) <= 2.25) {
+          other.hp = Math.max(0, other.hp - 115 * dt);
+          if (other.hp <= 0) {
+            other.state = 'ko';
+            other.koTimer = 0.45;
+            if (other.faction === 'hostile') state.totalRaidersDefeated += 1;
+          }
+        }
+      }
+
+      // Erode & destroy landmasses along the Water Beam path every 0.5s pulse
+      if (Math.floor(prevBeam * 2.0) !== Math.floor(u.leviathanBeamTimer * 2.0)) {
+        const steps = Math.ceil(bLen);
+        for (let s = 2; s <= steps + 1; s++) {
+          const sx = Math.round(u.x + dirX * s);
+          const sz = Math.round(u.z + dirZ * s);
+          for (let oz = -1; oz <= 1; oz++) {
+            for (let ox = -1; ox <= 1; ox++) {
+              if (Math.abs(ox) + Math.abs(oz) > 1 && s < steps) continue;
+              const lt = getTile(state, sx + ox, sz + oz);
+              if (!lt) continue;
+              if (lt.height === 0) {
+                damageOrBleachWaterTile(lt, 220, true);
+              } else if (lt.height >= 1) {
+                lt.height = Math.max(0, lt.height - 1);
+                lt.onFireTimer = 0;
+                if (lt.height === 0) {
+                  lt.terrain = isDeepSeaIslandTile(sx + ox, sz + oz) ? 'deep_water' : 'shallow_water';
+                  lt.resourceNode = 'none';
+                  lt.resourceAmount = 0;
+                  if (lt.buildingId) {
+                    const hitBld = state.buildings.find((b) => b.id === lt.buildingId);
+                    if (hitBld && hitBld.shieldTimer <= 0) hitBld.hp = 0;
+                  }
+                } else if (lt.terrain !== 'rock' && lt.terrain !== 'mountain') {
+                  lt.terrain = 'sand';
+                  if (lt.resourceNode === 'timber_grove' || lt.resourceNode === 'berry_bush') {
+                    lt.resourceNode = 'none';
+                    lt.resourceAmount = 0;
+                  }
+                }
+              }
+            }
+          }
+        }
+        state.pendingVfx.push({
+          id: nextEntityId('vfx'),
+          type: 'hit_spark',
+          x: btx,
+          y: 0.35,
+          z: btz,
+          radius: 4.2,
+          color: '#00f5d4',
+          createdAt: Date.now(),
+        });
+      }
+
+      if (u.leviathanBeamTimer <= 0) {
+        // Strictly 10-second cooldown after the 7-second Water Beam finishes!
+        u.leviathanBeamCooldown = 10.0;
+      }
+      return;
+    }
+
+    // 3. ACQUIRE COMBAT TARGETS (ships, swimmers/coastal units, coastal/floating buildings)
     let targetShip: VehicleEntity | null = null;
     let targetUnit: UnitEntity | null = null;
     let targetBld: BuildingEntity | null = null;
@@ -8664,7 +8966,7 @@ function stepWildlifeAI(
       if (other.id === u.id || other.state === 'ko' || other.hp <= 0 || other.role === 'leviathan') continue;
       const isAttacker = (u.underAttackTimer ?? 0) > 0 && other.id === u.lastAttackerId;
       const ot = getTile(state, Math.round(other.x), Math.round(other.z));
-      if (!isAttacker && (!ot || ot.height > 1)) continue;
+      if (!isAttacker && (!ot || ot.height > 2)) continue;
       const d = Math.hypot(other.x - u.x, other.z - u.z);
       const effD = isAttacker ? d * 0.7 : d;
       if (effD < bestDist) {
@@ -8677,7 +8979,7 @@ function stepWildlifeAI(
       for (const b of state.buildings) {
         if (b.hp <= 0 || b.shieldTimer > 0) continue;
         const bt = getTile(state, b.tileX, b.tileZ);
-        if (!bt || bt.height > 1) continue;
+        if (!bt || bt.height > 2) continue;
         const d = Math.hypot(b.tileX - u.x, b.tileZ - u.z);
         if (d < bestDist) {
           bestDist = d;
@@ -8688,8 +8990,6 @@ function stepWildlifeAI(
 
     const hasTarget = Boolean(targetShip || targetUnit || targetBld);
     if (hasTarget) {
-      // Surface to attack!
-      u.leviathanSubmerged = false;
       const tx = targetShip ? targetShip.x : targetUnit ? targetUnit.x : targetBld!.tileX;
       const tz = targetShip ? targetShip.z : targetUnit ? targetUnit.z : targetBld!.tileZ;
       u.targetX = tx;
@@ -8697,11 +8997,64 @@ function stepWildlifeAI(
       const dx = tx - u.x;
       const dz = tz - u.z;
       const dist = Math.hypot(dx, dz);
+
+      // Priority A: Trigger Slow-Motion Breach Jump (30s cooldown) when target is 3.0..14.0 tiles away
+      if ((u.leviathanLeapCooldown ?? 0) <= 0 && dist >= 3.0 && dist <= 14.0) {
+        let landX = tx;
+        let landZ = tz;
+        const tTile = getTile(state, Math.round(tx), Math.round(tz));
+        if (!tTile || tTile.height > 0) {
+          // Pick nearest water tile adjacent to the coastal target so the Leviathan lands in the sea
+          let bestWDist = 999;
+          for (let oz = -3; oz <= 3; oz++) {
+            for (let ox = -3; ox <= 3; ox++) {
+              const wt = getTile(state, Math.round(tx) + ox, Math.round(tz) + oz);
+              if (wt && wt.height === 0) {
+                const wd = Math.hypot(wt.x - tx, wt.z - tz);
+                if (wd < bestWDist) {
+                  bestWDist = wd;
+                  landX = wt.x;
+                  landZ = wt.z;
+                }
+              }
+            }
+          }
+        }
+        u.leviathanLeapTimer = 6.2; // 2.2s dive + 4.0s slow-motion head-first breach leap
+        u.leviathanLeapCooldown = 30.0;
+        u.leviathanLeapStartX = u.x;
+        u.leviathanLeapStartZ = u.z;
+        u.leviathanLeapTargetX = landX;
+        u.leviathanLeapTargetZ = landZ;
+        u.leviathanSubmerged = true;
+        return;
+      }
+
+      // Priority B: Trigger 7-Second Stationary Water Beam (10s cooldown) when target is within 2.2..13.5 tiles
+      if ((u.leviathanBeamCooldown ?? 0) <= 0 && dist >= 2.2 && dist <= 13.5) {
+        u.leviathanSubmerged = false;
+        u.leviathanBeamTimer = 7.0; // Channels for 7 seconds while stationary with gaping jaws!
+        u.leviathanBeamCooldown = 10.0;
+        u.leviathanBeamOriginX = u.x;
+        u.leviathanBeamOriginZ = u.z;
+        u.leviathanBeamTargetX = tx;
+        u.leviathanBeamTargetZ = tz;
+        u.attackTargetX = tx;
+        u.attackTargetZ = tz;
+        u.attackAnimTimer = 0.7;
+        u.state = 'fighting';
+        return;
+      }
+
+      // Priority C: Surface to melee thrash & unleash surging Rogue Waves!
+      u.leviathanSubmerged = false;
       if (dist <= 4.8) {
         u.state = 'fighting';
+        u.attackTargetX = tx;
+        u.attackTargetZ = tz;
         if (u.actionCooldown <= 0) {
-          u.actionCooldown = 1.15;
-          u.attackAnimTimer = 0.55;
+          u.actionCooldown = 1.25;
+          u.attackAnimTimer = 0.65;
           if (targetShip) {
             targetShip.hp = Math.max(0, (targetShip.hp ?? 100) - def.attackDamage * 1.15);
             if (targetShip.type === 'warship') {
@@ -8711,6 +9064,11 @@ function stepWildlifeAI(
             targetUnit.hp = Math.max(0, targetUnit.hp - def.attackDamage);
             targetUnit.lastAttackerId = u.id;
             targetUnit.underAttackTimer = 8.0;
+            if (targetUnit.hp <= 0) {
+              targetUnit.state = 'ko';
+              targetUnit.koTimer = 0.45;
+              if (targetUnit.faction === 'hostile') state.totalRaidersDefeated += 1;
+            }
             if (targetUnit.faction === 'civilization' || targetUnit.faction === 'hostile' || targetUnit.role === 'dragon') {
               u.hp = Math.max(0, u.hp - (targetUnit.role === 'warrior' || targetUnit.isKing ? 14 : 8));
             }
@@ -8718,6 +9076,23 @@ function stepWildlifeAI(
             targetBld.hp = Math.max(0, targetBld.hp - def.attackDamage * 1.45);
             u.hp = Math.max(0, u.hp - 10);
           }
+
+          // Spawn a surging Rogue Wave when attacking!
+          const waveHeading = Math.atan2(dz, dx);
+          state.activeHazards.push({
+            id: nextEntityId('haz'),
+            kind: 'rogue_wave',
+            x: u.x + Math.cos(waveHeading) * 1.4,
+            z: u.z + Math.sin(waveHeading) * 1.4,
+            windX: Math.cos(waveHeading),
+            windZ: Math.sin(waveHeading),
+            heading: waveHeading,
+            radius: 3.4,
+            remaining: 4.5,
+            duration: 4.5,
+            tickTimer: 0,
+          });
+
           // Smash water walkways & bleach coral reefs around the Leviathan's jaws
           const hitRx = Math.round(tx);
           const hitRz = Math.round(tz);
@@ -8735,8 +9110,8 @@ function stepWildlifeAI(
             x: tx,
             y: 0.25,
             z: tz,
-            radius: 3.6,
-            color: '#38bdf8',
+            radius: 3.8,
+            color: '#00bbf9',
             createdAt: Date.now(),
           });
         }
@@ -8754,10 +9129,99 @@ function stepWildlifeAI(
       return;
     }
 
-    // No target: alternate between submerged silhouette roaming (~14s) and surfacing to graze for air (~5s)
+    // 4. RARELY DEVOUR DEEP-SEA ISLANDS (never islands in shallow seas!)
+    if ((u.leviathanEatIslandCooldown ?? 0) <= 0) {
+      let bestDeepIsland: TileData | null = null;
+      let bestIslandDist = 20.0;
+      const uxR = Math.round(u.x);
+      const uzR = Math.round(u.z);
+      for (let oz = -18; oz <= 18; oz += 2) {
+        for (let ox = -18; ox <= 18; ox += 2) {
+          const tx = uxR + ox;
+          const tz = uzR + oz;
+          if (tx < 4 || tx >= gs - 4 || tz < 4 || tz >= gs - 4) continue;
+          const d = Math.hypot(ox, oz);
+          if (d < bestIslandDist && isDeepSeaIslandTile(tx, tz)) {
+            bestIslandDist = d;
+            bestDeepIsland = getTile(state, tx, tz)!;
+          }
+        }
+      }
+      if (bestDeepIsland) {
+        u.targetX = bestDeepIsland.x;
+        u.targetZ = bestDeepIsland.z;
+        const dxI = bestDeepIsland.x - u.x;
+        const dzI = bestDeepIsland.z - u.z;
+        const distI = Math.hypot(dxI, dzI);
+        if (distI <= 4.2) {
+          // Breach with gaping maw and devour the deep-sea island whole!
+          u.leviathanSubmerged = false;
+          u.leviathanSurfaceTimer = 5.0;
+          u.leviathanEatIslandCooldown = 115.0; // Rare event (~2 minutes between island devours)
+          u.attackAnimTimer = 0.85;
+          u.attackTargetX = bestDeepIsland.x;
+          u.attackTargetZ = bestDeepIsland.z;
+          u.state = 'fighting';
+
+          for (let oz = -2; oz <= 2; oz++) {
+            for (let ox = -2; ox <= 2; ox++) {
+              const it = getTile(state, bestDeepIsland.x + ox, bestDeepIsland.z + oz);
+              if (it && it.height > 0 && isDeepSeaIslandTile(it.x, it.z)) {
+                it.height = 0;
+                it.terrain = 'deep_water';
+                it.resourceNode = 'none';
+                it.resourceAmount = 0;
+                if (it.buildingId) {
+                  const bld = state.buildings.find((b) => b.id === it.buildingId);
+                  if (bld) bld.hp = 0;
+                }
+              }
+            }
+          }
+          const eatHeading = Math.atan2(dzI, dxI);
+          state.activeHazards.push({
+            id: nextEntityId('haz'),
+            kind: 'rogue_wave',
+            x: bestDeepIsland.x,
+            z: bestDeepIsland.z,
+            windX: Math.cos(eatHeading),
+            windZ: Math.sin(eatHeading),
+            heading: eatHeading,
+            radius: 3.8,
+            remaining: 4.5,
+            duration: 4.5,
+            tickTimer: 0,
+          });
+          state.pendingVfx.push({
+            id: nextEntityId('vfx'),
+            type: 'tsunami',
+            x: bestDeepIsland.x,
+            y: 0.35,
+            z: bestDeepIsland.z,
+            radius: 5.0,
+            color: '#00f5d4',
+            createdAt: Date.now(),
+          });
+          addChronicle(state, 'A colossal Leviathan breached from the trench and devoured a deep-sea island whole!', 'warning');
+          return;
+        } else {
+          u.state = 'moving';
+          const nx = Math.max(3, Math.min(gs - 4, u.x + (dxI / distI) * moveSpeed * 1.15 * dt));
+          const nz = Math.max(3, Math.min(gs - 4, u.z + (dzI / distI) * moveSpeed * 1.15 * dt));
+          const nt = getTile(state, Math.round(nx), Math.round(nz));
+          if (nt && nt.height === 0) {
+            u.x = nx;
+            u.z = nz;
+            return;
+          }
+        }
+      }
+    }
+
+    // 5. NO TARGET: Roam the open seas predominantly as a terrifying submerged silhouette (~16s submerged, ~4s surfaced)
     if (u.leviathanSurfaceTimer <= 0) {
       u.leviathanSubmerged = !u.leviathanSubmerged;
-      u.leviathanSurfaceTimer = u.leviathanSubmerged ? 12 + (u.appearanceSeed ?? 0) % 7 : 4.5 + ((u.appearanceSeed ?? 0) % 3);
+      u.leviathanSurfaceTimer = u.leviathanSubmerged ? 15 + ((u.appearanceSeed ?? 0) % 7) : 4.0 + ((u.appearanceSeed ?? 0) % 3);
     }
 
     const dxW = u.targetX - u.x;

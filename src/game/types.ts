@@ -261,6 +261,19 @@ export interface UnitEntity {
   embarkedVehicleId?: string | null;
   leviathanSubmerged?: boolean;
   leviathanSurfaceTimer?: number;
+  leviathanBeamTimer?: number;
+  leviathanBeamCooldown?: number;
+  leviathanBeamTargetX?: number;
+  leviathanBeamTargetZ?: number;
+  leviathanBeamOriginX?: number;
+  leviathanBeamOriginZ?: number;
+  leviathanLeapTimer?: number;
+  leviathanLeapCooldown?: number;
+  leviathanLeapStartX?: number;
+  leviathanLeapStartZ?: number;
+  leviathanLeapTargetX?: number;
+  leviathanLeapTargetZ?: number;
+  leviathanEatIslandCooldown?: number;
 }
 
 export type GodPowerType =

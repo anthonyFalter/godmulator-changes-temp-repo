@@ -879,5 +879,46 @@ export function generateWorldTiles(
     }
   }
 
+  // Stage 7: Seed 2-3 small isolated deep-sea rocky islets surrounded directly by deep_water
+  if (!isScrapSea && options?.seaLevelBias !== 'low') {
+    const deepIsletCandidates: number[] = [];
+    for (let z = 8; z < gridSize - 8; z += 4) {
+      for (let x = 8; x < gridSize - 8; x += 4) {
+        let allDeep = true;
+        for (let oz = -4; oz <= 4 && allDeep; oz++) {
+          for (let ox = -4; ox <= 4; ox++) {
+            const t = tiles[(z + oz) * gridSize + (x + ox)];
+            if (!t || t.height > 0 || t.terrain !== 'deep_water' || t.resourceNode === 'atlantis_ruin') {
+              allDeep = false;
+              break;
+            }
+          }
+        }
+        if (allDeep) {
+          deepIsletCandidates.push(z * gridSize + x);
+        }
+      }
+    }
+    const isletCount = Math.min(3, deepIsletCandidates.length);
+    for (let k = 0; k < isletCount; k++) {
+      const cIdx = deepIsletCandidates[Math.floor(rng() * deepIsletCandidates.length)];
+      const ix = cIdx % gridSize;
+      const iz = Math.floor(cIdx / gridSize);
+      for (const [ox, oz] of [
+        [0, 0],
+        [1, 0],
+        [0, 1],
+      ] as const) {
+        const t = tiles[(iz + oz) * gridSize + (ix + ox)];
+        if (t && t.height === 0 && t.terrain === 'deep_water') {
+          t.height = ox === 0 && oz === 0 ? 2 : 1;
+          t.terrain = ox === 0 && oz === 0 ? 'mountain' : 'sand';
+          t.resourceNode = ox === 0 && oz === 0 ? 'stone_outcrop' : 'none';
+          t.resourceAmount = ox === 0 && oz === 0 ? 220 : 0;
+        }
+      }
+    }
+  }
+
   return tiles;
 }

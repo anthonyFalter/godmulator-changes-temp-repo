@@ -5129,327 +5129,564 @@ function buildCreatureUnitGroup(
     }
   } else if (role === 'leviathan') {
     // Leviathan:
-    // 1. `leviathan_silhouette`: Terrifying abyssal sea-horror silhouette gliding steadily beneath the waves (spiked serpentine torso, horned predator skull, split mandibles, scythe-like pectoral fins & barbed tail)
-    // 2. `leviathan_surfaced`: Breaching obsidian & blood-crimson abyssal dreadnought with horned dragon-serpent skull, split mandibular jaws, jagged fangs, blazing crimson eyes & razor dorsal spines
-    shadowRadius = 4.9;
-    auraRadius = 3.0;
+    // 1. `leviathan_silhouette`: Always-visible, sinuously undulating abyssal sea-monster shadow gliding just beneath the ocean surface film
+    //    (multi-segment serpentine spine, horned predator skull, split reaper mandibles, sweeping scythe-fins, forked trident tail & glowing abyssal eyes)
+    // 2. `leviathan_surfaced`: Colossal multi-segment Abyssal Sea-Serpent / Kraken-Dragon Dreadnought with articulated serpentine spine,
+    //    3-way gaping mandibular maw, flared bioluminescent gill-frills, sweeping scythe-fins, and an integrated 3D High-Pressure Water Beam!
+    shadowRadius = 5.2;
+    auraRadius = 3.2;
 
     const silGroup = new THREE.Group();
     silGroup.name = 'leviathan_silhouette';
-    const silMat = new THREE.MeshBasicMaterial({
-      color: 0x020813,
+    const silCoreMat = new THREE.MeshBasicMaterial({
+      color: 0x020611,
       transparent: true,
       opacity: 0.84,
       depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -3,
+      polygonOffsetUnits: -3,
+    });
+    const silPenumbraMat = new THREE.MeshBasicMaterial({
+      color: 0x07192e,
+      transparent: true,
+      opacity: 0.48,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2,
     });
     const silEyeMat = new THREE.MeshBasicMaterial({
       color: 0xff1e42,
       transparent: true,
-      opacity: 0.9,
+      opacity: 0.95,
       depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -4,
+      polygonOffsetUnits: -4,
+    });
+    const silBioMat = new THREE.MeshBasicMaterial({
+      color: 0x00f5d4,
+      transparent: true,
+      opacity: 0.65,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -4,
+      polygonOffsetUnits: -4,
     });
 
-    // Narrow, elongated, razor-spined serpentine predator silhouette (~9.4 tiles long)
-    const silThorax = new THREE.Mesh(new THREE.BoxGeometry(2.35, 0.14, 3.6), silMat);
-    silThorax.position.set(0, -0.06, 0.5);
-    silGroup.add(silThorax);
+    const addSilMesh = (geo: THREE.BufferGeometry, m: THREE.Material, parent: THREE.Object3D) => {
+      const mesh = new THREE.Mesh(geo, m);
+      mesh.renderOrder = 16;
+      parent.add(mesh);
+      return mesh;
+    };
 
-    const silAbdomen = new THREE.Mesh(new THREE.BoxGeometry(1.75, 0.12, 2.8), silMat);
-    silAbdomen.position.set(0, -0.06, -2.1);
-    silGroup.add(silAbdomen);
+    // Articulated Head & Thorax Silhouette (local y = 0.03..0.06 so it renders cleanly at the water surface)
+    const silHeadPivot = makePivot('sil_head', 0, 0.04, 1.85);
+    const silSkull = addSilMesh(new THREE.BoxGeometry(2.35, 0.08, 1.65), silCoreMat, silHeadPivot);
+    silSkull.position.set(0, 0.01, 0.78);
+    const silSnout = addSilMesh(new THREE.BoxGeometry(1.75, 0.08, 1.25), silCoreMat, silHeadPivot);
+    silSnout.position.set(0, 0.01, 1.95);
 
-    // Horned abyssal skull & split mandible silhouette
-    const silSkull = new THREE.Mesh(new THREE.BoxGeometry(2.65, 0.14, 1.9), silMat);
-    silSkull.position.set(0, -0.06, 2.75);
-    silGroup.add(silSkull);
+    const silSkullAura = addSilMesh(new THREE.BoxGeometry(2.85, 0.06, 2.85), silPenumbraMat, silHeadPivot);
+    silSkullAura.position.set(0, 0.0, 1.15);
 
     for (const side of [-1, 1]) {
-      // Swept-back cranial horns
-      const silHorn = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.1, 1.7), silMat);
-      silHorn.position.set(side * 1.48, -0.06, 2.15);
-      silHorn.rotation.y = -side * 0.38;
-      silGroup.add(silHorn);
+      // Swept-back curved cranial horns
+      const silHorn = addSilMesh(new THREE.ConeGeometry(0.28, 2.1, 6), silCoreMat, silHeadPivot);
+      silHorn.rotation.x = -Math.PI / 2;
+      silHorn.rotation.z = -side * 0.42;
+      silHorn.scale.set(1.0, 1.0, 0.18);
+      silHorn.position.set(side * 1.35, 0.01, 0.25);
 
       // Forward split reaper mandibles
-      const silMandible = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.1, 1.55), silMat);
-      silMandible.position.set(side * 0.88, -0.06, 4.05);
-      silMandible.rotation.y = side * 0.22;
-      silGroup.add(silMandible);
+      const silMandible = addSilMesh(new THREE.ConeGeometry(0.24, 1.65, 6), silCoreMat, silHeadPivot);
+      silMandible.rotation.x = Math.PI / 2;
+      silMandible.rotation.z = side * 0.28;
+      silMandible.scale.set(1.0, 1.0, 0.18);
+      silMandible.position.set(side * 0.78, 0.01, 2.55);
 
-      // Glowing abyssal predator eyes visible beneath the water surface
-      const silEye = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.08, 0.34), silEyeMat);
-      silEye.position.set(side * 0.96, -0.04, 3.15);
-      silGroup.add(silEye);
-
-      // Jagged scythe-like front pectoral fins
-      const silScythe = new THREE.Mesh(new THREE.BoxGeometry(2.85, 0.08, 0.95), silMat);
-      silScythe.position.set(side * 2.35, -0.07, 1.05);
-      silScythe.rotation.y = -side * 0.48;
-      silGroup.add(silScythe);
-
-      // Secondary barbed lateral fins
-      const silRearFin = new THREE.Mesh(new THREE.BoxGeometry(1.85, 0.08, 0.72), silMat);
-      silRearFin.position.set(side * 1.65, -0.07, -1.35);
-      silRearFin.rotation.y = -side * 0.42;
-      silGroup.add(silRearFin);
-
-      // Lateral rib-spikes along abdomen
-      for (let ri = 0; ri < 3; ri++) {
-        const ribSpike = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.07, 0.32), silMat);
-        ribSpike.position.set(side * (1.28 - ri * 0.14), -0.07, -0.2 - ri * 1.15);
-        ribSpike.rotation.y = -side * 0.52;
-        silGroup.add(ribSpike);
+      // Glowing abyssal predator eyes & bioluminescent gill slits visible through the water
+      for (let ei = 0; ei < 2; ei++) {
+        const silEye = addSilMesh(new THREE.SphereGeometry(0.16 - ei * 0.03, 6, 4), silEyeMat, silHeadPivot);
+        silEye.scale.set(0.85, 0.35, 1.35);
+        silEye.position.set(side * (0.86 - ei * 0.14), 0.03, 1.55 - ei * 0.48);
       }
+      const silGill = addSilMesh(new THREE.BoxGeometry(0.55, 0.02, 0.12), silBioMat, silHeadPivot);
+      silGill.position.set(side * 1.18, 0.02, 0.45);
+      silGill.rotation.y = -side * 0.45;
     }
+    silGroup.add(silHeadPivot);
 
-    // Tapered whip-tail & forked trident tail-blades
-    const silTail = new THREE.Mesh(new THREE.BoxGeometry(1.05, 0.1, 2.3), silMat);
-    silTail.position.set(0, -0.07, -4.1);
-    silGroup.add(silTail);
+    // Segment 0: Blocky Anterior Thorax & Sweeping Scythe Pectoral Fins
+    const silSeg0 = makePivot('sil_seg_0', 0, 0.04, 0.4);
+    const silTorso0 = addSilMesh(new THREE.BoxGeometry(2.65, 0.08, 2.75), silCoreMat, silSeg0);
+    const silTorso0Aura = addSilMesh(new THREE.BoxGeometry(3.25, 0.06, 3.25), silPenumbraMat, silSeg0);
+    silTorso0Aura.position.set(0, -0.01, 0);
 
     for (const side of [-1, 1]) {
-      const silFlukeBlade = new THREE.Mesh(new THREE.BoxGeometry(1.55, 0.08, 0.55), silMat);
-      silFlukeBlade.position.set(side * 0.95, -0.07, -5.15);
-      silFlukeBlade.rotation.y = -side * 0.48;
-      silGroup.add(silFlukeBlade);
+      const finPiv = makePivot(side < 0 ? 'sil_fin_l' : 'sil_fin_r', side * 1.2, 0.0, 0.35);
+      const scythe = addSilMesh(new THREE.ConeGeometry(0.72, 3.1, 6), silCoreMat, finPiv);
+      scythe.rotation.z = -side * (Math.PI / 2);
+      scythe.rotation.y = -side * 0.42;
+      scythe.scale.set(0.14, 1.0, 1.0);
+      scythe.position.set(side * 1.35, 0, -0.35);
+      const finVein = addSilMesh(new THREE.BoxGeometry(2.1, 0.02, 0.12), silBioMat, finPiv);
+      finVein.position.set(side * 1.15, 0.02, -0.25);
+      finVein.rotation.y = -side * 0.42;
+      silSeg0.add(finPiv);
     }
+    silGroup.add(silSeg0);
+
+    // Chained Blocky Spine Segments (sil_seg_1 -> sil_seg_2 -> sil_tail)
+    const silSeg1 = makePivot('sil_seg_1', 0, 0.04, -1.55);
+    addSilMesh(new THREE.BoxGeometry(2.15, 0.08, 2.35), silCoreMat, silSeg1);
+    for (const side of [-1, 1]) {
+      const rearFin = addSilMesh(new THREE.ConeGeometry(0.45, 1.85, 5), silCoreMat, silSeg1);
+      rearFin.rotation.z = -side * (Math.PI / 2);
+      rearFin.rotation.y = -side * 0.48;
+      rearFin.scale.set(0.14, 1.0, 1.0);
+      rearFin.position.set(side * 1.35, 0, -0.2);
+    }
+    silGroup.add(silSeg1);
+
+    const silSeg2 = makePivot('sil_seg_2', 0, 0.04, -3.35);
+    addSilMesh(new THREE.BoxGeometry(1.55, 0.07, 2.15), silCoreMat, silSeg2);
+    silGroup.add(silSeg2);
+
+    const silTail = makePivot('sil_tail', 0, 0.04, -4.95);
+    const silTailShaft = addSilMesh(new THREE.BoxGeometry(1.05, 0.07, 2.15), silCoreMat, silTail);
+    silTailShaft.position.set(0, 0, -0.95);
+    for (const side of [-1, 1]) {
+      const fluke = addSilMesh(new THREE.ConeGeometry(0.38, 1.95, 5), silCoreMat, silTail);
+      fluke.rotation.x = -Math.PI / 2;
+      fluke.rotation.z = -side * 0.62;
+      fluke.scale.set(1.0, 1.0, 0.12);
+      fluke.position.set(side * 0.85, 0, -1.95);
+    }
+    silGroup.add(silTail);
     group.add(silGroup);
 
+    // 2. SURFACED / BREACHING LEVIATHAN DREADNOUGHT (Tiered Blocky Main Body + Horns, Teeth, Eyes & Scythe-Fins)
     const surfGroup = new THREE.Group();
     surfGroup.name = 'leviathan_surfaced';
-    const carapaceHex = s0 % 2 === 0 ? 0x090d16 : 0x111827;
-    const chitinPlateHex = s0 % 2 === 0 ? 0x1e1b4b : 0x1f2937;
-    const crimsonWebHex = 0x7f1d1d;
-    const underbellyHex = 0x3b0a1e;
-    const carapaceMat = mat(carapaceHex, 0.35, 0.28);
+    const carapaceHex = s0 % 2 === 0 ? 0x090f1d : 0x0f172a;
+    const chitinPlateHex = s0 % 2 === 0 ? 0x1e1b4b : 0x16243b;
+    const crimsonWebHex = 0x881337;
+    const underbellyHex = 0x31102f;
+    const carapaceMat = mat(carapaceHex, 0.30, 0.35);
     const chitinMat = mat(chitinPlateHex, 0.42, 0.22);
-    const crimsonWebMat = mat(crimsonWebHex, 0.48, 0.12, 0x450a0a, 0.35);
-    const bellyMat = mat(underbellyHex, 0.55, 0.1);
-    const mawInMat = mat(0x450a14, 0.65, 0.08, 0x7f1d1d, 0.45);
-    const hornBoneMat = mat(0xd6d3d1, 0.38, 0.15);
-    const toothMat = mat(0xf8fafc, 0.25, 0.12);
-    const eyeGlowMat = mat(0xff1e42, 0.15, 0.1, 0xff0033, 2.1);
-    const biolumVeinMat = mat(0xf43f5e, 0.25, 0.1, 0xe11d48, 1.35);
+    const crimsonWebMat = mat(crimsonWebHex, 0.45, 0.15, 0x4c0519, 0.45);
+    const bellyMat = mat(underbellyHex, 0.58, 0.10);
+    const mawInMat = mat(0x082f49, 0.35, 0.15, 0x0284c7, 0.85);
+    const hornBoneMat = mat(0xe7e5e4, 0.35, 0.18);
+    const toothMat = mat(0xf8fafc, 0.22, 0.15);
+    const eyeGlowMat = mat(0xff1e42, 0.15, 0.1, 0xff0033, 2.3);
+    const biolumVeinMat = mat(0x00f5d4, 0.22, 0.12, 0x00bbf9, 1.65);
+    const biolumCrimsonMat = mat(0xf43f5e, 0.25, 0.1, 0xe11d48, 1.45);
     const foamMat = new THREE.MeshBasicMaterial({
       color: 0xe0fbfc,
       transparent: true,
-      opacity: 0.88,
+      opacity: 0.86,
+      depthWrite: false,
     });
     const foamOuterMat = new THREE.MeshBasicMaterial({
-      color: 0xcaf0f8,
+      color: 0x90e0ef,
       transparent: true,
-      opacity: 0.55,
+      opacity: 0.52,
+      depthWrite: false,
     });
 
-    // Armored serpentine thorax & segmented chitinous dorsal plates
-    const thorax = new THREE.Mesh(new THREE.BoxGeometry(2.55, 1.85, 4.1), carapaceMat);
-    thorax.position.set(0, 0.96, 0.05);
-    thorax.castShadow = true;
-    surfGroup.add(thorax);
+    // Tiered Blocky Dreadnought Thorax (stepped voxel/block segments instead of a cylinder)
+    const chestBlock = new THREE.Mesh(new THREE.BoxGeometry(2.58, 1.48, 1.85), carapaceMat);
+    chestBlock.position.set(0, 1.06, 1.08);
+    chestBlock.castShadow = true;
+    chestBlock.receiveShadow = true;
+    surfGroup.add(chestBlock);
 
-    const abdomen = new THREE.Mesh(new THREE.BoxGeometry(2.05, 1.45, 2.35), carapaceMat);
-    abdomen.position.set(0, 0.78, -2.1);
-    abdomen.castShadow = true;
-    surfGroup.add(abdomen);
+    const midThoraxBlock = new THREE.Mesh(new THREE.BoxGeometry(2.38, 1.38, 1.65), carapaceMat);
+    midThoraxBlock.position.set(0, 1.00, -0.32);
+    midThoraxBlock.castShadow = true;
+    midThoraxBlock.receiveShadow = true;
+    surfGroup.add(midThoraxBlock);
 
-    // Overlapping armored dorsal carapace plates & glowing abyssal veins
+    const rearThoraxBlock = new THREE.Mesh(new THREE.BoxGeometry(2.10, 1.24, 1.35), carapaceMat);
+    rearThoraxBlock.position.set(0, 0.92, -1.42);
+    rearThoraxBlock.castShadow = true;
+    rearThoraxBlock.receiveShadow = true;
+    surfGroup.add(rearThoraxBlock);
+
+    // Lateral Beveled Shoulder & Flank Armor Blocks
+    for (const side of [-1, 1]) {
+      const shoulderBlock = new THREE.Mesh(new THREE.BoxGeometry(0.34, 1.02, 1.55), chitinMat);
+      shoulderBlock.position.set(side * 1.38, 1.04, 1.02);
+      shoulderBlock.castShadow = true;
+      surfGroup.add(shoulderBlock);
+
+      const flankBlock = new THREE.Mesh(new THREE.BoxGeometry(0.30, 0.92, 1.42), chitinMat);
+      flankBlock.position.set(side * 1.26, 0.96, -0.35);
+      flankBlock.castShadow = true;
+      surfGroup.add(flankBlock);
+    }
+
+    // Stepped Blocky Armored Underbelly Keel
+    const bellyBlockUpper = new THREE.Mesh(new THREE.BoxGeometry(2.05, 0.42, 3.65), bellyMat);
+    bellyBlockUpper.position.set(0, 0.44, 0.22);
+    surfGroup.add(bellyBlockUpper);
+
+    const bellyBlockLower = new THREE.Mesh(new THREE.BoxGeometry(1.48, 0.26, 3.25), bellyMat);
+    bellyBlockLower.position.set(0, 0.22, 0.22);
+    surfGroup.add(bellyBlockLower);
+
+    // Overlapping Blocky Chitinous Dorsal Carapace Slabs & Glowing Cyan/Crimson Abyssal Conduits
     for (let pi = 0; pi < 5; pi++) {
-      const plateW = 2.68 - pi * 0.18;
-      const plate = new THREE.Mesh(new THREE.BoxGeometry(plateW, 0.36, 0.88), chitinMat);
-      plate.position.set(0, 1.78 - pi * 0.1, 1.45 - pi * 0.92);
+      const pScale = 1.0 - pi * 0.08;
+      const plate = new THREE.Mesh(
+        new THREE.BoxGeometry(2.36 * pScale, 0.36, 0.78),
+        chitinMat,
+      );
       plate.rotation.x = -0.14;
+      plate.position.set(0, 1.72 - pi * 0.08, 1.65 - pi * 0.82);
       plate.castShadow = true;
       surfGroup.add(plate);
 
-      const vein = new THREE.Mesh(new THREE.BoxGeometry(plateW + 0.06, 0.1, 0.18), biolumVeinMat);
-      vein.position.set(0, 1.42 - pi * 0.08, 1.45 - pi * 0.92);
-      surfGroup.add(vein);
+      const upperRidgeBlock = new THREE.Mesh(
+        new THREE.BoxGeometry(1.42 * pScale, 0.24, 0.62),
+        carapaceMat,
+      );
+      upperRidgeBlock.rotation.x = -0.14;
+      upperRidgeBlock.position.set(0, 1.92 - pi * 0.08, 1.62 - pi * 0.82);
+      surfGroup.add(upperRidgeBlock);
+
+      for (const side of [-1, 1]) {
+        const gillVein = new THREE.Mesh(
+          new THREE.BoxGeometry(0.14, 0.46 * pScale, 0.24),
+          pi % 2 === 0 ? biolumVeinMat : biolumCrimsonMat,
+        );
+        gillVein.position.set(side * (1.32 * pScale), 1.16 - pi * 0.06, 1.55 - pi * 0.82);
+        surfGroup.add(gillVein);
+      }
+
+      // Towering curved dorsal bone-spines & crimson fin webbing along the anterior back
+      const spineH = 1.65 - pi * 0.14;
+      const spine = new THREE.Mesh(new THREE.ConeGeometry(0.20, spineH, 5), hornBoneMat);
+      spine.position.set(0, 2.28 - pi * 0.11, 1.50 - pi * 0.82);
+      spine.rotation.x = -0.44;
+      surfGroup.add(spine);
+
+      const web = new THREE.Mesh(new THREE.BoxGeometry(0.10, spineH * 0.85, 0.64), crimsonWebMat);
+      web.position.set(0, 2.08 - pi * 0.11, 1.25 - pi * 0.82);
+      web.rotation.x = -0.38;
+      surfGroup.add(web);
     }
 
-    // Crimson armored underbelly & rib-cage plates
-    const belly = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.58, 3.8), bellyMat);
-    belly.position.set(0, 0.34, -0.05);
-    surfGroup.add(belly);
+    // Articulated Wing-Like Scythe Pectoral Fins (`wing_l`, `wing_r`) & Pelvic Hydrofoils (`wing_outer_l`, `wing_outer_r`)
+    for (const side of [-1, 1]) {
+      const finPivot = makePivot(side < 0 ? 'wing_l' : 'wing_r', side * 1.28, 0.72, 0.78);
+      const finArm = new THREE.Mesh(new THREE.ConeGeometry(0.52, 3.15, 6), carapaceMat);
+      finArm.rotation.z = -side * (Math.PI / 2 - 0.15);
+      finArm.rotation.y = -side * 0.38;
+      finArm.scale.set(0.32, 1.0, 1.0);
+      finArm.position.set(side * 1.35, -0.12, -0.35);
+      finPivot.add(finArm);
 
-    // Terrifying horned abyssal predator head & split mandibular jaws
-    const headPivot = makePivot('head_pivot', 0, 1.12, 1.85);
-    const upperSkull = new THREE.Mesh(new THREE.BoxGeometry(2.75, 1.05, 2.15), carapaceMat);
-    upperSkull.position.set(0, 0.52, 0.95);
-    upperSkull.rotation.x = -0.1;
+      const finMembrane = new THREE.Mesh(new THREE.BoxGeometry(2.55, 0.10, 1.15), crimsonWebMat);
+      finMembrane.position.set(side * 1.32, -0.16, -0.68);
+      finMembrane.rotation.y = -side * 0.42;
+      finMembrane.rotation.z = -side * 0.15;
+      finPivot.add(finMembrane);
+
+      const finVein = new THREE.Mesh(new THREE.BoxGeometry(2.35, 0.12, 0.14), biolumVeinMat);
+      finVein.position.set(side * 1.25, -0.11, -0.28);
+      finVein.rotation.y = -side * 0.38;
+      finPivot.add(finVein);
+
+      const finClaw = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.95, 5), hornBoneMat);
+      finClaw.position.set(side * 2.75, -0.28, -0.82);
+      finClaw.rotation.z = side * 1.28;
+      finClaw.rotation.x = -0.45;
+      finPivot.add(finClaw);
+      surfGroup.add(finPivot);
+
+      const pelvicPivot = makePivot(side < 0 ? 'wing_outer_l' : 'wing_outer_r', side * 1.08, 0.56, -1.45);
+      const pelvicBlade = new THREE.Mesh(new THREE.ConeGeometry(0.38, 2.05, 5), chitinMat);
+      pelvicBlade.rotation.z = -side * (Math.PI / 2 - 0.18);
+      pelvicBlade.rotation.y = -side * 0.44;
+      pelvicBlade.scale.set(0.28, 1.0, 1.0);
+      pelvicBlade.position.set(side * 0.88, -0.1, -0.25);
+      pelvicPivot.add(pelvicBlade);
+      surfGroup.add(pelvicPivot);
+    }
+
+    // Articulated Posterior Blocky Spine & Trident Tail (`tail_pivot` -> `leviathan_tail_mid` -> `tail_fluke`)
+    const tailPivot = makePivot('tail_pivot', 0, 0.86, -1.65);
+    const abdBlockFront = new THREE.Mesh(new THREE.BoxGeometry(1.82, 1.12, 1.28), carapaceMat);
+    abdBlockFront.position.set(0, 0.02, -0.56);
+    abdBlockFront.castShadow = true;
+    tailPivot.add(abdBlockFront);
+
+    const abdBlockRear = new THREE.Mesh(new THREE.BoxGeometry(1.52, 0.96, 1.25), carapaceMat);
+    abdBlockRear.position.set(0, -0.04, -1.58);
+    abdBlockRear.castShadow = true;
+    tailPivot.add(abdBlockRear);
+
+    const abdPlateTop = new THREE.Mesh(new THREE.BoxGeometry(1.42, 0.26, 2.15), chitinMat);
+    abdPlateTop.position.set(0, 0.56, -1.06);
+    tailPivot.add(abdPlateTop);
+
+    const abdBelly = new THREE.Mesh(new THREE.BoxGeometry(1.36, 0.30, 2.15), bellyMat);
+    abdBelly.position.set(0, -0.48, -1.06);
+    tailPivot.add(abdBelly);
+
+    for (let ti = 0; ti < 2; ti++) {
+      const tSpine = new THREE.Mesh(new THREE.ConeGeometry(0.16, 1.05 - ti * 0.18, 5), hornBoneMat);
+      tSpine.position.set(0, 0.98 - ti * 0.14, -0.65 - ti * 0.95);
+      tSpine.rotation.x = -0.46;
+      tailPivot.add(tSpine);
+    }
+
+    const tailMidPivot = makePivot('leviathan_tail_mid', 0, -0.06, -2.15);
+    const tailBlockFront = new THREE.Mesh(new THREE.BoxGeometry(1.16, 0.78, 1.22), chitinMat);
+    tailBlockFront.position.set(0, 0, -0.54);
+    tailBlockFront.castShadow = true;
+    tailMidPivot.add(tailBlockFront);
+
+    const tailBlockRear = new THREE.Mesh(new THREE.BoxGeometry(0.86, 0.58, 1.22), carapaceMat);
+    tailBlockRear.position.set(0, -0.02, -1.56);
+    tailBlockRear.castShadow = true;
+    tailMidPivot.add(tailBlockRear);
+
+    // Forked crimson & bone trident tail-fluke blades
+    for (const side of [-1, 1]) {
+      const flukeBlade = new THREE.Mesh(new THREE.ConeGeometry(0.44, 2.35, 5), crimsonWebMat);
+      flukeBlade.position.set(side * 0.96, 0.06, -2.15);
+      flukeBlade.rotation.x = -Math.PI * 0.5;
+      flukeBlade.rotation.z = -side * 0.54;
+      flukeBlade.scale.set(1.0, 1.0, 0.28);
+      tailMidPivot.add(flukeBlade);
+
+      const flukeSpike = new THREE.Mesh(new THREE.ConeGeometry(0.16, 1.15, 5), hornBoneMat);
+      flukeSpike.position.set(side * 1.65, 0.06, -2.75);
+      flukeSpike.rotation.x = -Math.PI * 0.5;
+      flukeSpike.rotation.z = -side * 0.48;
+      tailMidPivot.add(flukeSpike);
+    }
+    const centerFlukeSpike = new THREE.Mesh(new THREE.ConeGeometry(0.18, 1.45, 5), biolumVeinMat);
+    centerFlukeSpike.position.set(0, 0.06, -2.65);
+    centerFlukeSpike.rotation.x = -Math.PI * 0.5;
+    tailMidPivot.add(centerFlukeSpike);
+
+    tailPivot.add(tailMidPivot);
+    surfGroup.add(tailPivot);
+
+    // 3. TERRIFYING HORNED ABYSSAL PREDATOR HEAD, 3-WAY GAPING MAW & INTEGRATED 3D WATER BEAM (`head_pivot`)
+    const headPivot = makePivot('head_pivot', 0, 1.18, 1.95);
+    // Stepped blocky predator cranium & snout blocks
+    const upperSkull = new THREE.Mesh(new THREE.BoxGeometry(2.34, 0.94, 1.55), carapaceMat);
+    upperSkull.position.set(0, 0.48, 0.72);
     upperSkull.castShadow = true;
     headPivot.add(upperSkull);
 
-    // Armored brow crest & forward predator snout
-    const snoutCrest = new THREE.Mesh(new THREE.BoxGeometry(2.05, 0.78, 1.35), chitinMat);
-    snoutCrest.position.set(0, 0.42, 2.25);
-    snoutCrest.rotation.x = -0.16;
+    const midSnoutBlock = new THREE.Mesh(new THREE.BoxGeometry(1.94, 0.80, 1.22), chitinMat);
+    midSnoutBlock.position.set(0, 0.42, 1.82);
+    midSnoutBlock.castShadow = true;
+    headPivot.add(midSnoutBlock);
+
+    const snoutCrest = new THREE.Mesh(new THREE.BoxGeometry(1.52, 0.64, 0.92), carapaceMat);
+    snoutCrest.position.set(0, 0.34, 2.58);
     snoutCrest.castShadow = true;
     headPivot.add(snoutCrest);
 
-    // Nasal horn spike at tip of snout
-    const nasalHorn = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.85, 5), hornBoneMat);
-    nasalHorn.position.set(0, 0.92, 2.68);
-    nasalHorn.rotation.x = 0.42;
+    const browArmorBlock = new THREE.Mesh(new THREE.BoxGeometry(1.98, 0.26, 1.45), chitinMat);
+    browArmorBlock.position.set(0, 0.92, 0.98);
+    headPivot.add(browArmorBlock);
+
+    // Nasal horn spike & glowing forehead abyssal crest
+    const nasalHorn = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.98, 5), hornBoneMat);
+    nasalHorn.position.set(0, 0.96, 2.65);
+    nasalHorn.rotation.x = 0.38;
     headPivot.add(nasalHorn);
 
-    // Swept-back demonic cranial horns & gill frill spikes
+    const browGem = new THREE.Mesh(new THREE.OctahedronGeometry(0.28, 0), biolumVeinMat);
+    browGem.scale.set(0.75, 0.55, 1.65);
+    browGem.position.set(0, 0.98, 1.45);
+    headPivot.add(browGem);
+
+    // Swept-back demonic cranial horns, flared gill-frill fans & hinged lateral reaper mandibles (`mandible_l`, `mandible_r`)
     for (const side of [-1, 1]) {
-      const mainHorn = new THREE.Mesh(new THREE.ConeGeometry(0.28, 2.15, 5), hornBoneMat);
-      mainHorn.position.set(side * 1.35, 1.15, 0.35);
-      mainHorn.rotation.x = -1.05;
-      mainHorn.rotation.z = -side * 0.42;
+      const mainHorn = new THREE.Mesh(new THREE.ConeGeometry(0.28, 2.35, 6), hornBoneMat);
+      mainHorn.position.set(side * 1.28, 1.18, 0.25);
+      mainHorn.rotation.x = -1.08;
+      mainHorn.rotation.z = -side * 0.44;
       headPivot.add(mainHorn);
 
-      const cheekSpike = new THREE.Mesh(new THREE.ConeGeometry(0.2, 1.35, 5), hornBoneMat);
-      cheekSpike.position.set(side * 1.52, 0.45, 0.65);
+      const cheekSpike = new THREE.Mesh(new THREE.ConeGeometry(0.20, 1.48, 5), hornBoneMat);
+      cheekSpike.position.set(side * 1.48, 0.48, 0.55);
       cheekSpike.rotation.x = -0.88;
       cheekSpike.rotation.z = -side * 0.68;
       headPivot.add(cheekSpike);
 
-      // Outer split reaper mandibles flanking the maw
-      const mandibleArm = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.48, 1.65), chitinMat);
-      mandibleArm.position.set(side * 1.38, 0.08, 1.65);
-      mandibleArm.rotation.y = side * 0.22;
-      headPivot.add(mandibleArm);
+      // Bioluminescent abyssal frill fan
+      const frillFan = new THREE.Mesh(new THREE.ConeGeometry(0.68, 1.55, 5), crimsonWebMat);
+      frillFan.position.set(side * 1.55, 0.62, 0.15);
+      frillFan.rotation.z = -side * 1.12;
+      frillFan.rotation.x = -0.52;
+      frillFan.scale.set(0.25, 1.0, 1.0);
+      headPivot.add(frillFan);
 
-      const mandiblePincer = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.95, 5), hornBoneMat);
-      mandiblePincer.position.set(side * 1.18, 0.06, 2.65);
+      // Hinged Lateral Reaper Mandible (`mandible_l` / `mandible_r`) that flares wide open during Water Beam!
+      const mandPivot = makePivot(side < 0 ? 'mandible_l' : 'mandible_r', side * 1.12, 0.06, 0.85);
+      const mandibleArm = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.34, 1.68), chitinMat);
+      mandibleArm.position.set(side * 0.22, 0, 0.85);
+      mandibleArm.rotation.y = side * 0.18;
+      mandPivot.add(mandibleArm);
+
+      const mandiblePincer = new THREE.Mesh(new THREE.ConeGeometry(0.20, 1.05, 5), hornBoneMat);
+      mandiblePincer.position.set(side * 0.12, 0, 1.95);
       mandiblePincer.rotation.x = Math.PI * 0.5;
-      mandiblePincer.rotation.z = side * 0.45;
-      headPivot.add(mandiblePincer);
-    }
+      mandiblePincer.rotation.z = side * 0.48;
+      mandPivot.add(mandiblePincer);
 
-    // Glowing blood-crimson abyssal oral cavity
-    const mawCavity = new THREE.Mesh(new THREE.BoxGeometry(2.35, 0.72, 1.95), mawInMat);
-    mawCavity.position.set(0, 0.06, 1.05);
-    headPivot.add(mawCavity);
+      for (let mf = 0; mf < 3; mf++) {
+        const inFang = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.36, 4), toothMat);
+        inFang.rotation.z = side * (Math.PI / 2);
+        inFang.position.set(side * 0.05, 0, 0.65 + mf * 0.42);
+        mandPivot.add(inFang);
+      }
+      headPivot.add(mandPivot);
 
-    // 6 blazing crimson predator eyes (3 per side along the armored brow ridge)
-    for (const side of [-1, 1]) {
+      // 3 blazing crimson predator eyes per side
       for (let ei = 0; ei < 3; ei++) {
-        const eye = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.22, 0.28), eyeGlowMat);
-        eye.position.set(side * (1.38 - ei * 0.1), 0.68 + (ei === 1 ? 0.14 : 0), 1.85 - ei * 0.46);
+        const eye = new THREE.Mesh(new THREE.SphereGeometry(0.15 - ei * 0.02, 6, 5), eyeGlowMat);
+        eye.scale.set(0.75, 0.85, 1.35);
+        eye.position.set(side * (1.18 - ei * 0.08), 0.64 + (ei === 1 ? 0.12 : 0), 1.92 - ei * 0.48);
         headPivot.add(eye);
       }
     }
 
-    // Upper jagged fangs: double-row of long curved bone-fangs
+    // Glowing pressurized Hydro-Core inside the oral cavity (`fire_maw`)
+    const mawCavity = new THREE.Mesh(new THREE.BoxGeometry(1.56, 0.72, 1.65), mawInMat);
+    mawCavity.name = 'fire_maw';
+    mawCavity.position.set(0, 0.12, 1.15);
+    headPivot.add(mawCavity);
+
+    // Upper jagged fangs: curved double-row of bone-fangs
     for (let ti = -5; ti <= 5; ti++) {
       const isCornerTusk = Math.abs(ti) === 5 || Math.abs(ti) === 3;
-      const fangLen = isCornerTusk ? 0.68 : 0.48;
+      const fangLen = isCornerTusk ? 0.72 : 0.48;
       const fang = new THREE.Mesh(new THREE.ConeGeometry(0.11, fangLen, 5), toothMat);
       fang.rotation.x = Math.PI;
-      fang.position.set(ti * 0.21, -0.08, 2.45 - Math.abs(ti) * 0.14);
+      fang.position.set(ti * 0.19, -0.04, 2.48 - Math.abs(ti) * 0.15);
       headPivot.add(fang);
     }
 
-    // Hinged spiked lower jaw
-    const jawPivot = makePivot('jaw_pivot', 0, 0.04, 0.28);
-    const lowerJaw = new THREE.Mesh(new THREE.BoxGeometry(2.45, 0.52, 2.15), carapaceMat);
-    lowerJaw.position.set(0, -0.3, 0.95);
+    // Hinged spiked blocky lower jaw (`jaw_pivot`) that drops 50+ degrees open when firing the Water Beam!
+    const jawPivot = makePivot('jaw_pivot', 0, 0.02, 0.32);
+    const lowerJaw = new THREE.Mesh(new THREE.BoxGeometry(1.96, 0.48, 1.48), carapaceMat);
+    lowerJaw.position.set(0, -0.28, 0.82);
     jawPivot.add(lowerJaw);
 
-    const chinTip = new THREE.Mesh(new THREE.BoxGeometry(1.75, 0.44, 1.05), chitinMat);
-    chinTip.position.set(0, -0.26, 2.15);
+    const chinTip = new THREE.Mesh(new THREE.BoxGeometry(1.48, 0.42, 1.18), chitinMat);
+    chinTip.position.set(0, -0.26, 1.98);
     jawPivot.add(chinTip);
 
-    // Chin beard spikes
     for (let bi = -1; bi <= 1; bi++) {
-      const chinSpike = new THREE.Mesh(new THREE.ConeGeometry(0.14, 0.62, 5), hornBoneMat);
+      const chinSpike = new THREE.Mesh(new THREE.ConeGeometry(0.14, 0.68, 5), hornBoneMat);
       chinSpike.rotation.x = Math.PI * 0.78;
-      chinSpike.position.set(bi * 0.52, -0.62, 2.25 - Math.abs(bi) * 0.2);
+      chinSpike.position.set(bi * 0.48, -0.58, 2.22 - Math.abs(bi) * 0.2);
       jawPivot.add(chinSpike);
     }
 
-    // Lower jagged fangs
     for (let ti = -5; ti <= 5; ti++) {
       const isTusk = Math.abs(ti) === 4;
       const fang = new THREE.Mesh(
-        new THREE.ConeGeometry(0.11, isTusk ? 0.65 : 0.46, 5),
+        new THREE.ConeGeometry(0.11, isTusk ? 0.68 : 0.46, 5),
         toothMat,
       );
-      fang.position.set(ti * 0.2, 0.12, 2.32 - Math.abs(ti) * 0.13);
+      fang.position.set(ti * 0.18, 0.10, 2.35 - Math.abs(ti) * 0.14);
       jawPivot.add(fang);
     }
     headPivot.add(jawPivot);
+
+    // 4. INTEGRATED 3D HIGH-PRESSURE WATER BEAM ASSEMBLY (`leviathan_beam_group`)
+    // Attached to the gaping maw so when `leviathanBeamTimer > 0`, a roaring multi-layered hydro-cannon beam
+    // with spinning helical shock-rings & impact geyser blasts directly from the Leviathan's open mouth!
+    const beamGroup = new THREE.Group();
+    beamGroup.name = 'leviathan_beam_group';
+    beamGroup.position.set(0, 0.06, 2.15);
+    beamGroup.visible = false;
+
+    const beamCoreMat = new THREE.MeshBasicMaterial({
+      color: 0xe0fbfc,
+      transparent: true,
+      opacity: 0.96,
+      depthWrite: false,
+    });
+    const beamOuterMat = new THREE.MeshBasicMaterial({
+      color: 0x00bbf9,
+      transparent: true,
+      opacity: 0.68,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+    const beamSpiralMat = new THREE.MeshBasicMaterial({
+      color: 0x00f5d4,
+      transparent: true,
+      opacity: 0.85,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+
+    // Muzzle charge sphere at the jaws
+    const muzzleOrb = new THREE.Mesh(new THREE.SphereGeometry(0.78, 10, 8), beamCoreMat);
+    muzzleOrb.name = 'beam_muzzle';
+    beamGroup.add(muzzleOrb);
+
+    // Inner high-pressure white-cyan hydro-laser core (unit length along +Z, scaled dynamically to target distance)
+    const beamShaft = new THREE.Group();
+    beamShaft.name = 'beam_shaft';
+    const coreCyl = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.32, 1.0, 10, 1, true), beamCoreMat);
+    coreCyl.rotation.x = Math.PI / 2;
+    coreCyl.position.set(0, 0, 0.5);
+    beamShaft.add(coreCyl);
+
+    const outerCyl = new THREE.Mesh(new THREE.CylinderGeometry(0.88, 0.54, 1.0, 12, 1, true), beamOuterMat);
+    outerCyl.rotation.x = Math.PI / 2;
+    outerCyl.position.set(0, 0, 0.5);
+    beamShaft.add(outerCyl);
+
+    for (let ri = 0; ri < 5; ri++) {
+      const shockRing = new THREE.Mesh(new THREE.RingGeometry(0.52, 1.15, 12), beamSpiralMat);
+      shockRing.position.set(0, 0, 0.15 + ri * 0.18);
+      beamShaft.add(shockRing);
+    }
+    beamGroup.add(beamShaft);
+
+    // Impact hydro-geyser dome at the end of the beam
+    const impactGeyser = new THREE.Group();
+    impactGeyser.name = 'beam_impact';
+    const geyserCone = new THREE.Mesh(new THREE.CylinderGeometry(1.65, 0.75, 2.2, 12, 1, true), beamOuterMat);
+    geyserCone.position.set(0, 0.9, 0);
+    impactGeyser.add(geyserCone);
+    const geyserRing = new THREE.Mesh(new THREE.RingGeometry(0.8, 2.4, 16), beamCoreMat);
+    geyserRing.rotation.x = -Math.PI / 2;
+    geyserRing.position.set(0, 0.08, 0);
+    impactGeyser.add(geyserRing);
+    beamGroup.add(impactGeyser);
+
+    headPivot.add(beamGroup);
     surfGroup.add(headPivot);
-
-    // Towering razor dorsal bone-spines & crimson abyssal fin webbing along the spine
-    for (let di = 0; di < 6; di++) {
-      const spineH = 1.48 - di * 0.16;
-      const spine = new THREE.Mesh(new THREE.ConeGeometry(0.22, spineH, 5), hornBoneMat);
-      spine.position.set(0, 2.15 - di * 0.14, 1.15 - di * 0.78);
-      spine.rotation.x = -0.38;
-      surfGroup.add(spine);
-
-      const web = new THREE.Mesh(
-        new THREE.BoxGeometry(0.12, spineH * 0.82, 0.68),
-        crimsonWebMat,
-      );
-      web.position.set(0, 1.98 - di * 0.14, 0.95 - di * 0.78);
-      web.rotation.x = -0.32;
-      surfGroup.add(web);
-    }
-
-    // Lateral rib-blade spikes & clawed pectoral scythe-fins
-    for (const side of [-1, 1]) {
-      const scytheFin = new THREE.Mesh(new THREE.BoxGeometry(2.65, 0.24, 1.05), carapaceMat);
-      scytheFin.position.set(side * 2.25, 0.56, 0.65);
-      scytheFin.rotation.z = -side * 0.2;
-      scytheFin.rotation.y = -side * 0.42;
-      surfGroup.add(scytheFin);
-
-      const finWeb = new THREE.Mesh(new THREE.BoxGeometry(2.35, 0.12, 0.85), crimsonWebMat);
-      finWeb.position.set(side * 2.15, 0.5, 0.35);
-      finWeb.rotation.z = -side * 0.2;
-      finWeb.rotation.y = -side * 0.42;
-      surfGroup.add(finWeb);
-
-      const finClaw = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.85, 5), hornBoneMat);
-      finClaw.position.set(side * 3.45, 0.38, 0.15);
-      finClaw.rotation.z = side * 1.25;
-      finClaw.rotation.x = -0.45;
-      surfGroup.add(finClaw);
-
-      const pelvicScythe = new THREE.Mesh(new THREE.BoxGeometry(1.75, 0.2, 0.78), carapaceMat);
-      pelvicScythe.position.set(side * 1.75, 0.44, -1.55);
-      pelvicScythe.rotation.z = -side * 0.18;
-      pelvicScythe.rotation.y = -side * 0.38;
-      surfGroup.add(pelvicScythe);
-    }
-
-    // Articulated serpentine tail & barbed trident tail-fluke
-    const tailPivot = makePivot('tail_pivot', 0, 0.72, -2.85);
-    const tailStem = new THREE.Mesh(new THREE.BoxGeometry(1.35, 0.92, 2.05), carapaceMat);
-    tailStem.position.set(0, 0, -0.95);
-    tailPivot.add(tailStem);
-
-    const tailEnd = new THREE.Mesh(new THREE.BoxGeometry(0.88, 0.62, 1.45), chitinMat);
-    tailEnd.position.set(0, 0.02, -2.25);
-    tailPivot.add(tailEnd);
-
-    // Forked crimson & obsidian tail blades
-    for (const side of [-1, 1]) {
-      const flukeBlade = new THREE.Mesh(new THREE.BoxGeometry(1.85, 0.18, 0.72), crimsonWebMat);
-      flukeBlade.position.set(side * 1.15, 0.08, -2.85);
-      flukeBlade.rotation.y = -side * 0.46;
-      tailPivot.add(flukeBlade);
-
-      const flukeSpike = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.95, 5), hornBoneMat);
-      flukeSpike.position.set(side * 1.95, 0.08, -3.25);
-      flukeSpike.rotation.x = -Math.PI * 0.5;
-      flukeSpike.rotation.z = -side * 0.45;
-      tailPivot.add(flukeSpike);
-    }
-    surfGroup.add(tailPivot);
 
     // Churning white seafoam breach rings around the colossal Leviathan
     const splashRing = new THREE.Mesh(new THREE.RingGeometry(2.8, 4.2, 28), foamMat);
+    splashRing.name = 'leviathan_splash_inner';
     splashRing.rotation.x = -Math.PI / 2;
     splashRing.position.set(0, 0.08, 0.2);
     surfGroup.add(splashRing);
 
-    const outerSplashRing = new THREE.Mesh(new THREE.RingGeometry(4.3, 5.4, 24), foamOuterMat);
+    const outerSplashRing = new THREE.Mesh(new THREE.RingGeometry(4.3, 5.5, 24), foamOuterMat);
+    outerSplashRing.name = 'leviathan_splash_outer';
     outerSplashRing.rotation.x = -Math.PI / 2;
     outerSplashRing.position.set(0, 0.06, 0.2);
     surfGroup.add(outerSplashRing);
