@@ -248,6 +248,7 @@ export interface UnitEntity {
   vzAir?: number;
   fallDamageArmed?: boolean;
   draggedByPlayer?: boolean;
+  dragFlingNonLethal?: boolean;
   dragTargetX?: number;
   dragTargetZ?: number;
   dragTargetAltitude?: number;

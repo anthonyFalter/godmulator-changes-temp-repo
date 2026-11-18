@@ -3021,6 +3021,31 @@ test('powers (heat_wave, freeze_snap, tornado, tsunamis, asteroids) and drag_ent
   assert.equal(pig.draggedByPlayer, false);
   for (let i = 0; i < 20; i++) stepSimulation(state, 0.1);
   assert.ok(pig.hp < pig.maxHp || pig.state === 'ko', 'Dropping animal from high altitude must inflict fall damage');
+
+  // Verify gentle drop / placement never kills or harms entities even with low HP
+  const injuredCivRes = spawnUnit(state, 'human', 20, 20, true);
+  assert.equal(injuredCivRes.ok, true);
+  const civ = injuredCivRes.unit!;
+  civ.hp = 5;
+  beginDragUnit(state, civ.id);
+  updateDragUnit(state, civ.id, 22, 22, 3.0);
+  for (let i = 0; i < 10; i++) stepSimulation(state, 0.05);
+  releaseDragUnit(state, civ.id, 0, 0);
+  assert.equal(civ.draggedByPlayer, false);
+  assert.equal(civ.hp, 5, 'Gently dropped unit must take 0 damage on placement');
+  assert.equal(civ.altitude ?? 0, 0, 'Gently dropped unit must be safely on the ground');
+  for (let i = 0; i < 20; i++) stepSimulation(state, 0.1);
+  assert.equal(civ.state !== 'ko', true, 'Gently dropped unit must remain alive and never be KO');
+  assert.ok(civ.hp >= 5, 'Gently dropped unit must retain health and survive');
+
+  // Verify even an intentional fast fling never deals lethal damage
+  civ.hp = 2;
+  beginDragUnit(state, civ.id);
+  updateDragUnit(state, civ.id, 24, 24, 4.0);
+  releaseDragUnit(state, civ.id, 8, 8);
+  for (let i = 0; i < 30; i++) stepSimulation(state, 0.1);
+  assert.ok(civ.hp >= 1, 'Flung unit must survive with at least 1 HP (non-lethal)');
+  assert.notEqual(civ.state, 'ko', 'Drag flung unit must never be killed or KO');
 });
 
 test('War Update: chance-based Human/Elf peace vs barbaric Orcs with rare peaceful Orc roll & warsEnabled toggle', () => {

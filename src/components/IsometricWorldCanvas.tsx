@@ -5840,12 +5840,19 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         }
 
         if (draggedUnitId) {
-          releaseDragUnit(simRef.current, draggedUnitId, dragVelocity.x, dragVelocity.z);
+          const nowMs = performance.now();
+          const timeSinceMove = nowMs - lastDragWorld.time;
+          const effVx = timeSinceMove > 90 ? 0 : dragVelocity.x;
+          const effVz = timeSinceMove > 90 ? 0 : dragVelocity.z;
+          const releaseSpd = Math.hypot(effVx, effVz);
+          releaseDragUnit(simRef.current, draggedUnitId, effVx, effVz);
           draggedUnitId = null;
           dragVelocity = { x: 0, z: 0 };
           touchGestureMode = 'none';
           oneFingerInfo = null;
-          soundEngine.playThrow();
+          if (releaseSpd >= 2.0) {
+            soundEngine.playThrow();
+          }
           propsRef.current.onSyncHud();
           return;
         }
@@ -5885,10 +5892,17 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       }
 
       if (draggedUnitId) {
-        releaseDragUnit(simRef.current, draggedUnitId, dragVelocity.x, dragVelocity.z);
+        const nowMs = performance.now();
+        const timeSinceMove = nowMs - lastDragWorld.time;
+        const effVx = timeSinceMove > 90 ? 0 : dragVelocity.x;
+        const effVz = timeSinceMove > 90 ? 0 : dragVelocity.z;
+        const releaseSpd = Math.hypot(effVx, effVz);
+        releaseDragUnit(simRef.current, draggedUnitId, effVx, effVz);
         draggedUnitId = null;
         dragVelocity = { x: 0, z: 0 };
-        soundEngine.playThrow();
+        if (releaseSpd >= 2.0) {
+          soundEngine.playThrow();
+        }
         propsRef.current.onSyncHud();
         return;
       }

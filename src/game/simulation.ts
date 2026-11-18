@@ -7842,16 +7842,22 @@ function stepSimulationSingle(
           u.vzAir = 0;
           u.targetX = u.x;
           u.targetZ = u.z;
+          const wasDragFling = Boolean(u.dragFlingNonLethal);
+          u.dragFlingNonLethal = false;
           if (u.fallDamageArmed) {
             u.fallDamageArmed = false;
             const landTile = getTile(state, Math.round(u.x), Math.round(u.z));
             const isWaterLanding = !landTile || landTile.height === 0;
             if (u.role !== 'dragon' && !u.statusEffects.shielded && impactSpeed > 5.5) {
-              const fallDmg = isWaterLanding
+              let fallDmg = isWaterLanding
                 ? Math.max(0, Math.round((impactSpeed - 8.0) * 3.5))
                 : Math.max(30, Math.round(impactSpeed * 12.5));
+              if (wasDragFling) {
+                // Drag fling impacts deal scaled, non-lethal impact damage and never kill or KO
+                fallDmg = Math.min(Math.max(0, u.hp - 1), Math.round(impactSpeed * 3.5));
+              }
               if (fallDmg > 0) {
-                u.hp = Math.max(0, u.hp - fallDmg);
+                u.hp = Math.max(wasDragFling ? 1 : 0, u.hp - fallDmg);
                 state.pendingVfx.push({
                   id: nextEntityId('vfx'),
                   type: 'hit_spark',
@@ -7862,7 +7868,7 @@ function stepSimulationSingle(
                   color: isWaterLanding ? '#4ea8de' : '#ff6b6b',
                   createdAt: Date.now(),
                 });
-                if (u.hp <= 0) {
+                if (u.hp <= 0 && !wasDragFling) {
                   u.state = 'ko';
                   u.koTimer = 0.45;
                   if (u.faction === 'hostile') state.totalRaidersDefeated += 1;
@@ -10441,8 +10447,8 @@ function stepWildlifeAI(
         return;
       }
 
-      // Priority B: Trigger 7-Second Stationary Water Beam (10s cooldown) when target is within 2.2..13.5 tiles
-      if ((u.leviathanBeamCooldown ?? 0) <= 0 && dist >= 2.2 && dist <= 13.5) {
+      // Priority B: Trigger 7-Second Stationary Water Beam (10s cooldown) when target is within 1.0..13.5 tiles
+      if ((u.leviathanBeamCooldown ?? 0) <= 0 && dist >= 1.0 && dist <= 13.5) {
         u.leviathanSubmerged = false;
         u.leviathanBeamTimer = 7.0; // Channels for 7 seconds while stationary with gaping jaws!
         u.leviathanBeamCooldown = 10.0;
@@ -13303,7 +13309,8 @@ export function beginDragUnit(state: SimulationState, unitId: string): UnitEntit
   unit.vzAir = 0;
   unit.vzVertical = 0;
   unit.altitude = Math.max(unit.altitude ?? 0, 1.8);
-  unit.fallDamageArmed = true;
+  unit.fallDamageArmed = false;
+  unit.dragFlingNonLethal = false;
   unit.state = 'idle';
   return unit;
 }
@@ -13323,7 +13330,7 @@ export function updateDragUnit(
   unit.dragTargetZ = Math.max(1, Math.min(maxCoord, worldZ));
   unit.dragTargetAltitude = Math.max(1.2, altitude);
   unit.vzVertical = 0;
-  unit.fallDamageArmed = true;
+  unit.fallDamageArmed = false;
   return unit;
 }
 
@@ -13382,11 +13389,28 @@ export function releaseDragUnit(
   unit.dragTargetAltitude = undefined;
   if (unit.state === 'ko') return unit;
 
-  // Blend cursor release velocity with actual trailing swing momentum
-  const combVx = lagVx * 0.6 + throwVx * 0.55;
-  const combVz = lagVz * 0.6 + throwVz * 0.55;
+  // Blend cursor release velocity with actual trailing swing momentum, or zero if explicitly dropped
+  const isExplicitDrop = throwVx === 0 && throwVz === 0;
+  const combVx = isExplicitDrop ? 0 : lagVx * 0.6 + throwVx * 0.55;
+  const combVz = isExplicitDrop ? 0 : lagVz * 0.6 + throwVz * 0.55;
   const maxSpeed = 24;
   const spd = Math.hypot(combVx, combVz);
+
+  // If released with low speed (< 2.0) or dropped stationary:
+  // safely settle the entity onto the ground with zero fall damage and zero risk of death
+  if (spd < 2.0) {
+    unit.vxAir = 0;
+    unit.vzAir = 0;
+    unit.vzVertical = 0;
+    unit.altitude = 0;
+    unit.fallDamageArmed = false;
+    unit.dragFlingNonLethal = false;
+    unit.targetX = unit.x;
+    unit.targetZ = unit.z;
+    return unit;
+  }
+
+  // Fast intentional fling / throw: ballistic arc with non-lethal impact
   if (spd > maxSpeed && spd > 0.001) {
     unit.vxAir = (combVx / spd) * maxSpeed;
     unit.vzAir = (combVz / spd) * maxSpeed;
@@ -13397,6 +13421,7 @@ export function releaseDragUnit(
   unit.altitude = Math.max(unit.altitude ?? 1.5, 1.5);
   unit.vzVertical = Math.min(8.5, Math.max(-2.0, spd * 0.35));
   unit.fallDamageArmed = true;
+  unit.dragFlingNonLethal = true;
   return unit;
 }
 
@@ -13712,7 +13737,7 @@ export function executeHugeAsteroidImpact(
         t.resourceNode = 'none';
         t.resourceAmount = 0;
       }
-    } else if (effDSq <= 58.0) {
+    } else if (effDSq <= 32.0) {
       t.height = Math.max(1, Math.min(baseH, tileH) - 2);
       t.terrain = 'scorched';
       if (!t.buildingId) {
