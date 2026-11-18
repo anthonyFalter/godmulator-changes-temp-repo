@@ -2405,26 +2405,26 @@ export default function App() {
 
       {/* PLAYING HUD OVERLAY */}
       {gameState !== 'title' && (
-        <div className="fixed inset-0 z-20 pointer-events-none flex flex-col justify-between gap-1 sm:gap-1.5 pt-[max(0.375rem,env(safe-area-inset-top))] pb-[max(0.375rem,env(safe-area-inset-bottom))] pl-[max(0.375rem,env(safe-area-inset-left))] pr-[max(0.375rem,env(safe-area-inset-right))] sm:p-2.5 md:p-3">
-          {/* TOP BAR: Height-matched, uncluttered 3-zone HUD */}
-          <div className="flex flex-wrap lg:flex-nowrap items-stretch justify-between gap-1.5 sm:gap-2 w-full">
+        <div className="fixed inset-0 z-20 pointer-events-none flex flex-col justify-between gap-1 sm:gap-1.5 pt-[max(0.25rem,env(safe-area-inset-top))] pb-[max(0.25rem,env(safe-area-inset-bottom))] pl-[max(0.25rem,env(safe-area-inset-left))] pr-[max(0.25rem,env(safe-area-inset-right))] sm:p-2.5 md:p-3">
+          {/* TOP BAR: Single compact non-wrapping top row + slim single-line resource strip on mobile */}
+          <div className="flex flex-wrap lg:flex-nowrap items-stretch justify-between gap-1 sm:gap-2 w-full">
             {/* Left: Epoch, Year, Pop & Next Age CTA */}
-            <div className="pointer-events-auto px-panel min-h-[46px] px-2.5 py-1.5 sm:px-3 flex items-center gap-2.5 sm:gap-3 max-w-full min-w-0 order-1 shrink-0">
-              <div className="min-w-0">
-                <div className="flex items-baseline gap-1.5 sm:gap-2">
-                  <span className="font-bold text-xs sm:text-sm text-[#f5b742] whitespace-nowrap truncate leading-tight">
+            <div className="pointer-events-auto px-panel min-h-[32px] sm:min-h-[46px] px-1.5 py-0.5 sm:px-3 sm:py-1.5 flex items-center justify-between gap-1 sm:gap-3 flex-1 sm:flex-initial min-w-0 order-1 shrink">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-baseline gap-1 sm:gap-2 min-w-0">
+                  <span className="font-bold text-[10px] sm:text-sm text-[#f5b742] whitespace-nowrap truncate leading-tight">
                     {currentEpoch.name}
                   </span>
-                  <span className="font-pixel-num text-[10px] sm:text-[11px] text-[#e8e0d2] whitespace-nowrap leading-tight">
+                  <span className="font-pixel-num text-[9px] sm:text-[11px] text-[#e8e0d2] whitespace-nowrap leading-tight shrink-0">
                     {formatYearLabel(sim.year)}
                   </span>
                 </div>
-                <div className="flex items-center gap-2 text-[11px] sm:text-xs text-[#b8afa2] tabular-nums mt-0.5 leading-tight">
+                <div className="flex items-center gap-1 sm:gap-2 text-[9px] sm:text-xs text-[#b8afa2] tabular-nums leading-tight">
                   <span className="whitespace-nowrap">
-                    Pop: <span className="font-pixel-num text-[10px] text-[#f2ece1]">{sim.population}</span>
+                    Pop <span className="font-pixel-num text-[9px] sm:text-[10px] text-[#f2ece1]">{sim.population}</span>
                   </span>
                   {sim.goldenAgeTimer > 0 && (
-                    <span className="font-pixel-num text-[10px] text-[#ffd166] whitespace-nowrap">
+                    <span className="font-pixel-num text-[9px] sm:text-[10px] text-[#ffd166] whitespace-nowrap">
                       ★ {Math.ceil(sim.goldenAgeTimer)}s
                     </span>
                   )}
@@ -2435,18 +2435,19 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => handleAdvanceEpoch(true)}
-                  className="px-btn-primary h-8 px-2.5 text-[11px] sm:text-xs font-bold cursor-pointer whitespace-nowrap shrink-0 flex items-center"
+                  className="px-btn-primary h-[22px] sm:h-8 px-1.5 sm:px-2.5 text-[9px] sm:text-xs font-bold cursor-pointer whitespace-nowrap shrink-0 flex items-center"
                   title={`Advance to ${nextEpoch.name}`}
                 >
-                  Next Age
+                  <span className="sm:hidden">Age+</span>
+                  <span className="hidden sm:inline">Next Age</span>
                 </button>
               )}
             </div>
 
-            {/* Center: Resources Strip */}
+            {/* Center: Resources Strip (ultra-slim inline on mobile, spacious two-line on sm+) */}
             <div
               data-testid="hud-resources-bar"
-              className="pointer-events-auto px-panel min-h-[46px] px-2.5 py-1 sm:px-3.5 flex items-center justify-between sm:justify-center gap-2 sm:gap-3.5 w-full lg:w-auto max-w-full overflow-x-auto no-scrollbar order-3 lg:order-2 [@media(max-height:480px)]:w-auto"
+              className="pointer-events-auto px-panel min-h-[22px] sm:min-h-[46px] px-1.5 py-0.5 sm:px-3.5 sm:py-1 flex items-center justify-between sm:justify-center gap-1.5 sm:gap-3.5 w-full lg:w-auto max-w-full overflow-x-auto no-scrollbar order-3 lg:order-2 [@media(max-height:480px)]:w-auto"
             >
               {RESOURCE_KEYS.map(({ key, label }) => {
                 const amount = Math.floor(sim.resources[key]);
@@ -2457,10 +2458,10 @@ export default function App() {
                     key={key}
                     data-testid={`resource-${key}`}
                     title={`${label}: ${amount} (${rateText})`}
-                    className="flex flex-col items-center justify-center min-w-[28px] sm:min-w-[34px] shrink-0 [@media(max-height:480px)]:flex-row [@media(max-height:480px)]:gap-1 [@media(max-height:480px)]:min-w-0"
+                    className="flex flex-row sm:flex-col items-center justify-center gap-0.5 sm:gap-0 sm:min-w-[34px] shrink-0 [@media(max-height:480px)]:flex-row [@media(max-height:480px)]:gap-1 [@media(max-height:480px)]:min-w-0"
                   >
-                    <ResourceIconSvg resource={key} className="w-4 h-4 pixelated-canvas" />
-                    <span className="font-pixel-num text-[9px] sm:text-[10px] text-[#f2ece1] leading-none mt-1 [@media(max-height:480px)]:mt-0">
+                    <ResourceIconSvg resource={key} className="w-3 h-3 sm:w-4 sm:h-4 pixelated-canvas shrink-0" />
+                    <span className="font-pixel-num text-[9px] sm:text-[10px] text-[#f2ece1] leading-none sm:mt-1 [@media(max-height:480px)]:mt-0">
                       {amount}
                     </span>
                   </div>
@@ -2469,11 +2470,11 @@ export default function App() {
             </div>
 
             {/* Right Cluster: Streamlined Time/Camera Controls + System Utilities */}
-            <div className="flex items-stretch gap-1.5 sm:gap-2 shrink-0 order-2 lg:order-3 ml-auto lg:ml-0">
-              {/* Time & View Controls (2 clean menu triggers + Play/Pause instead of 10 raw buttons) */}
+            <div className="flex items-stretch gap-1 sm:gap-2 shrink-0 order-2 lg:order-3">
+              {/* Time & View Controls */}
               <div
                 data-testid="hud-controls-bar"
-                className="pointer-events-auto px-panel min-h-[46px] px-1.5 sm:px-2 py-1 flex items-center gap-1"
+                className="pointer-events-auto px-panel min-h-[32px] sm:min-h-[46px] px-1 sm:px-2 py-0.5 sm:py-1 flex items-center gap-0.5 sm:gap-1"
               >
                 <button
                   type="button"
@@ -2486,7 +2487,7 @@ export default function App() {
                     }
                     soundEngine.playClick();
                   }}
-                  className={`w-8 h-8 flex items-center justify-center cursor-pointer shrink-0 ${
+                  className={`w-6 h-6 sm:w-8 sm:h-8 flex items-center justify-center cursor-pointer shrink-0 ${
                     timeScale === 0 ? 'px-btn-active' : 'px-btn'
                   }`}
                   aria-label={timeScale === 0 ? 'Resume simulation' : 'Pause simulation'}
@@ -2494,7 +2495,7 @@ export default function App() {
                 >
                   <HudPixelIcon
                     kind={timeScale === 0 ? 'play' : 'pause'}
-                    className="w-4 h-4 pixelated-canvas"
+                    className="w-3.5 h-3.5 sm:w-4 sm:h-4 pixelated-canvas"
                   />
                 </button>
 
@@ -2509,20 +2510,20 @@ export default function App() {
                       setSpeedMenuOpen((prev) => !prev);
                       soundEngine.playClick();
                     }}
-                    className={`h-8 px-2 flex items-center gap-1 font-pixel-num text-[11px] cursor-pointer whitespace-nowrap shrink-0 ${
+                    className={`h-6 sm:h-8 px-1 sm:px-2 flex items-center gap-0.5 sm:gap-1 font-pixel-num text-[10px] sm:text-[11px] cursor-pointer whitespace-nowrap shrink-0 ${
                       speedMenuOpen ? 'px-btn-active font-bold' : 'px-btn'
                     }`}
                     title="Simulation Speed"
                   >
                     <span>{timeScale}x</span>
-                    <HudPixelIcon kind="chevronDown" className="w-3 h-3 pixelated-canvas" />
+                    <HudPixelIcon kind="chevronDown" className="w-2.5 h-2.5 sm:w-3 sm:h-3 pixelated-canvas" />
                   </button>
 
                   {speedMenuOpen && (
                     <div
                       role="menu"
                       aria-label="Simulation Speed"
-                      className="px-panel absolute right-0 top-[calc(100%+6px)] z-30 p-1.5 flex items-center gap-1"
+                      className="px-panel absolute right-0 top-[calc(100%+6px)] z-30 p-1.5 max-w-[calc(100vw-16px)] overflow-x-auto flex items-center gap-1"
                     >
                       {SIMULATION_SPEED_OPTIONS.map((scale) => (
                         <button
@@ -2566,13 +2567,13 @@ export default function App() {
                       setCameraMenuOpen((prev) => !prev);
                       soundEngine.playClick();
                     }}
-                    className={`h-8 px-2 flex items-center gap-1.5 text-xs font-semibold cursor-pointer whitespace-nowrap shrink-0 ${
+                    className={`h-6 w-6 sm:w-auto sm:h-8 sm:px-2 flex items-center justify-center gap-1.5 text-xs font-semibold cursor-pointer whitespace-nowrap shrink-0 ${
                       cameraMenuOpen || mobilePanMode ? 'px-btn-active font-bold' : 'px-btn'
                     }`}
                     aria-label="Camera Controls"
                     title="Camera & View Controls"
                   >
-                    <HudPixelIcon kind="camera" className="w-4 h-4 pixelated-canvas" />
+                    <HudPixelIcon kind="camera" className="w-3.5 h-3.5 sm:w-4 sm:h-4 pixelated-canvas" />
                     <span className="hidden sm:inline">View</span>
                   </button>
 
@@ -2580,7 +2581,7 @@ export default function App() {
                     <div
                       role="dialog"
                       aria-label="Camera Controls"
-                      className="px-panel absolute right-0 top-[calc(100%+6px)] z-30 p-2 w-48 space-y-2"
+                      className="px-panel absolute right-0 top-[calc(100%+6px)] z-30 p-2 w-48 max-w-[calc(100vw-16px)] space-y-2"
                     >
                       <div className="text-[11px] font-bold text-[#f5b742]">Camera Controls</div>
                       <div className="grid grid-cols-5 gap-1">
@@ -2674,7 +2675,7 @@ export default function App() {
               {/* System Utilities (Log, Audio, Settings) */}
               <div
                 data-testid="hud-system-bar"
-                className="pointer-events-auto px-panel min-h-[46px] px-1.5 sm:px-2 py-1 flex items-center gap-1 shrink-0"
+                className="pointer-events-auto px-panel min-h-[32px] sm:min-h-[46px] px-1 sm:px-2 py-0.5 sm:py-1 flex items-center gap-0.5 sm:gap-1 shrink-0"
               >
                 <button
                   type="button"
@@ -2682,13 +2683,13 @@ export default function App() {
                     setChronicleOpen((prev) => !prev);
                     soundEngine.playClick();
                   }}
-                  className={`w-8 h-8 flex items-center justify-center cursor-pointer shrink-0 ${
+                  className={`w-6 h-6 sm:w-8 sm:h-8 flex items-center justify-center cursor-pointer shrink-0 ${
                     chronicleOpen ? 'px-btn-active' : 'px-btn'
                   }`}
                   aria-label="World Log"
                   title="World Log"
                 >
-                  <HudPixelIcon kind="log" className="w-4 h-4 pixelated-canvas" />
+                  <HudPixelIcon kind="log" className="w-3.5 h-3.5 sm:w-4 sm:h-4 pixelated-canvas" />
                 </button>
                 <button
                   type="button"
@@ -2697,13 +2698,13 @@ export default function App() {
                     e.currentTarget.blur();
                     handleToggleMute();
                   }}
-                  className="px-btn w-8 h-8 flex items-center justify-center cursor-pointer shrink-0"
+                  className="px-btn w-6 h-6 sm:w-8 sm:h-8 flex items-center justify-center cursor-pointer shrink-0"
                   aria-label={muted ? 'Unmute' : 'Mute'}
                   title={muted ? 'Unmute' : 'Mute'}
                 >
                   <HudPixelIcon
                     kind={muted ? 'audioOff' : 'audioOn'}
-                    className="w-4 h-4 pixelated-canvas"
+                    className="w-3.5 h-3.5 sm:w-4 sm:h-4 pixelated-canvas"
                   />
                 </button>
                 <button
@@ -2715,13 +2716,13 @@ export default function App() {
                     soundEngine.playClick();
                     setGameState((prev) => (prev === 'paused' ? 'playing' : 'paused'));
                   }}
-                  className={`w-8 h-8 flex items-center justify-center cursor-pointer shrink-0 ${
+                  className={`w-6 h-6 sm:w-8 sm:h-8 flex items-center justify-center cursor-pointer shrink-0 ${
                     gameState === 'paused' ? 'px-btn-active' : 'px-btn'
                   }`}
                   aria-label="Settings"
                   title="Settings"
                 >
-                  <HudPixelIcon kind="settings" className="w-4 h-4 pixelated-canvas" />
+                  <HudPixelIcon kind="settings" className="w-3.5 h-3.5 sm:w-4 sm:h-4 pixelated-canvas" />
                 </button>
               </div>
             </div>
@@ -2745,7 +2746,7 @@ export default function App() {
             )}
 
             {chronicleOpen && (
-              <div className="pointer-events-auto absolute right-0 top-0 z-20 w-[min(24rem,100%)] max-h-full px-panel p-2.5 sm:p-3 overflow-y-auto">
+              <div className="pointer-events-auto absolute right-0 top-0 z-20 w-[min(24rem,100%)] max-h-[min(240px,100%)] sm:max-h-full px-panel p-2 sm:p-3 overflow-y-auto">
                 <div className="flex items-center justify-between mb-2">
                   <h2 className="font-bold text-sm text-[#f5b742]">World Log</h2>
                   <button
@@ -2780,8 +2781,8 @@ export default function App() {
             )}
           </div>
 
-          {/* BOTTOM PIXEL TOOLBAR DOCK: Zero tab clipping on PC, clear grouping, symmetrical padding */}
-          <div className="pointer-events-auto self-center relative flex flex-col items-center w-full max-w-[min(880px,calc(100vw-24px))]">
+          {/* BOTTOM PIXEL TOOLBAR DOCK: Compact horizontal-rail layout on mobile, full grid on desktop */}
+          <div className="pointer-events-auto self-center relative flex flex-col items-center w-full max-w-[min(880px,calc(100vw-8px))] sm:max-w-[min(880px,calc(100vw-24px))]">
             {/* Hover Tooltip */}
             {!dockCollapsed && hoveredHint && (
               <div className="px-panel px-3 py-1.5 mb-2 max-w-[calc(100vw-24px)] hidden md:flex items-center gap-3 text-xs flex-wrap justify-center pointer-events-none">
@@ -2791,10 +2792,10 @@ export default function App() {
               </div>
             )}
 
-            {/* Folder Tabs Row: Dedicated clean tablist + single Hide toggle (never squeezes Inspect off-screen!) */}
-            <div className="flex items-end justify-between w-full gap-2 px-0.5 sm:px-1 min-w-0">
+            {/* Folder Tabs Row */}
+            <div className="flex items-end justify-between w-full gap-1.5 sm:gap-2 px-0.5 sm:px-1 min-w-0">
               <div
-                className="flex items-end gap-1 min-w-0 overflow-x-auto sm:overflow-visible no-scrollbar"
+                className="flex items-end gap-0.5 sm:gap-1 min-w-0 overflow-x-auto sm:overflow-visible no-scrollbar"
                 role="tablist"
                 aria-label="Tools"
               >
@@ -2858,12 +2859,12 @@ export default function App() {
                         }
                         soundEngine.playClick();
                       }}
-                      className={`px-2.5 sm:px-3 py-1.5 flex items-center justify-center gap-1.5 text-xs font-semibold cursor-pointer whitespace-nowrap shrink-0 ${
+                      className={`px-1.5 sm:px-3 py-0.5 sm:py-1.5 flex items-center justify-center gap-1 sm:gap-1.5 text-[10px] sm:text-xs font-semibold cursor-pointer whitespace-nowrap shrink-0 ${
                         isActive ? 'px-tab-active' : 'px-tab'
                       }`}
                     >
-                      <TabPixelIcon category={tab.id} className="w-4 h-4 shrink-0" />
-                      <span className="hidden sm:inline">{tab.label}</span>
+                      <TabPixelIcon category={tab.id} className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+                      <span className={isActive ? 'inline' : 'hidden sm:inline'}>{tab.label}</span>
                       {activeZoneCount > 0 && (
                         <span className="font-pixel-num text-[9px] text-[#80ed99] tabular-nums">
                           {activeZoneCount}
@@ -2874,18 +2875,18 @@ export default function App() {
                 })}
               </div>
 
-              <div className="flex items-end pb-1 shrink-0">
+              <div className="flex items-end pb-0.5 sm:pb-1 shrink-0">
                 <button
                   type="button"
                   onClick={() => setDockCollapsed((prev) => !prev)}
-                  className="px-btn h-7 px-2.5 flex items-center gap-1 text-xs font-semibold text-[#f5b742] cursor-pointer whitespace-nowrap shrink-0"
+                  className="px-btn h-[22px] sm:h-7 px-1.5 sm:px-2.5 flex items-center gap-1 text-[10px] sm:text-xs font-semibold text-[#f5b742] cursor-pointer whitespace-nowrap shrink-0"
                   title="Toggle Dock (H)"
+                  aria-label={dockCollapsed ? 'Show Tools' : 'Hide Tools'}
                 >
                   <HudPixelIcon
                     kind={dockCollapsed ? 'chevronUp' : 'chevronDown'}
-                    className="w-3.5 h-3.5 pixelated-canvas"
+                    className="w-3 h-3 sm:w-3.5 sm:h-3.5 pixelated-canvas"
                   />
-                  <span className="sm:hidden">{dockCollapsed ? 'Show' : 'Hide'}</span>
                   <span className="hidden sm:inline">{dockCollapsed ? 'Show [H]' : 'Hide [H]'}</span>
                 </button>
               </div>
@@ -2894,17 +2895,17 @@ export default function App() {
             {/* Active Pixel Dock Panel */}
             {!dockCollapsed && (
               <div
-                className="px-panel w-full px-3 py-2.5 sm:px-4 sm:py-3 max-h-[212px] sm:max-h-[224px] [@media(max-height:500px)]:max-h-[108px] min-h-[76px] overflow-y-auto overflow-x-hidden"
+                className="px-panel w-full px-1.5 py-1 sm:px-4 sm:py-3 max-h-[116px] sm:max-h-[224px] [@media(max-height:500px)]:max-h-[92px] min-h-[46px] sm:min-h-[76px] overflow-y-auto overflow-x-hidden"
                 onMouseLeave={() => setHoveredHint(null)}
               >
-                {/* Contextual Sub-Bar for Paintable Tabs (Powers, Land, Build, Units) */}
+                {/* Contextual Sub-Bar: Single non-wrapping row on mobile */}
                 {(activeCategory === 'powers' ||
                   activeCategory === 'terrain' ||
                   activeCategory === 'build' ||
                   activeCategory === 'spawn') && (
-                  <div className="flex flex-wrap items-center justify-between gap-2 pb-2 mb-2.5 border-b border-[#2e2923]">
+                  <div className="flex flex-nowrap sm:flex-wrap items-center justify-between gap-1 sm:gap-2 pb-1 mb-1 sm:pb-2 sm:mb-2.5 border-b border-[#2e2923] overflow-x-auto no-scrollbar">
                     {/* Left: Digestible Category Filters or Active Brush Context */}
-                    <div className="flex flex-wrap items-center gap-1">
+                    <div className="flex flex-nowrap sm:flex-wrap items-center gap-1 shrink-0">
                       {activeCategory === 'powers' &&
                         (
                           [
@@ -2921,7 +2922,7 @@ export default function App() {
                               setPowerFilter(f.id);
                               soundEngine.playClick();
                             }}
-                            className={`h-7 px-2.5 text-[11px] font-semibold cursor-pointer whitespace-nowrap ${
+                            className={`h-6 sm:h-7 px-2 sm:px-2.5 text-[10px] sm:text-[11px] font-semibold cursor-pointer whitespace-nowrap shrink-0 ${
                               powerFilter === f.id ? 'px-btn-active font-bold' : 'px-btn'
                             }`}
                           >
@@ -2944,7 +2945,7 @@ export default function App() {
                               setBuildFilter(f.id);
                               soundEngine.playClick();
                             }}
-                            className={`h-7 px-2.5 text-[11px] font-semibold cursor-pointer whitespace-nowrap ${
+                            className={`h-6 sm:h-7 px-2 sm:px-2.5 text-[10px] sm:text-[11px] font-semibold cursor-pointer whitespace-nowrap shrink-0 ${
                               buildFilter === f.id ? 'px-btn-active font-bold' : 'px-btn'
                             }`}
                           >
@@ -2968,7 +2969,7 @@ export default function App() {
                               setUnitFilter(f.id);
                               soundEngine.playClick();
                             }}
-                            className={`h-7 px-2.5 text-[11px] font-semibold cursor-pointer whitespace-nowrap ${
+                            className={`h-6 sm:h-7 px-2 sm:px-2.5 text-[10px] sm:text-[11px] font-semibold cursor-pointer whitespace-nowrap shrink-0 ${
                               unitFilter === f.id ? 'px-btn-active font-bold' : 'px-btn'
                             }`}
                           >
@@ -2977,8 +2978,8 @@ export default function App() {
                         ))}
 
                       {activeCategory === 'terrain' && (
-                        <div className="flex items-center gap-1">
-                          <span className="text-[11px] text-[#a89f91] mr-1">Brush</span>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <span className="text-[10px] sm:text-[11px] text-[#a89f91] mr-0.5 sm:mr-1">Brush</span>
                           {[1, 2, 3].map((size) => {
                             const radiusVal = size - 1;
                             return (
@@ -2990,7 +2991,7 @@ export default function App() {
                                   setBrushRadius(radiusVal);
                                   soundEngine.playClick();
                                 }}
-                                className={`h-7 px-2 font-pixel-num text-[11px] cursor-pointer ${
+                                className={`h-6 sm:h-7 px-1.5 sm:px-2 font-pixel-num text-[10px] sm:text-[11px] cursor-pointer ${
                                   brushRadius === radiusVal ? 'px-btn-active font-bold' : 'px-btn'
                                 }`}
                               >
@@ -3003,7 +3004,7 @@ export default function App() {
                     </div>
 
                     {/* Right: Active Tool Label + Input Mode Controls */}
-                    <div className="flex items-center gap-1.5 ml-auto">
+                    <div className="flex items-center gap-1 sm:gap-1.5 ml-auto shrink-0">
                       <span className="hidden md:inline text-[11px] text-[#cfc6b8] mr-1 truncate max-w-[200px]">
                         Selected: <strong className="text-[#f5b742]">{activeToolLabel}</strong>
                       </span>
@@ -3023,13 +3024,13 @@ export default function App() {
                           });
                           soundEngine.playClick();
                         }}
-                        className={`h-7 px-2 flex items-center gap-1 text-[11px] font-semibold cursor-pointer whitespace-nowrap shrink-0 ${
+                        className={`h-6 sm:h-7 px-1.5 sm:px-2 flex items-center gap-1 text-[10px] sm:text-[11px] font-semibold cursor-pointer whitespace-nowrap shrink-0 ${
                           mobilePanMode ? 'px-btn-active font-bold' : 'px-btn text-[#e8e0d2]'
                         }`}
                         title="Toggle Pan Camera Mode"
                         aria-label="Pan Camera Mode"
                       >
-                        <HudPixelIcon kind="pan" className="w-3.5 h-3.5 pixelated-canvas" />
+                        <HudPixelIcon kind="pan" className="w-3 h-3 sm:w-3.5 sm:h-3.5 pixelated-canvas" />
                         <span>Pan</span>
                       </button>
                       <button
@@ -3047,22 +3048,23 @@ export default function App() {
                           });
                           soundEngine.playClick();
                         }}
-                        className={`h-7 px-2 text-[11px] font-semibold cursor-pointer whitespace-nowrap shrink-0 ${
+                        className={`h-6 sm:h-7 px-1.5 sm:px-2 text-[10px] sm:text-[11px] font-semibold cursor-pointer whitespace-nowrap shrink-0 ${
                           brushInputMode === 'hold'
                             ? 'px-btn-active font-bold'
                             : 'px-btn text-[#e8e0d2]'
                         }`}
                         title="Switch between Hold-to-Paint/Cast and Single Tap"
                       >
-                        {brushInputMode === 'hold' ? 'Mode: Hold' : 'Mode: Tap'}
+                        <span className="sm:hidden">{brushInputMode === 'hold' ? 'Hold' : 'Tap'}</span>
+                        <span className="hidden sm:inline">{brushInputMode === 'hold' ? 'Mode: Hold' : 'Mode: Tap'}</span>
                       </button>
                     </div>
                   </div>
                 )}
 
-                {/* TAB 1: POWERS (Filtered Icon Slots) */}
+                {/* TAB 1: POWERS (Single-row horizontal rail on mobile, wrap grid on sm+) */}
                 {activeCategory === 'powers' && (
-                  <div className="flex flex-wrap items-center justify-start gap-1.5">
+                  <div className="flex flex-nowrap sm:flex-wrap items-center justify-start gap-1 sm:gap-1.5 overflow-x-auto sm:overflow-visible no-scrollbar">
                     {GOD_POWERS.filter((power) => {
                       if (powerFilter === 'all') return true;
                       if (powerFilter === 'benevolent') return power.category === 'Benevolent';
@@ -3091,13 +3093,13 @@ export default function App() {
                             })
                           }
                           aria-label={power.name}
-                          className={`relative w-11 h-11 flex items-center justify-center cursor-pointer ${
+                          className={`relative w-[38px] h-[38px] sm:w-11 sm:h-11 shrink-0 flex items-center justify-center cursor-pointer ${
                             isSelected ? 'px-slot-active' : 'px-slot'
                           } ${!affordable ? 'opacity-55' : ''}`}
                         >
-                          <PowerPixelIcon power={power.type} className="w-8 h-8 pixelated-canvas" />
+                          <PowerPixelIcon power={power.type} className="w-7 h-7 sm:w-8 sm:h-8 pixelated-canvas" />
                           {!sim.sandboxFreeMode && (
-                            <span className="absolute bottom-0.5 right-1 font-pixel-num text-[8px] text-[#ffd166] leading-none">
+                            <span className="absolute bottom-0.5 right-0.5 sm:right-1 font-pixel-num text-[8px] text-[#ffd166] leading-none">
                               {power.faithCost}
                             </span>
                           )}
@@ -3109,7 +3111,7 @@ export default function App() {
 
                 {/* TAB 2: LAND SCULPTING */}
                 {activeCategory === 'terrain' && (
-                  <div className="flex flex-wrap items-center justify-start gap-1.5">
+                  <div className="flex flex-nowrap sm:flex-wrap items-center justify-start gap-1 sm:gap-1.5 overflow-x-auto sm:overflow-visible no-scrollbar">
                     {TERRAIN_TOOLS.map((tool) => {
                       const isSelected =
                         activeTool.kind === 'terrain' && activeTool.tool === tool.type;
@@ -3131,13 +3133,13 @@ export default function App() {
                             })
                           }
                           aria-label={tool.name}
-                          className={`relative w-11 h-11 flex items-center justify-center cursor-pointer ${
+                          className={`relative w-[38px] h-[38px] sm:w-11 sm:h-11 shrink-0 flex items-center justify-center cursor-pointer ${
                             isSelected ? 'px-slot-active' : 'px-slot'
                           }`}
                         >
-                          <TerrainPixelIcon tool={tool.type} className="w-8 h-8 pixelated-canvas" />
+                          <TerrainPixelIcon tool={tool.type} className="w-7 h-7 sm:w-8 sm:h-8 pixelated-canvas" />
                           {!sim.sandboxFreeMode && (
-                            <span className="absolute bottom-0.5 right-1 font-pixel-num text-[8px] text-[#ffd166] leading-none">
+                            <span className="absolute bottom-0.5 right-0.5 sm:right-1 font-pixel-num text-[8px] text-[#ffd166] leading-none">
                               {tool.faithCost}
                             </span>
                           )}
@@ -3149,7 +3151,7 @@ export default function App() {
 
                 {/* TAB 3: BUILD STRUCTURES */}
                 {activeCategory === 'build' && (
-                  <div className="flex flex-wrap items-center justify-start gap-1.5">
+                  <div className="flex flex-nowrap sm:flex-wrap items-center justify-start gap-1 sm:gap-1.5 overflow-x-auto sm:overflow-visible no-scrollbar">
                     {BUILDINGS.filter((bld) => {
                       if (buildFilter === 'all') return true;
                       if (buildFilter === 'current') return bld.epoch === currentEpoch.id;
@@ -3185,11 +3187,11 @@ export default function App() {
                             })
                           }
                           aria-label={bld.name}
-                          className={`relative w-11 h-11 flex items-center justify-center cursor-pointer ${
+                          className={`relative w-[38px] h-[38px] sm:w-11 sm:h-11 shrink-0 flex items-center justify-center cursor-pointer ${
                             isSelected ? 'px-slot-active' : 'px-slot'
                           } ${!affordable ? 'opacity-55' : ''}`}
                         >
-                          <BuildingPixelIcon building={bld.type} className="w-8 h-8 pixelated-canvas" />
+                          <BuildingPixelIcon building={bld.type} className="w-7 h-7 sm:w-8 sm:h-8 pixelated-canvas" />
                           {isCurrentEpochBld && (
                             <span
                               className="absolute top-1 left-1 w-1.5 h-1.5 bg-[#80ed99]"
@@ -3197,7 +3199,7 @@ export default function App() {
                             />
                           )}
                           {badge && (
-                            <span className="absolute bottom-0.5 right-1 font-pixel-num text-[8px] text-[#f5b742] leading-none">
+                            <span className="absolute bottom-0.5 right-0.5 sm:right-1 font-pixel-num text-[8px] text-[#f5b742] leading-none">
                               {badge}
                             </span>
                           )}
@@ -3209,7 +3211,7 @@ export default function App() {
 
                 {/* TAB 4: SPECIES UNITS + ANIMALS & MYTHICAL BEASTS */}
                 {activeCategory === 'spawn' && (
-                  <div className="flex flex-wrap items-center justify-start gap-1.5">
+                  <div className="flex flex-nowrap sm:flex-wrap items-center justify-start gap-1 sm:gap-1.5 overflow-x-auto sm:overflow-visible no-scrollbar">
                     {(unitFilter === 'all' || unitFilter === 'races') &&
                       SPECIES_UNITS.filter(
                         (u) =>
@@ -3239,12 +3241,12 @@ export default function App() {
                               })
                             }
                             aria-label={u.name}
-                            className={`relative px-2.5 h-11 flex items-center gap-2 cursor-pointer ${
+                            className={`relative px-1.5 sm:px-2.5 h-[38px] sm:h-11 shrink-0 flex items-center gap-1 sm:gap-2 cursor-pointer ${
                               isSelected ? 'px-slot-active' : 'px-slot'
                             }`}
                           >
-                            <UnitPixelIcon role={u.role} className="w-8 h-8 pixelated-canvas" />
-                            <span className="text-xs font-bold text-[#f2ece1] whitespace-nowrap">
+                            <UnitPixelIcon role={u.role} className="w-7 h-7 sm:w-8 sm:h-8 pixelated-canvas shrink-0" />
+                            <span className="text-[10px] sm:text-xs font-bold text-[#f2ece1] whitespace-nowrap">
                               {u.name}
                             </span>
                             {badge && (
@@ -3299,13 +3301,13 @@ export default function App() {
                             })
                           }
                           aria-label={u.name}
-                          className={`relative w-11 h-11 flex items-center justify-center cursor-pointer ${
+                          className={`relative w-[38px] h-[38px] sm:w-11 sm:h-11 shrink-0 flex items-center justify-center cursor-pointer ${
                             isSelected ? 'px-slot-active' : 'px-slot'
                           }`}
                         >
-                          <UnitPixelIcon role={u.role} className="w-8 h-8 pixelated-canvas" />
+                          <UnitPixelIcon role={u.role} className="w-7 h-7 sm:w-8 sm:h-8 pixelated-canvas" />
                           {badge && (
-                            <span className="absolute bottom-0.5 right-1 font-pixel-num text-[8px] text-[#ffd166] leading-none">
+                            <span className="absolute bottom-0.5 right-0.5 sm:right-1 font-pixel-num text-[8px] text-[#ffd166] leading-none">
                               {badge}
                             </span>
                           )}
@@ -3317,8 +3319,8 @@ export default function App() {
 
                 {/* TAB 5: ZONES */}
                 {activeCategory === 'zones' && (
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Zone Overlays">
+                  <div className="flex items-center justify-between gap-2 overflow-x-auto sm:overflow-visible no-scrollbar">
+                    <div className="flex flex-nowrap sm:flex-wrap items-center gap-1 sm:gap-1.5" role="group" aria-label="Zone Overlays">
                       {(
                         [
                           {
@@ -3391,17 +3393,17 @@ export default function App() {
                                 detail: zItem.summary,
                               })
                             }
-                            className={`relative px-2.5 h-11 flex items-center gap-2 cursor-pointer transition-colors ${
+                            className={`relative px-1.5 sm:px-2.5 h-[38px] sm:h-11 shrink-0 flex items-center gap-1 sm:gap-2 cursor-pointer transition-colors ${
                               isOn ? 'px-slot-active' : 'px-slot'
                             }`}
                           >
-                            <ZonePixelIcon zone={zItem.id} className="w-8 h-8 shrink-0 pixelated-canvas" />
+                            <ZonePixelIcon zone={zItem.id} className="w-6 h-6 sm:w-8 sm:h-8 shrink-0 pixelated-canvas" />
                             <div className="flex flex-col items-start leading-tight">
-                              <span className="text-xs font-bold text-[#f2ece1] whitespace-nowrap">
+                              <span className="text-[10px] sm:text-xs font-bold text-[#f2ece1] whitespace-nowrap">
                                 {zItem.shortLabel}
                               </span>
                               <span
-                                className={`font-pixel-num text-[9px] tabular-nums ${
+                                className={`font-pixel-num text-[8px] sm:text-[9px] tabular-nums ${
                                   isOn ? 'text-[#80ed99]' : 'text-[#9e9486]'
                                 }`}
                               >
@@ -3422,7 +3424,7 @@ export default function App() {
                             setStatusFeedback('All zone overlays hidden');
                             soundEngine.playClick();
                           }}
-                          className="px-btn px-2.5 h-11 text-xs font-semibold text-[#ff8f6b] cursor-pointer whitespace-nowrap"
+                          className="px-btn px-2 sm:px-2.5 h-[38px] sm:h-11 shrink-0 text-[10px] sm:text-xs font-semibold text-[#ff8f6b] cursor-pointer whitespace-nowrap"
                           title="Turn off all zone overlays"
                         >
                           Clear All
@@ -3434,8 +3436,8 @@ export default function App() {
 
                 {/* TAB 6: WORLD (Ages, Sky, Seed + God Rules Sub-Tab) */}
                 {(activeCategory === 'epochs' || activeCategory === 'rules') && (
-                  <div className="flex flex-col gap-2.5">
-                    <div className="flex items-center justify-between gap-2 pb-2 border-b border-[#2e2923]">
+                  <div className="flex flex-col gap-1.5 sm:gap-2.5">
+                    <div className="flex items-center justify-between gap-2 pb-1 sm:pb-2 border-b border-[#2e2923]">
                       <div className="flex items-center gap-1">
                         <button
                           type="button"
@@ -3445,13 +3447,13 @@ export default function App() {
                             setWorldSubTab('ages');
                             soundEngine.playClick();
                           }}
-                          className={`h-7 px-2.5 flex items-center gap-1.5 text-[11px] font-semibold cursor-pointer ${
+                          className={`h-6 sm:h-7 px-2 sm:px-2.5 flex items-center gap-1 sm:gap-1.5 text-[10px] sm:text-[11px] font-semibold cursor-pointer ${
                             worldSubTab === 'ages' && activeCategory !== 'rules'
                               ? 'px-btn-active font-bold'
                               : 'px-btn'
                           }`}
                         >
-                          <TabPixelIcon category="epochs" className="w-3.5 h-3.5" />
+                          <TabPixelIcon category="epochs" className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                           <span>Ages &amp; Sky</span>
                         </button>
                         <button
@@ -3462,13 +3464,13 @@ export default function App() {
                             setWorldSubTab('rules');
                             soundEngine.playClick();
                           }}
-                          className={`h-7 px-2.5 flex items-center gap-1.5 text-[11px] font-semibold cursor-pointer ${
+                          className={`h-6 sm:h-7 px-2 sm:px-2.5 flex items-center gap-1 sm:gap-1.5 text-[10px] sm:text-[11px] font-semibold cursor-pointer ${
                             worldSubTab === 'rules' || activeCategory === 'rules'
                               ? 'px-btn-active font-bold'
                               : 'px-btn'
                           }`}
                         >
-                          <TabPixelIcon category="rules" className="w-3.5 h-3.5" />
+                          <TabPixelIcon category="rules" className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                           <span>God Rules</span>
                         </button>
                       </div>
@@ -3481,7 +3483,7 @@ export default function App() {
 
                     {worldSubTab === 'rules' || activeCategory === 'rules' ? (
                       <div
-                        className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-1.5"
+                        className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-1 sm:gap-1.5"
                         data-testid="god-rules-panel"
                       >
                         {GOD_RULE_SWITCHES.map((rule) => {
@@ -3508,7 +3510,7 @@ export default function App() {
                                   detail: rule.summary,
                                 })
                               }
-                              className={`px-2.5 h-9 flex items-center justify-between gap-2 text-[11px] cursor-pointer ${
+                              className={`px-2 sm:px-2.5 h-7 sm:h-9 flex items-center justify-between gap-1.5 sm:gap-2 text-[10px] sm:text-[11px] cursor-pointer ${
                                 isOn
                                   ? 'px-slot-active font-bold text-[#f2ece1]'
                                   : 'px-slot text-[#9d9486]'
@@ -3516,7 +3518,7 @@ export default function App() {
                             >
                               <span className="truncate">{rule.label}</span>
                               <span
-                                className={`w-2.5 h-2.5 border border-[#0b0a09] shrink-0 ${
+                                className={`w-2 h-2 sm:w-2.5 sm:h-2.5 border border-[#0b0a09] shrink-0 ${
                                   isOn ? 'bg-[#80ed99]' : 'bg-[#34302a]'
                                 }`}
                               />
@@ -3525,8 +3527,8 @@ export default function App() {
                         })}
                       </div>
                     ) : (
-                      <div className="flex flex-col gap-2">
-                        <div className="flex flex-wrap items-center justify-start gap-1">
+                      <div className="flex flex-col gap-1 sm:gap-2">
+                        <div className="flex flex-nowrap sm:flex-wrap items-center justify-start gap-1 overflow-x-auto sm:overflow-visible no-scrollbar">
                           {EPOCHS.map((ep) => {
                             const isCurrent = sim.epochIndex === ep.index;
                             return (
@@ -3542,7 +3544,7 @@ export default function App() {
                                   setStatusFeedback(ep.name);
                                   setHudTick((t) => t + 1);
                                 }}
-                                className={`px-2.5 py-1 text-xs font-semibold cursor-pointer whitespace-nowrap ${
+                                className={`px-1.5 sm:px-2.5 py-0.5 sm:py-1 text-[10px] sm:text-xs font-semibold cursor-pointer whitespace-nowrap shrink-0 ${
                                   isCurrent ? 'px-btn-active' : 'px-btn'
                                 }`}
                               >
@@ -3552,9 +3554,9 @@ export default function App() {
                           })}
                         </div>
 
-                        <div className="flex flex-wrap items-center justify-start gap-2 text-xs">
-                          <div className="flex flex-wrap items-center gap-1">
-                            <span className="text-[#a89f91] mr-0.5">Sky</span>
+                        <div className="flex items-center justify-start gap-1.5 sm:gap-2 text-xs overflow-x-auto sm:overflow-visible no-scrollbar">
+                          <div className="flex flex-nowrap sm:flex-wrap items-center gap-1 shrink-0">
+                            <span className="text-[#a89f91] mr-0.5 text-[10px] sm:text-xs">Sky</span>
                             {(['auto', 'dawn', 'noon', 'dusk', 'night', 'midnight'] as LightingPreset[]).map((lp) => {
                               const isSkyActive =
                                 lp === 'auto'
@@ -3572,7 +3574,7 @@ export default function App() {
                                     simRef.current.worldRules.dayNightCycle = lp === 'auto';
                                     setHudTick((t) => t + 1);
                                   }}
-                                  className={`px-2 py-1 capitalize text-xs cursor-pointer ${
+                                  className={`px-1.5 sm:px-2 py-0.5 sm:py-1 capitalize text-[10px] sm:text-xs cursor-pointer shrink-0 ${
                                     isSkyActive ? 'px-btn-active font-bold' : 'px-btn'
                                   }`}
                                 >
@@ -3589,7 +3591,7 @@ export default function App() {
 
                 {/* TAB 7: INSPECT */}
                 {activeCategory === 'inspect' && (
-                  <div className="flex flex-wrap items-center justify-center gap-3 text-xs text-[#e8e0d2] min-h-[48px]">
+                  <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3 text-[11px] sm:text-xs text-[#e8e0d2] min-h-[36px] sm:min-h-[48px]">
                     <span>{statusFeedback}</span>
                     {inspectedTile && (
                       <span className="text-[#f5b742] tabular-nums">
