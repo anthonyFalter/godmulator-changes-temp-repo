@@ -2516,14 +2516,6 @@ export default function App() {
             >
               {activeWorldEvent.title}
             </h2>
-            <p
-              className="mt-1 text-[11px] sm:text-xs font-semibold tracking-wider text-[#f2ece1]"
-              style={{
-                textShadow: '1px 1px 0 #090807, -1px -1px 0 #090807',
-              }}
-            >
-              {activeWorldEvent.subtitle}
-            </p>
           </div>
 
           <span
