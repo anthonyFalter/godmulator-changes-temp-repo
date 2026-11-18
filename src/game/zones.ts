@@ -1,4 +1,4 @@
-import { EPOCHS, getDinosaurVariant } from './catalog';
+import { BUILDINGS, EPOCHS, getDinosaurVariant, getMaxCityPopulation } from './catalog';
 import {
   AnimalRole,
   DiplomaticRelation,
@@ -31,6 +31,7 @@ export interface KingdomZoneInfo {
   color: [number, number, number];
   hexColor: string;
   population: number;
+  maxPopulation: number;
   adultCount: number;
   childCount: number;
   buildingCount: number;
@@ -395,6 +396,7 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
     species: SpeciesId;
     buildingCount: number;
     completedCount: number;
+    popCapBonus: number;
     sumHp: number;
     sumMaxHp: number;
     sumX: number;
@@ -405,6 +407,8 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
     children: number;
   }
 
+  const buildingByType = new Map(BUILDINGS.map((d) => [d.type, d]));
+  const cityMaxPopLimit = getMaxCityPopulation(sim.gridSize);
   const settlementTable = new Map<string, DiscoveredSettlement>();
 
   const ensureSettlement = (sid: string, fallbackSpecies: SpeciesId, x: number, z: number): DiscoveredSettlement => {
@@ -419,6 +423,7 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
         species: sp,
         buildingCount: 0,
         completedCount: 0,
+        popCapBonus: 0,
         sumHp: 0,
         sumMaxHp: 0,
         sumX: x,
@@ -438,7 +443,10 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
     const sid = b.settlementId || 'city_default';
     const rec = ensureSettlement(sid, b.species || 'human', b.tileX, b.tileZ);
     rec.buildingCount++;
-    if (b.constructionProgress >= 100) rec.completedCount++;
+    if (b.constructionProgress >= 100) {
+      rec.completedCount++;
+      rec.popCapBonus += buildingByType.get(b.type)?.popCapBonus ?? 0;
+    }
     rec.sumHp += Math.max(0, b.hp);
     rec.sumMaxHp += Math.max(1, b.maxHp);
     rec.sumX += b.tileX;
@@ -537,6 +545,9 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
     const cx = Math.max(0, Math.min(size - 1, Math.round(s.sumX / s.anchorCount)));
     const cz = Math.max(0, Math.min(size - 1, Math.round(s.sumZ / s.anchorCount)));
     const epochDef = EPOCHS[Math.max(0, Math.min(EPOCHS.length - 1, s.maxEpoch))];
+    const activeEpochDef = EPOCHS[Math.max(0, Math.min(EPOCHS.length - 1, sim.epochIndex))];
+    const rawCityCap = (s.completedCount > 0 ? activeEpochDef.populationBonus : 0) + s.popCapBonus;
+    const maxPopulation = s.completedCount > 0 ? Math.min(cityMaxPopLimit, rawCityCap) : 0;
 
     const stock = sim.kingdomResources?.[rootKingdomId];
     kingdomsById.set(zoneId, {
@@ -549,6 +560,7 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
       color,
       hexColor: rgbToHex(color),
       population: pop,
+      maxPopulation,
       adultCount: s.adults,
       childCount: s.children,
       buildingCount: s.buildingCount,

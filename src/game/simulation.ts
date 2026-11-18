@@ -6,9 +6,10 @@ import {
   UNITS,
   getDinosaurVariant,
   getDragonVariant,
+  getMaxCityPopulation,
   getUnitMaxLifespan,
 } from './catalog';
-export { getUnitMaxLifespan };
+export { getMaxCityPopulation, getUnitMaxLifespan };
 import {
   ActiveHazardZone,
   BuildingEntity,
@@ -638,9 +639,9 @@ export function createInitialSimulationState(
     epochProgress: 0,
     year: startingYear,
     resources: {
-      food: isSciFiStart ? 600 : isAdvancedStart ? 250 : rules.startingSettlers === 'colony' ? 120 : 0,
-      wood: isSciFiStart ? 500 : isAdvancedStart ? 220 : rules.startingSettlers === 'colony' ? 100 : 0,
-      stone: isSciFiStart ? 500 : isAdvancedStart ? 220 : rules.startingSettlers === 'colony' ? 80 : 0,
+      food: isSciFiStart ? 600 : isAdvancedStart ? 250 : rules.startingSettlers === 'colony' ? 120 : rules.startingSettlers === 'pioneers' ? 45 : 0,
+      wood: isSciFiStart ? 500 : isAdvancedStart ? 220 : rules.startingSettlers === 'colony' ? 100 : rules.startingSettlers === 'pioneers' ? 35 : 0,
+      stone: isSciFiStart ? 500 : isAdvancedStart ? 220 : rules.startingSettlers === 'colony' ? 80 : rules.startingSettlers === 'pioneers' ? 15 : 0,
       ore: isSciFiStart ? 420 : isAdvancedStart ? 160 : 0,
       knowledge: isSciFiStart ? 850 : isAdvancedStart ? 300 : 0,
       energy: isSciFiStart ? 600 : isAdvancedStart ? 180 : 0,
@@ -811,9 +812,9 @@ export function createInitialSimulationState(
         if (isWaterStart) {
           paveSettlementStreetsNear(state, landTile.x, landTile.z, state.buildings[0]?.settlementId ?? 'city_default');
         }
-        for (let i = 0; i < 4; i++) {
-          const sx = Math.max(2, Math.min(resolvedGridSize - 3, landTile.x + ((i % 2) * 2 - 1)));
-          const sz = Math.max(2, Math.min(resolvedGridSize - 3, landTile.z + (Math.floor(i / 2) * 2 - 1)));
+        for (let i = 0; i < 6; i++) {
+          const sx = Math.max(2, Math.min(resolvedGridSize - 3, landTile.x + ((i % 3) - 1)));
+          const sz = Math.max(2, Math.min(resolvedGridSize - 3, landTile.z + (Math.floor(i / 3) * 2 - 1)));
           if (isWaterStart) {
             const wt = getTile(state, sx, sz);
             if (wt && wt.height === 0 && !wt.buildingId) wt.terrain = 'stone_road';
@@ -832,14 +833,17 @@ export function createInitialSimulationState(
 
 export function recalculateRatesAndCaps(state: SimulationState): void {
   const epoch = EPOCHS[state.epochIndex] || EPOCHS[0];
-  const activeSettlementIds = new Set<string>();
+  const cityMaxPop = getMaxCityPopulation(state.gridSize);
+  const settlementHousing = new Map<string, number>();
   for (const b of state.buildings) {
     if (b.constructionProgress >= 100) {
-      activeSettlementIds.add(b.settlementId ?? 'city_default');
+      const sid = b.settlementId ?? 'city_default';
+      if (!settlementHousing.has(sid)) {
+        settlementHousing.set(sid, epoch.populationBonus);
+      }
     }
   }
-  const hasSettlement = activeSettlementIds.size > 0;
-  let popCap = activeSettlementIds.size * epoch.populationBonus;
+  const hasSettlement = settlementHousing.size > 0;
 
   const rates: Resources = {
     food: 0,
@@ -856,7 +860,8 @@ export function recalculateRatesAndCaps(state: SimulationState): void {
     if (b.constructionProgress < 100) continue;
     const def = BUILDINGS.find((d) => d.type === b.type);
     if (!def) continue;
-    popCap += def.popCapBonus;
+    const sid = b.settlementId ?? 'city_default';
+    settlementHousing.set(sid, (settlementHousing.get(sid) ?? epoch.populationBonus) + def.popCapBonus);
 
     const blessMult = b.blessedTimer > 0 ? 1.75 : b.cursedTimer > 0 ? 0.5 : 1.0;
     const epochMult = 1 + Math.min(4, state.epochIndex) * 0.1;
@@ -880,6 +885,11 @@ export function recalculateRatesAndCaps(state: SimulationState): void {
     }
   }
 
+  let popCap = 0;
+  for (const rawCityCap of settlementHousing.values()) {
+    popCap += Math.min(cityMaxPop, rawCityCap);
+  }
+
   let civCount = 0;
   for (const u of state.units) {
     if (u.faction === 'civilization' && u.state !== 'ko') {
@@ -895,8 +905,8 @@ export function recalculateRatesAndCaps(state: SimulationState): void {
     }
   }
 
-  if (civCount > 4) {
-    const foodUpkeep = Math.floor((civCount - 4) * 0.18);
+  if (civCount > 6) {
+    const foodUpkeep = Math.floor((civCount - 6) * 0.1);
     rates.food = Math.max(hasSettlement ? 0 : -foodUpkeep, rates.food - foodUpkeep);
   }
 
@@ -1124,7 +1134,7 @@ export function spawnUnit(
   }
 
   const maxHp = ageStage === 'child' ? Math.max(45, Math.round(def.maxHp * 0.68)) : def.maxHp;
-  const growthTimer = ageStage === 'child' ? 22 + (appearanceSeed % 12) : undefined;
+  const growthTimer = ageStage === 'child' ? 12 + (appearanceSeed % 7) : undefined;
 
   const dinoDiet = role === 'dinosaur' ? getDinosaurVariant(appearanceSeed).diet : undefined;
   const CREATURE_NAMES: Partial<Record<UnitRole, string[]>> = {
@@ -5063,7 +5073,7 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
 
   const hasArrivedPioneers = activeCivs.some((u) => !u.settlementId && u.expeditionTargetX === undefined);
   state.civPlanTimer = (state.civPlanTimer ?? 0) + dt;
-  const interval = hasArrivedPioneers ? 0.6 : state.sandboxFreeMode ? 1.6 : 3.4;
+  const interval = hasArrivedPioneers ? 0.6 : state.sandboxFreeMode ? 1.5 : 2.2;
   if (state.civPlanTimer < interval) return;
   state.civPlanTimer = 0;
 
@@ -5171,8 +5181,8 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
       state.settlementKingdoms[newSettlementId] = resolvedKingdomId;
       const kStock = ensureKingdomResources(state, resolvedKingdomId);
       transferUnallocatedStockToKingdom(state, resolvedKingdomId);
-      if (siteBonusWood > 0) kStock.wood += siteBonusWood;
-      if (siteBonusFood > 0) kStock.food += siteBonusFood;
+      kStock.food += 18 + siteBonusFood;
+      kStock.wood += 12 + siteBonusWood;
 
       const hearth: BuildingEntity = {
         id: nextEntityId('bld'),
@@ -5183,7 +5193,7 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
         tileZ: siteTile.z,
         hp: def.maxHp,
         maxHp: def.maxHp,
-        constructionProgress: 4,
+        constructionProgress: 20,
         epochLevel: 0,
         upgradeProgress: 0,
         blessedTimer: 0,
@@ -5253,26 +5263,42 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
     const sidKingdomId = getKingdomId(state, sid);
     const kRes = ensureKingdomResources(state, sidKingdomId);
 
-    let villagePopCap = hasCompletedHearth ? epoch.populationBonus : 0;
+    const cityMaxPop = getMaxCityPopulation(state.gridSize);
+    let rawVillagePopCap = hasCompletedHearth ? epoch.populationBonus : 0;
     for (const b of completedBuildings) {
       const def = BUILDINGS.find((d) => d.type === b.type);
-      if (def) villagePopCap += def.popCapBonus;
+      if (def) rawVillagePopCap += def.popCapBonus;
     }
+    const villagePopCap = Math.min(cityMaxPop, rawVillagePopCap);
 
     // Autonomous Population Growth drawn strictly from this kingdom's food stockpile
+    const birthFoodReq = villageUnits.length < 10 ? 22 : 32;
+    const birthFoodCost = villageUnits.length < 10 ? 14 : 20;
     if (
       state.worldRules?.allowReproduction !== false &&
       hasCompletedHearth &&
       villageUnits.length < villagePopCap &&
-      kRes.food >= 42 &&
+      kRes.food >= birthFoodReq &&
       state.happiness >= 35
     ) {
-      kRes.food -= 30;
+      kRes.food -= birthFoodCost;
       const spawnHub = completedBuildings[0];
       const birthAgeStage: UnitAgeStage = villageUnits.length >= 2 ? 'child' : 'adult';
       spawnUnit(state, villageSpecies, spawnHub.tileX, spawnHub.tileZ, true, sid, {
         ageStage: birthAgeStage,
       });
+
+      // Young bands with healthy food reserves can birth a second child so founders don't die before sustaining pop
+      if (
+        villageUnits.length < 8 &&
+        villageUnits.length + 1 < villagePopCap &&
+        kRes.food >= 28
+      ) {
+        kRes.food -= 14;
+        spawnUnit(state, villageSpecies, spawnHub.tileX, spawnHub.tileZ, true, sid, {
+          ageStage: 'child',
+        });
+      }
     }
 
     // Autonomous Construction Planner scoped to THIS village & THIS kingdom's stocked resources
@@ -5281,7 +5307,7 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
     const orcSlowSkip =
       villageSpecies === 'orc' &&
       !state.sandboxFreeMode &&
-      villageBuildings.length >= 2 &&
+      villageBuildings.length >= 3 &&
       Math.floor(Math.abs(state.year * 10)) % 3 !== 0;
 
     if (
@@ -5528,8 +5554,8 @@ function stepSimulationSingle(
       }
     }
     const kPop = popByKid.get(kid) ?? 0;
-    if (kPop > 4) {
-      const kUpkeep = (kPop - 4) * 0.18 * goldenMult * dt;
+    if (kPop > 6) {
+      const kUpkeep = (kPop - 6) * 0.1 * goldenMult * dt;
       stock.food = Math.max(0, stock.food - kUpkeep);
     }
   }
@@ -10803,9 +10829,11 @@ function stepCivilianUnitAI(
         b.type === 'dyson_spire',
     );
 
-  // Elves passively weave restorative magic for themselves & nearby kin
+  // Elves passively weave restorative magic; settled citizens gently recover out of combat
   if (u.species === 'elf' && u.hp < u.maxHp) {
-    u.hp = Math.min(u.maxHp, u.hp + (hasElfArcaneTech ? 2.5 : 1.2) * dt);
+    u.hp = Math.min(u.maxHp, u.hp + (hasElfArcaneTech ? 2.5 : 1.4) * dt);
+  } else if (u.settlementId && u.state !== 'fighting' && (u.underAttackTimer ?? 0) <= 0 && u.hp < u.maxHp) {
+    u.hp = Math.min(u.maxHp, u.hp + 1.2 * dt);
   }
 
   const myKingdomId = u.settlementId ? getKingdomId(state, u.settlementId) : u.kingdomId;
@@ -11663,6 +11691,7 @@ function stepCivilianUnitAI(
               : 5.5;
       const buildSpeed =
         (u.role === 'builder' ? 13 : speciesBuildBase) *
+        (unfinished.type === 'bonfire' ? 1.8 : 1.0) *
         (u.statusEffects.blessed ? 1.6 : 1.0);
       unfinished.constructionProgress = Math.min(100, unfinished.constructionProgress + buildSpeed * dt);
       unfinished.hp = Math.min(unfinished.maxHp, unfinished.hp + 14 * dt);
@@ -11956,6 +11985,10 @@ function stepCivilianUnitAI(
       }
     }
 
+    const ownSettlementPop = state.units.filter(
+      (other) => other.faction === 'civilization' && other.state !== 'ko' && other.settlementId === u.settlementId,
+    ).length;
+
     const kStock = depositKid ? ensureKingdomResources(state, depositKid) : state.resources;
     let preferred: TileData['resourceNode'][];
     if (u.role === 'forager') {
@@ -11970,7 +12003,8 @@ function stepCivilianUnitAI(
           : ['stone_outcrop', 'scrap_flotsam', 'ore_vein', 'crystal_monolith', 'atlantis_ruin'];
     } else {
       const vocation = indivHash % 5;
-      if (kStock.food < 20) {
+      const foodBufferTarget = ownSettlementPop < getMaxCityPopulation(state.gridSize) ? 40 : 20;
+      if (kStock.food < foodBufferTarget) {
         preferred = ['berry_bush', 'coral_reef', 'timber_grove', 'scrap_flotsam', 'stone_outcrop'];
       } else if (kStock.wood < 25 || villageBuildings.length <= 1) {
         preferred = ['timber_grove', 'scrap_flotsam', 'berry_bush', 'coral_reef', 'stone_outcrop'];
@@ -11995,10 +12029,6 @@ function stepCivilianUnitAI(
         preferred = pairs.map((p) => p[0]);
       }
     }
-
-    const ownSettlementPop = state.units.filter(
-      (other) => other.faction === 'civilization' && other.state !== 'ko' && other.settlementId === u.settlementId,
-    ).length;
 
     const shouldPatrolTown =
       ((u.isKing && ownSettlementPop >= 4) || u.role === 'warrior' || (indivHash + Math.floor(state.year * 10)) % 8 === 0) &&

@@ -99,6 +99,17 @@ export const EPOCHS: EpochDefinition[] = [
   },
 ];
 
+export function getMaxCityPopulation(gridSize: number): number {
+  const s = Math.max(32, Math.round(gridSize || 128));
+  if (s <= 64) return 28;
+  if (s <= 96) return 40;
+  if (s <= 128) return 56;
+  if (s <= 160) return 72;
+  if (s <= 192) return 90;
+  if (s <= 224) return 110;
+  return 135;
+}
+
 export const BUILDINGS: BuildingDefinition[] = [
   {
     type: 'bonfire',
@@ -311,9 +322,9 @@ export const SPECIES_UNITS: UnitDefinition[] = [
     faction: 'civilization',
     roleSummary: 'Fast tech progress, relies on tech',
     cost: { faith: 10 },
-    maxHp: 90,
+    maxHp: 135,
     speed: 2.55,
-    attackDamage: 9,
+    attackDamage: 14,
     attackRange: 1.35,
     harvestRate: 9,
   },
@@ -324,9 +335,9 @@ export const SPECIES_UNITS: UnitDefinition[] = [
     faction: 'civilization',
     roleSummary: 'Peaceful mages & arcane tech',
     cost: { faith: 12 },
-    maxHp: 105,
+    maxHp: 145,
     speed: 3.05,
-    attackDamage: 14,
+    attackDamage: 18,
     attackRange: 3.4,
     harvestRate: 9,
   },
@@ -337,9 +348,9 @@ export const SPECIES_UNITS: UnitDefinition[] = [
     faction: 'civilization',
     roleSummary: 'Fierce barbarians, slow progress',
     cost: { faith: 12 },
-    maxHp: 185,
+    maxHp: 225,
     speed: 2.4,
-    attackDamage: 24,
+    attackDamage: 28,
     attackRange: 1.45,
     harvestRate: 10,
   },
@@ -492,11 +503,11 @@ export const UNITS: UnitDefinition[] = [
     faction: 'civilization',
     roleSummary: 'Builds towns and gathers resources',
     cost: { faith: 10 },
-    maxHp: 90,
+    maxHp: 130,
     speed: 2.4,
-    attackDamage: 8,
+    attackDamage: 12,
     attackRange: 1.2,
-    harvestRate: 7,
+    harvestRate: 8,
   },
   {
     role: 'forager',
@@ -970,9 +981,9 @@ export function getUnitMaxLifespan(unit: {
       if (unit.species === 'elf') {
         base = 215 + (seed % 50);
       } else if (unit.species === 'orc') {
-        base = 55 + (seed % 14);
+        base = 68 + (seed % 16);
       } else {
-        base = 75 + (seed % 18);
+        base = 88 + (seed % 20);
       }
       break;
   }

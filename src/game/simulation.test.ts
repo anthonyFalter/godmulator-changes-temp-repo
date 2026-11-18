@@ -16,6 +16,7 @@ import {
   getKingdomRelation,
   getMaxCityBuildings,
   getMaxCityFarmFields,
+  getMaxCityPopulation,
   getSettlementAnchor,
   getTile,
   initializeKingdomDiplomacyPair,
@@ -4685,6 +4686,131 @@ test('Distinct Racial Building Architectures: Human, Elf, and Orc build unique 3
       orcSig,
       elfSig,
       `${type} (epoch ${epoch}) Orc architecture must differ structurally from Elf, not merely be recolored`,
+    );
+  }
+});
+
+test('Per-city max population scales with world size and enforces city housing cap', () => {
+  const sizes = [64, 96, 128, 160, 192, 224, 256];
+  for (let i = 1; i < sizes.length; i++) {
+    assert.ok(
+      getMaxCityPopulation(sizes[i]) > getMaxCityPopulation(sizes[i - 1]),
+      `Larger world (${sizes[i]}) must have higher max city population than (${sizes[i - 1]})`,
+    );
+  }
+
+  // Test clamping on a small 64x64 world even when high-epoch buildings provide huge raw housing
+  const smallWorld = createInitialSimulationState(64, 'CAP-SMALL-64');
+  smallWorld.sandboxFreeMode = true;
+  smallWorld.wildlifeSeeded = true;
+  for (let z = 20; z <= 44; z++) {
+    for (let x = 20; x <= 44; x++) {
+      const t = getTile(smallWorld, x, z)!;
+      t.height = 2;
+      t.terrain = 'grass';
+      t.resourceNode = 'none';
+      t.buildingId = null;
+    }
+  }
+  for (let i = 0; i < EPOCHS.length - 1; i++) {
+    advanceEpoch(smallWorld, true);
+  }
+  assert.equal(placeBuilding(smallWorld, 'bonfire', 30, 30).ok, true);
+  assert.equal(placeBuilding(smallWorld, 'guildhall', 33, 30).ok, true);
+  assert.equal(placeBuilding(smallWorld, 'launch_arcology', 36, 30).ok, true);
+  for (const b of smallWorld.buildings) {
+    b.constructionProgress = 100;
+  }
+
+  const maxSmall = getMaxCityPopulation(64);
+  for (let i = 0; i < maxSmall; i++) {
+    spawnUnit(smallWorld, 'human', 31 + (i % 4), 32 + (Math.floor(i / 4) % 4), true, smallWorld.buildings[0].settlementId);
+  }
+
+  smallWorld.resources.food = 1000;
+  stepSimulation(smallWorld, 0.25);
+  assert.equal(
+    smallWorld.populationCap,
+    maxSmall,
+    `64x64 world city cap must clamp to ${maxSmall}, got ${smallWorld.populationCap}`,
+  );
+
+  // Even with abundant food and planner ticks, city must not reproduce beyond its world-size cap
+  const zonesBefore = computeWorldZones(smallWorld);
+  const kZone = Array.from(zonesBefore.kingdomsById.values())[0];
+  assert.ok(kZone, 'Kingdom zone must exist');
+  assert.equal(kZone.maxPopulation, maxSmall, 'KingdomZoneInfo.maxPopulation must match world-size city cap');
+
+  const popAtCap = smallWorld.units.filter((u) => u.faction === 'civilization' && u.state !== 'ko').length;
+  for (let i = 0; i < 12; i++) {
+    stepSimulation(smallWorld, 0.5);
+  }
+  const popAfter = smallWorld.units.filter((u) => u.faction === 'civilization' && u.state !== 'ko').length;
+  assert.ok(
+    popAfter <= maxSmall && popAfter <= popAtCap,
+    `City population (${popAfter}) must remain capped at ${maxSmall}`,
+  );
+});
+
+test('Starting races survive early wilderness, heal out of combat, and reproduce sustainably before dying of old age', () => {
+  for (const species of ['human', 'orc', 'elf'] as const) {
+    const state = createInitialSimulationState(96, `SUSTAIN-${species}`);
+    state.wildlifeSeeded = true;
+    state.resources.food = 45;
+    state.resources.wood = 65;
+    state.resources.stone = 40;
+    for (let z = 34; z <= 62; z++) {
+      for (let x = 34; x <= 62; x++) {
+        const t = getTile(state, x, z)!;
+        t.height = 2;
+        t.terrain = 'grass';
+        t.resourceNode = 'none';
+        t.resourceAmount = 0;
+        t.buildingId = null;
+      }
+    }
+    // Place nearby berry bushes and timber so settlers sustain themselves realistically
+    for (let i = 0; i < 6; i++) {
+      const bt = getTile(state, 44 + i, 44)!;
+      bt.resourceNode = 'berry_bush';
+      bt.resourceAmount = 45;
+      const tt = getTile(state, 44 + i, 52)!;
+      tt.terrain = 'forest';
+      tt.resourceNode = 'timber_grove';
+      tt.resourceAmount = 45;
+    }
+
+    assert.equal(placeBuilding(state, 'bonfire', 48, 48).ok, true);
+    state.buildings[0].constructionProgress = 100;
+    const sid = state.buildings[0].settlementId!;
+
+    for (let i = 0; i < 5; i++) {
+      const spawned = spawnUnit(state, species, 47 + (i % 3), 47 + Math.floor(i / 3), true, sid, {
+        ageStage: 'adult',
+        ageYears: 18,
+      });
+      assert.equal(spawned.ok, true);
+      if (i === 0 && spawned.unit) {
+        // Injure first settler to verify out-of-combat passive healing works for every settled race
+        spawned.unit.hp = Math.max(20, spawned.unit.maxHp - 40);
+      }
+    }
+
+    const firstUnit = state.units.find((u) => u.faction === 'civilization')!;
+    const hpBefore = firstUnit.hp;
+    for (let i = 0; i < 10; i++) {
+      stepSimulation(state, 0.5);
+    }
+    assert.ok(firstUnit.hp > hpBefore, `${species} settled unit should recover HP out of combat`);
+
+    // Simulate 40 years (40s at 1x) — population must grow well above the initial 5 founders
+    for (let i = 0; i < 80; i++) {
+      stepSimulation(state, 0.5);
+    }
+    const livingPop = state.units.filter((u) => u.faction === 'civilization' && u.state !== 'ko').length;
+    assert.ok(
+      livingPop >= 8,
+      `${species} founding band should grow sustainably past initial 5 units before aging out (got ${livingPop})`,
     );
   }
 });

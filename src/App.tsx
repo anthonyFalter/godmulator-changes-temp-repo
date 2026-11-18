@@ -8,6 +8,7 @@ import {
   SPECIES_UNITS,
   TERRAIN_TOOLS,
   UNITS,
+  getMaxCityPopulation,
 } from './game/catalog';
 import {
   DEFAULT_WORLD_RULES,
@@ -1263,6 +1264,9 @@ export default function App() {
                   <span>128</span>
                   <span>192</span>
                   <span>256</span>
+                </div>
+                <div className="text-[11px] text-[#b8afa2] mt-1 tabular-nums">
+                  Max City Pop: <span className="font-semibold text-[#f2ece1]">{getMaxCityPopulation(worldConfig.gridSize)}</span> per city
                 </div>
                 {worldConfig.gridSize === 256 && (
                   <div
@@ -2605,8 +2609,11 @@ export default function App() {
                     {hoveredZoneInfo && (
                       <>
                         {hoveredZoneInfo.kingdom && (
-                          <span className="text-[#80ed99] font-semibold">
+                          <span className="text-[#80ed99] font-semibold tabular-nums">
                             Kingdom: {hoveredZoneInfo.kingdom.name} (Pop {hoveredZoneInfo.kingdom.population}
+                            {hoveredZoneInfo.kingdom.maxPopulation > 0
+                              ? `/${hoveredZoneInfo.kingdom.maxPopulation}`
+                              : ''}
                             {hoveredZoneInfo.isKingdomMaritime ? ' · Maritime Waters' : ''})
                           </span>
                         )}
