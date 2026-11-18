@@ -356,7 +356,7 @@ export default function App() {
   const [brushRadius, setBrushRadius] = useState<number>(0);
   const [brushInputMode, setBrushInputMode] = useState<BrushInputMode>('hold');
   const [mobilePanMode, setMobilePanMode] = useState<boolean>(false);
-  const pixelScale = 3;
+  const pixelScale = 2.5;
   const [graphicsSettings, setGraphicsSettings] = useState<GraphicsSettings>(() =>
     loadGraphicsSettings(),
   );
@@ -3468,11 +3468,11 @@ export default function App() {
                           <span>God Rules</span>
                         </button>
                       </div>
-                      <span className="hidden sm:inline text-[11px] text-[#a89f91]">
-                        {worldSubTab === 'rules' || activeCategory === 'rules'
-                          ? 'Toggle live world laws & creature rules'
-                          : 'Switch era, time of day, or generate a new seed'}
-                      </span>
+                      {(worldSubTab === 'rules' || activeCategory === 'rules') && (
+                        <span className="hidden sm:inline text-[11px] text-[#a89f91]">
+                          Toggle live world laws &amp; creature rules
+                        </span>
+                      )}
                     </div>
 
                     {worldSubTab === 'rules' || activeCategory === 'rules' ? (
@@ -3548,7 +3548,7 @@ export default function App() {
                           })}
                         </div>
 
-                        <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                        <div className="flex flex-wrap items-center justify-start gap-2 text-xs">
                           <div className="flex flex-wrap items-center gap-1">
                             <span className="text-[#a89f91] mr-0.5">Sky</span>
                             {(['auto', 'dawn', 'noon', 'dusk', 'night', 'midnight'] as LightingPreset[]).map((lp) => {
@@ -3576,37 +3576,6 @@ export default function App() {
                                 </button>
                               );
                             })}
-                          </div>
-
-                          <div className="flex items-center gap-1">
-                            <span className="text-[#a89f91]">Seed</span>
-                            <input
-                              type="text"
-                              aria-label="World Seed"
-                              value={seedInput}
-                              onChange={(e) => setSeedInput(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  e.preventDefault();
-                                  handleGenerateSeededWorld(seedInput || undefined);
-                                }
-                              }}
-                              className="px-panel-inset w-24 px-2 py-1 font-pixel-num text-[11px] text-[#f2ece1] outline-none"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => handleGenerateSeededWorld(seedInput || undefined)}
-                              className="px-btn px-2 py-1 text-xs text-[#f5b742] cursor-pointer"
-                            >
-                              Load
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleGenerateSeededWorld(undefined)}
-                              className="px-btn px-2 py-1 text-xs cursor-pointer"
-                            >
-                              Random
-                            </button>
                           </div>
                         </div>
                       </div>

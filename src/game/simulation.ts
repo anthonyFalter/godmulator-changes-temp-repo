@@ -40,34 +40,254 @@ import { generateWorldTiles, normalizeSeed } from './worldGen';
 const BUILDING_BY_TYPE = new Map(BUILDINGS.map((d) => [d.type, d]));
 const UNIT_BY_ROLE = new Map(UNITS.map((d) => [d.role, d]));
 
-const CITIZEN_NAMES = [
+const HUMAN_FIRST_NAMES = [
   'Kaelen', 'Lyra', 'Theron', 'Vesper', 'Oakhart', 'Soren', 'Mira', 'Darian',
   'Elowen', 'Bram', 'Talia', 'Cassian', 'Nyx', 'Orin', 'Sylvi', 'Alden',
   'Rowan', 'Freya', 'Gideon', 'Isolde', 'Zarek', 'Ariadne', 'Cyrus', 'Veda',
+  'Caleb', 'Maeve', 'Lucian', 'Clara', 'Garrick', 'Helena', 'Tobias', 'Astrid',
+  'Julian', 'Elena', 'Marcus', 'Nora', 'Cedric', 'Vera', 'Alaric', 'linnea',
+  'Corvus', 'Sabine', 'Declan', 'Iris', 'Evander', 'Serena', 'stellan', 'Wren',
+].map((n) => n[0].toUpperCase() + n.slice(1));
+
+const HUMAN_LAST_NAMES = [
+  'Mercer', 'Ashford', 'Vance', 'Hawthorne', 'Greystone', 'Thorne', 'Hale', 'Locke',
+  'Crest', 'Shaw', 'Brooks', 'Frost', 'Ward', 'Vane', 'Sterling', 'Flint',
+  'Briar', 'Marsh', 'Holt', 'Drake', 'Cross', 'Reed', 'Blackwood', 'Barrow',
+  'Sutton', 'Kestrel', 'Fletcher', 'Rowland', 'Tanner', 'Gale', 'Finch', 'Lark',
+  'Pyke', 'Rook', 'Vale', 'Stone', 'Hart', 'Veyra', 'Calder', 'Weston',
 ];
 
-const ELF_NAMES = [
+const ELF_FIRST_NAMES = [
   'Aelar', 'Sylva', 'Luthien', 'Faelar', 'Elowen', 'Caelum', 'Thalia', 'Vaelis',
-  'Sariel', 'Lyra', 'Nym', 'Orophin',
+  'Sariel', 'Nym', 'Orophin', 'Vyril', 'Alari', 'Celeborn', 'Isilme', 'Tauriel',
+  'Galad', 'Elaria', 'Thrand', 'Myriel', 'Lorien', 'Seraphis', 'Faelwen', 'Aranel',
+  'Calen', 'Nimue', 'Valen', 'Yavanna', 'Ilien', 'Sylvar', 'Lirael', 'Haldir',
+  'Aerin', 'Elenwe', 'Thalorin', 'Vaelora',
 ];
 
-const ORC_NAMES = [
+const ELF_SURNAMES = [
+  'Moonwhisper', 'Starbreeze', 'Dawnleaf', 'Silverstream', 'Dewglade', 'Sunpetal',
+  'Windwalker', 'Mistwood', 'Aetheriel', 'Oakbow', 'Frostbloom', 'Galewing',
+  'Fernhollow', 'Nightbough', 'Lumenvale', 'Briarthorne', 'Stargazer', 'Mossbreeze',
+  'Crystalkeep', 'Amberleaf', 'Skyweaver', 'Gladeborn', 'Silvershade', 'Springwillow',
+  'Thornbrook', 'Brightriver', 'Cloudspire', 'petalwind', 'Evergrove', 'Moonlit',
+].map((n) => n[0].toUpperCase() + n.slice(1));
+
+const ORC_FIRST_NAMES = [
   'Grom', 'Thrak', 'Karg', 'Morg', 'Zug', 'Urzul', 'Bruk', 'Grish',
-  'Drog', 'Skarn', 'Vorg', 'Ruk',
+  'Drog', 'Skarn', 'Vorg', 'Ruk', 'Khor', 'Garok', 'Drak', 'Snag',
+  'Gorim', 'Balg', 'Azog', 'Krag', 'Torg', 'Vrak', 'Ghaz', 'Nazg',
+  'Kulg', 'Zorak', 'Muzgash', 'Shagrat', 'Ugluk', 'Bolg', 'Dush', 'Rogash',
+  'Khar', 'Vorgath', 'Throkk', 'Ghorza',
 ];
 
-const VILLAGE_NAMES = [
-  'New Aurelia', 'Silver Valen', 'Oak Haven', 'Sun Harbor', 'High Veld', 'Dawn Hold',
-  'Star Crest', 'Iron Ford', 'Gold Vale', 'Stone Bridge', 'River Watch', 'Crown Point',
+const ORC_CLAN_NAMES = [
+  'Ironjaw', 'Bloodfang', 'Skullsplitter', 'Ashhide', 'Bonecrusher', 'Blacktusks',
+  'Doomhammer', 'Stonefist', 'Grimscar', 'Wargtooth', 'Redaxe', 'Cragborn',
+  'Cindermaw', 'Flintclaw', 'Dreadhorn', 'Shattershield', 'Gloomfang', 'Wolfbane',
+  'Obsidianhand', 'Thunderhide', 'Fleshrender', 'Spirebreaker', 'Smogblood', 'Khorborn',
+  'Ashenpike', 'Stormtusk', 'Rustblade', 'Gorger', 'Hammerfall', 'Ravenspine',
 ];
 
-const ELF_VILLAGE_NAMES = [
-  'Sylvan Glade', 'Star Leaf', 'Silver Bough', 'Moon Well', 'Aether Grove', 'Crystal Spire',
-];
+function seededOrRandomInt(max: number, rng?: () => number): number {
+  const r = rng ? rng() : Math.random();
+  return Math.max(0, Math.min(max - 1, Math.floor(r * max)));
+}
 
-const ORC_VILLAGE_NAMES = [
-  'Khor Crag', 'Thar Hold', 'Grom Peak', 'Iron Skull', 'Blood Axe', 'Ash Ridge',
-];
+function hashSeedString(str: string, baseSeed = 0): number {
+  let h = (baseSeed ^ 0x811c9dc5) >>> 0;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  return h;
+}
+
+export function createUniqueCityName(
+  species: SpeciesId = 'human',
+  usedNames: Set<string> = new Set(),
+  deterministicSeed?: number,
+): string {
+  let rngState = deterministicSeed !== undefined ? ((deterministicSeed ^ 0x9e3779b9) >>> 0) || 1 : 0;
+  const rng =
+    deterministicSeed !== undefined
+      ? () => {
+          rngState = (rngState + 0x6d2b79f5) >>> 0;
+          let t = Math.imul(rngState ^ (rngState >>> 15), 1 | rngState);
+          t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+          return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+        }
+      : undefined;
+
+  const pick = <T,>(arr: readonly T[]): T => arr[seededOrRandomInt(arr.length, rng)];
+
+  const HUMAN_PREFIXES = [
+    'Aurel', 'Valen', 'Alder', 'Caster', 'Bright', 'Iron', 'Sun', 'Crest', 'Durn', 'Veyr',
+    'West', 'Oak', 'Crown', 'Carrow', 'Sol', 'Kestrel', 'Bram', 'Thorne', 'Corv', 'Mar',
+    'Wind', 'Gold', 'Frost', 'River', 'Dawn', 'Storm', 'Hearth', 'Amber', 'Vesper', 'Cald',
+    'Rowan', 'Barrow', 'Gale', 'Ash', 'Silver', 'Stone', 'North', 'Red', 'High', 'Drak',
+  ];
+  const HUMAN_SUFFIXES = [
+    'haven', 'hold', 'ford', 'watch', 'crest', 'bridge', 'vale', 'spire', 'mere', 'brook',
+    'stead', 'helm', 'wick', 'gard', 'port', 'fell', 'ridge', 'mark', 'wall', 'wood',
+    'mont', 'keep', 'wicke', 'ton', 'burgh', 'gate',
+  ];
+  const HUMAN_ADJ = [
+    'New', 'Port', 'Fort', 'High', 'Silver', 'Golden', 'Old', 'North', 'West', 'East',
+    'Crown', 'Sun', 'River', 'Stone', 'Oak', 'Bright', 'Star', 'Amber', 'Dawn', 'Iron',
+  ];
+  const HUMAN_NOUN = [
+    'Aurelia', 'Valen', 'Haven', 'Harbor', 'Veld', 'Hold', 'Crest', 'Ford', 'Vale', 'Bridge',
+    'Watch', 'Point', 'Bastion', 'Cross', 'Reach', 'Hollow', 'Landing', 'Spire', 'Market',
+  ];
+
+  const ELF_SYL_A = [
+    'Ael', 'Syl', 'Luth', 'Fael', 'Cael', 'Vael', 'Thal', 'Myr', 'Ser', 'Elen', 'Oroph',
+    'Nym', 'Ili', 'Gal', 'Aran', 'Cele', 'Lor', 'Isil', 'Yav', 'Taur', 'Mir', 'Vyr', 'Alor',
+    'Thyr', 'Sola', 'Elar', 'Cal', 'Vela', 'Naer', 'Ril',
+  ];
+  const ELF_SYL_B = [
+    'indor', 'oria', 'veth', 'mere', 'aris', 'driel', 'wen', 'nor', 'thas', 'loth', 'ien',
+    'ael', 'ion', 'riel', 'vael', 'eth', 'wyn', 'lor', 'ia', 'anor', 'elion', 'ath',
+  ];
+  const ELF_ADJ = [
+    'Sylvan', 'Star', 'Moon', 'Silver', 'Aether', 'Crystal', 'Dew', 'Dawn', 'Whisper',
+    'Lumen', 'Emerald', 'Mist', 'Briar', 'Glimmer', 'Azure', 'Twilight', 'Willow', 'Sun',
+  ];
+  const ELF_NOUN = [
+    'Glade', 'Leaf', 'Bough', 'Well', 'Grove', 'Spire', 'Vale', 'Canopy', 'Sanctuary',
+    'Dell', 'Haven', 'Hollow', 'Bloom', 'Stream', 'Arbor', 'Enclave',
+  ];
+
+  const ORC_SYL_A = [
+    'Grom', 'Khor', 'Thrak', 'Skarn', 'Morg', 'Zug', 'Urz', 'Bruk', 'Grish', 'Drog', 'Vorg',
+    'Ruk', 'Karg', 'Gar', 'Drak', 'Snag', 'Gor', 'Balg', 'Azog', 'Krag', 'Tor', 'Vrak',
+    'Ghaz', 'Naz', 'Kulg', 'Zorak', 'Mog', 'Khar',
+  ];
+  const ORC_SYL_B = [
+    'gash', 'mor', 'zul', 'thar', 'karr', 'vorr', 'bash', 'gul', 'rak', 'duk', 'fang',
+    'tus', 'maw', 'gar', 'dak', 'grimm', 'krag', 'mok', 'gor', 'khor', 'zgul', 'nar',
+  ];
+  const ORC_ADJ = [
+    'Blood', 'Iron', 'Ash', 'Skull', 'Obsidian', 'Shattered', 'Grim', 'Jagged', 'Cinder',
+    'Bone', 'War', 'Fury', 'Crag', 'Dread', 'Ruin', 'Rust', 'Smog', 'Black',
+  ];
+  const ORC_NOUN = [
+    'Crag', 'Hold', 'Peak', 'Bastion', 'Fort', 'Ridge', 'Pit', 'Anvil', 'Keep', 'Forge',
+    'Gate', 'Maw', 'Fang', 'Citadel', 'Trench', 'Gorge',
+  ];
+
+  for (let attempt = 0; attempt < 64; attempt++) {
+    const roll = rng ? rng() : Math.random();
+    let candidate = '';
+    if (species === 'elf') {
+      if (roll < 0.56) {
+        candidate = `${pick(ELF_SYL_A)}${pick(ELF_SYL_B)}`;
+      } else {
+        const a = pick(ELF_ADJ);
+        const n = pick(ELF_NOUN);
+        candidate = `${a} ${n}`;
+      }
+    } else if (species === 'orc') {
+      if (roll < 0.56) {
+        candidate = `${pick(ORC_SYL_A)}${pick(ORC_SYL_B)}`;
+      } else {
+        const a = pick(ORC_ADJ);
+        const n = pick(ORC_NOUN);
+        candidate = `${a} ${n}`;
+      }
+    } else {
+      if (roll < 0.6) {
+        const pre = pick(HUMAN_PREFIXES);
+        const suf = pick(HUMAN_SUFFIXES);
+        if (!pre.toLowerCase().endsWith(suf.slice(0, 2).toLowerCase())) {
+          candidate = `${pre}${suf}`;
+        }
+      }
+      if (!candidate) {
+        const a = pick(HUMAN_ADJ);
+        const n = pick(HUMAN_NOUN);
+        if (a.toLowerCase() !== n.toLowerCase()) {
+          candidate = `${a} ${n}`;
+        }
+      }
+    }
+    if (candidate && !usedNames.has(candidate)) {
+      return candidate;
+    }
+  }
+
+  const fallbackRoot =
+    species === 'elf'
+      ? `${pick(ELF_SYL_A)}${pick(ELF_SYL_B)}`
+      : species === 'orc'
+        ? `${pick(ORC_SYL_A)}${pick(ORC_SYL_B)}`
+        : `${pick(HUMAN_PREFIXES)}${pick(HUMAN_SUFFIXES)}`;
+  return `${fallbackRoot} ${usedNames.size + 1}`;
+}
+
+export function createSeededNomadName(
+  settlementId: string,
+  worldSeed: number,
+  species: SpeciesId = 'human',
+): string {
+  return createUniqueCityName(species, new Set(), hashSeedString(settlementId, worldSeed));
+}
+
+function createUniqueUnitName(
+  state: SimulationState,
+  role: UnitRole,
+  species: SpeciesId,
+  dinoDiet?: 'carnivore' | 'herbivore',
+): string {
+  const used = new Set(state.units.map((u) => u.name));
+  const CREATURE_NAMES: Partial<Record<UnitRole, string[]>> = {
+    cow: ['Bessie', 'Daisy', 'Clover', 'Buttercup', 'Mooana', 'Hazel', 'Maple', 'Willow', 'Poppy', 'Pebble', 'Nutmeg', 'Marigold'],
+    pig: ['Porky', 'Truffle', 'Hamlet', 'Rosie', 'Pip', 'Oinkers', 'Bramble', 'Pudding', 'Acorn', 'Snuffles', 'Bacon', 'Barnaby'],
+    chicken: ['Nugget', 'Sunny', 'Pippin', 'Clucky', 'Henrietta', 'Pebbles', 'Feather', 'Waffles', 'Cinnamon', 'Biscuit', 'Peep', 'Dandelion'],
+    capybara: ['Gort', 'Mochi', 'Coconut', 'Boba', 'Chill', 'Yuzu', 'Pesto', 'Matcha', 'Taro', 'Mango', 'Wonton', 'Biscotti'],
+    wolf: ['Fang', 'Fenrir', 'Timber', 'Shadow', 'Ash', 'Silver', 'Lupus', 'Ghost', 'Frostbite', 'Nightpaw', 'Cinder', 'Bane'],
+    bear: ['Barnaby', 'Kodiak', 'Ursa', 'Grizz', 'Bramble', 'Thor', 'Boulder', 'Otis', 'Bruno', 'Baloo', 'Goliath', 'Cedar'],
+    dinosaur:
+      dinoDiet === 'carnivore'
+        ? ['Rex', 'Chomper', 'Raptor', 'Fangjaw', 'Gorgon', 'Razor', 'Vex', 'Sauron', 'Ripper', 'Spikejaw', 'Cinderclaw', 'Apex']
+        : ['Spike', 'Terra', 'Trixie', 'Bronty', 'Ankylo', 'Pebbleback', 'Cresthorn', 'Mosswalker', 'Fern', 'Titan', 'Plate', 'Bramble'],
+    dragon: ['Ignis', 'Pyre', 'Zephyr', 'Vermithrax', 'Drakon', 'Scorch', 'Cinderwing', 'Embermaw', 'Obsidia', 'Aurelion', 'Balerion', 'Valyrax'],
+    unicorn: ['Lumina', 'Aurelia', 'Starlight', 'Celeste', 'Seraph', 'Sylph', 'Dawnhorn', 'Moonbeam', 'Glimmer', 'Astrid', 'Iris', 'Elysia'],
+    leviathan: ['Charybdis', 'Tiamat', 'Kraken', 'Jormungandr', 'Thalassor', 'Abyssal', 'Bloop', 'Maelstrom', 'Cetus', 'Nautilus', 'Tidecaller', 'Vortex'],
+  };
+
+  const creaturePool = CREATURE_NAMES[role];
+  if (creaturePool) {
+    const unused = creaturePool.filter((n) => !used.has(n));
+    if (unused.length > 0) {
+      return unused[Math.floor(Math.random() * unused.length)];
+    }
+    const EPITHETS = ['Elder', 'Wild', 'Ancient', 'Gilded', 'Storm', 'Frost', 'Shadow', 'Crimson', 'Iron', 'Sunken'];
+    for (let i = 0; i < 24; i++) {
+      const cand = `${EPITHETS[Math.floor(Math.random() * EPITHETS.length)]} ${creaturePool[Math.floor(Math.random() * creaturePool.length)]}`;
+      if (!used.has(cand)) return cand;
+    }
+    return `${creaturePool[Math.floor(Math.random() * creaturePool.length)]} ${state.units.length + 1}`;
+  }
+
+  const firstPool =
+    species === 'elf' ? ELF_FIRST_NAMES : species === 'orc' ? ORC_FIRST_NAMES : HUMAN_FIRST_NAMES;
+  const lastPool =
+    species === 'elf' ? ELF_SURNAMES : species === 'orc' ? ORC_CLAN_NAMES : HUMAN_LAST_NAMES;
+
+  // Prefer single names or rich Name + Surname/Clan combinations, always avoiding duplicates!
+  for (let attempt = 0; attempt < 48; attempt++) {
+    const first = firstPool[Math.floor(Math.random() * firstPool.length)];
+    const last = lastPool[Math.floor(Math.random() * lastPool.length)];
+    const candidate = attempt < 10 && Math.random() < 0.25 ? first : `${first} ${last}`;
+    if (!used.has(candidate)) {
+      return candidate;
+    }
+  }
+
+  return `${firstPool[Math.floor(Math.random() * firstPool.length)]} ${lastPool[Math.floor(Math.random() * lastPool.length)]}`;
+}
 
 export const SETTLEMENT_AWARENESS_RADIUS = 12;
 export const MAX_CITY_BUILDINGS = 32;
@@ -1135,26 +1355,10 @@ export function spawnUnit(
   const growthTimer = ageStage === 'child' ? 12 + (appearanceSeed % 7) : undefined;
 
   const dinoDiet = role === 'dinosaur' ? getDinosaurVariant(appearanceSeed).diet : undefined;
-  const CREATURE_NAMES: Partial<Record<UnitRole, string[]>> = {
-    cow: ['Bessie', 'Daisy', 'Clover', 'Buttercup', 'Mooana'],
-    pig: ['Porky', 'Truffle', 'Hamlet', 'Rosie', 'Pip'],
-    chicken: ['Nugget', 'Sunny', 'Pippin', 'Clucky', 'Henrietta'],
-    capybara: ['Gort', 'Mochi', 'Coconut', 'Boba', 'Chill'],
-    wolf: ['Fang', 'Fenrir', 'Timber', 'Shadow', 'Ash'],
-    bear: ['Barnaby', 'Kodiak', 'Ursa', 'Grizz', 'Bramble'],
-    dinosaur:
-      dinoDiet === 'carnivore'
-        ? ['Rex', 'Chomper', 'Raptor', 'Fangjaw', 'Gorgon']
-        : ['Spike', 'Terra', 'Trixie', 'Bronty', 'Ankylo'],
-    dragon: ['Ignis', 'Pyre', 'Zephyr', 'Vermithrax', 'Drakon'],
-    unicorn: ['Lumina', 'Aurelia', 'Starlight', 'Celeste', 'Seraph'],
-    leviathan: ['Bloop', 'Charybdis', 'Tiamat', 'Kraken', 'Jormungandr'],
-  };
-
-  const namePool =
-    CREATURE_NAMES[role] ??
-    (species === 'elf' ? ELF_NAMES : species === 'orc' ? ORC_NAMES : CITIZEN_NAMES);
-  const nameIdx = Math.abs(appearanceSeed + state.units.length * 7) % namePool.length;
+  const generatedName =
+    def.faction === 'hostile'
+      ? def.name
+      : createUniqueUnitName(state, role, species, dinoDiet);
 
   const genes = generateUnitGenes(role, species, appearanceSeed, dinoDiet);
   const maxLifespan = getUnitMaxLifespan({
@@ -1175,7 +1379,7 @@ export function spawnUnit(
 
   const unit: UnitEntity = {
     id: nextEntityId('unit'),
-    name: def.faction === 'hostile' ? def.name : namePool[nameIdx],
+    name: generatedName,
     role,
     species,
     faction: def.faction,
@@ -3299,16 +3503,7 @@ export function castGodPower(
 
 function createVillageName(state: SimulationState, species: SpeciesId = 'human'): string {
   const used = new Set(Object.values(state.settlementNames ?? {}));
-  const pool =
-    species === 'elf'
-      ? ELF_VILLAGE_NAMES
-      : species === 'orc'
-        ? ORC_VILLAGE_NAMES
-        : VILLAGE_NAMES;
-  for (const name of pool) {
-    if (!used.has(name)) return name;
-  }
-  return `Haven ${used.size + 1}`;
+  return createUniqueCityName(species, used);
 }
 
 export function getKingdomId(state: SimulationState, settlementId: string): string {

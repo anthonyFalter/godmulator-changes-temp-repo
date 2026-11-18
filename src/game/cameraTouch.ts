@@ -34,15 +34,15 @@ export function getResponsiveTitleFrustum(aspect: number): number {
 
 /**
  * Smoothly interpolates the rendering pixel scale based on camera zoom:
- * - 3.0x when fully zoomed in (frustum <= 8.0)
+ * - 2.5x when fully zoomed in (frustum <= 8.0)
  * - 1.0x when fully zoomed out (frustum >= maxZoomOut)
- * - Continuously scales through intermediate levels (3.0 -> 2.98 -> 2.xx -> ... -> 1.0)
+ * - Continuously scales through intermediate levels (2.5 -> 2.48 -> 2.xx -> ... -> 1.0)
  */
 export function computeDynamicPixelScale(
   currentFrustum: number,
   gridSize: number,
   aspect: number,
-  baseScale = 3.0,
+  baseScale = 2.5,
   minScale = 1.0,
 ): number {
   const minFrustum = 8.0;
