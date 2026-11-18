@@ -1,4 +1,4 @@
-import { ResourceNodeType, TerrainType, TileData } from './types';
+import { ResourceNodeType, TerrainType, TileData, WorldTemplateId } from './types';
 
 /**
  * Normalizes an optional numeric or string seed into a deterministic 32-bit unsigned integer.
@@ -115,6 +115,7 @@ export function createNoise2D(seed: number) {
 }
 
 export interface WorldGenOptions {
+  template?: WorldTemplateId;
   seaLevelBias?: 'low' | 'normal' | 'high';
   mountainBias?: 'low' | 'normal' | 'high';
   climateBias?: 'cold' | 'balanced' | 'warm';
@@ -128,6 +129,7 @@ export function generateWorldTiles(
 ): TileData[] {
   const seed = normalizeSeed(rawSeed);
   const rng = createRng(seed ^ 0x9e3779b9);
+  const isScrapSea = options?.template === 'scrap_sea';
 
   // Separate uncorrelated noise channels derived from the master seed
   const elevNoise = createNoise2D(seed + 101);
@@ -136,6 +138,7 @@ export function generateWorldTiles(
   const tempNoise = createNoise2D(seed + 7079);
   const moistNoise = createNoise2D(seed + 9091);
   const biomeNoise = createNoise2D(seed + 5113);
+  const reefNoise = createNoise2D(seed + 12347);
 
   const center = (gridSize - 1) / 2;
   const maxRadius = Math.max(8, gridSize * 0.47);
@@ -146,6 +149,7 @@ export function generateWorldTiles(
   const moistGrid = new Float32Array(totalTiles);
   const biomeVarGrid = new Float32Array(totalTiles);
   const riverMask = new Uint8Array(totalTiles);
+  const lakeMask = new Uint8Array(totalTiles);
 
   // Seeded world-flavor parameters so each seed shifts continent style, mountain vigor, & climate
   const worldStyle = rng(); // archipelago / twin-bay / grand-continent
@@ -178,40 +182,45 @@ export function generateWorldTiles(
       const wx = x + (warpNoise.fbm(x * 0.032, z * 0.032, 3) - 0.5) * warpAmp;
       const wz = z + (warpNoise.fbm(x * 0.032 + 37.2, z * 0.032 + 19.7, 3) - 0.5) * warpAmp;
 
-      // Continent base mass
-      const macroLand = elevNoise.fbm(wx * 0.026, wz * 0.026, 4);
-      const detailHills = elevNoise.fbm(wx * 0.075 + 11.4, wz * 0.075 - 5.2, 3);
+      if (isScrapSea) {
+        heightGrid[idx] = 0;
+      } else {
+        // Continent base mass
+        const macroLand = elevNoise.fbm(wx * 0.026, wz * 0.026, 4);
+        const detailHills = elevNoise.fbm(wx * 0.075 + 11.4, wz * 0.075 - 5.2, 3);
 
-      // Oriented mountain tectonic ridges (capable of rising into towering alpine chains up to height 10)
-      const rx = wx * cosR - wz * sinR;
-      const rz = wx * sinR + wz * cosR;
-      const mountainBelt = ridgeNoise.ridged(rx * 0.024, rz * 0.036, 4);
-      const ridgeExcess = Math.max(0, mountainBelt - 0.42);
-      const mountainBoost = Math.pow(ridgeExcess * 1.9, 1.25) * ridgeStrength;
+        // Oriented mountain tectonic ridges (capable of rising into towering alpine chains up to height 10)
+        const rx = wx * cosR - wz * sinR;
+        const rz = wx * sinR + wz * cosR;
+        const mountainBelt = ridgeNoise.ridged(rx * 0.024, rz * 0.036, 4);
+        const ridgeExcess = Math.max(0, mountainBelt - 0.42);
+        const mountainBoost = Math.pow(ridgeExcess * 1.9, 1.25) * ridgeStrength;
 
-      // Continent falloff profile (varies between broad mainland and fragmented archipelago)
-      const falloffPower = 1.65 + worldStyle * 0.55;
-      const edgeFalloff = Math.pow(normDist, falloffPower) * (3.6 + worldStyle * 1.1);
+        // Continent falloff profile (varies between broad mainland and fragmented archipelago)
+        const falloffPower = 1.65 + worldStyle * 0.55;
+        const edgeFalloff = Math.pow(normDist, falloffPower) * (3.6 + worldStyle * 1.1);
 
-      const rawElevation =
-        1.15 +
-        seaOffset +
-        (macroLand - 0.42) * 5.2 +
-        (detailHills - 0.5) * 2.0 +
-        mountainBoost -
-        edgeFalloff;
+        const rawElevation =
+          1.15 +
+          seaOffset +
+          (macroLand - 0.42) * 5.2 +
+          (detailHills - 0.5) * 2.0 +
+          mountainBoost -
+          edgeFalloff;
 
-      let h = Math.max(0, Math.min(10, Math.round(rawElevation)));
+        let h = Math.max(0, Math.min(10, Math.round(rawElevation)));
 
-      // Ensure central starting view has natural dry landmass rather than deep sea or impassable spire
-      if (dist < 6.5 && h === 0) {
-        h = 2;
-      } else if (dist < 4.5 && h > 4) {
-        h = 3;
+        // Ensure central starting view has natural dry landmass rather than deep sea or impassable spire
+        if (dist < 6.5 && h === 0) {
+          h = 2;
+        } else if (dist < 4.5 && h > 4) {
+          h = 3;
+        }
+
+        heightGrid[idx] = h;
       }
 
-      heightGrid[idx] = h;
-
+      const h = heightGrid[idx];
       // Temperature drops at higher altitudes and follows a contrast-stretched warped latitude gradient
       const latFactor = Math.sin((z / Math.max(1, gridSize)) * Math.PI) * 0.14;
       const tempBase = 0.5 + (tempNoise.fbm(wx * 0.024 + 5.1, wz * 0.024 + 8.3, 3) - 0.5) * 1.75;
@@ -235,88 +244,258 @@ export function generateWorldTiles(
     }
   }
 
-  // Stage 3: Seeded Hydrology — trace meandering rivers from mountain springs to coast
-  const springCandidates: number[] = [];
-  for (let z = 6; z < gridSize - 6; z += 4) {
-    for (let x = 6; x < gridSize - 6; x += 4) {
-      const idx = z * gridSize + x;
-      const distCenter = Math.hypot(x - center, z - center);
-      if (heightGrid[idx] >= 4 && distCenter > 11) {
-        springCandidates.push(idx);
+  // Stage 2.5: Carve Scenic Inland Lakes (enclosed shallow-water basins surrounded by lush shores)
+  const lakeCenters: Array<{ x: number; z: number; radius: number }> = [];
+  if (!isScrapSea) {
+    const lakeCandidates: Array<{ x: number; z: number }> = [];
+    for (let z = 12; z < gridSize - 12; z += 5) {
+      for (let x = 12; x < gridSize - 12; x += 5) {
+        const idx = z * gridSize + x;
+        const distCenter = Math.hypot(x - center, z - center);
+        if (distCenter < 9.5 || distCenter > maxRadius * 0.72) continue;
+        if (heightGrid[idx] >= 1 && heightGrid[idx] <= 3) {
+          // Ensure surrounded by dry land within 6 tiles so lake is enclosed inland
+          let touchesOpenSea = false;
+          for (let oz = -6; oz <= 6 && !touchesOpenSea; oz += 2) {
+            for (let ox = -6; ox <= 6; ox += 2) {
+              const nx = x + ox;
+              const nz = z + oz;
+              if (nx < 2 || nx >= gridSize - 2 || nz < 2 || nz >= gridSize - 2) {
+                touchesOpenSea = true;
+                break;
+              }
+              if (heightGrid[nz * gridSize + nx] === 0) {
+                touchesOpenSea = true;
+                break;
+              }
+            }
+          }
+          if (!touchesOpenSea) {
+            lakeCandidates.push({ x, z });
+          }
+        }
+      }
+    }
+
+    const desiredLakes = Math.min(4, Math.max(2, Math.floor(gridSize / 34)));
+    for (let l = 0; l < desiredLakes && lakeCandidates.length > 0; l++) {
+      const pick = Math.floor(rng() * lakeCandidates.length);
+      const cand = lakeCandidates.splice(pick, 1)[0];
+      if (lakeCenters.some((other) => Math.hypot(other.x - cand.x, other.z - cand.z) < 16)) {
+        continue;
+      }
+      const radius = 3.2 + rng() * 2.3;
+      lakeCenters.push({ x: cand.x, z: cand.z, radius });
+
+      const rCeil = Math.ceil(radius + 2);
+      for (let oz = -rCeil; oz <= rCeil; oz++) {
+        for (let ox = -rCeil; ox <= rCeil; ox++) {
+          const nx = cand.x + ox;
+          const nz = cand.z + oz;
+          if (nx <= 2 || nx >= gridSize - 3 || nz <= 2 || nz >= gridSize - 3) continue;
+          if (Math.hypot(nx - center, nz - center) < 7.0) continue;
+          const nIdx = nz * gridSize + nx;
+          const wobble = (warpNoise.sample(nx * 0.18 + l * 13, nz * 0.18) - 0.5) * 1.35;
+          const d = Math.hypot(ox, oz) + wobble;
+          if (d <= radius) {
+            heightGrid[nIdx] = 0;
+            lakeMask[nIdx] = 1;
+          } else if (d <= radius + 1.8) {
+            if (heightGrid[nIdx] > 2) heightGrid[nIdx] = 1;
+            moistGrid[nIdx] = Math.min(1, moistGrid[nIdx] + 0.32);
+          }
+        }
+      }
+    }
+
+    // Stage 3: Seeded Hydrology — trace lively, meandering shallow rivers from mountain springs to lakes & coast
+    const springCandidates: number[] = [];
+    for (let z = 6; z < gridSize - 6; z += 4) {
+      for (let x = 6; x < gridSize - 6; x += 4) {
+        const idx = z * gridSize + x;
+        const distCenter = Math.hypot(x - center, z - center);
+        if (heightGrid[idx] >= 4 && distCenter > 10.5) {
+          springCandidates.push(idx);
+        }
+      }
+    }
+
+    const riverCount = Math.min(6, Math.max(3, Math.floor(gridSize / 24)));
+    for (let r = 0; r < riverCount && springCandidates.length > 0; r++) {
+      const pick = Math.floor(rng() * springCandidates.length);
+      const currIdx = springCandidates.splice(pick, 1)[0];
+      let cx = currIdx % gridSize;
+      let cz = Math.floor(currIdx / gridSize);
+
+      // Bias initial direction toward nearest lake or sea edge
+      let targetX = cx + (cx - center) * 0.8;
+      let targetZ = cz + (cz - center) * 0.8;
+      if (lakeCenters.length > 0 && r % 2 === 0) {
+        const lk = lakeCenters[r % lakeCenters.length];
+        targetX = lk.x;
+        targetZ = lk.z;
+      }
+      const initLen = Math.max(1, Math.hypot(targetX - cx, targetZ - cz));
+      let dirX = (targetX - cx) / initLen;
+      let dirZ = (targetZ - cz) / initLen;
+
+      const maxSteps = gridSize * 2;
+      for (let step = 0; step < maxSteps; step++) {
+        if (cx <= 1 || cx >= gridSize - 2 || cz <= 1 || cz >= gridSize - 2) break;
+        const distFromHome = Math.hypot(cx - center, cz - center);
+        if (distFromHome < 6.5) break; // Never flood the starter acropolis
+
+        const idx = cz * gridSize + cx;
+        if (step > 3 && heightGrid[idx] === 0 && riverMask[idx] === 0) {
+          break; // Reached ocean or inland lake!
+        }
+
+        // Carve shallow river bed with natural meandering bends and occasional wider pools
+        heightGrid[idx] = 0;
+        riverMask[idx] = 1;
+        const widenPool = step > 8 && ((step + r * 5) % 6 === 0 || step > 22);
+        if (widenPool) {
+          const perpX = Math.abs(dirX) > Math.abs(dirZ) ? 0 : 1;
+          const perpZ = perpX === 0 ? 1 : 0;
+          const wx = cx + perpX;
+          const wz = cz + perpZ;
+          if (
+            wx > 1 &&
+            wx < gridSize - 2 &&
+            wz > 1 &&
+            wz < gridSize - 2 &&
+            Math.hypot(wx - center, wz - center) > 6.5
+          ) {
+            const wIdx = wz * gridSize + wx;
+            heightGrid[wIdx] = 0;
+            riverMask[wIdx] = 1;
+          }
+        }
+
+        // Gently terrace and hydrate riverbanks so rivers sit in lush, lively valleys instead of harsh trenches
+        for (let oz = -3; oz <= 3; oz++) {
+          for (let ox = -3; ox <= 3; ox++) {
+            const nx = cx + ox;
+            const nz = cz + oz;
+            if (nx <= 0 || nx >= gridSize - 1 || nz <= 0 || nz >= gridSize - 1) continue;
+            const nIdx = nz * gridSize + nx;
+            const d = Math.hypot(ox, oz);
+            if (d <= 1.5 && heightGrid[nIdx] > 2) {
+              heightGrid[nIdx] = Math.min(heightGrid[nIdx], 2);
+            }
+            moistGrid[nIdx] = Math.min(1, moistGrid[nIdx] + Math.max(0, 0.34 - d * 0.08));
+          }
+        }
+
+        // Sinusoidal meander sway + downhill gradient so rivers curve gracefully
+        const swayAngle = Math.sin(step * 0.38 + r * 2.1) * 0.55;
+        const cosS = Math.cos(swayAngle);
+        const sinS = Math.sin(swayAngle);
+        const swayDirX = dirX * cosS - dirZ * sinS;
+        const swayDirZ = dirX * sinS + dirZ * cosS;
+
+        let bestX = cx;
+        let bestZ = cz;
+        let bestScore = Infinity;
+        const dirs = [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ];
+        for (const [ox, oz] of dirs) {
+          const nx = cx + ox;
+          const nz = cz + oz;
+          if (nx <= 0 || nx >= gridSize - 1 || nz <= 0 || nz >= gridSize - 1) continue;
+          const nIdx = nz * gridSize + nx;
+          if (riverMask[nIdx] === 1) continue;
+          const dotMomentum = ox * swayDirX + oz * swayDirZ;
+          const score = heightGrid[nIdx] * 1.25 - dotMomentum * 0.95 + rng() * 0.55;
+          if (score < bestScore) {
+            bestScore = score;
+            bestX = nx;
+            bestZ = nz;
+          }
+        }
+
+        if (bestX === cx && bestZ === cz) break;
+        dirX = dirX * 0.58 + (bestX - cx) * 0.42;
+        dirZ = dirZ * 0.58 + (bestZ - cz) * 0.42;
+        cx = bestX;
+        cz = bestZ;
       }
     }
   }
 
-  const riverCount = Math.min(5, Math.max(2, Math.floor(gridSize / 26)));
-  for (let r = 0; r < riverCount && springCandidates.length > 0; r++) {
-    const pick = Math.floor(rng() * springCandidates.length);
-    let currIdx = springCandidates.splice(pick, 1)[0];
-    let cx = currIdx % gridSize;
-    let cz = Math.floor(currIdx / gridSize);
-    let dirX = rng() - 0.5;
-    let dirZ = rng() - 0.5;
-
-    const maxSteps = gridSize * 2;
-    for (let step = 0; step < maxSteps; step++) {
-      if (cx <= 1 || cx >= gridSize - 2 || cz <= 1 || cz >= gridSize - 2) break;
-      const distFromHome = Math.hypot(cx - center, cz - center);
-      if (distFromHome < 6.5) break; // Never flood the starter acropolis
-
-      const idx = cz * gridSize + cx;
-      if (step > 3 && heightGrid[idx] === 0 && riverMask[idx] === 0) {
-        break; // Reached ocean or lake
-      }
-
-      // Carve river bed (1-tile or 2-tile wide channel)
-      heightGrid[idx] = 0;
-      riverMask[idx] = 1;
-      if (step > 12 && cx + 1 < gridSize - 1 && Math.hypot(cx + 1 - center, cz - center) > 6.5) {
-        heightGrid[idx + 1] = 0;
-        riverMask[idx + 1] = 1;
-      }
-
-      // Hydrate neighboring banks
-      for (let oz = -3; oz <= 3; oz++) {
-        for (let ox = -3; ox <= 3; ox++) {
-          const nx = cx + ox;
-          const nz = cz + oz;
-          if (nx < 0 || nx >= gridSize || nz < 0 || nz >= gridSize) continue;
-          const nIdx = nz * gridSize + nx;
-          const d = Math.hypot(ox, oz);
-          moistGrid[nIdx] = Math.min(1, moistGrid[nIdx] + Math.max(0, 0.28 - d * 0.07));
+  // Stage 3.5: Uncommon Localized Warm Coral Reef Atolls & Coastal Sanctuary Lagoons (do not wrap 360° around islands)
+  const reefZoneMask = new Uint8Array(totalTiles);
+  const coastalReefCandidates: number[] = [];
+  const offshoreReefCandidates: number[] = [];
+  for (let z = 6; z < gridSize - 6; z += 2) {
+    for (let x = 6; x < gridSize - 6; x += 2) {
+      const idx = z * gridSize + x;
+      if (heightGrid[idx] !== 0 || riverMask[idx] === 1 || lakeMask[idx] === 1) continue;
+      if (tempGrid[idx] < 0.36) continue;
+      if (isScrapSea) {
+        if (Math.hypot(x - center, z - center) > 7) coastalReefCandidates.push(idx);
+      } else {
+        let touchesImmediateBeach = false;
+        let nearbyLandCount = 0;
+        for (let oz = -5; oz <= 5; oz++) {
+          for (let ox = -5; ox <= 5; ox++) {
+            const nx = x + ox;
+            const nz = z + oz;
+            if (nx >= 0 && nx < gridSize && nz >= 0 && nz < gridSize) {
+              if (heightGrid[nz * gridSize + nx] > 0) {
+                nearbyLandCount++;
+                if (Math.abs(ox) <= 1 && Math.abs(oz) <= 1) {
+                  touchesImmediateBeach = true;
+                }
+              }
+            }
+          }
+        }
+        // Prefer warm coastal lagoons 2-5 tiles off island shores so corals are clearly visible near islands without wrapping coastlines
+        if (!touchesImmediateBeach && nearbyLandCount >= 2 && nearbyLandCount <= 34) {
+          coastalReefCandidates.push(idx);
+        } else if (!touchesImmediateBeach && nearbyLandCount === 0 && Math.hypot(x - center, z - center) < maxRadius * 0.82) {
+          offshoreReefCandidates.push(idx);
         }
       }
-
-      // Pick lowest neighbor with momentum so rivers meander naturally instead of getting stuck
-      let bestX = cx;
-      let bestZ = cz;
-      let bestScore = Infinity;
-      const dirs = [
-        [1, 0],
-        [-1, 0],
-        [0, 1],
-        [0, -1],
-      ];
-      for (const [ox, oz] of dirs) {
-        const nx = cx + ox;
-        const nz = cz + oz;
-        if (nx <= 0 || nx >= gridSize - 1 || nz <= 0 || nz >= gridSize - 1) continue;
+    }
+  }
+  const reefCandidates =
+    coastalReefCandidates.length >= 4
+      ? coastalReefCandidates
+      : [...coastalReefCandidates, ...offshoreReefCandidates];
+  const desiredReefZones = isScrapSea
+    ? Math.max(4, Math.min(8, Math.round(gridSize / 18)))
+    : Math.max(4, Math.min(7, Math.round(gridSize / 20)));
+  const chosenReefCenters: Array<{ x: number; z: number; radius: number }> = [];
+  for (let attempt = 0; attempt < 120 && chosenReefCenters.length < desiredReefZones && reefCandidates.length > 0; attempt++) {
+    const pick = Math.floor(rng() * reefCandidates.length);
+    const rIdx = reefCandidates.splice(pick, 1)[0];
+    const rx = rIdx % gridSize;
+    const rz = Math.floor(rIdx / gridSize);
+    if (chosenReefCenters.some((c) => Math.hypot(c.x - rx, c.z - rz) < 16)) continue;
+    const radius = isScrapSea ? 3.8 + rng() * 1.5 : 3.4 + rng() * 1.3;
+    chosenReefCenters.push({ x: rx, z: rz, radius });
+    const rCeil = Math.ceil(radius + 2);
+    for (let oz = -rCeil; oz <= rCeil; oz++) {
+      for (let ox = -rCeil; ox <= rCeil; ox++) {
+        const nx = rx + ox;
+        const nz = rz + oz;
+        if (nx <= 1 || nx >= gridSize - 2 || nz <= 1 || nz >= gridSize - 2) continue;
         const nIdx = nz * gridSize + nx;
-        if (riverMask[nIdx] === 1) continue;
-        const dotMomentum = ox * dirX + oz * dirZ;
-        const score = heightGrid[nIdx] * 1.4 - dotMomentum * 0.8 + rng() * 0.75;
-        if (score < bestScore) {
-          bestScore = score;
-          bestX = nx;
-          bestZ = nz;
+        if (heightGrid[nIdx] !== 0 || riverMask[nIdx] === 1 || lakeMask[nIdx] === 1) continue;
+        const organicWave = (reefNoise.fbm(nx * 0.22 + attempt * 5.3, nz * 0.22 - 3.1, 2) - 0.5) * 1.5;
+        const effDist = Math.hypot(ox, oz) + organicWave;
+        if (effDist <= radius * 0.84) {
+          reefZoneMask[nIdx] = 2; // Contiguous living coral reef bank
+        } else if (effDist <= radius + 1.0) {
+          if (reefZoneMask[nIdx] === 0) reefZoneMask[nIdx] = 1; // Surrounding turquoise lagoon shoal
         }
       }
-
-      if (bestX === cx && bestZ === cz) break;
-      dirX = dirX * 0.55 + (bestX - cx) * 0.45;
-      dirZ = dirZ * 0.55 + (bestZ - cz) * 0.45;
-      cx = bestX;
-      cz = bestZ;
     }
   }
 
@@ -338,30 +517,69 @@ export function generateWorldTiles(
       // Local deterministic tile hash for crisp non-grid resource placement
       const tileHash = Math.abs(((x * 73856093) ^ (z * 19349663) ^ (seed * 83492791)) | 0);
       const roll = (tileHash % 1000) / 1000;
+      const isRiverTile = riverMask[idx] === 1;
+      const isLakeTile = lakeMask[idx] === 1;
+      const isWarmReefZone = reefZoneMask[idx] >= 1;
+      const isContiguousCoralBank = reefZoneMask[idx] === 2;
 
       let terrain: TerrainType = 'grass';
       let resourceNode: ResourceNodeType = 'none';
       let resourceAmount = 0;
 
       if (h === 0) {
-        if (riverMask[idx] === 1) {
+        if (isRiverTile || isLakeTile) {
+          // Rivers and inland lakes ALWAYS use lively shallow water
           terrain = 'shallow_water';
+          if (isRiverTile && roll < 0.14) {
+            resourceNode = 'berry_bush';
+            resourceAmount = 190;
+          }
+        } else if (isScrapSea) {
+          // Scrap Sea template: shoals of warm coral reefs + deep ocean trenches + floating scrap piles
+          const shoalVal = reefNoise.fbm(x * 0.055 + 3.7, z * 0.055 - 9.1, 3);
+          const starterWarp = (reefNoise.fbm(x * 0.09 - 4.2, z * 0.09 + 6.8, 2) - 0.5) * 5.5;
+          const isStarterShoal = dist + starterWarp < 8.5;
+          terrain = isStarterShoal || isWarmReefZone || shoalVal > 0.48 ? 'shallow_water' : 'deep_water';
+          if (dist > 2.2) {
+            if (isContiguousCoralBank && roll < 0.88) {
+              resourceNode = 'coral_reef';
+              resourceAmount = 260;
+            } else if (roll < 0.14 || (isStarterShoal && roll < 0.28)) {
+              resourceNode = 'scrap_flotsam';
+              resourceAmount = 340;
+            }
+          }
         } else {
-          // Shallow coastal shelf next to land, deep water further out
-          let nearLand = false;
-          for (let oz = -2; oz <= 2 && !nearLand; oz++) {
-            for (let ox = -2; ox <= 2; ox++) {
+          // Organic continental shelf hugging actual island/continent coastlines (never a map-centered circle!)
+          let minLandDistSq = 999;
+          for (let oz = -5; oz <= 5; oz++) {
+            for (let ox = -5; ox <= 5; ox++) {
+              const dSq = ox * ox + oz * oz;
+              if (dSq >= minLandDistSq) continue;
               const nx = x + ox;
               const nz = z + oz;
               if (nx >= 0 && nx < gridSize && nz >= 0 && nz < gridSize) {
                 if (heightGrid[nz * gridSize + nx] > 0) {
-                  nearLand = true;
-                  break;
+                  minLandDistSq = dSq;
                 }
               }
             }
           }
-          terrain = nearLand || normDist < 0.8 ? 'shallow_water' : 'deep_water';
+          const minLandDist = Math.sqrt(minLandDistSq);
+          const nearLand = minLandDist <= 2.5;
+          const shelfWave =
+            (reefNoise.fbm(x * 0.052 + 7.4, z * 0.052 - 4.8, 3) - 0.5) * 2.8 +
+            (warpNoise.fbm(x * 0.11 - 2.1, z * 0.11 + 5.7, 2) - 0.5) * 1.4;
+          const onContinentalShelf = minLandDist + shelfWave <= 3.8;
+          terrain = nearLand || onContinentalShelf || isWarmReefZone ? 'shallow_water' : 'deep_water';
+
+          if (isContiguousCoralBank && minLandDist > 1.2 && roll < 0.90) {
+            resourceNode = 'coral_reef';
+            resourceAmount = 260;
+          } else if (terrain === 'deep_water' && roll < 0.015) {
+            resourceNode = 'scrap_flotsam';
+            resourceAmount = 260;
+          }
         }
       } else if (h >= 8 || (h >= 7 && temp < 0.45)) {
         // High alpine snow summits crowning towering mountain ranges
@@ -445,14 +663,40 @@ export function generateWorldTiles(
         }
       } else {
         // Lowlands & Mid-elevation terraces (h = 1..3)
+        let touchesRiverOrLake = false;
+        for (let oz = -1; oz <= 1 && !touchesRiverOrLake; oz++) {
+          for (let ox = -1; ox <= 1; ox++) {
+            const nx = x + ox;
+            const nz = z + oz;
+            if (nx >= 0 && nx < gridSize && nz >= 0 && nz < gridSize) {
+              const nIdx = nz * gridSize + nx;
+              if (riverMask[nIdx] === 1 || lakeMask[nIdx] === 1) {
+                touchesRiverOrLake = true;
+                break;
+              }
+            }
+          }
+        }
+
         const isCoast =
           h === 1 &&
+          !touchesRiverOrLake &&
           ((x > 0 && heightGrid[idx - 1] === 0) ||
             (x < gridSize - 1 && heightGrid[idx + 1] === 0) ||
             (z > 0 && heightGrid[idx - gridSize] === 0) ||
             (z < gridSize - 1 && heightGrid[idx + gridSize] === 0));
 
-        if (temp > 0.58 && moist < 0.36 && h >= 2 && bVar > 0.49 && dist > 7.0) {
+        if (touchesRiverOrLake) {
+          // Lush riverbanks and lakeshores with wildflowers, reeds, and berry groves
+          terrain = temp > 0.56 && bVar > 0.55 ? 'blossom' : 'fertile';
+          if (roll < 0.42) {
+            resourceNode = 'berry_bush';
+            resourceAmount = 230;
+          } else if (roll < 0.62) {
+            resourceNode = 'timber_grove';
+            resourceAmount = 240;
+          }
+        } else if (temp > 0.58 && moist < 0.36 && h >= 2 && bVar > 0.49 && dist > 7.0) {
           // Terracotta Red-Rock Badlands Canyon
           terrain = 'badlands';
           if (roll < 0.16) {
@@ -596,7 +840,90 @@ export function generateWorldTiles(
         cursedTimer: 0,
         onFireTimer: 0,
         buildingId: null,
+        isRiver: isRiverTile || undefined,
+        isLake: isLakeTile || undefined,
       };
+    }
+  }
+
+  // Stage 6: Rare Sunken City of Atlantis generation (~24% chance on normal worlds, 65% on scrap_sea/archipelago)
+  const atlantisChance = isScrapSea || options?.seaLevelBias === 'high' ? 0.65 : 0.24;
+  if (rng() < atlantisChance) {
+    const seaCandidates: number[] = [];
+    for (let z = 6; z < gridSize - 6; z += 3) {
+      for (let x = 6; x < gridSize - 6; x += 3) {
+        const idx = z * gridSize + x;
+        const distCenter = Math.hypot(x - center, z - center);
+        if (tiles[idx].height === 0 && !tiles[idx].isRiver && !tiles[idx].isLake && distCenter > 14) {
+          seaCandidates.push(idx);
+        }
+      }
+    }
+    if (seaCandidates.length > 0) {
+      const pickIdx = seaCandidates[Math.floor(rng() * seaCandidates.length)];
+      const ax = pickIdx % gridSize;
+      const az = Math.floor(pickIdx / gridSize);
+      tiles[pickIdx].terrain = 'shallow_water';
+      tiles[pickIdx].resourceNode = 'atlantis_ruin';
+      tiles[pickIdx].resourceAmount = 1200;
+      // Surround Atlantis with a crystal-clear shallow sanctuary lagoon so its underwater temple complex is fully visible
+      for (let oz = -2; oz <= 2; oz++) {
+        for (let ox = -2; ox <= 2; ox++) {
+          if (ox === 0 && oz === 0) continue;
+          const nx = ax + ox;
+          const nz = az + oz;
+          if (nx <= 1 || nx >= gridSize - 2 || nz <= 1 || nz >= gridSize - 2) continue;
+          const nIdx = nz * gridSize + nx;
+          if (tiles[nIdx].height === 0 && Math.hypot(ox, oz) <= 2.4) {
+            tiles[nIdx].terrain = 'shallow_water';
+            if (Math.hypot(ox, oz) <= 1.6) {
+              tiles[nIdx].resourceNode = 'none';
+              tiles[nIdx].resourceAmount = 0;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Stage 7: Seed 2-3 small isolated deep-sea rocky islets surrounded directly by deep_water
+  if (!isScrapSea && options?.seaLevelBias !== 'low') {
+    const deepIsletCandidates: number[] = [];
+    for (let z = 8; z < gridSize - 8; z += 4) {
+      for (let x = 8; x < gridSize - 8; x += 4) {
+        let allDeep = true;
+        for (let oz = -4; oz <= 4 && allDeep; oz++) {
+          for (let ox = -4; ox <= 4; ox++) {
+            const t = tiles[(z + oz) * gridSize + (x + ox)];
+            if (!t || t.height > 0 || t.terrain !== 'deep_water' || t.resourceNode === 'atlantis_ruin') {
+              allDeep = false;
+              break;
+            }
+          }
+        }
+        if (allDeep) {
+          deepIsletCandidates.push(z * gridSize + x);
+        }
+      }
+    }
+    const isletCount = Math.min(3, deepIsletCandidates.length);
+    for (let k = 0; k < isletCount; k++) {
+      const cIdx = deepIsletCandidates[Math.floor(rng() * deepIsletCandidates.length)];
+      const ix = cIdx % gridSize;
+      const iz = Math.floor(cIdx / gridSize);
+      for (const [ox, oz] of [
+        [0, 0],
+        [1, 0],
+        [0, 1],
+      ] as const) {
+        const t = tiles[(iz + oz) * gridSize + (ix + ox)];
+        if (t && t.height === 0 && t.terrain === 'deep_water') {
+          t.height = ox === 0 && oz === 0 ? 2 : 1;
+          t.terrain = ox === 0 && oz === 0 ? 'mountain' : 'sand';
+          t.resourceNode = ox === 0 && oz === 0 ? 'stone_outcrop' : 'none';
+          t.resourceAmount = ox === 0 && oz === 0 ? 220 : 0;
+        }
+      }
     }
   }
 

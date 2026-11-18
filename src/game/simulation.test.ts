@@ -16,11 +16,14 @@ import {
   getKingdomRelation,
   getMaxCityBuildings,
   getMaxCityFarmFields,
+  getMaxCityPopulation,
   getSettlementAnchor,
   getTile,
   initializeKingdomDiplomacyPair,
   isCarnivoreAnimal,
   isHerbivoreAnimal,
+  isSettlementRoadTile,
+  paveSettlementRailNetwork,
   placeBuilding,
   releaseDragUnit,
   rollKingdomPeacefulTrait,
@@ -50,7 +53,8 @@ import {
   extractKingdomColorsMap,
   inspectTileZones,
 } from './zones';
-import { createUnitGroup, createVehicleGroup } from './meshBuilders';
+import { createBuildingGroup, createUnitGroup, createVehicleGroup, getNodeVariantLibrary } from './meshBuilders';
+import { generateWorldTiles } from './worldGen';
 import {
   DEFAULT_GRAPHICS_SETTINGS,
   applyGraphicsPreset,
@@ -58,6 +62,7 @@ import {
   resolveGraphicsProfile,
   sanitizeGraphicsSettings,
 } from './graphics';
+import { computeDynamicPixelScale, getResponsiveMaxZoomOut } from './cameraTouch';
 import * as THREE from 'three';
 
 test('initial state starts as uninhabited wilderness with zero settlements or units', () => {
@@ -82,8 +87,8 @@ test('settlers found hearth, chop down trees into wood, construct buildings, and
   // Prepare flat grass center + adjacent timber grove so behavior is deterministic & fast
   const cx = 64;
   const cz = 64;
-  for (let dz = -4; dz <= 4; dz++) {
-    for (let dx = -4; dx <= 4; dx++) {
+  for (let dz = -12; dz <= 12; dz++) {
+    for (let dx = -12; dx <= 12; dx++) {
       const t = getTile(state, cx + dx, cz + dz)!;
       t.height = 2;
       t.terrain = 'grass';
@@ -94,15 +99,18 @@ test('settlers found hearth, chop down trees into wood, construct buildings, and
   const treeTile = getTile(state, cx + 1, cz)!;
   treeTile.terrain = 'forest';
   treeTile.resourceNode = 'timber_grove';
-  treeTile.resourceAmount = 24;
+  treeTile.resourceAmount = 16;
+  const berryTile = getTile(state, cx - 1, cz)!;
+  berryTile.resourceNode = 'berry_bush';
+  berryTile.resourceAmount = 24;
 
   const s1 = spawnUnit(state, 'villager', cx, cz);
   const s2 = spawnUnit(state, 'villager', cx, cz);
   assert.equal(s1.ok, true);
   assert.equal(s2.ok, true);
 
-  // Step 40s of simulation at 0.1s increments
-  for (let i = 0; i < 400; i++) {
+  // Step 55s of simulation at 0.1s increments (accounting for gather-before-build pacing)
+  for (let i = 0; i < 550; i++) {
     stepSimulation(state, 0.1);
   }
 
@@ -202,28 +210,33 @@ test('advancing epochs progresses from Prehistoric all the way to Interstellar A
   assert.equal(EPOCHS[state.epochIndex].id, 'interstellar');
 });
 
-test('simulation step advances year at 1 year per second on 1x speed, scales with multiplier, and spawns raiders cleanly', () => {
+test('simulation step advances year at 1 year per second on 1x speed starting from Year 0, scales with multiplier, and spawns raiders cleanly', () => {
   const state = createInitialSimulationState(128, 55555);
   spawnUnit(state, 'villager', 64, 64);
   const yearBefore = state.year;
-  assert.equal(formatYearLabel(yearBefore), '10,000 BCE');
+  assert.equal(yearBefore, 0);
+  assert.equal(formatYearLabel(yearBefore), 'Year 0');
 
   spawnRaiderWave(state);
   const hostiles = state.units.filter((u) => u.faction === 'hostile');
   assert.equal(hostiles.length, 3);
 
-  // 0.9 seconds at 1x speed should still be 10,000 BCE (< 1 full year elapsed)
+  // 0.9 seconds at 1x speed should still be Year 0 (< 1 full year elapsed)
   for (let i = 0; i < 9; i++) {
     stepSimulation(state, 0.1);
   }
   assert.ok(state.year > yearBefore);
   assert.ok(Math.abs(state.year - (yearBefore + 0.9)) < 1e-6);
-  assert.equal(formatYearLabel(state.year), '10,000 BCE');
+  assert.equal(formatYearLabel(state.year), 'Year 0');
 
-  // 0.1 more second completes 1 full second -> advances 1 full year to 9,999 BCE
+  // 0.1 more second completes 1 full second -> advances 1 full year to Year 1
   stepSimulation(state, 0.1);
   assert.ok(Math.abs(state.year - (yearBefore + 1.0)) < 1e-6);
-  assert.equal(formatYearLabel(state.year), '9,999 BCE');
+  assert.equal(formatYearLabel(state.year), 'Year 1');
+
+  // Advancing epoch preserves continuous counting up from 0 rather than jumping years
+  advanceEpoch(state, true);
+  assert.equal(formatYearLabel(state.year), 'Year 1');
 
   // 10x speed (dt = 0.1 * 10 = 1.0 per tick) advances 10 full years in 1 real second
   const yearBefore10x = state.year;
@@ -231,7 +244,7 @@ test('simulation step advances year at 1 year per second on 1x speed, scales wit
     stepSimulation(state, 0.1 * 10);
   }
   assert.ok(Math.abs(state.year - (yearBefore10x + 10.0)) < 1e-6);
-  assert.equal(formatYearLabel(state.year), '9,989 BCE');
+  assert.equal(formatYearLabel(state.year), 'Year 11');
 });
 
 test('seed pipeline produces deterministic identical worlds for same seed and distinct biomes across seeds', () => {
@@ -765,6 +778,7 @@ test('city farming fields are strictly capped at 200% of parent city size and ne
   const state = createInitialSimulationState(128, 'FARM-CAP-200');
   state.sandboxFreeMode = true;
   state.autoBuildEnabled = false;
+  if (state.worldRules) state.worldRules.allowRebellion = false;
   state.resources.food = 1000;
 
   const cx = 64;
@@ -1280,6 +1294,7 @@ test('dedicated airport runways host plane takeoffs/landings and Epoch 5+ metro 
   assert.equal(stationRes.ok, true, stationRes.reason);
   const airportRes = placeBuilding(state, 'airport', 64, 59);
   assert.equal(airportRes.ok, true, airportRes.reason);
+  spawnUnit(state, 'human', 61, 63, true);
 
   // Verify dedicated flat runway strip was automatically graded & paved near airport
   const runwayTiles = state.tiles.filter((t) => t.terrain === 'runway');
@@ -1344,7 +1359,7 @@ test('dedicated airport runways host plane takeoffs/landings and Epoch 5+ metro 
   );
 });
 
-test('world seeds 7 initial animals and 2 mythical beasts with 3D meshes, unicorn healing, and dragon combat', () => {
+test('world seeds 7 initial animals and 3 mythical beasts with 3D meshes, unicorn healing, and dragon combat', () => {
   const state = createInitialSimulationState(128, 'WILDLIFE-ARK-9');
   assert.equal(state.units.length, 0, 'Initial state starts empty before simulation starts ticking');
 
@@ -1361,6 +1376,7 @@ test('world seeds 7 initial animals and 2 mythical beasts with 3D meshes, unicor
     'dinosaur',
     'dragon',
     'unicorn',
+    'leviathan',
   ] as const;
 
   assert.equal(state.population, 0, 'Ambient wildlife must not inflate civilization population');
@@ -1378,7 +1394,7 @@ test('world seeds 7 initial animals and 2 mythical beasts with 3D meshes, unicor
 
   // Verify catalog sizes & manual spawning + distinct 3D meshes for all animals & mythical beasts
   assert.equal(ANIMAL_UNITS.length, 7);
-  assert.equal(MYTHICAL_BEAST_UNITS.length, 2);
+  assert.equal(MYTHICAL_BEAST_UNITS.length, 3);
   state.sandboxFreeMode = true;
 
   const flatX = 64;
@@ -1393,10 +1409,17 @@ test('world seeds 7 initial animals and 2 mythical beasts with 3D meshes, unicor
       t.buildingId = null;
     }
   }
+  const leviathanPool = getTile(state, flatX + 4, flatZ + 4)!;
+  leviathanPool.height = 0;
+  leviathanPool.terrain = 'deep_water';
+  leviathanPool.resourceNode = 'none';
+  leviathanPool.buildingId = null;
 
   for (let i = 0; i < expectedRoles.length; i++) {
     const role = expectedRoles[i];
-    const res = spawnUnit(state, role, flatX + (i % 3) - 1, flatZ + Math.floor(i / 3) - 1);
+    const spawnX = role === 'leviathan' ? flatX + 4 : flatX + (i % 3) - 1;
+    const spawnZ = role === 'leviathan' ? flatZ + 4 : flatZ + Math.floor(i / 3) - 1;
+    const res = spawnUnit(state, role, spawnX, spawnZ);
     assert.equal(res.ok, true, `Should spawn ${role}: ${res.reason ?? ''}`);
 
     const mesh = createUnitGroup(role, 'wildlife', 0, 'human', i * 17);
@@ -1406,6 +1429,10 @@ test('world seeds 7 initial animals and 2 mythical beasts with 3D meshes, unicor
     if (role === 'dragon' || role === 'chicken') {
       assert.ok(mesh.getObjectByName('wing_l'), `${role} mesh should expose wing_l pivot`);
       assert.ok(mesh.getObjectByName('wing_r'), `${role} mesh should expose wing_r pivot`);
+    }
+    if (role === 'leviathan') {
+      assert.ok(mesh.getObjectByName('leviathan_silhouette'), 'leviathan mesh should expose submerged silhouette group');
+      assert.ok(mesh.getObjectByName('leviathan_surfaced'), 'leviathan mesh should expose surfaced Bloop group');
     }
   }
 
@@ -2382,13 +2409,13 @@ test('World Creator templates (Realistic, Fantastic, Sci-Fi Orbital) and map siz
     'Fantastic template should spawn mythical creatures (Dragons / Unicorns)',
   );
 
-  // 3. Sci-Fi Orbital template: starts right in the Orbital Age (epochIndex = 6, 2150 CE) with an established colony
+  // 3. Sci-Fi Orbital template: starts right in the Orbital Age (epochIndex = 6) with an established colony and Year 0
   const scifiCfg = createWorldConfigFromTemplate('scifi', { seed: 9999, gridSize: 128 });
   assert.equal(scifiCfg.rules.startingEpochIndex, 6);
   assert.equal(scifiCfg.rules.startingSettlers, 'colony');
   const scifiSim = createInitialSimulationState(scifiCfg.gridSize, scifiCfg.seed, scifiCfg);
   assert.equal(scifiSim.epochIndex, 6, 'Sci-Fi template must start at Orbital Age (epochIndex 6)');
-  assert.equal(scifiSim.year, 2150, 'Sci-Fi template must start at year 2150 CE');
+  assert.equal(scifiSim.year, 0, 'Worlds must start counting from Year 0');
   assert.ok(scifiSim.buildings.length >= 4, 'Sci-Fi template should start with an established colony');
   assert.ok(
     scifiSim.buildings.every((b) => b.epochLevel === 6),
@@ -2406,6 +2433,7 @@ test('kingdoms maintain strictly 1 King across all branched-out zones', () => {
   const state = createInitialSimulationState(128, 'SINGLE-KING-BRANCH');
   state.sandboxFreeMode = true;
   state.wildlifeSeeded = true;
+  state.worldRules = { ...state.worldRules!, allowRebellion: false };
   state.resources.food = 5000;
   state.resources.wood = 5000;
   state.resources.stone = 5000;
@@ -3075,6 +3103,7 @@ test('War Update: universal self-defense + rivaling racial weapons (Human Nuke, 
   // Elf Arcane Cataclysm
   state.units = [];
   state.pendingVfx = [];
+  state.kingdomUltimateCooldowns = {};
   const eMage = spawnUnit(state, 'elf', 42, 48, true).unit!;
   eMage.settlementId = sIds[0];
   eMage.weaponCooldown = 0;
@@ -3311,32 +3340,41 @@ test('War Update Follow-Up: military vehicles evolve through epochs in simulatio
     }
   }
   placeBuilding(state, 'bonfire', 48, 44);
-  state.epochIndex = 1; // Bronze Age
+  spawnUnit(state, 'human', 48, 45, true);
+  state.epochIndex = 1; // Bronze Age (only coastal Bronze Galley warship — no aircraft yet!)
   for (let i = 0; i < 6; i++) stepSimulation(state, 0.25);
 
-  const fixedBronze = (state.vehicles ?? []).find((v) => v.isMilitary && v.type === 'glider');
+  const earlyGlider = (state.vehicles ?? []).find((v) => v.isMilitary && v.type === 'glider');
   const shipBronze = (state.vehicles ?? []).find((v) => v.isMilitary && v.type === 'warship');
-  assert.ok(fixedBronze, 'Bronze Age city should field a glider');
-  assert.ok(shipBronze, 'Bronze Age coastal city should field a warship');
+  assert.equal(earlyGlider, undefined, 'Bronze Age city must not field aircraft/gliders');
+  assert.ok(shipBronze, 'Bronze Age coastal city should field a Bronze Oared Galley warship');
   const bronzeShipMaxHp = shipBronze.maxHp ?? 0;
 
-  // Advance to Medieval/Exploration (Epoch 2 -> Airship hoverer spawns alongside glider/biplane)
+  // Advance to Medieval (Epoch 2 -> Sailing Galleon warship ONLY; NO airships, NO gliders, NO aircraft!)
   state.epochIndex = 2;
   stepSimulation(state, 0.2);
-  const hoverCraft = (state.vehicles ?? []).find((v) => v.isMilitary && v.type === 'airship');
-  assert.ok(hoverCraft, 'Medieval/Exploration city should field an Airship in the hover branch');
-  assert.equal(fixedBronze.type, 'glider', 'Fixed-wing branch stays fixed-wing into biplane era');
+  assert.equal(
+    (state.vehicles ?? []).find((v) => v.isMilitary && (v.type === 'glider' || v.type === 'airship')),
+    undefined,
+    'Medieval Era city must NEVER field airships, gliders, or aircraft',
+  );
   assert.ok((shipBronze.maxHp ?? 0) > bronzeShipMaxHp, 'Warship maxHp should scale up with Epoch');
 
-  // Advance to Industrial (Epoch 3 -> Airship evolves to Helicopter; Glider stays fixed-wing)
+  // Advance to Industrial (Epoch 3 -> Propeller Biplane Fighter + Rigid Zeppelin Dirigible + WWI Trench Tank; NO helicopters or jets!)
   state.epochIndex = 3;
   stepSimulation(state, 0.2);
-  assert.equal(hoverCraft.type, 'helicopter', 'Airship should evolve into Helicopter in Industrial epoch');
+  const fixedWing = (state.vehicles ?? []).find((v) => v.isMilitary && v.type === 'glider');
+  const hoverCraft = (state.vehicles ?? []).find((v) => v.isMilitary && v.type === 'airship');
+  assert.ok(fixedWing, 'Industrial Age city should field a Propeller Biplane Fighter (glider)');
+  assert.ok(hoverCraft, 'Industrial Age city should field a Rigid Zeppelin Airship');
+  const industrialTankVeh = (state.vehicles ?? []).find((v) => v.isMilitary && v.type === 'tank');
+  assert.ok(industrialTankVeh && industrialTankVeh.y < 0.12, 'Industrial Age city should field a ground WWI Trench Tank');
 
-  // Advance to Atomic (Epoch 4 -> Glider evolves to Bomber Plane)
+  // Advance to Atomic (Epoch 4 -> Biplane evolves to Prop Heavy Bomber; Zeppelin evolves to Utility Helicopter)
   state.epochIndex = 4;
   stepSimulation(state, 0.2);
-  assert.equal(fixedBronze.type, 'bomber_plane', 'Glider should evolve into Bomber Plane in Atomic epoch');
+  assert.equal(fixedWing.type, 'bomber_plane', 'Biplane should evolve into Heavy Bomber Plane in Atomic epoch');
+  assert.equal(hoverCraft.type, 'helicopter', 'Airship should evolve into Helicopter in Atomic epoch');
 
   // Advance to Space/Orbital (Epoch 6 -> Helicopter evolves to Orbital Gunship + Hover Tank)
   state.epochIndex = 6;
@@ -3346,7 +3384,7 @@ test('War Update Follow-Up: military vehicles evolve through epochs in simulatio
     'orbital_gunship',
     'Helicopter should evolve into Orbital Gunship in Space epoch',
   );
-  assert.equal(fixedBronze.type, 'bomber_plane', 'Fixed-wing Bomber Plane stays fixed-wing (upgrades to plasma jet)');
+  assert.equal(fixedWing.type, 'bomber_plane', 'Fixed-wing Bomber Plane stays fixed-wing (upgrades to plasma jet)');
   const tankVeh = (state.vehicles ?? []).find((v) => v.isMilitary && v.type === 'tank');
   assert.ok(tankVeh && tankVeh.y > 0.15, 'Space Age tank should hover above terrain');
 });
@@ -3493,6 +3531,8 @@ test('War Update Model & VFX Overhaul: fixed-wing planes never hover, helicopter
   const sidA = state.buildings[0].settlementId!;
   const sidB = state.buildings[1].settlementId!;
   setKingdomRelation(state, sidA, sidB, 'war');
+  const crewA = spawnUnit(state, 'human', 22, 45, true).unit!;
+  crewA.settlementId = sidA;
 
   const bomberId = 'test_bomber_1';
   state.vehicles = [
@@ -3577,3 +3617,1207 @@ test('War Update Model & VFX Overhaul: fixed-wing planes never hover, helicopter
     'War update combat must emit rich vfxSubtype events',
   );
 });
+
+test('Racial ultimate cooldown stops spam & Orc Battlewill cleaves mountains', () => {
+  const state = createInitialSimulationState(96, 'ULT-COOLDOWN-TEST');
+  state.sandboxFreeMode = true;
+  state.wildlifeSeeded = true;
+  state.epochIndex = 4; // Atomic Age
+  for (let z = 12; z <= 84; z++) {
+    for (let x = 12; x <= 84; x++) {
+      const t = getTile(state, x, z)!;
+      t.height = 2;
+      t.terrain = 'grass';
+      t.resourceNode = 'none';
+      t.buildingId = null;
+    }
+  }
+  placeBuilding(state, 'bonfire', 20, 44);
+  placeBuilding(state, 'bonfire', 70, 44);
+  const sIds = Array.from(new Set(state.buildings.map((b) => b.settlementId!)));
+  setKingdomRelation(state, sIds[0], sIds[1], 'war');
+
+  // 1. Weak lone foot soldier (90 HP, not a King) must NOT trigger a nuke
+  const hKing = spawnUnit(state, 'human', 20, 44, true).unit!;
+  hKing.settlementId = sIds[0];
+  hKing.isKing = true;
+  const oKing = spawnUnit(state, 'orc', 70, 44, true).unit!;
+  oKing.settlementId = sIds[1];
+  oKing.isKing = true;
+  const hSoldier = spawnUnit(state, 'human', 42, 44, true).unit!;
+  hSoldier.settlementId = sIds[0];
+  hSoldier.isKing = false;
+  hSoldier.weaponCooldown = 0;
+  const weakEnemy = spawnUnit(state, 'orc', 45, 44, true).unit!;
+  weakEnemy.settlementId = sIds[1];
+  weakEnemy.isKing = false;
+  weakEnemy.hp = 90;
+  weakEnemy.maxHp = 90;
+
+  for (let i = 0; i < 6; i++) stepSimulation(state, 0.1);
+  assert.equal(
+    state.pendingVfx.some((v) => v.type === 'nuke_blast'),
+    false,
+    'Human must not waste a Nuke on a single weak non-boss enemy',
+  );
+  assert.ok(
+    state.pendingVfx.some((v) => v.type === 'projectile_tracer'),
+    'Standard enemy should be engaged with regular weapon arsenal projectiles',
+  );
+
+  // 2. Boss enemy triggers Nuke once, putting the whole kingdom on cooldown against a 2nd boss
+  state.pendingVfx = [];
+  const bossA = spawnUnit(state, 'orc', 45.2, 44, true).unit!;
+  bossA.settlementId = sIds[1];
+  bossA.hp = 600;
+  bossA.maxHp = 600;
+  hSoldier.weaponCooldown = 0;
+  for (let i = 0; i < 6; i++) stepSimulation(state, 0.1);
+  const nukeCount1 = state.pendingVfx.filter((v) => v.type === 'nuke_blast').length;
+  assert.equal(nukeCount1, 1, 'First worthy boss threat triggers 1 Nuke');
+  assert.ok(
+    (state.kingdomUltimateCooldowns?.[getKingdomId(state, sIds[0])] ?? 0) > 25,
+    'Launching racial ultimate must apply shared kingdom-wide cooldown',
+  );
+
+  // Second human ally attacks another 600 HP boss immediately -> blocked by kingdom cooldown!
+  state.pendingVfx = [];
+  const hAlly = spawnUnit(state, 'human', 42, 50, true).unit!;
+  hAlly.settlementId = sIds[0];
+  hAlly.weaponCooldown = 0;
+  const bossB = spawnUnit(state, 'orc', 45, 50, true).unit!;
+  bossB.settlementId = sIds[1];
+  bossB.hp = 600;
+  bossB.maxHp = 600;
+  for (let i = 0; i < 6; i++) stepSimulation(state, 0.1);
+  assert.equal(
+    state.pendingVfx.some((v) => v.type === 'nuke_blast'),
+    false,
+    'Second unit in same kingdom must not spam Nuke while kingdom cooldown is active',
+  );
+
+  // 3. Orc Battlewill cleaves steep mountain tiles in its wide path
+  state.units = [];
+  state.pendingVfx = [];
+  state.kingdomUltimateCooldowns = {};
+  const peakTile = getTile(state, 46, 56)!;
+  peakTile.height = 6;
+  peakTile.terrain = 'mountain';
+  const orcWarlord = spawnUnit(state, 'orc', 42, 56, true).unit!;
+  orcWarlord.settlementId = sIds[1];
+  orcWarlord.battlewillCooldown = 0;
+  orcWarlord.weaponCooldown = 0;
+  const targetOnPeak = spawnUnit(state, 'human', 46, 56, true).unit!;
+  targetOnPeak.settlementId = sIds[0];
+  targetOnPeak.hp = 700;
+  targetOnPeak.maxHp = 700;
+  for (let i = 0; i < 6; i++) stepSimulation(state, 0.1);
+  assert.ok(peakTile.height < 6, `Orc Battlewill must cleave mountain height downward (got ${peakTile.height})`);
+});
+
+test('Gather-before-build pacing, per-kingdom stockpiles, and zone inspect resources work end-to-end', () => {
+  const state = createInitialSimulationState(96, 'GATHER-STOCKPILE-TEST');
+  state.sandboxFreeMode = false;
+  state.wildlifeSeeded = true;
+  state.resources = { wood: 0, stone: 0, food: 0, ore: 0, knowledge: 0, energy: 0, alloy: 0, faith: 0 };
+  for (let z = 20; z <= 70; z++) {
+    for (let x = 20; x <= 70; x++) {
+      const t = getTile(state, x, z)!;
+      t.height = 2;
+      t.terrain = 'grass';
+      t.resourceNode = 'none';
+      t.buildingId = null;
+    }
+  }
+  // Place harvestable wood & stone right next to two fresh pioneers
+  const treeTile = getTile(state, 32, 32)!;
+  treeTile.terrain = 'forest';
+  treeTile.resourceNode = 'timber_grove';
+  const stoneTile = getTile(state, 34, 32)!;
+  stoneTile.terrain = 'rock';
+  stoneTile.resourceNode = 'stone_outcrop';
+
+  spawnUnit(state, 'human', 33, 33, true);
+  spawnUnit(state, 'human', 33.4, 33.2, true);
+
+  // Right away, in survival mode with rich nearby resources, settlers should gather BEFORE founding bonfire
+  stepSimulation(state, 0.5);
+  assert.equal(state.buildings.length, 0, 'Fresh settlers must gather nearby resources before immediately placing bonfire');
+
+  // After sufficient time, they gather >= 8 carried goods and found their settlement bonfire
+  for (let i = 0; i < 60; i++) stepSimulation(state, 0.25);
+  const bonfire = state.buildings.find((b) => b.type === 'bonfire');
+  assert.ok(bonfire, 'Settlers found bonfire after gathering resources');
+  bonfire!.constructionProgress = 100;
+
+  // Direct test of per-kingdom resource stockpile tracking & zone inspection
+  const kId = getKingdomId(state, bonfire!.settlementId!);
+  assert.ok(state.kingdomResources && state.kingdomResources[kId], 'Simulation must track per-kingdom resource stockpiles');
+  state.kingdomResources[kId].wood = 240;
+  state.kingdomResources[kId].stone = 150;
+  const zones = computeWorldZones(state);
+  const kZone = Array.from(zones.kingdomsById.values()).find((z) => z.kingdomId === kId);
+  assert.ok(kZone, 'Kingdom zone should exist for founded settlement');
+  assert.equal(kZone.resources.wood, 240, 'Inspect zone info must expose kingdom stocked wood');
+  assert.equal(kZone.resources.stone, 150, 'Inspect zone info must expose kingdom stocked stone');
+});
+
+test('Rebellions trigger more frequently and respect allowRebellion world rule', () => {
+  const setupOvercrowdedEmpire = (allowRebellion: boolean) => {
+    const s = createInitialSimulationState(96, `REBEL-${allowRebellion}`);
+    s.sandboxFreeMode = true;
+    s.wildlifeSeeded = true;
+    s.worldRules = { ...s.worldRules!, allowRebellion };
+    for (let z = 12; z <= 84; z++) {
+      for (let x = 12; x <= 84; x++) {
+        const t = getTile(s, x, z)!;
+        t.height = 2;
+        t.terrain = 'grass';
+        t.resourceNode = 'none';
+        t.buildingId = null;
+      }
+    }
+    placeBuilding(s, 'bonfire', 28, 44);
+    const sid = s.buildings[0].settlementId!;
+    placeBuilding(s, 'forager_hut', 31, 44);
+    placeBuilding(s, 'forager_hut', 31, 47);
+    for (const b of s.buildings) {
+      b.constructionProgress = 100;
+      b.settlementId = sid;
+    }
+    for (let i = 0; i < 8; i++) {
+      const u = spawnUnit(s, 'human', 28 + (i % 4), 45 + Math.floor(i / 4), true).unit!;
+      u.settlementId = sid;
+    }
+    return s;
+  };
+
+  // With allowRebellion ON and active war driving unrest, rebellion triggers reliably within 80s
+  const simOn = setupOvercrowdedEmpire(true);
+  placeBuilding(simOn, 'bonfire', 72, 44);
+  const sidMain = simOn.buildings[0].settlementId!;
+  const sidRival = simOn.buildings[simOn.buildings.length - 1].settlementId!;
+  setKingdomRelation(simOn, sidMain, sidRival, 'war');
+  const initialSettlementCount = new Set(simOn.buildings.map((b) => b.settlementId)).size;
+  for (let i = 0; i < 320; i++) stepSimulation(simOn, 0.25);
+  const afterSettlementCount = new Set(simOn.buildings.map((b) => b.settlementId)).size;
+  const hasRebels = simOn.units.some((u) => u.isRebel);
+  const hasRebelChronicle = simOn.chronicle.some(
+    (c) => c.text.includes('Rebellion') || c.text.includes('seceded'),
+  );
+  assert.ok(
+    afterSettlementCount > initialSettlementCount || hasRebels || hasRebelChronicle,
+    `Rebellion should trigger rival rebel faction/settlement (cities: ${afterSettlementCount} vs ${initialSettlementCount}, rebels: ${hasRebels}, log: ${hasRebelChronicle})`,
+  );
+
+  // With allowRebellion OFF, no rebellion ever splits the empire into rival kingdoms
+  const simOff = setupOvercrowdedEmpire(false);
+  const initOff = new Set(simOff.buildings.map((b) => getKingdomId(simOff, b.settlementId!))).size;
+  for (let i = 0; i < 320; i++) stepSimulation(simOff, 0.25);
+  const afterOff = new Set(simOff.buildings.map((b) => getKingdomId(simOff, b.settlementId!))).size;
+  assert.equal(afterOff, initOff, 'allowRebellion = false must prevent rebellions');
+  assert.equal(simOff.units.some((u) => u.isRebel), false, 'allowRebellion = false must spawn zero rebels');
+  assert.equal(
+    simOff.chronicle.some((c) => c.text.includes('Rebellion') || c.text.includes('seceded')),
+    false,
+    'allowRebellion = false must never log rebellion events',
+  );
+});
+
+test('War vehicles use distinct 3D architectures per race AND evolve structurally across ages', () => {
+  const vehicleTypes = [
+    { type: 'glider' as const, epoch: 3 },
+    { type: 'helicopter' as const, epoch: 4 },
+    { type: 'tank' as const, epoch: 4 },
+    { type: 'warship' as const, epoch: 4 },
+    { type: 'airship' as const, epoch: 3 },
+    { type: 'bomber_plane' as const, epoch: 5 },
+    { type: 'orbital_gunship' as const, epoch: 6 },
+  ];
+
+  const signature = (g: ReturnType<typeof createVehicleGroup>) =>
+    `${g.children.length}:${g.children.map((c) => `${c.type[0]}@${Math.round(c.position.x * 10)},${Math.round(c.position.y * 10)},${Math.round(c.position.z * 10)}`).join('|')}`;
+
+  for (const { type, epoch } of vehicleTypes) {
+    const h = createVehicleGroup(type, epoch, 'human', 1);
+    const e = createVehicleGroup(type, epoch, 'elf', 1);
+    const o = createVehicleGroup(type, epoch, 'orc', 1);
+    const sigH = signature(h);
+    const sigE = signature(e);
+    const sigO = signature(o);
+    assert.notEqual(sigH, sigE, `${type} human vs elf must have distinct 3D architecture`);
+    assert.notEqual(sigH, sigO, `${type} human vs orc must have distinct 3D architecture`);
+    assert.notEqual(sigE, sigO, `${type} elf vs orc must have distinct 3D architecture`);
+  }
+
+  // Every race must visibly evolve geometry across epochs (no reused same-model silhouettes across ages!)
+  for (const sp of ['human', 'elf', 'orc'] as const) {
+    const shipSigs = [1, 2, 3, 4, 5, 6, 7].map((ep) => signature(createVehicleGroup('warship', ep, sp, 1)));
+    assert.equal(new Set(shipSigs).size, shipSigs.length, `${sp} warship must evolve structurally across epochs 1..7`);
+
+    const tankSigs = [3, 4, 5, 6, 7].map((ep) => signature(createVehicleGroup('tank', ep, sp, 1)));
+    assert.equal(new Set(tankSigs).size, tankSigs.length, `${sp} tank must evolve structurally across epochs 3..7`);
+
+    const bomberSigs = [4, 5, 6, 7].map((ep) => signature(createVehicleGroup('bomber_plane', ep, sp, 1)));
+    assert.equal(new Set(bomberSigs).size, bomberSigs.length, `${sp} bomber_plane must evolve structurally across epochs 4..7`);
+
+    const gunship6 = signature(createVehicleGroup('orbital_gunship', 6, sp, 1));
+    const gunship7 = signature(createVehicleGroup('orbital_gunship', 7, sp, 1));
+    assert.notEqual(gunship6, gunship7, `${sp} orbital_gunship must upgrade in Star Era (7)`);
+
+    if (sp === 'orc') {
+      const f4 = signature(createVehicleGroup('orc_flyer', 4, 'orc', 1));
+      const f5 = signature(createVehicleGroup('orc_flyer', 5, 'orc', 1));
+      assert.notEqual(f4, f5, 'orc_flyer must evolve between Atomic (4) and Info (5)');
+    } else {
+      const h4 = signature(createVehicleGroup('helicopter', 4, sp, 1));
+      const h5 = signature(createVehicleGroup('helicopter', 5, sp, 1));
+      assert.notEqual(h4, h5, `${sp} helicopter must evolve between Atomic (4) and Info (5)`);
+    }
+  }
+});
+
+test('Historical War Vehicle Timeline & Mortality: no airships in Medieval, no choppers/jets in Industrial Age, and vehicles perish when population or kingdom falls', () => {
+  // 1. Verify 3D vehicle models match historical epochs (Industrial propeller -> Atomic prop bomber/Huey -> Info Age jet/Apache)
+  const industrialBiplane = createVehicleGroup('glider', 3, 'human', 1);
+  assert.ok(industrialBiplane.getObjectByName('spin_prop'), 'Industrial glider must be a motorized propeller biplane fighter');
+
+  const industrialZeppelin = createVehicleGroup('airship', 3, 'human', 1);
+  const industrialElfAirship = createVehicleGroup('airship', 3, 'elf', 1);
+  const industrialOrcAirship = createVehicleGroup('airship', 3, 'orc', 1);
+  assert.ok(industrialZeppelin.getObjectByName('spin_prop'), 'Industrial rigid zeppelin must have motorized propellers');
+  assert.ok(industrialElfAirship.getObjectByName('spin_prop'), 'Industrial Elf solar dirigible must have wind-propellers');
+  assert.ok(industrialOrcAirship.getObjectByName('spin_prop'), 'Industrial Orc war-dirigible must have iron propellers');
+
+  const atomicPropBomber = createVehicleGroup('bomber_plane', 4, 'human', 1);
+  const infoStealthJet = createVehicleGroup('bomber_plane', 5, 'human', 1);
+  assert.ok(atomicPropBomber.getObjectByName('spin_prop'), 'Atomic Age heavy bomber must use multi-engine propellers');
+  assert.equal(infoStealthJet.getObjectByName('spin_prop'), undefined, 'Information Age stealth jet bomber must be jet-powered (no propellers)');
+
+  // 2. Medieval Era (epochIndex = 2) spawns warships ONLY — zero airships or gliders!
+  const medievalState = createInitialSimulationState(96, 'MEDIEVAL-NO-AIR-TEST');
+  medievalState.sandboxFreeMode = true;
+  medievalState.wildlifeSeeded = true;
+  medievalState.epochIndex = 2; // Medieval Era
+  for (let z = 20; z <= 70; z++) {
+    for (let x = 20; x <= 70; x++) {
+      const t = getTile(medievalState, x, z)!;
+      t.height = x >= 56 ? 0 : 2;
+      t.terrain = x >= 56 ? 'deep_water' : 'stone_road';
+      t.resourceNode = 'none';
+      t.buildingId = null;
+    }
+  }
+  placeBuilding(medievalState, 'bonfire', 46, 44);
+  const medCitizen = spawnUnit(medievalState, 'human', 46, 45, true).unit!;
+  medCitizen.settlementId = medievalState.buildings[0].settlementId;
+  for (let i = 0; i < 4; i++) stepSimulation(medievalState, 0.25);
+  assert.ok((medievalState.vehicles ?? []).some((v) => v.type === 'warship'), 'Medieval coastal city should field naval warships');
+  assert.equal(
+    (medievalState.vehicles ?? []).some((v) => v.type === 'airship' || v.type === 'glider' || v.type === 'tank'),
+    false,
+    'Medieval Era must NEVER spawn airships, gliders, or tanks',
+  );
+
+  // 3. Vehicles are destroyed and stop roaming when their settlement/kingdom loses all population or buildings
+  const state = createInitialSimulationState(96, 'VEH-MORTALITY-TEST');
+  state.sandboxFreeMode = true;
+  state.wildlifeSeeded = true;
+  state.epochIndex = 3; // Industrial Age
+  for (let z = 20; z <= 70; z++) {
+    for (let x = 20; x <= 70; x++) {
+      const t = getTile(state, x, z)!;
+      t.height = x >= 56 ? 0 : 2;
+      t.terrain = x >= 56 ? 'deep_water' : 'stone_road';
+      t.resourceNode = 'none';
+      t.buildingId = null;
+    }
+  }
+
+  placeBuilding(state, 'bonfire', 46, 44);
+  const citizen = spawnUnit(state, 'human', 46, 45, true).unit!;
+  citizen.settlementId = state.buildings[0].settlementId;
+
+  for (let i = 0; i < 4; i++) stepSimulation(state, 0.25);
+
+  assert.ok((state.vehicles ?? []).length >= 3, 'Populated Industrial city should field ground, air, and naval vehicles');
+  assert.equal(
+    (state.vehicles ?? []).some((v) => v.type === 'helicopter' || v.type === 'bomber_plane'),
+    false,
+    'Industrial Age city must NEVER field helicopters or jet/heavy bombers',
+  );
+
+  // Kill all civilization population -> all vehicles (civilian & military) must be destroyed and stop roaming!
+  for (const u of state.units) {
+    if (u.faction === 'civilization') {
+      u.hp = 0;
+      u.state = 'ko';
+    }
+  }
+  stepSimulation(state, 0.25);
+  assert.equal(
+    (state.vehicles ?? []).length,
+    0,
+    'All vehicles must be destroyed and stop roaming when no living population remains',
+  );
+
+  // Respawn population and vehicles, then destroy the settlement's buildings -> vehicles must also be destroyed
+  const citizen2 = spawnUnit(state, 'human', 46, 45, true).unit!;
+  citizen2.settlementId = state.buildings[0].settlementId;
+  stepSimulation(state, 0.25);
+  assert.ok((state.vehicles ?? []).length >= 2, 'Repopulated city should field vehicles again');
+
+  for (const b of state.buildings) {
+    b.hp = 0;
+  }
+  stepSimulation(state, 0.25);
+  assert.equal(
+    (state.vehicles ?? []).length,
+    0,
+    'All vehicles must be destroyed when their home kingdom/settlement falls',
+  );
+});
+
+test('Sea Update: localized warm coral reefs stay submerged, scrap_sea has pure water + scrap_flotsam, swimming fatigues units, and ships/walkways evolve', () => {
+  // 1. Coral reef spawning is localized to warm lagoon patches (NOT blanketing all shorelines) and submerged geometries stay below y=0.295 water plane
+  const worldTiles = generateWorldTiles(128, 4242);
+  const shallowTiles = worldTiles.filter((t) => t.terrain === 'shallow_water');
+  const coralTiles = worldTiles.filter((t) => t.resourceNode === 'coral_reef');
+  assert.ok(shallowTiles.length > 50, 'World should contain shallow coastal/reef waters');
+  assert.ok(coralTiles.length >= 4, 'World should generate localized warm coral reef lagoons');
+  assert.ok(
+    coralTiles.length < shallowTiles.length * 0.45,
+    `Coral reefs must appear in localized parts rather than blanketing all shorelines (coral=${coralTiles.length}, shallow=${shallowTiles.length})`,
+  );
+
+  // Verify submerged 3D coral reef variants remain strictly under the y=0.295 ocean surface when placed on the y=0.12 seabed
+  const nodeLib = getNodeVariantLibrary();
+  assert.equal(nodeLib.coralReef.length, 4, 'Should provide 4 rich submerged coral+seagrass geometry variants');
+  for (let vi = 0; vi < nodeLib.coralReef.length; vi++) {
+    const geo = nodeLib.coralReef[vi];
+    geo.computeBoundingBox();
+    const bb = geo.boundingBox!;
+    assert.ok(bb.min.y >= -0.02, `Coral variant ${vi} must anchor on seabed (min.y=${bb.min.y})`);
+    assert.ok(
+      0.12 + bb.max.y < 0.295,
+      `Coral variant ${vi} must remain submerged under the water plane at y=0.295 (top=${0.12 + bb.max.y})`,
+    );
+  }
+
+  // 2. Scrap Sea template spawns 100% water (height === 0), scrap_flotsam resources, and localized reef shoals
+  const scrapCfg = createWorldConfigFromTemplate('scrap_sea', { seed: 5150, gridSize: 96 });
+  const scrapSim = createInitialSimulationState(scrapCfg.gridSize, scrapCfg.seed, scrapCfg);
+  assert.equal(
+    scrapSim.tiles.every((t) => t.height === 0),
+    true,
+    'scrap_sea template must generate purely aquatic tiles (height === 0)',
+  );
+  assert.ok(
+    scrapSim.tiles.some((t) => t.resourceNode === 'scrap_flotsam'),
+    'scrap_sea template must scatter salvageable scrap_flotsam across the ocean',
+  );
+  assert.ok(
+    scrapSim.buildings.length >= 1,
+    'scrap_sea template should establish an initial floating city settlement on the waves',
+  );
+
+  // 3. Open-water swimming slows down units & drains swimStamina to drowning, whereas stone_road walkways keep them dry & fast
+  const swimState = createInitialSimulationState(64, 'SWIM-FATIGUE-TEST');
+  swimState.sandboxFreeMode = true;
+  swimState.wildlifeSeeded = true;
+  for (let z = 12; z <= 52; z++) {
+    for (let x = 12; x <= 52; x++) {
+      const t = getTile(swimState, x, z)!;
+      t.height = 0;
+      t.terrain = 'deep_water';
+      t.resourceNode = 'none';
+      t.buildingId = null;
+    }
+  }
+  const anchorLand = getTile(swimState, 16, 16)!;
+  anchorLand.height = 2;
+  anchorLand.terrain = 'grass';
+  placeBuilding(swimState, 'bonfire', 16, 16);
+  const homeSettlementId = swimState.buildings[0].settlementId;
+
+  const swimmer = spawnUnit(swimState, 'human', 30, 32, true).unit!;
+  swimmer.settlementId = homeSettlementId;
+  swimmer.swimStamina = 100;
+  swimmer.targetX = 46;
+  swimmer.targetZ = 32;
+  swimmer.state = 'moving';
+
+  const startX = swimmer.x;
+  for (let i = 0; i < 12; i++) {
+    stepSimulation(swimState, 0.25);
+  }
+  const movedDist = Math.hypot(swimmer.x - startX, swimmer.z - 32);
+  assert.ok(
+    (swimmer.swimStamina ?? 100) < 100 && movedDist > 0.5,
+    `Swimmer in open deep_water should swim slowly and drain swimStamina (stamina=${swimmer.swimStamina}, moved=${movedDist.toFixed(2)})`,
+  );
+
+  // Exhausted unit in deep water eventually drowns
+  swimmer.swimStamina = 1;
+  swimmer.hp = 12;
+  for (let i = 0; i < 12; i++) {
+    stepSimulation(swimState, 0.25);
+  }
+  assert.equal(swimmer.state, 'ko', 'Exhausted swimmer stranded far in open sea should drown');
+
+  // Unit standing on a stone_road water walkway retains full stamina without drowning
+  const walkwayTile = getTile(swimState, 30, 24)!;
+  walkwayTile.terrain = 'stone_road';
+  const walker = spawnUnit(swimState, 'human', 30, 24, true).unit!;
+  walker.swimStamina = 40;
+  walker.targetX = 30;
+  walker.targetZ = 24;
+  for (let i = 0; i < 6; i++) {
+    stepSimulation(swimState, 0.25);
+  }
+  assert.ok((walker.swimStamina ?? 0) > 40, 'Water walkway (stone_road) should recover stamina and keep units dry');
+
+  // 4. Passenger ships differ structurally per race and evolve across ages
+  const shipSig = (g: ReturnType<typeof createVehicleGroup>) =>
+    `${g.children.length}:${g.children.map((c) => `${c.type[0]}@${Math.round(c.position.x * 100)},${Math.round(c.position.y * 100)},${Math.round(c.position.z * 100)}`).join('|')}`;
+
+  for (const sp of ['human', 'elf', 'orc'] as const) {
+    const p1 = createVehicleGroup('passenger_ship', 1, sp, 1);
+    const p4 = createVehicleGroup('passenger_ship', 4, sp, 1);
+    const p6 = createVehicleGroup('passenger_ship', 6, sp, 1);
+    assert.notEqual(shipSig(p1), shipSig(p6), `${sp} passenger_ship should evolve from age 1 to age 6`);
+    assert.ok(p4.children.length >= 3, `${sp} industrial/atomic passenger_ship should build multi-part hull`);
+  }
+  for (const ep of [0, 2, 3, 4, 5, 6]) {
+    const hSig = shipSig(createVehicleGroup('passenger_ship', ep, 'human', 1));
+    const eSig = shipSig(createVehicleGroup('passenger_ship', ep, 'elf', 1));
+    const oSig = shipSig(createVehicleGroup('passenger_ship', ep, 'orc', 1));
+    assert.notEqual(hSig, eSig, `Epoch ${ep} human vs elf passenger_ship must have distinct 3D architecture`);
+    assert.notEqual(hSig, oSig, `Epoch ${ep} human vs orc passenger_ship must have distinct 3D architecture`);
+    assert.notEqual(eSig, oSig, `Epoch ${ep} elf vs orc passenger_ship must have distinct 3D architecture`);
+  }
+});
+
+test('Smooth dynamic pixel scale: 3x when zoomed in down to 1.0x when fully zoomed out', () => {
+  const gridSize = 128;
+  const aspect = 16 / 9;
+  const maxZoom = getResponsiveMaxZoomOut(gridSize, aspect);
+
+  // When fully zoomed in (frustum <= 8.0)
+  assert.equal(computeDynamicPixelScale(8.0, gridSize, aspect), 3.0);
+  assert.equal(computeDynamicPixelScale(6.0, gridSize, aspect), 3.0);
+
+  // When zooming out slightly, scale smoothly glides through 2.98, 2.97, 2.xx
+  const s10 = computeDynamicPixelScale(10.0, gridSize, aspect);
+  const s12 = computeDynamicPixelScale(12.0, gridSize, aspect);
+  assert.ok(s10 < 3.0 && s10 > 2.95, `s10 was ${s10}`);
+  assert.ok(s12 < s10 && s12 > 2.90, `s12 was ${s12}`);
+
+  // When midway through zoom range (halfway between 3.0 and 1.0 is ~2.0)
+  const midFrustum = (8.0 + maxZoom) / 2;
+  const sMid = computeDynamicPixelScale(midFrustum, gridSize, aspect);
+  assert.ok(Math.abs(sMid - 2.0) < 0.05, `Midway zoom should be ~2.0, got ${sMid}`);
+
+  // When fully zoomed out (frustum >= maxZoom)
+  assert.equal(computeDynamicPixelScale(maxZoom, gridSize, aspect), 1.0);
+  assert.equal(computeDynamicPixelScale(maxZoom + 50, gridSize, aspect), 1.0);
+
+  // Strictly monotonically decreasing as frustum increases (zooming out)
+  let prevScale = 3.0;
+  for (let f = 8.0; f < maxZoom; f += 5.0) {
+    const sc = computeDynamicPixelScale(f, gridSize, aspect);
+    assert.ok(sc <= prevScale, `Pixel scale must not increase when zooming out: ${sc} > ${prevScale}`);
+    prevScale = sc;
+  }
+  const finalScale = computeDynamicPixelScale(maxZoom, gridSize, aspect);
+  assert.ok(finalScale <= prevScale);
+  assert.equal(finalScale, 1.0);
+});
+
+test('Sea Update: uncommon corals bleach to gray when destroyed and regenerate, Leviathan takes damage & engages in mutual combat, and sea builds are destructible', () => {
+  // 1. Coral reefs are uncommon, never wrap coastlines, have bleached gray 3D variants, turn gray when destroyed, and regenerate
+  const worldTiles = generateWorldTiles(128, 4242);
+  const shallowTiles = worldTiles.filter((t) => t.terrain === 'shallow_water');
+  const coralTiles = worldTiles.filter((t) => t.resourceNode === 'coral_reef');
+  assert.ok(coralTiles.length >= 2, 'World should contain uncommon coral reef patches');
+  assert.ok(
+    coralTiles.length < shallowTiles.length * 0.25,
+    `Corals should be uncommon and never wrap every island (coral=${coralTiles.length}, shallow=${shallowTiles.length})`,
+  );
+
+  const nodeLib = getNodeVariantLibrary();
+  assert.ok(nodeLib.coralReefBleached.length >= 2, 'Should provide bleached gray coral 3D variants');
+
+  const state = createInitialSimulationState(64, 'CORAL-LEVIATHAN-COMBAT');
+  state.sandboxFreeMode = true;
+  state.wildlifeSeeded = true;
+  for (let z = 10; z <= 54; z++) {
+    for (let x = 10; x <= 54; x++) {
+      const t = getTile(state, x, z)!;
+      t.height = x < 24 ? 1 : 0;
+      t.terrain = x < 24 ? 'sand' : x < 34 ? 'shallow_water' : 'deep_water';
+      t.resourceNode = 'none';
+      t.resourceAmount = 0;
+      t.coralBleachTimer = 0;
+      t.buildingId = null;
+    }
+  }
+
+  // Place a coral reef at (28, 30) and destroy it with meteor_strike
+  const coralTile = getTile(state, 28, 30)!;
+  coralTile.resourceNode = 'coral_reef';
+  coralTile.resourceAmount = 240;
+  executeGodPowerImpact(state, 'meteor_strike', 28, 30);
+
+  assert.equal(coralTile.resourceNode, 'coral_reef', 'Destroyed coral reef remains as a bleached coral_reef node');
+  assert.equal(coralTile.resourceAmount, 0, 'Bleached coral reef has 0 resourceAmount while gray');
+  assert.ok((coralTile.coralBleachTimer ?? 0) > 10, `Bleached coral should have a regeneration timer, got ${coralTile.coralBleachTimer}`);
+
+  // Fast-forward simulation after hazard subsides until the coral regenerates back to full health
+  state.activeHazards = [];
+  coralTile.coralBleachTimer = 1.0;
+  for (let i = 0; i < 6; i++) {
+    stepSimulation(state, 0.25);
+  }
+  assert.equal(coralTile.coralBleachTimer, 0, 'Coral bleach timer should expire to 0');
+  assert.equal(coralTile.resourceAmount, 240, 'Regenerated coral should restore resourceAmount to 240');
+
+  // 2. Floating sea buildings / ports and water walkways are destructible, and Leviathan takes damage & fights back
+  placeBuilding(state, 'bonfire', 20, 30);
+  const homeSettlementId = state.buildings[0].settlementId!;
+  const portRes = placeBuilding(state, 'forager_hut', 26, 30); // Floating port/hut on shallow_water (height === 0)
+  assert.equal(portRes.ok, true, 'Should place coastal/floating structure at (26, 30)');
+  const portBuilding = state.buildings[state.buildings.length - 1]!;
+  portBuilding.settlementId = homeSettlementId;
+  portBuilding.constructionProgress = 100;
+
+  const walkway = getTile(state, 27, 30)!;
+  walkway.terrain = 'stone_road';
+
+  // Spawn a warrior on shore and a Leviathan in the water right next to the port and warrior
+  const warrior = spawnUnit(state, 'human', 23, 30, true).unit!;
+  warrior.role = 'warrior';
+  warrior.settlementId = homeSettlementId;
+  warrior.hp = 260;
+  warrior.maxHp = 260;
+
+  const leviathan = spawnUnit(state, 'leviathan', 28, 30, true).unit!;
+  const initialLeviathanHp = leviathan.hp;
+
+  // God power damages Leviathan directly
+  executeGodPowerImpact(state, 'lightning_smite', 28, 30);
+  assert.ok(leviathan.hp < initialLeviathanHp, `Leviathan must take damage from lightning_smite (${leviathan.hp} < ${initialLeviathanHp})`);
+
+  // Step combat: warrior and Leviathan should attack each other, and Leviathan should damage the port building & smash the water walkway
+  const hpBeforeCombat = leviathan.hp;
+  const portHpBefore = portBuilding.hp;
+  for (let i = 0; i < 24; i++) {
+    stepSimulation(state, 0.25);
+  }
+
+  assert.ok(
+    leviathan.hp < hpBeforeCombat,
+    `Units/defenses must actively attack and damage the Leviathan (${leviathan.hp} < ${hpBeforeCombat})`,
+  );
+  assert.ok(
+    portBuilding.hp < portHpBefore || !state.buildings.some((b) => b.id === portBuilding.id),
+    'Leviathan should damage or destroy coastal/floating sea structures',
+  );
+  assert.equal(
+    walkway.terrain,
+    'shallow_water',
+    'Leviathan breaching attack should smash water walkways back into shallow_water',
+  );
+});
+
+test('Sea Update: active vortices deal lethal DOT, shallow seas follow organic coastal shelves without circular rings, and Sunken Atlantis has a broad underwater city', () => {
+  // 1. Verify Sunken Atlantis 3D complex spans > 3.2 tiles across the seabed with raised underwater structures + emergent portal spire
+  const nodeLib = getNodeVariantLibrary();
+  assert.ok(nodeLib.atlantisRuin.length >= 2, 'Should provide Sunken Atlantis temple complex variants');
+  for (let i = 0; i < nodeLib.atlantisRuin.length; i++) {
+    const geo = nodeLib.atlantisRuin[i];
+    geo.computeBoundingBox();
+    const bb = geo.boundingBox!;
+    const widthX = bb.max.x - bb.min.x;
+    const widthZ = bb.max.z - bb.min.z;
+    assert.ok(widthX >= 3.2 && widthZ >= 3.2, `Atlantis variant ${i} must have an expansive underwater city footprint (${widthX.toFixed(2)}x${widthZ.toFixed(2)})`);
+    assert.ok(bb.max.y >= 0.8, `Atlantis variant ${i} must have emergent temple columns and portal spire above water (max.y=${bb.max.y})`);
+  }
+
+  // 2. Verify world generation does NOT create a giant circle of shallow_water inside normDist < 0.78 far from land
+  const worldTiles = generateWorldTiles(96, 8080);
+  const center = 48;
+  const maxRadius = center * 0.88;
+  let deepInsideCircleCount = 0;
+  for (const t of worldTiles) {
+    if (t.height === 0 && !t.isRiver && !t.isLake) {
+      const normDist = Math.hypot(t.x - center, t.z - center) / maxRadius;
+      if (normDist < 0.72 && t.terrain === 'deep_water') {
+        deepInsideCircleCount++;
+      }
+    }
+  }
+  assert.ok(
+    deepInsideCircleCount > 80,
+    `Open ocean inside normDist < 0.72 far from land must be deep_water rather than a giant shallow_water circle (deepInsideCircleCount=${deepInsideCircleCount})`,
+  );
+
+  // 3. Verify active vortices (whirlpool, tornado_vortex, wormhole_rift) deal continuous DOT and kill entities while active
+  const state = createInitialSimulationState(64, 'VORTEX-DOT-TEST');
+  state.sandboxFreeMode = true;
+  state.wildlifeSeeded = true;
+  for (let z = 10; z <= 54; z++) {
+    for (let x = 10; x <= 54; x++) {
+      const t = getTile(state, x, z)!;
+      t.height = 0;
+      t.terrain = 'shallow_water';
+      t.resourceNode = 'none';
+      t.buildingId = null;
+    }
+  }
+
+  // Active Whirlpool kills swimming unit via DOT
+  const swimmer = spawnUnit(state, 'human', 32, 32, true).unit!;
+  swimmer.hp = 90;
+  swimmer.maxHp = 100;
+  swimmer.swimStamina = 100;
+  state.activeHazards.push({
+    id: 'test-whirlpool',
+    kind: 'whirlpool',
+    x: 32,
+    z: 32,
+    radius: 4.5,
+    remaining: 10,
+    duration: 10,
+    tickTimer: 0,
+  });
+  for (let i = 0; i < 12; i++) {
+    stepSimulation(state, 0.25);
+  }
+  assert.equal(swimmer.hp, 0, 'Whirlpool DOT should reduce trapped unit HP to 0');
+  assert.equal(swimmer.state, 'ko', 'Whirlpool DOT must transition unit to ko state when HP reaches 0');
+
+  // Active Wormhole Rift kills friendly/neutral/hostile units via continuous gravitational DOT before supernova
+  state.activeHazards = [];
+  const landTile = getTile(state, 20, 20)!;
+  landTile.height = 2;
+  landTile.terrain = 'grass';
+  const villager = spawnUnit(state, 'human', 20.5, 20.5, true).unit!;
+  villager.hp = 85;
+  villager.maxHp = 100;
+  state.activeHazards.push({
+    id: 'test-wormhole',
+    kind: 'wormhole_rift',
+    x: 20,
+    z: 20,
+    radius: 5.0,
+    remaining: 12,
+    duration: 12,
+    tickTimer: 0,
+  });
+  for (let i = 0; i < 12; i++) {
+    stepSimulation(state, 0.25);
+  }
+  assert.equal(villager.hp, 0, 'Wormhole rift DOT should reduce trapped unit HP to 0 while active');
+  assert.equal(villager.state, 'ko', 'Wormhole rift DOT must transition unit to ko state when HP reaches 0');
+});
+
+test('Sea Update: Leviathan has articulated silhouette & 3D beam rig, fires 7s stationary Water Beam (10s CD) that destroys buildings & landmasses, performs slow-mo head-first Breach Jump (30s CD) causing omnidirectional tsunamis, and rarely eats deep-sea islands while sparing shallow-sea islands', () => {
+  // 1. Verify articulated 3D silhouette and surfaced dreadnought rig
+  const leviGroup = createUnitGroup('leviathan', 'wildlife', 77);
+  for (const name of [
+    'leviathan_silhouette',
+    'sil_head',
+    'sil_seg_0',
+    'sil_seg_1',
+    'sil_seg_2',
+    'sil_tail',
+    'sil_fin_l',
+    'sil_fin_r',
+    'leviathan_surfaced',
+    'jaw_pivot',
+    'mandible_l',
+    'mandible_r',
+    'fire_maw',
+    'leviathan_beam_group',
+    'beam_shaft',
+    'beam_impact',
+    'beam_muzzle',
+    'wing_l',
+    'wing_r',
+    'tail_pivot',
+    'leviathan_tail_mid',
+  ]) {
+    assert.ok(leviGroup.getObjectByName(name), `Leviathan 3D mesh must include articulated node "${name}"`);
+  }
+
+  // 2. Verify 7-second stationary Water Beam (10s cooldown) locks Leviathan position and destroys buildings & landmasses
+  const state = createInitialSimulationState(64, 'LEVIATHAN-BEAM-BREACH');
+  state.sandboxFreeMode = true;
+  state.wildlifeSeeded = true;
+  for (let z = 0; z < 64; z++) {
+    for (let x = 0; x < 64; x++) {
+      const t = getTile(state, x, z)!;
+      t.height = 0;
+      t.terrain = 'deep_water';
+      t.resourceNode = 'none';
+      t.resourceAmount = 0;
+      t.buildingId = null;
+    }
+  }
+
+  // Create a coastal landmass at x=22..25, z=30..32 with a building on it
+  for (let z = 29; z <= 33; z++) {
+    for (let x = 21; x <= 25; x++) {
+      const t = getTile(state, x, z)!;
+      t.height = 1;
+      t.terrain = 'sand';
+    }
+  }
+  const bRes = placeBuilding(state, 'forager_hut', 23, 31);
+  assert.equal(bRes.ok, true);
+  const coastalHut = state.buildings[state.buildings.length - 1]!;
+  coastalHut.constructionProgress = 100;
+
+  const levi = spawnUnit(state, 'leviathan', 30, 31, true).unit!;
+  levi.leviathanLeapCooldown = 25.0; // Prevent leap so water beam triggers first
+  levi.leviathanBeamCooldown = 0;
+
+  // Step once to trigger the Water Beam
+  stepSimulation(state, 0.25);
+  assert.ok(
+    (levi.leviathanBeamTimer ?? 0) > 6.5 && (levi.leviathanBeamTimer ?? 0) <= 7.0,
+    `Leviathan should initiate 7-second Water Beam, got timer=${levi.leviathanBeamTimer}`,
+  );
+  assert.equal(levi.leviathanBeamCooldown, 10.0, 'Water Beam cooldown must be set to 10.0 seconds');
+  assert.equal(levi.leviathanSubmerged, false, 'Leviathan must be surfaced with gaping maw while firing Water Beam');
+
+  const lockedX = levi.x;
+  const lockedZ = levi.z;
+  // Step through 4 seconds of the 7-second beam and verify the Leviathan cannot move and destroys both the building and landmass tiles
+  for (let i = 0; i < 16; i++) {
+    stepSimulation(state, 0.25);
+    assert.equal(levi.x, lockedX, 'Leviathan must remain stationary (x locked) during 7s Water Beam');
+    assert.equal(levi.z, lockedZ, 'Leviathan must remain stationary (z locked) during 7s Water Beam');
+  }
+
+  assert.ok(
+    !state.buildings.some((b) => b.id === coastalHut.id),
+    '7-second Water Beam must destroy buildings in its path',
+  );
+  let erodedLandCount = 0;
+  for (let z = 29; z <= 33; z++) {
+    for (let x = 21; x <= 25; x++) {
+      if (getTile(state, x, z)!.height === 0) erodedLandCount++;
+    }
+  }
+  assert.ok(erodedLandCount >= 2, `7-second Water Beam must erode/destroy landmass tiles into water, eroded=${erodedLandCount}`);
+
+  // 3. Verify Slow-Motion Head-First Breach Jump (30s cooldown, 2.2s deep dive + 4.0s slow-mo airtime + omnidirectional tsunami landing)
+  levi.leviathanBeamTimer = 0;
+  levi.leviathanBeamCooldown = 10.0;
+  levi.leviathanLeapCooldown = 0;
+  state.activeHazards = [];
+  const targetShip = spawnUnit(state, 'human', 38, 31, true).unit!;
+  targetShip.hp = 500;
+  targetShip.maxHp = 500;
+
+  stepSimulation(state, 0.25);
+  assert.ok(
+    (levi.leviathanLeapTimer ?? 0) > 5.8,
+    `Leviathan should initiate 6.2s Breach Jump sequence, got leapTimer=${levi.leviathanLeapTimer}`,
+  );
+  assert.equal(levi.leviathanLeapCooldown, 30.0, 'Breach Jump cooldown must be 30.0 seconds (non-spammable)');
+  // Phase 1 (first 2.2s, leapTimer > 4.0): submerged deep dive
+  assert.equal(levi.leviathanSubmerged, true, 'Leviathan dives underwater during first 2.2s of Breach Jump');
+  assert.ok((levi.altitude ?? 0) <= 0, 'Leviathan altitude is <= 0 while diving underwater');
+
+  // Advance into Phase 2 (slow-motion head-first breach airtime, leapTimer ~ 2.0s)
+  for (let i = 0; i < 16; i++) {
+    stepSimulation(state, 0.25);
+  }
+  assert.equal(levi.leviathanSubmerged, false, 'Leviathan breaches above water during slow-mo jump arc');
+  assert.ok((levi.altitude ?? 0) > 2.5, `Leviathan should arch high into the air in slow motion, got altitude=${levi.altitude}`);
+
+  // Advance until head-first landing (leapTimer reaches 0)
+  for (let i = 0; i < 12; i++) {
+    stepSimulation(state, 0.25);
+  }
+  assert.equal(levi.leviathanLeapTimer, 0, 'Breach Jump timer should finish at 0');
+  const tsunamiWaves = state.activeHazards.filter((h) => h.kind === 'tsunami_wave');
+  const rogueWaves = state.activeHazards.filter((h) => h.kind === 'rogue_wave');
+  assert.ok(tsunamiWaves.length >= 1, 'Head-first breach landing must trigger omnidirectional tsunami_wave');
+  assert.ok(rogueWaves.length >= 6, `Head-first breach landing must radiate rogue waves in all directions, got ${rogueWaves.length}`);
+
+  // 4. Verify Leviathan rarely eats deep-sea islands (surrounded by deep_water) but NEVER eats shallow-sea islands
+  // Create a shallow-sea island at (14, 14) surrounded by shallow_water
+  for (let dz = -4; dz <= 4; dz++) {
+    for (let dx = -4; dx <= 4; dx++) {
+      const t = getTile(state, 14 + dx, 14 + dz)!;
+      if (Math.hypot(dx, dz) <= 1.5) {
+        t.height = 1;
+        t.terrain = 'grass';
+      } else {
+        t.height = 0;
+        t.terrain = 'shallow_water';
+      }
+    }
+  }
+  // Create a deep-sea islet at (48, 48) surrounded by deep_water
+  for (let dz = -4; dz <= 4; dz++) {
+    for (let dx = -4; dx <= 4; dx++) {
+      const t = getTile(state, 48 + dx, 48 + dz)!;
+      if (Math.hypot(dx, dz) <= 1.5) {
+        t.height = 1;
+        t.terrain = 'mountain';
+      } else {
+        t.height = 0;
+        t.terrain = 'deep_water';
+      }
+    }
+  }
+
+  // Place Leviathan next to the shallow-sea island with eat cooldown ready: must NOT eat shallow-sea island
+  state.units = [levi];
+  levi.x = 17;
+  levi.z = 14;
+  levi.leviathanEatIslandCooldown = 0;
+  levi.leviathanBeamCooldown = 10;
+  levi.leviathanLeapCooldown = 30;
+  for (let i = 0; i < 8; i++) {
+    stepSimulation(state, 0.25);
+  }
+  assert.equal(
+    getTile(state, 14, 14)!.height,
+    1,
+    'Leviathan must NEVER eat islands located in shallow seas (surrounded by shallow_water)',
+  );
+
+  // Move Leviathan next to the deep-sea islet at (48, 48) with eat cooldown ready: should devour the deep-sea islet
+  levi.x = 45.8;
+  levi.z = 48;
+  levi.leviathanEatIslandCooldown = 0;
+  for (let i = 0; i < 20; i++) {
+    stepSimulation(state, 0.25);
+  }
+  assert.equal(
+    getTile(state, 48, 48)!.height,
+    0,
+    'Leviathan should devour small islands located in the deep seas (surrounded by deep_water)',
+  );
+  assert.equal(
+    getTile(state, 48, 48)!.terrain,
+    'deep_water',
+    'Devoured deep-sea island tiles should submerge into deep_water',
+  );
+  assert.ok(
+    (levi.leviathanEatIslandCooldown ?? 0) > 60,
+    `Eating a deep-sea island should set a long rare cooldown, got ${levi.leviathanEatIslandCooldown}`,
+  );
+});
+
+test('Organic Urban Masterplans & Wide Curved Railroads: non-rectangular roads, boulevards, diagonal/Bezier rails without tiny loops', () => {
+  // 1. Verify all 4 settlement road variants generate non-rectangular curved/angled/boulevard patterns
+  for (let variant = 0; variant < 4; variant++) {
+    assert.equal(
+      isSettlementRoadTile(0, 0, variant),
+      false,
+      `Variant ${variant} must keep (0,0) clear for the central hearth`,
+    );
+    let diagonalCount = 0;
+    let curvedRingCount = 0;
+    let boulevardPairCount = 0;
+    for (let dz = -13; dz <= 13; dz++) {
+      for (let dx = -13; dx <= 13; dx++) {
+        if (!isSettlementRoadTile(dx, dz, variant)) continue;
+        // Points strictly off cardinal axes & box edges prove organic/curved/diagonal geometry
+        if (dx !== 0 && dz !== 0 && Math.abs(dx) !== Math.abs(dz)) {
+          curvedRingCount++;
+        }
+        if (Math.abs(dx) === Math.abs(dz) && Math.abs(dx) >= 3) {
+          diagonalCount++;
+        }
+        if (isSettlementRoadTile(dx, dz + 1, variant) && isSettlementRoadTile(dx + 1, dz, variant)) {
+          boulevardPairCount++;
+        }
+      }
+    }
+    assert.ok(
+      curvedRingCount >= 12,
+      `Road variant ${variant} must include curved/organic off-axis avenues (got ${curvedRingCount})`,
+    );
+    assert.ok(
+      boulevardPairCount >= 2 || diagonalCount >= 4,
+      `Road variant ${variant} must include 2-tile boulevards or diagonal expressways (blvd=${boulevardPairCount}, diag=${diagonalCount})`,
+    );
+  }
+
+  // 2. Verify wide orbital rail loops (span >= 22 tiles, zero 2x2 clumps) & curved inter-city corridors
+  const state = createInitialSimulationState(128, 'CURVED-RAIL-ARCH');
+  state.sandboxFreeMode = true;
+  state.wildlifeSeeded = true;
+  for (let z = 16; z <= 112; z++) {
+    for (let x = 16; x <= 112; x++) {
+      const t = getTile(state, x, z)!;
+      t.height = 2;
+      t.terrain = 'grass';
+      t.resourceNode = 'none';
+      t.resourceAmount = 0;
+      t.buildingId = null;
+    }
+  }
+
+  // Advance to Industrial Age and found two distant settlements + rail stations
+  while (state.epochIndex < 3) advanceEpoch(state, true);
+  assert.equal(placeBuilding(state, 'bonfire', 36, 40).ok, true);
+  assert.equal(placeBuilding(state, 'rail_station', 40, 42).ok, true);
+  const sid1 = state.buildings[0].settlementId!;
+  // Found a 2nd settlement with an offset station to force a sweeping inter-city Bezier spline
+  assert.equal(placeBuilding(state, 'bonfire', 86, 74).ok, true);
+  const sid2 = state.buildings[state.buildings.length - 1]!.settlementId!;
+  assert.equal(placeBuilding(state, 'rail_station', 82, 71).ok, true);
+
+  paveSettlementRailNetwork(state, sid1);
+  paveSettlementRailNetwork(state, sid2);
+
+  const railTiles = state.tiles.filter((t) => t.terrain === 'rail_track');
+  assert.ok(railTiles.length >= 60, `Wide orbital + inter-city rail network should pave >= 60 tiles, got ${railTiles.length}`);
+
+  // Check city-1 metro loop span around (36, 40) is wide (>= 22 tiles diameter)
+  const localRails = railTiles.filter((t) => Math.abs(t.x - 36) <= 15 && Math.abs(t.z - 40) <= 15);
+  const minX = Math.min(...localRails.map((t) => t.x));
+  const maxX = Math.max(...localRails.map((t) => t.x));
+  const minZ = Math.min(...localRails.map((t) => t.z));
+  const maxZ = Math.max(...localRails.map((t) => t.z));
+  assert.ok(maxX - minX >= 22, `Metro loop must span wide distance X >= 22 tiles, got ${maxX - minX}`);
+  assert.ok(maxZ - minZ >= 22, `Metro loop must span wide distance Z >= 22 tiles, got ${maxZ - minZ}`);
+
+  // Verify NO 2x2 solid rail blocks exist anywhere (no tiny micro-loops or blocky clumps)
+  let block2x2Count = 0;
+  for (const rt of railTiles) {
+    const e = getTile(state, rt.x + 1, rt.z)?.terrain === 'rail_track';
+    const s = getTile(state, rt.x, rt.z + 1)?.terrain === 'rail_track';
+    const se = getTile(state, rt.x + 1, rt.z + 1)?.terrain === 'rail_track';
+    if (e && s && se) block2x2Count++;
+  }
+  assert.equal(block2x2Count, 0, `Railroads must never form 2x2 solid clumps/micro-loops (found ${block2x2Count})`);
+
+  // Verify diagonal corner transitions & curves exist along the network
+  let diagConnectedCount = 0;
+  for (const rt of railTiles) {
+    const diagNeighbors = [
+      getTile(state, rt.x + 1, rt.z + 1),
+      getTile(state, rt.x - 1, rt.z + 1),
+      getTile(state, rt.x + 1, rt.z - 1),
+      getTile(state, rt.x - 1, rt.z - 1),
+    ].filter((n) => n && n.terrain === 'rail_track').length;
+    if (diagNeighbors > 0) diagConnectedCount++;
+  }
+  assert.ok(
+    diagConnectedCount >= 16,
+    `Chamfered corners and curved Bezier rails must use 8-way diagonal transitions (got ${diagConnectedCount})`,
+  );
+
+  // 3. Verify trains traverse the wide curved network continuously without getting stuck in tiny oscillations
+  assert.equal(placeBuilding(state, 'smeltery', 38, 40).ok, true);
+  for (let c = 0; c < 4; c++) {
+    spawnUnit(state, 'human', 36 + (c % 2), 40 + Math.floor(c / 2), true, sid1);
+    spawnUnit(state, 'elf', 86 + (c % 2), 74 + Math.floor(c / 2), true, sid2);
+  }
+  for (const b of state.buildings) b.constructionProgress = 100;
+  for (let i = 0; i < 30; i++) stepSimulation(state, 0.25);
+  const trains = (state.vehicles ?? []).filter((v) => v.type === 'train');
+  assert.ok(trains.length >= 1, 'Should spawn at least one train on the wide rail network');
+  const t0 = trains[0];
+  const visitedCells = new Set<string>();
+  for (let i = 0; i < 40; i++) {
+    stepSimulation(state, 0.25);
+    visitedCells.add(`${Math.round(t0.x)},${Math.round(t0.z)}`);
+  }
+  assert.ok(
+    visitedCells.size >= 8,
+    `Train must cruise cleanly across >= 8 distinct tiles instead of looping in a small trap (visited ${visitedCells.size})`,
+  );
+});
+
+test('Distinct Racial Building Architectures: Human, Elf, and Orc build unique 3D silhouettes across types', () => {
+  const summarizeGroupGeometry = (group: THREE.Group): string => {
+    const parts: string[] = [];
+    group.traverse((obj) => {
+      if (obj instanceof THREE.Mesh && obj.geometry) {
+        const geo = obj.geometry;
+        geo.computeBoundingBox();
+        const bb = geo.boundingBox;
+        const posCount = geo.getAttribute('position')?.count ?? 0;
+        const sx = bb ? (bb.max.x - bb.min.x) * obj.scale.x : 0;
+        const sy = bb ? (bb.max.y - bb.min.y) * obj.scale.y : 0;
+        const sz = bb ? (bb.max.z - bb.min.z) * obj.scale.z : 0;
+        // Signature uses geometry type, vertex count, and quantized proportions — immune to mere material recoloring
+        parts.push(`${geo.type}:${posCount}:${sx.toFixed(2)}x${sy.toFixed(2)}x${sz.toFixed(2)}`);
+      }
+    });
+    parts.sort();
+    return `${parts.length}|${parts.join(';')}`;
+  };
+
+  const cases: Array<{ type: Parameters<typeof createBuildingGroup>[0]; epoch: number }> = [
+    { type: 'forager_hut', epoch: 6 },
+    { type: 'granary', epoch: 4 },
+    { type: 'smeltery', epoch: 5 },
+    { type: 'fission_reactor', epoch: 4 },
+    { type: 'cyber_institute', epoch: 5 },
+    { type: 'rail_station', epoch: 5 },
+    { type: 'airport', epoch: 5 },
+    { type: 'launch_arcology', epoch: 6 },
+    { type: 'dyson_spire', epoch: 6 },
+  ];
+
+  for (const { type, epoch } of cases) {
+    const humanSig = summarizeGroupGeometry(createBuildingGroup(type, epoch, 0, 'human', false));
+    const elfSig = summarizeGroupGeometry(createBuildingGroup(type, epoch, 0, 'elf', false));
+    const orcSig = summarizeGroupGeometry(createBuildingGroup(type, epoch, 0, 'orc', false));
+
+    assert.notEqual(
+      elfSig,
+      humanSig,
+      `${type} (epoch ${epoch}) Elf architecture must differ structurally from Human, not merely be recolored`,
+    );
+    assert.notEqual(
+      orcSig,
+      humanSig,
+      `${type} (epoch ${epoch}) Orc architecture must differ structurally from Human, not merely be recolored`,
+    );
+    assert.notEqual(
+      orcSig,
+      elfSig,
+      `${type} (epoch ${epoch}) Orc architecture must differ structurally from Elf, not merely be recolored`,
+    );
+  }
+});
+
+test('Per-city max population scales with world size and enforces city housing cap', () => {
+  const sizes = [64, 96, 128, 160, 192, 224, 256];
+  for (let i = 1; i < sizes.length; i++) {
+    assert.ok(
+      getMaxCityPopulation(sizes[i]) > getMaxCityPopulation(sizes[i - 1]),
+      `Larger world (${sizes[i]}) must have higher max city population than (${sizes[i - 1]})`,
+    );
+  }
+
+  // Test clamping on a small 64x64 world even when high-epoch buildings provide huge raw housing
+  const smallWorld = createInitialSimulationState(64, 'CAP-SMALL-64');
+  smallWorld.sandboxFreeMode = true;
+  smallWorld.wildlifeSeeded = true;
+  for (let z = 20; z <= 44; z++) {
+    for (let x = 20; x <= 44; x++) {
+      const t = getTile(smallWorld, x, z)!;
+      t.height = 2;
+      t.terrain = 'grass';
+      t.resourceNode = 'none';
+      t.buildingId = null;
+    }
+  }
+  for (let i = 0; i < EPOCHS.length - 1; i++) {
+    advanceEpoch(smallWorld, true);
+  }
+  assert.equal(placeBuilding(smallWorld, 'bonfire', 30, 30).ok, true);
+  assert.equal(placeBuilding(smallWorld, 'guildhall', 33, 30).ok, true);
+  assert.equal(placeBuilding(smallWorld, 'launch_arcology', 36, 30).ok, true);
+  for (const b of smallWorld.buildings) {
+    b.constructionProgress = 100;
+  }
+
+  const maxSmall = getMaxCityPopulation(64);
+  for (let i = 0; i < maxSmall; i++) {
+    spawnUnit(smallWorld, 'human', 31 + (i % 4), 32 + (Math.floor(i / 4) % 4), true, smallWorld.buildings[0].settlementId);
+  }
+
+  smallWorld.resources.food = 1000;
+  stepSimulation(smallWorld, 0.25);
+  assert.equal(
+    smallWorld.populationCap,
+    maxSmall,
+    `64x64 world city cap must clamp to ${maxSmall}, got ${smallWorld.populationCap}`,
+  );
+
+  // Even with abundant food and planner ticks, city must not reproduce beyond its world-size cap
+  const zonesBefore = computeWorldZones(smallWorld);
+  const kZone = Array.from(zonesBefore.kingdomsById.values())[0];
+  assert.ok(kZone, 'Kingdom zone must exist');
+  assert.equal(kZone.maxPopulation, maxSmall, 'KingdomZoneInfo.maxPopulation must match world-size city cap');
+
+  const popAtCap = smallWorld.units.filter((u) => u.faction === 'civilization' && u.state !== 'ko').length;
+  for (let i = 0; i < 12; i++) {
+    stepSimulation(smallWorld, 0.5);
+  }
+  const popAfter = smallWorld.units.filter((u) => u.faction === 'civilization' && u.state !== 'ko').length;
+  assert.ok(
+    popAfter <= maxSmall && popAfter <= popAtCap,
+    `City population (${popAfter}) must remain capped at ${maxSmall}`,
+  );
+});
+
+test('Starting races survive early wilderness, heal out of combat, and reproduce sustainably before dying of old age', () => {
+  for (const species of ['human', 'orc', 'elf'] as const) {
+    const state = createInitialSimulationState(96, `SUSTAIN-${species}`);
+    state.wildlifeSeeded = true;
+    state.resources.food = 45;
+    state.resources.wood = 65;
+    state.resources.stone = 40;
+    for (let z = 34; z <= 62; z++) {
+      for (let x = 34; x <= 62; x++) {
+        const t = getTile(state, x, z)!;
+        t.height = 2;
+        t.terrain = 'grass';
+        t.resourceNode = 'none';
+        t.resourceAmount = 0;
+        t.buildingId = null;
+      }
+    }
+    // Place nearby berry bushes and timber so settlers sustain themselves realistically
+    for (let i = 0; i < 6; i++) {
+      const bt = getTile(state, 44 + i, 44)!;
+      bt.resourceNode = 'berry_bush';
+      bt.resourceAmount = 45;
+      const tt = getTile(state, 44 + i, 52)!;
+      tt.terrain = 'forest';
+      tt.resourceNode = 'timber_grove';
+      tt.resourceAmount = 45;
+    }
+
+    assert.equal(placeBuilding(state, 'bonfire', 48, 48).ok, true);
+    state.buildings[0].constructionProgress = 100;
+    const sid = state.buildings[0].settlementId!;
+
+    for (let i = 0; i < 5; i++) {
+      const spawned = spawnUnit(state, species, 47 + (i % 3), 47 + Math.floor(i / 3), true, sid, {
+        ageStage: 'adult',
+        ageYears: 18,
+      });
+      assert.equal(spawned.ok, true);
+      if (i === 0 && spawned.unit) {
+        // Injure first settler to verify out-of-combat passive healing works for every settled race
+        spawned.unit.hp = Math.max(20, spawned.unit.maxHp - 40);
+      }
+    }
+
+    const firstUnit = state.units.find((u) => u.faction === 'civilization')!;
+    const hpBefore = firstUnit.hp;
+    for (let i = 0; i < 10; i++) {
+      stepSimulation(state, 0.5);
+    }
+    assert.ok(firstUnit.hp > hpBefore, `${species} settled unit should recover HP out of combat`);
+
+    // Simulate 40 years (40s at 1x) — population must grow well above the initial 5 founders
+    for (let i = 0; i < 80; i++) {
+      stepSimulation(state, 0.5);
+    }
+    const livingPop = state.units.filter((u) => u.faction === 'civilization' && u.state !== 'ko').length;
+    assert.ok(
+      livingPop >= 8,
+      `${species} founding band should grow sustainably past initial 5 units before aging out (got ${livingPop})`,
+    );
+  }
+});
+
+

@@ -13,7 +13,7 @@ export const EPOCHS: EpochDefinition[] = [
     id: 'prehistoric',
     index: 0,
     name: 'Stone Age',
-    yearLabel: '10,000 BCE',
+    yearLabel: 'Age I',
     description: 'Tribes gather around hearths and flint.',
     unlockCost: { food: 0, wood: 0, stone: 0, ore: 0, knowledge: 0, energy: 0, alloy: 0, faith: 0 },
     skyColor: '#1d2729',
@@ -24,7 +24,7 @@ export const EPOCHS: EpochDefinition[] = [
     id: 'bronze',
     index: 1,
     name: 'Bronze Age',
-    yearLabel: '3,000 BCE',
+    yearLabel: 'Age II',
     description: 'Stone towns, kilns, and stepped temples.',
     unlockCost: { food: 140, wood: 130, stone: 95, ore: 25, knowledge: 65, energy: 0, alloy: 0, faith: 25 },
     skyColor: '#232f33',
@@ -35,7 +35,7 @@ export const EPOCHS: EpochDefinition[] = [
     id: 'medieval',
     index: 2,
     name: 'Medieval',
-    yearLabel: '1,150 CE',
+    yearLabel: 'Age III',
     description: 'Guildhalls, stone roads, and star towers.',
     unlockCost: { food: 340, wood: 300, stone: 280, ore: 160, knowledge: 210, energy: 0, alloy: 0, faith: 65 },
     skyColor: '#242b35',
@@ -46,7 +46,7 @@ export const EPOCHS: EpochDefinition[] = [
     id: 'industrial',
     index: 3,
     name: 'Industrial',
-    yearLabel: '1860 CE',
+    yearLabel: 'Age IV',
     description: 'Railways, steam trains, foundries, and brick cities.',
     unlockCost: { food: 720, wood: 580, stone: 640, ore: 480, knowledge: 540, energy: 80, alloy: 70, faith: 130 },
     skyColor: '#26252b',
@@ -57,7 +57,7 @@ export const EPOCHS: EpochDefinition[] = [
     id: 'atomic',
     index: 4,
     name: 'Atomic Age',
-    yearLabel: '1965 CE',
+    yearLabel: 'Age V',
     description: 'Automobiles, airports, reactors, and concrete towers.',
     unlockCost: { food: 1350, wood: 980, stone: 1150, ore: 1050, knowledge: 1250, energy: 480, alloy: 360, faith: 220 },
     skyColor: '#1b2632',
@@ -68,7 +68,7 @@ export const EPOCHS: EpochDefinition[] = [
     id: 'information',
     index: 5,
     name: 'Info Age',
-    yearLabel: '2015 CE',
+    yearLabel: 'Age VI',
     description: 'Metro rapid transit, glass skyscrapers, and jetliners.',
     unlockCost: { food: 2350, wood: 1650, stone: 1950, ore: 1850, knowledge: 2600, energy: 1350, alloy: 1050, faith: 380 },
     skyColor: '#172334',
@@ -79,7 +79,7 @@ export const EPOCHS: EpochDefinition[] = [
     id: 'orbital',
     index: 6,
     name: 'Orbital Age',
-    yearLabel: '2130 CE',
+    yearLabel: 'Age VII',
     description: 'Spaceports, mag-lev transit, and arcologies.',
     unlockCost: { food: 5600, wood: 3800, stone: 5100, ore: 5200, knowledge: 7800, energy: 5200, alloy: 4400, faith: 920 },
     skyColor: '#131b26',
@@ -90,7 +90,7 @@ export const EPOCHS: EpochDefinition[] = [
     id: 'interstellar',
     index: 7,
     name: 'Star Age',
-    yearLabel: '2480 CE',
+    yearLabel: 'Age VIII',
     description: 'Star relays and cosmic ascension.',
     unlockCost: { food: 11500, wood: 7800, stone: 10800, ore: 11200, knowledge: 18500, energy: 14000, alloy: 12000, faith: 2200 },
     skyColor: '#0e131d',
@@ -99,6 +99,17 @@ export const EPOCHS: EpochDefinition[] = [
   },
 ];
 
+export function getMaxCityPopulation(gridSize: number): number {
+  const s = Math.max(32, Math.round(gridSize || 128));
+  if (s <= 64) return 28;
+  if (s <= 96) return 40;
+  if (s <= 128) return 56;
+  if (s <= 160) return 72;
+  if (s <= 192) return 90;
+  if (s <= 224) return 110;
+  return 135;
+}
+
 export const BUILDINGS: BuildingDefinition[] = [
   {
     type: 'bonfire',
@@ -106,7 +117,7 @@ export const BUILDINGS: BuildingDefinition[] = [
     epoch: 'prehistoric',
     roleSummary: '+8 Pop, +2 Food/s, +2 Faith/s',
     keyHint: '1',
-    cost: { wood: 25, stone: 15 },
+    cost: { wood: 45, stone: 25 },
     maxHp: 350,
     popCapBonus: 8,
     productionPerSec: { food: 2, faith: 2, knowledge: 1 },
@@ -118,7 +129,7 @@ export const BUILDINGS: BuildingDefinition[] = [
     epoch: 'prehistoric',
     roleSummary: '+4 Food/s, +4 Wood/s',
     keyHint: '2',
-    cost: { wood: 30, stone: 10 },
+    cost: { wood: 65, stone: 30 },
     maxHp: 220,
     popCapBonus: 3,
     productionPerSec: { food: 4, wood: 4 },
@@ -130,7 +141,7 @@ export const BUILDINGS: BuildingDefinition[] = [
     epoch: 'prehistoric',
     roleSummary: '+4 Faith/s, +2 Research/s',
     keyHint: '3',
-    cost: { wood: 20, stone: 35 },
+    cost: { wood: 45, stone: 70 },
     maxHp: 260,
     popCapBonus: 2,
     productionPerSec: { faith: 4, knowledge: 2 },
@@ -142,7 +153,7 @@ export const BUILDINGS: BuildingDefinition[] = [
     epoch: 'bronze',
     roleSummary: '+8 Food/s, +5 Pop Cap',
     keyHint: '4',
-    cost: { wood: 50, stone: 45 },
+    cost: { wood: 110, stone: 95 },
     maxHp: 380,
     popCapBonus: 5,
     productionPerSec: { food: 8, wood: 2 },
@@ -154,7 +165,7 @@ export const BUILDINGS: BuildingDefinition[] = [
     epoch: 'bronze',
     roleSummary: '+5 Stone/s, +4 Ore/s',
     keyHint: '5',
-    cost: { wood: 45, stone: 60 },
+    cost: { wood: 95, stone: 130 },
     maxHp: 420,
     popCapBonus: 2,
     productionPerSec: { stone: 5, ore: 4, alloy: 1 },
@@ -166,7 +177,7 @@ export const BUILDINGS: BuildingDefinition[] = [
     epoch: 'bronze',
     roleSummary: '+9 Faith/s, +5 Research/s',
     keyHint: '6',
-    cost: { stone: 110, wood: 60, ore: 25 },
+    cost: { stone: 220, wood: 125, ore: 55 },
     maxHp: 650,
     popCapBonus: 6,
     productionPerSec: { faith: 9, knowledge: 5 },
@@ -178,7 +189,7 @@ export const BUILDINGS: BuildingDefinition[] = [
     epoch: 'medieval',
     roleSummary: '+12 Pop Cap, +6 Food/s',
     keyHint: '7',
-    cost: { wood: 90, stone: 100, ore: 40 },
+    cost: { wood: 185, stone: 210, ore: 85 },
     maxHp: 750,
     popCapBonus: 12,
     productionPerSec: { food: 6, wood: 5, stone: 5, faith: 3 },
@@ -190,7 +201,7 @@ export const BUILDINGS: BuildingDefinition[] = [
     epoch: 'medieval',
     roleSummary: '+10 Research/s, +4 Faith/s',
     keyHint: '8',
-    cost: { stone: 110, ore: 65, wood: 70 },
+    cost: { stone: 225, ore: 135, wood: 140 },
     maxHp: 480,
     popCapBonus: 4,
     productionPerSec: { knowledge: 10, faith: 4 },
@@ -202,7 +213,7 @@ export const BUILDINGS: BuildingDefinition[] = [
     epoch: 'industrial',
     roleSummary: '+10 Ore/s, +6 Alloy/s',
     keyHint: '9',
-    cost: { stone: 150, ore: 120, wood: 80 },
+    cost: { stone: 310, ore: 250, wood: 165 },
     maxHp: 850,
     popCapBonus: 6,
     productionPerSec: { ore: 10, alloy: 6, energy: 4 },
@@ -214,7 +225,7 @@ export const BUILDINGS: BuildingDefinition[] = [
     epoch: 'industrial',
     roleSummary: '+14 Energy/s, +6 Research/s',
     keyHint: '0',
-    cost: { stone: 140, ore: 140, alloy: 30 },
+    cost: { stone: 290, ore: 290, alloy: 65 },
     maxHp: 800,
     popCapBonus: 4,
     productionPerSec: { energy: 14, knowledge: 6 },
@@ -226,7 +237,7 @@ export const BUILDINGS: BuildingDefinition[] = [
     epoch: 'industrial',
     roleSummary: 'Links cities by rail, +12 Pop Cap',
     keyHint: ';',
-    cost: { stone: 140, ore: 110, alloy: 25 },
+    cost: { stone: 290, ore: 230, alloy: 55 },
     maxHp: 900,
     popCapBonus: 12,
     productionPerSec: { ore: 6, knowledge: 8, energy: 4 },
@@ -238,7 +249,7 @@ export const BUILDINGS: BuildingDefinition[] = [
     epoch: 'atomic',
     roleSummary: '+28 Energy/s, +10 Alloy/s',
     keyHint: '-',
-    cost: { stone: 220, ore: 200, alloy: 90, knowledge: 120 },
+    cost: { stone: 440, ore: 400, alloy: 185, knowledge: 240 },
     maxHp: 1100,
     popCapBonus: 8,
     productionPerSec: { energy: 28, alloy: 10, knowledge: 8 },
@@ -250,7 +261,7 @@ export const BUILDINGS: BuildingDefinition[] = [
     epoch: 'atomic',
     roleSummary: '+24 Research/s, +10 Energy/s',
     keyHint: '=',
-    cost: { stone: 180, alloy: 110, energy: 90 },
+    cost: { stone: 360, alloy: 225, energy: 185 },
     maxHp: 950,
     popCapBonus: 10,
     productionPerSec: { knowledge: 24, energy: 10, faith: 5 },
@@ -262,7 +273,7 @@ export const BUILDINGS: BuildingDefinition[] = [
     epoch: 'atomic',
     roleSummary: 'Airliners & global transit, +15 Pop',
     keyHint: "'",
-    cost: { stone: 200, alloy: 130, energy: 110, knowledge: 100 },
+    cost: { stone: 410, alloy: 265, energy: 225, knowledge: 205 },
     maxHp: 1250,
     popCapBonus: 15,
     productionPerSec: { knowledge: 14, energy: 8, food: 6 },
@@ -274,7 +285,7 @@ export const BUILDINGS: BuildingDefinition[] = [
     epoch: 'orbital',
     roleSummary: '+22 Alloy/s, +30 Research/s',
     keyHint: '[',
-    cost: { alloy: 240, energy: 220, ore: 250, knowledge: 250 },
+    cost: { alloy: 480, energy: 440, ore: 500, knowledge: 500 },
     maxHp: 1500,
     popCapBonus: 16,
     productionPerSec: { alloy: 22, knowledge: 30, energy: 20, food: 15 },
@@ -286,7 +297,7 @@ export const BUILDINGS: BuildingDefinition[] = [
     epoch: 'interstellar',
     roleSummary: 'Unlocks Star Ascension',
     keyHint: ']',
-    cost: { alloy: 450, energy: 500, knowledge: 500, faith: 250 },
+    cost: { alloy: 900, energy: 1000, knowledge: 1000, faith: 500 },
     maxHp: 2500,
     popCapBonus: 30,
     productionPerSec: {
@@ -311,9 +322,9 @@ export const SPECIES_UNITS: UnitDefinition[] = [
     faction: 'civilization',
     roleSummary: 'Fast tech progress, relies on tech',
     cost: { faith: 10 },
-    maxHp: 90,
+    maxHp: 135,
     speed: 2.55,
-    attackDamage: 9,
+    attackDamage: 14,
     attackRange: 1.35,
     harvestRate: 9,
   },
@@ -324,9 +335,9 @@ export const SPECIES_UNITS: UnitDefinition[] = [
     faction: 'civilization',
     roleSummary: 'Peaceful mages & arcane tech',
     cost: { faith: 12 },
-    maxHp: 105,
+    maxHp: 145,
     speed: 3.05,
-    attackDamage: 14,
+    attackDamage: 18,
     attackRange: 3.4,
     harvestRate: 9,
   },
@@ -337,9 +348,9 @@ export const SPECIES_UNITS: UnitDefinition[] = [
     faction: 'civilization',
     roleSummary: 'Fierce barbarians, slow progress',
     cost: { faith: 12 },
-    maxHp: 185,
+    maxHp: 225,
     speed: 2.4,
-    attackDamage: 24,
+    attackDamage: 28,
     attackRange: 1.45,
     harvestRate: 10,
   },
@@ -466,6 +477,19 @@ export const MYTHICAL_BEAST_UNITS: UnitDefinition[] = [
     attackRange: 1.5,
     harvestRate: 0,
   },
+  {
+    role: 'leviathan',
+    category: 'mythical',
+    name: 'Leviathan',
+    faction: 'wildlife',
+    roleSummary: 'Colossal mythical Leviathan: lurks as a deep silhouette & breaches to devour prey',
+    cost: { faith: 45 },
+    maxHp: 680,
+    speed: 3.4,
+    attackDamage: 58,
+    attackRange: 4.8,
+    harvestRate: 0,
+  },
 ];
 
 export const UNITS: UnitDefinition[] = [
@@ -479,11 +503,11 @@ export const UNITS: UnitDefinition[] = [
     faction: 'civilization',
     roleSummary: 'Builds towns and gathers resources',
     cost: { faith: 10 },
-    maxHp: 90,
+    maxHp: 130,
     speed: 2.4,
-    attackDamage: 8,
+    attackDamage: 12,
     attackRange: 1.2,
-    harvestRate: 7,
+    harvestRate: 8,
   },
   {
     role: 'forager',
@@ -921,6 +945,7 @@ export function getUnitMaxLifespan(unit: {
   let base: number;
   switch (unit.role) {
     case 'dragon':
+    case 'leviathan':
       base = 500 + (seed % 65);
       break;
     case 'unicorn':
@@ -956,9 +981,9 @@ export function getUnitMaxLifespan(unit: {
       if (unit.species === 'elf') {
         base = 215 + (seed % 50);
       } else if (unit.species === 'orc') {
-        base = 55 + (seed % 14);
+        base = 68 + (seed % 16);
       } else {
-        base = 75 + (seed % 18);
+        base = 88 + (seed % 20);
       }
       break;
   }
@@ -966,8 +991,9 @@ export function getUnitMaxLifespan(unit: {
   let geneBonus = 0;
   if (unit.genes) {
     for (const g of unit.genes) {
-      if (g === 'Hardy Constitution') geneBonus += 12;
-      else if (g === 'Ancient Wyrmblood') geneBonus += 60;
+      if (g === 'Hardy Constitution') {
+        geneBonus += unit.role === 'chicken' ? 3 : unit.role === 'capybara' ? 4 : 12;
+      } else if (g === 'Ancient Wyrmblood') geneBonus += 60;
       else if (g === 'Alpha Stature') geneBonus += 5;
       else if (g === 'Starleaf Resonance') geneBonus += 18;
     }

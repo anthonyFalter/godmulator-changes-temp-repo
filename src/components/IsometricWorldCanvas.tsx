@@ -8,7 +8,15 @@ import {
   createUnitGroup,
   createVehicleGroup,
   getNodeVariantLibrary,
+  updateBuildingNightMaterials,
 } from '../game/meshBuilders';
+import {
+  TIME_OF_DAY_PRESETS,
+  clampSimulationSpeed,
+  getEpochCityLightProfile,
+  getTimeOfDayLightingState,
+  wrapShaderTime,
+} from '../game/dayNightLighting';
 import {
   createOceanFoamSystem,
   createPixelSpaceSystem,
@@ -21,6 +29,16 @@ import {
   ResolvedGraphicsProfile,
   resolveGraphicsProfile,
 } from '../game/graphics';
+import {
+  TouchPoint,
+  TwoFingerState,
+  computeDynamicPixelScale,
+  computeTwoFingerCameraDelta,
+  computeTwoFingerState,
+  getResponsiveMaxZoomOut,
+  getResponsiveTitleFrustum,
+  getResponsiveWholeMapFrustum,
+} from '../game/cameraTouch';
 import {
   beginDragUnit,
   closestFaultDistanceSq,
@@ -55,6 +73,7 @@ interface IsometricWorldCanvasProps {
   activeTool: ActiveTool;
   brushRadius: number;
   brushInputMode?: BrushInputMode;
+  mobilePanMode?: boolean;
   pixelScale: number;
   lightingPreset: LightingPreset;
   graphicsSettings?: GraphicsSettings;
@@ -65,6 +84,7 @@ interface IsometricWorldCanvasProps {
     playTransition?: boolean;
     focusTarget?: { x: number; z: number; zoom?: number } | null;
   }>;
+  captureThumbnailRef?: React.MutableRefObject<(() => string | null) | null>;
   hoveredEntityId?: string | null;
   selectedEntityId?: string | null;
   followingEntityId?: string | null;
@@ -111,6 +131,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
   activeTool,
   brushRadius,
   brushInputMode = 'hold',
+  mobilePanMode = false,
   pixelScale,
   lightingPreset,
   graphicsSettings = DEFAULT_GRAPHICS_SETTINGS,
@@ -118,6 +139,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
   hoveredEntityId = null,
   selectedEntityId = null,
   followingEntityId = null,
+  captureThumbnailRef,
   zoneOverlayBuffers,
   onTileInteract,
   onHoverTileChange,
@@ -137,6 +159,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     activeTool,
     brushRadius,
     brushInputMode,
+    mobilePanMode,
     pixelScale,
     lightingPreset,
     graphicsSettings,
@@ -159,6 +182,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       activeTool,
       brushRadius,
       brushInputMode,
+      mobilePanMode,
       pixelScale,
       lightingPreset,
       graphicsSettings,
@@ -179,6 +203,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     activeTool,
     brushRadius,
     brushInputMode,
+    mobilePanMode,
     pixelScale,
     lightingPreset,
     graphicsSettings,
@@ -198,21 +223,18 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     const container = mountRef.current;
     if (!container) return;
 
-    const isSoftwareGl = (() => {
-      const probeCanvas = document.createElement('canvas');
-      const gl = probeCanvas.getContext('webgl2');
-      if (!gl) return true;
-      const ext = gl.getExtension('WEBGL_debug_renderer_info');
-      const param = ext ? ext.UNMASKED_RENDERER_WEBGL : gl.RENDERER;
-      const gpu = String(gl.getParameter(param));
-      gl.getExtension('WEBGL_lose_context')?.loseContext();
-      return /SwiftShader|llvmpipe|softpipe|Software|Basic Render/i.test(gpu);
-    })();
-
     const renderer = new THREE.WebGLRenderer({
       antialias: false, // Deliberate crisp pixel edges
       powerPreference: 'high-performance',
     });
+    const isSoftwareGl = (() => {
+      const gl = renderer.getContext();
+      if (!gl) return true;
+      const ext = gl.getExtension('WEBGL_debug_renderer_info');
+      const param = ext ? ext.UNMASKED_RENDERER_WEBGL : gl.RENDERER;
+      const gpu = String(gl.getParameter(param));
+      return /SwiftShader|llvmpipe|softpipe|Software|Basic Render/i.test(gpu);
+    })();
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.12;
@@ -220,25 +242,34 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     renderer.shadowMap.enabled = !isSoftwareGl;
     renderer.shadowMap.type = THREE.BasicShadowMap; // Crisp pixel-art shadow edges
 
-    renderer.domElement.className = 'w-full h-full block pixelated-canvas outline-none';
+    renderer.domElement.className = 'w-full h-full block pixelated-canvas outline-none touch-none';
+    renderer.domElement.style.touchAction = 'none';
     renderer.domElement.tabIndex = 0;
     container.innerHTML = '';
     container.appendChild(renderer.domElement);
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color('#070b14');
-    scene.fog = new THREE.FogExp2('#0c131d', 0.0085);
+    scene.fog = new THREE.FogExp2(
+      TIME_OF_DAY_PRESETS.noon.fogColorHex,
+      TIME_OF_DAY_PRESETS.noon.fogDensity,
+    );
 
     const pmremGenerator = new THREE.PMREMGenerator(renderer);
     scene.environment = pmremGenerator.fromScene(new RoomEnvironment(), 0.04).texture;
     pmremGenerator.dispose();
 
-    // Orthographic camera for authentic isometric projection
+    // Orthographic camera for authentic isometric projection (responsive to portrait & landscape)
     const sim = simRef.current;
-    const getWholeMapFrustum = (gs: number) => Math.round(gs * (105 / 128));
-    const aspect = Math.max(1, container.clientWidth) / Math.max(1, container.clientHeight);
+    const getCurrentAspect = () =>
+      Math.max(1, container.clientWidth) / Math.max(1, container.clientHeight);
+    const getWholeMapFrustum = (gs: number) =>
+      getResponsiveWholeMapFrustum(gs, getCurrentAspect());
+    const aspect = getCurrentAspect();
     let frustumSize =
-      propsRef.current.gameState === 'title' ? 22 : getWholeMapFrustum(sim.gridSize);
+      propsRef.current.gameState === 'title'
+        ? getResponsiveTitleFrustum(aspect)
+        : getWholeMapFrustum(sim.gridSize);
     const camera = new THREE.OrthographicCamera(
       (-frustumSize * aspect) / 2,
       (frustumSize * aspect) / 2,
@@ -271,8 +302,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     keyLight.shadow.camera.bottom = -shadowBounds;
     keyLight.shadow.camera.near = 1;
     keyLight.shadow.camera.far = 75;
-    keyLight.shadow.bias = -0.0005;
-    keyLight.shadow.normalBias = 0.02;
+    keyLight.shadow.bias = -0.0014;
+    keyLight.shadow.normalBias = 0.035;
     scene.add(keyLight);
     scene.add(keyLight.target);
 
@@ -280,10 +311,18 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     rimLight.position.set(-16, 15, -16);
     scene.add(rimLight);
 
-    // Warm sacred bonfire / torch point light at settlement heart
-    const hearthLight = new THREE.PointLight(0xff922b, 2.4, 12, 1.6);
+    // Warm sacred bonfire / torch point light at settlement heart + cluster point lights for active cities at night
+    const hearthLight = new THREE.PointLight(0xff922b, 2.4, 14, 1.5);
     hearthLight.position.set(gridCenter, 3.0, gridCenter);
     scene.add(hearthLight);
+
+    const cityClusterLights: THREE.PointLight[] = [];
+    for (let ci = 0; ci < 4; ci++) {
+      const cLight = new THREE.PointLight(0xffa62b, 0, 12, 1.5);
+      cLight.position.set(gridCenter, 2.5, gridCenter);
+      scene.add(cLight);
+      cityClusterLights.push(cLight);
+    }
 
     // Dynamic God Power Flash Light (illuminates terrain & structures during miracle/disaster casts)
     const vfxFlashLight = new THREE.PointLight(0xff922b, 0, 26, 1.2);
@@ -295,7 +334,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     scene.add(worldGroup);
 
     const terrainGroup = new THREE.Group();
+    terrainGroup.renderOrder = 0;
     const nodesGroup = new THREE.Group();
+    nodesGroup.renderOrder = 1;
     const buildingsGroup = new THREE.Group();
     const unitsGroup = new THREE.Group();
     const vehiclesGroup = new THREE.Group();
@@ -347,7 +388,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     tileGeo.translate(0, -0.5, 0);
 
     const styledTerrain = createStyledTerrainSystem(sim.gridSize);
-    styledTerrain.updateMap(sim.tiles);
+    styledTerrain.updateMap(sim.tiles, sim.buildings, sim.settlementSpecies);
 
     const terrainInstancedMap = new Map<TerrainType, THREE.InstancedMesh>();
     const terrainInstancedList: THREE.InstancedMesh[] = [];
@@ -358,10 +399,47 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       sim.gridSize * 1.1,
     );
 
+    const terrainCounts = new Map<TerrainType, number>();
+    for (let i = 0; i < sim.tiles.length; i++) {
+      const tt = sim.tiles[i].terrain;
+      terrainCounts.set(tt, (terrainCounts.get(tt) ?? 0) + 1);
+    }
+    const terrainHeadroom = Math.min(512, Math.ceil(sim.tiles.length * 0.04));
+
+    function ensureInstancedCapacity(
+      inst: THREE.InstancedMesh,
+      needed: number,
+      indexMap?: Map<THREE.InstancedMesh, Int32Array>,
+      maxLimit = simRef.current.tiles.length * 2,
+    ) {
+      const curCap = inst.instanceMatrix.count;
+      if (needed <= curCap) return;
+      const nextCap = Math.min(maxLimit, Math.max(needed, curCap * 2));
+      const prevArr = inst.instanceMatrix.array as Float32Array;
+      const nextArr = new Float32Array(nextCap * 16);
+      nextArr.set(prevArr);
+      const nextAttr = new THREE.InstancedBufferAttribute(nextArr, 16);
+      nextAttr.setUsage(THREE.DynamicDrawUsage);
+      inst.instanceMatrix = nextAttr;
+      if (indexMap) {
+        const prevIdx = indexMap.get(inst);
+        if (prevIdx) {
+          const nextIdx = new Int32Array(nextCap);
+          nextIdx.set(prevIdx);
+          indexMap.set(inst, nextIdx);
+        }
+      }
+    }
+
     for (let tIdx = 0; tIdx < TERRAIN_TYPES.length; tIdx++) {
       const tType = TERRAIN_TYPES[tIdx];
       const mat = styledTerrain.getMaterials(tType);
-      const inst = new THREE.InstancedMesh(tileGeo, mat, sim.tiles.length);
+      const exactCount = terrainCounts.get(tType) ?? 0;
+      const initialCap = Math.min(
+        sim.tiles.length,
+        Math.max(64, exactCount + terrainHeadroom),
+      );
+      const inst = new THREE.InstancedMesh(tileGeo, mat, initialCap);
       inst.frustumCulled = false;
       inst.boundingSphere = worldBoundsSphere;
       inst.receiveShadow = true;
@@ -371,7 +449,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       terrainInstancedMap.set(tType, inst);
       terrainInstancedList.push(inst);
       terrainInstIndexMap.set(inst, tIdx);
-      terrainInstanceToTile.set(inst, new Int32Array(sim.tiles.length));
+      terrainInstanceToTile.set(inst, new Int32Array(initialCap));
     }
 
     const tileCurrentY = new Float32Array(sim.tiles.length);
@@ -385,22 +463,25 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     const instNeedsUpload = new Uint8Array(TERRAIN_TYPES.length);
     for (let i = 0; i < sim.tiles.length; i++) {
       const t = sim.tiles[i];
-      const y0 = t.height === 0 ? 0.12 : t.height * HEIGHT_STEP + 0.25;
+      const isWaterWalkway =
+        t.height === 0 &&
+        (t.terrain === 'stone_road' || t.terrain === 'rail_track' || t.terrain === 'runway');
+      const y0 = t.height === 0 ? (isWaterWalkway ? 0.3 : 0.12) : t.height * HEIGHT_STEP + 0.25;
       tileCurrentY[i] = y0;
       tileLastNodeY[i] = -999;
       tilePropSig[i] = -1;
     }
 
-    // Instanced Multi-Object Props (1-4 objects per tile across 128x128)
+    // Instanced Multi-Object Props (1-4 objects per tile, starting compactly and growing on demand)
     const variantLib = getNodeVariantLibrary();
-    const maxPropCapacity = Math.ceil(sim.tiles.length * 0.55);
+    const INITIAL_PROP_CAPACITY = 128;
     const makePropInstancedList = (
       geos: THREE.BufferGeometry[],
       mat: THREE.Material,
       castShadow: boolean,
     ) =>
       geos.map((geo) => {
-        const inst = new THREE.InstancedMesh(geo, mat, maxPropCapacity);
+        const inst = new THREE.InstancedMesh(geo, mat, INITIAL_PROP_CAPACITY);
         inst.frustumCulled = false;
         inst.boundingSphere = worldBoundsSphere;
         inst.castShadow = castShadow;
@@ -420,6 +501,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     const stoneInsts = makePropInstancedList(variantLib.stone, variantLib.standardMat, true);
     const oreInsts = makePropInstancedList(variantLib.ore, variantLib.standardMat, true);
     const crystalInsts = makePropInstancedList(variantLib.crystal, variantLib.crystalMat, true);
+    const coralReefInsts = makePropInstancedList(variantLib.coralReef, variantLib.coralReefMat, false);
+    const coralReefBleachedInsts = makePropInstancedList(
+      variantLib.coralReefBleached,
+      variantLib.standardMat,
+      false,
+    );
+    const scrapFlotsamInsts = makePropInstancedList(variantLib.scrapFlotsam, variantLib.standardMat, true);
+    const atlantisRuinInsts = makePropInstancedList(variantLib.atlantisRuin, variantLib.standardMat, true);
     const ambGrassInsts = makePropInstancedList(variantLib.ambientGrass, variantLib.standardMat, false);
     const ambForestInsts = makePropInstancedList(variantLib.ambientForest, variantLib.standardMat, false);
     const ambSandInsts = makePropInstancedList(variantLib.ambientSand, variantLib.standardMat, false);
@@ -446,6 +535,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       ...stoneInsts,
       ...oreInsts,
       ...crystalInsts,
+      ...coralReefInsts,
+      ...coralReefBleachedInsts,
+      ...scrapFlotsamInsts,
+      ...atlantisRuinInsts,
     ];
 
     const ambientPropInsts: THREE.InstancedMesh[] = [
@@ -518,6 +611,28 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       emissiveIntensity: 1.15,
       roughness: 0.25,
     });
+    const streetPoleMat = new THREE.MeshStandardMaterial({
+      color: 0x4a3525,
+      roughness: 0.78,
+      metalness: 0.15,
+    });
+    const streetLampGlowMat = new THREE.MeshStandardMaterial({
+      color: 0xffb703,
+      emissive: 0xff8811,
+      emissiveIntensity: 0.35,
+      roughness: 0.2,
+    });
+    const skywayDeckMat = new THREE.MeshStandardMaterial({
+      color: 0x334155,
+      roughness: 0.56,
+      metalness: 0.35,
+    });
+    const skywayTrimMat = new THREE.MeshStandardMaterial({
+      color: 0xf59e0b,
+      emissive: 0xf59e0b,
+      emissiveIntensity: 0.75,
+      roughness: 0.28,
+    });
 
     const metroPillarGeo = new THREE.BoxGeometry(0.17, 0.64, 0.17);
     const metroCapGeo = new THREE.BoxGeometry(0.36, 0.09, 0.36);
@@ -530,14 +645,19 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     const metroParapetEWGeo = new THREE.BoxGeometry(1.0, 0.065, 0.055);
     const metroParapetNSGeo = new THREE.BoxGeometry(0.055, 0.065, 1.0);
     const runwayBeaconGeo = new THREE.BoxGeometry(0.07, 0.11, 0.07);
+    const streetPoleGeo = new THREE.BoxGeometry(0.042, 1.0, 0.042);
+    const streetLampHeadGeo = new THREE.BoxGeometry(0.085, 0.085, 0.085);
+    const skywayDeckGeo = new THREE.BoxGeometry(0.46, 0.075, 1.0);
+    const skywayTrimGeo = new THREE.BoxGeometry(0.05, 0.045, 1.0);
 
+    const INITIAL_METRO_CAP = 64;
     const makeMetroInst = (
       geo: THREE.BufferGeometry,
       mat: THREE.Material,
-      cap: number,
+      _cap: number,
       castShadow: boolean,
     ) => {
-      const inst = new THREE.InstancedMesh(geo, mat, cap);
+      const inst = new THREE.InstancedMesh(geo, mat, INITIAL_METRO_CAP);
       inst.frustumCulled = false;
       inst.boundingSphere = worldBoundsSphere;
       inst.castShadow = castShadow;
@@ -558,6 +678,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     const metroParapetEWInst = makeMetroInst(metroParapetEWGeo, metroParapetMat, MAX_METRO_STRIP_INST, true);
     const metroParapetNSInst = makeMetroInst(metroParapetNSGeo, metroParapetMat, MAX_METRO_STRIP_INST, true);
     const runwayBeaconInst = makeMetroInst(runwayBeaconGeo, runwayBeaconMat, MAX_RUNWAY_LIGHT_INST, false);
+    const streetPoleInst = makeMetroInst(streetPoleGeo, streetPoleMat, MAX_METRO_INST, false);
+    const streetLampHeadInst = makeMetroInst(streetLampHeadGeo, streetLampGlowMat, MAX_METRO_INST, false);
+    const skywayDeckInst = makeMetroInst(skywayDeckGeo, skywayDeckMat, MAX_METRO_INST, true);
+    const skywayTrimInst = makeMetroInst(skywayTrimGeo, skywayTrimMat, MAX_METRO_STRIP_INST, false);
 
     const allMetroInsts = [
       metroPillarInst,
@@ -571,6 +695,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       metroParapetEWInst,
       metroParapetNSInst,
       runwayBeaconInst,
+      streetPoleInst,
+      streetLampHeadInst,
+      skywayDeckInst,
+      skywayTrimInst,
     ];
 
     const TERRAIN_CODE: Record<string, number> = {
@@ -604,6 +732,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       stone_outcrop: 3,
       ore_vein: 4,
       crystal_monolith: 5,
+      coral_reef: 6,
+      scrap_flotsam: 7,
+      atlantis_ruin: 8,
     };
 
     interface BuildingMeshEntry {
@@ -611,6 +742,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       epochLevel: number;
       type: string;
       species: string;
+      isWaterTile: boolean;
       flickerFlames: THREE.Object3D[];
       spinParts: THREE.Object3D[];
       cachedRotY: number;
@@ -643,6 +775,24 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       statusRing?: THREE.Mesh;
       battlewillAvatar?: THREE.Object3D;
       battlewillSwordPivot?: THREE.Object3D;
+      leviathanSilhouette?: THREE.Object3D;
+      leviathanSurfaced?: THREE.Object3D;
+      silHead?: THREE.Object3D;
+      silSeg0?: THREE.Object3D;
+      silSeg1?: THREE.Object3D;
+      silSeg2?: THREE.Object3D;
+      silTail?: THREE.Object3D;
+      silFinL?: THREE.Object3D;
+      silFinR?: THREE.Object3D;
+      mandibleL?: THREE.Object3D;
+      mandibleR?: THREE.Object3D;
+      leviathanTailMid?: THREE.Object3D;
+      leviathanBeamGroup?: THREE.Object3D;
+      beamShaft?: THREE.Object3D;
+      beamImpact?: THREE.Object3D;
+      beamMuzzle?: THREE.Object3D;
+      leviathanSplashInner?: THREE.Object3D;
+      leviathanSplashOuter?: THREE.Object3D;
       lastCarryType: string | null;
       lastStatusKey: number;
       seenStamp: number;
@@ -1098,6 +1248,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     sharedTornadoRingGeo.rotateX(Math.PI / 2);
     const sharedTornadoCapGeo = new THREE.BoxGeometry(2.6, 0.75, 2.6);
     const sharedDebrisCubeGeo = new THREE.BoxGeometry(0.32, 0.32, 0.32);
+    const sharedWhirlpoolDiskGeo = new THREE.PlaneGeometry(2.0, 2.0, 1, 1);
+    sharedWhirlpoolDiskGeo.rotateX(-Math.PI / 2);
+    const sharedWhirlpoolFunnelGeo = new THREE.CylinderGeometry(0.92, 0.14, 0.26, 28, 1, true);
 
     interface TsunamiWaveSegment {
       group: THREE.Group;
@@ -1130,7 +1283,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         | 'wormhole_rift'
         | 'tornado_vortex'
         | 'tsunami_wave'
-        | 'earthquake_zone';
+        | 'earthquake_zone'
+        | 'whirlpool'
+        | 'rogue_wave';
       group: THREE.Group;
       materials: THREE.Material[];
       drops?: { mesh: THREE.Mesh; offsetY: number; speed: number; baseX: number; baseZ: number }[];
@@ -1656,6 +1811,177 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         };
       }
 
+      if (kind === 'whirlpool') {
+        const vortexFunnelShaderMat = new THREE.ShaderMaterial({
+          uniforms: {
+            uTime: { value: 0 },
+            uOpacity: { value: 0.96 },
+          },
+          vertexShader: /* glsl */ `
+            varying vec2 vUvCentered;
+            void main() {
+              vUvCentered = uv * 2.0 - 1.0;
+              gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+            }
+          `,
+          fragmentShader: /* glsl */ `
+            uniform float uTime;
+            uniform float uOpacity;
+            varying vec2 vUvCentered;
+
+            void main() {
+              // Crisp pixel-art quantization matching the isometric ocean grid
+              vec2 p = floor(vUvCentered * 22.0 + 0.5) / 22.0;
+              float r = length(p);
+              if (r > 1.0) discard;
+
+              float theta = atan(p.y, p.x);
+              // Logarithmic spiral arms pulling inward toward the abyssal throat
+              float logR = log(max(0.065, r));
+              float spiral1 = theta * 3.0 + logR * 7.8 - uTime * 6.8;
+              float spiral2 = theta * 2.0 + logR * 6.2 - uTime * 5.2 + 1.57;
+
+              float armPrimary = smoothstep(0.18, 0.78, sin(spiral1));
+              float armSecondary = smoothstep(0.38, 0.88, sin(spiral2));
+              float foamCrest = step(0.66, sin(spiral1 + 0.25)) * smoothstep(0.16, 0.32, r) * (1.0 - smoothstep(0.78, 0.96, r));
+              float innerSuctionFoam = smoothstep(0.17, 0.24, r) * (1.0 - smoothstep(0.24, 0.33, r)) * step(0.15, sin(theta * 5.0 - uTime * 9.0));
+
+              vec3 abyssCol = vec3(0.008, 0.028, 0.065);
+              vec3 trenchCol = vec3(0.016, 0.13, 0.24);
+              vec3 swirlTeal = vec3(0.04, 0.58, 0.74);
+              vec3 swirlCyan = vec3(0.32, 0.86, 0.94);
+              vec3 foamWhite = vec3(0.90, 0.99, 1.0);
+
+              // Deep funnel gradient from outer rim into the black maelstrom eye
+              float throatMask = 1.0 - smoothstep(0.08, 0.27, r);
+              vec3 col = mix(trenchCol, swirlTeal, armPrimary * 0.82);
+              col = mix(col, swirlCyan, armSecondary * 0.65);
+              col = mix(col, foamWhite, clamp(foamCrest + innerSuctionFoam * 0.85, 0.0, 1.0));
+              col = mix(col, abyssCol, throatMask);
+
+              float outerFade = 1.0 - smoothstep(0.76, 1.0, r);
+              float alpha = clamp((0.82 + foamCrest * 0.18 + throatMask * 0.18) * outerFade * uOpacity, 0.0, 0.98);
+              if (alpha < 0.05) discard;
+              gl_FragColor = vec4(col, alpha);
+            }
+          `,
+          transparent: true,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+        });
+
+        const funnelWallMat = new THREE.MeshBasicMaterial({
+          color: 0x04243c,
+          transparent: true,
+          opacity: 0.72,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        const swirlOuterMat = new THREE.MeshBasicMaterial({
+          color: 0x22d3ee,
+          transparent: true,
+          opacity: 0.82,
+          depthWrite: false,
+        });
+        const swirlFoamMat = new THREE.MeshBasicMaterial({
+          color: 0xe0fbfc,
+          transparent: true,
+          opacity: 0.94,
+          depthWrite: false,
+        });
+        materials.push(vortexFunnelShaderMat, funnelWallMat, swirlOuterMat, swirlFoamMat);
+
+        const vortexDisk = new THREE.Mesh(sharedWhirlpoolDiskGeo, vortexFunnelShaderMat);
+        vortexDisk.position.y = 0.055;
+        vortexDisk.scale.setScalar(radius * 1.08);
+        group.add(vortexDisk);
+
+        const funnelCone = new THREE.Mesh(sharedWhirlpoolFunnelGeo, funnelWallMat);
+        funnelCone.position.y = -0.04;
+        funnelCone.scale.set(radius * 0.88, 1.0, radius * 0.88);
+        group.add(funnelCone);
+
+        const vortexMotes: VortexMote[] = [];
+        for (let i = 0; i < 20; i++) {
+          const m = new THREE.Mesh(sharedDebrisCubeGeo, i % 3 === 0 ? swirlOuterMat : swirlFoamMat);
+          m.scale.set(0.36, 0.18, 0.22);
+          group.add(m);
+          vortexMotes.push({
+            mesh: m,
+            baseAngle: (i / 20) * Math.PI * 2,
+            phase: (i / 20) + (i % 5) * 0.07,
+            speed: 0.75 + (i % 4) * 0.18,
+          });
+        }
+
+        return {
+          kind,
+          group,
+          materials,
+          ringMesh: vortexDisk,
+          secondaryRingMesh: funnelCone,
+          vortexMotes,
+          seenStamp: 0,
+        };
+      }
+
+      if (kind === 'rogue_wave') {
+        const deepSwellMat = new THREE.MeshStandardMaterial({
+          color: 0x023e8a,
+          roughness: 0.38,
+          transparent: true,
+          opacity: 0.9,
+        });
+        const waveWallMat = new THREE.MeshStandardMaterial({
+          color: 0x0077b6,
+          emissive: 0x005082,
+          emissiveIntensity: 0.32,
+          roughness: 0.32,
+          transparent: true,
+          opacity: 0.94,
+        });
+        const crestFoamMat = new THREE.MeshBasicMaterial({
+          color: 0xe0fbfc,
+          transparent: true,
+          opacity: 0.98,
+        });
+        materials.push(deepSwellMat, waveWallMat, crestFoamMat);
+
+        const wallGroup = new THREE.Group();
+        const spanCount = Math.max(5, Math.round(radius * 2.2));
+        for (let si = 0; si < spanCount; si++) {
+          const u = (si / (spanCount - 1)) * 2 - 1;
+          const arch = Math.cos(u * Math.PI * 0.48);
+          const lx = u * radius * 0.95;
+          const lz = -Math.pow(u, 2) * 0.65;
+
+          const baseM = new THREE.Mesh(sharedWaveBaseGeo, deepSwellMat);
+          baseM.position.set(lx, 0.32 * arch, lz - 0.35);
+          baseM.scale.set(0.95, arch, 1.0);
+          wallGroup.add(baseM);
+
+          const faceM = new THREE.Mesh(sharedWaveFaceGeo, waveWallMat);
+          faceM.position.set(lx, 0.78 * arch, lz + 0.12);
+          faceM.scale.set(0.95, 1.15 * arch, 1.0);
+          wallGroup.add(faceM);
+
+          const foamM = new THREE.Mesh(sharedWaveFoamGeo, crestFoamMat);
+          foamM.position.set(lx, 1.55 * arch, lz + 0.68);
+          foamM.rotation.x = 0.35;
+          foamM.scale.set(1.0, arch, 1.0);
+          wallGroup.add(foamM);
+        }
+        group.add(wallGroup);
+
+        return {
+          kind,
+          group,
+          materials,
+          cloudBody: wallGroup,
+          seenStamp: 0,
+        };
+      }
+
       return {
         kind,
         group,
@@ -1826,6 +2152,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         | 'dragon_flame'
         | 'animal_strike'
         | 'ripple_ring'
+        | 'weapon_spark'
         | 'nuke_blast'
         | 'arcane_cataclysm'
         | 'battlewill_slash'
@@ -1863,6 +2190,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       spikes?: THREE.Mesh[];
       crackMeshes?: THREE.Mesh[];
       slashMeshes?: THREE.Mesh[];
+      sparkShards?: THREE.Mesh[];
+      runePillars?: THREE.Mesh[];
+      skyCircleMesh?: THREE.Mesh;
+      beamCoreMesh?: THREE.Mesh;
+      beamAuraMesh?: THREE.Mesh;
+      torusCapMesh?: THREE.Mesh;
+      muzzleRingMesh?: THREE.Mesh;
+      slashBaseYaw?: number;
       flameCoreCone?: THREE.Mesh;
       flameOuterCone?: THREE.Mesh;
       tracerMesh?: THREE.Object3D;
@@ -3508,25 +3843,126 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       });
     }
 
-    const sharedTracerGeo = new THREE.BoxGeometry(0.11, 0.11, 0.72);
-    const sharedShellGeo = new THREE.SphereGeometry(0.15, 7, 6);
-    const sharedBombBodyGeo = new THREE.CylinderGeometry(0.1, 0.14, 0.42, 7);
+    const sharedTracerGeo = new THREE.BoxGeometry(0.11, 0.11, 0.78);
+    const sharedBulletCoreGeo = new THREE.BoxGeometry(0.055, 0.055, 0.58);
+    const sharedShellGeo = new THREE.SphereGeometry(0.17, 8, 6);
+    const sharedShellHaloGeo = new THREE.SphereGeometry(0.29, 8, 6);
+    const sharedBombBodyGeo = new THREE.CylinderGeometry(0.11, 0.16, 0.48, 8);
     sharedBombBodyGeo.rotateX(Math.PI / 2);
-    const sharedMissileGeo = new THREE.CylinderGeometry(0.055, 0.08, 0.56, 7);
+    const sharedBombFinGeo = new THREE.BoxGeometry(0.32, 0.32, 0.11);
+    const sharedMissileGeo = new THREE.CylinderGeometry(0.06, 0.088, 0.62, 7);
     sharedMissileGeo.rotateX(Math.PI / 2);
-    const sharedArcaneBoltGeo = new THREE.OctahedronGeometry(0.22, 0);
-    const sharedPlasmaBeamGeo = new THREE.CylinderGeometry(0.075, 0.075, 1.0, 6);
+    const sharedMissileWarheadGeo = new THREE.ConeGeometry(0.095, 0.22, 7);
+    sharedMissileWarheadGeo.rotateX(Math.PI / 2);
+    const sharedMissilePlumeGeo = new THREE.ConeGeometry(0.1, 0.48, 6);
+    sharedMissilePlumeGeo.rotateX(-Math.PI / 2);
+    const sharedArcaneBoltGeo = new THREE.OctahedronGeometry(0.24, 0);
+    const sharedArcaneRingGeo = new THREE.TorusGeometry(0.32, 0.036, 6, 14);
+    const sharedPlasmaBeamGeo = new THREE.CylinderGeometry(0.08, 0.08, 1.0, 8);
     sharedPlasmaBeamGeo.rotateX(Math.PI / 2);
-    const sharedNukeStemGeo = new THREE.CylinderGeometry(0.45, 0.78, 1.0, 12);
+    const sharedPlasmaMuzzleGeo = new THREE.OctahedronGeometry(0.26, 1);
+    const sharedSparkShardGeo = new THREE.BoxGeometry(0.075, 0.46, 0.075);
+
+    const sharedNukeStemGeo = new THREE.CylinderGeometry(0.42, 0.88, 1.0, 14);
     sharedNukeStemGeo.translate(0, 0.5, 0);
-    const sharedNukeCapGeo = new THREE.SphereGeometry(1.0, 16, 12);
-    const sharedArcaneSpireGeo = new THREE.ConeGeometry(0.85, 1.0, 8, 1, true);
+    const sharedNukeCapGeo = new THREE.SphereGeometry(1.0, 18, 14);
+    const sharedNukeTorusGeo = new THREE.TorusGeometry(0.95, 0.34, 12, 24);
+    sharedNukeTorusGeo.rotateX(Math.PI / 2);
+
+    const sharedArcaneSpireGeo = new THREE.ConeGeometry(0.88, 1.0, 10, 1, true);
     sharedArcaneSpireGeo.translate(0, 0.5, 0);
+    const sharedArcaneHaloTorusGeo = new THREE.TorusGeometry(1.0, 0.048, 6, 28);
+    sharedArcaneHaloTorusGeo.rotateX(Math.PI / 2);
+    const sharedRunePillarGeo = (() => {
+      const g = new THREE.OctahedronGeometry(0.28, 0);
+      g.scale(0.85, 2.6, 0.85);
+      return g;
+    })();
+    const sharedBeamColGeo = new THREE.CylinderGeometry(1.0, 1.0, 1.0, 16, 1, true);
+    sharedBeamColGeo.translate(0, 0.5, 0);
+
     const sharedBattlewillCrescentGeo = (() => {
-      const g = new THREE.RingGeometry(0.62, 1.0, 22, 1, -Math.PI * 0.62, Math.PI * 1.24);
+      const g = new THREE.RingGeometry(0.46, 1.0, 28, 1, -Math.PI * 0.68, Math.PI * 1.36);
       g.rotateX(-Math.PI / 2);
       return g;
     })();
+    const sharedBattlewillEdgeGeo = (() => {
+      const g = new THREE.TorusGeometry(0.96, 0.085, 6, 28, Math.PI * 1.36);
+      g.rotateX(Math.PI / 2);
+      g.rotateY(-Math.PI * 0.68);
+      return g;
+    })();
+
+    function spawnWeaponSparkVisual(
+      tx: number,
+      ty: number,
+      tz: number,
+      radius: number,
+      colorHex: string,
+    ) {
+      if (activeBurstFx.length >= MAX_BURST_FX) {
+        const dropIdx = activeBurstFx.findIndex((f) => f.impactFired || !f.deferImpact);
+        const idx = dropIdx >= 0 ? dropIdx : 0;
+        const old = activeBurstFx[idx];
+        if (old) {
+          burstFxGroup.remove(old.group);
+          for (const m of old.materials) m.dispose();
+          activeBurstFx.splice(idx, 1);
+        }
+      }
+
+      const group = new THREE.Group();
+      const baseColor = colorHex || '#fbbf24';
+      const shardMat = new THREE.MeshBasicMaterial({
+        color: baseColor,
+        transparent: true,
+        opacity: 0.96,
+      });
+      const whiteMat = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0.94,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
+      const materials: THREE.Material[] = [shardMat, whiteMat];
+
+      const ringMesh = new THREE.Mesh(sharedHazRingGeo, whiteMat);
+      ringMesh.position.set(tx, ty + 0.14, tz);
+      ringMesh.scale.setScalar(0.22);
+      group.add(ringMesh);
+
+      const sparkShards: THREE.Mesh[] = [];
+      for (let s = 0; s < 5; s++) {
+        const angle = (s / 5) * Math.PI * 2 + Math.random() * 0.4;
+        const shard = new THREE.Mesh(sharedSparkShardGeo, s % 2 === 0 ? shardMat : whiteMat);
+        shard.position.set(tx, ty + 0.35, tz);
+        shard.rotation.set(0.45 + Math.random() * 0.5, angle, (Math.random() - 0.5) * 1.1);
+        group.add(shard);
+        sparkShards.push(shard);
+      }
+
+      spawnParticleBurst(tx, ty + 0.3, tz, 14, baseColor, Math.max(0.45, radius * 0.65), 4.4, 0.85);
+      burstFxGroup.add(group);
+      activeBurstFx.push({
+        kind: 'weapon_spark',
+        powerType: 'hit_spark',
+        group,
+        materials,
+        age: 0,
+        duration: 0.34,
+        impactDelay: 0,
+        deferImpact: false,
+        tx,
+        ty,
+        tz,
+        radius: Math.max(0.55, radius),
+        impactFired: true,
+        ringMesh,
+        sparkShards,
+        colorHex: baseColor,
+      });
+    }
 
     function spawnWarWeaponVisual(
       kind: 'projectile_tracer' | 'nuke_blast' | 'arcane_cataclysm' | 'battlewill_slash',
@@ -3563,14 +3999,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           opacity: 0.96,
         });
         const coreMat = new THREE.MeshBasicMaterial({
-          color: subtype === 'bomb' ? '#ff9e00' : subtype === 'plasma_beam' ? '#e0fbfc' : '#ffffff',
+          color: subtype === 'bomb' ? '#ff9e00' : subtype === 'plasma_beam' ? '#ecfeff' : '#ffffff',
           transparent: true,
-          opacity: 0.92,
+          opacity: 0.94,
         });
         const ringMat = new THREE.MeshBasicMaterial({
           color: subtype === 'bomb' ? '#ff6b35' : boltColor,
           transparent: true,
-          opacity: 0.88,
+          opacity: 0.9,
           side: THREE.DoubleSide,
           depthWrite: false,
         });
@@ -3579,40 +4015,57 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         const startY = subtype === 'bomb' ? oy : oy + 0.45;
         const endY = ty + 0.35;
         let tracerObj: THREE.Object3D;
+        let muzzleRingMesh: THREE.Mesh | undefined;
 
         if (subtype === 'bomb') {
           const bombGrp = new THREE.Group();
           const casing = new THREE.Mesh(sharedBombBodyGeo, boltMat);
-          const finRing = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.28, 0.1), coreMat);
-          finRing.position.z = -0.2;
-          bombGrp.add(casing, finRing);
+          const finCross = new THREE.Mesh(sharedBombFinGeo, coreMat);
+          finCross.position.z = -0.22;
+          const tailGlow = new THREE.Mesh(sharedPlasmaMuzzleGeo, ringMat);
+          tailGlow.scale.setScalar(0.55);
+          tailGlow.position.z = -0.34;
+          bombGrp.add(casing, finCross, tailGlow);
           bombGrp.position.set(ox, startY, oz);
           bombGrp.lookAt(tx, endY, tz);
           tracerObj = bombGrp;
         } else if (subtype === 'cannon_shell') {
           const shellGrp = new THREE.Group();
           const shell = new THREE.Mesh(sharedShellGeo, boltMat);
-          const glowHalo = new THREE.Mesh(new THREE.SphereGeometry(0.24, 6, 5), coreMat);
-          shellGrp.add(shell, glowHalo);
+          const glowHalo = new THREE.Mesh(sharedShellHaloGeo, coreMat);
+          const wakeCone = new THREE.Mesh(sharedMissilePlumeGeo, ringMat);
+          wakeCone.position.z = -0.32;
+          shellGrp.add(shell, glowHalo, wakeCone);
           shellGrp.position.set(ox, startY, oz);
+          shellGrp.lookAt(tx, endY, tz);
           tracerObj = shellGrp;
-          // Muzzle smoke puff at cannon origin
-          spawnParticleBurst(ox, startY, oz, 5, '#cbd5e1', 0.35, 2.2, 0.6);
+          muzzleRingMesh = new THREE.Mesh(sharedHazRingGeo, ringMat);
+          muzzleRingMesh.position.set(ox, startY, oz);
+          muzzleRingMesh.scale.setScalar(0.24);
+          group.add(muzzleRingMesh);
+          spawnParticleBurst(ox, startY, oz, 7, '#e2e8f0', 0.42, 2.6, 0.7);
         } else if (subtype === 'missile') {
           const misGrp = new THREE.Group();
           const body = new THREE.Mesh(sharedMissileGeo, coreMat);
-          const warhead = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.18, 6), boltMat);
-          warhead.rotation.x = Math.PI / 2;
-          warhead.position.z = 0.32;
-          misGrp.add(body, warhead);
+          const warhead = new THREE.Mesh(sharedMissileWarheadGeo, boltMat);
+          warhead.position.z = 0.34;
+          const fins = new THREE.Mesh(sharedBombFinGeo, boltMat);
+          fins.scale.setScalar(0.65);
+          fins.position.z = -0.24;
+          const exhaust = new THREE.Mesh(sharedMissilePlumeGeo, ringMat);
+          exhaust.position.z = -0.45;
+          misGrp.add(body, warhead, fins, exhaust);
           misGrp.position.set(ox, startY, oz);
           misGrp.lookAt(tx, endY, tz);
           tracerObj = misGrp;
+          spawnParticleBurst(ox, startY, oz, 5, '#fed7aa', 0.3, 2.0, 0.5);
         } else if (subtype === 'arcane_bolt') {
           const arcGrp = new THREE.Group();
           const crystal = new THREE.Mesh(sharedArcaneBoltGeo, boltMat);
-          const aura = new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.035, 5, 10), coreMat);
-          arcGrp.add(crystal, aura);
+          const auraA = new THREE.Mesh(sharedArcaneRingGeo, coreMat);
+          const auraB = new THREE.Mesh(sharedArcaneRingGeo, ringMat);
+          auraB.rotation.x = Math.PI / 2;
+          arcGrp.add(crystal, auraA, auraB);
           arcGrp.position.set(ox, startY, oz);
           arcGrp.lookAt(tx, endY, tz);
           tracerObj = arcGrp;
@@ -3620,46 +4073,59 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           const beamDist = Math.max(0.5, Math.hypot(tx - ox, endY - startY, tz - oz));
           const beamGrp = new THREE.Group();
           const outerBeam = new THREE.Mesh(sharedPlasmaBeamGeo, boltMat);
-          outerBeam.scale.set(1.4, 1.4, beamDist);
+          outerBeam.scale.set(1.65, 1.65, beamDist);
           const innerBeam = new THREE.Mesh(sharedPlasmaBeamGeo, coreMat);
-          innerBeam.scale.set(0.65, 0.65, beamDist);
-          beamGrp.add(outerBeam, innerBeam);
+          innerBeam.scale.set(0.75, 0.75, beamDist);
+          const muzzleStar = new THREE.Mesh(sharedPlasmaMuzzleGeo, coreMat);
+          muzzleStar.position.z = -beamDist * 0.48;
+          const tipStar = new THREE.Mesh(sharedPlasmaMuzzleGeo, ringMat);
+          tipStar.scale.setScalar(1.35);
+          tipStar.position.z = beamDist * 0.48;
+          beamGrp.add(outerBeam, innerBeam, muzzleStar, tipStar);
           beamGrp.position.set((ox + tx) * 0.5, (startY + endY) * 0.5, (oz + tz) * 0.5);
           beamGrp.lookAt(tx, endY, tz);
           tracerObj = beamGrp;
         } else {
-          const tracerMesh = new THREE.Mesh(sharedTracerGeo, boltMat);
-          tracerMesh.position.set(ox, startY, oz);
-          tracerMesh.lookAt(tx, endY, tz);
-          tracerObj = tracerMesh;
-          spawnParticleBurst(ox, startY, oz, 3, '#fde047', 0.2, 1.8, 0.45);
+          const bulletGrp = new THREE.Group();
+          const outerSlug = new THREE.Mesh(sharedTracerGeo, boltMat);
+          const innerCore = new THREE.Mesh(sharedBulletCoreGeo, coreMat);
+          bulletGrp.add(outerSlug, innerCore);
+          bulletGrp.position.set(ox, startY, oz);
+          bulletGrp.lookAt(tx, endY, tz);
+          tracerObj = bulletGrp;
+          muzzleRingMesh = new THREE.Mesh(sharedHazRingGeo, coreMat);
+          muzzleRingMesh.position.set(ox, startY, oz);
+          muzzleRingMesh.scale.setScalar(0.16);
+          group.add(muzzleRingMesh);
+          spawnParticleBurst(ox, startY, oz, 4, '#fef08a', 0.22, 2.2, 0.48);
         }
 
         group.add(tracerObj);
 
         const ringMesh = new THREE.Mesh(sharedHazRingGeo, ringMat);
         ringMesh.position.set(tx, ty + 0.14, tz);
-        ringMesh.scale.setScalar(subtype === 'bomb' ? 0.25 : 0.18);
+        ringMesh.scale.setScalar(subtype === 'bomb' ? 0.28 : 0.18);
         group.add(ringMesh);
 
         if (subtype === 'plasma_beam') {
-          spawnParticleBurst(tx, ty + 0.35, tz, 14, '#56cfe1', 0.65, 4.4, 0.85);
+          spawnParticleBurst(tx, ty + 0.35, tz, 18, '#56cfe1', 0.8, 5.0, 0.92);
+          spawnParticleBurst(tx, ty + 0.4, tz, 10, '#ffffff', 0.5, 5.8, 0.65);
         } else if (subtype !== 'bomb' && subtype !== 'cannon_shell') {
-          spawnParticleBurst(tx, ty + 0.35, tz, 8, boltColor, 0.45, 3.2, 0.72);
+          spawnParticleBurst(tx, ty + 0.35, tz, 10, boltColor, 0.5, 3.6, 0.78);
         }
 
         const dur =
           subtype === 'bomb'
-            ? 0.42
+            ? 0.44
             : subtype === 'cannon_shell'
-              ? 0.34
+              ? 0.36
               : subtype === 'missile'
-                ? 0.3
+                ? 0.32
                 : subtype === 'arcane_bolt'
-                  ? 0.25
+                  ? 0.27
                   : subtype === 'plasma_beam'
-                    ? 0.22
-                    : 0.18;
+                    ? 0.25
+                    : 0.2;
 
         burstFxGroup.add(group);
         activeBurstFx.push({
@@ -3678,10 +4144,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           ox,
           oy: startY,
           oz,
-          radius: Math.max(0.5, radius),
+          radius: Math.max(0.55, radius),
           impactFired: false,
           tracerMesh: tracerObj,
           ringMesh,
+          muzzleRingMesh,
           colorHex,
         });
         return;
@@ -3689,7 +4156,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
       if (kind === 'nuke_blast') {
         const flashMat = new THREE.MeshBasicMaterial({
-          color: 0xfff8dc,
+          color: 0xfffbeb,
           transparent: true,
           opacity: 0.98,
           side: THREE.DoubleSide,
@@ -3704,6 +4171,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         const capMat = new THREE.MeshBasicMaterial({
           color: 0xff5400,
           transparent: true,
+          opacity: 0.94,
+          depthWrite: false,
+        });
+        const torusMat = new THREE.MeshBasicMaterial({
+          color: 0xfde047,
+          transparent: true,
           opacity: 0.92,
           depthWrite: false,
         });
@@ -3717,11 +4190,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         const outerRingMat = new THREE.MeshBasicMaterial({
           color: 0xdc2626,
           transparent: true,
-          opacity: 0.85,
+          opacity: 0.88,
           side: THREE.DoubleSide,
           depthWrite: false,
         });
-        materials.push(flashMat, stemMat, capMat, ringMat, outerRingMat);
+        materials.push(flashMat, stemMat, capMat, torusMat, ringMat, outerRingMat);
 
         const innerDomeMesh = new THREE.Mesh(sharedExplosionDomeGeo, flashMat);
         innerDomeMesh.position.set(tx, ty + 0.12, tz);
@@ -3729,13 +4202,18 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
         const stemMesh = new THREE.Mesh(sharedNukeStemGeo, stemMat);
         stemMesh.position.set(tx, ty + 0.1, tz);
-        stemMesh.scale.set(0.6, 0.2, 0.6);
+        stemMesh.scale.set(0.65, 0.25, 0.65);
         group.add(stemMesh);
 
         const capMesh = new THREE.Mesh(sharedNukeCapGeo, capMat);
-        capMesh.position.set(tx, ty + 0.6, tz);
-        capMesh.scale.set(0.9, 0.55, 0.9);
+        capMesh.position.set(tx, ty + 0.7, tz);
+        capMesh.scale.set(0.95, 0.55, 0.95);
         group.add(capMesh);
+
+        const torusCapMesh = new THREE.Mesh(sharedNukeTorusGeo, torusMat);
+        torusCapMesh.position.set(tx, ty + 0.7, tz);
+        torusCapMesh.scale.setScalar(0.9);
+        group.add(torusCapMesh);
 
         const ringMesh = new THREE.Mesh(sharedHazRingGeo, ringMat);
         ringMesh.position.set(tx, ty + 0.16, tz);
@@ -3745,11 +4223,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         outerRingMesh.position.set(tx, ty + 0.2, tz);
         group.add(outerRingMesh);
 
-        triggerLightFlash(tx, ty + 2.8, tz, '#ff922b', 44);
+        triggerLightFlash(tx, ty + 3.2, tz, '#ff922b', 46);
         soundEngine.playMegaExplosion();
-        trauma = Math.min(1.0, trauma + 0.56);
-        spawnParticleBurst(tx, ty + 0.6, tz, 78, '#ff6d00', radius * 1.15, 10.5, 1.65);
-        spawnParticleBurst(tx, ty + 0.8, tz, 46, '#fef08a', radius * 0.85, 12.2, 1.35);
+        trauma = Math.min(1.0, trauma + 0.58);
+        spawnParticleBurst(tx, ty + 0.6, tz, 82, '#ff6d00', radius * 1.2, 10.8, 1.7);
+        spawnParticleBurst(tx, ty + 0.8, tz, 50, '#fef08a', radius * 0.9, 12.6, 1.4);
 
         burstFxGroup.add(group);
         activeBurstFx.push({
@@ -3758,17 +4236,18 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           group,
           materials,
           age: 0,
-          duration: 2.15,
+          duration: 2.25,
           impactDelay: 0,
           deferImpact: false,
           tx,
           ty,
           tz,
-          radius: Math.max(2.5, radius),
+          radius: Math.max(2.6, radius),
           impactFired: true,
           innerDomeMesh,
           stemMesh,
           capMesh,
+          torusCapMesh,
           ringMesh,
           outerRingMesh,
           colorHex,
@@ -3777,61 +4256,127 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       }
 
       if (kind === 'arcane_cataclysm') {
-        const spireMat = new THREE.MeshBasicMaterial({
-          color: 0xe0aaff,
+        // Phase 1: Counter-rotating ground & sky Magic Circles + 6 converging Rune Pillars
+        // Phase 2: Colossal sky-splitting Magic Beam + prism dome obliteration
+        const circleMat = new THREE.MeshBasicMaterial({
+          color: 0x5eead4,
+          transparent: true,
+          opacity: 0.96,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        const runeMat = new THREE.MeshBasicMaterial({
+          color: 0xc084fc,
+          transparent: true,
+          opacity: 0.94,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        const skyMat = new THREE.MeshBasicMaterial({
+          color: 0xa78bfa,
+          transparent: true,
+          opacity: 0.92,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        const pillarMat = new THREE.MeshBasicMaterial({
+          color: 0x38bdf8,
           transparent: true,
           opacity: 0.95,
+        });
+        const beamCoreMat = new THREE.MeshBasicMaterial({
+          color: 0xf0fdff,
+          transparent: true,
+          opacity: 0,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        const beamAuraMat = new THREE.MeshBasicMaterial({
+          color: 0xa855f7,
+          transparent: true,
+          opacity: 0,
           side: THREE.DoubleSide,
           depthWrite: false,
         });
         const domeMat = new THREE.MeshBasicMaterial({
           color: 0x38bdf8,
           transparent: true,
-          opacity: 0.72,
+          opacity: 0,
           side: THREE.DoubleSide,
           depthWrite: false,
         });
-        const innerRingMat = new THREE.MeshBasicMaterial({
-          color: 0x5eead4,
-          transparent: true,
-          opacity: 0.95,
-          side: THREE.DoubleSide,
-          depthWrite: false,
-        });
-        const outerRingMat = new THREE.MeshBasicMaterial({
-          color: 0xc084fc,
-          transparent: true,
-          opacity: 0.9,
-          side: THREE.DoubleSide,
-          depthWrite: false,
-        });
-        materials.push(spireMat, domeMat, innerRingMat, outerRingMat);
+        materials.push(
+          circleMat,
+          runeMat,
+          skyMat,
+          pillarMat,
+          beamCoreMat,
+          beamAuraMat,
+          domeMat,
+        );
 
-        const stemMesh = new THREE.Mesh(sharedArcaneSpireGeo, spireMat);
+        const effRadius = Math.max(2.8, radius);
+
+        // Ground primary magic circle & inscribed rune square
+        const ringMesh = new THREE.Mesh(sharedArcaneHaloTorusGeo, circleMat);
+        ringMesh.position.set(tx, ty + 0.18, tz);
+        ringMesh.scale.setScalar(0.4);
+        group.add(ringMesh);
+
+        const thirdRingMesh = new THREE.Mesh(sharedRuneSquareGeo, runeMat);
+        thirdRingMesh.position.set(tx, ty + 0.24, tz);
+        thirdRingMesh.scale.setScalar(0.35);
+        group.add(thirdRingMesh);
+
+        // Elevated Sky Magic Circle descending overhead before firing the beam
+        const skyCircleMesh = new THREE.Mesh(sharedArcaneHaloTorusGeo, skyMat);
+        skyCircleMesh.position.set(tx, ty + 6.8, tz);
+        skyCircleMesh.scale.setScalar(0.45);
+        group.add(skyCircleMesh);
+
+        const outerRingMesh = new THREE.Mesh(sharedHazRingGeo, runeMat);
+        outerRingMesh.position.set(tx, ty + 0.16, tz);
+        outerRingMesh.scale.setScalar(0.3);
+        group.add(outerRingMesh);
+
+        // 6 Orbiting glowing Rune Pillars around the perimeter
+        const runePillars: THREE.Mesh[] = [];
+        for (let rp = 0; rp < 6; rp++) {
+          const angle = (rp / 6) * Math.PI * 2;
+          const pillar = new THREE.Mesh(sharedRunePillarGeo, pillarMat);
+          pillar.position.set(
+            tx + Math.cos(angle) * effRadius * 0.9,
+            ty + 0.85,
+            tz + Math.sin(angle) * effRadius * 0.9,
+          );
+          group.add(pillar);
+          runePillars.push(pillar);
+        }
+
+        // Phase 2 Colossal Celestial Beam + Prism Dome + Spire
+        const beamCoreMesh = new THREE.Mesh(sharedBeamColGeo, beamCoreMat);
+        beamCoreMesh.position.set(tx, ty + 0.1, tz);
+        beamCoreMesh.scale.set(0.01, 0.01, 0.01);
+        group.add(beamCoreMesh);
+
+        const beamAuraMesh = new THREE.Mesh(sharedBeamColGeo, beamAuraMat);
+        beamAuraMesh.position.set(tx, ty + 0.1, tz);
+        beamAuraMesh.scale.set(0.01, 0.01, 0.01);
+        group.add(beamAuraMesh);
+
+        const stemMesh = new THREE.Mesh(sharedArcaneSpireGeo, beamAuraMat);
         stemMesh.position.set(tx, ty + 0.1, tz);
+        stemMesh.scale.set(0.01, 0.01, 0.01);
         group.add(stemMesh);
 
         const explosionDome = new THREE.Mesh(sharedExplosionDomeGeo, domeMat);
         explosionDome.position.set(tx, ty + 0.12, tz);
+        explosionDome.scale.setScalar(0.01);
         group.add(explosionDome);
 
-        const ringMesh = new THREE.Mesh(sharedRuneSquareGeo, innerRingMat);
-        ringMesh.position.set(tx, ty + 0.22, tz);
-        group.add(ringMesh);
-
-        const outerRingMesh = new THREE.Mesh(sharedHazRingGeo, outerRingMat);
-        outerRingMesh.position.set(tx, ty + 0.16, tz);
-        group.add(outerRingMesh);
-
-        const thirdRingMesh = new THREE.Mesh(sharedRuneSquareGeo, outerRingMat);
-        thirdRingMesh.position.set(tx, ty + 1.1, tz);
-        group.add(thirdRingMesh);
-
-        triggerLightFlash(tx, ty + 2.4, tz, '#c084fc', 40);
-        soundEngine.playHeavyImpact();
-        trauma = Math.min(1.0, trauma + 0.48);
-        spawnParticleBurst(tx, ty + 0.7, tz, 68, '#c084fc', radius * 1.12, 9.6, 1.45);
-        spawnParticleBurst(tx, ty + 0.9, tz, 48, '#5eead4', radius * 0.88, 11.0, 1.25);
+        triggerLightFlash(tx, ty + 2.4, tz, '#5eead4', 24);
+        soundEngine.playBlessing();
+        spawnRisingParticles(tx, ty + 0.2, tz, 28, '#c084fc', effRadius * 0.95, 4.5, 0.8, 1.0);
 
         burstFxGroup.add(group);
         activeBurstFx.push({
@@ -3840,73 +4385,105 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           group,
           materials,
           age: 0,
-          duration: 1.85,
-          impactDelay: 0,
+          duration: 2.35,
+          impactDelay: 2.35 * 0.42,
           deferImpact: false,
           tx,
           ty,
           tz,
-          radius: Math.max(2.5, radius),
-          impactFired: true,
-          stemMesh,
-          explosionDome,
+          radius: effRadius,
+          impactFired: false,
           ringMesh,
           outerRingMesh,
           thirdRingMesh,
+          skyCircleMesh,
+          runePillars,
+          beamCoreMesh,
+          beamAuraMesh,
+          stemMesh,
+          explosionDome,
           colorHex,
         });
         return;
       }
 
-      // battlewill_slash: sweeping crimson-gold giant melee arc from Orc caster across target
+      // battlewill_slash: titanic diagonal sword slash arc able to cleave mountains & shear forests
       const arcMat = new THREE.MeshBasicMaterial({
         color: 0xef4444,
-        transparent: true,
-        opacity: 0.94,
-        side: THREE.DoubleSide,
-        depthWrite: false,
-      });
-      const goldMat = new THREE.MeshBasicMaterial({
-        color: 0xfbbf24,
         transparent: true,
         opacity: 0.96,
         side: THREE.DoubleSide,
         depthWrite: false,
       });
-      const ringMat = new THREE.MeshBasicMaterial({
-        color: 0xff6b35,
+      const goldMat = new THREE.MeshBasicMaterial({
+        color: 0xfde047,
         transparent: true,
-        opacity: 0.86,
+        opacity: 0.98,
         side: THREE.DoubleSide,
         depthWrite: false,
       });
-      materials.push(arcMat, goldMat, ringMat);
+      const fissureMat = new THREE.MeshBasicMaterial({
+        color: 0xff6b35,
+        transparent: true,
+        opacity: 0.92,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
+      materials.push(arcMat, goldMat, fissureMat);
 
-      const yaw = Math.atan2(tx - ox, tz - oz);
+      const slashBaseYaw = Math.atan2(tx - ox, tz - oz);
+      const effSlashR = Math.max(3.6, radius * 1.15);
       const slashMeshes: THREE.Mesh[] = [];
+
+      // Huge molten blade edge + wide crimson crescent wake tilted into a colossal sword cleave plane
       const outerArc = new THREE.Mesh(sharedBattlewillCrescentGeo, arcMat);
-      outerArc.position.set(ox, oy + 1.05, oz);
-      outerArc.rotation.set(0.22, -yaw + Math.PI * 0.5, 0.14);
-      outerArc.scale.setScalar(Math.max(2.2, radius));
+      outerArc.position.set(ox, oy + 1.35, oz);
+      outerArc.rotation.set(0.32, slashBaseYaw - 0.9, -0.34);
+      outerArc.scale.setScalar(effSlashR);
       group.add(outerArc);
       slashMeshes.push(outerArc);
 
-      const innerArc = new THREE.Mesh(sharedBattlewillCrescentGeo, goldMat);
-      innerArc.position.set(ox, oy + 1.12, oz);
-      innerArc.rotation.set(0.22, -yaw + Math.PI * 0.5, -0.1);
-      innerArc.scale.setScalar(Math.max(1.85, radius * 0.82));
-      group.add(innerArc);
-      slashMeshes.push(innerArc);
+      const edgeArc = new THREE.Mesh(sharedBattlewillEdgeGeo, goldMat);
+      edgeArc.position.set(ox, oy + 1.4, oz);
+      edgeArc.rotation.set(0.32, slashBaseYaw - 0.9, -0.34);
+      edgeArc.scale.setScalar(effSlashR * 1.04);
+      group.add(edgeArc);
+      slashMeshes.push(edgeArc);
 
-      const ringMesh = new THREE.Mesh(sharedHazRingGeo, ringMat);
-      ringMesh.position.set(tx, ty + 0.16, tz);
+      const trailArc = new THREE.Mesh(sharedBattlewillCrescentGeo, goldMat);
+      trailArc.position.set(ox, oy + 1.25, oz);
+      trailArc.rotation.set(-0.22, slashBaseYaw - 1.15, 0.28);
+      trailArc.scale.setScalar(effSlashR * 0.82);
+      group.add(trailArc);
+      slashMeshes.push(trailArc);
+
+      // Ground cleave fissure scar blocks radiating out across target mountain/forest
+      const crackMeshes: THREE.Mesh[] = [];
+      const dirX = Math.sin(slashBaseYaw);
+      const dirZ = Math.cos(slashBaseYaw);
+      for (let ci = 0; ci < 5; ci++) {
+        const stepDist = 1.1 + ci * 1.35;
+        const crack = new THREE.Mesh(sharedFaultCrackGeo, ci % 2 === 0 ? goldMat : fissureMat);
+        crack.position.set(ox + dirX * stepDist, ty + 0.22, oz + dirZ * stepDist);
+        crack.rotation.y = slashBaseYaw + Math.PI * 0.5 + (ci - 2) * 0.14;
+        crack.scale.set(1.3, 1.4, 0.4 + ci * 0.28);
+        group.add(crack);
+        crackMeshes.push(crack);
+      }
+
+      const ringMesh = new THREE.Mesh(sharedHazRingGeo, fissureMat);
+      ringMesh.position.set(tx, ty + 0.18, tz);
       group.add(ringMesh);
 
-      triggerLightFlash(tx, ty + 1.8, tz, '#ef4444', 36);
+      const outerRingMesh = new THREE.Mesh(sharedHazRingGeo, goldMat);
+      outerRingMesh.position.set(tx, ty + 0.22, tz);
+      group.add(outerRingMesh);
+
+      triggerLightFlash(tx, ty + 2.1, tz, '#ef4444', 42);
       soundEngine.playHeavyImpact();
-      trauma = Math.min(1.0, trauma + 0.42);
-      spawnParticleBurst(tx, ty + 0.55, tz, 60, '#ef4444', radius * 1.0, 8.8, 1.45);
-      spawnParticleBurst(tx, ty + 0.65, tz, 36, '#fbbf24', radius * 0.78, 9.5, 1.2);
+      trauma = Math.min(1.0, trauma + 0.52);
+      spawnParticleBurst(tx, ty + 0.65, tz, 68, '#ef4444', effSlashR * 0.85, 10.2, 1.55);
+      spawnParticleBurst(tx, ty + 0.85, tz, 44, '#fde047', effSlashR * 0.65, 11.4, 1.3);
 
       burstFxGroup.add(group);
       activeBurstFx.push({
@@ -3915,7 +4492,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         group,
         materials,
         age: 0,
-        duration: 0.72,
+        duration: 0.92,
         impactDelay: 0,
         deferImpact: false,
         tx,
@@ -3924,10 +4501,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         ox,
         oy,
         oz,
-        radius: Math.max(2.2, radius),
+        slashBaseYaw,
+        radius: effSlashR,
         impactFired: true,
         slashMeshes,
+        crackMeshes,
         ringMesh,
+        outerRingMesh,
         colorHex,
       });
     }
@@ -3938,7 +4518,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     let camYaw = Math.PI / 4; // 45 deg true isometric
     let camDesiredYaw = Math.PI / 4;
     let desiredFrustum =
-      propsRef.current.gameState === 'title' ? 22 : getWholeMapFrustum(sim.gridSize);
+      propsRef.current.gameState === 'title'
+        ? getResponsiveTitleFrustum(getCurrentAspect())
+        : getWholeMapFrustum(sim.gridSize);
     let prevGameState: GameLifecycleState = propsRef.current.gameState;
     let trauma = 0;
     let hitstopTimer = 0;
@@ -4042,19 +4624,38 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
     let renderWidth = 320;
     let renderHeight = 180;
+    let currentDynamicPixelScale = computeDynamicPixelScale(
+      desiredFrustum,
+      simRef.current.gridSize,
+      getCurrentAspect(),
+      propsRef.current.pixelScale || 3,
+    );
 
     const updateSize = () => {
       if (!container) return;
       const w = Math.max(1, container.clientWidth);
       const h = Math.max(1, container.clientHeight);
-      const pxScale = Math.max(1, propsRef.current.pixelScale || 3);
+      const newAspect = w / h;
+      currentDynamicPixelScale = computeDynamicPixelScale(
+        frustumSize,
+        simRef.current.gridSize,
+        newAspect,
+        propsRef.current.pixelScale || 3,
+      );
+      const pxScale = currentDynamicPixelScale;
       const rw = Math.max(160, Math.floor(w / pxScale));
       const rh = Math.max(100, Math.floor(h / pxScale));
       renderWidth = rw;
       renderHeight = rh;
 
       renderer.setSize(rw, rh, false);
-      const newAspect = w / h;
+      const maxZoomOut = getResponsiveMaxZoomOut(simRef.current.gridSize, newAspect);
+      if (propsRef.current.gameState === 'title') {
+        desiredFrustum = getResponsiveTitleFrustum(newAspect);
+        frustumSize = desiredFrustum;
+      } else if (desiredFrustum > maxZoomOut) {
+        desiredFrustum = maxZoomOut;
+      }
       camera.left = (-frustumSize * newAspect) / 2;
       camera.right = (frustumSize * newAspect) / 2;
       camera.top = frustumSize / 2;
@@ -4065,6 +4666,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     updateSize();
     const resizeObserver = new ResizeObserver(() => updateSize());
     resizeObserver.observe(container);
+    const onOrientationOrViewportChange = () => {
+      window.setTimeout(updateSize, 60);
+    };
+    window.addEventListener('orientationchange', onOrientationOrViewportChange);
+    window.visualViewport?.addEventListener('resize', updateSize);
 
     const updateHoverTile = (clientX: number, clientY: number) => {
       const rect = renderer.domElement.getBoundingClientRect();
@@ -4151,7 +4757,163 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
     let hoverRaycastTimer = 0;
 
+    // Multi-touch gesture tracking (drag/pan, two-finger pinch zoom & twist rotate)
+    const activeTouches = new Map<number, TouchPoint>();
+    type TouchGestureMode =
+      | 'none'
+      | 'one_finger_pending'
+      | 'one_finger_pan'
+      | 'one_finger_paint'
+      | 'one_finger_drag_unit'
+      | 'two_finger_transform'
+      | 'wait_all_up';
+    let touchGestureMode: TouchGestureMode = 'none';
+    let oneFingerInfo: {
+      pointerId: number;
+      startX: number;
+      startY: number;
+      lastX: number;
+      lastY: number;
+    } | null = null;
+    let twoFingerLast: TwoFingerState | null = null;
+
+    const panCameraByScreenDelta = (dx: number, dy: number, customPanFactor?: number) => {
+      const rect = renderer.domElement.getBoundingClientRect();
+      const panFactor =
+        customPanFactor ??
+        Math.max(
+          frustumSize * 0.0022,
+          (frustumSize / Math.max(260, rect.height)) * 1.3,
+        );
+      const forwardX = Math.sin(camYaw);
+      const forwardZ = Math.cos(camYaw);
+      const rightX = Math.cos(camYaw);
+      const rightZ = -Math.sin(camYaw);
+
+      camDesiredTarget.x -= (dx * rightX + dy * forwardX) * panFactor;
+      camDesiredTarget.z -= (dx * rightZ + dy * forwardZ) * panFactor;
+      camDesiredTarget.x = THREE.MathUtils.clamp(
+        camDesiredTarget.x,
+        2,
+        simRef.current.gridSize - 3,
+      );
+      camDesiredTarget.z = THREE.MathUtils.clamp(
+        camDesiredTarget.z,
+        2,
+        simRef.current.gridSize - 3,
+      );
+      if (propsRef.current.followingEntityId) {
+        propsRef.current.onBreakFollow?.();
+      }
+    };
+
+    const getTwoTouchPair = (): [TouchPoint, TouchPoint] | null => {
+      if (activeTouches.size < 2) return null;
+      const iter = activeTouches.values();
+      const first = iter.next().value;
+      const second = iter.next().value;
+      if (!first || !second) return null;
+      return [first, second];
+    };
+
     const onPointerDown = (e: PointerEvent) => {
+      if (e.pointerType === 'touch') {
+        activeTouches.set(e.pointerId, { clientX: e.clientX, clientY: e.clientY });
+
+        // 2+ fingers: switch cleanly into simultaneous pinch zoom + twist rotate + centroid pan
+        if (activeTouches.size >= 2) {
+          isPointerDragging = false;
+          isHoldPainting = false;
+          paintedStrokeTiles.clear();
+          lastPaintTile = null;
+          lastHoldCastPos = null;
+          if (draggedUnitId) {
+            releaseDragUnit(simRef.current, draggedUnitId, 0, 0);
+            draggedUnitId = null;
+            dragVelocity = { x: 0, z: 0 };
+          }
+          oneFingerInfo = null;
+          touchGestureMode = 'two_finger_transform';
+          const pair = getTwoTouchPair();
+          if (pair) {
+            twoFingerLast = computeTwoFingerState(pair[0], pair[1]);
+          }
+          return;
+        }
+
+        // Single finger touch start
+        const nowMs = performance.now();
+        hoverRaycastTimer = nowMs;
+        updateHoverTile(e.clientX, e.clientY);
+
+        if (propsRef.current.gameState !== 'playing') {
+          touchGestureMode = 'one_finger_pending';
+          oneFingerInfo = {
+            pointerId: e.pointerId,
+            startX: e.clientX,
+            startY: e.clientY,
+            lastX: e.clientX,
+            lastY: e.clientY,
+          };
+          return;
+        }
+
+        const shouldOneFingerPan =
+          propsRef.current.mobilePanMode ||
+          propsRef.current.activeTool.kind === 'inspect' ||
+          propsRef.current.brushInputMode === 'tap';
+
+        if (!shouldOneFingerPan && isDragPowerActive()) {
+          const picked = hoveredEntityInternal ?? pickLivingUnitAtRay(raycaster.ray);
+          if (picked) {
+            const grabbed = beginDragUnit(simRef.current, picked);
+            if (grabbed) {
+              draggedUnitId = grabbed.id;
+              const ht = getTileFromArray(simRef.current, grabbed.x, grabbed.z);
+              const planeY = (ht ? Math.max(0.25, ht.height * HEIGHT_STEP + 0.25) : 0.6) + 1.55;
+              dragPlane.set(_dragPlaneNormal, -planeY);
+              lastDragWorld = { x: grabbed.x, z: grabbed.z, time: nowMs };
+              dragVelocity = { x: 0, z: 0 };
+              touchGestureMode = 'one_finger_drag_unit';
+              soundEngine.playGrab();
+              propsRef.current.onSyncHud();
+              return;
+            }
+          }
+        }
+
+        if (shouldOneFingerPan || isDragPowerActive()) {
+          touchGestureMode = 'one_finger_pending';
+          oneFingerInfo = {
+            pointerId: e.pointerId,
+            startX: e.clientX,
+            startY: e.clientY,
+            lastX: e.clientX,
+            lastY: e.clientY,
+          };
+          return;
+        }
+
+        // Hold paint/cast mode with Pan disabled -> paint immediately & smoothly
+        touchGestureMode = 'one_finger_paint';
+        isHoldPainting = true;
+        paintedStrokeTiles.clear();
+        lastPaintTile = null;
+        lastHoldCastPos = null;
+        lastHoldCastTime = 0;
+        oneFingerInfo = {
+          pointerId: e.pointerId,
+          startX: e.clientX,
+          startY: e.clientY,
+          lastX: e.clientX,
+          lastY: e.clientY,
+        };
+        if (hoveredTileCoords) {
+          applyHoldStrokeToTile(hoveredTileCoords.x, hoveredTileCoords.z, nowMs);
+        }
+        return;
+      }
+
       if (e.button === 2 || e.button === 1 || e.shiftKey) {
         isPointerDragging = true;
         dragStartClient = { x: e.clientX, y: e.clientY };
@@ -4199,6 +4961,107 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     };
 
     const onPointerMove = (e: PointerEvent) => {
+      if (e.pointerType === 'touch') {
+        if (activeTouches.has(e.pointerId)) {
+          activeTouches.set(e.pointerId, { clientX: e.clientX, clientY: e.clientY });
+        }
+
+        if (touchGestureMode === 'two_finger_transform') {
+          const pair = getTwoTouchPair();
+          if (pair && twoFingerLast) {
+            const nextState = computeTwoFingerState(pair[0], pair[1]);
+            const rect = renderer.domElement.getBoundingClientRect();
+            const maxZoomOut = getResponsiveMaxZoomOut(
+              simRef.current.gridSize,
+              getCurrentAspect(),
+            );
+            const delta = computeTwoFingerCameraDelta(
+              twoFingerLast,
+              nextState,
+              desiredFrustum,
+              maxZoomOut,
+              rect.height || window.innerHeight,
+            );
+            desiredFrustum = delta.nextFrustum;
+            camDesiredYaw += delta.yawDelta;
+            if (Math.abs(delta.panScreenDx) > 0.1 || Math.abs(delta.panScreenDy) > 0.1) {
+              panCameraByScreenDelta(delta.panScreenDx, delta.panScreenDy, delta.panFactor);
+            }
+            twoFingerLast = nextState;
+          }
+          return;
+        }
+
+        if (touchGestureMode === 'wait_all_up') {
+          return;
+        }
+
+        if (touchGestureMode === 'one_finger_drag_unit' && draggedUnitId) {
+          const rect = renderer.domElement.getBoundingClientRect();
+          if (rect.width > 0 && rect.height > 0) {
+            pointerNdc.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+            pointerNdc.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+            raycaster.setFromCamera(pointerNdc, camera);
+            if (raycaster.ray.intersectPlane(dragPlane, _dragIntersectPt)) {
+              const nowMs = performance.now();
+              const dtDrag = Math.max(0.008, (nowMs - lastDragWorld.time) / 1000);
+              const gMax = simRef.current.gridSize - 2;
+              const nx = THREE.MathUtils.clamp(_dragIntersectPt.x, 1, gMax);
+              const nz = THREE.MathUtils.clamp(_dragIntersectPt.z, 1, gMax);
+              const vxRaw = (nx - lastDragWorld.x) / dtDrag;
+              const vzRaw = (nz - lastDragWorld.z) / dtDrag;
+              dragVelocity.x = dragVelocity.x * 0.45 + vxRaw * 0.55;
+              dragVelocity.z = dragVelocity.z * 0.45 + vzRaw * 0.55;
+              lastDragWorld = { x: nx, z: nz, time: nowMs };
+              updateDragUnit(simRef.current, draggedUnitId, nx, nz, 2.8);
+            }
+          }
+          return;
+        }
+
+        if (
+          (touchGestureMode === 'one_finger_pending' || touchGestureMode === 'one_finger_pan') &&
+          oneFingerInfo &&
+          e.pointerId === oneFingerInfo.pointerId
+        ) {
+          const totalDist = Math.hypot(
+            e.clientX - oneFingerInfo.startX,
+            e.clientY - oneFingerInfo.startY,
+          );
+          if (touchGestureMode === 'one_finger_pending' && totalDist > 8) {
+            touchGestureMode = 'one_finger_pan';
+          }
+          if (touchGestureMode === 'one_finger_pan') {
+            const stepDx = e.clientX - oneFingerInfo.lastX;
+            const stepDy = e.clientY - oneFingerInfo.lastY;
+            panCameraByScreenDelta(stepDx, stepDy);
+          }
+          oneFingerInfo.lastX = e.clientX;
+          oneFingerInfo.lastY = e.clientY;
+          return;
+        }
+
+        if (
+          touchGestureMode === 'one_finger_paint' &&
+          oneFingerInfo &&
+          e.pointerId === oneFingerInfo.pointerId
+        ) {
+          const nowMs = performance.now();
+          if (nowMs - hoverRaycastTimer >= 16) {
+            hoverRaycastTimer = nowMs;
+            updateHoverTile(e.clientX, e.clientY);
+            if (
+              isHoldPainting &&
+              propsRef.current.gameState === 'playing' &&
+              hoveredTileCoords
+            ) {
+              applyHoldStrokeToTile(hoveredTileCoords.x, hoveredTileCoords.z, nowMs);
+            }
+          }
+        }
+        return;
+      }
+
       const dx = e.clientX - dragStartClient.x;
       const dy = e.clientY - dragStartClient.y;
       if (Math.abs(dx) + Math.abs(dy) > 6) {
@@ -4229,20 +5092,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       }
 
       if (isPointerDragging || (e.buttons === 1 && e.altKey)) {
-        const panFactor = frustumSize * 0.0022;
-        const forwardX = Math.sin(camYaw);
-        const forwardZ = Math.cos(camYaw);
-        const rightX = Math.cos(camYaw);
-        const rightZ = -Math.sin(camYaw);
-
-        camDesiredTarget.x -= (dx * rightX + dy * forwardX) * panFactor;
-        camDesiredTarget.z -= (dx * rightZ + dy * forwardZ) * panFactor;
-        camDesiredTarget.x = THREE.MathUtils.clamp(camDesiredTarget.x, 2, simRef.current.gridSize - 3);
-        camDesiredTarget.z = THREE.MathUtils.clamp(camDesiredTarget.z, 2, simRef.current.gridSize - 3);
+        panCameraByScreenDelta(dx, dy, frustumSize * 0.0022);
         dragStartClient = { x: e.clientX, y: e.clientY };
-        if (propsRef.current.followingEntityId) {
-          propsRef.current.onBreakFollow?.();
-        }
         return;
       }
 
@@ -4275,6 +5126,68 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     };
 
     const onPointerUp = (e: PointerEvent) => {
+      if (e.pointerType === 'touch') {
+        activeTouches.delete(e.pointerId);
+
+        if (touchGestureMode === 'two_finger_transform') {
+          twoFingerLast = null;
+          touchGestureMode = activeTouches.size > 0 ? 'wait_all_up' : 'none';
+          return;
+        }
+
+        if (touchGestureMode === 'wait_all_up') {
+          if (activeTouches.size === 0) {
+            touchGestureMode = 'none';
+            oneFingerInfo = null;
+          }
+          return;
+        }
+
+        if (draggedUnitId) {
+          releaseDragUnit(simRef.current, draggedUnitId, dragVelocity.x, dragVelocity.z);
+          draggedUnitId = null;
+          dragVelocity = { x: 0, z: 0 };
+          touchGestureMode = 'none';
+          oneFingerInfo = null;
+          soundEngine.playThrow();
+          propsRef.current.onSyncHud();
+          return;
+        }
+
+        if (isHoldPainting) {
+          isHoldPainting = false;
+          paintedStrokeTiles.clear();
+          lastPaintTile = null;
+          lastHoldCastPos = null;
+          touchGestureMode = 'none';
+          oneFingerInfo = null;
+          return;
+        }
+
+        const wasTap =
+          e.type === 'pointerup' &&
+          touchGestureMode === 'one_finger_pending' &&
+          oneFingerInfo &&
+          e.pointerId === oneFingerInfo.pointerId &&
+          propsRef.current.gameState === 'playing' &&
+          !propsRef.current.mobilePanMode;
+
+        touchGestureMode = 'none';
+        oneFingerInfo = null;
+
+        if (wasTap) {
+          hoverRaycastTimer = performance.now();
+          updateHoverTile(e.clientX, e.clientY);
+          if (propsRef.current.activeTool.kind === 'inspect') {
+            propsRef.current.onSelectEntity?.(hoveredEntityInternal);
+          }
+          if (hoveredTileCoords && !isDragPowerActive()) {
+            propsRef.current.onTileInteract(hoveredTileCoords.x, hoveredTileCoords.z);
+          }
+        }
+        return;
+      }
+
       if (draggedUnitId) {
         releaseDragUnit(simRef.current, draggedUnitId, dragVelocity.x, dragVelocity.z);
         draggedUnitId = null;
@@ -4308,7 +5221,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      const maxZoomOut = Math.max(105, getWholeMapFrustum(simRef.current.gridSize));
+      const maxZoomOut = getResponsiveMaxZoomOut(simRef.current.gridSize, getCurrentAspect());
       desiredFrustum = THREE.MathUtils.clamp(desiredFrustum + e.deltaY * 0.015, 7.5, maxZoomOut);
     };
 
@@ -4323,6 +5236,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
     const clearInputs = () => {
       keysPressed.clear();
+      activeTouches.clear();
+      touchGestureMode = 'none';
+      oneFingerInfo = null;
+      twoFingerLast = null;
       isPointerDragging = false;
       isHoldPainting = false;
       paintedStrokeTiles.clear();
@@ -4339,6 +5256,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     domElem.addEventListener('pointermove', onPointerMove);
     domElem.addEventListener('pointerleave', onPointerLeave);
     window.addEventListener('pointerup', onPointerUp);
+    window.addEventListener('pointercancel', onPointerUp);
     domElem.addEventListener('wheel', onWheel, { passive: false });
     domElem.addEventListener('contextmenu', (e) => e.preventDefault());
     window.addEventListener('keydown', onKeyDown);
@@ -4356,6 +5274,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     const _dummyScale = new THREE.Vector3();
     const _bgColor = new THREE.Color('#273345');
     const _targetBgColor = new THREE.Color('#273345');
+    const _targetFogColor = new THREE.Color(TIME_OF_DAY_PRESETS.noon.fogColorHex);
     const _targetLightColor = new THREE.Color(0xffdfb0);
 
     let lastTime = performance.now();
@@ -4394,6 +5313,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     let lastZoneOverlayVersion = -1;
     let syncFrameStamp = 0;
     let lastSyncedBuildingCount = -1;
+    let initialMapsPreuploaded = true;
+    const activeFireTileIndices: number[] = [];
 
     type ActiveHazardItem = NonNullable<SimulationState['activeHazards']>[number];
     const activeTsunamis: ActiveHazardItem[] = [];
@@ -4422,14 +5343,18 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         lastSyncedEpochIndex = simState.epochIndex;
         propsNeedSync = true;
         metroNeedsSync = true;
+        terrainMapDirty = true;
       }
       if (simState.buildings.length !== lastSyncedBuildingCount) {
         lastSyncedBuildingCount = simState.buildings.length;
         metroNeedsSync = true;
+        terrainMapDirty = true;
       }
 
-      let waterMapNeedsSync = simState !== lastSyncedSim;
-      if (simState !== lastSyncedSim) {
+      const simChanged = simState !== lastSyncedSim;
+      let waterMapNeedsSync = simChanged;
+      if (simChanged) {
+        initialMapsPreuploaded = false;
         lastSyncedSim = simState;
         lastSyncedEpochIndex = simState.epochIndex;
         lastSyncedBuildingCount = simState.buildings.length;
@@ -4454,7 +5379,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         camDesiredTarget.set(newCenter, 1.2, newCenter);
         camTarget.set(newCenter, 1.2, newCenter);
         desiredFrustum =
-          propsRef.current.gameState === 'title' ? 22 : getWholeMapFrustum(simState.gridSize);
+          propsRef.current.gameState === 'title'
+            ? getResponsiveTitleFrustum(getCurrentAspect())
+            : getWholeMapFrustum(simState.gridSize);
       }
 
       // 1. Collect active terrain-deforming hazards without heap allocations
@@ -4502,19 +5429,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       const hasTsunamis = activeTsunamis.length > 0;
       const hasQuakes = activeQuakeCount > 0;
 
-      // Detect whether any tile changed terrain bucket (if not, reuse existing InstancedMesh slots & upload only moved tiles)
-      let bucketsDirty = waterMapNeedsSync;
+      // Detect initial bucket build (`syncFrameStamp === 1` or `simChanged`) and single-pass tile sync
+      const bucketsDirty = waterMapNeedsSync || syncFrameStamp === 1;
       const tiles = simState.tiles;
       const tileCount = tiles.length;
-      if (!bucketsDirty) {
-        for (let i = 0; i < tileCount; i++) {
-          const tCode = TERRAIN_CODE[tiles[i].terrain] ?? 3;
-          if (tileTerrainCode[i] !== tCode) {
-            bucketsDirty = true;
-            break;
-          }
-        }
-      }
+      activeFireTileIndices.length = 0;
 
       if (bucketsDirty) {
         for (let tIdx = 0; tIdx < terrainInstancedList.length; tIdx++) {
@@ -4526,10 +5445,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       }
 
       _dummyQuat.identity();
+      let bucketMismatchDetected = false;
 
       for (let i = 0; i < tileCount; i++) {
         const t = tiles[i];
-        let targetTopY = t.height === 0 ? 0.12 : t.height * HEIGHT_STEP + 0.25;
+        const tCode = TERRAIN_CODE[t.terrain] ?? 3;
+        const isWaterWalkway =
+          t.height === 0 && (tCode === 9 || tCode === 14 || tCode === 21);
+        let targetTopY = t.height === 0 ? (isWaterWalkway ? 0.3 : 0.12) : t.height * HEIGHT_STEP + 0.25;
         let hasHazardEffect = false;
 
         if (hasTsunamis && t.height <= 2) {
@@ -4598,10 +5521,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         const renderTopY = curY + quakeJoltY;
 
         if (bucketsDirty) {
-          const tCode = TERRAIN_CODE[t.terrain] ?? 3;
           const inst = terrainInstancedMap.get(t.terrain) ?? terrainInstancedMap.get('grass')!;
           const bIdx = terrainInstIndexMap.get(inst) ?? 0;
           const slot = inst.count;
+          ensureInstancedCapacity(inst, slot + 1, terrainInstanceToTile, tileCount);
           inst.count = slot + 1;
           terrainInstanceToTile.get(inst)![slot] = i;
           tileTerrainCode[i] = tCode;
@@ -4615,28 +5538,33 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           inst.setMatrixAt(slot, _dummyMatrix);
           instNeedsUpload[bIdx] = 1;
           tileHadHazard[i] = hasHazardEffect || quakeJoltY !== 0 ? 1 : 0;
-        } else if (curY !== prevY || quakeJoltY !== 0 || tileHadHazard[i] !== 0) {
-          const inst = tileBucketInst[i];
-          if (inst) {
-            _dummyPos.set(t.x, renderTopY, t.z);
-            _dummyScale.set(1, Math.max(0.2, renderTopY + 0.6), 1);
-            _dummyMatrix.compose(_dummyPos, _dummyQuat, _dummyScale);
-            inst.setMatrixAt(tileSlotIndex[i], _dummyMatrix);
-            instNeedsUpload[tileBucketIdx[i]] = 1;
+        } else {
+          if (tileTerrainCode[i] !== tCode) {
+            bucketMismatchDetected = true;
+          } else if (curY !== prevY || quakeJoltY !== 0 || tileHadHazard[i] !== 0) {
+            const inst = tileBucketInst[i];
+            if (inst) {
+              _dummyPos.set(t.x, renderTopY, t.z);
+              _dummyScale.set(1, Math.max(0.2, renderTopY + 0.6), 1);
+              _dummyMatrix.compose(_dummyPos, _dummyQuat, _dummyScale);
+              inst.setMatrixAt(tileSlotIndex[i], _dummyMatrix);
+              instNeedsUpload[tileBucketIdx[i]] = 1;
+            }
+            tileHadHazard[i] = hasHazardEffect || quakeJoltY !== 0 ? 1 : 0;
           }
-          tileHadHazard[i] = hasHazardEffect || quakeJoltY !== 0 ? 1 : 0;
         }
 
-        const tCode = TERRAIN_CODE[t.terrain] ?? 3;
+        if (t.onFireTimer > 0 && t.height > 0 && t.resourceNode !== 'ore_vein') {
+          activeFireTileIndices.push(i);
+        }
+
         const terrSig = (t.height << 7) | (tCode << 1) | (t.farmSettlementId ? 1 : 0);
         if (tileTerrainSig[i] !== terrSig) {
           tileTerrainSig[i] = terrSig;
           terrainMapDirty = true;
         }
         const mSig =
-          t.terrain === 'rail_track' || t.terrain === 'runway' || t.terrain === 'stone_road'
-            ? (t.height << 5) | tCode
-            : 0;
+          tCode === 9 || tCode === 14 || tCode === 21 ? (t.height << 5) | tCode : 0;
         if (tileMetroSig[i] !== mSig) {
           tileMetroSig[i] = mSig;
           metroNeedsSync = true;
@@ -4649,26 +5577,71 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             ((NODE_CODE[t.resourceNode] ?? 0) << 1) |
             (t.buildingId ? 1 : 0);
           if (tilePropSig[i] !== sig || Math.abs(curY - tileLastNodeY[i]) > 0.002) {
-            if (tilePropSig[i] <= 0) waterMapNeedsSync = true;
+            if (tilePropSig[i] <= 0 && !initialMapsPreuploaded) waterMapNeedsSync = true;
             tilePropSig[i] = sig;
             tileLastNodeY[i] = curY;
             propsNeedSync = true;
           }
         } else {
-          const waterSig = t.terrain === 'deep_water' ? -2 : -3;
+          const waterNodeCode = NODE_CODE[t.resourceNode] ?? 0;
+          const isCoralBleached =
+            t.resourceNode === 'coral_reef' &&
+            ((t.coralBleachTimer ?? 0) > 0 || t.resourceAmount <= 0)
+              ? 1
+              : 0;
+          const waterFlags =
+            (isCoralBleached << 8) |
+            (waterNodeCode << 4) |
+            ((t.isRiver ? 1 : 0) << 3) |
+            ((t.isLake ? 1 : 0) << 2) |
+            ((t.buildingId ? 1 : 0) << 1) |
+            (tCode === 0 ? 1 : 0);
+          const waterSig = -10 - waterFlags;
           if (tilePropSig[i] !== waterSig) {
             tilePropSig[i] = waterSig;
             propsNeedSync = true;
-            waterMapNeedsSync = true;
+            if (!initialMapsPreuploaded) waterMapNeedsSync = true;
           }
         }
       }
 
-      if (waterMapNeedsSync) {
-        oceanFoam.updateMap(simState.tiles);
+      if (bucketMismatchDetected) {
+        for (let tIdx = 0; tIdx < terrainInstancedList.length; tIdx++) {
+          terrainInstancedList[tIdx].count = 0;
+          instNeedsUpload[tIdx] = 1;
+        }
+        for (let i = 0; i < tileCount; i++) {
+          const t = tiles[i];
+          const tCode = TERRAIN_CODE[t.terrain] ?? 3;
+          const inst = terrainInstancedMap.get(t.terrain) ?? terrainInstancedMap.get('grass')!;
+          const bIdx = terrainInstIndexMap.get(inst) ?? 0;
+          const slot = inst.count;
+          ensureInstancedCapacity(inst, slot + 1, terrainInstanceToTile, tileCount);
+          inst.count = slot + 1;
+          terrainInstanceToTile.get(inst)![slot] = i;
+          tileTerrainCode[i] = tCode;
+          tileBucketIdx[i] = bIdx;
+          tileBucketInst[i] = inst;
+          tileSlotIndex[i] = slot;
+
+          const renderTopY = tileCurrentY[i];
+          _dummyPos.set(t.x, renderTopY, t.z);
+          _dummyScale.set(1, Math.max(0.2, renderTopY + 0.6), 1);
+          _dummyMatrix.compose(_dummyPos, _dummyQuat, _dummyScale);
+          inst.setMatrixAt(slot, _dummyMatrix);
+        }
+        waterMapNeedsSync = true;
       }
-      if (terrainMapDirty || waterMapNeedsSync) {
-        styledTerrain.updateMap(simState.tiles);
+
+      if (initialMapsPreuploaded) {
+        initialMapsPreuploaded = false;
+      } else {
+        if (waterMapNeedsSync) {
+          oceanFoam.updateMap(simState.tiles);
+        }
+        if (terrainMapDirty || waterMapNeedsSync) {
+          styledTerrain.updateMap(simState.tiles, simState.buildings, simState.settlementSpecies);
+        }
       }
 
       for (let tIdx = 0; tIdx < terrainInstancedList.length; tIdx++) {
@@ -4694,19 +5667,50 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
         for (let i = 0; i < simState.tiles.length; i++) {
           const t = simState.tiles[i];
-          if (t.height <= 0 || t.buildingId) continue;
+          if (t.buildingId) continue;
+          if (t.height <= 0) {
+            if (
+              t.resourceNode !== 'coral_reef' &&
+              t.resourceNode !== 'scrap_flotsam' &&
+              t.resourceNode !== 'atlantis_ruin'
+            ) {
+              continue;
+            }
+          }
 
-          const curY = tileCurrentY[i];
+          const curY =
+            t.height <= 0
+              ? t.resourceNode === 'coral_reef' || t.resourceNode === 'atlantis_ruin'
+                ? tileCurrentY[i]
+                : 0.25
+              : tileCurrentY[i];
           // Deterministic spatial hash so clusters & rotations are rich and never flicker
           const h = Math.abs(((t.x * 73856093) ^ (t.z * 19349663) ^ (simState.seed * 2654435761)) | 0);
           const rotStep = (h >> 2) & 3;
           _propQuat.setFromAxisAngle(_propAxisY, rotStep * (Math.PI / 2));
           _dummyPos.set(t.x, curY, t.z);
+          if (t.resourceNode === 'coral_reef') {
+            const isBleached = (t.coralBleachTimer ?? 0) > 0 || t.resourceAmount <= 0;
+            const scaleXZ = (1.28 + ((h >> 4) % 3) * 0.06) * (isBleached ? 0.92 : 1.0);
+            _propScale.set(scaleXZ, isBleached ? 0.88 : 1.0, scaleXZ);
+          } else {
+            _propScale.set(1, 1, 1);
+          }
           _dummyMatrix.compose(_dummyPos, _propQuat, _propScale);
+          _propScale.set(1, 1, 1);
 
           let targetInst: THREE.InstancedMesh | null = null;
           let ambThresh = 0;
-          if (t.resourceNode === 'timber_grove') {
+          if (t.resourceNode === 'coral_reef') {
+            const isBleached = (t.coralBleachTimer ?? 0) > 0 || t.resourceAmount <= 0;
+            targetInst = isBleached
+              ? coralReefBleachedInsts[h % coralReefBleachedInsts.length]
+              : coralReefInsts[h % coralReefInsts.length];
+          } else if (t.resourceNode === 'scrap_flotsam') {
+            targetInst = scrapFlotsamInsts[h % scrapFlotsamInsts.length];
+          } else if (t.resourceNode === 'atlantis_ruin') {
+            targetInst = atlantisRuinInsts[h % atlantisRuinInsts.length];
+          } else if (t.resourceNode === 'timber_grove') {
             if (t.terrain === 'jungle') {
               targetInst = timberJungleInsts[h % timberJungleInsts.length];
             } else if (t.terrain === 'taiga') {
@@ -4779,11 +5783,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
             if (targetInst && ambientPropSet.has(targetInst)) {
               if (chance < ambThresh * 0.22) {
-                if (targetInst.count < targetInst.instanceMatrix.count) {
-                  const pSlot = targetInst.count;
-                  targetInst.count = pSlot + 1;
-                  targetInst.setMatrixAt(pSlot, _dummyMatrix);
-                }
+                const pSlot = targetInst.count;
+                ensureInstancedCapacity(targetInst, pSlot + 1);
+                targetInst.count = pSlot + 1;
+                targetInst.setMatrixAt(pSlot, _dummyMatrix);
               } else {
                 const els = _dummyMatrix.elements;
                 const stage =
@@ -4796,8 +5799,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             }
           }
 
-          if (targetInst && targetInst.count < targetInst.instanceMatrix.count) {
+          if (targetInst) {
             const pSlot = targetInst.count;
+            ensureInstancedCapacity(targetInst, pSlot + 1);
             targetInst.count = pSlot + 1;
             targetInst.setMatrixAt(pSlot, _dummyMatrix);
           }
@@ -4815,10 +5819,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         for (let i = 0; i < ambientPropInsts.length; i++) {
           const pInst = ambientPropInsts[i];
           const lowCount = pInst.count;
-          const cap = pInst.instanceMatrix.count;
-          const arr = pInst.instanceMatrix.array as Float32Array;
           const med = ambMedStage.get(pInst)!;
           const full = ambFullStage.get(pInst)!;
+          const totalNeeded = lowCount + ((med.length + full.length) >> 4);
+          if (totalNeeded > pInst.instanceMatrix.count) {
+            ensureInstancedCapacity(pInst, totalNeeded);
+          }
+          const cap = pInst.instanceMatrix.count;
+          const arr = pInst.instanceMatrix.array as Float32Array;
 
           let cursor = lowCount;
           let outOff = cursor * 16;
@@ -4854,10 +5862,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           metroConcreteMat.color.setHex(0xcbd5e1);
           metroConcreteMat.metalness = 0.28;
           metroConcreteMat.roughness = 0.42;
-          metroParapetMat.color.setHex(0x334155);
+          metroParapetMat.color.setHex(0x52647a);
           metroRailMat.color.setHex(0x56cfe1);
           metroRailMat.emissive.setHex(0x38bdf8);
           metroRailMat.emissiveIntensity = 0.95;
+          skywayDeckMat.color.setHex(0x36475c);
+          skywayTrimMat.color.setHex(0x56cfe1);
+          skywayTrimMat.emissive.setHex(0x38bdf8);
+          skywayTrimMat.emissiveIntensity = 0.95;
         } else {
           metroConcreteMat.color.setHex(0x8d99ae);
           metroConcreteMat.metalness = 0.08;
@@ -4866,6 +5878,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           metroRailMat.color.setHex(0xe2e8f0);
           metroRailMat.emissive.setHex(0x000000);
           metroRailMat.emissiveIntensity = 0;
+          skywayDeckMat.color.setHex(0x475569);
+          skywayTrimMat.color.setHex(0xfbbf24);
+          skywayTrimMat.emissive.setHex(0xf59e0b);
+          skywayTrimMat.emissiveIntensity = simState.epochIndex >= 5 ? 0.72 : 0.42;
         }
 
         const gs = simState.gridSize;
@@ -4879,7 +5895,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           if (tx < 0 || tz < 0 || tx >= gs || tz >= gs) return false;
           const tileIdx = tz * gs + tx;
           const tile = simState.tiles[tileIdx];
-          if (!tile || tile.height <= 0) return false;
+          if (!tile) return false;
           return tile.terrain === 'rail_track' || bldTypeAtCache.get(tileIdx) === 'rail_station';
         };
 
@@ -4887,14 +5903,16 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           if (tx < 0 || tz < 0 || tx >= gs || tz >= gs) return false;
           const tileIdx = tz * gs + tx;
           const tile = simState.tiles[tileIdx];
-          if (!tile || tile.height <= 0) return false;
+          if (!tile) return false;
           if (tile.terrain === 'rail_track' || bldTypeAtCache.get(tileIdx) === 'rail_station') {
             return true;
           }
           if (tile.terrain === 'stone_road') {
             const ewBridge = isRailOrStationAt(tx - 1, tz) && isRailOrStationAt(tx + 1, tz);
             const nsBridge = isRailOrStationAt(tx, tz - 1) && isRailOrStationAt(tx, tz + 1);
-            return ewBridge || nsBridge;
+            const seBridge = isRailOrStationAt(tx - 1, tz - 1) && isRailOrStationAt(tx + 1, tz + 1);
+            const swBridge = isRailOrStationAt(tx + 1, tz - 1) && isRailOrStationAt(tx - 1, tz + 1);
+            return ewBridge || nsBridge || seBridge || swBridge;
           }
           return false;
         };
@@ -4911,26 +5929,64 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           sy = 1,
           sz = 1,
         ) => {
-          if (inst.count >= inst.instanceMatrix.count) return;
+          const slot = inst.count;
+          if (slot >= MAX_METRO_STRIP_INST * 2) return;
+          ensureInstancedCapacity(inst, slot + 1, undefined, MAX_METRO_STRIP_INST * 2);
           _dummyPos.set(px, py, pz);
           if (qx !== 0 || qy !== 0 || qz !== 0) {
-            _metroEuler.set(qx, qy, qz);
+            _metroEuler.set(qx, qy, qz, 'YXZ');
             _propQuat.setFromEuler(_metroEuler);
           } else {
             _propQuat.identity();
           }
           _dummyScale.set(sx, sy, sz);
           _dummyMatrix.compose(_dummyPos, _propQuat, _dummyScale);
-          const slot = inst.count;
           inst.count = slot + 1;
           inst.setMatrixAt(slot, _dummyMatrix);
         };
 
+        const isSkywayExpressAt = (tx: number, tz: number): boolean => {
+          if (simState.epochIndex < 5) return false;
+          if (tx < 1 || tz < 1 || tx >= gs - 1 || tz >= gs - 1) return false;
+          const idx = tz * gs + tx;
+          const tt = simState.tiles[idx];
+          if (!tt || tt.terrain !== 'stone_road' || tt.height <= 0) return false;
+          const hasEast = simState.tiles[tz * gs + (tx + 1)]?.terrain === 'stone_road';
+          const hasWest = simState.tiles[tz * gs + (tx - 1)]?.terrain === 'stone_road';
+          const hasSouth = simState.tiles[(tz + 1) * gs + tx]?.terrain === 'stone_road';
+          const hasNorth = simState.tiles[(tz - 1) * gs + tx]?.terrain === 'stone_road';
+          // Double-wide expressways & cross-diagonal skyways elevate cleanly along prime avenues
+          const isParallelEW = (hasEast || hasWest) && hasSouth && simState.tiles[(tz + 1) * gs + (tx + 1)]?.terrain === 'stone_road';
+          const isDiagCross =
+            !hasEast && !hasNorth && !hasSouth && !hasWest &&
+            ((simState.tiles[(tz + 1) * gs + (tx + 1)]?.terrain === 'stone_road' &&
+              simState.tiles[(tz - 1) * gs + (tx - 1)]?.terrain === 'stone_road') ||
+              (simState.tiles[(tz + 1) * gs + (tx - 1)]?.terrain === 'stone_road' &&
+                simState.tiles[(tz - 1) * gs + (tx + 1)]?.terrain === 'stone_road'));
+          return isParallelEW || isDiagCross;
+        };
+
         const elevatedActive = simState.epochIndex >= 5;
+        const skybridgesActive = simState.epochIndex >= 4;
         for (let i = 0; i < simState.tiles.length; i++) {
           const t = simState.tiles[i];
-          if (t.height <= 0) continue;
+          const isWaterWalkway =
+            t.height === 0 &&
+            (t.terrain === 'stone_road' || t.terrain === 'rail_track' || t.terrain === 'runway');
+          if (t.height <= 0 && !isWaterWalkway) continue;
           const curY = tileCurrentY[i];
+
+          // Water walkway support pilings / pontoons under bridges & water causeways
+          if (isWaterWalkway) {
+            for (const [px, pz] of [
+              [-0.42, -0.42],
+              [0.42, -0.42],
+              [-0.42, 0.42],
+              [0.42, 0.42],
+            ] as const) {
+              pushInst(streetPoleInst, t.x + px, 0.22, t.z + pz, 0, 0, 0, 1.45, 0.24, 1.45);
+            }
+          }
 
           // Runway perimeter beacons (all epochs once airport runway exists)
           if (t.terrain === 'runway') {
@@ -4952,6 +6008,87 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             }
           }
 
+          // Age-dependent street & settlement illumination fixtures along stone_road tiles and plazas
+          if (t.terrain === 'stone_road' && !bldTypeAtCache.has(i) && ((t.x + t.z) & 1) === 0) {
+            const ep = simState.epochIndex;
+            const sideSign = ((t.x * 13 + t.z * 7) & 1) === 0 ? 1 : -1;
+            const nRoad = t.z > 0 && simState.tiles[(t.z - 1) * gs + t.x]?.terrain === 'stone_road';
+            const sRoad = t.z + 1 < gs && simState.tiles[(t.z + 1) * gs + t.x]?.terrain === 'stone_road';
+            const offX = nRoad || sRoad ? sideSign * 0.34 : 0.18;
+            const offZ = nRoad || sRoad ? 0.18 : sideSign * 0.34;
+            const fx = t.x + offX;
+            const fz = t.z + offZ;
+
+            if (ep === 0) {
+              pushInst(streetPoleInst, fx, curY + 0.09, fz, 0, 0, 0, 1.15, 0.18, 1.15);
+              pushInst(streetLampHeadInst, fx, curY + 0.21, fz, 0, 0.4, 0, 1.35, 1.5, 1.35);
+            } else if (ep <= 2) {
+              pushInst(streetPoleInst, fx, curY + 0.17, fz, 0, 0, 0, 1.0, 0.34, 1.0);
+              pushInst(streetLampHeadInst, fx, curY + 0.37, fz, 0, 0, 0, 1.15, 1.25, 1.15);
+            } else if (ep === 3) {
+              pushInst(streetPoleInst, fx, curY + 0.22, fz, 0, 0, 0, 0.9, 0.44, 0.9);
+              pushInst(streetLampHeadInst, fx, curY + 0.47, fz, 0, 0, 0, 1.1, 1.35, 1.1);
+            } else if (ep <= 5) {
+              pushInst(streetPoleInst, fx, curY + 0.28, fz, 0, 0, 0, 0.82, 0.56, 0.82);
+              const armInX = fx - Math.sign(offX || 1) * 0.07;
+              const armInZ = fz - Math.sign(offZ || 1) * 0.07;
+              pushInst(streetLampHeadInst, armInX, curY + 0.58, armInZ, 0, 0, 0, 1.45, 0.72, 1.45);
+            } else {
+              pushInst(streetPoleInst, fx, curY + 0.25, fz, 0, 0, 0, 0.88, 0.5, 0.88);
+              pushInst(streetLampHeadInst, fx, curY + 0.53, fz, 0, 0.78, 0, 1.15, 1.65, 1.15);
+            }
+          }
+
+          // 3D Urban Skybridges (linking facing buildings across streets in Atomic Age 4+) & Elevated Skyways (Epoch 5+)
+          if (skybridgesActive && t.terrain === 'stone_road' && !bldTypeAtCache.has(i) && !isElevatedNodeAt(t.x, t.z)) {
+            const hasBldN = t.z > 0 && bldTypeAtCache.has((t.z - 1) * gs + t.x);
+            const hasBldS = t.z + 1 < gs && bldTypeAtCache.has((t.z + 1) * gs + t.x);
+            const hasBldW = t.x > 0 && bldTypeAtCache.has(t.z * gs + (t.x - 1));
+            const hasBldE = t.x + 1 < gs && bldTypeAtCache.has(t.z * gs + (t.x + 1));
+            if (hasBldN && hasBldS) {
+              pushInst(skywayDeckInst, t.x, curY + 0.44, t.z, 0, 0, 0, 0.65, 1.0, 1.05);
+              pushInst(skywayTrimInst, t.x - 0.14, curY + 0.49, t.z, 0, 0, 0, 1.0, 1.0, 1.05);
+              pushInst(skywayTrimInst, t.x + 0.14, curY + 0.49, t.z, 0, 0, 0, 1.0, 1.0, 1.05);
+            } else if (hasBldW && hasBldE) {
+              pushInst(skywayDeckInst, t.x, curY + 0.44, t.z, 0, Math.PI / 2, 0, 0.65, 1.0, 1.05);
+              pushInst(skywayTrimInst, t.x, curY + 0.49, t.z - 0.14, 0, Math.PI / 2, 0, 1.0, 1.0, 1.05);
+              pushInst(skywayTrimInst, t.x, curY + 0.49, t.z + 0.14, 0, Math.PI / 2, 0, 1.0, 1.0, 1.05);
+            }
+
+            if (isSkywayExpressAt(t.x, t.z)) {
+              // Slender overpass pier column & elevated Skyway expressway deck segment
+              if (((t.x + t.z) & 1) === 0) {
+                pushInst(streetPoleInst, t.x, curY + 0.21, t.z, 0, 0, 0, 2.2, 0.42, 2.2);
+              }
+              const dirs: ReadonlyArray<[number, number]> = [
+                [1, 0],
+                [0, 1],
+                [1, 1],
+                [-1, 1],
+              ];
+              for (const [dx, dz] of dirs) {
+                const nx = t.x + dx;
+                const nz = t.z + dz;
+                if (!isSkywayExpressAt(nx, nz)) continue;
+                const nIdx = nz * gs + nx;
+                const nextY = tileCurrentY[nIdx];
+                const dy = nextY - curY;
+                const planar = Math.hypot(dx, dz);
+                const spanLen = Math.hypot(planar, dy);
+                const yaw = Math.atan2(dx, dz);
+                const pitchX = -Math.atan2(dy, planar);
+                const midY = (curY + nextY) * 0.5;
+                const mx = t.x + dx * 0.5;
+                const mz = t.z + dz * 0.5;
+                const pxOff = (dz / planar) * 0.21;
+                const pzOff = -(dx / planar) * 0.21;
+                pushInst(skywayDeckInst, mx, midY + 0.44, mz, pitchX, yaw, 0, 1, 1, spanLen);
+                pushInst(skywayTrimInst, mx + pxOff, midY + 0.485, mz + pzOff, pitchX, yaw, 0, 1, 1, spanLen);
+                pushInst(skywayTrimInst, mx - pxOff, midY + 0.485, mz - pzOff, pitchX, yaw, 0, 1, 1, spanLen);
+              }
+            }
+          }
+
           if (!elevatedActive) continue;
 
           const nodeHere = isElevatedNodeAt(t.x, t.z);
@@ -4965,8 +6102,15 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             pushInst(metroCapInst, t.x, curY + 0.60, t.z);
           }
           if (t.terrain === 'rail_track' || isRoadBridgeHere) {
-            pushInst(metroDeckHubInst, t.x, curY + 0.68, t.z);
-            pushInst(metroRailHubInst, t.x, curY + 0.75, t.z);
+            // Rotate hub node by 45 degrees along purely diagonal curved segments
+            const hasCard =
+              isElevatedNodeAt(t.x + 1, t.z) ||
+              isElevatedNodeAt(t.x - 1, t.z) ||
+              isElevatedNodeAt(t.x, t.z + 1) ||
+              isElevatedNodeAt(t.x, t.z - 1);
+            const hubYaw = hasCard ? 0 : Math.PI / 4;
+            pushInst(metroDeckHubInst, t.x, curY + 0.68, t.z, 0, hubYaw, 0);
+            pushInst(metroRailHubInst, t.x, curY + 0.75, t.z, 0, hubYaw, 0);
           }
 
           if (t.x + 1 < gs && isElevatedNodeAt(t.x + 1, t.z)) {
@@ -5010,6 +6154,39 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
               }
             }
           }
+
+          // Smooth Diagonal Elevated Viaduct Spans (SE & SW) for sweeping curved rail segments
+          const diagSteps: ReadonlyArray<[number, number]> = [
+            [1, 1],
+            [-1, 1],
+          ];
+          for (const [dx, dz] of diagSteps) {
+            const nx = t.x + dx;
+            const nz = t.z + dz;
+            if (nx < 0 || nx >= gs || nz < 0 || nz >= gs) continue;
+            if (!isElevatedNodeAt(nx, nz)) continue;
+            // Only bridge diagonally when not redundant with two adjacent L-cardinal elevated nodes
+            if (isElevatedNodeAt(t.x + dx, t.z) || isElevatedNodeAt(t.x, t.z + dz)) continue;
+            const nIdx = nz * gs + nx;
+            const nextTile = simState.tiles[nIdx];
+            if (isRoadBridgeHere && nextTile.terrain === 'stone_road') continue;
+            const nextY = tileCurrentY[nIdx];
+            const dy = nextY - curY;
+            const planar = Math.SQRT2;
+            const spanLen = Math.hypot(planar, dy);
+            const yaw = Math.atan2(dx, dz);
+            const slopeX = -Math.atan2(dy, planar);
+            const midY = (curY + nextY) * 0.5;
+            const mx = t.x + dx * 0.5;
+            const mz = t.z + dz * 0.5;
+            const perpX = dz / planar;
+            const perpZ = -dx / planar;
+            pushInst(metroSpanNSInst, mx, midY + 0.68, mz, slopeX, yaw, 0, 1, 1, spanLen);
+            pushInst(metroRailNSInst, mx + perpX * 0.14, midY + 0.755, mz + perpZ * 0.14, slopeX, yaw, 0, 1, 1, spanLen);
+            pushInst(metroRailNSInst, mx - perpX * 0.14, midY + 0.755, mz - perpZ * 0.14, slopeX, yaw, 0, 1, 1, spanLen);
+            pushInst(metroParapetNSInst, mx + perpX * 0.27, midY + 0.76, mz + perpZ * 0.27, slopeX, yaw, 0, 1, 1, spanLen);
+            pushInst(metroParapetNSInst, mx - perpX * 0.27, midY + 0.76, mz - perpZ * 0.27, slopeX, yaw, 0, 1, 1, spanLen);
+          }
         }
 
         for (const mInst of allMetroInsts) {
@@ -5046,11 +6223,16 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         return rotY;
       };
 
-      // 2. Sync buildings (cached animated children + road orientation)
+      // 2. Sync buildings (cached animated children + road orientation + floating city foundations)
       for (let bi = 0; bi < simState.buildings.length; bi++) {
         const b = simState.buildings[bi];
         const tile = simState.tiles[b.tileZ * gsBld + b.tileX];
-        const groundY = tile ? Math.max(0.18, tile.height * HEIGHT_STEP + 0.25) : 1.0;
+        const isWaterTile = Boolean(tile && tile.height === 0);
+        const groundY = tile
+          ? isWaterTile
+            ? 0.29 + Math.sin(elapsed * 2.1 + b.tileX * 0.7 + b.tileZ * 0.5) * 0.02
+            : Math.max(0.18, tile.height * HEIGHT_STEP + 0.25)
+          : 1.0;
 
         const bSpecies =
           b.species ??
@@ -5062,11 +6244,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           !entry ||
           entry.epochLevel !== b.epochLevel ||
           entry.type !== b.type ||
-          entry.species !== bSpecies
+          entry.species !== bSpecies ||
+          entry.isWaterTile !== isWaterTile
         ) {
           if (entry) buildingsGroup.remove(entry.group);
           const variantSeed = b.tileX * 31 + b.tileZ * 17;
-          const group = createBuildingGroup(b.type, b.epochLevel, variantSeed, bSpecies);
+          const group = createBuildingGroup(b.type, b.epochLevel, variantSeed, bSpecies, isWaterTile);
           group.position.set(b.tileX, groundY, b.tileZ);
           buildingsGroup.add(group);
           const flickerFlames: THREE.Object3D[] = [];
@@ -5083,6 +6266,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             epochLevel: b.epochLevel,
             type: b.type,
             species: bSpecies,
+            isWaterTile,
             flickerFlames,
             spinParts,
             cachedRotY: rotY,
@@ -5190,6 +6374,24 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             statusRing: group.getObjectByName('status_ring') as THREE.Mesh | undefined,
             battlewillAvatar: group.getObjectByName('battlewill_avatar'),
             battlewillSwordPivot: group.getObjectByName('battlewill_sword_pivot'),
+            leviathanSilhouette: group.getObjectByName('leviathan_silhouette'),
+            leviathanSurfaced: group.getObjectByName('leviathan_surfaced'),
+            silHead: group.getObjectByName('sil_head'),
+            silSeg0: group.getObjectByName('sil_seg_0'),
+            silSeg1: group.getObjectByName('sil_seg_1'),
+            silSeg2: group.getObjectByName('sil_seg_2'),
+            silTail: group.getObjectByName('sil_tail'),
+            silFinL: group.getObjectByName('sil_fin_l'),
+            silFinR: group.getObjectByName('sil_fin_r'),
+            mandibleL: group.getObjectByName('mandible_l'),
+            mandibleR: group.getObjectByName('mandible_r'),
+            leviathanTailMid: group.getObjectByName('leviathan_tail_mid'),
+            leviathanBeamGroup: group.getObjectByName('leviathan_beam_group'),
+            beamShaft: group.getObjectByName('beam_shaft'),
+            beamImpact: group.getObjectByName('beam_impact'),
+            beamMuzzle: group.getObjectByName('beam_muzzle'),
+            leviathanSplashInner: group.getObjectByName('leviathan_splash_inner'),
+            leviathanSplashOuter: group.getObjectByName('leviathan_splash_outer'),
             lastCarryType: '__unset__',
             lastStatusKey: -1,
             seenStamp: syncFrameStamp,
@@ -5200,10 +6402,121 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         }
         const uGroup = uEntry.group;
 
+        // Hide units currently embarked aboard a passenger ferry/cruise ship
+        if (u.embarkedVehicleId) {
+          uGroup.visible = false;
+          continue;
+        }
+        uGroup.visible = true;
+
+        // Toggle Leviathan between submerged silhouette vs surfaced breaching monster
+        if (u.role === 'leviathan') {
+          const isSubmerged = Boolean(u.leviathanSubmerged);
+          const leapTimer = u.leviathanLeapTimer ?? 0;
+          const beamTimer = u.leviathanBeamTimer ?? 0;
+          // Phase 1 of Breach Jump (leapTimer > 4.0): dives deep beneath the waves for 2.2 seconds
+          const isDeepDivePreBreach = leapTimer > 4.0;
+          const diveFadeFrac = isDeepDivePreBreach
+            ? THREE.MathUtils.clamp((leapTimer - 4.0) / 2.2, 0, 1)
+            : 1;
+
+          if (uEntry.leviathanSilhouette) {
+            uEntry.leviathanSilhouette.visible = isSubmerged && (!isDeepDivePreBreach || diveFadeFrac > 0.12);
+            // Scale down smoothly as it dives into the abyss during the calm 2.2s pre-breach window
+            const silScale = isDeepDivePreBreach ? Math.max(0.05, Math.pow(diveFadeFrac, 1.8)) : 1.0;
+            uEntry.leviathanSilhouette.scale.setScalar(silScale);
+          }
+          if (uEntry.leviathanSurfaced) {
+            uEntry.leviathanSurfaced.visible = !isSubmerged;
+          }
+
+          // Animate terrifying undulating silhouette spine & scythe-fins when hidden
+          if (isSubmerged) {
+            const wavePhase = elapsed * 2.45 + ((u.appearanceSeed ?? 1) % 17) * 0.5;
+            if (uEntry.silHead) {
+              uEntry.silHead.position.x = Math.sin(wavePhase) * 0.08;
+              uEntry.silHead.rotation.y = Math.cos(wavePhase) * 0.14;
+            }
+            if (uEntry.silSeg0) {
+              uEntry.silSeg0.position.x = Math.sin(wavePhase - 0.85) * 0.14;
+              uEntry.silSeg0.rotation.y = Math.cos(wavePhase - 0.85) * 0.18;
+            }
+            if (uEntry.silSeg1) {
+              uEntry.silSeg1.position.x = Math.sin(wavePhase - 1.7) * 0.22;
+              uEntry.silSeg1.rotation.y = Math.cos(wavePhase - 1.7) * 0.24;
+            }
+            if (uEntry.silSeg2) {
+              uEntry.silSeg2.position.x = Math.sin(wavePhase - 2.55) * 0.3;
+              uEntry.silSeg2.rotation.y = Math.cos(wavePhase - 2.55) * 0.3;
+            }
+            if (uEntry.silTail) {
+              uEntry.silTail.position.x = Math.sin(wavePhase - 3.4) * 0.38;
+              uEntry.silTail.rotation.y = Math.cos(wavePhase - 3.4) * 0.42;
+            }
+            const finSweep = Math.sin(wavePhase * 0.8) * 0.18;
+            if (uEntry.silFinL) uEntry.silFinL.rotation.y = 0.25 + finSweep;
+            if (uEntry.silFinR) uEntry.silFinR.rotation.y = -0.25 - finSweep;
+            if (!isDeepDivePreBreach && Math.random() < 0.18) {
+              spawnParticleBurst(u.x, 0.31, u.z, 1, '#0891b2', 0.9, 1.2, 0.55);
+            }
+          } else {
+            // Surfaced ambient & breach water spray
+            if (leapTimer > 0 && leapTimer <= 4.0) {
+              if (Math.random() < 0.75) {
+                spawnParticleBurst(
+                  u.x,
+                  0.34 + (u.altitude ?? 0) * 0.65,
+                  u.z,
+                  5,
+                  '#e0fbfc',
+                  2.4,
+                  5.2,
+                  0.95,
+                );
+              }
+            } else if (Math.random() < 0.38) {
+              spawnParticleBurst(u.x, 0.34, u.z, 3, '#a5f3fc', 2.2, 3.8, 0.78);
+            }
+          }
+
+          // Pulse surface breach foam rings
+          const isAirborneLeap = leapTimer > 0 && leapTimer <= 4.0 && (u.altitude ?? 0) > 0.6;
+          if (uEntry.leviathanSplashInner) {
+            uEntry.leviathanSplashInner.visible = !isSubmerged && !isAirborneLeap;
+            const pulse = 1 + Math.sin(elapsed * 4.5) * 0.12 + (beamTimer > 0 ? 0.22 : 0);
+            uEntry.leviathanSplashInner.scale.set(pulse, pulse, 1);
+          }
+          if (uEntry.leviathanSplashOuter) {
+            uEntry.leviathanSplashOuter.visible = !isSubmerged && !isAirborneLeap;
+            const pulseOuter = 1 + Math.cos(elapsed * 3.6) * 0.16 + (beamTimer > 0 ? 0.35 : 0);
+            uEntry.leviathanSplashOuter.scale.set(pulseOuter, pulseOuter, 1);
+          }
+        }
+
         const tx = Math.round(THREE.MathUtils.clamp(u.x, 0, gsBld - 1));
         const tz = Math.round(THREE.MathUtils.clamp(u.z, 0, gsBld - 1));
         const tile = simState.tiles[tz * gsBld + tx];
-        const groundY = tile ? Math.max(0.18, tile.height * HEIGHT_STEP + 0.25) : 0.5;
+        const isWaterWalkwayTile =
+          tile &&
+          tile.height === 0 &&
+          (tile.terrain === 'stone_road' ||
+            tile.terrain === 'rail_track' ||
+            tile.terrain === 'runway' ||
+            Boolean(tile.buildingId));
+        const groundY = tile
+          ? u.role === 'leviathan'
+            ? u.leviathanSubmerged
+              ? 0.295
+              : 0.34
+            : u.isSwimming
+              ? 0.12 + Math.sin(elapsed * 5.5 + u.x) * 0.035
+              : isWaterWalkwayTile
+                ? 0.3
+                : Math.max(0.18, tile.height * HEIGHT_STEP + 0.25)
+          : 0.5;
+        if (u.isSwimming && Math.random() < 0.16) {
+          spawnParticleBurst(u.x, 0.26, u.z, 1, '#e0fbfc', 0.22, 0.85, 0.32);
+        }
 
         let blackHolePullFrac = 0;
         let blackHoleAngle = 0;
@@ -5228,6 +6541,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         const isWorking =
           u.state === 'gathering' || u.state === 'building' || u.state === 'fighting';
         const isDragon = u.role === 'dragon';
+        const isLeviathan = u.role === 'leviathan';
         const isAnimal =
           u.role === 'cow' ||
           u.role === 'pig' ||
@@ -5237,6 +6551,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           u.role === 'bear' ||
           u.role === 'dinosaur' ||
           u.role === 'unicorn' ||
+          isLeviathan ||
           isDragon;
         const seedPhase = ((u.appearanceSeed ?? 1) % 31) * 0.41;
         const atkTimer = u.attackAnimTimer ?? 0;
@@ -5261,22 +6576,23 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
                 : unitAgeStage === 'child'
                   ? 14.5
                   : 11;
-        const walkBob = isDragon || isFrozen || isAirborneVisual
-          ? 0
-          : isMoving
-            ? Math.abs(Math.sin(elapsed * bobFreq + seedPhase)) *
-              (u.role === 'chicken'
-                ? 0.13
-                : u.role === 'wolf' || u.role === 'unicorn'
-                  ? 0.1
-                  : unitAgeStage === 'child'
-                    ? 0.095
-                    : 0.08)
-            : isWorking
-              ? Math.abs(Math.sin(elapsed * 14 + seedPhase)) * (isAnimal ? 0.025 : 0.05)
-              : 0;
+        const walkBob =
+          isDragon || isLeviathan || isFrozen || isAirborneVisual
+            ? 0
+            : isMoving
+              ? Math.abs(Math.sin(elapsed * bobFreq + seedPhase)) *
+                (u.role === 'chicken'
+                  ? 0.13
+                  : u.role === 'wolf' || u.role === 'unicorn'
+                    ? 0.1
+                    : unitAgeStage === 'child'
+                      ? 0.095
+                      : 0.08)
+              : isWorking
+                ? Math.abs(Math.sin(elapsed * 14 + seedPhase)) * (isAnimal ? 0.025 : 0.05)
+                : 0;
         const pounceHopY =
-          isAttacking && !isFrozen && !isDragon && u.role !== 'bear'
+          isAttacking && !isFrozen && !isDragon && !isLeviathan && u.role !== 'bear'
             ? Math.sin(atkProg * Math.PI) * (u.role === 'wolf' ? 0.42 : u.role === 'chicken' ? 0.24 : 0.16)
             : 0;
         const isDragonStrafing =
@@ -5294,10 +6610,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             ? Math.pow(blackHolePullFrac, 1.3) * 1.65 +
               Math.sin(elapsed * 9 + u.x * 2) * 0.12 * blackHolePullFrac
             : 0;
+        const altScale = isLeviathan ? 0.72 : 0.55;
         const airborneAltY =
           blackHolePullFrac > 0
-            ? Math.max(simAltitude * 0.55, levitateY)
-            : simAltitude * 0.55;
+            ? Math.max(simAltitude * altScale, levitateY)
+            : simAltitude * altScale;
         let finalUnitY =
           groundY + (walkBob + pounceHopY + targetHoverY) * (1 - blackHolePullFrac) + airborneAltY;
         if (isDragon && u.state !== 'ko' && blackHolePullFrac <= 0 && !u.draggedByPlayer) {
@@ -5334,8 +6651,24 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             uGroup.rotation.y = curYaw + yawDiff * Math.min(1, dt * 9.5);
           }
         } else {
-          const faceX = isAttacking && u.attackTargetX !== undefined ? u.attackTargetX : u.targetX;
-          const faceZ = isAttacking && u.attackTargetZ !== undefined ? u.attackTargetZ : u.targetZ;
+          const isLeviathanBeamActive = isLeviathan && (u.leviathanBeamTimer ?? 0) > 0;
+          const isLeviathanLeapActive = isLeviathan && (u.leviathanLeapTimer ?? 0) > 0;
+          const faceX =
+            isLeviathanBeamActive && u.leviathanBeamTargetX !== undefined
+              ? u.leviathanBeamTargetX
+              : isLeviathanLeapActive && u.leviathanLeapTargetX !== undefined
+                ? u.leviathanLeapTargetX
+                : isAttacking && u.attackTargetX !== undefined
+                  ? u.attackTargetX
+                  : u.targetX;
+          const faceZ =
+            isLeviathanBeamActive && u.leviathanBeamTargetZ !== undefined
+              ? u.leviathanBeamTargetZ
+              : isLeviathanLeapActive && u.leviathanLeapTargetZ !== undefined
+                ? u.leviathanLeapTargetZ
+                : isAttacking && u.attackTargetZ !== undefined
+                  ? u.attackTargetZ
+                  : u.targetZ;
           const dx = faceX - u.x;
           const dz = faceZ - u.z;
           if (dx * dx + dz * dz > 0.005) {
@@ -5349,7 +6682,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
               Math.sin(desiredYaw - curYaw),
               Math.cos(desiredYaw - curYaw),
             );
-            uGroup.rotation.y = curYaw + yawDiff * Math.min(1, dt * 14);
+            const turnRate = isLeviathanBeamActive ? 6.5 : isLeviathan ? 2.8 : 14;
+            uGroup.rotation.y = curYaw + yawDiff * Math.min(1, dt * turnRate);
           }
         }
 
@@ -5370,7 +6704,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           uGroup.rotation.x = blackHolePullFrac * 0.72 * Math.cos(elapsed * 6.5 + u.z);
           const bhScale = Math.max(0.58, 1 - Math.pow(blackHolePullFrac, 1.8) * 0.38);
           uGroup.scale.setScalar(bhScale);
-        } else if (isAirborneVisual && !isDragon) {
+        } else if (isAirborneVisual && !isDragon && !isLeviathan) {
           uGroup.rotation.z = Math.sin(elapsed * 16 + seedPhase) * 0.44;
           uGroup.rotation.x = Math.cos(elapsed * 13 + seedPhase) * 0.32;
           uGroup.scale.setScalar(1);
@@ -5383,6 +6717,18 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
               : 0.05 + Math.sin(elapsed * 2.3 + seedPhase) * 0.04;
           uGroup.rotation.z = THREE.MathUtils.damp(uGroup.rotation.z, targetBank, 7.0, dt);
           uGroup.rotation.x = THREE.MathUtils.damp(uGroup.rotation.x, targetPitch, 7.0, dt);
+          uGroup.scale.setScalar(1);
+        } else if (isLeviathan) {
+          uGroup.rotation.z = 0;
+          const leapTimer = u.leviathanLeapTimer ?? 0;
+          if (leapTimer > 0 && leapTimer <= 4.0) {
+            // Slow-motion head-first breach arc: bursts upward head-first (-1.32 rad), arches over apex (0 rad), and plunges head-first (+1.32 rad) into the sea
+            const airProg = THREE.MathUtils.clamp((4.0 - leapTimer) / 4.0, 0, 1);
+            const targetPitch = -(1 - airProg * 2.0) * 1.32;
+            uGroup.rotation.x = THREE.MathUtils.damp(uGroup.rotation.x, targetPitch, 9.0, dt);
+          } else {
+            uGroup.rotation.x = THREE.MathUtils.damp(uGroup.rotation.x, 0, 8.0, dt);
+          }
           uGroup.scale.setScalar(1);
         } else {
           uGroup.rotation.z = !isFrozen && isMoving
@@ -5408,7 +6754,25 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           if (bodyPivot) {
             let bodyPitch = 0;
             let bodyForward = 0;
-            if (isAttacking) {
+            if (isLeviathan) {
+              const beamTimer = u.leviathanBeamTimer ?? 0;
+              const leapTimer = u.leviathanLeapTimer ?? 0;
+              if (beamTimer > 0) {
+                // Braced, shuddering recoil posture while firing the 7-second water beam
+                bodyPitch = -0.14 + Math.sin(elapsed * 22) * 0.025;
+                bodyForward = -0.12 + Math.cos(elapsed * 26) * 0.03;
+              } else if (leapTimer > 0 && leapTimer <= 4.0) {
+                // Graceful spinal flex during slow-motion breach
+                const airProg = THREE.MathUtils.clamp((4.0 - leapTimer) / 4.0, 0, 1);
+                bodyPitch = Math.sin(airProg * Math.PI) * -0.18;
+              } else if (isAttacking) {
+                const s = Math.sin(atkProg * Math.PI);
+                bodyPitch = -0.22 * s;
+                bodyForward = 0.32 * s;
+              } else {
+                bodyPitch = Math.sin(elapsed * 2.1 + seedPhase) * 0.04;
+              }
+            } else if (isAttacking) {
               const s = Math.sin(atkProg * Math.PI);
               if (u.role === 'bear') {
                 bodyPitch = atkProg < 0.45 ? -0.58 * (atkProg / 0.45) : -0.58 + 0.88 * ((atkProg - 0.45) / 0.55);
@@ -5423,14 +6787,26 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             }
             bodyPivot.rotation.x = bodyPitch;
             bodyPivot.position.z = bodyForward;
-            const breath = isMoving ? 0 : Math.sin(elapsed * 3.4 + seedPhase) * 0.035;
+            const breath = isMoving || isLeviathan ? 0 : Math.sin(elapsed * 3.4 + seedPhase) * 0.035;
             if (u.role !== 'dinosaur') {
               bodyPivot.scale.y = 1 + breath;
             }
           }
 
           if (headPivot) {
-            if (isDragon) {
+            if (isLeviathan) {
+              const beamTimer = u.leviathanBeamTimer ?? 0;
+              if (beamTimer > 0) {
+                headPivot.rotation.x = -0.08 + Math.sin(elapsed * 28) * 0.025;
+                headPivot.rotation.y = Math.cos(elapsed * 24) * 0.02;
+              } else if (isAttacking) {
+                headPivot.rotation.x = Math.sin(atkProg * Math.PI) * 0.32;
+                headPivot.rotation.y = 0;
+              } else {
+                headPivot.rotation.x = Math.sin(elapsed * 2.1 + seedPhase) * 0.07;
+                headPivot.rotation.y = Math.cos(elapsed * 1.6 + seedPhase) * 0.09;
+              }
+            } else if (isDragon) {
               const targetHeadX = isDragonStrafing
                 ? 0.34
                 : Math.sin(elapsed * 2.2 + seedPhase) * 0.08;
@@ -5474,7 +6850,107 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           }
 
           if (jawPivot) {
-            if (isDragon) {
+            if (isLeviathan) {
+              const beamTimer = u.leviathanBeamTimer ?? 0;
+              const leapTimer = u.leviathanLeapTimer ?? 0;
+              const isBreachingAir = leapTimer > 0 && leapTimer <= 4.0;
+              const targetJawOpen =
+                beamTimer > 0
+                  ? 0.92 + Math.sin(elapsed * 26) * 0.05
+                  : isBreachingAir
+                    ? 0.68
+                    : isAttacking
+                      ? Math.sin(atkProg * Math.PI) * 0.78
+                      : 0.1 + Math.max(0, Math.sin(elapsed * 2.1 + seedPhase)) * 0.14;
+              jawPivot.rotation.x = THREE.MathUtils.damp(jawPivot.rotation.x, targetJawOpen, 14, dt);
+
+              const targetMandibleFlare =
+                beamTimer > 0
+                  ? 0.56 + Math.sin(elapsed * 24) * 0.04
+                  : isBreachingAir
+                    ? 0.38
+                    : isAttacking
+                      ? Math.sin(atkProg * Math.PI) * 0.46
+                      : 0.05 + Math.max(0, Math.sin(elapsed * 2.1 + seedPhase)) * 0.08;
+              if (uEntry.mandibleL) {
+                uEntry.mandibleL.rotation.y = THREE.MathUtils.damp(
+                  uEntry.mandibleL.rotation.y,
+                  -targetMandibleFlare,
+                  14,
+                  dt,
+                );
+              }
+              if (uEntry.mandibleR) {
+                uEntry.mandibleR.rotation.y = THREE.MathUtils.damp(
+                  uEntry.mandibleR.rotation.y,
+                  targetMandibleFlare,
+                  14,
+                  dt,
+                );
+              }
+
+              // Glow abyssal hydro-core maw & animate 3D high-pressure water beam
+              const mawObj = uEntry.fireMaw;
+              if (mawObj && mawObj.material instanceof THREE.MeshStandardMaterial) {
+                const targetGlow =
+                  beamTimer > 0
+                    ? 3.6 + Math.sin(elapsed * 28) * 0.6
+                    : (u.leviathanBeamCooldown ?? 10) < 2.2
+                      ? 2.1 + Math.sin(elapsed * 12) * 0.4
+                      : 1.25 + Math.sin(elapsed * 4.0 + seedPhase) * 0.25;
+                mawObj.material.emissiveIntensity = THREE.MathUtils.damp(
+                  mawObj.material.emissiveIntensity,
+                  targetGlow,
+                  10,
+                  dt,
+                );
+              }
+
+              if (uEntry.leviathanBeamGroup) {
+                const showBeam =
+                  beamTimer > 0 &&
+                  !u.leviathanSubmerged &&
+                  u.leviathanBeamTargetX !== undefined &&
+                  u.leviathanBeamTargetZ !== undefined;
+                uEntry.leviathanBeamGroup.visible = showBeam;
+                if (showBeam) {
+                  const bDx = (u.leviathanBeamTargetX ?? u.x) - u.x;
+                  const bDz = (u.leviathanBeamTargetZ ?? u.z) - u.z;
+                  const beamLen = Math.max(2.0, Math.min(20.0, Math.hypot(bDx, bDz)));
+                  const pulseRadius = 1.0 + Math.sin(elapsed * 32) * 0.16;
+                  if (uEntry.beamShaft) {
+                    uEntry.beamShaft.scale.set(pulseRadius, pulseRadius, beamLen);
+                    uEntry.beamShaft.rotation.z = elapsed * 16.0;
+                  }
+                  if (uEntry.beamMuzzle) {
+                    const muzzleScale = 1.0 + Math.sin(elapsed * 28) * 0.22;
+                    uEntry.beamMuzzle.scale.setScalar(muzzleScale);
+                    uEntry.beamMuzzle.rotation.z = -elapsed * 14.0;
+                  }
+                  if (uEntry.beamImpact) {
+                    uEntry.beamImpact.position.set(0, -0.25, beamLen);
+                    const impScale = 1.0 + Math.cos(elapsed * 26) * 0.25;
+                    uEntry.beamImpact.scale.setScalar(impScale);
+                    uEntry.beamImpact.rotation.y = elapsed * 12.0;
+                  }
+                  if (Math.random() < 0.65) {
+                    const frac = Math.random();
+                    const px = u.x + bDx * frac;
+                    const pz = u.z + bDz * frac;
+                    spawnParticleBurst(
+                      px,
+                      0.45,
+                      pz,
+                      2,
+                      Math.random() < 0.5 ? '#22d3ee' : '#e0fbfc',
+                      1.8,
+                      3.6,
+                      0.55,
+                    );
+                  }
+                }
+              }
+            } else if (isDragon) {
               const targetJaw = isDragonStrafing
                 ? 0.64
                 : 0.06 + Math.max(0, Math.sin(elapsed * 2.0 + seedPhase)) * 0.1;
@@ -5502,7 +6978,18 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           }
 
           if (tailPivot) {
-            if (isDragon) {
+            if (isLeviathan) {
+              const swimFreq = (u.leviathanBeamTimer ?? 0) > 0 ? 5.2 : isMoving ? 3.4 : 2.1;
+              const swimAmp = (u.leviathanBeamTimer ?? 0) > 0 ? 0.18 : isMoving ? 0.34 : 0.22;
+              tailPivot.rotation.y = Math.sin(elapsed * swimFreq + seedPhase) * swimAmp;
+              tailPivot.rotation.x = Math.cos(elapsed * (swimFreq * 0.7) + seedPhase) * 0.1;
+              if (uEntry.leviathanTailMid) {
+                uEntry.leviathanTailMid.rotation.y =
+                  Math.sin(elapsed * swimFreq + seedPhase - 0.95) * (swimAmp * 1.35);
+                uEntry.leviathanTailMid.rotation.x =
+                  Math.cos(elapsed * (swimFreq * 0.7) + seedPhase - 0.8) * 0.14;
+              }
+            } else if (isDragon) {
               const targetTailY =
                 -THREE.MathUtils.clamp(dragonYawDelta * 0.55, -0.35, 0.35) +
                 Math.sin(elapsed * (isDragonStrafing ? 3.2 : 4.5) + seedPhase) *
@@ -5550,7 +7037,25 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         }
 
         if (wingL && wingR && u.state !== 'ko') {
-          if (isDragon) {
+          if (isLeviathan) {
+            const leapTimer = u.leviathanLeapTimer ?? 0;
+            const beamTimer = u.leviathanBeamTimer ?? 0;
+            const isBreachingAir = leapTimer > 0 && leapTimer <= 4.0;
+            const finFreq = beamTimer > 0 ? 5.5 : isBreachingAir ? 2.2 : isMoving ? 3.2 : 2.0;
+            const finFlap = isBreachingAir
+              ? -0.24 + Math.sin(elapsed * finFreq + seedPhase) * 0.18
+              : Math.sin(elapsed * finFreq + seedPhase) * 0.28;
+            const finSweep = beamTimer > 0 ? -0.32 : Math.cos(elapsed * finFreq + seedPhase) * 0.16;
+            wingL.rotation.z = THREE.MathUtils.damp(wingL.rotation.z, finFlap, 9, dt);
+            wingR.rotation.z = THREE.MathUtils.damp(wingR.rotation.z, -finFlap, 9, dt);
+            wingL.rotation.y = THREE.MathUtils.damp(wingL.rotation.y, finSweep, 9, dt);
+            wingR.rotation.y = THREE.MathUtils.damp(wingR.rotation.y, -finSweep, 9, dt);
+            if (wingOuterL && wingOuterR) {
+              const rearStroke = Math.sin(elapsed * finFreq + seedPhase - 1.1) * 0.24;
+              wingOuterL.rotation.z = THREE.MathUtils.damp(wingOuterL.rotation.z, rearStroke, 9, dt);
+              wingOuterR.rotation.z = THREE.MathUtils.damp(wingOuterR.rotation.z, -rearStroke, 9, dt);
+            }
+          } else if (isDragon) {
             const wingFreq = u.dragonRunPhase === 'turn' ? 7.4 : 6.2;
             const targetFlap = isDragonStrafing
               ? 0.14 + Math.sin(elapsed * 2.6 + seedPhase) * 0.1
@@ -5764,18 +7269,18 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
                 0.35,
               );
             }
-          } else if (v.type === 'warship') {
+          } else if (v.type === 'warship' || v.type === 'passenger_ship') {
             const isSea = vTile?.height === 0;
             const shipY = isSea
               ? 0.26 + Math.sin(elapsed * 2.2 + v.x * 0.7) * 0.035
               : groundY + v.y + 0.02;
             vGroup.position.set(v.x, shipY, v.z);
             if (isSea && Math.random() < 0.55) {
-              // Seafoam stern wake trailing behind sailing/cruising warships
+              // Seafoam stern wake trailing behind sailing/cruising ships & ferries
               spawnParticleBurst(
-                v.x - Math.sin(v.heading) * 0.66,
+                v.x - Math.sin(v.heading) * 0.62,
                 shipY + 0.05,
-                v.z - Math.cos(v.heading) * 0.66,
+                v.z - Math.cos(v.heading) * 0.62,
                 2,
                 v.epochLevel >= 6 ? '#56cfe1' : '#e0f2fe',
                 0.22,
@@ -5784,8 +7289,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
               );
             }
             if (v.epochLevel === 3 && Math.random() < 0.38) {
-              // Industrial ironclad smokestack plumes
-              spawnParticleBurst(v.x, shipY + 0.62, v.z, 1, '#475569', 0.18, 0.9, 0.55);
+              // Industrial steam ferry / ironclad smokestack plumes
+              spawnParticleBurst(v.x, shipY + 0.58, v.z, 1, '#475569', 0.18, 0.9, 0.52);
             }
           } else if (v.type === 'helicopter') {
             const heliY = Math.max(
@@ -5852,7 +7357,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         const vfx = simState.pendingVfx.shift()!;
         const vTile = getTileFromArray(simState, vfx.x, vfx.z);
         const surfY = vTile ? Math.max(0.22, vTile.height * HEIGHT_STEP + 0.25) : Math.max(0.45, vfx.y);
-        if (vfx.type === 'hit_spark' || vfx.type === 'build_complete') {
+        if (vfx.type === 'hit_spark') {
+          spawnWeaponSparkVisual(vfx.x, surfY + 0.28, vfx.z, vfx.radius, vfx.color);
+        } else if (vfx.type === 'build_complete') {
           spawnParticleBurst(vfx.x, surfY + 0.25, vfx.z, 22, vfx.color, vfx.radius * 0.55, 3.8, 0.95);
         } else if (vfx.type === 'dragon_fire_breath') {
           const ox = vfx.originX ?? vfx.x;
@@ -6222,6 +7729,59 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
                 0.85,
               );
             }
+          } else if (hv.kind === 'whirlpool') {
+            hv.group.position.set(haz.x, 0.24, haz.z);
+            const shaderMat = hv.materials[0] as THREE.ShaderMaterial | undefined;
+            if (shaderMat && shaderMat.uniforms) {
+              shaderMat.uniforms.uTime.value = wrapShaderTime(elapsed);
+              shaderMat.uniforms.uOpacity.value = 0.96 * fade;
+            }
+            if (hv.ringMesh) {
+              const pulse = 1 + Math.sin(elapsed * 4.5) * 0.035;
+              hv.ringMesh.scale.setScalar(haz.radius * 1.08 * pulse * fade);
+            }
+            if (hv.secondaryRingMesh) {
+              hv.secondaryRingMesh.rotation.y = -elapsed * 6.5;
+              hv.secondaryRingMesh.scale.set(haz.radius * 0.88 * fade, 1.0, haz.radius * 0.88 * fade);
+            }
+            if (hv.vortexMotes) {
+              for (let mi = 0; mi < hv.vortexMotes.length; mi++) {
+                const vm = hv.vortexMotes[mi];
+                const cycle = (elapsed * vm.speed + vm.phase) % 1;
+                // Exponential inward logarithmic spiral trajectory into the throat
+                const radialFrac = Math.pow(1 - cycle, 1.35);
+                const r = Math.max(0.14, haz.radius * (0.14 + radialFrac * 0.82)) * fade;
+                const theta = vm.baseAngle + elapsed * 4.8 + (1 - radialFrac) * 9.5;
+                const yDepth = -0.05 + radialFrac * 0.13;
+                vm.mesh.position.set(Math.cos(theta) * r, yDepth, Math.sin(theta) * r);
+                vm.mesh.rotation.y = -theta + Math.PI * 0.35;
+                const s = (0.22 + Math.sin(cycle * Math.PI) * 0.24) * fade;
+                vm.mesh.scale.set(s * 1.5, s * 0.65, s * 0.85);
+              }
+            }
+            if (Math.random() < 0.45) {
+              spawnParticleBurst(haz.x, 0.28, haz.z, 2, '#e0fbfc', haz.radius * 0.68, 1.6, 0.5);
+            }
+          } else if (hv.kind === 'rogue_wave') {
+            hv.group.position.set(haz.x, 0.24, haz.z);
+            const heading = haz.heading ?? 0;
+            hv.group.rotation.y = heading;
+            if (hv.cloudBody) {
+              const swell = 0.92 + Math.sin(elapsed * 7.5) * 0.14;
+              hv.cloudBody.scale.set(1, swell * fade, 1);
+            }
+            if (Math.random() < 0.7) {
+              spawnParticleBurst(
+                haz.x + (Math.random() - 0.5) * haz.radius,
+                0.85,
+                haz.z + (Math.random() - 0.5) * haz.radius,
+                2,
+                '#e0fbfc',
+                0.85,
+                2.8,
+                0.78,
+              );
+            }
           }
         }
       }
@@ -6236,13 +7796,15 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       }
 
       // 6. Sync active tile fire animated sprites & billowing smoke sprites
-      spriteBundle.fireMaterial.uniforms.uTime.value = elapsed;
-      spriteBundle.smokeMaterial.uniforms.uTime.value = elapsed;
-      spriteBundle.breathScrollTexture.offset.y = -((elapsed * 4.2) % 1.0);
+      const safeSpriteElapsed = wrapShaderTime(elapsed);
+      spriteBundle.fireMaterial.uniforms.uTime.value = safeSpriteElapsed;
+      spriteBundle.smokeMaterial.uniforms.uTime.value = safeSpriteElapsed;
+      spriteBundle.breathScrollTexture.offset.y = -((safeSpriteElapsed * 4.2) % 1.0);
 
       let fireTileCount = 0;
       let fireSpriteCount = 0;
-      for (let i = 0; i < simState.tiles.length && fireTileCount < MAX_FIRE_TILES; i++) {
+      for (let fi = 0; fi < activeFireTileIndices.length && fireTileCount < MAX_FIRE_TILES; fi++) {
+        const i = activeFireTileIndices[fi];
         const t = simState.tiles[i];
         if (t.onFireTimer > 0 && t.height > 0 && t.resourceNode !== 'ore_vein') {
           const fy = tileCurrentY[i] || t.height * HEIGHT_STEP + 0.25;
@@ -6332,7 +7894,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     let appliedFoliageFactor = initialGfxProfile.foliageFactor;
 
     skyClouds.setQuality(appliedCloudsQuality);
-    pixelSpace.setQuality(appliedCloudsQuality);
+    pixelSpace.setQuality('full');
     worldUnderglow.mesh.visible = appliedCloudsQuality !== 'off';
 
     function tick() {
@@ -6342,6 +7904,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       lastTime = now;
       const dt = Math.min(Math.max(rawDt, 0.001), 0.15);
       elapsedTotal += dt;
+      const shaderElapsed = wrapShaderTime(elapsedTotal);
 
       const currentGameState = propsRef.current.gameState;
       if (prevGameState !== currentGameState && currentGameState === 'playing') {
@@ -6392,7 +7955,6 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       } else if (activeGfxProfile.cloudsAndSky !== appliedCloudsQuality) {
         appliedCloudsQuality = activeGfxProfile.cloudsAndSky;
         skyClouds.setQuality(appliedCloudsQuality);
-        pixelSpace.setQuality(appliedCloudsQuality);
         worldUnderglow.mesh.visible = appliedCloudsQuality !== 'off';
         gfxStaggerCooldown = 2;
       } else if (Math.abs(activeGfxProfile.foliageFactor - appliedFoliageFactor) > 0.01) {
@@ -6448,13 +8010,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         }
       } else if (prevGameState !== 'title' && currentGameState === 'title') {
         // Return to title screen: overview zoom and center on island
-        desiredFrustum = 22;
+        desiredFrustum = getResponsiveTitleFrustum(getCurrentAspect());
         const center = (simRef.current.gridSize - 1) / 2;
         camDesiredTarget.set(center, 1.2, center);
       }
       prevGameState = currentGameState;
 
-      const maxZoomOut = Math.max(105, getWholeMapFrustum(simRef.current.gridSize));
+      const maxZoomOut = getResponsiveMaxZoomOut(simRef.current.gridSize, getCurrentAspect());
       if (camAct.rotateDelta !== 0) {
         camDesiredYaw += camAct.rotateDelta;
         camAct.rotateDelta = 0;
@@ -6536,11 +8098,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         camDesiredTarget.z = THREE.MathUtils.clamp(camDesiredTarget.z, 2, simRef.current.gridSize - 3);
       }
 
-      // Advance simulation when in 'playing' (or gentle ambient motion in 'title')
+      // Advance simulation when in 'playing' (or gentle ambient motion in 'title') — clamped to 5x max speed
+      const clampedSimSpeed = clampSimulationSpeed(propsRef.current.timeScale);
       if (hitstopTimer > 0) {
         hitstopTimer = Math.max(0, hitstopTimer - dt);
-      } else if (propsRef.current.gameState === 'playing' && propsRef.current.timeScale > 0) {
-        stepSimulation(simRef.current, dt * propsRef.current.timeScale, { skipDragStep: true });
+      } else if (propsRef.current.gameState === 'playing' && clampedSimSpeed > 0) {
+        stepSimulation(simRef.current, dt * clampedSimSpeed, { skipDragStep: true });
       } else if (propsRef.current.gameState === 'title') {
         // Live World Camera Tour on Title Screen
         camDesiredYaw += dt * 0.18;
@@ -7391,16 +8954,32 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             fx.outerRingMesh.scale.setScalar(0.2 + wavePhase * fx.radius * 1.25);
             (fx.materials[1] as THREE.MeshBasicMaterial).opacity = (1 - wavePhase) * 0.75;
           }
+        } else if (fx.kind === 'weapon_spark' && fx.ringMesh) {
+          const prog = Math.min(1, fx.age / fx.duration);
+          const easeOut = 1 - Math.pow(1 - prog, 2.2);
+          fx.ringMesh.scale.setScalar(0.22 + easeOut * fx.radius * 1.35);
+          if (fx.materials[1]) {
+            (fx.materials[1] as THREE.MeshBasicMaterial).opacity = Math.max(0, (1 - prog) * 0.94);
+          }
+          if (fx.materials[0]) {
+            (fx.materials[0] as THREE.MeshBasicMaterial).opacity = Math.max(0, (1 - prog) * 0.96);
+          }
+          if (fx.sparkShards) {
+            for (let si = 0; si < fx.sparkShards.length; si++) {
+              const s = fx.sparkShards[si];
+              s.position.y = fx.ty + 0.35 + prog * (1.2 + si * 0.14);
+              s.scale.set(1 - prog * 0.65, Math.max(0.15, 1.3 - prog * 0.95), 1 - prog * 0.65);
+            }
+          }
         } else if (fx.kind === 'projectile_tracer' && fx.tracerMesh && fx.ringMesh) {
           const prog = Math.min(1, fx.age / fx.duration);
-          const flightEndFrac = fx.vfxSubtype === 'plasma_beam' ? 0.35 : 0.65;
+          const flightEndFrac = fx.vfxSubtype === 'plasma_beam' ? 0.38 : 0.65;
           const flightT = Math.min(1, prog / flightEndFrac);
           const ox = fx.ox ?? fx.tx;
           const oy = fx.oy ?? fx.ty;
           const oz = fx.oz ?? fx.tz;
 
           if (fx.vfxSubtype === 'bomb') {
-            // Parabolic gravity fall + pitch nose downward + blast shockwave at touchdown
             const curX = ox + (fx.tx - ox) * flightT;
             const curZ = oz + (fx.tz - oz) * flightT;
             const curY = oy + (fx.ty - oy) * (flightT * flightT);
@@ -7408,41 +8987,47 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             fx.tracerMesh.rotation.x = 0.35 + flightT * 1.15;
             if (flightT >= 1 && !fx.impactFired) {
               fx.impactFired = true;
-              spawnParticleBurst(fx.tx, fx.ty + 0.25, fx.tz, 28, '#ff9e00', fx.radius * 0.9, 6.2, 1.15);
-              spawnParticleBurst(fx.tx, fx.ty + 0.3, fx.tz, 16, '#475569', fx.radius * 0.7, 3.6, 1.35);
+              spawnParticleBurst(fx.tx, fx.ty + 0.25, fx.tz, 32, '#ff9e00', fx.radius * 0.95, 6.6, 1.2);
+              spawnParticleBurst(fx.tx, fx.ty + 0.35, fx.tz, 18, '#475569', fx.radius * 0.75, 4.0, 1.4);
             }
           } else if (fx.vfxSubtype === 'cannon_shell') {
             const horizDist = Math.hypot(fx.tx - ox, fx.tz - oz);
-            const arcPeak = Math.min(2.9, Math.max(0.45, horizDist * 0.24));
+            const arcPeak = Math.min(3.1, Math.max(0.55, horizDist * 0.25));
             const curX = ox + (fx.tx - ox) * flightT;
             const curZ = oz + (fx.tz - oz) * flightT;
             const curY = oy + (fx.ty - oy) * flightT + 4 * flightT * (1 - flightT) * arcPeak;
             fx.tracerMesh.position.set(curX, curY, curZ);
+            if (flightT < 1 && Math.random() < 0.4) {
+              spawnParticleBurst(curX, curY, curZ, 1, '#94a3b8', 0.14, 0.4, 0.32);
+            }
             if (flightT >= 1 && !fx.impactFired) {
               fx.impactFired = true;
-              spawnParticleBurst(fx.tx, fx.ty + 0.25, fx.tz, 18, '#ff9e00', fx.radius * 0.75, 4.8, 0.95);
+              spawnParticleBurst(fx.tx, fx.ty + 0.25, fx.tz, 24, '#ff9e00', fx.radius * 0.85, 5.4, 1.05);
             }
           } else if (fx.vfxSubtype === 'missile') {
             const curX = ox + (fx.tx - ox) * flightT;
-            const curY = oy + (fx.ty - oy) * flightT + Math.sin(flightT * Math.PI) * 0.45;
+            const curY = oy + (fx.ty - oy) * flightT + Math.sin(flightT * Math.PI) * 0.52;
             const curZ = oz + (fx.tz - oz) * flightT;
             fx.tracerMesh.position.set(curX, curY, curZ);
-            if (flightT < 1 && Math.random() < 0.65) {
-              spawnParticleBurst(curX, curY, curZ, 1, '#e2e8f0', 0.14, 0.4, 0.3);
+            if (flightT < 1 && Math.random() < 0.75) {
+              spawnParticleBurst(curX, curY, curZ, 1, '#e2e8f0', 0.16, 0.5, 0.34);
             }
             if (flightT >= 1 && !fx.impactFired) {
               fx.impactFired = true;
-              spawnParticleBurst(fx.tx, fx.ty + 0.25, fx.tz, 18, '#ff6b35', fx.radius * 0.7, 4.6, 0.9);
+              spawnParticleBurst(fx.tx, fx.ty + 0.25, fx.tz, 24, '#ff6b35', fx.radius * 0.8, 5.2, 0.98);
             }
           } else if (fx.vfxSubtype === 'arcane_bolt') {
             const curX = ox + (fx.tx - ox) * flightT;
-            const curY = oy + (fx.ty - oy) * flightT + Math.sin(flightT * Math.PI) * 0.3;
+            const curY = oy + (fx.ty - oy) * flightT + Math.sin(flightT * Math.PI) * 0.34;
             const curZ = oz + (fx.tz - oz) * flightT;
             fx.tracerMesh.position.set(curX, curY, curZ);
-            fx.tracerMesh.rotation.z = prog * 14;
-            fx.tracerMesh.rotation.y += dt * 10;
+            fx.tracerMesh.rotation.z = prog * 16;
+            fx.tracerMesh.rotation.y += dt * 12;
+            if (flightT < 1 && Math.random() < 0.55) {
+              spawnParticleBurst(curX, curY, curZ, 1, '#c084fc', 0.14, 0.5, 0.3);
+            }
           } else if (fx.vfxSubtype === 'plasma_beam') {
-            const beamPulse = Math.max(0.25, 1.3 - prog * 1.1);
+            const beamPulse = Math.max(0.28, 1.4 - prog * 1.15);
             fx.tracerMesh.scale.set(beamPulse, beamPulse, 1);
           } else {
             fx.tracerMesh.position.set(
@@ -7459,77 +9044,178 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
                 ? 0.96
                 : Math.max(0, 1 - (prog - flightEndFrac) / Math.max(0.05, 1 - flightEndFrac));
           if (fx.materials[0]) (fx.materials[0] as THREE.MeshBasicMaterial).opacity = bodyOpacity;
-          if (fx.materials[1]) (fx.materials[1] as THREE.MeshBasicMaterial).opacity = bodyOpacity * 0.9;
+          if (fx.materials[1]) (fx.materials[1] as THREE.MeshBasicMaterial).opacity = bodyOpacity * 0.92;
           const ringMat = fx.materials[2] ?? fx.materials[1];
-          fx.ringMesh.scale.setScalar((fx.vfxSubtype === 'bomb' ? 0.32 : 0.18) + prog * fx.radius * (fx.vfxSubtype === 'bomb' ? 1.55 : 1.15));
-          if (ringMat) (ringMat as THREE.MeshBasicMaterial).opacity = Math.max(0, (1 - prog) * 0.85);
+          fx.ringMesh.scale.setScalar(
+            (fx.vfxSubtype === 'bomb' ? 0.34 : 0.2) +
+              prog * fx.radius * (fx.vfxSubtype === 'bomb' ? 1.65 : 1.2),
+          );
+          if (ringMat) (ringMat as THREE.MeshBasicMaterial).opacity = Math.max(0, (1 - prog) * 0.88);
+          if (fx.muzzleRingMesh) {
+            fx.muzzleRingMesh.scale.setScalar(0.16 + Math.min(1, prog * 3.5) * 0.55);
+          }
         } else if (fx.kind === 'nuke_blast' && fx.ringMesh) {
           const prog = Math.min(1, fx.age / fx.duration);
           const easeOut = 1 - Math.pow(1 - prog, 2.3);
           const env = Math.max(0, 1 - prog);
+          const stemH = 0.45 + Math.min(1, prog * 1.75) * (2.9 + fx.radius * 0.58);
           if (fx.innerDomeMesh && fx.materials[0]) {
-            const flashP = Math.min(1, prog * 2.5);
-            fx.innerDomeMesh.scale.setScalar(0.5 + flashP * fx.radius * 0.95);
-            (fx.materials[0] as THREE.MeshBasicMaterial).opacity = Math.max(0, (1 - flashP) * 0.96);
+            const flashP = Math.min(1, prog * 2.6);
+            fx.innerDomeMesh.scale.setScalar(0.55 + flashP * fx.radius * 1.0);
+            (fx.materials[0] as THREE.MeshBasicMaterial).opacity = Math.max(0, (1 - flashP) * 0.98);
           }
           if (fx.stemMesh && fx.materials[1]) {
-            const stemH = 0.4 + Math.min(1, prog * 1.8) * (2.6 + fx.radius * 0.55);
-            fx.stemMesh.scale.set(0.65 + prog * 0.35, stemH, 0.65 + prog * 0.35);
-            (fx.materials[1] as THREE.MeshBasicMaterial).opacity = env * 0.88;
+            fx.stemMesh.scale.set(0.68 + prog * 0.32, stemH, 0.68 + prog * 0.32);
+            (fx.materials[1] as THREE.MeshBasicMaterial).opacity = env * 0.9;
           }
           if (fx.capMesh && fx.materials[2]) {
-            const stemTop = 0.5 + Math.min(1, prog * 1.8) * (2.6 + fx.radius * 0.55);
-            fx.capMesh.position.y = fx.ty + stemTop;
-            const capW = 0.9 + easeOut * fx.radius * 0.55;
-            fx.capMesh.scale.set(capW, capW * 0.52, capW);
-            (fx.materials[2] as THREE.MeshBasicMaterial).opacity = env * 0.92;
+            fx.capMesh.position.y = fx.ty + stemH + 0.1;
+            const capW = 0.95 + easeOut * fx.radius * 0.58;
+            fx.capMesh.scale.set(capW, capW * 0.54, capW);
+            (fx.materials[2] as THREE.MeshBasicMaterial).opacity = env * 0.94;
           }
-          fx.ringMesh.scale.setScalar(0.4 + easeOut * fx.radius * 1.65);
-          (fx.materials[3] as THREE.MeshBasicMaterial).opacity = env * 0.92;
-          if (fx.outerRingMesh && fx.materials[4]) {
-            fx.outerRingMesh.scale.setScalar(0.3 + prog * fx.radius * 2.05);
-            (fx.materials[4] as THREE.MeshBasicMaterial).opacity = env * 0.8;
+          if (fx.torusCapMesh && fx.materials[3]) {
+            fx.torusCapMesh.position.y = fx.ty + stemH * 0.88;
+            const tScale = 0.72 + easeOut * fx.radius * 0.52;
+            fx.torusCapMesh.scale.setScalar(tScale);
+            fx.torusCapMesh.rotation.z = prog * 2.2;
+            (fx.materials[3] as THREE.MeshBasicMaterial).opacity = env * 0.9;
+          }
+          fx.ringMesh.scale.setScalar(0.45 + easeOut * fx.radius * 1.72);
+          (fx.materials[4] as THREE.MeshBasicMaterial).opacity = env * 0.94;
+          if (fx.outerRingMesh && fx.materials[5]) {
+            fx.outerRingMesh.scale.setScalar(0.32 + prog * fx.radius * 2.15);
+            (fx.materials[5] as THREE.MeshBasicMaterial).opacity = env * 0.82;
           }
         } else if (fx.kind === 'arcane_cataclysm' && fx.ringMesh) {
           const prog = Math.min(1, fx.age / fx.duration);
-          const easeOut = 1 - Math.pow(1 - prog, 2.2);
-          const env = Math.max(0, 1 - prog);
-          if (fx.stemMesh && fx.materials[0]) {
-            const spireH = 0.8 + easeOut * (3.6 + fx.radius * 0.6);
-            fx.stemMesh.scale.set(0.75 + prog * 0.3, spireH, 0.75 + prog * 0.3);
-            fx.stemMesh.rotation.y = prog * 3.5;
+          const beamTriggerFrac = 0.42;
+
+          if (prog < beamTriggerFrac) {
+            // PHASE 1: Magic Circle inscribes on ground + Sky Circle focuses overhead + 6 Runes orbit & converge
+            const p1 = prog / beamTriggerFrac;
+            const p1Ease = 1 - Math.pow(1 - p1, 2);
+            fx.ringMesh.scale.setScalar(0.4 + p1Ease * fx.radius * 1.15);
+            fx.ringMesh.rotation.z = p1 * 3.8;
+            (fx.materials[0] as THREE.MeshBasicMaterial).opacity = Math.min(0.98, 0.45 + p1 * 0.55);
+
+            if (fx.thirdRingMesh) {
+              fx.thirdRingMesh.scale.setScalar(0.35 + p1Ease * fx.radius * 1.1);
+              fx.thirdRingMesh.rotation.z = -p1 * 4.5;
+              (fx.materials[1] as THREE.MeshBasicMaterial).opacity = Math.min(0.95, 0.35 + p1 * 0.6);
+            }
+            if (fx.skyCircleMesh) {
+              fx.skyCircleMesh.position.y = fx.ty + 7.2 - p1Ease * 2.1;
+              fx.skyCircleMesh.scale.setScalar(0.35 + p1Ease * fx.radius * 0.95);
+              fx.skyCircleMesh.rotation.z = -p1 * 5.2;
+              (fx.materials[2] as THREE.MeshBasicMaterial).opacity = Math.min(0.95, 0.25 + p1 * 0.72);
+            }
+            if (fx.outerRingMesh) {
+              fx.outerRingMesh.scale.setScalar(0.3 + p1 * fx.radius * 1.25);
+              (fx.materials[1] as THREE.MeshBasicMaterial).opacity = (1 - p1 * 0.35) * 0.85;
+            }
+            if (fx.runePillars) {
+              const orbitR = fx.radius * (1.08 - p1Ease * 0.62);
+              for (let rp = 0; rp < fx.runePillars.length; rp++) {
+                const a = (rp / fx.runePillars.length) * Math.PI * 2 + p1 * 4.2;
+                const pillar = fx.runePillars[rp];
+                pillar.position.set(
+                  fx.tx + Math.cos(a) * orbitR,
+                  fx.ty + 0.8 + Math.sin(p1 * Math.PI) * 1.5,
+                  fx.tz + Math.sin(a) * orbitR,
+                );
+                pillar.rotation.y = a * 2;
+                pillar.scale.setScalar(0.8 + p1 * 0.55);
+              }
+              (fx.materials[3] as THREE.MeshBasicMaterial).opacity = 0.95;
+            }
+          } else {
+            // PHASE 2: Colossal Celestial Magic Beam erupts & obliterates everything in the circle!
+            if (!fx.impactFired) {
+              fx.impactFired = true;
+              triggerLightFlash(fx.tx, fx.ty + 3.2, fx.tz, '#c084fc', 48);
+              soundEngine.playMegaExplosion();
+              trauma = Math.min(1.0, trauma + 0.56);
+              spawnParticleBurst(fx.tx, fx.ty + 0.8, fx.tz, 78, '#c084fc', fx.radius * 1.2, 10.6, 1.6);
+              spawnParticleBurst(fx.tx, fx.ty + 1.0, fx.tz, 54, '#5eead4', fx.radius * 0.95, 12.0, 1.38);
+            }
+
+            const p2 = (prog - beamTriggerFrac) / (1 - beamTriggerFrac);
+            const p2Ease = 1 - Math.pow(1 - p2, 2.2);
+            const env = Math.max(0, 1 - p2);
+            const beamPulse = Math.max(0.25, 1 - p2 * 0.72);
+            const beamW = fx.radius * 0.52 * beamPulse;
+
+            if (fx.beamCoreMesh && fx.materials[4]) {
+              fx.beamCoreMesh.scale.set(beamW * 0.55, 14.5, beamW * 0.55);
+              (fx.materials[4] as THREE.MeshBasicMaterial).opacity = env * 0.98;
+            }
+            if (fx.beamAuraMesh && fx.materials[5]) {
+              fx.beamAuraMesh.scale.set(beamW * 1.22, 14.0, beamW * 1.22);
+              fx.beamAuraMesh.rotation.y = p2 * 6.0;
+              (fx.materials[5] as THREE.MeshBasicMaterial).opacity = env * 0.78;
+            }
+            if (fx.stemMesh) {
+              const spireH = 1.2 + p2Ease * (4.2 + fx.radius * 0.7);
+              fx.stemMesh.scale.set(fx.radius * 0.45 * beamPulse, spireH, fx.radius * 0.45 * beamPulse);
+              fx.stemMesh.rotation.y = -p2 * 4.5;
+            }
+            if (fx.explosionDome && fx.materials[6]) {
+              fx.explosionDome.scale.setScalar(0.5 + p2Ease * fx.radius * 1.2);
+              (fx.materials[6] as THREE.MeshBasicMaterial).opacity = env * 0.82;
+            }
+
+            fx.ringMesh.scale.setScalar(fx.radius * (1.15 + p2Ease * 0.75));
+            fx.ringMesh.rotation.z += dt * 4.2;
             (fx.materials[0] as THREE.MeshBasicMaterial).opacity = env * 0.94;
-          }
-          if (fx.explosionDome && fx.materials[1]) {
-            fx.explosionDome.scale.setScalar(0.4 + easeOut * fx.radius * 1.05);
-            (fx.materials[1] as THREE.MeshBasicMaterial).opacity = env * 0.72;
-          }
-          fx.ringMesh.scale.setScalar(0.4 + easeOut * fx.radius * 1.35);
-          fx.ringMesh.rotation.z = prog * 2.8;
-          (fx.materials[2] as THREE.MeshBasicMaterial).opacity = env * 0.94;
-          if (fx.outerRingMesh && fx.materials[3]) {
-            fx.outerRingMesh.scale.setScalar(0.35 + prog * fx.radius * 1.65);
-            (fx.materials[3] as THREE.MeshBasicMaterial).opacity = env * 0.86;
-          }
-          if (fx.thirdRingMesh) {
-            fx.thirdRingMesh.scale.setScalar(0.3 + easeOut * fx.radius * 1.1);
-            fx.thirdRingMesh.rotation.z = -prog * 3.8;
+            if (fx.thirdRingMesh) {
+              fx.thirdRingMesh.scale.setScalar(fx.radius * (1.1 + p2Ease * 0.65));
+              fx.thirdRingMesh.rotation.z -= dt * 5.0;
+              (fx.materials[1] as THREE.MeshBasicMaterial).opacity = env * 0.88;
+            }
+            if (fx.skyCircleMesh) {
+              fx.skyCircleMesh.scale.setScalar(fx.radius * (0.95 + p2Ease * 0.5));
+              fx.skyCircleMesh.rotation.z -= dt * 6.0;
+              (fx.materials[2] as THREE.MeshBasicMaterial).opacity = env * 0.9;
+            }
+            if (fx.outerRingMesh) {
+              fx.outerRingMesh.scale.setScalar(0.4 + p2Ease * fx.radius * 2.0);
+            }
+            if (fx.runePillars) {
+              for (let rp = 0; rp < fx.runePillars.length; rp++) {
+                fx.runePillars[rp].position.y += dt * 6.5;
+                fx.runePillars[rp].scale.setScalar(Math.max(0.05, 1.35 * env));
+              }
+              (fx.materials[3] as THREE.MeshBasicMaterial).opacity = env * 0.88;
+            }
           }
         } else if (fx.kind === 'battlewill_slash' && fx.ringMesh) {
           const prog = Math.min(1, fx.age / fx.duration);
-          const easeOut = 1 - Math.pow(1 - prog, 2.5);
+          const easeOut = 1 - Math.pow(1 - prog, 2.35);
           const env = Math.max(0, 1 - prog);
+          const baseYaw = fx.slashBaseYaw ?? 0;
+          const sweepAngle = baseYaw - 1.05 + easeOut * 2.15;
           if (fx.slashMeshes) {
             for (let si = 0; si < fx.slashMeshes.length; si++) {
               const sm = fx.slashMeshes[si];
-              sm.rotation.y += dt * (si === 0 ? 5.2 : 6.4);
-              sm.scale.setScalar((0.75 + easeOut * 0.55) * (si === 0 ? fx.radius : fx.radius * 0.82));
+              sm.rotation.y = sweepAngle - si * 0.14;
+              const mult = si === 0 ? 1.0 : si === 1 ? 1.05 : 0.84;
+              sm.scale.setScalar((0.72 + easeOut * 0.62) * fx.radius * mult);
             }
           }
-          (fx.materials[0] as THREE.MeshBasicMaterial).opacity = env * 0.95;
-          (fx.materials[1] as THREE.MeshBasicMaterial).opacity = env * 0.95;
-          fx.ringMesh.scale.setScalar(0.35 + easeOut * fx.radius * 1.3);
-          (fx.materials[2] as THREE.MeshBasicMaterial).opacity = env * 0.85;
+          if (fx.crackMeshes) {
+            for (let ci = 0; ci < fx.crackMeshes.length; ci++) {
+              const cr = fx.crackMeshes[ci];
+              cr.scale.set(1.2 + easeOut * 0.7, 1.4 * env + 0.1, 0.55 + easeOut * 0.5);
+            }
+          }
+          (fx.materials[0] as THREE.MeshBasicMaterial).opacity = env * 0.96;
+          (fx.materials[1] as THREE.MeshBasicMaterial).opacity = env * 0.98;
+          fx.ringMesh.scale.setScalar(0.4 + easeOut * fx.radius * 1.45);
+          if (fx.outerRingMesh) {
+            fx.outerRingMesh.scale.setScalar(0.25 + prog * fx.radius * 1.75);
+          }
+          (fx.materials[2] as THREE.MeshBasicMaterial).opacity = env * 0.9;
         }
 
         if (fx.age >= fx.duration) {
@@ -7838,61 +9524,154 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         reticleGroup.visible = false;
       }
 
-      // Update lighting preset (with live Day/Night Cycle support) & epoch atmosphere
+      // Update lighting preset (with live Day/Night Cycle support: Dawn, Noon, Dusk, Night, Midnight) & epoch atmosphere
       const rawPreset = propsRef.current.lightingPreset;
       const isCycleActive =
         rawPreset === 'auto' || simRef.current.worldRules?.dayNightCycle === true;
-      let preset: 'noon' | 'dusk' | 'night' | 'dawn';
+      let cyclePhase01 = 0.35;
       if (isCycleActive) {
         const cycleRate =
           propsRef.current.gameState === 'title'
             ? 0.35
-            : Math.max(0, propsRef.current.timeScale);
-        dayNightClock += dt * cycleRate;
-        const phase = ((dayNightClock % 64) / 64);
-        preset =
-          phase < 0.2
-            ? 'dawn'
-            : phase < 0.56
-              ? 'noon'
-              : phase < 0.76
-                ? 'dusk'
-                : 'night';
-      } else {
-        preset = rawPreset;
+            : clampSimulationSpeed(propsRef.current.timeScale);
+        dayNightClock = (dayNightClock + dt * cycleRate) % 80;
+        cyclePhase01 = dayNightClock / 80;
       }
 
-      const epochDef = EPOCHS[simRef.current.epochIndex] || EPOCHS[0];
-      let targetLightIntensity = 1.9;
-      if (preset === 'night') {
-        _targetBgColor.set('#0e151a');
-        _targetLightColor.setHex(0x6c8ead);
-        targetLightIntensity = 0.75;
-        hearthLight.intensity = 3.6 + Math.sin(elapsedTotal * 12) * 0.4;
+      const todState = getTimeOfDayLightingState(
+        isCycleActive ? 'auto' : rawPreset,
+        cyclePhase01,
+      );
+      const preset = todState.preset;
+      const currentDarkness = todState.darkness;
+      const epochIdx = simRef.current.epochIndex;
+      const epochDef = EPOCHS[epochIdx] || EPOCHS[0];
+
+      if (preset === 'midnight') {
+        _targetBgColor.set('#050811');
+      } else if (preset === 'night') {
+        _targetBgColor.set('#0b121c');
       } else if (preset === 'dusk') {
-        _targetBgColor.set('#221c24');
-        _targetLightColor.setHex(0xf48c42);
-        targetLightIntensity = 1.65;
-        hearthLight.intensity = 2.8;
+        _targetBgColor.set('#221826');
       } else if (preset === 'dawn') {
-        _targetBgColor.set('#1f2933');
-        _targetLightColor.setHex(0xffb5a7);
-        targetLightIntensity = 1.5;
-        hearthLight.intensity = 2.2;
+        _targetBgColor.set('#1f2836');
       } else {
         _targetBgColor.set(epochDef.skyColor);
-        _targetLightColor.setHex(0xffdfb0);
-        targetLightIntensity = 1.9;
-        hearthLight.intensity =
-          (simRef.current.buildings.length > 0 ? 2.3 : 0.45) + Math.sin(elapsedTotal * 10) * 0.2;
       }
-      const lightBlend = Math.min(1, dt * (isCycleActive ? 1.8 : 6.0));
+      _targetLightColor.setHex(todState.keyColorHex);
+
+      const lightBlend = Math.min(1, dt * (isCycleActive ? 2.4 : 6.0));
       _bgColor.lerp(_targetBgColor, lightBlend);
       keyLight.color.lerp(_targetLightColor, lightBlend);
-      keyLight.intensity += (targetLightIntensity - keyLight.intensity) * lightBlend;
+      keyLight.intensity += (todState.keyIntensity - keyLight.intensity) * lightBlend;
+
+      // Dynamically tint hemisphere sky/ground fill, rim light, PBR environment intensity, and exposure
+      _targetLightColor.setHex(todState.hemiSkyHex);
+      hemiLight.color.lerp(_targetLightColor, lightBlend);
+      _targetLightColor.setHex(todState.hemiGroundHex);
+      hemiLight.groundColor.lerp(_targetLightColor, lightBlend);
+      hemiLight.intensity += (todState.hemiIntensity - hemiLight.intensity) * lightBlend;
+
+      _targetLightColor.setHex(todState.rimColorHex);
+      rimLight.color.lerp(_targetLightColor, lightBlend);
+      rimLight.intensity += (todState.rimIntensity - rimLight.intensity) * lightBlend;
+      rimLight.position.set(todState.rimOffset[0], todState.rimOffset[1], todState.rimOffset[2]);
+
+      scene.environmentIntensity = THREE.MathUtils.lerp(
+        scene.environmentIntensity ?? 1.0,
+        todState.environmentIntensity,
+        lightBlend,
+      );
+      renderer.toneMappingExposure = THREE.MathUtils.lerp(
+        renderer.toneMappingExposure,
+        todState.toneMappingExposure,
+        lightBlend,
+      );
+
       scene.background = _bgColor;
       if (scene.fog instanceof THREE.FogExp2) {
-        scene.fog.color.copy(_bgColor);
+        _targetFogColor.setHex(todState.fogColorHex);
+        scene.fog.color.lerp(_targetFogColor, lightBlend);
+        scene.fog.density += (todState.fogDensity - scene.fog.density) * lightBlend;
+      }
+
+      // Age-dependent city, window, campfire, lamppost, and street illumination at dark hours
+      updateBuildingNightMaterials(currentDarkness, shaderElapsed);
+
+      const blds = simRef.current.buildings;
+      const primarySpecies =
+        blds.length > 0
+          ? blds[0].species ??
+            (blds[0].settlementId
+              ? simRef.current.settlementSpecies?.[blds[0].settlementId]
+              : undefined) ??
+            'human'
+          : 'human';
+      const cityLightProfile = getEpochCityLightProfile(
+        epochIdx,
+        primarySpecies,
+        currentDarkness,
+        shaderElapsed,
+      );
+
+      // Update 3D street fixture materials according to current epoch & darkness
+      if (epochIdx === 0) {
+        streetPoleMat.color.setHex(0x4a301c);
+        streetPoleMat.metalness = 0.05;
+      } else if (epochIdx <= 2) {
+        streetPoleMat.color.setHex(0x5c3a21);
+        streetPoleMat.metalness = 0.18;
+      } else if (epochIdx === 3) {
+        streetPoleMat.color.setHex(0x282d33);
+        streetPoleMat.metalness = 0.68;
+      } else if (epochIdx <= 5) {
+        streetPoleMat.color.setHex(0x64748b);
+        streetPoleMat.metalness = 0.62;
+      } else {
+        streetPoleMat.color.setHex(0xcbd5e1);
+        streetPoleMat.metalness = 0.75;
+      }
+      streetLampGlowMat.color.setHex(
+        currentDarkness > 0.12 ? cityLightProfile.primaryHex : 0x475569,
+      );
+      streetLampGlowMat.emissive.setHex(cityLightProfile.primaryHex);
+      streetLampGlowMat.emissiveIntensity = cityLightProfile.streetFixtureEmissiveIntensity;
+      runwayBeaconMat.emissiveIntensity = 0.55 + currentDarkness * 2.25;
+
+      // Update settlement heart light & distributed city cluster point lights
+      hearthLight.color.setHex(cityLightProfile.primaryHex);
+      hearthLight.distance = cityLightProfile.pointLightDistance;
+      hearthLight.intensity =
+        blds.length > 0
+          ? Math.max(0.85, cityLightProfile.pointLightIntensity)
+          : 0.35 * (1 - currentDarkness * 0.5);
+
+      for (let ci = 0; ci < cityClusterLights.length; ci++) {
+        const cLight = cityClusterLights[ci];
+        if (blds.length > ci + 1 && currentDarkness > 0.08) {
+          const step = Math.max(1, Math.floor(blds.length / (cityClusterLights.length + 1)));
+          const bld = blds[Math.min(blds.length - 1, (ci + 1) * step)];
+          const bTile = simRef.current.tiles[bld.tileZ * simRef.current.gridSize + bld.tileX];
+          const by = (bTile ? Math.max(0.18, bTile.height * HEIGHT_STEP + 0.25) : 1.0) + 1.65;
+          cLight.position.set(bld.tileX, by, bld.tileZ);
+          const bSpec =
+            bld.species ??
+            (bld.settlementId
+              ? simRef.current.settlementSpecies?.[bld.settlementId]
+              : undefined) ??
+            primarySpecies;
+          const bProf = getEpochCityLightProfile(
+            bld.epochLevel ?? epochIdx,
+            bSpec,
+            currentDarkness,
+            shaderElapsed + ci * 1.3,
+          );
+          cLight.color.setHex(ci % 2 === 0 ? bProf.primaryHex : bProf.secondaryHex);
+          cLight.distance = bProf.pointLightDistance;
+          cLight.intensity = bProf.pointLightIntensity * 0.85;
+        } else {
+          cLight.intensity = 0;
+        }
       }
 
       // Animate pixelated starry space backdrop, sculpted sky clouds & ocean coastal/reef/whitecap foaming
@@ -7900,7 +9679,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         elapsed: elapsedTotal,
         width: renderWidth,
         height: renderHeight,
-        pixelScale: propsRef.current.pixelScale || 3,
+        pixelScale: currentDynamicPixelScale,
         camYaw,
         camX: camTarget.x,
         camZ: camTarget.z,
@@ -7910,15 +9689,18 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
       if (appliedCloudsQuality !== 'off') {
         worldUnderglow.update(
-          elapsedTotal,
+          shaderElapsed,
           preset,
-          simRef.current.epochIndex,
-          propsRef.current.pixelScale || 3,
+          epochIdx,
+          currentDynamicPixelScale,
         );
       }
       if (preset === 'dusk') {
         glowTrimMat.color.set('#d98078');
         glowTrimMat.opacity = 0.4;
+      } else if (preset === 'midnight') {
+        glowTrimMat.color.set('#3a86ff');
+        glowTrimMat.opacity = 0.56;
       } else if (preset === 'night') {
         glowTrimMat.color.set('#56cfe1');
         glowTrimMat.opacity = 0.5;
@@ -7933,12 +9715,17 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       const atmosSpeed =
         propsRef.current.gameState === 'title'
           ? 0.5
-          : propsRef.current.timeScale === 0
+          : clampedSimSpeed === 0
             ? 0
-            : Math.min(8, Math.max(0.25, propsRef.current.timeScale));
-      skyClouds.update(dt * atmosSpeed, elapsedTotal, preset);
-      oceanFoam.updateFrame(elapsedTotal, preset);
-      styledTerrain.updateFrame(elapsedTotal, simRef.current.epochIndex);
+            : Math.min(5, Math.max(0.25, clampedSimSpeed));
+      skyClouds.update(dt * atmosSpeed, shaderElapsed, preset);
+      oceanFoam.updateFrame(shaderElapsed, preset);
+      styledTerrain.updateFrame(
+        shaderElapsed,
+        epochIdx,
+        isCycleActive ? 'auto' : preset,
+        cyclePhase01,
+      );
 
       // Smooth exponential camera damping + decaying trauma shake
       const followDamp = propsRef.current.followingEntityId ? 11 : 8;
@@ -7947,16 +9734,42 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       camTarget.y = THREE.MathUtils.damp(camTarget.y, camDesiredTarget.y, followDamp, dt);
       camTarget.z = THREE.MathUtils.damp(camTarget.z, camDesiredTarget.z, followDamp, dt);
 
-      if (Math.abs(frustumSize - desiredFrustum) > 0.01 && container) {
-        frustumSize = THREE.MathUtils.damp(frustumSize, desiredFrustum, 8, dt);
+      if (container) {
         const w = Math.max(1, container.clientWidth);
         const h = Math.max(1, container.clientHeight);
         const newAspect = w / h;
-        camera.left = (-frustumSize * newAspect) / 2;
-        camera.right = (frustumSize * newAspect) / 2;
-        camera.top = frustumSize / 2;
-        camera.bottom = -frustumSize / 2;
-        camera.updateProjectionMatrix();
+
+        if (Math.abs(frustumSize - desiredFrustum) > 0.01) {
+          frustumSize = THREE.MathUtils.damp(frustumSize, desiredFrustum, 8, dt);
+          camera.left = (-frustumSize * newAspect) / 2;
+          camera.right = (frustumSize * newAspect) / 2;
+          camera.top = frustumSize / 2;
+          camera.bottom = -frustumSize / 2;
+          camera.updateProjectionMatrix();
+        }
+
+        // Dynamically and smoothly interpolate pixel scale from 3x (zoomed in) to 2x (fully zoomed out)
+        const targetDynamicPixelScale = computeDynamicPixelScale(
+          frustumSize,
+          simRef.current.gridSize,
+          newAspect,
+          propsRef.current.pixelScale || 3,
+        );
+        if (Math.abs(currentDynamicPixelScale - targetDynamicPixelScale) > 0.001) {
+          currentDynamicPixelScale = THREE.MathUtils.damp(
+            currentDynamicPixelScale,
+            targetDynamicPixelScale,
+            8,
+            dt,
+          );
+          const rw = Math.max(160, Math.floor(w / currentDynamicPixelScale));
+          const rh = Math.max(100, Math.floor(h / currentDynamicPixelScale));
+          if (rw !== renderWidth || rh !== renderHeight) {
+            renderWidth = rw;
+            renderHeight = rh;
+            renderer.setSize(rw, rh, false);
+          }
+        }
       }
 
       // Sustained earthquake tremor keeps a subtle, tapering camera rumble during active quake zones
@@ -7993,10 +9806,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       const shakeRightX = Math.cos(camYaw) * shakeHoriz;
       const shakeRightZ = -Math.sin(camYaw) * shakeHoriz;
 
-      // Keep directional keyLight tracking camTarget so shadows stay crisp across 128x128
+      // Keep directional keyLight tracking camTarget with time-of-day sun/moon angle & shadow direction
       keyLight.target.position.set(camTarget.x, 0, camTarget.z);
-      keyLight.position.set(camTarget.x + 12, 28, camTarget.z + 8);
-      const desiredShadowBounds = Math.max(18, Math.min(48, frustumSize * 1.2));
+      keyLight.position.set(
+        camTarget.x + todState.keyOffset[0],
+        todState.keyOffset[1],
+        camTarget.z + todState.keyOffset[2],
+      );
+      const desiredShadowBounds = Math.max(18, Math.min(40, frustumSize * 1.05));
       if (Math.abs(shadowBounds - desiredShadowBounds) > 1.5) {
         shadowBounds = desiredShadowBounds;
         keyLight.shadow.camera.left = -shadowBounds;
@@ -8104,11 +9921,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         }
       }
 
-      // Throttle React HUD state synchronization to <= 6 Hz so we never setState at 60Hz
+      // Throttle React HUD state synchronization to <= 6 Hz during gameplay so we never setState at 60Hz or during title screen
       hudSyncAccumulator += dt;
       if (hudSyncAccumulator >= 0.18) {
         hudSyncAccumulator = 0;
-        propsRef.current.onSyncHud();
+        if (currentGameState === 'playing') {
+          propsRef.current.onSyncHud();
+        }
       }
 
       if (isSoftwareGl) {
@@ -8118,16 +9937,59 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       }
     }
 
+    if (captureThumbnailRef) {
+      captureThumbnailRef.current = () => {
+        try {
+          const srcCanvas = renderer.domElement;
+          if (!srcCanvas || srcCanvas.width <= 0 || srcCanvas.height <= 0) {
+            return null;
+          }
+          renderer.render(scene, camera);
+          const targetW = 320;
+          const targetH = 180;
+          const thumbCanvas = document.createElement('canvas');
+          thumbCanvas.width = targetW;
+          thumbCanvas.height = targetH;
+          const ctx = thumbCanvas.getContext('2d');
+          if (!ctx) return null;
+          ctx.imageSmoothingEnabled = false;
+          const srcAspect = srcCanvas.width / srcCanvas.height;
+          const dstAspect = targetW / targetH;
+          let sx = 0;
+          let sy = 0;
+          let sw = srcCanvas.width;
+          let sh = srcCanvas.height;
+          if (srcAspect > dstAspect) {
+            sw = Math.max(1, Math.round(srcCanvas.height * dstAspect));
+            sx = Math.max(0, Math.round((srcCanvas.width - sw) * 0.5));
+          } else if (srcAspect < dstAspect) {
+            sh = Math.max(1, Math.round(srcCanvas.width / dstAspect));
+            sy = Math.max(0, Math.round((srcCanvas.height - sh) * 0.5));
+          }
+          ctx.drawImage(srcCanvas, sx, sy, sw, sh, 0, 0, targetW, targetH);
+          return thumbCanvas.toDataURL('image/jpeg', 0.85);
+        } catch {
+          return null;
+        }
+      };
+    }
+
     frameId = requestAnimationFrame(tick);
 
     return () => {
+      if (captureThumbnailRef) {
+        captureThumbnailRef.current = null;
+      }
       cancelAnimationFrame(frameId);
       clearTimeout(frameId);
       resizeObserver.disconnect();
+      window.removeEventListener('orientationchange', onOrientationOrViewportChange);
+      window.visualViewport?.removeEventListener('resize', updateSize);
       domElem.removeEventListener('pointerdown', onPointerDown);
       domElem.removeEventListener('pointermove', onPointerMove);
       domElem.removeEventListener('pointerleave', onPointerLeave);
       window.removeEventListener('pointerup', onPointerUp);
+      window.removeEventListener('pointercancel', onPointerUp);
       domElem.removeEventListener('wheel', onWheel);
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
@@ -8163,6 +10025,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       sharedTornadoRingGeo.dispose();
       sharedTornadoCapGeo.dispose();
       sharedDebrisCubeGeo.dispose();
+      sharedWhirlpoolDiskGeo.dispose();
+      sharedWhirlpoolFunnelGeo.dispose();
       sharedMeteorGeo.dispose();
       sharedMeteorAuraGeo.dispose();
       sharedExplosionDomeGeo.dispose();
@@ -8171,6 +10035,29 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       sharedOrbMoteGeo.dispose();
       sharedShardMoteGeo.dispose();
       sharedPillarSpikeGeo.dispose();
+      sharedTracerGeo.dispose();
+      sharedBulletCoreGeo.dispose();
+      sharedShellGeo.dispose();
+      sharedShellHaloGeo.dispose();
+      sharedBombBodyGeo.dispose();
+      sharedBombFinGeo.dispose();
+      sharedMissileGeo.dispose();
+      sharedMissileWarheadGeo.dispose();
+      sharedMissilePlumeGeo.dispose();
+      sharedArcaneBoltGeo.dispose();
+      sharedArcaneRingGeo.dispose();
+      sharedPlasmaBeamGeo.dispose();
+      sharedPlasmaMuzzleGeo.dispose();
+      sharedSparkShardGeo.dispose();
+      sharedNukeStemGeo.dispose();
+      sharedNukeCapGeo.dispose();
+      sharedNukeTorusGeo.dispose();
+      sharedArcaneSpireGeo.dispose();
+      sharedArcaneHaloTorusGeo.dispose();
+      sharedRunePillarGeo.dispose();
+      sharedBeamColGeo.dispose();
+      sharedBattlewillCrescentGeo.dispose();
+      sharedBattlewillEdgeGeo.dispose();
       dragTargetReticleGeo.dispose();
       dragTargetReticleMat.dispose();
       dragTetherGeo.dispose();
@@ -8201,9 +10088,26 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       metroParapetEWGeo.dispose();
       metroParapetNSGeo.dispose();
       runwayBeaconGeo.dispose();
+      streetPoleGeo.dispose();
+      streetLampHeadGeo.dispose();
+      skywayDeckGeo.dispose();
+      skywayTrimGeo.dispose();
+      streetPoleMat.dispose();
+      streetLampGlowMat.dispose();
+      skywayDeckMat.dispose();
+      skywayTrimMat.dispose();
+      tileGeo.dispose();
+      for (const inst of terrainInstancedList) inst.dispose();
+      for (const inst of allPropInsts) inst.dispose();
+      for (const inst of allMetroInsts) inst.dispose();
+      particleGeo.dispose();
+      particleMat.dispose();
+      particleInstanced.dispose();
+      favoriteStarsInst.dispose();
+      kingCrownsInst.dispose();
       renderer.dispose();
     };
-  }, [cameraActionRef, simRef]);
+  }, [cameraActionRef, captureThumbnailRef, simRef]);
 
   const activeLabels = zoneOverlayBuffers?.labels ?? [];
   const kingsOverlayOn = Boolean(
@@ -8221,7 +10125,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       <div
         ref={mountRef}
         data-testid="isometric-world-canvas"
-        className="fixed inset-0 w-full h-full bg-[#141210] overflow-hidden"
+        className="fixed inset-0 w-full h-full bg-[#141210] overflow-hidden touch-none select-none"
       />
       {gameState !== 'title' && activeKings.length > 0 && (
         <div

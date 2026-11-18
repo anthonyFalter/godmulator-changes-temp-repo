@@ -8,6 +8,7 @@ import {
   SPECIES_UNITS,
   TERRAIN_TOOLS,
   UNITS,
+  getMaxCityPopulation,
 } from './game/catalog';
 import {
   DEFAULT_WORLD_RULES,
@@ -35,6 +36,7 @@ import {
   GraphicsSettings,
   LightingPreset,
   Resources,
+  SimulationState,
   ToolCategory,
   UnitEntity,
   WorldGenConfig,
@@ -44,6 +46,17 @@ import {
   ZoneToggleState,
 } from './game/types';
 import { loadGraphicsSettings, saveGraphicsSettings } from './game/graphics';
+import { SIMULATION_SPEED_OPTIONS, clampSimulationSpeed } from './game/dayNightLighting';
+import {
+  SavedWorldRecord,
+  deleteSavedWorld,
+  listSavedWorlds,
+  loadSavedWorldById,
+  renameSavedWorld,
+  restoreSimulationFromSave,
+  saveWorldToLocalCache,
+  updateSavedWorldRules,
+} from './game/worldStorage';
 import {
   DEFAULT_ZONE_TOGGLES,
   buildZoneOverlayTextures,
@@ -130,7 +143,7 @@ const GOD_RULE_SWITCHES: ReadonlyArray<{
   {
     key: 'warsEnabled',
     label: 'Wars',
-    summary: 'Allows kingdoms to declare war, build battle vehicles, and engage in racial combat',
+    summary: 'Allows kingdoms to declare war, build battle vehicles, and engage in combat between intelligent creatures',
   },
   {
     key: 'allowRebellion',
@@ -175,59 +188,146 @@ function primaryCostNumber(cost: Partial<Resources>, isFree: boolean): string {
 
 type TitleMenuStep =
   | 'main'
+  | 'continue_worlds'
   | 'settings'
   | 'credits'
   | 'create_world'
   | 'world_rules'
   | 'loading_world';
 
-const GAME_VERSION = 'v1.0.0';
+const GAME_VERSION = 'v1.1.5';
 
-const UPDATE_LOG_ENTRIES = [
+export interface UpdateLogEntry {
+  version: string;
+  isMajor?: boolean;
+  items: string[];
+}
+
+const UPDATE_LOG_ENTRIES: UpdateLogEntry[] = [
+  {
+    version: 'v1.1.5 - World Saves & UI',
+    items: [
+      'Local world saves (save, load, rename, overwrite & delete slots with thumbnails)',
+      'Default world name set to "My World" with overwrite prompt',
+      'Menu & tool filter state cleanup + new pixel-art title emblem',
+    ],
+  },
+  {
+    version: 'v1.1.4 - Fog & Timeline',
+    items: [
+      'Dynamic fog colors tied to time of day',
+      'Fixed shader timer drift on lights & clouds in long sessions',
+      'Changed calendar to chronological "Year X" and Age I–V labels',
+    ],
+  },
+  {
+    version: 'v1.1.3 - Cities, 32×32 Textures & Pop Caps',
+    items: [
+      'Organic road networks, curved railways & skyway tracks',
+      'Bumped pixel textures up to 32×32 resolution',
+      'Added per-city population limits scaled by map size',
+    ],
+  },
+  {
+    version: 'v1.1.2 - Leviathan & Abyssal Tweaks',
+    items: [
+      'New Leviathan rig with stationary Water Beam & Breach Jump tsunamis',
+      'Coral reefs bleach gray when broken and regenerate over time',
+      'Updated whirlpool damage, coastal shelves & Sunken Atlantis ruins',
+      'Simulation and rendering performance cleanup',
+    ],
+  },
+  {
+    version: 'v1.1.1 - Pixel Scaling & Creature Labels',
+    items: [
+      'Smooth pixel scaling by zoom level (3× close-up down to 1× zoomed out)',
+      'Renamed racial labels to intelligent creatures across menus & Inspect',
+    ],
+  },
+  {
+    version: 'v1.1.0 - Sea Update',
+    isMajor: true,
+    items: [
+      'Ocean wildlife & colossal mythical Leviathan roaming as deep silhouettes & breaching with gaping jaws',
+      'Floating sea towns, oceanic platforms, and water walkways/piers across coastal channels',
+      'Swimming mechanics with fatigue & drowning if stranded far from shore',
+      'Randomized warm coral reef generation below tropical ocean waters',
+      'Ocean hazards: swirling whirlpools, rogue waves, and rare sunken Atlantis ruins',
+      'Freshwater inland lakes and lively shallow river systems',
+      'New World Creator template: "Scrap Sea" with flotsam and salvageable scraps',
+    ],
+  },
+  {
+    version: 'v1.0.3 - Day-Night Cycle & Lighting',
+    items: [
+      'Realistic day-night cycle with directional sunlight, dusk/dawn golden hours & midnight moonlit shading',
+      'Epoch-dependent city lights: campfires in Prehistoric, street lanterns in Medieval, gas lamposts in Industrial, neon skyline in Modern',
+      'Capped simulation speed to 5× max for smoother pacing and visual fidelity',
+    ],
+  },
+  {
+    version: 'v1.0.2 - Mobile & Touch Support',
+    items: [
+      'Multi-touch gestures: pinch-to-zoom, two-finger twist map rotation, and smooth single-finger drag panning',
+      'Full support for portrait and landscape orientations on phones and tablets',
+      'Responsive, zero-overflow top HUD for small mobile screens',
+      'Dedicated mobile pan mode toggle and touch-optimized controls',
+    ],
+  },
+  {
+    version: 'v1.0.1 - War Vehicle Evolution & Timeline',
+    items: [
+      'Unique 3D vehicles per creature (Human tanks/warships, Elf Sylvan Swan-Skiffs/skyships, Orc choppers)',
+      'Separated fixed-wing planes (strafing passes, no hovering) from helicopters & VTOL gunships',
+      'Timeline fixes: no airships in Medieval era, no helicopters or jets in Industrial Age',
+      'Vehicles perish naturally when crew population or home kingdom falls',
+    ],
+  },
   {
     version: 'v1.0.0 - War Update',
+    isMajor: true,
     items: [
-      'Wars, chance-based peace & Alliances zone map (Blue Allies, Red Enemies)',
-      'Environment-shattering racial ultimates: Human Nukes, Elf Arcane Cataclysm, Orc Battlewill avatar & wide slashes',
-      'Age-evolving multi-domain war vehicles: gliders, warships, airships, orc flyers, tanks, bombers & orbital gunships',
-      'City rebellions forming rival city-states + God Rules (Wars, Citizens Can Rebel)',
-      'HUD polish: unified left-aligned 2-row scrollable hotbar, inspect & spacing fixes',
+      'Wars, peace treaties & Alliances map overlay (Blue Allies, Red Enemies)',
+      'City rebellions are more common and can split off provinces (toggle in World Rules)',
+      'Per-kingdom resource stockpiles shown in Inspect; towns gather before building',
+      'Separate vehicle models for each intelligent creature (gliders, warships, airships, tanks, bombers)',
+      'Cooldown on intelligent creature nukes/ultimates + Elf rune beam circles & Orc mountain-cleaving slashes',
     ],
   },
   {
     version: 'v0.6.0',
     items: [
-      'World creator & templates',
-      'Map sizes up to 256×256',
-      'Customizable world rules',
+      'World templates & map sizes up to 256×256',
+      'World rules settings menu',
     ],
   },
   {
     version: 'v0.5.0',
     items: [
-      'Kingdom, territory & biome zones',
-      'Shoreline & sea border overlays',
-      'Zone hover inspection',
+      'Kingdom, wildlife territory & biome map layers',
+      'Coastline & sea border shading',
+      'Zone hover stats in Inspect',
     ],
   },
   {
     version: 'v0.4.0',
     items: [
       'Seeded pixel Milky Way skybox',
-      'Smooth 45° camera intro zoom',
+      'Camera intro pan from orbit',
     ],
   },
 ];
 
 export default function App() {
-  const simRef = useRef(
-    createInitialSimulationState(
+  const simRef = useRef<SimulationState>(null!);
+  if (!simRef.current) {
+    simRef.current = createInitialSimulationState(
       128,
       typeof window !== 'undefined'
         ? new URLSearchParams(window.location.search).get('seed') ?? undefined
         : undefined,
-    ),
-  );
+    );
+  }
   const [seedInput, setSeedInput] = useState<string>(() => String(simRef.current.seed));
 
   const [gameState, setGameState] = useState<GameLifecycleState>(() => {
@@ -239,13 +339,23 @@ export default function App() {
   });
 
   const [timeScale, setTimeScale] = useState<number>(1);
+  const lastNonZeroSpeedRef = useRef<number>(1);
+  const [speedMenuOpen, setSpeedMenuOpen] = useState<boolean>(false);
+  const [cameraMenuOpen, setCameraMenuOpen] = useState<boolean>(false);
+  const speedMenuWrapperRef = useRef<HTMLDivElement | null>(null);
+  const cameraMenuWrapperRef = useRef<HTMLDivElement | null>(null);
   const [activeCategory, setActiveCategory] = useState<ToolCategory>('spawn');
   const [activeTool, setActiveTool] = useState<ActiveTool>({
     kind: 'spawn',
     unit: 'human',
   });
+  const [powerFilter, setPowerFilter] = useState<'all' | 'benevolent' | 'wrathful' | 'cosmic'>('all');
+  const [buildFilter, setBuildFilter] = useState<'all' | 'current' | 'advanced'>('all');
+  const [unitFilter, setUnitFilter] = useState<'all' | 'races' | 'wildlife' | 'mythic'>('all');
+  const [worldSubTab, setWorldSubTab] = useState<'ages' | 'rules'>('ages');
   const [brushRadius, setBrushRadius] = useState<number>(0);
   const [brushInputMode, setBrushInputMode] = useState<BrushInputMode>('hold');
+  const [mobilePanMode, setMobilePanMode] = useState<boolean>(false);
   const pixelScale = 3;
   const [graphicsSettings, setGraphicsSettings] = useState<GraphicsSettings>(() =>
     loadGraphicsSettings(),
@@ -268,7 +378,10 @@ export default function App() {
 
   // Start UI navigation & World Creation Wizard state
   const [titleMenuStep, setTitleMenuStep] = useState<TitleMenuStep>('main');
-  const [updateLogCollapsed, setUpdateLogCollapsed] = useState<boolean>(false);
+  const [updateLogCollapsed, setUpdateLogCollapsed] = useState<boolean>(() =>
+    typeof window !== 'undefined' ? window.innerWidth < 768 || window.innerHeight < 540 : false,
+  );
+  const [showTemplatesDropdown, setShowTemplatesDropdown] = useState<boolean>(false);
   const [worldConfig, setWorldConfig] = useState<WorldGenConfig>(() =>
     createWorldConfigFromTemplate('fantastic', {
       seed: simRef.current.seed,
@@ -279,6 +392,26 @@ export default function App() {
   const [loadingStageText, setLoadingStageText] = useState<string>(
     'Sculpting continental plates...',
   );
+
+  // Local World Cache / Save / Continue & Quit Guard state
+  const captureThumbnailRef = useRef<(() => string | null) | null>(null);
+  const activeSaveIdRef = useRef<string | null>(null);
+  const [hasSavedWorld, setHasSavedWorld] = useState<boolean>(false);
+  const [isSavingWorld, setIsSavingWorld] = useState<boolean>(false);
+  const [saveModalStep, setSaveModalStep] = useState<'confirm' | 'details' | 'overwrite' | null>(null);
+  const [saveNameDraft, setSaveNameDraft] = useState<string>('');
+  const [saveDescDraft, setSaveDescDraft] = useState<string>('');
+  const [saveThenQuit, setSaveThenQuit] = useState<boolean>(false);
+  const [quitConfirmOpen, setQuitConfirmOpen] = useState<boolean>(false);
+  const [savedWorlds, setSavedWorlds] = useState<SavedWorldRecord[]>([]);
+  const [savedWorldsLoading, setSavedWorldsLoading] = useState<boolean>(false);
+  const [renamingWorldId, setRenamingWorldId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState<string>('');
+  const [deletingWorldId, setDeletingWorldId] = useState<string | null>(null);
+  const [editingRulesWorldId, setEditingRulesWorldId] = useState<string | null>(null);
+  const [editingRulesDraft, setEditingRulesDraft] = useState<WorldRulesConfig | null>(null);
+  const [editingEpochDraft, setEditingEpochDraft] = useState<number>(0);
+  const [editingLightingDraft, setEditingLightingDraft] = useState<LightingPreset>('noon');
 
   // Snapshot counter triggered at <= 6 Hz from canvas loop or user actions
   const [hudTick, setHudTick] = useState(0);
@@ -379,6 +512,9 @@ export default function App() {
   // Begin step 3: Loading World -> build configured world & smoothly transition into playing state
   const handleBeginWorldLoading = useCallback(() => {
     soundEngine.playBuild();
+    activeSaveIdRef.current = null;
+    setHasSavedWorld(false);
+    setQuitConfirmOpen(false);
     setLoadingProgress(10);
     setLoadingStageText('Generating terrain...');
     setTitleMenuStep('loading_world');
@@ -442,7 +578,7 @@ export default function App() {
       }, 760),
     );
 
-    timers.push(
+      timers.push(
       window.setTimeout(() => {
         setTitleMenuStep('main');
         handleStartGame();
@@ -454,12 +590,225 @@ export default function App() {
     };
   }, [gameState, titleMenuStep, worldConfig, handleStartGame]);
 
-  const handleRestartGame = useCallback(() => {
-    handleGenerateSeededWorld(undefined);
-    cameraActionRef.current.playTransition = true;
-    document.body.dataset.state = 'playing';
-    setGameState('playing');
-  }, [handleGenerateSeededWorld]);
+  const refreshSavedWorlds = useCallback(async () => {
+    setSavedWorldsLoading(true);
+    try {
+      const list = await listSavedWorlds();
+      setSavedWorlds(list);
+    } finally {
+      setSavedWorldsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshSavedWorlds();
+  }, [refreshSavedWorlds]);
+
+  const handleOpenSaveFlow = useCallback(
+    (thenQuit = false) => {
+      soundEngine.playClick();
+      const initialName =
+        simRef.current.worldName?.trim() ||
+        worldConfig.worldName.trim() ||
+        'My World';
+      setSaveNameDraft(initialName);
+      setSaveDescDraft(simRef.current.worldDescription ?? '');
+      setSaveThenQuit(thenQuit);
+      setQuitConfirmOpen(false);
+      setSaveModalStep('confirm');
+      void refreshSavedWorlds();
+    },
+    [refreshSavedWorlds, worldConfig.worldName],
+  );
+
+  const handleCommitSaveWorld = useCallback(async (): Promise<boolean> => {
+    if (isSavingWorld) return false;
+    setIsSavingWorld(true);
+    try {
+      const thumbnailDataUrl = captureThumbnailRef.current ? captureThumbnailRef.current() : null;
+      const worldName =
+        saveNameDraft.trim() ||
+        simRef.current.worldName?.trim() ||
+        worldConfig.worldName.trim() ||
+        'My World';
+      const worldDescription = saveDescDraft.trim();
+      const matchingExisting = savedWorlds.find(
+        (w) => w.name.trim().toLowerCase() === worldName.toLowerCase(),
+      );
+      const targetSaveId = matchingExisting
+        ? matchingExisting.id
+        : activeSaveIdRef.current &&
+            savedWorlds.some(
+              (w) =>
+                w.id === activeSaveIdRef.current &&
+                w.name.trim().toLowerCase() === worldName.toLowerCase(),
+            )
+          ? activeSaveIdRef.current
+          : undefined;
+      const saved = await saveWorldToLocalCache({
+        saveId: targetSaveId,
+        name: worldName,
+        description: worldDescription,
+        thumbnailDataUrl,
+        lightingPreset,
+        activeZones,
+        sim: simRef.current,
+      });
+      activeSaveIdRef.current = saved.id;
+      simRef.current.worldName = saved.name;
+      simRef.current.worldDescription = saved.description ?? '';
+      setWorldConfig((prev) => ({ ...prev, worldName: saved.name }));
+      setHasSavedWorld(true);
+      setSaveModalStep(null);
+      soundEngine.playBuild();
+      setStatusFeedback(`Saved "${saved.name}"`);
+      setHudTick((t) => t + 1);
+      await refreshSavedWorlds();
+      if (saveThenQuit) {
+        setSaveThenQuit(false);
+        setTitleMenuStep('main');
+        setGameState('title');
+      }
+      return true;
+    } catch {
+      setStatusFeedback('Unable to save world');
+      return false;
+    } finally {
+      setIsSavingWorld(false);
+    }
+  }, [
+    activeZones,
+    isSavingWorld,
+    lightingPreset,
+    refreshSavedWorlds,
+    saveDescDraft,
+    saveNameDraft,
+    saveThenQuit,
+    savedWorlds,
+    worldConfig.worldName,
+  ]);
+
+  const handleConfirmQuitToMainMenu = useCallback(() => {
+    soundEngine.playClick();
+    setQuitConfirmOpen(false);
+    setSaveModalStep(null);
+    setSaveThenQuit(false);
+    setTitleMenuStep('main');
+    setGameState('title');
+    void refreshSavedWorlds();
+  }, [refreshSavedWorlds]);
+
+  const handleRequestMainMenu = useCallback(() => {
+    if (hasSavedWorld) {
+      handleConfirmQuitToMainMenu();
+      return;
+    }
+    soundEngine.playClick();
+    setQuitConfirmOpen(true);
+  }, [handleConfirmQuitToMainMenu, hasSavedWorld]);
+
+  const handleLoadSavedWorld = useCallback(
+    async (record: SavedWorldRecord) => {
+      if (document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur();
+      }
+      const fresh = (await loadSavedWorldById(record.id)) ?? record;
+      const restored = restoreSimulationFromSave(fresh);
+      simRef.current = restored;
+      activeSaveIdRef.current = fresh.id;
+      setHasSavedWorld(true);
+      setSeedInput(String(restored.seed));
+      setWorldConfig((prev) => ({
+        ...prev,
+        worldName: fresh.name,
+        gridSize: restored.gridSize,
+        seed: restored.seed,
+        template: restored.worldTemplate ?? prev.template,
+        rules: restored.worldRules ?? prev.rules,
+      }));
+      setLightingPreset(
+        fresh.lightingPreset ?? (restored.worldRules?.dayNightCycle ? 'auto' : 'noon'),
+      );
+      setActiveZones({ ...DEFAULT_ZONE_TOGGLES, ...(fresh.activeZones ?? {}) });
+      setHoverTile(null);
+      setHoveredEntityId(null);
+      setSelectedEntityId(null);
+      selectedEntityIdRef.current = null;
+      setFollowingEntityId(null);
+      setSelectedAllianceKingdomId(null);
+      setActiveCategory('spawn');
+      setActiveTool({ kind: 'spawn', unit: 'human' });
+      setQuitConfirmOpen(false);
+      setRenamingWorldId(null);
+      setDeletingWorldId(null);
+      setEditingRulesWorldId(null);
+      setTitleMenuStep('main');
+      cameraActionRef.current.playTransition = true;
+      document.body.dataset.state = 'playing';
+      setGameState('playing');
+      soundEngine.playEpochAscend();
+      setStatusFeedback(`Loaded "${fresh.name}" (${formatYearLabel(restored.year)})`);
+      setHudTick((t) => t + 1);
+    },
+    [],
+  );
+
+  const handleConfirmRenameSavedWorld = useCallback(
+    async (id: string) => {
+      const updated = await renameSavedWorld(id, renameDraft);
+      if (updated) {
+        soundEngine.playBuild();
+        await refreshSavedWorlds();
+      }
+      setRenamingWorldId(null);
+      setRenameDraft('');
+    },
+    [refreshSavedWorlds, renameDraft],
+  );
+
+  const handleConfirmDeleteSavedWorld = useCallback(
+    async (id: string) => {
+      await deleteSavedWorld(id);
+      if (activeSaveIdRef.current === id) {
+        activeSaveIdRef.current = null;
+        setHasSavedWorld(false);
+      }
+      setDeletingWorldId(null);
+      soundEngine.playClick();
+      await refreshSavedWorlds();
+    },
+    [refreshSavedWorlds],
+  );
+
+  const handleOpenSavedWorldRules = useCallback((record: SavedWorldRecord) => {
+    soundEngine.playClick();
+    setEditingRulesWorldId(record.id);
+    setEditingRulesDraft({
+      ...DEFAULT_WORLD_RULES,
+      ...(record.simulation.worldRules ?? {}),
+    });
+    setEditingEpochDraft(record.epochIndex);
+    setEditingLightingDraft(record.lightingPreset ?? 'noon');
+  }, []);
+
+  const handleSaveEditedWorldRules = useCallback(async () => {
+    if (!editingRulesWorldId || !editingRulesDraft) return;
+    await updateSavedWorldRules(editingRulesWorldId, {
+      rules: editingRulesDraft,
+      epochIndex: editingEpochDraft,
+      lightingPreset: editingLightingDraft,
+    });
+    soundEngine.playBuild();
+    setEditingRulesWorldId(null);
+    setEditingRulesDraft(null);
+    await refreshSavedWorlds();
+  }, [
+    editingEpochDraft,
+    editingLightingDraft,
+    editingRulesDraft,
+    editingRulesWorldId,
+    refreshSavedWorlds,
+  ]);
 
   const handleToggleMute = useCallback(() => {
     soundEngine.muted = !soundEngine.muted;
@@ -472,15 +821,72 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (!speedMenuOpen && !cameraMenuOpen) return;
+    const onPointerDown = (e: PointerEvent) => {
+      const target = e.target as Node | null;
+      if (
+        speedMenuOpen &&
+        speedMenuWrapperRef.current &&
+        target &&
+        !speedMenuWrapperRef.current.contains(target)
+      ) {
+        setSpeedMenuOpen(false);
+      }
+      if (
+        cameraMenuOpen &&
+        cameraMenuWrapperRef.current &&
+        target &&
+        !cameraMenuWrapperRef.current.contains(target)
+      ) {
+        setCameraMenuOpen(false);
+      }
+    };
+    window.addEventListener('pointerdown', onPointerDown);
+    return () => window.removeEventListener('pointerdown', onPointerDown);
+  }, [cameraMenuOpen, speedMenuOpen]);
+
+  useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+      if (saveModalStep && e.code === 'Escape') {
+        e.preventDefault();
+        setSaveModalStep(null);
+        setSaveThenQuit(false);
+        return;
+      }
+
+      if (quitConfirmOpen && e.code === 'Escape') {
+        e.preventDefault();
+        setQuitConfirmOpen(false);
+        return;
+      }
+
+      if ((speedMenuOpen || cameraMenuOpen) && e.code === 'Escape') {
+        e.preventDefault();
+        setSpeedMenuOpen(false);
+        setCameraMenuOpen(false);
+        return;
+      }
 
       if (gameState === 'title') {
         if (e.code === 'Escape') {
           e.preventDefault();
+          if (editingRulesWorldId) {
+            setEditingRulesWorldId(null);
+            setEditingRulesDraft(null);
+            return;
+          }
           setTitleMenuStep((prev) => {
             if (prev === 'world_rules') return 'create_world';
-            if (prev === 'create_world' || prev === 'settings' || prev === 'credits') return 'main';
+            if (
+              prev === 'create_world' ||
+              prev === 'continue_worlds' ||
+              prev === 'settings' ||
+              prev === 'credits'
+            ) {
+              return 'main';
+            }
             return prev;
           });
         }
@@ -503,7 +909,7 @@ export default function App() {
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [gameState]);
+  }, [cameraMenuOpen, editingRulesWorldId, gameState, quitConfirmOpen, saveModalStep, speedMenuOpen]);
 
   const handleSelectEntity = useCallback((unitId: string | null) => {
     selectedEntityIdRef.current = unitId;
@@ -748,18 +1154,20 @@ export default function App() {
   const favoriteUnits: UnitEntity[] = [];
   let hoveredUnit: UnitEntity | null = null;
   let selectedUnit: UnitEntity | null = null;
-  for (let ui = 0; ui < sim.units.length; ui++) {
-    const u = sim.units[ui];
-    if (u.state === 'ko') continue;
-    if (u.isKing && u.faction === 'civilization') {
-      livingKings.push(u);
-    }
-    if (u.favorite) {
-      favoriteUnits.push(u);
-    }
-    if (isInspectTabActive) {
-      if (hoveredEntityId && u.id === hoveredEntityId) hoveredUnit = u;
-      if (selectedEntityId && u.id === selectedEntityId) selectedUnit = u;
+  if (gameState !== 'title') {
+    for (let ui = 0; ui < sim.units.length; ui++) {
+      const u = sim.units[ui];
+      if (u.state === 'ko') continue;
+      if (u.isKing && u.faction === 'civilization') {
+        livingKings.push(u);
+      }
+      if (u.favorite) {
+        favoriteUnits.push(u);
+      }
+      if (isInspectTabActive) {
+        if (hoveredEntityId && u.id === hoveredEntityId) hoveredUnit = u;
+        if (selectedEntityId && u.id === selectedEntityId) selectedUnit = u;
+      }
     }
   }
 
@@ -789,17 +1197,9 @@ export default function App() {
   const zoneOverlayBuffers = useMemo(() => {
     zoneOverlayVersionRef.current += 1;
     if (!worldZones || !anyZoneActive) {
-      const len = simRef.current.gridSize * simRef.current.gridSize * 4;
-      if (!zoneColorBufRef.current || zoneColorBufRef.current.length !== len) {
-        zoneColorBufRef.current = new Uint8Array(len);
-        zoneIdBufRef.current = new Uint8Array(len);
-      } else {
-        zoneColorBufRef.current.fill(0);
-        zoneIdBufRef.current!.fill(0);
-      }
       return {
-        colorData: zoneColorBufRef.current,
-        idData: zoneIdBufRef.current!,
+        colorData: new Uint8Array(0),
+        idData: new Uint8Array(0),
         anyActive: false,
         kingdomsActive: false,
         kingsActive: false,
@@ -890,7 +1290,7 @@ export default function App() {
   })();
 
   return (
-    <main className="relative w-screen h-screen overflow-hidden bg-[#141210] text-[#f2ece1]">
+    <main className="relative w-[100dvw] h-[100dvh] overflow-hidden bg-[#141210] text-[#f2ece1]">
       {/* 3D Pixelated Isometric World Canvas */}
       <IsometricWorldCanvas
         key={sim.gridSize}
@@ -900,10 +1300,12 @@ export default function App() {
         activeTool={activeTool}
         brushRadius={brushRadius}
         brushInputMode={brushInputMode}
+        mobilePanMode={mobilePanMode}
         pixelScale={pixelScale}
         lightingPreset={lightingPreset}
         graphicsSettings={graphicsSettings}
         cameraActionRef={cameraActionRef}
+        captureThumbnailRef={captureThumbnailRef}
         hoveredEntityId={isInspectTabActive ? hoveredEntityId : null}
         selectedEntityId={isInspectTabActive ? selectedEntityId : null}
         followingEntityId={isInspectTabActive ? followingEntityId : null}
@@ -918,12 +1320,12 @@ export default function App() {
 
       {/* TITLE SCREEN OVERLAY */}
       {gameState === 'title' && (
-        <div className="fixed inset-0 z-30 pointer-events-none flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-30 pointer-events-none flex items-center justify-center p-2 sm:p-4">
           {/* LEFT COLLAPSIBLE UPDATE LOG */}
           <aside
             aria-label="Update Log"
             data-testid="start-update-log"
-            className="pointer-events-auto fixed left-4 top-4 z-30"
+            className="pointer-events-auto fixed left-2 top-2 sm:left-4 sm:top-4 z-40 max-w-[calc(100vw-16px)]"
           >
             {updateLogCollapsed ? (
               <button
@@ -933,14 +1335,14 @@ export default function App() {
                   setUpdateLogCollapsed(false);
                   soundEngine.playClick();
                 }}
-                className="px-panel px-3 py-2 flex items-center gap-2 text-xs font-semibold text-[#e8e0d2] cursor-pointer hover:text-[#f5b742]"
+                className="px-panel px-2.5 sm:px-3 py-1.5 sm:py-2 flex items-center gap-2 text-xs font-semibold text-[#e8e0d2] cursor-pointer hover:text-[#f5b742]"
               >
                 <HudPixelIcon kind="log" className="w-4 h-4 text-[#f5b742]" />
                 <span>Updates</span>
               </button>
             ) : (
-              <div className="px-panel w-60 p-4">
-                <div className="flex items-center justify-between mb-3">
+              <div className="px-panel w-[min(17.5rem,calc(100vw-16px))] sm:w-64 p-3 sm:p-4 max-h-[calc(100dvh-24px)] flex flex-col">
+                <div className="flex items-center justify-between mb-2.5 sm:mb-3 shrink-0">
                   <span className="text-sm font-bold text-[#f5b742]">Updates</span>
                   <button
                     type="button"
@@ -955,10 +1357,14 @@ export default function App() {
                   </button>
                 </div>
 
-                <div className="space-y-3.5 text-xs">
+                <div className="space-y-3 text-xs max-h-[55dvh] sm:max-h-60 overflow-y-auto pr-1" data-testid="update-log-scroll">
                   {UPDATE_LOG_ENTRIES.map((entry) => (
                     <div key={entry.version}>
-                      <div className="font-bold text-[#e8e0d2] tabular-nums mb-1">
+                      <div
+                        className={`font-bold tabular-nums mb-1 ${
+                          entry.isMajor ? 'text-[#f5b742]' : 'text-[#e8e0d2]'
+                        }`}
+                      >
                         {entry.version}
                       </div>
                       <ul className="space-y-0.5 text-[#b8afa2] leading-snug">
@@ -976,7 +1382,7 @@ export default function App() {
           {/* BOTTOM-LEFT VERSION */}
           <div
             data-testid="game-version-badge"
-            className="pointer-events-auto fixed left-4 bottom-4 z-30 text-xs text-[#cfc6b8] tabular-nums select-none drop-shadow-[0_2px_0_#0b0a09]"
+            className="pointer-events-auto fixed left-2.5 bottom-2 sm:left-4 sm:bottom-4 z-30 text-[11px] sm:text-xs text-[#cfc6b8] tabular-nums select-none drop-shadow-[0_2px_0_#0b0a09]"
           >
             Godmulator {GAME_VERSION}
           </div>
@@ -985,22 +1391,41 @@ export default function App() {
           {titleMenuStep === 'main' && (
             <div
               data-testid="start-menu-main"
-              className="pointer-events-auto w-full max-w-[280px] px-panel p-6 -translate-y-3 flex flex-col items-center gap-6"
+              className="pointer-events-auto w-[min(280px,calc(100vw-16px))] max-h-[calc(100dvh-20px)] overflow-y-auto px-panel p-4 sm:p-6 [@media(max-height:460px)]:p-3.5 sm:-translate-y-3 flex flex-col items-center gap-4 sm:gap-6 [@media(max-height:460px)]:gap-2.5"
             >
               <TitleEmblemSvg centered />
 
-              <div className="w-full flex flex-col gap-2.5">
+              <div className="w-full flex flex-col gap-2 sm:gap-2.5">
                 <button
                   type="button"
                   data-start="true"
                   data-testid="start-play-btn"
                   onClick={() => {
                     soundEngine.playClick();
+                    activeSaveIdRef.current = null;
+                    setHasSavedWorld(false);
+                    setWorldConfig((prev) => ({ ...prev, worldName: 'My World' }));
                     setTitleMenuStep('create_world');
                   }}
-                  className="px-btn-primary w-full min-h-[44px] py-2.5 text-base font-bold cursor-pointer focus-visible:outline-2 focus-visible:outline-[#ffd166]"
+                  className="px-btn-primary w-full min-h-[42px] sm:min-h-[44px] py-2 sm:py-2.5 text-base font-bold cursor-pointer focus-visible:outline-2 focus-visible:outline-[#ffd166]"
                 >
-                  Play
+                  New World
+                </button>
+
+                <button
+                  type="button"
+                  data-testid="start-continue-btn"
+                  onClick={() => {
+                    soundEngine.playClick();
+                    setRenamingWorldId(null);
+                    setDeletingWorldId(null);
+                    setEditingRulesWorldId(null);
+                    setTitleMenuStep('continue_worlds');
+                    void refreshSavedWorlds();
+                  }}
+                  className="px-btn w-full min-h-[42px] sm:min-h-[44px] py-2 sm:py-2.5 text-sm font-semibold cursor-pointer focus-visible:outline-2 focus-visible:outline-[#ffd166]"
+                >
+                  Continue
                 </button>
 
                 <button
@@ -1010,7 +1435,7 @@ export default function App() {
                     soundEngine.playClick();
                     setTitleMenuStep('settings');
                   }}
-                  className="px-btn w-full min-h-[44px] py-2.5 text-sm font-semibold cursor-pointer focus-visible:outline-2 focus-visible:outline-[#ffd166]"
+                  className="px-btn w-full min-h-[42px] sm:min-h-[44px] py-2 sm:py-2.5 text-sm font-semibold cursor-pointer focus-visible:outline-2 focus-visible:outline-[#ffd166]"
                 >
                   Settings
                 </button>
@@ -1022,7 +1447,7 @@ export default function App() {
                     soundEngine.playClick();
                     setTitleMenuStep('credits');
                   }}
-                  className="px-btn w-full min-h-[44px] py-2.5 text-sm font-semibold cursor-pointer focus-visible:outline-2 focus-visible:outline-[#ffd166]"
+                  className="px-btn w-full min-h-[42px] sm:min-h-[44px] py-2 sm:py-2.5 text-sm font-semibold cursor-pointer focus-visible:outline-2 focus-visible:outline-[#ffd166]"
                 >
                   Credits
                 </button>
@@ -1034,7 +1459,7 @@ export default function App() {
           {titleMenuStep === 'create_world' && (
             <div
               data-testid="create-world-modal"
-              className="pointer-events-auto w-full max-w-md px-panel p-6 space-y-5"
+              className="pointer-events-auto w-[min(28rem,calc(100vw-16px))] max-h-[calc(100dvh-16px)] overflow-y-auto px-panel p-4 sm:p-6 space-y-3.5 sm:space-y-5"
             >
               <div className="flex items-center justify-between">
                 <h2 className="text-lg font-bold text-[#f5b742]">Create World</h2>
@@ -1044,14 +1469,14 @@ export default function App() {
                     soundEngine.playClick();
                     setTitleMenuStep('main');
                   }}
-                  className="text-xs text-[#b8afa2] hover:text-[#f2ece1] cursor-pointer"
+                  className="text-xs text-[#b8afa2] hover:text-[#f2ece1] cursor-pointer px-1 py-1"
                 >
                   Back
                 </button>
               </div>
 
               {/* Name & Seed */}
-              <div className="grid grid-cols-2 gap-3 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3 text-xs">
                 <div>
                   <label htmlFor="create-world-name" className="block text-[#b8afa2] mb-1">
                     Name
@@ -1136,30 +1561,51 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Templates */}
+              {/* Templates Dropdown (borderless button with title line and directional arrow) */}
               <div>
-                <div className="text-xs text-[#b8afa2] mb-1.5">Template</div>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                  {WORLD_TEMPLATES.map((tpl) => {
-                    const isSelected = worldConfig.template === tpl.id;
-                    return (
-                      <button
-                        key={tpl.id}
-                        type="button"
-                        data-testid={`template-${tpl.id}`}
-                        onClick={() => handleSelectTemplate(tpl.id)}
-                        className={`p-2.5 text-left cursor-pointer ${
-                          isSelected ? 'px-slot-active' : 'px-slot'
-                        }`}
-                      >
-                        <div className="text-xs font-bold text-[#f2ece1]">{tpl.name}</div>
-                        <div className="text-[11px] text-[#9e9486] leading-tight mt-0.5">
-                          {tpl.tagline}
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
+                <button
+                  type="button"
+                  data-testid="templates-dropdown-toggle"
+                  aria-expanded={showTemplatesDropdown}
+                  onClick={() => {
+                    soundEngine.playClick();
+                    setShowTemplatesDropdown((prev) => !prev);
+                  }}
+                  className="w-full flex items-center justify-between py-1 bg-transparent border-0 outline-none text-xs text-[#b8afa2] hover:text-[#f2ece1] cursor-pointer select-none"
+                >
+                  <span>
+                    Templates{' '}
+                    <span className="text-[#f5b742] font-semibold">
+                      ({WORLD_TEMPLATES.find((t) => t.id === worldConfig.template)?.name ?? 'Fantastic'})
+                    </span>
+                  </span>
+                  <span className="text-[11px] text-[#b8afa2] leading-none">
+                    {showTemplatesDropdown ? '▾' : '▸'}
+                  </span>
+                </button>
+                {showTemplatesDropdown && (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-2">
+                    {WORLD_TEMPLATES.map((tpl) => {
+                      const isSelected = worldConfig.template === tpl.id;
+                      return (
+                        <button
+                          key={tpl.id}
+                          type="button"
+                          data-testid={`template-${tpl.id}`}
+                          onClick={() => handleSelectTemplate(tpl.id)}
+                          className={`p-2.5 text-left cursor-pointer ${
+                            isSelected ? 'px-slot-active' : 'px-slot'
+                          }`}
+                        >
+                          <div className="text-xs font-bold text-[#f2ece1]">{tpl.name}</div>
+                          <div className="text-[11px] text-[#9e9486] leading-tight mt-0.5">
+                            {tpl.tagline}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               {/* Map Size Slider */}
@@ -1193,6 +1639,9 @@ export default function App() {
                   <span>192</span>
                   <span>256</span>
                 </div>
+                <div className="text-[11px] text-[#b8afa2] mt-1 tabular-nums">
+                  Max City Pop: <span className="font-semibold text-[#f2ece1]">{getMaxCityPopulation(worldConfig.gridSize)}</span> per city
+                </div>
                 {worldConfig.gridSize === 256 && (
                   <div
                     data-testid="beefy-computer-warning"
@@ -1205,7 +1654,7 @@ export default function App() {
 
               {/* Custom Geography (Progressive Disclosure when Custom is active) */}
               {worldConfig.template === 'custom' && (
-                <div className="grid grid-cols-3 gap-2.5 text-xs pt-1">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs pt-1">
                   <div>
                     <span className="block text-[#b8afa2] mb-1">Sea Level</span>
                     <div className="grid grid-cols-3 gap-1">
@@ -1303,7 +1752,7 @@ export default function App() {
           {titleMenuStep === 'world_rules' && (
             <div
               data-testid="world-rules-modal"
-              className="pointer-events-auto w-full max-w-md px-panel p-6 space-y-5"
+              className="pointer-events-auto w-[min(28rem,calc(100vw-16px))] max-h-[calc(100dvh-16px)] overflow-y-auto px-panel p-4 sm:p-6 space-y-3.5 sm:space-y-5"
             >
               <div className="flex items-center justify-between">
                 <h2 className="text-lg font-bold text-[#f5b742]">World Rules</h2>
@@ -1387,7 +1836,7 @@ export default function App() {
               {/* Concise Rule Switches */}
               <div>
                 <div className="text-xs text-[#b8afa2] mb-1.5">God Rules</div>
-                <div className="grid grid-cols-2 gap-1.5 max-h-[210px] overflow-y-auto pr-0.5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-[34dvh] sm:max-h-[210px] overflow-y-auto pr-0.5">
                   {GOD_RULE_SWITCHES.map((rule) => {
                     const isOn = worldConfig.rules[rule.key];
                     return (
@@ -1452,7 +1901,7 @@ export default function App() {
           {titleMenuStep === 'loading_world' && (
             <div
               data-testid="loading-world-modal"
-              className="pointer-events-auto w-full max-w-xs px-panel p-6 text-center space-y-3"
+              className="pointer-events-auto w-[min(20rem,calc(100vw-16px))] px-panel p-5 sm:p-6 text-center space-y-3"
             >
               <div className="text-base font-bold text-[#f5b742]">
                 {worldConfig.worldName}
@@ -1476,7 +1925,7 @@ export default function App() {
           {titleMenuStep === 'settings' && (
             <div
               data-testid="start-settings-modal"
-              className="pointer-events-auto w-full max-w-md px-panel p-6 space-y-5"
+              className="pointer-events-auto w-[min(28rem,calc(100vw-16px))] max-h-[calc(100dvh-16px)] overflow-y-auto px-panel p-4 sm:p-6 space-y-4 sm:space-y-5"
             >
               <div className="flex items-center justify-between">
                 <h2 className="text-lg font-bold text-[#f5b742]">Settings</h2>
@@ -1486,7 +1935,7 @@ export default function App() {
                     soundEngine.playClick();
                     setTitleMenuStep('main');
                   }}
-                  className="text-xs text-[#b8afa2] hover:text-[#f2ece1] cursor-pointer"
+                  className="text-xs text-[#b8afa2] hover:text-[#f2ece1] cursor-pointer px-1 py-1"
                 >
                   Back
                 </button>
@@ -1529,7 +1978,7 @@ export default function App() {
           {titleMenuStep === 'credits' && (
             <div
               data-testid="start-credits-modal"
-              className="pointer-events-auto w-full max-w-sm px-panel p-6 space-y-4"
+              className="pointer-events-auto w-[min(24rem,calc(100vw-16px))] max-h-[calc(100dvh-16px)] overflow-y-auto px-panel p-4 sm:p-6 space-y-4"
             >
               <div className="flex items-center justify-between">
                 <h2 className="text-lg font-bold text-[#f5b742]">Credits</h2>
@@ -1539,7 +1988,7 @@ export default function App() {
                     soundEngine.playClick();
                     setTitleMenuStep('main');
                   }}
-                  className="text-xs text-[#b8afa2] hover:text-[#f2ece1] cursor-pointer"
+                  className="text-xs text-[#b8afa2] hover:text-[#f2ece1] cursor-pointer px-1 py-1"
                 >
                   Back
                 </button>
@@ -1553,8 +2002,9 @@ export default function App() {
                   3D pixel god simulator with procedural continents, dynamic land &amp; sea zones, and multi-epoch civilizations.
                 </p>
                 <div className="pt-1 text-[#b8afa2] space-y-1">
-                  <div>WASD / Arrows / Right-Drag — Pan</div>
-                  <div>Scroll — Zoom</div>
+                  <div>Drag / WASD / Right-Drag — Pan</div>
+                  <div>Pinch / Scroll — Zoom</div>
+                  <div>Two-Finger Twist / Buttons — Rotate</div>
                   <div>H — Hide / Show Toolbar</div>
                 </div>
               </div>
@@ -1571,32 +2021,408 @@ export default function App() {
               </button>
             </div>
           )}
+
+          {/* CONTINUE: LOCALLY SAVED WORLDS */}
+          {titleMenuStep === 'continue_worlds' && (
+            <div
+              data-testid="continue-worlds-modal"
+              className="pointer-events-auto w-[min(46rem,calc(100vw-16px))] max-h-[calc(100dvh-20px)] flex flex-col px-panel p-4 sm:p-6 gap-3.5"
+            >
+              <div className="flex items-center justify-between shrink-0">
+                <h2 className="text-lg font-bold text-[#f5b742]">Saved Worlds</h2>
+                <button
+                  type="button"
+                  data-testid="continue-back-btn"
+                  onClick={() => {
+                    soundEngine.playClick();
+                    setEditingRulesWorldId(null);
+                    setEditingRulesDraft(null);
+                    setTitleMenuStep('main');
+                  }}
+                  className="px-btn px-3 py-1.5 text-xs font-semibold cursor-pointer"
+                >
+                  Back
+                </button>
+              </div>
+
+              {savedWorldsLoading ? (
+                <div className="px-panel-inset p-6 text-center text-xs text-[#b8afa2]">
+                  Loading saved worlds...
+                </div>
+              ) : savedWorlds.length === 0 ? (
+                <div
+                  data-testid="saved-worlds-empty"
+                  className="px-panel-inset p-6 text-center space-y-3"
+                >
+                  <div className="text-sm font-semibold text-[#e8e0d2]">
+                    No saved worlds yet
+                  </div>
+                  <p className="text-xs text-[#a89f91]">
+                    Create a new world and save your progress to continue later.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      soundEngine.playClick();
+                      activeSaveIdRef.current = null;
+                      setHasSavedWorld(false);
+                      setTitleMenuStep('create_world');
+                    }}
+                    className="px-btn-primary px-4 py-2 text-xs font-bold cursor-pointer"
+                  >
+                    New World
+                  </button>
+                </div>
+              ) : (
+                <div
+                  data-testid="saved-worlds-list"
+                  className="overflow-y-auto pr-1 space-y-3 max-h-[66dvh]"
+                >
+                  {savedWorlds.map((w) => {
+                    const epochName = EPOCHS[w.epochIndex]?.name ?? 'Prehistoric Age';
+                    const isRenaming = renamingWorldId === w.id;
+                    const isConfirmingDelete = deletingWorldId === w.id;
+                    const savedDateLabel = new Date(w.savedAt).toLocaleString([], {
+                      month: 'short',
+                      day: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    });
+                    return (
+                      <div
+                        key={w.id}
+                        data-testid={`saved-world-card-${w.id}`}
+                        className="px-panel-inset p-2.5 sm:p-3 flex flex-col sm:flex-row gap-3 items-stretch"
+                      >
+                        {/* Static Map Thumbnail */}
+                        <div className="w-full sm:w-44 h-28 sm:h-[104px] shrink-0 bg-[#0d0b09] border border-[#3a3026] overflow-hidden flex items-center justify-center">
+                          {w.thumbnailDataUrl ? (
+                            <img
+                              src={w.thumbnailDataUrl}
+                              alt={`${w.name} map preview`}
+                              className="w-full h-full object-cover pixelated-canvas"
+                            />
+                          ) : (
+                            <div className="text-center px-2">
+                              <div className="text-[11px] font-bold text-[#f5b742]">
+                                {w.gridSize}×{w.gridSize}
+                              </div>
+                              <div className="text-[10px] text-[#8f8478]">No Thumbnail</div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Metadata & Actions */}
+                        <div className="flex-1 min-w-0 flex flex-col justify-between gap-2">
+                          <div>
+                            {isRenaming ? (
+                              <div className="flex items-center gap-1.5">
+                                <input
+                                  type="text"
+                                  data-testid={`rename-world-input-${w.id}`}
+                                  value={renameDraft}
+                                  maxLength={32}
+                                  autoFocus
+                                  onChange={(e) => setRenameDraft(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      void handleConfirmRenameSavedWorld(w.id);
+                                    } else if (e.key === 'Escape') {
+                                      setRenamingWorldId(null);
+                                    }
+                                  }}
+                                  className="px-input flex-1 min-w-0 text-sm py-1 px-2"
+                                />
+                                <button
+                                  type="button"
+                                  data-testid={`rename-world-save-${w.id}`}
+                                  onClick={() => void handleConfirmRenameSavedWorld(w.id)}
+                                  className="px-btn-primary px-2.5 py-1 text-xs font-bold cursor-pointer"
+                                >
+                                  Save
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setRenamingWorldId(null)}
+                                  className="px-btn px-2 py-1 text-xs cursor-pointer"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="flex items-baseline justify-between gap-2">
+                                <h3 className="text-sm sm:text-base font-bold text-[#f2ece1] truncate">
+                                  {w.name}
+                                </h3>
+                                <span className="text-[11px] text-[#8f8478] shrink-0 tabular-nums">
+                                  {savedDateLabel}
+                                </span>
+                              </div>
+                            )}
+
+                            <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] text-[#cfc6b8] tabular-nums">
+                              <span className="text-[#f5b742] font-semibold">{epochName}</span>
+                              <span>·</span>
+                              <span>{formatYearLabel(w.year)}</span>
+                              <span>·</span>
+                              <span className="text-[#80ed99]">Pop: {w.population}</span>
+                              <span>·</span>
+                              <span>
+                                {w.gridSize}×{w.gridSize}
+                              </span>
+                            </div>
+                            {w.description && (
+                              <p
+                                data-testid={`saved-world-desc-${w.id}`}
+                                className="mt-1 text-[11px] text-[#a89f91] leading-snug line-clamp-2"
+                              >
+                                {w.description}
+                              </p>
+                            )}
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                            <button
+                              type="button"
+                              data-testid={`load-world-btn-${w.id}`}
+                              onClick={() => void handleLoadSavedWorld(w)}
+                              className="px-btn-primary px-3 py-1.5 text-xs font-bold cursor-pointer"
+                            >
+                              Play
+                            </button>
+                            <button
+                              type="button"
+                              data-testid={`rename-world-btn-${w.id}`}
+                              onClick={() => {
+                                soundEngine.playClick();
+                                setDeletingWorldId(null);
+                                setRenamingWorldId(w.id);
+                                setRenameDraft(w.name);
+                              }}
+                              className="px-btn px-2.5 py-1.5 text-xs cursor-pointer"
+                            >
+                              Rename
+                            </button>
+                            <button
+                              type="button"
+                              data-testid={`rules-world-btn-${w.id}`}
+                              onClick={() => handleOpenSavedWorldRules(w)}
+                              className="px-btn px-2.5 py-1.5 text-xs cursor-pointer"
+                            >
+                              World Rules
+                            </button>
+                            {isConfirmingDelete ? (
+                              <>
+                                <button
+                                  type="button"
+                                  data-testid={`confirm-delete-world-btn-${w.id}`}
+                                  onClick={() => void handleConfirmDeleteSavedWorld(w.id)}
+                                  className="px-btn px-2.5 py-1.5 text-xs font-bold text-[#ff8f8f] border-[#a83232] cursor-pointer"
+                                >
+                                  Confirm Delete
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setDeletingWorldId(null)}
+                                  className="px-btn px-2 py-1.5 text-xs cursor-pointer"
+                                >
+                                  Cancel
+                                </button>
+                              </>
+                            ) : (
+                              <button
+                                type="button"
+                                data-testid={`delete-world-btn-${w.id}`}
+                                onClick={() => {
+                                  soundEngine.playClick();
+                                  setRenamingWorldId(null);
+                                  setDeletingWorldId(w.id);
+                                }}
+                                className="px-btn px-2.5 py-1.5 text-xs text-[#e89f9f] cursor-pointer ml-auto"
+                              >
+                                Delete
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Nested Saved World Rules Editor */}
+              {editingRulesWorldId && editingRulesDraft && (
+                <div
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label="Edit Saved World Rules"
+                  data-testid="saved-world-rules-modal"
+                  className="fixed inset-0 z-50 flex items-center justify-center bg-[#0d0c0b]/80 p-2 sm:p-4"
+                >
+                  <div className="w-[min(30rem,calc(100vw-16px))] max-h-[calc(100dvh-20px)] overflow-y-auto px-panel p-4 sm:p-6 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-base sm:text-lg font-bold text-[#f5b742]">
+                        Edit World Rules
+                      </h3>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          soundEngine.playClick();
+                          setEditingRulesWorldId(null);
+                          setEditingRulesDraft(null);
+                        }}
+                        className="text-xs text-[#b8afa2] hover:text-[#f2ece1] cursor-pointer"
+                      >
+                        Close
+                      </button>
+                    </div>
+
+                    {/* Age Slider */}
+                    <div>
+                      <div className="flex items-center justify-between text-xs mb-1.5">
+                        <label htmlFor="saved-world-age-slider" className="text-[#b8afa2]">
+                          World Age
+                        </label>
+                        <span className="font-bold text-[#f2ece1]">
+                          {EPOCHS[editingEpochDraft]?.name ?? 'Prehistoric Age'}
+                        </span>
+                      </div>
+                      <input
+                        id="saved-world-age-slider"
+                        type="range"
+                        min={0}
+                        max={EPOCHS.length - 1}
+                        step={1}
+                        value={editingEpochDraft}
+                        onChange={(e) => {
+                          setEditingEpochDraft(Number(e.target.value));
+                          soundEngine.playClick();
+                        }}
+                        className="px-range w-full"
+                      />
+                    </div>
+
+                    {/* Sky Lighting Preset */}
+                    <div>
+                      <div className="text-xs text-[#b8afa2] mb-1.5">Sky Lighting</div>
+                      <div className="grid grid-cols-3 sm:grid-cols-6 gap-1">
+                        {(['auto', 'dawn', 'noon', 'dusk', 'night', 'midnight'] as LightingPreset[]).map(
+                          (lp) => (
+                            <button
+                              key={lp}
+                              type="button"
+                              onClick={() => {
+                                soundEngine.playClick();
+                                setEditingLightingDraft(lp);
+                                setEditingRulesDraft((prev) =>
+                                  prev ? { ...prev, dayNightCycle: lp === 'auto' } : prev,
+                                );
+                              }}
+                              className={`py-1 text-[11px] capitalize cursor-pointer ${
+                                editingLightingDraft === lp ? 'px-btn-active font-bold' : 'px-btn'
+                              }`}
+                            >
+                              {lp === 'midnight' ? 'dark' : lp}
+                            </button>
+                          ),
+                        )}
+                      </div>
+                    </div>
+
+                    {/* God Rule Switches */}
+                    <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                      {GOD_RULE_SWITCHES.map((sw) => {
+                        const enabled = Boolean(editingRulesDraft[sw.key]);
+                        return (
+                          <div
+                            key={sw.key}
+                            className="px-panel-inset px-2.5 py-2 flex items-center justify-between gap-3"
+                          >
+                            <div className="min-w-0">
+                              <div className="text-xs font-bold text-[#f2ece1]">{sw.label}</div>
+                              <div className="text-[11px] text-[#a89f91] leading-snug">
+                                {sw.summary}
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              data-testid={`saved-rule-toggle-${sw.key}`}
+                              onClick={() => {
+                                soundEngine.playClick();
+                                setEditingRulesDraft((prev) => {
+                                  if (!prev) return prev;
+                                  const nextVal = !prev[sw.key];
+                                  if (sw.key === 'dayNightCycle') {
+                                    setEditingLightingDraft(nextVal ? 'auto' : 'noon');
+                                  }
+                                  return { ...prev, [sw.key]: nextVal };
+                                });
+                              }}
+                              className={`shrink-0 px-2.5 py-1 text-xs font-bold cursor-pointer ${
+                                enabled ? 'px-btn-active' : 'px-btn text-[#8f8478]'
+                              }`}
+                            >
+                              {enabled ? 'ON' : 'OFF'}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <div className="flex items-center justify-end gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          soundEngine.playClick();
+                          setEditingRulesWorldId(null);
+                          setEditingRulesDraft(null);
+                        }}
+                        className="px-btn px-3.5 py-2 text-xs font-semibold cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        data-testid="save-edited-world-rules-btn"
+                        onClick={() => void handleSaveEditedWorldRules()}
+                        className="px-btn-primary px-4 py-2 text-xs font-bold cursor-pointer"
+                      >
+                        Save Rules
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
       {/* PLAYING HUD OVERLAY */}
       {gameState !== 'title' && (
-        <div className="fixed inset-0 z-20 pointer-events-none flex flex-col justify-between p-2.5 md:p-3">
-          {/* TOP BAR: Compact Age + Clean Resource Row + Speed & Controls */}
-          <div className="flex flex-wrap items-start justify-between gap-2">
-            {/* Top-Left: Age, Year, Pop */}
-            <div className="pointer-events-auto px-panel px-3 py-1.5 flex items-center gap-3">
-              <div>
-                <div className="flex items-baseline gap-2">
-                  <span className="font-bold text-sm text-[#f5b742] whitespace-nowrap">
+        <div className="fixed inset-0 z-20 pointer-events-none flex flex-col justify-between gap-1 sm:gap-1.5 pt-[max(0.375rem,env(safe-area-inset-top))] pb-[max(0.375rem,env(safe-area-inset-bottom))] pl-[max(0.375rem,env(safe-area-inset-left))] pr-[max(0.375rem,env(safe-area-inset-right))] sm:p-2.5 md:p-3">
+          {/* TOP BAR: Height-matched, uncluttered 3-zone HUD */}
+          <div className="flex flex-wrap lg:flex-nowrap items-stretch justify-between gap-1.5 sm:gap-2 w-full">
+            {/* Left: Epoch, Year, Pop & Next Age CTA */}
+            <div className="pointer-events-auto px-panel min-h-[46px] px-2.5 py-1.5 sm:px-3 flex items-center gap-2.5 sm:gap-3 max-w-full min-w-0 order-1 shrink-0">
+              <div className="min-w-0">
+                <div className="flex items-baseline gap-1.5 sm:gap-2">
+                  <span className="font-bold text-xs sm:text-sm text-[#f5b742] whitespace-nowrap truncate leading-tight">
                     {currentEpoch.name}
                   </span>
-                  <span className="font-pixel-num text-[11px] text-[#e8e0d2] whitespace-nowrap">
+                  <span className="font-pixel-num text-[10px] sm:text-[11px] text-[#e8e0d2] whitespace-nowrap leading-tight">
                     {formatYearLabel(sim.year)}
                   </span>
                 </div>
-                <div className="flex items-center gap-2.5 text-xs text-[#b8afa2] tabular-nums mt-0.5">
-                  <span>
-                    Pop <span className="font-pixel-num text-[10px]">{sim.population}/{sim.populationCap}</span>
+                <div className="flex items-center gap-2 text-[11px] sm:text-xs text-[#b8afa2] tabular-nums mt-0.5 leading-tight">
+                  <span className="whitespace-nowrap">
+                    Pop: <span className="font-pixel-num text-[10px] text-[#f2ece1]">{sim.population}</span>
                   </span>
-                  <span className="font-pixel-num text-[10px]">{Math.round(sim.happiness)}%</span>
                   {sim.goldenAgeTimer > 0 && (
-                    <span className="text-[#ffd166]">{Math.ceil(sim.goldenAgeTimer)}s</span>
+                    <span className="font-pixel-num text-[10px] text-[#ffd166] whitespace-nowrap">
+                      ★ {Math.ceil(sim.goldenAgeTimer)}s
+                    </span>
                   )}
                 </div>
               </div>
@@ -1605,7 +2431,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => handleAdvanceEpoch(true)}
-                  className="px-btn-primary px-2.5 py-1.5 text-xs font-bold cursor-pointer whitespace-nowrap shrink-0"
+                  className="px-btn-primary h-8 px-2.5 text-[11px] sm:text-xs font-bold cursor-pointer whitespace-nowrap shrink-0 flex items-center"
                   title={`Advance to ${nextEpoch.name}`}
                 >
                   Next Age
@@ -1613,8 +2439,11 @@ export default function App() {
               )}
             </div>
 
-            {/* Top-Center: Clean Pixel Icon + Count Resource Strip */}
-            <div className="pointer-events-auto px-panel px-2.5 py-1.5 flex items-center gap-2.5 md:gap-3.5">
+            {/* Center: Resources Strip */}
+            <div
+              data-testid="hud-resources-bar"
+              className="pointer-events-auto px-panel min-h-[46px] px-2.5 py-1 sm:px-3.5 flex items-center justify-between sm:justify-center gap-2 sm:gap-3.5 w-full lg:w-auto max-w-full overflow-x-auto no-scrollbar order-3 lg:order-2 [@media(max-height:480px)]:w-auto"
+            >
               {RESOURCE_KEYS.map(({ key, label }) => {
                 const amount = Math.floor(sim.resources[key]);
                 const rate = Math.round(sim.rates[key]);
@@ -1624,10 +2453,10 @@ export default function App() {
                     key={key}
                     data-testid={`resource-${key}`}
                     title={`${label}: ${amount} (${rateText})`}
-                    className="flex flex-col items-center min-w-[34px]"
+                    className="flex flex-col items-center justify-center min-w-[28px] sm:min-w-[34px] shrink-0 [@media(max-height:480px)]:flex-row [@media(max-height:480px)]:gap-1 [@media(max-height:480px)]:min-w-0"
                   >
                     <ResourceIconSvg resource={key} className="w-4 h-4 pixelated-canvas" />
-                    <span className="font-pixel-num text-[10px] text-[#f2ece1] leading-tight mt-0.5">
+                    <span className="font-pixel-num text-[9px] sm:text-[10px] text-[#f2ece1] leading-none mt-1 [@media(max-height:480px)]:mt-0">
                       {amount}
                     </span>
                   </div>
@@ -1635,195 +2464,336 @@ export default function App() {
               })}
             </div>
 
-            {/* Top-Right: Time Speed + Pixel Icon Utilities */}
-            <div className="pointer-events-auto px-panel px-2 py-1.5 flex items-center gap-1">
-              {[0, 0.5, 1, 2, 5, 10].map((scale) => (
+            {/* Right Cluster: Streamlined Time/Camera Controls + System Utilities */}
+            <div className="flex items-stretch gap-1.5 sm:gap-2 shrink-0 order-2 lg:order-3 ml-auto lg:ml-0">
+              {/* Time & View Controls (2 clean menu triggers + Play/Pause instead of 10 raw buttons) */}
+              <div
+                data-testid="hud-controls-bar"
+                className="pointer-events-auto px-panel min-h-[46px] px-1.5 sm:px-2 py-1 flex items-center gap-1"
+              >
                 <button
-                  key={scale}
                   type="button"
                   onClick={() => {
-                    setTimeScale(scale);
+                    if (timeScale === 0) {
+                      setTimeScale(lastNonZeroSpeedRef.current || 1);
+                    } else {
+                      lastNonZeroSpeedRef.current = timeScale;
+                      setTimeScale(0);
+                    }
                     soundEngine.playClick();
                   }}
-                  title={
-                    scale === 0
-                      ? 'Pause time'
-                      : scale === 0.5
-                        ? '0.5x (1 year / 2s)'
-                        : `${scale}x (${scale} ${scale === 1 ? 'year' : 'years'} / sec)`
-                  }
-                  className={`px-2 py-1 font-pixel-num text-[11px] cursor-pointer whitespace-nowrap shrink-0 ${
-                    timeScale === scale ? 'px-btn-active font-bold' : 'px-btn'
+                  className={`w-8 h-8 flex items-center justify-center cursor-pointer shrink-0 ${
+                    timeScale === 0 ? 'px-btn-active' : 'px-btn'
                   }`}
+                  aria-label={timeScale === 0 ? 'Resume simulation' : 'Pause simulation'}
+                  title={timeScale === 0 ? 'Resume time' : 'Pause time'}
                 >
-                  {scale}x
+                  <HudPixelIcon
+                    kind={timeScale === 0 ? 'play' : 'pause'}
+                    className="w-4 h-4 pixelated-canvas"
+                  />
                 </button>
-              ))}
 
-              <span className="w-1" aria-hidden="true" />
+                {/* Speed Popover Trigger */}
+                <div ref={speedMenuWrapperRef} className="relative">
+                  <button
+                    type="button"
+                    data-testid="hud-speed-btn"
+                    aria-expanded={speedMenuOpen}
+                    onClick={() => {
+                      setCameraMenuOpen(false);
+                      setSpeedMenuOpen((prev) => !prev);
+                      soundEngine.playClick();
+                    }}
+                    className={`h-8 px-2 flex items-center gap-1 font-pixel-num text-[11px] cursor-pointer whitespace-nowrap shrink-0 ${
+                      speedMenuOpen ? 'px-btn-active font-bold' : 'px-btn'
+                    }`}
+                    title="Simulation Speed"
+                  >
+                    <span>{timeScale}x</span>
+                    <HudPixelIcon kind="chevronDown" className="w-3 h-3 pixelated-canvas" />
+                  </button>
 
-              <button
-                type="button"
-                onClick={() => {
-                  cameraActionRef.current.rotateDelta -= Math.PI / 4;
-                  soundEngine.playClick();
-                }}
-                className="px-btn w-7 h-7 flex items-center justify-center cursor-pointer"
-                aria-label="Rotate Left"
-                title="Rotate Left"
+                  {speedMenuOpen && (
+                    <div
+                      role="menu"
+                      aria-label="Simulation Speed"
+                      className="px-panel absolute right-0 top-[calc(100%+6px)] z-30 p-1.5 flex items-center gap-1"
+                    >
+                      {SIMULATION_SPEED_OPTIONS.map((scale) => (
+                        <button
+                          key={scale}
+                          type="button"
+                          onClick={() => {
+                            const clamped = clampSimulationSpeed(scale);
+                            if (clamped > 0) {
+                              lastNonZeroSpeedRef.current = clamped;
+                            }
+                            setTimeScale(clamped);
+                            setSpeedMenuOpen(false);
+                            soundEngine.playClick();
+                          }}
+                          title={
+                            scale === 0
+                              ? 'Pause time'
+                              : scale === 0.5
+                                ? '0.5x (1 year / 2s)'
+                                : `${scale}x (${scale} ${scale === 1 ? 'year' : 'years'} / sec)`
+                          }
+                          className={`h-8 px-2 font-pixel-num text-[11px] cursor-pointer whitespace-nowrap shrink-0 ${
+                            timeScale === scale ? 'px-btn-active font-bold' : 'px-btn'
+                          }`}
+                        >
+                          {scale}x
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Camera & View Popover Trigger */}
+                <div ref={cameraMenuWrapperRef} className="relative">
+                  <button
+                    type="button"
+                    data-testid="hud-camera-btn"
+                    aria-expanded={cameraMenuOpen}
+                    onClick={() => {
+                      setSpeedMenuOpen(false);
+                      setCameraMenuOpen((prev) => !prev);
+                      soundEngine.playClick();
+                    }}
+                    className={`h-8 px-2 flex items-center gap-1.5 text-xs font-semibold cursor-pointer whitespace-nowrap shrink-0 ${
+                      cameraMenuOpen || mobilePanMode ? 'px-btn-active font-bold' : 'px-btn'
+                    }`}
+                    aria-label="Camera Controls"
+                    title="Camera & View Controls"
+                  >
+                    <HudPixelIcon kind="camera" className="w-4 h-4 pixelated-canvas" />
+                    <span className="hidden sm:inline">View</span>
+                  </button>
+
+                  {cameraMenuOpen && (
+                    <div
+                      role="dialog"
+                      aria-label="Camera Controls"
+                      className="px-panel absolute right-0 top-[calc(100%+6px)] z-30 p-2 w-48 space-y-2"
+                    >
+                      <div className="text-[11px] font-bold text-[#f5b742]">Camera Controls</div>
+                      <div className="grid grid-cols-5 gap-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            cameraActionRef.current.zoomDelta -= 14;
+                            soundEngine.playClick();
+                          }}
+                          className="px-btn h-8 flex items-center justify-center cursor-pointer"
+                          aria-label="Zoom In"
+                          title="Zoom In"
+                        >
+                          <HudPixelIcon kind="zoomIn" className="w-4 h-4 pixelated-canvas" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            cameraActionRef.current.zoomDelta += 14;
+                            soundEngine.playClick();
+                          }}
+                          className="px-btn h-8 flex items-center justify-center cursor-pointer"
+                          aria-label="Zoom Out"
+                          title="Zoom Out"
+                        >
+                          <HudPixelIcon kind="zoomOut" className="w-4 h-4 pixelated-canvas" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            cameraActionRef.current.rotateDelta -= Math.PI / 4;
+                            soundEngine.playClick();
+                          }}
+                          className="px-btn h-8 flex items-center justify-center cursor-pointer"
+                          aria-label="Rotate Left"
+                          title="Rotate Left"
+                        >
+                          <HudPixelIcon kind="rotateLeft" className="w-4 h-4 pixelated-canvas" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            cameraActionRef.current.centerHome = true;
+                            soundEngine.playClick();
+                          }}
+                          className="px-btn h-8 flex items-center justify-center cursor-pointer"
+                          aria-label="Center Camera"
+                          title="Center on Town"
+                        >
+                          <HudPixelIcon kind="center" className="w-4 h-4 pixelated-canvas" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            cameraActionRef.current.rotateDelta += Math.PI / 4;
+                            soundEngine.playClick();
+                          }}
+                          className="px-btn h-8 flex items-center justify-center cursor-pointer"
+                          aria-label="Rotate Right"
+                          title="Rotate Right"
+                        >
+                          <HudPixelIcon kind="rotateRight" className="w-4 h-4 pixelated-canvas" />
+                        </button>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMobilePanMode((prev) => {
+                            const next = !prev;
+                            setStatusFeedback(
+                              next
+                                ? 'Pan mode ON: drag moves camera'
+                                : 'Pan mode OFF: click/drag uses active tool',
+                            );
+                            return next;
+                          });
+                          soundEngine.playClick();
+                        }}
+                        className={`w-full h-8 px-2 flex items-center justify-center gap-1.5 text-xs font-semibold cursor-pointer ${
+                          mobilePanMode ? 'px-btn-active font-bold' : 'px-btn text-[#e8e0d2]'
+                        }`}
+                      >
+                        <HudPixelIcon kind="pan" className="w-4 h-4 pixelated-canvas" />
+                        <span>{mobilePanMode ? '1-Drag Pan: ON' : '1-Drag Pan: OFF'}</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* System Utilities (Log, Audio, Settings) */}
+              <div
+                data-testid="hud-system-bar"
+                className="pointer-events-auto px-panel min-h-[46px] px-1.5 sm:px-2 py-1 flex items-center gap-1 shrink-0"
               >
-                <HudPixelIcon kind="rotateLeft" />
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  cameraActionRef.current.centerHome = true;
-                  soundEngine.playClick();
-                }}
-                className="px-btn w-7 h-7 flex items-center justify-center cursor-pointer"
-                aria-label="Center Camera"
-                title="Center on Town"
-              >
-                <HudPixelIcon kind="center" />
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  cameraActionRef.current.rotateDelta += Math.PI / 4;
-                  soundEngine.playClick();
-                }}
-                className="px-btn w-7 h-7 flex items-center justify-center cursor-pointer"
-                aria-label="Rotate Right"
-                title="Rotate Right"
-              >
-                <HudPixelIcon kind="rotateRight" />
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setChronicleOpen((prev) => !prev);
-                  soundEngine.playClick();
-                }}
-                className={`w-7 h-7 flex items-center justify-center cursor-pointer ${
-                  chronicleOpen ? 'px-btn-active' : 'px-btn'
-                }`}
-                aria-label="World Log"
-                title="World Log"
-              >
-                <HudPixelIcon kind="log" />
-              </button>
-              <button
-                type="button"
-                tabIndex={-1}
-                onClick={(e) => {
-                  e.currentTarget.blur();
-                  handleToggleMute();
-                }}
-                className="px-btn w-7 h-7 flex items-center justify-center cursor-pointer"
-                aria-label={muted ? 'Unmute' : 'Mute'}
-                title={muted ? 'Unmute' : 'Mute'}
-              >
-                <HudPixelIcon kind={muted ? 'audioOff' : 'audioOn'} />
-              </button>
-              <button
-                type="button"
-                tabIndex={-1}
-                onClick={(e) => {
-                  e.currentTarget.blur();
-                  handleRestartGame();
-                }}
-                className="px-btn w-7 h-7 flex items-center justify-center cursor-pointer"
-                aria-label="Reset World"
-                title="New World"
-              >
-                <HudPixelIcon kind="reset" />
-              </button>
-              <button
-                type="button"
-                tabIndex={-1}
-                data-testid="hud-settings-btn"
-                onClick={(e) => {
-                  e.currentTarget.blur();
-                  soundEngine.playClick();
-                  setGameState((prev) => (prev === 'paused' ? 'playing' : 'paused'));
-                }}
-                className={`w-7 h-7 flex items-center justify-center cursor-pointer ${
-                  gameState === 'paused' ? 'px-btn-active' : 'px-btn'
-                }`}
-                aria-label="Settings"
-                title="Settings"
-              >
-                <HudPixelIcon kind="settings" />
-              </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setChronicleOpen((prev) => !prev);
+                    soundEngine.playClick();
+                  }}
+                  className={`w-8 h-8 flex items-center justify-center cursor-pointer shrink-0 ${
+                    chronicleOpen ? 'px-btn-active' : 'px-btn'
+                  }`}
+                  aria-label="World Log"
+                  title="World Log"
+                >
+                  <HudPixelIcon kind="log" className="w-4 h-4 pixelated-canvas" />
+                </button>
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  onClick={(e) => {
+                    e.currentTarget.blur();
+                    handleToggleMute();
+                  }}
+                  className="px-btn w-8 h-8 flex items-center justify-center cursor-pointer shrink-0"
+                  aria-label={muted ? 'Unmute' : 'Mute'}
+                  title={muted ? 'Unmute' : 'Mute'}
+                >
+                  <HudPixelIcon
+                    kind={muted ? 'audioOff' : 'audioOn'}
+                    className="w-4 h-4 pixelated-canvas"
+                  />
+                </button>
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  data-testid="hud-settings-btn"
+                  onClick={(e) => {
+                    e.currentTarget.blur();
+                    soundEngine.playClick();
+                    setGameState((prev) => (prev === 'paused' ? 'playing' : 'paused'));
+                  }}
+                  className={`w-8 h-8 flex items-center justify-center cursor-pointer shrink-0 ${
+                    gameState === 'paused' ? 'px-btn-active' : 'px-btn'
+                  }`}
+                  aria-label="Settings"
+                  title="Settings"
+                >
+                  <HudPixelIcon kind="settings" className="w-4 h-4 pixelated-canvas" />
+                </button>
+              </div>
             </div>
           </div>
 
-          {/* WORLD LOG DRAWER */}
-          {chronicleOpen && (
-            <div className="pointer-events-auto self-end w-full max-w-sm px-panel p-3 max-h-56 overflow-y-auto">
-              <div className="flex items-center justify-between mb-2">
-                <h2 className="font-bold text-sm text-[#f5b742]">World Log</h2>
-                <button
-                  type="button"
-                  onClick={() => setChronicleOpen(false)}
-                  className="px-btn px-2 py-0.5 text-xs cursor-pointer"
-                >
-                  Close
-                </button>
-              </div>
-              <div className="space-y-1.5 text-xs">
-                {sim.chronicle.map((entry) => (
-                  <div key={entry.id} className="leading-snug flex gap-2">
-                    <span className="font-pixel-num text-[10px] text-[#9e9486] shrink-0 pt-0.5">
-                      {entry.yearLabel}
-                    </span>
-                    <span
-                      className={
-                        entry.tone === 'epoch'
-                          ? 'text-[#ffd166]'
-                          : entry.tone === 'warning'
-                            ? 'text-[#ff8f6b]'
-                            : 'text-[#e8e0d2]'
-                      }
-                    >
-                      {entry.text}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          {/* MIDDLE HUD LAYER: Entity/Zone Inspector & World Log (bounded cleanly between top bar & bottom dock) */}
+          <div className="relative flex-1 min-h-0 w-full pointer-events-none">
+            {gameState === 'playing' && isInspectTabActive && (
+              <EntityInspectorCard
+                sim={sim}
+                hoveredUnit={hoveredUnit}
+                selectedUnit={selectedUnit}
+                favoriteUnits={favoriteUnits}
+                followingEntityId={followingEntityId}
+                hoveredZoneInfo={hoveredZoneInfo}
+                activeZones={activeZones}
+                onToggleFavorite={handleToggleFavoriteEntity}
+                onSelectUnit={handleSelectEntity}
+                onFocusUnit={handleFocusEntity}
+              />
+            )}
 
-          {/* ENTITY & ZONE INSPECTOR PANEL (visible on Inspect tab during play) */}
-          {gameState === 'playing' && isInspectTabActive && (
-            <EntityInspectorCard
-              sim={sim}
-              hoveredUnit={hoveredUnit}
-              selectedUnit={selectedUnit}
-              favoriteUnits={favoriteUnits}
-              followingEntityId={followingEntityId}
-              hoveredZoneInfo={hoveredZoneInfo}
-              activeZones={activeZones}
-              onToggleFavorite={handleToggleFavoriteEntity}
-              onSelectUnit={handleSelectEntity}
-              onFocusUnit={handleFocusEntity}
-            />
-          )}
+            {chronicleOpen && (
+              <div className="pointer-events-auto absolute right-0 top-0 z-20 w-[min(24rem,100%)] max-h-full px-panel p-2.5 sm:p-3 overflow-y-auto">
+                <div className="flex items-center justify-between mb-2">
+                  <h2 className="font-bold text-sm text-[#f5b742]">World Log</h2>
+                  <button
+                    type="button"
+                    onClick={() => setChronicleOpen(false)}
+                    className="px-btn px-2 py-0.5 text-xs cursor-pointer"
+                  >
+                    Close
+                  </button>
+                </div>
+                <div className="space-y-1.5 text-xs">
+                  {sim.chronicle.map((entry) => (
+                    <div key={entry.id} className="leading-snug flex gap-2">
+                      <span className="font-pixel-num text-[10px] text-[#9e9486] shrink-0 pt-0.5">
+                        {entry.yearLabel}
+                      </span>
+                      <span
+                        className={
+                          entry.tone === 'epoch'
+                            ? 'text-[#ffd166]'
+                            : entry.tone === 'warning'
+                              ? 'text-[#ff8f6b]'
+                              : 'text-[#e8e0d2]'
+                        }
+                      >
+                        {entry.text}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
 
-          {/* BOTTOM PIXEL TOOLBAR DOCK */}
-          <div className="pointer-events-auto self-center relative flex flex-col items-center max-w-full">
+          {/* BOTTOM PIXEL TOOLBAR DOCK: Zero tab clipping on PC, clear grouping, symmetrical padding */}
+          <div className="pointer-events-auto self-center relative flex flex-col items-center w-full max-w-[min(880px,calc(100vw-24px))]">
             {/* Hover Tooltip */}
             {!dockCollapsed && hoveredHint && (
-              <div className="px-panel px-3 py-1.5 mb-2 flex items-center gap-3 text-xs whitespace-nowrap pointer-events-none">
+              <div className="px-panel px-3 py-1.5 mb-2 max-w-[calc(100vw-24px)] hidden md:flex items-center gap-3 text-xs flex-wrap justify-center pointer-events-none">
                 <span className="font-bold text-[#f5b742]">{hoveredHint.title}</span>
                 <span className="text-[#80ed99] font-semibold tabular-nums">{hoveredHint.cost}</span>
                 <span className="text-[#cfc6b8]">{hoveredHint.detail}</span>
               </div>
             )}
 
-            {/* Folder Tabs Row */}
-            <div className="flex items-end justify-between w-full gap-2 px-1">
-              <div className="flex items-end gap-1" role="tablist" aria-label="Tools">
+            {/* Folder Tabs Row: Dedicated clean tablist + single Hide toggle (never squeezes Inspect off-screen!) */}
+            <div className="flex items-end justify-between w-full gap-2 px-0.5 sm:px-1 min-w-0">
+              <div
+                className="flex items-end gap-1 min-w-0 overflow-x-auto sm:overflow-visible no-scrollbar"
+                role="tablist"
+                aria-label="Tools"
+              >
                 {(
                   [
                     { id: 'powers', label: 'Powers' },
@@ -1831,12 +2801,14 @@ export default function App() {
                     { id: 'build', label: 'Build' },
                     { id: 'spawn', label: 'Units' },
                     { id: 'zones', label: 'Zones' },
-                    { id: 'rules', label: 'God Rules' },
                     { id: 'epochs', label: 'World' },
                     { id: 'inspect', label: 'Inspect' },
                   ] as { id: ToolCategory; label: string }[]
                 ).map((tab) => {
-                  const isActive = !dockCollapsed && activeCategory === tab.id;
+                  const isActive =
+                    !dockCollapsed &&
+                    (activeCategory === tab.id ||
+                      (tab.id === 'epochs' && activeCategory === 'rules'));
                   const activeZoneCount =
                     tab.id === 'zones'
                       ? Number(activeZones.kingdoms) +
@@ -1855,12 +2827,16 @@ export default function App() {
                       aria-selected={isActive}
                       onClick={() => {
                         setDockCollapsed(false);
+                        setMobilePanMode(false);
                         setActiveCategory(tab.id);
                         if (tab.id === 'inspect') {
                           setActiveTool({ kind: 'inspect' });
-                        } else if (tab.id === 'zones' || tab.id === 'rules') {
-                          // Switch to non-destructive inspect cursor while browsing zones or God Rules
+                        } else if (tab.id === 'zones') {
                           setActiveTool({ kind: 'inspect' });
+                        } else if (tab.id === 'epochs') {
+                          if (activeTool.kind !== 'inspect') {
+                            setActiveTool({ kind: 'inspect' });
+                          }
                         } else {
                           setHoveredEntityId(null);
                           setFollowingEntityId(null);
@@ -1878,11 +2854,11 @@ export default function App() {
                         }
                         soundEngine.playClick();
                       }}
-                      className={`px-2.5 py-1.5 flex items-center gap-1.5 text-xs font-semibold cursor-pointer whitespace-nowrap shrink-0 ${
+                      className={`px-2.5 sm:px-3 py-1.5 flex items-center justify-center gap-1.5 text-xs font-semibold cursor-pointer whitespace-nowrap shrink-0 ${
                         isActive ? 'px-tab-active' : 'px-tab'
                       }`}
                     >
-                      <TabPixelIcon category={tab.id} className="w-4 h-4" />
+                      <TabPixelIcon category={tab.id} className="w-4 h-4 shrink-0" />
                       <span className="hidden sm:inline">{tab.label}</span>
                       {activeZoneCount > 0 && (
                         <span className="font-pixel-num text-[9px] text-[#80ed99] tabular-nums">
@@ -1894,41 +2870,19 @@ export default function App() {
                 })}
               </div>
 
-              <div className="flex items-end gap-1.5 pb-1">
-                {(activeCategory === 'powers' ||
-                  activeCategory === 'terrain' ||
-                  activeCategory === 'build' ||
-                  activeCategory === 'spawn') && (
-                  <button
-                    type="button"
-                    data-testid="toggle-input-mode"
-                    onClick={() => {
-                      setBrushInputMode((prev) => {
-                        const next = prev === 'hold' ? 'tap' : 'hold';
-                        setStatusFeedback(
-                          next === 'hold'
-                            ? 'Hold & drag mode: paint or cast continuously'
-                            : 'Tap mode: single click per cast',
-                        );
-                        return next;
-                      });
-                      soundEngine.playClick();
-                    }}
-                    className={`px-2 py-1 text-xs font-semibold cursor-pointer whitespace-nowrap shrink-0 ${
-                      brushInputMode === 'hold' ? 'px-btn-active text-[#80ed99]' : 'px-btn text-[#e8e0d2]'
-                    }`}
-                    title="Switch between Hold-to-Paint/Cast and Single Tap"
-                  >
-                    {brushInputMode === 'hold' ? 'Hold' : 'Tap'}
-                  </button>
-                )}
+              <div className="flex items-end pb-1 shrink-0">
                 <button
                   type="button"
                   onClick={() => setDockCollapsed((prev) => !prev)}
-                  className="px-btn px-2.5 py-1 text-xs font-semibold text-[#f5b742] cursor-pointer whitespace-nowrap shrink-0"
+                  className="px-btn h-7 px-2.5 flex items-center gap-1 text-xs font-semibold text-[#f5b742] cursor-pointer whitespace-nowrap shrink-0"
                   title="Toggle Dock (H)"
                 >
-                  {dockCollapsed ? 'Show [H]' : 'Hide [H]'}
+                  <HudPixelIcon
+                    kind={dockCollapsed ? 'chevronUp' : 'chevronDown'}
+                    className="w-3.5 h-3.5 pixelated-canvas"
+                  />
+                  <span className="sm:hidden">{dockCollapsed ? 'Show' : 'Hide'}</span>
+                  <span className="hidden sm:inline">{dockCollapsed ? 'Show [H]' : 'Hide [H]'}</span>
                 </button>
               </div>
             </div>
@@ -1936,13 +2890,181 @@ export default function App() {
             {/* Active Pixel Dock Panel */}
             {!dockCollapsed && (
               <div
-                className="px-panel px-3 py-2.5 max-w-[740px] w-full max-h-[148px] min-h-[72px] overflow-y-auto overflow-x-hidden pr-1"
+                className="px-panel w-full px-3 py-2.5 sm:px-4 sm:py-3 max-h-[212px] sm:max-h-[224px] [@media(max-height:500px)]:max-h-[108px] min-h-[76px] overflow-y-auto overflow-x-hidden"
                 onMouseLeave={() => setHoveredHint(null)}
               >
-                {/* TAB 1: POWERS (Icon Slots) */}
+                {/* Contextual Sub-Bar for Paintable Tabs (Powers, Land, Build, Units) */}
+                {(activeCategory === 'powers' ||
+                  activeCategory === 'terrain' ||
+                  activeCategory === 'build' ||
+                  activeCategory === 'spawn') && (
+                  <div className="flex flex-wrap items-center justify-between gap-2 pb-2 mb-2.5 border-b border-[#2e2923]">
+                    {/* Left: Digestible Category Filters or Active Brush Context */}
+                    <div className="flex flex-wrap items-center gap-1">
+                      {activeCategory === 'powers' &&
+                        (
+                          [
+                            { id: 'all', label: 'All' },
+                            { id: 'benevolent', label: 'Blessings' },
+                            { id: 'wrathful', label: 'Disasters' },
+                            { id: 'cosmic', label: 'Cosmic' },
+                          ] as const
+                        ).map((f) => (
+                          <button
+                            key={f.id}
+                            type="button"
+                            onClick={() => {
+                              setPowerFilter(f.id);
+                              soundEngine.playClick();
+                            }}
+                            className={`h-7 px-2.5 text-[11px] font-semibold cursor-pointer whitespace-nowrap ${
+                              powerFilter === f.id ? 'px-btn-active font-bold' : 'px-btn'
+                            }`}
+                          >
+                            {f.label}
+                          </button>
+                        ))}
+
+                      {activeCategory === 'build' &&
+                        (
+                          [
+                            { id: 'all', label: 'All' },
+                            { id: 'current', label: currentEpoch.name },
+                            { id: 'advanced', label: 'Industrial+' },
+                          ] as const
+                        ).map((f) => (
+                          <button
+                            key={f.id}
+                            type="button"
+                            onClick={() => {
+                              setBuildFilter(f.id);
+                              soundEngine.playClick();
+                            }}
+                            className={`h-7 px-2.5 text-[11px] font-semibold cursor-pointer whitespace-nowrap ${
+                              buildFilter === f.id ? 'px-btn-active font-bold' : 'px-btn'
+                            }`}
+                          >
+                            {f.label}
+                          </button>
+                        ))}
+
+                      {activeCategory === 'spawn' &&
+                        (
+                          [
+                            { id: 'all', label: 'All' },
+                            { id: 'races', label: 'Races' },
+                            { id: 'wildlife', label: 'Animals' },
+                            { id: 'mythic', label: 'Mythic' },
+                          ] as const
+                        ).map((f) => (
+                          <button
+                            key={f.id}
+                            type="button"
+                            onClick={() => {
+                              setUnitFilter(f.id);
+                              soundEngine.playClick();
+                            }}
+                            className={`h-7 px-2.5 text-[11px] font-semibold cursor-pointer whitespace-nowrap ${
+                              unitFilter === f.id ? 'px-btn-active font-bold' : 'px-btn'
+                            }`}
+                          >
+                            {f.label}
+                          </button>
+                        ))}
+
+                      {activeCategory === 'terrain' && (
+                        <div className="flex items-center gap-1">
+                          <span className="text-[11px] text-[#a89f91] mr-1">Brush</span>
+                          {[1, 2, 3].map((size) => {
+                            const radiusVal = size - 1;
+                            return (
+                              <button
+                                key={size}
+                                type="button"
+                                data-testid={`land-size-${size}x`}
+                                onClick={() => {
+                                  setBrushRadius(radiusVal);
+                                  soundEngine.playClick();
+                                }}
+                                className={`h-7 px-2 font-pixel-num text-[11px] cursor-pointer ${
+                                  brushRadius === radiusVal ? 'px-btn-active font-bold' : 'px-btn'
+                                }`}
+                              >
+                                {size}x
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Right: Active Tool Label + Input Mode Controls */}
+                    <div className="flex items-center gap-1.5 ml-auto">
+                      <span className="hidden md:inline text-[11px] text-[#cfc6b8] mr-1 truncate max-w-[200px]">
+                        Selected: <strong className="text-[#f5b742]">{activeToolLabel}</strong>
+                      </span>
+                      <button
+                        type="button"
+                        data-testid="toggle-mobile-pan"
+                        aria-pressed={mobilePanMode}
+                        onClick={() => {
+                          setMobilePanMode((prev) => {
+                            const next = !prev;
+                            setStatusFeedback(
+                              next
+                                ? 'Pan mode ON: 1-finger drag moves camera'
+                                : 'Pan mode OFF: click/drag casts active tool',
+                            );
+                            return next;
+                          });
+                          soundEngine.playClick();
+                        }}
+                        className={`h-7 px-2 flex items-center gap-1 text-[11px] font-semibold cursor-pointer whitespace-nowrap shrink-0 ${
+                          mobilePanMode ? 'px-btn-active font-bold' : 'px-btn text-[#e8e0d2]'
+                        }`}
+                        title="Toggle Pan Camera Mode"
+                        aria-label="Pan Camera Mode"
+                      >
+                        <HudPixelIcon kind="pan" className="w-3.5 h-3.5 pixelated-canvas" />
+                        <span>Pan</span>
+                      </button>
+                      <button
+                        type="button"
+                        data-testid="toggle-input-mode"
+                        onClick={() => {
+                          setBrushInputMode((prev) => {
+                            const next = prev === 'hold' ? 'tap' : 'hold';
+                            setStatusFeedback(
+                              next === 'hold'
+                                ? 'Hold & drag mode: paint or cast continuously'
+                                : 'Tap mode: single click per cast',
+                            );
+                            return next;
+                          });
+                          soundEngine.playClick();
+                        }}
+                        className={`h-7 px-2 text-[11px] font-semibold cursor-pointer whitespace-nowrap shrink-0 ${
+                          brushInputMode === 'hold'
+                            ? 'px-btn-active font-bold'
+                            : 'px-btn text-[#e8e0d2]'
+                        }`}
+                        title="Switch between Hold-to-Paint/Cast and Single Tap"
+                      >
+                        {brushInputMode === 'hold' ? 'Mode: Hold' : 'Mode: Tap'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* TAB 1: POWERS (Filtered Icon Slots) */}
                 {activeCategory === 'powers' && (
                   <div className="flex flex-wrap items-center justify-start gap-1.5">
-                    {GOD_POWERS.map((power) => {
+                    {GOD_POWERS.filter((power) => {
+                      if (powerFilter === 'all') return true;
+                      if (powerFilter === 'benevolent') return power.category === 'Benevolent';
+                      if (powerFilter === 'wrathful') return power.category === 'Wrathful';
+                      return power.category === 'Cosmic' || power.type === 'drag_entity';
+                    }).map((power) => {
                       const isSelected =
                         activeTool.kind === 'power' && activeTool.power === power.type;
                       const affordable =
@@ -1952,9 +3074,10 @@ export default function App() {
                           key={power.type}
                           type="button"
                           onClick={() => {
+                            setMobilePanMode(false);
                             setActiveTool({ kind: 'power', power: power.type });
                             soundEngine.playClick();
-                            setStatusFeedback(power.name);
+                            setStatusFeedback(`${power.name} — ${power.summary}`);
                           }}
                           onMouseEnter={() =>
                             setHoveredHint({
@@ -1980,87 +3103,75 @@ export default function App() {
                   </div>
                 )}
 
-                {/* TAB 2: LAND SCULPTING (Icon Slots + Brush Size) */}
+                {/* TAB 2: LAND SCULPTING */}
                 {activeCategory === 'terrain' && (
-                  <div className="flex flex-wrap items-center justify-start gap-2">
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      {TERRAIN_TOOLS.map((tool) => {
-                        const isSelected =
-                          activeTool.kind === 'terrain' && activeTool.tool === tool.type;
-                        return (
-                          <button
-                            key={tool.type}
-                            type="button"
-                            onClick={() => {
-                              setActiveTool({ kind: 'terrain', tool: tool.type });
-                              soundEngine.playClick();
-                              setStatusFeedback(tool.name);
-                            }}
-                            onMouseEnter={() =>
-                              setHoveredHint({
-                                title: tool.name,
-                                cost: sim.sandboxFreeMode ? 'Free' : `${tool.faithCost} Faith`,
-                                detail: tool.summary,
-                              })
-                            }
-                            aria-label={tool.name}
-                            className={`relative w-11 h-11 flex items-center justify-center cursor-pointer ${
-                              isSelected ? 'px-slot-active' : 'px-slot'
-                            }`}
-                          >
-                            <TerrainPixelIcon tool={tool.type} className="w-7 h-7" />
-                            {!sim.sandboxFreeMode && (
-                              <span className="absolute bottom-0.5 right-1 font-pixel-num text-[8px] text-[#ffd166] leading-none">
-                                {tool.faithCost}
-                              </span>
-                            )}
-                          </button>
-                        );
-                      })}
-                    </div>
-
-                    <div className="flex items-center gap-1 pl-2">
-                      <span className="text-xs text-[#a89f91] mr-1">Size</span>
-                      {[1, 2, 3].map((size) => {
-                        const radiusVal = size - 1;
-                        return (
-                          <button
-                            key={size}
-                            type="button"
-                            data-testid={`land-size-${size}x`}
-                            onClick={() => {
-                              setBrushRadius(radiusVal);
-                              soundEngine.playClick();
-                            }}
-                            className={`px-2 py-1 font-pixel-num text-[11px] cursor-pointer ${
-                              brushRadius === radiusVal ? 'px-btn-active font-bold' : 'px-btn'
-                            }`}
-                          >
-                            {size}x
-                          </button>
-                        );
-                      })}
-                    </div>
+                  <div className="flex flex-wrap items-center justify-start gap-1.5">
+                    {TERRAIN_TOOLS.map((tool) => {
+                      const isSelected =
+                        activeTool.kind === 'terrain' && activeTool.tool === tool.type;
+                      return (
+                        <button
+                          key={tool.type}
+                          type="button"
+                          onClick={() => {
+                            setMobilePanMode(false);
+                            setActiveTool({ kind: 'terrain', tool: tool.type });
+                            soundEngine.playClick();
+                            setStatusFeedback(`${tool.name} — ${tool.summary}`);
+                          }}
+                          onMouseEnter={() =>
+                            setHoveredHint({
+                              title: tool.name,
+                              cost: sim.sandboxFreeMode ? 'Free' : `${tool.faithCost} Faith`,
+                              detail: tool.summary,
+                            })
+                          }
+                          aria-label={tool.name}
+                          className={`relative w-11 h-11 flex items-center justify-center cursor-pointer ${
+                            isSelected ? 'px-slot-active' : 'px-slot'
+                          }`}
+                        >
+                          <TerrainPixelIcon tool={tool.type} className="w-7 h-7" />
+                          {!sim.sandboxFreeMode && (
+                            <span className="absolute bottom-0.5 right-1 font-pixel-num text-[8px] text-[#ffd166] leading-none">
+                              {tool.faithCost}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
 
-                {/* TAB 3: BUILD STRUCTURES (Icon Slots) */}
+                {/* TAB 3: BUILD STRUCTURES */}
                 {activeCategory === 'build' && (
                   <div className="flex flex-wrap items-center justify-start gap-1.5">
-                    {BUILDINGS.map((bld) => {
+                    {BUILDINGS.filter((bld) => {
+                      if (buildFilter === 'all') return true;
+                      if (buildFilter === 'current') return bld.epoch === currentEpoch.id;
+                      return (
+                        bld.epoch === 'industrial' ||
+                        bld.epoch === 'atomic' ||
+                        bld.epoch === 'information' ||
+                        bld.epoch === 'orbital' ||
+                        bld.epoch === 'interstellar'
+                      );
+                    }).map((bld) => {
                       const isSelected =
                         activeTool.kind === 'build' && activeTool.building === bld.type;
                       const affordable = canAfford(sim.resources, bld.cost, sim.sandboxFreeMode);
                       const badge = primaryCostNumber(bld.cost, sim.sandboxFreeMode);
+                      const isCurrentEpochBld = bld.epoch === currentEpoch.id;
 
                       return (
                         <button
                           key={bld.type}
                           type="button"
                           onClick={() => {
+                            setMobilePanMode(false);
                             setActiveTool({ kind: 'build', building: bld.type });
                             soundEngine.playClick();
-                            setStatusFeedback(bld.name);
+                            setStatusFeedback(`${bld.name} — ${bld.roleSummary}`);
                           }}
                           onMouseEnter={() =>
                             setHoveredHint({
@@ -2075,6 +3186,12 @@ export default function App() {
                           } ${!affordable ? 'opacity-55' : ''}`}
                         >
                           <BuildingPixelIcon building={bld.type} className="w-7 h-7" />
+                          {isCurrentEpochBld && (
+                            <span
+                              className="absolute top-1 left-1 w-1.5 h-1.5 bg-[#80ed99]"
+                              title={`Unlocked in ${currentEpoch.name}`}
+                            />
+                          )}
                           {badge && (
                             <span className="absolute bottom-0.5 right-1 font-pixel-num text-[8px] text-[#f5b742] leading-none">
                               {badge}
@@ -2088,9 +3205,9 @@ export default function App() {
 
                 {/* TAB 4: SPECIES UNITS + ANIMALS & MYTHICAL BEASTS */}
                 {activeCategory === 'spawn' && (
-                  <div className="flex flex-wrap items-center justify-start gap-2">
-                    <div className="flex flex-wrap items-center justify-start gap-1.5">
-                      {SPECIES_UNITS.filter(
+                  <div className="flex flex-wrap items-center justify-start gap-1.5">
+                    {(unitFilter === 'all' || unitFilter === 'races') &&
+                      SPECIES_UNITS.filter(
                         (u) =>
                           sim.worldRules?.allowFantasy !== false ||
                           (u.role !== 'elf' && u.role !== 'orc'),
@@ -2105,9 +3222,10 @@ export default function App() {
                             key={u.role}
                             type="button"
                             onClick={() => {
+                              setMobilePanMode(false);
                               setActiveTool({ kind: 'spawn', unit: u.role });
                               soundEngine.playClick();
-                              setStatusFeedback(u.name);
+                              setStatusFeedback(`${u.name} — ${u.roleSummary}`);
                             }}
                             onMouseEnter={() =>
                               setHoveredHint({
@@ -2134,55 +3252,66 @@ export default function App() {
                         );
                       })}
 
-                      <span className="w-px h-7 bg-[#3a332b] mx-0.5 hidden sm:inline-block" aria-hidden="true" />
+                    {unitFilter === 'all' && (
+                      <span
+                        className="w-px h-7 bg-[#3a332b] mx-0.5 hidden sm:inline-block"
+                        aria-hidden="true"
+                      />
+                    )}
 
-                      {[
-                        ...ANIMAL_UNITS.filter(
-                          (u) => sim.worldRules?.allowDinosaurs !== false || u.role !== 'dinosaur',
-                        ),
-                        ...(sim.worldRules?.allowFantasy !== false ? MYTHICAL_BEAST_UNITS : []),
-                      ].map((u) => {
-                        const isSelected =
-                          activeTool.kind === 'spawn' && activeTool.unit === u.role;
-                        const isFree = sim.sandboxFreeMode;
-                        const badge = primaryCostNumber(u.cost, isFree);
-                        const isMythic = u.category === 'mythical';
+                    {[
+                      ...(unitFilter === 'all' || unitFilter === 'wildlife'
+                        ? ANIMAL_UNITS.filter(
+                            (u) => sim.worldRules?.allowDinosaurs !== false || u.role !== 'dinosaur',
+                          )
+                        : []),
+                      ...(unitFilter === 'all' || unitFilter === 'mythic'
+                        ? sim.worldRules?.allowFantasy !== false
+                          ? MYTHICAL_BEAST_UNITS
+                          : []
+                        : []),
+                    ].map((u) => {
+                      const isSelected =
+                        activeTool.kind === 'spawn' && activeTool.unit === u.role;
+                      const isFree = sim.sandboxFreeMode;
+                      const badge = primaryCostNumber(u.cost, isFree);
+                      const isMythic = u.category === 'mythical';
 
-                        return (
-                          <button
-                            key={u.role}
-                            type="button"
-                            onClick={() => {
-                              setActiveTool({ kind: 'spawn', unit: u.role });
-                              soundEngine.playClick();
-                              setStatusFeedback(u.name);
-                            }}
-                            onMouseEnter={() =>
-                              setHoveredHint({
-                                title: isMythic ? `${u.name} (Mythical Beast)` : u.name,
-                                cost: formatCompactCost(u.cost, isFree),
-                                detail: u.roleSummary,
-                              })
-                            }
-                            aria-label={u.name}
-                            className={`relative w-11 h-11 flex items-center justify-center cursor-pointer ${
-                              isSelected ? 'px-slot-active' : 'px-slot'
-                            }`}
-                          >
-                            <UnitPixelIcon role={u.role} className="w-7 h-7" />
-                            {badge && (
-                              <span className="absolute bottom-0.5 right-1 font-pixel-num text-[8px] text-[#ffd166] leading-none">
-                                {badge}
-                              </span>
-                            )}
-                          </button>
-                        );
-                      })}
-                    </div>
+                      return (
+                        <button
+                          key={u.role}
+                          type="button"
+                          onClick={() => {
+                            setMobilePanMode(false);
+                            setActiveTool({ kind: 'spawn', unit: u.role });
+                            soundEngine.playClick();
+                            setStatusFeedback(`${u.name} — ${u.roleSummary}`);
+                          }}
+                          onMouseEnter={() =>
+                            setHoveredHint({
+                              title: isMythic ? `${u.name} (Mythical Beast)` : u.name,
+                              cost: formatCompactCost(u.cost, isFree),
+                              detail: u.roleSummary,
+                            })
+                          }
+                          aria-label={u.name}
+                          className={`relative w-11 h-11 flex items-center justify-center cursor-pointer ${
+                            isSelected ? 'px-slot-active' : 'px-slot'
+                          }`}
+                        >
+                          <UnitPixelIcon role={u.role} className="w-7 h-7" />
+                          {badge && (
+                            <span className="absolute bottom-0.5 right-1 font-pixel-num text-[8px] text-[#ffd166] leading-none">
+                              {badge}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
 
-                {/* TAB 5: ZONES (Toggle Buttons for Kingdoms, Kings, Animal Territories, Biomes, Temperatures) */}
+                {/* TAB 5: ZONES */}
                 {activeCategory === 'zones' && (
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Zone Overlays">
@@ -2233,7 +3362,7 @@ export default function App() {
                           {
                             id: 'temperature' as ZoneOverlayType,
                             label: 'Temperatures',
-                            shortLabel: 'Temperatures',
+                            shortLabel: 'Temp',
                             count: worldZones
                               ? Array.from(worldZones.tempBandsById.values()).filter((t) => t.tileCount > 0).length
                               : 5,
@@ -2279,22 +3408,6 @@ export default function App() {
                         );
                       })}
 
-                      {activeZones.alliances && (
-                        <div className="px-slot px-2.5 h-9 flex items-center gap-2.5 text-[10px] text-[#cfc6b8] whitespace-nowrap">
-                          <span className="flex items-center gap-1">
-                            <span className="w-2.5 h-2.5 bg-[#3b82f6] border border-[#0b0a09] inline-block" />
-                            <span>Ally</span>
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <span className="w-2.5 h-2.5 bg-[#ef4444] border border-[#0b0a09] inline-block" />
-                            <span>Enemy</span>
-                          </span>
-                          {!selectedAllianceKingdomId && (
-                            <span className="text-[#ffd166]">Click a kingdom</span>
-                          )}
-                        </div>
-                      )}
-
                       {anyZoneActive && (
                         <button
                           type="button"
@@ -2305,7 +3418,7 @@ export default function App() {
                             setStatusFeedback('All zone overlays hidden');
                             soundEngine.playClick();
                           }}
-                          className="px-btn px-2.5 h-9 text-xs text-[#ff8f6b] cursor-pointer whitespace-nowrap"
+                          className="px-btn px-2.5 h-11 text-xs font-semibold text-[#ff8f6b] cursor-pointer whitespace-nowrap"
                           title="Turn off all zone overlays"
                         >
                           Clear All
@@ -2315,150 +3428,195 @@ export default function App() {
                   </div>
                 )}
 
-                {/* TAB 5B: GOD RULES (Live World Laws) */}
-                {activeCategory === 'rules' && (
-                  <div
-                    className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-1.5"
-                    data-testid="god-rules-panel"
-                  >
-                    {GOD_RULE_SWITCHES.map((rule) => {
-                      const activeRules = sim.worldRules ?? DEFAULT_WORLD_RULES;
-                      const isOn =
-                        rule.key === 'autoBuildEnabled'
-                          ? sim.autoBuildEnabled
-                          : rule.key === 'sandboxFreeMode'
-                            ? sim.sandboxFreeMode
-                            : rule.key === 'dayNightCycle'
-                              ? Boolean(activeRules.dayNightCycle || lightingPreset === 'auto')
-                              : Boolean(activeRules[rule.key]);
-                      return (
+                {/* TAB 6: WORLD (Ages, Sky, Seed + God Rules Sub-Tab) */}
+                {(activeCategory === 'epochs' || activeCategory === 'rules') && (
+                  <div className="flex flex-col gap-2.5">
+                    <div className="flex items-center justify-between gap-2 pb-2 border-b border-[#2e2923]">
+                      <div className="flex items-center gap-1">
                         <button
-                          key={rule.key}
                           type="button"
-                          aria-pressed={isOn}
-                          data-testid={`god-rule-${rule.key}`}
-                          onClick={() => handleToggleGodRule(rule.key)}
-                          onMouseEnter={() =>
-                            setHoveredHint({
-                              title: rule.label,
-                              cost: isOn ? 'Active' : 'Disabled',
-                              detail: rule.summary,
-                            })
-                          }
-                          className={`px-2.5 h-9 flex items-center justify-between gap-2 text-[11px] cursor-pointer ${
-                            isOn
-                              ? 'px-slot-active font-bold text-[#f2ece1]'
-                              : 'px-slot text-[#9d9486]'
+                          data-testid="world-subtab-ages"
+                          onClick={() => {
+                            setActiveCategory('epochs');
+                            setWorldSubTab('ages');
+                            soundEngine.playClick();
+                          }}
+                          className={`h-7 px-2.5 flex items-center gap-1.5 text-[11px] font-semibold cursor-pointer ${
+                            worldSubTab === 'ages' && activeCategory !== 'rules'
+                              ? 'px-btn-active font-bold'
+                              : 'px-btn'
                           }`}
                         >
-                          <span className="truncate">{rule.label}</span>
-                          <span
-                            className={`w-2.5 h-2.5 border border-[#0b0a09] shrink-0 ${
-                              isOn ? 'bg-[#80ed99]' : 'bg-[#34302a]'
-                            }`}
-                          />
+                          <TabPixelIcon category="epochs" className="w-3.5 h-3.5" />
+                          <span>Ages &amp; Sky</span>
                         </button>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {/* TAB 6: WORLD (Ages, Sky, Seed) */}
-                {activeCategory === 'epochs' && (
-                  <div className="flex flex-col gap-2">
-                    <div className="flex flex-wrap items-center justify-center gap-1">
-                      {EPOCHS.map((ep) => {
-                        const isCurrent = sim.epochIndex === ep.index;
-                        return (
-                          <button
-                            key={ep.id}
-                            type="button"
-                            onClick={() => {
-                              simRef.current.epochIndex = ep.index;
-                              for (const b of simRef.current.buildings) {
-                                b.epochLevel = ep.index;
-                              }
-                              soundEngine.playEpochAscend();
-                              setStatusFeedback(ep.name);
-                              setHudTick((t) => t + 1);
-                            }}
-                            className={`px-2.5 py-1 text-xs font-semibold cursor-pointer whitespace-nowrap ${
-                              isCurrent ? 'px-btn-active' : 'px-btn'
-                            }`}
-                          >
-                            {ep.name}
-                          </button>
-                        );
-                      })}
+                        <button
+                          type="button"
+                          data-testid="world-subtab-rules"
+                          onClick={() => {
+                            setActiveCategory('epochs');
+                            setWorldSubTab('rules');
+                            soundEngine.playClick();
+                          }}
+                          className={`h-7 px-2.5 flex items-center gap-1.5 text-[11px] font-semibold cursor-pointer ${
+                            worldSubTab === 'rules' || activeCategory === 'rules'
+                              ? 'px-btn-active font-bold'
+                              : 'px-btn'
+                          }`}
+                        >
+                          <TabPixelIcon category="rules" className="w-3.5 h-3.5" />
+                          <span>God Rules</span>
+                        </button>
+                      </div>
+                      <span className="hidden sm:inline text-[11px] text-[#a89f91]">
+                        {worldSubTab === 'rules' || activeCategory === 'rules'
+                          ? 'Toggle live world laws & creature rules'
+                          : 'Switch era, time of day, or generate a new seed'}
+                      </span>
                     </div>
 
-                    <div className="flex flex-wrap items-center justify-center gap-3 text-xs">
-                      <div className="flex items-center gap-1">
-                        <span className="text-[#a89f91]">Sky</span>
-                        {(['auto', 'noon', 'dusk', 'night', 'dawn'] as LightingPreset[]).map((lp) => {
-                          const isSkyActive =
-                            lp === 'auto'
-                              ? lightingPreset === 'auto' || Boolean(sim.worldRules?.dayNightCycle)
-                              : lightingPreset === lp && !sim.worldRules?.dayNightCycle;
+                    {worldSubTab === 'rules' || activeCategory === 'rules' ? (
+                      <div
+                        className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-1.5"
+                        data-testid="god-rules-panel"
+                      >
+                        {GOD_RULE_SWITCHES.map((rule) => {
+                          const activeRules = sim.worldRules ?? DEFAULT_WORLD_RULES;
+                          const isOn =
+                            rule.key === 'autoBuildEnabled'
+                              ? sim.autoBuildEnabled
+                              : rule.key === 'sandboxFreeMode'
+                                ? sim.sandboxFreeMode
+                                : rule.key === 'dayNightCycle'
+                                  ? Boolean(activeRules.dayNightCycle || lightingPreset === 'auto')
+                                  : Boolean(activeRules[rule.key]);
                           return (
                             <button
-                              key={lp}
+                              key={rule.key}
                               type="button"
-                              onClick={() => {
-                                setLightingPreset(lp);
-                                if (!simRef.current.worldRules) {
-                                  simRef.current.worldRules = { ...DEFAULT_WORLD_RULES };
-                                }
-                                simRef.current.worldRules.dayNightCycle = lp === 'auto';
-                                setHudTick((t) => t + 1);
-                              }}
-                              className={`px-2 py-0.5 capitalize text-xs cursor-pointer ${
-                                isSkyActive ? 'px-btn-active font-bold' : 'px-btn'
+                              aria-pressed={isOn}
+                              data-testid={`god-rule-${rule.key}`}
+                              onClick={() => handleToggleGodRule(rule.key)}
+                              onMouseEnter={() =>
+                                setHoveredHint({
+                                  title: rule.label,
+                                  cost: isOn ? 'Active' : 'Disabled',
+                                  detail: rule.summary,
+                                })
+                              }
+                              className={`px-2.5 h-9 flex items-center justify-between gap-2 text-[11px] cursor-pointer ${
+                                isOn
+                                  ? 'px-slot-active font-bold text-[#f2ece1]'
+                                  : 'px-slot text-[#9d9486]'
                               }`}
                             >
-                              {lp === 'auto' ? 'Cycle' : lp}
+                              <span className="truncate">{rule.label}</span>
+                              <span
+                                className={`w-2.5 h-2.5 border border-[#0b0a09] shrink-0 ${
+                                  isOn ? 'bg-[#80ed99]' : 'bg-[#34302a]'
+                                }`}
+                              />
                             </button>
                           );
                         })}
                       </div>
+                    ) : (
+                      <div className="flex flex-col gap-2">
+                        <div className="flex flex-wrap items-center justify-start gap-1">
+                          {EPOCHS.map((ep) => {
+                            const isCurrent = sim.epochIndex === ep.index;
+                            return (
+                              <button
+                                key={ep.id}
+                                type="button"
+                                onClick={() => {
+                                  simRef.current.epochIndex = ep.index;
+                                  for (const b of simRef.current.buildings) {
+                                    b.epochLevel = ep.index;
+                                  }
+                                  soundEngine.playEpochAscend();
+                                  setStatusFeedback(ep.name);
+                                  setHudTick((t) => t + 1);
+                                }}
+                                className={`px-2.5 py-1 text-xs font-semibold cursor-pointer whitespace-nowrap ${
+                                  isCurrent ? 'px-btn-active' : 'px-btn'
+                                }`}
+                              >
+                                {ep.name}
+                              </button>
+                            );
+                          })}
+                        </div>
 
-                      <div className="flex items-center gap-1">
-                        <span className="text-[#a89f91]">Seed</span>
-                        <input
-                          type="text"
-                          aria-label="World Seed"
-                          value={seedInput}
-                          onChange={(e) => setSeedInput(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              e.preventDefault();
-                              handleGenerateSeededWorld(seedInput || undefined);
-                            }
-                          }}
-                          className="px-panel-inset w-24 px-2 py-0.5 font-pixel-num text-[11px] text-[#f2ece1] outline-none"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => handleGenerateSeededWorld(seedInput || undefined)}
-                          className="px-btn px-2 py-0.5 text-xs text-[#f5b742] cursor-pointer"
-                        >
-                          Load
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleGenerateSeededWorld(undefined)}
-                          className="px-btn px-2 py-0.5 text-xs cursor-pointer"
-                        >
-                          Random
-                        </button>
+                        <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                          <div className="flex flex-wrap items-center gap-1">
+                            <span className="text-[#a89f91] mr-0.5">Sky</span>
+                            {(['auto', 'dawn', 'noon', 'dusk', 'night', 'midnight'] as LightingPreset[]).map((lp) => {
+                              const isSkyActive =
+                                lp === 'auto'
+                                  ? lightingPreset === 'auto' || Boolean(sim.worldRules?.dayNightCycle)
+                                  : lightingPreset === lp && !sim.worldRules?.dayNightCycle;
+                              return (
+                                <button
+                                  key={lp}
+                                  type="button"
+                                  onClick={() => {
+                                    setLightingPreset(lp);
+                                    if (!simRef.current.worldRules) {
+                                      simRef.current.worldRules = { ...DEFAULT_WORLD_RULES };
+                                    }
+                                    simRef.current.worldRules.dayNightCycle = lp === 'auto';
+                                    setHudTick((t) => t + 1);
+                                  }}
+                                  className={`px-2 py-1 capitalize text-xs cursor-pointer ${
+                                    isSkyActive ? 'px-btn-active font-bold' : 'px-btn'
+                                  }`}
+                                >
+                                  {lp === 'auto' ? 'Cycle' : lp}
+                                </button>
+                              );
+                            })}
+                          </div>
+
+                          <div className="flex items-center gap-1">
+                            <span className="text-[#a89f91]">Seed</span>
+                            <input
+                              type="text"
+                              aria-label="World Seed"
+                              value={seedInput}
+                              onChange={(e) => setSeedInput(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  handleGenerateSeededWorld(seedInput || undefined);
+                                }
+                              }}
+                              className="px-panel-inset w-24 px-2 py-1 font-pixel-num text-[11px] text-[#f2ece1] outline-none"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleGenerateSeededWorld(seedInput || undefined)}
+                              className="px-btn px-2 py-1 text-xs text-[#f5b742] cursor-pointer"
+                            >
+                              Load
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleGenerateSeededWorld(undefined)}
+                              className="px-btn px-2 py-1 text-xs cursor-pointer"
+                            >
+                              Random
+                            </button>
+                          </div>
+                        </div>
                       </div>
-                    </div>
+                    )}
                   </div>
                 )}
 
                 {/* TAB 7: INSPECT */}
                 {activeCategory === 'inspect' && (
-                  <div className="flex flex-wrap items-center justify-center gap-3 text-xs text-[#e8e0d2]">
+                  <div className="flex flex-wrap items-center justify-center gap-3 text-xs text-[#e8e0d2] min-h-[48px]">
                     <span>{statusFeedback}</span>
                     {inspectedTile && (
                       <span className="text-[#f5b742] tabular-nums">
@@ -2471,8 +3629,11 @@ export default function App() {
                     {hoveredZoneInfo && (
                       <>
                         {hoveredZoneInfo.kingdom && (
-                          <span className="text-[#80ed99] font-semibold">
+                          <span className="text-[#80ed99] font-semibold tabular-nums">
                             Kingdom: {hoveredZoneInfo.kingdom.name} (Pop {hoveredZoneInfo.kingdom.population}
+                            {hoveredZoneInfo.kingdom.maxPopulation > 0
+                              ? `/${hoveredZoneInfo.kingdom.maxPopulation}`
+                              : ''}
                             {hoveredZoneInfo.isKingdomMaritime ? ' · Maritime Waters' : ''})
                           </span>
                         )}
@@ -2507,14 +3668,11 @@ export default function App() {
           aria-modal="true"
           aria-label="Settings"
           data-testid="ingame-settings-modal"
-          className="fixed inset-0 z-40 flex items-center justify-center bg-[#0d0c0b]/75 p-4"
+          className="fixed inset-0 z-40 flex items-center justify-center bg-[#0d0c0b]/75 p-2 sm:p-4"
         >
-          <div className="w-full max-w-md px-panel p-6 space-y-5">
+          <div className="w-[min(28rem,calc(100vw-16px))] max-h-[calc(100dvh-16px)] overflow-y-auto px-panel p-4 sm:p-6 space-y-4 sm:space-y-5">
             <div className="flex items-baseline justify-between">
               <h2 className="text-lg font-bold text-[#f5b742]">Settings</h2>
-              <span className="text-xs text-[#b8afa2] tabular-nums">
-                {currentEpoch.name} ({formatYearLabel(sim.year)})
-              </span>
             </div>
 
             <div className="space-y-4 text-xs">
@@ -2550,22 +3708,17 @@ export default function App() {
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  soundEngine.playClick();
-                  handleRestartGame();
-                }}
-                className="px-btn w-full py-2 text-xs font-semibold cursor-pointer"
+                data-testid="pause-save-btn"
+                disabled={isSavingWorld}
+                onClick={() => handleOpenSaveFlow(false)}
+                className="px-btn w-full py-2 text-xs font-semibold cursor-pointer text-[#ffd166]"
               >
-                Restart World
+                {isSavingWorld ? 'Saving...' : 'Save World'}
               </button>
               <button
                 type="button"
                 data-testid="ingame-main-menu-btn"
-                onClick={() => {
-                  soundEngine.playClick();
-                  setTitleMenuStep('main');
-                  setGameState('title');
-                }}
+                onClick={handleRequestMainMenu}
                 className="px-btn w-full py-2 text-xs font-semibold cursor-pointer"
               >
                 Main Menu
@@ -2581,9 +3734,9 @@ export default function App() {
           role="dialog"
           aria-modal="true"
           aria-label="Victory"
-          className="fixed inset-0 z-40 flex items-center justify-center bg-[#0d0c0b]/80 p-4"
+          className="fixed inset-0 z-40 flex items-center justify-center bg-[#0d0c0b]/80 p-2 sm:p-4"
         >
-          <div className="w-full max-w-sm px-panel p-6">
+          <div className="w-[min(24rem,calc(100vw-16px))] max-h-[calc(100dvh-16px)] overflow-y-auto px-panel p-4 sm:p-6">
             <h2 className="text-2xl font-bold text-[#ffd166] mb-1">Star Ascension</h2>
             <p className="text-xs text-[#cfc6b8] mb-5">
               Your world reached the stars.
@@ -2618,15 +3771,270 @@ export default function App() {
               </button>
               <button
                 type="button"
-                onClick={handleRestartGame}
+                onClick={handleRequestMainMenu}
                 className="px-btn px-4 py-2 text-sm cursor-pointer"
               >
-                New World
+                Main Menu
               </button>
             </div>
           </div>
         </div>
       )}
+
+      {/* QUIT TO MAIN MENU GUARD MODAL (unsaved worlds only) */}
+      {quitConfirmOpen && !hasSavedWorld && gameState !== 'title' && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Quit to Main Menu"
+          data-testid="quit-confirm-modal"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[#0d0c0b]/85 p-2 sm:p-4"
+        >
+          <div className="w-[min(25rem,calc(100vw-16px))] px-panel p-4 sm:p-6 space-y-4">
+            <h2 className="text-base sm:text-lg font-bold text-[#f5b742]">Return to Main Menu</h2>
+            <p
+              data-testid="quit-confirm-message"
+              className="text-xs sm:text-sm text-[#e8e0d2] leading-relaxed"
+            >
+              Your current world has not been saved yet, are you sure you want to quit?
+            </p>
+            <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                data-testid="quit-cancel-btn"
+                onClick={() => {
+                  soundEngine.playClick();
+                  setQuitConfirmOpen(false);
+                }}
+                className="px-btn px-3.5 py-2 text-xs font-semibold cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                data-testid="quit-save-btn"
+                disabled={isSavingWorld}
+                onClick={() => handleOpenSaveFlow(true)}
+                className="px-btn-primary px-3.5 py-2 text-xs font-bold cursor-pointer"
+              >
+                {isSavingWorld ? 'Saving...' : 'Save & Quit'}
+              </button>
+              <button
+                type="button"
+                data-testid="quit-confirm-btn"
+                onClick={handleConfirmQuitToMainMenu}
+                className="px-btn px-3.5 py-2 text-xs font-bold text-[#ff8f8f] border-[#a83232] cursor-pointer"
+              >
+                Quit
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SAVE WORLD SUCCESSION MODALS */}
+      {saveModalStep && gameState !== 'title' && (() => {
+        const trimmedRawName = saveNameDraft.trim();
+        const trimmedLower = trimmedRawName.toLowerCase();
+        const existingWorldWithName = trimmedLower
+          ? savedWorlds.find((w) => w.name.trim().toLowerCase() === trimmedLower)
+          : undefined;
+        return (
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Save World"
+            data-testid={
+              saveModalStep === 'confirm'
+                ? 'save-confirm-modal'
+                : saveModalStep === 'overwrite'
+                  ? 'save-overwrite-modal'
+                  : 'save-details-modal'
+            }
+            className="fixed inset-0 z-50 flex items-center justify-center bg-[#0d0c0b]/85 p-2 sm:p-4"
+          >
+            {saveModalStep === 'confirm' ? (
+              <div className="w-[min(25rem,calc(100vw-16px))] px-panel p-4 sm:p-6 space-y-4">
+                <h2 className="text-base sm:text-lg font-bold text-[#f5b742]">Save World</h2>
+                <p
+                  data-testid="save-confirm-prompt"
+                  className="text-xs sm:text-sm text-[#e8e0d2] leading-relaxed"
+                >
+                  Are you sure you want to save?
+                </p>
+                <div className="flex items-center justify-end gap-2 pt-1">
+                  <button
+                    type="button"
+                    data-testid="save-confirm-cancel-btn"
+                    onClick={() => {
+                      soundEngine.playClick();
+                      setSaveModalStep(null);
+                      setSaveThenQuit(false);
+                    }}
+                    className="px-btn px-3.5 py-2 text-xs font-semibold cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="save-confirm-next-btn"
+                    onClick={() => {
+                      soundEngine.playClick();
+                      setSaveModalStep('details');
+                    }}
+                    className="px-btn-primary px-4 py-2 text-xs font-bold cursor-pointer"
+                  >
+                    Continue →
+                  </button>
+                </div>
+              </div>
+            ) : saveModalStep === 'details' ? (
+              <div className="w-[min(27rem,calc(100vw-16px))] px-panel p-4 sm:p-6 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-base sm:text-lg font-bold text-[#f5b742]">
+                    World Name &amp; Description
+                  </h2>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      soundEngine.playClick();
+                      setSaveModalStep('confirm');
+                    }}
+                    className="text-xs text-[#b8afa2] hover:text-[#f2ece1] cursor-pointer"
+                  >
+                    Back
+                  </button>
+                </div>
+
+                <div className="space-y-3">
+                  <div>
+                    <label
+                      htmlFor="save-world-name-input"
+                      className="block text-xs text-[#b8afa2] mb-1.5"
+                    >
+                      World Name
+                    </label>
+                    <input
+                      id="save-world-name-input"
+                      data-testid="save-world-name-input"
+                      type="text"
+                      maxLength={32}
+                      value={saveNameDraft}
+                      onChange={(e) => setSaveNameDraft(e.target.value)}
+                      placeholder="My World"
+                      className="px-input w-full px-3 py-2 text-sm"
+                    />
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="save-world-description-input"
+                      className="block text-xs text-[#b8afa2] mb-1.5"
+                    >
+                      Description
+                    </label>
+                    <textarea
+                      id="save-world-description-input"
+                      data-testid="save-world-description-input"
+                      rows={3}
+                      maxLength={160}
+                      value={saveDescDraft}
+                      onChange={(e) => setSaveDescDraft(e.target.value)}
+                      placeholder="Describe this world, its kingdoms, or milestones..."
+                      className="px-input w-full px-3 py-2 text-xs resize-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-1">
+                  <button
+                    type="button"
+                    data-testid="save-details-cancel-btn"
+                    onClick={() => {
+                      soundEngine.playClick();
+                      setSaveModalStep(null);
+                      setSaveThenQuit(false);
+                    }}
+                    className="px-btn px-3.5 py-2 text-xs font-semibold cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="save-details-submit-btn"
+                    disabled={isSavingWorld || !trimmedRawName}
+                    onClick={() => {
+                      if (existingWorldWithName) {
+                        soundEngine.playClick();
+                        setSaveModalStep('overwrite');
+                      } else {
+                        void handleCommitSaveWorld();
+                      }
+                    }}
+                    className="px-btn-primary px-4 py-2 text-xs font-bold cursor-pointer disabled:opacity-50"
+                  >
+                    {isSavingWorld
+                      ? 'Saving...'
+                      : saveThenQuit
+                        ? 'Save & Quit'
+                        : 'Save World'}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="w-[min(26rem,calc(100vw-16px))] px-panel p-4 sm:p-6 space-y-4">
+                <h2 className="text-base sm:text-lg font-bold text-[#ffd166]">
+                  Overwrite Existing World?
+                </h2>
+                <p
+                  data-testid="save-overwrite-prompt"
+                  className="text-xs sm:text-sm text-[#e8e0d2] leading-relaxed"
+                >
+                  A world with the name &quot;{trimmedRawName || 'My World'}&quot; already exists, do you want to overwrite?
+                </p>
+                <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
+                  <button
+                    type="button"
+                    data-testid="save-overwrite-back-btn"
+                    onClick={() => {
+                      soundEngine.playClick();
+                      setSaveModalStep('details');
+                    }}
+                    className="px-btn px-3.5 py-2 text-xs font-semibold cursor-pointer"
+                  >
+                    Change Name
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="save-overwrite-cancel-btn"
+                    onClick={() => {
+                      soundEngine.playClick();
+                      setSaveModalStep(null);
+                      setSaveThenQuit(false);
+                    }}
+                    className="px-btn px-3.5 py-2 text-xs font-semibold cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="save-overwrite-confirm-btn"
+                    disabled={isSavingWorld}
+                    onClick={() => void handleCommitSaveWorld()}
+                    className="px-btn-primary px-4 py-2 text-xs font-bold cursor-pointer disabled:opacity-50"
+                  >
+                    {isSavingWorld
+                      ? 'Saving...'
+                      : saveThenQuit
+                        ? 'Overwrite & Quit'
+                        : 'Overwrite'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
     </main>
   );
 }

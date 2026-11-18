@@ -70,7 +70,10 @@ export type ResourceNodeType =
   | 'berry_bush'
   | 'stone_outcrop'
   | 'ore_vein'
-  | 'crystal_monolith';
+  | 'crystal_monolith'
+  | 'coral_reef'
+  | 'scrap_flotsam'
+  | 'atlantis_ruin';
 
 export interface TileData {
   x: number;
@@ -85,6 +88,9 @@ export interface TileData {
   fireColor?: string;
   buildingId: string | null;
   farmSettlementId?: string;
+  isRiver?: boolean;
+  isLake?: boolean;
+  coralBleachTimer?: number;
 }
 
 export type BuildingType =
@@ -148,7 +154,8 @@ export type AnimalRole =
   | 'capybara'
   | 'dinosaur'
   | 'dragon'
-  | 'unicorn';
+  | 'unicorn'
+  | 'leviathan';
 
 export type UnitRole =
   | 'human'
@@ -249,6 +256,24 @@ export interface UnitEntity {
   battlewillCooldown?: number;
   battlewillSlashTimer?: number;
   battlewillHeading?: number;
+  swimStamina?: number;
+  isSwimming?: boolean;
+  embarkedVehicleId?: string | null;
+  leviathanSubmerged?: boolean;
+  leviathanSurfaceTimer?: number;
+  leviathanBeamTimer?: number;
+  leviathanBeamCooldown?: number;
+  leviathanBeamTargetX?: number;
+  leviathanBeamTargetZ?: number;
+  leviathanBeamOriginX?: number;
+  leviathanBeamOriginZ?: number;
+  leviathanLeapTimer?: number;
+  leviathanLeapCooldown?: number;
+  leviathanLeapStartX?: number;
+  leviathanLeapStartZ?: number;
+  leviathanLeapTargetX?: number;
+  leviathanLeapTargetZ?: number;
+  leviathanEatIslandCooldown?: number;
 }
 
 export type GodPowerType =
@@ -309,6 +334,7 @@ export type VehicleType =
   | 'glider'
   | 'tank'
   | 'warship'
+  | 'passenger_ship'
   | 'airship'
   | 'helicopter'
   | 'bomber_plane'
@@ -336,6 +362,9 @@ export interface VehicleEntity {
   path: Array<{ x: number; z: number }>;
   pathIndex: number;
   variantSeed: number;
+  passengerIds?: string[];
+  targetIslandX?: number;
+  targetIslandZ?: number;
   flightPhase?: 'parked' | 'takeoff' | 'cruise' | 'landing';
   phaseTimer?: number;
   strafeExtendTimer?: number;
@@ -436,7 +465,9 @@ export interface ActiveHazardZone {
     | 'blessing_wave'
     | 'curse_wave'
     | 'frenzy_wave'
-    | 'terraform_wave';
+    | 'terraform_wave'
+    | 'whirlpool'
+    | 'rogue_wave';
   x: number;
   z: number;
   targetX?: number;
@@ -465,7 +496,7 @@ export interface ActiveHazardZone {
 
 export type GameLifecycleState = 'title' | 'playing' | 'paused' | 'gameover';
 
-export type LightingPreset = 'noon' | 'dusk' | 'night' | 'dawn' | 'auto';
+export type LightingPreset = 'noon' | 'dusk' | 'night' | 'midnight' | 'dawn' | 'auto';
 
 export type GraphicsQualityPreset = 'high' | 'balanced' | 'fast' | 'custom';
 export type ShadowQualityOption = 'on' | 'fast' | 'off';
@@ -488,6 +519,7 @@ export type WorldTemplateId =
   | 'scifi'
   | 'prehistoric'
   | 'archipelago'
+  | 'scrap_sea'
   | 'custom';
 
 export interface WorldRulesConfig {
@@ -522,6 +554,7 @@ export interface SimulationState {
   seed: number;
   gridSize: number;
   worldName?: string;
+  worldDescription?: string;
   worldTemplate?: WorldTemplateId;
   worldRules?: WorldRulesConfig;
   tiles: TileData[];
@@ -555,6 +588,9 @@ export interface SimulationState {
   settlementNames?: Record<string, string>;
   settlementSpecies?: Record<string, SpeciesId>;
   settlementKingdoms?: Record<string, string>;
+  kingdomResources?: Record<string, Resources>;
+  unallocatedResources?: Resources;
+  kingdomUltimateCooldowns?: Record<string, number>;
   kingdomRelations?: Record<string, DiplomaticRelation>;
   kingdomPeacefulTraits?: Record<string, boolean>;
   diplomacyTimer?: number;
@@ -562,4 +598,5 @@ export interface SimulationState {
   wildlifeSeeded?: boolean;
   wildlifeRespawnTimer?: number;
   raiderWaveTimer?: number;
+  oceanEventTimer?: number;
 }

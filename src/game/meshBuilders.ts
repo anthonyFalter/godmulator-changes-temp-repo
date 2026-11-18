@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { getDragonVariant } from './catalog';
+import { wrapShaderTime } from './dayNightLighting';
 import {
   BuildingType,
   ResourceNodeType,
@@ -11,7 +12,7 @@ import {
   VehicleType,
 } from './types';
 
-const textureCache = new Map<string, THREE.CanvasTexture>();
+const textureCache = new Map<string, THREE.Texture>();
 
 export function getPixelArtTexture(
   key: string,
@@ -19,36 +20,49 @@ export function getPixelArtTexture(
   accentHex: string,
   shadowHex: string,
   pattern: 'stone' | 'grass' | 'wood' | 'roof' | 'water' | 'tech' | 'fertile',
-): THREE.CanvasTexture {
+): THREE.Texture {
   const existing = textureCache.get(key);
   if (existing) return existing;
 
+  if (typeof document === 'undefined') {
+    const data = new Uint8Array(32 * 32 * 4);
+    const tex = new THREE.DataTexture(data, 32, 32, THREE.RGBAFormat);
+    tex.needsUpdate = true;
+    textureCache.set(key, tex);
+    return tex;
+  }
+
   const canvas = document.createElement('canvas');
-  canvas.width = 16;
-  canvas.height = 16;
+  canvas.width = 32;
+  canvas.height = 32;
   const ctx = canvas.getContext('2d')!;
 
   ctx.fillStyle = baseHex;
-  ctx.fillRect(0, 0, 16, 16);
+  ctx.fillRect(0, 0, 32, 32);
 
   if (pattern === 'stone') {
-    // Stepped stone masonry blocks like image_72c29f6b.png
+    // Crisp 32x32 staggered ashlar masonry & brick courses with mortar seams & top bevel highlights
     ctx.fillStyle = shadowHex;
-    ctx.fillRect(0, 7, 16, 1);
-    ctx.fillRect(0, 15, 16, 1);
-    ctx.fillRect(7, 0, 1, 7);
-    ctx.fillRect(12, 8, 1, 7);
-    ctx.fillRect(4, 8, 1, 7);
-
+    for (let y = 0; y < 32; y += 8) {
+      ctx.fillRect(0, y + 7, 32, 1);
+      const offset = (y / 8) % 2 === 0 ? 0 : 8;
+      for (let x = offset; x < 32; x += 16) {
+        ctx.fillRect(x, y, 1, 7);
+      }
+      if ((y / 8) % 2 === 1) ctx.fillRect(0, y, 1, 7);
+    }
     ctx.fillStyle = accentHex;
-    ctx.fillRect(1, 1, 5, 1);
-    ctx.fillRect(9, 1, 5, 1);
-    ctx.fillRect(6, 9, 5, 1);
-    ctx.fillRect(1, 9, 2, 1);
+    for (let y = 0; y < 32; y += 8) {
+      const offset = (y / 8) % 2 === 0 ? 2 : 10;
+      for (let x = offset; x < 32; x += 16) {
+        ctx.fillRect(x % 32, y + 1, 10, 1);
+        ctx.fillRect((x + 2) % 32, y + 3, 4, 1);
+      }
+    }
   } else if (pattern === 'grass' || pattern === 'fertile') {
-    // Rich pixel grass tufts & terrace highlights
-    for (let y = 0; y < 16; y += 2) {
-      for (let x = 0; x < 16; x += 2) {
+    // Rich 32x32 pixel grass tufts & terrace highlights
+    for (let y = 0; y < 32; y += 2) {
+      for (let x = 0; x < 32; x += 2) {
         if ((x * 3 + y * 5) % 7 === 0) {
           ctx.fillStyle = accentHex;
           ctx.fillRect(x, y, 2, 1);
@@ -60,46 +74,62 @@ export function getPixelArtTexture(
     }
     if (pattern === 'fertile') {
       ctx.fillStyle = shadowHex;
-      for (let y = 2; y < 16; y += 4) {
-        ctx.fillRect(1, y, 14, 1);
+      for (let y = 3; y < 32; y += 6) {
+        ctx.fillRect(1, y, 30, 1);
       }
     }
   } else if (pattern === 'wood') {
-    // Warm tavern timber planks like image_81b12287.png
+    // Staggered timber planks with vertical end-seams, wood grain streaks, and peg rivets
     ctx.fillStyle = shadowHex;
-    for (let y = 3; y < 16; y += 4) {
-      ctx.fillRect(0, y, 16, 1);
+    for (let y = 0; y < 32; y += 6) {
+      ctx.fillRect(0, y + 5, 32, 1);
+      const seamX = ((y / 6) * 11 + 5) % 28;
+      ctx.fillRect(seamX, y, 1, 5);
     }
     ctx.fillStyle = accentHex;
-    ctx.fillRect(2, 1, 8, 1);
-    ctx.fillRect(6, 5, 7, 1);
-    ctx.fillRect(1, 9, 9, 1);
-    ctx.fillRect(5, 13, 8, 1);
+    for (let y = 0; y < 32; y += 6) {
+      const gx = ((y / 6) * 7 + 2) % 20;
+      ctx.fillRect(gx, y + 1, 9, 1);
+      ctx.fillRect((gx + 14) % 26, y + 3, 6, 1);
+    }
   } else if (pattern === 'roof') {
-    // Scalloped village roof tiles like image_352191d0.png
-    for (let y = 0; y < 16; y += 4) {
+    // Overlapping scalloped / staggered shingle courses with deep shadow drip-edges
+    for (let y = 0; y < 32; y += 6) {
       ctx.fillStyle = shadowHex;
-      ctx.fillRect(0, y + 3, 16, 1);
-      ctx.fillStyle = accentHex;
-      for (let x = (y % 8 === 0 ? 0 : 2); x < 16; x += 4) {
-        ctx.fillRect(x, y, 3, 2);
+      ctx.fillRect(0, y + 5, 32, 1);
+      const shift = (y / 6) % 2 === 0 ? 0 : 4;
+      for (let x = shift; x < 32; x += 8) {
+        ctx.fillStyle = shadowHex;
+        ctx.fillRect(x % 32, y + 2, 1, 3);
+        ctx.fillStyle = accentHex;
+        ctx.fillRect((x + 2) % 32, y + 1, 4, 2);
       }
     }
   } else if (pattern === 'tech') {
+    // Machined metallic cladding panels, recessed vents, rivets & clean seam grooves
     ctx.fillStyle = shadowHex;
-    ctx.fillRect(0, 0, 16, 1);
-    ctx.fillRect(0, 0, 1, 16);
-    ctx.fillStyle = accentHex;
-    ctx.fillRect(3, 3, 4, 4);
-    ctx.fillRect(9, 3, 4, 4);
-    ctx.fillRect(3, 9, 10, 4);
+    ctx.fillRect(0, 0, 32, 1);
+    ctx.fillRect(0, 16, 32, 1);
+    ctx.fillRect(0, 0, 1, 32);
+    ctx.fillRect(16, 0, 1, 32);
+    // Panel sub-louvers & corner rivets
+    for (const [px, py] of [[2, 2], [18, 2], [2, 18], [18, 18]] as const) {
+      ctx.fillStyle = accentHex;
+      ctx.fillRect(px + 1, py + 1, 10, 2);
+      ctx.fillRect(px + 1, py + 5, 8, 2);
+      ctx.fillStyle = shadowHex;
+      ctx.fillRect(px + 1, py + 9, 10, 1);
+      ctx.fillRect(px + 1, py + 11, 10, 1);
+      ctx.fillStyle = accentHex;
+      ctx.fillRect(px + 11, py + 11, 1, 1);
+    }
   } else if (pattern === 'water') {
     ctx.fillStyle = accentHex;
-    ctx.fillRect(2, 4, 5, 1);
-    ctx.fillRect(9, 11, 5, 1);
+    ctx.fillRect(3, 7, 10, 2);
+    ctx.fillRect(17, 21, 11, 2);
     ctx.fillStyle = shadowHex;
-    ctx.fillRect(3, 5, 5, 1);
-    ctx.fillRect(8, 12, 5, 1);
+    ctx.fillRect(5, 9, 9, 1);
+    ctx.fillRect(15, 23, 10, 1);
   }
 
   const tex = new THREE.CanvasTexture(canvas);
@@ -559,8 +589,13 @@ export interface NodeVariantLibrary {
   ambientSavanna: THREE.BufferGeometry[];
   ambientSwamp: THREE.BufferGeometry[];
   ambientHighland: THREE.BufferGeometry[];
+  coralReef: THREE.BufferGeometry[];
+  coralReefBleached: THREE.BufferGeometry[];
+  scrapFlotsam: THREE.BufferGeometry[];
+  atlantisRuin: THREE.BufferGeometry[];
   standardMat: THREE.MeshStandardMaterial;
   crystalMat: THREE.MeshStandardMaterial;
+  coralReefMat: THREE.MeshStandardMaterial;
 }
 
 let cachedVariantLib: NodeVariantLibrary | null = null;
@@ -1076,6 +1111,487 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     ambientBlossom.push(finalizeMergedParts(p));
   }
 
+  // 7a. Submerged Warm-Ocean Coral Reef Formations:
+  // Built with organic cylindrical/conical staghorn antler branches, hemispherical brain-coral boulder domes,
+  // clustered tubular barrel sponges / organ-pipe corals, and octagonal flared Acropora table plates on sculpted coralline limestone mounds.
+  const addColoredCylinder = (
+    parts: THREE.BufferGeometry[],
+    rTop: number,
+    rBot: number,
+    h: number,
+    segs: number,
+    x: number,
+    y: number,
+    z: number,
+    hex: number,
+    rotX = 0,
+    rotY = 0,
+    rotZ = 0,
+  ) => {
+    const g = new THREE.CylinderGeometry(rTop, rBot, h, segs);
+    if (rotZ !== 0) g.rotateZ(rotZ);
+    if (rotX !== 0) g.rotateX(rotX);
+    if (rotY !== 0) g.rotateY(rotY);
+    g.translate(x, y, z);
+    _tmpColor.setHex(hex);
+    const count = g.attributes.position.count;
+    const colors = new Float32Array(count * 3);
+    for (let i = 0; i < count; i++) {
+      colors[i * 3] = _tmpColor.r;
+      colors[i * 3 + 1] = _tmpColor.g;
+      colors[i * 3 + 2] = _tmpColor.b;
+    }
+    g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    parts.push(g);
+  };
+
+  const addColoredDome = (
+    parts: THREE.BufferGeometry[],
+    radius: number,
+    wSegs: number,
+    hSegs: number,
+    x: number,
+    y: number,
+    z: number,
+    hex: number,
+    scaleX = 1,
+    scaleY = 1,
+    scaleZ = 1,
+  ) => {
+    const g = new THREE.SphereGeometry(radius, wSegs, hSegs, 0, Math.PI * 2, 0, Math.PI * 0.52);
+    if (scaleX !== 1 || scaleY !== 1 || scaleZ !== 1) {
+      g.scale(scaleX, scaleY, scaleZ);
+    }
+    g.translate(x, y, z);
+    _tmpColor.setHex(hex);
+    const count = g.attributes.position.count;
+    const colors = new Float32Array(count * 3);
+    for (let i = 0; i < count; i++) {
+      colors[i * 3] = _tmpColor.r;
+      colors[i * 3 + 1] = _tmpColor.g;
+      colors[i * 3 + 2] = _tmpColor.b;
+    }
+    g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    parts.push(g);
+  };
+
+  // Sculpted coralline-algae terrace & sunlit pearl-sand reef foundation (keeps all vertices >= 0.0)
+  const addReefLimestoneMound = (
+    parts: THREE.BufferGeometry[],
+    sandHex: number,
+    corallineBaseHex: number,
+    corallineMidHex: number,
+    corallineCrestHex: number,
+  ) => {
+    // Broad sunlit reef-sand shoal base
+    addColoredCylinder(parts, 0.41, 0.45, 0.022, 10, 0.0, 0.011, 0.0, sandHex, 0, 0.18);
+    // Terraced coralline-algae ledges (lavender-rose, violet & coral-pink encrusted reef rock)
+    addColoredCylinder(parts, 0.33, 0.39, 0.032, 9, -0.04, 0.024, 0.03, corallineBaseHex, 0, 0.55);
+    addColoredCylinder(parts, 0.26, 0.32, 0.036, 8, 0.13, 0.028, -0.09, corallineMidHex, 0, -0.42);
+    addColoredCylinder(parts, 0.23, 0.29, 0.034, 8, -0.15, 0.026, -0.11, corallineCrestHex, 0, 0.85);
+    addColoredCylinder(parts, 0.21, 0.26, 0.030, 8, 0.10, 0.024, 0.14, corallineBaseHex, 0, 1.25);
+  };
+
+  // Majestic Spiraling Acropora Pagoda & Table Canopy with layered gradient disks and radial glowing polyp pearls
+  const addTableCoralPlate = (
+    parts: THREE.BufferGeometry[],
+    cx: number,
+    baseY: number,
+    cz: number,
+    radius: number,
+    stalkHex: number,
+    plateHex: number,
+    midHex: number,
+    rimHex: number,
+    polypHex: number,
+    rotY = 0,
+  ) => {
+    // Sculpted pedicel column
+    addColoredCylinder(parts, radius * 0.28, radius * 0.42, 0.036, 8, cx, baseY + 0.018, cz, stalkHex, 0, rotY);
+    // Broad flared lower fan canopy
+    addColoredCylinder(parts, radius * 1.06, radius * 0.62, 0.022, 10, cx, baseY + 0.038, cz, plateHex, 0, rotY);
+    // Vibrant middle coral terrace
+    addColoredCylinder(parts, radius * 0.88, radius * 1.04, 0.014, 10, cx, baseY + 0.050, cz, midHex, 0, rotY + 0.18);
+    // Luminous outer growth rim
+    addColoredCylinder(parts, radius * 1.02, radius * 1.08, 0.010, 10, cx, baseY + 0.056, cz, rimHex, 0, rotY + 0.32);
+    // Radial crown of glowing polyp pearls along the canopy edge
+    const pearlCount = 8;
+    for (let pi = 0; pi < pearlCount; pi++) {
+      const ang = rotY + (pi * Math.PI * 2) / pearlCount;
+      const px = cx + Math.cos(ang) * radius * 0.86;
+      const pz = cz + Math.sin(ang) * radius * 0.86;
+      addColoredDome(parts, radius * 0.11, 6, 4, px, baseY + 0.058, pz, polypHex, 1.0, 0.72, 1.0);
+    }
+  };
+
+  // Crown-of-Neptune Two-Tiered Antler Staghorn & Elkhorn Coral Grove with bioluminescent axial tips
+  const addStaghornThicket = (
+    parts: THREE.BufferGeometry[],
+    cx: number,
+    baseY: number,
+    cz: number,
+    scale: number,
+    stemHex: number,
+    branchHex: number,
+    upperHex: number,
+    tipHex: number,
+  ) => {
+    const s = Math.min(1.02, scale);
+    addColoredDome(parts, 0.11 * s, 8, 5, cx, baseY, cz, stemHex, 1.25, 0.55, 1.25);
+    // Central royal spire + glowing crown tip
+    const centerH = 0.105 * s;
+    addColoredCylinder(parts, 0.022 * s, 0.038 * s, centerH, 7, cx, baseY + centerH * 0.5, cz, branchHex);
+    addColoredDome(parts, 0.028 * s, 6, 4, cx, baseY + centerH * 0.98, cz, tipHex, 1.0, 0.85, 1.0);
+
+    // Inner ring of 6 ascending antler tines
+    for (let i = 0; i < 6; i++) {
+      const ang = (i * Math.PI) / 3 + 0.22;
+      const tilt = i % 2 === 0 ? 0.28 : 0.34;
+      const dist = 0.046 * s;
+      const bx = cx + Math.cos(ang) * dist;
+      const bz = cz + Math.sin(ang) * dist;
+      const bh = (i % 2 === 0 ? 0.096 : 0.088) * s;
+      addColoredCylinder(
+        parts,
+        0.019 * s,
+        0.032 * s,
+        bh,
+        6,
+        bx,
+        baseY + bh * 0.5,
+        bz,
+        i % 2 === 0 ? upperHex : branchHex,
+        Math.sin(ang) * tilt,
+        0,
+        -Math.cos(ang) * tilt,
+      );
+      const tx = cx + Math.cos(ang) * (dist + Math.sin(tilt) * bh * 0.46);
+      const tz = cz + Math.sin(ang) * (dist + Math.sin(tilt) * bh * 0.46);
+      const ty = baseY + Math.cos(tilt) * bh * 0.94;
+      addColoredDome(parts, 0.024 * s, 6, 4, tx, ty, tz, tipHex, 1.0, 0.8, 1.0);
+    }
+
+    // Outer ring of 6 sweeping elkhorn branches
+    for (let i = 0; i < 6; i++) {
+      const ang = (i * Math.PI) / 3 + 0.74;
+      const tilt = 0.44;
+      const dist = 0.078 * s;
+      const bx = cx + Math.cos(ang) * dist;
+      const bz = cz + Math.sin(ang) * dist;
+      const bh = 0.076 * s;
+      addColoredCylinder(
+        parts,
+        0.017 * s,
+        0.028 * s,
+        bh,
+        6,
+        bx,
+        baseY + bh * 0.48,
+        bz,
+        i % 2 === 0 ? branchHex : stemHex,
+        Math.sin(ang) * tilt,
+        0,
+        -Math.cos(ang) * tilt,
+      );
+      const tx = cx + Math.cos(ang) * (dist + Math.sin(tilt) * bh * 0.46);
+      const tz = cz + Math.sin(ang) * (dist + Math.sin(tilt) * bh * 0.46);
+      const ty = baseY + Math.cos(tilt) * bh * 0.90;
+      addColoredDome(parts, 0.022 * s, 6, 4, tx, ty, tz, tipHex, 1.0, 0.78, 1.0);
+    }
+  };
+
+  // Fluted Organ-Pipe & Sea-Chime Barrel Sponge Cathedral with flared bioluminescent osculum crowns
+  const addBarrelSpongeCluster = (
+    parts: THREE.BufferGeometry[],
+    cx: number,
+    baseY: number,
+    cz: number,
+    outerHex: number,
+    midHex: number,
+    rimHex: number,
+    innerHex: number,
+  ) => {
+    const tubes: [number, number, number, number, boolean][] = [
+      [0.0, 0.0, 0.068, 0.118, true],
+      [-0.088, 0.052, 0.054, 0.098, false],
+      [0.082, 0.058, 0.050, 0.092, true],
+      [-0.044, -0.082, 0.048, 0.086, false],
+      [0.072, -0.064, 0.044, 0.078, true],
+      [-0.112, -0.024, 0.040, 0.070, false],
+      [0.012, 0.096, 0.042, 0.074, true],
+    ];
+    for (const [ox, oz, rad, h, useAlt] of tubes) {
+      const col = useAlt ? outerHex : midHex;
+      addColoredCylinder(parts, rad * 1.12, rad * 0.84, h, 8, cx + ox, baseY + h * 0.5, cz + oz, col);
+      addColoredCylinder(parts, rad * 1.02, rad * 1.16, 0.014, 8, cx + ox, baseY + h + 0.005, cz + oz, rimHex);
+      addColoredCylinder(parts, rad * 0.62, rad * 0.62, 0.010, 7, cx + ox, baseY + h + 0.010, cz + oz, innerHex);
+    }
+  };
+
+  // Concentric Labyrinth Brain-Coral Dome & Blooming Sea-Lotus Anemone Rosette
+  const addBrainCoralBoulder = (
+    parts: THREE.BufferGeometry[],
+    cx: number,
+    baseY: number,
+    cz: number,
+    radius: number,
+    baseHex: number,
+    grooveHex: number,
+    crestHex: number,
+    pearlHex: number,
+  ) => {
+    addColoredDome(parts, radius * 1.06, 9, 5, cx, baseY, cz, baseHex, 1.10, 0.52, 1.04);
+    addColoredDome(parts, radius * 0.90, 9, 5, cx, baseY + radius * 0.11, cz, grooveHex, 1.05, 0.48, 1.00);
+    addColoredDome(parts, radius * 0.72, 8, 4, cx, baseY + radius * 0.22, cz, crestHex, 1.0, 0.44, 0.96);
+    addColoredDome(parts, radius * 0.44, 7, 4, cx, baseY + radius * 0.32, cz, pearlHex, 1.0, 0.40, 1.0);
+  };
+
+  // Blooming Sea-Lotus Anemone Crown with radiating bioluminescent tentacles and pearl oral center
+  const addSeaLotusAnemone = (
+    parts: THREE.BufferGeometry[],
+    cx: number,
+    baseY: number,
+    cz: number,
+    radius: number,
+    calyxHex: number,
+    petalHex: number,
+    coreHex: number,
+  ) => {
+    addColoredCylinder(parts, radius * 0.68, radius * 0.52, 0.034, 8, cx, baseY + 0.017, cz, calyxHex);
+    const petals = 10;
+    for (let i = 0; i < petals; i++) {
+      const ang = (i * Math.PI * 2) / petals;
+      const dist = radius * 0.56;
+      const px = cx + Math.cos(ang) * dist;
+      const pz = cz + Math.sin(ang) * dist;
+      addColoredCylinder(
+        parts,
+        radius * 0.12,
+        radius * 0.18,
+        radius * 0.52,
+        6,
+        px,
+        baseY + 0.042,
+        pz,
+        i % 2 === 0 ? petalHex : calyxHex,
+        Math.sin(ang) * 0.48,
+        0,
+        -Math.cos(ang) * 0.48,
+      );
+      const tx = cx + Math.cos(ang) * (dist + radius * 0.22);
+      const tz = cz + Math.sin(ang) * (dist + radius * 0.22);
+      addColoredDome(parts, radius * 0.14, 6, 4, tx, baseY + 0.062, tz, coreHex, 1.0, 0.75, 1.0);
+    }
+    addColoredDome(parts, radius * 0.38, 8, 4, cx, baseY + 0.032, cz, coreHex, 1.0, 0.65, 1.0);
+  };
+
+  const coralReef: THREE.BufferGeometry[] = [];
+  {
+    // Variant 0: Imperial Rose-Gold Pagoda Terraces, Sunburst Staghorn Crown & Neon-Aqua Sea-Lotus Sanctuary
+    const p: THREE.BufferGeometry[] = [];
+    addReefLimestoneMound(p, 0xfdf0d5, 0xc77dff, 0xe0aaff, 0xff8fa3);
+    // Three cascading Rose-Gold & Magenta Acropora Pagoda Canopies
+    addTableCoralPlate(p, -0.14, 0.026, 0.10, 0.25, 0x9d174d, 0xf43f5e, 0xfb7185, 0xffd166, 0xfff3b0, 0.15);
+    addTableCoralPlate(p, -0.06, 0.068, 0.04, 0.20, 0xbe185d, 0xff4d6d, 0xff8fa3, 0xffe5ec, 0x72efdd, 0.55);
+    addTableCoralPlate(p, 0.02, 0.104, -0.01, 0.15, 0xdb2777, 0xff758f, 0xffb3c6, 0xfff3b0, 0xffffff, 0.95);
+    // Golden-Sunburst Crown-of-Neptune Staghorn Grove on NE terrace
+    addStaghornThicket(p, 0.16, 0.036, -0.10, 1.08, 0xe85d04, 0xff7b00, 0xffaa00, 0xfff3b0);
+    // Electric Turquoise-Aqua Labyrinth Brain Dome & Blooming Sea-Lotus Anemone
+    addBrainCoralBoulder(p, -0.17, 0.028, -0.15, 0.15, 0x0077b6, 0x00b4d8, 0x48cae4, 0x90e0ef);
+    addSeaLotusAnemone(p, 0.15, 0.028, 0.16, 0.15, 0x7209b7, 0xf72585, 0x4cc9f0);
+    coralReef.push(finalizeMergedParts(p));
+  }
+  {
+    // Variant 1: Bioluminescent Magenta Organ-Pipe Cathedral, Turquoise Labyrinth Dome & Golden Elkhorn Crown
+    const p: THREE.BufferGeometry[] = [];
+    addReefLimestoneMound(p, 0xfdf0d5, 0x9d4edd, 0xc77dff, 0xf72585);
+    // Towering Magenta-Orchid & Violet Organ-Pipe Sponge Cathedral on NW flank
+    addBarrelSpongeCluster(p, -0.13, 0.032, -0.06, 0xb5179e, 0x7209b7, 0xff70a6, 0x80ffdb);
+    // Grand Turquoise-Emerald Labyrinth Brain-Coral Dome on E terrace
+    addBrainCoralBoulder(p, 0.12, 0.030, 0.07, 0.21, 0x0077b6, 0x00b4d8, 0x48cae4, 0x80ffdb);
+    // Sunlit Amber-Coral Staghorn Crown on NE ledge & Sea-Lotus Anemone on SW ledge
+    addStaghornThicket(p, 0.15, 0.034, -0.15, 1.02, 0xf48c06, 0xff9f1c, 0xffbf69, 0xffffff);
+    addSeaLotusAnemone(p, -0.10, 0.028, 0.16, 0.16, 0xe63946, 0xff758f, 0xffe66d);
+    coralReef.push(finalizeMergedParts(p));
+  }
+  {
+    // Variant 2: Sunburst Three-Tiered Acropora Spiral, Royal Violet Staghorn Grove & Cyan Lotus Garden
+    const p: THREE.BufferGeometry[] = [];
+    addReefLimestoneMound(p, 0xfdf0d5, 0xe0aaff, 0xc77dff, 0xff9e00);
+    // Spiraling Sunburst-Coral, Tangerine & Pearl-Gold Acropora Table Canopies
+    addTableCoralPlate(p, -0.12, 0.026, -0.09, 0.26, 0xc9184a, 0xff5400, 0xff8500, 0xffbd00, 0xfff3b0, 0.12);
+    addTableCoralPlate(p, 0.02, 0.068, -0.02, 0.20, 0xe85d04, 0xff7b00, 0xffaa00, 0xffe169, 0x80ffdb, 0.48);
+    addTableCoralPlate(p, 0.15, 0.036, 0.13, 0.19, 0xd90429, 0xff4d6d, 0xff8fa3, 0xffccd5, 0xfff3b0, -0.28);
+    // Royal Violet-Amethyst Staghorn Antler Thicket on SW terrace
+    addStaghornThicket(p, -0.15, 0.034, 0.14, 1.08, 0x5a189a, 0x9d4edd, 0xc77dff, 0x80ffdb);
+    // Luminous Seafoam-Cyan Sea-Lotus Anemone on NE edge
+    addSeaLotusAnemone(p, 0.17, 0.028, -0.13, 0.15, 0x0096c7, 0x48cae4, 0xfff3b0);
+    coralReef.push(finalizeMergedParts(p));
+  }
+  {
+    // Variant 3: Crimson-Peach Elkhorn Sanctuary, Seafoam-Aqua Organ-Pipe Chimes & Orchid Pagoda Terrace
+    const p: THREE.BufferGeometry[] = [];
+    addReefLimestoneMound(p, 0xfdf0d5, 0xc77dff, 0xff8fa3, 0x48cae4);
+    // Sweeping Crimson-Rose & Pearl Elkhorn Antler Crown in center-west
+    addStaghornThicket(p, -0.08, 0.036, 0.04, 1.12, 0xc9184a, 0xff4d6d, 0xff8fa3, 0xfff3b0);
+    // Luminous Seafoam-Turquoise Organ-Pipe Cathedral on NE flank
+    addBarrelSpongeCluster(p, 0.14, 0.032, -0.09, 0x0096c7, 0x00b4d8, 0x72efdd, 0xfff3b0);
+    // Overlapping Royal-Orchid & Pink-Pearl Pagoda Table Canopy on SE flank
+    addTableCoralPlate(p, 0.12, 0.032, 0.14, 0.21, 0x6a1b9a, 0x9d4edd, 0xc77dff, 0xf3c4fb, 0x80ffdb, 0.35);
+    addBrainCoralBoulder(p, -0.17, 0.028, -0.14, 0.15, 0xf77f00, 0xfcbf49, 0xeae2b7, 0xffffff);
+    coralReef.push(finalizeMergedParts(p));
+  }
+
+  // 7a-bleached. Bleached / Damaged Calcified Coral Reefs (matching majestic silhouettes in calcified bone/ash-gray)
+  const coralReefBleached: THREE.BufferGeometry[] = [];
+  {
+    const p: THREE.BufferGeometry[] = [];
+    addReefLimestoneMound(p, 0x9ca3af, 0x64748b, 0x94a3b8, 0x78716c);
+    addTableCoralPlate(p, -0.14, 0.026, 0.10, 0.25, 0x475569, 0x94a3b8, 0xcbd5e1, 0xe2e8f0, 0xf1f5f9, 0.15);
+    addTableCoralPlate(p, -0.06, 0.068, 0.04, 0.20, 0x64748b, 0xcbd5e1, 0xe2e8f0, 0xf1f5f9, 0xf8fafc, 0.55);
+    addStaghornThicket(p, 0.16, 0.036, -0.10, 1.08, 0x64748b, 0x94a3b8, 0xcbd5e1, 0xe2e8f0);
+    addBrainCoralBoulder(p, -0.17, 0.028, -0.15, 0.15, 0x4b5563, 0x9ca3af, 0xd1d5db, 0xe5e7eb);
+    coralReefBleached.push(finalizeMergedParts(p));
+  }
+  {
+    const p: THREE.BufferGeometry[] = [];
+    addReefLimestoneMound(p, 0x9ca3af, 0x57534e, 0x6b7280, 0x94a3b8);
+    addBarrelSpongeCluster(p, -0.13, 0.032, -0.06, 0x64748b, 0x94a3b8, 0xcbd5e1, 0x334155);
+    addBrainCoralBoulder(p, 0.12, 0.030, 0.07, 0.21, 0x475569, 0x94a3b8, 0xcbd5e1, 0xe2e8f0);
+    addStaghornThicket(p, 0.15, 0.034, -0.15, 1.02, 0x64748b, 0x94a3b8, 0xcbd5e1, 0xf1f5f9);
+    addSeaLotusAnemone(p, -0.10, 0.028, 0.16, 0.16, 0x64748b, 0x94a3b8, 0xe2e8f0);
+    coralReefBleached.push(finalizeMergedParts(p));
+  }
+
+  // 7b. Scrap Flotsam & Sea Salvage (floating driftwood rafts, rusted metal plates, salvage barrels & crates)
+  const scrapFlotsam: THREE.BufferGeometry[] = [];
+  {
+    const p: THREE.BufferGeometry[] = [];
+    addColoredBox(p, 0.44, 0.06, 0.1, -0.06, 0.01, -0.12, 0x7c5334, 0.25); // driftwood plank
+    addColoredBox(p, 0.4, 0.06, 0.1, 0.04, 0.01, 0.04, 0x634128, -0.18);
+    addColoredBox(p, 0.18, 0.16, 0.18, -0.14, 0.08, 0.12, 0xb45309, 0.4); // salvage crate
+    addColoredBox(p, 0.14, 0.18, 0.14, 0.18, 0.07, -0.1, 0x475569, 0.2, 0.5); // steel drum
+    addColoredBox(p, 0.22, 0.05, 0.18, 0.12, 0.02, 0.18, 0x94a3b8, -0.3); // scrap hull plate
+    scrapFlotsam.push(finalizeMergedParts(p));
+  }
+  {
+    const p: THREE.BufferGeometry[] = [];
+    addColoredBox(p, 0.36, 0.07, 0.28, 0.0, 0.01, 0.0, 0x6b442a, 0.15);
+    addColoredBox(p, 0.16, 0.14, 0.22, -0.12, 0.09, -0.06, 0x64748b, -0.2);
+    addColoredBox(p, 0.14, 0.14, 0.14, 0.16, 0.08, 0.12, 0xd97706, 0.35);
+    addColoredBox(p, 0.08, 0.22, 0.08, -0.2, 0.1, 0.18, 0x38bdf8, 0.2, -0.3); // salvage canister
+    scrapFlotsam.push(finalizeMergedParts(p));
+  }
+
+  // 7c. Ancient Sunken City of Atlantis Temple Complex:
+  // Expansive ~3.5-tile submerged Atlantean metropolis featuring concentric white-marble & golden-orichalcum city rings,
+  // 4 radial sunken stepped temple pyramids rising right beneath the crystal-clear ocean surface (local y = 0.02..0.165, world y = 0.14..0.285),
+  // glowing underwater cyan ley-line canals, 8 submerged crystal-beacon obelisks, sunken aqueduct colonnades,
+  // and the emergent central marble temple colonnade & levitating portal spire rising above the waves!
+  const atlantisRuin: THREE.BufferGeometry[] = [];
+  const buildAtlantisComplex = (variantIdx: number): THREE.BufferGeometry => {
+    const p: THREE.BufferGeometry[] = [];
+    // 1. EXPANSIVE SUBMERGED ATLANTEAN CITY FOUNDATION & CONCENTRIC RINGS (local y = 0.01..0.165, world y = 0.13..0.285)
+    // Outer sunken sea-marble metropolis foundation disc (diameter ~3.36 tiles)
+    addColoredCylinder(p, 1.66, 1.74, 0.036, 12, 0, 0.018, 0, 0xcbd5e1);
+    // Outer golden orichalcum city wall ring & raised perimeter walkway (clearly visible just below the water surface)
+    addColoredCylinder(p, 1.54, 1.60, 0.042, 12, 0, 0.056, 0, 0xf5b742);
+    // Submerged inner lagoon floor in deep Atlantean lapis-teal to contrast with the white marble & glowing cyan canals
+    addColoredCylinder(p, 1.44, 1.46, 0.020, 12, 0, 0.082, 0, 0x0f4c5c);
+    // Middle concentric white-marble acropolis terrace & golden orichalcum ring
+    addColoredCylinder(p, 1.14, 1.20, 0.036, 12, 0, 0.102, 0, 0xe2e8f0);
+    addColoredCylinder(p, 1.02, 1.06, 0.024, 12, 0, 0.128, 0, 0xf5b742);
+    // Inner sunken sanctum dais right beneath the water surface (local y = 0.146 -> world y = 0.266)
+    addColoredCylinder(p, 0.80, 0.86, 0.032, 12, 0, 0.146, 0, 0xf8fafc);
+
+    // Glowing Underwater Cyan Ley-Line Canals & Cross-Avenues spanning the entire 3.4-tile sunken city
+    addColoredBox(p, 3.24, 0.030, 0.22, 0, 0.118, 0, 0x00f5d4);
+    addColoredBox(p, 0.22, 0.030, 3.24, 0, 0.118, 0, 0x00f5d4);
+    addColoredBox(p, 2.50, 0.024, 0.14, 0, 0.112, 0, 0x48bfe3, Math.PI / 4);
+    addColoredBox(p, 0.14, 0.024, 2.50, 0, 0.112, 0, 0x48bfe3, Math.PI / 4);
+
+    // 4 Radial Sunken Grand Causeways & Stepped Temple Gateways at N, S, E, W (extending out to r = 1.72)
+    for (const [sx, sz, isX] of [
+      [1.46, 0, true],
+      [-1.46, 0, true],
+      [0, 1.46, false],
+      [0, -1.46, false],
+    ] as const) {
+      addColoredBox(p, isX ? 0.56 : 0.78, 0.056, isX ? 0.78 : 0.56, sx, 0.052, sz, 0xe2e8f0);
+      addColoredBox(p, isX ? 0.42 : 0.62, 0.048, isX ? 0.62 : 0.42, sx * 0.90, 0.098, sz * 0.90, 0xf5b742);
+      addColoredBox(p, isX ? 0.30 : 0.48, 0.036, isX ? 0.48 : 0.30, sx * 0.82, 0.136, sz * 0.82, 0xf8fafc);
+      // Flanking submerged gate pylons at each cardinal causeway entrance
+      const perpX = isX ? 0 : 0.34;
+      const perpZ = isX ? 0.34 : 0;
+      for (const side of [-1, 1] as const) {
+        const gx = sx + perpX * side;
+        const gz = sz + perpZ * side;
+        addColoredBox(p, 0.18, 0.11, 0.18, gx, 0.095, gz, 0xf8fafc);
+        addColoredBox(p, 0.22, 0.028, 0.22, gx, 0.152, gz, 0xf5b742);
+      }
+    }
+
+    // 4 Submerged Stepped Atlantean Temple Pyramids in the NE, NW, SE, SW City Quadrants
+    // (Rising up to local y = 0.164 / world y = 0.284 so their tiered roofs & glowing crystal shrines are unmistakably visible underwater!)
+    for (const [qx, qz] of [
+      [-0.96, -0.96],
+      [0.96, -0.96],
+      [-0.96, 0.96],
+      [0.96, 0.96],
+    ] as const) {
+      addColoredBox(p, 0.58, 0.042, 0.58, qx, 0.068, qz, 0xcbd5e1); // lower sunken pyramid tier
+      addColoredBox(p, 0.46, 0.038, 0.46, qx, 0.106, qz, 0xe2e8f0); // middle sunken pyramid tier
+      addColoredBox(p, 0.36, 0.026, 0.36, qx, 0.136, qz, 0xf5b742); // golden orichalcum frieze
+      addColoredBox(p, 0.24, 0.028, 0.24, qx, 0.154, qz, 0x00f5d4, Math.PI / 4); // glowing cyan underwater sanctum cap
+    }
+
+    // 8 Outer Sunken Colonnade Pillars & Glowing Sea-Crystal Obelisks along the city perimeter ring
+    for (let i = 0; i < 8; i++) {
+      const ang = (i * Math.PI) / 4 + Math.PI / 8;
+      const ox = Math.cos(ang) * 1.42;
+      const oz = Math.sin(ang) * 1.42;
+      addColoredCylinder(p, 0.08, 0.10, 0.09, 6, ox, 0.095, oz, 0xf1f5f9);
+      addColoredCylinder(p, 0.10, 0.10, 0.024, 6, ox, 0.146, oz, 0xf5b742);
+      addColoredCylinder(p, 0.02, 0.06, 0.028, 6, ox, 0.162, oz, 0x00f5d4);
+    }
+
+    // Fallen / Ruined Underwater Marble Columns resting on the sunken courtyard floor
+    addColoredCylinder(p, 0.065, 0.065, 0.48, 8, -0.68, 0.125, 1.18, 0xf1f5f9, 0, 0.35, Math.PI / 2);
+    addColoredCylinder(p, 0.065, 0.065, 0.46, 8, 1.18, 0.125, -0.64, 0xf1f5f9, Math.PI / 2, -0.28, 0);
+
+    // 2. EMERGENT ABOVE-WATER TEMPLE COLONNADE & PORTAL GATEWAY (rising from y = 0.16 through the water surface up to y = 0.90)
+    for (const [px, pz, colH, hasCap] of [
+      [-0.46, -0.46, 0.58, true],
+      [0.46, -0.46, variantIdx === 0 ? 0.58 : 0.40, variantIdx === 0],
+      [-0.46, 0.46, variantIdx === 0 ? 0.42 : 0.58, variantIdx !== 0],
+      [0.46, 0.46, 0.58, true],
+    ] as const) {
+      addColoredCylinder(p, 0.12, 0.14, 0.06, 8, px, 0.17, pz, 0xf5b742); // golden column base
+      addColoredCylinder(p, 0.085, 0.095, colH, 8, px, 0.18 + colH * 0.5, pz, 0xf8fafc); // fluted marble column shaft
+      if (hasCap) {
+        addColoredBox(p, 0.22, 0.06, 0.22, px, 0.20 + colH, pz, 0xf5b742); // golden orichalcum capital
+      }
+    }
+
+    // Emergent Golden Orichalcum Architrave Lintel & Temple Pediment Bridge above the waves
+    if (variantIdx === 0) {
+      addColoredBox(p, 1.16, 0.08, 0.24, 0, 0.80, -0.46, 0xf5b742);
+      addColoredBox(p, 1.08, 0.06, 0.20, 0, 0.86, -0.46, 0xf8fafc);
+    } else {
+      addColoredBox(p, 0.24, 0.08, 1.16, -0.46, 0.80, 0, 0xf5b742);
+      addColoredBox(p, 0.20, 0.06, 1.08, -0.46, 0.86, 0, 0xf8fafc);
+    }
+
+    // Central Atlantean Sanctum Altar & Levitating Sea-Crystal Portal Spire
+    addColoredCylinder(p, 0.28, 0.34, 0.10, 8, 0, 0.19, 0, 0xe2e8f0);
+    addColoredCylinder(p, 0.22, 0.26, 0.06, 8, 0, 0.26, 0, 0xf5b742);
+    addColoredBox(p, 0.22, 0.58, 0.22, 0, 0.54, 0, 0x48bfe3, Math.PI / 4); // towering glowing portal crystal
+    addColoredBox(p, 0.34, 0.05, 0.34, 0, 0.54, 0, 0xf5b742, Math.PI / 4); // floating golden orichalcum containment ring
+    return finalizeMergedParts(p);
+  };
+  atlantisRuin.push(buildAtlantisComplex(0));
+  atlantisRuin.push(buildAtlantisComplex(1));
+
   cachedVariantLib = {
     timber,
     timberJungle,
@@ -1101,6 +1617,10 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     ambientSavanna,
     ambientSwamp,
     ambientHighland,
+    coralReef,
+    coralReefBleached,
+    scrapFlotsam,
+    atlantisRuin,
     standardMat: new THREE.MeshStandardMaterial({
       vertexColors: true,
       roughness: 0.78,
@@ -1113,6 +1633,27 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
       roughness: 0.24,
       metalness: 0.35,
     }),
+    coralReefMat: (() => {
+      const m = new THREE.MeshStandardMaterial({
+        vertexColors: true,
+        roughness: 0.26,
+        metalness: 0.06,
+      });
+      m.onBeforeCompile = (shader) => {
+        shader.fragmentShader = shader.fragmentShader.replace(
+          '#include <color_fragment>',
+          `#include <color_fragment>
+          diffuseColor.rgb = pow(diffuseColor.rgb, vec3(0.92)) * 1.18;`,
+        );
+        shader.fragmentShader = shader.fragmentShader.replace(
+          '#include <emissivemap_fragment>',
+          `#include <emissivemap_fragment>
+          totalEmissiveRadiance += diffuseColor.rgb * 0.54;`,
+        );
+      };
+      m.customProgramCacheKey = () => 'coral-reef-biolum-v1';
+      return m;
+    })(),
   };
 
   return cachedVariantLib;
@@ -1133,6 +1674,14 @@ export function createResourceNodeGroup(nodeType: ResourceNodeType, variant = 0)
   else if (nodeType === 'ore_vein') geo = lib.ore[idx % lib.ore.length];
   else if (nodeType === 'crystal_monolith') {
     geo = lib.crystal[idx % lib.crystal.length];
+    mat = lib.crystalMat;
+  } else if (nodeType === 'coral_reef') {
+    geo = lib.coralReef[idx % lib.coralReef.length];
+    mat = lib.coralReefMat;
+  } else if (nodeType === 'scrap_flotsam') {
+    geo = lib.scrapFlotsam[idx % lib.scrapFlotsam.length];
+  } else if (nodeType === 'atlantis_ruin') {
+    geo = lib.atlantisRuin[idx % lib.atlantisRuin.length];
     mat = lib.crystalMat;
   }
 
@@ -1320,8 +1869,170 @@ function getBuildingMaterials(): Record<string, THREE.MeshStandardMaterial> {
       emissiveIntensity: 0.95,
       roughness: 0.18,
     }),
+    windowWarmMat: new THREE.MeshStandardMaterial({
+      color: 0x3b2d22,
+      emissive: 0xffa62b,
+      emissiveIntensity: 0.05,
+      roughness: 0.25,
+    }),
+    windowModernWarmMat: new THREE.MeshStandardMaterial({
+      color: 0x334155,
+      emissive: 0xffd166,
+      emissiveIntensity: 0.08,
+      roughness: 0.2,
+    }),
+    windowModernCoolMat: new THREE.MeshStandardMaterial({
+      color: 0x334155,
+      emissive: 0x56cfe1,
+      emissiveIntensity: 0.08,
+      roughness: 0.2,
+    }),
+    beaconRedMat: new THREE.MeshStandardMaterial({
+      color: 0xef4444,
+      emissive: 0xff2a2a,
+      emissiveIntensity: 0.35,
+      roughness: 0.2,
+    }),
+    slateRoofMat: new THREE.MeshStandardMaterial({
+      map: getPixelArtTexture('bld_slate_roof', '#333d4a', '#4b596b', '#1f252e', 'roof'),
+      roughness: 0.62,
+      metalness: 0.14,
+    }),
+    copperMat: new THREE.MeshStandardMaterial({
+      color: 0xc77d42,
+      metalness: 0.72,
+      roughness: 0.28,
+    }),
+    glassCurtainMat: new THREE.MeshStandardMaterial({
+      map: getPixelArtTexture('bld_glass_curtain', '#3b6fa8', '#6aa3db', '#1c3b61', 'tech'),
+      emissive: 0x1e4e79,
+      emissiveIntensity: 0.22,
+      metalness: 0.52,
+      roughness: 0.14,
+    }),
+    elfFiligreeMat: new THREE.MeshStandardMaterial({
+      color: 0xf4edd8,
+      metalness: 0.38,
+      roughness: 0.34,
+    }),
+    orcRustPlateMat: new THREE.MeshStandardMaterial({
+      map: getPixelArtTexture('bld_orc_rust_plate', '#473832', '#665047', '#291f1c', 'tech'),
+      metalness: 0.58,
+      roughness: 0.54,
+    }),
   };
   return sharedBuildingMats;
+}
+
+export function updateBuildingNightMaterials(darkness: number, elapsed: number): void {
+  const M = getBuildingMaterials();
+  const safeElapsed = wrapShaderTime(elapsed);
+  const d = THREE.MathUtils.clamp(darkness, 0, 1);
+  const nightSmooth = d * d * (3 - 2 * d);
+  const flicker =
+    1 +
+    (Math.sin(safeElapsed * 11.3) * 0.12 +
+      Math.cos(safeElapsed * 17.9 + 1.4) * 0.08 +
+      Math.sin(safeElapsed * 27.1 + 0.6) * 0.05) *
+      (0.35 + 0.65 * nightSmooth);
+
+  // Warm cottage / lantern / gaslight / tenement windows
+  M.windowWarmMat.color.setHex(nightSmooth > 0.2 ? 0xffcb69 : 0x3b2d22);
+  M.windowWarmMat.emissiveIntensity = (0.04 + nightSmooth * 2.15) * (0.94 + 0.06 * flicker);
+
+  // Modern & Information Age skyscraper & apartment windows
+  M.windowModernWarmMat.color.setHex(nightSmooth > 0.2 ? 0xffe194 : 0x334155);
+  M.windowModernWarmMat.emissiveIntensity = 0.08 + nightSmooth * 2.35;
+
+  M.windowModernCoolMat.color.setHex(nightSmooth > 0.2 ? 0x90e0ef : 0x334155);
+  M.windowModernCoolMat.emissiveIntensity = 0.08 + nightSmooth * 2.25;
+
+  M.glassCurtainMat.emissiveIntensity = 0.18 + nightSmooth * 0.72;
+
+  // Pulsing red rooftop aviation warning beacons
+  const beaconPulse = 0.5 + 0.5 * Math.sin(safeElapsed * 4.2);
+  M.beaconRedMat.emissiveIntensity = 0.25 + nightSmooth * (0.9 + beaconPulse * 2.2);
+
+  // Campfires, braziers, furnaces, and racial magical/magma/neon glows intensify at dark hours
+  M.flameMat.emissiveIntensity = (0.95 + nightSmooth * 1.85) * flicker;
+  M.glowCyanMat.emissiveIntensity = 0.85 + nightSmooth * 1.45;
+  M.elfAquaGlowMat.emissiveIntensity = 0.9 + nightSmooth * 1.55;
+  M.orcMagmaGlowMat.emissiveIntensity = (0.95 + nightSmooth * 1.65) * (0.92 + 0.08 * flicker);
+}
+
+let cachedCoolingTowerGeo: THREE.LatheGeometry | null = null;
+function getCoolingTowerGeo(): THREE.LatheGeometry {
+  if (cachedCoolingTowerGeo) return cachedCoolingTowerGeo;
+  const pts: THREE.Vector2[] = [];
+  const segs = 9;
+  for (let i = 0; i <= segs; i++) {
+    const t = i / segs;
+    const y = t * 0.74;
+    // Classic hyperboloid waist curve pinching at t=0.68 and flaring slightly at crown lip
+    const r = 0.21 - 0.085 * Math.sin(t * Math.PI * 0.85) + (t > 0.75 ? (t - 0.75) * 0.09 : 0);
+    pts.push(new THREE.Vector2(r, y));
+  }
+  cachedCoolingTowerGeo = new THREE.LatheGeometry(pts, 12);
+  cachedCoolingTowerGeo.computeVertexNormals();
+  return cachedCoolingTowerGeo;
+}
+
+/**
+ * Merges static architectural sub-meshes per shared material & shadow flags to preserve
+ * low WebGL draw calls while allowing 30-60+ crisp facade details per building.
+ * Leaves `contact_shadow`, `flicker_flame`, `spin_part`, and sub-groups untouched.
+ */
+function finalizeStaticBuildingMeshes(group: THREE.Group): void {
+  const buckets = new Map<
+    string,
+    { mat: THREE.Material; castShadow: boolean; receiveShadow: boolean; meshes: THREE.Mesh[] }
+  >();
+  for (let i = 0; i < group.children.length; i++) {
+    const child = group.children[i];
+    if (!(child instanceof THREE.Mesh)) continue;
+    if (child.name === 'contact_shadow' || child.name === 'flicker_flame' || child.name === 'spin_part') continue;
+    if (Array.isArray(child.material)) continue;
+    const mat = child.material;
+    const key = `${mat.uuid}|${child.castShadow ? 1 : 0}|${child.receiveShadow ? 1 : 0}`;
+    let bucket = buckets.get(key);
+    if (!bucket) {
+      bucket = { mat, castShadow: child.castShadow, receiveShadow: child.receiveShadow, meshes: [] };
+      buckets.set(key, bucket);
+    }
+    bucket.meshes.push(child);
+  }
+
+  for (const bucket of buckets.values()) {
+    if (bucket.meshes.length < 2) continue;
+    const prepped: THREE.BufferGeometry[] = [];
+    for (const m of bucket.meshes) {
+      m.updateMatrix();
+      const raw = m.geometry;
+      const g = raw.index ? raw.toNonIndexed() : raw.clone();
+      if (g.attributes.color) g.deleteAttribute('color');
+      if (!g.attributes.normal) g.computeVertexNormals();
+      if (!g.attributes.uv) {
+        const count = g.attributes.position.count;
+        g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(count * 2), 2));
+      }
+      g.applyMatrix4(m.matrix);
+      prepped.push(g);
+    }
+    const merged = mergeGeometries(prepped, false);
+    for (const p of prepped) p.dispose();
+    if (merged) {
+      for (const m of bucket.meshes) {
+        group.remove(m);
+        if (m.geometry !== cachedCoolingTowerGeo) {
+          m.geometry.dispose();
+        }
+      }
+      const combined = new THREE.Mesh(merged, bucket.mat);
+      combined.castShadow = bucket.castShadow;
+      combined.receiveShadow = bucket.receiveShadow;
+      group.add(combined);
+    }
+  }
 }
 
 export function createBuildingGroup(
@@ -1329,6 +2040,7 @@ export function createBuildingGroup(
   epochIndex: number,
   variantSeed = 0,
   species: SpeciesId = 'human',
+  isWaterTile = false,
 ): THREE.Group {
   const group = new THREE.Group();
   const isMonumental =
@@ -1382,6 +2094,15 @@ export function createBuildingGroup(
     orcGunmetalMat,
     orcBoneMat,
     orcMagmaGlowMat,
+    windowWarmMat,
+    windowModernWarmMat,
+    windowModernCoolMat,
+    beaconRedMat,
+    slateRoofMat,
+    copperMat,
+    glassCurtainMat,
+    elfFiligreeMat,
+    orcRustPlateMat,
   } = M;
 
   const isElf = species === 'elf';
@@ -1391,7 +2112,116 @@ export function createBuildingGroup(
   const raceTechTrimMat = isElf ? elfJadeRoofMat : isOrc ? orcIronMat : darkTechMat;
   const raceAccentMat = isElf ? goldMat : isOrc ? orcCrimsonMat : goldMat;
 
-  // Helper: Builds a multi-layer stair-stepped voxel pitched gable roof with solid stepped gable walls
+  // Floating City Foundation Platform when constructed on water (evolves across epochs & races)
+  if (isWaterTile) {
+    const platGroup = new THREE.Group();
+    platGroup.name = 'floating_city_platform';
+    if (epochIndex <= 0) {
+      // Prehistoric: Lashed log raft / Elf lotus-root pad / Orc bone-tied hide pontoon raft
+      const deckMat = isElf ? elfLeafRoofMat : isOrc ? orcCharredLogMat : stickWoodMat;
+      const floatMat = isElf ? elfHeartwoodMat : isOrc ? orcHideMat : woodMat;
+      for (let li = -3; li <= 3; li++) {
+        const log = new THREE.Mesh(new THREE.BoxGeometry(0.96, 0.06, 0.11), deckMat);
+        log.position.set(0, -0.02, li * 0.13);
+        platGroup.add(log);
+      }
+      for (const sx of [-0.44, 0.44]) {
+        const outrigger = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.09, 0.98), floatMat);
+        outrigger.position.set(sx, -0.05, 0);
+        platGroup.add(outrigger);
+      }
+      if (isOrc) {
+        for (const [cx, cz] of [
+          [-0.44, -0.44],
+          [0.44, -0.44],
+          [-0.44, 0.44],
+          [0.44, 0.44],
+        ] as const) {
+          const tusk = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.16, 4), orcBoneMat);
+          tusk.position.set(cx, 0.07, cz);
+          platGroup.add(tusk);
+        }
+      }
+    } else if (epochIndex <= 2) {
+      // Bronze & Medieval: Timber wharf / Elf moonstone & birch terrace / Orc basalt & iron-banded war-barge
+      const deckMat = isElf ? elfBirchMat : isOrc ? orcCharredLogMat : woodMat;
+      const trimM = isElf ? elfMossStoneMat : isOrc ? orcBasaltMat : stoneMat;
+      const deck = new THREE.Mesh(new THREE.BoxGeometry(0.98, 0.08, 0.98), deckMat);
+      deck.position.set(0, -0.03, 0);
+      platGroup.add(deck);
+      for (const [cx, cz] of [
+        [-0.44, -0.44],
+        [0.44, -0.44],
+        [-0.44, 0.44],
+        [0.44, 0.44],
+      ] as const) {
+        const piling = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.24, 0.11), trimM);
+        piling.position.set(cx, -0.06, cz);
+        platGroup.add(piling);
+      }
+    } else if (epochIndex <= 3) {
+      // Industrial: Riveted iron & brick caisson / Elf verdigris pontoon / Orc heavy iron forge-barge
+      const caissonMat = isElf ? elfVerdigrisMat : isOrc ? orcIronMat : brickMat;
+      const rimM = isElf ? elfHeartwoodMat : isOrc ? orcGunmetalMat : darkStoneMat;
+      const caisson = new THREE.Mesh(new THREE.BoxGeometry(0.98, 0.12, 0.98), caissonMat);
+      caisson.position.set(0, -0.05, 0);
+      platGroup.add(caisson);
+      for (const sx of [-0.46, 0.46]) {
+        const pontoon = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 1.0, 8), rimM);
+        pontoon.rotation.x = Math.PI / 2;
+        pontoon.position.set(sx, -0.08, 0);
+        platGroup.add(pontoon);
+      }
+    } else if (epochIndex <= 5) {
+      // Atomic & Modern: Reinforced offshore concrete & steel catamaran pontoon platform
+      const deckMat = isElf ? elfPearlTechMat : isOrc ? orcGunmetalMat : concreteMat;
+      const hullMat = isElf ? elfJadeRoofMat : isOrc ? orcCrimsonMat : darkTechMat;
+      const deck = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.09, 1.0), deckMat);
+      deck.position.set(0, -0.03, 0);
+      platGroup.add(deck);
+      for (const sx of [-0.42, 0.42]) {
+        const floatHull = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.12, 1.02), hullMat);
+        floatHull.position.set(sx, -0.09, 0);
+        platGroup.add(floatHull);
+      }
+    } else {
+      // Orbital & Interstellar: Anti-gravity repulsor sea-pad with glowing racial plasma rings
+      const pad = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.54, 0.1, 8), raceTechWallMat);
+      pad.position.set(0, -0.04, 0);
+      platGroup.add(pad);
+      const glowRing = new THREE.Mesh(new THREE.BoxGeometry(0.96, 0.04, 0.96), raceGlowMat);
+      glowRing.position.set(0, -0.09, 0);
+      platGroup.add(glowRing);
+    }
+    group.add(platGroup);
+  }
+
+  // Helper: Prehistoric outdoor stone-ring campfire with crossed logs & flickering flame
+  const addPrehistoricCampfire = (cx: number, cz: number, fireMat: THREE.Material = flameMat) => {
+    for (let s = 0; s < 6; s++) {
+      const a = (s / 6) * Math.PI * 2;
+      const stone = new THREE.Mesh(
+        new THREE.BoxGeometry(0.055, 0.04, 0.055),
+        isOrc ? orcBasaltMat : isElf ? elfMossStoneMat : stoneMat,
+      );
+      stone.position.set(cx + Math.cos(a) * 0.095, 0.025, cz + Math.sin(a) * 0.095);
+      group.add(stone);
+    }
+    const log1 = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.032, 0.035), stickWoodMat);
+    log1.position.set(cx, 0.032, cz);
+    log1.rotation.y = 0.55;
+    group.add(log1);
+    const log2 = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.032, 0.035), stickWoodMat);
+    log2.position.set(cx, 0.038, cz);
+    log2.rotation.y = -0.65;
+    group.add(log2);
+    const emberCore = new THREE.Mesh(new THREE.ConeGeometry(0.065, 0.14, 5), fireMat);
+    emberCore.position.set(cx, 0.095, cz);
+    emberCore.name = 'flicker_flame';
+    group.add(emberCore);
+  };
+
+  // Helper: Builds a multi-layer stair-stepped voxel pitched gable roof with ridge cap & bargeboard eaves
   const addSteppedGableRoof = (
     cx: number,
     baseY: number,
@@ -1409,8 +2239,8 @@ export function createBuildingGroup(
       const curSpan = spanW * frac;
       const y = baseY + i * layerH + layerH * 0.5;
 
-      const slabW = ridgeAlongZ ? curSpan : lengthD + 0.06;
-      const slabD = ridgeAlongZ ? lengthD + 0.06 : curSpan;
+      const slabW = ridgeAlongZ ? curSpan : lengthD + 0.08;
+      const slabD = ridgeAlongZ ? lengthD + 0.08 : curSpan;
       const roofSlab = new THREE.Mesh(new THREE.BoxGeometry(slabW, layerH, slabD), roofMaterial);
       roofSlab.position.set(cx, y, cz);
       roofSlab.castShadow = true;
@@ -1427,9 +2257,17 @@ export function createBuildingGroup(
         group.add(gableFill);
       }
     }
+    // Crisp ridge spine cap along the roof apex
+    const topY = baseY + layers * layerH + 0.014;
+    const ridgeCap = new THREE.Mesh(
+      new THREE.BoxGeometry(ridgeAlongZ ? 0.065 : lengthD + 0.1, 0.03, ridgeAlongZ ? lengthD + 0.1 : 0.065),
+      darkStoneMat,
+    );
+    ridgeCap.position.set(cx, topY, cz);
+    group.add(ridgeCap);
   };
 
-  // Helper: Builds a complete stepped-voxel cottage / house (walls, stepped gable roof, door, windows, chimney)
+  // Helper: Builds a richly detailed Human cottage / townhouse (ashlar quoins, portico, framed mullioned windows, dormer, corbeled chimney)
   const addVoxelCottage = (opts: {
     cx?: number;
     cz?: number;
@@ -1442,6 +2280,7 @@ export function createBuildingGroup(
     chimneySide?: 'left' | 'right' | 'front_right' | 'none';
     ridgeAlongZ?: boolean;
     timberTrim?: boolean;
+    withDormer?: boolean;
   }) => {
     const cx = opts.cx ?? 0;
     const cz = opts.cz ?? 0;
@@ -1450,53 +2289,129 @@ export function createBuildingGroup(
 
     const trimMat =
       epochIndex >= 6 ? raceTechTrimMat : isOrc ? orcBasaltMat : isElf ? elfMossStoneMat : epochIndex >= 3 ? darkStoneMat : stoneMat;
-    const foundation = new THREE.Mesh(new THREE.BoxGeometry(w + 0.04, 0.05, d + 0.04), trimMat);
-    foundation.position.set(cx, 0.025, cz);
+    // Lower stone footing + upper chamfered water-table plinth
+    const foundation = new THREE.Mesh(new THREE.BoxGeometry(w + 0.07, 0.055, d + 0.07), trimMat);
+    foundation.position.set(cx, 0.027, cz);
     foundation.receiveShadow = true;
     group.add(foundation);
 
     const walls = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), wallMat);
-    walls.position.set(cx, 0.05 + h * 0.5, cz);
+    walls.position.set(cx, 0.055 + h * 0.5, cz);
     walls.castShadow = true;
     walls.receiveShadow = true;
     group.add(walls);
 
+    // Architectural eave fascia cornice molding beneath roof overhang
+    const cornice = new THREE.Mesh(new THREE.BoxGeometry(w + 0.05, 0.032, d + 0.05), trimMat);
+    cornice.position.set(cx, 0.055 + h - 0.01, cz);
+    group.add(cornice);
+
+    // Corner pilasters / half-timber framing with horizontal girdle beam
+    const postMat = opts.timberTrim
+      ? (isOrc ? orcCharredLogMat : isElf ? elfHeartwoodMat : stickWoodMat)
+      : trimMat;
+    for (const [px, pz] of [
+      [-w * 0.5, -d * 0.5],
+      [w * 0.5, -d * 0.5],
+      [-w * 0.5, d * 0.5],
+      [w * 0.5, d * 0.5],
+    ]) {
+      const post = new THREE.Mesh(
+        new THREE.BoxGeometry(opts.timberTrim ? 0.055 : 0.042, h + 0.01, opts.timberTrim ? 0.055 : 0.042),
+        postMat,
+      );
+      post.position.set(cx + px, 0.055 + h * 0.5, cz + pz);
+      group.add(post);
+    }
     if (opts.timberTrim) {
-      const postCorners = [
-        [-w * 0.5, -d * 0.5],
-        [w * 0.5, -d * 0.5],
-        [-w * 0.5, d * 0.5],
-        [w * 0.5, d * 0.5],
-      ];
-      const postMat = isOrc ? orcCharredLogMat : isElf ? elfHeartwoodMat : stickWoodMat;
-      for (const [px, pz] of postCorners) {
-        const post = new THREE.Mesh(new THREE.BoxGeometry(0.055, h + 0.02, 0.055), postMat);
-        post.position.set(cx + px, 0.05 + h * 0.5, cz + pz);
-        group.add(post);
-      }
+      const girdle = new THREE.Mesh(new THREE.BoxGeometry(w + 0.025, 0.032, d + 0.025), postMat);
+      girdle.position.set(cx, 0.055 + h * 0.55, cz);
+      group.add(girdle);
     }
 
-    const windowMat = epochIndex >= 6 ? raceGlowMat : isOrc ? orcMagmaGlowMat : doorDarkMat;
+    const windowMat =
+      epochIndex >= 6
+        ? raceGlowMat
+        : isOrc
+          ? orcMagmaGlowMat
+          : isElf
+            ? elfAquaGlowMat
+            : epochIndex >= 4
+              ? windowModernWarmMat
+              : windowWarmMat;
+    const frameMat = epochIndex >= 5 ? darkTechMat : epochIndex >= 3 ? stoneMat : stickWoodMat;
+
+    // Front stepped stone stoop + recessed entrance + projecting doorway portico hood
+    const stoop = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.045, 0.09), trimMat);
+    stoop.position.set(cx - w * 0.14, 0.045, cz + d * 0.5 + 0.045);
+    group.add(stoop);
+
+    const doorFrame = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.21, 0.032), frameMat);
+    doorFrame.position.set(cx - w * 0.14, 0.16, cz + d * 0.5 + 0.008);
+    group.add(doorFrame);
+
     const door = new THREE.Mesh(
-      new THREE.BoxGeometry(0.11, 0.19, 0.03),
+      new THREE.BoxGeometry(0.1, 0.185, 0.038),
       epochIndex >= 6 ? raceGlowMat : doorDarkMat,
     );
-    door.position.set(cx - w * 0.12, 0.145, cz + d * 0.5 + 0.008);
+    door.position.set(cx - w * 0.14, 0.15, cz + d * 0.5 + 0.012);
     group.add(door);
 
-    const winFront = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.09, 0.03), windowMat);
-    winFront.position.set(cx + w * 0.2, 0.22, cz + d * 0.5 + 0.008);
-    group.add(winFront);
+    const doorHood = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.035, 0.085), roofMat);
+    doorHood.position.set(cx - w * 0.14, 0.28, cz + d * 0.5 + 0.035);
+    group.add(doorHood);
 
-    const winSide = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.09, 0.09), windowMat);
-    winSide.position.set(cx + w * 0.5 + 0.008, 0.22, cz);
-    group.add(winSide);
+    // Glowing wall lantern beside entrance portico
+    const porchLantern = new THREE.Mesh(
+      new THREE.BoxGeometry(0.038, 0.055, 0.038),
+      epochIndex >= 6 ? raceGlowMat : isOrc ? orcMagmaGlowMat : isElf ? elfAquaGlowMat : flameMat,
+    );
+    porchLantern.position.set(cx - w * 0.28, 0.225, cz + d * 0.5 + 0.024);
+    group.add(porchLantern);
+
+    // Framed multi-pane windows with projecting sill ledges & shutters on front/back/sides
+    const addFramedWindow = (wx: number, wy: number, wz: number, alongX: boolean) => {
+      const fGeo = alongX
+        ? new THREE.BoxGeometry(0.115, 0.115, 0.025)
+        : new THREE.BoxGeometry(0.025, 0.115, 0.115);
+      const frame = new THREE.Mesh(fGeo, frameMat);
+      frame.position.set(wx, wy, wz);
+      group.add(frame);
+
+      const gGeo = alongX
+        ? new THREE.BoxGeometry(0.088, 0.088, 0.032)
+        : new THREE.BoxGeometry(0.032, 0.088, 0.088);
+      const pane = new THREE.Mesh(gGeo, windowMat);
+      pane.position.set(wx, wy, wz);
+      group.add(pane);
+
+      // Mullion crossbar & projecting stone sill
+      const sillGeo = alongX
+        ? new THREE.BoxGeometry(0.135, 0.024, 0.048)
+        : new THREE.BoxGeometry(0.048, 0.024, 0.135);
+      const sill = new THREE.Mesh(sillGeo, trimMat);
+      sill.position.set(wx, wy - 0.062, wz);
+      group.add(sill);
+    };
+
+    const winY = 0.055 + h * 0.55;
+    addFramedWindow(cx + w * 0.2, winY, cz + d * 0.5 + 0.008, true);
+    addFramedWindow(cx + w * 0.14, winY, cz - d * 0.5 - 0.008, true);
+    addFramedWindow(cx - w * 0.18, winY, cz - d * 0.5 - 0.008, true);
+    addFramedWindow(cx + w * 0.5 + 0.008, winY, cz, false);
+    addFramedWindow(cx - w * 0.5 - 0.008, winY, cz, false);
+
+    // Optional upper floor window band for taller workshops / tenements
+    if (h >= 0.4) {
+      addFramedWindow(cx - w * 0.16, 0.055 + h * 0.82, cz + d * 0.5 + 0.008, true);
+      addFramedWindow(cx + w * 0.2, 0.055 + h * 0.82, cz + d * 0.5 + 0.008, true);
+    }
 
     const eaveW = ridgeAlongZ ? w + 0.12 : w + 0.08;
     const eaveD = ridgeAlongZ ? d + 0.08 : d + 0.12;
     addSteppedGableRoof(
       cx,
-      0.05 + h,
+      0.055 + h,
       cz,
       ridgeAlongZ ? eaveW : eaveD,
       ridgeAlongZ ? eaveD : eaveW,
@@ -1507,28 +2422,48 @@ export function createBuildingGroup(
       ridgeAlongZ,
     );
 
+    // Pitched dormer window breaking up the front roof slope when enabled
+    if (opts.withDormer) {
+      const dmY = 0.055 + h + 0.11;
+      const dmZ = cz + d * 0.22;
+      const dmBody = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.12, 0.16), wallMat);
+      dmBody.position.set(cx + w * 0.06, dmY, dmZ);
+      group.add(dmBody);
+      const dmCap = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.1, 4), roofMat);
+      dmCap.rotation.y = Math.PI / 4;
+      dmCap.position.set(cx + w * 0.06, dmY + 0.1, dmZ);
+      group.add(dmCap);
+      const dmGlass = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.075, 0.03), windowMat);
+      dmGlass.position.set(cx + w * 0.06, dmY, dmZ + 0.078);
+      group.add(dmGlass);
+    }
+
     if (opts.chimneySide && opts.chimneySide !== 'none') {
       const cMat = opts.chimneyMat ?? whitePlasterMat;
-      const chH = h + 0.34;
+      const chH = h + 0.36;
       const chX =
         opts.chimneySide === 'left'
           ? cx - w * 0.34
           : opts.chimneySide === 'right'
             ? cx + w * 0.34
             : cx + w * 0.22;
-      const chZ = opts.chimneySide === 'front_right' ? cz + d * 0.46 : cz - d * 0.12;
+      const chZ = opts.chimneySide === 'front_right' ? cz + d * 0.44 : cz - d * 0.12;
       const chimney = new THREE.Mesh(new THREE.BoxGeometry(0.11, chH, 0.11), cMat);
       chimney.position.set(chX, 0.05 + chH * 0.5, chZ);
       chimney.castShadow = true;
       group.add(chimney);
 
-      const flue = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.04, 0.13), darkStoneMat);
-      flue.position.set(chX, 0.05 + chH + 0.02, chZ);
+      const flue = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.038, 0.14), darkStoneMat);
+      flue.position.set(chX, 0.05 + chH + 0.015, chZ);
       group.add(flue);
+
+      const pot = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.034, 0.07, 6), brickMat);
+      pot.position.set(chX, 0.05 + chH + 0.065, chZ);
+      group.add(pot);
     }
   };
 
-  // Helper (ELVES): Graceful Sylvan Octagonal Pavilion / Swept-Eave Pagoda with Gilded Finial
+  // Helper (ELVES): Graceful Sylvan Octagonal Pavilion with 8 Fluted Pilasters, Arched Tracery, Swept Eave Horns & Balustrade
   const addElfPagodaPavilion = (opts: {
     cx?: number;
     cz?: number;
@@ -1543,21 +2478,46 @@ export function createBuildingGroup(
     const cz = opts.cz ?? 0;
     const { radius, h, wallMat, roofMat } = opts;
     const tiers = opts.tiers ?? 1;
+    const trimRibMat = epochIndex >= 6 ? elfFiligreeMat : epochIndex >= 4 ? elfPearlTechMat : elfHeartwoodMat;
+    const accentGlowMat = epochIndex >= 6 ? elfAquaGlowMat : goldMat;
 
-    // Moss-marble octagonal plinth
-    const plinth = new THREE.Mesh(
-      new THREE.CylinderGeometry(radius + 0.06, radius + 0.09, 0.06, 8),
+    // Double-stepped carved moonstone plinth + ceremonial front stair apron
+    const plinthLow = new THREE.Mesh(
+      new THREE.CylinderGeometry(radius + 0.09, radius + 0.12, 0.045, 8),
       epochIndex >= 6 ? elfJadeRoofMat : elfMossStoneMat,
     );
-    plinth.position.set(cx, 0.03, cz);
-    plinth.receiveShadow = true;
-    group.add(plinth);
+    plinthLow.position.set(cx, 0.022, cz);
+    plinthLow.receiveShadow = true;
+    group.add(plinthLow);
 
-    let curY = 0.06;
+    const plinthTop = new THREE.Mesh(
+      new THREE.CylinderGeometry(radius + 0.045, radius + 0.075, 0.04, 8),
+      epochIndex >= 5 ? elfFiligreeMat : elfBirchMat,
+    );
+    plinthTop.position.set(cx, 0.062, cz);
+    group.add(plinthTop);
+
+    const stairApron = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.05, 0.12), elfMossStoneMat);
+    stairApron.position.set(cx, 0.03, cz + radius + 0.06);
+    group.add(stairApron);
+
+    // Corner lotus bollard lanterns flanking entrance steps
+    if (epochIndex >= 1) {
+      for (const sx of [-0.11, 0.11]) {
+        const post = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.028, 0.12, 6), trimRibMat);
+        post.position.set(cx + sx, 0.09, cz + radius + 0.05);
+        group.add(post);
+        const orb = new THREE.Mesh(new THREE.OctahedronGeometry(0.032, 0), elfAquaGlowMat);
+        orb.position.set(cx + sx, 0.165, cz + radius + 0.05);
+        group.add(orb);
+      }
+    }
+
+    let curY = 0.082;
     for (let t = 0; t < tiers; t++) {
       const tScale = 1 - t * 0.24;
       const r = radius * tScale;
-      const th = h * (t === 0 ? 1 : 0.72);
+      const th = h * (t === 0 ? 1 : 0.76);
 
       const body = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.92, r, th, 8), wallMat);
       body.position.set(cx, curY + th * 0.5, cz);
@@ -1565,33 +2525,78 @@ export function createBuildingGroup(
       body.receiveShadow = true;
       group.add(body);
 
-      // 4 Delicate Corner Timber/Gold Colonnettes
-      for (let c = 0; c < 4; c++) {
-        const a = (c / 4) * Math.PI * 2 + Math.PI / 4;
+      // 8 Delicate Fluted Colonnettes & upturned eave tip horns around octagon perimeter
+      for (let c = 0; c < 8; c++) {
+        const a = (c / 8) * Math.PI * 2 + Math.PI / 8;
         const col = new THREE.Mesh(
-          new THREE.BoxGeometry(0.04, th + 0.02, 0.04),
-          epochIndex >= 6 ? elfAquaGlowMat : elfHeartwoodMat,
+          new THREE.CylinderGeometry(0.018, 0.024, th + 0.02, 6),
+          trimRibMat,
         );
         col.position.set(cx + Math.cos(a) * r * 0.95, curY + th * 0.5, cz + Math.sin(a) * r * 0.95);
         group.add(col);
+
+        // Swept upturned pagoda corner wingtip horn at each vertex
+        const eaveTip = new THREE.Mesh(new THREE.ConeGeometry(0.026, 0.12, 4), accentGlowMat);
+        eaveTip.position.set(cx + Math.cos(a) * (r * 1.32), curY + th + 0.09, cz + Math.sin(a) * (r * 1.32));
+        eaveTip.rotation.z = -Math.cos(a) * 0.58;
+        eaveTip.rotation.x = Math.sin(a) * 0.58;
+        group.add(eaveTip);
+      }
+
+      // Continuous filigree balustrade gallery collar under upper tiers
+      if (t > 0) {
+        const rail = new THREE.Mesh(
+          new THREE.TorusGeometry(r * 1.06, 0.018, 5, 8),
+          trimRibMat,
+        );
+        rail.rotation.x = Math.PI / 2;
+        rail.rotation.z = Math.PI / 8;
+        rail.position.set(cx, curY + 0.04, cz);
+        group.add(rail);
       }
 
       if (t === 0) {
-        // Luminous arched doorway on front +Z
-        const archDoor = new THREE.Mesh(
-          new THREE.BoxGeometry(0.11, Math.min(0.22, th * 0.68), 0.04),
-          opts.glowTrim || epochIndex >= 6 ? elfAquaGlowMat : elfHeartwoodMat,
+        // Framed Gothic-sylvan arched doorway on front +Z
+        const archFrame = new THREE.Mesh(
+          new THREE.BoxGeometry(0.145, Math.min(0.24, th * 0.72), 0.042),
+          trimRibMat,
         );
-        archDoor.position.set(cx, curY + Math.min(0.11, th * 0.34), cz + r * 0.96);
+        archFrame.position.set(cx, curY + Math.min(0.12, th * 0.36), cz + r * 0.94);
+        group.add(archFrame);
+
+        const archDoor = new THREE.Mesh(
+          new THREE.BoxGeometry(0.1, Math.min(0.2, th * 0.62), 0.048),
+          opts.glowTrim || epochIndex >= 1 ? elfAquaGlowMat : elfHeartwoodMat,
+        );
+        archDoor.position.set(cx, curY + Math.min(0.1, th * 0.31), cz + r * 0.95);
         group.add(archDoor);
       }
 
-      // Flared upturned canopy eaves + tapered leaf cone roof
+      // Mullioned sylvan moon-windows on lateral & diagonal faces
+      if (epochIndex >= 1) {
+        for (const sx of [-1, 1]) {
+          const mullion = new THREE.Mesh(
+            new THREE.BoxGeometry(0.036, Math.min(0.14, th * 0.5), 0.105),
+            trimRibMat,
+          );
+          mullion.position.set(cx + sx * r * 0.92, curY + th * 0.54, cz);
+          group.add(mullion);
+
+          const moonWin = new THREE.Mesh(
+            new THREE.BoxGeometry(0.042, Math.min(0.11, th * 0.42), 0.08),
+            elfAquaGlowMat,
+          );
+          moonWin.position.set(cx + sx * r * 0.93, curY + th * 0.54, cz);
+          group.add(moonWin);
+        }
+      }
+
+      // Flared upturned canopy eaves + ribbed leaf cone roof + crown collar
       const eaveFlare = new THREE.Mesh(
-        new THREE.CylinderGeometry(r * 0.78, r * 1.38, 0.08, 8),
+        new THREE.CylinderGeometry(r * 0.76, r * 1.4, 0.075, 8),
         roofMat,
       );
-      eaveFlare.position.set(cx, curY + th + 0.04, cz);
+      eaveFlare.position.set(cx, curY + th + 0.038, cz);
       eaveFlare.castShadow = true;
       group.add(eaveFlare);
 
@@ -1600,23 +2605,27 @@ export function createBuildingGroup(
         new THREE.ConeGeometry(r * 0.92, coneH, 8),
         roofMat,
       );
-      roofCone.position.set(cx, curY + th + 0.08 + coneH * 0.5, cz);
+      roofCone.position.set(cx, curY + th + 0.075 + coneH * 0.5, cz);
       roofCone.castShadow = true;
       group.add(roofCone);
 
       curY += th + 0.14;
     }
 
-    // Golden / Starlight Spire Finial
+    // Tiered Lotus Collar & Starlight Spire Finial
+    const crownBead = new THREE.Mesh(new THREE.SphereGeometry(0.055, 8, 6), accentGlowMat);
+    crownBead.position.set(cx, curY + 0.06, cz);
+    group.add(crownBead);
+
     const finial = new THREE.Mesh(
-      new THREE.ConeGeometry(0.045, 0.22, 6),
+      new THREE.ConeGeometry(0.042, 0.22, 6),
       epochIndex >= 6 ? elfAquaGlowMat : goldMat,
     );
-    finial.position.set(cx, curY + 0.16, cz);
+    finial.position.set(cx, curY + 0.19, cz);
     group.add(finial);
   };
 
-  // Helper (ORCS): Rugged Spiked Bastion Hut / Longhouse with Jutting Corner Tusks & War-Banner
+  // Helper (ORCS): Heavy Battered Bastion Fortress Hut with Sloped Armor Skirts, Portcullis, Crenellations & Iron-Collared Tusks
   const addOrcBastionHut = (opts: {
     cx?: number;
     cz?: number;
@@ -1632,52 +2641,96 @@ export function createBuildingGroup(
     const cz = opts.cz ?? 0;
     const { w, h, d, wallMat, roofMat } = opts;
     const tuskMat = opts.tuskMat ?? orcBoneMat;
+    const armorRibMat = epochIndex >= 4 ? orcRustPlateMat : epochIndex >= 3 ? orcIronMat : orcCharredLogMat;
 
-    // Thick basalt / iron plinth
-    const plinth = new THREE.Mesh(
-      new THREE.BoxGeometry(w + 0.1, 0.07, d + 0.1),
+    // Sloped battered basalt seawall base + thick armored sub-plinth
+    const skirt = new THREE.Mesh(
+      new THREE.CylinderGeometry(Math.max(w, d) * 0.62, Math.max(w, d) * 0.74, 0.09, 4),
       epochIndex >= 6 ? orcGunmetalMat : orcBasaltMat,
     );
-    plinth.position.set(cx, 0.035, cz);
-    plinth.receiveShadow = true;
-    group.add(plinth);
+    skirt.rotation.y = Math.PI / 4;
+    skirt.position.set(cx, 0.045, cz);
+    skirt.receiveShadow = true;
+    group.add(skirt);
 
-    // Armored battered bastion body
+    // Armored bastion main hall
     const body = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), wallMat);
-    body.position.set(cx, 0.07 + h * 0.5, cz);
+    body.position.set(cx, 0.08 + h * 0.5, cz);
     body.castShadow = true;
     body.receiveShadow = true;
     group.add(body);
 
-    // Corner armored ribs / log buttresses
+    // Mid-wall riveted iron belt + 4 battered corner piers topped by crenellation spikes
+    const ironBelt = new THREE.Mesh(new THREE.BoxGeometry(w + 0.04, 0.048, d + 0.04), armorRibMat);
+    ironBelt.position.set(cx, 0.08 + h * 0.45, cz);
+    group.add(ironBelt);
+
     for (const [sx, sz] of [
-      [-w * 0.48, -d * 0.48],
-      [w * 0.48, -d * 0.48],
-      [-w * 0.48, d * 0.48],
-      [w * 0.48, d * 0.48],
+      [-w * 0.49, -d * 0.49],
+      [w * 0.49, -d * 0.49],
+      [-w * 0.49, d * 0.49],
+      [w * 0.49, d * 0.49],
     ]) {
-      const rib = new THREE.Mesh(
-        new THREE.BoxGeometry(0.085, h + 0.08, 0.085),
-        epochIndex >= 3 ? orcIronMat : orcCharredLogMat,
-      );
-      rib.position.set(cx + sx, 0.07 + h * 0.5, cz + sz);
+      const rib = new THREE.Mesh(new THREE.BoxGeometry(0.1, h + 0.1, 0.1), armorRibMat);
+      rib.position.set(cx + sx, 0.08 + h * 0.5, cz + sz);
       rib.castShadow = true;
       group.add(rib);
+
+      const merlon = new THREE.Mesh(new THREE.ConeGeometry(0.055, 0.12, 4), orcIronMat);
+      merlon.rotation.y = Math.PI / 4;
+      merlon.position.set(cx + sx, 0.08 + h + 0.1, cz + sz);
+      group.add(merlon);
     }
 
-    // Iron-banded doorway & fiery slit window
-    const door = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.21, 0.04), doorDarkMat);
-    door.position.set(cx, 0.175, cz + d * 0.5 + 0.012);
+    // Spiked Gatehouse Portcullis on front +Z flanked by twin magma braziers
+    const gateFrame = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.25, 0.055), armorRibMat);
+    gateFrame.position.set(cx, 0.19, cz + d * 0.5 + 0.015);
+    group.add(gateFrame);
+
+    const door = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.21, 0.045), doorDarkMat);
+    door.position.set(cx, 0.175, cz + d * 0.5 + 0.025);
     group.add(door);
 
-    const slitWin = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.06, 0.035), orcMagmaGlowMat);
-    slitWin.position.set(cx, 0.07 + h * 0.72, cz + d * 0.5 + 0.012);
+    for (const bx of [-0.04, 0, 0.04]) {
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(0.016, 0.19, 0.052), orcIronMat);
+      bar.position.set(cx + bx, 0.175, cz + d * 0.5 + 0.028);
+      group.add(bar);
+    }
+
+    for (const sx of [-0.14, 0.14]) {
+      const brazier = new THREE.Mesh(new THREE.BoxGeometry(0.046, 0.06, 0.046), orcMagmaGlowMat);
+      brazier.position.set(cx + sx, 0.16, cz + d * 0.5 + 0.03);
+      group.add(brazier);
+    }
+
+    // Armored brow visors over recessed glowing embrasure slits
+    const slitHood = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.032, 0.055), armorRibMat);
+    slitHood.position.set(cx, 0.08 + h * 0.78, cz + d * 0.5 + 0.018);
+    group.add(slitHood);
+
+    const slitWin = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.055, 0.035), orcMagmaGlowMat);
+    slitWin.position.set(cx, 0.08 + h * 0.71, cz + d * 0.5 + 0.014);
     group.add(slitWin);
 
-    // Heavy pitched roof slabs
-    addSteppedGableRoof(cx, 0.07 + h, cz, d + 0.12, w + 0.08, 4, 0.075, roofMat, wallMat, false);
+    for (const sx of [-1, 1]) {
+      const sideHood = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.03, 0.18), armorRibMat);
+      sideHood.position.set(cx + sx * (w * 0.5 + 0.016), 0.08 + h * 0.72, cz);
+      group.add(sideHood);
 
-    // Signature Diagonal Jutting Tusks / Iron Horns above the eaves
+      const sideSlit = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.055, 0.14), orcMagmaGlowMat);
+      sideSlit.position.set(cx + sx * (w * 0.5 + 0.012), 0.08 + h * 0.65, cz);
+      group.add(sideSlit);
+    }
+
+    // Heavy pitched armor roof slabs + spiked spine ridge
+    addSteppedGableRoof(cx, 0.08 + h, cz, d + 0.12, w + 0.08, 4, 0.075, roofMat, wallMat, false);
+    for (let s = -1; s <= 1; s++) {
+      const ridgeSpike = new THREE.Mesh(new THREE.ConeGeometry(0.036, 0.12, 4), orcIronMat);
+      ridgeSpike.position.set(cx + s * (w * 0.28), 0.08 + h + 0.36, cz);
+      group.add(ridgeSpike);
+    }
+
+    // Signature Diagonal Jutting Tusks braced with Iron Collars
     const tuskOffsets = [
       [-w * 0.34, d * 0.34, 0.42, 0.28],
       [w * 0.34, d * 0.34, -0.42, 0.28],
@@ -1685,8 +2738,12 @@ export function createBuildingGroup(
       [w * 0.34, -d * 0.34, -0.42, -0.28],
     ];
     for (const [tx, tz, rz, rx] of tuskOffsets) {
-      const tusk = new THREE.Mesh(new THREE.ConeGeometry(0.042, 0.26, 5), tuskMat);
-      tusk.position.set(cx + tx, 0.1 + h + 0.18, cz + tz);
+      const collar = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.06, 0.08), orcIronMat);
+      collar.position.set(cx + tx * 0.92, 0.08 + h + 0.08, cz + tz * 0.92);
+      group.add(collar);
+
+      const tusk = new THREE.Mesh(new THREE.ConeGeometry(0.044, 0.28, 5), tuskMat);
+      tusk.position.set(cx + tx, 0.11 + h + 0.18, cz + tz);
       tusk.rotation.z = rz;
       tusk.rotation.x = rx;
       tusk.castShadow = true;
@@ -1694,12 +2751,16 @@ export function createBuildingGroup(
     }
 
     if (opts.withBanner) {
-      const pole = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.44, 0.035), orcIronMat);
-      pole.position.set(cx + w * 0.38, 0.07 + h + 0.24, cz + d * 0.36);
+      const pole = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.48, 0.035), orcIronMat);
+      pole.position.set(cx + w * 0.4, 0.08 + h + 0.26, cz + d * 0.38);
       group.add(pole);
 
-      const cloth = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.2, 0.02), orcCrimsonMat);
-      cloth.position.set(cx + w * 0.44, 0.07 + h + 0.34, cz + d * 0.36);
+      const crossbar = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.025, 0.025), orcBoneMat);
+      crossbar.position.set(cx + w * 0.44, 0.08 + h + 0.45, cz + d * 0.38);
+      group.add(crossbar);
+
+      const cloth = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.22, 0.022), orcCrimsonMat);
+      cloth.position.set(cx + w * 0.44, 0.08 + h + 0.33, cz + d * 0.38);
       group.add(cloth);
     }
   };
@@ -1709,14 +2770,17 @@ export function createBuildingGroup(
     case 'ziggurat': {
       if (isElf) {
         if (type === 'bonfire' && epochIndex === 0) {
-          // Elven Ep 0: Moss-ringed willow arbor with emerald spirit flame
-          const mossRing = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.46, 0.06, 8), elfMossStoneMat);
-          mossRing.position.y = 0.03;
+          // Elven Ep 0: Woven willow-arbor ring, stepping stones & hanging lantern pods around spirit flame
+          const mossRing = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.48, 0.065, 10), elfMossStoneMat);
+          mossRing.position.y = 0.032;
           group.add(mossRing);
+          const innerBasin = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.28, 0.08, 8), elfBirchMat);
+          innerBasin.position.y = 0.045;
+          group.add(innerBasin);
 
-          for (let i = 0; i < 4; i++) {
-            const a = (i / 4) * Math.PI * 2 + 0.2;
-            const bough = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.62, 0.045), elfHeartwoodMat);
+          for (let i = 0; i < 6; i++) {
+            const a = (i / 6) * Math.PI * 2 + 0.2;
+            const bough = new THREE.Mesh(new THREE.BoxGeometry(0.042, 0.64, 0.042), elfHeartwoodMat);
             bough.position.set(Math.cos(a) * 0.22, 0.32, Math.sin(a) * 0.22);
             bough.rotation.z = -Math.cos(a) * 0.38;
             bough.rotation.x = Math.sin(a) * 0.38;
@@ -1724,39 +2788,46 @@ export function createBuildingGroup(
             group.add(bough);
           }
 
-          const leafCrown = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.28, 0.14, 8), elfLeafRoofMat);
+          const leafCrown = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.3, 0.14, 8), elfLeafRoofMat);
           leafCrown.position.y = 0.62;
           group.add(leafCrown);
+          const haloBranch = new THREE.Mesh(new THREE.TorusGeometry(0.18, 0.025, 5, 10), elfHeartwoodMat);
+          haloBranch.rotation.x = Math.PI / 2;
+          haloBranch.position.y = 0.56;
+          group.add(haloBranch);
 
           const spiritFire = new THREE.Mesh(new THREE.OctahedronGeometry(0.15, 0), elfAquaGlowMat);
           spiritFire.position.y = 0.28;
           spiritFire.name = 'flicker_flame';
           group.add(spiritFire);
         } else if (type === 'bonfire' && epochIndex === 1) {
-          // Elven Ep 1: Crescent Birch & Moonstone Sanctuary Ring
-          const dais = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.48, 0.12, 8), elfMossStoneMat);
-          dais.position.y = 0.06;
+          // Elven Ep 1: Crescent Birch & Moonstone Colonnade Ring with Filigree Halo
+          const dais = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.48, 0.1, 8), elfMossStoneMat);
+          dais.position.y = 0.05;
           group.add(dais);
+          const plinthInner = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.36, 0.06, 8), elfFiligreeMat);
+          plinthInner.position.y = 0.12;
+          group.add(plinthInner);
 
-          for (let i = 0; i < 4; i++) {
-            const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
-            const arch = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.44, 0.08), elfBirchMat);
-            arch.position.set(Math.cos(a) * 0.26, 0.34, Math.sin(a) * 0.26);
+          for (let i = 0; i < 6; i++) {
+            const a = (i / 6) * Math.PI * 2 + Math.PI / 6;
+            const arch = new THREE.Mesh(new THREE.CylinderGeometry(0.036, 0.048, 0.44, 6), elfBirchMat);
+            arch.position.set(Math.cos(a) * 0.28, 0.34, Math.sin(a) * 0.28);
             arch.castShadow = true;
             group.add(arch);
           }
 
-          const halo = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.035, 6, 12), elfJadeRoofMat);
-          halo.position.y = 0.56;
+          const halo = new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.036, 6, 14), elfJadeRoofMat);
+          halo.position.y = 0.57;
           halo.rotation.x = Math.PI / 2;
           group.add(halo);
 
           const flame = new THREE.Mesh(new THREE.OctahedronGeometry(0.14, 0), goldMat);
-          flame.position.y = 0.3;
+          flame.position.y = 0.32;
           flame.name = 'flicker_flame';
           group.add(flame);
         } else {
-          // Elven Ep 2+: Grand Celestial Starwell Moon Sanctuary (Tall Jade-and-Pearl Pagoda Spire + Moon Rings)
+          // Elven Ep 2+: Grand Celestial Starwell Moon Sanctuary (Carved Plinth, 8 Arched Columns, Triple Pagoda & Astrolabe)
           const isSciFi = epochIndex >= 6;
           const daisMat = isSciFi ? elfPearlTechMat : elfMossStoneMat;
           const bodyMat = isSciFi ? elfPearlTechMat : elfBirchMat;
@@ -1767,29 +2838,34 @@ export function createBuildingGroup(
           tier1.receiveShadow = true;
           group.add(tier1);
 
-          const tier2 = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.42, 0.1, 8), roofMat);
-          tier2.position.y = 0.17;
+          const tier2 = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.44, 0.09, 8), roofMat);
+          tier2.position.y = 0.16;
           group.add(tier2);
 
-          // 4 Slender Outer Leaf-Fin Buttresses + Lanterns
+          // 4 Fluted Outer Leaf-Fin Buttresses with filigree braces & Floating Lanterns
           for (let i = 0; i < 4; i++) {
             const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
-            const pillar = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.42, 0.09), bodyMat);
-            pillar.position.set(Math.cos(a) * 0.32, 0.38, Math.sin(a) * 0.32);
+            const px = Math.cos(a) * 0.34;
+            const pz = Math.sin(a) * 0.34;
+            const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.055, 0.44, 6), bodyMat);
+            pillar.position.set(px, 0.38, pz);
             pillar.castShadow = true;
             group.add(pillar);
 
-            const lantern = new THREE.Mesh(new THREE.OctahedronGeometry(0.07, 0), elfAquaGlowMat);
-            lantern.position.set(Math.cos(a) * 0.32, 0.64, Math.sin(a) * 0.32);
+            const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.04, 0.05, 6), roofMat);
+            cap.position.set(px, 0.61, pz);
+            group.add(cap);
+
+            const lantern = new THREE.Mesh(new THREE.OctahedronGeometry(0.068, 0), elfAquaGlowMat);
+            lantern.position.set(px, 0.68, pz);
             lantern.name = 'flicker_flame';
             group.add(lantern);
           }
 
-          // Central Triple-Tiered Celestial Sanctuary Spire
           addElfPagodaPavilion({
             cx: 0,
             cz: 0,
-            radius: 0.24,
+            radius: 0.25,
             h: 0.32,
             wallMat: bodyMat,
             roofMat,
@@ -1801,7 +2877,7 @@ export function createBuildingGroup(
             new THREE.TorusGeometry(0.28, 0.03, 6, 16),
             isSciFi ? elfAquaGlowMat : goldMat,
           );
-          astrolabe.position.y = 1.12;
+          astrolabe.position.y = 1.18;
           astrolabe.rotation.x = 0.55;
           astrolabe.name = 'spin_part';
           group.add(astrolabe);
@@ -1811,15 +2887,19 @@ export function createBuildingGroup(
 
       if (isOrc) {
         if (type === 'bonfire' && epochIndex === 0) {
-          // Orc Ep 0: Jagged boulder ring, huge crossed beast-tusks & roaring war-pyre
-          const pit = new THREE.Mesh(new THREE.CylinderGeometry(0.44, 0.5, 0.07, 7), orcBasaltMat);
-          pit.position.y = 0.035;
+          // Orc Ep 0: Jagged boulder pit, bone war-tusks, iron cauldron tripod & roaring pyre
+          const pit = new THREE.Mesh(new THREE.CylinderGeometry(0.44, 0.52, 0.08, 7), orcBasaltMat);
+          pit.position.y = 0.04;
           group.add(pit);
+          const ashRim = new THREE.Mesh(new THREE.TorusGeometry(0.26, 0.04, 5, 7), orcCharredLogMat);
+          ashRim.rotation.x = Math.PI / 2;
+          ashRim.position.y = 0.09;
+          group.add(ashRim);
 
           for (let i = 0; i < 4; i++) {
             const a = (i / 4) * Math.PI * 2 + 0.4;
-            const tusk = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.56, 5), orcBoneMat);
-            tusk.position.set(Math.cos(a) * 0.26, 0.28, Math.sin(a) * 0.26);
+            const tusk = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.58, 5), orcBoneMat);
+            tusk.position.set(Math.cos(a) * 0.27, 0.29, Math.sin(a) * 0.27);
             tusk.rotation.z = Math.cos(a) * 0.45;
             tusk.rotation.x = -Math.sin(a) * 0.45;
             tusk.castShadow = true;
@@ -1827,31 +2907,37 @@ export function createBuildingGroup(
           }
 
           const warFire = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.36, 0.24), orcMagmaGlowMat);
-          warFire.position.y = 0.24;
+          warFire.position.y = 0.25;
           warFire.name = 'flicker_flame';
           group.add(warFire);
         } else if (type === 'bonfire' && epochIndex === 1) {
-          // Orc Ep 1: Stepped basalt dais with 4 angled tusks & crimson war-banners
-          const dais = new THREE.Mesh(new THREE.BoxGeometry(0.84, 0.14, 0.84), orcBasaltMat);
+          // Orc Ep 1: Stepped basalt fortress dais with corner horn pylons & iron brazier grates
+          const dais = new THREE.Mesh(new THREE.BoxGeometry(0.86, 0.14, 0.86), orcBasaltMat);
           dais.position.y = 0.07;
           group.add(dais);
+          const grate = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.08, 0.54), orcIronMat);
+          grate.position.y = 0.16;
+          group.add(grate);
 
           for (const [cx, cz] of [
-            [-0.3, -0.3],
-            [0.3, -0.3],
-            [-0.3, 0.3],
-            [0.3, 0.3],
+            [-0.31, -0.31],
+            [0.31, -0.31],
+            [-0.31, 0.31],
+            [0.31, 0.31],
           ]) {
-            const fang = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.52, 5), orcBoneMat);
-            fang.position.set(cx, 0.38, cz);
-            fang.rotation.z = Math.sign(cx) * 0.28;
-            fang.rotation.x = -Math.sign(cz) * 0.28;
+            const ped = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.2, 0.14), orcBasaltMat);
+            ped.position.set(cx, 0.2, cz);
+            group.add(ped);
+            const fang = new THREE.Mesh(new THREE.ConeGeometry(0.075, 0.48, 5), orcBoneMat);
+            fang.position.set(cx, 0.44, cz);
+            fang.rotation.z = Math.sign(cx) * 0.26;
+            fang.rotation.x = -Math.sign(cz) * 0.26;
             fang.castShadow = true;
             group.add(fang);
           }
 
           const cauldron = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.3, 0.26), orcMagmaGlowMat);
-          cauldron.position.y = 0.28;
+          cauldron.position.y = 0.3;
           cauldron.name = 'flicker_flame';
           group.add(cauldron);
         } else {
@@ -1866,33 +2952,45 @@ export function createBuildingGroup(
           tier1.castShadow = true;
           group.add(tier1);
 
-          const tier2 = new THREE.Mesh(new THREE.BoxGeometry(0.76, 0.18, 0.76), trimMat);
+          const tier2 = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.18, 0.78), trimMat);
           tier2.position.y = 0.23;
           tier2.castShadow = true;
           group.add(tier2);
 
-          const keep = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.52, 0.54), hullMat);
-          keep.position.y = 0.58;
+          const keep = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.54, 0.54), hullMat);
+          keep.position.y = 0.59;
           keep.castShadow = true;
           group.add(keep);
 
-          // 4 Huge Angled Iron / Bone War-Tusks Bastion Towers
+          // Armored magma gate & embrasure grille on front
+          const gate = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.26, 0.08), orcIronMat);
+          gate.position.set(0, 0.42, 0.27);
+          group.add(gate);
+          const gateEmber = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.18, 0.09), fireMat);
+          gateEmber.position.set(0, 0.42, 0.28);
+          group.add(gateEmber);
+
+          // 4 Armored Bastion Turrets with Crenellated Collars & War-Horns
           for (const [tx, tz] of [
-            [-0.32, -0.32],
-            [0.32, -0.32],
-            [-0.32, 0.32],
-            [0.32, 0.32],
+            [-0.33, -0.33],
+            [0.33, -0.33],
+            [-0.33, 0.33],
+            [0.33, 0.33],
           ]) {
-            const bastion = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.54, 0.18), hullMat);
-            bastion.position.set(tx, 0.42, tz);
+            const bastion = new THREE.Mesh(new THREE.BoxGeometry(0.19, 0.56, 0.19), hullMat);
+            bastion.position.set(tx, 0.44, tz);
             bastion.castShadow = true;
             group.add(bastion);
 
+            const collar = new THREE.Mesh(new THREE.BoxGeometry(0.23, 0.06, 0.23), orcRustPlateMat);
+            collar.position.set(tx, 0.72, tz);
+            group.add(collar);
+
             const horn = new THREE.Mesh(
-              new THREE.ConeGeometry(0.08, 0.54, 5),
+              new THREE.ConeGeometry(0.08, 0.52, 5),
               isSciFi ? orcIronMat : orcBoneMat,
             );
-            horn.position.set(tx * 1.1, 0.88, tz * 1.1);
+            horn.position.set(tx * 1.1, 0.92, tz * 1.1);
             horn.rotation.z = -Math.sign(tx) * 0.25;
             horn.rotation.x = Math.sign(tz) * 0.25;
             horn.castShadow = true;
@@ -1900,13 +2998,13 @@ export function createBuildingGroup(
           }
 
           const magmaCore = new THREE.Mesh(new THREE.OctahedronGeometry(0.22, 0), fireMat);
-          magmaCore.position.y = 0.96;
+          magmaCore.position.y = 1.0;
           magmaCore.name = isSciFi ? 'spin_part' : 'flicker_flame';
           group.add(magmaCore);
 
           if (isSciFi) {
             const armorRing = new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.04, 5, 8), fireMat);
-            armorRing.position.y = 1.04;
+            armorRing.position.y = 1.06;
             armorRing.rotation.x = Math.PI / 2;
             armorRing.name = 'spin_part';
             group.add(armorRing);
@@ -1915,11 +3013,18 @@ export function createBuildingGroup(
         break;
       }
 
-      // HUMAN: Classic Campfire -> Stone Brazier -> Iconic Twin White Marble Spires -> Twin Titanium Tech Spires
+      // HUMAN: Campfire -> Stone Brazier -> Iconic Twin White Marble Spires -> Twin Titanium Tech Spires
       if (type === 'bonfire' && epochIndex === 0) {
         const earthMound = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.46, 0.06, 8), mudEarthMat);
         earthMound.position.y = 0.03;
         group.add(earthMound);
+
+        for (let i = 0; i < 6; i++) {
+          const a = (i / 6) * Math.PI * 2;
+          const stone = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.065, 0.09), stoneMat);
+          stone.position.set(Math.cos(a) * 0.24, 0.06, Math.sin(a) * 0.24);
+          group.add(stone);
+        }
 
         for (let i = 0; i < 3; i++) {
           const a = (i / 3) * Math.PI * 2 + 0.3;
@@ -1948,10 +3053,10 @@ export function createBuildingGroup(
         flameCore.position.y = 0.4;
         group.add(flameCore);
       } else if (type === 'bonfire' && epochIndex === 1) {
-        const step1 = new THREE.Mesh(new THREE.BoxGeometry(0.76, 0.1, 0.76), darkStoneMat);
+        const step1 = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.1, 0.78), darkStoneMat);
         step1.position.y = 0.05;
         group.add(step1);
-        const step2 = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.12, 0.56), adobeMat);
+        const step2 = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.12, 0.58), adobeMat);
         step2.position.y = 0.16;
         group.add(step2);
 
@@ -1961,10 +3066,13 @@ export function createBuildingGroup(
           [-0.26, 0.26],
           [0.26, 0.26],
         ]) {
-          const pillar = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.36, 0.11), marbleWhiteMat);
-          pillar.position.set(cx, 0.28, cz);
+          const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.065, 0.38, 6), marbleWhiteMat);
+          pillar.position.set(cx, 0.29, cz);
           pillar.castShadow = true;
           group.add(pillar);
+          const cap = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.04, 0.14), copperMat);
+          cap.position.set(cx, 0.49, cz);
+          group.add(cap);
         }
 
         const flameOuter = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.3, 0.18), flameMat);
@@ -1989,7 +3097,7 @@ export function createBuildingGroup(
         tier2.castShadow = true;
         group.add(tier2);
 
-        const tier3 = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.1, 0.6), baseStepMat);
+        const tier3 = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.1, 0.6), spireMat);
         tier3.position.y = 0.27;
         tier3.castShadow = true;
         group.add(tier3);
@@ -2014,6 +3122,11 @@ export function createBuildingGroup(
           fire.name = 'flicker_flame';
           group.add(fire);
         }
+
+        // Cross-arch bridge & sanctum pediment between the Twin Spires
+        const archLintel = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.08, 0.22), isSciFi ? techMat : copperMat);
+        archLintel.position.set(0, 0.64, 0);
+        group.add(archLintel);
 
         for (const sx of [-0.18, 0.18]) {
           const buttress = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.28, 0.34), spireMat);
@@ -2061,7 +3174,7 @@ export function createBuildingGroup(
     case 'forager_hut': {
       if (isElf) {
         if (epochIndex === 0) {
-          // Elven Ep 0: Leaf-canopy arbor wigwams & elevated woven tree-bower pods
+          // Elven Ep 0: Woven heartwood willow dome arbor with lantern pod & mossy stepping stones
           addElfPagodaPavilion({
             radius: 0.3,
             h: 0.22,
@@ -2069,8 +3182,9 @@ export function createBuildingGroup(
             roofMat: elfLeafRoofMat,
             tiers: 1,
           });
+          addPrehistoricCampfire(0.27, 0.27, flameMat);
         } else if (epochIndex <= 2) {
-          // Elven Ep 1-2: Sylvan Ivory-Birch & Jade-Roof Pagoda Villas (4 graceful variants)
+          // Elven Ep 1-2: Sylvan Ivory-Birch & Jade-Roof Pagoda Villas (with side conservatory veranda on variant 2)
           addElfPagodaPavilion({
             cx: variant === 2 ? -0.06 : 0,
             cz: variant === 2 ? -0.04 : 0,
@@ -2082,9 +3196,8 @@ export function createBuildingGroup(
             glowTrim: variant === 0,
           });
           if (variant === 2) {
-            // Side arched conservatory veranda
             addElfPagodaPavilion({
-              cx: 0.22,
+              cx: 0.23,
               cz: 0.18,
               radius: 0.16,
               h: 0.18,
@@ -2094,7 +3207,7 @@ export function createBuildingGroup(
             });
           }
         } else if (epochIndex <= 4) {
-          // Elven Ep 3-4: Botanical Art-Nouveau Glass & Verdigris Houses
+          // Elven Ep 3-4: Botanical Art-Nouveau Glass & Verdigris Houses with hanging garden boxes
           addElfPagodaPavilion({
             radius: 0.34,
             h: 0.36,
@@ -2103,43 +3216,96 @@ export function createBuildingGroup(
             tiers: 2,
             glowTrim: true,
           });
+          for (const sx of [-0.24, 0.24]) {
+            const vineBox = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.06, 0.11), elfLeafRoofMat);
+            vineBox.position.set(sx, 0.46, 0.2);
+            group.add(vineBox);
+          }
         } else if (epochIndex === 5) {
-          // Elven Ep 5 (Info Age): Sylvan Eco-Skyscraper (Tall Pearl & Emerald Curtain-Wall Tower)
-          addElfPagodaPavilion({
-            radius: 0.35,
-            h: 0.36,
-            wallMat: elfPearlTechMat,
-            roofMat: elfVerdigrisMat,
-            tiers: 3,
-            glowTrim: true,
-          });
+          // Elven Ep 5 (Info Age): Sculpted Living Helix Conservatory Arcology (6 spiral filigree ribs + 4 cantilevered garden terraces)
+          const dais = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.47, 0.1, 10), elfMossStoneMat);
+          dais.position.y = 0.05;
+          group.add(dais);
+          const atriumRing = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.36, 0.14, 10), elfFiligreeMat);
+          atriumRing.position.y = 0.16;
+          group.add(atriumRing);
+
+          const coreSpire = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.25, 1.18, 10), elfPearlTechMat);
+          coreSpire.position.y = 0.68;
+          coreSpire.castShadow = true;
+          group.add(coreSpire);
+
+          // 6 Ascending exterior helical filigree ribs framing the glass solarium shaft
+          for (let r = 0; r < 6; r++) {
+            const a = (r / 6) * Math.PI * 2;
+            const rib = new THREE.Mesh(new THREE.BoxGeometry(0.032, 1.05, 0.045), elfFiligreeMat);
+            rib.position.set(Math.cos(a) * 0.22, 0.66, Math.sin(a) * 0.22);
+            rib.rotation.y = -a;
+            rib.rotation.z = 0.14;
+            group.add(rib);
+          }
+
+          // 4 Cantilevered Botanical Sky-Terraces spiraling upward with glowing pods & railings
+          for (let ti = 0; ti < 4; ti++) {
+            const ty = 0.3 + ti * 0.24;
+            const ang = (ti * Math.PI) / 2 + variant * 0.45;
+            const px = Math.cos(ang) * 0.15;
+            const pz = Math.sin(ang) * 0.15;
+            const pod = new THREE.Mesh(new THREE.CylinderGeometry(0.22 - ti * 0.02, 0.16, 0.075, 8), elfVerdigrisMat);
+            pod.position.set(px, ty, pz);
+            pod.castShadow = true;
+            group.add(pod);
+            const rail = new THREE.Mesh(new THREE.TorusGeometry(0.21 - ti * 0.02, 0.014, 5, 10), elfFiligreeMat);
+            rail.rotation.x = Math.PI / 2;
+            rail.position.set(px, ty + 0.055, pz);
+            group.add(rail);
+            const gardenGlow = new THREE.Mesh(new THREE.OctahedronGeometry(0.065, 0), elfAquaGlowMat);
+            gardenGlow.position.set(Math.cos(ang) * 0.26, ty + 0.08, Math.sin(ang) * 0.26);
+            group.add(gardenGlow);
+          }
+          const crownBud = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.34, 8), elfJadeRoofMat);
+          crownBud.position.y = 1.4;
+          group.add(crownBud);
         } else {
-          // Elven Ep 6+: Pearl-Lotus Orbital Bio-Domes with Glowing Aqua Petals
-          addElfPagodaPavilion({
-            radius: 0.34,
-            h: 0.32,
-            wallMat: elfPearlTechMat,
-            roofMat: elfJadeRoofMat,
-            tiers: 1,
-            glowTrim: true,
-          });
+          // Elven Ep 6+: Pearl-Lotus Orbital Bio-Dome (6 unfolding curved lotus shell petals + geodesic starlight core)
+          const plinth = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.46, 0.08, 12), elfPearlTechMat);
+          plinth.position.y = 0.04;
+          group.add(plinth);
+          const waterCollar = new THREE.Mesh(new THREE.TorusGeometry(0.36, 0.028, 6, 14), elfAquaGlowMat);
+          waterCollar.rotation.x = Math.PI / 2;
+          waterCollar.position.y = 0.09;
+          group.add(waterCollar);
           const aquaDome = new THREE.Mesh(
-            new THREE.SphereGeometry(0.22, 10, 8, 0, Math.PI * 2, 0, Math.PI / 2),
+            new THREE.SphereGeometry(0.26, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2),
             elfAquaGlowMat,
           );
-          aquaDome.position.set(0, 0.46, 0);
+          aquaDome.position.y = 0.1;
           group.add(aquaDome);
+          // 3 Geodesic meridian filigree arches crossing the bio-dome
+          for (let g = 0; g < 3; g++) {
+            const rib = new THREE.Mesh(new THREE.TorusGeometry(0.268, 0.016, 5, 12, Math.PI), elfFiligreeMat);
+            rib.rotation.y = (g * Math.PI) / 3;
+            rib.position.y = 0.1;
+            group.add(rib);
+          }
+          for (let p = 0; p < 6; p++) {
+            const a = (p / 6) * Math.PI * 2 + variant * 0.25;
+            const petal = new THREE.Mesh(new THREE.ConeGeometry(0.095, 0.4, 4), elfJadeRoofMat);
+            petal.position.set(Math.cos(a) * 0.29, 0.24, Math.sin(a) * 0.29);
+            petal.rotation.z = -Math.cos(a) * 0.56;
+            petal.rotation.x = Math.sin(a) * 0.56;
+            group.add(petal);
+          }
         }
         break;
       }
 
       if (isOrc) {
         if (epochIndex === 0) {
-          // Orc Ep 0: Animal-Hide War Yurts & Tusk-Braced Lean-Tos
-          const earth = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.46, 0.06, 7), orcBasaltMat);
+          // Orc Ep 0: Ribbed Animal-Hide War Yurt with External Timber Poles, Bone Crown & Cauldron Campfire
+          const earth = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.48, 0.06, 7), orcBasaltMat);
           earth.position.y = 0.03;
           group.add(earth);
-
           const yurt = new THREE.Mesh(
             new THREE.CylinderGeometry(0.24, 0.36, 0.26, 7),
             variant % 2 === 0 ? orcHideMat : orcCrimsonMat,
@@ -2147,20 +3313,25 @@ export function createBuildingGroup(
           yurt.position.y = 0.18;
           yurt.castShadow = true;
           group.add(yurt);
-
-          const roof = new THREE.Mesh(new THREE.ConeGeometry(0.38, 0.28, 7), orcHideMat);
+          for (let r = 0; r < 6; r++) {
+            const a = (r / 6) * Math.PI * 2;
+            const pole = new THREE.Mesh(new THREE.BoxGeometry(0.028, 0.3, 0.028), orcCharredLogMat);
+            pole.position.set(Math.cos(a) * 0.31, 0.18, Math.sin(a) * 0.31);
+            group.add(pole);
+          }
+          const roof = new THREE.Mesh(new THREE.ConeGeometry(0.39, 0.28, 7), orcHideMat);
           roof.position.y = 0.44;
           roof.castShadow = true;
           group.add(roof);
-
           for (const sx of [-0.22, 0.22]) {
-            const tusk = new THREE.Mesh(new THREE.ConeGeometry(0.038, 0.26, 5), orcBoneMat);
-            tusk.position.set(sx, 0.4, 0.22);
+            const tusk = new THREE.Mesh(new THREE.ConeGeometry(0.038, 0.28, 5), orcBoneMat);
+            tusk.position.set(sx, 0.42, 0.22);
             tusk.rotation.z = -Math.sign(sx) * 0.4;
             group.add(tusk);
           }
+          addPrehistoricCampfire(0.26, 0.28, orcMagmaGlowMat);
         } else if (epochIndex <= 2) {
-          // Orc Ep 1-2: Basalt & Charred-Log Bastion Longhouses with Jutting Tusks
+          // Orc Ep 1-2: Detailed Basalt & Charred-Log Bastion Longhouses
           addOrcBastionHut({
             w: variant === 1 ? 0.68 : 0.58,
             h: variant === 2 ? 0.34 : 0.29,
@@ -2171,10 +3342,10 @@ export function createBuildingGroup(
             withBanner: variant === 1 || variant === 3,
           });
         } else if (epochIndex <= 4) {
-          // Orc Ep 3-4: Riveted Rust-Iron Barracks Bunkers & Multi-Story Industrial Housing
+          // Orc Ep 3-4: Riveted Rust-Iron Barracks Bunkers & Multi-Story Industrial Citadels
           addOrcBastionHut({
-            w: 0.64,
-            h: epochIndex === 4 ? 0.48 : 0.36,
+            w: 0.66,
+            h: epochIndex === 4 ? 0.48 : 0.37,
             d: 0.52,
             wallMat: epochIndex === 4 ? orcGunmetalMat : orcIronMat,
             roofMat: orcCrimsonMat,
@@ -2182,50 +3353,94 @@ export function createBuildingGroup(
             withBanner: true,
           });
         } else if (epochIndex === 5) {
-          // Orc Ep 5 (Info Age): Heavy Brutalist Steel High-Rise Arcology Block with Crimson Window Slits
-          const towerH = 0.85 + (variant % 3) * 0.24;
-          const podium = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.18, 0.66), orcBasaltMat);
+          // Orc Ep 5 (Info Age): Sloped Brutalist Ironclad Megablock (Exoskeleton Armor Ribs, Blast Louvers, Twin Braced Exhausts)
+          const towerH = 0.84 + (variant % 3) * 0.2;
+          const podium = new THREE.Mesh(new THREE.CylinderGeometry(0.43, 0.52, 0.18, 4), orcBasaltMat);
+          podium.rotation.y = Math.PI / 4;
           podium.position.y = 0.09;
           group.add(podium);
-          const block = new THREE.Mesh(new THREE.BoxGeometry(0.58, towerH, 0.52), orcGunmetalMat);
+          const block = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.39, towerH, 4), orcGunmetalMat);
+          block.rotation.y = Math.PI / 4;
           block.position.y = 0.18 + towerH * 0.5;
           block.castShadow = true;
           group.add(block);
-          for (let f = 0; f < 3; f++) {
-            const band = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.05, 0.54), orcMagmaGlowMat);
-            band.position.y = 0.34 + f * (towerH * 0.28);
-            group.add(band);
+          // 4 Vertical exoskeleton buttress splines + blast louvers
+          for (const [bx, bz] of [[-0.22, -0.22], [0.22, -0.22], [-0.22, 0.22], [0.22, 0.22]]) {
+            const spine = new THREE.Mesh(new THREE.BoxGeometry(0.065, towerH + 0.08, 0.065), orcRustPlateMat);
+            spine.position.set(bx, 0.18 + towerH * 0.5, bz);
+            group.add(spine);
           }
-          const crown = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.12, 0.38), orcCrimsonMat);
-          crown.position.y = 0.24 + towerH;
-          group.add(crown);
+          for (const sx of [-0.26, 0.26]) {
+            const flues = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.062, towerH + 0.24, 6), orcIronMat);
+            flues.position.set(sx, 0.22 + towerH * 0.5, -0.2);
+            group.add(flues);
+            const flueCollar = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.045, 6), orcCrimsonMat);
+            flueCollar.position.set(sx, 0.34 + towerH, -0.2);
+            group.add(flueCollar);
+          }
+          for (let f = 0; f < 4; f++) {
+            const wBand = 0.48 - f * 0.04;
+            const hood = new THREE.Mesh(new THREE.BoxGeometry(wBand + 0.04, 0.025, wBand + 0.04), orcRustPlateMat);
+            hood.position.y = 0.31 + f * (towerH * 0.22);
+            group.add(hood);
+            const slit = new THREE.Mesh(new THREE.BoxGeometry(wBand, 0.045, wBand), orcMagmaGlowMat);
+            slit.position.y = 0.28 + f * (towerH * 0.22);
+            group.add(slit);
+          }
+          const crownBunker = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.12, 0.28), orcIronMat);
+          crownBunker.position.y = 0.22 + towerH;
+          group.add(crownBunker);
+          for (const sx of [-0.18, 0.18]) {
+            const horn = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.3, 4), orcCrimsonMat);
+            horn.position.set(sx, 0.3 + towerH, 0);
+            horn.rotation.z = -Math.sign(sx) * 0.3;
+            group.add(horn);
+          }
+          const beacon = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.05), beaconRedMat);
+          beacon.position.set(0, 0.3 + towerH, 0);
+          group.add(beacon);
         } else {
-          // Orc Ep 6+: Gunmetal Armored Siege Pods with Crimson Plasma Vent
-          addOrcBastionHut({
-            w: 0.66,
-            h: 0.34,
-            d: 0.54,
-            wallMat: orcGunmetalMat,
-            roofMat: orcIronMat,
-            tuskMat: orcMagmaGlowMat,
-            withBanner: false,
-          });
-          const plasmaCore = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.16, 0.24), orcMagmaGlowMat);
-          plasmaCore.position.set(0, 0.66, 0);
+          // Orc Ep 6+: Sloped Hexagonal Ironclad Siege Pod with 6 Claw Buttresses & Magma Core
+          const skirt = new THREE.Mesh(new THREE.CylinderGeometry(0.44, 0.5, 0.1, 6), orcBasaltMat);
+          skirt.position.y = 0.05;
+          group.add(skirt);
+          const hexHull = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.45, 0.42, 6), orcGunmetalMat);
+          hexHull.position.y = 0.24;
+          hexHull.castShadow = true;
+          group.add(hexHull);
+          for (let i = 0; i < 6; i++) {
+            const a = (i / 6) * Math.PI * 2;
+            const armorPlate = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.36, 0.05), orcRustPlateMat);
+            armorPlate.position.set(Math.cos(a) * 0.39, 0.22, Math.sin(a) * 0.39);
+            armorPlate.rotation.y = -a + Math.PI / 2;
+            group.add(armorPlate);
+            if (i % 2 === 0) {
+              const claw = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.36, 4), orcIronMat);
+              claw.position.set(Math.cos(a) * 0.32, 0.48, Math.sin(a) * 0.32);
+              claw.rotation.z = Math.cos(a) * 0.42;
+              claw.rotation.x = -Math.sin(a) * 0.42;
+              group.add(claw);
+            }
+          }
+          const plasmaCore = new THREE.Mesh(new THREE.OctahedronGeometry(0.18, 0), orcMagmaGlowMat);
+          plasmaCore.position.set(0, 0.6, 0);
+          plasmaCore.name = 'spin_part';
           group.add(plasmaCore);
         }
         break;
       }
 
-      // HUMAN Houses -> Brick Tenements (Ep 3) -> Concrete Mid-Rises (Ep 4) -> Glass Skyscrapers (Ep 5) -> Bio-Habitats (Ep 6+)
+      // HUMAN Houses -> Cottages (Ep 1-2) -> Brick Brownstone Rowhouses (Ep 3) -> Concrete Mid-Rises (Ep 4) -> Curtain-Wall Skyscrapers (Ep 5) -> Geodesic Bio-Habitats (Ep 6+)
       if (epochIndex === 0) {
         const earthPad = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.44, 0.05, 8), mudEarthMat);
         earthPad.position.y = 0.025;
         group.add(earthPad);
-
         if (variant % 2 === 0) {
           addSteppedGableRoof(0, 0.05, 0, 0.62, 0.58, 5, 0.075, thatchMat, mudEarthMat, variant === 0);
-          const door = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.18, 0.04), doorDarkMat);
+          const doorFrame = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.21, 0.035), stickWoodMat);
+          doorFrame.position.set(0, 0.15, 0.29);
+          group.add(doorFrame);
+          const door = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.18, 0.042), windowWarmMat);
           door.position.set(0, 0.14, 0.3);
           group.add(door);
         } else {
@@ -2233,6 +3448,9 @@ export function createBuildingGroup(
           mudWall.position.y = 0.15;
           mudWall.castShadow = true;
           group.add(mudWall);
+          const doorGlow = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.16, 0.04), windowWarmMat);
+          doorGlow.position.set(0, 0.12, 0.32);
+          group.add(doorGlow);
           for (let s = 0; s < 4; s++) {
             const r = 0.38 - s * 0.08;
             const tier = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.75, r, 0.09, 8), thatchMat);
@@ -2241,7 +3459,6 @@ export function createBuildingGroup(
             group.add(tier);
           }
         }
-
         const rackL = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.22, 0.035), stickWoodMat);
         rackL.position.set(0.28, 0.14, 0.26);
         group.add(rackL);
@@ -2252,6 +3469,7 @@ export function createBuildingGroup(
         rackBar.position.set(0.2, 0.23, 0.29);
         rackBar.rotation.y = -0.35;
         group.add(rackBar);
+        addPrehistoricCampfire(-0.24, 0.28, flameMat);
       } else if (epochIndex <= 2) {
         if (variant === 0) {
           addVoxelCottage({
@@ -2263,6 +3481,7 @@ export function createBuildingGroup(
             chimneyMat: whitePlasterMat,
             chimneySide: 'left',
             ridgeAlongZ: false,
+            withDormer: true,
           });
         } else if (variant === 1) {
           addVoxelCottage({
@@ -2304,93 +3523,166 @@ export function createBuildingGroup(
             chimneySide: 'right',
             ridgeAlongZ: false,
             timberTrim: true,
+            withDormer: true,
           });
         }
       } else if (epochIndex === 3) {
-        // Industrial Age: Brick urban rowhouses & 2-story tenements
+        // Industrial Age: Detailed Brick Brownstone Rowhouse / Tenement with Slate Dormer & Wrought-Iron Fire Escape
         addVoxelCottage({
           w: variant % 2 === 0 ? 0.62 : 0.68,
-          h: 0.44,
+          h: 0.45,
           d: 0.52,
           wallMat: variant === 3 ? stoneMat : brickMat,
-          roofMat: darkStoneMat,
+          roofMat: slateRoofMat,
           chimneyMat: brickMat,
           chimneySide: variant % 2 === 0 ? 'left' : 'right',
           ridgeAlongZ: false,
           timberTrim: false,
+          withDormer: true,
         });
-        const upperWin = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.08, 0.54), flameMat);
-        upperWin.position.y = 0.36;
-        group.add(upperWin);
+        // Exterior wrought-iron fire escape landing + vertical ladder on right flank
+        const landing = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.025, 0.22), darkStoneMat);
+        landing.position.set(0.37, 0.29, 0);
+        group.add(landing);
+        const rail = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.065, 0.22), darkStoneMat);
+        rail.position.set(0.41, 0.33, 0);
+        group.add(rail);
+        const ladder = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.28, 0.05), darkStoneMat);
+        ladder.position.set(0.39, 0.18, 0.06);
+        group.add(ladder);
       } else if (epochIndex === 4) {
-        // Atomic Age: Multi-story urban concrete apartment mid-rise with rooftop water tower
-        const midH = 0.58 + (variant % 2) * 0.18;
-        const base = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.08, 0.6), darkStoneMat);
-        base.position.y = 0.04;
+        // Atomic Age: Mid-Century Concrete Apartment with Vertical Mullion Piers, Projecting Balconies & Elevated Water Tower
+        const midH = 0.62 + (variant % 2) * 0.18;
+        const base = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.09, 0.62), darkStoneMat);
+        base.position.y = 0.045;
         group.add(base);
         const block = new THREE.Mesh(new THREE.BoxGeometry(0.6, midH, 0.54), concreteMat);
-        block.position.y = 0.08 + midH * 0.5;
+        block.position.y = 0.09 + midH * 0.5;
         block.castShadow = true;
         block.receiveShadow = true;
         group.add(block);
-        for (let f = 0; f < 2; f++) {
-          const winBand = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.06, 0.56), glowCyanMat);
-          winBand.position.y = 0.24 + f * 0.22;
-          group.add(winBand);
+        // Vertical concrete structural mullions dividing facade into 3 bays
+        for (const px of [-0.28, -0.09, 0.09, 0.28]) {
+          const pier = new THREE.Mesh(new THREE.BoxGeometry(0.036, midH + 0.02, 0.56), concreteMat);
+          pier.position.set(px, 0.09 + midH * 0.5, 0);
+          group.add(pier);
         }
-        const roofTrim = new THREE.Mesh(new THREE.BoxGeometry(0.64, 0.06, 0.58), darkStoneMat);
+        // Entrance portico canopy
+        const canopy = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.03, 0.12), copperMat);
+        canopy.position.set(0, 0.2, 0.31);
+        group.add(canopy);
+        for (let f = 0; f < 3; f++) {
+          const fy = 0.22 + f * 0.175;
+          const winBand = new THREE.Mesh(
+            new THREE.BoxGeometry(0.62, 0.055, 0.56),
+            f % 2 === 0 ? windowModernWarmMat : windowModernCoolMat,
+          );
+          winBand.position.y = fy;
+          group.add(winBand);
+          // Projecting front balcony slabs with railing on upper stories
+          if (f >= 1) {
+            const balc = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.025, 0.09), darkStoneMat);
+            balc.position.set(f === 1 ? -0.15 : 0.15, fy - 0.038, 0.3);
+            group.add(balc);
+          }
+        }
+        const roofTrim = new THREE.Mesh(new THREE.BoxGeometry(0.64, 0.055, 0.58), darkStoneMat);
         roofTrim.position.y = 0.1 + midH;
         group.add(roofTrim);
-        const waterTank = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.14, 8), woodMat);
-        waterTank.position.set(0.16, 0.2 + midH, -0.1);
+        // Penthouse stair bulkhead & elevated wood-stave water tank on stilts
+        const bulkhead = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.12, 0.18), concreteMat);
+        bulkhead.position.set(-0.14, 0.18 + midH, 0.08);
+        group.add(bulkhead);
+        const waterTank = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.13, 8), woodMat);
+        waterTank.position.set(0.16, 0.25 + midH, -0.1);
         group.add(waterTank);
+        const tankRoof = new THREE.Mesh(new THREE.ConeGeometry(0.095, 0.07, 8), slateRoofMat);
+        tankRoof.position.set(0.16, 0.35 + midH, -0.1);
+        group.add(tankRoof);
+        const roofBeacon = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.045, 0.045), beaconRedMat);
+        roofBeacon.position.set(-0.14, 0.26 + midH, 0.08);
+        group.add(roofBeacon);
       } else if (epochIndex === 5) {
-        // Information Age: High-Density Glass & Steel Skyscraper (varied skyline heights)
-        const towerH = 0.92 + variant * 0.22;
-        const lobby = new THREE.Mesh(new THREE.BoxGeometry(0.74, 0.18, 0.68), darkStoneMat);
-        lobby.position.y = 0.09;
-        lobby.castShadow = true;
-        group.add(lobby);
-        const shaft = new THREE.Mesh(new THREE.BoxGeometry(0.56, towerH, 0.52), blueRoofMat);
-        shaft.position.y = 0.18 + towerH * 0.5;
+        // Information Age: Curtain-Wall Glass & Steel Skyscraper (Granite Colonnade Podium, Steel Mullion Grid, Setback Penthouse & Dual Spires)
+        const towerH = 0.96 + variant * 0.22;
+        const podium = new THREE.Mesh(new THREE.BoxGeometry(0.76, 0.2, 0.7), darkStoneMat);
+        podium.position.y = 0.1;
+        podium.castShadow = true;
+        group.add(podium);
+        const lobbyGlow = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.065, 0.72), windowModernWarmMat);
+        lobbyGlow.position.y = 0.09;
+        group.add(lobbyGlow);
+        const marquee = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.032, 0.12), copperMat);
+        marquee.position.set(0, 0.18, 0.39);
+        group.add(marquee);
+
+        const shaft = new THREE.Mesh(new THREE.BoxGeometry(0.56, towerH, 0.52), glassCurtainMat);
+        shaft.position.y = 0.2 + towerH * 0.5;
         shaft.castShadow = true;
         shaft.receiveShadow = true;
         group.add(shaft);
-        const floors = 3 + (variant % 2);
+        // Crisp exterior vertical steel curtain-wall mullions around all 4 sides
+        for (const mx of [-0.26, -0.09, 0.09, 0.26]) {
+          const finF = new THREE.Mesh(new THREE.BoxGeometry(0.028, towerH + 0.02, 0.55), darkTechMat);
+          finF.position.set(mx, 0.2 + towerH * 0.5, 0);
+          group.add(finF);
+        }
+        const floors = 4 + (variant % 2);
         for (let f = 0; f < floors; f++) {
           const glassBand = new THREE.Mesh(
-            new THREE.BoxGeometry(0.58, 0.065, 0.54),
-            f % 2 === 0 ? glowCyanMat : concreteMat,
+            new THREE.BoxGeometry(0.58, 0.055, 0.54),
+            (f + variant) % 2 === 0 ? windowModernWarmMat : windowModernCoolMat,
           );
-          glassBand.position.y = 0.3 + f * ((towerH - 0.16) / floors);
+          glassBand.position.y = 0.3 + f * ((towerH - 0.14) / floors);
           group.add(glassBand);
         }
-        const crown = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.12, 0.36), techMat);
-        crown.position.y = 0.24 + towerH;
+        // Stepped mechanical crown & louvered screen + twin radio masts
+        const crown = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.12, 0.38), techMat);
+        crown.position.y = 0.26 + towerH;
         group.add(crown);
+        const hvacCage = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.08, 0.24), darkTechMat);
+        hvacCage.position.y = 0.36 + towerH;
+        group.add(hvacCage);
         if (variant % 2 === 0) {
-          const antenna = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.025, 0.32, 6), techMat);
-          antenna.position.y = 0.42 + towerH;
-          group.add(antenna);
+          for (const ax of [-0.08, 0.08]) {
+            const antenna = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.024, 0.34, 6), techMat);
+            antenna.position.set(ax, 0.54 + towerH, 0);
+            group.add(antenna);
+          }
+          const beacon = new THREE.Mesh(new THREE.BoxGeometry(0.048, 0.048, 0.048), beaconRedMat);
+          beacon.position.set(-0.08, 0.72 + towerH, 0);
+          group.add(beacon);
+        } else {
+          const beacon = new THREE.Mesh(new THREE.BoxGeometry(0.048, 0.048, 0.048), beaconRedMat);
+          beacon.position.y = 0.42 + towerH;
+          group.add(beacon);
         }
       } else {
-        // Orbital & Interstellar: Techno-Modern Bio-Dome Habitat
+        // Orbital & Interstellar: Geodesic Bio-Dome Arcology Habitat with Hover-Fins & Sky-Terraces
+        const octDeck = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.48, 0.1, 8), darkTechMat);
+        octDeck.position.y = 0.05;
+        group.add(octDeck);
         addVoxelCottage({
-          w: 0.64,
-          h: 0.32,
-          d: 0.52,
+          w: 0.62,
+          h: 0.3,
+          d: 0.5,
           wallMat: techMat,
           roofMat: darkTechMat,
-          chimneyMat: glowCyanMat,
           chimneySide: 'none',
           ridgeAlongZ: false,
         });
         const bioDome = new THREE.Mesh(
-          new THREE.SphereGeometry(0.2, 10, 8, 0, Math.PI * 2, 0, Math.PI / 2),
+          new THREE.SphereGeometry(0.22, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2),
           glowCyanMat,
         );
-        bioDome.position.set(0.18, 0.58, 0);
+        bioDome.position.set(0.12, 0.56, 0);
         group.add(bioDome);
+        for (let r = 0; r < 2; r++) {
+          const rib = new THREE.Mesh(new THREE.TorusGeometry(0.228, 0.016, 5, 12, Math.PI), techMat);
+          rib.rotation.y = r * (Math.PI / 2);
+          rib.position.set(0.12, 0.56, 0);
+          group.add(rib);
+        }
       }
       break;
     }
@@ -2398,46 +3690,55 @@ export function createBuildingGroup(
     case 'shaman_totem': {
       if (isElf) {
         if (epochIndex === 0) {
-          // Elven Ep 0: Birch-antler spirit arch woven with leaves
-          const base = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.32, 0.08, 8), elfMossStoneMat);
+          const base = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.34, 0.08, 8), elfMossStoneMat);
           base.position.y = 0.04;
           group.add(base);
-          const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, 0.6, 6), elfBirchMat);
-          trunk.position.y = 0.34;
+          const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.095, 0.62, 6), elfBirchMat);
+          trunk.position.y = 0.35;
           trunk.castShadow = true;
           group.add(trunk);
-          const halo = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.03, 6, 12), elfLeafRoofMat);
+          const halo = new THREE.Mesh(new THREE.TorusGeometry(0.21, 0.032, 6, 12), elfLeafRoofMat);
           halo.position.y = 0.58;
           group.add(halo);
+          const rune = new THREE.Mesh(new THREE.OctahedronGeometry(0.08, 0), elfAquaGlowMat);
+          rune.position.y = 0.58;
+          group.add(rune);
         } else {
-          // Elven Ep 1+: Twin Crescent Moon-Gate Shrine with levitating starlight crystal
+          // Elven Ep 1+: Twin Crescent Moon-Gate Shrine with Filigree Buttresses & Levitating Crystal
           const isSciFi = epochIndex >= 6;
           const dais = new THREE.Mesh(
-            new THREE.CylinderGeometry(0.36, 0.42, 0.1, 8),
+            new THREE.CylinderGeometry(0.38, 0.44, 0.1, 8),
             isSciFi ? elfPearlTechMat : elfMossStoneMat,
           );
           dais.position.y = 0.05;
           group.add(dais);
+          const innerRing = new THREE.Mesh(new THREE.TorusGeometry(0.26, 0.022, 5, 12), elfFiligreeMat);
+          innerRing.rotation.x = Math.PI / 2;
+          innerRing.position.y = 0.11;
+          group.add(innerRing);
 
-          for (const sx of [-0.18, 0.18]) {
+          for (const sx of [-0.19, 0.19]) {
+            const ped = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.12), elfMossStoneMat);
+            ped.position.set(sx, 0.14, 0);
+            group.add(ped);
             const pillar = new THREE.Mesh(
-              new THREE.BoxGeometry(0.08, 0.52, 0.08),
+              new THREE.BoxGeometry(0.075, 0.54, 0.075),
               isSciFi ? elfPearlTechMat : elfBirchMat,
             );
-            pillar.position.set(sx, 0.34, 0);
+            pillar.position.set(sx, 0.36, 0);
             pillar.rotation.z = -Math.sign(sx) * 0.16;
             pillar.castShadow = true;
             group.add(pillar);
           }
           const crownArc = new THREE.Mesh(
-            new THREE.TorusGeometry(0.2, 0.04, 6, 12, Math.PI),
+            new THREE.TorusGeometry(0.21, 0.042, 6, 12, Math.PI),
             isSciFi ? elfJadeRoofMat : goldMat,
           );
-          crownArc.position.y = 0.56;
+          crownArc.position.y = 0.58;
           group.add(crownArc);
 
           const relic = new THREE.Mesh(new THREE.OctahedronGeometry(0.11, 0), elfAquaGlowMat);
-          relic.position.y = 0.36;
+          relic.position.y = 0.38;
           relic.name = 'spin_part';
           group.add(relic);
         }
@@ -2446,81 +3747,83 @@ export function createBuildingGroup(
 
       if (isOrc) {
         if (epochIndex === 0) {
-          // Orc Ep 0: Skull & Horn War Standard Totem
-          const mound = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.32, 0.1, 6), orcBasaltMat);
+          const mound = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.34, 0.1, 6), orcBasaltMat);
           mound.position.y = 0.05;
           group.add(mound);
-          const pole = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.64, 0.14), orcCharredLogMat);
+          const pole = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.66, 0.14), orcCharredLogMat);
           pole.position.y = 0.36;
           group.add(pole);
+          const maskPlate = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.18, 0.16), orcCrimsonMat);
+          maskPlate.position.y = 0.48;
+          group.add(maskPlate);
           for (const sx of [-0.18, 0.18]) {
-            const horn = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.3, 5), orcBoneMat);
-            horn.position.set(sx, 0.62, 0);
+            const horn = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.32, 5), orcBoneMat);
+            horn.position.set(sx, 0.64, 0);
             horn.rotation.z = -Math.sign(sx) * 0.6;
             group.add(horn);
           }
         } else {
-          // Orc Ep 1+: Obsidian Fang & Twin Iron-Horn War Altar
+          // Orc Ep 1+: Obsidian Fang & Twin Iron-Horn War Altar with Magma Brazier
           const isSciFi = epochIndex >= 6;
           const dais = new THREE.Mesh(
-            new THREE.BoxGeometry(0.72, 0.14, 0.72),
+            new THREE.BoxGeometry(0.74, 0.14, 0.74),
             isSciFi ? orcGunmetalMat : orcBasaltMat,
           );
           dais.position.y = 0.07;
           group.add(dais);
+          const ironApron = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.06, 0.56), orcRustPlateMat);
+          ironApron.position.y = 0.16;
+          group.add(ironApron);
 
           for (const sx of [-0.22, 0.22]) {
             const fang = new THREE.Mesh(
-              new THREE.ConeGeometry(0.09, 0.62, 5),
+              new THREE.ConeGeometry(0.09, 0.64, 5),
               isSciFi ? orcIronMat : orcBasaltMat,
             );
-            fang.position.set(sx, 0.42, 0);
+            fang.position.set(sx, 0.44, 0);
             fang.rotation.z = Math.sign(sx) * 0.18;
             fang.castShadow = true;
             group.add(fang);
           }
           const core = new THREE.Mesh(new THREE.OctahedronGeometry(0.14, 0), orcMagmaGlowMat);
-          core.position.y = 0.42;
+          core.position.y = 0.44;
           core.name = isSciFi ? 'spin_part' : 'flicker_flame';
           group.add(core);
         }
         break;
       }
 
-      // HUMAN Shrines
+      // HUMAN Shrines (Carved Timber Totem Ep 0 / Cross-Stepped Altar Sanctuary Ep 1+)
       if (epochIndex === 0) {
-        const earthBase = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.3, 0.1, 6), mudEarthMat);
+        const earthBase = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.32, 0.1, 6), mudEarthMat);
         earthBase.position.y = 0.05;
         group.add(earthBase);
-
-        const totemPole = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.64, 0.16), stickWoodMat);
+        const totemPole = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.66, 0.16), stickWoodMat);
         totemPole.position.y = 0.37;
         totemPole.castShadow = true;
         group.add(totemPole);
-
         const woodenWings = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.09, 0.08), thatchMat);
         woodenWings.position.y = 0.54;
         group.add(woodenWings);
-
         const maskCrest = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.14, 0.2), redRoofMat);
         maskCrest.position.y = 0.68;
         group.add(maskCrest);
       } else {
         const isSciFi = epochIndex >= 6;
         const baseMat = isSciFi ? darkTechMat : stoneMat;
-        const pillarMat = isSciFi ? techMat : stoneMat;
+        const pillarMat = isSciFi ? techMat : marbleWhiteMat;
         const trimMat = isSciFi ? glowCyanMat : darkStoneMat;
 
-        const base1 = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.09, 0.68), baseMat);
+        const base1 = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.09, 0.7), baseMat);
         base1.position.y = 0.045;
         base1.receiveShadow = true;
         base1.castShadow = true;
         group.add(base1);
 
-        const stepNS = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.07, 0.78), baseMat);
+        const stepNS = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.07, 0.8), baseMat);
         stepNS.position.y = 0.035;
         group.add(stepNS);
-        const stepEW = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.07, 0.32), baseMat);
+        const stepEW = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.07, 0.32), baseMat);
         stepEW.position.y = 0.035;
         group.add(stepEW);
 
@@ -2534,37 +3837,33 @@ export function createBuildingGroup(
           [-0.21, 0.21],
           [0.21, 0.21],
         ]) {
-          const pillar = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.32, 0.1), pillarMat);
-          pillar.position.set(px, 0.33, pz);
+          const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.055, 0.34, 8), pillarMat);
+          pillar.position.set(px, 0.34, pz);
           pillar.castShadow = true;
           group.add(pillar);
         }
 
         const beamN = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.09, 0.11), pillarMat);
-        beamN.position.set(0, 0.53, -0.21);
-        beamN.castShadow = true;
+        beamN.position.set(0, 0.54, -0.21);
         group.add(beamN);
-
         const beamS = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.09, 0.11), pillarMat);
-        beamS.position.set(0, 0.53, 0.21);
-        beamS.castShadow = true;
+        beamS.position.set(0, 0.54, 0.21);
         group.add(beamS);
-
         const beamW = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.09, 0.56), pillarMat);
-        beamW.position.set(-0.21, 0.53, 0);
-        beamW.castShadow = true;
+        beamW.position.set(-0.21, 0.54, 0);
         group.add(beamW);
-
         const beamE = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.09, 0.56), pillarMat);
-        beamE.position.set(0.21, 0.53, 0);
-        beamE.castShadow = true;
+        beamE.position.set(0.21, 0.54, 0);
         group.add(beamE);
+        const corniceCrown = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.04, 0.6), isSciFi ? glowCyanMat : copperMat);
+        corniceCrown.position.y = 0.6;
+        group.add(corniceCrown);
 
         const relic = new THREE.Mesh(
-          new THREE.BoxGeometry(0.14, 0.16, 0.14),
+          new THREE.OctahedronGeometry(0.12, 0),
           isSciFi ? glowCyanMat : epochIndex >= 2 ? goldMat : stoneMat,
         );
-        relic.position.y = 0.25;
+        relic.position.y = 0.3;
         if (isSciFi) relic.name = 'spin_part';
         group.add(relic);
       }
@@ -2573,131 +3872,261 @@ export function createBuildingGroup(
 
     case 'granary': {
       if (isElf) {
-        if (epochIndex <= 5) {
-          addElfPagodaPavilion({
-            radius: 0.34,
-            h: 0.3,
-            wallMat: epochIndex >= 3 ? elfBirchMat : elfHeartwoodMat,
-            roofMat: epochIndex >= 3 ? elfVerdigrisMat : elfJadeRoofMat,
-            tiers: epochIndex >= 4 ? 2 : 1,
-            glowTrim: true,
-          });
-          const urn = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.11, 0.22, 8), goldMat);
-          urn.position.set(-0.28, 0.14, 0.24);
+        // ELVES: Terraced Botanical Seed-Vault Conservatory with 6 Curved Ribs, Lantern Slits & Amphora Porch
+        const isSciFi = epochIndex >= 6;
+        const daisMat = isSciFi ? elfPearlTechMat : elfMossStoneMat;
+        const dais = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.47, 0.075, 10), daisMat);
+        dais.position.y = 0.037;
+        dais.receiveShadow = true;
+        group.add(dais);
+        const curbCollar = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.39, 0.045, 10), elfFiligreeMat);
+        curbCollar.position.y = 0.095;
+        group.add(curbCollar);
+
+        const vault = new THREE.Mesh(
+          new THREE.SphereGeometry(0.3, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.62),
+          isSciFi ? elfPearlTechMat : elfBirchMat,
+        );
+        vault.scale.set(1, 1.38, 1);
+        vault.position.y = 0.1;
+        vault.castShadow = true;
+        group.add(vault);
+
+        // 6 sculpted exterior arched ribs + glowing aqua seed-slit lanterns
+        for (let r = 0; r < 6; r++) {
+          const a = (r / 6) * Math.PI * 2;
+          const rib = new THREE.Mesh(
+            new THREE.TorusGeometry(0.312, 0.024, 5, 10, Math.PI * 0.62),
+            isSciFi ? elfJadeRoofMat : elfVerdigrisMat,
+          );
+          rib.rotation.y = a;
+          rib.position.y = 0.1;
+          group.add(rib);
+
+          if (r % 2 === 0) {
+            const slit = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.16, 0.03), elfAquaGlowMat);
+            slit.position.set(Math.cos(a + 0.52) * 0.28, 0.24, Math.sin(a + 0.52) * 0.28);
+            slit.rotation.y = -(a + 0.52);
+            group.add(slit);
+          }
+        }
+
+        // Front arched porch canopy & stepped amphora terrace
+        const porchArch = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.18, 0.08), elfFiligreeMat);
+        porchArch.position.set(0, 0.2, 0.29);
+        group.add(porchArch);
+        const porchDoor = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.16, 0.045), elfAquaGlowMat);
+        porchDoor.position.set(0, 0.17, 0.32);
+        group.add(porchDoor);
+
+        const seedCrownCollar = new THREE.Mesh(new THREE.TorusGeometry(0.085, 0.018, 5, 10), elfFiligreeMat);
+        seedCrownCollar.rotation.x = Math.PI / 2;
+        seedCrownCollar.position.y = 0.52;
+        group.add(seedCrownCollar);
+        const seedCrown = new THREE.Mesh(
+          new THREE.ConeGeometry(0.095, 0.24, 8),
+          isSciFi ? elfAquaGlowMat : goldMat,
+        );
+        seedCrown.position.y = 0.64;
+        group.add(seedCrown);
+
+        // Twin rimmed harvest amphorae on terrace
+        for (const [ux, uz, sc] of [
+          [-0.27, 0.27, 1],
+          [-0.17, 0.32, 0.78],
+        ] as const) {
+          const urn = new THREE.Mesh(new THREE.CylinderGeometry(0.055 * sc, 0.082 * sc, 0.19 * sc, 8), goldMat);
+          urn.position.set(ux, 0.15 * sc, uz);
           group.add(urn);
-        } else {
-          addElfPagodaPavilion({
-            radius: 0.34,
-            h: 0.34,
-            wallMat: elfPearlTechMat,
-            roofMat: elfJadeRoofMat,
-            tiers: 2,
-            glowTrim: true,
-          });
-          const bioVat = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.52, 8), elfAquaGlowMat);
-          bioVat.position.set(-0.28, 0.28, -0.2);
-          group.add(bioVat);
+          const urnLip = new THREE.Mesh(new THREE.CylinderGeometry(0.068 * sc, 0.05 * sc, 0.03 * sc, 8), elfVerdigrisMat);
+          urnLip.position.set(ux, 0.245 * sc, uz);
+          group.add(urnLip);
         }
         break;
       }
 
       if (isOrc) {
-        addOrcBastionHut({
-          w: 0.68,
-          h: 0.34,
-          d: 0.54,
-          wallMat: epochIndex >= 6 ? orcGunmetalMat : epochIndex >= 3 ? orcIronMat : orcCharredLogMat,
-          roofMat: orcCrimsonMat,
-          tuskMat: epochIndex >= 6 ? orcMagmaGlowMat : orcBoneMat,
-          withBanner: true,
-        });
-        const drumSilo = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.15, 0.16, 0.56, 7),
-          epochIndex >= 6 ? orcMagmaGlowMat : orcIronMat,
+        // ORCS: Iron-Strapped Smokehouse Bunker, Curing Kiln Stack & Cantilevered Meat-Hook Crane
+        const base = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.11, 0.68), orcBasaltMat);
+        base.position.y = 0.055;
+        base.receiveShadow = true;
+        group.add(base);
+
+        const wallMat = epochIndex >= 6 ? orcGunmetalMat : epochIndex >= 3 ? orcIronMat : orcCharredLogMat;
+        const smokehouse = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.39, 0.34, 4), wallMat);
+        smokehouse.rotation.y = Math.PI / 4;
+        smokehouse.position.set(0.06, 0.28, 0.04);
+        smokehouse.castShadow = true;
+        group.add(smokehouse);
+
+        // Riveted iron armor strap belt + corner spike piers
+        const strap = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.045, 0.56), orcRustPlateMat);
+        strap.position.set(0.06, 0.26, 0.04);
+        group.add(strap);
+
+        const ironCap = new THREE.Mesh(new THREE.ConeGeometry(0.32, 0.22, 4), orcCrimsonMat);
+        ironCap.rotation.y = Math.PI / 4;
+        ironCap.position.set(0.06, 0.56, 0.04);
+        ironCap.castShadow = true;
+        group.add(ironCap);
+
+        // Heavy brick/iron curing kiln chimney with banded iron collars & glowing vent
+        const curingKiln = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.13, 0.17, 0.58, 6),
+          epochIndex >= 6 ? orcIronMat : orcBasaltMat,
         );
-        drumSilo.position.set(-0.26, 0.3, -0.2);
-        drumSilo.castShadow = true;
-        group.add(drumSilo);
+        curingKiln.position.set(-0.27, 0.32, -0.2);
+        curingKiln.castShadow = true;
+        group.add(curingKiln);
+        for (const ky of [0.22, 0.42, 0.58]) {
+          const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.036, 6), orcRustPlateMat);
+          collar.position.set(-0.27, ky, -0.2);
+          group.add(collar);
+        }
+        const kilnVent = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.09, 0.08), orcMagmaGlowMat);
+        kilnVent.position.set(-0.27, 0.18, -0.05);
+        group.add(kilnVent);
+
+        // Cantilevered heavy crane jib + suspended hook block + diagonal corner tusks
+        const cranePost = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.46, 0.075), orcIronMat);
+        cranePost.position.set(0.28, 0.32, 0.24);
+        group.add(cranePost);
+        const craneArm = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.055, 0.055), orcRustPlateMat);
+        craneArm.position.set(0.18, 0.51, 0.28);
+        craneArm.rotation.z = 0.24;
+        group.add(craneArm);
+        const cargoHook = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.1, 0.08), orcCrimsonMat);
+        cargoHook.position.set(0.09, 0.36, 0.28);
+        group.add(cargoHook);
+
+        const tuskCrane = new THREE.Mesh(new THREE.ConeGeometry(0.042, 0.32, 5), orcBoneMat);
+        tuskCrane.position.set(-0.28, 0.28, 0.25);
+        tuskCrane.rotation.z = 0.42;
+        group.add(tuskCrane);
         break;
       }
 
-      // HUMAN Granary / Urban Market Depot
+      // HUMAN Granary / Market Depot -> Twin-Silo Brick Millhouse -> Cryo-Hydro Silo Complex
       if (epochIndex <= 2) {
-        const floorPad = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.07, 0.58), tanPlasterMat);
+        const floorPad = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.07, 0.62), stoneMat);
         floorPad.position.y = 0.035;
         floorPad.receiveShadow = true;
         group.add(floorPad);
 
         for (const [cx, cz] of [
-          [-0.27, -0.22],
-          [0, -0.22],
-          [0.27, -0.22],
-          [-0.27, 0.22],
-          [0, 0.22],
-          [0.27, 0.22],
+          [-0.29, -0.24],
+          [0, -0.24],
+          [0.29, -0.24],
+          [-0.29, 0.24],
+          [0, 0.24],
+          [0.29, 0.24],
         ]) {
-          const col = new THREE.Mesh(new THREE.BoxGeometry(0.065, 0.34, 0.065), tanPlasterMat);
-          col.position.set(cx, 0.24, cz);
+          const plinthFoot = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.06, 0.09), darkStoneMat);
+          plinthFoot.position.set(cx, 0.09, cz);
+          group.add(plinthFoot);
+          const col = new THREE.Mesh(new THREE.BoxGeometry(0.058, 0.34, 0.058), stickWoodMat);
+          col.position.set(cx, 0.27, cz);
           col.castShadow = true;
           group.add(col);
         }
 
-        const sackBlue = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.14, 0.14), blueRoofMat);
-        sackBlue.position.set(-0.12, 0.14, 0.05);
+        // Market counter + stacked dyed grain sacks & wooden provision crates
+        const counter = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.1, 0.14), woodMat);
+        counter.position.set(0, 0.11, 0.16);
+        group.add(counter);
+        const sackBlue = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.14, 0.13), blueRoofMat);
+        sackBlue.position.set(-0.14, 0.14, -0.02);
         group.add(sackBlue);
-
-        const sackGold = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.15, 0.13), goldenRoofMat);
-        sackGold.position.set(0.12, 0.145, -0.04);
+        const sackGold = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.16, 0.13), goldenRoofMat);
+        sackGold.position.set(0.08, 0.15, -0.05);
         group.add(sackGold);
-
-        const sackRed = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.12), redRoofMat);
-        sackRed.position.set(0.14, 0.13, 0.12);
+        const sackRed = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.12, 0.11), redRoofMat);
+        sackRed.position.set(0.16, 0.13, 0.1);
         group.add(sackRed);
 
-        const roofBase = new THREE.Mesh(new THREE.BoxGeometry(0.74, 0.07, 0.64), woodMat);
-        roofBase.position.y = 0.44;
-        roofBase.castShadow = true;
-        group.add(roofBase);
+        // Striped sloping market awnings on front and rear eaves
+        const awningFront = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.04, 0.16), greenAwningMat);
+        awningFront.position.set(0, 0.36, 0.31);
+        awningFront.rotation.x = 0.34;
+        group.add(awningFront);
+        const awningStripe = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.044, 0.165), goldenRoofMat);
+        awningStripe.position.set(0, 0.36, 0.31);
+        awningStripe.rotation.x = 0.34;
+        group.add(awningStripe);
 
+        // Exposed rafters & stepped timber gable roof
         for (let r = -2; r <= 2; r++) {
-          const rafter = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.06, 0.07), stickWoodMat);
-          rafter.position.set(0, 0.5, r * 0.12);
+          const rafter = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.05, 0.055), stickWoodMat);
+          rafter.position.set(0, 0.45, r * 0.12);
           rafter.castShadow = true;
           group.add(rafter);
         }
-
-        const ridgeBeam = new THREE.Mesh(new THREE.BoxGeometry(0.64, 0.07, 0.38), woodMat);
-        ridgeBeam.position.y = 0.55;
-        group.add(ridgeBeam);
+        addSteppedGableRoof(0, 0.47, 0, 0.66, 0.68, 3, 0.06, thatchMat, tanPlasterMat, false);
       } else if (epochIndex <= 5) {
+        const wallM = epochIndex === 3 ? brickMat : concreteMat;
+        const capM = epochIndex === 3 ? slateRoofMat : copperMat;
         addVoxelCottage({
-          w: 0.68,
-          h: epochIndex === 5 ? 0.48 : 0.36,
-          d: 0.56,
-          wallMat: epochIndex === 3 ? brickMat : concreteMat,
-          roofMat: epochIndex === 3 ? redRoofMat : epochIndex === 5 ? blueRoofMat : darkStoneMat,
+          cx: 0.1,
+          w: 0.56,
+          h: epochIndex === 5 ? 0.48 : 0.38,
+          d: 0.54,
+          wallMat: wallM,
+          roofMat: epochIndex === 3 ? redRoofMat : epochIndex === 5 ? blueRoofMat : slateRoofMat,
           chimneySide: 'none',
           timberTrim: epochIndex === 3,
+          withDormer: true,
         });
-        const silo = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.15, 0.15, epochIndex === 5 ? 0.72 : 0.62, 8),
-          epochIndex === 3 ? woodMat : concreteMat,
-        );
-        silo.position.set(-0.26, 0.36, -0.18);
-        silo.castShadow = true;
-        group.add(silo);
+        // Twin banded grain silos with conical caps + overhead conveyor bridge
+        const siloH = epochIndex === 5 ? 0.72 : 0.62;
+        for (const pz of [-0.15, 0.15]) {
+          const silo = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.125, 0.13, siloH, 10),
+            epochIndex === 3 ? woodMat : concreteMat,
+          );
+          silo.position.set(-0.25, 0.05 + siloH * 0.5, pz);
+          silo.castShadow = true;
+          group.add(silo);
+          const hoop = new THREE.Mesh(new THREE.CylinderGeometry(0.136, 0.136, 0.032, 10), darkStoneMat);
+          hoop.position.set(-0.25, 0.05 + siloH * 0.55, pz);
+          group.add(hoop);
+          const siloCap = new THREE.Mesh(new THREE.ConeGeometry(0.145, 0.12, 10), capM);
+          siloCap.position.set(-0.25, 0.05 + siloH + 0.06, pz);
+          group.add(siloCap);
+        }
+        // Overhead enclosed grain conveyor bridge linking silos to millhouse upper gable
+        const bridge = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.075, 0.1), darkStoneMat);
+        bridge.position.set(-0.08, 0.05 + siloH * 0.85, 0);
+        group.add(bridge);
+        // Loading bay canopy on front
+        const dockCanopy = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.032, 0.12), capM);
+        dockCanopy.position.set(0.12, 0.22, 0.32);
+        group.add(dockCanopy);
       } else {
+        // Orbital & Interstellar: Hydro-Cryo Silo Complex with truss cages & manifold bridge
         addVoxelCottage({
-          w: 0.68,
-          h: 0.34,
-          d: 0.54,
+          cx: 0.1,
+          w: 0.56,
+          h: 0.36,
+          d: 0.52,
           wallMat: techMat,
           roofMat: darkTechMat,
           chimneySide: 'none',
         });
-        const cryoSilo = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.68, 10), glowCyanMat);
-        cryoSilo.position.set(-0.24, 0.38, -0.18);
-        group.add(cryoSilo);
+        for (const pz of [-0.15, 0.15]) {
+          const cryoSilo = new THREE.Mesh(new THREE.CylinderGeometry(0.125, 0.125, 0.68, 10), glowCyanMat);
+          cryoSilo.position.set(-0.25, 0.39, pz);
+          group.add(cryoSilo);
+          const cageRing = new THREE.Mesh(new THREE.TorusGeometry(0.138, 0.018, 5, 10), darkTechMat);
+          cageRing.rotation.x = Math.PI / 2;
+          cageRing.position.set(-0.25, 0.52, pz);
+          group.add(cageRing);
+          const cryoCap = new THREE.Mesh(new THREE.ConeGeometry(0.135, 0.1, 10), techMat);
+          cryoCap.position.set(-0.25, 0.78, pz);
+          group.add(cryoCap);
+        }
+        const conduit = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.065, 0.09), techMat);
+        conduit.position.set(-0.08, 0.62, 0);
+        group.add(conduit);
       }
       break;
     }
@@ -2705,16 +4134,34 @@ export function createBuildingGroup(
     case 'guildhall': {
       if (isElf) {
         addElfPagodaPavilion({
-          radius: 0.34,
-          h: epochIndex === 5 ? 0.38 : 0.3,
+          radius: 0.32,
+          h: epochIndex === 5 ? 0.36 : 0.28,
           wallMat: epochIndex >= 5 ? elfPearlTechMat : elfBirchMat,
           roofMat: epochIndex >= 6 ? elfJadeRoofMat : epochIndex >= 3 ? elfVerdigrisMat : elfJadeRoofMat,
           tiers: epochIndex >= 5 ? 3 : 2,
           glowTrim: true,
         });
+        // Flanking symmetrical Sylvan Moon-Lantern garden porticos
+        const wingWall = epochIndex >= 5 ? elfPearlTechMat : elfBirchMat;
+        const wingRoof = epochIndex >= 3 ? elfVerdigrisMat : elfJadeRoofMat;
+        for (const sx of [-0.36, 0.36]) {
+          const wingPlinth = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.15, 0.08, 6), elfMossStoneMat);
+          wingPlinth.position.set(sx, 0.04, 0.06);
+          group.add(wingPlinth);
+          const post = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.04, 0.24, 6), wingWall);
+          post.position.set(sx, 0.18, 0.06);
+          group.add(post);
+          const gazeboCap = new THREE.Mesh(new THREE.ConeGeometry(0.15, 0.12, 6), wingRoof);
+          gazeboCap.position.set(sx, 0.34, 0.06);
+          gazeboCap.castShadow = true;
+          group.add(gazeboCap);
+          const lantern = new THREE.Mesh(new THREE.OctahedronGeometry(0.042, 0), elfAquaGlowMat);
+          lantern.position.set(sx, 0.22, 0.15);
+          group.add(lantern);
+        }
         if (epochIndex >= 6) {
           const halo = new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.03, 6, 14), elfAquaGlowMat);
-          halo.position.y = 0.92;
+          halo.position.y = 0.94;
           halo.rotation.x = Math.PI / 2;
           halo.name = 'spin_part';
           group.add(halo);
@@ -2725,39 +4172,69 @@ export function createBuildingGroup(
       if (isOrc) {
         if (epochIndex < 6) {
           addOrcBastionHut({
-            w: 0.72,
-            h: epochIndex === 5 ? 0.66 : 0.4,
-            d: 0.56,
+            w: 0.66,
+            h: epochIndex === 5 ? 0.62 : 0.4,
+            d: 0.54,
             wallMat: epochIndex >= 4 ? orcGunmetalMat : epochIndex >= 3 ? orcIronMat : orcBasaltMat,
             roofMat: orcCrimsonMat,
             tuskMat: epochIndex >= 5 ? orcMagmaGlowMat : orcBoneMat,
             withBanner: true,
           });
+          // Twin flanking crenellated gate-turrets + war-drums
+          for (const sx of [-0.38, 0.38]) {
+            const turret = new THREE.Mesh(
+              new THREE.CylinderGeometry(0.11, 0.14, epochIndex === 5 ? 0.66 : 0.46, 6),
+              epochIndex >= 4 ? orcGunmetalMat : orcBasaltMat,
+            );
+            turret.position.set(sx, (epochIndex === 5 ? 0.66 : 0.46) * 0.5, 0.16);
+            turret.castShadow = true;
+            group.add(turret);
+            const turretCollar = new THREE.Mesh(new THREE.CylinderGeometry(0.135, 0.12, 0.055, 6), orcRustPlateMat);
+            turretCollar.position.set(sx, epochIndex === 5 ? 0.66 : 0.46, 0.16);
+            group.add(turretCollar);
+            const spike = new THREE.Mesh(new THREE.ConeGeometry(0.075, 0.16, 4), orcCrimsonMat);
+            spike.position.set(sx, (epochIndex === 5 ? 0.66 : 0.46) + 0.11, 0.16);
+            group.add(spike);
+          }
         } else {
-          // Orc Ep 6+: Heavy Dreadnought War-Spire
-          const base = new THREE.Mesh(new THREE.BoxGeometry(0.74, 0.32, 0.66), orcGunmetalMat);
-          base.position.y = 0.16;
+          // Orc Ep 6+: Dreadnought Command Citadel with 4 Armored Buttresses & Spinning Magma War-Rotor
+          const glacis = new THREE.Mesh(new THREE.CylinderGeometry(0.46, 0.54, 0.18, 4), orcBasaltMat);
+          glacis.rotation.y = Math.PI / 4;
+          glacis.position.y = 0.09;
+          group.add(glacis);
+          const base = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.28, 0.64), orcGunmetalMat);
+          base.position.y = 0.24;
           group.add(base);
-          const keep = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.74, 0.5), orcIronMat);
+          const keep = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.72, 0.48), orcIronMat);
           keep.position.y = 0.68;
           keep.castShadow = true;
           group.add(keep);
+          for (const [bx, bz] of [
+            [-0.27, -0.25],
+            [0.27, -0.25],
+            [-0.27, 0.25],
+            [0.27, 0.25],
+          ]) {
+            const buttress = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.86, 0.1), orcRustPlateMat);
+            buttress.position.set(bx, 0.56, bz);
+            group.add(buttress);
+          }
           const crimsonBand = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.08, 0.54), orcMagmaGlowMat);
           crimsonBand.position.y = 0.78;
           group.add(crimsonBand);
           const warRotor = new THREE.Mesh(new THREE.OctahedronGeometry(0.22, 0), orcMagmaGlowMat);
-          warRotor.position.y = 1.18;
+          warRotor.position.y = 1.2;
           warRotor.name = 'spin_part';
           group.add(warRotor);
         }
         break;
       }
 
-      // HUMAN Guildhall -> Clocktower City Hall (Ep 3-4) -> Downtown Corporate Skyscraper (Ep 5) -> Orbital Spire (Ep 6+)
+      // HUMAN Guildhall -> Civic Clocktower City Hall (Ep 3-4) -> Art-Deco Corporate Skyscraper (Ep 5) -> Orbital Spire (Ep 6+)
       if (epochIndex <= 2) {
         addVoxelCottage({
           w: 0.66,
-          h: 0.33,
+          h: 0.34,
           d: 0.52,
           wallMat: tanPlasterMat,
           roofMat: blueRoofMat,
@@ -2765,82 +4242,148 @@ export function createBuildingGroup(
           chimneySide: 'front_right',
           ridgeAlongZ: false,
           timberTrim: true,
+          withDormer: true,
         });
-
-        const porchRoof = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.05, 0.18), woodMat);
-        porchRoof.position.set(-0.1, 0.28, 0.33);
+        // Cantilevered upper gallery porch supported by timber knee-braces
+        const porchRoof = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.045, 0.18), woodMat);
+        porchRoof.position.set(-0.08, 0.3, 0.33);
         porchRoof.castShadow = true;
         group.add(porchRoof);
-
-        const planter = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.12, 0.12), greenAwningMat);
-        planter.position.set(-0.12, 0.11, 0.32);
+        for (const bx of [-0.24, 0.08]) {
+          const brace = new THREE.Mesh(new THREE.BoxGeometry(0.038, 0.24, 0.038), stickWoodMat);
+          brace.position.set(bx, 0.18, 0.37);
+          group.add(brace);
+        }
+        const guildSign = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.1, 0.025), goldMat);
+        guildSign.position.set(0.24, 0.28, 0.32);
+        group.add(guildSign);
+        const planter = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.1, 0.11), greenAwningMat);
+        planter.position.set(-0.14, 0.1, 0.31);
         group.add(planter);
       } else if (epochIndex <= 4) {
+        const wallM = epochIndex === 3 ? brickMat : concreteMat;
         addVoxelCottage({
           w: 0.72,
           h: 0.46,
-          d: 0.58,
-          wallMat: epochIndex === 3 ? brickMat : concreteMat,
+          d: 0.56,
+          wallMat: wallM,
           roofMat: blueRoofMat,
-          chimneyMat: epochIndex === 3 ? brickMat : concreteMat,
+          chimneyMat: wallM,
           chimneySide: 'front_right',
           ridgeAlongZ: false,
           timberTrim: epochIndex === 3,
         });
-        // Civic clock tower on top
-        const clkShaft = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.42, 0.2), epochIndex === 3 ? brickMat : concreteMat);
-        clkShaft.position.set(0, 0.78, 0);
+        // Classical Greek-Revival Columned Pediment Portico on front
+        const porticoFloor = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.06, 0.16), stoneMat);
+        porticoFloor.position.set(0, 0.03, 0.33);
+        group.add(porticoFloor);
+        for (const cx of [-0.17, -0.06, 0.06, 0.17]) {
+          const col = new THREE.Mesh(new THREE.CylinderGeometry(0.026, 0.032, 0.34, 8), marbleWhiteMat);
+          col.position.set(cx, 0.23, 0.36);
+          group.add(col);
+        }
+        const pedimentBase = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.045, 0.14), marbleWhiteMat);
+        pedimentBase.position.set(0, 0.42, 0.34);
+        group.add(pedimentBase);
+        const pedimentGable = new THREE.Mesh(new THREE.ConeGeometry(0.23, 0.1, 4), slateRoofMat);
+        pedimentGable.rotation.y = Math.PI / 4;
+        pedimentGable.scale.set(1.3, 1, 0.45);
+        pedimentGable.position.set(0, 0.49, 0.34);
+        group.add(pedimentGable);
+
+        // Multi-stage Civic Clocktower with belfry arches, 4-sided clock dials & copper spire
+        const clkShaft = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.38, 0.22), wallM);
+        clkShaft.position.set(0, 0.74, 0);
         clkShaft.castShadow = true;
         group.add(clkShaft);
-        const clkDial = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.14, 0.22), goldMat);
-        clkDial.position.set(0, 0.86, 0);
+        const clkCornice = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.04, 0.26), marbleWhiteMat);
+        clkCornice.position.set(0, 0.94, 0);
+        group.add(clkCornice);
+        const clkDial = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.14, 0.24), goldMat);
+        clkDial.position.set(0, 0.82, 0);
         group.add(clkDial);
-        const clkCap = new THREE.Mesh(new THREE.ConeGeometry(0.14, 0.18, 4), darkStoneMat);
-        clkCap.position.set(0, 1.08, 0);
+        const clkDialSide = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.14, 0.14), goldMat);
+        clkDialSide.position.set(0, 0.82, 0);
+        group.add(clkDialSide);
+        const clkLantern = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.12, 0.15), windowModernWarmMat);
+        clkLantern.position.set(0, 1.02, 0);
+        group.add(clkLantern);
+        const clkCap = new THREE.Mesh(new THREE.ConeGeometry(0.13, 0.24, 4), copperMat);
+        clkCap.position.set(0, 1.19, 0);
         clkCap.rotation.y = Math.PI / 4;
         group.add(clkCap);
       } else if (epochIndex === 5) {
-        // Info Age: Tall Corporate Downtown Skyscraper
-        const podium = new THREE.Mesh(new THREE.BoxGeometry(0.76, 0.24, 0.7), darkStoneMat);
+        // Info Age: Art-Deco / Modernist Corporate Plaza Skyscraper with Steel Mullions & Setback Penthouse
+        const podium = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.24, 0.72), darkStoneMat);
         podium.position.y = 0.12;
         podium.castShadow = true;
         group.add(podium);
-        const mainTower = new THREE.Mesh(new THREE.BoxGeometry(0.56, 1.12, 0.52), blueRoofMat);
+        const lobbyGlow = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.08, 0.74), windowModernWarmMat);
+        lobbyGlow.position.y = 0.1;
+        group.add(lobbyGlow);
+        const plazaMarquee = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.036, 0.14), copperMat);
+        plazaMarquee.position.set(0, 0.21, 0.4);
+        group.add(plazaMarquee);
+
+        const mainTower = new THREE.Mesh(new THREE.BoxGeometry(0.56, 1.12, 0.52), glassCurtainMat);
         mainTower.position.y = 0.8;
         mainTower.castShadow = true;
         group.add(mainTower);
+        // Vertical architectural mullions on all 4 facades
+        for (const mx of [-0.26, -0.09, 0.09, 0.26]) {
+          const mullionF = new THREE.Mesh(new THREE.BoxGeometry(0.03, 1.14, 0.55), darkTechMat);
+          mullionF.position.set(mx, 0.8, 0);
+          group.add(mullionF);
+        }
         for (let f = 0; f < 4; f++) {
-          const band = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.07, 0.54), glowCyanMat);
+          const band = new THREE.Mesh(
+            new THREE.BoxGeometry(0.58, 0.065, 0.54),
+            f % 2 === 0 ? windowModernWarmMat : windowModernCoolMat,
+          );
           band.position.y = 0.4 + f * 0.24;
           group.add(band);
         }
+        const setbackParapet = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.045, 0.54), copperMat);
+        setbackParapet.position.y = 1.38;
+        group.add(setbackParapet);
         const penthouse = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.22, 0.34), techMat);
-        penthouse.position.y = 1.46;
+        penthouse.position.y = 1.5;
         group.add(penthouse);
-        const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.035, 0.38, 6), techMat);
-        mast.position.y = 1.72;
-        group.add(mast);
+        for (const mx of [-0.08, 0.08]) {
+          const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.03, 0.38, 6), techMat);
+          mast.position.set(mx, 1.78, 0);
+          group.add(mast);
+        }
+        const topBeacon = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.055, 0.055), beaconRedMat);
+        topBeacon.position.set(-0.08, 1.98, 0);
+        group.add(topBeacon);
       } else {
-        const base = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.32, 0.64), darkTechMat);
-        base.position.y = 0.16;
+        const base = new THREE.Mesh(new THREE.BoxGeometry(0.74, 0.3, 0.68), darkTechMat);
+        base.position.y = 0.15;
         base.castShadow = true;
         group.add(base);
-
-        const tower = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.68, 0.48), techMat);
+        const tower = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.72, 0.48), glassCurtainMat);
         tower.position.y = 0.66;
         tower.castShadow = true;
         group.add(tower);
-
+        for (const [px, pz] of [
+          [-0.25, -0.23],
+          [0.25, -0.23],
+          [-0.25, 0.23],
+          [0.25, 0.23],
+        ]) {
+          const fin = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.84, 0.05), techMat);
+          fin.position.set(px, 0.66, pz);
+          group.add(fin);
+        }
         const neonBand1 = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.05, 0.52), glowCyanMat);
         neonBand1.position.y = 0.54;
         group.add(neonBand1);
-
         const neonBand2 = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.05, 0.52), glowCyanMat);
-        neonBand2.position.y = 0.82;
+        neonBand2.position.y = 0.84;
         group.add(neonBand2);
-
         const crownRing = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.07, 0.38), glowCyanMat);
-        crownRing.position.y = 1.08;
+        crownRing.position.y = 1.12;
         crownRing.name = 'spin_part';
         group.add(crownRing);
       }
@@ -2876,57 +4419,103 @@ export function createBuildingGroup(
               : redRoofMat;
 
       if (isElf) {
-        addElfPagodaPavilion({
-          radius: 0.31,
-          h: 0.32,
-          wallMat: wallM,
-          roofMat: roofM,
-          tiers: 1,
-          glowTrim: true,
-        });
-        const sunForge = new THREE.Mesh(new THREE.OctahedronGeometry(0.14, 0), epochIndex >= 6 ? elfAquaGlowMat : goldMat);
-        sunForge.position.set(0.24, 0.18, 0.24);
+        // ELVES: Open Solar-Mirror Crucible Sanctuary with 6 Angled Collector Petals & Lotus Crucible
+        const basePad = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.42, 0.46, 0.08, 12),
+          epochIndex >= 6 ? elfPearlTechMat : elfMossStoneMat,
+        );
+        basePad.position.y = 0.04;
+        group.add(basePad);
+        const crucibleRim = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.028, 5, 12), elfFiligreeMat);
+        crucibleRim.rotation.x = Math.PI / 2;
+        crucibleRim.position.y = 0.14;
+        group.add(crucibleRim);
+        for (let m = 0; m < 6; m++) {
+          const a = (m / 6) * Math.PI * 2;
+          const petal = new THREE.Mesh(
+            new THREE.BoxGeometry(0.065, 0.46, 0.15),
+            epochIndex >= 6 ? elfPearlTechMat : elfJadeRoofMat,
+          );
+          petal.position.set(Math.cos(a) * 0.28, 0.28, Math.sin(a) * 0.28);
+          petal.rotation.y = -a;
+          petal.rotation.z = 0.3;
+          petal.castShadow = true;
+          group.add(petal);
+          const goldTip = new THREE.Mesh(new THREE.BoxGeometry(0.072, 0.05, 0.155), elfFiligreeMat);
+          goldTip.position.set(Math.cos(a) * 0.22, 0.49, Math.sin(a) * 0.22);
+          goldTip.rotation.y = -a;
+          group.add(goldTip);
+        }
+        const sunForge = new THREE.Mesh(
+          new THREE.OctahedronGeometry(0.16, 0),
+          epochIndex >= 6 ? elfAquaGlowMat : goldMat,
+        );
+        sunForge.position.set(0, 0.36, 0);
         sunForge.name = 'spin_part';
         group.add(sunForge);
       } else if (isOrc) {
-        addOrcBastionHut({
-          w: 0.64,
-          h: 0.34,
-          d: 0.52,
-          wallMat: wallM,
-          roofMat: roofM,
-          tuskMat: epochIndex >= 6 ? orcMagmaGlowMat : orcBoneMat,
-          withBanner: true,
-        });
-        const blastStack = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.14, 0.78, 7), orcIronMat);
-        blastStack.position.set(-0.22, 0.42, -0.16);
-        blastStack.castShadow = true;
-        group.add(blastStack);
-        const magmaVat = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.14, 0.22), orcMagmaGlowMat);
-        magmaVat.position.set(0.22, 0.12, 0.26);
+        // ORCS: Slanted Twin-Stack Magma Foundry, Overhead Slag Crane & Riveted Blast Hull
+        const deck = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.12, 0.68), orcBasaltMat);
+        deck.position.y = 0.06;
+        group.add(deck);
+        const anvilHull = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.35, 0.36, 4), wallM);
+        anvilHull.rotation.y = Math.PI / 4;
+        anvilHull.position.set(0.08, 0.29, 0.06);
+        anvilHull.castShadow = true;
+        group.add(anvilHull);
+        const armorBand = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.048, 0.46), orcRustPlateMat);
+        armorBand.position.set(0.08, 0.3, 0.06);
+        group.add(armorBand);
+        for (const [sx, rz] of [
+          [-0.24, 0.2],
+          [0.24, -0.2],
+        ] as const) {
+          const blastStack = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.13, 0.74, 6), orcIronMat);
+          blastStack.position.set(sx, 0.44, -0.16);
+          blastStack.rotation.z = rz;
+          blastStack.castShadow = true;
+          group.add(blastStack);
+          const stackCap = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.09, 0.06, 6), orcCrimsonMat);
+          stackCap.position.set(sx - Math.sin(rz) * 0.37, 0.44 + Math.cos(rz) * 0.37, -0.16);
+          stackCap.rotation.z = rz;
+          group.add(stackCap);
+        }
+        // Overhead foundry crane girder bridging stacks to molten vat
+        const gantryBeam = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.055, 0.065), orcRustPlateMat);
+        gantryBeam.position.set(0.04, 0.56, 0.08);
+        group.add(gantryBeam);
+        const magmaVat = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.2, 0.16, 6), orcMagmaGlowMat);
+        magmaVat.position.set(0.22, 0.16, 0.24);
         magmaVat.name = 'flicker_flame';
         group.add(magmaVat);
       } else if (epochIndex >= 6) {
         addVoxelCottage({
           w: 0.64,
-          h: 0.34,
+          h: 0.36,
           d: 0.52,
           wallMat: darkTechMat,
           roofMat: techMat,
           chimneySide: 'none',
         });
+        for (const sx of [-0.18, 0.18]) {
+          const exhaust = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, 0.68, 8), techMat);
+          exhaust.position.set(sx, 0.48, -0.16);
+          group.add(exhaust);
+        }
+        const bridgePipe = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.06, 0.08), darkTechMat);
+        bridgePipe.position.set(0, 0.68, -0.16);
+        group.add(bridgePipe);
         const plasmaVat = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.16, 0.24), glowCyanMat);
         plasmaVat.position.set(0.2, 0.14, 0.26);
         group.add(plasmaVat);
-
-        const laserRing = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.07, 0.34), glowCyanMat);
-        laserRing.position.set(-0.16, 0.78, -0.12);
+        const laserRing = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.065, 0.32), glowCyanMat);
+        laserRing.position.set(-0.16, 0.82, -0.12);
         laserRing.name = 'spin_part';
         group.add(laserRing);
       } else {
         addVoxelCottage({
           w: 0.6,
-          h: 0.32,
+          h: 0.34,
           d: 0.48,
           wallMat: wallM,
           roofMat: roofM,
@@ -2935,13 +4524,28 @@ export function createBuildingGroup(
           ridgeAlongZ: false,
           timberTrim: true,
         });
-
-        const furnace = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.68, 0.22), darkStoneMat);
-        furnace.position.set(-0.2, 0.36, -0.14);
+        // Massive stepped brick/stone blast furnace + iron tension bands + curved tuyere blower duct
+        const furnace = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.72, 0.24), darkStoneMat);
+        furnace.position.set(-0.2, 0.38, -0.14);
         furnace.castShadow = true;
         group.add(furnace);
-
-        const moltenVat = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.12, 0.2), flameMat);
+        for (const fy of [0.36, 0.58, 0.74]) {
+          const band = new THREE.Mesh(new THREE.BoxGeometry(0.27, 0.032, 0.27), copperMat);
+          band.position.set(-0.2, fy, -0.14);
+          group.add(band);
+        }
+        const tuyerePipe = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.28, 6), darkStoneMat);
+        tuyerePipe.rotation.z = Math.PI / 2;
+        tuyerePipe.position.set(-0.04, 0.44, -0.14);
+        group.add(tuyerePipe);
+        // Coal hopper bin & glowing open hearth crucible
+        const coalBin = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.14, 0.16), woodMat);
+        coalBin.position.set(-0.22, 0.1, 0.24);
+        group.add(coalBin);
+        const vatRim = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.06, 0.24), darkStoneMat);
+        vatRim.position.set(0.2, 0.05, 0.26);
+        group.add(vatRim);
+        const moltenVat = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.12, 0.18), flameMat);
         moltenVat.position.set(0.2, 0.12, 0.26);
         moltenVat.name = 'flicker_flame';
         group.add(moltenVat);
@@ -2952,20 +4556,34 @@ export function createBuildingGroup(
     case 'observatory': {
       if (isElf) {
         const baseMat = epochIndex >= 6 ? elfPearlTechMat : elfBirchMat;
-        const spire = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.28, 0.74, 8), baseMat);
-        spire.position.y = 0.37;
+        const dais = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.4, 0.1, 8), elfMossStoneMat);
+        dais.position.y = 0.05;
+        group.add(dais);
+        const spire = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.28, 0.72, 8), baseMat);
+        spire.position.y = 0.42;
         spire.castShadow = true;
         group.add(spire);
-
-        const eave = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.4, 0.08, 8), elfJadeRoofMat);
-        eave.position.y = 0.72;
+        // Carved filigree balcony ring + 4 aqua lancet slit windows
+        const balcony = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.26, 0.055, 8), elfFiligreeMat);
+        balcony.position.y = 0.66;
+        group.add(balcony);
+        for (let i = 0; i < 4; i++) {
+          const a = (i / 4) * Math.PI * 2;
+          const slit = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.22, 0.04), elfAquaGlowMat);
+          slit.position.set(Math.cos(a) * 0.22, 0.44, Math.sin(a) * 0.22);
+          slit.rotation.y = -a;
+          group.add(slit);
+        }
+        const eave = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.42, 0.09, 8), elfJadeRoofMat);
+        eave.position.y = 0.76;
+        eave.castShadow = true;
         group.add(eave);
 
         const astrolabe = new THREE.Mesh(
-          new THREE.TorusGeometry(0.25, 0.032, 6, 16),
+          new THREE.TorusGeometry(0.24, 0.03, 6, 16),
           epochIndex >= 6 ? elfAquaGlowMat : goldMat,
         );
-        astrolabe.position.y = 0.96;
+        astrolabe.position.y = 0.99;
         astrolabe.rotation.x = 0.45;
         astrolabe.name = 'spin_part';
         group.add(astrolabe);
@@ -2974,81 +4592,119 @@ export function createBuildingGroup(
 
       if (isOrc) {
         const towerMat = epochIndex >= 6 ? orcGunmetalMat : orcBasaltMat;
-        const bastion = new THREE.Mesh(new THREE.BoxGeometry(0.66, 0.34, 0.66), towerMat);
+        const bastion = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.34, 0.68), towerMat);
         bastion.position.y = 0.17;
         group.add(bastion);
-
+        for (const [bx, bz] of [
+          [-0.31, -0.31],
+          [0.31, -0.31],
+          [-0.31, 0.31],
+          [0.31, 0.31],
+        ]) {
+          const rib = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.4, 0.08), orcRustPlateMat);
+          rib.position.set(bx, 0.2, bz);
+          group.add(rib);
+        }
         const keep = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.32, 0.5, 7), orcIronMat);
         keep.position.y = 0.56;
         keep.castShadow = true;
         group.add(keep);
-
+        const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.3, 0.06, 7), orcRustPlateMat);
+        collar.position.y = 0.8;
+        group.add(collar);
         const spikedDome = new THREE.Mesh(
           new THREE.SphereGeometry(0.26, 8, 6, 0, Math.PI * 2, 0, Math.PI / 2),
           epochIndex >= 6 ? orcGunmetalMat : orcCrimsonMat,
         );
-        spikedDome.position.y = 0.8;
+        spikedDome.position.y = 0.82;
         group.add(spikedDome);
-
+        // Heavy iron spyglass barrel
+        const spyglass = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.065, 0.36, 6), orcBoneMat);
+        spyglass.position.set(0.14, 0.96, 0.14);
+        spyglass.rotation.z = -0.58;
+        spyglass.rotation.x = 0.42;
+        group.add(spyglass);
         const eye = new THREE.Mesh(new THREE.OctahedronGeometry(0.13, 0), orcMagmaGlowMat);
-        eye.position.y = 1.1;
+        eye.position.y = 1.14;
         eye.name = 'spin_part';
         group.add(eye);
         break;
       }
 
       if (epochIndex >= 6) {
+        const plinth = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.42, 0.12, 8), darkTechMat);
+        plinth.position.y = 0.06;
+        group.add(plinth);
         const tower = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.32, 0.68, 8), techMat);
-        tower.position.y = 0.36;
+        tower.position.y = 0.4;
         tower.castShadow = true;
         group.add(tower);
-
         const collar = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.07, 0.62), glowCyanMat);
-        collar.position.y = 0.7;
+        collar.position.y = 0.74;
         group.add(collar);
-
         const dome = new THREE.Mesh(
           new THREE.SphereGeometry(0.26, 10, 8, 0, Math.PI * 2, 0, Math.PI / 2),
           darkTechMat,
         );
-        dome.position.y = 0.74;
+        dome.position.y = 0.78;
         group.add(dome);
-
         const dish = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.05, 0.12, 8), glowCyanMat);
-        dish.position.set(0.1, 1.02, 0.1);
+        dish.position.set(0.1, 1.06, 0.1);
         dish.rotation.z = -0.5;
         dish.name = 'spin_part';
         group.add(dish);
       } else {
-        const base = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.28, 0.62), whitePlasterMat);
-        base.position.y = 0.16;
+        const drumMat = epochIndex === 3 ? brickMat : epochIndex >= 4 ? concreteMat : marbleWhiteMat;
+        const base = new THREE.Mesh(new THREE.BoxGeometry(0.64, 0.26, 0.64), epochIndex >= 3 ? darkStoneMat : stoneMat);
+        base.position.y = 0.13;
         base.castShadow = true;
         group.add(base);
+        const entryStoop = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.2, 0.12), marbleWhiteMat);
+        entryStoop.position.set(0, 0.1, 0.34);
+        group.add(entryStoop);
 
-        const tower = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.25, 0.3, 0.56, 8),
-          epochIndex === 3 ? brickMat : epochIndex >= 4 ? concreteMat : marbleWhiteMat,
-        );
+        const tower = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.3, 0.56, 10), drumMat);
         tower.position.y = 0.48;
         tower.castShadow = true;
         group.add(tower);
+        // Pilaster ribs + tall observatory lancet windows
+        for (let r = 0; r < 4; r++) {
+          const a = (r / 4) * Math.PI * 2 + Math.PI / 4;
+          const rib = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.52, 0.055), marbleWhiteMat);
+          rib.position.set(Math.cos(a) * 0.265, 0.48, Math.sin(a) * 0.265);
+          group.add(rib);
+          const win = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.14, 0.05), windowWarmMat);
+          win.position.set(Math.cos(a + 0.785) * 0.26, 0.48, Math.sin(a + 0.785) * 0.26);
+          group.add(win);
+        }
 
-        const balcony = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.07, 0.6), woodMat);
-        balcony.position.y = 0.74;
+        const balcony = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.32, 0.065, 10), darkStoneMat);
+        balcony.position.y = 0.76;
         group.add(balcony);
 
         const dome = new THREE.Mesh(
-          new THREE.SphereGeometry(0.25, 10, 8, 0, Math.PI * 2, 0, Math.PI / 2),
-          epochIndex >= 4 ? techMat : goldMat,
+          new THREE.SphereGeometry(0.25, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2),
+          epochIndex >= 4 ? techMat : copperMat,
         );
-        dome.position.y = 0.77;
+        dome.position.y = 0.79;
+        dome.castShadow = true;
         group.add(dome);
+        // Dark slit track across dome + articulated brass telescope barrel & collar ring
+        const domeSlit = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.14, 0.24), darkStoneMat);
+        domeSlit.position.set(0.08, 0.92, 0.08);
+        domeSlit.rotation.y = Math.PI / 4;
+        group.add(domeSlit);
 
-        const scope = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.06, 0.34, 6), darkStoneMat);
-        scope.position.set(0.12, 0.92, 0.12);
+        const scope = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.062, 0.36, 8), goldMat);
+        scope.position.set(0.14, 0.94, 0.14);
         scope.rotation.z = -0.6;
         scope.rotation.x = 0.4;
         group.add(scope);
+        const scopeLens = new THREE.Mesh(new THREE.CylinderGeometry(0.052, 0.048, 0.05, 8), glowCyanMat);
+        scopeLens.position.set(0.24, 1.04, 0.22);
+        scopeLens.rotation.z = -0.6;
+        scopeLens.rotation.x = 0.4;
+        group.add(scopeLens);
       }
       break;
     }
@@ -3056,42 +4712,72 @@ export function createBuildingGroup(
     case 'steam_foundry':
     case 'dynamo_plant': {
       if (isElf) {
-        addElfPagodaPavilion({
-          radius: 0.34,
-          h: 0.36,
-          wallMat: epochIndex >= 6 ? elfPearlTechMat : elfBirchMat,
-          roofMat: epochIndex >= 6 ? elfJadeRoofMat : elfVerdigrisMat,
-          tiers: 1,
-          glowTrim: true,
-        });
+        // ELVES: Ley-Line Harmonic Sanctuary with 6 Curved Turquoise Fin Buttresses & Spinning Crystal Prism
+        const pool = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.42, 0.46, 0.1, 12),
+          epochIndex >= 6 ? elfPearlTechMat : elfMossStoneMat,
+        );
+        pool.position.y = 0.05;
+        group.add(pool);
+        const poolRim = new THREE.Mesh(new THREE.TorusGeometry(0.38, 0.024, 5, 14), elfFiligreeMat);
+        poolRim.rotation.x = Math.PI / 2;
+        poolRim.position.y = 0.11;
+        group.add(poolRim);
+        for (let i = 0; i < 6; i++) {
+          const a = (i / 6) * Math.PI * 2;
+          const fin = new THREE.Mesh(new THREE.BoxGeometry(0.065, 0.6, 0.15), elfVerdigrisMat);
+          fin.position.set(Math.cos(a) * 0.24, 0.38, Math.sin(a) * 0.24);
+          fin.rotation.y = -a;
+          fin.rotation.z = 0.32;
+          fin.castShadow = true;
+          group.add(fin);
+        }
+        const resonanceRing = new THREE.Mesh(new THREE.TorusGeometry(0.22, 0.025, 5, 12), goldMat);
+        resonanceRing.rotation.x = Math.PI / 2;
+        resonanceRing.position.y = 0.46;
+        group.add(resonanceRing);
         const coil = new THREE.Mesh(
-          new THREE.OctahedronGeometry(0.18, 0),
+          new THREE.OctahedronGeometry(0.19, 0),
           epochIndex >= 6 || type === 'dynamo_plant' ? elfAquaGlowMat : goldMat,
         );
-        coil.position.set(0.22, 0.72, 0.12);
+        coil.position.set(0, 0.64, 0);
         coil.name = 'spin_part';
         group.add(coil);
         break;
       }
 
       if (isOrc) {
-        addOrcBastionHut({
-          w: 0.72,
-          h: 0.38,
-          d: 0.6,
-          wallMat: epochIndex >= 6 ? orcGunmetalMat : orcIronMat,
-          roofMat: orcCrimsonMat,
-          tuskMat: epochIndex >= 6 ? orcMagmaGlowMat : orcIronMat,
-          withBanner: true,
-        });
-        for (const sx of [-0.22, 0.04]) {
-          const stack = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.12, 0.84, 7), orcBasaltMat);
-          stack.position.set(sx, 0.56, -0.18);
+        // ORCS: Twin Slanted Industrial War-Stacks + Riveted Boiler Drum + Cradle Straps + Plasma Conduit
+        const pad = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.14, 0.72), orcBasaltMat);
+        pad.position.y = 0.07;
+        group.add(pad);
+        const drum = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.27, 0.3, 0.46, 10),
+          epochIndex >= 6 ? orcGunmetalMat : orcIronMat,
+        );
+        drum.rotation.z = Math.PI / 2;
+        drum.position.set(-0.04, 0.32, 0.06);
+        drum.castShadow = true;
+        group.add(drum);
+        for (const bx of [-0.18, -0.04, 0.1]) {
+          const strap = new THREE.Mesh(new THREE.TorusGeometry(0.295, 0.024, 5, 10), orcCrimsonMat);
+          strap.rotation.y = Math.PI / 2;
+          strap.position.set(bx, 0.32, 0.06);
+          group.add(strap);
+        }
+        for (const sx of [-0.24, 0.06]) {
+          const stack = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.12, 0.88, 6), orcCrimsonMat);
+          stack.position.set(sx, 0.56, -0.22);
+          stack.rotation.x = -0.12;
           stack.castShadow = true;
           group.add(stack);
+          const flange = new THREE.Mesh(new THREE.CylinderGeometry(0.115, 0.115, 0.045, 6), orcRustPlateMat);
+          flange.position.set(sx, 0.94, -0.27);
+          flange.rotation.x = -0.12;
+          group.add(flange);
         }
-        const coil = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.24, 0.24), orcMagmaGlowMat);
-        coil.position.set(0.2, 0.68, 0.14);
+        const coil = new THREE.Mesh(new THREE.OctahedronGeometry(0.2, 0), orcMagmaGlowMat);
+        coil.position.set(0.26, 0.58, 0.14);
         coil.name = 'spin_part';
         group.add(coil);
         break;
@@ -3106,37 +4792,53 @@ export function createBuildingGroup(
           roofMat: darkTechMat,
           chimneySide: 'none',
         });
-        const pylon1 = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 0.82, 8), darkTechMat);
-        pylon1.position.set(-0.22, 0.54, -0.18);
-        group.add(pylon1);
-
-        const energyRing = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.28, 0.28), glowCyanMat);
+        for (const px of [-0.22, 0.02]) {
+          const pylon = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.095, 0.8, 8), darkTechMat);
+          pylon.position.set(px, 0.52, -0.18);
+          group.add(pylon);
+        }
+        const busbar = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.055, 0.07), glowCyanMat);
+        busbar.position.set(-0.1, 0.76, -0.18);
+        group.add(busbar);
+        const energyRing = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.26, 0.26), glowCyanMat);
         energyRing.position.set(0.18, 0.68, 0.12);
         energyRing.name = 'spin_part';
         group.add(energyRing);
       } else {
+        const wallM = epochIndex >= 4 ? concreteMat : brickMat;
         addVoxelCottage({
           w: 0.7,
           h: 0.36,
           d: 0.6,
-          wallMat: epochIndex >= 4 ? concreteMat : brickMat,
+          wallMat: wallM,
           roofMat: darkStoneMat,
           chimneySide: 'none',
-          timberTrim: true,
+          timberTrim: epochIndex < 4,
         });
+        // Clerestory sawtooth powerhouse skylight strip + copper boiler pipe manifold
+        const sawtooth = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.09, 0.16), windowModernWarmMat);
+        sawtooth.position.set(0, 0.52, 0.08);
+        group.add(sawtooth);
+        const pipeManifold = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.42, 6), copperMat);
+        pipeManifold.rotation.z = Math.PI / 2;
+        pipeManifold.position.set(-0.08, 0.48, -0.18);
+        group.add(pipeManifold);
 
-        const stack1 = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.1, 0.82, 8), darkStoneMat);
-        stack1.position.set(-0.22, 0.54, -0.18);
-        stack1.castShadow = true;
-        group.add(stack1);
-
-        const stack2 = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.1, 0.72, 8), darkStoneMat);
-        stack2.position.set(0.02, 0.48, -0.18);
-        stack2.castShadow = true;
-        group.add(stack2);
+        for (const [sx, sh] of [
+          [-0.22, 0.84],
+          [0.02, 0.74],
+        ] as const) {
+          const stack = new THREE.Mesh(new THREE.CylinderGeometry(0.072, 0.1, sh, 8), darkStoneMat);
+          stack.position.set(sx, 0.14 + sh * 0.5, -0.18);
+          stack.castShadow = true;
+          group.add(stack);
+          const rim = new THREE.Mesh(new THREE.CylinderGeometry(0.098, 0.08, 0.045, 8), copperMat);
+          rim.position.set(sx, 0.14 + sh, -0.18);
+          group.add(rim);
+        }
 
         const coil = new THREE.Mesh(
-          new THREE.BoxGeometry(0.24, 0.24, 0.24),
+          new THREE.BoxGeometry(0.23, 0.23, 0.23),
           type === 'dynamo_plant' ? glowCyanMat : goldMat,
         );
         coil.position.set(0.18, 0.64, 0.12);
@@ -3146,242 +4848,521 @@ export function createBuildingGroup(
       break;
     }
 
-    case 'fission_reactor':
-    case 'cyber_institute': {
-      const baseMat = isElf
-        ? elfPearlTechMat
-        : isOrc
-          ? epochIndex >= 6
-            ? orcGunmetalMat
-            : orcIronMat
-          : epochIndex >= 6
-            ? techMat
-            : concreteMat;
-      const baseBlock = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.3, 0.72), baseMat);
-      baseBlock.position.y = 0.18;
-      baseBlock.castShadow = true;
-      group.add(baseBlock);
-
-      if (type === 'fission_reactor') {
-        const coolingTower = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.2, 0.3, 0.72, isElf ? 8 : 10),
-          isElf ? elfJadeRoofMat : isOrc ? orcBasaltMat : epochIndex >= 6 ? darkTechMat : concreteMat,
+    case 'fission_reactor': {
+      if (isElf) {
+        // ELVES: Harmonic Bio-Resonance Lotus Basin cradling a spinning starlight plasma core
+        const waterPool = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.46, 0.08, 12), elfJadeRoofMat);
+        waterPool.position.y = 0.04;
+        group.add(waterPool);
+        const poolRim = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.024, 5, 14), elfFiligreeMat);
+        poolRim.rotation.x = Math.PI / 2;
+        poolRim.position.y = 0.09;
+        group.add(poolRim);
+        for (let i = 0; i < 6; i++) {
+          const a = (i / 6) * Math.PI * 2;
+          const petal = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.68, 0.16), elfPearlTechMat);
+          petal.position.set(Math.cos(a) * 0.28, 0.4, Math.sin(a) * 0.28);
+          petal.rotation.y = -a;
+          petal.rotation.z = -0.34;
+          petal.castShadow = true;
+          group.add(petal);
+          const innerRib = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.56, 0.05), elfVerdigrisMat);
+          innerRib.position.set(Math.cos(a) * 0.24, 0.36, Math.sin(a) * 0.24);
+          innerRib.rotation.y = -a;
+          innerRib.rotation.z = -0.3;
+          group.add(innerRib);
+        }
+        const torus = new THREE.Mesh(new THREE.TorusGeometry(0.25, 0.035, 6, 14), goldMat);
+        torus.position.y = 0.52;
+        torus.rotation.x = Math.PI / 2;
+        group.add(torus);
+        const coreCrystal = new THREE.Mesh(new THREE.OctahedronGeometry(0.18, 0), elfAquaGlowMat);
+        coreCrystal.position.y = 0.54;
+        coreCrystal.name = 'spin_part';
+        group.add(coreCrystal);
+      } else if (isOrc) {
+        // ORCS: Volcanic Magma-Core Crater Reactor with 4 Slanted Exhaust Manifolds, Buttress Fins & Blast Grate
+        const plinth = new THREE.Mesh(new THREE.CylinderGeometry(0.46, 0.52, 0.1, 7), orcBasaltMat);
+        plinth.position.y = 0.05;
+        group.add(plinth);
+        const crater = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.46, 0.36, 7), orcGunmetalMat);
+        crater.position.y = 0.24;
+        crater.castShadow = true;
+        group.add(crater);
+        for (let i = 0; i < 4; i++) {
+          const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+          const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.088, 0.64, 6), orcIronMat);
+          pipe.position.set(Math.cos(a) * 0.28, 0.48, Math.sin(a) * 0.28);
+          pipe.rotation.z = -Math.cos(a) * 0.32;
+          pipe.rotation.x = Math.sin(a) * 0.32;
+          pipe.castShadow = true;
+          group.add(pipe);
+          const fin = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.24, 0.18), orcRustPlateMat);
+          fin.position.set(Math.cos(a) * 0.38, 0.18, Math.sin(a) * 0.38);
+          fin.rotation.y = -a + Math.PI / 2;
+          group.add(fin);
+        }
+        const grate = new THREE.Mesh(new THREE.TorusGeometry(0.22, 0.045, 5, 8), orcCrimsonMat);
+        grate.position.y = 0.44;
+        grate.rotation.x = Math.PI / 2;
+        group.add(grate);
+        const magmaCore = new THREE.Mesh(new THREE.OctahedronGeometry(0.17, 0), orcMagmaGlowMat);
+        magmaCore.position.y = 0.46;
+        magmaCore.name = 'spin_part';
+        group.add(magmaCore);
+      } else {
+        // HUMAN: Twin Hyperbolic LatheGeometry Concrete Cooling Towers + Containment Dome & Transformer Switchyard
+        const slab = new THREE.Mesh(
+          new THREE.BoxGeometry(0.88, 0.1, 0.8),
+          epochIndex >= 6 ? darkTechMat : darkStoneMat,
         );
-        coolingTower.position.set(-0.1, 0.52, -0.08);
-        coolingTower.castShadow = true;
-        group.add(coolingTower);
+        slab.position.y = 0.05;
+        slab.receiveShadow = true;
+        group.add(slab);
 
-        const coreGlow = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.36, 0.24), raceGlowMat);
-        coreGlow.position.set(0.2, 0.48, 0.18);
+        const hallMat = epochIndex >= 6 ? techMat : concreteMat;
+        const hall = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.3, 0.6), hallMat);
+        hall.position.set(0.21, 0.25, 0);
+        hall.castShadow = true;
+        group.add(hall);
+        const containmentDome = new THREE.Mesh(
+          new THREE.SphereGeometry(0.17, 10, 8, 0, Math.PI * 2, 0, Math.PI / 2),
+          epochIndex >= 6 ? darkTechMat : slateRoofMat,
+        );
+        containmentDome.position.set(0.21, 0.4, 0.1);
+        group.add(containmentDome);
+
+        // Copper/cyan high-voltage transformer busbars on hall roof
+        const busbar = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.08, 0.28), copperMat);
+        busbar.position.set(0.21, 0.43, -0.15);
+        group.add(busbar);
+
+        const coolingGeo = getCoolingTowerGeo();
+        const stackMat = epochIndex >= 6 ? techMat : concreteMat;
+        for (const pz of [-0.19, 0.19]) {
+          // Intake basin collar & 4 diagonal concrete stilts supporting the hyperbolic shell
+          const basin = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.22, 0.04, 12), darkStoneMat);
+          basin.position.set(-0.19, 0.12, pz);
+          group.add(basin);
+          const tower = new THREE.Mesh(coolingGeo, stackMat);
+          tower.position.set(-0.19, 0.13, pz);
+          tower.castShadow = true;
+          group.add(tower);
+          const rimCollar = new THREE.Mesh(new THREE.TorusGeometry(0.145, 0.018, 5, 12), darkStoneMat);
+          rimCollar.rotation.x = Math.PI / 2;
+          rimCollar.position.set(-0.19, 0.87, pz);
+          group.add(rimCollar);
+        }
+
+        const coreGlow = new THREE.Mesh(new THREE.OctahedronGeometry(0.12, 0), glowCyanMat);
+        coreGlow.position.set(0.21, 0.56, 0.1);
         if (epochIndex >= 6) coreGlow.name = 'spin_part';
         group.add(coreGlow);
-      } else {
-        const tower1 = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.96, 0.46), baseMat);
-        tower1.position.y = 0.64;
-        tower1.castShadow = true;
-        group.add(tower1);
+      }
+      break;
+    }
 
-        const dataRing = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.1, 0.54), raceGlowMat);
-        dataRing.position.y = 0.92;
-        dataRing.name = 'spin_part';
-        group.add(dataRing);
-
-        const spireAntenna = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.03, 0.05, 0.42, 6),
-          epochIndex >= 6 ? raceGlowMat : raceAccentMat,
+    case 'cyber_institute': {
+      if (isElf) {
+        // ELVES: Helical Crystalline Starlight Academy (Plaza, 3 Arches, Dual Counter-Tilted Gyroscope Rings)
+        const base = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.46, 0.12, 12), elfPearlTechMat);
+        base.position.y = 0.06;
+        group.add(base);
+        const plazaTrim = new THREE.Mesh(new THREE.TorusGeometry(0.38, 0.02, 5, 14), elfFiligreeMat);
+        plazaTrim.rotation.x = Math.PI / 2;
+        plazaTrim.position.y = 0.13;
+        group.add(plazaTrim);
+        const lanternAtrium = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.16, 0.26, 8), elfAquaGlowMat);
+        lanternAtrium.position.y = 0.24;
+        group.add(lanternAtrium);
+        for (let i = 0; i < 3; i++) {
+          const a = (i / 3) * Math.PI * 2;
+          const arch = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.96, 0.12), elfBirchMat);
+          arch.position.set(Math.cos(a) * 0.2, 0.56, Math.sin(a) * 0.2);
+          arch.rotation.y = -a;
+          arch.rotation.z = 0.2;
+          arch.castShadow = true;
+          group.add(arch);
+        }
+        const gyroOuter = new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.03, 6, 16), elfJadeRoofMat);
+        gyroOuter.position.y = 0.88;
+        gyroOuter.rotation.x = 0.6;
+        gyroOuter.name = 'spin_part';
+        group.add(gyroOuter);
+        const gyroInner = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.022, 6, 14), goldMat);
+        gyroInner.position.y = 0.88;
+        gyroInner.rotation.y = 0.7;
+        gyroInner.name = 'spin_part';
+        group.add(gyroInner);
+        const crystalApex = new THREE.Mesh(new THREE.OctahedronGeometry(0.15, 0), elfAquaGlowMat);
+        crystalApex.position.y = 1.2;
+        crystalApex.name = 'spin_part';
+        group.add(crystalApex);
+      } else if (isOrc) {
+        // ORCS: Battered Dreadnought Command Monolith with 4 Exoskeleton Ribs, Flank Comms & War-Radar Horns
+        const plinth = new THREE.Mesh(new THREE.BoxGeometry(0.82, 0.14, 0.78), orcBasaltMat);
+        plinth.position.y = 0.07;
+        group.add(plinth);
+        const fortress = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.24, 0.42, 0.86, 4),
+          epochIndex >= 6 ? orcGunmetalMat : orcIronMat,
         );
-        spireAntenna.position.y = 1.28;
-        group.add(spireAntenna);
+        fortress.rotation.y = Math.PI / 4;
+        fortress.position.y = 0.56;
+        fortress.castShadow = true;
+        group.add(fortress);
+        for (const [bx, bz] of [
+          [-0.22, -0.22],
+          [0.22, -0.22],
+          [-0.22, 0.22],
+          [0.22, 0.22],
+        ]) {
+          const exoRib = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.84, 0.075), orcRustPlateMat);
+          exoRib.position.set(bx, 0.54, bz);
+          group.add(exoRib);
+        }
+        const visor = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.08, 0.5), orcMagmaGlowMat);
+        visor.position.y = 0.82;
+        group.add(visor);
+        for (const sx of [-0.22, 0.22]) {
+          const warHorn = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.44, 4), orcCrimsonMat);
+          warHorn.position.set(sx, 1.16, 0);
+          warHorn.rotation.z = -Math.sign(sx) * 0.25;
+          group.add(warHorn);
+        }
+        const warBeacon = new THREE.Mesh(new THREE.OctahedronGeometry(0.12, 0), orcMagmaGlowMat);
+        warBeacon.position.y = 1.16;
+        warBeacon.name = 'spin_part';
+        group.add(warBeacon);
+      } else {
+        // HUMAN: Terraced Glass-and-Steel Tri-Tower Campus + Skybridge + Spinning Radar Array
+        const baseWall = epochIndex >= 6 ? techMat : glassCurtainMat;
+        const atrium = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.2, 0.74), darkStoneMat);
+        atrium.position.y = 0.1;
+        group.add(atrium);
+        const lobbyBand = new THREE.Mesh(new THREE.BoxGeometry(0.82, 0.06, 0.76), windowModernCoolMat);
+        lobbyBand.position.y = 0.1;
+        group.add(lobbyBand);
+
+        const mainTower = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.98, 0.36), baseWall);
+        mainTower.position.set(-0.12, 0.69, -0.08);
+        mainTower.castShadow = true;
+        group.add(mainTower);
+        // Steel curtain mullions on main tower
+        for (const mx of [-0.27, -0.12, 0.03]) {
+          const fin = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.99, 0.38), darkTechMat);
+          fin.position.set(mx, 0.69, -0.08);
+          group.add(fin);
+        }
+        const sideWing = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.64, 0.32), blueRoofMat);
+        sideWing.position.set(0.18, 0.52, 0.14);
+        sideWing.castShadow = true;
+        group.add(sideWing);
+        // Glass skybridge linking sideWing and mainTower
+        const skybridge = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.09, 0.14), glowCyanMat);
+        skybridge.position.set(0.05, 0.64, 0.03);
+        group.add(skybridge);
+
+        const dataBand = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.07, 0.4), glowCyanMat);
+        dataBand.position.set(-0.12, 0.92, -0.08);
+        group.add(dataBand);
+        const dish = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.05, 0.08), glowCyanMat);
+        dish.position.set(-0.12, 1.28, -0.08);
+        dish.name = 'spin_part';
+        group.add(dish);
       }
       break;
     }
 
     case 'rail_station': {
-      // Transit Station: Brick Railway Depot (Ep 3) -> Commuter Terminal (Ep 4) -> Glass Metro Hub (Ep 5) -> Maglev Portal (Ep 6+)
+      // Distinct racial train terminals (Elf crescent filigree arch concourse, Orc armored bunker shed, Human barrel-vault glass grand terminal)
       const platformMat = epochIndex >= 6 ? raceTechTrimMat : isOrc ? orcBasaltMat : isElf ? elfMossStoneMat : darkStoneMat;
-      const platform = new THREE.Mesh(new THREE.BoxGeometry(0.88, 0.08, 0.84), platformMat);
+      const platform = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.08, 0.86), platformMat);
       platform.position.y = 0.04;
       platform.receiveShadow = true;
       group.add(platform);
 
-      // Yellow safety strip on platform edge
       const safetyTrim = new THREE.Mesh(
-        new THREE.BoxGeometry(0.88, 0.03, 0.08),
+        new THREE.BoxGeometry(0.9, 0.03, 0.08),
         epochIndex >= 6 ? raceGlowMat : goldMat,
       );
-      safetyTrim.position.set(0, 0.085, 0.36);
+      safetyTrim.position.set(0, 0.085, 0.37);
       group.add(safetyTrim);
 
       if (isElf) {
-        addElfPagodaPavilion({
-          cx: 0,
-          cz: -0.06,
-          radius: 0.32,
-          h: 0.3,
-          wallMat: epochIndex >= 5 ? elfPearlTechMat : elfBirchMat,
-          roofMat: epochIndex >= 5 ? elfJadeRoofMat : elfVerdigrisMat,
-          tiers: 1,
-          glowTrim: true,
-        });
-      } else if (isOrc) {
-        addOrcBastionHut({
-          cx: 0,
-          cz: -0.06,
-          w: 0.7,
-          h: 0.3,
-          d: 0.5,
-          wallMat: epochIndex >= 5 ? orcGunmetalMat : orcIronMat,
-          roofMat: orcCrimsonMat,
-          tuskMat: epochIndex >= 5 ? orcMagmaGlowMat : orcIronMat,
-          withBanner: true,
-        });
-      } else {
-        const wallM = epochIndex >= 6 ? techMat : epochIndex === 5 ? blueRoofMat : epochIndex === 4 ? concreteMat : brickMat;
-        const roofM = epochIndex >= 6 ? darkTechMat : epochIndex >= 4 ? concreteMat : redRoofMat;
-
-        const concourse = new THREE.Mesh(new THREE.BoxGeometry(0.74, 0.28, 0.44), wallM);
-        concourse.position.set(0, 0.22, -0.1);
-        concourse.castShadow = true;
-        group.add(concourse);
-
-        const canopy = new THREE.Mesh(new THREE.BoxGeometry(0.84, 0.07, 0.66), roofM);
-        canopy.position.set(0, 0.4, 0.04);
-        canopy.castShadow = true;
-        group.add(canopy);
-
-        const archSign = new THREE.Mesh(
-          new THREE.BoxGeometry(0.32, 0.1, 0.08),
-          epochIndex >= 5 ? glowCyanMat : goldMat,
-        );
-        archSign.position.set(0, 0.48, 0.34);
-        group.add(archSign);
-      }
-
-      // Elevated upper-level metro platform & viaduct columns for Information/Space Ages (epochIndex >= 5)
-      if (epochIndex >= 5) {
-        for (const px of [-0.34, 0.34]) {
-          const pier = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.64, 0.16), platformMat);
-          pier.position.set(px, 0.38, 0.24);
-          pier.castShadow = true;
+        // ELVES: Crescent Vine-Arch Blossom Canopy with Carved Filigree Ribs & Suspended Lantern Pavilion
+        const colonnadeM = epochIndex >= 5 ? elfPearlTechMat : elfBirchMat;
+        for (const px of [-0.3, 0.3]) {
+          const ped = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.085, 0.08, 8), elfMossStoneMat);
+          ped.position.set(px, 0.12, -0.06);
+          group.add(ped);
+          const pier = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.06, 0.36, 8), colonnadeM);
+          pier.position.set(px, 0.26, -0.06);
           group.add(pier);
         }
-        const upperDeck = new THREE.Mesh(new THREE.BoxGeometry(0.94, 0.1, 0.44), platformMat);
-        upperDeck.position.set(0, 0.72, 0.22);
-        upperDeck.castShadow = true;
-        upperDeck.receiveShadow = true;
-        group.add(upperDeck);
-
-        const upperEdge = new THREE.Mesh(
-          new THREE.BoxGeometry(0.94, 0.035, 0.06),
-          epochIndex >= 6 ? glowCyanMat : goldMat,
+        const archVault = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.36, 0.38, 0.72, 12, 1, false, 0, Math.PI),
+          epochIndex >= 5 ? elfJadeRoofMat : elfVerdigrisMat,
         );
-        upperEdge.position.set(0, 0.775, 0.41);
-        group.add(upperEdge);
+        archVault.rotation.z = Math.PI / 2;
+        archVault.position.set(0, 0.28, -0.06);
+        archVault.castShadow = true;
+        group.add(archVault);
+        for (const rx of [-0.26, 0, 0.26]) {
+          const filigreeRib = new THREE.Mesh(new THREE.TorusGeometry(0.375, 0.022, 5, 12, Math.PI), elfFiligreeMat);
+          filigreeRib.rotation.y = Math.PI / 2;
+          filigreeRib.position.set(rx, 0.28, -0.06);
+          group.add(filigreeRib);
+        }
+        const spiritLamp = new THREE.Mesh(new THREE.OctahedronGeometry(0.1, 0), elfAquaGlowMat);
+        spiritLamp.position.set(0, 0.54, 0.27);
+        group.add(spiritLamp);
+        if (epochIndex >= 5) {
+          for (const px of [-0.32, 0.32]) {
+            const archPier = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.08, 0.66, 8), colonnadeM);
+            archPier.position.set(px, 0.38, 0.24);
+            group.add(archPier);
+          }
+          const skyCanopy = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.24, 0.42, 0.88, 10, 1, false, 0, Math.PI),
+            elfJadeRoofMat,
+          );
+          skyCanopy.rotation.z = Math.PI / 2;
+          skyCanopy.position.set(0, 0.72, 0.22);
+          group.add(skyCanopy);
+        }
+      } else if (isOrc) {
+        // ORCS: Armored Iron-Tusk Locomotive Shed + Siege Viaduct Overpass
+        const hullM = epochIndex >= 5 ? orcGunmetalMat : orcIronMat;
+        const shed = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.4, 0.78, 4), hullM);
+        shed.rotation.z = Math.PI / 2;
+        shed.rotation.x = Math.PI / 4;
+        shed.position.set(0, 0.28, -0.08);
+        shed.castShadow = true;
+        group.add(shed);
+        for (const rx of [-0.28, 0, 0.28]) {
+          const rib = new THREE.Mesh(new THREE.TorusGeometry(0.34, 0.04, 5, 8, Math.PI), orcCrimsonMat);
+          rib.rotation.y = Math.PI / 2;
+          rib.position.set(rx, 0.26, -0.06);
+          group.add(rib);
+        }
+        for (const sx of [-0.36, 0.36]) {
+          const horn = new THREE.Mesh(new THREE.ConeGeometry(0.055, 0.28, 4), orcBoneMat);
+          horn.position.set(sx, 0.56, 0.24);
+          horn.rotation.x = 0.45;
+          group.add(horn);
+        }
+        if (epochIndex >= 5) {
+          const steelDeck = new THREE.Mesh(new THREE.BoxGeometry(0.96, 0.14, 0.44), orcIronMat);
+          steelDeck.position.set(0, 0.72, 0.22);
+          group.add(steelDeck);
+          const magmaStrip = new THREE.Mesh(new THREE.BoxGeometry(0.94, 0.04, 0.06), orcMagmaGlowMat);
+          magmaStrip.position.set(0, 0.78, 0.42);
+          group.add(magmaStrip);
+        }
+      } else {
+        // HUMAN: Classic Barrel-Vault Glass-and-Iron Grand Terminus with Ribbed Trusses & Clock Gable
+        const wallM = epochIndex >= 6 ? techMat : epochIndex === 5 ? blueRoofMat : epochIndex === 4 ? concreteMat : brickMat;
+        const concourse = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.24, 0.5), wallM);
+        concourse.position.set(0, 0.2, -0.1);
+        concourse.castShadow = true;
+        group.add(concourse);
+        const concourseWins = new THREE.Mesh(new THREE.BoxGeometry(0.66, 0.1, 0.52), windowWarmMat);
+        concourseWins.position.set(0, 0.2, -0.1);
+        group.add(concourseWins);
 
-        const upperCanopy = new THREE.Mesh(
-          new THREE.BoxGeometry(0.86, 0.05, 0.32),
-          epochIndex >= 6 ? darkTechMat : concreteMat,
+        const glassBarrel = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.26, 0.26, 0.74, 12, 1, false, 0, Math.PI),
+          epochIndex >= 5 ? glassCurtainMat : slateRoofMat,
         );
-        upperCanopy.position.set(0, 1.0, 0.2);
-        upperCanopy.castShadow = true;
-        group.add(upperCanopy);
-
-        for (const sx of [-0.3, 0.3]) {
-          const strut = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.24, 0.05), platformMat);
-          strut.position.set(sx, 0.88, 0.12);
-          group.add(strut);
+        glassBarrel.rotation.z = Math.PI / 2;
+        glassBarrel.position.set(0, 0.32, -0.04);
+        group.add(glassBarrel);
+        // 4 Exposed iron barrel-vault ribs
+        for (const rx of [-0.32, -0.11, 0.11, 0.32]) {
+          const archRib = new THREE.Mesh(new THREE.TorusGeometry(0.27, 0.022, 5, 12, Math.PI), darkStoneMat);
+          archRib.rotation.y = Math.PI / 2;
+          archRib.position.set(rx, 0.32, -0.04);
+          group.add(archRib);
+        }
+        const clockGable = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.24, 0.08), wallM);
+        clockGable.position.set(0, 0.42, 0.22);
+        group.add(clockGable);
+        const gableTrim = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.032, 0.09), copperMat);
+        gableTrim.position.set(0, 0.54, 0.22);
+        group.add(gableTrim);
+        const dial = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.04, 10), goldMat);
+        dial.rotation.x = Math.PI / 2;
+        dial.position.set(0, 0.44, 0.265);
+        group.add(dial);
+        if (epochIndex >= 5) {
+          for (const px of [-0.34, 0.34]) {
+            const pier = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.64, 0.16), platformMat);
+            pier.position.set(px, 0.38, 0.24);
+            pier.castShadow = true;
+            group.add(pier);
+          }
+          const upperDeck = new THREE.Mesh(new THREE.BoxGeometry(0.94, 0.1, 0.44), platformMat);
+          upperDeck.position.set(0, 0.72, 0.22);
+          group.add(upperDeck);
+          const upperCanopy = new THREE.Mesh(
+            new THREE.BoxGeometry(0.86, 0.05, 0.32),
+            epochIndex >= 6 ? darkTechMat : concreteMat,
+          );
+          upperCanopy.position.set(0, 1.0, 0.2);
+          group.add(upperCanopy);
         }
       }
 
-      // Elevated station clock / transit pylon
-      const clockMast = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.44, 0.1), platformMat);
+      const clockMast = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.42, 0.09), platformMat);
       clockMast.position.set(-0.34, epochIndex >= 5 ? 0.62 : 0.42, 0.26);
       group.add(clockMast);
-      const signalBeacon = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.12), raceGlowMat);
+      const signalBeacon = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.11, 0.11), raceGlowMat);
       signalBeacon.position.set(-0.34, epochIndex >= 5 ? 0.88 : 0.62, 0.26);
       group.add(signalBeacon);
       break;
     }
 
     case 'airport': {
-      // Airport Hub: Taxiway Apron, Hangar Vault, Glass Boarding Terminal, Jetbridge & Radar ATC Tower
       const tarmac = new THREE.Mesh(
-        new THREE.BoxGeometry(0.96, 0.06, 0.96),
+        new THREE.BoxGeometry(0.98, 0.06, 0.98),
         isElf ? elfMossStoneMat : isOrc ? orcBasaltMat : darkStoneMat,
       );
       tarmac.position.y = 0.03;
       tarmac.receiveShadow = true;
       group.add(tarmac);
 
-      // Yellow taxiway apron guide strip connecting terminal out toward adjacent runway tiles
       const taxiGuide = new THREE.Mesh(
-        new THREE.BoxGeometry(0.1, 0.015, 0.42),
+        new THREE.BoxGeometry(0.08, 0.015, 0.46),
         epochIndex >= 6 ? raceGlowMat : goldMat,
       );
-      taxiGuide.position.set(-0.24, 0.065, 0.22);
+      taxiGuide.position.set(-0.24, 0.065, 0.2);
       group.add(taxiGuide);
 
-      const termWall = isElf ? elfPearlTechMat : isOrc ? orcGunmetalMat : epochIndex >= 6 ? techMat : concreteMat;
-      const termRoof = isElf ? elfJadeRoofMat : isOrc ? orcCrimsonMat : blueRoofMat;
+      if (isElf) {
+        // ELVES: Moth-Wing Sky-Harbor with Swept Tensile Wings, Filigree Spars & Twisting Lotus Beacon Spire
+        for (const sx of [-1, 1]) {
+          const wing = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.048, 0.56), elfJadeRoofMat);
+          wing.position.set(sx * 0.19, 0.34, -0.08);
+          wing.rotation.z = sx * 0.32;
+          wing.rotation.y = sx * 0.18;
+          wing.castShadow = true;
+          group.add(wing);
+          const spar = new THREE.Mesh(new THREE.BoxGeometry(0.39, 0.025, 0.04), elfFiligreeMat);
+          spar.position.set(sx * 0.19, 0.35, 0.04);
+          spar.rotation.z = sx * 0.32;
+          spar.rotation.y = sx * 0.18;
+          group.add(spar);
+        }
+        const blossomHall = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.3, 0.24, 10), elfPearlTechMat);
+        blossomHall.position.set(0, 0.18, -0.08);
+        group.add(blossomHall);
+        const pierDeck = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.06, 0.28), elfAquaGlowMat);
+        pierDeck.position.set(0, 0.14, 0.24);
+        group.add(pierDeck);
+        const spireNeck = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.11, 0.86, 8), elfBirchMat);
+        spireNeck.position.set(0.26, 0.48, 0.26);
+        group.add(spireNeck);
+        const lotusOrb = new THREE.Mesh(new THREE.OctahedronGeometry(0.14, 0), elfAquaGlowMat);
+        lotusOrb.position.set(0.26, 0.98, 0.26);
+        lotusOrb.name = 'spin_part';
+        group.add(lotusOrb);
+      } else if (isOrc) {
+        // ORCS: Armored Sawtooth Bomber Bastion + Flak Spotlight Tower + Spiked Blast Shields
+        for (const rx of [-0.22, 0.14]) {
+          const sawtooth = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.26, 0.46, 4), orcGunmetalMat);
+          sawtooth.rotation.z = Math.PI / 2;
+          sawtooth.rotation.x = Math.PI / 4;
+          sawtooth.position.set(rx, 0.22, -0.14);
+          sawtooth.castShadow = true;
+          group.add(sawtooth);
+        }
+        const blastTrim = new THREE.Mesh(new THREE.BoxGeometry(0.76, 0.08, 0.1), orcCrimsonMat);
+        blastTrim.position.set(-0.04, 0.12, 0.08);
+        group.add(blastTrim);
+        const flakTower = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.18, 0.72, 6), orcIronMat);
+        flakTower.position.set(0.28, 0.42, 0.26);
+        flakTower.castShadow = true;
+        group.add(flakTower);
+        const flakCollar = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.14, 0.06, 6), orcRustPlateMat);
+        flakCollar.position.set(0.28, 0.76, 0.26);
+        group.add(flakCollar);
+        const redEye = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.12, 0.22), orcMagmaGlowMat);
+        redEye.position.set(0.28, 0.84, 0.26);
+        redEye.name = 'spin_part';
+        group.add(redEye);
+        for (const sx of [-0.36, -0.16]) {
+          const spike = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.22, 4), orcBoneMat);
+          spike.position.set(sx, 0.16, 0.32);
+          spike.rotation.x = -0.35;
+          group.add(spike);
+        }
+      } else {
+        // HUMAN: Modernist Vaulted Hangar + Glass Jetbridge Terminal (3 Cantilevered Jetways) + Flared ATC Tower
+        const termWall = epochIndex >= 6 ? techMat : concreteMat;
+        const termRoof = blueRoofMat;
+        const hangarBody = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.22, 0.34), termWall);
+        hangarBody.position.set(-0.22, 0.17, -0.22);
+        hangarBody.castShadow = true;
+        group.add(hangarBody);
+        const hangarDoor = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.15, 0.03), darkTechMat);
+        hangarDoor.position.set(-0.22, 0.14, -0.04);
+        group.add(hangarDoor);
+        const hangarRoof = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.19, 0.19, 0.38, 10, 1, false, 0, Math.PI),
+          termRoof,
+        );
+        hangarRoof.rotation.z = Math.PI / 2;
+        hangarRoof.position.set(-0.22, 0.28, -0.22);
+        group.add(hangarRoof);
 
-      // Arched Aircraft Hangar (-X / -Z quadrant)
-      const hangarBody = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.22, 0.34), termWall);
-      hangarBody.position.set(-0.2, 0.17, -0.22);
-      hangarBody.castShadow = true;
-      group.add(hangarBody);
-      const hangarRoof = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.19, 0.19, 0.38, 8, 1, false, 0, Math.PI),
-        termRoof,
-      );
-      hangarRoof.rotation.z = Math.PI / 2;
-      hangarRoof.position.set(-0.2, 0.28, -0.22);
-      group.add(hangarRoof);
-      const hangarBay = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.16, 0.04), darkTechMat);
-      hangarBay.position.set(-0.2, 0.14, -0.04);
-      group.add(hangarBay);
+        const terminal = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.26, 0.56), termWall);
+        terminal.position.set(0.24, 0.19, -0.08);
+        terminal.castShadow = true;
+        group.add(terminal);
+        const termCap = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.055, 0.62), termRoof);
+        termCap.position.set(0.24, 0.35, -0.08);
+        group.add(termCap);
+        const gateGlass = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.12, 0.46), glassCurtainMat);
+        gateGlass.position.set(0.05, 0.21, -0.08);
+        group.add(gateGlass);
 
-      // Passenger Terminal Concourse (+X side) + Boarding Jetbridge
-      const terminal = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.26, 0.56), termWall);
-      terminal.position.set(0.22, 0.19, -0.08);
-      terminal.castShadow = true;
-      group.add(terminal);
-      const termCap = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.06, 0.62), termRoof);
-      termCap.position.set(0.22, 0.35, -0.08);
-      group.add(termCap);
-      const gateGlass = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.11, 0.44), raceGlowMat);
-      gateGlass.position.set(0.02, 0.21, -0.08);
-      group.add(gateGlass);
-      const jetbridge = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.08, 0.1), termWall);
-      jetbridge.position.set(-0.04, 0.19, 0.14);
-      group.add(jetbridge);
+        // 3 Cantilevered passenger boarding jetbridges extending onto apron
+        for (const jz of [-0.26, -0.08, 0.1]) {
+          const jetway = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.065, 0.06), darkTechMat);
+          jetway.position.set(-0.04, 0.2, jz);
+          group.add(jetway);
+          const cabHead = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.08, 0.075), termWall);
+          cabHead.position.set(-0.12, 0.19, jz);
+          group.add(cabHead);
+        }
 
-      // Air Traffic Control Tower
-      const towerShaft = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.08, 0.12, 0.78, isElf ? 8 : 6),
-        isOrc ? orcIronMat : termWall,
-      );
-      towerShaft.position.set(0.26, 0.45, 0.28);
-      towerShaft.castShadow = true;
-      group.add(towerShaft);
+        const towerShaft = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.12, 0.78, 8), termWall);
+        towerShaft.position.set(0.28, 0.45, 0.28);
+        towerShaft.castShadow = true;
+        group.add(towerShaft);
+        const catwalkDeck = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.14, 0.045, 8), darkTechMat);
+        catwalkDeck.position.set(0.28, 0.8, 0.28);
+        group.add(catwalkDeck);
+        const controlCab = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.14, 0.14, 8), glowCyanMat);
+        controlCab.position.set(0.28, 0.89, 0.28);
+        group.add(controlCab);
+        const cabRoof = new THREE.Mesh(new THREE.CylinderGeometry(0.21, 0.21, 0.05, 8), termRoof);
+        cabRoof.position.set(0.28, 0.98, 0.28);
+        group.add(cabRoof);
+        const radarBar = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.04, 0.06), goldMat);
+        radarBar.position.set(0.28, 1.05, 0.28);
+        radarBar.name = 'spin_part';
+        group.add(radarBar);
+      }
 
-      const controlCab = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.14, 0.14, 8), raceGlowMat);
-      controlCab.position.set(0.26, 0.88, 0.28);
-      group.add(controlCab);
-
-      const cabRoof = new THREE.Mesh(new THREE.CylinderGeometry(0.21, 0.21, 0.05, 8), termRoof);
-      cabRoof.position.set(0.26, 0.97, 0.28);
-      group.add(cabRoof);
-
-      const radarBar = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.04, 0.06), goldMat);
-      radarBar.position.set(0.26, 1.04, 0.28);
-      radarBar.name = 'spin_part';
-      group.add(radarBar);
-
-      // Windsock mast
       const sockPole = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.34, 5), concreteMat);
       sockPole.position.set(-0.38, 0.23, 0.34);
       group.add(sockPole);
-      const windSock = new THREE.Mesh(new THREE.ConeGeometry(0.045, 0.14, 6), redRoofMat);
+      const windSock = new THREE.Mesh(
+        new THREE.ConeGeometry(0.045, 0.14, 6),
+        isElf ? elfAquaGlowMat : isOrc ? orcCrimsonMat : redRoofMat,
+      );
       windSock.rotation.z = -Math.PI / 2;
       windSock.position.set(-0.31, 0.38, 0.34);
       group.add(windSock);
@@ -3389,62 +5370,215 @@ export function createBuildingGroup(
     }
 
     case 'launch_arcology': {
-      const pad = new THREE.Mesh(new THREE.BoxGeometry(0.84, 0.16, 0.84), raceTechTrimMat);
-      pad.position.y = 0.08;
-      group.add(pad);
+      if (isElf) {
+        // ELVES: Unfolding 6-Petal Lotus Solar-Sail Star-Needle
+        const dais = new THREE.Mesh(new THREE.CylinderGeometry(0.44, 0.48, 0.12, 12), elfJadeRoofMat);
+        dais.position.y = 0.06;
+        group.add(dais);
+        const trimRing = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.022, 5, 14), elfFiligreeMat);
+        trimRing.rotation.x = Math.PI / 2;
+        trimRing.position.y = 0.13;
+        group.add(trimRing);
+        for (let i = 0; i < 6; i++) {
+          const a = (i / 6) * Math.PI * 2;
+          const petal = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.64, 0.13), elfPearlTechMat);
+          petal.position.set(Math.cos(a) * 0.25, 0.41, Math.sin(a) * 0.25);
+          petal.rotation.y = -a;
+          petal.rotation.z = -0.35;
+          group.add(petal);
+        }
+        const needle = new THREE.Mesh(new THREE.ConeGeometry(0.11, 1.2, 10), elfPearlTechMat);
+        needle.position.y = 0.84;
+        needle.castShadow = true;
+        group.add(needle);
+        const solarSail = new THREE.Mesh(new THREE.TorusGeometry(0.25, 0.028, 6, 16), elfAquaGlowMat);
+        solarSail.position.y = 0.94;
+        solarSail.rotation.x = Math.PI / 2;
+        solarSail.name = 'spin_part';
+        group.add(solarSail);
+      } else if (isOrc) {
+        // ORCS: Recessed Hexagonal War-Silo Braced by 3 Iron Claws + Broad Twin-Booster Juggernaut
+        const bunker = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.48, 0.2, 6), orcBasaltMat);
+        bunker.position.y = 0.1;
+        group.add(bunker);
+        for (let i = 0; i < 3; i++) {
+          const a = (i / 3) * Math.PI * 2;
+          const claw = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.88, 0.12), orcIronMat);
+          claw.position.set(Math.cos(a) * 0.28, 0.56, Math.sin(a) * 0.28);
+          claw.rotation.y = -a;
+          claw.rotation.z = 0.24;
+          claw.castShadow = true;
+          group.add(claw);
+        }
+        const hull = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.24, 0.72, 6), orcGunmetalMat);
+        hull.position.y = 0.56;
+        hull.castShadow = true;
+        group.add(hull);
+        const hullCollar = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.06, 6), orcRustPlateMat);
+        hullCollar.position.y = 0.72;
+        group.add(hullCollar);
+        const warhead = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.34, 6), orcCrimsonMat);
+        warhead.position.y = 1.09;
+        group.add(warhead);
+        const flameBell = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.26, 0.14, 6), orcMagmaGlowMat);
+        flameBell.position.y = 0.24;
+        flameBell.name = 'flicker_flame';
+        group.add(flameBell);
+      } else {
+        // HUMAN: Stepped Crawlerway Pad + 4-Post Lattice Umbilical Gantry with Swing Arms + Twin SRB Core Stage
+        const pad = new THREE.Mesh(new THREE.BoxGeometry(0.88, 0.16, 0.88), darkTechMat);
+        pad.position.y = 0.08;
+        group.add(pad);
+        const blastDeflector = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.12, 0.26), darkStoneMat);
+        blastDeflector.position.set(0.08, 0.18, 0.06);
+        group.add(blastDeflector);
 
-      const gantry = new THREE.Mesh(new THREE.BoxGeometry(0.16, 1.1, 0.16), raceGlowMat);
-      gantry.position.set(-0.24, 0.68, -0.2);
-      gantry.castShadow = true;
-      group.add(gantry);
+        // 4-Post open steel lattice gantry tower + 3 truss decks + 2 umbilical swing arms
+        for (const [gx, gz] of [
+          [-0.3, -0.24],
+          [-0.18, -0.24],
+          [-0.3, -0.12],
+          [-0.18, -0.12],
+        ]) {
+          const post = new THREE.Mesh(new THREE.BoxGeometry(0.036, 1.14, 0.036), techMat);
+          post.position.set(gx, 0.71, gz);
+          post.castShadow = true;
+          group.add(post);
+        }
+        for (const gy of [0.42, 0.74, 1.06, 1.24]) {
+          const trussFloor = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.035, 0.17), copperMat);
+          trussFloor.position.set(-0.24, gy, -0.18);
+          group.add(trussFloor);
+        }
+        for (const ay of [0.68, 0.96]) {
+          const swingArm = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.036, 0.048), techMat);
+          swingArm.position.set(-0.08, ay, -0.06);
+          swingArm.rotation.y = -0.6;
+          group.add(swingArm);
+        }
 
-      const rocketBody = new THREE.Mesh(
-        new THREE.CylinderGeometry(isElf ? 0.1 : 0.13, isOrc ? 0.2 : 0.17, 0.88, isOrc ? 6 : 8),
-        raceTechWallMat,
-      );
-      rocketBody.position.set(0.08, 0.64, 0.06);
-      rocketBody.castShadow = true;
-      group.add(rocketBody);
-
-      const noseCone = new THREE.Mesh(
-        new THREE.ConeGeometry(isElf ? 0.1 : 0.14, isElf ? 0.36 : 0.28, isOrc ? 6 : 8),
-        isOrc ? orcCrimsonMat : goldMat,
-      );
-      noseCone.position.set(0.08, isElf ? 1.26 : 1.22, 0.06);
-      group.add(noseCone);
-
-      const thrusterGlow = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.12, 0.2), raceGlowMat);
-      thrusterGlow.position.set(0.08, 0.2, 0.06);
-      group.add(thrusterGlow);
+        const core = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.12, 0.88, 10), goldMat);
+        core.position.set(0.08, 0.66, 0.06);
+        core.castShadow = true;
+        group.add(core);
+        for (const sOff of [-0.145, 0.145]) {
+          const srb = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.06, 0.62, 8), whitePlasterMat);
+          srb.position.set(0.08 + sOff, 0.52, 0.06);
+          group.add(srb);
+          const srbCap = new THREE.Mesh(new THREE.ConeGeometry(0.056, 0.12, 8), whitePlasterMat);
+          srbCap.position.set(0.08 + sOff, 0.89, 0.06);
+          group.add(srbCap);
+        }
+        const noseCone = new THREE.Mesh(new THREE.ConeGeometry(0.11, 0.24, 10), whitePlasterMat);
+        noseCone.position.set(0.08, 1.22, 0.06);
+        group.add(noseCone);
+        const thrusterGlow = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.1, 0.18), glowCyanMat);
+        thrusterGlow.position.set(0.08, 0.22, 0.06);
+        group.add(thrusterGlow);
+      }
       break;
     }
 
     case 'dyson_spire': {
-      const tier1 = new THREE.Mesh(new THREE.BoxGeometry(0.86, 0.2, 0.86), raceTechTrimMat);
-      tier1.position.y = 0.1;
-      group.add(tier1);
-
-      const obelisk = new THREE.Mesh(
-        new THREE.ConeGeometry(isElf ? 0.24 : 0.32, isElf ? 1.32 : 1.2, isElf ? 8 : 4),
-        isOrc ? orcIronMat : goldMat,
-      );
-      obelisk.position.y = 0.8;
-      obelisk.castShadow = true;
-      group.add(obelisk);
-
-      const haloRing = new THREE.Mesh(new THREE.TorusGeometry(0.34, 0.045, 6, 12), raceGlowMat);
-      haloRing.position.y = 1.02;
-      haloRing.rotation.x = Math.PI / 2;
-      haloRing.name = 'spin_part';
-      group.add(haloRing);
-
-      const skyBeam = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.065, 3.0, 8), raceGlowMat);
-      skyBeam.position.y = 2.2;
-      group.add(skyBeam);
+      if (isElf) {
+        // ELVES: Floating Tri-Ring Celestial Sanctuary Orrery suspended by 3 Curved Ivory Ribs + Filigree Collar
+        const dais = new THREE.Mesh(new THREE.CylinderGeometry(0.44, 0.48, 0.14, 12), elfMossStoneMat);
+        dais.position.y = 0.07;
+        group.add(dais);
+        const collar = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.024, 5, 14), elfFiligreeMat);
+        collar.rotation.x = Math.PI / 2;
+        collar.position.y = 0.15;
+        group.add(collar);
+        for (let i = 0; i < 3; i++) {
+          const a = (i / 3) * Math.PI * 2;
+          const rib = new THREE.Mesh(new THREE.BoxGeometry(0.07, 1.18, 0.12), elfPearlTechMat);
+          rib.position.set(Math.cos(a) * 0.24, 0.68, Math.sin(a) * 0.24);
+          rib.rotation.y = -a;
+          rib.rotation.z = 0.22;
+          rib.castShadow = true;
+          group.add(rib);
+        }
+        const ring1 = new THREE.Mesh(new THREE.TorusGeometry(0.34, 0.032, 6, 18), goldMat);
+        ring1.position.y = 0.96;
+        ring1.rotation.x = 0.7;
+        ring1.name = 'spin_part';
+        group.add(ring1);
+        const ring2 = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.028, 6, 16), elfAquaGlowMat);
+        ring2.position.y = 0.96;
+        ring2.rotation.y = 0.8;
+        ring2.name = 'spin_part';
+        group.add(ring2);
+        const starCore = new THREE.Mesh(new THREE.OctahedronGeometry(0.14, 0), elfAquaGlowMat);
+        starCore.position.y = 0.96;
+        group.add(starCore);
+        const skyBeam = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 3.0, 8), elfAquaGlowMat);
+        skyBeam.position.y = 2.25;
+        group.add(skyBeam);
+      } else if (isOrc) {
+        // ORCS: Infernal Forge-Cathedral Ziggurat with 4 Claw Pincers Caging a Crimson Plasma Star
+        const tier1 = new THREE.Mesh(new THREE.BoxGeometry(0.88, 0.18, 0.88), orcBasaltMat);
+        tier1.position.y = 0.09;
+        group.add(tier1);
+        const tier2 = new THREE.Mesh(new THREE.BoxGeometry(0.64, 0.22, 0.64), orcGunmetalMat);
+        tier2.position.y = 0.29;
+        group.add(tier2);
+        const magmaChannel = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.045, 0.68), orcMagmaGlowMat);
+        magmaChannel.position.y = 0.36;
+        group.add(magmaChannel);
+        for (const [cx, cz] of [
+          [-0.26, -0.26],
+          [0.26, -0.26],
+          [-0.26, 0.26],
+          [0.26, 0.26],
+        ]) {
+          const pincer = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.88, 4), orcIronMat);
+          pincer.position.set(cx, 0.78, cz);
+          pincer.rotation.z = Math.sign(cx) * 0.26;
+          pincer.rotation.x = -Math.sign(cz) * 0.26;
+          pincer.castShadow = true;
+          group.add(pincer);
+        }
+        const forgeSun = new THREE.Mesh(new THREE.OctahedronGeometry(0.22, 0), orcMagmaGlowMat);
+        forgeSun.position.y = 0.92;
+        forgeSun.name = 'spin_part';
+        group.add(forgeSun);
+        const plasmaBeam = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.085, 3.0, 6), orcMagmaGlowMat);
+        plasmaBeam.position.y = 2.25;
+        group.add(plasmaBeam);
+      } else {
+        // HUMAN: Precision Orbital Solar-Collector Pyramid with Copper Waveguide Ribs & Superconducting Ring
+        const tier1 = new THREE.Mesh(new THREE.BoxGeometry(0.86, 0.16, 0.86), darkTechMat);
+        tier1.position.y = 0.08;
+        group.add(tier1);
+        const pyramid = new THREE.Mesh(new THREE.ConeGeometry(0.32, 1.12, 4), techMat);
+        pyramid.rotation.y = Math.PI / 4;
+        pyramid.position.y = 0.72;
+        pyramid.castShadow = true;
+        group.add(pyramid);
+        for (let w = 0; w < 4; w++) {
+          const a = (w / 4) * Math.PI * 2;
+          const solarWing = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.035, 0.16), goldMat);
+          solarWing.position.set(Math.cos(a) * 0.32, 0.56, Math.sin(a) * 0.32);
+          solarWing.rotation.y = -a;
+          group.add(solarWing);
+          const fin = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.34, 0.05), copperMat);
+          fin.position.set(Math.cos(a + 0.785) * 0.36, 0.28, Math.sin(a + 0.785) * 0.36);
+          group.add(fin);
+        }
+        const haloRing = new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.04, 6, 14), glowCyanMat);
+        haloRing.position.y = 1.04;
+        haloRing.rotation.x = Math.PI / 2;
+        haloRing.name = 'spin_part';
+        group.add(haloRing);
+        const skyBeam = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.065, 3.0, 8), glowCyanMat);
+        skyBeam.position.y = 2.22;
+        group.add(skyBeam);
+      }
       break;
     }
   }
 
+  finalizeStaticBuildingMeshes(group);
   return group;
 }
 
@@ -4486,6 +6620,571 @@ function buildCreatureUnitGroup(
       legPivot.add(new THREE.Mesh(geo.legHorn, hornMat));
       bodyPivot.add(legPivot);
     }
+  } else if (role === 'leviathan') {
+    // Leviathan:
+    // 1. `leviathan_silhouette`: Always-visible, sinuously undulating abyssal sea-monster shadow gliding just beneath the ocean surface film
+    //    (multi-segment serpentine spine, horned predator skull, split reaper mandibles, sweeping scythe-fins, forked trident tail & glowing abyssal eyes)
+    // 2. `leviathan_surfaced`: Colossal multi-segment Abyssal Sea-Serpent / Kraken-Dragon Dreadnought with articulated serpentine spine,
+    //    3-way gaping mandibular maw, flared bioluminescent gill-frills, sweeping scythe-fins, and an integrated 3D High-Pressure Water Beam!
+    shadowRadius = 5.2;
+    auraRadius = 3.2;
+
+    const silGroup = new THREE.Group();
+    silGroup.name = 'leviathan_silhouette';
+    const silCoreMat = new THREE.MeshBasicMaterial({
+      color: 0x020611,
+      transparent: true,
+      opacity: 0.84,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -3,
+      polygonOffsetUnits: -3,
+    });
+    const silPenumbraMat = new THREE.MeshBasicMaterial({
+      color: 0x07192e,
+      transparent: true,
+      opacity: 0.48,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2,
+    });
+    const silEyeMat = new THREE.MeshBasicMaterial({
+      color: 0xff1e42,
+      transparent: true,
+      opacity: 0.95,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -4,
+      polygonOffsetUnits: -4,
+    });
+    const silBioMat = new THREE.MeshBasicMaterial({
+      color: 0x00f5d4,
+      transparent: true,
+      opacity: 0.65,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -4,
+      polygonOffsetUnits: -4,
+    });
+
+    const addSilMesh = (geo: THREE.BufferGeometry, m: THREE.Material, parent: THREE.Object3D) => {
+      const mesh = new THREE.Mesh(geo, m);
+      mesh.renderOrder = 16;
+      parent.add(mesh);
+      return mesh;
+    };
+
+    // Articulated Head & Thorax Silhouette (local y = 0.03..0.06 so it renders cleanly at the water surface)
+    const silHeadPivot = makePivot('sil_head', 0, 0.04, 1.85);
+    const silSkull = addSilMesh(new THREE.BoxGeometry(2.35, 0.08, 1.65), silCoreMat, silHeadPivot);
+    silSkull.position.set(0, 0.01, 0.78);
+    const silSnout = addSilMesh(new THREE.BoxGeometry(1.75, 0.08, 1.25), silCoreMat, silHeadPivot);
+    silSnout.position.set(0, 0.01, 1.95);
+
+    const silSkullAura = addSilMesh(new THREE.BoxGeometry(2.85, 0.06, 2.85), silPenumbraMat, silHeadPivot);
+    silSkullAura.position.set(0, 0.0, 1.15);
+
+    for (const side of [-1, 1]) {
+      // Swept-back curved cranial horns
+      const silHorn = addSilMesh(new THREE.ConeGeometry(0.28, 2.1, 6), silCoreMat, silHeadPivot);
+      silHorn.rotation.x = -Math.PI / 2;
+      silHorn.rotation.z = -side * 0.42;
+      silHorn.scale.set(1.0, 1.0, 0.18);
+      silHorn.position.set(side * 1.35, 0.01, 0.25);
+
+      // Forward split reaper mandibles
+      const silMandible = addSilMesh(new THREE.ConeGeometry(0.24, 1.65, 6), silCoreMat, silHeadPivot);
+      silMandible.rotation.x = Math.PI / 2;
+      silMandible.rotation.z = side * 0.28;
+      silMandible.scale.set(1.0, 1.0, 0.18);
+      silMandible.position.set(side * 0.78, 0.01, 2.55);
+
+      // Glowing abyssal predator eyes & bioluminescent gill slits visible through the water
+      for (let ei = 0; ei < 2; ei++) {
+        const silEye = addSilMesh(new THREE.SphereGeometry(0.16 - ei * 0.03, 6, 4), silEyeMat, silHeadPivot);
+        silEye.scale.set(0.85, 0.35, 1.35);
+        silEye.position.set(side * (0.86 - ei * 0.14), 0.03, 1.55 - ei * 0.48);
+      }
+      const silGill = addSilMesh(new THREE.BoxGeometry(0.55, 0.02, 0.12), silBioMat, silHeadPivot);
+      silGill.position.set(side * 1.18, 0.02, 0.45);
+      silGill.rotation.y = -side * 0.45;
+    }
+    silGroup.add(silHeadPivot);
+
+    // Segment 0: Blocky Anterior Thorax & Sweeping Scythe Pectoral Fins
+    const silSeg0 = makePivot('sil_seg_0', 0, 0.04, 0.4);
+    const silTorso0 = addSilMesh(new THREE.BoxGeometry(2.65, 0.08, 2.75), silCoreMat, silSeg0);
+    const silTorso0Aura = addSilMesh(new THREE.BoxGeometry(3.25, 0.06, 3.25), silPenumbraMat, silSeg0);
+    silTorso0Aura.position.set(0, -0.01, 0);
+
+    for (const side of [-1, 1]) {
+      const finPiv = makePivot(side < 0 ? 'sil_fin_l' : 'sil_fin_r', side * 1.2, 0.0, 0.35);
+      const scythe = addSilMesh(new THREE.ConeGeometry(0.72, 3.1, 6), silCoreMat, finPiv);
+      scythe.rotation.z = -side * (Math.PI / 2);
+      scythe.rotation.y = -side * 0.42;
+      scythe.scale.set(0.14, 1.0, 1.0);
+      scythe.position.set(side * 1.35, 0, -0.35);
+      const finVein = addSilMesh(new THREE.BoxGeometry(2.1, 0.02, 0.12), silBioMat, finPiv);
+      finVein.position.set(side * 1.15, 0.02, -0.25);
+      finVein.rotation.y = -side * 0.42;
+      silSeg0.add(finPiv);
+    }
+    silGroup.add(silSeg0);
+
+    // Chained Blocky Spine Segments (sil_seg_1 -> sil_seg_2 -> sil_tail)
+    const silSeg1 = makePivot('sil_seg_1', 0, 0.04, -1.55);
+    addSilMesh(new THREE.BoxGeometry(2.15, 0.08, 2.35), silCoreMat, silSeg1);
+    for (const side of [-1, 1]) {
+      const rearFin = addSilMesh(new THREE.ConeGeometry(0.45, 1.85, 5), silCoreMat, silSeg1);
+      rearFin.rotation.z = -side * (Math.PI / 2);
+      rearFin.rotation.y = -side * 0.48;
+      rearFin.scale.set(0.14, 1.0, 1.0);
+      rearFin.position.set(side * 1.35, 0, -0.2);
+    }
+    silGroup.add(silSeg1);
+
+    const silSeg2 = makePivot('sil_seg_2', 0, 0.04, -3.35);
+    addSilMesh(new THREE.BoxGeometry(1.55, 0.07, 2.15), silCoreMat, silSeg2);
+    silGroup.add(silSeg2);
+
+    const silTail = makePivot('sil_tail', 0, 0.04, -4.95);
+    const silTailShaft = addSilMesh(new THREE.BoxGeometry(1.05, 0.07, 2.15), silCoreMat, silTail);
+    silTailShaft.position.set(0, 0, -0.95);
+    for (const side of [-1, 1]) {
+      const fluke = addSilMesh(new THREE.ConeGeometry(0.38, 1.95, 5), silCoreMat, silTail);
+      fluke.rotation.x = -Math.PI / 2;
+      fluke.rotation.z = -side * 0.62;
+      fluke.scale.set(1.0, 1.0, 0.12);
+      fluke.position.set(side * 0.85, 0, -1.95);
+    }
+    silGroup.add(silTail);
+    group.add(silGroup);
+
+    // 2. SURFACED / BREACHING LEVIATHAN DREADNOUGHT (Tiered Blocky Main Body + Horns, Teeth, Eyes & Scythe-Fins)
+    const surfGroup = new THREE.Group();
+    surfGroup.name = 'leviathan_surfaced';
+    const carapaceHex = s0 % 2 === 0 ? 0x090f1d : 0x0f172a;
+    const chitinPlateHex = s0 % 2 === 0 ? 0x1e1b4b : 0x16243b;
+    const crimsonWebHex = 0x881337;
+    const underbellyHex = 0x31102f;
+    const carapaceMat = mat(carapaceHex, 0.30, 0.35);
+    const chitinMat = mat(chitinPlateHex, 0.42, 0.22);
+    const crimsonWebMat = mat(crimsonWebHex, 0.45, 0.15, 0x4c0519, 0.45);
+    const bellyMat = mat(underbellyHex, 0.58, 0.10);
+    const mawInMat = mat(0x082f49, 0.35, 0.15, 0x0284c7, 0.85);
+    const hornBoneMat = mat(0xe7e5e4, 0.35, 0.18);
+    const toothMat = mat(0xf8fafc, 0.22, 0.15);
+    const eyeGlowMat = mat(0xff1e42, 0.15, 0.1, 0xff0033, 2.3);
+    const biolumVeinMat = mat(0x00f5d4, 0.22, 0.12, 0x00bbf9, 1.65);
+    const biolumCrimsonMat = mat(0xf43f5e, 0.25, 0.1, 0xe11d48, 1.45);
+    const foamMat = new THREE.MeshBasicMaterial({
+      color: 0xe0fbfc,
+      transparent: true,
+      opacity: 0.86,
+      depthWrite: false,
+    });
+    const foamOuterMat = new THREE.MeshBasicMaterial({
+      color: 0x90e0ef,
+      transparent: true,
+      opacity: 0.52,
+      depthWrite: false,
+    });
+
+    // Tiered Blocky Dreadnought Thorax (stepped voxel/block segments instead of a cylinder)
+    const chestBlock = new THREE.Mesh(new THREE.BoxGeometry(2.58, 1.48, 1.85), carapaceMat);
+    chestBlock.position.set(0, 1.06, 1.08);
+    chestBlock.castShadow = true;
+    chestBlock.receiveShadow = true;
+    surfGroup.add(chestBlock);
+
+    const midThoraxBlock = new THREE.Mesh(new THREE.BoxGeometry(2.38, 1.38, 1.65), carapaceMat);
+    midThoraxBlock.position.set(0, 1.00, -0.32);
+    midThoraxBlock.castShadow = true;
+    midThoraxBlock.receiveShadow = true;
+    surfGroup.add(midThoraxBlock);
+
+    const rearThoraxBlock = new THREE.Mesh(new THREE.BoxGeometry(2.10, 1.24, 1.35), carapaceMat);
+    rearThoraxBlock.position.set(0, 0.92, -1.42);
+    rearThoraxBlock.castShadow = true;
+    rearThoraxBlock.receiveShadow = true;
+    surfGroup.add(rearThoraxBlock);
+
+    // Lateral Beveled Shoulder & Flank Armor Blocks
+    for (const side of [-1, 1]) {
+      const shoulderBlock = new THREE.Mesh(new THREE.BoxGeometry(0.34, 1.02, 1.55), chitinMat);
+      shoulderBlock.position.set(side * 1.38, 1.04, 1.02);
+      shoulderBlock.castShadow = true;
+      surfGroup.add(shoulderBlock);
+
+      const flankBlock = new THREE.Mesh(new THREE.BoxGeometry(0.30, 0.92, 1.42), chitinMat);
+      flankBlock.position.set(side * 1.26, 0.96, -0.35);
+      flankBlock.castShadow = true;
+      surfGroup.add(flankBlock);
+    }
+
+    // Stepped Blocky Armored Underbelly Keel
+    const bellyBlockUpper = new THREE.Mesh(new THREE.BoxGeometry(2.05, 0.42, 3.65), bellyMat);
+    bellyBlockUpper.position.set(0, 0.44, 0.22);
+    surfGroup.add(bellyBlockUpper);
+
+    const bellyBlockLower = new THREE.Mesh(new THREE.BoxGeometry(1.48, 0.26, 3.25), bellyMat);
+    bellyBlockLower.position.set(0, 0.22, 0.22);
+    surfGroup.add(bellyBlockLower);
+
+    // Overlapping Blocky Chitinous Dorsal Carapace Slabs & Glowing Cyan/Crimson Abyssal Conduits
+    for (let pi = 0; pi < 5; pi++) {
+      const pScale = 1.0 - pi * 0.08;
+      const plate = new THREE.Mesh(
+        new THREE.BoxGeometry(2.36 * pScale, 0.36, 0.78),
+        chitinMat,
+      );
+      plate.rotation.x = -0.14;
+      plate.position.set(0, 1.72 - pi * 0.08, 1.65 - pi * 0.82);
+      plate.castShadow = true;
+      surfGroup.add(plate);
+
+      const upperRidgeBlock = new THREE.Mesh(
+        new THREE.BoxGeometry(1.42 * pScale, 0.24, 0.62),
+        carapaceMat,
+      );
+      upperRidgeBlock.rotation.x = -0.14;
+      upperRidgeBlock.position.set(0, 1.92 - pi * 0.08, 1.62 - pi * 0.82);
+      surfGroup.add(upperRidgeBlock);
+
+      for (const side of [-1, 1]) {
+        const gillVein = new THREE.Mesh(
+          new THREE.BoxGeometry(0.14, 0.46 * pScale, 0.24),
+          pi % 2 === 0 ? biolumVeinMat : biolumCrimsonMat,
+        );
+        gillVein.position.set(side * (1.32 * pScale), 1.16 - pi * 0.06, 1.55 - pi * 0.82);
+        surfGroup.add(gillVein);
+      }
+
+      // Towering curved dorsal bone-spines & crimson fin webbing along the anterior back
+      const spineH = 1.65 - pi * 0.14;
+      const spine = new THREE.Mesh(new THREE.ConeGeometry(0.20, spineH, 5), hornBoneMat);
+      spine.position.set(0, 2.28 - pi * 0.11, 1.50 - pi * 0.82);
+      spine.rotation.x = -0.44;
+      surfGroup.add(spine);
+
+      const web = new THREE.Mesh(new THREE.BoxGeometry(0.10, spineH * 0.85, 0.64), crimsonWebMat);
+      web.position.set(0, 2.08 - pi * 0.11, 1.25 - pi * 0.82);
+      web.rotation.x = -0.38;
+      surfGroup.add(web);
+    }
+
+    // Articulated Wing-Like Scythe Pectoral Fins (`wing_l`, `wing_r`) & Pelvic Hydrofoils (`wing_outer_l`, `wing_outer_r`)
+    for (const side of [-1, 1]) {
+      const finPivot = makePivot(side < 0 ? 'wing_l' : 'wing_r', side * 1.28, 0.72, 0.78);
+      const finArm = new THREE.Mesh(new THREE.ConeGeometry(0.52, 3.15, 6), carapaceMat);
+      finArm.rotation.z = -side * (Math.PI / 2 - 0.15);
+      finArm.rotation.y = -side * 0.38;
+      finArm.scale.set(0.32, 1.0, 1.0);
+      finArm.position.set(side * 1.35, -0.12, -0.35);
+      finPivot.add(finArm);
+
+      const finMembrane = new THREE.Mesh(new THREE.BoxGeometry(2.55, 0.10, 1.15), crimsonWebMat);
+      finMembrane.position.set(side * 1.32, -0.16, -0.68);
+      finMembrane.rotation.y = -side * 0.42;
+      finMembrane.rotation.z = -side * 0.15;
+      finPivot.add(finMembrane);
+
+      const finVein = new THREE.Mesh(new THREE.BoxGeometry(2.35, 0.12, 0.14), biolumVeinMat);
+      finVein.position.set(side * 1.25, -0.11, -0.28);
+      finVein.rotation.y = -side * 0.38;
+      finPivot.add(finVein);
+
+      const finClaw = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.95, 5), hornBoneMat);
+      finClaw.position.set(side * 2.75, -0.28, -0.82);
+      finClaw.rotation.z = side * 1.28;
+      finClaw.rotation.x = -0.45;
+      finPivot.add(finClaw);
+      surfGroup.add(finPivot);
+
+      const pelvicPivot = makePivot(side < 0 ? 'wing_outer_l' : 'wing_outer_r', side * 1.08, 0.56, -1.45);
+      const pelvicBlade = new THREE.Mesh(new THREE.ConeGeometry(0.38, 2.05, 5), chitinMat);
+      pelvicBlade.rotation.z = -side * (Math.PI / 2 - 0.18);
+      pelvicBlade.rotation.y = -side * 0.44;
+      pelvicBlade.scale.set(0.28, 1.0, 1.0);
+      pelvicBlade.position.set(side * 0.88, -0.1, -0.25);
+      pelvicPivot.add(pelvicBlade);
+      surfGroup.add(pelvicPivot);
+    }
+
+    // Articulated Posterior Blocky Spine & Trident Tail (`tail_pivot` -> `leviathan_tail_mid` -> `tail_fluke`)
+    const tailPivot = makePivot('tail_pivot', 0, 0.86, -1.65);
+    const abdBlockFront = new THREE.Mesh(new THREE.BoxGeometry(1.82, 1.12, 1.28), carapaceMat);
+    abdBlockFront.position.set(0, 0.02, -0.56);
+    abdBlockFront.castShadow = true;
+    tailPivot.add(abdBlockFront);
+
+    const abdBlockRear = new THREE.Mesh(new THREE.BoxGeometry(1.52, 0.96, 1.25), carapaceMat);
+    abdBlockRear.position.set(0, -0.04, -1.58);
+    abdBlockRear.castShadow = true;
+    tailPivot.add(abdBlockRear);
+
+    const abdPlateTop = new THREE.Mesh(new THREE.BoxGeometry(1.42, 0.26, 2.15), chitinMat);
+    abdPlateTop.position.set(0, 0.56, -1.06);
+    tailPivot.add(abdPlateTop);
+
+    const abdBelly = new THREE.Mesh(new THREE.BoxGeometry(1.36, 0.30, 2.15), bellyMat);
+    abdBelly.position.set(0, -0.48, -1.06);
+    tailPivot.add(abdBelly);
+
+    for (let ti = 0; ti < 2; ti++) {
+      const tSpine = new THREE.Mesh(new THREE.ConeGeometry(0.16, 1.05 - ti * 0.18, 5), hornBoneMat);
+      tSpine.position.set(0, 0.98 - ti * 0.14, -0.65 - ti * 0.95);
+      tSpine.rotation.x = -0.46;
+      tailPivot.add(tSpine);
+    }
+
+    const tailMidPivot = makePivot('leviathan_tail_mid', 0, -0.06, -2.15);
+    const tailBlockFront = new THREE.Mesh(new THREE.BoxGeometry(1.16, 0.78, 1.22), chitinMat);
+    tailBlockFront.position.set(0, 0, -0.54);
+    tailBlockFront.castShadow = true;
+    tailMidPivot.add(tailBlockFront);
+
+    const tailBlockRear = new THREE.Mesh(new THREE.BoxGeometry(0.86, 0.58, 1.22), carapaceMat);
+    tailBlockRear.position.set(0, -0.02, -1.56);
+    tailBlockRear.castShadow = true;
+    tailMidPivot.add(tailBlockRear);
+
+    // Forked crimson & bone trident tail-fluke blades
+    for (const side of [-1, 1]) {
+      const flukeBlade = new THREE.Mesh(new THREE.ConeGeometry(0.44, 2.35, 5), crimsonWebMat);
+      flukeBlade.position.set(side * 0.96, 0.06, -2.15);
+      flukeBlade.rotation.x = -Math.PI * 0.5;
+      flukeBlade.rotation.z = -side * 0.54;
+      flukeBlade.scale.set(1.0, 1.0, 0.28);
+      tailMidPivot.add(flukeBlade);
+
+      const flukeSpike = new THREE.Mesh(new THREE.ConeGeometry(0.16, 1.15, 5), hornBoneMat);
+      flukeSpike.position.set(side * 1.65, 0.06, -2.75);
+      flukeSpike.rotation.x = -Math.PI * 0.5;
+      flukeSpike.rotation.z = -side * 0.48;
+      tailMidPivot.add(flukeSpike);
+    }
+    const centerFlukeSpike = new THREE.Mesh(new THREE.ConeGeometry(0.18, 1.45, 5), biolumVeinMat);
+    centerFlukeSpike.position.set(0, 0.06, -2.65);
+    centerFlukeSpike.rotation.x = -Math.PI * 0.5;
+    tailMidPivot.add(centerFlukeSpike);
+
+    tailPivot.add(tailMidPivot);
+    surfGroup.add(tailPivot);
+
+    // 3. TERRIFYING HORNED ABYSSAL PREDATOR HEAD, 3-WAY GAPING MAW & INTEGRATED 3D WATER BEAM (`head_pivot`)
+    const headPivot = makePivot('head_pivot', 0, 1.18, 1.95);
+    // Stepped blocky predator cranium & snout blocks
+    const upperSkull = new THREE.Mesh(new THREE.BoxGeometry(2.34, 0.94, 1.55), carapaceMat);
+    upperSkull.position.set(0, 0.48, 0.72);
+    upperSkull.castShadow = true;
+    headPivot.add(upperSkull);
+
+    const midSnoutBlock = new THREE.Mesh(new THREE.BoxGeometry(1.94, 0.80, 1.22), chitinMat);
+    midSnoutBlock.position.set(0, 0.42, 1.82);
+    midSnoutBlock.castShadow = true;
+    headPivot.add(midSnoutBlock);
+
+    const snoutCrest = new THREE.Mesh(new THREE.BoxGeometry(1.52, 0.64, 0.92), carapaceMat);
+    snoutCrest.position.set(0, 0.34, 2.58);
+    snoutCrest.castShadow = true;
+    headPivot.add(snoutCrest);
+
+    const browArmorBlock = new THREE.Mesh(new THREE.BoxGeometry(1.98, 0.26, 1.45), chitinMat);
+    browArmorBlock.position.set(0, 0.92, 0.98);
+    headPivot.add(browArmorBlock);
+
+    // Nasal horn spike & glowing forehead abyssal crest
+    const nasalHorn = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.98, 5), hornBoneMat);
+    nasalHorn.position.set(0, 0.96, 2.65);
+    nasalHorn.rotation.x = 0.38;
+    headPivot.add(nasalHorn);
+
+    const browGem = new THREE.Mesh(new THREE.OctahedronGeometry(0.28, 0), biolumVeinMat);
+    browGem.scale.set(0.75, 0.55, 1.65);
+    browGem.position.set(0, 0.98, 1.45);
+    headPivot.add(browGem);
+
+    // Swept-back demonic cranial horns, flared gill-frill fans & hinged lateral reaper mandibles (`mandible_l`, `mandible_r`)
+    for (const side of [-1, 1]) {
+      const mainHorn = new THREE.Mesh(new THREE.ConeGeometry(0.28, 2.35, 6), hornBoneMat);
+      mainHorn.position.set(side * 1.28, 1.18, 0.25);
+      mainHorn.rotation.x = -1.08;
+      mainHorn.rotation.z = -side * 0.44;
+      headPivot.add(mainHorn);
+
+      const cheekSpike = new THREE.Mesh(new THREE.ConeGeometry(0.20, 1.48, 5), hornBoneMat);
+      cheekSpike.position.set(side * 1.48, 0.48, 0.55);
+      cheekSpike.rotation.x = -0.88;
+      cheekSpike.rotation.z = -side * 0.68;
+      headPivot.add(cheekSpike);
+
+      // Bioluminescent abyssal frill fan
+      const frillFan = new THREE.Mesh(new THREE.ConeGeometry(0.68, 1.55, 5), crimsonWebMat);
+      frillFan.position.set(side * 1.55, 0.62, 0.15);
+      frillFan.rotation.z = -side * 1.12;
+      frillFan.rotation.x = -0.52;
+      frillFan.scale.set(0.25, 1.0, 1.0);
+      headPivot.add(frillFan);
+
+      // Hinged Lateral Reaper Mandible (`mandible_l` / `mandible_r`) that flares wide open during Water Beam!
+      const mandPivot = makePivot(side < 0 ? 'mandible_l' : 'mandible_r', side * 1.12, 0.06, 0.85);
+      const mandibleArm = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.34, 1.68), chitinMat);
+      mandibleArm.position.set(side * 0.22, 0, 0.85);
+      mandibleArm.rotation.y = side * 0.18;
+      mandPivot.add(mandibleArm);
+
+      const mandiblePincer = new THREE.Mesh(new THREE.ConeGeometry(0.20, 1.05, 5), hornBoneMat);
+      mandiblePincer.position.set(side * 0.12, 0, 1.95);
+      mandiblePincer.rotation.x = Math.PI * 0.5;
+      mandiblePincer.rotation.z = side * 0.48;
+      mandPivot.add(mandiblePincer);
+
+      for (let mf = 0; mf < 3; mf++) {
+        const inFang = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.36, 4), toothMat);
+        inFang.rotation.z = side * (Math.PI / 2);
+        inFang.position.set(side * 0.05, 0, 0.65 + mf * 0.42);
+        mandPivot.add(inFang);
+      }
+      headPivot.add(mandPivot);
+
+      // 3 blazing crimson predator eyes per side
+      for (let ei = 0; ei < 3; ei++) {
+        const eye = new THREE.Mesh(new THREE.SphereGeometry(0.15 - ei * 0.02, 6, 5), eyeGlowMat);
+        eye.scale.set(0.75, 0.85, 1.35);
+        eye.position.set(side * (1.18 - ei * 0.08), 0.64 + (ei === 1 ? 0.12 : 0), 1.92 - ei * 0.48);
+        headPivot.add(eye);
+      }
+    }
+
+    // Glowing pressurized Hydro-Core inside the oral cavity (`fire_maw`)
+    const mawCavity = new THREE.Mesh(new THREE.BoxGeometry(1.56, 0.72, 1.65), mawInMat);
+    mawCavity.name = 'fire_maw';
+    mawCavity.position.set(0, 0.12, 1.15);
+    headPivot.add(mawCavity);
+
+    // Upper jagged fangs: curved double-row of bone-fangs
+    for (let ti = -5; ti <= 5; ti++) {
+      const isCornerTusk = Math.abs(ti) === 5 || Math.abs(ti) === 3;
+      const fangLen = isCornerTusk ? 0.72 : 0.48;
+      const fang = new THREE.Mesh(new THREE.ConeGeometry(0.11, fangLen, 5), toothMat);
+      fang.rotation.x = Math.PI;
+      fang.position.set(ti * 0.19, -0.04, 2.48 - Math.abs(ti) * 0.15);
+      headPivot.add(fang);
+    }
+
+    // Hinged spiked blocky lower jaw (`jaw_pivot`) that drops 50+ degrees open when firing the Water Beam!
+    const jawPivot = makePivot('jaw_pivot', 0, 0.02, 0.32);
+    const lowerJaw = new THREE.Mesh(new THREE.BoxGeometry(1.96, 0.48, 1.48), carapaceMat);
+    lowerJaw.position.set(0, -0.28, 0.82);
+    jawPivot.add(lowerJaw);
+
+    const chinTip = new THREE.Mesh(new THREE.BoxGeometry(1.48, 0.42, 1.18), chitinMat);
+    chinTip.position.set(0, -0.26, 1.98);
+    jawPivot.add(chinTip);
+
+    for (let bi = -1; bi <= 1; bi++) {
+      const chinSpike = new THREE.Mesh(new THREE.ConeGeometry(0.14, 0.68, 5), hornBoneMat);
+      chinSpike.rotation.x = Math.PI * 0.78;
+      chinSpike.position.set(bi * 0.48, -0.58, 2.22 - Math.abs(bi) * 0.2);
+      jawPivot.add(chinSpike);
+    }
+
+    for (let ti = -5; ti <= 5; ti++) {
+      const isTusk = Math.abs(ti) === 4;
+      const fang = new THREE.Mesh(
+        new THREE.ConeGeometry(0.11, isTusk ? 0.68 : 0.46, 5),
+        toothMat,
+      );
+      fang.position.set(ti * 0.18, 0.10, 2.35 - Math.abs(ti) * 0.14);
+      jawPivot.add(fang);
+    }
+    headPivot.add(jawPivot);
+
+    // 4. INTEGRATED 3D HIGH-PRESSURE WATER BEAM ASSEMBLY (`leviathan_beam_group`)
+    // Attached to the gaping maw so when `leviathanBeamTimer > 0`, a roaring multi-layered hydro-cannon beam
+    // with spinning helical shock-rings & impact geyser blasts directly from the Leviathan's open mouth!
+    const beamGroup = new THREE.Group();
+    beamGroup.name = 'leviathan_beam_group';
+    beamGroup.position.set(0, 0.06, 2.15);
+    beamGroup.visible = false;
+
+    const beamCoreMat = new THREE.MeshBasicMaterial({
+      color: 0xe0fbfc,
+      transparent: true,
+      opacity: 0.96,
+      depthWrite: false,
+    });
+    const beamOuterMat = new THREE.MeshBasicMaterial({
+      color: 0x00bbf9,
+      transparent: true,
+      opacity: 0.68,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+    const beamSpiralMat = new THREE.MeshBasicMaterial({
+      color: 0x00f5d4,
+      transparent: true,
+      opacity: 0.85,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+
+    // Muzzle charge sphere at the jaws
+    const muzzleOrb = new THREE.Mesh(new THREE.SphereGeometry(0.78, 10, 8), beamCoreMat);
+    muzzleOrb.name = 'beam_muzzle';
+    beamGroup.add(muzzleOrb);
+
+    // Inner high-pressure white-cyan hydro-laser core (unit length along +Z, scaled dynamically to target distance)
+    const beamShaft = new THREE.Group();
+    beamShaft.name = 'beam_shaft';
+    const coreCyl = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.32, 1.0, 10, 1, true), beamCoreMat);
+    coreCyl.rotation.x = Math.PI / 2;
+    coreCyl.position.set(0, 0, 0.5);
+    beamShaft.add(coreCyl);
+
+    const outerCyl = new THREE.Mesh(new THREE.CylinderGeometry(0.88, 0.54, 1.0, 12, 1, true), beamOuterMat);
+    outerCyl.rotation.x = Math.PI / 2;
+    outerCyl.position.set(0, 0, 0.5);
+    beamShaft.add(outerCyl);
+
+    for (let ri = 0; ri < 5; ri++) {
+      const shockRing = new THREE.Mesh(new THREE.RingGeometry(0.52, 1.15, 12), beamSpiralMat);
+      shockRing.position.set(0, 0, 0.15 + ri * 0.18);
+      beamShaft.add(shockRing);
+    }
+    beamGroup.add(beamShaft);
+
+    // Impact hydro-geyser dome at the end of the beam
+    const impactGeyser = new THREE.Group();
+    impactGeyser.name = 'beam_impact';
+    const geyserCone = new THREE.Mesh(new THREE.CylinderGeometry(1.65, 0.75, 2.2, 12, 1, true), beamOuterMat);
+    geyserCone.position.set(0, 0.9, 0);
+    impactGeyser.add(geyserCone);
+    const geyserRing = new THREE.Mesh(new THREE.RingGeometry(0.8, 2.4, 16), beamCoreMat);
+    geyserRing.rotation.x = -Math.PI / 2;
+    geyserRing.position.set(0, 0.08, 0);
+    impactGeyser.add(geyserRing);
+    beamGroup.add(impactGeyser);
+
+    headPivot.add(beamGroup);
+    surfGroup.add(headPivot);
+
+    // Churning white seafoam breach rings around the colossal Leviathan
+    const splashRing = new THREE.Mesh(new THREE.RingGeometry(2.8, 4.2, 28), foamMat);
+    splashRing.name = 'leviathan_splash_inner';
+    splashRing.rotation.x = -Math.PI / 2;
+    splashRing.position.set(0, 0.08, 0.2);
+    surfGroup.add(splashRing);
+
+    const outerSplashRing = new THREE.Mesh(new THREE.RingGeometry(4.3, 5.5, 24), foamOuterMat);
+    outerSplashRing.name = 'leviathan_splash_outer';
+    outerSplashRing.rotation.x = -Math.PI / 2;
+    outerSplashRing.position.set(0, 0.06, 0.2);
+    surfGroup.add(outerSplashRing);
+
+    bodyPivot.add(surfGroup);
   } else {
     // Unicorn: radiant ivory steed, golden spiral horn, animated legs & pastel mane
     shadowRadius = 0.68;
@@ -4610,7 +7309,8 @@ export function createUnitGroup(
     role === 'capybara' ||
     role === 'dinosaur' ||
     role === 'dragon' ||
-    role === 'unicorn'
+    role === 'unicorn' ||
+    role === 'leviathan'
   ) {
     return buildCreatureUnitGroup(group, role, s0, s1, s2, s3);
   }
@@ -5584,6 +8284,79 @@ export function createVehicleGroup(
     const isModern = epochLevel === 5;
     const isBus = epochLevel >= 4 && variant % 4 === 0;
     const isHover = epochLevel >= 6;
+
+    if (isElf) {
+      // Majestic Elf Sylvan Swan-Skiff: levitating ivory-and-gold curved gondola with sweeping lotus prows & floating crystal orb
+      const ivoryMat = new THREE.MeshStandardMaterial({ color: 0xfefae0, roughness: 0.22, metalness: 0.35 });
+      const goldMat = new THREE.MeshStandardMaterial({ color: 0xffb703, roughness: 0.2, metalness: 0.85 });
+      const hullRing = new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.032, 7, 16), goldMat);
+      hullRing.rotation.x = Math.PI / 2;
+      hullRing.scale.set(0.85, 1.45, 1);
+      hullRing.position.set(0, 0.14, 0);
+      hullRing.castShadow = true;
+      group.add(hullRing);
+
+      const swanHull = new THREE.Mesh(new THREE.ConeGeometry(0.11, 0.46, 6), ivoryMat);
+      swanHull.rotation.x = Math.PI / 2;
+      swanHull.scale.set(1.1, 0.65, 1);
+      swanHull.position.set(0, 0.14, 0.02);
+      swanHull.castShadow = true;
+      group.add(swanHull);
+
+      const swanNeck = new THREE.Mesh(new THREE.ConeGeometry(0.045, 0.24, 5), goldMat);
+      swanNeck.position.set(0, 0.24, 0.22);
+      swanNeck.rotation.x = 0.45;
+      group.add(swanNeck);
+
+      for (const side of [-1, 1]) {
+        const petalFin = new THREE.Mesh(new THREE.ConeGeometry(0.055, 0.28, 4), ivoryMat);
+        petalFin.rotation.x = -Math.PI / 2;
+        petalFin.rotation.z = side * 0.55;
+        petalFin.position.set(side * 0.16, 0.17, -0.06);
+        group.add(petalFin);
+      }
+
+      const coreCrystal = new THREE.Mesh(new THREE.OctahedronGeometry(0.065, 0), glowMat);
+      coreCrystal.position.set(0, 0.25, -0.02);
+      group.add(coreCrystal);
+      return group;
+    }
+
+    if (isOrc) {
+      // Intimidating Orc Spiked War-Buggy: rusted iron cage, oversized front crusher roller, bone tusks & twin roaring exhaust pipes
+      const ironMat = new THREE.MeshStandardMaterial({ color: 0x27272a, roughness: 0.65, metalness: 0.72 });
+      const bloodMat = new THREE.MeshStandardMaterial({ color: 0x991b1b, roughness: 0.52, metalness: 0.35 });
+      const boneMat = new THREE.MeshStandardMaterial({ color: 0xe7e5e4, roughness: 0.45 });
+
+      const warFrame = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.11, 0.38), bloodMat);
+      warFrame.position.set(0, 0.11, -0.02);
+      warFrame.castShadow = true;
+      group.add(warFrame);
+
+      const frontRoller = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.065, 0.28, 8), ironMat);
+      frontRoller.rotation.z = Math.PI / 2;
+      frontRoller.position.set(0, 0.068, 0.2);
+      group.add(frontRoller);
+
+      for (const sx of [-0.14, 0.14]) {
+        const rearWheel = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.085, 0.06, 8), tireMat);
+        rearWheel.rotation.z = Math.PI / 2;
+        rearWheel.position.set(sx, 0.085, -0.14);
+        group.add(rearWheel);
+
+        const tusk = new THREE.Mesh(new THREE.ConeGeometry(0.032, 0.16, 4), boneMat);
+        tusk.rotation.x = Math.PI / 2 - 0.2;
+        tusk.position.set(sx * 0.75, 0.1, 0.27);
+        group.add(tusk);
+
+        const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.028, 0.22, 5), ironMat);
+        pipe.position.set(sx * 0.85, 0.22, -0.12);
+        pipe.rotation.x = -0.35;
+        group.add(pipe);
+      }
+      return group;
+    }
+
     const len = isBus ? 0.5 : isVintage ? 0.34 : 0.38;
     const wid = isBus ? 0.22 : isVintage ? 0.19 : 0.21;
     const h = isBus ? 0.18 : isVintage ? 0.13 : 0.1;
@@ -5676,11 +8449,61 @@ export function createVehicleGroup(
       group.add(createContactShadow(0.62));
     }
 
-    // Front Locomotive / Lead Metro Car (+Z) + Linked Passenger Coach (-Z)
     const leadZ = 0.24;
     const coachZ = -0.26;
     const railBaseY = isMetro || isMaglev ? 0.02 : 0.09;
 
+    if (isElf) {
+      // Majestic Elf Astral Leyline Serpent-Train: articulated crystalline spires & golden astrolabe halos
+      const ivoryMat = new THREE.MeshStandardMaterial({ color: 0xfefae0, roughness: 0.2, metalness: 0.4 });
+      const goldMat = new THREE.MeshStandardMaterial({ color: 0xffb703, roughness: 0.2, metalness: 0.86 });
+      for (const cz of [leadZ, coachZ]) {
+        const crystalCar = new THREE.Mesh(new THREE.OctahedronGeometry(0.18, 0), ivoryMat);
+        crystalCar.scale.set(0.85, 0.72, 1.35);
+        crystalCar.position.set(0, railBaseY + 0.14, cz);
+        crystalCar.castShadow = true;
+        group.add(crystalCar);
+
+        const halo = new THREE.Mesh(new THREE.TorusGeometry(0.17, 0.022, 6, 14), goldMat);
+        halo.position.set(0, railBaseY + 0.16, cz);
+        group.add(halo);
+      }
+      const prowLance = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.28, 6), glowMat);
+      prowLance.rotation.x = Math.PI / 2;
+      prowLance.position.set(0, railBaseY + 0.14, leadZ + 0.28);
+      group.add(prowLance);
+      return group;
+    }
+
+    if (isOrc) {
+      // Intimidating Orc Hell-Iron Juggernaut Train: cowcatcher ram spikes, furnace boiler core & heavy armored gun-car
+      const ironMat = new THREE.MeshStandardMaterial({ color: 0x27272a, roughness: 0.6, metalness: 0.75 });
+      const bloodMat = new THREE.MeshStandardMaterial({ color: 0x991b1b, roughness: 0.5, metalness: 0.35 });
+      const loco = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.26, 0.46), ironMat);
+      loco.position.set(0, railBaseY + 0.13, leadZ);
+      loco.castShadow = true;
+      group.add(loco);
+
+      const ramPlow = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.24, 4), bloodMat);
+      ramPlow.rotation.x = Math.PI / 2;
+      ramPlow.rotation.y = Math.PI / 4;
+      ramPlow.position.set(0, railBaseY + 0.1, leadZ + 0.32);
+      group.add(ramPlow);
+
+      for (const sx of [-0.09, 0.09]) {
+        const stack = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.055, 0.22, 6), bloodMat);
+        stack.position.set(sx, railBaseY + 0.34, leadZ + 0.08);
+        group.add(stack);
+      }
+
+      const gunCar = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.22, 0.42), bloodMat);
+      gunCar.position.set(0, railBaseY + 0.11, coachZ);
+      gunCar.castShadow = true;
+      group.add(gunCar);
+      return group;
+    }
+
+    // Front Locomotive / Lead Metro Car (+Z) + Linked Passenger Coach (-Z)
     const leadMat = isSteam ? trimMat : bodyMat;
     const leadBody = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.22, 0.44), leadMat);
     leadBody.position.set(0, railBaseY + 0.11, leadZ);
@@ -5727,20 +8550,158 @@ export function createVehicleGroup(
   }
 
   if (type === 'glider') {
-    // Fixed-wing Glider (Epoch 1) -> Twin/Biplane Prop Fighter (Epoch 2-3). ZERO top helicopter rotors!
-    const isBiplaneFighter = epochLevel >= 2;
+    // Fixed-wing Scout Glider (Epoch 2 Medieval: unpowered) -> Propeller Biplane Fighter (Epoch 3 Industrial: spinning front propeller, ZERO jets/rotors!)
+    const isBiplaneFighter = epochLevel >= 3;
+
+    if (isElf) {
+      // Majestic Elf Celestial Sun-Hawk: golden crescent bow-ring chassis, layered feathered crystal pinions, beak crest & trailing phoenix tail ribbons
+      const ivoryMat = new THREE.MeshStandardMaterial({ color: 0xfefae0, roughness: 0.18, metalness: 0.38 });
+      const goldMat = new THREE.MeshStandardMaterial({ color: 0xffb703, roughness: 0.18, metalness: 0.88 });
+
+      // Central Golden Crescent Bow-Arc
+      const crescentArc = new THREE.Mesh(new THREE.TorusGeometry(0.38, 0.028, 7, 18, Math.PI * 1.15), goldMat);
+      crescentArc.rotation.x = Math.PI / 2;
+      crescentArc.rotation.z = -Math.PI * 0.075;
+      crescentArc.position.set(0, 0.2, 0.08);
+      crescentArc.castShadow = true;
+      group.add(crescentArc);
+
+      // Faceted Alabaster Crystal Spire Body & Golden Hawk Beak
+      const crystalSpire = new THREE.Mesh(new THREE.OctahedronGeometry(0.14, 0), ivoryMat);
+      crystalSpire.scale.set(0.65, 0.55, 3.4);
+      crystalSpire.position.set(0, 0.21, 0.06);
+      crystalSpire.castShadow = true;
+      group.add(crystalSpire);
+
+      const hawkBeak = new THREE.Mesh(new THREE.ConeGeometry(0.065, 0.34, 5), goldMat);
+      hawkBeak.rotation.x = Math.PI / 2 - 0.12;
+      hawkBeak.position.set(0, 0.21, 0.58);
+      group.add(hawkBeak);
+
+      const heartGem = new THREE.Mesh(new THREE.OctahedronGeometry(0.085, 0), glowMat);
+      heartGem.position.set(0, 0.26, 0.18);
+      group.add(heartGem);
+
+      // Layered Feathered Pinions (sweeping graceful avian silhouette, zero boxy plank wings)
+      for (const side of [-1, 1]) {
+        for (let fi = 0; fi < 3; fi++) {
+          const featherLen = 0.58 - fi * 0.11;
+          const feather = new THREE.Mesh(
+            new THREE.ConeGeometry(0.065 - fi * 0.01, featherLen, 4),
+            fi === 1 ? glowMat : ivoryMat,
+          );
+          feather.rotation.z = -side * (Math.PI / 2 - 0.18 - fi * 0.08);
+          feather.rotation.y = -side * (0.28 + fi * 0.18);
+          feather.scale.set(1, 1, 0.32);
+          feather.position.set(side * (0.34 + fi * 0.14), 0.21 + fi * 0.025, 0.14 - fi * 0.14);
+          feather.castShadow = true;
+          group.add(feather);
+        }
+        const tailRibbon = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.52, 4), goldMat);
+        tailRibbon.rotation.x = -Math.PI / 2 + 0.18;
+        tailRibbon.rotation.y = side * 0.22;
+        tailRibbon.position.set(side * 0.12, 0.23, -0.54);
+        group.add(tailRibbon);
+      }
+
+      if (isBiplaneFighter) {
+        const sunPropGroup = new THREE.Group();
+        sunPropGroup.name = 'spin_prop';
+        sunPropGroup.position.set(0, 0.21, 0.72);
+        sunPropGroup.add(
+          new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.032, 0.016), goldMat),
+          new THREE.Mesh(new THREE.BoxGeometry(0.032, 0.32, 0.016), goldMat),
+        );
+        group.add(sunPropGroup);
+      }
+      return group;
+    }
+
+    if (isOrc) {
+      // Intimidating Orc Gore-Talon Bat-Fighter: brutal skull-ram prow, spiked iron spine & jagged blood-red bat-talon wings (with nose propeller in Industrial Epoch 3)
+      const ironMat = new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.62, metalness: 0.78 });
+      const bloodMat = new THREE.MeshStandardMaterial({ color: 0x991b1b, roughness: 0.54, metalness: 0.28 });
+      const boneMat = new THREE.MeshStandardMaterial({ color: 0xe7e5e4, roughness: 0.42 });
+
+      // Brutalist Iron Skull-Hull & Forward Cleaver Blade
+      const skullBlock = new THREE.Mesh(new THREE.DodecahedronGeometry(0.18, 0), ironMat);
+      skullBlock.scale.set(1.05, 0.85, 2.3);
+      skullBlock.position.set(0, 0.2, 0.04);
+      skullBlock.castShadow = true;
+      group.add(skullBlock);
+
+      const noseCleaver = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.38, 3), ironMat);
+      noseCleaver.rotation.x = Math.PI / 2;
+      noseCleaver.scale.set(0.35, 1.3, 1);
+      noseCleaver.position.set(0, 0.19, 0.56);
+      group.add(noseCleaver);
+
+      // Giant Curved Bone Tusks flanking the skull jaw
+      for (const side of [-1, 1]) {
+        const tusk = new THREE.Mesh(new THREE.ConeGeometry(0.055, 0.36, 4), boneMat);
+        tusk.rotation.x = Math.PI / 2 - 0.28;
+        tusk.rotation.y = side * 0.25;
+        tusk.position.set(side * 0.16, 0.15, 0.52);
+        group.add(tusk);
+
+        // Jagged Bat-Claw Wings (3 splayed iron/crimson talons per side)
+        const wingArm = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.045, 0.68, 5), ironMat);
+        wingArm.rotation.z = side * (Math.PI / 2 - 0.22);
+        wingArm.rotation.y = side * 0.24;
+        wingArm.position.set(side * 0.38, 0.24, 0.16);
+        group.add(wingArm);
+
+        for (let ci = 0; ci < 3; ci++) {
+          const clawMembrane = new THREE.Mesh(
+            new THREE.ConeGeometry(0.16, 0.56 - ci * 0.08, 3),
+            ci === 1 ? ironMat : bloodMat,
+          );
+          clawMembrane.rotation.x = -Math.PI / 2;
+          clawMembrane.rotation.z = side * (0.25 + ci * 0.22);
+          clawMembrane.scale.set(1.2, 1, 0.22);
+          clawMembrane.position.set(side * (0.28 + ci * 0.19), 0.2 - ci * 0.01, -0.04 - ci * 0.06);
+          clawMembrane.castShadow = true;
+          group.add(clawMembrane);
+        }
+
+        const wingHook = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.24, 4), boneMat);
+        wingHook.rotation.x = Math.PI / 2;
+        wingHook.position.set(side * 0.68, 0.26, 0.34);
+        group.add(wingHook);
+      }
+
+      // Dorsal Spine Spikes & Industrial Nose Propeller (Epoch 3)
+      for (const sz of [0.16, -0.06, -0.28]) {
+        const dorsalSpike = new THREE.Mesh(new THREE.ConeGeometry(0.045, 0.2, 4), boneMat);
+        dorsalSpike.rotation.x = -0.35;
+        dorsalSpike.position.set(0, 0.34, sz);
+        group.add(dorsalSpike);
+      }
+      if (isBiplaneFighter) {
+        const nosePropGroup = new THREE.Group();
+        nosePropGroup.name = 'spin_prop';
+        nosePropGroup.position.set(0, 0.19, 0.72);
+        nosePropGroup.add(
+          new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.044, 0.02), ironMat),
+          new THREE.Mesh(new THREE.BoxGeometry(0.044, 0.36, 0.02), bloodMat),
+        );
+        group.add(nosePropGroup);
+      }
+      return group;
+    }
+
     const wingMat = new THREE.MeshStandardMaterial({
-      color: isElf ? 0xb8f2e6 : isOrc ? 0xb91c1c : isBiplaneFighter ? 0xe9d8a6 : 0xf4ecd8,
-      roughness: 0.52,
-      metalness: isBiplaneFighter ? 0.25 : 0.06,
+      color: isBiplaneFighter ? 0xe9d8a6 : 0xf4ecd8,
+      roughness: 0.54,
+      metalness: isBiplaneFighter ? 0.28 : 0.08,
     });
     const sparMat = new THREE.MeshStandardMaterial({
-      color: isOrc ? 0x27272a : isBiplaneFighter ? 0x475569 : 0x7f4f24,
-      roughness: 0.55,
-      metalness: isBiplaneFighter ? 0.55 : 0.08,
+      color: isBiplaneFighter ? 0x475569 : 0x7f4f24,
+      roughness: 0.48,
+      metalness: isBiplaneFighter ? 0.55 : 0.12,
     });
 
-    // Sculpted tapered fuselage
+    // Human Fixed-wing Wooden Glider (Epoch 2) -> WWI Propeller Biplane Fighter (Epoch 3)
     const fuselage = new THREE.Mesh(
       new THREE.CylinderGeometry(0.065, 0.038, isBiplaneFighter ? 0.96 : 0.88, 8),
       sparMat,
@@ -5758,14 +8719,13 @@ export function createVehicleGroup(
     noseCap.position.set(0, 0.16, isBiplaneFighter ? 0.54 : 0.48);
     group.add(noseCap);
 
-    // Swept Left & Right Main Wings (angled realistically, NOT a single flat board!)
     for (const side of [-1, 1]) {
       const panel = new THREE.Mesh(
         new THREE.BoxGeometry(isBiplaneFighter ? 0.66 : 0.72, 0.032, isBiplaneFighter ? 0.26 : 0.3),
         wingMat,
       );
       panel.position.set(side * 0.36, 0.17, 0.06);
-      panel.rotation.y = -side * (isElf ? 0.28 : 0.18);
+      panel.rotation.y = -side * 0.18;
       panel.rotation.z = side * 0.06;
       panel.castShadow = true;
       group.add(panel);
@@ -5776,7 +8736,6 @@ export function createVehicleGroup(
     }
 
     if (isBiplaneFighter) {
-      // Swept Upper Biplane Wing + Interplane Struts + Gun Pods + Spinning Nose Prop!
       for (const side of [-1, 1]) {
         const upWing = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.032, 0.24), wingMat);
         upWing.position.set(side * 0.33, 0.34, 0.1);
@@ -5798,7 +8757,6 @@ export function createVehicleGroup(
       cockpitWind.position.set(0, 0.24, 0.16);
       group.add(cockpitWind);
 
-      // 2-blade crisp vertical nose propeller on spin_prop
       const nosePropGroup = new THREE.Group();
       nosePropGroup.name = 'spin_prop';
       nosePropGroup.position.set(0, 0.16, 0.65);
@@ -5808,7 +8766,6 @@ export function createVehicleGroup(
       group.add(nosePropGroup);
     }
 
-    // Swept horizontal & vertical tailplane
     for (const side of [-1, 1]) {
       const hStab = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.028, 0.14), wingMat);
       hStab.position.set(side * 0.14, 0.17, -0.4);
@@ -5823,31 +8780,258 @@ export function createVehicleGroup(
   }
 
   if (type === 'helicopter') {
-    // Pure Assault Helicopter (Epoch 3-5): ZERO airplane wings! Top blades on spin_rotor (Y-axis) & tail prop on spin_prop (Z-axis)
-    const isStealthGunship = epochLevel >= 4;
+    // Rotorcraft (Epoch 4 Atomic: Utility Chopper / Lotus Gyro -> Epoch 5+ Info Age: Heavy Attack Gunship / Celestial Valkyrie)
+    const isApacheGunship = epochLevel >= 5;
+    if (isElf) {
+      // Elf Sylvan Lotus Gyro-Skiff (Epoch 4) -> Celestial Valkyrie Attack Gunship (Epoch 5+)
+      const ivoryMat = new THREE.MeshStandardMaterial({
+        color: isApacheGunship ? 0xd8f3dc : 0xfefae0,
+        roughness: 0.18,
+        metalness: isApacheGunship ? 0.56 : 0.42,
+      });
+      const goldMat = new THREE.MeshStandardMaterial({ color: 0xffb703, roughness: 0.18, metalness: 0.88 });
+
+      if (!isApacheGunship) {
+        // Epoch 4: Vertical Floating Crystal Spire Sanctum + Cradle Arch + Single 6-Petal Lotus Rotor
+        const crystalCore = new THREE.Mesh(new THREE.OctahedronGeometry(0.24, 0), ivoryMat);
+        crystalCore.scale.set(0.82, 1.55, 0.82);
+        crystalCore.position.set(0, 0.28, 0);
+        crystalCore.castShadow = true;
+        group.add(crystalCore);
+
+        const cradleArch = new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.026, 7, 18), goldMat);
+        cradleArch.rotation.y = Math.PI / 2;
+        cradleArch.position.set(0, 0.28, 0);
+        group.add(cradleArch);
+
+        for (const [px, pz] of [
+          [-0.28, 0.22],
+          [0.28, 0.22],
+          [-0.28, -0.22],
+          [0.28, -0.22],
+        ]) {
+          const obelisk = new THREE.Mesh(new THREE.OctahedronGeometry(0.08, 0), glowMat);
+          obelisk.scale.set(0.65, 2.1, 0.65);
+          obelisk.position.set(px, 0.24, pz);
+          group.add(obelisk);
+        }
+      } else {
+        // Epoch 5+: Sleek Swept Valkyrie Gunship with emerald visor, swept razor forward wings, twin crystal missile pods & star-lance chin beam
+        const valkyrieHull = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.14, 0.86, 8), ivoryMat);
+        valkyrieHull.rotation.x = Math.PI / 2;
+        valkyrieHull.scale.set(1.15, 0.82, 1);
+        valkyrieHull.position.set(0, 0.22, 0.04);
+        valkyrieHull.castShadow = true;
+        group.add(valkyrieHull);
+
+        const canopy = new THREE.Mesh(new THREE.OctahedronGeometry(0.14, 0), glassMat);
+        canopy.scale.set(0.85, 0.72, 1.9);
+        canopy.position.set(0, 0.28, 0.34);
+        group.add(canopy);
+
+        const starLance = new THREE.Mesh(new THREE.ConeGeometry(0.045, 0.42, 6), glowMat);
+        starLance.rotation.x = Math.PI / 2;
+        starLance.position.set(0, 0.13, 0.56);
+        group.add(starLance);
+
+        for (const side of [-1, 1]) {
+          const razorWing = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.032, 0.2), goldMat);
+          razorWing.position.set(side * 0.28, 0.22, 0.04);
+          razorWing.rotation.y = -side * 0.36;
+          razorWing.rotation.z = side * 0.14;
+          group.add(razorWing);
+
+          const crystalPod = new THREE.Mesh(new THREE.OctahedronGeometry(0.075, 0), glowMat);
+          crystalPod.scale.set(0.8, 0.8, 2.4);
+          crystalPod.position.set(side * 0.42, 0.2, 0.12);
+          group.add(crystalPod);
+
+          const vTailBlade = new THREE.Mesh(new THREE.BoxGeometry(0.032, 0.24, 0.16), ivoryMat);
+          vTailBlade.position.set(side * 0.14, 0.34, -0.44);
+          vTailBlade.rotation.z = -side * 0.42;
+          group.add(vTailBlade);
+        }
+      }
+
+      // Majestic Overhead Spinning Lotus-Astrolabe Halo Rotor
+      const mainRotor = new THREE.Group();
+      mainRotor.name = 'spin_rotor';
+      mainRotor.position.set(0, isApacheGunship ? 0.52 : 0.56, 0);
+      const outerHalo = new THREE.Mesh(new THREE.TorusGeometry(isApacheGunship ? 0.64 : 0.56, 0.022, 6, 20), goldMat);
+      outerHalo.rotation.x = Math.PI / 2;
+      mainRotor.add(outerHalo);
+      const innerHalo = new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.018, 6, 16), glowMat);
+      innerHalo.rotation.x = Math.PI / 2;
+      mainRotor.add(innerHalo);
+      const petalCount = isApacheGunship ? 8 : 6;
+      for (let pi = 0; pi < petalCount; pi++) {
+        const ang = (pi / petalCount) * Math.PI * 2;
+        const petal = new THREE.Mesh(new THREE.ConeGeometry(0.08, isApacheGunship ? 0.62 : 0.54, 4), pi % 2 === 0 ? glowMat : ivoryMat);
+        petal.rotation.x = Math.PI / 2;
+        petal.rotation.z = ang;
+        petal.scale.set(1, 1, 0.28);
+        petal.position.set(Math.sin(ang) * 0.3, 0, Math.cos(ang) * 0.3);
+        mainRotor.add(petal);
+      }
+      group.add(mainRotor);
+
+      const tailRotor = new THREE.Group();
+      tailRotor.name = 'spin_prop';
+      tailRotor.position.set(0, 0.28, -0.48);
+      const starRing = new THREE.Mesh(new THREE.TorusGeometry(0.14, 0.016, 6, 12), goldMat);
+      tailRotor.add(starRing);
+      for (let si = 0; si < 4; si++) {
+        const spoke = new THREE.Mesh(new THREE.OctahedronGeometry(0.04, 0), glowMat);
+        spoke.scale.set(0.5, 3.2, 0.5);
+        spoke.rotation.z = (si * Math.PI) / 4;
+        tailRotor.add(spoke);
+      }
+      group.add(tailRotor);
+      return group;
+    }
+
+    if (isOrc) {
+      // Orc Gore-Grinder Skull-Chopper (Epoch 4) -> Orc Heavy Turbine Dread-Kopter (Epoch 5+)
+      const ironMat = new THREE.MeshStandardMaterial({
+        color: isApacheGunship ? 0x111827 : 0x18181b,
+        roughness: isApacheGunship ? 0.44 : 0.62,
+        metalness: 0.82,
+      });
+      const bloodMat = new THREE.MeshStandardMaterial({
+        color: isApacheGunship ? 0xdc2626 : 0x991b1b,
+        roughness: 0.48,
+        metalness: 0.35,
+      });
+      const boneMat = new THREE.MeshStandardMaterial({ color: 0xe7e5e4, roughness: 0.44 });
+
+      const skullCore = new THREE.Mesh(new THREE.DodecahedronGeometry(isApacheGunship ? 0.31 : 0.28, 0), ironMat);
+      skullCore.scale.set(1.22, 1.0, isApacheGunship ? 1.55 : 1.35);
+      skullCore.position.set(0, 0.25, 0.08);
+      skullCore.castShadow = true;
+      group.add(skullCore);
+
+      const ironJaw = new THREE.Mesh(new THREE.ConeGeometry(0.24, 0.34, 4), bloodMat);
+      ironJaw.rotation.x = Math.PI / 2;
+      ironJaw.rotation.y = Math.PI / 4;
+      ironJaw.position.set(0, 0.14, 0.46);
+      group.add(ironJaw);
+
+      for (const sx of [-0.11, 0.11]) {
+        const eyeGlow = new THREE.Mesh(new THREE.OctahedronGeometry(0.055, 0), glowMat);
+        eyeGlow.position.set(sx, 0.3, 0.38);
+        group.add(eyeGlow);
+      }
+
+      for (const side of [-1, 1]) {
+        const megaTusk = new THREE.Mesh(new THREE.ConeGeometry(0.068, 0.46, 5), boneMat);
+        megaTusk.rotation.x = Math.PI / 2 - 0.32;
+        megaTusk.rotation.y = side * 0.28;
+        megaTusk.position.set(side * 0.22, 0.16, 0.56);
+        group.add(megaTusk);
+
+        const gatlingDrum = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.12, 0.5, 6), bloodMat);
+        gatlingDrum.rotation.x = Math.PI / 2;
+        gatlingDrum.position.set(side * 0.36, 0.22, 0.14);
+        group.add(gatlingDrum);
+
+        const exhaustPipe = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.06, 0.34, 6), ironMat);
+        exhaustPipe.position.set(side * 0.26, 0.44, -0.18);
+        exhaustPipe.rotation.x = -0.42;
+        exhaustPipe.rotation.z = -side * 0.25;
+        group.add(exhaustPipe);
+
+        if (isApacheGunship) {
+          // Epoch 5+ Dread-Kopter stub wings, turbine nacelles & missile racks
+          const stubWing = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.06, 0.26), ironMat);
+          stubWing.position.set(side * 0.42, 0.22, 0.04);
+          group.add(stubWing);
+          const rocketPod = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.085, 0.42, 6), glowMat);
+          rocketPod.rotation.x = Math.PI / 2;
+          rocketPod.position.set(side * 0.58, 0.18, 0.12);
+          group.add(rocketPod);
+          const turbineNacelle = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.09, 0.42, 7), bloodMat);
+          turbineNacelle.rotation.x = Math.PI / 2;
+          turbineNacelle.position.set(side * 0.28, 0.36, -0.06);
+          group.add(turbineNacelle);
+        }
+      }
+
+      const tailChain = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.08, 0.58, 5), ironMat);
+      tailChain.rotation.x = Math.PI / 2;
+      tailChain.position.set(0, 0.25, -0.46);
+      group.add(tailChain);
+
+      const mainRotor = new THREE.Group();
+      mainRotor.name = 'spin_rotor';
+      mainRotor.position.set(0, 0.56, 0.04);
+      const sawRing = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.032, 5, 10), bloodMat);
+      sawRing.rotation.x = Math.PI / 2;
+      mainRotor.add(sawRing);
+      const bladeCount = isApacheGunship ? 6 : 4;
+      for (let bi = 0; bi < bladeCount; bi++) {
+        const ang = (bi * Math.PI * 2) / bladeCount;
+        const cleaverBlade = new THREE.Mesh(new THREE.ConeGeometry(0.14, isApacheGunship ? 0.88 : 0.78, 3), ironMat);
+        cleaverBlade.rotation.x = Math.PI / 2;
+        cleaverBlade.rotation.z = ang;
+        cleaverBlade.scale.set(1, 1, 0.22);
+        cleaverBlade.position.set(Math.sin(ang) * 0.4, 0, Math.cos(ang) * 0.4);
+        mainRotor.add(cleaverBlade);
+      }
+      group.add(mainRotor);
+
+      const tailRotor = new THREE.Group();
+      tailRotor.name = 'spin_prop';
+      tailRotor.position.set(0.08, 0.28, -0.74);
+      tailRotor.rotation.y = Math.PI / 2;
+      const buzzDisc = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.025, 7), bloodMat);
+      buzzDisc.rotation.x = Math.PI / 2;
+      tailRotor.add(buzzDisc);
+      group.add(tailRotor);
+      return group;
+    }
+
     const heliMat = new THREE.MeshStandardMaterial({
-      color: isElf ? 0x2ec4b6 : isStealthGunship ? 0x334155 : 0x4b5563,
-      roughness: isStealthGunship ? 0.34 : 0.45,
-      metalness: isStealthGunship ? 0.62 : 0.48,
+      color: isApacheGunship ? 0x334155 : 0x4d5d3b,
+      roughness: isApacheGunship ? 0.34 : 0.48,
+      metalness: isApacheGunship ? 0.62 : 0.38,
     });
 
-    // Fuselage nose + cabin + tapered tail cone
-    const cabin = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.22, 0.62), heliMat);
-    cabin.position.set(0, 0.2, 0.08);
-    cabin.castShadow = true;
-    group.add(cabin);
+    if (!isApacheGunship) {
+      // Epoch 4 (Atomic Age 1965 CE): Classic UH-1 Huey / Bell Bubble-Canopy Utility Chopper (NO Apache stub-wings or Hellfire pods)
+      const hueyBody = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.13, 0.54, 8), heliMat);
+      hueyBody.rotation.x = Math.PI / 2;
+      hueyBody.scale.set(1.0, 0.92, 1.0);
+      hueyBody.position.set(0, 0.21, 0.06);
+      hueyBody.castShadow = true;
+      group.add(hueyBody);
 
-    const cockpitNose = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.14, 0.3, 8), glassMat);
-    cockpitNose.rotation.x = Math.PI / 2;
-    cockpitNose.position.set(0, 0.21, 0.48);
-    group.add(cockpitNose);
+      const bubbleCanopy = new THREE.Mesh(new THREE.SphereGeometry(0.145, 8, 8), glassMat);
+      bubbleCanopy.scale.set(0.95, 0.85, 1.25);
+      bubbleCanopy.position.set(0, 0.22, 0.32);
+      group.add(bubbleCanopy);
 
-    const chinTurret = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.025, 0.22, 6), trimMat);
-    chinTurret.rotation.x = Math.PI / 2;
-    chinTurret.position.set(0, 0.1, 0.56);
-    group.add(chinTurret);
+      const topTurbine = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.075, 0.28, 7), trimMat);
+      topTurbine.rotation.x = Math.PI / 2;
+      topTurbine.position.set(0, 0.34, -0.02);
+      group.add(topTurbine);
+    } else {
+      // Epoch 5+ (Info Age 2015 CE): Modern AH-64 Apache Attack Gunship with tandem armored cockpit, chin gun & stub-wing missile pods
+      const cabin = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.22, 0.62), heliMat);
+      cabin.position.set(0, 0.2, 0.08);
+      cabin.castShadow = true;
+      group.add(cabin);
 
-    // Narrow elevated tail boom (clearly separates chopper silhouette from fixed-wing plane)
+      const cockpitNose = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.14, 0.3, 8), glassMat);
+      cockpitNose.rotation.x = Math.PI / 2;
+      cockpitNose.position.set(0, 0.21, 0.48);
+      group.add(cockpitNose);
+
+      const chinTurret = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.025, 0.22, 6), trimMat);
+      chinTurret.rotation.x = Math.PI / 2;
+      chinTurret.position.set(0, 0.1, 0.56);
+      group.add(chinTurret);
+    }
+
     const tailBoom = new THREE.Mesh(new THREE.CylinderGeometry(0.036, 0.075, 0.64, 7), heliMat);
     tailBoom.rotation.x = Math.PI / 2;
     tailBoom.position.set(0, 0.24, -0.5);
@@ -5858,7 +9042,6 @@ export function createVehicleGroup(
     tailFin.rotation.x = -0.25;
     group.add(tailFin);
 
-    // Side Landing Skids
     for (const sx of [-0.16, 0.16]) {
       const skid = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.68, 6), trimMat);
       skid.rotation.x = Math.PI / 2;
@@ -5871,23 +9054,22 @@ export function createVehicleGroup(
         group.add(leg);
       }
 
-      // Rocket / Missile Pylon Pods (compact cheek sponsons, NOT airplane wings!)
-      const pylonArm = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.04, 0.12), trimMat);
-      pylonArm.position.set(sx * 1.15, 0.19, 0.05);
-      group.add(pylonArm);
-      const rocketPod = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.28, 7), isElf ? glowMat : bodyMat);
-      rocketPod.rotation.x = Math.PI / 2;
-      rocketPod.position.set(sx * 1.65, 0.18, 0.08);
-      group.add(rocketPod);
+      if (isApacheGunship) {
+        const pylonArm = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.04, 0.12), trimMat);
+        pylonArm.position.set(sx * 1.15, 0.19, 0.05);
+        group.add(pylonArm);
+        const rocketPod = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.28, 7), bodyMat);
+        rocketPod.rotation.x = Math.PI / 2;
+        rocketPod.position.set(sx * 1.65, 0.18, 0.08);
+        group.add(rocketPod);
 
-      // Turbine engine pod atop cabin
-      const engineNacelle = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.065, 0.34, 7), trimMat);
-      engineNacelle.rotation.x = Math.PI / 2;
-      engineNacelle.position.set(sx * 0.72, 0.33, -0.02);
-      group.add(engineNacelle);
+        const engineNacelle = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.065, 0.34, 7), trimMat);
+        engineNacelle.rotation.x = Math.PI / 2;
+        engineNacelle.position.set(sx * 0.72, 0.33, -0.02);
+        group.add(engineNacelle);
+      }
     }
 
-    // Overhead 4-Blade Main Rotor (horizontal, spins around Y via name='spin_rotor')
     const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.04, 0.18, 6), trimMat);
     mast.position.set(0, 0.4, 0.02);
     group.add(mast);
@@ -5898,11 +9080,13 @@ export function createVehicleGroup(
     const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.04, 8), trimMat);
     mainRotor.add(hub);
     const blade1 = new THREE.Mesh(new THREE.BoxGeometry(1.36, 0.022, 0.075), trimMat);
-    const blade2 = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.022, 1.36), trimMat);
-    mainRotor.add(blade1, blade2);
+    mainRotor.add(blade1);
+    if (isApacheGunship) {
+      const blade2 = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.022, 1.36), trimMat);
+      mainRotor.add(blade2);
+    }
     group.add(mainRotor);
 
-    // Side-mounted Tail Rotor (spins around X/Z via name='spin_prop')
     const tailRotor = new THREE.Group();
     tailRotor.name = 'spin_prop';
     tailRotor.position.set(0.055, 0.38, -0.78);
@@ -5916,39 +9100,391 @@ export function createVehicleGroup(
 
   if (type === 'tank') {
     group.add(createContactShadow(0.56));
+    const isIndustrial = epochLevel <= 3;
+    const isAtomic = epochLevel === 4;
+    const isInfo = epochLevel === 5;
     const isOrbitalHover = epochLevel >= 6;
-    const isModernComposite = epochLevel >= 4 && epochLevel < 6;
+    const isStarSiege = epochLevel >= 7;
+
+    if (isElf) {
+      // Elf Sylvan Runic War-Chariot Progression:
+      // Epoch 3 (Industrial): Wheeled Gilded Sun-Wagon
+      // Epoch 4 (Atomic): Levitating Lotus Strider (crystal shield vanes)
+      // Epoch 5 (Info): Mirage Arc-Chariot MBT (twin hover keels + astrolabe ring + star lance)
+      // Epoch 6+ (Orbital/Star): Celestial Sun-Prism Sanctuary (+ Epoch 7 Crown Halo & Twin Lances)
+      const ivoryMat = new THREE.MeshStandardMaterial({
+        color: isOrbitalHover ? 0xe0fbfc : isInfo ? 0xd8f3dc : 0xfefae0,
+        roughness: 0.18,
+        metalness: isOrbitalHover ? 0.62 : 0.4,
+      });
+      const goldMat = new THREE.MeshStandardMaterial({ color: 0xffb703, roughness: 0.18, metalness: 0.88 });
+      const baseHoverY = isOrbitalHover ? 0.22 : isInfo ? 0.17 : isAtomic ? 0.15 : 0.12;
+
+      if (isIndustrial) {
+        // Epoch 3 Industrial: Ornate 4-wheeled gilded sun-carriage + brass prism cannon
+        const carriage = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.2, 0.56, 7), ivoryMat);
+        carriage.rotation.x = Math.PI / 2;
+        carriage.scale.set(1.25, 0.72, 1);
+        carriage.position.set(0, baseHoverY + 0.05, 0);
+        carriage.castShadow = true;
+        group.add(carriage);
+
+        for (const [wx, wz] of [
+          [-0.24, 0.2],
+          [0.24, 0.2],
+          [-0.26, -0.2],
+          [0.26, -0.2],
+        ]) {
+          const wheel = new THREE.Mesh(new THREE.TorusGeometry(0.1, 0.025, 6, 12), goldMat);
+          wheel.rotation.y = Math.PI / 2;
+          wheel.position.set(wx, 0.1, wz);
+          group.add(wheel);
+          const hub = new THREE.Mesh(new THREE.OctahedronGeometry(0.04, 0), glowMat);
+          hub.position.set(wx, 0.1, wz);
+          group.add(hub);
+        }
+
+        const prowCrest = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.28, 5), goldMat);
+        prowCrest.rotation.x = Math.PI / 2 - 0.2;
+        prowCrest.position.set(0, baseHoverY + 0.12, 0.36);
+        group.add(prowCrest);
+
+        const brassBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.045, 0.36, 6), goldMat);
+        brassBarrel.rotation.x = Math.PI / 2;
+        brassBarrel.position.set(0, baseHoverY + 0.22, 0.22);
+        group.add(brassBarrel);
+
+        const turretGem = new THREE.Mesh(new THREE.OctahedronGeometry(0.11, 0), glowMat);
+        turretGem.position.set(0, baseHoverY + 0.22, -0.02);
+        group.add(turretGem);
+        return group;
+      }
+
+      if (isAtomic) {
+        // Epoch 4 Atomic: Levitating Lotus Strider with single halo ring + side crystal shield vanes
+        const levRing = new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.028, 7, 18), goldMat);
+        levRing.rotation.x = Math.PI / 2;
+        levRing.scale.set(0.9, 1.24, 1);
+        levRing.position.set(0, baseHoverY, 0);
+        group.add(levRing);
+
+        const lotusHull = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.18, 6), ivoryMat);
+        lotusHull.rotation.x = Math.PI;
+        lotusHull.position.set(0, baseHoverY + 0.04, 0);
+        lotusHull.castShadow = true;
+        group.add(lotusHull);
+
+        for (const side of [-1, 1]) {
+          const crystalVane = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.16, 0.34), glowMat);
+          crystalVane.position.set(side * 0.26, baseHoverY + 0.14, 0.02);
+          crystalVane.rotation.z = -side * 0.28;
+          group.add(crystalVane);
+        }
+
+        const prismTurret = new THREE.Mesh(new THREE.OctahedronGeometry(0.16, 0), ivoryMat);
+        prismTurret.scale.set(1, 0.85, 1.2);
+        prismTurret.position.set(0, baseHoverY + 0.22, -0.02);
+        group.add(prismTurret);
+
+        const crystalCannon = new THREE.Mesh(new THREE.ConeGeometry(0.045, 0.42, 6), glowMat);
+        crystalCannon.rotation.x = Math.PI / 2;
+        crystalCannon.position.set(0, baseHoverY + 0.22, 0.28);
+        group.add(crystalCannon);
+        return group;
+      }
+
+      if (isInfo) {
+        // Epoch 5 Info: Sleek Swept Mirage Arc-Chariot MBT with twin hover keels + spinning astrolabe turret ring
+        for (const kx of [-0.22, 0.22]) {
+          const keel = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.07, 0.64), ivoryMat);
+          keel.position.set(kx, baseHoverY - 0.02, 0);
+          keel.castShadow = true;
+          group.add(keel);
+          const wingBlade = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.028, 0.42), goldMat);
+          wingBlade.position.set(kx * 1.45, baseHoverY + 0.05, -0.06);
+          wingBlade.rotation.y = kx < 0 ? 0.32 : -0.32;
+          group.add(wingBlade);
+        }
+        const coreDeck = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.2, 0.56, 6), ivoryMat);
+        coreDeck.rotation.x = Math.PI / 2;
+        coreDeck.scale.set(1.2, 0.5, 1);
+        coreDeck.position.set(0, baseHoverY + 0.06, 0.02);
+        group.add(coreDeck);
+
+        const astrolabe = new THREE.Mesh(new THREE.TorusGeometry(0.17, 0.02, 6, 14), goldMat);
+        astrolabe.rotation.x = Math.PI / 2;
+        astrolabe.name = 'spin_rotor';
+        astrolabe.position.set(0, baseHoverY + 0.26, -0.04);
+        group.add(astrolabe);
+
+        const railSpire = new THREE.Mesh(new THREE.CylinderGeometry(0.024, 0.036, 0.54, 6), glowMat);
+        railSpire.rotation.x = Math.PI / 2;
+        railSpire.position.set(0, baseHoverY + 0.2, 0.34);
+        group.add(railSpire);
+        return group;
+      }
+
+      // Epoch 6+ (Orbital / Star): Celestial Sun-Prism Sanctuary
+      const outerHalo = new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.032, 7, 20), goldMat);
+      outerHalo.rotation.x = Math.PI / 2;
+      outerHalo.scale.set(0.92, 1.28, 1);
+      outerHalo.position.set(0, baseHoverY, 0);
+      outerHalo.castShadow = true;
+      group.add(outerHalo);
+
+      const innerRuneRing = new THREE.Mesh(new THREE.TorusGeometry(0.22, 0.02, 6, 16), glowMat);
+      innerRuneRing.rotation.x = Math.PI / 2;
+      innerRuneRing.position.set(0, baseHoverY - 0.03, 0);
+      group.add(innerRuneRing);
+
+      const lotusPlatform = new THREE.Mesh(new THREE.ConeGeometry(0.24, 0.18, 6), ivoryMat);
+      lotusPlatform.rotation.x = Math.PI;
+      lotusPlatform.position.set(0, baseHoverY + 0.04, 0);
+      lotusPlatform.castShadow = true;
+      group.add(lotusPlatform);
+
+      for (const side of [-1, 1]) {
+        const wingArch = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.48, 4), ivoryMat);
+        wingArch.rotation.x = -Math.PI / 2 + 0.25;
+        wingArch.rotation.z = side * 0.48;
+        wingArch.position.set(side * 0.28, baseHoverY + 0.12, -0.04);
+        wingArch.castShadow = true;
+        group.add(wingArch);
+
+        const crystalPylon = new THREE.Mesh(new THREE.OctahedronGeometry(0.075, 0), glowMat);
+        crystalPylon.scale.set(0.7, 1.9, 0.7);
+        crystalPylon.position.set(side * 0.34, baseHoverY + 0.18, 0.14);
+        group.add(crystalPylon);
+      }
+
+      const sunPrism = new THREE.Mesh(new THREE.OctahedronGeometry(0.19, 0), glowMat);
+      sunPrism.scale.set(0.85, 1.45, 0.95);
+      sunPrism.position.set(0, baseHoverY + 0.32, -0.02);
+      sunPrism.castShadow = true;
+      group.add(sunPrism);
+
+      const prismCrown = new THREE.Mesh(new THREE.TorusGeometry(0.18, 0.022, 6, 14), goldMat);
+      prismCrown.rotation.y = Math.PI / 2;
+      prismCrown.position.set(0, baseHoverY + 0.32, 0.06);
+      group.add(prismCrown);
+
+      const starLance = new THREE.Mesh(new THREE.ConeGeometry(0.055, 0.48, 6), goldMat);
+      starLance.rotation.x = Math.PI / 2;
+      starLance.position.set(0, baseHoverY + 0.32, 0.34);
+      group.add(starLance);
+
+      if (isStarSiege) {
+        const archonCrown = new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.02, 6, 16), glowMat);
+        archonCrown.position.set(0, baseHoverY + 0.52, -0.06);
+        archonCrown.rotation.x = Math.PI / 3;
+        group.add(archonCrown);
+      }
+      return group;
+    }
+
+    if (isOrc) {
+      // Orc Brutalist Siege Progression:
+      // Epoch 3 (Industrial): Riveted Steam Kill-Roller (front grinder drum + rear iron tractor wheels + chimneys)
+      // Epoch 4 (Atomic): Heavy Skull-Dozer Tank (treads + spiked bulldozer blade + single heavy cannon + horns)
+      // Epoch 5 (Info): Rocket-Barrage Assault Juggernaut (armored tread skirts + twin missile pods + twin gatlings + mega horns)
+      // Epoch 6+ (Orbital/Star): Magma Hover Skull-Crusher (glowing magma hover skids + twin plasma hell-cannons + Epoch 7 dorsal mortar)
+      const ironMat = new THREE.MeshStandardMaterial({
+        color: isInfo ? 0x27272a : 0x18181b,
+        roughness: isOrbitalHover ? 0.38 : 0.65,
+        metalness: 0.8,
+      });
+      const bloodMat = new THREE.MeshStandardMaterial({
+        color: isInfo || isOrbitalHover ? 0xb91c1c : 0x991b1b,
+        roughness: 0.48,
+        metalness: 0.36,
+      });
+      const boneMat = new THREE.MeshStandardMaterial({ color: 0xe7e5e4, roughness: 0.42 });
+      const baseY = isOrbitalHover ? 0.18 : 0.12;
+
+      if (isIndustrial) {
+        // Epoch 3 Industrial: Spiked front roller + tractor chassis + chimneys
+        const boilerBox = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.24, 0.5), bloodMat);
+        boilerBox.position.set(0, baseY + 0.1, -0.04);
+        boilerBox.castShadow = true;
+        group.add(boilerBox);
+
+        const grinderDrum = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.52, 8), ironMat);
+        grinderDrum.rotation.z = Math.PI / 2;
+        grinderDrum.position.set(0, baseY, 0.34);
+        group.add(grinderDrum);
+
+        for (const gx of [-0.18, 0, 0.18]) {
+          const spike = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.14, 4), boneMat);
+          spike.rotation.x = Math.PI / 2;
+          spike.position.set(gx, baseY + 0.02, 0.5);
+          group.add(spike);
+        }
+        for (const side of [-1, 1]) {
+          const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.1, 7), ironMat);
+          wheel.rotation.z = Math.PI / 2;
+          wheel.position.set(side * 0.26, baseY, -0.18);
+          group.add(wheel);
+
+          const chimney = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.055, 0.28, 6), ironMat);
+          chimney.position.set(side * 0.14, baseY + 0.32, -0.22);
+          group.add(chimney);
+        }
+        const shortCannon = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.065, 0.26, 6), ironMat);
+        shortCannon.rotation.x = Math.PI / 2;
+        shortCannon.position.set(0, baseY + 0.24, 0.22);
+        group.add(shortCannon);
+        return group;
+      }
+
+      if (isAtomic) {
+        // Epoch 4 Atomic: Heavy Treads + Spiked Front Dozer Blade + Horned Skull-Bunker Turret
+        const hull = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.18, 0.62), bloodMat);
+        hull.position.set(0, baseY + 0.05, 0);
+        hull.castShadow = true;
+        group.add(hull);
+
+        const dozerBlade = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.14, 0.08), ironMat);
+        dozerBlade.position.set(0, baseY + 0.01, 0.36);
+        dozerBlade.rotation.x = -0.35;
+        group.add(dozerBlade);
+
+        for (const tx of [-0.25, 0.25]) {
+          const tread = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.14, 0.68), tireMat);
+          tread.position.set(tx, 0.08, 0);
+          group.add(tread);
+        }
+
+        const skullTurret = new THREE.Mesh(new THREE.DodecahedronGeometry(0.22, 0), ironMat);
+        skullTurret.scale.set(1.1, 0.88, 1.15);
+        skullTurret.position.set(0, baseY + 0.24, -0.04);
+        group.add(skullTurret);
+
+        for (const side of [-1, 1]) {
+          const horn = new THREE.Mesh(new THREE.ConeGeometry(0.055, 0.32, 5), boneMat);
+          horn.rotation.z = -side * 0.65;
+          horn.position.set(side * 0.24, baseY + 0.32, 0.04);
+          group.add(horn);
+        }
+        const bigBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.048, 0.06, 0.48, 6), ironMat);
+        bigBarrel.rotation.x = Math.PI / 2;
+        bigBarrel.position.set(0, baseY + 0.25, 0.32);
+        group.add(bigBarrel);
+        return group;
+      }
+
+      if (isInfo) {
+        // Epoch 5 Info: Rocket-Barrage Assault Juggernaut (Armored Skirts + Dual Missile Pods + Twin Gatling Cannons)
+        const hull = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.16, 0.68), ironMat);
+        hull.position.set(0, baseY + 0.06, 0);
+        hull.castShadow = true;
+        group.add(hull);
+
+        for (const tx of [-0.28, 0.28]) {
+          const armoredSkirt = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.16, 0.72), bloodMat);
+          armoredSkirt.position.set(tx, baseY, 0);
+          group.add(armoredSkirt);
+        }
+
+        const wedgeTurret = new THREE.Mesh(new THREE.DodecahedronGeometry(0.24, 0), ironMat);
+        wedgeTurret.scale.set(1.2, 0.85, 1.3);
+        wedgeTurret.position.set(0, baseY + 0.25, -0.02);
+        group.add(wedgeTurret);
+
+        const visor = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.04, 0.08), glowMat);
+        visor.position.set(0, baseY + 0.28, 0.22);
+        group.add(visor);
+
+        for (const side of [-1, 1]) {
+          const missilePod = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.14, 0.26), bloodMat);
+          missilePod.position.set(side * 0.3, baseY + 0.3, -0.06);
+          group.add(missilePod);
+
+          const twinCannon = new THREE.Mesh(new THREE.CylinderGeometry(0.036, 0.045, 0.52, 6), trimMat);
+          twinCannon.rotation.x = Math.PI / 2;
+          twinCannon.position.set(side * 0.1, baseY + 0.24, 0.34);
+          group.add(twinCannon);
+
+          const megaHorn = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.38, 5), boneMat);
+          megaHorn.rotation.x = Math.PI / 2 - 0.25;
+          megaHorn.position.set(side * 0.2, baseY + 0.1, 0.44);
+          group.add(megaHorn);
+        }
+        return group;
+      }
+
+      // Epoch 6+ (Orbital / Star): Magma Hover Skull-Crusher Juggernaut
+      const juggernautHull = new THREE.Mesh(new THREE.DodecahedronGeometry(0.32, 0), bloodMat);
+      juggernautHull.scale.set(1.25, 0.78, 1.35);
+      juggernautHull.position.set(0, baseY + 0.14, -0.04);
+      juggernautHull.castShadow = true;
+      group.add(juggernautHull);
+
+      const skullTower = new THREE.Mesh(new THREE.DodecahedronGeometry(0.22, 0), ironMat);
+      skullTower.scale.set(1.15, 0.95, 1.1);
+      skullTower.position.set(0, baseY + 0.32, -0.06);
+      skullTower.castShadow = true;
+      group.add(skullTower);
+
+      for (const sx of [-0.26, 0.26]) {
+        const hoverSkid = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.07, 0.66), ironMat);
+        hoverSkid.position.set(sx, 0.11, 0);
+        group.add(hoverSkid);
+        const magmaGlow = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.03, 0.6), glowMat);
+        magmaGlow.position.set(sx, 0.07, 0);
+        group.add(magmaGlow);
+      }
+
+      for (const side of [-1, 1]) {
+        const megaHorn = new THREE.Mesh(new THREE.ConeGeometry(0.065, 0.44, 5), boneMat);
+        megaHorn.rotation.z = -side * 0.65;
+        megaHorn.rotation.x = 0.35;
+        megaHorn.position.set(side * 0.28, baseY + 0.42, 0.04);
+        group.add(megaHorn);
+
+        const prowTusk = new THREE.Mesh(new THREE.ConeGeometry(0.052, 0.32, 4), boneMat);
+        prowTusk.rotation.x = Math.PI / 2;
+        prowTusk.position.set(side * 0.18, baseY + 0.1, 0.44);
+        group.add(prowTusk);
+
+        const siegeMortar = new THREE.Mesh(new THREE.CylinderGeometry(0.062, 0.078, 0.5, 6), glowMat);
+        siegeMortar.rotation.x = Math.PI / 2 - 0.08;
+        siegeMortar.position.set(side * 0.14, baseY + 0.34, 0.28);
+        group.add(siegeMortar);
+
+        const smokestack = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.065, 0.34, 6), ironMat);
+        smokestack.position.set(side * 0.2, baseY + 0.42, -0.28);
+        smokestack.rotation.x = -0.3;
+        group.add(smokestack);
+      }
+      if (isStarSiege) {
+        const dorsalCannon = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.085, 0.62, 7), glowMat);
+        dorsalCannon.rotation.x = Math.PI / 2;
+        dorsalCannon.position.set(0, baseY + 0.52, 0.18);
+        group.add(dorsalCannon);
+      }
+      return group;
+    }
+
+    // Human Tank (Industrial WWI Trench Tank -> Atomic Cast-Turret Tank -> Info Composite ERA MBT -> Orbital Hover Railgun -> Star Cosmic Tank)
     const armorMat = new THREE.MeshStandardMaterial({
-      color: isOrc
-        ? 0x6b2d26
-        : isElf
-          ? isOrbitalHover
-            ? 0xd8f3dc
-            : 0x2d6a4f
-          : isOrbitalHover
-            ? 0xe2e8f0
-            : isModernComposite
-              ? 0x3b4252
-              : 0x57534e,
-      roughness: isOrbitalHover ? 0.24 : isModernComposite ? 0.38 : 0.58,
-      metalness: isOrbitalHover ? 0.78 : isModernComposite ? 0.56 : 0.45,
+      color: isOrbitalHover ? 0xe2e8f0 : isInfo ? 0x3b4252 : isAtomic ? 0x4d5d3b : 0x57534e,
+      roughness: isOrbitalHover ? 0.24 : isInfo ? 0.34 : isAtomic ? 0.44 : 0.62,
+      metalness: isOrbitalHover ? 0.8 : isInfo ? 0.64 : isAtomic ? 0.48 : 0.42,
     });
     const hull = new THREE.Mesh(
-      new THREE.BoxGeometry(isOrbitalHover ? 0.44 : 0.4, isModernComposite ? 0.14 : 0.17, isOrbitalHover ? 0.62 : 0.58),
+      new THREE.BoxGeometry(isOrbitalHover ? 0.44 : 0.4, isInfo || isAtomic ? 0.14 : 0.18, isOrbitalHover ? 0.62 : 0.58),
       armorMat,
     );
     hull.position.y = isOrbitalHover ? 0.2 : 0.14;
     hull.castShadow = true;
     group.add(hull);
 
-    // Sloped front glacis armor plate
     const glacis = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.08, 0.18), trimMat);
     glacis.position.set(0, isOrbitalHover ? 0.2 : 0.14, 0.29);
     glacis.rotation.x = 0.42;
     group.add(glacis);
 
     if (isOrbitalHover) {
-      // Anti-grav repulsor skids + glowing reactor core instead of treads
       for (const sx of [-0.24, 0.24]) {
         const ski = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.06, 0.64), trimMat);
         ski.position.set(sx, 0.12, 0);
@@ -5962,50 +9498,385 @@ export function createVehicleGroup(
       turret.castShadow = true;
       group.add(turret);
       for (const bx of [-0.06, 0.06]) {
-        const rail = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.045, 0.44), glowMat);
+        const rail = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.045, 0.46), glowMat);
         rail.position.set(bx, 0.31, 0.3);
         group.add(rail);
       }
-    } else {
+      if (isStarSiege) {
+        const fusionDome = new THREE.Mesh(new THREE.OctahedronGeometry(0.11, 0), glowMat);
+        fusionDome.position.set(0, 0.42, -0.08);
+        group.add(fusionDome);
+      }
+    } else if (isInfo) {
+      // Epoch 5 Info: Composite ERA MBT (side skirts, wide angular wedge turret, sensor optics mast, long smoothbore cannon + muzzle brake)
       for (const tx of [-0.21, 0.21]) {
-        const tread = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.12, 0.64), tireMat);
+        const tread = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.12, 0.66), tireMat);
         tread.position.set(tx, 0.07, 0);
         group.add(tread);
-        if (isModernComposite) {
-          const skirt = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.07, 0.6), armorMat);
-          skirt.position.set(tx + (tx < 0 ? -0.03 : 0.03), 0.12, 0);
-          group.add(skirt);
-        }
+        const skirt = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.08, 0.62), armorMat);
+        skirt.position.set(tx + (tx < 0 ? -0.035 : 0.035), 0.12, 0);
+        group.add(skirt);
       }
-      const turret = new THREE.Mesh(
-        new THREE.BoxGeometry(isModernComposite ? 0.29 : 0.24, isModernComposite ? 0.11 : 0.15, isModernComposite ? 0.32 : 0.25),
-        bodyMat,
-      );
-      turret.position.set(0, isModernComposite ? 0.26 : 0.28, -0.02);
+      const turret = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.11, 0.36), bodyMat);
+      turret.position.set(0, 0.26, -0.02);
       turret.castShadow = true;
       group.add(turret);
-      if (isModernComposite) {
-        const cupola = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.06, 0.08), glassMat);
-        cupola.position.set(-0.06, 0.33, -0.06);
-        group.add(cupola);
-        const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.026, 0.032, 0.48, 6), trimMat);
-        barrel.rotation.x = Math.PI / 2;
-        barrel.position.set(0, 0.26, 0.32);
-        group.add(barrel);
-        const muzzle = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.042, 0.07, 6), tireMat);
-        muzzle.rotation.x = Math.PI / 2;
-        muzzle.position.set(0, 0.26, 0.55);
-        group.add(muzzle);
-      } else {
-        for (const sx of [-0.11, 0.11]) {
-          const exhaust = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.03, 0.15, 6), trimMat);
-          exhaust.position.set(sx, 0.28, -0.22);
-          group.add(exhaust);
+      const opticsPod = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.07, 0.08), glassMat);
+      opticsPod.position.set(0.08, 0.34, 0.06);
+      group.add(opticsPod);
+      for (const sx of [-0.15, 0.15]) {
+        const eraCheek = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.09, 0.2), trimMat);
+        eraCheek.position.set(sx, 0.26, 0.04);
+        group.add(eraCheek);
+      }
+      const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.026, 0.032, 0.52, 6), trimMat);
+      barrel.rotation.x = Math.PI / 2;
+      barrel.position.set(0, 0.26, 0.34);
+      group.add(barrel);
+      const muzzle = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.042, 0.07, 6), tireMat);
+      muzzle.rotation.x = Math.PI / 2;
+      muzzle.position.set(0, 0.26, 0.59);
+      group.add(muzzle);
+    } else if (isAtomic) {
+      // Epoch 4 Atomic: Rounded Cast-Turret Cold War Tank with cupola & rear fuel drums
+      for (const tx of [-0.21, 0.21]) {
+        const tread = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.12, 0.62), tireMat);
+        tread.position.set(tx, 0.07, 0);
+        group.add(tread);
+        const fuelDrum = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.042, 0.16, 7), trimMat);
+        fuelDrum.rotation.z = Math.PI / 2;
+        fuelDrum.position.set(tx * 0.52, 0.22, -0.28);
+        group.add(fuelDrum);
+      }
+      const castTurret = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.16, 0.11, 10), bodyMat);
+      castTurret.position.set(0, 0.26, 0.01);
+      castTurret.castShadow = true;
+      group.add(castTurret);
+      const cupola = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.05, 8), trimMat);
+      cupola.position.set(-0.05, 0.33, -0.02);
+      group.add(cupola);
+      const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.034, 0.44, 6), trimMat);
+      barrel.rotation.x = Math.PI / 2;
+      barrel.position.set(0, 0.26, 0.3);
+      group.add(barrel);
+    } else {
+      // Epoch 3 Industrial: Tall WWI Lozenge Trench Tank with side sponsons & twin exhaust pipes
+      for (const tx of [-0.22, 0.22]) {
+        const tread = new THREE.Mesh(new THREE.BoxGeometry(0.095, 0.16, 0.66), tireMat);
+        tread.position.set(tx, 0.09, 0);
+        group.add(tread);
+      }
+      const boxTurret = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.15, 0.24), bodyMat);
+      boxTurret.position.set(0, 0.28, -0.02);
+      boxTurret.castShadow = true;
+      group.add(boxTurret);
+      for (const sx of [-0.11, 0.11]) {
+        const exhaust = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.03, 0.16, 6), trimMat);
+        exhaust.position.set(sx, 0.28, -0.24);
+        group.add(exhaust);
+      }
+      const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.036, 0.042, 0.3, 6), trimMat);
+      barrel.rotation.x = Math.PI / 2;
+      barrel.position.set(0, 0.28, 0.2);
+      group.add(barrel);
+    }
+    return group;
+  }
+
+  if (type === 'passenger_ship') {
+    // Evolving Civilian & Transport Ships across Epochs 0..7 and Races (Human, Elf, Orc):
+    // Epoch 0: Outrigger Canoe / Leaf-Sail Pirogue / Hide & Bone Log-Raft
+    // Epoch 1: Bronze Merchant Coaster / Swan Transport / Horned Outrigger Barge
+    // Epoch 2: Medieval Carrack / Elven Trimaran Packet / Orc Longship Transport
+    // Epoch 3: Side-Wheel Steam Ferry / Aether-Wheel Riverboat / Iron-Paddle Coal Ferry
+    // Epoch 4: Twin-Deck Car & Passenger Ferry / Hydrofoil Catamaran / Armored Troop Transport Ferry
+    // Epoch 5: Multi-Deck Luxury Cruise Ship / Solar-Sail Eco Cruise Liner / Heavy Steel Mega-Transport
+    // Epoch 6+: Orbital/Star Anti-Grav Luxury Star-Liner
+    const isPrehistoricRaft = epochLevel <= 0;
+    const isBronzeBoat = epochLevel === 1;
+    const isMedievalShip = epochLevel === 2;
+    const isSteamFerry = epochLevel === 3;
+    const isModernFerry = epochLevel === 4;
+    const isCruiseShip = epochLevel === 5;
+    const isStarLiner = epochLevel >= 6;
+
+    if (isPrehistoricRaft) {
+      const woodColor = isElf ? 0xc8b88a : isOrc ? 0x4a2c18 : 0x7c5334;
+      const logMat = new THREE.MeshStandardMaterial({ color: woodColor, roughness: 0.85 });
+      const sailMat = new THREE.MeshStandardMaterial({
+        color: isElf ? 0x52b788 : isOrc ? 0x9b2226 : 0xe9c46a,
+        roughness: 0.78,
+        side: THREE.DoubleSide,
+      });
+      for (let li = -2; li <= 2; li++) {
+        const log = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.042, 0.76, 6), logMat);
+        log.rotation.x = Math.PI / 2;
+        log.position.set(li * 0.075, 0.08, 0);
+        log.castShadow = true;
+        group.add(log);
+      }
+      const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.024, 0.48, 5), logMat);
+      mast.position.set(0, 0.32, 0.04);
+      group.add(mast);
+      const sail = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.28, 0.025), sailMat);
+      sail.position.set(0, 0.36, 0.06);
+      group.add(sail);
+      if (isElf) {
+        const outrigger = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.68, 5), logMat);
+        outrigger.rotation.x = Math.PI / 2;
+        outrigger.position.set(0.32, 0.07, 0);
+        group.add(outrigger);
+        const spar = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.025, 0.04), logMat);
+        spar.position.set(0.16, 0.1, 0);
+        group.add(spar);
+      } else if (isOrc) {
+        const boneMat = new THREE.MeshStandardMaterial({ color: 0xe5dec9, roughness: 0.7 });
+        for (const sx of [-0.14, 0.14]) {
+          const tusk = new THREE.Mesh(new THREE.ConeGeometry(0.032, 0.18, 4), boneMat);
+          tusk.rotation.x = Math.PI * 0.38;
+          tusk.position.set(sx, 0.14, 0.42);
+          group.add(tusk);
         }
-        const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.036, 0.042, 0.32, 6), trimMat);
-        barrel.rotation.x = Math.PI / 2;
-        barrel.position.set(0, 0.28, 0.22);
-        group.add(barrel);
+      }
+      return group;
+    }
+
+    if (isBronzeBoat || isMedievalShip) {
+      const hullColor = isElf ? 0xf4e4c1 : isOrc ? 0x3b1d0e : 0x6b442a;
+      const hullMat = new THREE.MeshStandardMaterial({ color: hullColor, roughness: 0.65 });
+      const sailMat = new THREE.MeshStandardMaterial({
+        color: isElf ? 0xb8f2e6 : isOrc ? 0xb91c1c : 0xfef3c7,
+        roughness: 0.6,
+        side: THREE.DoubleSide,
+      });
+      const hullLen = isMedievalShip ? 1.02 : 0.86;
+      const hull = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.16, hullLen * 0.68), hullMat);
+      hull.position.y = 0.1;
+      hull.castShadow = true;
+      group.add(hull);
+
+      const bow = new THREE.Mesh(new THREE.ConeGeometry(0.22, hullLen * 0.34, 4), hullMat);
+      bow.rotation.x = Math.PI / 2;
+      bow.rotation.y = Math.PI / 4;
+      bow.position.set(0, 0.12, hullLen * 0.42);
+      group.add(bow);
+
+      const cabin = new THREE.Mesh(
+        new THREE.BoxGeometry(0.32, isMedievalShip ? 0.18 : 0.12, 0.32),
+        bodyMat,
+      );
+      cabin.position.set(0, 0.24, -0.18);
+      group.add(cabin);
+
+      const masts = isMedievalShip ? [-0.12, 0.18] : [0.05];
+      for (const mz of masts) {
+        const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.03, 0.66, 6), trimMat);
+        mast.position.set(0, 0.44, mz);
+        group.add(mast);
+        const sail = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.32, 0.03), sailMat);
+        sail.position.set(0, 0.48, mz + 0.02);
+        group.add(sail);
+      }
+      if (isElf) {
+        // Sleek twin trimaran outriggers
+        for (const side of [-1, 1]) {
+          const ama = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.08, hullLen * 0.72), hullMat);
+          ama.position.set(side * 0.32, 0.09, 0.02);
+          group.add(ama);
+        }
+      } else if (isOrc) {
+        // War-ram & iron side bucklers
+        const spike = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.28, 4), trimMat);
+        spike.rotation.x = Math.PI / 2;
+        spike.position.set(0, 0.14, hullLen * 0.62);
+        group.add(spike);
+      } else {
+        // Human raised forecastle
+        const forecastle = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.12, 0.2), bodyMat);
+        forecastle.position.set(0, 0.2, hullLen * 0.22);
+        group.add(forecastle);
+      }
+      return group;
+    }
+
+    if (isSteamFerry) {
+      // Epoch 3 Industrial: Side-Wheel Paddle Steamer Ferry / Elf Aether Riverboat / Orc Iron-Paddle Coal Ferry
+      const hullMat = new THREE.MeshStandardMaterial({
+        color: isElf ? 0x2ec4b6 : isOrc ? 0x3f3f46 : 0x334155,
+        roughness: 0.5,
+        metalness: 0.35,
+      });
+      const deckHouseMat = new THREE.MeshStandardMaterial({
+        color: isElf ? 0xfefae0 : isOrc ? 0x7f1d1d : 0xf8fafc,
+        roughness: 0.45,
+      });
+      const hull = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.16, 1.08), hullMat);
+      hull.position.y = 0.1;
+      hull.castShadow = true;
+      group.add(hull);
+
+      const promenade = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.18, 0.78), deckHouseMat);
+      promenade.position.set(0, 0.26, -0.02);
+      promenade.castShadow = true;
+      group.add(promenade);
+
+      const wheelhouse = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.12, 0.22), deckHouseMat);
+      wheelhouse.position.set(0, 0.4, 0.16);
+      group.add(wheelhouse);
+
+      if (isOrc) {
+        // Twin smoky iron stacks + angular armored ram prow
+        for (const sx of [-0.1, 0.1]) {
+          const stack = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.05, 0.36, 7), tireMat);
+          stack.position.set(sx, 0.49, -0.14);
+          group.add(stack);
+        }
+        const ram = new THREE.Mesh(new THREE.ConeGeometry(0.14, 0.28, 4), trimMat);
+        ram.rotation.x = Math.PI / 2;
+        ram.position.set(0, 0.12, 0.64);
+        group.add(ram);
+      } else if (isElf) {
+        // Arched golden canopy ribs & stern crystal lantern
+        const spire = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.32, 6), glowMat);
+        spire.position.set(0, 0.52, -0.2);
+        group.add(spire);
+        for (const side of [-1, 1]) {
+          const fin = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.2, 0.56), trimMat);
+          fin.position.set(side * 0.23, 0.24, 0.04);
+          group.add(fin);
+        }
+      } else {
+        const funnel = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.055, 0.34, 8), tireMat);
+        funnel.position.set(0, 0.48, -0.1);
+        group.add(funnel);
+      }
+
+      for (const side of [-1, 1]) {
+        const paddleWheel = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.09, 8), taillightMat);
+        paddleWheel.rotation.z = Math.PI / 2;
+        paddleWheel.position.set(side * 0.26, 0.14, 0);
+        paddleWheel.name = 'spin_prop';
+        group.add(paddleWheel);
+      }
+      return group;
+    }
+
+    if (isModernFerry) {
+      // Epoch 4 Atomic: Twin-Deck Roll-On/Roll-Off Ferry (or Elf Hydrofoil Catamaran / Orc Armored Troop Ferry)
+      const hullMat = new THREE.MeshStandardMaterial({
+        color: isElf ? 0x0d9488 : isOrc ? 0x27272a : 0x1d4ed8,
+        roughness: 0.38,
+        metalness: 0.45,
+      });
+      const superMat = new THREE.MeshStandardMaterial({
+        color: isOrc ? 0x52525b : 0xf8fafc,
+        roughness: 0.32,
+      });
+      const hull = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.18, 1.18), hullMat);
+      hull.position.y = 0.11;
+      hull.castShadow = true;
+      group.add(hull);
+
+      const deck1 = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.14, 0.94), superMat);
+      deck1.position.set(0, 0.26, -0.02);
+      group.add(deck1);
+
+      const winStrip = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.05, 0.88), glassMat);
+      winStrip.position.set(0, 0.28, -0.02);
+      group.add(winStrip);
+
+      const bridge = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.11, 0.36), superMat);
+      bridge.position.set(0, 0.38, 0.16);
+      group.add(bridge);
+
+      const funnel = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.18, 0.18), bodyMat);
+      funnel.position.set(0, 0.42, -0.24);
+      funnel.rotation.x = -0.18;
+      group.add(funnel);
+
+      if (isElf) {
+        for (const side of [-1, 1]) {
+          const foil = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.04, 0.84), glowMat);
+          foil.position.set(side * 0.3, 0.09, 0);
+          group.add(foil);
+        }
+      } else if (isOrc) {
+        const ramp = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.22, 0.07), trimMat);
+        ramp.position.set(0, 0.16, 0.62);
+        ramp.rotation.x = 0.24;
+        group.add(ramp);
+      }
+      return group;
+    }
+
+    // Epoch 5 (Cruise Ship) & Epoch 6+ (Anti-Grav Star-Liner):
+    // Multi-tiered ocean cruise liner with wrap-around glass promenade decks, lido pool deck, radar arch & sleek bow
+    const hullMat = new THREE.MeshStandardMaterial({
+      color: isStarLiner ? 0xe0f2fe : isElf ? 0xe6fcf5 : isOrc ? 0x18181b : 0xffffff,
+      roughness: 0.24,
+      metalness: isStarLiner ? 0.65 : 0.25,
+    });
+    const hullLen = isStarLiner ? 1.42 : 1.32;
+    const baseHull = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.2, hullLen * 0.72), hullMat);
+    baseHull.position.y = 0.12;
+    baseHull.castShadow = true;
+    group.add(baseHull);
+
+    const bowCone = new THREE.Mesh(new THREE.ConeGeometry(0.26, hullLen * 0.34, 4), hullMat);
+    bowCone.rotation.x = Math.PI / 2;
+    bowCone.rotation.y = Math.PI / 4;
+    bowCone.position.set(0, 0.14, hullLen * 0.44);
+    group.add(bowCone);
+
+    // 3 stepped luxury passenger cabin tiers + panoramic glass bands
+    for (let tier = 0; tier < 3; tier++) {
+      const tLen = (hullLen * 0.68) * (1 - tier * 0.14);
+      const tWidth = 0.44 - tier * 0.04;
+      const tY = 0.26 + tier * 0.11;
+      const tierBox = new THREE.Mesh(new THREE.BoxGeometry(tWidth, 0.09, tLen), hullMat);
+      tierBox.position.set(0, tY, -0.04);
+      tierBox.castShadow = true;
+      group.add(tierBox);
+
+      const glassBand = new THREE.Mesh(
+        new THREE.BoxGeometry(tWidth + 0.015, 0.04, tLen * 0.94),
+        isStarLiner ? glowMat : glassMat,
+      );
+      glassBand.position.set(0, tY + 0.01, -0.04);
+      group.add(glassBand);
+    }
+
+    // Lido deck turquoise swimming pool & iconic swept cruise funnel
+    const pool = new THREE.Mesh(
+      new THREE.BoxGeometry(0.18, 0.02, 0.24),
+      new THREE.MeshBasicMaterial({ color: 0x38bdf8 }),
+    );
+    pool.position.set(0, 0.54, 0.08);
+    group.add(pool);
+
+    const cruiseFunnel = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.2, 0.24), bodyMat);
+    cruiseFunnel.position.set(0, 0.6, -0.24);
+    cruiseFunnel.rotation.x = -0.24;
+    group.add(cruiseFunnel);
+
+    if (isElf) {
+      for (const side of [-1, 1]) {
+        const wingSail = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.34, 0.56), glowMat);
+        wingSail.position.set(side * 0.27, 0.38, -0.08);
+        wingSail.rotation.z = -side * 0.28;
+        group.add(wingSail);
+      }
+    } else if (isOrc) {
+      const prowArmour = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.18, 0.28), trimMat);
+      prowArmour.position.set(0, 0.22, hullLen * 0.34);
+      group.add(prowArmour);
+    }
+
+    if (isStarLiner) {
+      for (const ox of [-0.3, 0.3]) {
+        const hoverPod = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.05, 0.92), glowMat);
+        hoverPod.position.set(ox, 0.08, -0.02);
+        group.add(hoverPod);
       }
     }
     return group;
@@ -6015,32 +9886,318 @@ export function createVehicleGroup(
     const isBronzeGalley = epochLevel <= 1;
     const isMedievalGalleon = epochLevel === 2;
     const isIronclad = epochLevel === 3;
-    const isModernDestroyer = epochLevel === 4 || epochLevel === 5;
+    const isAtomicDestroyer = epochLevel === 4;
+    const isInfoStealthShip = epochLevel === 5;
     const isOrbitalCruiser = epochLevel >= 6;
+    const isStarDreadnought = epochLevel >= 7;
 
+    if (isElf) {
+      // Elf Swanships (1 Bronze / 2 Medieval) -> Aether-Sloop (3) -> Wave-Runner (4) -> Stealth Crescent Frigate (5) -> Star-Seraph Cruiser (6+)
+      const hullMat = new THREE.MeshStandardMaterial({
+        color: isOrbitalCruiser ? 0xe0fbfc : isInfoStealthShip ? 0x115e59 : isIronclad || isAtomicDestroyer ? 0x2ec4b6 : 0xf4e4c1,
+        roughness: isOrbitalCruiser ? 0.22 : 0.42,
+        metalness: isOrbitalCruiser ? 0.68 : isInfoStealthShip ? 0.52 : 0.28,
+      });
+      const hullLen = isOrbitalCruiser ? 1.44 : isInfoStealthShip || isAtomicDestroyer ? 1.28 : isIronclad ? 1.18 : 1.08;
+      const spine = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.12, hullLen * 0.72, 8), hullMat);
+      spine.rotation.x = Math.PI / 2;
+      spine.scale.set(1.25, 0.62, 1);
+      spine.position.y = 0.12;
+      spine.castShadow = true;
+      group.add(spine);
+
+      const swanProw = new THREE.Mesh(new THREE.ConeGeometry(0.12, hullLen * 0.38, 6), trimMat);
+      swanProw.rotation.x = Math.PI / 2 - 0.18;
+      swanProw.position.set(0, 0.2, hullLen * 0.44);
+      group.add(swanProw);
+
+      if (isBronzeGalley || isMedievalGalleon) {
+        const sailMat = new THREE.MeshStandardMaterial({ color: 0xb8f2e6, roughness: 0.48, side: THREE.DoubleSide });
+        const masts = isMedievalGalleon ? [-0.14, 0.18] : [0.02];
+        for (const mz of masts) {
+          const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.032, isMedievalGalleon ? 0.86 : 0.72, 6), trimMat);
+          mast.position.set(0, 0.52, mz);
+          group.add(mast);
+          const lateenSail = new THREE.Mesh(new THREE.ConeGeometry(0.28, 0.6, 3), sailMat);
+          lateenSail.scale.set(0.18, 1, 1.3);
+          lateenSail.position.set(0, 0.56, mz);
+          lateenSail.castShadow = true;
+          group.add(lateenSail);
+        }
+        if (isBronzeGalley) {
+          for (const ox of [-0.24, 0.24]) {
+            for (const oz of [-0.16, 0.08]) {
+              const leafOar = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.02, 0.03), trimMat);
+              leafOar.position.set(ox, 0.08, oz);
+              leafOar.rotation.z = ox < 0 ? 0.3 : -0.3;
+              group.add(leafOar);
+            }
+          }
+        } else {
+          const lanternPavilion = new THREE.Mesh(new THREE.OctahedronGeometry(0.11, 0), glowMat);
+          lanternPavilion.position.set(0, 0.34, -hullLen * 0.36);
+          group.add(lanternPavilion);
+        }
+        const sternWings = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.06, 0.24), trimMat);
+        sternWings.position.set(0, 0.22, -hullLen * 0.34);
+        group.add(sternWings);
+      } else if (isIronclad) {
+        for (const ox of [-0.26, 0.26]) {
+          const pontoon = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.82, 7), hullMat);
+          pontoon.rotation.x = Math.PI / 2;
+          pontoon.position.set(ox, 0.1, -0.02);
+          group.add(pontoon);
+          const brace = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.04, 0.14), trimMat);
+          brace.position.set(ox * 0.5, 0.18, 0);
+          group.add(brace);
+        }
+        const spireTower = new THREE.Mesh(new THREE.ConeGeometry(0.11, 0.48, 6), bodyMat);
+        spireTower.position.set(0, 0.38, -0.04);
+        group.add(spireTower);
+        const beacon = new THREE.Mesh(new THREE.OctahedronGeometry(0.075, 0), glowMat);
+        beacon.position.set(0, 0.64, -0.04);
+        group.add(beacon);
+      } else if (isAtomicDestroyer) {
+        // Epoch 4 Atomic: Wave-Runner Destroyer with twin outriggers & dual sun-lance turrets fore & aft
+        for (const ox of [-0.26, 0.26]) {
+          const foilHull = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.88), hullMat);
+          foilHull.position.set(ox, 0.13, -0.02);
+          group.add(foilHull);
+        }
+        const archSpire = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.12, 0.34, 6), bodyMat);
+        archSpire.position.set(0, 0.32, 0);
+        group.add(archSpire);
+        for (const [tz, dir] of [
+          [0.34, 1],
+          [-0.34, -1],
+        ] as const) {
+          const domeTurret = new THREE.Mesh(new THREE.SphereGeometry(0.09, 7, 7), trimMat);
+          domeTurret.position.set(0, 0.23, tz);
+          group.add(domeTurret);
+          const gunSpire = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.028, 0.26, 6), glowMat);
+          gunSpire.rotation.x = Math.PI / 2;
+          gunSpire.position.set(0, 0.24, tz + dir * 0.16);
+          group.add(gunSpire);
+        }
+      } else if (isInfoStealthShip) {
+        // Epoch 5 Info: Stealth Crescent Aegis Frigate with swept crystal fins & spinning astrolabe ring
+        for (const ox of [-0.3, 0.3]) {
+          const sweptBlade = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.06, 0.96), trimMat);
+          sweptBlade.position.set(ox, 0.15, -0.06);
+          sweptBlade.rotation.y = ox < 0 ? 0.16 : -0.16;
+          group.add(sweptBlade);
+          const crystalFin = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.22, 0.44), glowMat);
+          crystalFin.position.set(ox * 0.95, 0.26, -0.14);
+          group.add(crystalFin);
+        }
+        const aegisPyramid = new THREE.Mesh(new THREE.ConeGeometry(0.14, 0.36, 4), hullMat);
+        aegisPyramid.position.set(0, 0.34, 0.02);
+        group.add(aegisPyramid);
+        const astroRing = new THREE.Mesh(new THREE.TorusGeometry(0.18, 0.024, 6, 12), glowMat);
+        astroRing.name = 'spin_rotor';
+        astroRing.position.set(0, 0.54, 0.02);
+        group.add(astroRing);
+      } else {
+        // Epoch 6+ (Orbital / Star): Sylvan Aegis Plasma Trimaran Cruiser
+        for (const ox of [-0.3, 0.3]) {
+          const foilHull = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.08, 0.96), trimMat);
+          foilHull.position.set(ox, 0.14, -0.04);
+          group.add(foilHull);
+          const crystalFin = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.2, 0.46), glowMat);
+          crystalFin.position.set(ox, 0.25, -0.14);
+          group.add(crystalFin);
+        }
+        const spireBridge = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.14, 0.4, 6), hullMat);
+        spireBridge.position.set(0, 0.34, -0.08);
+        group.add(spireBridge);
+        const astroRing = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.024, 6, 12), glowMat);
+        astroRing.name = 'spin_rotor';
+        astroRing.position.set(0, 0.56, -0.08);
+        group.add(astroRing);
+        const starLance = new THREE.Mesh(new THREE.CylinderGeometry(0.026, 0.04, 0.54, 6), glowMat);
+        starLance.rotation.x = Math.PI / 2;
+        starLance.position.set(0, 0.26, 0.5);
+        group.add(starLance);
+        if (isStarDreadnought) {
+          for (const px of [-0.42, 0.42]) {
+            const pylon = new THREE.Mesh(new THREE.OctahedronGeometry(0.09, 0), glowMat);
+            pylon.scale.set(0.65, 2.1, 0.65);
+            pylon.position.set(px, 0.34, 0.08);
+            group.add(pylon);
+          }
+        }
+      }
+      return group;
+    }
+
+    if (isOrc) {
+      // Orc Warships:
+      // 1: Bone-Ram Raft-Galley -> 2: Brute War-Hulk -> 3: Ironclad Steam-Krusha -> 4: Big-Gun Iron Barge -> 5: Missile-Jaw Dreadnought -> 6+: Plasma Iron-Jaw Cruiser
+      const hullMat = new THREE.MeshStandardMaterial({
+        color: isOrbitalCruiser ? 0x18181b : isInfoStealthShip ? 0x27272a : isAtomicDestroyer ? 0x3f3f46 : 0x451a03,
+        roughness: 0.56,
+        metalness: epochLevel >= 3 ? 0.72 : 0.24,
+      });
+      const hullLen = isOrbitalCruiser ? 1.4 : isInfoStealthShip || isAtomicDestroyer ? 1.28 : isIronclad ? 1.2 : 1.1;
+      const barge = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.22, hullLen * 0.72), hullMat);
+      barge.position.y = 0.12;
+      barge.castShadow = true;
+      group.add(barge);
+
+      const ramJaw = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.16, 0.26), bodyMat);
+      ramJaw.position.set(0, 0.12, hullLen * 0.42);
+      group.add(ramJaw);
+      for (const tx of [-0.14, 0, 0.14]) {
+        const ramSpike = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.22, 4), trimMat);
+        ramSpike.rotation.x = Math.PI / 2;
+        ramSpike.position.set(tx, 0.12, hullLen * 0.56);
+        group.add(ramSpike);
+      }
+
+      if (isBronzeGalley || isMedievalGalleon) {
+        const sailMat = new THREE.MeshStandardMaterial({ color: 0x9b2226, roughness: 0.72, side: THREE.DoubleSide });
+        const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.036, 0.045, 0.74, 6), trimMat);
+        mast.position.set(0, 0.5, 0);
+        group.add(mast);
+        const warSail = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.34, 0.035), sailMat);
+        warSail.position.set(0, 0.54, 0.03);
+        group.add(warSail);
+        if (isBronzeGalley) {
+          for (const ox of [-0.28, 0.28]) {
+            for (const oz of [-0.16, 0.08]) {
+              const spikedOar = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.025, 0.032), hullMat);
+              spikedOar.position.set(ox, 0.08, oz);
+              spikedOar.rotation.z = ox < 0 ? 0.32 : -0.32;
+              group.add(spikedOar);
+            }
+          }
+        } else {
+          const foreMast = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.035, 0.56, 6), trimMat);
+          foreMast.position.set(0, 0.4, 0.26);
+          group.add(foreMast);
+          const foreSail = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.24, 0.035), sailMat);
+          foreSail.position.set(0, 0.44, 0.28);
+          group.add(foreSail);
+          const rearBastion = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.2, 0.26), bodyMat);
+          rearBastion.position.set(0, 0.3, -0.32);
+          group.add(rearBastion);
+        }
+      } else if (isIronclad) {
+        const ironCitadel = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.18, 0.56), trimMat);
+        ironCitadel.position.set(0, 0.3, -0.04);
+        group.add(ironCitadel);
+        for (const sz of [-0.2, 0.02, 0.22]) {
+          const stack = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.068, 0.3, 6), tireMat);
+          stack.position.set(0, 0.48, sz);
+          group.add(stack);
+        }
+        for (const cx of [-0.26, 0.26]) {
+          const sideCannon = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.032, 0.16, 6), trimMat);
+          sideCannon.rotation.z = Math.PI / 2;
+          sideCannon.position.set(cx, 0.22, 0.06);
+          group.add(sideCannon);
+        }
+      } else if (isAtomicDestroyer) {
+        // Epoch 4 Atomic: Heavy Big-Gun Iron Barge with dual heavy turrets + twin angled funnels
+        const gunBunker = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.24, 0.34), bodyMat);
+        gunBunker.position.set(0, 0.32, -0.06);
+        group.add(gunBunker);
+        for (const fx of [-0.12, 0.12]) {
+          const funnel = new THREE.Mesh(new THREE.CylinderGeometry(0.048, 0.06, 0.28, 6), tireMat);
+          funnel.position.set(fx, 0.46, -0.18);
+          funnel.rotation.x = -0.2;
+          group.add(funnel);
+        }
+        for (const [tz, dir] of [
+          [0.24, 1],
+          [-0.36, -1],
+        ] as const) {
+          const turret = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.12, 0.22), trimMat);
+          turret.position.set(0, 0.27, tz);
+          group.add(turret);
+          for (const bx of [-0.05, 0.05]) {
+            const gun = new THREE.Mesh(new THREE.CylinderGeometry(0.026, 0.034, 0.34, 6), trimMat);
+            gun.rotation.x = Math.PI / 2;
+            gun.position.set(bx, 0.28, tz + dir * 0.2);
+            group.add(gun);
+          }
+        }
+      } else if (isInfoStealthShip) {
+        // Epoch 5 Info: Missile-Spiked Dreadnought (VLS rocket racks + horned skull tower + spin_rotor radar cross)
+        const fortTower = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.28, 0.34), bodyMat);
+        fortTower.position.set(0, 0.34, -0.12);
+        fortTower.castShadow = true;
+        group.add(fortTower);
+        const beacon = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.04, 0.05), glowMat);
+        beacon.position.set(0, 0.52, -0.12);
+        beacon.name = 'spin_rotor';
+        group.add(beacon);
+        for (const vx of [-0.14, 0.14]) {
+          const missileRack = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.1, 0.32), trimMat);
+          missileRack.position.set(vx, 0.26, 0.24);
+          missileRack.rotation.x = -0.25;
+          group.add(missileRack);
+        }
+        const sternTurret = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.11, 0.2), trimMat);
+        sternTurret.position.set(0, 0.26, -0.36);
+        group.add(sternTurret);
+      } else {
+        // Epoch 6+ (Orbital / Star): Orc Magma Plasma Kroozer
+        const fortTower = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.3, 0.38), bodyMat);
+        fortTower.position.set(0, 0.35, -0.14);
+        fortTower.castShadow = true;
+        group.add(fortTower);
+        const beacon = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.045, 0.06), glowMat);
+        beacon.position.set(0, 0.54, -0.14);
+        beacon.name = 'spin_rotor';
+        group.add(beacon);
+        for (const tx of [0.22, -0.32]) {
+          const gunTurret = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.11, 0.2), trimMat);
+          gunTurret.position.set(0, 0.26, tx);
+          group.add(gunTurret);
+          const cannon = new THREE.Mesh(new THREE.CylinderGeometry(0.036, 0.044, 0.38, 6), glowMat);
+          cannon.rotation.x = Math.PI / 2;
+          cannon.position.set(0, 0.27, tx + (tx > 0 ? 0.22 : -0.22));
+          group.add(cannon);
+        }
+        for (const px of [-0.3, 0.3]) {
+          const sponson = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.12, 0.74), glowMat);
+          sponson.position.set(px, 0.15, 0);
+          group.add(sponson);
+        }
+        if (isStarDreadnought) {
+          for (const bx of [-0.14, 0.14]) {
+            const extraBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.05, 0.56, 6), glowMat);
+            extraBarrel.rotation.x = Math.PI / 2;
+            extraBarrel.position.set(bx, 0.44, 0.16);
+            group.add(extraBarrel);
+          }
+        }
+      }
+      return group;
+    }
+
+    // Human Warships (1 Bronze Galley -> 2 Sailing Galleon -> 3 Ironclad -> 4 Gun Destroyer -> 5 Stealth Missile Destroyer -> 6 Trimaran Cruiser -> 7 Fleet Dreadnought)
     const hullMat = new THREE.MeshStandardMaterial({
       color: isOrbitalCruiser
         ? 0xe2e8f0
-        : isModernDestroyer
-          ? 0x64748b
-          : isIronclad
-            ? 0x334155
-            : isOrc
-              ? 0x451a03
-              : isElf
-                ? 0xc2956e
-                : 0x5c3d2e,
+        : isInfoStealthShip
+          ? 0x475569
+          : isAtomicDestroyer
+            ? 0x64748b
+            : isIronclad
+              ? 0x334155
+              : 0x5c3d2e,
       roughness: isOrbitalCruiser ? 0.24 : epochLevel >= 3 ? 0.42 : 0.64,
       metalness: isOrbitalCruiser ? 0.78 : epochLevel >= 3 ? 0.62 : 0.12,
     });
     const deckMat = new THREE.MeshStandardMaterial({
-      color: isOrbitalCruiser ? 0x334155 : isModernDestroyer ? 0x475569 : isIronclad ? 0x1e293b : 0x8d5b4c,
+      color: isOrbitalCruiser ? 0x334155 : isInfoStealthShip ? 0x1e293b : isAtomicDestroyer ? 0x475569 : isIronclad ? 0x1e293b : 0x8d5b4c,
       roughness: 0.68,
       metalness: epochLevel >= 3 ? 0.35 : 0.05,
     });
 
-    const hullLen = isOrbitalCruiser ? 1.38 : isModernDestroyer ? 1.28 : isIronclad ? 1.18 : 1.08;
-    // Sculpted 3-section ship hull (keel waist + flared bow + tapered stern) so ships never look like plain bricks
+    const hullLen = isOrbitalCruiser ? 1.42 : isInfoStealthShip || isAtomicDestroyer ? 1.28 : isIronclad ? 1.18 : 1.08;
     const waist = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.2, hullLen * 0.62), hullMat);
     waist.position.y = 0.11;
     waist.castShadow = true;
@@ -6050,14 +10207,12 @@ export function createVehicleGroup(
     deckPlank.position.y = 0.215;
     group.add(deckPlank);
 
-    // Side gunwale rails / bulwarks
     for (const gx of [-0.195, 0.195]) {
       const gunwale = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.055, hullLen * 0.62), trimMat);
       gunwale.position.set(gx, 0.23, 0);
       group.add(gunwale);
     }
 
-    // Flared tapered bow section + sharp prow
     const bowHull = new THREE.Mesh(new THREE.ConeGeometry(0.24, hullLen * 0.36, 4), hullMat);
     bowHull.rotation.x = Math.PI / 2;
     bowHull.rotation.y = Math.PI / 4;
@@ -6066,7 +10221,6 @@ export function createVehicleGroup(
     bowHull.castShadow = true;
     group.add(bowHull);
 
-    // Tapered stern transom
     const sternHull = new THREE.Mesh(new THREE.ConeGeometry(0.22, hullLen * 0.26, 4), hullMat);
     sternHull.rotation.x = -Math.PI / 2;
     sternHull.rotation.y = Math.PI / 4;
@@ -6075,7 +10229,6 @@ export function createVehicleGroup(
     group.add(sternHull);
 
     if (isBronzeGalley || isMedievalGalleon) {
-      // Sculpted bronze ram / ornate bowsprit spar
       if (isBronzeGalley) {
         const ram = new THREE.Mesh(
           new THREE.ConeGeometry(0.085, 0.24, 5),
@@ -6099,8 +10252,7 @@ export function createVehicleGroup(
       sternCastle.castShadow = true;
       group.add(sternCastle);
 
-      const sailColor = isOrc ? 0xb91c1c : isElf ? 0xb8f2e6 : 0xf8fafc;
-      const sailMat = new THREE.MeshStandardMaterial({ color: sailColor, roughness: 0.68, side: THREE.DoubleSide });
+      const sailMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.68, side: THREE.DoubleSide });
       const mastOffsets = isMedievalGalleon ? [-0.14, 0.18] : [0.04];
       for (const mz of mastOffsets) {
         const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.034, isMedievalGalleon ? 0.78 : 0.68, 6), trimMat);
@@ -6112,7 +10264,6 @@ export function createVehicleGroup(
         yard.position.set(0, 0.72, mz + 0.02);
         group.add(yard);
 
-        // Billowing curved sail sheet (Cylinder half-arc instead of flat brick)
         const sailRadius = mz > 0 ? 0.24 : 0.2;
         const sailSheet = new THREE.Mesh(
           new THREE.CylinderGeometry(sailRadius, sailRadius, 0.36, 8, 1, true, -Math.PI * 0.42, Math.PI * 0.84),
@@ -6124,7 +10275,6 @@ export function createVehicleGroup(
         sailSheet.castShadow = true;
         group.add(sailSheet);
 
-        // Masthead banner pennant
         const pennant = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.07, 0.14), bodyMat);
         pennant.position.set(0, isMedievalGalleon ? 0.91 : 0.86, mz - 0.06);
         group.add(pennant);
@@ -6144,7 +10294,6 @@ export function createVehicleGroup(
           }
         }
       } else {
-        // Broadside cannon muzzles for Galleon
         for (const cx of [-0.21, 0.21]) {
           for (const cz of [-0.1, 0.08]) {
             const portGun = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.018, 0.08, 5), tireMat);
@@ -6155,7 +10304,6 @@ export function createVehicleGroup(
         }
       }
     } else if (isIronclad) {
-      // Industrial steamship: casemate bridge + twin tilted smokestacks + armored dual turrets
       const casemate = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.14, 0.44), hullMat);
       casemate.position.set(0, 0.28, -0.04);
       casemate.castShadow = true;
@@ -6187,42 +10335,76 @@ export function createVehicleGroup(
           group.add(cannon);
         }
       }
-    } else if (isModernDestroyer) {
-      // Stepped guided-missile destroyer: bridge, horizontal spinning radar array (spin_rotor), VLS hatches, twin turrets & stern helipad!
-      const bridge = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.22, 0.36), bodyMat);
-      bridge.position.set(0, 0.32, 0.02);
+    } else if (isAtomicDestroyer) {
+      // Epoch 4 Atomic: Classic Twin-Funnel WW2/Cold-War Gun Destroyer with Fore & Aft Dual Turrets
+      const bridge = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.22, 0.28), bodyMat);
+      bridge.position.set(0, 0.31, 0.08);
       bridge.castShadow = true;
       group.add(bridge);
-      const bridgeWindow = new THREE.Mesh(new THREE.BoxGeometry(0.29, 0.045, 0.14), glassMat);
-      bridgeWindow.position.set(0, 0.38, 0.12);
+      const bridgeWindow = new THREE.Mesh(new THREE.BoxGeometry(0.27, 0.045, 0.1), glassMat);
+      bridgeWindow.position.set(0, 0.37, 0.16);
       group.add(bridgeWindow);
 
-      const radarMast = new THREE.Mesh(new THREE.CylinderGeometry(0.024, 0.048, 0.28, 6), trimMat);
-      radarMast.position.set(0, 0.54, 0);
+      const radarMast = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.038, 0.26, 6), trimMat);
+      radarMast.position.set(0, 0.52, 0.06);
       group.add(radarMast);
-      const radarBar = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.032, 0.045), glowMat);
-      radarBar.position.set(0, 0.67, 0);
+      const radarBar = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.03, 0.04), glowMat);
+      radarBar.position.set(0, 0.65, 0.06);
       radarBar.name = 'spin_rotor';
       group.add(radarBar);
 
-      const vlsDeck = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.045, 0.2), trimMat);
+      for (const fz of [-0.06, -0.22]) {
+        const funnel = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.052, 0.2, 7), tireMat);
+        funnel.position.set(0, 0.32, fz);
+        funnel.rotation.x = -0.15;
+        group.add(funnel);
+      }
+
+      for (const [tz, dir] of [
+        [0.36, 1],
+        [-0.4, -1],
+      ] as const) {
+        const gunTurret = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.09, 0.16), trimMat);
+        gunTurret.position.set(0, 0.25, tz);
+        group.add(gunTurret);
+        const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.024, 0.28, 6), trimMat);
+        barrel.rotation.x = Math.PI / 2;
+        barrel.position.set(0, 0.26, tz + dir * 0.16);
+        group.add(barrel);
+      }
+    } else if (isInfoStealthShip) {
+      // Epoch 5 Info: Stealth Aegis Guided-Missile Destroyer (faceted integrated tower, VLS cell deck, single stealth turret, rear helipad)
+      const stealthSuper = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.32, 4), bodyMat);
+      stealthSuper.rotation.y = Math.PI / 4;
+      stealthSuper.position.set(0, 0.35, 0.04);
+      stealthSuper.castShadow = true;
+      group.add(stealthSuper);
+      const aegisWindow = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.045, 0.14), glassMat);
+      aegisWindow.position.set(0, 0.35, 0.14);
+      group.add(aegisWindow);
+
+      const radarBar = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.032, 0.045), glowMat);
+      radarBar.position.set(0, 0.54, 0.04);
+      radarBar.name = 'spin_rotor';
+      group.add(radarBar);
+
+      const vlsDeck = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.045, 0.22), trimMat);
       vlsDeck.position.set(0, 0.24, 0.28);
       group.add(vlsDeck);
       const bowTurret = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.08, 0.16), bodyMat);
-      bowTurret.position.set(0, 0.25, 0.44);
+      bowTurret.position.set(0, 0.25, 0.45);
       group.add(bowTurret);
       const cannon = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.024, 0.24, 6), trimMat);
       cannon.rotation.x = Math.PI / 2;
-      cannon.position.set(0, 0.26, 0.56);
+      cannon.position.set(0, 0.26, 0.57);
       group.add(cannon);
 
-      // Stern Helipad Deck Ring
       const helipad = new THREE.Mesh(new THREE.RingGeometry(0.09, 0.12, 12), headlightMat);
       helipad.rotation.x = -Math.PI / 2;
       helipad.position.set(0, 0.235, -0.36);
       group.add(helipad);
     } else {
-      // Orbital Hydro-Plasma Trimaran Cruiser
+      // Epoch 6+ (Orbital / Star): Trimaran Plasma Cruiser / Fleet Dreadnought
       const bridge = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.22, 0.42), trimMat);
       bridge.position.set(0, 0.32, -0.06);
       bridge.castShadow = true;
@@ -6241,35 +10423,172 @@ export function createVehicleGroup(
         const repulsor = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.028, 0.8), glowMat);
         repulsor.position.set(ox, 0.08, -0.04);
         group.add(repulsor);
+        if (isStarDreadnought) {
+          const wingFin = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.2, 0.36), bodyMat);
+          wingFin.position.set(ox * 1.1, 0.24, -0.2);
+          group.add(wingFin);
+        }
       }
       for (const rx of [-0.055, 0.055]) {
-        const rail = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.028, 0.46, 6), glowMat);
+        const rail = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.028, 0.48, 6), glowMat);
         rail.rotation.x = Math.PI / 2;
         rail.position.set(rx, 0.28, 0.44);
         group.add(rail);
+      }
+      if (isStarDreadnought) {
+        const haloDish = new THREE.Mesh(new THREE.TorusGeometry(0.18, 0.022, 6, 14), glowMat);
+        haloDish.position.set(0, 0.56, -0.06);
+        haloDish.rotation.x = Math.PI / 3;
+        group.add(haloDish);
       }
     }
     return group;
   }
 
   if (type === 'airship') {
-    const isRigidZeppelin = epochLevel >= 4 && epochLevel < 6;
+    const isRigidZeppelin = epochLevel >= 3 && epochLevel < 6;
     const isIonCruiser = epochLevel >= 6;
+
+    if (isElf) {
+      // Elf Sylvan Solar Dirigible (Epoch 3+: arched silk-and-crystal envelope, sweeping gold sky-fins, crystal lantern bridge + golden wind-props!)
+      const ivoryMat = new THREE.MeshStandardMaterial({
+        color: isIonCruiser ? 0xe0fbfc : 0xfefae0,
+        roughness: 0.22,
+        metalness: isIonCruiser ? 0.65 : 0.32,
+      });
+      const skyEnvelope = new THREE.Mesh(
+        new THREE.CylinderGeometry(isIonCruiser ? 0.2 : 0.17, 0.12, isIonCruiser ? 1.36 : 1.18, 8),
+        ivoryMat,
+      );
+      skyEnvelope.rotation.x = Math.PI / 2;
+      skyEnvelope.scale.set(1.15, 0.72, 1);
+      skyEnvelope.position.set(0, 0.36, 0);
+      skyEnvelope.castShadow = true;
+      group.add(skyEnvelope);
+
+      const deckHull = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.1, 1.1, 8), bodyMat);
+      deckHull.rotation.x = Math.PI / 2;
+      deckHull.scale.set(1.15, 0.58, 1);
+      deckHull.position.set(0, 0.15, 0);
+      group.add(deckHull);
+
+      const prowSpire = new THREE.Mesh(new THREE.ConeGeometry(0.11, 0.36, 6), trimMat);
+      prowSpire.rotation.x = Math.PI / 2;
+      prowSpire.position.set(0, 0.28, 0.7);
+      group.add(prowSpire);
+
+      for (const side of [-1, 1]) {
+        const skyFin = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.028, 0.32), trimMat);
+        skyFin.position.set(side * 0.34, 0.24, 0.06);
+        skyFin.rotation.y = -side * 0.35;
+        skyFin.rotation.z = side * 0.24;
+        group.add(skyFin);
+
+        const crystalSail = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.02, 0.22), glowMat);
+        crystalSail.position.set(side * 0.32, 0.27, 0.04);
+        crystalSail.rotation.y = -side * 0.35;
+        crystalSail.rotation.z = side * 0.26;
+        group.add(crystalSail);
+
+        if (isRigidZeppelin) {
+          const vanePod = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.055, 0.22, 6), trimMat);
+          vanePod.rotation.x = Math.PI / 2;
+          vanePod.position.set(side * 0.32, 0.16, -0.1);
+          group.add(vanePod);
+          const prop = new THREE.Group();
+          prop.name = 'spin_prop';
+          prop.position.set(side * 0.32, 0.16, 0.04);
+          prop.add(
+            new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.028, 0.016), trimMat),
+            new THREE.Mesh(new THREE.BoxGeometry(0.028, 0.24, 0.016), trimMat),
+          );
+          group.add(prop);
+        }
+      }
+
+      const ringPositions = isIonCruiser ? [-0.34, 0, 0.34] : [-0.22, 0.22];
+      for (const rz of ringPositions) {
+        const levRing = new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.032, 7, 14), glowMat);
+        levRing.position.set(0, 0.34, rz);
+        group.add(levRing);
+      }
+
+      const lanternBridge = new THREE.Mesh(new THREE.OctahedronGeometry(0.14, 0), glassMat);
+      lanternBridge.scale.set(0.9, 1.1, 1.6);
+      lanternBridge.position.set(0, 0.22, -0.05);
+      group.add(lanternBridge);
+      return group;
+    }
+
+    if (isOrc) {
+      // Orc Waaagh-Blimp / Iron Dirigible / Plasma Sky-Kroozer
+      const orcBag = new THREE.MeshStandardMaterial({
+        color: isIonCruiser ? 0x27272a : 0x7f1d1d,
+        roughness: isIonCruiser ? 0.42 : 0.62,
+        metalness: isIonCruiser ? 0.72 : 0.28,
+      });
+      const balloon = new THREE.Mesh(
+        new THREE.CylinderGeometry(isIonCruiser ? 0.31 : 0.29, 0.25, isIonCruiser ? 1.26 : 1.12, 8),
+        orcBag,
+      );
+      balloon.rotation.x = Math.PI / 2;
+      balloon.position.set(0, 0.46, 0);
+      balloon.castShadow = true;
+      group.add(balloon);
+
+      for (const bz of [-0.32, 0, 0.32]) {
+        const ironBand = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.06, 8), trimMat);
+        ironBand.rotation.x = Math.PI / 2;
+        ironBand.position.set(0, 0.46, bz);
+        group.add(ironBand);
+      }
+      const jawNose = new THREE.Mesh(new THREE.ConeGeometry(0.26, 0.34, 5), trimMat);
+      jawNose.rotation.x = Math.PI / 2;
+      jawNose.position.set(0, 0.46, 0.68);
+      group.add(jawNose);
+
+      const warGondola = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.2, 0.68), trimMat);
+      warGondola.position.set(0, 0.14, 0.04);
+      warGondola.castShadow = true;
+      group.add(warGondola);
+      const slit = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.06, 0.04), glassMat);
+      slit.position.set(0, 0.16, 0.39);
+      group.add(slit);
+
+      if (isIonCruiser) {
+        for (const ex of [-0.32, 0.32]) {
+          const magmaPod = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.09, 0.42, 7), glowMat);
+          magmaPod.rotation.x = Math.PI / 2;
+          magmaPod.position.set(ex, 0.26, -0.06);
+          group.add(magmaPod);
+        }
+      } else if (isRigidZeppelin) {
+        for (const ex of [-0.26, 0.26]) {
+          const pod = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.075, 0.3, 6), bodyMat);
+          pod.rotation.x = Math.PI / 2;
+          pod.position.set(ex, 0.24, -0.08);
+          group.add(pod);
+          const prop = new THREE.Group();
+          prop.name = 'spin_prop';
+          prop.position.set(ex, 0.24, 0.1);
+          prop.add(
+            new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.036, 0.02), headlightMat),
+            new THREE.Mesh(new THREE.BoxGeometry(0.036, 0.26, 0.02), headlightMat),
+          );
+          group.add(prop);
+        }
+      }
+      return group;
+    }
+
+    // Human Rigid Zeppelin Dirigible (Epoch 3+) -> Ion Sky-Cruiser (Epoch 6+)
     const bagMat = new THREE.MeshStandardMaterial({
-      color: isElf
-        ? isIonCruiser
-          ? 0xd8f3dc
-          : 0x2ec4b6
-        : isIonCruiser
-          ? 0xe2e8f0
-          : isRigidZeppelin
-            ? 0x94a3b8
-            : 0xf4ecd8,
-      roughness: isIonCruiser ? 0.24 : isRigidZeppelin ? 0.36 : 0.62,
-      metalness: isIonCruiser ? 0.78 : isRigidZeppelin ? 0.55 : 0.12,
+      color: isIonCruiser ? 0xe2e8f0 : isRigidZeppelin ? 0x94a3b8 : 0xf4ecd8,
+      roughness: isIonCruiser ? 0.24 : isRigidZeppelin ? 0.36 : 0.68,
+      metalness: isIonCruiser ? 0.78 : isRigidZeppelin ? 0.55 : 0.08,
     });
     const envelope = new THREE.Mesh(
-      new THREE.CylinderGeometry(isIonCruiser ? 0.28 : 0.26, 0.22, isIonCruiser ? 1.32 : 1.18, 10),
+      new THREE.CylinderGeometry(isIonCruiser ? 0.28 : 0.26, 0.22, isIonCruiser ? 1.32 : isRigidZeppelin ? 1.24 : 0.96, 10),
       bagMat,
     );
     envelope.rotation.x = Math.PI / 2;
@@ -6278,21 +10597,21 @@ export function createVehicleGroup(
     group.add(envelope);
     const nose = new THREE.Mesh(new THREE.SphereGeometry(0.27, 8, 8), isIonCruiser ? glassMat : trimMat);
     nose.scale.set(1, 1, 1.25);
-    nose.position.set(0, 0.44, isIonCruiser ? 0.64 : 0.56);
+    nose.position.set(0, 0.44, isIonCruiser ? 0.64 : isRigidZeppelin ? 0.58 : 0.46);
     group.add(nose);
     const sternCone = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.34, 8), bagMat);
     sternCone.rotation.x = -Math.PI / 2;
-    sternCone.position.set(0, 0.44, -0.72);
+    sternCone.position.set(0, 0.44, isRigidZeppelin ? -0.74 : -0.62);
     group.add(sternCone);
-    const gondola = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.16, isRigidZeppelin ? 0.66 : 0.54), trimMat);
+    const gondola = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.16, isRigidZeppelin ? 0.66 : 0.44), trimMat);
     gondola.position.set(0, 0.12, 0.04);
     gondola.castShadow = true;
     group.add(gondola);
     const tailV = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.38, 0.24), bodyMat);
-    tailV.position.set(0, 0.44, -0.58);
+    tailV.position.set(0, 0.44, isRigidZeppelin ? -0.6 : -0.48);
     group.add(tailV);
     const tailH = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.04, 0.22), bodyMat);
-    tailH.position.set(0, 0.44, -0.58);
+    tailH.position.set(0, 0.44, isRigidZeppelin ? -0.6 : -0.48);
     group.add(tailH);
 
     if (isIonCruiser) {
@@ -6309,7 +10628,7 @@ export function createVehicleGroup(
       const bellyRing = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.04, 0.46), glowMat);
       bellyRing.position.set(0, 0.03, 0.02);
       group.add(bellyRing);
-    } else {
+    } else if (isRigidZeppelin) {
       for (const px of [-0.3, 0.3]) {
         const pod = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.06, 0.24, 7), trimMat);
         pod.rotation.x = Math.PI / 2;
@@ -6329,198 +10648,444 @@ export function createVehicleGroup(
   }
 
   if (type === 'orc_flyer') {
-    // Pure wingless Orc Armored Attack Gyro-Chopper (NO batWings! Top jagged X-rotor on spin_rotor + tail prop on spin_prop)
-    const isIronWaaagh = epochLevel >= 3 && epochLevel < 5;
+    // Orc Deff-Kopter Progression:
+    // Epoch 4 (Atomic): Skull-Cauldron Buzzsaw Chopper (iron skull core, jaw trap, bone tusks, 4-cleaver buzzsaw spin_rotor & rear spin_prop)
+    // Epoch 5+ (Info): Heavy Turbine Dread-Kopter (stub wings with 6-tube missile pods, twin jet turbine nacelles, 6-blade cleaver rotor, dual chin cannons)
     const isHeavyTurbine = epochLevel >= 5;
-    const hullMat = new THREE.MeshStandardMaterial({
-      color: isHeavyTurbine ? 0x27272a : isIronWaaagh ? 0x3f3f46 : 0x6b4423,
-      roughness: isHeavyTurbine ? 0.34 : 0.6,
-      metalness: isHeavyTurbine ? 0.72 : isIronWaaagh ? 0.58 : 0.18,
+    const ironMat = new THREE.MeshStandardMaterial({
+      color: isHeavyTurbine ? 0x111827 : 0x18181b,
+      roughness: isHeavyTurbine ? 0.38 : 0.62,
+      metalness: 0.82,
     });
     const bloodMat = new THREE.MeshStandardMaterial({
-      color: isHeavyTurbine ? 0xdc2626 : 0x9b2226,
-      roughness: 0.44,
-      metalness: isHeavyTurbine ? 0.45 : 0.28,
+      color: isHeavyTurbine ? 0xdc2626 : 0x991b1b,
+      roughness: 0.46,
+      metalness: 0.34,
     });
-    const chopperCab = new THREE.Mesh(
-      new THREE.BoxGeometry(isHeavyTurbine ? 0.36 : 0.3, 0.24, isHeavyTurbine ? 0.72 : 0.64),
-      hullMat,
+    const boneMat = new THREE.MeshStandardMaterial({ color: 0xe7e5e4, roughness: 0.44 });
+
+    const skullCore = new THREE.Mesh(
+      new THREE.DodecahedronGeometry(isHeavyTurbine ? 0.31 : 0.28, 0),
+      ironMat,
     );
-    chopperCab.position.set(0, 0.2, 0.08);
-    chopperCab.castShadow = true;
-    group.add(chopperCab);
+    skullCore.scale.set(1.22, 1.0, isHeavyTurbine ? 1.55 : 1.35);
+    skullCore.position.set(0, 0.25, 0.08);
+    skullCore.castShadow = true;
+    group.add(skullCore);
 
-    const visorSlit = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.065, 0.16), glassMat);
-    visorSlit.position.set(0, 0.26, 0.38);
-    group.add(visorSlit);
+    const ironJaw = new THREE.Mesh(new THREE.ConeGeometry(0.24, 0.34, 4), bloodMat);
+    ironJaw.rotation.x = Math.PI / 2;
+    ironJaw.rotation.y = Math.PI / 4;
+    ironJaw.position.set(0, 0.14, 0.46);
+    group.add(ironJaw);
 
-    // Jagged Iron Tusk Ram Prow
-    for (const tx of [-0.11, 0.11]) {
-      const tusk = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.26, 4), bloodMat);
-      tusk.rotation.x = Math.PI / 2 - 0.15;
-      tusk.position.set(tx, 0.15, 0.52);
-      group.add(tusk);
+    for (const sx of [-0.11, 0.11]) {
+      const eyeGlow = new THREE.Mesh(new THREE.OctahedronGeometry(0.055, 0), glowMat);
+      eyeGlow.position.set(sx, 0.3, 0.38);
+      group.add(eyeGlow);
     }
 
-    // Elevated Slanted Tail Boom + Jagged Fin
-    const tailBoom = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.11, 0.62), hullMat);
-    tailBoom.position.set(0, 0.24, -0.5);
-    group.add(tailBoom);
-    const tailFin = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.28, 0.18), bloodMat);
-    tailFin.position.set(0, 0.36, -0.76);
-    tailFin.rotation.x = -0.3;
-    group.add(tailFin);
+    for (const side of [-1, 1]) {
+      const megaTusk = new THREE.Mesh(new THREE.ConeGeometry(0.068, 0.46, 5), boneMat);
+      megaTusk.rotation.x = Math.PI / 2 - 0.32;
+      megaTusk.rotation.y = side * 0.28;
+      megaTusk.position.set(side * 0.22, 0.16, 0.56);
+      group.add(megaTusk);
 
-    // Armored Landing Claws & Sponson Rocket Racks (NO horizontal airplane wings!)
-    for (const sx of [-0.21, 0.21]) {
-      const skid = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.045, 0.62), trimMat);
-      skid.position.set(sx * 0.85, 0.05, 0.06);
-      group.add(skid);
+      const gatlingDrum = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.12, 0.5, 6), bloodMat);
+      gatlingDrum.rotation.x = Math.PI / 2;
+      gatlingDrum.position.set(side * 0.36, 0.22, 0.14);
+      group.add(gatlingDrum);
 
-      const rocketPod = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.065, 0.075, 0.34, 7),
-        isHeavyTurbine ? glowMat : bloodMat,
-      );
-      rocketPod.rotation.x = Math.PI / 2;
-      rocketPod.position.set(sx * 1.15, 0.18, 0.06);
-      group.add(rocketPod);
+      const exhaustPipe = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.06, 0.34, 6), ironMat);
+      exhaustPipe.position.set(side * 0.26, 0.44, -0.18);
+      exhaustPipe.rotation.x = -0.42;
+      exhaustPipe.rotation.z = -side * 0.25;
+      group.add(exhaustPipe);
 
-      if (isIronWaaagh || isHeavyTurbine) {
-        const exhaust = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.065, 0.24, 6), trimMat);
-        exhaust.rotation.x = Math.PI / 2;
-        exhaust.position.set(sx * 0.85, 0.32, -0.14);
-        group.add(exhaust);
+      if (isHeavyTurbine) {
+        const stubWing = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.06, 0.26), ironMat);
+        stubWing.position.set(side * 0.44, 0.22, 0.04);
+        group.add(stubWing);
+        const rocketPod = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.085, 0.44, 6), glowMat);
+        rocketPod.rotation.x = Math.PI / 2;
+        rocketPod.position.set(side * 0.6, 0.18, 0.12);
+        group.add(rocketPod);
+        const turbinePod = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.09, 0.42, 7), bloodMat);
+        turbinePod.rotation.x = Math.PI / 2;
+        turbinePod.position.set(side * 0.28, 0.36, -0.06);
+        group.add(turbinePod);
       }
     }
 
-    // Heavy Jagged Horizontal Top Rotor (spins around Y via name='spin_rotor')
-    const rotorMast = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.052, 0.18, 6), hullMat);
-    rotorMast.position.set(0, 0.38, 0.02);
-    group.add(rotorMast);
+    const tailChain = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.08, 0.58, 5), ironMat);
+    tailChain.rotation.x = Math.PI / 2;
+    tailChain.position.set(0, 0.25, -0.46);
+    group.add(tailChain);
 
     const mainRotor = new THREE.Group();
     mainRotor.name = 'spin_rotor';
-    mainRotor.position.set(0, 0.47, 0.02);
-    const boss = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.09, 5), bloodMat);
-    boss.position.y = 0.03;
-    mainRotor.add(boss);
-    const b1 = new THREE.Mesh(new THREE.BoxGeometry(isHeavyTurbine ? 1.32 : 1.12, 0.026, 0.09), trimMat);
-    const b2 = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.026, isHeavyTurbine ? 1.32 : 1.12), trimMat);
-    mainRotor.add(b1, b2);
+    mainRotor.position.set(0, 0.56, 0.04);
+    const sawRing = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.032, 5, 10), bloodMat);
+    sawRing.rotation.x = Math.PI / 2;
+    mainRotor.add(sawRing);
+    const bladeCount = isHeavyTurbine ? 6 : 4;
+    for (let bi = 0; bi < bladeCount; bi++) {
+      const ang = (bi * Math.PI * 2) / bladeCount;
+      const cleaverBlade = new THREE.Mesh(new THREE.ConeGeometry(0.14, isHeavyTurbine ? 0.88 : 0.78, 3), ironMat);
+      cleaverBlade.rotation.x = Math.PI / 2;
+      cleaverBlade.rotation.z = ang;
+      cleaverBlade.scale.set(1, 1, 0.22);
+      cleaverBlade.position.set(Math.sin(ang) * 0.4, 0, Math.cos(ang) * 0.4);
+      mainRotor.add(cleaverBlade);
+    }
     group.add(mainRotor);
 
-    // Side Tail Rotor (spins via name='spin_prop')
     const tailRotor = new THREE.Group();
     tailRotor.name = 'spin_prop';
-    tailRotor.position.set(0.06, 0.38, -0.78);
+    tailRotor.position.set(0.08, 0.28, -0.74);
     tailRotor.rotation.y = Math.PI / 2;
-    tailRotor.add(
-      new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.03, 0.018), bloodMat),
-      new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.24, 0.018), bloodMat),
-    );
+    const buzzDisc = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.025, 7), bloodMat);
+    buzzDisc.rotation.x = Math.PI / 2;
+    tailRotor.add(buzzDisc);
     group.add(tailRotor);
     return group;
   }
 
   if (type === 'bomber_plane') {
-    // Fixed-wing Strategic Bomber (Epoch 4 Heavy Prop -> Epoch 5 Stealth Jet -> Epoch 6+ Plasma Delta). ZERO top helicopter rotors!
+    // Fixed-wing Strategic Bomber (Epoch 4 Atomic Prop -> Epoch 5 Info Stealth Jet -> Epoch 6 Orbital Plasma -> Epoch 7 Star Over-Bomber)
+    const isAtomicProp = epochLevel <= 4;
     const isStealth = epochLevel === 5;
     const isPlasmaBomber = epochLevel >= 6;
+    const isStarBomber = epochLevel >= 7;
+
+    if (isElf) {
+      // Elf Aerial Heavy Bombers:
+      // 4 (Atomic): Sylvan Twin-Prop Sky-Swan (carved ivory/teal bird-hull + dual golden spin_prop engine pods)
+      // 5 (Info): Stealth Crescent Void-Wing (dark emerald/gold razor flying-wing, ZERO props)
+      // 6+ (Orbital/Star): Astral Phoenix Star-Bomber (+ glowing sun-orb, forward canards, golden crown halo + Epoch 7 twin plasma lances)
+      const hullMat = new THREE.MeshStandardMaterial({
+        color: isPlasmaBomber ? 0xd8f3dc : isStealth ? 0x0f766e : 0xfefae0,
+        roughness: isPlasmaBomber ? 0.2 : 0.28,
+        metalness: isStealth || isPlasmaBomber ? 0.56 : 0.34,
+      });
+      const goldMat = new THREE.MeshStandardMaterial({ color: 0xffb703, roughness: 0.2, metalness: 0.86 });
+
+      const spine = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.095, 0.065, isPlasmaBomber ? 1.44 : 1.32, 8),
+        hullMat,
+      );
+      spine.rotation.x = Math.PI / 2;
+      spine.scale.set(1.2, 0.72, 1);
+      spine.position.set(0, 0.24, 0);
+      spine.castShadow = true;
+      group.add(spine);
+
+      const crystalNose = new THREE.Mesh(new THREE.OctahedronGeometry(0.11, 0), isStealth ? glassMat : glowMat);
+      crystalNose.scale.set(0.8, 0.75, 2.2);
+      crystalNose.position.set(0, 0.24, 0.74);
+      group.add(crystalNose);
+
+      for (const side of [-1, 1]) {
+        const innerSwept = new THREE.Mesh(
+          new THREE.BoxGeometry(isStealth ? 0.92 : 0.76, 0.038, isStealth ? 0.42 : 0.32),
+          hullMat,
+        );
+        innerSwept.position.set(side * 0.44, 0.24, isStealth ? -0.06 : 0.04);
+        innerSwept.rotation.y = -side * (isStealth ? 0.54 : 0.34);
+        innerSwept.rotation.z = side * 0.08;
+        innerSwept.castShadow = true;
+        group.add(innerSwept);
+
+        if (isAtomicProp) {
+          // Twin Sylvan Gold-Crystal Propeller Pods
+          const pod = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.065, 0.28, 7), goldMat);
+          pod.rotation.x = Math.PI / 2;
+          pod.position.set(side * 0.38, 0.22, 0.14);
+          group.add(pod);
+          const prop = new THREE.Group();
+          prop.name = 'spin_prop';
+          prop.position.set(side * 0.38, 0.22, 0.3);
+          prop.add(
+            new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.03, 0.016), goldMat),
+            new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.28, 0.016), goldMat),
+          );
+          group.add(prop);
+          const ribbonFin = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.44, 4), goldMat);
+          ribbonFin.rotation.x = -Math.PI / 2 + 0.15;
+          ribbonFin.position.set(side * 0.14, 0.26, -0.62);
+          group.add(ribbonFin);
+        } else {
+          const outerTip = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.026, 0.16), trimMat);
+          outerTip.position.set(side * 0.88, 0.27, -0.24);
+          outerTip.rotation.y = -side * 0.68;
+          group.add(outerTip);
+
+          const haloFin = new THREE.Mesh(new THREE.BoxGeometry(0.036, 0.26, 0.24), glowMat);
+          haloFin.position.set(side * 0.32, 0.36, -0.44);
+          haloFin.rotation.z = -side * 0.35;
+          group.add(haloFin);
+
+          if (isPlasmaBomber) {
+            const forwardCanard = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.028, 0.12), trimMat);
+            forwardCanard.position.set(side * 0.19, 0.25, 0.44);
+            forwardCanard.rotation.y = -side * 0.32;
+            group.add(forwardCanard);
+          }
+          if (isStarBomber) {
+            const wingLance = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.03, 0.56, 6), glowMat);
+            wingLance.rotation.x = Math.PI / 2;
+            wingLance.position.set(side * 0.62, 0.22, 0.18);
+            group.add(wingLance);
+          }
+        }
+      }
+      if (isPlasmaBomber) {
+        const bellyOrb = new THREE.Mesh(new THREE.OctahedronGeometry(0.14, 0), glowMat);
+        bellyOrb.position.set(0, 0.14, 0.02);
+        group.add(bellyOrb);
+        const dorsalHalo = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.022, 6, 14), goldMat);
+        dorsalHalo.position.set(0, 0.38, -0.08);
+        dorsalHalo.rotation.x = Math.PI / 3;
+        group.add(dorsalHalo);
+      }
+      return group;
+    }
+
+    if (isOrc) {
+      // Orc Heavy Bombers:
+      // 4 (Atomic): Twin-Boom Wazbom Prop Fortress (iron center crew pod + giant booms + spin_prop + belly bomb)
+      // 5 (Info): Swept Red-Baron Jet Marauder (swept crimson delta wings + bone tusks + twin jet afterburners)
+      // 6+ (Orbital/Star): Magma Plasma Dread-Bomber (dark steel armored flying wedge + glowing magma wing edges + triple horns + Epoch 7 dorsal cannon)
+      const orcMetal = new THREE.MeshStandardMaterial({
+        color: isPlasmaBomber ? 0x18181b : isStealth ? 0x27272a : 0x3f3f46,
+        roughness: 0.42,
+        metalness: 0.74,
+      });
+      const boneMat = new THREE.MeshStandardMaterial({ color: 0xe7e5e4, roughness: 0.42 });
+
+      if (isAtomicProp) {
+        const mainPlank = new THREE.Mesh(new THREE.BoxGeometry(1.74, 0.06, 0.4), bodyMat);
+        mainPlank.position.set(0, 0.24, 0.06);
+        mainPlank.castShadow = true;
+        group.add(mainPlank);
+
+        const centerPod = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.2, 0.84), orcMetal);
+        centerPod.position.set(0, 0.24, 0.24);
+        group.add(centerPod);
+        const slit = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.07, 0.16), glassMat);
+        slit.position.set(0, 0.3, 0.48);
+        group.add(slit);
+        const bellyBomb = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.54, 7), glowMat);
+        bellyBomb.rotation.x = Math.PI / 2;
+        bellyBomb.position.set(0, 0.1, 0.18);
+        group.add(bellyBomb);
+
+        for (const bx of [-0.46, 0.46]) {
+          const boom = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.14, 1.18), orcMetal);
+          boom.position.set(bx, 0.24, -0.1);
+          boom.castShadow = true;
+          group.add(boom);
+
+          const tailSpikeFin = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.3, 0.22), bodyMat);
+          tailSpikeFin.position.set(bx, 0.38, -0.62);
+          group.add(tailSpikeFin);
+
+          const prop = new THREE.Group();
+          prop.name = 'spin_prop';
+          prop.position.set(bx, 0.24, 0.5);
+          prop.add(
+            new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.04, 0.02), headlightMat),
+            new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.32, 0.02), headlightMat),
+          );
+          group.add(prop);
+        }
+        const tailBridge = new THREE.Mesh(new THREE.BoxGeometry(0.96, 0.05, 0.18), bodyMat);
+        tailBridge.position.set(0, 0.26, -0.64);
+        group.add(tailBridge);
+        return group;
+      }
+
+      // Epoch 5 Jet Marauder OR Epoch 6+ Magma Dread-Bomber
+      const fuseBody = new THREE.Mesh(new THREE.DodecahedronGeometry(0.22, 0), orcMetal);
+      fuseBody.scale.set(1.1, 0.72, isPlasmaBomber ? 3.2 : 2.8);
+      fuseBody.position.set(0, 0.24, 0);
+      fuseBody.castShadow = true;
+      group.add(fuseBody);
+
+      const slit = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.06, 0.16), glassMat);
+      slit.position.set(0, 0.31, 0.46);
+      group.add(slit);
+
+      for (const side of [-1, 1]) {
+        const sweptWing = new THREE.Mesh(
+          new THREE.BoxGeometry(isPlasmaBomber ? 0.96 : 0.84, 0.055, isPlasmaBomber ? 0.52 : 0.4),
+          isPlasmaBomber ? orcMetal : bodyMat,
+        );
+        sweptWing.position.set(side * 0.52, 0.24, -0.06);
+        sweptWing.rotation.y = -side * (isPlasmaBomber ? 0.52 : 0.44);
+        sweptWing.castShadow = true;
+        group.add(sweptWing);
+
+        const noseTusk = new THREE.Mesh(new THREE.ConeGeometry(0.055, 0.34, 4), boneMat);
+        noseTusk.rotation.x = Math.PI / 2;
+        noseTusk.position.set(side * 0.16, 0.2, 0.74);
+        group.add(noseTusk);
+
+        const cantedFin = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.28, 0.24), bodyMat);
+        cantedFin.position.set(side * 0.34, 0.38, -0.56);
+        cantedFin.rotation.z = side * 0.42;
+        group.add(cantedFin);
+
+        const jetPod = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.085, 0.42, 7), orcMetal);
+        jetPod.rotation.x = Math.PI / 2;
+        jetPod.position.set(side * 0.44, 0.18, -0.08);
+        group.add(jetPod);
+
+        const flame = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.3, 6), glowMat);
+        flame.rotation.x = -Math.PI / 2;
+        flame.position.set(side * 0.44, 0.18, -0.4);
+        group.add(flame);
+
+        if (isPlasmaBomber) {
+          const magmaEdge = new THREE.Mesh(new THREE.BoxGeometry(0.88, 0.028, 0.08), glowMat);
+          magmaEdge.position.set(side * 0.52, 0.24, 0.14);
+          magmaEdge.rotation.y = -side * 0.52;
+          group.add(magmaEdge);
+        }
+      }
+      if (isStarBomber) {
+        const dorsalGun = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.055, 0.56, 6), glowMat);
+        dorsalGun.rotation.x = Math.PI / 2;
+        dorsalGun.position.set(0, 0.42, 0.18);
+        group.add(dorsalGun);
+      }
+      return group;
+    }
+
+    // Human Strategic Bomber:
+    // 4 (Atomic): 4-Engine Heavy Prop Fortress (metallic fuselage, glass nose, twin-fin H-tail, 4 spin_prop nacelles)
+    // 5 (Info): B-2 Stealth Flying Wing (dark matte cranked delta wing blending into fuselage, NO tail fins!)
+    // 6+ (Orbital/Star): Plasma Delta Lancer (silver hypersonic delta + forward canards + glowing cyan twin plasma nacelles + Epoch 7 wingtip rail-lances)
     const hullMat = new THREE.MeshStandardMaterial({
-      color: isElf
-        ? isPlasmaBomber
-          ? 0xd8f3dc
-          : 0x3a0ca3
-        : isOrc
-          ? 0x450a0a
-          : isPlasmaBomber
-            ? 0xf1f5f9
-            : isStealth
-              ? 0x1e293b
-              : 0x64748b,
+      color: isPlasmaBomber ? 0xf1f5f9 : isStealth ? 0x1e293b : 0x64748b,
       roughness: isPlasmaBomber ? 0.22 : isStealth ? 0.32 : 0.4,
       metalness: isPlasmaBomber ? 0.78 : 0.62,
     });
 
-    // Tapered fuselage body + pointed/glass bomber nose
+    if (isStealth) {
+      // Epoch 5 Info: True Tailless B-2 Stealth Flying Wing
+      const centerWing = new THREE.Mesh(new THREE.ConeGeometry(0.56, 0.92, 4), hullMat);
+      centerWing.rotation.x = Math.PI / 2;
+      centerWing.rotation.y = Math.PI / 4;
+      centerWing.scale.set(1.45, 0.22, 1);
+      centerWing.position.set(0, 0.24, 0.06);
+      centerWing.castShadow = true;
+      group.add(centerWing);
+
+      const canopy = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.07, 0.26), glassMat);
+      canopy.position.set(0, 0.3, 0.24);
+      group.add(canopy);
+
+      for (const side of [-1, 1]) {
+        const outerWing = new THREE.Mesh(new THREE.BoxGeometry(1.04, 0.048, 0.44), hullMat);
+        outerWing.position.set(side * 0.54, 0.23, -0.08);
+        outerWing.rotation.y = -side * 0.54;
+        outerWing.castShadow = true;
+        group.add(outerWing);
+
+        const exhaust = new THREE.Mesh(new THREE.ConeGeometry(0.065, 0.22, 6), glowMat);
+        exhaust.rotation.x = -Math.PI / 2;
+        exhaust.position.set(side * 0.26, 0.24, -0.34);
+        group.add(exhaust);
+      }
+      return group;
+    }
+
     const fuselage = new THREE.Mesh(
-      new THREE.CylinderGeometry(isStealth ? 0.14 : 0.15, isStealth ? 0.1 : 0.12, 1.24, 8),
+      new THREE.CylinderGeometry(isPlasmaBomber ? 0.13 : 0.15, 0.11, isPlasmaBomber ? 1.36 : 1.24, 8),
       hullMat,
     );
     fuselage.rotation.x = Math.PI / 2;
-    fuselage.scale.set(isStealth ? 1.35 : 1.05, 1, 0.85);
+    fuselage.scale.set(1.05, 1, 0.85);
     fuselage.position.set(0, 0.24, 0);
     fuselage.castShadow = true;
     group.add(fuselage);
 
-    const noseCone = new THREE.Mesh(new THREE.ConeGeometry(0.14, 0.32, 8), isStealth ? hullMat : glassMat);
+    const noseCone = new THREE.Mesh(new THREE.ConeGeometry(0.14, 0.34, 8), isPlasmaBomber ? hullMat : glassMat);
     noseCone.rotation.x = Math.PI / 2;
     noseCone.position.set(0, 0.24, 0.72);
     group.add(noseCone);
 
-    // Swept Left & Right Wing Panels (dramatic delta / swept bomber silhouette!)
-    const sweepAngle = isStealth || isPlasmaBomber ? 0.48 : 0.24;
-    const halfSpan = isStealth || isPlasmaBomber ? 0.94 : 0.86;
+    const halfSpan = isPlasmaBomber ? 0.96 : 0.88;
     for (const side of [-1, 1]) {
       const wingPanel = new THREE.Mesh(
-        new THREE.BoxGeometry(halfSpan, 0.048, isStealth || isPlasmaBomber ? 0.46 : 0.34),
-        isStealth ? hullMat : bodyMat,
+        new THREE.BoxGeometry(halfSpan, 0.048, isPlasmaBomber ? 0.48 : 0.34),
+        isPlasmaBomber ? hullMat : bodyMat,
       );
-      wingPanel.position.set(side * (halfSpan * 0.5 + 0.06), 0.24, isStealth ? -0.1 : 0.02);
-      wingPanel.rotation.y = -side * sweepAngle;
+      wingPanel.position.set(side * (halfSpan * 0.5 + 0.06), 0.24, isPlasmaBomber ? -0.1 : 0.02);
+      wingPanel.rotation.y = -side * (isPlasmaBomber ? 0.52 : 0.22);
       wingPanel.castShadow = true;
       group.add(wingPanel);
 
-      const winglet = new THREE.Mesh(
-        new THREE.BoxGeometry(0.038, 0.14, 0.24),
-        isPlasmaBomber ? glowMat : trimMat,
-      );
-      winglet.position.set(side * (halfSpan + 0.02), 0.29, isStealth ? -0.28 : -0.1);
+      const winglet = new THREE.Mesh(new THREE.BoxGeometry(0.038, 0.16, 0.24), isPlasmaBomber ? glowMat : trimMat);
+      winglet.position.set(side * (halfSpan + 0.02), 0.29, isPlasmaBomber ? -0.28 : -0.1);
       group.add(winglet);
+
+      if (isPlasmaBomber) {
+        const canard = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.03, 0.12), trimMat);
+        canard.position.set(side * 0.2, 0.24, 0.46);
+        canard.rotation.y = -side * 0.36;
+        group.add(canard);
+      }
+      if (isStarBomber) {
+        const railPod = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.036, 0.52, 6), glowMat);
+        railPod.rotation.x = Math.PI / 2;
+        railPod.position.set(side * (halfSpan + 0.02), 0.24, 0.08);
+        group.add(railPod);
+      }
     }
 
     const cockpit = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.09, 0.28), glassMat);
     cockpit.position.set(0, 0.34, 0.38);
     group.add(cockpit);
 
-    // Belly Bomb Bay Pod
     const bombBay = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.09, 0.52), trimMat);
     bombBay.position.set(0, 0.14, 0.02);
     group.add(bombBay);
 
-    // Swept Tailplane & Twin Tail Fins (Epoch 4) or Canted V-Tails (Stealth/Plasma)
     for (const side of [-1, 1]) {
       const hTail = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.04, 0.18), bodyMat);
       hTail.position.set(side * 0.18, 0.26, -0.52);
       hTail.rotation.y = -side * 0.3;
       group.add(hTail);
 
-      const twinFin = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.24, 0.22), isStealth ? hullMat : bodyMat);
+      const twinFin = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.24, 0.22), isPlasmaBomber ? hullMat : bodyMat);
       twinFin.position.set(side * 0.26, 0.37, -0.52);
-      twinFin.rotation.z = side * (isStealth || isPlasmaBomber ? 0.35 : 0);
+      twinFin.rotation.z = side * (isPlasmaBomber ? 0.35 : 0);
       group.add(twinFin);
     }
 
-    // Engine Nacelles: Spinning 2-blade Propellers (Epoch 4) vs Afterburners (Epoch 5+)
-    for (const ex of [-0.46, 0.46]) {
+    const engineXs = isAtomicProp ? [-0.68, -0.36, 0.36, 0.68] : [-0.46, 0.46];
+    for (const ex of engineXs) {
       const eng = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.065, 0.078, 0.32, 8),
+        new THREE.CylinderGeometry(0.06, 0.072, 0.3, 8),
         isPlasmaBomber ? glowMat : trimMat,
       );
       eng.rotation.x = Math.PI / 2;
       eng.position.set(ex, 0.2, 0.06);
       group.add(eng);
-      if (!isStealth && !isPlasmaBomber) {
+      if (isAtomicProp) {
         const prop = new THREE.Group();
         prop.name = 'spin_prop';
-        prop.position.set(ex, 0.2, 0.24);
+        prop.position.set(ex, 0.2, 0.23);
         prop.add(
-          new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.032, 0.018), headlightMat),
-          new THREE.Mesh(new THREE.BoxGeometry(0.032, 0.28, 0.018), headlightMat),
+          new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.028, 0.016), headlightMat),
+          new THREE.Mesh(new THREE.BoxGeometry(0.028, 0.24, 0.016), headlightMat),
         );
         group.add(prop);
       } else {
-        const exhaustGlow = new THREE.Mesh(new THREE.ConeGeometry(0.068, 0.22, 6), glowMat);
+        const exhaustGlow = new THREE.Mesh(new THREE.ConeGeometry(0.068, 0.24, 6), glowMat);
         exhaustGlow.rotation.x = -Math.PI / 2;
         exhaustGlow.position.set(ex, 0.2, -0.18);
         group.add(exhaustGlow);
@@ -6531,8 +11096,104 @@ export function createVehicleGroup(
 
   if (type === 'orbital_gunship') {
     const isSuperDreadnought = epochLevel >= 7;
+
+    if (isElf) {
+      // Elf Astral Arch-Seraph: Needle crystal hull encircled by a vertical/canted golden halo ring & quadruple feather-vanes
+      const alloyHull = new THREE.MeshStandardMaterial({ color: 0xd8f3dc, roughness: 0.2, metalness: 0.72 });
+      const needle = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.08, isSuperDreadnought ? 1.56 : 1.38, 8), alloyHull);
+      needle.rotation.x = Math.PI / 2;
+      needle.scale.set(1.15, 0.75, 1);
+      needle.position.y = 0.24;
+      needle.castShadow = true;
+      group.add(needle);
+
+      const spearTip = new THREE.Mesh(new THREE.OctahedronGeometry(0.14, 0), glowMat);
+      spearTip.scale.set(0.8, 0.65, 2.5);
+      spearTip.position.set(0, 0.24, isSuperDreadnought ? 0.92 : 0.82);
+      group.add(spearTip);
+
+      // Halo Ring around mid-hull
+      const haloRing = new THREE.Mesh(new THREE.TorusGeometry(0.36, 0.032, 7, 16), trimMat);
+      haloRing.position.set(0, 0.26, -0.1);
+      group.add(haloRing);
+
+      for (const side of [-1, 1]) {
+        const upperFeather = new THREE.Mesh(new THREE.BoxGeometry(0.86, 0.032, 0.26), trimMat);
+        upperFeather.position.set(side * 0.48, 0.32, -0.14);
+        upperFeather.rotation.y = -side * 0.48;
+        upperFeather.rotation.z = side * 0.26;
+        group.add(upperFeather);
+
+        const lowerFeather = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.03, 0.22), glowMat);
+        lowerFeather.position.set(side * 0.4, 0.16, -0.06);
+        lowerFeather.rotation.y = -side * 0.42;
+        lowerFeather.rotation.z = -side * 0.18;
+        group.add(lowerFeather);
+
+        const starLance = new THREE.Mesh(new THREE.CylinderGeometry(0.026, 0.035, 0.56, 6), glowMat);
+        starLance.rotation.x = Math.PI / 2;
+        starLance.position.set(side * 0.34, 0.22, 0.32);
+        group.add(starLance);
+      }
+
+      if (isSuperDreadnought) {
+        const crownHalo = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.024, 6, 12), glowMat);
+        crownHalo.position.set(0, 0.46, -0.2);
+        crownHalo.rotation.x = Math.PI / 3;
+        group.add(crownHalo);
+      }
+      return group;
+    }
+
+    if (isOrc) {
+      // Orc Orbital Ironclad Kroozer: brutalist hammerhead prow + armored casemate wings + heavy plasma broadside
+      const orcSteel = new THREE.MeshStandardMaterial({ color: 0x27272a, roughness: 0.32, metalness: 0.84 });
+      const coreBlock = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.28, isSuperDreadnought ? 1.44 : 1.28), orcSteel);
+      coreBlock.position.y = 0.24;
+      coreBlock.castShadow = true;
+      group.add(coreBlock);
+
+      const hammerProw = new THREE.Mesh(new THREE.BoxGeometry(0.76, 0.24, 0.32), bodyMat);
+      hammerProw.position.set(0, 0.24, isSuperDreadnought ? 0.76 : 0.68);
+      group.add(hammerProw);
+
+      for (const side of [-1, 1]) {
+        const prowTusk = new THREE.Mesh(new THREE.ConeGeometry(0.065, 0.3, 4), trimMat);
+        prowTusk.rotation.x = Math.PI / 2;
+        prowTusk.position.set(side * 0.28, 0.24, isSuperDreadnought ? 0.98 : 0.88);
+        group.add(prowTusk);
+
+        const armoredWing = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.1, 0.54), orcSteel);
+        armoredWing.position.set(side * 0.52, 0.22, -0.14);
+        armoredWing.castShadow = true;
+        group.add(armoredWing);
+
+        const megaCannon = new THREE.Mesh(new THREE.CylinderGeometry(0.052, 0.062, 0.58, 6), glowMat);
+        megaCannon.rotation.x = Math.PI / 2;
+        megaCannon.position.set(side * 0.62, 0.24, 0.26);
+        group.add(megaCannon);
+
+        const sideThruster = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.11, 0.28, 7), glowMat);
+        sideThruster.rotation.x = Math.PI / 2;
+        sideThruster.position.set(side * 0.44, 0.22, isSuperDreadnought ? -0.78 : -0.7);
+        group.add(sideThruster);
+      }
+
+      const bridgeCitadel = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.18, 0.42), bodyMat);
+      bridgeCitadel.position.set(0, 0.44, -0.16);
+      group.add(bridgeCitadel);
+      if (isSuperDreadnought) {
+        const dorsalMegaGun = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.07, 0.68, 6), glowMat);
+        dorsalMegaGun.rotation.x = Math.PI / 2;
+        dorsalMegaGun.position.set(0, 0.48, 0.22);
+        group.add(dorsalMegaGun);
+      }
+      return group;
+    }
+
+    // Human Orbital Gunship -> Super-Dreadnought
     const alloyHull = new THREE.MeshStandardMaterial({
-      color: isOrc ? 0x27272a : isElf ? 0xd8f3dc : 0xe2e8f0,
+      color: 0xe2e8f0,
       roughness: 0.22,
       metalness: 0.82,
     });
@@ -6566,7 +11227,6 @@ export function createVehicleGroup(
       railCannon.position.set(side * 0.52, 0.22, 0.3);
       group.add(railCannon);
 
-      // VTOL antigrav / ducted hover ring pods
       const vtolPod = new THREE.Mesh(new THREE.TorusGeometry(0.11, 0.028, 6, 10), glowMat);
       vtolPod.rotation.x = Math.PI / 2;
       vtolPod.position.set(side * 0.36, 0.18, -0.06);
@@ -6594,13 +11254,12 @@ export function createVehicleGroup(
     return group;
   }
 
-  // Civilian Aircraft ('plane') aligned +Z forward with streamlined cylindrical cabin & swept X wingspan
+  // Civilian Aircraft ('plane') aligned +Z forward with streamlined cylindrical cabin & swept X wingspan + subtle racial accents
   const fuselageMat = isElf ? bodyMat : isOrc ? trimMat : new THREE.MeshStandardMaterial({ color: 0xf1f5f9, roughness: 0.32, metalness: 0.35 });
   const wingMat = bodyMat;
   const isProp = epochLevel <= 4;
   const isOrbitalShuttle = epochLevel >= 6;
 
-  // Streamlined Cylindrical Fuselage + Tapered Tail
   const fuselage = new THREE.Mesh(
     new THREE.CylinderGeometry(isOrbitalShuttle ? 0.12 : 0.105, isOrbitalShuttle ? 0.1 : 0.085, isOrbitalShuttle ? 0.96 : 1.06, 10),
     fuselageMat,
@@ -6610,18 +11269,28 @@ export function createVehicleGroup(
   fuselage.castShadow = true;
   group.add(fuselage);
 
-  // Nose cone
   const nose = new THREE.Mesh(new THREE.ConeGeometry(0.11, 0.26, 8), fuselageMat);
   nose.rotation.x = Math.PI / 2;
   nose.position.set(0, 0.2, 0.64);
   group.add(nose);
 
-  // Cockpit glass
+  if (isElf) {
+    const crestRing = new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.018, 6, 12), trimMat);
+    crestRing.position.set(0, 0.2, 0.12);
+    group.add(crestRing);
+  } else if (isOrc) {
+    for (const tx of [-0.09, 0.09]) {
+      const tusk = new THREE.Mesh(new THREE.ConeGeometry(0.032, 0.18, 4), trimMat);
+      tusk.rotation.x = Math.PI / 2;
+      tusk.position.set(tx, 0.17, 0.62);
+      group.add(tusk);
+    }
+  }
+
   const cockpit = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.08, 0.2), glassMat);
   cockpit.position.set(0, 0.27, 0.42);
   group.add(cockpit);
 
-  // Swept Left & Right Wings with slight upward dihedral
   const wingSpan = isOrbitalShuttle ? 1.18 : 1.38;
   for (const side of [-1, 1]) {
     const wingPanel = new THREE.Mesh(new THREE.BoxGeometry(wingSpan * 0.48, 0.042, 0.28), wingMat);
@@ -6636,7 +11305,6 @@ export function createVehicleGroup(
     group.add(wTip);
   }
 
-  // Swept Tailplane + Vertical Stabilizer
   for (const side of [-1, 1]) {
     const hTail = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.035, 0.14), wingMat);
     hTail.position.set(side * 0.15, 0.22, -0.44);
@@ -6649,7 +11317,6 @@ export function createVehicleGroup(
   vTail.castShadow = true;
   group.add(vTail);
 
-  // Engines (Propellers in Atomic vs Twin Jet Pods / Plasma Thrusters in Info/Orbital)
   for (const ex of [-0.34, 0.34]) {
     const pod = new THREE.Mesh(
       new THREE.CylinderGeometry(0.055, 0.06, 0.24, 8),
@@ -6671,7 +11338,6 @@ export function createVehicleGroup(
     }
   }
 
-  // Wingtip Navigation Lights (Red port / Emerald starboard)
   const portLight = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.04, 0.05), taillightMat);
   portLight.position.set(-wingSpan * 0.5, 0.21, -0.06);
   group.add(portLight);

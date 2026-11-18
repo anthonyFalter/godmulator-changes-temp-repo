@@ -5,9 +5,20 @@ import {
   X,
 } from 'lucide-react';
 import { getEntityInspectProfile, isIntrinsicGene } from '../game/entityInspector';
-import { SimulationState, UnitEntity, UnitStatusEffect, ZoneToggleState } from '../game/types';
+import { Resources, SimulationState, UnitEntity, UnitStatusEffect, ZoneToggleState } from '../game/types';
 import { TileZoneInspection } from '../game/zones';
-import { UnitPixelIcon } from './GameIcons';
+import { ResourceIconSvg, UnitPixelIcon } from './GameIcons';
+
+const INSPECT_RESOURCE_KEYS: { key: keyof Resources; label: string }[] = [
+  { key: 'food', label: 'Food' },
+  { key: 'wood', label: 'Wood' },
+  { key: 'stone', label: 'Stone' },
+  { key: 'ore', label: 'Ore' },
+  { key: 'knowledge', label: 'Lore' },
+  { key: 'energy', label: 'Energy' },
+  { key: 'alloy', label: 'Alloy' },
+  { key: 'faith', label: 'Faith' },
+];
 
 interface EntityInspectorCardProps {
   sim: SimulationState;
@@ -54,6 +65,7 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
   onFocusUnit,
 }) => {
   const [activeTab, setActiveTab] = useState<InspectorTab>('profile');
+  const [minimized, setMinimized] = useState<boolean>(false);
 
   const displayUnit = hoveredUnit ?? selectedUnit;
   const isSelectedDisplayed = Boolean(
@@ -64,11 +76,24 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
   );
   const profile = displayUnit ? getEntityInspectProfile(sim, displayUnit) : null;
 
+  if (minimized) {
+    return (
+      <button
+        type="button"
+        data-testid="entity-inspector-expand"
+        onClick={() => setMinimized(false)}
+        className="pointer-events-auto px-panel px-2.5 py-1.5 text-xs font-bold text-[#f5b742] cursor-pointer self-start shrink-0"
+      >
+        {profile ? `Inspect: ${profile.name}` : 'Inspect ▾'}
+      </button>
+    );
+  }
+
   return (
     <aside
       aria-label="Entity Information"
       data-testid="entity-inspector-panel"
-      className="pointer-events-auto fixed left-3 top-20 z-20 w-[316px] max-h-[calc(100vh-10rem)] px-panel p-4 flex flex-col gap-3.5 overflow-y-auto"
+      className="pointer-events-auto absolute left-0 top-0 z-10 w-[min(316px,100%)] max-h-full px-panel p-2.5 sm:p-4 flex flex-col gap-2.5 sm:gap-3.5 overflow-y-auto"
     >
       {profile && displayUnit ? (
         <>
@@ -428,74 +453,121 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
           )}
         </>
       ) : (
-        <div className="space-y-2.5 text-xs text-[#cfc6b8]" data-testid="zone-inspector-content">
-          <h2 className="font-bold text-[#f5b742] text-sm">Inspect Tool</h2>
+        <div className="space-y-2 text-xs text-[#cfc6b8]" data-testid="zone-inspector-content">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="font-bold text-[#f5b742] text-sm">Inspect Tool</h2>
+            <button
+              type="button"
+              onClick={() => setMinimized(true)}
+              className="md:hidden px-btn px-2 py-0.5 text-[11px] text-[#b8afa2] cursor-pointer"
+              aria-label="Minimize Inspector"
+            >
+              Hide
+            </button>
+          </div>
 
-          {hoveredZoneInfo &&
-          ((activeZones?.kingdoms && hoveredZoneInfo.kingdom) ||
-            (activeZones?.territories && hoveredZoneInfo.territory) ||
-            (activeZones?.biomes && hoveredZoneInfo.biomeZone) ||
-            (activeZones?.temperature && hoveredZoneInfo.temperatureZone)) ? (
-            <div className="space-y-2">
-              {activeZones?.kingdoms && hoveredZoneInfo.kingdom && (
-                <div
-                  className="bg-[#191613] px-3 py-2 border-l-4 flex items-center justify-between gap-2"
-                  style={{ borderLeftColor: hoveredZoneInfo.kingdom.hexColor }}
-                  data-testid="inspect-zone-kingdom"
-                >
-                  <span className="font-bold text-[#f2ece1] truncate">
-                    {hoveredZoneInfo.kingdom.name}
-                  </span>
-                  <span className="font-pixel-num text-xs font-bold text-[#80ed99] tabular-nums shrink-0">
-                    Pop {hoveredZoneInfo.kingdom.population}
-                  </span>
-                </div>
-              )}
+          {(() => {
+            const otherZonesOnly =
+              !activeZones?.kingdoms &&
+              !activeZones?.alliances &&
+              Boolean(
+                activeZones?.territories || activeZones?.biomes || activeZones?.temperature,
+              );
+            const showKingdomCard = Boolean(hoveredZoneInfo?.kingdom && !otherZonesOnly);
+            const showAnyZone = Boolean(
+              hoveredZoneInfo &&
+                (showKingdomCard ||
+                  (activeZones?.territories && hoveredZoneInfo.territory) ||
+                  (activeZones?.biomes && hoveredZoneInfo.biomeZone) ||
+                  (activeZones?.temperature && hoveredZoneInfo.temperatureZone)),
+            );
+            if (!showAnyZone || !hoveredZoneInfo) {
+              return (
+                <p className="text-xs text-[#a89f91]">
+                  Hover or tap on a unit, city, or zone to see stats!
+                </p>
+              );
+            }
+            return (
+              <div className="space-y-2">
+                {showKingdomCard && hoveredZoneInfo.kingdom && (
+                  <div
+                    className="bg-[#191613] px-3 py-2 border-l-4 space-y-2"
+                    style={{ borderLeftColor: hoveredZoneInfo.kingdom.hexColor }}
+                    data-testid="inspect-zone-kingdom"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-bold text-[#f2ece1] truncate">
+                        {hoveredZoneInfo.kingdom.name}
+                      </span>
+                      <span className="font-pixel-num text-xs font-bold text-[#80ed99] tabular-nums shrink-0">
+                        Pop {hoveredZoneInfo.kingdom.population}
+                      </span>
+                    </div>
+                    <div
+                      className="grid grid-cols-4 gap-1 pt-1 border-t border-[#2c2620]"
+                      data-testid="inspect-kingdom-resources"
+                    >
+                      {INSPECT_RESOURCE_KEYS.map(({ key, label }) => (
+                        <div
+                          key={key}
+                          title={`${label}: ${Math.floor(hoveredZoneInfo.kingdom!.resources[key] ?? 0)}`}
+                          className="bg-[#141210] px-1.5 py-1 flex items-center justify-between gap-1"
+                        >
+                          <ResourceIconSvg
+                            resource={key}
+                            className="w-3.5 h-3.5 pixelated-canvas shrink-0"
+                          />
+                          <span className="font-pixel-num text-[10px] text-[#e8e0d2] tabular-nums">
+                            {Math.floor(hoveredZoneInfo.kingdom!.resources[key] ?? 0)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
-              {activeZones?.territories && hoveredZoneInfo.territory && (
-                <div
-                  className="bg-[#191613] px-3 py-2 border-l-4 flex items-center justify-between gap-2"
-                  style={{ borderLeftColor: hoveredZoneInfo.territory.hexColor }}
-                  data-testid="inspect-zone-territory"
-                >
-                  <span className="font-bold text-[#f2ece1] truncate">
-                    {hoveredZoneInfo.territory.name}
-                  </span>
-                  <span className="font-pixel-num text-xs font-bold text-[#fb923c] tabular-nums shrink-0">
-                    Pop {hoveredZoneInfo.territory.animalCount}
-                  </span>
-                </div>
-              )}
+                {activeZones?.territories && hoveredZoneInfo.territory && (
+                  <div
+                    className="bg-[#191613] px-3 py-2 border-l-4 flex items-center justify-between gap-2"
+                    style={{ borderLeftColor: hoveredZoneInfo.territory.hexColor }}
+                    data-testid="inspect-zone-territory"
+                  >
+                    <span className="font-bold text-[#f2ece1] truncate">
+                      {hoveredZoneInfo.territory.name}
+                    </span>
+                    <span className="font-pixel-num text-xs font-bold text-[#fb923c] tabular-nums shrink-0">
+                      Pop {hoveredZoneInfo.territory.animalCount}
+                    </span>
+                  </div>
+                )}
 
-              {activeZones?.biomes && hoveredZoneInfo.biomeZone && (
-                <div
-                  className="bg-[#191613] px-3 py-2 border-l-4 flex items-center justify-between gap-2"
-                  style={{ borderLeftColor: hoveredZoneInfo.biomeZone.hexColor }}
-                  data-testid="inspect-zone-biome"
-                >
-                  <span className="font-bold text-[#f2ece1] truncate">
-                    {hoveredZoneInfo.biomeZone.name}
-                  </span>
-                </div>
-              )}
+                {activeZones?.biomes && hoveredZoneInfo.biomeZone && (
+                  <div
+                    className="bg-[#191613] px-3 py-2 border-l-4 flex items-center justify-between gap-2"
+                    style={{ borderLeftColor: hoveredZoneInfo.biomeZone.hexColor }}
+                    data-testid="inspect-zone-biome"
+                  >
+                    <span className="font-bold text-[#f2ece1] truncate">
+                      {hoveredZoneInfo.biomeZone.name}
+                    </span>
+                  </div>
+                )}
 
-              {activeZones?.temperature && hoveredZoneInfo.temperatureZone && (
-                <div
-                  className="bg-[#191613] px-3 py-2 border-l-4 flex items-center justify-between gap-2"
-                  style={{ borderLeftColor: hoveredZoneInfo.temperatureZone.hexColor }}
-                  data-testid="inspect-zone-temperature"
-                >
-                  <span className="font-bold text-[#f2ece1] truncate">
-                    {hoveredZoneInfo.temperatureZone.name}
-                  </span>
-                </div>
-              )}
-            </div>
-          ) : (
-            <p className="text-xs text-[#a89f91]">
-              Start hovering on something to see their stats!
-            </p>
-          )}
+                {activeZones?.temperature && hoveredZoneInfo.temperatureZone && (
+                  <div
+                    className="bg-[#191613] px-3 py-2 border-l-4 flex items-center justify-between gap-2"
+                    style={{ borderLeftColor: hoveredZoneInfo.temperatureZone.hexColor }}
+                    data-testid="inspect-zone-temperature"
+                  >
+                    <span className="font-bold text-[#f2ece1] truncate">
+                      {hoveredZoneInfo.temperatureZone.name}
+                    </span>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </div>
       )}
     </aside>
