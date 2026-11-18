@@ -1668,9 +1668,8 @@ export default function App() {
                 </div>
                 <div className="flex items-center gap-1.5 sm:gap-2.5 text-[11px] sm:text-xs text-[#b8afa2] tabular-nums mt-0.5">
                   <span className="whitespace-nowrap">
-                    Pop <span className="font-pixel-num text-[10px]">{sim.population}/{sim.populationCap}</span>
+                    Pop: <span className="font-pixel-num text-[10px]">{sim.population}</span>
                   </span>
-                  <span className="font-pixel-num text-[10px] whitespace-nowrap">{Math.round(sim.happiness)}%</span>
                   {sim.goldenAgeTimer > 0 && (
                     <span className="text-[#ffd166] whitespace-nowrap">{Math.ceil(sim.goldenAgeTimer)}s</span>
                   )}

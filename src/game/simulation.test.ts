@@ -210,28 +210,33 @@ test('advancing epochs progresses from Prehistoric all the way to Interstellar A
   assert.equal(EPOCHS[state.epochIndex].id, 'interstellar');
 });
 
-test('simulation step advances year at 1 year per second on 1x speed, scales with multiplier, and spawns raiders cleanly', () => {
+test('simulation step advances year at 1 year per second on 1x speed starting from Year 0, scales with multiplier, and spawns raiders cleanly', () => {
   const state = createInitialSimulationState(128, 55555);
   spawnUnit(state, 'villager', 64, 64);
   const yearBefore = state.year;
-  assert.equal(formatYearLabel(yearBefore), '10,000 BCE');
+  assert.equal(yearBefore, 0);
+  assert.equal(formatYearLabel(yearBefore), 'Year 0');
 
   spawnRaiderWave(state);
   const hostiles = state.units.filter((u) => u.faction === 'hostile');
   assert.equal(hostiles.length, 3);
 
-  // 0.9 seconds at 1x speed should still be 10,000 BCE (< 1 full year elapsed)
+  // 0.9 seconds at 1x speed should still be Year 0 (< 1 full year elapsed)
   for (let i = 0; i < 9; i++) {
     stepSimulation(state, 0.1);
   }
   assert.ok(state.year > yearBefore);
   assert.ok(Math.abs(state.year - (yearBefore + 0.9)) < 1e-6);
-  assert.equal(formatYearLabel(state.year), '10,000 BCE');
+  assert.equal(formatYearLabel(state.year), 'Year 0');
 
-  // 0.1 more second completes 1 full second -> advances 1 full year to 9,999 BCE
+  // 0.1 more second completes 1 full second -> advances 1 full year to Year 1
   stepSimulation(state, 0.1);
   assert.ok(Math.abs(state.year - (yearBefore + 1.0)) < 1e-6);
-  assert.equal(formatYearLabel(state.year), '9,999 BCE');
+  assert.equal(formatYearLabel(state.year), 'Year 1');
+
+  // Advancing epoch preserves continuous counting up from 0 rather than jumping years
+  advanceEpoch(state, true);
+  assert.equal(formatYearLabel(state.year), 'Year 1');
 
   // 10x speed (dt = 0.1 * 10 = 1.0 per tick) advances 10 full years in 1 real second
   const yearBefore10x = state.year;
@@ -239,7 +244,7 @@ test('simulation step advances year at 1 year per second on 1x speed, scales wit
     stepSimulation(state, 0.1 * 10);
   }
   assert.ok(Math.abs(state.year - (yearBefore10x + 10.0)) < 1e-6);
-  assert.equal(formatYearLabel(state.year), '9,989 BCE');
+  assert.equal(formatYearLabel(state.year), 'Year 11');
 });
 
 test('seed pipeline produces deterministic identical worlds for same seed and distinct biomes across seeds', () => {
@@ -2404,13 +2409,13 @@ test('World Creator templates (Realistic, Fantastic, Sci-Fi Orbital) and map siz
     'Fantastic template should spawn mythical creatures (Dragons / Unicorns)',
   );
 
-  // 3. Sci-Fi Orbital template: starts right in the Orbital Age (epochIndex = 6, 2150 CE) with an established colony
+  // 3. Sci-Fi Orbital template: starts right in the Orbital Age (epochIndex = 6) with an established colony and Year 0
   const scifiCfg = createWorldConfigFromTemplate('scifi', { seed: 9999, gridSize: 128 });
   assert.equal(scifiCfg.rules.startingEpochIndex, 6);
   assert.equal(scifiCfg.rules.startingSettlers, 'colony');
   const scifiSim = createInitialSimulationState(scifiCfg.gridSize, scifiCfg.seed, scifiCfg);
   assert.equal(scifiSim.epochIndex, 6, 'Sci-Fi template must start at Orbital Age (epochIndex 6)');
-  assert.equal(scifiSim.year, 2150, 'Sci-Fi template must start at year 2150 CE');
+  assert.equal(scifiSim.year, 0, 'Worlds must start counting from Year 0');
   assert.ok(scifiSim.buildings.length >= 4, 'Sci-Fi template should start with an established colony');
   assert.ok(
     scifiSim.buildings.every((b) => b.epochLevel === 6),

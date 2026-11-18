@@ -106,9 +106,8 @@ export function getTile(state: SimulationState, x: number, z: number): TileData 
 }
 
 export function formatYearLabel(year: number): string {
-  const wholeYear = Math.floor(year + 1e-6);
-  if (wholeYear < 0) return `${Math.abs(wholeYear).toLocaleString()} BCE`;
-  return `${wholeYear.toLocaleString()} CE`;
+  const wholeYear = Math.max(0, Math.floor(year + 1e-6));
+  return `Year ${wholeYear.toLocaleString()}`;
 }
 
 export function canAfford(current: Resources, cost: Partial<Resources>, sandboxFree = false): boolean {
@@ -434,7 +433,7 @@ export const WORLD_TEMPLATES: WorldTemplatePreset[] = [
     id: 'scifi',
     name: 'Sci-Fi',
     tagline: 'Orbital Age start',
-    description: 'Begins in 2150 CE with an established orbital colony.',
+    description: 'Begins in the Orbital Age with an established spacefaring colony.',
     badge: 'Orbital',
     accentColor: '#56cfe1',
     defaultWorldName: 'Helios',
@@ -614,8 +613,7 @@ export function createInitialSimulationState(
 
   const startingEpochIdx = Math.max(0, Math.min(EPOCHS.length - 1, rules.startingEpochIndex ?? 0));
   const startingEpoch = EPOCHS[startingEpochIdx] || EPOCHS[0];
-  const startingYearMap = [-10000, -3000, 500, 1820, 1955, 2005, 2150, 2400];
-  const startingYear = startingYearMap[startingEpochIdx] ?? -10000;
+  const startingYear = 0;
 
   const isAdvancedStart = startingEpochIdx >= 4;
   const isSciFiStart = startingEpochIdx >= 6;
@@ -4439,9 +4437,6 @@ export function advanceEpoch(
   state.epochIndex += 1;
   state.epochProgress = 0;
 
-  const epochYears = [-10000, -3000, 1150, 1860, 1965, 2015, 2130, 2480];
-  state.year = epochYears[state.epochIndex] ?? state.year + 500;
-
   // Heal existing structures and kick off their individual progression toward the new epoch
   for (const b of state.buildings) {
     b.hp = b.maxHp;
@@ -4536,7 +4531,7 @@ export function advanceEpoch(
 
   addChronicle(
     state,
-    `Civilization has ascended to the ${nextEpoch.name} (${nextEpoch.yearLabel})!`,
+    `Civilization has ascended to the ${nextEpoch.name} (${formatYearLabel(state.year)})!`,
     'epoch',
   );
 
