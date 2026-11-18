@@ -3091,7 +3091,7 @@ export default function App() {
                             isSelected ? 'px-slot-active' : 'px-slot'
                           } ${!affordable ? 'opacity-55' : ''}`}
                         >
-                          <PowerPixelIcon power={power.type} className="w-7 h-7" />
+                          <PowerPixelIcon power={power.type} className="w-8 h-8 pixelated-canvas" />
                           {!sim.sandboxFreeMode && (
                             <span className="absolute bottom-0.5 right-1 font-pixel-num text-[8px] text-[#ffd166] leading-none">
                               {power.faithCost}
@@ -3131,7 +3131,7 @@ export default function App() {
                             isSelected ? 'px-slot-active' : 'px-slot'
                           }`}
                         >
-                          <TerrainPixelIcon tool={tool.type} className="w-7 h-7" />
+                          <TerrainPixelIcon tool={tool.type} className="w-8 h-8 pixelated-canvas" />
                           {!sim.sandboxFreeMode && (
                             <span className="absolute bottom-0.5 right-1 font-pixel-num text-[8px] text-[#ffd166] leading-none">
                               {tool.faithCost}
@@ -3185,7 +3185,7 @@ export default function App() {
                             isSelected ? 'px-slot-active' : 'px-slot'
                           } ${!affordable ? 'opacity-55' : ''}`}
                         >
-                          <BuildingPixelIcon building={bld.type} className="w-7 h-7" />
+                          <BuildingPixelIcon building={bld.type} className="w-8 h-8 pixelated-canvas" />
                           {isCurrentEpochBld && (
                             <span
                               className="absolute top-1 left-1 w-1.5 h-1.5 bg-[#80ed99]"
@@ -3239,7 +3239,7 @@ export default function App() {
                               isSelected ? 'px-slot-active' : 'px-slot'
                             }`}
                           >
-                            <UnitPixelIcon role={u.role} className="w-7 h-7" />
+                            <UnitPixelIcon role={u.role} className="w-8 h-8 pixelated-canvas" />
                             <span className="text-xs font-bold text-[#f2ece1] whitespace-nowrap">
                               {u.name}
                             </span>
@@ -3299,7 +3299,7 @@ export default function App() {
                             isSelected ? 'px-slot-active' : 'px-slot'
                           }`}
                         >
-                          <UnitPixelIcon role={u.role} className="w-7 h-7" />
+                          <UnitPixelIcon role={u.role} className="w-8 h-8 pixelated-canvas" />
                           {badge && (
                             <span className="absolute bottom-0.5 right-1 font-pixel-num text-[8px] text-[#ffd166] leading-none">
                               {badge}
@@ -3391,7 +3391,7 @@ export default function App() {
                               isOn ? 'px-slot-active' : 'px-slot'
                             }`}
                           >
-                            <ZonePixelIcon zone={zItem.id} className="w-7 h-7 shrink-0" />
+                            <ZonePixelIcon zone={zItem.id} className="w-8 h-8 shrink-0 pixelated-canvas" />
                             <div className="flex flex-col items-start leading-tight">
                               <span className="text-xs font-bold text-[#f2ece1] whitespace-nowrap">
                                 {zItem.shortLabel}
