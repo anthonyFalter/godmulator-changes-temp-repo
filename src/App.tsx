@@ -2495,7 +2495,7 @@ export default function App() {
                 >
                   <HudPixelIcon
                     kind={timeScale === 0 ? 'play' : 'pause'}
-                    className="w-3.5 h-3.5 sm:w-4 sm:h-4 pixelated-canvas"
+                    className="w-4 h-4 pixelated-canvas"
                   />
                 </button>
 
@@ -2573,7 +2573,7 @@ export default function App() {
                     aria-label="Camera Controls"
                     title="Camera & View Controls"
                   >
-                    <HudPixelIcon kind="camera" className="w-3.5 h-3.5 sm:w-4 sm:h-4 pixelated-canvas" />
+                    <HudPixelIcon kind="camera" className="w-4 h-4 pixelated-canvas" />
                     <span className="hidden sm:inline">View</span>
                   </button>
 
@@ -2689,7 +2689,7 @@ export default function App() {
                   aria-label="World Log"
                   title="World Log"
                 >
-                  <HudPixelIcon kind="log" className="w-3.5 h-3.5 sm:w-4 sm:h-4 pixelated-canvas" />
+                  <HudPixelIcon kind="log" className="w-4 h-4 pixelated-canvas" />
                 </button>
                 <button
                   type="button"
@@ -2704,7 +2704,7 @@ export default function App() {
                 >
                   <HudPixelIcon
                     kind={muted ? 'audioOff' : 'audioOn'}
-                    className="w-3.5 h-3.5 sm:w-4 sm:h-4 pixelated-canvas"
+                    className="w-4 h-4 pixelated-canvas"
                   />
                 </button>
                 <button
@@ -2722,7 +2722,7 @@ export default function App() {
                   aria-label="Settings"
                   title="Settings"
                 >
-                  <HudPixelIcon kind="settings" className="w-3.5 h-3.5 sm:w-4 sm:h-4 pixelated-canvas" />
+                  <HudPixelIcon kind="settings" className="w-4 h-4 pixelated-canvas" />
                 </button>
               </div>
             </div>
