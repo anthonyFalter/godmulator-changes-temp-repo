@@ -4098,32 +4098,32 @@ test('Sea Update: localized warm coral reefs stay submerged, scrap_sea has pure 
   }
 });
 
-test('Smooth dynamic pixel scale: 3x when zoomed in down to 1.0x when fully zoomed out', () => {
+test('Smooth dynamic pixel scale: 2.5x when zoomed in down to 1.0x when fully zoomed out', () => {
   const gridSize = 128;
   const aspect = 16 / 9;
   const maxZoom = getResponsiveMaxZoomOut(gridSize, aspect);
 
   // When fully zoomed in (frustum <= 8.0)
-  assert.equal(computeDynamicPixelScale(8.0, gridSize, aspect), 3.0);
-  assert.equal(computeDynamicPixelScale(6.0, gridSize, aspect), 3.0);
+  assert.equal(computeDynamicPixelScale(8.0, gridSize, aspect), 2.5);
+  assert.equal(computeDynamicPixelScale(6.0, gridSize, aspect), 2.5);
 
-  // When zooming out slightly, scale smoothly glides through 2.98, 2.97, 2.xx
+  // When zooming out slightly, scale smoothly glides through 2.49, 2.47, 2.xx
   const s10 = computeDynamicPixelScale(10.0, gridSize, aspect);
   const s12 = computeDynamicPixelScale(12.0, gridSize, aspect);
-  assert.ok(s10 < 3.0 && s10 > 2.95, `s10 was ${s10}`);
-  assert.ok(s12 < s10 && s12 > 2.90, `s12 was ${s12}`);
+  assert.ok(s10 < 2.5 && s10 > 2.45, `s10 was ${s10}`);
+  assert.ok(s12 < s10 && s12 > 2.40, `s12 was ${s12}`);
 
-  // When midway through zoom range (halfway between 3.0 and 1.0 is ~2.0)
+  // When midway through zoom range (halfway between 2.5 and 1.0 is ~1.75)
   const midFrustum = (8.0 + maxZoom) / 2;
   const sMid = computeDynamicPixelScale(midFrustum, gridSize, aspect);
-  assert.ok(Math.abs(sMid - 2.0) < 0.05, `Midway zoom should be ~2.0, got ${sMid}`);
+  assert.ok(Math.abs(sMid - 1.75) < 0.05, `Midway zoom should be ~1.75, got ${sMid}`);
 
   // When fully zoomed out (frustum >= maxZoom)
   assert.equal(computeDynamicPixelScale(maxZoom, gridSize, aspect), 1.0);
   assert.equal(computeDynamicPixelScale(maxZoom + 50, gridSize, aspect), 1.0);
 
   // Strictly monotonically decreasing as frustum increases (zooming out)
-  let prevScale = 3.0;
+  let prevScale = 2.5;
   for (let f = 8.0; f < maxZoom; f += 5.0) {
     const sc = computeDynamicPixelScale(f, gridSize, aspect);
     assert.ok(sc <= prevScale, `Pixel scale must not increase when zooming out: ${sc} > ${prevScale}`);
@@ -4194,19 +4194,19 @@ test('Sea Update: uncommon corals bleach to gray when destroyed and regenerate, 
   const walkway = getTile(state, 27, 30)!;
   walkway.terrain = 'stone_road';
 
-  // Spawn a warrior on shore and a Leviathan in the water right next to the port and warrior
-  const warrior = spawnUnit(state, 'human', 23, 30, true).unit!;
-  warrior.role = 'warrior';
-  warrior.settlementId = homeSettlementId;
-  warrior.hp = 260;
-  warrior.maxHp = 260;
-
   const leviathan = spawnUnit(state, 'leviathan', 28, 30, true).unit!;
   const initialLeviathanHp = leviathan.hp;
 
   // God power damages Leviathan directly
   executeGodPowerImpact(state, 'lightning_smite', 28, 30);
   assert.ok(leviathan.hp < initialLeviathanHp, `Leviathan must take damage from lightning_smite (${leviathan.hp} < ${initialLeviathanHp})`);
+
+  // Spawn a fresh coastal warrior after the lightning strike so he can actively engage the Leviathan in mutual combat
+  const warrior = spawnUnit(state, 'human', 23, 30, true).unit!;
+  warrior.role = 'warrior';
+  warrior.settlementId = homeSettlementId;
+  warrior.hp = 260;
+  warrior.maxHp = 260;
 
   // Step combat: warrior and Leviathan should attack each other, and Leviathan should damage the port building & smash the water walkway
   const hpBeforeCombat = leviathan.hp;

@@ -489,6 +489,7 @@ export interface ActiveHazardZone {
   remaining: number;
   duration: number;
   tickTimer: number;
+  sourceUnitId?: string;
   faultSegments?: EarthquakeFaultSegment[];
   quakeShapeKind?: EarthquakeShapeKind;
   quakeExtent?: number;

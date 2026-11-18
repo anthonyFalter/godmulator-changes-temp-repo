@@ -4628,7 +4628,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       desiredFrustum,
       simRef.current.gridSize,
       getCurrentAspect(),
-      propsRef.current.pixelScale || 3,
+      propsRef.current.pixelScale || 2.5,
     );
 
     const updateSize = () => {
@@ -4640,7 +4640,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         frustumSize,
         simRef.current.gridSize,
         newAspect,
-        propsRef.current.pixelScale || 3,
+        propsRef.current.pixelScale || 2.5,
       );
       const pxScale = currentDynamicPixelScale;
       const rw = Math.max(160, Math.floor(w / pxScale));
@@ -9748,12 +9748,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           camera.updateProjectionMatrix();
         }
 
-        // Dynamically and smoothly interpolate pixel scale from 3x (zoomed in) to 2x (fully zoomed out)
+        // Dynamically and smoothly interpolate pixel scale from 2.5x (zoomed in) to 1.0x (fully zoomed out)
         const targetDynamicPixelScale = computeDynamicPixelScale(
           frustumSize,
           simRef.current.gridSize,
           newAspect,
-          propsRef.current.pixelScale || 3,
+          propsRef.current.pixelScale || 2.5,
         );
         if (Math.abs(currentDynamicPixelScale - targetDynamicPixelScale) > 0.001) {
           currentDynamicPixelScale = THREE.MathUtils.damp(

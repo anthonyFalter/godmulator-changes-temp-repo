@@ -195,7 +195,7 @@ type TitleMenuStep =
   | 'world_rules'
   | 'loading_world';
 
-const GAME_VERSION = 'v1.1.0';
+const GAME_VERSION = 'v1.1.5';
 
 export interface UpdateLogEntry {
   version: string;
@@ -204,6 +204,46 @@ export interface UpdateLogEntry {
 }
 
 const UPDATE_LOG_ENTRIES: UpdateLogEntry[] = [
+  {
+    version: 'v1.1.5 - World Saves & UI',
+    items: [
+      'Local world saves (save, load, rename, overwrite & delete slots with thumbnails)',
+      'Default world name set to "My World" with overwrite prompt',
+      'Menu & tool filter state cleanup + new pixel-art title emblem',
+    ],
+  },
+  {
+    version: 'v1.1.4 - Fog & Timeline',
+    items: [
+      'Dynamic fog colors tied to time of day',
+      'Fixed shader timer drift on lights & clouds in long sessions',
+      'Changed calendar to chronological "Year X" and Age I–V labels',
+    ],
+  },
+  {
+    version: 'v1.1.3 - Cities, 32×32 Textures & Pop Caps',
+    items: [
+      'Organic road networks, curved railways & skyway tracks',
+      'Bumped pixel textures up to 32×32 resolution',
+      'Added per-city population limits scaled by map size',
+    ],
+  },
+  {
+    version: 'v1.1.2 - Leviathan & Abyssal Tweaks',
+    items: [
+      'New Leviathan rig with stationary Water Beam & Breach Jump tsunamis',
+      'Coral reefs bleach gray when broken and regenerate over time',
+      'Updated whirlpool damage, coastal shelves & Sunken Atlantis ruins',
+      'Simulation and rendering performance cleanup',
+    ],
+  },
+  {
+    version: 'v1.1.1 - Pixel Scaling & Creature Labels',
+    items: [
+      'Smooth pixel scaling by zoom level (3× close-up down to 1× zoomed out)',
+      'Renamed racial labels to intelligent creatures across menus & Inspect',
+    ],
+  },
   {
     version: 'v1.1.0 - Sea Update',
     isMajor: true,
@@ -237,8 +277,9 @@ const UPDATE_LOG_ENTRIES: UpdateLogEntry[] = [
   {
     version: 'v1.0.1 - War Vehicle Evolution & Timeline',
     items: [
-      'Restored unique 3D vehicle designs per intelligent creature (Human steel tanks/warships, Elf arcane gliders/skyships, Orc scrap dreadnoughts)',
-      'Historical timeline fixes: no airships in Medieval era, no helicopters or jets in Industrial Age',
+      'Unique 3D vehicles per creature (Human tanks/warships, Elf Sylvan Swan-Skiffs/skyships, Orc choppers)',
+      'Separated fixed-wing planes (strafing passes, no hovering) from helicopters & VTOL gunships',
+      'Timeline fixes: no airships in Medieval era, no helicopters or jets in Industrial Age',
       'Vehicles perish naturally when crew population or home kingdom falls',
     ],
   },
@@ -315,7 +356,7 @@ export default function App() {
   const [brushRadius, setBrushRadius] = useState<number>(0);
   const [brushInputMode, setBrushInputMode] = useState<BrushInputMode>('hold');
   const [mobilePanMode, setMobilePanMode] = useState<boolean>(false);
-  const pixelScale = 3;
+  const pixelScale = 2.5;
   const [graphicsSettings, setGraphicsSettings] = useState<GraphicsSettings>(() =>
     loadGraphicsSettings(),
   );
@@ -3050,7 +3091,7 @@ export default function App() {
                             isSelected ? 'px-slot-active' : 'px-slot'
                           } ${!affordable ? 'opacity-55' : ''}`}
                         >
-                          <PowerPixelIcon power={power.type} className="w-7 h-7" />
+                          <PowerPixelIcon power={power.type} className="w-8 h-8 pixelated-canvas" />
                           {!sim.sandboxFreeMode && (
                             <span className="absolute bottom-0.5 right-1 font-pixel-num text-[8px] text-[#ffd166] leading-none">
                               {power.faithCost}
@@ -3090,7 +3131,7 @@ export default function App() {
                             isSelected ? 'px-slot-active' : 'px-slot'
                           }`}
                         >
-                          <TerrainPixelIcon tool={tool.type} className="w-7 h-7" />
+                          <TerrainPixelIcon tool={tool.type} className="w-8 h-8 pixelated-canvas" />
                           {!sim.sandboxFreeMode && (
                             <span className="absolute bottom-0.5 right-1 font-pixel-num text-[8px] text-[#ffd166] leading-none">
                               {tool.faithCost}
@@ -3144,7 +3185,7 @@ export default function App() {
                             isSelected ? 'px-slot-active' : 'px-slot'
                           } ${!affordable ? 'opacity-55' : ''}`}
                         >
-                          <BuildingPixelIcon building={bld.type} className="w-7 h-7" />
+                          <BuildingPixelIcon building={bld.type} className="w-8 h-8 pixelated-canvas" />
                           {isCurrentEpochBld && (
                             <span
                               className="absolute top-1 left-1 w-1.5 h-1.5 bg-[#80ed99]"
@@ -3198,7 +3239,7 @@ export default function App() {
                               isSelected ? 'px-slot-active' : 'px-slot'
                             }`}
                           >
-                            <UnitPixelIcon role={u.role} className="w-7 h-7" />
+                            <UnitPixelIcon role={u.role} className="w-8 h-8 pixelated-canvas" />
                             <span className="text-xs font-bold text-[#f2ece1] whitespace-nowrap">
                               {u.name}
                             </span>
@@ -3258,7 +3299,7 @@ export default function App() {
                             isSelected ? 'px-slot-active' : 'px-slot'
                           }`}
                         >
-                          <UnitPixelIcon role={u.role} className="w-7 h-7" />
+                          <UnitPixelIcon role={u.role} className="w-8 h-8 pixelated-canvas" />
                           {badge && (
                             <span className="absolute bottom-0.5 right-1 font-pixel-num text-[8px] text-[#ffd166] leading-none">
                               {badge}
@@ -3350,7 +3391,7 @@ export default function App() {
                               isOn ? 'px-slot-active' : 'px-slot'
                             }`}
                           >
-                            <ZonePixelIcon zone={zItem.id} className="w-7 h-7 shrink-0" />
+                            <ZonePixelIcon zone={zItem.id} className="w-8 h-8 shrink-0 pixelated-canvas" />
                             <div className="flex flex-col items-start leading-tight">
                               <span className="text-xs font-bold text-[#f2ece1] whitespace-nowrap">
                                 {zItem.shortLabel}
@@ -3427,11 +3468,11 @@ export default function App() {
                           <span>God Rules</span>
                         </button>
                       </div>
-                      <span className="hidden sm:inline text-[11px] text-[#a89f91]">
-                        {worldSubTab === 'rules' || activeCategory === 'rules'
-                          ? 'Toggle live world laws & creature rules'
-                          : 'Switch era, time of day, or generate a new seed'}
-                      </span>
+                      {(worldSubTab === 'rules' || activeCategory === 'rules') && (
+                        <span className="hidden sm:inline text-[11px] text-[#a89f91]">
+                          Toggle live world laws &amp; creature rules
+                        </span>
+                      )}
                     </div>
 
                     {worldSubTab === 'rules' || activeCategory === 'rules' ? (
@@ -3507,7 +3548,7 @@ export default function App() {
                           })}
                         </div>
 
-                        <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                        <div className="flex flex-wrap items-center justify-start gap-2 text-xs">
                           <div className="flex flex-wrap items-center gap-1">
                             <span className="text-[#a89f91] mr-0.5">Sky</span>
                             {(['auto', 'dawn', 'noon', 'dusk', 'night', 'midnight'] as LightingPreset[]).map((lp) => {
@@ -3535,37 +3576,6 @@ export default function App() {
                                 </button>
                               );
                             })}
-                          </div>
-
-                          <div className="flex items-center gap-1">
-                            <span className="text-[#a89f91]">Seed</span>
-                            <input
-                              type="text"
-                              aria-label="World Seed"
-                              value={seedInput}
-                              onChange={(e) => setSeedInput(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  e.preventDefault();
-                                  handleGenerateSeededWorld(seedInput || undefined);
-                                }
-                              }}
-                              className="px-panel-inset w-24 px-2 py-1 font-pixel-num text-[11px] text-[#f2ece1] outline-none"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => handleGenerateSeededWorld(seedInput || undefined)}
-                              className="px-btn px-2 py-1 text-xs text-[#f5b742] cursor-pointer"
-                            >
-                              Load
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleGenerateSeededWorld(undefined)}
-                              className="px-btn px-2 py-1 text-xs cursor-pointer"
-                            >
-                              Random
-                            </button>
                           </div>
                         </div>
                       </div>

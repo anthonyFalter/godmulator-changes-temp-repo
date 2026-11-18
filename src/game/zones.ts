@@ -1,4 +1,5 @@
 import { BUILDINGS, EPOCHS, getDinosaurVariant, getMaxCityPopulation } from './catalog';
+import { createSeededNomadName } from './simulation';
 import {
   AnimalRole,
   DiplomaticRelation,
@@ -415,8 +416,7 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
     let rec = settlementTable.get(sid);
     if (!rec) {
       const sp = sim.settlementSpecies?.[sid] ?? fallbackSpecies;
-      const defaultLabel =
-        sp === 'elf' ? 'Sylvan Glade' : sp === 'orc' ? 'Iron Crag' : 'Haven Hold';
+      const defaultLabel = createSeededNomadName(sid, sim.seed, sp);
       rec = {
         id: sid,
         name: sim.settlementNames?.[sid] || defaultLabel,
