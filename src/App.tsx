@@ -1579,8 +1579,12 @@ export default function App() {
                       ({WORLD_TEMPLATES.find((t) => t.id === worldConfig.template)?.name ?? 'Fantastic'})
                     </span>
                   </span>
-                  <span className="text-[11px] text-[#b8afa2] leading-none">
-                    {showTemplatesDropdown ? '▾' : '▸'}
+                  <span className="text-[11px] text-[#b8afa2] leading-none flex items-center">
+                    {showTemplatesDropdown ? (
+                      <HudPixelIcon kind="chevronDown" className="w-3 h-3 pixelated-canvas" />
+                    ) : (
+                      '>'
+                    )}
                   </span>
                 </button>
                 {showTemplatesDropdown && (
@@ -1742,7 +1746,7 @@ export default function App() {
                   }}
                   className="px-btn-primary px-5 py-2.5 text-sm font-bold cursor-pointer"
                 >
-                  World Rules →
+                  World Rules &gt;
                 </button>
               </div>
             </div>
@@ -1891,7 +1895,7 @@ export default function App() {
                   onClick={handleBeginWorldLoading}
                   className="px-btn-primary px-6 py-2.5 text-sm font-bold cursor-pointer"
                 >
-                  Create World →
+                  Create World &gt;
                 </button>
               </div>
             </div>
@@ -3853,7 +3857,7 @@ export default function App() {
                     }}
                     className="px-btn-primary px-4 py-2 text-xs font-bold cursor-pointer"
                   >
-                    Continue →
+                    Continue &gt;
                   </button>
                 </div>
               </div>

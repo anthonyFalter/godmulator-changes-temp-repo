@@ -84,7 +84,7 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
         onClick={() => setMinimized(false)}
         className="pointer-events-auto px-panel px-2.5 py-1.5 text-xs font-bold text-[#f5b742] cursor-pointer self-start shrink-0"
       >
-        {profile ? `Inspect: ${profile.name}` : 'Inspect ▾'}
+        {profile ? `Inspect: ${profile.name}` : 'Inspect >'}
       </button>
     );
   }
