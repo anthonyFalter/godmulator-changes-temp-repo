@@ -554,6 +554,7 @@ export interface SimulationState {
   seed: number;
   gridSize: number;
   worldName?: string;
+  worldDescription?: string;
   worldTemplate?: WorldTemplateId;
   worldRules?: WorldRulesConfig;
   tiles: TileData[];

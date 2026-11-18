@@ -1042,6 +1042,7 @@ export const HudPixelIcon: React.FC<{
     | 'pause'
     | 'play'
     | 'reset'
+    | 'save'
     | 'settings';
   className?: string;
 }> = ({ kind, className = 'w-4 h-4 pixelated-canvas' }) => {
@@ -1148,6 +1149,18 @@ export const HudPixelIcon: React.FC<{
           <rect x="6" y="4" width="2" height="8" fill="currentColor" />
           <rect x="8" y="5" width="2" height="6" fill="currentColor" />
           <rect x="10" y="7" width="2" height="2" fill="currentColor" />
+        </svg>
+      );
+    case 'save':
+      return (
+        <svg viewBox="0 0 16 16" className={className} aria-hidden="true" shapeRendering="crispEdges">
+          <rect x="2" y="2" width="11" height="12" fill="currentColor" />
+          <rect x="13" y="3" width="1" height="11" fill="currentColor" />
+          <rect x="4" y="2" width="7" height="4" fill="#181512" />
+          <rect x="8" y="3" width="2" height="2" fill="#f5b742" />
+          <rect x="4" y="8" width="8" height="5" fill="#e8e0d2" />
+          <rect x="5" y="10" width="6" height="1" fill="#8f8478" />
+          <rect x="5" y="12" width="4" height="1" fill="#8f8478" />
         </svg>
       );
     case 'settings':

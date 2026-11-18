@@ -48,6 +48,16 @@ import {
 import { loadGraphicsSettings, saveGraphicsSettings } from './game/graphics';
 import { SIMULATION_SPEED_OPTIONS, clampSimulationSpeed } from './game/dayNightLighting';
 import {
+  SavedWorldRecord,
+  deleteSavedWorld,
+  listSavedWorlds,
+  loadSavedWorldById,
+  renameSavedWorld,
+  restoreSimulationFromSave,
+  saveWorldToLocalCache,
+  updateSavedWorldRules,
+} from './game/worldStorage';
+import {
   DEFAULT_ZONE_TOGGLES,
   buildZoneOverlayTextures,
   computeWorldZones,
@@ -178,6 +188,7 @@ function primaryCostNumber(cost: Partial<Resources>, isFree: boolean): string {
 
 type TitleMenuStep =
   | 'main'
+  | 'continue_worlds'
   | 'settings'
   | 'credits'
   | 'create_world'
@@ -332,6 +343,26 @@ export default function App() {
     'Sculpting continental plates...',
   );
 
+  // Local World Cache / Save / Continue & Quit Guard state
+  const captureThumbnailRef = useRef<(() => string | null) | null>(null);
+  const activeSaveIdRef = useRef<string | null>(null);
+  const [hasSavedWorld, setHasSavedWorld] = useState<boolean>(false);
+  const [isSavingWorld, setIsSavingWorld] = useState<boolean>(false);
+  const [saveModalStep, setSaveModalStep] = useState<'confirm' | 'details' | null>(null);
+  const [saveNameDraft, setSaveNameDraft] = useState<string>('');
+  const [saveDescDraft, setSaveDescDraft] = useState<string>('');
+  const [saveThenQuit, setSaveThenQuit] = useState<boolean>(false);
+  const [quitConfirmOpen, setQuitConfirmOpen] = useState<boolean>(false);
+  const [savedWorlds, setSavedWorlds] = useState<SavedWorldRecord[]>([]);
+  const [savedWorldsLoading, setSavedWorldsLoading] = useState<boolean>(false);
+  const [renamingWorldId, setRenamingWorldId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState<string>('');
+  const [deletingWorldId, setDeletingWorldId] = useState<string | null>(null);
+  const [editingRulesWorldId, setEditingRulesWorldId] = useState<string | null>(null);
+  const [editingRulesDraft, setEditingRulesDraft] = useState<WorldRulesConfig | null>(null);
+  const [editingEpochDraft, setEditingEpochDraft] = useState<number>(0);
+  const [editingLightingDraft, setEditingLightingDraft] = useState<LightingPreset>('noon');
+
   // Snapshot counter triggered at <= 6 Hz from canvas loop or user actions
   const [hudTick, setHudTick] = useState(0);
   const syncHud = useCallback(() => {
@@ -431,6 +462,9 @@ export default function App() {
   // Begin step 3: Loading World -> build configured world & smoothly transition into playing state
   const handleBeginWorldLoading = useCallback(() => {
     soundEngine.playBuild();
+    activeSaveIdRef.current = null;
+    setHasSavedWorld(false);
+    setQuitConfirmOpen(false);
     setLoadingProgress(10);
     setLoadingStageText('Generating terrain...');
     setTitleMenuStep('loading_world');
@@ -494,7 +528,7 @@ export default function App() {
       }, 760),
     );
 
-    timers.push(
+      timers.push(
       window.setTimeout(() => {
         setTitleMenuStep('main');
         handleStartGame();
@@ -506,12 +540,225 @@ export default function App() {
     };
   }, [gameState, titleMenuStep, worldConfig, handleStartGame]);
 
-  const handleRestartGame = useCallback(() => {
-    handleGenerateSeededWorld(undefined);
-    cameraActionRef.current.playTransition = true;
-    document.body.dataset.state = 'playing';
-    setGameState('playing');
-  }, [handleGenerateSeededWorld]);
+  const refreshSavedWorlds = useCallback(async () => {
+    setSavedWorldsLoading(true);
+    try {
+      const list = await listSavedWorlds();
+      setSavedWorlds(list);
+    } finally {
+      setSavedWorldsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshSavedWorlds();
+  }, [refreshSavedWorlds]);
+
+  const handleOpenSaveFlow = useCallback(
+    (thenQuit = false) => {
+      soundEngine.playClick();
+      const initialName =
+        simRef.current.worldName?.trim() ||
+        worldConfig.worldName.trim() ||
+        `World ${simRef.current.seed}`;
+      setSaveNameDraft(initialName);
+      setSaveDescDraft(simRef.current.worldDescription ?? '');
+      setSaveThenQuit(thenQuit);
+      setQuitConfirmOpen(false);
+      setSaveModalStep('confirm');
+      void refreshSavedWorlds();
+    },
+    [refreshSavedWorlds, worldConfig.worldName],
+  );
+
+  const handleCommitSaveWorld = useCallback(async (): Promise<boolean> => {
+    if (isSavingWorld) return false;
+    setIsSavingWorld(true);
+    try {
+      const thumbnailDataUrl = captureThumbnailRef.current ? captureThumbnailRef.current() : null;
+      const worldName =
+        saveNameDraft.trim() ||
+        simRef.current.worldName?.trim() ||
+        worldConfig.worldName.trim() ||
+        `World ${simRef.current.seed}`;
+      const worldDescription = saveDescDraft.trim();
+      const matchingExisting = savedWorlds.find(
+        (w) => w.name.trim().toLowerCase() === worldName.toLowerCase(),
+      );
+      const targetSaveId = matchingExisting
+        ? matchingExisting.id
+        : activeSaveIdRef.current &&
+            savedWorlds.some(
+              (w) =>
+                w.id === activeSaveIdRef.current &&
+                w.name.trim().toLowerCase() === worldName.toLowerCase(),
+            )
+          ? activeSaveIdRef.current
+          : undefined;
+      const saved = await saveWorldToLocalCache({
+        saveId: targetSaveId,
+        name: worldName,
+        description: worldDescription,
+        thumbnailDataUrl,
+        lightingPreset,
+        activeZones,
+        sim: simRef.current,
+      });
+      activeSaveIdRef.current = saved.id;
+      simRef.current.worldName = saved.name;
+      simRef.current.worldDescription = saved.description ?? '';
+      setWorldConfig((prev) => ({ ...prev, worldName: saved.name }));
+      setHasSavedWorld(true);
+      setSaveModalStep(null);
+      soundEngine.playBuild();
+      setStatusFeedback(`Saved "${saved.name}"`);
+      setHudTick((t) => t + 1);
+      await refreshSavedWorlds();
+      if (saveThenQuit) {
+        setSaveThenQuit(false);
+        setTitleMenuStep('main');
+        setGameState('title');
+      }
+      return true;
+    } catch {
+      setStatusFeedback('Unable to save world');
+      return false;
+    } finally {
+      setIsSavingWorld(false);
+    }
+  }, [
+    activeZones,
+    isSavingWorld,
+    lightingPreset,
+    refreshSavedWorlds,
+    saveDescDraft,
+    saveNameDraft,
+    saveThenQuit,
+    savedWorlds,
+    worldConfig.worldName,
+  ]);
+
+  const handleConfirmQuitToMainMenu = useCallback(() => {
+    soundEngine.playClick();
+    setQuitConfirmOpen(false);
+    setSaveModalStep(null);
+    setSaveThenQuit(false);
+    setTitleMenuStep('main');
+    setGameState('title');
+    void refreshSavedWorlds();
+  }, [refreshSavedWorlds]);
+
+  const handleRequestMainMenu = useCallback(() => {
+    if (hasSavedWorld) {
+      handleConfirmQuitToMainMenu();
+      return;
+    }
+    soundEngine.playClick();
+    setQuitConfirmOpen(true);
+  }, [handleConfirmQuitToMainMenu, hasSavedWorld]);
+
+  const handleLoadSavedWorld = useCallback(
+    async (record: SavedWorldRecord) => {
+      if (document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur();
+      }
+      const fresh = (await loadSavedWorldById(record.id)) ?? record;
+      const restored = restoreSimulationFromSave(fresh);
+      simRef.current = restored;
+      activeSaveIdRef.current = fresh.id;
+      setHasSavedWorld(true);
+      setSeedInput(String(restored.seed));
+      setWorldConfig((prev) => ({
+        ...prev,
+        worldName: fresh.name,
+        gridSize: restored.gridSize,
+        seed: restored.seed,
+        template: restored.worldTemplate ?? prev.template,
+        rules: restored.worldRules ?? prev.rules,
+      }));
+      setLightingPreset(
+        fresh.lightingPreset ?? (restored.worldRules?.dayNightCycle ? 'auto' : 'noon'),
+      );
+      setActiveZones({ ...DEFAULT_ZONE_TOGGLES, ...(fresh.activeZones ?? {}) });
+      setHoverTile(null);
+      setHoveredEntityId(null);
+      setSelectedEntityId(null);
+      selectedEntityIdRef.current = null;
+      setFollowingEntityId(null);
+      setSelectedAllianceKingdomId(null);
+      setActiveCategory('spawn');
+      setActiveTool({ kind: 'spawn', unit: 'human' });
+      setQuitConfirmOpen(false);
+      setRenamingWorldId(null);
+      setDeletingWorldId(null);
+      setEditingRulesWorldId(null);
+      setTitleMenuStep('main');
+      cameraActionRef.current.playTransition = true;
+      document.body.dataset.state = 'playing';
+      setGameState('playing');
+      soundEngine.playEpochAscend();
+      setStatusFeedback(`Loaded "${fresh.name}" (${formatYearLabel(restored.year)})`);
+      setHudTick((t) => t + 1);
+    },
+    [],
+  );
+
+  const handleConfirmRenameSavedWorld = useCallback(
+    async (id: string) => {
+      const updated = await renameSavedWorld(id, renameDraft);
+      if (updated) {
+        soundEngine.playBuild();
+        await refreshSavedWorlds();
+      }
+      setRenamingWorldId(null);
+      setRenameDraft('');
+    },
+    [refreshSavedWorlds, renameDraft],
+  );
+
+  const handleConfirmDeleteSavedWorld = useCallback(
+    async (id: string) => {
+      await deleteSavedWorld(id);
+      if (activeSaveIdRef.current === id) {
+        activeSaveIdRef.current = null;
+        setHasSavedWorld(false);
+      }
+      setDeletingWorldId(null);
+      soundEngine.playClick();
+      await refreshSavedWorlds();
+    },
+    [refreshSavedWorlds],
+  );
+
+  const handleOpenSavedWorldRules = useCallback((record: SavedWorldRecord) => {
+    soundEngine.playClick();
+    setEditingRulesWorldId(record.id);
+    setEditingRulesDraft({
+      ...DEFAULT_WORLD_RULES,
+      ...(record.simulation.worldRules ?? {}),
+    });
+    setEditingEpochDraft(record.epochIndex);
+    setEditingLightingDraft(record.lightingPreset ?? 'noon');
+  }, []);
+
+  const handleSaveEditedWorldRules = useCallback(async () => {
+    if (!editingRulesWorldId || !editingRulesDraft) return;
+    await updateSavedWorldRules(editingRulesWorldId, {
+      rules: editingRulesDraft,
+      epochIndex: editingEpochDraft,
+      lightingPreset: editingLightingDraft,
+    });
+    soundEngine.playBuild();
+    setEditingRulesWorldId(null);
+    setEditingRulesDraft(null);
+    await refreshSavedWorlds();
+  }, [
+    editingEpochDraft,
+    editingLightingDraft,
+    editingRulesDraft,
+    editingRulesWorldId,
+    refreshSavedWorlds,
+  ]);
 
   const handleToggleMute = useCallback(() => {
     soundEngine.muted = !soundEngine.muted;
@@ -527,12 +774,37 @@ export default function App() {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
 
+      if (saveModalStep && e.code === 'Escape') {
+        e.preventDefault();
+        setSaveModalStep(null);
+        setSaveThenQuit(false);
+        return;
+      }
+
+      if (quitConfirmOpen && e.code === 'Escape') {
+        e.preventDefault();
+        setQuitConfirmOpen(false);
+        return;
+      }
+
       if (gameState === 'title') {
         if (e.code === 'Escape') {
           e.preventDefault();
+          if (editingRulesWorldId) {
+            setEditingRulesWorldId(null);
+            setEditingRulesDraft(null);
+            return;
+          }
           setTitleMenuStep((prev) => {
             if (prev === 'world_rules') return 'create_world';
-            if (prev === 'create_world' || prev === 'settings' || prev === 'credits') return 'main';
+            if (
+              prev === 'create_world' ||
+              prev === 'continue_worlds' ||
+              prev === 'settings' ||
+              prev === 'credits'
+            ) {
+              return 'main';
+            }
             return prev;
           });
         }
@@ -555,7 +827,7 @@ export default function App() {
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [gameState]);
+  }, [editingRulesWorldId, gameState, quitConfirmOpen, saveModalStep]);
 
   const handleSelectEntity = useCallback((unitId: string | null) => {
     selectedEntityIdRef.current = unitId;
@@ -951,6 +1223,7 @@ export default function App() {
         lightingPreset={lightingPreset}
         graphicsSettings={graphicsSettings}
         cameraActionRef={cameraActionRef}
+        captureThumbnailRef={captureThumbnailRef}
         hoveredEntityId={isInspectTabActive ? hoveredEntityId : null}
         selectedEntityId={isInspectTabActive ? selectedEntityId : null}
         followingEntityId={isInspectTabActive ? followingEntityId : null}
@@ -1047,11 +1320,29 @@ export default function App() {
                   data-testid="start-play-btn"
                   onClick={() => {
                     soundEngine.playClick();
+                    activeSaveIdRef.current = null;
+                    setHasSavedWorld(false);
                     setTitleMenuStep('create_world');
                   }}
                   className="px-btn-primary w-full min-h-[42px] sm:min-h-[44px] py-2 sm:py-2.5 text-base font-bold cursor-pointer focus-visible:outline-2 focus-visible:outline-[#ffd166]"
                 >
-                  Play
+                  New World
+                </button>
+
+                <button
+                  type="button"
+                  data-testid="start-continue-btn"
+                  onClick={() => {
+                    soundEngine.playClick();
+                    setRenamingWorldId(null);
+                    setDeletingWorldId(null);
+                    setEditingRulesWorldId(null);
+                    setTitleMenuStep('continue_worlds');
+                    void refreshSavedWorlds();
+                  }}
+                  className="px-btn w-full min-h-[42px] sm:min-h-[44px] py-2 sm:py-2.5 text-sm font-semibold cursor-pointer focus-visible:outline-2 focus-visible:outline-[#ffd166]"
+                >
+                  Continue
                 </button>
 
                 <button
@@ -1647,6 +1938,386 @@ export default function App() {
               </button>
             </div>
           )}
+
+          {/* CONTINUE: LOCALLY SAVED WORLDS */}
+          {titleMenuStep === 'continue_worlds' && (
+            <div
+              data-testid="continue-worlds-modal"
+              className="pointer-events-auto w-[min(46rem,calc(100vw-16px))] max-h-[calc(100dvh-20px)] flex flex-col px-panel p-4 sm:p-6 gap-3.5"
+            >
+              <div className="flex items-center justify-between shrink-0">
+                <div>
+                  <h2 className="text-lg font-bold text-[#f5b742]">Saved Worlds</h2>
+                  <p className="text-[11px] text-[#a89f91]">
+                    Stored locally in your browser cache
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  data-testid="continue-back-btn"
+                  onClick={() => {
+                    soundEngine.playClick();
+                    setEditingRulesWorldId(null);
+                    setEditingRulesDraft(null);
+                    setTitleMenuStep('main');
+                  }}
+                  className="px-btn px-3 py-1.5 text-xs font-semibold cursor-pointer"
+                >
+                  Back
+                </button>
+              </div>
+
+              {savedWorldsLoading ? (
+                <div className="px-panel-inset p-6 text-center text-xs text-[#b8afa2]">
+                  Loading saved worlds...
+                </div>
+              ) : savedWorlds.length === 0 ? (
+                <div
+                  data-testid="saved-worlds-empty"
+                  className="px-panel-inset p-6 text-center space-y-3"
+                >
+                  <div className="text-sm font-semibold text-[#e8e0d2]">
+                    No saved worlds yet
+                  </div>
+                  <p className="text-xs text-[#a89f91]">
+                    Create a new world and click Save to keep it in your local browser cache.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      soundEngine.playClick();
+                      activeSaveIdRef.current = null;
+                      setHasSavedWorld(false);
+                      setTitleMenuStep('create_world');
+                    }}
+                    className="px-btn-primary px-4 py-2 text-xs font-bold cursor-pointer"
+                  >
+                    New World
+                  </button>
+                </div>
+              ) : (
+                <div
+                  data-testid="saved-worlds-list"
+                  className="overflow-y-auto pr-1 space-y-3 max-h-[66dvh]"
+                >
+                  {savedWorlds.map((w) => {
+                    const epochName = EPOCHS[w.epochIndex]?.name ?? 'Prehistoric Age';
+                    const isRenaming = renamingWorldId === w.id;
+                    const isConfirmingDelete = deletingWorldId === w.id;
+                    const savedDateLabel = new Date(w.savedAt).toLocaleString([], {
+                      month: 'short',
+                      day: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    });
+                    return (
+                      <div
+                        key={w.id}
+                        data-testid={`saved-world-card-${w.id}`}
+                        className="px-panel-inset p-2.5 sm:p-3 flex flex-col sm:flex-row gap-3 items-stretch"
+                      >
+                        {/* Static Map Thumbnail */}
+                        <div className="w-full sm:w-44 h-28 sm:h-[104px] shrink-0 bg-[#0d0b09] border border-[#3a3026] overflow-hidden flex items-center justify-center">
+                          {w.thumbnailDataUrl ? (
+                            <img
+                              src={w.thumbnailDataUrl}
+                              alt={`${w.name} map preview`}
+                              className="w-full h-full object-cover pixelated-canvas"
+                            />
+                          ) : (
+                            <div className="text-center px-2">
+                              <div className="text-[11px] font-bold text-[#f5b742]">
+                                {w.gridSize}×{w.gridSize}
+                              </div>
+                              <div className="text-[10px] text-[#8f8478]">No Thumbnail</div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Metadata & Actions */}
+                        <div className="flex-1 min-w-0 flex flex-col justify-between gap-2">
+                          <div>
+                            {isRenaming ? (
+                              <div className="flex items-center gap-1.5">
+                                <input
+                                  type="text"
+                                  data-testid={`rename-world-input-${w.id}`}
+                                  value={renameDraft}
+                                  maxLength={32}
+                                  autoFocus
+                                  onChange={(e) => setRenameDraft(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      void handleConfirmRenameSavedWorld(w.id);
+                                    } else if (e.key === 'Escape') {
+                                      setRenamingWorldId(null);
+                                    }
+                                  }}
+                                  className="px-input flex-1 min-w-0 text-sm py-1 px-2"
+                                />
+                                <button
+                                  type="button"
+                                  data-testid={`rename-world-save-${w.id}`}
+                                  onClick={() => void handleConfirmRenameSavedWorld(w.id)}
+                                  className="px-btn-primary px-2.5 py-1 text-xs font-bold cursor-pointer"
+                                >
+                                  Save
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setRenamingWorldId(null)}
+                                  className="px-btn px-2 py-1 text-xs cursor-pointer"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="flex items-baseline justify-between gap-2">
+                                <h3 className="text-sm sm:text-base font-bold text-[#f2ece1] truncate">
+                                  {w.name}
+                                </h3>
+                                <span className="text-[11px] text-[#8f8478] shrink-0 tabular-nums">
+                                  {savedDateLabel}
+                                </span>
+                              </div>
+                            )}
+
+                            <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] text-[#cfc6b8] tabular-nums">
+                              <span className="text-[#f5b742] font-semibold">{epochName}</span>
+                              <span>·</span>
+                              <span>{formatYearLabel(w.year)}</span>
+                              <span>·</span>
+                              <span className="text-[#80ed99]">Pop: {w.population}</span>
+                              <span>·</span>
+                              <span>
+                                {w.gridSize}×{w.gridSize}
+                              </span>
+                            </div>
+                            {w.description && (
+                              <p
+                                data-testid={`saved-world-desc-${w.id}`}
+                                className="mt-1 text-[11px] text-[#a89f91] leading-snug line-clamp-2"
+                              >
+                                {w.description}
+                              </p>
+                            )}
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                            <button
+                              type="button"
+                              data-testid={`load-world-btn-${w.id}`}
+                              onClick={() => void handleLoadSavedWorld(w)}
+                              className="px-btn-primary px-3 py-1.5 text-xs font-bold cursor-pointer"
+                            >
+                              Play
+                            </button>
+                            <button
+                              type="button"
+                              data-testid={`rename-world-btn-${w.id}`}
+                              onClick={() => {
+                                soundEngine.playClick();
+                                setDeletingWorldId(null);
+                                setRenamingWorldId(w.id);
+                                setRenameDraft(w.name);
+                              }}
+                              className="px-btn px-2.5 py-1.5 text-xs cursor-pointer"
+                            >
+                              Rename
+                            </button>
+                            <button
+                              type="button"
+                              data-testid={`rules-world-btn-${w.id}`}
+                              onClick={() => handleOpenSavedWorldRules(w)}
+                              className="px-btn px-2.5 py-1.5 text-xs cursor-pointer"
+                            >
+                              World Rules
+                            </button>
+                            {isConfirmingDelete ? (
+                              <>
+                                <button
+                                  type="button"
+                                  data-testid={`confirm-delete-world-btn-${w.id}`}
+                                  onClick={() => void handleConfirmDeleteSavedWorld(w.id)}
+                                  className="px-btn px-2.5 py-1.5 text-xs font-bold text-[#ff8f8f] border-[#a83232] cursor-pointer"
+                                >
+                                  Confirm Delete
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setDeletingWorldId(null)}
+                                  className="px-btn px-2 py-1.5 text-xs cursor-pointer"
+                                >
+                                  Cancel
+                                </button>
+                              </>
+                            ) : (
+                              <button
+                                type="button"
+                                data-testid={`delete-world-btn-${w.id}`}
+                                onClick={() => {
+                                  soundEngine.playClick();
+                                  setRenamingWorldId(null);
+                                  setDeletingWorldId(w.id);
+                                }}
+                                className="px-btn px-2.5 py-1.5 text-xs text-[#e89f9f] cursor-pointer ml-auto"
+                              >
+                                Delete
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Nested Saved World Rules Editor */}
+              {editingRulesWorldId && editingRulesDraft && (
+                <div
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label="Edit Saved World Rules"
+                  data-testid="saved-world-rules-modal"
+                  className="fixed inset-0 z-50 flex items-center justify-center bg-[#0d0c0b]/80 p-2 sm:p-4"
+                >
+                  <div className="w-[min(30rem,calc(100vw-16px))] max-h-[calc(100dvh-20px)] overflow-y-auto px-panel p-4 sm:p-6 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-base sm:text-lg font-bold text-[#f5b742]">
+                        Edit World Rules
+                      </h3>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          soundEngine.playClick();
+                          setEditingRulesWorldId(null);
+                          setEditingRulesDraft(null);
+                        }}
+                        className="text-xs text-[#b8afa2] hover:text-[#f2ece1] cursor-pointer"
+                      >
+                        Close
+                      </button>
+                    </div>
+
+                    {/* Age Slider */}
+                    <div>
+                      <div className="flex items-center justify-between text-xs mb-1.5">
+                        <label htmlFor="saved-world-age-slider" className="text-[#b8afa2]">
+                          World Age
+                        </label>
+                        <span className="font-bold text-[#f2ece1]">
+                          {EPOCHS[editingEpochDraft]?.name ?? 'Prehistoric Age'}
+                        </span>
+                      </div>
+                      <input
+                        id="saved-world-age-slider"
+                        type="range"
+                        min={0}
+                        max={EPOCHS.length - 1}
+                        step={1}
+                        value={editingEpochDraft}
+                        onChange={(e) => {
+                          setEditingEpochDraft(Number(e.target.value));
+                          soundEngine.playClick();
+                        }}
+                        className="px-range w-full"
+                      />
+                    </div>
+
+                    {/* Sky Lighting Preset */}
+                    <div>
+                      <div className="text-xs text-[#b8afa2] mb-1.5">Sky Lighting</div>
+                      <div className="grid grid-cols-3 sm:grid-cols-6 gap-1">
+                        {(['auto', 'dawn', 'noon', 'dusk', 'night', 'midnight'] as LightingPreset[]).map(
+                          (lp) => (
+                            <button
+                              key={lp}
+                              type="button"
+                              onClick={() => {
+                                soundEngine.playClick();
+                                setEditingLightingDraft(lp);
+                                setEditingRulesDraft((prev) =>
+                                  prev ? { ...prev, dayNightCycle: lp === 'auto' } : prev,
+                                );
+                              }}
+                              className={`py-1 text-[11px] capitalize cursor-pointer ${
+                                editingLightingDraft === lp ? 'px-btn-active font-bold' : 'px-btn'
+                              }`}
+                            >
+                              {lp === 'midnight' ? 'dark' : lp}
+                            </button>
+                          ),
+                        )}
+                      </div>
+                    </div>
+
+                    {/* God Rule Switches */}
+                    <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                      {GOD_RULE_SWITCHES.map((sw) => {
+                        const enabled = Boolean(editingRulesDraft[sw.key]);
+                        return (
+                          <div
+                            key={sw.key}
+                            className="px-panel-inset px-2.5 py-2 flex items-center justify-between gap-3"
+                          >
+                            <div className="min-w-0">
+                              <div className="text-xs font-bold text-[#f2ece1]">{sw.label}</div>
+                              <div className="text-[11px] text-[#a89f91] leading-snug">
+                                {sw.summary}
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              data-testid={`saved-rule-toggle-${sw.key}`}
+                              onClick={() => {
+                                soundEngine.playClick();
+                                setEditingRulesDraft((prev) => {
+                                  if (!prev) return prev;
+                                  const nextVal = !prev[sw.key];
+                                  if (sw.key === 'dayNightCycle') {
+                                    setEditingLightingDraft(nextVal ? 'auto' : 'noon');
+                                  }
+                                  return { ...prev, [sw.key]: nextVal };
+                                });
+                              }}
+                              className={`shrink-0 px-2.5 py-1 text-xs font-bold cursor-pointer ${
+                                enabled ? 'px-btn-active' : 'px-btn text-[#8f8478]'
+                              }`}
+                            >
+                              {enabled ? 'ON' : 'OFF'}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <div className="flex items-center justify-end gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          soundEngine.playClick();
+                          setEditingRulesWorldId(null);
+                          setEditingRulesDraft(null);
+                        }}
+                        className="px-btn px-3.5 py-2 text-xs font-semibold cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        data-testid="save-edited-world-rules-btn"
+                        onClick={() => void handleSaveEditedWorldRules()}
+                        className="px-btn-primary px-4 py-2 text-xs font-bold cursor-pointer"
+                      >
+                        Save Rules
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -1688,7 +2359,7 @@ export default function App() {
               )}
             </div>
 
-            {/* Row 1 Right (Mobile) / Merged Desktop Right: System Utilities (Log, Mute, Reset, Settings) */}
+            {/* Row 1 Right (Mobile) / Merged Desktop Right: System Utilities (Log, Mute, Settings) */}
             <div
               data-testid="hud-system-bar"
               className="pointer-events-auto px-panel px-1 sm:px-1.5 py-1 sm:py-1.5 flex items-center gap-1 shrink-0 order-2 lg:order-4"
@@ -1719,19 +2390,6 @@ export default function App() {
                 title={muted ? 'Unmute' : 'Mute'}
               >
                 <HudPixelIcon kind={muted ? 'audioOff' : 'audioOn'} className="w-3.5 h-3.5 sm:w-4 sm:h-4 pixelated-canvas" />
-              </button>
-              <button
-                type="button"
-                tabIndex={-1}
-                onClick={(e) => {
-                  e.currentTarget.blur();
-                  handleRestartGame();
-                }}
-                className="px-btn w-6 h-6 sm:w-7 sm:h-7 flex items-center justify-center cursor-pointer shrink-0"
-                aria-label="Reset World"
-                title="New World"
-              >
-                <HudPixelIcon kind="reset" className="w-3.5 h-3.5 sm:w-4 sm:h-4 pixelated-canvas" />
               </button>
               <button
                 type="button"
@@ -2690,22 +3348,17 @@ export default function App() {
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  soundEngine.playClick();
-                  handleRestartGame();
-                }}
-                className="px-btn w-full py-2 text-xs font-semibold cursor-pointer"
+                data-testid="pause-save-btn"
+                disabled={isSavingWorld}
+                onClick={() => handleOpenSaveFlow(false)}
+                className="px-btn w-full py-2 text-xs font-semibold cursor-pointer text-[#ffd166]"
               >
-                Restart World
+                {isSavingWorld ? 'Saving...' : 'Save World'}
               </button>
               <button
                 type="button"
                 data-testid="ingame-main-menu-btn"
-                onClick={() => {
-                  soundEngine.playClick();
-                  setTitleMenuStep('main');
-                  setGameState('title');
-                }}
+                onClick={handleRequestMainMenu}
                 className="px-btn w-full py-2 text-xs font-semibold cursor-pointer"
               >
                 Main Menu
@@ -2758,15 +3411,223 @@ export default function App() {
               </button>
               <button
                 type="button"
-                onClick={handleRestartGame}
+                onClick={handleRequestMainMenu}
                 className="px-btn px-4 py-2 text-sm cursor-pointer"
               >
-                New World
+                Main Menu
               </button>
             </div>
           </div>
         </div>
       )}
+
+      {/* QUIT TO MAIN MENU GUARD MODAL (unsaved worlds only) */}
+      {quitConfirmOpen && !hasSavedWorld && gameState !== 'title' && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Quit to Main Menu"
+          data-testid="quit-confirm-modal"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[#0d0c0b]/85 p-2 sm:p-4"
+        >
+          <div className="w-[min(25rem,calc(100vw-16px))] px-panel p-4 sm:p-6 space-y-4">
+            <h2 className="text-base sm:text-lg font-bold text-[#f5b742]">Return to Main Menu</h2>
+            <p
+              data-testid="quit-confirm-message"
+              className="text-xs sm:text-sm text-[#e8e0d2] leading-relaxed"
+            >
+              Your current world has not been saved yet, are you sure you want to quit?
+            </p>
+            <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                data-testid="quit-cancel-btn"
+                onClick={() => {
+                  soundEngine.playClick();
+                  setQuitConfirmOpen(false);
+                }}
+                className="px-btn px-3.5 py-2 text-xs font-semibold cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                data-testid="quit-save-btn"
+                disabled={isSavingWorld}
+                onClick={() => handleOpenSaveFlow(true)}
+                className="px-btn-primary px-3.5 py-2 text-xs font-bold cursor-pointer"
+              >
+                {isSavingWorld ? 'Saving...' : 'Save & Quit'}
+              </button>
+              <button
+                type="button"
+                data-testid="quit-confirm-btn"
+                onClick={handleConfirmQuitToMainMenu}
+                className="px-btn px-3.5 py-2 text-xs font-bold text-[#ff8f8f] border-[#a83232] cursor-pointer"
+              >
+                Quit
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SAVE WORLD SUCCESSION MODALS */}
+      {saveModalStep && gameState !== 'title' && (() => {
+        const trimmedName = saveNameDraft.trim().toLowerCase();
+        const existingWorldWithName = trimmedName
+          ? savedWorlds.find((w) => w.name.trim().toLowerCase() === trimmedName)
+          : undefined;
+        return (
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Save World"
+            data-testid={saveModalStep === 'confirm' ? 'save-confirm-modal' : 'save-details-modal'}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-[#0d0c0b]/85 p-2 sm:p-4"
+          >
+            {saveModalStep === 'confirm' ? (
+              <div className="w-[min(25rem,calc(100vw-16px))] px-panel p-4 sm:p-6 space-y-4">
+                <h2 className="text-base sm:text-lg font-bold text-[#f5b742]">Save World</h2>
+                <div className="space-y-2 text-xs sm:text-sm text-[#e8e0d2] leading-relaxed">
+                  <p data-testid="save-confirm-prompt">Are you sure you want to save?</p>
+                  {existingWorldWithName && (
+                    <p
+                      data-testid="save-duplicate-warning"
+                      className="px-panel-inset px-3 py-2 text-xs text-[#ffd166] font-semibold"
+                    >
+                      A world with this name already exists.
+                    </p>
+                  )}
+                </div>
+                <div className="flex items-center justify-end gap-2 pt-1">
+                  <button
+                    type="button"
+                    data-testid="save-confirm-cancel-btn"
+                    onClick={() => {
+                      soundEngine.playClick();
+                      setSaveModalStep(null);
+                      setSaveThenQuit(false);
+                    }}
+                    className="px-btn px-3.5 py-2 text-xs font-semibold cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="save-confirm-next-btn"
+                    onClick={() => {
+                      soundEngine.playClick();
+                      setSaveModalStep('details');
+                    }}
+                    className="px-btn-primary px-4 py-2 text-xs font-bold cursor-pointer"
+                  >
+                    Continue →
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="w-[min(27rem,calc(100vw-16px))] px-panel p-4 sm:p-6 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-base sm:text-lg font-bold text-[#f5b742]">
+                    World Name &amp; Description
+                  </h2>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      soundEngine.playClick();
+                      setSaveModalStep('confirm');
+                    }}
+                    className="text-xs text-[#b8afa2] hover:text-[#f2ece1] cursor-pointer"
+                  >
+                    Back
+                  </button>
+                </div>
+
+                <div className="space-y-3">
+                  <div>
+                    <label
+                      htmlFor="save-world-name-input"
+                      className="block text-xs text-[#b8afa2] mb-1.5"
+                    >
+                      World Name
+                    </label>
+                    <input
+                      id="save-world-name-input"
+                      data-testid="save-world-name-input"
+                      type="text"
+                      maxLength={32}
+                      value={saveNameDraft}
+                      onChange={(e) => setSaveNameDraft(e.target.value)}
+                      placeholder={`World ${sim.seed}`}
+                      className="px-input w-full px-3 py-2 text-sm"
+                    />
+                    {existingWorldWithName && (
+                      <p
+                        data-testid="save-details-duplicate-warning"
+                        className="mt-1.5 text-[11px] text-[#ffd166] font-semibold"
+                      >
+                        A world with this name already exists. Saving will overwrite it.
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="save-world-description-input"
+                      className="block text-xs text-[#b8afa2] mb-1.5"
+                    >
+                      Description
+                    </label>
+                    <textarea
+                      id="save-world-description-input"
+                      data-testid="save-world-description-input"
+                      rows={3}
+                      maxLength={160}
+                      value={saveDescDraft}
+                      onChange={(e) => setSaveDescDraft(e.target.value)}
+                      placeholder="Describe this world, its kingdoms, or milestones..."
+                      className="px-input w-full px-3 py-2 text-xs resize-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-1">
+                  <button
+                    type="button"
+                    data-testid="save-details-cancel-btn"
+                    onClick={() => {
+                      soundEngine.playClick();
+                      setSaveModalStep(null);
+                      setSaveThenQuit(false);
+                    }}
+                    className="px-btn px-3.5 py-2 text-xs font-semibold cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="save-details-submit-btn"
+                    disabled={isSavingWorld || !saveNameDraft.trim()}
+                    onClick={() => void handleCommitSaveWorld()}
+                    className="px-btn-primary px-4 py-2 text-xs font-bold cursor-pointer disabled:opacity-50"
+                  >
+                    {isSavingWorld
+                      ? 'Saving...'
+                      : existingWorldWithName
+                        ? saveThenQuit
+                          ? 'Overwrite & Quit'
+                          : 'Overwrite & Save'
+                        : saveThenQuit
+                          ? 'Save & Quit'
+                          : 'Save World'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
     </main>
   );
 }

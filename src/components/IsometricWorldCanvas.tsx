@@ -84,6 +84,7 @@ interface IsometricWorldCanvasProps {
     playTransition?: boolean;
     focusTarget?: { x: number; z: number; zoom?: number } | null;
   }>;
+  captureThumbnailRef?: React.MutableRefObject<(() => string | null) | null>;
   hoveredEntityId?: string | null;
   selectedEntityId?: string | null;
   followingEntityId?: string | null;
@@ -138,6 +139,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
   hoveredEntityId = null,
   selectedEntityId = null,
   followingEntityId = null,
+  captureThumbnailRef,
   zoneOverlayBuffers,
   onTileInteract,
   onHoverTileChange,
@@ -9935,9 +9937,49 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       }
     }
 
+    if (captureThumbnailRef) {
+      captureThumbnailRef.current = () => {
+        try {
+          const srcCanvas = renderer.domElement;
+          if (!srcCanvas || srcCanvas.width <= 0 || srcCanvas.height <= 0) {
+            return null;
+          }
+          renderer.render(scene, camera);
+          const targetW = 320;
+          const targetH = 180;
+          const thumbCanvas = document.createElement('canvas');
+          thumbCanvas.width = targetW;
+          thumbCanvas.height = targetH;
+          const ctx = thumbCanvas.getContext('2d');
+          if (!ctx) return null;
+          ctx.imageSmoothingEnabled = false;
+          const srcAspect = srcCanvas.width / srcCanvas.height;
+          const dstAspect = targetW / targetH;
+          let sx = 0;
+          let sy = 0;
+          let sw = srcCanvas.width;
+          let sh = srcCanvas.height;
+          if (srcAspect > dstAspect) {
+            sw = Math.max(1, Math.round(srcCanvas.height * dstAspect));
+            sx = Math.max(0, Math.round((srcCanvas.width - sw) * 0.5));
+          } else if (srcAspect < dstAspect) {
+            sh = Math.max(1, Math.round(srcCanvas.width / dstAspect));
+            sy = Math.max(0, Math.round((srcCanvas.height - sh) * 0.5));
+          }
+          ctx.drawImage(srcCanvas, sx, sy, sw, sh, 0, 0, targetW, targetH);
+          return thumbCanvas.toDataURL('image/jpeg', 0.85);
+        } catch {
+          return null;
+        }
+      };
+    }
+
     frameId = requestAnimationFrame(tick);
 
     return () => {
+      if (captureThumbnailRef) {
+        captureThumbnailRef.current = null;
+      }
       cancelAnimationFrame(frameId);
       clearTimeout(frameId);
       resizeObserver.disconnect();
@@ -10065,7 +10107,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       kingCrownsInst.dispose();
       renderer.dispose();
     };
-  }, [cameraActionRef, simRef]);
+  }, [cameraActionRef, captureThumbnailRef, simRef]);
 
   const activeLabels = zoneOverlayBuffers?.labels ?? [];
   const kingsOverlayOn = Boolean(
