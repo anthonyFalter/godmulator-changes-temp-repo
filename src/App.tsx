@@ -348,7 +348,7 @@ export default function App() {
   const activeSaveIdRef = useRef<string | null>(null);
   const [hasSavedWorld, setHasSavedWorld] = useState<boolean>(false);
   const [isSavingWorld, setIsSavingWorld] = useState<boolean>(false);
-  const [saveModalStep, setSaveModalStep] = useState<'confirm' | 'details' | null>(null);
+  const [saveModalStep, setSaveModalStep] = useState<'confirm' | 'details' | 'overwrite' | null>(null);
   const [saveNameDraft, setSaveNameDraft] = useState<string>('');
   const [saveDescDraft, setSaveDescDraft] = useState<string>('');
   const [saveThenQuit, setSaveThenQuit] = useState<boolean>(false);
@@ -560,7 +560,7 @@ export default function App() {
       const initialName =
         simRef.current.worldName?.trim() ||
         worldConfig.worldName.trim() ||
-        `World ${simRef.current.seed}`;
+        'My World';
       setSaveNameDraft(initialName);
       setSaveDescDraft(simRef.current.worldDescription ?? '');
       setSaveThenQuit(thenQuit);
@@ -580,7 +580,7 @@ export default function App() {
         saveNameDraft.trim() ||
         simRef.current.worldName?.trim() ||
         worldConfig.worldName.trim() ||
-        `World ${simRef.current.seed}`;
+        'My World';
       const worldDescription = saveDescDraft.trim();
       const matchingExisting = savedWorlds.find(
         (w) => w.name.trim().toLowerCase() === worldName.toLowerCase(),
@@ -1322,6 +1322,7 @@ export default function App() {
                     soundEngine.playClick();
                     activeSaveIdRef.current = null;
                     setHasSavedWorld(false);
+                    setWorldConfig((prev) => ({ ...prev, worldName: 'My World' }));
                     setTitleMenuStep('create_world');
                   }}
                   className="px-btn-primary w-full min-h-[42px] sm:min-h-[44px] py-2 sm:py-2.5 text-base font-bold cursor-pointer focus-visible:outline-2 focus-visible:outline-[#ffd166]"
@@ -1946,12 +1947,7 @@ export default function App() {
               className="pointer-events-auto w-[min(46rem,calc(100vw-16px))] max-h-[calc(100dvh-20px)] flex flex-col px-panel p-4 sm:p-6 gap-3.5"
             >
               <div className="flex items-center justify-between shrink-0">
-                <div>
-                  <h2 className="text-lg font-bold text-[#f5b742]">Saved Worlds</h2>
-                  <p className="text-[11px] text-[#a89f91]">
-                    Stored locally in your browser cache
-                  </p>
-                </div>
+                <h2 className="text-lg font-bold text-[#f5b742]">Saved Worlds</h2>
                 <button
                   type="button"
                   data-testid="continue-back-btn"
@@ -1980,7 +1976,7 @@ export default function App() {
                     No saved worlds yet
                   </div>
                   <p className="text-xs text-[#a89f91]">
-                    Create a new world and click Save to keep it in your local browser cache.
+                    Create a new world and save your progress to continue later.
                   </p>
                   <button
                     type="button"
@@ -3310,9 +3306,6 @@ export default function App() {
           <div className="w-[min(28rem,calc(100vw-16px))] max-h-[calc(100dvh-16px)] overflow-y-auto px-panel p-4 sm:p-6 space-y-4 sm:space-y-5">
             <div className="flex items-baseline justify-between">
               <h2 className="text-lg font-bold text-[#f5b742]">Settings</h2>
-              <span className="text-xs text-[#b8afa2] tabular-nums">
-                {currentEpoch.name} ({formatYearLabel(sim.year)})
-              </span>
             </div>
 
             <div className="space-y-4 text-xs">
@@ -3474,32 +3467,34 @@ export default function App() {
 
       {/* SAVE WORLD SUCCESSION MODALS */}
       {saveModalStep && gameState !== 'title' && (() => {
-        const trimmedName = saveNameDraft.trim().toLowerCase();
-        const existingWorldWithName = trimmedName
-          ? savedWorlds.find((w) => w.name.trim().toLowerCase() === trimmedName)
+        const trimmedRawName = saveNameDraft.trim();
+        const trimmedLower = trimmedRawName.toLowerCase();
+        const existingWorldWithName = trimmedLower
+          ? savedWorlds.find((w) => w.name.trim().toLowerCase() === trimmedLower)
           : undefined;
         return (
           <div
             role="dialog"
             aria-modal="true"
             aria-label="Save World"
-            data-testid={saveModalStep === 'confirm' ? 'save-confirm-modal' : 'save-details-modal'}
+            data-testid={
+              saveModalStep === 'confirm'
+                ? 'save-confirm-modal'
+                : saveModalStep === 'overwrite'
+                  ? 'save-overwrite-modal'
+                  : 'save-details-modal'
+            }
             className="fixed inset-0 z-50 flex items-center justify-center bg-[#0d0c0b]/85 p-2 sm:p-4"
           >
             {saveModalStep === 'confirm' ? (
               <div className="w-[min(25rem,calc(100vw-16px))] px-panel p-4 sm:p-6 space-y-4">
                 <h2 className="text-base sm:text-lg font-bold text-[#f5b742]">Save World</h2>
-                <div className="space-y-2 text-xs sm:text-sm text-[#e8e0d2] leading-relaxed">
-                  <p data-testid="save-confirm-prompt">Are you sure you want to save?</p>
-                  {existingWorldWithName && (
-                    <p
-                      data-testid="save-duplicate-warning"
-                      className="px-panel-inset px-3 py-2 text-xs text-[#ffd166] font-semibold"
-                    >
-                      A world with this name already exists.
-                    </p>
-                  )}
-                </div>
+                <p
+                  data-testid="save-confirm-prompt"
+                  className="text-xs sm:text-sm text-[#e8e0d2] leading-relaxed"
+                >
+                  Are you sure you want to save?
+                </p>
                 <div className="flex items-center justify-end gap-2 pt-1">
                   <button
                     type="button"
@@ -3526,7 +3521,7 @@ export default function App() {
                   </button>
                 </div>
               </div>
-            ) : (
+            ) : saveModalStep === 'details' ? (
               <div className="w-[min(27rem,calc(100vw-16px))] px-panel p-4 sm:p-6 space-y-4">
                 <div className="flex items-center justify-between">
                   <h2 className="text-base sm:text-lg font-bold text-[#f5b742]">
@@ -3559,17 +3554,9 @@ export default function App() {
                       maxLength={32}
                       value={saveNameDraft}
                       onChange={(e) => setSaveNameDraft(e.target.value)}
-                      placeholder={`World ${sim.seed}`}
+                      placeholder="My World"
                       className="px-input w-full px-3 py-2 text-sm"
                     />
-                    {existingWorldWithName && (
-                      <p
-                        data-testid="save-details-duplicate-warning"
-                        className="mt-1.5 text-[11px] text-[#ffd166] font-semibold"
-                      >
-                        A world with this name already exists. Saving will overwrite it.
-                      </p>
-                    )}
                   </div>
 
                   <div>
@@ -3608,19 +3595,72 @@ export default function App() {
                   <button
                     type="button"
                     data-testid="save-details-submit-btn"
-                    disabled={isSavingWorld || !saveNameDraft.trim()}
+                    disabled={isSavingWorld || !trimmedRawName}
+                    onClick={() => {
+                      if (existingWorldWithName) {
+                        soundEngine.playClick();
+                        setSaveModalStep('overwrite');
+                      } else {
+                        void handleCommitSaveWorld();
+                      }
+                    }}
+                    className="px-btn-primary px-4 py-2 text-xs font-bold cursor-pointer disabled:opacity-50"
+                  >
+                    {isSavingWorld
+                      ? 'Saving...'
+                      : saveThenQuit
+                        ? 'Save & Quit'
+                        : 'Save World'}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="w-[min(26rem,calc(100vw-16px))] px-panel p-4 sm:p-6 space-y-4">
+                <h2 className="text-base sm:text-lg font-bold text-[#ffd166]">
+                  Overwrite Existing World?
+                </h2>
+                <p
+                  data-testid="save-overwrite-prompt"
+                  className="text-xs sm:text-sm text-[#e8e0d2] leading-relaxed"
+                >
+                  A world with the name &quot;{trimmedRawName || 'My World'}&quot; already exists, do you want to overwrite?
+                </p>
+                <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
+                  <button
+                    type="button"
+                    data-testid="save-overwrite-back-btn"
+                    onClick={() => {
+                      soundEngine.playClick();
+                      setSaveModalStep('details');
+                    }}
+                    className="px-btn px-3.5 py-2 text-xs font-semibold cursor-pointer"
+                  >
+                    Change Name
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="save-overwrite-cancel-btn"
+                    onClick={() => {
+                      soundEngine.playClick();
+                      setSaveModalStep(null);
+                      setSaveThenQuit(false);
+                    }}
+                    className="px-btn px-3.5 py-2 text-xs font-semibold cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="save-overwrite-confirm-btn"
+                    disabled={isSavingWorld}
                     onClick={() => void handleCommitSaveWorld()}
                     className="px-btn-primary px-4 py-2 text-xs font-bold cursor-pointer disabled:opacity-50"
                   >
                     {isSavingWorld
                       ? 'Saving...'
-                      : existingWorldWithName
-                        ? saveThenQuit
-                          ? 'Overwrite & Quit'
-                          : 'Overwrite & Save'
-                        : saveThenQuit
-                          ? 'Save & Quit'
-                          : 'Save World'}
+                      : saveThenQuit
+                        ? 'Overwrite & Quit'
+                        : 'Overwrite'}
                   </button>
                 </div>
               </div>

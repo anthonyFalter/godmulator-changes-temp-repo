@@ -270,7 +270,7 @@ export async function saveWorldToLocalCache(
   params: SaveWorldParams,
   adapter: WorldStorageAdapter = getDefaultAdapter(),
 ): Promise<SavedWorldRecord> {
-  const cleanName = (params.name ?? params.sim.worldName ?? '').trim() || `World ${params.sim.seed}`;
+  const cleanName = (params.name ?? params.sim.worldName ?? '').trim() || 'My World';
   const cleanDescription = (params.description ?? params.sim.worldDescription ?? '').trim();
   const sanitizedSim = sanitizeSimulationForSave(params.sim);
   sanitizedSim.worldName = cleanName;

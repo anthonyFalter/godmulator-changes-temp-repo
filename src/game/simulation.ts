@@ -380,7 +380,7 @@ export const WORLD_TEMPLATES: WorldTemplatePreset[] = [
     description: 'Standard terrestrial biomes with no fantasy creatures.',
     badge: 'Historical',
     accentColor: '#80ed99',
-    defaultWorldName: 'Terra',
+    defaultWorldName: 'My World',
     seaLevel: 'normal',
     mountainDensity: 'normal',
     climate: 'temperate',
@@ -408,7 +408,7 @@ export const WORLD_TEMPLATES: WorldTemplatePreset[] = [
     description: 'High fantasy realm with mythic beasts and crystal groves.',
     badge: 'Fantasy',
     accentColor: '#c084fc',
-    defaultWorldName: 'Aethelgard',
+    defaultWorldName: 'My World',
     seaLevel: 'normal',
     mountainDensity: 'high',
     climate: 'temperate',
@@ -436,7 +436,7 @@ export const WORLD_TEMPLATES: WorldTemplatePreset[] = [
     description: 'Begins in the Orbital Age with an established spacefaring colony.',
     badge: 'Orbital',
     accentColor: '#56cfe1',
-    defaultWorldName: 'Helios',
+    defaultWorldName: 'My World',
     seaLevel: 'normal',
     mountainDensity: 'normal',
     climate: 'temperate',
@@ -464,7 +464,7 @@ export const WORLD_TEMPLATES: WorldTemplatePreset[] = [
     description: 'Warm primeval continent roaming with Dinosaurs.',
     badge: 'Primeval',
     accentColor: '#fb923c',
-    defaultWorldName: 'Pangaea',
+    defaultWorldName: 'My World',
     seaLevel: 'low',
     mountainDensity: 'high',
     climate: 'warm',
@@ -492,7 +492,7 @@ export const WORLD_TEMPLATES: WorldTemplatePreset[] = [
     description: 'Scattered islands and coastal lagoons.',
     badge: 'Islands',
     accentColor: '#38bdf8',
-    defaultWorldName: 'Azure Isles',
+    defaultWorldName: 'My World',
     seaLevel: 'high',
     mountainDensity: 'normal',
     climate: 'warm',
@@ -520,7 +520,7 @@ export const WORLD_TEMPLATES: WorldTemplatePreset[] = [
     description: 'Boundless ocean world with warm coral reefs and floating scrap piles to build water cities.',
     badge: 'Oceanic',
     accentColor: '#06b6d4',
-    defaultWorldName: 'Flotsam Reach',
+    defaultWorldName: 'My World',
     seaLevel: 'high',
     mountainDensity: 'low',
     climate: 'warm',
@@ -548,7 +548,7 @@ export const WORLD_TEMPLATES: WorldTemplatePreset[] = [
     description: 'Manually adjust sea level, relief, and climate.',
     badge: 'Custom',
     accentColor: '#f5b742',
-    defaultWorldName: 'Eden',
+    defaultWorldName: 'My World',
     seaLevel: 'normal',
     mountainDensity: 'normal',
     climate: 'temperate',
@@ -617,7 +617,7 @@ export function createInitialSimulationState(
 
   const isAdvancedStart = startingEpochIdx >= 4;
   const isSciFiStart = startingEpochIdx >= 6;
-  const worldTitle = config?.worldName?.trim() || 'Untouched World';
+  const worldTitle = config?.worldName?.trim() || 'My World';
 
   const initialChronicle: ChronicleEvent[] = [
     {
