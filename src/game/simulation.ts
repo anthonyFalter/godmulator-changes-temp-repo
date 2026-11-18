@@ -1180,6 +1180,9 @@ export function addChronicle(
   text: string,
   tone: ChronicleEvent['tone'] = 'divine',
 ): void {
+  if (state.chronicle.slice(0, 5).some((c) => c.text === text)) {
+    return;
+  }
   state.chronicle = [
     {
       id: nextEntityId('chr'),
@@ -1188,7 +1191,7 @@ export function addChronicle(
       tone,
       timestamp: Date.now(),
     },
-    ...state.chronicle.slice(0, 29),
+    ...state.chronicle.slice(0, 49),
   ];
 }
 
@@ -4808,6 +4811,14 @@ function terraformSettlementDistrict(
         }
       }
       islandsBuilt++;
+      if (islandsBuilt === 1) {
+        const vName = state.settlementNames?.[settlementId] ?? 'A coastal metropolis';
+        addChronicle(
+          state,
+          `Engineers of ${vName} reclaimed an offshore Artificial Island connected by a coastal causeway!`,
+          'build',
+        );
+      }
     }
   }
 
@@ -5568,7 +5579,7 @@ export function ensureSettlementKings(state: SimulationState): void {
     }
   };
 
-  const crownGroupMonarch = (members: UnitEntity[]) => {
+  const crownGroupMonarch = (members: UnitEntity[], kid?: string) => {
     if (members.length === 0) return;
     const currentKings = members.filter((u) => u.isKing);
     if (currentKings.length === 1) return;
@@ -5605,6 +5616,11 @@ export function ensureSettlementKings(state: SimulationState): void {
         monarch.maxHp = royalHp;
         monarch.hp = royalHp;
       }
+      const realmName =
+        (monarch.settlementId ? state.settlementNames?.[monarch.settlementId] : undefined) ??
+        (kid ? state.settlementNames?.[kid] : undefined) ??
+        'the realm';
+      addChronicle(state, `${monarch.name} has been crowned monarch of ${realmName}!`, 'divine');
     }
   };
 
@@ -5616,7 +5632,7 @@ export function ensureSettlementKings(state: SimulationState): void {
         u.hp > 0 &&
         (u.settlementId ? getKingdomId(state, u.settlementId) : u.kingdomId) === kid,
     );
-    crownGroupMonarch(members);
+    crownGroupMonarch(members, kid);
   }
 
   // Also ensure unattached pioneer bands on unclaimed land (grouped locally within 16 tiles) have 1 King per band
@@ -7664,6 +7680,14 @@ function stepSimulationSingle(
       u.koTimer -= dt;
       if (u.koTimer > 0) {
         remainingUnits.push(u);
+      } else {
+        if (u.isKing && (u.ageYears ?? 0) < (u.maxLifespan ?? 999)) {
+          addChronicle(state, `${u.name} has fallen! The realm mourns and seeks a worthy successor.`, 'warning');
+        } else if (u.role === 'leviathan') {
+          addChronicle(state, `The abyssal Leviathan (${u.name}) has been slain! The seas grow calm once more.`, 'divine');
+        } else if (u.role === 'dragon') {
+          addChronicle(state, `Dragon ${u.name} has been vanquished!`, 'divine');
+        }
       }
       continue;
     }
@@ -7897,6 +7921,14 @@ function stepSimulationSingle(
         (u) => u.faction === 'civilization' && u.state !== 'ko' && u.hp > 0 && u.settlementId === sid,
       );
       if (!stillHasBlds && !stillHasUnits) {
+        const fallenName = state.settlementNames?.[sid];
+        if (fallenName) {
+          addChronicle(
+            state,
+            `The settlement of ${fallenName} has been completely destroyed and reduced to ruins!`,
+            'warning',
+          );
+        }
         if (state.settlementNames) delete state.settlementNames[sid];
         if (state.settlementSpecies) delete state.settlementSpecies[sid];
         if (state.settlementKingdoms) delete state.settlementKingdoms[sid];
@@ -10006,6 +10038,12 @@ function stepWildlifeAI(
   if ((u.attackAnimTimer ?? 0) > 0) {
     u.attackAnimTimer = Math.max(0, (u.attackAnimTimer ?? 0) - dt);
   }
+  if ((u.wildlifeSkillCooldown ?? 0) > 0) {
+    u.wildlifeSkillCooldown = Math.max(0, (u.wildlifeSkillCooldown ?? 0) - dt);
+  }
+  if ((u.dinoRushTimer ?? 0) > 0) {
+    u.dinoRushTimer = Math.max(0, (u.dinoRushTimer ?? 0) - dt);
+  }
   const curTile = getTile(state, u.x, u.z);
   if (curTile && curTile.onFireTimer > 0 && !u.statusEffects.shielded && !isFlying) {
     u.hp -= 10 * dt;
@@ -10395,6 +10433,11 @@ function stepWildlifeAI(
         u.leviathanLeapTargetX = landX;
         u.leviathanLeapTargetZ = landZ;
         u.leviathanSubmerged = true;
+        addChronicle(
+          state,
+          `The enraged Leviathan (${u.name}) breaches skyward from the abyss to crush coastal targets!`,
+          'warning',
+        );
         return;
       }
 
@@ -10411,6 +10454,11 @@ function stepWildlifeAI(
         u.attackTargetZ = tz;
         u.attackAnimTimer = 0.7;
         u.state = 'fighting';
+        addChronicle(
+          state,
+          `The enraged Leviathan (${u.name}) unhinges its jaws and unleashes a pressurized abyssal Hydro-Beam!`,
+          'warning',
+        );
         return;
       }
 
@@ -10443,6 +10491,12 @@ function stepWildlifeAI(
           } else if (targetBld && targetBld.shieldTimer <= 0) {
             targetBld.hp = Math.max(0, targetBld.hp - def.attackDamage * 1.45);
           }
+
+          addChronicle(
+            state,
+            `The enraged Leviathan (${u.name}) thrashes at the surface, unleashing surging rogue waves!`,
+            'warning',
+          );
 
           // Spawn a surging Rogue Wave when attacking!
           const waveHeading = Math.atan2(dz, dx);
@@ -10656,19 +10710,9 @@ function stepWildlifeAI(
       }
     }
     if (blessedAny) {
-      u.actionCooldown = 1.6;
-      state.pendingVfx.push({
-        id: nextEntityId('vfx'),
-        type: 'hit_spark',
-        x: u.x,
-        y: 0.6,
-        z: u.z,
-        radius: 1.4,
-        color: '#f472b6',
-        createdAt: Date.now(),
-      });
+      u.actionCooldown = 3.2;
     } else {
-      u.actionCooldown = 1.0;
+      u.actionCooldown = 1.2;
     }
   }
 
@@ -10789,35 +10833,49 @@ function stepWildlifeAI(
     if (bestPlantTile) {
       const dist = Math.hypot(bestPlantTile.x - u.x, bestPlantTile.z - u.z);
       const eatRange = canEatTrees ? 1.55 : 1.25;
+      const isTreeTarget = canEatTrees && bestPlantTile.resourceNode === 'timber_grove';
+      const canTreeHeadbuttRush = isTreeTarget && (u.wildlifeSkillCooldown ?? 0) <= 0;
       u.targetX = bestPlantTile.x;
       u.targetZ = bestPlantTile.z;
       if (dist <= eatRange) {
         u.state = 'gathering';
         if (u.actionCooldown <= 0) {
-          const eatAmt = canEatTrees ? 45 : 24;
+          const usedHeadbuttSkill = canTreeHeadbuttRush;
+          const eatAmt = usedHeadbuttSkill ? 65 : canEatTrees ? 45 : 24;
           bestPlantTile.resourceAmount = Math.max(0, bestPlantTile.resourceAmount - eatAmt);
           if (bestPlantTile.resourceAmount <= 0) {
             bestPlantTile.resourceNode = 'none';
           }
           u.hp = Math.min(u.maxHp, u.hp + (canEatTrees ? 14 : 6));
           u.actionCooldown = canEatTrees ? 1.8 : 2.1;
-          u.attackAnimTimer = 0.42;
+          u.attackAnimTimer = usedHeadbuttSkill ? 0.52 : 0.42;
           u.attackTargetX = bestPlantTile.x;
           u.attackTargetZ = bestPlantTile.z;
-          state.pendingVfx.push({
-            id: nextEntityId('vfx'),
-            type: 'hit_spark',
-            x: bestPlantTile.x,
-            y: 0.45,
-            z: bestPlantTile.z,
-            radius: canEatTrees ? 0.95 : 0.7,
-            color: '#80ed99',
-            createdAt: Date.now(),
-          });
+          u.dinoRushTimer = 0;
+          if (usedHeadbuttSkill) {
+            u.wildlifeSkillCooldown = 5.5;
+            state.pendingVfx.push({
+              id: nextEntityId('vfx'),
+              type: 'animal_attack',
+              variant: 'crunch',
+              originX: u.x,
+              originZ: u.z,
+              x: bestPlantTile.x,
+              y: 0,
+              z: bestPlantTile.z,
+              radius: 1.8,
+              color: '#84cc16',
+              createdAt: Date.now(),
+            });
+          }
         }
       } else {
         u.state = 'moving';
-        const grazeSpeed = moveSpeed * (canEatTrees ? 0.88 : 0.8);
+        if (canTreeHeadbuttRush && dist <= 5.5) {
+          u.dinoRushTimer = Math.max(u.dinoRushTimer ?? 0, 0.35);
+        }
+        const isRushingTree = (u.dinoRushTimer ?? 0) > 0;
+        const grazeSpeed = moveSpeed * (isRushingTree ? 1.72 : canEatTrees ? 0.88 : 0.8);
         const nx = u.x + ((bestPlantTile.x - u.x) / dist) * grazeSpeed * dt;
         const nz = u.z + ((bestPlantTile.z - u.z) / dist) * grazeSpeed * dt;
         const nt = getTile(state, nx, nz);
@@ -10862,6 +10920,10 @@ function stepWildlifeAI(
     }
     if (options?.buildingTarget && options.buildingTarget.shieldTimer <= 0) {
       options.buildingTarget.hp = Math.max(0, options.buildingTarget.hp - dmg * 0.85);
+      const sName =
+        (options.buildingTarget.settlementId && state.settlementNames?.[options.buildingTarget.settlementId]) ||
+        'a settlement';
+      addChronicle(state, `Dragon ${u.name} strafes ${sName} with scorching dragonfire!`, 'warning');
     }
 
     state.pendingVfx.push({
@@ -11134,7 +11196,9 @@ function stepWildlifeAI(
       !target &&
       (u.role === 'dragon' ||
         isFrenzied ||
-        ((isCarnivoreDino || u.role === 'bear') && u.actionCooldown <= 0.35));
+        ((isCarnivoreDino || u.role === 'bear') &&
+          u.actionCooldown <= 0.35 &&
+          (u.wildlifeSkillCooldown ?? 0) <= 0));
 
     if (canAttackEnv) {
       const envRange = u.role === 'dragon' ? 12 : isFrenzied ? 7 : 5;
@@ -11409,11 +11473,16 @@ function stepWildlifeAI(
       if (dist <= def.attackRange) {
         u.state = 'fighting';
         if (u.actionCooldown <= 0) {
-          const dmg = def.attackDamage * (isFrenzied ? 1.8 : 1.0);
+          const isDinoChargeHit = u.role === 'dinosaur' && (u.dinoRushTimer ?? 0) > 0 && (u.wildlifeSkillCooldown ?? 0) <= 0;
+          const dmg = def.attackDamage * (isFrenzied ? 1.8 : 1.0) * (isDinoChargeHit ? 1.35 : 1.0);
           u.actionCooldown = u.role === 'wolf' ? 0.72 : 0.9;
           u.attackAnimTimer = 0.48;
           u.attackTargetX = target.x;
           u.attackTargetZ = target.z;
+          u.dinoRushTimer = 0;
+          if (isDinoChargeHit) {
+            u.wildlifeSkillCooldown = 5.5;
+          }
           target.hp -= dmg;
           target.lastAttackerId = u.id;
           target.underAttackTimer = 8.0;
@@ -11446,15 +11515,19 @@ function stepWildlifeAI(
             x: target.x,
             y: 0,
             z: target.z,
-            radius: u.role === 'dinosaur' ? 1.55 : u.role === 'bear' ? 1.35 : 1.05,
+            radius: isDinoChargeHit ? 1.8 : u.role === 'dinosaur' ? 0.95 : u.role === 'bear' ? 0.85 : 0.72,
             color,
             createdAt: Date.now(),
           });
         }
       } else {
         u.state = 'moving';
-        const nx = u.x + ((target.x - u.x) / dist) * moveSpeed * dt;
-        const nz = u.z + ((target.z - u.z) / dist) * moveSpeed * dt;
+        if (u.role === 'dinosaur' && (u.wildlifeSkillCooldown ?? 0) <= 0 && dist <= 5.2 && dist >= 1.8) {
+          u.dinoRushTimer = Math.max(u.dinoRushTimer ?? 0, 0.35);
+        }
+        const chaseMult = (u.dinoRushTimer ?? 0) > 0 ? 1.68 : 1.0;
+        const nx = u.x + ((target.x - u.x) / dist) * moveSpeed * chaseMult * dt;
+        const nz = u.z + ((target.z - u.z) / dist) * moveSpeed * chaseMult * dt;
         const nt = getTile(state, nx, nz);
         if (isFlying || (nt && nt.height > 0)) {
           u.x = Math.max(1, Math.min(gs - 2, nx));
@@ -11472,8 +11545,10 @@ function stepWildlifeAI(
         u.state = 'fighting';
         if (u.actionCooldown <= 0) {
           const dmg = def.attackDamage * (isFrenzied ? 1.8 : 1.0);
-          u.actionCooldown = isFrenzied ? 0.95 : 2.8;
-          u.attackAnimTimer = 0.48;
+          u.actionCooldown = isFrenzied ? 1.2 : 5.2;
+          u.wildlifeSkillCooldown = isFrenzied ? 2.5 : 5.5;
+          u.dinoRushTimer = 0;
+          u.attackAnimTimer = 0.52;
           u.attackTargetX = envTarget.x;
           u.attackTargetZ = envTarget.z;
           if (envTarget.kind === 'building' && envTarget.building.shieldTimer <= 0) {
@@ -11529,15 +11604,19 @@ function stepWildlifeAI(
             x: envTarget.x,
             y: 0,
             z: envTarget.z,
-            radius: u.role === 'dinosaur' ? 1.55 : u.role === 'bear' ? 1.35 : 1.05,
+            radius: u.role === 'dinosaur' ? 1.85 : u.role === 'bear' ? 1.75 : 0.85,
             color,
             createdAt: Date.now(),
           });
         }
       } else {
         u.state = 'moving';
-        const nx = u.x + ((envTarget.x - u.x) / dist) * moveSpeed * dt;
-        const nz = u.z + ((envTarget.z - u.z) / dist) * moveSpeed * dt;
+        if (u.role === 'dinosaur' && dist <= 5.5) {
+          u.dinoRushTimer = Math.max(u.dinoRushTimer ?? 0, 0.4);
+        }
+        const rushMult = (u.dinoRushTimer ?? 0) > 0 ? 1.78 : 1.0;
+        const nx = u.x + ((envTarget.x - u.x) / dist) * moveSpeed * rushMult * dt;
+        const nz = u.z + ((envTarget.z - u.z) / dist) * moveSpeed * rushMult * dt;
         const nt = getTile(state, nx, nz);
         if (isFlying || (nt && nt.height > 0)) {
           u.x = Math.max(1, Math.min(gs - 2, nx));
@@ -12507,6 +12586,19 @@ function stepCivilianUnitAI(
           nearestEnemy.lastAttackerId = u.id;
           nearestEnemy.underAttackTimer = 8.0;
           if (nearestEnemy.role === 'leviathan') {
+            if (nearestEnemy.leviathanSubmerged) {
+              addChronicle(
+                state,
+                `The abyssal Leviathan (${nearestEnemy.name}) is enraged by an attack and rises from the deep!`,
+                'warning',
+              );
+            } else if (
+              nearestEnemy.hp > 0 &&
+              nearestEnemy.hp <= nearestEnemy.maxHp * 0.5 &&
+              nearestEnemy.hp + strikeDmg > nearestEnemy.maxHp * 0.5
+            ) {
+              addChronicle(state, `The wounded Leviathan (${nearestEnemy.name}) enters a furious abyssal rage!`, 'warning');
+            }
             nearestEnemy.leviathanSubmerged = false;
           }
           if (nearestEnemy.hp <= 0) {
@@ -13360,6 +13452,15 @@ function killUnitIntoVoidWisp(state: SimulationState, u: UnitEntity): void {
   u.koTimer = 0.35;
   if (u.faction === 'hostile') state.totalRaidersDefeated += 1;
   spawnVoidWispsFromUnit(state, u);
+  if (u.isKing || u.role === 'leviathan' || u.role === 'dragon') {
+    addChronicle(state, `${u.name} was consumed by the Void Goo and reborn as a drifting Void Wisp!`, 'warning');
+  } else {
+    addChronicle(
+      state,
+      `The spreading Void Goo consumed mortals and revived their souls as glowing Void Wisps!`,
+      'warning',
+    );
+  }
 }
 
 function stepVoidGooAndWisps(state: SimulationState, dt: number): void {

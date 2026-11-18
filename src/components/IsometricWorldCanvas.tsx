@@ -4398,24 +4398,25 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       colorHex: string,
     ) {
       const group = new THREE.Group();
+      const isSpecialSkill = radius >= 1.7;
       const slashMat = new THREE.MeshBasicMaterial({
         color: colorHex,
         transparent: true,
-        opacity: 0.95,
+        opacity: 0.92,
         side: THREE.DoubleSide,
         depthWrite: false,
       });
       const whiteMat = new THREE.MeshBasicMaterial({
         color: 0xffffff,
         transparent: true,
-        opacity: 0.92,
+        opacity: 0.85,
         side: THREE.DoubleSide,
         depthWrite: false,
       });
       const ringMat = new THREE.MeshBasicMaterial({
         color: colorHex,
         transparent: true,
-        opacity: 0.88,
+        opacity: isSpecialSkill ? 0.58 : 0,
         side: THREE.DoubleSide,
         depthWrite: false,
       });
@@ -4423,56 +4424,94 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
       const slashMeshes: THREE.Mesh[] = [];
       const yaw = Math.atan2(tx - ox, tz - oz);
+      // Position physical contact right between attacker snout/paws and target
+      const cx = ox * 0.28 + tx * 0.72;
+      const cz = oz * 0.28 + tz * 0.72;
 
-      if (variant === 'bite' || variant === 'crunch') {
-        // Crossed glowing claw/fang slash blades snapping across the target
-        const slashCount = variant === 'crunch' ? 4 : 3;
-        const slashSpread = variant === 'crunch' ? 1.35 : 0.92;
-        for (let i = 0; i < slashCount; i++) {
-          const m = new THREE.Mesh(sharedSlashBladeGeo, i % 2 === 0 ? slashMat : whiteMat);
-          m.position.set(tx, ty + 0.52 + (i - 1) * 0.12, tz);
-          m.rotation.set(0.35, yaw + (i % 2 === 0 ? 0.55 : -0.55), (i % 2 === 0 ? 1 : -1) * 0.62);
-          m.scale.set(slashSpread, 1, 1);
+      if (variant === 'bite') {
+        // Wolf Fang Bite: compact upper & lower jaw fang arcs snapping shut on the prey (no ground explosion)
+        for (let i = 0; i < 2; i++) {
+          const isUpper = i === 0;
+          const m = new THREE.Mesh(sharedSlashBladeGeo, isUpper ? whiteMat : slashMat);
+          m.position.set(cx, ty + (isUpper ? 0.44 : 0.24), cz);
+          m.rotation.set(isUpper ? 0.42 : -0.42, yaw, isUpper ? 0.18 : -0.18);
+          m.scale.set(0.42, 0.55, 0.42);
+          m.userData.baseY = m.position.y;
+          m.userData.snapDir = isUpper ? -1 : 1;
           group.add(m);
           slashMeshes.push(m);
         }
-        spawnParticleBurst(tx, ty + 0.45, tz, variant === 'crunch' ? 28 : 18, colorHex, radius * 0.65, 5.2, 1.1);
-        spawnParticleBurst(tx, ty + 0.45, tz, 10, '#ffffff', radius * 0.4, 6.0, 0.85);
+        spawnParticleBurst(cx, ty + 0.34, cz, 3, colorHex, 0.16, 1.35, 0.42);
+      } else if (variant === 'crunch') {
+        if (isSpecialSkill) {
+          // 5-Second Special Skill: Dinosaur Headbutt Rush / Heavy Timber Smash
+          for (let i = 0; i < 2; i++) {
+            const m = new THREE.Mesh(sharedSlamClawGeo, i === 0 ? slashMat : whiteMat);
+            m.position.set(cx + Math.sin(yaw) * (i * 0.14), ty + 0.48, cz + Math.cos(yaw) * (i * 0.14));
+            m.rotation.set(0.55, yaw, 0);
+            m.scale.set(0.72, 0.72, 0.72);
+            group.add(m);
+            slashMeshes.push(m);
+          }
+          spawnParticleBurst(tx, ty + 0.42, tz, 7, colorHex, 0.42, 2.4, 0.58);
+        } else {
+          // Normal Dinosaur Jaw Crunch: opposing upper & lower tooth-jaw chomp arcs (no ground explosion)
+          for (let i = 0; i < 2; i++) {
+            const isUpper = i === 0;
+            const m = new THREE.Mesh(sharedSlashBladeGeo, isUpper ? slashMat : whiteMat);
+            m.position.set(cx, ty + (isUpper ? 0.58 : 0.32), cz);
+            m.rotation.set(isUpper ? 0.48 : -0.48, yaw, isUpper ? 0.22 : -0.22);
+            m.scale.set(0.56, 0.68, 0.56);
+            m.userData.baseY = m.position.y;
+            m.userData.snapDir = isUpper ? -1 : 1;
+            group.add(m);
+            slashMeshes.push(m);
+          }
+          spawnParticleBurst(cx, ty + 0.44, cz, 3, colorHex, 0.2, 1.5, 0.46);
+        }
       } else if (variant === 'slam') {
-        // Bear heavy ground-pound radial claw blades + shockwave dome
-        for (let i = 0; i < 4; i++) {
-          const a = yaw + (i - 1.5) * 0.35;
-          const m = new THREE.Mesh(sharedSlamClawGeo, i % 2 === 0 ? slashMat : whiteMat);
-          m.position.set(tx + Math.sin(a) * 0.25, ty + 0.26, tz + Math.cos(a) * 0.25);
-          m.rotation.y = a;
-          group.add(m);
-          slashMeshes.push(m);
-        }
-        spawnParticleBurst(tx, ty + 0.3, tz, 26, '#d97706', radius * 0.85, 5.6, 1.15);
-        spawnParticleBurst(tx, ty + 0.3, tz, 14, '#fef3c7', radius * 0.55, 6.2, 0.9);
-      } else if (variant === 'horn_blast') {
-        // Unicorn radiant prismatic starburst crescent & sparkles
+        // Bear Paw Swipe: 3 parallel diagonal claw rake scratches swiping downward
         for (let i = 0; i < 3; i++) {
-          const m = new THREE.Mesh(sharedHornStarGeo, i === 0 ? whiteMat : slashMat);
-          m.position.set(tx, ty + 0.55, tz);
-          m.rotation.y = yaw + i * 0.7;
+          const lateral = (i - 1) * 0.11;
+          const perpX = Math.cos(yaw) * lateral;
+          const perpZ = -Math.sin(yaw) * lateral;
+          const m = new THREE.Mesh(sharedSlashBladeGeo, i === 1 ? whiteMat : slashMat);
+          m.position.set(cx + perpX, ty + 0.46, cz + perpZ);
+          m.rotation.set(0.65, yaw, 0.35);
+          m.scale.set(isSpecialSkill ? 0.58 : 0.42, 0.62, isSpecialSkill ? 0.58 : 0.42);
+          m.userData.baseY = m.position.y;
+          m.userData.snapDir = -1;
           group.add(m);
           slashMeshes.push(m);
         }
-        spawnRisingParticles(tx, ty + 0.25, tz, 22, colorHex, radius * 0.8, 3.6, 1.1, 1.1);
+        spawnParticleBurst(cx, ty + 0.34, cz, isSpecialSkill ? 6 : 3, '#d97706', isSpecialSkill ? 0.36 : 0.18, 1.6, 0.45);
+      } else if (variant === 'horn_blast') {
+        // Unicorn Horn Thrust: single slender forward horn gleam & 3 soft sparkles
+        const m = new THREE.Mesh(sharedHornStarGeo, whiteMat);
+        m.position.set(cx, ty + 0.48, cz);
+        m.rotation.y = yaw;
+        m.scale.setScalar(0.45);
+        group.add(m);
+        slashMeshes.push(m);
+        spawnRisingParticles(cx, ty + 0.3, cz, 4, colorHex, 0.22, 1.4, 0.55, 0.7);
       } else {
-        spawnParticleBurst(tx, ty + 0.35, tz, 14, colorHex, 0.55, 4.0, 0.9);
+        // Small wildlife peck / nudge: single tiny beak tick
+        const m = new THREE.Mesh(sharedSlashBladeGeo, slashMat);
+        m.position.set(cx, ty + 0.28, cz);
+        m.rotation.set(0.5, yaw, 0);
+        m.scale.set(0.24, 0.32, 0.24);
+        group.add(m);
+        slashMeshes.push(m);
       }
 
-      const ringMesh = new THREE.Mesh(sharedHazRingGeo, ringMat);
-      ringMesh.position.set(tx, ty + 0.12, tz);
-      ringMesh.scale.setScalar(0.35);
-      group.add(ringMesh);
-
-      const outerRingMesh = new THREE.Mesh(sharedHazRingGeo, whiteMat);
-      outerRingMesh.position.set(tx, ty + 0.15, tz);
-      outerRingMesh.scale.setScalar(0.25);
-      group.add(outerRingMesh);
+      let ringMesh: THREE.Mesh | undefined;
+      if (isSpecialSkill) {
+        // Only the 5-second Special Skill (e.g. Dino Headbutt Rush on a tree) gets a compact physical dust ring
+        ringMesh = new THREE.Mesh(sharedHazRingGeo, ringMat);
+        ringMesh.position.set(tx, ty + 0.1, tz);
+        ringMesh.scale.setScalar(0.22);
+        group.add(ringMesh);
+      }
 
       burstFxGroup.add(group);
       activeBurstFx.push({
@@ -4481,8 +4520,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         group,
         materials,
         age: 0,
-        duration: variant === 'crunch' || variant === 'slam' ? 0.56 : 0.44,
-        impactDelay: 0.02,
+        duration: isSpecialSkill ? 0.42 : 0.28,
+        impactDelay: 0.01,
         deferImpact: false,
         tx,
         ty,
@@ -4494,7 +4533,6 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         radius,
         impactFired: true,
         ringMesh,
-        outerRingMesh,
         slashMeshes,
         colorHex,
       });
@@ -7449,17 +7487,24 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
               } else {
                 bodyPitch = Math.sin(elapsed * 2.1 + seedPhase) * 0.04;
               }
+            } else if (u.role === 'dinosaur' && (u.dinoRushTimer ?? 0) > 0) {
+              // Dinosaur 5-second Special Rush: lowers torso and charges forward like a battering ram
+              bodyPitch = 0.22;
+              bodyForward = 0.26;
             } else if (isAttacking) {
               const s = Math.sin(atkProg * Math.PI);
               if (u.role === 'bear') {
                 bodyPitch = atkProg < 0.45 ? -0.58 * (atkProg / 0.45) : -0.58 + 0.88 * ((atkProg - 0.45) / 0.55);
-                bodyForward = atkProg > 0.45 ? 0.22 * Math.sin(((atkProg - 0.45) / 0.55) * Math.PI) : -0.08;
+                bodyForward = atkProg > 0.45 ? 0.24 * Math.sin(((atkProg - 0.45) / 0.55) * Math.PI) : -0.08;
               } else if (u.role === 'unicorn') {
                 bodyPitch = -0.34 * s;
-                bodyForward = 0.26 * s;
+                bodyForward = 0.28 * s;
+              } else if (u.role === 'dinosaur') {
+                bodyPitch = (isHerbivoreDino ? 0.34 : 0.26) * s;
+                bodyForward = 0.36 * s;
               } else if (!isDragon) {
                 bodyPitch = 0.24 * s;
-                bodyForward = (u.role === 'wolf' ? 0.34 : 0.24) * s;
+                bodyForward = (u.role === 'wolf' ? 0.38 : 0.24) * s;
               }
             }
             bodyPivot.rotation.x = bodyPitch;
@@ -7493,8 +7538,17 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
                   Math.sin(elapsed * 1.4 + seedPhase) * 0.12;
               headPivot.rotation.x = THREE.MathUtils.damp(headPivot.rotation.x, targetHeadX, 9, dt);
               headPivot.rotation.y = THREE.MathUtils.damp(headPivot.rotation.y, targetHeadY, 8, dt);
+            } else if (u.role === 'dinosaur' && (u.dinoRushTimer ?? 0) > 0) {
+              // Lowered skull/horns while rushing to headbutt a tree or prey
+              headPivot.rotation.x = 0.62;
+              headPivot.rotation.y = 0;
             } else if (isAttacking) {
-              headPivot.rotation.x = Math.sin(atkProg * Math.PI) * (u.role === 'chicken' ? 0.65 : 0.42);
+              if (u.role === 'dinosaur' && isHerbivoreDino) {
+                // Upward horn/skull headbutt snap at the moment of impact
+                headPivot.rotation.x = atkProg < 0.4 ? 0.58 : 0.58 - Math.sin(((atkProg - 0.4) / 0.6) * Math.PI) * 0.92;
+              } else {
+                headPivot.rotation.x = Math.sin(atkProg * Math.PI) * (u.role === 'chicken' ? 0.65 : u.role === 'dinosaur' ? 0.52 : 0.42);
+              }
               headPivot.rotation.y = 0;
             } else if (u.role === 'chicken') {
               const peckCycle = (elapsed * 1.4 + seedPhase) % 3.2;
@@ -9812,24 +9866,24 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             );
             spawnParticleBurst(fx.tx, fx.ty + 0.15, fx.tz, 4, fx.colorHex, 0.85, 3.4, 1.05);
           }
-        } else if (fx.kind === 'animal_strike' && fx.ringMesh) {
+        } else if (fx.kind === 'animal_strike') {
           const prog = Math.min(1, fx.age / fx.duration);
           const easeOut = 1 - Math.pow(1 - prog, 2);
           const env = 1 - prog;
-          fx.ringMesh.scale.setScalar(0.28 + easeOut * fx.radius * 1.15);
-          (fx.materials[2] as THREE.MeshBasicMaterial).opacity = env * 0.9;
-          if (fx.outerRingMesh) {
-            fx.outerRingMesh.scale.setScalar(0.18 + prog * fx.radius * 1.45);
+          if (fx.ringMesh) {
+            fx.ringMesh.scale.setScalar(0.22 + easeOut * 0.65);
+            (fx.materials[2] as THREE.MeshBasicMaterial).opacity = env * 0.55;
           }
           if (fx.slashMeshes) {
             for (let si = 0; si < fx.slashMeshes.length; si++) {
               const sm = fx.slashMeshes[si];
-              const sScale = 0.65 + easeOut * 0.75;
-              sm.scale.set(sScale, 1 + (1 - env) * 0.35, sScale);
+              if (typeof sm.userData.baseY === 'number' && typeof sm.userData.snapDir === 'number') {
+                sm.position.y = sm.userData.baseY + sm.userData.snapDir * easeOut * 0.11;
+              }
             }
           }
-          (fx.materials[0] as THREE.MeshBasicMaterial).opacity = env * 0.95;
-          (fx.materials[1] as THREE.MeshBasicMaterial).opacity = env * 0.9;
+          (fx.materials[0] as THREE.MeshBasicMaterial).opacity = env * 0.92;
+          (fx.materials[1] as THREE.MeshBasicMaterial).opacity = env * 0.85;
         } else if (fx.kind === 'blackhole_explosion' && fx.ringMesh) {
           const prog = Math.min(1, fx.age / fx.duration);
           const easeOut = 1 - Math.pow(1 - prog, 2.5);

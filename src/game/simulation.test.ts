@@ -5195,3 +5195,77 @@ test('Giant asteroid impact unleashes expanding shockwave, wide environmental de
     'Expanding asteroid shockwave must flatten/scorch forest terrain at 24 tiles from impact center',
   );
 });
+
+test('World Chronicle logs dynamically respond to new kings, royal succession, enraged Leviathan attacks, and fallen cities', () => {
+  const state = createInitialSimulationState(96, 'CHRONICLE-WORLD-EVENTS');
+  state.sandboxFreeMode = true;
+  state.wildlifeSeeded = true;
+
+  for (let dz = -6; dz <= 6; dz++) {
+    for (let dx = -6; dx <= 6; dx++) {
+      const t = getTile(state, 48 + dx, 48 + dz)!;
+      t.height = dx <= -3 ? 0 : 2;
+      t.terrain = dx <= -3 ? 'deep_water' : 'grass';
+      t.resourceNode = 'none';
+      t.buildingId = null;
+    }
+  }
+
+  // 1. Place a settlement and 2 citizens -> stepping crowns a King and logs it to the chronicle
+  placeBuilding(state, 'bonfire', 48, 48);
+  const sid = state.buildings[0].settlementId!;
+  spawnUnit(state, 'human', 48, 49, true, sid);
+  spawnUnit(state, 'human', 49, 49, true, sid);
+
+  stepSimulation(state, 0.2, { skipRandomEvents: true });
+  const king = state.units.find((u) => u.isKing)!;
+  assert.ok(king, 'Kingdom must crown a monarch');
+  assert.ok(
+    state.chronicle.some((c) => c.text.includes('crowned monarch of')),
+    'World Chronicle must log the coronation of a new King',
+  );
+
+  // 2. Slay the King in battle -> chronicle logs the King's fall AND the successor's coronation
+  const firstKingName = king.name;
+  king.hp = 0;
+  king.state = 'ko';
+  king.koTimer = 0.05;
+  stepSimulation(state, 0.2, { skipRandomEvents: true });
+
+  assert.ok(
+    state.chronicle.some((c) => c.text.includes(`${firstKingName} has fallen!`)),
+    'World Chronicle must log when a reigning King falls',
+  );
+  const secondKing = state.units.find((u) => u.isKing)!;
+  assert.ok(secondKing && secondKing.id !== king.id, 'A successor King must be crowned');
+  assert.ok(
+    state.chronicle.some((c) => c.text.includes(`${secondKing.name} has been crowned monarch`)),
+    'World Chronicle must log the successor King coronation',
+  );
+
+  // 3. Spawn a Leviathan offshore and provoke/engage it -> chronicle logs enraged Leviathan actions and its death
+  const levRes = spawnUnit(state, 'leviathan', 48 - 4, 48, true);
+  assert.equal(levRes.ok, true);
+  const leviathan = levRes.unit!;
+  leviathan.hp = leviathan.maxHp * 0.4; // Wounded / enraged
+  leviathan.underAttackTimer = 8.0;
+  leviathan.lastAttackerId = secondKing.id;
+  leviathan.leviathanLeapCooldown = 99;
+  leviathan.leviathanBeamCooldown = 0;
+
+  stepSimulation(state, 0.2, { skipRandomEvents: true });
+  assert.ok(
+    state.chronicle.some((c) => c.text.includes('enraged Leviathan') && c.text.includes('Hydro-Beam')),
+    'World Chronicle must log when an enraged Leviathan unleashes its abyssal Hydro-Beam',
+  );
+
+  leviathan.hp = 0;
+  leviathan.state = 'ko';
+  leviathan.koTimer = 0.05;
+  stepSimulation(state, 0.2, { skipRandomEvents: true });
+  assert.ok(
+    state.chronicle.some((c) => c.text.includes(`Leviathan (${leviathan.name}) has been slain`)),
+    'World Chronicle must log when a Leviathan is slain',
+  );
+});
+

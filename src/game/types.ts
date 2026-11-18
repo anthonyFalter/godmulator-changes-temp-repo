@@ -221,6 +221,8 @@ export interface UnitEntity {
   attackAnimTimer?: number;
   attackTargetX?: number;
   attackTargetZ?: number;
+  wildlifeSkillCooldown?: number;
+  dinoRushTimer?: number;
   dragonRunPhase?: 'approach' | 'strafe' | 'turn';
   dragonRunTimer?: number;
   dragonRunDirX?: number;
