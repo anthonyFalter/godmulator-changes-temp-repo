@@ -6093,6 +6093,7 @@ function stepSimulationSingle(
 
       // Lethal drowning & surge crushing on non-flying NPCs & wildlife caught in the crashing tsunami crest
       for (const u of state.units) {
+        if (haz.sourceUnitId && (u.id === haz.sourceUnitId || u.role === 'leviathan')) continue;
         const dx = u.x - haz.x;
         const dz = u.z - haz.z;
         const dist = Math.hypot(dx, dz);
@@ -6221,7 +6222,7 @@ function stepSimulationSingle(
           }
         }
         for (const u of state.units) {
-          if (u.state === 'ko' || u.role === 'dragon' || u.statusEffects.shielded || u.embarkedVehicleId || u.draggedByPlayer) continue;
+          if (u.state === 'ko' || u.role === 'dragon' || u.role === 'leviathan' || (haz.sourceUnitId && u.id === haz.sourceUnitId) || u.statusEffects.shielded || u.embarkedVehicleId || u.draggedByPlayer) continue;
           const dist = Math.hypot(u.x - haz.x, u.z - haz.z);
           if (dist <= crestR) {
             u.x = Math.max(1, Math.min(state.gridSize - 2, u.x + wx * 4.5 * dt));
@@ -8961,6 +8962,7 @@ function stepWildlifeAI(
           remaining: 5.5,
           duration: 5.5,
           tickTimer: 0,
+          sourceUnitId: u.id,
         });
         state.pendingVfx.push({
           id: nextEntityId('vfx'),
@@ -9004,6 +9006,7 @@ function stepWildlifeAI(
           remaining: 7.5,
           duration: 7.5,
           tickTimer: 0,
+          sourceUnitId: u.id,
         });
 
         // 8 radial Rogue Waves surging outward in all compass directions
@@ -9021,6 +9024,7 @@ function stepWildlifeAI(
             remaining: 5.5,
             duration: 5.5,
             tickTimer: 0,
+            sourceUnitId: u.id,
           });
         }
 
@@ -9298,12 +9302,11 @@ function stepWildlifeAI(
               targetUnit.koTimer = 0.45;
               if (targetUnit.faction === 'hostile') state.totalRaidersDefeated += 1;
             }
-            if (targetUnit.faction === 'civilization' || targetUnit.faction === 'hostile' || targetUnit.role === 'dragon') {
+            if (targetUnit.hp > 0 && (targetUnit.faction === 'civilization' || targetUnit.faction === 'hostile' || targetUnit.role === 'dragon')) {
               u.hp = Math.max(0, u.hp - (targetUnit.role === 'warrior' || targetUnit.isKing ? 14 : 8));
             }
           } else if (targetBld && targetBld.shieldTimer <= 0) {
             targetBld.hp = Math.max(0, targetBld.hp - def.attackDamage * 1.45);
-            u.hp = Math.max(0, u.hp - 10);
           }
 
           // Spawn a surging Rogue Wave when attacking!
@@ -9320,6 +9323,7 @@ function stepWildlifeAI(
             remaining: 4.5,
             duration: 4.5,
             tickTimer: 0,
+            sourceUnitId: u.id,
           });
 
           // Smash water walkways & bleach coral reefs around the Leviathan's jaws
@@ -9420,6 +9424,7 @@ function stepWildlifeAI(
             remaining: 4.5,
             duration: 4.5,
             tickTimer: 0,
+            sourceUnitId: u.id,
           });
           state.pendingVfx.push({
             id: nextEntityId('vfx'),
