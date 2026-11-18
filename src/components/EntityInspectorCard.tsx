@@ -1,13 +1,8 @@
 import React, { useState } from 'react';
-import {
-  Crosshair,
-  Star,
-  X,
-} from 'lucide-react';
 import { getEntityInspectProfile, isIntrinsicGene } from '../game/entityInspector';
 import { Resources, SimulationState, UnitEntity, UnitStatusEffect, ZoneToggleState } from '../game/types';
 import { TileZoneInspection } from '../game/zones';
-import { ResourceIconSvg, UnitPixelIcon } from './GameIcons';
+import { HudPixelIcon, ResourceIconSvg, UnitPixelIcon } from './GameIcons';
 
 const INSPECT_RESOURCE_KEYS: { key: keyof Resources; label: string }[] = [
   { key: 'food', label: 'Food' },
@@ -135,7 +130,7 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                       : 'px-btn text-[#a89f91] hover:text-[#ffd166]'
                   }`}
                 >
-                  <Star className="w-4 h-4" fill={profile.favorite ? '#ffd166' : 'none'} />
+                  <HudPixelIcon kind={profile.favorite ? 'starOn' : 'star'} className="w-4 h-4 pixelated-canvas" />
                 </button>
               ) : (
                 <button
@@ -149,7 +144,7 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                   title="Select & Favorite"
                   className="px-btn w-8 h-8 flex items-center justify-center cursor-pointer text-[#a89f91] hover:text-[#ffd166] transition-colors"
                 >
-                  <Star className="w-4 h-4" fill={profile.favorite ? '#ffd166' : 'none'} />
+                  <HudPixelIcon kind={profile.favorite ? 'starOn' : 'star'} className="w-4 h-4 pixelated-canvas" />
                 </button>
               )}
 
@@ -165,7 +160,7 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                       : 'px-btn text-[#56cfe1] hover:text-[#80ed99]'
                   }`}
                 >
-                  <Crosshair className="w-4 h-4" />
+                  <HudPixelIcon kind="center" className="w-4 h-4 pixelated-canvas" />
                 </button>
               )}
 
@@ -177,7 +172,7 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                   title="Unpin selection"
                   className="px-btn w-8 h-8 flex items-center justify-center cursor-pointer text-[#8f8679] hover:text-[#f2ece1] transition-colors"
                 >
-                  <X className="w-4 h-4" />
+                  <HudPixelIcon kind="close" className="w-4 h-4 pixelated-canvas" />
                 </button>
               )}
             </div>
@@ -443,7 +438,7 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                         className="text-[#ffd166] hover:text-[#ff8f6b] cursor-pointer p-1"
                         title="Unfavorite"
                       >
-                        <Star className="w-3.5 h-3.5" fill="#ffd166" />
+                        <HudPixelIcon kind="starOn" className="w-3.5 h-3.5 pixelated-canvas" />
                       </button>
                     </div>
                   );
