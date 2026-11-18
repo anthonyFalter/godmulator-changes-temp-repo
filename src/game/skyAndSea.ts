@@ -8,7 +8,7 @@ import {
   TerrainType,
   TileData,
 } from './types';
-import { getTimeOfDayLightingState } from './dayNightLighting';
+import { getTimeOfDayLightingState, wrapShaderTime } from './dayNightLighting';
 import { createRng, normalizeSeed } from './worldGen';
 
 function addSteppedPuff(
@@ -318,23 +318,24 @@ export function createSkyCloudSystem(gridSize: number): SkyCloudSystem {
 
     _curTint.lerp(_targetTint, Math.min(1, dt * 4));
     cloudMat.color.copy(_curTint);
+    const safeElapsed = wrapShaderTime(elapsed);
 
     for (let i = 0; i < clouds.length; i++) {
       const c = clouds[i];
       const activeLimit = cloudInsts[c.variant].count;
       if (c.slot >= activeLimit) continue;
 
-      const breeze = 1.0 + Math.sin(elapsed * 0.35 + c.phase) * 0.14;
+      const breeze = 1.0 + Math.sin(safeElapsed * 0.35 + c.phase) * 0.14;
       c.x += c.vx * breeze * dt;
-      c.z += (c.vz + Math.cos(elapsed * 0.25 + c.phase) * 0.1) * dt;
+      c.z += (c.vz + Math.cos(safeElapsed * 0.25 + c.phase) * 0.1) * dt;
 
       if (c.x > gridSize + pad) c.x -= span;
       if (c.x < -pad) c.x += span;
       if (c.z > gridSize + pad) c.z -= span;
       if (c.z < -pad) c.z += span;
 
-      const bobY = Math.sin(elapsed * 0.9 + c.phase) * c.bobAmp;
-      const puffPulse = 1.0 + Math.sin(elapsed * 0.75 + c.phase) * 0.025;
+      const bobY = Math.sin(safeElapsed * 0.9 + c.phase) * c.bobAmp;
+      const puffPulse = 1.0 + Math.sin(safeElapsed * 0.75 + c.phase) * 0.025;
       _quat.copy(variantQuats[i]);
 
       _pos.set(c.x, c.y + bobY, c.z);
@@ -846,7 +847,7 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
 
   const updateFrame = (elapsed: number, preset: LightingPreset) => {
     const mu = material.uniforms;
-    mu.uTime.value = elapsed;
+    mu.uTime.value = wrapShaderTime(elapsed);
 
     if (preset === 'midnight') {
       _shallowTarget.set('#102b3a');
@@ -2660,7 +2661,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
     preset: LightingPreset = 'noon',
     cyclePhase01 = 0,
   ) => {
-    sharedTime.value = elapsed;
+    sharedTime.value = wrapShaderTime(elapsed);
     sharedEpoch.value = epochIndex;
 
     const tod = getTimeOfDayLightingState(preset, cyclePhase01);
@@ -2694,9 +2695,23 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
   return { getMaterials, updateMap, updateZones, updateFrame, dispose };
 }
 
+export interface PixelSpaceDebugState {
+  seed: number;
+  spaceQuality: number;
+  bandAngle: number;
+  bandWidth: number;
+  starDensityBias: number;
+  voidHex: string;
+  bandAHex: string;
+  bandBHex: string;
+  coreHex: string;
+}
+
 export interface PixelSpaceSystem {
   mesh: THREE.Mesh;
   setSeed: (seed: number) => void;
+  getSeed: () => number;
+  getDebugState: () => PixelSpaceDebugState;
   setQuality: (quality: SkyCloudsQualityOption) => void;
   update: (params: {
     elapsed: number;
@@ -2750,7 +2765,31 @@ const SPACE_PALETTES: SpacePalette[] = [
     bandBHex: '#46549c',
     coreHex: '#fff0d1',
   },
+  {
+    voidHex: '#070512',
+    bandAHex: '#1f1844',
+    bandBHex: '#63419c',
+    coreHex: '#f5d0ff',
+  },
+  {
+    voidHex: '#040a0e',
+    bandAHex: '#0f2b38',
+    bandBHex: '#28706e',
+    coreHex: '#d9fff5',
+  },
+  {
+    voidHex: '#09060e',
+    bandAHex: '#2d1a38',
+    bandBHex: '#94435c',
+    coreHex: '#ffd7b8',
+  },
 ];
+
+function tintPaletteColor(hexA: string, hexB: string, mixFrac: number, hueDelta: number): THREE.Color {
+  const c = new THREE.Color(hexA).lerp(new THREE.Color(hexB), mixFrac);
+  c.offsetHSL(hueDelta, 0, 0);
+  return c;
+}
 
 export function createPixelSpaceSystem(initialSeed: number): PixelSpaceSystem {
   const geo = new THREE.PlaneGeometry(2, 2);
@@ -2759,6 +2798,7 @@ export function createPixelSpaceSystem(initialSeed: number): PixelSpaceSystem {
     uTime: { value: 0 },
     uResolution: { value: new THREE.Vector2(320, 180) },
     uPixelStep: { value: 1.0 },
+    uPixelScale: { value: 3.0 },
     uCamYaw: { value: Math.PI / 4 },
     uCamPan: { value: new THREE.Vector2(63.5, 63.5) },
     uFrustumSize: { value: 14.5 },
@@ -2770,6 +2810,8 @@ export function createPixelSpaceSystem(initialSeed: number): PixelSpaceSystem {
     uCoreShift: { value: 0.0 },
     uSecondStrength: { value: 0.45 },
     uSecondAngle: { value: -0.45 },
+    uStarDensityBias: { value: 1.0 },
+    uTempShift: { value: 0.0 },
     uVoidColor: { value: new THREE.Color('#050711') },
     uBandColorA: { value: new THREE.Color('#17234a') },
     uBandColorB: { value: new THREE.Color('#50468f') },
@@ -2783,7 +2825,7 @@ export function createPixelSpaceSystem(initialSeed: number): PixelSpaceSystem {
     uniforms,
     fog: false,
     transparent: false,
-    depthTest: true,
+    depthTest: false,
     depthWrite: false,
     vertexShader: `
       void main() {
@@ -2794,6 +2836,7 @@ export function createPixelSpaceSystem(initialSeed: number): PixelSpaceSystem {
       uniform float uTime;
       uniform vec2 uResolution;
       uniform float uPixelStep;
+      uniform float uPixelScale;
       uniform float uCamYaw;
       uniform vec2 uCamPan;
       uniform float uFrustumSize;
@@ -2805,6 +2848,8 @@ export function createPixelSpaceSystem(initialSeed: number): PixelSpaceSystem {
       uniform float uCoreShift;
       uniform float uSecondStrength;
       uniform float uSecondAngle;
+      uniform float uStarDensityBias;
+      uniform float uTempShift;
       uniform vec3 uVoidColor;
       uniform vec3 uBandColorA;
       uniform vec3 uBandColorB;
@@ -2867,10 +2912,11 @@ export function createPixelSpaceSystem(initialSeed: number): PixelSpaceSystem {
       }
 
       vec3 starColorFromTemp(float t) {
-        if (t < 0.24) return vec3(0.62, 0.82, 1.0);       // Blue-white giant
-        if (t < 0.58) return vec3(0.95, 0.97, 1.0);       // Crisp white star
-        if (t < 0.82) return vec3(1.0, 0.91, 0.68);       // Warm golden star
-        return vec3(1.0, 0.72, 0.54);                     // Ember orange dwarf
+        float shifted = clamp(t + uTempShift, 0.0, 1.0);
+        if (shifted < 0.24) return vec3(0.62, 0.82, 1.0);       // Blue-white giant
+        if (shifted < 0.58) return vec3(0.95, 0.97, 1.0);       // Crisp white star
+        if (shifted < 0.82) return vec3(1.0, 0.91, 0.68);       // Warm golden star
+        return vec3(1.0, 0.72, 0.54);                           // Ember orange dwarf
       }
 
       // Evaluates one pixel-snapped star layer with crisp 1px dots, + crosses, or ✦ hero bursts
@@ -2891,7 +2937,8 @@ export function createPixelSpaceSystem(initialSeed: number): PixelSpaceSystem {
         vec2 rnd = hash22(cell + uSeedVec + vec2(seedBias, seedBias * 1.7));
         float prob = hash12(cell * 1.37 + uSeedVec + vec2(seedBias * 2.3, 9.1));
 
-        float localDensity = clamp(density + bandMask * density * 1.55, 0.0, 0.92);
+        float scaledDensity = density * uStarDensityBias;
+        float localDensity = clamp(scaledDensity + bandMask * scaledDensity * 1.55, 0.0, 0.92);
         if (prob > localDensity) {
           return vec3(0.0);
         }
@@ -2902,8 +2949,8 @@ export function createPixelSpaceSystem(initialSeed: number): PixelSpaceSystem {
 
         float shapeRoll = hash12(cell + vec2(41.3, 19.7) + uSeedVec);
         float bright = 0.42 + 0.58 * hash12(cell + vec2(7.9, 63.1) + uSeedVec);
-        float twinklePhase = hash12(cell + vec2(88.2, 13.4)) * 6.2831;
-        float twinkleSpeed = 1.6 + hash12(cell + vec2(3.1, 51.9)) * 2.8;
+        float twinklePhase = hash12(cell + vec2(88.2, 13.4) + uSeedVec) * 6.2831;
+        float twinkleSpeed = 1.6 + hash12(cell + vec2(3.1, 51.9) + uSeedVec) * 2.8;
         // Quantized retro twinkle step
         float twinkle = 0.72 + 0.28 * floor(0.5 + 0.5 * sin(uTime * twinkleSpeed + twinklePhase) * 2.0 + 0.5) * 0.5;
 
@@ -2935,40 +2982,17 @@ export function createPixelSpaceSystem(initialSeed: number): PixelSpaceSystem {
       }
 
       void main() {
-        if (uSpaceQuality < 0.5) {
-          vec3 fastVoid = mix(uVoidColor, uPresetTint, 0.25) * uPresetStrength;
-          gl_FragColor = vec4(fastVoid, 1.0);
-          return;
-        }
-
         vec2 pix = floor(gl_FragCoord.xy / uPixelStep);
         vec2 res = max(vec2(32.0), floor(uResolution / uPixelStep));
         vec2 halfRes = 0.5 * res;
         vec2 pCentered = pix - halfRes;
 
-        // Subtle zoom response keeps stars razor-sharp while revealing wider Milky Way vistas when zoomed out
+        // Compensate for dynamic render resolution scale so zooming never rescales/alters the starfield layout
+        float pixelNorm = clamp(uPixelScale, 1.0, 4.0) / 3.0;
         float zoomScale = mix(0.88, 1.28, clamp((uFrustumSize - 7.5) / 85.0, 0.0, 1.0));
+        float effectiveZoom = zoomScale * pixelNorm;
         vec2 skyOrigin = uCamPan * 0.55;
-        vec2 skyP = rot2(pCentered * zoomScale, uCamYaw) + skyOrigin;
-
-        if (uSpaceQuality < 1.5) {
-          // Balanced fast mode: soft gradient nebula band + crisp mid/hero stars without heavy 4-octave FBM noise
-          vec2 mwCoord = rot2(floor(skyP), uBandAngle);
-          float distFromAxis = mwCoord.y - uBandOffset;
-          float bandWidth = max(48.0, uBandWidth);
-          float mwProfile = exp(-(distFromAxis * distFromAxis) / (bandWidth * bandWidth));
-          float dither = bayer4x4(pix);
-          float ditheredBand = floor(mwProfile * 0.72 * 5.0 + dither) / 5.0;
-          vec3 spaceCol = mix(uVoidColor, uPresetTint, 0.16);
-          spaceCol = mix(spaceCol, uBandColorA, smoothstep(0.0, 0.45, ditheredBand));
-          spaceCol = mix(spaceCol, uBandColorB, smoothstep(0.4, 0.95, ditheredBand) * 0.65);
-          spaceCol *= uPresetStrength;
-          vec3 starsMid = evalStarLayer(pix, halfRes, skyP, skyOrigin, zoomScale, 13.0, 0.20, 0.12, 37.0, mwProfile * 0.5, 0.05);
-          vec3 starsHero = evalStarLayer(pix, halfRes, skyP, skyOrigin, zoomScale, 28.0, 0.22, 0.16, 79.0, mwProfile * 0.3, 0.24);
-          spaceCol += starsMid * 0.9 + starsHero * 1.2;
-          gl_FragColor = vec4(spaceCol, 1.0);
-          return;
-        }
+        vec2 skyP = rot2(pCentered * effectiveZoom, uCamYaw) + skyOrigin;
 
         // Snap cosmic nebula coordinates to integer sky pixels for crisp pixel-art cohesion
         vec2 skyPix = floor(skyP);
@@ -3024,10 +3048,10 @@ export function createPixelSpaceSystem(initialSeed: number): PixelSpaceSystem {
           vec2 galOff = hash22(galCell + uSeedVec + vec2(17.2, 83.4));
           vec2 galCenter = (galCell + 0.28 + 0.44 * galOff) * galCellSize;
           vec2 gd = floor(skyP - galCenter);
-          float tilt = hash12(galCell + vec2(9.1, 4.7)) * 3.14159;
+          float tilt = hash12(galCell + uSeedVec + vec2(9.1, 4.7)) * 3.14159;
           vec2 gr = rot2(gd, tilt);
           float ellip = length(vec2(gr.x * 0.58, gr.y * 1.35));
-          float galSize = 4.5 + hash12(galCell + vec2(33.1, 12.8)) * 5.5;
+          float galSize = 4.5 + hash12(galCell + uSeedVec + vec2(33.1, 12.8)) * 5.5;
           if (ellip < galSize) {
             float angle = atan(gr.y * 1.35, gr.x * 0.58 + 0.0001);
             float arms = 0.5 + 0.5 * sin(angle * 2.0 - ellip * 0.9);
@@ -3041,11 +3065,11 @@ export function createPixelSpaceSystem(initialSeed: number): PixelSpaceSystem {
         // 3. Multi-layer Pixel-Snapped Starfields
         float starBoost = clamp(rawGalaxy * 1.25 + coreGlow * 0.6, 0.0, 1.0);
         // Micro star dust densely packed along the Milky Way strips
-        vec3 starsDust = evalStarLayer(pix, halfRes, skyP, skyOrigin, zoomScale, 7.0, 0.22, 0.09, 11.0, starBoost, 0.0);
+        vec3 starsDust = evalStarLayer(pix, halfRes, skyP, skyOrigin, effectiveZoom, 7.0, 0.22, 0.09, 11.0, starBoost, 0.0);
         // Medium field stars across space
-        vec3 starsMid = evalStarLayer(pix, halfRes, skyP, skyOrigin, zoomScale, 13.0, 0.20, 0.14, 37.0, starBoost * 0.7, 0.05);
+        vec3 starsMid = evalStarLayer(pix, halfRes, skyP, skyOrigin, effectiveZoom, 13.0, 0.20, 0.14, 37.0, starBoost * 0.7, 0.05);
         // Sparse bright twinkling diamond/cross hero stars
-        vec3 starsHero = evalStarLayer(pix, halfRes, skyP, skyOrigin, zoomScale, 28.0, 0.22, 0.18, 79.0, starBoost * 0.4, 0.26);
+        vec3 starsHero = evalStarLayer(pix, halfRes, skyP, skyOrigin, effectiveZoom, 28.0, 0.22, 0.18, 79.0, starBoost * 0.4, 0.26);
 
         spaceCol += starsDust * 0.58 + starsMid * 0.9 + starsHero * 1.25;
 
@@ -3057,12 +3081,13 @@ export function createPixelSpaceSystem(initialSeed: number): PixelSpaceSystem {
           vec2 mSeed = hash22(vec2(meteorEpoch, 17.0) + uSeedVec);
           vec2 mStart = (mSeed - 0.5) * res * 0.82;
           vec2 mDir = normalize(vec2(0.75 + mSeed.x * 0.35, -0.45 - mSeed.y * 0.35));
-          vec2 mHead = floor(mStart + mDir * tM * 95.0);
+          vec2 mHead = floor(mStart + mDir * tM * (95.0 / pixelNorm));
           vec2 rel = pix - (mHead + halfRes);
           float along = dot(rel, -mDir);
           float perp = abs(dot(rel, vec2(-mDir.y, mDir.x)));
-          if (perp < 0.7 && along >= 0.0 && along < 12.0) {
-            float fade = (1.0 - along / 12.0) * sin(tM * 3.14159);
+          float trailLen = 12.0 / pixelNorm;
+          if (perp < 0.7 && along >= 0.0 && along < trailLen) {
+            float fade = (1.0 - along / trailLen) * sin(tM * 3.14159);
             spaceCol += vec3(0.85, 0.95, 1.0) * fade * 0.85;
           }
         }
@@ -3074,26 +3099,43 @@ export function createPixelSpaceSystem(initialSeed: number): PixelSpaceSystem {
 
   const mesh = new THREE.Mesh(geo, material);
   mesh.frustumCulled = false;
-  mesh.renderOrder = 10;
+  mesh.renderOrder = -100;
+
+  let currentSeed = -1;
+  let initializedSeed = false;
 
   const setSeed = (rawSeed: number) => {
     const seed = normalizeSeed(rawSeed);
+    if (initializedSeed && seed === currentSeed) return;
+    currentSeed = seed;
+    initializedSeed = true;
+
     const rng = createRng(seed ^ 0x517cc1b7);
 
     uniforms.uSeedVec.value.set(rng() * 500 + 13.7, rng() * 500 + 29.3);
     uniforms.uBandAngle.value = (rng() - 0.5) * Math.PI;
     uniforms.uBandOffset.value = (rng() - 0.5) * 48;
-    uniforms.uBandWidth.value = 82 + rng() * 68;
-    uniforms.uBandCurve.value = 12 + rng() * 26;
-    uniforms.uCoreShift.value = (rng() - 0.5) * 140;
-    uniforms.uSecondStrength.value = 0.2 + rng() * 0.45;
-    uniforms.uSecondAngle.value = uniforms.uBandAngle.value + (rng() > 0.5 ? 1 : -1) * (0.45 + rng() * 0.6);
+    uniforms.uBandWidth.value = 80 + rng() * 74;
+    uniforms.uBandCurve.value = 12 + rng() * 28;
+    uniforms.uCoreShift.value = (rng() - 0.5) * 150;
+    uniforms.uSecondStrength.value = 0.22 + rng() * 0.48;
+    uniforms.uSecondAngle.value =
+      uniforms.uBandAngle.value + (rng() > 0.5 ? 1 : -1) * (0.45 + rng() * 0.65);
+    uniforms.uStarDensityBias.value = 0.84 + rng() * 0.46;
+    uniforms.uTempShift.value = (rng() - 0.5) * 0.34;
 
-    const palette = SPACE_PALETTES[Math.floor(rng() * SPACE_PALETTES.length)];
-    uniforms.uVoidColor.value.set(palette.voidHex);
-    uniforms.uBandColorA.value.set(palette.bandAHex);
-    uniforms.uBandColorB.value.set(palette.bandBHex);
-    uniforms.uCoreColor.value.set(palette.coreHex);
+    const palIdxA = Math.floor(rng() * SPACE_PALETTES.length);
+    let palIdxB = Math.floor(rng() * SPACE_PALETTES.length);
+    if (palIdxB === palIdxA) palIdxB = (palIdxA + 1) % SPACE_PALETTES.length;
+    const palA = SPACE_PALETTES[palIdxA];
+    const palB = SPACE_PALETTES[palIdxB];
+    const mixFrac = rng() * 0.65;
+    const hueJitter = (rng() - 0.5) * 0.14;
+
+    uniforms.uVoidColor.value.copy(tintPaletteColor(palA.voidHex, palB.voidHex, mixFrac, hueJitter * 0.5));
+    uniforms.uBandColorA.value.copy(tintPaletteColor(palA.bandAHex, palB.bandAHex, mixFrac, hueJitter));
+    uniforms.uBandColorB.value.copy(tintPaletteColor(palA.bandBHex, palB.bandBHex, mixFrac, hueJitter));
+    uniforms.uCoreColor.value.copy(tintPaletteColor(palA.coreHex, palB.coreHex, mixFrac, hueJitter * 0.35));
   };
 
   setSeed(initialSeed);
@@ -3121,14 +3163,17 @@ export function createPixelSpaceSystem(initialSeed: number): PixelSpaceSystem {
     frustumSize: number;
     preset: LightingPreset;
   }) => {
-    uniforms.uTime.value = elapsed;
+    // Keep periodic meteor period (9.5s * 200 = 1900s) exact across wraps so shooting stars never jump
+    const safeElapsed = Number.isFinite(elapsed) ? ((elapsed % 1900) + 1900) % 1900 : 0;
+    uniforms.uTime.value = safeElapsed;
     uniforms.uResolution.value.set(Math.max(1, width), Math.max(1, height));
     uniforms.uPixelStep.value = pixelScale <= 1 ? 2.0 : 1.0;
+    uniforms.uPixelScale.value = Math.max(1.0, pixelScale);
     uniforms.uCamYaw.value = camYaw;
     uniforms.uCamPan.value.set(camX, camZ);
     uniforms.uFrustumSize.value = frustumSize;
 
-    let targetStrength = 0.92;
+    let targetStrength = 0.94;
     if (preset === 'midnight') {
       _targetTint.set('#02040a');
       targetStrength = 1.16;
@@ -3143,23 +3188,38 @@ export function createPixelSpaceSystem(initialSeed: number): PixelSpaceSystem {
       targetStrength = 0.92;
     } else {
       _targetTint.set('#0a101d');
-      targetStrength = 0.94;
+      targetStrength = 0.96;
     }
 
     uniforms.uPresetTint.value.lerp(_targetTint, 0.08);
     uniforms.uPresetStrength.value += (targetStrength - uniforms.uPresetStrength.value) * 0.08;
   };
 
-  const setQuality = (quality: SkyCloudsQualityOption) => {
-    uniforms.uSpaceQuality.value = quality === 'off' ? 0.0 : quality === 'reduced' ? 1.0 : 2.0;
+  // Preserve the seeded cosmos permanently throughout a world's lifetime regardless of FPS auto-trim or cloud quality
+  const setQuality = (_quality: SkyCloudsQualityOption) => {
+    uniforms.uSpaceQuality.value = 2.0;
   };
+
+  const getSeed = () => currentSeed;
+
+  const getDebugState = (): PixelSpaceDebugState => ({
+    seed: currentSeed,
+    spaceQuality: uniforms.uSpaceQuality.value,
+    bandAngle: uniforms.uBandAngle.value,
+    bandWidth: uniforms.uBandWidth.value,
+    starDensityBias: uniforms.uStarDensityBias.value,
+    voidHex: `#${uniforms.uVoidColor.value.getHexString()}`,
+    bandAHex: `#${uniforms.uBandColorA.value.getHexString()}`,
+    bandBHex: `#${uniforms.uBandColorB.value.getHexString()}`,
+    coreHex: `#${uniforms.uCoreColor.value.getHexString()}`,
+  });
 
   const dispose = () => {
     geo.dispose();
     material.dispose();
   };
 
-  return { mesh, setSeed, setQuality, update, dispose };
+  return { mesh, setSeed, getSeed, getDebugState, setQuality, update, dispose };
 }
 
 export interface WorldUnderglowSystem {
@@ -3267,7 +3327,7 @@ export function createWorldUnderglowSystem(gridSize: number): WorldUnderglowSyst
     epochIndex: number,
     pixelScale: number,
   ) => {
-    uniforms.uTime.value = elapsed;
+    uniforms.uTime.value = wrapShaderTime(elapsed);
     uniforms.uPixelStep.value = pixelScale <= 1 ? 2.0 : 1.0;
 
     let targetIntensity = 0.42;

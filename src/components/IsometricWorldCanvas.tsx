@@ -11,9 +11,11 @@ import {
   updateBuildingNightMaterials,
 } from '../game/meshBuilders';
 import {
+  TIME_OF_DAY_PRESETS,
   clampSimulationSpeed,
   getEpochCityLightProfile,
   getTimeOfDayLightingState,
+  wrapShaderTime,
 } from '../game/dayNightLighting';
 import {
   createOceanFoamSystem,
@@ -246,7 +248,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color('#070b14');
-    scene.fog = new THREE.FogExp2('#0c131d', 0.0085);
+    scene.fog = new THREE.FogExp2(
+      TIME_OF_DAY_PRESETS.noon.fogColorHex,
+      TIME_OF_DAY_PRESETS.noon.fogDensity,
+    );
 
     const pmremGenerator = new THREE.PMREMGenerator(renderer);
     scene.environment = pmremGenerator.fromScene(new RoomEnvironment(), 0.04).texture;
@@ -295,8 +300,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     keyLight.shadow.camera.bottom = -shadowBounds;
     keyLight.shadow.camera.near = 1;
     keyLight.shadow.camera.far = 75;
-    keyLight.shadow.bias = -0.0005;
-    keyLight.shadow.normalBias = 0.02;
+    keyLight.shadow.bias = -0.0014;
+    keyLight.shadow.normalBias = 0.035;
     scene.add(keyLight);
     scene.add(keyLight.target);
 
@@ -5267,6 +5272,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     const _dummyScale = new THREE.Vector3();
     const _bgColor = new THREE.Color('#273345');
     const _targetBgColor = new THREE.Color('#273345');
+    const _targetFogColor = new THREE.Color(TIME_OF_DAY_PRESETS.noon.fogColorHex);
     const _targetLightColor = new THREE.Color(0xffdfb0);
 
     let lastTime = performance.now();
@@ -5854,11 +5860,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           metroConcreteMat.color.setHex(0xcbd5e1);
           metroConcreteMat.metalness = 0.28;
           metroConcreteMat.roughness = 0.42;
-          metroParapetMat.color.setHex(0x334155);
+          metroParapetMat.color.setHex(0x52647a);
           metroRailMat.color.setHex(0x56cfe1);
           metroRailMat.emissive.setHex(0x38bdf8);
           metroRailMat.emissiveIntensity = 0.95;
-          skywayDeckMat.color.setHex(0x1e293b);
+          skywayDeckMat.color.setHex(0x36475c);
           skywayTrimMat.color.setHex(0x56cfe1);
           skywayTrimMat.emissive.setHex(0x38bdf8);
           skywayTrimMat.emissiveIntensity = 0.95;
@@ -7725,7 +7731,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             hv.group.position.set(haz.x, 0.24, haz.z);
             const shaderMat = hv.materials[0] as THREE.ShaderMaterial | undefined;
             if (shaderMat && shaderMat.uniforms) {
-              shaderMat.uniforms.uTime.value = elapsed;
+              shaderMat.uniforms.uTime.value = wrapShaderTime(elapsed);
               shaderMat.uniforms.uOpacity.value = 0.96 * fade;
             }
             if (hv.ringMesh) {
@@ -7788,9 +7794,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       }
 
       // 6. Sync active tile fire animated sprites & billowing smoke sprites
-      spriteBundle.fireMaterial.uniforms.uTime.value = elapsed;
-      spriteBundle.smokeMaterial.uniforms.uTime.value = elapsed;
-      spriteBundle.breathScrollTexture.offset.y = -((elapsed * 4.2) % 1.0);
+      const safeSpriteElapsed = wrapShaderTime(elapsed);
+      spriteBundle.fireMaterial.uniforms.uTime.value = safeSpriteElapsed;
+      spriteBundle.smokeMaterial.uniforms.uTime.value = safeSpriteElapsed;
+      spriteBundle.breathScrollTexture.offset.y = -((safeSpriteElapsed * 4.2) % 1.0);
 
       let fireTileCount = 0;
       let fireSpriteCount = 0;
@@ -7885,7 +7892,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     let appliedFoliageFactor = initialGfxProfile.foliageFactor;
 
     skyClouds.setQuality(appliedCloudsQuality);
-    pixelSpace.setQuality(appliedCloudsQuality);
+    pixelSpace.setQuality('full');
     worldUnderglow.mesh.visible = appliedCloudsQuality !== 'off';
 
     function tick() {
@@ -7895,6 +7902,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       lastTime = now;
       const dt = Math.min(Math.max(rawDt, 0.001), 0.15);
       elapsedTotal += dt;
+      const shaderElapsed = wrapShaderTime(elapsedTotal);
 
       const currentGameState = propsRef.current.gameState;
       if (prevGameState !== currentGameState && currentGameState === 'playing') {
@@ -7945,7 +7953,6 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       } else if (activeGfxProfile.cloudsAndSky !== appliedCloudsQuality) {
         appliedCloudsQuality = activeGfxProfile.cloudsAndSky;
         skyClouds.setQuality(appliedCloudsQuality);
-        pixelSpace.setQuality(appliedCloudsQuality);
         worldUnderglow.mesh.visible = appliedCloudsQuality !== 'off';
         gfxStaggerCooldown = 2;
       } else if (Math.abs(activeGfxProfile.foliageFactor - appliedFoliageFactor) > 0.01) {
@@ -9525,8 +9532,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           propsRef.current.gameState === 'title'
             ? 0.35
             : clampSimulationSpeed(propsRef.current.timeScale);
-        dayNightClock += dt * cycleRate;
-        cyclePhase01 = (dayNightClock % 80) / 80;
+        dayNightClock = (dayNightClock + dt * cycleRate) % 80;
+        cyclePhase01 = dayNightClock / 80;
       }
 
       const todState = getTimeOfDayLightingState(
@@ -9581,11 +9588,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
       scene.background = _bgColor;
       if (scene.fog instanceof THREE.FogExp2) {
-        scene.fog.color.copy(_bgColor);
+        _targetFogColor.setHex(todState.fogColorHex);
+        scene.fog.color.lerp(_targetFogColor, lightBlend);
+        scene.fog.density += (todState.fogDensity - scene.fog.density) * lightBlend;
       }
 
       // Age-dependent city, window, campfire, lamppost, and street illumination at dark hours
-      updateBuildingNightMaterials(currentDarkness, elapsedTotal);
+      updateBuildingNightMaterials(currentDarkness, shaderElapsed);
 
       const blds = simRef.current.buildings;
       const primarySpecies =
@@ -9600,7 +9609,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         epochIdx,
         primarySpecies,
         currentDarkness,
-        elapsedTotal,
+        shaderElapsed,
       );
 
       // Update 3D street fixture materials according to current epoch & darkness
@@ -9653,7 +9662,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             bld.epochLevel ?? epochIdx,
             bSpec,
             currentDarkness,
-            elapsedTotal + ci * 1.3,
+            shaderElapsed + ci * 1.3,
           );
           cLight.color.setHex(ci % 2 === 0 ? bProf.primaryHex : bProf.secondaryHex);
           cLight.distance = bProf.pointLightDistance;
@@ -9678,7 +9687,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
       if (appliedCloudsQuality !== 'off') {
         worldUnderglow.update(
-          elapsedTotal,
+          shaderElapsed,
           preset,
           epochIdx,
           currentDynamicPixelScale,
@@ -9707,10 +9716,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           : clampedSimSpeed === 0
             ? 0
             : Math.min(5, Math.max(0.25, clampedSimSpeed));
-      skyClouds.update(dt * atmosSpeed, elapsedTotal, preset);
-      oceanFoam.updateFrame(elapsedTotal, preset);
+      skyClouds.update(dt * atmosSpeed, shaderElapsed, preset);
+      oceanFoam.updateFrame(shaderElapsed, preset);
       styledTerrain.updateFrame(
-        elapsedTotal,
+        shaderElapsed,
         epochIdx,
         isCycleActive ? 'auto' : preset,
         cyclePhase01,
@@ -9802,7 +9811,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         todState.keyOffset[1],
         camTarget.z + todState.keyOffset[2],
       );
-      const desiredShadowBounds = Math.max(18, Math.min(48, frustumSize * 1.2));
+      const desiredShadowBounds = Math.max(18, Math.min(40, frustumSize * 1.05));
       if (Math.abs(shadowBounds - desiredShadowBounds) > 1.5) {
         shadowBounds = desiredShadowBounds;
         keyLight.shadow.camera.left = -shadowBounds;

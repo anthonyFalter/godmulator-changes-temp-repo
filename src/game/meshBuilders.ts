@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { getDragonVariant } from './catalog';
+import { wrapShaderTime } from './dayNightLighting';
 import {
   BuildingType,
   ResourceNodeType,
@@ -1925,13 +1926,14 @@ function getBuildingMaterials(): Record<string, THREE.MeshStandardMaterial> {
 
 export function updateBuildingNightMaterials(darkness: number, elapsed: number): void {
   const M = getBuildingMaterials();
+  const safeElapsed = wrapShaderTime(elapsed);
   const d = THREE.MathUtils.clamp(darkness, 0, 1);
   const nightSmooth = d * d * (3 - 2 * d);
   const flicker =
     1 +
-    (Math.sin(elapsed * 11.3) * 0.12 +
-      Math.cos(elapsed * 17.9 + 1.4) * 0.08 +
-      Math.sin(elapsed * 27.1 + 0.6) * 0.05) *
+    (Math.sin(safeElapsed * 11.3) * 0.12 +
+      Math.cos(safeElapsed * 17.9 + 1.4) * 0.08 +
+      Math.sin(safeElapsed * 27.1 + 0.6) * 0.05) *
       (0.35 + 0.65 * nightSmooth);
 
   // Warm cottage / lantern / gaslight / tenement windows
@@ -1948,7 +1950,7 @@ export function updateBuildingNightMaterials(darkness: number, elapsed: number):
   M.glassCurtainMat.emissiveIntensity = 0.18 + nightSmooth * 0.72;
 
   // Pulsing red rooftop aviation warning beacons
-  const beaconPulse = 0.5 + 0.5 * Math.sin(elapsed * 4.2);
+  const beaconPulse = 0.5 + 0.5 * Math.sin(safeElapsed * 4.2);
   M.beaconRedMat.emissiveIntensity = 0.25 + nightSmooth * (0.9 + beaconPulse * 2.2);
 
   // Campfires, braziers, furnaces, and racial magical/magma/neon glows intensify at dark hours

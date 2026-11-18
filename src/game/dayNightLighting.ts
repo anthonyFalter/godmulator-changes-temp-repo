@@ -3,6 +3,13 @@ import { LightingPreset, SpeciesId } from './types';
 export const MAX_SIMULATION_SPEED = 5;
 export const SIMULATION_SPEED_OPTIONS = [0, 0.5, 1, 2, 5] as const;
 
+export const SHADER_TIME_WRAP_PERIOD = 1800;
+
+export function wrapShaderTime(elapsed: number): number {
+  if (!Number.isFinite(elapsed)) return 0;
+  return ((elapsed % SHADER_TIME_WRAP_PERIOD) + SHADER_TIME_WRAP_PERIOD) % SHADER_TIME_WRAP_PERIOD;
+}
+
 export function clampSimulationSpeed(speed: number): number {
   if (!Number.isFinite(speed) || speed <= 0) return 0;
   return Math.min(MAX_SIMULATION_SPEED, Math.max(0, speed));
@@ -27,6 +34,9 @@ export interface TimeOfDayLightingState {
   /** Controls RoomEnvironment IBL contribution so night/midnight aren't washed out */
   environmentIntensity: number;
   toneMappingExposure: number;
+  /** Atmospheric aerial-perspective fog color & density independent of deep-space backdrop */
+  fogColorHex: number;
+  fogDensity: number;
   /** Normalized-scale RGB multiplier for sunlit terrain & cliff faces */
   terrainSunTint: [number, number, number];
   /** RGB multiplier for shaded terrain slopes, cliff faces & ambient occlusion */
@@ -48,6 +58,8 @@ export const TIME_OF_DAY_PRESETS: Record<ConcreteLightingPreset, TimeOfDayLighti
     rimOffset: [-18, 14, 16],
     environmentIntensity: 0.38,
     toneMappingExposure: 0.96,
+    fogColorHex: 0x7d6575,
+    fogDensity: 0.0038,
     terrainSunTint: [1.08, 0.82, 0.68],
     terrainShadowTint: [0.46, 0.58, 0.78],
   },
@@ -65,6 +77,8 @@ export const TIME_OF_DAY_PRESETS: Record<ConcreteLightingPreset, TimeOfDayLighti
     rimOffset: [-16, 15, -16],
     environmentIntensity: 0.92,
     toneMappingExposure: 1.12,
+    fogColorHex: 0x8cc3d8,
+    fogDensity: 0.0024,
     terrainSunTint: [1.02, 1.0, 0.98],
     terrainShadowTint: [0.82, 0.88, 0.95],
   },
@@ -82,6 +96,8 @@ export const TIME_OF_DAY_PRESETS: Record<ConcreteLightingPreset, TimeOfDayLighti
     rimOffset: [18, 13, -16],
     environmentIntensity: 0.28,
     toneMappingExposure: 0.92,
+    fogColorHex: 0x4c354c,
+    fogDensity: 0.0044,
     terrainSunTint: [1.14, 0.68, 0.48],
     terrainShadowTint: [0.40, 0.31, 0.62],
   },
@@ -99,6 +115,8 @@ export const TIME_OF_DAY_PRESETS: Record<ConcreteLightingPreset, TimeOfDayLighti
     rimOffset: [15, 14, 15],
     environmentIntensity: 0.12,
     toneMappingExposure: 0.82,
+    fogColorHex: 0x111d30,
+    fogDensity: 0.0056,
     terrainSunTint: [0.42, 0.55, 0.84],
     terrainShadowTint: [0.16, 0.22, 0.38],
   },
@@ -116,6 +134,8 @@ export const TIME_OF_DAY_PRESETS: Record<ConcreteLightingPreset, TimeOfDayLighti
     rimOffset: [12, 16, 12],
     environmentIntensity: 0.06,
     toneMappingExposure: 0.73,
+    fogColorHex: 0x080f1f,
+    fogDensity: 0.0068,
     terrainSunTint: [0.25, 0.34, 0.58],
     terrainShadowTint: [0.08, 0.11, 0.22],
   },
@@ -169,13 +189,14 @@ export function getEpochCityLightProfile(
   elapsed = 0,
 ): EpochCityLightProfile {
   const darkClamp = Math.max(0, Math.min(1, darkness));
+  const safeElapsed = wrapShaderTime(elapsed);
   // Smooth activation curve: off at noon (0), warm glow at dusk (0.68), full blaze at night/midnight (0.90-1.0)
   const nightFactor = Math.pow(darkClamp, 0.78);
   const organicFlicker =
     1 +
-    (Math.sin(elapsed * 13.7) * 0.11 +
-      Math.cos(elapsed * 21.3) * 0.07 +
-      Math.sin(elapsed * 31.1) * 0.04);
+    (Math.sin(safeElapsed * 13.7) * 0.11 +
+      Math.cos(safeElapsed * 21.3) * 0.07 +
+      Math.sin(safeElapsed * 31.1) * 0.04);
 
   if (epochIndex <= 0) {
     // Prehistoric / Stone Age: Flickering campfires, bonfires & wooden fire-torches
@@ -199,7 +220,7 @@ export function getEpochCityLightProfile(
   if (epochIndex <= 2) {
     // Bronze & Classical / Medieval Ages: Wrought-iron braziers, wall torches & candlelit windows
     const torchFlicker =
-      1 + (Math.sin(elapsed * 10.5) * 0.065 + Math.cos(elapsed * 16.8) * 0.045);
+      1 + (Math.sin(safeElapsed * 10.5) * 0.065 + Math.cos(safeElapsed * 16.8) * 0.045);
     const primaryHex =
       species === 'elf' ? 0x52f2c8 : species === 'orc' ? 0xff5421 : 0xff9e2c;
     const secondaryHex =
@@ -219,7 +240,7 @@ export function getEpochCityLightProfile(
 
   if (epochIndex === 3) {
     // Industrial Age: Cast-iron Victorian gaslight lampposts, factory skylights & warm tenement windows
-    const gasHum = 1 + Math.sin(elapsed * 7.2) * 0.025;
+    const gasHum = 1 + Math.sin(safeElapsed * 7.2) * 0.025;
     const primaryHex =
       species === 'elf' ? 0x64dfdf : species === 'orc' ? 0xff6b2b : 0xffc44d;
     const secondaryHex =
@@ -267,7 +288,7 @@ export function getEpochCityLightProfile(
   }
 
   // Orbital & Interstellar Ages (epochIndex >= 6): Bioluminescent arcologies, plasma street luminaires & cyan/gold transit grids
-  const pulse = 1 + Math.sin(elapsed * 3.2) * 0.05;
+  const pulse = 1 + Math.sin(safeElapsed * 3.2) * 0.05;
   const primaryHex =
     species === 'elf' ? 0x52f2c8 : species === 'orc' ? 0xff5421 : 0x56cfe1;
   const secondaryHex =
