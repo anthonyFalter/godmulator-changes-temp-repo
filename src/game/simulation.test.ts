@@ -782,7 +782,10 @@ test('city farming fields are strictly capped at 200% of parent city size and ne
   const state = createInitialSimulationState(128, 'FARM-CAP-200');
   state.sandboxFreeMode = true;
   state.autoBuildEnabled = false;
-  if (state.worldRules) state.worldRules.allowRebellion = false;
+  if (state.worldRules) {
+    state.worldRules.allowRebellion = false;
+    state.worldRules.randomEvents = false;
+  }
   state.resources.food = 1000;
 
   const cx = 64;
@@ -5053,11 +5056,14 @@ test('Advanced settlements flatten urban plateaus, build connected road networks
     `High-epoch settlement core plateau must be leveled to a uniform height (got heights: ${[...coreHeights].join(',')})`,
   );
 
-  // 2. Verify road tiles form a single connected component (no isolated disconnected road islands)
+  // 2. Verify road tiles form a single connected component and remain compact (no sea of roads)
   const roadTiles = state.tiles.filter(
     (t) => t.terrain === 'stone_road' && Math.abs(t.x - 48) <= 8 && Math.abs(t.z - 48) <= 8,
   );
-  assert.ok(roadTiles.length >= 16, `Settlement should pave an extensive road grid (got ${roadTiles.length})`);
+  assert.ok(
+    roadTiles.length >= 12 && roadTiles.length <= 45,
+    `Settlement should pave compact connected streets near buildings rather than an empty sea of roads (got ${roadTiles.length})`,
+  );
   const roadSet = new Set(roadTiles.map((t) => `${t.x},${t.z}`));
   const visited = new Set<string>();
   const startRoad = `${roadTiles[0].x},${roadTiles[0].z}`;
@@ -5123,6 +5129,69 @@ test('Advanced settlements flatten urban plateaus, build connected road networks
   );
 });
 
+test('Giant asteroid impact unleashes expanding shockwave, wide environmental destruction, hurricane blast winds, and 15-20 year post-impact rains', () => {
+  const state = createInitialSimulationState(96, 'ASTEROID-SHOCKWAVE-TEST');
+  state.wildlifeSeeded = true;
+  state.worldRules = { ...state.worldRules!, randomEvents: false };
 
+  // Prepare forested land out to radius 28 around (48, 48)
+  for (let dz = -30; dz <= 30; dz++) {
+    for (let dx = -30; dx <= 30; dx++) {
+      const t = getTile(state, 48 + dx, 48 + dz);
+      if (!t) continue;
+      t.height = 3;
+      t.terrain = 'forest';
+      t.resourceNode = 'timber_grove';
+      t.resourceAmount = 150;
+      t.buildingId = null;
+    }
+  }
 
+  // Place a unit 21 tiles away to test wide-radius hurricane blast winds
+  spawnUnit(state, 'human', 48 + 21, 48, true);
+  const farUnit = state.units[state.units.length - 1]!;
+  farUnit.statusEffects.shielded = 0;
+  farUnit.hp = 800;
+  farUnit.maxHp = 800;
+  farUnit.vxAir = 0;
+  farUnit.vzAir = 0;
 
+  executeHugeAsteroidImpact(state, 48, 48);
+
+  // 1. Verify expanding asteroid_shockwave hazard is spawned with maxRadius >= 28
+  const shockHaz = state.activeHazards.find((h) => h.kind === 'asteroid_shockwave');
+  assert.ok(shockHaz, 'Giant asteroid impact must spawn an asteroid_shockwave hazard');
+  assert.ok((shockHaz!.maxRadius ?? 0) >= 28, `Shockwave maxRadius must be >= 28 (got ${shockHaz!.maxRadius})`);
+
+  // 2. Verify post-impact deluge rain clouds are spawned and last between 15 and 20 years (20 years max)
+  const rainHazards = state.activeHazards.filter((h) => h.kind === 'rain_cloud' && h.isSuper);
+  assert.ok(rainHazards.length >= 3, 'Giant asteroid impact must spawn multi-year post-impact rain clouds');
+  for (const rh of rainHazards) {
+    assert.ok(
+      rh.duration >= 15 && rh.duration <= 20,
+      `Post-impact rain duration must be 15-20 years (20 years max), got ${rh.duration}`,
+    );
+  }
+
+  // 3. Verify unit at 21 tiles was hurled outward by immediate hurricane blast winds
+  assert.ok(
+    (farUnit.vxAir ?? 0) > 8.0 && (farUnit.altitude ?? 0) > 1.5,
+    `Unit 21 tiles away must be hurled outward by asteroid blast winds (vxAir=${farUnit.vxAir}, altitude=${farUnit.altitude})`,
+  );
+
+  // 4. Step simulation so the shockwave expands out to 28+ tiles and strips distant forests
+  for (let s = 0; s < 16; s++) {
+    stepSimulation(state, 0.2, { skipRandomEvents: true });
+  }
+  const distantTile = getTile(state, 48 + 24, 48)!;
+  assert.equal(
+    distantTile.resourceNode,
+    'none',
+    'Expanding asteroid shockwave must strip trees/timber_grove at 24 tiles from impact center',
+  );
+  assert.notEqual(
+    distantTile.terrain,
+    'forest',
+    'Expanding asteroid shockwave must flatten/scorch forest terrain at 24 tiles from impact center',
+  );
+});

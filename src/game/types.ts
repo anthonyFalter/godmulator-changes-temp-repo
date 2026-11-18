@@ -475,7 +475,8 @@ export interface ActiveHazardZone {
     | 'frenzy_wave'
     | 'terraform_wave'
     | 'whirlpool'
-    | 'rogue_wave';
+    | 'rogue_wave'
+    | 'asteroid_shockwave';
   x: number;
   z: number;
   targetX?: number;

@@ -293,17 +293,17 @@ function createUniqueUnitName(
 }
 
 export const SETTLEMENT_AWARENESS_RADIUS = 12;
-export const MAX_CITY_BUILDINGS = 32;
-export const MAX_WORLD_CITIES = 8;
+export const MAX_CITY_BUILDINGS = 60;
+export const MAX_WORLD_CITIES = 10;
 export const YEARS_PER_SEC_AT_1X = 1.0;
 
 export function getMaxCityBuildings(epochIndex: number): number {
-  if (epochIndex <= 0) return 8;
-  if (epochIndex === 1) return 12;
-  if (epochIndex === 2) return 15;
-  if (epochIndex === 3) return 21; // Industrial: dense brick tenement cities + rail
-  if (epochIndex === 4) return 25; // Atomic: mid-rise urban blocks + airport
-  if (epochIndex === 5) return 29; // Information: high-density skyscraper metropolis + metro
+  if (epochIndex <= 0) return 18;
+  if (epochIndex === 1) return 26;
+  if (epochIndex === 2) return 34;
+  if (epochIndex === 3) return 42; // Industrial: dense brick tenement cities + rail
+  if (epochIndex === 4) return 50; // Atomic: mid-rise urban blocks + airport
+  if (epochIndex === 5) return 56; // Information: high-density skyscraper metropolis + metro
   return MAX_CITY_BUILDINGS;
 }
 
@@ -975,6 +975,8 @@ export function createInitialSimulationState(
                 'bonfire',
                 'forager_hut',
                 'forager_hut',
+                'forager_hut',
+                'forager_hut',
                 'granary',
                 'steam_foundry',
                 'observatory',
@@ -986,36 +988,46 @@ export function createInitialSimulationState(
                   'bonfire',
                   'forager_hut',
                   'forager_hut',
+                  'forager_hut',
+                  'forager_hut',
                   'granary',
                   'smeltery',
                   'guildhall',
                   'steam_foundry',
                 ]
-              : ['bonfire', 'forager_hut', 'forager_hut', 'shaman_totem'];
+              : [
+                  'bonfire',
+                  'forager_hut',
+                  'forager_hut',
+                  'forager_hut',
+                  'forager_hut',
+                  'shaman_totem',
+                ];
 
         const prevFree = state.sandboxFreeMode;
         state.sandboxFreeMode = true;
-        let bIdx = 0;
-        for (let r = 0; r <= 7 && bIdx < colonyBuilds.length; r++) {
-          for (let dz = -r; dz <= r && bIdx < colonyBuilds.length; dz++) {
-            for (let dx = -r; dx <= r && bIdx < colonyBuilds.length; dx++) {
-              if (Math.abs(dx) !== r && Math.abs(dz) !== r) continue;
-              const tx = landTile.x + dx * 2;
-              const tz = landTile.z + dz * 2;
-              const cand = getTile(state, tx, tz);
-              if (!cand || (!isWaterStart && cand.height <= 0) || cand.height >= 4 || cand.buildingId) continue;
-              const bType = colonyBuilds[bIdx];
-              const res = placeBuilding(state, bType, tx, tz);
-              if (res.ok) {
-                const placedBld = state.buildings[state.buildings.length - 1];
-                if (placedBld) {
-                  placedBld.constructionProgress = 100;
-                  placedBld.epochLevel = startingEpochIdx;
-                }
-                bIdx += 1;
-              }
+        for (let bIdx = 0; bIdx < colonyBuilds.length; bIdx++) {
+          const bType = colonyBuilds[bIdx];
+          let targetTile: TileData | null = null;
+          if (bIdx === 0) {
+            targetTile = landTile;
+          } else {
+            const primarySid = state.buildings[0]?.settlementId ?? 'city_default';
+            targetTile = findBuildableTileNear(state, landTile.x, landTile.z, 12, primarySid);
+          }
+          if (!targetTile) continue;
+          const res = placeBuilding(state, bType, targetTile.x, targetTile.z);
+          if (res.ok) {
+            const placedBld = state.buildings[state.buildings.length - 1];
+            if (placedBld) {
+              placedBld.constructionProgress = 100;
+              placedBld.epochLevel = startingEpochIdx;
             }
           }
+        }
+        const primarySid = state.buildings[0]?.settlementId;
+        if (primarySid) {
+          connectSettlementRoads(state, primarySid);
         }
         state.sandboxFreeMode = prevFree;
 
@@ -1109,7 +1121,7 @@ export function recalculateRatesAndCaps(state: SimulationState): void {
     const blessMult = b.blessedTimer > 0 ? 1.75 : b.cursedTimer > 0 ? 0.5 : 1.0;
     const epochMult = 1 + Math.min(4, state.epochIndex) * 0.1;
     const bSpecies: SpeciesId = b.species ?? (b.settlementId ? state.settlementSpecies?.[b.settlementId] : undefined) ?? 'human';
-    const paceMult = state.sandboxFreeMode ? 1.0 : 0.34;
+    const paceMult = state.sandboxFreeMode ? 1.5 : 0.85;
 
     for (const [k, v] of Object.entries(def.productionPerSec)) {
       const key = k as keyof Resources;
@@ -4234,82 +4246,33 @@ export function isSettlementRoadTile(dx: number, dz: number, variant: number): b
   const adz = Math.abs(dz);
   const maxD = Math.max(adx, adz);
   if (maxD > 13) return false;
-  const r = Math.hypot(dx, dz);
 
   switch (variant & 3) {
     case 0: {
-      // Variant 0: Metropolitan Grid + Connected Inner & Outer Ring Boulevards + 45-degree Diagonal Expressway
-      const onInnerRing = Math.abs(r - 4.4) <= 0.58;
-      const onMidRing = Math.abs(r - 9.0) <= 0.58;
-      const onOuterBelt = Math.abs(r - 12.6) <= 0.56;
-      // Wide 2-tile-wide Grand Boulevard East-West + North-South Spine + secondary avenues at +-6
-      const onGrandBlvd = (dz === 0 || dz === 1) && adx <= 13;
-      const onCrossSpine = (dx === 0 || (dx === 1 && adz <= 6)) && adz <= 13;
-      const onSecondaryAve = ((adx === 6 && adz <= 10) || (adz === 6 && adx <= 10));
-      const onDiagExpressway = dx === dz && adx >= 3 && adx <= 11;
-      return (
-        onInnerRing ||
-        onMidRing ||
-        onOuterBelt ||
-        onGrandBlvd ||
-        onCrossSpine ||
-        onSecondaryAve ||
-        onDiagExpressway
-      );
+      // Variant 0: Crisp 1-tile-wide Manhattan Block Grid (leaves 3x3 = 9-tile building blocks in every cell; ~74% building lots!)
+      const onCrossSpine = dx === 0 || dz === 0;
+      const onBlockStreets = (adx % 4 === 0 && adz <= 12) || (adz % 4 === 0 && adx <= 12);
+      return onCrossSpine || onBlockStreets;
     }
     case 1: {
-      // Variant 1: Twin S-Curve Expressways & Sweeping Organic Crescent Avenues joined cleanly to Spine
-      const waveZ = Math.round(2.5 * Math.sin(dx * 0.26));
-      const onSCurveExpressway =
-        adx <= 13 && (dz === waveZ || (adx <= 7 && dz === waveZ + 1));
-      const onCrossSpine = dx === 0 && adz <= 12;
-      const onAngledBlvd = dx + dz === 1 && adx <= 10 && adz <= 10;
-      const onInnerCrescent = Math.abs(r - 5.2) <= 0.58;
-      const onOuterCrescent = Math.abs(r - 10.2) <= 0.58;
-      return (
-        onSCurveExpressway ||
-        onCrossSpine ||
-        onAngledBlvd ||
-        onInnerCrescent ||
-        onOuterCrescent
-      );
+      // Variant 1: 1-tile-wide Avenues & Side Streets framing 2x3 rectangular residential/tower blocks (~70% building lots!)
+      const onCrossSpine = dx === 0 || dz === 0;
+      const onAvenues = (adx % 3 === 0 && adx <= 12 && adz <= 12) || (adz % 4 === 0 && adz <= 12 && adx <= 12);
+      return onCrossSpine || onAvenues;
     }
     case 2: {
-      // Variant 2: Rotated Elliptical Boulevard Rings & Starburst Radial Skyways
-      const rotX = dx * 0.866 - dz * 0.5;
-      const rotZ = dx * 0.5 + dz * 0.866;
-      const rEllip = Math.hypot(rotX * 0.84, rotZ * 1.16);
-      const onInnerEllip = Math.abs(rEllip - 4.4) <= 0.58;
-      const onOuterEllip = Math.abs(rEllip - 9.6) <= 0.58;
-      const onCardinalSpokes = (dx === 0 || dz === 0) && maxD <= 12;
-      const onDiagSpokes = (dx === dz || dx === -dz) && adx >= 3 && adx <= 11;
-      const onNorthSouthBlvd = dx === 1 && adz <= 7;
-      return (
-        onInnerEllip ||
-        onOuterEllip ||
-        onCardinalSpokes ||
-        onDiagSpokes ||
-        onNorthSouthBlvd
-      );
+      // Variant 2: Concentric 1-tile Ring Boulevards at r=4, 8, 12 crossed by Cardinal Spokes (leaves 3x3 building blocks!)
+      const onCrossSpine = dx === 0 || dz === 0;
+      const onInnerRing = (adx === 4 && adz <= 4) || (adz === 4 && adx <= 4);
+      const onMidRing = (adx === 8 && adz <= 8) || (adz === 8 && adx <= 8);
+      const onOuterRing = (adx === 12 && adz <= 12) || (adz === 12 && adx <= 12);
+      return onCrossSpine || onInnerRing || onMidRing || onOuterRing;
     }
     default: {
-      // Variant 3: Riverfront Parabolic Arc Avenue, Three-Lobed Organic Beltway & Gentler 2:1 Sloped Parkway
-      const angle = Math.atan2(dz, dx);
-      const triLobeR = 9.2 + 1.5 * Math.cos(angle * 3.0);
-      const onOrganicBelt = Math.abs(r - triLobeR) <= 0.58;
-      const paraZ = Math.round(0.048 * dx * dx - 3.6);
-      const onParabolicBlvd =
-        adx <= 12 && (dz === paraZ || (adx <= 6 && dz === paraZ + 1));
-      const onCrossSpine = (dx === 0 || dz === 0) && maxD <= 11;
-      const onSlopedParkway = adx <= 12 && dz === Math.round(dx * 0.5);
-      const onHubRing = Math.abs(r - 4.6) <= 0.58;
-      return (
-        onOrganicBelt ||
-        onParabolicBlvd ||
-        onCrossSpine ||
-        onSlopedParkway ||
-        onHubRing
-      );
+      // Variant 3: 1-tile-wide Terrace Boulevards framing 3x2 horizontal urban blocks (~70% building lots!)
+      const onCrossSpine = dx === 0 || dz === 0;
+      const onTerraceStreets = (adx % 4 === 0 && adx <= 12 && adz <= 12) || (adz % 3 === 0 && adz <= 12 && adx <= 12);
+      return onCrossSpine || onTerraceStreets;
     }
   }
 }
@@ -4738,8 +4701,9 @@ function terraformSettlementDistrict(
   const isFloatingSettlement =
     state.worldTemplate === 'scrap_sea' || (getTile(state, anchor.x, anchor.z)?.height ?? 1) === 0;
 
-  // 1. Grade & flatten urban plateau (expands with technology & city size)
-  const coreRadius = state.epochIndex >= 5 ? 11 : state.epochIndex >= 3 ? 8 : 5;
+  // 1. Grade & flatten urban plateau proportional to actual settlement size & tech epoch
+  const bldSpan = Math.min(10, Math.max(4, Math.ceil(Math.sqrt(villageBuildings.length) * 1.75)));
+  const coreRadius = state.epochIndex >= 5 ? Math.max(6, bldSpan) : state.epochIndex >= 3 ? Math.max(5, bldSpan - 1) : 4;
   const gradeRadius = coreRadius + 2;
 
   for (let dz = -gradeRadius; dz <= gradeRadius; dz++) {
@@ -4747,8 +4711,7 @@ function terraformSettlementDistrict(
       const t = getTile(state, anchor.x + dx, anchor.z + dz);
       if (!t || t.height <= 0) continue;
       const dist = Math.hypot(dx, dz);
-      const onPlannedRoad = isSettlementRoadTile(dx, dz, variant);
-      const isUrbanTile = Boolean(t.buildingId) || t.terrain === 'stone_road' || t.terrain === 'rail_track' || onPlannedRoad;
+      const isUrbanTile = Boolean(t.buildingId) || t.terrain === 'stone_road' || t.terrain === 'rail_track';
 
       if (dist <= coreRadius || isUrbanTile) {
         if (t.height !== targetHeight) {
@@ -4759,7 +4722,7 @@ function terraformSettlementDistrict(
           }
         }
         // Clear intrusive boulders / scorched craters inside paved urban cores in Industrial+ ages
-        if (state.epochIndex >= 3 && (onPlannedRoad || t.terrain === 'stone_road')) {
+        if (state.epochIndex >= 3 && (isSettlementRoadTile(dx, dz, variant) || t.terrain === 'stone_road')) {
           if (t.resourceNode === 'stone_outcrop' || t.resourceNode === 'berry_bush') {
             t.resourceNode = 'none';
             t.resourceAmount = 0;
@@ -4790,8 +4753,8 @@ function terraformSettlementDistrict(
     let islandsBuilt = 0;
     for (let di = 0; di < islandDirs.length && islandsBuilt < 2; di++) {
       const [ux, uz] = islandDirs[(di + variant) % islandDirs.length];
-      const cx = anchor.x + ux * 9;
-      const cz = anchor.z + uz * 9;
+      const cx = anchor.x + ux * 8;
+      const cz = anchor.z + uz * 8;
       const centerTile = getTile(state, cx, cz);
       if (!centerTile) continue;
 
@@ -4808,7 +4771,7 @@ function terraformSettlementDistrict(
       }
       if (validTilesInBlock < 16 || waterTilesInBlock < 8) continue;
 
-      // Reclaim a crisp chamfered 5x5 Artificial Island platform with perimeter ring avenue
+      // Reclaim a crisp chamfered 5x5 Artificial Island platform with central avenue spine & 12 open building lots!
       for (let oz = -2; oz <= 2; oz++) {
         for (let ox = -2; ox <= 2; ox++) {
           if (Math.abs(ox) === 2 && Math.abs(oz) === 2) continue; // Chamfered octagonal engineered island silhouette
@@ -4822,8 +4785,8 @@ function terraformSettlementDistrict(
             bt.resourceNode = 'none';
             bt.resourceAmount = 0;
           }
-          const isIslandRoad = ox === 0 || oz === 0;
-          if (isIslandRoad && bt.terrain !== 'rail_track' && bt.terrain !== 'runway') {
+          const isIslandSpine = (ux !== 0 && oz === 0) || (uz !== 0 && ox === 0);
+          if (isIslandSpine && bt.terrain !== 'rail_track' && bt.terrain !== 'runway') {
             bt.terrain = 'stone_road';
           } else if (bt.terrain === 'deep_water' || bt.terrain === 'shallow_water') {
             bt.terrain = 'grass';
@@ -4831,8 +4794,8 @@ function terraformSettlementDistrict(
         }
       }
 
-      // Connect the Artificial Island cleanly back to the city road spine via a straight engineered causeway
-      for (let step = 4; step <= 7; step++) {
+      // Connect the Artificial Island cleanly back to the city road spine via a straight 1-tile engineered causeway
+      for (let step = 1; step <= 6; step++) {
         const bx = anchor.x + ux * step;
         const bz = anchor.z + uz * step;
         const bridgeT = getTile(state, bx, bz);
@@ -4874,8 +4837,8 @@ function terraformSettlementDistrict(
 }
 
 /**
- * Ensures the settlement's masterplan avenues form a single continuous connected road network
- * and links every building lot onto the main street spine without isolated fragments.
+ * Connects actual buildings in the settlement along clean 1-tile street corridors
+ * without pre-paving empty wilderness or turning interior building lots into roads.
  */
 function connectSettlementRoads(state: SimulationState, settlementId: string): void {
   const villageBuildings = state.buildings.filter((b) => (b.settlementId ?? 'city_default') === settlementId);
@@ -4887,140 +4850,195 @@ function connectSettlementRoads(state: SimulationState, settlementId: string): v
   const anchorTile = getTile(state, anchor.x, anchor.z);
   const isFloatingSettlement = Boolean(anchorTile && anchorTile.height === 0) || state.worldTemplate === 'scrap_sea';
 
-  const planRadius = Math.min(
-    13,
-    state.epochIndex >= 3 ? Math.max(8, 5 + Math.ceil(villageBuildings.length * 0.45)) : 8,
-  );
+  const paveTile = (t: TileData | undefined): boolean => {
+    if (!canConvertTileToRoad(t, isFloatingSettlement)) return false;
+    if (t.resourceNode !== 'none') {
+      if (state.epochIndex >= 2 && (t.resourceNode === 'berry_bush' || t.resourceNode === 'stone_outcrop')) {
+        t.resourceNode = 'none';
+        t.resourceAmount = 0;
+      } else {
+        return false;
+      }
+    }
+    if (t.height > 0 && state.epochIndex >= 2) {
+      t.height = targetHeight;
+    }
+    t.terrain = 'stone_road';
+    t.farmSettlementId = undefined;
+    return true;
+  };
 
-  // 1. Pave continuous masterplan corridors across the urban footprint
-  for (let dz = -planRadius; dz <= planRadius; dz++) {
-    for (let dx = -planRadius; dx <= planRadius; dx++) {
-      if (!isSettlementRoadTile(dx, dz, variant)) continue;
+  // 1. Reclaim any non-masterplan stone_road tiles inside building blocks OR far away from actual buildings
+  const cleanRadius = 15;
+  for (let dz = -cleanRadius; dz <= cleanRadius; dz++) {
+    for (let dx = -cleanRadius; dx <= cleanRadius; dx++) {
       const t = getTile(state, anchor.x + dx, anchor.z + dz);
-      if (!canConvertTileToRoad(t, isFloatingSettlement)) continue;
-      if (t.resourceNode !== 'none') {
-        if (state.epochIndex >= 2 && (t.resourceNode === 'berry_bush' || t.resourceNode === 'stone_outcrop')) {
-          t.resourceNode = 'none';
-          t.resourceAmount = 0;
-        } else {
-          continue;
-        }
+      if (!t || t.terrain !== 'stone_road' || t.height <= 0 || t.buildingId) continue;
+      // Preserve coastal artificial island causeways along the cardinal axes (dx===0 || dz===0) if they border water
+      const bordersWater =
+        getTile(state, t.x + 1, t.z)?.height === 0 ||
+        getTile(state, t.x - 1, t.z)?.height === 0 ||
+        getTile(state, t.x, t.z + 1)?.height === 0 ||
+        getTile(state, t.x, t.z - 1)?.height === 0;
+      if ((dx === 0 || dz === 0) && bordersWater && state.epochIndex >= 4) continue;
+
+      let minChebDist = Infinity;
+      for (const b of state.buildings) {
+        const d = Math.max(Math.abs(t.x - b.tileX), Math.abs(t.z - b.tileZ));
+        if (d < minChebDist) minChebDist = d;
       }
-      if (t.height > 0 && state.epochIndex >= 2) {
-        t.height = targetHeight;
+      if (!isSettlementRoadTile(dx, dz, variant) || minChebDist > 3) {
+        t.terrain = 'grass';
       }
-      t.terrain = 'stone_road';
-      t.farmSettlementId = undefined;
     }
   }
 
-  // 2. Guarantee every building has a continuous L-spur connecting to the main city spine
+  // 1b. Pave the 1-tile masterplan street corridors within the active built-up radius of the settlement
+  let maxBldDist = 3;
+  for (const b of villageBuildings) {
+    const d = Math.max(Math.abs(b.tileX - anchor.x), Math.abs(b.tileZ - anchor.z));
+    if (d > maxBldDist) maxBldDist = d;
+  }
+  const activeStreetRadius = Math.min(16, Math.max(3, maxBldDist + 1));
+  for (let dz = -activeStreetRadius; dz <= activeStreetRadius; dz++) {
+    for (let dx = -activeStreetRadius; dx <= activeStreetRadius; dx++) {
+      if (!isSettlementRoadTile(dx, dz, variant)) continue;
+      const t = getTile(state, anchor.x + dx, anchor.z + dz);
+      if (!t || t.buildingId) continue;
+      let nearBuilding = Math.max(Math.abs(dx), Math.abs(dz)) <= 2;
+      if (!nearBuilding) {
+        for (const b of villageBuildings) {
+          if (Math.max(Math.abs(t.x - b.tileX), Math.abs(t.z - b.tileZ)) <= 2) {
+            nearBuilding = true;
+            break;
+          }
+        }
+      }
+      if (nearBuilding) {
+        paveTile(t);
+      }
+    }
+  }
+
+  // 2. Pave planned 1-tile street frontages in the 3x3 ring around each existing building
+  // and trace along the nearest 1-tile street corridor back to the anchor's central cross-spine
   for (const b of villageBuildings) {
     const ownTile = getTile(state, b.tileX, b.tileZ);
     if (ownTile && ownTile.terrain === 'stone_road') {
       ownTile.terrain = ownTile.height === 0 ? 'shallow_water' : 'grass';
     }
-    const dirs = [
-      [0, 1],
-      [1, 0],
-      [0, -1],
-      [-1, 0],
-    ] as const;
 
-    // Pick closest cardinal frontage toward anchor
-    let startX = b.tileX;
-    let startZ = b.tileZ;
-    let hasFrontRoad = false;
+    let frontRoadTile: TileData | null = null;
     let bestFrontDist = Infinity;
-
-    for (const [ox, oz] of dirs) {
-      const nt = getTile(state, b.tileX + ox, b.tileZ + oz);
-      if (!nt || nt.buildingId) continue;
-      if (nt.height <= 0 && !isFloatingSettlement) continue;
-      if (nt.terrain === 'stone_road') {
-        startX = nt.x;
-        startZ = nt.z;
-        hasFrontRoad = true;
-        break;
-      }
-      const d = Math.hypot(nt.x - anchor.x, nt.z - anchor.z);
-      if (d < bestFrontDist) {
-        bestFrontDist = d;
-        startX = nt.x;
-        startZ = nt.z;
-      }
-    }
-
-    if (!hasFrontRoad && (startX !== b.tileX || startZ !== b.tileZ)) {
-      const ft = getTile(state, startX, startZ);
-      if (canConvertTileToRoad(ft, isFloatingSettlement)) {
-        if (ft.resourceNode === 'berry_bush' || ft.resourceNode === 'stone_outcrop') {
-          ft.resourceNode = 'none';
-          ft.resourceAmount = 0;
-        }
-        if (ft.resourceNode === 'none') {
-          if (ft.height > 0 && state.epochIndex >= 2) ft.height = targetHeight;
-          ft.terrain = 'stone_road';
-          ft.farmSettlementId = undefined;
-        }
-      }
-    }
-
-    // If building frontage isn't yet connected along a cardinal walk to the central spine, trace a short L-spur
-    let cx = startX;
-    let cz = startZ;
-    for (let step = 0; step < 8; step++) {
-      const adx = anchor.x - cx;
-      const adz = anchor.z - cz;
-      if (Math.abs(adx) <= 1 && Math.abs(adz) <= 1) break;
-      const curCardRoad =
-        getTile(state, cx + Math.sign(adx), cz)?.terrain === 'stone_road' ||
-        getTile(state, cx, cz + Math.sign(adz))?.terrain === 'stone_road';
-      if (step > 0 && curCardRoad) break;
-
-      const tryFirstX = Math.abs(adx) >= Math.abs(adz);
-      const candidates: Array<[number, number]> = tryFirstX
-        ? [
-            [cx + Math.sign(adx || 1), cz],
-            [cx, cz + Math.sign(adz || 1)],
-          ]
-        : [
-            [cx, cz + Math.sign(adz || 1)],
-            [cx + Math.sign(adx || 1), cz],
-          ];
-
-      let stepped = false;
-      for (const [nx, nz] of candidates) {
+    for (let oz = -1; oz <= 1; oz++) {
+      for (let ox = -1; ox <= 1; ox++) {
+        if (ox === 0 && oz === 0) continue;
+        const nx = b.tileX + ox;
+        const nz = b.tileZ + oz;
+        const relX = nx - anchor.x;
+        const relZ = nz - anchor.z;
+        if (!isSettlementRoadTile(relX, relZ, variant)) continue;
         const nt = getTile(state, nx, nz);
-        if (!nt) continue;
-        if (nt.terrain === 'stone_road') {
-          cx = nx;
-          cz = nz;
-          stepped = true;
-          break;
-        }
-        if (canConvertTileToRoad(nt, isFloatingSettlement)) {
-          if (state.epochIndex >= 2 && (nt.resourceNode === 'berry_bush' || nt.resourceNode === 'stone_outcrop')) {
-            nt.resourceNode = 'none';
-            nt.resourceAmount = 0;
+        if (paveTile(nt) || nt?.terrain === 'stone_road') {
+          const cardPenalty = Math.abs(ox) + Math.abs(oz) === 1 ? 0 : 0.75;
+          const d = Math.hypot(relX, relZ) + cardPenalty;
+          if (d < bestFrontDist && nt) {
+            bestFrontDist = d;
+            frontRoadTile = nt;
           }
-          if (nt.resourceNode === 'none') {
-            if (nt.height > 0 && state.epochIndex >= 2) nt.height = targetHeight;
-            nt.terrain = 'stone_road';
-            nt.farmSettlementId = undefined;
+        }
+      }
+    }
+
+    // If building sits in the center of a 3x3 block (no adjacent planned road), pick 1 cardinal frontage tile
+    if (!frontRoadTile) {
+      for (const [ox, oz] of [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ] as const) {
+        const nt = getTile(state, b.tileX + ox, b.tileZ + oz);
+        if (!nt || nt.buildingId) continue;
+        const d = Math.hypot(nt.x - anchor.x, nt.z - anchor.z);
+        if (d < bestFrontDist && (paveTile(nt) || nt.terrain === 'stone_road')) {
+          bestFrontDist = d;
+          frontRoadTile = nt;
+        }
+      }
+    }
+
+    // Walk along planned street corridors from frontRoadTile back to the central cross spine (dx === 0 || dz === 0) -> anchor
+    if (frontRoadTile) {
+      let cx = frontRoadTile.x;
+      let cz = frontRoadTile.z;
+      for (let step = 0; step < 22; step++) {
+        const relX = cx - anchor.x;
+        const relZ = cz - anchor.z;
+        if (Math.abs(relX) + Math.abs(relZ) <= 1) break;
+
+        const stepOptions: Array<[number, number]> = [];
+        if (relX !== 0) stepOptions.push([cx - Math.sign(relX), cz]);
+        if (relZ !== 0) stepOptions.push([cx, cz - Math.sign(relZ)]);
+
+        // Prefer stepping along tiles that are designated 1-tile streets (`isSettlementRoadTile`)
+        stepOptions.sort((a, bOpt) => {
+          const aRoad = isSettlementRoadTile(a[0] - anchor.x, a[1] - anchor.z, variant) ? 0 : 1;
+          const bRoad = isSettlementRoadTile(bOpt[0] - anchor.x, bOpt[1] - anchor.z, variant) ? 0 : 1;
+          return aRoad - bRoad;
+        });
+
+        let moved = false;
+        for (const [nx, nz] of stepOptions) {
+          const nt = getTile(state, nx, nz);
+          if (!nt) continue;
+          if (nt.terrain === 'stone_road' || paveTile(nt)) {
             cx = nx;
             cz = nz;
-            stepped = true;
+            moved = true;
             break;
           }
+          // If blocked by an existing building on the spine, sidestep 1 tile around it
+          if (nt.buildingId) {
+            for (const [sx, sz] of [
+              [cx + (relZ !== 0 ? 1 : 0), cz + (relX !== 0 ? 1 : 0)],
+              [cx - (relZ !== 0 ? 1 : 0), cz - (relX !== 0 ? 1 : 0)],
+            ]) {
+              const st = getTile(state, sx, sz);
+              if (st && (st.terrain === 'stone_road' || paveTile(st))) {
+                cx = sx;
+                cz = sz;
+                moved = true;
+                break;
+              }
+            }
+            if (moved) break;
+          }
         }
+        if (!moved) break;
       }
-      if (!stepped) break;
     }
   }
 
-  // 3. Stitch any disconnected 4-way road components into a single unified network (and prune unreachable micro-fragments)
-  const stitchRadius = planRadius + 2;
+  // Ensure the 4 cardinal plaza approaches around the anchor are linked around the central hearth
+  for (const [ox, oz] of [
+    [1, 0],
+    [-1, 0],
+    [0, 1],
+    [0, -1],
+    [1, 1],
+    [-1, 1],
+    [1, -1],
+    [-1, -1],
+  ] as const) {
+    const pt = getTile(state, anchor.x + ox, anchor.z + oz);
+    if (pt && !pt.buildingId) {
+      paveTile(pt);
+    }
+  }
+
+  // 3. Stitch any disconnected 4-way road components into a single unified network (preferring masterplan street lines)
+  const stitchRadius = 14;
   const findComponents = (): TileData[][] => {
     const roadMap = new Map<string, TileData>();
     for (let dz = -stitchRadius; dz <= stitchRadius; dz++) {
@@ -5057,7 +5075,6 @@ function connectSettlementRoads(state: SimulationState, settlementId: string): v
       }
       comps.push(comp);
     }
-    // Sort so the main trunk component (closest to anchor / largest) is at index 0
     comps.sort((a, b) => {
       const distA = Math.min(...a.map((t) => Math.hypot(t.x - anchor.x, t.z - anchor.z)));
       const distB = Math.min(...b.map((t) => Math.hypot(t.x - anchor.x, t.z - anchor.z)));
@@ -5072,7 +5089,6 @@ function connectSettlementRoads(state: SimulationState, settlementId: string): v
     const mainSet = new Set<string>(comps[0].map((t) => `${t.x},${t.z}`));
     for (let ci = 1; ci < comps.length; ci++) {
       const comp = comps[ci];
-      // Find shortest 4-way path from any tile in comp to mainSet
       let bestPair: { from: TileData; toX: number; toZ: number; dist: number } | null = null;
       for (const ct of comp) {
         for (const mk of mainSet) {
@@ -5084,7 +5100,6 @@ function connectSettlementRoads(state: SimulationState, settlementId: string): v
         }
       }
       if (bestPair && bestPair.dist <= 8) {
-        // BFS from bestPair.from to mainSet within local bounding box
         const q: Array<{ x: number; z: number; path: TileData[] }> = [
           { x: bestPair.from.x, z: bestPair.from.z, path: [] },
         ];
@@ -5104,13 +5119,7 @@ function connectSettlementRoads(state: SimulationState, settlementId: string): v
             const nk = `${nx},${nz}`;
             if (mainSet.has(nk)) {
               for (const pt of cur.path) {
-                if (state.epochIndex >= 2 && (pt.resourceNode === 'berry_bush' || pt.resourceNode === 'stone_outcrop')) {
-                  pt.resourceNode = 'none';
-                  pt.resourceAmount = 0;
-                }
-                if (pt.height > 0 && state.epochIndex >= 2) pt.height = targetHeight;
-                pt.terrain = 'stone_road';
-                pt.farmSettlementId = undefined;
+                paveTile(pt);
                 mainSet.add(`${pt.x},${pt.z}`);
               }
               for (const ct of comp) mainSet.add(`${ct.x},${ct.z}`);
@@ -5135,7 +5144,6 @@ function connectSettlementRoads(state: SimulationState, settlementId: string): v
       }
     }
 
-    // Prune any remaining unbridgeable isolated road islands so roads never look fragmented
     const finalComps = findComponents();
     for (let ci = 1; ci < finalComps.length; ci++) {
       for (const orphan of finalComps[ci]) {
@@ -5151,70 +5159,11 @@ function paveSettlementStreetsNear(
   bz: number,
   settlementId = 'city_default',
 ): void {
-  const anchor = getSettlementAnchorForId(state, settlementId);
-  const variant = getSettlementLayoutVariant(state, settlementId, anchor.x, anchor.z);
-  const targetHeight = getSettlementTargetGradeHeight(state, anchor, settlementId);
-
   const ownTile = getTile(state, bx, bz);
   if (ownTile && ownTile.buildingId && ownTile.terrain === 'stone_road') {
     ownTile.terrain = ownTile.height === 0 ? 'shallow_water' : 'grass';
   }
-  const allowWaterWalkways =
-    Boolean(ownTile && ownTile.height === 0) || state.worldTemplate === 'scrap_sea';
-
-  let pavedAdjacent = false;
-  for (let dz = -5; dz <= 5; dz++) {
-    for (let dx = -5; dx <= 5; dx++) {
-      const t = getTile(state, bx + dx, bz + dz);
-      if (!canConvertTileToRoad(t, allowWaterWalkways)) continue;
-      if (t.resourceNode !== 'none') {
-        if (state.epochIndex >= 2 && (t.resourceNode === 'berry_bush' || t.resourceNode === 'stone_outcrop')) {
-          t.resourceNode = 'none';
-          t.resourceAmount = 0;
-        } else {
-          continue;
-        }
-      }
-      const relX = t.x - anchor.x;
-      const relZ = t.z - anchor.z;
-      if (isSettlementRoadTile(relX, relZ, variant)) {
-        if (t.height > 0 && state.epochIndex >= 2) t.height = targetHeight;
-        t.terrain = 'stone_road';
-        t.farmSettlementId = undefined;
-        if (Math.abs(dx) + Math.abs(dz) === 1) pavedAdjacent = true;
-      }
-    }
-  }
-
-  // Ensure every completed building has at least 1 unblocked street/walkway tile along its frontage
-  if (!pavedAdjacent) {
-    const dirs = [
-      [0, 1],
-      [1, 0],
-      [0, -1],
-      [-1, 0],
-    ];
-    for (const [ox, oz] of dirs) {
-      const nt = getTile(state, bx + ox, bz + oz);
-      if (nt && (nt.height > 0 || allowWaterWalkways) && !nt.buildingId && nt.resourceNode === 'none') {
-        if (nt.terrain === 'stone_road') {
-          pavedAdjacent = true;
-          break;
-        }
-      }
-    }
-    if (!pavedAdjacent) {
-      for (const [ox, oz] of dirs) {
-        const nt = getTile(state, bx + ox, bz + oz);
-        if (canConvertTileToRoad(nt, allowWaterWalkways) && nt.resourceNode === 'none') {
-          if (nt.height > 0 && state.epochIndex >= 2) nt.height = targetHeight;
-          nt.terrain = 'stone_road';
-          nt.farmSettlementId = undefined;
-          break;
-        }
-      }
-    }
-  }
+  connectSettlementRoads(state, settlementId);
 }
 
 function findBuildableTileNear(
@@ -5248,9 +5197,9 @@ function findBuildableTileNear(
 
         if (!emergencyFallback) emergencyFallback = t;
 
-        // Never place buildings on existing roads, rail tracks, runways, or designated street corridors!
+        // Never place buildings on rail tracks, runways, or designated 1-tile masterplan street corridors!
+        // (Non-masterplan tiles inside city blocks can be built upon even if previously paved)
         if (
-          t.terrain === 'stone_road' ||
           t.terrain === 'rail_track' ||
           t.terrain === 'runway' ||
           isSettlementRoadTile(dx, dz, variant)
@@ -5281,7 +5230,7 @@ function findBuildableTileNear(
         // Avoid boxing in a building where all 4 sides would be blocked
         if (openCardinalNeighbors === 0) continue;
 
-        // Check proximity to existing village buildings to form cohesive cottage clusters
+        // Check proximity to existing village buildings to form dense, cohesive urban blocks
         let nearCottageCount = 0;
         for (const b of villageBuildings) {
           const bDist = Math.max(Math.abs(b.tileX - t.x), Math.abs(b.tileZ - t.z));
@@ -5290,19 +5239,17 @@ function findBuildableTileNear(
         }
 
         const dist = Math.hypot(dx, dz);
-        let score = dist * 2.4;
-        if (touchesStreet) score -= 18;
-        if (nearCottageCount > 0) score -= Math.min(14, nearCottageCount * 4.5);
+        let score = dist * 2.5;
+        if (touchesStreet) score -= 20;
+        if (nearCottageCount > 0) score -= Math.min(18, nearCottageCount * 5.0);
         if (t.height === preferredHeight) score -= 8;
         else score += Math.abs(t.height - preferredHeight) * 5;
         if (!isFloatingSettlement && t.height === 0) {
-          // Coastal settlements prefer dry land first, then shallow water floating piers, then deep water
           score += t.terrain === 'shallow_water' ? 6 : 14;
         }
         if (t.resourceNode === 'none') score -= 7;
         else score += 9;
 
-        // Deterministic micro-tiebreaker for organic neighborhood variety
         const tieBreaker = (((t.x * 37 + t.z * 19 + variant * 13) & 15) / 16) * 1.4;
         score += tieBreaker;
 
@@ -5312,7 +5259,7 @@ function findBuildableTileNear(
         }
       }
     }
-    if (bestLot && r >= 4 && bestScore < -10) {
+    if (bestLot && r >= 3 && bestScore < -12) {
       return bestLot;
     }
   }
@@ -5494,90 +5441,100 @@ function pickDesiredAutobuildType(
   villageBuildings: BuildingEntity[],
   villagePop: number,
   species: SpeciesId = 'human',
+  kRes?: Resources,
 ): BuildingType | null {
   const maxCityBuildings = getMaxCityBuildings(state.epochIndex);
   if (villageBuildings.length >= maxCityBuildings) return null;
 
   const countType = (t: BuildingType) => villageBuildings.filter((b) => b.type === t).length;
-  const targetCottages = Math.min(18, Math.max(4, Math.floor(villagePop * 0.9)));
+  const targetCottages = Math.min(38, Math.max(12 + state.epochIndex * 4, Math.ceil(villagePop * 1.65)));
+  const candidates: BuildingType[] = [];
+  const want = (t: BuildingType) => {
+    if (!candidates.includes(t)) candidates.push(t);
+  };
 
-  if (countType('bonfire') === 0) return 'bonfire';
-  if (countType('forager_hut') < Math.min(4, targetCottages)) return 'forager_hut';
-  if (countType('shaman_totem') < 1) return 'shaman_totem';
+  if (countType('bonfire') === 0) want('bonfire');
+  if (countType('forager_hut') < Math.min(8, targetCottages)) want('forager_hut');
+  if (countType('shaman_totem') < 2) want('shaman_totem');
 
-  // Elves strongly prioritize magical & arcane-tech sanctums
-  if (species === 'elf' && countType('shaman_totem') < 2) return 'shaman_totem';
+  if (species === 'elf' && countType('shaman_totem') < 3) want('shaman_totem');
 
   if (state.epochIndex === 0) {
-    if (countType('forager_hut') < Math.min(6, targetCottages)) return 'forager_hut';
-    if (countType('shaman_totem') < (species === 'elf' ? 3 : 2)) return 'shaman_totem';
-    return null;
+    if (countType('forager_hut') < Math.min(14, targetCottages)) want('forager_hut');
+    if (countType('shaman_totem') < (species === 'elf' ? 4 : 3)) want('shaman_totem');
+  } else if (species === 'orc') {
+    if (countType('forager_hut') < Math.min(16, targetCottages)) want('forager_hut');
+    if (countType('granary') < 4) want('granary');
+    if (countType('smeltery') < 4) want('smeltery');
+    if (state.epochIndex >= 2 && countType('guildhall') < 4) want('guildhall');
+    if (state.epochIndex >= 2 && countType('observatory') < 2 && villageBuildings.length >= 8) want('observatory');
+    if (state.epochIndex >= 3 && countType('steam_foundry') < 4) want('steam_foundry');
+    if (state.epochIndex >= 3 && countType('rail_station') < 2 && villageBuildings.length >= 10) want('rail_station');
+    if (state.epochIndex >= 4 && countType('fission_reactor') < 3 && villageBuildings.length >= 12) want('fission_reactor');
+    if (state.epochIndex >= 5 && countType('cyber_institute') < 3 && villageBuildings.length >= 14) want('cyber_institute');
+    if (state.epochIndex >= 6 && countType('launch_arcology') < 3 && villageBuildings.length >= 16) want('launch_arcology');
+    if (countType('forager_hut') < targetCottages) want('forager_hut');
+  } else {
+    if (state.epochIndex >= 1) {
+      if (countType('forager_hut') < Math.min(12, targetCottages)) want('forager_hut');
+      if (countType('granary') < 3) want('granary');
+      if (species === 'elf' && countType('ziggurat') < 3) want('ziggurat');
+      if (species === 'human' && countType('smeltery') < 3) want('smeltery');
+      if (countType('ziggurat') < 2) want('ziggurat');
+      if (countType('forager_hut') < Math.min(16, targetCottages)) want('forager_hut');
+      if (countType('smeltery') < (species === 'elf' ? 3 : 4)) want('smeltery');
+      if (countType('granary') < 4) want('granary');
+      if (countType('shaman_totem') < (species === 'elf' ? 4 : 3)) want('shaman_totem');
+    }
+    if (state.epochIndex >= 2) {
+      if (countType('guildhall') < 4) want('guildhall');
+      if (countType('forager_hut') < Math.min(20, targetCottages)) want('forager_hut');
+      if (species === 'elf' && countType('observatory') < 3) want('observatory');
+      if (countType('observatory') < (species === 'human' || species === 'elf' ? 3 : 2)) want('observatory');
+      if (countType('guildhall') < 5) want('guildhall');
+    }
+    if (state.epochIndex >= 3) {
+      if (countType('forager_hut') < Math.min(24, targetCottages)) want('forager_hut');
+      if (countType('rail_station') < 2) want('rail_station');
+      if (species === 'human' && countType('dynamo_plant') < 3) want('dynamo_plant');
+      if (countType('steam_foundry') < (species === 'elf' ? 3 : 4)) want('steam_foundry');
+      if (countType('dynamo_plant') < 4) want('dynamo_plant');
+      if (countType('guildhall') < 6) want('guildhall');
+    }
+    if (state.epochIndex >= 4) {
+      if (countType('forager_hut') < Math.min(28, targetCottages)) want('forager_hut');
+      if (countType('airport') < 2) want('airport');
+      if (species === 'elf' && countType('cyber_institute') < 4) want('cyber_institute');
+      if (countType('fission_reactor') < 4) want('fission_reactor');
+      if (countType('cyber_institute') < 4) want('cyber_institute');
+      if (countType('guildhall') < 8) want('guildhall');
+    }
+    if (state.epochIndex >= 5) {
+      if (countType('forager_hut') < Math.min(33, targetCottages)) want('forager_hut');
+      if (countType('rail_station') < 3) want('rail_station');
+      if (countType('cyber_institute') < 5) want('cyber_institute');
+      if (countType('guildhall') < 10) want('guildhall');
+    }
+    if (state.epochIndex >= 6) {
+      if (countType('launch_arcology') < 4) want('launch_arcology');
+      if (countType('forager_hut') < targetCottages) want('forager_hut');
+    }
+    if (state.epochIndex >= 7) {
+      if (countType('dyson_spire') < 2) want('dyson_spire');
+    }
+    if (countType('forager_hut') < targetCottages) want('forager_hut');
   }
 
-  // Orcs are barbarian clans that build more huts/granaries/forges before slowly adopting higher-age structures
-  if (species === 'orc') {
-    if (countType('forager_hut') < Math.min(8, targetCottages)) return 'forager_hut';
-    if (countType('granary') < 2) return 'granary';
-    if (countType('smeltery') < 2) return 'smeltery';
-    if (state.epochIndex >= 2 && countType('guildhall') < 2) return 'guildhall';
-    if (state.epochIndex >= 2 && countType('observatory') < 1 && villageBuildings.length >= 10) return 'observatory';
-    if (state.epochIndex >= 3 && countType('steam_foundry') < 2) return 'steam_foundry';
-    if (state.epochIndex >= 3 && countType('rail_station') < 1 && villageBuildings.length >= 12) return 'rail_station';
-    if (state.epochIndex >= 4 && countType('fission_reactor') < 1 && villageBuildings.length >= 15) return 'fission_reactor';
-    if (state.epochIndex >= 5 && countType('cyber_institute') < 1 && villageBuildings.length >= 18) return 'cyber_institute';
-    if (state.epochIndex >= 6 && countType('launch_arcology') < 1 && villageBuildings.length >= 20) return 'launch_arcology';
-    if (countType('forager_hut') < targetCottages) return 'forager_hut';
-    return null;
+  if (candidates.length === 0) return null;
+  if (kRes && !state.sandboxFreeMode) {
+    for (const cType of candidates) {
+      const def = BUILDINGS.find((b) => b.type === cType);
+      if (def && canAfford(kRes, def.cost, false)) {
+        return cType;
+      }
+    }
   }
-
-  if (state.epochIndex >= 1) {
-    if (countType('granary') < 1) return 'granary';
-    if (species === 'elf' && countType('ziggurat') < 2) return 'ziggurat';
-    if (species === 'human' && countType('smeltery') < 2) return 'smeltery';
-    if (countType('ziggurat') < 1) return 'ziggurat';
-    if (countType('forager_hut') < Math.min(7, targetCottages)) return 'forager_hut';
-    if (countType('smeltery') < (species === 'elf' ? 1 : 2)) return 'smeltery';
-    if (countType('granary') < 2) return 'granary';
-    if (countType('shaman_totem') < (species === 'elf' ? 3 : 2)) return 'shaman_totem';
-  }
-  if (state.epochIndex >= 2) {
-    if (species === 'elf' && countType('observatory') < 2) return 'observatory';
-    if (countType('guildhall') < 2) return 'guildhall';
-    if (countType('forager_hut') < Math.min(9, targetCottages)) return 'forager_hut';
-    if (countType('observatory') < (species === 'human' || species === 'elf' ? 2 : 1)) return 'observatory';
-    if (countType('guildhall') < 3) return 'guildhall';
-  }
-  if (state.epochIndex >= 3) {
-    if (countType('rail_station') < 1) return 'rail_station';
-    if (species === 'human' && countType('dynamo_plant') < 2) return 'dynamo_plant';
-    if (countType('steam_foundry') < (species === 'elf' ? 1 : 2)) return 'steam_foundry';
-    if (countType('dynamo_plant') < 2) return 'dynamo_plant';
-    if (countType('guildhall') < 4) return 'guildhall';
-    if (countType('forager_hut') < Math.min(12, targetCottages)) return 'forager_hut';
-  }
-  if (state.epochIndex >= 4) {
-    if (countType('airport') < 1) return 'airport';
-    if (species === 'elf' && countType('cyber_institute') < 2) return 'cyber_institute';
-    if (countType('fission_reactor') < 2) return 'fission_reactor';
-    if (countType('cyber_institute') < 2) return 'cyber_institute';
-    if (countType('guildhall') < 5) return 'guildhall';
-    if (countType('forager_hut') < Math.min(14, targetCottages)) return 'forager_hut';
-  }
-  if (state.epochIndex >= 5) {
-    if (countType('rail_station') < 2) return 'rail_station';
-    if (countType('cyber_institute') < 3) return 'cyber_institute';
-    if (countType('guildhall') < 7) return 'guildhall';
-    if (countType('forager_hut') < Math.min(16, targetCottages)) return 'forager_hut';
-  }
-  if (state.epochIndex >= 6) {
-    if (countType('launch_arcology') < 2) return 'launch_arcology';
-    if (countType('forager_hut') < targetCottages) return 'forager_hut';
-  }
-  if (state.epochIndex >= 7) {
-    if (countType('dyson_spire') < 1) return 'dyson_spire';
-  }
-  if (countType('forager_hut') < targetCottages) return 'forager_hut';
-  return null;
+  return candidates[0];
 }
 
 export function ensureSettlementKings(state: SimulationState): void {
@@ -6166,10 +6123,12 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
     // Autonomous Population Growth drawn strictly from this kingdom's food stockpile
     const birthFoodReq = villageUnits.length < 10 ? 22 : 32;
     const birthFoodCost = villageUnits.length < 10 ? 14 : 20;
+    const totalLivingCivs = state.units.filter((u) => u.faction === 'civilization' && u.state !== 'ko').length;
     if (
       state.worldRules?.allowReproduction !== false &&
       hasCompletedHearth &&
       villageUnits.length < villagePopCap &&
+      totalLivingCivs < Math.max(villagePopCap, state.populationCap) &&
       kRes.food >= birthFoodReq &&
       state.happiness >= 35
     ) {
@@ -6184,6 +6143,7 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
       if (
         villageUnits.length < 8 &&
         villageUnits.length + 1 < villagePopCap &&
+        totalLivingCivs + 1 < Math.max(villagePopCap, state.populationCap) &&
         kRes.food >= 28
       ) {
         kRes.food -= 14;
@@ -6195,68 +6155,82 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
 
     // Autonomous Construction Planner scoped to THIS village & THIS kingdom's stocked resources
     const maxCityBuildings = getMaxCityBuildings(state.epochIndex);
-    const activeSites = villageBuildings.filter((b) => b.constructionProgress < 100).length;
+    let activeSites = villageBuildings.filter((b) => b.constructionProgress < 100).length;
     const orcSlowSkip =
       villageSpecies === 'orc' &&
       !state.sandboxFreeMode &&
-      villageBuildings.length >= 3 &&
-      Math.floor(Math.abs(state.year * 10)) % 3 !== 0;
+      villageBuildings.length >= 6 &&
+      Math.floor(Math.abs(state.year * 10)) % 3 === 1;
 
-    if (
-      state.autoBuildEnabled &&
-      state.worldRules?.autoBuildEnabled !== false &&
-      hasCompletedHearth &&
-      !orcSlowSkip &&
-      activeSites < 1 &&
-      villageBuildings.length < maxCityBuildings
-    ) {
-      const desiredType = pickDesiredAutobuildType(state, villageBuildings, villageUnits.length, villageSpecies);
-      if (desiredType) {
-        const def = BUILDINGS.find((b) => b.type === desiredType);
-        if (def && canAfford(kRes, def.cost, state.sandboxFreeMode)) {
-          const site = findBuildableTileNear(state, villageAnchor.x, villageAnchor.z, 18, sid);
-          if (site) {
-            state.kingdomResources![sidKingdomId] = deductCost(kRes, def.cost, state.sandboxFreeMode);
-            const refreshedStock = ensureKingdomResources(state, sidKingdomId);
-            if (site.resourceNode === 'timber_grove') refreshedStock.wood += 8;
-            else if (site.resourceNode === 'stone_outcrop') refreshedStock.stone += 8;
-            site.resourceNode = 'none';
-            site.resourceAmount = 0;
-            site.farmSettlementId = undefined;
-            if (site.height === 0) {
-              if (site.terrain === 'stone_road' || site.terrain === 'rail_track') {
-                site.terrain = 'shallow_water';
-              }
-            } else if (site.terrain === 'stone_road' || site.terrain === 'forest') {
-              site.terrain = 'grass';
-            }
-            const baseEpochIdx = Math.max(0, EPOCHS.findIndex((e) => e.id === def.epoch));
+    const maxConcurrentSites = state.epochIndex >= 3 ? 4 : state.epochIndex >= 1 || villageUnits.length >= 5 ? 3 : 2;
+    const sitesToPlaceThisTick = state.sandboxFreeMode || kRes.wood >= 80 ? 2 : 1;
 
-            const siteBld: BuildingEntity = {
-              id: nextEntityId('bld'),
-              type: desiredType,
-              settlementId: sid,
-              species: villageSpecies,
-              tileX: site.x,
-              tileZ: site.z,
-              hp: def.maxHp,
-              maxHp: def.maxHp,
-              constructionProgress: 4,
-              epochLevel: state.epochIndex === 0 ? 0 : baseEpochIdx,
-              upgradeProgress: 0,
-              blessedTimer: 0,
-              cursedTimer: 0,
-              shieldTimer: 0,
-            };
-            site.buildingId = siteBld.id;
-            site.farmSettlementId = undefined;
-            state.buildings.push(siteBld);
-            state.totalStructuresBuilt += 1;
-            const vName = state.settlementNames[sid] ?? 'Settlement';
-            addChronicle(state, `Settlers of ${vName} break ground on a ${def.name} at (${site.x}, ${site.z}).`, 'build');
-          }
-        }
+    for (let placeAttempt = 0; placeAttempt < sitesToPlaceThisTick; placeAttempt++) {
+      if (
+        !state.autoBuildEnabled ||
+        state.worldRules?.autoBuildEnabled === false ||
+        !hasCompletedHearth ||
+        orcSlowSkip ||
+        activeSites >= maxConcurrentSites ||
+        villageBuildings.length >= maxCityBuildings
+      ) {
+        break;
       }
+      const currentStock = ensureKingdomResources(state, sidKingdomId);
+      const desiredType = pickDesiredAutobuildType(
+        state,
+        villageBuildings,
+        villageUnits.length,
+        villageSpecies,
+        currentStock,
+      );
+      if (!desiredType) break;
+      const def = BUILDINGS.find((b) => b.type === desiredType);
+      if (!def || !canAfford(currentStock, def.cost, state.sandboxFreeMode)) break;
+      const site = findBuildableTileNear(state, villageAnchor.x, villageAnchor.z, 22, sid);
+      if (!site) break;
+
+      state.kingdomResources![sidKingdomId] = deductCost(currentStock, def.cost, state.sandboxFreeMode);
+      const refreshedStock = ensureKingdomResources(state, sidKingdomId);
+      if (site.resourceNode === 'timber_grove') refreshedStock.wood += 12;
+      else if (site.resourceNode === 'stone_outcrop') refreshedStock.stone += 12;
+      site.resourceNode = 'none';
+      site.resourceAmount = 0;
+      site.farmSettlementId = undefined;
+      if (site.height === 0) {
+        if (site.terrain === 'stone_road' || site.terrain === 'rail_track') {
+          site.terrain = 'shallow_water';
+        }
+      } else if (site.terrain === 'stone_road' || site.terrain === 'forest') {
+        site.terrain = 'grass';
+      }
+      const baseEpochIdx = Math.max(0, EPOCHS.findIndex((e) => e.id === def.epoch));
+
+      const siteBld: BuildingEntity = {
+        id: nextEntityId('bld'),
+        type: desiredType,
+        settlementId: sid,
+        species: villageSpecies,
+        tileX: site.x,
+        tileZ: site.z,
+        hp: def.maxHp,
+        maxHp: def.maxHp,
+        constructionProgress: 34,
+        epochLevel: state.epochIndex === 0 ? 0 : baseEpochIdx,
+        upgradeProgress: 0,
+        blessedTimer: 0,
+        cursedTimer: 0,
+        shieldTimer: 0,
+      };
+      site.buildingId = siteBld.id;
+      site.farmSettlementId = undefined;
+      state.buildings.push(siteBld);
+      villageBuildings.push(siteBld);
+      activeSites += 1;
+      state.totalStructuresBuilt += 1;
+      paveSettlementStreetsNear(state, site.x, site.z, sid);
+      const vName = state.settlementNames[sid] ?? 'Settlement';
+      addChronicle(state, `Settlers of ${vName} break ground on a ${def.name} at (${site.x}, ${site.z}).`, 'build');
     }
 
     // Autonomous Frontier Colonization from this kingdom's food stock
@@ -6569,28 +6543,29 @@ function stepSimulationSingle(
         haz.remaining -= dt;
         const totalDur = Math.max(0.1, haz.duration);
         const progress = Math.max(0, Math.min(1, 1 - haz.remaining / totalDur));
-        const lingerSplit = 0.6; // First 60% of duration lingers slowly over target; final 40% accelerates away
-        const lingerDistance = 3.5; // -1.5 to +2.0 tiles across the summoned target zone
+        const isDeluge = Boolean(haz.isSuper);
+        const lingerSplit = isDeluge ? 0.88 : 0.6;
+        const lingerDistance = isDeluge ? 5.0 : 3.5;
         const lingerTime = lingerSplit * totalDur;
-        const baseSlowSpeed = lingerDistance / Math.max(0.1, lingerTime); // ~0.55 tiles/s (scales with timeScale/dt)
+        const baseSlowSpeed = lingerDistance / Math.max(0.1, lingerTime);
 
         let s: number;
         let perpOffset: number;
         if (progress <= lingerSplit) {
-          // Phase 2: Slow drift right across the summoned area
+          // Phase 2: Slow drift or circling monsoon over the impact basin
           const lingerFrac = progress / lingerSplit;
-          s = -1.5 + lingerDistance * lingerFrac;
+          s = (isDeluge ? -2.5 : -1.5) + lingerDistance * lingerFrac;
           haz.currentSpeed = baseSlowSpeed;
-          perpOffset = Math.sin(progress * Math.PI * 3.0) * 0.42;
+          perpOffset = Math.sin(progress * Math.PI * (isDeluge ? 6.0 : 3.0)) * (isDeluge ? 2.6 : 0.42);
         } else {
           // Phase 3: Slowly becomes fast as it expires (smooth acceleration ramp)
           const expireFrac = (progress - lingerSplit) / (1 - lingerSplit); // 0 -> 1
           const expireTime = (1 - lingerSplit) * totalDur;
           const accelDist = 23.0;
-          s = 2.0 + baseSlowSpeed * expireTime * expireFrac + accelDist * Math.pow(expireFrac, 2.8);
+          s = (isDeluge ? 2.5 : 2.0) + baseSlowSpeed * expireTime * expireFrac + accelDist * Math.pow(expireFrac, 2.8);
           haz.currentSpeed =
             baseSlowSpeed + (accelDist * 2.8 * Math.pow(expireFrac, 1.8)) / Math.max(0.1, expireTime);
-          perpOffset = Math.sin(progress * Math.PI * 3.0) * 0.42 * (1 - expireFrac * 0.65);
+          perpOffset = Math.sin(progress * Math.PI * 3.0) * (isDeluge ? 1.8 : 0.42) * (1 - expireFrac * 0.65);
         }
         haz.x = tx + wx * s - wz * perpOffset;
         haz.z = tz + wz * s + wx * perpOffset;
@@ -7123,6 +7098,123 @@ function stepSimulationSingle(
         const dist = Math.hypot(v.x - haz.x, v.z - haz.z);
         if (Math.abs(dist - nextR) <= 2.45) {
           v.hp = Math.max(0, (v.hp ?? 100) - 520 * dt);
+        }
+      }
+    }
+
+    // Cataclysmic Asteroid Shockwave: supersonic atmospheric blast front & hurricane winds
+    if (haz.kind === 'asteroid_shockwave') {
+      const prevR = haz.currentRadius ?? 8.0;
+      const maxR = haz.maxRadius ?? 30.0;
+      const progress = Math.max(0, Math.min(1, 1 - haz.remaining / Math.max(0.1, haz.duration)));
+      const nextR = Math.min(maxR, 8.0 + (maxR - 8.0) * Math.pow(progress, 0.78));
+      haz.currentRadius = nextR;
+      const innerBandSq = Math.max(0, prevR - 1.8) ** 2;
+      const outerBandSq = (nextR + 1.8) ** 2;
+
+      // Wide environmental blast wave: uproots forests/groves, chars vegetation, and scatters thermal brushfires out to 30 tiles
+      for (const t of state.tiles) {
+        const dx = t.x - haz.x;
+        const dz = t.z - haz.z;
+        const dSq = dx * dx + dz * dz;
+        if (dSq < innerBandSq || dSq > outerBandSq) continue;
+        if (t.height === 0) {
+          if (dSq <= 22.0 ** 2) {
+            damageOrBleachWaterTile(t, 120 * dt, false);
+          }
+          continue;
+        }
+        const dist = Math.sqrt(dSq);
+        if (
+          t.resourceNode === 'timber_grove' ||
+          t.resourceNode === 'berry_bush'
+        ) {
+          t.resourceNode = 'none';
+          t.resourceAmount = 0;
+        }
+        if (dist <= 25.0) {
+          t.farmSettlementId = undefined;
+        }
+        if (!t.buildingId) {
+          if (dist <= 22.5) {
+            if (
+              t.terrain === 'forest' ||
+              t.terrain === 'jungle' ||
+              t.terrain === 'blossom' ||
+              t.terrain === 'taiga' ||
+              t.terrain === 'grass' ||
+              t.terrain === 'fertile' ||
+              t.terrain === 'savanna'
+            ) {
+              t.terrain = dist <= 18.5 || ((t.x * 13 + t.z * 7) % 3 !== 0) ? 'scorched' : 'savanna';
+            }
+            if (((t.x * 17 + t.z * 29) % 5) === 0) {
+              t.onFireTimer = Math.max(t.onFireTimer, 11);
+            }
+          } else if (dist <= maxR) {
+            if (
+              t.terrain === 'forest' ||
+              t.terrain === 'jungle' ||
+              t.terrain === 'blossom' ||
+              t.terrain === 'taiga'
+            ) {
+              t.terrain = ((t.x + t.z) & 1) === 0 ? 'savanna' : 'grass';
+            }
+            if (((t.x * 23 + t.z * 19) % 9) === 0) {
+              t.onFireTimer = Math.max(t.onFireTimer, 7);
+            }
+          }
+        }
+      }
+
+      // Hurricane blast winds hurling units radially outward across a 60-tile diameter
+      for (const u of state.units) {
+        if (u.state === 'ko' || u.statusEffects.shielded || u.draggedByPlayer) continue;
+        const dx = u.x - haz.x;
+        const dz = u.z - haz.z;
+        const dist = Math.hypot(dx, dz);
+        if (dist <= nextR + 2.4 && dist >= Math.max(1.0, prevR - 3.2)) {
+          const distFactor = Math.max(0.28, 1 - dist / (maxR + 4.0));
+          const safeDist = Math.max(0.3, dist);
+          const windSpeed = (16.5 + 11.5 * distFactor) * (u.role === 'leviathan' || u.role === 'dragon' ? 0.45 : 1.0);
+          u.vxAir = (dx / safeDist) * windSpeed;
+          u.vzAir = (dz / safeDist) * windSpeed;
+          u.altitude = Math.max(u.altitude ?? 0, 1.8 + 2.6 * distFactor);
+          u.vzVertical = Math.max(u.vzVertical ?? 0, 9.5 + 6.5 * distFactor);
+          u.fallDamageArmed = true;
+          const overpressureDmg = (185 * distFactor + 45) * dt;
+          u.hp = Math.max(0, u.hp - overpressureDmg);
+          if (u.hp <= 0) {
+            u.state = 'ko';
+            u.koTimer = 0.45;
+            if (u.faction === 'hostile') state.totalRaidersDefeated += 1;
+          }
+        }
+      }
+
+      // Overpressure shockwave damage to buildings out to 24 tiles
+      for (const b of state.buildings) {
+        const dist = Math.hypot(b.tileX - haz.x, b.tileZ - haz.z);
+        if (dist <= 24.5 && Math.abs(dist - nextR) <= 2.6 && b.shieldTimer <= 0) {
+          const distFactor = Math.max(0.2, 1 - dist / 25.5);
+          const blastDmg = (480 * distFactor + 110) * dt;
+          b.hp = Math.max(0, b.hp - blastDmg);
+        }
+      }
+
+      // Blast wind pushing and damaging vehicles & ships
+      for (const v of state.vehicles ?? []) {
+        const dx = v.x - haz.x;
+        const dz = v.z - haz.z;
+        const dist = Math.hypot(dx, dz);
+        if (dist <= nextR + 2.4 && dist >= Math.max(1.0, prevR - 2.8)) {
+          const distFactor = Math.max(0.25, 1 - dist / (maxR + 3.0));
+          const safeDist = Math.max(0.3, dist);
+          const pushStep = (11.5 + 9.0 * distFactor) * dt;
+          v.x = Math.max(2, Math.min(state.gridSize - 3, v.x + (dx / safeDist) * pushStep));
+          v.z = Math.max(2, Math.min(state.gridSize - 3, v.z + (dz / safeDist) * pushStep));
+          v.heading = wrapAngleRad(Math.atan2(dz, dx));
+          v.hp = Math.max(0, (v.hp ?? 100) - (360 * distFactor + 80) * dt);
         }
       }
     }
@@ -12730,14 +12822,14 @@ function stepCivilianUnitAI(
       u.state = 'building';
       const speciesBuildBase =
         u.species === 'human'
-          ? 11
+          ? 24
           : u.species === 'elf'
-            ? 8
+            ? 19
             : state.sandboxFreeMode
-              ? 12
-              : 5.5;
+              ? 26
+              : 14;
       const buildSpeed =
-        (u.role === 'builder' ? 13 : speciesBuildBase) *
+        (u.role === 'builder' ? 28 : speciesBuildBase) *
         (unfinished.type === 'bonfire' ? 1.8 : 1.0) *
         (u.statusEffects.blessed ? 1.6 : 1.0);
       unfinished.constructionProgress = Math.min(100, unfinished.constructionProgress + buildSpeed * dt);
@@ -13388,11 +13480,63 @@ export function executeHugeAsteroidImpact(
   targetX: number,
   targetZ: number,
 ): void {
-  const r = 10.5;
+  const r = 14.5;
   const rSq = r * r;
   const centerTile = getTile(state, targetX, targetZ);
 
   if (!state.activeHazards) state.activeHazards = [];
+
+  // Spawn multi-year post-impact deluge rains lasting 15 to 20 years (strictly <= 20 years max)
+  const rainYears = Math.min(20, 15 + (Math.abs(targetX * 7 + targetZ * 13) % 6));
+  const spawnPostImpactDelugeClouds = () => {
+    const cloudOffsets = [
+      { dx: 0, dz: 0, angle: 0.45, radius: 13.5 },
+      { dx: -5.5, dz: 4.5, angle: 2.35, radius: 11.5 },
+      { dx: 5.5, dz: -4.5, angle: 4.25, radius: 11.5 },
+    ];
+    for (let i = 0; i < cloudOffsets.length; i++) {
+      const c = cloudOffsets[i];
+      const cx = Math.max(4, Math.min(state.gridSize - 5, targetX + c.dx));
+      const cz = Math.max(4, Math.min(state.gridSize - 5, targetZ + c.dz));
+      const wx = Math.cos(c.angle);
+      const wz = Math.sin(c.angle);
+      state.activeHazards.push({
+        id: nextEntityId('haz'),
+        kind: 'rain_cloud',
+        x: cx,
+        z: cz,
+        targetX: cx,
+        targetZ: cz,
+        windX: wx,
+        windZ: wz,
+        heading: c.angle,
+        arrivalDuration: 0,
+        arrivalRemaining: 0,
+        impactPending: false,
+        currentSpeed: 0.35,
+        radius: c.radius,
+        remaining: rainYears,
+        duration: rainYears,
+        tickTimer: i * 0.12,
+        isSuper: true,
+      });
+    }
+  };
+
+  // Always unleash the expanding supersonic atmospheric shockwave & hurricane blast winds out to 30 tiles
+  state.activeHazards.push({
+    id: nextEntityId('haz'),
+    kind: 'asteroid_shockwave',
+    x: targetX,
+    z: targetZ,
+    currentRadius: 8.0,
+    maxRadius: 30.0,
+    radius: 30.0,
+    remaining: 3.2,
+    duration: 3.2,
+    tickTimer: 0,
+    isSuper: true,
+  });
 
   if (!centerTile || centerTile.height === 0) {
     state.activeHazards.push({
@@ -13401,17 +13545,17 @@ export function executeHugeAsteroidImpact(
       x: targetX,
       z: targetZ,
       currentRadius: 2.0,
-      maxRadius: 42,
+      maxRadius: 48,
       radius: r,
-      remaining: 5.8,
-      duration: 5.8,
+      remaining: 6.4,
+      duration: 6.4,
       tickTimer: 0,
     });
     for (const t of state.tiles) {
       const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
       if (dSq <= rSq && t.height === 0) {
         damageOrBleachWaterTile(t, 450, true);
-        t.terrain = dSq <= 24 ? 'deep_water' : 'shallow_water';
+        t.terrain = dSq <= 36 ? 'deep_water' : 'shallow_water';
       }
     }
     for (const b of state.buildings) {
@@ -13426,112 +13570,136 @@ export function executeHugeAsteroidImpact(
         u.koTimer = 0.5;
       }
     }
-    addChronicle(state, 'Colossal Rogue Asteroid plunged into the ocean, unleashing megatsunamis!', 'warning');
+    spawnPostImpactDelugeClouds();
+    addChronicle(
+      state,
+      `Colossal Rogue Asteroid plunged into the ocean, unleashing megatsunamis and a ${rainYears}-year monsoon deluge!`,
+      'warning',
+    );
     return;
   }
 
   const baseH = Math.max(3, centerTile.height);
+  const outerApronSq = 21.5 * 21.5;
   for (const t of state.tiles) {
     const dx = t.x - targetX;
     const dz = t.z - targetZ;
     const dSq = dx * dx + dz * dz;
-    if (dSq > rSq * 1.15) continue;
+    if (dSq > outerApronSq) continue;
 
     if (t.height === 0) {
       damageOrBleachWaterTile(t, 450, true);
-      t.terrain = dSq <= 22 ? 'deep_water' : 'shallow_water';
+      t.terrain = dSq <= 36 ? 'deep_water' : 'shallow_water';
       t.onFireTimer = 0;
       continue;
     }
 
     const tileH = Math.max(1, t.height);
     const wasSand = t.terrain === 'sand';
-    const angleNoise = ((((t.x * 73856093) ^ (t.z * 19349663)) & 255) / 255.0 - 0.5) * 1.25;
+    const angleNoise = ((((t.x * 73856093) ^ (t.z * 19349663)) & 255) / 255.0 - 0.5) * 2.2;
     const effDSq = dSq + angleNoise;
 
-    if (dSq <= 10.5) {
+    if (dSq <= 20.0) {
       t.height = Math.max(1, Math.min(baseH, tileH) - 3);
       t.terrain = 'scorched';
-      if (dSq <= 2.2 && !t.buildingId) {
-        t.onFireTimer = 14;
+      if (dSq <= 3.6 && !t.buildingId) {
+        t.onFireTimer = 16;
         t.resourceNode = 'ore_vein';
-        t.resourceAmount = 600;
+        t.resourceAmount = 750;
       } else if (!t.buildingId) {
-        t.onFireTimer = 0;
+        t.onFireTimer = dSq <= 10.0 ? 12 : 0;
         t.resourceNode = 'none';
         t.resourceAmount = 0;
       }
-    } else if (effDSq <= 30.0) {
-      t.height = Math.max(1, Math.min(baseH, tileH) - 1);
+    } else if (effDSq <= 58.0) {
+      t.height = Math.max(1, Math.min(baseH, tileH) - 2);
       t.terrain = 'scorched';
       if (!t.buildingId) {
         t.resourceNode = 'none';
         t.resourceAmount = 0;
+        if (((t.x * 13 + t.z * 17) % 3) === 0) {
+          t.onFireTimer = Math.max(t.onFireTimer, 12);
+        }
       }
-    } else if (effDSq <= 56.0 && !t.buildingId) {
-      t.height = Math.min(10, tileH + 2);
-      t.terrain = effDSq <= 44 ? (wasSand ? 'crystal_field' : 'rock') : 'scorched';
+    } else if (effDSq <= 118.0 && !t.buildingId) {
+      const rimBoost = effDSq <= 88.0 ? 3 : 2;
+      t.height = Math.min(10, tileH + rimBoost);
+      t.terrain = effDSq <= 96.0 ? (wasSand ? 'crystal_field' : 'rock') : 'scorched';
       if (t.resourceNode === 'timber_grove' || t.resourceNode === 'berry_bush') {
         t.resourceNode = 'none';
         t.resourceAmount = 0;
-      } else if (t.resourceNode === 'none' && ((t.x * 11 + t.z * 7) % 8 === 0)) {
+      } else if (t.resourceNode === 'none' && ((t.x * 11 + t.z * 7) % 7 === 0)) {
         t.resourceNode = wasSand ? 'crystal_monolith' : 'ore_vein';
-        t.resourceAmount = 380;
+        t.resourceAmount = 420;
       }
     } else if (!t.buildingId) {
-      t.terrain = 'scorched';
+      t.terrain = dSq <= rSq * 1.25 ? 'scorched' : t.terrain === 'forest' || t.terrain === 'jungle' ? 'savanna' : 'scorched';
       if (t.resourceNode === 'timber_grove' || t.resourceNode === 'berry_bush') {
         t.resourceNode = 'none';
         t.resourceAmount = 0;
       }
-      if (((t.x * 19 + t.z * 31) % 4) === 0) {
-        t.onFireTimer = Math.max(t.onFireTimer, 10);
+      t.farmSettlementId = undefined;
+      if (((t.x * 19 + t.z * 31) % 3) === 0) {
+        t.onFireTimer = Math.max(t.onFireTimer, 11);
       }
     }
   }
 
+  const blastBuildingRSq = (r * 1.35) ** 2;
   for (const b of state.buildings) {
     const dSq = (b.tileX - targetX) ** 2 + (b.tileZ - targetZ) ** 2;
-    if (dSq <= rSq) {
+    if (dSq <= blastBuildingRSq) {
       if (b.shieldTimer <= 0) {
-        b.hp = dSq <= (r * 0.86) ** 2 ? 0 : Math.max(0, b.hp - 850);
+        b.hp = dSq <= (r * 0.92) ** 2 ? 0 : Math.max(0, b.hp - 920);
       } else {
         b.shieldTimer = 0;
-        b.hp = Math.max(0, b.hp - 280);
+        b.hp = Math.max(0, b.hp - 360);
       }
     }
   }
+
+  const immediateWindRSq = 26.0 * 26.0;
   for (const u of state.units) {
     const dSq = (u.x - targetX) ** 2 + (u.z - targetZ) ** 2;
-    if (dSq <= rSq && u.state !== 'ko' && !u.statusEffects.shielded) {
+    if (dSq <= immediateWindRSq && u.state !== 'ko' && !u.statusEffects.shielded) {
       const coreHit = dSq <= (r * 0.72) ** 2;
-      u.hp = Math.max(0, u.hp - (coreHit ? 900 : 340));
+      const midHit = dSq <= rSq;
+      const dmg = coreHit ? 950 : midHit ? 380 : 120;
+      u.hp = Math.max(0, u.hp - dmg);
       if (u.hp <= 0) {
         u.state = 'ko';
         u.koTimer = 0.5;
         if (u.faction === 'hostile') state.totalRaidersDefeated += 1;
       } else {
         const dist = Math.max(0.3, Math.sqrt(dSq));
-        u.vxAir = ((u.x - targetX) / dist) * 11.5;
-        u.vzAir = ((u.z - targetZ) / dist) * 11.5;
-        u.altitude = Math.max(u.altitude ?? 0, 2.2);
-        u.vzVertical = 12.0;
+        const windFactor = Math.max(0.35, 1 - dist / 28.0);
+        const launchSpeed = 14.5 + 10.5 * windFactor;
+        u.vxAir = ((u.x - targetX) / dist) * launchSpeed;
+        u.vzAir = ((u.z - targetZ) / dist) * launchSpeed;
+        u.altitude = Math.max(u.altitude ?? 0, 2.6 + 2.4 * windFactor);
+        u.vzVertical = 11.5 + 5.5 * windFactor;
         u.fallDamageArmed = true;
       }
     }
   }
   for (const v of state.vehicles ?? []) {
     const dSq = (v.x - targetX) ** 2 + (v.z - targetZ) ** 2;
-    if (dSq <= rSq) {
-      v.hp = dSq <= (r * 0.82) ** 2 ? 0 : Math.max(0, (v.hp ?? 100) - 650);
+    if (dSq <= blastBuildingRSq) {
+      v.hp = dSq <= (r * 0.85) ** 2 ? 0 : Math.max(0, (v.hp ?? 100) - 720);
     }
   }
 
-  state.resources.ore += 180;
-  state.resources.alloy += 90;
+  spawnPostImpactDelugeClouds();
+
+  state.resources.ore += 240;
+  state.resources.alloy += 120;
   syncStateResourcesFromKingdoms(state);
   recalculateRatesAndCaps(state);
-  addChronicle(state, 'A COLOSSAL ASTEROID struck the realm, gouging a massive impact basin!', 'warning');
+  addChronicle(
+    state,
+    `A COLOSSAL ASTEROID obliterated the landscape, unleashing hurricane shockwaves and a ${rainYears}-year impact deluge!`,
+    'warning',
+  );
 }
 
 function pickRandomEventTile(state: SimulationState, preferLand: boolean): TileData {
@@ -13598,7 +13766,7 @@ export function triggerRandomWorldEvent(
     const startY = ty + 54;
     const startZ = tz - 24;
     const impactDelay = 4.6;
-    const duration = 7.4;
+    const duration = 10.2;
     eventState = {
       id: nextEntityId('evt'),
       kind,
@@ -13632,7 +13800,7 @@ export function triggerRandomWorldEvent(
       originX: startX,
       originY: startY,
       originZ: startZ,
-      radius: 10.5,
+      radius: 15.0,
       color: '#ff5400',
       createdAt: Date.now(),
       deferImpact: true,

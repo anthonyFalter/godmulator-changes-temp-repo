@@ -2506,9 +2506,20 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       explosionDome?: THREE.Mesh;
       innerDomeMesh?: THREE.Mesh;
       shockWallMesh?: THREE.Mesh;
+      outerShockWallMesh?: THREE.Mesh;
       ringMesh?: THREE.Mesh;
       outerRingMesh?: THREE.Mesh;
       thirdRingMesh?: THREE.Mesh;
+      plumeGroup?: THREE.Group;
+      ejectaBoulders?: {
+        mesh: THREE.Mesh;
+        vx: number;
+        vy: number;
+        vz: number;
+        rotX: number;
+        rotY: number;
+        rotZ: number;
+      }[];
       floatingCrown?: THREE.Group;
       strataRings?: THREE.Mesh[];
       motes?: PowerMote[];
@@ -2623,6 +2634,29 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           side: THREE.DoubleSide,
           depthWrite: false,
         });
+        const outerShockWallMat = new THREE.MeshBasicMaterial({
+          color: 0xffe066,
+          transparent: true,
+          opacity: 0.0,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        const machRingMat = new THREE.MeshBasicMaterial({
+          color: 0xfff3b0,
+          transparent: true,
+          opacity: 0.0,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        const plumeSmokeMat = new THREE.MeshStandardMaterial({
+          color: 0x2b2d42,
+          roughness: 0.92,
+          metalness: 0.05,
+          emissive: new THREE.Color(0xff4500),
+          emissiveIntensity: 0.35,
+          transparent: true,
+          opacity: 0.92,
+        });
         materials.push(
           rockMat,
           coreGlowMat,
@@ -2631,6 +2665,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           outerRingMat,
           innerDomeMat,
           shockWallMat,
+          outerShockWallMat,
+          machRingMat,
+          plumeSmokeMat,
         );
 
         const meteorGroup = new THREE.Group();
@@ -2654,7 +2691,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         const meteorAura = new THREE.Mesh(sharedMeteorAuraGeo, coreGlowMat);
         meteorGroup.add(meteorRockCore, meteorAura);
         if (isMegaMeteor) {
-          meteorGroup.scale.setScalar(2.35);
+          meteorGroup.scale.setScalar(2.65);
           meteorGroup.position.set(tx + 24, ty + 54, tz - 24);
         } else {
           meteorGroup.position.set(tx + 15.5, ty + 34, tz - 15.5);
@@ -2679,6 +2716,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         shockWallMesh.visible = false;
         group.add(shockWallMesh);
 
+        const outerShockWallMesh = new THREE.Mesh(sharedDomeCylinderGeo, outerShockWallMat);
+        outerShockWallMesh.position.set(tx, ty + 0.05, tz);
+        outerShockWallMesh.scale.set(0.3, 0.6, 0.3);
+        outerShockWallMesh.visible = false;
+        group.add(outerShockWallMesh);
+
         const ringMesh = new THREE.Mesh(sharedHazRingGeo, ringMat);
         ringMesh.position.set(tx, ty + 0.12, tz);
         ringMesh.scale.setScalar(radius * 0.95);
@@ -2689,18 +2732,75 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         outerRingMesh.scale.setScalar(radius * 1.45);
         group.add(outerRingMesh);
 
-        // 12 erupting magma debris pillars around the crater rim
+        const thirdRingMesh = new THREE.Mesh(sharedHazRingGeo, machRingMat);
+        thirdRingMesh.position.set(tx, ty + 0.2, tz);
+        thirdRingMesh.scale.setScalar(0.4);
+        thirdRingMesh.visible = false;
+        group.add(thirdRingMesh);
+
+        // 16 erupting magma debris pillars around the crater rim
+        const spikeCount = isMegaMeteor ? 16 : 12;
         const spikes: THREE.Mesh[] = [];
-        for (let i = 0; i < 12; i++) {
-          const a = (i / 12) * Math.PI * 2;
+        for (let i = 0; i < spikeCount; i++) {
+          const a = (i / spikeCount) * Math.PI * 2;
           const sp = new THREE.Mesh(sharedPillarSpikeGeo, i % 2 === 0 ? rockMat : coreGlowMat);
-          sp.position.set(tx + Math.cos(a) * (radius * 0.62), ty, tz + Math.sin(a) * (radius * 0.62));
-          sp.rotation.z = Math.cos(a) * -0.42;
-          sp.rotation.x = Math.sin(a) * 0.42;
+          sp.position.set(tx + Math.cos(a) * (radius * 0.58), ty, tz + Math.sin(a) * (radius * 0.58));
+          sp.rotation.z = Math.cos(a) * -0.45;
+          sp.rotation.x = Math.sin(a) * 0.45;
           sp.scale.set(1, 0.01, 1);
           sp.visible = false;
           group.add(sp);
           spikes.push(sp);
+        }
+
+        // Rising 3D blocky voxel mushroom cloud & ballistic ejecta boulders for mega asteroid
+        let plumeGroup: THREE.Group | undefined;
+        let ejectaBoulders: ActiveBurstFx['ejectaBoulders'];
+        if (isMegaMeteor) {
+          plumeGroup = new THREE.Group();
+          plumeGroup.position.set(tx, ty + 0.2, tz);
+          plumeGroup.visible = false;
+          // Stem & multi-tiered blocky cap
+          const stemConfigs = [
+            { x: 0, y: 1.0, z: 0, sx: 1.6, sy: 2.0, sz: 1.6 },
+            { x: 0, y: 2.8, z: 0, sx: 1.3, sy: 2.0, sz: 1.3 },
+            { x: 0, y: 4.5, z: 0, sx: 3.6, sy: 1.4, sz: 3.6 },
+            { x: 0, y: 5.5, z: 0, sx: 4.8, sy: 1.2, sz: 4.8 },
+            { x: 0, y: 6.4, z: 0, sx: 3.2, sy: 1.0, sz: 3.2 },
+            { x: 1.9, y: 5.2, z: 0, sx: 1.8, sy: 1.1, sz: 2.2 },
+            { x: -1.9, y: 5.2, z: 0, sx: 1.8, sy: 1.1, sz: 2.2 },
+            { x: 0, y: 5.2, z: 1.9, sx: 2.2, sy: 1.1, sz: 1.8 },
+            { x: 0, y: 5.2, z: -1.9, sx: 2.2, sy: 1.1, sz: 1.8 },
+          ];
+          for (const sc of stemConfigs) {
+            const pBox = new THREE.Mesh(sharedMeteorGeo, plumeSmokeMat);
+            pBox.position.set(sc.x, sc.y, sc.z);
+            pBox.scale.set(sc.sx * 0.55, sc.sy * 0.55, sc.sz * 0.55);
+            plumeGroup.add(pBox);
+          }
+          group.add(plumeGroup);
+
+          ejectaBoulders = [];
+          for (let bi = 0; bi < 24; bi++) {
+            const angle = (bi / 24) * Math.PI * 2 + (bi % 3) * 0.14;
+            const speed = 7.5 + (bi % 5) * 2.3;
+            const upVel = 9.5 + (bi % 4) * 2.8;
+            const bMesh = new THREE.Mesh(sharedMeteorGeo, bi % 3 === 0 ? coreGlowMat : rockMat);
+            const bScale = 0.24 + (bi % 4) * 0.11;
+            bMesh.scale.setScalar(bScale);
+            bMesh.position.set(tx, ty + 0.4, tz);
+            bMesh.visible = false;
+            group.add(bMesh);
+            ejectaBoulders.push({
+              mesh: bMesh,
+              vx: Math.cos(angle) * speed,
+              vy: upVel,
+              vz: Math.sin(angle) * speed,
+              rotX: (bi % 2 === 0 ? 1 : -1) * (4.5 + (bi % 3) * 1.8),
+              rotY: (3.8 + (bi % 4) * 1.5),
+              rotZ: (bi % 3 === 0 ? -1 : 1) * 4.2,
+            });
+          }
         }
 
         burstFxGroup.add(group);
@@ -2711,7 +2811,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           group,
           materials,
           age: 0,
-          duration: isMegaMeteor ? 7.4 : 2.95,
+          duration: isMegaMeteor ? 10.2 : 2.95,
           impactDelay: isMegaMeteor ? 4.6 : 1.15,
           deferImpact: isMegaMeteor ? true : deferImpact,
           tx,
@@ -2724,9 +2824,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           explosionDome,
           innerDomeMesh,
           shockWallMesh,
+          outerShockWallMesh,
           ringMesh,
           outerRingMesh,
+          thirdRingMesh,
+          plumeGroup,
+          ejectaBoulders,
           spikes,
+          particleEmitTimer: 0,
           colorHex,
         });
         return;
@@ -6558,7 +6663,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           }
 
           // Age-dependent street & settlement illumination fixtures along stone_road tiles and plazas
-          if (t.terrain === 'stone_road' && !bldTypeAtCache.has(i) && ((t.x + t.z) & 1) === 0) {
+          if (t.terrain === 'stone_road' && !bldTypeAtCache.has(i) && ((t.x * 3 + t.z * 5) & 3) === 0) {
             const ep = simState.epochIndex;
             const sideSign = ((t.x * 13 + t.z * 7) & 1) === 0 ? 1 : -1;
             const nRoad = t.z > 0 && simState.tiles[(t.z - 1) * gs + t.x]?.terrain === 'stone_road';
@@ -8092,7 +8197,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             haz.kind === 'blessing_wave' ||
             haz.kind === 'curse_wave' ||
             haz.kind === 'frenzy_wave' ||
-            haz.kind === 'terraform_wave'
+            haz.kind === 'terraform_wave' ||
+            haz.kind === 'asteroid_shockwave'
           ) {
             continue;
           }
@@ -8832,11 +8938,17 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       if (evtCinematicOn && activeEvt) {
         if (!wasEventCinematicActive) {
           desiredFrustum = THREE.MathUtils.clamp(
-            activeEvt.kind === 'huge_asteroid' && !activeEvt.impactTriggered ? 21 : 18.5,
+            activeEvt.kind === 'huge_asteroid' && !activeEvt.impactTriggered ? 19.5 : 18.5,
             7.5,
             maxZoomOut,
           );
           propsRef.current.onSyncHud();
+        } else if (activeEvt.kind === 'huge_asteroid' && activeEvt.impactTriggered) {
+          desiredFrustum = THREE.MathUtils.lerp(
+            desiredFrustum,
+            THREE.MathUtils.clamp(34.0, 7.5, maxZoomOut),
+            Math.min(1, dt * 3.2),
+          );
         }
         camDesiredTarget.x = THREE.MathUtils.clamp(activeEvt.trackX, 2, simRef.current.gridSize - 3);
         camDesiredTarget.y = Math.max(1.2, activeEvt.trackY);
@@ -8902,6 +9014,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           const startOffY = fx.isMegaMeteor ? 54 : 34;
           const startOffZ = fx.isMegaMeteor ? -24 : -15.5;
           const dropPhase = Math.min(1, fx.age / fx.impactDelay);
+          if (fx.isMegaMeteor && simRef.current.activeWorldEvent?.kind === 'huge_asteroid') {
+            simRef.current.activeWorldEvent.elapsed = fx.age;
+            simRef.current.activeWorldEvent.remaining = Math.max(0.05, fx.duration - fx.age);
+          }
           if (dropPhase < 1) {
             const easeIn = fx.isMegaMeteor ? Math.pow(dropPhase, 1.35) : Math.pow(dropPhase, 1.65);
             const mx = fx.tx + startOffX * (1 - easeIn);
@@ -8923,7 +9039,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             // Dynamic atmospheric entry light following the falling asteroid
             vfxFlashLight.position.set(mx, Math.max(fx.ty + 3, my), mz);
             vfxFlashLight.color.set('#ff7b00');
-            vfxFlashLight.intensity = (fx.isMegaMeteor ? 18 : 9) + easeIn * 22;
+            vfxFlashLight.intensity = (fx.isMegaMeteor ? 22 : 9) + easeIn * 26;
             // Dual contracting target lock rings on the ground before impact
             fx.ringMesh.scale.setScalar(fx.radius * (1.05 - dropPhase * 0.72));
             (fx.materials[3] as THREE.MeshBasicMaterial).opacity = 0.35 + dropPhase * 0.6;
@@ -8932,9 +9048,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
               (fx.materials[4] as THREE.MeshBasicMaterial).opacity = 0.25 + dropPhase * 0.65;
             }
             // Thick blazing comet trail + dark re-entry smoke
-            spawnParticleBurst(mx, my, mz, fx.isMegaMeteor ? 10 : 6, '#ff5400', fx.isMegaMeteor ? 1.9 : 1.1, 2.2, 1.7);
-            spawnParticleBurst(mx, my, mz, fx.isMegaMeteor ? 6 : 4, '#ffee55', fx.isMegaMeteor ? 1.1 : 0.6, 1.5, 1.4);
-            spawnParticleBurst(mx + 0.6, my + 0.9, mz - 0.6, fx.isMegaMeteor ? 5 : 3, '#2b2d42', fx.isMegaMeteor ? 2.0 : 1.2, 1.2, 1.85);
+            spawnParticleBurst(mx, my, mz, fx.isMegaMeteor ? 12 : 6, '#ff5400', fx.isMegaMeteor ? 2.2 : 1.1, 2.4, 1.75);
+            spawnParticleBurst(mx, my, mz, fx.isMegaMeteor ? 7 : 4, '#ffee55', fx.isMegaMeteor ? 1.3 : 0.6, 1.7, 1.45);
+            spawnParticleBurst(mx + 0.6, my + 0.9, mz - 0.6, fx.isMegaMeteor ? 6 : 3, '#2b2d42', fx.isMegaMeteor ? 2.3 : 1.2, 1.4, 1.9);
           } else {
             if (!fx.impactFired) {
               fx.impactFired = true;
@@ -8950,8 +9066,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
                 if (simRef.current.activeWorldEvent?.kind === 'huge_asteroid') {
                   simRef.current.activeWorldEvent.impactTriggered = true;
                   simRef.current.activeWorldEvent.trackX = fx.tx;
-                  simRef.current.activeWorldEvent.trackY = fx.ty + 2.0;
+                  simRef.current.activeWorldEvent.trackY = fx.ty + 2.4;
                   simRef.current.activeWorldEvent.trackZ = fx.tz;
+                  if (!simRef.current.activeWorldEvent.dismissedByUser) {
+                    desiredFrustum = THREE.MathUtils.clamp(Math.max(desiredFrustum, 32.0), 7.5, maxZoomOut);
+                  }
                 }
               } else if (fx.deferImpact) {
                 executeGodPowerImpact(simRef.current, fx.powerType as GodPowerType, fx.tx, fx.tz);
@@ -8960,36 +9079,106 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
               fx.meteorMesh.visible = false;
               if (fx.innerDomeMesh) fx.innerDomeMesh.visible = true;
               if (fx.explosionDome) fx.explosionDome.visible = true;
-              trauma = 1.0;
-              hitstopTimer = fx.isMegaMeteor ? 0.14 : 0.1;
+              trauma = fx.isMegaMeteor ? 1.45 : 1.0;
+              hitstopTimer = fx.isMegaMeteor ? 0.16 : 0.1;
               if (hitWater) {
-                // Ocean Asteroid Impact -> Hide flat shockwave rings & erupt a towering vertical Hydro-Geyser column while 3D Tsunami waves roll out!
-                fx.ringMesh.visible = false;
-                if (fx.outerRingMesh) fx.outerRingMesh.visible = false;
-                if (fx.shockWallMesh) fx.shockWallMesh.visible = false;
+                // Ocean Asteroid Impact -> Erupt a towering vertical Hydro-Geyser column + supersonic Mach shockwaves while 3D Tsunami waves roll out!
+                fx.ringMesh.visible = fx.isMegaMeteor ? true : false;
+                if (fx.outerRingMesh) fx.outerRingMesh.visible = fx.isMegaMeteor ? true : false;
+                if (fx.thirdRingMesh) fx.thirdRingMesh.visible = fx.isMegaMeteor ? true : false;
+                if (fx.shockWallMesh) fx.shockWallMesh.visible = fx.isMegaMeteor ? true : false;
+                if (fx.outerShockWallMesh) fx.outerShockWallMesh.visible = fx.isMegaMeteor ? true : false;
                 (fx.materials[2] as THREE.MeshBasicMaterial).color.setHex(0x00b4d8);
                 if (fx.materials[5]) (fx.materials[5] as THREE.MeshBasicMaterial).color.setHex(0xe0fbfc);
-                if (fx.materials[7]) (fx.materials[7] as THREE.MeshBasicMaterial).color.setHex(0x90e0ef);
-                triggerLightFlash(fx.tx, fx.ty + 2, fx.tz, '#48cae4', 42);
-                spawnParticleBurst(fx.tx, fx.ty + 0.5, fx.tz, 140, '#00b4d8', fx.radius * 1.35, 14.5, 1.95);
-                spawnParticleBurst(fx.tx, fx.ty + 0.8, fx.tz, 95, '#e0fbfc', fx.radius * 1.05, 16.5, 1.6);
-                spawnParticleBurst(fx.tx, fx.ty + 0.4, fx.tz, 55, '#0077b6', fx.radius * 0.85, 10.5, 2.05);
+                if (fx.materials[6]) (fx.materials[6] as THREE.MeshBasicMaterial).color.setHex(0x90e0ef);
+                if (fx.materials[7]) (fx.materials[7] as THREE.MeshBasicMaterial).color.setHex(0xcaf0f8);
+                triggerLightFlash(fx.tx, fx.ty + 3, fx.tz, '#48cae4', fx.isMegaMeteor ? 68 : 42);
+                spawnParticleBurst(fx.tx, fx.ty + 0.5, fx.tz, fx.isMegaMeteor ? 190 : 140, '#00b4d8', fx.radius * 1.55, 16.5, 2.1);
+                spawnParticleBurst(fx.tx, fx.ty + 0.8, fx.tz, fx.isMegaMeteor ? 130 : 95, '#e0fbfc', fx.radius * 1.25, 18.5, 1.75);
+                spawnParticleBurst(fx.tx, fx.ty + 0.4, fx.tz, fx.isMegaMeteor ? 85 : 55, '#0077b6', fx.radius * 1.05, 12.5, 2.2);
               } else {
                 if (fx.shockWallMesh) fx.shockWallMesh.visible = true;
+                if (fx.outerShockWallMesh) fx.outerShockWallMesh.visible = Boolean(fx.isMegaMeteor);
                 if (fx.outerRingMesh) fx.outerRingMesh.visible = true;
-                triggerLightFlash(fx.tx, fx.ty + 2, fx.tz, '#ffaa00', 42);
-                // Colossal lava, spark & pyroclastic ash eruption
-                spawnParticleBurst(fx.tx, fx.ty + 0.5, fx.tz, 120, '#ff5400', fx.radius * 1.45, 11.5, 1.85);
-                spawnParticleBurst(fx.tx, fx.ty + 0.6, fx.tz, 60, '#ffee55', fx.radius * 0.95, 13.5, 1.45);
-                spawnParticleBurst(fx.tx, fx.ty + 0.8, fx.tz, 45, '#2b2d42', fx.radius * 0.75, 8.5, 2.1);
+                if (fx.thirdRingMesh) fx.thirdRingMesh.visible = Boolean(fx.isMegaMeteor);
+                if (fx.plumeGroup) fx.plumeGroup.visible = true;
+                if (fx.ejectaBoulders) {
+                  for (const eb of fx.ejectaBoulders) eb.mesh.visible = true;
+                }
+                triggerLightFlash(fx.tx, fx.ty + 3.5, fx.tz, '#ffbe0b', fx.isMegaMeteor ? 75 : 42);
+                // Colossal lava, white-hot blinding flash, spark & pyroclastic ash eruption
+                spawnParticleBurst(fx.tx, fx.ty + 0.5, fx.tz, fx.isMegaMeteor ? 180 : 120, '#ff5400', fx.radius * 1.65, 14.5, 2.05);
+                spawnParticleBurst(fx.tx, fx.ty + 0.6, fx.tz, fx.isMegaMeteor ? 110 : 60, '#fff3b0', fx.radius * 1.25, 16.5, 1.65);
+                spawnParticleBurst(fx.tx, fx.ty + 0.8, fx.tz, fx.isMegaMeteor ? 95 : 45, '#2b2d42', fx.radius * 1.15, 11.5, 2.35);
               }
               if (fx.spikes) {
                 for (const sp of fx.spikes) sp.visible = true;
               }
             }
-            const wavePhase = Math.min(1, (fx.age - fx.impactDelay) / (fx.duration - fx.impactDelay));
+            const postImpactElapsed = fx.age - fx.impactDelay;
+            const wavePhase = Math.min(1, postImpactElapsed / Math.max(0.1, fx.duration - fx.impactDelay));
             const easeOut = 1 - Math.pow(1 - wavePhase, 2.4);
-            const isWaterSplash = !fx.ringMesh.visible;
+            const fastShockPhase = Math.min(1, postImpactElapsed / (fx.isMegaMeteor ? 3.2 : 1.8));
+            const shockEase = 1 - Math.pow(1 - fastShockPhase, 2.1);
+
+            // Sustained rumble aftershocks and radial hurricane wind gusts during mega asteroid impact
+            if (fx.isMegaMeteor && fastShockPhase < 1) {
+              trauma = Math.max(trauma, (1 - fastShockPhase) * 0.68);
+              fx.particleEmitTimer = (fx.particleEmitTimer ?? 0) + dt;
+              if (fx.particleEmitTimer >= 0.065) {
+                fx.particleEmitTimer = 0;
+                const gustR = 3.0 + shockEase * 28.0;
+                for (let gi = 0; gi < 6; gi++) {
+                  const ga = (gi / 6) * Math.PI * 2 + postImpactElapsed * 2.7;
+                  const gx = fx.tx + Math.cos(ga) * gustR;
+                  const gz = fx.tz + Math.sin(ga) * gustR;
+                  spawnParticleBurst(
+                    gx,
+                    fx.ty + 0.45,
+                    gz,
+                    3,
+                    gi % 2 === 0 ? '#ffd166' : '#adb5bd',
+                    1.4,
+                    4.2,
+                    1.15,
+                  );
+                }
+              }
+            }
+
+            // Animate ballistic voxel ejecta boulders flying out of the crater
+            if (fx.ejectaBoulders) {
+              for (const eb of fx.ejectaBoulders) {
+                if (!eb.mesh.visible) continue;
+                eb.mesh.position.x += eb.vx * dt;
+                eb.mesh.position.y += eb.vy * dt;
+                eb.mesh.position.z += eb.vz * dt;
+                eb.vy -= 18.5 * dt;
+                eb.mesh.rotation.x += eb.rotX * dt;
+                eb.mesh.rotation.y += eb.rotY * dt;
+                eb.mesh.rotation.z += eb.rotZ * dt;
+                if (eb.mesh.position.y <= fx.ty + 0.15 && postImpactElapsed > 0.25) {
+                  eb.mesh.visible = false;
+                  spawnParticleBurst(eb.mesh.position.x, fx.ty + 0.2, eb.mesh.position.z, 5, '#ff6b35', 0.8, 3.2, 1.1);
+                }
+              }
+            }
+
+            // Animate rising 3D blocky mushroom plume
+            if (fx.plumeGroup && fx.plumeGroup.visible) {
+              const plumeRise = Math.min(1, postImpactElapsed / 4.2);
+              const plumeScale = 0.45 + (1 - Math.pow(1 - plumeRise, 1.8)) * 1.95;
+              fx.plumeGroup.scale.set(plumeScale, 0.4 + plumeRise * 1.85, plumeScale);
+              fx.plumeGroup.position.y = fx.ty + 0.2 + plumeRise * 2.8;
+              fx.plumeGroup.rotation.y += dt * 0.45;
+              if (fx.materials[9]) {
+                const pMat = fx.materials[9] as THREE.MeshStandardMaterial;
+                pMat.emissiveIntensity = Math.max(0.05, (1 - wavePhase * 1.15) * 0.75);
+                pMat.opacity = Math.max(0, Math.pow(1 - wavePhase, 0.85) * 0.92);
+              }
+            }
+
+            const isWaterSplash = !fx.ringMesh.visible && !fx.isMegaMeteor;
             if (isWaterSplash) {
               // Towering vertical water splash column & crown instead of spherical shockwave dome
               const plumeH = Math.sin(wavePhase * Math.PI) * 5.2 + (1 - wavePhase) * 2.4;
@@ -9010,31 +9199,47 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
               }
             } else {
               if (fx.innerDomeMesh && fx.materials[5]) {
-                const innerPhase = Math.min(1, wavePhase * 1.5);
-                fx.innerDomeMesh.scale.setScalar(0.8 + (1 - (1 - innerPhase) * (1 - innerPhase)) * fx.radius * 1.05);
-                (fx.materials[5] as THREE.MeshBasicMaterial).opacity = Math.max(0, (1 - innerPhase) * 0.95);
+                const innerPhase = Math.min(1, fastShockPhase * 1.35);
+                const domeMult = fx.isMegaMeteor ? 1.35 : 1.05;
+                fx.innerDomeMesh.scale.setScalar(0.8 + (1 - (1 - innerPhase) * (1 - innerPhase)) * fx.radius * domeMult);
+                (fx.materials[5] as THREE.MeshBasicMaterial).opacity = Math.max(0, (1 - innerPhase) * 0.96);
               }
               if (fx.explosionDome) {
-                fx.explosionDome.scale.setScalar(0.8 + easeOut * fx.radius * 1.55);
-                (fx.materials[2] as THREE.MeshBasicMaterial).opacity = Math.pow(1 - wavePhase, 1.3) * 0.92;
+                const expMult = fx.isMegaMeteor ? 1.85 : 1.55;
+                fx.explosionDome.scale.setScalar(0.8 + shockEase * fx.radius * expMult);
+                (fx.materials[2] as THREE.MeshBasicMaterial).opacity = Math.pow(1 - fastShockPhase, 1.25) * 0.92;
               }
               if (fx.shockWallMesh && fx.materials[6]) {
-                const wallRadius = 0.8 + easeOut * fx.radius * 2.45;
-                const wallHeight = 0.6 + Math.sin(wavePhase * Math.PI) * 1.85;
+                const wallMaxMult = fx.isMegaMeteor ? 2.15 : 2.45;
+                const wallRadius = 0.8 + shockEase * fx.radius * wallMaxMult;
+                const wallHeight = (fx.isMegaMeteor ? 1.4 : 0.6) + Math.sin(fastShockPhase * Math.PI) * (fx.isMegaMeteor ? 4.2 : 1.85);
                 fx.shockWallMesh.scale.set(wallRadius, wallHeight, wallRadius);
-                (fx.materials[6] as THREE.MeshBasicMaterial).opacity = Math.pow(1 - wavePhase, 1.5) * 0.65;
+                (fx.materials[6] as THREE.MeshBasicMaterial).opacity = Math.pow(1 - fastShockPhase, 1.3) * (fx.isMegaMeteor ? 0.78 : 0.65);
               }
-              // Huge primary & secondary concentric shockwaves sweeping across the map
-              fx.ringMesh.scale.setScalar(0.8 + easeOut * fx.radius * 2.85);
-              (fx.materials[3] as THREE.MeshBasicMaterial).opacity = Math.pow(1 - wavePhase, 1.2) * 0.98;
+              if (fx.outerShockWallMesh && fx.materials[7]) {
+                const outerWallRadius = 1.2 + fastShockPhase * fx.radius * 2.55;
+                const outerWallHeight = 1.1 + Math.sin(fastShockPhase * Math.PI) * 3.1;
+                fx.outerShockWallMesh.scale.set(outerWallRadius, outerWallHeight, outerWallRadius);
+                (fx.materials[7] as THREE.MeshBasicMaterial).opacity = Math.pow(1 - fastShockPhase, 1.15) * 0.58;
+              }
+              // Huge primary, secondary & supersonic Mach concentric shockwaves sweeping across the map
+              const ring1Mult = fx.isMegaMeteor ? 2.15 : 2.85;
+              fx.ringMesh.scale.setScalar(0.8 + shockEase * fx.radius * ring1Mult);
+              (fx.materials[3] as THREE.MeshBasicMaterial).opacity = Math.pow(1 - fastShockPhase, 1.15) * 0.98;
               if (fx.outerRingMesh) {
-                fx.outerRingMesh.scale.setScalar(0.5 + wavePhase * fx.radius * 3.5);
-                (fx.materials[4] as THREE.MeshBasicMaterial).opacity = Math.pow(1 - wavePhase, 1.1) * 0.9;
+                const ring2Mult = fx.isMegaMeteor ? 2.45 : 3.5;
+                fx.outerRingMesh.scale.setScalar(0.5 + fastShockPhase * fx.radius * ring2Mult);
+                (fx.materials[4] as THREE.MeshBasicMaterial).opacity = Math.pow(1 - fastShockPhase, 1.05) * 0.92;
+              }
+              if (fx.thirdRingMesh && fx.materials[8]) {
+                fx.thirdRingMesh.scale.setScalar(1.0 + Math.pow(fastShockPhase, 0.82) * fx.radius * 2.75);
+                (fx.materials[8] as THREE.MeshBasicMaterial).opacity = Math.pow(1 - fastShockPhase, 1.1) * 0.85;
               }
               if (fx.spikes) {
-                const spikeH = Math.sin(wavePhase * Math.PI) * 2.35;
+                const spikeH = Math.sin(fastShockPhase * Math.PI) * (fx.isMegaMeteor ? 3.85 : 2.35);
+                const spikeW = fx.isMegaMeteor ? 1.65 : 1.25;
                 for (const sp of fx.spikes) {
-                  sp.scale.set(1.25, Math.max(0.05, spikeH), 1.25);
+                  sp.scale.set(spikeW, Math.max(0.05, spikeH), spikeW);
                 }
               }
             }
