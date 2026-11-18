@@ -4980,7 +4980,149 @@ test('Void Goo infects land into starry void terrain, spreads, revives killed be
     cleansedTerrain === 'grass' || cleansedTerrain === 'fertile',
     `Blessing miracle should cleanse Void Goo back to living green soil (got ${cleansedTerrain})`,
   );
+
+  // Verify UI deferred cast queues void_goo sky-seed VFX and executes impact when seed lands
+  const deferredRes = castGodPower(state, 'void_goo', 40, 40, { deferImpact: true });
+  assert.equal(deferredRes.ok, true);
+  const queuedSeedVfx = state.pendingVfx.find((v) => v.type === 'void_goo' && v.x === 40 && v.z === 40);
+  assert.ok(queuedSeedVfx && queuedSeedVfx.deferImpact, 'Deferred Void Goo cast must queue void_goo sky-seed VFX');
+  executeGodPowerImpact(state, 'void_goo', 40, 40);
+  assert.equal(getTile(state, 40, 40)!.terrain, 'void_goo', 'Void Goo sky-seed impact must infect target tile');
 });
+
+test('Advanced settlements flatten urban plateaus, build connected road networks, reclaim coastal artificial islands, and construct distinct towering racial skyscrapers', () => {
+  const state = createInitialSimulationState(96, 'URBAN-TERRAFORM-TEST');
+  state.sandboxFreeMode = true;
+  state.wildlifeSeeded = true;
+  state.worldRules = { ...state.worldRules!, randomEvents: false };
+
+  // Create uneven jagged terrain around settlement center (48, 48) with water bay to the East (52..57, 46..50)
+  for (let dz = -8; dz <= 8; dz++) {
+    for (let dx = -8; dx <= 10; dx++) {
+      const t = getTile(state, 48 + dx, 48 + dz)!;
+      t.buildingId = null;
+      if (dx >= 4) {
+        t.height = 0;
+        t.terrain = dx <= 6 ? 'shallow_water' : 'deep_water';
+        t.resourceNode = 'none';
+        t.resourceAmount = 0;
+      } else {
+        t.height = 2 + ((Math.abs(dx * 3 + dz * 5) % 3)); // ragged heights 2, 3, 4
+        t.terrain = 'grass';
+        t.resourceNode = (dx + dz) % 2 === 0 ? 'stone_outcrop' : 'none';
+        t.resourceAmount = t.resourceNode !== 'none' ? 120 : 0;
+      }
+    }
+  }
+
+  getTile(state, 48, 48)!.height = 2;
+  getTile(state, 48, 48)!.terrain = 'grass';
+  getTile(state, 48, 48)!.resourceNode = 'none';
+  const bfRes = placeBuilding(state, 'bonfire', 48, 48);
+  assert.equal(bfRes.ok, true);
+  const bonfire = state.buildings.find((b) => b.type === 'bonfire')!;
+
+  // Place houses around the settlement
+  placeBuilding(state, 'forager_hut', 46, 48);
+  placeBuilding(state, 'forager_hut', 48, 46);
+  placeBuilding(state, 'forager_hut', 50, 48);
+  placeBuilding(state, 'guildhall', 48, 50);
+
+  // Advance epochs up to Information Age (Epoch 5)
+  for (let ep = 0; ep < 5; ep++) {
+    state.resources.food = 99999;
+    state.resources.wood = 99999;
+    state.resources.stone = 99999;
+    state.resources.ore = 99999;
+    state.resources.faith = 99999;
+    const adv = advanceEpoch(state);
+    assert.equal(adv.ok, true, `Advance to epoch ${ep + 1} failed: ${adv.reason}`);
+  }
+
+  // 1. Verify urban plateau around (48, 48) is flattened to a consistent level grade
+  const coreHeights = new Set<number>();
+  for (let dz = -2; dz <= 2; dz++) {
+    for (let dx = -2; dx <= 2; dx++) {
+      const t = getTile(state, 48 + dx, 48 + dz)!;
+      if (t.height > 0) coreHeights.add(t.height);
+    }
+  }
+  assert.equal(
+    coreHeights.size,
+    1,
+    `High-epoch settlement core plateau must be leveled to a uniform height (got heights: ${[...coreHeights].join(',')})`,
+  );
+
+  // 2. Verify road tiles form a single connected component (no isolated disconnected road islands)
+  const roadTiles = state.tiles.filter(
+    (t) => t.terrain === 'stone_road' && Math.abs(t.x - 48) <= 8 && Math.abs(t.z - 48) <= 8,
+  );
+  assert.ok(roadTiles.length >= 16, `Settlement should pave an extensive road grid (got ${roadTiles.length})`);
+  const roadSet = new Set(roadTiles.map((t) => `${t.x},${t.z}`));
+  const visited = new Set<string>();
+  const startRoad = `${roadTiles[0].x},${roadTiles[0].z}`;
+  const queue = [startRoad];
+  visited.add(startRoad);
+  while (queue.length > 0) {
+    const cur = queue.shift()!;
+    const [cx, cz] = cur.split(',').map(Number);
+    for (const [nx, nz] of [
+      [cx + 1, cz],
+      [cx - 1, cz],
+      [cx, cz + 1],
+      [cx, cz - 1],
+    ]) {
+      const key = `${nx},${nz}`;
+      if (roadSet.has(key) && !visited.has(key)) {
+        visited.add(key);
+        queue.push(key);
+      }
+    }
+  }
+  assert.equal(
+    visited.size,
+    roadSet.size,
+    `All settlement roads must be 4-way connected to the civic center (${visited.size}/${roadSet.size} connected)`,
+  );
+
+  // 3. Verify coastal settlement constructed an Artificial Island in the eastern bay (dx >= 4)
+  const reclaimedBayLand = state.tiles.filter(
+    (t) => t.x >= 52 && t.x <= 58 && Math.abs(t.z - 48) <= 4 && t.height >= 1,
+  );
+  assert.ok(
+    reclaimedBayLand.length >= 9,
+    `High-tech coastal settlement must reclaim an artificial island with causeway in adjacent water (got ${reclaimedBayLand.length} tiles)`,
+  );
+
+  // 4. Verify Ep 5 & Ep 6+ Human, Elf, and Orc skyscrapers are tall and structurally distinct per species
+  const measureHeightAndVerts = (species: 'human' | 'elf' | 'orc', ep: number) => {
+    const grp = createBuildingGroup('forager_hut', ep, 0, species, false);
+    const box = new THREE.Box3().setFromObject(grp);
+    let verts = 0;
+    grp.traverse((obj) => {
+      if ((obj as THREE.Mesh).isMesh) {
+        const g = (obj as THREE.Mesh).geometry;
+        if (g?.attributes?.position) verts += g.attributes.position.count;
+      }
+    });
+    return { height: box.max.y - box.min.y, verts };
+  };
+
+  const humanEp5 = measureHeightAndVerts('human', 5);
+  const elfEp5 = measureHeightAndVerts('elf', 5);
+  const orcEp5 = measureHeightAndVerts('orc', 5);
+  const humanEp6 = measureHeightAndVerts('human', 6);
+
+  assert.ok(humanEp5.height > 1.5, `Human Ep 5 skyscraper must be towering (got ${humanEp5.height.toFixed(2)})`);
+  assert.ok(elfEp5.height > 1.5, `Elf Ep 5 arcology spire must be towering (got ${elfEp5.height.toFixed(2)})`);
+  assert.ok(orcEp5.height > 1.4, `Orc Ep 5 brutalist megablock must be towering (got ${orcEp5.height.toFixed(2)})`);
+  assert.ok(humanEp6.height > 1.7, `Human Ep 6 cyber-arcology must not shrink to cottage height (got ${humanEp6.height.toFixed(2)})`);
+  assert.ok(
+    humanEp5.verts !== elfEp5.verts && elfEp5.verts !== orcEp5.verts && humanEp5.verts !== orcEp5.verts,
+    `Racial skyscrapers must have distinct 3D geometry silhouettes (verts: human=${humanEp5.verts}, elf=${elfEp5.verts}, orc=${orcEp5.verts})`,
+  );
+});
+
 
 
 

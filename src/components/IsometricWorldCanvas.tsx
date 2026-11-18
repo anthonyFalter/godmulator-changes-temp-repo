@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { EPOCHS, GOD_POWERS, getDinosaurVariant } from '../game/catalog';
 import { createAnimatedFireSpriteBundle } from '../game/fireSprites';
 import {
@@ -636,6 +637,24 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       emissiveIntensity: 0.75,
       roughness: 0.28,
     });
+    const billboardCyanMat = new THREE.MeshStandardMaterial({
+      color: 0x38bdf8,
+      emissive: 0x0ea5e9,
+      emissiveIntensity: 1.15,
+      roughness: 0.18,
+    });
+    const billboardPinkMat = new THREE.MeshStandardMaterial({
+      color: 0xf43f5e,
+      emissive: 0xe11d48,
+      emissiveIntensity: 1.2,
+      roughness: 0.18,
+    });
+    const billboardGoldMat = new THREE.MeshStandardMaterial({
+      color: 0xfbbf24,
+      emissive: 0xd97706,
+      emissiveIntensity: 1.1,
+      roughness: 0.2,
+    });
 
     const metroPillarGeo = new THREE.BoxGeometry(0.17, 0.64, 0.17);
     const metroCapGeo = new THREE.BoxGeometry(0.36, 0.09, 0.36);
@@ -652,6 +671,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     const streetLampHeadGeo = new THREE.BoxGeometry(0.085, 0.085, 0.085);
     const skywayDeckGeo = new THREE.BoxGeometry(0.46, 0.075, 1.0);
     const skywayTrimGeo = new THREE.BoxGeometry(0.05, 0.045, 1.0);
+    const billboardFrameGeo = new THREE.BoxGeometry(0.54, 0.28, 0.05);
+    const billboardScreenGeo = new THREE.BoxGeometry(0.48, 0.22, 0.062);
 
     const INITIAL_METRO_CAP = 64;
     const makeMetroInst = (
@@ -685,6 +706,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     const streetLampHeadInst = makeMetroInst(streetLampHeadGeo, streetLampGlowMat, MAX_METRO_INST, false);
     const skywayDeckInst = makeMetroInst(skywayDeckGeo, skywayDeckMat, MAX_METRO_INST, true);
     const skywayTrimInst = makeMetroInst(skywayTrimGeo, skywayTrimMat, MAX_METRO_STRIP_INST, false);
+    const billboardFrameInst = makeMetroInst(billboardFrameGeo, streetPoleMat, MAX_METRO_INST, true);
+    const billboardCyanInst = makeMetroInst(billboardScreenGeo, billboardCyanMat, MAX_METRO_INST, false);
+    const billboardPinkInst = makeMetroInst(billboardScreenGeo, billboardPinkMat, MAX_METRO_INST, false);
+    const billboardGoldInst = makeMetroInst(billboardScreenGeo, billboardGoldMat, MAX_METRO_INST, false);
 
     const allMetroInsts = [
       metroPillarInst,
@@ -702,6 +727,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       streetLampHeadInst,
       skywayDeckInst,
       skywayTrimInst,
+      billboardFrameInst,
+      billboardCyanInst,
+      billboardPinkInst,
+      billboardGoldInst,
     ];
 
     const TERRAIN_CODE: Record<string, number> = {
@@ -1262,8 +1291,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     const sharedWaveLipGeo = new THREE.BoxGeometry(1.16, 0.62, 1.05);
     const sharedWaveFoamGeo = new THREE.BoxGeometry(1.22, 0.44, 0.68);
     const sharedFaultCrackGeo = new THREE.BoxGeometry(1, 0.14, 1);
-    const sharedTornadoRingGeo = new THREE.TorusGeometry(1.0, 0.24, 6, 16);
-    sharedTornadoRingGeo.rotateX(Math.PI / 2);
+    const sharedTornadoRingGeo = new THREE.BoxGeometry(1.35, 0.24, 1.35);
+    const sharedTornadoFunnelGeo = new THREE.CylinderGeometry(1.95, 0.28, 5.8, 24, 16, true);
+    sharedTornadoFunnelGeo.translate(0, 2.9, 0);
     const sharedTornadoCapGeo = new THREE.BoxGeometry(2.6, 0.75, 2.6);
     const sharedDebrisCubeGeo = new THREE.BoxGeometry(0.32, 0.32, 0.32);
     const sharedWhirlpoolDiskGeo = new THREE.PlaneGeometry(2.0, 2.0, 1, 1);
@@ -1617,74 +1647,205 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       }
 
       if (kind === 'tornado_vortex') {
-        const funnelOuterMat = new THREE.MeshBasicMaterial({
-          color: isSuper ? 0x6d28d9 : 0xa5b4fc,
+        // Whirlpool-style quantized pixel-art logarithmic spiral ground vortex + 3D pixel-shader helical wind funnel + blocky voxel debris
+        const groundVortexShaderMat = new THREE.ShaderMaterial({
+          uniforms: {
+            uTime: { value: 0 },
+            uOpacity: { value: 0.94 },
+            uIsSuper: { value: isSuper ? 1.0 : 0.0 },
+          },
+          vertexShader: /* glsl */ `
+            varying vec2 vUvCentered;
+            void main() {
+              vUvCentered = uv * 2.0 - 1.0;
+              gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+            }
+          `,
+          fragmentShader: /* glsl */ `
+            uniform float uTime;
+            uniform float uOpacity;
+            uniform float uIsSuper;
+            varying vec2 vUvCentered;
+
+            void main() {
+              // Crisp pixel-art quantization matching the whirlpool shader style
+              vec2 p = floor(vUvCentered * 22.0 + 0.5) / 22.0;
+              float r = length(p);
+              if (r > 1.0) discard;
+
+              float theta = atan(p.y, p.x);
+              float logR = log(max(0.065, r));
+              float spiral1 = theta * 3.0 + logR * 8.2 - uTime * 8.4;
+              float spiral2 = theta * 2.0 + logR * 6.5 - uTime * 6.4 + 1.57;
+
+              float armPrimary = smoothstep(0.16, 0.78, sin(spiral1));
+              float armSecondary = smoothstep(0.34, 0.88, sin(spiral2));
+              float gustCrest = step(0.62, sin(spiral1 + 0.3)) * smoothstep(0.14, 0.30, r) * (1.0 - smoothstep(0.76, 0.96, r));
+              float innerEyeWall = smoothstep(0.15, 0.23, r) * (1.0 - smoothstep(0.23, 0.33, r)) * step(0.12, sin(theta * 5.0 - uTime * 10.5));
+
+              vec3 eyeDark = mix(vec3(0.10, 0.14, 0.22), vec3(0.09, 0.04, 0.22), uIsSuper);
+              vec3 midSlate = mix(vec3(0.32, 0.42, 0.56), vec3(0.36, 0.16, 0.68), uIsSuper);
+              vec3 windSilver = mix(vec3(0.64, 0.76, 0.89), vec3(0.48, 0.38, 0.96), uIsSuper);
+              vec3 windCyan = mix(vec3(0.84, 0.93, 0.98), vec3(0.22, 0.82, 0.98), uIsSuper);
+              vec3 crestWhite = mix(vec3(0.96, 0.99, 1.0), vec3(0.92, 0.85, 1.0), uIsSuper);
+
+              float throatMask = 1.0 - smoothstep(0.07, 0.25, r);
+              vec3 col = mix(midSlate, windSilver, armPrimary * 0.85);
+              col = mix(col, windCyan, armSecondary * 0.68);
+              col = mix(col, crestWhite, clamp(gustCrest + innerEyeWall * 0.85, 0.0, 1.0));
+              col = mix(col, eyeDark, throatMask);
+
+              float outerFade = 1.0 - smoothstep(0.74, 1.0, r);
+              float alpha = clamp((0.78 + gustCrest * 0.2 + throatMask * 0.16) * outerFade * uOpacity, 0.0, 0.96);
+              if (alpha < 0.05) discard;
+              gl_FragColor = vec4(col, alpha);
+            }
+          `,
           transparent: true,
-          opacity: isSuper ? 0.8 : 0.72,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+        });
+
+        const funnelWallShaderMat = new THREE.ShaderMaterial({
+          uniforms: {
+            uTime: { value: 0 },
+            uOpacity: { value: 0.92 },
+            uIsSuper: { value: isSuper ? 1.0 : 0.0 },
+          },
+          vertexShader: /* glsl */ `
+            uniform float uTime;
+            varying vec2 vUv;
+            void main() {
+              vUv = uv;
+              vec3 pos = position;
+              float hFrac = clamp(uv.y, 0.0, 1.0);
+              // Sinuous cyclone bend & helical breathing along the vertical funnel column
+              pos.x += sin(uTime * 6.2 - hFrac * 4.2) * (0.14 + hFrac * 0.55);
+              pos.z += cos(uTime * 5.5 - hFrac * 4.2) * (0.14 + hFrac * 0.55);
+              gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+            }
+          `,
+          fragmentShader: /* glsl */ `
+            uniform float uTime;
+            uniform float uOpacity;
+            uniform float uIsSuper;
+            varying vec2 vUv;
+
+            void main() {
+              // Quantize UV into crisp pixel-art vortex bands around and up the 3D cone
+              vec2 qUv = vec2(floor(vUv.x * 32.0) / 32.0, floor(vUv.y * 24.0) / 24.0);
+              float theta = qUv.x * 6.2831853;
+              float h = qUv.y;
+
+              float helix1 = sin(theta * 3.0 + h * 15.0 - uTime * 10.5);
+              float helix2 = sin(theta * 2.0 - h * 11.0 - uTime * 7.8 + 1.2);
+              float bandPrimary = step(0.15, helix1);
+              float bandSecondary = step(0.45, helix2);
+              float streakCrest = step(0.76, sin(theta * 4.0 + h * 18.0 - uTime * 12.0));
+
+              vec3 baseCol = mix(vec3(0.28, 0.37, 0.49), vec3(0.26, 0.11, 0.52), uIsSuper);
+              vec3 midCol = mix(vec3(0.58, 0.70, 0.84), vec3(0.48, 0.28, 0.88), uIsSuper);
+              vec3 hiCol = mix(vec3(0.86, 0.94, 0.99), vec3(0.24, 0.84, 0.98), uIsSuper);
+              vec3 crestCol = vec3(0.97, 0.99, 1.0);
+
+              vec3 col = mix(baseCol, midCol, bandPrimary * 0.82);
+              col = mix(col, hiCol, bandSecondary * 0.72);
+              col = mix(col, crestCol, streakCrest * 0.85);
+
+              float verticalEdge = smoothstep(0.0, 0.08, h) * (1.0 - smoothstep(0.88, 1.0, h));
+              float alpha = (0.58 + bandPrimary * 0.24 + streakCrest * 0.16) * verticalEdge * uOpacity;
+              if (alpha < 0.06) discard;
+              gl_FragColor = vec4(col, alpha);
+            }
+          `,
+          transparent: true,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+        });
+
+        const funnelOuterMat = new THREE.MeshBasicMaterial({
+          color: isSuper ? 0x7c3aed : 0x94a3b8,
+          transparent: true,
+          opacity: isSuper ? 0.82 : 0.76,
         });
         const funnelCoreMat = new THREE.MeshBasicMaterial({
           color: isSuper ? 0x38bdf8 : 0xe2e8f0,
           transparent: true,
-          opacity: isSuper ? 0.88 : 0.85,
+          opacity: isSuper ? 0.9 : 0.86,
         });
         const stormCapMat = new THREE.MeshStandardMaterial({
           color: isSuper ? 0x1e1b4b : 0x334155,
           roughness: 0.9,
           transparent: true,
-          opacity: 0.94,
-        });
-        const dustRingMat = new THREE.MeshBasicMaterial({
-          color: isSuper ? 0x818cf8 : 0x94a3b8,
-          transparent: true,
-          opacity: 0.68,
-          side: THREE.DoubleSide,
-          depthWrite: false,
+          opacity: 0.95,
         });
         const debrisWoodMat = new THREE.MeshStandardMaterial({ color: 0x6b4f35, roughness: 0.85 });
-        const debrisLeafMat = new THREE.MeshStandardMaterial({ color: isSuper ? 0xc084fc : 0x4f772d, roughness: 0.8 });
-        materials.push(funnelOuterMat, funnelCoreMat, stormCapMat, dustRingMat, debrisWoodMat, debrisLeafMat);
+        const debrisLeafMat = new THREE.MeshStandardMaterial({ color: isSuper ? 0x38bdf8 : 0x4f772d, roughness: 0.8 });
+        materials.push(
+          groundVortexShaderMat,
+          funnelWallShaderMat,
+          funnelOuterMat,
+          funnelCoreMat,
+          stormCapMat,
+          debrisWoodMat,
+          debrisLeafMat,
+        );
 
-        const ringMesh = new THREE.Mesh(sharedHazRingGeo, dustRingMat);
-        ringMesh.position.y = 0.08;
-        ringMesh.scale.setScalar(radius * (isSuper ? 1.05 : 0.9));
+        // 1. Whirlpool-style quantized pixel-art ground vortex disk
+        const ringMesh = new THREE.Mesh(sharedWhirlpoolDiskGeo, groundVortexShaderMat);
+        ringMesh.position.y = 0.09;
+        ringMesh.scale.setScalar(radius * (isSuper ? 1.15 : 0.98));
         group.add(ringMesh);
 
+        // 2. 3D Conical Pixel-Shader Helical Wind Funnel
+        const maxH = isSuper ? 7.6 : 5.8;
+        const funnelCone = new THREE.Mesh(sharedTornadoFunnelGeo, funnelWallShaderMat);
+        funnelCone.position.y = 0.08;
+        funnelCone.scale.set(isSuper ? 1.45 : 1.05, maxH / 5.8, isSuper ? 1.45 : 1.05);
+        group.add(funnelCone);
+
+        // 3. Stepped Blocky Voxel Wind-Collar Cubes orbiting up the funnel
         const tornadoRings: THREE.Mesh[] = [];
         const tierCount = isSuper ? 10 : 8;
-        const maxH = isSuper ? 7.6 : 5.8;
         for (let ti = 0; ti < tierCount; ti++) {
           const frac = ti / (tierCount - 1);
-          const ringScale = (isSuper ? 0.62 : 0.45) + Math.pow(frac, 1.35) * (isSuper ? 3.15 : 2.35);
+          const ringScale = (isSuper ? 0.55 : 0.42) + Math.pow(frac, 1.25) * (isSuper ? 2.45 : 1.85);
           const rMesh = new THREE.Mesh(sharedTornadoRingGeo, ti % 2 === 0 ? funnelCoreMat : funnelOuterMat);
           rMesh.position.y = 0.35 + frac * maxH;
-          rMesh.scale.set(ringScale, 0.7 + frac * 0.55, ringScale);
+          rMesh.scale.set(ringScale, 0.65 + frac * 0.45, ringScale);
           group.add(rMesh);
           tornadoRings.push(rMesh);
         }
 
+        // 4. Multi-block Voxel Storm-Cloud Anvil Crown
         const cloudBody = new THREE.Group();
-        const cap1 = new THREE.Mesh(sharedTornadoCapGeo, stormCapMat);
-        cap1.position.set(0, maxH + 0.65, 0);
-        cap1.scale.set(isSuper ? 1.9 : 1.45, isSuper ? 1.2 : 1.0, isSuper ? 1.8 : 1.35);
-        const cap2 = new THREE.Mesh(sharedTornadoCapGeo, stormCapMat);
-        cap2.position.set(0.9, maxH + 1.05, -0.6);
-        cap2.scale.set(isSuper ? 1.4 : 1.05, isSuper ? 0.95 : 0.8, isSuper ? 1.4 : 1.05);
-        cloudBody.add(cap1, cap2);
+        const anvilBlocks = [
+          { x: 0, y: maxH + 0.55, z: 0, sx: isSuper ? 2.1 : 1.6, sy: 1.1, sz: isSuper ? 2.0 : 1.5 },
+          { x: 0.95, y: maxH + 0.9, z: -0.65, sx: isSuper ? 1.5 : 1.15, sy: 0.9, sz: isSuper ? 1.5 : 1.15 },
+          { x: -0.9, y: maxH + 0.82, z: 0.6, sx: isSuper ? 1.45 : 1.1, sy: 0.85, sz: isSuper ? 1.4 : 1.05 },
+        ];
+        for (const ab of anvilBlocks) {
+          const cap = new THREE.Mesh(sharedTornadoCapGeo, stormCapMat);
+          cap.position.set(ab.x, ab.y, ab.z);
+          cap.scale.set(ab.sx, ab.sy, ab.sz);
+          cloudBody.add(cap);
+        }
         group.add(cloudBody);
 
+        // 5. Orbiting Blocky Voxel Debris Chunks sucked around the funnel
         const debrisChunks: OrbitingDebris[] = [];
-        const debrisCount = isSuper ? 20 : 14;
+        const debrisCount = isSuper ? 24 : 16;
         for (let di = 0; di < debrisCount; di++) {
           const frac = di / debrisCount;
           const dMesh = new THREE.Mesh(sharedDebrisCubeGeo, di % 2 === 0 ? debrisLeafMat : debrisWoodMat);
-          dMesh.scale.setScalar((isSuper ? 0.82 : 0.65) + (di % 3) * 0.25);
+          dMesh.scale.setScalar((isSuper ? 0.88 : 0.7) + (di % 3) * 0.25);
           group.add(dMesh);
           debrisChunks.push({
             mesh: dMesh,
             angle: (di / debrisCount) * Math.PI * 2,
-            dist: (isSuper ? 1.0 : 0.75) + frac * (isSuper ? 2.9 : 2.15),
-            height: 0.4 + frac * (maxH - 0.5),
-            speed: (isSuper ? 7.2 : 5.5) + (1 - frac) * 4.5,
+            dist: (isSuper ? 0.85 : 0.65) + frac * (isSuper ? 2.8 : 2.05),
+            height: 0.35 + frac * (maxH - 0.4),
+            speed: (isSuper ? 7.6 : 5.8) + (1 - frac) * 4.8,
             tilt: (di % 5) * 0.4,
           });
         }
@@ -1695,6 +1856,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           group,
           materials,
           ringMesh,
+          secondaryRingMesh: funnelCone,
           tornadoRings,
           cloudBody,
           debrisChunks,
@@ -2025,24 +2187,104 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           color: 0x2b2d42,
           roughness: 0.95,
           transparent: true,
-          opacity: 0.82,
+          opacity: 0.86,
         });
         const emberMat = new THREE.MeshBasicMaterial({
           color: 0xff9e00,
           transparent: true,
           opacity: 0.95,
         });
-        materials.push(magmaMat, coreHotMat, ashPlumeMat, emberMat);
+        const basaltRockMat = new THREE.MeshStandardMaterial({
+          color: 0x241c19,
+          roughness: 0.88,
+          metalness: 0.12,
+        });
+        const scorchedRimMat = new THREE.MeshStandardMaterial({
+          color: 0x3d2820,
+          emissive: 0x7c1d05,
+          emissiveIntensity: 0.45,
+          roughness: 0.82,
+        });
+        materials.push(magmaMat, coreHotMat, ashPlumeMat, emberMat, basaltRockMat, scorchedRimMat);
 
         const ringMesh = new THREE.Mesh(sharedHazRingGeo, magmaMat);
         ringMesh.position.y = 0.22;
-        ringMesh.scale.setScalar(radius * 0.65);
+        ringMesh.scale.setScalar(0.1);
         group.add(ringMesh);
 
         const secondaryRingMesh = new THREE.Mesh(sharedHazRingGeo, coreHotMat);
         secondaryRingMesh.position.y = 0.28;
-        secondaryRingMesh.scale.setScalar(radius * 0.34);
+        secondaryRingMesh.scale.setScalar(0.1);
         group.add(secondaryRingMesh);
+
+        // 3D Blocky Stepped Voxel Volcano Cone that animates rising up from the earth before lava flows!
+        const coneGroup = new THREE.Group();
+        const coneTiers = [
+          { y: 0.28, w: 3.8, h: 0.56, d: 3.8, mat: basaltRockMat },
+          { y: 0.78, w: 3.05, h: 0.54, d: 3.05, mat: basaltRockMat },
+          { y: 1.26, w: 2.35, h: 0.5, d: 2.35, mat: scorchedRimMat },
+          { y: 1.72, w: 1.72, h: 0.48, d: 1.72, mat: scorchedRimMat },
+        ];
+        for (let ti = 0; ti < coneTiers.length; ti++) {
+          const ct = coneTiers[ti];
+          const slab = new THREE.Mesh(sharedDebrisCubeGeo, ct.mat);
+          slab.position.set(0, ct.y, 0);
+          slab.scale.set(ct.w / 0.32, ct.h / 0.32, ct.d / 0.32);
+          coneGroup.add(slab);
+          // Stepped corner buttress blocks for an authentic voxel mountain silhouette
+          for (const [cx, cz] of [
+            [ct.w * 0.45, 0],
+            [-ct.w * 0.45, 0],
+            [0, ct.d * 0.45],
+            [0, -ct.d * 0.45],
+          ]) {
+            const buttress = new THREE.Mesh(sharedDebrisCubeGeo, ct.mat);
+            buttress.position.set(cx, ct.y - 0.06, cz);
+            buttress.scale.set((ct.w * 0.34) / 0.32, (ct.h * 0.85) / 0.32, (ct.d * 0.34) / 0.32);
+            coneGroup.add(buttress);
+          }
+        }
+        // Glowing bubbling caldera lava pool at the summit
+        const craterPool = new THREE.Mesh(sharedDebrisCubeGeo, coreHotMat);
+        craterPool.position.set(0, 1.98, 0);
+        craterPool.scale.set(1.18 / 0.32, 0.14 / 0.32, 1.18 / 0.32);
+        coneGroup.add(craterPool);
+
+        // 4 Stepped Blocky Molten Lava Streams (N, S, E, W, plus 4 diagonals) that animate flowing down the flanks after emergence
+        const lavaStreams: THREE.Mesh[] = [];
+        const streamDirs = [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+          [0.72, 0.72],
+          [-0.72, 0.72],
+          [0.72, -0.72],
+          [-0.72, -0.72],
+        ];
+        const stepsPerStream = 6;
+        for (let si = 0; si < streamDirs.length; si++) {
+          const [dx, dz] = streamDirs[si];
+          for (let step = 0; step < stepsPerStream; step++) {
+            const frac = step / (stepsPerStream - 1);
+            const dist = 0.62 + frac * 1.85;
+            const ly = 1.86 - frac * 1.62;
+            const lMesh = new THREE.Mesh(sharedDebrisCubeGeo, step < 2 ? coreHotMat : magmaMat);
+            lMesh.position.set(dx * dist, ly, dz * dist);
+            lMesh.userData.stepIndex = step;
+            lMesh.userData.targetScaleX = (0.36 + frac * 0.28) / 0.32;
+            lMesh.userData.targetScaleY = 0.22 / 0.32;
+            lMesh.userData.targetScaleZ = (0.36 + frac * 0.28) / 0.32;
+            lMesh.scale.setScalar(0.001);
+            lMesh.visible = false;
+            coneGroup.add(lMesh);
+            lavaStreams.push(lMesh);
+          }
+        }
+        coneGroup.scale.set(1, 0.04, 1);
+        group.userData.coneGroup = coneGroup;
+        group.userData.lavaStreams = lavaStreams;
+        group.add(coneGroup);
 
         const cloudBody = new THREE.Group();
         const ashPuffs = [
@@ -2056,6 +2298,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           m.scale.set(pf.sx, pf.sy, pf.sz);
           cloudBody.add(m);
         }
+        cloudBody.scale.setScalar(0.01);
         group.add(cloudBody);
 
         const vortexMotes: VortexMote[] = [];
@@ -2091,25 +2334,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       };
     }
 
-    // One-shot Animated Power VFX (Sculpted Craggy Asteroid dive + fireball dome, Multi-fork Lightning, Orbital Beams, Shockwaves)
+    // One-shot Animated Power VFX (Blocky Voxel Asteroid dive + fireball dome, Multi-fork Lightning, Orbital Beams, Shockwaves)
     const burstFxGroup = new THREE.Group();
     worldGroup.add(burstFxGroup);
 
-    // Build a sculpted, craggy, crater-pitted space-rock asteroid with vertex-colored dark chondrite crust & glowing magma fissures
+    // Build a true Blocky Voxel Space-Rock Asteroid from merged 3D cubes with dark chondrite rock blocks & recessed glowing magma fissure blocks
     const sharedMeteorGeo = (() => {
-      const base = new THREE.IcosahedronGeometry(1.55, 2).toNonIndexed();
-      const pos = base.attributes.position;
-      const colors = new Float32Array(pos.count * 3);
-      const craters = [
-        new THREE.Vector3(0.72, 0.48, 0.5).normalize(),
-        new THREE.Vector3(-0.78, 0.25, 0.56).normalize(),
-        new THREE.Vector3(0.15, -0.86, 0.48).normalize(),
-        new THREE.Vector3(-0.35, 0.68, -0.64).normalize(),
-        new THREE.Vector3(0.62, -0.38, -0.68).normalize(),
-        new THREE.Vector3(-0.52, -0.58, -0.62).normalize(),
-      ];
-      const v = new THREE.Vector3();
-      const n = new THREE.Vector3();
       const colCrustDark = new THREE.Color('#241a18');
       const colCrustMid = new THREE.Color('#3f302b');
       const colCrustHi = new THREE.Color('#5c4740');
@@ -2118,83 +2348,73 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       const colLavaHot = new THREE.Color('#ffee55');
       const tmpCol = new THREE.Color();
 
-      // Process triangle-by-triangle so each rock facet has crisp flat-shaded pixel-art rock contrast
-      for (let i = 0; i < pos.count; i++) {
-        v.fromBufferAttribute(pos, i);
-        n.copy(v).normalize();
+      const voxelGeos: THREE.BufferGeometry[] = [];
+      const step = 0.42;
+      for (let gx = -3; gx <= 3; gx++) {
+        for (let gy = -2; gy <= 2; gy++) {
+          for (let gz = -3; gz <= 3; gz++) {
+            const nx = gx / 3.1;
+            const ny = gy / 2.3;
+            const nz = gz / 2.8;
+            const distSq = nx * nx + ny * ny + nz * nz;
+            const hash = Math.sin(gx * 12.7 + gy * 7.3 - gz * 9.1) * 0.18 + Math.cos(gx * 5.1 - gz * 11.3) * 0.12;
+            if (distSq > 1.05 + hash) continue;
+            // Skip purely internal hidden cubes to keep triangle count lean
+            if (Math.abs(gx) <= 1 && Math.abs(gy) <= 1 && Math.abs(gz) <= 1) continue;
 
-        // Multi-frequency rocky crag & ridge displacement
-        const crag =
-          Math.sin(n.x * 4.5 + n.y * 3.2) * 0.2 +
-          Math.cos(n.y * 6.1 - n.z * 5.4) * 0.15 +
-          Math.sin(n.z * 8.3 + n.x * 7.1) * 0.1;
+            const isMagmaFissure =
+              (gx === 0 && Math.abs(gy) <= 1) ||
+              (gy === 0 && Math.abs(gz) <= 1 && (gx + gz) % 2 === 0) ||
+              hash < -0.11;
+            const boxScale = isMagmaFissure ? step * 0.92 : step * 1.04;
+            const box = new THREE.BoxGeometry(boxScale, boxScale, boxScale).toNonIndexed();
+            box.translate(gx * step, gy * step, gz * step);
 
-        // Carve impact craters & raised rims into the asteroid surface
-        let craterDelta = 0;
-        for (const cDir of craters) {
-          const d = n.dot(cDir);
-          if (d > 0.78) {
-            const depth = (d - 0.78) / 0.22;
-            craterDelta -= depth * 0.34;
-          } else if (d > 0.66) {
-            const rim = 1 - Math.abs(d - 0.72) / 0.06;
-            craterDelta += Math.max(0, rim) * 0.11;
+            const posCount = box.attributes.position.count;
+            const colors = new Float32Array(posCount * 3);
+            if (isMagmaFissure) {
+              tmpCol.copy(Math.abs(gx) + Math.abs(gz) <= 2 ? colLavaHot : colLava);
+            } else if (distSq < 0.68) {
+              tmpCol.copy(colScorch).lerp(colCrustDark, 0.5);
+            } else if ((gx + gy + gz) % 2 === 0) {
+              tmpCol.copy(colCrustDark).lerp(colCrustMid, 0.45);
+            } else {
+              tmpCol.copy(colCrustMid).lerp(colCrustHi, 0.55);
+            }
+            for (let vi = 0; vi < posCount; vi++) {
+              colors[vi * 3] = tmpCol.r;
+              colors[vi * 3 + 1] = tmpCol.g;
+              colors[vi * 3 + 2] = tmpCol.b;
+            }
+            box.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+            voxelGeos.push(box);
           }
         }
-
-        const rawScale = 1.0 + crag + craterDelta;
-        const snappedScale = Math.round(rawScale * 18) / 18;
-
-        // Asymmetric potato/bolide proportions (not a sphere or cube!)
-        v.x *= snappedScale * 1.28;
-        v.y *= snappedScale * 0.92;
-        v.z *= snappedScale * 1.08;
-        pos.setXYZ(i, v.x, v.y, v.z);
-
-        // Fissure & crater magma glow in deep crevices, dark charred chondrite rock on outer ridges
-        const fissureWave = Math.sin(n.x * 9.5 - n.z * 8.2) * Math.cos(n.y * 9.1);
-        const depthMetric = snappedScale + fissureWave * 0.08;
-
-        if (depthMetric < 0.84) {
-          tmpCol.copy(colLavaHot).lerp(colLava, Math.max(0, (depthMetric - 0.72) / 0.12));
-        } else if (depthMetric < 0.94) {
-          tmpCol.copy(colLava).lerp(colScorch, (depthMetric - 0.84) / 0.1);
-        } else if (depthMetric < 1.04) {
-          tmpCol.copy(colCrustDark).lerp(colCrustMid, (depthMetric - 0.94) / 0.1);
-        } else {
-          tmpCol.copy(colCrustMid).lerp(colCrustHi, Math.min(1, (depthMetric - 1.04) / 0.18));
-        }
-
-        colors[i * 3] = tmpCol.r;
-        colors[i * 3 + 1] = tmpCol.g;
-        colors[i * 3 + 2] = tmpCol.b;
       }
-
-      base.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-      base.computeVertexNormals();
-      return base;
+      const merged = mergeGeometries(voxelGeos, false);
+      for (const vg of voxelGeos) vg.dispose();
+      merged.computeVertexNormals();
+      return merged;
     })();
 
-    // Streamlined teardrop/parabolic atmospheric plasma sheath & tail (instead of a 3D box!)
+    // Stepped Blocky Voxel Atmospheric Plasma Sheath & Comet Wake Tail
     const sharedMeteorAuraGeo = (() => {
-      const aura = new THREE.IcosahedronGeometry(1.95, 2);
-      const pos = aura.attributes.position;
-      const v = new THREE.Vector3();
-      for (let i = 0; i < pos.count; i++) {
-        v.fromBufferAttribute(pos, i);
-        // Stretch trailing upper-back wake along (+1, +2.2, -1) flight axis into a comet teardrop
-        const trailDot = (v.x * 0.38 + v.y * 0.84 - v.z * 0.38) / 1.95;
-        if (trailDot > 0) {
-          const stretch = 1 + trailDot * 1.85;
-          v.x += 0.38 * trailDot * 2.4;
-          v.y += 0.84 * trailDot * 2.4;
-          v.z -= 0.38 * trailDot * 2.4;
-          v.multiplyScalar(1 - trailDot * 0.22 + stretch * 0.08);
-        }
-        pos.setXYZ(i, v.x, v.y, v.z);
+      const auraCubes: THREE.BufferGeometry[] = [];
+      const tailBlocks = [
+        { x: 0, y: 0, z: 0, sx: 2.8, sy: 2.1, sz: 2.4 },
+        { x: 0.65, y: 1.35, z: -0.65, sx: 2.2, sy: 1.8, sz: 2.0 },
+        { x: 1.35, y: 2.75, z: -1.35, sx: 1.65, sy: 1.5, sz: 1.55 },
+        { x: 2.05, y: 4.1, z: -2.05, sx: 1.1, sy: 1.15, sz: 1.05 },
+      ];
+      for (const tb of tailBlocks) {
+        const b = new THREE.BoxGeometry(tb.sx, tb.sy, tb.sz).toNonIndexed();
+        b.translate(tb.x, tb.y, tb.z);
+        auraCubes.push(b);
       }
-      aura.computeVertexNormals();
-      return aura;
+      const mergedAura = mergeGeometries(auraCubes, false);
+      for (const ac of auraCubes) ac.dispose();
+      mergedAura.computeVertexNormals();
+      return mergedAura;
     })();
 
     const sharedExplosionDomeGeo = new THREE.SphereGeometry(1, 20, 14, 0, Math.PI * 2, 0, Math.PI / 2);
@@ -2416,18 +2636,17 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         const meteorGroup = new THREE.Group();
         const meteorRockCore = new THREE.Group();
         const meteorRock = new THREE.Mesh(sharedMeteorGeo, rockMat);
-        // Protruding rocky sub-boulders embedded into the main asteroid body for an unmistakable irregular silhouette
+        // Orthogonal blocky voxel rock clusters attached to the main voxel asteroid body
         const lobeOffsets = [
-          { x: 0.95, y: 0.35, z: -0.45, s: 0.48, rx: 0.5, ry: 1.1 },
-          { x: -0.88, y: -0.42, z: 0.52, s: 0.52, rx: 1.4, ry: 0.3 },
-          { x: 0.25, y: 0.78, z: 0.72, s: 0.42, rx: 2.1, ry: 0.8 },
-          { x: -0.45, y: -0.68, z: -0.65, s: 0.45, rx: 0.9, ry: 1.9 },
+          { x: 0.84, y: 0.42, z: -0.42, s: 0.44 },
+          { x: -0.84, y: -0.42, z: 0.42, s: 0.48 },
+          { x: 0.42, y: 0.64, z: 0.64, s: 0.38 },
+          { x: -0.42, y: -0.64, z: -0.64, s: 0.42 },
         ];
         for (const lb of lobeOffsets) {
           const lobe = new THREE.Mesh(sharedMeteorGeo, rockMat);
           lobe.position.set(lb.x, lb.y, lb.z);
           lobe.scale.setScalar(lb.s);
-          lobe.rotation.set(lb.rx, lb.ry, 0.4);
           meteorRockCore.add(lobe);
         }
         meteorRockCore.add(meteorRock);
@@ -3677,7 +3896,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           side: THREE.DoubleSide,
           depthWrite: false,
         });
-        materials.push(ringMat, outerMat);
+        const moundRockMat = new THREE.MeshStandardMaterial({
+          color: 0x291e1a,
+          emissive: 0x9e2a08,
+          emissiveIntensity: 0.55,
+          roughness: 0.85,
+        });
+        materials.push(ringMat, outerMat, moundRockMat);
 
         const ringMesh = new THREE.Mesh(sharedHazRingGeo, ringMat);
         ringMesh.position.set(tx, ty + 0.14, tz);
@@ -3687,6 +3912,20 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         outerRingMesh.position.set(tx, ty + 0.2, tz);
         group.add(outerRingMesh);
 
+        // Pre-eruption rising blocky magma mound that heaves upward from the ground before the caldera bursts
+        const risingMound = new THREE.Group();
+        for (let tier = 0; tier < 3; tier++) {
+          const w = (2.8 - tier * 0.75) / 0.32;
+          const h = 0.52 / 0.32;
+          const block = new THREE.Mesh(sharedDebrisCubeGeo, tier === 2 ? ringMat : moundRockMat);
+          block.position.set(0, 0.26 + tier * 0.48, 0);
+          block.scale.set(w, h, w);
+          risingMound.add(block);
+        }
+        risingMound.position.set(tx, ty, tz);
+        risingMound.scale.set(1, 0.05, 1);
+        group.add(risingMound);
+
         burstFxGroup.add(group);
         activeBurstFx.push({
           kind: 'volcano_burst',
@@ -3694,14 +3933,15 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           group,
           materials,
           age: 0,
-          duration: 1.5,
-          impactDelay: 0.16,
+          duration: deferImpact ? 2.1 : 1.5,
+          impactDelay: deferImpact ? 0.78 : 0.16,
           deferImpact,
           tx,
           ty,
           tz,
           radius,
           impactFired: false,
+          tracerMesh: risingMound,
           ringMesh,
           outerRingMesh,
           colorHex,
@@ -3711,10 +3951,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
       if (type === 'volcanic_lava_bomb') {
         const bombMat = new THREE.MeshStandardMaterial({
-          color: 0xff5400,
-          emissive: 0xff7b00,
-          emissiveIntensity: 0.85,
-          roughness: 0.6,
+          vertexColors: true,
+          flatShading: true,
+          color: 0xff7b00,
+          emissive: 0xff5400,
+          emissiveIntensity: 0.9,
+          roughness: 0.55,
         });
         const ringMat = new THREE.MeshBasicMaterial({
           color: 0xff5400,
@@ -3726,7 +3968,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         materials.push(bombMat, ringMat);
 
         const bombMesh = new THREE.Mesh(sharedMeteorGeo, bombMat);
-        bombMesh.scale.setScalar(0.38);
+        bombMesh.scale.setScalar(0.36);
         bombMesh.position.set(ox ?? tx, (oy ?? ty) + 2.5, oz ?? tz);
         group.add(bombMesh);
 
@@ -3760,7 +4002,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         return;
       }
 
-      if (type === 'void_goo_splash') {
+      if (type === 'void_goo' || type === 'void_goo_splash') {
+        const isSkySeedDrop = type === 'void_goo';
         const voidRingMat = new THREE.MeshBasicMaterial({
           color: 0x3b0764,
           transparent: true,
@@ -3775,7 +4018,19 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           side: THREE.DoubleSide,
           depthWrite: false,
         });
-        materials.push(voidRingMat, starRingMat);
+        const seedShellMat = new THREE.MeshStandardMaterial({
+          color: 0x090214,
+          emissive: 0x3b0764,
+          emissiveIntensity: 0.85,
+          roughness: 0.3,
+        });
+        const seedCrystalMat = new THREE.MeshBasicMaterial({
+          color: 0xa855f7,
+        });
+        const seedStarCoreMat = new THREE.MeshBasicMaterial({
+          color: 0x38bdf8,
+        });
+        materials.push(voidRingMat, starRingMat, seedShellMat, seedCrystalMat, seedStarCoreMat);
 
         const ringMesh = new THREE.Mesh(sharedHazRingGeo, voidRingMat);
         ringMesh.position.set(tx, ty + 0.14, tz);
@@ -3785,21 +4040,57 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         outerRingMesh.position.set(tx, ty + 0.18, tz);
         group.add(outerRingMesh);
 
+        let seedGroup: THREE.Group | undefined;
+        if (isSkySeedDrop) {
+          // Blocky Abyssal Void Seed Pod that drops from the heavens before infecting the land
+          seedGroup = new THREE.Group();
+          const coreCube = new THREE.Mesh(sharedDebrisCubeGeo, seedShellMat);
+          coreCube.scale.set(2.4, 3.2, 2.4);
+          seedGroup.add(coreCube);
+
+          const crossX = new THREE.Mesh(sharedDebrisCubeGeo, seedCrystalMat);
+          crossX.scale.set(3.2, 1.6, 1.4);
+          seedGroup.add(crossX);
+
+          const crossZ = new THREE.Mesh(sharedDebrisCubeGeo, seedCrystalMat);
+          crossZ.scale.set(1.4, 1.6, 3.2);
+          seedGroup.add(crossZ);
+
+          const starTips = [
+            [0, 0.65, 0],
+            [0, -0.65, 0],
+            [0.52, 0.35, 0.52],
+            [-0.52, -0.35, -0.52],
+          ];
+          for (const [sx, sy, sz] of starTips) {
+            const tip = new THREE.Mesh(sharedDebrisCubeGeo, seedStarCoreMat);
+            tip.position.set(sx, sy, sz);
+            tip.scale.setScalar(1.05);
+            seedGroup.add(tip);
+          }
+          seedGroup.position.set(tx + 4.2, ty + 18.0, tz - 4.2);
+          group.add(seedGroup);
+        }
+
         burstFxGroup.add(group);
         activeBurstFx.push({
           kind: 'void_goo_splash',
-          powerType: type,
+          powerType: 'void_goo',
           group,
           materials,
           age: 0,
-          duration: 1.1,
-          impactDelay: 0.08,
+          duration: isSkySeedDrop ? 1.65 : 1.1,
+          impactDelay: isSkySeedDrop ? 0.68 : 0.06,
           deferImpact,
           tx,
           ty,
           tz,
+          ox: tx + 4.2,
+          oy: ty + 18.0,
+          oz: tz - 4.2,
           radius,
           impactFired: false,
+          tracerMesh: seedGroup,
           ringMesh,
           outerRingMesh,
           colorHex,
@@ -6216,16 +6507,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           const hasEast = simState.tiles[tz * gs + (tx + 1)]?.terrain === 'stone_road';
           const hasWest = simState.tiles[tz * gs + (tx - 1)]?.terrain === 'stone_road';
           const hasSouth = simState.tiles[(tz + 1) * gs + tx]?.terrain === 'stone_road';
-          const hasNorth = simState.tiles[(tz - 1) * gs + tx]?.terrain === 'stone_road';
-          // Double-wide expressways & cross-diagonal skyways elevate cleanly along prime avenues
-          const isParallelEW = (hasEast || hasWest) && hasSouth && simState.tiles[(tz + 1) * gs + (tx + 1)]?.terrain === 'stone_road';
-          const isDiagCross =
-            !hasEast && !hasNorth && !hasSouth && !hasWest &&
-            ((simState.tiles[(tz + 1) * gs + (tx + 1)]?.terrain === 'stone_road' &&
-              simState.tiles[(tz - 1) * gs + (tx - 1)]?.terrain === 'stone_road') ||
-              (simState.tiles[(tz + 1) * gs + (tx - 1)]?.terrain === 'stone_road' &&
-                simState.tiles[(tz - 1) * gs + (tx + 1)]?.terrain === 'stone_road'));
-          return isParallelEW || isDiagCross;
+          // Clean orthogonal double-wide boulevards only (no diagonal spaghetti webs)
+          return (
+            (hasEast || hasWest) &&
+            hasSouth &&
+            simState.tiles[(tz + 1) * gs + (tx + 1)]?.terrain === 'stone_road'
+          );
         };
 
         const elevatedActive = simState.epochIndex >= 5;
@@ -6276,6 +6563,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             const sideSign = ((t.x * 13 + t.z * 7) & 1) === 0 ? 1 : -1;
             const nRoad = t.z > 0 && simState.tiles[(t.z - 1) * gs + t.x]?.terrain === 'stone_road';
             const sRoad = t.z + 1 < gs && simState.tiles[(t.z + 1) * gs + t.x]?.terrain === 'stone_road';
+            const wRoad = t.x > 0 && simState.tiles[t.z * gs + (t.x - 1)]?.terrain === 'stone_road';
+            const eRoad = t.x + 1 < gs && simState.tiles[t.z * gs + (t.x + 1)]?.terrain === 'stone_road';
             const offX = nRoad || sRoad ? sideSign * 0.34 : 0.18;
             const offZ = nRoad || sRoad ? 0.18 : sideSign * 0.34;
             const fx = t.x + offX;
@@ -6299,34 +6588,54 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
               pushInst(streetPoleInst, fx, curY + 0.25, fz, 0, 0, 0, 0.88, 0.5, 0.88);
               pushInst(streetLampHeadInst, fx, curY + 0.53, fz, 0, 0.78, 0, 1.15, 1.65, 1.15);
             }
+
+            // 3D Times Square / Tokyo LED Roadside & Plaza Gantry Billboards in Epochs 4+
+            const roadLinks = (nRoad ? 1 : 0) + (sRoad ? 1 : 0) + (wRoad ? 1 : 0) + (eRoad ? 1 : 0);
+            if (ep >= 4 && roadLinks >= 2 && ((t.x * 7 + t.z * 11) % 3) === 0 && !isWaterWalkway) {
+              const bYaw = roadLinks >= 3 ? Math.PI / 4 : nRoad || sRoad ? 0 : Math.PI / 2;
+              const bx = t.x + (nRoad || sRoad ? -sideSign * 0.36 : 0);
+              const bz = t.z + (nRoad || sRoad ? 0 : -sideSign * 0.36);
+              pushInst(streetPoleInst, bx, curY + 0.32, bz, 0, 0, 0, 1.25, 0.64, 1.25);
+              pushInst(billboardFrameInst, bx, curY + 0.68, bz, 0, bYaw, 0, 1, 1, 1);
+              const screenPick = (t.x + t.z * 3) % 3;
+              const screenInst =
+                screenPick === 0 ? billboardCyanInst : screenPick === 1 ? billboardPinkInst : billboardGoldInst;
+              pushInst(screenInst, bx, curY + 0.68, bz, 0, bYaw, 0, 1, 1, 1);
+            }
           }
 
-          // 3D Urban Skybridges (linking facing buildings across streets in Atomic Age 4+) & Elevated Skyways (Epoch 5+)
+          // 3D Urban Skybridges (linking level facing high-rises across streets in Atomic Age 4+) & Orthogonal Elevated Skyways (Epoch 5+)
           if (skybridgesActive && t.terrain === 'stone_road' && !bldTypeAtCache.has(i) && !isElevatedNodeAt(t.x, t.z)) {
             const hasBldN = t.z > 0 && bldTypeAtCache.has((t.z - 1) * gs + t.x);
             const hasBldS = t.z + 1 < gs && bldTypeAtCache.has((t.z + 1) * gs + t.x);
             const hasBldW = t.x > 0 && bldTypeAtCache.has(t.z * gs + (t.x - 1));
             const hasBldE = t.x + 1 < gs && bldTypeAtCache.has(t.z * gs + (t.x + 1));
-            if (hasBldN && hasBldS) {
-              pushInst(skywayDeckInst, t.x, curY + 0.44, t.z, 0, 0, 0, 0.65, 1.0, 1.05);
-              pushInst(skywayTrimInst, t.x - 0.14, curY + 0.49, t.z, 0, 0, 0, 1.0, 1.0, 1.05);
-              pushInst(skywayTrimInst, t.x + 0.14, curY + 0.49, t.z, 0, 0, 0, 1.0, 1.0, 1.05);
-            } else if (hasBldW && hasBldE) {
-              pushInst(skywayDeckInst, t.x, curY + 0.44, t.z, 0, Math.PI / 2, 0, 0.65, 1.0, 1.05);
-              pushInst(skywayTrimInst, t.x, curY + 0.49, t.z - 0.14, 0, Math.PI / 2, 0, 1.0, 1.0, 1.05);
-              pushInst(skywayTrimInst, t.x, curY + 0.49, t.z + 0.14, 0, Math.PI / 2, 0, 1.0, 1.0, 1.05);
+            if (hasBldN && hasBldS && ((t.x + t.z) & 1) === 0) {
+              const yN = tileCurrentY[(t.z - 1) * gs + t.x];
+              const yS = tileCurrentY[(t.z + 1) * gs + t.x];
+              if (Math.abs(yN - yS) < 0.25 && Math.abs(yN - curY) < 0.25) {
+                pushInst(skywayDeckInst, t.x, curY + 0.56, t.z, 0, 0, 0, 0.55, 1.0, 1.02);
+                pushInst(skywayTrimInst, t.x - 0.12, curY + 0.61, t.z, 0, 0, 0, 1.0, 1.0, 1.02);
+                pushInst(skywayTrimInst, t.x + 0.12, curY + 0.61, t.z, 0, 0, 0, 1.0, 1.0, 1.02);
+              }
+            } else if (hasBldW && hasBldE && ((t.x + t.z) & 1) === 0) {
+              const yW = tileCurrentY[t.z * gs + (t.x - 1)];
+              const yE = tileCurrentY[t.z * gs + (t.x + 1)];
+              if (Math.abs(yW - yE) < 0.25 && Math.abs(yW - curY) < 0.25) {
+                pushInst(skywayDeckInst, t.x, curY + 0.56, t.z, 0, Math.PI / 2, 0, 0.55, 1.0, 1.02);
+                pushInst(skywayTrimInst, t.x, curY + 0.61, t.z - 0.12, 0, Math.PI / 2, 0, 1.0, 1.0, 1.02);
+                pushInst(skywayTrimInst, t.x, curY + 0.61, t.z + 0.12, 0, Math.PI / 2, 0, 1.0, 1.0, 1.02);
+              }
             }
 
             if (isSkywayExpressAt(t.x, t.z)) {
-              // Slender overpass pier column & elevated Skyway expressway deck segment
+              // Slender overpass pier column & orthogonal elevated Skyway expressway deck segment
               if (((t.x + t.z) & 1) === 0) {
-                pushInst(streetPoleInst, t.x, curY + 0.21, t.z, 0, 0, 0, 2.2, 0.42, 2.2);
+                pushInst(streetPoleInst, t.x, curY + 0.22, t.z, 0, 0, 0, 2.0, 0.44, 2.0);
               }
               const dirs: ReadonlyArray<[number, number]> = [
                 [1, 0],
                 [0, 1],
-                [1, 1],
-                [-1, 1],
               ];
               for (const [dx, dz] of dirs) {
                 const nx = t.x + dx;
@@ -6335,18 +6644,19 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
                 const nIdx = nz * gs + nx;
                 const nextY = tileCurrentY[nIdx];
                 const dy = nextY - curY;
-                const planar = Math.hypot(dx, dz);
+                if (Math.abs(dy) > 0.35) continue;
+                const planar = 1.0;
                 const spanLen = Math.hypot(planar, dy);
                 const yaw = Math.atan2(dx, dz);
                 const pitchX = -Math.atan2(dy, planar);
                 const midY = (curY + nextY) * 0.5;
                 const mx = t.x + dx * 0.5;
                 const mz = t.z + dz * 0.5;
-                const pxOff = (dz / planar) * 0.21;
-                const pzOff = -(dx / planar) * 0.21;
-                pushInst(skywayDeckInst, mx, midY + 0.44, mz, pitchX, yaw, 0, 1, 1, spanLen);
-                pushInst(skywayTrimInst, mx + pxOff, midY + 0.485, mz + pzOff, pitchX, yaw, 0, 1, 1, spanLen);
-                pushInst(skywayTrimInst, mx - pxOff, midY + 0.485, mz - pzOff, pitchX, yaw, 0, 1, 1, spanLen);
+                const pxOff = dz * 0.21;
+                const pzOff = -dx * 0.21;
+                pushInst(skywayDeckInst, mx, midY + 0.46, mz, pitchX, yaw, 0, 1, 1, spanLen);
+                pushInst(skywayTrimInst, mx + pxOff, midY + 0.505, mz + pzOff, pitchX, yaw, 0, 1, 1, spanLen);
+                pushInst(skywayTrimInst, mx - pxOff, midY + 0.505, mz - pzOff, pitchX, yaw, 0, 1, 1, spanLen);
               }
             }
           }
@@ -7941,24 +8251,39 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             const pulse = (0.95 + Math.sin(elapsed * 9) * 0.12) * fade;
             hv.group.scale.setScalar(Math.max(0.05, pulse));
           } else if (hv.kind === 'tornado_vortex') {
+            const safeT = wrapShaderTime(elapsed);
+            const groundShader = hv.materials[0] as THREE.ShaderMaterial | undefined;
+            if (groundShader && groundShader.uniforms) {
+              groundShader.uniforms.uTime.value = safeT;
+              groundShader.uniforms.uOpacity.value = 0.94 * fade;
+            }
+            const funnelShader = hv.materials[1] as THREE.ShaderMaterial | undefined;
+            if (funnelShader && funnelShader.uniforms) {
+              funnelShader.uniforms.uTime.value = safeT;
+              funnelShader.uniforms.uOpacity.value = 0.92 * fade;
+            }
             if (hv.ringMesh) {
-              hv.ringMesh.rotation.z = elapsed * 5.2;
-              hv.ringMesh.scale.setScalar(haz.radius * (0.85 + Math.sin(elapsed * 8) * 0.12) * fade);
+              const pulse = 1 + Math.sin(elapsed * 5.2) * 0.05;
+              hv.ringMesh.scale.setScalar(haz.radius * (hv.isSuper ? 1.15 : 0.98) * pulse * fade);
+            }
+            if (hv.secondaryRingMesh) {
+              hv.secondaryRingMesh.rotation.y = -elapsed * 4.5;
             }
             if (hv.tornadoRings) {
+              const maxH = hv.isSuper ? 7.6 : 5.8;
               for (let ti = 0; ti < hv.tornadoRings.length; ti++) {
                 const tr = hv.tornadoRings[ti];
                 const frac = ti / Math.max(1, hv.tornadoRings.length - 1);
-                const wobbleX = Math.sin(elapsed * 6.5 - frac * 2.4) * (0.18 + frac * 0.45);
-                const wobbleZ = Math.cos(elapsed * 5.8 - frac * 2.4) * (0.18 + frac * 0.45);
-                tr.position.set(wobbleX, 0.35 + frac * 5.8, wobbleZ);
-                tr.rotation.y = elapsed * (8.5 - frac * 4.0) + ti * 0.6;
+                const wobbleX = Math.sin(elapsed * 6.2 - frac * 4.2) * (0.14 + frac * 0.55);
+                const wobbleZ = Math.cos(elapsed * 5.5 - frac * 4.2) * (0.14 + frac * 0.55);
+                tr.position.set(wobbleX, 0.35 + frac * maxH, wobbleZ);
+                tr.rotation.y = elapsed * (9.0 - frac * 4.0) + ti * 0.65;
               }
             }
             if (hv.cloudBody) {
               hv.cloudBody.rotation.y = elapsed * 1.4;
-              hv.cloudBody.position.x = Math.sin(elapsed * 6.5 - 2.4) * 0.5;
-              hv.cloudBody.position.z = Math.cos(elapsed * 5.8 - 2.4) * 0.5;
+              hv.cloudBody.position.x = Math.sin(elapsed * 6.2 - 4.2) * 0.55;
+              hv.cloudBody.position.z = Math.cos(elapsed * 5.5 - 4.2) * 0.55;
             }
             if (hv.debrisChunks) {
               for (let di = 0; di < hv.debrisChunks.length; di++) {
@@ -7973,7 +8298,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
               }
             }
             if (Math.random() < 0.6) {
-              spawnRisingParticles(haz.x, hy, haz.z, 2, '#cbd5e1', haz.radius * 0.85, 5.5, 0.9, 1.1);
+              spawnRisingParticles(haz.x, hy, haz.z, 2, hv.isSuper ? '#38bdf8' : '#cbd5e1', haz.radius * 0.85, 5.5, 0.9, 1.1);
             }
             hv.group.scale.setScalar(Math.max(0.1, fade));
           } else if (hv.kind === 'tsunami_wave') {
@@ -8136,31 +8461,75 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
               );
             }
           } else if (hv.kind === 'volcano_eruption') {
+            const hazAge = Math.max(0, haz.duration - haz.remaining);
+            // Phase 1 (0 -> 1.15s): Blocky Volcano Cone heaves upward out of the earth
+            const riseRaw = Math.min(1, hazAge / 1.15);
+            const riseEase = 1 - Math.pow(1 - riseRaw, 3);
+            // Phase 2 (0.85 -> 1.95s): Molten lava channels cascade down the flanks from crater rim to base
+            const lavaFlowProg = Math.max(0, Math.min(1, (hazAge - 0.85) / 1.1));
+
+            const coneGroup = hv.group.userData.coneGroup as THREE.Group | undefined;
+            if (coneGroup) {
+              coneGroup.scale.set(fade, Math.max(0.04, riseEase * fade), fade);
+            }
+            const lavaStreams = hv.group.userData.lavaStreams as THREE.Mesh[] | undefined;
+            if (lavaStreams) {
+              for (let li = 0; li < lavaStreams.length; li++) {
+                const lm = lavaStreams[li];
+                const stepIdx = (lm.userData.stepIndex as number) || 0;
+                const stepThreshold = stepIdx / 6;
+                const stepLocal = Math.max(0, Math.min(1, (lavaFlowProg - stepThreshold) * 3.2));
+                if (stepLocal <= 0.01) {
+                  lm.visible = false;
+                } else {
+                  lm.visible = true;
+                  const pulse = 0.92 + Math.sin(elapsed * 10 - stepIdx * 0.9) * 0.12;
+                  lm.scale.set(
+                    (lm.userData.targetScaleX as number) * stepLocal * pulse,
+                    (lm.userData.targetScaleY as number) * stepLocal,
+                    (lm.userData.targetScaleZ as number) * stepLocal * pulse,
+                  );
+                }
+              }
+            }
+
             if (hv.ringMesh) {
-              hv.ringMesh.scale.setScalar(haz.radius * (0.58 + Math.sin(elapsed * 7) * 0.08) * fade);
+              const basePoolScale = Math.max(0.08, lavaFlowProg * haz.radius * (0.58 + Math.sin(elapsed * 7) * 0.06) * fade);
+              hv.ringMesh.scale.setScalar(basePoolScale);
               hv.ringMesh.rotation.z = elapsed * 0.9;
             }
             if (hv.secondaryRingMesh) {
-              hv.secondaryRingMesh.scale.setScalar(haz.radius * (0.3 + Math.cos(elapsed * 9) * 0.06) * fade);
+              const innerPoolScale = Math.max(0.06, riseEase * haz.radius * (0.3 + Math.cos(elapsed * 9) * 0.05) * fade);
+              hv.secondaryRingMesh.scale.setScalar(innerPoolScale);
             }
             if (hv.cloudBody) {
+              const plumeScale = Math.max(0.01, Math.min(1, (hazAge - 0.55) / 0.85) * fade);
               hv.cloudBody.rotation.y = elapsed * 0.45;
               hv.cloudBody.position.y = Math.sin(elapsed * 2.4) * 0.35;
-              hv.cloudBody.scale.setScalar(Math.max(0.2, fade));
+              hv.cloudBody.scale.setScalar(plumeScale);
             }
             if (hv.vortexMotes) {
               for (let mi = 0; mi < hv.vortexMotes.length; mi++) {
                 const vm = hv.vortexMotes[mi];
+                if (hazAge < 0.75) {
+                  vm.mesh.visible = false;
+                  continue;
+                }
+                vm.mesh.visible = true;
                 const cycle = (elapsed * vm.speed + vm.phase) % 1;
                 const r = cycle * haz.radius * 0.75;
                 const theta = vm.baseAngle + elapsed * 1.4;
-                vm.mesh.position.set(Math.cos(theta) * r, 0.3 + Math.sin(cycle * Math.PI) * 4.5, Math.sin(theta) * r);
-                vm.mesh.scale.setScalar(0.32 * (1 - cycle * 0.5) * fade);
+                vm.mesh.position.set(Math.cos(theta) * r, 1.9 + Math.sin(cycle * Math.PI) * 4.2, Math.sin(theta) * r);
+                vm.mesh.scale.setScalar(0.34 * (1 - cycle * 0.5) * fade);
               }
             }
             if (Math.random() < 0.65) {
-              spawnRisingParticles(haz.x, hy + 0.4, haz.z, 3, '#ff5400', haz.radius * 0.5, 6.2, 1.0, 1.3);
-              spawnRisingParticles(haz.x, hy + 1.2, haz.z, 2, '#334155', haz.radius * 0.65, 5.0, 1.2, 1.6);
+              if (hazAge < 0.85) {
+                spawnRisingParticles(haz.x, hy + 0.25, haz.z, 3, '#78716c', haz.radius * 0.45, 4.2, 0.9, 1.2);
+              } else {
+                spawnRisingParticles(haz.x, hy + 1.8, haz.z, 3, '#ff5400', haz.radius * 0.45, 6.2, 1.0, 1.3);
+                spawnRisingParticles(haz.x, hy + 2.2, haz.z, 2, '#334155', haz.radius * 0.6, 5.0, 1.2, 1.6);
+              }
             }
           }
         }
@@ -9375,23 +9744,37 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             (fx.materials[1] as THREE.MeshBasicMaterial).opacity = (1 - prog) * 0.82;
           }
         } else if (fx.kind === 'volcano_burst' && fx.ringMesh) {
-          if (fx.age >= fx.impactDelay && !fx.impactFired) {
-            fx.impactFired = true;
-            if (fx.deferImpact) {
-              executeGodPowerImpact(simRef.current, fx.powerType as GodPowerType, fx.tx, fx.tz);
+          if (fx.age < fx.impactDelay) {
+            const riseT = Math.min(1, fx.age / Math.max(0.05, fx.impactDelay));
+            const easeOut = 1 - Math.pow(1 - riseT, 3);
+            if (fx.tracerMesh) {
+              fx.tracerMesh.scale.set(0.65 + easeOut * 0.45, Math.max(0.05, easeOut * 1.15), 0.65 + easeOut * 0.45);
             }
-            soundEngine.playVolcanoEruption();
-            trauma = Math.min(1.0, trauma + 0.78);
-            triggerLightFlash(fx.tx, fx.ty + 2.5, fx.tz, '#ff5400', 28);
-            spawnRisingParticles(fx.tx, fx.ty + 0.4, fx.tz, 64, '#ff5400', fx.radius * 0.85, 8.2, 1.25, 1.5);
-            spawnRisingParticles(fx.tx, fx.ty + 0.6, fx.tz, 36, '#ffee55', fx.radius * 0.55, 9.5, 1.0, 1.3);
-          }
-          const prog = Math.min(1, fx.age / fx.duration);
-          fx.ringMesh.scale.setScalar(0.3 + prog * fx.radius * 1.45);
-          (fx.materials[0] as THREE.MeshBasicMaterial).opacity = (1 - prog) * 0.92;
-          if (fx.outerRingMesh) {
-            fx.outerRingMesh.scale.setScalar(0.2 + prog * fx.radius * 1.75);
-            (fx.materials[1] as THREE.MeshBasicMaterial).opacity = (1 - prog) * 0.85;
+            fx.ringMesh.scale.setScalar(0.25 + easeOut * fx.radius * 0.55);
+            if (Math.random() < 0.75) {
+              spawnRisingParticles(fx.tx, fx.ty + 0.25, fx.tz, 3, '#a8a29e', fx.radius * 0.45, 4.5, 0.85, 1.1);
+              spawnParticleBurst(fx.tx, fx.ty + 0.4, fx.tz, 2, '#ff5400', 0.55, 2.6, 0.8);
+            }
+          } else {
+            if (!fx.impactFired) {
+              fx.impactFired = true;
+              if (fx.tracerMesh) fx.tracerMesh.visible = false;
+              if (fx.deferImpact) {
+                executeGodPowerImpact(simRef.current, fx.powerType as GodPowerType, fx.tx, fx.tz);
+              }
+              soundEngine.playVolcanoEruption();
+              trauma = Math.min(1.0, trauma + 0.78);
+              triggerLightFlash(fx.tx, fx.ty + 2.5, fx.tz, '#ff5400', 28);
+              spawnRisingParticles(fx.tx, fx.ty + 0.4, fx.tz, 64, '#ff5400', fx.radius * 0.85, 8.2, 1.25, 1.5);
+              spawnRisingParticles(fx.tx, fx.ty + 0.6, fx.tz, 36, '#ffee55', fx.radius * 0.55, 9.5, 1.0, 1.3);
+            }
+            const postT = Math.min(1, (fx.age - fx.impactDelay) / Math.max(0.08, fx.duration - fx.impactDelay));
+            fx.ringMesh.scale.setScalar(0.3 + postT * fx.radius * 1.45);
+            (fx.materials[0] as THREE.MeshBasicMaterial).opacity = (1 - postT) * 0.92;
+            if (fx.outerRingMesh) {
+              fx.outerRingMesh.scale.setScalar(0.2 + postT * fx.radius * 1.75);
+              (fx.materials[1] as THREE.MeshBasicMaterial).opacity = (1 - postT) * 0.85;
+            }
           }
         } else if (fx.kind === 'volcanic_lava_bomb' && fx.tracerMesh && fx.ringMesh) {
           const dropT = Math.min(1, fx.age / fx.impactDelay);
@@ -9422,21 +9805,46 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             (fx.materials[1] as THREE.MeshBasicMaterial).opacity = (1 - postT) * 0.82;
           }
         } else if (fx.kind === 'void_goo_splash' && fx.ringMesh) {
-          if (fx.age >= fx.impactDelay && !fx.impactFired) {
-            fx.impactFired = true;
-            if (fx.deferImpact) {
-              executeGodPowerImpact(simRef.current, fx.powerType as GodPowerType, fx.tx, fx.tz);
+          if (fx.tracerMesh && fx.age < fx.impactDelay) {
+            // Sky-Seed descending from the heavens before landing and spreading Void Goo
+            const dropT = Math.min(1, fx.age / Math.max(0.05, fx.impactDelay));
+            const easeIn = dropT * dropT;
+            const ox = fx.ox ?? fx.tx + 4.2;
+            const oy = fx.oy ?? fx.ty + 18.0;
+            const oz = fx.oz ?? fx.tz - 4.2;
+            const sx = ox + (fx.tx - ox) * easeIn;
+            const sy = oy + (fx.ty + 0.25 - oy) * easeIn;
+            const sz = oz + (fx.tz - oz) * easeIn;
+            fx.tracerMesh.position.set(sx, sy, sz);
+            fx.tracerMesh.rotation.x += dt * 6.5;
+            fx.tracerMesh.rotation.y += dt * 8.5;
+            fx.ringMesh.scale.setScalar((1 - dropT * 0.65) * fx.radius * 0.85);
+            if (fx.outerRingMesh) {
+              fx.outerRingMesh.scale.setScalar((0.35 + dropT * 0.65) * fx.radius * 0.65);
             }
-            soundEngine.playVoidGoo();
-            spawnParticleBurst(fx.tx, fx.ty + 0.35, fx.tz, 28, '#3b0764', fx.radius * 0.75, 4.2, 1.15);
-            spawnParticleBurst(fx.tx, fx.ty + 0.45, fx.tz, 18, '#38bdf8', fx.radius * 0.65, 5.2, 0.9);
-          }
-          const prog = Math.min(1, fx.age / fx.duration);
-          fx.ringMesh.scale.setScalar(0.3 + prog * fx.radius * 1.25);
-          (fx.materials[0] as THREE.MeshBasicMaterial).opacity = (1 - prog) * 0.9;
-          if (fx.outerRingMesh) {
-            fx.outerRingMesh.scale.setScalar(0.2 + prog * fx.radius * 1.45);
-            (fx.materials[1] as THREE.MeshBasicMaterial).opacity = (1 - prog) * 0.82;
+            if (Math.random() < 0.85) {
+              spawnParticleBurst(sx, sy, sz, 2, '#a855f7', 0.4, 1.8, 0.85);
+              spawnParticleBurst(sx, sy, sz, 1, '#38bdf8', 0.3, 1.4, 0.7);
+            }
+          } else {
+            if (!fx.impactFired) {
+              fx.impactFired = true;
+              if (fx.tracerMesh) fx.tracerMesh.visible = false;
+              if (fx.deferImpact) {
+                executeGodPowerImpact(simRef.current, 'void_goo', fx.tx, fx.tz);
+              }
+              soundEngine.playVoidGoo();
+              triggerLightFlash(fx.tx, fx.ty + 1.5, fx.tz, '#a855f7', 22);
+              spawnParticleBurst(fx.tx, fx.ty + 0.35, fx.tz, 32, '#3b0764', fx.radius * 0.75, 4.4, 1.15);
+              spawnParticleBurst(fx.tx, fx.ty + 0.45, fx.tz, 22, '#38bdf8', fx.radius * 0.65, 5.4, 0.95);
+            }
+            const postT = Math.min(1, (fx.age - fx.impactDelay) / Math.max(0.08, fx.duration - fx.impactDelay));
+            fx.ringMesh.scale.setScalar(0.3 + postT * fx.radius * 1.25);
+            (fx.materials[0] as THREE.MeshBasicMaterial).opacity = (1 - postT) * 0.9;
+            if (fx.outerRingMesh) {
+              fx.outerRingMesh.scale.setScalar(0.2 + postT * fx.radius * 1.45);
+              (fx.materials[1] as THREE.MeshBasicMaterial).opacity = (1 - postT) * 0.82;
+            }
           }
         } else if (fx.kind === 'ripple_ring' && fx.ringMesh) {
           if (fx.age >= fx.impactDelay && !fx.impactFired) {
@@ -10526,6 +10934,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       sharedWaveFoamGeo.dispose();
       sharedFaultCrackGeo.dispose();
       sharedTornadoRingGeo.dispose();
+      sharedTornadoFunnelGeo.dispose();
       sharedTornadoCapGeo.dispose();
       sharedDebrisCubeGeo.dispose();
       sharedWhirlpoolDiskGeo.dispose();
@@ -10595,10 +11004,15 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       streetLampHeadGeo.dispose();
       skywayDeckGeo.dispose();
       skywayTrimGeo.dispose();
+      billboardFrameGeo.dispose();
+      billboardScreenGeo.dispose();
       streetPoleMat.dispose();
       streetLampGlowMat.dispose();
       skywayDeckMat.dispose();
       skywayTrimMat.dispose();
+      billboardCyanMat.dispose();
+      billboardPinkMat.dispose();
+      billboardGoldMat.dispose();
       tileGeo.dispose();
       for (const inst of terrainInstancedList) inst.dispose();
       for (const inst of allPropInsts) inst.dispose();

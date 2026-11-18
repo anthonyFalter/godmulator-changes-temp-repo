@@ -1020,13 +1020,22 @@ export function createInitialSimulationState(
         state.sandboxFreeMode = prevFree;
 
         const settlerCount = startingEpochIdx >= 6 ? 8 : 6;
+        if (isWaterStart) {
+          for (let dz = -1; dz <= 1; dz++) {
+            for (let dx = -1; dx <= 1; dx++) {
+              const wt = getTile(state, landTile.x + dx, landTile.z + dz);
+              if (wt && wt.height === 0 && !wt.buildingId) wt.terrain = 'stone_road';
+            }
+          }
+          const sid = state.buildings[0]?.settlementId;
+          if (sid && startingEpochIdx >= 2) {
+            terraformSettlementDistrict(state, sid, startingEpochIdx >= 3);
+            connectSettlementRoads(state, sid);
+          }
+        }
         for (let i = 0; i < settlerCount; i++) {
           const sx = Math.max(2, Math.min(resolvedGridSize - 3, landTile.x + ((i % 3) - 1)));
           const sz = Math.max(2, Math.min(resolvedGridSize - 3, landTile.z + (Math.floor(i / 3) - 1)));
-          if (isWaterStart) {
-            const wt = getTile(state, sx, sz);
-            if (wt && wt.height === 0 && !wt.buildingId) wt.terrain = 'stone_road';
-          }
           spawnUnit(state, 'human', sx, sz, true);
         }
       } else if (rules.startingSettlers === 'pioneers') {
@@ -1042,15 +1051,17 @@ export function createInitialSimulationState(
         }
         state.sandboxFreeMode = prevFree;
         if (isWaterStart) {
+          for (let dz = -1; dz <= 1; dz++) {
+            for (let dx = -1; dx <= 1; dx++) {
+              const wt = getTile(state, landTile.x + dx, landTile.z + dz);
+              if (wt && wt.height === 0 && !wt.buildingId) wt.terrain = 'stone_road';
+            }
+          }
           paveSettlementStreetsNear(state, landTile.x, landTile.z, state.buildings[0]?.settlementId ?? 'city_default');
         }
         for (let i = 0; i < 6; i++) {
           const sx = Math.max(2, Math.min(resolvedGridSize - 3, landTile.x + ((i % 3) - 1)));
           const sz = Math.max(2, Math.min(resolvedGridSize - 3, landTile.z + (Math.floor(i / 3) * 2 - 1)));
-          if (isWaterStart) {
-            const wt = getTile(state, sx, sz);
-            if (wt && wt.height === 0 && !wt.buildingId) wt.terrain = 'stone_road';
-          }
           spawnUnit(state, 'human', sx, sz, true);
         }
       }
@@ -4227,58 +4238,105 @@ export function isSettlementRoadTile(dx: number, dz: number, variant: number): b
 
   switch (variant & 3) {
     case 0: {
-      // Variant 0: Imperial Radial Ring Hub & Grand E-W Boulevard + 45-degree Diagonal Expressway
-      const onInnerRing = Math.abs(r - 4.2) <= 0.50;
-      const onMidRing = Math.abs(r - 8.6) <= 0.50;
-      const onOuterBelt = Math.abs(r - 12.6) <= 0.48;
-      // Wide 2-tile-wide Grand Boulevard East-West + North-South Spine
+      // Variant 0: Metropolitan Grid + Connected Inner & Outer Ring Boulevards + 45-degree Diagonal Expressway
+      const onInnerRing = Math.abs(r - 4.4) <= 0.58;
+      const onMidRing = Math.abs(r - 9.0) <= 0.58;
+      const onOuterBelt = Math.abs(r - 12.6) <= 0.56;
+      // Wide 2-tile-wide Grand Boulevard East-West + North-South Spine + secondary avenues at +-6
       const onGrandBlvd = (dz === 0 || dz === 1) && adx <= 13;
-      const onCrossSpine = dx === 0 && adz <= 13;
-      // Long 45-degree Diagonal Expressway cutting smoothly across quadrants (no sharp 90° turns)
-      const onDiagExpressway = dx === dz && adx >= 4 && adx <= 12;
-      return onInnerRing || onMidRing || onOuterBelt || onGrandBlvd || onCrossSpine || onDiagExpressway;
+      const onCrossSpine = (dx === 0 || (dx === 1 && adz <= 6)) && adz <= 13;
+      const onSecondaryAve = ((adx === 6 && adz <= 10) || (adz === 6 && adx <= 10));
+      const onDiagExpressway = dx === dz && adx >= 3 && adx <= 11;
+      return (
+        onInnerRing ||
+        onMidRing ||
+        onOuterBelt ||
+        onGrandBlvd ||
+        onCrossSpine ||
+        onSecondaryAve ||
+        onDiagExpressway
+      );
     }
     case 1: {
-      // Variant 1: Twin S-Curve Expressways & Sweeping Organic Crescent Avenues
-      const waveZ = Math.round(2.7 * Math.sin(dx * 0.25));
+      // Variant 1: Twin S-Curve Expressways & Sweeping Organic Crescent Avenues joined cleanly to Spine
+      const waveZ = Math.round(2.5 * Math.sin(dx * 0.26));
       const onSCurveExpressway =
-        adx <= 13 && (dz === waveZ || (adx <= 6 && dz === waveZ + 1));
-      // Angled NW-SE Grand Boulevard (gentle 45° arterial crossing)
-      const onAngledBlvd = dx + dz === 1 && adx <= 11 && adz <= 11;
-      const onInnerCrescent = Math.abs(r - 5.2) <= 0.50;
-      const onOuterCrescent = Math.abs(r - 10.4) <= 0.48;
-      return onSCurveExpressway || onAngledBlvd || onInnerCrescent || onOuterCrescent;
+        adx <= 13 && (dz === waveZ || (adx <= 7 && dz === waveZ + 1));
+      const onCrossSpine = dx === 0 && adz <= 12;
+      const onAngledBlvd = dx + dz === 1 && adx <= 10 && adz <= 10;
+      const onInnerCrescent = Math.abs(r - 5.2) <= 0.58;
+      const onOuterCrescent = Math.abs(r - 10.2) <= 0.58;
+      return (
+        onSCurveExpressway ||
+        onCrossSpine ||
+        onAngledBlvd ||
+        onInnerCrescent ||
+        onOuterCrescent
+      );
     }
     case 2: {
       // Variant 2: Rotated Elliptical Boulevard Rings & Starburst Radial Skyways
       const rotX = dx * 0.866 - dz * 0.5;
       const rotZ = dx * 0.5 + dz * 0.866;
       const rEllip = Math.hypot(rotX * 0.84, rotZ * 1.16);
-      const onInnerEllip = Math.abs(rEllip - 4.4) <= 0.50;
-      const onOuterEllip = Math.abs(rEllip - 9.6) <= 0.50;
+      const onInnerEllip = Math.abs(rEllip - 4.4) <= 0.58;
+      const onOuterEllip = Math.abs(rEllip - 9.6) <= 0.58;
       const onCardinalSpokes = (dx === 0 || dz === 0) && maxD <= 12;
       const onDiagSpokes = (dx === dz || dx === -dz) && adx >= 3 && adx <= 11;
-      // 2-tile wide Grand N-S Promenade near center
-      const onNorthSouthBlvd = dx === 1 && adz <= 6;
-      return onInnerEllip || onOuterEllip || onCardinalSpokes || onDiagSpokes || onNorthSouthBlvd;
+      const onNorthSouthBlvd = dx === 1 && adz <= 7;
+      return (
+        onInnerEllip ||
+        onOuterEllip ||
+        onCardinalSpokes ||
+        onDiagSpokes ||
+        onNorthSouthBlvd
+      );
     }
     default: {
       // Variant 3: Riverfront Parabolic Arc Avenue, Three-Lobed Organic Beltway & Gentler 2:1 Sloped Parkway
       const angle = Math.atan2(dz, dx);
       const triLobeR = 9.2 + 1.5 * Math.cos(angle * 3.0);
-      const onOrganicBelt = Math.abs(r - triLobeR) <= 0.50;
+      const onOrganicBelt = Math.abs(r - triLobeR) <= 0.58;
       const paraZ = Math.round(0.048 * dx * dx - 3.6);
       const onParabolicBlvd =
-        adx <= 12 && (dz === paraZ || (adx <= 5 && dz === paraZ + 1));
-      // Gentle ~26.5 degree sloped parkway (runs 2 horizontal for 1 vertical—never an abrupt 90° turn)
+        adx <= 12 && (dz === paraZ || (adx <= 6 && dz === paraZ + 1));
+      const onCrossSpine = (dx === 0 || dz === 0) && maxD <= 11;
       const onSlopedParkway = adx <= 12 && dz === Math.round(dx * 0.5);
-      const onHubRing = Math.abs(r - 4.6) <= 0.48;
-      return onOrganicBelt || onParabolicBlvd || onSlopedParkway || onHubRing;
+      const onHubRing = Math.abs(r - 4.6) <= 0.58;
+      return (
+        onOrganicBelt ||
+        onParabolicBlvd ||
+        onCrossSpine ||
+        onSlopedParkway ||
+        onHubRing
+      );
     }
   }
 }
 
-function paveRailTileIfClean(state: SimulationState, x: number, z: number): boolean {
+function getSettlementTargetGradeHeight(
+  state: SimulationState,
+  anchor: { x: number; z: number },
+  settlementId: string,
+): number {
+  const anchorTile = getTile(state, anchor.x, anchor.z);
+  if (anchorTile && anchorTile.height > 0) {
+    return Math.max(1, Math.min(4, anchorTile.height));
+  }
+  const heights: number[] = [];
+  for (const b of state.buildings) {
+    if ((b.settlementId ?? 'city_default') !== settlementId) continue;
+    const bt = getTile(state, b.tileX, b.tileZ);
+    if (bt && bt.height > 0) heights.push(bt.height);
+  }
+  if (heights.length > 0) {
+    heights.sort((a, b) => a - b);
+    return Math.max(1, Math.min(4, heights[Math.floor(heights.length / 2)]));
+  }
+  return 2;
+}
+
+function paveRailTileIfClean(state: SimulationState, x: number, z: number, targetHeight?: number): boolean {
   const t = getTile(state, x, z);
   if (!t || t.height <= 0 || t.buildingId) return false;
   if (
@@ -4301,9 +4359,12 @@ function paveRailTileIfClean(state: SimulationState, x: number, z: number): bool
       return false;
     }
   }
-  if (t.resourceNode === 'berry_bush' || t.resourceNode === 'timber_grove') {
+  if (t.resourceNode === 'berry_bush' || t.resourceNode === 'timber_grove' || t.resourceNode === 'stone_outcrop') {
     t.resourceNode = 'none';
     t.resourceAmount = 0;
+  }
+  if (targetHeight !== undefined && state.epochIndex >= 3 && Math.abs(t.height - targetHeight) > 0) {
+    t.height = Math.max(1, Math.min(4, targetHeight));
   }
   t.terrain = 'rail_track';
   t.farmSettlementId = undefined;
@@ -4549,6 +4610,8 @@ export function paveSettlementRailNetwork(state: SimulationState, settlementId =
   const anchor = getSettlementAnchorForId(state, settlementId);
   const variant = getSettlementLayoutVariant(state, settlementId, anchor.x, anchor.z);
 
+  const targetHeight = getSettlementTargetGradeHeight(state, anchor, settlementId);
+
   // Wide-distance rounded orbital transit loop (radius 11..13, diameter 22..26 tiles — never a tiny tight loop!)
   // Uses long straight tangents with wide 5-tile 45-degree chamfered corner arcs (chamfer = 5) so tracks curve gradually.
   const metroRadius = 11 + (variant % 3); // 11, 12, or 13
@@ -4559,7 +4622,7 @@ export function paveSettlementRailNetwork(state: SimulationState, settlementId =
   const pushRingPt = (rx: number, rz: number) => {
     const t = getTile(state, anchor.x + rx, anchor.z + rz);
     if (!t) return;
-    paveRailTileIfClean(state, t.x, t.z);
+    paveRailTileIfClean(state, t.x, t.z, targetHeight);
     perimeterRing.push({ x: t.x, z: t.z });
   };
 
@@ -4642,6 +4705,446 @@ export function paveSettlementRailNetwork(state: SimulationState, settlementId =
   }
 }
 
+function canConvertTileToRoad(t: TileData | undefined, allowWater: boolean): t is TileData {
+  if (!t || t.buildingId) return false;
+  if (t.height <= 0 && !allowWater) return false;
+  if (
+    t.terrain === 'crystal_field' ||
+    t.terrain === 'rail_track' ||
+    t.terrain === 'runway' ||
+    t.terrain === 'void_goo'
+  ) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Levels the urban terrain plateau, clears obstacles inside street corridors, smooths perimeter slopes,
+ * and in Atomic/Information/Orbital+ ages constructs engineered Artificial Islands along nearby coastlines.
+ */
+function terraformSettlementDistrict(
+  state: SimulationState,
+  settlementId: string,
+  snapLevel = false,
+): void {
+  if (state.epochIndex < 2) return;
+  const villageBuildings = state.buildings.filter((b) => (b.settlementId ?? 'city_default') === settlementId);
+  if (villageBuildings.length === 0) return;
+
+  const anchor = getSettlementAnchorForId(state, settlementId);
+  const variant = getSettlementLayoutVariant(state, settlementId, anchor.x, anchor.z);
+  const targetHeight = getSettlementTargetGradeHeight(state, anchor, settlementId);
+  const isFloatingSettlement =
+    state.worldTemplate === 'scrap_sea' || (getTile(state, anchor.x, anchor.z)?.height ?? 1) === 0;
+
+  // 1. Grade & flatten urban plateau (expands with technology & city size)
+  const coreRadius = state.epochIndex >= 5 ? 11 : state.epochIndex >= 3 ? 8 : 5;
+  const gradeRadius = coreRadius + 2;
+
+  for (let dz = -gradeRadius; dz <= gradeRadius; dz++) {
+    for (let dx = -gradeRadius; dx <= gradeRadius; dx++) {
+      const t = getTile(state, anchor.x + dx, anchor.z + dz);
+      if (!t || t.height <= 0) continue;
+      const dist = Math.hypot(dx, dz);
+      const onPlannedRoad = isSettlementRoadTile(dx, dz, variant);
+      const isUrbanTile = Boolean(t.buildingId) || t.terrain === 'stone_road' || t.terrain === 'rail_track' || onPlannedRoad;
+
+      if (dist <= coreRadius || isUrbanTile) {
+        if (t.height !== targetHeight) {
+          if (snapLevel || state.epochIndex >= 3 || isUrbanTile) {
+            t.height = targetHeight;
+          } else {
+            t.height += Math.sign(targetHeight - t.height);
+          }
+        }
+        // Clear intrusive boulders / scorched craters inside paved urban cores in Industrial+ ages
+        if (state.epochIndex >= 3 && (onPlannedRoad || t.terrain === 'stone_road')) {
+          if (t.resourceNode === 'stone_outcrop' || t.resourceNode === 'berry_bush') {
+            t.resourceNode = 'none';
+            t.resourceAmount = 0;
+          }
+        }
+        if (state.epochIndex >= 3 && t.terrain === 'scorched' && !t.buildingId && t.onFireTimer <= 0) {
+          t.terrain = 'grass';
+        }
+      } else if (dist <= gradeRadius) {
+        // Gentle stepped apron outside the city plateau so cliffs aren't sheer 3-tier walls
+        const diff = t.height - targetHeight;
+        if (Math.abs(diff) > 1) {
+          t.height -= Math.sign(diff);
+        }
+      }
+    }
+  }
+
+  // 2. Atomic/Information/Orbital+ Artificial Island Reclamation along coastal edges
+  if (state.epochIndex >= 4 && !isFloatingSettlement && villageBuildings.length >= 4) {
+    // Check 4 cardinal coastal quadrants at offset 8 from anchor; construct up to 2 engineered 4x4 island blocks + bridge causeway
+    const islandDirs: ReadonlyArray<[number, number]> = [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ];
+    let islandsBuilt = 0;
+    for (let di = 0; di < islandDirs.length && islandsBuilt < 2; di++) {
+      const [ux, uz] = islandDirs[(di + variant) % islandDirs.length];
+      const cx = anchor.x + ux * 9;
+      const cz = anchor.z + uz * 9;
+      const centerTile = getTile(state, cx, cz);
+      if (!centerTile) continue;
+
+      // Only reclaim if the target block is predominantly water (coastal bay/harbor)
+      let waterTilesInBlock = 0;
+      let validTilesInBlock = 0;
+      for (let oz = -2; oz <= 2; oz++) {
+        for (let ox = -2; ox <= 2; ox++) {
+          const bt = getTile(state, cx + ox, cz + oz);
+          if (!bt || bt.buildingId) continue;
+          validTilesInBlock++;
+          if (bt.height === 0) waterTilesInBlock++;
+        }
+      }
+      if (validTilesInBlock < 16 || waterTilesInBlock < 8) continue;
+
+      // Reclaim a crisp chamfered 5x5 Artificial Island platform with perimeter ring avenue
+      for (let oz = -2; oz <= 2; oz++) {
+        for (let ox = -2; ox <= 2; ox++) {
+          if (Math.abs(ox) === 2 && Math.abs(oz) === 2) continue; // Chamfered octagonal engineered island silhouette
+          const bt = getTile(state, cx + ox, cz + oz);
+          if (!bt || bt.buildingId) continue;
+          bt.height = targetHeight;
+          bt.isRiver = false;
+          bt.isLake = false;
+          bt.farmSettlementId = undefined;
+          if (bt.resourceNode === 'coral_reef' || bt.resourceNode === 'scrap_flotsam' || bt.resourceNode === 'atlantis_ruin') {
+            bt.resourceNode = 'none';
+            bt.resourceAmount = 0;
+          }
+          const isIslandRoad = ox === 0 || oz === 0;
+          if (isIslandRoad && bt.terrain !== 'rail_track' && bt.terrain !== 'runway') {
+            bt.terrain = 'stone_road';
+          } else if (bt.terrain === 'deep_water' || bt.terrain === 'shallow_water') {
+            bt.terrain = 'grass';
+          }
+        }
+      }
+
+      // Connect the Artificial Island cleanly back to the city road spine via a straight engineered causeway
+      for (let step = 4; step <= 7; step++) {
+        const bx = anchor.x + ux * step;
+        const bz = anchor.z + uz * step;
+        const bridgeT = getTile(state, bx, bz);
+        if (canConvertTileToRoad(bridgeT, true)) {
+          bridgeT.height = targetHeight;
+          bridgeT.isRiver = false;
+          bridgeT.isLake = false;
+          bridgeT.terrain = 'stone_road';
+          bridgeT.farmSettlementId = undefined;
+        }
+      }
+      islandsBuilt++;
+    }
+  }
+
+  // 3. Prune stranded single-tile water walkway dots (prevents scattered floating speckles in oceans)
+  const pruneR = 15;
+  for (let dz = -pruneR; dz <= pruneR; dz++) {
+    for (let dx = -pruneR; dx <= pruneR; dx++) {
+      const t = getTile(state, anchor.x + dx, anchor.z + dz);
+      if (!t || t.height !== 0 || t.terrain !== 'stone_road' || t.buildingId) continue;
+      let conn = 0;
+      for (const [ox, oz] of [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ] as const) {
+        const nt = getTile(state, t.x + ox, t.z + oz);
+        if (nt && (nt.terrain === 'stone_road' || Boolean(nt.buildingId))) {
+          conn++;
+        }
+      }
+      if (conn === 0) {
+        t.terrain = 'shallow_water';
+      }
+    }
+  }
+}
+
+/**
+ * Ensures the settlement's masterplan avenues form a single continuous connected road network
+ * and links every building lot onto the main street spine without isolated fragments.
+ */
+function connectSettlementRoads(state: SimulationState, settlementId: string): void {
+  const villageBuildings = state.buildings.filter((b) => (b.settlementId ?? 'city_default') === settlementId);
+  if (villageBuildings.length === 0) return;
+
+  const anchor = getSettlementAnchorForId(state, settlementId);
+  const variant = getSettlementLayoutVariant(state, settlementId, anchor.x, anchor.z);
+  const targetHeight = getSettlementTargetGradeHeight(state, anchor, settlementId);
+  const anchorTile = getTile(state, anchor.x, anchor.z);
+  const isFloatingSettlement = Boolean(anchorTile && anchorTile.height === 0) || state.worldTemplate === 'scrap_sea';
+
+  const planRadius = Math.min(
+    13,
+    state.epochIndex >= 3 ? Math.max(8, 5 + Math.ceil(villageBuildings.length * 0.45)) : 8,
+  );
+
+  // 1. Pave continuous masterplan corridors across the urban footprint
+  for (let dz = -planRadius; dz <= planRadius; dz++) {
+    for (let dx = -planRadius; dx <= planRadius; dx++) {
+      if (!isSettlementRoadTile(dx, dz, variant)) continue;
+      const t = getTile(state, anchor.x + dx, anchor.z + dz);
+      if (!canConvertTileToRoad(t, isFloatingSettlement)) continue;
+      if (t.resourceNode !== 'none') {
+        if (state.epochIndex >= 2 && (t.resourceNode === 'berry_bush' || t.resourceNode === 'stone_outcrop')) {
+          t.resourceNode = 'none';
+          t.resourceAmount = 0;
+        } else {
+          continue;
+        }
+      }
+      if (t.height > 0 && state.epochIndex >= 2) {
+        t.height = targetHeight;
+      }
+      t.terrain = 'stone_road';
+      t.farmSettlementId = undefined;
+    }
+  }
+
+  // 2. Guarantee every building has a continuous L-spur connecting to the main city spine
+  for (const b of villageBuildings) {
+    const ownTile = getTile(state, b.tileX, b.tileZ);
+    if (ownTile && ownTile.terrain === 'stone_road') {
+      ownTile.terrain = ownTile.height === 0 ? 'shallow_water' : 'grass';
+    }
+    const dirs = [
+      [0, 1],
+      [1, 0],
+      [0, -1],
+      [-1, 0],
+    ] as const;
+
+    // Pick closest cardinal frontage toward anchor
+    let startX = b.tileX;
+    let startZ = b.tileZ;
+    let hasFrontRoad = false;
+    let bestFrontDist = Infinity;
+
+    for (const [ox, oz] of dirs) {
+      const nt = getTile(state, b.tileX + ox, b.tileZ + oz);
+      if (!nt || nt.buildingId) continue;
+      if (nt.height <= 0 && !isFloatingSettlement) continue;
+      if (nt.terrain === 'stone_road') {
+        startX = nt.x;
+        startZ = nt.z;
+        hasFrontRoad = true;
+        break;
+      }
+      const d = Math.hypot(nt.x - anchor.x, nt.z - anchor.z);
+      if (d < bestFrontDist) {
+        bestFrontDist = d;
+        startX = nt.x;
+        startZ = nt.z;
+      }
+    }
+
+    if (!hasFrontRoad && (startX !== b.tileX || startZ !== b.tileZ)) {
+      const ft = getTile(state, startX, startZ);
+      if (canConvertTileToRoad(ft, isFloatingSettlement)) {
+        if (ft.resourceNode === 'berry_bush' || ft.resourceNode === 'stone_outcrop') {
+          ft.resourceNode = 'none';
+          ft.resourceAmount = 0;
+        }
+        if (ft.resourceNode === 'none') {
+          if (ft.height > 0 && state.epochIndex >= 2) ft.height = targetHeight;
+          ft.terrain = 'stone_road';
+          ft.farmSettlementId = undefined;
+        }
+      }
+    }
+
+    // If building frontage isn't yet connected along a cardinal walk to the central spine, trace a short L-spur
+    let cx = startX;
+    let cz = startZ;
+    for (let step = 0; step < 8; step++) {
+      const adx = anchor.x - cx;
+      const adz = anchor.z - cz;
+      if (Math.abs(adx) <= 1 && Math.abs(adz) <= 1) break;
+      const curCardRoad =
+        getTile(state, cx + Math.sign(adx), cz)?.terrain === 'stone_road' ||
+        getTile(state, cx, cz + Math.sign(adz))?.terrain === 'stone_road';
+      if (step > 0 && curCardRoad) break;
+
+      const tryFirstX = Math.abs(adx) >= Math.abs(adz);
+      const candidates: Array<[number, number]> = tryFirstX
+        ? [
+            [cx + Math.sign(adx || 1), cz],
+            [cx, cz + Math.sign(adz || 1)],
+          ]
+        : [
+            [cx, cz + Math.sign(adz || 1)],
+            [cx + Math.sign(adx || 1), cz],
+          ];
+
+      let stepped = false;
+      for (const [nx, nz] of candidates) {
+        const nt = getTile(state, nx, nz);
+        if (!nt) continue;
+        if (nt.terrain === 'stone_road') {
+          cx = nx;
+          cz = nz;
+          stepped = true;
+          break;
+        }
+        if (canConvertTileToRoad(nt, isFloatingSettlement)) {
+          if (state.epochIndex >= 2 && (nt.resourceNode === 'berry_bush' || nt.resourceNode === 'stone_outcrop')) {
+            nt.resourceNode = 'none';
+            nt.resourceAmount = 0;
+          }
+          if (nt.resourceNode === 'none') {
+            if (nt.height > 0 && state.epochIndex >= 2) nt.height = targetHeight;
+            nt.terrain = 'stone_road';
+            nt.farmSettlementId = undefined;
+            cx = nx;
+            cz = nz;
+            stepped = true;
+            break;
+          }
+        }
+      }
+      if (!stepped) break;
+    }
+  }
+
+  // 3. Stitch any disconnected 4-way road components into a single unified network (and prune unreachable micro-fragments)
+  const stitchRadius = planRadius + 2;
+  const findComponents = (): TileData[][] => {
+    const roadMap = new Map<string, TileData>();
+    for (let dz = -stitchRadius; dz <= stitchRadius; dz++) {
+      for (let dx = -stitchRadius; dx <= stitchRadius; dx++) {
+        const t = getTile(state, anchor.x + dx, anchor.z + dz);
+        if (t && t.terrain === 'stone_road') {
+          roadMap.set(`${t.x},${t.z}`, t);
+        }
+      }
+    }
+    const seen = new Set<string>();
+    const comps: TileData[][] = [];
+    for (const [key, startTile] of roadMap.entries()) {
+      if (seen.has(key)) continue;
+      const comp: TileData[] = [];
+      const q: TileData[] = [startTile];
+      seen.add(key);
+      while (q.length > 0) {
+        const cur = q.shift()!;
+        comp.push(cur);
+        for (const [ox, oz] of [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ] as const) {
+          const nk = `${cur.x + ox},${cur.z + oz}`;
+          const nt = roadMap.get(nk);
+          if (nt && !seen.has(nk)) {
+            seen.add(nk);
+            q.push(nt);
+          }
+        }
+      }
+      comps.push(comp);
+    }
+    // Sort so the main trunk component (closest to anchor / largest) is at index 0
+    comps.sort((a, b) => {
+      const distA = Math.min(...a.map((t) => Math.hypot(t.x - anchor.x, t.z - anchor.z)));
+      const distB = Math.min(...b.map((t) => Math.hypot(t.x - anchor.x, t.z - anchor.z)));
+      if (Math.abs(distA - distB) > 1.5) return distA - distB;
+      return b.length - a.length;
+    });
+    return comps;
+  };
+
+  const comps = findComponents();
+  if (comps.length > 1) {
+    const mainSet = new Set<string>(comps[0].map((t) => `${t.x},${t.z}`));
+    for (let ci = 1; ci < comps.length; ci++) {
+      const comp = comps[ci];
+      // Find shortest 4-way path from any tile in comp to mainSet
+      let bestPair: { from: TileData; toX: number; toZ: number; dist: number } | null = null;
+      for (const ct of comp) {
+        for (const mk of mainSet) {
+          const [mx, mz] = mk.split(',').map(Number);
+          const d = Math.abs(ct.x - mx) + Math.abs(ct.z - mz);
+          if (!bestPair || d < bestPair.dist) {
+            bestPair = { from: ct, toX: mx, toZ: mz, dist: d };
+          }
+        }
+      }
+      if (bestPair && bestPair.dist <= 8) {
+        // BFS from bestPair.from to mainSet within local bounding box
+        const q: Array<{ x: number; z: number; path: TileData[] }> = [
+          { x: bestPair.from.x, z: bestPair.from.z, path: [] },
+        ];
+        const visitedBfs = new Set<string>([`${bestPair.from.x},${bestPair.from.z}`]);
+        let bridged = false;
+        while (q.length > 0) {
+          const cur = q.shift()!;
+          if (cur.path.length > 8) continue;
+          for (const [ox, oz] of [
+            [1, 0],
+            [-1, 0],
+            [0, 1],
+            [0, -1],
+          ] as const) {
+            const nx = cur.x + ox;
+            const nz = cur.z + oz;
+            const nk = `${nx},${nz}`;
+            if (mainSet.has(nk)) {
+              for (const pt of cur.path) {
+                if (state.epochIndex >= 2 && (pt.resourceNode === 'berry_bush' || pt.resourceNode === 'stone_outcrop')) {
+                  pt.resourceNode = 'none';
+                  pt.resourceAmount = 0;
+                }
+                if (pt.height > 0 && state.epochIndex >= 2) pt.height = targetHeight;
+                pt.terrain = 'stone_road';
+                pt.farmSettlementId = undefined;
+                mainSet.add(`${pt.x},${pt.z}`);
+              }
+              for (const ct of comp) mainSet.add(`${ct.x},${ct.z}`);
+              bridged = true;
+              break;
+            }
+            if (visitedBfs.has(nk)) continue;
+            if (Math.abs(nx - anchor.x) > stitchRadius || Math.abs(nz - anchor.z) > stitchRadius) continue;
+            const nt = getTile(state, nx, nz);
+            if (!nt) continue;
+            const canBridge =
+              nt.terrain === 'stone_road' ||
+              (canConvertTileToRoad(nt, isFloatingSettlement) &&
+                (nt.resourceNode === 'none' ||
+                  (state.epochIndex >= 2 && (nt.resourceNode === 'berry_bush' || nt.resourceNode === 'stone_outcrop'))));
+            if (!canBridge) continue;
+            visitedBfs.add(nk);
+            q.push({ x: nx, z: nz, path: [...cur.path, nt] });
+          }
+          if (bridged) break;
+        }
+      }
+    }
+
+    // Prune any remaining unbridgeable isolated road islands so roads never look fragmented
+    const finalComps = findComponents();
+    for (let ci = 1; ci < finalComps.length; ci++) {
+      for (const orphan of finalComps[ci]) {
+        orphan.terrain = orphan.height === 0 ? 'shallow_water' : 'grass';
+      }
+    }
+  }
+}
+
 function paveSettlementStreetsNear(
   state: SimulationState,
   bx: number,
@@ -4650,32 +5153,32 @@ function paveSettlementStreetsNear(
 ): void {
   const anchor = getSettlementAnchorForId(state, settlementId);
   const variant = getSettlementLayoutVariant(state, settlementId, anchor.x, anchor.z);
+  const targetHeight = getSettlementTargetGradeHeight(state, anchor, settlementId);
 
   const ownTile = getTile(state, bx, bz);
   if (ownTile && ownTile.buildingId && ownTile.terrain === 'stone_road') {
     ownTile.terrain = ownTile.height === 0 ? 'shallow_water' : 'grass';
   }
   const allowWaterWalkways =
-    (ownTile && ownTile.height === 0) ||
-    state.worldTemplate === 'scrap_sea' ||
-    state.epochIndex >= 1;
+    Boolean(ownTile && ownTile.height === 0) || state.worldTemplate === 'scrap_sea';
 
   let pavedAdjacent = false;
-  for (let dz = -4; dz <= 4; dz++) {
-    for (let dx = -4; dx <= 4; dx++) {
+  for (let dz = -5; dz <= 5; dz++) {
+    for (let dx = -5; dx <= 5; dx++) {
       const t = getTile(state, bx + dx, bz + dz);
-      if (!t || t.buildingId || t.resourceNode !== 'none') continue;
-      if (t.height <= 0 && !allowWaterWalkways) continue;
-      if (
-        t.terrain === 'crystal_field' ||
-        t.terrain === 'rail_track' ||
-        t.terrain === 'runway'
-      ) {
-        continue;
+      if (!canConvertTileToRoad(t, allowWaterWalkways)) continue;
+      if (t.resourceNode !== 'none') {
+        if (state.epochIndex >= 2 && (t.resourceNode === 'berry_bush' || t.resourceNode === 'stone_outcrop')) {
+          t.resourceNode = 'none';
+          t.resourceAmount = 0;
+        } else {
+          continue;
+        }
       }
       const relX = t.x - anchor.x;
       const relZ = t.z - anchor.z;
       if (isSettlementRoadTile(relX, relZ, variant)) {
+        if (t.height > 0 && state.epochIndex >= 2) t.height = targetHeight;
         t.terrain = 'stone_road';
         t.farmSettlementId = undefined;
         if (Math.abs(dx) + Math.abs(dz) === 1) pavedAdjacent = true;
@@ -4703,15 +5206,8 @@ function paveSettlementStreetsNear(
     if (!pavedAdjacent) {
       for (const [ox, oz] of dirs) {
         const nt = getTile(state, bx + ox, bz + oz);
-        if (
-          nt &&
-          (nt.height > 0 || allowWaterWalkways) &&
-          !nt.buildingId &&
-          nt.resourceNode === 'none' &&
-          nt.terrain !== 'crystal_field' &&
-          nt.terrain !== 'rail_track' &&
-          nt.terrain !== 'runway'
-        ) {
+        if (canConvertTileToRoad(nt, allowWaterWalkways) && nt.resourceNode === 'none') {
+          if (nt.height > 0 && state.epochIndex >= 2) nt.height = targetHeight;
           nt.terrain = 'stone_road';
           nt.farmSettlementId = undefined;
           break;
@@ -4866,19 +5362,8 @@ export function advanceEpoch(
     const settlementIds = Array.from(new Set(state.buildings.map((b) => b.settlementId ?? 'city_default')));
 
     for (const sid of settlementIds) {
-      const cityAnchor = getSettlementAnchorForId(state, sid);
-      const variant = getSettlementLayoutVariant(state, sid, cityAnchor.x, cityAnchor.z);
-      const radius = state.epochIndex >= 3 ? 13 : 8;
-      for (let dz = -radius; dz <= radius; dz++) {
-        for (let dx = -radius; dx <= radius; dx++) {
-          if (!isSettlementRoadTile(dx, dz, variant)) continue;
-          const pt = getTile(state, cityAnchor.x + dx, cityAnchor.z + dz);
-          if (pt && pt.height > 0 && !pt.buildingId && pt.resourceNode === 'none' && pt.terrain !== 'rail_track') {
-            pt.terrain = 'stone_road';
-            pt.farmSettlementId = undefined;
-          }
-        }
-      }
+      terraformSettlementDistrict(state, sid, true);
+      connectSettlementRoads(state, sid);
       if (state.epochIndex >= 3) {
         paveSettlementRailNetwork(state, sid);
       }
@@ -5229,11 +5714,13 @@ function transformSettlementEnvironment(
     ownTile.terrain = 'grass';
   }
 
-  // 1. Era-driven street, rail, runway & high-tech terrain transformation around completed buildings
+  // 1. Era-driven terrain flattening, artificial islands, connected streets & rail/runway transformation
   const pKid = getKingdomId(state, sid);
   const pStock = ensureKingdomResources(state, pKid);
+  terraformSettlementDistrict(state, sid, false);
   if (state.epochIndex >= 1 && (state.sandboxFreeMode || pStock.stone >= 8)) {
     if (!state.sandboxFreeMode) pStock.stone = Math.max(0, pStock.stone - 4);
+    connectSettlementRoads(state, sid);
     paveSettlementStreetsNear(state, sampleBld.tileX, sampleBld.tileZ, sid);
     syncStateResourcesFromKingdoms(state);
   }

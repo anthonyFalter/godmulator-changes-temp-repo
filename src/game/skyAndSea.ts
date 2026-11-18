@@ -1193,17 +1193,34 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
               ? mix(landSrgb(255.0, 214.0, 120.0), landSrgb(86.0, 207.0, 225.0), step(0.5, tileHash))
               : landSrgb(255.0, 198.0, 92.0);
         float streetCone = 0.0;
+        vec3 neonPlazaCol = streetCol;
         if (abs(myCode - 9.0) < 0.5) {
           float dL1 = length(subUv - vec2(0.20, 0.22));
           float dL2 = length(subUv - vec2(0.80, 0.78));
           streetCone = max(smoothstep(0.48, 0.04, dL1), smoothstep(0.48, 0.04, dL2));
+          if (isInfo) {
+            // Vibrant Times Square / Shibuya Scramble Broadway-Tokyo corner neon spill
+            float cycle = fract(tileHash * 3.7 + floor(tTime * 1.4) * 0.25);
+            vec3 tsNeon = isElfSpec
+              ? mix(landSrgb(82.0, 242.0, 200.0), landSrgb(160.0, 232.0, 255.0), step(0.5, cycle))
+              : isOrcSpec
+                ? mix(landSrgb(255.0, 72.0, 32.0), landSrgb(255.0, 196.0, 48.0), step(0.5, cycle))
+                : cycle < 0.34
+                  ? landSrgb(56.0, 214.0, 245.0)
+                  : cycle < 0.68
+                    ? landSrgb(245.0, 76.0, 178.0)
+                    : landSrgb(255.0, 214.0, 76.0);
+            float cornerMask = step(0.58, max(abs(subUv.x - 0.5), abs(subUv.y - 0.5)) * 2.0);
+            neonPlazaCol = mix(streetCol, tsNeon, 0.55 + cornerMask * 0.35);
+            streetCone = max(streetCone, cornerMask * 0.65);
+          }
         } else if (abs(myCode - 21.0) < 0.5) {
           // Runway centerline & edge night lighting
           float across = min(abs(subUv.x - 0.5), abs(subUv.y - 0.5));
           streetCone = step(across, 0.05) * 0.85 + step(abs(across - 0.36), 0.04) * 0.95;
         }
         float pool = clamp(steppedBld * 1.05 + steppedRoad * 0.68 + streetCone * 0.95, 0.0, 1.55);
-        vec3 col = mix(cityBlockCol, streetCol, clamp(streetCone * 0.75 + steppedRoad * 0.35, 0.0, 1.0));
+        vec3 col = mix(cityBlockCol, neonPlazaCol, clamp(streetCone * 0.78 + steppedRoad * 0.35, 0.0, 1.0));
         return col * pool * nightStrength * 0.98;
       } else {
         // ORBITAL & INTERSTELLAR AGES: Bioluminescent arcology grids, cyan/gold plasma conduits & star-city halos
@@ -1607,7 +1624,15 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         if (diagSE) dRoad = min(dRoad, sdSeg(rp, vec2(0.5), vec2(1.0, 1.0), tmpT));
       }
 
-      // Interior quadrant continuity for multi-lane boulevards & expressways
+      // Smooth corner union for adjacent cardinal road tiles (prevents inner grass wedges at L/T junctions)
+      if ((rp.x < 0.5 && rp.y < 0.5 && rN && rW) ||
+          (rp.x >= 0.5 && rp.y < 0.5 && rN && rE) ||
+          (rp.x < 0.5 && rp.y >= 0.5 && rS && rW) ||
+          (rp.x >= 0.5 && rp.y >= 0.5 && rS && rE)) {
+        dRoad = min(dRoad, 0.28);
+      }
+
+      // Interior quadrant continuity for multi-lane boulevards & plazas (all 4 corners flush)
       if ((rp.x < 0.5 && rp.y < 0.5 && rN && rW && rNW) ||
           (rp.x >= 0.5 && rp.y < 0.5 && rN && rE && rNE) ||
           (rp.x < 0.5 && rp.y >= 0.5 && rS && rW && rSW) ||
@@ -1615,13 +1640,16 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         dRoad = 0.0;
       }
 
-      if (dRoad > 0.36) {
+      // Extend paved pedestrian sidewalk apron cleanly out to 0.48 so streets never show green gaps
+      if (dRoad > 0.475) {
         return marginCol;
       }
 
+      bool isSidewalkApron = dRoad > 0.34;
       bool isStraightNS = (rN || rS) && !rW && !rE && diagCount < 0.5;
       bool isStraightWE = (rW || rE) && !rN && !rS && diagCount < 0.5;
-      bool isJunction = totalConn >= 3.0 && !isWideBlvd;
+      bool isJunction = cardCount >= 3.0 || (totalConn >= 3.0 && !isWideBlvd);
+      bool isPlazaHub = (rN && rS && rW && rE) || (isWideBlvd && (cardCount >= 3.0 || totalConn >= 4.0));
       bool onCenterHub = max(abs(rp.x - 0.5), abs(rp.y - 0.5)) < 0.25;
 
       bool armVertical = isStraightNS ||
@@ -1630,12 +1658,14 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
       if (isStraightWE || blvdNorth || blvdSouth) armVertical = false;
       if (blvdEast || blvdWest) armVertical = true;
 
-      // Boulevard shared-median border mask (places green/curb/double-yellow expressway median cleanly between 2-lane strips)
+      // Subtle continuous shared-median divider only along straight 2-wide expressway axis (zero checkerboard boxes!)
       float blvdMedian = 0.0;
-      if (blvdSouth && rp.y > 0.88) blvdMedian = 1.0;
-      if (blvdNorth && rp.y < 0.12) blvdMedian = 1.0;
-      if (blvdEast && rp.x > 0.88) blvdMedian = 1.0;
-      if (blvdWest && rp.x < 0.12) blvdMedian = 1.0;
+      if (isWideBlvd && !isPlazaHub) {
+        if (blvdSouth && !rN && rp.y > 0.935) blvdMedian = 1.0;
+        if (blvdNorth && !rS && rp.y < 0.065) blvdMedian = 1.0;
+        if (blvdEast && !rW && rp.x > 0.935) blvdMedian = 1.0;
+        if (blvdWest && !rE && rp.x < 0.065) blvdMedian = 1.0;
+      }
 
       float noiseVal = landHash12(pixPos * 16.0);
 
@@ -1645,6 +1675,9 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         vec3 woodPlank = landSrgb(162.0, 124.0, 84.0);
         vec3 darkMud   = landSrgb(98.0, 72.0, 46.0);
 
+        if (isSidewalkApron) {
+          return mix(dirtBase, darkMud, step(0.48, noiseVal) * 0.55);
+        }
         if (dRoad > 0.27) {
           return mix(dirtBase, darkMud, step(0.55, noiseVal) * 0.65);
         }
@@ -1669,21 +1702,25 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         return mix(c, darkMud, plankSeam * 0.72);
 
       } else if (uEpoch < 3.5) {
-        // Classical & Industrial Ages: Oriented cobblestone courses, stone curb edges & tree-lined boulevard medians
+        // Classical & Industrial Ages: Dressed stone sidewalks, seamless granite curbs & oriented cobblestones
         vec3 base = landSrgb(168.0, 148.0, 130.0);
         vec3 hi   = landSrgb(202.0, 182.0, 158.0);
         vec3 sh   = landSrgb(110.0, 95.0, 82.0);
-        vec3 curb = landSrgb(134.0, 120.0, 106.0);
+        vec3 curb = landSrgb(142.0, 128.0, 114.0);
+        vec3 flagstone = landSrgb(188.0, 174.0, 154.0);
+
+        if (isSidewalkApron) {
+          float slabSeam = max(step(0.84, fract(rp.x * 4.0)), step(0.84, fract(rp.y * 4.0)));
+          return mix(flagstone, sh, slabSeam * 0.45);
+        }
 
         if (blvdMedian > 0.5) {
-          // Parkway boulevard median strip with greenery & dressed stone curb
-          float shrub = step(0.42, landHash12(floor(pixPos * 4.0)));
-          return mix(landSrgb(84.0, 132.0, 68.0), landSrgb(186.0, 170.0, 144.0), shrub * 0.45);
+          return mix(curb, hi, 0.35);
         }
 
         if (dRoad > 0.28) {
           float curbJoint = step(0.78, fract((rp.x + rp.y) * 4.0));
-          return mix(curb, sh, curbJoint * 0.7);
+          return mix(curb, sh, curbJoint * 0.55);
         }
 
         float mortar = 0.0;
@@ -1718,37 +1755,69 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         }
 
         vec3 c = mix(base, hi, step(0.55, toneSeed));
-        return mix(c, sh, mortar * 0.82);
+        return mix(c, sh, mortar * 0.78);
 
       } else if (uEpoch < 5.5) {
-        // Atomic & Information Ages: Smooth curved asphalt highways, divided multi-lane Boulevards/Expressways & crosswalks
+        // Atomic & Information Ages: Continuous connected asphalt streets, stone/concrete sidewalks & Times Square Scramble Plazas
         bool isInfoAge = uEpoch >= 4.5;
-        vec3 asphalt = isInfoAge ? landSrgb(44.0, 50.0, 58.0) : landSrgb(54.0, 60.0, 68.0);
-        vec3 curbCol = isInfoAge ? landSrgb(164.0, 174.0, 184.0) : landSrgb(142.0, 150.0, 158.0);
+        vec3 asphalt = isInfoAge ? landSrgb(42.0, 48.0, 56.0) : landSrgb(54.0, 60.0, 68.0);
+        vec3 sidewalk = isInfoAge ? landSrgb(138.0, 146.0, 158.0) : landSrgb(126.0, 134.0, 144.0);
+        vec3 curbCol = isInfoAge ? landSrgb(172.0, 182.0, 192.0) : landSrgb(150.0, 158.0, 168.0);
         vec3 laneYellow = landSrgb(245.0, 206.0, 72.0);
         vec3 markWhite  = landSrgb(236.0, 242.0, 248.0);
 
-        if (blvdMedian > 0.5) {
-          // Expressway double-amber barrier + green parkway island
-          if (isInfoAge && (rp.y > 0.92 || rp.y < 0.08 || rp.x > 0.92 || rp.x < 0.08)) {
-            return landSrgb(82.0, 136.0, 74.0);
+        if (isSidewalkApron) {
+          float paverJoint = max(step(0.86, fract(rp.x * 4.0)), step(0.86, fract(rp.y * 4.0)));
+          vec3 sw = mix(sidewalk, curbCol, paverJoint * 0.45);
+          // Times Square / Shibuya bright illuminated neon curb accent near corners in Info Age
+          if (isInfoAge && isJunction) {
+            float cornerBand = step(0.62, max(abs(rp.x - 0.5), abs(rp.y - 0.5)) * 2.0);
+            vec3 neonCurb = mod(floor(tTime * 1.2 + pixPos.x + pixPos.y), 2.0) < 1.0
+              ? landSrgb(86.0, 207.0, 225.0)
+              : landSrgb(245.0, 82.0, 178.0);
+            sw = mix(sw, neonCurb, cornerBand * 0.38);
           }
+          return sw;
+        }
+
+        if (blvdMedian > 0.5) {
           return laneYellow;
         }
 
-        if (dRoad > 0.29) {
-          return mix(curbCol, asphalt, 0.10);
+        if (dRoad > 0.295) {
+          return mix(curbCol, asphalt, 0.14);
         }
 
-        vec3 c = mix(asphalt, landSrgb(62.0, 68.0, 76.0), step(0.86, noiseVal) * 0.55);
+        vec3 c = mix(asphalt, landSrgb(58.0, 64.0, 74.0), step(0.86, noiseVal) * 0.45);
 
-        if (isWideBlvd) {
-          // Multi-lane expressway dashed white lane dividers inside each half of the boulevard
+        if (isPlazaHub || (isInfoAge && isJunction)) {
+          // Times Square / Shibuya Scramble Crossing: cardinal zebra crosswalks + diagonal scramble stripes + neon hub rim
+          bool inLaneX = abs(rp.x - 0.5) < 0.28;
+          bool inLaneY = abs(rp.y - 0.5) < 0.28;
+          float xwalk = 0.0;
+          if (rN && abs(roadPix.y - 1.5) < 0.85 && inLaneX && mod(roadPix.x, 2.0) < 1.0) xwalk = 1.0;
+          if (rS && abs(roadPix.y - 13.5) < 0.85 && inLaneX && mod(roadPix.x, 2.0) < 1.0) xwalk = 1.0;
+          if (rW && abs(roadPix.x - 1.5) < 0.85 && inLaneY && mod(roadPix.y, 2.0) < 1.0) xwalk = 1.0;
+          if (rE && abs(roadPix.x - 13.5) < 0.85 && inLaneY && mod(roadPix.y, 2.0) < 1.0) xwalk = 1.0;
+
+          if (isInfoAge) {
+            // Shibuya diagonal X-scramble crosswalk lines across central square
+            float diagD1 = abs(rp.x - rp.y);
+            float diagD2 = abs(rp.x + rp.y - 1.0);
+            float diagStripe = step(min(diagD1, diagD2), 0.12) * step(0.45, fract((rp.x + rp.y) * 8.0)) * step(length(rp - vec2(0.5)), 0.36);
+            xwalk = max(xwalk, diagStripe * 0.88);
+            // Warm gold / cyan Times Square plaza beacon medallion at intersection center
+            float hubRing = step(abs(length(rp - vec2(0.5)) - 0.11), 0.032);
+            c = mix(c, laneYellow, hubRing * 0.72);
+          }
+          return mix(c, markWhite, xwalk * 0.94);
+        } else if (isWideBlvd) {
+          // Smooth multi-lane expressway dashed white lane dividers inside each half of the boulevard
           bool horizBlvd = blvdSouth || blvdNorth;
           float lanePos = horizBlvd ? rp.y : rp.x;
           float alongPix = horizBlvd ? roadPix.x : roadPix.y;
           float dash = step(mod(alongPix, 4.0), 1.5);
-          float whiteLane = step(abs(lanePos - 0.48), 0.036) * dash;
+          float whiteLane = step(abs(lanePos - 0.50), 0.036) * dash;
           return mix(c, markWhite, whiteLane * 0.90);
         } else if (totalConn < 0.5) {
           return c;
@@ -1793,11 +1862,16 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         }
 
       } else {
-        // Orbital & Interstellar Ages (uEpoch >= 5.5): Directional titanium mag-lev transit deck & curved cyan guide rails
+        // Orbital & Interstellar Ages (uEpoch >= 5.5): Continuous titanium promenade sidewalks & mag-lev transit plazas
         vec3 alloyDeck = landSrgb(38.0, 50.0, 64.0);
         vec3 alloySeam = landSrgb(24.0, 32.0, 42.0);
+        vec3 alloyWalk = landSrgb(96.0, 114.0, 134.0);
         vec3 cyanNeon  = landSrgb(86.0, 207.0, 225.0);
 
+        if (isSidewalkApron) {
+          float gridBorder = max(step(0.88, fract(rp.x * 4.0)), step(0.88, fract(rp.y * 4.0)));
+          return mix(alloyWalk, cyanNeon * 0.55, gridBorder * 0.45);
+        }
         if (blvdMedian > 0.5) {
           return mix(cyanNeon, landSrgb(250.0, 210.0, 96.0), 0.45);
         }
@@ -1823,8 +1897,8 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         } else if (isSmoothSpline) {
           float splineFlow = step(0.45, fract(splineT * 4.0 + tTime * 2.0));
           pulse = step(dRoad, 0.042) * splineFlow;
-        } else if (isJunction) {
-          float hubRing = step(abs(length(rp - vec2(0.5)) - 0.13), 0.04);
+        } else if (isJunction || isPlazaHub) {
+          float hubRing = step(abs(length(rp - vec2(0.5)) - 0.14), 0.045);
           float armPulse = 0.0;
           if (rN && rp.y < 0.34 && abs(rp.x - 0.5) < 0.04) armPulse = step(1.0, mod(roadPix.y + flowOffset, 4.0));
           if (rS && rp.y > 0.66 && abs(rp.x - 0.5) < 0.04) armPulse = step(1.0, mod(roadPix.y - flowOffset, 4.0));
@@ -2062,7 +2136,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
     roughness: 0.84,
     metalness: 0.08,
   });
-  cliffMat.customProgramCacheKey = () => 'aeon_cliff_pixel_v7';
+  cliffMat.customProgramCacheKey = () => 'aeon_cliff_pixel_v8';
   cliffMat.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = sharedTime;
     shader.uniforms.uEpoch = sharedEpoch;
@@ -2095,6 +2169,10 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         bool isCraterWall = abs(ownerCode - 12.0) < 0.5 || abs(neighborCode - 12.0) < 0.5;
         bool isBadlandsWall = abs(ownerCode - 19.0) < 0.5 || abs(neighborCode - 19.0) < 0.5;
         bool isMountainWall = abs(ownerCode - 16.0) < 0.5 || abs(ownerCode - 11.0) < 0.5;
+        bool isUrbanRetainingWall =
+          !isVoidWall && !isCraterWall &&
+          (abs(ownerCode - 9.0) < 0.5 || abs(ownerCode - 14.0) < 0.5 || abs(ownerCode - 21.0) < 0.5 ||
+           (uEpoch >= 3.5 && neighborCode < 1.5));
 
         float strata = landNoise(vec2(wallChunk.x * 0.65, wallChunk.y * 2.2));
         float brickRow = floor(wallPix.y * 4.0);
@@ -2102,44 +2180,69 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         float seam = step(0.86, fract(wallPix.y * 4.0)) + step(0.91, fract((wallPix.x + mod(brickRow, 2.0) * 0.25) * 2.0));
         float brickTone = landHash12(vec2(brickCol, brickRow));
 
-        vec3 stoneBase = isVoidWall
-          ? vec3(0.015, 0.008, 0.035)
-          : isCraterWall
-          ? landSrgb(48.0, 36.0, 34.0)
-          : isBadlandsWall
-            ? landSrgb(162.0, 82.0, 48.0)
-            : isMountainWall
-              ? landSrgb(88.0, 96.0, 106.0)
-              : landSrgb(74.0, 89.0, 95.0);
-        vec3 stoneHi = isVoidWall
-          ? landSrgb(58.0, 24.0, 96.0)
-          : isCraterWall
-          ? landSrgb(78.0, 52.0, 42.0)
-          : isBadlandsWall
-            ? landSrgb(206.0, 122.0, 72.0)
-            : isMountainWall
-              ? landSrgb(126.0, 136.0, 146.0)
-              : landSrgb(104.0, 122.0, 129.0);
-        vec3 stoneSh = isVoidWall
-          ? vec3(0.004, 0.002, 0.012)
-          : isCraterWall
-          ? landSrgb(24.0, 17.0, 18.0)
-          : isBadlandsWall
-            ? landSrgb(106.0, 52.0, 32.0)
-            : isMountainWall
-              ? landSrgb(54.0, 60.0, 68.0)
-              : landSrgb(45.0, 56.0, 61.0);
+        vec3 cliffCol;
+        if (isUrbanRetainingWall) {
+          if (uEpoch >= 3.5) {
+            // Dressed architectural concrete seawall / retaining caisson with horizontal joints & subtle safety stripe
+            vec3 concBase = uEpoch >= 5.5 ? landSrgb(112.0, 126.0, 144.0) : landSrgb(122.0, 130.0, 138.0);
+            vec3 concHi   = uEpoch >= 5.5 ? landSrgb(148.0, 164.0, 184.0) : landSrgb(154.0, 162.0, 170.0);
+            vec3 concSh   = uEpoch >= 5.5 ? landSrgb(68.0, 78.0, 92.0)    : landSrgb(74.0, 82.0, 90.0);
+            float panelSeam = max(step(0.88, fract(wallPix.y * 2.5)), step(0.90, fract(wallPix.x * 1.5)));
+            float panelTone = landHash12(floor(vec2(wallPix.x * 1.5, wallPix.y * 2.5)));
+            cliffCol = mix(concBase, concHi, step(0.62, panelTone));
+            cliffCol = mix(cliffCol, concSh, panelSeam * 0.72);
+            if (uEpoch >= 5.5 && abs(fract(wallPix.y * 1.2) - 0.5) < 0.08) {
+              cliffCol = mix(cliffCol, landSrgb(86.0, 207.0, 225.0), 0.52);
+            }
+          } else {
+            // Dressed ashlar stone retaining wall (Classical / Medieval / Industrial)
+            vec3 ashlarBase = landSrgb(126.0, 120.0, 114.0);
+            vec3 ashlarHi   = landSrgb(158.0, 152.0, 142.0);
+            vec3 ashlarSh   = landSrgb(78.0, 74.0, 70.0);
+            cliffCol = mix(ashlarSh, ashlarBase, step(0.28, brickTone));
+            cliffCol = mix(cliffCol, ashlarHi, step(0.68, brickTone));
+            cliffCol = mix(cliffCol, ashlarSh, clamp(seam, 0.0, 1.0) * 0.78);
+          }
+        } else {
+          vec3 stoneBase = isVoidWall
+            ? vec3(0.015, 0.008, 0.035)
+            : isCraterWall
+            ? landSrgb(48.0, 36.0, 34.0)
+            : isBadlandsWall
+              ? landSrgb(162.0, 82.0, 48.0)
+              : isMountainWall
+                ? landSrgb(88.0, 96.0, 106.0)
+                : landSrgb(74.0, 89.0, 95.0);
+          vec3 stoneHi = isVoidWall
+            ? landSrgb(58.0, 24.0, 96.0)
+            : isCraterWall
+            ? landSrgb(78.0, 52.0, 42.0)
+            : isBadlandsWall
+              ? landSrgb(206.0, 122.0, 72.0)
+              : isMountainWall
+                ? landSrgb(126.0, 136.0, 146.0)
+                : landSrgb(104.0, 122.0, 129.0);
+          vec3 stoneSh = isVoidWall
+            ? vec3(0.004, 0.002, 0.012)
+            : isCraterWall
+            ? landSrgb(24.0, 17.0, 18.0)
+            : isBadlandsWall
+              ? landSrgb(106.0, 52.0, 32.0)
+              : isMountainWall
+                ? landSrgb(54.0, 60.0, 68.0)
+                : landSrgb(45.0, 56.0, 61.0);
 
-        vec3 cliffCol = mix(stoneSh, stoneBase, step(0.32, strata * 0.7 + brickTone * 0.3));
-        cliffCol = mix(cliffCol, stoneHi, step(0.68, strata * 0.65 + brickTone * 0.35));
-        cliffCol = mix(cliffCol, stoneSh, clamp(seam, 0.0, 1.0) * 0.65);
+          cliffCol = mix(stoneSh, stoneBase, step(0.32, strata * 0.7 + brickTone * 0.3));
+          cliffCol = mix(cliffCol, stoneHi, step(0.68, strata * 0.65 + brickTone * 0.35));
+          cliffCol = mix(cliffCol, stoneSh, clamp(seam, 0.0, 1.0) * 0.65);
 
-        if (isVoidWall) {
-          float wallStar = landHash12(floor(wallPix * 16.0 + vec2(uTime * 2.2, -uTime * 1.4)));
-          if (wallStar > 0.962) cliffCol = mix(cliffCol, vec3(0.75, 0.62, 1.0), 0.92);
-        } else if (isCraterWall) {
-          float emberVein = step(0.82, strata * 0.6 + brickTone * 0.4);
-          cliffCol = mix(cliffCol, landSrgb(245.0, 98.0, 28.0), emberVein * 0.75);
+          if (isVoidWall) {
+            float wallStar = landHash12(floor(wallPix * 16.0 + vec2(uTime * 2.2, -uTime * 1.4)));
+            if (wallStar > 0.962) cliffCol = mix(cliffCol, vec3(0.75, 0.62, 1.0), 0.92);
+          } else if (isCraterWall) {
+            float emberVein = step(0.82, strata * 0.6 + brickTone * 0.4);
+            cliffCol = mix(cliffCol, landSrgb(245.0, 98.0, 28.0), emberVein * 0.75);
+          }
         }
 
         // Dynamic time-of-day directional cliff face shading (east sunrise vs west sunset vs indigo midnight)
@@ -2203,7 +2306,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
       roughness,
       metalness,
     });
-    topMat.customProgramCacheKey = () => 'aeon_land_top_pixel_v13';
+    topMat.customProgramCacheKey = () => 'aeon_land_top_pixel_v14';
     topMat.onBeforeCompile = (shader) => {
       shader.uniforms.uTime = sharedTime;
       shader.uniforms.uEpoch = sharedEpoch;
@@ -2278,16 +2381,21 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
 
           // 0b. Connected Street Ribbon (stone_road = 9.0) & Grade Crossing Rails:
           if (abs(myCode - 9.0) < 0.5) {
-            bool rN = abs(cN - 9.0) < 0.5;
-            bool rS = abs(cS - 9.0) < 0.5;
-            bool rW = abs(cW - 9.0) < 0.5;
-            bool rE = abs(cE - 9.0) < 0.5;
-            bool rNW = abs(decodeTerrain(sampleLandTile(tileCoord + vec2(-1.0, -1.0))) - 9.0) < 0.5;
-            bool rNE = abs(decodeTerrain(sampleLandTile(tileCoord + vec2( 1.0, -1.0))) - 9.0) < 0.5;
-            bool rSW = abs(decodeTerrain(sampleLandTile(tileCoord + vec2(-1.0,  1.0))) - 9.0) < 0.5;
-            bool rSE = abs(decodeTerrain(sampleLandTile(tileCoord + vec2( 1.0,  1.0))) - 9.0) < 0.5;
+            float cNW = decodeTerrain(sampleLandTile(tileCoord + vec2(-1.0, -1.0)));
+            float cNE = decodeTerrain(sampleLandTile(tileCoord + vec2( 1.0, -1.0)));
+            float cSW = decodeTerrain(sampleLandTile(tileCoord + vec2(-1.0,  1.0)));
+            float cSE = decodeTerrain(sampleLandTile(tileCoord + vec2( 1.0,  1.0)));
+            bool rN = abs(cN - 9.0) < 0.5 || abs(cN - 21.0) < 0.5;
+            bool rS = abs(cS - 9.0) < 0.5 || abs(cS - 21.0) < 0.5;
+            bool rW = abs(cW - 9.0) < 0.5 || abs(cW - 21.0) < 0.5;
+            bool rE = abs(cE - 9.0) < 0.5 || abs(cE - 21.0) < 0.5;
+            bool rNW = abs(cNW - 9.0) < 0.5 || abs(cNW - 21.0) < 0.5;
+            bool rNE = abs(cNE - 9.0) < 0.5 || abs(cNE - 21.0) < 0.5;
+            bool rSW = abs(cSW - 9.0) < 0.5 || abs(cSW - 21.0) < 0.5;
+            bool rSE = abs(cSE - 9.0) < 0.5 || abs(cSE - 21.0) < 0.5;
 
-            float marginBiome = 3.0;
+            bool isBridgeTile = myHeight < 0.5 || cN < 1.5 || cS < 1.5 || cW < 1.5 || cE < 1.5;
+            float marginBiome = -1.0;
             if (!rN && subUv.y < 0.35 && cN >= 2.0 && abs(cN - 9.0) > 0.5 && abs(cN - 14.0) > 0.5) {
               marginBiome = cN;
             } else if (!rS && subUv.y > 0.65 && cS >= 2.0 && abs(cS - 9.0) > 0.5 && abs(cS - 14.0) > 0.5) {
@@ -2304,8 +2412,29 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
               marginBiome = cW;
             } else if (!rE && cE >= 2.0 && abs(cE - 9.0) > 0.5 && abs(cE - 14.0) > 0.5) {
               marginBiome = cE;
+            } else if (cNW >= 2.0 && abs(cNW - 9.0) > 0.5 && abs(cNW - 14.0) > 0.5) {
+              marginBiome = cNW;
+            } else if (cNE >= 2.0 && abs(cNE - 9.0) > 0.5 && abs(cNE - 14.0) > 0.5) {
+              marginBiome = cNE;
+            } else if (cSW >= 2.0 && abs(cSW - 9.0) > 0.5 && abs(cSW - 14.0) > 0.5) {
+              marginBiome = cSW;
+            } else if (cSE >= 2.0 && abs(cSE - 9.0) > 0.5 && abs(cSE - 14.0) > 0.5) {
+              marginBiome = cSE;
             }
-            vec3 marginCol = computeBiomeColor(marginBiome, pixPos, chunkPos, subUv, uTime, false);
+
+            vec3 marginCol;
+            if (isBridgeTile || marginBiome < 0.0) {
+              // Engineered bridge/causeway parapet shoulder instead of green grass on bridges & urban districts!
+              marginCol = uEpoch < 1.5
+                ? landSrgb(120.0, 88.0, 58.0)
+                : uEpoch < 3.5
+                  ? landSrgb(156.0, 146.0, 134.0)
+                  : uEpoch < 5.5
+                    ? landSrgb(132.0, 142.0, 156.0)
+                    : landSrgb(68.0, 84.0, 102.0);
+            } else {
+              marginCol = computeBiomeColor(marginBiome, pixPos, chunkPos, subUv, uTime, false);
+            }
             col = computeRoadColor(pixPos, subUv, uTime, rN, rS, rW, rE, rNW, rNE, rSW, rSE, marginCol);
 
             // Overlay gleaming steel crossing rails only for ground-level rail crossings (uEpoch < 4.5); elevated metro bridges overhead

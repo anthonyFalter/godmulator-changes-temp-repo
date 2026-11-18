@@ -1927,6 +1927,30 @@ function getBuildingMaterials(): Record<string, THREE.MeshStandardMaterial> {
       metalness: 0.58,
       roughness: 0.54,
     }),
+    neonMagentaMat: new THREE.MeshStandardMaterial({
+      color: 0xff2a85,
+      emissive: 0xff1476,
+      emissiveIntensity: 1.15,
+      roughness: 0.16,
+    }),
+    neonAmberMat: new THREE.MeshStandardMaterial({
+      color: 0xffbe0b,
+      emissive: 0xff9f1c,
+      emissiveIntensity: 1.1,
+      roughness: 0.18,
+    }),
+    neonLimeMat: new THREE.MeshStandardMaterial({
+      color: 0x38ef7d,
+      emissive: 0x10b981,
+      emissiveIntensity: 1.05,
+      roughness: 0.18,
+    }),
+    neonBillboardMat: new THREE.MeshStandardMaterial({
+      map: getPixelArtTexture('bld_neon_billboard', '#0ea5e9', '#f43f5e', '#1e1b4b', 'tech'),
+      emissive: 0x38bdf8,
+      emissiveIntensity: 0.95,
+      roughness: 0.15,
+    }),
   };
   return sharedBuildingMats;
 }
@@ -1965,6 +1989,14 @@ export function updateBuildingNightMaterials(darkness: number, elapsed: number):
   M.glowCyanMat.emissiveIntensity = 0.85 + nightSmooth * 1.45;
   M.elfAquaGlowMat.emissiveIntensity = 0.9 + nightSmooth * 1.55;
   M.orcMagmaGlowMat.emissiveIntensity = (0.95 + nightSmooth * 1.65) * (0.92 + 0.08 * flicker);
+
+  // Times Square / Tokyo LED billboards & vertical neon signs pulse vividly day and night
+  const neonPulseA = 0.88 + 0.12 * Math.sin(safeElapsed * 5.4);
+  const neonPulseB = 0.88 + 0.12 * Math.cos(safeElapsed * 6.8 + 1.1);
+  M.neonMagentaMat.emissiveIntensity = (0.95 + nightSmooth * 1.65) * neonPulseA;
+  M.neonAmberMat.emissiveIntensity = (0.9 + nightSmooth * 1.55) * neonPulseB;
+  M.neonLimeMat.emissiveIntensity = (0.85 + nightSmooth * 1.5) * neonPulseA;
+  M.neonBillboardMat.emissiveIntensity = (0.8 + nightSmooth * 1.6) * neonPulseB;
 }
 
 let cachedCoolingTowerGeo: THREE.LatheGeometry | null = null;
@@ -2110,6 +2142,10 @@ export function createBuildingGroup(
     glassCurtainMat,
     elfFiligreeMat,
     orcRustPlateMat,
+    neonMagentaMat,
+    neonAmberMat,
+    neonLimeMat,
+    neonBillboardMat,
   } = M;
 
   const isElf = species === 'elf';
@@ -3229,7 +3265,8 @@ export function createBuildingGroup(
             group.add(vineBox);
           }
         } else if (epochIndex === 5) {
-          // Elven Ep 5 (Info Age): Sculpted Living Helix Conservatory Arcology (6 spiral filigree ribs + 4 cantilevered garden terraces)
+          // Elven Ep 5 (Info Age): Towering Sculpted Living Helix Conservatory Spire (spiraling filigree ribs + 5 cantilevered sky-gardens + floating rune holoscreens)
+          const spireH = 1.45 + (variant % 3) * 0.22;
           const dais = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.47, 0.1, 10), elfMossStoneMat);
           dais.position.y = 0.05;
           group.add(dais);
@@ -3237,32 +3274,32 @@ export function createBuildingGroup(
           atriumRing.position.y = 0.16;
           group.add(atriumRing);
 
-          const coreSpire = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.25, 1.18, 10), elfPearlTechMat);
-          coreSpire.position.y = 0.68;
+          const coreSpire = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.26, spireH, 10), elfPearlTechMat);
+          coreSpire.position.y = 0.16 + spireH * 0.5;
           coreSpire.castShadow = true;
           group.add(coreSpire);
 
           // 6 Ascending exterior helical filigree ribs framing the glass solarium shaft
           for (let r = 0; r < 6; r++) {
             const a = (r / 6) * Math.PI * 2;
-            const rib = new THREE.Mesh(new THREE.BoxGeometry(0.032, 1.05, 0.045), elfFiligreeMat);
-            rib.position.set(Math.cos(a) * 0.22, 0.66, Math.sin(a) * 0.22);
+            const rib = new THREE.Mesh(new THREE.BoxGeometry(0.032, spireH * 0.92, 0.045), elfFiligreeMat);
+            rib.position.set(Math.cos(a) * 0.22, 0.16 + spireH * 0.48, Math.sin(a) * 0.22);
             rib.rotation.y = -a;
             rib.rotation.z = 0.14;
             group.add(rib);
           }
 
-          // 4 Cantilevered Botanical Sky-Terraces spiraling upward with glowing pods & railings
-          for (let ti = 0; ti < 4; ti++) {
-            const ty = 0.3 + ti * 0.24;
+          // 5 Cantilevered Botanical Sky-Terraces spiraling upward with glowing pods & holo-banners
+          for (let ti = 0; ti < 5; ti++) {
+            const ty = 0.32 + ti * ((spireH - 0.22) / 5);
             const ang = (ti * Math.PI) / 2 + variant * 0.45;
             const px = Math.cos(ang) * 0.15;
             const pz = Math.sin(ang) * 0.15;
-            const pod = new THREE.Mesh(new THREE.CylinderGeometry(0.22 - ti * 0.02, 0.16, 0.075, 8), elfVerdigrisMat);
+            const pod = new THREE.Mesh(new THREE.CylinderGeometry(0.22 - ti * 0.018, 0.15, 0.075, 8), elfVerdigrisMat);
             pod.position.set(px, ty, pz);
             pod.castShadow = true;
             group.add(pod);
-            const rail = new THREE.Mesh(new THREE.TorusGeometry(0.21 - ti * 0.02, 0.014, 5, 10), elfFiligreeMat);
+            const rail = new THREE.Mesh(new THREE.TorusGeometry(0.21 - ti * 0.018, 0.014, 5, 10), elfFiligreeMat);
             rail.rotation.x = Math.PI / 2;
             rail.position.set(px, ty + 0.055, pz);
             group.add(rail);
@@ -3270,39 +3307,66 @@ export function createBuildingGroup(
             gardenGlow.position.set(Math.cos(ang) * 0.26, ty + 0.08, Math.sin(ang) * 0.26);
             group.add(gardenGlow);
           }
-          const crownBud = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.34, 8), elfJadeRoofMat);
-          crownBud.position.y = 1.4;
+          // Floating vertical Elven Aether-Rune Holo-Banners flanking the lower plaza
+          for (const sx of [-0.31, 0.31]) {
+            const runeFrame = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.38, 0.11), elfFiligreeMat);
+            runeFrame.position.set(sx, 0.46, 0.18);
+            group.add(runeFrame);
+            const runeScreen = new THREE.Mesh(
+              new THREE.BoxGeometry(0.032, 0.34, 0.085),
+              sx < 0 ? elfAquaGlowMat : neonLimeMat,
+            );
+            runeScreen.position.set(sx, 0.46, 0.18);
+            group.add(runeScreen);
+          }
+          const crownBud = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.38, 8), elfJadeRoofMat);
+          crownBud.position.y = 0.18 + spireH + 0.14;
           group.add(crownBud);
         } else {
-          // Elven Ep 6+: Pearl-Lotus Orbital Bio-Dome (6 unfolding curved lotus shell petals + geodesic starlight core)
-          const plinth = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.46, 0.08, 12), elfPearlTechMat);
-          plinth.position.y = 0.04;
+          // Elven Ep 6+: Towering Pearl-Lotus Orbital Spire Arcology (fluted crystal needle + 6 unfolding lotus shell petals + levitating starlight rings)
+          const spireH = 1.65 + (variant % 3) * 0.22;
+          const plinth = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.46, 0.1, 12), elfPearlTechMat);
+          plinth.position.y = 0.05;
           group.add(plinth);
           const waterCollar = new THREE.Mesh(new THREE.TorusGeometry(0.36, 0.028, 6, 14), elfAquaGlowMat);
           waterCollar.rotation.x = Math.PI / 2;
-          waterCollar.position.y = 0.09;
+          waterCollar.position.y = 0.11;
           group.add(waterCollar);
-          const aquaDome = new THREE.Mesh(
-            new THREE.SphereGeometry(0.26, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2),
-            elfAquaGlowMat,
-          );
-          aquaDome.position.y = 0.1;
-          group.add(aquaDome);
-          // 3 Geodesic meridian filigree arches crossing the bio-dome
-          for (let g = 0; g < 3; g++) {
-            const rib = new THREE.Mesh(new THREE.TorusGeometry(0.268, 0.016, 5, 12, Math.PI), elfFiligreeMat);
-            rib.rotation.y = (g * Math.PI) / 3;
-            rib.position.y = 0.1;
-            group.add(rib);
+
+          // Fluted pearl-crystal arcology tower shaft
+          const crystalShaft = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.27, spireH, 8), elfPearlTechMat);
+          crystalShaft.position.y = 0.1 + spireH * 0.5;
+          crystalShaft.castShadow = true;
+          group.add(crystalShaft);
+
+          // 3 Tiered aqua bio-domes & filigree rings ascending the crystal spire
+          for (let tier = 0; tier < 3; tier++) {
+            const ty = 0.38 + tier * (spireH * 0.28);
+            const rad = 0.26 - tier * 0.04;
+            const ring = new THREE.Mesh(new THREE.TorusGeometry(rad, 0.02, 6, 12), elfAquaGlowMat);
+            ring.rotation.x = Math.PI / 2;
+            ring.position.y = ty;
+            group.add(ring);
+            const terrace = new THREE.Mesh(new THREE.CylinderGeometry(rad * 0.92, rad * 0.75, 0.06, 8), elfJadeRoofMat);
+            terrace.position.y = ty - 0.03;
+            group.add(terrace);
           }
+
+          // 6 Unfolding curved lotus shell petals framing the base sanctuary
           for (let p = 0; p < 6; p++) {
             const a = (p / 6) * Math.PI * 2 + variant * 0.25;
-            const petal = new THREE.Mesh(new THREE.ConeGeometry(0.095, 0.4, 4), elfJadeRoofMat);
-            petal.position.set(Math.cos(a) * 0.29, 0.24, Math.sin(a) * 0.29);
-            petal.rotation.z = -Math.cos(a) * 0.56;
-            petal.rotation.x = Math.sin(a) * 0.56;
+            const petal = new THREE.Mesh(new THREE.ConeGeometry(0.095, 0.48, 4), elfJadeRoofMat);
+            petal.position.set(Math.cos(a) * 0.29, 0.28, Math.sin(a) * 0.29);
+            petal.rotation.z = -Math.cos(a) * 0.48;
+            petal.rotation.x = Math.sin(a) * 0.48;
             group.add(petal);
           }
+
+          // Crown starlight crystal prism at the apex
+          const apexCrown = new THREE.Mesh(new THREE.OctahedronGeometry(0.16, 0), elfAquaGlowMat);
+          apexCrown.position.y = 0.18 + spireH;
+          apexCrown.name = 'spin_part';
+          group.add(apexCrown);
         }
         break;
       }
@@ -3352,92 +3416,117 @@ export function createBuildingGroup(
           // Orc Ep 3-4: Riveted Rust-Iron Barracks Bunkers & Multi-Story Industrial Citadels
           addOrcBastionHut({
             w: 0.66,
-            h: epochIndex === 4 ? 0.48 : 0.37,
-            d: 0.52,
+            h: epochIndex === 4 ? 0.64 : 0.39,
+            d: 0.54,
             wallMat: epochIndex === 4 ? orcGunmetalMat : orcIronMat,
             roofMat: orcCrimsonMat,
             tuskMat: orcIronMat,
             withBanner: true,
           });
         } else if (epochIndex === 5) {
-          // Orc Ep 5 (Info Age): Sloped Brutalist Ironclad Megablock (Exoskeleton Armor Ribs, Blast Louvers, Twin Braced Exhausts)
-          const towerH = 0.84 + (variant % 3) * 0.2;
-          const podium = new THREE.Mesh(new THREE.CylinderGeometry(0.43, 0.52, 0.18, 4), orcBasaltMat);
+          // Orc Ep 5 (Info Age): Towering Brutalist Ironclad Ziggurat Megablock (Exoskeleton Armor Ribs, Neon War-Screens, Twin Blast Stacks)
+          const towerH = 1.28 + (variant % 3) * 0.22;
+          const podium = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.54, 0.2, 4), orcBasaltMat);
           podium.rotation.y = Math.PI / 4;
-          podium.position.y = 0.09;
+          podium.position.y = 0.1;
           group.add(podium);
-          const block = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.39, towerH, 4), orcGunmetalMat);
+          const block = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.41, towerH, 4), orcGunmetalMat);
           block.rotation.y = Math.PI / 4;
-          block.position.y = 0.18 + towerH * 0.5;
+          block.position.y = 0.2 + towerH * 0.5;
           block.castShadow = true;
           group.add(block);
           // 4 Vertical exoskeleton buttress splines + blast louvers
-          for (const [bx, bz] of [[-0.22, -0.22], [0.22, -0.22], [-0.22, 0.22], [0.22, 0.22]]) {
-            const spine = new THREE.Mesh(new THREE.BoxGeometry(0.065, towerH + 0.08, 0.065), orcRustPlateMat);
-            spine.position.set(bx, 0.18 + towerH * 0.5, bz);
+          for (const [bx, bz] of [[-0.23, -0.23], [0.23, -0.23], [-0.23, 0.23], [0.23, 0.23]]) {
+            const spine = new THREE.Mesh(new THREE.BoxGeometry(0.07, towerH + 0.08, 0.07), orcRustPlateMat);
+            spine.position.set(bx, 0.2 + towerH * 0.5, bz);
             group.add(spine);
           }
-          for (const sx of [-0.26, 0.26]) {
-            const flues = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.062, towerH + 0.24, 6), orcIronMat);
-            flues.position.set(sx, 0.22 + towerH * 0.5, -0.2);
+          for (const sx of [-0.27, 0.27]) {
+            const flues = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.065, towerH + 0.28, 6), orcIronMat);
+            flues.position.set(sx, 0.24 + towerH * 0.5, -0.2);
             group.add(flues);
-            const flueCollar = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.045, 6), orcCrimsonMat);
-            flueCollar.position.set(sx, 0.34 + towerH, -0.2);
+            const flueCollar = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.05, 6), orcCrimsonMat);
+            flueCollar.position.set(sx, 0.38 + towerH, -0.2);
             group.add(flueCollar);
           }
-          for (let f = 0; f < 4; f++) {
-            const wBand = 0.48 - f * 0.04;
+          for (let f = 0; f < 5; f++) {
+            const wBand = 0.5 - f * 0.035;
             const hood = new THREE.Mesh(new THREE.BoxGeometry(wBand + 0.04, 0.025, wBand + 0.04), orcRustPlateMat);
-            hood.position.y = 0.31 + f * (towerH * 0.22);
+            hood.position.y = 0.33 + f * (towerH * 0.18);
             group.add(hood);
             const slit = new THREE.Mesh(new THREE.BoxGeometry(wBand, 0.045, wBand), orcMagmaGlowMat);
-            slit.position.y = 0.28 + f * (towerH * 0.22);
+            slit.position.y = 0.3 + f * (towerH * 0.18);
             group.add(slit);
           }
-          const crownBunker = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.12, 0.28), orcIronMat);
-          crownBunker.position.y = 0.22 + towerH;
+          // Glowing Brutalist Crimson/Amber Propaganda War-Billboard mounted on front armor face
+          const warSignFrame = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.22, 0.04), orcIronMat);
+          warSignFrame.position.set(0, 0.42 + towerH * 0.35, 0.28);
+          group.add(warSignFrame);
+          const warSignGlow = new THREE.Mesh(
+            new THREE.BoxGeometry(0.28, 0.17, 0.048),
+            variant % 2 === 0 ? orcMagmaGlowMat : neonAmberMat,
+          );
+          warSignGlow.position.set(0, 0.42 + towerH * 0.35, 0.285);
+          group.add(warSignGlow);
+
+          const crownBunker = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.14, 0.28), orcIronMat);
+          crownBunker.position.y = 0.24 + towerH;
           group.add(crownBunker);
           for (const sx of [-0.18, 0.18]) {
-            const horn = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.3, 4), orcCrimsonMat);
-            horn.position.set(sx, 0.3 + towerH, 0);
+            const horn = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.32, 4), orcCrimsonMat);
+            horn.position.set(sx, 0.34 + towerH, 0);
             horn.rotation.z = -Math.sign(sx) * 0.3;
             group.add(horn);
           }
           const beacon = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.05), beaconRedMat);
-          beacon.position.set(0, 0.3 + towerH, 0);
+          beacon.position.set(0, 0.34 + towerH, 0);
           group.add(beacon);
         } else {
-          // Orc Ep 6+: Sloped Hexagonal Ironclad Siege Pod with 6 Claw Buttresses & Magma Core
-          const skirt = new THREE.Mesh(new THREE.CylinderGeometry(0.44, 0.5, 0.1, 6), orcBasaltMat);
-          skirt.position.y = 0.05;
+          // Orc Ep 6+: Towering Hexagonal Ironclad Siege Ziggurat with 6 Claw Buttresses & Magma Core
+          const towerH = 1.52 + (variant % 3) * 0.2;
+          const skirt = new THREE.Mesh(new THREE.CylinderGeometry(0.46, 0.52, 0.14, 6), orcBasaltMat);
+          skirt.position.y = 0.07;
           group.add(skirt);
-          const hexHull = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.45, 0.42, 6), orcGunmetalMat);
-          hexHull.position.y = 0.24;
-          hexHull.castShadow = true;
-          group.add(hexHull);
+          const lowerHull = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.46, towerH * 0.55, 6), orcGunmetalMat);
+          lowerHull.position.y = 0.14 + towerH * 0.275;
+          lowerHull.castShadow = true;
+          group.add(lowerHull);
+          const upperHull = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.34, towerH * 0.45, 6), orcIronMat);
+          upperHull.position.y = 0.14 + towerH * 0.775;
+          upperHull.castShadow = true;
+          group.add(upperHull);
+
           for (let i = 0; i < 6; i++) {
             const a = (i / 6) * Math.PI * 2;
-            const armorPlate = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.36, 0.05), orcRustPlateMat);
-            armorPlate.position.set(Math.cos(a) * 0.39, 0.22, Math.sin(a) * 0.39);
+            const armorPlate = new THREE.Mesh(new THREE.BoxGeometry(0.085, towerH * 0.9, 0.06), orcRustPlateMat);
+            armorPlate.position.set(Math.cos(a) * 0.36, 0.14 + towerH * 0.45, Math.sin(a) * 0.36);
             armorPlate.rotation.y = -a + Math.PI / 2;
             group.add(armorPlate);
             if (i % 2 === 0) {
-              const claw = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.36, 4), orcIronMat);
-              claw.position.set(Math.cos(a) * 0.32, 0.48, Math.sin(a) * 0.32);
+              const claw = new THREE.Mesh(new THREE.ConeGeometry(0.055, 0.42, 4), orcCrimsonMat);
+              claw.position.set(Math.cos(a) * 0.28, 0.18 + towerH, Math.sin(a) * 0.28);
               claw.rotation.z = Math.cos(a) * 0.42;
               claw.rotation.x = -Math.sin(a) * 0.42;
               group.add(claw);
             }
           }
-          const plasmaCore = new THREE.Mesh(new THREE.OctahedronGeometry(0.18, 0), orcMagmaGlowMat);
-          plasmaCore.position.set(0, 0.6, 0);
+          for (let f = 0; f < 4; f++) {
+            const slit = new THREE.Mesh(
+              new THREE.CylinderGeometry(0.37 - f * 0.03, 0.37 - f * 0.03, 0.045, 6),
+              orcMagmaGlowMat,
+            );
+            slit.position.y = 0.34 + f * (towerH * 0.22);
+            group.add(slit);
+          }
+          const plasmaCore = new THREE.Mesh(new THREE.OctahedronGeometry(0.19, 0), orcMagmaGlowMat);
+          plasmaCore.position.set(0, 0.32 + towerH, 0);
           plasmaCore.name = 'spin_part';
           group.add(plasmaCore);
         }
         break;
       }
 
-      // HUMAN Houses -> Cottages (Ep 1-2) -> Brick Brownstone Rowhouses (Ep 3) -> Concrete Mid-Rises (Ep 4) -> Curtain-Wall Skyscrapers (Ep 5) -> Geodesic Bio-Habitats (Ep 6+)
+      // HUMAN Houses -> Cottages (Ep 1-2) -> Brick Brownstone Rowhouses (Ep 3) -> Art-Deco Mid-Rises (Ep 4) -> Manhattan/Tokyo Skyscrapers (Ep 5) -> Neo-Futurist Arcology Skyscrapers (Ep 6+)
       if (epochIndex === 0) {
         const earthPad = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.44, 0.05, 8), mudEarthMat);
         earthPad.position.y = 0.025;
@@ -3558,138 +3647,263 @@ export function createBuildingGroup(
         ladder.position.set(0.39, 0.18, 0.06);
         group.add(ladder);
       } else if (epochIndex === 4) {
-        // Atomic Age: Mid-Century Concrete Apartment with Vertical Mullion Piers, Projecting Balconies & Elevated Water Tower
-        const midH = 0.62 + (variant % 2) * 0.18;
-        const base = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.09, 0.62), darkStoneMat);
-        base.position.y = 0.045;
+        // Atomic Age: Tall Mid-Century Concrete Setback High-Rise with Vertical Mullions, Projecting Balconies & Rooftop Billboard/Water Tank
+        const midH = 0.84 + (variant % 3) * 0.16;
+        const base = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.12, 0.64), darkStoneMat);
+        base.position.y = 0.06;
         group.add(base);
         const block = new THREE.Mesh(new THREE.BoxGeometry(0.6, midH, 0.54), concreteMat);
-        block.position.y = 0.09 + midH * 0.5;
+        block.position.y = 0.12 + midH * 0.5;
         block.castShadow = true;
         block.receiveShadow = true;
         group.add(block);
         // Vertical concrete structural mullions dividing facade into 3 bays
         for (const px of [-0.28, -0.09, 0.09, 0.28]) {
           const pier = new THREE.Mesh(new THREE.BoxGeometry(0.036, midH + 0.02, 0.56), concreteMat);
-          pier.position.set(px, 0.09 + midH * 0.5, 0);
+          pier.position.set(px, 0.12 + midH * 0.5, 0);
           group.add(pier);
         }
         // Entrance portico canopy
-        const canopy = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.03, 0.12), copperMat);
+        const canopy = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.032, 0.13), copperMat);
         canopy.position.set(0, 0.2, 0.31);
         group.add(canopy);
-        for (let f = 0; f < 3; f++) {
-          const fy = 0.22 + f * 0.175;
+        for (let f = 0; f < 4; f++) {
+          const fy = 0.24 + f * ((midH - 0.14) / 4);
           const winBand = new THREE.Mesh(
             new THREE.BoxGeometry(0.62, 0.055, 0.56),
             f % 2 === 0 ? windowModernWarmMat : windowModernCoolMat,
           );
           winBand.position.y = fy;
           group.add(winBand);
-          // Projecting front balcony slabs with railing on upper stories
           if (f >= 1) {
             const balc = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.025, 0.09), darkStoneMat);
-            balc.position.set(f === 1 ? -0.15 : 0.15, fy - 0.038, 0.3);
+            balc.position.set(f % 2 === 1 ? -0.15 : 0.15, fy - 0.038, 0.3);
             group.add(balc);
           }
         }
         const roofTrim = new THREE.Mesh(new THREE.BoxGeometry(0.64, 0.055, 0.58), darkStoneMat);
-        roofTrim.position.y = 0.1 + midH;
+        roofTrim.position.y = 0.13 + midH;
         group.add(roofTrim);
-        // Penthouse stair bulkhead & elevated wood-stave water tank on stilts
-        const bulkhead = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.12, 0.18), concreteMat);
-        bulkhead.position.set(-0.14, 0.18 + midH, 0.08);
+        // Penthouse stair bulkhead & elevated wood-stave water tank + neon rooftop sign
+        const bulkhead = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.14, 0.2), concreteMat);
+        bulkhead.position.set(-0.14, 0.2 + midH, 0.08);
         group.add(bulkhead);
         const waterTank = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.13, 8), woodMat);
-        waterTank.position.set(0.16, 0.25 + midH, -0.1);
+        waterTank.position.set(0.16, 0.26 + midH, -0.1);
         group.add(waterTank);
         const tankRoof = new THREE.Mesh(new THREE.ConeGeometry(0.095, 0.07, 8), slateRoofMat);
-        tankRoof.position.set(0.16, 0.35 + midH, -0.1);
+        tankRoof.position.set(0.16, 0.36 + midH, -0.1);
         group.add(tankRoof);
+        if (variant % 2 === 0) {
+          const roofBoard = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.14, 0.035), neonAmberMat);
+          roofBoard.position.set(0, 0.23 + midH, 0.24);
+          group.add(roofBoard);
+        }
         const roofBeacon = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.045, 0.045), beaconRedMat);
-        roofBeacon.position.set(-0.14, 0.26 + midH, 0.08);
+        roofBeacon.position.set(-0.14, 0.29 + midH, 0.08);
         group.add(roofBeacon);
       } else if (epochIndex === 5) {
-        // Information Age: Curtain-Wall Glass & Steel Skyscraper (Granite Colonnade Podium, Steel Mullion Grid, Setback Penthouse & Dual Spires)
-        const towerH = 0.96 + variant * 0.22;
-        const podium = new THREE.Mesh(new THREE.BoxGeometry(0.76, 0.2, 0.7), darkStoneMat);
-        podium.position.y = 0.1;
+        // Information Age: Towering Manhattan / Tokyo Curtain-Wall Skyscrapers with Times Square / Shibuya LED Billboards & 4 Distinct Silhouettes
+        const towerH = 1.38 + variant * 0.18;
+        const podium = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.22, 0.74), darkStoneMat);
+        podium.position.y = 0.11;
         podium.castShadow = true;
         group.add(podium);
-        const lobbyGlow = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.065, 0.72), windowModernWarmMat);
+        const lobbyGlow = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.07, 0.76), windowModernWarmMat);
         lobbyGlow.position.y = 0.09;
         group.add(lobbyGlow);
-        const marquee = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.032, 0.12), copperMat);
-        marquee.position.set(0, 0.18, 0.39);
+        const marquee = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.035, 0.14), copperMat);
+        marquee.position.set(0, 0.19, 0.41);
         group.add(marquee);
 
-        const shaft = new THREE.Mesh(new THREE.BoxGeometry(0.56, towerH, 0.52), glassCurtainMat);
-        shaft.position.y = 0.2 + towerH * 0.5;
-        shaft.castShadow = true;
-        shaft.receiveShadow = true;
-        group.add(shaft);
-        // Crisp exterior vertical steel curtain-wall mullions around all 4 sides
-        for (const mx of [-0.26, -0.09, 0.09, 0.26]) {
-          const finF = new THREE.Mesh(new THREE.BoxGeometry(0.028, towerH + 0.02, 0.55), darkTechMat);
-          finF.position.set(mx, 0.2 + towerH * 0.5, 0);
-          group.add(finF);
-        }
-        const floors = 4 + (variant % 2);
-        for (let f = 0; f < floors; f++) {
-          const glassBand = new THREE.Mesh(
-            new THREE.BoxGeometry(0.58, 0.055, 0.54),
-            (f + variant) % 2 === 0 ? windowModernWarmMat : windowModernCoolMat,
+        if (variant === 1) {
+          // Variant 1: Twin Connected Corporate Skybridge Towers with Tokyo Vertical Neon Fins
+          for (const sx of [-0.17, 0.17]) {
+            const subH = sx < 0 ? towerH : towerH * 0.88;
+            const tShaft = new THREE.Mesh(new THREE.BoxGeometry(0.28, subH, 0.5), glassCurtainMat);
+            tShaft.position.set(sx, 0.22 + subH * 0.5, 0);
+            tShaft.castShadow = true;
+            tShaft.receiveShadow = true;
+            group.add(tShaft);
+            for (let f = 0; f < 6; f++) {
+              const band = new THREE.Mesh(
+                new THREE.BoxGeometry(0.3, 0.048, 0.52),
+                (f + (sx < 0 ? 0 : 1)) % 2 === 0 ? windowModernCoolMat : windowModernWarmMat,
+              );
+              band.position.set(sx, 0.34 + f * ((subH - 0.18) / 6), 0);
+              group.add(band);
+            }
+          }
+          // Elevated glass skybridge linking the twin towers mid-air
+          const skyBridge = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.09, 0.24), glowCyanMat);
+          skyBridge.position.set(0, 0.22 + towerH * 0.62, 0);
+          group.add(skyBridge);
+          // Vertical Shinjuku/Times-Square neon blade sign on front left tower
+          const vSign = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.46, 0.09), neonMagentaMat);
+          vSign.position.set(-0.33, 0.68, 0.18);
+          group.add(vSign);
+          const rSign = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.14, 0.04), neonBillboardMat);
+          rSign.position.set(-0.17, 0.3 + towerH, 0.2);
+          group.add(rSign);
+        } else if (variant === 2) {
+          // Variant 2: Empire / Chrysler Tapered 3-Stage Setback Skyscraper with Illuminated Crown Spire
+          const h1 = towerH * 0.52;
+          const h2 = towerH * 0.32;
+          const h3 = towerH * 0.22;
+          const tier1 = new THREE.Mesh(new THREE.BoxGeometry(0.6, h1, 0.56), glassCurtainMat);
+          tier1.position.y = 0.22 + h1 * 0.5;
+          tier1.castShadow = true;
+          group.add(tier1);
+          const tier2 = new THREE.Mesh(new THREE.BoxGeometry(0.44, h2, 0.42), glassCurtainMat);
+          tier2.position.y = 0.22 + h1 + h2 * 0.5;
+          tier2.castShadow = true;
+          group.add(tier2);
+          const tier3 = new THREE.Mesh(new THREE.BoxGeometry(0.28, h3, 0.28), techMat);
+          tier3.position.y = 0.22 + h1 + h2 + h3 * 0.5;
+          tier3.castShadow = true;
+          group.add(tier3);
+          for (let f = 0; f < 6; f++) {
+            const fy = 0.32 + f * ((towerH - 0.15) / 6);
+            const w = fy < 0.22 + h1 ? 0.62 : fy < 0.22 + h1 + h2 ? 0.46 : 0.3;
+            const band = new THREE.Mesh(
+              new THREE.BoxGeometry(w, 0.048, w - 0.03),
+              f % 2 === 0 ? windowModernWarmMat : windowModernCoolMat,
+            );
+            band.position.y = fy;
+            group.add(band);
+          }
+          // Wraparound Times Square corner LED ribbon on lower podium setback
+          const cornerLedF = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.2, 0.035), neonBillboardMat);
+          cornerLedF.position.set(0.12, 0.44, 0.29);
+          group.add(cornerLedF);
+          const cornerLedS = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.2, 0.34), neonAmberMat);
+          cornerLedS.position.set(0.31, 0.44, 0.11);
+          group.add(cornerLedS);
+          const needle = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.035, 0.46, 6), goldMat);
+          needle.position.y = 0.22 + towerH + 0.22;
+          group.add(needle);
+        } else {
+          // Variants 0 & 3: Towering Curtain-Wall Skyscraper with Times Square / Shibuya Multi-Panel LED Billboards
+          const shaft = new THREE.Mesh(new THREE.BoxGeometry(0.58, towerH, 0.54), glassCurtainMat);
+          shaft.position.y = 0.22 + towerH * 0.5;
+          shaft.castShadow = true;
+          shaft.receiveShadow = true;
+          group.add(shaft);
+          // Crisp exterior vertical steel curtain-wall mullions around all 4 sides
+          for (const mx of [-0.27, -0.09, 0.09, 0.27]) {
+            const finF = new THREE.Mesh(new THREE.BoxGeometry(0.028, towerH + 0.02, 0.57), darkTechMat);
+            finF.position.set(mx, 0.22 + towerH * 0.5, 0);
+            group.add(finF);
+          }
+          const floors = 6 + (variant % 2);
+          for (let f = 0; f < floors; f++) {
+            const glassBand = new THREE.Mesh(
+              new THREE.BoxGeometry(0.6, 0.05, 0.56),
+              (f + variant) % 2 === 0 ? windowModernWarmMat : windowModernCoolMat,
+            );
+            glassBand.position.y = 0.32 + f * ((towerH - 0.16) / floors);
+            group.add(glassBand);
+          }
+          // Times Square / Tokyo Facade Billboards (stacked Jumbotron + vertical neon blade sign)
+          const jumboFrame = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.26, 0.035), darkTechMat);
+          jumboFrame.position.set(0, 0.52, 0.285);
+          group.add(jumboFrame);
+          const jumboScreen = new THREE.Mesh(
+            new THREE.BoxGeometry(0.38, 0.22, 0.042),
+            variant === 0 ? neonBillboardMat : glowCyanMat,
           );
-          glassBand.position.y = 0.3 + f * ((towerH - 0.14) / floors);
-          group.add(glassBand);
-        }
-        // Stepped mechanical crown & louvered screen + twin radio masts
-        const crown = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.12, 0.38), techMat);
-        crown.position.y = 0.26 + towerH;
-        group.add(crown);
-        const hvacCage = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.08, 0.24), darkTechMat);
-        hvacCage.position.y = 0.36 + towerH;
-        group.add(hvacCage);
-        if (variant % 2 === 0) {
-          for (const ax of [-0.08, 0.08]) {
-            const antenna = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.024, 0.34, 6), techMat);
+          jumboScreen.position.set(0, 0.52, 0.29);
+          group.add(jumboScreen);
+
+          const bladeSign = new THREE.Mesh(
+            new THREE.BoxGeometry(0.045, 0.52, 0.1),
+            variant === 0 ? neonMagentaMat : neonAmberMat,
+          );
+          bladeSign.position.set(variant === 0 ? 0.32 : -0.32, 0.88, 0.18);
+          group.add(bladeSign);
+
+          const crown = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.14, 0.4), techMat);
+          crown.position.y = 0.28 + towerH;
+          group.add(crown);
+          const roofBillboard = new THREE.Mesh(
+            new THREE.BoxGeometry(0.36, 0.16, 0.035),
+            variant === 0 ? neonLimeMat : neonMagentaMat,
+          );
+          roofBillboard.position.set(0, 0.42 + towerH, 0.18);
+          group.add(roofBillboard);
+          for (const ax of [-0.09, 0.09]) {
+            const antenna = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.024, 0.38, 6), techMat);
             antenna.position.set(ax, 0.54 + towerH, 0);
             group.add(antenna);
           }
-          const beacon = new THREE.Mesh(new THREE.BoxGeometry(0.048, 0.048, 0.048), beaconRedMat);
-          beacon.position.set(-0.08, 0.72 + towerH, 0);
-          group.add(beacon);
-        } else {
-          const beacon = new THREE.Mesh(new THREE.BoxGeometry(0.048, 0.048, 0.048), beaconRedMat);
-          beacon.position.y = 0.42 + towerH;
-          group.add(beacon);
         }
+        const beacon = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.05), beaconRedMat);
+        beacon.position.set(0, 0.68 + towerH, 0);
+        group.add(beacon);
       } else {
-        // Orbital & Interstellar: Geodesic Bio-Dome Arcology Habitat with Hover-Fins & Sky-Terraces
-        const octDeck = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.48, 0.1, 8), darkTechMat);
-        octDeck.position.y = 0.05;
+        // Orbital & Interstellar (Ep 6+): Towering Neo-Futurist Cyber-Arcology Skyscraper with Cantilevered Sky-Plazas, Holographic Billboards & Geodesic Crown
+        const towerH = 1.68 + variant * 0.19;
+        const octDeck = new THREE.Mesh(new THREE.CylinderGeometry(0.44, 0.5, 0.14, 8), darkTechMat);
+        octDeck.position.y = 0.07;
         group.add(octDeck);
-        addVoxelCottage({
-          w: 0.62,
-          h: 0.3,
-          d: 0.5,
-          wallMat: techMat,
-          roofMat: darkTechMat,
-          chimneySide: 'none',
-          ridgeAlongZ: false,
-        });
+
+        const coreTower = new THREE.Mesh(new THREE.BoxGeometry(0.54, towerH, 0.5), glassCurtainMat);
+        coreTower.position.y = 0.14 + towerH * 0.5;
+        coreTower.castShadow = true;
+        coreTower.receiveShadow = true;
+        group.add(coreTower);
+
+        // 4 Sleek white-alloy aerodynamic buttress fins running up the corners
+        for (const [fx, fz] of [
+          [-0.27, -0.25],
+          [0.27, -0.25],
+          [-0.27, 0.25],
+          [0.27, 0.25],
+        ]) {
+          const fin = new THREE.Mesh(new THREE.BoxGeometry(0.06, towerH + 0.08, 0.06), techMat);
+          fin.position.set(fx, 0.14 + towerH * 0.5, fz);
+          group.add(fin);
+        }
+
+        // Illuminated sky-levels & holographic neon sky-billboards
+        const levels = 7;
+        for (let f = 0; f < levels; f++) {
+          const ly = 0.28 + f * ((towerH - 0.18) / levels);
+          const band = new THREE.Mesh(
+            new THREE.BoxGeometry(0.57, 0.048, 0.53),
+            f % 2 === 0 ? glowCyanMat : windowModernCoolMat,
+          );
+          band.position.y = ly;
+          group.add(band);
+        }
+
+        // Vertical Neo-Tokyo Holographic Sky-Sign on the facade
+        const holoPanel = new THREE.Mesh(
+          new THREE.BoxGeometry(0.36, 0.42, 0.035),
+          variant % 2 === 0 ? neonMagentaMat : neonBillboardMat,
+        );
+        holoPanel.position.set(0, 0.55 + towerH * 0.25, 0.275);
+        group.add(holoPanel);
+
+        // Crown Geodesic Bio-Dome & Orbital Spire at the top of the skyscraper
+        const crownDeck = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.38, 0.08, 8), techMat);
+        crownDeck.position.y = 0.16 + towerH;
+        group.add(crownDeck);
         const bioDome = new THREE.Mesh(
           new THREE.SphereGeometry(0.22, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2),
           glowCyanMat,
         );
-        bioDome.position.set(0.12, 0.56, 0);
+        bioDome.position.set(0, 0.2 + towerH, 0);
         group.add(bioDome);
         for (let r = 0; r < 2; r++) {
           const rib = new THREE.Mesh(new THREE.TorusGeometry(0.228, 0.016, 5, 12, Math.PI), techMat);
           rib.rotation.y = r * (Math.PI / 2);
-          rib.position.set(0.12, 0.56, 0);
+          rib.position.set(0, 0.2 + towerH, 0);
           group.add(rib);
         }
+        const spire = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.03, 0.36, 6), techMat);
+        spire.position.set(0, 0.54 + towerH, 0);
+        group.add(spire);
       }
       break;
     }
@@ -4320,77 +4534,91 @@ export function createBuildingGroup(
         clkCap.rotation.y = Math.PI / 4;
         group.add(clkCap);
       } else if (epochIndex === 5) {
-        // Info Age: Art-Deco / Modernist Corporate Plaza Skyscraper with Steel Mullions & Setback Penthouse
-        const podium = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.24, 0.72), darkStoneMat);
-        podium.position.y = 0.12;
+        // Info Age: Monumental Times Square / Corporate Media Headquarters Skyscraper with Wrap-Around LED Ticker & Jumbo Billboards
+        const podium = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.26, 0.74), darkStoneMat);
+        podium.position.y = 0.13;
         podium.castShadow = true;
         group.add(podium);
-        const lobbyGlow = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.08, 0.74), windowModernWarmMat);
+        const lobbyGlow = new THREE.Mesh(new THREE.BoxGeometry(0.82, 0.08, 0.76), windowModernWarmMat);
         lobbyGlow.position.y = 0.1;
         group.add(lobbyGlow);
-        const plazaMarquee = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.036, 0.14), copperMat);
-        plazaMarquee.position.set(0, 0.21, 0.4);
-        group.add(plazaMarquee);
+        // Times Square wraparound glowing news ticker ribbon around the podium
+        const tickerRibbon = new THREE.Mesh(new THREE.BoxGeometry(0.83, 0.055, 0.77), neonAmberMat);
+        tickerRibbon.position.y = 0.22;
+        group.add(tickerRibbon);
 
-        const mainTower = new THREE.Mesh(new THREE.BoxGeometry(0.56, 1.12, 0.52), glassCurtainMat);
-        mainTower.position.y = 0.8;
+        const mainTower = new THREE.Mesh(new THREE.BoxGeometry(0.58, 1.48, 0.54), glassCurtainMat);
+        mainTower.position.y = 1.0;
         mainTower.castShadow = true;
         group.add(mainTower);
         // Vertical architectural mullions on all 4 facades
-        for (const mx of [-0.26, -0.09, 0.09, 0.26]) {
-          const mullionF = new THREE.Mesh(new THREE.BoxGeometry(0.03, 1.14, 0.55), darkTechMat);
-          mullionF.position.set(mx, 0.8, 0);
+        for (const mx of [-0.27, -0.09, 0.09, 0.27]) {
+          const mullionF = new THREE.Mesh(new THREE.BoxGeometry(0.03, 1.5, 0.57), darkTechMat);
+          mullionF.position.set(mx, 1.0, 0);
           group.add(mullionF);
         }
-        for (let f = 0; f < 4; f++) {
+        for (let f = 0; f < 6; f++) {
           const band = new THREE.Mesh(
-            new THREE.BoxGeometry(0.58, 0.065, 0.54),
+            new THREE.BoxGeometry(0.6, 0.055, 0.56),
             f % 2 === 0 ? windowModernWarmMat : windowModernCoolMat,
           );
-          band.position.y = 0.4 + f * 0.24;
+          band.position.y = 0.4 + f * 0.22;
           group.add(band);
         }
-        const setbackParapet = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.045, 0.54), copperMat);
-        setbackParapet.position.y = 1.38;
+        // Iconic Times Square / Shibuya Stacked Curved Corner Billboards on the tower face
+        for (let b = 0; b < 3; b++) {
+          const bMat = b === 0 ? neonBillboardMat : b === 1 ? neonMagentaMat : glowCyanMat;
+          const board = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.18, 0.042), bMat);
+          board.position.set(0, 0.48 + b * 0.26, 0.29);
+          group.add(board);
+        }
+        const setbackParapet = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.045, 0.56), copperMat);
+        setbackParapet.position.y = 1.76;
         group.add(setbackParapet);
-        const penthouse = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.22, 0.34), techMat);
-        penthouse.position.y = 1.5;
+        const penthouse = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.24, 0.36), techMat);
+        penthouse.position.y = 1.9;
         group.add(penthouse);
         for (const mx of [-0.08, 0.08]) {
           const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.03, 0.38, 6), techMat);
-          mast.position.set(mx, 1.78, 0);
+          mast.position.set(mx, 2.18, 0);
           group.add(mast);
         }
         const topBeacon = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.055, 0.055), beaconRedMat);
-        topBeacon.position.set(-0.08, 1.98, 0);
+        topBeacon.position.set(-0.08, 2.38, 0);
         group.add(topBeacon);
       } else {
-        const base = new THREE.Mesh(new THREE.BoxGeometry(0.74, 0.3, 0.68), darkTechMat);
-        base.position.y = 0.15;
+        // Ep 6+: Monumental Orbital Metropolis Command Spire with Holographic Sky-Billboards & Levitating Crown Ring
+        const base = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.32, 0.72), darkTechMat);
+        base.position.y = 0.16;
         base.castShadow = true;
         group.add(base);
-        const tower = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.72, 0.48), glassCurtainMat);
-        tower.position.y = 0.66;
+        const tower = new THREE.Mesh(new THREE.BoxGeometry(0.56, 1.56, 0.52), glassCurtainMat);
+        tower.position.y = 1.1;
         tower.castShadow = true;
         group.add(tower);
         for (const [px, pz] of [
-          [-0.25, -0.23],
-          [0.25, -0.23],
-          [-0.25, 0.23],
-          [0.25, 0.23],
+          [-0.27, -0.25],
+          [0.27, -0.25],
+          [-0.27, 0.25],
+          [0.27, 0.25],
         ]) {
-          const fin = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.84, 0.05), techMat);
-          fin.position.set(px, 0.66, pz);
+          const fin = new THREE.Mesh(new THREE.BoxGeometry(0.055, 1.66, 0.055), techMat);
+          fin.position.set(px, 1.1, pz);
           group.add(fin);
         }
-        const neonBand1 = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.05, 0.52), glowCyanMat);
-        neonBand1.position.y = 0.54;
-        group.add(neonBand1);
-        const neonBand2 = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.05, 0.52), glowCyanMat);
-        neonBand2.position.y = 0.84;
-        group.add(neonBand2);
-        const crownRing = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.07, 0.38), glowCyanMat);
-        crownRing.position.y = 1.12;
+        for (let b = 0; b < 5; b++) {
+          const neonBand = new THREE.Mesh(
+            new THREE.BoxGeometry(0.59, 0.05, 0.55),
+            b % 2 === 0 ? glowCyanMat : neonMagentaMat,
+          );
+          neonBand.position.y = 0.52 + b * 0.28;
+          group.add(neonBand);
+        }
+        const holoBoard = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.32, 0.042), neonBillboardMat);
+        holoBoard.position.set(0, 0.92, 0.285);
+        group.add(holoBoard);
+        const crownRing = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.08, 0.42), glowCyanMat);
+        crownRing.position.y = 2.02;
         crownRing.name = 'spin_part';
         group.add(crownRing);
       }
