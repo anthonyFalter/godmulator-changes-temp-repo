@@ -496,9 +496,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       });
 
     const timberInsts = makePropInstancedList(variantLib.timber, variantLib.standardMat, true);
+    const timberMeadowInsts = makePropInstancedList(variantLib.timberMeadow, variantLib.standardMat, true);
     const timberJungleInsts = makePropInstancedList(variantLib.timberJungle, variantLib.standardMat, true);
     const timberTaigaInsts = makePropInstancedList(variantLib.timberTaiga, variantLib.standardMat, true);
     const timberBlossomInsts = makePropInstancedList(variantLib.timberBlossom, variantLib.standardMat, true);
+    const timberSavannaInsts = makePropInstancedList(variantLib.timberSavanna, variantLib.standardMat, true);
+    const timberSwampInsts = makePropInstancedList(variantLib.timberSwamp, variantLib.standardMat, true);
+    const timberHighlandInsts = makePropInstancedList(variantLib.timberHighland, variantLib.standardMat, true);
     const berryInsts = makePropInstancedList(variantLib.berry, variantLib.standardMat, true);
     const farmCropInsts = makePropInstancedList(variantLib.farmCrop, variantLib.standardMat, true);
     const sciFiFarmInsts = makePropInstancedList(variantLib.sciFiFarm, variantLib.crystalMat, true);
@@ -530,9 +534,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
     const resourcePropInsts: THREE.InstancedMesh[] = [
       ...timberInsts,
+      ...timberMeadowInsts,
       ...timberJungleInsts,
       ...timberTaigaInsts,
       ...timberBlossomInsts,
+      ...timberSavannaInsts,
+      ...timberSwampInsts,
+      ...timberHighlandInsts,
       ...berryInsts,
       ...farmCropInsts,
       ...sciFiFarmInsts,
@@ -6396,15 +6404,33 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
               : tileCurrentY[i];
           // Deterministic spatial hash so clusters & rotations are rich and never flicker
           const h = Math.abs(((t.x * 73856093) ^ (t.z * 19349663) ^ (simState.seed * 2654435761)) | 0);
-          const rotStep = (h >> 2) & 3;
-          _propQuat.setFromAxisAngle(_propAxisY, rotStep * (Math.PI / 2));
-          _dummyPos.set(t.x, curY, t.z);
-          if (t.resourceNode === 'coral_reef') {
-            const isBleached = (t.coralBleachTimer ?? 0) > 0 || t.resourceAmount <= 0;
-            const scaleXZ = (1.28 + ((h >> 4) % 3) * 0.06) * (isBleached ? 0.92 : 1.0);
-            _propScale.set(scaleXZ, isBleached ? 0.88 : 1.0, scaleXZ);
+          if (t.resourceNode === 'timber_grove') {
+            // 16-angle compass rotation + subtle sub-tile position jitter + multi-tier height/width variation
+            const rotAngle = ((h >> 2) & 15) * (Math.PI / 8);
+            _propQuat.setFromAxisAngle(_propAxisY, rotAngle);
+            const jx = (((h >> 6) & 31) / 31 - 0.5) * 0.18;
+            const jz = (((h >> 11) & 31) / 31 - 0.5) * 0.18;
+            _dummyPos.set(t.x + jx, curY, t.z + jz);
+            // Smooth spatial canopy wave combined with per-tile size tier (young saplings to ancient giants)
+            const canopyWave = Math.sin(t.x * 0.37 + t.z * 0.29 + (simState.seed & 255)) * 0.16;
+            const sizeTier = (h >> 16) % 7;
+            // Tiers: 0=sapling(0.64), 1=young(0.78), 2=medium(0.92), 3=mature(1.06), 4=tall(1.22), 5=giant(1.40), 6=colossus(1.62)
+            const tierHeight = 0.64 + sizeTier * 0.155;
+            const tierWidth = 0.72 + sizeTier * 0.088 + (((h >> 20) & 7) - 3.5) * 0.025;
+            const scaleY = Math.max(0.56, Math.min(1.85, tierHeight + canopyWave));
+            const scaleXZ = Math.max(0.66, Math.min(1.38, tierWidth + canopyWave * 0.45));
+            _propScale.set(scaleXZ, scaleY, scaleXZ);
           } else {
-            _propScale.set(1, 1, 1);
+            const rotStep = (h >> 2) & 3;
+            _propQuat.setFromAxisAngle(_propAxisY, rotStep * (Math.PI / 2));
+            _dummyPos.set(t.x, curY, t.z);
+            if (t.resourceNode === 'coral_reef') {
+              const isBleached = (t.coralBleachTimer ?? 0) > 0 || t.resourceAmount <= 0;
+              const scaleXZ = (1.28 + ((h >> 4) % 3) * 0.06) * (isBleached ? 0.92 : 1.0);
+              _propScale.set(scaleXZ, isBleached ? 0.88 : 1.0, scaleXZ);
+            } else {
+              _propScale.set(1, 1, 1);
+            }
           }
           _dummyMatrix.compose(_dummyPos, _propQuat, _propScale);
           _propScale.set(1, 1, 1);
@@ -6423,10 +6449,18 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           } else if (t.resourceNode === 'timber_grove') {
             if (t.terrain === 'jungle') {
               targetInst = timberJungleInsts[h % timberJungleInsts.length];
-            } else if (t.terrain === 'taiga') {
+            } else if (t.terrain === 'taiga' || t.terrain === 'tundra' || t.terrain === 'snow') {
               targetInst = timberTaigaInsts[h % timberTaigaInsts.length];
             } else if (t.terrain === 'blossom') {
               targetInst = timberBlossomInsts[h % timberBlossomInsts.length];
+            } else if (t.terrain === 'savanna' || t.terrain === 'badlands' || t.terrain === 'sand') {
+              targetInst = timberSavannaInsts[h % timberSavannaInsts.length];
+            } else if (t.terrain === 'swamp') {
+              targetInst = timberSwampInsts[h % timberSwampInsts.length];
+            } else if (t.terrain === 'highland' || t.terrain === 'mountain' || t.terrain === 'rock') {
+              targetInst = timberHighlandInsts[h % timberHighlandInsts.length];
+            } else if (t.terrain === 'grass' || t.terrain === 'fertile') {
+              targetInst = timberMeadowInsts[h % timberMeadowInsts.length];
             } else {
               targetInst = timberInsts[h % timberInsts.length];
             }
