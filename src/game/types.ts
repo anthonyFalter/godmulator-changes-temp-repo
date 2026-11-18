@@ -62,7 +62,8 @@ export type TerrainType =
   | 'rock'
   | 'snow'
   | 'scorched'
-  | 'crystal_field';
+  | 'crystal_field'
+  | 'void_goo';
 
 export type ResourceNodeType =
   | 'none'
@@ -293,6 +294,9 @@ export type GodPowerType =
   | 'tsunami'
   | 'meteor_strike'
   | 'earthquake'
+  | 'volcano_eruption'
+  | 'super_tornado'
+  | 'void_goo'
   | 'terraform_beam'
   | 'wormhole_ascension';
 
@@ -431,7 +435,10 @@ export interface VisualEffectEvent {
     | 'nuke_blast'
     | 'arcane_cataclysm'
     | 'battlewill_slash'
-    | 'projectile_tracer';
+    | 'projectile_tracer'
+    | 'huge_asteroid_strike'
+    | 'volcanic_lava_bomb'
+    | 'void_goo_splash';
   x: number;
   y: number;
   z: number;
@@ -460,6 +467,7 @@ export interface ActiveHazardZone {
     | 'tsunami_wave'
     | 'earthquake_zone'
     | 'tornado_vortex'
+    | 'volcano_eruption'
     | 'heat_wave_zone'
     | 'freeze_wave_zone'
     | 'blessing_wave'
@@ -476,6 +484,7 @@ export interface ActiveHazardZone {
   windZ?: number;
   heading?: number;
   exploded?: boolean;
+  isSuper?: boolean;
   arrivalRemaining?: number;
   arrivalDuration?: number;
   impactPending?: boolean;
@@ -493,6 +502,56 @@ export interface ActiveHazardZone {
   faultSegments?: EarthquakeFaultSegment[];
   quakeShapeKind?: EarthquakeShapeKind;
   quakeExtent?: number;
+}
+
+export interface VoidWispEntity {
+  id: string;
+  x: number;
+  y: number;
+  z: number;
+  vx: number;
+  vz: number;
+  size: number;
+  color: string;
+  phase: number;
+  bobSpeed: number;
+  sourceRole?: string;
+}
+
+export type RandomEventKind =
+  | 'huge_asteroid'
+  | 'volcano_eruption'
+  | 'super_tornado'
+  | 'mega_earthquake'
+  | 'heatwave_drought'
+  | 'deep_freeze'
+  | 'starfall_aurora';
+
+export interface WorldEventState {
+  id: string;
+  kind: RandomEventKind;
+  title: string;
+  subtitle: string;
+  accentColor: string;
+  targetX: number;
+  targetZ: number;
+  trackX: number;
+  trackY: number;
+  trackZ: number;
+  startX?: number;
+  startY?: number;
+  startZ?: number;
+  elapsed: number;
+  impactDelay?: number;
+  cinematicActive: boolean;
+  dismissedByUser?: boolean;
+  impactTriggered?: boolean;
+  destructive: boolean;
+  linkedHazardId?: string;
+  remaining: number;
+  duration: number;
+  startedAtYear?: number;
+  phase?: 'falling' | 'active';
 }
 
 export type GameLifecycleState = 'title' | 'playing' | 'paused' | 'gameover';
@@ -536,6 +595,7 @@ export interface WorldRulesConfig {
   animalAttacks: boolean;
   allowRebellion: boolean;
   warsEnabled: boolean;
+  randomEvents: boolean;
   startingEpochIndex: number;
   startingSettlers: 'none' | 'pioneers' | 'colony';
 }
@@ -600,4 +660,8 @@ export interface SimulationState {
   wildlifeRespawnTimer?: number;
   raiderWaveTimer?: number;
   oceanEventTimer?: number;
+  worldEventTimer?: number;
+  voidGooTimer?: number;
+  voidWisps?: VoidWispEntity[];
+  activeWorldEvent?: WorldEventState | null;
 }

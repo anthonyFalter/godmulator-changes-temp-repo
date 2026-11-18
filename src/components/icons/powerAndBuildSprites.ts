@@ -494,6 +494,78 @@ export const POWER_SPRITES: Record<GodPowerType, CompiledSprite> = {
     MAT.arcane,
     PB_MATS,
   ),
+
+  // 16x16 Erupting volcanic mountain cone with magma crater, lava river & smoke/embers
+  volcano_eruption: cluster16(
+    [
+      '.......fY.......',
+      '.....s..f..s....',
+      '....ms.fFa..Y...',
+      '.....mfYYf......',
+      '.....nfafNnh....',
+      '....Nnfafnhh....',
+      '....NnhaaFhhH...',
+      '...NnnffaFhhh...',
+      '...nnhhfaahhhH..',
+      '..NnhhhfaAHhhh..',
+      '..nhhHhafaHhhHH.',
+      '.NnhHHhffahhhhH.',
+      '.nhHHHHaFhhhhHH.',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.flame,
+    PB_MATS,
+  ),
+
+  // 16x16 Massive Category-5 storm super-tornado with anvil cloud, lightning & debris
+  super_tornado: cluster16(
+    [
+      '................',
+      '..mMMMMMMMMMd...',
+      '.mMMMDDDDDDDDd..',
+      '.333332222211d..',
+      '..11111111111Y..',
+      '..3333222211Y...',
+      '...111111111.C..',
+      '...33322211..p..',
+      '....111111......',
+      '..Y..33221......',
+      '......111.......',
+      '......321.......',
+      '.......21.......',
+      '.......11.......',
+      '................',
+      '................',
+    ],
+    MAT.arcane,
+    PB_MATS,
+  ),
+
+  // 16x16 Starry dark void goo mass with purple rim & floating colorful soul wisps
+  void_goo: cluster16(
+    [
+      '................',
+      '....C.......Y...',
+      '...C.I..........',
+      '......PzZZz.....',
+      '....PzDdddDZz...',
+      '...PddIdddYddZ..',
+      '..PdddDddddddZ..',
+      '..zddCdddddddZ..',
+      '..zdddddddIddD..',
+      '..ZddddYdddddD..',
+      '...ZdddddddddZ..',
+      '...zZddDdZddd...',
+      '....zzDD.zDD....',
+      '..........C.....',
+      '................',
+      '................',
+    ],
+    MAT.darkIron,
+    PB_MATS,
+  ),
 };
 
 export const BUILDING_SPRITES: Record<BuildingType, CompiledSprite> = {

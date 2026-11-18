@@ -955,6 +955,7 @@ const STYLED_TERRAIN_CODE: Record<TerrainType, number> = {
   badlands: 19,
   blossom: 20,
   runway: 21,
+  void_goo: 22,
 };
 
 export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem {
@@ -1438,7 +1439,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         c = mix(c, hi, step(0.68, band));
         if (detail > 0.92) c = mix(c, landSrgb(235.0, 178.0, 118.0), 0.7);
         return c;
-      } else {
+      } else if (code < 20.5) {
         // Blossom (20): vibrant spring green sakura grove meadow dusted with pink petals
         float petalNoise = landNoise(chunkPos * 1.25 + vec2(7.1, 2.3));
         vec3 sh   = landSrgb(72.0, 118.0, 68.0);
@@ -1448,6 +1449,35 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         c = mix(c, hi, step(0.66, patchVal));
         if (petalNoise > 0.64 || detail > 0.88) {
           c = detail > 0.94 ? landSrgb(255.0, 226.0, 238.0) : landSrgb(246.0, 172.0, 200.0);
+        }
+        return c;
+      } else {
+        // Void Goo (22): Abyssal pitch-black cosmic ooze revealing a drifting multi-layer starry sky
+        vec2 spaceDriftA = floor((pixPos * 16.0 + vec2(tTime * 3.8, -tTime * 2.4)));
+        vec2 spaceDriftB = floor((pixPos * 16.0 + vec2(-tTime * 2.1, tTime * 3.1)));
+        float starCellA = landHash12(spaceDriftA);
+        float starCellB = landHash12(spaceDriftB + vec2(37.0, 91.0));
+        float nebulaWave = landNoise(pixPos * 0.48 + vec2(tTime * 0.14, -tTime * 0.11));
+        float nebulaDust = landNoise(pixPos * 1.05 + vec2(-tTime * 0.22, tTime * 0.17));
+
+        vec3 voidBlack = vec3(0.004, 0.002, 0.012);
+        vec3 deepIndigo = landSrgb(16.0, 6.0, 34.0);
+        vec3 cosmicViolet = landSrgb(42.0, 14.0, 74.0);
+        vec3 c = mix(voidBlack, deepIndigo, smoothstep(0.38, 0.72, nebulaWave) * 0.72);
+        c = mix(c, cosmicViolet, smoothstep(0.56, 0.86, nebulaDust) * 0.45);
+
+        float twinkleA = 0.55 + 0.45 * sin(tTime * 4.2 + starCellA * 31.4);
+        float twinkleB = 0.5 + 0.5 * sin(tTime * 5.6 + starCellB * 27.1);
+        if (starCellA > 0.968) {
+          vec3 starHue = starCellA > 0.992
+            ? vec3(1.0, 0.92, 0.55)
+            : starCellA > 0.980
+              ? vec3(0.58, 0.90, 1.0)
+              : vec3(0.92, 0.78, 1.0);
+          c = mix(c, starHue, twinkleA);
+        } else if (starCellB > 0.978) {
+          vec3 dimStar = starCellB > 0.990 ? vec3(0.45, 0.86, 0.98) : vec3(0.76, 0.58, 0.98);
+          c = mix(c, dimStar, twinkleB * 0.88);
         }
         return c;
       }
@@ -2032,7 +2062,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
     roughness: 0.84,
     metalness: 0.08,
   });
-  cliffMat.customProgramCacheKey = () => 'aeon_cliff_pixel_v6';
+  cliffMat.customProgramCacheKey = () => 'aeon_cliff_pixel_v7';
   cliffMat.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = sharedTime;
     shader.uniforms.uEpoch = sharedEpoch;
@@ -2061,6 +2091,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         vec2 cliffNeighborCoord = floor(vLandWorldPos.xz + 0.5 + vLandWorldNormal.xz * 0.25);
         float ownerCode = decodeTerrain(sampleLandTile(cliffOwnerCoord));
         float neighborCode = decodeTerrain(sampleLandTile(cliffNeighborCoord));
+        bool isVoidWall = abs(ownerCode - 22.0) < 0.5 || abs(neighborCode - 22.0) < 0.5;
         bool isCraterWall = abs(ownerCode - 12.0) < 0.5 || abs(neighborCode - 12.0) < 0.5;
         bool isBadlandsWall = abs(ownerCode - 19.0) < 0.5 || abs(neighborCode - 19.0) < 0.5;
         bool isMountainWall = abs(ownerCode - 16.0) < 0.5 || abs(ownerCode - 11.0) < 0.5;
@@ -2071,21 +2102,27 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         float seam = step(0.86, fract(wallPix.y * 4.0)) + step(0.91, fract((wallPix.x + mod(brickRow, 2.0) * 0.25) * 2.0));
         float brickTone = landHash12(vec2(brickCol, brickRow));
 
-        vec3 stoneBase = isCraterWall
+        vec3 stoneBase = isVoidWall
+          ? vec3(0.015, 0.008, 0.035)
+          : isCraterWall
           ? landSrgb(48.0, 36.0, 34.0)
           : isBadlandsWall
             ? landSrgb(162.0, 82.0, 48.0)
             : isMountainWall
               ? landSrgb(88.0, 96.0, 106.0)
               : landSrgb(74.0, 89.0, 95.0);
-        vec3 stoneHi = isCraterWall
+        vec3 stoneHi = isVoidWall
+          ? landSrgb(58.0, 24.0, 96.0)
+          : isCraterWall
           ? landSrgb(78.0, 52.0, 42.0)
           : isBadlandsWall
             ? landSrgb(206.0, 122.0, 72.0)
             : isMountainWall
               ? landSrgb(126.0, 136.0, 146.0)
               : landSrgb(104.0, 122.0, 129.0);
-        vec3 stoneSh = isCraterWall
+        vec3 stoneSh = isVoidWall
+          ? vec3(0.004, 0.002, 0.012)
+          : isCraterWall
           ? landSrgb(24.0, 17.0, 18.0)
           : isBadlandsWall
             ? landSrgb(106.0, 52.0, 32.0)
@@ -2097,7 +2134,10 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         cliffCol = mix(cliffCol, stoneHi, step(0.68, strata * 0.65 + brickTone * 0.35));
         cliffCol = mix(cliffCol, stoneSh, clamp(seam, 0.0, 1.0) * 0.65);
 
-        if (isCraterWall) {
+        if (isVoidWall) {
+          float wallStar = landHash12(floor(wallPix * 16.0 + vec2(uTime * 2.2, -uTime * 1.4)));
+          if (wallStar > 0.962) cliffCol = mix(cliffCol, vec3(0.75, 0.62, 1.0), 0.92);
+        } else if (isCraterWall) {
           float emberVein = step(0.82, strata * 0.6 + brickTone * 0.4);
           cliffCol = mix(cliffCol, landSrgb(245.0, 98.0, 28.0), emberVein * 0.75);
         }
@@ -2163,7 +2203,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
       roughness,
       metalness,
     });
-    topMat.customProgramCacheKey = () => 'aeon_land_top_pixel_v12';
+    topMat.customProgramCacheKey = () => 'aeon_land_top_pixel_v13';
     topMat.onBeforeCompile = (shader) => {
       shader.uniforms.uTime = sharedTime;
       shader.uniforms.uEpoch = sharedEpoch;
@@ -2423,16 +2463,33 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
             col *= mix(vec3(1.0), uShadowTint * 0.62, clamp(shadowMask, 0.0, 1.0));
           }
 
-          // 4b. Atmospheric Time-of-Day Color Grading across all terrain biomes (Dawn rose-gold, Dusk amber-violet, Night/Midnight deep indigo)
-          float slopeSun = clamp(((hW - hE) * uSunDir.x + (hN - hS) * uSunDir.z) * 0.35 + 0.5, 0.0, 1.0);
-          vec3 todBiomeGrade = mix(uShadowTint, uSunTint, mix(0.68, 0.34, uDarkness) * (0.65 + 0.35 * slopeSun));
-          col *= todBiomeGrade;
+          if (abs(myCode - 22.0) > 0.5) {
+            // 4b. Atmospheric Time-of-Day Color Grading across all terrain biomes (Dawn rose-gold, Dusk amber-violet, Night/Midnight deep indigo)
+            float slopeSun = clamp(((hW - hE) * uSunDir.x + (hN - hS) * uSunDir.z) * 0.35 + 0.5, 0.0, 1.0);
+            vec3 todBiomeGrade = mix(uShadowTint, uSunTint, mix(0.68, 0.34, uDarkness) * (0.65 + 0.35 * slopeSun));
+            col *= todBiomeGrade;
+          } else {
+            // Luminous purple ooze edge shimmer where abyssal void goo creeps onto living terrain
+            float voidRim = 0.0;
+            if (abs(cN - 22.0) > 0.5 && subUv.y < 0.16) voidRim = max(voidRim, 1.0 - subUv.y / 0.16);
+            if (abs(cS - 22.0) > 0.5 && (1.0 - subUv.y) < 0.16) voidRim = max(voidRim, 1.0 - (1.0 - subUv.y) / 0.16);
+            if (abs(cW - 22.0) > 0.5 && subUv.x < 0.16) voidRim = max(voidRim, 1.0 - subUv.x / 0.16);
+            if (abs(cE - 22.0) > 0.5 && (1.0 - subUv.x) < 0.16) voidRim = max(voidRim, 1.0 - (1.0 - subUv.x) / 0.16);
+            if (voidRim > 0.05) {
+              float oozePulse = 0.7 + 0.3 * sin(uTime * 4.5 + pixPos.x * 2.0 + pixPos.y * 2.0);
+              col = mix(col, landSrgb(124.0, 58.0, 237.0), voidRim * 0.55 * oozePulse);
+            }
+          }
 
           diffuseColor.rgb = col;`,
         )
         .replace(
           '#include <dithering_fragment>',
           `#include <dithering_fragment>
+          // Keep Void Goo deep abyssal cosmos unlit & high-contrast regardless of sunlight phase
+          if (abs(myCode - 22.0) < 0.5) {
+            gl_FragColor.rgb = col;
+          }
           // 4c. Post-Lighting Age-Dependent City & Road Nighttime Illumination Pools
           if (uDarkness > 0.03) {
             vec3 nightCityGlow = computeCityNightGlow(

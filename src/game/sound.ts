@@ -139,6 +139,28 @@ class SoundEngine {
   public playThrow(): void {
     this.playTone(520, 0.14, 'triangle', 0.07, 0.52);
   }
+
+  public playHugeAsteroidApproach(): void {
+    this.playTone(340, 2.2, 'sine', 0.06, 0.24);
+    this.playTone(115, 2.4, 'sawtooth', 0.05, 0.42);
+  }
+
+  public playVolcanoEruption(): void {
+    this.playTone(72, 1.25, 'sawtooth', 0.14, 0.36);
+    setTimeout(() => this.playTone(118, 0.9, 'square', 0.09, 0.48), 80);
+    setTimeout(() => this.playTone(52, 1.4, 'triangle', 0.15, 0.55), 180);
+  }
+
+  public playSuperTornado(): void {
+    this.playTone(95, 1.1, 'sawtooth', 0.11, 1.85);
+    setTimeout(() => this.playTone(180, 0.95, 'triangle', 0.09, 0.58), 120);
+  }
+
+  public playVoidGoo(): void {
+    this.playTone(260, 0.48, 'sine', 0.08, 0.42);
+    setTimeout(() => this.playTone(580, 0.36, 'triangle', 0.06, 0.68), 65);
+    setTimeout(() => this.playTone(145, 0.6, 'sawtooth', 0.05, 0.52), 140);
+  }
 }
 
 export const soundEngine = new SoundEngine();

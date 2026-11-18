@@ -9,7 +9,9 @@ import {
   castGodPower,
   createInitialSimulationState,
   createWorldConfigFromTemplate,
+  dismissWorldEventCinematic,
   executeGodPowerImpact,
+  executeHugeAsteroidImpact,
   formatYearLabel,
   generateEarthquakeFaultNetwork,
   getKingdomId,
@@ -32,6 +34,7 @@ import {
   spawnUnit,
   stepSimulation,
   triggerCityRebellion,
+  triggerRandomWorldEvent,
   updateDragUnit,
 } from './simulation';
 import {
@@ -706,6 +709,7 @@ test('city layout planner builds unblocked street networks and never places buil
 test('cities respect max building size caps and launch settler expeditions to found distant cities', () => {
   const state = createInitialSimulationState(128, 'COLONIZE-EXPANSION');
   state.sandboxFreeMode = true;
+  state.wildlifeSeeded = true;
   state.resources.food = 5000;
   state.resources.wood = 5000;
   state.resources.stone = 5000;
@@ -2533,7 +2537,10 @@ test('same-race units spawned on other parts of the map form independent cities,
   // Step 4s so group 2 builds its own city hearth & crowns its own King
   for (let i = 0; i < 40; i++) stepSimulation(state, 0.1);
 
-  assert.equal(state.buildings.length, 2, 'Independent human group must found its own separate city');
+  const bonfires = state.buildings.filter((b) => b.type === 'bonfire');
+  const settlementSet = new Set(state.buildings.map((b) => b.settlementId).filter(Boolean));
+  assert.equal(bonfires.length, 2, 'Independent human group must found its own separate city hearth');
+  assert.equal(settlementSet.size, 2, 'Independent human group must found its own separate city');
   const colony2Bld = state.buildings.find((b) => b.settlementId !== colony1Id)!;
   assert.ok(colony2Bld, 'Second city must have a distinct settlementId');
   const kingdom2Id = state.settlementKingdoms?.[colony2Bld.settlementId!] ?? colony2Bld.settlementId!;
@@ -3672,6 +3679,7 @@ test('Racial ultimate cooldown stops spam & Orc Battlewill cleaves mountains', (
   bossA.hp = 600;
   bossA.maxHp = 600;
   hSoldier.weaponCooldown = 0;
+  hSoldier.actionCooldown = 0;
   for (let i = 0; i < 6; i++) stepSimulation(state, 0.1);
   const nukeCount1 = state.pendingVfx.filter((v) => v.type === 'nuke_blast').length;
   assert.equal(nukeCount1, 1, 'First worthy boss threat triggers 1 Nuke');
@@ -4819,5 +4827,160 @@ test('Starting races survive early wilderness, heal out of combat, and reproduce
     );
   }
 });
+
+test('Random World Events are toggleable in worldRules, support huge slow asteroid cinematic & dismissal, and remain rare', () => {
+  const state = createInitialSimulationState(96, 'RANDOM-EVENTS-1');
+  assert.equal(state.worldRules?.randomEvents, true, 'randomEvents rule should default to enabled');
+
+  // When disabled in God Rules, stepping well past max threshold never triggers an autonomous event
+  state.worldRules = { ...state.worldRules!, randomEvents: false };
+  state.worldEventTimer = 250;
+  stepSimulation(state, 0.5);
+  assert.equal(state.activeWorldEvent ?? null, null, 'Disabling randomEvents must suppress autonomous random events');
+
+  // Also test skipRandomEvents option (used on Title screen tour)
+  state.worldRules.randomEvents = true;
+  state.worldEventTimer = 250;
+  stepSimulation(state, 0.5, { skipRandomEvents: true });
+  assert.equal(state.activeWorldEvent ?? null, null, 'skipRandomEvents option must suppress random event triggers');
+
+  // Flatten center for predictable impact check
+  for (let dz = -8; dz <= 8; dz++) {
+    for (let dx = -8; dx <= 8; dx++) {
+      const t = getTile(state, 48 + dx, 48 + dz)!;
+      t.height = 4;
+      t.terrain = 'grass';
+      t.resourceNode = 'none';
+      t.resourceAmount = 0;
+    }
+  }
+
+  // Trigger huge_asteroid cinematic event explicitly
+  const evt = triggerRandomWorldEvent(state, 'huge_asteroid', 48, 48);
+  assert.ok(evt, 'triggerRandomWorldEvent should create huge_asteroid world event');
+  assert.equal(evt!.kind, 'huge_asteroid');
+  assert.equal(evt!.cinematicActive, true);
+  assert.equal(evt!.dismissedByUser, false);
+  assert.equal(evt!.impactTriggered, false);
+  assert.ok(evt!.trackY > 20, `Huge asteroid camera trackY should start high above impact site (got ${evt!.trackY})`);
+
+  const pendingStrike = state.pendingVfx.find((v) => v.type === 'huge_asteroid_strike');
+  assert.ok(pendingStrike, 'Huge asteroid event must queue huge_asteroid_strike VFX');
+  assert.equal(pendingStrike!.deferImpact, true);
+
+  // Execute impact when slow asteroid lands
+  executeHugeAsteroidImpact(state, 48, 48);
+  const centerTile = getTile(state, 48, 48)!;
+  assert.equal(centerTile.terrain, 'scorched', 'Huge asteroid impact should scorch a deep crater basin at epicenter');
+  assert.equal(centerTile.height, 1, 'Huge asteroid crater floor should depress from height 4 down to 1');
+  const rimTile = getTile(state, 54, 48)!;
+  assert.ok(rimTile.height >= 5, `Huge asteroid impact should heave up a blast rim around the crater (got ${rimTile.height})`);
+
+  // Dismissing cinematic immediately hides cinematic overlay flag and records user dismissal
+  dismissWorldEventCinematic(state);
+  assert.equal(state.activeWorldEvent?.dismissedByUser, true);
+  assert.equal(state.activeWorldEvent?.cinematicActive, false);
+});
+
+test('Volcano Eruption and Super Tornado powers spawn distinct lingering hazards and effects', () => {
+  const state = createInitialSimulationState(96, 'VOLCANO-SUPERTORNADO');
+  state.sandboxFreeMode = true;
+  state.wildlifeSeeded = true;
+  for (let dz = -10; dz <= 10; dz++) {
+    for (let dx = -10; dx <= 10; dx++) {
+      const t = getTile(state, 48 + dx, 48 + dz)!;
+      t.height = 2;
+      t.terrain = 'grass';
+      t.resourceNode = 'none';
+      t.buildingId = null;
+    }
+  }
+
+  const vRes = castGodPower(state, 'volcano_eruption', 40, 48);
+  assert.equal(vRes.ok, true);
+  const volcanoZone = (state.activeHazards ?? []).find((h) => h.kind === 'volcano_eruption');
+  assert.ok(volcanoZone, 'Volcano power must register lingering volcano_eruption hazard');
+  const calderaTile = getTile(state, 40, 48)!;
+  const rimPeakTile = getTile(state, 42, 48)!;
+  assert.ok(calderaTile.height >= 5 && calderaTile.onFireTimer > 0, 'Volcano epicenter must form an ignited elevated caldera');
+  assert.ok(rimPeakTile.height >= 6, `Volcano flanks must uplift steep mountain slopes (got ${rimPeakTile.height})`);
+
+  const tRes = castGodPower(state, 'super_tornado', 58, 48);
+  assert.equal(tRes.ok, true);
+  const superTornado = (state.activeHazards ?? []).find((h) => h.kind === 'tornado_vortex' && h.isSuper);
+  assert.ok(superTornado, 'Super Tornado power must register isSuper tornado_vortex hazard');
+  assert.ok(superTornado!.radius >= 6, 'Super Tornado must have expanded damage/pull radius');
+});
+
+test('Void Goo infects land into starry void terrain, spreads, revives killed beings as colorful varied-size wisps, and is cleansed by Blessing', () => {
+  const state = createInitialSimulationState(96, 'VOID-GOO-TEST');
+  state.sandboxFreeMode = true;
+  state.wildlifeSeeded = true;
+  state.worldRules = { ...state.worldRules!, randomEvents: false };
+
+  for (let dz = -10; dz <= 10; dz++) {
+    for (let dx = -10; dx <= 10; dx++) {
+      const t = getTile(state, 48 + dx, 48 + dz)!;
+      t.height = 2;
+      t.terrain = 'grass';
+      t.resourceNode = 'none';
+      t.resourceAmount = 0;
+      t.buildingId = null;
+    }
+  }
+
+  const victims = [];
+  for (let i = 0; i < 6; i++) {
+    const u = spawnUnit(state, i % 2 === 0 ? 'human' : 'elf', 47 + (i % 3), 47 + Math.floor(i / 3), false);
+    assert.equal(u.ok, true);
+    victims.push(u.unit!);
+  }
+
+  const res = castGodPower(state, 'void_goo', 48, 48);
+  assert.equal(res.ok, true);
+
+  const initialVoidCount = state.tiles.filter((t) => t.terrain === 'void_goo').length;
+  assert.ok(initialVoidCount >= 5, `Void Goo cast must convert patch tiles to void_goo (got ${initialVoidCount})`);
+
+  // Step simulation so void goo infects neighbors, consumes/kills units on infected soil, and revives varied-color/size wisps
+  for (let i = 0; i < 14; i++) {
+    stepSimulation(state, 0.35);
+  }
+
+  const spreadVoidCount = state.tiles.filter((t) => t.terrain === 'void_goo').length;
+  assert.ok(
+    spreadVoidCount > initialVoidCount,
+    `Void Goo should spread organically to neighboring land (${initialVoidCount} -> ${spreadVoidCount})`,
+  );
+
+  const killedCount = victims.filter((u) => u.state === 'ko').length;
+  assert.ok(killedCount >= 3, `Units inside Void Goo must be killed (killed=${killedCount})`);
+
+  const wisps = state.voidWisps ?? [];
+  assert.ok(wisps.length >= 3, `Killed units must revive as moving Void Wisps (wisps=${wisps.length})`);
+
+  const distinctColors = new Set(wisps.map((w) => w.color));
+  const distinctSizes = new Set(wisps.map((w) => Math.round(w.size * 10)));
+  assert.ok(distinctColors.size >= 2, `Void Wisps should spawn in multiple colors (got ${distinctColors.size})`);
+  assert.ok(distinctSizes.size >= 2, `Void Wisps should vary in size (got ${distinctSizes.size})`);
+
+  // Verify wisps actively move over time
+  const w0Start = { x: wisps[0].x, z: wisps[0].z };
+  stepSimulation(state, 0.5);
+  const w0After = state.voidWisps![0];
+  assert.ok(
+    Math.hypot(w0After.x - w0Start.x, w0After.z - w0Start.z) > 0.05,
+    'Void Wisps must move smoothly across the map',
+  );
+
+  // Blessing should cleanse void_goo back to living grass/fertile terrain
+  assert.equal(castGodPower(state, 'blessing', 48, 48).ok, true);
+  const cleansedTerrain = getTile(state, 48, 48)!.terrain;
+  assert.ok(
+    cleansedTerrain === 'grass' || cleansedTerrain === 'fertile',
+    `Blessing miracle should cleanse Void Goo back to living green soil (got ${cleansedTerrain})`,
+  );
+});
+
 
 

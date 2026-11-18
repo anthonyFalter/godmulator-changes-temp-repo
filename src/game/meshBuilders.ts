@@ -264,6 +264,13 @@ export function getTerrainMaterial(terrain: TerrainType): THREE.MeshStandardMate
         metalness: 0.3,
       });
       break;
+    case 'void_goo':
+      topMat = new THREE.MeshStandardMaterial({
+        map: getPixelArtTexture('void_goo', '#090314', '#8b5cf6', '#030108', 'tech'),
+        roughness: 0.25,
+        metalness: 0.15,
+      });
+      break;
     case 'jungle':
       topMat = new THREE.MeshStandardMaterial({
         map: getPixelArtTexture('jungle', '#225832', '#367a44', '#163e24', 'grass'),

@@ -308,6 +308,12 @@ const BIOME_META: Record<
     color: [232, 121, 249],
     baseTempC: 7,
   },
+  void_goo: {
+    name: 'Abyssal Void',
+    category: 'Cataclysmic',
+    color: [124, 58, 237],
+    baseTempC: -18,
+  },
 };
 
 const THERMAL_BAND_META: Array<{
@@ -1197,6 +1203,7 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
     'snow',
     'scorched',
     'crystal_field',
+    'void_goo',
   ];
 
   const biomeToZoneId = new Map<TerrainType, number>();

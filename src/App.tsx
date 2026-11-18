@@ -19,6 +19,7 @@ import {
   castGodPower,
   createInitialSimulationState,
   createWorldConfigFromTemplate,
+  dismissWorldEventCinematic,
   formatYearLabel,
   getKingdomId,
   getKingdomRelation,
@@ -159,6 +160,11 @@ const GOD_RULE_SWITCHES: ReadonlyArray<{
     key: 'allowDinosaurs',
     label: 'Dinosaurs',
     summary: 'Allows prehistoric dinosaurs in wild ecosystems & spawns',
+  },
+  {
+    key: 'randomEvents',
+    label: 'Random Events',
+    summary: 'Rare world events: huge asteroids, super tornadoes, volcanoes & starfalls',
   },
   {
     key: 'sandboxFreeMode',
@@ -1034,16 +1040,22 @@ export default function App() {
         if (res.ok) {
           if (activeTool.power === 'meteor_strike') {
             soundEngine.playMeteorIncoming();
+          } else if (activeTool.power === 'volcano_eruption') {
+            soundEngine.playVolcanoEruption();
           } else if (activeTool.power === 'earthquake') {
             soundEngine.playEarthquake();
           } else if (activeTool.power === 'tornado') {
             soundEngine.playTornado();
+          } else if (activeTool.power === 'super_tornado') {
+            soundEngine.playSuperTornado();
           } else if (activeTool.power === 'tsunami') {
             soundEngine.playTsunami();
           } else if (activeTool.power === 'freeze_snap') {
             soundEngine.playFreeze();
           } else if (activeTool.power === 'heat_wave') {
             soundEngine.playHeatWave();
+          } else if (activeTool.power === 'void_goo') {
+            soundEngine.playVoidGoo();
           } else {
             soundEngine.playClick();
           }
@@ -1123,6 +1135,8 @@ export default function App() {
       s.sandboxFreeMode = nextValue;
     } else if (key === 'dayNightCycle') {
       setLightingPreset(nextValue ? 'auto' : 'noon');
+    } else if (key === 'randomEvents' && !nextValue && s.activeWorldEvent) {
+      s.activeWorldEvent = null;
     }
     setWorldConfig((prev) => ({
       ...prev,
@@ -1270,6 +1284,15 @@ export default function App() {
 
   const currentEpoch = EPOCHS[sim.epochIndex] || EPOCHS[0];
   const nextEpoch = sim.epochIndex < EPOCHS.length - 1 ? EPOCHS[sim.epochIndex + 1] : null;
+  const activeWorldEvent = sim.activeWorldEvent ?? null;
+  const isEventCinematic =
+    gameState === 'playing' &&
+    Boolean(
+      activeWorldEvent &&
+        activeWorldEvent.cinematicActive &&
+        !activeWorldEvent.dismissedByUser &&
+        activeWorldEvent.remaining > 0,
+    );
   const inspectedTile = hoverTile ? getTile(sim, hoverTile.x, hoverTile.z) : null;
   const inspectedBuilding = hoverTile
     ? sim.buildings.find((b) => b.tileX === hoverTile.x && b.tileZ === hoverTile.z)
@@ -2403,8 +2426,119 @@ export default function App() {
         </div>
       )}
 
+      {/* WORLD EVENT CINEMATIC OVERLAY (hides HUD, displays pixelated radial speed lines & border-line title; click anywhere dismisses) */}
+      {isEventCinematic && activeWorldEvent && (
+        <div
+          role="button"
+          tabIndex={0}
+          data-testid="world-event-cinematic-overlay"
+          aria-label={`Dismiss ${activeWorldEvent.title} event camera`}
+          onClick={() => {
+            dismissWorldEventCinematic(simRef.current);
+            cameraActionRef.current.zoomDelta += 14;
+            soundEngine.playClick();
+            setHudTick((t) => t + 1);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ' || e.key === 'Escape') {
+              dismissWorldEventCinematic(simRef.current);
+              cameraActionRef.current.zoomDelta += 14;
+              soundEngine.playClick();
+              setHudTick((t) => t + 1);
+            }
+          }}
+          className="fixed inset-0 z-30 cursor-pointer select-none flex flex-col justify-between items-center pt-[max(1.25rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] px-4"
+        >
+          {/* Pixelated Radial Speed Lines Framing Overlay */}
+          <svg
+            viewBox="0 0 160 90"
+            preserveAspectRatio="none"
+            shapeRendering="crispEdges"
+            aria-hidden="true"
+            className="pointer-events-none fixed inset-0 w-full h-full opacity-70 animate-pulse"
+          >
+            {Array.from({ length: 24 }).map((_, idx) => {
+              const angle = (idx / 24) * Math.PI * 2 + 0.13;
+              const cos = Math.cos(angle);
+              const sin = Math.sin(angle);
+              const innerR = 30 + (idx % 3) * 5;
+              const steps = 8;
+              const rayColor =
+                activeWorldEvent.kind === 'deep_freeze'
+                  ? idx % 2 === 0
+                    ? '#bae6fd'
+                    : '#38bdf8'
+                  : activeWorldEvent.kind === 'starfall_aurora'
+                    ? idx % 2 === 0
+                      ? '#ffd166'
+                      : '#56cfe1'
+                    : activeWorldEvent.kind === 'super_tornado'
+                      ? idx % 2 === 0
+                        ? '#c084fc'
+                        : '#818cf8'
+                      : idx % 2 === 0
+                        ? '#ffd166'
+                        : '#ff6b35';
+              return Array.from({ length: steps }).map((__, sIdx) => {
+                const r = innerR + sIdx * 5.2;
+                const px = Math.round(80 + cos * r * 1.45);
+                const py = Math.round(45 + sin * r * 0.95);
+                const sz = sIdx >= 4 ? 2 : 1;
+                return (
+                  <rect
+                    key={`${idx}-${sIdx}`}
+                    x={px}
+                    y={py}
+                    width={sz}
+                    height={sz}
+                    fill={rayColor}
+                    fillOpacity={0.28 + (sIdx / steps) * 0.58}
+                  />
+                );
+              });
+            })}
+          </svg>
+
+          {/* Bare Event Title Header: No background fill or box borders, just text with horizontal border lines */}
+          <div
+            data-testid="world-event-title-header"
+            className="pointer-events-none relative mt-2 sm:mt-4 px-8 py-2 text-center bg-transparent border-t-2 border-b-2 border-l-0 border-r-0"
+            style={{
+              borderColor: activeWorldEvent.accentColor,
+            }}
+          >
+            <h2
+              className="text-lg sm:text-3xl font-bold uppercase tracking-[0.22em] leading-tight"
+              style={{
+                color: activeWorldEvent.accentColor,
+                textShadow: '2px 2px 0 #090807, -1px -1px 0 #090807, 1px -1px 0 #090807, -1px 1px 0 #090807',
+              }}
+            >
+              {activeWorldEvent.title}
+            </h2>
+            <p
+              className="mt-1 text-[11px] sm:text-xs font-semibold tracking-wider text-[#f2ece1]"
+              style={{
+                textShadow: '1px 1px 0 #090807, -1px -1px 0 #090807',
+              }}
+            >
+              {activeWorldEvent.subtitle}
+            </p>
+          </div>
+
+          <span
+            className="pointer-events-none text-[10px] sm:text-xs uppercase tracking-[0.18em] text-[#f2ece1]/90 mb-2"
+            style={{
+              textShadow: '1px 1px 0 #090807, -1px -1px 0 #090807',
+            }}
+          >
+            Click anywhere to return
+          </span>
+        </div>
+      )}
+
       {/* PLAYING HUD OVERLAY */}
-      {gameState !== 'title' && (
+      {gameState !== 'title' && !isEventCinematic && (
         <div className="fixed inset-0 z-20 pointer-events-none flex flex-col justify-between gap-1 sm:gap-1.5 pt-[max(0.25rem,env(safe-area-inset-top))] pb-[max(0.25rem,env(safe-area-inset-bottom))] pl-[max(0.25rem,env(safe-area-inset-left))] pr-[max(0.25rem,env(safe-area-inset-right))] sm:p-2.5 md:p-3">
           {/* TOP BAR: Single compact non-wrapping top row + slim single-line resource strip on mobile */}
           <div className="flex flex-wrap lg:flex-nowrap items-stretch justify-between gap-1 sm:gap-2 w-full">

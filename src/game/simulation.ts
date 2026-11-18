@@ -19,6 +19,7 @@ import {
   EarthquakeFaultSegment,
   EarthquakeShapeKind,
   GodPowerType,
+  RandomEventKind,
   Resources,
   SimulationState,
   SpeciesId,
@@ -30,6 +31,8 @@ import {
   VehicleEntity,
   VehicleType,
   VisualEffectEvent,
+  VoidWispEntity,
+  WorldEventState,
   WorldGenConfig,
   WorldRulesConfig,
   WorldTemplateId,
@@ -574,6 +577,7 @@ export const DEFAULT_WORLD_RULES: WorldRulesConfig = {
   animalAttacks: true,
   allowRebellion: true,
   warsEnabled: true,
+  randomEvents: true,
   startingEpochIndex: 0,
   startingSettlers: 'none',
 };
@@ -617,6 +621,7 @@ export const WORLD_TEMPLATES: WorldTemplatePreset[] = [
       animalAttacks: true,
       allowRebellion: true,
       warsEnabled: true,
+      randomEvents: true,
       startingEpochIndex: 0,
       startingSettlers: 'pioneers',
     },
@@ -645,6 +650,7 @@ export const WORLD_TEMPLATES: WorldTemplatePreset[] = [
       animalAttacks: true,
       allowRebellion: true,
       warsEnabled: true,
+      randomEvents: true,
       startingEpochIndex: 0,
       startingSettlers: 'pioneers',
     },
@@ -673,6 +679,7 @@ export const WORLD_TEMPLATES: WorldTemplatePreset[] = [
       animalAttacks: true,
       allowRebellion: true,
       warsEnabled: true,
+      randomEvents: true,
       startingEpochIndex: 6,
       startingSettlers: 'colony',
     },
@@ -701,6 +708,7 @@ export const WORLD_TEMPLATES: WorldTemplatePreset[] = [
       animalAttacks: true,
       allowRebellion: true,
       warsEnabled: true,
+      randomEvents: true,
       startingEpochIndex: 0,
       startingSettlers: 'pioneers',
     },
@@ -729,6 +737,7 @@ export const WORLD_TEMPLATES: WorldTemplatePreset[] = [
       animalAttacks: true,
       allowRebellion: true,
       warsEnabled: true,
+      randomEvents: true,
       startingEpochIndex: 0,
       startingSettlers: 'pioneers',
     },
@@ -757,6 +766,7 @@ export const WORLD_TEMPLATES: WorldTemplatePreset[] = [
       animalAttacks: true,
       allowRebellion: true,
       warsEnabled: true,
+      randomEvents: true,
       startingEpochIndex: 0,
       startingSettlers: 'pioneers',
     },
@@ -908,6 +918,10 @@ export function createInitialSimulationState(
     kingdomPeacefulTraits: {},
     diplomacyTimer: 0,
     rebellionTimer: 0,
+    worldEventTimer: 0,
+    voidGooTimer: 0,
+    voidWisps: [],
+    activeWorldEvent: null,
     worldName: worldTitle,
     worldTemplate: template,
     worldRules: rules,
@@ -1415,9 +1429,9 @@ export function spawnUnit(
     leviathanSubmerged: role === 'leviathan' ? true : undefined,
     leviathanSurfaceTimer: role === 'leviathan' ? 10 + (appearanceSeed % 8) : undefined,
     leviathanBeamTimer: role === 'leviathan' ? 0 : undefined,
-    leviathanBeamCooldown: role === 'leviathan' ? 0 : undefined,
+    leviathanBeamCooldown: role === 'leviathan' ? 4 : undefined,
     leviathanLeapTimer: role === 'leviathan' ? 0 : undefined,
-    leviathanLeapCooldown: role === 'leviathan' ? 0 : undefined,
+    leviathanLeapCooldown: role === 'leviathan' ? 6 : undefined,
     leviathanEatIslandCooldown: role === 'leviathan' ? 45 + (appearanceSeed % 35) : undefined,
   };
 
@@ -2060,7 +2074,7 @@ function applyExpandingWaveSlice(
           }
           continue;
         }
-        if (t.terrain === 'scorched' || t.terrain === 'swamp' || t.terrain === 'sand') {
+        if (t.terrain === 'scorched' || t.terrain === 'swamp' || t.terrain === 'sand' || t.terrain === 'void_goo') {
           t.terrain = dSq <= maxRSq * 0.45 ? 'fertile' : 'grass';
         } else if (t.terrain === 'grass' && dSq <= maxRSq * 0.35 && !t.buildingId) {
           t.terrain = 'fertile';
@@ -2243,7 +2257,7 @@ function applyExpandingWaveSlice(
           if (!t.buildingId) {
             if (epochIdx >= 6 && dSq <= maxRSq * 0.5) {
               t.terrain = 'crystal_field';
-            } else if (t.terrain === 'scorched') {
+            } else if (t.terrain === 'scorched' || t.terrain === 'void_goo') {
               t.terrain = dSq <= maxRSq * 0.5 ? 'grass' : 'savanna';
             } else if (t.terrain === 'sand' || t.terrain === 'swamp' || t.terrain === 'badlands') {
               t.terrain = dSq <= maxRSq * 0.55 ? 'fertile' : 'grass';
@@ -2360,7 +2374,7 @@ export function executeGodPowerImpact(
           t.onFireTimer = 0;
           t.cursedTimer = 0;
           t.blessedTimer = 25;
-          const wasScorched = t.terrain === 'scorched';
+          const wasScorched = t.terrain === 'scorched' || t.terrain === 'void_goo';
           if (wasScorched) {
             t.terrain = 'grass';
           } else if ((t.terrain === 'sand' || t.terrain === 'savanna') && dSq <= rSq * 0.75) {
@@ -3406,6 +3420,207 @@ export function executeGodPowerImpact(
                 ? 'A sharp tectonic rupture split open terrain and rattled nearby foundations!'
                 : 'Seismic tremors shook the earth and rattled foundations!';
       addChronicle(state, chronicleMsg, 'warning');
+      break;
+    }
+
+    case 'volcano_eruption': {
+      isHeavy = true;
+      const coneR = Math.max(4.5, r * 0.72);
+      const coneRSq = coneR * coneR;
+      const blastR = Math.max(r * 1.35, 8.5);
+      const blastRSq = blastR * blastR;
+
+      for (const t of state.tiles) {
+        const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
+        if (dSq > blastRSq) continue;
+        t.blessedTimer = 0;
+
+        if (dSq <= coneRSq) {
+          const dist = Math.sqrt(dSq);
+          if (t.height === 0 && dist > coneR * 0.6) {
+            damageOrBleachWaterTile(t, 400, true);
+            continue;
+          }
+          if (!t.buildingId) {
+            t.farmSettlementId = undefined;
+            if (dist <= 1.35) {
+              // Deep glowing volcanic caldera crater
+              t.height = Math.max(4, Math.min(8, Math.max(t.height + 2, 5)));
+              t.terrain = 'scorched';
+              t.onFireTimer = Math.max(t.onFireTimer, 18.0);
+              t.fireColor = '#ff5400';
+              if (t.resourceNode === 'berry_bush' || t.resourceNode === 'timber_grove') {
+                t.resourceNode = 'ore_vein';
+                t.resourceAmount = 420;
+              }
+            } else {
+              // Sloped obsidian/mountain volcano flanks
+              const slopeFactor = 1 - (dist - 1.35) / Math.max(0.5, coneR - 1.35);
+              t.height = Math.min(9, Math.max(t.height, Math.round(3 + slopeFactor * 4.5)));
+              t.terrain = slopeFactor > 0.58 ? 'mountain' : slopeFactor > 0.28 ? 'rock' : 'scorched';
+              if (t.resourceNode === 'berry_bush' || t.resourceNode === 'timber_grove') {
+                t.resourceNode = ((t.x * 7 + t.z * 11) & 3) === 0 ? 'ore_vein' : 'none';
+                t.resourceAmount = t.resourceNode === 'ore_vein' ? 320 : 0;
+              }
+              if (((t.x * 13 + t.z * 17) & 3) === 0) {
+                t.onFireTimer = Math.max(t.onFireTimer, 9.0);
+              }
+            }
+          }
+        } else if (t.height > 0 && !t.buildingId) {
+          if (dSq <= rSq) {
+            t.terrain = ((t.x + t.z) & 1) === 0 ? 'scorched' : t.terrain;
+            if (t.resourceNode === 'berry_bush') {
+              t.resourceNode = 'none';
+              t.resourceAmount = 0;
+            }
+          }
+          if (((t.x * 19 + t.z * 23) % 5) === 0) {
+            t.onFireTimer = Math.max(t.onFireTimer, 7.5);
+          }
+        }
+      }
+
+      for (const b of state.buildings) {
+        const dSq = (b.tileX - targetX) ** 2 + (b.tileZ - targetZ) ** 2;
+        if (dSq <= rSq && b.shieldTimer <= 0) {
+          b.hp = dSq <= coneRSq * 0.4 ? 0 : Math.max(0, b.hp - 360);
+        }
+      }
+      for (const u of state.units) {
+        if (u.state === 'ko' || u.statusEffects.shielded) continue;
+        const dSq = (u.x - targetX) ** 2 + (u.z - targetZ) ** 2;
+        if (dSq <= rSq) {
+          u.hp = Math.max(0, u.hp - (dSq <= coneRSq ? 320 : 125));
+          if (u.hp <= 0) {
+            u.state = 'ko';
+            u.koTimer = 0.45;
+            if (u.faction === 'hostile') state.totalRaidersDefeated += 1;
+          } else {
+            const dist = Math.max(0.25, Math.sqrt(dSq));
+            u.vxAir = ((u.x - targetX) / dist) * 9.5;
+            u.vzAir = ((u.z - targetZ) / dist) * 9.5;
+            u.altitude = Math.max(u.altitude ?? 0, 1.8);
+            u.vzVertical = 9.0;
+            u.fallDamageArmed = true;
+          }
+        }
+      }
+      for (const v of state.vehicles ?? []) {
+        const dSq = (v.x - targetX) ** 2 + (v.z - targetZ) ** 2;
+        if (dSq <= rSq) {
+          v.hp = Math.max(0, (v.hp ?? 100) - 260);
+        }
+      }
+
+      state.activeHazards.push({
+        id: nextEntityId('haz'),
+        kind: 'volcano_eruption',
+        x: targetX,
+        z: targetZ,
+        radius: blastR,
+        remaining: 9.5,
+        duration: 9.5,
+        tickTimer: 0.35,
+      });
+      state.resources.ore += 80;
+      addChronicle(state, 'A Volcano erupted violently, hurling molten lava bombs across the region!', 'warning');
+      break;
+    }
+
+    case 'super_tornado': {
+      isHeavy = true;
+      const heading = (((targetX * 19 + targetZ * 37) & 63) / 64) * Math.PI * 2;
+      state.activeHazards.push({
+        id: nextEntityId('haz'),
+        kind: 'tornado_vortex',
+        isSuper: true,
+        x: targetX,
+        z: targetZ,
+        heading,
+        radius: r,
+        remaining: 14.0,
+        duration: 14.0,
+        tickTimer: 0,
+      });
+      addChronicle(state, 'A colossal Category-5 Super Tornado tore into existence, carving destruction!', 'warning');
+      break;
+    }
+
+    case 'void_goo': {
+      isHeavy = true;
+      let infectedCount = 0;
+      let revivedCount = 0;
+      for (const t of state.tiles) {
+        const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
+        if (dSq > rSq) continue;
+        t.onFireTimer = 0;
+        t.fireColor = undefined;
+        t.blessedTimer = 0;
+        t.cursedTimer = 0;
+        if (t.height === 0) {
+          if (t.terrain === 'shallow_water' && dSq <= rSq * 0.45 && !t.buildingId) {
+            t.height = 1;
+            t.terrain = 'void_goo';
+            t.resourceNode = 'none';
+            t.resourceAmount = 0;
+            infectedCount++;
+          } else {
+            damageOrBleachWaterTile(t, 320, true);
+          }
+          continue;
+        }
+        t.terrain = 'void_goo';
+        t.farmSettlementId = undefined;
+        if (t.resourceNode === 'berry_bush' || t.resourceNode === 'timber_grove') {
+          t.resourceNode = 'none';
+          t.resourceAmount = 0;
+        }
+        infectedCount++;
+      }
+
+      for (const b of state.buildings) {
+        const dSq = (b.tileX - targetX) ** 2 + (b.tileZ - targetZ) ** 2;
+        if (dSq <= rSq && b.shieldTimer <= 0) {
+          b.hp = dSq <= rSq * 0.6 ? 0 : Math.max(0, b.hp - 340);
+        }
+      }
+
+      for (const u of state.units) {
+        if (u.state === 'ko' || u.statusEffects.shielded) continue;
+        const dSq = (u.x - targetX) ** 2 + (u.z - targetZ) ** 2;
+        if (dSq <= rSq) {
+          killUnitIntoVoidWisp(state, u);
+          revivedCount++;
+        }
+      }
+
+      for (const v of state.vehicles ?? []) {
+        const dSq = (v.x - targetX) ** 2 + (v.z - targetZ) ** 2;
+        if (dSq <= rSq) {
+          v.hp = Math.max(0, (v.hp ?? 100) - 300);
+        }
+      }
+
+      state.pendingVfx.push({
+        id: nextEntityId('vfx'),
+        type: 'void_goo_splash',
+        x: targetX,
+        y: (centerTile?.height ?? 2) * 0.45 + 0.2,
+        z: targetZ,
+        radius: r,
+        color: '#a855f7',
+        createdAt: Date.now(),
+      });
+
+      state.happiness = Math.max(8, state.happiness - 15);
+      addChronicle(
+        state,
+        revivedCount > 0
+          ? `Abyssal Void Goo consumed ${infectedCount} tiles and awakened ${revivedCount} drifting wisps!`
+          : `Abyssal Void Goo seeped into the earth (${infectedCount} tiles infected into starry void)!`,
+        'warning',
+      );
       break;
     }
   }
@@ -5623,7 +5838,7 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
 export function stepSimulation(
   state: SimulationState,
   rawDt: number,
-  options?: { skipDragStep?: boolean },
+  options?: { skipDragStep?: boolean; skipRandomEvents?: boolean },
 ): void {
   let remainingDt = Math.min(Math.max(rawDt, 0), 3.0);
   while (remainingDt > 0.0001) {
@@ -5636,7 +5851,7 @@ export function stepSimulation(
 function stepSimulationSingle(
   state: SimulationState,
   dt: number,
-  options?: { skipDragStep?: boolean },
+  options?: { skipDragStep?: boolean; skipRandomEvents?: boolean },
 ): void {
   if (dt <= 0) return;
 
@@ -6114,7 +6329,7 @@ function stepSimulationSingle(
         // Fling all trapped / orbiting entities violently outward to random places across the map with high fall damage!
         for (let ui = 0; ui < state.units.length; ui++) {
           const u = state.units[ui];
-          if (u.state === 'ko' || u.statusEffects.shielded || u.draggedByPlayer) continue;
+          if (u.statusEffects.shielded || u.draggedByPlayer) continue;
           const dist = Math.hypot(u.x - haz.x, u.z - haz.z);
           if (dist <= haz.radius * 2.15) {
             const seed = Math.abs((u.appearanceSeed ?? ui * 131) + Math.round(haz.x * 17 + ui * 37));
@@ -6131,11 +6346,12 @@ function stepSimulationSingle(
       }
     }
 
-    // Roaming Cyclone Vortex (tornado_vortex): wanders across land/water, lifts, spins & flings units + shreds buildings
+    // Roaming Cyclone Vortex (tornado_vortex / super_tornado): wanders across land/water, lifts, spins & flings units + shreds buildings
     if (haz.kind === 'tornado_vortex') {
-      const steer = Math.sin((haz.duration - haz.remaining) * 1.45 + haz.x * 0.3) * 0.85;
+      const isSuper = Boolean(haz.isSuper);
+      const steer = Math.sin((haz.duration - haz.remaining) * (isSuper ? 1.85 : 1.45) + haz.x * 0.3) * 0.85;
       haz.heading = (haz.heading ?? 0) + steer * dt;
-      const moveSpd = 4.6;
+      const moveSpd = isSuper ? 6.9 : 4.6;
       haz.x += Math.cos(haz.heading) * moveSpd * dt;
       haz.z += Math.sin(haz.heading) * moveSpd * dt;
       if (haz.x < 4 || haz.x > state.gridSize - 5) {
@@ -6147,17 +6363,52 @@ function stepSimulationSingle(
         haz.z = Math.max(4, Math.min(state.gridSize - 5, haz.z));
       }
 
-      const funnelPullR = haz.radius * 1.5;
+      if (
+        state.activeWorldEvent &&
+        state.activeWorldEvent.linkedHazardId === haz.id &&
+        state.activeWorldEvent.remaining > 0
+      ) {
+        const ht = getTile(state, Math.round(haz.x), Math.round(haz.z));
+        state.activeWorldEvent.trackX = haz.x;
+        state.activeWorldEvent.trackY = (ht?.height ?? 2) * 0.45 + 2.5;
+        state.activeWorldEvent.trackZ = haz.z;
+      }
+
+      // Super tornadoes leave a torn path through terrain, trees & roads
+      if (isSuper) {
+        const swathR = Math.ceil(haz.radius * 0.62);
+        const cx = Math.round(haz.x);
+        const cz = Math.round(haz.z);
+        for (let dz = -swathR; dz <= swathR; dz++) {
+          for (let dx = -swathR; dx <= swathR; dx++) {
+            if (dx * dx + dz * dz > (haz.radius * 0.62) ** 2) continue;
+            const st = getTile(state, cx + dx, cz + dz);
+            if (!st || st.height <= 0 || st.buildingId) continue;
+            if (st.resourceNode === 'berry_bush' || st.resourceNode === 'timber_grove') {
+              st.resourceNode = 'none';
+              st.resourceAmount = 0;
+            }
+            if (
+              (st.terrain === 'grass' || st.terrain === 'fertile' || st.terrain === 'forest' || st.terrain === 'stone_road') &&
+              Math.random() < dt * 2.4
+            ) {
+              st.terrain = 'rock';
+            }
+          }
+        }
+      }
+
+      const funnelPullR = haz.radius * (isSuper ? 1.72 : 1.5);
       for (const b of state.buildings) {
         const dSq = (b.tileX - haz.x) ** 2 + (b.tileZ - haz.z) ** 2;
-        if (dSq <= (haz.radius * 0.88) ** 2 && b.shieldTimer <= 0) {
-          b.hp = Math.max(0, b.hp - 140 * dt);
+        if (dSq <= (haz.radius * (isSuper ? 1.02 : 0.88)) ** 2 && b.shieldTimer <= 0) {
+          b.hp = Math.max(0, b.hp - (isSuper ? 265 : 140) * dt);
         }
       }
       for (const v of state.vehicles ?? []) {
         const dist = Math.hypot(v.x - haz.x, v.z - haz.z);
         if (dist <= funnelPullR) {
-          v.hp = Math.max(0, (v.hp ?? 100) - 145 * dt);
+          v.hp = Math.max(0, (v.hp ?? 100) - (isSuper ? 240 : 145) * dt);
         }
       }
       for (const u of state.units) {
@@ -6168,27 +6419,87 @@ function stepSimulationSingle(
         if (dist <= funnelPullR) {
           const normDist = Math.min(1, dist / funnelPullR);
           const curAngle = Math.atan2(dz, dx);
-          const nextDist = Math.max(0.55, dist - 3.6 * (1 - normDist * 0.4) * dt);
-          const nextAngle = curAngle + (5.2 + (1 - normDist) * 4.5) * dt;
+          const nextDist = Math.max(0.55, dist - (isSuper ? 5.0 : 3.6) * (1 - normDist * 0.4) * dt);
+          const nextAngle = curAngle + ((isSuper ? 6.8 : 5.2) + (1 - normDist) * 4.5) * dt;
           u.x = Math.max(1, Math.min(state.gridSize - 2, haz.x + Math.cos(nextAngle) * nextDist));
           u.z = Math.max(1, Math.min(state.gridSize - 2, haz.z + Math.sin(nextAngle) * nextDist));
-          u.altitude = Math.min(5.0, (u.altitude ?? 0) + (4.2 - normDist * 2.0) * dt);
+          u.altitude = Math.min(isSuper ? 7.5 : 5.0, (u.altitude ?? 0) + ((isSuper ? 6.2 : 4.2) - normDist * 2.0) * dt);
           u.vzVertical = 0;
           u.fallDamageArmed = (u.altitude ?? 0) >= 1.6;
-          const cycloneDot = 36 + (1 - normDist) * 48;
+          const cycloneDot = (isSuper ? 64 : 36) + (1 - normDist) * (isSuper ? 74 : 48);
           u.hp = Math.max(0, u.hp - cycloneDot * dt);
           if (u.hp <= 0) {
             u.state = 'ko';
             u.koTimer = 0.45;
             if (u.faction === 'hostile') state.totalRaidersDefeated += 1;
-          } else if (dist <= 1.35 && Math.random() < dt * 2.2) {
+          } else if (dist <= (isSuper ? 1.8 : 1.35) && Math.random() < dt * (isSuper ? 2.8 : 2.2)) {
             // Eject unit violently upward & outward from the top of the funnel!
             const ejectAngle = nextAngle + 0.5;
-            u.vxAir = Math.cos(ejectAngle) * (10 + Math.random() * 6);
-            u.vzAir = Math.sin(ejectAngle) * (10 + Math.random() * 6);
-            u.altitude = Math.max(3.4, u.altitude ?? 3.4);
-            u.vzVertical = 9.5 + Math.random() * 4.0;
+            const ejectSpd = isSuper ? 14 + Math.random() * 8 : 10 + Math.random() * 6;
+            u.vxAir = Math.cos(ejectAngle) * ejectSpd;
+            u.vzAir = Math.sin(ejectAngle) * ejectSpd;
+            u.altitude = Math.max(isSuper ? 5.2 : 3.4, u.altitude ?? 3.4);
+            u.vzVertical = (isSuper ? 13.5 : 9.5) + Math.random() * 4.0;
             u.fallDamageArmed = true;
+          }
+        }
+      }
+    }
+
+    // Active Volcano Eruption: repeatedly hurls molten lava bombs onto surrounding tiles
+    if (haz.kind === 'volcano_eruption') {
+      haz.tickTimer -= dt;
+      if (haz.tickTimer <= 0) {
+        haz.tickTimer = 0.65;
+        const bombCount = 1 + (Math.random() < 0.45 ? 1 : 0);
+        for (let bi = 0; bi < bombCount; bi++) {
+          const ang = Math.random() * Math.PI * 2;
+          const dist = 2.4 + Math.random() * Math.max(4.5, haz.radius * 0.95);
+          const bx = Math.max(2, Math.min(state.gridSize - 3, Math.round(haz.x + Math.cos(ang) * dist)));
+          const bz = Math.max(2, Math.min(state.gridSize - 3, Math.round(haz.z + Math.sin(ang) * dist)));
+          const bt = getTile(state, bx, bz);
+          const calderaTile = getTile(state, Math.round(haz.x), Math.round(haz.z));
+          const originY = (calderaTile?.height ?? 5) * 0.45 + 1.0;
+          const destY = (bt?.height ?? 1) * 0.45 + 0.2;
+          state.pendingVfx.push({
+            id: nextEntityId('vfx'),
+            type: 'volcanic_lava_bomb',
+            x: bx,
+            y: destY,
+            z: bz,
+            originX: haz.x,
+            originY,
+            originZ: haz.z,
+            radius: 2.3,
+            color: '#ff5400',
+            createdAt: Date.now(),
+          });
+          if (bt && bt.height > 0) {
+            if (!bt.buildingId) {
+              bt.terrain = 'scorched';
+              if (bt.resourceNode === 'berry_bush' || bt.resourceNode === 'timber_grove') {
+                bt.resourceNode = 'none';
+                bt.resourceAmount = 0;
+              }
+            }
+            bt.onFireTimer = Math.max(bt.onFireTimer, 8.5);
+          } else if (bt && bt.height === 0) {
+            damageOrBleachWaterTile(bt, 160, false);
+          }
+          for (const b of state.buildings) {
+            if (b.shieldTimer <= 0 && (b.tileX - bx) ** 2 + (b.tileZ - bz) ** 2 <= 4.5) {
+              b.hp = Math.max(0, b.hp - 125);
+            }
+          }
+          for (const u of state.units) {
+            if (u.state !== 'ko' && !u.statusEffects.shielded && (u.x - bx) ** 2 + (u.z - bz) ** 2 <= 4.5) {
+              u.hp = Math.max(0, u.hp - 135);
+              if (u.hp <= 0) {
+                u.state = 'ko';
+                u.koTimer = 0.45;
+                if (u.faction === 'hostile') state.totalRaidersDefeated += 1;
+              }
+            }
           }
         }
       }
@@ -6729,7 +7040,48 @@ function stepSimulationSingle(
   const hasWormholeRift = hazardsList.some((h) => h.kind === 'wormhole_rift');
 
   for (const u of state.units) {
+    const suspendedInVortex =
+      hasWormholeRift &&
+      !u.statusEffects.shielded &&
+      hazardsList.some(
+        (h) => h.kind === 'wormhole_rift' && Math.hypot(u.x - h.x, u.z - h.z) <= h.radius * 1.45,
+      );
     if (u.state === 'ko') {
+      if (suspendedInVortex) {
+        remainingUnits.push(u);
+        continue;
+      }
+      const altKo = u.altitude ?? 0;
+      const vzKo = u.vzVertical ?? 0;
+      if (altKo > 0 || vzKo !== 0) {
+        if (u.vxAir) {
+          u.x += u.vxAir * dt;
+          if (u.x < 1 || u.x > state.gridSize - 2) {
+            u.x = Math.max(1, Math.min(state.gridSize - 2, u.x));
+            u.vxAir *= -0.35;
+          }
+        }
+        if (u.vzAir) {
+          u.z += u.vzAir * dt;
+          if (u.z < 1 || u.z > state.gridSize - 2) {
+            u.z = Math.max(1, Math.min(state.gridSize - 2, u.z));
+            u.vzAir *= -0.35;
+          }
+        }
+        const nextVzKo = vzKo - 22.0 * dt;
+        const nextAltKo = altKo + nextVzKo * dt;
+        if (nextAltKo <= 0) {
+          u.altitude = 0;
+          u.vzVertical = 0;
+          u.vxAir = 0;
+          u.vzAir = 0;
+        } else {
+          u.altitude = nextAltKo;
+          u.vzVertical = nextVzKo;
+        }
+        remainingUnits.push(u);
+        continue;
+      }
       u.koTimer -= dt;
       if (u.koTimer > 0) {
         remainingUnits.push(u);
@@ -6978,11 +7330,17 @@ function stepSimulationSingle(
     }
   }
 
-  // 8b. Guarantee strictly 1 living King per kingdom on every tick (handles immediate succession when a King falls)
+  // 8b. Void Goo infection spread & Void Wisp soul kinematics
+  stepVoidGooAndWisps(state, dt);
+
+  // 8c. Guarantee strictly 1 living King per kingdom on every tick (handles immediate succession when a King falls)
   ensureSettlementKings(state);
 
   // 9. Update transit vehicles (Trains on rail_track, Cars on stone_road, Planes at airports)
   stepVehicles(state, dt);
+
+  // 10. Rare autonomous World Events (asteroids, volcanoes, super tornadoes, mega-quakes, climate waves, starfalls)
+  stepRandomWorldEvents(state, dt, options?.skipRandomEvents);
 }
 
 const VEHICLE_DIRS: ReadonlyArray<[number, number]> = [
@@ -9312,6 +9670,8 @@ function stepWildlifeAI(
       }
       for (const other of state.units) {
         if (other.id === u.id || other.state === 'ko' || other.statusEffects.shielded) continue;
+        const isProvokedDragon = other.role === 'dragon' && (u.underAttackTimer ?? 0) > 0 && other.id === u.lastAttackerId;
+        if (other.role === 'dragon' && !isProvokedDragon) continue;
         if (distToBeam(other.x, other.z) <= 2.25) {
           other.hp = Math.max(0, other.hp - 115 * dt);
           if (other.hp <= 0) {
@@ -9393,6 +9753,7 @@ function stepWildlifeAI(
     for (const other of state.units) {
       if (other.id === u.id || other.state === 'ko' || other.hp <= 0 || other.role === 'leviathan') continue;
       const isAttacker = (u.underAttackTimer ?? 0) > 0 && other.id === u.lastAttackerId;
+      if (!isAttacker && other.role === 'dragon') continue;
       const ot = getTile(state, Math.round(other.x), Math.round(other.z));
       if (!isAttacker && (!ot || ot.height > 2)) continue;
       const d = Math.hypot(other.x - u.x, other.z - u.z);
@@ -11189,6 +11550,7 @@ function stepCivilianUnitAI(
         // Shared kingdom-wide ultimate cooldown (40s) + worthy-threat escalation prevents spam nuking lone soldiers!
         const kUltReady = !myKingdomId || (state.kingdomUltimateCooldowns?.[myKingdomId] ?? 0) <= 0;
         let nearbyEnemies = 0;
+        let nearbyBossThreat = false;
         if (kUltReady && (u.weaponCooldown ?? 0) <= 0) {
           for (const ce of state.units) {
             if (ce.state === 'ko' || ce.hp <= 0) continue;
@@ -11206,7 +11568,10 @@ function stepCivilianUnitAI(
             ) {
               if ((ce.x - nearestEnemy.x) ** 2 + (ce.z - nearestEnemy.z) ** 2 <= 25) {
                 nearbyEnemies++;
-                if (nearbyEnemies >= 3) break;
+                if (ce.maxHp >= 180 || ce.role === 'leviathan' || Boolean(ce.isKing)) {
+                  nearbyBossThreat = true;
+                }
+                if (nearbyEnemies >= 3 && nearbyBossThreat) break;
               }
             }
           }
@@ -11216,7 +11581,7 @@ function stepCivilianUnitAI(
           nearestEnemy.role === 'leviathan' ||
           Boolean(nearestEnemy.isKing) ||
           nearestEnemy.faction === 'hostile' ||
-          (nearestEnemy.battlewillActive ?? 0) > 0 ||
+          nearbyBossThreat ||
           nearbyEnemies >= 3;
 
         const triggerHumanNuke =
@@ -11225,14 +11590,14 @@ function stepCivilianUnitAI(
           u.species === 'human' &&
           myEpoch >= 4 &&
           (u.weaponCooldown ?? 0) <= 0 &&
-          (u.role === 'warrior' || u.isKing || dist > 2.2);
+          (u.role === 'warrior' || u.isKing || dist > 2.2 || nearbyBossThreat || nearestEnemy.maxHp >= 180);
         const triggerElfCataclysm =
           kUltReady &&
           worthyUltThreat &&
           u.species === 'elf' &&
           myEpoch >= 4 &&
           (u.weaponCooldown ?? 0) <= 0 &&
-          (u.role === 'warrior' || u.role === 'priest' || u.isKing || dist > 2.2);
+          (u.role === 'warrior' || u.role === 'priest' || u.isKing || dist > 2.2 || nearbyBossThreat || nearestEnemy.maxHp >= 180);
         const triggerOrcBattlewillSlash =
           kUltReady &&
           worthyUltThreat &&
@@ -12363,4 +12728,687 @@ export function releaseDragUnit(
   unit.fallDamageArmed = true;
   return unit;
 }
+
+const VOID_WISP_PALETTE = [
+  '#38bdf8',
+  '#c084fc',
+  '#f472b6',
+  '#fde047',
+  '#4ade80',
+  '#fb7185',
+  '#a78bfa',
+  '#67e8f9',
+  '#fb923c',
+  '#e0f2fe',
+];
+const MAX_VOID_WISPS = 260;
+
+function spawnVoidWispsFromUnit(state: SimulationState, u: UnitEntity): void {
+  if (!state.voidWisps) state.voidWisps = [];
+  const seedBase = Math.abs((u.appearanceSeed ?? 19) + Math.round(u.x * 13 + u.z * 7));
+  const isLarge = u.role === 'dragon' || u.role === 'dinosaur' || u.role === 'leviathan' || u.isKing;
+  const count = isLarge ? 2 : 1;
+  for (let i = 0; i < count; i++) {
+    if (state.voidWisps.length >= MAX_VOID_WISPS) {
+      state.voidWisps.shift();
+    }
+    const colorIdx = (seedBase + i * 3 + state.voidWisps.length) % VOID_WISP_PALETTE.length;
+    const sizeRaw = isLarge
+      ? 0.92 + ((seedBase + i * 17) % 45) / 100
+      : 0.42 + ((seedBase + i * 29) % 72) / 100;
+    const ang = ((seedBase + i * 71) % 360) * (Math.PI / 180);
+    const spd = 1.6 + ((seedBase + i * 13) % 10) * 0.22;
+    const wisp: VoidWispEntity = {
+      id: nextEntityId('wisp'),
+      x: Math.max(1.5, Math.min(state.gridSize - 2.5, u.x + (i === 0 ? 0 : 0.45))),
+      y: Math.max(0.75, (u.altitude ?? 0) + 0.95),
+      z: Math.max(1.5, Math.min(state.gridSize - 2.5, u.z + (i === 0 ? 0 : -0.35))),
+      vx: Math.cos(ang) * spd,
+      vz: Math.sin(ang) * spd,
+      size: Number(sizeRaw.toFixed(2)),
+      color: VOID_WISP_PALETTE[colorIdx],
+      phase: ((seedBase + i * 37) % 100) * 0.0628,
+      bobSpeed: 2.4 + ((seedBase + i * 11) % 12) * 0.18,
+    };
+    state.voidWisps.push(wisp);
+  }
+}
+
+function killUnitIntoVoidWisp(state: SimulationState, u: UnitEntity): void {
+  if (u.state === 'ko') return;
+  u.hp = 0;
+  u.state = 'ko';
+  u.koTimer = 0.35;
+  if (u.faction === 'hostile') state.totalRaidersDefeated += 1;
+  spawnVoidWispsFromUnit(state, u);
+}
+
+function stepVoidGooAndWisps(state: SimulationState, dt: number): void {
+  if (!state.voidWisps) state.voidWisps = [];
+
+  // 1. Living non-shielded units standing directly on Void Goo terrain die and revive as moving wisps
+  for (const u of state.units) {
+    if (u.state === 'ko' || u.hp <= 0 || u.statusEffects.shielded || u.draggedByPlayer) continue;
+    if ((u.altitude ?? 0) >= 1.25) continue;
+    const ut = getTile(state, Math.round(u.x), Math.round(u.z));
+    if (ut && ut.terrain === 'void_goo') {
+      killUnitIntoVoidWisp(state, u);
+    }
+  }
+
+  // 2. Periodically creep Void Goo outward onto neighboring land tiles & damage unshielded structures
+  state.voidGooTimer = (state.voidGooTimer ?? 0) + dt;
+  if (state.voidGooTimer >= 0.48) {
+    state.voidGooTimer = 0;
+    const gs = state.gridSize;
+    const voidIndices: number[] = [];
+    for (let i = 0; i < state.tiles.length; i++) {
+      if (state.tiles[i].terrain === 'void_goo') {
+        voidIndices.push(i);
+      }
+    }
+    if (voidIndices.length > 0 && voidIndices.length < state.tiles.length * 0.92) {
+      const toInfect = new Set<TileData>();
+      const dirs: readonly [number, number][] = [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+        [1, 1],
+        [-1, 1],
+        [1, -1],
+        [-1, -1],
+      ];
+      // Shuffle starting offset deterministically so expansion looks organic
+      const stride = voidIndices.length > 900 ? 2 : 1;
+      const offset = Math.floor(Math.random() * stride);
+      for (let idx = offset; idx < voidIndices.length && toInfect.size < 52; idx += stride) {
+        const vt = state.tiles[voidIndices[idx]];
+        for (let k = 0; k < dirs.length; k++) {
+          const [ox, oz] = dirs[k];
+          const nx = vt.x + ox;
+          const nz = vt.z + oz;
+          if (nx < 0 || nz < 0 || nx >= gs || nz >= gs) continue;
+          const nb = state.tiles[nz * gs + nx];
+          if (!nb || nb.terrain === 'void_goo' || nb.blessedTimer > 0) continue;
+          const isDiag = k >= 4;
+          if (nb.height > 0) {
+            const chance = isDiag ? 0.24 : 0.62;
+            if (Math.random() < chance) {
+              toInfect.add(nb);
+            }
+          } else if (!isDiag && nb.terrain === 'shallow_water' && Math.random() < 0.08) {
+            toInfect.add(nb);
+          }
+          if (toInfect.size >= 52) break;
+        }
+      }
+
+      for (const targetTile of toInfect) {
+        if (targetTile.height === 0) targetTile.height = 1;
+        targetTile.terrain = 'void_goo';
+        targetTile.onFireTimer = 0;
+        targetTile.fireColor = undefined;
+        targetTile.cursedTimer = 0;
+        targetTile.farmSettlementId = undefined;
+        if (targetTile.resourceNode === 'berry_bush' || targetTile.resourceNode === 'timber_grove') {
+          targetTile.resourceNode = 'none';
+          targetTile.resourceAmount = 0;
+        }
+      }
+
+      for (const b of state.buildings) {
+        if (b.hp <= 0 || b.shieldTimer > 0) continue;
+        const bt = getTile(state, b.tileX, b.tileZ);
+        if (bt && bt.terrain === 'void_goo') {
+          b.hp = Math.max(0, b.hp - 36);
+        }
+      }
+    }
+  }
+
+  // 3. Move & bob all revived Void Wisps
+  const maxCoord = state.gridSize - 2.5;
+  for (let i = 0; i < state.voidWisps.length; i++) {
+    const w = state.voidWisps[i];
+    w.phase += w.bobSpeed * dt;
+    const steer = Math.sin(w.phase * 0.7 + i * 1.13) * 1.45;
+    const cosS = Math.cos(steer * dt);
+    const sinS = Math.sin(steer * dt);
+    const nvx = w.vx * cosS - w.vz * sinS;
+    const nvz = w.vx * sinS + w.vz * cosS;
+    w.vx = nvx;
+    w.vz = nvz;
+    w.x += w.vx * dt;
+    w.z += w.vz * dt;
+    if (w.x < 2 || w.x > maxCoord) {
+      w.vx = -w.vx;
+      w.x = Math.max(2, Math.min(maxCoord, w.x));
+    }
+    if (w.z < 2 || w.z > maxCoord) {
+      w.vz = -w.vz;
+      w.z = Math.max(2, Math.min(maxCoord, w.z));
+    }
+    const wt = getTile(state, Math.round(w.x), Math.round(w.z));
+    const groundY = (wt?.height ?? 1) * 0.45;
+    const targetY = groundY + 0.85 + w.size * 0.45 + Math.sin(w.phase) * 0.35;
+    w.y = w.y + (targetY - w.y) * Math.min(1, dt * 4.5);
+  }
+}
+
+export function executeHugeAsteroidImpact(
+  state: SimulationState,
+  targetX: number,
+  targetZ: number,
+): void {
+  const r = 10.5;
+  const rSq = r * r;
+  const centerTile = getTile(state, targetX, targetZ);
+
+  if (!state.activeHazards) state.activeHazards = [];
+
+  if (!centerTile || centerTile.height === 0) {
+    state.activeHazards.push({
+      id: nextEntityId('haz'),
+      kind: 'tsunami_wave',
+      x: targetX,
+      z: targetZ,
+      currentRadius: 2.0,
+      maxRadius: 42,
+      radius: r,
+      remaining: 5.8,
+      duration: 5.8,
+      tickTimer: 0,
+    });
+    for (const t of state.tiles) {
+      const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
+      if (dSq <= rSq && t.height === 0) {
+        damageOrBleachWaterTile(t, 450, true);
+        t.terrain = dSq <= 24 ? 'deep_water' : 'shallow_water';
+      }
+    }
+    for (const b of state.buildings) {
+      if ((b.tileX - targetX) ** 2 + (b.tileZ - targetZ) ** 2 <= rSq && b.shieldTimer <= 0) {
+        b.hp = 0;
+      }
+    }
+    for (const u of state.units) {
+      if (u.state !== 'ko' && !u.statusEffects.shielded && (u.x - targetX) ** 2 + (u.z - targetZ) ** 2 <= rSq) {
+        u.hp = 0;
+        u.state = 'ko';
+        u.koTimer = 0.5;
+      }
+    }
+    addChronicle(state, 'Colossal Rogue Asteroid plunged into the ocean, unleashing megatsunamis!', 'warning');
+    return;
+  }
+
+  const baseH = Math.max(3, centerTile.height);
+  for (const t of state.tiles) {
+    const dx = t.x - targetX;
+    const dz = t.z - targetZ;
+    const dSq = dx * dx + dz * dz;
+    if (dSq > rSq * 1.15) continue;
+
+    if (t.height === 0) {
+      damageOrBleachWaterTile(t, 450, true);
+      t.terrain = dSq <= 22 ? 'deep_water' : 'shallow_water';
+      t.onFireTimer = 0;
+      continue;
+    }
+
+    const tileH = Math.max(1, t.height);
+    const wasSand = t.terrain === 'sand';
+    const angleNoise = ((((t.x * 73856093) ^ (t.z * 19349663)) & 255) / 255.0 - 0.5) * 1.25;
+    const effDSq = dSq + angleNoise;
+
+    if (dSq <= 10.5) {
+      t.height = Math.max(1, Math.min(baseH, tileH) - 3);
+      t.terrain = 'scorched';
+      if (dSq <= 2.2 && !t.buildingId) {
+        t.onFireTimer = 14;
+        t.resourceNode = 'ore_vein';
+        t.resourceAmount = 600;
+      } else if (!t.buildingId) {
+        t.onFireTimer = 0;
+        t.resourceNode = 'none';
+        t.resourceAmount = 0;
+      }
+    } else if (effDSq <= 30.0) {
+      t.height = Math.max(1, Math.min(baseH, tileH) - 1);
+      t.terrain = 'scorched';
+      if (!t.buildingId) {
+        t.resourceNode = 'none';
+        t.resourceAmount = 0;
+      }
+    } else if (effDSq <= 56.0 && !t.buildingId) {
+      t.height = Math.min(10, tileH + 2);
+      t.terrain = effDSq <= 44 ? (wasSand ? 'crystal_field' : 'rock') : 'scorched';
+      if (t.resourceNode === 'timber_grove' || t.resourceNode === 'berry_bush') {
+        t.resourceNode = 'none';
+        t.resourceAmount = 0;
+      } else if (t.resourceNode === 'none' && ((t.x * 11 + t.z * 7) % 8 === 0)) {
+        t.resourceNode = wasSand ? 'crystal_monolith' : 'ore_vein';
+        t.resourceAmount = 380;
+      }
+    } else if (!t.buildingId) {
+      t.terrain = 'scorched';
+      if (t.resourceNode === 'timber_grove' || t.resourceNode === 'berry_bush') {
+        t.resourceNode = 'none';
+        t.resourceAmount = 0;
+      }
+      if (((t.x * 19 + t.z * 31) % 4) === 0) {
+        t.onFireTimer = Math.max(t.onFireTimer, 10);
+      }
+    }
+  }
+
+  for (const b of state.buildings) {
+    const dSq = (b.tileX - targetX) ** 2 + (b.tileZ - targetZ) ** 2;
+    if (dSq <= rSq) {
+      if (b.shieldTimer <= 0) {
+        b.hp = dSq <= (r * 0.86) ** 2 ? 0 : Math.max(0, b.hp - 850);
+      } else {
+        b.shieldTimer = 0;
+        b.hp = Math.max(0, b.hp - 280);
+      }
+    }
+  }
+  for (const u of state.units) {
+    const dSq = (u.x - targetX) ** 2 + (u.z - targetZ) ** 2;
+    if (dSq <= rSq && u.state !== 'ko' && !u.statusEffects.shielded) {
+      const coreHit = dSq <= (r * 0.72) ** 2;
+      u.hp = Math.max(0, u.hp - (coreHit ? 900 : 340));
+      if (u.hp <= 0) {
+        u.state = 'ko';
+        u.koTimer = 0.5;
+        if (u.faction === 'hostile') state.totalRaidersDefeated += 1;
+      } else {
+        const dist = Math.max(0.3, Math.sqrt(dSq));
+        u.vxAir = ((u.x - targetX) / dist) * 11.5;
+        u.vzAir = ((u.z - targetZ) / dist) * 11.5;
+        u.altitude = Math.max(u.altitude ?? 0, 2.2);
+        u.vzVertical = 12.0;
+        u.fallDamageArmed = true;
+      }
+    }
+  }
+  for (const v of state.vehicles ?? []) {
+    const dSq = (v.x - targetX) ** 2 + (v.z - targetZ) ** 2;
+    if (dSq <= rSq) {
+      v.hp = dSq <= (r * 0.82) ** 2 ? 0 : Math.max(0, (v.hp ?? 100) - 650);
+    }
+  }
+
+  state.resources.ore += 180;
+  state.resources.alloy += 90;
+  syncStateResourcesFromKingdoms(state);
+  recalculateRatesAndCaps(state);
+  addChronicle(state, 'A COLOSSAL ASTEROID struck the realm, gouging a massive impact basin!', 'warning');
+}
+
+function pickRandomEventTile(state: SimulationState, preferLand: boolean): TileData {
+  const gs = state.gridSize;
+  const cx = Math.floor(gs / 2);
+  const cz = Math.floor(gs / 2);
+  let bestTile: TileData = getTile(state, cx, cz) ?? state.tiles[0];
+  for (let i = 0; i < 48; i++) {
+    const margin = Math.max(10, Math.floor(gs * 0.14));
+    const tx = margin + Math.floor(Math.random() * Math.max(8, gs - margin * 2));
+    const tz = margin + Math.floor(Math.random() * Math.max(8, gs - margin * 2));
+    const t = getTile(state, tx, tz);
+    if (!t) continue;
+    if (!preferLand || t.height > 0) {
+      return t;
+    }
+    bestTile = t;
+  }
+  return bestTile;
+}
+
+export function triggerRandomWorldEvent(
+  state: SimulationState,
+  forcedKind?: RandomEventKind,
+  forcedX?: number,
+  forcedZ?: number,
+): WorldEventState | null {
+  if (!state.activeHazards) state.activeHazards = [];
+  const roll = Math.random();
+  const kind: RandomEventKind =
+    forcedKind ??
+    (roll < 0.14
+      ? 'huge_asteroid'
+      : roll < 0.28
+        ? 'volcano_eruption'
+        : roll < 0.42
+          ? 'super_tornado'
+          : roll < 0.56
+            ? 'mega_earthquake'
+            : roll < 0.72
+              ? 'heatwave_drought'
+              : roll < 0.86
+                ? 'deep_freeze'
+                : 'starfall_aurora');
+
+  const needLand =
+    kind === 'volcano_eruption' ||
+    kind === 'mega_earthquake' ||
+    kind === 'starfall_aurora' ||
+    kind === 'heatwave_drought';
+  const pickedTile =
+    forcedX !== undefined && forcedZ !== undefined
+      ? getTile(state, Math.round(forcedX), Math.round(forcedZ)) ?? pickRandomEventTile(state, needLand)
+      : pickRandomEventTile(state, needLand);
+
+  const tx = pickedTile.x;
+  const tz = pickedTile.z;
+  const ty = Math.max(0.25, pickedTile.height * 0.45 + 0.3);
+
+  let eventState: WorldEventState;
+
+  if (kind === 'huge_asteroid') {
+    const startX = tx + 24;
+    const startY = ty + 54;
+    const startZ = tz - 24;
+    const impactDelay = 4.6;
+    const duration = 7.4;
+    eventState = {
+      id: nextEntityId('evt'),
+      kind,
+      title: 'CATACLYSMIC ASTEROID',
+      subtitle: 'A giant rogue asteroid is falling toward the realm',
+      accentColor: '#ff6b35',
+      trackX: startX * 0.65 + tx * 0.35,
+      trackY: startY * 0.65 + ty * 0.35,
+      trackZ: startZ * 0.65 + tz * 0.35,
+      targetX: tx,
+      targetZ: tz,
+      startX,
+      startY,
+      startZ,
+      elapsed: 0,
+      impactDelay,
+      duration,
+      remaining: duration,
+      cinematicActive: true,
+      dismissedByUser: false,
+      impactTriggered: false,
+      destructive: true,
+      startedAtYear: state.year,
+    };
+    state.pendingVfx.push({
+      id: nextEntityId('vfx'),
+      type: 'huge_asteroid_strike',
+      x: tx,
+      y: ty,
+      z: tz,
+      originX: startX,
+      originY: startY,
+      originZ: startZ,
+      radius: 10.5,
+      color: '#ff5400',
+      createdAt: Date.now(),
+      deferImpact: true,
+    });
+    addChronicle(state, 'Astronomers spot a colossal rogue asteroid plunging toward the world!', 'warning');
+  } else if (kind === 'volcano_eruption') {
+    executeGodPowerImpact(state, 'volcano_eruption', tx, tz);
+    state.pendingVfx.push({
+      id: nextEntityId('vfx'),
+      type: 'volcano_eruption',
+      x: tx,
+      y: ty,
+      z: tz,
+      radius: 7.5,
+      color: '#ff5400',
+      createdAt: Date.now(),
+    });
+    eventState = {
+      id: nextEntityId('evt'),
+      kind,
+      title: 'VOLCANIC ERUPTION',
+      subtitle: 'Tectonic magma vents split the crust & rain fire',
+      accentColor: '#ff5400',
+      trackX: tx,
+      trackY: ty + 2.4,
+      trackZ: tz,
+      targetX: tx,
+      targetZ: tz,
+      elapsed: 0,
+      impactDelay: 0,
+      duration: 7.2,
+      remaining: 7.2,
+      cinematicActive: true,
+      dismissedByUser: false,
+      impactTriggered: true,
+      destructive: true,
+      startedAtYear: state.year,
+    };
+  } else if (kind === 'super_tornado') {
+    const beforeLen = state.activeHazards.length;
+    executeGodPowerImpact(state, 'super_tornado', tx, tz);
+    const createdHaz = state.activeHazards.length > beforeLen ? state.activeHazards[state.activeHazards.length - 1] : undefined;
+    state.pendingVfx.push({
+      id: nextEntityId('vfx'),
+      type: 'super_tornado',
+      x: tx,
+      y: ty,
+      z: tz,
+      radius: 8.5,
+      color: '#818cf8',
+      createdAt: Date.now(),
+    });
+    eventState = {
+      id: nextEntityId('evt'),
+      kind,
+      title: 'SUPER TORNADO',
+      subtitle: 'Category-5 cyclonic vortex scours the landscape',
+      accentColor: '#818cf8',
+      trackX: tx,
+      trackY: ty + 2.6,
+      trackZ: tz,
+      targetX: tx,
+      targetZ: tz,
+      elapsed: 0,
+      impactDelay: 0,
+      duration: 8.2,
+      remaining: 8.2,
+      cinematicActive: true,
+      dismissedByUser: false,
+      impactTriggered: true,
+      linkedHazardId: createdHaz?.id,
+      destructive: true,
+      startedAtYear: state.year,
+    };
+  } else if (kind === 'mega_earthquake') {
+    const quakePlan = generateEarthquakeFaultNetwork(tx, tz, 10.5);
+    executeGodPowerImpact(state, 'earthquake', tx, tz, quakePlan);
+    state.pendingVfx.push({
+      id: nextEntityId('vfx'),
+      type: 'earthquake',
+      x: tx,
+      y: ty,
+      z: tz,
+      radius: quakePlan.quakeExtent,
+      color: '#e07a2b',
+      createdAt: Date.now(),
+      faultSegments: quakePlan.faultSegments,
+      quakeShapeKind: quakePlan.quakeShapeKind,
+      quakeExtent: quakePlan.quakeExtent,
+    });
+    eventState = {
+      id: nextEntityId('evt'),
+      kind,
+      title: 'TECTONIC MEGA-QUAKE',
+      subtitle: 'Deep crustal plates rupture and heave ridges skyward',
+      accentColor: '#e07a2b',
+      trackX: tx,
+      trackY: ty + 1.2,
+      trackZ: tz,
+      targetX: tx,
+      targetZ: tz,
+      elapsed: 0,
+      impactDelay: 0,
+      duration: 5.8,
+      remaining: 5.8,
+      cinematicActive: true,
+      dismissedByUser: false,
+      impactTriggered: true,
+      destructive: true,
+      startedAtYear: state.year,
+    };
+  } else if (kind === 'heatwave_drought') {
+    executeGodPowerImpact(state, 'heat_wave', tx, tz);
+    state.pendingVfx.push({
+      id: nextEntityId('vfx'),
+      type: 'heat_wave',
+      x: tx,
+      y: ty,
+      z: tz,
+      radius: 10.0,
+      color: '#ff7b00',
+      createdAt: Date.now(),
+    });
+    eventState = {
+      id: nextEntityId('evt'),
+      kind,
+      title: 'SOLAR HEATWAVE',
+      subtitle: 'Blistering thermal front sweeps across parched lands',
+      accentColor: '#ff9e00',
+      trackX: tx,
+      trackY: ty + 1.4,
+      trackZ: tz,
+      targetX: tx,
+      targetZ: tz,
+      elapsed: 0,
+      impactDelay: 0,
+      duration: 5.4,
+      remaining: 5.4,
+      cinematicActive: true,
+      dismissedByUser: false,
+      impactTriggered: true,
+      destructive: true,
+      startedAtYear: state.year,
+    };
+  } else if (kind === 'deep_freeze') {
+    executeGodPowerImpact(state, 'freeze_snap', tx, tz);
+    state.pendingVfx.push({
+      id: nextEntityId('vfx'),
+      type: 'freeze_snap',
+      x: tx,
+      y: ty,
+      z: tz,
+      radius: 10.0,
+      color: '#7dd3fc',
+      createdAt: Date.now(),
+    });
+    eventState = {
+      id: nextEntityId('evt'),
+      kind,
+      title: 'GLACIAL COLD SNAP',
+      subtitle: 'A sudden sub-zero front seals terrain in shimmering frost',
+      accentColor: '#7dd3fc',
+      trackX: tx,
+      trackY: ty + 1.4,
+      trackZ: tz,
+      targetX: tx,
+      targetZ: tz,
+      elapsed: 0,
+      impactDelay: 0,
+      duration: 5.4,
+      remaining: 5.4,
+      cinematicActive: true,
+      dismissedByUser: false,
+      impactTriggered: true,
+      destructive: false,
+      startedAtYear: state.year,
+    };
+  } else {
+    // Rare celestial wonder: Starfall Aurora
+    executeGodPowerImpact(state, 'blessing', tx, tz);
+    grantResourcesToKingdomOrPool(state, { faith: 80, knowledge: 90 });
+    for (const t of state.tiles) {
+      if (t.height > 0 && !t.buildingId && t.resourceNode === 'none') {
+        const dSq = (t.x - tx) ** 2 + (t.z - tz) ** 2;
+        if (dSq <= 25 && ((t.x * 13 + t.z * 7) % 11 === 0)) {
+          t.terrain = 'crystal_field';
+          t.resourceNode = 'crystal_monolith';
+          t.resourceAmount = 320;
+        }
+      }
+    }
+    state.pendingVfx.push({
+      id: nextEntityId('vfx'),
+      type: 'eureka',
+      x: tx,
+      y: ty,
+      z: tz,
+      radius: 7.5,
+      color: '#56cfe1',
+      createdAt: Date.now(),
+    });
+    addChronicle(state, 'Starfall Aurora shimmered overhead, blessing the realm with cosmic crystals!', 'divine');
+    eventState = {
+      id: nextEntityId('evt'),
+      kind: 'starfall_aurora',
+      title: 'STARFALL AURORA',
+      subtitle: 'Celestial light heals life & seeds crystal monoliths',
+      accentColor: '#56cfe1',
+      trackX: tx,
+      trackY: ty + 1.8,
+      trackZ: tz,
+      targetX: tx,
+      targetZ: tz,
+      elapsed: 0,
+      impactDelay: 0,
+      duration: 5.6,
+      remaining: 5.6,
+      cinematicActive: true,
+      dismissedByUser: false,
+      impactTriggered: true,
+      destructive: false,
+      startedAtYear: state.year,
+    };
+  }
+
+  state.activeWorldEvent = eventState;
+  state.worldEventTimer = 0;
+  return eventState;
+}
+
+export function dismissWorldEventCinematic(state: SimulationState): void {
+  if (state.activeWorldEvent) {
+    state.activeWorldEvent.dismissedByUser = true;
+    state.activeWorldEvent.cinematicActive = false;
+  }
+}
+
+function stepRandomWorldEvents(
+  state: SimulationState,
+  dt: number,
+  skipTriggers = false,
+): void {
+  if (state.activeWorldEvent) {
+    state.activeWorldEvent.elapsed += dt;
+    state.activeWorldEvent.remaining = Math.max(0, state.activeWorldEvent.remaining - dt);
+    if (state.activeWorldEvent.remaining <= 0) {
+      state.activeWorldEvent = null;
+    }
+    return;
+  }
+
+  if (skipTriggers || state.worldRules?.randomEvents === false) {
+    return;
+  }
+
+  // Only start random events once world time is actively ticking and avoid spamming early in brand-new empty worlds
+  state.worldEventTimer = (state.worldEventTimer ?? 0) + dt;
+  // Rare cadence: roughly every ~150-220 seconds of simulated time (mean ~185s)
+  const triggerThreshold = 150 + (((Math.floor(state.year * 13) + state.seed) % 70));
+  if (state.worldEventTimer >= triggerThreshold) {
+    state.worldEventTimer = 0;
+    triggerRandomWorldEvent(state);
+  }
+}
+
 
