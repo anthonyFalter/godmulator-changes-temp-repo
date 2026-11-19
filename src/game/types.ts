@@ -384,6 +384,7 @@ export interface VehicleEntity {
 export type DiplomaticRelation = 'allied' | 'neutral' | 'war';
 
 export type ZoneOverlayType =
+  | 'kingdomLabels'
   | 'kingdoms'
   | 'kings'
   | 'territories'
@@ -653,6 +654,9 @@ export interface SimulationState {
   settlementNames?: Record<string, string>;
   settlementSpecies?: Record<string, SpeciesId>;
   settlementKingdoms?: Record<string, string>;
+  kingdomEpochs?: Record<string, number>;
+  kingdomEpochProgress?: Record<string, number>;
+  averageEpochIndex?: number;
   kingdomResources?: Record<string, Resources>;
   unallocatedResources?: Resources;
   kingdomUltimateCooldowns?: Record<string, number>;

@@ -410,6 +410,263 @@ function getLiveKingdomIds(state: SimulationState): string[] {
   return Array.from(kids);
 }
 
+const lastSyncedEpochMap = new WeakMap<SimulationState, number>();
+const explicitEpochOverrideMap = new WeakMap<SimulationState, number>();
+
+function clampEpochIndex(epochIdx: number): number {
+  if (!Number.isFinite(epochIdx)) return 0;
+  return Math.max(0, Math.min(EPOCHS.length - 1, Math.floor(epochIdx)));
+}
+
+export function getKingdomEpoch(state: SimulationState, kingdomId?: string): number {
+  if (!kingdomId) return 0;
+  const recorded = state.kingdomEpochs?.[kingdomId];
+  if (recorded !== undefined) return clampEpochIndex(recorded);
+  return 0;
+}
+
+export function setKingdomEpoch(
+  state: SimulationState,
+  kingdomId: string,
+  epochIndex: number,
+  resetProgress = true,
+): void {
+  if (!state.kingdomEpochs) state.kingdomEpochs = {};
+  if (!state.kingdomEpochProgress) state.kingdomEpochProgress = {};
+  explicitEpochOverrideMap.delete(state);
+  const clamped = clampEpochIndex(epochIndex);
+  state.kingdomEpochs[kingdomId] = clamped;
+  if (resetProgress) {
+    state.kingdomEpochProgress[kingdomId] = clamped >= EPOCHS.length - 1 ? 100 : 0;
+  }
+  syncAverageEpochFromKingdoms(state);
+}
+
+export function getSettlementEpoch(state: SimulationState, settlementId?: string): number {
+  if (!settlementId) return 0;
+  const kid = getKingdomId(state, settlementId);
+  return getKingdomEpoch(state, kid);
+}
+
+export function getUnitEpoch(
+  state: SimulationState,
+  unit: Pick<UnitEntity, 'faction' | 'settlementId' | 'kingdomId'>,
+): number {
+  if (unit.faction !== 'civilization') return 0;
+  const kid = unit.settlementId ? getKingdomId(state, unit.settlementId) : unit.kingdomId;
+  if (!kid) return 0;
+  return getKingdomEpoch(state, kid);
+}
+
+export function computeAverageCivilizationEpoch(state: SimulationState): {
+  avgFloat: number;
+  roundedIndex: number;
+  civCount: number;
+} {
+  const liveKids = getLiveKingdomIds(state);
+  if (liveKids.length === 0) {
+    const fallback = clampEpochIndex(state.epochIndex);
+    return { avgFloat: fallback, roundedIndex: fallback, civCount: 0 };
+  }
+  let sum = 0;
+  for (let i = 0; i < liveKids.length; i++) {
+    sum += getKingdomEpoch(state, liveKids[i]);
+  }
+  const avgFloat = sum / liveKids.length;
+  const roundedIndex = Math.max(0, Math.min(EPOCHS.length - 1, Math.round(avgFloat)));
+  return { avgFloat, roundedIndex, civCount: liveKids.length };
+}
+
+export function syncAverageEpochFromKingdoms(state: SimulationState): void {
+  const liveKids = getLiveKingdomIds(state);
+  if (liveKids.length === 0) {
+    const clamped = clampEpochIndex(state.epochIndex);
+    state.averageEpochIndex = clamped;
+    state.epochIndex = clamped;
+    lastSyncedEpochMap.set(state, state.epochIndex);
+    return;
+  }
+  if (!state.kingdomEpochs) state.kingdomEpochs = {};
+  if (!state.kingdomEpochProgress) state.kingdomEpochProgress = {};
+  let sumEpoch = 0;
+  let sumProg = 0;
+  for (const kid of liveKids) {
+    if (state.kingdomEpochs[kid] === undefined) {
+      state.kingdomEpochs[kid] = 0;
+    }
+    if (state.kingdomEpochProgress[kid] === undefined) {
+      state.kingdomEpochProgress[kid] = state.kingdomEpochs[kid] >= EPOCHS.length - 1 ? 100 : 0;
+    }
+    sumEpoch += clampEpochIndex(state.kingdomEpochs[kid]);
+    sumProg += Math.max(0, Math.min(100, state.kingdomEpochProgress[kid] ?? 0));
+  }
+  const avgFloat = sumEpoch / liveKids.length;
+  state.averageEpochIndex = avgFloat;
+  state.epochIndex = Math.max(0, Math.min(EPOCHS.length - 1, Math.round(avgFloat)));
+  state.epochProgress = Math.round(sumProg / liveKids.length);
+  lastSyncedEpochMap.set(state, state.epochIndex);
+}
+
+function reconcileKingdomEpochs(state: SimulationState, clearExplicitOverride = false): void {
+  if (!state.kingdomEpochs) state.kingdomEpochs = {};
+  if (!state.kingdomEpochProgress) state.kingdomEpochProgress = {};
+
+  const lastSynced = lastSyncedEpochMap.get(state);
+  const clampedGlobal = clampEpochIndex(state.epochIndex);
+  if (lastSynced !== undefined && clampedGlobal !== lastSynced) {
+    // External caller (sandbox epoch tool or test setup) explicitly set state.epochIndex
+    const liveKids = getLiveKingdomIds(state);
+    for (const kid of liveKids) {
+      state.kingdomEpochs[kid] = clampedGlobal;
+      state.kingdomEpochProgress[kid] = clampedGlobal >= EPOCHS.length - 1 ? 100 : 0;
+    }
+    explicitEpochOverrideMap.set(state, clampedGlobal);
+    state.averageEpochIndex = clampedGlobal;
+    state.epochIndex = clampedGlobal;
+    lastSyncedEpochMap.set(state, clampedGlobal);
+  } else if (lastSynced === undefined) {
+    lastSyncedEpochMap.set(state, clampedGlobal);
+  }
+
+  // Prune dead kingdoms from epoch maps so average age strictly reflects existing civilizations
+  const liveSet = new Set(getLiveKingdomIds(state));
+  for (const kid of Object.keys(state.kingdomEpochs)) {
+    if (!liveSet.has(kid)) {
+      delete state.kingdomEpochs[kid];
+      delete state.kingdomEpochProgress[kid];
+    }
+  }
+  for (const kid of liveSet) {
+    if (state.kingdomEpochs[kid] === undefined) {
+      state.kingdomEpochs[kid] = 0;
+      state.kingdomEpochProgress[kid] = 0;
+    }
+  }
+}
+
+function getKingdomAnchor(state: SimulationState, kingdomId: string): { x: number; z: number } | null {
+  let sx = 0;
+  let sz = 0;
+  let count = 0;
+  for (let i = 0; i < state.buildings.length; i++) {
+    const b = state.buildings[i];
+    if (b.hp <= 0 || !b.settlementId) continue;
+    if (getKingdomId(state, b.settlementId) === kingdomId) {
+      sx += b.tileX;
+      sz += b.tileZ;
+      count++;
+    }
+  }
+  if (count > 0) return { x: sx / count, z: sz / count };
+  for (let i = 0; i < state.units.length; i++) {
+    const u = state.units[i];
+    if (u.faction !== 'civilization' || u.state === 'ko' || u.hp <= 0) continue;
+    const ukid = u.settlementId ? getKingdomId(state, u.settlementId) : u.kingdomId;
+    if (ukid === kingdomId) {
+      sx += u.x;
+      sz += u.z;
+      count++;
+    }
+  }
+  return count > 0 ? { x: sx / count, z: sz / count } : null;
+}
+
+export interface KingdomDiffusionInfo {
+  diffusionBoost: number;
+  maxNeighborEpoch: number;
+  nearestAheadDist: number | null;
+  isCatchingUp: boolean;
+  strongestCurveFactor: number;
+}
+
+/**
+ * Computes proximity-based technological diffusion for a civilization.
+ * - Nearby civilizations strictly ahead in age accelerate a trailing civilization's growth.
+ * - Growth follows a diminishing catch-up curve (steep when far behind, tapering smoothly as the gap closes).
+ * - Diffusion drops to 0 once equal in age, so a trailing race cannot overtake a leading neighbor via diffusion
+ *   until both civilizations are on equal age.
+ */
+export function computeKingdomProximityDiffusion(
+  state: SimulationState,
+  kingdomId: string,
+): KingdomDiffusionInfo {
+  const myEpoch = getKingdomEpoch(state, kingdomId);
+  if (myEpoch >= EPOCHS.length - 1) {
+    return {
+      diffusionBoost: 0,
+      maxNeighborEpoch: myEpoch,
+      nearestAheadDist: null,
+      isCatchingUp: false,
+      strongestCurveFactor: 0,
+    };
+  }
+  const myAnchor = getKingdomAnchor(state, kingdomId);
+  if (!myAnchor) {
+    return {
+      diffusionBoost: 0,
+      maxNeighborEpoch: myEpoch,
+      nearestAheadDist: null,
+      isCatchingUp: false,
+      strongestCurveFactor: 0,
+    };
+  }
+  const myProgress = Math.max(0, Math.min(100, state.kingdomEpochProgress?.[kingdomId] ?? 0));
+  const myContinuous = myEpoch + myProgress / 100;
+
+  // Consider all other living kingdoms that have at least one standing building and are strictly ahead in age
+  const liveKids = getLiveKingdomIds(state);
+  let bestInfluence = 0;
+  let secondarySum = 0;
+  let maxNeighborEpoch = myEpoch;
+  let nearestAheadDist: number | null = null;
+  let strongestCurveFactor = 0;
+
+  for (let i = 0; i < liveKids.length; i++) {
+    const otherKid = liveKids[i];
+    if (otherKid === kingdomId) continue;
+    const otherEpoch = getKingdomEpoch(state, otherKid);
+    if (otherEpoch <= myEpoch) continue; // Only neighbors strictly ahead in age diffuse tech
+    const otherAnchor = getKingdomAnchor(state, otherKid);
+    if (!otherAnchor) continue;
+
+    const otherProg = Math.max(0, Math.min(100, state.kingdomEpochProgress?.[otherKid] ?? 0));
+    const otherContinuous = otherEpoch + otherProg / 100;
+    const gap = Math.max(0, otherContinuous - myContinuous);
+    if (gap <= 0) continue;
+
+    const dist = Math.hypot(myAnchor.x - otherAnchor.x, myAnchor.z - otherAnchor.z);
+    if (nearestAheadDist === null || dist < nearestAheadDist) {
+      nearestAheadDist = dist;
+    }
+    if (otherEpoch > maxNeighborEpoch) {
+      maxNeighborEpoch = otherEpoch;
+    }
+
+    // Proximity decay: 1.0 when <= 10 tiles apart, ~0.50 at 32 tiles, ~0.16 at 60 tiles, ~0.06 at 95 tiles
+    const proximity = 1 / (1 + Math.pow(Math.max(0, dist - 10) / 22, 2));
+    // Concave/diminishing catch-up curve: steep when gap is large (e.g. Stone vs Info), smoothly tapering as gap -> 0
+    const curveFactor = Math.pow(gap, 1.35);
+    const influence = proximity * curveFactor;
+
+    if (influence > bestInfluence) {
+      secondarySum += bestInfluence;
+      bestInfluence = influence;
+      strongestCurveFactor = curveFactor;
+    } else {
+      secondarySum += influence;
+    }
+  }
+
+  const diffusionBoost = Math.min(16, bestInfluence + secondarySum * 0.25);
+  return {
+    diffusionBoost,
+    maxNeighborEpoch,
+    nearestAheadDist,
+    isCatchingUp: maxNeighborEpoch > myEpoch && diffusionBoost > 0.005,
+    strongestCurveFactor,
+  };
+}
+
 function computeCombinedStock(state: SimulationState): Resources {
   const sum = emptyResources();
   const unalloc = state.unallocatedResources;
@@ -919,6 +1176,9 @@ export function createInitialSimulationState(
     settlementNames: {},
     settlementSpecies: {},
     settlementKingdoms: {},
+    kingdomEpochs: {},
+    kingdomEpochProgress: {},
+    averageEpochIndex: startingEpochIdx,
     kingdomResources: {},
     unallocatedResources: emptyResources(),
     kingdomUltimateCooldowns: {},
@@ -940,6 +1200,10 @@ export function createInitialSimulationState(
     state.unallocatedResources![k] = state.resources[k] ?? 0;
   }
   lastSyncedTotalsMap.set(state, { ...state.resources });
+  lastSyncedEpochMap.set(state, startingEpochIdx);
+  if (startingEpochIdx > 0) {
+    explicitEpochOverrideMap.set(state, startingEpochIdx);
+  }
 
   // Seed starting wildlife if a world config was explicitly provided
   if (config) {
@@ -1089,20 +1353,23 @@ export function createInitialSimulationState(
   }
 
   ensureSettlementKings(state);
+  explicitEpochOverrideMap.delete(state);
+  syncAverageEpochFromKingdoms(state);
   syncStateResourcesFromKingdoms(state);
   recalculateRatesAndCaps(state);
   return state;
 }
 
 export function recalculateRatesAndCaps(state: SimulationState): void {
-  const epoch = EPOCHS[state.epochIndex] || EPOCHS[0];
+  reconcileKingdomEpochs(state, false);
   const cityMaxPop = getMaxCityPopulation(state.gridSize);
   const settlementHousing = new Map<string, number>();
   for (const b of state.buildings) {
     if (b.constructionProgress >= 100) {
       const sid = b.settlementId ?? 'city_default';
       if (!settlementHousing.has(sid)) {
-        settlementHousing.set(sid, epoch.populationBonus);
+        const sEpoch = EPOCHS[getSettlementEpoch(state, sid)] || EPOCHS[0];
+        settlementHousing.set(sid, sEpoch.populationBonus);
       }
     }
   }
@@ -1124,10 +1391,12 @@ export function recalculateRatesAndCaps(state: SimulationState): void {
     const def = BUILDINGS.find((d) => d.type === b.type);
     if (!def) continue;
     const sid = b.settlementId ?? 'city_default';
-    settlementHousing.set(sid, (settlementHousing.get(sid) ?? epoch.populationBonus) + def.popCapBonus);
+    const sEpochIdx = getSettlementEpoch(state, sid);
+    const sEpoch = EPOCHS[sEpochIdx] || EPOCHS[0];
+    settlementHousing.set(sid, (settlementHousing.get(sid) ?? sEpoch.populationBonus) + def.popCapBonus);
 
     const blessMult = b.blessedTimer > 0 ? 1.75 : b.cursedTimer > 0 ? 0.5 : 1.0;
-    const epochMult = 1 + Math.min(4, state.epochIndex) * 0.1;
+    const epochMult = 1 + Math.min(4, sEpochIdx) * 0.1;
     const bSpecies: SpeciesId = b.species ?? (b.settlementId ? state.settlementSpecies?.[b.settlementId] : undefined) ?? 'human';
     const paceMult = state.sandboxFreeMode ? 1.5 : 0.85;
 
@@ -1235,10 +1504,13 @@ export function placeBuilding(
     spendWorldCost(state, def.cost, candidateKingdomId);
   }
 
+  reconcileKingdomEpochs(state, false);
   const settlementId = nearby?.settlementId ?? nextEntityId('city');
   if (!state.settlementNames) state.settlementNames = {};
   if (!state.settlementSpecies) state.settlementSpecies = {};
   if (!state.settlementKingdoms) state.settlementKingdoms = {};
+  if (!state.kingdomEpochs) state.kingdomEpochs = {};
+  if (!state.kingdomEpochProgress) state.kingdomEpochProgress = {};
   const species: SpeciesId = state.settlementSpecies[settlementId] ?? 'human';
   state.settlementSpecies[settlementId] = species;
   if (!state.settlementNames[settlementId]) {
@@ -1248,6 +1520,14 @@ export function placeBuilding(
     state.settlementKingdoms[settlementId] = settlementId;
   }
   const resolvedPlaceKid = getKingdomId(state, settlementId);
+  if (state.kingdomEpochs[resolvedPlaceKid] === undefined) {
+    const explicitOverride = explicitEpochOverrideMap.get(state);
+    state.kingdomEpochs[resolvedPlaceKid] =
+      explicitOverride !== undefined ? clampEpochIndex(explicitOverride) : 0;
+    state.kingdomEpochProgress[resolvedPlaceKid] =
+      state.kingdomEpochs[resolvedPlaceKid] >= EPOCHS.length - 1 ? 100 : 0;
+  }
+  const placeKingdomEpoch = getKingdomEpoch(state, resolvedPlaceKid);
   ensureKingdomResources(state, resolvedPlaceKid);
   transferUnallocatedStockToKingdom(state, resolvedPlaceKid);
   syncStateResourcesFromKingdoms(state);
@@ -1263,7 +1543,7 @@ export function placeBuilding(
     hp: def.maxHp,
     maxHp: def.maxHp,
     constructionProgress: 100,
-    epochLevel: state.epochIndex === 0 ? 0 : baseEpochIdx,
+    epochLevel: placeKingdomEpoch === 0 ? 0 : Math.min(placeKingdomEpoch, baseEpochIdx),
     upgradeProgress: 0,
     blessedTimer: 0,
     cursedTimer: 0,
@@ -1283,10 +1563,10 @@ export function placeBuilding(
   }
   state.buildings.push(newBuilding);
   state.totalStructuresBuilt += 1;
-  if (tile.height === 0 || newBuilding.epochLevel >= 1 || state.epochIndex >= 1) {
+  if (tile.height === 0 || newBuilding.epochLevel >= 1 || placeKingdomEpoch >= 1) {
     paveSettlementStreetsNear(state, tile.x, tile.z, settlementId);
   }
-  if (buildingType === 'rail_station' || state.epochIndex >= 3) {
+  if (buildingType === 'rail_station' || placeKingdomEpoch >= 3) {
     paveSettlementRailNetwork(state, settlementId);
   }
   if (buildingType === 'airport') {
@@ -1317,12 +1597,13 @@ export function placeBuilding(
   const villageName = state.settlementNames[settlementId];
   addChronicle(state, `Constructed ${def.name} in ${villageName} at (${tile.x}, ${tile.z}).`, 'build');
 
-  if (buildingType === 'dyson_spire' && state.epochIndex < 7) {
-    state.epochIndex = 7;
-    state.epochProgress = 100;
-    addChronicle(state, 'The Dyson Ascension Relay pierces the heavens! Star Age achieved!', 'epoch');
+  if (buildingType === 'dyson_spire' && placeKingdomEpoch < 7) {
+    state.kingdomEpochs[placedKingdomId] = 7;
+    state.kingdomEpochProgress[placedKingdomId] = 100;
+    addChronicle(state, `${villageName}'s Dyson Ascension Relay pierces the heavens! Star Age achieved!`, 'epoch');
   }
 
+  syncAverageEpochFromKingdoms(state);
   ensureSettlementKings(state);
   recalculateRatesAndCaps(state);
   return { ok: true };
@@ -1453,7 +1734,13 @@ export function spawnUnit(
     harvestTimer: 0,
     favorite: false,
     genes,
-    items: generateUnitItems(role, species, state.epochIndex, appearanceSeed, dinoDiet),
+    items: generateUnitItems(
+      role,
+      species,
+      resolvedKingdomId ? getKingdomEpoch(state, resolvedKingdomId) : 0,
+      appearanceSeed,
+      dinoDiet,
+    ),
     bornYear: state.year,
     ageYears: Math.max(0, options?.ageYears ?? 0),
     maxLifespan,
@@ -1505,7 +1792,7 @@ export function applyTerrainTool(
   if (!centerTile) return { ok: false, reason: 'Out of bounds' };
 
   if (!state.sandboxFreeMode && state.resources.faith < def.faithCost) {
-    return { ok: false, reason: 'Need more Faith to sculpt terrain' };
+    return { ok: false, reason: 'Need more God Energy to sculpt terrain' };
   }
 
   const targetFlattenHeight = Math.max(1, centerTile.height);
@@ -3683,7 +3970,7 @@ export function castGodPower(
 
   reconcileAndSyncResources(state);
   if (!state.sandboxFreeMode && state.resources.faith < def.faithCost) {
-    return { ok: false, reason: `Requires ${def.faithCost} Faith` };
+    return { ok: false, reason: `Requires ${def.faithCost} God Energy` };
   }
 
   if (!state.sandboxFreeMode) {
@@ -3950,10 +4237,15 @@ export function triggerCityRebellion(
     if (!state.settlementNames) state.settlementNames = {};
     if (!state.settlementSpecies) state.settlementSpecies = {};
     if (!state.settlementKingdoms) state.settlementKingdoms = {};
+    if (!state.kingdomEpochs) state.kingdomEpochs = {};
+    if (!state.kingdomEpochProgress) state.kingdomEpochProgress = {};
+    const parentEpoch = getKingdomEpoch(state, parentKingdomId);
     rebelSettlementId = rebelKingdomId;
     state.settlementNames[rebelSettlementId] = createVillageName(state, parentSpecies);
     state.settlementSpecies[rebelSettlementId] = parentSpecies;
     state.settlementKingdoms[rebelSettlementId] = rebelKingdomId;
+    state.kingdomEpochs[rebelKingdomId] = parentEpoch;
+    state.kingdomEpochProgress[rebelKingdomId] = 0;
     const hearthDef = BUILDINGS.find((b) => b.type === 'bonfire')!;
     const hearth: BuildingEntity = {
       id: nextEntityId('bld'),
@@ -3965,7 +4257,7 @@ export function triggerCityRebellion(
       hp: hearthDef.maxHp,
       maxHp: hearthDef.maxHp,
       constructionProgress: 100,
-      epochLevel: Math.max(0, state.epochIndex === 0 ? 0 : 1),
+      epochLevel: Math.max(0, parentEpoch === 0 ? 0 : 1),
       upgradeProgress: 0,
       blessedTimer: 0,
       cursedTimer: 0,
@@ -4344,7 +4636,7 @@ function paveRailTileIfClean(state: SimulationState, x: number, z: number, targe
     t.resourceNode = 'none';
     t.resourceAmount = 0;
   }
-  if (targetHeight !== undefined && state.epochIndex >= 3 && Math.abs(t.height - targetHeight) > 0) {
+  if (targetHeight !== undefined && Math.abs(t.height - targetHeight) > 0) {
     t.height = Math.max(1, Math.min(4, targetHeight));
   }
   t.terrain = 'rail_track';
@@ -4709,7 +5001,8 @@ function terraformSettlementDistrict(
   settlementId: string,
   snapLevel = false,
 ): void {
-  if (state.epochIndex < 2) return;
+  const cityEpoch = getSettlementEpoch(state, settlementId);
+  if (cityEpoch < 2) return;
   const villageBuildings = state.buildings.filter((b) => (b.settlementId ?? 'city_default') === settlementId);
   if (villageBuildings.length === 0) return;
 
@@ -4721,7 +5014,7 @@ function terraformSettlementDistrict(
 
   // 1. Grade & flatten urban plateau proportional to actual settlement size & tech epoch
   const bldSpan = Math.min(10, Math.max(4, Math.ceil(Math.sqrt(villageBuildings.length) * 1.75)));
-  const coreRadius = state.epochIndex >= 5 ? Math.max(6, bldSpan) : state.epochIndex >= 3 ? Math.max(5, bldSpan - 1) : 4;
+  const coreRadius = cityEpoch >= 5 ? Math.max(6, bldSpan) : cityEpoch >= 3 ? Math.max(5, bldSpan - 1) : 4;
   const gradeRadius = coreRadius + 2;
 
   for (let dz = -gradeRadius; dz <= gradeRadius; dz++) {
@@ -4733,20 +5026,20 @@ function terraformSettlementDistrict(
 
       if (dist <= coreRadius || isUrbanTile) {
         if (t.height !== targetHeight) {
-          if (snapLevel || state.epochIndex >= 3 || isUrbanTile) {
+          if (snapLevel || cityEpoch >= 3 || isUrbanTile) {
             t.height = targetHeight;
           } else {
             t.height += Math.sign(targetHeight - t.height);
           }
         }
         // Clear intrusive boulders / scorched craters inside paved urban cores in Industrial+ ages
-        if (state.epochIndex >= 3 && (isSettlementRoadTile(dx, dz, variant) || t.terrain === 'stone_road')) {
+        if (cityEpoch >= 3 && (isSettlementRoadTile(dx, dz, variant) || t.terrain === 'stone_road')) {
           if (t.resourceNode === 'stone_outcrop' || t.resourceNode === 'berry_bush') {
             t.resourceNode = 'none';
             t.resourceAmount = 0;
           }
         }
-        if (state.epochIndex >= 3 && t.terrain === 'scorched' && !t.buildingId && t.onFireTimer <= 0) {
+        if (cityEpoch >= 3 && t.terrain === 'scorched' && !t.buildingId && t.onFireTimer <= 0) {
           t.terrain = 'grass';
         }
       } else if (dist <= gradeRadius) {
@@ -4760,7 +5053,7 @@ function terraformSettlementDistrict(
   }
 
   // 2. Atomic/Information/Orbital+ Artificial Island Reclamation along coastal edges
-  if (state.epochIndex >= 4 && !isFloatingSettlement && villageBuildings.length >= 4) {
+  if (cityEpoch >= 4 && !isFloatingSettlement && villageBuildings.length >= 4) {
     // Check 4 cardinal coastal quadrants at offset 8 from anchor; construct up to 2 engineered 4x4 island blocks + bridge causeway
     const islandDirs: ReadonlyArray<[number, number]> = [
       [1, 0],
@@ -4870,6 +5163,7 @@ function connectSettlementRoads(state: SimulationState, settlementId: string): v
   const villageBuildings = state.buildings.filter((b) => (b.settlementId ?? 'city_default') === settlementId);
   if (villageBuildings.length === 0) return;
 
+  const cityEpoch = getSettlementEpoch(state, settlementId);
   const anchor = getSettlementAnchorForId(state, settlementId);
   const variant = getSettlementLayoutVariant(state, settlementId, anchor.x, anchor.z);
   const targetHeight = getSettlementTargetGradeHeight(state, anchor, settlementId);
@@ -4879,14 +5173,14 @@ function connectSettlementRoads(state: SimulationState, settlementId: string): v
   const paveTile = (t: TileData | undefined): boolean => {
     if (!canConvertTileToRoad(t, isFloatingSettlement)) return false;
     if (t.resourceNode !== 'none') {
-      if (state.epochIndex >= 2 && (t.resourceNode === 'berry_bush' || t.resourceNode === 'stone_outcrop')) {
+      if (cityEpoch >= 2 && (t.resourceNode === 'berry_bush' || t.resourceNode === 'stone_outcrop')) {
         t.resourceNode = 'none';
         t.resourceAmount = 0;
       } else {
         return false;
       }
     }
-    if (t.height > 0 && state.epochIndex >= 2) {
+    if (t.height > 0 && cityEpoch >= 2) {
       t.height = targetHeight;
     }
     t.terrain = 'stone_road';
@@ -4906,7 +5200,7 @@ function connectSettlementRoads(state: SimulationState, settlementId: string): v
         getTile(state, t.x - 1, t.z)?.height === 0 ||
         getTile(state, t.x, t.z + 1)?.height === 0 ||
         getTile(state, t.x, t.z - 1)?.height === 0;
-      if ((dx === 0 || dz === 0) && bordersWater && state.epochIndex >= 4) continue;
+      if ((dx === 0 || dz === 0) && bordersWater && cityEpoch >= 4) continue;
 
       let minChebDist = Infinity;
       for (const b of state.buildings) {
@@ -5160,7 +5454,7 @@ function connectSettlementRoads(state: SimulationState, settlementId: string): v
               nt.terrain === 'stone_road' ||
               (canConvertTileToRoad(nt, isFloatingSettlement) &&
                 (nt.resourceNode === 'none' ||
-                  (state.epochIndex >= 2 && (nt.resourceNode === 'berry_bush' || nt.resourceNode === 'stone_outcrop'))));
+                  (cityEpoch >= 2 && (nt.resourceNode === 'berry_bush' || nt.resourceNode === 'stone_outcrop'))));
             if (!canBridge) continue;
             visitedBfs.add(nk);
             q.push({ x: nx, z: nz, path: [...cur.path, nt] });
@@ -5292,100 +5586,115 @@ function findBuildableTileNear(
   return bestLot ?? emergencyFallback;
 }
 
-export function advanceEpoch(
+export function advanceKingdomEpoch(
   state: SimulationState,
+  kingdomId: string,
   divineLeapOverride = false,
+  options?: { freeFromProgress?: boolean; skipAverageSync?: boolean },
 ): { ok: boolean; reason?: string; newEpoch?: typeof EPOCHS[number] } {
-  if (state.epochIndex >= EPOCHS.length - 1) {
+  reconcileKingdomEpochs(state, false);
+  const currentEpochIdx = getKingdomEpoch(state, kingdomId);
+  if (currentEpochIdx >= EPOCHS.length - 1) {
     state.outcome = 'ascension_victory';
-    return { ok: false, reason: 'Already in the Interstellar Age' };
+    return { ok: false, reason: 'Already in the Star Age' };
   }
 
   reconcileAndSyncResources(state);
-  const nextEpoch = EPOCHS[state.epochIndex + 1];
-  const free = divineLeapOverride || state.sandboxFreeMode;
+  const nextEpoch = EPOCHS[currentEpochIdx + 1];
+  const free = divineLeapOverride || Boolean(options?.freeFromProgress) || state.sandboxFreeMode;
+  const kStock = ensureKingdomResources(state, kingdomId);
+  const kStockWithFaith: Resources = { ...kStock, faith: state.resources.faith };
 
-  if (!free && !canAfford(state.resources, nextEpoch.unlockCost, false)) {
+  if (!free && !canAfford(kStockWithFaith, nextEpoch.unlockCost, false)) {
     return { ok: false, reason: `Insufficient resources to enter the ${nextEpoch.name}` };
   }
 
   if (!free) {
-    spendWorldCost(state, nextEpoch.unlockCost);
+    spendWorldCost(state, nextEpoch.unlockCost, kingdomId);
   }
 
-  state.epochIndex += 1;
-  state.epochProgress = 0;
+  const newEpochIdx = currentEpochIdx + 1;
+  if (!state.kingdomEpochs) state.kingdomEpochs = {};
+  if (!state.kingdomEpochProgress) state.kingdomEpochProgress = {};
+  state.kingdomEpochs[kingdomId] = newEpochIdx;
+  state.kingdomEpochProgress[kingdomId] = newEpochIdx >= EPOCHS.length - 1 ? 100 : 0;
 
-  // Heal existing structures and kick off their individual progression toward the new epoch
-  for (const b of state.buildings) {
+  const kingdomBlds = state.buildings.filter(
+    (b) => b.settlementId && getKingdomId(state, b.settlementId) === kingdomId,
+  );
+
+  // Heal this kingdom's structures and kick off their individual progression toward the new epoch
+  for (const b of kingdomBlds) {
     b.hp = b.maxHp;
     const bTile = getTile(state, b.tileX, b.tileZ);
     if (bTile && bTile.terrain === 'stone_road') {
       bTile.terrain = 'grass';
     }
-    if (b.epochLevel < state.epochIndex) {
+    if (b.epochLevel < newEpochIdx) {
       b.upgradeProgress = Math.max(b.upgradeProgress ?? 0, divineLeapOverride ? 35 : 18);
     }
   }
 
-  const anchor = getSettlementAnchor(state);
+  const settlementIds = Array.from(new Set(kingdomBlds.map((b) => b.settlementId ?? 'city_default')));
+  let anchor = getKingdomAnchor(state, kingdomId) ?? getSettlementAnchor(state);
 
-  // Transform street & rail transit network around each independent settlement & erect epoch landmark
-  if (state.buildings.length > 0) {
-    const settlementIds = Array.from(new Set(state.buildings.map((b) => b.settlementId ?? 'city_default')));
-
+  if (settlementIds.length > 0) {
     for (const sid of settlementIds) {
       terraformSettlementDistrict(state, sid, true);
       connectSettlementRoads(state, sid);
-      if (state.epochIndex >= 3) {
+      if (newEpochIdx >= 3) {
         paveSettlementRailNetwork(state, sid);
       }
     }
 
     const primarySid = settlementIds[0];
     const primaryAnchor = getSettlementAnchorForId(state, primarySid);
+    anchor = primaryAnchor;
 
-    // Erect the signature landmark of the newly reached age on an unblocked lot
+    // Erect the signature landmark of the newly reached age on an unblocked lot (skip landmark spam during fast diffusion catch-up if already built)
     const epochBuildings = BUILDINGS.filter((b) => b.epoch === nextEpoch.id);
     if (epochBuildings.length > 0) {
       const bDef = epochBuildings[0];
-      const padTile = findBuildableTileNear(state, primaryAnchor.x, primaryAnchor.z, 15, primarySid);
-      if (padTile) {
-        if (padTile.terrain === 'stone_road' || padTile.terrain === 'rail_track') padTile.terrain = 'grass';
-        padTile.resourceNode = 'none';
-        padTile.resourceAmount = 0;
-        const primarySpecies: SpeciesId = state.settlementSpecies?.[primarySid] ?? 'human';
-        const newBld: BuildingEntity = {
-          id: nextEntityId('bld'),
-          type: bDef.type,
-          settlementId: primarySid,
-          species: primarySpecies,
-          tileX: padTile.x,
-          tileZ: padTile.z,
-          hp: bDef.maxHp,
-          maxHp: bDef.maxHp,
-          constructionProgress: divineLeapOverride ? 100 : 25,
-          epochLevel: state.epochIndex,
-          blessedTimer: 15,
-          cursedTimer: 0,
-          shieldTimer: 0,
-        };
-        padTile.buildingId = newBld.id;
-        state.buildings.push(newBld);
-        state.totalStructuresBuilt += 1;
-        paveSettlementStreetsNear(state, padTile.x, padTile.z, primarySid);
-        if (state.epochIndex >= 3) {
-          paveSettlementRailNetwork(state, primarySid);
+      const alreadyHasLandmark = kingdomBlds.some((b) => b.type === bDef.type);
+      if (!alreadyHasLandmark || divineLeapOverride) {
+        const padTile = findBuildableTileNear(state, primaryAnchor.x, primaryAnchor.z, 15, primarySid);
+        if (padTile) {
+          if (padTile.terrain === 'stone_road' || padTile.terrain === 'rail_track') padTile.terrain = 'grass';
+          padTile.resourceNode = 'none';
+          padTile.resourceAmount = 0;
+          const primarySpecies: SpeciesId = state.settlementSpecies?.[primarySid] ?? 'human';
+          const newBld: BuildingEntity = {
+            id: nextEntityId('bld'),
+            type: bDef.type,
+            settlementId: primarySid,
+            species: primarySpecies,
+            tileX: padTile.x,
+            tileZ: padTile.z,
+            hp: bDef.maxHp,
+            maxHp: bDef.maxHp,
+            constructionProgress: divineLeapOverride ? 100 : 25,
+            epochLevel: newEpochIdx,
+            blessedTimer: 15,
+            cursedTimer: 0,
+            shieldTimer: 0,
+          };
+          padTile.buildingId = newBld.id;
+          state.buildings.push(newBld);
+          state.totalStructuresBuilt += 1;
+          paveSettlementStreetsNear(state, padTile.x, padTile.z, primarySid);
+          if (newEpochIdx >= 3) {
+            paveSettlementRailNetwork(state, primarySid);
+          }
         }
       }
     }
 
     const bonusRole: UnitRole =
-      state.epochIndex >= 6 ? 'astro_engineer' : state.epochIndex >= 2 ? 'scholar' : 'builder';
+      newEpochIdx >= 6 ? 'astro_engineer' : newEpochIdx >= 2 ? 'scholar' : 'builder';
     spawnUnit(state, bonusRole, primaryAnchor.x, primaryAnchor.z, true, primarySid);
   }
 
-  const centerTile = getTile(state, anchor.x, anchor.z);
+  const centerTile = getTile(state, Math.round(anchor.x), Math.round(anchor.z));
   state.pendingVfx.push({
     id: nextEntityId('vfx'),
     type: 'epoch_up',
@@ -5397,15 +5706,82 @@ export function advanceEpoch(
     createdAt: Date.now(),
   });
 
+  const realmName = state.settlementNames?.[settlementIds[0] ?? kingdomId] ?? 'A civilization';
   addChronicle(
     state,
-    `Civilization has ascended to the ${nextEpoch.name} (${formatYearLabel(state.year)})!`,
+    `${realmName} has ascended to the ${nextEpoch.name} (${formatYearLabel(state.year)})!`,
     'epoch',
   );
 
+  if (!options?.skipAverageSync) {
+    syncAverageEpochFromKingdoms(state);
+    syncStateResourcesFromKingdoms(state);
+    recalculateRatesAndCaps(state);
+  }
+  return { ok: true, newEpoch: nextEpoch };
+}
+
+export function advanceEpoch(
+  state: SimulationState,
+  divineLeapOverride = false,
+  targetKingdomId?: string,
+): { ok: boolean; reason?: string; newEpoch?: typeof EPOCHS[number] } {
+  reconcileKingdomEpochs(state, false);
+  if (targetKingdomId) {
+    return advanceKingdomEpoch(state, targetKingdomId, divineLeapOverride);
+  }
+
+  const liveKids = getLiveKingdomIds(state);
+  if (liveKids.length === 0) {
+    if (state.epochIndex >= EPOCHS.length - 1) {
+      state.outcome = 'ascension_victory';
+      return { ok: false, reason: 'Already in the Interstellar Age' };
+    }
+    reconcileAndSyncResources(state);
+    const nextEpoch = EPOCHS[state.epochIndex + 1];
+    const free = divineLeapOverride || state.sandboxFreeMode;
+    if (!free && !canAfford(state.resources, nextEpoch.unlockCost, false)) {
+      return { ok: false, reason: `Insufficient resources to enter the ${nextEpoch.name}` };
+    }
+    if (!free) {
+      spendWorldCost(state, nextEpoch.unlockCost);
+    }
+    state.epochIndex += 1;
+    state.averageEpochIndex = state.epochIndex;
+    state.epochProgress = 0;
+    lastSyncedEpochMap.set(state, state.epochIndex);
+    explicitEpochOverrideMap.set(state, state.epochIndex);
+    addChronicle(
+      state,
+      `Civilization has ascended to the ${nextEpoch.name} (${formatYearLabel(state.year)})!`,
+      'epoch',
+    );
+    syncStateResourcesFromKingdoms(state);
+    recalculateRatesAndCaps(state);
+    return { ok: true, newEpoch: nextEpoch };
+  }
+
+  let advancedAny = false;
+  let lastEpochDef: typeof EPOCHS[number] | undefined;
+  let lastReason: string | undefined;
+  for (const kid of liveKids) {
+    const res = advanceKingdomEpoch(state, kid, divineLeapOverride, { skipAverageSync: true });
+    if (res.ok) {
+      advancedAny = true;
+      lastEpochDef = res.newEpoch;
+    } else if (res.reason) {
+      lastReason = res.reason;
+    }
+  }
+
+  syncAverageEpochFromKingdoms(state);
   syncStateResourcesFromKingdoms(state);
   recalculateRatesAndCaps(state);
-  return { ok: true, newEpoch: nextEpoch };
+
+  if (!advancedAny) {
+    return { ok: false, reason: lastReason ?? 'Already in the Interstellar Age' };
+  }
+  return { ok: true, newEpoch: lastEpochDef ?? EPOCHS[state.epochIndex] };
 }
 
 export function spawnRaiderWave(state: SimulationState): void {
@@ -5468,12 +5844,13 @@ function pickDesiredAutobuildType(
   villagePop: number,
   species: SpeciesId = 'human',
   kRes?: Resources,
+  cityEpoch = 0,
 ): BuildingType | null {
-  const maxCityBuildings = getMaxCityBuildings(state.epochIndex);
+  const maxCityBuildings = getMaxCityBuildings(cityEpoch);
   if (villageBuildings.length >= maxCityBuildings) return null;
 
   const countType = (t: BuildingType) => villageBuildings.filter((b) => b.type === t).length;
-  const targetCottages = Math.min(38, Math.max(12 + state.epochIndex * 4, Math.ceil(villagePop * 1.65)));
+  const targetCottages = Math.min(38, Math.max(12 + cityEpoch * 4, Math.ceil(villagePop * 1.65)));
   const candidates: BuildingType[] = [];
   const want = (t: BuildingType) => {
     if (!candidates.includes(t)) candidates.push(t);
@@ -5485,23 +5862,23 @@ function pickDesiredAutobuildType(
 
   if (species === 'elf' && countType('shaman_totem') < 3) want('shaman_totem');
 
-  if (state.epochIndex === 0) {
+  if (cityEpoch === 0) {
     if (countType('forager_hut') < Math.min(14, targetCottages)) want('forager_hut');
     if (countType('shaman_totem') < (species === 'elf' ? 4 : 3)) want('shaman_totem');
   } else if (species === 'orc') {
     if (countType('forager_hut') < Math.min(16, targetCottages)) want('forager_hut');
     if (countType('granary') < 4) want('granary');
     if (countType('smeltery') < 4) want('smeltery');
-    if (state.epochIndex >= 2 && countType('guildhall') < 4) want('guildhall');
-    if (state.epochIndex >= 2 && countType('observatory') < 2 && villageBuildings.length >= 8) want('observatory');
-    if (state.epochIndex >= 3 && countType('steam_foundry') < 4) want('steam_foundry');
-    if (state.epochIndex >= 3 && countType('rail_station') < 2 && villageBuildings.length >= 10) want('rail_station');
-    if (state.epochIndex >= 4 && countType('fission_reactor') < 3 && villageBuildings.length >= 12) want('fission_reactor');
-    if (state.epochIndex >= 5 && countType('cyber_institute') < 3 && villageBuildings.length >= 14) want('cyber_institute');
-    if (state.epochIndex >= 6 && countType('launch_arcology') < 3 && villageBuildings.length >= 16) want('launch_arcology');
+    if (cityEpoch >= 2 && countType('guildhall') < 4) want('guildhall');
+    if (cityEpoch >= 2 && countType('observatory') < 2 && villageBuildings.length >= 8) want('observatory');
+    if (cityEpoch >= 3 && countType('steam_foundry') < 4) want('steam_foundry');
+    if (cityEpoch >= 3 && countType('rail_station') < 2 && villageBuildings.length >= 10) want('rail_station');
+    if (cityEpoch >= 4 && countType('fission_reactor') < 3 && villageBuildings.length >= 12) want('fission_reactor');
+    if (cityEpoch >= 5 && countType('cyber_institute') < 3 && villageBuildings.length >= 14) want('cyber_institute');
+    if (cityEpoch >= 6 && countType('launch_arcology') < 3 && villageBuildings.length >= 16) want('launch_arcology');
     if (countType('forager_hut') < targetCottages) want('forager_hut');
   } else {
-    if (state.epochIndex >= 1) {
+    if (cityEpoch >= 1) {
       if (countType('forager_hut') < Math.min(12, targetCottages)) want('forager_hut');
       if (countType('granary') < 3) want('granary');
       if (species === 'elf' && countType('ziggurat') < 3) want('ziggurat');
@@ -5512,14 +5889,14 @@ function pickDesiredAutobuildType(
       if (countType('granary') < 4) want('granary');
       if (countType('shaman_totem') < (species === 'elf' ? 4 : 3)) want('shaman_totem');
     }
-    if (state.epochIndex >= 2) {
+    if (cityEpoch >= 2) {
       if (countType('guildhall') < 4) want('guildhall');
       if (countType('forager_hut') < Math.min(20, targetCottages)) want('forager_hut');
       if (species === 'elf' && countType('observatory') < 3) want('observatory');
       if (countType('observatory') < (species === 'human' || species === 'elf' ? 3 : 2)) want('observatory');
       if (countType('guildhall') < 5) want('guildhall');
     }
-    if (state.epochIndex >= 3) {
+    if (cityEpoch >= 3) {
       if (countType('forager_hut') < Math.min(24, targetCottages)) want('forager_hut');
       if (countType('rail_station') < 2) want('rail_station');
       if (species === 'human' && countType('dynamo_plant') < 3) want('dynamo_plant');
@@ -5527,7 +5904,7 @@ function pickDesiredAutobuildType(
       if (countType('dynamo_plant') < 4) want('dynamo_plant');
       if (countType('guildhall') < 6) want('guildhall');
     }
-    if (state.epochIndex >= 4) {
+    if (cityEpoch >= 4) {
       if (countType('forager_hut') < Math.min(28, targetCottages)) want('forager_hut');
       if (countType('airport') < 2) want('airport');
       if (species === 'elf' && countType('cyber_institute') < 4) want('cyber_institute');
@@ -5535,17 +5912,17 @@ function pickDesiredAutobuildType(
       if (countType('cyber_institute') < 4) want('cyber_institute');
       if (countType('guildhall') < 8) want('guildhall');
     }
-    if (state.epochIndex >= 5) {
+    if (cityEpoch >= 5) {
       if (countType('forager_hut') < Math.min(33, targetCottages)) want('forager_hut');
       if (countType('rail_station') < 3) want('rail_station');
       if (countType('cyber_institute') < 5) want('cyber_institute');
       if (countType('guildhall') < 10) want('guildhall');
     }
-    if (state.epochIndex >= 6) {
+    if (cityEpoch >= 6) {
       if (countType('launch_arcology') < 4) want('launch_arcology');
       if (countType('forager_hut') < targetCottages) want('forager_hut');
     }
-    if (state.epochIndex >= 7) {
+    if (cityEpoch >= 7) {
       if (countType('dyson_spire') < 2) want('dyson_spire');
     }
     if (countType('forager_hut') < targetCottages) want('forager_hut');
@@ -5704,15 +6081,16 @@ function transformSettlementEnvironment(
 
   // 1. Era-driven terrain flattening, artificial islands, connected streets & rail/runway transformation
   const pKid = getKingdomId(state, sid);
+  const cityEpoch = getKingdomEpoch(state, pKid);
   const pStock = ensureKingdomResources(state, pKid);
   terraformSettlementDistrict(state, sid, false);
-  if (state.epochIndex >= 1 && (state.sandboxFreeMode || pStock.stone >= 8)) {
+  if (cityEpoch >= 1 && (state.sandboxFreeMode || pStock.stone >= 8)) {
     if (!state.sandboxFreeMode) pStock.stone = Math.max(0, pStock.stone - 4);
     connectSettlementRoads(state, sid);
     paveSettlementStreetsNear(state, sampleBld.tileX, sampleBld.tileZ, sid);
     syncStateResourcesFromKingdoms(state);
   }
-  if (state.epochIndex >= 3 && (sampleBld.type === 'rail_station' || villageBuildings.length >= 6)) {
+  if (cityEpoch >= 3 && (sampleBld.type === 'rail_station' || villageBuildings.length >= 6)) {
     paveSettlementRailNetwork(state, sid);
   }
   for (const b of villageBuildings) {
@@ -6057,6 +6435,11 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
       }
       if (!resolvedKingdomId) {
         resolvedKingdomId = newSettlementId;
+        // All newly spawned races founding a brand-new independent civilization MUST start in Stone Age (0)
+        if (!state.kingdomEpochs) state.kingdomEpochs = {};
+        if (!state.kingdomEpochProgress) state.kingdomEpochProgress = {};
+        state.kingdomEpochs[resolvedKingdomId] = 0;
+        state.kingdomEpochProgress[resolvedKingdomId] = 0;
       }
       state.settlementKingdoms[newSettlementId] = resolvedKingdomId;
       const kStock = ensureKingdomResources(state, resolvedKingdomId);
@@ -6106,6 +6489,7 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
         }
       }
 
+      syncAverageEpochFromKingdoms(state);
       syncStateResourcesFromKingdoms(state);
       addChronicle(
         state,
@@ -6127,8 +6511,7 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
     }
   }
 
-  // 2. Step each independent village/city separately using its kingdom's own resource stockpile
-  const epoch = EPOCHS[state.epochIndex] || EPOCHS[0];
+  // 2. Step each independent village/city separately using its kingdom's own resource stockpile & age
   const settlementIds = Array.from(new Set(state.buildings.map((b) => b.settlementId!)));
 
   for (const sid of settlementIds) {
@@ -6141,6 +6524,8 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
     const hasCompletedHearth = completedBuildings.length > 0;
     const villageSpecies: SpeciesId = state.settlementSpecies[sid] ?? villageUnits[0]?.species ?? 'human';
     const sidKingdomId = getKingdomId(state, sid);
+    const cityEpoch = getKingdomEpoch(state, sidKingdomId);
+    const epoch = EPOCHS[cityEpoch] || EPOCHS[0];
     const kRes = ensureKingdomResources(state, sidKingdomId);
 
     const cityMaxPop = getMaxCityPopulation(state.gridSize);
@@ -6184,8 +6569,8 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
       }
     }
 
-    // Autonomous Construction Planner scoped to THIS village & THIS kingdom's stocked resources
-    const maxCityBuildings = getMaxCityBuildings(state.epochIndex);
+    // Autonomous Construction Planner scoped to THIS village & THIS kingdom's stocked resources & epoch
+    const maxCityBuildings = getMaxCityBuildings(cityEpoch);
     let activeSites = villageBuildings.filter((b) => b.constructionProgress < 100).length;
     const orcSlowSkip =
       villageSpecies === 'orc' &&
@@ -6193,7 +6578,7 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
       villageBuildings.length >= 6 &&
       Math.floor(Math.abs(state.year * 10)) % 3 === 1;
 
-    const maxConcurrentSites = state.epochIndex >= 3 ? 4 : state.epochIndex >= 1 || villageUnits.length >= 5 ? 3 : 2;
+    const maxConcurrentSites = cityEpoch >= 3 ? 4 : cityEpoch >= 1 || villageUnits.length >= 5 ? 3 : 2;
     const sitesToPlaceThisTick = state.sandboxFreeMode || kRes.wood >= 80 ? 2 : 1;
 
     for (let placeAttempt = 0; placeAttempt < sitesToPlaceThisTick; placeAttempt++) {
@@ -6214,6 +6599,7 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
         villageUnits.length,
         villageSpecies,
         currentStock,
+        cityEpoch,
       );
       if (!desiredType) break;
       const def = BUILDINGS.find((b) => b.type === desiredType);
@@ -6247,7 +6633,7 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
         hp: def.maxHp,
         maxHp: def.maxHp,
         constructionProgress: 34,
-        epochLevel: state.epochIndex === 0 ? 0 : baseEpochIdx,
+        epochLevel: cityEpoch === 0 ? 0 : Math.min(cityEpoch, baseEpochIdx),
         upgradeProgress: 0,
         blessedTimer: 0,
         cursedTimer: 0,
@@ -6347,6 +6733,7 @@ function stepSimulationSingle(
 ): void {
   if (dt <= 0) return;
 
+  reconcileKingdomEpochs(state, true);
   reconcileAndSyncResources(state);
 
   if (!options?.skipDragStep) {
@@ -6371,9 +6758,9 @@ function stepSimulationSingle(
     state.goldenAgeTimer = Math.max(0, state.goldenAgeTimer - dt);
   }
 
-  // 2. Smoothly measure actual citizen harvest deposits over rolling 3s window
+  // 2. Smoothly measure actual citizen harvest deposits over rolling 2.5s window
   state.harvestWindowTimer = (state.harvestWindowTimer ?? 0) + dt;
-  if (state.harvestWindowTimer >= 3.0) {
+  if (state.harvestWindowTimer >= 2.5) {
     const win = state.harvestWindowTimer;
     const acc = state.harvestAccumulator ?? emptyResources();
     const prev = state.harvestRates ?? emptyResources();
@@ -6409,7 +6796,8 @@ function stepSimulationSingle(
     const def = BUILDING_BY_TYPE.get(b.type);
     if (!def) continue;
     const blessMult = b.blessedTimer > 0 ? 1.75 : b.cursedTimer > 0 ? 0.5 : 1.0;
-    const epochMult = 1 + Math.min(4, state.epochIndex) * 0.1;
+    const bEpoch = getSettlementEpoch(state, b.settlementId);
+    const epochMult = 1 + Math.min(4, bEpoch) * 0.1;
     const bSpecies: SpeciesId = b.species ?? (b.settlementId ? state.settlementSpecies?.[b.settlementId] : undefined) ?? 'human';
     const bKid = b.settlementId ? getKingdomId(state, b.settlementId) : 'unowned';
     const pRec = bKid !== 'unowned' ? ensureProd(bKid) : null;
@@ -6488,61 +6876,143 @@ function stepSimulationSingle(
   stepKingdomDiplomacyAndRebellions(state, dt);
   stepCivilizationPlanner(state, dt);
 
-  // 5. Real Epoch progression check & organic Epoch Ascension
-  if (state.epochIndex < EPOCHS.length - 1 && state.buildings.some((b) => b.constructionProgress >= 100)) {
-    const nextEpoch = EPOCHS[state.epochIndex + 1];
-    let ratioSum = 0;
-    let ratioCount = 0;
-    for (const [k, reqVal] of Object.entries(nextEpoch.unlockCost)) {
-      if ((reqVal ?? 0) > 0) {
-        ratioSum += Math.min(1, state.resources[k as keyof Resources] / reqVal);
-        ratioCount += 1;
+  // 5. Per-Civilization Epoch Progression with Proximity Tech Diffusion & Non-Overtaking Catch-Up Curve
+  const liveKids = getLiveKingdomIds(state);
+  if (!state.kingdomEpochs) state.kingdomEpochs = {};
+  if (!state.kingdomEpochProgress) state.kingdomEpochProgress = {};
+
+  if (liveKids.length > 0) {
+    const completedByKid = new Map<string, BuildingEntity[]>();
+    for (let bi = 0; bi < state.buildings.length; bi++) {
+      const b = state.buildings[bi];
+      if (b.hp <= 0 || b.constructionProgress < 100 || !b.settlementId) continue;
+      const kid = getKingdomId(state, b.settlementId);
+      let list = completedByKid.get(kid);
+      if (!list) {
+        list = [];
+        completedByKid.set(kid, list);
+      }
+      list.push(b);
+    }
+
+    // Snapshot diffusion before mutating any kingdom epochs this tick so simultaneous neighbors evaluate consistently
+    const diffusionByKid = new Map<string, KingdomDiffusionInfo>();
+    for (const kid of liveKids) {
+      diffusionByKid.set(kid, computeKingdomProximityDiffusion(state, kid));
+    }
+
+    for (const kid of liveKids) {
+      const kEpoch = getKingdomEpoch(state, kid);
+      if (kEpoch >= EPOCHS.length - 1) {
+        state.kingdomEpochProgress[kid] = 100;
+        continue;
+      }
+      const kCompleted = completedByKid.get(kid);
+      if (!kCompleted || kCompleted.length === 0) {
+        state.kingdomEpochProgress[kid] = state.kingdomEpochProgress[kid] ?? 0;
+        continue;
+      }
+
+      const nextEpoch = EPOCHS[kEpoch + 1];
+      const kStock = ensureKingdomResources(state, kid);
+      let ratioSum = 0;
+      let ratioCount = 0;
+      for (const [k, reqVal] of Object.entries(nextEpoch.unlockCost)) {
+        if ((reqVal ?? 0) > 0) {
+          const avail = k === 'faith' ? state.resources.faith : kStock[k as keyof Resources];
+          ratioSum += Math.min(1, avail / reqVal);
+          ratioCount += 1;
+        }
+      }
+      const resReadiness = ratioCount > 0 ? ratioSum / ratioCount : 0;
+
+      const completedCount = kCompleted.length;
+      const requiredStructures =
+        kEpoch === 0
+          ? 2
+          : kEpoch === 1
+            ? 5
+            : kEpoch === 2
+              ? 8
+              : kEpoch === 3
+                ? 12
+                : kEpoch === 4
+                  ? 16
+                  : kEpoch === 5
+                    ? 22
+                    : 26;
+
+      const upgradedCount = kCompleted.filter((b) => b.epochLevel >= kEpoch).length;
+      const upgradeReady = kEpoch < 4 || upgradedCount >= Math.ceil(completedCount * 0.75);
+      const lateTechReady =
+        kEpoch === 5
+          ? kCompleted.some((b) => b.type === 'cyber_institute' || b.type === 'fission_reactor')
+          : kEpoch === 6
+            ? kCompleted.some((b) => b.type === 'launch_arcology')
+            : true;
+
+      // Full economic/structural readiness allows immediate organic ascension (respects species & stockpiles)
+      const costWithFaith: Resources = { ...kStock, faith: state.resources.faith };
+      if (
+        completedCount >= requiredStructures &&
+        upgradeReady &&
+        lateTechReady &&
+        canAfford(costWithFaith, nextEpoch.unlockCost, false)
+      ) {
+        advanceKingdomEpoch(state, kid, false, { skipAverageSync: true });
+        continue;
+      }
+
+      // Continuous growth rate: native development + proximity diffusion catch-up curve from higher-age neighbors
+      const kPop = popByKid.get(kid) ?? 0;
+      const kSpecies: SpeciesId =
+        kCompleted[0]?.species ??
+        (kCompleted[0]?.settlementId ? state.settlementSpecies?.[kCompleted[0].settlementId] : undefined) ??
+        'human';
+      const speciesPace = kSpecies === 'human' ? 1.15 : kSpecies === 'elf' ? 0.95 : 0.65;
+      const structureFactor = Math.min(2.2, 0.35 + completedCount * 0.12);
+      const popFactor = Math.min(2.0, 0.4 + kPop * 0.06);
+      const readinessFactor = 0.25 + resReadiness * 1.45;
+      const eraDifficulty = 1 + kEpoch * 0.55;
+      const nativeRatePerSec =
+        ((0.45 * structureFactor * popFactor * readinessFactor * speciesPace) / eraDifficulty) *
+        (state.sandboxFreeMode ? 1.35 : 1.0);
+
+      const diff = diffusionByKid.get(kid)!;
+      if (diff.isCatchingUp && kEpoch < diff.maxNeighborEpoch) {
+        // Proximity-based diminishing catch-up curve: steep when far behind a close neighbor, tapering as gap -> 0
+        const diffusionRatePerSec = diff.diffusionBoost * (1.85 + 0.25 * Math.min(4, completedCount));
+        const nextProg = (state.kingdomEpochProgress[kid] ?? 0) + (nativeRatePerSec + diffusionRatePerSec) * dt;
+        if (nextProg >= 100) {
+          // Advance by +1 toward neighbor's age; reset progress to 0 so diffusion NEVER overtakes a leading neighbor!
+          advanceKingdomEpoch(state, kid, false, { freeFromProgress: true, skipAverageSync: true });
+          state.kingdomEpochProgress[kid] = 0;
+        } else {
+          state.kingdomEpochProgress[kid] = Math.min(99.9, nextProg);
+        }
+      } else {
+        // Equal age or leading: zero diffusion boost — progression depends strictly on own civilization strength
+        const nextProg = (state.kingdomEpochProgress[kid] ?? 0) + nativeRatePerSec * dt;
+        const canAscendNatively =
+          completedCount >= Math.min(requiredStructures, Math.max(2, kEpoch + 2)) &&
+          upgradeReady &&
+          lateTechReady &&
+          (resReadiness >= 0.65 || state.sandboxFreeMode);
+        if (nextProg >= 100 && canAscendNatively) {
+          advanceKingdomEpoch(state, kid, false, { freeFromProgress: true, skipAverageSync: true });
+          state.kingdomEpochProgress[kid] = 0;
+        } else {
+          state.kingdomEpochProgress[kid] = Math.min(99, Math.max(nextProg, resReadiness * 100 * 0.5));
+        }
       }
     }
-    const avgPct = ratioCount > 0 ? Math.round((ratioSum / ratioCount) * 100) : 0;
-    state.epochProgress = Math.max(0, Math.min(100, avgPct));
 
-    const completedBlds = state.buildings.filter((b) => b.constructionProgress >= 100);
-    const completedCount = completedBlds.length;
-    // Lengthen Industrial -> Atomic -> Information -> Orbital -> Star progression with higher urbanization & tech readiness
-    const requiredStructures =
-      state.epochIndex === 0
-        ? 2
-        : state.epochIndex === 1
-          ? 5
-          : state.epochIndex === 2
-            ? 8
-            : state.epochIndex === 3
-              ? 12
-              : state.epochIndex === 4
-                ? 16
-                : state.epochIndex === 5
-                  ? 22
-                  : 26;
-
-    // For late ages (especially Information Age -> Orbital Age -> Star Age), require buildings to actually upgrade into the current age first
-    const upgradedCount = completedBlds.filter((b) => b.epochLevel >= state.epochIndex).length;
-    const upgradeReady =
-      state.epochIndex < 4 || upgradedCount >= Math.ceil(completedCount * 0.75);
-    const lateTechReady =
-      state.epochIndex === 5
-        ? completedBlds.some((b) => b.type === 'cyber_institute' || b.type === 'fission_reactor')
-        : state.epochIndex === 6
-          ? completedBlds.some((b) => b.type === 'launch_arcology')
-          : true;
-
-    if (
-      completedCount >= requiredStructures &&
-      upgradeReady &&
-      lateTechReady &&
-      canAfford(state.resources, nextEpoch.unlockCost, false)
-    ) {
-      advanceEpoch(state, false);
-    }
-  } else if (state.epochIndex >= EPOCHS.length - 1) {
-    state.epochProgress = 100;
+    syncAverageEpochFromKingdoms(state);
+    syncStateResourcesFromKingdoms(state);
   } else {
-    state.epochProgress = 0;
+    state.epochProgress = state.epochIndex >= EPOCHS.length - 1 ? 100 : 0;
+    state.averageEpochIndex = state.epochIndex;
+    lastSyncedEpochMap.set(state, state.epochIndex);
   }
 
   // 6. Active hazards (rain clouds, plague clouds, wormholes) & real tile fires
@@ -7604,8 +8074,9 @@ function stepSimulationSingle(
     } else if (bSpecies === 'elf' && b.constructionProgress >= 100 && b.hp < b.maxHp) {
       b.hp = Math.min(b.maxHp, b.hp + 1.5 * dt);
     }
-    if (b.constructionProgress >= 100 && b.epochLevel < state.epochIndex) {
-      const epochGap = state.epochIndex - b.epochLevel;
+    const bSettlementEpoch = getSettlementEpoch(state, b.settlementId);
+    if (b.constructionProgress >= 100 && b.epochLevel < bSettlementEpoch) {
+      const epochGap = bSettlementEpoch - b.epochLevel;
       const idOffset = ((b.id.charCodeAt(b.id.length - 1) + b.tileX * 3 + b.tileZ * 5) % 7) * 0.08;
       const blessBoost = b.blessedTimer > 0 ? 1.65 : 1.0;
       const speciesUpgradeMult =
@@ -7621,7 +8092,7 @@ function stepSimulationSingle(
       b.upgradeProgress = (b.upgradeProgress ?? 0) + passiveUpgradeRate * dt;
       if (b.upgradeProgress >= 100) {
         b.upgradeProgress = 0;
-        b.epochLevel = Math.min(state.epochIndex, b.epochLevel + 1);
+        b.epochLevel = Math.min(bSettlementEpoch, b.epochLevel + 1);
         b.maxHp += 40;
         b.hp = Math.min(b.maxHp, b.hp + 55);
         if (bTile && bTile.terrain === 'stone_road') {
@@ -8055,14 +8526,15 @@ function stepVehicles(state: SimulationState, dt: number): void {
     return false;
   };
 
-  // Compute each settlement's actual technological epoch so newly founded primitive settlements don't prematurely field future war machines
+  // Compute each settlement's actual technological epoch from its own kingdom's age
   const getSettlementTechEpoch = (sid: string): number => {
-    if (state.sandboxFreeMode || standingBldsBySid.size <= 1) return state.epochIndex;
+    const kEpoch = getSettlementEpoch(state, sid);
+    if (state.sandboxFreeMode || standingBldsBySid.size <= 1) return kEpoch;
     const maxBldEpoch = maxBldEpochBySid.get(sid) ?? 0;
     const completedCount = completedBldsBySid.get(sid) ?? 0;
-    if (completedCount >= 6) return state.epochIndex;
-    if (completedCount >= 3) return Math.min(state.epochIndex, Math.max(maxBldEpoch + 1, 1));
-    return Math.min(state.epochIndex, maxBldEpoch);
+    if (completedCount >= 6) return kEpoch;
+    if (completedCount >= 3) return Math.min(kEpoch, Math.max(maxBldEpoch + 1, 1));
+    return Math.min(kEpoch, maxBldEpoch);
   };
 
   // Prune vehicles whose HP reached 0, whose settlement/kingdom has fallen or lost all population, or whose epoch is unreached
@@ -8165,185 +8637,179 @@ function stepVehicles(state: SimulationState, dt: number): void {
     }
   }
 
-  // A. Maintain active trains (Industrial Epoch 3+)
-  if (state.epochIndex >= 3) {
-    for (const sid of settlementIds) {
-      const cityEpoch = getSettlementTechEpoch(sid);
-      if (cityEpoch < 3) continue;
-      const targetPerCity = cityEpoch >= 5 ? 2 : 1;
-      if (state.vehicles.filter((v) => v.type === 'train').length >= 8) break;
-      const existingCount = state.vehicles.filter((v) => v.type === 'train' && v.settlementId === sid).length;
-      if (existingCount >= targetPerCity) continue;
-      const anchor = getSettlementAnchorForId(state, sid);
-      const railCandidates: TileData[] = [];
-      for (let dz = -14; dz <= 14; dz++) {
-        for (let dx = -14; dx <= 14; dx++) {
-          const rt = getTile(state, anchor.x + dx, anchor.z + dz);
-          if (rt && rt.terrain === 'rail_track') {
-            railCandidates.push(rt);
-          }
+  // A. Maintain active trains (Industrial Epoch 3+ per settlement)
+  for (const sid of settlementIds) {
+    const cityEpoch = getSettlementTechEpoch(sid);
+    if (cityEpoch < 3) continue;
+    const targetPerCity = cityEpoch >= 5 ? 2 : 1;
+    if (state.vehicles.filter((v) => v.type === 'train').length >= 8) break;
+    const existingCount = state.vehicles.filter((v) => v.type === 'train' && v.settlementId === sid).length;
+    if (existingCount >= targetPerCity) continue;
+    const anchor = getSettlementAnchorForId(state, sid);
+    const railCandidates: TileData[] = [];
+    for (let dz = -14; dz <= 14; dz++) {
+      for (let dx = -14; dx <= 14; dx++) {
+        const rt = getTile(state, anchor.x + dx, anchor.z + dz);
+        if (rt && rt.terrain === 'rail_track') {
+          railCandidates.push(rt);
         }
       }
-      if (railCandidates.length >= 4) {
-        const startTile = railCandidates[(existingCount * 7) % railCandidates.length];
-        let nextTile = startTile;
-        for (const [ox, oz] of VEHICLE_DIRS) {
-          const nb = getTile(state, startTile.x + ox, startTile.z + oz);
-          if (nb && nb.terrain === 'rail_track') {
-            nextTile = nb;
-            break;
-          }
+    }
+    if (railCandidates.length >= 4) {
+      const startTile = railCandidates[(existingCount * 7) % railCandidates.length];
+      let nextTile = startTile;
+      for (const [ox, oz] of VEHICLE_DIRS) {
+        const nb = getTile(state, startTile.x + ox, startTile.z + oz);
+        if (nb && nb.terrain === 'rail_track') {
+          nextTile = nb;
+          break;
         }
-        const sp: SpeciesId = state.settlementSpecies?.[sid] ?? 'human';
-        state.vehicles.push({
-          id: nextEntityId('veh_trn'),
-          type: 'train',
-          species: sp,
-          settlementId: sid,
-          hp: 160,
-          maxHp: 160,
-          epochLevel: cityEpoch,
-          x: startTile.x,
-          y: 0.03,
-          z: startTile.z,
-          heading: Math.atan2(nextTile.x - startTile.x, nextTile.z - startTile.z),
-          pitch: 0,
-          bank: 0,
-          speed: 3.0,
-          path: [
-            { x: startTile.x, z: startTile.z },
-            { x: nextTile.x, z: nextTile.z },
-          ],
-          pathIndex: 1,
-          variantSeed: railCandidates.length + existingCount,
-        });
       }
+      const sp: SpeciesId = state.settlementSpecies?.[sid] ?? 'human';
+      state.vehicles.push({
+        id: nextEntityId('veh_trn'),
+        type: 'train',
+        species: sp,
+        settlementId: sid,
+        hp: 160,
+        maxHp: 160,
+        epochLevel: cityEpoch,
+        x: startTile.x,
+        y: 0.03,
+        z: startTile.z,
+        heading: Math.atan2(nextTile.x - startTile.x, nextTile.z - startTile.z),
+        pitch: 0,
+        bank: 0,
+        speed: 3.0,
+        path: [
+          { x: startTile.x, z: startTile.z },
+          { x: nextTile.x, z: nextTile.z },
+        ],
+        pathIndex: 1,
+        variantSeed: railCandidates.length + existingCount,
+      });
     }
   }
 
-  // B. Maintain active automobiles (Industrial Epoch 3+)
-  if (state.epochIndex >= 3) {
-    for (const sid of settlementIds) {
-      const cityEpoch = getSettlementTechEpoch(sid);
-      if (cityEpoch < 3) continue;
-      const targetCarsPerCity = cityEpoch === 3 ? 2 : cityEpoch === 4 ? 4 : 6;
-      if (state.vehicles.filter((v) => v.type === 'car').length >= 24) break;
-      const existingCount = state.vehicles.filter((v) => v.type === 'car' && v.settlementId === sid).length;
-      if (existingCount >= targetCarsPerCity) continue;
-      const anchor = getSettlementAnchorForId(state, sid);
-      const roadCandidates: TileData[] = [];
-      for (let dz = -14; dz <= 14; dz++) {
-        for (let dx = -14; dx <= 14; dx++) {
-          const rt = getTile(state, anchor.x + dx, anchor.z + dz);
-          if (rt && rt.terrain === 'stone_road') {
-            roadCandidates.push(rt);
-          }
+  // B. Maintain active automobiles (Industrial Epoch 3+ per settlement)
+  for (const sid of settlementIds) {
+    const cityEpoch = getSettlementTechEpoch(sid);
+    if (cityEpoch < 3) continue;
+    const targetCarsPerCity = cityEpoch === 3 ? 2 : cityEpoch === 4 ? 4 : 6;
+    if (state.vehicles.filter((v) => v.type === 'car').length >= 24) break;
+    const existingCount = state.vehicles.filter((v) => v.type === 'car' && v.settlementId === sid).length;
+    if (existingCount >= targetCarsPerCity) continue;
+    const anchor = getSettlementAnchorForId(state, sid);
+    const roadCandidates: TileData[] = [];
+    for (let dz = -14; dz <= 14; dz++) {
+      for (let dx = -14; dx <= 14; dx++) {
+        const rt = getTile(state, anchor.x + dx, anchor.z + dz);
+        if (rt && rt.terrain === 'stone_road') {
+          roadCandidates.push(rt);
         }
       }
-      if (roadCandidates.length >= 4) {
-        const startTile = roadCandidates[(existingCount * 5 + 1) % roadCandidates.length];
-        let nextTile = startTile;
-        for (const [ox, oz] of VEHICLE_DIRS) {
-          const nb = getTile(state, startTile.x + ox, startTile.z + oz);
-          if (nb && nb.terrain === 'stone_road') {
-            nextTile = nb;
-            break;
-          }
+    }
+    if (roadCandidates.length >= 4) {
+      const startTile = roadCandidates[(existingCount * 5 + 1) % roadCandidates.length];
+      let nextTile = startTile;
+      for (const [ox, oz] of VEHICLE_DIRS) {
+        const nb = getTile(state, startTile.x + ox, startTile.z + oz);
+        if (nb && nb.terrain === 'stone_road') {
+          nextTile = nb;
+          break;
         }
-        const sp: SpeciesId = state.settlementSpecies?.[sid] ?? 'human';
-        state.vehicles.push({
-          id: nextEntityId('veh_car'),
-          type: 'car',
-          species: sp,
-          settlementId: sid,
-          hp: 90,
-          maxHp: 90,
-          epochLevel: cityEpoch,
-          x: startTile.x,
-          y: cityEpoch >= 6 ? 0.14 : 0.02,
-          z: startTile.z,
-          heading: Math.atan2(nextTile.x - startTile.x, nextTile.z - startTile.z),
-          pitch: 0,
-          bank: 0,
-          speed: 2.6,
-          path: [
-            { x: startTile.x, z: startTile.z },
-            { x: nextTile.x, z: nextTile.z },
-          ],
-          pathIndex: 1,
-          variantSeed: existingCount + startTile.x * 7 + startTile.z * 13,
-        });
       }
+      const sp: SpeciesId = state.settlementSpecies?.[sid] ?? 'human';
+      state.vehicles.push({
+        id: nextEntityId('veh_car'),
+        type: 'car',
+        species: sp,
+        settlementId: sid,
+        hp: 90,
+        maxHp: 90,
+        epochLevel: cityEpoch,
+        x: startTile.x,
+        y: cityEpoch >= 6 ? 0.14 : 0.02,
+        z: startTile.z,
+        heading: Math.atan2(nextTile.x - startTile.x, nextTile.z - startTile.z),
+        pitch: 0,
+        bank: 0,
+        speed: 2.6,
+        path: [
+          { x: startTile.x, z: startTile.z },
+          { x: nextTile.x, z: nextTile.z },
+        ],
+        pathIndex: 1,
+        variantSeed: existingCount + startTile.x * 7 + startTile.z * 13,
+      });
     }
   }
 
-  // B2. Easter Egg: Latest Tesla Roadster with SpaceX Cold-Gas Thruster Stunts (Information Age Epoch 5+)
-  if (state.epochIndex >= 5) {
-    for (const sid of settlementIds) {
-      const cityEpoch = getSettlementTechEpoch(sid);
-      if (cityEpoch < 5) continue;
-      if (state.vehicles.filter((v) => v.type === 'roadster').length >= 2) break;
-      const alreadyHas = state.vehicles.some((v) => v.type === 'roadster' && v.settlementId === sid);
-      if (alreadyHas) continue;
-      const anchor = getSettlementAnchorForId(state, sid);
-      const roadCandidates: TileData[] = [];
-      for (let dz = -14; dz <= 14; dz++) {
-        for (let dx = -14; dx <= 14; dx++) {
-          const rt = getTile(state, anchor.x + dx, anchor.z + dz);
-          if (rt && rt.terrain === 'stone_road') {
-            roadCandidates.push(rt);
-          }
+  // B2. Easter Egg: Latest Tesla Roadster with SpaceX Cold-Gas Thruster Stunts (Information Age Epoch 5+ per settlement)
+  for (const sid of settlementIds) {
+    const cityEpoch = getSettlementTechEpoch(sid);
+    if (cityEpoch < 5) continue;
+    if (state.vehicles.filter((v) => v.type === 'roadster').length >= 2) break;
+    const alreadyHas = state.vehicles.some((v) => v.type === 'roadster' && v.settlementId === sid);
+    if (alreadyHas) continue;
+    const anchor = getSettlementAnchorForId(state, sid);
+    const roadCandidates: TileData[] = [];
+    for (let dz = -14; dz <= 14; dz++) {
+      for (let dx = -14; dx <= 14; dx++) {
+        const rt = getTile(state, anchor.x + dx, anchor.z + dz);
+        if (rt && rt.terrain === 'stone_road') {
+          roadCandidates.push(rt);
         }
       }
-      if (roadCandidates.length >= 6) {
-        const startTile = roadCandidates[Math.floor(roadCandidates.length / 2)];
-        let nextTile = startTile;
-        for (const [ox, oz] of VEHICLE_DIRS) {
-          const nb = getTile(state, startTile.x + ox, startTile.z + oz);
-          if (nb && nb.terrain === 'stone_road') {
-            nextTile = nb;
-            break;
-          }
+    }
+    if (roadCandidates.length >= 6) {
+      const startTile = roadCandidates[Math.floor(roadCandidates.length / 2)];
+      let nextTile = startTile;
+      for (const [ox, oz] of VEHICLE_DIRS) {
+        const nb = getTile(state, startTile.x + ox, startTile.z + oz);
+        if (nb && nb.terrain === 'stone_road') {
+          nextTile = nb;
+          break;
         }
-        const sp: SpeciesId = state.settlementSpecies?.[sid] ?? 'human';
-        const roadsterCount = state.vehicles.filter((v) => v.type === 'roadster').length;
-        state.vehicles.push({
-          id: nextEntityId('veh_rds'),
-          type: 'roadster',
-          species: sp,
-          settlementId: sid,
-          hp: 110,
-          maxHp: 110,
-          epochLevel: cityEpoch,
-          x: startTile.x,
-          y: cityEpoch >= 6 ? 0.12 : 0.02,
-          z: startTile.z,
-          heading: Math.atan2(nextTile.x - startTile.x, nextTile.z - startTile.z),
-          pitch: 0,
-          bank: 0,
-          speed: 6.4,
-          path: [
-            { x: startTile.x, z: startTile.z },
-            { x: nextTile.x, z: nextTile.z },
-          ],
-          pathIndex: 1,
-          variantSeed: roadsterCount * 17 + startTile.x * 3 + startTile.z * 11,
-          stuntPhase: 'cruise',
-          stuntTimer: 2.2 + roadsterCount * 1.1,
-          stuntDuration: 2.2,
-          thrusterActive: false,
-        });
-        const cityName = state.settlementNames?.[sid] ?? 'the metropolis';
-        addChronicle(
-          state,
-          `Easter Egg: A thruster-equipped Tesla Roadster hit the streets of ${cityName} pulling aerial propulsion stunts!`,
-          'divine',
-        );
       }
+      const sp: SpeciesId = state.settlementSpecies?.[sid] ?? 'human';
+      const roadsterCount = state.vehicles.filter((v) => v.type === 'roadster').length;
+      state.vehicles.push({
+        id: nextEntityId('veh_rds'),
+        type: 'roadster',
+        species: sp,
+        settlementId: sid,
+        hp: 110,
+        maxHp: 110,
+        epochLevel: cityEpoch,
+        x: startTile.x,
+        y: cityEpoch >= 6 ? 0.12 : 0.02,
+        z: startTile.z,
+        heading: Math.atan2(nextTile.x - startTile.x, nextTile.z - startTile.z),
+        pitch: 0,
+        bank: 0,
+        speed: 6.4,
+        path: [
+          { x: startTile.x, z: startTile.z },
+          { x: nextTile.x, z: nextTile.z },
+        ],
+        pathIndex: 1,
+        variantSeed: roadsterCount * 17 + startTile.x * 3 + startTile.z * 11,
+        stuntPhase: 'cruise',
+        stuntTimer: 2.2 + roadsterCount * 1.1,
+        stuntDuration: 2.2,
+        thrusterActive: false,
+      });
+      const cityName = state.settlementNames?.[sid] ?? 'the metropolis';
+      addChronicle(
+        state,
+        `Easter Egg: A thruster-equipped Tesla Roadster hit the streets of ${cityName} pulling aerial propulsion stunts!`,
+        'divine',
+      );
     }
   }
 
-  // C. Maintain active aircraft at completed airports (Atomic Epoch 4+)
+  // C. Maintain active aircraft at completed airports (Atomic Epoch 4+ per settlement)
   const airports = state.buildings.filter(
     (b) =>
       b.hp > 0 &&
@@ -8351,7 +8817,7 @@ function stepVehicles(state: SimulationState, dt: number): void {
       b.constructionProgress >= 100 &&
       isSettlementAliveAndPopulated(b.settlementId ?? 'city_default'),
   );
-  if (state.epochIndex >= 4 && airports.length > 0) {
+  if (airports.length > 0) {
     for (const ap of airports) {
       if (state.vehicles.filter((v) => v.type === 'plane').length >= 6) break;
       const apSid = ap.settlementId ?? 'city_default';
@@ -8610,10 +9076,10 @@ function stepVehicles(state: SimulationState, dt: number): void {
     }
 
     if (v.type === 'train') {
-      v.speed =
-        state.epochIndex <= 3 ? 2.9 : state.epochIndex === 4 ? 4.0 : state.epochIndex === 5 ? 5.4 : 6.8;
+      const vEpoch = v.epochLevel ?? 3;
+      v.speed = vEpoch <= 3 ? 2.9 : vEpoch === 4 ? 4.0 : vEpoch === 5 ? 5.4 : 6.8;
       // Information Age (5) and Space Age (6+) trains ride high on suspended viaducts above streets!
-      v.y = state.epochIndex >= 5 ? 0.78 : 0.03;
+      v.y = vEpoch >= 5 ? 0.78 : 0.03;
       const target = v.path[1] ?? v.path[0] ?? { x: v.x, z: v.z };
       const dx = target.x - v.x;
       const dz = target.z - v.z;
@@ -8692,9 +9158,9 @@ function stepVehicles(state: SimulationState, dt: number): void {
         }
       }
     } else if (v.type === 'car') {
-      v.speed =
-        state.epochIndex <= 3 ? 2.2 : state.epochIndex === 4 ? 3.2 : state.epochIndex === 5 ? 4.2 : 5.2;
-      v.y = state.epochIndex >= 6 ? 0.14 : 0.02;
+      const vEpoch = v.epochLevel ?? 3;
+      v.speed = vEpoch <= 3 ? 2.2 : vEpoch === 4 ? 3.2 : vEpoch === 5 ? 4.2 : 5.2;
+      v.y = vEpoch >= 6 ? 0.14 : 0.02;
       const target = v.path[1] ?? v.path[0] ?? { x: v.x, z: v.z };
       const dx = target.x - v.x;
       const dz = target.z - v.z;
@@ -8734,8 +9200,9 @@ function stepVehicles(state: SimulationState, dt: number): void {
         }
       }
     } else if (v.type === 'roadster') {
-      const baseRoadY = state.epochIndex >= 6 ? 0.12 : 0.02;
-      const baseCruiseSpeed = state.epochIndex >= 6 ? 7.2 : 6.2;
+      const vEpoch = v.epochLevel ?? 5;
+      const baseRoadY = vEpoch >= 6 ? 0.12 : 0.02;
+      const baseCruiseSpeed = vEpoch >= 6 ? 7.2 : 6.2;
       const stuntPhase = v.stuntPhase ?? 'cruise';
       v.stuntTimer = (v.stuntTimer ?? 2.5) - dt;
 
@@ -8861,7 +9328,8 @@ function stepVehicles(state: SimulationState, dt: number): void {
       const rwyDirX = Math.sin(rwy.heading);
       const rwyDirZ = Math.cos(rwy.heading);
       const cruiseAlt = 4.6 + (v.variantSeed % 3) * 0.5;
-      const cruiseSpeed = state.epochIndex <= 4 ? 5.0 : state.epochIndex === 5 ? 6.8 : 8.5;
+      const vEpoch = v.epochLevel ?? 4;
+      const cruiseSpeed = vEpoch <= 4 ? 5.0 : vEpoch === 5 ? 6.8 : 8.5;
       v.phaseTimer = (v.phaseTimer ?? 0) + dt;
 
       if (v.flightPhase === 'parked' || !v.flightPhase) {
@@ -9128,7 +9596,7 @@ function stepVehicles(state: SimulationState, dt: number): void {
     };
   };
 
-  if (state.epochIndex >= 1 && settlementIds.length > 0) {
+  if (settlementIds.length > 0) {
     // 0. Evolve existing military vehicles automatically as their home settlement advances through the ages
     for (const v of state.vehicles) {
       if (!v.isMilitary || (v.hp ?? 0) <= 0) continue;
@@ -9333,11 +9801,12 @@ function stepVehicles(state: SimulationState, dt: number): void {
         }
       }
 
-      const vStats = getMilitaryVehicleStats(v.type, state.epochIndex);
+      const vEpoch = v.epochLevel ?? getSettlementTechEpoch(v.settlementId);
+      const vStats = getMilitaryVehicleStats(v.type, vEpoch);
       const isNaval = v.type === 'warship';
       const isGround = v.type === 'tank';
       const isFixedWing = v.type === 'glider' || v.type === 'bomber_plane';
-      const isHoverTank = isGround && state.epochIndex >= 6;
+      const isHoverTank = isGround && vEpoch >= 6;
       const cruiseY = vStats.cruiseY;
       v.y = cruiseY;
 
@@ -9423,7 +9892,7 @@ function stepVehicles(state: SimulationState, dt: number): void {
         v.attackCooldown = vStats.fireCooldown;
         const dmg = vStats.dmg;
         const tracerColor =
-          v.type === 'orbital_gunship' || (state.epochIndex >= 6 && (v.type === 'tank' || v.type === 'warship' || v.type === 'bomber_plane'))
+          v.type === 'orbital_gunship' || (vEpoch >= 6 && (v.type === 'tank' || v.type === 'warship' || v.type === 'bomber_plane'))
             ? '#56cfe1'
             : v.species === 'elf'
               ? '#c084fc'
@@ -9434,9 +9903,9 @@ function stepVehicles(state: SimulationState, dt: number): void {
         const hitY = (hitTile?.height ?? 2) * 0.45 + 0.35;
 
         const vfxSubtype: VisualEffectEvent['vfxSubtype'] =
-          v.type === 'orbital_gunship' || (state.epochIndex >= 6 && (v.type === 'tank' || v.type === 'warship' || v.type === 'bomber_plane'))
+          v.type === 'orbital_gunship' || (vEpoch >= 6 && (v.type === 'tank' || v.type === 'warship' || v.type === 'bomber_plane'))
             ? 'plasma_beam'
-            : v.species === 'elf' && state.epochIndex >= 2 && v.type !== 'glider'
+            : v.species === 'elf' && vEpoch >= 2 && v.type !== 'glider'
               ? 'arcane_bolt'
               : v.type === 'bomber_plane'
                 ? targetDist <= 6.2
@@ -9459,7 +9928,7 @@ function stepVehicles(state: SimulationState, dt: number): void {
           kUltReady &&
           isHighValueTarget &&
           (v.type === 'bomber_plane' || v.type === 'orbital_gunship') &&
-          state.epochIndex >= 4;
+          vEpoch >= 4;
 
         if (isStrategicPayload) {
           if (myKid) {
@@ -12082,10 +12551,17 @@ function stepCivilianUnitAI(
       ? { x: allOwnSettlementBlds[0].tileX, z: allOwnSettlementBlds[0].tileZ }
       : { x: u.x, z: u.z };
 
+  const myKingdomId = idx
+    ? idx.unitKingdomId.get(u.id)
+    : u.settlementId
+      ? getKingdomId(state, u.settlementId)
+      : u.kingdomId;
+  const unitEpoch = myKingdomId ? getKingdomEpoch(state, myKingdomId) : 0;
+
   const hasHumanTechSupport = sInfo
-    ? u.species !== 'human' || state.epochIndex === 0 || sInfo.hasHumanTechSupport
+    ? u.species !== 'human' || unitEpoch === 0 || sInfo.hasHumanTechSupport
     : u.species !== 'human' ||
-      state.epochIndex === 0 ||
+      unitEpoch === 0 ||
       ownVillageBuildings.some(
         (b) =>
           b.type === 'smeltery' ||
@@ -12116,16 +12592,11 @@ function stepCivilianUnitAI(
     u.hp = Math.min(u.maxHp, u.hp + 1.2 * dt);
   }
 
-  const myKingdomId = idx
-    ? idx.unitKingdomId.get(u.id)
-    : u.settlementId
-      ? getKingdomId(state, u.settlementId)
-      : u.kingdomId;
   const warsEnabled = state.worldRules?.warsEnabled !== false;
   const maxOwnedEpoch = sInfo
     ? sInfo.maxOwnedEpoch
-    : ownVillageBuildings.reduce((acc, b) => Math.max(acc, b.epochLevel), state.epochIndex);
-  const myEpoch = Math.max(state.epochIndex, maxOwnedEpoch);
+    : ownVillageBuildings.reduce((acc, b) => Math.max(acc, b.epochLevel), unitEpoch);
+  const myEpoch = Math.max(unitEpoch, maxOwnedEpoch);
 
   let nearestEnemy: UnitEntity | null = null;
   let enemyDistSq = Infinity;
@@ -13120,7 +13591,7 @@ function stepCivilianUnitAI(
 
   // 3b. Builders and mason-inclined villagers upgrade older-epoch buildings (O(1) slot lookup)
   const upgradeTarget = villageBuildings.find((b) => {
-    if (b.constructionProgress < 100 || b.epochLevel >= state.epochIndex) return false;
+    if (b.constructionProgress < 100 || b.epochLevel >= unitEpoch) return false;
     if (idx) {
       let upgradersHere = idx.upgradersByBuildingId.get(b.id) ?? 0;
       if (
@@ -13229,7 +13700,7 @@ function stepCivilianUnitAI(
           if (u.role === 'priest') {
             recordHarvestDeposit(state, 'faith', u.species === 'elf' ? 3.2 : 2.2, depositKid);
           } else if (u.role === 'scholar') {
-            recordHarvestDeposit(state, 'knowledge', 2.4 + state.epochIndex * 0.7, depositKid);
+            recordHarvestDeposit(state, 'knowledge', 2.4 + unitEpoch * 0.7, depositKid);
           } else {
             recordHarvestDeposit(state, 'energy', 2.8, depositKid);
             recordHarvestDeposit(state, 'alloy', 1.8, depositKid);
@@ -13300,7 +13771,7 @@ function stepCivilianUnitAI(
                     ? (indivHash % 3 === 0 ? 'wood' : indivHash % 3 === 1 ? 'stone' : 'ore')
                     : targetTile.resourceNode === 'atlantis_ruin'
                       ? 'knowledge'
-                      : state.epochIndex >= 4
+                      : unitEpoch >= 4
                         ? 'energy'
                         : 'knowledge';
 
@@ -13457,7 +13928,7 @@ function stepCivilianUnitAI(
           ['berry_bush', kStock.food],
           ['timber_grove', kStock.wood],
           ['stone_outcrop', kStock.stone],
-          ['ore_vein', kStock.ore + (state.epochIndex === 0 ? 40 : 0)],
+          ['ore_vein', kStock.ore + (unitEpoch === 0 ? 40 : 0)],
           ['scrap_flotsam', Math.min(kStock.wood, kStock.stone)],
           ['coral_reef', kStock.food],
         ];

@@ -462,6 +462,30 @@ export const TAB_SPRITES: Record<ToolCategory, CompiledSprite> = {
 };
 
 export const ZONE_SPRITES: Record<ZoneOverlayType, CompiledSprite> = {
+  // 16x16 Gold-trimmed heraldic kingdom nameplate banner with text lines
+  kingdomLabels: cluster16(
+    [
+      '................',
+      '................',
+      '......YYYY......',
+      '.YYYYYYYYYYYYYY.',
+      '.Y111111111111y.',
+      '.Y1RR133333311y.',
+      '.Y1rq111111111y.',
+      '.Y111122222111y.',
+      '.Y111111111111y.',
+      '.yyyyyyyyyyyyyy.',
+      '......gG........',
+      '......gG........',
+      '.....ggGG.......',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.stone,
+    MATS,
+  ),
+
   // 16x16 Symmetrical fortified castle keep with top battlements & recessed oak gate
   kingdoms: cluster16(
     [

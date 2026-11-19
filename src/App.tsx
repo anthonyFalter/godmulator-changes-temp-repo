@@ -13,10 +13,10 @@ import {
 import {
   DEFAULT_WORLD_RULES,
   WORLD_TEMPLATES,
-  advanceEpoch,
   applyTerrainTool,
   canAfford,
   castGodPower,
+  computeAverageCivilizationEpoch,
   createInitialSimulationState,
   createWorldConfigFromTemplate,
   dismissWorldEventCinematic,
@@ -26,6 +26,7 @@ import {
   getTile,
   placeBuilding,
   spawnUnit,
+  syncAverageEpochFromKingdoms,
 } from './game/simulation';
 import { normalizeSeed } from './game/worldGen';
 import { soundEngine } from './game/sound';
@@ -61,6 +62,7 @@ import {
 import {
   DEFAULT_ZONE_TOGGLES,
   buildZoneOverlayTextures,
+  computeKingdomLabelsOnly,
   computeWorldZones,
   extractKingdomColorsMap,
   inspectTileZones,
@@ -86,9 +88,8 @@ const RESOURCE_KEYS: { key: keyof Resources; label: string }[] = [
   { key: 'stone', label: 'Stone' },
   { key: 'ore', label: 'Ore' },
   { key: 'knowledge', label: 'Research' },
-  { key: 'energy', label: 'Energy' },
   { key: 'alloy', label: 'Alloy' },
-  { key: 'faith', label: 'Faith' },
+  { key: 'faith', label: 'God Energy' },
 ];
 
 interface HoveredHint {
@@ -169,17 +170,22 @@ const GOD_RULE_SWITCHES: ReadonlyArray<{
   {
     key: 'sandboxFreeMode',
     label: 'Sandbox Free Mode',
-    summary: 'Grants limitless Faith and removes construction/power costs',
+    summary: 'Grants limitless God Energy and removes construction/power costs',
   },
 ];
 
 function formatCompactCost(cost: Partial<Resources>, isFree: boolean): string {
   if (isFree) return 'Free';
-  const entries = Object.entries(cost).filter(([, v]) => (v ?? 0) > 0);
+  const entries = Object.entries(cost).filter(([k, v]) => k !== 'energy' && (v ?? 0) > 0);
   if (entries.length === 0) return 'Free';
   return entries
     .map(([k, v]) => {
-      const label = k === 'knowledge' ? 'Res' : k[0].toUpperCase() + k.slice(1);
+      const label =
+        k === 'knowledge'
+          ? 'Res'
+          : k === 'faith'
+            ? 'God Energy'
+            : k[0].toUpperCase() + k.slice(1);
       return `${v} ${label}`;
     })
     .join(', ');
@@ -388,6 +394,8 @@ export default function App() {
     typeof window !== 'undefined' ? window.innerWidth < 768 || window.innerHeight < 540 : false,
   );
   const [showTemplatesDropdown, setShowTemplatesDropdown] = useState<boolean>(false);
+  const [showWorldAgeDropdown, setShowWorldAgeDropdown] = useState<boolean>(false);
+  const [showWorldSkyDropdown, setShowWorldSkyDropdown] = useState<boolean>(false);
   const [worldConfig, setWorldConfig] = useState<WorldGenConfig>(() =>
     createWorldConfigFromTemplate('fantastic', {
       seed: simRef.current.seed,
@@ -1061,7 +1069,7 @@ export default function App() {
           }
           setStatusFeedback(`${def?.name} cast`);
         } else {
-          setStatusFeedback(res.reason || 'Need more Faith');
+          setStatusFeedback(res.reason || 'Need more God Energy');
         }
         setHudTick((t) => t + 1);
         return;
@@ -1107,18 +1115,6 @@ export default function App() {
     },
     [activeTool, brushRadius, activeZones.alliances],
   );
-
-  const handleAdvanceEpoch = (divineLeap: boolean) => {
-    const res = advanceEpoch(simRef.current, divineLeap);
-    if (res.ok && res.newEpoch) {
-      soundEngine.playEpochAscend();
-      setStatusFeedback(`Entered ${res.newEpoch.name}`);
-      setHudTick((t) => t + 1);
-    } else if (res.reason) {
-      setStatusFeedback(res.reason);
-      setHudTick((t) => t + 1);
-    }
-  };
 
   const handleToggleGodRule = useCallback((key: BooleanWorldRuleKey) => {
     const s = simRef.current;
@@ -1185,9 +1181,18 @@ export default function App() {
     }
   }
 
+  const kingdomEpochsKey = sim.kingdomEpochs
+    ? Object.entries(sim.kingdomEpochs)
+        .map(([k, v]) => `${k}=${v}`)
+        .join(',')
+    : '';
   const zoneCacheKey = shouldComputeZones
-    ? `${sim.seed}:${Math.floor(sim.year)}:${sim.buildings.length}:${sim.units.length}:${Math.floor(hudTick / 3)}`
+    ? `${sim.seed}:${Math.floor(sim.year)}:${sim.buildings.length}:${sim.units.length}:${kingdomEpochsKey}:${Math.floor(hudTick / 3)}`
     : 'idle';
+  const kingdomLabelsKey =
+    !anyZoneActive && activeZones.kingdomLabels && gameState !== 'title'
+      ? `${sim.seed}:${sim.buildings.length}:${sim.units.length}:${kingdomEpochsKey}:${Math.floor(hudTick / 3)}`
+      : 'off';
 
   const worldZones = useMemo(() => {
     if (!shouldComputeZones) return null;
@@ -1211,6 +1216,10 @@ export default function App() {
   const zoneOverlayBuffers = useMemo(() => {
     zoneOverlayVersionRef.current += 1;
     if (!worldZones || !anyZoneActive) {
+      const defaultLabels =
+        activeZones.kingdomLabels && gameState !== 'title'
+          ? computeKingdomLabelsOnly(simRef.current)
+          : [];
       return {
         colorData: new Uint8Array(0),
         idData: new Uint8Array(0),
@@ -1218,7 +1227,7 @@ export default function App() {
         kingdomsActive: false,
         kingsActive: false,
         version: zoneOverlayVersionRef.current,
-        labels: [],
+        labels: defaultLabels,
         kingdomColors: {} as Record<string, string>,
       };
     }
@@ -1257,6 +1266,8 @@ export default function App() {
     zoneHighlightHoverTile,
     selectedAllianceKingdomId,
     zoneCacheKey,
+    kingdomLabelsKey,
+    gameState,
   ]);
 
   const handleToggleZone = useCallback((zoneType: ZoneOverlayType, label: string) => {
@@ -1274,16 +1285,13 @@ export default function App() {
       } else {
         setStatusFeedback(`${label}: ${nextVal ? 'ON' : 'OFF'}`);
       }
-      if (zoneType === 'kingdoms') {
-        return { ...prev, kingdoms: nextVal, kings: nextVal };
-      }
       return { ...prev, [zoneType]: nextVal };
     });
     soundEngine.playClick();
   }, []);
 
-  const currentEpoch = EPOCHS[sim.epochIndex] || EPOCHS[0];
-  const nextEpoch = sim.epochIndex < EPOCHS.length - 1 ? EPOCHS[sim.epochIndex + 1] : null;
+  const avgEpochInfo = computeAverageCivilizationEpoch(sim);
+  const currentEpoch = EPOCHS[avgEpochInfo.roundedIndex] || EPOCHS[0];
   const activeWorldEvent = sim.activeWorldEvent ?? null;
   const isEventCinematic =
     gameState === 'playing' &&
@@ -2534,11 +2542,17 @@ export default function App() {
         <div className="fixed inset-0 z-20 pointer-events-none flex flex-col justify-between gap-1 sm:gap-1.5 pt-[max(0.25rem,env(safe-area-inset-top))] pb-[max(0.25rem,env(safe-area-inset-bottom))] pl-[max(0.25rem,env(safe-area-inset-left))] pr-[max(0.25rem,env(safe-area-inset-right))] sm:p-2.5 md:p-3">
           {/* TOP BAR: Single compact non-wrapping top row + slim single-line resource strip on mobile */}
           <div className="flex flex-wrap lg:flex-nowrap items-stretch justify-between gap-1 sm:gap-2 w-full">
-            {/* Left: Epoch, Year, Pop & Next Age CTA */}
-            <div className="pointer-events-auto px-panel min-h-[32px] sm:min-h-[46px] px-1.5 py-0.5 sm:px-3 sm:py-1.5 flex items-center justify-between gap-1 sm:gap-3 flex-1 sm:flex-initial min-w-0 order-1 shrink">
+            {/* Left: Average Civilization Age, Year & Pop */}
+            <div
+              className="relative group pointer-events-auto px-panel min-h-[32px] sm:min-h-[46px] px-1.5 py-0.5 sm:px-3 sm:py-1.5 flex items-center justify-between gap-1 sm:gap-3 flex-1 sm:flex-initial min-w-0 order-1 shrink"
+              title="The current average age of civilization in the world"
+            >
               <div className="min-w-0 flex-1">
                 <div className="flex items-baseline gap-1 sm:gap-2 min-w-0">
-                  <span className="font-bold text-[10px] sm:text-sm text-[#f5b742] whitespace-nowrap truncate leading-tight">
+                  <span
+                    data-testid="hud-average-age"
+                    className="font-bold text-[10px] sm:text-sm text-[#f5b742] whitespace-nowrap truncate leading-tight"
+                  >
                     {currentEpoch.name}
                   </span>
                   <span className="font-pixel-num text-[9px] sm:text-[11px] text-[#e8e0d2] whitespace-nowrap leading-tight shrink-0">
@@ -2556,18 +2570,12 @@ export default function App() {
                   )}
                 </div>
               </div>
-
-              {nextEpoch && (
-                <button
-                  type="button"
-                  onClick={() => handleAdvanceEpoch(true)}
-                  className="px-btn-primary h-[22px] sm:h-8 px-1.5 sm:px-2.5 text-[9px] sm:text-xs font-bold cursor-pointer whitespace-nowrap shrink-0 flex items-center"
-                  title={`Advance to ${nextEpoch.name}`}
-                >
-                  <span className="sm:hidden">Age+</span>
-                  <span className="hidden sm:inline">Next Age</span>
-                </button>
-              )}
+              <div
+                role="tooltip"
+                className="pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-150 absolute left-0 top-full mt-1.5 z-40 px-panel px-2.5 py-1.5 text-[10px] sm:text-xs text-[#f2ece1] whitespace-nowrap shadow-lg"
+              >
+                The current average age of civilization in the world
+              </div>
             </div>
 
             {/* Center: Resources Strip (ultra-slim inline on mobile, spacious two-line on sm+) */}
@@ -3214,7 +3222,7 @@ export default function App() {
                           onMouseEnter={() =>
                             setHoveredHint({
                               title: power.name,
-                              cost: sim.sandboxFreeMode ? 'Free' : `${power.faithCost} Faith`,
+                              cost: sim.sandboxFreeMode ? 'Free' : `${power.faithCost} God Energy`,
                               detail: power.summary,
                             })
                           }
@@ -3254,7 +3262,7 @@ export default function App() {
                           onMouseEnter={() =>
                             setHoveredHint({
                               title: tool.name,
-                              cost: sim.sandboxFreeMode ? 'Free' : `${tool.faithCost} Faith`,
+                              cost: sim.sandboxFreeMode ? 'Free' : `${tool.faithCost} God Energy`,
                               detail: tool.summary,
                             })
                           }
@@ -3450,6 +3458,16 @@ export default function App() {
                       {(
                         [
                           {
+                            id: 'kingdomLabels' as ZoneOverlayType,
+                            label: 'Kingdom Labels',
+                            shortLabel: 'Labels',
+                            count: worldZones
+                              ? Array.from(worldZones.kingdomsById.values()).filter((k) => k.buildingCount > 0).length
+                              : 0,
+                            summary:
+                              'Show floating name, age, and population labels whenever a race founds a civilization (without territory zone shading)',
+                          },
+                          {
                             id: 'kingdoms' as ZoneOverlayType,
                             label: 'Kingdoms & Cities',
                             shortLabel: 'Kingdoms',
@@ -3540,18 +3558,21 @@ export default function App() {
                         );
                       })}
 
-                      {anyZoneActive && (
+                      {(anyZoneActive || activeZones.kingdomLabels) && (
                         <button
                           type="button"
                           data-testid="zone-clear-all"
                           onClick={() => {
-                            setActiveZones({ ...DEFAULT_ZONE_TOGGLES });
+                            setActiveZones({
+                              ...DEFAULT_ZONE_TOGGLES,
+                              kingdomLabels: false,
+                            });
                             setSelectedAllianceKingdomId(null);
-                            setStatusFeedback('All zone overlays hidden');
+                            setStatusFeedback('All zone overlays & labels hidden');
                             soundEngine.playClick();
                           }}
                           className="px-btn px-2 sm:px-2.5 h-[38px] sm:h-11 shrink-0 text-[10px] sm:text-xs font-semibold text-[#ff8f6b] cursor-pointer whitespace-nowrap"
-                          title="Turn off all zone overlays"
+                          title="Turn off all zone overlays and labels"
                         >
                           Clear All
                         </button>
@@ -3653,62 +3674,129 @@ export default function App() {
                         })}
                       </div>
                     ) : (
-                      <div className="flex flex-col gap-1 sm:gap-2">
-                        <div className="flex flex-nowrap sm:flex-wrap items-center justify-start gap-1 overflow-x-auto sm:overflow-visible no-scrollbar">
-                          {EPOCHS.map((ep) => {
-                            const isCurrent = sim.epochIndex === ep.index;
-                            return (
-                              <button
-                                key={ep.id}
-                                type="button"
-                                onClick={() => {
-                                  simRef.current.epochIndex = ep.index;
-                                  for (const b of simRef.current.buildings) {
-                                    b.epochLevel = ep.index;
-                                  }
-                                  soundEngine.playEpochAscend();
-                                  setStatusFeedback(ep.name);
-                                  setHudTick((t) => t + 1);
-                                }}
-                                className={`px-1.5 sm:px-2.5 py-0.5 sm:py-1 text-[10px] sm:text-xs font-semibold cursor-pointer whitespace-nowrap shrink-0 ${
-                                  isCurrent ? 'px-btn-active' : 'px-btn'
-                                }`}
-                              >
-                                {ep.name}
-                              </button>
-                            );
-                          })}
+                      <div className="flex flex-col gap-1.5 sm:gap-2">
+                        {/* Age Dropdown (matches Create World dropdown style) */}
+                        <div>
+                          <button
+                            type="button"
+                            data-testid="world-age-dropdown-toggle"
+                            aria-expanded={showWorldAgeDropdown}
+                            onClick={() => {
+                              soundEngine.playClick();
+                              setShowWorldAgeDropdown((prev) => !prev);
+                            }}
+                            className="w-full flex items-center justify-between py-0.5 sm:py-1 bg-transparent border-0 outline-none text-[11px] sm:text-xs text-[#b8afa2] hover:text-[#f2ece1] cursor-pointer select-none"
+                          >
+                            <span>
+                              Age{' '}
+                              <span className="text-[#f5b742] font-semibold">
+                                ({currentEpoch.name})
+                              </span>
+                            </span>
+                            <span className="text-[11px] text-[#b8afa2] leading-none flex items-center">
+                              {showWorldAgeDropdown ? (
+                                <HudPixelIcon kind="chevronDown" className="w-3 h-3 pixelated-canvas" />
+                              ) : (
+                                '>'
+                              )}
+                            </span>
+                          </button>
+                          {showWorldAgeDropdown && (
+                            <div className="flex flex-nowrap sm:flex-wrap items-center justify-start gap-1 mt-1.5 overflow-x-auto sm:overflow-visible no-scrollbar">
+                              {EPOCHS.map((ep) => {
+                                const isCurrent = sim.epochIndex === ep.index;
+                                return (
+                                  <button
+                                    key={ep.id}
+                                    type="button"
+                                    onClick={() => {
+                                      const s = simRef.current;
+                                      s.epochIndex = ep.index;
+                                      if (!s.kingdomEpochs) s.kingdomEpochs = {};
+                                      if (!s.kingdomEpochProgress) s.kingdomEpochProgress = {};
+                                      for (const b of s.buildings) {
+                                        b.epochLevel = ep.index;
+                                        if (b.settlementId) {
+                                          const kid = getKingdomId(s, b.settlementId);
+                                          s.kingdomEpochs[kid] = ep.index;
+                                          s.kingdomEpochProgress[kid] = ep.index >= EPOCHS.length - 1 ? 100 : 0;
+                                        }
+                                      }
+                                      syncAverageEpochFromKingdoms(s);
+                                      soundEngine.playEpochAscend();
+                                      setStatusFeedback(ep.name);
+                                      setShowWorldAgeDropdown(false);
+                                      setHudTick((t) => t + 1);
+                                    }}
+                                    className={`px-1.5 sm:px-2.5 py-0.5 sm:py-1 text-[10px] sm:text-xs font-semibold cursor-pointer whitespace-nowrap shrink-0 ${
+                                      isCurrent ? 'px-btn-active' : 'px-btn'
+                                    }`}
+                                  >
+                                    {ep.name}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
                         </div>
 
-                        <div className="flex items-center justify-start gap-1.5 sm:gap-2 text-xs overflow-x-auto sm:overflow-visible no-scrollbar">
-                          <div className="flex flex-nowrap sm:flex-wrap items-center gap-1 shrink-0">
-                            <span className="text-[#a89f91] mr-0.5 text-[10px] sm:text-xs">Sky</span>
-                            {(['auto', 'dawn', 'noon', 'dusk', 'night', 'midnight'] as LightingPreset[]).map((lp) => {
-                              const isSkyActive =
-                                lp === 'auto'
-                                  ? lightingPreset === 'auto' || Boolean(sim.worldRules?.dayNightCycle)
-                                  : lightingPreset === lp && !sim.worldRules?.dayNightCycle;
-                              return (
-                                <button
-                                  key={lp}
-                                  type="button"
-                                  onClick={() => {
-                                    setLightingPreset(lp);
-                                    if (!simRef.current.worldRules) {
-                                      simRef.current.worldRules = { ...DEFAULT_WORLD_RULES };
-                                    }
-                                    simRef.current.worldRules.dayNightCycle = lp === 'auto';
-                                    setHudTick((t) => t + 1);
-                                  }}
-                                  className={`px-1.5 sm:px-2 py-0.5 sm:py-1 capitalize text-[10px] sm:text-xs cursor-pointer shrink-0 ${
-                                    isSkyActive ? 'px-btn-active font-bold' : 'px-btn'
-                                  }`}
-                                >
-                                  {lp === 'auto' ? 'Cycle' : lp}
-                                </button>
-                              );
-                            })}
-                          </div>
+                        {/* Sky Dropdown (matches Create World dropdown style) */}
+                        <div>
+                          <button
+                            type="button"
+                            data-testid="world-sky-dropdown-toggle"
+                            aria-expanded={showWorldSkyDropdown}
+                            onClick={() => {
+                              soundEngine.playClick();
+                              setShowWorldSkyDropdown((prev) => !prev);
+                            }}
+                            className="w-full flex items-center justify-between py-0.5 sm:py-1 bg-transparent border-0 outline-none text-[11px] sm:text-xs text-[#b8afa2] hover:text-[#f2ece1] cursor-pointer select-none"
+                          >
+                            <span>
+                              Sky{' '}
+                              <span className="text-[#f5b742] font-semibold capitalize">
+                                ({sim.worldRules?.dayNightCycle || lightingPreset === 'auto' ? 'Cycle' : lightingPreset})
+                              </span>
+                            </span>
+                            <span className="text-[11px] text-[#b8afa2] leading-none flex items-center">
+                              {showWorldSkyDropdown ? (
+                                <HudPixelIcon kind="chevronDown" className="w-3 h-3 pixelated-canvas" />
+                              ) : (
+                                '>'
+                              )}
+                            </span>
+                          </button>
+                          {showWorldSkyDropdown && (
+                            <div className="flex flex-nowrap sm:flex-wrap items-center justify-start gap-1 mt-1.5 overflow-x-auto sm:overflow-visible no-scrollbar">
+                              {(['auto', 'dawn', 'noon', 'dusk', 'night', 'midnight'] as LightingPreset[]).map((lp) => {
+                                const isSkyActive =
+                                  lp === 'auto'
+                                    ? lightingPreset === 'auto' || Boolean(sim.worldRules?.dayNightCycle)
+                                    : lightingPreset === lp && !sim.worldRules?.dayNightCycle;
+                                return (
+                                  <button
+                                    key={lp}
+                                    type="button"
+                                    onClick={() => {
+                                      setLightingPreset(lp);
+                                      if (!simRef.current.worldRules) {
+                                        simRef.current.worldRules = { ...DEFAULT_WORLD_RULES };
+                                      }
+                                      simRef.current.worldRules.dayNightCycle = lp === 'auto';
+                                      soundEngine.playClick();
+                                      setShowWorldSkyDropdown(false);
+                                      setHudTick((t) => t + 1);
+                                    }}
+                                    className={`px-1.5 sm:px-2 py-0.5 sm:py-1 capitalize text-[10px] sm:text-xs cursor-pointer shrink-0 ${
+                                      isSkyActive ? 'px-btn-active font-bold' : 'px-btn'
+                                    }`}
+                                  >
+                                    {lp === 'auto' ? 'Cycle' : lp}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
                         </div>
                       </div>
                     )}

@@ -17,6 +17,8 @@ import {
   areKingdomsAtWar,
   beginDragUnit,
   castGodPower,
+  computeAverageCivilizationEpoch,
+  computeKingdomProximityDiffusion,
   createInitialSimulationState,
   createWorldConfigFromTemplate,
   dismissWorldEventCinematic,
@@ -24,6 +26,7 @@ import {
   executeHugeAsteroidImpact,
   formatYearLabel,
   generateEarthquakeFaultNetwork,
+  getKingdomEpoch,
   getKingdomId,
   getKingdomRelation,
   getMaxCityBuildings,
@@ -39,6 +42,7 @@ import {
   placeBuilding,
   releaseDragUnit,
   rollKingdomPeacefulTrait,
+  setKingdomEpoch,
   setKingdomRelation,
   spawnRaiderWave,
   spawnUnit,
@@ -62,6 +66,7 @@ import { getEntityInspectProfile, toggleUnitFavorite } from './entityInspector';
 import {
   DEFAULT_ZONE_TOGGLES,
   buildZoneOverlayTextures,
+  computeKingdomLabelsOnly,
   computeWorldZones,
   extractKingdomColorsMap,
   inspectTileZones,
@@ -2290,8 +2295,9 @@ test('pressing play smoothly targets 45 degree isometric angle, centers world, a
 });
 
 test('zones feature defaults to off, dynamically contours across land and sea, and supports hover inspection', () => {
-  // 1. Default toggles must all be OFF by default
+  // 1. Colored zone overlays default to OFF, while Kingdom Labels default to ON
   assert.deepEqual(DEFAULT_ZONE_TOGGLES, {
+    kingdomLabels: true,
     kingdoms: false,
     kings: false,
     territories: false,
@@ -2409,13 +2415,21 @@ test('zones feature defaults to off, dynamically contours across land and sea, a
   assert.ok(seaInspect.kingdom, 'Hovering coastal water next to kingdom should inspect its maritime zone');
   assert.equal(seaInspect.isKingdomMaritime, true);
 
-  // Verify buildZoneOverlayTextures returns all zeros when toggles are off, and populates buffers when toggled on
+  // Verify buildZoneOverlayTextures returns all-zero zone shading when only default kingdomLabels is on, while emitting founded kingdom labels
   const offPack = buildZoneOverlayTextures(zones, DEFAULT_ZONE_TOGGLES, { x: 49, z: 50 });
   assert.equal(offPack.anyActive, false);
+  assert.ok(offPack.labels.length >= 1, 'Default kingdomLabels=true should emit kingdom label without enabling zone shading');
+  const fullyOffPack = buildZoneOverlayTextures(
+    zones,
+    { ...DEFAULT_ZONE_TOGGLES, kingdomLabels: false },
+    { x: 49, z: 50 },
+  );
+  assert.equal(fullyOffPack.anyActive, false);
+  assert.equal(fullyOffPack.labels.length, 0, 'Toggling kingdomLabels off must hide labels');
 
   const onPack = buildZoneOverlayTextures(
     zones,
-    { kingdoms: true, kings: false, territories: true, biomes: false, temperature: false, alliances: false },
+    { ...DEFAULT_ZONE_TOGGLES, kingdoms: true, territories: true },
     { x: 49, z: 50 },
   );
   assert.equal(onPack.anyActive, true);
@@ -5671,6 +5685,358 @@ test('Optimization Update: AutoOptimizer hysteresis, zoom-aware shadow toggle, g
   assert.ok(Math.abs(snap.centerZ - 31.8) <= 1.0);
   assert.ok(snap.halfExtent >= 16 && snap.halfExtent % 4 === 0);
 });
+
+test('Per-Civilization Ages: newly spawned races start in Stone Age, kingdoms hold distinct ages, and average age reflects all civilizations', () => {
+  const state = createInitialSimulationState(128, 'PER-CIV-AGE-TEST');
+  state.wildlifeSeeded = true;
+  state.worldRules = {
+    ...(state.worldRules ?? {
+      allowFantasy: true,
+      allowDinosaurs: false,
+      raiderWaves: false,
+      wildfireSpread: false,
+      autoBuildEnabled: true,
+      sandboxFreeMode: false,
+      immortalEntities: true,
+      dayNightCycle: false,
+      allowReproduction: false,
+      animalAttacks: false,
+      allowRebellion: false,
+      warsEnabled: false,
+      randomEvents: false,
+      startingEpochIndex: 0,
+      startingSettlers: 'none',
+    }),
+    raiderWaves: false,
+    animalAttacks: false,
+    allowRebellion: false,
+    warsEnabled: false,
+    randomEvents: false,
+  };
+
+  for (let z = 12; z <= 116; z++) {
+    for (let x = 12; x <= 116; x++) {
+      const t = getTile(state, x, z)!;
+      t.height = 2;
+      t.terrain = 'grass';
+      t.resourceNode = 'none';
+      t.resourceAmount = 0;
+      t.buildingId = null;
+    }
+  }
+
+  // Found Empire A and set it to Info Age (epoch 5)
+  state.sandboxFreeMode = true;
+  assert.equal(placeBuilding(state, 'bonfire', 24, 64).ok, true);
+  state.sandboxFreeMode = false;
+  const empireSid = state.buildings[0].settlementId!;
+  const empireKid = getKingdomId(state, empireSid);
+  spawnUnit(state, 'human', 24, 65, true, empireSid);
+  setKingdomEpoch(state, empireKid, 5);
+  assert.equal(getKingdomEpoch(state, empireKid), 5, 'Empire A must be in Info Age (epoch 5)');
+
+  // Now spawn brand-new humans far away at (104, 64); let them found a brand-new settlement
+  const p1 = spawnUnit(state, 'human', 104, 64, true).unit!;
+  const p2 = spawnUnit(state, 'human', 105, 64, true).unit!;
+  p1.ageYears = 10;
+  p2.ageYears = 10;
+  for (let i = 0; i < 15; i++) stepSimulation(state, 0.1);
+
+  const newBld = state.buildings.find((b) => b.settlementId && getKingdomId(state, b.settlementId) !== empireKid);
+  assert.ok(newBld, 'Newly spawned humans should found their own independent settlement');
+  const newKid = getKingdomId(state, newBld.settlementId!);
+
+  assert.equal(
+    getKingdomEpoch(state, newKid),
+    0,
+    'Newly spawned civilization MUST start in Stone Age (epoch 0) even when an Info Age empire exists',
+  );
+  assert.equal(getKingdomEpoch(state, empireKid), 5, 'Existing Info Age empire must keep its own Info Age');
+
+  const avg = computeAverageCivilizationEpoch(state);
+  assert.equal(avg.civCount, 2, 'Should count both existing civilizations');
+  assert.equal(avg.avgFloat, 2.5, 'Average epoch of Info Age (5) + Stone Age (0) must be 2.5');
+  assert.equal(avg.roundedIndex, 3, 'Rounded average epoch of 2.5 should map cleanly to Industrial (3)');
+
+  // Kingdoms overlay labels must display each kingdom's individual age beside its name
+  const zones = computeWorldZones(state);
+  const packed = buildZoneOverlayTextures(zones, { ...DEFAULT_ZONE_TOGGLES, kingdoms: true }, null);
+  const empireLabel = packed.labels.find((l) => l.name === state.settlementNames?.[empireSid]);
+  const newLabel = packed.labels.find((l) => l.name === state.settlementNames?.[newBld.settlementId!]);
+  assert.ok(empireLabel, 'Kingdoms overlay must emit label for Empire A');
+  assert.ok(newLabel, 'Kingdoms overlay must emit label for newly spawned civilization');
+  assert.equal(empireLabel.epochName, EPOCHS[5].name, 'Empire A label must show Info Age beside its name');
+  assert.equal(newLabel.epochName, EPOCHS[0].name, 'New tribe label must show Stone Age beside its name');
+});
+
+test('Per-Civilization Ages: proximity tech diffusion accelerates near neighbors on a diminishing non-overtaking curve', () => {
+  const state = createInitialSimulationState(128, 'DIFFUSION-CURVE-TEST');
+  state.wildlifeSeeded = true;
+  state.autoBuildEnabled = false;
+  state.worldRules = {
+    ...(state.worldRules ?? {
+      allowFantasy: true,
+      allowDinosaurs: false,
+      raiderWaves: false,
+      wildfireSpread: false,
+      autoBuildEnabled: false,
+      sandboxFreeMode: false,
+      immortalEntities: true,
+      dayNightCycle: false,
+      allowReproduction: false,
+      animalAttacks: false,
+      allowRebellion: false,
+      warsEnabled: false,
+      randomEvents: false,
+      startingEpochIndex: 0,
+      startingSettlers: 'none',
+    }),
+    autoBuildEnabled: false,
+    raiderWaves: false,
+    animalAttacks: false,
+    allowRebellion: false,
+    warsEnabled: false,
+    allowReproduction: false,
+    randomEvents: false,
+  };
+
+  for (let z = 10; z <= 118; z++) {
+    for (let x = 10; x <= 118; x++) {
+      const t = getTile(state, x, z)!;
+      t.height = 2;
+      t.terrain = 'grass';
+      t.resourceNode = 'none';
+      t.resourceAmount = 0;
+      t.buildingId = null;
+    }
+  }
+
+  // Place three distinct kingdoms using sandboxFreeMode only during setup
+  state.sandboxFreeMode = true;
+  // Info Age Empire at (22, 64)
+  assert.equal(placeBuilding(state, 'bonfire', 22, 64).ok, true);
+  const infoSid = state.buildings[0].settlementId!;
+  const infoKid = getKingdomId(state, infoSid);
+  spawnUnit(state, 'human', 22, 65, true, infoSid);
+
+  // Near newly spawned Stone Age tribe at (42, 64) — 20 tiles from Info Age empire (outside awareness radius 16)
+  assert.equal(placeBuilding(state, 'bonfire', 42, 64).ok, true);
+  const nearSid = state.buildings[1].settlementId!;
+  const nearKid = getKingdomId(state, nearSid);
+  assert.notEqual(nearKid, infoKid);
+  spawnUnit(state, 'human', 42, 65, true, nearSid);
+
+  // Far newly spawned Stone Age tribe at (110, 64) — 88 tiles from Info Age empire
+  assert.equal(placeBuilding(state, 'bonfire', 110, 64).ok, true);
+  const farSid = state.buildings[2].settlementId!;
+  const farKid = getKingdomId(state, farSid);
+  assert.notEqual(farKid, infoKid);
+  assert.notEqual(farKid, nearKid);
+  spawnUnit(state, 'human', 110, 65, true, farSid);
+  state.sandboxFreeMode = false;
+
+  setKingdomEpoch(state, infoKid, 5);
+  assert.equal(getKingdomEpoch(state, nearKid), 0, 'Near tribe starts at Stone Age');
+  assert.equal(getKingdomEpoch(state, farKid), 0, 'Far tribe starts at Stone Age');
+
+  // 1. Verify proximity influence: near tribe receives much stronger diffusion boost than far tribe
+  const nearDiff0 = computeKingdomProximityDiffusion(state, nearKid);
+  const farDiff0 = computeKingdomProximityDiffusion(state, farKid);
+  assert.ok(
+    nearDiff0.diffusionBoost > farDiff0.diffusionBoost * 4,
+    `Near tribe diffusion (${nearDiff0.diffusionBoost.toFixed(2)}) must greatly exceed far tribe (${farDiff0.diffusionBoost.toFixed(2)})`,
+  );
+
+  // 2. Verify diminishing catch-up curve: boost decreases monotonically as near tribe closes the gap, reaching 0 at equal age
+  const curveSamples: number[] = [];
+  for (let ep = 0; ep <= 5; ep++) {
+    setKingdomEpoch(state, nearKid, ep, true);
+    curveSamples.push(computeKingdomProximityDiffusion(state, nearKid).diffusionBoost);
+  }
+  for (let i = 1; i < curveSamples.length; i++) {
+    assert.ok(
+      curveSamples[i] < curveSamples[i - 1],
+      `Diffusion curve must strictly diminish as gap narrows: epoch ${i - 1} (${curveSamples[i - 1].toFixed(3)}) -> epoch ${i} (${curveSamples[i].toFixed(3)})`,
+    );
+  }
+  assert.equal(curveSamples[5], 0, 'Once on equal age with neighbor (epoch 5 === 5), diffusion boost must drop to 0');
+
+  // Reset near tribe back to Stone Age (0) and run real simulation ticks
+  setKingdomEpoch(state, nearKid, 0, true);
+  setKingdomEpoch(state, farKid, 0, true);
+
+  let everOvertookWhileBehind = false;
+  for (let i = 0; i < 900; i++) {
+    const prevNear = getKingdomEpoch(state, nearKid);
+    const prevInfo = getKingdomEpoch(state, infoKid);
+    stepSimulation(state, 0.1, { skipRandomEvents: true });
+    const afterNear = getKingdomEpoch(state, nearKid);
+    const afterInfo = getKingdomEpoch(state, infoKid);
+    // While starting strictly behind Info Age neighbor, near tribe cannot leapfrog past it via diffusion
+    if (prevNear < prevInfo && afterNear > afterInfo) {
+      everOvertookWhileBehind = true;
+    }
+  }
+
+  const finalNearEpoch = getKingdomEpoch(state, nearKid);
+  const finalFarEpoch = getKingdomEpoch(state, farKid);
+  const finalInfoEpoch = getKingdomEpoch(state, infoKid);
+
+  assert.equal(everOvertookWhileBehind, false, 'Catching-up tribe must NEVER overtake leading neighbor while behind');
+  assert.ok(
+    finalNearEpoch > finalFarEpoch,
+    `Near tribe (epoch ${finalNearEpoch}) must progress faster than far tribe (epoch ${finalFarEpoch})`,
+  );
+  assert.ok(
+    finalNearEpoch >= 3 && finalNearEpoch <= finalInfoEpoch,
+    `Near tribe should rapidly climb toward Info Age (${finalInfoEpoch}) without overtaking (got ${finalNearEpoch})`,
+  );
+});
+
+test('Kingdom Labels default ON without zone shading and appear once a race starts a civilization', () => {
+  assert.equal(DEFAULT_ZONE_TOGGLES.kingdomLabels, true, 'Kingdom Labels must default to ON');
+  assert.equal(DEFAULT_ZONE_TOGGLES.kingdoms, false, 'Kingdom zone shading must default to OFF');
+
+  const state = createInitialSimulationState(96, 'KINGDOM-LABELS-DEFAULT-TEST');
+  state.wildlifeSeeded = true;
+  state.worldRules = {
+    ...(state.worldRules ?? {
+      allowFantasy: true,
+      allowDinosaurs: false,
+      raiderWaves: false,
+      wildfireSpread: false,
+      autoBuildEnabled: true,
+      sandboxFreeMode: false,
+      immortalEntities: true,
+      dayNightCycle: false,
+      allowReproduction: false,
+      animalAttacks: false,
+      allowRebellion: false,
+      warsEnabled: false,
+      randomEvents: false,
+      startingEpochIndex: 0,
+      startingSettlers: 'none',
+    }),
+    raiderWaves: false,
+    animalAttacks: false,
+    warsEnabled: false,
+    randomEvents: false,
+  };
+
+  for (let z = 30; z <= 66; z++) {
+    for (let x = 30; x <= 66; x++) {
+      const t = getTile(state, x, z)!;
+      t.height = 2;
+      t.terrain = 'grass';
+      t.resourceNode = 'none';
+      t.buildingId = null;
+    }
+  }
+
+  // Spawn wandering humans who have NOT founded a civilization yet
+  const u1 = spawnUnit(state, 'human', 48, 48, true).unit!;
+  const u2 = spawnUnit(state, 'human', 49, 48, true).unit!;
+  u1.ageYears = 12;
+  u2.ageYears = 12;
+  assert.equal(
+    computeKingdomLabelsOnly(state).length,
+    0,
+    'Wandering settlers without a founded civilization must not show a kingdom label yet',
+  );
+
+  // Let settlers choose to start a civilization (build their hearth)
+  for (let i = 0; i < 15; i++) stepSimulation(state, 0.1, { skipRandomEvents: true });
+  assert.ok(state.buildings.length >= 1, 'Settlers should start a civilization');
+
+  const fastLabels = computeKingdomLabelsOnly(state);
+  assert.equal(fastLabels.length, 1, 'Founded civilization must immediately emit a kingdom label by default');
+  assert.equal(fastLabels[0].epochName, EPOCHS[0].name, 'Default kingdom label must show Stone Age beside name');
+
+  const zones = computeWorldZones(state);
+  const defaultPack = buildZoneOverlayTextures(zones, DEFAULT_ZONE_TOGGLES, null);
+  assert.equal(defaultPack.anyActive, false, 'Default toggles must NOT paint colored kingdom zones');
+  assert.equal(defaultPack.labels.length, 1, 'Default toggles must still display the kingdom label');
+
+  const disabledPack = buildZoneOverlayTextures(
+    zones,
+    { ...DEFAULT_ZONE_TOGGLES, kingdomLabels: false },
+    null,
+  );
+  assert.equal(disabledPack.anyActive, false);
+  assert.equal(disabledPack.labels.length, 0, 'Turning Kingdom Labels OFF must hide the label');
+});
+
+test('Biome and Temperature zone labels anchor strictly inside their contiguous zone patches instead of scattered global averages', () => {
+  const state = createInitialSimulationState(96, 'ZONE-LABEL-INTERIOR-TEST');
+  state.wildlifeSeeded = true;
+
+  // Fill entire map with deep water, then sculpt two separate Desert islands on opposite sides of the ocean
+  for (let z = 0; z < 96; z++) {
+    for (let x = 0; x < 96; x++) {
+      const t = getTile(state, x, z)!;
+      t.height = 0;
+      t.terrain = 'deep_water';
+      t.resourceNode = 'none';
+      t.buildingId = null;
+    }
+  }
+
+  // Left Dunes island: x=12..24, z=40..52 (169 tiles)
+  for (let z = 40; z <= 52; z++) {
+    for (let x = 12; x <= 24; x++) {
+      const t = getTile(state, x, z)!;
+      t.height = 2;
+      t.terrain = 'sand';
+    }
+  }
+  // Right Dunes island: x=70..82, z=40..52 (169 tiles) — global average (47, 46) would fall in the ocean!
+  for (let z = 40; z <= 52; z++) {
+    for (let x = 70; x <= 82; x++) {
+      const t = getTile(state, x, z)!;
+      t.height = 2;
+      t.terrain = 'sand';
+    }
+  }
+
+  const zones = computeWorldZones(state);
+  const biomePack = buildZoneOverlayTextures(
+    zones,
+    { ...DEFAULT_ZONE_TOGGLES, kingdomLabels: false, biomes: true },
+    null,
+  );
+  const duneLabels = biomePack.labels.filter((l) => l.name === 'Dunes');
+  assert.equal(duneLabels.length, 2, 'Two well-separated dune islands should each get an anchored label');
+  for (const lbl of duneLabels) {
+    const tile = getTile(state, lbl.tileX, lbl.tileZ)!;
+    assert.equal(
+      tile.terrain,
+      'sand',
+      `Dunes label at (${lbl.tileX}, ${lbl.tileZ}) must sit strictly inside sand terrain (found ${tile.terrain})`,
+    );
+    assert.equal(lbl.flatGround, true, 'Biome labels must be marked flatGround for centered ground projection');
+  }
+
+  // Temperature labels must likewise sit strictly inside their matching thermal band
+  const tempPack = buildZoneOverlayTextures(
+    zones,
+    { ...DEFAULT_ZONE_TOGGLES, kingdomLabels: false, temperature: true },
+    null,
+  );
+  assert.ok(tempPack.labels.length >= 1, 'Temperature overlay must emit labels');
+  for (const lbl of tempPack.labels) {
+    const idx = lbl.tileZ * state.gridSize + lbl.tileX;
+    const bandId = zones.tempBandMap[idx];
+    const bandInfo = zones.tempBandsById.get(bandId);
+    assert.equal(
+      bandInfo?.name,
+      lbl.name,
+      `Temperature label "${lbl.name}" at (${lbl.tileX}, ${lbl.tileZ}) must sit inside its own band (found "${bandInfo?.name}")`,
+    );
+  }
+});
+
+
+
 
 
 

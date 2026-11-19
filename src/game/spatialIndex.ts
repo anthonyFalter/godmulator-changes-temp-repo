@@ -169,6 +169,11 @@ export function buildSimulationTickIndex(
     const b = state.buildings[i];
     buildingsById.set(b.id, b);
     const sid = b.settlementId ?? 'city_default';
+    const kid = getKingdomIdFn(state, sid) ?? sid;
+    const settlementEpoch =
+      state.kingdomEpochs && state.kingdomEpochs[kid] !== undefined
+        ? state.kingdomEpochs[kid]
+        : state.epochIndex;
     let info = settlements.get(sid);
     if (!info) {
       info = {
@@ -176,9 +181,9 @@ export function buildSimulationTickIndex(
         completedBuildings: [],
         homeAnchorX: b.tileX,
         homeAnchorZ: b.tileZ,
-        hasHumanTechSupport: state.epochIndex === 0,
+        hasHumanTechSupport: settlementEpoch === 0,
         hasElfArcaneTech: false,
-        maxOwnedEpoch: state.epochIndex,
+        maxOwnedEpoch: settlementEpoch,
         population: 0,
       };
       settlements.set(sid, info);
@@ -195,7 +200,7 @@ export function buildSimulationTickIndex(
       if (!info.hasElfArcaneTech && ELF_ARCANE_BUILDINGS.has(b.type)) {
         info.hasElfArcaneTech = true;
       }
-      if (b.epochLevel < state.epochIndex) {
+      if (b.epochLevel < settlementEpoch) {
         upgradeableByTileKey.set(bTileKey, b);
       }
     } else {

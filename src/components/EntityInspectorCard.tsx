@@ -10,9 +10,8 @@ const INSPECT_RESOURCE_KEYS: { key: keyof Resources; label: string }[] = [
   { key: 'stone', label: 'Stone' },
   { key: 'ore', label: 'Ore' },
   { key: 'knowledge', label: 'Lore' },
-  { key: 'energy', label: 'Energy' },
   { key: 'alloy', label: 'Alloy' },
-  { key: 'faith', label: 'Faith' },
+  { key: 'faith', label: 'God Energy' },
 ];
 
 interface EntityInspectorCardProps {

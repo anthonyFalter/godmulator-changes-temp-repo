@@ -61,6 +61,8 @@ import {
   executeGodPowerImpact,
   executeHugeAsteroidImpact,
   getSettlementAnchor,
+  getSettlementEpoch,
+  getUnitEpoch,
   releaseDragUnit,
   stepDraggedUnitKinematics,
   stepSimulation,
@@ -5269,6 +5271,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         : getWholeMapFrustum(sim.gridSize);
     let prevGameState: GameLifecycleState = propsRef.current.gameState;
     let wasEventCinematicActive = false;
+    let hasPreEventCamera = false;
+    let preEventFrustum = desiredFrustum;
+    const preEventCamTarget = new THREE.Vector3(gridCenter, 1.2, gridCenter);
     let trauma = 0;
     let hitstopTimer = 0;
 
@@ -5983,7 +5988,17 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       const maxZoomOut = getResponsiveMaxZoomOut(simRef.current.gridSize, getCurrentAspect());
-      desiredFrustum = THREE.MathUtils.clamp(desiredFrustum + e.deltaY * 0.015, 7.5, maxZoomOut);
+      // Normalize across pixel (0), line (1 - Firefox/mice), and page (2) wheel modes
+      const rawDelta =
+        e.deltaMode === 1
+          ? e.deltaY * 32
+          : e.deltaMode === 2
+            ? e.deltaY * 400
+            : e.deltaY;
+      const clampedDelta = THREE.MathUtils.clamp(rawDelta, -450, 450);
+      // Multiplicative/exponential zoom (~24% per standard 100px notch) so close-up and overview zoom feel equally crisp & fast
+      const zoomFactor = Math.exp(clampedDelta * 0.0022);
+      desiredFrustum = THREE.MathUtils.clamp(desiredFrustum * zoomFactor, 7.5, maxZoomOut);
     };
 
     const onKeyDown = (e: KeyboardEvent) => {
@@ -6070,12 +6085,23 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     const bldTypeAtCache = new Map<number, string>();
     let lastSyncedSim: SimulationState = sim;
     let lastSyncedEpochIndex = sim.epochIndex;
+    let lastSyncedKingdomEpochSig = '';
     let lastSpaceSeed = sim.seed;
     let lastZoneOverlayVersion = -1;
     let syncFrameStamp = 0;
     let lastSyncedBuildingCount = -1;
     let initialMapsPreuploaded = true;
     const activeFireTileIndices: number[] = [];
+
+    const computeKingdomEpochSig = (s: SimulationState): string => {
+      const ke = s.kingdomEpochs;
+      if (!ke) return `${s.epochIndex}`;
+      let sig = `${s.epochIndex}|`;
+      for (const k in ke) {
+        sig += `${k}:${ke[k]},`;
+      }
+      return sig;
+    };
 
     type ActiveHazardItem = NonNullable<SimulationState['activeHazards']>[number];
     const activeTsunamis: ActiveHazardItem[] = [];
@@ -6100,8 +6126,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       let propsNeedSync = false;
       let metroNeedsSync = false;
       let terrainMapDirty = false;
-      if (simState.epochIndex !== lastSyncedEpochIndex) {
+      const curKingdomEpochSig = computeKingdomEpochSig(simState);
+      if (simState.epochIndex !== lastSyncedEpochIndex || curKingdomEpochSig !== lastSyncedKingdomEpochSig) {
         lastSyncedEpochIndex = simState.epochIndex;
+        lastSyncedKingdomEpochSig = curKingdomEpochSig;
         propsNeedSync = true;
         metroNeedsSync = true;
         terrainMapDirty = true;
@@ -6118,6 +6146,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         initialMapsPreuploaded = false;
         lastSyncedSim = simState;
         lastSyncedEpochIndex = simState.epochIndex;
+        lastSyncedKingdomEpochSig = curKingdomEpochSig;
         lastSyncedBuildingCount = simState.buildings.length;
         propsNeedSync = true;
         metroNeedsSync = true;
@@ -6545,9 +6574,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           } else if (t.resourceNode === 'atlantis_ruin') {
             targetInst = atlantisRuinInsts[h % atlantisRuinInsts.length];
           } else if (t.resourceNode === 'berry_bush') {
-            if (t.farmSettlementId && simState.epochIndex >= 6) {
+            const farmEpoch = t.farmSettlementId ? getSettlementEpoch(simState, t.farmSettlementId) : 0;
+            if (t.farmSettlementId && farmEpoch >= 6) {
               targetInst = sciFiFarmInsts[h % sciFiFarmInsts.length];
-            } else if (t.farmSettlementId && simState.epochIndex >= 1) {
+            } else if (t.farmSettlementId && farmEpoch >= 1) {
               targetInst = farmCropInsts[h % farmCropInsts.length];
             } else {
               targetInst = berryInsts[h % berryInsts.length];
@@ -6679,10 +6709,18 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       }
 
       if (metroNeedsSync) {
-        // Rebuild Elevated Metro Viaducts (Epoch 5+) & Dedicated Runway Edge Beacons
+        // Rebuild Elevated Metro Viaducts (Epoch 5+) & Dedicated Runway Edge Beacons per settlement epoch
         for (const mInst of allMetroInsts) mInst.count = 0;
 
-        if (simState.epochIndex >= 6) {
+        let maxWorldEpoch = simState.epochIndex;
+        if (simState.kingdomEpochs) {
+          for (const k in simState.kingdomEpochs) {
+            const epVal = simState.kingdomEpochs[k];
+            if (epVal > maxWorldEpoch) maxWorldEpoch = epVal;
+          }
+        }
+
+        if (maxWorldEpoch >= 6) {
           metroConcreteMat.color.setHex(0xcbd5e1);
           metroConcreteMat.metalness = 0.28;
           metroConcreteMat.roughness = 0.42;
@@ -6705,15 +6743,44 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           skywayDeckMat.color.setHex(0x475569);
           skywayTrimMat.color.setHex(0xfbbf24);
           skywayTrimMat.emissive.setHex(0xf59e0b);
-          skywayTrimMat.emissiveIntensity = simState.epochIndex >= 5 ? 0.72 : 0.42;
+          skywayTrimMat.emissiveIntensity = maxWorldEpoch >= 5 ? 0.72 : 0.42;
         }
 
         const gs = simState.gridSize;
         bldTypeAtCache.clear();
+        const settlementAnchors: Array<{ x: number; z: number; epoch: number }> = [];
+        const seenAnchorSids = new Map<string, { sx: number; sz: number; n: number; epoch: number }>();
         for (let bi = 0; bi < simState.buildings.length; bi++) {
           const bld = simState.buildings[bi];
           bldTypeAtCache.set(bld.tileZ * gs + bld.tileX, bld.type);
+          const sid = bld.settlementId ?? 'city_default';
+          let acc = seenAnchorSids.get(sid);
+          if (!acc) {
+            acc = { sx: 0, sz: 0, n: 0, epoch: getSettlementEpoch(simState, sid) };
+            seenAnchorSids.set(sid, acc);
+          }
+          acc.sx += bld.tileX;
+          acc.sz += bld.tileZ;
+          acc.n += 1;
         }
+        seenAnchorSids.forEach((acc) => {
+          settlementAnchors.push({ x: acc.sx / acc.n, z: acc.sz / acc.n, epoch: acc.epoch });
+        });
+
+        const getLocalTileEpoch = (tx: number, tz: number): number => {
+          if (settlementAnchors.length === 0) return simState.epochIndex;
+          let bestDistSq = Infinity;
+          let bestEp = simState.epochIndex;
+          for (let ai = 0; ai < settlementAnchors.length; ai++) {
+            const sa = settlementAnchors[ai];
+            const dSq = (sa.x - tx) ** 2 + (sa.z - tz) ** 2;
+            if (dSq < bestDistSq) {
+              bestDistSq = dSq;
+              bestEp = sa.epoch;
+            }
+          }
+          return bestEp;
+        };
 
         const isRailOrStationAt = (tx: number, tz: number) => {
           if (tx < 0 || tz < 0 || tx >= gs || tz >= gs) return false;
@@ -6725,6 +6792,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
         const isElevatedNodeAt = (tx: number, tz: number) => {
           if (tx < 0 || tz < 0 || tx >= gs || tz >= gs) return false;
+          if (getLocalTileEpoch(tx, tz) < 5) return false;
           const tileIdx = tz * gs + tx;
           const tile = simState.tiles[tileIdx];
           if (!tile) return false;
@@ -6770,7 +6838,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         };
 
         const isSkywayExpressAt = (tx: number, tz: number): boolean => {
-          if (simState.epochIndex < 5) return false;
+          if (getLocalTileEpoch(tx, tz) < 5) return false;
           if (tx < 1 || tz < 1 || tx >= gs - 1 || tz >= gs - 1) return false;
           const idx = tz * gs + tx;
           const tt = simState.tiles[idx];
@@ -6786,8 +6854,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           );
         };
 
-        const elevatedActive = simState.epochIndex >= 5;
-        const skybridgesActive = simState.epochIndex >= 4;
+        const elevatedActive = maxWorldEpoch >= 5;
+        const skybridgesActive = maxWorldEpoch >= 4;
         for (let i = 0; i < simState.tiles.length; i++) {
           const t = simState.tiles[i];
           const isWaterWalkway =
@@ -6830,7 +6898,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
           // Age-dependent street & settlement illumination fixtures along stone_road tiles and plazas
           if (t.terrain === 'stone_road' && !bldTypeAtCache.has(i) && ((t.x * 3 + t.z * 5) & 3) === 0) {
-            const ep = simState.epochIndex;
+            const ep = getLocalTileEpoch(t.x, t.z);
             const sideSign = ((t.x * 13 + t.z * 7) & 1) === 0 ? 1 : -1;
             const nRoad = t.z > 0 && simState.tiles[(t.z - 1) * gs + t.x]?.terrain === 'stone_road';
             const sRoad = t.z + 1 < gs && simState.tiles[(t.z + 1) * gs + t.x]?.terrain === 'stone_road';
@@ -7219,7 +7287,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         }
         visibleUnitsThisFrame++;
 
-        const desiredEpoch = u.faction === 'civilization' ? simState.epochIndex : 0;
+        const desiredEpoch = u.faction === 'civilization' ? getUnitEpoch(simState, u) : 0;
         const unitSpecies = u.species ?? 'human';
         const unitAgeStage = u.ageStage ?? 'adult';
         if (
@@ -9162,7 +9230,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         camAct.rotateDelta = 0;
       }
       if (camAct.zoomDelta !== 0) {
-        desiredFrustum = THREE.MathUtils.clamp(desiredFrustum + camAct.zoomDelta, 7.5, maxZoomOut);
+        const scaledStep = camAct.zoomDelta * Math.max(0.45, desiredFrustum / 32);
+        desiredFrustum = THREE.MathUtils.clamp(desiredFrustum + scaledStep, 7.5, maxZoomOut);
         camAct.zoomDelta = 0;
       }
       if (camAct.centerHome) {
@@ -9222,6 +9291,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         Boolean(activeEvt && activeEvt.cinematicActive && !activeEvt.dismissedByUser && activeEvt.remaining > 0);
       if (evtCinematicOn && activeEvt) {
         if (!wasEventCinematicActive) {
+          preEventFrustum = desiredFrustum;
+          preEventCamTarget.copy(camDesiredTarget);
+          hasPreEventCamera = true;
           desiredFrustum = THREE.MathUtils.clamp(
             activeEvt.kind === 'huge_asteroid' && !activeEvt.impactTriggered ? 19.5 : 18.5,
             7.5,
@@ -9241,10 +9313,20 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         wasEventCinematicActive = true;
       } else {
         if (wasEventCinematicActive) {
-          if (activeEvt?.dismissedByUser) {
-            desiredFrustum = THREE.MathUtils.clamp(Math.max(desiredFrustum + 14, 34), 7.5, maxZoomOut);
+          if (hasPreEventCamera) {
+            desiredFrustum = THREE.MathUtils.clamp(preEventFrustum, 7.5, maxZoomOut);
+            camDesiredTarget.set(
+              THREE.MathUtils.clamp(preEventCamTarget.x, 2, simRef.current.gridSize - 3),
+              1.2,
+              THREE.MathUtils.clamp(preEventCamTarget.z, 2, simRef.current.gridSize - 3),
+            );
+            hasPreEventCamera = false;
+          } else {
+            if (activeEvt?.dismissedByUser) {
+              desiredFrustum = THREE.MathUtils.clamp(Math.max(desiredFrustum + 14, 34), 7.5, maxZoomOut);
+            }
+            camDesiredTarget.y = 1.2;
           }
-          camDesiredTarget.y = 1.2;
           wasEventCinematicActive = false;
           propsRef.current.onSyncHud();
         }
@@ -10862,8 +10944,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           favCount++;
         }
         if (
-          (propsRef.current.zoneOverlayBuffers?.kingsActive ||
-            propsRef.current.zoneOverlayBuffers?.kingdomsActive) &&
+          propsRef.current.zoneOverlayBuffers?.kingsActive &&
           fu.isKing &&
           fu.faction === 'civilization' &&
           kingCount < MAX_KING_CROWNS
@@ -11147,7 +11228,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         const newAspect = w / h;
 
         if (Math.abs(frustumSize - desiredFrustum) > 0.01) {
-          frustumSize = THREE.MathUtils.damp(frustumSize, desiredFrustum, 8, dt);
+          frustumSize = THREE.MathUtils.damp(frustumSize, desiredFrustum, 15, dt);
           camera.left = (-frustumSize * newAspect) / 2;
           camera.right = (frustumSize * newAspect) / 2;
           camera.top = frustumSize / 2;
@@ -11285,8 +11366,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           const el = labelLayer.children[i] as HTMLElement;
           const tx = Number(el.dataset.tileX);
           const tz = Number(el.dataset.tileZ);
+          const isFlatGround = el.dataset.flatGround === '1';
           const tile = curSim.tiles[tz * gSize + tx];
-          const worldY = Math.max(0.5, (tile ? tile.height : 1) * HEIGHT_STEP) + 1.8;
+          const surfaceY = tile ? Math.max(0.15, tile.height * HEIGHT_STEP) : 0.45;
+          const worldY = isFlatGround ? surfaceY + 0.35 : Math.max(0.5, surfaceY) + 1.6;
           _zoneProjVec.set(tx, worldY, tz).project(camera);
           const sx = (_zoneProjVec.x * 0.5 + 0.5) * cWidth;
           const sy = (-_zoneProjVec.y * 0.5 + 0.5) * cHeight;
@@ -11298,7 +11381,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             el.style.opacity = nextOpacity;
           }
           if (!offscreen) {
-            const nextTransform = `translate3d(${Math.round(sx)}px, ${Math.round(sy)}px, 0) translate(-50%, -100%)`;
+            const anchorTranslate = isFlatGround ? 'translate(-50%, -50%)' : 'translate(-50%, -100%)';
+            const nextTransform = `translate3d(${Math.round(sx)}px, ${Math.round(sy)}px, 0) ${anchorTranslate}`;
             if (el.dataset.lastTransform !== nextTransform) {
               el.dataset.lastTransform = nextTransform;
               el.style.transform = nextTransform;
@@ -11563,9 +11647,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
   }, [cameraActionRef, captureThumbnailRef, simRef]);
 
   const activeLabels = zoneOverlayBuffers?.labels ?? [];
-  const kingsOverlayOn = Boolean(
-    zoneOverlayBuffers?.kingsActive || zoneOverlayBuffers?.kingdomsActive,
-  );
+  const kingsOverlayOn = Boolean(zoneOverlayBuffers?.kingsActive);
   const activeKings =
     gameState !== 'title' && kingsOverlayOn
       ? simRef.current.units.filter(
@@ -11670,11 +11752,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
               data-testid={`zone-map-label-${lbl.id}`}
               data-tile-x={lbl.tileX}
               data-tile-z={lbl.tileZ}
+              data-flat-ground={lbl.flatGround ? '1' : '0'}
               style={{
                 backgroundColor: `color-mix(in srgb, ${lbl.hexColor} 28%, #161310)`,
                 borderColor: `color-mix(in srgb, ${lbl.hexColor} 55%, #000000)`,
                 left: 0,
                 top: 0,
+                opacity: 0,
               }}
               className={`absolute px-2 py-0.5 border-2 flex items-center gap-1.5 whitespace-nowrap ${
                 lbl.isHovered ? 'scale-110 z-20' : 'z-10'
@@ -11688,6 +11772,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
               <span className="text-[11px] font-bold text-[#f2ece1]">
                 {lbl.name}
               </span>
+              {lbl.epochName && (
+                <span className="text-[10px] font-semibold text-[#d6cec0] border-l border-white/20 pl-1.5">
+                  {lbl.epochName}
+                </span>
+              )}
               {lbl.population !== null && (
                 <span className="font-pixel-num text-[10px] font-bold text-[#ffd166] tabular-nums">
                   {lbl.population}
