@@ -1396,15 +1396,31 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         c = mix(c, lavaGlow, fineCrack * (0.75 + 0.25 * pulse));
         return mix(c, lavaHot, hotCore * pulse);
       } else if (code < 13.5) {
-        // Crystal Field: luminous geometric arcane/sci-fi circuit plating
-        vec2 cGrid = abs(fract(pixPos * 2.0) - 0.5);
-        float trace = step(0.41, max(cGrid.x, cGrid.y));
-        float pulse = 0.55 + 0.45 * sin(tTime * 2.4 - (pixPos.x + pixPos.y) * 0.7);
-        vec3 base = landSrgb(56.0, 79.0, 94.0);
-        vec3 hi   = landSrgb(92.0, 219.0, 224.0);
-        vec3 sh   = landSrgb(34.0, 50.0, 62.0);
-        vec3 c = mix(sh, base, step(0.45, waveA));
-        return mix(c, hi, trace * (0.55 + 0.45 * pulse));
+        // Crystal Field: fantasy luminous light-blue crystalline land with organic crystal facets & multi-colored prism sparkles (no gridlines)
+        float facetA = sin(pixPos.x * 1.35 + sin(pixPos.y * 1.15) * 1.4) * 0.5 + 0.5;
+        float facetB = cos((pixPos.x - pixPos.y) * 1.05 + sin(pixPos.x * 0.7) * 1.2) * 0.5 + 0.5;
+        float shimmer = 0.5 + 0.5 * sin(tTime * 1.8 + facetA * 4.2 + facetB * 3.1);
+        vec3 deepAzure   = landSrgb(102.0, 184.0, 235.0);
+        vec3 lightBlue   = landSrgb(142.0, 216.0, 250.0);
+        vec3 celesteGlow = landSrgb(190.0, 238.0, 255.0);
+        vec3 icePrism    = landSrgb(224.0, 248.0, 255.0);
+        vec3 c = mix(deepAzure, lightBlue, smoothstep(0.22, 0.68, waveA * 0.55 + facetA * 0.45));
+        c = mix(c, celesteGlow, smoothstep(0.54, 0.82, facetB * 0.6 + waveB * 0.4));
+        // Soft crystalline facet ridge highlights
+        float ridge = smoothstep(0.76, 0.92, abs(facetA - facetB) + detail * 0.35);
+        c = mix(c, icePrism, ridge * (0.45 + 0.35 * shimmer));
+        // Multi-colored fantasy crystal flecks embedded in the light-blue ground
+        if (detail > 0.87) {
+          vec3 fleckCol = detail > 0.96
+            ? landSrgb(244.0, 138.0, 226.0) // rose-magenta crystal fleck
+            : detail > 0.93
+              ? landSrgb(178.0, 142.0, 255.0) // amethyst crystal fleck
+              : detail > 0.90
+                ? landSrgb(255.0, 220.0, 122.0) // golden topaz crystal fleck
+                : landSrgb(122.0, 245.0, 202.0); // emerald-mint crystal fleck
+          c = mix(c, fleckCol, 0.62 + 0.28 * shimmer);
+        }
+        return c;
       } else if (code < 14.5) {
         return landSrgb(96.0, 90.0, 84.0);
       } else if (code < 15.5) {
@@ -2324,7 +2340,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
       roughness,
       metalness,
     });
-    topMat.customProgramCacheKey = () => 'aeon_land_top_pixel_v14';
+    topMat.customProgramCacheKey = () => 'aeon_land_top_pixel_v15';
     topMat.onBeforeCompile = (shader) => {
       shader.uniforms.uTime = sharedTime;
       shader.uniforms.uEpoch = sharedEpoch;

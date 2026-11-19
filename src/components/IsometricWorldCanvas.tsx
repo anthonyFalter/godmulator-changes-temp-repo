@@ -64,6 +64,7 @@ import {
   closestFaultDistanceSq,
   executeGodPowerImpact,
   executeHugeAsteroidImpact,
+  executeTerrainDropTileImpact,
   getSettlementAnchor,
   getSettlementEpoch,
   getUnitEpoch,
@@ -72,6 +73,12 @@ import {
   stepSimulation,
   updateDragUnit,
 } from '../game/simulation';
+import {
+  createMagicCirclePlaneGeometry,
+  disposeMagicCircleTextureCache,
+  getMagicCircleTexture,
+  getMagicCircleThemeForPower,
+} from '../game/magicCircles';
 import { soundEngine } from '../game/sound';
 import {
   ActiveTool,
@@ -1350,6 +1357,24 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     sharedDomeCylinderGeo.translate(0, 1.4, 0);
     const sharedHazRingGeo = new THREE.RingGeometry(0.86, 1.0, 32);
     sharedHazRingGeo.rotateX(-Math.PI / 2);
+    const sharedMagicCircleGeo = createMagicCirclePlaneGeometry();
+    let magicCircleSeedCounter = 1;
+    function createMagicCircleMat(
+      powerOrTool: string,
+      opacity = 0.94,
+      seedOffset = 0,
+    ): THREE.MeshBasicMaterial {
+      const theme = getMagicCircleThemeForPower(powerOrTool);
+      const tex = getMagicCircleTexture(theme, magicCircleSeedCounter++ + seedOffset);
+      return new THREE.MeshBasicMaterial({
+        map: tex,
+        transparent: true,
+        opacity,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      });
+    }
     const sharedRiftTorusGeo = new THREE.TorusGeometry(1.65, 0.22, 8, 24);
     const sharedRiftCoreGeo = new THREE.SphereGeometry(0.95, 16, 12);
     const sharedWaveBaseGeo = new THREE.BoxGeometry(1.12, 0.72, 1.45);
@@ -1518,15 +1543,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           transparent: true,
           opacity: 0.65,
         });
-        const ringMat = new THREE.MeshBasicMaterial({
-          color: 0x80ed99,
-          transparent: true,
-          opacity: 0.75,
-          side: THREE.DoubleSide,
-          depthWrite: false,
-        });
+        const ringMat = createMagicCircleMat('plague_miasma', 0.84);
         materials.push(sporeMat, darkSporeMat, ringMat);
-        const ringMesh = new THREE.Mesh(sharedHazRingGeo, ringMat);
+        const ringMesh = new THREE.Mesh(sharedMagicCircleGeo, ringMat);
         ringMesh.position.y = 0.08;
         ringMesh.scale.setScalar(radius);
         group.add(ringMesh);
@@ -1560,13 +1579,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           transparent: true,
           opacity: 0.62,
         });
-        const ringMat = new THREE.MeshBasicMaterial({
-          color: 0x72efdd,
-          transparent: true,
-          opacity: 0.95,
-          side: THREE.DoubleSide,
-          depthWrite: false,
-        });
+        const ringMat = createMagicCircleMat('divine_shield', 0.95);
         materials.push(domeMat, wireMat, ringMat);
 
         const dome = new THREE.Mesh(sharedDomeCylinderGeo, domeMat);
@@ -1578,7 +1591,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         geoShell.position.y = 0.4;
         group.add(geoShell);
 
-        const ringMesh = new THREE.Mesh(sharedHazRingGeo, ringMat);
+        const ringMesh = new THREE.Mesh(sharedMagicCircleGeo, ringMat);
         ringMesh.position.y = 0.08;
         ringMesh.scale.setScalar(radius * 1.02);
         group.add(ringMesh);
@@ -1937,41 +1950,15 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       }
 
       if (kind === 'wormhole_rift') {
-        // wormhole_rift — spinning black hole event horizon + contracting gravity-well funnel rings + inward-spiraling accretion shards
-        const ringMat = new THREE.MeshBasicMaterial({
-          color: 0xc77dff,
-          transparent: true,
-          opacity: 0.95,
-        });
-        const cyanRingMat = new THREE.MeshBasicMaterial({
-          color: 0x56cfe1,
-          transparent: true,
-          opacity: 0.9,
-        });
+        // wormhole_rift — horizontal top-facing runic event horizon magic circles + contracting gravity-well magic circles
+        const ringMat = createMagicCircleMat('wormhole_ascension', 0.95, 0);
+        const cyanRingMat = createMagicCircleMat('wormhole_ascension', 0.9, 2);
         const coreMat = new THREE.MeshBasicMaterial({
           color: 0x070012,
         });
-        const gravRingMat1 = new THREE.MeshBasicMaterial({
-          color: 0x9d4edd,
-          transparent: true,
-          opacity: 0.75,
-          side: THREE.DoubleSide,
-          depthWrite: false,
-        });
-        const gravRingMat2 = new THREE.MeshBasicMaterial({
-          color: 0x56cfe1,
-          transparent: true,
-          opacity: 0.75,
-          side: THREE.DoubleSide,
-          depthWrite: false,
-        });
-        const gravRingMat3 = new THREE.MeshBasicMaterial({
-          color: 0xe0aaff,
-          transparent: true,
-          opacity: 0.75,
-          side: THREE.DoubleSide,
-          depthWrite: false,
-        });
+        const gravRingMat1 = createMagicCircleMat('wormhole_ascension', 0.78, 3);
+        const gravRingMat2 = createMagicCircleMat('wormhole_ascension', 0.78, 4);
+        const gravRingMat3 = createMagicCircleMat('wormhole_ascension', 0.78, 5);
         const motePurpleMat = new THREE.MeshBasicMaterial({
           color: 0xe0aaff,
           transparent: true,
@@ -1993,15 +1980,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           moteCyanMat,
         );
 
-        const torus1 = new THREE.Mesh(sharedRiftTorusGeo, ringMat);
+        const torus1 = new THREE.Mesh(sharedMagicCircleGeo, ringMat);
         torus1.position.y = 1.8;
-        torus1.rotation.x = Math.PI / 2;
+        torus1.scale.setScalar(1.35);
         group.add(torus1);
 
-        const torus2 = new THREE.Mesh(sharedRiftTorusGeo, cyanRingMat);
-        torus2.position.y = 1.8;
-        torus2.scale.setScalar(0.75);
-        torus2.rotation.x = Math.PI / 3;
+        const torus2 = new THREE.Mesh(sharedMagicCircleGeo, cyanRingMat);
+        torus2.position.y = 0.16;
+        torus2.scale.setScalar(Math.max(1.2, radius * 0.85));
         group.add(torus2);
 
         const core = new THREE.Mesh(sharedRiftCoreGeo, coreMat);
@@ -2009,11 +1995,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         core.scale.setScalar(1.08);
         group.add(core);
 
-        // 3 Concentric Gravity-Well Rings that continuously contract inward from the outer pull radius into the core
+        // 3 Concentric Gravity-Well Magic Circles that continuously contract inward from the outer pull radius into the core
         const gravMats = [gravRingMat1, gravRingMat2, gravRingMat3];
         const gravityRings: THREE.Mesh[] = [];
         for (let i = 0; i < 3; i++) {
-          const gRing = new THREE.Mesh(sharedHazRingGeo, gravMats[i]);
+          const gRing = new THREE.Mesh(sharedMagicCircleGeo, gravMats[i]);
           gRing.position.y = 0.15;
           group.add(gRing);
           gravityRings.push(gRing);
@@ -2399,24 +2385,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       }
 
       if (kind === 'undead_portal') {
-        const portalRimMat = new THREE.MeshBasicMaterial({
-          color: 0xa855f7,
-          transparent: true,
-          opacity: 0.94,
-        });
+        const portalRimMat = createMagicCircleMat('undead_portal', 0.95, 0);
         const innerVoidMat = new THREE.MeshBasicMaterial({
           color: 0x090014,
           transparent: true,
           opacity: 0.92,
           side: THREE.DoubleSide,
         });
-        const ringMat = new THREE.MeshBasicMaterial({
-          color: 0x7e22ce,
-          transparent: true,
-          opacity: 0.78,
-          side: THREE.DoubleSide,
-          depthWrite: false,
-        });
+        const ringMat = createMagicCircleMat('undead_portal', 0.88, 2);
         const moteMat = new THREE.MeshBasicMaterial({
           color: 0xd8b4fe,
           transparent: true,
@@ -2424,19 +2400,19 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         });
         materials.push(portalRimMat, innerVoidMat, ringMat, moteMat);
 
-        const gateRing = new THREE.Mesh(sharedRiftTorusGeo, portalRimMat);
+        const gateRing = new THREE.Mesh(sharedMagicCircleGeo, portalRimMat);
         gateRing.position.y = 2.05;
-        gateRing.scale.set(0.95, 1.35, 0.95);
+        gateRing.scale.setScalar(Math.max(1.2, radius * 0.72));
         group.add(gateRing);
 
         const darkCore = new THREE.Mesh(sharedRiftCoreGeo, innerVoidMat);
-        darkCore.position.y = 2.05;
-        darkCore.scale.set(1.15, 1.75, 0.35);
+        darkCore.position.y = 1.35;
+        darkCore.scale.set(0.85, 1.35, 0.85);
         group.add(darkCore);
 
-        const floorRing = new THREE.Mesh(sharedHazRingGeo, ringMat);
-        floorRing.position.y = 0.1;
-        floorRing.scale.setScalar(radius * 0.65);
+        const floorRing = new THREE.Mesh(sharedMagicCircleGeo, ringMat);
+        floorRing.position.y = 0.12;
+        floorRing.scale.setScalar(Math.max(1.4, radius * 0.95));
         group.add(floorRing);
 
         const vortexMotes: VortexMote[] = [];
@@ -2540,35 +2516,33 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       }
 
       if (kind === 'chrono_field') {
-        const cyanMat = new THREE.MeshBasicMaterial({
-          color: 0x38bdf8,
-          transparent: true,
-          opacity: 0.78,
-          side: THREE.DoubleSide,
-          depthWrite: false,
-        });
-        const goldMat = new THREE.MeshBasicMaterial({
+        const cyanMat = createMagicCircleMat('chrono_surge', 0.92, 0);
+        const goldMat = createMagicCircleMat('chrono_surge', 0.9, 2);
+        const moteGoldMat = new THREE.MeshBasicMaterial({
           color: 0xfacc15,
           transparent: true,
-          opacity: 0.88,
-          side: THREE.DoubleSide,
-          depthWrite: false,
+          opacity: 0.9,
         });
-        materials.push(cyanMat, goldMat);
+        const moteCyanMat = new THREE.MeshBasicMaterial({
+          color: 0x38bdf8,
+          transparent: true,
+          opacity: 0.88,
+        });
+        materials.push(cyanMat, goldMat, moteGoldMat, moteCyanMat);
 
-        const ringMesh = new THREE.Mesh(sharedHazRingGeo, cyanMat);
+        const ringMesh = new THREE.Mesh(sharedMagicCircleGeo, cyanMat);
         ringMesh.position.y = 0.14;
         ringMesh.scale.setScalar(radius);
         group.add(ringMesh);
 
-        const secondaryRingMesh = new THREE.Mesh(sharedHazRingGeo, goldMat);
+        const secondaryRingMesh = new THREE.Mesh(sharedMagicCircleGeo, goldMat);
         secondaryRingMesh.position.y = 0.45;
         secondaryRingMesh.scale.setScalar(radius * 0.68);
         group.add(secondaryRingMesh);
 
         const vortexMotes: VortexMote[] = [];
         for (let i = 0; i < 12; i++) {
-          const m = new THREE.Mesh(sharedDebrisCubeGeo, i % 2 === 0 ? goldMat : cyanMat);
+          const m = new THREE.Mesh(sharedDebrisCubeGeo, i % 2 === 0 ? moteGoldMat : moteCyanMat);
           m.scale.setScalar(0.28);
           group.add(m);
           vortexMotes.push({
@@ -2605,13 +2579,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           side: THREE.DoubleSide,
           depthWrite: false,
         });
-        const scorchRingMat = new THREE.MeshBasicMaterial({
-          color: 0xfbbf24,
-          transparent: true,
-          opacity: 0.92,
-          side: THREE.DoubleSide,
-          depthWrite: false,
-        });
+        const scorchRingMat = createMagicCircleMat('solar_orbital_laser', 0.94);
         materials.push(coreBeamMat, outerBeamMat, scorchRingMat);
 
         const coreCol = new THREE.Mesh(sharedDomeCylinderGeo, coreBeamMat);
@@ -2624,7 +2592,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         outerCol.scale.set(1.75, 14.0, 1.75);
         group.add(outerCol);
 
-        const ringMesh = new THREE.Mesh(sharedHazRingGeo, scorchRingMat);
+        const ringMesh = new THREE.Mesh(sharedMagicCircleGeo, scorchRingMat);
         ringMesh.position.y = 0.14;
         ringMesh.scale.setScalar(Math.max(1.8, radius * 0.78));
         group.add(ringMesh);
@@ -2640,30 +2608,18 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       }
 
       if (kind === 'gravity_anomaly') {
-        const violetMat = new THREE.MeshBasicMaterial({
-          color: 0xc084fc,
-          transparent: true,
-          opacity: 0.85,
-          side: THREE.DoubleSide,
-          depthWrite: false,
-        });
-        const deepMat = new THREE.MeshBasicMaterial({
-          color: 0x7e22ce,
-          transparent: true,
-          opacity: 0.52,
-          side: THREE.DoubleSide,
-          depthWrite: false,
-        });
+        const violetMat = createMagicCircleMat('gravity_flip', 0.9, 0);
+        const deepMat = createMagicCircleMat('gravity_flip', 0.76, 2);
         materials.push(violetMat, deepMat);
 
-        const ringMesh = new THREE.Mesh(sharedHazRingGeo, violetMat);
+        const ringMesh = new THREE.Mesh(sharedMagicCircleGeo, violetMat);
         ringMesh.position.y = 0.14;
         ringMesh.scale.setScalar(radius);
         group.add(ringMesh);
 
         const gravityRings: THREE.Mesh[] = [];
         for (let i = 0; i < 3; i++) {
-          const gr = new THREE.Mesh(sharedHazRingGeo, i % 2 === 0 ? violetMat : deepMat);
+          const gr = new THREE.Mesh(sharedMagicCircleGeo, i % 2 === 0 ? violetMat : deepMat);
           gr.position.y = 0.4 + i * 1.4;
           gr.scale.setScalar(radius * (0.9 - i * 0.15));
           group.add(gr);
@@ -2920,6 +2876,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         ox: number;
         oy: number;
         oz: number;
+        tileX: number;
+        tileZ: number;
+        dropKind: TerrainToolType;
+        applyOnLand: boolean;
         delay: number;
         fallDur: number;
         landed: boolean;
@@ -2934,6 +2894,18 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     }
     const MAX_BURST_FX = 36;
     const activeBurstFx: ActiveBurstFx[] = [];
+
+    function flushPendingSkyRainDrops(fx: ActiveBurstFx) {
+      if (!fx.skyRainDrops) return;
+      for (const d of fx.skyRainDrops) {
+        if (!d.landed) {
+          d.landed = true;
+          if (d.applyOnLand) {
+            executeTerrainDropTileImpact(simRef.current, d.dropKind, d.tileX, d.tileZ);
+          }
+        }
+      }
+    }
 
     function triggerLightFlash(x: number, y: number, z: number, hexColor: string, intensity = 16) {
       vfxFlashLight.position.set(x, y + 4.5, z);
@@ -2963,6 +2935,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         const idx = dropIdx >= 0 ? dropIdx : 0;
         const old = activeBurstFx[idx];
         if (old) {
+          flushPendingSkyRainDrops(old);
           burstFxGroup.remove(old.group);
           for (const m of old.materials) m.dispose();
           activeBurstFx.splice(idx, 1);
@@ -3375,22 +3348,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         return;
       }
 
-      // 4. INSIGHT (eureka): 5-second lingering sacred geometry circle with continuous upward-floating wisdom motes & particles
+      // 4. INSIGHT (eureka): 5-second lingering sacred geometry magic circle with continuous upward-floating wisdom motes & particles
       if (type === 'eureka') {
-        const outerMat = new THREE.MeshBasicMaterial({
-          color: 0x56cfe1,
-          transparent: true,
-          opacity: 0.9,
-          side: THREE.DoubleSide,
-          depthWrite: false,
-        });
-        const runeMat = new THREE.MeshBasicMaterial({
-          color: 0xe0fbfc,
-          transparent: true,
-          opacity: 0.82,
-          side: THREE.DoubleSide,
-          depthWrite: false,
-        });
+        const outerMat = createMagicCircleMat('eureka', 0.96, 11);
+        const runeMat = createMagicCircleMat('eureka', 0.88, 37);
         const moteMat = new THREE.MeshBasicMaterial({
           color: 0x90e0ef,
           transparent: true,
@@ -3398,26 +3359,26 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         });
         materials.push(outerMat, runeMat, moteMat);
 
-        const ringMesh = new THREE.Mesh(sharedHazRingGeo, outerMat);
-        ringMesh.position.set(tx, ty + 0.12, tz);
-        ringMesh.scale.setScalar(radius * 0.96);
+        const ringMesh = new THREE.Mesh(sharedMagicCircleGeo, outerMat);
+        ringMesh.position.set(tx, ty + 0.14, tz);
+        ringMesh.scale.setScalar(radius * 1.05);
         group.add(ringMesh);
 
-        const outerRingMesh = new THREE.Mesh(sharedRuneSquareGeo, runeMat);
-        outerRingMesh.position.set(tx, ty + 0.15, tz);
-        outerRingMesh.scale.setScalar(radius * 0.88);
+        const outerRingMesh = new THREE.Mesh(sharedMagicCircleGeo, runeMat);
+        outerRingMesh.position.set(tx, ty + 0.17, tz);
+        outerRingMesh.scale.setScalar(radius * 0.72);
         group.add(outerRingMesh);
 
-        const thirdRingMesh = new THREE.Mesh(sharedHazRingGeo, runeMat);
-        thirdRingMesh.position.set(tx, ty + 0.16, tz);
-        thirdRingMesh.scale.setScalar(radius * 0.52);
+        const thirdRingMesh = new THREE.Mesh(sharedMagicCircleGeo, outerMat);
+        thirdRingMesh.position.set(tx, ty + 0.19, tz);
+        thirdRingMesh.scale.setScalar(radius * 0.45);
         group.add(thirdRingMesh);
 
         const motes: PowerMote[] = [];
         for (let i = 0; i < 28; i++) {
           const angle = (i / 28) * Math.PI * 2 + (i % 3) * 0.4;
           const dist = (0.14 + ((i * 37) % 85) / 100) * radius * 0.9;
-          const m = new THREE.Mesh(sharedOrbMoteGeo, i % 3 === 0 ? runeMat : moteMat);
+          const m = new THREE.Mesh(sharedOrbMoteGeo, moteMat);
           const s = 0.65 + (i % 4) * 0.22;
           m.scale.setScalar(s);
           m.position.set(tx + Math.cos(angle) * dist, ty + 0.2, tz + Math.sin(angle) * dist);
@@ -3457,22 +3418,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         return;
       }
 
-      // 5. BLESS (blessing): Blooming golden-emerald meadow rings & ascending spiral life petals
+      // 5. BLESS (blessing): Blooming golden-emerald runic magic circle & ascending spiral life petals
       if (type === 'blessing') {
-        const goldMat = new THREE.MeshBasicMaterial({
-          color: 0xf5b742,
-          transparent: true,
-          opacity: 0.88,
-          side: THREE.DoubleSide,
-          depthWrite: false,
-        });
-        const emeraldMat = new THREE.MeshBasicMaterial({
-          color: 0x80ed99,
-          transparent: true,
-          opacity: 0.82,
-          side: THREE.DoubleSide,
-          depthWrite: false,
-        });
+        const goldMat = createMagicCircleMat('blessing', 0.95, 19);
+        const emeraldMat = createMagicCircleMat('blessing', 0.85, 53);
         const petalMat = new THREE.MeshBasicMaterial({
           color: 0xfff3b0,
           transparent: true,
@@ -3480,21 +3429,21 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         });
         materials.push(goldMat, emeraldMat, petalMat);
 
-        const ringMesh = new THREE.Mesh(sharedHazRingGeo, goldMat);
-        ringMesh.position.set(tx, ty + 0.12, tz);
-        ringMesh.scale.setScalar(radius * 0.92);
+        const ringMesh = new THREE.Mesh(sharedMagicCircleGeo, goldMat);
+        ringMesh.position.set(tx, ty + 0.14, tz);
+        ringMesh.scale.setScalar(radius * 1.02);
         group.add(ringMesh);
 
-        const outerRingMesh = new THREE.Mesh(sharedHazRingGeo, emeraldMat);
-        outerRingMesh.position.set(tx, ty + 0.15, tz);
-        outerRingMesh.scale.setScalar(radius * 0.45);
+        const outerRingMesh = new THREE.Mesh(sharedMagicCircleGeo, emeraldMat);
+        outerRingMesh.position.set(tx, ty + 0.17, tz);
+        outerRingMesh.scale.setScalar(radius * 0.56);
         group.add(outerRingMesh);
 
         const motes: PowerMote[] = [];
         for (let i = 0; i < 22; i++) {
           const angle = (i / 22) * Math.PI * 2;
           const dist = (0.18 + ((i * 29) % 80) / 100) * radius * 0.86;
-          const m = new THREE.Mesh(sharedOrbMoteGeo, i % 2 === 0 ? petalMat : emeraldMat);
+          const m = new THREE.Mesh(sharedOrbMoteGeo, petalMat);
           m.scale.set(0.85, 1.25, 0.85);
           m.position.set(tx + Math.cos(angle) * dist, ty + 0.2, tz + Math.sin(angle) * dist);
           group.add(m);
@@ -3532,47 +3481,39 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         return;
       }
 
-      // 6. GOLDEN AGE (golden_age): Hovering gyroscopic solar crown + triple imperial ground seal + 5.5s golden stardust
+      // 6. GOLDEN AGE (golden_age): Top-facing solar runic crown + triple imperial ground seal + 5.5s golden stardust
       if (type === 'golden_age') {
-        const sunMat = new THREE.MeshBasicMaterial({
-          color: 0xffd166,
-          transparent: true,
-          opacity: 0.92,
-          side: THREE.DoubleSide,
-          depthWrite: false,
-        });
-        const crownMat = new THREE.MeshBasicMaterial({
+        const sunMat = createMagicCircleMat('golden_age', 0.96, 23);
+        const crownMat = createMagicCircleMat('golden_age', 0.92, 67);
+        const moteMat = new THREE.MeshBasicMaterial({
           color: 0xfff3b0,
           transparent: true,
           opacity: 0.95,
-          side: THREE.DoubleSide,
-          depthWrite: false,
         });
-        materials.push(sunMat, crownMat);
+        materials.push(sunMat, crownMat, moteMat);
 
-        const ringMesh = new THREE.Mesh(sharedHazRingGeo, sunMat);
-        ringMesh.position.set(tx, ty + 0.12, tz);
-        ringMesh.scale.setScalar(radius * 0.96);
+        const ringMesh = new THREE.Mesh(sharedMagicCircleGeo, sunMat);
+        ringMesh.position.set(tx, ty + 0.14, tz);
+        ringMesh.scale.setScalar(radius * 1.06);
         group.add(ringMesh);
 
-        const outerRingMesh = new THREE.Mesh(sharedRuneSquareGeo, crownMat);
-        outerRingMesh.position.set(tx, ty + 0.15, tz);
-        outerRingMesh.scale.setScalar(radius * 0.72);
+        const outerRingMesh = new THREE.Mesh(sharedMagicCircleGeo, crownMat);
+        outerRingMesh.position.set(tx, ty + 0.17, tz);
+        outerRingMesh.scale.setScalar(radius * 0.76);
         group.add(outerRingMesh);
 
-        const thirdRingMesh = new THREE.Mesh(sharedHazRingGeo, sunMat);
-        thirdRingMesh.position.set(tx, ty + 0.17, tz);
-        thirdRingMesh.scale.setScalar(radius * 0.42);
+        const thirdRingMesh = new THREE.Mesh(sharedMagicCircleGeo, sunMat);
+        thirdRingMesh.position.set(tx, ty + 0.19, tz);
+        thirdRingMesh.scale.setScalar(radius * 0.48);
         group.add(thirdRingMesh);
 
         const floatingCrown = new THREE.Group();
         floatingCrown.position.set(tx, ty + 3.4, tz);
-        const halo1 = new THREE.Mesh(sharedRiftTorusGeo, crownMat);
-        halo1.rotation.x = Math.PI / 2;
-        halo1.scale.setScalar(1.35);
-        const halo2 = new THREE.Mesh(sharedRiftTorusGeo, sunMat);
-        halo2.rotation.x = Math.PI / 3;
-        halo2.scale.setScalar(0.95);
+        const halo1 = new THREE.Mesh(sharedMagicCircleGeo, crownMat);
+        halo1.scale.setScalar(1.65);
+        const halo2 = new THREE.Mesh(sharedMagicCircleGeo, sunMat);
+        halo2.position.y = 0.12;
+        halo2.scale.setScalar(1.15);
         floatingCrown.add(halo1, halo2);
         group.add(floatingCrown);
 
@@ -3580,7 +3521,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         for (let i = 0; i < 26; i++) {
           const angle = (i / 26) * Math.PI * 2;
           const dist = (0.15 + ((i * 41) % 85) / 100) * radius * 0.92;
-          const m = new THREE.Mesh(sharedOrbMoteGeo, i % 2 === 0 ? crownMat : sunMat);
+          const m = new THREE.Mesh(sharedOrbMoteGeo, moteMat);
           m.scale.setScalar(0.8 + (i % 3) * 0.25);
           group.add(m);
           motes.push({
@@ -3619,7 +3560,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         return;
       }
 
-      // 7. DIVINE SHIELD (divine_shield): Expanding crystalline Aegis hemisphere & repulsion wave
+      // 7. DIVINE SHIELD (divine_shield): Expanding crystalline Aegis hemisphere & runic magic circle wave
       if (type === 'divine_shield') {
         const domeMat = new THREE.MeshBasicMaterial({
           color: 0x72efdd,
@@ -3628,13 +3569,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           side: THREE.DoubleSide,
           depthWrite: false,
         });
-        const ringMat = new THREE.MeshBasicMaterial({
-          color: 0x90e0ef,
-          transparent: true,
-          opacity: 0.95,
-          side: THREE.DoubleSide,
-          depthWrite: false,
-        });
+        const ringMat = createMagicCircleMat('divine_shield', 0.96, 31);
         materials.push(domeMat, ringMat);
 
         const explosionDome = new THREE.Mesh(sharedExplosionDomeGeo, domeMat);
@@ -3642,12 +3577,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         explosionDome.scale.setScalar(0.2);
         group.add(explosionDome);
 
-        const ringMesh = new THREE.Mesh(sharedHazRingGeo, ringMat);
+        const ringMesh = new THREE.Mesh(sharedMagicCircleGeo, ringMat);
         ringMesh.position.set(tx, ty + 0.14, tz);
         ringMesh.scale.setScalar(0.3);
         group.add(ringMesh);
 
-        const outerRingMesh = new THREE.Mesh(sharedHazRingGeo, domeMat);
+        const outerRingMesh = new THREE.Mesh(sharedMagicCircleGeo, ringMat);
         outerRingMesh.position.set(tx, ty + 0.18, tz);
         outerRingMesh.scale.setScalar(0.2);
         group.add(outerRingMesh);
@@ -3675,31 +3610,26 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         return;
       }
 
-      // 8. BLOODLUST FURY (bloodlust_frenzy): Crimson war-arena sigil & fast-whirling horizontal ember cyclone
+      // 8. BLOODLUST FURY (bloodlust_frenzy): Crimson war-arena runic sigil & fast-whirling horizontal ember cyclone
       if (type === 'bloodlust_frenzy') {
-        const crimsonMat = new THREE.MeshBasicMaterial({
-          color: 0xe63946,
-          transparent: true,
-          opacity: 0.9,
-          side: THREE.DoubleSide,
-          depthWrite: false,
-        });
-        const emberMat = new THREE.MeshBasicMaterial({
+        const crimsonMat = createMagicCircleMat('bloodlust_frenzy', 0.95, 41);
+        const emberMat = createMagicCircleMat('bloodlust_frenzy', 0.88, 73);
+        const shardMat = new THREE.MeshBasicMaterial({
           color: 0xff7b00,
           transparent: true,
           opacity: 0.95,
           side: THREE.DoubleSide,
           depthWrite: false,
         });
-        materials.push(crimsonMat, emberMat);
+        materials.push(crimsonMat, emberMat, shardMat);
 
-        const ringMesh = new THREE.Mesh(sharedHazRingGeo, crimsonMat);
-        ringMesh.position.set(tx, ty + 0.12, tz);
-        ringMesh.scale.setScalar(radius * 0.94);
+        const ringMesh = new THREE.Mesh(sharedMagicCircleGeo, crimsonMat);
+        ringMesh.position.set(tx, ty + 0.14, tz);
+        ringMesh.scale.setScalar(radius * 1.02);
         group.add(ringMesh);
 
-        const outerRingMesh = new THREE.Mesh(sharedRuneSquareGeo, emberMat);
-        outerRingMesh.position.set(tx, ty + 0.15, tz);
+        const outerRingMesh = new THREE.Mesh(sharedMagicCircleGeo, emberMat);
+        outerRingMesh.position.set(tx, ty + 0.17, tz);
         outerRingMesh.scale.setScalar(radius * 0.72);
         group.add(outerRingMesh);
 
@@ -3707,7 +3637,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         for (let i = 0; i < 22; i++) {
           const angle = (i / 22) * Math.PI * 2;
           const dist = (0.28 + ((i * 19) % 70) / 100) * radius * 0.92;
-          const m = new THREE.Mesh(sharedShardMoteGeo, i % 3 === 0 ? emberMat : crimsonMat);
+          const m = new THREE.Mesh(sharedShardMoteGeo, shardMat);
           m.rotation.z = 0.55;
           group.add(m);
           motes.push({
@@ -3744,31 +3674,26 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         return;
       }
 
-      // 9. ABYSSAL CURSE (curse): Inward-collapsing dark void eclipse rings & curling shadow wisps
+      // 9. ABYSSAL CURSE (curse): Inward-collapsing dark void eclipse runic magic circles & curling shadow wisps
       if (type === 'curse') {
-        const violetMat = new THREE.MeshBasicMaterial({
+        const violetMat = createMagicCircleMat('curse', 0.94, 47);
+        const voidMat = createMagicCircleMat('curse', 0.86, 83);
+        const wispMat = new THREE.MeshBasicMaterial({
           color: 0x9d4edd,
           transparent: true,
-          opacity: 0.88,
+          opacity: 0.9,
           side: THREE.DoubleSide,
           depthWrite: false,
         });
-        const voidMat = new THREE.MeshBasicMaterial({
-          color: 0x3c096c,
-          transparent: true,
-          opacity: 0.92,
-          side: THREE.DoubleSide,
-          depthWrite: false,
-        });
-        materials.push(violetMat, voidMat);
+        materials.push(violetMat, voidMat, wispMat);
 
-        const ringMesh = new THREE.Mesh(sharedHazRingGeo, violetMat);
-        ringMesh.position.set(tx, ty + 0.12, tz);
-        ringMesh.scale.setScalar(radius * 0.96);
+        const ringMesh = new THREE.Mesh(sharedMagicCircleGeo, violetMat);
+        ringMesh.position.set(tx, ty + 0.14, tz);
+        ringMesh.scale.setScalar(radius * 1.04);
         group.add(ringMesh);
 
-        const outerRingMesh = new THREE.Mesh(sharedHazRingGeo, voidMat);
-        outerRingMesh.position.set(tx, ty + 0.15, tz);
+        const outerRingMesh = new THREE.Mesh(sharedMagicCircleGeo, voidMat);
+        outerRingMesh.position.set(tx, ty + 0.17, tz);
         outerRingMesh.scale.setScalar(radius * 0.85);
         group.add(outerRingMesh);
 
@@ -3776,7 +3701,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         for (let i = 0; i < 22; i++) {
           const angle = (i / 22) * Math.PI * 2;
           const dist = (0.25 + ((i * 31) % 75) / 100) * radius * 0.95;
-          const m = new THREE.Mesh(sharedShardMoteGeo, i % 2 === 0 ? violetMat : voidMat);
+          const m = new THREE.Mesh(sharedShardMoteGeo, wispMat);
           m.scale.set(0.9, 1.35, 0.9);
           group.add(m);
           motes.push({
@@ -3813,15 +3738,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         return;
       }
 
-      // 10. PLAGUE MIASMA (plague_miasma): Bubbling bio-toxic mire globules swelling & popping from the ground
+      // 10. PLAGUE MIASMA (plague_miasma): Bubbling bio-toxic mire globules swelling & popping from a runic ground circle
       if (type === 'plague_miasma') {
-        const toxicMat = new THREE.MeshBasicMaterial({
-          color: 0x80ed99,
-          transparent: true,
-          opacity: 0.86,
-          side: THREE.DoubleSide,
-          depthWrite: false,
-        });
+        const toxicMat = createMagicCircleMat('plague_miasma', 0.92, 59);
         const mireMat = new THREE.MeshBasicMaterial({
           color: 0x38b000,
           transparent: true,
@@ -3829,16 +3748,16 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         });
         materials.push(toxicMat, mireMat);
 
-        const ringMesh = new THREE.Mesh(sharedHazRingGeo, toxicMat);
-        ringMesh.position.set(tx, ty + 0.12, tz);
-        ringMesh.scale.setScalar(radius * 0.94);
+        const ringMesh = new THREE.Mesh(sharedMagicCircleGeo, toxicMat);
+        ringMesh.position.set(tx, ty + 0.14, tz);
+        ringMesh.scale.setScalar(radius * 1.02);
         group.add(ringMesh);
 
         const motes: PowerMote[] = [];
         for (let i = 0; i < 18; i++) {
           const angle = (i / 18) * Math.PI * 2 + (i % 3) * 0.3;
           const dist = (0.12 + ((i * 23) % 85) / 100) * radius * 0.85;
-          const m = new THREE.Mesh(sharedHazSphereGeo, i % 2 === 0 ? toxicMat : mireMat);
+          const m = new THREE.Mesh(sharedHazSphereGeo, mireMat);
           group.add(m);
           motes.push({
             mesh: m,
@@ -3873,34 +3792,27 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         return;
       }
 
-      // 11. ORBITAL TERRAFORM (terraform_beam): Stacked horizontal tectonic scanning rings & levitating earth blocks
+      // 11. ORBITAL TERRAFORM (terraform_beam): Stacked horizontal top-facing runic scanning circles & levitating earth blocks
       if (type === 'terraform_beam') {
-        const terraMat = new THREE.MeshBasicMaterial({
+        const terraMat = createMagicCircleMat('terraform_beam', 0.94, 61);
+        const gridMat = createMagicCircleMat('terraform_beam', 0.86, 89);
+        const orbMat = new THREE.MeshBasicMaterial({
           color: 0x06d6a0,
           transparent: true,
           opacity: 0.9,
-          side: THREE.DoubleSide,
-          depthWrite: false,
         });
-        const gridMat = new THREE.MeshBasicMaterial({
-          color: 0x90e0ef,
-          transparent: true,
-          opacity: 0.85,
-          side: THREE.DoubleSide,
-          depthWrite: false,
-        });
-        materials.push(terraMat, gridMat);
+        materials.push(terraMat, gridMat, orbMat);
 
-        const ringMesh = new THREE.Mesh(sharedHazRingGeo, terraMat);
-        ringMesh.position.set(tx, ty + 0.12, tz);
-        ringMesh.scale.setScalar(radius * 0.98);
+        const ringMesh = new THREE.Mesh(sharedMagicCircleGeo, terraMat);
+        ringMesh.position.set(tx, ty + 0.14, tz);
+        ringMesh.scale.setScalar(radius * 1.05);
         group.add(ringMesh);
 
         const strataRings: THREE.Mesh[] = [];
         for (let s = 0; s < 4; s++) {
-          const sr = new THREE.Mesh(s % 2 === 0 ? sharedHazRingGeo : sharedRuneSquareGeo, s % 2 === 0 ? terraMat : gridMat);
+          const sr = new THREE.Mesh(sharedMagicCircleGeo, s % 2 === 0 ? terraMat : gridMat);
           sr.position.set(tx, ty + 1.5 + s * 1.4, tz);
-          sr.scale.setScalar(radius * (0.92 - s * 0.14));
+          sr.scale.setScalar(radius * (0.94 - s * 0.14));
           group.add(sr);
           strataRings.push(sr);
         }
@@ -3909,7 +3821,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         for (let i = 0; i < 20; i++) {
           const angle = (i / 20) * Math.PI * 2;
           const dist = (0.2 + ((i * 33) % 78) / 100) * radius * 0.88;
-          const m = new THREE.Mesh(sharedHazSphereGeo, i % 2 === 0 ? terraMat : gridMat);
+          const m = new THREE.Mesh(sharedHazSphereGeo, orbMat);
           m.scale.set(0.38, 0.38, 0.38);
           group.add(m);
           motes.push({
@@ -3946,30 +3858,23 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         return;
       }
 
-      // 12. SINGULARITY RIFT (wormhole_ascension): Gravitational inward implosion & relativistic accretion disk wave
+      // 12. SINGULARITY RIFT (wormhole_ascension): Gravitational inward implosion & horizontal top-facing runic accretion circles
       if (type === 'wormhole_ascension') {
-        const riftMat = new THREE.MeshBasicMaterial({
+        const riftMat = createMagicCircleMat('wormhole_ascension', 0.95, 71);
+        const cyanMat = createMagicCircleMat('wormhole_ascension', 0.88, 97);
+        const moteMat = new THREE.MeshBasicMaterial({
           color: 0xc77dff,
           transparent: true,
           opacity: 0.92,
-          side: THREE.DoubleSide,
-          depthWrite: false,
         });
-        const cyanMat = new THREE.MeshBasicMaterial({
-          color: 0x56cfe1,
-          transparent: true,
-          opacity: 0.88,
-          side: THREE.DoubleSide,
-          depthWrite: false,
-        });
-        materials.push(riftMat, cyanMat);
+        materials.push(riftMat, cyanMat, moteMat);
 
-        const ringMesh = new THREE.Mesh(sharedHazRingGeo, riftMat);
+        const ringMesh = new THREE.Mesh(sharedMagicCircleGeo, riftMat);
         ringMesh.position.set(tx, ty + 0.14, tz);
-        ringMesh.scale.setScalar(radius * 1.15);
+        ringMesh.scale.setScalar(radius * 1.18);
         group.add(ringMesh);
 
-        const outerRingMesh = new THREE.Mesh(sharedHazRingGeo, cyanMat);
+        const outerRingMesh = new THREE.Mesh(sharedMagicCircleGeo, cyanMat);
         outerRingMesh.position.set(tx, ty + 1.8, tz);
         outerRingMesh.scale.setScalar(radius * 1.25);
         group.add(outerRingMesh);
@@ -3978,7 +3883,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         for (let i = 0; i < 24; i++) {
           const angle = (i / 24) * Math.PI * 2;
           const dist = (0.35 + ((i * 29) % 75) / 100) * radius * 1.2;
-          const m = new THREE.Mesh(sharedOrbMoteGeo, i % 2 === 0 ? riftMat : cyanMat);
+          const m = new THREE.Mesh(sharedOrbMoteGeo, moteMat);
           m.scale.setScalar(0.85);
           group.add(m);
           motes.push({
@@ -4594,30 +4499,18 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
       // New Creative God Powers (Necrotic Rift, Probe Remote, Chrono Warp, Peace Accord, Helios Orbital Beam, Gravity Flux)
       if (type === 'undead_portal' || type === 'alien_invasion' || type === 'chrono_surge' || type === 'harmony_dove' || type === 'solar_orbital_laser' || type === 'gravity_flip') {
-        const ringMat = new THREE.MeshBasicMaterial({
-          color: colorHex,
-          transparent: true,
-          opacity: 0.92,
-          side: THREE.DoubleSide,
-          depthWrite: false,
-        });
-        const outerRingMat = new THREE.MeshBasicMaterial({
-          color: 0xffffff,
-          transparent: true,
-          opacity: 0.88,
-          side: THREE.DoubleSide,
-          depthWrite: false,
-        });
+        const ringMat = createMagicCircleMat(type, 0.96, 101);
+        const outerRingMat = createMagicCircleMat(type, 0.88, 131);
         materials.push(ringMat, outerRingMat);
 
-        const ringMesh = new THREE.Mesh(sharedHazRingGeo, ringMat);
+        const ringMesh = new THREE.Mesh(sharedMagicCircleGeo, ringMat);
         ringMesh.position.set(tx, ty + 0.14, tz);
-        ringMesh.scale.setScalar(Math.max(1.4, radius * 0.55));
+        ringMesh.scale.setScalar(Math.max(1.5, radius * 0.65));
         group.add(ringMesh);
 
-        const outerRingMesh = new THREE.Mesh(sharedHazRingGeo, outerRingMat);
+        const outerRingMesh = new THREE.Mesh(sharedMagicCircleGeo, outerRingMat);
         outerRingMesh.position.set(tx, ty + 0.18, tz);
-        outerRingMesh.scale.setScalar(Math.max(1.0, radius * 0.35));
+        outerRingMesh.scale.setScalar(Math.max(1.05, radius * 0.42));
         group.add(outerRingMesh);
 
         let dropObj: THREE.Object3D | undefined;
@@ -4679,35 +4572,16 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           string,
           { primary: number; secondary: number; streak: number; impactHex: string; secondaryHex: string; geo: THREE.BufferGeometry; emissive: number; sway: number; dur: number }
         > = {
-          seed_ore: { primary: 0xfacc15, secondary: 0xf59e0b, streak: 0xfde047, impactHex: '#facc15', secondaryHex: '#cbd5e1', geo: sharedSkyOreGeo, emissive: 0.65, sway: 0.0, dur: 0.34 },
-          crystal_shower: { primary: 0xe879f9, secondary: 0x38bdf8, streak: 0xf0abfc, impactHex: '#e879f9', secondaryHex: '#38bdf8', geo: sharedSkyCrystalGeo, emissive: 0.85, sway: 0.0, dur: 0.36 },
-          boulder_rain: { primary: 0x94a3b8, secondary: 0x64748b, streak: 0xe2e8f0, impactHex: '#94a3b8', secondaryHex: '#475569', geo: sharedSkyOreGeo, emissive: 0.2, sway: 0.0, dur: 0.30 },
-          salvage_drop: { primary: 0xeab308, secondary: 0x94a3b8, streak: 0xfef08a, impactHex: '#eab308', secondaryHex: '#38bdf8', geo: sharedSkyCrateGeo, emissive: 0.45, sway: 0.15, dur: 0.40 },
-          volcanic_obsidian: { primary: 0x334155, secondary: 0xf97316, streak: 0xf97316, impactHex: '#f97316', secondaryHex: '#475569', geo: sharedSkyCrystalGeo, emissive: 0.72, sway: 0.0, dur: 0.31 },
-          coral_reef_rain: { primary: 0xfb7185, secondary: 0x22d3ee, streak: 0x67e8f9, impactHex: '#fb7185', secondaryHex: '#22d3ee', geo: sharedSkySeedGeo, emissive: 0.6, sway: 0.25, dur: 0.38 },
-          blossom_rain: { primary: 0xf472b6, secondary: 0xfbcfe8, streak: 0xf9a8d4, impactHex: '#f472b6', secondaryHex: '#fef08a', geo: sharedSkySeedGeo, emissive: 0.72, sway: 0.55, dur: 0.56 },
-          plant_forest: { primary: 0x4ade80, secondary: 0x16a34a, streak: 0x86efac, impactHex: '#4ade80', secondaryHex: '#bef264', geo: sharedSkySeedGeo, emissive: 0.55, sway: 0.3, dur: 0.44 },
-          jungle_bloom: { primary: 0x22c55e, secondary: 0xfacc15, streak: 0x4ade80, impactHex: '#22c55e', secondaryHex: '#fde047', geo: sharedSkySeedGeo, emissive: 0.58, sway: 0.32, dur: 0.44 },
-          fertile_meadow: { primary: 0xa3e635, secondary: 0xfef08a, streak: 0xd9f99d, impactHex: '#a3e635', secondaryHex: '#fef08a', geo: sharedSkySeedGeo, emissive: 0.58, sway: 0.35, dur: 0.45 },
-          soil_enrich: { primary: 0x38bdf8, secondary: 0x84cc16, streak: 0x7dd3fc, impactHex: '#38bdf8', secondaryHex: '#84cc16', geo: sharedSkySeedGeo, emissive: 0.65, sway: 0.18, dur: 0.38 },
-          desert_dunes: { primary: 0xfbbf24, secondary: 0xd97706, streak: 0xfde68a, impactHex: '#fbbf24', secondaryHex: '#f59e0b', geo: sharedSkySeedGeo, emissive: 0.42, sway: 0.22, dur: 0.38 },
+          seed_ore: { primary: 0xfacc15, secondary: 0xf59e0b, streak: 0xfde047, impactHex: '#facc15', secondaryHex: '#cbd5e1', geo: sharedSkyOreGeo, emissive: 0.65, sway: 0.0, dur: 0.36 },
+          crystal_shower: { primary: 0xe879f9, secondary: 0x38bdf8, streak: 0xf0abfc, impactHex: '#e879f9', secondaryHex: '#38bdf8', geo: sharedSkyCrystalGeo, emissive: 0.85, sway: 0.0, dur: 0.38 },
+          boulder_rain: { primary: 0x94a3b8, secondary: 0x64748b, streak: 0xe2e8f0, impactHex: '#94a3b8', secondaryHex: '#475569', geo: sharedSkyOreGeo, emissive: 0.2, sway: 0.0, dur: 0.34 },
+          salvage_drop: { primary: 0xeab308, secondary: 0x94a3b8, streak: 0xfef08a, impactHex: '#eab308', secondaryHex: '#38bdf8', geo: sharedSkyCrateGeo, emissive: 0.45, sway: 0.15, dur: 0.42 },
+          blossom_rain: { primary: 0xf472b6, secondary: 0xfbcfe8, streak: 0xf9a8d4, impactHex: '#f472b6', secondaryHex: '#fef08a', geo: sharedSkySeedGeo, emissive: 0.72, sway: 0.55, dur: 0.54 },
         };
         const cfg = palette[kind] ?? palette.seed_ore;
 
-        const ringMat = new THREE.MeshBasicMaterial({
-          color: cfg.primary,
-          transparent: true,
-          opacity: 0.72,
-          side: THREE.DoubleSide,
-          depthWrite: false,
-        });
-        const outerRingMat = new THREE.MeshBasicMaterial({
-          color: cfg.secondary,
-          transparent: true,
-          opacity: 0.78,
-          side: THREE.DoubleSide,
-          depthWrite: false,
-        });
+        const ringMat = createMagicCircleMat(kind, 0.92, 149);
+        const outerRingMat = createMagicCircleMat(kind, 0.86, 173);
         const dropMatPrimary = new THREE.MeshStandardMaterial({
           color: cfg.primary,
           emissive: new THREE.Color(cfg.primary),
@@ -4732,43 +4606,80 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         });
         materials.push(ringMat, outerRingMat, dropMatPrimary, dropMatSecondary, streakMat);
 
-        const ringMesh = new THREE.Mesh(sharedHazRingGeo, ringMat);
-        ringMesh.position.set(tx, ty + 0.1, tz);
-        ringMesh.scale.setScalar(Math.max(1.1, radius * 0.75));
+        // Multi-colored crystal materials for crystal_shower so each falling crystal has a distinct color
+        const crystalColors = [
+          { hex: 0xe848a8, str: '#e848a8', sec: '#7dd3fc' },
+          { hex: 0x8b5cf6, str: '#8b5cf6', sec: '#38bdf8' },
+          { hex: 0x10b981, str: '#10b981', sec: '#a7f3d0' },
+          { hex: 0xf59e0b, str: '#f59e0b', sec: '#fef08a' },
+          { hex: 0x0ea5e9, str: '#0ea5e9', sec: '#e0f2fe' },
+          { hex: 0xef4444, str: '#ef4444', sec: '#fda4af' },
+        ];
+        const crystalDropMats: THREE.MeshStandardMaterial[] = [];
+        if (kind === 'crystal_shower') {
+          for (const cc of crystalColors) {
+            const cm = new THREE.MeshStandardMaterial({
+              color: cc.hex,
+              emissive: new THREE.Color(cc.hex),
+              emissiveIntensity: 0.75,
+              roughness: 0.22,
+              metalness: 0.2,
+              flatShading: true,
+            });
+            crystalDropMats.push(cm);
+            materials.push(cm);
+          }
+        }
+
+        const ringMesh = new THREE.Mesh(sharedMagicCircleGeo, ringMat);
+        ringMesh.position.set(tx, ty + 0.14, tz);
+        ringMesh.scale.setScalar(Math.max(1.3, radius * 0.85));
         group.add(ringMesh);
 
-        const outerRingMesh = new THREE.Mesh(sharedHazRingGeo, outerRingMat);
-        outerRingMesh.position.set(tx, ty + 0.14, tz);
-        outerRingMesh.scale.setScalar(Math.max(0.75, radius * 0.45));
+        // Elevated top-facing sky magic circle overhead from which the items rain down
+        const outerRingMesh = new THREE.Mesh(sharedMagicCircleGeo, outerRingMat);
+        outerRingMesh.position.set(tx + 2.4, ty + 18.2, tz - 2.4);
+        outerRingMesh.scale.setScalar(Math.max(1.5, radius * 0.95));
         group.add(outerRingMesh);
 
         const baseTargets =
           dropTargets && dropTargets.length > 0
             ? dropTargets
             : [{ x: tx, y: ty, z: tz }];
-        const totalDrops = Math.min(18, Math.max(8, baseTargets.length * 2));
+        const totalDrops = Math.max(baseTargets.length, Math.min(24, Math.max(8, baseTargets.length * 2)));
         const skyRainDrops: NonNullable<ActiveBurstFx['skyRainDrops']> = [];
+        const assignedTileImpacts = new Set<string>();
 
         for (let di = 0; di < totalDrops; di++) {
           const tgt = baseTargets[di % baseTargets.length];
-          const jitterX = (Math.random() - 0.5) * (baseTargets.length === 1 ? 1.15 : 0.75);
-          const jitterZ = (Math.random() - 0.5) * (baseTargets.length === 1 ? 1.15 : 0.75);
+          const tileX = Math.round(tgt.x);
+          const tileZ = Math.round(tgt.z);
+          const tileKey = `${tileX},${tileZ}`;
+          const applyOnLand = Boolean(deferImpact) && !assignedTileImpacts.has(tileKey);
+          assignedTileImpacts.add(tileKey);
+
+          const jitterScale = di < baseTargets.length ? 0.35 : baseTargets.length === 1 ? 0.95 : 0.65;
+          const jitterX = (Math.random() - 0.5) * jitterScale;
+          const jitterZ = (Math.random() - 0.5) * jitterScale;
           const dtx = tgt.x + jitterX;
           const dty = tgt.y;
           const dtz = tgt.z + jitterZ;
-          const heightStart = dty + 18 + Math.random() * 6.5;
-          const dox = dtx + 2.6 + Math.random() * 1.8;
-          const doz = dtz - 2.6 - Math.random() * 1.8;
+          const heightStart = dty + 17.5 + Math.random() * 4.5;
+          const dox = dtx + 2.4 + (Math.random() - 0.5) * 1.2;
+          const doz = dtz - 2.4 + (Math.random() - 0.5) * 1.2;
 
-          const mesh = new THREE.Mesh(
-            cfg.geo,
-            di % 2 === 0 ? dropMatPrimary : dropMatSecondary,
-          );
+          const dropMat =
+            kind === 'crystal_shower' && crystalDropMats.length > 0
+              ? crystalDropMats[di % crystalDropMats.length]
+              : di % 2 === 0
+                ? dropMatPrimary
+                : dropMatSecondary;
+          const mesh = new THREE.Mesh(cfg.geo, dropMat);
           const dropScale =
             kind === 'boulder_rain'
               ? 1.15 + Math.random() * 0.55
-              : kind === 'crystal_shower' || kind === 'volcanic_obsidian'
-                ? 0.95 + Math.random() * 0.45
+              : kind === 'crystal_shower'
+                ? 0.98 + Math.random() * 0.48
                 : kind === 'blossom_rain'
                   ? 0.72 + Math.random() * 0.32
                   : 0.88 + Math.random() * 0.42;
@@ -4783,6 +4694,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           streak.visible = false;
           group.add(streak);
 
+          const ccInfo =
+            kind === 'crystal_shower'
+              ? crystalColors[di % crystalColors.length]
+              : null;
+
           skyRainDrops.push({
             mesh,
             streak,
@@ -4792,14 +4708,18 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             ox: dox,
             oy: heightStart,
             oz: doz,
-            delay: (di / totalDrops) * 0.32 + Math.random() * 0.06,
-            fallDur: cfg.dur + Math.random() * 0.1,
+            tileX,
+            tileZ,
+            dropKind: kind,
+            applyOnLand,
+            delay: (di / totalDrops) * 0.28 + Math.random() * 0.05,
+            fallDur: cfg.dur + Math.random() * 0.08,
             landed: false,
             spinX: (Math.random() - 0.5) * 11,
             spinY: (Math.random() - 0.5) * 13,
             swayAmp: cfg.sway,
-            impactColor: cfg.impactHex,
-            secondaryColor: cfg.secondaryHex,
+            impactColor: ccInfo ? ccInfo.str : cfg.impactHex,
+            secondaryColor: ccInfo ? ccInfo.sec : cfg.secondaryHex,
             sparkCount: totalDrops > 12 ? 7 : 10,
           });
         }
@@ -4811,9 +4731,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           group,
           materials,
           age: 0,
-          duration: 1.15,
+          duration: 1.25,
           impactDelay: 0.25,
-          deferImpact: false,
+          deferImpact: Boolean(deferImpact),
           tx,
           ty,
           tz,
@@ -4827,31 +4747,19 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         return;
       }
 
-      // Utility events (terrain_sculpt, epoch_up): Clean ground ripple without any beam pillar
-      const ringMat = new THREE.MeshBasicMaterial({
-        color: colorHex,
-        transparent: true,
-        opacity: 0.78,
-        side: THREE.DoubleSide,
-        depthWrite: false,
-      });
-      const outerRingMat = new THREE.MeshBasicMaterial({
-        color: 0xffffff,
-        transparent: true,
-        opacity: 0.85,
-        side: THREE.DoubleSide,
-        depthWrite: false,
-      });
+      // Utility events (terrain_sculpt, epoch_up): Top-facing runic magic circle on the ground
+      const ringMat = createMagicCircleMat(type, 0.9, 191);
+      const outerRingMat = createMagicCircleMat(type, 0.82, 211);
       materials.push(ringMat, outerRingMat);
 
-      const ringMesh = new THREE.Mesh(sharedHazRingGeo, ringMat);
-      ringMesh.position.set(tx, ty + 0.1, tz);
-      ringMesh.scale.setScalar(radius * 0.55);
+      const ringMesh = new THREE.Mesh(sharedMagicCircleGeo, ringMat);
+      ringMesh.position.set(tx, ty + 0.14, tz);
+      ringMesh.scale.setScalar(Math.max(1.1, radius * 0.65));
       group.add(ringMesh);
 
-      const outerRingMesh = new THREE.Mesh(sharedHazRingGeo, outerRingMat);
-      outerRingMesh.position.set(tx, ty + 0.15, tz);
-      outerRingMesh.scale.setScalar(radius * 0.35);
+      const outerRingMesh = new THREE.Mesh(sharedMagicCircleGeo, outerRingMat);
+      outerRingMesh.position.set(tx, ty + 0.17, tz);
+      outerRingMesh.scale.setScalar(Math.max(0.8, radius * 0.42));
       group.add(outerRingMesh);
 
       burstFxGroup.add(group);
@@ -5224,6 +5132,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         const idx = dropIdx >= 0 ? dropIdx : 0;
         const old = activeBurstFx[idx];
         if (old) {
+          flushPendingSkyRainDrops(old);
           burstFxGroup.remove(old.group);
           for (const m of old.materials) m.dispose();
           activeBurstFx.splice(idx, 1);
@@ -5300,6 +5209,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         const idx = dropIdx >= 0 ? dropIdx : 0;
         const old = activeBurstFx[idx];
         if (old) {
+          flushPendingSkyRainDrops(old);
           burstFxGroup.remove(old.group);
           for (const m of old.materials) m.dispose();
           activeBurstFx.splice(idx, 1);
@@ -5578,29 +5488,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       }
 
       if (kind === 'arcane_cataclysm') {
-        // Phase 1: Counter-rotating ground & sky Magic Circles + 6 converging Rune Pillars
+        // Phase 1: Unidirectional top-facing ground & sky Magic Circles + 6 converging Rune Pillars
         // Phase 2: Colossal sky-splitting Magic Beam + prism dome obliteration
-        const circleMat = new THREE.MeshBasicMaterial({
-          color: 0x5eead4,
-          transparent: true,
-          opacity: 0.96,
-          side: THREE.DoubleSide,
-          depthWrite: false,
-        });
-        const runeMat = new THREE.MeshBasicMaterial({
-          color: 0xc084fc,
-          transparent: true,
-          opacity: 0.94,
-          side: THREE.DoubleSide,
-          depthWrite: false,
-        });
-        const skyMat = new THREE.MeshBasicMaterial({
-          color: 0xa78bfa,
-          transparent: true,
-          opacity: 0.92,
-          side: THREE.DoubleSide,
-          depthWrite: false,
-        });
+        const circleMat = createMagicCircleMat('arcane_cataclysm', 0.96, 223);
+        const runeMat = createMagicCircleMat('arcane_cataclysm', 0.92, 251);
+        const skyMat = createMagicCircleMat('arcane_cataclysm', 0.94, 277);
         const pillarMat = new THREE.MeshBasicMaterial({
           color: 0x38bdf8,
           transparent: true,
@@ -5639,24 +5531,24 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
         const effRadius = Math.max(2.8, radius);
 
-        // Ground primary magic circle & inscribed rune square
-        const ringMesh = new THREE.Mesh(sharedArcaneHaloTorusGeo, circleMat);
+        // Ground primary magic circle & inscribed inner runic circle
+        const ringMesh = new THREE.Mesh(sharedMagicCircleGeo, circleMat);
         ringMesh.position.set(tx, ty + 0.18, tz);
         ringMesh.scale.setScalar(0.4);
         group.add(ringMesh);
 
-        const thirdRingMesh = new THREE.Mesh(sharedRuneSquareGeo, runeMat);
+        const thirdRingMesh = new THREE.Mesh(sharedMagicCircleGeo, runeMat);
         thirdRingMesh.position.set(tx, ty + 0.24, tz);
         thirdRingMesh.scale.setScalar(0.35);
         group.add(thirdRingMesh);
 
         // Elevated Sky Magic Circle descending overhead before firing the beam
-        const skyCircleMesh = new THREE.Mesh(sharedArcaneHaloTorusGeo, skyMat);
+        const skyCircleMesh = new THREE.Mesh(sharedMagicCircleGeo, skyMat);
         skyCircleMesh.position.set(tx, ty + 6.8, tz);
         skyCircleMesh.scale.setScalar(0.45);
         group.add(skyCircleMesh);
 
-        const outerRingMesh = new THREE.Mesh(sharedHazRingGeo, runeMat);
+        const outerRingMesh = new THREE.Mesh(sharedMagicCircleGeo, runeMat);
         outerRingMesh.position.set(tx, ty + 0.16, tz);
         outerRingMesh.scale.setScalar(0.3);
         group.add(outerRingMesh);
@@ -7232,6 +7124,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             } else if (t.terrain === 'blossom') {
               ambThresh = 66;
               if (chance < ambThresh) targetInst = ambBlossomInsts[h % ambBlossomInsts.length];
+            } else if (t.terrain === 'crystal_field') {
+              ambThresh = 64;
+              if (chance < ambThresh) {
+                targetInst = crystalInsts[(h >> 3) % crystalInsts.length];
+                _dummyMatrix.scale(new THREE.Vector3(0.62, 0.62, 0.62));
+              }
             }
 
             if (targetInst && ambientPropSet.has(targetInst)) {
@@ -9331,25 +9229,23 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
               sp.mesh.rotation.y = elapsed * 1.5 + sp.phase;
             }
             if (hv.ringMesh) {
-              hv.ringMesh.rotation.z = -elapsed * 0.8;
+              hv.ringMesh.rotation.set(0, elapsed * 0.8, 0);
             }
             for (let mi = 0; mi < hv.materials.length; mi++) {
               const m = hv.materials[mi];
               if ('opacity' in m) (m as THREE.MeshBasicMaterial).opacity = 0.72 * fade;
             }
           } else if (hv.kind === 'shield_dome') {
-            if (hv.ringMesh) hv.ringMesh.rotation.z = elapsed * 0.9;
-            if (hv.secondaryRingMesh) hv.secondaryRingMesh.rotation.y = -elapsed * 0.6;
+            if (hv.ringMesh) hv.ringMesh.rotation.set(0, elapsed * 0.9, 0);
+            if (hv.secondaryRingMesh) hv.secondaryRingMesh.rotation.set(0, elapsed * 1.25, 0);
             (hv.materials[0] as THREE.MeshBasicMaterial).opacity =
               (0.26 + Math.sin(elapsed * 5) * 0.06) * fade;
           } else if (hv.kind === 'wormhole_rift') {
             if (hv.ringMesh) {
-              hv.ringMesh.rotation.z = elapsed * 4.8;
-              hv.ringMesh.rotation.y = elapsed * 2.1;
+              hv.ringMesh.rotation.set(0, elapsed * 2.4, 0);
             }
             if (hv.secondaryRingMesh) {
-              hv.secondaryRingMesh.rotation.x = elapsed * 3.6;
-              hv.secondaryRingMesh.rotation.z = -elapsed * 2.8;
+              hv.secondaryRingMesh.rotation.set(0, elapsed * 1.8, 0);
             }
             if (hv.gravityRings) {
               const maxPullR = haz.radius * 1.55;
@@ -9360,7 +9256,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
                 const curRingR = Math.max(0.2, maxPullR * (1 - easeIn));
                 gRing.scale.setScalar(curRingR);
                 gRing.position.y = 0.1 + easeIn * 1.7;
-                gRing.rotation.z = elapsed * (2.2 + gi * 0.8);
+                gRing.rotation.set(0, elapsed * (1.8 + gi * 0.6), 0);
                 const gMat = hv.materials[3 + gi] as THREE.MeshBasicMaterial | undefined;
                 if (gMat) {
                   gMat.opacity = Math.sin(cycle * Math.PI) * 0.82 * fade;
@@ -9654,7 +9550,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             if (hv.ringMesh) {
               const basePoolScale = Math.max(0.08, lavaFlowProg * haz.radius * (0.58 + Math.sin(elapsed * 7) * 0.06) * fade);
               hv.ringMesh.scale.setScalar(basePoolScale);
-              hv.ringMesh.rotation.z = elapsed * 0.9;
+              hv.ringMesh.rotation.set(0, elapsed * 0.9, 0);
             }
             if (hv.secondaryRingMesh) {
               const innerPoolScale = Math.max(0.06, riseEase * haz.radius * (0.3 + Math.cos(elapsed * 9) * 0.05) * fade);
@@ -9691,12 +9587,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             }
           } else if (hv.kind === 'undead_portal') {
             if (hv.ringMesh) {
-              hv.ringMesh.rotation.y = Math.sin(elapsed * 0.8) * 0.25;
-              hv.ringMesh.rotation.z = elapsed * 2.2;
+              hv.ringMesh.rotation.set(0, elapsed * 1.6, 0);
             }
             if (hv.secondaryRingMesh) {
-              hv.secondaryRingMesh.rotation.z = -elapsed * 1.4;
-              hv.secondaryRingMesh.scale.setScalar(haz.radius * (0.6 + Math.sin(elapsed * 4) * 0.08) * fade);
+              hv.secondaryRingMesh.rotation.set(0, elapsed * 1.2, 0);
+              hv.secondaryRingMesh.scale.setScalar(haz.radius * (0.72 + Math.sin(elapsed * 4) * 0.06) * fade);
             }
             if (hv.vortexMotes) {
               for (let mi = 0; mi < hv.vortexMotes.length; mi++) {
@@ -9935,12 +9830,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             }
           } else if (hv.kind === 'chrono_field') {
             if (hv.ringMesh) {
-              hv.ringMesh.rotation.z = elapsed * 1.8;
-              hv.ringMesh.scale.setScalar(haz.radius * (0.94 + Math.sin(elapsed * 4.5) * 0.05) * fade);
+              hv.ringMesh.rotation.set(0, elapsed * 1.6, 0);
+              hv.ringMesh.scale.setScalar(haz.radius * (0.98 + Math.sin(elapsed * 4.5) * 0.05) * fade);
             }
             if (hv.secondaryRingMesh) {
-              hv.secondaryRingMesh.rotation.z = -elapsed * 2.6;
-              hv.secondaryRingMesh.scale.setScalar(haz.radius * 0.68 * fade);
+              hv.secondaryRingMesh.rotation.set(0, elapsed * 2.1, 0);
+              hv.secondaryRingMesh.scale.setScalar(haz.radius * 0.72 * fade);
             }
             if (hv.vortexMotes) {
               for (let mi = 0; mi < hv.vortexMotes.length; mi++) {
@@ -9956,7 +9851,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             hv.group.position.set(haz.x, hy, haz.z);
             const pulse = 0.86 + Math.sin(elapsed * 28) * 0.18;
             if (hv.ringMesh) {
-              hv.ringMesh.scale.setScalar(Math.max(1.8, haz.radius * 0.78) * pulse * fade);
+              hv.ringMesh.rotation.set(0, elapsed * 2.2, 0);
+              hv.ringMesh.scale.setScalar(Math.max(2.0, haz.radius * 0.88) * pulse * fade);
             }
             if (hv.secondaryRingMesh) {
               hv.secondaryRingMesh.scale.set(1.75 * pulse * fade, 14.0, 1.75 * pulse * fade);
@@ -9966,16 +9862,16 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             }
           } else if (hv.kind === 'gravity_anomaly') {
             if (hv.ringMesh) {
-              hv.ringMesh.rotation.z = elapsed * 3.2;
-              hv.ringMesh.scale.setScalar(haz.radius * (0.95 + Math.sin(elapsed * 6) * 0.06) * fade);
+              hv.ringMesh.rotation.set(0, elapsed * 2.0, 0);
+              hv.ringMesh.scale.setScalar(haz.radius * (0.98 + Math.sin(elapsed * 6) * 0.06) * fade);
             }
             if (hv.gravityRings) {
               for (let gi = 0; gi < hv.gravityRings.length; gi++) {
                 const gr = hv.gravityRings[gi];
                 const riseCycle = (elapsed * 0.9 + gi / hv.gravityRings.length) % 1;
                 gr.position.y = 0.25 + riseCycle * 5.2;
-                gr.scale.setScalar(haz.radius * (0.9 - riseCycle * 0.45) * fade);
-                gr.rotation.z = -elapsed * (2.4 + gi * 0.6);
+                gr.scale.setScalar(haz.radius * (0.92 - riseCycle * 0.45) * fade);
+                gr.rotation.set(0, elapsed * (1.8 + gi * 0.5), 0);
               }
             }
             if (Math.random() < 0.55) {
@@ -10755,14 +10651,15 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           const fadeOut = Math.min(1, (fx.duration - fx.age) / 0.85);
           const envelope = fadeIn * fadeOut;
 
-          fx.ringMesh.scale.setScalar(fx.radius * (0.94 + Math.sin(fx.age * 3.2) * 0.04));
-          fx.ringMesh.rotation.z = fx.age * 0.45;
+          fx.ringMesh.scale.setScalar(fx.radius * (0.98 + Math.sin(fx.age * 3.2) * 0.04));
+          fx.ringMesh.rotation.set(0, fx.age * 0.75, 0);
           if (fx.outerRingMesh) {
-            fx.outerRingMesh.rotation.z = -fx.age * 0.65;
-            fx.outerRingMesh.scale.setScalar(fx.radius * (0.86 + Math.cos(fx.age * 2.8) * 0.04));
+            fx.outerRingMesh.rotation.set(0, fx.age * 1.1, 0);
+            fx.outerRingMesh.scale.setScalar(fx.radius * (0.72 + Math.cos(fx.age * 2.8) * 0.04));
           }
           if (fx.thirdRingMesh) {
-            fx.thirdRingMesh.scale.setScalar(fx.radius * (0.48 + Math.sin(fx.age * 4.5) * 0.06));
+            fx.thirdRingMesh.rotation.set(0, fx.age * 1.45, 0);
+            fx.thirdRingMesh.scale.setScalar(fx.radius * (0.46 + Math.sin(fx.age * 4.5) * 0.05));
           }
           if (fx.motes) {
             for (const m of fx.motes) {
@@ -10802,10 +10699,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             spawnRisingParticles(fx.tx, fx.ty, fx.tz, 18, '#80ed99', fx.radius * 0.85, 2.1, 0.95, 1.6);
           }
           const envelope = Math.min(1, fx.age / 0.25) * Math.min(1, (fx.duration - fx.age) / 0.75);
-          fx.ringMesh.scale.setScalar(fx.radius * (0.92 + Math.sin(fx.age * 3.5) * 0.05));
+          fx.ringMesh.scale.setScalar(fx.radius * (0.98 + Math.sin(fx.age * 3.5) * 0.05));
+          fx.ringMesh.rotation.set(0, fx.age * 0.8, 0);
           if (fx.outerRingMesh) {
             const ripple = (fx.age * 0.65) % 1.0;
-            fx.outerRingMesh.scale.setScalar(fx.radius * (0.25 + ripple * 0.78));
+            fx.outerRingMesh.scale.setScalar(fx.radius * (0.35 + ripple * 0.68));
+            fx.outerRingMesh.rotation.set(0, fx.age * 1.25, 0);
           }
           if (fx.motes) {
             for (const m of fx.motes) {
@@ -10841,20 +10740,24 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             spawnRisingParticles(fx.tx, fx.ty, fx.tz, 36, '#ffd166', fx.radius * 0.95, 2.8, 1.1, 1.9);
           }
           const envelope = Math.min(1, fx.age / 0.3) * Math.min(1, (fx.duration - fx.age) / 0.9);
-          fx.ringMesh.scale.setScalar(fx.radius * (0.96 + Math.sin(fx.age * 3.0) * 0.04));
-          if (fx.outerRingMesh) fx.outerRingMesh.rotation.z = fx.age * 0.5;
-          if (fx.thirdRingMesh) fx.thirdRingMesh.scale.setScalar(fx.radius * (0.42 + Math.cos(fx.age * 4) * 0.05));
+          fx.ringMesh.scale.setScalar(fx.radius * (1.02 + Math.sin(fx.age * 3.0) * 0.04));
+          fx.ringMesh.rotation.set(0, fx.age * 0.7, 0);
+          if (fx.outerRingMesh) fx.outerRingMesh.rotation.set(0, fx.age * 1.05, 0);
+          if (fx.thirdRingMesh) {
+            fx.thirdRingMesh.rotation.set(0, fx.age * 1.4, 0);
+            fx.thirdRingMesh.scale.setScalar(fx.radius * (0.48 + Math.cos(fx.age * 4) * 0.05));
+          }
           if (fx.floatingCrown) {
             fx.floatingCrown.position.y = fx.ty + 3.2 + Math.sin(fx.age * 2.5) * 0.25;
-            fx.floatingCrown.rotation.y = fx.age * 1.4;
-            fx.floatingCrown.children[0].rotation.z = fx.age * 1.8;
-            fx.floatingCrown.children[1].rotation.x = Math.PI / 3 + fx.age * 1.2;
+            fx.floatingCrown.rotation.set(0, fx.age * 1.2, 0);
+            if (fx.floatingCrown.children[0]) fx.floatingCrown.children[0].rotation.set(0, fx.age * 0.8, 0);
+            if (fx.floatingCrown.children[1]) fx.floatingCrown.children[1].rotation.set(0, fx.age * 1.35, 0);
             fx.floatingCrown.scale.setScalar(Math.max(0.05, envelope));
           }
           if (fx.motes) {
             for (const m of fx.motes) {
               const cycle = ((fx.age * m.speed + m.phase) % m.height) / m.height;
-              const swirl = m.angle - fx.age * 0.45;
+              const swirl = m.angle + fx.age * 0.45;
               m.mesh.position.set(
                 fx.tx + Math.cos(swirl) * m.dist,
                 fx.ty + 0.15 + cycle * m.height,
@@ -10893,8 +10796,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             );
           }
           fx.ringMesh.scale.setScalar(0.4 + easeOut * fx.radius * 1.35);
+          fx.ringMesh.rotation.set(0, fx.age * 1.4, 0);
           if (fx.outerRingMesh) {
             fx.outerRingMesh.scale.setScalar(0.2 + tNorm * fx.radius * 1.65);
+            fx.outerRingMesh.rotation.set(0, fx.age * 1.85, 0);
           }
           (fx.materials[0] as THREE.MeshBasicMaterial).opacity = (1 - tNorm) * 0.58;
           (fx.materials[1] as THREE.MeshBasicMaterial).opacity = (1 - tNorm) * 0.95;
@@ -10910,9 +10815,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             spawnParticleBurst(fx.tx, fx.ty + 0.3, fx.tz, 48, '#e63946', fx.radius * 0.85, 5.5, 1.2);
           }
           const envelope = Math.min(1, fx.age / 0.2) * Math.min(1, (fx.duration - fx.age) / 0.7);
-          fx.ringMesh.scale.setScalar(fx.radius * (0.94 + Math.sin(fx.age * 8) * 0.05));
+          fx.ringMesh.scale.setScalar(fx.radius * (0.98 + Math.sin(fx.age * 8) * 0.05));
+          fx.ringMesh.rotation.set(0, fx.age * 1.6, 0);
           if (fx.outerRingMesh) {
-            fx.outerRingMesh.rotation.z = fx.age * 2.8;
+            fx.outerRingMesh.rotation.set(0, fx.age * 2.4, 0);
           }
           if (fx.motes) {
             for (const m of fx.motes) {
@@ -10948,17 +10854,19 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             spawnRisingParticles(fx.tx, fx.ty, fx.tz, 30, '#9d4edd', fx.radius * 0.9, 1.9, 1.05, 1.8);
           }
           const envelope = Math.min(1, fx.age / 0.25) * Math.min(1, (fx.duration - fx.age) / 0.8);
-          // Inward-collapsing dark eclipse rings
+          // Inward-collapsing dark eclipse magic circles rotating in one direction
           const collapseCycle = (fx.age * 0.75) % 1.0;
           if (fx.outerRingMesh) {
-            fx.outerRingMesh.scale.setScalar(fx.radius * (1.05 - collapseCycle * 0.8));
+            fx.outerRingMesh.scale.setScalar(fx.radius * (1.05 - collapseCycle * 0.75));
+            fx.outerRingMesh.rotation.set(0, fx.age * 1.5, 0);
           }
-          fx.ringMesh.scale.setScalar(fx.radius * (0.95 + Math.sin(fx.age * 4) * 0.04));
+          fx.ringMesh.scale.setScalar(fx.radius * (0.98 + Math.sin(fx.age * 4) * 0.04));
+          fx.ringMesh.rotation.set(0, fx.age * 1.0, 0);
           if (fx.motes) {
             for (const m of fx.motes) {
               const cycle = ((fx.age * m.speed + m.phase) % m.height) / m.height;
               const inwardR = m.dist * (1 - cycle * 0.65);
-              const swirl = m.angle - fx.age * 1.4;
+              const swirl = m.angle + fx.age * 1.4;
               m.mesh.position.set(
                 fx.tx + Math.cos(swirl) * inwardR,
                 fx.ty + 0.15 + cycle * m.height,
@@ -10987,7 +10895,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             spawnRisingParticles(fx.tx, fx.ty, fx.tz, 34, '#80ed99', fx.radius * 0.9, 2.2, 1.1, 1.7);
           }
           const envelope = Math.min(1, fx.age / 0.22) * Math.min(1, (fx.duration - fx.age) / 0.75);
-          fx.ringMesh.scale.setScalar(fx.radius * (0.92 + Math.sin(fx.age * 4.5) * 0.06));
+          fx.ringMesh.scale.setScalar(fx.radius * (0.96 + Math.sin(fx.age * 4.5) * 0.06));
+          fx.ringMesh.rotation.set(0, fx.age * 0.95, 0);
           if (fx.motes) {
             for (const m of fx.motes) {
               const bubbleCycle = ((fx.age * m.speed + m.phase) % m.height) / m.height;
@@ -11021,14 +10930,15 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             spawnRisingParticles(fx.tx, fx.ty, fx.tz, 36, '#06d6a0', fx.radius * 0.92, 3.0, 1.1, 1.7);
           }
           const envelope = Math.min(1, fx.age / 0.2) * Math.min(1, (fx.duration - fx.age) / 0.75);
-          fx.ringMesh.scale.setScalar(fx.radius * (0.98 + Math.sin(fx.age * 4) * 0.03));
+          fx.ringMesh.scale.setScalar(fx.radius * (1.02 + Math.sin(fx.age * 4) * 0.03));
+          fx.ringMesh.rotation.set(0, fx.age * 0.9, 0);
           if (fx.strataRings) {
             for (let s = 0; s < fx.strataRings.length; s++) {
               const sr = fx.strataRings[s];
               const cycle = ((fx.age * 0.75 + s * 0.25) % 1.0);
               sr.position.y = fx.ty + 0.15 + cycle * 4.2;
               sr.scale.setScalar(fx.radius * (0.98 - cycle * 0.38));
-              sr.rotation.z = (s % 2 === 0 ? 1 : -1) * fx.age * 0.8;
+              sr.rotation.set(0, fx.age * (1.0 + s * 0.25), 0);
             }
           }
           if (fx.motes) {
@@ -11056,9 +10966,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           if (prePhase < 1) {
             // Gravitational inward collapse before event horizon birth
             fx.ringMesh.scale.setScalar(fx.radius * (1.35 - prePhase * 1.05));
+            fx.ringMesh.rotation.set(0, fx.age * 2.5, 0);
             if (fx.outerRingMesh) {
               fx.outerRingMesh.scale.setScalar(fx.radius * (1.4 - prePhase * 1.15));
-              fx.outerRingMesh.rotation.z = fx.age * 6.0;
+              fx.outerRingMesh.rotation.set(0, fx.age * 3.8, 0);
             }
             if (fx.motes) {
               for (const m of fx.motes) {
@@ -11087,9 +10998,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             const postPhase = Math.min(1, (fx.age - fx.impactDelay) / (fx.duration - fx.impactDelay));
             const envelope = 1 - postPhase;
             fx.ringMesh.scale.setScalar(0.3 + Math.sqrt(postPhase) * fx.radius * 1.35);
+            fx.ringMesh.rotation.set(0, fx.age * 2.5, 0);
             if (fx.outerRingMesh) {
               fx.outerRingMesh.scale.setScalar(0.25 + postPhase * fx.radius * 1.15);
-              fx.outerRingMesh.rotation.z = fx.age * 5.0;
+              fx.outerRingMesh.rotation.set(0, fx.age * 3.8, 0);
             }
             if (fx.motes) {
               for (const m of fx.motes) {
@@ -11437,18 +11349,22 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             }
             const postT = Math.min(1, (fx.age - fx.impactDelay) / Math.max(0.08, fx.duration - fx.impactDelay));
             fx.ringMesh.scale.setScalar(0.3 + postT * fx.radius * 1.25);
+            fx.ringMesh.rotation.set(0, fx.age * 1.6, 0);
             (fx.materials[0] as THREE.MeshBasicMaterial).opacity = (1 - postT) * 0.9;
             if (fx.outerRingMesh) {
               fx.outerRingMesh.scale.setScalar(0.2 + postT * fx.radius * 1.45);
+              fx.outerRingMesh.rotation.set(0, fx.age * 2.1, 0);
               (fx.materials[1] as THREE.MeshBasicMaterial).opacity = (1 - postT) * 0.82;
             }
           }
         } else if (fx.kind === 'sky_rain_shower' && fx.skyRainDrops && fx.ringMesh) {
           const ringProg = Math.min(1, fx.age / fx.duration);
           fx.ringMesh.scale.setScalar(0.45 + ringProg * fx.radius * 1.15);
+          fx.ringMesh.rotation.set(0, fx.age * 1.4, 0);
           (fx.materials[0] as THREE.MeshBasicMaterial).opacity = Math.max(0, (1 - ringProg) * 0.65);
           if (fx.outerRingMesh) {
             fx.outerRingMesh.scale.setScalar(0.3 + ringProg * fx.radius * 1.38);
+            fx.outerRingMesh.rotation.set(0, fx.age * 1.8, 0);
             (fx.materials[1] as THREE.MeshBasicMaterial).opacity = Math.max(0, (1 - ringProg) * 0.58);
           }
 
@@ -11476,6 +11392,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
               d.landed = true;
               d.mesh.visible = false;
               d.streak.visible = false;
+              if (d.applyOnLand) {
+                executeTerrainDropTileImpact(simRef.current, d.dropKind, d.tileX, d.tileZ);
+                if (di === 0) {
+                  soundEngine.playBlessing();
+                }
+              }
               spawnParticleBurst(d.tx, d.ty + 0.25, d.tz, d.sparkCount, d.impactColor, 0.62, 3.6, 0.72);
               spawnParticleBurst(d.tx, d.ty + 0.25, d.tz, Math.max(3, Math.floor(d.sparkCount * 0.5)), d.secondaryColor, 0.42, 4.2, 0.58);
               if (di === 0 || di === Math.floor(fx.skyRainDrops.length / 2)) {
@@ -11529,9 +11451,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           const wavePhase = Math.min(1, fx.age / fx.duration);
           const easeOut = 1 - (1 - wavePhase) * (1 - wavePhase);
           fx.ringMesh.scale.setScalar(0.35 + easeOut * fx.radius * 1.05);
+          fx.ringMesh.rotation.set(0, fx.age * 1.5, 0);
           (fx.materials[0] as THREE.MeshBasicMaterial).opacity = (1 - wavePhase) * 0.85;
           if (fx.outerRingMesh) {
             fx.outerRingMesh.scale.setScalar(0.2 + wavePhase * fx.radius * 1.25);
+            fx.outerRingMesh.rotation.set(0, fx.age * 2.1, 0);
             (fx.materials[1] as THREE.MeshBasicMaterial).opacity = (1 - wavePhase) * 0.75;
           }
         } else if (fx.kind === 'weapon_spark' && fx.ringMesh) {
@@ -11676,18 +11600,18 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             const p1 = prog / beamTriggerFrac;
             const p1Ease = 1 - Math.pow(1 - p1, 2);
             fx.ringMesh.scale.setScalar(0.4 + p1Ease * fx.radius * 1.15);
-            fx.ringMesh.rotation.z = p1 * 3.8;
+            fx.ringMesh.rotation.set(0, p1 * 3.8, 0);
             (fx.materials[0] as THREE.MeshBasicMaterial).opacity = Math.min(0.98, 0.45 + p1 * 0.55);
 
             if (fx.thirdRingMesh) {
               fx.thirdRingMesh.scale.setScalar(0.35 + p1Ease * fx.radius * 1.1);
-              fx.thirdRingMesh.rotation.z = -p1 * 4.5;
+              fx.thirdRingMesh.rotation.set(0, p1 * 4.5, 0);
               (fx.materials[1] as THREE.MeshBasicMaterial).opacity = Math.min(0.95, 0.35 + p1 * 0.6);
             }
             if (fx.skyCircleMesh) {
               fx.skyCircleMesh.position.y = fx.ty + 7.2 - p1Ease * 2.1;
               fx.skyCircleMesh.scale.setScalar(0.35 + p1Ease * fx.radius * 0.95);
-              fx.skyCircleMesh.rotation.z = -p1 * 5.2;
+              fx.skyCircleMesh.rotation.set(0, p1 * 5.2, 0);
               (fx.materials[2] as THREE.MeshBasicMaterial).opacity = Math.min(0.95, 0.25 + p1 * 0.72);
             }
             if (fx.outerRingMesh) {
@@ -11746,16 +11670,16 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             }
 
             fx.ringMesh.scale.setScalar(fx.radius * (1.15 + p2Ease * 0.75));
-            fx.ringMesh.rotation.z += dt * 4.2;
+            fx.ringMesh.rotation.set(0, fx.age * 4.2, 0);
             (fx.materials[0] as THREE.MeshBasicMaterial).opacity = env * 0.94;
             if (fx.thirdRingMesh) {
               fx.thirdRingMesh.scale.setScalar(fx.radius * (1.1 + p2Ease * 0.65));
-              fx.thirdRingMesh.rotation.z -= dt * 5.0;
+              fx.thirdRingMesh.rotation.set(0, fx.age * 5.0, 0);
               (fx.materials[1] as THREE.MeshBasicMaterial).opacity = env * 0.88;
             }
             if (fx.skyCircleMesh) {
               fx.skyCircleMesh.scale.setScalar(fx.radius * (0.95 + p2Ease * 0.5));
-              fx.skyCircleMesh.rotation.z -= dt * 6.0;
+              fx.skyCircleMesh.rotation.set(0, fx.age * 6.0, 0);
               (fx.materials[2] as THREE.MeshBasicMaterial).opacity = env * 0.9;
             }
             if (fx.outerRingMesh) {
@@ -11799,6 +11723,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         }
 
         if (fx.age >= fx.duration) {
+          flushPendingSkyRainDrops(fx);
           burstFxGroup.remove(fx.group);
           for (const m of fx.materials) m.dispose();
           activeBurstFx.splice(i, 1);
@@ -12694,6 +12619,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       sharedBeamColGeo.dispose();
       sharedBattlewillCrescentGeo.dispose();
       sharedBattlewillEdgeGeo.dispose();
+      sharedMagicCircleGeo.dispose();
+      disposeMagicCircleTextureCache();
       dragTargetReticleGeo.dispose();
       dragTargetReticleMat.dispose();
       dragTetherGeo.dispose();

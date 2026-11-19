@@ -12,6 +12,11 @@ import {
 } from './autoOptimizer';
 import type { BuildingEntity } from './types';
 import {
+  createMagicCirclePlaneGeometry,
+  getMagicCircleThemeForPower,
+  RUNIC_GLYPH_COUNT,
+} from './magicCircles';
+import {
   WORLD_TEMPLATES,
   advanceEpoch,
   applyTerrainTool,
@@ -25,6 +30,7 @@ import {
   dismissWorldEventCinematic,
   executeGodPowerImpact,
   executeHugeAsteroidImpact,
+  executeTerrainDropTileImpact,
   formatYearLabel,
   generateEarthquakeFaultNetwork,
   getKingdomEpoch,
@@ -6466,45 +6472,62 @@ test('Land Powers Expansion: 13 new creative land powers, sky_rain_drop VFX targ
     }
   }
 
-  // 2. Every isSkyRain tool succeeds on valid ground/water and emits sky_rain_drop with populated dropTargets
+  // 2. Context-appropriate Sky Rain vs. Ground/Sea powers:
+  // Only items that physically rain from the sky (seed_ore, crystal_shower, boulder_rain, blossom_rain, salvage_drop) have isSkyRain: true
   const skyTools = TERRAIN_TOOLS.filter((d) => d.isSkyRain);
-  assert.ok(skyTools.length >= 10, `Expected at least 10 sky-rain land powers, got ${skyTools.length}`);
-  assert.equal(TERRAIN_TOOLS.find((d) => d.type === 'seed_ore')?.isSkyRain, true, 'seed_ore (Ore Rain) must be marked as sky rain');
+  const skyToolTypes = skyTools.map((d) => d.type).sort();
+  assert.deepEqual(
+    skyToolTypes,
+    ['blossom_rain', 'boulder_rain', 'crystal_shower', 'salvage_drop', 'seed_ore'],
+    'Only physical sky-dropped items should come from the sky',
+  );
 
-  skyTools.forEach((def, idx) => {
-    state.pendingVfx = [];
-    const tx = 14 + (idx % 6) * 3;
-    const tz = def.type === 'coral_reef_rain' ? 30 + (idx % 2) * 3 : 14 + Math.floor(idx / 6) * 4;
-    if (def.type === 'soil_enrich') {
-      getTile(state, tx, tz)!.terrain = 'scorched';
-    }
-    const res = applyTerrainTool(state, def.type, tx, tz, 1);
-    assert.equal(res.ok, true, `Sky-rain land tool "${def.type}" should succeed at (${tx},${tz}): ${res.reason}`);
-    const vfx = state.pendingVfx.find((v) => v.type === 'sky_rain_drop' && v.dropKind === def.type);
-    assert.ok(vfx, `Sky-rain land tool "${def.type}" must emit a 'sky_rain_drop' visual effect`);
-    assert.ok((vfx.dropTargets?.length ?? 0) >= 1, `Sky-rain "${def.type}" must provide ground dropTargets`);
-  });
+  const groundOrWaterTools = [
+    'fertile_meadow',
+    'plant_forest',
+    'jungle_bloom',
+    'soil_enrich',
+    'desert_dunes',
+    'volcanic_obsidian',
+    'coral_reef_rain',
+    'alpine_glacier',
+  ] as const;
+  for (const gt of groundOrWaterTools) {
+    const def = TERRAIN_TOOLS.find((d) => d.type === gt);
+    assert.ok(def, `Ground/Water tool "${gt}" must exist in catalog`);
+    assert.ok(!def.isSkyRain, `Ground/Water tool "${gt}" must not come from the sky`);
+    assert.notEqual(def.category, 'Sky Rain', `Ground/Water tool "${gt}" must be in Biomes/Water/Sculpt category`);
+  }
 
-  // 3. Specific mechanic checks on all 13 new land powers
-  // Crystal Shower -> crystal_field + crystal_monolith
+  // 3. Sky-rain powers wait for falling items to finish dropping before applying changes to the environment
+  // Crystal Shower -> deferred on cast, mutates to crystal_field + crystal_monolith on landing
   const cryTile = getTile(state, 12, 12)!;
   cryTile.terrain = 'grass';
   cryTile.height = 1;
   cryTile.resourceNode = 'none';
+  state.pendingVfx = [];
   assert.equal(applyTerrainTool(state, 'crystal_shower', 12, 12, 0).ok, true);
+  assert.equal(cryTile.terrain, 'grass', 'crystal_shower must wait for falling crystals to land before mutating terrain');
+  assert.equal(cryTile.resourceNode, 'none', 'crystal_shower must wait for falling crystals to land before spawning crystal_monolith');
+  const cryVfx = state.pendingVfx.find((v) => v.type === 'sky_rain_drop' && v.dropKind === 'crystal_shower');
+  assert.ok(cryVfx && cryVfx.deferImpact, 'crystal_shower must emit sky_rain_drop with deferImpact=true');
+  assert.ok(cryVfx.dropTargets?.some((t) => t.x === 12 && t.z === 12), 'dropTargets must include target tile (12,12)');
+  assert.equal(executeTerrainDropTileImpact(state, 'crystal_shower', 12, 12), true);
   assert.equal(cryTile.terrain, 'crystal_field');
   assert.equal(cryTile.resourceNode, 'crystal_monolith');
 
-  // Boulder Rain -> rock/mountain + stone_outcrop
+  // Boulder Rain -> deferred on cast, mutates to rock/mountain + stone_outcrop on landing
   const bldTile = getTile(state, 13, 12)!;
   bldTile.terrain = 'grass';
   bldTile.height = 1;
   bldTile.resourceNode = 'none';
   assert.equal(applyTerrainTool(state, 'boulder_rain', 13, 12, 0).ok, true);
+  assert.equal(bldTile.terrain, 'grass', 'boulder_rain must wait for falling boulder to land before mutating terrain');
+  assert.equal(executeTerrainDropTileImpact(state, 'boulder_rain', 13, 12), true);
   assert.equal(bldTile.terrain, 'rock');
   assert.equal(bldTile.resourceNode, 'stone_outcrop');
 
-  // Blossom Rain -> blossom + clears fire/curse & heals units
+  // Blossom Rain -> deferred on cast, mutates to blossom + clears fire/curse & heals units on landing
   const blsTile = getTile(state, 15, 12)!;
   blsTile.terrain = 'grass';
   blsTile.height = 1;
@@ -6513,19 +6536,32 @@ test('Land Powers Expansion: 13 new creative land powers, sky_rain_drop VFX targ
   const injuredHero = spawnUnit(state, 'human', 15, 12, true).unit!;
   injuredHero.hp = 20;
   assert.equal(applyTerrainTool(state, 'blossom_rain', 15, 12, 0).ok, true);
+  assert.equal(blsTile.terrain, 'grass', 'blossom_rain must wait for falling petals to land before mutating terrain');
+  assert.equal(executeTerrainDropTileImpact(state, 'blossom_rain', 15, 12), true);
   assert.equal(blsTile.terrain, 'blossom');
   assert.equal(blsTile.cursedTimer, 0);
   assert.equal(blsTile.onFireTimer, 0);
-  assert.ok(injuredHero.hp > 20, 'blossom_rain must heal friendly units in area');
+  assert.ok(injuredHero.hp > 20, 'blossom_rain must heal friendly units when petals land');
 
-  // Jungle Bloom -> jungle + grove/bush
+  // Salvage Drop -> deferred on cast, spawns scrap_flotsam on sea when pod lands
+  const seaSalvage = getTile(state, 22, 32)!;
+  seaSalvage.terrain = 'shallow_water';
+  seaSalvage.height = 0;
+  seaSalvage.resourceNode = 'none';
+  assert.equal(applyTerrainTool(state, 'salvage_drop', 22, 32, 0).ok, true);
+  assert.equal(seaSalvage.resourceNode, 'none', 'salvage_drop must wait for falling pod to land');
+  assert.equal(executeTerrainDropTileImpact(state, 'salvage_drop', 22, 32), true);
+  assert.equal(seaSalvage.resourceNode, 'scrap_flotsam');
+
+  // 4. Non-sky Ground/Water powers apply directly and immediately
+  // Jungle Bloom -> jungle + grove/bush immediately
   const jngTile = getTile(state, 16, 12)!;
   jngTile.terrain = 'grass';
   jngTile.height = 1;
   assert.equal(applyTerrainTool(state, 'jungle_bloom', 16, 12, 0).ok, true);
   assert.equal(jngTile.terrain, 'jungle');
 
-  // Soil Enrich -> revives dead/scorched/void earth into living grass
+  // Soil Enrich -> revives dead/scorched/void earth into living grass immediately
   const scorTile = getTile(state, 18, 12)!;
   scorTile.terrain = 'scorched';
   scorTile.height = 1;
@@ -6534,7 +6570,7 @@ test('Land Powers Expansion: 13 new creative land powers, sky_rain_drop VFX targ
   assert.equal(scorTile.terrain, 'grass');
   assert.equal(scorTile.cursedTimer, 0);
 
-  // Desert Dunes -> warm sand dunes
+  // Desert Dunes -> warm sand dunes immediately
   const dunTile = getTile(state, 19, 12)!;
   dunTile.terrain = 'grass';
   dunTile.height = 1;
@@ -6542,7 +6578,7 @@ test('Land Powers Expansion: 13 new creative land powers, sky_rain_drop VFX targ
   assert.equal(dunTile.terrain, 'sand');
   assert.ok((dunTile.tempOffset ?? 0) > 0);
 
-  // Volcanic Obsidian -> scorched + ore/stone vein + heat
+  // Volcanic Obsidian -> scorched + ore/stone vein + heat immediately
   const obsTile = getTile(state, 20, 12)!;
   obsTile.terrain = 'grass';
   obsTile.height = 1;
@@ -6551,15 +6587,7 @@ test('Land Powers Expansion: 13 new creative land powers, sky_rain_drop VFX targ
   assert.equal(obsTile.terrain, 'scorched');
   assert.ok(['ore_vein', 'stone_outcrop'].includes(obsTile.resourceNode));
 
-  // Salvage Drop -> scrap_flotsam on sea, ore/stone on land
-  const seaSalvage = getTile(state, 22, 32)!;
-  seaSalvage.terrain = 'shallow_water';
-  seaSalvage.height = 0;
-  seaSalvage.resourceNode = 'none';
-  assert.equal(applyTerrainTool(state, 'salvage_drop', 22, 32, 0).ok, true);
-  assert.equal(seaSalvage.resourceNode, 'scrap_flotsam');
-
-  // Coral Reef Rain -> requires water, seeds coral_reef
+  // Coral Reef -> requires water, seeds coral_reef immediately
   const coralLandFail = applyTerrainTool(state, 'coral_reef_rain', 21, 12, 0);
   assert.equal(coralLandFail.ok, false, 'coral_reef_rain should reject solid inland tiles');
   const coralSea = getTile(state, 24, 32)!;
@@ -6585,7 +6613,7 @@ test('Land Powers Expansion: 13 new creative land powers, sky_rain_drop VFX targ
   assert.equal(abyssTile.terrain, 'deep_water');
   assert.equal(abyssTile.height, 0);
 
-  // Alpine Glacier -> raises mountain/snow peak on land, freezes water into ice
+  // Alpine Glacier -> raises mountain/snow peak on land, freezes water into ice immediately
   const alpLand = getTile(state, 30, 20)!;
   alpLand.terrain = 'grass';
   alpLand.height = 2;
@@ -6608,7 +6636,20 @@ test('Land Powers Expansion: 13 new creative land powers, sky_rain_drop VFX targ
   swTile.height = 2;
   assert.equal(applyTerrainTool(state, 'swamp_mire', 32, 20, 0).ok, true);
   assert.equal(swTile.terrain, 'swamp');
+
+  // 5. Magic Circle Geometry & Multi-Colored Crystal Biome Verification
+  const magicGeo = createMagicCirclePlaneGeometry();
+  const normals = magicGeo.getAttribute('normal');
+  for (let i = 0; i < normals.count; i++) {
+    assert.ok(Math.abs(normals.getX(i)) < 1e-5, 'Magic circle normal X must be 0 (flat horizontal)');
+    assert.ok(Math.abs(normals.getY(i) - 1) < 1e-5, 'Magic circle normal Y must face straight up (+1)');
+    assert.ok(Math.abs(normals.getZ(i)) < 1e-5, 'Magic circle normal Z must be 0 (flat horizontal)');
+  }
+  magicGeo.dispose();
+  assert.equal(RUNIC_GLYPH_COUNT, 24, 'Magic circles must include 24 distinct mystic/runic glyphs');
+  assert.equal(getMagicCircleThemeForPower('crystal_shower'), 'arcane');
 });
+
 
 
 

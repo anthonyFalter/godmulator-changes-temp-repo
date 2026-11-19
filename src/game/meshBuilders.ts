@@ -266,9 +266,9 @@ export function getTerrainMaterial(terrain: TerrainType): THREE.MeshStandardMate
       break;
     case 'crystal_field':
       topMat = new THREE.MeshStandardMaterial({
-        map: getPixelArtTexture('crystal_field', '#3e5463', '#64dfdf', '#273640', 'tech'),
-        roughness: 0.35,
-        metalness: 0.3,
+        map: getPixelArtTexture('crystal_field', '#8ed8fa', '#c2ecff', '#66b6e6', 'stone'),
+        roughness: 0.28,
+        metalness: 0.22,
       });
       break;
     case 'void_goo':
@@ -2049,37 +2049,110 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     ore.push(finalizeMergedParts(p));
   }
 
-  // 5. Crystal Monolith variants (1-4 luminous spires per tile)
+  // 5. Crystal Monolith variants (6 vibrant multi-colored fantasy crystal clusters on light-blue geode bases)
   const crystal: THREE.BufferGeometry[] = [];
+  const paintCrystalPart = (g: THREE.BufferGeometry, hex: number) => {
+    _tmpColor.setHex(hex);
+    const count = g.attributes.position.count;
+    const colors = new Float32Array(count * 3);
+    for (let i = 0; i < count; i++) {
+      colors[i * 3] = _tmpColor.r;
+      colors[i * 3 + 1] = _tmpColor.g;
+      colors[i * 3 + 2] = _tmpColor.b;
+    }
+    g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  };
+  const addFacetedCrystalSpire = (
+    parts: THREE.BufferGeometry[],
+    cx: number,
+    cz: number,
+    radius: number,
+    height: number,
+    bodyHex: number,
+    tipHex: number,
+    tiltX = 0,
+    tiltZ = 0,
+    rotY = 0,
+  ) => {
+    const shaftH = height * 0.72;
+    const tipH = height * 0.28;
+    const shaft = new THREE.CylinderGeometry(radius * 0.88, radius, shaftH, 6);
+    shaft.translate(0, shaftH * 0.5, 0);
+    if (rotY !== 0) shaft.rotateY(rotY);
+    if (tiltX !== 0) shaft.rotateX(tiltX);
+    if (tiltZ !== 0) shaft.rotateZ(tiltZ);
+    shaft.translate(cx, 0.03, cz);
+    paintCrystalPart(shaft, bodyHex);
+    parts.push(shaft);
+
+    const tip = new THREE.ConeGeometry(radius * 0.88, tipH, 6);
+    tip.translate(0, shaftH + tipH * 0.5, 0);
+    if (rotY !== 0) tip.rotateY(rotY);
+    if (tiltX !== 0) tip.rotateX(tiltX);
+    if (tiltZ !== 0) tip.rotateZ(tiltZ);
+    tip.translate(cx, 0.03, cz);
+    paintCrystalPart(tip, tipHex);
+    parts.push(tip);
+  };
+
   {
+    // Variant 0: Rose-Magenta Quartz spire with Amethyst & Sapphire side crystals
     const p: THREE.BufferGeometry[] = [];
-    addColoredBox(p, 0.48, 0.12, 0.48, 0, 0.06, 0, 0x37474f);
-    addColoredBox(p, 0.18, 0.66, 0.18, 0, 0.38, 0, 0x48bfe3, Math.PI / 4);
-    addColoredBox(p, 0.12, 0.4, 0.12, 0.18, 0.24, 0.12, 0x64dfdf, 0, -0.22);
-    addColoredBox(p, 0.11, 0.34, 0.11, -0.17, 0.2, -0.14, 0x4ea8de, 0, 0.24);
+    addSculptedBoulder(p, 0, 0.045, 0, 0.25, 0.055, 0.24, 0x6cb8e6, 0xa8e0ff, 1.1);
+    addFacetedCrystalSpire(p, 0.0, 0.0, 0.105, 0.72, 0xe848a8, 0xff94d6, 0.06, -0.05, 0.3);
+    addFacetedCrystalSpire(p, 0.16, 0.11, 0.072, 0.46, 0x9b5de5, 0xd4a5ff, 0.16, -0.22, 0.9);
+    addFacetedCrystalSpire(p, -0.15, -0.12, 0.068, 0.40, 0x38bdf8, 0x99e6ff, -0.18, 0.22, 1.7);
+    addFacetedCrystalSpire(p, -0.12, 0.15, 0.054, 0.30, 0xfbbf24, 0xffe680, 0.22, 0.18, 2.3);
     crystal.push(finalizeMergedParts(p));
   }
   {
+    // Variant 1: Emerald-Mint Jade prism cluster with Golden Topaz & Rose-Pink shards
     const p: THREE.BufferGeometry[] = [];
-    addColoredBox(p, 0.22, 0.1, 0.22, -0.18, 0.05, -0.12, 0x37474f);
-    addColoredBox(p, 0.13, 0.54, 0.13, -0.18, 0.32, -0.12, 0x48bfe3, 0.4, 0.12);
-    addColoredBox(p, 0.12, 0.48, 0.12, 0.2, 0.28, -0.14, 0x64dfdf, 0.7, -0.18);
-    addColoredBox(p, 0.14, 0.6, 0.14, 0.02, 0.34, 0.22, 0x56cfe1, 0.2);
+    addSculptedBoulder(p, -0.04, 0.045, 0.02, 0.24, 0.055, 0.23, 0x72bee8, 0xb0e4ff, 2.4);
+    addFacetedCrystalSpire(p, -0.06, -0.04, 0.10, 0.68, 0x10b981, 0x6ee7b7, -0.08, 0.10, 0.5);
+    addFacetedCrystalSpire(p, 0.15, -0.10, 0.076, 0.50, 0xf59e0b, 0xfde047, 0.14, -0.20, 1.1);
+    addFacetedCrystalSpire(p, 0.06, 0.16, 0.072, 0.44, 0xf43f5e, 0xfda4af, 0.20, 0.12, 2.0);
+    addFacetedCrystalSpire(p, -0.18, 0.12, 0.055, 0.32, 0x38bdf8, 0xbae6fd, -0.16, 0.24, 0.2);
     crystal.push(finalizeMergedParts(p));
   }
   {
+    // Variant 2: Royal Amethyst-Violet monolith with Cyan-Ice & Coral-Ruby crystals
     const p: THREE.BufferGeometry[] = [];
-    addColoredBox(p, 0.11, 0.42, 0.11, -0.2, 0.21, -0.18, 0x64dfdf, 0.3, 0.18);
-    addColoredBox(p, 0.11, 0.46, 0.11, 0.2, 0.23, -0.16, 0x48bfe3, 0.6, -0.16);
-    addColoredBox(p, 0.12, 0.52, 0.12, -0.16, 0.26, 0.2, 0x56cfe1, 0.1, 0.14);
-    addColoredBox(p, 0.1, 0.38, 0.1, 0.22, 0.19, 0.18, 0x72efdd, 0.5, -0.2);
+    addSculptedBoulder(p, 0.02, 0.045, -0.02, 0.26, 0.055, 0.24, 0x68b4e3, 0xa2dcff, 3.7);
+    addFacetedCrystalSpire(p, 0.02, -0.02, 0.11, 0.74, 0x8b5cf6, 0xc4b5fd, 0.05, 0.07, 0.8);
+    addFacetedCrystalSpire(p, -0.16, 0.11, 0.078, 0.48, 0x06b6d4, 0x67e8f9, -0.18, 0.20, 1.5);
+    addFacetedCrystalSpire(p, 0.17, 0.13, 0.068, 0.42, 0xf97316, 0xfdba74, 0.18, -0.18, 2.4);
+    addFacetedCrystalSpire(p, -0.13, -0.15, 0.056, 0.31, 0xec4899, 0xf9a8d4, -0.22, -0.15, 0.4);
     crystal.push(finalizeMergedParts(p));
   }
   {
+    // Variant 3: Golden-Topaz Sunstone spire with Lavender, Mint & Magenta shards
     const p: THREE.BufferGeometry[] = [];
-    addColoredBox(p, 0.42, 0.1, 0.36, 0, 0.05, 0, 0x37474f);
-    addColoredBox(p, 0.17, 0.68, 0.17, -0.1, 0.38, -0.05, 0x48bfe3, 0.5, 0.14);
-    addColoredBox(p, 0.15, 0.56, 0.15, 0.14, 0.32, 0.12, 0x64dfdf, 0.2, -0.18);
+    addSculptedBoulder(p, 0, 0.045, 0, 0.25, 0.055, 0.25, 0x74bfe8, 0xb5e6ff, 4.9);
+    addFacetedCrystalSpire(p, -0.03, 0.02, 0.102, 0.70, 0xeab308, 0xfef08a, -0.06, -0.08, 1.2);
+    addFacetedCrystalSpire(p, 0.16, -0.08, 0.080, 0.52, 0xd946ef, 0xf5d0fe, 0.15, -0.22, 0.4);
+    addFacetedCrystalSpire(p, -0.16, -0.12, 0.068, 0.40, 0x14b8a6, 0x99f6e4, -0.20, 0.16, 2.1);
+    addFacetedCrystalSpire(p, 0.08, 0.17, 0.058, 0.34, 0x6366f1, 0xa5b4fc, 0.22, 0.14, 1.8);
+    crystal.push(finalizeMergedParts(p));
+  }
+  {
+    // Variant 4: Celestial Sapphire-Cyan cathedral spire with Ruby, Emerald & Violet offshoots
+    const p: THREE.BufferGeometry[] = [];
+    addSculptedBoulder(p, 0.01, 0.045, 0.01, 0.25, 0.055, 0.23, 0x6ab5e3, 0xa8dfff, 6.1);
+    addFacetedCrystalSpire(p, 0.0, 0.0, 0.108, 0.73, 0x0ea5e9, 0x7dd3fc, 0.04, -0.06, 0.7);
+    addFacetedCrystalSpire(p, -0.17, 0.08, 0.076, 0.49, 0xf43f5e, 0xfda4af, -0.19, 0.18, 1.4);
+    addFacetedCrystalSpire(p, 0.15, 0.12, 0.070, 0.43, 0x22c55e, 0x86efac, 0.17, -0.19, 2.2);
+    addFacetedCrystalSpire(p, 0.11, -0.16, 0.056, 0.33, 0xa855f7, 0xd8b4fe, -0.18, -0.20, 0.9);
+    crystal.push(finalizeMergedParts(p));
+  }
+  {
+    // Variant 5: Crimson-Coral Starstone with Turquoise, Gold & Fuchsia crystals
+    const p: THREE.BufferGeometry[] = [];
+    addSculptedBoulder(p, -0.02, 0.045, 0.0, 0.24, 0.055, 0.24, 0x70bce6, 0xade2ff, 7.3);
+    addFacetedCrystalSpire(p, 0.03, -0.03, 0.104, 0.69, 0xef4444, 0xfca5a5, 0.07, 0.06, 1.6);
+    addFacetedCrystalSpire(p, -0.15, -0.09, 0.078, 0.50, 0x06b6d4, 0xa5f3fc, -0.16, 0.21, 0.3);
+    addFacetedCrystalSpire(p, 0.14, 0.15, 0.068, 0.41, 0xfacc15, 0xfef08a, 0.21, -0.14, 2.5);
+    addFacetedCrystalSpire(p, -0.11, 0.16, 0.056, 0.32, 0xec4899, 0xfbcfe8, 0.18, 0.22, 1.1);
     crystal.push(finalizeMergedParts(p));
   }
 
@@ -3140,13 +3213,27 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
       roughness: 0.78,
       metalness: 0.08,
     }),
-    crystalMat: new THREE.MeshStandardMaterial({
-      vertexColors: true,
-      emissive: 0x104c63,
-      emissiveIntensity: 0.45,
-      roughness: 0.24,
-      metalness: 0.35,
-    }),
+    crystalMat: (() => {
+      const m = new THREE.MeshStandardMaterial({
+        vertexColors: true,
+        roughness: 0.18,
+        metalness: 0.25,
+      });
+      m.onBeforeCompile = (shader) => {
+        shader.fragmentShader = shader.fragmentShader.replace(
+          '#include <color_fragment>',
+          `#include <color_fragment>
+          diffuseColor.rgb = pow(diffuseColor.rgb, vec3(0.92)) * 1.15;`,
+        );
+        shader.fragmentShader = shader.fragmentShader.replace(
+          '#include <emissivemap_fragment>',
+          `#include <emissivemap_fragment>
+          totalEmissiveRadiance += diffuseColor.rgb * 0.46;`,
+        );
+      };
+      m.customProgramCacheKey = () => 'fantasy-crystal-biolum-v1';
+      return m;
+    })(),
     coralReefMat: (() => {
       const m = new THREE.MeshStandardMaterial({
         vertexColors: true,
