@@ -2527,7 +2527,7 @@ export default function App() {
           {/* Bare Event Title Header: No background fill or box borders, just text with horizontal border lines */}
           <div
             data-testid="world-event-title-header"
-            className="pointer-events-none relative mt-2 sm:mt-4 px-8 py-2 text-center bg-transparent border-t-2 border-b-2 border-l-0 border-r-0"
+            className="pointer-events-none relative mt-2 sm:mt-4 px-8 py-2.5 text-center bg-transparent border-t-2 border-b-2 border-l-0 border-r-0"
             style={{
               borderColor: activeWorldEvent.accentColor,
             }}
@@ -2541,6 +2541,17 @@ export default function App() {
             >
               {activeWorldEvent.title}
             </h2>
+            {activeWorldEvent.subtitle && (
+              <p
+                data-testid="world-event-description"
+                className="mt-1 text-xs sm:text-sm font-medium tracking-[0.06em] text-[#f2ece1] max-w-xl mx-auto"
+                style={{
+                  textShadow: '1px 1px 0 #090807, -1px -1px 0 #090807, 1px -1px 0 #090807, -1px 1px 0 #090807',
+                }}
+              >
+                {activeWorldEvent.subtitle}
+              </p>
+            )}
           </div>
 
           <span
@@ -2557,6 +2568,29 @@ export default function App() {
       {/* PLAYING HUD OVERLAY */}
       {gameState !== 'title' && !isEventCinematic && (
         <div className="fixed inset-0 z-20 pointer-events-none flex flex-col justify-between gap-1 sm:gap-1.5 pt-[max(0.25rem,env(safe-area-inset-top))] pb-[max(0.25rem,env(safe-area-inset-bottom))] pl-[max(0.25rem,env(safe-area-inset-left))] pr-[max(0.25rem,env(safe-area-inset-right))] sm:p-2.5 md:p-3">
+          {/* Active World Event compact banner when cinematic camera is dismissed */}
+          {activeWorldEvent && activeWorldEvent.remaining > 0 && (
+            <div
+              data-testid="world-event-active-banner"
+              className="pointer-events-none self-center px-4 py-1 text-center bg-[#12100e]/85 border-t-2 border-b-2"
+              style={{ borderColor: activeWorldEvent.accentColor }}
+            >
+              <div
+                className="text-xs sm:text-sm font-bold uppercase tracking-[0.18em]"
+                style={{ color: activeWorldEvent.accentColor }}
+              >
+                {activeWorldEvent.title}
+              </div>
+              {activeWorldEvent.subtitle && (
+                <div
+                  data-testid="world-event-active-description"
+                  className="text-[11px] sm:text-xs text-[#f2ece1]/90 tracking-[0.04em]"
+                >
+                  {activeWorldEvent.subtitle}
+                </div>
+              )}
+            </div>
+          )}
           {/* TOP BAR: Single compact non-wrapping top row + slim single-line resource strip on mobile */}
           <div className="flex flex-wrap lg:flex-nowrap items-stretch justify-between gap-1 sm:gap-2 w-full">
             {/* Left: Average Civilization Age, Year & Pop */}

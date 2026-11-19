@@ -1904,6 +1904,7 @@ function applyTerrainToolTileMutation(
               t.resourceNode = 'none';
               t.resourceAmount = 0;
               t.onFireTimer = 0;
+              delete t.burntTree;
             } else if (t.height <= 7 && t.terrain === 'snow') {
               t.terrain = 'mountain';
             } else if (t.height <= 4 && (t.terrain === 'rock' || t.terrain === 'mountain')) {
@@ -1937,6 +1938,7 @@ function applyTerrainToolTileMutation(
         case 'stone_road': {
           if (t.height >= 0 && !t.buildingId) {
             t.terrain = 'stone_road';
+            delete t.burntTree;
             if (t.resourceNode === 'berry_bush' || t.resourceNode === 'timber_grove') {
               t.resourceNode = 'none';
               t.resourceAmount = 0;
@@ -1949,6 +1951,7 @@ function applyTerrainToolTileMutation(
           if (t.height >= 0 && !t.buildingId) {
             t.terrain = 'rail_track';
             t.farmSettlementId = undefined;
+            delete t.burntTree;
             if (t.resourceNode === 'berry_bush' || t.resourceNode === 'timber_grove') {
               t.resourceNode = 'none';
               t.resourceAmount = 0;
@@ -1960,6 +1963,7 @@ function applyTerrainToolTileMutation(
         case 'fertile_meadow': {
           if (isCultivableSoil(t)) {
             t.terrain = 'fertile';
+            delete t.burntTree;
             if (!t.buildingId) {
               t.resourceNode = 'berry_bush';
               t.resourceAmount = 220;
@@ -1978,6 +1982,7 @@ function applyTerrainToolTileMutation(
             ) {
               t.terrain = 'forest';
             }
+            delete t.burntTree;
             if (!t.buildingId) {
               t.resourceNode = 'timber_grove';
               t.resourceAmount = 260;
@@ -2040,6 +2045,7 @@ function applyTerrainToolTileMutation(
             t.onFireTimer = 0;
             t.cursedTimer = 0;
             t.blessedTimer = Math.max(t.blessedTimer, 18);
+            delete t.burntTree;
             if (!t.buildingId) {
               t.resourceNode = (t.x + t.z) % 3 === 0 ? 'berry_bush' : 'timber_grove';
               t.resourceAmount = 280;
@@ -2052,6 +2058,7 @@ function applyTerrainToolTileMutation(
           if (isCultivableSoil(t) || t.terrain === 'swamp') {
             t.terrain = 'jungle';
             t.onFireTimer = 0;
+            delete t.burntTree;
             if (!t.buildingId) {
               t.resourceNode = (t.x + t.z) % 4 === 0 ? 'berry_bush' : 'timber_grove';
               t.resourceAmount = 300;
@@ -2077,6 +2084,7 @@ function applyTerrainToolTileMutation(
               t.onFireTimer = 0;
               t.cursedTimer = 0;
               t.blessedTimer = Math.max(t.blessedTimer, 14);
+              delete t.burntTree;
               if (!t.buildingId && t.resourceNode === 'none' && (t.x + t.z) % 2 === 0) {
                 t.resourceNode = 'berry_bush';
                 t.resourceAmount = 190;
@@ -2847,8 +2855,16 @@ function applyExpandingWaveSlice(
         }
         if (t.terrain === 'scorched' || t.terrain === 'swamp' || t.terrain === 'sand' || t.terrain === 'void_goo') {
           t.terrain = dSq <= maxRSq * 0.45 ? 'fertile' : 'grass';
+          delete t.burntTree;
         } else if (t.terrain === 'grass' && dSq <= maxRSq * 0.35 && !t.buildingId) {
           t.terrain = 'fertile';
+          delete t.burntTree;
+        } else if (t.burntTree) {
+          delete t.burntTree;
+          if (!t.buildingId && t.resourceNode === 'none') {
+            t.resourceNode = 'timber_grove';
+            t.resourceAmount = 220;
+          }
         }
         if (!t.buildingId && t.resourceNode === 'berry_bush') {
           t.resourceAmount = Math.min(400, t.resourceAmount + 120);
@@ -2976,6 +2992,7 @@ function applyExpandingWaveSlice(
         t.onFireTimer = 0;
         t.cursedTimer = 0;
         t.blessedTimer = 30;
+        delete t.burntTree;
         if (isWaterTarget) {
           if (dSq <= maxRSq * 0.38) {
             t.height = Math.max(2, t.height);
@@ -3509,6 +3526,7 @@ export function executeGodPowerImpact(
           if (!t.buildingId && t.resourceNode === 'timber_grove') {
             t.resourceNode = 'none';
             t.resourceAmount = 0;
+            t.burntTree = true;
             state.resources.wood += 10;
           }
         } else if (dSq <= rSq * 1.18 && t.height > 0) {
@@ -3519,6 +3537,7 @@ export function executeGodPowerImpact(
             if (t.resourceNode === 'timber_grove') {
               t.resourceNode = 'none';
               t.resourceAmount = 0;
+              if (t.terrain === 'scorched') t.burntTree = true;
               state.resources.wood += 8;
             }
           }
@@ -3729,11 +3748,19 @@ export function executeGodPowerImpact(
               t.resourceAmount = 260;
             }
           } else if (!t.buildingId) {
-            // 4. Outer scorched blast ring with hot crater embers
+            // 4. Outer scorched blast ring with hot crater embers & standing charred trees
+            const hadTree =
+              t.resourceNode === 'timber_grove' ||
+              t.terrain === 'forest' ||
+              t.terrain === 'jungle' ||
+              t.terrain === 'taiga';
             t.terrain = 'scorched';
             if (t.resourceNode === 'timber_grove' || t.resourceNode === 'berry_bush') {
               t.resourceNode = 'none';
               t.resourceAmount = 0;
+            }
+            if (hadTree) {
+              t.burntTree = true;
             }
             if (dSq >= 26 && (t.x * 19 + t.z * 31) % 4 === 0) {
               t.onFireTimer = 9;
@@ -4667,6 +4694,7 @@ export function executeGodPowerImpact(
           t.cursedTimer = 0;
           t.onFireTimer = 0;
           t.blessedTimer = 30;
+          delete t.burntTree;
           if (!t.buildingId && dSq <= rSq * 0.55 && (t.terrain === 'grass' || t.terrain === 'savanna')) {
             t.terrain = (t.x + t.z) % 3 === 0 ? 'blossom' : 'fertile';
           }
@@ -9011,10 +9039,16 @@ function stepSimulationSingle(
         t.fireColor = undefined;
         continue;
       }
-      // Burn vegetation down to scorched earth as fire consumes the tile
+      // Burn vegetation down to scorched earth and char standing trees as fire consumes the tile
       if (t.resourceAmount > 0 && (t.resourceNode === 'timber_grove' || t.resourceNode === 'berry_bush')) {
         t.resourceAmount = Math.max(0, t.resourceAmount - 26 * dt);
+        if (t.resourceNode === 'timber_grove' && t.resourceAmount < 185) {
+          t.burntTree = true;
+        }
         if (t.resourceAmount <= 0) {
+          if (t.resourceNode === 'timber_grove') {
+            t.burntTree = true;
+          }
           t.resourceNode = 'none';
           t.terrain = 'scorched';
           t.farmSettlementId = undefined;
@@ -9029,6 +9063,14 @@ function stepSimulationSingle(
           t.terrain === 'fertile' ||
           t.terrain === 'grass')
       ) {
+        if (
+          t.terrain === 'forest' ||
+          t.terrain === 'jungle' ||
+          t.terrain === 'taiga' ||
+          t.terrain === 'blossom'
+        ) {
+          t.burntTree = true;
+        }
         t.terrain = 'scorched';
         t.farmSettlementId = undefined;
       }
@@ -9037,6 +9079,7 @@ function stepSimulationSingle(
       if (t.onFireTimer > 1.0 && wildfireSpreadEnabled) {
         const sourceHeatBoost =
           t.resourceNode === 'timber_grove' ||
+          t.burntTree ||
           t.terrain === 'forest' ||
           t.terrain === 'jungle' ||
           t.terrain === 'scorched'
@@ -9066,6 +9109,21 @@ function stepSimulationSingle(
               duration: childDuration,
               fireColor: t.fireColor,
             });
+            if (state.pendingVfx.length < 48) {
+              state.pendingVfx.push({
+                id: nextEntityId('vfx'),
+                type: 'fire_spread',
+                originX: t.x,
+                originY: t.height * 0.45 + 0.35,
+                originZ: t.z,
+                x: nb.x,
+                y: nb.height * 0.45 + 0.35,
+                z: nb.z,
+                radius: 1.0,
+                color: t.fireColor ?? '#ff6b00',
+                createdAt: Date.now(),
+              });
+            }
           }
         }
       }
@@ -12712,6 +12770,9 @@ function stepWildlifeAI(
       if (!tile.buildingId) {
         if (tile.resourceNode === 'timber_grove' || tile.resourceNode === 'berry_bush') {
           tile.resourceAmount = Math.max(0, tile.resourceAmount - (directHit ? 140 : 55));
+          if (tile.resourceNode === 'timber_grove') {
+            tile.burntTree = true;
+          }
           if (tile.resourceAmount <= 0) {
             tile.resourceNode = 'none';
             tile.terrain = 'scorched';
@@ -12734,6 +12795,14 @@ function stepWildlifeAI(
             tile.terrain === 'fertile' ||
             tile.terrain === 'grass')
         ) {
+          if (
+            tile.terrain === 'forest' ||
+            tile.terrain === 'jungle' ||
+            tile.terrain === 'taiga' ||
+            tile.terrain === 'blossom'
+          ) {
+            tile.burntTree = true;
+          }
           tile.terrain = 'scorched';
         }
       }
@@ -15788,7 +15857,7 @@ export function triggerRandomWorldEvent(
       id: nextEntityId('evt'),
       kind,
       title: 'ASTEROID IMPACT',
-      subtitle: 'A giant asteroid is falling toward the world',
+      subtitle: 'Crashes into the ground, leaving a huge crater and shockwave.',
       accentColor: '#ff6b35',
       trackX: startX * 0.65 + tx * 0.35,
       trackY: startY * 0.65 + ty * 0.35,
@@ -15839,7 +15908,7 @@ export function triggerRandomWorldEvent(
       id: nextEntityId('evt'),
       kind,
       title: 'VOLCANO ERUPTION',
-      subtitle: 'A volcano erupts and rains lava rocks nearby',
+      subtitle: 'Raises a volcano that throws lava rocks and starts fires.',
       accentColor: '#ff5400',
       trackX: tx,
       trackY: ty + 2.4,
@@ -15874,7 +15943,7 @@ export function triggerRandomWorldEvent(
       id: nextEntityId('evt'),
       kind,
       title: 'MEGA TORNADO',
-      subtitle: 'A massive tornado sweeps across the landscape',
+      subtitle: 'Spawns a massive tornado that pulls in units and destroys buildings.',
       accentColor: '#818cf8',
       trackX: tx,
       trackY: ty + 2.6,
@@ -15912,7 +15981,7 @@ export function triggerRandomWorldEvent(
       id: nextEntityId('evt'),
       kind,
       title: 'MAJOR EARTHQUAKE',
-      subtitle: 'Deep fault lines crack open across the land',
+      subtitle: 'Cracks the ground open, damages buildings, and raises rocky ridges.',
       accentColor: '#e07a2b',
       trackX: tx,
       trackY: ty + 1.2,
@@ -15945,7 +16014,7 @@ export function triggerRandomWorldEvent(
       id: nextEntityId('evt'),
       kind,
       title: 'HEAT WAVE',
-      subtitle: 'Intense heat dries out the land and sparks fires',
+      subtitle: 'Dries out plants, melts ice, and starts brush fires.',
       accentColor: '#ff9e00',
       trackX: tx,
       trackY: ty + 1.4,
@@ -15978,7 +16047,7 @@ export function triggerRandomWorldEvent(
       id: nextEntityId('evt'),
       kind,
       title: 'DEEP FREEZE',
-      subtitle: 'Freezing winds cover the region in snow and ice',
+      subtitle: 'Freezes water into ice and covers the land in snow.',
       accentColor: '#7dd3fc',
       trackX: tx,
       trackY: ty + 1.4,
@@ -16024,7 +16093,7 @@ export function triggerRandomWorldEvent(
       id: nextEntityId('evt'),
       kind: 'starfall_aurora',
       title: 'AURORA SHOWER',
-      subtitle: 'Northern lights heal units and grow crystal clusters',
+      subtitle: 'Heals nearby units, boosts faith, and grows crystals.',
       accentColor: '#56cfe1',
       trackX: tx,
       trackY: ty + 1.8,

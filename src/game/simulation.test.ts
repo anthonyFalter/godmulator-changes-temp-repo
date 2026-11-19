@@ -6650,6 +6650,73 @@ test('Land Powers Expansion: 13 new creative land powers, sky_rain_drop VFX targ
   assert.equal(getMagicCircleThemeForPower('crystal_shower'), 'arcane');
 });
 
+test('Burnt trees, fire spread VFX, and simple random world event descriptions', () => {
+  const state = createInitialSimulationState(64, 'FIRE-AND-EVENT-DESC-TEST');
 
+  // 1. Verify VoxelTreeLibrary includes 4 distinct 3D burnt tree geometries
+  const treeLib = getVoxelTreeLibrary();
+  assert.equal(treeLib.burntTrees.length, 4, 'VoxelTreeLibrary must provide 4 distinct 3D burnt tree variants');
+  for (const geo of treeLib.burntTrees) {
+    assert.ok(geo.getAttribute('position').count > 36, 'Each burnt tree geometry must have sculpted 3D vertices');
+    assert.ok(geo.getAttribute('color').count > 36, 'Each burnt tree geometry must have vertex colors');
+  }
 
+  // 2. Verify burning timber_grove transitions to burntTree === true during & after fire, and restoration clears burntTree
+  const treeTile = getTile(state, 20, 20)!;
+  treeTile.height = 2;
+  treeTile.terrain = 'forest';
+  treeTile.resourceNode = 'timber_grove';
+  treeTile.resourceAmount = 200;
+  treeTile.onFireTimer = 9.0;
+  delete treeTile.burntTree;
 
+  // Surrounding flammable tiles to verify fire_spread VFX emission
+  for (const [ox, oz] of [
+    [1, 0],
+    [-1, 0],
+    [0, 1],
+    [0, -1],
+  ]) {
+    const nb = getTile(state, 20 + ox, 20 + oz)!;
+    nb.height = 2;
+    nb.terrain = 'forest';
+    nb.resourceNode = 'timber_grove';
+    nb.resourceAmount = 220;
+    nb.onFireTimer = 0;
+  }
+
+  state.pendingVfx = [];
+  let sawFireSpreadVfx = false;
+  for (let i = 0; i < 40; i++) {
+    stepSimulation(state, 0.25);
+    if (state.pendingVfx.some((v) => v.type === 'fire_spread')) {
+      sawFireSpreadVfx = true;
+    }
+  }
+  assert.equal(treeTile.burntTree, true, 'Burned timber_grove tile must leave standing burnt trees (burntTree = true)');
+  assert.equal(treeTile.terrain, 'scorched', 'Fully burned timber_grove tile must become scorched terrain');
+  assert.equal(sawFireSpreadVfx, true, 'Wildfire spreading to adjacent tiles must emit fire_spread VFX');
+
+  // Restoring or reforesting the tile clears burntTree
+  applyTerrainTool(state, 'soil_enrich', 20, 20, 0);
+  assert.equal(Boolean(treeTile.burntTree), false, 'Soil Enrich must clear burntTree on restored tile');
+
+  // 3. Verify all 7 random world events populate simple, direct, non-AI-like subtitle descriptions
+  const allKinds = [
+    'huge_asteroid',
+    'volcano_eruption',
+    'super_tornado',
+    'mega_earthquake',
+    'heatwave_drought',
+    'deep_freeze',
+    'starfall_aurora',
+  ] as const;
+
+  for (const kind of allKinds) {
+    const evt = triggerRandomWorldEvent(state, kind, 24, 24);
+    assert.ok(evt, `Random world event ${kind} must return an eventState`);
+    assert.ok(evt.title.length > 0, `Event ${kind} must have a title`);
+    assert.ok(evt.subtitle.length >= 20, `Event ${kind} must have a clear description subtitle`);
+    assert.ok(evt.subtitle.endsWith('.'), `Event ${kind} subtitle ("${evt.subtitle}") should be a complete sentence ending with a period`);
+  }
+});

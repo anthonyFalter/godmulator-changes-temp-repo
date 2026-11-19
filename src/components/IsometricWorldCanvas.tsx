@@ -538,6 +538,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       swamp: makePropInstancedList(voxelTreeLib.byBiome.swamp, voxelTreeLib.material, true),
       highland: makePropInstancedList(voxelTreeLib.byBiome.highland, voxelTreeLib.material, true),
     };
+    const burntTreeInsts = makePropInstancedList(voxelTreeLib.burntTrees, voxelTreeLib.material, true);
     const allVoxelTreeInsts: THREE.InstancedMesh[] = [
       ...voxelTreeInstsByBiome.forest,
       ...voxelTreeInstsByBiome.meadow,
@@ -547,6 +548,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       ...voxelTreeInstsByBiome.savanna,
       ...voxelTreeInstsByBiome.swamp,
       ...voxelTreeInstsByBiome.highland,
+      ...burntTreeInsts,
     ];
 
     const berryInsts = makePropInstancedList(variantLib.berry, variantLib.standardMat, true);
@@ -1307,7 +1309,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
     // Active Tile Fire Flames & Smoke Plumes (Zero-GC Instanced Billboarded Animated Pixel-Art Sprites)
     const MAX_FIRE_TILES = 320;
-    const MAX_FIRE_SPRITES = MAX_FIRE_TILES * 2;
+    const MAX_FIRE_SPRITES = MAX_FIRE_TILES * 5;
     const spriteBundle = createAnimatedFireSpriteBundle();
 
     const fireSpriteGeo = spriteBundle.fireGeometry.clone();
@@ -6852,7 +6854,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         }
 
         if (t.height > 0) {
+          const isBurntTree =
+            t.burntTree ||
+            (t.resourceNode === 'timber_grove' &&
+              (t.terrain === 'scorched' || (t.onFireTimer > 0 && t.resourceAmount < 185)))
+              ? 1
+              : 0;
           const sig =
+            (isBurntTree << 18) |
             (t.height << 12) |
             (tCode << 6) |
             ((NODE_CODE[t.resourceNode] ?? 0) << 1) |
@@ -6967,15 +6976,20 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
               : tileCurrentY[i];
           // Deterministic spatial hash so clusters & rotations are rich and never flicker
           const h = Math.abs(((t.x * 73856093) ^ (t.z * 19349663) ^ (simState.seed * 2654435761)) | 0);
-          if (t.resourceNode === 'timber_grove') {
+          const isCharredTreeTile =
+            Boolean(t.burntTree) ||
+            (t.resourceNode === 'timber_grove' &&
+              (t.terrain === 'scorched' || (t.onFireTimer > 0 && t.resourceAmount < 185)));
+          if (t.resourceNode === 'timber_grove' || (t.resourceNode === 'none' && t.burntTree)) {
             const biome = mapTerrainToTreeBiome(t.terrain);
-            const pool = voxelTreeInstsByBiome[biome];
+            const pool = isCharredTreeTile ? burntTreeInsts : voxelTreeInstsByBiome[biome];
             const isDenseBiome =
               biome === 'forest' ||
               biome === 'jungle' ||
               biome === 'taiga' ||
               biome === 'blossom' ||
-              biome === 'swamp';
+              biome === 'swamp' ||
+              isCharredTreeTile;
 
             // Spatial old-growth canopy wave so forest cores soar high while edges have younger trees & saplings
             const canopyWave =
@@ -9060,6 +9074,23 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           spawnWeaponSparkVisual(vfx.x, surfY + 0.28, vfx.z, vfx.radius, vfx.color);
         } else if (vfx.type === 'build_complete') {
           spawnParticleBurst(vfx.x, surfY + 0.25, vfx.z, 22, vfx.color, vfx.radius * 0.55, 3.8, 0.95);
+        } else if (vfx.type === 'fire_spread') {
+          const ox = vfx.originX ?? vfx.x;
+          const oz = vfx.originZ ?? vfx.z;
+          const oTile = getTileFromArray(simState, ox, oz);
+          const originGroundY = oTile ? Math.max(0.22, oTile.height * HEIGHT_STEP + 0.36) : surfY + 0.15;
+          spawnDirectionalFlameStream(
+            ox,
+            originGroundY,
+            oz,
+            vfx.x,
+            surfY + 0.26,
+            vfx.z,
+            9,
+            vfx.color || '#ff6b00',
+            0.34,
+          );
+          spawnParticleBurst(vfx.x, surfY + 0.18, vfx.z, 6, '#ffd166', 0.38, 2.2, 0.72);
         } else if (vfx.type === 'dragon_fire_breath') {
           const ox = vfx.originX ?? vfx.x;
           const oz = vfx.originZ ?? vfx.z;
@@ -9908,8 +9939,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           const fy = tileCurrentY[i] || t.height * HEIGHT_STEP + 0.25;
           const phase = ((t.x * 13 + t.z * 29) & 31) / 32;
           const fadeEnv = Math.min(1, t.onFireTimer / 0.8);
-          const intensityBoost = t.buildingId || t.resourceNode === 'timber_grove' ? 1.16 : 0.94;
-          const pulse = (0.9 + Math.sin(elapsed * 16 + t.x * 3 + t.z * 7) * 0.12) * intensityBoost;
+          const hasTreeOrStructure =
+            Boolean(t.buildingId) || t.resourceNode === 'timber_grove' || Boolean(t.burntTree);
+          const intensityBoost = hasTreeOrStructure ? 1.24 : 0.98;
+          const pulse = (0.92 + Math.sin(elapsed * 16 + t.x * 3 + t.z * 7) * 0.12) * intensityBoost;
+          // Creeping spread radius: flames expand outward toward tile edges as the fire engulfs the tile
+          const burnProgress = Math.max(0.18, Math.min(1.0, 1.0 - (t.onFireTimer - 0.6) / 4.2));
+          const spreadRadius = 0.16 + burnProgress * 0.26;
 
           if (t.fireColor) {
             _fireTintCol.set(t.fireColor);
@@ -9917,26 +9953,40 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             _fireTintCol.copy(_whiteCol);
           }
 
+          // 1. Primary central hearth blaze
           _dummyPos.set(t.x, fy, t.z);
-          _dummyScale.set(pulse * 0.96, pulse * (0.95 + fadeEnv * 0.15), 1);
+          _dummyScale.set(pulse * 1.04, pulse * (1.02 + fadeEnv * 0.18), 1);
           _dummyMatrix.compose(_dummyPos, _dummyQuat, _dummyScale);
           fireSpriteInst.setMatrixAt(fireSpriteCount, _dummyMatrix);
           fireDataArray[fireSpriteCount * 2] = phase;
-          fireDataArray[fireSpriteCount * 2 + 1] = 0.94 * fadeEnv;
+          fireDataArray[fireSpriteCount * 2 + 1] = 0.96 * fadeEnv;
           fireColorArray[fireSpriteCount * 3] = _fireTintCol.r;
           fireColorArray[fireSpriteCount * 3 + 1] = _fireTintCol.g;
           fireColorArray[fireSpriteCount * 3 + 2] = _fireTintCol.b;
           fireSpriteCount++;
 
-          if (fireSpriteCount < MAX_FIRE_SPRITES) {
-            const ox = Math.sin(phase * Math.PI * 2) * 0.22;
-            const oz = Math.cos(phase * Math.PI * 2) * 0.18;
-            _dummyPos.set(t.x + ox, fy + 0.04, t.z + oz);
-            _dummyScale.set(pulse * 0.64, pulse * 0.72, 1);
+          // 2. Creeping perimeter flame tongues spreading outward across the tile & up into tree canopies
+          const clusterCount = hasTreeOrStructure ? 4 : 3;
+          const baseAng = phase * Math.PI * 2;
+          for (let ci = 0; ci < clusterCount && fireSpriteCount < MAX_FIRE_SPRITES; ci++) {
+            const ang = baseAng + (ci * (Math.PI * 2)) / clusterCount + Math.sin(elapsed * 2.4 + ci * 1.9) * 0.18;
+            const isCanopyFlame = hasTreeOrStructure && ci >= 2;
+            const rad = isCanopyFlame ? spreadRadius * 0.62 : spreadRadius * (0.85 + (ci & 1) * 0.24);
+            const ox = Math.cos(ang) * rad;
+            const oz = Math.sin(ang) * rad;
+            const oy = isCanopyFlame
+              ? ci === 2
+                ? 0.34
+                : 0.62
+              : 0.02 + (ci & 1) * 0.04;
+            const subScaleW = isCanopyFlame ? pulse * 0.76 : pulse * (0.64 + (ci & 1) * 0.1);
+            const subScaleH = isCanopyFlame ? pulse * 0.88 : pulse * (0.68 + burnProgress * 0.16);
+            _dummyPos.set(t.x + ox, fy + oy, t.z + oz);
+            _dummyScale.set(subScaleW, subScaleH, 1);
             _dummyMatrix.compose(_dummyPos, _dummyQuat, _dummyScale);
             fireSpriteInst.setMatrixAt(fireSpriteCount, _dummyMatrix);
-            fireDataArray[fireSpriteCount * 2] = (phase + 0.43) % 1.0;
-            fireDataArray[fireSpriteCount * 2 + 1] = 0.85 * fadeEnv;
+            fireDataArray[fireSpriteCount * 2] = (phase + 0.27 * (ci + 1)) % 1.0;
+            fireDataArray[fireSpriteCount * 2 + 1] = (isCanopyFlame ? 0.9 : 0.84) * fadeEnv;
             fireColorArray[fireSpriteCount * 3] = _fireTintCol.r;
             fireColorArray[fireSpriteCount * 3 + 1] = _fireTintCol.g;
             fireColorArray[fireSpriteCount * 3 + 2] = _fireTintCol.b;
@@ -9944,18 +9994,18 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           }
 
           const smokeCycle = (elapsed * 1.45 + (t.x * 0.37 + t.z * 0.53)) % 1.0;
-          const smokeY = fy + 0.82 + smokeCycle * 1.95;
-          const smokeScale = (0.55 + smokeCycle * 0.78) * (0.85 + 0.3 * intensityBoost);
+          const smokeY = fy + (hasTreeOrStructure ? 1.08 : 0.82) + smokeCycle * 2.05;
+          const smokeScale = (0.6 + smokeCycle * 0.84) * (0.88 + 0.32 * intensityBoost);
           _dummyPos.set(
-            t.x + Math.sin(elapsed * 2.6 + t.z) * 0.2,
+            t.x + Math.sin(elapsed * 2.6 + t.z) * 0.22,
             smokeY,
-            t.z + Math.cos(elapsed * 2.6 + t.x) * 0.2,
+            t.z + Math.cos(elapsed * 2.6 + t.x) * 0.22,
           );
           _dummyScale.set(smokeScale, smokeScale, 1);
           _dummyMatrix.compose(_dummyPos, _dummyQuat, _dummyScale);
           fireSmokeInst.setMatrixAt(fireTileCount, _dummyMatrix);
           smokeDataArray[fireTileCount * 2] = (phase + smokeCycle * 0.5) % 1.0;
-          smokeDataArray[fireTileCount * 2 + 1] = Math.sin(smokeCycle * Math.PI) * 0.58 * fadeEnv;
+          smokeDataArray[fireTileCount * 2 + 1] = Math.sin(smokeCycle * Math.PI) * 0.62 * fadeEnv;
 
           fireTileCount++;
         }

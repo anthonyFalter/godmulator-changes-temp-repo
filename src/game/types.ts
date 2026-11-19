@@ -96,6 +96,7 @@ export interface TileData {
   tempOffset?: number;
   frozenWaterBase?: 'deep_water' | 'shallow_water';
   crushedTimer?: number;
+  burntTree?: boolean;
 }
 
 export type BuildingType =
@@ -475,7 +476,8 @@ export interface VisualEffectEvent {
     | 'projectile_tracer'
     | 'huge_asteroid_strike'
     | 'volcanic_lava_bomb'
-    | 'void_goo_splash';
+    | 'void_goo_splash'
+    | 'fire_spread';
   x: number;
   y: number;
   z: number;

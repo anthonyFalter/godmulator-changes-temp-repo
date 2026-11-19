@@ -27,6 +27,7 @@ export interface VoxelTreeLibrary {
   specsByBiome: Record<TreeBiomeKey, VoxelTreeSpeciesSpec[]>;
   allSpecs: VoxelTreeSpeciesSpec[];
   allGeometries: THREE.BufferGeometry[];
+  burntTrees: THREE.BufferGeometry[];
   material: THREE.MeshStandardMaterial;
   dispose: () => void;
 }
@@ -1226,6 +1227,82 @@ function buildVoxelTreeGeometry(spec: VoxelTreeSpeciesSpec): THREE.BufferGeometr
   }
 }
 
+function buildBurntVoxelTreeGeometries(): THREE.BufferGeometry[] {
+  const BARK_CHARRED: Pal5 = [0x0f0c0b, 0x1a1514, 0x28211f, 0x3b312e, 0x524642];
+  const BARK_ASH: Pal5 = [0x141110, 0x221d1b, 0x362f2c, 0x4f4642, 0x6e635f];
+  const PAL_SCORCHED_TWIGS: Pal5 = [0x1c120e, 0x2d1b13, 0x452719, 0x63361f, 0x8a4b29];
+
+  // Variant 0: Charred Gnarled Oak — blackened trunk, broken skeletal limbs, glowing ember cracks & sparse singed twig clusters
+  const v0 = new VoxelVolume(19, 24, 19);
+  v0.drawRoots3D(0, 0, 1.8, BARK_CHARRED, 5, 4.2, 2.8, 601, false);
+  v0.drawWoodLimb(0, 0, 0, -0.4, 11.5, 0.2, 1.8, 1.05, BARK_CHARRED, -0.5, 0.3, 602);
+  v0.drawWoodLimb(-0.4, 9.5, 0.2, -5.2, 15.5, -2.0, 0.95, 0.35, BARK_CHARRED, -0.8, -0.3, 603);
+  v0.drawWoodLimb(-0.2, 10.2, 0.2, 4.8, 16.2, 1.8, 0.9, 0.35, BARK_CHARRED, 0.7, 0.3, 604);
+  v0.drawWoodLimb(-0.3, 10.8, 0.2, 0.6, 17.8, -4.4, 0.82, 0.32, BARK_CHARRED, 0.2, -0.7, 605);
+  v0.drawWoodLimb(-3.4, 13.5, -1.2, -6.2, 17.5, 1.4, 0.52, 0.25, BARK_ASH, -0.4, 0.3, 606);
+  v0.drawWoodLimb(3.2, 14.0, 1.2, 5.8, 18.0, -1.5, 0.52, 0.25, BARK_ASH, 0.4, -0.3, 607);
+  v0.drawLeafCluster3D(-5.0, 15.8, -1.8, 2.1, 1.2, 2.1, PAL_SCORCHED_TWIGS, -0.1, 608, 0xf97316, 0.08);
+  v0.drawLeafCluster3D(4.6, 16.5, 1.6, 2.0, 1.2, 2.0, PAL_SCORCHED_TWIGS, -0.05, 609, 0xea580c, 0.08);
+  // Glowing ember cracks on trunk
+  v0.set(1, 4, 0, 0xea580c);
+  v0.set(1, 5, 0, 0xf97316);
+  v0.set(-1, 7, 1, 0xd97706);
+  v0.set(0, 9, -1, 0xf59e0b);
+
+  // Variant 1: Burnt Conifer Spire — tall blackened pine trunk with charred needleless horizontal branch ribs & ember core
+  const v1 = new VoxelVolume(15, 28, 15);
+  v1.drawRoots3D(0, 0, 1.2, BARK_CHARRED, 4, 2.8, 2.2, 620, false);
+  v1.drawWoodLimb(0, 0, 0, 0, 23.5, 0, 1.2, 0.38, BARK_CHARRED, 0.2, -0.15, 621);
+  const ribHeights = [6.5, 10.0, 13.5, 16.8, 19.8];
+  for (let i = 0; i < ribHeights.length; i++) {
+    const ry = ribHeights[i];
+    const span = 4.6 - i * 0.72;
+    const arms = 5 - (i > 2 ? 1 : 0);
+    for (let a = 0; a < arms; a++) {
+      const ang = (a / arms) * Math.PI * 2 + i * 0.55;
+      const ex = Math.cos(ang) * span;
+      const ez = Math.sin(ang) * span;
+      v1.drawWoodLimb(0, ry, 0, ex, ry - 0.8, ez, 0.55, 0.25, i % 2 === 0 ? BARK_CHARRED : BARK_ASH, 0, 0, 625 + i * 5 + a);
+      if ((i + a) % 3 === 0) {
+        v1.set(Math.round(ex * 0.85), Math.round(ry - 0.6), Math.round(ez * 0.85), 0xea580c);
+      }
+    }
+  }
+  v1.set(0, 8, 1, 0xf97316);
+  v1.set(1, 12, 0, 0xea580c);
+
+  // Variant 2: Split Hollow Fire Snag — thick burnt stump split into jagged forks with glowing inner coal heart
+  const v2 = new VoxelVolume(17, 21, 17);
+  v2.drawRoots3D(0, 0, 2.0, BARK_CHARRED, 5, 4.4, 3.0, 640, false);
+  v2.drawWoodLimb(0, 0, 0, 0, 8.5, 0, 1.95, 1.35, BARK_CHARRED, -0.3, 0.2, 641);
+  v2.drawWoodLimb(-0.4, 7.8, 0, -4.2, 16.5, 1.4, 1.05, 0.35, BARK_ASH, -0.9, 0.3, 642);
+  v2.drawWoodLimb(0.5, 7.8, 0, 3.8, 14.8, -1.6, 0.98, 0.35, BARK_CHARRED, 0.8, -0.4, 643);
+  v2.drawWoodLimb(0, 8.2, 0.4, 0.8, 13.2, 4.2, 0.78, 0.3, BARK_ASH, 0.2, 0.7, 644);
+  // Smoldering coal heart inside the split fork
+  v2.set(0, 8, 0, 0xfbbf24);
+  v2.set(0, 9, 0, 0xf97316);
+  v2.set(-1, 8, 0, 0xea580c);
+  v2.set(1, 8, 0, 0xdc2626);
+
+  // Variant 3: Scorched Multi-Limb Deadwood — twisted blackened woodland tree with singed brown/ash remnant tufts
+  const v3 = new VoxelVolume(17, 23, 17);
+  v3.drawRoots3D(0, 0, 1.5, BARK_ASH, 4, 3.6, 2.5, 660, false);
+  v3.drawWoodLimb(0, 0, 0, 0.5, 11.0, -0.3, 1.5, 0.95, BARK_CHARRED, 0.6, -0.3, 661);
+  v3.drawWoodLimb(0.5, 9.5, -0.3, -4.0, 15.2, 2.2, 0.82, 0.32, BARK_ASH, -0.7, 0.4, 662);
+  v3.drawWoodLimb(0.5, 10.2, -0.3, 4.4, 16.8, -1.8, 0.85, 0.32, BARK_CHARRED, 0.7, -0.3, 663);
+  v3.drawWoodLimb(0.5, 10.5, -0.3, -1.2, 18.2, -3.6, 0.75, 0.28, BARK_ASH, -0.3, -0.6, 664);
+  v3.drawLeafCluster3D(-3.8, 15.5, 2.0, 2.2, 1.3, 2.2, PAL_SCORCHED_TWIGS, 0.0, 665, 0xf97316, 0.06);
+  v3.drawLeafCluster3D(4.2, 17.0, -1.6, 2.3, 1.4, 2.2, PAL_SCORCHED_TWIGS, 0.05, 666, 0xea580c, 0.06);
+  v3.drawLeafCluster3D(-1.0, 18.5, -3.4, 1.9, 1.2, 1.9, PAL_SCORCHED_TWIGS, 0.1, 667);
+
+  return [
+    v0.toGreedyBufferGeometry(0.056),
+    v1.toGreedyBufferGeometry(0.054),
+    v2.toGreedyBufferGeometry(0.056),
+    v3.toGreedyBufferGeometry(0.055),
+  ];
+}
+
 let cachedVoxelTreeLib: VoxelTreeLibrary | null = null;
 
 export function getVoxelTreeLibrary(): VoxelTreeLibrary {
@@ -1260,6 +1337,8 @@ export function getVoxelTreeLibrary(): VoxelTreeLibrary {
     allGeometries.push(geo);
   }
 
+  const burntTrees = buildBurntVoxelTreeGeometries();
+
   const material = new THREE.MeshStandardMaterial({
     vertexColors: true,
     roughness: 0.86,
@@ -1271,9 +1350,11 @@ export function getVoxelTreeLibrary(): VoxelTreeLibrary {
     specsByBiome,
     allSpecs: SPECIES_SPECS,
     allGeometries,
+    burntTrees,
     material,
     dispose: () => {
       for (const g of allGeometries) g.dispose();
+      for (const g of burntTrees) g.dispose();
       material.dispose();
       cachedVoxelTreeLib = null;
     },
