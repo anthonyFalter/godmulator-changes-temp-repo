@@ -5,6 +5,11 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { EPOCHS, GOD_POWERS, getDinosaurVariant } from '../game/catalog';
 import { createAnimatedFireSpriteBundle } from '../game/fireSprites';
 import {
+  TreeBiomeKey,
+  getVoxelTreeLibrary,
+  mapTerrainToTreeBiome,
+} from '../game/voxelTrees';
+import {
   createBuildingGroup,
   createUnitGroup,
   createVehicleGroup,
@@ -495,14 +500,29 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         return inst;
       });
 
-    const timberInsts = makePropInstancedList(variantLib.timber, variantLib.standardMat, true);
-    const timberMeadowInsts = makePropInstancedList(variantLib.timberMeadow, variantLib.standardMat, true);
-    const timberJungleInsts = makePropInstancedList(variantLib.timberJungle, variantLib.standardMat, true);
-    const timberTaigaInsts = makePropInstancedList(variantLib.timberTaiga, variantLib.standardMat, true);
-    const timberBlossomInsts = makePropInstancedList(variantLib.timberBlossom, variantLib.standardMat, true);
-    const timberSavannaInsts = makePropInstancedList(variantLib.timberSavanna, variantLib.standardMat, true);
-    const timberSwampInsts = makePropInstancedList(variantLib.timberSwamp, variantLib.standardMat, true);
-    const timberHighlandInsts = makePropInstancedList(variantLib.timberHighland, variantLib.standardMat, true);
+    // 3D Sculpted Micro-Voxel Biome Trees (hidden-face culled + greedy-merged static InstancedMeshes)
+    const voxelTreeLib = getVoxelTreeLibrary();
+    const voxelTreeInstsByBiome: Record<TreeBiomeKey, THREE.InstancedMesh[]> = {
+      forest: makePropInstancedList(voxelTreeLib.byBiome.forest, voxelTreeLib.material, true),
+      meadow: makePropInstancedList(voxelTreeLib.byBiome.meadow, voxelTreeLib.material, true),
+      jungle: makePropInstancedList(voxelTreeLib.byBiome.jungle, voxelTreeLib.material, true),
+      taiga: makePropInstancedList(voxelTreeLib.byBiome.taiga, voxelTreeLib.material, true),
+      blossom: makePropInstancedList(voxelTreeLib.byBiome.blossom, voxelTreeLib.material, true),
+      savanna: makePropInstancedList(voxelTreeLib.byBiome.savanna, voxelTreeLib.material, true),
+      swamp: makePropInstancedList(voxelTreeLib.byBiome.swamp, voxelTreeLib.material, true),
+      highland: makePropInstancedList(voxelTreeLib.byBiome.highland, voxelTreeLib.material, true),
+    };
+    const allVoxelTreeInsts: THREE.InstancedMesh[] = [
+      ...voxelTreeInstsByBiome.forest,
+      ...voxelTreeInstsByBiome.meadow,
+      ...voxelTreeInstsByBiome.jungle,
+      ...voxelTreeInstsByBiome.taiga,
+      ...voxelTreeInstsByBiome.blossom,
+      ...voxelTreeInstsByBiome.savanna,
+      ...voxelTreeInstsByBiome.swamp,
+      ...voxelTreeInstsByBiome.highland,
+    ];
+
     const berryInsts = makePropInstancedList(variantLib.berry, variantLib.standardMat, true);
     const farmCropInsts = makePropInstancedList(variantLib.farmCrop, variantLib.standardMat, true);
     const sciFiFarmInsts = makePropInstancedList(variantLib.sciFiFarm, variantLib.crystalMat, true);
@@ -533,14 +553,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     const ambBlossomInsts = makePropInstancedList(variantLib.ambientBlossom, variantLib.standardMat, false);
 
     const resourcePropInsts: THREE.InstancedMesh[] = [
-      ...timberInsts,
-      ...timberMeadowInsts,
-      ...timberJungleInsts,
-      ...timberTaigaInsts,
-      ...timberBlossomInsts,
-      ...timberSavannaInsts,
-      ...timberSwampInsts,
-      ...timberHighlandInsts,
+      ...allVoxelTreeInsts,
       ...berryInsts,
       ...farmCropInsts,
       ...sciFiFarmInsts,
@@ -6405,32 +6418,87 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           // Deterministic spatial hash so clusters & rotations are rich and never flicker
           const h = Math.abs(((t.x * 73856093) ^ (t.z * 19349663) ^ (simState.seed * 2654435761)) | 0);
           if (t.resourceNode === 'timber_grove') {
-            // 16-angle compass rotation + subtle sub-tile position jitter + multi-tier height/width variation
-            const rotAngle = ((h >> 2) & 15) * (Math.PI / 8);
-            _propQuat.setFromAxisAngle(_propAxisY, rotAngle);
-            const jx = (((h >> 6) & 31) / 31 - 0.5) * 0.18;
-            const jz = (((h >> 11) & 31) / 31 - 0.5) * 0.18;
-            _dummyPos.set(t.x + jx, curY, t.z + jz);
-            // Smooth spatial canopy wave combined with per-tile size tier (young saplings to ancient giants)
-            const canopyWave = Math.sin(t.x * 0.37 + t.z * 0.29 + (simState.seed & 255)) * 0.16;
-            const sizeTier = (h >> 16) % 7;
-            // Tiers: 0=sapling(0.64), 1=young(0.78), 2=medium(0.92), 3=mature(1.06), 4=tall(1.22), 5=giant(1.40), 6=colossus(1.62)
-            const tierHeight = 0.64 + sizeTier * 0.155;
-            const tierWidth = 0.72 + sizeTier * 0.088 + (((h >> 20) & 7) - 3.5) * 0.025;
-            const scaleY = Math.max(0.56, Math.min(1.85, tierHeight + canopyWave));
-            const scaleXZ = Math.max(0.66, Math.min(1.38, tierWidth + canopyWave * 0.45));
-            _propScale.set(scaleXZ, scaleY, scaleXZ);
-          } else {
-            const rotStep = (h >> 2) & 3;
-            _propQuat.setFromAxisAngle(_propAxisY, rotStep * (Math.PI / 2));
-            _dummyPos.set(t.x, curY, t.z);
-            if (t.resourceNode === 'coral_reef') {
-              const isBleached = (t.coralBleachTimer ?? 0) > 0 || t.resourceAmount <= 0;
-              const scaleXZ = (1.28 + ((h >> 4) % 3) * 0.06) * (isBleached ? 0.92 : 1.0);
-              _propScale.set(scaleXZ, isBleached ? 0.88 : 1.0, scaleXZ);
-            } else {
-              _propScale.set(1, 1, 1);
+            const biome = mapTerrainToTreeBiome(t.terrain);
+            const pool = voxelTreeInstsByBiome[biome];
+            const isDenseBiome =
+              biome === 'forest' ||
+              biome === 'jungle' ||
+              biome === 'taiga' ||
+              biome === 'blossom' ||
+              biome === 'swamp';
+
+            // Spatial old-growth canopy wave so forest cores soar high while edges have younger trees & saplings
+            const canopyWave =
+              Math.sin(t.x * 0.27 + t.z * 0.23 + (simState.seed & 255)) * 0.16 +
+              Math.cos(t.x * 0.13 - t.z * 0.19) * 0.09;
+
+            const roll = (h >> 12) % 100;
+            // Dense forest biomes always weave 2-3 trees per tile into lush interlocking groves; open biomes get 1-2
+            const treeCount = isDenseBiome
+              ? roll < 52
+                ? 3
+                : 2
+              : roll < 58
+                ? 2
+                : 1;
+            const heroSlot = h % pool.length;
+            const baseAng = ((h >> 4) & 7) * (Math.PI / 4);
+
+            for (let k = 0; k < treeCount; k++) {
+              const kh = Math.abs((h ^ ((k + 1) * 2654435761) ^ (k * 97531)) | 0);
+              const treeInst =
+                k === 0
+                  ? pool[heroSlot]
+                  : pool[(heroSlot + 1 + (kh % Math.max(1, pool.length - 1))) % pool.length];
+
+              // 16-angle compass 3D rotation + clustered triangular grove spacing so neighboring canopies weave together
+              const rotAngle = ((kh >> 2) & 15) * (Math.PI / 8);
+              _propQuat.setFromAxisAngle(_propAxisY, rotAngle);
+
+              let ox = (((kh >> 6) & 31) / 31 - 0.5) * 0.24;
+              let oz = (((kh >> 11) & 31) / 31 - 0.5) * 0.24;
+              if (treeCount >= 2) {
+                const ang = baseAng + (k * (Math.PI * 2)) / treeCount + (((kh >> 5) & 7) - 3.5) * 0.12;
+                const rad = k === 0 ? 0.16 : k === 1 ? 0.34 : 0.38;
+                ox = Math.cos(ang) * rad;
+                oz = Math.sin(ang) * rad;
+              }
+              _dummyPos.set(t.x + ox, curY, t.z + oz);
+
+              // Lush layered canopy heights: tall hero (0.82x..1.38x), medium companion (0.62x..0.94x), young sapling (0.48x..0.68x)
+              const sizeTier = (kh >> 16) % 7;
+              let scaleY = 0.78 + sizeTier * 0.092 + canopyWave * 0.72;
+              let scaleXZ = 0.80 + sizeTier * 0.058 + (((kh >> 20) & 7) - 3.5) * 0.025 + canopyWave * 0.35;
+              if (k === 1) {
+                scaleY *= 0.72 + ((kh >> 22) & 3) * 0.06;
+                scaleXZ *= 0.76 + ((kh >> 24) & 3) * 0.05;
+              } else if (k === 2) {
+                scaleY *= 0.54 + ((kh >> 22) & 3) * 0.05;
+                scaleXZ *= 0.58 + ((kh >> 24) & 3) * 0.04;
+              }
+              scaleY = Math.max(0.46, Math.min(1.42, scaleY));
+              scaleXZ = Math.max(0.52, Math.min(1.24, scaleXZ));
+
+              _propScale.set(scaleXZ, scaleY, scaleXZ);
+              _dummyMatrix.compose(_dummyPos, _propQuat, _propScale);
+              const pSlot = treeInst.count;
+              ensureInstancedCapacity(treeInst, pSlot + 1);
+              treeInst.count = pSlot + 1;
+              treeInst.setMatrixAt(pSlot, _dummyMatrix);
             }
+            _propScale.set(1, 1, 1);
+            continue;
+          }
+
+          const rotStep = (h >> 2) & 3;
+          _propQuat.setFromAxisAngle(_propAxisY, rotStep * (Math.PI / 2));
+          _dummyPos.set(t.x, curY, t.z);
+          if (t.resourceNode === 'coral_reef') {
+            const isBleached = (t.coralBleachTimer ?? 0) > 0 || t.resourceAmount <= 0;
+            const scaleXZ = (1.28 + ((h >> 4) % 3) * 0.06) * (isBleached ? 0.92 : 1.0);
+            _propScale.set(scaleXZ, isBleached ? 0.88 : 1.0, scaleXZ);
+          } else {
+            _propScale.set(1, 1, 1);
           }
           _dummyMatrix.compose(_dummyPos, _propQuat, _propScale);
           _propScale.set(1, 1, 1);
@@ -6446,24 +6514,6 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             targetInst = scrapFlotsamInsts[h % scrapFlotsamInsts.length];
           } else if (t.resourceNode === 'atlantis_ruin') {
             targetInst = atlantisRuinInsts[h % atlantisRuinInsts.length];
-          } else if (t.resourceNode === 'timber_grove') {
-            if (t.terrain === 'jungle') {
-              targetInst = timberJungleInsts[h % timberJungleInsts.length];
-            } else if (t.terrain === 'taiga' || t.terrain === 'tundra' || t.terrain === 'snow') {
-              targetInst = timberTaigaInsts[h % timberTaigaInsts.length];
-            } else if (t.terrain === 'blossom') {
-              targetInst = timberBlossomInsts[h % timberBlossomInsts.length];
-            } else if (t.terrain === 'savanna' || t.terrain === 'badlands' || t.terrain === 'sand') {
-              targetInst = timberSavannaInsts[h % timberSavannaInsts.length];
-            } else if (t.terrain === 'swamp') {
-              targetInst = timberSwampInsts[h % timberSwampInsts.length];
-            } else if (t.terrain === 'highland' || t.terrain === 'mountain' || t.terrain === 'rock') {
-              targetInst = timberHighlandInsts[h % timberHighlandInsts.length];
-            } else if (t.terrain === 'grass' || t.terrain === 'fertile') {
-              targetInst = timberMeadowInsts[h % timberMeadowInsts.length];
-            } else {
-              targetInst = timberInsts[h % timberInsts.length];
-            }
           } else if (t.resourceNode === 'berry_bush') {
             if (t.farmSettlementId && simState.epochIndex >= 6) {
               targetInst = sciFiFarmInsts[h % sciFiFarmInsts.length];

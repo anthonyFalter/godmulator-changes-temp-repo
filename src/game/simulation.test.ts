@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  getVoxelTreeLibrary,
+  mapTerrainToTreeBiome,
+} from './voxelTrees';
+import {
   WORLD_TEMPLATES,
   advanceEpoch,
   applyTerrainTool,
@@ -5293,4 +5297,89 @@ test('World Chronicle logs dynamically respond to new kings, royal succession, e
     'World Chronicle must log when a Leviathan is slain',
   );
 });
+
+test('Biome Tree Redesign: 3D sculpted micro-voxel trees cover all 8 biomes with greedy-merged 3D geometry, varied heights/silhouettes, and plant_forest preserves native biomes', () => {
+  const lib = getVoxelTreeLibrary();
+  assert.equal(lib.allGeometries.length, 32, 'Should provide 32 distinct 3D micro-voxel tree species');
+
+  const biomes = ['forest', 'meadow', 'jungle', 'taiga', 'blossom', 'savanna', 'swamp', 'highland'] as const;
+  for (const biome of biomes) {
+    const geos = lib.byBiome[biome];
+    const specs = lib.specsByBiome[biome];
+    assert.ok(geos.length >= 3, `Biome ${biome} should have at least 3 distinct 3D micro-voxel species`);
+    const heights: number[] = [];
+    for (let i = 0; i < geos.length; i++) {
+      const g = geos[i];
+      const pos = g.getAttribute('position');
+      const norm = g.getAttribute('normal');
+      const col = g.getAttribute('color');
+      const idx = g.index;
+      assert.ok(pos && norm && col && idx, `${specs[i].name} must have position, normal, color, and index buffers`);
+      const tris = idx.count / 3;
+      assert.ok(tris >= 350, `${specs[i].name} should have rich sculpted 3D micro-voxel detail (>=350 tris, got ${tris})`);
+      assert.ok(tris <= 3200, `${specs[i].name} should remain lightweight via greedy meshing (<=3200 tris, got ${tris})`);
+      for (let v = 0; v < pos.count; v++) {
+        assert.ok(
+          Number.isFinite(pos.getX(v)) && Number.isFinite(pos.getY(v)) && Number.isFinite(pos.getZ(v)),
+          `${specs[i].name} must not contain NaN/Infinite vertex coordinates`,
+        );
+      }
+      g.computeBoundingBox();
+      const bb = g.boundingBox!;
+      const h = bb.max.y - bb.min.y;
+      assert.ok(h >= 0.80 && h <= 2.25, `${specs[i].name} 3D height (${h.toFixed(2)}) should match world tile proportions (0.80..2.25)`);
+      heights.push(h);
+    }
+    const minH = Math.min(...heights);
+    const maxH = Math.max(...heights);
+    assert.ok(
+      maxH - minH >= 0.28,
+      `Biome ${biome} 3D tree models should vary significantly in height (min=${minH.toFixed(2)}, max=${maxH.toFixed(2)})`,
+    );
+  }
+
+  // Verify terrain -> biome tree routing covers all terrestrial biomes cleanly
+  assert.equal(mapTerrainToTreeBiome('forest'), 'forest');
+  assert.equal(mapTerrainToTreeBiome('grass'), 'meadow');
+  assert.equal(mapTerrainToTreeBiome('fertile'), 'meadow');
+  assert.equal(mapTerrainToTreeBiome('jungle'), 'jungle');
+  assert.equal(mapTerrainToTreeBiome('taiga'), 'taiga');
+  assert.equal(mapTerrainToTreeBiome('snow'), 'taiga');
+  assert.equal(mapTerrainToTreeBiome('blossom'), 'blossom');
+  assert.equal(mapTerrainToTreeBiome('savanna'), 'savanna');
+  assert.equal(mapTerrainToTreeBiome('swamp'), 'swamp');
+  assert.equal(mapTerrainToTreeBiome('highland'), 'highland');
+
+  // Verify plant_forest preserves native forested biomes (jungle, taiga, blossom, savanna) while turning grass into forest
+  const state = createInitialSimulationState(4042, 48);
+  state.resources.faith = 500;
+  const cx = 24;
+  const cz = 24;
+  const nativeBiomes = ['jungle', 'taiga', 'blossom', 'savanna'] as const;
+  for (let i = 0; i < nativeBiomes.length; i++) {
+    const t = getTile(state, cx + i * 3, cz)!;
+    t.height = 2;
+    t.terrain = nativeBiomes[i];
+    t.resourceNode = 'none';
+    t.buildingId = null;
+    t.onFireTimer = 0;
+    t.cursedTimer = 0;
+    const res = applyTerrainTool(state, 'plant_forest', t.x, t.z, 0);
+    assert.equal(res.ok, true, `plant_forest should succeed on ${nativeBiomes[i]}`);
+    assert.equal(t.terrain, nativeBiomes[i], `plant_forest must preserve native ${nativeBiomes[i]} terrain`);
+    assert.equal(t.resourceNode, 'timber_grove', `plant_forest must spawn timber_grove on ${nativeBiomes[i]}`);
+  }
+  const grassTile = getTile(state, cx - 4, cz)!;
+  grassTile.height = 2;
+  grassTile.terrain = 'grass';
+  grassTile.resourceNode = 'none';
+  grassTile.buildingId = null;
+  grassTile.onFireTimer = 0;
+  grassTile.cursedTimer = 0;
+  const grassRes = applyTerrainTool(state, 'plant_forest', grassTile.x, grassTile.z, 0);
+  assert.equal(grassRes.ok, true);
+  assert.equal(grassTile.terrain, 'forest', 'plant_forest on plain grass should convert terrain to forest');
+  assert.equal(grassTile.resourceNode, 'timber_grove');
+});
+
 

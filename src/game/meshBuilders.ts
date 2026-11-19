@@ -381,9 +381,393 @@ function addColoredBox(
 }
 
 function finalizeMergedParts(parts: THREE.BufferGeometry[]): THREE.BufferGeometry {
-  const merged = mergeGeometries(parts, false);
+  if (parts.length === 0) return new THREE.BoxGeometry(0.1, 0.1, 0.1);
+  let hasIndexed = false;
+  let hasNonIndexed = false;
+  let allHaveUv = true;
+  for (let i = 0; i < parts.length; i++) {
+    if (parts[i].index) hasIndexed = true;
+    else hasNonIndexed = true;
+    if (!parts[i].attributes.uv) allHaveUv = false;
+  }
+  const normalized: THREE.BufferGeometry[] = [];
+  const tempToDispose: THREE.BufferGeometry[] = [];
+  for (let i = 0; i < parts.length; i++) {
+    let g = parts[i];
+    if (hasIndexed && hasNonIndexed && g.index) {
+      g = g.toNonIndexed();
+      tempToDispose.push(g);
+    }
+    if (!allHaveUv && g.attributes.uv) {
+      g.deleteAttribute('uv');
+    }
+    normalized.push(g);
+  }
+  const merged = mergeGeometries(normalized, false);
   for (const p of parts) p.dispose();
+  for (const t of tempToDispose) t.dispose();
   return merged ?? new THREE.BoxGeometry(0.1, 0.1, 0.1);
+}
+
+const _treeColorA = new THREE.Color();
+const _treeColorB = new THREE.Color();
+const _treeColorC = new THREE.Color();
+const _treeUp = new THREE.Vector3(0, 1, 0);
+const _treeDir = new THREE.Vector3();
+const _treeQuat = new THREE.Quaternion();
+const _treeMat = new THREE.Matrix4();
+
+/** Soft octagonal contact shadow pad beneath sculpted trees (replaces square shadow boxes). */
+function addTreeShadowDisk(parts: THREE.BufferGeometry[], x: number, z: number, radius: number, hex: number) {
+  const g = new THREE.CylinderGeometry(radius * 0.96, radius, 0.014, 8).toNonIndexed();
+  g.deleteAttribute('uv');
+  g.translate(x, 0.008, z);
+  _treeColorA.setHex(hex);
+  const count = g.attributes.position.count;
+  const colors = new Float32Array(count * 3);
+  for (let i = 0; i < count; i++) {
+    colors[i * 3] = _treeColorA.r;
+    colors[i * 3 + 1] = _treeColorA.g;
+    colors[i * 3 + 2] = _treeColorA.b;
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  parts.push(g);
+}
+
+/** Tapered organic 3D trunk/branch/root limb connecting any two 3D points with smooth bark color gradient. */
+function addOrganicLimb(
+  parts: THREE.BufferGeometry[],
+  x1: number,
+  y1: number,
+  z1: number,
+  x2: number,
+  y2: number,
+  z2: number,
+  rBot: number,
+  rTop: number,
+  hexBot: number,
+  hexTop: number,
+  segs = 5,
+  openEnded = true,
+) {
+  _treeDir.set(x2 - x1, y2 - y1, z2 - z1);
+  const len = _treeDir.length();
+  if (len < 0.004) return;
+  const g = new THREE.CylinderGeometry(rTop, rBot, len, segs, 1, openEnded).toNonIndexed();
+  g.deleteAttribute('uv');
+  const pos = g.attributes.position;
+  _treeColorA.setHex(hexBot);
+  _treeColorB.setHex(hexTop);
+  const count = pos.count;
+  const colors = new Float32Array(count * 3);
+  const halfLen = len * 0.5;
+  for (let i = 0; i < count; i++) {
+    const t = Math.max(0, Math.min(1, (pos.getY(i) + halfLen) / len));
+    const r = _treeColorA.r + (_treeColorB.r - _treeColorA.r) * t;
+    const gr = _treeColorA.g + (_treeColorB.g - _treeColorA.g) * t;
+    const b = _treeColorA.b + (_treeColorB.b - _treeColorA.b) * t;
+    colors[i * 3] = r;
+    colors[i * 3 + 1] = gr;
+    colors[i * 3 + 2] = b;
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  _treeDir.normalize();
+  _treeQuat.setFromUnitVectors(_treeUp, _treeDir);
+  _treeMat.makeRotationFromQuaternion(_treeQuat);
+  g.applyMatrix4(_treeMat);
+  g.translate((x1 + x2) * 0.5, (y1 + y2) * 0.5, (z1 + z2) * 0.5);
+  g.computeVertexNormals();
+  parts.push(g);
+}
+
+/** Sculpted faceted low-poly foliage cloud puff with organic vertex wobble and sunlit 3-stop shading. */
+function addFoliagePuff(
+  parts: THREE.BufferGeometry[],
+  x: number,
+  y: number,
+  z: number,
+  rx: number,
+  ry: number,
+  rz: number,
+  hexShadow: number,
+  hexMid: number,
+  hexSun: number,
+  seed: number,
+  detail: 0 | 1 = 1,
+) {
+  // Dodecahedron(0) gives 36 crisp painterly facets (2.2x lighter than Icosahedron(1)) while Icosahedron(0) gives 20 facets for accent clusters
+  const g = detail === 1 ? new THREE.DodecahedronGeometry(1, 0) : new THREE.IcosahedronGeometry(1, 0);
+  if (g.attributes.uv) g.deleteAttribute('uv');
+  const pos = g.attributes.position;
+  _treeColorA.setHex(hexShadow);
+  _treeColorB.setHex(hexMid);
+  _treeColorC.setHex(hexSun);
+  const count = pos.count;
+  const colors = new Float32Array(count * 3);
+  for (let i = 0; i < count; i++) {
+    const vx = pos.getX(i);
+    const vy = pos.getY(i);
+    const vz = pos.getZ(i);
+    // Deterministic organic billowing perturbation so clusters look hand-sculpted, never spherical or boxy
+    const wobble =
+      1.0 +
+      0.14 * Math.sin(vx * 3.7 + seed * 1.9) * Math.cos(vz * 3.5 - seed * 1.3) +
+      0.09 * Math.sin(vy * 4.3 + vx * 2.1 + seed * 2.7);
+    // Slightly flatten underside for natural weight & gravity
+    const yShape = vy < 0 ? vy * 0.84 : vy;
+    pos.setXYZ(i, vx * rx * wobble + x, yShape * ry * wobble + y, vz * rz * wobble + z);
+
+    // 3-stop painterly directional gradient (shadowed underside -> vibrant mid -> sun-kissed upper crest)
+    const sunMix = Math.max(0, Math.min(1, (vy * 0.72 + vx * 0.22 + vz * 0.14 + 0.65) * 0.72));
+    let r: number;
+    let gr: number;
+    let b: number;
+    if (sunMix < 0.5) {
+      const t = sunMix * 2;
+      r = _treeColorA.r + (_treeColorB.r - _treeColorA.r) * t;
+      gr = _treeColorA.g + (_treeColorB.g - _treeColorA.g) * t;
+      b = _treeColorA.b + (_treeColorB.b - _treeColorA.b) * t;
+    } else {
+      const t = (sunMix - 0.5) * 2;
+      r = _treeColorB.r + (_treeColorC.r - _treeColorB.r) * t;
+      gr = _treeColorB.g + (_treeColorC.g - _treeColorB.g) * t;
+      b = _treeColorB.b + (_treeColorC.b - _treeColorB.b) * t;
+    }
+    colors[i * 3] = r;
+    colors[i * 3 + 1] = gr;
+    colors[i * 3 + 2] = b;
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  g.computeVertexNormals();
+  parts.push(g);
+}
+
+/** Scalloped drooping conifer bough whorl (star-shaped radiating needle skirt with natural tip droop). */
+function addScallopedConiferWhorl(
+  parts: THREE.BufferGeometry[],
+  x: number,
+  y: number,
+  z: number,
+  rBot: number,
+  rTop: number,
+  h: number,
+  hexDark: number,
+  hexMid: number,
+  hexTip: number,
+  lobes = 5,
+  droop = 0.06,
+  rotY = 0,
+) {
+  const effectiveLobes = Math.min(5, lobes);
+  const segs = effectiveLobes * 2;
+  const g = new THREE.CylinderGeometry(rTop, rBot, h, segs, 1, false).toNonIndexed();
+  g.deleteAttribute('uv');
+  const pos = g.attributes.position;
+  _treeColorA.setHex(hexDark);
+  _treeColorB.setHex(hexMid);
+  _treeColorC.setHex(hexTip);
+  const count = pos.count;
+  const colors = new Float32Array(count * 3);
+  const halfH = h * 0.5;
+
+  for (let i = 0; i < count; i++) {
+    let vx = pos.getX(i);
+    let vy = pos.getY(i);
+    let vz = pos.getZ(i);
+    const radial = Math.hypot(vx, vz);
+    const isBottomRim = vy < -halfH * 0.5 && radial > rBot * 0.25;
+    const ang = Math.atan2(vz, vx);
+    let tipFactor = 0.5;
+
+    if (isBottomRim) {
+      // Alternate outer branch tips & inner notches for crisp, sculptural evergreen bough fronds
+      const lobeWave = Math.cos(ang * effectiveLobes);
+      const radialScale = 1.0 + lobeWave * 0.24;
+      vx *= radialScale;
+      vz *= radialScale;
+      vy -= Math.max(0, lobeWave) * droop;
+      tipFactor = 0.25 + (lobeWave * 0.5 + 0.5) * 0.45;
+    } else if (vy > halfH * 0.5) {
+      tipFactor = 0.92;
+    } else {
+      tipFactor = 0.1;
+    }
+
+    // Apply rotation & world translation
+    const rx = vx * Math.cos(rotY) - vz * Math.sin(rotY);
+    const rz = vx * Math.sin(rotY) + vz * Math.cos(rotY);
+    pos.setXYZ(i, rx + x, vy + y, rz + z);
+
+    let r: number;
+    let gr: number;
+    let b: number;
+    if (tipFactor < 0.5) {
+      const t = tipFactor * 2;
+      r = _treeColorA.r + (_treeColorB.r - _treeColorA.r) * t;
+      gr = _treeColorA.g + (_treeColorB.g - _treeColorA.g) * t;
+      b = _treeColorA.b + (_treeColorB.b - _treeColorA.b) * t;
+    } else {
+      const t = (tipFactor - 0.5) * 2;
+      r = _treeColorB.r + (_treeColorC.r - _treeColorB.r) * t;
+      gr = _treeColorB.g + (_treeColorC.g - _treeColorB.g) * t;
+      b = _treeColorB.b + (_treeColorC.b - _treeColorB.b) * t;
+    }
+    colors[i * 3] = r;
+    colors[i * 3 + 1] = gr;
+    colors[i * 3 + 2] = b;
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  g.computeVertexNormals();
+  parts.push(g);
+}
+
+/** Genuine arching, V-folded diamond-tapered palm frond blade (double-sided, sunlit crest & shaded tip). */
+function addCurvedPalmFrond(
+  parts: THREE.BufferGeometry[],
+  cx: number,
+  cy: number,
+  cz: number,
+  angleY: number,
+  length: number,
+  maxWidth: number,
+  archH: number,
+  droopY: number,
+  hexBase: number,
+  hexTip: number,
+) {
+  const cosA = Math.cos(angleY);
+  const sinA = Math.sin(angleY);
+  const perpX = -sinA;
+  const perpZ = cosA;
+
+  // 4 longitudinal ribs from stem base (t=0) to pointed drooping tip (t=1)
+  const ts = [0.0, 0.28, 0.62, 1.0];
+  const widths = [0.16, 1.0, 0.72, 0.0];
+  const midPts: [number, number, number][] = [];
+  const leftPts: [number, number, number][] = [];
+  const rightPts: [number, number, number][] = [];
+
+  for (let i = 0; i < ts.length; i++) {
+    const t = ts[i];
+    const dist = t * length;
+    // Parabolic arch rising from crown then gracefully drooping toward the tip
+    const dy = Math.sin(t * Math.PI * 0.78) * archH - t * t * droopY;
+    const w = widths[i] * maxWidth * 0.5;
+    const foldDrop = w * 0.36;
+    const mx = cx + cosA * dist;
+    const my = cy + dy;
+    const mz = cz + sinA * dist;
+    midPts.push([mx, my, mz]);
+    leftPts.push([mx + perpX * w, my - foldDrop, mz + perpZ * w]);
+    rightPts.push([mx - perpX * w, my - foldDrop, mz - perpZ * w]);
+  }
+
+  const positions: number[] = [];
+  const colors: number[] = [];
+  _treeColorA.setHex(hexBase);
+  _treeColorB.setHex(hexTip);
+
+  const pushTri = (
+    p1: [number, number, number],
+    p2: [number, number, number],
+    p3: [number, number, number],
+    t1: number,
+    t2: number,
+    t3: number,
+    shade: number,
+  ) => {
+    // Top face
+    positions.push(p1[0], p1[1], p1[2], p2[0], p2[1], p2[2], p3[0], p3[1], p3[2]);
+    // Underside face (darker AO so fronds look solid from every camera angle)
+    positions.push(p1[0], p1[1] - 0.004, p1[2], p3[0], p3[1] - 0.004, p3[2], p2[0], p2[1] - 0.004, p2[2]);
+    const tsTri = [t1, t2, t3];
+    for (let k = 0; k < 3; k++) {
+      const tk = tsTri[k];
+      colors.push(
+        Math.min(1, (_treeColorA.r + (_treeColorB.r - _treeColorA.r) * tk) * shade),
+        Math.min(1, (_treeColorA.g + (_treeColorB.g - _treeColorA.g) * tk) * shade),
+        Math.min(1, (_treeColorA.b + (_treeColorB.b - _treeColorA.b) * tk) * shade),
+      );
+    }
+    const underShade = shade * 0.78;
+    const tsUnder = [t1, t3, t2];
+    for (let k = 0; k < 3; k++) {
+      const tk = tsUnder[k];
+      colors.push(
+        Math.min(1, (_treeColorA.r + (_treeColorB.r - _treeColorA.r) * tk) * underShade),
+        Math.min(1, (_treeColorA.g + (_treeColorB.g - _treeColorA.g) * tk) * underShade),
+        Math.min(1, (_treeColorA.b + (_treeColorB.b - _treeColorA.b) * tk) * underShade),
+      );
+    }
+  };
+
+  for (let i = 0; i < ts.length - 1; i++) {
+    const t0 = ts[i];
+    const t1 = ts[i + 1];
+    if (i < ts.length - 2) {
+      // Left half quad (2 tris)
+      pushTri(midPts[i], leftPts[i], leftPts[i + 1], t0, t0, t1, 1.04);
+      pushTri(midPts[i], leftPts[i + 1], midPts[i + 1], t0, t1, t1, 1.06);
+      // Right half quad (2 tris)
+      pushTri(midPts[i], rightPts[i + 1], rightPts[i], t0, t1, t0, 0.96);
+      pushTri(midPts[i], midPts[i + 1], rightPts[i + 1], t0, t1, t1, 0.98);
+    } else {
+      // Pointed tip triangles
+      pushTri(midPts[i], leftPts[i], midPts[i + 1], t0, t0, t1, 1.05);
+      pushTri(midPts[i], midPts[i + 1], rightPts[i], t0, t1, t0, 0.97);
+    }
+  }
+
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  g.computeVertexNormals();
+  parts.push(g);
+}
+
+/** Tapered hanging organic curtain/garland/liana/moss strand swaying from canopy boughs. */
+function addHangingStrand(
+  parts: THREE.BufferGeometry[],
+  x: number,
+  yTop: number,
+  z: number,
+  length: number,
+  rTop: number,
+  hexTop: number,
+  hexBot: number,
+  swayX = 0,
+  swayZ = 0,
+) {
+  addOrganicLimb(
+    parts,
+    x,
+    yTop,
+    z,
+    x + swayX,
+    yTop - length,
+    z + swayZ,
+    rTop,
+    rTop * 0.22,
+    hexTop,
+    hexBot,
+    4,
+  );
+}
+
+/** Sculpted faceted boulder/stone/mushroom/stump accent (no cubes). */
+function addSculptedBoulder(
+  parts: THREE.BufferGeometry[],
+  x: number,
+  y: number,
+  z: number,
+  rx: number,
+  ry: number,
+  rz: number,
+  hexDark: number,
+  hexTop: number,
+  seed: number,
+) {
+  addFoliagePuff(parts, x, y, z, rx, ry, rz, hexDark, hexTop, hexTop, seed, 0);
 }
 
 type WoodlandTreeKind = 'oak' | 'birch' | 'pine' | 'redwood' | 'maple';
@@ -398,101 +782,153 @@ function addPixelTree(
 ) {
   const resolvedKind: WoodlandTreeKind =
     kind ?? (variantPalette === 0 ? 'oak' : variantPalette === 1 ? 'pine' : 'birch');
+  const seed = tx * 19.3 + tz * 31.7 + variantPalette * 5.1;
 
   if (resolvedKind === 'birch') {
-    // Tall slender Silver Birch: chalk-white bark with dark horizontal lenticel notches & airy golden-lime tiered crown
-    addColoredBox(parts, 0.28 * scale, 0.02, 0.28 * scale, tx, 0.01, tz, 0x1b2920);
-    // Flared birch root base
-    addColoredBox(parts, 0.16 * scale, 0.06 * scale, 0.12 * scale, tx, 0.03 * scale, tz, 0xb8bec4, 0.3);
-    // Slender white trunk segments + dark bark bands
-    addColoredBox(parts, 0.09 * scale, 0.46 * scale, 0.09 * scale, tx, 0.23 * scale, tz, 0xe8edf2, 0, 0.04);
-    addColoredBox(parts, 0.096 * scale, 0.035 * scale, 0.096 * scale, tx, 0.14 * scale, tz, 0x363b40);
-    addColoredBox(parts, 0.096 * scale, 0.03 * scale, 0.096 * scale, tx - 0.008 * scale, 0.29 * scale, tz, 0x363b40);
-    addColoredBox(parts, 0.094 * scale, 0.03 * scale, 0.094 * scale, tx - 0.014 * scale, 0.41 * scale, tz, 0x363b40);
-    // Forked white upper boughs
-    addColoredBox(parts, 0.05 * scale, 0.18 * scale, 0.05 * scale, tx - 0.06 * scale, 0.48 * scale, tz + 0.03 * scale, 0xdce2e8, 0, 0.38);
-    addColoredBox(parts, 0.05 * scale, 0.16 * scale, 0.05 * scale, tx + 0.06 * scale, 0.44 * scale, tz - 0.03 * scale, 0xdce2e8, 0, -0.42);
-    // Airy multi-lobe birch foliage clusters
-    addColoredBox(parts, 0.34 * scale, 0.14 * scale, 0.32 * scale, tx - 0.02 * scale, 0.48 * scale, tz, 0x4e8c45);
-    addColoredBox(parts, 0.28 * scale, 0.15 * scale, 0.28 * scale, tx + 0.06 * scale, 0.58 * scale, tz - 0.04 * scale, 0x6ba851);
-    addColoredBox(parts, 0.26 * scale, 0.14 * scale, 0.26 * scale, tx - 0.07 * scale, 0.63 * scale, tz + 0.04 * scale, 0x82bf5c);
-    addColoredBox(parts, 0.18 * scale, 0.14 * scale, 0.18 * scale, tx, 0.74 * scale, tz, 0x9ed468);
+    // Tall slender Silver Birch: gracefully curving chalk-white trunk with dark bark notches, delicate forks & airy sunlit golden-lime puffs
+    addTreeShadowDisk(parts, tx, tz, 0.20 * scale, 0x1b2920);
+    // 3 small flared birch roots
+    for (let r = 0; r < 3; r++) {
+      const a = r * 2.1 + 0.4;
+      addOrganicLimb(
+        parts,
+        tx + Math.cos(a) * 0.08 * scale,
+        0,
+        tz + Math.sin(a) * 0.08 * scale,
+        tx,
+        0.07 * scale,
+        tz,
+        0.028 * scale,
+        0.042 * scale,
+        0x7a8086,
+        0xd8dfe6,
+        5,
+      );
+    }
+    // Curved slender white trunk in 3 segments + dark lenticel rings
+    addOrganicLimb(parts, tx, 0.01, tz, tx - 0.025 * scale, 0.24 * scale, tz + 0.015 * scale, 0.048 * scale, 0.040 * scale, 0xcfd6de, 0xf0f4f8, 6);
+    addOrganicLimb(parts, tx - 0.025 * scale, 0.23 * scale, tz + 0.015 * scale, tx + 0.015 * scale, 0.48 * scale, tz - 0.01 * scale, 0.040 * scale, 0.030 * scale, 0xf0f4f8, 0xe4eaf0, 6);
+    // Dark charcoal birch bark notches
+    addOrganicLimb(parts, tx - 0.012 * scale, 0.13 * scale, tz + 0.008 * scale, tx - 0.016 * scale, 0.165 * scale, tz + 0.01 * scale, 0.046 * scale, 0.046 * scale, 0x2c3035, 0x2c3035, 6);
+    addOrganicLimb(parts, tx - 0.010 * scale, 0.31 * scale, tz + 0.006 * scale, tx - 0.004 * scale, 0.34 * scale, tz + 0.002 * scale, 0.040 * scale, 0.040 * scale, 0x33383e, 0x33383e, 6);
+    // Delicate V-forked white boughs
+    addOrganicLimb(parts, tx - 0.005 * scale, 0.38 * scale, tz, tx - 0.12 * scale, 0.56 * scale, tz + 0.06 * scale, 0.024 * scale, 0.012 * scale, 0xe2e8ee, 0xf2f6fa, 5);
+    addOrganicLimb(parts, tx + 0.005 * scale, 0.42 * scale, tz, tx + 0.12 * scale, 0.60 * scale, tz - 0.05 * scale, 0.022 * scale, 0.011 * scale, 0xe2e8ee, 0xf2f6fa, 5);
+    // Airy, light-dappled multi-puff birch crown
+    addFoliagePuff(parts, tx - 0.11 * scale, 0.56 * scale, tz + 0.06 * scale, 0.17 * scale, 0.13 * scale, 0.16 * scale, 0x3f7a38, 0x67a84c, 0x9bd663, seed + 1.1, 1);
+    addFoliagePuff(parts, tx + 0.12 * scale, 0.61 * scale, tz - 0.05 * scale, 0.16 * scale, 0.13 * scale, 0.16 * scale, 0x47853e, 0x74b554, 0xa8e06c, seed + 2.3, 1);
+    addFoliagePuff(parts, tx - 0.02 * scale, 0.68 * scale, tz - 0.04 * scale, 0.19 * scale, 0.15 * scale, 0.18 * scale, 0x4e8f42, 0x80bf59, 0xb6e874, seed + 3.7, 1);
+    addFoliagePuff(parts, tx + 0.03 * scale, 0.79 * scale, tz + 0.02 * scale, 0.13 * scale, 0.13 * scale, 0.13 * scale, 0x63a649, 0x94d162, 0xc7f283, seed + 5.2, 0);
     return;
   }
 
   if (resolvedKind === 'pine') {
-    // Stepped 8-Pointed Star Woodland Conifer with exposed root flare and rotated needle whorls
-    addColoredBox(parts, 0.32 * scale, 0.02, 0.32 * scale, tx, 0.01, tz, 0x17241c);
-    addColoredBox(parts, 0.2 * scale, 0.06 * scale, 0.12 * scale, tx, 0.03 * scale, tz, 0x4d311e, 0.4);
-    addColoredBox(parts, 0.11 * scale, 0.36 * scale, 0.11 * scale, tx, 0.18 * scale, tz, 0x5c3b24);
-    // 5 stepped needle whorls alternating 0 and 45 deg for rich star-shaped conifer silhouette
-    addColoredBox(parts, 0.44 * scale, 0.12 * scale, 0.44 * scale, tx, 0.28 * scale, tz, 0x1f4d36);
-    addColoredBox(parts, 0.38 * scale, 0.12 * scale, 0.38 * scale, tx, 0.38 * scale, tz, 0x295e42, Math.PI / 4);
-    addColoredBox(parts, 0.31 * scale, 0.13 * scale, 0.31 * scale, tx, 0.49 * scale, tz, 0x357350);
-    addColoredBox(parts, 0.23 * scale, 0.13 * scale, 0.23 * scale, tx, 0.60 * scale, tz, 0x468a60, Math.PI / 4);
-    addColoredBox(parts, 0.13 * scale, 0.15 * scale, 0.13 * scale, tx, 0.72 * scale, tz, 0x5ca372);
+    // Sculpted Alpine/Woodland Pine with flared root collar & 5 cascading scalloped drooping needle skirts
+    addTreeShadowDisk(parts, tx, tz, 0.23 * scale, 0x16241c);
+    addOrganicLimb(parts, tx, 0, tz, tx, 0.36 * scale, tz, 0.072 * scale, 0.038 * scale, 0x452a19, 0x664028, 6);
+    addScallopedConiferWhorl(parts, tx, 0.31 * scale, tz, 0.27 * scale, 0.08 * scale, 0.20 * scale, 0x163d2b, 0x22593e, 0x357854, 7, 0.06 * scale, 0.0);
+    addScallopedConiferWhorl(parts, tx, 0.45 * scale, tz, 0.23 * scale, 0.07 * scale, 0.20 * scale, 0x1b4732, 0x2a6949, 0x418a62, 7, 0.055 * scale, 0.45);
+    addScallopedConiferWhorl(parts, tx, 0.59 * scale, tz, 0.18 * scale, 0.055 * scale, 0.19 * scale, 0x22543b, 0x347a56, 0x529e71, 6, 0.045 * scale, 0.9);
+    addScallopedConiferWhorl(parts, tx, 0.72 * scale, tz, 0.13 * scale, 0.035 * scale, 0.18 * scale, 0x2b6346, 0x418c63, 0x64b382, 6, 0.035 * scale, 1.35);
+    addScallopedConiferWhorl(parts, tx, 0.85 * scale, tz, 0.08 * scale, 0.005 * scale, 0.17 * scale, 0x357552, 0x50a173, 0x7ac794, 5, 0.02 * scale, 1.8);
     return;
   }
 
   if (resolvedKind === 'redwood') {
-    // Colossal Old-Growth Giant Sequoia / Redwood with cinnamon fluted trunk & high horizontal bough plates
-    addColoredBox(parts, 0.4 * scale, 0.02, 0.4 * scale, tx, 0.01, tz, 0x17241b);
-    // Fluted buttress root base
-    addColoredBox(parts, 0.28 * scale, 0.12 * scale, 0.16 * scale, tx, 0.06 * scale, tz, 0x5e2c19);
-    addColoredBox(parts, 0.16 * scale, 0.12 * scale, 0.28 * scale, tx, 0.06 * scale, tz, 0x5e2c19);
-    // Towering tapered cinnamon trunk
-    addColoredBox(parts, 0.18 * scale, 0.48 * scale, 0.18 * scale, tx, 0.24 * scale, tz, 0x783a22);
-    addColoredBox(parts, 0.14 * scale, 0.42 * scale, 0.14 * scale, tx, 0.62 * scale, tz, 0x8a4529);
-    // Horizontal redwood branches + tiered needle plates
-    addColoredBox(parts, 0.32 * scale, 0.05 * scale, 0.06 * scale, tx, 0.46 * scale, tz, 0x63301c);
-    addColoredBox(parts, 0.48 * scale, 0.11 * scale, 0.44 * scale, tx, 0.48 * scale, tz, 0x214f37);
-    addColoredBox(parts, 0.42 * scale, 0.11 * scale, 0.42 * scale, tx + 0.02 * scale, 0.61 * scale, tz - 0.02 * scale, 0x2c6344, Math.PI / 4);
-    addColoredBox(parts, 0.34 * scale, 0.11 * scale, 0.34 * scale, tx - 0.02 * scale, 0.74 * scale, tz + 0.02 * scale, 0x3b7a54);
-    addColoredBox(parts, 0.24 * scale, 0.11 * scale, 0.24 * scale, tx, 0.85 * scale, tz, 0x4d9164, Math.PI / 4);
-    addColoredBox(parts, 0.14 * scale, 0.12 * scale, 0.14 * scale, tx, 0.95 * scale, tz, 0x66ab78);
+    // Colossal Old-Growth Giant Sequoia / Redwood with massive fluted cinnamon trunk & soaring scalloped cedar tiers
+    addTreeShadowDisk(parts, tx, tz, 0.28 * scale, 0x152119);
+    // 4 heavy buttress root flutes gripping earth
+    for (let r = 0; r < 4; r++) {
+      const a = r * (Math.PI / 2) + 0.35;
+      addOrganicLimb(
+        parts,
+        tx + Math.cos(a) * 0.15 * scale,
+        0,
+        tz + Math.sin(a) * 0.15 * scale,
+        tx + Math.cos(a) * 0.04 * scale,
+        0.18 * scale,
+        tz + Math.sin(a) * 0.04 * scale,
+        0.055 * scale,
+        0.042 * scale,
+        0x4d2212,
+        0x783820,
+        5,
+      );
+    }
+    // Soaring tapered cinnamon-red trunk
+    addOrganicLimb(parts, tx, 0.01, tz, tx, 0.62 * scale, tz, 0.105 * scale, 0.062 * scale, 0x69311c, 0x8f472b, 7);
+    addOrganicLimb(parts, tx, 0.60 * scale, tz, tx, 1.02 * scale, tz, 0.062 * scale, 0.024 * scale, 0x8f472b, 0x7a3b22, 6);
+    // 6 wide tiered scalloped redwood bough skirts high up the trunk
+    addScallopedConiferWhorl(parts, tx, 0.54 * scale, tz, 0.32 * scale, 0.11 * scale, 0.19 * scale, 0x173d29, 0x23593b, 0x377a52, 7, 0.065 * scale, 0.1);
+    addScallopedConiferWhorl(parts, tx, 0.68 * scale, tz, 0.27 * scale, 0.095 * scale, 0.19 * scale, 0x1c4730, 0x2c6946, 0x438c5f, 7, 0.058 * scale, 0.6);
+    addScallopedConiferWhorl(parts, tx, 0.81 * scale, tz, 0.22 * scale, 0.075 * scale, 0.18 * scale, 0x225439, 0x357a52, 0x529e6d, 6, 0.05 * scale, 1.1);
+    addScallopedConiferWhorl(parts, tx, 0.94 * scale, tz, 0.16 * scale, 0.05 * scale, 0.17 * scale, 0x2a6344, 0x428c61, 0x64b37f, 6, 0.04 * scale, 1.6);
+    addScallopedConiferWhorl(parts, tx, 1.07 * scale, tz, 0.10 * scale, 0.008 * scale, 0.18 * scale, 0x367853, 0x54a373, 0x7bc994, 5, 0.025 * scale, 2.1);
     return;
   }
 
   if (resolvedKind === 'maple') {
-    // Spreading Woodland Maple with warm golden-amber, autumn-orange & olive-emerald multi-lobe crown
-    addColoredBox(parts, 0.36 * scale, 0.02, 0.36 * scale, tx, 0.01, tz, 0x1f261b);
-    addColoredBox(parts, 0.22 * scale, 0.07 * scale, 0.14 * scale, tx, 0.035 * scale, tz, 0x4a3121, 0.5);
-    addColoredBox(parts, 0.13 * scale, 0.34 * scale, 0.13 * scale, tx, 0.17 * scale, tz, 0x573a28);
-    // Forked diagonal limbs
-    addColoredBox(parts, 0.07 * scale, 0.22 * scale, 0.07 * scale, tx - 0.08 * scale, 0.35 * scale, tz, 0x4a3121, 0, 0.45);
-    addColoredBox(parts, 0.07 * scale, 0.22 * scale, 0.07 * scale, tx + 0.08 * scale, 0.34 * scale, tz, 0x4a3121, 0, -0.45);
-    // Layered warm amber/ochre/olive canopy clouds
-    addColoredBox(parts, 0.46 * scale, 0.15 * scale, 0.42 * scale, tx, 0.40 * scale, tz, 0x567d3b);
-    addColoredBox(parts, 0.36 * scale, 0.16 * scale, 0.34 * scale, tx - 0.1 * scale, 0.48 * scale, tz + 0.05 * scale, 0xc97a2b);
-    addColoredBox(parts, 0.34 * scale, 0.15 * scale, 0.34 * scale, tx + 0.1 * scale, 0.50 * scale, tz - 0.05 * scale, 0xde9835);
-    addColoredBox(parts, 0.28 * scale, 0.14 * scale, 0.28 * scale, tx, 0.60 * scale, tz, 0xf2ba49);
+    // Sculpted Autumn Woodland Maple with curved forked dark trunk & glowing burnt-amber/crimson/gold cloud canopy
+    addTreeShadowDisk(parts, tx, tz, 0.25 * scale, 0x21241a);
+    for (let r = 0; r < 3; r++) {
+      const a = r * 2.1 + 0.2;
+      addOrganicLimb(parts, tx + Math.cos(a) * 0.12 * scale, 0, tz + Math.sin(a) * 0.12 * scale, tx, 0.09 * scale, tz, 0.036 * scale, 0.052 * scale, 0x3b2518, 0x593a27, 5);
+    }
+    addOrganicLimb(parts, tx, 0.01, tz, tx + 0.02 * scale, 0.31 * scale, tz - 0.01 * scale, 0.068 * scale, 0.048 * scale, 0x452c1d, 0x63412b, 6);
+    // 3 spreading maple boughs
+    addOrganicLimb(parts, tx + 0.02 * scale, 0.28 * scale, tz - 0.01 * scale, tx - 0.15 * scale, 0.47 * scale, tz + 0.07 * scale, 0.036 * scale, 0.018 * scale, 0x573825, 0x6e4830, 5);
+    addOrganicLimb(parts, tx + 0.02 * scale, 0.29 * scale, tz - 0.01 * scale, tx + 0.15 * scale, 0.46 * scale, tz - 0.08 * scale, 0.036 * scale, 0.018 * scale, 0x573825, 0x6e4830, 5);
+    addOrganicLimb(parts, tx + 0.02 * scale, 0.30 * scale, tz - 0.01 * scale, tx + 0.01 * scale, 0.50 * scale, tz + 0.13 * scale, 0.032 * scale, 0.016 * scale, 0x573825, 0x6e4830, 5);
+    // Lush overlapping sculpted autumn foliage clouds
+    addFoliagePuff(parts, tx - 0.16 * scale, 0.49 * scale, tz + 0.07 * scale, 0.20 * scale, 0.14 * scale, 0.19 * scale, 0x8a3419, 0xc75a24, 0xf09235, seed + 1.4, 1);
+    addFoliagePuff(parts, tx + 0.16 * scale, 0.48 * scale, tz - 0.08 * scale, 0.20 * scale, 0.14 * scale, 0.18 * scale, 0x993e1b, 0xd97326, 0xf7ad3e, seed + 2.8, 1);
+    addFoliagePuff(parts, tx + 0.02 * scale, 0.51 * scale, tz + 0.13 * scale, 0.18 * scale, 0.13 * scale, 0.18 * scale, 0x802b18, 0xb84725, 0xe87b33, seed + 4.1, 1);
+    addFoliagePuff(parts, tx - 0.02 * scale, 0.58 * scale, tz - 0.04 * scale, 0.22 * scale, 0.16 * scale, 0.21 * scale, 0xa84d1d, 0xe38c2b, 0xffc852, seed + 5.9, 1);
+    addFoliagePuff(parts, tx + 0.03 * scale, 0.69 * scale, tz + 0.01 * scale, 0.14 * scale, 0.11 * scale, 0.14 * scale, 0xc26722, 0xf2a938, 0xffdc6b, seed + 7.2, 0);
     return;
   }
 
-  // Default 'oak': Broad-Crowned Ancient Oak with root buttresses, bark knot, angled limbs & 5-lobe canopy
-  const palettes: [number, number, number, number][] = [
-    [0x2b593c, 0x3b734c, 0x528f5d, 0x76b070],
-    [0x254f36, 0x356947, 0x4a8559, 0x6ca66b],
-    [0x39592e, 0x4e753c, 0x67944c, 0x89b560],
+  // Default 'oak': Majestic Ancient Broadleaf Oak with radiating root buttresses, gnarled curved limbs & billowing sculpted multi-puff canopy
+  const palettes: [number, number, number][] = [
+    [0x1d472d, 0x3b7a48, 0x74b868],
+    [0x19402a, 0x316e43, 0x67ab60],
+    [0x2a4a22, 0x4d7d38, 0x8cc25b],
   ];
-  const [cShadow, cMid, cUpper, cSun] = palettes[variantPalette];
-  // Ground shadow pad
-  addColoredBox(parts, 0.36 * scale, 0.02, 0.36 * scale, tx, 0.01, tz, 0x18261d);
-  // Flared buttress roots
-  addColoredBox(parts, 0.26 * scale, 0.07 * scale, 0.11 * scale, tx, 0.035 * scale, tz, 0x543520, 0.25);
-  addColoredBox(parts, 0.11 * scale, 0.07 * scale, 0.26 * scale, tx, 0.035 * scale, tz, 0x543520, 0.25);
-  // Gnarled trunk + dark hollow knot
-  addColoredBox(parts, 0.15 * scale, 0.34 * scale, 0.15 * scale, tx, 0.17 * scale, tz, 0x694329);
-  addColoredBox(parts, 0.06 * scale, 0.06 * scale, 0.04 * scale, tx, 0.21 * scale, tz + 0.07 * scale, 0x2e1c10);
-  // Reaching diagonal oak limbs
-  addColoredBox(parts, 0.07 * scale, 0.22 * scale, 0.07 * scale, tx - 0.1 * scale, 0.34 * scale, tz + 0.03 * scale, 0x5c3a22, 0, 0.48);
-  addColoredBox(parts, 0.07 * scale, 0.22 * scale, 0.07 * scale, tx + 0.1 * scale, 0.33 * scale, tz - 0.04 * scale, 0x5c3a22, 0, -0.46);
-  // Asymmetric multi-lobe oak canopy
-  addColoredBox(parts, 0.48 * scale, 0.15 * scale, 0.44 * scale, tx, 0.39 * scale, tz, cShadow);
-  addColoredBox(parts, 0.34 * scale, 0.15 * scale, 0.34 * scale, tx - 0.12 * scale, 0.46 * scale, tz + 0.06 * scale, cMid);
-  addColoredBox(parts, 0.34 * scale, 0.15 * scale, 0.32 * scale, tx + 0.12 * scale, 0.45 * scale, tz - 0.06 * scale, cMid);
-  addColoredBox(parts, 0.38 * scale, 0.16 * scale, 0.38 * scale, tx + 0.02 * scale, 0.54 * scale, tz + 0.02 * scale, cUpper);
-  addColoredBox(parts, 0.24 * scale, 0.12 * scale, 0.24 * scale, tx - 0.02 * scale, 0.65 * scale, tz - 0.02 * scale, cSun);
+  const [cShadow, cMid, cSun] = palettes[variantPalette];
+  addTreeShadowDisk(parts, tx, tz, 0.27 * scale, 0x16241b);
+  // 4 organic flared buttress roots gripping ground
+  for (let r = 0; r < 4; r++) {
+    const a = r * (Math.PI / 2) + 0.45;
+    addOrganicLimb(
+      parts,
+      tx + Math.cos(a) * 0.14 * scale,
+      0,
+      tz + Math.sin(a) * 0.14 * scale,
+      tx + Math.cos(a) * 0.03 * scale,
+      0.11 * scale,
+      tz + Math.sin(a) * 0.03 * scale,
+      0.040 * scale,
+      0.052 * scale,
+      0x422918,
+      0x5e3b23,
+      5,
+    );
+  }
+  // Curved gnarled oak trunk
+  addOrganicLimb(parts, tx, 0.01, tz, tx - 0.02 * scale, 0.22 * scale, tz + 0.015 * scale, 0.078 * scale, 0.062 * scale, 0x4c301c, 0x694329, 6);
+  addOrganicLimb(parts, tx - 0.02 * scale, 0.21 * scale, tz + 0.015 * scale, tx + 0.01 * scale, 0.38 * scale, tz - 0.01 * scale, 0.062 * scale, 0.046 * scale, 0x694329, 0x754c30, 6);
+  // 4 reaching structural oak limbs
+  addOrganicLimb(parts, tx - 0.01 * scale, 0.30 * scale, tz, tx - 0.18 * scale, 0.47 * scale, tz + 0.08 * scale, 0.038 * scale, 0.018 * scale, 0x5c3a22, 0x6e472c, 5);
+  addOrganicLimb(parts, tx + 0.01 * scale, 0.32 * scale, tz, tx + 0.18 * scale, 0.48 * scale, tz - 0.09 * scale, 0.038 * scale, 0.018 * scale, 0x5c3a22, 0x6e472c, 5);
+  addOrganicLimb(parts, tx, 0.33 * scale, tz, tx + 0.07 * scale, 0.50 * scale, tz + 0.16 * scale, 0.034 * scale, 0.016 * scale, 0x5c3a22, 0x6e472c, 5);
+  addOrganicLimb(parts, tx, 0.34 * scale, tz, tx - 0.08 * scale, 0.49 * scale, tz - 0.15 * scale, 0.034 * scale, 0.016 * scale, 0x5c3a22, 0x6e472c, 5);
+  // Rich asymmetric multi-puff oak canopy (6 overlapping sculpted leaf clouds)
+  addFoliagePuff(parts, tx - 0.18 * scale, 0.49 * scale, tz + 0.08 * scale, 0.21 * scale, 0.15 * scale, 0.20 * scale, cShadow, cMid, cSun, seed + 1.1, 1);
+  addFoliagePuff(parts, tx + 0.18 * scale, 0.50 * scale, tz - 0.09 * scale, 0.21 * scale, 0.15 * scale, 0.19 * scale, cShadow, cMid, cSun, seed + 2.4, 1);
+  addFoliagePuff(parts, tx + 0.08 * scale, 0.52 * scale, tz + 0.15 * scale, 0.19 * scale, 0.14 * scale, 0.19 * scale, cShadow, cMid, cSun, seed + 3.6, 1);
+  addFoliagePuff(parts, tx - 0.09 * scale, 0.51 * scale, tz - 0.14 * scale, 0.19 * scale, 0.14 * scale, 0.18 * scale, cShadow, cMid, cSun, seed + 4.9, 1);
+  addFoliagePuff(parts, tx, 0.61 * scale, tz, 0.24 * scale, 0.17 * scale, 0.23 * scale, cShadow, cMid, cSun, seed + 6.2, 1);
+  addFoliagePuff(parts, tx - 0.03 * scale, 0.72 * scale, tz + 0.02 * scale, 0.15 * scale, 0.12 * scale, 0.15 * scale, cMid, cSun, cSun, seed + 7.7, 0);
 }
 
 function addMeadowTree(
@@ -502,64 +938,74 @@ function addMeadowTree(
   scale: number,
   kind: 'willow' | 'orchard' | 'poplar',
 ) {
-  addColoredBox(parts, 0.34 * scale, 0.02, 0.34 * scale, tx, 0.01, tz, 0x1b291e);
+  const seed = tx * 23.1 + tz * 17.9;
+  addTreeShadowDisk(parts, tx, tz, 0.26 * scale, 0x1a291d);
+
   if (kind === 'willow') {
-    // Graceful Weeping Willow: leaning trunk, arching crown boughs, and 6 cascading frond curtains
-    addColoredBox(parts, 0.22 * scale, 0.07 * scale, 0.14 * scale, tx, 0.035 * scale, tz, 0x523924, 0.3);
-    addColoredBox(parts, 0.14 * scale, 0.34 * scale, 0.14 * scale, tx, 0.17 * scale, tz, 0x63462d, 0, 0.12);
-    addColoredBox(parts, 0.08 * scale, 0.22 * scale, 0.08 * scale, tx - 0.1 * scale, 0.37 * scale, tz, 0x573d27, 0, 0.48);
-    addColoredBox(parts, 0.08 * scale, 0.22 * scale, 0.08 * scale, tx + 0.08 * scale, 0.36 * scale, tz, 0x573d27, 0, -0.44);
-    // Rounded upper willow crown
-    addColoredBox(parts, 0.48 * scale, 0.14 * scale, 0.46 * scale, tx - 0.02 * scale, 0.44 * scale, tz, 0x46823e);
-    addColoredBox(parts, 0.38 * scale, 0.14 * scale, 0.38 * scale, tx - 0.02 * scale, 0.55 * scale, tz, 0x62a14c);
-    addColoredBox(parts, 0.24 * scale, 0.11 * scale, 0.24 * scale, tx - 0.02 * scale, 0.64 * scale, tz, 0x82bf5c);
-    // Cascading weeping willow frond curtains around perimeter
-    const drapes: [number, number, number][] = [
-      [-0.22, 0.26, -0.14],
-      [0.19, 0.27, -0.15],
-      [-0.23, 0.25, 0.15],
-      [0.18, 0.26, 0.16],
-      [0.0, 0.28, -0.22],
-      [-0.04, 0.26, 0.22],
-    ];
-    for (let i = 0; i < drapes.length; i++) {
-      const [dx, dy, dz] = drapes[i];
-      const hDrape = (0.28 + (i % 2) * 0.06) * scale;
-      addColoredBox(
+    // Graceful Weeping Willow: thick leaning trunk, sweeping arching canopy dome, and 10 tapered cascading willow frond curtains
+    for (let r = 0; r < 3; r++) {
+      const a = r * 2.1 + 0.3;
+      addOrganicLimb(parts, tx + Math.cos(a) * 0.13 * scale, 0, tz + Math.sin(a) * 0.13 * scale, tx, 0.10 * scale, tz, 0.038 * scale, 0.052 * scale, 0x45301e, 0x63462d, 5);
+    }
+    addOrganicLimb(parts, tx, 0.01, tz, tx - 0.05 * scale, 0.28 * scale, tz + 0.02 * scale, 0.075 * scale, 0.056 * scale, 0x4f3723, 0x6b4c32, 6);
+    addOrganicLimb(parts, tx - 0.05 * scale, 0.26 * scale, tz + 0.02 * scale, tx - 0.17 * scale, 0.45 * scale, tz - 0.05 * scale, 0.036 * scale, 0.016 * scale, 0x5c412a, 0x6e4f34, 5);
+    addOrganicLimb(parts, tx - 0.05 * scale, 0.27 * scale, tz + 0.02 * scale, tx + 0.13 * scale, 0.46 * scale, tz + 0.08 * scale, 0.036 * scale, 0.016 * scale, 0x5c412a, 0x6e4f34, 5);
+    // Broad domed weeping willow crown puffs
+    addFoliagePuff(parts, tx - 0.14 * scale, 0.49 * scale, tz - 0.04 * scale, 0.23 * scale, 0.15 * scale, 0.22 * scale, 0x2f632b, 0x559642, 0x8cc95b, seed + 1.2, 1);
+    addFoliagePuff(parts, tx + 0.12 * scale, 0.50 * scale, tz + 0.06 * scale, 0.22 * scale, 0.15 * scale, 0.21 * scale, 0x356e30, 0x61a349, 0x97d463, seed + 2.5, 1);
+    addFoliagePuff(parts, tx - 0.02 * scale, 0.58 * scale, tz + 0.01 * scale, 0.26 * scale, 0.17 * scale, 0.25 * scale, 0x3d7a36, 0x6eb352, 0xa4de6d, seed + 3.9, 1);
+    // 10 gracefully tapering willow curtain tendrils draping around perimeter
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * Math.PI * 2 + 0.18;
+      const rad = (0.24 + (i % 2) * 0.05) * scale;
+      const topY = (0.47 + (i % 3) * 0.03) * scale;
+      const len = (0.31 + (i % 3) * 0.055) * scale;
+      addHangingStrand(
         parts,
-        0.05 * scale,
-        hDrape,
-        0.05 * scale,
-        tx + dx * scale,
-        dy * scale,
-        tz + dz * scale,
-        i % 2 === 0 ? 0x78b852 : 0x94cf63,
+        tx - 0.02 * scale + Math.cos(a) * rad,
+        topY,
+        tz + Math.sin(a) * rad,
+        len,
+        0.028 * scale,
+        i % 2 === 0 ? 0x69ab4c : 0x7ec257,
+        i % 2 === 0 ? 0x92cf63 : 0xa9e072,
+        Math.cos(a) * 0.04 * scale,
+        Math.sin(a) * 0.04 * scale,
       );
     }
     return;
   }
 
   if (kind === 'orchard') {
-    // Blooming Fruit / Apple Orchard Tree with ruby-red & golden fruit clusters
-    addColoredBox(parts, 0.18 * scale, 0.06 * scale, 0.18 * scale, tx, 0.03 * scale, tz, 0x593a24);
-    addColoredBox(parts, 0.12 * scale, 0.3 * scale, 0.12 * scale, tx, 0.15 * scale, tz, 0x6e482d);
-    addColoredBox(parts, 0.44 * scale, 0.16 * scale, 0.44 * scale, tx, 0.36 * scale, tz, 0x3b783c);
-    addColoredBox(parts, 0.36 * scale, 0.16 * scale, 0.36 * scale, tx + 0.03 * scale, 0.49 * scale, tz - 0.02 * scale, 0x529449);
-    addColoredBox(parts, 0.22 * scale, 0.12 * scale, 0.22 * scale, tx - 0.02 * scale, 0.60 * scale, tz + 0.02 * scale, 0x70b359);
-    // Ruby-red & golden orchard apples on the canopy
-    addColoredBox(parts, 0.065 * scale, 0.065 * scale, 0.065 * scale, tx - 0.18 * scale, 0.38 * scale, tz + 0.14 * scale, 0xd93829);
-    addColoredBox(parts, 0.065 * scale, 0.065 * scale, 0.065 * scale, tx + 0.19 * scale, 0.41 * scale, tz - 0.11 * scale, 0xd93829);
-    addColoredBox(parts, 0.065 * scale, 0.065 * scale, 0.065 * scale, tx + 0.08 * scale, 0.52 * scale, tz + 0.16 * scale, 0xf5b742);
-    addColoredBox(parts, 0.065 * scale, 0.065 * scale, 0.065 * scale, tx - 0.12 * scale, 0.51 * scale, tz - 0.15 * scale, 0xd93829);
+    // Blooming Fruit / Apple & Pear Orchard Tree with lush rounded foliage puffs & bright faceted fruits
+    addOrganicLimb(parts, tx, 0, tz, tx + 0.02 * scale, 0.29 * scale, tz, 0.062 * scale, 0.042 * scale, 0x523520, 0x734c30, 6);
+    addOrganicLimb(parts, tx + 0.02 * scale, 0.26 * scale, tz, tx - 0.12 * scale, 0.42 * scale, tz + 0.06 * scale, 0.03 * scale, 0.014 * scale, 0x634128, 0x754e32, 5);
+    addOrganicLimb(parts, tx + 0.02 * scale, 0.26 * scale, tz, tx + 0.13 * scale, 0.42 * scale, tz - 0.05 * scale, 0.03 * scale, 0.014 * scale, 0x634128, 0x754e32, 5);
+    addFoliagePuff(parts, tx - 0.12 * scale, 0.44 * scale, tz + 0.05 * scale, 0.19 * scale, 0.15 * scale, 0.18 * scale, 0x295e2d, 0x458c42, 0x78c45e, seed + 1.1, 1);
+    addFoliagePuff(parts, tx + 0.13 * scale, 0.45 * scale, tz - 0.05 * scale, 0.19 * scale, 0.15 * scale, 0.18 * scale, 0x2e6632, 0x4f9948, 0x82cc66, seed + 2.3, 1);
+    addFoliagePuff(parts, tx + 0.01 * scale, 0.54 * scale, tz, 0.21 * scale, 0.16 * scale, 0.21 * scale, 0x357038, 0x5ba64f, 0x90d96f, seed + 3.5, 1);
+    // Bright ruby-red & golden-pear orchard fruit clusters nestled on outer canopy
+    const fruits: [number, number, number, number][] = [
+      [-0.22, 0.42, 0.14, 0xd93025],
+      [0.23, 0.44, -0.10, 0xe03a2f],
+      [0.10, 0.55, 0.18, 0xf7b936],
+      [-0.14, 0.53, -0.16, 0xd93025],
+      [0.02, 0.65, 0.10, 0xffc947],
+      [-0.08, 0.40, -0.18, 0xe03a2f],
+    ];
+    for (let i = 0; i < fruits.length; i++) {
+      const [fx, fy, fz, fHex] = fruits[i];
+      addSculptedBoulder(parts, tx + fx * scale, fy * scale, tz + fz * scale, 0.036 * scale, 0.036 * scale, 0.036 * scale, fHex, fHex, i * 3.1);
+    }
     return;
   }
 
-  // 'poplar': Towering Columnar Lombardy Poplar Spire
-  addColoredBox(parts, 0.11 * scale, 0.32 * scale, 0.11 * scale, tx, 0.16 * scale, tz, 0x5c3e28);
-  addColoredBox(parts, 0.26 * scale, 0.22 * scale, 0.26 * scale, tx, 0.34 * scale, tz, 0x356b38);
-  addColoredBox(parts, 0.24 * scale, 0.24 * scale, 0.24 * scale, tx, 0.54 * scale, tz, 0x488543, Math.PI / 4);
-  addColoredBox(parts, 0.20 * scale, 0.22 * scale, 0.20 * scale, tx, 0.74 * scale, tz, 0x5ea150);
-  addColoredBox(parts, 0.13 * scale, 0.18 * scale, 0.13 * scale, tx, 0.91 * scale, tz, 0x7bbd62, Math.PI / 4);
+  // 'poplar': Towering Flame-Shaped Columnar Lombardy Poplar / Tuscan Cypress Spire
+  addOrganicLimb(parts, tx, 0, tz, tx, 0.34 * scale, tz, 0.056 * scale, 0.034 * scale, 0x4d3421, 0x69482e, 6);
+  addFoliagePuff(parts, tx, 0.36 * scale, tz, 0.15 * scale, 0.19 * scale, 0.15 * scale, 0x214f27, 0x38783a, 0x5ea350, seed + 1.0, 1);
+  addFoliagePuff(parts, tx + 0.015 * scale, 0.55 * scale, tz - 0.01 * scale, 0.14 * scale, 0.20 * scale, 0.14 * scale, 0x285c2d, 0x448743, 0x6db35b, seed + 2.2, 1);
+  addFoliagePuff(parts, tx - 0.01 * scale, 0.74 * scale, tz + 0.01 * scale, 0.115 * scale, 0.19 * scale, 0.115 * scale, 0x316b35, 0x52994d, 0x7ec468, seed + 3.4, 1);
+  addFoliagePuff(parts, tx, 0.92 * scale, tz, 0.075 * scale, 0.16 * scale, 0.075 * scale, 0x3f7d40, 0x67ad5b, 0x94d979, seed + 4.6, 0);
 }
 
 function addPixelRock(
@@ -666,57 +1112,149 @@ function addJungleTree(
   isPalm: boolean,
   isBanyan = false,
 ) {
-  addColoredBox(parts, 0.36 * scale, 0.02, 0.36 * scale, tx, 0.01, tz, 0x13261a);
+  const seed = tx * 17.3 + tz * 29.1;
+  addTreeShadowDisk(parts, tx, tz, 0.29 * scale, 0x102418);
+
   if (isBanyan) {
-    // Strangler Fig / Banyan Tree with descending aerial prop-root pillars & wide jungle canopy
-    addColoredBox(parts, 0.18 * scale, 0.42 * scale, 0.18 * scale, tx, 0.21 * scale, tz, 0x4a301d);
-    // 4 arched aerial prop roots descending from upper limbs to the ground
-    addColoredBox(parts, 0.055 * scale, 0.38 * scale, 0.055 * scale, tx - 0.16 * scale, 0.19 * scale, tz - 0.12 * scale, 0x5c3c24, 0, -0.22);
-    addColoredBox(parts, 0.055 * scale, 0.38 * scale, 0.055 * scale, tx + 0.16 * scale, 0.19 * scale, tz + 0.12 * scale, 0x5c3c24, 0, 0.22);
-    addColoredBox(parts, 0.05 * scale, 0.36 * scale, 0.05 * scale, tx + 0.14 * scale, 0.18 * scale, tz - 0.15 * scale, 0x523520, 0, 0, -0.2);
-    addColoredBox(parts, 0.05 * scale, 0.36 * scale, 0.05 * scale, tx - 0.14 * scale, 0.18 * scale, tz + 0.15 * scale, 0x523520, 0, 0, 0.2);
-    // Layered rainforest banyan crown
-    addColoredBox(parts, 0.62 * scale, 0.14 * scale, 0.58 * scale, tx, 0.44 * scale, tz, 0x195932);
-    addColoredBox(parts, 0.50 * scale, 0.14 * scale, 0.50 * scale, tx + 0.04 * scale, 0.56 * scale, tz - 0.03 * scale, 0x287a43, Math.PI / 4);
-    addColoredBox(parts, 0.34 * scale, 0.12 * scale, 0.34 * scale, tx - 0.03 * scale, 0.67 * scale, tz + 0.02 * scale, 0x43a659);
+    // Ancient Strangler Fig / Banyan Cathedral with 6 arching aerial prop-root pillars & sprawling rainforest canopy
+    addOrganicLimb(parts, tx, 0, tz, tx, 0.46 * scale, tz, 0.095 * scale, 0.072 * scale, 0x3b2516, 0x593a24, 7);
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2 + 0.2;
+      const outR = (0.20 + (i % 2) * 0.05) * scale;
+      const midR = outR * 0.72;
+      // Upper spreading limb
+      addOrganicLimb(parts, tx, 0.38 * scale, tz, tx + Math.cos(a) * midR, 0.47 * scale, tz + Math.sin(a) * midR, 0.032 * scale, 0.020 * scale, 0x4f321e, 0x634128, 5);
+      // Aerial prop-root pillar descending to soil
+      addOrganicLimb(parts, tx + Math.cos(a) * outR, 0, tz + Math.sin(a) * outR, tx + Math.cos(a) * midR, 0.44 * scale, tz + Math.sin(a) * midR, 0.028 * scale, 0.018 * scale, 0x452c1a, 0x5e3d25, 5);
+    }
+    // Wide overlapping sculpted banyan rainforest clouds
+    addFoliagePuff(parts, tx - 0.21 * scale, 0.51 * scale, tz + 0.08 * scale, 0.24 * scale, 0.14 * scale, 0.22 * scale, 0x0e4224, 0x1e703c, 0x44ad5b, seed + 1.1, 1);
+    addFoliagePuff(parts, tx + 0.21 * scale, 0.52 * scale, tz - 0.08 * scale, 0.24 * scale, 0.14 * scale, 0.22 * scale, 0x104727, 0x227841, 0x4cb862, seed + 2.2, 1);
+    addFoliagePuff(parts, tx + 0.04 * scale, 0.53 * scale, tz + 0.20 * scale, 0.22 * scale, 0.13 * scale, 0.21 * scale, 0x0f4526, 0x20733e, 0x48b35e, seed + 3.3, 1);
+    addFoliagePuff(parts, tx - 0.05 * scale, 0.53 * scale, tz - 0.19 * scale, 0.22 * scale, 0.13 * scale, 0.21 * scale, 0x0f4526, 0x20733e, 0x48b35e, seed + 4.4, 1);
+    addFoliagePuff(parts, tx, 0.63 * scale, tz, 0.27 * scale, 0.15 * scale, 0.26 * scale, 0x15572f, 0x2d8c4d, 0x5fd173, seed + 5.5, 1);
     return;
   }
 
   if (isPalm) {
-    // Multi-segment curved ringed tropical coconut palm + 8-way arched frond blades + coconut cluster
-    addColoredBox(parts, 0.11 * scale, 0.24 * scale, 0.11 * scale, tx, 0.12 * scale, tz, 0x664428, 0, 0.06);
-    addColoredBox(parts, 0.095 * scale, 0.24 * scale, 0.095 * scale, tx - 0.03 * scale, 0.34 * scale, tz, 0x7a5333, 0, 0.15);
-    addColoredBox(parts, 0.085 * scale, 0.24 * scale, 0.085 * scale, tx - 0.08 * scale, 0.55 * scale, tz, 0x8c623e, 0, 0.24);
-    const cy = 0.68 * scale;
-    const cx = tx - 0.12 * scale;
-    // Coconuts tucked under the frond crown
-    addColoredBox(parts, 0.075 * scale, 0.075 * scale, 0.075 * scale, cx + 0.06 * scale, cy - 0.05 * scale, tz + 0.05 * scale, 0x4d311c);
-    addColoredBox(parts, 0.075 * scale, 0.075 * scale, 0.075 * scale, cx - 0.05 * scale, cy - 0.05 * scale, tz - 0.05 * scale, 0x593a22);
-    // 4 Cardinal + 4 Diagonal arched palm fronds
-    addColoredBox(parts, 0.62 * scale, 0.055 * scale, 0.13 * scale, cx, cy, tz, 0x267d43, 0, 0.08);
-    addColoredBox(parts, 0.13 * scale, 0.055 * scale, 0.62 * scale, cx, cy, tz, 0x329451, 0, 0, -0.08);
-    addColoredBox(parts, 0.56 * scale, 0.055 * scale, 0.12 * scale, cx, cy + 0.03 * scale, tz, 0x42b05e, Math.PI / 4, -0.08);
-    addColoredBox(parts, 0.12 * scale, 0.055 * scale, 0.56 * scale, cx, cy + 0.03 * scale, tz, 0x42b05e, Math.PI / 4, 0, 0.08);
-    addColoredBox(parts, 0.22 * scale, 0.08 * scale, 0.22 * scale, cx, cy + 0.07 * scale, tz, 0x62cf74);
-  } else {
-    // Colossal Emergent Kapok / Mahogany with 4 plank buttress roots, wide limbs, tiered canopy, liana vines & orchids
-    addColoredBox(parts, 0.34 * scale, 0.14 * scale, 0.08 * scale, tx, 0.07 * scale, tz, 0x3d2514);
-    addColoredBox(parts, 0.08 * scale, 0.14 * scale, 0.34 * scale, tx, 0.07 * scale, tz, 0x3d2514);
-    addColoredBox(parts, 0.18 * scale, 0.50 * scale, 0.18 * scale, tx, 0.25 * scale, tz, 0x4f331e);
-    // Spreading upper structural limbs
-    addColoredBox(parts, 0.08 * scale, 0.26 * scale, 0.08 * scale, tx - 0.14 * scale, 0.44 * scale, tz, 0x452b18, 0, 0.52);
-    addColoredBox(parts, 0.08 * scale, 0.26 * scale, 0.08 * scale, tx + 0.14 * scale, 0.44 * scale, tz, 0x452b18, 0, -0.52);
-    // Broad multi-tier emergent rainforest crown
-    addColoredBox(parts, 0.66 * scale, 0.15 * scale, 0.62 * scale, tx, 0.52 * scale, tz, 0x16542e);
-    addColoredBox(parts, 0.52 * scale, 0.15 * scale, 0.52 * scale, tx + 0.04 * scale, 0.65 * scale, tz - 0.03 * scale, 0x247541, Math.PI / 4);
-    addColoredBox(parts, 0.38 * scale, 0.13 * scale, 0.38 * scale, tx - 0.03 * scale, 0.77 * scale, tz + 0.03 * scale, 0x389c54);
-    addColoredBox(parts, 0.22 * scale, 0.10 * scale, 0.22 * scale, tx, 0.87 * scale, tz, 0x57c46b);
-    // Hanging liana vines & bright tropical epiphyte orchids
-    addColoredBox(parts, 0.04 * scale, 0.28 * scale, 0.04 * scale, tx + 0.24 * scale, 0.36 * scale, tz + 0.16 * scale, 0x3b8c47);
-    addColoredBox(parts, 0.04 * scale, 0.24 * scale, 0.04 * scale, tx - 0.24 * scale, 0.38 * scale, tz - 0.15 * scale, 0x3b8c47);
-    addColoredBox(parts, 0.04 * scale, 0.22 * scale, 0.04 * scale, tx + 0.16 * scale, 0.39 * scale, tz - 0.22 * scale, 0x49a356);
-    addColoredBox(parts, 0.065 * scale, 0.065 * scale, 0.065 * scale, tx + 0.11 * scale, 0.34 * scale, tz + 0.09 * scale, 0xff5964);
+    // Graceful 4-segment curved ringed tropical coconut palm + coconut cluster + 8 genuine V-folded arching palm fronds
+    const pts: [number, number, number][] = [
+      [tx, 0.0, tz],
+      [tx - 0.025 * scale, 0.20 * scale, tz + 0.01 * scale],
+      [tx - 0.075 * scale, 0.41 * scale, tz + 0.025 * scale],
+      [tx - 0.145 * scale, 0.61 * scale, tz + 0.035 * scale],
+      [tx - 0.205 * scale, 0.77 * scale, tz + 0.04 * scale],
+    ];
+    const radii = [0.068, 0.056, 0.047, 0.040, 0.032];
+    const barkHexes = [0x5c3c24, 0x6e492d, 0x7d5536, 0x8c623f, 0x996d48];
+    for (let i = 0; i < pts.length - 1; i++) {
+      addOrganicLimb(
+        parts,
+        pts[i][0],
+        pts[i][1],
+        pts[i][2],
+        pts[i + 1][0],
+        pts[i + 1][1],
+        pts[i + 1][2],
+        radii[i] * scale,
+        radii[i + 1] * scale,
+        barkHexes[i],
+        barkHexes[i + 1],
+        6,
+      );
+    }
+    const [cx, cy, cz] = pts[pts.length - 1];
+    // Cluster of 3 coconuts tucked beneath the crown
+    for (let c = 0; c < 3; c++) {
+      const ca = c * 2.1 + 0.4;
+      addSculptedBoulder(
+        parts,
+        cx + Math.cos(ca) * 0.048 * scale,
+        cy - 0.04 * scale,
+        cz + Math.sin(ca) * 0.048 * scale,
+        0.036 * scale,
+        0.042 * scale,
+        0.036 * scale,
+        0x3d2412,
+        0x664023,
+        c * 2.5,
+      );
+    }
+    // 8 lush arching V-folded palm fronds (5 lower sweeping + 3 upper rising crown fronds)
+    for (let f = 0; f < 5; f++) {
+      const ang = (f / 5) * Math.PI * 2 + 0.2;
+      addCurvedPalmFrond(
+        parts,
+        cx,
+        cy,
+        cz,
+        ang,
+        (0.42 + (f % 2) * 0.05) * scale,
+        0.135 * scale,
+        0.13 * scale,
+        0.17 * scale,
+        0x1d6b37,
+        0x52c46a,
+      );
+    }
+    for (let f = 0; f < 4; f++) {
+      const ang = (f / 4) * Math.PI * 2 + 0.62;
+      addCurvedPalmFrond(
+        parts,
+        cx,
+        cy + 0.02 * scale,
+        cz,
+        ang,
+        0.34 * scale,
+        0.115 * scale,
+        0.18 * scale,
+        0.09 * scale,
+        0x2a8546,
+        0x72db7e,
+      );
+    }
+    return;
   }
+
+  // Colossal Emergent Rainforest Kapok / Mahogany with sweeping plank buttress roots, broad forked boughs, tiered emergent canopy, hanging lianas & orchids
+  for (let r = 0; r < 4; r++) {
+    const a = r * (Math.PI / 2) + 0.3;
+    addOrganicLimb(
+      parts,
+      tx + Math.cos(a) * 0.22 * scale,
+      0,
+      tz + Math.sin(a) * 0.22 * scale,
+      tx + Math.cos(a) * 0.04 * scale,
+      0.22 * scale,
+      tz + Math.sin(a) * 0.04 * scale,
+      0.048 * scale,
+      0.042 * scale,
+      0x362011,
+      0x573721,
+      5,
+    );
+  }
+  addOrganicLimb(parts, tx, 0.01, tz, tx + 0.02 * scale, 0.56 * scale, tz - 0.01 * scale, 0.092 * scale, 0.062 * scale, 0x452b18, 0x634128, 7);
+  // 4 sweeping emergent limbs
+  const limbDirs: [number, number, number][] = [
+    [-0.24, 0.68, 0.10],
+    [0.24, 0.70, -0.10],
+    [0.10, 0.71, 0.23],
+    [-0.10, 0.69, -0.22],
+  ];
+  for (let i = 0; i < limbDirs.length; i++) {
+    const [lx, ly, lz] = limbDirs[i];
+    addOrganicLimb(parts, tx + 0.02 * scale, 0.52 * scale, tz - 0.01 * scale, tx + lx * scale, ly * scale, tz + lz * scale, 0.040 * scale, 0.018 * scale, 0x4f321d, 0x664329, 5);
+    addFoliagePuff(parts, tx + lx * scale, (ly + 0.04) * scale, tz + lz * scale, 0.24 * scale, 0.13 * scale, 0.23 * scale, 0x0d4223, 0x20733d, 0x4cc466, seed + i * 2.1, 1);
+  }
+  // Towering sunlit emergent center crown
+  addFoliagePuff(parts, tx + 0.01 * scale, 0.84 * scale, tz, 0.28 * scale, 0.16 * scale, 0.27 * scale, 0x14572e, 0x2e944e, 0x65d975, seed + 9.4, 1);
+  // Hanging jungle lianas & bright scarlet epiphyte orchids
+  addHangingStrand(parts, tx + 0.24 * scale, 0.65 * scale, tz + 0.12 * scale, 0.36 * scale, 0.018 * scale, 0x2c783c, 0x57b560, 0.03 * scale, 0.02 * scale);
+  addHangingStrand(parts, tx - 0.24 * scale, 0.64 * scale, tz - 0.12 * scale, 0.34 * scale, 0.018 * scale, 0x2c783c, 0x57b560, -0.02 * scale, -0.03 * scale);
+  addHangingStrand(parts, tx + 0.13 * scale, 0.66 * scale, tz - 0.22 * scale, 0.30 * scale, 0.016 * scale, 0x358746, 0x67c76d, 0.02 * scale, -0.02 * scale);
+  addSculptedBoulder(parts, tx + 0.09 * scale, 0.42 * scale, tz + 0.07 * scale, 0.042 * scale, 0.042 * scale, 0.042 * scale, 0xd93644, 0xff6b75, 1.7);
+  addSculptedBoulder(parts, tx - 0.08 * scale, 0.36 * scale, tz - 0.06 * scale, 0.036 * scale, 0.036 * scale, 0.036 * scale, 0xe8a825, 0xffd152, 4.3);
 }
 
 function addTaigaConifer(
@@ -727,46 +1265,70 @@ function addTaigaConifer(
   snowTipped: boolean,
   style: 'spruce' | 'blue_fir' | 'larch' = 'spruce',
 ) {
-  addColoredBox(parts, 0.32 * scale, 0.02, 0.32 * scale, tx, 0.01, tz, 0x16221f);
-  addColoredBox(parts, 0.20 * scale, 0.06 * scale, 0.11 * scale, tx, 0.03 * scale, tz, 0x3d281a, 0.35);
-  addColoredBox(parts, 0.11 * scale, 0.30 * scale, 0.11 * scale, tx, 0.15 * scale, tz, 0x4a3121);
+  addTreeShadowDisk(parts, tx, tz, 0.23 * scale, 0x14211f);
+  addOrganicLimb(parts, tx, 0, tz, tx, 0.34 * scale, tz, 0.068 * scale, 0.034 * scale, 0x382417, 0x543825, 6);
 
   if (style === 'larch') {
-    // Golden Boreal Larch / Tamarack with warm autumn-gold needles & frost cap
-    addColoredBox(parts, 0.42 * scale, 0.13 * scale, 0.42 * scale, tx, 0.26 * scale, tz, 0x9e6819);
-    addColoredBox(parts, 0.36 * scale, 0.13 * scale, 0.36 * scale, tx, 0.38 * scale, tz, 0xbf8221, Math.PI / 4);
-    addColoredBox(parts, 0.28 * scale, 0.14 * scale, 0.28 * scale, tx, 0.50 * scale, tz, 0xd99b29);
-    addColoredBox(parts, 0.20 * scale, 0.14 * scale, 0.20 * scale, tx, 0.62 * scale, tz, 0xedb43a, Math.PI / 4);
-    addColoredBox(parts, 0.11 * scale, 0.15 * scale, 0.11 * scale, tx, 0.75 * scale, tz, snowTipped ? 0xe6f2f7 : 0xf7cc52);
+    // Golden Siberian Larch with 5 scalloped amber-gold & honey-ochre drooping whorls
+    addScallopedConiferWhorl(parts, tx, 0.29 * scale, tz, 0.26 * scale, 0.08 * scale, 0.19 * scale, 0x7d4c10, 0xb8761a, 0xe6a52c, 7, 0.06 * scale, 0.0);
+    addScallopedConiferWhorl(parts, tx, 0.43 * scale, tz, 0.22 * scale, 0.068 * scale, 0.19 * scale, 0x915a14, 0xc9861e, 0xf2b738, 7, 0.055 * scale, 0.48);
+    addScallopedConiferWhorl(parts, tx, 0.57 * scale, tz, 0.17 * scale, 0.052 * scale, 0.18 * scale, 0xa86b19, 0xdba027, 0xfac94b, 6, 0.045 * scale, 0.96);
+    addScallopedConiferWhorl(parts, tx, 0.70 * scale, tz, 0.12 * scale, 0.032 * scale, 0.17 * scale, 0xbd7e20, 0xedb334, snowTipped ? 0xeaf5fa : 0xffdb66, 6, 0.035 * scale, 1.44);
+    addScallopedConiferWhorl(parts, tx, 0.83 * scale, tz, 0.07 * scale, 0.004 * scale, 0.17 * scale, 0xd4942a, snowTipped ? 0xd9edf5 : 0xf7c948, snowTipped ? 0xf5fbff : 0xffe985, 5, 0.02 * scale, 1.9);
     return;
   }
 
-  const [c1, c2, c3, c4] =
+  const [c1, c2, c3] =
     style === 'blue_fir'
-      ? [0x1c404d, 0x265566, 0x346d80, 0x49899e]
-      : [0x1d3d31, 0x265242, 0x316954, 0x408269];
+      ? [0x143340, 0x245569, 0x4588a1]
+      : [0x153328, 0x235442, 0x3b7d64];
+  const tipHex = snowTipped ? 0xe6f4fa : c3;
+  const widthMul = style === 'blue_fir' ? 0.84 : 1.0;
 
-  // 8-pointed star conifer tiers (alternating 0 and 45 deg rotations)
-  addColoredBox(parts, 0.46 * scale, 0.13 * scale, 0.46 * scale, tx, 0.26 * scale, tz, c1);
-  if (snowTipped) {
-    addColoredBox(parts, 0.44 * scale, 0.04 * scale, 0.44 * scale, tx, 0.33 * scale, tz, 0xd4e7ed);
+  // 5–6 sculpted scalloped drooping boreal whorls + optional crisp snow-mantled caps
+  const tiers: [number, number, number, number, number][] = [
+    [0.29, 0.28 * widthMul, 0.085 * widthMul, 0.20, 0.0],
+    [0.44, 0.24 * widthMul, 0.072 * widthMul, 0.20, 0.45],
+    [0.58, 0.19 * widthMul, 0.058 * widthMul, 0.19, 0.90],
+    [0.72, 0.14 * widthMul, 0.038 * widthMul, 0.18, 1.35],
+    [0.85, 0.085 * widthMul, 0.004, 0.19, 1.80],
+  ];
+  for (let i = 0; i < tiers.length; i++) {
+    const [ty, rb, rt, th, rot] = tiers[i];
+    addScallopedConiferWhorl(
+      parts,
+      tx,
+      ty * scale,
+      tz,
+      rb * scale,
+      rt * scale,
+      th * scale,
+      c1,
+      c2,
+      i === tiers.length - 1 ? tipHex : c3,
+      i < 2 ? 7 : 6,
+      (0.065 - i * 0.01) * scale,
+      rot,
+    );
+    if (snowTipped && i < 4) {
+      // Powdery sculpted snow mantle hugging the upper skirt of each bough whorl
+      addScallopedConiferWhorl(
+        parts,
+        tx,
+        (ty + 0.048) * scale,
+        tz,
+        rb * 0.84 * scale,
+        rt * 0.92 * scale,
+        0.075 * scale,
+        0xcbe3ed,
+        0xe6f4fa,
+        0xffffff,
+        i < 2 ? 7 : 6,
+        0.032 * scale,
+        rot,
+      );
+    }
   }
-  addColoredBox(parts, 0.38 * scale, 0.14 * scale, 0.38 * scale, tx, 0.39 * scale, tz, c2, Math.PI / 4);
-  if (snowTipped) {
-    addColoredBox(parts, 0.36 * scale, 0.04 * scale, 0.36 * scale, tx, 0.47 * scale, tz, 0xdceef5, Math.PI / 4);
-  }
-  addColoredBox(parts, 0.29 * scale, 0.14 * scale, 0.29 * scale, tx, 0.53 * scale, tz, c3);
-  addColoredBox(parts, 0.20 * scale, 0.14 * scale, 0.20 * scale, tx, 0.66 * scale, tz, c4, Math.PI / 4);
-  addColoredBox(
-    parts,
-    0.11 * scale,
-    0.16 * scale,
-    0.11 * scale,
-    tx,
-    0.79 * scale,
-    tz,
-    snowTipped ? 0xe8f4f8 : c4,
-  );
 }
 
 function addSakuraTree(
@@ -776,37 +1338,58 @@ function addSakuraTree(
   scale: number,
   style: 'weeping' | 'pagoda' | 'bonsai' = 'weeping',
 ) {
-  addColoredBox(parts, 0.34 * scale, 0.02, 0.34 * scale, tx, 0.01, tz, 0x292026);
-  // Gnarled dark plum-ebony root flare
-  addColoredBox(parts, 0.22 * scale, 0.07 * scale, 0.13 * scale, tx, 0.035 * scale, tz, 0x3b2229, 0.4);
+  const seed = tx * 29.7 + tz * 13.3;
+  addTreeShadowDisk(parts, tx, tz, 0.26 * scale, 0x261d24);
+  for (let r = 0; r < 3; r++) {
+    const a = r * 2.1 + 0.5;
+    addOrganicLimb(parts, tx + Math.cos(a) * 0.13 * scale, 0, tz + Math.sin(a) * 0.13 * scale, tx, 0.09 * scale, tz, 0.035 * scale, 0.048 * scale, 0x2e1a20, 0x452730, 5);
+  }
 
   if (style === 'bonsai') {
-    // Windswept cantilevered Bonsai-Style Sakura reaching horizontally with tiered blossom pads
-    addColoredBox(parts, 0.13 * scale, 0.26 * scale, 0.13 * scale, tx, 0.13 * scale, tz, 0x452830, 0, 0.26);
-    addColoredBox(parts, 0.09 * scale, 0.26 * scale, 0.09 * scale, tx - 0.11 * scale, 0.30 * scale, tz, 0x4f2f38, 0, 0.68);
-    addColoredBox(parts, 0.44 * scale, 0.11 * scale, 0.38 * scale, tx - 0.16 * scale, 0.38 * scale, tz, 0xd96292);
-    addColoredBox(parts, 0.38 * scale, 0.11 * scale, 0.34 * scale, tx + 0.08 * scale, 0.46 * scale, tz - 0.04 * scale, 0xf294bc);
-    addColoredBox(parts, 0.30 * scale, 0.10 * scale, 0.28 * scale, tx - 0.08 * scale, 0.54 * scale, tz + 0.03 * scale, 0xffd9e8);
+    // Sculptural S-curved cantilevered Bonsai Cherry reaching diagonally with floating cloud-pad blossoms
+    addOrganicLimb(parts, tx, 0.01, tz, tx - 0.08 * scale, 0.22 * scale, tz + 0.03 * scale, 0.068 * scale, 0.050 * scale, 0x361f26, 0x4d2c36, 6);
+    addOrganicLimb(parts, tx - 0.08 * scale, 0.21 * scale, tz + 0.03 * scale, tx - 0.22 * scale, 0.37 * scale, tz - 0.02 * scale, 0.046 * scale, 0.022 * scale, 0x4d2c36, 0x593440, 5);
+    addOrganicLimb(parts, tx - 0.07 * scale, 0.22 * scale, tz + 0.02 * scale, tx + 0.13 * scale, 0.44 * scale, tz - 0.05 * scale, 0.038 * scale, 0.018 * scale, 0x4d2c36, 0x593440, 5);
+    // Horizontal floating bonsai blossom cloud pads
+    addFoliagePuff(parts, tx - 0.22 * scale, 0.42 * scale, tz - 0.02 * scale, 0.24 * scale, 0.11 * scale, 0.20 * scale, 0xc44b7c, 0xf28db8, 0xffd9ea, seed + 1.1, 1);
+    addFoliagePuff(parts, tx + 0.13 * scale, 0.49 * scale, tz - 0.05 * scale, 0.21 * scale, 0.10 * scale, 0.19 * scale, 0xcf5788, 0xf79ec4, 0xffe6f2, seed + 2.5, 1);
+    addFoliagePuff(parts, tx - 0.05 * scale, 0.56 * scale, tz + 0.04 * scale, 0.19 * scale, 0.10 * scale, 0.18 * scale, 0xd96897, 0xfcb6d5, 0xfff0f7, seed + 4.1, 1);
     return;
   }
 
-  // Sculpted dark cherry trunk + sweeping angled boughs
-  addColoredBox(parts, 0.14 * scale, 0.34 * scale, 0.14 * scale, tx, 0.17 * scale, tz, 0x452830, 0, 0.06);
-  addColoredBox(parts, 0.07 * scale, 0.24 * scale, 0.07 * scale, tx - 0.11 * scale, 0.34 * scale, tz + 0.03 * scale, 0x3b2229, 0, 0.52);
-  addColoredBox(parts, 0.07 * scale, 0.24 * scale, 0.07 * scale, tx + 0.11 * scale, 0.33 * scale, tz - 0.03 * scale, 0x3b2229, 0, -0.48);
+  // Sculpted dark plum-ebony cherry trunk & graceful sweeping arched boughs
+  addOrganicLimb(parts, tx, 0.01, tz, tx - 0.02 * scale, 0.29 * scale, tz + 0.01 * scale, 0.072 * scale, 0.052 * scale, 0x361e25, 0x4f2d37, 6);
+  addOrganicLimb(parts, tx - 0.02 * scale, 0.27 * scale, tz + 0.01 * scale, tx - 0.19 * scale, 0.46 * scale, tz + 0.07 * scale, 0.036 * scale, 0.016 * scale, 0x452730, 0x593440, 5);
+  addOrganicLimb(parts, tx - 0.02 * scale, 0.28 * scale, tz + 0.01 * scale, tx + 0.18 * scale, 0.47 * scale, tz - 0.07 * scale, 0.036 * scale, 0.016 * scale, 0x452730, 0x593440, 5);
+  addOrganicLimb(parts, tx - 0.01 * scale, 0.29 * scale, tz + 0.01 * scale, tx + 0.04 * scale, 0.48 * scale, tz + 0.16 * scale, 0.030 * scale, 0.014 * scale, 0x452730, 0x593440, 5);
 
-  // Billowing multi-cloud sakura blossom crown
-  addColoredBox(parts, 0.50 * scale, 0.15 * scale, 0.46 * scale, tx, 0.40 * scale, tz, 0xd45b8c);
-  addColoredBox(parts, 0.38 * scale, 0.15 * scale, 0.36 * scale, tx - 0.13 * scale, 0.47 * scale, tz + 0.05 * scale, 0xeb84b0);
-  addColoredBox(parts, 0.36 * scale, 0.15 * scale, 0.36 * scale, tx + 0.13 * scale, 0.48 * scale, tz - 0.05 * scale, 0xf59ec4);
-  addColoredBox(parts, 0.38 * scale, 0.15 * scale, 0.38 * scale, tx + 0.02 * scale, 0.57 * scale, tz + 0.02 * scale, 0xfab8d4);
-  addColoredBox(parts, 0.24 * scale, 0.12 * scale, 0.24 * scale, tx - 0.02 * scale, 0.67 * scale, tz - 0.02 * scale, 0xffe6f0);
+  // Billowing multi-cloud sakura blossom crown (deep rose shadow -> vivid sakura pink -> snow-blush sunlight)
+  const flatY = style === 'pagoda' ? 0.11 : 0.15;
+  addFoliagePuff(parts, tx - 0.19 * scale, 0.49 * scale, tz + 0.07 * scale, 0.22 * scale, flatY * scale, 0.20 * scale, 0xc24879, 0xee85b2, 0xffd4e7, seed + 1.2, 1);
+  addFoliagePuff(parts, tx + 0.18 * scale, 0.50 * scale, tz - 0.07 * scale, 0.22 * scale, flatY * scale, 0.20 * scale, 0xc95182, 0xf294bd, 0xffdeed, seed + 2.4, 1);
+  addFoliagePuff(parts, tx + 0.05 * scale, 0.51 * scale, tz + 0.16 * scale, 0.19 * scale, flatY * scale, 0.19 * scale, 0xc24879, 0xee85b2, 0xffd4e7, seed + 3.6, 1);
+  addFoliagePuff(parts, tx - 0.05 * scale, 0.52 * scale, tz - 0.14 * scale, 0.19 * scale, flatY * scale, 0.18 * scale, 0xc95182, 0xf294bd, 0xffdeed, seed + 4.8, 1);
+  addFoliagePuff(parts, tx, 0.61 * scale, tz, 0.24 * scale, (flatY + 0.02) * scale, 0.23 * scale, 0xd46191, 0xf7a8cb, 0xffeef6, seed + 6.1, 1);
+  addFoliagePuff(parts, tx - 0.02 * scale, 0.71 * scale, tz + 0.02 * scale, 0.14 * scale, 0.10 * scale, 0.14 * scale, 0xe37da8, 0xfcc5df, 0xfff5fa, seed + 7.3, 0);
 
   if (style === 'weeping') {
-    // Hanging weeping blossom garlands
-    addColoredBox(parts, 0.045 * scale, 0.22 * scale, 0.045 * scale, tx - 0.22 * scale, 0.30 * scale, tz + 0.12 * scale, 0xf7a8c8);
-    addColoredBox(parts, 0.045 * scale, 0.24 * scale, 0.045 * scale, tx + 0.21 * scale, 0.29 * scale, tz - 0.12 * scale, 0xffd1e3);
-    addColoredBox(parts, 0.045 * scale, 0.20 * scale, 0.045 * scale, tx + 0.14 * scale, 0.31 * scale, tz + 0.18 * scale, 0xf7a8c8);
+    // 7 cascading sakura weeping blossom garlands
+    for (let i = 0; i < 7; i++) {
+      const a = (i / 7) * Math.PI * 2 + 0.3;
+      const rad = (0.22 + (i % 2) * 0.05) * scale;
+      addHangingStrand(
+        parts,
+        tx + Math.cos(a) * rad,
+        0.48 * scale,
+        tz + Math.sin(a) * rad,
+        (0.24 + (i % 3) * 0.045) * scale,
+        0.024 * scale,
+        0xf28db8,
+        0xffe3f0,
+        Math.cos(a) * 0.03 * scale,
+        Math.sin(a) * 0.03 * scale,
+      );
+    }
   }
 }
 
@@ -817,33 +1400,46 @@ function addSavannaTree(
   scale: number,
   kind: 'acacia' | 'baobab',
 ) {
-  addColoredBox(parts, 0.36 * scale, 0.02, 0.36 * scale, tx, 0.01, tz, 0x292116);
+  const seed = tx * 31.1 + tz * 23.7;
+  addTreeShadowDisk(parts, tx, tz, 0.29 * scale, 0x2b2217);
+
   if (kind === 'baobab') {
-    // Colossal African Baobab: massive bottle-shaped multi-fluted swollen trunk & tufted dry-season crown
-    addColoredBox(parts, 0.36 * scale, 0.10 * scale, 0.22 * scale, tx, 0.05 * scale, tz, 0x634532, 0.3);
-    addColoredBox(parts, 0.22 * scale, 0.10 * scale, 0.36 * scale, tx, 0.05 * scale, tz, 0x634532, 0.3);
-    addColoredBox(parts, 0.28 * scale, 0.42 * scale, 0.26 * scale, tx, 0.21 * scale, tz, 0x7a5740);
-    addColoredBox(parts, 0.22 * scale, 0.38 * scale, 0.30 * scale, tx, 0.20 * scale, tz, 0x876249, 0.4);
-    addColoredBox(parts, 0.20 * scale, 0.22 * scale, 0.20 * scale, tx, 0.46 * scale, tz, 0x6e4e38);
-    // Stubby radiating baobab limbs + compact crown pads
-    addColoredBox(parts, 0.08 * scale, 0.20 * scale, 0.08 * scale, tx - 0.14 * scale, 0.56 * scale, tz, 0x634532, 0, 0.55);
-    addColoredBox(parts, 0.08 * scale, 0.20 * scale, 0.08 * scale, tx + 0.14 * scale, 0.55 * scale, tz, 0x634532, 0, -0.55);
-    addColoredBox(parts, 0.34 * scale, 0.09 * scale, 0.32 * scale, tx - 0.18 * scale, 0.64 * scale, tz + 0.04 * scale, 0x6c8738);
-    addColoredBox(parts, 0.34 * scale, 0.09 * scale, 0.32 * scale, tx + 0.18 * scale, 0.63 * scale, tz - 0.04 * scale, 0x7e9941);
-    addColoredBox(parts, 0.38 * scale, 0.10 * scale, 0.36 * scale, tx, 0.69 * scale, tz, 0x93ad4c);
+    // Iconic African Baobab: massive swollen bottle-shaped trunk with fluted roots & gnarled "upside-down root" stubby limbs
+    for (let r = 0; r < 5; r++) {
+      const a = (r / 5) * Math.PI * 2 + 0.2;
+      addOrganicLimb(parts, tx + Math.cos(a) * 0.19 * scale, 0, tz + Math.sin(a) * 0.19 * scale, tx + Math.cos(a) * 0.07 * scale, 0.15 * scale, tz + Math.sin(a) * 0.07 * scale, 0.048 * scale, 0.052 * scale, 0x593d2b, 0x7d5942, 5);
+    }
+    // Swollen bottle belly (wide base -> bulbous mid-belly -> narrower shoulder)
+    addOrganicLimb(parts, tx, 0.01, tz, tx, 0.24 * scale, tz, 0.145 * scale, 0.165 * scale, 0x694934, 0x8a644b, 8);
+    addOrganicLimb(parts, tx, 0.23 * scale, tz, tx, 0.49 * scale, tz, 0.165 * scale, 0.105 * scale, 0x8a644b, 0x75533d, 8);
+    // 5 stubby radiating gnarled baobab crown branches + sparse dry-olive tufts
+    for (let b = 0; b < 5; b++) {
+      const a = (b / 5) * Math.PI * 2 + 0.4;
+      const bx = tx + Math.cos(a) * 0.22 * scale;
+      const bz = tz + Math.sin(a) * 0.22 * scale;
+      const by = (0.64 + (b % 2) * 0.05) * scale;
+      addOrganicLimb(parts, tx + Math.cos(a) * 0.06 * scale, 0.46 * scale, tz + Math.sin(a) * 0.06 * scale, bx, by, bz, 0.042 * scale, 0.018 * scale, 0x6b4b36, 0x7a5740, 5);
+      addFoliagePuff(parts, bx, by + 0.03 * scale, bz, 0.15 * scale, 0.075 * scale, 0.14 * scale, 0x4e6625, 0x789438, 0xa8c24e, seed + b * 1.7, 1);
+    }
+    addFoliagePuff(parts, tx, 0.72 * scale, tz, 0.18 * scale, 0.085 * scale, 0.17 * scale, 0x577029, 0x84a13f, 0xb5cf59, seed + 9.2, 1);
     return;
   }
 
-  // 'acacia': Iconic Flat-Topped Savanna Umbrella Acacia with diagonal forked limbs & wafer-thin canopy plates
-  addColoredBox(parts, 0.11 * scale, 0.32 * scale, 0.11 * scale, tx, 0.16 * scale, tz, 0x4d3423, 0, 0.1);
-  // Forked diagonal acacia branches reaching wide
-  addColoredBox(parts, 0.06 * scale, 0.28 * scale, 0.06 * scale, tx - 0.13 * scale, 0.38 * scale, tz + 0.03 * scale, 0x5c3e29, 0, 0.56);
-  addColoredBox(parts, 0.06 * scale, 0.26 * scale, 0.06 * scale, tx + 0.11 * scale, 0.36 * scale, tz - 0.04 * scale, 0x5c3e29, 0, -0.52);
-  addColoredBox(parts, 0.055 * scale, 0.22 * scale, 0.055 * scale, tx, 0.39 * scale, tz + 0.10 * scale, 0x5c3e29, 0, 0, 0.48);
-  // Wide wafer-thin horizontal umbrella canopy tiers
-  addColoredBox(parts, 0.44 * scale, 0.065 * scale, 0.40 * scale, tx + 0.16 * scale, 0.46 * scale, tz - 0.06 * scale, 0x5e7832);
-  addColoredBox(parts, 0.64 * scale, 0.075 * scale, 0.56 * scale, tx - 0.08 * scale, 0.53 * scale, tz + 0.02 * scale, 0x7b993d);
-  addColoredBox(parts, 0.46 * scale, 0.065 * scale, 0.42 * scale, tx - 0.04 * scale, 0.60 * scale, tz + 0.04 * scale, 0x9bb54a);
+  // 'acacia': Iconic Serengeti Flat-Topped Umbrella Acacia with leaning trunk, 4 diagonal forked limbs & wafer-thin sculpted parasol canopy pads
+  addOrganicLimb(parts, tx, 0, tz, tx - 0.03 * scale, 0.30 * scale, tz + 0.01 * scale, 0.054 * scale, 0.038 * scale, 0x452e1e, 0x61422c, 6);
+  const forks: [number, number, number, number][] = [
+    [-0.22, 0.54, 0.06, 0.26],
+    [0.21, 0.49, -0.08, 0.22],
+    [0.05, 0.56, 0.19, 0.21],
+    [-0.08, 0.52, -0.18, 0.20],
+  ];
+  for (let i = 0; i < forks.length; i++) {
+    const [fx, fy, fz, padR] = forks[i];
+    addOrganicLimb(parts, tx - 0.03 * scale, 0.28 * scale, tz + 0.01 * scale, tx + fx * scale, fy * scale, tz + fz * scale, 0.028 * scale, 0.013 * scale, 0x523724, 0x694830, 5);
+    // Wide flat-topped parasol leaf plate
+    addFoliagePuff(parts, tx + fx * scale, (fy + 0.03) * scale, tz + fz * scale, padR * scale, 0.058 * scale, padR * 0.90 * scale, 0x4b6326, 0x749136, 0xa8bf4b, seed + i * 2.3, 1);
+  }
+  addFoliagePuff(parts, tx - 0.04 * scale, 0.61 * scale, tz + 0.02 * scale, 0.29 * scale, 0.064 * scale, 0.25 * scale, 0x56702b, 0x84a33e, 0xb8cf57, seed + 10.1, 1);
 }
 
 function addSwampTree(
@@ -853,39 +1449,68 @@ function addSwampTree(
   scale: number,
   kind: 'cypress' | 'mangrove',
 ) {
-  addColoredBox(parts, 0.36 * scale, 0.02, 0.36 * scale, tx, 0.01, tz, 0x121f18);
+  const seed = tx * 27.3 + tz * 19.7;
+  addTreeShadowDisk(parts, tx, tz, 0.28 * scale, 0x0f1c15);
+
   if (kind === 'mangrove') {
-    // Stilt-Root Bayou Mangrove perched on 4 arched aerial prop roots with glowing marsh fungi
-    addColoredBox(parts, 0.05 * scale, 0.24 * scale, 0.05 * scale, tx - 0.11 * scale, 0.11 * scale, tz - 0.08 * scale, 0x473323, 0, -0.45);
-    addColoredBox(parts, 0.05 * scale, 0.24 * scale, 0.05 * scale, tx + 0.11 * scale, 0.11 * scale, tz + 0.08 * scale, 0x473323, 0, 0.45);
-    addColoredBox(parts, 0.05 * scale, 0.24 * scale, 0.05 * scale, tx + 0.09 * scale, 0.11 * scale, tz - 0.11 * scale, 0x473323, 0, 0, -0.45);
-    addColoredBox(parts, 0.05 * scale, 0.24 * scale, 0.05 * scale, tx - 0.09 * scale, 0.11 * scale, tz + 0.11 * scale, 0x473323, 0, 0, 0.45);
-    addColoredBox(parts, 0.12 * scale, 0.28 * scale, 0.12 * scale, tx, 0.28 * scale, tz, 0x523b29);
-    // Dense bog canopy + hanging moss
-    addColoredBox(parts, 0.48 * scale, 0.15 * scale, 0.46 * scale, tx, 0.45 * scale, tz, 0x224a34);
-    addColoredBox(parts, 0.36 * scale, 0.14 * scale, 0.36 * scale, tx + 0.04 * scale, 0.56 * scale, tz - 0.03 * scale, 0x346646);
-    addColoredBox(parts, 0.22 * scale, 0.11 * scale, 0.22 * scale, tx - 0.03 * scale, 0.65 * scale, tz + 0.03 * scale, 0x4e855c);
-    // Bioluminescent swamp mushrooms at the root base
-    addColoredBox(parts, 0.065 * scale, 0.065 * scale, 0.065 * scale, tx + 0.15 * scale, 0.05 * scale, tz + 0.12 * scale, 0x64dfdf);
+    // Stilt-Root Bayou Mangrove perched high on 6 arching tangled aerial prop roots + glossy bog crown + glowing cyan fungi
+    for (let r = 0; r < 6; r++) {
+      const a = (r / 6) * Math.PI * 2 + 0.25;
+      const outR = (0.19 + (r % 2) * 0.04) * scale;
+      const kneeR = outR * 0.68;
+      // Arched two-segment stilt root
+      addOrganicLimb(parts, tx + Math.cos(a) * outR, 0, tz + Math.sin(a) * outR, tx + Math.cos(a) * kneeR, 0.16 * scale, tz + Math.sin(a) * kneeR, 0.024 * scale, 0.022 * scale, 0x3b2a1c, 0x4f3927, 5);
+      addOrganicLimb(parts, tx + Math.cos(a) * kneeR, 0.15 * scale, tz + Math.sin(a) * kneeR, tx, 0.26 * scale, tz, 0.022 * scale, 0.028 * scale, 0x4f3927, 0x573f2c, 5);
+    }
+    // Elevated mangrove trunk & gnarled crown limbs
+    addOrganicLimb(parts, tx, 0.23 * scale, tz, tx + 0.02 * scale, 0.45 * scale, tz - 0.01 * scale, 0.056 * scale, 0.036 * scale, 0x4a3525, 0x5e4430, 6);
+    addOrganicLimb(parts, tx + 0.02 * scale, 0.41 * scale, tz, tx - 0.15 * scale, 0.52 * scale, tz + 0.07 * scale, 0.026 * scale, 0.014 * scale, 0x4f3927, 0x5c432e, 5);
+    addOrganicLimb(parts, tx + 0.02 * scale, 0.42 * scale, tz, tx + 0.15 * scale, 0.53 * scale, tz - 0.06 * scale, 0.026 * scale, 0.014 * scale, 0x4f3927, 0x5c432e, 5);
+    addFoliagePuff(parts, tx - 0.15 * scale, 0.54 * scale, tz + 0.07 * scale, 0.20 * scale, 0.13 * scale, 0.19 * scale, 0x153827, 0x295e40, 0x4b8a5f, seed + 1.3, 1);
+    addFoliagePuff(parts, tx + 0.15 * scale, 0.55 * scale, tz - 0.06 * scale, 0.20 * scale, 0.13 * scale, 0.19 * scale, 0x183d2b, 0x2e6646, 0x549668, seed + 2.7, 1);
+    addFoliagePuff(parts, tx, 0.63 * scale, tz, 0.22 * scale, 0.14 * scale, 0.21 * scale, 0x1c4530, 0x36734f, 0x62a876, seed + 4.1, 1);
+    // Bioluminescent swamp mushrooms clustering at the stilt root base
+    addOrganicLimb(parts, tx + 0.15 * scale, 0, tz + 0.13 * scale, tx + 0.15 * scale, 0.055 * scale, tz + 0.13 * scale, 0.014 * scale, 0.012 * scale, 0x99d9cf, 0xc7f5ee, 5);
+    addSculptedBoulder(parts, tx + 0.15 * scale, 0.068 * scale, tz + 0.13 * scale, 0.045 * scale, 0.024 * scale, 0.045 * scale, 0x32b8b8, 0x7af5eb, 2.1);
     return;
   }
 
-  // 'cypress': Ancient Bayou Bald Cypress with fluted buttress trunk, cypress knees & Spanish moss curtains
-  addColoredBox(parts, 0.28 * scale, 0.14 * scale, 0.16 * scale, tx, 0.07 * scale, tz, 0x3b2a1e);
-  addColoredBox(parts, 0.16 * scale, 0.14 * scale, 0.28 * scale, tx, 0.07 * scale, tz, 0x3b2a1e);
-  // Protruding cypress knees around base
-  addColoredBox(parts, 0.055 * scale, 0.15 * scale, 0.055 * scale, tx - 0.20 * scale, 0.075 * scale, tz + 0.10 * scale, 0x4a3525);
-  addColoredBox(parts, 0.05 * scale, 0.12 * scale, 0.05 * scale, tx + 0.19 * scale, 0.06 * scale, tz - 0.12 * scale, 0x4a3525);
-  // Tapered cypress trunk + wide flat-topped crown
-  addColoredBox(parts, 0.15 * scale, 0.44 * scale, 0.15 * scale, tx, 0.22 * scale, tz, 0x4a3525);
-  addColoredBox(parts, 0.54 * scale, 0.13 * scale, 0.50 * scale, tx, 0.48 * scale, tz, 0x264a36);
-  addColoredBox(parts, 0.44 * scale, 0.12 * scale, 0.42 * scale, tx - 0.03 * scale, 0.59 * scale, tz + 0.02 * scale, 0x386648);
-  addColoredBox(parts, 0.28 * scale, 0.10 * scale, 0.28 * scale, tx + 0.02 * scale, 0.68 * scale, tz - 0.02 * scale, 0x52855f);
-  // Hanging curtains of pale-sage Spanish moss
-  addColoredBox(parts, 0.045 * scale, 0.26 * scale, 0.045 * scale, tx - 0.22 * scale, 0.34 * scale, tz + 0.14 * scale, 0x7fa679);
-  addColoredBox(parts, 0.045 * scale, 0.28 * scale, 0.045 * scale, tx + 0.22 * scale, 0.33 * scale, tz - 0.12 * scale, 0x99bf91);
-  addColoredBox(parts, 0.045 * scale, 0.22 * scale, 0.045 * scale, tx + 0.12 * scale, 0.35 * scale, tz + 0.20 * scale, 0x7fa679);
-  addColoredBox(parts, 0.045 * scale, 0.24 * scale, 0.045 * scale, tx - 0.14 * scale, 0.34 * scale, tz - 0.19 * scale, 0x99bf91);
+  // 'cypress': Ancient Bayou Bald Cypress with strongly fluted pyramidal buttress base, cypress knees & 8 draping Spanish moss curtains
+  addOrganicLimb(parts, tx, 0, tz, tx, 0.22 * scale, tz, 0.135 * scale, 0.075 * scale, 0x332419, 0x4d3726, 7);
+  addOrganicLimb(parts, tx, 0.21 * scale, tz, tx - 0.02 * scale, 0.52 * scale, tz, 0.075 * scale, 0.044 * scale, 0x4d3726, 0x5e4532, 6);
+  // Protruding conical cypress knees emerging from the marsh soil
+  const knees: [number, number, number][] = [
+    [-0.22, 0.14, 0.10],
+    [0.21, 0.12, -0.13],
+    [0.12, 0.10, 0.21],
+  ];
+  for (let k = 0; k < knees.length; k++) {
+    const [kx, kh, kz] = knees[k];
+    addOrganicLimb(parts, tx + kx * scale, 0, tz + kz * scale, tx + kx * scale, kh * scale, tz + kz * scale, 0.032 * scale, 0.010 * scale, 0x38281c, 0x57402e, 5);
+  }
+  // Wide spreading cypress limbs & flat-topped bayou moss canopy
+  addOrganicLimb(parts, tx - 0.02 * scale, 0.45 * scale, tz, tx - 0.20 * scale, 0.55 * scale, tz + 0.08 * scale, 0.030 * scale, 0.014 * scale, 0x4a3525, 0x59412e, 5);
+  addOrganicLimb(parts, tx - 0.02 * scale, 0.46 * scale, tz, tx + 0.20 * scale, 0.55 * scale, tz - 0.08 * scale, 0.030 * scale, 0.014 * scale, 0x4a3525, 0x59412e, 5);
+  addFoliagePuff(parts, tx - 0.19 * scale, 0.57 * scale, tz + 0.08 * scale, 0.23 * scale, 0.11 * scale, 0.21 * scale, 0x1b3b29, 0x336143, 0x5a8c62, seed + 1.2, 1);
+  addFoliagePuff(parts, tx + 0.19 * scale, 0.57 * scale, tz - 0.08 * scale, 0.23 * scale, 0.11 * scale, 0.21 * scale, 0x1e402d, 0x386949, 0x62966a, seed + 2.4, 1);
+  addFoliagePuff(parts, tx, 0.65 * scale, tz, 0.27 * scale, 0.12 * scale, 0.25 * scale, 0x224732, 0x407552, 0x6da675, seed + 3.8, 1);
+  // 8 trailing curtains of silver-sage Spanish moss
+  for (let m = 0; m < 8; m++) {
+    const a = (m / 8) * Math.PI * 2 + 0.2;
+    const rad = (0.24 + (m % 2) * 0.05) * scale;
+    addHangingStrand(
+      parts,
+      tx + Math.cos(a) * rad,
+      0.54 * scale,
+      tz + Math.sin(a) * rad,
+      (0.26 + (m % 3) * 0.05) * scale,
+      0.022 * scale,
+      0x7ca376,
+      0xa8c9a1,
+      Math.cos(a) * 0.025 * scale,
+      Math.sin(a) * 0.025 * scale,
+    );
+  }
 }
 
 function addHighlandTree(
@@ -895,24 +1520,30 @@ function addHighlandTree(
   scale: number,
   kind: 'scots_pine' | 'rowan',
 ) {
-  addColoredBox(parts, 0.32 * scale, 0.02, 0.32 * scale, tx, 0.01, tz, 0x1c2421);
+  const seed = tx * 37.1 + tz * 21.9;
+  addTreeShadowDisk(parts, tx, tz, 0.24 * scale, 0x1a2220);
+
   if (kind === 'rowan') {
-    // Highland Golden Aspen / Crimson Rowan with pale silver trunk & autumn-berry foliage clusters
-    addColoredBox(parts, 0.10 * scale, 0.34 * scale, 0.10 * scale, tx, 0.17 * scale, tz, 0x9ea3a8, 0, -0.08);
-    addColoredBox(parts, 0.36 * scale, 0.14 * scale, 0.34 * scale, tx - 0.03 * scale, 0.38 * scale, tz, 0xb84a39);
-    addColoredBox(parts, 0.30 * scale, 0.14 * scale, 0.30 * scale, tx + 0.05 * scale, 0.49 * scale, tz - 0.03 * scale, 0xd97236);
-    addColoredBox(parts, 0.22 * scale, 0.13 * scale, 0.22 * scale, tx - 0.02 * scale, 0.60 * scale, tz + 0.02 * scale, 0xf2b84b);
+    // Highland Golden Aspen & Crimson Mountain Ash: slender silver curved trunk with vibrant crimson/amber/gold sculpted puffs
+    addOrganicLimb(parts, tx, 0, tz, tx + 0.03 * scale, 0.34 * scale, tz - 0.01 * scale, 0.048 * scale, 0.032 * scale, 0x7b8187, 0xb4bac0, 6);
+    addOrganicLimb(parts, tx + 0.03 * scale, 0.30 * scale, tz - 0.01 * scale, tx - 0.11 * scale, 0.47 * scale, tz + 0.05 * scale, 0.024 * scale, 0.012 * scale, 0x9aa0a6, 0xb8bec4, 5);
+    addOrganicLimb(parts, tx + 0.03 * scale, 0.31 * scale, tz - 0.01 * scale, tx + 0.13 * scale, 0.48 * scale, tz - 0.05 * scale, 0.024 * scale, 0.012 * scale, 0x9aa0a6, 0xb8bec4, 5);
+    addFoliagePuff(parts, tx - 0.11 * scale, 0.49 * scale, tz + 0.05 * scale, 0.18 * scale, 0.13 * scale, 0.17 * scale, 0x8a2c24, 0xc74c34, 0xf2873f, seed + 1.1, 1);
+    addFoliagePuff(parts, tx + 0.13 * scale, 0.50 * scale, tz - 0.05 * scale, 0.18 * scale, 0.13 * scale, 0.17 * scale, 0x9e3b24, 0xd96b2e, 0xf7a93b, seed + 2.5, 1);
+    addFoliagePuff(parts, tx + 0.01 * scale, 0.60 * scale, tz, 0.20 * scale, 0.14 * scale, 0.19 * scale, 0xb55324, 0xeb9834, 0xffd252, seed + 3.9, 1);
     return;
   }
 
-  // 'scots_pine': Windswept Highland Scots Pine with dark lower bark, flaky orange upper trunk & wind-sheared crown
-  addColoredBox(parts, 0.12 * scale, 0.24 * scale, 0.12 * scale, tx, 0.12 * scale, tz, 0x4a3022, 0, 0.1);
-  addColoredBox(parts, 0.10 * scale, 0.28 * scale, 0.10 * scale, tx - 0.05 * scale, 0.35 * scale, tz, 0xb85d38, 0, 0.22);
-  addColoredBox(parts, 0.07 * scale, 0.18 * scale, 0.07 * scale, tx + 0.06 * scale, 0.40 * scale, tz, 0xc96b42, 0, -0.45);
-  // Wind-sheared horizontal dark-pine canopy pads
-  addColoredBox(parts, 0.36 * scale, 0.10 * scale, 0.32 * scale, tx + 0.12 * scale, 0.46 * scale, tz - 0.03 * scale, 0x1f4535);
-  addColoredBox(parts, 0.44 * scale, 0.11 * scale, 0.38 * scale, tx - 0.10 * scale, 0.54 * scale, tz + 0.02 * scale, 0x2d5e48);
-  addColoredBox(parts, 0.30 * scale, 0.10 * scale, 0.28 * scale, tx - 0.06 * scale, 0.64 * scale, tz, 0x3f7a5e);
+  // 'scots_pine': Windswept Caledonian Scots Pine with dark lower bark -> warm flaky terracotta-orange upper trunk & wind-sheared asymmetric needle clouds
+  addOrganicLimb(parts, tx, 0, tz, tx - 0.04 * scale, 0.24 * scale, tz + 0.01 * scale, 0.068 * scale, 0.052 * scale, 0x3d271c, 0x613b29, 6);
+  addOrganicLimb(parts, tx - 0.04 * scale, 0.23 * scale, tz + 0.01 * scale, tx - 0.11 * scale, 0.49 * scale, tz + 0.02 * scale, 0.052 * scale, 0.034 * scale, 0xa8502e, 0xd16e43, 6);
+  // Wind-sheared horizontal terracotta branches leaning leeward
+  addOrganicLimb(parts, tx - 0.08 * scale, 0.39 * scale, tz + 0.01 * scale, tx + 0.13 * scale, 0.48 * scale, tz - 0.05 * scale, 0.028 * scale, 0.014 * scale, 0xb55a35, 0xd47348, 5);
+  addOrganicLimb(parts, tx - 0.11 * scale, 0.47 * scale, tz + 0.02 * scale, tx - 0.23 * scale, 0.58 * scale, tz + 0.04 * scale, 0.026 * scale, 0.013 * scale, 0xc2633b, 0xd9794c, 5);
+  // Flat wind-sheared Caledonian pine needle cloud pads
+  addFoliagePuff(parts, tx + 0.14 * scale, 0.51 * scale, tz - 0.05 * scale, 0.21 * scale, 0.085 * scale, 0.18 * scale, 0x163628, 0x265741, 0x428263, seed + 1.2, 1);
+  addFoliagePuff(parts, tx - 0.19 * scale, 0.60 * scale, tz + 0.04 * scale, 0.24 * scale, 0.095 * scale, 0.20 * scale, 0x1b4030, 0x2f664d, 0x4e9471, seed + 2.8, 1);
+  addFoliagePuff(parts, tx - 0.04 * scale, 0.68 * scale, tz, 0.20 * scale, 0.085 * scale, 0.18 * scale, 0x214c39, 0x39785b, 0x5ea882, seed + 4.3, 1);
 }
 
 export interface NodeVariantLibrary {
@@ -965,8 +1596,8 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     const p: THREE.BufferGeometry[] = [];
     addPixelTree(p, -0.15, -0.12, 1.24, 0, 'oak');
     addPixelTree(p, 0.22, 0.18, 0.84, 2, 'birch');
-    addColoredBox(p, 0.13, 0.11, 0.13, -0.22, 0.055, 0.22, 0x5c3a22);
-    addColoredBox(p, 0.15, 0.04, 0.15, -0.22, 0.12, 0.22, 0x5c8a47);
+    addOrganicLimb(p, -0.22, 0, 0.22, -0.22, 0.11, 0.22, 0.08, 0.065, 0x4a2e1a, 0x6b452a, 6);
+    addSculptedBoulder(p, -0.22, 0.115, 0.22, 0.072, 0.025, 0.072, 0x3b6e33, 0x6ca852, 2.1);
     timber.push(finalizeMergedParts(p));
   }
   {
@@ -983,8 +1614,8 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     addPixelTree(p, -0.18, -0.14, 1.28, 2, 'birch');
     addPixelTree(p, 0.18, -0.06, 0.96, 0, 'maple');
     addPixelTree(p, -0.04, 0.24, 0.72, 1, 'birch');
-    addColoredBox(p, 0.05, 0.07, 0.05, 0.22, 0.035, 0.22, 0xede4d3);
-    addColoredBox(p, 0.09, 0.045, 0.09, 0.22, 0.08, 0.22, 0xc94a38);
+    addOrganicLimb(p, 0.22, 0, 0.22, 0.22, 0.065, 0.22, 0.018, 0.015, 0xd9cfc0, 0xf2ece1, 5);
+    addSculptedBoulder(p, 0.22, 0.075, 0.22, 0.052, 0.028, 0.052, 0xa83226, 0xe0533f, 3.3);
     timber.push(finalizeMergedParts(p));
   }
   {
@@ -1001,8 +1632,8 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     const p: THREE.BufferGeometry[] = [];
     addPixelTree(p, -0.04, -0.04, 1.42, 0, 'oak');
     addPixelTree(p, 0.25, -0.22, 0.56, 1, 'pine');
-    addColoredBox(p, 0.30, 0.09, 0.10, 0.16, 0.045, 0.22, 0x543520, 0.42);
-    addColoredBox(p, 0.22, 0.04, 0.11, 0.16, 0.10, 0.22, 0x588a44, 0.42);
+    addOrganicLimb(p, 0.04, 0.045, 0.27, 0.28, 0.045, 0.17, 0.048, 0.042, 0x452b19, 0x634028, 6);
+    addSculptedBoulder(p, 0.15, 0.088, 0.22, 0.08, 0.032, 0.055, 0x3b6e33, 0x6ca852, 5.1);
     timber.push(finalizeMergedParts(p));
   }
   {
@@ -1359,12 +1990,12 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     timberMeadow.push(finalizeMergedParts(p));
   }
   {
-    // Variant 1: Fruit-laden Apple & Golden Pear Orchard Pair + Berry Hedge
+    // Variant 1: Fruit-laden Apple & Golden Pear Orchard Pair + Sculpted Berry Hedge
     const p: THREE.BufferGeometry[] = [];
     addMeadowTree(p, -0.18, -0.14, 1.15, 'orchard');
     addMeadowTree(p, 0.22, 0.18, 0.82, 'orchard');
-    addColoredBox(p, 0.22, 0.12, 0.22, -0.22, 0.06, 0.24, 0x3b8c42);
-    addColoredBox(p, 0.05, 0.05, 0.05, -0.18, 0.13, 0.22, 0xe63946);
+    addFoliagePuff(p, -0.22, 0.08, 0.24, 0.12, 0.08, 0.12, 0x265e2d, 0x3f8f44, 0x6fc263, 2.2, 0);
+    addSculptedBoulder(p, -0.18, 0.14, 0.22, 0.032, 0.032, 0.032, 0xd93025, 0xff5a4f, 4.1);
     timberMeadow.push(finalizeMergedParts(p));
   }
   {
@@ -1376,10 +2007,10 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     timberMeadow.push(finalizeMergedParts(p));
   }
   {
-    // Variant 3: Solitary Giant Weeping Willow with Exposed Roots & Mossy Stone
+    // Variant 3: Solitary Giant Weeping Willow with Exposed Roots & Mossy River Stone
     const p: THREE.BufferGeometry[] = [];
     addMeadowTree(p, 0.02, 0.02, 1.54, 'willow');
-    addColoredBox(p, 0.18, 0.08, 0.16, -0.28, 0.04, 0.24, 0x6f7a7e);
+    addSculptedBoulder(p, -0.28, 0.05, 0.24, 0.11, 0.058, 0.09, 0x5d676b, 0x8a9599, 6.2);
     timberMeadow.push(finalizeMergedParts(p));
   }
   {
@@ -1405,7 +2036,7 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     addJungleTree(p, 0.12, -0.14, 1.38, true, false);
     addJungleTree(p, -0.22, 0.14, 1.04, true, false);
     addJungleTree(p, 0.18, 0.24, 0.64, true, false);
-    addColoredBox(p, 0.20, 0.12, 0.20, -0.16, 0.06, -0.22, 0x267342);
+    addFoliagePuff(p, -0.16, 0.07, -0.22, 0.12, 0.07, 0.12, 0x164f2b, 0x287d45, 0x4cb565, 3.1, 0);
     timberJungle.push(finalizeMergedParts(p));
   }
   {
@@ -1428,8 +2059,8 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     const p: THREE.BufferGeometry[] = [];
     addJungleTree(p, 0.10, -0.10, 1.62, false, false);
     addJungleTree(p, -0.24, 0.18, 0.84, false, false);
-    addColoredBox(p, 0.22, 0.10, 0.22, 0.22, 0.05, 0.22, 0x1b6e35);
-    addColoredBox(p, 0.07, 0.07, 0.07, 0.22, 0.12, 0.22, 0xff5a5f);
+    addFoliagePuff(p, 0.22, 0.07, 0.22, 0.12, 0.065, 0.12, 0x134a26, 0x24753d, 0x49b05f, 4.7, 0);
+    addSculptedBoulder(p, 0.22, 0.13, 0.22, 0.04, 0.036, 0.04, 0xd93848, 0xff6b78, 7.1);
     timberJungle.push(finalizeMergedParts(p));
   }
 
@@ -1454,8 +2085,8 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     const p: THREE.BufferGeometry[] = [];
     addTaigaConifer(p, 0.02, -0.02, 1.68, true, 'spruce');
     addTaigaConifer(p, -0.26, 0.22, 0.56, true, 'spruce');
-    addColoredBox(p, 0.34, 0.09, 0.11, 0.18, 0.045, 0.24, 0x452d1d, -0.45);
-    addColoredBox(p, 0.30, 0.035, 0.09, 0.18, 0.10, 0.24, 0xeef6fa, -0.45);
+    addOrganicLimb(p, 0.04, 0.045, 0.29, 0.30, 0.045, 0.18, 0.048, 0.040, 0x3b2618, 0x573925, 6);
+    addSculptedBoulder(p, 0.17, 0.088, 0.24, 0.11, 0.028, 0.052, 0xd2e7f0, 0xf5fbff, 3.2);
     timberTaiga.push(finalizeMergedParts(p));
   }
   {
@@ -1485,13 +2116,13 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     timberBlossom.push(finalizeMergedParts(p));
   }
   {
-    // Variant 1: Ancient Twisted Bonsai Sakura Masterpiece + Mossy Stone Lantern
+    // Variant 1: Ancient Twisted Bonsai Sakura Masterpiece + Sculpted Stone Garden Lantern
     const p: THREE.BufferGeometry[] = [];
     addSakuraTree(p, 0.04, -0.02, 1.48, 'bonsai');
-    addColoredBox(p, 0.12, 0.05, 0.12, -0.26, 0.025, 0.22, 0x7b858a);
-    addColoredBox(p, 0.07, 0.12, 0.07, -0.26, 0.10, 0.22, 0x8f999e);
-    addColoredBox(p, 0.08, 0.07, 0.08, -0.26, 0.18, 0.22, 0xffe082); // glowing paper lantern window
-    addColoredBox(p, 0.16, 0.04, 0.16, -0.26, 0.23, 0.22, 0x646f73);
+    addOrganicLimb(p, -0.26, 0, 0.22, -0.26, 0.05, 0.22, 0.065, 0.052, 0x6d777c, 0x859096, 6);
+    addOrganicLimb(p, -0.26, 0.05, 0.22, -0.26, 0.16, 0.22, 0.036, 0.032, 0x859096, 0x9aa4aa, 6);
+    addOrganicLimb(p, -0.26, 0.16, 0.22, -0.26, 0.22, 0.22, 0.046, 0.046, 0xffd56b, 0xfff0b3, 6);
+    addOrganicLimb(p, -0.26, 0.22, 0.22, -0.26, 0.28, 0.22, 0.095, 0.015, 0x5c666b, 0x7b858a, 6);
     timberBlossom.push(finalizeMergedParts(p));
   }
   {
@@ -1503,10 +2134,10 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     timberBlossom.push(finalizeMergedParts(p));
   }
   {
-    // Variant 3: Colossal Imperial Weeping Cherry Canopy
+    // Variant 3: Colossal Imperial Weeping Cherry Canopy + Fallen Petal Mound
     const p: THREE.BufferGeometry[] = [];
     addSakuraTree(p, 0.0, 0.0, 1.62, 'weeping');
-    addColoredBox(p, 0.24, 0.025, 0.24, -0.22, 0.015, 0.24, 0xffb8d4);
+    addTreeShadowDisk(p, -0.22, 0.24, 0.14, 0xffb8d4);
     timberBlossom.push(finalizeMergedParts(p));
   }
   {
@@ -1519,19 +2150,19 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
 
   const timberSavanna: THREE.BufferGeometry[] = [];
   {
-    // Variant 0: Iconic Flat-Topped Umbrella Acacia + Dry Golden Tussock & Termite Mound
+    // Variant 0: Iconic Flat-Topped Umbrella Acacia + Sculpted Red Clay Termite Cathedral Spire
     const p: THREE.BufferGeometry[] = [];
     addSavannaTree(p, -0.06, -0.04, 1.36, 'acacia');
     addSavannaTree(p, 0.28, 0.22, 0.68, 'acacia');
-    addColoredBox(p, 0.12, 0.22, 0.12, -0.28, 0.11, 0.24, 0xa86438, 0.3); // red clay termite spire
-    addColoredBox(p, 0.08, 0.14, 0.08, -0.24, 0.24, 0.22, 0xb87344, 0.2);
+    addOrganicLimb(p, -0.28, 0, 0.24, -0.26, 0.28, 0.22, 0.075, 0.018, 0x8f4e27, 0xc77e48, 6);
+    addOrganicLimb(p, -0.22, 0, 0.26, -0.21, 0.17, 0.25, 0.048, 0.015, 0x99552c, 0xc27742, 5);
     timberSavanna.push(finalizeMergedParts(p));
   }
   {
-    // Variant 1: Colossal Ancient African Baobab (Bottle Trunk Giant)
+    // Variant 1: Colossal Ancient African Baobab (Bottle Trunk Giant) + Sun-Baked Boulder
     const p: THREE.BufferGeometry[] = [];
     addSavannaTree(p, 0.02, 0.0, 1.54, 'baobab');
-    addColoredBox(p, 0.18, 0.09, 0.16, -0.28, 0.045, 0.22, 0x8c7355);
+    addSculptedBoulder(p, -0.28, 0.05, 0.22, 0.11, 0.058, 0.095, 0x735c43, 0xa38767, 5.4);
     timberSavanna.push(finalizeMergedParts(p));
   }
   {
@@ -1542,11 +2173,11 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     timberSavanna.push(finalizeMergedParts(p));
   }
   {
-    // Variant 3: Mixed Savanna Oasis (Stout Baobab + Tall Acacia + Scrub Thorn)
+    // Variant 3: Mixed Savanna Oasis (Stout Baobab + Tall Acacia + Dry Thorn Scrub)
     const p: THREE.BufferGeometry[] = [];
     addSavannaTree(p, -0.16, 0.12, 1.24, 'baobab');
     addSavannaTree(p, 0.20, -0.16, 1.18, 'acacia');
-    addColoredBox(p, 0.18, 0.10, 0.18, 0.18, 0.05, 0.24, 0x6b7d32);
+    addFoliagePuff(p, 0.18, 0.06, 0.24, 0.11, 0.06, 0.11, 0x526324, 0x798f34, 0xa8bd4a, 2.9, 0);
     timberSavanna.push(finalizeMergedParts(p));
   }
   {
@@ -1578,8 +2209,8 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     // Variant 2: Colossal Ancient Weeping Mire Cypress + Cattail Reeds
     const p: THREE.BufferGeometry[] = [];
     addSwampTree(p, 0.0, 0.0, 1.62, 'cypress');
-    addColoredBox(p, 0.04, 0.22, 0.04, -0.28, 0.11, 0.22, 0x3b6336);
-    addColoredBox(p, 0.06, 0.07, 0.06, -0.28, 0.22, 0.22, 0x4f331e);
+    addOrganicLimb(p, -0.28, 0, 0.22, -0.27, 0.24, 0.21, 0.016, 0.010, 0x2d5229, 0x497a42, 5);
+    addOrganicLimb(p, -0.27, 0.17, 0.21, -0.27, 0.24, 0.21, 0.025, 0.024, 0x452b18, 0x5e3b22, 5);
     timberSwamp.push(finalizeMergedParts(p));
   }
   {
@@ -1587,7 +2218,8 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     const p: THREE.BufferGeometry[] = [];
     addSwampTree(p, 0.14, -0.14, 1.38, 'cypress');
     addSwampTree(p, -0.20, 0.16, 1.08, 'cypress');
-    addColoredBox(p, 0.09, 0.04, 0.09, 0.24, 0.08, 0.22, 0x48f5b6);
+    addOrganicLimb(p, 0.24, 0, 0.22, 0.24, 0.06, 0.22, 0.014, 0.012, 0xa8e8d8, 0xd4fff2, 5);
+    addSculptedBoulder(p, 0.24, 0.072, 0.22, 0.052, 0.025, 0.052, 0x28c796, 0x6effcc, 4.4);
     timberSwamp.push(finalizeMergedParts(p));
   }
   {
@@ -1608,18 +2240,18 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     timberHighland.push(finalizeMergedParts(p));
   }
   {
-    // Variant 1: Golden Highland Aspen & Crimson Mountain Ash Trio + Purple Heather
+    // Variant 1: Golden Highland Aspen & Crimson Mountain Ash Trio + Purple Heather Tuft
     const p: THREE.BufferGeometry[] = [];
     addHighlandTree(p, -0.16, -0.14, 1.34, 'rowan');
     addHighlandTree(p, 0.20, 0.14, 1.02, 'rowan');
     addHighlandTree(p, -0.18, 0.24, 0.64, 'scots_pine');
-    addColoredBox(p, 0.14, 0.08, 0.14, 0.18, 0.04, -0.22, 0x9b6b9e);
+    addFoliagePuff(p, 0.18, 0.055, -0.22, 0.09, 0.055, 0.09, 0x6b4570, 0x9b6b9e, 0xc794c9, 3.8, 0);
     timberHighland.push(finalizeMergedParts(p));
   }
   {
-    // Variant 2: Solitary Ancient Caledonian Scots Pine on Mossy Granite Outcrop
+    // Variant 2: Solitary Ancient Caledonian Scots Pine on Sculpted Mossy Granite Crag
     const p: THREE.BufferGeometry[] = [];
-    addColoredBox(p, 0.34, 0.12, 0.32, 0.0, 0.06, 0.0, 0x68727a, 0.25);
+    addSculptedBoulder(p, 0.0, 0.055, 0.0, 0.22, 0.085, 0.20, 0x525b61, 0x7d878f, 1.9);
     addHighlandTree(p, 0.02, 0.0, 1.58, 'scots_pine');
     timberHighland.push(finalizeMergedParts(p));
   }

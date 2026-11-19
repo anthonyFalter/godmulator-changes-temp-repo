@@ -1627,7 +1627,14 @@ export function applyTerrainTool(
         case 'plant_forest': {
           // Only plant trees on living, cultivable land (never on scorched dead earth, rock, snow, sand, swamp, or water)
           if (isCultivableSoil(t)) {
-            t.terrain = 'forest';
+            if (
+              t.terrain !== 'jungle' &&
+              t.terrain !== 'taiga' &&
+              t.terrain !== 'blossom' &&
+              t.terrain !== 'savanna'
+            ) {
+              t.terrain = 'forest';
+            }
             if (!t.buildingId) {
               t.resourceNode = 'timber_grove';
               t.resourceAmount = 260;
