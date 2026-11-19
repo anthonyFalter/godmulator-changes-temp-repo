@@ -10,13 +10,17 @@ import {
   mapTerrainToTreeBiome,
 } from '../game/voxelTrees';
 import {
+  createAlienMothershipVisual,
   createBuildingGroup,
+  createHyperspaceRippleEffects,
   createUnitGroup,
   createVehicleGroup,
   disposeEntityGroup,
   getNodeVariantLibrary,
   getSharedCarryMaterial,
   getSharedStatusRingMaterial,
+  HyperspacePortalRig,
+  HyperspaceRippleEffectsVisual,
   updateBuildingNightMaterials,
 } from '../game/meshBuilders';
 import {
@@ -379,10 +383,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     worldGroup.add(skyClouds.shadowGroup);
     worldGroup.add(skyClouds.group);
 
-    // Instanced terrain system (22 draw calls total regardless of map size!)
+    // Instanced terrain system (24 draw calls total regardless of map size!)
     const TERRAIN_TYPES: TerrainType[] = [
       'deep_water',
       'shallow_water',
+      'ice',
       'sand',
       'grass',
       'fertile',
@@ -464,7 +469,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       inst.frustumCulled = false;
       inst.boundingSphere = worldBoundsSphere;
       inst.receiveShadow = true;
-      inst.castShadow = tType !== 'deep_water' && tType !== 'shallow_water';
+      inst.castShadow = tType !== 'deep_water' && tType !== 'shallow_water' && tType !== 'ice';
       inst.count = 0;
       terrainGroup.add(inst);
       terrainInstancedMap.set(tType, inst);
@@ -487,7 +492,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       const isWaterWalkway =
         t.height === 0 &&
         (t.terrain === 'stone_road' || t.terrain === 'rail_track' || t.terrain === 'runway');
-      const y0 = t.height === 0 ? (isWaterWalkway ? 0.3 : 0.12) : t.height * HEIGHT_STEP + 0.25;
+      const isSeaIce = t.height === 0 && t.terrain === 'ice';
+      const y0 = t.height === 0 ? (isWaterWalkway ? 0.3 : isSeaIce ? 0.21 : 0.12) : t.height * HEIGHT_STEP + 0.25;
       tileCurrentY[i] = y0;
       tileLastNodeY[i] = -999;
       tilePropSig[i] = -1;
@@ -790,6 +796,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       blossom: 20,
       runway: 21,
       void_goo: 22,
+      ice: 23,
     };
     const NODE_CODE: Record<string, number> = {
       none: 0,
@@ -833,6 +840,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       legFR?: THREE.Object3D;
       legBL?: THREE.Object3D;
       legBR?: THREE.Object3D;
+      kneeFL?: THREE.Object3D;
+      kneeFR?: THREE.Object3D;
+      kneeBL?: THREE.Object3D;
+      kneeBR?: THREE.Object3D;
       legL?: THREE.Object3D;
       legR?: THREE.Object3D;
       contactShadow?: THREE.Object3D;
@@ -859,6 +870,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       beamMuzzle?: THREE.Object3D;
       leviathanSplashInner?: THREE.Object3D;
       leviathanSplashOuter?: THREE.Object3D;
+      ufoRing?: THREE.Object3D;
       lastCarryType: string | null;
       lastStatusKey: number;
       shadowCasters: THREE.Mesh[];
@@ -1387,10 +1399,16 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         | 'earthquake_zone'
         | 'whirlpool'
         | 'rogue_wave'
-        | 'volcano_eruption';
+        | 'volcano_eruption'
+        | 'undead_portal'
+        | 'alien_mothership'
+        | 'chrono_field'
+        | 'orbital_beam'
+        | 'gravity_anomaly';
       isSuper?: boolean;
       group: THREE.Group;
       materials: THREE.Material[];
+      geometries?: THREE.BufferGeometry[];
       drops?: { mesh: THREE.Mesh; offsetY: number; speed: number; baseX: number; baseZ: number }[];
       spores?: { mesh: THREE.Mesh; angle: number; dist: number; phase: number; height: number }[];
       waveSegments?: TsunamiWaveSegment[];
@@ -2379,6 +2397,288 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         };
       }
 
+      if (kind === 'undead_portal') {
+        const portalRimMat = new THREE.MeshBasicMaterial({
+          color: 0xa855f7,
+          transparent: true,
+          opacity: 0.94,
+        });
+        const innerVoidMat = new THREE.MeshBasicMaterial({
+          color: 0x090014,
+          transparent: true,
+          opacity: 0.92,
+          side: THREE.DoubleSide,
+        });
+        const ringMat = new THREE.MeshBasicMaterial({
+          color: 0x7e22ce,
+          transparent: true,
+          opacity: 0.78,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        const moteMat = new THREE.MeshBasicMaterial({
+          color: 0xd8b4fe,
+          transparent: true,
+          opacity: 0.9,
+        });
+        materials.push(portalRimMat, innerVoidMat, ringMat, moteMat);
+
+        const gateRing = new THREE.Mesh(sharedRiftTorusGeo, portalRimMat);
+        gateRing.position.y = 2.05;
+        gateRing.scale.set(0.95, 1.35, 0.95);
+        group.add(gateRing);
+
+        const darkCore = new THREE.Mesh(sharedRiftCoreGeo, innerVoidMat);
+        darkCore.position.y = 2.05;
+        darkCore.scale.set(1.15, 1.75, 0.35);
+        group.add(darkCore);
+
+        const floorRing = new THREE.Mesh(sharedHazRingGeo, ringMat);
+        floorRing.position.y = 0.1;
+        floorRing.scale.setScalar(radius * 0.65);
+        group.add(floorRing);
+
+        const vortexMotes: VortexMote[] = [];
+        for (let i = 0; i < 14; i++) {
+          const m = new THREE.Mesh(sharedDebrisCubeGeo, moteMat);
+          m.scale.setScalar(0.32);
+          group.add(m);
+          vortexMotes.push({
+            mesh: m,
+            baseAngle: (i / 14) * Math.PI * 2,
+            phase: i / 14,
+            speed: 0.95 + (i % 3) * 0.25,
+          });
+        }
+
+        return {
+          kind,
+          group,
+          materials,
+          ringMesh: gateRing,
+          secondaryRingMesh: floorRing,
+          vortexMotes,
+          seenStamp: 0,
+        };
+      }
+
+      if (kind === 'alien_mothership') {
+        const dread = createAlienMothershipVisual(radius);
+        const hyperVfx = createHyperspaceRippleEffects(radius);
+        const shadowMat = new THREE.MeshBasicMaterial({
+          color: 0x020617,
+          transparent: true,
+          opacity: 0.5,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+          polygonOffset: true,
+          polygonOffsetFactor: -1,
+          polygonOffsetUnits: -1,
+        });
+        const beamMat = new THREE.MeshBasicMaterial({
+          color: 0x93c5fd,
+          transparent: true,
+          opacity: 0.13,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        const beaconMat = new THREE.MeshBasicMaterial({
+          color: 0xf43f5e,
+          transparent: true,
+          opacity: 0.9,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        materials.push(...dread.materials, ...hyperVfx.materials, shadowMat, beamMat, beaconMat);
+
+        // Colossal dreadnought-shaped shadow silhouette blanketing the terrain below
+        const groundShadow = new THREE.Mesh(dread.shadowGeo, shadowMat);
+        groundShadow.position.y = 0.14;
+        groundShadow.rotation.y = 0.68;
+        group.add(groundShadow);
+
+        // Red orbital probe lock ring on the ground
+        const beaconRing = new THREE.Mesh(sharedHazRingGeo, beaconMat);
+        beaconRing.position.y = 0.18;
+        beaconRing.scale.setScalar(2.4);
+        group.add(beaconRing);
+
+        // Sky-covering Orbital Dreadnought-Carrier hovering high above
+        dread.shipGroup.position.y = 22.0;
+        dread.shipGroup.rotation.y = 0.68;
+
+        // Glowing central tractor/deployment beam cone reaching down from the ventral emitter maw
+        const tractorBeam = new THREE.Mesh(sharedDomeCylinderGeo, beamMat);
+        tractorBeam.position.set(0, -21.95, 0.2);
+        tractorBeam.scale.set(2.35, 7.25, 2.35);
+        dread.shipGroup.add(tractorBeam);
+
+        group.add(
+          dread.shipGroup,
+          hyperVfx.entryPortal.group,
+          hyperVfx.exitPortal.group,
+          hyperVfx.wakeGroup,
+          hyperVfx.groundRippleMesh,
+        );
+        group.userData.tractorBeam = tractorBeam;
+        group.userData.reactorDrums = dread.reactorDrums;
+        group.userData.engineGlowMeshes = dread.engineGlowMeshes;
+        group.userData.turretPivots = dread.turretPivots;
+        group.userData.hyperVfx = hyperVfx;
+
+        return {
+          kind,
+          group,
+          materials,
+          geometries: [...dread.geometries, ...hyperVfx.geometries],
+          cloudBody: dread.shipGroup,
+          ringMesh: groundShadow,
+          secondaryRingMesh: beaconRing,
+          seenStamp: 0,
+        };
+      }
+
+      if (kind === 'chrono_field') {
+        const cyanMat = new THREE.MeshBasicMaterial({
+          color: 0x38bdf8,
+          transparent: true,
+          opacity: 0.78,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        const goldMat = new THREE.MeshBasicMaterial({
+          color: 0xfacc15,
+          transparent: true,
+          opacity: 0.88,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        materials.push(cyanMat, goldMat);
+
+        const ringMesh = new THREE.Mesh(sharedHazRingGeo, cyanMat);
+        ringMesh.position.y = 0.14;
+        ringMesh.scale.setScalar(radius);
+        group.add(ringMesh);
+
+        const secondaryRingMesh = new THREE.Mesh(sharedHazRingGeo, goldMat);
+        secondaryRingMesh.position.y = 0.45;
+        secondaryRingMesh.scale.setScalar(radius * 0.68);
+        group.add(secondaryRingMesh);
+
+        const vortexMotes: VortexMote[] = [];
+        for (let i = 0; i < 12; i++) {
+          const m = new THREE.Mesh(sharedDebrisCubeGeo, i % 2 === 0 ? goldMat : cyanMat);
+          m.scale.setScalar(0.28);
+          group.add(m);
+          vortexMotes.push({
+            mesh: m,
+            baseAngle: (i / 12) * Math.PI * 2,
+            phase: i / 12,
+            speed: 1.15,
+          });
+        }
+
+        return {
+          kind,
+          group,
+          materials,
+          ringMesh,
+          secondaryRingMesh,
+          vortexMotes,
+          seenStamp: 0,
+        };
+      }
+
+      if (kind === 'orbital_beam') {
+        const coreBeamMat = new THREE.MeshBasicMaterial({
+          color: 0xffffff,
+          transparent: true,
+          opacity: 0.96,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        const outerBeamMat = new THREE.MeshBasicMaterial({
+          color: 0xf97316,
+          transparent: true,
+          opacity: 0.56,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        const scorchRingMat = new THREE.MeshBasicMaterial({
+          color: 0xfbbf24,
+          transparent: true,
+          opacity: 0.92,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        materials.push(coreBeamMat, outerBeamMat, scorchRingMat);
+
+        const coreCol = new THREE.Mesh(sharedDomeCylinderGeo, coreBeamMat);
+        coreCol.position.y = 0;
+        coreCol.scale.set(0.75, 14.0, 0.75);
+        group.add(coreCol);
+
+        const outerCol = new THREE.Mesh(sharedDomeCylinderGeo, outerBeamMat);
+        outerCol.position.y = 0;
+        outerCol.scale.set(1.75, 14.0, 1.75);
+        group.add(outerCol);
+
+        const ringMesh = new THREE.Mesh(sharedHazRingGeo, scorchRingMat);
+        ringMesh.position.y = 0.14;
+        ringMesh.scale.setScalar(Math.max(1.8, radius * 0.78));
+        group.add(ringMesh);
+
+        return {
+          kind,
+          group,
+          materials,
+          ringMesh,
+          secondaryRingMesh: outerCol,
+          seenStamp: 0,
+        };
+      }
+
+      if (kind === 'gravity_anomaly') {
+        const violetMat = new THREE.MeshBasicMaterial({
+          color: 0xc084fc,
+          transparent: true,
+          opacity: 0.85,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        const deepMat = new THREE.MeshBasicMaterial({
+          color: 0x7e22ce,
+          transparent: true,
+          opacity: 0.52,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        materials.push(violetMat, deepMat);
+
+        const ringMesh = new THREE.Mesh(sharedHazRingGeo, violetMat);
+        ringMesh.position.y = 0.14;
+        ringMesh.scale.setScalar(radius);
+        group.add(ringMesh);
+
+        const gravityRings: THREE.Mesh[] = [];
+        for (let i = 0; i < 3; i++) {
+          const gr = new THREE.Mesh(sharedHazRingGeo, i % 2 === 0 ? violetMat : deepMat);
+          gr.position.y = 0.4 + i * 1.4;
+          gr.scale.setScalar(radius * (0.9 - i * 0.15));
+          group.add(gr);
+          gravityRings.push(gr);
+        }
+
+        return {
+          kind,
+          group,
+          materials,
+          ringMesh,
+          gravityRings,
+          seenStamp: 0,
+        };
+      }
+
       return {
         kind,
         group,
@@ -2590,7 +2890,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       flameCoreCone?: THREE.Mesh;
       flameOuterCone?: THREE.Mesh;
       tracerMesh?: THREE.Object3D;
-      vfxSubtype?: 'bullet' | 'cannon_shell' | 'bomb' | 'missile' | 'arcane_bolt' | 'plasma_beam';
+      vfxSubtype?: 'bullet' | 'cannon_shell' | 'bomb' | 'missile' | 'arcane_bolt' | 'plasma_beam' | 'laser_beam';
       stemMesh?: THREE.Mesh;
       capMesh?: THREE.Mesh;
       faultSegments?: EarthquakeFaultSegment[];
@@ -4256,6 +4556,87 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         return;
       }
 
+      // New Creative God Powers (Necrotic Rift, Probe Remote, Chrono Warp, Peace Accord, Helios Orbital Beam, Gravity Flux)
+      if (type === 'undead_portal' || type === 'alien_invasion' || type === 'chrono_surge' || type === 'harmony_dove' || type === 'solar_orbital_laser' || type === 'gravity_flip') {
+        const ringMat = new THREE.MeshBasicMaterial({
+          color: colorHex,
+          transparent: true,
+          opacity: 0.92,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        const outerRingMat = new THREE.MeshBasicMaterial({
+          color: 0xffffff,
+          transparent: true,
+          opacity: 0.88,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        materials.push(ringMat, outerRingMat);
+
+        const ringMesh = new THREE.Mesh(sharedHazRingGeo, ringMat);
+        ringMesh.position.set(tx, ty + 0.14, tz);
+        ringMesh.scale.setScalar(Math.max(1.4, radius * 0.55));
+        group.add(ringMesh);
+
+        const outerRingMesh = new THREE.Mesh(sharedHazRingGeo, outerRingMat);
+        outerRingMesh.position.set(tx, ty + 0.18, tz);
+        outerRingMesh.scale.setScalar(Math.max(1.0, radius * 0.35));
+        group.add(outerRingMesh);
+
+        let dropObj: THREE.Object3D | undefined;
+        if (type === 'alien_invasion') {
+          const probeMat = new THREE.MeshStandardMaterial({ color: 0x334155, emissive: 0x22d3ee, emissiveIntensity: 0.7 });
+          materials.push(probeMat);
+          const probe = new THREE.Mesh(sharedDebrisCubeGeo, probeMat);
+          probe.scale.set(1.4, 2.2, 1.4);
+          probe.position.set(tx, ty + 16, tz);
+          group.add(probe);
+          dropObj = probe;
+        } else if (type === 'harmony_dove') {
+          const doveMat = new THREE.MeshBasicMaterial({ color: 0xfef9c3, transparent: true, opacity: 0.96, side: THREE.DoubleSide });
+          materials.push(doveMat);
+          const doveGrp = new THREE.Group();
+          const body = new THREE.Mesh(sharedDebrisCubeGeo, doveMat);
+          body.scale.set(0.8, 0.7, 1.8);
+          const wL = new THREE.Mesh(sharedDebrisCubeGeo, doveMat);
+          wL.position.set(-0.5, 0.15, 0);
+          wL.scale.set(2.2, 0.25, 1.0);
+          const wR = new THREE.Mesh(sharedDebrisCubeGeo, doveMat);
+          wR.position.set(0.5, 0.15, 0);
+          wR.scale.set(2.2, 0.25, 1.0);
+          doveGrp.add(body, wL, wR);
+          doveGrp.position.set(tx, ty + 2.0, tz);
+          group.add(doveGrp);
+          dropObj = doveGrp;
+        }
+
+        burstFxGroup.add(group);
+        activeBurstFx.push({
+          kind: 'ripple_ring',
+          powerType: type,
+          group,
+          materials,
+          age: 0,
+          duration: type === 'alien_invasion' ? 1.35 : 1.05,
+          impactDelay: type === 'alien_invasion' ? 0.42 : type === 'solar_orbital_laser' ? 0.26 : 0.16,
+          deferImpact,
+          tx,
+          ty,
+          tz,
+          ox: tx,
+          oy: ty + (type === 'alien_invasion' ? 16 : 2.0),
+          oz: tz,
+          radius: Math.max(2.0, radius),
+          impactFired: false,
+          tracerMesh: dropObj,
+          ringMesh,
+          outerRingMesh,
+          colorHex,
+        });
+        return;
+      }
+
       // Utility events (terrain_sculpt, epoch_up): Clean ground ripple without any beam pillar
       const ringMat = new THREE.MeshBasicMaterial({
         color: colorHex,
@@ -4722,7 +5103,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       tz: number,
       radius: number,
       colorHex: string,
-      vfxSubtype?: 'bullet' | 'cannon_shell' | 'bomb' | 'missile' | 'arcane_bolt' | 'plasma_beam',
+      vfxSubtype?: 'bullet' | 'cannon_shell' | 'bomb' | 'missile' | 'arcane_bolt' | 'plasma_beam' | 'laser_beam',
     ) {
       if (activeBurstFx.length >= MAX_BURST_FX) {
         const dropIdx = activeBurstFx.findIndex((f) => f.impactFired || !f.deferImpact);
@@ -4747,7 +5128,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           opacity: 0.96,
         });
         const coreMat = new THREE.MeshBasicMaterial({
-          color: subtype === 'bomb' ? '#ff9e00' : subtype === 'plasma_beam' ? '#ecfeff' : '#ffffff',
+          color: subtype === 'bomb' ? '#ff9e00' : subtype === 'plasma_beam' || subtype === 'laser_beam' ? '#ecfeff' : '#ffffff',
           transparent: true,
           opacity: 0.94,
         });
@@ -4817,17 +5198,18 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           arcGrp.position.set(ox, startY, oz);
           arcGrp.lookAt(tx, endY, tz);
           tracerObj = arcGrp;
-        } else if (subtype === 'plasma_beam') {
+        } else if (subtype === 'plasma_beam' || subtype === 'laser_beam') {
           const beamDist = Math.max(0.5, Math.hypot(tx - ox, endY - startY, tz - oz));
+          const beamWidthMult = subtype === 'laser_beam' ? (radius >= 2.2 ? 3.2 : 1.45) : 1.65;
           const beamGrp = new THREE.Group();
           const outerBeam = new THREE.Mesh(sharedPlasmaBeamGeo, boltMat);
-          outerBeam.scale.set(1.65, 1.65, beamDist);
+          outerBeam.scale.set(beamWidthMult, beamWidthMult, beamDist);
           const innerBeam = new THREE.Mesh(sharedPlasmaBeamGeo, coreMat);
-          innerBeam.scale.set(0.75, 0.75, beamDist);
+          innerBeam.scale.set(beamWidthMult * 0.48, beamWidthMult * 0.48, beamDist);
           const muzzleStar = new THREE.Mesh(sharedPlasmaMuzzleGeo, coreMat);
           muzzleStar.position.z = -beamDist * 0.48;
           const tipStar = new THREE.Mesh(sharedPlasmaMuzzleGeo, ringMat);
-          tipStar.scale.setScalar(1.35);
+          tipStar.scale.setScalar(subtype === 'laser_beam' && radius >= 2.2 ? 2.1 : 1.35);
           tipStar.position.z = beamDist * 0.48;
           beamGrp.add(outerBeam, innerBeam, muzzleStar, tipStar);
           beamGrp.position.set((ox + tx) * 0.5, (startY + endY) * 0.5, (oz + tz) * 0.5);
@@ -4855,8 +5237,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         ringMesh.scale.setScalar(subtype === 'bomb' ? 0.28 : 0.18);
         group.add(ringMesh);
 
-        if (subtype === 'plasma_beam') {
-          spawnParticleBurst(tx, ty + 0.35, tz, 18, '#56cfe1', 0.8, 5.0, 0.92);
+        if (subtype === 'plasma_beam' || subtype === 'laser_beam') {
+          spawnParticleBurst(tx, ty + 0.35, tz, radius >= 2.2 ? 32 : 18, boltColor || '#56cfe1', radius >= 2.2 ? 1.45 : 0.8, 5.2, 0.96);
           spawnParticleBurst(tx, ty + 0.4, tz, 10, '#ffffff', 0.5, 5.8, 0.65);
         } else if (subtype !== 'bomb' && subtype !== 'cannon_shell') {
           spawnParticleBurst(tx, ty + 0.35, tz, 10, boltColor, 0.5, 3.6, 0.78);
@@ -4871,9 +5253,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
                 ? 0.32
                 : subtype === 'arcane_bolt'
                   ? 0.27
-                  : subtype === 'plasma_beam'
-                    ? 0.25
-                    : 0.2;
+                  : subtype === 'laser_beam'
+                    ? 0.34
+                    : subtype === 'plasma_beam'
+                      ? 0.25
+                      : 0.2;
 
         burstFxGroup.add(group);
         activeBurstFx.push({
@@ -5491,14 +5875,16 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         }
         lastPaintTile = { x: tx, z: tz };
       } else if (tool.kind === 'spawn' || (tool.kind === 'power' && tool.power !== 'drag_entity')) {
-        const minMs = tool.kind === 'spawn' ? 85 : 145;
+        const isThermalBrush = tool.kind === 'power' && (tool.power === 'freeze_snap' || tool.power === 'heat_wave');
+        const minMs = tool.kind === 'spawn' ? 85 : isThermalBrush ? 175 : 145;
         const minDist = tool.kind === 'spawn' ? 0.9 : 1.5;
+        const holdRepeatMs = isThermalBrush ? 210 : 260;
         const movedEnough =
           !lastHoldCastPos || Math.hypot(tx - lastHoldCastPos.x, tz - lastHoldCastPos.z) >= minDist;
         if (
           !lastHoldCastPos ||
           (nowMs - lastHoldCastTime >= minMs && movedEnough) ||
-          nowMs - lastHoldCastTime >= 260
+          nowMs - lastHoldCastTime >= holdRepeatMs
         ) {
           lastHoldCastTime = nowMs;
           lastHoldCastPos = { x: tx, z: tz };
@@ -5867,6 +6253,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     };
 
     const onPointerLeave = () => {
+      if (isHoldPainting) {
+        isHoldPainting = false;
+        paintedStrokeTiles.clear();
+        lastPaintTile = null;
+        lastHoldCastPos = null;
+      }
       if (hoveredEntityInternal !== null && !draggedUnitId) {
         hoveredEntityInternal = null;
         propsRef.current.onHoverEntityChange?.(null);
@@ -6161,7 +6553,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         tileHadHazard.fill(0);
         for (let i = 0; i < simState.tiles.length; i++) {
           const t = simState.tiles[i];
-          tileCurrentY[i] = t.height === 0 ? 0.12 : t.height * HEIGHT_STEP + 0.25;
+          const isWaterWalkway =
+            t.height === 0 &&
+            (t.terrain === 'stone_road' || t.terrain === 'rail_track' || t.terrain === 'runway');
+          const isSeaIce = t.height === 0 && t.terrain === 'ice';
+          tileCurrentY[i] = t.height === 0 ? (isWaterWalkway ? 0.3 : isSeaIce ? 0.21 : 0.12) : t.height * HEIGHT_STEP + 0.25;
           tileLastNodeY[i] = -999;
           tilePropSig[i] = -1;
         }
@@ -6242,7 +6638,16 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         const tCode = TERRAIN_CODE[t.terrain] ?? 3;
         const isWaterWalkway =
           t.height === 0 && (tCode === 9 || tCode === 14 || tCode === 21);
-        let targetTopY = t.height === 0 ? (isWaterWalkway ? 0.3 : 0.12) : t.height * HEIGHT_STEP + 0.25;
+        const isSeaIce = t.height === 0 && tCode === 23;
+        const crushDip = t.height > 0 && (t.crushedTimer ?? 0) > 0 ? 0.14 : 0;
+        let targetTopY =
+          t.height === 0
+            ? isWaterWalkway
+              ? 0.3
+              : isSeaIce
+                ? 0.21
+                : 0.12
+            : t.height * HEIGHT_STEP + 0.25 - crushDip;
         let hasHazardEffect = false;
 
         if (hasTsunamis && t.height <= 2) {
@@ -6348,7 +6753,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           activeFireTileIndices.push(i);
         }
 
-        const terrSig = (t.height << 7) | (tCode << 1) | (t.farmSettlementId ? 1 : 0);
+        const terrSig =
+          (t.height << 8) |
+          (tCode << 2) |
+          ((t.farmSettlementId ? 1 : 0) << 1) |
+          ((t.crushedTimer ?? 0) > 0 ? 1 : 0);
         if (tileTerrainSig[i] !== terrSig) {
           tileTerrainSig[i] = terrSig;
           terrainMapDirty = true;
@@ -7272,7 +7681,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           Boolean(u.favorite) ||
           Boolean(u.isKing) ||
           u.role === 'dragon' ||
-          u.role === 'leviathan';
+          u.role === 'leviathan' ||
+          u.role === 'alien_walker' ||
+          u.role === 'alien_ufo';
         const uInView =
           isProtectedUnit ||
           (u.x >= cullMinX && u.x <= cullMaxX && u.z >= cullMinZ && u.z <= cullMaxZ);
@@ -7338,6 +7749,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             legFR: group.getObjectByName('leg_fr'),
             legBL: group.getObjectByName('leg_bl'),
             legBR: group.getObjectByName('leg_br'),
+            kneeFL: group.getObjectByName('knee_fl'),
+            kneeFR: group.getObjectByName('knee_fr'),
+            kneeBL: group.getObjectByName('knee_bl'),
+            kneeBR: group.getObjectByName('knee_br'),
             legL: group.getObjectByName('leg_l'),
             legR: group.getObjectByName('leg_r'),
             contactShadow: group.getObjectByName('contact_shadow'),
@@ -7364,6 +7779,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             beamMuzzle: group.getObjectByName('beam_muzzle'),
             leviathanSplashInner: group.getObjectByName('leviathan_splash_inner'),
             leviathanSplashOuter: group.getObjectByName('leviathan_splash_outer'),
+            ufoRing: group.getObjectByName('ufo_ring'),
             lastCarryType: '__unset__',
             lastStatusKey: -1,
             shadowCasters,
@@ -7480,6 +7896,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             tile.terrain === 'rail_track' ||
             tile.terrain === 'runway' ||
             Boolean(tile.buildingId));
+        const isSeaIceTile = tile && tile.height === 0 && tile.terrain === 'ice';
         const groundY = tile
           ? u.role === 'leviathan'
             ? u.leviathanSubmerged
@@ -7489,7 +7906,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
               ? 0.12 + Math.sin(elapsed * 5.5 + u.x) * 0.035
               : isWaterWalkwayTile
                 ? 0.3
-                : Math.max(0.18, tile.height * HEIGHT_STEP + 0.25)
+                : isSeaIceTile
+                  ? 0.21
+                  : Math.max(
+                      0.18,
+                      tile.height * HEIGHT_STEP +
+                        0.25 -
+                        ((tile.crushedTimer ?? 0) > 0 && tile.height > 0 ? 0.14 : 0),
+                    )
           : 0.5;
         if (u.isSwimming && Math.random() < 0.16 * autoOptDecisions.particleScale) {
           spawnParticleBurst(u.x, 0.26, u.z, 1, '#e0fbfc', 0.22, 0.85, 0.32);
@@ -7554,7 +7978,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
                   ? 14.5
                   : 11;
         const walkBob =
-          isDragon || isLeviathan || isFrozen || isAirborneVisual
+          isDragon || isLeviathan || u.role === 'alien_walker' || isFrozen || isAirborneVisual
             ? 0
             : isMoving
               ? Math.abs(Math.sin(elapsed * bobFreq + seedPhase)) *
@@ -7581,13 +8005,15 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
                 : u.dragonRunPhase === 'turn'
                   ? 2.54
                   : 2.34) + Math.sin(elapsed * 2.3 + seedPhase) * (isDragonStrafing ? 0.08 : 0.22)
-            : 0;
+            : u.role === 'alien_ufo' && u.state !== 'ko'
+              ? Math.sin(elapsed * 3.8 + seedPhase) * 0.26
+              : 0;
         const levitateY =
           blackHolePullFrac > 0
             ? Math.pow(blackHolePullFrac, 1.3) * 1.65 +
               Math.sin(elapsed * 9 + u.x * 2) * 0.12 * blackHolePullFrac
             : 0;
-        const altScale = isLeviathan ? 0.72 : 0.55;
+        const altScale = isLeviathan ? 0.72 : u.role === 'alien_ufo' ? 0.85 : 0.55;
         const airborneAltY =
           blackHolePullFrac > 0
             ? Math.max(simAltitude * altScale, levitateY)
@@ -7718,6 +8144,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           } else {
             uGroup.rotation.x = THREE.MathUtils.damp(uGroup.rotation.x, 0, 8.0, dt);
           }
+          uGroup.scale.setScalar(1);
+        } else if (u.role === 'alien_walker') {
+          uGroup.rotation.z = 0;
+          uGroup.rotation.x = 0;
           uGroup.scale.setScalar(1);
         } else {
           uGroup.rotation.z = !isFrozen && isMoving
@@ -8020,6 +8450,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
               legFR.rotation.x = 0.52;
               legBL.rotation.x = 0.68;
               legBR.rotation.x = 0.68;
+            } else if (u.role === 'alien_walker') {
+              const walkerSwing = isMoving ? Math.sin(legPhase * 0.52) * 0.34 : 0;
+              legFL.rotation.x = walkerSwing;
+              legBR.rotation.x = walkerSwing;
+              legFR.rotation.x = -walkerSwing;
+              legBL.rotation.x = -walkerSwing;
             } else if (isAttacking && (u.role === 'bear' || u.role === 'unicorn')) {
               const pawLift = Math.sin(atkProg * Math.PI) * -0.95;
               legFL.rotation.x = pawLift;
@@ -8038,6 +8474,94 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             const swing = Math.sin(legPhase) * (isMoving ? 0.62 : 0);
             legL.rotation.x = swing;
             legR.rotation.x = -swing;
+          }
+          if (uEntry.ufoRing) {
+            uEntry.ufoRing.rotation.y = elapsed * 4.5 + seedPhase;
+          }
+        } else if (u.role === 'alien_walker' && u.state !== 'ko') {
+          // Colossal AT-Walker: vertical-only hydraulic body motion + 4-beat articulated hip & knee stride
+          const { legFL, legFR, legBL, legBR, kneeFL, kneeFR, kneeBL, kneeBR } = uEntry;
+          const strideSpeed = 0.52;
+          const prevCyc =
+            typeof uGroup.userData.walkerCycle === 'number'
+              ? uGroup.userData.walkerCycle
+              : (elapsed * strideSpeed + seedPhase) % 1;
+          const curCyc = isMoving && !isFrozen ? (elapsed * strideSpeed + seedPhase) % 1 : prevCyc;
+          uGroup.userData.walkerCycle = curCyc;
+
+          if (bodyPivot) {
+            bodyPivot.rotation.set(0, 0, 0);
+            if (isMoving && !isFrozen) {
+              // Crisp 4-beat vertical hydraulic piston bob synced to each footpad strike (strictly up & down only)
+              const beatFrac = (curCyc * 4) % 1;
+              const liftArch = Math.sin(beatFrac * Math.PI);
+              const stepThump = Math.exp(-beatFrac * 8.5) * -0.15;
+              bodyPivot.position.set(0, liftArch * 0.14 + stepThump, 0);
+            } else {
+              const idleHum = Math.sin(elapsed * 1.6 + seedPhase) * 0.035;
+              const recoilDrop = isAttacking ? Math.sin(atkProg * Math.PI) * -0.09 : 0;
+              bodyPivot.position.set(0, idleHum + recoilDrop, 0);
+            }
+          }
+
+          if (headPivot) {
+            headPivot.rotation.z = 0;
+            headPivot.rotation.x = isAttacking
+              ? -Math.sin(atkProg * Math.PI) * 0.12
+              : isMoving && !isFrozen
+                ? Math.sin(curCyc * Math.PI * 4) * 0.03
+                : Math.sin(elapsed * 1.1 + seedPhase) * 0.025;
+            headPivot.rotation.y = !isMoving
+              ? Math.sin(elapsed * 0.85 + seedPhase) * 0.24
+              : Math.sin(elapsed * 0.65 + seedPhase) * 0.1;
+          }
+
+          const legSpecs: readonly [
+            THREE.Object3D | undefined,
+            THREE.Object3D | undefined,
+            number,
+            number,
+            number,
+          ][] = [
+            [legFL, kneeFL, 0.0, -1.08, 1.1],
+            [legBR, kneeBR, 0.5, 1.08, -1.26],
+            [legFR, kneeFR, 0.25, 1.08, 1.1],
+            [legBL, kneeBL, 0.75, -1.08, -1.26],
+          ];
+
+          for (let li = 0; li < legSpecs.length; li++) {
+            const [hip, knee, offset, localX, localZ] = legSpecs[li];
+            if (!hip) continue;
+            if (isMoving && !isFrozen) {
+              const sPrev = (prevCyc + offset) % 1;
+              const s = (curCyc + offset) % 1;
+              if (s < 0.26) {
+                // Swing phase: thigh swings forward (-Z->+Z is negative X rot) while knee bends backward (+X rot)
+                const uSwing = s / 0.26;
+                const smoothSwing = 0.5 - 0.5 * Math.cos(uSwing * Math.PI);
+                hip.rotation.x = 0.34 - smoothSwing * 0.7;
+                if (knee) knee.rotation.x = Math.sin(uSwing * Math.PI) * 0.64;
+              } else {
+                // Stance phase: foot planted on ground pulling colossal hull forward
+                const uStance = (s - 0.26) / 0.74;
+                hip.rotation.x = -0.36 + uStance * 0.7;
+                if (knee) knee.rotation.x = Math.sin(uStance * Math.PI) * 0.08;
+                // Detect exact footfall landing transition -> eject mud/dust shock burst
+                if (sPrev < 0.26 && s >= 0.26) {
+                  const yaw = uGroup.rotation.y;
+                  const sinY = Math.sin(yaw);
+                  const cosY = Math.cos(yaw);
+                  const fx = u.x + localX * cosY + localZ * sinY;
+                  const fz = u.z - localX * sinY + localZ * cosY;
+                  spawnParticleBurst(fx, groundY + 0.08, fz, 6, '#7c5332', 0.85, 2.2, 0.7);
+                }
+              }
+            } else {
+              // Locked heroic AT-AT firing/standing stance
+              const restAngle = li % 2 === 0 ? -0.11 : 0.11;
+              hip.rotation.x = THREE.MathUtils.damp(hip.rotation.x, restAngle, 8, dt);
+              if (knee) knee.rotation.x = THREE.MathUtils.damp(knee.rotation.x, 0.06, 8, dt);
+            }
           }
         }
 
@@ -8973,6 +9497,298 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
                 spawnRisingParticles(haz.x, hy + 2.2, haz.z, 2, '#334155', haz.radius * 0.6, 5.0, 1.2, 1.6);
               }
             }
+          } else if (hv.kind === 'undead_portal') {
+            if (hv.ringMesh) {
+              hv.ringMesh.rotation.y = Math.sin(elapsed * 0.8) * 0.25;
+              hv.ringMesh.rotation.z = elapsed * 2.2;
+            }
+            if (hv.secondaryRingMesh) {
+              hv.secondaryRingMesh.rotation.z = -elapsed * 1.4;
+              hv.secondaryRingMesh.scale.setScalar(haz.radius * (0.6 + Math.sin(elapsed * 4) * 0.08) * fade);
+            }
+            if (hv.vortexMotes) {
+              for (let mi = 0; mi < hv.vortexMotes.length; mi++) {
+                const vm = hv.vortexMotes[mi];
+                const ang = vm.baseAngle + elapsed * 2.6 * vm.speed;
+                const r = 1.4 + Math.sin(elapsed * 3 + mi) * 0.45;
+                vm.mesh.position.set(Math.cos(ang) * r, 2.0 + Math.sin(ang * 2) * 1.1, Math.sin(ang) * r);
+                vm.mesh.rotation.set(elapsed * 3, ang, elapsed * 2);
+              }
+            }
+            if (Math.random() < 0.38) {
+              spawnRisingParticles(haz.x, hy + 0.4, haz.z, 2, '#a855f7', 1.6, 2.4, 0.8, 1.0);
+            }
+            hv.group.scale.setScalar(Math.max(0.05, fade));
+          } else if (hv.kind === 'alien_mothership') {
+            const beaconLeft = haz.beaconTimer ?? 0;
+            const hazAge = Math.max(0, haz.duration - haz.remaining);
+            const slideInDur = 2.3;
+            const departStart = 12.5;
+            const departDur = Math.max(1.5, haz.duration - departStart);
+            const yaw = 0.68;
+            const fwdX = Math.sin(yaw);
+            const fwdZ = Math.cos(yaw);
+
+            let travelZ = 0;
+            let departFrac = 0;
+            let pitchAdj = 0;
+            if (hazAge < slideInDur) {
+              // Slow hover slide-in from off-world horizon at full 1.0 scale (no fade-in)
+              const tIn = THREE.MathUtils.clamp(hazAge / slideInDur, 0, 1);
+              const easeOut = 1 - Math.pow(1 - tIn, 3);
+              travelZ = -78.0 * (1 - easeOut);
+              pitchAdj = 0.03 * (1 - easeOut);
+            } else if (hazAge < departStart) {
+              // Stationary ~10s siege hover locked directly over target
+              travelZ = 0;
+            } else {
+              // Gradual sublight spool-up -> rapid hyperspace acceleration ahead
+              departFrac = THREE.MathUtils.clamp((hazAge - departStart) / departDur, 0, 1);
+              travelZ = 14.0 * departFrac + 245.0 * Math.pow(departFrac, 3.6);
+              pitchAdj = -0.06 * Math.sin(Math.min(1, departFrac * 2.2) * Math.PI * 0.5);
+            }
+
+            if (hv.cloudBody) {
+              const hoverY = 22.0 + Math.sin(elapsed * 0.95) * 0.35;
+              hv.cloudBody.position.set(fwdX * travelZ, hoverY, fwdZ * travelZ);
+              hv.cloudBody.scale.setScalar(1.0);
+              hv.cloudBody.rotation.y = yaw;
+              hv.cloudBody.rotation.z = Math.sin(elapsed * 0.72) * 0.018 * (1 - departFrac);
+              hv.cloudBody.rotation.x =
+                pitchAdj + Math.cos(elapsed * 0.54) * 0.014 * (1 - departFrac);
+            }
+            const reactorDrums = hv.group.userData.reactorDrums as THREE.Object3D[] | undefined;
+            if (reactorDrums) {
+              const spinBoost = 1 + departFrac * 4.5;
+              for (let di = 0; di < reactorDrums.length; di++) {
+                reactorDrums[di].rotation.z =
+                  elapsed * spinBoost * (di % 2 === 0 ? 1.35 : -1.75);
+              }
+            }
+            const engineGlowMeshes = hv.group.userData.engineGlowMeshes as
+              | THREE.Object3D[]
+              | undefined;
+            if (engineGlowMeshes) {
+              for (let ei = 0; ei < engineGlowMeshes.length; ei++) {
+                const flicker = 0.9 + Math.sin(elapsed * 20.0 + ei * 1.4) * 0.24;
+                const widthScale = 1.0 + departFrac * 0.65;
+                const lengthScale =
+                  (hazAge < slideInDur ? 1.35 : 1.0) * flicker + departFrac * 7.2;
+                engineGlowMeshes[ei].scale.set(widthScale, widthScale, lengthScale);
+              }
+            }
+            const turretPivots = hv.group.userData.turretPivots as THREE.Object3D[] | undefined;
+            if (turretPivots) {
+              for (let ti = 0; ti < turretPivots.length; ti++) {
+                turretPivots[ti].rotation.y = Math.sin(elapsed * 1.15 + ti * 0.9) * 0.65;
+              }
+            }
+            const tractorBeam = hv.group.userData.tractorBeam as THREE.Object3D | undefined;
+            if (tractorBeam) {
+              tractorBeam.visible = hazAge >= 1.9 && hazAge < departStart;
+              const bPulse = 0.85 + Math.sin(elapsed * 6.5) * 0.25;
+              tractorBeam.scale.set(2.35 * bPulse, 7.25, 2.35 * bPulse);
+            }
+            if (hv.ringMesh) {
+              // Dreadnought ground shadow glides synchronously with the hovering/accelerating ship
+              hv.ringMesh.position.set(fwdX * travelZ, 0.14, fwdZ * travelZ);
+              hv.ringMesh.scale.setScalar(1.0);
+              hv.ringMesh.rotation.y = yaw;
+              const shadowMat = (hv.ringMesh as THREE.Mesh).material;
+              if (shadowMat instanceof THREE.MeshBasicMaterial) {
+                const distFade = THREE.MathUtils.clamp(1 - Math.max(0, Math.abs(travelZ) - 52) / 50, 0, 1);
+                shadowMat.opacity = 0.5 * distFade;
+              }
+            }
+            if (hv.secondaryRingMesh) {
+              hv.secondaryRingMesh.visible = beaconLeft > 0;
+              hv.secondaryRingMesh.scale.setScalar(1.6 + Math.sin(elapsed * 14) * 0.9);
+            }
+
+            // Hyperspace Arrival & Departure Ripple VFX
+            const hyperVfx = hv.group.userData.hyperVfx as HyperspaceRippleEffectsVisual | undefined;
+            if (hyperVfx) {
+              const safeT = wrapShaderTime(elapsed);
+              const animatePortalRig = (
+                rig: HyperspacePortalRig,
+                active: boolean,
+                progress: number,
+                envelope: number,
+                direction: number,
+                posTravel: number,
+                streakBoost: number,
+              ) => {
+                rig.group.visible = active;
+                if (!active) return;
+                rig.group.position.set(fwdX * posTravel, 22.0, fwdZ * posTravel);
+                rig.group.rotation.y = yaw;
+                rig.discMat.uniforms.uTime.value = safeT;
+                rig.discMat.uniforms.uProgress.value = progress;
+                rig.discMat.uniforms.uOpacity.value = 0.92 * envelope;
+                rig.discMat.uniforms.uDirection.value = direction;
+                const discScale =
+                  direction < 0
+                    ? 1.05 - progress * 0.42
+                    : 0.58 + progress * 1.08;
+                rig.discMesh.scale.setScalar(discScale);
+
+                for (let ri = 0; ri < rig.shockRings.length; ri++) {
+                  const rPhase =
+                    direction < 0
+                      ? (progress * 1.8 + ri * 0.33) % 1.0
+                      : THREE.MathUtils.clamp((progress - ri * 0.16) / 0.72, 0, 1);
+                  const rMesh = rig.shockRings[ri];
+                  const visibleRing = direction < 0 ? envelope > 0.05 : rPhase > 0 && rPhase < 1;
+                  rMesh.visible = visibleRing;
+                  if (visibleRing) {
+                    const rad =
+                      direction < 0
+                        ? 11.5 - rPhase * 8.2
+                        : 3.0 + rPhase * 15.5;
+                    rMesh.scale.set(rad, rad * 0.76, 1.0);
+                    rig.ringMats[ri].opacity =
+                      (direction < 0 ? 0.55 * (1 - Math.abs(rPhase - 0.5) * 1.6) : (1 - rPhase) * Math.min(1, rPhase * 5)) *
+                      envelope;
+                  }
+                }
+
+                rig.streakMat.opacity = envelope * streakBoost;
+                for (let si = 0; si < rig.warpStreaks.length; si++) {
+                  const st = rig.warpStreaks[si];
+                  const stLen = 3.5 + streakBoost * 18.0 * (0.7 + (si % 3) * 0.25);
+                  st.scale.set(1.0, 1.0, stLen);
+                  st.position.z =
+                    (((si % 4) - 1.5) * 1.8 + (direction > 0 ? progress * 7.5 : -progress * 4.5));
+                }
+              };
+
+              // 1. Hyperspace Entry Aperture & Arrival Ripples (0.0 -> 2.65s)
+              const entryWin = 2.65;
+              const entryActive = hazAge < entryWin;
+              const entryProg = THREE.MathUtils.clamp(hazAge / entryWin, 0, 1);
+              const entryEnv = Math.sin(entryProg * Math.PI);
+              animatePortalRig(hyperVfx.entryPortal, entryActive, entryProg, entryEnv, 1.0, -19.5, 0.85 * (1 - entryProg * 0.6));
+
+              if (hazAge >= 0.45 && !hv.group.userData.entryFlashDone) {
+                hv.group.userData.entryFlashDone = true;
+                triggerLightFlash(haz.x + fwdX * -14, hy + 21, haz.z + fwdZ * -14, '#bfdbfe', 24);
+                spawnParticleBurst(haz.x + fwdX * -14, hy + 20, haz.z + fwdZ * -14, 24, '#dbeafe', 0.9, 6.5, 0.95);
+                trauma = Math.min(1.0, trauma + 0.26);
+              }
+
+              // 2. Pre-Departure Hyperdrive Spool-up & Departure Hyperspace Jump Ripple (11.2 -> end)
+              const spoolStart = 11.2;
+              const departPunchStart = 12.65;
+              if (hazAge >= spoolStart && hazAge < departPunchStart) {
+                const spoolT = THREE.MathUtils.clamp((hazAge - spoolStart) / (departPunchStart - spoolStart), 0, 1);
+                animatePortalRig(hyperVfx.exitPortal, true, spoolT, 0.28 + spoolT * 0.65, -1.0, 19.5, 0.35 + spoolT * 0.45);
+              } else if (hazAge >= departPunchStart) {
+                const punchT = THREE.MathUtils.clamp(
+                  (hazAge - departPunchStart) / Math.max(1.1, haz.duration - departPunchStart),
+                  0,
+                  1,
+                );
+                const punchEnv = Math.sin(punchT * Math.PI);
+                animatePortalRig(hyperVfx.exitPortal, true, punchT, Math.max(0.18, punchEnv), 1.0, 19.5, 0.95);
+                if (hazAge >= 12.78 && !hv.group.userData.exitFlashDone) {
+                  hv.group.userData.exitFlashDone = true;
+                  triggerLightFlash(haz.x + fwdX * 16, hy + 21, haz.z + fwdZ * 16, '#dbeafe', 26);
+                  spawnParticleBurst(haz.x + fwdX * 16, hy + 20, haz.z + fwdZ * 16, 28, '#e0f2fe', 0.95, 7.5, 1.0);
+                  trauma = Math.min(1.0, trauma + 0.28);
+                }
+              } else {
+                hyperVfx.exitPortal.group.visible = false;
+              }
+
+              // 3. Hull-Wrapping Spatial Wake Ripples peeling across the mothership body
+              const wakeArrivalActive = hazAge >= 0.2 && hazAge < 2.55;
+              const wakeDepartActive = hazAge >= 11.4 && hazAge < 14.4;
+              hyperVfx.wakeGroup.visible = wakeArrivalActive || wakeDepartActive;
+              if (hyperVfx.wakeGroup.visible) {
+                const hullY = 22.0 + Math.sin(elapsed * 0.95) * 0.35;
+                hyperVfx.wakeGroup.position.set(fwdX * travelZ, hullY, fwdZ * travelZ);
+                hyperVfx.wakeGroup.rotation.y = yaw;
+                const wakeWindowT = wakeArrivalActive
+                  ? THREE.MathUtils.clamp((hazAge - 0.2) / 2.35, 0, 1)
+                  : THREE.MathUtils.clamp((hazAge - 11.4) / 3.0, 0, 1);
+                const wakeEnv = Math.sin(wakeWindowT * Math.PI);
+                for (let wi = 0; wi < hyperVfx.wakeRings.length; wi++) {
+                  const wPhase = (wakeWindowT * 2.2 + wi * 0.33) % 1.0;
+                  const wr = hyperVfx.wakeRings[wi];
+                  const zSlide = wakeArrivalActive
+                    ? 12.5 - wPhase * 25.0
+                    : -11.0 + wPhase * 24.0;
+                  wr.position.set(0, 0, zSlide);
+                  const wRad = 3.4 + wPhase * 7.2;
+                  wr.scale.set(wRad, wRad * 0.72, 1.0);
+                  hyperVfx.wakeMats[wi].opacity =
+                    (1 - Math.abs(wPhase - 0.45) * 1.45) * wakeEnv * 0.72;
+                }
+              }
+
+              // 4. Ground Atmospheric Pressure Ripple beneath the dreadnought on arrival & departure
+              const gArrActive = hazAge >= 0.85 && hazAge < 2.65;
+              const gDepActive = hazAge >= 12.35 && hazAge < 14.65;
+              hyperVfx.groundRippleMesh.visible = gArrActive || gDepActive;
+              if (hyperVfx.groundRippleMesh.visible) {
+                const gp = gArrActive
+                  ? THREE.MathUtils.clamp((hazAge - 0.85) / 1.8, 0, 1)
+                  : THREE.MathUtils.clamp((hazAge - 12.35) / 2.3, 0, 1);
+                const gEnv = Math.sin(gp * Math.PI);
+                hyperVfx.groundRippleMat.uniforms.uTime.value = safeT;
+                hyperVfx.groundRippleMat.uniforms.uProgress.value = gp;
+                hyperVfx.groundRippleMat.uniforms.uOpacity.value = 0.78 * gEnv;
+                hyperVfx.groundRippleMesh.scale.setScalar(haz.radius * (1.25 + gp * 1.65));
+              }
+            }
+          } else if (hv.kind === 'chrono_field') {
+            if (hv.ringMesh) {
+              hv.ringMesh.rotation.z = elapsed * 1.8;
+              hv.ringMesh.scale.setScalar(haz.radius * (0.94 + Math.sin(elapsed * 4.5) * 0.05) * fade);
+            }
+            if (hv.secondaryRingMesh) {
+              hv.secondaryRingMesh.rotation.z = -elapsed * 2.6;
+              hv.secondaryRingMesh.scale.setScalar(haz.radius * 0.68 * fade);
+            }
+            if (hv.vortexMotes) {
+              for (let mi = 0; mi < hv.vortexMotes.length; mi++) {
+                const vm = hv.vortexMotes[mi];
+                const cycle = (elapsed * 0.75 + vm.phase) % 1;
+                const ang = vm.baseAngle + elapsed * 2.4;
+                const r = haz.radius * (0.35 + (mi % 4) * 0.16);
+                vm.mesh.position.set(Math.cos(ang) * r, 0.3 + cycle * 3.8, Math.sin(ang) * r);
+                vm.mesh.rotation.y = elapsed * 4;
+              }
+            }
+          } else if (hv.kind === 'orbital_beam') {
+            hv.group.position.set(haz.x, hy, haz.z);
+            const pulse = 0.86 + Math.sin(elapsed * 28) * 0.18;
+            if (hv.ringMesh) {
+              hv.ringMesh.scale.setScalar(Math.max(1.8, haz.radius * 0.78) * pulse * fade);
+            }
+            if (hv.secondaryRingMesh) {
+              hv.secondaryRingMesh.scale.set(1.75 * pulse * fade, 14.0, 1.75 * pulse * fade);
+            }
+            if (Math.random() < 0.85) {
+              spawnParticleBurst(haz.x, hy + 0.35, haz.z, 4, '#fb923c', 1.4, 6.2, 0.95);
+            }
+          } else if (hv.kind === 'gravity_anomaly') {
+            if (hv.ringMesh) {
+              hv.ringMesh.rotation.z = elapsed * 3.2;
+              hv.ringMesh.scale.setScalar(haz.radius * (0.95 + Math.sin(elapsed * 6) * 0.06) * fade);
+            }
+            if (hv.gravityRings) {
+              for (let gi = 0; gi < hv.gravityRings.length; gi++) {
+                const gr = hv.gravityRings[gi];
+                const riseCycle = (elapsed * 0.9 + gi / hv.gravityRings.length) % 1;
+                gr.position.y = 0.25 + riseCycle * 5.2;
+                gr.scale.setScalar(haz.radius * (0.9 - riseCycle * 0.45) * fade);
+                gr.rotation.z = -elapsed * (2.4 + gi * 0.6);
+              }
+            }
+            if (Math.random() < 0.55) {
+              spawnRisingParticles(haz.x, hy + 0.2, haz.z, 2, '#c084fc', haz.radius * 0.75, 4.2, 0.85, 1.0);
+            }
           }
         }
       }
@@ -8980,6 +9796,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         for (const [id, hv] of hazardMeshes.entries()) {
           if (hv.seenStamp !== syncFrameStamp) {
             hazardsGroup.remove(hv.group);
+            if (hv.geometries) {
+              for (const g of hv.geometries) g.dispose();
+            }
             for (const m of hv.materials) m.dispose();
             hazardMeshes.delete(id);
           }
@@ -9352,6 +10171,18 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           camDesiredTarget.x = THREE.MathUtils.clamp(camDesiredTarget.x, 2, simRef.current.gridSize - 3);
           camDesiredTarget.z = THREE.MathUtils.clamp(camDesiredTarget.z, 2, simRef.current.gridSize - 3);
         }
+      }
+
+      // Continuous stationary hold casting for thermal brushes (freeze_snap / heat_wave)
+      if (
+        isHoldPainting &&
+        hoveredTileCoords &&
+        currentGameState === 'playing' &&
+        propsRef.current.brushInputMode === 'hold' &&
+        propsRef.current.activeTool.kind === 'power' &&
+        (propsRef.current.activeTool.power === 'freeze_snap' || propsRef.current.activeTool.power === 'heat_wave')
+      ) {
+        applyHoldStrokeToTile(hoveredTileCoords.x, hoveredTileCoords.z, now);
       }
 
       // Advance simulation when in 'playing' (or gentle ambient motion in 'title') — clamped to 5x max speed
@@ -10421,9 +11252,47 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             }
           }
         } else if (fx.kind === 'ripple_ring' && fx.ringMesh) {
+          if (fx.tracerMesh && !fx.impactFired) {
+            if (fx.powerType === 'alien_invasion') {
+              const pDrop = Math.min(1, fx.age / Math.max(0.05, fx.impactDelay));
+              fx.tracerMesh.position.set(fx.tx, fx.ty + 16 * (1 - pDrop * pDrop), fx.tz);
+              fx.tracerMesh.rotation.y += dt * 6;
+            } else if (fx.powerType === 'harmony_dove') {
+              const a = fx.age * 4.5;
+              fx.tracerMesh.position.set(fx.tx + Math.cos(a) * 1.8, fx.ty + 2.0 + fx.age * 3.8, fx.tz + Math.sin(a) * 1.8);
+              fx.tracerMesh.rotation.y = -a;
+            }
+          }
           if (fx.age >= fx.impactDelay && !fx.impactFired) {
             fx.impactFired = true;
-            spawnParticleBurst(fx.tx, fx.ty + 0.25, fx.tz, 22, fx.colorHex, fx.radius * 0.65, 3.8, 0.95);
+            if (fx.tracerMesh && fx.powerType === 'alien_invasion') fx.tracerMesh.visible = false;
+            if (fx.deferImpact) {
+              executeGodPowerImpact(simRef.current, fx.powerType as GodPowerType, fx.tx, fx.tz);
+            }
+            if (fx.powerType === 'undead_portal') {
+              soundEngine.playPortalSummon();
+              trauma = Math.min(1.0, trauma + 0.42);
+            } else if (fx.powerType === 'alien_invasion') {
+              soundEngine.playAlienInvasion();
+              trauma = Math.min(1.0, trauma + 0.52);
+            } else if (fx.powerType === 'chrono_surge') {
+              soundEngine.playChronoWarp();
+            } else if (fx.powerType === 'harmony_dove') {
+              soundEngine.playPeaceAccord();
+            } else if (fx.powerType === 'solar_orbital_laser') {
+              soundEngine.playOrbitalLaser();
+              trauma = Math.min(1.0, trauma + 0.58);
+            } else if (fx.powerType === 'gravity_flip') {
+              soundEngine.playGravityFlux();
+              trauma = Math.min(1.0, trauma + 0.45);
+            }
+            triggerLightFlash(fx.tx, fx.ty + 1.5, fx.tz, fx.colorHex, 20);
+            spawnParticleBurst(fx.tx, fx.ty + 0.25, fx.tz, 26, fx.colorHex, fx.radius * 0.72, 4.4, 1.0);
+          }
+          if (fx.tracerMesh && fx.powerType === 'harmony_dove') {
+            const a = fx.age * 4.5;
+            fx.tracerMesh.position.set(fx.tx + Math.cos(a) * 1.8, fx.ty + 2.0 + fx.age * 3.8, fx.tz + Math.sin(a) * 1.8);
+            fx.tracerMesh.rotation.y = -a;
           }
           const wavePhase = Math.min(1, fx.age / fx.duration);
           const easeOut = 1 - (1 - wavePhase) * (1 - wavePhase);
@@ -10452,7 +11321,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           }
         } else if (fx.kind === 'projectile_tracer' && fx.tracerMesh && fx.ringMesh) {
           const prog = Math.min(1, fx.age / fx.duration);
-          const flightEndFrac = fx.vfxSubtype === 'plasma_beam' ? 0.38 : 0.65;
+          const flightEndFrac = fx.vfxSubtype === 'plasma_beam' || fx.vfxSubtype === 'laser_beam' ? 0.38 : 0.65;
           const flightT = Math.min(1, prog / flightEndFrac);
           const ox = fx.ox ?? fx.tx;
           const oy = fx.oy ?? fx.ty;
@@ -10505,7 +11374,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             if (flightT < 1 && Math.random() < 0.55) {
               spawnParticleBurst(curX, curY, curZ, 1, '#c084fc', 0.14, 0.5, 0.3);
             }
-          } else if (fx.vfxSubtype === 'plasma_beam') {
+          } else if (fx.vfxSubtype === 'plasma_beam' || fx.vfxSubtype === 'laser_beam') {
             const beamPulse = Math.max(0.28, 1.4 - prog * 1.15);
             fx.tracerMesh.scale.set(beamPulse, beamPulse, 1);
           } else {
@@ -10517,7 +11386,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           }
 
           const bodyOpacity =
-            fx.vfxSubtype === 'plasma_beam'
+            fx.vfxSubtype === 'plasma_beam' || fx.vfxSubtype === 'laser_beam'
               ? Math.max(0, 1 - prog)
               : flightT < 1
                 ? 0.96
@@ -11518,6 +12387,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       kingCrownGeo.dispose();
       kingCrownMat.dispose();
       for (const hv of hazardMeshes.values()) {
+        if (hv.geometries) {
+          for (const g of hv.geometries) g.dispose();
+        }
         for (const m of hv.materials) m.dispose();
       }
       for (const bEntry of buildingMeshes.values()) {

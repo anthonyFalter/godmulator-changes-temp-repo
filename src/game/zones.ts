@@ -193,6 +193,12 @@ const BIOME_META: Record<
     color: [56, 189, 248],
     baseTempC: 16,
   },
+  ice: {
+    name: 'Sea Ice',
+    category: 'Marine',
+    color: [165, 243, 252],
+    baseTempC: -6,
+  },
   sand: {
     name: 'Dunes',
     category: 'Terrestrial',
@@ -1404,6 +1410,7 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
     'scorched',
     'crystal_field',
     'void_goo',
+    'ice',
   ];
 
   const biomeToZoneId = new Map<TerrainType, number>();
@@ -1623,6 +1630,11 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
         temp += 26;
       }
 
+      // Dynamic thermal offset accumulated from Freeze / Heat Wave / Helios Beam
+      if (tile.tempOffset) {
+        temp += tile.tempOffset;
+      }
+
       rawTemp[idx] = temp;
     }
   }
@@ -1810,7 +1822,9 @@ export function inspectTileZones(
   if (!tile) return null;
 
   const isWater =
-    tile.height === 0 || tile.terrain === 'deep_water' || tile.terrain === 'shallow_water';
+    (tile.height === 0 && tile.terrain !== 'ice') ||
+    tile.terrain === 'deep_water' ||
+    tile.terrain === 'shallow_water';
   const kId = zones.kingdomMap[idx];
   const tId = zones.territoryMap[idx];
   const bId = zones.biomeMap[idx];

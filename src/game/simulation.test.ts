@@ -10,6 +10,7 @@ import {
   computeOrthoGroundCullBounds,
   computeSnappedShadowBounds,
 } from './autoOptimizer';
+import type { BuildingEntity } from './types';
 import {
   WORLD_TEMPLATES,
   advanceEpoch,
@@ -72,7 +73,9 @@ import {
   inspectTileZones,
 } from './zones';
 import {
+  createAlienMothershipVisual,
   createBuildingGroup,
+  createHyperspaceRippleEffects,
   createUnitGroup,
   createVehicleGroup,
   disposeEntityGroup,
@@ -771,19 +774,20 @@ test('cities respect max building size caps and launch settler expeditions to fo
     }
   }
 
-  const maxAllowedForEpoch = getMaxCityBuildings(state.epochIndex);
-  const settlementIds = Array.from(new Set(state.buildings.map((b) => b.settlementId).filter(Boolean)));
+  const settlementIds = Array.from(new Set(state.buildings.map((b) => b.settlementId).filter(Boolean))) as string[];
   assert.ok(
     settlementIds.length >= 2,
     `Surplus settlers must launch an expedition and found at least a 2nd city (found ${settlementIds.length})`,
   );
 
-  // Check each city respects the per-city maximum building cap
+  // Check each city respects its own kingdom's per-city maximum building cap
   for (const sid of settlementIds) {
     const cityBuildings = state.buildings.filter((b) => b.settlementId === sid);
+    const cityEpoch = getKingdomEpoch(state, getKingdomId(state, sid));
+    const maxAllowedForCity = getMaxCityBuildings(cityEpoch);
     assert.ok(
-      cityBuildings.length <= maxAllowedForEpoch,
-      `City ${sid} has ${cityBuildings.length} buildings, exceeding epoch cap ${maxAllowedForEpoch}`,
+      cityBuildings.length <= maxAllowedForCity,
+      `City ${sid} has ${cityBuildings.length} buildings, exceeding kingdom epoch ${cityEpoch} cap ${maxAllowedForCity}`,
     );
   }
 
@@ -3018,16 +3022,25 @@ test('powers (heat_wave, freeze_snap, tornado, tsunamis, asteroids) and drag_ent
   assert.ok((human.statusEffects.frozen ?? 0) > 0, 'Freeze snap must freeze units at center');
   // Outer tile (dist 4.0) has NOT been frozen yet because the wave spreads incrementally outward!
   assert.notEqual(outerTile.terrain, 'snow', 'Outer tile at radius 4 must NOT freeze immediately on cast');
+  assert.notEqual(outerTile.terrain, 'tundra', 'Outer tile at radius 4 must NOT cool before wave arrives');
 
   // Verify no phantom black hole (wormhole_rift) was created by casting freeze_snap
   const phantomBlackHoles = state.activeHazards.filter((h) => h.kind === 'wormhole_rift');
   assert.equal(phantomBlackHoles.length, 0, 'Casting freeze_snap must not spawn a phantom black hole');
 
-  // Advance simulation so the expanding wave reaches outer tile
-  for (let s = 0; s < 16; s++) {
+  // Advance simulation so the expanding wave reaches outer tile (single pulse cools grass -> tundra gradually)
+  for (let s = 0; s < 10; s++) {
     stepSimulation(state, 0.1);
   }
-  assert.equal(outerTile.terrain, 'snow', 'Freeze snap wave must reach outer tile incrementally');
+  assert.equal(outerTile.terrain, 'tundra', 'First freeze wave cools grass gradually to tundra');
+  assert.ok((outerTile.tempOffset ?? 0) < 0, 'Freeze wave must chill tile tempOffset');
+
+  // Sustained holding / additional freeze pulses chill tundra all the way down to snow
+  castGodPower(state, 'freeze_snap', 20, 20);
+  for (let s = 0; s < 10; s++) stepSimulation(state, 0.1);
+  castGodPower(state, 'freeze_snap', 20, 20);
+  for (let s = 0; s < 10; s++) stepSimulation(state, 0.1);
+  assert.equal(outerTile.terrain, 'snow', 'Sustained freeze snap must gradually freeze tundra to snow');
 
   // Now cast Heat Wave incrementally
   castGodPower(state, 'heat_wave', 20, 20);
@@ -3035,11 +3048,15 @@ test('powers (heat_wave, freeze_snap, tornado, tsunamis, asteroids) and drag_ent
   assert.equal(state.activeHazards.filter((h) => h.kind === 'wormhole_rift').length, 0);
   assert.equal(human.statusEffects.frozen, undefined, 'Heat wave must thaw center unit');
 
-  // Advance simulation so heat wave reaches outer tile
-  for (let s = 0; s < 16; s++) {
+  // Advance simulation so heat wave reaches outer tile and begins thawing snow -> tundra -> grass
+  for (let s = 0; s < 10; s++) {
     stepSimulation(state, 0.1);
   }
-  assert.notEqual(outerTile.terrain, 'snow', 'Heat wave must melt snow on outer tile incrementally');
+  castGodPower(state, 'heat_wave', 20, 20);
+  for (let s = 0; s < 10; s++) {
+    stepSimulation(state, 0.1);
+  }
+  assert.notEqual(outerTile.terrain, 'snow', 'Heat wave must gradually melt snow on outer tile');
 
   // 3. Tornado spawns moving tornado_vortex that lifts & tosses units
   const wolfRes = spawnUnit(state, 'wolf', 32, 32, true);
@@ -6035,8 +6052,385 @@ test('Biome and Temperature zone labels anchor strictly inside their contiguous 
   }
 });
 
+test('God Powers Rework: gradual thermal sea ice without creating land, no ocean-to-land bugs, curse/plague split, modernized powers & 6 new powers', () => {
+  const state = createInitialSimulationState(64, 'POWERS-REWORK-TEST');
+  state.sandboxFreeMode = true;
+  state.wildlifeSeeded = true;
 
+  // Prepare clean ocean bay (x=6..24, z=6..24) and flat grassland continent (x=28..56, z=6..56)
+  for (const t of state.tiles) {
+    t.buildingId = null;
+    t.resourceNode = 'none';
+    t.onFireTimer = 0;
+    t.cursedTimer = 0;
+    t.tempOffset = 0;
+    if (t.x <= 24 && t.z <= 24) {
+      t.height = 0;
+      t.terrain = t.x < 14 ? 'deep_water' : 'shallow_water';
+    } else {
+      t.height = 2;
+      t.terrain = 'grass';
+    }
+  }
 
+  // 1. Freeze Snap turns ocean into walkable 'ice' with height === 0 (never raising land!) & Heat Wave melts it back
+  const seaTile = getTile(state, 16, 16)!;
+  castGodPower(state, 'freeze_snap', 16, 16);
+  castGodPower(state, 'freeze_snap', 16, 16);
+  for (let i = 0; i < 8; i++) stepSimulation(state, 0.1);
+  assert.equal(seaTile.terrain, 'ice', 'Sustained freeze_snap must freeze shallow_water into sea ice');
+  assert.equal(seaTile.height, 0, 'Sea ice must keep height === 0 and never create elevated land');
+  assert.equal(seaTile.frozenWaterBase, 'shallow_water', 'Sea ice must remember underlying water type');
 
+  // Probe Remote must reject both liquid water AND sea ice without spending God Energy
+  state.sandboxFreeMode = false;
+  state.resources.faith = 150;
+  const rejectWater = castGodPower(state, 'alien_invasion', 10, 10);
+  assert.equal(rejectWater.ok, false, 'Probe Remote must reject water');
+  assert.equal(state.resources.faith, 150, 'Rejected Probe Remote on water must not spend God Energy');
+  const rejectIce = castGodPower(state, 'alien_invasion', 16, 16);
+  assert.equal(rejectIce.ok, false, 'Probe Remote must reject sea ice');
+  assert.equal(state.resources.faith, 150, 'Rejected Probe Remote on sea ice must not spend God Energy');
+  state.sandboxFreeMode = true;
+
+  // Heat Wave melts sea ice back to shallow_water and keeps height === 0; heating land does not ignite until superheated
+  castGodPower(state, 'heat_wave', 16, 16);
+  castGodPower(state, 'heat_wave', 16, 16);
+  castGodPower(state, 'heat_wave', 16, 16);
+  for (let i = 0; i < 8; i++) stepSimulation(state, 0.1);
+  assert.equal(seaTile.terrain, 'shallow_water', 'Heat Wave must melt sea ice back to original water depth');
+  assert.equal(seaTile.height, 0, 'Melted sea ice must remain height === 0');
+
+  const dryTile = getTile(state, 35, 16)!;
+  castGodPower(state, 'heat_wave', 35, 16);
+  for (let i = 0; i < 4; i++) stepSimulation(state, 0.1);
+  assert.equal(dryTile.onFireTimer, 0, 'Single gentle heat_wave pulse warms biome without instant wildfire');
+  for (let p = 0; p < 4; p++) castGodPower(state, 'heat_wave', 35, 16);
+  for (let i = 0; i < 8; i++) stepSimulation(state, 0.1);
+  assert.ok(dryTile.onFireTimer > 0 || dryTile.terrain === 'scorched', 'Sustained heat_wave superheats & ignites terrain');
+
+  // 2. Zero water-to-land bugs on void_goo, meteor_strike, executeHugeAsteroidImpact, and ocean volcano_eruption
+  const waterCheckCoords = [
+    { x: 10, z: 10, power: 'void_goo' as const },
+    { x: 12, z: 18, power: 'meteor_strike' as const },
+    { x: 18, z: 12, power: 'volcano_eruption' as const },
+  ];
+  for (const wc of waterCheckCoords) {
+    castGodPower(state, wc.power, wc.x, wc.z);
+    for (let i = 0; i < 12; i++) stepSimulation(state, 0.1);
+    const checkT = getTile(state, wc.x, wc.z)!;
+    assert.equal(checkT.height, 0, `${wc.power} cast on ocean tile must NOT raise height=0 water to land`);
+  }
+  executeHugeAsteroidImpact(state, 14, 14);
+  const megaOceanTile = getTile(state, 14, 14)!;
+  assert.equal(megaOceanTile.height, 0, 'Huge asteroid hitting ocean must NOT turn deep/shallow water into land');
+
+  // 3. Curse vs Plague Miasma separation
+  const fertileCurseTile = getTile(state, 42, 42)!;
+  fertileCurseTile.terrain = 'fertile';
+  const curseUnit = spawnUnit(state, 'human', 42, 42, true).unit!;
+  castGodPower(state, 'curse', 42, 42);
+  assert.ok((curseUnit.statusEffects.cursed ?? 0) > 0, 'Abyssal Hex must apply cursed status');
+  assert.equal(curseUnit.statusEffects.plagued, undefined, 'Abyssal Hex must NOT apply biological plague');
+  assert.ok(fertileCurseTile.cursedTimer > 0, 'Abyssal Hex must curse ground tile');
+  assert.notEqual(fertileCurseTile.terrain, 'swamp', 'Abyssal Hex must NOT turn fertile land into swamp');
+
+  const fertilePlagueTile = getTile(state, 50, 50)!;
+  fertilePlagueTile.terrain = 'fertile';
+  fertilePlagueTile.resourceNode = 'berry_bush';
+  fertilePlagueTile.resourceAmount = 120;
+  const plagueUnit = spawnUnit(state, 'human', 50, 50, true).unit!;
+  castGodPower(state, 'plague_miasma', 50, 50);
+  assert.ok((plagueUnit.statusEffects.plagued ?? 0) > 0, 'Plague Spore must infect units with plagued status');
+  assert.equal(plagueUnit.statusEffects.cursed, undefined, 'Plague Spore must NOT apply occult curse status');
+  assert.equal(fertilePlagueTile.cursedTimer, 0, 'Plague Spore must NOT set occult cursedTimer');
+  assert.equal(fertilePlagueTile.terrain, 'swamp', 'Plague Spore must rot fertile soil to swamp');
+
+  // 4. Necrotic Rift (undead_portal) & Probe Remote (alien_invasion) (clear prior shockwave hazards first)
+  state.activeHazards = [];
+  castGodPower(state, 'undead_portal', 34, 34);
+  const portalHaz = state.activeHazards.find((h) => h.kind === 'undead_portal');
+  assert.ok(portalHaz, 'Necrotic Rift must spawn undead_portal hazard');
+  for (let i = 0; i < 35; i++) stepSimulation(state, 0.1);
+  assert.ok(state.units.some((u) => u.role === 'skeleton' && u.state !== 'ko'), 'Necrotic Rift must spawn skeleton warriors');
+
+  castGodPower(state, 'alien_invasion', 44, 24);
+  const mothershipHaz = state.activeHazards.find((h) => h.kind === 'alien_mothership');
+  assert.ok(mothershipHaz, 'Probe Remote on land must spawn alien_mothership hazard');
+  for (let i = 0; i < 25; i++) stepSimulation(state, 0.1);
+  assert.ok(state.units.some((u) => u.role === 'alien_walker'), 'Alien Mothership must deploy AT-Walker mechs');
+  assert.ok(state.units.some((u) => u.role === 'alien_ufo' && (u.altitude ?? 0) > 1), 'Alien Mothership must deploy hovering UFOs');
+  assert.ok(state.units.some((u) => u.role === 'alien_trooper'), 'Alien Mothership must deploy Alien Troopers');
+
+  // 5. Chrono Warp, Peace Accord, Helios Orbital Beam, Gravity Flux & Modernized Eureka
+  const buildTile = getTile(state, 38, 38)!;
+  buildTile.terrain = 'grass';
+  const unfinishedBld: BuildingEntity = {
+    id: 'bld_chrono_test',
+    type: 'forager_hut',
+    tileX: 38,
+    tileZ: 38,
+    hp: 40,
+    maxHp: 120,
+    shieldTimer: 0,
+    blessedTimer: 0,
+    cursedTimer: 0,
+    epochLevel: 0,
+    constructionProgress: 20,
+    settlementId: 'city_chrono',
+    species: 'human',
+  };
+  const allyBld: BuildingEntity = {
+    id: 'bld_ally_test',
+    type: 'forager_hut',
+    tileX: 41,
+    tileZ: 38,
+    hp: 120,
+    maxHp: 120,
+    shieldTimer: 0,
+    blessedTimer: 0,
+    cursedTimer: 0,
+    epochLevel: 0,
+    constructionProgress: 100,
+    settlementId: 'city_ally',
+    species: 'elf',
+  };
+  state.buildings.push(unfinishedBld, allyBld);
+  state.settlementKingdoms = state.settlementKingdoms ?? {};
+  state.kingdomEpochs = state.kingdomEpochs ?? {};
+  state.kingdomEpochProgress = state.kingdomEpochProgress ?? {};
+  state.settlementKingdoms['city_chrono'] = 'king_chrono';
+  state.settlementKingdoms['city_ally'] = 'king_ally';
+  state.kingdomEpochs['king_chrono'] = 0;
+  state.kingdomEpochs['king_ally'] = 0;
+  setKingdomRelation(state, 'king_chrono', 'king_ally', 'war');
+
+  castGodPower(state, 'chrono_surge', 38, 38);
+  assert.equal(unfinishedBld.constructionProgress, 100, 'Chrono Warp must instantly complete nearby constructions');
+  assert.equal(unfinishedBld.hp, unfinishedBld.maxHp, 'Chrono Warp must repair buildings');
+  assert.ok((state.kingdomEpochProgress['king_chrono'] ?? 0) > 0, 'Chrono Warp must advance nearby kingdom epoch progress');
+
+  const progAfterChrono = state.kingdomEpochProgress['king_chrono'] ?? 0;
+  castGodPower(state, 'eureka', 38, 38);
+  assert.equal(state.kingdomEpochProgress['king_chrono'], progAfterChrono + 22, 'Modernized Eureka must add +22 kingdom epoch progress');
+  state.kingdomEpochProgress['king_chrono'] = 85;
+  castGodPower(state, 'eureka', 38, 38);
+  assert.ok(getKingdomEpoch(state, 'king_chrono') >= 1, 'Modernized Eureka must advance nearby kingdom epoch when reaching 100% progress');
+
+  castGodPower(state, 'harmony_dove', 38, 38);
+  assert.equal(getKingdomRelation(state, 'king_chrono', 'king_ally'), 'allied', 'Peace Accord must end wars and forge alliance');
+
+  // Helios Orbital Beam melts sea ice and spawns orbital_beam
+  const meltIceTile = getTile(state, 20, 20)!;
+  meltIceTile.height = 0;
+  meltIceTile.terrain = 'ice';
+  meltIceTile.frozenWaterBase = 'shallow_water';
+  castGodPower(state, 'solar_orbital_laser', 20, 20);
+  assert.ok(state.activeHazards.some((h) => h.kind === 'orbital_beam'), 'Helios Orbital Beam must spawn orbital_beam hazard');
+  stepSimulation(state, 0.15);
+  assert.equal(meltIceTile.terrain, 'shallow_water', 'Orbital laser must melt sea ice back to water');
+  assert.equal(meltIceTile.height, 0, 'Orbital laser must keep ocean tiles at height === 0');
+
+  // Gravity Flux levitates units then slams them down
+  const gravVictim = spawnUnit(state, 'cow', 30, 48, true).unit!;
+  castGodPower(state, 'gravity_flip', 30, 48);
+  for (let i = 0; i < 20; i++) stepSimulation(state, 0.1);
+  assert.ok((gravVictim.altitude ?? 0) > 1.5, 'Gravity Flux must levitate units inside anomaly');
+  for (let i = 0; i < 55; i++) stepSimulation(state, 0.1);
+  assert.ok(gravVictim.hp < gravVictim.maxHp || gravVictim.state === 'ko', 'Gravity Flux collapse must slam levitated units for impact damage');
+});
+
+test('Alien Mothership Dreadnought Redesign: builds wingless elongated warship silhouette, neutral steel/black/subtle-blue palette, animated drums/thrusters/turrets, and ground shadow', () => {
+  const visual = createAlienMothershipVisual(14);
+  assert.equal(visual.reactorDrums.length, 3, 'Dreadnought must include 3 rotating spine reactor drums');
+  assert.equal(visual.engineGlowMeshes.length, 6, 'Dreadnought must include 6 pulsing aft ion thruster plumes');
+  assert.equal(visual.turretPivots.length, 6, 'Dreadnought must include 6 dorsal defense turrets');
+  assert.ok(visual.shipGroup.children.length >= 20, 'Dreadnought must assemble rich multi-part superstructure');
+
+  const hullBox = new THREE.Box3().setFromObject(visual.shipGroup);
+  const hullSize = new THREE.Vector3();
+  hullBox.getSize(hullSize);
+  assert.ok(
+    hullSize.z > hullSize.x * 2.0,
+    `Wingless dreadnought hull must be sleek and elongated (z=${hullSize.z.toFixed(1)} > 2x x=${hullSize.x.toFixed(1)})`,
+  );
+  assert.ok(hullSize.y >= 7.5, `Dreadnought must feature deep ventral keel + dorsal citadel height (got ${hullSize.y.toFixed(1)})`);
+
+  visual.shadowGeo.computeBoundingBox();
+  const shadowSize = new THREE.Vector3();
+  visual.shadowGeo.boundingBox!.getSize(shadowSize);
+  assert.ok(
+    shadowSize.z > shadowSize.x * 2.0,
+    `Wingless mothership shadow must match sleek dreadnought silhouette (z=${shadowSize.z.toFixed(1)} vs x=${shadowSize.x.toFixed(1)})`,
+  );
+
+  for (const g of visual.geometries) g.dispose();
+  for (const m of visual.materials) m.dispose();
+
+  const hyperVfx = createHyperspaceRippleEffects(14);
+  assert.equal(hyperVfx.entryPortal.shockRings.length, 3, 'Hyperspace entry portal must include 3 concentric shockwave rings');
+  assert.equal(hyperVfx.exitPortal.shockRings.length, 3, 'Hyperspace exit portal must include 3 concentric shockwave rings');
+  assert.equal(hyperVfx.entryPortal.warpStreaks.length, 14, 'Hyperspace entry portal must include radial warp streak needles');
+  assert.equal(hyperVfx.exitPortal.warpStreaks.length, 14, 'Hyperspace exit portal must include radial warp streak needles');
+  assert.equal(hyperVfx.wakeRings.length, 3, 'Mothership hull wake must include 3 spatial distortion wake rings');
+  assert.ok('uProgress' in hyperVfx.entryPortal.discMat.uniforms, 'Entry ripple shader must expose uProgress uniform');
+  assert.ok('uDirection' in hyperVfx.exitPortal.discMat.uniforms, 'Exit ripple shader must expose uDirection uniform');
+  assert.ok('uOpacity' in hyperVfx.groundRippleMat.uniforms, 'Ground atmospheric ripple shader must expose uOpacity uniform');
+  for (const g of hyperVfx.geometries) g.dispose();
+  for (const m of hyperVfx.materials) m.dispose();
+});
+
+test('Colossal Articulated AT-Walker: towers over troops with knee joints, flattens uneven ground, and stamps brown footprints without altering sea', () => {
+  const walkerMesh = createUnitGroup('alien_walker', 'hostile', 0, 'human', 7, 'adult');
+  const box = new THREE.Box3().setFromObject(walkerMesh);
+  const size = new THREE.Vector3();
+  box.getSize(size);
+  assert.ok(size.y >= 4.2, `AT-Walker must tower at colossal height >= 4.2 (got ${size.y.toFixed(2)})`);
+  for (const legPart of ['leg_fl', 'leg_fr', 'leg_bl', 'leg_br', 'knee_fl', 'knee_fr', 'knee_bl', 'knee_br']) {
+    assert.ok(walkerMesh.getObjectByName(legPart), `AT-Walker rig must include articulated pivot ${legPart}`);
+  }
+  disposeEntityGroup(walkerMesh);
+
+  const state = createInitialSimulationState(64, 'WALKER-MOTHERSHIP-TEST');
+  state.sandboxFreeMode = true;
+  state.wildlifeSeeded = true;
+  state.units = [];
+  state.buildings = [];
+  state.activeHazards = [];
+
+  // Create a raised bumpy strip of land next to an ocean tile along the walker's march route
+  for (let x = 22; x <= 43; x++) {
+    for (let z = 25; z <= 31; z++) {
+      const t = getTile(state, x, z)!;
+      if (z === 25) {
+        t.height = 0;
+        t.terrain = 'shallow_water';
+      } else {
+        t.height = x >= 25 && x <= 33 ? 3 : 1;
+        t.terrain = 'grass';
+        t.buildingId = null;
+        delete t.crushedTimer;
+      }
+    }
+  }
+
+  // Place target villager farther east so walker marches cleanly onto the bumpy ridge before entering laser range
+  spawnUnit(state, 'human', 42, 28, true);
+  const walker = spawnUnit(state, 'alien_walker', 23, 28, true).unit!;
+  for (let i = 0; i < 45; i++) stepSimulation(state, 0.1);
+
+  assert.ok(walker.x > 25.5, 'AT-Walker should advance toward target');
+  const footprintTiles = state.tiles.filter((t) => (t.crushedTimer ?? 0) > 0);
+  assert.ok(footprintTiles.length > 0, 'Marching AT-Walker must stamp crushed brown footprint tiles in its wake');
+  assert.ok(
+    footprintTiles.every((t) => t.height >= 1),
+    'AT-Walker footprints must never convert tiles to height === 0 water',
+  );
+  const flattenedRidgeTile = footprintTiles.find((t) => t.x >= 25 && t.x <= 33 && t.height < 3);
+  assert.ok(flattenedRidgeTile, 'AT-Walker must crush/flatten elevated uneven terrain down beneath its weight');
+  const untouchedSea = getTile(state, 27, 25)!;
+  assert.equal(untouchedSea.height, 0, 'Adjacent sea tile must remain ocean height 0');
+  assert.equal(untouchedSea.crushedTimer ?? 0, 0, 'Adjacent sea tile must never receive mud footprints');
+
+  // Verify Mothership slide-in + 10s stationary hover + large walking alien troop waves + hyperspace departure
+  state.activeHazards = [];
+  state.units = [];
+  castGodPower(state, 'alien_invasion', 30, 28);
+  const ship = state.activeHazards.find((h) => h.kind === 'alien_mothership')!;
+  assert.ok(ship, 'Mothership hazard should spawn');
+  assert.ok(ship.duration >= 15.0, 'Mothership lifecycle must allow slide-in, ~10s stationary stay, and hyperspace departure');
+
+  // Step just past beacon arrival (2.2s) to inspect initial vanguard walking army
+  for (let i = 0; i < 23; i++) stepSimulation(state, 0.1);
+  const vanguardTroopers = state.units.filter((u) => u.role === 'alien_trooper').length;
+  assert.ok(vanguardTroopers >= 14, `Mothership vanguard must deploy at least 14 walking alien troopers (got ${vanguardTroopers})`);
+
+  // Step through stationary hover reinforcement waves
+  for (let i = 0; i < 80; i++) stepSimulation(state, 0.1);
+  const siegeTroopers = state.units.filter((u) => u.role === 'alien_trooper').length;
+  assert.ok(siegeTroopers >= 24, `Mothership siege must accumulate a large walking alien army >= 24 troopers (got ${siegeTroopers})`);
+
+  // Finish remaining hyperspace departure
+  for (let i = 0; i < 70; i++) stepSimulation(state, 0.1);
+  assert.ok(!state.activeHazards.some((h) => h.id === ship.id), 'Mothership must cleanly complete hyperspace departure');
+});
+
+test('Power Summons Killability: existing Stone/Bronze races, warriors, and beasts can kill skeleton, alien_trooper, alien_ufo, and alien_walker', () => {
+  const rolesToKill: Array<'skeleton' | 'alien_trooper' | 'alien_ufo' | 'alien_walker'> = [
+    'skeleton',
+    'alien_trooper',
+    'alien_ufo',
+    'alien_walker',
+  ];
+
+  for (const enemyRole of rolesToKill) {
+    const state = createInitialSimulationState(48, `KILL-${enemyRole}`);
+    state.sandboxFreeMode = true;
+    state.wildlifeSeeded = true;
+    state.units = [];
+    state.buildings = [];
+    state.activeHazards = [];
+    for (let x = 16; x <= 32; x++) {
+      for (let z = 16; z <= 32; z++) {
+        const t = getTile(state, x, z)!;
+        t.height = 1;
+        t.terrain = 'grass';
+        t.buildingId = null;
+      }
+    }
+
+    const enemy = spawnUnit(state, enemyRole, 24, 24, true).unit!;
+    // Spawn defenders representing early-epoch races (human, elf, orc warriors/civilians)
+    const squadSpecs: Array<{ role: 'human' | 'elf' | 'orc' | 'warrior'; species: 'human' | 'elf' | 'orc'; dx: number; dz: number }> = [
+      { role: 'warrior', species: 'human', dx: -2, dz: 0 },
+      { role: 'warrior', species: 'orc', dx: 2, dz: 0 },
+      { role: 'warrior', species: 'elf', dx: 0, dz: -2 },
+      { role: 'human', species: 'human', dx: 0, dz: 2 },
+      { role: 'orc', species: 'orc', dx: -1.5, dz: -1.5 },
+      { role: 'elf', species: 'elf', dx: 1.5, dz: 1.5 },
+    ];
+    for (const spec of squadSpecs) {
+      const defUnit = spawnUnit(state, spec.role, 24 + spec.dx, 24 + spec.dz, true).unit!;
+      defUnit.species = spec.species;
+    }
+
+    for (let i = 0; i < 200; i++) {
+      stepSimulation(state, 0.1);
+      if (enemy.hp <= 0 || enemy.state === 'ko' || !state.units.includes(enemy)) break;
+    }
+    assert.ok(
+      enemy.hp <= 0 || enemy.state === 'ko' || !state.units.includes(enemy),
+      `Defending races must be able to kill summoned ${enemyRole} (remaining hp=${enemy.hp.toFixed(1)})`,
+    );
+  }
+
+  // Verify predators (wolf pack + dragon) can also take down a hovering alien_ufo
+  const predState = createInitialSimulationState(48, 'PREDATOR-VS-UFO');
+  predState.sandboxFreeMode = true;
+  predState.wildlifeSeeded = true;
+  predState.units = [];
+  predState.buildings = [];
+  predState.activeHazards = [];
+  for (let x = 16; x <= 32; x++) {
+    for (let z = 16; z <= 32; z++) {
+      const t = getTile(predState, x, z)!;
+      t.height = 1;
+      t.terrain = 'grass';
+      t.buildingId = null;
+    }
+  }
+  const ufo = spawnUnit(predState, 'alien_ufo', 24, 24, true).unit!;
+  for (let i = 0; i < 4; i++) {
+    spawnUnit(predState, 'wolf', 22 + i, 23, true);
+  }
+  for (let i = 0; i < 160; i++) {
+    stepSimulation(predState, 0.1);
+    if (ufo.hp <= 0 || ufo.state === 'ko' || !predState.units.includes(ufo)) break;
+  }
+  assert.ok(
+    ufo.hp <= 0 || ufo.state === 'ko' || !predState.units.includes(ufo),
+    `Wildlife predators must be able to reach and kill hovering alien_ufo (remaining hp=${ufo.hp.toFixed(1)})`,
+  );
+});
 
 

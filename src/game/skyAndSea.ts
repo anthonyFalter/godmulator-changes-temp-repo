@@ -752,7 +752,7 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
     for (let i = 0; i < tiles.length; i++) {
       const t = tiles[i];
       const idx = i * 4;
-      if (t.height > 0) {
+      if (t.height > 0 || t.terrain === 'ice') {
         data[idx] = 0;
         data[idx + 1] = 0;
         data[idx + 2] = 0;
@@ -777,7 +777,7 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
           if (nx < 0 || nx >= gridSize || nz < 0 || nz >= gridSize) continue;
           const nb = tiles[nz * gridSize + nx];
           const dSq = dx * dx + dz * dz;
-          if (nb.height > 0) {
+          if (nb.height > 0 || nb.terrain === 'ice') {
             if (dSq < minLandDistSq) minLandDistSq = dSq;
             if (dSq < minShallowDistSq) minShallowDistSq = dSq;
             if (Math.abs(dx) <= 1 && Math.abs(dz) <= 1 && dSq > 0) {
@@ -956,6 +956,7 @@ const STYLED_TERRAIN_CODE: Record<TerrainType, number> = {
   blossom: 20,
   runway: 21,
   void_goo: 22,
+  ice: 23,
 };
 
 export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem {
@@ -1468,7 +1469,12 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
           c = detail > 0.94 ? landSrgb(255.0, 226.0, 238.0) : landSrgb(246.0, 172.0, 200.0);
         }
         return c;
-      } else {
+      } else if (code < 21.5) {
+        // Runway fallback (21): dark charcoal tarmac with crisp edge sheen
+        vec3 tarmac = landSrgb(43.0, 48.0, 58.0);
+        vec3 tarmacSh = landSrgb(30.0, 35.0, 43.0);
+        return mix(tarmacSh, tarmac, step(0.45, patchVal));
+      } else if (code < 22.5) {
         // Void Goo (22): Abyssal pitch-black cosmic ooze revealing a drifting multi-layer starry sky
         vec2 spaceDriftA = floor((pixPos * 16.0 + vec2(tTime * 3.8, -tTime * 2.4)));
         vec2 spaceDriftB = floor((pixPos * 16.0 + vec2(-tTime * 2.1, tTime * 3.1)));
@@ -1497,6 +1503,18 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
           c = mix(c, dimStar, twinkleB * 0.88);
         }
         return c;
+      } else {
+        // Sea Ice (23): Frozen oceanic floes with glacial cyan facets, frost fracture seams & crisp ice glints
+        float fracNoise = landNoise(vec2(chunkPos.x * 1.4 + chunkPos.y * 0.6, chunkPos.y * 1.4));
+        float seam = step(0.84, abs(sin(pixPos.x * 2.4 + fracNoise * 3.1)) * abs(cos(pixPos.y * 2.4 - fracNoise * 2.5)));
+        float glint = step(0.962, landHash12(pixPos * 16.0 + floor(tTime * 1.2)));
+        vec3 iceDeep = landSrgb(126.0, 198.0, 224.0);
+        vec3 iceBase = landSrgb(184.0, 232.0, 248.0);
+        vec3 iceHi   = landSrgb(236.0, 250.0, 255.0);
+        vec3 c = mix(iceDeep, iceBase, step(0.30, patchVal));
+        c = mix(c, iceHi, step(0.66, fracNoise));
+        c = mix(c, iceDeep, seam * 0.65);
+        return mix(c, vec3(1.0), glint);
       }
     }
 
@@ -2499,7 +2517,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
             vec3 marginCol = computeBiomeColor(marginBiome, pixPos, chunkPos, subUv, uTime, false);
             col = computeRunwayColor(pixPos, subUv, uTime, wN, wS, wW, wE, marginCol);
           } else {
-            col = computeBiomeColor(myCode, pixPos, chunkPos, subUv, uTime, self.a > 0.5);
+            col = computeBiomeColor(myCode, pixPos, chunkPos, subUv, uTime, self.a > 0.72);
             // Smooth bathymetric seabed color transition from sunlit shallow sand -> turquoise shoal -> marine slope -> deep abyssal floor
             if (myHeight < 0.5 && myCode < 1.5) {
               float bSelf = self.b;
@@ -2528,14 +2546,42 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
           if (myCode != 9.0 && myCode != 14.0 && myCode != 21.0 && myHeight > 0.5) {
             float ditherRng = landHash12(pixPos * 16.0);
             if (hN == myHeight && cN != myCode && cN != 9.0 && cN != 14.0 && cN != 21.0 && subUv.y < 0.24 && ditherRng > subUv.y * 3.8) {
-              col = computeBiomeColor(cN, pixPos, chunkPos, subUv, uTime, nN.a > 0.5);
+              col = computeBiomeColor(cN, pixPos, chunkPos, subUv, uTime, nN.a > 0.72);
             } else if (hS == myHeight && cS != myCode && cS != 9.0 && cS != 14.0 && cS != 21.0 && (1.0 - subUv.y) < 0.24 && ditherRng > (1.0 - subUv.y) * 3.8) {
-              col = computeBiomeColor(cS, pixPos, chunkPos, subUv, uTime, nS.a > 0.5);
+              col = computeBiomeColor(cS, pixPos, chunkPos, subUv, uTime, nS.a > 0.72);
             } else if (hW == myHeight && cW != myCode && cW != 9.0 && cW != 14.0 && cW != 21.0 && subUv.x < 0.24 && ditherRng > subUv.x * 3.8) {
-              col = computeBiomeColor(cW, pixPos, chunkPos, subUv, uTime, nW.a > 0.5);
+              col = computeBiomeColor(cW, pixPos, chunkPos, subUv, uTime, nW.a > 0.72);
             } else if (hE == myHeight && cE != myCode && cE != 9.0 && cE != 14.0 && cE != 21.0 && (1.0 - subUv.x) < 0.24 && ditherRng > (1.0 - subUv.x) * 3.8) {
-              col = computeBiomeColor(cE, pixPos, chunkPos, subUv, uTime, nE.a > 0.5);
+              col = computeBiomeColor(cE, pixPos, chunkPos, subUv, uTime, nE.a > 0.72);
             }
+          }
+
+          // 1b. Crushed AT-Walker Footprint Impressions (deep brown churned mud & tread bars)
+          if (myHeight > 0.5 && self.a > 0.18 && self.a < 0.72) {
+            vec2 fPix = floor(subUv * 16.0);
+            float mudNoise = landHash12(pixPos * 16.0);
+            bool uN = nN.a > 0.18 && nN.a < 0.72;
+            bool uS = nS.a > 0.18 && nS.a < 0.72;
+            bool uW = nW.a > 0.18 && nW.a < 0.72;
+            bool uE = nE.a > 0.18 && nE.a < 0.72;
+            float rimDist = 2.0;
+            if (!uN) rimDist = min(rimDist, subUv.y);
+            if (!uS) rimDist = min(rimDist, 1.0 - subUv.y);
+            if (!uW) rimDist = min(rimDist, subUv.x);
+            if (!uE) rimDist = min(rimDist, 1.0 - subUv.x);
+
+            float treadBar = step(mod(fPix.y + floor(mod(fPix.x, 4.0) * 0.5), 4.0), 1.5);
+            vec3 mudDeep  = landSrgb(52.0, 31.0, 18.0);
+            vec3 mudBase  = landSrgb(86.0, 52.0, 29.0);
+            vec3 mudRim   = landSrgb(116.0, 76.0, 44.0);
+            vec3 treadCol = mix(mudBase, mudDeep, clamp(treadBar * 0.68 + (mudNoise > 0.65 ? 0.32 : 0.0), 0.0, 1.0));
+            if (rimDist < 0.16) {
+              treadCol = mix(mudDeep, mudRim, smoothstep(0.0, 0.16, rimDist));
+            } else if (mudNoise < 0.14) {
+              treadCol = mudDeep;
+            }
+            float crushMix = (myCode == 9.0 || myCode == 14.0 || myCode == 21.0) ? 0.65 : 0.94;
+            col = mix(col, treadCol, crushMix);
           }
 
           // 2. Crisp shoreline dampness & wet-sand darkening right where land meets sea
@@ -2760,7 +2806,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
       } else {
         data[idx + 2] = Math.abs(((t.x * 73856093) ^ (t.z * 19349663)) | 0) & 255;
       }
-      data[idx + 3] = t.farmSettlementId ? 255 : 0;
+      data[idx + 3] = t.height > 0 && (t.crushedTimer ?? 0) > 0 ? 110 : t.farmSettlementId ? 255 : 0;
 
       if (t.height > 0 && (t.terrain === 'stone_road' || t.terrain === 'rail_track' || t.terrain === 'runway')) {
         cityLightBytes[idx + 1] = Math.max(cityLightBytes[idx + 1], 240);

@@ -188,6 +188,12 @@ export function getUnitIntrinsicGene(
   if (role === 'capybara') {
     return 'Semi-Aquatic Fur';
   }
+  if (role === 'skeleton') {
+    return 'Necrotic Bone Frame';
+  }
+  if (role === 'alien_trooper' || role === 'alien_ufo' || role === 'alien_walker') {
+    return 'Xeno-Alloy Bio-Shell';
+  }
   if (
     role === 'raider_swarmer' ||
     role === 'raider_ranged' ||
@@ -221,6 +227,8 @@ export function isIntrinsicGene(gene: string): boolean {
     'Avian Plumage',
     'Semi-Aquatic Fur',
     'Pillager Grit',
+    'Necrotic Bone Frame',
+    'Xeno-Alloy Bio-Shell',
     'Adaptable Spark',
     'Armored Herbivore',
     'Prehistoric Apex',
@@ -258,7 +266,11 @@ export function generateUnitGenes(
     } else if (
       role === 'raider_swarmer' ||
       role === 'raider_ranged' ||
-      role === 'raider_behemoth'
+      role === 'raider_behemoth' ||
+      role === 'skeleton' ||
+      role === 'alien_trooper' ||
+      role === 'alien_ufo' ||
+      role === 'alien_walker'
     ) {
       pool = RARE_GENE_POOLS.hostile;
     } else if (species === 'elf') {
@@ -318,6 +330,10 @@ export function generateUnitItems(
   if (role === 'raider_swarmer') return ['Jagged Cleaver', 'Plundered Pouch'];
   if (role === 'raider_ranged') return ['Recurve Warbow', 'Barbed Quiver'];
   if (role === 'raider_behemoth') return ['Siege Maul', 'Spiked Pauldrons'];
+  if (role === 'skeleton') return ['Rusted Boneblade', 'Necrotic Phylactery Shard'];
+  if (role === 'alien_trooper') return ['Xeno-Plasma Carbine', 'Mothership Telemetry Relay'];
+  if (role === 'alien_ufo') return ['Graviton Saucer Core', 'Abduction Tractor Emitter'];
+  if (role === 'alien_walker') return ['Twin Heavy Turbolasers', 'Quad Armored Striders'];
 
   const materialPrefix = [
     'Flint',
@@ -438,6 +454,18 @@ function getDietInfo(unit: UnitEntity): EntityDietInfo {
       return {
         category: 'Carnivore',
         detail: 'Plundered rations, smoked meats & pillaged stores',
+      };
+    case 'skeleton':
+      return {
+        category: 'Abyssal Apex',
+        detail: 'Sustained solely by dark necrotic rift energy',
+      };
+    case 'alien_trooper':
+    case 'alien_ufo':
+    case 'alien_walker':
+      return {
+        category: 'Abyssal Apex',
+        detail: 'Powered by concentrated mothership plasma cells',
       };
     default: {
       if (unit.species === 'elf') {

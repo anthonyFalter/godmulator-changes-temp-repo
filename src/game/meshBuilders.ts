@@ -222,6 +222,13 @@ export function getTerrainMaterial(terrain: TerrainType): THREE.MeshStandardMate
         metalness: 0.06,
       });
       break;
+    case 'ice':
+      topMat = new THREE.MeshStandardMaterial({
+        map: getPixelArtTexture('ice', '#b8e8f8', '#ecfbff', '#7ec6e0', 'water'),
+        roughness: 0.18,
+        metalness: 0.2,
+      });
+      break;
     case 'stone_road':
       topMat = new THREE.MeshStandardMaterial({
         map: getPixelArtTexture('stone_road', '#a89482', '#c9b49f', '#6e5e50', 'stone'),
@@ -9013,6 +9020,314 @@ function buildCreatureUnitGroup(
   return group;
 }
 
+function buildSpecialHostileUnitGroup(
+  group: THREE.Group,
+  role: 'skeleton' | 'alien_trooper' | 'alien_ufo' | 'alien_walker',
+  s0: number,
+): THREE.Group {
+  const mat = (color: number, roughness = 0.6, metalness = 0.15, emissive = 0, emissiveIntensity = 0) =>
+    new THREE.MeshStandardMaterial({ color, roughness, metalness, emissive, emissiveIntensity });
+
+  const makePivot = (name: string, x: number, y: number, z: number) => {
+    const p = new THREE.Group();
+    p.name = name;
+    p.position.set(x, y, z);
+    return p;
+  };
+
+  let shadowRadius = 0.58;
+  const bodyPivot = makePivot('body_pivot', 0, 0, 0);
+  group.add(bodyPivot);
+
+  if (role === 'skeleton') {
+    shadowRadius = 0.52;
+    const boneMat = mat(s0 % 2 === 0 ? 0xe5dfd0 : 0xd6cdb8, 0.72, 0.05);
+    const socketMat = mat(0x1b1526, 0.9, 0.0);
+    const eyeGlowMat = new THREE.MeshBasicMaterial({ color: 0xc084fc });
+    const steelMat = mat(0x64748b, 0.42, 0.75);
+
+    // Legs
+    for (const [n, lx] of [
+      ['leg_fl', -0.055],
+      ['leg_fr', 0.055],
+    ] as const) {
+      const lp = makePivot(n, lx, 0.16, 0);
+      const bone = new THREE.Mesh(new THREE.BoxGeometry(0.048, 0.16, 0.048), boneMat);
+      bone.position.y = -0.08;
+      bone.castShadow = true;
+      lp.add(bone);
+      group.add(lp);
+    }
+
+    // Spine & ribcage
+    const spine = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.24, 0.055), boneMat);
+    spine.position.set(0, 0.28, -0.02);
+    bodyPivot.add(spine);
+    for (let r = 0; r < 3; r++) {
+      const rib = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.032, 0.12), boneMat);
+      rib.position.set(0, 0.22 + r * 0.065, 0.01);
+      rib.castShadow = true;
+      bodyPivot.add(rib);
+    }
+
+    // Skull
+    const headPivot = makePivot('head_pivot', 0, 0.46, 0.01);
+    const skull = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.17, 0.17), boneMat);
+    skull.castShadow = true;
+    headPivot.add(skull);
+    const jaw = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.05, 0.12), boneMat);
+    jaw.position.set(0, -0.085, 0.02);
+    headPivot.add(jaw);
+    for (const ex of [-0.042, 0.042]) {
+      const sock = new THREE.Mesh(new THREE.BoxGeometry(0.042, 0.042, 0.025), socketMat);
+      sock.position.set(ex, 0.015, 0.082);
+      headPivot.add(sock);
+      const glow = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.02, 0.015), eyeGlowMat);
+      glow.position.set(ex, 0.015, 0.095);
+      headPivot.add(glow);
+    }
+    bodyPivot.add(headPivot);
+
+    // Rusty skeletal sword
+    const sword = new THREE.Mesh(new THREE.BoxGeometry(0.032, 0.28, 0.02), steelMat);
+    sword.position.set(0.14, 0.28, 0.12);
+    sword.rotation.x = 0.65;
+    bodyPivot.add(sword);
+  } else if (role === 'alien_trooper') {
+    shadowRadius = 0.58;
+    const armorMat = mat(s0 % 2 === 0 ? 0x3b3355 : 0x2c3650, 0.32, 0.58);
+    const skinMat = mat(0x52b788, 0.55, 0.1);
+    const visorMat = new THREE.MeshBasicMaterial({ color: 0x38f8e2 });
+    const plasmaMat = new THREE.MeshBasicMaterial({ color: 0xff4d6d });
+
+    for (const [n, lx] of [
+      ['leg_fl', -0.06],
+      ['leg_fr', 0.06],
+    ] as const) {
+      const lp = makePivot(n, lx, 0.16, 0);
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.16, 0.085), armorMat);
+      leg.position.y = -0.08;
+      leg.castShadow = true;
+      lp.add(leg);
+      group.add(lp);
+    }
+
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.24, 0.16), armorMat);
+    torso.position.y = 0.28;
+    torso.castShadow = true;
+    bodyPivot.add(torso);
+
+    const headPivot = makePivot('head_pivot', 0, 0.47, 0.01);
+    const crest = new THREE.Mesh(new THREE.BoxGeometry(0.19, 0.2, 0.21), armorMat);
+    crest.castShadow = true;
+    headPivot.add(crest);
+    const face = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.1, 0.06), skinMat);
+    face.position.set(0, -0.02, 0.09);
+    headPivot.add(face);
+    const visor = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.055, 0.03), visorMat);
+    visor.position.set(0, 0.03, 0.105);
+    headPivot.add(visor);
+    bodyPivot.add(headPivot);
+
+    // Xeno Plasma Carbine
+    const rifle = new THREE.Mesh(new THREE.BoxGeometry(0.048, 0.075, 0.34), armorMat);
+    rifle.position.set(0.14, 0.28, 0.14);
+    bodyPivot.add(rifle);
+    const coil = new THREE.Mesh(new THREE.BoxGeometry(0.032, 0.032, 0.22), plasmaMat);
+    coil.position.set(0.14, 0.31, 0.24);
+    bodyPivot.add(coil);
+  } else if (role === 'alien_ufo') {
+    shadowRadius = 1.05;
+    const hullMat = mat(0x94a3b8, 0.22, 0.85);
+    const darkHullMat = mat(0x1e293b, 0.35, 0.72);
+    const domeMat = mat(0x38bdf8, 0.12, 0.2, 0x0ea5e9, 0.65);
+    const ringMat = new THREE.MeshBasicMaterial({ color: 0x56cfe1 });
+    const coreMat = new THREE.MeshBasicMaterial({ color: 0xff3b5c });
+
+    // Main saucer disc
+    const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.68, 0.88, 0.24, 16), hullMat);
+    disc.castShadow = true;
+    bodyPivot.add(disc);
+    const underDisc = new THREE.Mesh(new THREE.CylinderGeometry(0.84, 0.42, 0.16, 16), darkHullMat);
+    underDisc.position.y = -0.18;
+    bodyPivot.add(underDisc);
+    const dome = new THREE.Mesh(new THREE.SphereGeometry(0.36, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.55), domeMat);
+    dome.position.y = 0.08;
+    bodyPivot.add(dome);
+    const emitter = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.24, 0.1, 10), coreMat);
+    emitter.position.y = -0.26;
+    bodyPivot.add(emitter);
+
+    const spinRing = new THREE.Group();
+    spinRing.name = 'ufo_ring';
+    for (let i = 0; i < 6; i++) {
+      const ang = (i / 6) * Math.PI * 2;
+      const bulb = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.06, 0.09), i % 2 === 0 ? ringMat : coreMat);
+      bulb.position.set(Math.cos(ang) * 0.78, -0.02, Math.sin(ang) * 0.78);
+      spinRing.add(bulb);
+    }
+    bodyPivot.add(spinRing);
+  } else {
+    // alien_walker: Colossal Star-Wars AT-AT Style 4-Legged Armored Mech (~4.75 units tall)
+    shadowRadius = 3.25;
+    const armorMat = mat(0xcbd5e1, 0.34, 0.68);
+    const armorTrimMat = mat(0x94a3b8, 0.38, 0.72);
+    const jointMat = mat(0x334155, 0.5, 0.75);
+    const bellyMat = mat(0x64748b, 0.42, 0.7);
+    const viewportMat = new THREE.MeshBasicMaterial({ color: 0xff2a44 });
+
+    // Massive towering armored torso hull (~3.55 y center, reaching y=4.68 dorsal armor)
+    const chassis = new THREE.Mesh(new THREE.BoxGeometry(1.88, 1.62, 3.38), armorMat);
+    chassis.position.set(0, 3.55, -0.14);
+    chassis.castShadow = true;
+    bodyPivot.add(chassis);
+
+    // Sloped side hull plating & recessed mechanical vent bays
+    for (const side of [-1, 1]) {
+      const sidePlate = new THREE.Mesh(new THREE.BoxGeometry(0.18, 1.18, 2.75), armorTrimMat);
+      sidePlate.position.set(side * 1.0, 3.56, -0.12);
+      sidePlate.castShadow = true;
+      bodyPivot.add(sidePlate);
+
+      const lowerSkirt = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.38, 2.95), jointMat);
+      lowerSkirt.position.set(side * 0.96, 2.86, -0.12);
+      bodyPivot.add(lowerSkirt);
+    }
+
+    const dorsalRidge = new THREE.Mesh(new THREE.BoxGeometry(1.38, 0.42, 2.84), bellyMat);
+    dorsalRidge.position.set(0, 4.52, -0.14);
+    dorsalRidge.castShadow = true;
+    bodyPivot.add(dorsalRidge);
+
+    const underCarriage = new THREE.Mesh(new THREE.BoxGeometry(1.48, 0.54, 2.38), jointMat);
+    underCarriage.position.set(0, 2.66, -0.08);
+    bodyPivot.add(underCarriage);
+
+    // Armored accordion neck & iconic AT-AT command head + twin heavy chin laser cannons
+    const headPivot = makePivot('head_pivot', 0, 3.44, 1.58);
+    for (let ni = 0; ni < 3; ni++) {
+      const neckSeg = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.42, 0.46, 0.24, 8),
+        ni % 2 === 0 ? jointMat : bellyMat,
+      );
+      neckSeg.rotation.x = Math.PI / 2;
+      neckSeg.position.set(0, 0, 0.14 + ni * 0.22);
+      headPivot.add(neckSeg);
+    }
+
+    const cockpit = new THREE.Mesh(new THREE.BoxGeometry(1.22, 1.04, 1.38), armorMat);
+    cockpit.position.set(0, 0.04, 1.08);
+    cockpit.castShadow = true;
+    headPivot.add(cockpit);
+
+    const browCap = new THREE.Mesh(new THREE.BoxGeometry(1.06, 0.22, 1.18), armorTrimMat);
+    browCap.position.set(0, 0.62, 1.05);
+    headPivot.add(browCap);
+
+    const visor = new THREE.Mesh(new THREE.BoxGeometry(0.96, 0.2, 0.14), viewportMat);
+    visor.position.set(0, 0.18, 1.76);
+    headPivot.add(visor);
+
+    for (const side of [-1, 1]) {
+      const earPod = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.48, 0.62), bellyMat);
+      earPod.position.set(side * 0.7, 0.04, 1.02);
+      headPivot.add(earPod);
+
+      const cheekGun = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.075, 0.68, 6), jointMat);
+      cheekGun.rotation.x = Math.PI / 2;
+      cheekGun.position.set(side * 0.72, -0.06, 1.48);
+      headPivot.add(cheekGun);
+
+      const chinBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.078, 0.092, 1.06, 8), jointMat);
+      chinBarrel.rotation.x = Math.PI / 2;
+      chinBarrel.position.set(side * 0.36, -0.34, 1.94);
+      headPivot.add(chinBarrel);
+
+      const muzzleTip = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.11, 0.14), viewportMat);
+      muzzleTip.position.set(side * 0.36, -0.34, 2.48);
+      headPivot.add(muzzleTip);
+    }
+    bodyPivot.add(headPivot);
+
+    // 4 Towering Articulated Mech Legs (Hip Pivot + Knee Pivot + Splayed Armored Footpad)
+    for (const [hipName, kneeName, lx, lz] of [
+      ['leg_fl', 'knee_fl', -1.08, 1.1],
+      ['leg_fr', 'knee_fr', 1.08, 1.1],
+      ['leg_bl', 'knee_bl', -1.08, -1.26],
+      ['leg_br', 'knee_br', 1.08, -1.26],
+    ] as const) {
+      const legPivot = makePivot(hipName, lx, 2.65, lz);
+      const hipDrum = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.36, 0.38, 8), jointMat);
+      hipDrum.rotation.z = Math.PI / 2;
+      legPivot.add(hipDrum);
+
+      const hipGuard = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.44, 0.56), armorTrimMat);
+      hipGuard.position.set(lx < 0 ? -0.06 : 0.06, 0.08, 0);
+      legPivot.add(hipGuard);
+
+      const upperStrut = new THREE.Mesh(new THREE.BoxGeometry(0.42, 1.32, 0.52), armorMat);
+      upperStrut.position.set(0, -0.66, 0);
+      upperStrut.castShadow = true;
+      legPivot.add(upperStrut);
+
+      const upperPiston = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 1.15, 6), bellyMat);
+      upperPiston.position.set(0, -0.64, -0.24);
+      legPivot.add(upperPiston);
+
+      // Articulated Knee Pivot at y = -1.32 below hip (total y = 1.33 above ground)
+      const kneePivot = makePivot(kneeName, 0, -1.32, 0);
+      const kneeDrum = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.44, 8), jointMat);
+      kneeDrum.rotation.z = Math.PI / 2;
+      kneePivot.add(kneeDrum);
+
+      const kneeArmor = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.36, 0.58), armorTrimMat);
+      kneeArmor.position.set(0, 0.02, 0.05);
+      kneePivot.add(kneeArmor);
+
+      const lowerStrut = new THREE.Mesh(new THREE.BoxGeometry(0.38, 1.24, 0.48), armorMat);
+      lowerStrut.position.set(0, -0.62, 0);
+      lowerStrut.castShadow = true;
+      kneePivot.add(lowerStrut);
+
+      const ankleJoint = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.28, 0.22, 8), jointMat);
+      ankleJoint.position.set(0, -1.18, 0);
+      kneePivot.add(ankleJoint);
+
+      // Heavy circular splayed AT-AT Footpad flush at y = -1.33 (sole at world y = 0)
+      const footPad = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.64, 0.24, 8), jointMat);
+      footPad.position.set(0, -1.21, 0.05);
+      footPad.castShadow = true;
+      kneePivot.add(footPad);
+
+      // 4 armored foot claws gripping the terrain
+      for (const [cx, cz] of [
+        [-0.36, 0.42],
+        [0.36, 0.42],
+        [-0.38, -0.32],
+        [0.38, -0.32],
+      ]) {
+        const toe = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.16, 0.32), armorTrimMat);
+        toe.position.set(cx, -1.25, cz + 0.05);
+        toe.castShadow = true;
+        kneePivot.add(toe);
+      }
+
+      legPivot.add(kneePivot);
+      group.add(legPivot);
+    }
+  }
+
+  group.add(createContactShadow(shadowRadius));
+  const auraRing = new THREE.Mesh(sharedStatusRingGeo, sharedStatusRingMaterials[1]);
+  auraRing.scale.setScalar(role === 'alien_walker' ? 3.8 : role === 'alien_ufo' ? 1.5 : 1.0);
+  auraRing.position.y = 0.03;
+  auraRing.visible = false;
+  auraRing.name = 'status_ring';
+  group.add(auraRing);
+
+  return group;
+}
+
 export function createUnitGroup(
   role: UnitRole,
   faction: 'civilization' | 'hostile' | 'wildlife',
@@ -9045,6 +9360,15 @@ export function createUnitGroup(
     role === 'leviathan'
   ) {
     return buildCreatureUnitGroup(group, role, s0, s1, s2, s3);
+  }
+
+  if (
+    role === 'skeleton' ||
+    role === 'alien_trooper' ||
+    role === 'alien_ufo' ||
+    role === 'alien_walker'
+  ) {
+    return buildSpecialHostileUnitGroup(group, role, s0);
   }
 
   const resolvedSpecies: SpeciesId =
@@ -13060,4 +13384,704 @@ export function createVehicleGroup(
 
   return group;
 }
+
+export interface AlienMothershipVisual {
+  shipGroup: THREE.Group;
+  shadowGeo: THREE.BufferGeometry;
+  materials: THREE.Material[];
+  geometries: THREE.BufferGeometry[];
+  reactorDrums: THREE.Object3D[];
+  engineGlowMeshes: THREE.Object3D[];
+  turretPivots: THREE.Object3D[];
+}
+
+export function createAlienMothershipVisual(radius: number): AlienMothershipVisual {
+  const s = Math.max(0.85, radius / 14.0);
+  const shipGroup = new THREE.Group();
+  shipGroup.name = 'alien_dreadnought_hull';
+
+  const materials: THREE.Material[] = [];
+  const geometries: THREE.BufferGeometry[] = [];
+  const reactorDrums: THREE.Object3D[] = [];
+  const engineGlowMeshes: THREE.Object3D[] = [];
+  const turretPivots: THREE.Object3D[] = [];
+
+  const trackGeo = <T extends THREE.BufferGeometry>(g: T): T => {
+    geometries.push(g);
+    return g;
+  };
+  const trackMat = <T extends THREE.Material>(m: T): T => {
+    materials.push(m);
+    return m;
+  };
+
+  // Grey / Light Grey / Matte Black / Restrained Subtle Ice-Blue palette
+  const hullTex = getPixelArtTexture('mothership_hull_steel_v2', '#707782', '#c0c7d1', '#1c2128', 'tech');
+  const armorLightMat = trackMat(
+    new THREE.MeshStandardMaterial({
+      color: 0xc2c8d1,
+      map: hullTex,
+      roughness: 0.42,
+      metalness: 0.6,
+    }),
+  );
+  const armorMidMat = trackMat(
+    new THREE.MeshStandardMaterial({
+      color: 0x6b7280,
+      map: hullTex,
+      roughness: 0.44,
+      metalness: 0.66,
+    }),
+  );
+  const armorBlackMat = trackMat(
+    new THREE.MeshStandardMaterial({
+      color: 0x181b20,
+      roughness: 0.34,
+      metalness: 0.8,
+    }),
+  );
+  const keelSteelMat = trackMat(
+    new THREE.MeshStandardMaterial({
+      color: 0xd1d5db,
+      roughness: 0.5,
+      metalness: 0.45,
+    }),
+  );
+  const deckBlackMat = trackMat(
+    new THREE.MeshStandardMaterial({
+      color: 0x111418,
+      roughness: 0.72,
+      metalness: 0.28,
+    }),
+  );
+  const trussDarkMat = trackMat(
+    new THREE.MeshStandardMaterial({
+      color: 0x323741,
+      roughness: 0.5,
+      metalness: 0.72,
+    }),
+  );
+  const subtleBlueMat = trackMat(
+    new THREE.MeshBasicMaterial({
+      color: 0x60a5fa,
+    }),
+  );
+  const thrusterCoreMat = trackMat(
+    new THREE.MeshBasicMaterial({
+      color: 0x93c5fd,
+      transparent: true,
+      opacity: 0.85,
+    }),
+  );
+  const amberWindowMat = trackMat(
+    new THREE.MeshBasicMaterial({
+      color: 0xfbbf24,
+    }),
+  );
+
+  // 1. Primary Elongated Wingless Warship Spine (Z: -12.6 aft .. +12.6 bow)
+  const hullCoreGeo = trackGeo(new THREE.BoxGeometry(3.4 * s, 2.2 * s, 20.4 * s));
+  const hullCore = new THREE.Mesh(hullCoreGeo, armorBlackMat);
+  hullCore.position.set(0, -0.05 * s, -0.8 * s);
+  hullCore.castShadow = true;
+  shipGroup.add(hullCore);
+
+  // Heavy stepped grey armored flanks hugging the fuselage (NO wings)
+  for (const side of [-1, 1]) {
+    const flankShape = new THREE.Shape();
+    flankShape.moveTo(0, -10.8 * s);
+    flankShape.lineTo(1.75 * s, -9.2 * s);
+    flankShape.lineTo(2.05 * s, -2.2 * s);
+    flankShape.lineTo(1.95 * s, 5.2 * s);
+    flankShape.lineTo(1.25 * s, 10.2 * s);
+    flankShape.lineTo(0, 11.4 * s);
+    flankShape.closePath();
+
+    const flankGeo = trackGeo(
+      new THREE.ExtrudeGeometry(flankShape, {
+        depth: 1.55 * s,
+        bevelEnabled: true,
+        bevelThickness: 0.22 * s,
+        bevelSize: 0.18 * s,
+        bevelSegments: 2,
+      }),
+    );
+    flankGeo.rotateX(Math.PI / 2);
+    const flank = new THREE.Mesh(flankGeo, armorMidMat);
+    flank.position.set(side * 0.9 * s, 0.86 * s, 0);
+    if (side < 0) flank.scale.x = -1;
+    flank.castShadow = true;
+    shipGroup.add(flank);
+
+    // Light-grey upper armored gunwale belt
+    const beltGeo = trackGeo(new THREE.BoxGeometry(0.75 * s, 0.62 * s, 17.6 * s));
+    const belt = new THREE.Mesh(beltGeo, armorLightMat);
+    belt.position.set(side * 2.28 * s, 0.56 * s, -0.4 * s);
+    belt.castShadow = true;
+    shipGroup.add(belt);
+
+    // Compact wingless broadside drop-bay sponsons braced by charcoal truss ribs
+    const sponsonGeo = trackGeo(new THREE.BoxGeometry(1.15 * s, 1.05 * s, 6.2 * s));
+    const sponson = new THREE.Mesh(sponsonGeo, armorBlackMat);
+    sponson.position.set(side * 2.85 * s, -0.38 * s, 0.4 * s);
+    sponson.castShadow = true;
+    shipGroup.add(sponson);
+
+    const sponsonCapGeo = trackGeo(new THREE.BoxGeometry(1.05 * s, 0.24 * s, 5.6 * s));
+    const sponsonCap = new THREE.Mesh(sponsonCapGeo, armorLightMat);
+    sponsonCap.position.set(side * 2.85 * s, 0.22 * s, 0.4 * s);
+    shipGroup.add(sponsonCap);
+
+    // Subtle restrained blue drop-bay slit under each compact side bay
+    const baySlitGeo = trackGeo(new THREE.BoxGeometry(0.42 * s, 0.08 * s, 3.4 * s));
+    const baySlit = new THREE.Mesh(baySlitGeo, subtleBlueMat);
+    baySlit.position.set(side * 2.85 * s, -0.92 * s, 0.4 * s);
+    shipGroup.add(baySlit);
+
+    // Exposed truss rib braces along side hull
+    for (let ri = 0; ri < 4; ri++) {
+      const ribGeo = trackGeo(new THREE.BoxGeometry(0.28 * s, 1.25 * s, 0.24 * s));
+      const rib = new THREE.Mesh(ribGeo, trussDarkMat);
+      rib.position.set(side * 3.12 * s, -0.25 * s, (-1.8 + ri * 1.45) * s);
+      shipGroup.add(rib);
+    }
+  }
+
+  // 2. Sculpted Multi-Tiered Armored Bow Prow (+Z forward, NO wide wings)
+  const prowShape = new THREE.Shape();
+  prowShape.moveTo(-1.85 * s, 7.2 * s);
+  prowShape.lineTo(1.85 * s, 7.2 * s);
+  prowShape.lineTo(2.15 * s, 10.6 * s);
+  prowShape.lineTo(1.35 * s, 13.0 * s);
+  prowShape.lineTo(0, 13.8 * s);
+  prowShape.lineTo(-1.35 * s, 13.0 * s);
+  prowShape.lineTo(-2.15 * s, 10.6 * s);
+  prowShape.closePath();
+
+  const prowGeo = trackGeo(
+    new THREE.ExtrudeGeometry(prowShape, {
+      depth: 1.35 * s,
+      bevelEnabled: true,
+      bevelThickness: 0.25 * s,
+      bevelSize: 0.2 * s,
+      bevelSegments: 2,
+    }),
+  );
+  prowGeo.rotateX(Math.PI / 2);
+  const prowArmor = new THREE.Mesh(prowGeo, armorLightMat);
+  prowArmor.position.set(0, 0.92 * s, 0);
+  prowArmor.castShadow = true;
+  shipGroup.add(prowArmor);
+
+  // Matte black upper bow deck plate & tiny amber bridge/sensor window dots
+  const bowPlateGeo = trackGeo(new THREE.BoxGeometry(2.3 * s, 0.24 * s, 4.4 * s));
+  const bowPlate = new THREE.Mesh(bowPlateGeo, armorBlackMat);
+  bowPlate.position.set(0, 1.18 * s, 10.1 * s);
+  shipGroup.add(bowPlate);
+
+  for (let wi = -2; wi <= 2; wi++) {
+    const winDot = new THREE.Mesh(trackGeo(new THREE.BoxGeometry(0.18 * s, 0.1 * s, 0.14 * s)), amberWindowMat);
+    winDot.position.set(wi * 0.42 * s, 0.42 * s, 13.62 * s);
+    shipGroup.add(winDot);
+  }
+
+  // Twin Underslung Heavy Black & Grey Siege Railgun Cannons projecting past bow
+  for (const side of [-1, 1]) {
+    const gunHousingGeo = trackGeo(new THREE.BoxGeometry(0.56 * s, 0.62 * s, 3.6 * s));
+    const gunHousing = new THREE.Mesh(gunHousingGeo, armorMidMat);
+    gunHousing.position.set(side * 0.92 * s, -0.82 * s, 8.8 * s);
+    shipGroup.add(gunHousing);
+
+    const barrelGeo = trackGeo(new THREE.CylinderGeometry(0.14 * s, 0.17 * s, 5.2 * s, 8));
+    barrelGeo.rotateX(Math.PI / 2);
+    const barrel = new THREE.Mesh(barrelGeo, armorBlackMat);
+    barrel.position.set(side * 0.92 * s, -0.82 * s, 11.4 * s);
+    shipGroup.add(barrel);
+
+    const muzzleSlit = new THREE.Mesh(trackGeo(new THREE.BoxGeometry(0.14 * s, 0.14 * s, 0.45 * s)), subtleBlueMat);
+    muzzleSlit.position.set(side * 0.92 * s, -0.82 * s, 13.95 * s);
+    shipGroup.add(muzzleSlit);
+  }
+
+  // 3. Long Matte-Black Carrier Flight-Deck with Light-Grey Ribs & Thin Blue Track Markers
+  const deckGeo = trackGeo(new THREE.BoxGeometry(2.75 * s, 0.26 * s, 9.8 * s));
+  const flightDeck = new THREE.Mesh(deckGeo, deckBlackMat);
+  flightDeck.position.set(0, 1.18 * s, 3.4 * s);
+  shipGroup.add(flightDeck);
+
+  for (const side of [-1, 1]) {
+    const deckRail = new THREE.Mesh(trackGeo(new THREE.BoxGeometry(0.32 * s, 0.32 * s, 9.8 * s)), armorLightMat);
+    deckRail.position.set(side * 1.48 * s, 1.24 * s, 3.4 * s);
+    shipGroup.add(deckRail);
+
+    // Thin subtle ice-blue runway line
+    const thinLine = new THREE.Mesh(trackGeo(new THREE.BoxGeometry(0.06 * s, 0.04 * s, 8.6 * s)), subtleBlueMat);
+    thinLine.position.set(side * 1.02 * s, 1.33 * s, 3.4 * s);
+    shipGroup.add(thinLine);
+  }
+
+  // 4. Mid-Dorsal Charcoal Skeletal Spine & 3 Rotating Grey/Black Reactor Containment Drums
+  const spineCageGeo = trackGeo(new THREE.BoxGeometry(0.24 * s, 0.24 * s, 6.2 * s));
+  for (const [cx, cy] of [
+    [-1.25, 2.38],
+    [1.25, 2.38],
+    [0, 2.78],
+  ]) {
+    const rail = new THREE.Mesh(spineCageGeo, trussDarkMat);
+    rail.position.set(cx * s, cy * s, -3.7 * s);
+    shipGroup.add(rail);
+  }
+  const drumCoreGeo = trackGeo(new THREE.CylinderGeometry(0.95 * s, 0.95 * s, 1.15 * s, 6));
+  drumCoreGeo.rotateX(Math.PI / 2);
+  const drumRibGeo = trackGeo(new THREE.TorusGeometry(1.08 * s, 0.14 * s, 6, 6));
+  const drumInnerGeo = trackGeo(new THREE.CylinderGeometry(0.64 * s, 0.64 * s, 1.28 * s, 8));
+  drumInnerGeo.rotateX(Math.PI / 2);
+
+  for (let di = 0; di < 3; di++) {
+    const dz = (-1.85 - di * 1.85) * s;
+    const drumPivot = new THREE.Group();
+    drumPivot.position.set(0, 1.82 * s, dz);
+
+    const innerBand = new THREE.Mesh(drumInnerGeo, di === 1 ? armorLightMat : subtleBlueMat);
+    drumPivot.add(innerBand);
+
+    const armorDrum = new THREE.Mesh(drumCoreGeo, armorMidMat);
+    drumPivot.add(armorDrum);
+
+    const rib = new THREE.Mesh(drumRibGeo, armorBlackMat);
+    drumPivot.add(rib);
+
+    shipGroup.add(drumPivot);
+    reactorDrums.push(drumPivot);
+  }
+
+  // 5. Elevated Rear Command Bridge Citadel (Light Grey + Charcoal Black + Amber Bridge Slit)
+  const citadelBaseGeo = trackGeo(new THREE.BoxGeometry(2.65 * s, 1.45 * s, 3.0 * s));
+  const citadelBase = new THREE.Mesh(citadelBaseGeo, armorMidMat);
+  citadelBase.position.set(0, 2.2 * s, -7.8 * s);
+  citadelBase.castShadow = true;
+  shipGroup.add(citadelBase);
+
+  const citadelTopGeo = trackGeo(new THREE.BoxGeometry(3.15 * s, 0.78 * s, 2.1 * s));
+  const citadelTop = new THREE.Mesh(citadelTopGeo, armorBlackMat);
+  citadelTop.position.set(0, 3.22 * s, -7.6 * s);
+  citadelTop.castShadow = true;
+  shipGroup.add(citadelTop);
+
+  const citadelCapGeo = trackGeo(new THREE.BoxGeometry(2.75 * s, 0.22 * s, 1.75 * s));
+  const citadelCap = new THREE.Mesh(citadelCapGeo, armorLightMat);
+  citadelCap.position.set(0, 3.68 * s, -7.6 * s);
+  shipGroup.add(citadelCap);
+
+  const bridgeVisor = new THREE.Mesh(trackGeo(new THREE.BoxGeometry(2.55 * s, 0.16 * s, 0.12 * s)), amberWindowMat);
+  bridgeVisor.position.set(0, 3.22 * s, -6.54 * s);
+  shipGroup.add(bridgeVisor);
+
+  const mastGeo = trackGeo(new THREE.BoxGeometry(0.14 * s, 1.25 * s, 0.14 * s));
+  for (const mx of [-0.95, 0.95]) {
+    const mast = new THREE.Mesh(mastGeo, armorLightMat);
+    mast.position.set(mx * s, 4.25 * s, -7.8 * s);
+    shipGroup.add(mast);
+    const beacon = new THREE.Mesh(trackGeo(new THREE.BoxGeometry(0.18 * s, 0.14 * s, 0.18 * s)), subtleBlueMat);
+    beacon.position.set(mx * s, 4.92 * s, -7.8 * s);
+    shipGroup.add(beacon);
+  }
+
+  // 6. 6 Armored Broadside/Dorsal Dual-Barrel Turrets (tucked neatly along shoulders, NO wings)
+  const turretBaseGeo = trackGeo(new THREE.CylinderGeometry(0.36 * s, 0.44 * s, 0.28 * s, 8));
+  const turretGunGeo = trackGeo(new THREE.BoxGeometry(0.1 * s, 0.1 * s, 0.88 * s));
+  for (const side of [-1, 1]) {
+    for (let ti = 0; ti < 3; ti++) {
+      const tPivot = new THREE.Group();
+      tPivot.position.set(side * 2.15 * s, 1.08 * s, (4.2 - ti * 3.1) * s);
+      tPivot.add(new THREE.Mesh(turretBaseGeo, armorBlackMat));
+      for (const gx of [-0.14, 0.14]) {
+        const gun = new THREE.Mesh(turretGunGeo, armorLightMat);
+        gun.position.set(gx * s, 0.12 * s, 0.48 * s);
+        tPivot.add(gun);
+      }
+      shipGroup.add(tPivot);
+      turretPivots.push(tPivot);
+    }
+  }
+
+  // 7. Deep Ventral Naval Keel Blade (Light Steel Grey) & Charcoal Drop Aperture
+  const keelShape = new THREE.Shape();
+  keelShape.moveTo(1.2 * s, -0.8 * s);
+  keelShape.lineTo(9.8 * s, -0.9 * s);
+  keelShape.lineTo(7.8 * s, -3.2 * s);
+  keelShape.lineTo(4.0 * s, -4.9 * s);
+  keelShape.lineTo(2.6 * s, -3.3 * s);
+  keelShape.lineTo(0.8 * s, -2.1 * s);
+  keelShape.closePath();
+
+  const keelGeo = trackGeo(
+    new THREE.ExtrudeGeometry(keelShape, {
+      depth: 0.72 * s,
+      bevelEnabled: true,
+      bevelThickness: 0.16 * s,
+      bevelSize: 0.14 * s,
+      bevelSegments: 2,
+    }),
+  );
+  keelGeo.translate(0, 0, -0.36 * s);
+  keelGeo.rotateY(-Math.PI / 2);
+  const ventralKeel = new THREE.Mesh(keelGeo, keelSteelMat);
+  ventralKeel.castShadow = true;
+  shipGroup.add(ventralKeel);
+
+  // Ventral deployment bay cowl + thin ice-blue aperture ring
+  const emitterCowlGeo = trackGeo(new THREE.CylinderGeometry(1.45 * s, 1.08 * s, 0.72 * s, 8));
+  const emitterCowl = new THREE.Mesh(emitterCowlGeo, armorBlackMat);
+  emitterCowl.position.set(0, -1.32 * s, 0.2 * s);
+  shipGroup.add(emitterCowl);
+
+  const emitterRingGeo = trackGeo(new THREE.TorusGeometry(1.04 * s, 0.11 * s, 6, 12));
+  emitterRingGeo.rotateX(Math.PI / 2);
+  const emitterRing = new THREE.Mesh(emitterRingGeo, subtleBlueMat);
+  emitterRing.position.set(0, -1.68 * s, 0.2 * s);
+  shipGroup.add(emitterRing);
+
+  // 8. Heavy Wingless Stern Engine Nacelles & 6 Matte-Black Thruster Cowls + Subtle Ice-Blue Plumes
+  const pylonGeo = trackGeo(new THREE.BoxGeometry(1.95 * s, 2.05 * s, 4.6 * s));
+  const nozzleCowlGeo = trackGeo(new THREE.CylinderGeometry(0.58 * s, 0.74 * s, 1.15 * s, 8));
+  nozzleCowlGeo.rotateX(Math.PI / 2);
+  const plumeGeo = trackGeo(new THREE.ConeGeometry(0.46 * s, 2.15 * s, 8));
+  plumeGeo.rotateX(-Math.PI / 2);
+
+  for (const side of [-1, 1]) {
+    const pylon = new THREE.Mesh(pylonGeo, armorMidMat);
+    pylon.position.set(side * 2.15 * s, 0.18 * s, -10.3 * s);
+    pylon.castShadow = true;
+    shipGroup.add(pylon);
+
+    const pylonTrim = new THREE.Mesh(trackGeo(new THREE.BoxGeometry(2.05 * s, 0.28 * s, 4.2 * s)), armorLightMat);
+    pylonTrim.position.set(side * 2.15 * s, 1.24 * s, -10.3 * s);
+    shipGroup.add(pylonTrim);
+
+    for (const [ox, oy] of [
+      [side * 2.15, 0.62],
+      [side * 2.15, -0.24],
+      [side * 0.95, 0.16],
+    ]) {
+      const cowl = new THREE.Mesh(nozzleCowlGeo, armorBlackMat);
+      cowl.position.set(ox * s, oy * s, -12.6 * s);
+      shipGroup.add(cowl);
+
+      const plume = new THREE.Mesh(plumeGeo, thrusterCoreMat);
+      plume.position.set(ox * s, oy * s, -13.65 * s);
+      shipGroup.add(plume);
+      engineGlowMeshes.push(plume);
+    }
+  }
+
+  // 9. Sleek Elongated Wingless Capital-Ship Shadow Silhouette
+  const shShape = new THREE.Shape();
+  shShape.moveTo(0, 13.8 * s);
+  shShape.lineTo(1.45 * s, 12.8 * s);
+  shShape.lineTo(2.25 * s, 10.2 * s);
+  shShape.lineTo(2.55 * s, 4.6 * s);
+  shShape.lineTo(3.35 * s, 3.2 * s);
+  shShape.lineTo(3.35 * s, -2.6 * s);
+  shShape.lineTo(2.65 * s, -4.4 * s);
+  shShape.lineTo(3.15 * s, -12.4 * s);
+  shShape.lineTo(-3.15 * s, -12.4 * s);
+  shShape.lineTo(-2.65 * s, -4.4 * s);
+  shShape.lineTo(-3.35 * s, -2.6 * s);
+  shShape.lineTo(-3.35 * s, 3.2 * s);
+  shShape.lineTo(-2.55 * s, 4.6 * s);
+  shShape.lineTo(-2.25 * s, 10.2 * s);
+  shShape.lineTo(-1.45 * s, 12.8 * s);
+  shShape.closePath();
+
+  const shadowGeo = trackGeo(new THREE.ShapeGeometry(shShape));
+  shadowGeo.rotateX(Math.PI / 2);
+
+  return {
+    shipGroup,
+    shadowGeo,
+    materials,
+    geometries,
+    reactorDrums,
+    engineGlowMeshes,
+    turretPivots,
+  };
+}
+
+export interface HyperspacePortalRig {
+  group: THREE.Group;
+  discMesh: THREE.Mesh;
+  discMat: THREE.ShaderMaterial;
+  shockRings: THREE.Mesh[];
+  ringMats: THREE.MeshBasicMaterial[];
+  warpStreaks: THREE.Mesh[];
+  streakMat: THREE.MeshBasicMaterial;
+}
+
+export interface HyperspaceRippleEffectsVisual {
+  entryPortal: HyperspacePortalRig;
+  exitPortal: HyperspacePortalRig;
+  wakeGroup: THREE.Group;
+  wakeRings: THREE.Mesh[];
+  wakeMats: THREE.MeshBasicMaterial[];
+  groundRippleMesh: THREE.Mesh;
+  groundRippleMat: THREE.ShaderMaterial;
+  geometries: THREE.BufferGeometry[];
+  materials: THREE.Material[];
+}
+
+export function createHyperspaceRippleEffects(radius: number): HyperspaceRippleEffectsVisual {
+  const s = Math.max(0.85, radius / 14.0);
+  const geometries: THREE.BufferGeometry[] = [];
+  const materials: THREE.Material[] = [];
+
+  const trackGeo = <T extends THREE.BufferGeometry>(g: T): T => {
+    geometries.push(g);
+    return g;
+  };
+  const trackMat = <T extends THREE.Material>(m: T): T => {
+    materials.push(m);
+    return m;
+  };
+
+  const portalDiscGeo = trackGeo(new THREE.PlaneGeometry(24 * s, 24 * s, 1, 1));
+  const torusRingGeo = trackGeo(new THREE.TorusGeometry(1, 0.042, 8, 48));
+  const streakGeo = trackGeo(new THREE.CylinderGeometry(0.024, 0.13, 1.0, 6));
+  streakGeo.rotateX(Math.PI / 2);
+
+  const createRippleShaderMat = (direction: number) =>
+    trackMat(
+      new THREE.ShaderMaterial({
+        uniforms: {
+          uTime: { value: 0 },
+          uProgress: { value: 0 },
+          uOpacity: { value: 0 },
+          uDirection: { value: direction },
+          uColorCore: { value: new THREE.Color(0xf0f9ff) },
+          uColorMid: { value: new THREE.Color(0x93c5fd) },
+          uColorOuter: { value: new THREE.Color(0x3b82f6) },
+        },
+        vertexShader: /* glsl */ `
+          varying vec2 vUv;
+          void main() {
+            vUv = uv;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          }
+        `,
+        fragmentShader: /* glsl */ `
+          varying vec2 vUv;
+          uniform float uTime;
+          uniform float uProgress;
+          uniform float uOpacity;
+          uniform float uDirection;
+          uniform vec3 uColorCore;
+          uniform vec3 uColorMid;
+          uniform vec3 uColorOuter;
+
+          void main() {
+            vec2 p = vUv * 2.0 - 1.0;
+            float r = length(p);
+            if (r > 1.0) discard;
+            float ang = atan(p.y, p.x);
+
+            // Multi-frequency traveling spatial distortion ripples
+            float waveFreq = sin(r * 30.0 - uDirection * uTime * 15.0 + sin(ang * 5.0) * 0.45) * 0.5 + 0.5;
+            float fineWave = sin(r * 52.0 - uDirection * uTime * 22.0) * 0.5 + 0.5;
+
+            // Primary + trailing concentric shockwave crests sweeping radially
+            float crestPos = uDirection > 0.0
+              ? mix(0.08, 0.9, uProgress)
+              : mix(0.92, 0.14, uProgress);
+            float crest1 = exp(-pow((r - crestPos) * 10.5, 2.0));
+            float crest2 = exp(-pow((r - crestPos * 0.68) * 13.0, 2.0)) * 0.72;
+            float crest3 = exp(-pow((r - crestPos * 0.4) * 16.0, 2.0)) * 0.5;
+
+            // Slipspace radial star-lensing spokes
+            float spokeSignal = pow(abs(sin(ang * 9.0 + uDirection * uTime * 2.2)), 6.0);
+            float spokes = spokeSignal * smoothstep(0.06, 0.35, r) * (1.0 - smoothstep(0.55, 0.96, r));
+
+            // Luminous inner slipspace iris flash
+            float coreIris = exp(-r * r * 14.0) * (1.0 - uProgress * 0.55);
+
+            float rippleEnergy =
+              (crest1 * 1.15 + crest2 + crest3) * (0.65 + 0.35 * waveFreq) +
+              (waveFreq * 0.24 + fineWave * 0.12) * smoothstep(0.08, 0.3, r) +
+              spokes * 0.42 +
+              coreIris * 0.95;
+
+            float edgeFade = smoothstep(1.0, 0.62, r);
+            float alpha = clamp(rippleEnergy * edgeFade * uOpacity, 0.0, 1.0);
+            if (alpha < 0.005) discard;
+
+            vec3 col = mix(uColorOuter, uColorMid, clamp(waveFreq * 0.7 + crest2 * 0.6, 0.0, 1.0));
+            col = mix(col, uColorCore, clamp(crest1 * 0.85 + coreIris * 0.9 + spokes * 0.4, 0.0, 1.0));
+            gl_FragColor = vec4(col, alpha);
+          }
+        `,
+        transparent: true,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending,
+      }),
+    );
+
+  const buildPortalRig = (direction: number): HyperspacePortalRig => {
+    const group = new THREE.Group();
+    const discMat = createRippleShaderMat(direction);
+    const discMesh = new THREE.Mesh(portalDiscGeo, discMat);
+    discMesh.renderOrder = 18;
+    group.add(discMesh);
+
+    const ringColors = [0xe0f2fe, 0x93c5fd, 0x60a5fa];
+    const shockRings: THREE.Mesh[] = [];
+    const ringMats: THREE.MeshBasicMaterial[] = [];
+    for (let i = 0; i < 3; i++) {
+      const rMat = trackMat(
+        new THREE.MeshBasicMaterial({
+          color: ringColors[i],
+          transparent: true,
+          opacity: 0,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+        }),
+      );
+      const rMesh = new THREE.Mesh(torusRingGeo, rMat);
+      rMesh.position.z = (i - 1) * 0.9 * s * direction;
+      rMesh.renderOrder = 19;
+      group.add(rMesh);
+      shockRings.push(rMesh);
+      ringMats.push(rMat);
+    }
+
+    const streakMat = trackMat(
+      new THREE.MeshBasicMaterial({
+        color: 0xdbeafe,
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      }),
+    );
+    const warpStreaks: THREE.Mesh[] = [];
+    const streakCount = 14;
+    for (let i = 0; i < streakCount; i++) {
+      const ang = (i / streakCount) * Math.PI * 2 + (i % 2) * 0.18;
+      const radialDist = (4.2 + (i % 3) * 2.15) * s;
+      const st = new THREE.Mesh(streakGeo, streakMat);
+      st.position.set(
+        Math.cos(ang) * radialDist,
+        Math.sin(ang) * radialDist * 0.72,
+        ((i % 4) - 1.5) * 1.6 * s,
+      );
+      st.renderOrder = 19;
+      group.add(st);
+      warpStreaks.push(st);
+    }
+
+    group.visible = false;
+    return {
+      group,
+      discMesh,
+      discMat,
+      shockRings,
+      ringMats,
+      warpStreaks,
+      streakMat,
+    };
+  };
+
+  const entryPortal = buildPortalRig(1.0);
+  const exitPortal = buildPortalRig(1.0);
+
+  // Hull-wrapping spatial wake ripples that peel back along the hull during arrival braking & spool-up
+  const wakeGroup = new THREE.Group();
+  const wakeColors = [0xe0f2fe, 0x93c5fd, 0x60a5fa];
+  const wakeRings: THREE.Mesh[] = [];
+  const wakeMats: THREE.MeshBasicMaterial[] = [];
+  for (let i = 0; i < 3; i++) {
+    const wMat = trackMat(
+      new THREE.MeshBasicMaterial({
+        color: wakeColors[i],
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      }),
+    );
+    const wMesh = new THREE.Mesh(torusRingGeo, wMat);
+    wMesh.renderOrder = 19;
+    wakeGroup.add(wMesh);
+    wakeRings.push(wMesh);
+    wakeMats.push(wMat);
+  }
+  wakeGroup.visible = false;
+
+  // Ground atmospheric pressure ripple beneath the dreadnought on arrival & departure
+  const groundPlaneGeo = trackGeo(new THREE.PlaneGeometry(1, 1, 1, 1));
+  groundPlaneGeo.rotateX(-Math.PI / 2);
+  const groundRippleMat = trackMat(
+    new THREE.ShaderMaterial({
+      uniforms: {
+        uTime: { value: 0 },
+        uProgress: { value: 0 },
+        uOpacity: { value: 0 },
+        uColorCore: { value: new THREE.Color(0xdbeafe) },
+        uColorEdge: { value: new THREE.Color(0x60a5fa) },
+      },
+      vertexShader: /* glsl */ `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: /* glsl */ `
+        varying vec2 vUv;
+        uniform float uTime;
+        uniform float uProgress;
+        uniform float uOpacity;
+        uniform vec3 uColorCore;
+        uniform vec3 uColorEdge;
+
+        void main() {
+          vec2 p = vUv * 2.0 - 1.0;
+          float r = length(p);
+          if (r > 1.0) discard;
+
+          float crest1 = exp(-pow((r - mix(0.12, 0.92, uProgress)) * 14.0, 2.0));
+          float crest2 = exp(-pow((r - mix(0.05, 0.72, uProgress)) * 18.0, 2.0)) * 0.65;
+          float ripple = sin(r * 28.0 - uTime * 12.0) * 0.5 + 0.5;
+          float energy = (crest1 + crest2) * (0.72 + 0.28 * ripple);
+          float alpha = clamp(energy * smoothstep(1.0, 0.72, r) * uOpacity, 0.0, 1.0);
+          if (alpha < 0.005) discard;
+
+          vec3 col = mix(uColorEdge, uColorCore, clamp(crest1, 0.0, 1.0));
+          gl_FragColor = vec4(col, alpha);
+        }
+      `,
+      transparent: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+    }),
+  );
+  const groundRippleMesh = new THREE.Mesh(groundPlaneGeo, groundRippleMat);
+  groundRippleMesh.position.y = 0.28;
+  groundRippleMesh.renderOrder = 14;
+  groundRippleMesh.visible = false;
+
+  return {
+    entryPortal,
+    exitPortal,
+    wakeGroup,
+    wakeRings,
+    wakeMats,
+    groundRippleMesh,
+    groundRippleMat,
+    geometries,
+    materials,
+  };
+}
+
+
 

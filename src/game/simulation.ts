@@ -24,6 +24,7 @@ import {
   SimulationState,
   SpeciesId,
   TerrainToolType,
+  TerrainType,
   TileData,
   UnitAgeStage,
   UnitEntity,
@@ -1700,11 +1701,14 @@ export function spawnUnit(
 
   const isOpenWaterTile =
     tile.height === 0 &&
+    tile.terrain !== 'ice' &&
     tile.terrain !== 'stone_road' &&
     tile.terrain !== 'rail_track' &&
+    tile.terrain !== 'runway' &&
     !tile.buildingId &&
     role !== 'dragon' &&
-    role !== 'leviathan';
+    role !== 'leviathan' &&
+    role !== 'alien_ufo';
 
   const unit: UnitEntity = {
     id: nextEntityId('unit'),
@@ -1747,6 +1751,7 @@ export function spawnUnit(
     kills: 0,
     swimStamina: 100,
     isSwimming: isOpenWaterTile,
+    altitude: role === 'alien_ufo' ? 4.6 : 0,
     leviathanSubmerged: role === 'leviathan' ? true : undefined,
     leviathanSurfaceTimer: role === 'leviathan' ? 10 + (appearanceSeed % 8) : undefined,
     leviathanBeamTimer: role === 'leviathan' ? 0 : undefined,
@@ -2191,6 +2196,35 @@ function getWaveAppliedSet(haz: ActiveHazardZone): Set<string> {
   return s;
 }
 
+function getBaseBiomeTempC(terrain: TerrainType): number {
+  switch (terrain) {
+    case 'deep_water': return 9;
+    case 'shallow_water': return 16;
+    case 'ice': return -6;
+    case 'sand': return 27;
+    case 'grass': return 18;
+    case 'fertile': return 20;
+    case 'forest': return 15;
+    case 'jungle': return 28;
+    case 'savanna': return 30;
+    case 'swamp': return 23;
+    case 'highland': return 11;
+    case 'mountain': return 4;
+    case 'taiga': return 5;
+    case 'tundra': return -3;
+    case 'badlands': return 34;
+    case 'blossom': return 19;
+    case 'stone_road': return 20;
+    case 'rail_track': return 21;
+    case 'runway': return 22;
+    case 'rock': return 10;
+    case 'snow': return -11;
+    case 'scorched': return 42;
+    case 'crystal_field': return 7;
+    case 'void_goo': return -18;
+  }
+}
+
 function damageOrBleachWaterTile(
   t: TileData,
   dmgAmount: number,
@@ -2253,27 +2287,49 @@ function applyExpandingWaveSlice(
         if (dSq > tileMaxSq || dSq > maxRSq) continue;
         if (prevR > 0 && dSq < tileMinSq) continue;
         t.blessedTimer = 0;
+        const normDistSq = dSq / Math.max(1, maxRSq);
+        const heatDelta = normDistSq <= 0.58 ? 16 : 9;
+        const prevTemp = t.tempOffset ?? 0;
+        const effectiveHeat = prevTemp < 0 ? Math.max(heatDelta, Math.abs(prevTemp) * 0.65 + heatDelta * 0.5) : heatDelta;
+        t.tempOffset = Math.min(80, prevTemp + effectiveHeat);
+        const effC = getBaseBiomeTempC(t.terrain) + t.tempOffset;
+
         if (t.height === 0) {
-          damageOrBleachWaterTile(t, 260, dSq <= maxRSq * 0.45);
-          if (t.terrain === 'shallow_water' && dSq <= maxRSq * 0.35 && !t.buildingId) {
-            t.height = 1;
-            t.terrain = 'sand';
-            t.resourceNode = 'none';
-            t.resourceAmount = 0;
-            t.coralBleachTimer = 0;
+          if (t.terrain === 'ice' && effC >= 0) {
+            t.terrain = t.frozenWaterBase ?? 'shallow_water';
+            delete t.frozenWaterBase;
+          } else if (effC >= 36) {
+            damageOrBleachWaterTile(t, 140, false);
           }
           continue;
         }
-        if (t.terrain === 'snow' || t.terrain === 'tundra') {
-          t.terrain = dSq <= maxRSq * 0.45 ? 'grass' : 'rock';
-        } else if (t.terrain === 'swamp') {
-          t.terrain = 'savanna';
-        } else if (t.terrain === 'fertile' || t.terrain === 'blossom') {
-          t.terrain = dSq <= maxRSq * 0.45 ? 'scorched' : 'savanna';
-          t.farmSettlementId = undefined;
-        } else if (t.terrain === 'grass' || t.terrain === 'taiga') {
-          t.terrain = dSq <= maxRSq * 0.38 ? 'scorched' : 'savanna';
+
+        if (!t.buildingId || t.terrain === 'snow' || t.terrain === 'tundra') {
+          if (t.terrain === 'snow' && effC >= -2) {
+            t.terrain = 'tundra';
+          } else if (t.terrain === 'tundra' && effC >= 6) {
+            t.terrain = 'grass';
+          } else if (t.terrain === 'taiga' && effC >= 12) {
+            t.terrain = 'grass';
+          } else if (
+            (t.terrain === 'swamp' ||
+              t.terrain === 'fertile' ||
+              t.terrain === 'blossom' ||
+              t.terrain === 'grass' ||
+              t.terrain === 'forest') &&
+            effC >= 27
+          ) {
+            t.terrain = 'savanna';
+          } else if (t.terrain === 'savanna' && effC >= 36) {
+            t.terrain = 'sand';
+            t.farmSettlementId = undefined;
+          } else if ((t.terrain === 'sand' || t.terrain === 'badlands') && effC >= 48) {
+            t.terrain = 'scorched';
+            t.farmSettlementId = undefined;
+          }
         }
+
+        const isSuperheated = effC >= 42 || t.tempOffset >= 24;
         const flammable =
           t.resourceNode === 'timber_grove' ||
           t.resourceNode === 'berry_bush' ||
@@ -2282,7 +2338,7 @@ function applyExpandingWaveSlice(
           t.terrain === 'savanna' ||
           t.terrain === 'scorched' ||
           Boolean(t.buildingId);
-        if (flammable && (dSq <= 4.5 || (allowSpread && ((t.x * 13 + t.z * 7) % 3 === 0)))) {
+        if (isSuperheated && flammable && (normDistSq <= 0.32 || (allowSpread && ((t.x * 13 + t.z * 7) % 3 === 0)))) {
           t.onFireTimer = Math.max(t.onFireTimer, 6.5);
         }
       }
@@ -2292,12 +2348,16 @@ function applyExpandingWaveSlice(
         if (dSq <= unitMaxSq && dSq <= maxRSq) {
           appliedIds.add(u.id);
           delete u.statusEffects.frozen;
-          const dmg = u.role === 'dragon' ? 0 : 75;
-          u.hp = Math.max(0, u.hp - dmg);
-          if (u.hp <= 0) {
-            u.state = 'ko';
-            u.koTimer = 0.45;
-            if (u.faction === 'hostile') state.totalRaidersDefeated += 1;
+          const ut = getTile(state, Math.round(u.x), Math.round(u.z));
+          const uEffC = ut ? getBaseBiomeTempC(ut.terrain) + (ut.tempOffset ?? 0) : 25;
+          const dmg = u.role === 'dragon' ? 0 : uEffC >= 42 ? 48 : 12;
+          if (dmg > 0) {
+            u.hp = Math.max(0, u.hp - dmg);
+            if (u.hp <= 0) {
+              u.state = 'ko';
+              u.koTimer = 0.45;
+              if (u.faction === 'hostile') state.totalRaidersDefeated += 1;
+            }
           }
         }
       }
@@ -2306,7 +2366,11 @@ function applyExpandingWaveSlice(
         const dSq = (b.tileX - targetX) ** 2 + (b.tileZ - targetZ) ** 2;
         if (dSq <= unitMaxSq && dSq <= maxRSq) {
           appliedIds.add(b.id);
-          b.hp = Math.max(0, b.hp - 55);
+          const bt = getTile(state, b.tileX, b.tileZ);
+          const bEffC = bt ? getBaseBiomeTempC(bt.terrain) + (bt.tempOffset ?? 0) : 25;
+          if (bEffC >= 40) {
+            b.hp = Math.max(0, b.hp - 36);
+          }
         }
       }
       for (const v of state.vehicles ?? []) {
@@ -2314,7 +2378,11 @@ function applyExpandingWaveSlice(
         const dSq = (v.x - targetX) ** 2 + (v.z - targetZ) ** 2;
         if (dSq <= unitMaxSq && dSq <= maxRSq) {
           appliedIds.add(v.id);
-          v.hp = Math.max(0, (v.hp ?? 100) - 70);
+          const vt = getTile(state, Math.round(v.x), Math.round(v.z));
+          const vEffC = vt ? getBaseBiomeTempC(vt.terrain) + (vt.tempOffset ?? 0) : 25;
+          if (vEffC >= 40) {
+            v.hp = Math.max(0, (v.hp ?? 100) - 40);
+          }
         }
       }
       break;
@@ -2328,29 +2396,47 @@ function applyExpandingWaveSlice(
         t.onFireTimer = 0;
         t.fireColor = undefined;
         t.cursedTimer = 0;
+        const normDistSq = dSq / Math.max(1, maxRSq);
+        const coolDelta = normDistSq <= 0.58 ? 15 : 9;
+        const prevTemp = t.tempOffset ?? 0;
+        const effectiveCool = prevTemp > 0 ? Math.max(coolDelta, prevTemp * 0.65 + coolDelta * 0.5) : coolDelta;
+        t.tempOffset = Math.max(-65, prevTemp - effectiveCool);
+        const effC = getBaseBiomeTempC(t.terrain) + t.tempOffset;
+
         if (t.height === 0) {
-          damageOrBleachWaterTile(t, 260, false);
-          if (t.terrain === 'shallow_water' && dSq <= maxRSq * 0.3 && !t.buildingId) {
-            t.terrain = 'snow';
-            t.height = 1;
-            t.resourceNode = 'none';
-            t.resourceAmount = 0;
-            t.coralBleachTimer = 0;
+          // Gradually freeze water surface into walkable sea ice (height stays 0 — never creates fake land!)
+          if ((t.terrain === 'shallow_water' || t.terrain === 'deep_water') && !t.buildingId && effC <= 0) {
+            t.frozenWaterBase = t.terrain;
+            t.terrain = 'ice';
           }
           continue;
         }
         if (!t.buildingId) {
-          if (dSq <= maxRSq * 0.55) {
-            t.terrain = 'snow';
+          if (t.terrain === 'scorched' && effC <= 20) {
+            t.terrain = 'rock';
           } else if (
-            t.terrain === 'grass' ||
-            t.terrain === 'fertile' ||
-            t.terrain === 'savanna' ||
-            t.terrain === 'swamp' ||
-            t.terrain === 'scorched' ||
-            t.terrain === 'blossom'
+            (t.terrain === 'sand' ||
+              t.terrain === 'badlands' ||
+              t.terrain === 'savanna' ||
+              t.terrain === 'jungle' ||
+              t.terrain === 'swamp') &&
+            effC <= 14
+          ) {
+            t.terrain = 'grass';
+          } else if (
+            (t.terrain === 'grass' || t.terrain === 'fertile' || t.terrain === 'blossom' || t.terrain === 'forest') &&
+            effC <= 4
           ) {
             t.terrain = 'tundra';
+          } else if (
+            (t.terrain === 'tundra' ||
+              t.terrain === 'taiga' ||
+              t.terrain === 'rock' ||
+              t.terrain === 'highland' ||
+              t.terrain === 'mountain') &&
+            effC <= -6
+          ) {
+            t.terrain = 'snow';
           }
         }
       }
@@ -2359,8 +2445,12 @@ function applyExpandingWaveSlice(
         const dSq = (u.x - targetX) ** 2 + (u.z - targetZ) ** 2;
         if (dSq <= unitMaxSq && dSq <= maxRSq) {
           appliedIds.add(u.id);
-          u.statusEffects.frozen = 7.5;
-          u.hp = Math.max(0, u.hp - 28);
+          const ut = getTile(state, Math.round(u.x), Math.round(u.z));
+          const uEffC = ut ? getBaseBiomeTempC(ut.terrain) + (ut.tempOffset ?? 0) : 5;
+          const deepChill = uEffC <= 2 || dSq <= maxRSq * 0.35;
+          u.statusEffects.frozen = Math.max(u.statusEffects.frozen ?? 0, deepChill ? 5.5 : 2.2);
+          const dmg = deepChill ? (u.role === 'dragon' ? 24 : 12) : 5;
+          u.hp = Math.max(0, u.hp - dmg);
           if (u.hp <= 0) {
             u.state = 'ko';
             u.koTimer = 0.45;
@@ -2373,7 +2463,11 @@ function applyExpandingWaveSlice(
         const dSq = (b.tileX - targetX) ** 2 + (b.tileZ - targetZ) ** 2;
         if (dSq <= unitMaxSq && dSq <= maxRSq) {
           appliedIds.add(b.id);
-          b.hp = Math.max(0, b.hp - 40);
+          const bt = getTile(state, b.tileX, b.tileZ);
+          const bEffC = bt ? getBaseBiomeTempC(bt.terrain) + (bt.tempOffset ?? 0) : 5;
+          if (bEffC <= -12) {
+            b.hp = Math.max(0, b.hp - 22);
+          }
         }
       }
       for (const v of state.vehicles ?? []) {
@@ -2381,7 +2475,7 @@ function applyExpandingWaveSlice(
         const dSq = (v.x - targetX) ** 2 + (v.z - targetZ) ** 2;
         if (dSq <= unitMaxSq && dSq <= maxRSq) {
           appliedIds.add(v.id);
-          v.hp = Math.max(0, (v.hp ?? 100) - 35);
+          v.hp = Math.max(0, (v.hp ?? 100) - 18);
         }
       }
       break;
@@ -2456,34 +2550,13 @@ function applyExpandingWaveSlice(
     }
 
     case 'curse_wave': {
+      // Occult Abyssal Hex: corrupts souls & rots structures (leaves biome terrain & sea reefs distinct from Plague Spore!)
       for (const t of state.tiles) {
         const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
         if (dSq > tileMaxSq || dSq > maxRSq) continue;
         if (prevR > 0 && dSq < tileMinSq) continue;
         t.cursedTimer = 30;
         t.blessedTimer = 0;
-        if (t.height <= 0) {
-          damageOrBleachWaterTile(t, 260, false);
-          continue;
-        }
-        if (!t.buildingId) {
-          if (t.terrain === 'fertile' || t.terrain === 'forest' || t.terrain === 'jungle' || t.terrain === 'blossom') {
-            t.terrain = dSq <= maxRSq * 0.45 ? 'swamp' : 'savanna';
-          } else if (t.terrain === 'grass' || t.terrain === 'taiga') {
-            t.terrain = dSq <= 4.5 ? 'scorched' : dSq <= maxRSq * 0.6 ? 'swamp' : 'savanna';
-          } else if (t.terrain === 'savanna' || t.terrain === 'sand' || t.terrain === 'badlands') {
-            t.terrain = dSq <= maxRSq * 0.5 ? 'scorched' : 'sand';
-          } else if (t.terrain === 'tundra') {
-            t.terrain = 'rock';
-          }
-        }
-        if (t.resourceNode === 'berry_bush' || t.resourceNode === 'timber_grove') {
-          t.resourceAmount = Math.floor(t.resourceAmount * 0.4);
-          if (t.resourceAmount < 20) {
-            t.resourceNode = 'none';
-            t.resourceAmount = 0;
-          }
-        }
       }
       for (const u of state.units) {
         if (u.state === 'ko' || u.statusEffects.shielded || appliedIds.has(u.id)) continue;
@@ -2739,7 +2812,39 @@ export function executeGodPowerImpact(
     case 'eureka': {
       isHeavy = true;
       grantResourcesToKingdomOrPool(state, { knowledge: 140 });
-      state.epochProgress = Math.min(100, state.epochProgress + 22);
+      const liveKids = getLiveKingdomIds(state);
+      const boostKids = new Set<string>();
+      const reachSq = (r * 2.6) ** 2;
+      for (const b of state.buildings) {
+        if (b.settlementId && (b.tileX - targetX) ** 2 + (b.tileZ - targetZ) ** 2 <= reachSq) {
+          boostKids.add(getKingdomId(state, b.settlementId));
+        }
+      }
+      for (const u of state.units) {
+        if (u.faction === 'civilization' && u.state !== 'ko' && (u.x - targetX) ** 2 + (u.z - targetZ) ** 2 <= reachSq) {
+          const kid = u.kingdomId ?? (u.settlementId ? getKingdomId(state, u.settlementId) : undefined);
+          if (kid) boostKids.add(kid);
+        }
+      }
+      const targetKids = boostKids.size > 0 ? Array.from(boostKids) : liveKids;
+      if (targetKids.length > 0) {
+        if (!state.kingdomEpochProgress) state.kingdomEpochProgress = {};
+        for (const kid of targetKids) {
+          const curEp = getKingdomEpoch(state, kid);
+          if (curEp < EPOCHS.length - 1) {
+            const nextProg = (state.kingdomEpochProgress[kid] ?? 0) + 22;
+            if (nextProg >= 100) {
+              advanceKingdomEpoch(state, kid, false, { freeFromProgress: true, skipAverageSync: true });
+            } else {
+              state.kingdomEpochProgress[kid] = nextProg;
+            }
+          }
+        }
+        syncAverageEpochFromKingdoms(state);
+      } else {
+        state.epochProgress = Math.min(100, state.epochProgress + 22);
+      }
+
       for (const u of state.units) {
         const dSq = (u.x - targetX) ** 2 + (u.z - targetZ) ** 2;
         if (dSq <= rSq && u.faction === 'civilization') {
@@ -2752,6 +2857,13 @@ export function executeGodPowerImpact(
           b.constructionProgress = 100;
           b.hp = b.maxHp;
           b.blessedTimer = 25;
+          b.cursedTimer = 0;
+        }
+      }
+      for (const v of state.vehicles ?? []) {
+        const dSq = (v.x - targetX) ** 2 + (v.z - targetZ) ** 2;
+        if (dSq <= rSq) {
+          v.hp = v.maxHp ?? 150;
         }
       }
       // Pave stone roads around structures & crystallize nearby stone outcrops
@@ -2771,7 +2883,7 @@ export function executeGodPowerImpact(
           }
         }
       }
-      addChronicle(state, 'Divine Insight granted +140 Research, completed builds, and paved roads!', 'divine');
+      addChronicle(state, 'Divine Insight granted +140 Knowledge, boosted kingdom eras, repaired ships & completed builds!', 'divine');
       break;
     }
 
@@ -2784,7 +2896,18 @@ export function executeGodPowerImpact(
         if (u.faction === 'civilization' && u.state !== 'ko') {
           u.hp = u.maxHp;
           u.statusEffects.blessed = 35;
+          delete u.statusEffects.cursed;
+          delete u.statusEffects.plagued;
+          delete u.statusEffects.frozen;
         }
+      }
+      for (const b of state.buildings) {
+        b.hp = b.maxHp;
+        b.cursedTimer = 0;
+        b.blessedTimer = Math.max(b.blessedTimer, 20);
+      }
+      for (const v of state.vehicles ?? []) {
+        v.hp = v.maxHp ?? 150;
       }
       for (const t of state.tiles) {
         const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
@@ -2811,7 +2934,7 @@ export function executeGodPowerImpact(
           spawnUnit(state, sp, hub.tileX, hub.tileZ, true, sid, { ageStage: 'adult' });
         }
       }
-      addChronicle(state, 'Golden Age dawned! 2x output, imperial roads, and booming towns.', 'epoch');
+      addChronicle(state, 'Golden Age dawned! +60 God Energy, 2x kingdom output, full repairs & booming towns.', 'epoch');
       break;
     }
 
@@ -2905,7 +3028,7 @@ export function executeGodPowerImpact(
       applyExpandingWaveSlice(state, 'curse_wave', targetX, targetZ, r, 0, seedR, getWaveAppliedSet(haz));
       state.activeHazards.push(haz);
       state.happiness = Math.max(10, state.happiness - 10);
-      addChronicle(state, 'Abyssal Curse crept outward across the land into dark mire.', 'warning');
+      addChronicle(state, 'Abyssal Hex cursed souls and rotted structures across the region.', 'warning');
       break;
     }
 
@@ -2923,17 +3046,22 @@ export function executeGodPowerImpact(
       });
       for (const u of state.units) {
         const dSq = (u.x - targetX) ** 2 + (u.z - targetZ) ** 2;
-        if (dSq <= rSq && !u.statusEffects.shielded) {
+        const isConstructOrImmune =
+          u.role === 'skeleton' ||
+          u.role === 'alien_trooper' ||
+          u.role === 'alien_ufo' ||
+          u.role === 'alien_walker' ||
+          u.role === 'unicorn' ||
+          u.role === 'dragon';
+        if (dSq <= rSq && !u.statusEffects.shielded && !isConstructOrImmune) {
           u.statusEffects.plagued = 26;
         }
       }
       for (const t of state.tiles) {
         const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
         if (dSq <= rSq && t.height === 0) {
-          t.cursedTimer = 20;
           damageOrBleachWaterTile(t, 260, false);
         } else if (dSq <= rSq && t.height > 0) {
-          t.cursedTimer = 20;
           if (!t.buildingId && dSq <= rSq * 0.65) {
             if (
               t.terrain === 'fertile' ||
@@ -2954,7 +3082,7 @@ export function executeGodPowerImpact(
         }
       }
       state.happiness = Math.max(15, state.happiness - 12);
-      addChronicle(state, 'Bio-Toxic Plague Miasma corrupted the land into a festering swamp!', 'warning');
+      addChronicle(state, 'Plague Spore unleashed a contagious blight, spoiling crops into festering marsh!', 'warning');
       break;
     }
 
@@ -3202,6 +3330,7 @@ export function executeGodPowerImpact(
             waterSumZ += t.z;
             damageOrBleachWaterTile(t, 400, true);
             t.terrain = dSq <= 12.0 ? 'deep_water' : 'shallow_water';
+            delete t.frozenWaterBase;
             t.onFireTimer = 0;
             continue;
           }
@@ -3392,10 +3521,33 @@ export function executeGodPowerImpact(
         tickTimer: 0,
         exploded: false,
       });
-      state.resources.energy += 220;
-      state.resources.alloy += 140;
-      state.resources.knowledge += 160;
-      state.epochProgress = Math.min(100, state.epochProgress + 28);
+      grantResourcesToKingdomOrPool(state, { alloy: 140, knowledge: 160, faith: 25 });
+      const liveKids = getLiveKingdomIds(state);
+      const nearKids = new Set<string>();
+      const kReachSq = (r * 2.8) ** 2;
+      for (const b of state.buildings) {
+        if (b.settlementId && (b.tileX - targetX) ** 2 + (b.tileZ - targetZ) ** 2 <= kReachSq) {
+          nearKids.add(getKingdomId(state, b.settlementId));
+        }
+      }
+      const targetKids = nearKids.size > 0 ? Array.from(nearKids) : liveKids;
+      if (targetKids.length > 0) {
+        if (!state.kingdomEpochProgress) state.kingdomEpochProgress = {};
+        for (const kid of targetKids) {
+          if (getKingdomEpoch(state, kid) < EPOCHS.length - 1) {
+            const np = (state.kingdomEpochProgress[kid] ?? 0) + 28;
+            if (np >= 100) {
+              advanceKingdomEpoch(state, kid, false, { freeFromProgress: true, skipAverageSync: true });
+            } else {
+              state.kingdomEpochProgress[kid] = np;
+            }
+          }
+        }
+        syncAverageEpochFromKingdoms(state);
+      } else {
+        state.epochProgress = Math.min(100, state.epochProgress + 28);
+      }
+
       for (const t of state.tiles) {
         const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
         if (dSq <= rSq && t.height > 0 && !t.buildingId) {
@@ -3429,7 +3581,7 @@ export function executeGodPowerImpact(
           v.hp = Math.max(0, (v.hp ?? 100) - 120);
         }
       }
-      addChronicle(state, 'Black Hole singularity tore open, orbiting land & life before critical collapse!', 'epoch');
+      addChronicle(state, 'Black Hole singularity tore open, boosting kingdom alloys & research before supernova collapse!', 'epoch');
       break;
     }
 
@@ -3439,8 +3591,7 @@ export function executeGodPowerImpact(
     }
 
     case 'heat_wave': {
-      isHeavy = true;
-      // Cancel any expanding freeze front nearby so opposing waves don't re-freeze behind this heat wave
+      isHeavy = false;
       state.activeHazards = state.activeHazards.filter(
         (h) => h.kind !== 'freeze_wave_zone' || Math.hypot(h.x - targetX, h.z - targetZ) > r + h.radius,
       );
@@ -3453,13 +3604,13 @@ export function executeGodPowerImpact(
         currentRadius: seedR,
         maxRadius: r,
         radius: r,
-        remaining: 1.65,
-        duration: 1.65,
+        remaining: 0.45,
+        duration: 0.45,
         tickTimer: 0,
       };
       applyExpandingWaveSlice(state, 'heat_wave_zone', targetX, targetZ, r, 0, seedR, getWaveAppliedSet(haz));
       state.activeHazards.push(haz);
-      addChronicle(state, 'A scorching Heat Wave swept outward, melting frost and igniting dry ground!', 'warning');
+      addChronicle(state, 'Thermal Heat Wave warmed the region, melting ice and scorching dry brush!', 'warning');
       break;
     }
 
@@ -3477,13 +3628,13 @@ export function executeGodPowerImpact(
         currentRadius: seedR,
         maxRadius: r,
         radius: r,
-        remaining: 1.75,
-        duration: 1.75,
+        remaining: 0.45,
+        duration: 0.45,
         tickTimer: 0,
       };
       applyExpandingWaveSlice(state, 'freeze_wave_zone', targetX, targetZ, r, 0, seedR, getWaveAppliedSet(haz));
       state.activeHazards.push(haz);
-      addChronicle(state, 'A Sub-Zero Frost Wave crept across the earth, extinguishing fires and freezing units!', 'divine');
+      addChronicle(state, 'Sub-Zero Frost Wave chilled the region, freezing seas and snowing meadows!', 'divine');
       break;
     }
 
@@ -3753,6 +3904,68 @@ export function executeGodPowerImpact(
 
     case 'volcano_eruption': {
       isHeavy = true;
+      const isUnderwaterEruption =
+        !centerTile ||
+        centerTile.height === 0 ||
+        centerTile.terrain === 'deep_water' ||
+        centerTile.terrain === 'shallow_water' ||
+        centerTile.terrain === 'ice';
+
+      if (isUnderwaterEruption) {
+        // Underwater Hydrothermal / Submarine Eruption: boils sea, melts sea ice, unleashes Tsunami — NEVER creates dry land from water!
+        const tsunamiMaxRadius = r * 3.4;
+        state.activeHazards.push({
+          id: nextEntityId('haz'),
+          kind: 'tsunami_wave',
+          x: targetX,
+          z: targetZ,
+          currentRadius: 1.2,
+          maxRadius: tsunamiMaxRadius,
+          radius: r,
+          remaining: 4.2,
+          duration: 4.2,
+          tickTimer: 0,
+        });
+        for (const t of state.tiles) {
+          const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
+          if (dSq <= rSq) {
+            t.blessedTimer = 0;
+            t.tempOffset = Math.min(80, (t.tempOffset ?? 0) + 32);
+            if (t.height === 0) {
+              damageOrBleachWaterTile(t, 450, true);
+              if (t.terrain === 'ice') {
+                t.terrain = 'shallow_water';
+                delete t.frozenWaterBase;
+              }
+              if (dSq <= rSq * 0.55 && t.terrain !== 'stone_road' && t.terrain !== 'rail_track') {
+                t.terrain = 'deep_water';
+              }
+            } else if (!t.buildingId && dSq <= rSq * 0.65) {
+              t.terrain = 'scorched';
+            }
+          }
+        }
+        for (const u of state.units) {
+          const dSq = (u.x - targetX) ** 2 + (u.z - targetZ) ** 2;
+          if (dSq <= rSq && u.state !== 'ko' && !u.statusEffects.shielded) {
+            u.hp = Math.max(0, u.hp - 180);
+            if (u.hp <= 0) {
+              u.state = 'ko';
+              u.koTimer = 0.45;
+              if (u.faction === 'hostile') state.totalRaidersDefeated += 1;
+            }
+          }
+        }
+        for (const v of state.vehicles ?? []) {
+          const dSq = (v.x - targetX) ** 2 + (v.z - targetZ) ** 2;
+          if (dSq <= rSq) {
+            v.hp = Math.max(0, (v.hp ?? 100) - 240);
+          }
+        }
+        addChronicle(state, 'Submarine Volcano erupted beneath the waves, boiling the sea and spawning a Tsunami!', 'warning');
+        break;
+      }
+
       const coneR = Math.max(4.5, r * 0.72);
       const coneRSq = coneR * coneR;
       const blastR = Math.max(r * 1.35, 8.5);
@@ -3765,8 +3978,13 @@ export function executeGodPowerImpact(
 
         if (dSq <= coneRSq) {
           const dist = Math.sqrt(dSq);
-          if (t.height === 0 && dist > coneR * 0.6) {
+          if (t.height === 0) {
+            // Never raise ocean water tiles into land around coastal volcano!
             damageOrBleachWaterTile(t, 400, true);
+            if (t.terrain === 'ice') {
+              t.terrain = t.frozenWaterBase ?? 'shallow_water';
+              delete t.frozenWaterBase;
+            }
             continue;
           }
           if (!t.buildingId) {
@@ -3887,15 +4105,8 @@ export function executeGodPowerImpact(
         t.blessedTimer = 0;
         t.cursedTimer = 0;
         if (t.height === 0) {
-          if (t.terrain === 'shallow_water' && dSq <= rSq * 0.45 && !t.buildingId) {
-            t.height = 1;
-            t.terrain = 'void_goo';
-            t.resourceNode = 'none';
-            t.resourceAmount = 0;
-            infectedCount++;
-          } else {
-            damageOrBleachWaterTile(t, 320, true);
-          }
+          // Never create fake elevated land out of open ocean!
+          damageOrBleachWaterTile(t, 320, true);
           continue;
         }
         t.terrain = 'void_goo';
@@ -3951,6 +4162,207 @@ export function executeGodPowerImpact(
       );
       break;
     }
+
+    case 'undead_portal': {
+      isHeavy = true;
+      state.activeHazards.push({
+        id: nextEntityId('haz'),
+        kind: 'undead_portal',
+        x: targetX,
+        z: targetZ,
+        radius: r,
+        remaining: 22.0,
+        duration: 22.0,
+        tickTimer: 0.2,
+        portalSpawnCount: 0,
+      });
+      // Immediately curse & darken the ground beneath the rift (without changing ocean height)
+      for (const t of state.tiles) {
+        const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
+        if (dSq <= 9.0) {
+          t.cursedTimer = 25;
+          t.blessedTimer = 0;
+        }
+      }
+      // Initial vanguard skeletons
+      for (let i = 0; i < 2; i++) {
+        const sx = Math.max(2, Math.min(state.gridSize - 3, targetX + (i === 0 ? -1 : 1)));
+        const sz = Math.max(2, Math.min(state.gridSize - 3, targetZ + (i === 0 ? 1 : -1)));
+        spawnUnit(state, 'skeleton', sx, sz, true);
+      }
+      addChronicle(state, 'A Necrotic Rift tore open, pouring risen Skeleton warriors into the realm!', 'warning');
+      break;
+    }
+
+    case 'alien_invasion': {
+      isHeavy = true;
+      state.activeHazards.push({
+        id: nextEntityId('haz'),
+        kind: 'alien_mothership',
+        x: targetX,
+        z: targetZ,
+        radius: r,
+        remaining: 15.8,
+        duration: 15.8,
+        tickTimer: 0.4,
+        beaconTimer: 2.0,
+        laserSubTimer: 0.4,
+        portalSpawnCount: 0,
+      });
+      addChronicle(state, 'Probe Remote activated on land! An immense Alien Mothership is gliding into low orbit!', 'warning');
+      break;
+    }
+
+    case 'chrono_surge': {
+      isHeavy = true;
+      state.activeHazards.push({
+        id: nextEntityId('haz'),
+        kind: 'chrono_field',
+        x: targetX,
+        z: targetZ,
+        radius: r,
+        remaining: 14.0,
+        duration: 14.0,
+        tickTimer: 0.35,
+      });
+      // Immediate chronological pulse: regrow harvests, finish buildings, heal units/vehicles, boost nearby kingdom progress
+      for (const t of state.tiles) {
+        const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
+        if (dSq <= rSq && t.height > 0 && !t.buildingId) {
+          if (t.resourceNode === 'berry_bush' || t.resourceNode === 'timber_grove') {
+            t.resourceAmount = Math.min(450, t.resourceAmount + 180);
+          } else if (t.terrain === 'fertile' && t.resourceNode === 'none' && ((t.x * 13 + t.z * 7) % 5 === 0)) {
+            t.resourceNode = 'berry_bush';
+            t.resourceAmount = 220;
+          }
+        }
+      }
+      const boostKids = new Set<string>();
+      for (const b of state.buildings) {
+        if ((b.tileX - targetX) ** 2 + (b.tileZ - targetZ) ** 2 <= rSq) {
+          b.constructionProgress = 100;
+          b.hp = b.maxHp;
+          b.upgradeProgress = Math.min(99, (b.upgradeProgress ?? 0) + 45);
+          if (b.settlementId) boostKids.add(getKingdomId(state, b.settlementId));
+        }
+      }
+      for (const v of state.vehicles ?? []) {
+        if ((v.x - targetX) ** 2 + (v.z - targetZ) ** 2 <= rSq) {
+          v.hp = v.maxHp ?? 150;
+        }
+      }
+      for (const u of state.units) {
+        if (u.faction === 'civilization' && u.state !== 'ko' && (u.x - targetX) ** 2 + (u.z - targetZ) ** 2 <= rSq) {
+          u.hp = Math.min(u.maxHp, u.hp + 55);
+          u.statusEffects.blessed = 20;
+          if (u.ageStage === 'child') {
+            u.growthTimer = Math.max(0.5, (u.growthTimer ?? 12) * 0.25);
+          }
+          const kid = u.kingdomId ?? (u.settlementId ? getKingdomId(state, u.settlementId) : undefined);
+          if (kid) boostKids.add(kid);
+        }
+      }
+      if (boostKids.size > 0) {
+        if (!state.kingdomEpochProgress) state.kingdomEpochProgress = {};
+        for (const kid of boostKids) {
+          if (getKingdomEpoch(state, kid) < EPOCHS.length - 1) {
+            const np = (state.kingdomEpochProgress[kid] ?? 0) + 18;
+            if (np >= 100) {
+              advanceKingdomEpoch(state, kid, false, { freeFromProgress: true, skipAverageSync: true });
+            } else {
+              state.kingdomEpochProgress[kid] = np;
+            }
+          }
+        }
+        syncAverageEpochFromKingdoms(state);
+      }
+      addChronicle(state, 'Chrono Warp accelerated time! Constructions finished, harvests bloomed, and kingdoms surged!', 'divine');
+      break;
+    }
+
+    case 'harmony_dove': {
+      isHeavy = false;
+      const nearbyKids = new Set<string>();
+      for (const b of state.buildings) {
+        if (b.settlementId && (b.tileX - targetX) ** 2 + (b.tileZ - targetZ) ** 2 <= rSq) {
+          nearbyKids.add(getKingdomId(state, b.settlementId));
+        }
+      }
+      for (const u of state.units) {
+        const dSq = (u.x - targetX) ** 2 + (u.z - targetZ) ** 2;
+        if (dSq <= rSq && u.state !== 'ko') {
+          delete u.statusEffects.frenzied;
+          delete u.statusEffects.cursed;
+          delete u.statusEffects.plagued;
+          if (u.faction === 'civilization') {
+            u.hp = Math.min(u.maxHp, u.hp + 45);
+            u.statusEffects.blessed = 20;
+            const kid = u.kingdomId ?? (u.settlementId ? getKingdomId(state, u.settlementId) : undefined);
+            if (kid) nearbyKids.add(kid);
+          } else if (u.faction === 'wildlife') {
+            u.state = 'idle';
+            u.targetEntityId = null;
+            u.underAttackTimer = 0;
+          }
+        }
+      }
+      const kidsArr = nearbyKids.size >= 2 ? Array.from(nearbyKids) : getLiveKingdomIds(state);
+      for (let i = 0; i < kidsArr.length; i++) {
+        for (let j = i + 1; j < kidsArr.length; j++) {
+          setKingdomRelation(state, kidsArr[i], kidsArr[j], 'allied');
+        }
+      }
+      for (const t of state.tiles) {
+        const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
+        if (dSq <= rSq && t.height > 0) {
+          t.cursedTimer = 0;
+          t.onFireTimer = 0;
+          t.blessedTimer = 30;
+          if (!t.buildingId && dSq <= rSq * 0.55 && (t.terrain === 'grass' || t.terrain === 'savanna')) {
+            t.terrain = (t.x + t.z) % 3 === 0 ? 'blossom' : 'fertile';
+          }
+        }
+      }
+      state.happiness = Math.min(100, state.happiness + 20);
+      addChronicle(state, 'Peace Accord descended like a golden dove — ending wars, calming beasts, and blooming meadows!', 'divine');
+      break;
+    }
+
+    case 'solar_orbital_laser': {
+      isHeavy = true;
+      const sweepAngle = (((targetX * 23 + targetZ * 41) & 63) / 64) * Math.PI * 2;
+      state.activeHazards.push({
+        id: nextEntityId('haz'),
+        kind: 'orbital_beam',
+        x: targetX,
+        z: targetZ,
+        radius: r,
+        remaining: 4.5,
+        duration: 4.5,
+        tickTimer: 0,
+        beamDirX: Math.cos(sweepAngle),
+        beamDirZ: Math.sin(sweepAngle),
+      });
+      addChronicle(state, 'Helios Orbital Beam locked onto coordinates, carving a scorching solar trench!', 'warning');
+      break;
+    }
+
+    case 'gravity_flip': {
+      isHeavy = true;
+      state.activeHazards.push({
+        id: nextEntityId('haz'),
+        kind: 'gravity_anomaly',
+        x: targetX,
+        z: targetZ,
+        radius: r,
+        remaining: 5.5,
+        duration: 5.5,
+        tickTimer: 0,
+        exploded: false,
+      });
+      addChronicle(state, 'Gravity Flux inverted local weight — mortals and beasts floated skyward!', 'warning');
+      break;
+    }
   }
 
   syncStateResourcesFromKingdoms(state);
@@ -3968,6 +4380,19 @@ export function castGodPower(
   const def = GOD_POWERS.find((p) => p.type === powerType);
   if (!def) return { ok: false, reason: 'Unknown divine power' };
 
+  const centerTile = getTile(state, targetX, targetZ);
+  if (powerType === 'alien_invasion') {
+    if (
+      !centerTile ||
+      centerTile.height <= 0 ||
+      centerTile.terrain === 'deep_water' ||
+      centerTile.terrain === 'shallow_water' ||
+      centerTile.terrain === 'ice'
+    ) {
+      return { ok: false, reason: 'Probe Remote must be deployed on solid land!' };
+    }
+  }
+
   reconcileAndSyncResources(state);
   if (!state.sandboxFreeMode && state.resources.faith < def.faithCost) {
     return { ok: false, reason: `Requires ${def.faithCost} God Energy` };
@@ -3977,7 +4402,6 @@ export function castGodPower(
     spendWorldCost(state, { faith: def.faithCost });
   }
 
-  const centerTile = getTile(state, targetX, targetZ);
   const baseHeight = centerTile ? centerTile.height * 0.45 : 1.2;
 
   const deferImpact = Boolean(options?.deferImpact);
@@ -3985,6 +4409,8 @@ export function castGodPower(
     powerType !== 'blessing' &&
     powerType !== 'rain_of_plenty' &&
     powerType !== 'freeze_snap' &&
+    powerType !== 'heat_wave' &&
+    powerType !== 'harmony_dove' &&
     powerType !== 'drag_entity';
 
   const earthquakePlan =
@@ -7179,6 +7605,43 @@ function stepSimulationSingle(
             t.farmSettlementId = undefined;
           }
         }
+      } else if (haz.kind === 'undead_portal') {
+        // Spawn risen skeletons periodically from the necrotic portal (max 7 total)
+        const spawned = haz.portalSpawnCount ?? 0;
+        if (spawned < 7 && haz.remaining > 1.5) {
+          const ang = (spawned * 2.1) % (Math.PI * 2);
+          const sx = Math.max(2, Math.min(state.gridSize - 3, Math.round(haz.x + Math.cos(ang) * 1.6)));
+          const sz = Math.max(2, Math.min(state.gridSize - 3, Math.round(haz.z + Math.sin(ang) * 1.6)));
+          const skelRes = spawnUnit(state, 'skeleton', sx, sz, true);
+          if (skelRes.ok) {
+            haz.portalSpawnCount = spawned + 1;
+            const st = getTile(state, sx, sz);
+            state.pendingVfx.push({
+              id: nextEntityId('vfx'),
+              type: 'hit_spark',
+              x: sx,
+              y: (st?.height ?? 1) * 0.45 + 0.6,
+              z: sz,
+              radius: 1.5,
+              color: '#a855f7',
+              createdAt: Date.now(),
+            });
+          }
+        }
+      } else if (haz.kind === 'chrono_field') {
+        // Periodically regrow farms/groves and accelerate upgrades inside the chrono distortion
+        for (const b of state.buildings) {
+          if ((b.tileX - haz.x) ** 2 + (b.tileZ - haz.z) ** 2 <= rSq) {
+            b.hp = Math.min(b.maxHp, b.hp + 15);
+            b.upgradeProgress = Math.min(99, (b.upgradeProgress ?? 0) + 5);
+          }
+        }
+        for (const u of state.units) {
+          if (u.faction === 'civilization' && u.state !== 'ko' && (u.x - haz.x) ** 2 + (u.z - haz.z) ** 2 <= rSq) {
+            u.hp = Math.min(u.maxHp, u.hp + 8);
+            if (!u.statusEffects.blessed) u.statusEffects.blessed = 4;
+          }
+        }
       }
     }
 
@@ -7488,6 +7951,10 @@ function stepSimulationSingle(
           t.cursedTimer = 0;
           if (t.height === 0) {
             damageOrBleachWaterTile(t, 260, dSq <= (haz.radius * 1.85) ** 2);
+            if (t.terrain === 'ice') {
+              t.terrain = t.frozenWaterBase ?? 'shallow_water';
+              delete t.frozenWaterBase;
+            }
             if (!t.isRiver && !t.isLake && dSq <= (haz.radius * 1.15) ** 2 && t.terrain !== 'stone_road' && t.terrain !== 'rail_track') {
               t.terrain = 'deep_water';
             }
@@ -7862,6 +8329,234 @@ function stepSimulationSingle(
       }
     }
 
+    // Alien Mothership Siege ('alien_mothership'): beacon drop -> giant walkers + UFOs + troopers + orbital annihilation laser salvos
+    if (haz.kind === 'alien_mothership') {
+      if ((haz.beaconTimer ?? 0) > 0) {
+        haz.beaconTimer = Math.max(0, (haz.beaconTimer ?? 0) - dt);
+      } else {
+        const phase = haz.portalSpawnCount ?? 0;
+        const pickLandPoint = (angle: number, dist: number): { x: number; z: number } => {
+          const distScales = [1.0, 0.65, 1.35];
+          const angleOffsets = [0, 0.35, -0.35, 0.75, -0.75];
+          for (const scale of distScales) {
+            for (const aOff of angleOffsets) {
+              const candX = Math.max(2, Math.min(state.gridSize - 3, Math.round(haz.x + Math.cos(angle + aOff) * dist * scale)));
+              const candZ = Math.max(2, Math.min(state.gridSize - 3, Math.round(haz.z + Math.sin(angle + aOff) * dist * scale)));
+              const ct = getTile(state, candX, candZ);
+              if (ct && ct.height > 0 && !ct.buildingId) return { x: candX, z: candZ };
+            }
+          }
+          for (const scale of distScales) {
+            for (const aOff of angleOffsets) {
+              const candX = Math.max(2, Math.min(state.gridSize - 3, Math.round(haz.x + Math.cos(angle + aOff) * dist * scale)));
+              const candZ = Math.max(2, Math.min(state.gridSize - 3, Math.round(haz.z + Math.sin(angle + aOff) * dist * scale)));
+              const ct = getTile(state, candX, candZ);
+              if (ct && ct.height > 0) return { x: candX, z: candZ };
+            }
+          }
+          return { x: Math.round(haz.x), z: Math.round(haz.z) };
+        };
+        if (phase === 0) {
+          haz.portalSpawnCount = 1;
+          // Vanguard drop: 2 colossal AT-Walker mechs, 3 Scout UFOs, and a 14-trooper walking invasion force
+          for (let i = 0; i < 2; i++) {
+            const pt = pickLandPoint(i * Math.PI + 0.5, 4.4);
+            spawnUnit(state, 'alien_walker', pt.x, pt.z, true);
+          }
+          for (let i = 0; i < 3; i++) {
+            const ang = (i / 3) * Math.PI * 2;
+            const ux = Math.max(2, Math.min(state.gridSize - 3, Math.round(haz.x + Math.cos(ang) * 5.0)));
+            const uz = Math.max(2, Math.min(state.gridSize - 3, Math.round(haz.z + Math.sin(ang) * 5.0)));
+            spawnUnit(state, 'alien_ufo', ux, uz, true);
+          }
+          for (let i = 0; i < 14; i++) {
+            const ringDist = i < 6 ? 2.4 : 4.1;
+            const pt = pickLandPoint((i / 14) * Math.PI * 2 + 0.25, ringDist);
+            spawnUnit(state, 'alien_trooper', pt.x, pt.z, true);
+          }
+          addChronicle(state, 'The Alien Mothership locked overhead! AT-Walkers, Scout UFOs & alien shock legions are landing!', 'warning');
+        }
+        // Only rain orbital salvos & drops while locked in stationary siege hover (cease before hyperspace jump-out)
+        if (haz.remaining > 3.3) {
+        // Continuous ground-invasion reinforcement waves across the ~10s siege hover
+        const siegeElapsed = Math.max(0, haz.duration - 2.0 - haz.remaining);
+        const targetDropWave = Math.min(7, 1 + Math.floor(siegeElapsed / 1.35));
+        while ((haz.portalSpawnCount ?? 1) < targetDropWave) {
+          const waveNum = (haz.portalSpawnCount ?? 1) + 1;
+          haz.portalSpawnCount = waveNum;
+          const waveDist = 2.4 + (waveNum % 3) * 1.4;
+          for (let ti = 0; ti < 4; ti++) {
+            const ang = (waveNum * 1.15) + (ti / 4) * Math.PI * 2;
+            const rp = pickLandPoint(ang, waveDist);
+            spawnUnit(state, 'alien_trooper', rp.x, rp.z, true);
+          }
+          if (waveNum === 2 || waveNum === 4) {
+            const wp = pickLandPoint(waveNum * 1.7, 4.6);
+            spawnUnit(state, 'alien_walker', wp.x, wp.z, true);
+          }
+          if (waveNum === 3) {
+            const ux = Math.max(2, Math.min(state.gridSize - 3, Math.round(haz.x + Math.cos(waveNum) * 4.5)));
+            const uz = Math.max(2, Math.min(state.gridSize - 3, Math.round(haz.z + Math.sin(waveNum) * 4.5)));
+            spawnUnit(state, 'alien_ufo', ux, uz, true);
+          }
+        }
+        haz.laserSubTimer = (haz.laserSubTimer ?? 0) - dt;
+        if (haz.laserSubTimer <= 0) {
+          haz.laserSubTimer = 1.85;
+          // Pick a nearby civilization building or unit within mothership shadow radius (or scorch random point inside shadow)
+          let strikeX = haz.x + (Math.random() - 0.5) * haz.radius * 1.1;
+          let strikeZ = haz.z + (Math.random() - 0.5) * haz.radius * 1.1;
+          const bTarget = state.buildings.find(
+            (b) => b.hp > 0 && (b.tileX - haz.x) ** 2 + (b.tileZ - haz.z) ** 2 <= (haz.radius * 1.15) ** 2,
+          );
+          if (bTarget) {
+            strikeX = bTarget.tileX;
+            strikeZ = bTarget.tileZ;
+          } else {
+            const uTarget = state.units.find(
+              (u) => u.faction === 'civilization' && u.state !== 'ko' && (u.x - haz.x) ** 2 + (u.z - haz.z) ** 2 <= (haz.radius * 1.15) ** 2,
+            );
+            if (uTarget) {
+              strikeX = uTarget.x;
+              strikeZ = uTarget.z;
+            }
+          }
+          strikeX = Math.max(2, Math.min(state.gridSize - 3, strikeX));
+          strikeZ = Math.max(2, Math.min(state.gridSize - 3, strikeZ));
+          const stTile = getTile(state, Math.round(strikeX), Math.round(strikeZ));
+          const destY = (stTile?.height ?? 1) * 0.45 + 0.25;
+          state.pendingVfx.push({
+            id: nextEntityId('vfx'),
+            type: 'projectile_tracer',
+            vfxSubtype: 'laser_beam',
+            x: strikeX,
+            y: destY,
+            z: strikeZ,
+            originX: haz.x + (Math.random() - 0.5) * 3.0,
+            originY: 22.0,
+            originZ: haz.z + (Math.random() - 0.5) * 3.0,
+            radius: 2.8,
+            color: '#93c5fd',
+            createdAt: Date.now(),
+          });
+          // Apply annihilation blast
+          for (const t of state.tiles) {
+            const dSq = (t.x - strikeX) ** 2 + (t.z - strikeZ) ** 2;
+            if (dSq <= 6.25) {
+              if (t.height === 0) {
+                damageOrBleachWaterTile(t, 280, true);
+                if (t.terrain === 'ice') {
+                  t.terrain = t.frozenWaterBase ?? 'shallow_water';
+                  delete t.frozenWaterBase;
+                }
+              } else if (!t.buildingId) {
+                t.terrain = 'scorched';
+                t.onFireTimer = Math.max(t.onFireTimer, 6.0);
+              }
+            }
+          }
+          for (const b of state.buildings) {
+            if (b.shieldTimer <= 0 && (b.tileX - strikeX) ** 2 + (b.tileZ - strikeZ) ** 2 <= 6.5) {
+              b.hp = Math.max(0, b.hp - 210);
+            }
+          }
+          for (const u of state.units) {
+            if (
+              u.state !== 'ko' &&
+              u.role !== 'alien_trooper' &&
+              u.role !== 'alien_ufo' &&
+              u.role !== 'alien_walker' &&
+              !u.statusEffects.shielded &&
+              (u.x - strikeX) ** 2 + (u.z - strikeZ) ** 2 <= 6.8
+            ) {
+              u.hp = Math.max(0, u.hp - 160);
+              if (u.hp <= 0) {
+                u.state = 'ko';
+                u.koTimer = 0.45;
+              }
+            }
+          }
+          for (const v of state.vehicles ?? []) {
+            if ((v.x - strikeX) ** 2 + (v.z - strikeZ) ** 2 <= 6.8) {
+              v.hp = Math.max(0, (v.hp ?? 100) - 180);
+            }
+          }
+        }
+        }
+      }
+    }
+
+    // Sweeping Helios Solar Orbital Beam ('orbital_beam'): tracks across land superheating terrain, melting ice & vaporizing targets
+    if (haz.kind === 'orbital_beam') {
+      const bx = haz.beamDirX ?? 1;
+      const bz = haz.beamDirZ ?? 0;
+      haz.x = Math.max(2, Math.min(state.gridSize - 3, haz.x + bx * 4.2 * dt));
+      haz.z = Math.max(2, Math.min(state.gridSize - 3, haz.z + bz * 4.2 * dt));
+      const bSq = (haz.radius * 0.72) ** 2;
+      for (const t of state.tiles) {
+        const dSq = (t.x - haz.x) ** 2 + (t.z - haz.z) ** 2;
+        if (dSq > bSq) continue;
+        t.tempOffset = Math.min(80, (t.tempOffset ?? 0) + 45 * dt);
+        if (t.height === 0) {
+          if (t.terrain === 'ice') {
+            t.terrain = t.frozenWaterBase ?? 'shallow_water';
+            delete t.frozenWaterBase;
+          }
+          damageOrBleachWaterTile(t, 260 * dt, true);
+        } else if (!t.buildingId) {
+          if (t.terrain === 'sand') t.terrain = 'crystal_field';
+          else if (t.terrain !== 'crystal_field') t.terrain = 'scorched';
+          t.onFireTimer = Math.max(t.onFireTimer, 7.5);
+        }
+      }
+      for (const b of state.buildings) {
+        if (b.shieldTimer <= 0 && (b.tileX - haz.x) ** 2 + (b.tileZ - haz.z) ** 2 <= bSq) {
+          b.hp = Math.max(0, b.hp - 260 * dt);
+        }
+      }
+      for (const v of state.vehicles ?? []) {
+        if ((v.x - haz.x) ** 2 + (v.z - haz.z) ** 2 <= bSq) {
+          v.hp = Math.max(0, (v.hp ?? 100) - 260 * dt);
+        }
+      }
+      for (const u of state.units) {
+        if (u.state !== 'ko' && !u.statusEffects.shielded && (u.x - haz.x) ** 2 + (u.z - haz.z) ** 2 <= bSq) {
+          u.hp = Math.max(0, u.hp - 240 * dt);
+          if (u.hp <= 0) {
+            u.state = 'ko';
+            u.koTimer = 0.45;
+            if (u.faction === 'hostile') state.totalRaidersDefeated += 1;
+          }
+        }
+      }
+    }
+
+    // Gravity Flux Anomaly ('gravity_anomaly'): floats ground units skyward, then violently slams them down on collapse!
+    if (haz.kind === 'gravity_anomaly') {
+      const pullSq = haz.radius * haz.radius;
+      for (const u of state.units) {
+        if (u.state === 'ko' || u.statusEffects.shielded || u.draggedByPlayer || u.role === 'dragon' || u.role === 'alien_ufo') continue;
+        const dSq = (u.x - haz.x) ** 2 + (u.z - haz.z) ** 2;
+        if (dSq <= pullSq) {
+          if (haz.remaining > 0) {
+            u.altitude = Math.min(8.4, (u.altitude ?? 0) + 3.2 * dt);
+            u.vzVertical = 0;
+            u.fallDamageArmed = true;
+          }
+        }
+      }
+      if (haz.remaining <= 0 && !haz.exploded) {
+        haz.exploded = true;
+        for (const u of state.units) {
+          if (u.state === 'ko' || u.statusEffects.shielded || u.draggedByPlayer || u.role === 'dragon' || u.role === 'alien_ufo') continue;
+          if ((u.x - haz.x) ** 2 + (u.z - haz.z) ** 2 <= pullSq) {
+            u.vzVertical = -18.5;
+            u.fallDamageArmed = true;
+          }
+        }
+      }
+    }
+
     if (haz.remaining > 0) {
       remainingHazards.push(haz);
     }
@@ -7934,11 +8629,26 @@ function stepSimulationSingle(
     const t = tiles[i];
     if (t.blessedTimer > 0) t.blessedTimer = Math.max(0, t.blessedTimer - dt);
     if (t.cursedTimer > 0) t.cursedTimer = Math.max(0, t.cursedTimer - dt);
+    if ((t.crushedTimer ?? 0) > 0) {
+      t.crushedTimer = Math.max(0, (t.crushedTimer ?? 0) - dt);
+    }
+    if (t.tempOffset) {
+      const decay = 0.38 * dt;
+      if (Math.abs(t.tempOffset) <= decay) {
+        delete t.tempOffset;
+      } else {
+        t.tempOffset += t.tempOffset > 0 ? -decay : decay;
+      }
+      if (t.height === 0 && t.terrain === 'ice') {
+        const iceEffC = getBaseBiomeTempC('ice') + (t.tempOffset ?? 0);
+        if (iceEffC > 2) {
+          t.terrain = t.frozenWaterBase ?? 'shallow_water';
+          delete t.frozenWaterBase;
+        }
+      }
+    }
     if (t.height === 0 && t.resourceNode === 'coral_reef') {
-      if (t.cursedTimer > 0 && (t.coralBleachTimer ?? 0) <= 0) {
-        t.resourceAmount = 0;
-        t.coralBleachTimer = 26;
-      } else if ((t.coralBleachTimer ?? 0) > 0) {
+      if ((t.coralBleachTimer ?? 0) > 0) {
         t.coralBleachTimer = Math.max(0, (t.coralBleachTimer ?? 0) - dt);
         if (t.coralBleachTimer === 0 && t.resourceAmount <= 0) {
           t.resourceAmount = 240;
@@ -8075,7 +8785,7 @@ function stepSimulationSingle(
       b.hp = Math.min(b.maxHp, b.hp + 1.5 * dt);
     }
     const bSettlementEpoch = getSettlementEpoch(state, b.settlementId);
-    if (b.constructionProgress >= 100 && b.epochLevel < bSettlementEpoch) {
+    if (b.constructionProgress >= 100 && b.epochLevel < bSettlementEpoch && b.cursedTimer <= 0) {
       const epochGap = bSettlementEpoch - b.epochLevel;
       const idOffset = ((b.id.charCodeAt(b.id.length - 1) + b.tileX * 3 + b.tileZ * 5) % 7) * 0.08;
       const blessBoost = b.blessedTimer > 0 ? 1.65 : 1.0;
@@ -8194,6 +8904,10 @@ function stepSimulationSingle(
             other.id !== u.id &&
             other.state !== 'ko' &&
             other.role !== 'unicorn' &&
+            other.role !== 'skeleton' &&
+            other.role !== 'alien_trooper' &&
+            other.role !== 'alien_ufo' &&
+            other.role !== 'alien_walker' &&
             !other.statusEffects.plagued &&
             !other.statusEffects.shielded &&
             !other.statusEffects.blessed &&
@@ -8290,13 +9004,22 @@ function stepSimulationSingle(
       hazardsList.some(
         (h) => h.kind === 'tornado_vortex' && Math.hypot(u.x - h.x, u.z - h.z) <= h.radius * 1.35,
       );
+    const suspendedInGravity =
+      !u.statusEffects.shielded &&
+      u.role !== 'dragon' &&
+      u.role !== 'alien_ufo' &&
+      hazardsList.some(
+        (h) => h.kind === 'gravity_anomaly' && h.remaining > 0 && Math.hypot(u.x - h.x, u.z - h.z) <= h.radius,
+      );
 
-    // Airborne ballistic arc & fall-damage resolution (Black Hole flings, Tornado tosses, Bombs, Drag-Tool drops)
-    let isAirborneOrDragged = Boolean(u.draggedByPlayer);
+    // Airborne ballistic arc & fall-damage resolution (Black Hole flings, Tornado tosses, Gravity Flux, Bombs, Drag-Tool drops)
+    let isAirborneOrDragged = Boolean(u.draggedByPlayer) || suspendedInGravity;
     if (
       !u.draggedByPlayer &&
       !capturedByBlackHole &&
       !capturedByTornado &&
+      !suspendedInGravity &&
+      u.role !== 'alien_ufo' &&
       !(u.role === 'leviathan' && (u.leviathanLeapTimer ?? 0) > 0)
     ) {
       const alt = u.altitude ?? 0;
@@ -10169,6 +10892,56 @@ function applySuperweaponEnvironmentImpact(
   }
 }
 
+function stampWalkerFootprints(
+  state: SimulationState,
+  u: UnitEntity,
+  prevX: number,
+  prevZ: number,
+): void {
+  if (u.walkerPrevStepX === undefined || u.walkerPrevStepZ === undefined) {
+    u.walkerPrevStepX = prevX;
+    u.walkerPrevStepZ = prevZ;
+    u.walkerStepParity = 0;
+  }
+  const sdx = u.x - u.walkerPrevStepX;
+  const sdz = u.z - u.walkerPrevStepZ;
+  const distSq = sdx * sdx + sdz * sdz;
+  if (distSq < 1.15 * 1.15) return;
+
+  const dist = Math.sqrt(distSq);
+  const fwdX = sdx / dist;
+  const fwdZ = sdz / dist;
+  const sideSign = u.walkerStepParity ? 1 : -1;
+  u.walkerStepParity = u.walkerStepParity ? 0 : 1;
+  u.walkerPrevStepX = u.x;
+  u.walkerPrevStepZ = u.z;
+
+  // Stamp deep alternating flank footpad impressions (~1.05 tiles lateral offset from centerline)
+  const footCenterX = u.x - fwdZ * sideSign * 1.05;
+  const footCenterZ = u.z + fwdX * sideSign * 1.05;
+  const minX = Math.max(1, Math.floor(footCenterX - 1.0));
+  const maxX = Math.min(state.gridSize - 2, Math.ceil(footCenterX + 1.0));
+  const minZ = Math.max(1, Math.floor(footCenterZ - 1.0));
+  const maxZ = Math.min(state.gridSize - 2, Math.ceil(footCenterZ + 1.0));
+
+  for (let tz = minZ; tz <= maxZ; tz++) {
+    for (let tx = minX; tx <= maxX; tx++) {
+      if ((tx - footCenterX) ** 2 + (tz - footCenterZ) ** 2 > 1.25) continue;
+      const t = getTile(state, tx, tz);
+      if (!t || t.height <= 0) continue; // Never alter ocean water height === 0
+      // Flatten raised terrain under colossal walker tonnage (min height stays 1)
+      if (t.height >= 2 && !t.buildingId) {
+        t.height = t.height >= 4 ? Math.max(1, t.height - 2) : Math.max(1, t.height - 1);
+      }
+      if (!t.buildingId && t.resourceNode === 'berry_bush') {
+        t.resourceNode = 'none';
+        t.resourceAmount = 0;
+      }
+      t.crushedTimer = 90;
+    }
+  }
+}
+
 function stepHostileUnitAI(
   state: SimulationState,
   u: UnitEntity,
@@ -10176,6 +10949,12 @@ function stepHostileUnitAI(
   moveSpeed: number,
   dt: number,
 ): void {
+  const startX = u.x;
+  const startZ = u.z;
+  if (u.role === 'alien_ufo') {
+    u.altitude = 4.6;
+  }
+
   if (u.role === 'raider_behemoth') {
     let nearestBld: BuildingEntity | null = null;
     let bestDistSq = Infinity;
@@ -10235,31 +11014,82 @@ function stepHostileUnitAI(
     }
   }
 
+  const isAlienRanged = u.role === 'alien_trooper' || u.role === 'alien_ufo' || u.role === 'alien_walker';
+  const beamColor = u.role === 'alien_walker' ? '#ef4444' : u.role === 'alien_ufo' ? '#22d3ee' : '#34d399';
+  const fireBeamVfx = (tx: number, tz: number, ty: number): void => {
+    const ut = getTile(state, Math.round(u.x), Math.round(u.z));
+    const originY = (ut?.height ?? 1) * 0.45 + (u.role === 'alien_ufo' ? 4.4 : u.role === 'alien_walker' ? 3.65 : 0.7);
+    state.pendingVfx.push({
+      id: nextEntityId('vfx'),
+      type: 'projectile_tracer',
+      vfxSubtype: 'laser_beam',
+      x: tx,
+      y: ty,
+      z: tz,
+      originX: u.x,
+      originY,
+      originZ: u.z,
+      radius: u.role === 'alien_walker' ? 1.5 : 0.9,
+      color: beamColor,
+      createdAt: Date.now(),
+    });
+  };
+
   if (nearestBldFallback && (!nearestCiv || bestBldDistSq + 4 < bestDistSq)) {
     const bDist = Math.sqrt(bestBldDistSq);
     if (bDist <= Math.max(1.8, def.attackRange)) {
       u.state = 'fighting';
+      u.targetX = nearestBldFallback.tileX;
+      u.targetZ = nearestBldFallback.tileZ;
       if (u.actionCooldown <= 0) {
-        u.actionCooldown = 0.85;
+        u.actionCooldown = u.role === 'alien_walker' ? 1.05 : 0.85;
         if (nearestBldFallback.shieldTimer <= 0) {
           nearestBldFallback.hp = Math.max(0, nearestBldFallback.hp - def.attackDamage * 1.25);
+        }
+        if (isAlienRanged) {
+          const bt = getTile(state, nearestBldFallback.tileX, nearestBldFallback.tileZ);
+          fireBeamVfx(nearestBldFallback.tileX, nearestBldFallback.tileZ, (bt?.height ?? 1) * 0.45 + 0.5);
         }
       }
     } else {
       u.state = 'moving';
       const dx = (nearestBldFallback.tileX - u.x) / bDist;
       const dz = (nearestBldFallback.tileZ - u.z) / bDist;
-      u.x += dx * moveSpeed * dt;
-      u.z += dz * moveSpeed * dt;
+      u.targetX = nearestBldFallback.tileX;
+      u.targetZ = nearestBldFallback.tileZ;
+      u.x = Math.max(1, Math.min(state.gridSize - 2, u.x + dx * moveSpeed * dt));
+      u.z = Math.max(1, Math.min(state.gridSize - 2, u.z + dz * moveSpeed * dt));
+      if (u.role === 'alien_walker') stampWalkerFootprints(state, u, startX, startZ);
     }
     return;
   }
 
-  if (!nearestCiv) return;
+  if (!nearestCiv) {
+    // Roam slowly around current location when no targets remain
+    if (u.actionCooldown <= 0) {
+      u.actionCooldown = 2.2;
+      const ang = Math.random() * Math.PI * 2;
+      u.targetX = Math.max(2, Math.min(state.gridSize - 3, u.x + Math.cos(ang) * 4));
+      u.targetZ = Math.max(2, Math.min(state.gridSize - 3, u.z + Math.sin(ang) * 4));
+    }
+    const rdx = (u.targetX ?? u.x) - u.x;
+    const rdz = (u.targetZ ?? u.z) - u.z;
+    const rDist = Math.hypot(rdx, rdz);
+    if (rDist > 0.4) {
+      u.state = 'moving';
+      u.x = Math.max(1, Math.min(state.gridSize - 2, u.x + (rdx / rDist) * moveSpeed * 0.65 * dt));
+      u.z = Math.max(1, Math.min(state.gridSize - 2, u.z + (rdz / rDist) * moveSpeed * 0.65 * dt));
+      if (u.role === 'alien_walker') stampWalkerFootprints(state, u, startX, startZ);
+    } else {
+      u.state = 'idle';
+    }
+    return;
+  }
   const dist = Math.sqrt(bestDistSq);
 
-  if (u.role === 'raider_ranged') {
-    if (dist < 2.1) {
+  if (u.role === 'raider_ranged' || isAlienRanged) {
+    const kiteMin = u.role === 'alien_ufo' ? 2.2 : 2.1;
+    if (dist < kiteMin && u.role !== 'alien_walker') {
       u.state = 'moving';
       const dx = (u.x - nearestCiv.x) / Math.max(0.1, dist);
       const dz = (u.z - nearestCiv.z) / Math.max(0.1, dist);
@@ -10267,26 +11097,51 @@ function stepHostileUnitAI(
       u.z = Math.max(1, Math.min(state.gridSize - 2, u.z + dz * moveSpeed * dt));
     } else if (dist <= def.attackRange) {
       u.state = 'fighting';
+      u.targetX = nearestCiv.x;
+      u.targetZ = nearestCiv.z;
       if (u.actionCooldown <= 0) {
-        u.actionCooldown = 1.1;
+        u.actionCooldown = u.role === 'alien_walker' ? 1.25 : 0.95;
         if (!nearestCiv.statusEffects.shielded) {
           nearestCiv.hp -= def.attackDamage;
           nearestCiv.lastAttackerId = u.id;
           nearestCiv.underAttackTimer = 8.0;
         }
+        if (u.role === 'alien_walker') {
+          // Twin heavy laser splash damage
+          for (const other of state.units) {
+            if (
+              other.id !== nearestCiv.id &&
+              other.faction === 'civilization' &&
+              other.state !== 'ko' &&
+              !other.statusEffects.shielded &&
+              (other.x - nearestCiv.x) ** 2 + (other.z - nearestCiv.z) ** 2 <= 3.2
+            ) {
+              other.hp -= Math.round(def.attackDamage * 0.45);
+            }
+          }
+        }
+        if (isAlienRanged) {
+          const nt = getTile(state, Math.round(nearestCiv.x), Math.round(nearestCiv.z));
+          fireBeamVfx(nearestCiv.x, nearestCiv.z, (nt?.height ?? 1) * 0.45 + 0.5);
+        }
       }
     } else {
       u.state = 'moving';
+      u.targetX = nearestCiv.x;
+      u.targetZ = nearestCiv.z;
       const dx = (nearestCiv.x - u.x) / dist;
       const dz = (nearestCiv.z - u.z) / dist;
-      u.x += dx * moveSpeed * dt;
-      u.z += dz * moveSpeed * dt;
+      u.x = Math.max(1, Math.min(state.gridSize - 2, u.x + dx * moveSpeed * dt));
+      u.z = Math.max(1, Math.min(state.gridSize - 2, u.z + dz * moveSpeed * dt));
+      if (u.role === 'alien_walker') stampWalkerFootprints(state, u, startX, startZ);
     }
     return;
   }
 
   if (dist <= def.attackRange) {
     u.state = 'fighting';
+    u.targetX = nearestCiv.x;
+    u.targetZ = nearestCiv.z;
     if (u.actionCooldown <= 0) {
       u.actionCooldown = 0.75;
       if (!nearestCiv.statusEffects.shielded) {
@@ -10297,10 +11152,12 @@ function stepHostileUnitAI(
     }
   } else {
     u.state = 'moving';
+    u.targetX = nearestCiv.x;
+    u.targetZ = nearestCiv.z;
     const dx = (nearestCiv.x - u.x) / dist;
     const dz = (nearestCiv.z - u.z) / dist;
-    u.x += dx * moveSpeed * dt;
-    u.z += dz * moveSpeed * dt;
+    u.x = Math.max(1, Math.min(state.gridSize - 2, u.x + dx * moveSpeed * dt));
+    u.z = Math.max(1, Math.min(state.gridSize - 2, u.z + dz * moveSpeed * dt));
   }
 }
 
@@ -11989,7 +12846,11 @@ function stepWildlifeAI(
       const dist = Math.hypot(target.x - u.x, target.z - u.z);
       u.targetX = target.x;
       u.targetZ = target.z;
-      if (dist <= def.attackRange) {
+      const reach = Math.max(
+        def.attackRange,
+        target.role === 'alien_walker' ? 2.8 : target.role === 'alien_ufo' ? 4.8 : def.attackRange,
+      );
+      if (dist <= reach) {
         u.state = 'fighting';
         if (u.actionCooldown <= 0) {
           const isDinoChargeHit = u.role === 'dinosaur' && (u.dinoRushTimer ?? 0) > 0 && (u.wildlifeSkillCooldown ?? 0) <= 0;
@@ -12297,7 +13158,13 @@ function findNearestResourceTile(
 function isWalkableOrWalkwayTile(t: TileData | undefined): boolean {
   if (!t) return false;
   if (t.height > 0) return true;
-  return Boolean(t.buildingId || t.terrain === 'stone_road' || t.terrain === 'rail_track' || t.terrain === 'runway');
+  return Boolean(
+    t.buildingId ||
+      t.terrain === 'ice' ||
+      t.terrain === 'stone_road' ||
+      t.terrain === 'rail_track' ||
+      t.terrain === 'runway',
+  );
 }
 
 /**
@@ -12764,6 +13631,8 @@ function stepCivilianUnitAI(
     const isNavalOrColossalTarget =
       nearestEnemy.role === 'leviathan' ||
       nearestEnemy.role === 'dragon' ||
+      nearestEnemy.role === 'alien_walker' ||
+      nearestEnemy.role === 'alien_ufo' ||
       Boolean(enemyTileCheck && enemyTileCheck.height === 0);
 
     const baseRange =
@@ -13110,11 +13979,14 @@ function stepCivilianUnitAI(
           let weaponColor = '#ffd166';
           let weaponSplash = 0;
 
+          const forceVerticalRanged =
+            nearestEnemy.role === 'alien_ufo' || (isNavalOrColossalTarget && dist > 1.75);
+
           if (u.species === 'elf') {
             if (u.statusEffects && !u.statusEffects.shielded && hasElfArcaneTech && shotCycle % 4 === 0) {
               u.statusEffects.shielded = 4.0;
             }
-            isRangedShot = myEpoch >= 1 || dist > 1.5;
+            isRangedShot = myEpoch >= 1 || dist > 1.5 || forceVerticalRanged;
             if (myEpoch >= 6) {
               weaponSubtype = shotCycle % 3 === 0 ? 'plasma_beam' : shotCycle % 3 === 1 ? 'arcane_bolt' : 'missile';
               weaponColor = weaponSubtype === 'plasma_beam' ? '#56cfe1' : '#e879f9';
@@ -13128,7 +14000,7 @@ function stepCivilianUnitAI(
               weaponColor = hasElfArcaneTech ? '#5eead4' : '#c084fc';
             }
           } else if (u.species === 'human') {
-            isRangedShot = hasHumanGuns || (myEpoch >= 1 && dist > 1.6);
+            isRangedShot = hasHumanGuns || (myEpoch >= 1 && dist > 1.6) || forceVerticalRanged;
             if (myEpoch >= 6) {
               weaponSubtype = shotCycle % 3 === 0 ? 'plasma_beam' : shotCycle % 3 === 1 ? 'missile' : 'cannon_shell';
               weaponColor = weaponSubtype === 'plasma_beam' ? '#56cfe1' : '#38bdf8';
@@ -13147,7 +14019,7 @@ function stepCivilianUnitAI(
             }
           } else {
             // Orc arsenal: Iron axes/cleavers early -> Dakka cannons, flak shells & iron rockets later
-            isRangedShot = myEpoch >= 3 || (myEpoch >= 2 && dist > 2.2);
+            isRangedShot = myEpoch >= 3 || (myEpoch >= 2 && dist > 2.2) || forceVerticalRanged;
             if (myEpoch >= 5) {
               weaponSubtype = shotCycle % 3 === 0 ? 'missile' : shotCycle % 3 === 1 ? 'cannon_shell' : 'plasma_beam';
               weaponColor = '#ff5400';
@@ -14212,15 +15084,13 @@ function stepVoidGooAndWisps(state: SimulationState, dt: number): void {
             if (Math.random() < chance) {
               toInfect.add(nb);
             }
-          } else if (!isDiag && nb.terrain === 'shallow_water' && Math.random() < 0.08) {
-            toInfect.add(nb);
           }
           if (toInfect.size >= 52) break;
         }
       }
 
       for (const targetTile of toInfect) {
-        if (targetTile.height === 0) targetTile.height = 1;
+        if (targetTile.height <= 0) continue;
         targetTile.terrain = 'void_goo';
         targetTile.onFireTimer = 0;
         targetTile.fireColor = undefined;
@@ -14352,6 +15222,7 @@ export function executeHugeAsteroidImpact(
       if (dSq <= rSq && t.height === 0) {
         damageOrBleachWaterTile(t, 450, true);
         t.terrain = dSq <= 36 ? 'deep_water' : 'shallow_water';
+        delete t.frozenWaterBase;
       }
     }
     for (const b of state.buildings) {
@@ -14386,6 +15257,7 @@ export function executeHugeAsteroidImpact(
     if (t.height === 0) {
       damageOrBleachWaterTile(t, 450, true);
       t.terrain = dSq <= 36 ? 'deep_water' : 'shallow_water';
+      delete t.frozenWaterBase;
       t.onFireTimer = 0;
       continue;
     }

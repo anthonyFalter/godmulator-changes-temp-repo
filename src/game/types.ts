@@ -63,7 +63,8 @@ export type TerrainType =
   | 'snow'
   | 'scorched'
   | 'crystal_field'
-  | 'void_goo';
+  | 'void_goo'
+  | 'ice';
 
 export type ResourceNodeType =
   | 'none'
@@ -92,6 +93,9 @@ export interface TileData {
   isRiver?: boolean;
   isLake?: boolean;
   coralBleachTimer?: number;
+  tempOffset?: number;
+  frozenWaterBase?: 'deep_water' | 'shallow_water';
+  crushedTimer?: number;
 }
 
 export type BuildingType =
@@ -173,6 +177,10 @@ export type UnitRole =
   | 'raider_swarmer'
   | 'raider_ranged'
   | 'raider_behemoth'
+  | 'skeleton'
+  | 'alien_trooper'
+  | 'alien_ufo'
+  | 'alien_walker'
   | AnimalRole;
 
 export type UnitStatusEffect = 'blessed' | 'cursed' | 'plagued' | 'frenzied' | 'shielded' | 'frozen';
@@ -251,6 +259,9 @@ export interface UnitEntity {
   dragFlingNonLethal?: boolean;
   dragTargetX?: number;
   dragTargetZ?: number;
+  walkerPrevStepX?: number;
+  walkerPrevStepZ?: number;
+  walkerStepParity?: number;
   dragTargetAltitude?: number;
   lastAttackerId?: string;
   underAttackTimer?: number;
@@ -301,7 +312,13 @@ export type GodPowerType =
   | 'super_tornado'
   | 'void_goo'
   | 'terraform_beam'
-  | 'wormhole_ascension';
+  | 'wormhole_ascension'
+  | 'undead_portal'
+  | 'alien_invasion'
+  | 'chrono_surge'
+  | 'harmony_dove'
+  | 'solar_orbital_laser'
+  | 'gravity_flip';
 
 export interface GodPowerDefinition {
   type: GodPowerType;
@@ -451,7 +468,7 @@ export interface VisualEffectEvent {
   originZ?: number;
   sourceUnitId?: string;
   variant?: 'bite' | 'slam' | 'crunch' | 'peck' | 'horn_blast' | 'fire_breath';
-  vfxSubtype?: 'bullet' | 'cannon_shell' | 'bomb' | 'missile' | 'arcane_bolt' | 'plasma_beam';
+  vfxSubtype?: 'bullet' | 'cannon_shell' | 'bomb' | 'missile' | 'arcane_bolt' | 'plasma_beam' | 'laser_beam';
   radius: number;
   color: string;
   createdAt: number;
@@ -480,7 +497,12 @@ export interface ActiveHazardZone {
     | 'terraform_wave'
     | 'whirlpool'
     | 'rogue_wave'
-    | 'asteroid_shockwave';
+    | 'asteroid_shockwave'
+    | 'undead_portal'
+    | 'alien_mothership'
+    | 'chrono_field'
+    | 'orbital_beam'
+    | 'gravity_anomaly';
   x: number;
   z: number;
   targetX?: number;
@@ -499,6 +521,11 @@ export interface ActiveHazardZone {
   waveWaterTarget?: boolean;
   waveTargetHeight?: number;
   waveEpochIdx?: number;
+  portalSpawnCount?: number;
+  beamDirX?: number;
+  beamDirZ?: number;
+  beaconTimer?: number;
+  laserSubTimer?: number;
   radius: number;
   remaining: number;
   duration: number;

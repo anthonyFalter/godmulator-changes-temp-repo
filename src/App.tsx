@@ -1064,6 +1064,18 @@ export default function App() {
             soundEngine.playHeatWave();
           } else if (activeTool.power === 'void_goo') {
             soundEngine.playVoidGoo();
+          } else if (activeTool.power === 'undead_portal') {
+            soundEngine.playPortalSummon();
+          } else if (activeTool.power === 'alien_invasion') {
+            soundEngine.playAlienInvasion();
+          } else if (activeTool.power === 'chrono_surge') {
+            soundEngine.playChronoWarp();
+          } else if (activeTool.power === 'harmony_dove') {
+            soundEngine.playPeaceAccord();
+          } else if (activeTool.power === 'solar_orbital_laser') {
+            soundEngine.playOrbitalLaser();
+          } else if (activeTool.power === 'gravity_flip') {
+            soundEngine.playGravityFlux();
           } else {
             soundEngine.playClick();
           }
