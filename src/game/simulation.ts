@@ -39,9 +39,17 @@ import {
 } from './types';
 import { generateUnitGenes, generateUnitItems } from './entityInspector';
 import { generateWorldTiles, normalizeSeed } from './worldGen';
+import {
+  SimulationTickIndex,
+  buildSimulationTickIndex,
+  decayUnitStatusEffects,
+  forEachUnitInRadius,
+  hasGatheringHelperNear,
+} from './spatialIndex';
 
 const BUILDING_BY_TYPE = new Map(BUILDINGS.map((d) => [d.type, d]));
 const UNIT_BY_ROLE = new Map(UNITS.map((d) => [d.role, d]));
+let activeTickIndex: SimulationTickIndex | null = null;
 
 const HUMAN_FIRST_NAMES = [
   'Kaelen', 'Lyra', 'Theron', 'Vesper', 'Oakhart', 'Soren', 'Mira', 'Darian',
@@ -7641,6 +7649,12 @@ function stepSimulationSingle(
   const hazardsList = state.activeHazards ?? [];
   const hasWormholeRift = hazardsList.some((h) => h.kind === 'wormhole_rift');
 
+  activeTickIndex = buildSimulationTickIndex(
+    state,
+    (s, sid) => (sid ? getKingdomId(s, sid) : undefined),
+    isCarnivoreAnimal,
+  );
+  try {
   for (const u of state.units) {
     const suspendedInVortex =
       hasWormholeRift &&
@@ -7699,31 +7713,24 @@ function stepSimulationSingle(
       continue;
     }
 
-    for (const eff of Object.keys(u.statusEffects) as (keyof typeof u.statusEffects)[]) {
-      const val = u.statusEffects[eff] ?? 0;
-      if (val > 0) {
-        const nextVal = val - dt;
-        if (nextVal <= 0) delete u.statusEffects[eff];
-        else u.statusEffects[eff] = nextVal;
-      }
-    }
+    decayUnitStatusEffects(u, dt);
 
     if (u.statusEffects.plagued) {
       u.hp -= 4.5 * dt;
-      for (const other of state.units) {
-        if (
-          other.id !== u.id &&
-          other.state !== 'ko' &&
-          other.role !== 'unicorn' &&
-          !other.statusEffects.plagued &&
-          !other.statusEffects.shielded &&
-          !other.statusEffects.blessed
-        ) {
-          const dSq = (other.x - u.x) ** 2 + (other.z - u.z) ** 2;
-          if (dSq < 1.2) {
+      if (activeTickIndex) {
+        forEachUnitInRadius(activeTickIndex, u.x, u.z, 1.12, (other, dSq) => {
+          if (
+            other.id !== u.id &&
+            other.state !== 'ko' &&
+            other.role !== 'unicorn' &&
+            !other.statusEffects.plagued &&
+            !other.statusEffects.shielded &&
+            !other.statusEffects.blessed &&
+            dSq < 1.2
+          ) {
             other.statusEffects.plagued = 14;
           }
-        }
+        });
       }
     }
 
@@ -7962,6 +7969,9 @@ function stepSimulationSingle(
 
   // 9. Update transit vehicles (Trains on rail_track, Cars on stone_road, Planes at airports)
   stepVehicles(state, dt);
+  } finally {
+    activeTickIndex = null;
+  }
 
   // 10. Rare autonomous World Events (asteroids, volcanoes, super tornadoes, mega-quakes, climate waves, starfalls)
   stepRandomWorldEvents(state, dt, options?.skipRandomEvents);
@@ -9257,13 +9267,13 @@ function stepVehicles(state: SimulationState, dt: number): void {
       // Find nearest valid threat: hostile raiders, marauding predators near territory, wartime units/buildings/vehicles
       let targetX: number | null = null;
       let targetZ: number | null = null;
-      let targetUnit: UnitEntity | null = null;
+      let foundVehTargetUnit: UnitEntity | null = null;
       let targetBld: BuildingEntity | null = null;
       let targetVeh: VehicleEntity | null = null;
       let bestDistSq = 28 * 28;
 
-      for (const other of state.units) {
-        if (other.state === 'ko' || other.hp <= 0) continue;
+      const considerVehThreat = (other: UnitEntity, dSq: number) => {
+        if (other.state === 'ko' || other.hp <= 0 || dSq >= bestDistSq) return;
         const isThreat =
           other.faction === 'hostile' ||
           (other.faction === 'wildlife' &&
@@ -9278,15 +9288,20 @@ function stepVehicles(state: SimulationState, dt: number): void {
               myKid,
               other.settlementId ? getKingdomId(state, other.settlementId) : other.kingdomId,
             ));
-        if (!isThreat) continue;
-        const dSq = (other.x - v.x) ** 2 + (other.z - v.z) ** 2;
-        if (dSq < bestDistSq) {
-          bestDistSq = dSq;
-          targetUnit = other;
-          targetX = other.x;
-          targetZ = other.z;
+        if (!isThreat) return;
+        bestDistSq = dSq;
+        foundVehTargetUnit = other;
+        targetX = other.x;
+        targetZ = other.z;
+      };
+      if (activeTickIndex) {
+        forEachUnitInRadius(activeTickIndex, v.x, v.z, 28, considerVehThreat);
+      } else {
+        for (const other of state.units) {
+          considerVehThreat(other, (other.x - v.x) ** 2 + (other.z - v.z) ** 2);
         }
       }
+      const targetUnit = foundVehTargetUnit as UnitEntity | null;
 
       if (!targetUnit) {
         for (const ov of state.vehicles) {
@@ -10700,15 +10715,24 @@ function stepWildlifeAI(
   // Unicorn Mythical Aura: gently blesses & heals nearby friendly citizens and revives scorched earth
   if (u.role === 'unicorn' && u.actionCooldown <= 0) {
     let blessedAny = false;
-    for (const other of state.units) {
-      if (other.faction === 'civilization' && other.state !== 'ko') {
-        const dSq = (other.x - u.x) ** 2 + (other.z - u.z) ** 2;
-        if (dSq <= 20.25 && (other.hp < other.maxHp || other.statusEffects.plagued || other.statusEffects.cursed)) {
-          other.hp = Math.min(other.maxHp, other.hp + 14);
-          delete other.statusEffects.plagued;
-          delete other.statusEffects.cursed;
-          blessedAny = true;
-        }
+    const blessUnit = (other: UnitEntity, dSq: number) => {
+      if (
+        other.faction === 'civilization' &&
+        other.state !== 'ko' &&
+        dSq <= 20.25 &&
+        (other.hp < other.maxHp || other.statusEffects.plagued || other.statusEffects.cursed)
+      ) {
+        other.hp = Math.min(other.maxHp, other.hp + 14);
+        delete other.statusEffects.plagued;
+        delete other.statusEffects.cursed;
+        blessedAny = true;
+      }
+    };
+    if (activeTickIndex) {
+      forEachUnitInRadius(activeTickIndex, u.x, u.z, 4.55, blessUnit);
+    } else {
+      for (const other of state.units) {
+        blessUnit(other, (other.x - u.x) ** 2 + (other.z - u.z) ** 2);
       }
     }
     const rx = Math.round(u.x);
@@ -10734,23 +10758,29 @@ function stepWildlifeAI(
 
   // Herbivore behavior: ONLY flee carnivores/hostiles and eat plants (never attack units or smash buildings/rocks unless frenzied!)
   if (isHerbivore && !isFrenzied) {
-    let threat: UnitEntity | null = null;
-    let bestThreatDistSq = u.role === 'dinosaur' ? 42.25 : 25.0; // 6.5 tiles for herbivore dinos, 5.0 tiles for small prey
-    for (const other of state.units) {
-      if (other.id === u.id || other.state === 'ko') continue;
+    let foundThreat: UnitEntity | null = null;
+    const fleeRadius = u.role === 'dinosaur' ? 6.5 : 5.0;
+    let bestThreatDistSq = fleeRadius * fleeRadius;
+    const checkThreat = (other: UnitEntity, dSq: number) => {
+      if (other.id === u.id || other.state === 'ko' || dSq >= bestThreatDistSq) return;
       if (
         other.faction === 'hostile' ||
         other.role === 'dragon' ||
         isCarnivoreAnimal(other.role, other.appearanceSeed) ||
         Boolean(other.statusEffects.frenzied)
       ) {
-        const dSq = (other.x - u.x) ** 2 + (other.z - u.z) ** 2;
-        if (dSq < bestThreatDistSq) {
-          bestThreatDistSq = dSq;
-          threat = other;
-        }
+        bestThreatDistSq = dSq;
+        foundThreat = other;
+      }
+    };
+    if (activeTickIndex) {
+      forEachUnitInRadius(activeTickIndex, u.x, u.z, fleeRadius + 0.05, checkThreat);
+    } else {
+      for (const other of state.units) {
+        checkThreat(other, (other.x - u.x) ** 2 + (other.z - u.z) ** 2);
       }
     }
+    const threat = foundThreat as UnitEntity | null;
     if (threat) {
       const baseAngle = Math.atan2(u.z - threat.z, u.x - threat.x);
       const fleeBurst = u.role === 'dinosaur' ? 1.38 : 1.45;
@@ -11124,10 +11154,9 @@ function stepWildlifeAI(
     let target: UnitEntity | null = null;
     let bestScore = Infinity;
 
-    for (const other of state.units) {
-      if (other.id === u.id || other.state === 'ko' || other.statusEffects.shielded) continue;
-      const dSq = (other.x - u.x) ** 2 + (other.z - u.z) ** 2;
-
+    const predScanR = u.role === 'dragon' ? 16.05 : isCarnivoreDino || isFrenzied ? 11.05 : u.role === 'wolf' ? 10.05 : u.role === 'bear' ? 9.05 : 5.05;
+    const evaluatePredTarget = (other: UnitEntity, dSq: number) => {
+      if (other.id === u.id || other.state === 'ko' || other.statusEffects.shielded) return;
       if (other.faction === 'hostile') {
         const maxSq = u.role === 'dragon' ? 256 : u.role === 'unicorn' ? 25 : isCarnivoreDino ? 121 : 100;
         if (dSq <= maxSq && dSq < bestScore) {
@@ -11196,7 +11225,15 @@ function stepWildlifeAI(
           }
         }
       }
+    };
+    if (activeTickIndex) {
+      forEachUnitInRadius(activeTickIndex, u.x, u.z, predScanR, evaluatePredTarget);
+    } else {
+      for (const other of state.units) {
+        evaluatePredTarget(other, (other.x - u.x) ** 2 + (other.z - u.z) ** 2);
+      }
     }
+    target = target as UnitEntity | null;
 
     // Environmental rampage: Dragons remain unchanged (torch everything);
     // Carnivore dinosaurs smash buildings, trees, bushes & boulders; Bears smash trees, bushes & nearby structures; Frenzied beasts smash surroundings.
@@ -11733,17 +11770,24 @@ function findNearestResourceTile(
         if (t.height === 0 && !unitOnWaterOrWalkway) score += 8.0;
 
         if (unit) {
-          // Count how many fellow villagers are already heading to or working at this node
+          // O(1) count of fellow villagers already heading to or working at this node
           let workersOnNode = 0;
-          for (const other of state.units) {
-            if (
-              other.id !== unit.id &&
-              other.faction === 'civilization' &&
-              other.state !== 'ko' &&
-              Math.abs(other.targetX - tx) < 0.85 &&
-              Math.abs(other.targetZ - tz) < 0.85
-            ) {
-              workersOnNode++;
+          if (activeTickIndex) {
+            workersOnNode = activeTickIndex.gatherersByTileKey.get(tz * state.gridSize + tx) ?? 0;
+            if (Math.abs(unit.targetX - tx) < 0.85 && Math.abs(unit.targetZ - tz) < 0.85 && workersOnNode > 0) {
+              workersOnNode--;
+            }
+          } else {
+            for (const other of state.units) {
+              if (
+                other.id !== unit.id &&
+                other.faction === 'civilization' &&
+                other.state !== 'ko' &&
+                Math.abs(other.targetX - tx) < 0.85 &&
+                Math.abs(other.targetZ - tz) < 0.85
+              ) {
+                workersOnNode++;
+              }
             }
           }
 
@@ -12022,39 +12066,48 @@ function stepCivilianUnitAI(
   // - Humans: Fast tech progress, but rely heavily on technology (weaker without completed tech structures, stronger with them)
   // - Elves: Peaceful (never initiate unprovoked wars outside their territory), use ranged magic & magic technology to fight and heal
   // - Orcs: Barbarians (fierce melee attackers and border skirmishers, but very slow builders/researchers)
-  const allOwnSettlementBlds = u.settlementId
-    ? state.buildings.filter((b) => b.settlementId === u.settlementId)
-    : [];
-  const ownVillageBuildings = allOwnSettlementBlds.filter((b) => b.constructionProgress >= 100);
-  const homeAnchor =
-    allOwnSettlementBlds.length > 0
+  const idx = activeTickIndex;
+  const sInfo = u.settlementId && idx ? idx.settlements.get(u.settlementId) : undefined;
+  const allOwnSettlementBlds = sInfo
+    ? sInfo.allBuildings
+    : u.settlementId
+      ? state.buildings.filter((b) => b.settlementId === u.settlementId)
+      : [];
+  const ownVillageBuildings = sInfo
+    ? sInfo.completedBuildings
+    : allOwnSettlementBlds.filter((b) => b.constructionProgress >= 100);
+  const homeAnchor = sInfo
+    ? { x: sInfo.homeAnchorX, z: sInfo.homeAnchorZ }
+    : allOwnSettlementBlds.length > 0
       ? { x: allOwnSettlementBlds[0].tileX, z: allOwnSettlementBlds[0].tileZ }
       : { x: u.x, z: u.z };
 
-  const hasHumanTechSupport =
-    u.species !== 'human' ||
-    state.epochIndex === 0 ||
-    ownVillageBuildings.some(
-      (b) =>
-        b.type === 'smeltery' ||
-        b.type === 'observatory' ||
-        b.type === 'steam_foundry' ||
-        b.type === 'dynamo_plant' ||
-        b.type === 'fission_reactor' ||
-        b.type === 'cyber_institute' ||
-        b.type === 'launch_arcology' ||
-        b.type === 'dyson_spire',
-    );
-  const hasElfArcaneTech =
-    u.species === 'elf' &&
-    ownVillageBuildings.some(
-      (b) =>
-        b.type === 'shaman_totem' ||
-        b.type === 'ziggurat' ||
-        b.type === 'observatory' ||
-        b.type === 'cyber_institute' ||
-        b.type === 'dyson_spire',
-    );
+  const hasHumanTechSupport = sInfo
+    ? u.species !== 'human' || state.epochIndex === 0 || sInfo.hasHumanTechSupport
+    : u.species !== 'human' ||
+      state.epochIndex === 0 ||
+      ownVillageBuildings.some(
+        (b) =>
+          b.type === 'smeltery' ||
+          b.type === 'observatory' ||
+          b.type === 'steam_foundry' ||
+          b.type === 'dynamo_plant' ||
+          b.type === 'fission_reactor' ||
+          b.type === 'cyber_institute' ||
+          b.type === 'launch_arcology' ||
+          b.type === 'dyson_spire',
+      );
+  const hasElfArcaneTech = sInfo
+    ? u.species === 'elf' && sInfo.hasElfArcaneTech
+    : u.species === 'elf' &&
+      ownVillageBuildings.some(
+        (b) =>
+          b.type === 'shaman_totem' ||
+          b.type === 'ziggurat' ||
+          b.type === 'observatory' ||
+          b.type === 'cyber_institute' ||
+          b.type === 'dyson_spire',
+      );
 
   // Elves passively weave restorative magic; settled citizens gently recover out of combat
   if (u.species === 'elf' && u.hp < u.maxHp) {
@@ -12063,15 +12116,27 @@ function stepCivilianUnitAI(
     u.hp = Math.min(u.maxHp, u.hp + 1.2 * dt);
   }
 
-  const myKingdomId = u.settlementId ? getKingdomId(state, u.settlementId) : u.kingdomId;
+  const myKingdomId = idx
+    ? idx.unitKingdomId.get(u.id)
+    : u.settlementId
+      ? getKingdomId(state, u.settlementId)
+      : u.kingdomId;
   const warsEnabled = state.worldRules?.warsEnabled !== false;
-  const maxOwnedEpoch = ownVillageBuildings.reduce((acc, b) => Math.max(acc, b.epochLevel), state.epochIndex);
+  const maxOwnedEpoch = sInfo
+    ? sInfo.maxOwnedEpoch
+    : ownVillageBuildings.reduce((acc, b) => Math.max(acc, b.epochLevel), state.epochIndex);
   const myEpoch = Math.max(state.epochIndex, maxOwnedEpoch);
 
   let nearestEnemy: UnitEntity | null = null;
   let enemyDistSq = Infinity;
-  for (const other of state.units) {
-    if (other.id === u.id || other.state === 'ko' || other.hp <= 0) continue;
+  const warEnemiesSet = myKingdomId && idx ? idx.warEnemiesByKingdom.get(myKingdomId) : undefined;
+  const mySettlementAttackers = u.settlementId && idx ? idx.attackersOfSettlement.get(u.settlementId) : undefined;
+  const myKingdomAttackers = myKingdomId && idx ? idx.attackersOfKingdom.get(myKingdomId) : undefined;
+  const isWarriorOrKingOrOrc = u.role === 'warrior' || u.isKing || u.species === 'orc';
+  const warMaxR = isWarriorOrKingOrOrc ? 28 : 18;
+
+  const considerEnemyCandidate = (other: UnitEntity, dSq: number) => {
+    if (other.id === u.id || other.state === 'ko' || other.hp <= 0 || dSq >= enemyDistSq) return;
     const isDirectAttacker = (u.underAttackTimer ?? 0) > 0 && other.id === u.lastAttackerId;
     const isHostileRaider = other.faction === 'hostile';
     const isDangerousBeast =
@@ -12083,16 +12148,18 @@ function stepCivilianUnitAI(
         (other.role === 'dinosaur' && isCarnivoreAnimal(other.role, other.appearanceSeed))) &&
       (isDirectAttacker ||
         other.state === 'fighting' ||
-        (other.x - u.x) ** 2 + (other.z - u.z) ** 2 <= (other.role === 'leviathan' ? 14 * 14 : 6 * 6) ||
+        dSq <= (other.role === 'leviathan' ? 14 * 14 : 6 * 6) ||
         ((u.role === 'warrior' || u.isKing) &&
           allOwnSettlementBlds.length > 0 &&
           (other.x - homeAnchor.x) ** 2 + (other.z - homeAnchor.z) ** 2 <= (other.role === 'leviathan' ? 24 * 24 : 16 * 16)));
 
     const otherKingdomId =
       other.faction === 'civilization'
-        ? other.settlementId
-          ? getKingdomId(state, other.settlementId)
-          : other.kingdomId
+        ? idx
+          ? idx.unitKingdomId.get(other.id)
+          : other.settlementId
+            ? getKingdomId(state, other.settlementId)
+            : other.kingdomId
         : undefined;
     const isSameKingdom = Boolean(myKingdomId && otherKingdomId && myKingdomId === otherKingdomId);
     const isKingdomWar =
@@ -12101,26 +12168,23 @@ function stepCivilianUnitAI(
       other.faction === 'civilization' &&
       other.ageStage !== 'child' &&
       !isSameKingdom &&
-      Boolean(myKingdomId && otherKingdomId && areKingdomsAtWar(state, myKingdomId, otherKingdomId));
+      Boolean(
+        myKingdomId &&
+          otherKingdomId &&
+          (warEnemiesSet ? warEnemiesSet.has(otherKingdomId) : areKingdomsAtWar(state, myKingdomId, otherKingdomId)),
+      );
 
-    // Helping a fellow allied citizen who is actively under attack or fighting
+    // O(1) kin defense lookup (replaces O(N^3) state.units.some scan)
     const isAttackingKin =
       other.faction === 'civilization' &&
       !isSameKingdom &&
       other.state === 'fighting' &&
-      (other.x - u.x) ** 2 + (other.z - u.z) ** 2 <= 14 * 14 &&
+      dSq <= 14 * 14 &&
       (isKingdomWar ||
-        state.units.some(
-          (ally) =>
-            ally.faction === 'civilization' &&
-            ally.id !== u.id &&
-            ((ally.settlementId && ally.settlementId === u.settlementId) ||
-              (myKingdomId && ally.kingdomId === myKingdomId)) &&
-            ally.lastAttackerId === other.id,
-        ));
+        Boolean(mySettlementAttackers?.has(other.id)) ||
+        Boolean(myKingdomAttackers?.has(other.id)));
 
-    const isRivalFrenzy =
-      !isChild && Boolean(u.statusEffects.frenzied && !isSameKingdom);
+    const isRivalFrenzy = !isChild && Boolean(u.statusEffects.frenzied && !isSameKingdom);
 
     if (
       !isDirectAttacker &&
@@ -12130,28 +12194,83 @@ function stepCivilianUnitAI(
       !isAttackingKin &&
       !isRivalFrenzy
     ) {
-      continue;
+      return;
     }
 
-    const dSq = (other.x - u.x) ** 2 + (other.z - u.z) ** 2;
-    const maxEngageSq = isDirectAttacker || isHostileRaider
-      ? Infinity
-      : isKingdomWar
-        ? u.role === 'warrior' || u.isKing || u.species === 'orc'
-          ? 28 * 28
-          : 18 * 18
-        : isAttackingKin || isDangerousBeast
-          ? other.role === 'leviathan'
-            ? 24 * 24
-            : 20 * 20
-          : isRivalFrenzy
-            ? 144
-            : 100;
+    const maxEngageSq =
+      isDirectAttacker || isHostileRaider
+        ? Infinity
+        : isKingdomWar
+          ? warMaxR * warMaxR
+          : isAttackingKin || isDangerousBeast
+            ? other.role === 'leviathan'
+              ? 24 * 24
+              : 20 * 20
+            : isRivalFrenzy
+              ? 144
+              : 100;
     if (dSq <= maxEngageSq && dSq < enemyDistSq) {
       enemyDistSq = dSq;
       nearestEnemy = other;
     }
+  };
+
+  if (idx) {
+    // 1. Direct attacker in O(1)
+    if ((u.underAttackTimer ?? 0) > 0 && u.lastAttackerId) {
+      const attacker = idx.unitsById.get(u.lastAttackerId);
+      if (attacker) {
+        considerEnemyCandidate(attacker, (attacker.x - u.x) ** 2 + (attacker.z - u.z) ** 2);
+      }
+    }
+    // 2. Hostile raiders (small global bucket)
+    for (let hi = 0; hi < idx.hostileUnits.length; hi++) {
+      const hUnit = idx.hostileUnits[hi];
+      considerEnemyCandidate(hUnit, (hUnit.x - u.x) ** 2 + (hUnit.z - u.z) ** 2);
+    }
+    // 3. Dangerous wildlife (small global bucket)
+    for (let wi = 0; wi < idx.dangerousWildlife.length; wi++) {
+      const wUnit = idx.dangerousWildlife[wi];
+      considerEnemyCandidate(wUnit, (wUnit.x - u.x) ** 2 + (wUnit.z - u.z) ** 2);
+    }
+    // 4. Kin-defense attackers in O(K) directly from attacker ID sets (never scans friendly neighbors!)
+    if (mySettlementAttackers && mySettlementAttackers.size > 0) {
+      for (const attId of mySettlementAttackers) {
+        const attUnit = idx.unitsById.get(attId);
+        if (attUnit) {
+          considerEnemyCandidate(attUnit, (attUnit.x - u.x) ** 2 + (attUnit.z - u.z) ** 2);
+        }
+      }
+    }
+    if (myKingdomAttackers && myKingdomAttackers.size > 0) {
+      for (const attId of myKingdomAttackers) {
+        const attUnit = idx.unitsById.get(attId);
+        if (attUnit) {
+          considerEnemyCandidate(attUnit, (attUnit.x - u.x) ** 2 + (attUnit.z - u.z) ** 2);
+        }
+      }
+    }
+    // 5. Active kingdom war enemies — scan ONLY enemy-kingdom units (skips 100% of allies & wildlife)
+    if (!isChild && warsEnabled && warEnemiesSet && warEnemiesSet.size > 0) {
+      for (const enemyKid of warEnemiesSet) {
+        const enemyUnits = idx.livingCivByKingdom.get(enemyKid);
+        if (!enemyUnits) continue;
+        for (let ei = 0; ei < enemyUnits.length; ei++) {
+          const eUnit = enemyUnits[ei];
+          considerEnemyCandidate(eUnit, (eUnit.x - u.x) ** 2 + (eUnit.z - u.z) ** 2);
+        }
+      }
+    }
+    // 6. Local spatial scan ONLY for frenzied units (rare status effect)
+    if (!isChild && u.statusEffects.frenzied) {
+      forEachUnitInRadius(idx, u.x, u.z, 12.05, considerEnemyCandidate);
+    }
+  } else {
+    for (const other of state.units) {
+      considerEnemyCandidate(other, (other.x - u.x) ** 2 + (other.z - u.z) ** 2);
+    }
   }
+  nearestEnemy = nearestEnemy as UnitEntity | null;
 
   let speciesCombatMult = 1.0;
   if (u.species === 'orc') {
@@ -12223,27 +12342,36 @@ function stepCivilianUnitAI(
         let nearbyEnemies = 0;
         let nearbyBossThreat = false;
         if (kUltReady && (u.weaponCooldown ?? 0) <= 0) {
-          for (const ce of state.units) {
-            if (ce.state === 'ko' || ce.hp <= 0) continue;
+          const checkUltNearby = (ce: UnitEntity, dSq: number) => {
+            if (ce.state === 'ko' || ce.hp <= 0 || dSq > 25) return;
             const ceKid =
               ce.faction === 'civilization'
-                ? ce.settlementId
-                  ? getKingdomId(state, ce.settlementId)
-                  : ce.kingdomId
+                ? idx
+                  ? idx.unitKingdomId.get(ce.id)
+                  : ce.settlementId
+                    ? getKingdomId(state, ce.settlementId)
+                    : ce.kingdomId
                 : undefined;
-            if (myKingdomId && ceKid === myKingdomId) continue;
+            if (myKingdomId && ceKid === myKingdomId) return;
             if (
               ce.faction === 'hostile' ||
               ce.isKing ||
-              (myKingdomId && ceKid && areKingdomsAtWar(state, myKingdomId, ceKid))
+              (myKingdomId &&
+                ceKid &&
+                (warEnemiesSet ? warEnemiesSet.has(ceKid) : areKingdomsAtWar(state, myKingdomId, ceKid)))
             ) {
-              if ((ce.x - nearestEnemy.x) ** 2 + (ce.z - nearestEnemy.z) ** 2 <= 25) {
-                nearbyEnemies++;
-                if (ce.maxHp >= 180 || ce.role === 'leviathan' || Boolean(ce.isKing)) {
-                  nearbyBossThreat = true;
-                }
-                if (nearbyEnemies >= 3 && nearbyBossThreat) break;
+              nearbyEnemies++;
+              if (ce.maxHp >= 180 || ce.role === 'leviathan' || Boolean(ce.isKing)) {
+                nearbyBossThreat = true;
               }
+              if (nearbyEnemies >= 3 && nearbyBossThreat) return true;
+            }
+          };
+          if (idx) {
+            forEachUnitInRadius(idx, nearestEnemy.x, nearestEnemy.z, 5.05, checkUltNearby);
+          } else {
+            for (const ce of state.units) {
+              if (checkUltNearby(ce, (ce.x - nearestEnemy.x) ** 2 + (ce.z - nearestEnemy.z) ** 2)) break;
             }
           }
         }
@@ -12869,30 +12997,50 @@ function stepCivilianUnitAI(
 
   // 2. Priests & Elves heal/cleanse plagued or injured allies nearby
   if (u.role === 'priest' || (u.species === 'elf' && indivHash % 3 === 0)) {
-    for (const ally of state.units) {
+    let healedAlly = false;
+    const tryHealAlly = (ally: UnitEntity, dSq: number) => {
       if (
         ally.faction === 'civilization' &&
         ally.species === u.species &&
         ally.state !== 'ko' &&
+        dSq <= 12 &&
         (ally.hp < ally.maxHp * 0.85 || ally.statusEffects.plagued || ally.statusEffects.cursed)
       ) {
-        const dSq = (ally.x - u.x) ** 2 + (ally.z - u.z) ** 2;
-        if (dSq <= 12) {
-          u.state = 'praying';
-          ally.hp = Math.min(ally.maxHp, ally.hp + 15 * dt);
-          delete ally.statusEffects.plagued;
-          delete ally.statusEffects.cursed;
-          return;
-        }
+        u.state = 'praying';
+        ally.hp = Math.min(ally.maxHp, ally.hp + 15 * dt);
+        delete ally.statusEffects.plagued;
+        delete ally.statusEffects.cursed;
+        healedAlly = true;
+        return true;
+      }
+    };
+    if (idx) {
+      forEachUnitInRadius(idx, u.x, u.z, 3.5, tryHealAlly);
+    } else {
+      for (const ally of state.units) {
+        if (tryHealAlly(ally, (ally.x - u.x) ** 2 + (ally.z - u.z) ** 2)) break;
       }
     }
+    if (healedAlly) return;
   }
 
   const villageBuildings = allOwnSettlementBlds;
 
-  // 3. Construct or repair unfinished buildings belonging to this citizen's settlement
+  // 3. Construct or repair unfinished buildings belonging to this citizen's settlement (O(1) slot lookup)
   const unfinished = villageBuildings.find((b) => {
     if (b.constructionProgress >= 100) return false;
+    if (idx) {
+      let buildersHere = idx.buildersByBuildingId.get(b.id) ?? 0;
+      if (
+        u.carryingAmount === 0 &&
+        (u.state === 'building' || u.state === 'moving') &&
+        (u.targetX - b.tileX) ** 2 + (u.targetZ - b.tileZ) ** 2 <= 1.44 &&
+        buildersHere > 0
+      ) {
+        buildersHere--;
+      }
+      return buildersHere < 2;
+    }
     const buildersHere = state.units.filter(
       (other) =>
         other.id !== u.id &&
@@ -12913,6 +13061,12 @@ function stepCivilianUnitAI(
     (unfinished && Math.hypot(unfinished.tileX - u.x, unfinished.tileZ - u.z) <= 8);
 
   if (unfinished && u.carryingAmount === 0 && isBuilderInclined) {
+    const wasTargetingThis =
+      (u.state === 'building' || u.state === 'moving') &&
+      (u.targetX - unfinished.tileX) ** 2 + (u.targetZ - unfinished.tileZ) ** 2 <= 1.44;
+    if (idx && !wasTargetingThis) {
+      idx.buildersByBuildingId.set(unfinished.id, (idx.buildersByBuildingId.get(unfinished.id) ?? 0) + 1);
+    }
     const destX = unfinished.tileX + personalOffsetX;
     const destZ = unfinished.tileZ + personalOffsetZ;
     const dx = destX - u.x;
@@ -12964,9 +13118,21 @@ function stepCivilianUnitAI(
     return;
   }
 
-  // 3b. Builders and mason-inclined villagers upgrade older-epoch buildings (max 1-2 per building)
+  // 3b. Builders and mason-inclined villagers upgrade older-epoch buildings (O(1) slot lookup)
   const upgradeTarget = villageBuildings.find((b) => {
     if (b.constructionProgress < 100 || b.epochLevel >= state.epochIndex) return false;
+    if (idx) {
+      let upgradersHere = idx.upgradersByBuildingId.get(b.id) ?? 0;
+      if (
+        u.carryingAmount === 0 &&
+        (u.state === 'building' || u.state === 'moving') &&
+        (u.targetX - b.tileX) ** 2 + (u.targetZ - b.tileZ) ** 2 <= 1.44 &&
+        upgradersHere > 0
+      ) {
+        upgradersHere--;
+      }
+      return upgradersHere < 1;
+    }
     const upgradersHere = state.units.filter(
       (other) =>
         other.id !== u.id &&
@@ -13100,13 +13266,15 @@ function stepCivilianUnitAI(
       );
     } else {
       u.state = 'gathering';
-      const hasHelperHere = state.units.some(
-        (other) =>
-          other.id !== u.id &&
-          other.faction === 'civilization' &&
-          other.state === 'gathering' &&
-          Math.hypot(other.x - targetTile.x, other.z - targetTile.z) <= 1.5,
-      );
+      const hasHelperHere = idx
+        ? hasGatheringHelperNear(idx, targetTile.x, targetTile.z, u.id)
+        : state.units.some(
+            (other) =>
+              other.id !== u.id &&
+              other.faction === 'civilization' &&
+              other.state === 'gathering' &&
+              Math.hypot(other.x - targetTile.x, other.z - targetTile.z) <= 1.5,
+          );
       const coopMult = hasHelperHere ? 1.35 : 1.0;
       const workMult =
         (def.harvestRate / 6) *
@@ -13190,17 +13358,23 @@ function stepCivilianUnitAI(
     u.actionCooldown = 0.65 + (indivHash % 5) * 0.15;
 
     if (indivHash % 2 === 0 && u.role !== 'warrior') {
-      const allyChopping = state.units.find((other) => {
+      const settlementGatherers =
+        idx && u.settlementId ? idx.gatheringBySettlement.get(u.settlementId) ?? [] : state.units;
+      let allyChopping: UnitEntity | undefined;
+      for (let gi = 0; gi < settlementGatherers.length; gi++) {
+        const other = settlementGatherers[gi];
         if (
           other.id === u.id ||
           other.settlementId !== u.settlementId ||
           other.state !== 'gathering'
         ) {
-          return false;
+          continue;
         }
-        const d = Math.hypot(other.x - u.x, other.z - u.z);
-        if (d > 11) return false;
-        const ot = getTile(state, Math.round(other.targetX), Math.round(other.targetZ));
+        const dSq = (other.x - u.x) ** 2 + (other.z - u.z) ** 2;
+        if (dSq > 121) continue;
+        const otX = Math.round(other.targetX);
+        const otZ = Math.round(other.targetZ);
+        const ot = getTile(state, otX, otZ);
         if (
           !ot ||
           (ot.resourceNode !== 'timber_grove' &&
@@ -13208,20 +13382,36 @@ function stepCivilianUnitAI(
             ot.resourceNode !== 'ore_vein' &&
             ot.resourceNode !== 'scrap_flotsam')
         ) {
-          return false;
+          continue;
         }
-        const helpersAlready = state.units.filter(
-          (w) =>
-            w.id !== u.id &&
-            w.state !== 'ko' &&
-            Math.hypot(w.targetX - ot.x, w.targetZ - ot.z) <= 1.2,
-        ).length;
-        return helpersAlready === 1;
-      });
+        let helpersAlready: number;
+        if (idx) {
+          const otKey = ot.z * state.gridSize + ot.x;
+          helpersAlready = idx.gatherersByTileKey.get(otKey) ?? 0;
+          if (Math.round(u.targetX) === ot.x && Math.round(u.targetZ) === ot.z && helpersAlready > 0) {
+            helpersAlready--;
+          }
+        } else {
+          helpersAlready = state.units.filter(
+            (w) =>
+              w.id !== u.id &&
+              w.state !== 'ko' &&
+              Math.hypot(w.targetX - ot.x, w.targetZ - ot.z) <= 1.2,
+          ).length;
+        }
+        if (helpersAlready === 1) {
+          allyChopping = other;
+          break;
+        }
+      }
 
       if (allyChopping) {
         const otX = Math.round(allyChopping.targetX);
         const otZ = Math.round(allyChopping.targetZ);
+        if (idx) {
+          const otKey = otZ * state.gridSize + otX;
+          idx.gatherersByTileKey.set(otKey, (idx.gatherersByTileKey.get(otKey) ?? 0) + 1);
+        }
         u.targetX = otX + personalOffsetX;
         u.targetZ = otZ + personalOffsetZ;
         u.state = 'moving';
@@ -13229,9 +13419,11 @@ function stepCivilianUnitAI(
       }
     }
 
-    const ownSettlementPop = state.units.filter(
-      (other) => other.faction === 'civilization' && other.state !== 'ko' && other.settlementId === u.settlementId,
-    ).length;
+    const ownSettlementPop = sInfo
+      ? sInfo.population
+      : state.units.filter(
+          (other) => other.faction === 'civilization' && other.state !== 'ko' && other.settlementId === u.settlementId,
+        ).length;
 
     const kStock = depositKid ? ensureKingdomResources(state, depositKid) : state.resources;
     let preferred: TileData['resourceNode'][];

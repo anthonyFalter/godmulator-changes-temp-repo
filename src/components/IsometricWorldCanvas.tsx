@@ -13,9 +13,19 @@ import {
   createBuildingGroup,
   createUnitGroup,
   createVehicleGroup,
+  disposeEntityGroup,
   getNodeVariantLibrary,
+  getSharedCarryMaterial,
+  getSharedStatusRingMaterial,
   updateBuildingNightMaterials,
 } from '../game/meshBuilders';
+import {
+  AutoOptimizer,
+  AutoOptimizerDecisions,
+  WorldCullBounds,
+  computeOrthoGroundCullBounds,
+  computeSnappedShadowBounds,
+} from '../game/autoOptimizer';
 import {
   TIME_OF_DAY_PRESETS,
   clampSimulationSpeed,
@@ -849,6 +859,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       leviathanSplashOuter?: THREE.Object3D;
       lastCarryType: string | null;
       lastStatusKey: number;
+      shadowCasters: THREE.Mesh[];
+      lastUnitCastShadow: boolean;
       seenStamp: number;
     }
     interface VehicleMeshEntry {
@@ -1077,6 +1089,24 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     let particleOverwriteCursor = 0;
 
     let activeGfxProfile: ResolvedGraphicsProfile = { ...initialGfxProfile };
+    const autoOptimizer = new AutoOptimizer();
+    const worldCullBounds: WorldCullBounds = {
+      minX: -12,
+      maxX: sim.gridSize + 12,
+      minZ: -12,
+      maxZ: sim.gridSize + 12,
+    };
+    let visibleUnitCountLastFrame = 0;
+    let autoOptDecisions: AutoOptimizerDecisions = {
+      tier: 0,
+      shadowUpdateStride: 1,
+      unitCastShadows: true,
+      crowdAnimStride: 1,
+      particleScale: 1,
+      pixelScaleMult: 1,
+      maxSimDt: 0.12,
+      isZoomedOut: false,
+    };
 
     const allocParticleSlot = (): PooledParticle => {
       if (activeParticleCount < MAX_PARTICLES) {
@@ -1088,7 +1118,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     };
 
     const getScaledParticleCount = (rawCount: number): number => {
-      const scale = activeGfxProfile.particleScale;
+      const scale = activeGfxProfile.particleScale * autoOptDecisions.particleScale;
       if (scale >= 0.99) return rawCount;
       if (activeParticleCount > MAX_PARTICLES * 0.85 && scale < 0.5) return 0;
       return Math.max(1, Math.round(rawCount * scale));
@@ -7037,8 +7067,25 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       };
 
       // 2. Sync buildings (cached animated children + road orientation + floating city foundations)
+      const cullMinX = worldCullBounds.minX;
+      const cullMaxX = worldCullBounds.maxX;
+      const cullMinZ = worldCullBounds.minZ;
+      const cullMaxZ = worldCullBounds.maxZ;
+
       for (let bi = 0; bi < simState.buildings.length; bi++) {
         const b = simState.buildings[bi];
+        const bInView =
+          b.tileX >= cullMinX && b.tileX <= cullMaxX && b.tileZ >= cullMinZ && b.tileZ <= cullMaxZ;
+        let entry = buildingMeshes.get(b.id);
+        if (!bInView && entry) {
+          entry.seenStamp = syncFrameStamp;
+          if (entry.group.visible) entry.group.visible = false;
+          continue;
+        }
+        if (!bInView) {
+          continue;
+        }
+
         const tile = simState.tiles[b.tileZ * gsBld + b.tileX];
         const isWaterTile = Boolean(tile && tile.height === 0);
         const groundY = tile
@@ -7051,7 +7098,6 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           b.species ??
           (b.settlementId ? simState.settlementSpecies?.[b.settlementId] : undefined) ??
           'human';
-        let entry = buildingMeshes.get(b.id);
         let createdOrRebuilt = false;
         if (
           !entry ||
@@ -7060,7 +7106,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           entry.species !== bSpecies ||
           entry.isWaterTile !== isWaterTile
         ) {
-          if (entry) buildingsGroup.remove(entry.group);
+          if (entry) {
+            buildingsGroup.remove(entry.group);
+            disposeEntityGroup(entry.group);
+          }
           const variantSeed = b.tileX * 31 + b.tileZ * 17;
           const group = createBuildingGroup(b.type, b.epochLevel, variantSeed, bSpecies, isWaterTile);
           group.position.set(b.tileX, groundY, b.tileZ);
@@ -7089,6 +7138,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           createdOrRebuilt = true;
         } else {
           entry.seenStamp = syncFrameStamp;
+          if (!entry.group.visible) entry.group.visible = true;
           if (propsNeedSync) {
             entry.cachedRotY = computeBuildingRotY(b.tileX, b.tileZ, b.type);
             entry.group.rotation.y = entry.cachedRotY;
@@ -7129,14 +7179,46 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       for (const [id, entry] of buildingMeshes.entries()) {
         if (entry.seenStamp !== syncFrameStamp) {
           buildingsGroup.remove(entry.group);
+          disposeEntityGroup(entry.group);
           buildingMeshes.delete(id);
         }
       }
 
-      // 3. Sync units with cached limb/status references
+      // 3. Sync units with cached limb/status references, viewport culling & adaptive crowd pacing
+      const selectedUnitId = propsRef.current.selectedEntityId;
+      const hoveredUnitId = propsRef.current.hoveredEntityId ?? hoveredEntityInternal;
+      const followingUnitId = propsRef.current.followingEntityId;
+      const wantUnitShadow = autoOptDecisions.unitCastShadows;
+      const crowdAnimStride = autoOptDecisions.crowdAnimStride;
+      const autoOptFrame = autoOptimizer.getFrameCounter();
+      let visibleUnitsThisFrame = 0;
+
       for (let ui = 0; ui < simState.units.length; ui++) {
         const u = simState.units[ui];
         let uEntry = unitMeshes.get(u.id);
+        const isProtectedUnit =
+          u.id === selectedUnitId ||
+          u.id === hoveredUnitId ||
+          u.id === followingUnitId ||
+          Boolean(u.draggedByPlayer) ||
+          Boolean(u.favorite) ||
+          Boolean(u.isKing) ||
+          u.role === 'dragon' ||
+          u.role === 'leviathan';
+        const uInView =
+          isProtectedUnit ||
+          (u.x >= cullMinX && u.x <= cullMaxX && u.z >= cullMinZ && u.z <= cullMaxZ);
+
+        // Hide embarked units or off-screen units (simulation continues identically; GPU & animation sleep)
+        if (u.embarkedVehicleId || !uInView) {
+          if (uEntry) {
+            uEntry.seenStamp = syncFrameStamp;
+            if (uEntry.group.visible) uEntry.group.visible = false;
+          }
+          continue;
+        }
+        visibleUnitsThisFrame++;
+
         const desiredEpoch = u.faction === 'civilization' ? simState.epochIndex : 0;
         const unitSpecies = u.species ?? 'human';
         const unitAgeStage = u.ageStage ?? 'adult';
@@ -7147,7 +7229,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           uEntry.species !== unitSpecies ||
           uEntry.ageStage !== unitAgeStage
         ) {
-          if (uEntry) unitsGroup.remove(uEntry.group);
+          if (uEntry) {
+            unitsGroup.remove(uEntry.group);
+            disposeEntityGroup(uEntry.group);
+          }
           const fallbackSeed = Math.abs(
             (u.id.charCodeAt(u.id.length - 1) * 73856093) ^ (u.id.charCodeAt(0) * 19349663),
           );
@@ -7159,6 +7244,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             u.appearanceSeed ?? fallbackSeed,
             unitAgeStage,
           );
+          const shadowCasters: THREE.Mesh[] = [];
+          group.traverse((obj) => {
+            if ((obj as THREE.Mesh).isMesh && obj.userData?.isUnitShadowCaster) {
+              shadowCasters.push(obj as THREE.Mesh);
+            }
+          });
           unitsGroup.add(group);
           uEntry = {
             group,
@@ -7207,6 +7298,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             leviathanSplashOuter: group.getObjectByName('leviathan_splash_outer'),
             lastCarryType: '__unset__',
             lastStatusKey: -1,
+            shadowCasters,
+            lastUnitCastShadow: true,
             seenStamp: syncFrameStamp,
           };
           unitMeshes.set(u.id, uEntry);
@@ -7214,13 +7307,16 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           uEntry.seenStamp = syncFrameStamp;
         }
         const uGroup = uEntry.group;
+        if (!uGroup.visible) uGroup.visible = true;
 
-        // Hide units currently embarked aboard a passenger ferry/cruise ship
-        if (u.embarkedVehicleId) {
-          uGroup.visible = false;
-          continue;
+        // Toggle small humanoid directional shadow-map casting automatically when zoomed out or under dense crowd load
+        // (ground contact_shadow disks remain crisp at all zoom distances)
+        if (uEntry.shadowCasters.length > 0 && uEntry.lastUnitCastShadow !== wantUnitShadow) {
+          uEntry.lastUnitCastShadow = wantUnitShadow;
+          for (let sci = 0; sci < uEntry.shadowCasters.length; sci++) {
+            uEntry.shadowCasters[sci].castShadow = wantUnitShadow;
+          }
         }
-        uGroup.visible = true;
 
         // Toggle Leviathan between submerged silhouette vs surfaced breaching monster
         if (u.role === 'leviathan') {
@@ -7327,7 +7423,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
                 ? 0.3
                 : Math.max(0.18, tile.height * HEIGHT_STEP + 0.25)
           : 0.5;
-        if (u.isSwimming && Math.random() < 0.16) {
+        if (u.isSwimming && Math.random() < 0.16 * autoOptDecisions.particleScale) {
           spawnParticleBurst(u.x, 0.26, u.z, 1, '#e0fbfc', 0.22, 0.85, 0.32);
         }
 
@@ -7500,6 +7596,18 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           }
         }
 
+        // Pace secondary tilt/limb/tool micro-animations on dense distant crowds while keeping 60Hz position & facing
+        const runMicroAnim =
+          isProtectedUnit ||
+          isDragon ||
+          isLeviathan ||
+          u.state === 'ko' ||
+          blackHolePullFrac > 0 ||
+          isAirborneVisual ||
+          crowdAnimStride <= 1 ||
+          ((autoOptFrame + ((u.appearanceSeed ?? ui) & 0xff)) % crowdAnimStride === 0);
+
+        if (runMicroAnim) {
         if (u.draggedByPlayer && u.dragTargetX !== undefined && u.dragTargetZ !== undefined) {
           const dragDx = u.dragTargetX - u.x;
           const dragDz = u.dragTargetZ - u.z;
@@ -7918,6 +8026,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         if (heldTool) {
           heldTool.rotation.x = isWorking && !isFrozen ? 0.45 + Math.sin(elapsed * 18) * 0.65 : 0.35;
         }
+        } // end runMicroAnim
 
         const carryBox = uEntry.carryBox;
         if (carryBox) {
@@ -7926,12 +8035,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             uEntry.lastCarryType = carryType;
             if (carryType) {
               carryBox.visible = true;
-              const cMat = carryBox.material as THREE.MeshStandardMaterial;
-              if (carryType === 'wood') cMat.color.setHex(0x7d4e2d);
-              else if (carryType === 'food') cMat.color.setHex(0xd94e34);
-              else if (carryType === 'stone') cMat.color.setHex(0x8f8b82);
-              else if (carryType === 'ore') cMat.color.setHex(0xe08e36);
-              else cMat.color.setHex(0x56cfe1);
+              carryBox.material = getSharedCarryMaterial(carryType);
             } else {
               carryBox.visible = false;
             }
@@ -7955,27 +8059,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
                       : 0;
           if (statusKey !== uEntry.lastStatusKey) {
             uEntry.lastStatusKey = statusKey;
-            const mat = statusRing.material as THREE.MeshBasicMaterial;
-            if (statusKey === 1) {
-              mat.color.setHex(0xf5b742);
-              mat.opacity = 0.85;
-            } else if (statusKey === 2) {
-              mat.color.setHex(0x72efdd);
-              mat.opacity = 0.85;
-            } else if (statusKey === 3) {
-              mat.color.setHex(0xe63946);
-              mat.opacity = 0.85;
-            } else if (statusKey === 4) {
-              mat.color.setHex(0x80ed99);
-              mat.opacity = 0.85;
-            } else if (statusKey === 5) {
-              mat.color.setHex(0x9d4edd);
-              mat.opacity = 0.85;
-            } else if (statusKey === 6) {
-              mat.color.setHex(0x7dd3fc);
-              mat.opacity = 0.92;
+            const sharedStatusMat = getSharedStatusRingMaterial(statusKey);
+            if (sharedStatusMat) {
+              statusRing.material = sharedStatusMat;
+              statusRing.visible = true;
             } else {
-              mat.opacity = 0.0;
+              statusRing.visible = false;
             }
           }
         }
@@ -8004,26 +8093,41 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         }
       }
 
+      visibleUnitCountLastFrame = visibleUnitsThisFrame;
+
       for (const [id, uEntry] of unitMeshes.entries()) {
         if (uEntry.seenStamp !== syncFrameStamp) {
           unitsGroup.remove(uEntry.group);
+          disposeEntityGroup(uEntry.group);
           unitMeshes.delete(id);
         }
       }
 
-      // 3b. Sync vehicles with cached animated children
+      // 3b. Sync vehicles with cached animated children & viewport culling
       const vehicles = simState.vehicles;
       if (vehicles && vehicles.length > 0) {
         for (let vi = 0; vi < vehicles.length; vi++) {
           const v = vehicles[vi];
+          const vInView =
+            v.x >= cullMinX && v.x <= cullMaxX && v.z >= cullMinZ && v.z <= cullMaxZ;
           let vEntry = vehicleMeshes.get(v.id);
+          if (!vInView) {
+            if (vEntry) {
+              vEntry.seenStamp = syncFrameStamp;
+              if (vEntry.group.visible) vEntry.group.visible = false;
+            }
+            continue;
+          }
           if (
             !vEntry ||
             vEntry.epochLevel !== v.epochLevel ||
             vEntry.type !== v.type ||
             vEntry.species !== v.species
           ) {
-            if (vEntry) vehiclesGroup.remove(vEntry.group);
+            if (vEntry) {
+              vehiclesGroup.remove(vEntry.group);
+              disposeEntityGroup(vEntry.group);
+            }
             const seedHash =
               Math.abs(Math.round(v.x * 13 + v.z * 7)) + v.id.charCodeAt(v.id.length - 1);
             const group = createVehicleGroup(v.type, v.epochLevel, v.species, seedHash);
@@ -8055,6 +8159,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             vEntry.seenStamp = syncFrameStamp;
           }
           const vGroup = vEntry.group;
+          if (!vGroup.visible) vGroup.visible = true;
           const vtx = Math.round(THREE.MathUtils.clamp(v.x, 0, gsBld - 1));
           const vtz = Math.round(THREE.MathUtils.clamp(v.z, 0, gsBld - 1));
           const vTile = simState.tiles[vtz * gsBld + vtx];
@@ -8177,17 +8282,27 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       for (const [id, vEntry] of vehicleMeshes.entries()) {
         if (vEntry.seenStamp !== syncFrameStamp) {
           vehiclesGroup.remove(vEntry.group);
+          disposeEntityGroup(vEntry.group);
           vehicleMeshes.delete(id);
         }
       }
 
-      // 3c. Sync glowing Void Wisps spawned from infected void_goo terrain
+      // 3c. Sync glowing Void Wisps spawned from infected void_goo terrain (viewport-culled)
       const wispsList = simState.voidWisps;
       if (wispsList && wispsList.length > 0) {
         const gsWisp = simState.gridSize;
         for (let wi = 0; wi < wispsList.length; wi++) {
           const w = wispsList[wi];
+          const wInView =
+            w.x >= cullMinX && w.x <= cullMaxX && w.z >= cullMinZ && w.z <= cullMaxZ;
           let wEntry = wispMeshes.get(w.id);
+          if (!wInView) {
+            if (wEntry) {
+              wEntry.seenStamp = syncFrameStamp;
+              if (wEntry.group.visible) wEntry.group.visible = false;
+            }
+            continue;
+          }
           if (!wEntry || wEntry.color !== w.color) {
             if (wEntry) {
               wispsGroup.remove(wEntry.group);
@@ -8228,6 +8343,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             wispMeshes.set(w.id, wEntry);
           } else {
             wEntry.seenStamp = syncFrameStamp;
+            if (!wEntry.group.visible) wEntry.group.visible = true;
           }
 
           const wx = Math.max(0, Math.min(gsWisp - 1, Math.round(w.x)));
@@ -8896,7 +9012,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     let shadowFrameCounter = 0;
     let appliedShadowsEnabled = initialGfxProfile.shadowsEnabled;
     let appliedShadowMapSize: 512 | 1024 = initialGfxProfile.shadowMapSize;
-    let appliedShadowStride: 1 | 3 = initialGfxProfile.shadowUpdateStride;
+    let appliedShadowStride: number = initialGfxProfile.shadowUpdateStride;
+    let lastShadowCenterX = gridCenter;
+    let lastShadowCenterZ = gridCenter;
     let appliedCloudsQuality: 'full' | 'reduced' | 'off' = initialGfxProfile.cloudsAndSky;
     let appliedFoliageFactor = initialGfxProfile.foliageFactor;
 
@@ -8917,6 +9035,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       if (prevGameState !== currentGameState && currentGameState === 'playing') {
         autoTrimCooldown = 3.5;
         emaFrameMs = 16.7;
+        autoOptimizer.reset();
       }
 
       // Auto-Optimize FPS monitor with hysteresis cooldown (active gameplay only)
@@ -8937,11 +9056,25 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         autoTrimLevel = 0;
       }
 
+      autoOptDecisions = autoOptimizer.update({
+        rawFrameMs: rawMs,
+        dt,
+        frustumSize,
+        visibleUnitCount: visibleUnitCountLastFrame,
+        totalUnitCount: simRef.current.units.length,
+        isPlaying: currentGameState === 'playing',
+        isSoftwareGl,
+        autoEnabled: gfxSettings.autoOptimizeFps,
+      });
+
       activeGfxProfile = resolveGraphicsProfile(gfxSettings, autoTrimLevel);
 
       // Scalar shadow update cadence (zero reallocation/shader compile cost)
       const wantShadows = !isSoftwareGl && activeGfxProfile.shadowsEnabled;
-      const wantStride = activeGfxProfile.shadowUpdateStride;
+      const wantStride = Math.max(
+        activeGfxProfile.shadowUpdateStride,
+        autoOptDecisions.shadowUpdateStride,
+      );
       if (wantStride !== appliedShadowStride) {
         appliedShadowStride = wantStride;
         if (appliedShadowsEnabled) {
@@ -9140,15 +9273,17 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       }
 
       // Advance simulation when in 'playing' (or gentle ambient motion in 'title') — clamped to 5x max speed
+      // Protect camera responsiveness during extreme high-pop fast-forward via autoOptDecisions.maxSimDt
       const clampedSimSpeed = clampSimulationSpeed(propsRef.current.timeScale);
+      const simStepDt = Math.min(dt, autoOptDecisions.maxSimDt);
       if (hitstopTimer > 0) {
         hitstopTimer = Math.max(0, hitstopTimer - dt);
       } else if (propsRef.current.gameState === 'playing' && clampedSimSpeed > 0) {
-        stepSimulation(simRef.current, dt * clampedSimSpeed, { skipDragStep: true });
+        stepSimulation(simRef.current, simStepDt * clampedSimSpeed, { skipDragStep: true });
       } else if (propsRef.current.gameState === 'title') {
         // Live World Camera Tour on Title Screen
         camDesiredYaw += dt * 0.18;
-        stepSimulation(simRef.current, dt * 0.35, { skipDragStep: true, skipRandomEvents: true });
+        stepSimulation(simRef.current, simStepDt * 0.35, { skipDragStep: true, skipRandomEvents: true });
       }
 
       // Smooth kinematics for dragged units runs every frame at full 60fps (even if paused or in hitstop)
@@ -10487,6 +10622,16 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         }
       }
 
+      // Compute generously padded orthographic ground-plane cull bounds before syncing entities
+      if (elapsedTotal > 0.05) {
+        computeOrthoGroundCullBounds(camera, simRef.current.gridSize, worldCullBounds, 6.5, 6.0);
+      } else {
+        worldCullBounds.minX = -12;
+        worldCullBounds.maxX = simRef.current.gridSize + 12;
+        worldCullBounds.minZ = -12;
+        worldCullBounds.maxZ = simRef.current.gridSize + 12;
+      }
+
       syncSceneFromSimulation(simRef.current, dt, elapsedTotal);
 
       // Lock active dragon_flame cones to the gliding dragon's 3D jaw (fire_maw) with zero frame lag
@@ -11011,12 +11156,17 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         }
 
         // Dynamically and smoothly interpolate pixel scale from 2.5x (zoomed in) to 1.0x (fully zoomed out)
-        const targetDynamicPixelScale = computeDynamicPixelScale(
+        // Under severe sustained tier-3 GPU stalls, gently relax pixel density and recover automatically
+        const baseTargetPixelScale = computeDynamicPixelScale(
           frustumSize,
           simRef.current.gridSize,
           newAspect,
           propsRef.current.pixelScale || 2.5,
         );
+        const targetDynamicPixelScale =
+          autoOptDecisions.pixelScaleMult < 0.99
+            ? Math.min(3.0, baseTargetPixelScale / autoOptDecisions.pixelScaleMult)
+            : baseTargetPixelScale;
         if (Math.abs(currentDynamicPixelScale - targetDynamicPixelScale) > 0.001) {
           currentDynamicPixelScale = THREE.MathUtils.damp(
             currentDynamicPixelScale,
@@ -11068,21 +11218,41 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       const shakeRightX = Math.cos(camYaw) * shakeHoriz;
       const shakeRightZ = -Math.sin(camYaw) * shakeHoriz;
 
-      // Keep directional keyLight tracking camTarget with time-of-day sun/moon angle & shadow direction
-      keyLight.target.position.set(camTarget.x, 0, camTarget.z);
-      keyLight.position.set(
-        camTarget.x + todState.keyOffset[0],
-        todState.keyOffset[1],
-        camTarget.z + todState.keyOffset[2],
+      // Keep directional keyLight tracking camTarget with tight texel-snapped shadow frustum
+      const snappedShadow = computeSnappedShadowBounds(
+        camTarget.x,
+        camTarget.z,
+        frustumSize,
+        getCurrentAspect(),
+        simRef.current.gridSize,
+        appliedShadowMapSize,
       );
-      const desiredShadowBounds = Math.max(18, Math.min(40, frustumSize * 1.05));
-      if (Math.abs(shadowBounds - desiredShadowBounds) > 1.5) {
-        shadowBounds = desiredShadowBounds;
+      keyLight.target.position.set(snappedShadow.centerX, 0, snappedShadow.centerZ);
+      keyLight.position.set(
+        snappedShadow.centerX + todState.keyOffset[0],
+        todState.keyOffset[1],
+        snappedShadow.centerZ + todState.keyOffset[2],
+      );
+      let shadowFrustumChanged = false;
+      if (Math.abs(shadowBounds - snappedShadow.halfExtent) > 0.5) {
+        shadowBounds = snappedShadow.halfExtent;
         keyLight.shadow.camera.left = -shadowBounds;
         keyLight.shadow.camera.right = shadowBounds;
         keyLight.shadow.camera.top = shadowBounds;
         keyLight.shadow.camera.bottom = -shadowBounds;
         keyLight.shadow.camera.updateProjectionMatrix();
+        shadowFrustumChanged = true;
+      }
+      if (
+        appliedShadowsEnabled &&
+        appliedShadowStride > 1 &&
+        (shadowFrustumChanged ||
+          Math.abs(lastShadowCenterX - snappedShadow.centerX) > 2.2 ||
+          Math.abs(lastShadowCenterZ - snappedShadow.centerZ) > 2.2)
+      ) {
+        lastShadowCenterX = snappedShadow.centerX;
+        lastShadowCenterZ = snappedShadow.centerZ;
+        renderer.shadowMap.needsUpdate = true;
       }
 
       const isoDist = 28;
@@ -11265,6 +11435,15 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       kingCrownMat.dispose();
       for (const hv of hazardMeshes.values()) {
         for (const m of hv.materials) m.dispose();
+      }
+      for (const bEntry of buildingMeshes.values()) {
+        disposeEntityGroup(bEntry.group);
+      }
+      for (const uEntry of unitMeshes.values()) {
+        disposeEntityGroup(uEntry.group);
+      }
+      for (const vEntry of vehicleMeshes.values()) {
+        disposeEntityGroup(vEntry.group);
       }
       for (const we of wispMeshes.values()) {
         for (const m of we.materials) m.dispose();

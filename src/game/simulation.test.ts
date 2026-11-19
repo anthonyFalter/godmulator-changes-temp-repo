@@ -4,6 +4,12 @@ import {
   getVoxelTreeLibrary,
   mapTerrainToTreeBiome,
 } from './voxelTrees';
+import { buildSimulationTickIndex, forEachUnitInRadius } from './spatialIndex';
+import {
+  AutoOptimizer,
+  computeOrthoGroundCullBounds,
+  computeSnappedShadowBounds,
+} from './autoOptimizer';
 import {
   WORLD_TEMPLATES,
   advanceEpoch,
@@ -60,7 +66,15 @@ import {
   extractKingdomColorsMap,
   inspectTileZones,
 } from './zones';
-import { createBuildingGroup, createUnitGroup, createVehicleGroup, getNodeVariantLibrary } from './meshBuilders';
+import {
+  createBuildingGroup,
+  createUnitGroup,
+  createVehicleGroup,
+  disposeEntityGroup,
+  getNodeVariantLibrary,
+  getSharedCarryMaterial,
+  getSharedStatusRingMaterial,
+} from './meshBuilders';
 import { generateWorldTiles } from './worldGen';
 import {
   DEFAULT_GRAPHICS_SETTINGS,
@@ -1136,17 +1150,44 @@ test('Individuals in every race have unique appearance diversity, different skin
         u.appearanceSeed,
         u.ageStage ?? 'adult',
       );
-      // Extract torso/head materials & height box to verify real visual diversity & smaller child stature
-      const meshes = group.children.filter((c): c is THREE.Mesh => c instanceof THREE.Mesh);
-      assert.ok(meshes.length >= 6, 'Composite unit mesh should have distinct body, head, hair, legs, and details');
-      const torsoMesh = meshes[3]; // [shadow, legL, legR, torso, ...]
-      const headMesh = meshes.find((m) => m.position.y > 0.25 && m.material instanceof THREE.MeshStandardMaterial);
-      if (torsoMesh?.material instanceof THREE.MeshStandardMaterial) {
-        tunicColors.add(torsoMesh.material.color.getHex());
-      }
-      if (headMesh?.material instanceof THREE.MeshStandardMaterial) {
-        skinColors.add(headMesh.material.color.getHex());
-      }
+      // Extract baked vertex colors & bounding height from merged composite unit geometry
+      // to verify real visual diversity (skin tones, outfits, multi-part detail, child stature)
+      const meshes: THREE.Mesh[] = [];
+      let totalTris = 0;
+      const bodyColorSamples = new Set<number>();
+      let foundTorsoHex: number | null = null;
+      let foundHeadHex: number | null = null;
+      group.traverse((c) => {
+        if (c instanceof THREE.Mesh) {
+          meshes.push(c);
+          if (c.userData?.isUnitShadowCaster) {
+            const pos = c.geometry.getAttribute('position');
+            const col = c.geometry.getAttribute('color');
+            totalTris += c.geometry.index ? c.geometry.index.count / 3 : pos.count / 3;
+            if (pos && col) {
+              for (let vi = 0; vi < pos.count; vi++) {
+                const y = pos.getY(vi);
+                const hex =
+                  (Math.round(col.getX(vi) * 255) << 16) |
+                  (Math.round(col.getY(vi) * 255) << 8) |
+                  Math.round(col.getZ(vi) * 255);
+                bodyColorSamples.add(hex);
+                if (foundTorsoHex === null && y >= 0.14 && y <= 0.30) {
+                  foundTorsoHex = hex;
+                } else if (foundHeadHex === null && y >= 0.34 && y <= 0.56) {
+                  foundHeadHex = hex;
+                }
+              }
+            }
+          }
+        }
+      });
+      assert.ok(
+        totalTris >= 60 && bodyColorSamples.size >= 3,
+        `Merged composite unit mesh should preserve multi-part body/head/hair/legs geometry & distinct colors (got ${totalTris} tris, ${bodyColorSamples.size} colors)`,
+      );
+      if (foundTorsoHex !== null) tunicColors.add(foundTorsoHex);
+      if (foundHeadHex !== null) skinColors.add(foundHeadHex);
       const bbox = new THREE.Box3().setFromObject(group);
       meshHeights.add(Math.round((bbox.max.y - bbox.min.y) * 100));
     }
@@ -3543,13 +3584,24 @@ test('War Update Model & VFX Overhaul: fixed-wing planes never hover, helicopter
   assert.ok(orcChopperMesh.getObjectByName('spin_rotor'), 'Orc chopper must have horizontal top spin_rotor');
   assert.ok(orcChopperMesh.getObjectByName('spin_prop'), 'Orc chopper must have tail spin_prop');
 
-  // 2. Held unit weapons are multi-part 3D groups per race & age
+  // 2. Held unit weapons preserve full multi-part 3D geometry per race & age (even when batched into merged draw calls)
+  const countObjectTris = (obj: THREE.Object3D | undefined): number => {
+    if (!obj) return 0;
+    let tris = 0;
+    obj.traverse((ch) => {
+      if (ch instanceof THREE.Mesh) {
+        const g = ch.geometry;
+        tris += g.index ? g.index.count / 3 : g.getAttribute('position').count / 3;
+      }
+    });
+    return tris;
+  };
   const elfStaff = createUnitGroup('priest', 'civilization', 3, 'elf', 7, 'adult').getObjectByName('held_tool');
   const humanRifle = createUnitGroup('warrior', 'civilization', 5, 'human', 7, 'adult').getObjectByName('held_tool');
   const orcCleaver = createUnitGroup('warrior', 'civilization', 5, 'orc', 7, 'adult').getObjectByName('held_tool');
-  assert.ok(elfStaff && elfStaff.children.length >= 2, 'Elf weapon should be multi-part 3D runestaff');
-  assert.ok(humanRifle && humanRifle.children.length >= 3, 'Modern human rifle should be multi-part 3D weapon');
-  assert.ok(orcCleaver && orcCleaver.children.length >= 2, 'Orc weapon should be multi-part 3D cleaver');
+  assert.ok(elfStaff && countObjectTris(elfStaff) >= 20, 'Elf weapon should be multi-part 3D runestaff');
+  assert.ok(humanRifle && countObjectTris(humanRifle) >= 36, 'Modern human rifle should be multi-part 3D weapon');
+  assert.ok(orcCleaver && countObjectTris(orcCleaver) >= 24, 'Orc weapon should be multi-part 3D cleaver');
 
   // 3. Fixed-wing plane NEVER stops/hovers even when engaged inside fireRange; makes continuous forward bombing passes
   const state = createInitialSimulationState(96, 'PLANE-NO-HOVER-TEST');
@@ -5381,5 +5433,244 @@ test('Biome Tree Redesign: 3D sculpted micro-voxel trees cover all 8 biomes with
   assert.equal(grassTile.terrain, 'forest', 'plant_forest on plain grass should convert terrain to forest');
   assert.equal(grassTile.resourceNode, 'timber_grove');
 });
+
+test('Optimization Update: spatial tick index matches brute-force radius queries exactly and keeps 500-population simulation fast', () => {
+  const state = createInitialSimulationState(64, 'OPT-500-POP');
+  state.wildlifeSeeded = true;
+  state.sandboxFreeMode = true;
+
+  // Flatten a large central continent so 500 units + 3 settlements + resources have plenty of space
+  for (const t of state.tiles) {
+    if (t.x >= 6 && t.x <= 58 && t.z >= 6 && t.z <= 58) {
+      t.height = 2;
+      t.terrain = (t.x + t.z) % 7 === 0 ? 'forest' : 'grass';
+      t.resourceNode = (t.x + t.z) % 7 === 0 ? 'timber_grove' : (t.x * 3 + t.z) % 19 === 0 ? 'stone_outcrop' : 'none';
+      t.resourceAmount = t.resourceNode === 'none' ? 0 : 120;
+      t.buildingId = null;
+    }
+  }
+
+  // Create 3 distinct settlements across the continent
+  const hubs: [number, number, 'human' | 'elf' | 'orc'][] = [
+    [18, 18, 'human'],
+    [44, 18, 'elf'],
+    [30, 44, 'orc'],
+  ];
+  const settlementIds: string[] = [];
+  for (const [hx, hz, sp] of hubs) {
+    const bRes = placeBuilding(state, 'bonfire', hx, hz);
+    assert.equal(bRes.ok, true);
+    const bld = state.buildings[state.buildings.length - 1];
+    bld.constructionProgress = 100;
+    bld.species = sp;
+    if (bld.settlementId) {
+      state.settlementSpecies = state.settlementSpecies ?? {};
+      state.settlementSpecies[bld.settlementId] = sp;
+      settlementIds.push(bld.settlementId);
+    }
+    placeBuilding(state, 'forager_hut', hx + 2, hz);
+    placeBuilding(state, 'granary', hx - 2, hz);
+  }
+
+  // Spawn 500 living citizens & wildlife spread across the world
+  for (let i = 0; i < 460; i++) {
+    const hubIdx = i % hubs.length;
+    const [hx, hz, sp] = hubs[hubIdx];
+    const ox = ((i * 7) % 15) - 7;
+    const oz = ((i * 11) % 15) - 7;
+    spawnUnit(state, sp, hx + ox, hz + oz, true, settlementIds[hubIdx]);
+  }
+  for (let i = 0; i < 40; i++) {
+    const role = i % 2 === 0 ? 'wolf' : 'cow';
+    spawnUnit(state, role, 10 + ((i * 5) % 44), 10 + ((i * 9) % 44), true);
+  }
+  assert.ok(state.units.length >= 500, `Expected >= 500 units, got ${state.units.length}`);
+
+  // 1. Verify spatial hash grid returns the EXACT same set of units as brute-force O(N) scan
+  const idx = buildSimulationTickIndex(
+    state,
+    (s, sid) => (sid ? getKingdomId(s, sid) : undefined),
+    isCarnivoreAnimal,
+  );
+  const queries: [number, number, number][] = [
+    [18, 18, 5.5],
+    [30, 30, 12.0],
+    [44, 18, 8.25],
+    [10, 50, 16.0],
+  ];
+  for (const [qx, qz, radius] of queries) {
+    const expected = new Set<string>();
+    const rSq = radius * radius;
+    for (const u of state.units) {
+      if (u.state === 'ko' || u.embarkedVehicleId) continue;
+      const dx = u.x - qx;
+      const dz = u.z - qz;
+      if (dx * dx + dz * dz <= rSq) expected.add(u.id);
+    }
+    const actual = new Set<string>();
+    forEachUnitInRadius(idx, qx, qz, radius, (u) => {
+      actual.add(u.id);
+    });
+    assert.deepEqual(
+      actual,
+      expected,
+      `Spatial radius query (${qx},${qz},r=${radius}) must match brute-force scan exactly`,
+    );
+  }
+
+  // 2. Benchmark 20 simulation ticks at 500+ population and verify zero NaNs & responsive frame budget
+  const t0 = performance.now();
+  for (let step = 0; step < 20; step++) {
+    stepSimulation(state, 0.05);
+  }
+  const elapsedMs = performance.now() - t0;
+  const avgTickMs = elapsedMs / 20;
+  assert.ok(
+    avgTickMs < 40,
+    `500-population simulation tick should remain fast (<40ms avg on CI CPU, got ${avgTickMs.toFixed(2)}ms)`,
+  );
+  for (const u of state.units) {
+    assert.ok(Number.isFinite(u.x) && Number.isFinite(u.z) && Number.isFinite(u.hp), 'Units must remain numerically valid');
+  }
+});
+
+test('Optimization Update: humanoid mesh batching, building template geometry reuse, shared materials, and leak-free disposal preserve exact visuals', () => {
+  // Humanoid units should be merged into <= 5 mesh nodes (body buckets + shadow + carry + hidden status ring + optional tool)
+  const humanGroup = createUnitGroup('villager', 'civilization', 1, 'human', 12345, 'adult');
+  let totalMeshes = 0;
+  let shadowCasterMeshes = 0;
+  humanGroup.traverse((obj) => {
+    if ((obj as THREE.Mesh).isMesh) {
+      totalMeshes++;
+      if (obj.userData?.isUnitShadowCaster) shadowCasterMeshes++;
+    }
+  });
+  assert.ok(
+    totalMeshes <= 6,
+    `Merged humanoid worker should have <= 6 mesh objects (down from 16+), got ${totalMeshes}`,
+  );
+  assert.ok(shadowCasterMeshes >= 1, 'Merged humanoid body meshes must be tagged with userData.isUnitShadowCaster');
+
+  const statusRing = humanGroup.getObjectByName('status_ring') as THREE.Mesh | undefined;
+  assert.ok(statusRing, 'Humanoid unit must retain status_ring mesh');
+  assert.equal(statusRing.visible, false, 'Healthy units must hide status_ring by default to save transparent draw calls');
+
+  // Shared carry & status ring materials return identical references without allocating per unit
+  assert.equal(getSharedCarryMaterial('wood'), getSharedCarryMaterial('wood'));
+  assert.notEqual(getSharedCarryMaterial('wood'), getSharedCarryMaterial('ore'));
+  assert.equal(getSharedStatusRingMaterial(0), null);
+  assert.equal(getSharedStatusRingMaterial(1), getSharedStatusRingMaterial(1));
+
+  // Duplicate buildings share cached BufferGeometry instances cleanly (zero redundant geometry builds)
+  const b1 = createBuildingGroup('forager_hut', 2, 100, 'human', false);
+  const b2 = createBuildingGroup('forager_hut', 2, 104, 'human', false); // same variantBucket (100 % 4 === 104 % 4)
+  const b1Geos: THREE.BufferGeometry[] = [];
+  const b2Geos: THREE.BufferGeometry[] = [];
+  b1.traverse((o) => {
+    if ((o as THREE.Mesh).isMesh) b1Geos.push((o as THREE.Mesh).geometry);
+  });
+  b2.traverse((o) => {
+    if ((o as THREE.Mesh).isMesh) b2Geos.push((o as THREE.Mesh).geometry);
+  });
+  assert.ok(b1Geos.length >= 1 && b1Geos.length <= 16, `Building should merge static meshes tightly (got ${b1Geos.length} meshes)`);
+  assert.equal(b1Geos.length, b2Geos.length);
+  for (let i = 0; i < b1Geos.length; i++) {
+    assert.equal(b1Geos[i], b2Geos[i], 'Cached building template clones must share exact BufferGeometry references');
+  }
+
+  // Disposing one entity must NOT destroy shared materials/geometries needed by surviving units/buildings
+  disposeEntityGroup(humanGroup);
+  disposeEntityGroup(b1);
+  assert.ok(b2Geos[0].getAttribute('position').count > 0, 'Shared template geometry must survive sibling disposal');
+  assert.ok(getSharedCarryMaterial('wood').color, 'Shared carry material must remain intact after unit disposal');
+});
+
+test('Optimization Update: AutoOptimizer hysteresis, zoom-aware shadow toggle, ground frustum culling, and snapped shadow bounds behave cleanly', () => {
+  const opt = new AutoOptimizer();
+
+  // Close-up with healthy 60fps -> tier 0, full unit shadow-map casting, stride 1
+  const healthy = opt.update({
+    rawFrameMs: 14,
+    dt: 0.016,
+    frustumSize: 15,
+    visibleUnitCount: 60,
+    totalUnitCount: 120,
+    isPlaying: true,
+    isSoftwareGl: false,
+    autoEnabled: true,
+  });
+  assert.equal(healthy.tier, 0);
+  assert.equal(healthy.unitCastShadows, true);
+  assert.equal(healthy.crowdAnimStride, 1);
+  assert.equal(healthy.shadowUpdateStride, 1);
+
+  // Zoomed far out to continent overview -> automatically disables sub-pixel humanoid shadow-map casting
+  const zoomedOut = opt.update({
+    rawFrameMs: 16,
+    dt: 0.016,
+    frustumSize: 42,
+    visibleUnitCount: 180,
+    totalUnitCount: 350,
+    isPlaying: true,
+    isSoftwareGl: false,
+    autoEnabled: true,
+  });
+  assert.equal(zoomedOut.isZoomedOut, true);
+  assert.equal(zoomedOut.unitCastShadows, false);
+  assert.ok(zoomedOut.shadowUpdateStride >= 2);
+  assert.ok(zoomedOut.crowdAnimStride >= 2);
+
+  // Sustained slow frames (~38ms) -> steps up through tiers automatically with hysteresis
+  let stressed = zoomedOut;
+  for (let i = 0; i < 240; i++) {
+    stressed = opt.update({
+      rawFrameMs: 39,
+      dt: 0.04,
+      frustumSize: 22,
+      visibleUnitCount: 240,
+      totalUnitCount: 450,
+      isPlaying: true,
+      isSoftwareGl: false,
+      autoEnabled: true,
+    });
+  }
+  assert.ok(stressed.tier >= 2, `Expected tier >= 2 under sustained 39ms frames, got ${stressed.tier}`);
+  assert.equal(stressed.unitCastShadows, false);
+  assert.ok(stressed.particleScale < 0.7);
+
+  // Recovery under smooth 13ms frames -> steps back down cleanly to tier 0
+  let recovered = stressed;
+  for (let i = 0; i < 400; i++) {
+    recovered = opt.update({
+      rawFrameMs: 13,
+      dt: 0.04,
+      frustumSize: 15,
+      visibleUnitCount: 40,
+      totalUnitCount: 100,
+      isPlaying: true,
+      isSoftwareGl: false,
+      autoEnabled: true,
+    });
+  }
+  assert.equal(recovered.tier, 0, 'AutoOptimizer must recover cleanly back to tier 0 when frame times normalize');
+  assert.equal(recovered.unitCastShadows, true);
+
+  // Orthographic ground-plane cull bounds tightly wrap the visible viewport around camTarget
+  const cam = new THREE.OrthographicCamera(-12, 12, 8, -8, 0.1, 200);
+  cam.position.set(32 + 20, 22.5, 32 + 20);
+  cam.lookAt(32, 1.2, 32);
+  cam.updateProjectionMatrix();
+  const bounds = computeOrthoGroundCullBounds(cam, 64, { minX: 0, maxX: 0, minZ: 0, maxZ: 0 }, 6.0, 6.0);
+  assert.ok(bounds.minX < 32 && bounds.maxX > 32, 'Ground cull X bounds must contain camera target');
+  assert.ok(bounds.minZ < 32 && bounds.maxZ > 32, 'Ground cull Z bounds must contain camera target');
+  assert.ok(bounds.minX > -5 && bounds.maxX < 69, 'Close-up ground cull bounds should cull distant map edges');
+
+  // Snapped shadow bounds quantize cleanly & keep target centered within snap tolerance
+  const snap = computeSnappedShadowBounds(32.3, 31.8, 16, 1.6, 64, 1024);
+  assert.ok(Math.abs(snap.centerX - 32.3) <= 1.0);
+  assert.ok(Math.abs(snap.centerZ - 31.8) <= 1.0);
+  assert.ok(snap.halfExtent >= 16 && snap.halfExtent % 4 === 0);
+});
+
 
 
