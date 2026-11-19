@@ -17,11 +17,11 @@ import {
 export type DietCategory =
   | 'Herbivore'
   | 'Carnivore'
-  | 'Pyro-Carnivore'
-  | 'Fey Herbivore'
-  | 'Abyssal Apex'
+  | 'Fire Carnivore'
+  | 'Forest Herbivore'
+  | 'Sea Predator'
   | 'Omnivore'
-  | 'Botanical Omnivore';
+  | 'Forager';
 
 export interface EntityDietInfo {
   category: DietCategory;
@@ -62,61 +62,61 @@ export const RARE_GENE_POOLS: Record<
   string[]
 > = {
   civilization: [
-    'Iron Lung',
-    'Keen Horizon Sight',
-    'Nimble Stride',
-    'Hardy Constitution',
-    'Swift Hands',
-    'Photographic Recall',
-    'Resilient Spirit',
-    'Storied Ancestry',
+    'Deep Lungs',
+    'Eagle Eye',
+    'Fast Runner',
+    'Tough',
+    'Quick Hands',
+    'Sharp Memory',
+    'Brave Heart',
+    'Old Bloodline',
   ],
   elf: [
-    'Fey Sight',
-    'Whispering Stride',
-    'Starleaf Resonance',
-    'Moonlit Grace',
+    'Forest Sight',
+    'Light Step',
+    'Forest Bond',
+    'Night Grace',
   ],
   orc: [
-    'Berserker Heart',
-    'Iron Skull',
-    'Unyielding Sinew',
-    'Crag-Hide',
+    'Fierce Heart',
+    'Thick Skull',
+    'Strong Grip',
+    'Tough Hide',
   ],
   herbivore: [
-    'Albino Coat',
-    'Hyper-Vigilance',
-    'Thick Winter Pelt',
-    'Fleet-Footed',
-    'Alpha Stature',
-    'Dense Bone Density',
+    'White Coat',
+    'Alert',
+    'Thick Fur',
+    'Fast Runner',
+    'Large Frame',
+    'Strong Bones',
   ],
   carnivore: [
-    'Bone-Crusher Jaw',
-    'Serrated Dentition',
-    'Hyper-Predatory Scent',
-    'Nightstalker Vision',
-    'Relentless Pursuit',
-    'Armored Pelt',
+    'Strong Jaw',
+    'Sharp Teeth',
+    'Keen Scent',
+    'Night Vision',
+    'Tireless Hunter',
+    'Thick Pelt',
   ],
   dragon: [
-    'Pyroclast Gland',
-    'Ancient Wyrmblood',
-    'Volcanic Heart',
-    'Thermic Wingbeat',
-    'Sky-Sovereign Gaze',
+    'Fire Breath',
+    'Dragon Blood',
+    'Hot Core',
+    'Strong Wings',
+    'Sharp Eyes',
   ],
   unicorn: [
-    'Starlight Mane',
-    'Aether Resonance',
-    'Moonbound Stride',
-    'Blossom Affinity',
+    'Glowing Mane',
+    'Healing Aura',
+    'Light Step',
+    'Flower Bond',
   ],
   hostile: [
-    'Battle-Hardened',
-    'Frenzied Nerve',
-    'Scarred Veteran',
-    'Brutal Might',
+    'Battle Tested',
+    'Fearless',
+    'Veteran',
+    'Heavy Hitter',
     'Iron Stomach',
   ],
 };
@@ -154,65 +154,84 @@ export function getUnitIntrinsicGene(
     return `${variant.name} Scales`;
   }
   if (role === 'unicorn') {
-    return 'Celestial Fey Horn';
+    return 'Magic Horn';
   }
   if (role === 'leviathan') {
-    return 'Abyssal Megafauna Physiology';
+    return 'Deep Sea Giant';
   }
   if (role === 'dinosaur') {
     const variant = getDinosaurVariant(seed);
     const diet = dinoDiet ?? variant.diet;
     if (diet === 'carnivore' || variant.morph === 0) {
-      return 'Apex Theropod Physiology';
+      return 'Apex Predator';
     }
     if (variant.morph === 1) {
-      return 'Ceratopsian Crest';
+      return 'Horned Crest';
     }
-    return 'Dorsal Bone Plates';
+    return 'Back Plates';
   }
   if (role === 'wolf') {
-    return 'Canine Pack Instinct';
+    return 'Pack Hunter';
   }
   if (role === 'bear') {
-    return 'Ursine Heavy Frame';
+    return 'Heavy Frame';
   }
   if (role === 'cow') {
-    return 'Ruminant Digestion';
+    return 'Pasture Grazer';
   }
   if (role === 'pig') {
-    return 'Keen Foraging Snout';
+    return 'Foraging Snout';
   }
   if (role === 'chicken') {
-    return 'Avian Plumage';
+    return 'Light Feathers';
   }
   if (role === 'capybara') {
-    return 'Semi-Aquatic Fur';
+    return 'Water Fur';
   }
   if (role === 'skeleton') {
-    return 'Necrotic Bone Frame';
+    return 'Undead Bones';
   }
   if (role === 'alien_trooper' || role === 'alien_ufo' || role === 'alien_walker') {
-    return 'Xeno-Alloy Bio-Shell';
+    return 'Alien Armor';
   }
   if (
     role === 'raider_swarmer' ||
     role === 'raider_ranged' ||
     role === 'raider_behemoth'
   ) {
-    return 'Pillager Grit';
+    return 'Raider Grit';
   }
   if (species === 'elf') {
-    return 'Elven Longevity';
+    return 'Long Lived';
   }
   if (species === 'orc') {
-    return 'Orcish Brawn';
+    return 'Orc Strength';
   }
-  return 'Human Adaptability';
+  return 'Adaptable';
 }
 
 export function isIntrinsicGene(gene: string): boolean {
   if (gene.endsWith('Scales') || gene.endsWith('Lineage')) return true;
   const INTRINSIC_SET = new Set([
+    // Clean sandbox intrinsic traits
+    'Adaptable',
+    'Long Lived',
+    'Orc Strength',
+    'Magic Horn',
+    'Apex Predator',
+    'Horned Crest',
+    'Back Plates',
+    'Pack Hunter',
+    'Heavy Frame',
+    'Pasture Grazer',
+    'Foraging Snout',
+    'Light Feathers',
+    'Water Fur',
+    'Raider Grit',
+    'Undead Bones',
+    'Alien Armor',
+    'Deep Sea Giant',
+    // Legacy save compatibility
     'Human Adaptability',
     'Elven Longevity',
     'Orcish Brawn',
@@ -302,89 +321,89 @@ export function generateUnitItems(
 
   if (role === 'dragon') {
     const variant = getDragonVariant(seed);
-    return [`${variant.name} Scales`, 'Ember Crown Crest', 'Molten Flame Sac'];
+    return [`${variant.name} Scales`, 'Horn Crest', 'Flame Gland'];
   }
   if (role === 'unicorn') {
-    return ['Spiraled Ivory Horn', 'Aether Garland', 'Dewdrop Hooves'];
+    return ['Ivory Horn', 'Flower Wreath', 'Silver Hooves'];
   }
   if (role === 'leviathan') {
-    return ['Cavernous Leviathan Maw', 'Abyssal Barnacle Hide', 'Trench Sonar Organ'];
+    return ['Giant Jaws', 'Thick Sea Hide', 'Deep Sea Fins'];
   }
   if (role === 'dinosaur') {
     const info = getDinosaurVariant(seed);
     const diet = dinoDiet ?? info.diet;
     if (diet === 'carnivore') {
-      return ['Tyrant Fangs', 'Thick Osteoderms'];
+      return ['Sharp Fangs', 'Tough Hide'];
     }
     return info.morph === 1
-      ? ['Tri-Horned Frill', 'Herbaceous Pouches']
-      : ['Dorsal Bone Plates', 'Thagomizer Tail'];
+      ? ['Three-Horned Shield', 'Plant Pouch']
+      : ['Back Plates', 'Spiked Tail'];
   }
-  if (role === 'wolf') return ['Razor Fangs', 'Dense Winter Coat'];
+  if (role === 'wolf') return ['Sharp Fangs', 'Winter Fur'];
   if (role === 'bear') return ['Heavy Claws', 'Wild Honeycomb'];
-  if (role === 'cow') return ['Brass Pasture Bell', 'Clover Tuft'];
-  if (role === 'pig') return ['Truffle Snout', 'Mud Coat'];
-  if (role === 'chicken') return ['Speckled Plume', 'Foraged Seeds'];
-  if (role === 'capybara') return ['Yuzu Citrus', 'River Reed Crown'];
+  if (role === 'cow') return ['Pasture Bell', 'Clover Bundle'];
+  if (role === 'pig') return ['Truffle Snout', 'Muddy Coat'];
+  if (role === 'chicken') return ['Feathers', 'Wild Seeds'];
+  if (role === 'capybara') return ['River Reed', 'Sweet Fruit'];
 
-  if (role === 'raider_swarmer') return ['Jagged Cleaver', 'Plundered Pouch'];
-  if (role === 'raider_ranged') return ['Recurve Warbow', 'Barbed Quiver'];
-  if (role === 'raider_behemoth') return ['Siege Maul', 'Spiked Pauldrons'];
-  if (role === 'skeleton') return ['Rusted Boneblade', 'Necrotic Phylactery Shard'];
-  if (role === 'alien_trooper') return ['Xeno-Plasma Carbine', 'Mothership Telemetry Relay'];
-  if (role === 'alien_ufo') return ['Graviton Saucer Core', 'Abduction Tractor Emitter'];
-  if (role === 'alien_walker') return ['Twin Heavy Turbolasers', 'Quad Armored Striders'];
+  if (role === 'raider_swarmer') return ['Iron Cleaver', 'Loot Bag'];
+  if (role === 'raider_ranged') return ['Hunting Bow', 'Arrow Quiver'];
+  if (role === 'raider_behemoth') return ['Heavy Club', 'Spiked Armor'];
+  if (role === 'skeleton') return ['Rusty Sword', 'Dark Bone Shard'];
+  if (role === 'alien_trooper') return ['Plasma Rifle', 'Radio Beacon'];
+  if (role === 'alien_ufo') return ['UFO Reactor', 'Tractor Beam'];
+  if (role === 'alien_walker') return ['Twin Lasers', 'Heavy Leg Armor'];
 
   const materialPrefix = [
-    'Flint',
+    'Stone',
     'Bronze',
-    'Tempered Steel',
-    'Brasswork',
-    'Carbon-Alloy',
-    'Quantum',
+    'Steel',
+    'Iron',
+    'Alloy',
+    'Laser',
   ][tier];
   const trinketPool =
     species === 'elf'
-      ? ['Starleaf Cloak', 'Sunstone Charm', 'Silver Whistle']
+      ? ['Forest Cloak', 'Sun Charm', 'Silver Flute']
       : species === 'orc'
-        ? ['Bone Talisman', 'War-Horn', 'Iron Flask']
-        : ['Traveler’s Satchel', 'Hearth Token', 'Compass Locket'];
+        ? ['Bone Charm', 'War Horn', 'Iron Flask']
+        : ['Travel Bag', 'Wood Token', 'Pocket Compass'];
   const trinket = trinketPool[seededHash(seed, 9) % trinketPool.length];
 
   if (role === 'warrior') {
     const weapon =
       tier >= 5
-        ? 'Plasma Lance'
+        ? 'Laser Rifle'
         : tier >= 4
-          ? 'Pulse Carbine'
+          ? 'Assault Rifle'
           : tier >= 3
-            ? 'Rifled Musket'
-            : `${materialPrefix} Halberd`;
-    return [weapon, `${materialPrefix} Buckler`, trinket];
+            ? 'Musket'
+            : `${materialPrefix} Spear`;
+    return [weapon, `${materialPrefix} Shield`, trinket];
   }
   if (role === 'builder') {
-    const tool = tier >= 4 ? 'Servo Welder' : `${materialPrefix} Hammer`;
-    return [tool, 'Surveyor’s Blueprint', trinket];
+    const tool = tier >= 4 ? 'Power Welder' : `${materialPrefix} Hammer`;
+    return [tool, 'Build Plans', trinket];
   }
   if (role === 'forager') {
-    return [`${materialPrefix} Sickle`, 'Woven Herb Basket', trinket];
+    return [`${materialPrefix} Sickle`, 'Berry Basket', trinket];
   }
   if (role === 'miner') {
-    const pick = tier >= 4 ? 'Plasma Drill' : `${materialPrefix} Pickaxe`;
-    return [pick, 'Lantern Helmet', trinket];
+    const pick = tier >= 4 ? 'Laser Drill' : `${materialPrefix} Pickaxe`;
+    return [pick, 'Mining Lamp', trinket];
   }
   if (role === 'astro_engineer') {
-    return ['Orbital Plasma Wrench', 'Star-Nav Pad', trinket];
+    return ['Alloy Wrench', 'Data Pad', trinket];
   }
   if (role === 'scholar') {
-    const focus = tier >= 4 ? 'Holo-Slate' : 'Star Astrolabe';
-    return [focus, 'Field Codex', trinket];
+    const focus = tier >= 4 ? 'Data Tablet' : 'Compass';
+    return [focus, 'Note Book', trinket];
   }
   if (role === 'priest') {
-    return ['Sacred Censer', 'Sun-Script Scroll', trinket];
+    return ['Wooden Staff', 'Prayer Scroll', trinket];
   }
 
-  const civicTool = tier >= 4 ? 'Multi-Tool Kit' : `${materialPrefix} Pick & Sickle`;
+  const civicTool = tier >= 4 ? 'Tool Kit' : `${materialPrefix} Tools`;
   return [civicTool, trinket];
 }
 
@@ -392,97 +411,97 @@ function getDietInfo(unit: UnitEntity): EntityDietInfo {
   switch (unit.role) {
     case 'dragon':
       return {
-        category: 'Pyro-Carnivore',
-        detail: 'Apex aerial predator — hunts livestock, warriors & structures',
+        category: 'Fire Carnivore',
+        detail: 'Flying predator that hunts livestock, units, and towns',
       };
     case 'unicorn':
       return {
-        category: 'Fey Herbivore',
-        detail: 'Starlight blossoms, pure meadows & crystal springs',
+        category: 'Forest Herbivore',
+        detail: 'Grazer of flowers, meadow grass, and berries',
       };
     case 'leviathan':
       return {
-        category: 'Abyssal Apex',
-        detail: 'Roams ocean trenches as a silhouette; breaches to hunt swimmers & vessels or graze air',
+        category: 'Sea Predator',
+        detail: 'Swims through deep water and surfaces to hunt ships and swimmers',
       };
     case 'dinosaur': {
       const dino = getDinosaurVariant(unit.appearanceSeed);
       if (dino.diet === 'carnivore') {
         return {
           category: 'Carnivore',
-          detail: 'Hunts herbivore beasts, wildlife & wandering units',
+          detail: 'Hunts herbivores, wildlife, and nearby units',
         };
       }
       return {
         category: 'Herbivore',
-        detail: 'Grazes ferns, berries & wild forest foliage; flees predators',
+        detail: 'Eats ferns, berries, and leaves; runs from predators',
       };
     }
     case 'wolf':
       return {
         category: 'Carnivore',
-        detail: 'Pack hunter — stalks small livestock, deer & raiders',
+        detail: 'Pack hunter that chases livestock and small animals',
       };
     case 'bear':
       return {
         category: 'Carnivore',
-        detail: 'Territorial predator — hunts wildlife & defends dens',
+        detail: 'Strong predator that hunts wildlife and guards its territory',
       };
     case 'cow':
       return {
         category: 'Herbivore',
-        detail: 'Grazes lush grass, wheat & meadow clover',
+        detail: 'Grazes on meadow grass, wheat, and clover',
       };
     case 'pig':
       return {
         category: 'Herbivore',
-        detail: 'Forages roots, forest berries & fallen acorns',
+        detail: 'Forages for roots, berries, and acorns',
       };
     case 'chicken':
       return {
         category: 'Herbivore',
-        detail: 'Pecks wild grain, seeds & meadow berries',
+        detail: 'Pecks grain, seeds, and berries',
       };
     case 'capybara':
       return {
         category: 'Herbivore',
-        detail: 'Calm riverside grazer — aquatic reeds & sweet berries',
+        detail: 'Peaceful river grazer that eats reeds and berries',
       };
     case 'raider_swarmer':
     case 'raider_ranged':
     case 'raider_behemoth':
       return {
         category: 'Carnivore',
-        detail: 'Plundered rations, smoked meats & pillaged stores',
+        detail: 'Lives on stolen rations and roasted meat',
       };
     case 'skeleton':
       return {
-        category: 'Abyssal Apex',
-        detail: 'Sustained solely by dark necrotic rift energy',
+        category: 'Sea Predator',
+        detail: 'Kept alive by dark portal magic',
       };
     case 'alien_trooper':
     case 'alien_ufo':
     case 'alien_walker':
       return {
-        category: 'Abyssal Apex',
-        detail: 'Powered by concentrated mothership plasma cells',
+        category: 'Sea Predator',
+        detail: 'Powered by alien energy cells',
       };
     default: {
       if (unit.species === 'elf') {
         return {
-          category: 'Botanical Omnivore',
-          detail: 'Orchard fruit, herb loaves & forest berries',
+          category: 'Forager',
+          detail: 'Orchard fruit, bread, and forest berries',
         };
       }
       if (unit.species === 'orc') {
         return {
           category: 'Carnivore',
-          detail: 'Smoked boar, charred haunches & hearth rations',
+          detail: 'Roasted meat and camp rations',
         };
       }
       return {
         category: 'Omnivore',
-        detail: 'Hearth bread, orchard fruit & roasted game',
+        detail: 'Bread, fruit, and cooked meat',
       };
     }
   }
@@ -499,11 +518,11 @@ function getSubtitleAndFaction(
     return { subtitle: `${variant.name} Dragon`, factionLabel: 'Mythical' };
   }
   if (unit.role === 'unicorn') {
-    return { subtitle: 'Celestial Unicorn', factionLabel: 'Mythical' };
+    return { subtitle: 'Unicorn', factionLabel: 'Mythical' };
   }
   if (unit.role === 'leviathan') {
     return {
-      subtitle: unit.leviathanSubmerged ? 'Abyssal Leviathan (Submerged)' : 'Abyssal Leviathan (Surfaced)',
+      subtitle: unit.leviathanSubmerged ? 'Leviathan (Underwater)' : 'Leviathan (Surfaced)',
       factionLabel: 'Mythical',
     };
   }
@@ -539,34 +558,30 @@ function getSubtitleAndFaction(
 function formatActivity(unit: UnitEntity): string {
   switch (unit.state) {
     case 'fighting':
-      return unit.role === 'dragon' ? 'Aerial Assault' : 'In Combat';
+      return unit.role === 'dragon' ? 'Breathing Fire' : 'Fighting';
     case 'gathering':
-      return unit.faction === 'wildlife' ? 'Grazing & Foraging' : 'Harvesting Resources';
+      return unit.faction === 'wildlife' ? 'Grazing' : 'Gathering';
     case 'building':
-      return 'Constructing';
+      return 'Building';
     case 'praying':
-      return 'Praying at Temple';
+      return 'Praying';
     case 'researching':
-      return 'Conducting Research';
+      return 'Researching';
     case 'moving':
-      return unit.role === 'dragon'
-        ? unit.dragonRunPhase === 'strafe'
-          ? 'Strafing Pass'
-          : 'Soaring'
-        : 'Traveling';
+      return unit.role === 'dragon' ? 'Flying' : 'Walking';
     case 'ko':
       return 'Defeated';
     default:
-      return unit.role === 'dragon' ? 'Circling Skies' : 'Idle / Resting';
+      return unit.role === 'dragon' ? 'Flying' : 'Idle';
   }
 }
 
 function getAgeStageLabel(unit: UnitEntity): string {
-  if (unit.role === 'dragon') return 'Ancient Wyrm';
-  if (unit.role === 'unicorn') return 'Timeless Fey';
-  if (unit.role === 'leviathan') return 'Abyssal Titan';
+  if (unit.role === 'dragon') return 'Elder';
+  if (unit.role === 'unicorn') return 'Adult';
+  if (unit.role === 'leviathan') return 'Giant';
   if (unit.ageStage === 'child') return 'Child';
-  if (unit.faction === 'wildlife') return 'Mature';
+  if (unit.faction === 'wildlife') return 'Adult';
   return 'Adult';
 }
 

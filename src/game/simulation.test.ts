@@ -2188,16 +2188,16 @@ test('entity inspector resolves names, diets, informations, carried/equipped ite
   assert.ok(humanProfile.items[0].includes('Carrying 12 Wood'), 'Should show carried cargo item');
   assert.ok(humanProfile.items.length >= 3, 'Should include equipped/epoch items plus cargo');
   assert.ok(humanProfile.genes.length >= 1, 'Should include deterministic genetic traits');
-  assert.ok(humanProfile.genes.includes('Human Adaptability'), 'Should include intrinsic human lineage trait');
+  assert.ok(humanProfile.genes.includes('Adaptable'), 'Should include intrinsic human lineage trait');
 
   const standardHuman = spawnUnit(state, 'human', 64, 64, false, undefined, { appearanceSeed: 2 }).unit!;
   const standardProfile = getEntityInspectProfile(state, standardHuman);
-  assert.deepEqual(standardProfile.genes, ['Human Adaptability'], 'Standard individual only expresses intrinsic gene');
+  assert.deepEqual(standardProfile.genes, ['Adaptable'], 'Standard individual only expresses intrinsic gene');
 
   const rareHuman = spawnUnit(state, 'human', 64, 64, false, undefined, { appearanceSeed: 66 }).unit!;
   const rareProfile = getEntityInspectProfile(state, rareHuman);
-  assert.ok(rareProfile.genes.includes('Human Adaptability'), 'Must retain intrinsic gene');
-  assert.ok(rareProfile.genes.includes('Iron Lung'), 'RNG rare roll selects extra gene like Iron Lung');
+  assert.ok(rareProfile.genes.includes('Adaptable'), 'Must retain intrinsic gene');
+  assert.ok(rareProfile.genes.includes('Deep Lungs'), 'RNG rare roll selects extra gene like Deep Lungs');
 
   assert.ok(humanProfile.informations.statusEffects.includes('blessed'));
 
@@ -2213,18 +2213,18 @@ test('entity inspector resolves names, diets, informations, carried/equipped ite
 
   assert.equal(getEntityInspectProfile(state, trex).diet.category, 'Carnivore');
   assert.equal(getEntityInspectProfile(state, trike).diet.category, 'Herbivore');
-  assert.equal(getEntityInspectProfile(state, trex).genes[0], 'Apex Theropod Physiology');
+  assert.equal(getEntityInspectProfile(state, trex).genes[0], 'Apex Predator');
   assert.ok(
-    getEntityInspectProfile(state, trike).genes[0] === 'Ceratopsian Crest' ||
-      getEntityInspectProfile(state, trike).genes[0] === 'Dorsal Bone Plates',
+    getEntityInspectProfile(state, trike).genes[0] === 'Horned Crest' ||
+      getEntityInspectProfile(state, trike).genes[0] === 'Back Plates',
   );
   const dragonProfile = getEntityInspectProfile(state, dragon);
-  assert.equal(dragonProfile.diet.category, 'Pyro-Carnivore');
+  assert.equal(dragonProfile.diet.category, 'Fire Carnivore');
   assert.ok(dragonProfile.genes[0].endsWith('Scales'), 'Dragon must have its intrinsic scale gene');
   assert.equal(dragonProfile.informations.breathCooldown, 3.2);
   const unicornProfile = getEntityInspectProfile(state, unicorn);
-  assert.equal(unicornProfile.diet.category, 'Fey Herbivore');
-  assert.equal(unicornProfile.genes[0], 'Celestial Fey Horn');
+  assert.equal(unicornProfile.diet.category, 'Forest Herbivore');
+  assert.equal(unicornProfile.genes[0], 'Magic Horn');
 
   assert.equal(Boolean(dragon.favorite), false);
   assert.equal(toggleUnitFavorite(state, dragon.id), true);
@@ -5383,8 +5383,8 @@ test('World Chronicle logs dynamically respond to new kings, royal succession, e
   leviathan.koTimer = 0.05;
   stepSimulation(state, 0.2, { skipRandomEvents: true });
   assert.ok(
-    state.chronicle.some((c) => c.text.includes(`Leviathan (${leviathan.name}) has been slain`)),
-    'World Chronicle must log when a Leviathan is slain',
+    state.chronicle.some((c) => c.text.includes(`Leviathan (${leviathan.name}) has been defeated`)),
+    'World Chronicle must log when a Leviathan is defeated',
   );
 });
 

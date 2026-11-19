@@ -1543,14 +1543,14 @@ export default function App() {
                       type="button"
                       onClick={() => {
                         const names = [
-                          'Aethelgard',
                           'Terra',
-                          'Helios',
-                          'Solaria',
-                          'Eldoria',
+                          'Eden',
+                          'Avalon',
                           'Pangaea',
-                          'Hyperion',
-                          'Valkyria',
+                          'Atlantis',
+                          'Gaia',
+                          'Midgard',
+                          'Sol',
                         ];
                         const pick = names[Math.floor(Math.random() * names.length)];
                         setWorldConfig((prev) => ({ ...prev, worldName: pick }));
@@ -1624,7 +1624,7 @@ export default function App() {
                   <span>
                     Templates{' '}
                     <span className="text-[#f5b742] font-semibold">
-                      ({WORLD_TEMPLATES.find((t) => t.id === worldConfig.template)?.name ?? 'Fantastic'})
+                      ({WORLD_TEMPLATES.find((t) => t.id === worldConfig.template)?.name ?? 'Fantasy'})
                     </span>
                   </span>
                   <span className="text-[11px] text-[#b8afa2] leading-none flex items-center">
@@ -3061,9 +3061,9 @@ export default function App() {
                         (
                           [
                             { id: 'all', label: 'All' },
-                            { id: 'benevolent', label: 'Blessings' },
+                            { id: 'benevolent', label: 'Support' },
                             { id: 'wrathful', label: 'Disasters' },
-                            { id: 'cosmic', label: 'Cosmic' },
+                            { id: 'cosmic', label: 'Special' },
                           ] as const
                         ).map((f) => (
                           <button
@@ -3156,10 +3156,10 @@ export default function App() {
                           {(
                             [
                               { id: 'all', label: 'All' },
-                              { id: 'Sculpt', label: 'Sculpt' },
-                              { id: 'Sky Rain', label: 'Sky Rain' },
+                              { id: 'Sculpt', label: 'Terrain' },
+                              { id: 'Sky Rain', label: 'Resource Drops' },
                               { id: 'Biomes', label: 'Biomes' },
-                              { id: 'Water', label: 'Water' },
+                              { id: 'Water', label: 'Ocean' },
                             ] as const
                           ).map((f) => (
                             <button

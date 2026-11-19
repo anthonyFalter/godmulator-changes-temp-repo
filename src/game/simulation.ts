@@ -894,9 +894,9 @@ export const WORLD_TEMPLATES: WorldTemplatePreset[] = [
   },
   {
     id: 'fantastic',
-    name: 'Fantastic',
+    name: 'Fantasy',
     tagline: 'Elves, Orcs & Dragons',
-    description: 'High fantasy realm with mythic beasts and crystal groves.',
+    description: 'Fantasy world with magical creatures and crystal fields.',
     badge: 'Fantasy',
     accentColor: '#c084fc',
     defaultWorldName: 'My World',
@@ -924,9 +924,9 @@ export const WORLD_TEMPLATES: WorldTemplatePreset[] = [
   {
     id: 'scifi',
     name: 'Sci-Fi',
-    tagline: 'Orbital Age start',
-    description: 'Begins in the Orbital Age with an established spacefaring colony.',
-    badge: 'Orbital',
+    tagline: 'Space Age start',
+    description: 'Starts in the Space Age with an advanced colony.',
+    badge: 'Sci-Fi',
     accentColor: '#56cfe1',
     defaultWorldName: 'My World',
     seaLevel: 'normal',
@@ -954,8 +954,8 @@ export const WORLD_TEMPLATES: WorldTemplatePreset[] = [
     id: 'prehistoric',
     name: 'Prehistoric',
     tagline: 'Dinosaurs & jungles',
-    description: 'Warm primeval continent roaming with Dinosaurs.',
-    badge: 'Primeval',
+    description: 'Warm ancient continent roaming with Dinosaurs.',
+    badge: 'Ancient',
     accentColor: '#fb923c',
     defaultWorldName: 'My World',
     seaLevel: 'low',
@@ -981,8 +981,8 @@ export const WORLD_TEMPLATES: WorldTemplatePreset[] = [
   },
   {
     id: 'archipelago',
-    name: 'Archipelago',
-    tagline: 'Island chains & seas',
+    name: 'Islands',
+    tagline: 'Island chains & shallow seas',
     description: 'Scattered islands and coastal lagoons.',
     badge: 'Islands',
     accentColor: '#38bdf8',
@@ -1010,10 +1010,10 @@ export const WORLD_TEMPLATES: WorldTemplatePreset[] = [
   },
   {
     id: 'scrap_sea',
-    name: 'Scrap Sea',
-    tagline: 'Endless ocean & flotsam',
-    description: 'Boundless ocean world with warm coral reefs and floating scrap piles to build water cities.',
-    badge: 'Oceanic',
+    name: 'Ocean World',
+    tagline: 'Open ocean & floating scrap',
+    description: 'Open ocean world with coral reefs and floating scrap piles to build water cities.',
+    badge: 'Ocean',
     accentColor: '#06b6d4',
     defaultWorldName: 'My World',
     seaLevel: 'high',
@@ -3352,7 +3352,7 @@ export function executeGodPowerImpact(
       };
       applyExpandingWaveSlice(state, 'frenzy_wave', targetX, targetZ, r, 0, seedR, getWaveAppliedSet(haz));
       state.activeHazards.push(haz);
-      addChronicle(state, 'Bloodlust Fury surged outward! Units healed and enraged (+150% combat damage).', 'warning');
+      addChronicle(state, 'Rage cast! Units healed and enraged (+150% combat damage).', 'warning');
       break;
     }
 
@@ -3377,7 +3377,7 @@ export function executeGodPowerImpact(
       applyExpandingWaveSlice(state, 'curse_wave', targetX, targetZ, r, 0, seedR, getWaveAppliedSet(haz));
       state.activeHazards.push(haz);
       state.happiness = Math.max(10, state.happiness - 10);
-      addChronicle(state, 'Abyssal Hex cursed souls and rotted structures across the region.', 'warning');
+      addChronicle(state, 'Curse weakened units and damaged buildings across the area.', 'warning');
       break;
     }
 
@@ -3431,7 +3431,7 @@ export function executeGodPowerImpact(
         }
       }
       state.happiness = Math.max(15, state.happiness - 12);
-      addChronicle(state, 'Plague Spore unleashed a contagious blight, spoiling crops into festering marsh!', 'warning');
+      addChronicle(state, 'Plague cloud spread sickness and spoiled nearby crops!', 'warning');
       break;
     }
 
@@ -3544,8 +3544,8 @@ export function executeGodPowerImpact(
       addChronicle(
         state,
         isWaterStrike
-          ? 'Chain Lightning electrified the sea across an expanded conductive radius!'
-          : 'Chain Lightning shattered the earth, blasting targets and igniting fires!',
+          ? 'Lightning struck the sea across a wide area!'
+          : 'Lightning struck the ground, damaging targets and starting fires!',
         'warning',
       );
       break;
@@ -3656,7 +3656,7 @@ export function executeGodPowerImpact(
 
         addChronicle(
           state,
-          'Asteroid plunged into the sea, unleashing a colossal Tsunami wave across the coastlines!',
+          'Meteor hit the ocean, triggering a giant Tsunami wave!',
           'warning',
         );
         break;
@@ -3817,7 +3817,7 @@ export function executeGodPowerImpact(
       }
       state.resources.ore += 110;
       state.resources.alloy += 45;
-      addChronicle(state, 'Cataclysmic Meteor obliterated structures, carved a crater & raised a rocky rim!', 'warning');
+      addChronicle(state, 'Meteor destroyed buildings and left a deep crater!', 'warning');
       break;
     }
 
@@ -3850,8 +3850,8 @@ export function executeGodPowerImpact(
       addChronicle(
         state,
         isWaterTarget
-          ? 'Orbital Terraform began sculpting a sanctuary atoll ring by ring from the sea!'
-          : 'Orbital Terraform began revitalizing the terrain outward into a stepped plateau!',
+          ? 'Terraform raised a flat island from the sea!'
+          : 'Terraform shaped the ground into a flat stepped plateau!',
         'divine',
       );
       break;
@@ -3930,7 +3930,7 @@ export function executeGodPowerImpact(
           v.hp = Math.max(0, (v.hp ?? 100) - 120);
         }
       }
-      addChronicle(state, 'Black Hole singularity tore open, boosting kingdom alloys & research before supernova collapse!', 'epoch');
+      addChronicle(state, 'Black Hole opened, boosting city alloy and research before exploding!', 'epoch');
       break;
     }
 
@@ -3959,7 +3959,7 @@ export function executeGodPowerImpact(
       };
       applyExpandingWaveSlice(state, 'heat_wave_zone', targetX, targetZ, r, 0, seedR, getWaveAppliedSet(haz));
       state.activeHazards.push(haz);
-      addChronicle(state, 'Thermal Heat Wave warmed the region, melting ice and scorching dry brush!', 'warning');
+      addChronicle(state, 'Heat Wave warmed the area, melting ice and drying out brush!', 'warning');
       break;
     }
 
@@ -3983,7 +3983,7 @@ export function executeGodPowerImpact(
       };
       applyExpandingWaveSlice(state, 'freeze_wave_zone', targetX, targetZ, r, 0, seedR, getWaveAppliedSet(haz));
       state.activeHazards.push(haz);
-      addChronicle(state, 'Sub-Zero Frost Wave chilled the region, freezing seas and snowing meadows!', 'divine');
+      addChronicle(state, 'Freeze Wave cooled the area, freezing water and covering land in snow!', 'divine');
       break;
     }
 
@@ -4001,7 +4001,7 @@ export function executeGodPowerImpact(
         duration: 11.0,
         tickTimer: 0,
       });
-      addChronicle(state, 'A roaring Tornado cyclone touched down, sweeping across the realm!', 'warning');
+      addChronicle(state, 'A Tornado touched down and swept across the land!', 'warning');
       break;
     }
 
@@ -4041,7 +4041,7 @@ export function executeGodPowerImpact(
           v.hp = (v.y ?? 0) <= 2.5 ? 0 : Math.max(0, (v.hp ?? 100) - 180);
         }
       }
-      addChronicle(state, 'A towering Tsunami surged forth, drowning shores and smashing coastal towns!', 'warning');
+      addChronicle(state, 'A Tsunami wave surged ashore, flooding coastal towns!', 'warning');
       break;
     }
 
@@ -4239,14 +4239,14 @@ export function executeGodPowerImpact(
       state.happiness = Math.max(15, state.happiness - 8);
       const chronicleMsg =
         quakeShapeKind === 'orogenic_uplift' || mountainsFormed >= 12
-          ? 'Tectonic upheaval slammed plates together, forging jagged new mountain peaks!'
+          ? 'Earthquake pushed up new mountain peaks!'
           : quakeShapeKind === 'long_rift'
-            ? 'A colossal winding fault rift tore across the landscape!'
+            ? 'A large earthquake fault split open across the land!'
             : quakeShapeKind === 'branching_fault'
-              ? 'Branching fault fractures forked across the earth and heaved rocky ridges!'
+              ? 'Earthquake fault lines cracked the ground and raised rocky ridges!'
               : displacedTiles > 0
-                ? 'A sharp tectonic rupture split open terrain and rattled nearby foundations!'
-                : 'Seismic tremors shook the earth and rattled foundations!';
+                ? 'An earthquake cracked the ground and damaged nearby buildings!'
+                : 'Earthquake tremors shook the ground!';
       addChronicle(state, chronicleMsg, 'warning');
       break;
     }
@@ -4311,7 +4311,7 @@ export function executeGodPowerImpact(
             v.hp = Math.max(0, (v.hp ?? 100) - 240);
           }
         }
-        addChronicle(state, 'Submarine Volcano erupted beneath the waves, boiling the sea and spawning a Tsunami!', 'warning');
+        addChronicle(state, 'An underwater Volcano erupted, heating the sea and triggering a Tsunami!', 'warning');
         break;
       }
 
@@ -4419,7 +4419,7 @@ export function executeGodPowerImpact(
         tickTimer: 0.35,
       });
       state.resources.ore += 80;
-      addChronicle(state, 'A Volcano erupted violently, hurling molten lava bombs across the region!', 'warning');
+      addChronicle(state, 'A Volcano erupted, throwing lava rocks across the area!', 'warning');
       break;
     }
 
@@ -4438,7 +4438,7 @@ export function executeGodPowerImpact(
         duration: 14.0,
         tickTimer: 0,
       });
-      addChronicle(state, 'A colossal Category-5 Super Tornado tore into existence, carving destruction!', 'warning');
+      addChronicle(state, 'A Mega Tornado formed and tore across the landscape!', 'warning');
       break;
     }
 
@@ -4505,8 +4505,8 @@ export function executeGodPowerImpact(
       addChronicle(
         state,
         revivedCount > 0
-          ? `Abyssal Void Goo consumed ${infectedCount} tiles and awakened ${revivedCount} drifting wisps!`
-          : `Abyssal Void Goo seeped into the earth (${infectedCount} tiles infected into starry void)!`,
+          ? `Dark Ooze covered ${infectedCount} tiles and turned ${revivedCount} units into wisps!`
+          : `Dark Ooze spread across ${infectedCount} tiles!`,
         'warning',
       );
       break;
@@ -4539,7 +4539,7 @@ export function executeGodPowerImpact(
         const sz = Math.max(2, Math.min(state.gridSize - 3, targetZ + (i === 0 ? 1 : -1)));
         spawnUnit(state, 'skeleton', sx, sz, true);
       }
-      addChronicle(state, 'A Necrotic Rift tore open, pouring risen Skeleton warriors into the realm!', 'warning');
+      addChronicle(state, 'A Skeleton Portal opened, spawning hostile Skeletons!', 'warning');
       break;
     }
 
@@ -4558,7 +4558,7 @@ export function executeGodPowerImpact(
         laserSubTimer: 0.4,
         portalSpawnCount: 0,
       });
-      addChronicle(state, 'Probe Remote activated on land! An immense Alien Mothership is gliding into low orbit!', 'warning');
+      addChronicle(state, 'Alien Invasion started! An Alien Mothership is entering low orbit!', 'warning');
       break;
     }
 
@@ -4625,7 +4625,7 @@ export function executeGodPowerImpact(
         }
         syncAverageEpochFromKingdoms(state);
       }
-      addChronicle(state, 'Chrono Warp accelerated time! Constructions finished, harvests bloomed, and kingdoms surged!', 'divine');
+      addChronicle(state, 'Time Acceleration sped up the area! Builds finished, crops regrew, and cities advanced!', 'divine');
       break;
     }
 
@@ -4673,7 +4673,7 @@ export function executeGodPowerImpact(
         }
       }
       state.happiness = Math.min(100, state.happiness + 20);
-      addChronicle(state, 'Peace Accord descended like a golden dove — ending wars, calming beasts, and blooming meadows!', 'divine');
+      addChronicle(state, 'Peace Treaty ended wars, calmed predators, and grew meadows!', 'divine');
       break;
     }
 
@@ -4692,7 +4692,7 @@ export function executeGodPowerImpact(
         beamDirX: Math.cos(sweepAngle),
         beamDirZ: Math.sin(sweepAngle),
       });
-      addChronicle(state, 'Helios Orbital Beam locked onto coordinates, carving a scorching solar trench!', 'warning');
+      addChronicle(state, 'Solar Beam fired from above, burning a path across the ground!', 'warning');
       break;
     }
 
@@ -4709,7 +4709,7 @@ export function executeGodPowerImpact(
         tickTimer: 0,
         exploded: false,
       });
-      addChronicle(state, 'Gravity Flux inverted local weight — mortals and beasts floated skyward!', 'warning');
+      addChronicle(state, 'Anti-Gravity lifted units and animals high into the air!', 'warning');
       break;
     }
   }
@@ -8117,7 +8117,7 @@ function stepSimulationSingle(
             u.fallDamageArmed = true;
           }
         }
-        addChronicle(state, 'The Black Hole collapsed in a violent Supernova, scattering entities across the realm!', 'warning');
+        addChronicle(state, 'The Black Hole exploded, knocking nearby units outward!', 'warning');
       }
     }
 
@@ -8723,7 +8723,7 @@ function stepSimulationSingle(
             const pt = pickLandPoint((i / 14) * Math.PI * 2 + 0.25, ringDist);
             spawnUnit(state, 'alien_trooper', pt.x, pt.z, true);
           }
-          addChronicle(state, 'The Alien Mothership locked overhead! AT-Walkers, Scout UFOs & alien shock legions are landing!', 'warning');
+          addChronicle(state, 'The Alien Mothership arrived overhead! Alien Walkers, Scout UFOs, and Troopers are landing!', 'warning');
         }
         // Only rain orbital salvos & drops while locked in stationary siege hover (cease before hyperspace jump-out)
         if (haz.remaining > 3.3) {
@@ -9235,7 +9235,7 @@ function stepSimulationSingle(
         if (u.isKing && (u.ageYears ?? 0) < (u.maxLifespan ?? 999)) {
           addChronicle(state, `${u.name} has fallen! The realm mourns and seeks a worthy successor.`, 'warning');
         } else if (u.role === 'leviathan') {
-          addChronicle(state, `The abyssal Leviathan (${u.name}) has been slain! The seas grow calm once more.`, 'divine');
+          addChronicle(state, `The Leviathan (${u.name}) has been defeated! The seas are safe again.`, 'divine');
         } else if (u.role === 'dragon') {
           addChronicle(state, `Dragon ${u.name} has been vanquished!`, 'divine');
         }
@@ -12328,7 +12328,7 @@ function stepWildlifeAI(
             color: '#00f5d4',
             createdAt: Date.now(),
           });
-          addChronicle(state, 'A colossal Leviathan breached from the trench and devoured a deep-sea island whole!', 'warning');
+          addChronicle(state, 'A giant Leviathan surfaced from the deep and destroyed a small island!', 'warning');
           return;
         } else {
           u.state = 'moving';
@@ -14422,7 +14422,7 @@ function stepCivilianUnitAI(
             if (nearestEnemy.leviathanSubmerged) {
               addChronicle(
                 state,
-                `The abyssal Leviathan (${nearestEnemy.name}) is enraged by an attack and rises from the deep!`,
+                `The Leviathan (${nearestEnemy.name}) was provoked by an attack and surfaced!`,
                 'warning',
               );
             } else if (
@@ -14430,7 +14430,7 @@ function stepCivilianUnitAI(
               nearestEnemy.hp <= nearestEnemy.maxHp * 0.5 &&
               nearestEnemy.hp + strikeDmg > nearestEnemy.maxHp * 0.5
             ) {
-              addChronicle(state, `The wounded Leviathan (${nearestEnemy.name}) enters a furious abyssal rage!`, 'warning');
+              addChronicle(state, `The wounded Leviathan (${nearestEnemy.name}) went into a frenzy!`, 'warning');
             }
             nearestEnemy.leviathanSubmerged = false;
           }
@@ -15369,11 +15369,11 @@ function killUnitIntoVoidWisp(state: SimulationState, u: UnitEntity): void {
   if (u.faction === 'hostile') state.totalRaidersDefeated += 1;
   spawnVoidWispsFromUnit(state, u);
   if (u.isKing || u.role === 'leviathan' || u.role === 'dragon') {
-    addChronicle(state, `${u.name} was consumed by the Void Goo and reborn as a drifting Void Wisp!`, 'warning');
+    addChronicle(state, `${u.name} was consumed by Dark Ooze and turned into a wisp!`, 'warning');
   } else {
     addChronicle(
       state,
-      `The spreading Void Goo consumed mortals and revived their souls as glowing Void Wisps!`,
+      `Spreading Dark Ooze consumed nearby units and turned them into wisps!`,
       'warning',
     );
   }
@@ -15589,7 +15589,7 @@ export function executeHugeAsteroidImpact(
     spawnPostImpactDelugeClouds();
     addChronicle(
       state,
-      `Colossal Rogue Asteroid plunged into the ocean, unleashing megatsunamis and a ${rainYears}-year monsoon deluge!`,
+      `Giant Asteroid hit the ocean, triggering huge tsunamis and a ${rainYears}-year heavy rainstorm!`,
       'warning',
     );
     return;
@@ -15714,7 +15714,7 @@ export function executeHugeAsteroidImpact(
   recalculateRatesAndCaps(state);
   addChronicle(
     state,
-    `A COLOSSAL ASTEROID obliterated the landscape, unleashing hurricane shockwaves and a ${rainYears}-year impact deluge!`,
+    `A GIANT ASTEROID struck the land, sending out shockwaves and a ${rainYears}-year heavy rainstorm!`,
     'warning',
   );
 }
@@ -15787,8 +15787,8 @@ export function triggerRandomWorldEvent(
     eventState = {
       id: nextEntityId('evt'),
       kind,
-      title: 'CATACLYSMIC ASTEROID',
-      subtitle: 'A giant rogue asteroid is falling toward the realm',
+      title: 'ASTEROID IMPACT',
+      subtitle: 'A giant asteroid is falling toward the world',
       accentColor: '#ff6b35',
       trackX: startX * 0.65 + tx * 0.35,
       trackY: startY * 0.65 + ty * 0.35,
@@ -15822,7 +15822,7 @@ export function triggerRandomWorldEvent(
       createdAt: Date.now(),
       deferImpact: true,
     });
-    addChronicle(state, 'Astronomers spot a colossal rogue asteroid plunging toward the world!', 'warning');
+    addChronicle(state, 'A giant asteroid is falling toward the world!', 'warning');
   } else if (kind === 'volcano_eruption') {
     executeGodPowerImpact(state, 'volcano_eruption', tx, tz);
     state.pendingVfx.push({
@@ -15838,8 +15838,8 @@ export function triggerRandomWorldEvent(
     eventState = {
       id: nextEntityId('evt'),
       kind,
-      title: 'VOLCANIC ERUPTION',
-      subtitle: 'Tectonic magma vents split the crust & rain fire',
+      title: 'VOLCANO ERUPTION',
+      subtitle: 'A volcano erupts and rains lava rocks nearby',
       accentColor: '#ff5400',
       trackX: tx,
       trackY: ty + 2.4,
@@ -15873,8 +15873,8 @@ export function triggerRandomWorldEvent(
     eventState = {
       id: nextEntityId('evt'),
       kind,
-      title: 'SUPER TORNADO',
-      subtitle: 'Category-5 cyclonic vortex scours the landscape',
+      title: 'MEGA TORNADO',
+      subtitle: 'A massive tornado sweeps across the landscape',
       accentColor: '#818cf8',
       trackX: tx,
       trackY: ty + 2.6,
@@ -15911,8 +15911,8 @@ export function triggerRandomWorldEvent(
     eventState = {
       id: nextEntityId('evt'),
       kind,
-      title: 'TECTONIC MEGA-QUAKE',
-      subtitle: 'Deep crustal plates rupture and heave ridges skyward',
+      title: 'MAJOR EARTHQUAKE',
+      subtitle: 'Deep fault lines crack open across the land',
       accentColor: '#e07a2b',
       trackX: tx,
       trackY: ty + 1.2,
@@ -15944,8 +15944,8 @@ export function triggerRandomWorldEvent(
     eventState = {
       id: nextEntityId('evt'),
       kind,
-      title: 'SOLAR HEATWAVE',
-      subtitle: 'Blistering thermal front sweeps across parched lands',
+      title: 'HEAT WAVE',
+      subtitle: 'Intense heat dries out the land and sparks fires',
       accentColor: '#ff9e00',
       trackX: tx,
       trackY: ty + 1.4,
@@ -15977,8 +15977,8 @@ export function triggerRandomWorldEvent(
     eventState = {
       id: nextEntityId('evt'),
       kind,
-      title: 'GLACIAL COLD SNAP',
-      subtitle: 'A sudden sub-zero front seals terrain in shimmering frost',
+      title: 'DEEP FREEZE',
+      subtitle: 'Freezing winds cover the region in snow and ice',
       accentColor: '#7dd3fc',
       trackX: tx,
       trackY: ty + 1.4,
@@ -15996,7 +15996,7 @@ export function triggerRandomWorldEvent(
       startedAtYear: state.year,
     };
   } else {
-    // Rare celestial wonder: Starfall Aurora
+    // Rare celestial wonder: Aurora Shower
     executeGodPowerImpact(state, 'blessing', tx, tz);
     grantResourcesToKingdomOrPool(state, { faith: 80, knowledge: 90 });
     for (const t of state.tiles) {
@@ -16019,12 +16019,12 @@ export function triggerRandomWorldEvent(
       color: '#56cfe1',
       createdAt: Date.now(),
     });
-    addChronicle(state, 'Starfall Aurora shimmered overhead, blessing the realm with cosmic crystals!', 'divine');
+    addChronicle(state, 'An Aurora Shower lit up the sky, healing units and growing crystals!', 'divine');
     eventState = {
       id: nextEntityId('evt'),
       kind: 'starfall_aurora',
-      title: 'STARFALL AURORA',
-      subtitle: 'Celestial light heals life & seeds crystal monoliths',
+      title: 'AURORA SHOWER',
+      subtitle: 'Northern lights heal units and grow crystal clusters',
       accentColor: '#56cfe1',
       trackX: tx,
       trackY: ty + 1.8,
