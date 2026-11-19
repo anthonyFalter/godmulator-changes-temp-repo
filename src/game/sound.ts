@@ -199,6 +199,28 @@ class SoundEngine {
     this.playTone(110, 0.75, 'sine', 0.09, 2.2);
     setTimeout(() => this.playTone(220, 0.65, 'triangle', 0.07, 1.85), 110);
   }
+
+  public playSkyRain(kind?: string): void {
+    if (kind === 'crystal_shower') {
+      [784, 987, 1175].forEach((f, i) => {
+        setTimeout(() => this.playTone(f, 0.22, 'sine', 0.055, 1.15), i * 55);
+      });
+      return;
+    }
+    if (kind === 'seed_ore' || kind === 'boulder_rain' || kind === 'volcanic_obsidian' || kind === 'salvage_drop') {
+      this.playTone(260, 0.16, 'triangle', 0.07, 0.65);
+      setTimeout(() => this.playTone(170, 0.22, 'sawtooth', 0.06, 0.55), 75);
+      setTimeout(() => this.playTone(340, 0.14, 'triangle', 0.05, 0.72), 145);
+      return;
+    }
+    if (kind === 'coral_reef_rain') {
+      this.playTone(540, 0.18, 'sine', 0.06, 1.35);
+      setTimeout(() => this.playTone(680, 0.2, 'sine', 0.05, 1.2), 70);
+      return;
+    }
+    this.playTone(460, 0.15, 'sine', 0.05, 1.25);
+    setTimeout(() => this.playTone(620, 0.18, 'triangle', 0.045, 1.1), 65);
+  }
 }
 
 export const soundEngine = new SoundEngine();

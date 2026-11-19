@@ -364,6 +364,7 @@ export default function App() {
   const [powerFilter, setPowerFilter] = useState<'all' | 'benevolent' | 'wrathful' | 'cosmic'>('all');
   const [buildFilter, setBuildFilter] = useState<'all' | 'current' | 'advanced'>('all');
   const [unitFilter, setUnitFilter] = useState<'all' | 'races' | 'wildlife' | 'mythic'>('all');
+  const [landFilter, setLandFilter] = useState<'all' | 'Sculpt' | 'Sky Rain' | 'Biomes' | 'Water'>('all');
   const [worldSubTab, setWorldSubTab] = useState<'ages' | 'rules'>('ages');
   const [brushRadius, setBrushRadius] = useState<number>(0);
   const [brushInputMode, setBrushInputMode] = useState<BrushInputMode>('hold');
@@ -1091,7 +1092,11 @@ export default function App() {
         const res = applyTerrainTool(sim, activeTool.tool, tileX, tileZ, brushRadius);
         const def = TERRAIN_TOOLS.find((t) => t.type === activeTool.tool);
         if (res.ok) {
-          soundEngine.playSculpt();
+          if (def?.isSkyRain) {
+            soundEngine.playSkyRain(def.type);
+          } else {
+            soundEngine.playSculpt();
+          }
           setStatusFeedback(`${def?.name} applied`);
         } else {
           setStatusFeedback(res.reason || 'Cannot edit tile');
@@ -3124,27 +3129,53 @@ export default function App() {
                         ))}
 
                       {activeCategory === 'terrain' && (
-                        <div className="flex items-center gap-1 shrink-0">
-                          <span className="text-[10px] sm:text-[11px] text-[#a89f91] mr-0.5 sm:mr-1">Brush</span>
-                          {[1, 2, 3].map((size) => {
-                            const radiusVal = size - 1;
-                            return (
-                              <button
-                                key={size}
-                                type="button"
-                                data-testid={`land-size-${size}x`}
-                                onClick={() => {
-                                  setBrushRadius(radiusVal);
-                                  soundEngine.playClick();
-                                }}
-                                className={`h-6 sm:h-7 px-1.5 sm:px-2 font-pixel-num text-[10px] sm:text-[11px] cursor-pointer ${
-                                  brushRadius === radiusVal ? 'px-btn-active font-bold' : 'px-btn'
-                                }`}
-                              >
-                                {size}x
-                              </button>
-                            );
-                          })}
+                        <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+                          <div className="flex items-center gap-1 shrink-0">
+                            <span className="text-[10px] sm:text-[11px] text-[#a89f91] mr-0.5 sm:mr-1">Brush</span>
+                            {[1, 2, 3].map((size) => {
+                              const radiusVal = size - 1;
+                              return (
+                                <button
+                                  key={size}
+                                  type="button"
+                                  data-testid={`land-size-${size}x`}
+                                  onClick={() => {
+                                    setBrushRadius(radiusVal);
+                                    soundEngine.playClick();
+                                  }}
+                                  className={`h-6 sm:h-7 px-1.5 sm:px-2 font-pixel-num text-[10px] sm:text-[11px] cursor-pointer ${
+                                    brushRadius === radiusVal ? 'px-btn-active font-bold' : 'px-btn'
+                                  }`}
+                                >
+                                  {size}x
+                                </button>
+                              );
+                            })}
+                          </div>
+                          <div className="w-[1px] h-4 bg-[#3d3730] mx-0.5 shrink-0" />
+                          {(
+                            [
+                              { id: 'all', label: 'All' },
+                              { id: 'Sculpt', label: 'Sculpt' },
+                              { id: 'Sky Rain', label: 'Sky Rain' },
+                              { id: 'Biomes', label: 'Biomes' },
+                              { id: 'Water', label: 'Water' },
+                            ] as const
+                          ).map((f) => (
+                            <button
+                              key={f.id}
+                              type="button"
+                              onClick={() => {
+                                setLandFilter(f.id);
+                                soundEngine.playClick();
+                              }}
+                              className={`h-6 sm:h-7 px-2 sm:px-2.5 text-[10px] sm:text-[11px] font-semibold cursor-pointer whitespace-nowrap shrink-0 ${
+                                landFilter === f.id ? 'px-btn-active font-bold' : 'px-btn'
+                              }`}
+                            >
+                              {f.label}
+                            </button>
+                          ))}
                         </div>
                       )}
                     </div>
@@ -3258,7 +3289,7 @@ export default function App() {
                 {/* TAB 2: LAND SCULPTING */}
                 {activeCategory === 'terrain' && (
                   <div className="flex flex-nowrap sm:flex-wrap items-center justify-start gap-1 sm:gap-1.5 overflow-x-auto sm:overflow-visible no-scrollbar">
-                    {TERRAIN_TOOLS.map((tool) => {
+                    {TERRAIN_TOOLS.filter((tool) => landFilter === 'all' || tool.category === landFilter).map((tool) => {
                       const isSelected =
                         activeTool.kind === 'terrain' && activeTool.tool === tool.type;
                       return (

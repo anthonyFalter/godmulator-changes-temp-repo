@@ -83,6 +83,7 @@ import {
   GraphicsSettings,
   LightingPreset,
   SimulationState,
+  TerrainToolType,
   TerrainType,
   UnitEntity,
   VehicleType,
@@ -2793,6 +2794,19 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     const sharedSlashBladeGeo = new THREE.BoxGeometry(0.85, 0.09, 0.14);
     const sharedSlamClawGeo = new THREE.BoxGeometry(0.14, 0.1, 0.95);
     const sharedHornStarGeo = new THREE.OctahedronGeometry(0.28, 0);
+    const sharedSkyOreGeo = new THREE.DodecahedronGeometry(0.24, 0);
+    const sharedSkyCrystalGeo = (() => {
+      const g = new THREE.OctahedronGeometry(0.2, 0);
+      g.scale(0.82, 1.85, 0.82);
+      return g;
+    })();
+    const sharedSkySeedGeo = new THREE.IcosahedronGeometry(0.17, 0);
+    const sharedSkyCrateGeo = new THREE.BoxGeometry(0.32, 0.24, 0.32);
+    const sharedSkyStreakGeo = (() => {
+      const g = new THREE.CylinderGeometry(0.025, 0.09, 2.4, 5);
+      g.translate(0, 1.2, 0);
+      return g;
+    })();
 
     interface PowerMote {
       mesh: THREE.Mesh;
@@ -2833,7 +2847,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         | 'projectile_tracer'
         | 'volcano_burst'
         | 'volcanic_lava_bomb'
-        | 'void_goo_splash';
+        | 'void_goo_splash'
+        | 'sky_rain_shower';
       isMegaMeteor?: boolean;
       powerType: string;
       group: THREE.Group;
@@ -2896,6 +2911,25 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       faultSegments?: EarthquakeFaultSegment[];
       quakeShapeKind?: EarthquakeShapeKind;
       particleEmitTimer?: number;
+      skyRainDrops?: Array<{
+        mesh: THREE.Mesh;
+        streak: THREE.Mesh;
+        tx: number;
+        ty: number;
+        tz: number;
+        ox: number;
+        oy: number;
+        oz: number;
+        delay: number;
+        fallDur: number;
+        landed: boolean;
+        spinX: number;
+        spinY: number;
+        swayAmp: number;
+        impactColor: string;
+        secondaryColor: string;
+        sparkCount: number;
+      }>;
       colorHex: string;
     }
     const MAX_BURST_FX = 36;
@@ -2920,6 +2954,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       ox?: number,
       oy?: number,
       oz?: number,
+      dropKind?: TerrainToolType,
+      dropTargets?: Array<{ x: number; y: number; z: number }>,
     ) {
       // Bound simultaneous active bursts for smooth performance during continuous S-pattern painting
       if (activeBurstFx.length >= MAX_BURST_FX) {
@@ -4632,6 +4668,160 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           tracerMesh: dropObj,
           ringMesh,
           outerRingMesh,
+          colorHex,
+        });
+        return;
+      }
+
+      if (type === 'sky_rain_drop') {
+        const kind = dropKind ?? 'seed_ore';
+        const palette: Record<
+          string,
+          { primary: number; secondary: number; streak: number; impactHex: string; secondaryHex: string; geo: THREE.BufferGeometry; emissive: number; sway: number; dur: number }
+        > = {
+          seed_ore: { primary: 0xfacc15, secondary: 0xf59e0b, streak: 0xfde047, impactHex: '#facc15', secondaryHex: '#cbd5e1', geo: sharedSkyOreGeo, emissive: 0.65, sway: 0.0, dur: 0.34 },
+          crystal_shower: { primary: 0xe879f9, secondary: 0x38bdf8, streak: 0xf0abfc, impactHex: '#e879f9', secondaryHex: '#38bdf8', geo: sharedSkyCrystalGeo, emissive: 0.85, sway: 0.0, dur: 0.36 },
+          boulder_rain: { primary: 0x94a3b8, secondary: 0x64748b, streak: 0xe2e8f0, impactHex: '#94a3b8', secondaryHex: '#475569', geo: sharedSkyOreGeo, emissive: 0.2, sway: 0.0, dur: 0.30 },
+          salvage_drop: { primary: 0xeab308, secondary: 0x94a3b8, streak: 0xfef08a, impactHex: '#eab308', secondaryHex: '#38bdf8', geo: sharedSkyCrateGeo, emissive: 0.45, sway: 0.15, dur: 0.40 },
+          volcanic_obsidian: { primary: 0x334155, secondary: 0xf97316, streak: 0xf97316, impactHex: '#f97316', secondaryHex: '#475569', geo: sharedSkyCrystalGeo, emissive: 0.72, sway: 0.0, dur: 0.31 },
+          coral_reef_rain: { primary: 0xfb7185, secondary: 0x22d3ee, streak: 0x67e8f9, impactHex: '#fb7185', secondaryHex: '#22d3ee', geo: sharedSkySeedGeo, emissive: 0.6, sway: 0.25, dur: 0.38 },
+          blossom_rain: { primary: 0xf472b6, secondary: 0xfbcfe8, streak: 0xf9a8d4, impactHex: '#f472b6', secondaryHex: '#fef08a', geo: sharedSkySeedGeo, emissive: 0.72, sway: 0.55, dur: 0.56 },
+          plant_forest: { primary: 0x4ade80, secondary: 0x16a34a, streak: 0x86efac, impactHex: '#4ade80', secondaryHex: '#bef264', geo: sharedSkySeedGeo, emissive: 0.55, sway: 0.3, dur: 0.44 },
+          jungle_bloom: { primary: 0x22c55e, secondary: 0xfacc15, streak: 0x4ade80, impactHex: '#22c55e', secondaryHex: '#fde047', geo: sharedSkySeedGeo, emissive: 0.58, sway: 0.32, dur: 0.44 },
+          fertile_meadow: { primary: 0xa3e635, secondary: 0xfef08a, streak: 0xd9f99d, impactHex: '#a3e635', secondaryHex: '#fef08a', geo: sharedSkySeedGeo, emissive: 0.58, sway: 0.35, dur: 0.45 },
+          soil_enrich: { primary: 0x38bdf8, secondary: 0x84cc16, streak: 0x7dd3fc, impactHex: '#38bdf8', secondaryHex: '#84cc16', geo: sharedSkySeedGeo, emissive: 0.65, sway: 0.18, dur: 0.38 },
+          desert_dunes: { primary: 0xfbbf24, secondary: 0xd97706, streak: 0xfde68a, impactHex: '#fbbf24', secondaryHex: '#f59e0b', geo: sharedSkySeedGeo, emissive: 0.42, sway: 0.22, dur: 0.38 },
+        };
+        const cfg = palette[kind] ?? palette.seed_ore;
+
+        const ringMat = new THREE.MeshBasicMaterial({
+          color: cfg.primary,
+          transparent: true,
+          opacity: 0.72,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        const outerRingMat = new THREE.MeshBasicMaterial({
+          color: cfg.secondary,
+          transparent: true,
+          opacity: 0.78,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        const dropMatPrimary = new THREE.MeshStandardMaterial({
+          color: cfg.primary,
+          emissive: new THREE.Color(cfg.primary),
+          emissiveIntensity: cfg.emissive,
+          roughness: 0.32,
+          metalness: kind === 'seed_ore' || kind === 'salvage_drop' ? 0.75 : 0.2,
+          flatShading: true,
+        });
+        const dropMatSecondary = new THREE.MeshStandardMaterial({
+          color: cfg.secondary,
+          emissive: new THREE.Color(cfg.secondary),
+          emissiveIntensity: cfg.emissive * 0.9,
+          roughness: 0.36,
+          metalness: kind === 'seed_ore' || kind === 'salvage_drop' ? 0.68 : 0.18,
+          flatShading: true,
+        });
+        const streakMat = new THREE.MeshBasicMaterial({
+          color: cfg.streak,
+          transparent: true,
+          opacity: 0.62,
+          depthWrite: false,
+        });
+        materials.push(ringMat, outerRingMat, dropMatPrimary, dropMatSecondary, streakMat);
+
+        const ringMesh = new THREE.Mesh(sharedHazRingGeo, ringMat);
+        ringMesh.position.set(tx, ty + 0.1, tz);
+        ringMesh.scale.setScalar(Math.max(1.1, radius * 0.75));
+        group.add(ringMesh);
+
+        const outerRingMesh = new THREE.Mesh(sharedHazRingGeo, outerRingMat);
+        outerRingMesh.position.set(tx, ty + 0.14, tz);
+        outerRingMesh.scale.setScalar(Math.max(0.75, radius * 0.45));
+        group.add(outerRingMesh);
+
+        const baseTargets =
+          dropTargets && dropTargets.length > 0
+            ? dropTargets
+            : [{ x: tx, y: ty, z: tz }];
+        const totalDrops = Math.min(18, Math.max(8, baseTargets.length * 2));
+        const skyRainDrops: NonNullable<ActiveBurstFx['skyRainDrops']> = [];
+
+        for (let di = 0; di < totalDrops; di++) {
+          const tgt = baseTargets[di % baseTargets.length];
+          const jitterX = (Math.random() - 0.5) * (baseTargets.length === 1 ? 1.15 : 0.75);
+          const jitterZ = (Math.random() - 0.5) * (baseTargets.length === 1 ? 1.15 : 0.75);
+          const dtx = tgt.x + jitterX;
+          const dty = tgt.y;
+          const dtz = tgt.z + jitterZ;
+          const heightStart = dty + 18 + Math.random() * 6.5;
+          const dox = dtx + 2.6 + Math.random() * 1.8;
+          const doz = dtz - 2.6 - Math.random() * 1.8;
+
+          const mesh = new THREE.Mesh(
+            cfg.geo,
+            di % 2 === 0 ? dropMatPrimary : dropMatSecondary,
+          );
+          const dropScale =
+            kind === 'boulder_rain'
+              ? 1.15 + Math.random() * 0.55
+              : kind === 'crystal_shower' || kind === 'volcanic_obsidian'
+                ? 0.95 + Math.random() * 0.45
+                : kind === 'blossom_rain'
+                  ? 0.72 + Math.random() * 0.32
+                  : 0.88 + Math.random() * 0.42;
+          mesh.scale.setScalar(dropScale);
+          mesh.position.set(dox, heightStart, doz);
+          mesh.visible = false;
+          group.add(mesh);
+
+          const streak = new THREE.Mesh(sharedSkyStreakGeo, streakMat);
+          streak.position.set(dox, heightStart, doz);
+          streak.rotation.set(0.14, 0, -0.14);
+          streak.visible = false;
+          group.add(streak);
+
+          skyRainDrops.push({
+            mesh,
+            streak,
+            tx: dtx,
+            ty: dty,
+            tz: dtz,
+            ox: dox,
+            oy: heightStart,
+            oz: doz,
+            delay: (di / totalDrops) * 0.32 + Math.random() * 0.06,
+            fallDur: cfg.dur + Math.random() * 0.1,
+            landed: false,
+            spinX: (Math.random() - 0.5) * 11,
+            spinY: (Math.random() - 0.5) * 13,
+            swayAmp: cfg.sway,
+            impactColor: cfg.impactHex,
+            secondaryColor: cfg.secondaryHex,
+            sparkCount: totalDrops > 12 ? 7 : 10,
+          });
+        }
+
+        burstFxGroup.add(group);
+        activeBurstFx.push({
+          kind: 'sky_rain_shower',
+          powerType: type,
+          group,
+          materials,
+          age: 0,
+          duration: 1.15,
+          impactDelay: 0.25,
+          deferImpact: false,
+          tx,
+          ty,
+          tz,
+          radius: Math.max(1.2, radius),
+          impactFired: false,
+          ringMesh,
+          outerRingMesh,
+          skyRainDrops,
           colorHex,
         });
         return;
@@ -9043,6 +9233,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             vfx.originX,
             vfx.originY,
             vfx.originZ,
+            vfx.dropKind,
+            vfx.dropTargets,
           );
         }
       }
@@ -11249,6 +11441,46 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             if (fx.outerRingMesh) {
               fx.outerRingMesh.scale.setScalar(0.2 + postT * fx.radius * 1.45);
               (fx.materials[1] as THREE.MeshBasicMaterial).opacity = (1 - postT) * 0.82;
+            }
+          }
+        } else if (fx.kind === 'sky_rain_shower' && fx.skyRainDrops && fx.ringMesh) {
+          const ringProg = Math.min(1, fx.age / fx.duration);
+          fx.ringMesh.scale.setScalar(0.45 + ringProg * fx.radius * 1.15);
+          (fx.materials[0] as THREE.MeshBasicMaterial).opacity = Math.max(0, (1 - ringProg) * 0.65);
+          if (fx.outerRingMesh) {
+            fx.outerRingMesh.scale.setScalar(0.3 + ringProg * fx.radius * 1.38);
+            (fx.materials[1] as THREE.MeshBasicMaterial).opacity = Math.max(0, (1 - ringProg) * 0.58);
+          }
+
+          for (let di = 0; di < fx.skyRainDrops.length; di++) {
+            const d = fx.skyRainDrops[di];
+            if (d.landed) continue;
+            const localAge = fx.age - d.delay;
+            if (localAge < 0) continue;
+            const fallT = Math.min(1, localAge / Math.max(0.08, d.fallDur));
+            if (fallT < 1) {
+              const accel = fallT * fallT;
+              const swayX = d.swayAmp > 0 ? Math.sin(localAge * 9 + di * 1.7) * d.swayAmp * (1 - fallT) : 0;
+              const swayZ = d.swayAmp > 0 ? Math.cos(localAge * 7 + di * 1.3) * d.swayAmp * (1 - fallT) : 0;
+              const curX = d.ox + (d.tx - d.ox) * accel + swayX;
+              const curY = d.oy + (d.ty + 0.18 - d.oy) * accel;
+              const curZ = d.oz + (d.tz - d.oz) * accel + swayZ;
+              d.mesh.visible = true;
+              d.mesh.position.set(curX, curY, curZ);
+              d.mesh.rotation.x += dt * d.spinX;
+              d.mesh.rotation.y += dt * d.spinY;
+              d.streak.visible = true;
+              d.streak.position.set(curX, curY, curZ);
+              d.streak.scale.set(1, 0.7 + fallT * 1.1, 1);
+            } else {
+              d.landed = true;
+              d.mesh.visible = false;
+              d.streak.visible = false;
+              spawnParticleBurst(d.tx, d.ty + 0.25, d.tz, d.sparkCount, d.impactColor, 0.62, 3.6, 0.72);
+              spawnParticleBurst(d.tx, d.ty + 0.25, d.tz, Math.max(3, Math.floor(d.sparkCount * 0.5)), d.secondaryColor, 0.42, 4.2, 0.58);
+              if (di === 0 || di === Math.floor(fx.skyRainDrops.length / 2)) {
+                triggerLightFlash(d.tx, d.ty + 1.0, d.tz, d.impactColor, 11);
+              }
             }
           }
         } else if (fx.kind === 'ripple_ring' && fx.ringMesh) {

@@ -738,6 +738,228 @@ export const TERRAIN_SPRITES: Record<TerrainToolType, CompiledSprite> = {
       return null;
     });
   }),
+
+  crystal_shower: icon16((c) => {
+    c.isoTile(MAT.arcane, MAT.stone, MAT.darkIron, 14, 3);
+    c.stamp(
+      2,
+      1,
+      [
+        '..P....C..',
+        '.PpP..CcC.',
+        '.Pzp..CuC.',
+        '..z....u..',
+        '....Pp....',
+        '...Ppzp...',
+      ],
+      MAT.arcane,
+      MATS,
+    );
+  }),
+
+  boulder_rain: icon16((c) => {
+    c.isoTile(MAT.stone, MAT.wood, MAT.darkIron, 14, 3);
+    c.stamp(
+      2,
+      1,
+      [
+        '.Nnh......',
+        'NnhH..Nnh.',
+        'nHH..NnhH.',
+        '.....nhHH.',
+        '..Nnh.....',
+        '.NnhHH....',
+      ],
+      MAT.stone,
+      MATS,
+    );
+  }),
+
+  blossom_rain: icon16((c) => {
+    c.isoTile(MAT.leaf, MAT.wood, MAT.darkWood, 14, 3);
+    c.stamp(
+      2,
+      1,
+      [
+        '.Rr...rR..',
+        'RrY...RrY.',
+        '..q....q..',
+        '...Rrq....',
+        '..RrYr..R.',
+        '...qq..rY.',
+      ],
+      MAT.ruby,
+      MATS,
+    );
+  }),
+
+  jungle_bloom: icon16((c) => {
+    c.isoTile(MAT.leaf, MAT.wood, MAT.darkWood, 14, 3);
+    c.stamp(
+      2,
+      1,
+      [
+        '..EE.EE...',
+        '.EeEeEeE..',
+        '.elLkkLl..',
+        '...kBbk...',
+        '...kBk....',
+        '...kK.....',
+      ],
+      MAT.leaf,
+      MATS,
+    );
+  }),
+
+  soil_enrich: icon16((c) => {
+    c.isoTile(MAT.leaf, MAT.wood, MAT.darkWood, 14, 3);
+    c.stamp(
+      3,
+      1,
+      [
+        '.C...Y..C.',
+        '.c...y..c.',
+        '..Ee..Ee..',
+        '.EeLeEeLe.',
+        '..ll..ll..',
+      ],
+      MAT.azure,
+      MATS,
+    );
+  }),
+
+  desert_dunes: icon16((c) => {
+    c.isoTile(MAT.gold, MAT.wood, MAT.darkWood, 14, 3);
+    c.stamp(
+      2,
+      2,
+      [
+        '....YYY...',
+        '..YYyyyY..',
+        '.YyygggY..',
+        'YYYYggggGG',
+      ],
+      MAT.gold,
+      MATS,
+    );
+  }),
+
+  coral_reef_rain: icon16((c) => {
+    c.isoTile(MAT.azure, MAT.azure, MAT.darkIron, 14, 3);
+    c.stamp(
+      2,
+      1,
+      [
+        '.Rr...FF..',
+        '.rq..FfF..',
+        '..q..fFa..',
+        '...C..a...',
+        '..Rrq.Ff..',
+      ],
+      MAT.ruby,
+      MATS,
+    );
+  }),
+
+  salvage_drop: icon16((c) => {
+    c.isoTile(MAT.steel, MAT.stone, MAT.darkIron, 14, 3);
+    c.stamp(
+      2,
+      1,
+      [
+        '..SSss....',
+        '..SYys.Yy.',
+        '..smmM.yg.',
+        '....SSss..',
+        '....smmM..',
+      ],
+      MAT.steel,
+      MATS,
+    );
+  }),
+
+  volcanic_obsidian: icon16((c) => {
+    c.isoTile(MAT.darkIron, MAT.flame, MAT.darkIron, 14, 3);
+    c.stamp(
+      2,
+      1,
+      [
+        '..Dd...F..',
+        '.DFd..DFd.',
+        '.dFd..dfD.',
+        '..d....D..',
+        '...DdFd...',
+      ],
+      MAT.flame,
+      MATS,
+    );
+  }),
+
+  atlantis_rise: icon16((c) => {
+    c.isoTile(MAT.azure, MAT.azure, MAT.darkIron, 14, 3);
+    c.stamp(
+      3,
+      1,
+      [
+        '.YYYYYYYY.',
+        '.CC.CC.CC.',
+        '.cu.cu.cu.',
+        '.cu.cu.cu.',
+        'CccCccCccC',
+      ],
+      MAT.gold,
+      MATS,
+    );
+  }),
+
+  alpine_glacier: icon16((c) => {
+    c.isoTile(MAT.azure, MAT.stone, MAT.darkIron, 14, 3);
+    c.stamp(
+      2,
+      1,
+      [
+        '....II....',
+        '...IIiI...',
+        '..ICciII..',
+        '.ICcuiiCC.',
+        'Cccuuuiicc',
+      ],
+      MAT.parchment,
+      MATS,
+    );
+  }),
+
+  abyssal_trench: icon16((c) => {
+    c.isoTile(MAT.azure, MAT.darkIron, MAT.darkIron, 14, 3);
+    c.stamp(
+      2,
+      2,
+      [
+        'CcDDDDDDcC',
+        '.uDDDDDDu.',
+        '..UDddDU..',
+        '...DDDD...',
+      ],
+      MAT.darkIron,
+      MATS,
+    );
+  }),
+
+  swamp_mire: icon16((c) => {
+    c.isoTile(MAT.leaf, MAT.darkWood, MAT.darkIron, 14, 3);
+    c.stamp(
+      2,
+      2,
+      [
+        '.ll..eE...',
+        'Llk..ll.k.',
+        '.k.EeL.lL.',
+        '..eLll..k.',
+      ],
+      MAT.leaf,
+      MATS,
+    );
+  }),
 };
 
 export const HUD_SPRITES: Record<

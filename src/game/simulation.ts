@@ -1803,16 +1803,18 @@ export function applyTerrainTool(
   const targetFlattenHeight = Math.max(1, centerTile.height);
   const clampedRadius = Math.max(0, Math.floor(brushRadius));
   let modifiedCount = 0;
+  const dropTargets: Array<{ x: number; y: number; z: number }> = [];
 
   for (let dz = -clampedRadius; dz <= clampedRadius; dz++) {
     for (let dx = -clampedRadius; dx <= clampedRadius; dx++) {
       if (clampedRadius > 0 && dx * dx + dz * dz > clampedRadius * clampedRadius + 0.5) continue;
       const t = getTile(state, centerX + dx, centerZ + dz);
       if (!t) continue;
+      let tileModified = false;
 
       switch (toolType) {
         case 'raise': {
-          modifiedCount++;
+          tileModified = true;
           if (t.height === 0 && t.terrain === 'deep_water') {
             t.terrain = 'shallow_water';
           } else if (t.height === 0) {
@@ -1846,7 +1848,7 @@ export function applyTerrainTool(
           break;
         }
         case 'lower': {
-          modifiedCount++;
+          tileModified = true;
           if (t.height === 0) {
             if (t.terrain !== 'deep_water') {
               t.terrain = 'deep_water';
@@ -1871,7 +1873,7 @@ export function applyTerrainTool(
             if (t.terrain === 'shallow_water') {
               t.height = 1;
               t.terrain = 'sand';
-              modifiedCount++;
+              tileModified = true;
             }
           } else if (t.height > 0) {
             t.height = targetFlattenHeight;
@@ -1884,19 +1886,18 @@ export function applyTerrainTool(
             ) {
               t.terrain = 'highland';
             }
-            modifiedCount++;
+            tileModified = true;
           }
           break;
         }
         case 'stone_road': {
-          // Pave on solid land OR build floating water walkway / bridge on water (height === 0)
           if (t.height >= 0 && !t.buildingId) {
             t.terrain = 'stone_road';
             if (t.resourceNode === 'berry_bush' || t.resourceNode === 'timber_grove') {
               t.resourceNode = 'none';
               t.resourceAmount = 0;
             }
-            modifiedCount++;
+            tileModified = true;
           }
           break;
         }
@@ -1908,24 +1909,22 @@ export function applyTerrainTool(
               t.resourceNode = 'none';
               t.resourceAmount = 0;
             }
-            modifiedCount++;
+            tileModified = true;
           }
           break;
         }
         case 'fertile_meadow': {
-          // Only cultivate living, non-dead soil (never on scorched ash, bare rock, snow, sand, swamp, or water)
           if (isCultivableSoil(t)) {
             t.terrain = 'fertile';
             if (!t.buildingId) {
               t.resourceNode = 'berry_bush';
               t.resourceAmount = 220;
             }
-            modifiedCount++;
+            tileModified = true;
           }
           break;
         }
         case 'plant_forest': {
-          // Only plant trees on living, cultivable land (never on scorched dead earth, rock, snow, sand, swamp, or water)
           if (isCultivableSoil(t)) {
             if (
               t.terrain !== 'jungle' &&
@@ -1939,7 +1938,7 @@ export function applyTerrainTool(
               t.resourceNode = 'timber_grove';
               t.resourceAmount = 260;
             }
-            modifiedCount++;
+            tileModified = true;
           }
           break;
         }
@@ -1952,12 +1951,159 @@ export function applyTerrainTool(
               t.resourceNode = (t.x + t.z) % 3 === 0 ? 'crystal_monolith' : 'ore_vein';
               t.resourceAmount = 350;
             }
-            modifiedCount++;
+            tileModified = true;
+          }
+          break;
+        }
+        case 'crystal_shower': {
+          if (t.height > 0) {
+            t.terrain = 'crystal_field';
+            t.onFireTimer = 0;
+            t.cursedTimer = 0;
+            if (!t.buildingId) {
+              t.resourceNode = 'crystal_monolith';
+              t.resourceAmount = 420;
+            }
+            tileModified = true;
+          }
+          break;
+        }
+        case 'boulder_rain': {
+          if (t.height > 0) {
+            t.terrain = t.height >= 5 ? 'mountain' : 'rock';
+            t.onFireTimer = 0;
+            if (!t.buildingId) {
+              t.resourceNode = 'stone_outcrop';
+              t.resourceAmount = 360;
+            }
+            tileModified = true;
+          }
+          break;
+        }
+        case 'blossom_rain': {
+          const livingBiome =
+            t.height > 0 &&
+            t.height < 6 &&
+            (t.terrain === 'grass' ||
+              t.terrain === 'fertile' ||
+              t.terrain === 'forest' ||
+              t.terrain === 'savanna' ||
+              t.terrain === 'jungle' ||
+              t.terrain === 'blossom' ||
+              t.terrain === 'taiga');
+          if (livingBiome) {
+            t.terrain = 'blossom';
+            t.onFireTimer = 0;
+            t.cursedTimer = 0;
+            t.blessedTimer = Math.max(t.blessedTimer, 18);
+            if (!t.buildingId) {
+              t.resourceNode = (t.x + t.z) % 3 === 0 ? 'berry_bush' : 'timber_grove';
+              t.resourceAmount = 280;
+            }
+            tileModified = true;
+          }
+          break;
+        }
+        case 'jungle_bloom': {
+          if (isCultivableSoil(t) || t.terrain === 'swamp') {
+            t.terrain = 'jungle';
+            t.onFireTimer = 0;
+            if (!t.buildingId) {
+              t.resourceNode = (t.x + t.z) % 4 === 0 ? 'berry_bush' : 'timber_grove';
+              t.resourceAmount = 300;
+            }
+            tileModified = true;
+          }
+          break;
+        }
+        case 'soil_enrich': {
+          if (t.height > 0) {
+            const harsh =
+              t.terrain === 'scorched' ||
+              t.terrain === 'void_goo' ||
+              t.terrain === 'badlands' ||
+              t.terrain === 'rock' ||
+              t.terrain === 'swamp' ||
+              t.terrain === 'sand' ||
+              t.terrain === 'tundra' ||
+              t.cursedTimer > 0 ||
+              t.onFireTimer > 0;
+            if (harsh || t.terrain === 'grass') {
+              t.terrain = harsh ? 'grass' : 'fertile';
+              t.onFireTimer = 0;
+              t.cursedTimer = 0;
+              t.blessedTimer = Math.max(t.blessedTimer, 14);
+              if (!t.buildingId && t.resourceNode === 'none' && (t.x + t.z) % 2 === 0) {
+                t.resourceNode = 'berry_bush';
+                t.resourceAmount = 190;
+              }
+              tileModified = true;
+            }
+          }
+          break;
+        }
+        case 'desert_dunes': {
+          if (t.height > 0 && t.height <= 4) {
+            t.terrain = 'sand';
+            t.onFireTimer = 0;
+            t.tempOffset = Math.max(t.tempOffset ?? 0, 18);
+            if (!t.buildingId) {
+              if ((t.x * 3 + t.z * 5) % 9 === 0) {
+                t.resourceNode = 'berry_bush';
+                t.resourceAmount = 170;
+              } else {
+                t.resourceNode = 'none';
+                t.resourceAmount = 0;
+              }
+            }
+            tileModified = true;
+          }
+          break;
+        }
+        case 'volcanic_obsidian': {
+          if (t.height > 0) {
+            t.terrain = 'scorched';
+            t.tempOffset = Math.min(60, (t.tempOffset ?? 0) + 25);
+            if (!t.buildingId) {
+              t.resourceNode = (t.x + t.z) % 2 === 0 ? 'ore_vein' : 'stone_outcrop';
+              t.resourceAmount = 380;
+            }
+            tileModified = true;
+          }
+          break;
+        }
+        case 'coral_reef_rain': {
+          if (t.height === 0) {
+            if (t.terrain === 'ice') {
+              t.terrain = t.frozenWaterBase ?? 'shallow_water';
+              delete t.frozenWaterBase;
+            }
+            delete t.coralBleachTimer;
+            t.resourceNode = 'coral_reef';
+            t.resourceAmount = 320;
+            tileModified = true;
+          }
+          break;
+        }
+        case 'salvage_drop': {
+          if (!t.buildingId) {
+            if (t.height === 0) {
+              if (t.terrain === 'ice') {
+                t.terrain = t.frozenWaterBase ?? 'shallow_water';
+                delete t.frozenWaterBase;
+              }
+              t.resourceNode = 'scrap_flotsam';
+              t.resourceAmount = 300;
+            } else {
+              t.resourceNode = (t.x + t.z) % 2 === 0 ? 'ore_vein' : 'stone_outcrop';
+              t.resourceAmount = 340;
+            }
+            tileModified = true;
           }
           break;
         }
         case 'carve_river': {
-          modifiedCount++;
+          tileModified = true;
           if (t.height >= 3) {
             t.height = Math.max(1, t.height - 2);
             if (t.terrain === 'snow' || t.terrain === 'rock') t.terrain = 'rock';
@@ -1971,18 +2117,96 @@ export function applyTerrainTool(
           }
           break;
         }
+        case 'abyssal_trench': {
+          t.height = 0;
+          t.terrain = 'deep_water';
+          t.isRiver = false;
+          delete t.frozenWaterBase;
+          t.resourceNode = 'none';
+          t.resourceAmount = 0;
+          t.onFireTimer = 0;
+          t.farmSettlementId = undefined;
+          tileModified = true;
+          break;
+        }
+        case 'atlantis_rise': {
+          if (t.height === 0 && !t.buildingId) {
+            delete t.frozenWaterBase;
+            delete t.coralBleachTimer;
+            t.terrain = 'shallow_water';
+            t.resourceNode = 'atlantis_ruin';
+            t.resourceAmount = 400;
+            tileModified = true;
+          }
+          break;
+        }
+        case 'alpine_glacier': {
+          tileModified = true;
+          t.tempOffset = -35;
+          t.onFireTimer = 0;
+          if (t.height === 0) {
+            if (t.terrain !== 'ice') {
+              t.frozenWaterBase = t.terrain === 'deep_water' ? 'deep_water' : 'shallow_water';
+            }
+            t.terrain = 'ice';
+            t.resourceNode = 'none';
+            t.resourceAmount = 0;
+          } else {
+            t.height = Math.min(10, Math.max(5, t.height + 2));
+            t.terrain = t.height >= 7 ? 'snow' : 'mountain';
+            if (t.resourceNode === 'berry_bush' || t.resourceNode === 'timber_grove') {
+              t.resourceNode = 'none';
+              t.resourceAmount = 0;
+            }
+          }
+          break;
+        }
+        case 'swamp_mire': {
+          if (t.height > 0 && !t.buildingId) {
+            if (t.height > 2) t.height = 2;
+            t.terrain = 'swamp';
+            t.onFireTimer = 0;
+            if (t.resourceNode === 'stone_outcrop' || t.resourceNode === 'ore_vein' || t.resourceNode === 'berry_bush') {
+              t.resourceNode = 'none';
+              t.resourceAmount = 0;
+            }
+            tileModified = true;
+          }
+          break;
+        }
+      }
+
+      if (tileModified) {
+        modifiedCount++;
+        dropTargets.push({ x: t.x, y: Math.max(0.25, t.height * 0.45 + 0.2), z: t.z });
       }
     }
   }
 
   if (modifiedCount === 0) {
-    if (toolType === 'plant_forest' || toolType === 'fertile_meadow') {
+    if (toolType === 'plant_forest' || toolType === 'fertile_meadow' || toolType === 'blossom_rain') {
       return {
         ok: false,
-        reason: 'Cannot cultivate dead or barren land — revive soil with Rain or Bless first!',
+        reason: 'Cannot cultivate dead or barren land — revive soil with Rain, Soil Revive, or Bless first!',
+      };
+    }
+    if (toolType === 'coral_reef_rain' || toolType === 'atlantis_rise') {
+      return {
+        ok: false,
+        reason: 'Cast this ocean power over sea water!',
       };
     }
     return { ok: false, reason: 'Cannot apply tool on this terrain' };
+  }
+
+  if (toolType === 'blossom_rain') {
+    const clearRadiusSq = (clampedRadius + 2) ** 2;
+    for (const u of state.units) {
+      if (u.state !== 'ko' && u.faction !== 'hostile' && (u.x - centerX) ** 2 + (u.z - centerZ) ** 2 <= clearRadiusSq) {
+        u.statusEffects.cursed = 0;
+        u.hp = Math.min(u.maxHp, u.hp + 15);
+      }
+    }
   }
 
   reconcileAndSyncResources(state);
@@ -1990,16 +2214,31 @@ export function applyTerrainTool(
     spendWorldCost(state, { faith: def.faithCost });
   }
 
-  state.pendingVfx.push({
-    id: nextEntityId('vfx'),
-    type: 'terrain_sculpt',
-    x: centerTile.x,
-    y: centerTile.height * 0.45,
-    z: centerTile.z,
-    radius: brushRadius + 0.5,
-    color: def.color,
-    createdAt: Date.now(),
-  });
+  if (def.isSkyRain) {
+    state.pendingVfx.push({
+      id: nextEntityId('vfx'),
+      type: 'sky_rain_drop',
+      dropKind: toolType,
+      dropTargets: dropTargets.slice(0, 24),
+      x: centerTile.x,
+      y: centerTile.height * 0.45,
+      z: centerTile.z,
+      radius: Math.max(1.2, brushRadius + 0.8),
+      color: def.color,
+      createdAt: Date.now(),
+    });
+  } else {
+    state.pendingVfx.push({
+      id: nextEntityId('vfx'),
+      type: 'terrain_sculpt',
+      x: centerTile.x,
+      y: centerTile.height * 0.45,
+      z: centerTile.z,
+      radius: brushRadius + 0.5,
+      color: def.color,
+      createdAt: Date.now(),
+    });
+  }
 
   recalculateRatesAndCaps(state);
   return { ok: true };

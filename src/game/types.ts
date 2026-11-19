@@ -340,11 +340,26 @@ export type TerrainToolType =
   | 'seed_ore'
   | 'carve_river'
   | 'stone_road'
-  | 'rail_track';
+  | 'rail_track'
+  | 'crystal_shower'
+  | 'boulder_rain'
+  | 'blossom_rain'
+  | 'jungle_bloom'
+  | 'soil_enrich'
+  | 'desert_dunes'
+  | 'coral_reef_rain'
+  | 'salvage_drop'
+  | 'volcanic_obsidian'
+  | 'atlantis_rise'
+  | 'alpine_glacier'
+  | 'abyssal_trench'
+  | 'swamp_mire';
 
 export interface TerrainToolDefinition {
   type: TerrainToolType;
   name: string;
+  category: 'Sculpt' | 'Sky Rain' | 'Biomes' | 'Water';
+  isSkyRain?: boolean;
   summary: string;
   faithCost: number;
   color: string;
@@ -447,6 +462,7 @@ export interface VisualEffectEvent {
   type:
     | GodPowerType
     | 'terrain_sculpt'
+    | 'sky_rain_drop'
     | 'build_complete'
     | 'hit_spark'
     | 'epoch_up'
@@ -469,6 +485,8 @@ export interface VisualEffectEvent {
   sourceUnitId?: string;
   variant?: 'bite' | 'slam' | 'crunch' | 'peck' | 'horn_blast' | 'fire_breath';
   vfxSubtype?: 'bullet' | 'cannon_shell' | 'bomb' | 'missile' | 'arcane_bolt' | 'plasma_beam' | 'laser_beam';
+  dropKind?: TerrainToolType;
+  dropTargets?: Array<{ x: number; y: number; z: number }>;
   radius: number;
   color: string;
   createdAt: number;

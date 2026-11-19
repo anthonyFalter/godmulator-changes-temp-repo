@@ -59,6 +59,7 @@ import {
   GOD_POWERS,
   MYTHICAL_BEAST_UNITS,
   SPECIES_UNITS,
+  TERRAIN_TOOLS,
   getDinosaurVariant,
   getDragonVariant,
   getUnitMaxLifespan,
@@ -6432,5 +6433,182 @@ test('Power Summons Killability: existing Stone/Bronze races, warriors, and beas
     `Wildlife predators must be able to reach and kill hovering alien_ufo (remaining hp=${ufo.hp.toFixed(1)})`,
   );
 });
+
+test('Land Powers Expansion: 13 new creative land powers, sky_rain_drop VFX targets, and biome/ocean constraints', () => {
+  const state = createInitialSimulationState(48, 'LAND-POWERS-EXPANSION');
+  state.sandboxFreeMode = true;
+  state.wildlifeSeeded = true;
+  state.units = [];
+  state.buildings = [];
+  state.activeHazards = [];
+
+  // 1. Catalog completeness: 9 original + 13 new = 22 tools total
+  assert.ok(TERRAIN_TOOLS.length >= 22, `Expected at least 22 terrain tools, got ${TERRAIN_TOOLS.length}`);
+
+  // Prepare clean living grass patch [10..36, 10..25] and clean shallow_water patch [10..36, 26..38]
+  for (let x = 10; x <= 36; x++) {
+    for (let z = 10; z <= 38; z++) {
+      const t = getTile(state, x, z)!;
+      t.buildingId = null;
+      t.resourceNode = 'none';
+      t.resourceAmount = 0;
+      t.onFireTimer = 0;
+      t.cursedTimer = 0;
+      if (z <= 25) {
+        t.height = 1;
+        t.terrain = 'grass';
+        t.tempOffset = 0;
+      } else {
+        t.height = 0;
+        t.terrain = 'shallow_water';
+        t.tempOffset = 0;
+      }
+    }
+  }
+
+  // 2. Every isSkyRain tool succeeds on valid ground/water and emits sky_rain_drop with populated dropTargets
+  const skyTools = TERRAIN_TOOLS.filter((d) => d.isSkyRain);
+  assert.ok(skyTools.length >= 10, `Expected at least 10 sky-rain land powers, got ${skyTools.length}`);
+  assert.equal(TERRAIN_TOOLS.find((d) => d.type === 'seed_ore')?.isSkyRain, true, 'seed_ore (Ore Rain) must be marked as sky rain');
+
+  skyTools.forEach((def, idx) => {
+    state.pendingVfx = [];
+    const tx = 14 + (idx % 6) * 3;
+    const tz = def.type === 'coral_reef_rain' ? 30 + (idx % 2) * 3 : 14 + Math.floor(idx / 6) * 4;
+    if (def.type === 'soil_enrich') {
+      getTile(state, tx, tz)!.terrain = 'scorched';
+    }
+    const res = applyTerrainTool(state, def.type, tx, tz, 1);
+    assert.equal(res.ok, true, `Sky-rain land tool "${def.type}" should succeed at (${tx},${tz}): ${res.reason}`);
+    const vfx = state.pendingVfx.find((v) => v.type === 'sky_rain_drop' && v.dropKind === def.type);
+    assert.ok(vfx, `Sky-rain land tool "${def.type}" must emit a 'sky_rain_drop' visual effect`);
+    assert.ok((vfx.dropTargets?.length ?? 0) >= 1, `Sky-rain "${def.type}" must provide ground dropTargets`);
+  });
+
+  // 3. Specific mechanic checks on all 13 new land powers
+  // Crystal Shower -> crystal_field + crystal_monolith
+  const cryTile = getTile(state, 12, 12)!;
+  cryTile.terrain = 'grass';
+  cryTile.height = 1;
+  cryTile.resourceNode = 'none';
+  assert.equal(applyTerrainTool(state, 'crystal_shower', 12, 12, 0).ok, true);
+  assert.equal(cryTile.terrain, 'crystal_field');
+  assert.equal(cryTile.resourceNode, 'crystal_monolith');
+
+  // Boulder Rain -> rock/mountain + stone_outcrop
+  const bldTile = getTile(state, 13, 12)!;
+  bldTile.terrain = 'grass';
+  bldTile.height = 1;
+  bldTile.resourceNode = 'none';
+  assert.equal(applyTerrainTool(state, 'boulder_rain', 13, 12, 0).ok, true);
+  assert.equal(bldTile.terrain, 'rock');
+  assert.equal(bldTile.resourceNode, 'stone_outcrop');
+
+  // Blossom Rain -> blossom + clears fire/curse & heals units
+  const blsTile = getTile(state, 15, 12)!;
+  blsTile.terrain = 'grass';
+  blsTile.height = 1;
+  blsTile.cursedTimer = 25;
+  blsTile.onFireTimer = 8;
+  const injuredHero = spawnUnit(state, 'human', 15, 12, true).unit!;
+  injuredHero.hp = 20;
+  assert.equal(applyTerrainTool(state, 'blossom_rain', 15, 12, 0).ok, true);
+  assert.equal(blsTile.terrain, 'blossom');
+  assert.equal(blsTile.cursedTimer, 0);
+  assert.equal(blsTile.onFireTimer, 0);
+  assert.ok(injuredHero.hp > 20, 'blossom_rain must heal friendly units in area');
+
+  // Jungle Bloom -> jungle + grove/bush
+  const jngTile = getTile(state, 16, 12)!;
+  jngTile.terrain = 'grass';
+  jngTile.height = 1;
+  assert.equal(applyTerrainTool(state, 'jungle_bloom', 16, 12, 0).ok, true);
+  assert.equal(jngTile.terrain, 'jungle');
+
+  // Soil Enrich -> revives dead/scorched/void earth into living grass
+  const scorTile = getTile(state, 18, 12)!;
+  scorTile.terrain = 'scorched';
+  scorTile.height = 1;
+  scorTile.cursedTimer = 10;
+  assert.equal(applyTerrainTool(state, 'soil_enrich', 18, 12, 0).ok, true);
+  assert.equal(scorTile.terrain, 'grass');
+  assert.equal(scorTile.cursedTimer, 0);
+
+  // Desert Dunes -> warm sand dunes
+  const dunTile = getTile(state, 19, 12)!;
+  dunTile.terrain = 'grass';
+  dunTile.height = 1;
+  assert.equal(applyTerrainTool(state, 'desert_dunes', 19, 12, 0).ok, true);
+  assert.equal(dunTile.terrain, 'sand');
+  assert.ok((dunTile.tempOffset ?? 0) > 0);
+
+  // Volcanic Obsidian -> scorched + ore/stone vein + heat
+  const obsTile = getTile(state, 20, 12)!;
+  obsTile.terrain = 'grass';
+  obsTile.height = 1;
+  obsTile.resourceNode = 'none';
+  assert.equal(applyTerrainTool(state, 'volcanic_obsidian', 20, 12, 0).ok, true);
+  assert.equal(obsTile.terrain, 'scorched');
+  assert.ok(['ore_vein', 'stone_outcrop'].includes(obsTile.resourceNode));
+
+  // Salvage Drop -> scrap_flotsam on sea, ore/stone on land
+  const seaSalvage = getTile(state, 22, 32)!;
+  seaSalvage.terrain = 'shallow_water';
+  seaSalvage.height = 0;
+  seaSalvage.resourceNode = 'none';
+  assert.equal(applyTerrainTool(state, 'salvage_drop', 22, 32, 0).ok, true);
+  assert.equal(seaSalvage.resourceNode, 'scrap_flotsam');
+
+  // Coral Reef Rain -> requires water, seeds coral_reef
+  const coralLandFail = applyTerrainTool(state, 'coral_reef_rain', 21, 12, 0);
+  assert.equal(coralLandFail.ok, false, 'coral_reef_rain should reject solid inland tiles');
+  const coralSea = getTile(state, 24, 32)!;
+  coralSea.terrain = 'shallow_water';
+  coralSea.height = 0;
+  coralSea.resourceNode = 'none';
+  assert.equal(applyTerrainTool(state, 'coral_reef_rain', 24, 32, 0).ok, true);
+  assert.equal(coralSea.resourceNode, 'coral_reef');
+
+  // Atlantis Rise -> spawns atlantis_ruin on ocean
+  const atlTile = getTile(state, 26, 32)!;
+  atlTile.terrain = 'shallow_water';
+  atlTile.height = 0;
+  atlTile.resourceNode = 'none';
+  assert.equal(applyTerrainTool(state, 'atlantis_rise', 26, 32, 0).ok, true);
+  assert.equal(atlTile.resourceNode, 'atlantis_ruin');
+
+  // Abyssal Trench -> deep_water height 0
+  const abyssTile = getTile(state, 28, 20)!;
+  abyssTile.terrain = 'grass';
+  abyssTile.height = 3;
+  assert.equal(applyTerrainTool(state, 'abyssal_trench', 28, 20, 0).ok, true);
+  assert.equal(abyssTile.terrain, 'deep_water');
+  assert.equal(abyssTile.height, 0);
+
+  // Alpine Glacier -> raises mountain/snow peak on land, freezes water into ice
+  const alpLand = getTile(state, 30, 20)!;
+  alpLand.terrain = 'grass';
+  alpLand.height = 2;
+  assert.equal(applyTerrainTool(state, 'alpine_glacier', 30, 20, 0).ok, true);
+  assert.equal(alpLand.terrain, 'mountain');
+  assert.ok(alpLand.height >= 5);
+  assert.equal(applyTerrainTool(state, 'alpine_glacier', 30, 20, 0).ok, true);
+  assert.equal(alpLand.terrain, 'snow');
+  assert.ok(alpLand.height >= 7);
+
+  const alpSea = getTile(state, 30, 32)!;
+  alpSea.terrain = 'shallow_water';
+  alpSea.height = 0;
+  assert.equal(applyTerrainTool(state, 'alpine_glacier', 30, 32, 0).ok, true);
+  assert.equal(alpSea.terrain, 'ice');
+
+  // Swamp Mire -> marshland terrain
+  const swTile = getTile(state, 32, 20)!;
+  swTile.terrain = 'grass';
+  swTile.height = 2;
+  assert.equal(applyTerrainTool(state, 'swamp_mire', 32, 20, 0).ok, true);
+  assert.equal(swTile.terrain, 'swamp');
+});
+
 
 
