@@ -1783,36 +1783,80 @@ export function isCultivableSoil(t: TileData): boolean {
   );
 }
 
-export function applyTerrainTool(
-  state: SimulationState,
+export function canApplyTerrainToolToTile(
+  t: TileData,
   toolType: TerrainToolType,
-  centerX: number,
-  centerZ: number,
-  brushRadius = 1,
-): { ok: boolean; reason?: string } {
-  const def = TERRAIN_TOOLS.find((t) => t.type === toolType);
-  if (!def) return { ok: false, reason: 'Unknown terrain tool' };
-
-  const centerTile = getTile(state, centerX, centerZ);
-  if (!centerTile) return { ok: false, reason: 'Out of bounds' };
-
-  if (!state.sandboxFreeMode && state.resources.faith < def.faithCost) {
-    return { ok: false, reason: 'Need more God Energy to sculpt terrain' };
+  centerHeight = t.height,
+): boolean {
+  switch (toolType) {
+    case 'raise':
+    case 'lower':
+    case 'carve_river':
+    case 'abyssal_trench':
+    case 'alpine_glacier':
+      return true;
+    case 'flatten':
+      return (t.height === 0 && centerHeight > 0 && t.terrain === 'shallow_water') || t.height > 0;
+    case 'stone_road':
+    case 'rail_track':
+      return t.height >= 0 && !t.buildingId;
+    case 'fertile_meadow':
+    case 'plant_forest':
+      return isCultivableSoil(t);
+    case 'blossom_rain':
+      return (
+        t.height > 0 &&
+        t.height < 6 &&
+        (t.terrain === 'grass' ||
+          t.terrain === 'fertile' ||
+          t.terrain === 'forest' ||
+          t.terrain === 'savanna' ||
+          t.terrain === 'jungle' ||
+          t.terrain === 'blossom' ||
+          t.terrain === 'taiga')
+      );
+    case 'jungle_bloom':
+      return isCultivableSoil(t) || t.terrain === 'swamp';
+    case 'seed_ore':
+    case 'crystal_shower':
+    case 'boulder_rain':
+    case 'volcanic_obsidian':
+      return t.height > 0;
+    case 'soil_enrich':
+      return (
+        t.height > 0 &&
+        (t.terrain === 'scorched' ||
+          t.terrain === 'void_goo' ||
+          t.terrain === 'badlands' ||
+          t.terrain === 'rock' ||
+          t.terrain === 'swamp' ||
+          t.terrain === 'sand' ||
+          t.terrain === 'tundra' ||
+          t.cursedTimer > 0 ||
+          t.onFireTimer > 0 ||
+          t.terrain === 'grass')
+      );
+    case 'desert_dunes':
+      return t.height > 0 && t.height <= 4;
+    case 'coral_reef_rain':
+      return t.height === 0;
+    case 'salvage_drop':
+      return !t.buildingId;
+    case 'atlantis_rise':
+      return t.height === 0 && !t.buildingId;
+    case 'swamp_mire':
+      return t.height > 0 && !t.buildingId;
   }
+}
 
-  const targetFlattenHeight = Math.max(1, centerTile.height);
-  const clampedRadius = Math.max(0, Math.floor(brushRadius));
-  let modifiedCount = 0;
-  const dropTargets: Array<{ x: number; y: number; z: number }> = [];
-
-  for (let dz = -clampedRadius; dz <= clampedRadius; dz++) {
-    for (let dx = -clampedRadius; dx <= clampedRadius; dx++) {
-      if (clampedRadius > 0 && dx * dx + dz * dz > clampedRadius * clampedRadius + 0.5) continue;
-      const t = getTile(state, centerX + dx, centerZ + dz);
-      if (!t) continue;
-      let tileModified = false;
-
-      switch (toolType) {
+function applyTerrainToolTileMutation(
+  t: TileData,
+  toolType: TerrainToolType,
+  targetFlattenHeight: number,
+  centerHeight: number,
+): boolean {
+  let tileModified = false;
+  switch (toolType) {
         case 'raise': {
           tileModified = true;
           if (t.height === 0 && t.terrain === 'deep_water') {
@@ -1868,28 +1912,28 @@ export function applyTerrainTool(
           }
           break;
         }
-        case 'flatten': {
-          if (t.height === 0 && centerTile.height > 0) {
-            if (t.terrain === 'shallow_water') {
-              t.height = 1;
-              t.terrain = 'sand';
-              tileModified = true;
-            }
-          } else if (t.height > 0) {
-            t.height = targetFlattenHeight;
-            if (t.height >= 8) t.terrain = 'snow';
-            else if (t.height >= 5 && t.terrain !== 'scorched' && t.terrain !== 'badlands' && t.terrain !== 'rock') {
-              t.terrain = 'mountain';
-            } else if (
-              t.height < 5 &&
-              (t.terrain === 'snow' || t.terrain === 'rock' || t.terrain === 'mountain')
-            ) {
-              t.terrain = 'highland';
-            }
-            tileModified = true;
-          }
-          break;
+    case 'flatten': {
+      if (t.height === 0 && centerHeight > 0) {
+        if (t.terrain === 'shallow_water') {
+          t.height = 1;
+          t.terrain = 'sand';
+          tileModified = true;
         }
+      } else if (t.height > 0) {
+        t.height = targetFlattenHeight;
+        if (t.height >= 8) t.terrain = 'snow';
+        else if (t.height >= 5 && t.terrain !== 'scorched' && t.terrain !== 'badlands' && t.terrain !== 'rock') {
+          t.terrain = 'mountain';
+        } else if (
+          t.height < 5 &&
+          (t.terrain === 'snow' || t.terrain === 'rock' || t.terrain === 'mountain')
+        ) {
+          t.terrain = 'highland';
+        }
+        tileModified = true;
+      }
+      break;
+    }
         case 'stone_road': {
           if (t.height >= 0 && !t.buildingId) {
             t.terrain = 'stone_road';
@@ -2175,8 +2219,73 @@ export function applyTerrainTool(
           break;
         }
       }
+  return tileModified;
+}
 
-      if (tileModified) {
+export function executeTerrainDropTileImpact(
+  state: SimulationState,
+  toolType: TerrainToolType,
+  tileX: number,
+  tileZ: number,
+): boolean {
+  const t = getTile(state, tileX, tileZ);
+  if (!t) return false;
+  const changed = applyTerrainToolTileMutation(t, toolType, Math.max(1, t.height), t.height);
+  if (!changed) return false;
+
+  if (toolType === 'blossom_rain') {
+    const clearRadiusSq = 2.25 * 2.25;
+    for (const u of state.units) {
+      if (
+        u.state !== 'ko' &&
+        u.faction !== 'hostile' &&
+        (u.x - tileX) ** 2 + (u.z - tileZ) ** 2 <= clearRadiusSq
+      ) {
+        u.statusEffects.cursed = 0;
+        u.hp = Math.min(u.maxHp, u.hp + 15);
+      }
+    }
+  }
+
+  reconcileAndSyncResources(state);
+  recalculateRatesAndCaps(state);
+  return true;
+}
+
+export function applyTerrainTool(
+  state: SimulationState,
+  toolType: TerrainToolType,
+  centerX: number,
+  centerZ: number,
+  brushRadius = 1,
+  options?: { deferSkyImpact?: boolean },
+): { ok: boolean; reason?: string } {
+  const def = TERRAIN_TOOLS.find((t) => t.type === toolType);
+  if (!def) return { ok: false, reason: 'Unknown terrain tool' };
+
+  const centerTile = getTile(state, centerX, centerZ);
+  if (!centerTile) return { ok: false, reason: 'Out of bounds' };
+
+  if (!state.sandboxFreeMode && state.resources.faith < def.faithCost) {
+    return { ok: false, reason: 'Need more God Energy to sculpt terrain' };
+  }
+
+  const targetFlattenHeight = Math.max(1, centerTile.height);
+  const clampedRadius = Math.max(0, Math.floor(brushRadius));
+  const deferSkyImpact = Boolean(def.isSkyRain) && (options?.deferSkyImpact ?? true);
+  let modifiedCount = 0;
+  const dropTargets: Array<{ x: number; y: number; z: number }> = [];
+
+  for (let dz = -clampedRadius; dz <= clampedRadius; dz++) {
+    for (let dx = -clampedRadius; dx <= clampedRadius; dx++) {
+      if (clampedRadius > 0 && dx * dx + dz * dz > clampedRadius * clampedRadius + 0.5) continue;
+      const t = getTile(state, centerX + dx, centerZ + dz);
+      if (!t) continue;
+      const tileEligible = deferSkyImpact
+        ? canApplyTerrainToolToTile(t, toolType, centerTile.height)
+        : applyTerrainToolTileMutation(t, toolType, targetFlattenHeight, centerTile.height);
+
+      if (tileEligible) {
         modifiedCount++;
         dropTargets.push({ x: t.x, y: Math.max(0.25, t.height * 0.45 + 0.2), z: t.z });
       }
@@ -2199,7 +2308,7 @@ export function applyTerrainTool(
     return { ok: false, reason: 'Cannot apply tool on this terrain' };
   }
 
-  if (toolType === 'blossom_rain') {
+  if (!deferSkyImpact && toolType === 'blossom_rain') {
     const clearRadiusSq = (clampedRadius + 2) ** 2;
     for (const u of state.units) {
       if (u.state !== 'ko' && u.faction !== 'hostile' && (u.x - centerX) ** 2 + (u.z - centerZ) ** 2 <= clearRadiusSq) {
@@ -2219,7 +2328,8 @@ export function applyTerrainTool(
       id: nextEntityId('vfx'),
       type: 'sky_rain_drop',
       dropKind: toolType,
-      dropTargets: dropTargets.slice(0, 24),
+      dropTargets: dropTargets.slice(0, 64),
+      deferImpact: deferSkyImpact,
       x: centerTile.x,
       y: centerTile.height * 0.45,
       z: centerTile.z,
