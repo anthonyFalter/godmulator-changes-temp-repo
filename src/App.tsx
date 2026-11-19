@@ -207,7 +207,7 @@ type TitleMenuStep =
   | 'world_rules'
   | 'loading_world';
 
-const GAME_VERSION = 'v1.1.5';
+const GAME_VERSION = 'v1.2.0';
 
 export interface UpdateLogEntry {
   version: string;
@@ -216,6 +216,18 @@ export interface UpdateLogEntry {
 }
 
 const UPDATE_LOG_ENTRIES: UpdateLogEntry[] = [
+  {
+    version: 'v1.2.0 - We are getting invaded!',
+    isMajor: true,
+    items: [
+      'Alien Invasion mothership raids (UFOs & tripod walkers), Dark Ooze & Skeleton Portals, plus new God Powers (Time Acceleration, Peace Treaty, Solar Beam & Anti-Gravity)',
+      '14 new Land tools: sky drops wait for falling ores, boulders, crystals & salvage to hit the ground before changing tiles',
+      'Redesigned magic circle VFX: flat top-facing circles rotating in one direction with 24 runic symbols',
+      'Light-blue fantasy crystal biome with multi-colored crystal clusters (cyan, violet, rose, gold & emerald)',
+      'Redesigned fire sprites, creeping fire spread & 3D burnt trees left behind after wildfires',
+      'Rephrased powers, land tools, traits, events & logs into simple, direct sandbox names + visible random event descriptions',
+    ],
+  },
   {
     version: 'v1.1.5 - World Saves & UI',
     items: [
