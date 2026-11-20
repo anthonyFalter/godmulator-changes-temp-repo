@@ -17,7 +17,7 @@ function drawHumanoid(
     skin?: MaterialRamp;
     hair?: MaterialRamp;
     trim?: MaterialRamp;
-    hat?: 'hair' | 'hood' | 'straw' | 'hardhat' | 'helm' | 'crown' | 'cap' | 'visor' | 'horns';
+    hat?: 'hair' | 'hood' | 'straw' | 'hardhat' | 'helm' | 'crown' | 'cap' | 'visor' | 'horns' | 'none';
     hatRamp?: MaterialRamp;
     pointedEars?: boolean;
     beard?: MaterialRamp;
@@ -381,6 +381,87 @@ export const UNIT_SPRITES: Record<UnitRole, CompiledSprite> = {
       item: 'hammer',
     }),
   ),
+
+  // Grinning bone skeleton warrior wielding a notched steel sword
+  skeleton: paintSprite((c) => {
+    drawHumanoid(c, {
+      tunic: RAMPS.darkIron,
+      skin: RAMPS.bone,
+      hat: 'none',
+      item: 'sword',
+    });
+    // Hollow dark eye sockets & bony teeth grin
+    c.fillEllipse(13.5, 11.5, 1.5, 1.6, 0, () => [24, 18, 20]);
+    c.fillEllipse(18.5, 11.5, 1.5, 1.6, 0, () => [24, 18, 20]);
+    c.put(13.5, 11.5, RAMPS.toxic.hi);
+    c.put(18.5, 11.5, RAMPS.toxic.hi);
+    c.put(14, 15, [28, 22, 22]);
+    c.put(16, 15, [28, 22, 22]);
+    c.put(18, 15, [28, 22, 22]);
+  }),
+
+  // Bulbous-cranium alien martian trooper with glossy dark eyes & plasma blaster
+  alien_trooper: paintSprite((c) => {
+    // Sleek cybernetic space armor torso
+    c.fillEllipse(16, 23, 6.2, 5.5, 0, (x, y, _nx, _ny, _nz, light) =>
+      quantRamp(RAMPS.darkIron, light, x, y, 0.02),
+    );
+    c.fillEllipse(16, 22, 2.2, 2.2, 0, () => RAMPS.toxic.hi);
+    // Bulbous emerald alien cranium
+    c.fillEllipse(16, 11.5, 7.2, 6.5, 0, (x, y, _nx, _ny, _nz, light) =>
+      quantRamp(RAMPS.toxic, light * 1.02, x, y, 0.02),
+    );
+    // Large almond obsidian alien eyes with bright catchlights
+    c.fillEllipse(13, 12, 2.2, 2.6, -0.25, () => [16, 14, 22]);
+    c.fillEllipse(19, 12, 2.2, 2.6, 0.25, () => [16, 14, 22]);
+    c.put(12, 11, [255, 255, 255]);
+    c.put(18, 11, [255, 255, 255]);
+    // Plasma blaster held right
+    c.fillCapsule(21, 21, 28, 19, 1.6, 1.1, (x, y, _nx, _ny, _nz, light) =>
+      quantRamp(RAMPS.steel, light, x, y, 0.02),
+    );
+    c.put(28, 19, RAMPS.toxic.hi);
+  }),
+
+  // Hovering chrome UFO flying saucer with glowing toxic canopy & rim thrusters
+  alien_ufo: paintSprite((c) => {
+    // Bottom tractor glow
+    c.fillEllipse(16, 22, 5.5, 2.4, 0, () => RAMPS.toxic.light);
+    // Sleek wide metallic saucer hull
+    c.fillEllipse(16, 17, 12.8, 4.6, 0, (x, y, _nx, _ny, _nz, light) =>
+      quantRamp(RAMPS.steel, light * 1.08, x, y, 0.02),
+    );
+    // Translucent emerald glass cockpit dome
+    c.fillEllipse(16, 12.5, 6.2, 4.4, 0, (x, y, nx, ny, nz, light) => {
+      if (nx < -0.2 && ny < -0.2 && nz > 0.6) return RAMPS.toxic.hi;
+      return quantRamp(RAMPS.toxic, light * 1.05, x, y, 0.02);
+    });
+    for (const lx of [7, 12, 16, 20, 25]) {
+      c.put(lx, 17.5, lx === 16 ? RAMPS.azure.hi : RAMPS.flame.hi);
+    }
+  }),
+
+  // Towering 3-legged dark-iron alien tripod war strider with crimson cyclops laser
+  alien_walker: paintSprite((c) => {
+    // 3 articulated tripod legs descending from armored pod
+    c.fillCapsule(12, 15, 6, 29, 1.4, 1.0, (x, y, _nx, _ny, _nz, light) =>
+      quantRamp(RAMPS.darkIron, light, x, y, 0.02),
+    );
+    c.fillCapsule(16, 16, 16, 29, 1.4, 1.0, (x, y, _nx, _ny, _nz, light) =>
+      quantRamp(RAMPS.steel, light * 0.85, x, y, 0.02),
+    );
+    c.fillCapsule(20, 15, 26, 29, 1.4, 1.0, (x, y, _nx, _ny, _nz, light) =>
+      quantRamp(RAMPS.darkIron, light * 0.85, x, y, 0.02),
+    );
+    // Armored alien tripod carapace head
+    c.fillEllipse(16, 10.5, 8.0, 6.2, 0, (x, y, _nx, _ny, _nz, light) =>
+      quantRamp(RAMPS.arcane, light * 0.92, x, y, 0.025),
+    );
+    // Glowing crimson heat-ray cyclops eye
+    c.fillEllipse(16, 11.5, 2.8, 2.5, 0, () => RAMPS.crimson.light);
+    c.put(15.5, 10.8, [255, 255, 240]);
+    c.sparkle(16, 3, RAMPS.toxic.hi, false);
+  }),
 
   // Plump spotted dairy cow with curved cream horns, bell & rosy muzzle
   cow: paintSprite((c) => {

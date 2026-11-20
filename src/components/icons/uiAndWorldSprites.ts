@@ -552,6 +552,30 @@ export const TAB_SPRITES: Record<ToolCategory, CompiledSprite> = {
 };
 
 export const ZONE_SPRITES: Record<ZoneOverlayType, CompiledSprite> = {
+  // Heraldic parchment kingdom banner scroll topped with royal gold crown emblem
+  kingdomLabels: paintSprite((c) => {
+    c.fillPoly(
+      [
+        [5, 8],
+        [27, 8],
+        [27, 22],
+        [16, 27],
+        [5, 22],
+      ],
+      (x, y, _nx, _ny, _nz, light, u, v) => {
+        const edge = u < 0.14 || u > 0.86 || v < 0.14;
+        return quantRamp(edge ? RAMPS.gold : RAMPS.parchment, light * 1.02, x, y, 0.02);
+      },
+    );
+    // Crisp dark ink banner lines + ruby crest dot
+    c.fillCapsule(9, 15, 23, 15, 0.9, 0.9, () => RAMPS.darkWood.dark);
+    c.fillCapsule(11, 19, 21, 19, 0.8, 0.8, () => RAMPS.darkWood.mid);
+    c.fillEllipse(16, 11, 2.2, 1.8, 0, () => RAMPS.crimson.light);
+    c.fillCapsule(4, 7, 28, 7, 1.5, 1.5, (x, y, _nx, _ny, _nz, light) =>
+      quantRamp(RAMPS.gold, light * 1.08, x, y, 0.02),
+    );
+  }),
+
   // 3/4 fortified stone citadel flying ruby pennants
   kingdoms: paintSprite((c) => {
     // Central gatehouse block
@@ -919,6 +943,202 @@ export const TERRAIN_SPRITES: Record<TerrainToolType, CompiledSprite> = {
     c.fillCapsule(7, 17, 21, 10, 0.8, 0.8, () => RAMPS.steel.hi);
     c.fillCapsule(11, 20, 25, 13, 0.8, 0.8, () => RAMPS.steel.light);
   }),
+
+  // Glowing azure & amethyst crystal shards sprouting from stone pedestal
+  crystal_shower: paintSprite((c) => {
+    drawIsoEarthBase(c, 16, 28, 12, 5.5, 4, RAMPS.stone, RAMPS.stone, RAMPS.darkIron);
+    c.fillPoly(
+      [
+        [13, 19],
+        [16, 3],
+        [20, 19],
+      ],
+      (x, y, _nx, _ny, _nz, light) => quantRamp(RAMPS.azure, light * 1.15, x, y, 0.02),
+    );
+    c.fillPoly(
+      [
+        [8, 20],
+        [10, 9],
+        [14, 19],
+      ],
+      (x, y, _nx, _ny, _nz, light) => quantRamp(RAMPS.arcane, light * 1.1, x, y, 0.02),
+    );
+    c.fillPoly(
+      [
+        [19, 19],
+        [23, 10],
+        [24, 20],
+      ],
+      (x, y, _nx, _ny, _nz, light) => quantRamp(RAMPS.ice, light * 1.12, x, y, 0.02),
+    );
+    c.sparkle(16, 4, [255, 255, 255], true);
+  }),
+
+  // Craggy granite boulders raining onto rough mountain stone slab
+  boulder_rain: paintSprite((c) => {
+    drawIsoEarthBase(c, 16, 28, 12, 5.5, 4.5, RAMPS.stone, RAMPS.stone, RAMPS.darkIron);
+    c.fillEllipse(15, 16, 5.2, 4.5, 0.2, (x, y, _nx, _ny, _nz, light) =>
+      quantRamp(RAMPS.stone, light * 1.02, x, y, 0.03),
+    );
+    c.fillEllipse(10, 9, 3.2, 2.8, -0.2, (x, y, _nx, _ny, _nz, light) =>
+      quantRamp(RAMPS.stone, light * 1.06, x, y, 0.03),
+    );
+    c.fillEllipse(22, 8, 2.6, 2.4, 0.3, (x, y, _nx, _ny, _nz, light) =>
+      quantRamp(RAMPS.darkIron, light * 1.05, x, y, 0.03),
+    );
+    c.put(11, 5, RAMPS.parchment.hi);
+  }),
+
+  // Cherry-blossom pink canopy & floating petals above verdant meadow slab
+  blossom_rain: paintSprite((c) => {
+    drawIsoEarthBase(c, 16, 28, 12, 5.5, 4.5, RAMPS.leaf, RAMPS.wood, RAMPS.darkWood);
+    c.fillCapsule(16, 20, 16, 13, 1.5, 1.2, () => RAMPS.darkWood.mid);
+    c.fillEllipse(16, 11, 7.5, 5.4, 0, (x, y, _nx, _ny, _nz, light) =>
+      quantRamp(RAMPS.pink, light * 1.08, x, y, 0.03),
+    );
+    c.sparkle(7, 7, RAMPS.pink.hi, false);
+    c.sparkle(25, 8, RAMPS.pink.light, false);
+    c.sparkle(10, 18, RAMPS.pink.hi, false);
+  }),
+
+  // Lush multi-tiered jungle palm & emerald fern canopy
+  jungle_bloom: paintSprite((c) => {
+    drawIsoEarthBase(c, 16, 28, 12, 5.5, 4.5, RAMPS.leaf, RAMPS.darkWood, RAMPS.darkWood);
+    c.fillCapsule(15, 20, 16, 10, 1.6, 1.2, () => RAMPS.wood.mid);
+    for (const [tx, ty] of [
+      [7, 11],
+      [25, 11],
+      [10, 6],
+      [22, 6],
+    ]) {
+      c.fillBezier(16, 10, (16 + tx) * 0.5, ty - 2, tx, ty, 2.0, 0.7, (x, y, _nx, _ny, _nz, light) =>
+        quantRamp(RAMPS.leaf, light * 1.08, x, y, 0.025),
+      );
+    }
+    c.fillEllipse(12, 18, 3.0, 2.0, 0, () => RAMPS.toxic.mid);
+    c.put(20, 17, RAMPS.flame.hi);
+  }),
+
+  // Rich dark humus soil sprouting fresh golden-green shoots
+  soil_enrich: paintSprite((c) => {
+    drawIsoEarthBase(c, 16, 28, 12, 5.5, 5, RAMPS.darkWood, RAMPS.wood, RAMPS.darkWood);
+    for (const [sx, sy] of [
+      [11, 18],
+      [16, 15],
+      [21, 18],
+    ]) {
+      c.fillCapsule(sx, sy, sx, sy - 5, 0.9, 0.6, () => RAMPS.leaf.light);
+      c.fillEllipse(sx - 2, sy - 5, 1.8, 1.1, -0.4, () => RAMPS.leaf.hi);
+      c.fillEllipse(sx + 2, sy - 5, 1.8, 1.1, 0.4, () => RAMPS.toxic.light);
+    }
+  }),
+
+  // Sun-baked desert sandstone dunes with emerald saguaro cactus
+  desert_dunes: paintSprite((c) => {
+    drawIsoEarthBase(c, 16, 28, 12, 5.5, 5, RAMPS.sandstone, RAMPS.sandstone, RAMPS.darkWood);
+    c.fillCapsule(17, 18, 17, 8, 1.7, 1.5, (x, y, _nx, _ny, _nz, light) =>
+      quantRamp(RAMPS.leaf, light * 1.05, x, y, 0.02),
+    );
+    c.fillCapsule(13, 14, 13, 10, 1.1, 1.0, () => RAMPS.leaf.mid);
+    c.fillCapsule(13, 14, 17, 14, 1.0, 1.0, () => RAMPS.leaf.mid);
+    c.fillCapsule(21, 12, 21, 9, 1.1, 1.0, () => RAMPS.leaf.light);
+    c.fillCapsule(17, 12, 21, 12, 1.0, 1.0, () => RAMPS.leaf.mid);
+  }),
+
+  // Shallow turquoise sea tile blooming with colorful coral reefs
+  coral_reef_rain: paintSprite((c) => {
+    drawIsoEarthBase(c, 16, 28, 12, 5.5, 4.5, RAMPS.azure, RAMPS.azure, RAMPS.darkIron);
+    c.fillBezier(11, 19, 9, 13, 8, 9, 1.6, 0.8, () => RAMPS.pink.light);
+    c.fillBezier(11, 16, 13, 12, 14, 9, 1.3, 0.7, () => RAMPS.pink.hi);
+    c.fillBezier(20, 19, 22, 13, 24, 10, 1.6, 0.8, () => RAMPS.flame.light);
+    c.fillEllipse(16, 18, 2.4, 1.8, 0, () => RAMPS.gold.light);
+  }),
+
+  // Sunken salvage crate & golden treasure glint on coastal sandbar
+  salvage_drop: paintSprite((c) => {
+    drawIsoEarthBase(c, 16, 28, 12, 5.5, 4.5, RAMPS.sandstone, RAMPS.wood, RAMPS.darkWood);
+    c.fillIsoBox(16, 20, 6.2, 3.0, 5.5, RAMPS.wood, RAMPS.wood, RAMPS.darkWood);
+    c.fillCapsule(11, 14, 21, 14, 1.0, 1.0, () => RAMPS.gold.light);
+    c.sparkle(16, 10, RAMPS.gold.hi, true);
+  }),
+
+  // Jagged obsidian glass spikes veined with molten magma
+  volcanic_obsidian: paintSprite((c) => {
+    drawIsoEarthBase(c, 16, 28, 12, 5.5, 4.5, RAMPS.darkIron, RAMPS.darkIron, RAMPS.stone, (x, y, u, v) =>
+      Math.abs(u - v) < 0.14 ? quantRamp(RAMPS.flame, 1.05, x, y, 0.02) : null,
+    );
+    c.fillPoly(
+      [
+        [10, 18],
+        [14, 5],
+        [18, 18],
+      ],
+      (x, y, _nx, _ny, _nz, light) => quantRamp(RAMPS.arcane, light * 0.75, x, y, 0.02),
+    );
+    c.fillPoly(
+      [
+        [17, 19],
+        [22, 8],
+        [24, 19],
+      ],
+      (x, y, _nx, _ny, _nz, light) => quantRamp(RAMPS.darkIron, light * 0.9, x, y, 0.02),
+    );
+  }),
+
+  // Ancient sunlit marble & gold Atlantean temple ruins rising from sea
+  atlantis_rise: paintSprite((c) => {
+    drawIsoEarthBase(c, 16, 28, 12, 5.5, 4.5, RAMPS.azure, RAMPS.parchment, RAMPS.stone);
+    c.fillCapsule(10, 19, 10, 9, 1.6, 1.5, (x, y, _nx, _ny, _nz, light) =>
+      quantRamp(RAMPS.cloud, light, x, y, 0.02),
+    );
+    c.fillCapsule(22, 19, 22, 9, 1.6, 1.5, (x, y, _nx, _ny, _nz, light) =>
+      quantRamp(RAMPS.cloud, light * 0.9, x, y, 0.02),
+    );
+    c.fillPoly(
+      [
+        [8, 9],
+        [16, 4],
+        [24, 9],
+      ],
+      (x, y, _nx, _ny, _nz, light) => quantRamp(RAMPS.gold, light * 1.1, x, y, 0.02),
+    );
+  }),
+
+  // Crisp frosted alpine snow & translucent glacier crystal spire
+  alpine_glacier: paintSprite((c) => {
+    drawIsoEarthBase(c, 16, 28, 12, 5.5, 4.5, RAMPS.cloud, RAMPS.ice, RAMPS.azure);
+    c.fillPoly(
+      [
+        [8, 19],
+        [15, 5],
+        [22, 19],
+      ],
+      (x, y, _nx, _ny, _nz, light, u) =>
+        quantRamp(u < 0.5 ? RAMPS.cloud : RAMPS.ice, light * 1.08, x, y, 0.02),
+    );
+    c.sparkle(15, 5, [255, 255, 255], false);
+  }),
+
+  // Deep abyssal trench ocean block with glowing hydrothermal/bioluminescent fissure
+  abyssal_trench: paintSprite((c) => {
+    drawIsoEarthBase(c, 16, 28, 12, 5.5, 5, RAMPS.azure, RAMPS.darkIron, RAMPS.darkIron, (x, y, u, v) => {
+      if (Math.hypot(u - 0.5, v - 0.5) < 0.25) return quantRamp(RAMPS.arcane, 0.25, x, y, 0.02);
+      return null;
+    });
+    c.sparkle(16, 18, RAMPS.azure.hi, true);
+    c.put(12, 16, RAMPS.toxic.hi);
+  }),
+
+  // Mossy murky swamp mire with bubbling marsh gas & cattail reeds
+  swamp_mire: paintSprite((c) => {
+    drawIsoEarthBase(c, 16, 28, 12, 5.5, 4.5, RAMPS.darkWood, RAMPS.darkWood, RAMPS.darkIron, (x, y, u, v) =>
+      (u + v) % 0.45 < 0.22 ? quantRamp(RAMPS.toxic, 0.55, x, y, 0.02) : null,
+    );
+    c.fillCapsule(10, 18, 10, 9, 0.8, 0.6, () => RAMPS.leaf.mid);
+    c.fillEllipse(10, 10, 1.5, 2.3, 0, () => RAMPS.darkWood.mid);
+    c.fillEllipse(19, 17, 2.0, 1.4, 0, () => RAMPS.toxic.hi);
+    c.put(22, 15, RAMPS.toxic.light);
+  }),
 };
 
 // Sharp 32x32 HUD sprites preserving `currentColor` responsiveness (tag = 3) + golden accents
@@ -950,7 +1170,10 @@ export const HUD_SPRITES: Record<
   | 'chevronDown'
   | 'chevronUp'
   | 'sliders'
-  | 'settings',
+  | 'settings'
+  | 'star'
+  | 'starOn'
+  | 'close',
   CompiledSprite
 > = {
   rotateLeft: paintHud((c) => {
@@ -1351,6 +1574,44 @@ export const HUD_SPRITES: Record<
     c.fillEllipse(16, 16, 4.2, 4.2, 0, (x, y, _nx, _ny, _nz, light) =>
       quantRamp(RAMPS.gold, light * 1.05, x, y, 0.02),
     );
+  }),
+
+  star: paintHud((c) => {
+    const pts: Array<[number, number]> = [];
+    for (let i = 0; i < 10; i++) {
+      const a = -Math.PI / 2 + (i * Math.PI) / 5;
+      const r = i % 2 === 0 ? 11.5 : 5.0;
+      pts.push([16 + Math.cos(a) * r, 16.5 + Math.sin(a) * r]);
+    }
+    c.fillPoly(pts, (x, y) => {
+      putCC(c, x, y);
+      return null;
+    });
+    c.fillEllipse(16, 16.5, 3.6, 3.6, 0, () => [28, 24, 20]);
+  }),
+
+  starOn: paintHud((c) => {
+    const pts: Array<[number, number]> = [];
+    for (let i = 0; i < 10; i++) {
+      const a = -Math.PI / 2 + (i * Math.PI) / 5;
+      const r = i % 2 === 0 ? 12 : 5.2;
+      pts.push([16 + Math.cos(a) * r, 16.5 + Math.sin(a) * r]);
+    }
+    c.fillPoly(pts, (x, y, _nx, _ny, _nz, light) =>
+      quantRamp(RAMPS.gold, light * 1.12, x, y, 0.02),
+    );
+    c.sparkle(14, 12, RAMPS.gold.hi, false);
+  }),
+
+  close: paintHud((c) => {
+    c.fillCapsule(7, 7, 25, 25, 2.2, 2.2, (x, y) => {
+      putCC(c, x, y);
+      return null;
+    });
+    c.fillCapsule(25, 7, 7, 25, 2.2, 2.2, (x, y) => {
+      putCC(c, x, y);
+      return null;
+    });
   }),
 };
 

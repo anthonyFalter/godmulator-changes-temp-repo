@@ -222,6 +222,13 @@ export function getTerrainMaterial(terrain: TerrainType): THREE.MeshStandardMate
         metalness: 0.06,
       });
       break;
+    case 'ice':
+      topMat = new THREE.MeshStandardMaterial({
+        map: getPixelArtTexture('ice', '#b8e8f8', '#ecfbff', '#7ec6e0', 'water'),
+        roughness: 0.18,
+        metalness: 0.2,
+      });
+      break;
     case 'stone_road':
       topMat = new THREE.MeshStandardMaterial({
         map: getPixelArtTexture('stone_road', '#a89482', '#c9b49f', '#6e5e50', 'stone'),
@@ -259,9 +266,16 @@ export function getTerrainMaterial(terrain: TerrainType): THREE.MeshStandardMate
       break;
     case 'crystal_field':
       topMat = new THREE.MeshStandardMaterial({
-        map: getPixelArtTexture('crystal_field', '#3e5463', '#64dfdf', '#273640', 'tech'),
-        roughness: 0.35,
-        metalness: 0.3,
+        map: getPixelArtTexture('crystal_field', '#8ed8fa', '#c2ecff', '#66b6e6', 'stone'),
+        roughness: 0.28,
+        metalness: 0.22,
+      });
+      break;
+    case 'void_goo':
+      topMat = new THREE.MeshStandardMaterial({
+        map: getPixelArtTexture('void_goo', '#090314', '#8b5cf6', '#030108', 'tech'),
+        roughness: 0.25,
+        metalness: 0.15,
       });
       break;
     case 'jungle':
@@ -321,12 +335,14 @@ export function getTerrainMaterial(terrain: TerrainType): THREE.MeshStandardMate
 
 const sharedShadowGeo = new THREE.CircleGeometry(0.38, 12);
 sharedShadowGeo.rotateX(-Math.PI / 2);
+sharedShadowGeo.userData.sharedResource = true;
 const sharedShadowMat = new THREE.MeshBasicMaterial({
   color: 0x090b0c,
   transparent: true,
   opacity: 0.42,
   depthWrite: false,
 });
+sharedShadowMat.userData.sharedResource = true;
 
 function createContactShadow(scale = 1.0): THREE.Mesh {
   const m = new THREE.Mesh(sharedShadowGeo, sharedShadowMat);
@@ -334,6 +350,261 @@ function createContactShadow(scale = 1.0): THREE.Mesh {
   m.scale.setScalar(scale);
   m.position.y = 0.015;
   return m;
+}
+
+const sharedVertexColorMatCache = new Map<string, THREE.MeshStandardMaterial>();
+function getSharedVertexColorMaterial(roughnessBucket: number, metalnessBucket: number): THREE.MeshStandardMaterial {
+  const key = `${roughnessBucket}|${metalnessBucket}`;
+  let mat = sharedVertexColorMatCache.get(key);
+  if (!mat) {
+    mat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      vertexColors: true,
+      roughness: roughnessBucket,
+      metalness: metalnessBucket,
+    });
+    mat.userData.sharedResource = true;
+    sharedVertexColorMatCache.set(key, mat);
+  }
+  return mat;
+}
+
+const sharedCarryGeo = new THREE.BoxGeometry(0.13, 0.13, 0.13);
+sharedCarryGeo.userData.sharedResource = true;
+const sharedCarryMaterials: Record<string, THREE.MeshStandardMaterial> = {
+  wood: Object.assign(new THREE.MeshStandardMaterial({ color: 0x7d4e2d, roughness: 0.7 }), { userData: { sharedResource: true } }),
+  food: Object.assign(new THREE.MeshStandardMaterial({ color: 0xd94e34, roughness: 0.7 }), { userData: { sharedResource: true } }),
+  stone: Object.assign(new THREE.MeshStandardMaterial({ color: 0x8f8b82, roughness: 0.7 }), { userData: { sharedResource: true } }),
+  ore: Object.assign(new THREE.MeshStandardMaterial({ color: 0xe08e36, roughness: 0.7 }), { userData: { sharedResource: true } }),
+  energy: Object.assign(new THREE.MeshStandardMaterial({ color: 0x56cfe1, roughness: 0.7 }), { userData: { sharedResource: true } }),
+};
+
+export function getSharedCarryMaterial(carryType: string): THREE.MeshStandardMaterial {
+  return sharedCarryMaterials[carryType] ?? sharedCarryMaterials.energy;
+}
+
+const sharedStatusRingGeo = new THREE.RingGeometry(0.22, 0.29, 12);
+sharedStatusRingGeo.rotateX(-Math.PI / 2);
+sharedStatusRingGeo.userData.sharedResource = true;
+const sharedStatusRingMaterials: Record<number, THREE.MeshBasicMaterial> = {
+  1: Object.assign(new THREE.MeshBasicMaterial({ color: 0xf5b742, side: THREE.DoubleSide, transparent: true, opacity: 0.85, depthWrite: false }), { userData: { sharedResource: true } }),
+  2: Object.assign(new THREE.MeshBasicMaterial({ color: 0x72efdd, side: THREE.DoubleSide, transparent: true, opacity: 0.85, depthWrite: false }), { userData: { sharedResource: true } }),
+  3: Object.assign(new THREE.MeshBasicMaterial({ color: 0xe63946, side: THREE.DoubleSide, transparent: true, opacity: 0.85, depthWrite: false }), { userData: { sharedResource: true } }),
+  4: Object.assign(new THREE.MeshBasicMaterial({ color: 0x80ed99, side: THREE.DoubleSide, transparent: true, opacity: 0.85, depthWrite: false }), { userData: { sharedResource: true } }),
+  5: Object.assign(new THREE.MeshBasicMaterial({ color: 0x9d4edd, side: THREE.DoubleSide, transparent: true, opacity: 0.85, depthWrite: false }), { userData: { sharedResource: true } }),
+  6: Object.assign(new THREE.MeshBasicMaterial({ color: 0x7dd3fc, side: THREE.DoubleSide, transparent: true, opacity: 0.92, depthWrite: false }), { userData: { sharedResource: true } }),
+};
+
+export function getSharedStatusRingMaterial(statusKey: number): THREE.MeshBasicMaterial | null {
+  return sharedStatusRingMaterials[statusKey] ?? null;
+}
+
+const sharedBattlewillAuraMat = Object.assign(
+  new THREE.MeshStandardMaterial({
+    color: 0xff3b30,
+    emissive: 0xff5400,
+    emissiveIntensity: 0.92,
+    roughness: 0.32,
+    metalness: 0.28,
+    transparent: true,
+    opacity: 0.75,
+  }),
+  { userData: { sharedResource: true } },
+);
+const sharedBattlewillArmorMat = Object.assign(
+  new THREE.MeshStandardMaterial({
+    color: 0x991b1b,
+    emissive: 0xef233c,
+    emissiveIntensity: 0.5,
+    roughness: 0.28,
+    metalness: 0.6,
+    transparent: true,
+    opacity: 0.86,
+  }),
+  { userData: { sharedResource: true } },
+);
+const sharedBattlewillCoreMat = Object.assign(
+  new THREE.MeshStandardMaterial({
+    color: 0xffbe0b,
+    emissive: 0xff8800,
+    emissiveIntensity: 1.0,
+    roughness: 0.22,
+    metalness: 0.45,
+    transparent: true,
+    opacity: 0.9,
+  }),
+  { userData: { sharedResource: true } },
+);
+
+const sharedVisorCyanMat = Object.assign(new THREE.MeshBasicMaterial({ color: 0x56cfe1 }), { userData: { sharedResource: true } });
+const sharedVisorOrcMat = Object.assign(new THREE.MeshBasicMaterial({ color: 0xff7b54 }), { userData: { sharedResource: true } });
+
+/**
+ * Safely disposes all non-shared GPU BufferGeometries and Materials under a removed entity group,
+ * preventing VRAM leaks across long high-population sessions.
+ */
+export function disposeEntityGroup(root: THREE.Object3D): void {
+  root.traverse((obj) => {
+    if (obj instanceof THREE.Mesh) {
+      if (obj.geometry && !obj.geometry.userData?.sharedResource) {
+        obj.geometry.dispose();
+      }
+      if (Array.isArray(obj.material)) {
+        for (let i = 0; i < obj.material.length; i++) {
+          const m = obj.material[i];
+          if (m && !m.userData?.sharedResource) m.dispose();
+        }
+      } else if (obj.material && !obj.material.userData?.sharedResource) {
+        obj.material.dispose();
+      }
+    }
+  });
+}
+
+function bakeVertexColoredStaticMeshes(
+  group: THREE.Group,
+  skipNames: ReadonlySet<string>,
+  options?: {
+    unifyCastShadow?: boolean;
+    tagUnitShadowCaster?: boolean;
+    disposeSourceMaterials?: boolean;
+    protectGeometries?: ReadonlySet<THREE.BufferGeometry>;
+  },
+): void {
+  const vcBuckets = new Map<
+    string,
+    {
+      roughness: number;
+      metalness: number;
+      castShadow: boolean;
+      receiveShadow: boolean;
+      meshes: THREE.Mesh[];
+    }
+  >();
+  const matBuckets = new Map<
+    string,
+    { mat: THREE.Material; castShadow: boolean; receiveShadow: boolean; meshes: THREE.Mesh[] }
+  >();
+  const disposedSourceMats = new Set<THREE.Material>();
+
+  for (let i = 0; i < group.children.length; i++) {
+    const child = group.children[i];
+    if (!(child instanceof THREE.Mesh)) continue;
+    if (child.name && skipNames.has(child.name)) continue;
+    if (Array.isArray(child.material)) continue;
+    const mat = child.material;
+
+    if (
+      mat instanceof THREE.MeshStandardMaterial &&
+      !mat.transparent &&
+      !mat.map &&
+      (!mat.emissive || mat.emissive.getHex() === 0 || mat.emissiveIntensity === 0) &&
+      !mat.vertexColors
+    ) {
+      // Quantize PBR response into 3 clean sheen buckets so visual finish is preserved while collapsing draw calls
+      const mBucket = mat.metalness >= 0.45 ? 0.62 : mat.metalness >= 0.2 ? 0.28 : 0.08;
+      const rBucket = mat.metalness >= 0.45 ? 0.32 : mat.roughness <= 0.45 ? 0.42 : 0.68;
+      const castShadow = options?.unifyCastShadow ? true : child.castShadow;
+      const receiveShadow = child.receiveShadow;
+      const key = `${rBucket}|${mBucket}|${castShadow ? 1 : 0}|${receiveShadow ? 1 : 0}`;
+      let bucket = vcBuckets.get(key);
+      if (!bucket) {
+        bucket = { roughness: rBucket, metalness: mBucket, castShadow, receiveShadow, meshes: [] };
+        vcBuckets.set(key, bucket);
+      }
+      bucket.meshes.push(child);
+    } else {
+      const key = `${mat.uuid}|${child.castShadow ? 1 : 0}|${child.receiveShadow ? 1 : 0}`;
+      let bucket = matBuckets.get(key);
+      if (!bucket) {
+        bucket = { mat, castShadow: child.castShadow, receiveShadow: child.receiveShadow, meshes: [] };
+        matBuckets.set(key, bucket);
+      }
+      bucket.meshes.push(child);
+    }
+  }
+
+  for (const bucket of vcBuckets.values()) {
+    if (bucket.meshes.length === 0) continue;
+    // Even single-mesh humanoid parts benefit from switching to shared material when disposeSourceMaterials is set
+    if (bucket.meshes.length === 1 && !options?.disposeSourceMaterials) continue;
+    const prepped: THREE.BufferGeometry[] = [];
+    for (const m of bucket.meshes) {
+      m.updateMatrix();
+      const raw = m.geometry;
+      const g = raw.index ? raw.toNonIndexed() : raw.clone();
+      if (!g.attributes.normal) g.computeVertexNormals();
+      if (g.attributes.uv) g.deleteAttribute('uv');
+      const vCount = g.attributes.position.count;
+      const colors = new Float32Array(vCount * 3);
+      const col = (m.material as THREE.MeshStandardMaterial).color;
+      for (let vi = 0; vi < vCount; vi++) {
+        colors[vi * 3] = col.r;
+        colors[vi * 3 + 1] = col.g;
+        colors[vi * 3 + 2] = col.b;
+      }
+      g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+      g.applyMatrix4(m.matrix);
+      prepped.push(g);
+    }
+    const merged = mergeGeometries(prepped, false);
+    for (const p of prepped) p.dispose();
+    if (merged) {
+      for (const m of bucket.meshes) {
+        group.remove(m);
+        if (!m.geometry.userData?.sharedResource && !options?.protectGeometries?.has(m.geometry)) {
+          m.geometry.dispose();
+        }
+        if (options?.disposeSourceMaterials && !Array.isArray(m.material) && !m.material.userData?.sharedResource) {
+          disposedSourceMats.add(m.material);
+        }
+      }
+      const sharedMat = getSharedVertexColorMaterial(bucket.roughness, bucket.metalness);
+      const combined = new THREE.Mesh(merged, sharedMat);
+      combined.castShadow = bucket.castShadow;
+      combined.receiveShadow = bucket.receiveShadow;
+      if (options?.tagUnitShadowCaster && bucket.castShadow) {
+        combined.userData.isUnitShadowCaster = true;
+      }
+      group.add(combined);
+    }
+  }
+
+  for (const bucket of matBuckets.values()) {
+    if (bucket.meshes.length < 2) continue;
+    const prepped: THREE.BufferGeometry[] = [];
+    for (const m of bucket.meshes) {
+      m.updateMatrix();
+      const raw = m.geometry;
+      const g = raw.index ? raw.toNonIndexed() : raw.clone();
+      if (g.attributes.color) g.deleteAttribute('color');
+      if (!g.attributes.normal) g.computeVertexNormals();
+      if (!g.attributes.uv) {
+        const count = g.attributes.position.count;
+        g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(count * 2), 2));
+      }
+      g.applyMatrix4(m.matrix);
+      prepped.push(g);
+    }
+    const merged = mergeGeometries(prepped, false);
+    for (const p of prepped) p.dispose();
+    if (merged) {
+      for (const m of bucket.meshes) {
+        group.remove(m);
+        if (!m.geometry.userData?.sharedResource && !options?.protectGeometries?.has(m.geometry)) {
+          m.geometry.dispose();
+        }
+      }
+      const combined = new THREE.Mesh(merged, bucket.mat);
+      combined.castShadow = bucket.castShadow;
+      combined.receiveShadow = bucket.receiveShadow;
+      group.add(combined);
+    }
+  }
+
+  for (const m of disposedSourceMats) {
+    m.dispose();
+  }
 }
 
 const _tmpColor = new THREE.Color();
@@ -349,29 +620,421 @@ function addColoredBox(
   hex: number,
   rotY = 0,
   rotZ = 0,
+  rotX = 0,
 ) {
   const g = new THREE.BoxGeometry(w, h, d);
+  const posAttr = g.attributes.position;
+  _tmpColor.setHex(hex);
+  const count = posAttr.count;
+  const colors = new Float32Array(count * 3);
+  for (let i = 0; i < count; i++) {
+    // Subtle vertical ambient occlusion + sun-kissed top highlight in local box space (zero shader cost)
+    const ly = posAttr.getY(i);
+    const shade = ly > 0 ? 1.06 : 0.87;
+    colors[i * 3] = Math.min(1, _tmpColor.r * shade);
+    colors[i * 3 + 1] = Math.min(1, _tmpColor.g * shade);
+    colors[i * 3 + 2] = Math.min(1, _tmpColor.b * shade);
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
   if (rotZ !== 0) g.rotateZ(rotZ);
+  if (rotX !== 0) g.rotateX(rotX);
   if (rotY !== 0) g.rotateY(rotY);
   g.translate(x, y, z);
+  parts.push(g);
+}
 
-  _tmpColor.setHex(hex);
+function finalizeMergedParts(parts: THREE.BufferGeometry[]): THREE.BufferGeometry {
+  if (parts.length === 0) return new THREE.BoxGeometry(0.1, 0.1, 0.1);
+  let hasIndexed = false;
+  let hasNonIndexed = false;
+  let allHaveUv = true;
+  for (let i = 0; i < parts.length; i++) {
+    if (parts[i].index) hasIndexed = true;
+    else hasNonIndexed = true;
+    if (!parts[i].attributes.uv) allHaveUv = false;
+  }
+  const normalized: THREE.BufferGeometry[] = [];
+  const tempToDispose: THREE.BufferGeometry[] = [];
+  for (let i = 0; i < parts.length; i++) {
+    let g = parts[i];
+    if (hasIndexed && hasNonIndexed && g.index) {
+      g = g.toNonIndexed();
+      tempToDispose.push(g);
+    }
+    if (!allHaveUv && g.attributes.uv) {
+      g.deleteAttribute('uv');
+    }
+    normalized.push(g);
+  }
+  const merged = mergeGeometries(normalized, false);
+  for (const p of parts) p.dispose();
+  for (const t of tempToDispose) t.dispose();
+  return merged ?? new THREE.BoxGeometry(0.1, 0.1, 0.1);
+}
+
+const _treeColorA = new THREE.Color();
+const _treeColorB = new THREE.Color();
+const _treeColorC = new THREE.Color();
+const _treeUp = new THREE.Vector3(0, 1, 0);
+const _treeDir = new THREE.Vector3();
+const _treeQuat = new THREE.Quaternion();
+const _treeMat = new THREE.Matrix4();
+
+/** Soft octagonal contact shadow pad beneath sculpted trees (replaces square shadow boxes). */
+function addTreeShadowDisk(parts: THREE.BufferGeometry[], x: number, z: number, radius: number, hex: number) {
+  const g = new THREE.CylinderGeometry(radius * 0.96, radius, 0.014, 8).toNonIndexed();
+  g.deleteAttribute('uv');
+  g.translate(x, 0.008, z);
+  _treeColorA.setHex(hex);
   const count = g.attributes.position.count;
   const colors = new Float32Array(count * 3);
   for (let i = 0; i < count; i++) {
-    colors[i * 3] = _tmpColor.r;
-    colors[i * 3 + 1] = _tmpColor.g;
-    colors[i * 3 + 2] = _tmpColor.b;
+    colors[i * 3] = _treeColorA.r;
+    colors[i * 3 + 1] = _treeColorA.g;
+    colors[i * 3 + 2] = _treeColorA.b;
   }
   g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   parts.push(g);
 }
 
-function finalizeMergedParts(parts: THREE.BufferGeometry[]): THREE.BufferGeometry {
-  const merged = mergeGeometries(parts, false);
-  for (const p of parts) p.dispose();
-  return merged ?? new THREE.BoxGeometry(0.1, 0.1, 0.1);
+/** Tapered organic 3D trunk/branch/root limb connecting any two 3D points with smooth bark color gradient. */
+function addOrganicLimb(
+  parts: THREE.BufferGeometry[],
+  x1: number,
+  y1: number,
+  z1: number,
+  x2: number,
+  y2: number,
+  z2: number,
+  rBot: number,
+  rTop: number,
+  hexBot: number,
+  hexTop: number,
+  segs = 5,
+  openEnded = true,
+) {
+  _treeDir.set(x2 - x1, y2 - y1, z2 - z1);
+  const len = _treeDir.length();
+  if (len < 0.004) return;
+  const g = new THREE.CylinderGeometry(rTop, rBot, len, segs, 1, openEnded).toNonIndexed();
+  g.deleteAttribute('uv');
+  const pos = g.attributes.position;
+  _treeColorA.setHex(hexBot);
+  _treeColorB.setHex(hexTop);
+  const count = pos.count;
+  const colors = new Float32Array(count * 3);
+  const halfLen = len * 0.5;
+  for (let i = 0; i < count; i++) {
+    const t = Math.max(0, Math.min(1, (pos.getY(i) + halfLen) / len));
+    const r = _treeColorA.r + (_treeColorB.r - _treeColorA.r) * t;
+    const gr = _treeColorA.g + (_treeColorB.g - _treeColorA.g) * t;
+    const b = _treeColorA.b + (_treeColorB.b - _treeColorA.b) * t;
+    colors[i * 3] = r;
+    colors[i * 3 + 1] = gr;
+    colors[i * 3 + 2] = b;
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  _treeDir.normalize();
+  _treeQuat.setFromUnitVectors(_treeUp, _treeDir);
+  _treeMat.makeRotationFromQuaternion(_treeQuat);
+  g.applyMatrix4(_treeMat);
+  g.translate((x1 + x2) * 0.5, (y1 + y2) * 0.5, (z1 + z2) * 0.5);
+  g.computeVertexNormals();
+  parts.push(g);
 }
+
+/** Sculpted faceted low-poly foliage cloud puff with organic vertex wobble and sunlit 3-stop shading. */
+function addFoliagePuff(
+  parts: THREE.BufferGeometry[],
+  x: number,
+  y: number,
+  z: number,
+  rx: number,
+  ry: number,
+  rz: number,
+  hexShadow: number,
+  hexMid: number,
+  hexSun: number,
+  seed: number,
+  detail: 0 | 1 = 1,
+) {
+  // Dodecahedron(0) gives 36 crisp painterly facets (2.2x lighter than Icosahedron(1)) while Icosahedron(0) gives 20 facets for accent clusters
+  const g = detail === 1 ? new THREE.DodecahedronGeometry(1, 0) : new THREE.IcosahedronGeometry(1, 0);
+  if (g.attributes.uv) g.deleteAttribute('uv');
+  const pos = g.attributes.position;
+  _treeColorA.setHex(hexShadow);
+  _treeColorB.setHex(hexMid);
+  _treeColorC.setHex(hexSun);
+  const count = pos.count;
+  const colors = new Float32Array(count * 3);
+  for (let i = 0; i < count; i++) {
+    const vx = pos.getX(i);
+    const vy = pos.getY(i);
+    const vz = pos.getZ(i);
+    // Deterministic organic billowing perturbation so clusters look hand-sculpted, never spherical or boxy
+    const wobble =
+      1.0 +
+      0.14 * Math.sin(vx * 3.7 + seed * 1.9) * Math.cos(vz * 3.5 - seed * 1.3) +
+      0.09 * Math.sin(vy * 4.3 + vx * 2.1 + seed * 2.7);
+    // Slightly flatten underside for natural weight & gravity
+    const yShape = vy < 0 ? vy * 0.84 : vy;
+    pos.setXYZ(i, vx * rx * wobble + x, yShape * ry * wobble + y, vz * rz * wobble + z);
+
+    // 3-stop painterly directional gradient (shadowed underside -> vibrant mid -> sun-kissed upper crest)
+    const sunMix = Math.max(0, Math.min(1, (vy * 0.72 + vx * 0.22 + vz * 0.14 + 0.65) * 0.72));
+    let r: number;
+    let gr: number;
+    let b: number;
+    if (sunMix < 0.5) {
+      const t = sunMix * 2;
+      r = _treeColorA.r + (_treeColorB.r - _treeColorA.r) * t;
+      gr = _treeColorA.g + (_treeColorB.g - _treeColorA.g) * t;
+      b = _treeColorA.b + (_treeColorB.b - _treeColorA.b) * t;
+    } else {
+      const t = (sunMix - 0.5) * 2;
+      r = _treeColorB.r + (_treeColorC.r - _treeColorB.r) * t;
+      gr = _treeColorB.g + (_treeColorC.g - _treeColorB.g) * t;
+      b = _treeColorB.b + (_treeColorC.b - _treeColorB.b) * t;
+    }
+    colors[i * 3] = r;
+    colors[i * 3 + 1] = gr;
+    colors[i * 3 + 2] = b;
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  g.computeVertexNormals();
+  parts.push(g);
+}
+
+/** Scalloped drooping conifer bough whorl (star-shaped radiating needle skirt with natural tip droop). */
+function addScallopedConiferWhorl(
+  parts: THREE.BufferGeometry[],
+  x: number,
+  y: number,
+  z: number,
+  rBot: number,
+  rTop: number,
+  h: number,
+  hexDark: number,
+  hexMid: number,
+  hexTip: number,
+  lobes = 5,
+  droop = 0.06,
+  rotY = 0,
+) {
+  const effectiveLobes = Math.min(5, lobes);
+  const segs = effectiveLobes * 2;
+  const g = new THREE.CylinderGeometry(rTop, rBot, h, segs, 1, false).toNonIndexed();
+  g.deleteAttribute('uv');
+  const pos = g.attributes.position;
+  _treeColorA.setHex(hexDark);
+  _treeColorB.setHex(hexMid);
+  _treeColorC.setHex(hexTip);
+  const count = pos.count;
+  const colors = new Float32Array(count * 3);
+  const halfH = h * 0.5;
+
+  for (let i = 0; i < count; i++) {
+    let vx = pos.getX(i);
+    let vy = pos.getY(i);
+    let vz = pos.getZ(i);
+    const radial = Math.hypot(vx, vz);
+    const isBottomRim = vy < -halfH * 0.5 && radial > rBot * 0.25;
+    const ang = Math.atan2(vz, vx);
+    let tipFactor = 0.5;
+
+    if (isBottomRim) {
+      // Alternate outer branch tips & inner notches for crisp, sculptural evergreen bough fronds
+      const lobeWave = Math.cos(ang * effectiveLobes);
+      const radialScale = 1.0 + lobeWave * 0.24;
+      vx *= radialScale;
+      vz *= radialScale;
+      vy -= Math.max(0, lobeWave) * droop;
+      tipFactor = 0.25 + (lobeWave * 0.5 + 0.5) * 0.45;
+    } else if (vy > halfH * 0.5) {
+      tipFactor = 0.92;
+    } else {
+      tipFactor = 0.1;
+    }
+
+    // Apply rotation & world translation
+    const rx = vx * Math.cos(rotY) - vz * Math.sin(rotY);
+    const rz = vx * Math.sin(rotY) + vz * Math.cos(rotY);
+    pos.setXYZ(i, rx + x, vy + y, rz + z);
+
+    let r: number;
+    let gr: number;
+    let b: number;
+    if (tipFactor < 0.5) {
+      const t = tipFactor * 2;
+      r = _treeColorA.r + (_treeColorB.r - _treeColorA.r) * t;
+      gr = _treeColorA.g + (_treeColorB.g - _treeColorA.g) * t;
+      b = _treeColorA.b + (_treeColorB.b - _treeColorA.b) * t;
+    } else {
+      const t = (tipFactor - 0.5) * 2;
+      r = _treeColorB.r + (_treeColorC.r - _treeColorB.r) * t;
+      gr = _treeColorB.g + (_treeColorC.g - _treeColorB.g) * t;
+      b = _treeColorB.b + (_treeColorC.b - _treeColorB.b) * t;
+    }
+    colors[i * 3] = r;
+    colors[i * 3 + 1] = gr;
+    colors[i * 3 + 2] = b;
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  g.computeVertexNormals();
+  parts.push(g);
+}
+
+/** Genuine arching, V-folded diamond-tapered palm frond blade (double-sided, sunlit crest & shaded tip). */
+function addCurvedPalmFrond(
+  parts: THREE.BufferGeometry[],
+  cx: number,
+  cy: number,
+  cz: number,
+  angleY: number,
+  length: number,
+  maxWidth: number,
+  archH: number,
+  droopY: number,
+  hexBase: number,
+  hexTip: number,
+) {
+  const cosA = Math.cos(angleY);
+  const sinA = Math.sin(angleY);
+  const perpX = -sinA;
+  const perpZ = cosA;
+
+  // 4 longitudinal ribs from stem base (t=0) to pointed drooping tip (t=1)
+  const ts = [0.0, 0.28, 0.62, 1.0];
+  const widths = [0.16, 1.0, 0.72, 0.0];
+  const midPts: [number, number, number][] = [];
+  const leftPts: [number, number, number][] = [];
+  const rightPts: [number, number, number][] = [];
+
+  for (let i = 0; i < ts.length; i++) {
+    const t = ts[i];
+    const dist = t * length;
+    // Parabolic arch rising from crown then gracefully drooping toward the tip
+    const dy = Math.sin(t * Math.PI * 0.78) * archH - t * t * droopY;
+    const w = widths[i] * maxWidth * 0.5;
+    const foldDrop = w * 0.36;
+    const mx = cx + cosA * dist;
+    const my = cy + dy;
+    const mz = cz + sinA * dist;
+    midPts.push([mx, my, mz]);
+    leftPts.push([mx + perpX * w, my - foldDrop, mz + perpZ * w]);
+    rightPts.push([mx - perpX * w, my - foldDrop, mz - perpZ * w]);
+  }
+
+  const positions: number[] = [];
+  const colors: number[] = [];
+  _treeColorA.setHex(hexBase);
+  _treeColorB.setHex(hexTip);
+
+  const pushTri = (
+    p1: [number, number, number],
+    p2: [number, number, number],
+    p3: [number, number, number],
+    t1: number,
+    t2: number,
+    t3: number,
+    shade: number,
+  ) => {
+    // Top face
+    positions.push(p1[0], p1[1], p1[2], p2[0], p2[1], p2[2], p3[0], p3[1], p3[2]);
+    // Underside face (darker AO so fronds look solid from every camera angle)
+    positions.push(p1[0], p1[1] - 0.004, p1[2], p3[0], p3[1] - 0.004, p3[2], p2[0], p2[1] - 0.004, p2[2]);
+    const tsTri = [t1, t2, t3];
+    for (let k = 0; k < 3; k++) {
+      const tk = tsTri[k];
+      colors.push(
+        Math.min(1, (_treeColorA.r + (_treeColorB.r - _treeColorA.r) * tk) * shade),
+        Math.min(1, (_treeColorA.g + (_treeColorB.g - _treeColorA.g) * tk) * shade),
+        Math.min(1, (_treeColorA.b + (_treeColorB.b - _treeColorA.b) * tk) * shade),
+      );
+    }
+    const underShade = shade * 0.78;
+    const tsUnder = [t1, t3, t2];
+    for (let k = 0; k < 3; k++) {
+      const tk = tsUnder[k];
+      colors.push(
+        Math.min(1, (_treeColorA.r + (_treeColorB.r - _treeColorA.r) * tk) * underShade),
+        Math.min(1, (_treeColorA.g + (_treeColorB.g - _treeColorA.g) * tk) * underShade),
+        Math.min(1, (_treeColorA.b + (_treeColorB.b - _treeColorA.b) * tk) * underShade),
+      );
+    }
+  };
+
+  for (let i = 0; i < ts.length - 1; i++) {
+    const t0 = ts[i];
+    const t1 = ts[i + 1];
+    if (i < ts.length - 2) {
+      // Left half quad (2 tris)
+      pushTri(midPts[i], leftPts[i], leftPts[i + 1], t0, t0, t1, 1.04);
+      pushTri(midPts[i], leftPts[i + 1], midPts[i + 1], t0, t1, t1, 1.06);
+      // Right half quad (2 tris)
+      pushTri(midPts[i], rightPts[i + 1], rightPts[i], t0, t1, t0, 0.96);
+      pushTri(midPts[i], midPts[i + 1], rightPts[i + 1], t0, t1, t1, 0.98);
+    } else {
+      // Pointed tip triangles
+      pushTri(midPts[i], leftPts[i], midPts[i + 1], t0, t0, t1, 1.05);
+      pushTri(midPts[i], midPts[i + 1], rightPts[i], t0, t1, t0, 0.97);
+    }
+  }
+
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  g.computeVertexNormals();
+  parts.push(g);
+}
+
+/** Tapered hanging organic curtain/garland/liana/moss strand swaying from canopy boughs. */
+function addHangingStrand(
+  parts: THREE.BufferGeometry[],
+  x: number,
+  yTop: number,
+  z: number,
+  length: number,
+  rTop: number,
+  hexTop: number,
+  hexBot: number,
+  swayX = 0,
+  swayZ = 0,
+) {
+  addOrganicLimb(
+    parts,
+    x,
+    yTop,
+    z,
+    x + swayX,
+    yTop - length,
+    z + swayZ,
+    rTop,
+    rTop * 0.22,
+    hexTop,
+    hexBot,
+    4,
+  );
+}
+
+/** Sculpted faceted boulder/stone/mushroom/stump accent (no cubes). */
+function addSculptedBoulder(
+  parts: THREE.BufferGeometry[],
+  x: number,
+  y: number,
+  z: number,
+  rx: number,
+  ry: number,
+  rz: number,
+  hexDark: number,
+  hexTop: number,
+  seed: number,
+) {
+  addFoliagePuff(parts, x, y, z, rx, ry, rz, hexDark, hexTop, hexTop, seed, 0);
+}
+
+type WoodlandTreeKind = 'oak' | 'birch' | 'pine' | 'redwood' | 'maple';
 
 function addPixelTree(
   parts: THREE.BufferGeometry[],
@@ -379,22 +1042,234 @@ function addPixelTree(
   tz: number,
   scale: number,
   variantPalette: 0 | 1 | 2,
+  kind?: WoodlandTreeKind,
 ) {
-  const trunkHex = 0x6b442a;
+  const resolvedKind: WoodlandTreeKind =
+    kind ?? (variantPalette === 0 ? 'oak' : variantPalette === 1 ? 'pine' : 'birch');
+  const seed = tx * 19.3 + tz * 31.7 + variantPalette * 5.1;
+
+  if (resolvedKind === 'birch') {
+    // Tall slender Silver Birch: gracefully curving chalk-white trunk with dark bark notches, delicate forks & airy sunlit golden-lime puffs
+    addTreeShadowDisk(parts, tx, tz, 0.20 * scale, 0x1b2920);
+    // 3 small flared birch roots
+    for (let r = 0; r < 3; r++) {
+      const a = r * 2.1 + 0.4;
+      addOrganicLimb(
+        parts,
+        tx + Math.cos(a) * 0.08 * scale,
+        0,
+        tz + Math.sin(a) * 0.08 * scale,
+        tx,
+        0.07 * scale,
+        tz,
+        0.028 * scale,
+        0.042 * scale,
+        0x7a8086,
+        0xd8dfe6,
+        5,
+      );
+    }
+    // Curved slender white trunk in 3 segments + dark lenticel rings
+    addOrganicLimb(parts, tx, 0.01, tz, tx - 0.025 * scale, 0.24 * scale, tz + 0.015 * scale, 0.048 * scale, 0.040 * scale, 0xcfd6de, 0xf0f4f8, 6);
+    addOrganicLimb(parts, tx - 0.025 * scale, 0.23 * scale, tz + 0.015 * scale, tx + 0.015 * scale, 0.48 * scale, tz - 0.01 * scale, 0.040 * scale, 0.030 * scale, 0xf0f4f8, 0xe4eaf0, 6);
+    // Dark charcoal birch bark notches
+    addOrganicLimb(parts, tx - 0.012 * scale, 0.13 * scale, tz + 0.008 * scale, tx - 0.016 * scale, 0.165 * scale, tz + 0.01 * scale, 0.046 * scale, 0.046 * scale, 0x2c3035, 0x2c3035, 6);
+    addOrganicLimb(parts, tx - 0.010 * scale, 0.31 * scale, tz + 0.006 * scale, tx - 0.004 * scale, 0.34 * scale, tz + 0.002 * scale, 0.040 * scale, 0.040 * scale, 0x33383e, 0x33383e, 6);
+    // Delicate V-forked white boughs
+    addOrganicLimb(parts, tx - 0.005 * scale, 0.38 * scale, tz, tx - 0.12 * scale, 0.56 * scale, tz + 0.06 * scale, 0.024 * scale, 0.012 * scale, 0xe2e8ee, 0xf2f6fa, 5);
+    addOrganicLimb(parts, tx + 0.005 * scale, 0.42 * scale, tz, tx + 0.12 * scale, 0.60 * scale, tz - 0.05 * scale, 0.022 * scale, 0.011 * scale, 0xe2e8ee, 0xf2f6fa, 5);
+    // Airy, light-dappled multi-puff birch crown
+    addFoliagePuff(parts, tx - 0.11 * scale, 0.56 * scale, tz + 0.06 * scale, 0.17 * scale, 0.13 * scale, 0.16 * scale, 0x3f7a38, 0x67a84c, 0x9bd663, seed + 1.1, 1);
+    addFoliagePuff(parts, tx + 0.12 * scale, 0.61 * scale, tz - 0.05 * scale, 0.16 * scale, 0.13 * scale, 0.16 * scale, 0x47853e, 0x74b554, 0xa8e06c, seed + 2.3, 1);
+    addFoliagePuff(parts, tx - 0.02 * scale, 0.68 * scale, tz - 0.04 * scale, 0.19 * scale, 0.15 * scale, 0.18 * scale, 0x4e8f42, 0x80bf59, 0xb6e874, seed + 3.7, 1);
+    addFoliagePuff(parts, tx + 0.03 * scale, 0.79 * scale, tz + 0.02 * scale, 0.13 * scale, 0.13 * scale, 0.13 * scale, 0x63a649, 0x94d162, 0xc7f283, seed + 5.2, 0);
+    return;
+  }
+
+  if (resolvedKind === 'pine') {
+    // Sculpted Alpine/Woodland Pine with flared root collar & 5 cascading scalloped drooping needle skirts
+    addTreeShadowDisk(parts, tx, tz, 0.23 * scale, 0x16241c);
+    addOrganicLimb(parts, tx, 0, tz, tx, 0.36 * scale, tz, 0.072 * scale, 0.038 * scale, 0x452a19, 0x664028, 6);
+    addScallopedConiferWhorl(parts, tx, 0.31 * scale, tz, 0.27 * scale, 0.08 * scale, 0.20 * scale, 0x163d2b, 0x22593e, 0x357854, 7, 0.06 * scale, 0.0);
+    addScallopedConiferWhorl(parts, tx, 0.45 * scale, tz, 0.23 * scale, 0.07 * scale, 0.20 * scale, 0x1b4732, 0x2a6949, 0x418a62, 7, 0.055 * scale, 0.45);
+    addScallopedConiferWhorl(parts, tx, 0.59 * scale, tz, 0.18 * scale, 0.055 * scale, 0.19 * scale, 0x22543b, 0x347a56, 0x529e71, 6, 0.045 * scale, 0.9);
+    addScallopedConiferWhorl(parts, tx, 0.72 * scale, tz, 0.13 * scale, 0.035 * scale, 0.18 * scale, 0x2b6346, 0x418c63, 0x64b382, 6, 0.035 * scale, 1.35);
+    addScallopedConiferWhorl(parts, tx, 0.85 * scale, tz, 0.08 * scale, 0.005 * scale, 0.17 * scale, 0x357552, 0x50a173, 0x7ac794, 5, 0.02 * scale, 1.8);
+    return;
+  }
+
+  if (resolvedKind === 'redwood') {
+    // Colossal Old-Growth Giant Sequoia / Redwood with massive fluted cinnamon trunk & soaring scalloped cedar tiers
+    addTreeShadowDisk(parts, tx, tz, 0.28 * scale, 0x152119);
+    // 4 heavy buttress root flutes gripping earth
+    for (let r = 0; r < 4; r++) {
+      const a = r * (Math.PI / 2) + 0.35;
+      addOrganicLimb(
+        parts,
+        tx + Math.cos(a) * 0.15 * scale,
+        0,
+        tz + Math.sin(a) * 0.15 * scale,
+        tx + Math.cos(a) * 0.04 * scale,
+        0.18 * scale,
+        tz + Math.sin(a) * 0.04 * scale,
+        0.055 * scale,
+        0.042 * scale,
+        0x4d2212,
+        0x783820,
+        5,
+      );
+    }
+    // Soaring tapered cinnamon-red trunk
+    addOrganicLimb(parts, tx, 0.01, tz, tx, 0.62 * scale, tz, 0.105 * scale, 0.062 * scale, 0x69311c, 0x8f472b, 7);
+    addOrganicLimb(parts, tx, 0.60 * scale, tz, tx, 1.02 * scale, tz, 0.062 * scale, 0.024 * scale, 0x8f472b, 0x7a3b22, 6);
+    // 6 wide tiered scalloped redwood bough skirts high up the trunk
+    addScallopedConiferWhorl(parts, tx, 0.54 * scale, tz, 0.32 * scale, 0.11 * scale, 0.19 * scale, 0x173d29, 0x23593b, 0x377a52, 7, 0.065 * scale, 0.1);
+    addScallopedConiferWhorl(parts, tx, 0.68 * scale, tz, 0.27 * scale, 0.095 * scale, 0.19 * scale, 0x1c4730, 0x2c6946, 0x438c5f, 7, 0.058 * scale, 0.6);
+    addScallopedConiferWhorl(parts, tx, 0.81 * scale, tz, 0.22 * scale, 0.075 * scale, 0.18 * scale, 0x225439, 0x357a52, 0x529e6d, 6, 0.05 * scale, 1.1);
+    addScallopedConiferWhorl(parts, tx, 0.94 * scale, tz, 0.16 * scale, 0.05 * scale, 0.17 * scale, 0x2a6344, 0x428c61, 0x64b37f, 6, 0.04 * scale, 1.6);
+    addScallopedConiferWhorl(parts, tx, 1.07 * scale, tz, 0.10 * scale, 0.008 * scale, 0.18 * scale, 0x367853, 0x54a373, 0x7bc994, 5, 0.025 * scale, 2.1);
+    return;
+  }
+
+  if (resolvedKind === 'maple') {
+    // Sculpted Autumn Woodland Maple with curved forked dark trunk & glowing burnt-amber/crimson/gold cloud canopy
+    addTreeShadowDisk(parts, tx, tz, 0.25 * scale, 0x21241a);
+    for (let r = 0; r < 3; r++) {
+      const a = r * 2.1 + 0.2;
+      addOrganicLimb(parts, tx + Math.cos(a) * 0.12 * scale, 0, tz + Math.sin(a) * 0.12 * scale, tx, 0.09 * scale, tz, 0.036 * scale, 0.052 * scale, 0x3b2518, 0x593a27, 5);
+    }
+    addOrganicLimb(parts, tx, 0.01, tz, tx + 0.02 * scale, 0.31 * scale, tz - 0.01 * scale, 0.068 * scale, 0.048 * scale, 0x452c1d, 0x63412b, 6);
+    // 3 spreading maple boughs
+    addOrganicLimb(parts, tx + 0.02 * scale, 0.28 * scale, tz - 0.01 * scale, tx - 0.15 * scale, 0.47 * scale, tz + 0.07 * scale, 0.036 * scale, 0.018 * scale, 0x573825, 0x6e4830, 5);
+    addOrganicLimb(parts, tx + 0.02 * scale, 0.29 * scale, tz - 0.01 * scale, tx + 0.15 * scale, 0.46 * scale, tz - 0.08 * scale, 0.036 * scale, 0.018 * scale, 0x573825, 0x6e4830, 5);
+    addOrganicLimb(parts, tx + 0.02 * scale, 0.30 * scale, tz - 0.01 * scale, tx + 0.01 * scale, 0.50 * scale, tz + 0.13 * scale, 0.032 * scale, 0.016 * scale, 0x573825, 0x6e4830, 5);
+    // Lush overlapping sculpted autumn foliage clouds
+    addFoliagePuff(parts, tx - 0.16 * scale, 0.49 * scale, tz + 0.07 * scale, 0.20 * scale, 0.14 * scale, 0.19 * scale, 0x8a3419, 0xc75a24, 0xf09235, seed + 1.4, 1);
+    addFoliagePuff(parts, tx + 0.16 * scale, 0.48 * scale, tz - 0.08 * scale, 0.20 * scale, 0.14 * scale, 0.18 * scale, 0x993e1b, 0xd97326, 0xf7ad3e, seed + 2.8, 1);
+    addFoliagePuff(parts, tx + 0.02 * scale, 0.51 * scale, tz + 0.13 * scale, 0.18 * scale, 0.13 * scale, 0.18 * scale, 0x802b18, 0xb84725, 0xe87b33, seed + 4.1, 1);
+    addFoliagePuff(parts, tx - 0.02 * scale, 0.58 * scale, tz - 0.04 * scale, 0.22 * scale, 0.16 * scale, 0.21 * scale, 0xa84d1d, 0xe38c2b, 0xffc852, seed + 5.9, 1);
+    addFoliagePuff(parts, tx + 0.03 * scale, 0.69 * scale, tz + 0.01 * scale, 0.14 * scale, 0.11 * scale, 0.14 * scale, 0xc26722, 0xf2a938, 0xffdc6b, seed + 7.2, 0);
+    return;
+  }
+
+  // Default 'oak': Majestic Ancient Broadleaf Oak with radiating root buttresses, gnarled curved limbs & billowing sculpted multi-puff canopy
   const palettes: [number, number, number][] = [
-    [0x3b6e4c, 0x528c5c, 0x76ab6d],
-    [0x2f5e41, 0x457d53, 0x679e61],
-    [0x476b3b, 0x618c49, 0x89ab5c],
+    [0x1d472d, 0x3b7a48, 0x74b868],
+    [0x19402a, 0x316e43, 0x67ab60],
+    [0x2a4a22, 0x4d7d38, 0x8cc25b],
   ];
-  const [c1, c2, c3] = palettes[variantPalette];
-  // Ground shadow pad
-  addColoredBox(parts, 0.34 * scale, 0.02, 0.34 * scale, tx, 0.01, tz, 0x1b2920);
-  // Trunk
-  addColoredBox(parts, 0.13 * scale, 0.32 * scale, 0.13 * scale, tx, 0.16 * scale, tz, trunkHex);
-  // 3 stepped foliage tiers
-  addColoredBox(parts, 0.44 * scale, 0.2 * scale, 0.44 * scale, tx, 0.36 * scale, tz, c1);
-  addColoredBox(parts, 0.32 * scale, 0.18 * scale, 0.32 * scale, tx, 0.52 * scale, tz, c2);
-  addColoredBox(parts, 0.18 * scale, 0.14 * scale, 0.18 * scale, tx, 0.65 * scale, tz, c3);
+  const [cShadow, cMid, cSun] = palettes[variantPalette];
+  addTreeShadowDisk(parts, tx, tz, 0.27 * scale, 0x16241b);
+  // 4 organic flared buttress roots gripping ground
+  for (let r = 0; r < 4; r++) {
+    const a = r * (Math.PI / 2) + 0.45;
+    addOrganicLimb(
+      parts,
+      tx + Math.cos(a) * 0.14 * scale,
+      0,
+      tz + Math.sin(a) * 0.14 * scale,
+      tx + Math.cos(a) * 0.03 * scale,
+      0.11 * scale,
+      tz + Math.sin(a) * 0.03 * scale,
+      0.040 * scale,
+      0.052 * scale,
+      0x422918,
+      0x5e3b23,
+      5,
+    );
+  }
+  // Curved gnarled oak trunk
+  addOrganicLimb(parts, tx, 0.01, tz, tx - 0.02 * scale, 0.22 * scale, tz + 0.015 * scale, 0.078 * scale, 0.062 * scale, 0x4c301c, 0x694329, 6);
+  addOrganicLimb(parts, tx - 0.02 * scale, 0.21 * scale, tz + 0.015 * scale, tx + 0.01 * scale, 0.38 * scale, tz - 0.01 * scale, 0.062 * scale, 0.046 * scale, 0x694329, 0x754c30, 6);
+  // 4 reaching structural oak limbs
+  addOrganicLimb(parts, tx - 0.01 * scale, 0.30 * scale, tz, tx - 0.18 * scale, 0.47 * scale, tz + 0.08 * scale, 0.038 * scale, 0.018 * scale, 0x5c3a22, 0x6e472c, 5);
+  addOrganicLimb(parts, tx + 0.01 * scale, 0.32 * scale, tz, tx + 0.18 * scale, 0.48 * scale, tz - 0.09 * scale, 0.038 * scale, 0.018 * scale, 0x5c3a22, 0x6e472c, 5);
+  addOrganicLimb(parts, tx, 0.33 * scale, tz, tx + 0.07 * scale, 0.50 * scale, tz + 0.16 * scale, 0.034 * scale, 0.016 * scale, 0x5c3a22, 0x6e472c, 5);
+  addOrganicLimb(parts, tx, 0.34 * scale, tz, tx - 0.08 * scale, 0.49 * scale, tz - 0.15 * scale, 0.034 * scale, 0.016 * scale, 0x5c3a22, 0x6e472c, 5);
+  // Rich asymmetric multi-puff oak canopy (6 overlapping sculpted leaf clouds)
+  addFoliagePuff(parts, tx - 0.18 * scale, 0.49 * scale, tz + 0.08 * scale, 0.21 * scale, 0.15 * scale, 0.20 * scale, cShadow, cMid, cSun, seed + 1.1, 1);
+  addFoliagePuff(parts, tx + 0.18 * scale, 0.50 * scale, tz - 0.09 * scale, 0.21 * scale, 0.15 * scale, 0.19 * scale, cShadow, cMid, cSun, seed + 2.4, 1);
+  addFoliagePuff(parts, tx + 0.08 * scale, 0.52 * scale, tz + 0.15 * scale, 0.19 * scale, 0.14 * scale, 0.19 * scale, cShadow, cMid, cSun, seed + 3.6, 1);
+  addFoliagePuff(parts, tx - 0.09 * scale, 0.51 * scale, tz - 0.14 * scale, 0.19 * scale, 0.14 * scale, 0.18 * scale, cShadow, cMid, cSun, seed + 4.9, 1);
+  addFoliagePuff(parts, tx, 0.61 * scale, tz, 0.24 * scale, 0.17 * scale, 0.23 * scale, cShadow, cMid, cSun, seed + 6.2, 1);
+  addFoliagePuff(parts, tx - 0.03 * scale, 0.72 * scale, tz + 0.02 * scale, 0.15 * scale, 0.12 * scale, 0.15 * scale, cMid, cSun, cSun, seed + 7.7, 0);
+}
+
+function addMeadowTree(
+  parts: THREE.BufferGeometry[],
+  tx: number,
+  tz: number,
+  scale: number,
+  kind: 'willow' | 'orchard' | 'poplar',
+) {
+  const seed = tx * 23.1 + tz * 17.9;
+  addTreeShadowDisk(parts, tx, tz, 0.26 * scale, 0x1a291d);
+
+  if (kind === 'willow') {
+    // Graceful Weeping Willow: thick leaning trunk, sweeping arching canopy dome, and 10 tapered cascading willow frond curtains
+    for (let r = 0; r < 3; r++) {
+      const a = r * 2.1 + 0.3;
+      addOrganicLimb(parts, tx + Math.cos(a) * 0.13 * scale, 0, tz + Math.sin(a) * 0.13 * scale, tx, 0.10 * scale, tz, 0.038 * scale, 0.052 * scale, 0x45301e, 0x63462d, 5);
+    }
+    addOrganicLimb(parts, tx, 0.01, tz, tx - 0.05 * scale, 0.28 * scale, tz + 0.02 * scale, 0.075 * scale, 0.056 * scale, 0x4f3723, 0x6b4c32, 6);
+    addOrganicLimb(parts, tx - 0.05 * scale, 0.26 * scale, tz + 0.02 * scale, tx - 0.17 * scale, 0.45 * scale, tz - 0.05 * scale, 0.036 * scale, 0.016 * scale, 0x5c412a, 0x6e4f34, 5);
+    addOrganicLimb(parts, tx - 0.05 * scale, 0.27 * scale, tz + 0.02 * scale, tx + 0.13 * scale, 0.46 * scale, tz + 0.08 * scale, 0.036 * scale, 0.016 * scale, 0x5c412a, 0x6e4f34, 5);
+    // Broad domed weeping willow crown puffs
+    addFoliagePuff(parts, tx - 0.14 * scale, 0.49 * scale, tz - 0.04 * scale, 0.23 * scale, 0.15 * scale, 0.22 * scale, 0x2f632b, 0x559642, 0x8cc95b, seed + 1.2, 1);
+    addFoliagePuff(parts, tx + 0.12 * scale, 0.50 * scale, tz + 0.06 * scale, 0.22 * scale, 0.15 * scale, 0.21 * scale, 0x356e30, 0x61a349, 0x97d463, seed + 2.5, 1);
+    addFoliagePuff(parts, tx - 0.02 * scale, 0.58 * scale, tz + 0.01 * scale, 0.26 * scale, 0.17 * scale, 0.25 * scale, 0x3d7a36, 0x6eb352, 0xa4de6d, seed + 3.9, 1);
+    // 10 gracefully tapering willow curtain tendrils draping around perimeter
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * Math.PI * 2 + 0.18;
+      const rad = (0.24 + (i % 2) * 0.05) * scale;
+      const topY = (0.47 + (i % 3) * 0.03) * scale;
+      const len = (0.31 + (i % 3) * 0.055) * scale;
+      addHangingStrand(
+        parts,
+        tx - 0.02 * scale + Math.cos(a) * rad,
+        topY,
+        tz + Math.sin(a) * rad,
+        len,
+        0.028 * scale,
+        i % 2 === 0 ? 0x69ab4c : 0x7ec257,
+        i % 2 === 0 ? 0x92cf63 : 0xa9e072,
+        Math.cos(a) * 0.04 * scale,
+        Math.sin(a) * 0.04 * scale,
+      );
+    }
+    return;
+  }
+
+  if (kind === 'orchard') {
+    // Blooming Fruit / Apple & Pear Orchard Tree with lush rounded foliage puffs & bright faceted fruits
+    addOrganicLimb(parts, tx, 0, tz, tx + 0.02 * scale, 0.29 * scale, tz, 0.062 * scale, 0.042 * scale, 0x523520, 0x734c30, 6);
+    addOrganicLimb(parts, tx + 0.02 * scale, 0.26 * scale, tz, tx - 0.12 * scale, 0.42 * scale, tz + 0.06 * scale, 0.03 * scale, 0.014 * scale, 0x634128, 0x754e32, 5);
+    addOrganicLimb(parts, tx + 0.02 * scale, 0.26 * scale, tz, tx + 0.13 * scale, 0.42 * scale, tz - 0.05 * scale, 0.03 * scale, 0.014 * scale, 0x634128, 0x754e32, 5);
+    addFoliagePuff(parts, tx - 0.12 * scale, 0.44 * scale, tz + 0.05 * scale, 0.19 * scale, 0.15 * scale, 0.18 * scale, 0x295e2d, 0x458c42, 0x78c45e, seed + 1.1, 1);
+    addFoliagePuff(parts, tx + 0.13 * scale, 0.45 * scale, tz - 0.05 * scale, 0.19 * scale, 0.15 * scale, 0.18 * scale, 0x2e6632, 0x4f9948, 0x82cc66, seed + 2.3, 1);
+    addFoliagePuff(parts, tx + 0.01 * scale, 0.54 * scale, tz, 0.21 * scale, 0.16 * scale, 0.21 * scale, 0x357038, 0x5ba64f, 0x90d96f, seed + 3.5, 1);
+    // Bright ruby-red & golden-pear orchard fruit clusters nestled on outer canopy
+    const fruits: [number, number, number, number][] = [
+      [-0.22, 0.42, 0.14, 0xd93025],
+      [0.23, 0.44, -0.10, 0xe03a2f],
+      [0.10, 0.55, 0.18, 0xf7b936],
+      [-0.14, 0.53, -0.16, 0xd93025],
+      [0.02, 0.65, 0.10, 0xffc947],
+      [-0.08, 0.40, -0.18, 0xe03a2f],
+    ];
+    for (let i = 0; i < fruits.length; i++) {
+      const [fx, fy, fz, fHex] = fruits[i];
+      addSculptedBoulder(parts, tx + fx * scale, fy * scale, tz + fz * scale, 0.036 * scale, 0.036 * scale, 0.036 * scale, fHex, fHex, i * 3.1);
+    }
+    return;
+  }
+
+  // 'poplar': Towering Flame-Shaped Columnar Lombardy Poplar / Tuscan Cypress Spire
+  addOrganicLimb(parts, tx, 0, tz, tx, 0.34 * scale, tz, 0.056 * scale, 0.034 * scale, 0x4d3421, 0x69482e, 6);
+  addFoliagePuff(parts, tx, 0.36 * scale, tz, 0.15 * scale, 0.19 * scale, 0.15 * scale, 0x214f27, 0x38783a, 0x5ea350, seed + 1.0, 1);
+  addFoliagePuff(parts, tx + 0.015 * scale, 0.55 * scale, tz - 0.01 * scale, 0.14 * scale, 0.20 * scale, 0.14 * scale, 0x285c2d, 0x448743, 0x6db35b, seed + 2.2, 1);
+  addFoliagePuff(parts, tx - 0.01 * scale, 0.74 * scale, tz + 0.01 * scale, 0.115 * scale, 0.19 * scale, 0.115 * scale, 0x316b35, 0x52994d, 0x7ec468, seed + 3.4, 1);
+  addFoliagePuff(parts, tx, 0.92 * scale, tz, 0.075 * scale, 0.16 * scale, 0.075 * scale, 0x3f7d40, 0x67ad5b, 0x94d979, seed + 4.6, 0);
 }
 
 function addPixelRock(
@@ -499,29 +1374,151 @@ function addJungleTree(
   tz: number,
   scale: number,
   isPalm: boolean,
+  isBanyan = false,
 ) {
-  addColoredBox(parts, 0.34 * scale, 0.02, 0.34 * scale, tx, 0.01, tz, 0x13261a);
-  if (isPalm) {
-    // Curved tropical palm trunk + spreading frond crown + coconuts
-    addColoredBox(parts, 0.1 * scale, 0.36 * scale, 0.1 * scale, tx, 0.18 * scale, tz, 0x6e4a2e, 0, 0.08);
-    addColoredBox(parts, 0.09 * scale, 0.38 * scale, 0.09 * scale, tx - 0.04 * scale, 0.5 * scale, tz, 0x7d5738, 0, 0.16);
-    const cy = 0.68 * scale;
-    const cx = tx - 0.08 * scale;
-    addColoredBox(parts, 0.56 * scale, 0.07 * scale, 0.14 * scale, cx, cy, tz, 0x2d8a4e);
-    addColoredBox(parts, 0.14 * scale, 0.07 * scale, 0.56 * scale, cx, cy, tz, 0x3ba85e);
-    addColoredBox(parts, 0.36 * scale, 0.08 * scale, 0.36 * scale, cx, cy + 0.06 * scale, tz, 0x52c46d);
-    addColoredBox(parts, 0.08 * scale, 0.08 * scale, 0.08 * scale, cx + 0.07 * scale, cy - 0.06 * scale, tz + 0.06 * scale, 0x593a22);
-  } else {
-    // Giant rainforest mahogany/kapok buttress trunk + broad layered canopy + hanging vines
-    addColoredBox(parts, 0.16 * scale, 0.44 * scale, 0.16 * scale, tx, 0.22 * scale, tz, 0x4f331e);
-    addColoredBox(parts, 0.28 * scale, 0.12 * scale, 0.1 * scale, tx, 0.06 * scale, tz, 0x452b18);
-    addColoredBox(parts, 0.64 * scale, 0.18 * scale, 0.6 * scale, tx, 0.5 * scale, tz, 0x1e6338);
-    addColoredBox(parts, 0.48 * scale, 0.16 * scale, 0.48 * scale, tx + 0.03 * scale, 0.66 * scale, tz - 0.02 * scale, 0x2e854a);
-    addColoredBox(parts, 0.3 * scale, 0.12 * scale, 0.3 * scale, tx - 0.02 * scale, 0.78 * scale, tz + 0.02 * scale, 0x4db35f);
-    // Hanging liana vines
-    addColoredBox(parts, 0.04 * scale, 0.24 * scale, 0.04 * scale, tx + 0.22 * scale, 0.36 * scale, tz + 0.16 * scale, 0x3b8c47);
-    addColoredBox(parts, 0.04 * scale, 0.2 * scale, 0.04 * scale, tx - 0.22 * scale, 0.38 * scale, tz - 0.14 * scale, 0x3b8c47);
+  const seed = tx * 17.3 + tz * 29.1;
+  addTreeShadowDisk(parts, tx, tz, 0.29 * scale, 0x102418);
+
+  if (isBanyan) {
+    // Ancient Strangler Fig / Banyan Cathedral with 6 arching aerial prop-root pillars & sprawling rainforest canopy
+    addOrganicLimb(parts, tx, 0, tz, tx, 0.46 * scale, tz, 0.095 * scale, 0.072 * scale, 0x3b2516, 0x593a24, 7);
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2 + 0.2;
+      const outR = (0.20 + (i % 2) * 0.05) * scale;
+      const midR = outR * 0.72;
+      // Upper spreading limb
+      addOrganicLimb(parts, tx, 0.38 * scale, tz, tx + Math.cos(a) * midR, 0.47 * scale, tz + Math.sin(a) * midR, 0.032 * scale, 0.020 * scale, 0x4f321e, 0x634128, 5);
+      // Aerial prop-root pillar descending to soil
+      addOrganicLimb(parts, tx + Math.cos(a) * outR, 0, tz + Math.sin(a) * outR, tx + Math.cos(a) * midR, 0.44 * scale, tz + Math.sin(a) * midR, 0.028 * scale, 0.018 * scale, 0x452c1a, 0x5e3d25, 5);
+    }
+    // Wide overlapping sculpted banyan rainforest clouds
+    addFoliagePuff(parts, tx - 0.21 * scale, 0.51 * scale, tz + 0.08 * scale, 0.24 * scale, 0.14 * scale, 0.22 * scale, 0x0e4224, 0x1e703c, 0x44ad5b, seed + 1.1, 1);
+    addFoliagePuff(parts, tx + 0.21 * scale, 0.52 * scale, tz - 0.08 * scale, 0.24 * scale, 0.14 * scale, 0.22 * scale, 0x104727, 0x227841, 0x4cb862, seed + 2.2, 1);
+    addFoliagePuff(parts, tx + 0.04 * scale, 0.53 * scale, tz + 0.20 * scale, 0.22 * scale, 0.13 * scale, 0.21 * scale, 0x0f4526, 0x20733e, 0x48b35e, seed + 3.3, 1);
+    addFoliagePuff(parts, tx - 0.05 * scale, 0.53 * scale, tz - 0.19 * scale, 0.22 * scale, 0.13 * scale, 0.21 * scale, 0x0f4526, 0x20733e, 0x48b35e, seed + 4.4, 1);
+    addFoliagePuff(parts, tx, 0.63 * scale, tz, 0.27 * scale, 0.15 * scale, 0.26 * scale, 0x15572f, 0x2d8c4d, 0x5fd173, seed + 5.5, 1);
+    return;
   }
+
+  if (isPalm) {
+    // Graceful 4-segment curved ringed tropical coconut palm + coconut cluster + 8 genuine V-folded arching palm fronds
+    const pts: [number, number, number][] = [
+      [tx, 0.0, tz],
+      [tx - 0.025 * scale, 0.20 * scale, tz + 0.01 * scale],
+      [tx - 0.075 * scale, 0.41 * scale, tz + 0.025 * scale],
+      [tx - 0.145 * scale, 0.61 * scale, tz + 0.035 * scale],
+      [tx - 0.205 * scale, 0.77 * scale, tz + 0.04 * scale],
+    ];
+    const radii = [0.068, 0.056, 0.047, 0.040, 0.032];
+    const barkHexes = [0x5c3c24, 0x6e492d, 0x7d5536, 0x8c623f, 0x996d48];
+    for (let i = 0; i < pts.length - 1; i++) {
+      addOrganicLimb(
+        parts,
+        pts[i][0],
+        pts[i][1],
+        pts[i][2],
+        pts[i + 1][0],
+        pts[i + 1][1],
+        pts[i + 1][2],
+        radii[i] * scale,
+        radii[i + 1] * scale,
+        barkHexes[i],
+        barkHexes[i + 1],
+        6,
+      );
+    }
+    const [cx, cy, cz] = pts[pts.length - 1];
+    // Cluster of 3 coconuts tucked beneath the crown
+    for (let c = 0; c < 3; c++) {
+      const ca = c * 2.1 + 0.4;
+      addSculptedBoulder(
+        parts,
+        cx + Math.cos(ca) * 0.048 * scale,
+        cy - 0.04 * scale,
+        cz + Math.sin(ca) * 0.048 * scale,
+        0.036 * scale,
+        0.042 * scale,
+        0.036 * scale,
+        0x3d2412,
+        0x664023,
+        c * 2.5,
+      );
+    }
+    // 8 lush arching V-folded palm fronds (5 lower sweeping + 3 upper rising crown fronds)
+    for (let f = 0; f < 5; f++) {
+      const ang = (f / 5) * Math.PI * 2 + 0.2;
+      addCurvedPalmFrond(
+        parts,
+        cx,
+        cy,
+        cz,
+        ang,
+        (0.42 + (f % 2) * 0.05) * scale,
+        0.135 * scale,
+        0.13 * scale,
+        0.17 * scale,
+        0x1d6b37,
+        0x52c46a,
+      );
+    }
+    for (let f = 0; f < 4; f++) {
+      const ang = (f / 4) * Math.PI * 2 + 0.62;
+      addCurvedPalmFrond(
+        parts,
+        cx,
+        cy + 0.02 * scale,
+        cz,
+        ang,
+        0.34 * scale,
+        0.115 * scale,
+        0.18 * scale,
+        0.09 * scale,
+        0x2a8546,
+        0x72db7e,
+      );
+    }
+    return;
+  }
+
+  // Colossal Emergent Rainforest Kapok / Mahogany with sweeping plank buttress roots, broad forked boughs, tiered emergent canopy, hanging lianas & orchids
+  for (let r = 0; r < 4; r++) {
+    const a = r * (Math.PI / 2) + 0.3;
+    addOrganicLimb(
+      parts,
+      tx + Math.cos(a) * 0.22 * scale,
+      0,
+      tz + Math.sin(a) * 0.22 * scale,
+      tx + Math.cos(a) * 0.04 * scale,
+      0.22 * scale,
+      tz + Math.sin(a) * 0.04 * scale,
+      0.048 * scale,
+      0.042 * scale,
+      0x362011,
+      0x573721,
+      5,
+    );
+  }
+  addOrganicLimb(parts, tx, 0.01, tz, tx + 0.02 * scale, 0.56 * scale, tz - 0.01 * scale, 0.092 * scale, 0.062 * scale, 0x452b18, 0x634128, 7);
+  // 4 sweeping emergent limbs
+  const limbDirs: [number, number, number][] = [
+    [-0.24, 0.68, 0.10],
+    [0.24, 0.70, -0.10],
+    [0.10, 0.71, 0.23],
+    [-0.10, 0.69, -0.22],
+  ];
+  for (let i = 0; i < limbDirs.length; i++) {
+    const [lx, ly, lz] = limbDirs[i];
+    addOrganicLimb(parts, tx + 0.02 * scale, 0.52 * scale, tz - 0.01 * scale, tx + lx * scale, ly * scale, tz + lz * scale, 0.040 * scale, 0.018 * scale, 0x4f321d, 0x664329, 5);
+    addFoliagePuff(parts, tx + lx * scale, (ly + 0.04) * scale, tz + lz * scale, 0.24 * scale, 0.13 * scale, 0.23 * scale, 0x0d4223, 0x20733d, 0x4cc466, seed + i * 2.1, 1);
+  }
+  // Towering sunlit emergent center crown
+  addFoliagePuff(parts, tx + 0.01 * scale, 0.84 * scale, tz, 0.28 * scale, 0.16 * scale, 0.27 * scale, 0x14572e, 0x2e944e, 0x65d975, seed + 9.4, 1);
+  // Hanging jungle lianas & bright scarlet epiphyte orchids
+  addHangingStrand(parts, tx + 0.24 * scale, 0.65 * scale, tz + 0.12 * scale, 0.36 * scale, 0.018 * scale, 0x2c783c, 0x57b560, 0.03 * scale, 0.02 * scale);
+  addHangingStrand(parts, tx - 0.24 * scale, 0.64 * scale, tz - 0.12 * scale, 0.34 * scale, 0.018 * scale, 0x2c783c, 0x57b560, -0.02 * scale, -0.03 * scale);
+  addHangingStrand(parts, tx + 0.13 * scale, 0.66 * scale, tz - 0.22 * scale, 0.30 * scale, 0.016 * scale, 0x358746, 0x67c76d, 0.02 * scale, -0.02 * scale);
+  addSculptedBoulder(parts, tx + 0.09 * scale, 0.42 * scale, tz + 0.07 * scale, 0.042 * scale, 0.042 * scale, 0.042 * scale, 0xd93644, 0xff6b75, 1.7);
+  addSculptedBoulder(parts, tx - 0.08 * scale, 0.36 * scale, tz - 0.06 * scale, 0.036 * scale, 0.036 * scale, 0.036 * scale, 0xe8a825, 0xffd152, 4.3);
 }
 
 function addTaigaConifer(
@@ -530,24 +1527,71 @@ function addTaigaConifer(
   tz: number,
   scale: number,
   snowTipped: boolean,
+  style: 'spruce' | 'blue_fir' | 'larch' = 'spruce',
 ) {
-  addColoredBox(parts, 0.3 * scale, 0.02, 0.3 * scale, tx, 0.01, tz, 0x182622);
-  addColoredBox(parts, 0.11 * scale, 0.26 * scale, 0.11 * scale, tx, 0.13 * scale, tz, 0x4a3121);
-  addColoredBox(parts, 0.44 * scale, 0.16 * scale, 0.44 * scale, tx, 0.28 * scale, tz, 0x24473a);
-  addColoredBox(parts, 0.34 * scale, 0.18 * scale, 0.34 * scale, tx, 0.44 * scale, tz, 0x2f5c4b);
-  addColoredBox(parts, 0.22 * scale, 0.18 * scale, 0.22 * scale, tx, 0.6 * scale, tz, 0x3a705b);
-  addColoredBox(
-    parts,
-    0.12 * scale,
-    0.14 * scale,
-    0.12 * scale,
-    tx,
-    0.74 * scale,
-    tz,
-    snowTipped ? 0xddeef2 : 0x49856e,
-  );
-  if (snowTipped) {
-    addColoredBox(parts, 0.36 * scale, 0.05 * scale, 0.36 * scale, tx, 0.54 * scale, tz, 0xd4e6eb);
+  addTreeShadowDisk(parts, tx, tz, 0.23 * scale, 0x14211f);
+  addOrganicLimb(parts, tx, 0, tz, tx, 0.34 * scale, tz, 0.068 * scale, 0.034 * scale, 0x382417, 0x543825, 6);
+
+  if (style === 'larch') {
+    // Golden Siberian Larch with 5 scalloped amber-gold & honey-ochre drooping whorls
+    addScallopedConiferWhorl(parts, tx, 0.29 * scale, tz, 0.26 * scale, 0.08 * scale, 0.19 * scale, 0x7d4c10, 0xb8761a, 0xe6a52c, 7, 0.06 * scale, 0.0);
+    addScallopedConiferWhorl(parts, tx, 0.43 * scale, tz, 0.22 * scale, 0.068 * scale, 0.19 * scale, 0x915a14, 0xc9861e, 0xf2b738, 7, 0.055 * scale, 0.48);
+    addScallopedConiferWhorl(parts, tx, 0.57 * scale, tz, 0.17 * scale, 0.052 * scale, 0.18 * scale, 0xa86b19, 0xdba027, 0xfac94b, 6, 0.045 * scale, 0.96);
+    addScallopedConiferWhorl(parts, tx, 0.70 * scale, tz, 0.12 * scale, 0.032 * scale, 0.17 * scale, 0xbd7e20, 0xedb334, snowTipped ? 0xeaf5fa : 0xffdb66, 6, 0.035 * scale, 1.44);
+    addScallopedConiferWhorl(parts, tx, 0.83 * scale, tz, 0.07 * scale, 0.004 * scale, 0.17 * scale, 0xd4942a, snowTipped ? 0xd9edf5 : 0xf7c948, snowTipped ? 0xf5fbff : 0xffe985, 5, 0.02 * scale, 1.9);
+    return;
+  }
+
+  const [c1, c2, c3] =
+    style === 'blue_fir'
+      ? [0x143340, 0x245569, 0x4588a1]
+      : [0x153328, 0x235442, 0x3b7d64];
+  const tipHex = snowTipped ? 0xe6f4fa : c3;
+  const widthMul = style === 'blue_fir' ? 0.84 : 1.0;
+
+  // 5–6 sculpted scalloped drooping boreal whorls + optional crisp snow-mantled caps
+  const tiers: [number, number, number, number, number][] = [
+    [0.29, 0.28 * widthMul, 0.085 * widthMul, 0.20, 0.0],
+    [0.44, 0.24 * widthMul, 0.072 * widthMul, 0.20, 0.45],
+    [0.58, 0.19 * widthMul, 0.058 * widthMul, 0.19, 0.90],
+    [0.72, 0.14 * widthMul, 0.038 * widthMul, 0.18, 1.35],
+    [0.85, 0.085 * widthMul, 0.004, 0.19, 1.80],
+  ];
+  for (let i = 0; i < tiers.length; i++) {
+    const [ty, rb, rt, th, rot] = tiers[i];
+    addScallopedConiferWhorl(
+      parts,
+      tx,
+      ty * scale,
+      tz,
+      rb * scale,
+      rt * scale,
+      th * scale,
+      c1,
+      c2,
+      i === tiers.length - 1 ? tipHex : c3,
+      i < 2 ? 7 : 6,
+      (0.065 - i * 0.01) * scale,
+      rot,
+    );
+    if (snowTipped && i < 4) {
+      // Powdery sculpted snow mantle hugging the upper skirt of each bough whorl
+      addScallopedConiferWhorl(
+        parts,
+        tx,
+        (ty + 0.048) * scale,
+        tz,
+        rb * 0.84 * scale,
+        rt * 0.92 * scale,
+        0.075 * scale,
+        0xcbe3ed,
+        0xe6f4fa,
+        0xffffff,
+        i < 2 ? 7 : 6,
+        0.032 * scale,
+        rot,
+      );
+    }
   }
 }
 
@@ -556,25 +1600,237 @@ function addSakuraTree(
   tx: number,
   tz: number,
   scale: number,
+  style: 'weeping' | 'pagoda' | 'bonsai' = 'weeping',
 ) {
-  addColoredBox(parts, 0.32 * scale, 0.02, 0.32 * scale, tx, 0.01, tz, 0x292428);
-  addColoredBox(parts, 0.12 * scale, 0.3 * scale, 0.12 * scale, tx, 0.15 * scale, tz, 0x4a3235);
-  addColoredBox(parts, 0.48 * scale, 0.18 * scale, 0.46 * scale, tx, 0.36 * scale, tz, 0xe87ea8);
-  addColoredBox(parts, 0.38 * scale, 0.16 * scale, 0.38 * scale, tx + 0.04 * scale, 0.51 * scale, tz - 0.03 * scale, 0xf7a8c6);
-  addColoredBox(parts, 0.24 * scale, 0.13 * scale, 0.24 * scale, tx - 0.03 * scale, 0.63 * scale, tz + 0.02 * scale, 0xffd6e6);
+  const seed = tx * 29.7 + tz * 13.3;
+  addTreeShadowDisk(parts, tx, tz, 0.26 * scale, 0x261d24);
+  for (let r = 0; r < 3; r++) {
+    const a = r * 2.1 + 0.5;
+    addOrganicLimb(parts, tx + Math.cos(a) * 0.13 * scale, 0, tz + Math.sin(a) * 0.13 * scale, tx, 0.09 * scale, tz, 0.035 * scale, 0.048 * scale, 0x2e1a20, 0x452730, 5);
+  }
+
+  if (style === 'bonsai') {
+    // Sculptural S-curved cantilevered Bonsai Cherry reaching diagonally with floating cloud-pad blossoms
+    addOrganicLimb(parts, tx, 0.01, tz, tx - 0.08 * scale, 0.22 * scale, tz + 0.03 * scale, 0.068 * scale, 0.050 * scale, 0x361f26, 0x4d2c36, 6);
+    addOrganicLimb(parts, tx - 0.08 * scale, 0.21 * scale, tz + 0.03 * scale, tx - 0.22 * scale, 0.37 * scale, tz - 0.02 * scale, 0.046 * scale, 0.022 * scale, 0x4d2c36, 0x593440, 5);
+    addOrganicLimb(parts, tx - 0.07 * scale, 0.22 * scale, tz + 0.02 * scale, tx + 0.13 * scale, 0.44 * scale, tz - 0.05 * scale, 0.038 * scale, 0.018 * scale, 0x4d2c36, 0x593440, 5);
+    // Horizontal floating bonsai blossom cloud pads
+    addFoliagePuff(parts, tx - 0.22 * scale, 0.42 * scale, tz - 0.02 * scale, 0.24 * scale, 0.11 * scale, 0.20 * scale, 0xc44b7c, 0xf28db8, 0xffd9ea, seed + 1.1, 1);
+    addFoliagePuff(parts, tx + 0.13 * scale, 0.49 * scale, tz - 0.05 * scale, 0.21 * scale, 0.10 * scale, 0.19 * scale, 0xcf5788, 0xf79ec4, 0xffe6f2, seed + 2.5, 1);
+    addFoliagePuff(parts, tx - 0.05 * scale, 0.56 * scale, tz + 0.04 * scale, 0.19 * scale, 0.10 * scale, 0.18 * scale, 0xd96897, 0xfcb6d5, 0xfff0f7, seed + 4.1, 1);
+    return;
+  }
+
+  // Sculpted dark plum-ebony cherry trunk & graceful sweeping arched boughs
+  addOrganicLimb(parts, tx, 0.01, tz, tx - 0.02 * scale, 0.29 * scale, tz + 0.01 * scale, 0.072 * scale, 0.052 * scale, 0x361e25, 0x4f2d37, 6);
+  addOrganicLimb(parts, tx - 0.02 * scale, 0.27 * scale, tz + 0.01 * scale, tx - 0.19 * scale, 0.46 * scale, tz + 0.07 * scale, 0.036 * scale, 0.016 * scale, 0x452730, 0x593440, 5);
+  addOrganicLimb(parts, tx - 0.02 * scale, 0.28 * scale, tz + 0.01 * scale, tx + 0.18 * scale, 0.47 * scale, tz - 0.07 * scale, 0.036 * scale, 0.016 * scale, 0x452730, 0x593440, 5);
+  addOrganicLimb(parts, tx - 0.01 * scale, 0.29 * scale, tz + 0.01 * scale, tx + 0.04 * scale, 0.48 * scale, tz + 0.16 * scale, 0.030 * scale, 0.014 * scale, 0x452730, 0x593440, 5);
+
+  // Billowing multi-cloud sakura blossom crown (deep rose shadow -> vivid sakura pink -> snow-blush sunlight)
+  const flatY = style === 'pagoda' ? 0.11 : 0.15;
+  addFoliagePuff(parts, tx - 0.19 * scale, 0.49 * scale, tz + 0.07 * scale, 0.22 * scale, flatY * scale, 0.20 * scale, 0xc24879, 0xee85b2, 0xffd4e7, seed + 1.2, 1);
+  addFoliagePuff(parts, tx + 0.18 * scale, 0.50 * scale, tz - 0.07 * scale, 0.22 * scale, flatY * scale, 0.20 * scale, 0xc95182, 0xf294bd, 0xffdeed, seed + 2.4, 1);
+  addFoliagePuff(parts, tx + 0.05 * scale, 0.51 * scale, tz + 0.16 * scale, 0.19 * scale, flatY * scale, 0.19 * scale, 0xc24879, 0xee85b2, 0xffd4e7, seed + 3.6, 1);
+  addFoliagePuff(parts, tx - 0.05 * scale, 0.52 * scale, tz - 0.14 * scale, 0.19 * scale, flatY * scale, 0.18 * scale, 0xc95182, 0xf294bd, 0xffdeed, seed + 4.8, 1);
+  addFoliagePuff(parts, tx, 0.61 * scale, tz, 0.24 * scale, (flatY + 0.02) * scale, 0.23 * scale, 0xd46191, 0xf7a8cb, 0xffeef6, seed + 6.1, 1);
+  addFoliagePuff(parts, tx - 0.02 * scale, 0.71 * scale, tz + 0.02 * scale, 0.14 * scale, 0.10 * scale, 0.14 * scale, 0xe37da8, 0xfcc5df, 0xfff5fa, seed + 7.3, 0);
+
+  if (style === 'weeping') {
+    // 7 cascading sakura weeping blossom garlands
+    for (let i = 0; i < 7; i++) {
+      const a = (i / 7) * Math.PI * 2 + 0.3;
+      const rad = (0.22 + (i % 2) * 0.05) * scale;
+      addHangingStrand(
+        parts,
+        tx + Math.cos(a) * rad,
+        0.48 * scale,
+        tz + Math.sin(a) * rad,
+        (0.24 + (i % 3) * 0.045) * scale,
+        0.024 * scale,
+        0xf28db8,
+        0xffe3f0,
+        Math.cos(a) * 0.03 * scale,
+        Math.sin(a) * 0.03 * scale,
+      );
+    }
+  }
+}
+
+function addSavannaTree(
+  parts: THREE.BufferGeometry[],
+  tx: number,
+  tz: number,
+  scale: number,
+  kind: 'acacia' | 'baobab',
+) {
+  const seed = tx * 31.1 + tz * 23.7;
+  addTreeShadowDisk(parts, tx, tz, 0.29 * scale, 0x2b2217);
+
+  if (kind === 'baobab') {
+    // Iconic African Baobab: massive swollen bottle-shaped trunk with fluted roots & gnarled "upside-down root" stubby limbs
+    for (let r = 0; r < 5; r++) {
+      const a = (r / 5) * Math.PI * 2 + 0.2;
+      addOrganicLimb(parts, tx + Math.cos(a) * 0.19 * scale, 0, tz + Math.sin(a) * 0.19 * scale, tx + Math.cos(a) * 0.07 * scale, 0.15 * scale, tz + Math.sin(a) * 0.07 * scale, 0.048 * scale, 0.052 * scale, 0x593d2b, 0x7d5942, 5);
+    }
+    // Swollen bottle belly (wide base -> bulbous mid-belly -> narrower shoulder)
+    addOrganicLimb(parts, tx, 0.01, tz, tx, 0.24 * scale, tz, 0.145 * scale, 0.165 * scale, 0x694934, 0x8a644b, 8);
+    addOrganicLimb(parts, tx, 0.23 * scale, tz, tx, 0.49 * scale, tz, 0.165 * scale, 0.105 * scale, 0x8a644b, 0x75533d, 8);
+    // 5 stubby radiating gnarled baobab crown branches + sparse dry-olive tufts
+    for (let b = 0; b < 5; b++) {
+      const a = (b / 5) * Math.PI * 2 + 0.4;
+      const bx = tx + Math.cos(a) * 0.22 * scale;
+      const bz = tz + Math.sin(a) * 0.22 * scale;
+      const by = (0.64 + (b % 2) * 0.05) * scale;
+      addOrganicLimb(parts, tx + Math.cos(a) * 0.06 * scale, 0.46 * scale, tz + Math.sin(a) * 0.06 * scale, bx, by, bz, 0.042 * scale, 0.018 * scale, 0x6b4b36, 0x7a5740, 5);
+      addFoliagePuff(parts, bx, by + 0.03 * scale, bz, 0.15 * scale, 0.075 * scale, 0.14 * scale, 0x4e6625, 0x789438, 0xa8c24e, seed + b * 1.7, 1);
+    }
+    addFoliagePuff(parts, tx, 0.72 * scale, tz, 0.18 * scale, 0.085 * scale, 0.17 * scale, 0x577029, 0x84a13f, 0xb5cf59, seed + 9.2, 1);
+    return;
+  }
+
+  // 'acacia': Iconic Serengeti Flat-Topped Umbrella Acacia with leaning trunk, 4 diagonal forked limbs & wafer-thin sculpted parasol canopy pads
+  addOrganicLimb(parts, tx, 0, tz, tx - 0.03 * scale, 0.30 * scale, tz + 0.01 * scale, 0.054 * scale, 0.038 * scale, 0x452e1e, 0x61422c, 6);
+  const forks: [number, number, number, number][] = [
+    [-0.22, 0.54, 0.06, 0.26],
+    [0.21, 0.49, -0.08, 0.22],
+    [0.05, 0.56, 0.19, 0.21],
+    [-0.08, 0.52, -0.18, 0.20],
+  ];
+  for (let i = 0; i < forks.length; i++) {
+    const [fx, fy, fz, padR] = forks[i];
+    addOrganicLimb(parts, tx - 0.03 * scale, 0.28 * scale, tz + 0.01 * scale, tx + fx * scale, fy * scale, tz + fz * scale, 0.028 * scale, 0.013 * scale, 0x523724, 0x694830, 5);
+    // Wide flat-topped parasol leaf plate
+    addFoliagePuff(parts, tx + fx * scale, (fy + 0.03) * scale, tz + fz * scale, padR * scale, 0.058 * scale, padR * 0.90 * scale, 0x4b6326, 0x749136, 0xa8bf4b, seed + i * 2.3, 1);
+  }
+  addFoliagePuff(parts, tx - 0.04 * scale, 0.61 * scale, tz + 0.02 * scale, 0.29 * scale, 0.064 * scale, 0.25 * scale, 0x56702b, 0x84a33e, 0xb8cf57, seed + 10.1, 1);
+}
+
+function addSwampTree(
+  parts: THREE.BufferGeometry[],
+  tx: number,
+  tz: number,
+  scale: number,
+  kind: 'cypress' | 'mangrove',
+) {
+  const seed = tx * 27.3 + tz * 19.7;
+  addTreeShadowDisk(parts, tx, tz, 0.28 * scale, 0x0f1c15);
+
+  if (kind === 'mangrove') {
+    // Stilt-Root Bayou Mangrove perched high on 6 arching tangled aerial prop roots + glossy bog crown + glowing cyan fungi
+    for (let r = 0; r < 6; r++) {
+      const a = (r / 6) * Math.PI * 2 + 0.25;
+      const outR = (0.19 + (r % 2) * 0.04) * scale;
+      const kneeR = outR * 0.68;
+      // Arched two-segment stilt root
+      addOrganicLimb(parts, tx + Math.cos(a) * outR, 0, tz + Math.sin(a) * outR, tx + Math.cos(a) * kneeR, 0.16 * scale, tz + Math.sin(a) * kneeR, 0.024 * scale, 0.022 * scale, 0x3b2a1c, 0x4f3927, 5);
+      addOrganicLimb(parts, tx + Math.cos(a) * kneeR, 0.15 * scale, tz + Math.sin(a) * kneeR, tx, 0.26 * scale, tz, 0.022 * scale, 0.028 * scale, 0x4f3927, 0x573f2c, 5);
+    }
+    // Elevated mangrove trunk & gnarled crown limbs
+    addOrganicLimb(parts, tx, 0.23 * scale, tz, tx + 0.02 * scale, 0.45 * scale, tz - 0.01 * scale, 0.056 * scale, 0.036 * scale, 0x4a3525, 0x5e4430, 6);
+    addOrganicLimb(parts, tx + 0.02 * scale, 0.41 * scale, tz, tx - 0.15 * scale, 0.52 * scale, tz + 0.07 * scale, 0.026 * scale, 0.014 * scale, 0x4f3927, 0x5c432e, 5);
+    addOrganicLimb(parts, tx + 0.02 * scale, 0.42 * scale, tz, tx + 0.15 * scale, 0.53 * scale, tz - 0.06 * scale, 0.026 * scale, 0.014 * scale, 0x4f3927, 0x5c432e, 5);
+    addFoliagePuff(parts, tx - 0.15 * scale, 0.54 * scale, tz + 0.07 * scale, 0.20 * scale, 0.13 * scale, 0.19 * scale, 0x153827, 0x295e40, 0x4b8a5f, seed + 1.3, 1);
+    addFoliagePuff(parts, tx + 0.15 * scale, 0.55 * scale, tz - 0.06 * scale, 0.20 * scale, 0.13 * scale, 0.19 * scale, 0x183d2b, 0x2e6646, 0x549668, seed + 2.7, 1);
+    addFoliagePuff(parts, tx, 0.63 * scale, tz, 0.22 * scale, 0.14 * scale, 0.21 * scale, 0x1c4530, 0x36734f, 0x62a876, seed + 4.1, 1);
+    // Bioluminescent swamp mushrooms clustering at the stilt root base
+    addOrganicLimb(parts, tx + 0.15 * scale, 0, tz + 0.13 * scale, tx + 0.15 * scale, 0.055 * scale, tz + 0.13 * scale, 0.014 * scale, 0.012 * scale, 0x99d9cf, 0xc7f5ee, 5);
+    addSculptedBoulder(parts, tx + 0.15 * scale, 0.068 * scale, tz + 0.13 * scale, 0.045 * scale, 0.024 * scale, 0.045 * scale, 0x32b8b8, 0x7af5eb, 2.1);
+    return;
+  }
+
+  // 'cypress': Ancient Bayou Bald Cypress with strongly fluted pyramidal buttress base, cypress knees & 8 draping Spanish moss curtains
+  addOrganicLimb(parts, tx, 0, tz, tx, 0.22 * scale, tz, 0.135 * scale, 0.075 * scale, 0x332419, 0x4d3726, 7);
+  addOrganicLimb(parts, tx, 0.21 * scale, tz, tx - 0.02 * scale, 0.52 * scale, tz, 0.075 * scale, 0.044 * scale, 0x4d3726, 0x5e4532, 6);
+  // Protruding conical cypress knees emerging from the marsh soil
+  const knees: [number, number, number][] = [
+    [-0.22, 0.14, 0.10],
+    [0.21, 0.12, -0.13],
+    [0.12, 0.10, 0.21],
+  ];
+  for (let k = 0; k < knees.length; k++) {
+    const [kx, kh, kz] = knees[k];
+    addOrganicLimb(parts, tx + kx * scale, 0, tz + kz * scale, tx + kx * scale, kh * scale, tz + kz * scale, 0.032 * scale, 0.010 * scale, 0x38281c, 0x57402e, 5);
+  }
+  // Wide spreading cypress limbs & flat-topped bayou moss canopy
+  addOrganicLimb(parts, tx - 0.02 * scale, 0.45 * scale, tz, tx - 0.20 * scale, 0.55 * scale, tz + 0.08 * scale, 0.030 * scale, 0.014 * scale, 0x4a3525, 0x59412e, 5);
+  addOrganicLimb(parts, tx - 0.02 * scale, 0.46 * scale, tz, tx + 0.20 * scale, 0.55 * scale, tz - 0.08 * scale, 0.030 * scale, 0.014 * scale, 0x4a3525, 0x59412e, 5);
+  addFoliagePuff(parts, tx - 0.19 * scale, 0.57 * scale, tz + 0.08 * scale, 0.23 * scale, 0.11 * scale, 0.21 * scale, 0x1b3b29, 0x336143, 0x5a8c62, seed + 1.2, 1);
+  addFoliagePuff(parts, tx + 0.19 * scale, 0.57 * scale, tz - 0.08 * scale, 0.23 * scale, 0.11 * scale, 0.21 * scale, 0x1e402d, 0x386949, 0x62966a, seed + 2.4, 1);
+  addFoliagePuff(parts, tx, 0.65 * scale, tz, 0.27 * scale, 0.12 * scale, 0.25 * scale, 0x224732, 0x407552, 0x6da675, seed + 3.8, 1);
+  // 8 trailing curtains of silver-sage Spanish moss
+  for (let m = 0; m < 8; m++) {
+    const a = (m / 8) * Math.PI * 2 + 0.2;
+    const rad = (0.24 + (m % 2) * 0.05) * scale;
+    addHangingStrand(
+      parts,
+      tx + Math.cos(a) * rad,
+      0.54 * scale,
+      tz + Math.sin(a) * rad,
+      (0.26 + (m % 3) * 0.05) * scale,
+      0.022 * scale,
+      0x7ca376,
+      0xa8c9a1,
+      Math.cos(a) * 0.025 * scale,
+      Math.sin(a) * 0.025 * scale,
+    );
+  }
+}
+
+function addHighlandTree(
+  parts: THREE.BufferGeometry[],
+  tx: number,
+  tz: number,
+  scale: number,
+  kind: 'scots_pine' | 'rowan',
+) {
+  const seed = tx * 37.1 + tz * 21.9;
+  addTreeShadowDisk(parts, tx, tz, 0.24 * scale, 0x1a2220);
+
+  if (kind === 'rowan') {
+    // Highland Golden Aspen & Crimson Mountain Ash: slender silver curved trunk with vibrant crimson/amber/gold sculpted puffs
+    addOrganicLimb(parts, tx, 0, tz, tx + 0.03 * scale, 0.34 * scale, tz - 0.01 * scale, 0.048 * scale, 0.032 * scale, 0x7b8187, 0xb4bac0, 6);
+    addOrganicLimb(parts, tx + 0.03 * scale, 0.30 * scale, tz - 0.01 * scale, tx - 0.11 * scale, 0.47 * scale, tz + 0.05 * scale, 0.024 * scale, 0.012 * scale, 0x9aa0a6, 0xb8bec4, 5);
+    addOrganicLimb(parts, tx + 0.03 * scale, 0.31 * scale, tz - 0.01 * scale, tx + 0.13 * scale, 0.48 * scale, tz - 0.05 * scale, 0.024 * scale, 0.012 * scale, 0x9aa0a6, 0xb8bec4, 5);
+    addFoliagePuff(parts, tx - 0.11 * scale, 0.49 * scale, tz + 0.05 * scale, 0.18 * scale, 0.13 * scale, 0.17 * scale, 0x8a2c24, 0xc74c34, 0xf2873f, seed + 1.1, 1);
+    addFoliagePuff(parts, tx + 0.13 * scale, 0.50 * scale, tz - 0.05 * scale, 0.18 * scale, 0.13 * scale, 0.17 * scale, 0x9e3b24, 0xd96b2e, 0xf7a93b, seed + 2.5, 1);
+    addFoliagePuff(parts, tx + 0.01 * scale, 0.60 * scale, tz, 0.20 * scale, 0.14 * scale, 0.19 * scale, 0xb55324, 0xeb9834, 0xffd252, seed + 3.9, 1);
+    return;
+  }
+
+  // 'scots_pine': Windswept Caledonian Scots Pine with dark lower bark -> warm flaky terracotta-orange upper trunk & wind-sheared asymmetric needle clouds
+  addOrganicLimb(parts, tx, 0, tz, tx - 0.04 * scale, 0.24 * scale, tz + 0.01 * scale, 0.068 * scale, 0.052 * scale, 0x3d271c, 0x613b29, 6);
+  addOrganicLimb(parts, tx - 0.04 * scale, 0.23 * scale, tz + 0.01 * scale, tx - 0.11 * scale, 0.49 * scale, tz + 0.02 * scale, 0.052 * scale, 0.034 * scale, 0xa8502e, 0xd16e43, 6);
+  // Wind-sheared horizontal terracotta branches leaning leeward
+  addOrganicLimb(parts, tx - 0.08 * scale, 0.39 * scale, tz + 0.01 * scale, tx + 0.13 * scale, 0.48 * scale, tz - 0.05 * scale, 0.028 * scale, 0.014 * scale, 0xb55a35, 0xd47348, 5);
+  addOrganicLimb(parts, tx - 0.11 * scale, 0.47 * scale, tz + 0.02 * scale, tx - 0.23 * scale, 0.58 * scale, tz + 0.04 * scale, 0.026 * scale, 0.013 * scale, 0xc2633b, 0xd9794c, 5);
+  // Flat wind-sheared Caledonian pine needle cloud pads
+  addFoliagePuff(parts, tx + 0.14 * scale, 0.51 * scale, tz - 0.05 * scale, 0.21 * scale, 0.085 * scale, 0.18 * scale, 0x163628, 0x265741, 0x428263, seed + 1.2, 1);
+  addFoliagePuff(parts, tx - 0.19 * scale, 0.60 * scale, tz + 0.04 * scale, 0.24 * scale, 0.095 * scale, 0.20 * scale, 0x1b4030, 0x2f664d, 0x4e9471, seed + 2.8, 1);
+  addFoliagePuff(parts, tx - 0.04 * scale, 0.68 * scale, tz, 0.20 * scale, 0.085 * scale, 0.18 * scale, 0x214c39, 0x39785b, 0x5ea882, seed + 4.3, 1);
 }
 
 export interface NodeVariantLibrary {
   timber: THREE.BufferGeometry[];
+  timberMeadow: THREE.BufferGeometry[];
   timberJungle: THREE.BufferGeometry[];
   timberTaiga: THREE.BufferGeometry[];
   timberBlossom: THREE.BufferGeometry[];
+  timberSavanna: THREE.BufferGeometry[];
+  timberSwamp: THREE.BufferGeometry[];
+  timberHighland: THREE.BufferGeometry[];
   berry: THREE.BufferGeometry[];
+  berryLod2: THREE.BufferGeometry[];
   farmCrop: THREE.BufferGeometry[];
+  farmCropLod2: THREE.BufferGeometry[];
   sciFiFarm: THREE.BufferGeometry[];
+  sciFiFarmLod2: THREE.BufferGeometry[];
   stone: THREE.BufferGeometry[];
+  stoneLod2: THREE.BufferGeometry[];
   ore: THREE.BufferGeometry[];
+  oreLod2: THREE.BufferGeometry[];
   crystal: THREE.BufferGeometry[];
+  crystalLod2: THREE.BufferGeometry[];
   ambientGrass: THREE.BufferGeometry[];
   ambientForest: THREE.BufferGeometry[];
   ambientJungle: THREE.BufferGeometry[];
@@ -590,9 +1846,13 @@ export interface NodeVariantLibrary {
   ambientSwamp: THREE.BufferGeometry[];
   ambientHighland: THREE.BufferGeometry[];
   coralReef: THREE.BufferGeometry[];
+  coralReefLod2: THREE.BufferGeometry[];
   coralReefBleached: THREE.BufferGeometry[];
+  coralReefBleachedLod2: THREE.BufferGeometry[];
   scrapFlotsam: THREE.BufferGeometry[];
+  scrapFlotsamLod2: THREE.BufferGeometry[];
   atlantisRuin: THREE.BufferGeometry[];
+  atlantisRuinLod2: THREE.BufferGeometry[];
   standardMat: THREE.MeshStandardMaterial;
   crystalMat: THREE.MeshStandardMaterial;
   coralReefMat: THREE.MeshStandardMaterial;
@@ -603,40 +1863,59 @@ let cachedVariantLib: NodeVariantLibrary | null = null;
 export function getNodeVariantLibrary(): NodeVariantLibrary {
   if (cachedVariantLib) return cachedVariantLib;
 
-  // 1. Timber Grove variants (1-3 full trees + saplings/stumps per tile)
+  // 1. Temperate Woodland Timber Grove variants (6 rich variants with strongly varied heights, species & undergrowth)
   const timber: THREE.BufferGeometry[] = [];
   {
-    // V0: 2 trees staggered + mossy stump
+    // V0: Ancient Broad-Crowned Monarch Oak (tall) + Silver Birch (medium) + mossy hollow stump
     const p: THREE.BufferGeometry[] = [];
-    addPixelTree(p, -0.17, -0.14, 1.05, 0);
-    addPixelTree(p, 0.2, 0.17, 0.78, 1);
-    addColoredBox(p, 0.12, 0.1, 0.12, -0.2, 0.05, 0.22, 0x6b442a);
-    addColoredBox(p, 0.14, 0.04, 0.14, -0.2, 0.11, 0.22, 0x5c8a47);
+    addPixelTree(p, -0.15, -0.12, 1.24, 0, 'oak');
+    addPixelTree(p, 0.22, 0.18, 0.84, 2, 'birch');
+    addOrganicLimb(p, -0.22, 0, 0.22, -0.22, 0.11, 0.22, 0.08, 0.065, 0x4a2e1a, 0x6b452a, 6);
+    addSculptedBoulder(p, -0.22, 0.115, 0.22, 0.072, 0.025, 0.072, 0x3b6e33, 0x6ca852, 2.1);
     timber.push(finalizeMergedParts(p));
   }
   {
-    // V1: 3 dense woodland trees
+    // V1: Towering Giant Sequoia / Redwood (1.46x!) + Medium Woodland Pine + Young Oak Sapling
     const p: THREE.BufferGeometry[] = [];
-    addPixelTree(p, -0.21, -0.15, 0.85, 1);
-    addPixelTree(p, 0.21, -0.11, 0.74, 2);
-    addPixelTree(p, 0.0, 0.22, 0.92, 0);
+    addPixelTree(p, -0.06, -0.08, 1.46, 0, 'redwood');
+    addPixelTree(p, 0.24, 0.18, 0.88, 1, 'pine');
+    addPixelTree(p, -0.24, 0.22, 0.54, 2, 'oak');
     timber.push(finalizeMergedParts(p));
   }
   {
-    // V2: 1 grand ancient tree + 2 saplings + fallen log
+    // V2: Silver Birch Stand (1 tall + 1 medium) + Spreading Autumn-Gold Maple + Amanita toadstools
     const p: THREE.BufferGeometry[] = [];
-    addPixelTree(p, -0.04, -0.04, 1.22, 0);
-    addPixelTree(p, 0.26, -0.22, 0.56, 2);
-    addPixelTree(p, -0.25, 0.24, 0.52, 1);
-    addColoredBox(p, 0.26, 0.08, 0.09, 0.2, 0.04, 0.22, 0x5c3a22, 0.4);
+    addPixelTree(p, -0.18, -0.14, 1.28, 2, 'birch');
+    addPixelTree(p, 0.18, -0.06, 0.96, 0, 'maple');
+    addPixelTree(p, -0.04, 0.24, 0.72, 1, 'birch');
+    addOrganicLimb(p, 0.22, 0, 0.22, 0.22, 0.065, 0.22, 0.018, 0.015, 0xd9cfc0, 0xf2ece1, 5);
+    addSculptedBoulder(p, 0.22, 0.075, 0.22, 0.052, 0.028, 0.052, 0xa83226, 0xe0533f, 3.3);
     timber.push(finalizeMergedParts(p));
   }
   {
-    // V3: 3 slender asymmetric pines
+    // V3: Dense 4-Tree Asymmetric Woodland Copse (strongly graduated heights: 1.34, 0.98, 0.68, 0.48)
     const p: THREE.BufferGeometry[] = [];
-    addPixelTree(p, 0.2, -0.2, 0.96, 1);
-    addPixelTree(p, -0.2, 0.04, 0.76, 0);
-    addPixelTree(p, 0.12, 0.24, 0.68, 2);
+    addPixelTree(p, 0.16, -0.18, 1.34, 1, 'pine');
+    addPixelTree(p, -0.20, -0.04, 0.98, 0, 'oak');
+    addPixelTree(p, 0.18, 0.22, 0.68, 2, 'birch');
+    addPixelTree(p, -0.14, 0.26, 0.48, 1, 'pine');
+    timber.push(finalizeMergedParts(p));
+  }
+  {
+    // V4: Solitary Colossal Patriarch Oak (1.42x) + Fallen Mossy Nurse Log + Young Sapling
+    const p: THREE.BufferGeometry[] = [];
+    addPixelTree(p, -0.04, -0.04, 1.42, 0, 'oak');
+    addPixelTree(p, 0.25, -0.22, 0.56, 1, 'pine');
+    addOrganicLimb(p, 0.04, 0.045, 0.27, 0.28, 0.045, 0.17, 0.048, 0.042, 0x452b19, 0x634028, 6);
+    addSculptedBoulder(p, 0.15, 0.088, 0.22, 0.08, 0.032, 0.055, 0x3b6e33, 0x6ca852, 5.1);
+    timber.push(finalizeMergedParts(p));
+  }
+  {
+    // V5: Twin Redwood & Golden Maple Canopy Grove
+    const p: THREE.BufferGeometry[] = [];
+    addPixelTree(p, -0.18, 0.12, 1.36, 0, 'redwood');
+    addPixelTree(p, 0.18, -0.14, 1.08, 2, 'maple');
+    addPixelTree(p, 0.16, 0.24, 0.60, 0, 'oak');
     timber.push(finalizeMergedParts(p));
   }
 
@@ -780,37 +2059,110 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     ore.push(finalizeMergedParts(p));
   }
 
-  // 5. Crystal Monolith variants (1-4 luminous spires per tile)
+  // 5. Crystal Monolith variants (6 vibrant multi-colored fantasy crystal clusters on light-blue geode bases)
   const crystal: THREE.BufferGeometry[] = [];
+  const paintCrystalPart = (g: THREE.BufferGeometry, hex: number) => {
+    _tmpColor.setHex(hex);
+    const count = g.attributes.position.count;
+    const colors = new Float32Array(count * 3);
+    for (let i = 0; i < count; i++) {
+      colors[i * 3] = _tmpColor.r;
+      colors[i * 3 + 1] = _tmpColor.g;
+      colors[i * 3 + 2] = _tmpColor.b;
+    }
+    g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  };
+  const addFacetedCrystalSpire = (
+    parts: THREE.BufferGeometry[],
+    cx: number,
+    cz: number,
+    radius: number,
+    height: number,
+    bodyHex: number,
+    tipHex: number,
+    tiltX = 0,
+    tiltZ = 0,
+    rotY = 0,
+  ) => {
+    const shaftH = height * 0.72;
+    const tipH = height * 0.28;
+    const shaft = new THREE.CylinderGeometry(radius * 0.88, radius, shaftH, 6);
+    shaft.translate(0, shaftH * 0.5, 0);
+    if (rotY !== 0) shaft.rotateY(rotY);
+    if (tiltX !== 0) shaft.rotateX(tiltX);
+    if (tiltZ !== 0) shaft.rotateZ(tiltZ);
+    shaft.translate(cx, 0.03, cz);
+    paintCrystalPart(shaft, bodyHex);
+    parts.push(shaft);
+
+    const tip = new THREE.ConeGeometry(radius * 0.88, tipH, 6);
+    tip.translate(0, shaftH + tipH * 0.5, 0);
+    if (rotY !== 0) tip.rotateY(rotY);
+    if (tiltX !== 0) tip.rotateX(tiltX);
+    if (tiltZ !== 0) tip.rotateZ(tiltZ);
+    tip.translate(cx, 0.03, cz);
+    paintCrystalPart(tip, tipHex);
+    parts.push(tip);
+  };
+
   {
+    // Variant 0: Rose-Magenta Quartz spire with Amethyst & Sapphire side crystals
     const p: THREE.BufferGeometry[] = [];
-    addColoredBox(p, 0.48, 0.12, 0.48, 0, 0.06, 0, 0x37474f);
-    addColoredBox(p, 0.18, 0.66, 0.18, 0, 0.38, 0, 0x48bfe3, Math.PI / 4);
-    addColoredBox(p, 0.12, 0.4, 0.12, 0.18, 0.24, 0.12, 0x64dfdf, 0, -0.22);
-    addColoredBox(p, 0.11, 0.34, 0.11, -0.17, 0.2, -0.14, 0x4ea8de, 0, 0.24);
+    addSculptedBoulder(p, 0, 0.045, 0, 0.25, 0.055, 0.24, 0x6cb8e6, 0xa8e0ff, 1.1);
+    addFacetedCrystalSpire(p, 0.0, 0.0, 0.105, 0.72, 0xe848a8, 0xff94d6, 0.06, -0.05, 0.3);
+    addFacetedCrystalSpire(p, 0.16, 0.11, 0.072, 0.46, 0x9b5de5, 0xd4a5ff, 0.16, -0.22, 0.9);
+    addFacetedCrystalSpire(p, -0.15, -0.12, 0.068, 0.40, 0x38bdf8, 0x99e6ff, -0.18, 0.22, 1.7);
+    addFacetedCrystalSpire(p, -0.12, 0.15, 0.054, 0.30, 0xfbbf24, 0xffe680, 0.22, 0.18, 2.3);
     crystal.push(finalizeMergedParts(p));
   }
   {
+    // Variant 1: Emerald-Mint Jade prism cluster with Golden Topaz & Rose-Pink shards
     const p: THREE.BufferGeometry[] = [];
-    addColoredBox(p, 0.22, 0.1, 0.22, -0.18, 0.05, -0.12, 0x37474f);
-    addColoredBox(p, 0.13, 0.54, 0.13, -0.18, 0.32, -0.12, 0x48bfe3, 0.4, 0.12);
-    addColoredBox(p, 0.12, 0.48, 0.12, 0.2, 0.28, -0.14, 0x64dfdf, 0.7, -0.18);
-    addColoredBox(p, 0.14, 0.6, 0.14, 0.02, 0.34, 0.22, 0x56cfe1, 0.2);
+    addSculptedBoulder(p, -0.04, 0.045, 0.02, 0.24, 0.055, 0.23, 0x72bee8, 0xb0e4ff, 2.4);
+    addFacetedCrystalSpire(p, -0.06, -0.04, 0.10, 0.68, 0x10b981, 0x6ee7b7, -0.08, 0.10, 0.5);
+    addFacetedCrystalSpire(p, 0.15, -0.10, 0.076, 0.50, 0xf59e0b, 0xfde047, 0.14, -0.20, 1.1);
+    addFacetedCrystalSpire(p, 0.06, 0.16, 0.072, 0.44, 0xf43f5e, 0xfda4af, 0.20, 0.12, 2.0);
+    addFacetedCrystalSpire(p, -0.18, 0.12, 0.055, 0.32, 0x38bdf8, 0xbae6fd, -0.16, 0.24, 0.2);
     crystal.push(finalizeMergedParts(p));
   }
   {
+    // Variant 2: Royal Amethyst-Violet monolith with Cyan-Ice & Coral-Ruby crystals
     const p: THREE.BufferGeometry[] = [];
-    addColoredBox(p, 0.11, 0.42, 0.11, -0.2, 0.21, -0.18, 0x64dfdf, 0.3, 0.18);
-    addColoredBox(p, 0.11, 0.46, 0.11, 0.2, 0.23, -0.16, 0x48bfe3, 0.6, -0.16);
-    addColoredBox(p, 0.12, 0.52, 0.12, -0.16, 0.26, 0.2, 0x56cfe1, 0.1, 0.14);
-    addColoredBox(p, 0.1, 0.38, 0.1, 0.22, 0.19, 0.18, 0x72efdd, 0.5, -0.2);
+    addSculptedBoulder(p, 0.02, 0.045, -0.02, 0.26, 0.055, 0.24, 0x68b4e3, 0xa2dcff, 3.7);
+    addFacetedCrystalSpire(p, 0.02, -0.02, 0.11, 0.74, 0x8b5cf6, 0xc4b5fd, 0.05, 0.07, 0.8);
+    addFacetedCrystalSpire(p, -0.16, 0.11, 0.078, 0.48, 0x06b6d4, 0x67e8f9, -0.18, 0.20, 1.5);
+    addFacetedCrystalSpire(p, 0.17, 0.13, 0.068, 0.42, 0xf97316, 0xfdba74, 0.18, -0.18, 2.4);
+    addFacetedCrystalSpire(p, -0.13, -0.15, 0.056, 0.31, 0xec4899, 0xf9a8d4, -0.22, -0.15, 0.4);
     crystal.push(finalizeMergedParts(p));
   }
   {
+    // Variant 3: Golden-Topaz Sunstone spire with Lavender, Mint & Magenta shards
     const p: THREE.BufferGeometry[] = [];
-    addColoredBox(p, 0.42, 0.1, 0.36, 0, 0.05, 0, 0x37474f);
-    addColoredBox(p, 0.17, 0.68, 0.17, -0.1, 0.38, -0.05, 0x48bfe3, 0.5, 0.14);
-    addColoredBox(p, 0.15, 0.56, 0.15, 0.14, 0.32, 0.12, 0x64dfdf, 0.2, -0.18);
+    addSculptedBoulder(p, 0, 0.045, 0, 0.25, 0.055, 0.25, 0x74bfe8, 0xb5e6ff, 4.9);
+    addFacetedCrystalSpire(p, -0.03, 0.02, 0.102, 0.70, 0xeab308, 0xfef08a, -0.06, -0.08, 1.2);
+    addFacetedCrystalSpire(p, 0.16, -0.08, 0.080, 0.52, 0xd946ef, 0xf5d0fe, 0.15, -0.22, 0.4);
+    addFacetedCrystalSpire(p, -0.16, -0.12, 0.068, 0.40, 0x14b8a6, 0x99f6e4, -0.20, 0.16, 2.1);
+    addFacetedCrystalSpire(p, 0.08, 0.17, 0.058, 0.34, 0x6366f1, 0xa5b4fc, 0.22, 0.14, 1.8);
+    crystal.push(finalizeMergedParts(p));
+  }
+  {
+    // Variant 4: Celestial Sapphire-Cyan cathedral spire with Ruby, Emerald & Violet offshoots
+    const p: THREE.BufferGeometry[] = [];
+    addSculptedBoulder(p, 0.01, 0.045, 0.01, 0.25, 0.055, 0.23, 0x6ab5e3, 0xa8dfff, 6.1);
+    addFacetedCrystalSpire(p, 0.0, 0.0, 0.108, 0.73, 0x0ea5e9, 0x7dd3fc, 0.04, -0.06, 0.7);
+    addFacetedCrystalSpire(p, -0.17, 0.08, 0.076, 0.49, 0xf43f5e, 0xfda4af, -0.19, 0.18, 1.4);
+    addFacetedCrystalSpire(p, 0.15, 0.12, 0.070, 0.43, 0x22c55e, 0x86efac, 0.17, -0.19, 2.2);
+    addFacetedCrystalSpire(p, 0.11, -0.16, 0.056, 0.33, 0xa855f7, 0xd8b4fe, -0.18, -0.20, 0.9);
+    crystal.push(finalizeMergedParts(p));
+  }
+  {
+    // Variant 5: Crimson-Coral Starstone with Turquoise, Gold & Fuchsia crystals
+    const p: THREE.BufferGeometry[] = [];
+    addSculptedBoulder(p, -0.02, 0.045, 0.0, 0.24, 0.055, 0.24, 0x70bce6, 0xade2ff, 7.3);
+    addFacetedCrystalSpire(p, 0.03, -0.03, 0.104, 0.69, 0xef4444, 0xfca5a5, 0.07, 0.06, 1.6);
+    addFacetedCrystalSpire(p, -0.15, -0.09, 0.078, 0.50, 0x06b6d4, 0xa5f3fc, -0.16, 0.21, 0.3);
+    addFacetedCrystalSpire(p, 0.14, 0.15, 0.068, 0.41, 0xfacc15, 0xfef08a, 0.21, -0.14, 2.5);
+    addFacetedCrystalSpire(p, -0.11, 0.16, 0.056, 0.32, 0xec4899, 0xfbcfe8, 0.18, 0.22, 1.1);
     crystal.push(finalizeMergedParts(p));
   }
 
@@ -975,55 +2327,296 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     ambientHighland.push(finalizeMergedParts(p));
   }
 
-  // 6b. Biome-specific Timber Groves (Jungle Palms/Mahogany, Taiga Conifers, Sakura Blossoms)
+  // 6b. Biome-specific Timber Groves (Meadow, Jungle, Taiga, Sakura Blossom, Savanna, Swamp, Highland)
+  const timberMeadow: THREE.BufferGeometry[] = [];
+  {
+    // Variant 0: Majestic Weeping Willow + Young Orchard Sapling
+    const p: THREE.BufferGeometry[] = [];
+    addMeadowTree(p, -0.06, -0.04, 1.32, 'willow');
+    addMeadowTree(p, 0.28, 0.24, 0.62, 'orchard');
+    timberMeadow.push(finalizeMergedParts(p));
+  }
+  {
+    // Variant 1: Fruit-laden Apple & Golden Pear Orchard Pair + Sculpted Berry Hedge
+    const p: THREE.BufferGeometry[] = [];
+    addMeadowTree(p, -0.18, -0.14, 1.15, 'orchard');
+    addMeadowTree(p, 0.22, 0.18, 0.82, 'orchard');
+    addFoliagePuff(p, -0.22, 0.08, 0.24, 0.12, 0.08, 0.12, 0x265e2d, 0x3f8f44, 0x6fc263, 2.2, 0);
+    addSculptedBoulder(p, -0.18, 0.14, 0.22, 0.032, 0.032, 0.032, 0xd93025, 0xff5a4f, 4.1);
+    timberMeadow.push(finalizeMergedParts(p));
+  }
+  {
+    // Variant 2: Towering Lombardy Cypress/Poplar Windbreak Trio (Varied Spire Heights)
+    const p: THREE.BufferGeometry[] = [];
+    addMeadowTree(p, -0.16, -0.14, 1.48, 'poplar');
+    addMeadowTree(p, 0.20, -0.08, 1.06, 'poplar');
+    addMeadowTree(p, 0.04, 0.24, 0.72, 'poplar');
+    timberMeadow.push(finalizeMergedParts(p));
+  }
+  {
+    // Variant 3: Solitary Giant Weeping Willow with Exposed Roots & Mossy River Stone
+    const p: THREE.BufferGeometry[] = [];
+    addMeadowTree(p, 0.02, 0.02, 1.54, 'willow');
+    addSculptedBoulder(p, -0.28, 0.05, 0.24, 0.11, 0.058, 0.09, 0x5d676b, 0x8a9599, 6.2);
+    timberMeadow.push(finalizeMergedParts(p));
+  }
+  {
+    // Variant 4: Mixed Pastoral Grove (Tall Poplar + Blooming Apple Tree + Young Willow)
+    const p: THREE.BufferGeometry[] = [];
+    addMeadowTree(p, -0.22, -0.16, 1.36, 'poplar');
+    addMeadowTree(p, 0.18, 0.08, 1.02, 'orchard');
+    addMeadowTree(p, -0.08, 0.28, 0.68, 'willow');
+    timberMeadow.push(finalizeMergedParts(p));
+  }
+
   const timberJungle: THREE.BufferGeometry[] = [];
   {
+    // Variant 0: Colossal Emergent Kapok with Plank Buttresses + Leaning Coconut Palm
     const p: THREE.BufferGeometry[] = [];
-    addJungleTree(p, -0.14, -0.1, 1.18, false);
-    addJungleTree(p, 0.22, 0.18, 0.88, true);
+    addJungleTree(p, -0.12, -0.08, 1.46, false, false);
+    addJungleTree(p, 0.26, 0.20, 0.92, true, false);
     timberJungle.push(finalizeMergedParts(p));
   }
   {
+    // Variant 1: Coastal/Oasis Coconut Palm Trio (Tall, Medium, Young Frond Cluster)
     const p: THREE.BufferGeometry[] = [];
-    addJungleTree(p, 0.14, -0.16, 1.08, true);
-    addJungleTree(p, -0.2, 0.16, 1.02, false);
-    addColoredBox(p, 0.18, 0.12, 0.18, 0.16, 0.06, 0.22, 0x267342);
+    addJungleTree(p, 0.12, -0.14, 1.38, true, false);
+    addJungleTree(p, -0.22, 0.14, 1.04, true, false);
+    addJungleTree(p, 0.18, 0.24, 0.64, true, false);
+    addFoliagePuff(p, -0.16, 0.07, -0.22, 0.12, 0.07, 0.12, 0x164f2b, 0x287d45, 0x4cb565, 3.1, 0);
     timberJungle.push(finalizeMergedParts(p));
   }
   {
+    // Variant 2: Ancient Strangler Fig / Banyan Cathedral with Aerial Prop-Root Pillars
     const p: THREE.BufferGeometry[] = [];
-    addJungleTree(p, 0.0, 0.0, 1.32, false);
-    addJungleTree(p, -0.26, 0.22, 0.68, true);
+    addJungleTree(p, 0.0, 0.0, 1.52, false, true);
+    addJungleTree(p, -0.28, 0.24, 0.68, true, false);
+    timberJungle.push(finalizeMergedParts(p));
+  }
+  {
+    // Variant 3: Dense Multi-Story Rainforest Canopy (Kapok + Banyan + Understory Palm)
+    const p: THREE.BufferGeometry[] = [];
+    addJungleTree(p, -0.18, -0.16, 1.28, false, false);
+    addJungleTree(p, 0.20, 0.14, 1.08, false, true);
+    addJungleTree(p, -0.14, 0.26, 0.58, true, false);
+    timberJungle.push(finalizeMergedParts(p));
+  }
+  {
+    // Variant 4: Towering Twin Kapok Giants with Hanging Lianas & Orchid Ferns
+    const p: THREE.BufferGeometry[] = [];
+    addJungleTree(p, 0.10, -0.10, 1.62, false, false);
+    addJungleTree(p, -0.24, 0.18, 0.84, false, false);
+    addFoliagePuff(p, 0.22, 0.07, 0.22, 0.12, 0.065, 0.12, 0x134a26, 0x24753d, 0x49b05f, 4.7, 0);
+    addSculptedBoulder(p, 0.22, 0.13, 0.22, 0.04, 0.036, 0.04, 0xd93848, 0xff6b78, 7.1);
     timberJungle.push(finalizeMergedParts(p));
   }
 
   const timberTaiga: THREE.BufferGeometry[] = [];
   {
+    // Variant 0: Towering Snow-Capped Boreal Spruce + Young Subalpine Fir
     const p: THREE.BufferGeometry[] = [];
-    addTaigaConifer(p, -0.16, -0.14, 1.12, true);
-    addTaigaConifer(p, 0.2, 0.16, 0.86, false);
+    addTaigaConifer(p, -0.14, -0.12, 1.48, true, 'spruce');
+    addTaigaConifer(p, 0.22, 0.18, 0.78, false, 'blue_fir');
     timberTaiga.push(finalizeMergedParts(p));
   }
   {
+    // Variant 1: Dense Boreal Trio (Tall Snow Spruce + Silver-Blue Fir + Golden Autumn Larch)
     const p: THREE.BufferGeometry[] = [];
-    addTaigaConifer(p, -0.18, 0.14, 0.94, true);
-    addTaigaConifer(p, 0.18, -0.16, 1.02, true);
-    addTaigaConifer(p, 0.06, 0.24, 0.72, false);
+    addTaigaConifer(p, -0.18, 0.14, 1.24, true, 'spruce');
+    addTaigaConifer(p, 0.18, -0.16, 1.04, true, 'blue_fir');
+    addTaigaConifer(p, 0.06, 0.26, 0.66, false, 'larch');
+    timberTaiga.push(finalizeMergedParts(p));
+  }
+  {
+    // Variant 2: Colossal Old-Growth Cathedral Spruce + Snow-Drifted Fallen Log
+    const p: THREE.BufferGeometry[] = [];
+    addTaigaConifer(p, 0.02, -0.02, 1.68, true, 'spruce');
+    addTaigaConifer(p, -0.26, 0.22, 0.56, true, 'spruce');
+    addOrganicLimb(p, 0.04, 0.045, 0.29, 0.30, 0.045, 0.18, 0.048, 0.040, 0x3b2618, 0x573925, 6);
+    addSculptedBoulder(p, 0.17, 0.088, 0.24, 0.11, 0.028, 0.052, 0xd2e7f0, 0xf5fbff, 3.2);
+    timberTaiga.push(finalizeMergedParts(p));
+  }
+  {
+    // Variant 3: Golden Siberian Larch Stand + Frosty Blue Fir
+    const p: THREE.BufferGeometry[] = [];
+    addTaigaConifer(p, -0.12, -0.10, 1.36, true, 'larch');
+    addTaigaConifer(p, 0.22, 0.14, 0.96, true, 'blue_fir');
+    addTaigaConifer(p, -0.24, 0.22, 0.62, false, 'larch');
+    timberTaiga.push(finalizeMergedParts(p));
+  }
+  {
+    // Variant 4: Dense 4-Tree Boreal Needle Cluster (Varied Heights from Sapling to Spire)
+    const p: THREE.BufferGeometry[] = [];
+    addTaigaConifer(p, -0.20, -0.18, 1.42, true, 'blue_fir');
+    addTaigaConifer(p, 0.20, -0.12, 1.12, true, 'spruce');
+    addTaigaConifer(p, -0.06, 0.20, 0.84, false, 'spruce');
+    addTaigaConifer(p, 0.24, 0.24, 0.52, true, 'blue_fir');
     timberTaiga.push(finalizeMergedParts(p));
   }
 
   const timberBlossom: THREE.BufferGeometry[] = [];
   {
+    // Variant 0: Grand Weeping Sakura + Young Pagoda Cherry
     const p: THREE.BufferGeometry[] = [];
-    addSakuraTree(p, -0.14, -0.12, 1.14);
-    addSakuraTree(p, 0.22, 0.18, 0.82);
+    addSakuraTree(p, -0.12, -0.10, 1.38, 'weeping');
+    addSakuraTree(p, 0.24, 0.20, 0.78, 'pagoda');
     timberBlossom.push(finalizeMergedParts(p));
   }
   {
+    // Variant 1: Ancient Twisted Bonsai Sakura Masterpiece + Sculpted Stone Garden Lantern
     const p: THREE.BufferGeometry[] = [];
-    addSakuraTree(p, 0.02, 0.0, 1.25);
-    addColoredBox(p, 0.14, 0.04, 0.14, -0.24, 0.02, 0.22, 0xf7a8c6);
+    addSakuraTree(p, 0.04, -0.02, 1.48, 'bonsai');
+    addOrganicLimb(p, -0.26, 0, 0.22, -0.26, 0.05, 0.22, 0.065, 0.052, 0x6d777c, 0x859096, 6);
+    addOrganicLimb(p, -0.26, 0.05, 0.22, -0.26, 0.16, 0.22, 0.036, 0.032, 0x859096, 0x9aa4aa, 6);
+    addOrganicLimb(p, -0.26, 0.16, 0.22, -0.26, 0.22, 0.22, 0.046, 0.046, 0xffd56b, 0xfff0b3, 6);
+    addOrganicLimb(p, -0.26, 0.22, 0.22, -0.26, 0.28, 0.22, 0.095, 0.015, 0x5c666b, 0x7b858a, 6);
     timberBlossom.push(finalizeMergedParts(p));
+  }
+  {
+    // Variant 2: Multi-Tiered Pagoda Sakura Pair with Petal Drift Carpet
+    const p: THREE.BufferGeometry[] = [];
+    addSakuraTree(p, -0.18, 0.12, 1.24, 'pagoda');
+    addSakuraTree(p, 0.18, -0.16, 0.94, 'weeping');
+    addSakuraTree(p, 0.14, 0.26, 0.58, 'bonsai');
+    timberBlossom.push(finalizeMergedParts(p));
+  }
+  {
+    // Variant 3: Colossal Imperial Weeping Cherry Canopy + Fallen Petal Mound
+    const p: THREE.BufferGeometry[] = [];
+    addSakuraTree(p, 0.0, 0.0, 1.62, 'weeping');
+    addTreeShadowDisk(p, -0.22, 0.24, 0.14, 0xffb8d4);
+    timberBlossom.push(finalizeMergedParts(p));
+  }
+  {
+    // Variant 4: Twin Arching Bonsai & Pagoda Cherry Grove
+    const p: THREE.BufferGeometry[] = [];
+    addSakuraTree(p, -0.16, -0.14, 1.32, 'bonsai');
+    addSakuraTree(p, 0.20, 0.16, 1.06, 'pagoda');
+    timberBlossom.push(finalizeMergedParts(p));
+  }
+
+  const timberSavanna: THREE.BufferGeometry[] = [];
+  {
+    // Variant 0: Iconic Flat-Topped Umbrella Acacia + Sculpted Red Clay Termite Cathedral Spire
+    const p: THREE.BufferGeometry[] = [];
+    addSavannaTree(p, -0.06, -0.04, 1.36, 'acacia');
+    addSavannaTree(p, 0.28, 0.22, 0.68, 'acacia');
+    addOrganicLimb(p, -0.28, 0, 0.24, -0.26, 0.28, 0.22, 0.075, 0.018, 0x8f4e27, 0xc77e48, 6);
+    addOrganicLimb(p, -0.22, 0, 0.26, -0.21, 0.17, 0.25, 0.048, 0.015, 0x99552c, 0xc27742, 5);
+    timberSavanna.push(finalizeMergedParts(p));
+  }
+  {
+    // Variant 1: Colossal Ancient African Baobab (Bottle Trunk Giant) + Sun-Baked Boulder
+    const p: THREE.BufferGeometry[] = [];
+    addSavannaTree(p, 0.02, 0.0, 1.54, 'baobab');
+    addSculptedBoulder(p, -0.28, 0.05, 0.22, 0.11, 0.058, 0.095, 0x735c43, 0xa38767, 5.4);
+    timberSavanna.push(finalizeMergedParts(p));
+  }
+  {
+    // Variant 2: Twin Umbrella Acacia Canopy (Tall & Medium Overlapping Plates)
+    const p: THREE.BufferGeometry[] = [];
+    addSavannaTree(p, -0.18, -0.14, 1.48, 'acacia');
+    addSavannaTree(p, 0.20, 0.16, 0.96, 'acacia');
+    timberSavanna.push(finalizeMergedParts(p));
+  }
+  {
+    // Variant 3: Mixed Savanna Oasis (Stout Baobab + Tall Acacia + Dry Thorn Scrub)
+    const p: THREE.BufferGeometry[] = [];
+    addSavannaTree(p, -0.16, 0.12, 1.24, 'baobab');
+    addSavannaTree(p, 0.20, -0.16, 1.18, 'acacia');
+    addFoliagePuff(p, 0.18, 0.06, 0.24, 0.11, 0.06, 0.11, 0x526324, 0x798f34, 0xa8bd4a, 2.9, 0);
+    timberSavanna.push(finalizeMergedParts(p));
+  }
+  {
+    // Variant 4: Windswept Steppe Acacia Trio (Three Distinct Heights)
+    const p: THREE.BufferGeometry[] = [];
+    addSavannaTree(p, 0.08, -0.14, 1.58, 'acacia');
+    addSavannaTree(p, -0.24, 0.10, 1.04, 'acacia');
+    addSavannaTree(p, 0.16, 0.24, 0.62, 'acacia');
+    timberSavanna.push(finalizeMergedParts(p));
+  }
+
+  const timberSwamp: THREE.BufferGeometry[] = [];
+  {
+    // Variant 0: Towering Bayou Bald Cypress with Fluted Base, Knees & Spanish Moss Curtains
+    const p: THREE.BufferGeometry[] = [];
+    addSwampTree(p, -0.08, -0.06, 1.46, 'cypress');
+    addSwampTree(p, 0.24, 0.20, 0.78, 'mangrove');
+    timberSwamp.push(finalizeMergedParts(p));
+  }
+  {
+    // Variant 1: Dense Stilt-Root Mangrove Thicket + Bioluminescent Marsh Toadstools
+    const p: THREE.BufferGeometry[] = [];
+    addSwampTree(p, -0.16, -0.12, 1.28, 'mangrove');
+    addSwampTree(p, 0.18, 0.14, 0.98, 'mangrove');
+    addSwampTree(p, -0.14, 0.26, 0.62, 'cypress');
+    timberSwamp.push(finalizeMergedParts(p));
+  }
+  {
+    // Variant 2: Colossal Ancient Weeping Mire Cypress + Cattail Reeds
+    const p: THREE.BufferGeometry[] = [];
+    addSwampTree(p, 0.0, 0.0, 1.62, 'cypress');
+    addOrganicLimb(p, -0.28, 0, 0.22, -0.27, 0.24, 0.21, 0.016, 0.010, 0x2d5229, 0x497a42, 5);
+    addOrganicLimb(p, -0.27, 0.17, 0.21, -0.27, 0.24, 0.21, 0.025, 0.024, 0x452b18, 0x5e3b22, 5);
+    timberSwamp.push(finalizeMergedParts(p));
+  }
+  {
+    // Variant 3: Twin Bald Cypress Cathedral with Draped Moss & Glowing Fungi
+    const p: THREE.BufferGeometry[] = [];
+    addSwampTree(p, 0.14, -0.14, 1.38, 'cypress');
+    addSwampTree(p, -0.20, 0.16, 1.08, 'cypress');
+    addOrganicLimb(p, 0.24, 0, 0.22, 0.24, 0.06, 0.22, 0.014, 0.012, 0xa8e8d8, 0xd4fff2, 5);
+    addSculptedBoulder(p, 0.24, 0.072, 0.22, 0.052, 0.025, 0.052, 0x28c796, 0x6effcc, 4.4);
+    timberSwamp.push(finalizeMergedParts(p));
+  }
+  {
+    // Variant 4: Tangled Bog Mangrove & Cypress Trio
+    const p: THREE.BufferGeometry[] = [];
+    addSwampTree(p, -0.20, -0.16, 1.50, 'cypress');
+    addSwampTree(p, 0.20, -0.06, 1.12, 'mangrove');
+    addSwampTree(p, 0.02, 0.24, 0.68, 'mangrove');
+    timberSwamp.push(finalizeMergedParts(p));
+  }
+
+  const timberHighland: THREE.BufferGeometry[] = [];
+  {
+    // Variant 0: Windswept Crag Scots Pine (Flaky Orange Upper Bark) + Golden Autumn Rowan
+    const p: THREE.BufferGeometry[] = [];
+    addHighlandTree(p, -0.10, -0.08, 1.42, 'scots_pine');
+    addHighlandTree(p, 0.24, 0.18, 0.82, 'rowan');
+    timberHighland.push(finalizeMergedParts(p));
+  }
+  {
+    // Variant 1: Golden Highland Aspen & Crimson Mountain Ash Trio + Purple Heather Tuft
+    const p: THREE.BufferGeometry[] = [];
+    addHighlandTree(p, -0.16, -0.14, 1.34, 'rowan');
+    addHighlandTree(p, 0.20, 0.14, 1.02, 'rowan');
+    addHighlandTree(p, -0.18, 0.24, 0.64, 'scots_pine');
+    addFoliagePuff(p, 0.18, 0.055, -0.22, 0.09, 0.055, 0.09, 0x6b4570, 0x9b6b9e, 0xc794c9, 3.8, 0);
+    timberHighland.push(finalizeMergedParts(p));
+  }
+  {
+    // Variant 2: Solitary Ancient Caledonian Scots Pine on Sculpted Mossy Granite Crag
+    const p: THREE.BufferGeometry[] = [];
+    addSculptedBoulder(p, 0.0, 0.055, 0.0, 0.22, 0.085, 0.20, 0x525b61, 0x7d878f, 1.9);
+    addHighlandTree(p, 0.02, 0.0, 1.58, 'scots_pine');
+    timberHighland.push(finalizeMergedParts(p));
+  }
+  {
+    // Variant 3: Twin Windswept Highland Pines + Subalpine Fir Sapling
+    const p: THREE.BufferGeometry[] = [];
+    addHighlandTree(p, 0.14, -0.14, 1.48, 'scots_pine');
+    addHighlandTree(p, -0.20, 0.16, 1.08, 'scots_pine');
+    addTaigaConifer(p, 0.20, 0.22, 0.62, false, 'blue_fir');
+    timberHighland.push(finalizeMergedParts(p));
+  }
+  {
+    // Variant 4: Mixed Alpine Ridge Stand (Scots Pine + Golden Rowan + Crimson Ash)
+    const p: THREE.BufferGeometry[] = [];
+    addHighlandTree(p, -0.18, 0.10, 1.28, 'scots_pine');
+    addHighlandTree(p, 0.16, -0.16, 1.18, 'rowan');
+    addHighlandTree(p, 0.14, 0.24, 0.72, 'rowan');
+    timberHighland.push(finalizeMergedParts(p));
   }
 
   // 6c. New Biome Ambient Ground Props (Mountain spires, Jungle ferns/orchids, Taiga snow shrubs, Tundra ice, Badlands hoodoos, Blossom petals)
@@ -1175,6 +2768,34 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     parts.push(g);
   };
 
+  const addColoredOcta = (
+    parts: THREE.BufferGeometry[],
+    radius: number,
+    x: number,
+    y: number,
+    z: number,
+    hex: number,
+    scaleX = 1,
+    scaleY = 1,
+    scaleZ = 1,
+  ) => {
+    const g = new THREE.OctahedronGeometry(radius, 0);
+    if (scaleX !== 1 || scaleY !== 1 || scaleZ !== 1) {
+      g.scale(scaleX, scaleY, scaleZ);
+    }
+    g.translate(x, y, z);
+    _tmpColor.setHex(hex);
+    const count = g.attributes.position.count;
+    const colors = new Float32Array(count * 3);
+    for (let i = 0; i < count; i++) {
+      colors[i * 3] = _tmpColor.r;
+      colors[i * 3 + 1] = _tmpColor.g;
+      colors[i * 3 + 2] = _tmpColor.b;
+    }
+    g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    parts.push(g);
+  };
+
   // Sculpted coralline-algae terrace & sunlit pearl-sand reef foundation (keeps all vertices >= 0.0)
   const addReefLimestoneMound = (
     parts: THREE.BufferGeometry[],
@@ -1184,12 +2805,12 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     corallineCrestHex: number,
   ) => {
     // Broad sunlit reef-sand shoal base
-    addColoredCylinder(parts, 0.41, 0.45, 0.022, 10, 0.0, 0.011, 0.0, sandHex, 0, 0.18);
+    addColoredCylinder(parts, 0.41, 0.45, 0.022, 7, 0.0, 0.011, 0.0, sandHex, 0, 0.18);
     // Terraced coralline-algae ledges (lavender-rose, violet & coral-pink encrusted reef rock)
-    addColoredCylinder(parts, 0.33, 0.39, 0.032, 9, -0.04, 0.024, 0.03, corallineBaseHex, 0, 0.55);
-    addColoredCylinder(parts, 0.26, 0.32, 0.036, 8, 0.13, 0.028, -0.09, corallineMidHex, 0, -0.42);
-    addColoredCylinder(parts, 0.23, 0.29, 0.034, 8, -0.15, 0.026, -0.11, corallineCrestHex, 0, 0.85);
-    addColoredCylinder(parts, 0.21, 0.26, 0.030, 8, 0.10, 0.024, 0.14, corallineBaseHex, 0, 1.25);
+    addColoredCylinder(parts, 0.33, 0.39, 0.032, 6, -0.04, 0.024, 0.03, corallineBaseHex, 0, 0.55);
+    addColoredCylinder(parts, 0.26, 0.32, 0.036, 6, 0.13, 0.028, -0.09, corallineMidHex, 0, -0.42);
+    addColoredCylinder(parts, 0.23, 0.29, 0.034, 6, -0.15, 0.026, -0.11, corallineCrestHex, 0, 0.85);
+    addColoredCylinder(parts, 0.21, 0.26, 0.030, 6, 0.10, 0.024, 0.14, corallineBaseHex, 0, 1.25);
   };
 
   // Majestic Spiraling Acropora Pagoda & Table Canopy with layered gradient disks and radial glowing polyp pearls
@@ -1207,20 +2828,20 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     rotY = 0,
   ) => {
     // Sculpted pedicel column
-    addColoredCylinder(parts, radius * 0.28, radius * 0.42, 0.036, 8, cx, baseY + 0.018, cz, stalkHex, 0, rotY);
+    addColoredCylinder(parts, radius * 0.28, radius * 0.42, 0.036, 5, cx, baseY + 0.018, cz, stalkHex, 0, rotY);
     // Broad flared lower fan canopy
-    addColoredCylinder(parts, radius * 1.06, radius * 0.62, 0.022, 10, cx, baseY + 0.038, cz, plateHex, 0, rotY);
+    addColoredCylinder(parts, radius * 1.06, radius * 0.62, 0.022, 7, cx, baseY + 0.038, cz, plateHex, 0, rotY);
     // Vibrant middle coral terrace
-    addColoredCylinder(parts, radius * 0.88, radius * 1.04, 0.014, 10, cx, baseY + 0.050, cz, midHex, 0, rotY + 0.18);
+    addColoredCylinder(parts, radius * 0.88, radius * 1.04, 0.014, 7, cx, baseY + 0.050, cz, midHex, 0, rotY + 0.18);
     // Luminous outer growth rim
-    addColoredCylinder(parts, radius * 1.02, radius * 1.08, 0.010, 10, cx, baseY + 0.056, cz, rimHex, 0, rotY + 0.32);
+    addColoredCylinder(parts, radius * 1.02, radius * 1.08, 0.010, 7, cx, baseY + 0.056, cz, rimHex, 0, rotY + 0.32);
     // Radial crown of glowing polyp pearls along the canopy edge
-    const pearlCount = 8;
+    const pearlCount = 6;
     for (let pi = 0; pi < pearlCount; pi++) {
       const ang = rotY + (pi * Math.PI * 2) / pearlCount;
       const px = cx + Math.cos(ang) * radius * 0.86;
       const pz = cz + Math.sin(ang) * radius * 0.86;
-      addColoredDome(parts, radius * 0.11, 6, 4, px, baseY + 0.058, pz, polypHex, 1.0, 0.72, 1.0);
+      addColoredOcta(parts, radius * 0.11, px, baseY + 0.058, pz, polypHex, 1.0, 0.72, 1.0);
     }
   };
 
@@ -1237,15 +2858,15 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     tipHex: number,
   ) => {
     const s = Math.min(1.02, scale);
-    addColoredDome(parts, 0.11 * s, 8, 5, cx, baseY, cz, stemHex, 1.25, 0.55, 1.25);
+    addColoredDome(parts, 0.11 * s, 5, 3, cx, baseY, cz, stemHex, 1.25, 0.55, 1.25);
     // Central royal spire + glowing crown tip
     const centerH = 0.105 * s;
-    addColoredCylinder(parts, 0.022 * s, 0.038 * s, centerH, 7, cx, baseY + centerH * 0.5, cz, branchHex);
-    addColoredDome(parts, 0.028 * s, 6, 4, cx, baseY + centerH * 0.98, cz, tipHex, 1.0, 0.85, 1.0);
+    addColoredCylinder(parts, 0.022 * s, 0.038 * s, centerH, 5, cx, baseY + centerH * 0.5, cz, branchHex);
+    addColoredOcta(parts, 0.028 * s, cx, baseY + centerH * 0.98, cz, tipHex, 1.0, 0.85, 1.0);
 
-    // Inner ring of 6 ascending antler tines
-    for (let i = 0; i < 6; i++) {
-      const ang = (i * Math.PI) / 3 + 0.22;
+    // Inner ring of 5 ascending antler tines
+    for (let i = 0; i < 5; i++) {
+      const ang = (i * Math.PI * 2) / 5 + 0.22;
       const tilt = i % 2 === 0 ? 0.28 : 0.34;
       const dist = 0.046 * s;
       const bx = cx + Math.cos(ang) * dist;
@@ -1256,7 +2877,7 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
         0.019 * s,
         0.032 * s,
         bh,
-        6,
+        5,
         bx,
         baseY + bh * 0.5,
         bz,
@@ -1268,12 +2889,12 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
       const tx = cx + Math.cos(ang) * (dist + Math.sin(tilt) * bh * 0.46);
       const tz = cz + Math.sin(ang) * (dist + Math.sin(tilt) * bh * 0.46);
       const ty = baseY + Math.cos(tilt) * bh * 0.94;
-      addColoredDome(parts, 0.024 * s, 6, 4, tx, ty, tz, tipHex, 1.0, 0.8, 1.0);
+      addColoredOcta(parts, 0.024 * s, tx, ty, tz, tipHex, 1.0, 0.8, 1.0);
     }
 
-    // Outer ring of 6 sweeping elkhorn branches
-    for (let i = 0; i < 6; i++) {
-      const ang = (i * Math.PI) / 3 + 0.74;
+    // Outer ring of 5 sweeping elkhorn branches
+    for (let i = 0; i < 5; i++) {
+      const ang = (i * Math.PI * 2) / 5 + 0.84;
       const tilt = 0.44;
       const dist = 0.078 * s;
       const bx = cx + Math.cos(ang) * dist;
@@ -1284,7 +2905,7 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
         0.017 * s,
         0.028 * s,
         bh,
-        6,
+        5,
         bx,
         baseY + bh * 0.48,
         bz,
@@ -1296,7 +2917,7 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
       const tx = cx + Math.cos(ang) * (dist + Math.sin(tilt) * bh * 0.46);
       const tz = cz + Math.sin(ang) * (dist + Math.sin(tilt) * bh * 0.46);
       const ty = baseY + Math.cos(tilt) * bh * 0.90;
-      addColoredDome(parts, 0.022 * s, 6, 4, tx, ty, tz, tipHex, 1.0, 0.78, 1.0);
+      addColoredOcta(parts, 0.022 * s, tx, ty, tz, tipHex, 1.0, 0.78, 1.0);
     }
   };
 
@@ -1322,9 +2943,9 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     ];
     for (const [ox, oz, rad, h, useAlt] of tubes) {
       const col = useAlt ? outerHex : midHex;
-      addColoredCylinder(parts, rad * 1.12, rad * 0.84, h, 8, cx + ox, baseY + h * 0.5, cz + oz, col);
-      addColoredCylinder(parts, rad * 1.02, rad * 1.16, 0.014, 8, cx + ox, baseY + h + 0.005, cz + oz, rimHex);
-      addColoredCylinder(parts, rad * 0.62, rad * 0.62, 0.010, 7, cx + ox, baseY + h + 0.010, cz + oz, innerHex);
+      addColoredCylinder(parts, rad * 1.12, rad * 0.84, h, 6, cx + ox, baseY + h * 0.5, cz + oz, col);
+      addColoredCylinder(parts, rad * 1.02, rad * 1.16, 0.014, 6, cx + ox, baseY + h + 0.005, cz + oz, rimHex);
+      addColoredCylinder(parts, rad * 0.62, rad * 0.62, 0.010, 5, cx + ox, baseY + h + 0.010, cz + oz, innerHex);
     }
   };
 
@@ -1340,10 +2961,10 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     crestHex: number,
     pearlHex: number,
   ) => {
-    addColoredDome(parts, radius * 1.06, 9, 5, cx, baseY, cz, baseHex, 1.10, 0.52, 1.04);
-    addColoredDome(parts, radius * 0.90, 9, 5, cx, baseY + radius * 0.11, cz, grooveHex, 1.05, 0.48, 1.00);
-    addColoredDome(parts, radius * 0.72, 8, 4, cx, baseY + radius * 0.22, cz, crestHex, 1.0, 0.44, 0.96);
-    addColoredDome(parts, radius * 0.44, 7, 4, cx, baseY + radius * 0.32, cz, pearlHex, 1.0, 0.40, 1.0);
+    addColoredDome(parts, radius * 1.06, 6, 3, cx, baseY, cz, baseHex, 1.10, 0.52, 1.04);
+    addColoredDome(parts, radius * 0.90, 6, 3, cx, baseY + radius * 0.11, cz, grooveHex, 1.05, 0.48, 1.00);
+    addColoredDome(parts, radius * 0.72, 6, 3, cx, baseY + radius * 0.22, cz, crestHex, 1.0, 0.44, 0.96);
+    addColoredDome(parts, radius * 0.44, 5, 2, cx, baseY + radius * 0.32, cz, pearlHex, 1.0, 0.40, 1.0);
   };
 
   // Blooming Sea-Lotus Anemone Crown with radiating bioluminescent tentacles and pearl oral center
@@ -1357,8 +2978,8 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     petalHex: number,
     coreHex: number,
   ) => {
-    addColoredCylinder(parts, radius * 0.68, radius * 0.52, 0.034, 8, cx, baseY + 0.017, cz, calyxHex);
-    const petals = 10;
+    addColoredCylinder(parts, radius * 0.68, radius * 0.52, 0.034, 6, cx, baseY + 0.017, cz, calyxHex);
+    const petals = 8;
     for (let i = 0; i < petals; i++) {
       const ang = (i * Math.PI * 2) / petals;
       const dist = radius * 0.56;
@@ -1369,7 +2990,7 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
         radius * 0.12,
         radius * 0.18,
         radius * 0.52,
-        6,
+        5,
         px,
         baseY + 0.042,
         pz,
@@ -1380,9 +3001,9 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
       );
       const tx = cx + Math.cos(ang) * (dist + radius * 0.22);
       const tz = cz + Math.sin(ang) * (dist + radius * 0.22);
-      addColoredDome(parts, radius * 0.14, 6, 4, tx, baseY + 0.062, tz, coreHex, 1.0, 0.75, 1.0);
+      addColoredOcta(parts, radius * 0.14, tx, baseY + 0.062, tz, coreHex, 1.0, 0.75, 1.0);
     }
-    addColoredDome(parts, radius * 0.38, 8, 4, cx, baseY + 0.032, cz, coreHex, 1.0, 0.65, 1.0);
+    addColoredDome(parts, radius * 0.38, 6, 3, cx, baseY + 0.032, cz, coreHex, 1.0, 0.65, 1.0);
   };
 
   const coralReef: THREE.BufferGeometry[] = [];
@@ -1493,16 +3114,16 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     const p: THREE.BufferGeometry[] = [];
     // 1. EXPANSIVE SUBMERGED ATLANTEAN CITY FOUNDATION & CONCENTRIC RINGS (local y = 0.01..0.165, world y = 0.13..0.285)
     // Outer sunken sea-marble metropolis foundation disc (diameter ~3.36 tiles)
-    addColoredCylinder(p, 1.66, 1.74, 0.036, 12, 0, 0.018, 0, 0xcbd5e1);
+    addColoredCylinder(p, 1.66, 1.74, 0.036, 8, 0, 0.018, 0, 0xcbd5e1);
     // Outer golden orichalcum city wall ring & raised perimeter walkway (clearly visible just below the water surface)
-    addColoredCylinder(p, 1.54, 1.60, 0.042, 12, 0, 0.056, 0, 0xf5b742);
+    addColoredCylinder(p, 1.54, 1.60, 0.042, 8, 0, 0.056, 0, 0xf5b742);
     // Submerged inner lagoon floor in deep Atlantean lapis-teal to contrast with the white marble & glowing cyan canals
-    addColoredCylinder(p, 1.44, 1.46, 0.020, 12, 0, 0.082, 0, 0x0f4c5c);
+    addColoredCylinder(p, 1.44, 1.46, 0.020, 8, 0, 0.082, 0, 0x0f4c5c);
     // Middle concentric white-marble acropolis terrace & golden orichalcum ring
-    addColoredCylinder(p, 1.14, 1.20, 0.036, 12, 0, 0.102, 0, 0xe2e8f0);
-    addColoredCylinder(p, 1.02, 1.06, 0.024, 12, 0, 0.128, 0, 0xf5b742);
+    addColoredCylinder(p, 1.14, 1.20, 0.036, 8, 0, 0.102, 0, 0xe2e8f0);
+    addColoredCylinder(p, 1.02, 1.06, 0.024, 8, 0, 0.128, 0, 0xf5b742);
     // Inner sunken sanctum dais right beneath the water surface (local y = 0.146 -> world y = 0.266)
-    addColoredCylinder(p, 0.80, 0.86, 0.032, 12, 0, 0.146, 0, 0xf8fafc);
+    addColoredCylinder(p, 0.80, 0.86, 0.032, 8, 0, 0.146, 0, 0xf8fafc);
 
     // Glowing Underwater Cyan Ley-Line Canals & Cross-Avenues spanning the entire 3.4-tile sunken city
     addColoredBox(p, 3.24, 0.030, 0.22, 0, 0.118, 0, 0x00f5d4);
@@ -1550,14 +3171,14 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
       const ang = (i * Math.PI) / 4 + Math.PI / 8;
       const ox = Math.cos(ang) * 1.42;
       const oz = Math.sin(ang) * 1.42;
-      addColoredCylinder(p, 0.08, 0.10, 0.09, 6, ox, 0.095, oz, 0xf1f5f9);
-      addColoredCylinder(p, 0.10, 0.10, 0.024, 6, ox, 0.146, oz, 0xf5b742);
-      addColoredCylinder(p, 0.02, 0.06, 0.028, 6, ox, 0.162, oz, 0x00f5d4);
+      addColoredCylinder(p, 0.08, 0.10, 0.09, 5, ox, 0.095, oz, 0xf1f5f9);
+      addColoredCylinder(p, 0.10, 0.10, 0.024, 5, ox, 0.146, oz, 0xf5b742);
+      addColoredCylinder(p, 0.02, 0.06, 0.028, 5, ox, 0.162, oz, 0x00f5d4);
     }
 
     // Fallen / Ruined Underwater Marble Columns resting on the sunken courtyard floor
-    addColoredCylinder(p, 0.065, 0.065, 0.48, 8, -0.68, 0.125, 1.18, 0xf1f5f9, 0, 0.35, Math.PI / 2);
-    addColoredCylinder(p, 0.065, 0.065, 0.46, 8, 1.18, 0.125, -0.64, 0xf1f5f9, Math.PI / 2, -0.28, 0);
+    addColoredCylinder(p, 0.065, 0.065, 0.48, 6, -0.68, 0.125, 1.18, 0xf1f5f9, 0, 0.35, Math.PI / 2);
+    addColoredCylinder(p, 0.065, 0.065, 0.46, 6, 1.18, 0.125, -0.64, 0xf1f5f9, Math.PI / 2, -0.28, 0);
 
     // 2. EMERGENT ABOVE-WATER TEMPLE COLONNADE & PORTAL GATEWAY (rising from y = 0.16 through the water surface up to y = 0.90)
     for (const [px, pz, colH, hasCap] of [
@@ -1566,8 +3187,8 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
       [-0.46, 0.46, variantIdx === 0 ? 0.42 : 0.58, variantIdx !== 0],
       [0.46, 0.46, 0.58, true],
     ] as const) {
-      addColoredCylinder(p, 0.12, 0.14, 0.06, 8, px, 0.17, pz, 0xf5b742); // golden column base
-      addColoredCylinder(p, 0.085, 0.095, colH, 8, px, 0.18 + colH * 0.5, pz, 0xf8fafc); // fluted marble column shaft
+      addColoredCylinder(p, 0.12, 0.14, 0.06, 6, px, 0.17, pz, 0xf5b742); // golden column base
+      addColoredCylinder(p, 0.085, 0.095, colH, 6, px, 0.18 + colH * 0.5, pz, 0xf8fafc); // fluted marble column shaft
       if (hasCap) {
         addColoredBox(p, 0.22, 0.06, 0.22, px, 0.20 + colH, pz, 0xf5b742); // golden orichalcum capital
       }
@@ -1583,8 +3204,8 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     }
 
     // Central Atlantean Sanctum Altar & Levitating Sea-Crystal Portal Spire
-    addColoredCylinder(p, 0.28, 0.34, 0.10, 8, 0, 0.19, 0, 0xe2e8f0);
-    addColoredCylinder(p, 0.22, 0.26, 0.06, 8, 0, 0.26, 0, 0xf5b742);
+    addColoredCylinder(p, 0.28, 0.34, 0.10, 6, 0, 0.19, 0, 0xe2e8f0);
+    addColoredCylinder(p, 0.22, 0.26, 0.06, 6, 0, 0.26, 0, 0xf5b742);
     addColoredBox(p, 0.22, 0.58, 0.22, 0, 0.54, 0, 0x48bfe3, Math.PI / 4); // towering glowing portal crystal
     addColoredBox(p, 0.34, 0.05, 0.34, 0, 0.54, 0, 0xf5b742, Math.PI / 4); // floating golden orichalcum containment ring
     return finalizeMergedParts(p);
@@ -1592,17 +3213,172 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
   atlantisRuin.push(buildAtlantisComplex(0));
   atlantisRuin.push(buildAtlantisComplex(1));
 
+  // ---------------------------------------------------------------------------
+  // Zoom-Responsive Prop LOD2 Library (~24-160 tris per prop preserving exact colors & silhouettes)
+  // ---------------------------------------------------------------------------
+  const coralReefLod2: THREE.BufferGeometry[] = [
+    (() => {
+      const p: THREE.BufferGeometry[] = [];
+      addColoredCylinder(p, 0.38, 0.44, 0.026, 6, 0, 0.013, 0, 0xc77dff);
+      addColoredCylinder(p, 0.25, 0.16, 0.032, 6, -0.10, 0.045, 0.08, 0xf43f5e);
+      addColoredCylinder(p, 0.18, 0.12, 0.028, 6, 0.0, 0.080, 0.02, 0xff8fa3);
+      addColoredCylinder(p, 0.05, 0.08, 0.10, 5, 0.16, 0.075, -0.10, 0xffaa00);
+      addColoredDome(p, 0.14, 5, 2, -0.16, 0.03, -0.14, 0x00b4d8, 1.0, 0.6, 1.0);
+      addColoredCylinder(p, 0.14, 0.09, 0.035, 5, 0.15, 0.038, 0.15, 0xf72585);
+      return finalizeMergedParts(p);
+    })(),
+    (() => {
+      const p: THREE.BufferGeometry[] = [];
+      addColoredCylinder(p, 0.38, 0.44, 0.026, 6, 0, 0.013, 0, 0x9d4edd);
+      addColoredCylinder(p, 0.08, 0.06, 0.12, 5, -0.13, 0.08, -0.06, 0xb5179e);
+      addColoredCylinder(p, 0.06, 0.05, 0.09, 5, -0.06, 0.065, 0.04, 0xff70a6);
+      addColoredDome(p, 0.20, 5, 2, 0.12, 0.03, 0.07, 0x00b4d8, 1.0, 0.55, 1.0);
+      addColoredCylinder(p, 0.05, 0.08, 0.10, 5, 0.15, 0.075, -0.14, 0xff9f1c);
+      return finalizeMergedParts(p);
+    })(),
+    (() => {
+      const p: THREE.BufferGeometry[] = [];
+      addColoredCylinder(p, 0.38, 0.44, 0.026, 6, 0, 0.013, 0, 0xe0aaff);
+      addColoredCylinder(p, 0.26, 0.16, 0.030, 6, -0.10, 0.045, -0.08, 0xff7b00);
+      addColoredCylinder(p, 0.19, 0.12, 0.028, 6, 0.03, 0.078, 0.0, 0xffbd00);
+      addColoredCylinder(p, 0.16, 0.10, 0.026, 5, 0.15, 0.05, 0.13, 0xff4d6d);
+      addColoredCylinder(p, 0.05, 0.08, 0.10, 5, -0.15, 0.075, 0.14, 0x9d4edd);
+      return finalizeMergedParts(p);
+    })(),
+    (() => {
+      const p: THREE.BufferGeometry[] = [];
+      addColoredCylinder(p, 0.38, 0.44, 0.026, 6, 0, 0.013, 0, 0xc77dff);
+      addColoredCylinder(p, 0.06, 0.09, 0.11, 5, -0.08, 0.078, 0.04, 0xff4d6d);
+      addColoredCylinder(p, 0.08, 0.06, 0.11, 5, 0.14, 0.075, -0.09, 0x00b4d8);
+      addColoredCylinder(p, 0.20, 0.12, 0.028, 6, 0.12, 0.048, 0.14, 0xc77dff);
+      addColoredDome(p, 0.14, 5, 2, -0.16, 0.03, -0.14, 0xfcbf49, 1.0, 0.55, 1.0);
+      return finalizeMergedParts(p);
+    })(),
+  ];
+
+  const coralReefBleachedLod2: THREE.BufferGeometry[] = [
+    (() => {
+      const p: THREE.BufferGeometry[] = [];
+      addColoredCylinder(p, 0.38, 0.44, 0.026, 6, 0, 0.013, 0, 0x64748b);
+      addColoredCylinder(p, 0.25, 0.15, 0.030, 6, -0.10, 0.045, 0.08, 0xcbd5e1);
+      addColoredCylinder(p, 0.18, 0.11, 0.026, 6, 0.0, 0.078, 0.02, 0xe2e8f0);
+      addColoredCylinder(p, 0.05, 0.08, 0.09, 5, 0.15, 0.07, -0.10, 0x94a3b8);
+      return finalizeMergedParts(p);
+    })(),
+    (() => {
+      const p: THREE.BufferGeometry[] = [];
+      addColoredCylinder(p, 0.38, 0.44, 0.026, 6, 0, 0.013, 0, 0x64748b);
+      addColoredCylinder(p, 0.08, 0.06, 0.11, 5, -0.13, 0.075, -0.06, 0x94a3b8);
+      addColoredDome(p, 0.19, 5, 2, 0.12, 0.03, 0.07, 0xcbd5e1, 1.0, 0.55, 1.0);
+      addColoredCylinder(p, 0.05, 0.08, 0.09, 5, 0.15, 0.07, -0.14, 0xf1f5f9);
+      return finalizeMergedParts(p);
+    })(),
+  ];
+
+  const berryLod2: THREE.BufferGeometry[] = berry.map((_, idx) => {
+    const p: THREE.BufferGeometry[] = [];
+    const fruitHex = idx === 1 ? 0xe0a943 : idx === 2 ? 0xf2b749 : 0xd94e34;
+    addColoredBox(p, 0.36, 0.24, 0.36, -0.12, 0.12, -0.08, 0x3b6e33);
+    addColoredBox(p, 0.28, 0.20, 0.28, 0.16, 0.10, 0.12, 0x4f8a42);
+    addColoredBox(p, 0.10, 0.08, 0.10, -0.10, 0.25, -0.06, fruitHex);
+    addColoredBox(p, 0.08, 0.08, 0.08, 0.16, 0.21, 0.12, fruitHex);
+    return finalizeMergedParts(p);
+  });
+
+  const farmCropLod2: THREE.BufferGeometry[] = farmCrop.map((_, idx) => {
+    const p: THREE.BufferGeometry[] = [];
+    addColoredBox(p, 0.72, 0.06, 0.66, 0, 0.03, 0, 0x5c3e26);
+    addColoredBox(p, 0.66, 0.18, 0.22, 0, 0.14, -0.18, 0xe9b44c);
+    addColoredBox(p, 0.66, 0.18, 0.22, 0, 0.14, 0.18, idx % 2 === 0 ? 0xdba13a : 0xe9b44c);
+    return finalizeMergedParts(p);
+  });
+
+  const sciFiFarmLod2: THREE.BufferGeometry[] = sciFiFarm.map((_, idx) => {
+    const p: THREE.BufferGeometry[] = [];
+    addColoredBox(p, 0.82, 0.08, 0.82, 0, 0.04, 0, 0x263238);
+    addColoredBox(p, 0.72, 0.14, 0.56, 0, 0.14, 0, idx % 2 === 0 ? 0x64dfdf : 0x52b788);
+    addColoredBox(p, 0.74, 0.08, 0.24, 0, 0.26, 0, 0x56cfe1);
+    return finalizeMergedParts(p);
+  });
+
+  const stoneLod2: THREE.BufferGeometry[] = stone.map((_, idx) => {
+    const p: THREE.BufferGeometry[] = [];
+    addColoredOcta(p, 0.22, -0.05, 0.14, -0.04, idx % 2 === 0 ? 0x8f8b82 : 0x7a766e, 1.15, 0.85, 1.1);
+    addColoredOcta(p, 0.15, 0.18, 0.09, 0.14, 0x99958b, 1.0, 0.75, 1.0);
+    return finalizeMergedParts(p);
+  });
+
+  const oreLod2: THREE.BufferGeometry[] = ore.map((_, idx) => {
+    const p: THREE.BufferGeometry[] = [];
+    addColoredOcta(p, 0.22, -0.04, 0.14, -0.04, 0x6e6a62, 1.1, 0.85, 1.05);
+    addColoredOcta(p, 0.12, 0.02, 0.24, -0.02, idx % 2 === 0 ? 0xf5b742 : 0xe08e36, 0.9, 0.9, 0.9);
+    addColoredOcta(p, 0.14, 0.18, 0.10, 0.14, 0xd97228, 1.0, 0.8, 1.0);
+    return finalizeMergedParts(p);
+  });
+
+  const crystalLod2Palettes: [number, number, number][] = [
+    [0xe848a8, 0x9b5de5, 0x38bdf8],
+    [0x10b981, 0xf59e0b, 0xf43f5e],
+    [0x8b5cf6, 0x06b6d4, 0xf97316],
+    [0xeab308, 0xd946ef, 0x14b8a6],
+    [0x0ea5e9, 0xf43f5e, 0x22c55e],
+    [0xef4444, 0x06b6d4, 0xfacc15],
+  ];
+  const crystalLod2: THREE.BufferGeometry[] = crystalLod2Palettes.map(([c0, c1, c2]) => {
+    const p: THREE.BufferGeometry[] = [];
+    addColoredCylinder(p, 0.22, 0.25, 0.06, 5, 0, 0.03, 0, 0x72bee8);
+    addColoredCylinder(p, 0.01, 0.10, 0.68, 4, 0, 0.36, 0, c0);
+    addColoredCylinder(p, 0.01, 0.075, 0.44, 4, 0.15, 0.24, 0.1, c1, 0.16, 0, -0.2);
+    addColoredCylinder(p, 0.01, 0.068, 0.38, 4, -0.14, 0.21, -0.1, c2, -0.16, 0, 0.2);
+    return finalizeMergedParts(p);
+  });
+
+  const scrapFlotsamLod2: THREE.BufferGeometry[] = scrapFlotsam.map((_, idx) => {
+    const p: THREE.BufferGeometry[] = [];
+    addColoredBox(p, 0.42, 0.06, 0.22, 0, 0.02, 0, 0x7c5334, idx * 0.2);
+    addColoredBox(p, 0.18, 0.16, 0.18, 0.04, 0.10, 0.06, idx % 2 === 0 ? 0xb45309 : 0x64748b);
+    return finalizeMergedParts(p);
+  });
+
+  const atlantisRuinLod2: THREE.BufferGeometry[] = [0, 1].map((vIdx) => {
+    const p: THREE.BufferGeometry[] = [];
+    addColoredCylinder(p, 1.56, 1.66, 0.04, 6, 0, 0.02, 0, 0xf5b742);
+    addColoredCylinder(p, 1.12, 1.18, 0.04, 6, 0, 0.09, 0, 0xe2e8f0);
+    addColoredBox(p, 3.0, 0.03, 0.24, 0, 0.12, 0, 0x00f5d4);
+    addColoredBox(p, 0.24, 0.03, 3.0, 0, 0.12, 0, 0x00f5d4);
+    for (const [qx, qz] of [[-0.96, -0.96], [0.96, -0.96], [-0.96, 0.96], [0.96, 0.96]] as const) {
+      addColoredBox(p, 0.52, 0.09, 0.52, qx, 0.09, qz, 0xe2e8f0);
+      addColoredBox(p, 0.34, 0.04, 0.34, qx, 0.15, qz, 0x00f5d4);
+    }
+    for (const [px, pz] of [[-0.46, -0.46], [0.46, -0.46], [-0.46, 0.46], [0.46, 0.46]] as const) {
+      addColoredBox(p, 0.16, 0.58, 0.16, px, 0.45, pz, 0xf8fafc);
+    }
+    addColoredBox(p, vIdx === 0 ? 1.12 : 0.24, 0.09, vIdx === 0 ? 0.24 : 1.12, vIdx === 0 ? 0 : -0.46, 0.80, vIdx === 0 ? -0.46 : 0, 0xf5b742);
+    addColoredBox(p, 0.22, 0.56, 0.22, 0, 0.54, 0, 0x48bfe3, Math.PI / 4);
+    return finalizeMergedParts(p);
+  });
+
   cachedVariantLib = {
     timber,
+    timberMeadow,
     timberJungle,
     timberTaiga,
     timberBlossom,
+    timberSavanna,
+    timberSwamp,
+    timberHighland,
     berry,
+    berryLod2,
     farmCrop,
+    farmCropLod2,
     sciFiFarm,
+    sciFiFarmLod2,
     stone,
+    stoneLod2,
     ore,
+    oreLod2,
     crystal,
+    crystalLod2,
     ambientGrass,
     ambientForest,
     ambientJungle,
@@ -1618,21 +3394,39 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     ambientSwamp,
     ambientHighland,
     coralReef,
+    coralReefLod2,
     coralReefBleached,
+    coralReefBleachedLod2,
     scrapFlotsam,
+    scrapFlotsamLod2,
     atlantisRuin,
+    atlantisRuinLod2,
     standardMat: new THREE.MeshStandardMaterial({
       vertexColors: true,
       roughness: 0.78,
       metalness: 0.08,
     }),
-    crystalMat: new THREE.MeshStandardMaterial({
-      vertexColors: true,
-      emissive: 0x104c63,
-      emissiveIntensity: 0.45,
-      roughness: 0.24,
-      metalness: 0.35,
-    }),
+    crystalMat: (() => {
+      const m = new THREE.MeshStandardMaterial({
+        vertexColors: true,
+        roughness: 0.18,
+        metalness: 0.25,
+      });
+      m.onBeforeCompile = (shader) => {
+        shader.fragmentShader = shader.fragmentShader.replace(
+          '#include <color_fragment>',
+          `#include <color_fragment>
+          diffuseColor.rgb = pow(diffuseColor.rgb, vec3(0.92)) * 1.15;`,
+        );
+        shader.fragmentShader = shader.fragmentShader.replace(
+          '#include <emissivemap_fragment>',
+          `#include <emissivemap_fragment>
+          totalEmissiveRadiance += diffuseColor.rgb * 0.46;`,
+        );
+      };
+      m.customProgramCacheKey = () => 'fantasy-crystal-biolum-v1';
+      return m;
+    })(),
     coralReefMat: (() => {
       const m = new THREE.MeshStandardMaterial({
         vertexColors: true,
@@ -1920,6 +3714,30 @@ function getBuildingMaterials(): Record<string, THREE.MeshStandardMaterial> {
       metalness: 0.58,
       roughness: 0.54,
     }),
+    neonMagentaMat: new THREE.MeshStandardMaterial({
+      color: 0xff2a85,
+      emissive: 0xff1476,
+      emissiveIntensity: 1.15,
+      roughness: 0.16,
+    }),
+    neonAmberMat: new THREE.MeshStandardMaterial({
+      color: 0xffbe0b,
+      emissive: 0xff9f1c,
+      emissiveIntensity: 1.1,
+      roughness: 0.18,
+    }),
+    neonLimeMat: new THREE.MeshStandardMaterial({
+      color: 0x38ef7d,
+      emissive: 0x10b981,
+      emissiveIntensity: 1.05,
+      roughness: 0.18,
+    }),
+    neonBillboardMat: new THREE.MeshStandardMaterial({
+      map: getPixelArtTexture('bld_neon_billboard', '#0ea5e9', '#f43f5e', '#1e1b4b', 'tech'),
+      emissive: 0x38bdf8,
+      emissiveIntensity: 0.95,
+      roughness: 0.15,
+    }),
   };
   return sharedBuildingMats;
 }
@@ -1958,6 +3776,14 @@ export function updateBuildingNightMaterials(darkness: number, elapsed: number):
   M.glowCyanMat.emissiveIntensity = 0.85 + nightSmooth * 1.45;
   M.elfAquaGlowMat.emissiveIntensity = 0.9 + nightSmooth * 1.55;
   M.orcMagmaGlowMat.emissiveIntensity = (0.95 + nightSmooth * 1.65) * (0.92 + 0.08 * flicker);
+
+  // Times Square / Tokyo LED billboards & vertical neon signs pulse vividly day and night
+  const neonPulseA = 0.88 + 0.12 * Math.sin(safeElapsed * 5.4);
+  const neonPulseB = 0.88 + 0.12 * Math.cos(safeElapsed * 6.8 + 1.1);
+  M.neonMagentaMat.emissiveIntensity = (0.95 + nightSmooth * 1.65) * neonPulseA;
+  M.neonAmberMat.emissiveIntensity = (0.9 + nightSmooth * 1.55) * neonPulseB;
+  M.neonLimeMat.emissiveIntensity = (0.85 + nightSmooth * 1.5) * neonPulseA;
+  M.neonBillboardMat.emissiveIntensity = (0.8 + nightSmooth * 1.6) * neonPulseB;
 }
 
 let cachedCoolingTowerGeo: THREE.LatheGeometry | null = null;
@@ -1977,62 +3803,41 @@ function getCoolingTowerGeo(): THREE.LatheGeometry {
   return cachedCoolingTowerGeo;
 }
 
+const BUILDING_SKIP_MERGE_NAMES = new Set(['contact_shadow', 'flicker_flame', 'spin_part']);
+const buildingTemplateCache = new Map<string, THREE.Group>();
+
 /**
- * Merges static architectural sub-meshes per shared material & shadow flags to preserve
- * low WebGL draw calls while allowing 30-60+ crisp facade details per building.
- * Leaves `contact_shadow`, `flicker_flame`, `spin_part`, and sub-groups untouched.
+ * Merges static architectural sub-meshes into shared vertex-colored PBR buckets (and same-material buckets
+ * for emissive/textured parts), slashing draw calls per building from 10-15 down to 2-4 with exact visual parity.
  */
 function finalizeStaticBuildingMeshes(group: THREE.Group): void {
-  const buckets = new Map<
-    string,
-    { mat: THREE.Material; castShadow: boolean; receiveShadow: boolean; meshes: THREE.Mesh[] }
-  >();
-  for (let i = 0; i < group.children.length; i++) {
-    const child = group.children[i];
-    if (!(child instanceof THREE.Mesh)) continue;
-    if (child.name === 'contact_shadow' || child.name === 'flicker_flame' || child.name === 'spin_part') continue;
-    if (Array.isArray(child.material)) continue;
-    const mat = child.material;
-    const key = `${mat.uuid}|${child.castShadow ? 1 : 0}|${child.receiveShadow ? 1 : 0}`;
-    let bucket = buckets.get(key);
-    if (!bucket) {
-      bucket = { mat, castShadow: child.castShadow, receiveShadow: child.receiveShadow, meshes: [] };
-      buckets.set(key, bucket);
-    }
-    bucket.meshes.push(child);
-  }
+  const protectedGeos = new Set<THREE.BufferGeometry>();
+  if (cachedCoolingTowerGeo) protectedGeos.add(cachedCoolingTowerGeo);
+  bakeVertexColoredStaticMeshes(group, BUILDING_SKIP_MERGE_NAMES, {
+    unifyCastShadow: false,
+    disposeSourceMaterials: false,
+    protectGeometries: protectedGeos,
+  });
+}
 
-  for (const bucket of buckets.values()) {
-    if (bucket.meshes.length < 2) continue;
-    const prepped: THREE.BufferGeometry[] = [];
-    for (const m of bucket.meshes) {
-      m.updateMatrix();
-      const raw = m.geometry;
-      const g = raw.index ? raw.toNonIndexed() : raw.clone();
-      if (g.attributes.color) g.deleteAttribute('color');
-      if (!g.attributes.normal) g.computeVertexNormals();
-      if (!g.attributes.uv) {
-        const count = g.attributes.position.count;
-        g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(count * 2), 2));
-      }
-      g.applyMatrix4(m.matrix);
-      prepped.push(g);
-    }
-    const merged = mergeGeometries(prepped, false);
-    for (const p of prepped) p.dispose();
-    if (merged) {
-      for (const m of bucket.meshes) {
-        group.remove(m);
-        if (m.geometry !== cachedCoolingTowerGeo) {
-          m.geometry.dispose();
-        }
-      }
-      const combined = new THREE.Mesh(merged, bucket.mat);
-      combined.castShadow = bucket.castShadow;
-      combined.receiveShadow = bucket.receiveShadow;
-      group.add(combined);
+function cloneBuildingTemplate(template: THREE.Group): THREE.Group {
+  const clone = new THREE.Group();
+  for (let i = 0; i < template.children.length; i++) {
+    const ch = template.children[i];
+    if (ch instanceof THREE.Mesh) {
+      const m = new THREE.Mesh(ch.geometry, ch.material);
+      m.name = ch.name;
+      m.position.copy(ch.position);
+      m.rotation.copy(ch.rotation);
+      m.scale.copy(ch.scale);
+      m.castShadow = ch.castShadow;
+      m.receiveShadow = ch.receiveShadow;
+      clone.add(m);
+    } else {
+      clone.add(ch.clone(true));
     }
   }
+  return clone;
 }
 
 export function createBuildingGroup(
@@ -2042,6 +3847,12 @@ export function createBuildingGroup(
   species: SpeciesId = 'human',
   isWaterTile = false,
 ): THREE.Group {
+  const variantBucket = Math.abs(variantSeed) % 4;
+  const cacheKey = `${type}|${epochIndex}|${species}|${variantBucket}|${isWaterTile ? 1 : 0}`;
+  const cachedTemplate = buildingTemplateCache.get(cacheKey);
+  if (cachedTemplate) {
+    return cloneBuildingTemplate(cachedTemplate);
+  }
   const group = new THREE.Group();
   const isMonumental =
     type === 'ziggurat' ||
@@ -2103,6 +3914,10 @@ export function createBuildingGroup(
     glassCurtainMat,
     elfFiligreeMat,
     orcRustPlateMat,
+    neonMagentaMat,
+    neonAmberMat,
+    neonLimeMat,
+    neonBillboardMat,
   } = M;
 
   const isElf = species === 'elf';
@@ -3222,7 +5037,8 @@ export function createBuildingGroup(
             group.add(vineBox);
           }
         } else if (epochIndex === 5) {
-          // Elven Ep 5 (Info Age): Sculpted Living Helix Conservatory Arcology (6 spiral filigree ribs + 4 cantilevered garden terraces)
+          // Elven Ep 5 (Info Age): Towering Sculpted Living Helix Conservatory Spire (spiraling filigree ribs + 5 cantilevered sky-gardens + floating rune holoscreens)
+          const spireH = 1.45 + (variant % 3) * 0.22;
           const dais = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.47, 0.1, 10), elfMossStoneMat);
           dais.position.y = 0.05;
           group.add(dais);
@@ -3230,32 +5046,32 @@ export function createBuildingGroup(
           atriumRing.position.y = 0.16;
           group.add(atriumRing);
 
-          const coreSpire = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.25, 1.18, 10), elfPearlTechMat);
-          coreSpire.position.y = 0.68;
+          const coreSpire = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.26, spireH, 10), elfPearlTechMat);
+          coreSpire.position.y = 0.16 + spireH * 0.5;
           coreSpire.castShadow = true;
           group.add(coreSpire);
 
           // 6 Ascending exterior helical filigree ribs framing the glass solarium shaft
           for (let r = 0; r < 6; r++) {
             const a = (r / 6) * Math.PI * 2;
-            const rib = new THREE.Mesh(new THREE.BoxGeometry(0.032, 1.05, 0.045), elfFiligreeMat);
-            rib.position.set(Math.cos(a) * 0.22, 0.66, Math.sin(a) * 0.22);
+            const rib = new THREE.Mesh(new THREE.BoxGeometry(0.032, spireH * 0.92, 0.045), elfFiligreeMat);
+            rib.position.set(Math.cos(a) * 0.22, 0.16 + spireH * 0.48, Math.sin(a) * 0.22);
             rib.rotation.y = -a;
             rib.rotation.z = 0.14;
             group.add(rib);
           }
 
-          // 4 Cantilevered Botanical Sky-Terraces spiraling upward with glowing pods & railings
-          for (let ti = 0; ti < 4; ti++) {
-            const ty = 0.3 + ti * 0.24;
+          // 5 Cantilevered Botanical Sky-Terraces spiraling upward with glowing pods & holo-banners
+          for (let ti = 0; ti < 5; ti++) {
+            const ty = 0.32 + ti * ((spireH - 0.22) / 5);
             const ang = (ti * Math.PI) / 2 + variant * 0.45;
             const px = Math.cos(ang) * 0.15;
             const pz = Math.sin(ang) * 0.15;
-            const pod = new THREE.Mesh(new THREE.CylinderGeometry(0.22 - ti * 0.02, 0.16, 0.075, 8), elfVerdigrisMat);
+            const pod = new THREE.Mesh(new THREE.CylinderGeometry(0.22 - ti * 0.018, 0.15, 0.075, 8), elfVerdigrisMat);
             pod.position.set(px, ty, pz);
             pod.castShadow = true;
             group.add(pod);
-            const rail = new THREE.Mesh(new THREE.TorusGeometry(0.21 - ti * 0.02, 0.014, 5, 10), elfFiligreeMat);
+            const rail = new THREE.Mesh(new THREE.TorusGeometry(0.21 - ti * 0.018, 0.014, 5, 10), elfFiligreeMat);
             rail.rotation.x = Math.PI / 2;
             rail.position.set(px, ty + 0.055, pz);
             group.add(rail);
@@ -3263,39 +5079,66 @@ export function createBuildingGroup(
             gardenGlow.position.set(Math.cos(ang) * 0.26, ty + 0.08, Math.sin(ang) * 0.26);
             group.add(gardenGlow);
           }
-          const crownBud = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.34, 8), elfJadeRoofMat);
-          crownBud.position.y = 1.4;
+          // Floating vertical Elven Aether-Rune Holo-Banners flanking the lower plaza
+          for (const sx of [-0.31, 0.31]) {
+            const runeFrame = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.38, 0.11), elfFiligreeMat);
+            runeFrame.position.set(sx, 0.46, 0.18);
+            group.add(runeFrame);
+            const runeScreen = new THREE.Mesh(
+              new THREE.BoxGeometry(0.032, 0.34, 0.085),
+              sx < 0 ? elfAquaGlowMat : neonLimeMat,
+            );
+            runeScreen.position.set(sx, 0.46, 0.18);
+            group.add(runeScreen);
+          }
+          const crownBud = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.38, 8), elfJadeRoofMat);
+          crownBud.position.y = 0.18 + spireH + 0.14;
           group.add(crownBud);
         } else {
-          // Elven Ep 6+: Pearl-Lotus Orbital Bio-Dome (6 unfolding curved lotus shell petals + geodesic starlight core)
-          const plinth = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.46, 0.08, 12), elfPearlTechMat);
-          plinth.position.y = 0.04;
+          // Elven Ep 6+: Towering Pearl-Lotus Orbital Spire Arcology (fluted crystal needle + 6 unfolding lotus shell petals + levitating starlight rings)
+          const spireH = 1.65 + (variant % 3) * 0.22;
+          const plinth = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.46, 0.1, 12), elfPearlTechMat);
+          plinth.position.y = 0.05;
           group.add(plinth);
           const waterCollar = new THREE.Mesh(new THREE.TorusGeometry(0.36, 0.028, 6, 14), elfAquaGlowMat);
           waterCollar.rotation.x = Math.PI / 2;
-          waterCollar.position.y = 0.09;
+          waterCollar.position.y = 0.11;
           group.add(waterCollar);
-          const aquaDome = new THREE.Mesh(
-            new THREE.SphereGeometry(0.26, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2),
-            elfAquaGlowMat,
-          );
-          aquaDome.position.y = 0.1;
-          group.add(aquaDome);
-          // 3 Geodesic meridian filigree arches crossing the bio-dome
-          for (let g = 0; g < 3; g++) {
-            const rib = new THREE.Mesh(new THREE.TorusGeometry(0.268, 0.016, 5, 12, Math.PI), elfFiligreeMat);
-            rib.rotation.y = (g * Math.PI) / 3;
-            rib.position.y = 0.1;
-            group.add(rib);
+
+          // Fluted pearl-crystal arcology tower shaft
+          const crystalShaft = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.27, spireH, 8), elfPearlTechMat);
+          crystalShaft.position.y = 0.1 + spireH * 0.5;
+          crystalShaft.castShadow = true;
+          group.add(crystalShaft);
+
+          // 3 Tiered aqua bio-domes & filigree rings ascending the crystal spire
+          for (let tier = 0; tier < 3; tier++) {
+            const ty = 0.38 + tier * (spireH * 0.28);
+            const rad = 0.26 - tier * 0.04;
+            const ring = new THREE.Mesh(new THREE.TorusGeometry(rad, 0.02, 6, 12), elfAquaGlowMat);
+            ring.rotation.x = Math.PI / 2;
+            ring.position.y = ty;
+            group.add(ring);
+            const terrace = new THREE.Mesh(new THREE.CylinderGeometry(rad * 0.92, rad * 0.75, 0.06, 8), elfJadeRoofMat);
+            terrace.position.y = ty - 0.03;
+            group.add(terrace);
           }
+
+          // 6 Unfolding curved lotus shell petals framing the base sanctuary
           for (let p = 0; p < 6; p++) {
             const a = (p / 6) * Math.PI * 2 + variant * 0.25;
-            const petal = new THREE.Mesh(new THREE.ConeGeometry(0.095, 0.4, 4), elfJadeRoofMat);
-            petal.position.set(Math.cos(a) * 0.29, 0.24, Math.sin(a) * 0.29);
-            petal.rotation.z = -Math.cos(a) * 0.56;
-            petal.rotation.x = Math.sin(a) * 0.56;
+            const petal = new THREE.Mesh(new THREE.ConeGeometry(0.095, 0.48, 4), elfJadeRoofMat);
+            petal.position.set(Math.cos(a) * 0.29, 0.28, Math.sin(a) * 0.29);
+            petal.rotation.z = -Math.cos(a) * 0.48;
+            petal.rotation.x = Math.sin(a) * 0.48;
             group.add(petal);
           }
+
+          // Crown starlight crystal prism at the apex
+          const apexCrown = new THREE.Mesh(new THREE.OctahedronGeometry(0.16, 0), elfAquaGlowMat);
+          apexCrown.position.y = 0.18 + spireH;
+          apexCrown.name = 'spin_part';
+          group.add(apexCrown);
         }
         break;
       }
@@ -3345,92 +5188,117 @@ export function createBuildingGroup(
           // Orc Ep 3-4: Riveted Rust-Iron Barracks Bunkers & Multi-Story Industrial Citadels
           addOrcBastionHut({
             w: 0.66,
-            h: epochIndex === 4 ? 0.48 : 0.37,
-            d: 0.52,
+            h: epochIndex === 4 ? 0.64 : 0.39,
+            d: 0.54,
             wallMat: epochIndex === 4 ? orcGunmetalMat : orcIronMat,
             roofMat: orcCrimsonMat,
             tuskMat: orcIronMat,
             withBanner: true,
           });
         } else if (epochIndex === 5) {
-          // Orc Ep 5 (Info Age): Sloped Brutalist Ironclad Megablock (Exoskeleton Armor Ribs, Blast Louvers, Twin Braced Exhausts)
-          const towerH = 0.84 + (variant % 3) * 0.2;
-          const podium = new THREE.Mesh(new THREE.CylinderGeometry(0.43, 0.52, 0.18, 4), orcBasaltMat);
+          // Orc Ep 5 (Info Age): Towering Brutalist Ironclad Ziggurat Megablock (Exoskeleton Armor Ribs, Neon War-Screens, Twin Blast Stacks)
+          const towerH = 1.28 + (variant % 3) * 0.22;
+          const podium = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.54, 0.2, 4), orcBasaltMat);
           podium.rotation.y = Math.PI / 4;
-          podium.position.y = 0.09;
+          podium.position.y = 0.1;
           group.add(podium);
-          const block = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.39, towerH, 4), orcGunmetalMat);
+          const block = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.41, towerH, 4), orcGunmetalMat);
           block.rotation.y = Math.PI / 4;
-          block.position.y = 0.18 + towerH * 0.5;
+          block.position.y = 0.2 + towerH * 0.5;
           block.castShadow = true;
           group.add(block);
           // 4 Vertical exoskeleton buttress splines + blast louvers
-          for (const [bx, bz] of [[-0.22, -0.22], [0.22, -0.22], [-0.22, 0.22], [0.22, 0.22]]) {
-            const spine = new THREE.Mesh(new THREE.BoxGeometry(0.065, towerH + 0.08, 0.065), orcRustPlateMat);
-            spine.position.set(bx, 0.18 + towerH * 0.5, bz);
+          for (const [bx, bz] of [[-0.23, -0.23], [0.23, -0.23], [-0.23, 0.23], [0.23, 0.23]]) {
+            const spine = new THREE.Mesh(new THREE.BoxGeometry(0.07, towerH + 0.08, 0.07), orcRustPlateMat);
+            spine.position.set(bx, 0.2 + towerH * 0.5, bz);
             group.add(spine);
           }
-          for (const sx of [-0.26, 0.26]) {
-            const flues = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.062, towerH + 0.24, 6), orcIronMat);
-            flues.position.set(sx, 0.22 + towerH * 0.5, -0.2);
+          for (const sx of [-0.27, 0.27]) {
+            const flues = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.065, towerH + 0.28, 6), orcIronMat);
+            flues.position.set(sx, 0.24 + towerH * 0.5, -0.2);
             group.add(flues);
-            const flueCollar = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.045, 6), orcCrimsonMat);
-            flueCollar.position.set(sx, 0.34 + towerH, -0.2);
+            const flueCollar = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.05, 6), orcCrimsonMat);
+            flueCollar.position.set(sx, 0.38 + towerH, -0.2);
             group.add(flueCollar);
           }
-          for (let f = 0; f < 4; f++) {
-            const wBand = 0.48 - f * 0.04;
+          for (let f = 0; f < 5; f++) {
+            const wBand = 0.5 - f * 0.035;
             const hood = new THREE.Mesh(new THREE.BoxGeometry(wBand + 0.04, 0.025, wBand + 0.04), orcRustPlateMat);
-            hood.position.y = 0.31 + f * (towerH * 0.22);
+            hood.position.y = 0.33 + f * (towerH * 0.18);
             group.add(hood);
             const slit = new THREE.Mesh(new THREE.BoxGeometry(wBand, 0.045, wBand), orcMagmaGlowMat);
-            slit.position.y = 0.28 + f * (towerH * 0.22);
+            slit.position.y = 0.3 + f * (towerH * 0.18);
             group.add(slit);
           }
-          const crownBunker = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.12, 0.28), orcIronMat);
-          crownBunker.position.y = 0.22 + towerH;
+          // Glowing Brutalist Crimson/Amber Propaganda War-Billboard mounted on front armor face
+          const warSignFrame = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.22, 0.04), orcIronMat);
+          warSignFrame.position.set(0, 0.42 + towerH * 0.35, 0.28);
+          group.add(warSignFrame);
+          const warSignGlow = new THREE.Mesh(
+            new THREE.BoxGeometry(0.28, 0.17, 0.048),
+            variant % 2 === 0 ? orcMagmaGlowMat : neonAmberMat,
+          );
+          warSignGlow.position.set(0, 0.42 + towerH * 0.35, 0.285);
+          group.add(warSignGlow);
+
+          const crownBunker = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.14, 0.28), orcIronMat);
+          crownBunker.position.y = 0.24 + towerH;
           group.add(crownBunker);
           for (const sx of [-0.18, 0.18]) {
-            const horn = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.3, 4), orcCrimsonMat);
-            horn.position.set(sx, 0.3 + towerH, 0);
+            const horn = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.32, 4), orcCrimsonMat);
+            horn.position.set(sx, 0.34 + towerH, 0);
             horn.rotation.z = -Math.sign(sx) * 0.3;
             group.add(horn);
           }
           const beacon = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.05), beaconRedMat);
-          beacon.position.set(0, 0.3 + towerH, 0);
+          beacon.position.set(0, 0.34 + towerH, 0);
           group.add(beacon);
         } else {
-          // Orc Ep 6+: Sloped Hexagonal Ironclad Siege Pod with 6 Claw Buttresses & Magma Core
-          const skirt = new THREE.Mesh(new THREE.CylinderGeometry(0.44, 0.5, 0.1, 6), orcBasaltMat);
-          skirt.position.y = 0.05;
+          // Orc Ep 6+: Towering Hexagonal Ironclad Siege Ziggurat with 6 Claw Buttresses & Magma Core
+          const towerH = 1.52 + (variant % 3) * 0.2;
+          const skirt = new THREE.Mesh(new THREE.CylinderGeometry(0.46, 0.52, 0.14, 6), orcBasaltMat);
+          skirt.position.y = 0.07;
           group.add(skirt);
-          const hexHull = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.45, 0.42, 6), orcGunmetalMat);
-          hexHull.position.y = 0.24;
-          hexHull.castShadow = true;
-          group.add(hexHull);
+          const lowerHull = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.46, towerH * 0.55, 6), orcGunmetalMat);
+          lowerHull.position.y = 0.14 + towerH * 0.275;
+          lowerHull.castShadow = true;
+          group.add(lowerHull);
+          const upperHull = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.34, towerH * 0.45, 6), orcIronMat);
+          upperHull.position.y = 0.14 + towerH * 0.775;
+          upperHull.castShadow = true;
+          group.add(upperHull);
+
           for (let i = 0; i < 6; i++) {
             const a = (i / 6) * Math.PI * 2;
-            const armorPlate = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.36, 0.05), orcRustPlateMat);
-            armorPlate.position.set(Math.cos(a) * 0.39, 0.22, Math.sin(a) * 0.39);
+            const armorPlate = new THREE.Mesh(new THREE.BoxGeometry(0.085, towerH * 0.9, 0.06), orcRustPlateMat);
+            armorPlate.position.set(Math.cos(a) * 0.36, 0.14 + towerH * 0.45, Math.sin(a) * 0.36);
             armorPlate.rotation.y = -a + Math.PI / 2;
             group.add(armorPlate);
             if (i % 2 === 0) {
-              const claw = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.36, 4), orcIronMat);
-              claw.position.set(Math.cos(a) * 0.32, 0.48, Math.sin(a) * 0.32);
+              const claw = new THREE.Mesh(new THREE.ConeGeometry(0.055, 0.42, 4), orcCrimsonMat);
+              claw.position.set(Math.cos(a) * 0.28, 0.18 + towerH, Math.sin(a) * 0.28);
               claw.rotation.z = Math.cos(a) * 0.42;
               claw.rotation.x = -Math.sin(a) * 0.42;
               group.add(claw);
             }
           }
-          const plasmaCore = new THREE.Mesh(new THREE.OctahedronGeometry(0.18, 0), orcMagmaGlowMat);
-          plasmaCore.position.set(0, 0.6, 0);
+          for (let f = 0; f < 4; f++) {
+            const slit = new THREE.Mesh(
+              new THREE.CylinderGeometry(0.37 - f * 0.03, 0.37 - f * 0.03, 0.045, 6),
+              orcMagmaGlowMat,
+            );
+            slit.position.y = 0.34 + f * (towerH * 0.22);
+            group.add(slit);
+          }
+          const plasmaCore = new THREE.Mesh(new THREE.OctahedronGeometry(0.19, 0), orcMagmaGlowMat);
+          plasmaCore.position.set(0, 0.32 + towerH, 0);
           plasmaCore.name = 'spin_part';
           group.add(plasmaCore);
         }
         break;
       }
 
-      // HUMAN Houses -> Cottages (Ep 1-2) -> Brick Brownstone Rowhouses (Ep 3) -> Concrete Mid-Rises (Ep 4) -> Curtain-Wall Skyscrapers (Ep 5) -> Geodesic Bio-Habitats (Ep 6+)
+      // HUMAN Houses -> Cottages (Ep 1-2) -> Brick Brownstone Rowhouses (Ep 3) -> Art-Deco Mid-Rises (Ep 4) -> Manhattan/Tokyo Skyscrapers (Ep 5) -> Neo-Futurist Arcology Skyscrapers (Ep 6+)
       if (epochIndex === 0) {
         const earthPad = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.44, 0.05, 8), mudEarthMat);
         earthPad.position.y = 0.025;
@@ -3551,138 +5419,263 @@ export function createBuildingGroup(
         ladder.position.set(0.39, 0.18, 0.06);
         group.add(ladder);
       } else if (epochIndex === 4) {
-        // Atomic Age: Mid-Century Concrete Apartment with Vertical Mullion Piers, Projecting Balconies & Elevated Water Tower
-        const midH = 0.62 + (variant % 2) * 0.18;
-        const base = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.09, 0.62), darkStoneMat);
-        base.position.y = 0.045;
+        // Atomic Age: Tall Mid-Century Concrete Setback High-Rise with Vertical Mullions, Projecting Balconies & Rooftop Billboard/Water Tank
+        const midH = 0.84 + (variant % 3) * 0.16;
+        const base = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.12, 0.64), darkStoneMat);
+        base.position.y = 0.06;
         group.add(base);
         const block = new THREE.Mesh(new THREE.BoxGeometry(0.6, midH, 0.54), concreteMat);
-        block.position.y = 0.09 + midH * 0.5;
+        block.position.y = 0.12 + midH * 0.5;
         block.castShadow = true;
         block.receiveShadow = true;
         group.add(block);
         // Vertical concrete structural mullions dividing facade into 3 bays
         for (const px of [-0.28, -0.09, 0.09, 0.28]) {
           const pier = new THREE.Mesh(new THREE.BoxGeometry(0.036, midH + 0.02, 0.56), concreteMat);
-          pier.position.set(px, 0.09 + midH * 0.5, 0);
+          pier.position.set(px, 0.12 + midH * 0.5, 0);
           group.add(pier);
         }
         // Entrance portico canopy
-        const canopy = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.03, 0.12), copperMat);
+        const canopy = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.032, 0.13), copperMat);
         canopy.position.set(0, 0.2, 0.31);
         group.add(canopy);
-        for (let f = 0; f < 3; f++) {
-          const fy = 0.22 + f * 0.175;
+        for (let f = 0; f < 4; f++) {
+          const fy = 0.24 + f * ((midH - 0.14) / 4);
           const winBand = new THREE.Mesh(
             new THREE.BoxGeometry(0.62, 0.055, 0.56),
             f % 2 === 0 ? windowModernWarmMat : windowModernCoolMat,
           );
           winBand.position.y = fy;
           group.add(winBand);
-          // Projecting front balcony slabs with railing on upper stories
           if (f >= 1) {
             const balc = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.025, 0.09), darkStoneMat);
-            balc.position.set(f === 1 ? -0.15 : 0.15, fy - 0.038, 0.3);
+            balc.position.set(f % 2 === 1 ? -0.15 : 0.15, fy - 0.038, 0.3);
             group.add(balc);
           }
         }
         const roofTrim = new THREE.Mesh(new THREE.BoxGeometry(0.64, 0.055, 0.58), darkStoneMat);
-        roofTrim.position.y = 0.1 + midH;
+        roofTrim.position.y = 0.13 + midH;
         group.add(roofTrim);
-        // Penthouse stair bulkhead & elevated wood-stave water tank on stilts
-        const bulkhead = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.12, 0.18), concreteMat);
-        bulkhead.position.set(-0.14, 0.18 + midH, 0.08);
+        // Penthouse stair bulkhead & elevated wood-stave water tank + neon rooftop sign
+        const bulkhead = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.14, 0.2), concreteMat);
+        bulkhead.position.set(-0.14, 0.2 + midH, 0.08);
         group.add(bulkhead);
         const waterTank = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.13, 8), woodMat);
-        waterTank.position.set(0.16, 0.25 + midH, -0.1);
+        waterTank.position.set(0.16, 0.26 + midH, -0.1);
         group.add(waterTank);
         const tankRoof = new THREE.Mesh(new THREE.ConeGeometry(0.095, 0.07, 8), slateRoofMat);
-        tankRoof.position.set(0.16, 0.35 + midH, -0.1);
+        tankRoof.position.set(0.16, 0.36 + midH, -0.1);
         group.add(tankRoof);
+        if (variant % 2 === 0) {
+          const roofBoard = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.14, 0.035), neonAmberMat);
+          roofBoard.position.set(0, 0.23 + midH, 0.24);
+          group.add(roofBoard);
+        }
         const roofBeacon = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.045, 0.045), beaconRedMat);
-        roofBeacon.position.set(-0.14, 0.26 + midH, 0.08);
+        roofBeacon.position.set(-0.14, 0.29 + midH, 0.08);
         group.add(roofBeacon);
       } else if (epochIndex === 5) {
-        // Information Age: Curtain-Wall Glass & Steel Skyscraper (Granite Colonnade Podium, Steel Mullion Grid, Setback Penthouse & Dual Spires)
-        const towerH = 0.96 + variant * 0.22;
-        const podium = new THREE.Mesh(new THREE.BoxGeometry(0.76, 0.2, 0.7), darkStoneMat);
-        podium.position.y = 0.1;
+        // Information Age: Towering Manhattan / Tokyo Curtain-Wall Skyscrapers with Times Square / Shibuya LED Billboards & 4 Distinct Silhouettes
+        const towerH = 1.38 + variant * 0.18;
+        const podium = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.22, 0.74), darkStoneMat);
+        podium.position.y = 0.11;
         podium.castShadow = true;
         group.add(podium);
-        const lobbyGlow = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.065, 0.72), windowModernWarmMat);
+        const lobbyGlow = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.07, 0.76), windowModernWarmMat);
         lobbyGlow.position.y = 0.09;
         group.add(lobbyGlow);
-        const marquee = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.032, 0.12), copperMat);
-        marquee.position.set(0, 0.18, 0.39);
+        const marquee = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.035, 0.14), copperMat);
+        marquee.position.set(0, 0.19, 0.41);
         group.add(marquee);
 
-        const shaft = new THREE.Mesh(new THREE.BoxGeometry(0.56, towerH, 0.52), glassCurtainMat);
-        shaft.position.y = 0.2 + towerH * 0.5;
-        shaft.castShadow = true;
-        shaft.receiveShadow = true;
-        group.add(shaft);
-        // Crisp exterior vertical steel curtain-wall mullions around all 4 sides
-        for (const mx of [-0.26, -0.09, 0.09, 0.26]) {
-          const finF = new THREE.Mesh(new THREE.BoxGeometry(0.028, towerH + 0.02, 0.55), darkTechMat);
-          finF.position.set(mx, 0.2 + towerH * 0.5, 0);
-          group.add(finF);
-        }
-        const floors = 4 + (variant % 2);
-        for (let f = 0; f < floors; f++) {
-          const glassBand = new THREE.Mesh(
-            new THREE.BoxGeometry(0.58, 0.055, 0.54),
-            (f + variant) % 2 === 0 ? windowModernWarmMat : windowModernCoolMat,
+        if (variant === 1) {
+          // Variant 1: Twin Connected Corporate Skybridge Towers with Tokyo Vertical Neon Fins
+          for (const sx of [-0.17, 0.17]) {
+            const subH = sx < 0 ? towerH : towerH * 0.88;
+            const tShaft = new THREE.Mesh(new THREE.BoxGeometry(0.28, subH, 0.5), glassCurtainMat);
+            tShaft.position.set(sx, 0.22 + subH * 0.5, 0);
+            tShaft.castShadow = true;
+            tShaft.receiveShadow = true;
+            group.add(tShaft);
+            for (let f = 0; f < 6; f++) {
+              const band = new THREE.Mesh(
+                new THREE.BoxGeometry(0.3, 0.048, 0.52),
+                (f + (sx < 0 ? 0 : 1)) % 2 === 0 ? windowModernCoolMat : windowModernWarmMat,
+              );
+              band.position.set(sx, 0.34 + f * ((subH - 0.18) / 6), 0);
+              group.add(band);
+            }
+          }
+          // Elevated glass skybridge linking the twin towers mid-air
+          const skyBridge = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.09, 0.24), glowCyanMat);
+          skyBridge.position.set(0, 0.22 + towerH * 0.62, 0);
+          group.add(skyBridge);
+          // Vertical Shinjuku/Times-Square neon blade sign on front left tower
+          const vSign = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.46, 0.09), neonMagentaMat);
+          vSign.position.set(-0.33, 0.68, 0.18);
+          group.add(vSign);
+          const rSign = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.14, 0.04), neonBillboardMat);
+          rSign.position.set(-0.17, 0.3 + towerH, 0.2);
+          group.add(rSign);
+        } else if (variant === 2) {
+          // Variant 2: Empire / Chrysler Tapered 3-Stage Setback Skyscraper with Illuminated Crown Spire
+          const h1 = towerH * 0.52;
+          const h2 = towerH * 0.32;
+          const h3 = towerH * 0.22;
+          const tier1 = new THREE.Mesh(new THREE.BoxGeometry(0.6, h1, 0.56), glassCurtainMat);
+          tier1.position.y = 0.22 + h1 * 0.5;
+          tier1.castShadow = true;
+          group.add(tier1);
+          const tier2 = new THREE.Mesh(new THREE.BoxGeometry(0.44, h2, 0.42), glassCurtainMat);
+          tier2.position.y = 0.22 + h1 + h2 * 0.5;
+          tier2.castShadow = true;
+          group.add(tier2);
+          const tier3 = new THREE.Mesh(new THREE.BoxGeometry(0.28, h3, 0.28), techMat);
+          tier3.position.y = 0.22 + h1 + h2 + h3 * 0.5;
+          tier3.castShadow = true;
+          group.add(tier3);
+          for (let f = 0; f < 6; f++) {
+            const fy = 0.32 + f * ((towerH - 0.15) / 6);
+            const w = fy < 0.22 + h1 ? 0.62 : fy < 0.22 + h1 + h2 ? 0.46 : 0.3;
+            const band = new THREE.Mesh(
+              new THREE.BoxGeometry(w, 0.048, w - 0.03),
+              f % 2 === 0 ? windowModernWarmMat : windowModernCoolMat,
+            );
+            band.position.y = fy;
+            group.add(band);
+          }
+          // Wraparound Times Square corner LED ribbon on lower podium setback
+          const cornerLedF = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.2, 0.035), neonBillboardMat);
+          cornerLedF.position.set(0.12, 0.44, 0.29);
+          group.add(cornerLedF);
+          const cornerLedS = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.2, 0.34), neonAmberMat);
+          cornerLedS.position.set(0.31, 0.44, 0.11);
+          group.add(cornerLedS);
+          const needle = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.035, 0.46, 6), goldMat);
+          needle.position.y = 0.22 + towerH + 0.22;
+          group.add(needle);
+        } else {
+          // Variants 0 & 3: Towering Curtain-Wall Skyscraper with Times Square / Shibuya Multi-Panel LED Billboards
+          const shaft = new THREE.Mesh(new THREE.BoxGeometry(0.58, towerH, 0.54), glassCurtainMat);
+          shaft.position.y = 0.22 + towerH * 0.5;
+          shaft.castShadow = true;
+          shaft.receiveShadow = true;
+          group.add(shaft);
+          // Crisp exterior vertical steel curtain-wall mullions around all 4 sides
+          for (const mx of [-0.27, -0.09, 0.09, 0.27]) {
+            const finF = new THREE.Mesh(new THREE.BoxGeometry(0.028, towerH + 0.02, 0.57), darkTechMat);
+            finF.position.set(mx, 0.22 + towerH * 0.5, 0);
+            group.add(finF);
+          }
+          const floors = 6 + (variant % 2);
+          for (let f = 0; f < floors; f++) {
+            const glassBand = new THREE.Mesh(
+              new THREE.BoxGeometry(0.6, 0.05, 0.56),
+              (f + variant) % 2 === 0 ? windowModernWarmMat : windowModernCoolMat,
+            );
+            glassBand.position.y = 0.32 + f * ((towerH - 0.16) / floors);
+            group.add(glassBand);
+          }
+          // Times Square / Tokyo Facade Billboards (stacked Jumbotron + vertical neon blade sign)
+          const jumboFrame = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.26, 0.035), darkTechMat);
+          jumboFrame.position.set(0, 0.52, 0.285);
+          group.add(jumboFrame);
+          const jumboScreen = new THREE.Mesh(
+            new THREE.BoxGeometry(0.38, 0.22, 0.042),
+            variant === 0 ? neonBillboardMat : glowCyanMat,
           );
-          glassBand.position.y = 0.3 + f * ((towerH - 0.14) / floors);
-          group.add(glassBand);
-        }
-        // Stepped mechanical crown & louvered screen + twin radio masts
-        const crown = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.12, 0.38), techMat);
-        crown.position.y = 0.26 + towerH;
-        group.add(crown);
-        const hvacCage = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.08, 0.24), darkTechMat);
-        hvacCage.position.y = 0.36 + towerH;
-        group.add(hvacCage);
-        if (variant % 2 === 0) {
-          for (const ax of [-0.08, 0.08]) {
-            const antenna = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.024, 0.34, 6), techMat);
+          jumboScreen.position.set(0, 0.52, 0.29);
+          group.add(jumboScreen);
+
+          const bladeSign = new THREE.Mesh(
+            new THREE.BoxGeometry(0.045, 0.52, 0.1),
+            variant === 0 ? neonMagentaMat : neonAmberMat,
+          );
+          bladeSign.position.set(variant === 0 ? 0.32 : -0.32, 0.88, 0.18);
+          group.add(bladeSign);
+
+          const crown = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.14, 0.4), techMat);
+          crown.position.y = 0.28 + towerH;
+          group.add(crown);
+          const roofBillboard = new THREE.Mesh(
+            new THREE.BoxGeometry(0.36, 0.16, 0.035),
+            variant === 0 ? neonLimeMat : neonMagentaMat,
+          );
+          roofBillboard.position.set(0, 0.42 + towerH, 0.18);
+          group.add(roofBillboard);
+          for (const ax of [-0.09, 0.09]) {
+            const antenna = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.024, 0.38, 6), techMat);
             antenna.position.set(ax, 0.54 + towerH, 0);
             group.add(antenna);
           }
-          const beacon = new THREE.Mesh(new THREE.BoxGeometry(0.048, 0.048, 0.048), beaconRedMat);
-          beacon.position.set(-0.08, 0.72 + towerH, 0);
-          group.add(beacon);
-        } else {
-          const beacon = new THREE.Mesh(new THREE.BoxGeometry(0.048, 0.048, 0.048), beaconRedMat);
-          beacon.position.y = 0.42 + towerH;
-          group.add(beacon);
         }
+        const beacon = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.05), beaconRedMat);
+        beacon.position.set(0, 0.68 + towerH, 0);
+        group.add(beacon);
       } else {
-        // Orbital & Interstellar: Geodesic Bio-Dome Arcology Habitat with Hover-Fins & Sky-Terraces
-        const octDeck = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.48, 0.1, 8), darkTechMat);
-        octDeck.position.y = 0.05;
+        // Orbital & Interstellar (Ep 6+): Towering Neo-Futurist Cyber-Arcology Skyscraper with Cantilevered Sky-Plazas, Holographic Billboards & Geodesic Crown
+        const towerH = 1.68 + variant * 0.19;
+        const octDeck = new THREE.Mesh(new THREE.CylinderGeometry(0.44, 0.5, 0.14, 8), darkTechMat);
+        octDeck.position.y = 0.07;
         group.add(octDeck);
-        addVoxelCottage({
-          w: 0.62,
-          h: 0.3,
-          d: 0.5,
-          wallMat: techMat,
-          roofMat: darkTechMat,
-          chimneySide: 'none',
-          ridgeAlongZ: false,
-        });
+
+        const coreTower = new THREE.Mesh(new THREE.BoxGeometry(0.54, towerH, 0.5), glassCurtainMat);
+        coreTower.position.y = 0.14 + towerH * 0.5;
+        coreTower.castShadow = true;
+        coreTower.receiveShadow = true;
+        group.add(coreTower);
+
+        // 4 Sleek white-alloy aerodynamic buttress fins running up the corners
+        for (const [fx, fz] of [
+          [-0.27, -0.25],
+          [0.27, -0.25],
+          [-0.27, 0.25],
+          [0.27, 0.25],
+        ]) {
+          const fin = new THREE.Mesh(new THREE.BoxGeometry(0.06, towerH + 0.08, 0.06), techMat);
+          fin.position.set(fx, 0.14 + towerH * 0.5, fz);
+          group.add(fin);
+        }
+
+        // Illuminated sky-levels & holographic neon sky-billboards
+        const levels = 7;
+        for (let f = 0; f < levels; f++) {
+          const ly = 0.28 + f * ((towerH - 0.18) / levels);
+          const band = new THREE.Mesh(
+            new THREE.BoxGeometry(0.57, 0.048, 0.53),
+            f % 2 === 0 ? glowCyanMat : windowModernCoolMat,
+          );
+          band.position.y = ly;
+          group.add(band);
+        }
+
+        // Vertical Neo-Tokyo Holographic Sky-Sign on the facade
+        const holoPanel = new THREE.Mesh(
+          new THREE.BoxGeometry(0.36, 0.42, 0.035),
+          variant % 2 === 0 ? neonMagentaMat : neonBillboardMat,
+        );
+        holoPanel.position.set(0, 0.55 + towerH * 0.25, 0.275);
+        group.add(holoPanel);
+
+        // Crown Geodesic Bio-Dome & Orbital Spire at the top of the skyscraper
+        const crownDeck = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.38, 0.08, 8), techMat);
+        crownDeck.position.y = 0.16 + towerH;
+        group.add(crownDeck);
         const bioDome = new THREE.Mesh(
           new THREE.SphereGeometry(0.22, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2),
           glowCyanMat,
         );
-        bioDome.position.set(0.12, 0.56, 0);
+        bioDome.position.set(0, 0.2 + towerH, 0);
         group.add(bioDome);
         for (let r = 0; r < 2; r++) {
           const rib = new THREE.Mesh(new THREE.TorusGeometry(0.228, 0.016, 5, 12, Math.PI), techMat);
           rib.rotation.y = r * (Math.PI / 2);
-          rib.position.set(0.12, 0.56, 0);
+          rib.position.set(0, 0.2 + towerH, 0);
           group.add(rib);
         }
+        const spire = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.03, 0.36, 6), techMat);
+        spire.position.set(0, 0.54 + towerH, 0);
+        group.add(spire);
       }
       break;
     }
@@ -4313,77 +6306,91 @@ export function createBuildingGroup(
         clkCap.rotation.y = Math.PI / 4;
         group.add(clkCap);
       } else if (epochIndex === 5) {
-        // Info Age: Art-Deco / Modernist Corporate Plaza Skyscraper with Steel Mullions & Setback Penthouse
-        const podium = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.24, 0.72), darkStoneMat);
-        podium.position.y = 0.12;
+        // Info Age: Monumental Times Square / Corporate Media Headquarters Skyscraper with Wrap-Around LED Ticker & Jumbo Billboards
+        const podium = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.26, 0.74), darkStoneMat);
+        podium.position.y = 0.13;
         podium.castShadow = true;
         group.add(podium);
-        const lobbyGlow = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.08, 0.74), windowModernWarmMat);
+        const lobbyGlow = new THREE.Mesh(new THREE.BoxGeometry(0.82, 0.08, 0.76), windowModernWarmMat);
         lobbyGlow.position.y = 0.1;
         group.add(lobbyGlow);
-        const plazaMarquee = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.036, 0.14), copperMat);
-        plazaMarquee.position.set(0, 0.21, 0.4);
-        group.add(plazaMarquee);
+        // Times Square wraparound glowing news ticker ribbon around the podium
+        const tickerRibbon = new THREE.Mesh(new THREE.BoxGeometry(0.83, 0.055, 0.77), neonAmberMat);
+        tickerRibbon.position.y = 0.22;
+        group.add(tickerRibbon);
 
-        const mainTower = new THREE.Mesh(new THREE.BoxGeometry(0.56, 1.12, 0.52), glassCurtainMat);
-        mainTower.position.y = 0.8;
+        const mainTower = new THREE.Mesh(new THREE.BoxGeometry(0.58, 1.48, 0.54), glassCurtainMat);
+        mainTower.position.y = 1.0;
         mainTower.castShadow = true;
         group.add(mainTower);
         // Vertical architectural mullions on all 4 facades
-        for (const mx of [-0.26, -0.09, 0.09, 0.26]) {
-          const mullionF = new THREE.Mesh(new THREE.BoxGeometry(0.03, 1.14, 0.55), darkTechMat);
-          mullionF.position.set(mx, 0.8, 0);
+        for (const mx of [-0.27, -0.09, 0.09, 0.27]) {
+          const mullionF = new THREE.Mesh(new THREE.BoxGeometry(0.03, 1.5, 0.57), darkTechMat);
+          mullionF.position.set(mx, 1.0, 0);
           group.add(mullionF);
         }
-        for (let f = 0; f < 4; f++) {
+        for (let f = 0; f < 6; f++) {
           const band = new THREE.Mesh(
-            new THREE.BoxGeometry(0.58, 0.065, 0.54),
+            new THREE.BoxGeometry(0.6, 0.055, 0.56),
             f % 2 === 0 ? windowModernWarmMat : windowModernCoolMat,
           );
-          band.position.y = 0.4 + f * 0.24;
+          band.position.y = 0.4 + f * 0.22;
           group.add(band);
         }
-        const setbackParapet = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.045, 0.54), copperMat);
-        setbackParapet.position.y = 1.38;
+        // Iconic Times Square / Shibuya Stacked Curved Corner Billboards on the tower face
+        for (let b = 0; b < 3; b++) {
+          const bMat = b === 0 ? neonBillboardMat : b === 1 ? neonMagentaMat : glowCyanMat;
+          const board = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.18, 0.042), bMat);
+          board.position.set(0, 0.48 + b * 0.26, 0.29);
+          group.add(board);
+        }
+        const setbackParapet = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.045, 0.56), copperMat);
+        setbackParapet.position.y = 1.76;
         group.add(setbackParapet);
-        const penthouse = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.22, 0.34), techMat);
-        penthouse.position.y = 1.5;
+        const penthouse = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.24, 0.36), techMat);
+        penthouse.position.y = 1.9;
         group.add(penthouse);
         for (const mx of [-0.08, 0.08]) {
           const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.03, 0.38, 6), techMat);
-          mast.position.set(mx, 1.78, 0);
+          mast.position.set(mx, 2.18, 0);
           group.add(mast);
         }
         const topBeacon = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.055, 0.055), beaconRedMat);
-        topBeacon.position.set(-0.08, 1.98, 0);
+        topBeacon.position.set(-0.08, 2.38, 0);
         group.add(topBeacon);
       } else {
-        const base = new THREE.Mesh(new THREE.BoxGeometry(0.74, 0.3, 0.68), darkTechMat);
-        base.position.y = 0.15;
+        // Ep 6+: Monumental Orbital Metropolis Command Spire with Holographic Sky-Billboards & Levitating Crown Ring
+        const base = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.32, 0.72), darkTechMat);
+        base.position.y = 0.16;
         base.castShadow = true;
         group.add(base);
-        const tower = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.72, 0.48), glassCurtainMat);
-        tower.position.y = 0.66;
+        const tower = new THREE.Mesh(new THREE.BoxGeometry(0.56, 1.56, 0.52), glassCurtainMat);
+        tower.position.y = 1.1;
         tower.castShadow = true;
         group.add(tower);
         for (const [px, pz] of [
-          [-0.25, -0.23],
-          [0.25, -0.23],
-          [-0.25, 0.23],
-          [0.25, 0.23],
+          [-0.27, -0.25],
+          [0.27, -0.25],
+          [-0.27, 0.25],
+          [0.27, 0.25],
         ]) {
-          const fin = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.84, 0.05), techMat);
-          fin.position.set(px, 0.66, pz);
+          const fin = new THREE.Mesh(new THREE.BoxGeometry(0.055, 1.66, 0.055), techMat);
+          fin.position.set(px, 1.1, pz);
           group.add(fin);
         }
-        const neonBand1 = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.05, 0.52), glowCyanMat);
-        neonBand1.position.y = 0.54;
-        group.add(neonBand1);
-        const neonBand2 = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.05, 0.52), glowCyanMat);
-        neonBand2.position.y = 0.84;
-        group.add(neonBand2);
-        const crownRing = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.07, 0.38), glowCyanMat);
-        crownRing.position.y = 1.12;
+        for (let b = 0; b < 5; b++) {
+          const neonBand = new THREE.Mesh(
+            new THREE.BoxGeometry(0.59, 0.05, 0.55),
+            b % 2 === 0 ? glowCyanMat : neonMagentaMat,
+          );
+          neonBand.position.y = 0.52 + b * 0.28;
+          group.add(neonBand);
+        }
+        const holoBoard = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.32, 0.042), neonBillboardMat);
+        holoBoard.position.set(0, 0.92, 0.285);
+        group.add(holoBoard);
+        const crownRing = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.08, 0.42), glowCyanMat);
+        crownRing.position.y = 2.02;
         crownRing.name = 'spin_part';
         group.add(crownRing);
       }
@@ -5579,7 +7586,19 @@ export function createBuildingGroup(
   }
 
   finalizeStaticBuildingMeshes(group);
-  return group;
+  // Mark template geometries & materials as shared so clones reuse the same GPU buffers safely
+  group.traverse((obj) => {
+    if (obj instanceof THREE.Mesh) {
+      if (obj.geometry) obj.geometry.userData.sharedResource = true;
+      if (Array.isArray(obj.material)) {
+        for (const m of obj.material) m.userData.sharedResource = true;
+      } else if (obj.material) {
+        obj.material.userData.sharedResource = true;
+      }
+    }
+  });
+  buildingTemplateCache.set(cacheKey, group);
+  return cloneBuildingTemplate(group);
 }
 
 interface DragonGeoTemplate {
@@ -7281,6 +9300,314 @@ function buildCreatureUnitGroup(
   return group;
 }
 
+function buildSpecialHostileUnitGroup(
+  group: THREE.Group,
+  role: 'skeleton' | 'alien_trooper' | 'alien_ufo' | 'alien_walker',
+  s0: number,
+): THREE.Group {
+  const mat = (color: number, roughness = 0.6, metalness = 0.15, emissive = 0, emissiveIntensity = 0) =>
+    new THREE.MeshStandardMaterial({ color, roughness, metalness, emissive, emissiveIntensity });
+
+  const makePivot = (name: string, x: number, y: number, z: number) => {
+    const p = new THREE.Group();
+    p.name = name;
+    p.position.set(x, y, z);
+    return p;
+  };
+
+  let shadowRadius = 0.58;
+  const bodyPivot = makePivot('body_pivot', 0, 0, 0);
+  group.add(bodyPivot);
+
+  if (role === 'skeleton') {
+    shadowRadius = 0.52;
+    const boneMat = mat(s0 % 2 === 0 ? 0xe5dfd0 : 0xd6cdb8, 0.72, 0.05);
+    const socketMat = mat(0x1b1526, 0.9, 0.0);
+    const eyeGlowMat = new THREE.MeshBasicMaterial({ color: 0xc084fc });
+    const steelMat = mat(0x64748b, 0.42, 0.75);
+
+    // Legs
+    for (const [n, lx] of [
+      ['leg_fl', -0.055],
+      ['leg_fr', 0.055],
+    ] as const) {
+      const lp = makePivot(n, lx, 0.16, 0);
+      const bone = new THREE.Mesh(new THREE.BoxGeometry(0.048, 0.16, 0.048), boneMat);
+      bone.position.y = -0.08;
+      bone.castShadow = true;
+      lp.add(bone);
+      group.add(lp);
+    }
+
+    // Spine & ribcage
+    const spine = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.24, 0.055), boneMat);
+    spine.position.set(0, 0.28, -0.02);
+    bodyPivot.add(spine);
+    for (let r = 0; r < 3; r++) {
+      const rib = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.032, 0.12), boneMat);
+      rib.position.set(0, 0.22 + r * 0.065, 0.01);
+      rib.castShadow = true;
+      bodyPivot.add(rib);
+    }
+
+    // Skull
+    const headPivot = makePivot('head_pivot', 0, 0.46, 0.01);
+    const skull = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.17, 0.17), boneMat);
+    skull.castShadow = true;
+    headPivot.add(skull);
+    const jaw = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.05, 0.12), boneMat);
+    jaw.position.set(0, -0.085, 0.02);
+    headPivot.add(jaw);
+    for (const ex of [-0.042, 0.042]) {
+      const sock = new THREE.Mesh(new THREE.BoxGeometry(0.042, 0.042, 0.025), socketMat);
+      sock.position.set(ex, 0.015, 0.082);
+      headPivot.add(sock);
+      const glow = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.02, 0.015), eyeGlowMat);
+      glow.position.set(ex, 0.015, 0.095);
+      headPivot.add(glow);
+    }
+    bodyPivot.add(headPivot);
+
+    // Rusty skeletal sword
+    const sword = new THREE.Mesh(new THREE.BoxGeometry(0.032, 0.28, 0.02), steelMat);
+    sword.position.set(0.14, 0.28, 0.12);
+    sword.rotation.x = 0.65;
+    bodyPivot.add(sword);
+  } else if (role === 'alien_trooper') {
+    shadowRadius = 0.58;
+    const armorMat = mat(s0 % 2 === 0 ? 0x3b3355 : 0x2c3650, 0.32, 0.58);
+    const skinMat = mat(0x52b788, 0.55, 0.1);
+    const visorMat = new THREE.MeshBasicMaterial({ color: 0x38f8e2 });
+    const plasmaMat = new THREE.MeshBasicMaterial({ color: 0xff4d6d });
+
+    for (const [n, lx] of [
+      ['leg_fl', -0.06],
+      ['leg_fr', 0.06],
+    ] as const) {
+      const lp = makePivot(n, lx, 0.16, 0);
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.16, 0.085), armorMat);
+      leg.position.y = -0.08;
+      leg.castShadow = true;
+      lp.add(leg);
+      group.add(lp);
+    }
+
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.24, 0.16), armorMat);
+    torso.position.y = 0.28;
+    torso.castShadow = true;
+    bodyPivot.add(torso);
+
+    const headPivot = makePivot('head_pivot', 0, 0.47, 0.01);
+    const crest = new THREE.Mesh(new THREE.BoxGeometry(0.19, 0.2, 0.21), armorMat);
+    crest.castShadow = true;
+    headPivot.add(crest);
+    const face = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.1, 0.06), skinMat);
+    face.position.set(0, -0.02, 0.09);
+    headPivot.add(face);
+    const visor = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.055, 0.03), visorMat);
+    visor.position.set(0, 0.03, 0.105);
+    headPivot.add(visor);
+    bodyPivot.add(headPivot);
+
+    // Xeno Plasma Carbine
+    const rifle = new THREE.Mesh(new THREE.BoxGeometry(0.048, 0.075, 0.34), armorMat);
+    rifle.position.set(0.14, 0.28, 0.14);
+    bodyPivot.add(rifle);
+    const coil = new THREE.Mesh(new THREE.BoxGeometry(0.032, 0.032, 0.22), plasmaMat);
+    coil.position.set(0.14, 0.31, 0.24);
+    bodyPivot.add(coil);
+  } else if (role === 'alien_ufo') {
+    shadowRadius = 1.05;
+    const hullMat = mat(0x94a3b8, 0.22, 0.85);
+    const darkHullMat = mat(0x1e293b, 0.35, 0.72);
+    const domeMat = mat(0x38bdf8, 0.12, 0.2, 0x0ea5e9, 0.65);
+    const ringMat = new THREE.MeshBasicMaterial({ color: 0x56cfe1 });
+    const coreMat = new THREE.MeshBasicMaterial({ color: 0xff3b5c });
+
+    // Main saucer disc
+    const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.68, 0.88, 0.24, 16), hullMat);
+    disc.castShadow = true;
+    bodyPivot.add(disc);
+    const underDisc = new THREE.Mesh(new THREE.CylinderGeometry(0.84, 0.42, 0.16, 16), darkHullMat);
+    underDisc.position.y = -0.18;
+    bodyPivot.add(underDisc);
+    const dome = new THREE.Mesh(new THREE.SphereGeometry(0.36, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.55), domeMat);
+    dome.position.y = 0.08;
+    bodyPivot.add(dome);
+    const emitter = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.24, 0.1, 10), coreMat);
+    emitter.position.y = -0.26;
+    bodyPivot.add(emitter);
+
+    const spinRing = new THREE.Group();
+    spinRing.name = 'ufo_ring';
+    for (let i = 0; i < 6; i++) {
+      const ang = (i / 6) * Math.PI * 2;
+      const bulb = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.06, 0.09), i % 2 === 0 ? ringMat : coreMat);
+      bulb.position.set(Math.cos(ang) * 0.78, -0.02, Math.sin(ang) * 0.78);
+      spinRing.add(bulb);
+    }
+    bodyPivot.add(spinRing);
+  } else {
+    // alien_walker: Colossal Star-Wars AT-AT Style 4-Legged Armored Mech (~4.75 units tall)
+    shadowRadius = 3.25;
+    const armorMat = mat(0xcbd5e1, 0.34, 0.68);
+    const armorTrimMat = mat(0x94a3b8, 0.38, 0.72);
+    const jointMat = mat(0x334155, 0.5, 0.75);
+    const bellyMat = mat(0x64748b, 0.42, 0.7);
+    const viewportMat = new THREE.MeshBasicMaterial({ color: 0xff2a44 });
+
+    // Massive towering armored torso hull (~3.55 y center, reaching y=4.68 dorsal armor)
+    const chassis = new THREE.Mesh(new THREE.BoxGeometry(1.88, 1.62, 3.38), armorMat);
+    chassis.position.set(0, 3.55, -0.14);
+    chassis.castShadow = true;
+    bodyPivot.add(chassis);
+
+    // Sloped side hull plating & recessed mechanical vent bays
+    for (const side of [-1, 1]) {
+      const sidePlate = new THREE.Mesh(new THREE.BoxGeometry(0.18, 1.18, 2.75), armorTrimMat);
+      sidePlate.position.set(side * 1.0, 3.56, -0.12);
+      sidePlate.castShadow = true;
+      bodyPivot.add(sidePlate);
+
+      const lowerSkirt = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.38, 2.95), jointMat);
+      lowerSkirt.position.set(side * 0.96, 2.86, -0.12);
+      bodyPivot.add(lowerSkirt);
+    }
+
+    const dorsalRidge = new THREE.Mesh(new THREE.BoxGeometry(1.38, 0.42, 2.84), bellyMat);
+    dorsalRidge.position.set(0, 4.52, -0.14);
+    dorsalRidge.castShadow = true;
+    bodyPivot.add(dorsalRidge);
+
+    const underCarriage = new THREE.Mesh(new THREE.BoxGeometry(1.48, 0.54, 2.38), jointMat);
+    underCarriage.position.set(0, 2.66, -0.08);
+    bodyPivot.add(underCarriage);
+
+    // Armored accordion neck & iconic AT-AT command head + twin heavy chin laser cannons
+    const headPivot = makePivot('head_pivot', 0, 3.44, 1.58);
+    for (let ni = 0; ni < 3; ni++) {
+      const neckSeg = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.42, 0.46, 0.24, 8),
+        ni % 2 === 0 ? jointMat : bellyMat,
+      );
+      neckSeg.rotation.x = Math.PI / 2;
+      neckSeg.position.set(0, 0, 0.14 + ni * 0.22);
+      headPivot.add(neckSeg);
+    }
+
+    const cockpit = new THREE.Mesh(new THREE.BoxGeometry(1.22, 1.04, 1.38), armorMat);
+    cockpit.position.set(0, 0.04, 1.08);
+    cockpit.castShadow = true;
+    headPivot.add(cockpit);
+
+    const browCap = new THREE.Mesh(new THREE.BoxGeometry(1.06, 0.22, 1.18), armorTrimMat);
+    browCap.position.set(0, 0.62, 1.05);
+    headPivot.add(browCap);
+
+    const visor = new THREE.Mesh(new THREE.BoxGeometry(0.96, 0.2, 0.14), viewportMat);
+    visor.position.set(0, 0.18, 1.76);
+    headPivot.add(visor);
+
+    for (const side of [-1, 1]) {
+      const earPod = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.48, 0.62), bellyMat);
+      earPod.position.set(side * 0.7, 0.04, 1.02);
+      headPivot.add(earPod);
+
+      const cheekGun = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.075, 0.68, 6), jointMat);
+      cheekGun.rotation.x = Math.PI / 2;
+      cheekGun.position.set(side * 0.72, -0.06, 1.48);
+      headPivot.add(cheekGun);
+
+      const chinBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.078, 0.092, 1.06, 8), jointMat);
+      chinBarrel.rotation.x = Math.PI / 2;
+      chinBarrel.position.set(side * 0.36, -0.34, 1.94);
+      headPivot.add(chinBarrel);
+
+      const muzzleTip = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.11, 0.14), viewportMat);
+      muzzleTip.position.set(side * 0.36, -0.34, 2.48);
+      headPivot.add(muzzleTip);
+    }
+    bodyPivot.add(headPivot);
+
+    // 4 Towering Articulated Mech Legs (Hip Pivot + Knee Pivot + Splayed Armored Footpad)
+    for (const [hipName, kneeName, lx, lz] of [
+      ['leg_fl', 'knee_fl', -1.08, 1.1],
+      ['leg_fr', 'knee_fr', 1.08, 1.1],
+      ['leg_bl', 'knee_bl', -1.08, -1.26],
+      ['leg_br', 'knee_br', 1.08, -1.26],
+    ] as const) {
+      const legPivot = makePivot(hipName, lx, 2.65, lz);
+      const hipDrum = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.36, 0.38, 8), jointMat);
+      hipDrum.rotation.z = Math.PI / 2;
+      legPivot.add(hipDrum);
+
+      const hipGuard = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.44, 0.56), armorTrimMat);
+      hipGuard.position.set(lx < 0 ? -0.06 : 0.06, 0.08, 0);
+      legPivot.add(hipGuard);
+
+      const upperStrut = new THREE.Mesh(new THREE.BoxGeometry(0.42, 1.32, 0.52), armorMat);
+      upperStrut.position.set(0, -0.66, 0);
+      upperStrut.castShadow = true;
+      legPivot.add(upperStrut);
+
+      const upperPiston = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 1.15, 6), bellyMat);
+      upperPiston.position.set(0, -0.64, -0.24);
+      legPivot.add(upperPiston);
+
+      // Articulated Knee Pivot at y = -1.32 below hip (total y = 1.33 above ground)
+      const kneePivot = makePivot(kneeName, 0, -1.32, 0);
+      const kneeDrum = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.44, 8), jointMat);
+      kneeDrum.rotation.z = Math.PI / 2;
+      kneePivot.add(kneeDrum);
+
+      const kneeArmor = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.36, 0.58), armorTrimMat);
+      kneeArmor.position.set(0, 0.02, 0.05);
+      kneePivot.add(kneeArmor);
+
+      const lowerStrut = new THREE.Mesh(new THREE.BoxGeometry(0.38, 1.24, 0.48), armorMat);
+      lowerStrut.position.set(0, -0.62, 0);
+      lowerStrut.castShadow = true;
+      kneePivot.add(lowerStrut);
+
+      const ankleJoint = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.28, 0.22, 8), jointMat);
+      ankleJoint.position.set(0, -1.18, 0);
+      kneePivot.add(ankleJoint);
+
+      // Heavy circular splayed AT-AT Footpad flush at y = -1.33 (sole at world y = 0)
+      const footPad = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.64, 0.24, 8), jointMat);
+      footPad.position.set(0, -1.21, 0.05);
+      footPad.castShadow = true;
+      kneePivot.add(footPad);
+
+      // 4 armored foot claws gripping the terrain
+      for (const [cx, cz] of [
+        [-0.36, 0.42],
+        [0.36, 0.42],
+        [-0.38, -0.32],
+        [0.38, -0.32],
+      ]) {
+        const toe = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.16, 0.32), armorTrimMat);
+        toe.position.set(cx, -1.25, cz + 0.05);
+        toe.castShadow = true;
+        kneePivot.add(toe);
+      }
+
+      legPivot.add(kneePivot);
+      group.add(legPivot);
+    }
+  }
+
+  group.add(createContactShadow(shadowRadius));
+  const auraRing = new THREE.Mesh(sharedStatusRingGeo, sharedStatusRingMaterials[1]);
+  auraRing.scale.setScalar(role === 'alien_walker' ? 3.8 : role === 'alien_ufo' ? 1.5 : 1.0);
+  auraRing.position.y = 0.03;
+  auraRing.visible = false;
+  auraRing.name = 'status_ring';
+  group.add(auraRing);
+
+  return group;
+}
+
 export function createUnitGroup(
   role: UnitRole,
   faction: 'civilization' | 'hostile' | 'wildlife',
@@ -7313,6 +9640,15 @@ export function createUnitGroup(
     role === 'leviathan'
   ) {
     return buildCreatureUnitGroup(group, role, s0, s1, s2, s3);
+  }
+
+  if (
+    role === 'skeleton' ||
+    role === 'alien_trooper' ||
+    role === 'alien_ufo' ||
+    role === 'alien_walker'
+  ) {
+    return buildSpecialHostileUnitGroup(group, role, s0);
   }
 
   const resolvedSpecies: SpeciesId =
@@ -7687,7 +10023,7 @@ export function createUnitGroup(
   if (!isChild && faction === 'civilization' && epochLevel >= 4) {
     const visor = new THREE.Mesh(
       new THREE.BoxGeometry(headSizeX * 0.88, 0.045 * scale, 0.04 * scale),
-      new THREE.MeshBasicMaterial({ color: resolvedSpecies === 'orc' ? 0xff7b54 : 0x56cfe1 }),
+      resolvedSpecies === 'orc' ? sharedVisorOrcMat : sharedVisorCyanMat,
     );
     visor.position.set(0, headCenterY + 0.01 * scale, headSizeZ * 0.51);
     group.add(visor);
@@ -7946,31 +10282,34 @@ export function createUnitGroup(
         toolGroup.add(plasmaCoil);
       }
     }
+    bakeVertexColoredStaticMeshes(toolGroup, new Set(), {
+      unifyCastShadow: false,
+      disposeSourceMaterials: true,
+    });
     group.add(toolGroup);
   }
 
-  // 6. Carried Resource Bundle (shown when hauling lumber, berries, stone, ore, crystals)
-  const carryMat = new THREE.MeshStandardMaterial({ color: 0x8f5d38, roughness: 0.7 });
-  const carryBox = new THREE.Mesh(
-    new THREE.BoxGeometry(0.13 * scale, 0.13 * scale, 0.13 * scale),
-    carryMat,
-  );
+  // Merge all static opaque humanoid body parts (legs, torso, belt/sash/pack, head, ears/tusks, beard, hair, headgear)
+  // into 1-2 vertex-colored draw calls sharing module-level PBR materials (cuts 14-18 draws/unit down to 1-2!).
+  bakeVertexColoredStaticMeshes(group, new Set(['contact_shadow']), {
+    unifyCastShadow: true,
+    tagUnitShadowCaster: true,
+    disposeSourceMaterials: true,
+  });
+
+  // 6. Carried Resource Bundle (shared geometry & shared resource materials)
+  const carryBox = new THREE.Mesh(sharedCarryGeo, sharedCarryMaterials.wood);
+  carryBox.scale.setScalar(scale);
   carryBox.position.set(0, 0.27 * scale, 0.14 * scale);
   carryBox.visible = false;
   carryBox.name = 'carry_box';
   group.add(carryBox);
 
-  // 7. Status Ring (hidden unless blessed/cursed/frenzied/plagued)
-  const auraGeo = new THREE.RingGeometry(0.22 * scale, 0.29 * scale, 12);
-  auraGeo.rotateX(-Math.PI / 2);
-  const auraMat = new THREE.MeshBasicMaterial({
-    color: 0xf5b742,
-    side: THREE.DoubleSide,
-    transparent: true,
-    opacity: 0.0,
-  });
-  const auraRing = new THREE.Mesh(auraGeo, auraMat);
+  // 7. Status Ring (shared geometry & shared materials; hidden unless blessed/cursed/frenzied/plagued/shielded/frozen)
+  const auraRing = new THREE.Mesh(sharedStatusRingGeo, sharedStatusRingMaterials[1]);
+  auraRing.scale.setScalar(scale);
   auraRing.position.y = 0.03;
+  auraRing.visible = false;
   auraRing.name = 'status_ring';
   group.add(auraRing);
 
@@ -7981,33 +10320,9 @@ export function createUnitGroup(
     bwGroup.visible = false;
     bwGroup.position.set(0, 0.28, -0.18);
 
-    const bwAuraMat = new THREE.MeshStandardMaterial({
-      color: 0xff3b30,
-      emissive: 0xff5400,
-      emissiveIntensity: 0.92,
-      roughness: 0.32,
-      metalness: 0.28,
-      transparent: true,
-      opacity: 0.75,
-    });
-    const bwArmorMat = new THREE.MeshStandardMaterial({
-      color: 0x991b1b,
-      emissive: 0xef233c,
-      emissiveIntensity: 0.5,
-      roughness: 0.28,
-      metalness: 0.6,
-      transparent: true,
-      opacity: 0.86,
-    });
-    const bwCoreMat = new THREE.MeshStandardMaterial({
-      color: 0xffbe0b,
-      emissive: 0xff8800,
-      emissiveIntensity: 1.0,
-      roughness: 0.22,
-      metalness: 0.45,
-      transparent: true,
-      opacity: 0.9,
-    });
+    const bwAuraMat = sharedBattlewillAuraMat;
+    const bwArmorMat = sharedBattlewillArmorMat;
+    const bwCoreMat = sharedBattlewillCoreMat;
 
     const bwTorso = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.24, 0.78, 6), bwAuraMat);
     bwTorso.position.set(0, 0.92, 0);
@@ -8086,7 +10401,9 @@ export function createUnitGroup(
     swordTip.rotation.y = Math.PI / 4;
     swordPivot.add(swordTip);
 
+    bakeVertexColoredStaticMeshes(swordPivot, new Set());
     bwGroup.add(swordPivot);
+    bakeVertexColoredStaticMeshes(bwGroup, new Set(['battlewill_sword_pivot']));
     group.add(bwGroup);
   }
 
@@ -11347,4 +13664,704 @@ export function createVehicleGroup(
 
   return group;
 }
+
+export interface AlienMothershipVisual {
+  shipGroup: THREE.Group;
+  shadowGeo: THREE.BufferGeometry;
+  materials: THREE.Material[];
+  geometries: THREE.BufferGeometry[];
+  reactorDrums: THREE.Object3D[];
+  engineGlowMeshes: THREE.Object3D[];
+  turretPivots: THREE.Object3D[];
+}
+
+export function createAlienMothershipVisual(radius: number): AlienMothershipVisual {
+  const s = Math.max(0.85, radius / 14.0);
+  const shipGroup = new THREE.Group();
+  shipGroup.name = 'alien_dreadnought_hull';
+
+  const materials: THREE.Material[] = [];
+  const geometries: THREE.BufferGeometry[] = [];
+  const reactorDrums: THREE.Object3D[] = [];
+  const engineGlowMeshes: THREE.Object3D[] = [];
+  const turretPivots: THREE.Object3D[] = [];
+
+  const trackGeo = <T extends THREE.BufferGeometry>(g: T): T => {
+    geometries.push(g);
+    return g;
+  };
+  const trackMat = <T extends THREE.Material>(m: T): T => {
+    materials.push(m);
+    return m;
+  };
+
+  // Grey / Light Grey / Matte Black / Restrained Subtle Ice-Blue palette
+  const hullTex = getPixelArtTexture('mothership_hull_steel_v2', '#707782', '#c0c7d1', '#1c2128', 'tech');
+  const armorLightMat = trackMat(
+    new THREE.MeshStandardMaterial({
+      color: 0xc2c8d1,
+      map: hullTex,
+      roughness: 0.42,
+      metalness: 0.6,
+    }),
+  );
+  const armorMidMat = trackMat(
+    new THREE.MeshStandardMaterial({
+      color: 0x6b7280,
+      map: hullTex,
+      roughness: 0.44,
+      metalness: 0.66,
+    }),
+  );
+  const armorBlackMat = trackMat(
+    new THREE.MeshStandardMaterial({
+      color: 0x181b20,
+      roughness: 0.34,
+      metalness: 0.8,
+    }),
+  );
+  const keelSteelMat = trackMat(
+    new THREE.MeshStandardMaterial({
+      color: 0xd1d5db,
+      roughness: 0.5,
+      metalness: 0.45,
+    }),
+  );
+  const deckBlackMat = trackMat(
+    new THREE.MeshStandardMaterial({
+      color: 0x111418,
+      roughness: 0.72,
+      metalness: 0.28,
+    }),
+  );
+  const trussDarkMat = trackMat(
+    new THREE.MeshStandardMaterial({
+      color: 0x323741,
+      roughness: 0.5,
+      metalness: 0.72,
+    }),
+  );
+  const subtleBlueMat = trackMat(
+    new THREE.MeshBasicMaterial({
+      color: 0x60a5fa,
+    }),
+  );
+  const thrusterCoreMat = trackMat(
+    new THREE.MeshBasicMaterial({
+      color: 0x93c5fd,
+      transparent: true,
+      opacity: 0.85,
+    }),
+  );
+  const amberWindowMat = trackMat(
+    new THREE.MeshBasicMaterial({
+      color: 0xfbbf24,
+    }),
+  );
+
+  // 1. Primary Elongated Wingless Warship Spine (Z: -12.6 aft .. +12.6 bow)
+  const hullCoreGeo = trackGeo(new THREE.BoxGeometry(3.4 * s, 2.2 * s, 20.4 * s));
+  const hullCore = new THREE.Mesh(hullCoreGeo, armorBlackMat);
+  hullCore.position.set(0, -0.05 * s, -0.8 * s);
+  hullCore.castShadow = true;
+  shipGroup.add(hullCore);
+
+  // Heavy stepped grey armored flanks hugging the fuselage (NO wings)
+  for (const side of [-1, 1]) {
+    const flankShape = new THREE.Shape();
+    flankShape.moveTo(0, -10.8 * s);
+    flankShape.lineTo(1.75 * s, -9.2 * s);
+    flankShape.lineTo(2.05 * s, -2.2 * s);
+    flankShape.lineTo(1.95 * s, 5.2 * s);
+    flankShape.lineTo(1.25 * s, 10.2 * s);
+    flankShape.lineTo(0, 11.4 * s);
+    flankShape.closePath();
+
+    const flankGeo = trackGeo(
+      new THREE.ExtrudeGeometry(flankShape, {
+        depth: 1.55 * s,
+        bevelEnabled: true,
+        bevelThickness: 0.22 * s,
+        bevelSize: 0.18 * s,
+        bevelSegments: 2,
+      }),
+    );
+    flankGeo.rotateX(Math.PI / 2);
+    const flank = new THREE.Mesh(flankGeo, armorMidMat);
+    flank.position.set(side * 0.9 * s, 0.86 * s, 0);
+    if (side < 0) flank.scale.x = -1;
+    flank.castShadow = true;
+    shipGroup.add(flank);
+
+    // Light-grey upper armored gunwale belt
+    const beltGeo = trackGeo(new THREE.BoxGeometry(0.75 * s, 0.62 * s, 17.6 * s));
+    const belt = new THREE.Mesh(beltGeo, armorLightMat);
+    belt.position.set(side * 2.28 * s, 0.56 * s, -0.4 * s);
+    belt.castShadow = true;
+    shipGroup.add(belt);
+
+    // Compact wingless broadside drop-bay sponsons braced by charcoal truss ribs
+    const sponsonGeo = trackGeo(new THREE.BoxGeometry(1.15 * s, 1.05 * s, 6.2 * s));
+    const sponson = new THREE.Mesh(sponsonGeo, armorBlackMat);
+    sponson.position.set(side * 2.85 * s, -0.38 * s, 0.4 * s);
+    sponson.castShadow = true;
+    shipGroup.add(sponson);
+
+    const sponsonCapGeo = trackGeo(new THREE.BoxGeometry(1.05 * s, 0.24 * s, 5.6 * s));
+    const sponsonCap = new THREE.Mesh(sponsonCapGeo, armorLightMat);
+    sponsonCap.position.set(side * 2.85 * s, 0.22 * s, 0.4 * s);
+    shipGroup.add(sponsonCap);
+
+    // Subtle restrained blue drop-bay slit under each compact side bay
+    const baySlitGeo = trackGeo(new THREE.BoxGeometry(0.42 * s, 0.08 * s, 3.4 * s));
+    const baySlit = new THREE.Mesh(baySlitGeo, subtleBlueMat);
+    baySlit.position.set(side * 2.85 * s, -0.92 * s, 0.4 * s);
+    shipGroup.add(baySlit);
+
+    // Exposed truss rib braces along side hull
+    for (let ri = 0; ri < 4; ri++) {
+      const ribGeo = trackGeo(new THREE.BoxGeometry(0.28 * s, 1.25 * s, 0.24 * s));
+      const rib = new THREE.Mesh(ribGeo, trussDarkMat);
+      rib.position.set(side * 3.12 * s, -0.25 * s, (-1.8 + ri * 1.45) * s);
+      shipGroup.add(rib);
+    }
+  }
+
+  // 2. Sculpted Multi-Tiered Armored Bow Prow (+Z forward, NO wide wings)
+  const prowShape = new THREE.Shape();
+  prowShape.moveTo(-1.85 * s, 7.2 * s);
+  prowShape.lineTo(1.85 * s, 7.2 * s);
+  prowShape.lineTo(2.15 * s, 10.6 * s);
+  prowShape.lineTo(1.35 * s, 13.0 * s);
+  prowShape.lineTo(0, 13.8 * s);
+  prowShape.lineTo(-1.35 * s, 13.0 * s);
+  prowShape.lineTo(-2.15 * s, 10.6 * s);
+  prowShape.closePath();
+
+  const prowGeo = trackGeo(
+    new THREE.ExtrudeGeometry(prowShape, {
+      depth: 1.35 * s,
+      bevelEnabled: true,
+      bevelThickness: 0.25 * s,
+      bevelSize: 0.2 * s,
+      bevelSegments: 2,
+    }),
+  );
+  prowGeo.rotateX(Math.PI / 2);
+  const prowArmor = new THREE.Mesh(prowGeo, armorLightMat);
+  prowArmor.position.set(0, 0.92 * s, 0);
+  prowArmor.castShadow = true;
+  shipGroup.add(prowArmor);
+
+  // Matte black upper bow deck plate & tiny amber bridge/sensor window dots
+  const bowPlateGeo = trackGeo(new THREE.BoxGeometry(2.3 * s, 0.24 * s, 4.4 * s));
+  const bowPlate = new THREE.Mesh(bowPlateGeo, armorBlackMat);
+  bowPlate.position.set(0, 1.18 * s, 10.1 * s);
+  shipGroup.add(bowPlate);
+
+  for (let wi = -2; wi <= 2; wi++) {
+    const winDot = new THREE.Mesh(trackGeo(new THREE.BoxGeometry(0.18 * s, 0.1 * s, 0.14 * s)), amberWindowMat);
+    winDot.position.set(wi * 0.42 * s, 0.42 * s, 13.62 * s);
+    shipGroup.add(winDot);
+  }
+
+  // Twin Underslung Heavy Black & Grey Siege Railgun Cannons projecting past bow
+  for (const side of [-1, 1]) {
+    const gunHousingGeo = trackGeo(new THREE.BoxGeometry(0.56 * s, 0.62 * s, 3.6 * s));
+    const gunHousing = new THREE.Mesh(gunHousingGeo, armorMidMat);
+    gunHousing.position.set(side * 0.92 * s, -0.82 * s, 8.8 * s);
+    shipGroup.add(gunHousing);
+
+    const barrelGeo = trackGeo(new THREE.CylinderGeometry(0.14 * s, 0.17 * s, 5.2 * s, 8));
+    barrelGeo.rotateX(Math.PI / 2);
+    const barrel = new THREE.Mesh(barrelGeo, armorBlackMat);
+    barrel.position.set(side * 0.92 * s, -0.82 * s, 11.4 * s);
+    shipGroup.add(barrel);
+
+    const muzzleSlit = new THREE.Mesh(trackGeo(new THREE.BoxGeometry(0.14 * s, 0.14 * s, 0.45 * s)), subtleBlueMat);
+    muzzleSlit.position.set(side * 0.92 * s, -0.82 * s, 13.95 * s);
+    shipGroup.add(muzzleSlit);
+  }
+
+  // 3. Long Matte-Black Carrier Flight-Deck with Light-Grey Ribs & Thin Blue Track Markers
+  const deckGeo = trackGeo(new THREE.BoxGeometry(2.75 * s, 0.26 * s, 9.8 * s));
+  const flightDeck = new THREE.Mesh(deckGeo, deckBlackMat);
+  flightDeck.position.set(0, 1.18 * s, 3.4 * s);
+  shipGroup.add(flightDeck);
+
+  for (const side of [-1, 1]) {
+    const deckRail = new THREE.Mesh(trackGeo(new THREE.BoxGeometry(0.32 * s, 0.32 * s, 9.8 * s)), armorLightMat);
+    deckRail.position.set(side * 1.48 * s, 1.24 * s, 3.4 * s);
+    shipGroup.add(deckRail);
+
+    // Thin subtle ice-blue runway line
+    const thinLine = new THREE.Mesh(trackGeo(new THREE.BoxGeometry(0.06 * s, 0.04 * s, 8.6 * s)), subtleBlueMat);
+    thinLine.position.set(side * 1.02 * s, 1.33 * s, 3.4 * s);
+    shipGroup.add(thinLine);
+  }
+
+  // 4. Mid-Dorsal Charcoal Skeletal Spine & 3 Rotating Grey/Black Reactor Containment Drums
+  const spineCageGeo = trackGeo(new THREE.BoxGeometry(0.24 * s, 0.24 * s, 6.2 * s));
+  for (const [cx, cy] of [
+    [-1.25, 2.38],
+    [1.25, 2.38],
+    [0, 2.78],
+  ]) {
+    const rail = new THREE.Mesh(spineCageGeo, trussDarkMat);
+    rail.position.set(cx * s, cy * s, -3.7 * s);
+    shipGroup.add(rail);
+  }
+  const drumCoreGeo = trackGeo(new THREE.CylinderGeometry(0.95 * s, 0.95 * s, 1.15 * s, 6));
+  drumCoreGeo.rotateX(Math.PI / 2);
+  const drumRibGeo = trackGeo(new THREE.TorusGeometry(1.08 * s, 0.14 * s, 6, 6));
+  const drumInnerGeo = trackGeo(new THREE.CylinderGeometry(0.64 * s, 0.64 * s, 1.28 * s, 8));
+  drumInnerGeo.rotateX(Math.PI / 2);
+
+  for (let di = 0; di < 3; di++) {
+    const dz = (-1.85 - di * 1.85) * s;
+    const drumPivot = new THREE.Group();
+    drumPivot.position.set(0, 1.82 * s, dz);
+
+    const innerBand = new THREE.Mesh(drumInnerGeo, di === 1 ? armorLightMat : subtleBlueMat);
+    drumPivot.add(innerBand);
+
+    const armorDrum = new THREE.Mesh(drumCoreGeo, armorMidMat);
+    drumPivot.add(armorDrum);
+
+    const rib = new THREE.Mesh(drumRibGeo, armorBlackMat);
+    drumPivot.add(rib);
+
+    shipGroup.add(drumPivot);
+    reactorDrums.push(drumPivot);
+  }
+
+  // 5. Elevated Rear Command Bridge Citadel (Light Grey + Charcoal Black + Amber Bridge Slit)
+  const citadelBaseGeo = trackGeo(new THREE.BoxGeometry(2.65 * s, 1.45 * s, 3.0 * s));
+  const citadelBase = new THREE.Mesh(citadelBaseGeo, armorMidMat);
+  citadelBase.position.set(0, 2.2 * s, -7.8 * s);
+  citadelBase.castShadow = true;
+  shipGroup.add(citadelBase);
+
+  const citadelTopGeo = trackGeo(new THREE.BoxGeometry(3.15 * s, 0.78 * s, 2.1 * s));
+  const citadelTop = new THREE.Mesh(citadelTopGeo, armorBlackMat);
+  citadelTop.position.set(0, 3.22 * s, -7.6 * s);
+  citadelTop.castShadow = true;
+  shipGroup.add(citadelTop);
+
+  const citadelCapGeo = trackGeo(new THREE.BoxGeometry(2.75 * s, 0.22 * s, 1.75 * s));
+  const citadelCap = new THREE.Mesh(citadelCapGeo, armorLightMat);
+  citadelCap.position.set(0, 3.68 * s, -7.6 * s);
+  shipGroup.add(citadelCap);
+
+  const bridgeVisor = new THREE.Mesh(trackGeo(new THREE.BoxGeometry(2.55 * s, 0.16 * s, 0.12 * s)), amberWindowMat);
+  bridgeVisor.position.set(0, 3.22 * s, -6.54 * s);
+  shipGroup.add(bridgeVisor);
+
+  const mastGeo = trackGeo(new THREE.BoxGeometry(0.14 * s, 1.25 * s, 0.14 * s));
+  for (const mx of [-0.95, 0.95]) {
+    const mast = new THREE.Mesh(mastGeo, armorLightMat);
+    mast.position.set(mx * s, 4.25 * s, -7.8 * s);
+    shipGroup.add(mast);
+    const beacon = new THREE.Mesh(trackGeo(new THREE.BoxGeometry(0.18 * s, 0.14 * s, 0.18 * s)), subtleBlueMat);
+    beacon.position.set(mx * s, 4.92 * s, -7.8 * s);
+    shipGroup.add(beacon);
+  }
+
+  // 6. 6 Armored Broadside/Dorsal Dual-Barrel Turrets (tucked neatly along shoulders, NO wings)
+  const turretBaseGeo = trackGeo(new THREE.CylinderGeometry(0.36 * s, 0.44 * s, 0.28 * s, 8));
+  const turretGunGeo = trackGeo(new THREE.BoxGeometry(0.1 * s, 0.1 * s, 0.88 * s));
+  for (const side of [-1, 1]) {
+    for (let ti = 0; ti < 3; ti++) {
+      const tPivot = new THREE.Group();
+      tPivot.position.set(side * 2.15 * s, 1.08 * s, (4.2 - ti * 3.1) * s);
+      tPivot.add(new THREE.Mesh(turretBaseGeo, armorBlackMat));
+      for (const gx of [-0.14, 0.14]) {
+        const gun = new THREE.Mesh(turretGunGeo, armorLightMat);
+        gun.position.set(gx * s, 0.12 * s, 0.48 * s);
+        tPivot.add(gun);
+      }
+      shipGroup.add(tPivot);
+      turretPivots.push(tPivot);
+    }
+  }
+
+  // 7. Deep Ventral Naval Keel Blade (Light Steel Grey) & Charcoal Drop Aperture
+  const keelShape = new THREE.Shape();
+  keelShape.moveTo(1.2 * s, -0.8 * s);
+  keelShape.lineTo(9.8 * s, -0.9 * s);
+  keelShape.lineTo(7.8 * s, -3.2 * s);
+  keelShape.lineTo(4.0 * s, -4.9 * s);
+  keelShape.lineTo(2.6 * s, -3.3 * s);
+  keelShape.lineTo(0.8 * s, -2.1 * s);
+  keelShape.closePath();
+
+  const keelGeo = trackGeo(
+    new THREE.ExtrudeGeometry(keelShape, {
+      depth: 0.72 * s,
+      bevelEnabled: true,
+      bevelThickness: 0.16 * s,
+      bevelSize: 0.14 * s,
+      bevelSegments: 2,
+    }),
+  );
+  keelGeo.translate(0, 0, -0.36 * s);
+  keelGeo.rotateY(-Math.PI / 2);
+  const ventralKeel = new THREE.Mesh(keelGeo, keelSteelMat);
+  ventralKeel.castShadow = true;
+  shipGroup.add(ventralKeel);
+
+  // Ventral deployment bay cowl + thin ice-blue aperture ring
+  const emitterCowlGeo = trackGeo(new THREE.CylinderGeometry(1.45 * s, 1.08 * s, 0.72 * s, 8));
+  const emitterCowl = new THREE.Mesh(emitterCowlGeo, armorBlackMat);
+  emitterCowl.position.set(0, -1.32 * s, 0.2 * s);
+  shipGroup.add(emitterCowl);
+
+  const emitterRingGeo = trackGeo(new THREE.TorusGeometry(1.04 * s, 0.11 * s, 6, 12));
+  emitterRingGeo.rotateX(Math.PI / 2);
+  const emitterRing = new THREE.Mesh(emitterRingGeo, subtleBlueMat);
+  emitterRing.position.set(0, -1.68 * s, 0.2 * s);
+  shipGroup.add(emitterRing);
+
+  // 8. Heavy Wingless Stern Engine Nacelles & 6 Matte-Black Thruster Cowls + Subtle Ice-Blue Plumes
+  const pylonGeo = trackGeo(new THREE.BoxGeometry(1.95 * s, 2.05 * s, 4.6 * s));
+  const nozzleCowlGeo = trackGeo(new THREE.CylinderGeometry(0.58 * s, 0.74 * s, 1.15 * s, 8));
+  nozzleCowlGeo.rotateX(Math.PI / 2);
+  const plumeGeo = trackGeo(new THREE.ConeGeometry(0.46 * s, 2.15 * s, 8));
+  plumeGeo.rotateX(-Math.PI / 2);
+
+  for (const side of [-1, 1]) {
+    const pylon = new THREE.Mesh(pylonGeo, armorMidMat);
+    pylon.position.set(side * 2.15 * s, 0.18 * s, -10.3 * s);
+    pylon.castShadow = true;
+    shipGroup.add(pylon);
+
+    const pylonTrim = new THREE.Mesh(trackGeo(new THREE.BoxGeometry(2.05 * s, 0.28 * s, 4.2 * s)), armorLightMat);
+    pylonTrim.position.set(side * 2.15 * s, 1.24 * s, -10.3 * s);
+    shipGroup.add(pylonTrim);
+
+    for (const [ox, oy] of [
+      [side * 2.15, 0.62],
+      [side * 2.15, -0.24],
+      [side * 0.95, 0.16],
+    ]) {
+      const cowl = new THREE.Mesh(nozzleCowlGeo, armorBlackMat);
+      cowl.position.set(ox * s, oy * s, -12.6 * s);
+      shipGroup.add(cowl);
+
+      const plume = new THREE.Mesh(plumeGeo, thrusterCoreMat);
+      plume.position.set(ox * s, oy * s, -13.65 * s);
+      shipGroup.add(plume);
+      engineGlowMeshes.push(plume);
+    }
+  }
+
+  // 9. Sleek Elongated Wingless Capital-Ship Shadow Silhouette
+  const shShape = new THREE.Shape();
+  shShape.moveTo(0, 13.8 * s);
+  shShape.lineTo(1.45 * s, 12.8 * s);
+  shShape.lineTo(2.25 * s, 10.2 * s);
+  shShape.lineTo(2.55 * s, 4.6 * s);
+  shShape.lineTo(3.35 * s, 3.2 * s);
+  shShape.lineTo(3.35 * s, -2.6 * s);
+  shShape.lineTo(2.65 * s, -4.4 * s);
+  shShape.lineTo(3.15 * s, -12.4 * s);
+  shShape.lineTo(-3.15 * s, -12.4 * s);
+  shShape.lineTo(-2.65 * s, -4.4 * s);
+  shShape.lineTo(-3.35 * s, -2.6 * s);
+  shShape.lineTo(-3.35 * s, 3.2 * s);
+  shShape.lineTo(-2.55 * s, 4.6 * s);
+  shShape.lineTo(-2.25 * s, 10.2 * s);
+  shShape.lineTo(-1.45 * s, 12.8 * s);
+  shShape.closePath();
+
+  const shadowGeo = trackGeo(new THREE.ShapeGeometry(shShape));
+  shadowGeo.rotateX(Math.PI / 2);
+
+  return {
+    shipGroup,
+    shadowGeo,
+    materials,
+    geometries,
+    reactorDrums,
+    engineGlowMeshes,
+    turretPivots,
+  };
+}
+
+export interface HyperspacePortalRig {
+  group: THREE.Group;
+  discMesh: THREE.Mesh;
+  discMat: THREE.ShaderMaterial;
+  shockRings: THREE.Mesh[];
+  ringMats: THREE.MeshBasicMaterial[];
+  warpStreaks: THREE.Mesh[];
+  streakMat: THREE.MeshBasicMaterial;
+}
+
+export interface HyperspaceRippleEffectsVisual {
+  entryPortal: HyperspacePortalRig;
+  exitPortal: HyperspacePortalRig;
+  wakeGroup: THREE.Group;
+  wakeRings: THREE.Mesh[];
+  wakeMats: THREE.MeshBasicMaterial[];
+  groundRippleMesh: THREE.Mesh;
+  groundRippleMat: THREE.ShaderMaterial;
+  geometries: THREE.BufferGeometry[];
+  materials: THREE.Material[];
+}
+
+export function createHyperspaceRippleEffects(radius: number): HyperspaceRippleEffectsVisual {
+  const s = Math.max(0.85, radius / 14.0);
+  const geometries: THREE.BufferGeometry[] = [];
+  const materials: THREE.Material[] = [];
+
+  const trackGeo = <T extends THREE.BufferGeometry>(g: T): T => {
+    geometries.push(g);
+    return g;
+  };
+  const trackMat = <T extends THREE.Material>(m: T): T => {
+    materials.push(m);
+    return m;
+  };
+
+  const portalDiscGeo = trackGeo(new THREE.PlaneGeometry(24 * s, 24 * s, 1, 1));
+  const torusRingGeo = trackGeo(new THREE.TorusGeometry(1, 0.042, 8, 48));
+  const streakGeo = trackGeo(new THREE.CylinderGeometry(0.024, 0.13, 1.0, 6));
+  streakGeo.rotateX(Math.PI / 2);
+
+  const createRippleShaderMat = (direction: number) =>
+    trackMat(
+      new THREE.ShaderMaterial({
+        uniforms: {
+          uTime: { value: 0 },
+          uProgress: { value: 0 },
+          uOpacity: { value: 0 },
+          uDirection: { value: direction },
+          uColorCore: { value: new THREE.Color(0xf0f9ff) },
+          uColorMid: { value: new THREE.Color(0x93c5fd) },
+          uColorOuter: { value: new THREE.Color(0x3b82f6) },
+        },
+        vertexShader: /* glsl */ `
+          varying vec2 vUv;
+          void main() {
+            vUv = uv;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          }
+        `,
+        fragmentShader: /* glsl */ `
+          varying vec2 vUv;
+          uniform float uTime;
+          uniform float uProgress;
+          uniform float uOpacity;
+          uniform float uDirection;
+          uniform vec3 uColorCore;
+          uniform vec3 uColorMid;
+          uniform vec3 uColorOuter;
+
+          void main() {
+            vec2 p = vUv * 2.0 - 1.0;
+            float r = length(p);
+            if (r > 1.0) discard;
+            float ang = atan(p.y, p.x);
+
+            // Multi-frequency traveling spatial distortion ripples
+            float waveFreq = sin(r * 30.0 - uDirection * uTime * 15.0 + sin(ang * 5.0) * 0.45) * 0.5 + 0.5;
+            float fineWave = sin(r * 52.0 - uDirection * uTime * 22.0) * 0.5 + 0.5;
+
+            // Primary + trailing concentric shockwave crests sweeping radially
+            float crestPos = uDirection > 0.0
+              ? mix(0.08, 0.9, uProgress)
+              : mix(0.92, 0.14, uProgress);
+            float crest1 = exp(-pow((r - crestPos) * 10.5, 2.0));
+            float crest2 = exp(-pow((r - crestPos * 0.68) * 13.0, 2.0)) * 0.72;
+            float crest3 = exp(-pow((r - crestPos * 0.4) * 16.0, 2.0)) * 0.5;
+
+            // Slipspace radial star-lensing spokes
+            float spokeSignal = pow(abs(sin(ang * 9.0 + uDirection * uTime * 2.2)), 6.0);
+            float spokes = spokeSignal * smoothstep(0.06, 0.35, r) * (1.0 - smoothstep(0.55, 0.96, r));
+
+            // Luminous inner slipspace iris flash
+            float coreIris = exp(-r * r * 14.0) * (1.0 - uProgress * 0.55);
+
+            float rippleEnergy =
+              (crest1 * 1.15 + crest2 + crest3) * (0.65 + 0.35 * waveFreq) +
+              (waveFreq * 0.24 + fineWave * 0.12) * smoothstep(0.08, 0.3, r) +
+              spokes * 0.42 +
+              coreIris * 0.95;
+
+            float edgeFade = smoothstep(1.0, 0.62, r);
+            float alpha = clamp(rippleEnergy * edgeFade * uOpacity, 0.0, 1.0);
+            if (alpha < 0.005) discard;
+
+            vec3 col = mix(uColorOuter, uColorMid, clamp(waveFreq * 0.7 + crest2 * 0.6, 0.0, 1.0));
+            col = mix(col, uColorCore, clamp(crest1 * 0.85 + coreIris * 0.9 + spokes * 0.4, 0.0, 1.0));
+            gl_FragColor = vec4(col, alpha);
+          }
+        `,
+        transparent: true,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending,
+      }),
+    );
+
+  const buildPortalRig = (direction: number): HyperspacePortalRig => {
+    const group = new THREE.Group();
+    const discMat = createRippleShaderMat(direction);
+    const discMesh = new THREE.Mesh(portalDiscGeo, discMat);
+    discMesh.renderOrder = 18;
+    group.add(discMesh);
+
+    const ringColors = [0xe0f2fe, 0x93c5fd, 0x60a5fa];
+    const shockRings: THREE.Mesh[] = [];
+    const ringMats: THREE.MeshBasicMaterial[] = [];
+    for (let i = 0; i < 3; i++) {
+      const rMat = trackMat(
+        new THREE.MeshBasicMaterial({
+          color: ringColors[i],
+          transparent: true,
+          opacity: 0,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+        }),
+      );
+      const rMesh = new THREE.Mesh(torusRingGeo, rMat);
+      rMesh.position.z = (i - 1) * 0.9 * s * direction;
+      rMesh.renderOrder = 19;
+      group.add(rMesh);
+      shockRings.push(rMesh);
+      ringMats.push(rMat);
+    }
+
+    const streakMat = trackMat(
+      new THREE.MeshBasicMaterial({
+        color: 0xdbeafe,
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      }),
+    );
+    const warpStreaks: THREE.Mesh[] = [];
+    const streakCount = 14;
+    for (let i = 0; i < streakCount; i++) {
+      const ang = (i / streakCount) * Math.PI * 2 + (i % 2) * 0.18;
+      const radialDist = (4.2 + (i % 3) * 2.15) * s;
+      const st = new THREE.Mesh(streakGeo, streakMat);
+      st.position.set(
+        Math.cos(ang) * radialDist,
+        Math.sin(ang) * radialDist * 0.72,
+        ((i % 4) - 1.5) * 1.6 * s,
+      );
+      st.renderOrder = 19;
+      group.add(st);
+      warpStreaks.push(st);
+    }
+
+    group.visible = false;
+    return {
+      group,
+      discMesh,
+      discMat,
+      shockRings,
+      ringMats,
+      warpStreaks,
+      streakMat,
+    };
+  };
+
+  const entryPortal = buildPortalRig(1.0);
+  const exitPortal = buildPortalRig(1.0);
+
+  // Hull-wrapping spatial wake ripples that peel back along the hull during arrival braking & spool-up
+  const wakeGroup = new THREE.Group();
+  const wakeColors = [0xe0f2fe, 0x93c5fd, 0x60a5fa];
+  const wakeRings: THREE.Mesh[] = [];
+  const wakeMats: THREE.MeshBasicMaterial[] = [];
+  for (let i = 0; i < 3; i++) {
+    const wMat = trackMat(
+      new THREE.MeshBasicMaterial({
+        color: wakeColors[i],
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      }),
+    );
+    const wMesh = new THREE.Mesh(torusRingGeo, wMat);
+    wMesh.renderOrder = 19;
+    wakeGroup.add(wMesh);
+    wakeRings.push(wMesh);
+    wakeMats.push(wMat);
+  }
+  wakeGroup.visible = false;
+
+  // Ground atmospheric pressure ripple beneath the dreadnought on arrival & departure
+  const groundPlaneGeo = trackGeo(new THREE.PlaneGeometry(1, 1, 1, 1));
+  groundPlaneGeo.rotateX(-Math.PI / 2);
+  const groundRippleMat = trackMat(
+    new THREE.ShaderMaterial({
+      uniforms: {
+        uTime: { value: 0 },
+        uProgress: { value: 0 },
+        uOpacity: { value: 0 },
+        uColorCore: { value: new THREE.Color(0xdbeafe) },
+        uColorEdge: { value: new THREE.Color(0x60a5fa) },
+      },
+      vertexShader: /* glsl */ `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: /* glsl */ `
+        varying vec2 vUv;
+        uniform float uTime;
+        uniform float uProgress;
+        uniform float uOpacity;
+        uniform vec3 uColorCore;
+        uniform vec3 uColorEdge;
+
+        void main() {
+          vec2 p = vUv * 2.0 - 1.0;
+          float r = length(p);
+          if (r > 1.0) discard;
+
+          float crest1 = exp(-pow((r - mix(0.12, 0.92, uProgress)) * 14.0, 2.0));
+          float crest2 = exp(-pow((r - mix(0.05, 0.72, uProgress)) * 18.0, 2.0)) * 0.65;
+          float ripple = sin(r * 28.0 - uTime * 12.0) * 0.5 + 0.5;
+          float energy = (crest1 + crest2) * (0.72 + 0.28 * ripple);
+          float alpha = clamp(energy * smoothstep(1.0, 0.72, r) * uOpacity, 0.0, 1.0);
+          if (alpha < 0.005) discard;
+
+          vec3 col = mix(uColorEdge, uColorCore, clamp(crest1, 0.0, 1.0));
+          gl_FragColor = vec4(col, alpha);
+        }
+      `,
+      transparent: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+    }),
+  );
+  const groundRippleMesh = new THREE.Mesh(groundPlaneGeo, groundRippleMat);
+  groundRippleMesh.position.y = 0.28;
+  groundRippleMesh.renderOrder = 14;
+  groundRippleMesh.visible = false;
+
+  return {
+    entryPortal,
+    exitPortal,
+    wakeGroup,
+    wakeRings,
+    wakeMats,
+    groundRippleMesh,
+    groundRippleMat,
+    geometries,
+    materials,
+  };
+}
+
+
 

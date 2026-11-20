@@ -623,16 +623,16 @@ export function generateWorldTiles(
           }
         } else if (temp > 0.54 && moist > 0.58) {
           terrain = 'jungle';
-          if (roll < 0.54) {
+          if (roll < 0.76) {
             resourceNode = 'timber_grove';
             resourceAmount = 260;
-          } else if (roll < 0.68) {
+          } else if (roll < 0.86) {
             resourceNode = 'berry_bush';
             resourceAmount = 210;
           }
         } else if (temp < 0.34) {
           terrain = moist > 0.48 ? 'taiga' : 'tundra';
-          if (terrain === 'taiga' && roll < 0.48) {
+          if (terrain === 'taiga' && roll < 0.70) {
             resourceNode = 'timber_grove';
             resourceAmount = 240;
           } else if (roll < 0.24) {
@@ -641,7 +641,7 @@ export function generateWorldTiles(
           }
         } else if (moist > 0.58 && temp >= 0.34) {
           terrain = bVar > 0.62 ? 'blossom' : 'forest';
-          if (roll < 0.52) {
+          if (roll < 0.74) {
             resourceNode = 'timber_grove';
             resourceAmount = 240;
           }
@@ -723,7 +723,7 @@ export function generateWorldTiles(
           // Frigid Sub-Arctic Tundra & Frost-Tipped Boreal Taiga
           if (moist > 0.47) {
             terrain = 'taiga';
-            if (roll < 0.5) {
+            if (roll < 0.72) {
               resourceNode = 'timber_grove';
               resourceAmount = 240;
             }
@@ -740,30 +740,30 @@ export function generateWorldTiles(
         } else if (temp < 0.41 && moist > 0.48 && dist > 6.5) {
           // Cool Evergreen Boreal Taiga
           terrain = 'taiga';
-          if (roll < 0.54) {
+          if (roll < 0.74) {
             resourceNode = 'timber_grove';
             resourceAmount = 250;
-          } else if (roll < 0.62) {
+          } else if (roll < 0.82) {
             resourceNode = 'berry_bush';
             resourceAmount = 190;
           }
         } else if (temp > 0.55 && moist > 0.56 && dist > 5.5) {
           // Lush Tropical Rainforest Jungle
           terrain = 'jungle';
-          if (roll < 0.6) {
+          if (roll < 0.8) {
             resourceNode = 'timber_grove';
             resourceAmount = 280;
-          } else if (roll < 0.76) {
+          } else if (roll < 0.9) {
             resourceNode = 'berry_bush';
             resourceAmount = 220;
           }
         } else if (h <= 2 && moist > 0.68 && temp > 0.38 && dist > 6.0) {
           // Misty Wetland Swamp
           terrain = 'swamp';
-          if (roll < 0.36) {
+          if (roll < 0.58) {
             resourceNode = 'timber_grove';
             resourceAmount = 220;
-          } else if (roll < 0.46) {
+          } else if (roll < 0.68) {
             resourceNode = 'berry_bush';
             resourceAmount = 190;
           }
@@ -776,30 +776,30 @@ export function generateWorldTiles(
         ) {
           // Blooming Cherry Blossom Sakura Grove
           terrain = 'blossom';
-          if (roll < 0.44) {
+          if (roll < 0.68) {
             resourceNode = 'timber_grove';
             resourceAmount = 240;
-          } else if (roll < 0.56) {
+          } else if (roll < 0.78) {
             resourceNode = 'berry_bush';
             resourceAmount = 200;
           }
         } else if (temp > 0.56 && moist < 0.48 && dist > 5.5) {
           // Golden Savanna Steppe
           terrain = 'savanna';
-          if (roll < 0.18) {
+          if (roll < 0.22) {
             resourceNode = 'timber_grove';
             resourceAmount = 210;
-          } else if (roll < 0.28) {
+          } else if (roll < 0.32) {
             resourceNode = 'stone_outcrop';
             resourceAmount = 220;
-          } else if (roll < 0.35) {
+          } else if (roll < 0.39) {
             resourceNode = 'berry_bush';
             resourceAmount = 180;
           }
         } else if (moist > 0.54) {
           // Lush Woodland Forest
           terrain = 'forest';
-          if (roll < 0.58) {
+          if (roll < 0.78) {
             resourceNode = 'timber_grove';
             resourceAmount = 250;
           }

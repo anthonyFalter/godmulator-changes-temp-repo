@@ -139,6 +139,88 @@ class SoundEngine {
   public playThrow(): void {
     this.playTone(520, 0.14, 'triangle', 0.07, 0.52);
   }
+
+  public playHugeAsteroidApproach(): void {
+    this.playTone(340, 2.2, 'sine', 0.06, 0.24);
+    this.playTone(115, 2.4, 'sawtooth', 0.05, 0.42);
+  }
+
+  public playVolcanoEruption(): void {
+    this.playTone(72, 1.25, 'sawtooth', 0.14, 0.36);
+    setTimeout(() => this.playTone(118, 0.9, 'square', 0.09, 0.48), 80);
+    setTimeout(() => this.playTone(52, 1.4, 'triangle', 0.15, 0.55), 180);
+  }
+
+  public playSuperTornado(): void {
+    this.playTone(95, 1.1, 'sawtooth', 0.11, 1.85);
+    setTimeout(() => this.playTone(180, 0.95, 'triangle', 0.09, 0.58), 120);
+  }
+
+  public playVoidGoo(): void {
+    this.playTone(260, 0.48, 'sine', 0.08, 0.42);
+    setTimeout(() => this.playTone(580, 0.36, 'triangle', 0.06, 0.68), 65);
+    setTimeout(() => this.playTone(145, 0.6, 'sawtooth', 0.05, 0.52), 140);
+  }
+
+  public playPortalSummon(): void {
+    this.playTone(140, 0.65, 'sawtooth', 0.09, 0.52);
+    setTimeout(() => this.playTone(210, 0.5, 'triangle', 0.07, 0.72), 90);
+    setTimeout(() => this.playTone(92, 0.75, 'sine', 0.09, 0.65), 180);
+  }
+
+  public playAlienInvasion(): void {
+    this.playTone(520, 0.22, 'sine', 0.07, 1.35);
+    setTimeout(() => this.playTone(740, 0.25, 'sine', 0.07, 1.4), 140);
+    setTimeout(() => this.playTone(62, 1.35, 'sawtooth', 0.13, 0.42), 340);
+    setTimeout(() => this.playTone(124, 1.1, 'triangle', 0.1, 0.55), 480);
+  }
+
+  public playOrbitalLaser(): void {
+    this.playTone(880, 0.25, 'sawtooth', 0.08, 0.45);
+    setTimeout(() => this.playTone(180, 1.25, 'sawtooth', 0.12, 0.75), 80);
+    setTimeout(() => this.playTone(95, 1.15, 'square', 0.09, 0.62), 160);
+  }
+
+  public playChronoWarp(): void {
+    const notes = [523.25, 659.25, 783.99, 1046.5, 1318.5];
+    notes.forEach((n, idx) => {
+      setTimeout(() => this.playTone(n, 0.28, 'sine', 0.055, 1.12), idx * 50);
+    });
+  }
+
+  public playPeaceAccord(): void {
+    const chord = [392.0, 493.88, 587.33, 783.99];
+    chord.forEach((n, idx) => {
+      setTimeout(() => this.playTone(n, 0.45, 'triangle', 0.06, 1.01), idx * 65);
+    });
+  }
+
+  public playGravityFlux(): void {
+    this.playTone(110, 0.75, 'sine', 0.09, 2.2);
+    setTimeout(() => this.playTone(220, 0.65, 'triangle', 0.07, 1.85), 110);
+  }
+
+  public playSkyRain(kind?: string): void {
+    if (kind === 'crystal_shower') {
+      [784, 987, 1175].forEach((f, i) => {
+        setTimeout(() => this.playTone(f, 0.22, 'sine', 0.055, 1.15), i * 55);
+      });
+      return;
+    }
+    if (kind === 'seed_ore' || kind === 'boulder_rain' || kind === 'volcanic_obsidian' || kind === 'salvage_drop') {
+      this.playTone(260, 0.16, 'triangle', 0.07, 0.65);
+      setTimeout(() => this.playTone(170, 0.22, 'sawtooth', 0.06, 0.55), 75);
+      setTimeout(() => this.playTone(340, 0.14, 'triangle', 0.05, 0.72), 145);
+      return;
+    }
+    if (kind === 'coral_reef_rain') {
+      this.playTone(540, 0.18, 'sine', 0.06, 1.35);
+      setTimeout(() => this.playTone(680, 0.2, 'sine', 0.05, 1.2), 70);
+      return;
+    }
+    this.playTone(460, 0.15, 'sine', 0.05, 1.25);
+    setTimeout(() => this.playTone(620, 0.18, 'triangle', 0.045, 1.1), 65);
+  }
 }
 
 export const soundEngine = new SoundEngine();

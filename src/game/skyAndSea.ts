@@ -187,7 +187,7 @@ export function createSkyCloudSystem(gridSize: number): SkyCloudSystem {
     cInst.castShadow = false;
     cInst.receiveShadow = false;
     cInst.frustumCulled = false;
-    cInst.renderOrder = 4;
+    cInst.renderOrder = 12;
     cInst.count = cap;
     group.add(cInst);
     cloudInsts.push(cInst);
@@ -196,7 +196,7 @@ export function createSkyCloudSystem(gridSize: number): SkyCloudSystem {
     sInst.castShadow = false;
     sInst.receiveShadow = false;
     sInst.frustumCulled = false;
-    sInst.renderOrder = 2;
+    sInst.renderOrder = -1;
     sInst.count = cap;
     shadowGroup.add(sInst);
     shadowInsts.push(sInst);
@@ -404,7 +404,7 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
   zoneIdTex.wrapT = THREE.ClampToEdgeWrapping;
   zoneIdTex.flipY = false;
 
-  const oceanSegs = Math.min(64, gridSize);
+  const oceanSegs = Math.min(96, gridSize);
   const geo = new THREE.PlaneGeometry(gridSize, gridSize, oceanSegs, oceanSegs);
   geo.rotateX(-Math.PI / 2);
 
@@ -746,13 +746,13 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
   const mesh = new THREE.Mesh(geo, material);
   const center = (gridSize - 1) / 2;
   mesh.position.set(center, 0.295, center);
-  mesh.renderOrder = 2;
+  mesh.renderOrder = -5;
 
   const updateMap = (tiles: TileData[]) => {
     for (let i = 0; i < tiles.length; i++) {
       const t = tiles[i];
       const idx = i * 4;
-      if (t.height > 0) {
+      if (t.height > 0 || t.terrain === 'ice') {
         data[idx] = 0;
         data[idx + 1] = 0;
         data[idx + 2] = 0;
@@ -777,7 +777,7 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
           if (nx < 0 || nx >= gridSize || nz < 0 || nz >= gridSize) continue;
           const nb = tiles[nz * gridSize + nx];
           const dSq = dx * dx + dz * dz;
-          if (nb.height > 0) {
+          if (nb.height > 0 || nb.terrain === 'ice') {
             if (dSq < minLandDistSq) minLandDistSq = dSq;
             if (dSq < minShallowDistSq) minShallowDistSq = dSq;
             if (Math.abs(dx) <= 1 && Math.abs(dz) <= 1 && dSq > 0) {
@@ -917,6 +917,11 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
 
 export interface StyledTerrainSystem {
   getMaterials: (terrain: TerrainType) => THREE.MeshStandardMaterial[];
+  /** Unified lossless materials for greedy-meshed 32x32 terrain chunks (1 top + 1 cliff material) */
+  getChunkMaterials: () => {
+    topMat: THREE.MeshStandardMaterial;
+    cliffMat: THREE.MeshStandardMaterial;
+  };
   updateMap: (
     tiles: TileData[],
     buildings?: BuildingEntity[],
@@ -955,6 +960,8 @@ const STYLED_TERRAIN_CODE: Record<TerrainType, number> = {
   badlands: 19,
   blossom: 20,
   runway: 21,
+  void_goo: 22,
+  ice: 23,
 };
 
 export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem {
@@ -1192,17 +1199,34 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
               ? mix(landSrgb(255.0, 214.0, 120.0), landSrgb(86.0, 207.0, 225.0), step(0.5, tileHash))
               : landSrgb(255.0, 198.0, 92.0);
         float streetCone = 0.0;
+        vec3 neonPlazaCol = streetCol;
         if (abs(myCode - 9.0) < 0.5) {
           float dL1 = length(subUv - vec2(0.20, 0.22));
           float dL2 = length(subUv - vec2(0.80, 0.78));
           streetCone = max(smoothstep(0.48, 0.04, dL1), smoothstep(0.48, 0.04, dL2));
+          if (isInfo) {
+            // Vibrant Times Square / Shibuya Scramble Broadway-Tokyo corner neon spill
+            float cycle = fract(tileHash * 3.7 + floor(tTime * 1.4) * 0.25);
+            vec3 tsNeon = isElfSpec
+              ? mix(landSrgb(82.0, 242.0, 200.0), landSrgb(160.0, 232.0, 255.0), step(0.5, cycle))
+              : isOrcSpec
+                ? mix(landSrgb(255.0, 72.0, 32.0), landSrgb(255.0, 196.0, 48.0), step(0.5, cycle))
+                : cycle < 0.34
+                  ? landSrgb(56.0, 214.0, 245.0)
+                  : cycle < 0.68
+                    ? landSrgb(245.0, 76.0, 178.0)
+                    : landSrgb(255.0, 214.0, 76.0);
+            float cornerMask = step(0.58, max(abs(subUv.x - 0.5), abs(subUv.y - 0.5)) * 2.0);
+            neonPlazaCol = mix(streetCol, tsNeon, 0.55 + cornerMask * 0.35);
+            streetCone = max(streetCone, cornerMask * 0.65);
+          }
         } else if (abs(myCode - 21.0) < 0.5) {
           // Runway centerline & edge night lighting
           float across = min(abs(subUv.x - 0.5), abs(subUv.y - 0.5));
           streetCone = step(across, 0.05) * 0.85 + step(abs(across - 0.36), 0.04) * 0.95;
         }
         float pool = clamp(steppedBld * 1.05 + steppedRoad * 0.68 + streetCone * 0.95, 0.0, 1.55);
-        vec3 col = mix(cityBlockCol, streetCol, clamp(streetCone * 0.75 + steppedRoad * 0.35, 0.0, 1.0));
+        vec3 col = mix(cityBlockCol, neonPlazaCol, clamp(streetCone * 0.78 + steppedRoad * 0.35, 0.0, 1.0));
         return col * pool * nightStrength * 0.98;
       } else {
         // ORBITAL & INTERSTELLAR AGES: Bioluminescent arcology grids, cyan/gold plasma conduits & star-city halos
@@ -1377,15 +1401,31 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         c = mix(c, lavaGlow, fineCrack * (0.75 + 0.25 * pulse));
         return mix(c, lavaHot, hotCore * pulse);
       } else if (code < 13.5) {
-        // Crystal Field: luminous geometric arcane/sci-fi circuit plating
-        vec2 cGrid = abs(fract(pixPos * 2.0) - 0.5);
-        float trace = step(0.41, max(cGrid.x, cGrid.y));
-        float pulse = 0.55 + 0.45 * sin(tTime * 2.4 - (pixPos.x + pixPos.y) * 0.7);
-        vec3 base = landSrgb(56.0, 79.0, 94.0);
-        vec3 hi   = landSrgb(92.0, 219.0, 224.0);
-        vec3 sh   = landSrgb(34.0, 50.0, 62.0);
-        vec3 c = mix(sh, base, step(0.45, waveA));
-        return mix(c, hi, trace * (0.55 + 0.45 * pulse));
+        // Crystal Field: fantasy luminous light-blue crystalline land with organic crystal facets & multi-colored prism sparkles (no gridlines)
+        float facetA = sin(pixPos.x * 1.35 + sin(pixPos.y * 1.15) * 1.4) * 0.5 + 0.5;
+        float facetB = cos((pixPos.x - pixPos.y) * 1.05 + sin(pixPos.x * 0.7) * 1.2) * 0.5 + 0.5;
+        float shimmer = 0.5 + 0.5 * sin(tTime * 1.8 + facetA * 4.2 + facetB * 3.1);
+        vec3 deepAzure   = landSrgb(102.0, 184.0, 235.0);
+        vec3 lightBlue   = landSrgb(142.0, 216.0, 250.0);
+        vec3 celesteGlow = landSrgb(190.0, 238.0, 255.0);
+        vec3 icePrism    = landSrgb(224.0, 248.0, 255.0);
+        vec3 c = mix(deepAzure, lightBlue, smoothstep(0.22, 0.68, waveA * 0.55 + facetA * 0.45));
+        c = mix(c, celesteGlow, smoothstep(0.54, 0.82, facetB * 0.6 + waveB * 0.4));
+        // Soft crystalline facet ridge highlights
+        float ridge = smoothstep(0.76, 0.92, abs(facetA - facetB) + detail * 0.35);
+        c = mix(c, icePrism, ridge * (0.45 + 0.35 * shimmer));
+        // Multi-colored fantasy crystal flecks embedded in the light-blue ground
+        if (detail > 0.87) {
+          vec3 fleckCol = detail > 0.96
+            ? landSrgb(244.0, 138.0, 226.0) // rose-magenta crystal fleck
+            : detail > 0.93
+              ? landSrgb(178.0, 142.0, 255.0) // amethyst crystal fleck
+              : detail > 0.90
+                ? landSrgb(255.0, 220.0, 122.0) // golden topaz crystal fleck
+                : landSrgb(122.0, 245.0, 202.0); // emerald-mint crystal fleck
+          c = mix(c, fleckCol, 0.62 + 0.28 * shimmer);
+        }
+        return c;
       } else if (code < 14.5) {
         return landSrgb(96.0, 90.0, 84.0);
       } else if (code < 15.5) {
@@ -1438,7 +1478,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         c = mix(c, hi, step(0.68, band));
         if (detail > 0.92) c = mix(c, landSrgb(235.0, 178.0, 118.0), 0.7);
         return c;
-      } else {
+      } else if (code < 20.5) {
         // Blossom (20): vibrant spring green sakura grove meadow dusted with pink petals
         float petalNoise = landNoise(chunkPos * 1.25 + vec2(7.1, 2.3));
         vec3 sh   = landSrgb(72.0, 118.0, 68.0);
@@ -1450,6 +1490,52 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
           c = detail > 0.94 ? landSrgb(255.0, 226.0, 238.0) : landSrgb(246.0, 172.0, 200.0);
         }
         return c;
+      } else if (code < 21.5) {
+        // Runway fallback (21): dark charcoal tarmac with crisp edge sheen
+        vec3 tarmac = landSrgb(43.0, 48.0, 58.0);
+        vec3 tarmacSh = landSrgb(30.0, 35.0, 43.0);
+        return mix(tarmacSh, tarmac, step(0.45, patchVal));
+      } else if (code < 22.5) {
+        // Void Goo (22): Abyssal pitch-black cosmic ooze revealing a drifting multi-layer starry sky
+        vec2 spaceDriftA = floor((pixPos * 16.0 + vec2(tTime * 3.8, -tTime * 2.4)));
+        vec2 spaceDriftB = floor((pixPos * 16.0 + vec2(-tTime * 2.1, tTime * 3.1)));
+        float starCellA = landHash12(spaceDriftA);
+        float starCellB = landHash12(spaceDriftB + vec2(37.0, 91.0));
+        float nebulaWave = landNoise(pixPos * 0.48 + vec2(tTime * 0.14, -tTime * 0.11));
+        float nebulaDust = landNoise(pixPos * 1.05 + vec2(-tTime * 0.22, tTime * 0.17));
+
+        vec3 voidBlack = vec3(0.004, 0.002, 0.012);
+        vec3 deepIndigo = landSrgb(16.0, 6.0, 34.0);
+        vec3 cosmicViolet = landSrgb(42.0, 14.0, 74.0);
+        vec3 c = mix(voidBlack, deepIndigo, smoothstep(0.38, 0.72, nebulaWave) * 0.72);
+        c = mix(c, cosmicViolet, smoothstep(0.56, 0.86, nebulaDust) * 0.45);
+
+        float twinkleA = 0.55 + 0.45 * sin(tTime * 4.2 + starCellA * 31.4);
+        float twinkleB = 0.5 + 0.5 * sin(tTime * 5.6 + starCellB * 27.1);
+        if (starCellA > 0.968) {
+          vec3 starHue = starCellA > 0.992
+            ? vec3(1.0, 0.92, 0.55)
+            : starCellA > 0.980
+              ? vec3(0.58, 0.90, 1.0)
+              : vec3(0.92, 0.78, 1.0);
+          c = mix(c, starHue, twinkleA);
+        } else if (starCellB > 0.978) {
+          vec3 dimStar = starCellB > 0.990 ? vec3(0.45, 0.86, 0.98) : vec3(0.76, 0.58, 0.98);
+          c = mix(c, dimStar, twinkleB * 0.88);
+        }
+        return c;
+      } else {
+        // Sea Ice (23): Frozen oceanic floes with glacial cyan facets, frost fracture seams & crisp ice glints
+        float fracNoise = landNoise(vec2(chunkPos.x * 1.4 + chunkPos.y * 0.6, chunkPos.y * 1.4));
+        float seam = step(0.84, abs(sin(pixPos.x * 2.4 + fracNoise * 3.1)) * abs(cos(pixPos.y * 2.4 - fracNoise * 2.5)));
+        float glint = step(0.962, landHash12(pixPos * 16.0 + floor(tTime * 1.2)));
+        vec3 iceDeep = landSrgb(126.0, 198.0, 224.0);
+        vec3 iceBase = landSrgb(184.0, 232.0, 248.0);
+        vec3 iceHi   = landSrgb(236.0, 250.0, 255.0);
+        vec3 c = mix(iceDeep, iceBase, step(0.30, patchVal));
+        c = mix(c, iceHi, step(0.66, fracNoise));
+        c = mix(c, iceDeep, seam * 0.65);
+        return mix(c, vec3(1.0), glint);
       }
     }
 
@@ -1577,7 +1663,15 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         if (diagSE) dRoad = min(dRoad, sdSeg(rp, vec2(0.5), vec2(1.0, 1.0), tmpT));
       }
 
-      // Interior quadrant continuity for multi-lane boulevards & expressways
+      // Smooth corner union for adjacent cardinal road tiles (prevents inner grass wedges at L/T junctions)
+      if ((rp.x < 0.5 && rp.y < 0.5 && rN && rW) ||
+          (rp.x >= 0.5 && rp.y < 0.5 && rN && rE) ||
+          (rp.x < 0.5 && rp.y >= 0.5 && rS && rW) ||
+          (rp.x >= 0.5 && rp.y >= 0.5 && rS && rE)) {
+        dRoad = min(dRoad, 0.28);
+      }
+
+      // Interior quadrant continuity for multi-lane boulevards & plazas (all 4 corners flush)
       if ((rp.x < 0.5 && rp.y < 0.5 && rN && rW && rNW) ||
           (rp.x >= 0.5 && rp.y < 0.5 && rN && rE && rNE) ||
           (rp.x < 0.5 && rp.y >= 0.5 && rS && rW && rSW) ||
@@ -1585,13 +1679,16 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         dRoad = 0.0;
       }
 
-      if (dRoad > 0.36) {
+      // Extend paved pedestrian sidewalk apron cleanly out to 0.48 so streets never show green gaps
+      if (dRoad > 0.475) {
         return marginCol;
       }
 
+      bool isSidewalkApron = dRoad > 0.34;
       bool isStraightNS = (rN || rS) && !rW && !rE && diagCount < 0.5;
       bool isStraightWE = (rW || rE) && !rN && !rS && diagCount < 0.5;
-      bool isJunction = totalConn >= 3.0 && !isWideBlvd;
+      bool isJunction = cardCount >= 3.0 || (totalConn >= 3.0 && !isWideBlvd);
+      bool isPlazaHub = (rN && rS && rW && rE) || (isWideBlvd && (cardCount >= 3.0 || totalConn >= 4.0));
       bool onCenterHub = max(abs(rp.x - 0.5), abs(rp.y - 0.5)) < 0.25;
 
       bool armVertical = isStraightNS ||
@@ -1600,12 +1697,14 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
       if (isStraightWE || blvdNorth || blvdSouth) armVertical = false;
       if (blvdEast || blvdWest) armVertical = true;
 
-      // Boulevard shared-median border mask (places green/curb/double-yellow expressway median cleanly between 2-lane strips)
+      // Subtle continuous shared-median divider only along straight 2-wide expressway axis (zero checkerboard boxes!)
       float blvdMedian = 0.0;
-      if (blvdSouth && rp.y > 0.88) blvdMedian = 1.0;
-      if (blvdNorth && rp.y < 0.12) blvdMedian = 1.0;
-      if (blvdEast && rp.x > 0.88) blvdMedian = 1.0;
-      if (blvdWest && rp.x < 0.12) blvdMedian = 1.0;
+      if (isWideBlvd && !isPlazaHub) {
+        if (blvdSouth && !rN && rp.y > 0.935) blvdMedian = 1.0;
+        if (blvdNorth && !rS && rp.y < 0.065) blvdMedian = 1.0;
+        if (blvdEast && !rW && rp.x > 0.935) blvdMedian = 1.0;
+        if (blvdWest && !rE && rp.x < 0.065) blvdMedian = 1.0;
+      }
 
       float noiseVal = landHash12(pixPos * 16.0);
 
@@ -1615,6 +1714,9 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         vec3 woodPlank = landSrgb(162.0, 124.0, 84.0);
         vec3 darkMud   = landSrgb(98.0, 72.0, 46.0);
 
+        if (isSidewalkApron) {
+          return mix(dirtBase, darkMud, step(0.48, noiseVal) * 0.55);
+        }
         if (dRoad > 0.27) {
           return mix(dirtBase, darkMud, step(0.55, noiseVal) * 0.65);
         }
@@ -1639,21 +1741,25 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         return mix(c, darkMud, plankSeam * 0.72);
 
       } else if (uEpoch < 3.5) {
-        // Classical & Industrial Ages: Oriented cobblestone courses, stone curb edges & tree-lined boulevard medians
+        // Classical & Industrial Ages: Dressed stone sidewalks, seamless granite curbs & oriented cobblestones
         vec3 base = landSrgb(168.0, 148.0, 130.0);
         vec3 hi   = landSrgb(202.0, 182.0, 158.0);
         vec3 sh   = landSrgb(110.0, 95.0, 82.0);
-        vec3 curb = landSrgb(134.0, 120.0, 106.0);
+        vec3 curb = landSrgb(142.0, 128.0, 114.0);
+        vec3 flagstone = landSrgb(188.0, 174.0, 154.0);
+
+        if (isSidewalkApron) {
+          float slabSeam = max(step(0.84, fract(rp.x * 4.0)), step(0.84, fract(rp.y * 4.0)));
+          return mix(flagstone, sh, slabSeam * 0.45);
+        }
 
         if (blvdMedian > 0.5) {
-          // Parkway boulevard median strip with greenery & dressed stone curb
-          float shrub = step(0.42, landHash12(floor(pixPos * 4.0)));
-          return mix(landSrgb(84.0, 132.0, 68.0), landSrgb(186.0, 170.0, 144.0), shrub * 0.45);
+          return mix(curb, hi, 0.35);
         }
 
         if (dRoad > 0.28) {
           float curbJoint = step(0.78, fract((rp.x + rp.y) * 4.0));
-          return mix(curb, sh, curbJoint * 0.7);
+          return mix(curb, sh, curbJoint * 0.55);
         }
 
         float mortar = 0.0;
@@ -1688,37 +1794,69 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         }
 
         vec3 c = mix(base, hi, step(0.55, toneSeed));
-        return mix(c, sh, mortar * 0.82);
+        return mix(c, sh, mortar * 0.78);
 
       } else if (uEpoch < 5.5) {
-        // Atomic & Information Ages: Smooth curved asphalt highways, divided multi-lane Boulevards/Expressways & crosswalks
+        // Atomic & Information Ages: Continuous connected asphalt streets, stone/concrete sidewalks & Times Square Scramble Plazas
         bool isInfoAge = uEpoch >= 4.5;
-        vec3 asphalt = isInfoAge ? landSrgb(44.0, 50.0, 58.0) : landSrgb(54.0, 60.0, 68.0);
-        vec3 curbCol = isInfoAge ? landSrgb(164.0, 174.0, 184.0) : landSrgb(142.0, 150.0, 158.0);
+        vec3 asphalt = isInfoAge ? landSrgb(42.0, 48.0, 56.0) : landSrgb(54.0, 60.0, 68.0);
+        vec3 sidewalk = isInfoAge ? landSrgb(138.0, 146.0, 158.0) : landSrgb(126.0, 134.0, 144.0);
+        vec3 curbCol = isInfoAge ? landSrgb(172.0, 182.0, 192.0) : landSrgb(150.0, 158.0, 168.0);
         vec3 laneYellow = landSrgb(245.0, 206.0, 72.0);
         vec3 markWhite  = landSrgb(236.0, 242.0, 248.0);
 
-        if (blvdMedian > 0.5) {
-          // Expressway double-amber barrier + green parkway island
-          if (isInfoAge && (rp.y > 0.92 || rp.y < 0.08 || rp.x > 0.92 || rp.x < 0.08)) {
-            return landSrgb(82.0, 136.0, 74.0);
+        if (isSidewalkApron) {
+          float paverJoint = max(step(0.86, fract(rp.x * 4.0)), step(0.86, fract(rp.y * 4.0)));
+          vec3 sw = mix(sidewalk, curbCol, paverJoint * 0.45);
+          // Times Square / Shibuya bright illuminated neon curb accent near corners in Info Age
+          if (isInfoAge && isJunction) {
+            float cornerBand = step(0.62, max(abs(rp.x - 0.5), abs(rp.y - 0.5)) * 2.0);
+            vec3 neonCurb = mod(floor(tTime * 1.2 + pixPos.x + pixPos.y), 2.0) < 1.0
+              ? landSrgb(86.0, 207.0, 225.0)
+              : landSrgb(245.0, 82.0, 178.0);
+            sw = mix(sw, neonCurb, cornerBand * 0.38);
           }
+          return sw;
+        }
+
+        if (blvdMedian > 0.5) {
           return laneYellow;
         }
 
-        if (dRoad > 0.29) {
-          return mix(curbCol, asphalt, 0.10);
+        if (dRoad > 0.295) {
+          return mix(curbCol, asphalt, 0.14);
         }
 
-        vec3 c = mix(asphalt, landSrgb(62.0, 68.0, 76.0), step(0.86, noiseVal) * 0.55);
+        vec3 c = mix(asphalt, landSrgb(58.0, 64.0, 74.0), step(0.86, noiseVal) * 0.45);
 
-        if (isWideBlvd) {
-          // Multi-lane expressway dashed white lane dividers inside each half of the boulevard
+        if (isPlazaHub || (isInfoAge && isJunction)) {
+          // Times Square / Shibuya Scramble Crossing: cardinal zebra crosswalks + diagonal scramble stripes + neon hub rim
+          bool inLaneX = abs(rp.x - 0.5) < 0.28;
+          bool inLaneY = abs(rp.y - 0.5) < 0.28;
+          float xwalk = 0.0;
+          if (rN && abs(roadPix.y - 1.5) < 0.85 && inLaneX && mod(roadPix.x, 2.0) < 1.0) xwalk = 1.0;
+          if (rS && abs(roadPix.y - 13.5) < 0.85 && inLaneX && mod(roadPix.x, 2.0) < 1.0) xwalk = 1.0;
+          if (rW && abs(roadPix.x - 1.5) < 0.85 && inLaneY && mod(roadPix.y, 2.0) < 1.0) xwalk = 1.0;
+          if (rE && abs(roadPix.x - 13.5) < 0.85 && inLaneY && mod(roadPix.y, 2.0) < 1.0) xwalk = 1.0;
+
+          if (isInfoAge) {
+            // Shibuya diagonal X-scramble crosswalk lines across central square
+            float diagD1 = abs(rp.x - rp.y);
+            float diagD2 = abs(rp.x + rp.y - 1.0);
+            float diagStripe = step(min(diagD1, diagD2), 0.12) * step(0.45, fract((rp.x + rp.y) * 8.0)) * step(length(rp - vec2(0.5)), 0.36);
+            xwalk = max(xwalk, diagStripe * 0.88);
+            // Warm gold / cyan Times Square plaza beacon medallion at intersection center
+            float hubRing = step(abs(length(rp - vec2(0.5)) - 0.11), 0.032);
+            c = mix(c, laneYellow, hubRing * 0.72);
+          }
+          return mix(c, markWhite, xwalk * 0.94);
+        } else if (isWideBlvd) {
+          // Smooth multi-lane expressway dashed white lane dividers inside each half of the boulevard
           bool horizBlvd = blvdSouth || blvdNorth;
           float lanePos = horizBlvd ? rp.y : rp.x;
           float alongPix = horizBlvd ? roadPix.x : roadPix.y;
           float dash = step(mod(alongPix, 4.0), 1.5);
-          float whiteLane = step(abs(lanePos - 0.48), 0.036) * dash;
+          float whiteLane = step(abs(lanePos - 0.50), 0.036) * dash;
           return mix(c, markWhite, whiteLane * 0.90);
         } else if (totalConn < 0.5) {
           return c;
@@ -1763,11 +1901,16 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         }
 
       } else {
-        // Orbital & Interstellar Ages (uEpoch >= 5.5): Directional titanium mag-lev transit deck & curved cyan guide rails
+        // Orbital & Interstellar Ages (uEpoch >= 5.5): Continuous titanium promenade sidewalks & mag-lev transit plazas
         vec3 alloyDeck = landSrgb(38.0, 50.0, 64.0);
         vec3 alloySeam = landSrgb(24.0, 32.0, 42.0);
+        vec3 alloyWalk = landSrgb(96.0, 114.0, 134.0);
         vec3 cyanNeon  = landSrgb(86.0, 207.0, 225.0);
 
+        if (isSidewalkApron) {
+          float gridBorder = max(step(0.88, fract(rp.x * 4.0)), step(0.88, fract(rp.y * 4.0)));
+          return mix(alloyWalk, cyanNeon * 0.55, gridBorder * 0.45);
+        }
         if (blvdMedian > 0.5) {
           return mix(cyanNeon, landSrgb(250.0, 210.0, 96.0), 0.45);
         }
@@ -1793,8 +1936,8 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         } else if (isSmoothSpline) {
           float splineFlow = step(0.45, fract(splineT * 4.0 + tTime * 2.0));
           pulse = step(dRoad, 0.042) * splineFlow;
-        } else if (isJunction) {
-          float hubRing = step(abs(length(rp - vec2(0.5)) - 0.13), 0.04);
+        } else if (isJunction || isPlazaHub) {
+          float hubRing = step(abs(length(rp - vec2(0.5)) - 0.14), 0.045);
           float armPulse = 0.0;
           if (rN && rp.y < 0.34 && abs(rp.x - 0.5) < 0.04) armPulse = step(1.0, mod(roadPix.y + flowOffset, 4.0));
           if (rS && rp.y > 0.66 && abs(rp.x - 0.5) < 0.04) armPulse = step(1.0, mod(roadPix.y - flowOffset, 4.0));
@@ -2032,7 +2175,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
     roughness: 0.84,
     metalness: 0.08,
   });
-  cliffMat.customProgramCacheKey = () => 'aeon_cliff_pixel_v6';
+  cliffMat.customProgramCacheKey = () => 'aeon_cliff_pixel_v8';
   cliffMat.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = sharedTime;
     shader.uniforms.uEpoch = sharedEpoch;
@@ -2061,9 +2204,14 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         vec2 cliffNeighborCoord = floor(vLandWorldPos.xz + 0.5 + vLandWorldNormal.xz * 0.25);
         float ownerCode = decodeTerrain(sampleLandTile(cliffOwnerCoord));
         float neighborCode = decodeTerrain(sampleLandTile(cliffNeighborCoord));
+        bool isVoidWall = abs(ownerCode - 22.0) < 0.5 || abs(neighborCode - 22.0) < 0.5;
         bool isCraterWall = abs(ownerCode - 12.0) < 0.5 || abs(neighborCode - 12.0) < 0.5;
         bool isBadlandsWall = abs(ownerCode - 19.0) < 0.5 || abs(neighborCode - 19.0) < 0.5;
         bool isMountainWall = abs(ownerCode - 16.0) < 0.5 || abs(ownerCode - 11.0) < 0.5;
+        bool isUrbanRetainingWall =
+          !isVoidWall && !isCraterWall &&
+          (abs(ownerCode - 9.0) < 0.5 || abs(ownerCode - 14.0) < 0.5 || abs(ownerCode - 21.0) < 0.5 ||
+           (uEpoch >= 3.5 && neighborCode < 1.5));
 
         float strata = landNoise(vec2(wallChunk.x * 0.65, wallChunk.y * 2.2));
         float brickRow = floor(wallPix.y * 4.0);
@@ -2071,35 +2219,69 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         float seam = step(0.86, fract(wallPix.y * 4.0)) + step(0.91, fract((wallPix.x + mod(brickRow, 2.0) * 0.25) * 2.0));
         float brickTone = landHash12(vec2(brickCol, brickRow));
 
-        vec3 stoneBase = isCraterWall
-          ? landSrgb(48.0, 36.0, 34.0)
-          : isBadlandsWall
-            ? landSrgb(162.0, 82.0, 48.0)
-            : isMountainWall
-              ? landSrgb(88.0, 96.0, 106.0)
-              : landSrgb(74.0, 89.0, 95.0);
-        vec3 stoneHi = isCraterWall
-          ? landSrgb(78.0, 52.0, 42.0)
-          : isBadlandsWall
-            ? landSrgb(206.0, 122.0, 72.0)
-            : isMountainWall
-              ? landSrgb(126.0, 136.0, 146.0)
-              : landSrgb(104.0, 122.0, 129.0);
-        vec3 stoneSh = isCraterWall
-          ? landSrgb(24.0, 17.0, 18.0)
-          : isBadlandsWall
-            ? landSrgb(106.0, 52.0, 32.0)
-            : isMountainWall
-              ? landSrgb(54.0, 60.0, 68.0)
-              : landSrgb(45.0, 56.0, 61.0);
+        vec3 cliffCol;
+        if (isUrbanRetainingWall) {
+          if (uEpoch >= 3.5) {
+            // Dressed architectural concrete seawall / retaining caisson with horizontal joints & subtle safety stripe
+            vec3 concBase = uEpoch >= 5.5 ? landSrgb(112.0, 126.0, 144.0) : landSrgb(122.0, 130.0, 138.0);
+            vec3 concHi   = uEpoch >= 5.5 ? landSrgb(148.0, 164.0, 184.0) : landSrgb(154.0, 162.0, 170.0);
+            vec3 concSh   = uEpoch >= 5.5 ? landSrgb(68.0, 78.0, 92.0)    : landSrgb(74.0, 82.0, 90.0);
+            float panelSeam = max(step(0.88, fract(wallPix.y * 2.5)), step(0.90, fract(wallPix.x * 1.5)));
+            float panelTone = landHash12(floor(vec2(wallPix.x * 1.5, wallPix.y * 2.5)));
+            cliffCol = mix(concBase, concHi, step(0.62, panelTone));
+            cliffCol = mix(cliffCol, concSh, panelSeam * 0.72);
+            if (uEpoch >= 5.5 && abs(fract(wallPix.y * 1.2) - 0.5) < 0.08) {
+              cliffCol = mix(cliffCol, landSrgb(86.0, 207.0, 225.0), 0.52);
+            }
+          } else {
+            // Dressed ashlar stone retaining wall (Classical / Medieval / Industrial)
+            vec3 ashlarBase = landSrgb(126.0, 120.0, 114.0);
+            vec3 ashlarHi   = landSrgb(158.0, 152.0, 142.0);
+            vec3 ashlarSh   = landSrgb(78.0, 74.0, 70.0);
+            cliffCol = mix(ashlarSh, ashlarBase, step(0.28, brickTone));
+            cliffCol = mix(cliffCol, ashlarHi, step(0.68, brickTone));
+            cliffCol = mix(cliffCol, ashlarSh, clamp(seam, 0.0, 1.0) * 0.78);
+          }
+        } else {
+          vec3 stoneBase = isVoidWall
+            ? vec3(0.015, 0.008, 0.035)
+            : isCraterWall
+            ? landSrgb(48.0, 36.0, 34.0)
+            : isBadlandsWall
+              ? landSrgb(162.0, 82.0, 48.0)
+              : isMountainWall
+                ? landSrgb(88.0, 96.0, 106.0)
+                : landSrgb(74.0, 89.0, 95.0);
+          vec3 stoneHi = isVoidWall
+            ? landSrgb(58.0, 24.0, 96.0)
+            : isCraterWall
+            ? landSrgb(78.0, 52.0, 42.0)
+            : isBadlandsWall
+              ? landSrgb(206.0, 122.0, 72.0)
+              : isMountainWall
+                ? landSrgb(126.0, 136.0, 146.0)
+                : landSrgb(104.0, 122.0, 129.0);
+          vec3 stoneSh = isVoidWall
+            ? vec3(0.004, 0.002, 0.012)
+            : isCraterWall
+            ? landSrgb(24.0, 17.0, 18.0)
+            : isBadlandsWall
+              ? landSrgb(106.0, 52.0, 32.0)
+              : isMountainWall
+                ? landSrgb(54.0, 60.0, 68.0)
+                : landSrgb(45.0, 56.0, 61.0);
 
-        vec3 cliffCol = mix(stoneSh, stoneBase, step(0.32, strata * 0.7 + brickTone * 0.3));
-        cliffCol = mix(cliffCol, stoneHi, step(0.68, strata * 0.65 + brickTone * 0.35));
-        cliffCol = mix(cliffCol, stoneSh, clamp(seam, 0.0, 1.0) * 0.65);
+          cliffCol = mix(stoneSh, stoneBase, step(0.32, strata * 0.7 + brickTone * 0.3));
+          cliffCol = mix(cliffCol, stoneHi, step(0.68, strata * 0.65 + brickTone * 0.35));
+          cliffCol = mix(cliffCol, stoneSh, clamp(seam, 0.0, 1.0) * 0.65);
 
-        if (isCraterWall) {
-          float emberVein = step(0.82, strata * 0.6 + brickTone * 0.4);
-          cliffCol = mix(cliffCol, landSrgb(245.0, 98.0, 28.0), emberVein * 0.75);
+          if (isVoidWall) {
+            float wallStar = landHash12(floor(wallPix * 16.0 + vec2(uTime * 2.2, -uTime * 1.4)));
+            if (wallStar > 0.962) cliffCol = mix(cliffCol, vec3(0.75, 0.62, 1.0), 0.92);
+          } else if (isCraterWall) {
+            float emberVein = step(0.82, strata * 0.6 + brickTone * 0.4);
+            cliffCol = mix(cliffCol, landSrgb(245.0, 98.0, 28.0), emberVein * 0.75);
+          }
         }
 
         // Dynamic time-of-day directional cliff face shading (east sunrise vs west sunset vs indigo midnight)
@@ -2163,7 +2345,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
       roughness,
       metalness,
     });
-    topMat.customProgramCacheKey = () => 'aeon_land_top_pixel_v12';
+    topMat.customProgramCacheKey = () => 'aeon_land_top_pixel_v15';
     topMat.onBeforeCompile = (shader) => {
       shader.uniforms.uTime = sharedTime;
       shader.uniforms.uEpoch = sharedEpoch;
@@ -2195,7 +2377,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
           vec4 self = sampleLandTile(tileCoord);
           float myHeight = decodeHeight(self);
           float myCode = decodeTerrain(self);
-          if (myHeight < 0.5) myCode = uDefaultCode;
+          if (myHeight < 0.5 && uDefaultCode >= 0.0) myCode = uDefaultCode;
 
           vec4 nN = sampleLandTile(tileCoord + vec2( 0.0, -1.0));
           vec4 nS = sampleLandTile(tileCoord + vec2( 0.0,  1.0));
@@ -2238,16 +2420,21 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
 
           // 0b. Connected Street Ribbon (stone_road = 9.0) & Grade Crossing Rails:
           if (abs(myCode - 9.0) < 0.5) {
-            bool rN = abs(cN - 9.0) < 0.5;
-            bool rS = abs(cS - 9.0) < 0.5;
-            bool rW = abs(cW - 9.0) < 0.5;
-            bool rE = abs(cE - 9.0) < 0.5;
-            bool rNW = abs(decodeTerrain(sampleLandTile(tileCoord + vec2(-1.0, -1.0))) - 9.0) < 0.5;
-            bool rNE = abs(decodeTerrain(sampleLandTile(tileCoord + vec2( 1.0, -1.0))) - 9.0) < 0.5;
-            bool rSW = abs(decodeTerrain(sampleLandTile(tileCoord + vec2(-1.0,  1.0))) - 9.0) < 0.5;
-            bool rSE = abs(decodeTerrain(sampleLandTile(tileCoord + vec2( 1.0,  1.0))) - 9.0) < 0.5;
+            float cNW = decodeTerrain(sampleLandTile(tileCoord + vec2(-1.0, -1.0)));
+            float cNE = decodeTerrain(sampleLandTile(tileCoord + vec2( 1.0, -1.0)));
+            float cSW = decodeTerrain(sampleLandTile(tileCoord + vec2(-1.0,  1.0)));
+            float cSE = decodeTerrain(sampleLandTile(tileCoord + vec2( 1.0,  1.0)));
+            bool rN = abs(cN - 9.0) < 0.5 || abs(cN - 21.0) < 0.5;
+            bool rS = abs(cS - 9.0) < 0.5 || abs(cS - 21.0) < 0.5;
+            bool rW = abs(cW - 9.0) < 0.5 || abs(cW - 21.0) < 0.5;
+            bool rE = abs(cE - 9.0) < 0.5 || abs(cE - 21.0) < 0.5;
+            bool rNW = abs(cNW - 9.0) < 0.5 || abs(cNW - 21.0) < 0.5;
+            bool rNE = abs(cNE - 9.0) < 0.5 || abs(cNE - 21.0) < 0.5;
+            bool rSW = abs(cSW - 9.0) < 0.5 || abs(cSW - 21.0) < 0.5;
+            bool rSE = abs(cSE - 9.0) < 0.5 || abs(cSE - 21.0) < 0.5;
 
-            float marginBiome = 3.0;
+            bool isBridgeTile = myHeight < 0.5 || cN < 1.5 || cS < 1.5 || cW < 1.5 || cE < 1.5;
+            float marginBiome = -1.0;
             if (!rN && subUv.y < 0.35 && cN >= 2.0 && abs(cN - 9.0) > 0.5 && abs(cN - 14.0) > 0.5) {
               marginBiome = cN;
             } else if (!rS && subUv.y > 0.65 && cS >= 2.0 && abs(cS - 9.0) > 0.5 && abs(cS - 14.0) > 0.5) {
@@ -2264,8 +2451,29 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
               marginBiome = cW;
             } else if (!rE && cE >= 2.0 && abs(cE - 9.0) > 0.5 && abs(cE - 14.0) > 0.5) {
               marginBiome = cE;
+            } else if (cNW >= 2.0 && abs(cNW - 9.0) > 0.5 && abs(cNW - 14.0) > 0.5) {
+              marginBiome = cNW;
+            } else if (cNE >= 2.0 && abs(cNE - 9.0) > 0.5 && abs(cNE - 14.0) > 0.5) {
+              marginBiome = cNE;
+            } else if (cSW >= 2.0 && abs(cSW - 9.0) > 0.5 && abs(cSW - 14.0) > 0.5) {
+              marginBiome = cSW;
+            } else if (cSE >= 2.0 && abs(cSE - 9.0) > 0.5 && abs(cSE - 14.0) > 0.5) {
+              marginBiome = cSE;
             }
-            vec3 marginCol = computeBiomeColor(marginBiome, pixPos, chunkPos, subUv, uTime, false);
+
+            vec3 marginCol;
+            if (isBridgeTile || marginBiome < 0.0) {
+              // Engineered bridge/causeway parapet shoulder instead of green grass on bridges & urban districts!
+              marginCol = uEpoch < 1.5
+                ? landSrgb(120.0, 88.0, 58.0)
+                : uEpoch < 3.5
+                  ? landSrgb(156.0, 146.0, 134.0)
+                  : uEpoch < 5.5
+                    ? landSrgb(132.0, 142.0, 156.0)
+                    : landSrgb(68.0, 84.0, 102.0);
+            } else {
+              marginCol = computeBiomeColor(marginBiome, pixPos, chunkPos, subUv, uTime, false);
+            }
             col = computeRoadColor(pixPos, subUv, uTime, rN, rS, rW, rE, rNW, rNE, rSW, rSE, marginCol);
 
             // Overlay gleaming steel crossing rails only for ground-level rail crossings (uEpoch < 4.5); elevated metro bridges overhead
@@ -2330,7 +2538,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
             vec3 marginCol = computeBiomeColor(marginBiome, pixPos, chunkPos, subUv, uTime, false);
             col = computeRunwayColor(pixPos, subUv, uTime, wN, wS, wW, wE, marginCol);
           } else {
-            col = computeBiomeColor(myCode, pixPos, chunkPos, subUv, uTime, self.a > 0.5);
+            col = computeBiomeColor(myCode, pixPos, chunkPos, subUv, uTime, self.a > 0.72);
             // Smooth bathymetric seabed color transition from sunlit shallow sand -> turquoise shoal -> marine slope -> deep abyssal floor
             if (myHeight < 0.5 && myCode < 1.5) {
               float bSelf = self.b;
@@ -2359,14 +2567,42 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
           if (myCode != 9.0 && myCode != 14.0 && myCode != 21.0 && myHeight > 0.5) {
             float ditherRng = landHash12(pixPos * 16.0);
             if (hN == myHeight && cN != myCode && cN != 9.0 && cN != 14.0 && cN != 21.0 && subUv.y < 0.24 && ditherRng > subUv.y * 3.8) {
-              col = computeBiomeColor(cN, pixPos, chunkPos, subUv, uTime, nN.a > 0.5);
+              col = computeBiomeColor(cN, pixPos, chunkPos, subUv, uTime, nN.a > 0.72);
             } else if (hS == myHeight && cS != myCode && cS != 9.0 && cS != 14.0 && cS != 21.0 && (1.0 - subUv.y) < 0.24 && ditherRng > (1.0 - subUv.y) * 3.8) {
-              col = computeBiomeColor(cS, pixPos, chunkPos, subUv, uTime, nS.a > 0.5);
+              col = computeBiomeColor(cS, pixPos, chunkPos, subUv, uTime, nS.a > 0.72);
             } else if (hW == myHeight && cW != myCode && cW != 9.0 && cW != 14.0 && cW != 21.0 && subUv.x < 0.24 && ditherRng > subUv.x * 3.8) {
-              col = computeBiomeColor(cW, pixPos, chunkPos, subUv, uTime, nW.a > 0.5);
+              col = computeBiomeColor(cW, pixPos, chunkPos, subUv, uTime, nW.a > 0.72);
             } else if (hE == myHeight && cE != myCode && cE != 9.0 && cE != 14.0 && cE != 21.0 && (1.0 - subUv.x) < 0.24 && ditherRng > (1.0 - subUv.x) * 3.8) {
-              col = computeBiomeColor(cE, pixPos, chunkPos, subUv, uTime, nE.a > 0.5);
+              col = computeBiomeColor(cE, pixPos, chunkPos, subUv, uTime, nE.a > 0.72);
             }
+          }
+
+          // 1b. Crushed AT-Walker Footprint Impressions (deep brown churned mud & tread bars)
+          if (myHeight > 0.5 && self.a > 0.18 && self.a < 0.72) {
+            vec2 fPix = floor(subUv * 16.0);
+            float mudNoise = landHash12(pixPos * 16.0);
+            bool uN = nN.a > 0.18 && nN.a < 0.72;
+            bool uS = nS.a > 0.18 && nS.a < 0.72;
+            bool uW = nW.a > 0.18 && nW.a < 0.72;
+            bool uE = nE.a > 0.18 && nE.a < 0.72;
+            float rimDist = 2.0;
+            if (!uN) rimDist = min(rimDist, subUv.y);
+            if (!uS) rimDist = min(rimDist, 1.0 - subUv.y);
+            if (!uW) rimDist = min(rimDist, subUv.x);
+            if (!uE) rimDist = min(rimDist, 1.0 - subUv.x);
+
+            float treadBar = step(mod(fPix.y + floor(mod(fPix.x, 4.0) * 0.5), 4.0), 1.5);
+            vec3 mudDeep  = landSrgb(52.0, 31.0, 18.0);
+            vec3 mudBase  = landSrgb(86.0, 52.0, 29.0);
+            vec3 mudRim   = landSrgb(116.0, 76.0, 44.0);
+            vec3 treadCol = mix(mudBase, mudDeep, clamp(treadBar * 0.68 + (mudNoise > 0.65 ? 0.32 : 0.0), 0.0, 1.0));
+            if (rimDist < 0.16) {
+              treadCol = mix(mudDeep, mudRim, smoothstep(0.0, 0.16, rimDist));
+            } else if (mudNoise < 0.14) {
+              treadCol = mudDeep;
+            }
+            float crushMix = (myCode == 9.0 || myCode == 14.0 || myCode == 21.0) ? 0.65 : 0.94;
+            col = mix(col, treadCol, crushMix);
           }
 
           // 2. Crisp shoreline dampness & wet-sand darkening right where land meets sea
@@ -2423,16 +2659,33 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
             col *= mix(vec3(1.0), uShadowTint * 0.62, clamp(shadowMask, 0.0, 1.0));
           }
 
-          // 4b. Atmospheric Time-of-Day Color Grading across all terrain biomes (Dawn rose-gold, Dusk amber-violet, Night/Midnight deep indigo)
-          float slopeSun = clamp(((hW - hE) * uSunDir.x + (hN - hS) * uSunDir.z) * 0.35 + 0.5, 0.0, 1.0);
-          vec3 todBiomeGrade = mix(uShadowTint, uSunTint, mix(0.68, 0.34, uDarkness) * (0.65 + 0.35 * slopeSun));
-          col *= todBiomeGrade;
+          if (abs(myCode - 22.0) > 0.5) {
+            // 4b. Atmospheric Time-of-Day Color Grading across all terrain biomes (Dawn rose-gold, Dusk amber-violet, Night/Midnight deep indigo)
+            float slopeSun = clamp(((hW - hE) * uSunDir.x + (hN - hS) * uSunDir.z) * 0.35 + 0.5, 0.0, 1.0);
+            vec3 todBiomeGrade = mix(uShadowTint, uSunTint, mix(0.68, 0.34, uDarkness) * (0.65 + 0.35 * slopeSun));
+            col *= todBiomeGrade;
+          } else {
+            // Luminous purple ooze edge shimmer where abyssal void goo creeps onto living terrain
+            float voidRim = 0.0;
+            if (abs(cN - 22.0) > 0.5 && subUv.y < 0.16) voidRim = max(voidRim, 1.0 - subUv.y / 0.16);
+            if (abs(cS - 22.0) > 0.5 && (1.0 - subUv.y) < 0.16) voidRim = max(voidRim, 1.0 - (1.0 - subUv.y) / 0.16);
+            if (abs(cW - 22.0) > 0.5 && subUv.x < 0.16) voidRim = max(voidRim, 1.0 - subUv.x / 0.16);
+            if (abs(cE - 22.0) > 0.5 && (1.0 - subUv.x) < 0.16) voidRim = max(voidRim, 1.0 - (1.0 - subUv.x) / 0.16);
+            if (voidRim > 0.05) {
+              float oozePulse = 0.7 + 0.3 * sin(uTime * 4.5 + pixPos.x * 2.0 + pixPos.y * 2.0);
+              col = mix(col, landSrgb(124.0, 58.0, 237.0), voidRim * 0.55 * oozePulse);
+            }
+          }
 
           diffuseColor.rgb = col;`,
         )
         .replace(
           '#include <dithering_fragment>',
           `#include <dithering_fragment>
+          // Keep Void Goo deep abyssal cosmos unlit & high-contrast regardless of sunlight phase
+          if (abs(myCode - 22.0) < 0.5) {
+            gl_FragColor.rgb = col;
+          }
           // 4c. Post-Lighting Age-Dependent City & Road Nighttime Illumination Pools
           if (uDarkness > 0.03) {
             vec3 nightCityGlow = computeCityNightGlow(
@@ -2516,12 +2769,129 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
     terrainMaterialMap.set(tType, [cliffMat, cliffMat, topMat, cliffMat, cliffMat, cliffMat]);
   }
 
+  // Unified chunk top material: reuses the exact pixel-art biome shader with per-tile roughness/metalness
+  // derived directly from uLandMap so greedy-meshed 32x32 chunks render 100% pixel-identical!
+  const chunkTopMat = (terrainMaterialMap.get('grass')![2] as THREE.MeshStandardMaterial).clone();
+  const baseTopOnBeforeCompile = (terrainMaterialMap.get('grass')![2] as THREE.MeshStandardMaterial).onBeforeCompile;
+  chunkTopMat.customProgramCacheKey = () => 'aeon_land_chunk_top_pixel_v15';
+  chunkTopMat.onBeforeCompile = (shader, rendererRef) => {
+    baseTopOnBeforeCompile.call(chunkTopMat, shader, rendererRef);
+    shader.uniforms.uDefaultCode = { value: -1.0 };
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <roughnessmap_fragment>',
+        `#include <roughnessmap_fragment>
+        {
+          vec2 rTile = floor(floor((vLandWorldPos.xz + 0.5) * 16.0) / 16.0);
+          float rCode = decodeTerrain(sampleLandTile(rTile));
+          if (abs(rCode - 13.0) < 0.5) roughnessFactor = 0.34;
+          else if (abs(rCode - 9.0) < 0.5) roughnessFactor = 0.65;
+          else if (abs(rCode - 11.0) < 0.5 || abs(rCode - 18.0) < 0.5) roughnessFactor = 0.68;
+          else roughnessFactor = 0.82;
+        }`,
+      )
+      .replace(
+        '#include <metalnessmap_fragment>',
+        `#include <metalnessmap_fragment>
+        {
+          vec2 mTile = floor(floor((vLandWorldPos.xz + 0.5) * 16.0) / 16.0);
+          float mCode = decodeTerrain(sampleLandTile(mTile));
+          if (abs(mCode - 13.0) < 0.5) metalnessFactor = 0.28;
+          else if (abs(mCode - 10.0) < 0.5 || abs(mCode - 16.0) < 0.5) metalnessFactor = 0.12;
+          else metalnessFactor = 0.05;
+        }`,
+      );
+  };
+  createdMaterials.push(chunkTopMat);
+
+  // Reusable O(N) Chamfer distance-transform buffers for fast 512x512 bathymetry (replaces 81x nested scan)
+  const totalMapCells = gridSize * gridSize;
+  const distToLand = new Uint8Array(totalMapCells);
+  const distToShallow = new Uint8Array(totalMapCells);
+  const distToDeep = new Uint8Array(totalMapCells);
+
+  const runChamferPass = (buf: Uint8Array) => {
+    // Forward pass (top-left -> bottom-right), scaled by 10 (orthogonal=10, diagonal=14)
+    for (let z = 0; z < gridSize; z++) {
+      const row = z * gridSize;
+      for (let x = 0; x < gridSize; x++) {
+        const i = row + x;
+        let d = buf[i];
+        if (d === 0) continue;
+        if (x > 0) {
+          const cand = buf[i - 1] + 10;
+          if (cand < d) d = cand;
+        }
+        if (z > 0) {
+          const up = i - gridSize;
+          const candU = buf[up] + 10;
+          if (candU < d) d = candU;
+          if (x > 0) {
+            const candUL = buf[up - 1] + 14;
+            if (candUL < d) d = candUL;
+          }
+          if (x + 1 < gridSize) {
+            const candUR = buf[up + 1] + 14;
+            if (candUR < d) d = candUR;
+          }
+        }
+        buf[i] = d;
+      }
+    }
+    // Backward pass (bottom-right -> top-left)
+    for (let z = gridSize - 1; z >= 0; z--) {
+      const row = z * gridSize;
+      for (let x = gridSize - 1; x >= 0; x--) {
+        const i = row + x;
+        let d = buf[i];
+        if (d === 0) continue;
+        if (x + 1 < gridSize) {
+          const cand = buf[i + 1] + 10;
+          if (cand < d) d = cand;
+        }
+        if (z + 1 < gridSize) {
+          const dn = i + gridSize;
+          const candD = buf[dn] + 10;
+          if (candD < d) d = candD;
+          if (x + 1 < gridSize) {
+            const candDR = buf[dn + 1] + 14;
+            if (candDR < d) d = candDR;
+          }
+          if (x > 0) {
+            const candDL = buf[dn - 1] + 14;
+            if (candDL < d) d = candDL;
+          }
+        }
+        buf[i] = d;
+      }
+    }
+  };
+
   const updateMap = (
     tiles: TileData[],
     buildings?: BuildingEntity[],
     settlementSpecies?: Record<string, SpeciesId>,
   ) => {
     cityLightBytes.fill(0);
+    distToLand.fill(60);
+    distToShallow.fill(60);
+    distToDeep.fill(60);
+
+    // Seed distance transform in one O(N) pass
+    for (let i = 0; i < tiles.length; i++) {
+      const t = tiles[i];
+      if (t.height > 0) {
+        distToLand[i] = 0;
+        distToShallow[i] = 0;
+      } else if (t.terrain === 'deep_water' && !t.isRiver && !t.isLake) {
+        distToDeep[i] = 0;
+      } else {
+        distToShallow[i] = 0;
+      }
+    }
+    runChamferPass(distToLand);
+    runChamferPass(distToShallow);
+    runChamferPass(distToDeep);
 
     for (let i = 0; i < tiles.length; i++) {
       const t = tiles[i];
@@ -2538,43 +2908,21 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
           t.isLake;
         if (isReefOrSanctuary) {
           data[idx + 2] = 0;
+        } else if (t.terrain !== 'deep_water') {
+          const landD = Math.min(4.0, distToLand[i] * 0.1);
+          const deepD = Math.min(4.0, distToDeep[i] * 0.1);
+          const shoreFrac = Math.max(0, Math.min(1, (landD - 1.0) / 3.0));
+          const dropFrac = Math.max(0, Math.min(1, (3.2 - deepD) / 2.2));
+          data[idx + 2] = Math.round(shoreFrac * 42 + dropFrac * 68);
         } else {
-          let minLandDistSq = 99;
-          let minShallowDistSq = 99;
-          let minDeepDistSq = 99;
-          for (let dz = -4; dz <= 4; dz++) {
-            for (let dx = -4; dx <= 4; dx++) {
-              const nx = t.x + dx;
-              const nz = t.z + dz;
-              if (nx < 0 || nx >= gridSize || nz < 0 || nz >= gridSize) continue;
-              const nb = tiles[nz * gridSize + nx];
-              const dSq = dx * dx + dz * dz;
-              if (nb.height > 0) {
-                if (dSq < minLandDistSq) minLandDistSq = dSq;
-                if (dSq < minShallowDistSq) minShallowDistSq = dSq;
-              } else if (nb.terrain === 'deep_water' && !nb.isRiver && !nb.isLake) {
-                if (dSq < minDeepDistSq) minDeepDistSq = dSq;
-              } else {
-                if (dSq < minShallowDistSq) minShallowDistSq = dSq;
-              }
-            }
-          }
-          if (t.terrain !== 'deep_water') {
-            const landD = Math.min(4.0, Math.sqrt(minLandDistSq));
-            const deepD = Math.min(4.0, Math.sqrt(minDeepDistSq));
-            const shoreFrac = Math.max(0, Math.min(1, (landD - 1.0) / 3.0));
-            const dropFrac = Math.max(0, Math.min(1, (3.2 - deepD) / 2.2));
-            data[idx + 2] = Math.round(shoreFrac * 42 + dropFrac * 68);
-          } else {
-            const shallowD = Math.min(4.5, Math.sqrt(minShallowDistSq));
-            const slopeFrac = Math.max(0, Math.min(1, (shallowD - 1.0) / 3.2));
-            data[idx + 2] = Math.round(135 + slopeFrac * 120);
-          }
+          const shallowD = Math.min(4.5, distToShallow[i] * 0.1);
+          const slopeFrac = Math.max(0, Math.min(1, (shallowD - 1.0) / 3.2));
+          data[idx + 2] = Math.round(135 + slopeFrac * 120);
         }
       } else {
         data[idx + 2] = Math.abs(((t.x * 73856093) ^ (t.z * 19349663)) | 0) & 255;
       }
-      data[idx + 3] = t.farmSettlementId ? 255 : 0;
+      data[idx + 3] = t.height > 0 && (t.crushedTimer ?? 0) > 0 ? 110 : t.farmSettlementId ? 255 : 0;
 
       if (t.height > 0 && (t.terrain === 'stone_road' || t.terrain === 'rail_track' || t.terrain === 'runway')) {
         cityLightBytes[idx + 1] = Math.max(cityLightBytes[idx + 1], 240);
@@ -2684,6 +3032,8 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
   const getMaterials = (terrain: TerrainType) =>
     terrainMaterialMap.get(terrain) ?? terrainMaterialMap.get('grass')!;
 
+  const getChunkMaterials = () => ({ topMat: chunkTopMat, cliffMat });
+
   const dispose = () => {
     for (const m of createdMaterials) m.dispose();
     landMapTex.dispose();
@@ -2692,7 +3042,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
     cityLightTex.dispose();
   };
 
-  return { getMaterials, updateMap, updateZones, updateFrame, dispose };
+  return { getMaterials, getChunkMaterials, updateMap, updateZones, updateFrame, dispose };
 }
 
 export interface PixelSpaceDebugState {
@@ -3316,7 +3666,7 @@ export function createWorldUnderglowSystem(gridSize: number): WorldUnderglowSyst
   const mesh = new THREE.Mesh(geo, material);
   const center = (gridSize - 1) / 2;
   mesh.position.set(center, -1.88, center);
-  mesh.renderOrder = 0;
+  mesh.renderOrder = -2;
 
   const _innerTarget = new THREE.Color('#48bfe3');
   const _outerTarget = new THREE.Color('#273e7a');
@@ -3369,5 +3719,258 @@ export function createWorldUnderglowSystem(gridSize: number): WorldUnderglowSyst
 
   return { mesh, update, dispose };
 }
+
+export interface ZoneOverlaySystem {
+  mesh: THREE.Mesh;
+  updateMap: (tiles: TileData[]) => void;
+  updateZones: (colorData: Uint8Array, idData: Uint8Array, anyActive: boolean) => void;
+  updateFrame: (elapsed: number) => void;
+  dispose: () => void;
+}
+
+/**
+ * Occluded-surface X-ray zone overlay pass using THREE.GreaterDepth.
+ *
+ * Each tile gets a flat horizontal quad sitting +0.03 above its terrain/water top
+ * (t.height === 0 -> y = 0.28; land -> t.height * 0.45 + 0.28).
+ * - On unobstructed open land or ocean: the quad is closer than the ground/seabed, so
+ *   GreaterDepth FAILS (zero double-tinting; styledTerrain & oceanFoam draw it cleanly).
+ * - Wherever a 3D tree canopy, building, castle, rock, unit, bridge, or ship covers a
+ *   tile: the covering object writes a closer depth value, so GreaterDepth PASSES and
+ *   projects the crisp territory fill & bold contour border directly over the occluders
+ *   with zero parallax shift and 100% tile-exact alignment.
+ */
+export function createZoneOverlaySystem(gridSize: number): ZoneOverlaySystem {
+  const tileCount = gridSize * gridSize;
+  const positions = new Float32Array(tileCount * 4 * 3);
+  const indices = new Uint32Array(tileCount * 6);
+
+  for (let z = 0; z < gridSize; z++) {
+    for (let x = 0; x < gridSize; x++) {
+      const i = z * gridSize + x;
+      const vBase = i * 4;
+      const pBase = vBase * 3;
+      const iBase = i * 6;
+
+      const x0 = x - 0.5;
+      const x1 = x + 0.5;
+      const z0 = z - 0.5;
+      const z1 = z + 0.5;
+      const y = 0.28;
+
+      // CCW winding when viewed from +Y so FrontSide faces upward
+      positions[pBase] = x0;
+      positions[pBase + 1] = y;
+      positions[pBase + 2] = z0;
+
+      positions[pBase + 3] = x0;
+      positions[pBase + 4] = y;
+      positions[pBase + 5] = z1;
+
+      positions[pBase + 6] = x1;
+      positions[pBase + 7] = y;
+      positions[pBase + 8] = z1;
+
+      positions[pBase + 9] = x1;
+      positions[pBase + 10] = y;
+      positions[pBase + 11] = z0;
+
+      indices[iBase] = vBase;
+      indices[iBase + 1] = vBase + 1;
+      indices[iBase + 2] = vBase + 2;
+      indices[iBase + 3] = vBase;
+      indices[iBase + 4] = vBase + 2;
+      indices[iBase + 5] = vBase + 3;
+    }
+  }
+
+  const geo = new THREE.BufferGeometry();
+  const posAttr = new THREE.BufferAttribute(positions, 3);
+  posAttr.setUsage(THREE.DynamicDrawUsage);
+  geo.setAttribute('position', posAttr);
+  geo.setIndex(new THREE.BufferAttribute(indices, 1));
+
+  const zoneColorBytes = new Uint8Array(tileCount * 4);
+  const zoneColorTex = new THREE.DataTexture(
+    zoneColorBytes,
+    gridSize,
+    gridSize,
+    THREE.RGBAFormat,
+  );
+  zoneColorTex.magFilter = THREE.NearestFilter;
+  zoneColorTex.minFilter = THREE.NearestFilter;
+  zoneColorTex.generateMipmaps = false;
+  zoneColorTex.flipY = false;
+
+  const zoneIdBytes = new Uint8Array(tileCount * 4);
+  const zoneIdTex = new THREE.DataTexture(
+    zoneIdBytes,
+    gridSize,
+    gridSize,
+    THREE.RGBAFormat,
+  );
+  zoneIdTex.magFilter = THREE.NearestFilter;
+  zoneIdTex.minFilter = THREE.NearestFilter;
+  zoneIdTex.generateMipmaps = false;
+  zoneIdTex.flipY = false;
+
+  const uniforms = {
+    uTime: { value: 0 },
+    uGridSize: { value: gridSize },
+    uZoneColorMap: { value: zoneColorTex },
+    uZoneIdMap: { value: zoneIdTex },
+    uZoneActive: { value: 0 },
+  };
+
+  const material = new THREE.ShaderMaterial({
+    uniforms,
+    transparent: true,
+    depthTest: true,
+    depthFunc: THREE.GreaterDepth,
+    depthWrite: false,
+    toneMapped: false,
+    side: THREE.FrontSide,
+    vertexShader: `
+      varying vec3 vWorldPos;
+      void main() {
+        vec4 worldPos = modelMatrix * vec4(position, 1.0);
+        vWorldPos = worldPos.xyz;
+        gl_Position = projectionMatrix * viewMatrix * worldPos;
+      }
+    `,
+    fragmentShader: `
+      uniform float uTime;
+      uniform float uGridSize;
+      uniform sampler2D uZoneColorMap;
+      uniform sampler2D uZoneIdMap;
+      uniform float uZoneActive;
+      varying vec3 vWorldPos;
+
+      vec4 sampleOverlayZoneColor(vec2 coord) {
+        vec2 clamped = clamp(coord, vec2(0.0), vec2(uGridSize - 1.0));
+        return texture2D(uZoneColorMap, (clamped + 0.5) / uGridSize);
+      }
+
+      vec4 sampleOverlayZoneId(vec2 coord) {
+        vec2 clamped = clamp(coord, vec2(0.0), vec2(uGridSize - 1.0));
+        return texture2D(uZoneIdMap, (clamped + 0.5) / uGridSize);
+      }
+
+      void main() {
+        if (uZoneActive < 0.5) {
+          discard;
+        }
+        vec2 tileCoord = floor(vWorldPos.xz + 0.5);
+        vec2 subUv = fract(vWorldPos.xz + 0.5);
+        vec4 zCol = sampleOverlayZoneColor(tileCoord);
+        if (zCol.a <= 0.01) {
+          discard;
+        }
+        vec4 zId = sampleOverlayZoneId(tileCoord);
+
+        vec4 zN = sampleOverlayZoneId(tileCoord + vec2(0.0, -1.0));
+        vec4 zS = sampleOverlayZoneId(tileCoord + vec2(0.0, 1.0));
+        vec4 zW = sampleOverlayZoneId(tileCoord + vec2(-1.0, 0.0));
+        vec4 zE = sampleOverlayZoneId(tileCoord + vec2(1.0, 0.0));
+        vec4 zNW = sampleOverlayZoneId(tileCoord + vec2(-1.0, -1.0));
+        vec4 zNE = sampleOverlayZoneId(tileCoord + vec2(1.0, -1.0));
+        vec4 zSW = sampleOverlayZoneId(tileCoord + vec2(-1.0, 1.0));
+        vec4 zSE = sampleOverlayZoneId(tileCoord + vec2(1.0, 1.0));
+
+        vec4 zN2 = sampleOverlayZoneId(tileCoord + vec2(0.0, -2.0));
+        vec4 zS2 = sampleOverlayZoneId(tileCoord + vec2(0.0, 2.0));
+        vec4 zW2 = sampleOverlayZoneId(tileCoord + vec2(-2.0, 0.0));
+        vec4 zE2 = sampleOverlayZoneId(tileCoord + vec2(2.0, 0.0));
+
+        bool diffN = abs(zN.r - zId.r) > 0.002 || abs(zN.g - zId.g) > 0.002;
+        bool diffS = abs(zS.r - zId.r) > 0.002 || abs(zS.g - zId.g) > 0.002;
+        bool diffW = abs(zW.r - zId.r) > 0.002 || abs(zW.g - zId.g) > 0.002;
+        bool diffE = abs(zE.r - zId.r) > 0.002 || abs(zE.g - zId.g) > 0.002;
+
+        bool diffNW = abs(zNW.r - zId.r) > 0.002 || abs(zNW.g - zId.g) > 0.002;
+        bool diffNE = abs(zNE.r - zId.r) > 0.002 || abs(zNE.g - zId.g) > 0.002;
+        bool diffSW = abs(zSW.r - zId.r) > 0.002 || abs(zSW.g - zId.g) > 0.002;
+        bool diffSE = abs(zSE.r - zId.r) > 0.002 || abs(zSE.g - zId.g) > 0.002;
+
+        bool diffN2 = abs(zN2.r - zId.r) > 0.002 || abs(zN2.g - zId.g) > 0.002;
+        bool diffS2 = abs(zS2.r - zId.r) > 0.002 || abs(zS2.g - zId.g) > 0.002;
+        bool diffW2 = abs(zW2.r - zId.r) > 0.002 || abs(zW2.g - zId.g) > 0.002;
+        bool diffE2 = abs(zE2.r - zId.r) > 0.002 || abs(zE2.g - zId.g) > 0.002;
+
+        bool isOuterBorderTile = diffN || diffS || diffW || diffE || diffNW || diffNE || diffSW || diffSE;
+        bool isInnerBorderTile = !isOuterBorderTile && (diffN2 || diffS2 || diffW2 || diffE2);
+
+        float outerDarkW = 0.44;
+        bool onDarkOuterStroke =
+          (diffN && subUv.y < outerDarkW) ||
+          (diffS && subUv.y > 1.0 - outerDarkW) ||
+          (diffW && subUv.x < outerDarkW) ||
+          (diffE && subUv.x > 1.0 - outerDarkW) ||
+          (diffNW && subUv.x < outerDarkW && subUv.y < outerDarkW) ||
+          (diffNE && subUv.x > 1.0 - outerDarkW && subUv.y < outerDarkW) ||
+          (diffSW && subUv.x < outerDarkW && subUv.y > 1.0 - outerDarkW) ||
+          (diffSE && subUv.x > 1.0 - outerDarkW && subUv.y > 1.0 - outerDarkW);
+
+        bool isHovered = zId.b > 0.5;
+        float hoverPulse = isHovered ? (0.14 + 0.08 * sin(uTime * 5.0)) : 0.0;
+
+        if (onDarkOuterStroke) {
+          vec3 outerCol = zCol.rgb * (isHovered ? 0.56 : 0.38);
+          gl_FragColor = vec4(outerCol, 0.90);
+        } else if (isOuterBorderTile || isInnerBorderTile) {
+          vec3 rimCol = zCol.rgb * (isHovered ? 0.80 : 0.62);
+          gl_FragColor = vec4(rimCol, isOuterBorderTile ? 0.84 : 0.76);
+        } else {
+          float fillAlpha = clamp(zCol.a * 0.46 + hoverPulse, 0.0, 0.66);
+          gl_FragColor = vec4(zCol.rgb, fillAlpha);
+        }
+      }
+    `,
+  });
+
+  const mesh = new THREE.Mesh(geo, material);
+  mesh.frustumCulled = false;
+  mesh.renderOrder = 11;
+  mesh.visible = false;
+
+  const updateMap = (tiles: TileData[]) => {
+    const count = Math.min(tileCount, tiles.length);
+    for (let i = 0; i < count; i++) {
+      const t = tiles[i];
+      const y = t.height <= 0 ? 0.28 : t.height * 0.45 + 0.28;
+      const pBase = i * 12;
+      positions[pBase + 1] = y;
+      positions[pBase + 4] = y;
+      positions[pBase + 7] = y;
+      positions[pBase + 10] = y;
+    }
+    posAttr.needsUpdate = true;
+  };
+
+  const updateZones = (colorData: Uint8Array, idData: Uint8Array, anyActive: boolean) => {
+    uniforms.uZoneActive.value = anyActive ? 1 : 0;
+    mesh.visible = anyActive;
+    if (anyActive) {
+      zoneColorBytes.set(colorData);
+      zoneIdBytes.set(idData);
+      zoneColorTex.needsUpdate = true;
+      zoneIdTex.needsUpdate = true;
+    }
+  };
+
+  const updateFrame = (elapsed: number) => {
+    uniforms.uTime.value = wrapShaderTime(elapsed);
+  };
+
+  const dispose = () => {
+    geo.dispose();
+    material.dispose();
+    zoneColorTex.dispose();
+    zoneIdTex.dispose();
+  };
+
+  return { mesh, updateMap, updateZones, updateFrame, dispose };
+}
+
 
 

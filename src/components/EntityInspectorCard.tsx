@@ -1,13 +1,8 @@
 import React, { useState } from 'react';
-import {
-  Crosshair,
-  Star,
-  X,
-} from 'lucide-react';
 import { getEntityInspectProfile, isIntrinsicGene } from '../game/entityInspector';
 import { Resources, SimulationState, UnitEntity, UnitStatusEffect, ZoneToggleState } from '../game/types';
 import { TileZoneInspection } from '../game/zones';
-import { ResourceIconSvg, UnitPixelIcon } from './GameIcons';
+import { HudPixelIcon, ResourceIconSvg, UnitPixelIcon } from './GameIcons';
 
 const INSPECT_RESOURCE_KEYS: { key: keyof Resources; label: string }[] = [
   { key: 'food', label: 'Food' },
@@ -15,9 +10,8 @@ const INSPECT_RESOURCE_KEYS: { key: keyof Resources; label: string }[] = [
   { key: 'stone', label: 'Stone' },
   { key: 'ore', label: 'Ore' },
   { key: 'knowledge', label: 'Lore' },
-  { key: 'energy', label: 'Energy' },
   { key: 'alloy', label: 'Alloy' },
-  { key: 'faith', label: 'Faith' },
+  { key: 'faith', label: 'God Energy' },
 ];
 
 interface EntityInspectorCardProps {
@@ -84,7 +78,7 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
         onClick={() => setMinimized(false)}
         className="pointer-events-auto px-panel px-2.5 py-1.5 text-xs font-bold text-[#f5b742] cursor-pointer self-start shrink-0"
       >
-        {profile ? `Inspect: ${profile.name}` : 'Inspect ▾'}
+        {profile ? `Inspect: ${profile.name}` : 'Inspect >'}
       </button>
     );
   }
@@ -93,34 +87,34 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
     <aside
       aria-label="Entity Information"
       data-testid="entity-inspector-panel"
-      className="pointer-events-auto absolute left-0 top-0 z-10 w-[min(316px,100%)] max-h-full px-panel p-2.5 sm:p-4 flex flex-col gap-2.5 sm:gap-3.5 overflow-y-auto"
+      className="pointer-events-auto absolute left-0 top-0 z-10 w-[min(276px,100%)] sm:w-[316px] max-h-[min(240px,100%)] sm:max-h-full px-panel p-2 sm:p-4 flex flex-col gap-2 sm:gap-3.5 overflow-y-auto"
     >
       {profile && displayUnit ? (
         <>
           {/* Header Block: Avatar, Name, Affordance & Primary Action Buttons */}
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex items-center gap-3 min-w-0">
+          <div className="flex items-start justify-between gap-2 sm:gap-3">
+            <div className="flex items-center gap-2 sm:gap-3 min-w-0">
               <div
-                className="w-11 h-11 shrink-0 flex items-center justify-center bg-[#191613] border border-[#2f2720]"
+                className="w-9 h-9 sm:w-11 sm:h-11 shrink-0 flex items-center justify-center bg-[#191613] border border-[#2f2720]"
                 aria-hidden="true"
               >
-                <UnitPixelIcon role={displayUnit.role} className="w-8 h-8" />
+                <UnitPixelIcon role={displayUnit.role} className="w-7 h-7 sm:w-8 sm:h-8" />
               </div>
               <div className="min-w-0">
                 <h2
-                  className="text-sm font-bold text-[#f2ece1] truncate leading-tight"
+                  className="text-xs sm:text-sm font-bold text-[#f2ece1] truncate leading-tight"
                   data-testid="inspector-entity-name"
                 >
                   {profile.name}
                 </h2>
-                <div className="text-xs text-[#cfc6b8] leading-tight mt-0.5 truncate">
+                <div className="text-[11px] sm:text-xs text-[#cfc6b8] leading-tight mt-0.5 truncate">
                   <span>{profile.subtitle}</span>
                 </div>
 
               </div>
             </div>
 
-            {/* Action Buttons: 36x36 touch-friendly affordances */}
+            {/* Action Buttons */}
             <div className="flex items-center gap-1 shrink-0 pt-0.5">
               {isSelectedDisplayed ? (
                 <button
@@ -129,13 +123,13 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                   onClick={() => onToggleFavorite(displayUnit.id)}
                   aria-label={profile.favorite ? 'Unfavorite entity' : 'Favorite entity'}
                   title={profile.favorite ? 'Remove from favorites' : 'Add to favorites'}
-                  className={`w-8 h-8 flex items-center justify-center cursor-pointer transition-colors ${
+                  className={`w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center cursor-pointer transition-colors ${
                     profile.favorite
                       ? 'px-btn-active text-[#ffd166]'
                       : 'px-btn text-[#a89f91] hover:text-[#ffd166]'
                   }`}
                 >
-                  <Star className="w-4 h-4" fill={profile.favorite ? '#ffd166' : 'none'} />
+                  <HudPixelIcon kind={profile.favorite ? 'starOn' : 'star'} className="w-3.5 h-3.5 sm:w-4 sm:h-4 pixelated-canvas" />
                 </button>
               ) : (
                 <button
@@ -147,9 +141,9 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                   }}
                   aria-label="Select and favorite entity"
                   title="Select & Favorite"
-                  className="px-btn w-8 h-8 flex items-center justify-center cursor-pointer text-[#a89f91] hover:text-[#ffd166] transition-colors"
+                  className="px-btn w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center cursor-pointer text-[#a89f91] hover:text-[#ffd166] transition-colors"
                 >
-                  <Star className="w-4 h-4" fill={profile.favorite ? '#ffd166' : 'none'} />
+                  <HudPixelIcon kind={profile.favorite ? 'starOn' : 'star'} className="w-3.5 h-3.5 sm:w-4 sm:h-4 pixelated-canvas" />
                 </button>
               )}
 
@@ -159,13 +153,13 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                   onClick={() => onFocusUnit(selectedUnit)}
                   aria-label={isFollowing ? 'Stop following entity' : 'Follow entity with camera'}
                   title={isFollowing ? 'Following entity · Click to stop' : 'Follow entity with camera'}
-                  className={`w-8 h-8 flex items-center justify-center cursor-pointer transition-colors ${
+                  className={`w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center cursor-pointer transition-colors ${
                     isFollowing
                       ? 'px-btn-active text-[#80ed99] border-[#40916c]'
                       : 'px-btn text-[#56cfe1] hover:text-[#80ed99]'
                   }`}
                 >
-                  <Crosshair className="w-4 h-4" />
+                  <HudPixelIcon kind="center" className="w-3.5 h-3.5 sm:w-4 sm:h-4 pixelated-canvas" />
                 </button>
               )}
 
@@ -175,11 +169,21 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                   onClick={() => onSelectUnit(null)}
                   aria-label="Unpin selection"
                   title="Unpin selection"
-                  className="px-btn w-8 h-8 flex items-center justify-center cursor-pointer text-[#8f8679] hover:text-[#f2ece1] transition-colors"
+                  className="px-btn w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center cursor-pointer text-[#8f8679] hover:text-[#f2ece1] transition-colors"
                 >
-                  <X className="w-4 h-4" />
+                  <HudPixelIcon kind="close" className="w-3.5 h-3.5 sm:w-4 sm:h-4 pixelated-canvas" />
                 </button>
               )}
+
+              <button
+                type="button"
+                onClick={() => setMinimized(true)}
+                className="sm:hidden px-btn w-7 h-7 flex items-center justify-center cursor-pointer text-[#b8afa2] hover:text-[#f2ece1]"
+                aria-label="Minimize Inspector"
+                title="Minimize"
+              >
+                <HudPixelIcon kind="chevronUp" className="w-3.5 h-3.5 pixelated-canvas" />
+              </button>
             </div>
           </div>
 
@@ -208,11 +212,11 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
           </div>
 
           {/* Progressive Disclosure: Clean Segmented Navigation (No Pill Badges) */}
-          <div className="flex items-center gap-1 border-b border-[#2c2620] pb-2 text-xs">
+          <div className="flex items-center gap-1 border-b border-[#2c2620] pb-1.5 sm:pb-2 text-[11px] sm:text-xs">
             <button
               type="button"
               onClick={() => setActiveTab('profile')}
-              className={`px-2.5 py-1 font-semibold cursor-pointer transition-colors whitespace-nowrap ${
+              className={`px-2 py-0.5 sm:px-2.5 sm:py-1 font-semibold cursor-pointer transition-colors whitespace-nowrap ${
                 activeTab === 'profile' ? 'px-btn-active text-[#f5b742]' : 'px-btn text-[#a89f91]'
               }`}
             >
@@ -221,7 +225,7 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
             <button
               type="button"
               onClick={() => setActiveTab('traits')}
-              className={`px-2.5 py-1 font-semibold cursor-pointer transition-colors whitespace-nowrap ${
+              className={`px-2 py-0.5 sm:px-2.5 sm:py-1 font-semibold cursor-pointer transition-colors whitespace-nowrap ${
                 activeTab === 'traits' ? 'px-btn-active text-[#f5b742]' : 'px-btn text-[#a89f91]'
               }`}
             >
@@ -231,7 +235,7 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
               <button
                 type="button"
                 onClick={() => setActiveTab('favorites')}
-                className={`px-2.5 py-1 font-semibold cursor-pointer transition-colors whitespace-nowrap ${
+                className={`px-2 py-0.5 sm:px-2.5 sm:py-1 font-semibold cursor-pointer transition-colors whitespace-nowrap ${
                   activeTab === 'favorites'
                     ? 'px-btn-active text-[#ffd166]'
                     : 'px-btn text-[#a89f91]'
@@ -244,24 +248,24 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
 
           {/* TAB CONTENT: PROFILE */}
           {activeTab === 'profile' && (
-            <div className="space-y-3 text-xs">
+            <div className="space-y-2 sm:space-y-3 text-xs">
               {/* Combat & Movement Attributes: Clean Tabular Metric Strip */}
-              <div className="grid grid-cols-3 gap-2 pt-1 text-center">
-                <div className="bg-[#191613] p-2">
+              <div className="grid grid-cols-3 gap-1.5 sm:gap-2 pt-0.5 sm:pt-1 text-center">
+                <div className="bg-[#191613] p-1.5 sm:p-2">
                   <div className="text-[10px] text-[#8f8679]">Attack</div>
-                  <div className="font-pixel-num text-sm font-bold text-[#ff9f68] tabular-nums mt-0.5">
+                  <div className="font-pixel-num text-xs sm:text-sm font-bold text-[#ff9f68] tabular-nums mt-0.5">
                     {profile.informations.attackDamage}
                   </div>
                 </div>
-                <div className="bg-[#191613] p-2">
+                <div className="bg-[#191613] p-1.5 sm:p-2">
                   <div className="text-[10px] text-[#8f8679]">Range</div>
-                  <div className="font-pixel-num text-sm font-bold text-[#f2ece1] tabular-nums mt-0.5">
+                  <div className="font-pixel-num text-xs sm:text-sm font-bold text-[#f2ece1] tabular-nums mt-0.5">
                     {profile.informations.attackRange}
                   </div>
                 </div>
-                <div className="bg-[#191613] p-2">
+                <div className="bg-[#191613] p-1.5 sm:p-2">
                   <div className="text-[10px] text-[#8f8679]">Speed</div>
-                  <div className="font-pixel-num text-sm font-bold text-[#56cfe1] tabular-nums mt-0.5">
+                  <div className="font-pixel-num text-xs sm:text-sm font-bold text-[#56cfe1] tabular-nums mt-0.5">
                     {profile.informations.speed}
                   </div>
                 </div>
@@ -443,7 +447,7 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                         className="text-[#ffd166] hover:text-[#ff8f6b] cursor-pointer p-1"
                         title="Unfavorite"
                       >
-                        <Star className="w-3.5 h-3.5" fill="#ffd166" />
+                        <HudPixelIcon kind="starOn" className="w-3.5 h-3.5 pixelated-canvas" />
                       </button>
                     </div>
                   );
@@ -453,13 +457,13 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
           )}
         </>
       ) : (
-        <div className="space-y-2 text-xs text-[#cfc6b8]" data-testid="zone-inspector-content">
+        <div className="space-y-1.5 sm:space-y-2 text-xs text-[#cfc6b8]" data-testid="zone-inspector-content">
           <div className="flex items-center justify-between gap-2">
-            <h2 className="font-bold text-[#f5b742] text-sm">Inspect Tool</h2>
+            <h2 className="font-bold text-[#f5b742] text-xs sm:text-sm">Inspect Tool</h2>
             <button
               type="button"
               onClick={() => setMinimized(true)}
-              className="md:hidden px-btn px-2 py-0.5 text-[11px] text-[#b8afa2] cursor-pointer"
+              className="sm:hidden px-btn px-1.5 py-0.5 text-[10px] text-[#b8afa2] cursor-pointer"
               aria-label="Minimize Inspector"
             >
               Hide

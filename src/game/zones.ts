@@ -1,5 +1,5 @@
 import { BUILDINGS, EPOCHS, getDinosaurVariant, getMaxCityPopulation } from './catalog';
-import { createSeededNomadName } from './simulation';
+import { createSeededNomadName, getKingdomEpoch } from './simulation';
 import {
   AnimalRole,
   DiplomaticRelation,
@@ -14,6 +14,7 @@ import {
 export type { ZoneOverlayType, ZoneToggleState };
 
 export const DEFAULT_ZONE_TOGGLES: ZoneToggleState = {
+  kingdomLabels: true,
   kingdoms: false,
   kings: false,
   territories: false,
@@ -83,6 +84,7 @@ export interface BiomeZoneInfo {
   isAquatic: boolean;
   centerX: number;
   centerZ: number;
+  labelAnchors?: Array<{ x: number; z: number; tileCount: number }>;
 }
 
 export type ThermalBandId = 'freezing' | 'cold' | 'temperate' | 'warm' | 'scorching';
@@ -102,16 +104,19 @@ export interface TemperatureZoneInfo {
   effectSummary: string;
   centerX: number;
   centerZ: number;
+  labelAnchors?: Array<{ x: number; z: number; tileCount: number }>;
 }
 
 export interface ZoneMapLabel {
   id: string;
   name: string;
+  epochName?: string;
   population: number | null;
   hexColor: string;
   tileX: number;
   tileZ: number;
   isHovered: boolean;
+  flatGround?: boolean;
 }
 
 export interface WorldZonesData {
@@ -187,6 +192,12 @@ const BIOME_META: Record<
     category: 'Marine',
     color: [56, 189, 248],
     baseTempC: 16,
+  },
+  ice: {
+    name: 'Sea Ice',
+    category: 'Marine',
+    color: [165, 243, 252],
+    baseTempC: -6,
   },
   sand: {
     name: 'Dunes',
@@ -308,6 +319,12 @@ const BIOME_META: Record<
     color: [232, 121, 249],
     baseTempC: 7,
   },
+  void_goo: {
+    name: 'Abyssal Void',
+    category: 'Cataclysmic',
+    color: [124, 58, 237],
+    baseTempC: -18,
+  },
 };
 
 const THERMAL_BAND_META: Array<{
@@ -379,6 +396,201 @@ function rgbToHex(rgb: [number, number, number]): string {
  * Computes all 4 dynamic zone layers (Kingdoms/Cities, Animal Territories, Biome Regions, Temperature Bands)
  * shaped organically by land elevation, coastlines, shallow/deep seas, roads, and habitats.
  */
+interface ZoneInteriorAnchor {
+  x: number;
+  z: number;
+  tileCount: number;
+}
+
+/**
+ * Finds accurate interior label anchor(s) for each zone ID using connected components +
+ * exact 4-neighbor distance-to-boundary BFS (Pole of Inaccessibility).
+ * Guarantees every anchor (x, z) lies strictly INSIDE zoneMap[z * size + x] === zid,
+ * centered inside the widest contiguous body of that zone rather than an out-of-zone average.
+ */
+function findZoneInteriorAnchors(
+  zoneMap: Uint8Array,
+  size: number,
+  allowedZone: (zid: number) => boolean,
+  minPatchTiles: number,
+  maxPatchesPerZone: number,
+  minAnchorSeparation: number,
+  preferTile?: (idx: number) => boolean,
+): Map<number, ZoneInteriorAnchor[]> {
+  const total = size * size;
+  const visited = new Uint8Array(total);
+  const compQueue = new Int32Array(total);
+  const distToEdge = new Int16Array(total);
+  const bfsQueue = new Int32Array(total);
+  const patchesByZone = new Map<number, ZoneInteriorAnchor[]>();
+
+  for (let start = 0; start < total; start++) {
+    if (visited[start]) continue;
+    const zid = zoneMap[start];
+    if (zid === 0 || !allowedZone(zid)) {
+      visited[start] = 1;
+      continue;
+    }
+
+    let head = 0;
+    let tail = 0;
+    visited[start] = 1;
+    compQueue[tail++] = start;
+    let sumX = 0;
+    let sumZ = 0;
+
+    while (head < tail) {
+      const idx = compQueue[head++];
+      const cx = idx % size;
+      const cz = (idx / size) | 0;
+      sumX += cx;
+      sumZ += cz;
+
+      if (cx > 0) {
+        const nb = idx - 1;
+        if (!visited[nb] && zoneMap[nb] === zid) {
+          visited[nb] = 1;
+          compQueue[tail++] = nb;
+        }
+      }
+      if (cx < size - 1) {
+        const nb = idx + 1;
+        if (!visited[nb] && zoneMap[nb] === zid) {
+          visited[nb] = 1;
+          compQueue[tail++] = nb;
+        }
+      }
+      if (cz > 0) {
+        const nb = idx - size;
+        if (!visited[nb] && zoneMap[nb] === zid) {
+          visited[nb] = 1;
+          compQueue[tail++] = nb;
+        }
+      }
+      if (cz < size - 1) {
+        const nb = idx + size;
+        if (!visited[nb] && zoneMap[nb] === zid) {
+          visited[nb] = 1;
+          compQueue[tail++] = nb;
+        }
+      }
+    }
+
+    const count = tail;
+    if (count < minPatchTiles) continue;
+
+    let bHead = 0;
+    let bTail = 0;
+    for (let i = 0; i < count; i++) {
+      const idx = compQueue[i];
+      const cx = idx % size;
+      const cz = (idx / size) | 0;
+      const isEdge =
+        cx === 0 ||
+        cx === size - 1 ||
+        cz === 0 ||
+        cz === size - 1 ||
+        zoneMap[idx - 1] !== zid ||
+        zoneMap[idx + 1] !== zid ||
+        zoneMap[idx - size] !== zid ||
+        zoneMap[idx + size] !== zid;
+      if (isEdge) {
+        distToEdge[idx] = 1;
+        bfsQueue[bTail++] = idx;
+      } else {
+        distToEdge[idx] = 0;
+      }
+    }
+
+    while (bHead < bTail) {
+      const idx = bfsQueue[bHead++];
+      const nextD = distToEdge[idx] + 1;
+      const cx = idx % size;
+      const cz = (idx / size) | 0;
+      if (cx > 0) {
+        const nb = idx - 1;
+        if (zoneMap[nb] === zid && distToEdge[nb] === 0) {
+          distToEdge[nb] = nextD;
+          bfsQueue[bTail++] = nb;
+        }
+      }
+      if (cx < size - 1) {
+        const nb = idx + 1;
+        if (zoneMap[nb] === zid && distToEdge[nb] === 0) {
+          distToEdge[nb] = nextD;
+          bfsQueue[bTail++] = nb;
+        }
+      }
+      if (cz > 0) {
+        const nb = idx - size;
+        if (zoneMap[nb] === zid && distToEdge[nb] === 0) {
+          distToEdge[nb] = nextD;
+          bfsQueue[bTail++] = nb;
+        }
+      }
+      if (cz < size - 1) {
+        const nb = idx + size;
+        if (zoneMap[nb] === zid && distToEdge[nb] === 0) {
+          distToEdge[nb] = nextD;
+          bfsQueue[bTail++] = nb;
+        }
+      }
+    }
+
+    const meanX = sumX / count;
+    const meanZ = sumZ / count;
+    let bestIdx = compQueue[0];
+    let bestScore = -1e18;
+    for (let i = 0; i < count; i++) {
+      const idx = compQueue[i];
+      const cx = idx % size;
+      const cz = (idx / size) | 0;
+      const dEdge = distToEdge[idx];
+      const dCenter = Math.hypot(cx - meanX, cz - meanZ);
+      const prefBonus = preferTile && preferTile(idx) ? 1000 : 0;
+      const score = prefBonus + dEdge * 12 - dCenter * 0.35;
+      if (score > bestScore) {
+        bestScore = score;
+        bestIdx = idx;
+      }
+    }
+
+    const anchor: ZoneInteriorAnchor = {
+      x: bestIdx % size,
+      z: (bestIdx / size) | 0,
+      tileCount: count,
+    };
+    let arr = patchesByZone.get(zid);
+    if (!arr) {
+      arr = [];
+      patchesByZone.set(zid, arr);
+    }
+    arr.push(anchor);
+  }
+
+  const minSepSq = minAnchorSeparation * minAnchorSeparation;
+  patchesByZone.forEach((arr, zid) => {
+    arr.sort((a, b) => b.tileCount - a.tileCount);
+    const picked: ZoneInteriorAnchor[] = [];
+    for (let i = 0; i < arr.length && picked.length < maxPatchesPerZone; i++) {
+      const cand = arr[i];
+      let tooClose = false;
+      for (let j = 0; j < picked.length; j++) {
+        const dx = cand.x - picked[j].x;
+        const dz = cand.z - picked[j].z;
+        if (dx * dx + dz * dz < minSepSq) {
+          tooClose = true;
+          break;
+        }
+      }
+      if (!tooClose) picked.push(cand);
+    }
+    patchesByZone.set(zid, picked);
+  });
+
+  return patchesByZone;
+}
+
 export function computeWorldZones(sim: SimulationState): WorldZonesData {
   const size = sim.gridSize;
   const totalTiles = size * size;
@@ -544,9 +756,9 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
     const color = palette[colorSlot % palette.length];
     const cx = Math.max(0, Math.min(size - 1, Math.round(s.sumX / s.anchorCount)));
     const cz = Math.max(0, Math.min(size - 1, Math.round(s.sumZ / s.anchorCount)));
-    const epochDef = EPOCHS[Math.max(0, Math.min(EPOCHS.length - 1, s.maxEpoch))];
-    const activeEpochDef = EPOCHS[Math.max(0, Math.min(EPOCHS.length - 1, sim.epochIndex))];
-    const rawCityCap = (s.completedCount > 0 ? activeEpochDef.populationBonus : 0) + s.popCapBonus;
+    const kEpoch = getKingdomEpoch(sim, rootKingdomId);
+    const epochDef = EPOCHS[Math.max(0, Math.min(EPOCHS.length - 1, kEpoch))] || EPOCHS[0];
+    const rawCityCap = (s.completedCount > 0 ? epochDef.populationBonus : 0) + s.popCapBonus;
     const maxPopulation = s.completedCount > 0 ? Math.min(cityMaxPopLimit, rawCityCap) : 0;
 
     const stock = sim.kingdomResources?.[rootKingdomId];
@@ -568,8 +780,8 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
       landTileCount: 0,
       seaTileCount: 0,
       totalTileCount: 0,
-      epochLevel: s.maxEpoch,
-      epochName: epochDef ? epochDef.name : 'Prehistoric Age',
+      epochLevel: kEpoch,
+      epochName: epochDef ? epochDef.name : 'Stone Age',
       resources: {
         food: Math.floor(stock?.food ?? 0),
         wood: Math.floor(stock?.wood ?? 0),
@@ -1197,6 +1409,8 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
     'snow',
     'scorched',
     'crystal_field',
+    'void_goo',
+    'ice',
   ];
 
   const biomeToZoneId = new Map<TerrainType, number>();
@@ -1321,14 +1535,35 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
     if (info) info.wildlifeCount++;
   }
 
+  const biomeAnchors = findZoneInteriorAnchors(
+    biomeMap,
+    size,
+    (zid) => {
+      const info = biomesById.get(zid);
+      return Boolean(info && info.name !== 'Deepseas' && info.name !== 'Shore');
+    },
+    24,
+    2,
+    24,
+  );
+
   biomesById.forEach((info, zid) => {
     if (info.tileCount > 0) {
       info.worldPercent = Math.round((info.tileCount / totalTiles) * 1000) / 10;
       info.avgElevation = Math.round((elevSumByBiome[zid] / info.tileCount) * 10) / 10;
-      const cx = Math.round(sumXByBiome[zid] / info.tileCount);
-      const cz = Math.round(sumZByBiome[zid] / info.tileCount);
-      info.centerX = Math.max(2, Math.min(size - 3, cx));
-      info.centerZ = Math.max(2, Math.min(size - 3, cz));
+      const anchors = biomeAnchors.get(zid);
+      if (anchors && anchors.length > 0) {
+        info.centerX = anchors[0].x;
+        info.centerZ = anchors[0].z;
+        // Keep primary anchor plus secondary anchor only if the second patch is substantial (>= 55 tiles)
+        info.labelAnchors = anchors.filter((a, idx) => idx === 0 || a.tileCount >= 55);
+      } else {
+        const cx = Math.round(sumXByBiome[zid] / info.tileCount);
+        const cz = Math.round(sumZByBiome[zid] / info.tileCount);
+        info.centerX = Math.max(2, Math.min(size - 3, cx));
+        info.centerZ = Math.max(2, Math.min(size - 3, cz));
+        info.labelAnchors = [];
+      }
     }
   });
 
@@ -1395,6 +1630,11 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
         temp += 26;
       }
 
+      // Dynamic thermal offset accumulated from Freeze / Heat Wave / Helios Beam
+      if (tile.tempOffset) {
+        temp += tile.tempOffset;
+      }
+
       rawTemp[idx] = temp;
     }
   }
@@ -1458,19 +1698,95 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
     }
   }
 
+  const tempAnchors = findZoneInteriorAnchors(
+    tempBandMap,
+    size,
+    () => true,
+    24,
+    2,
+    26,
+    (idx) => tiles[idx].height > 0,
+  );
+
   tempBandsById.forEach((info, bid) => {
     if (info.tileCount > 0) {
       info.worldPercent = Math.round((info.tileCount / totalTiles) * 1000) / 10;
       info.avgTempC = Math.round((tempSumByBand[bid] / info.tileCount) * 10) / 10;
-      const cx = Math.round(sumXByTemp[bid] / info.tileCount);
-      const cz = Math.round(sumZByTemp[bid] / info.tileCount);
-      info.centerX = Math.max(2, Math.min(size - 3, cx));
-      info.centerZ = Math.max(2, Math.min(size - 3, cz));
+      const anchors = tempAnchors.get(bid);
+      if (anchors && anchors.length > 0) {
+        info.centerX = anchors[0].x;
+        info.centerZ = anchors[0].z;
+        info.labelAnchors = anchors.filter((a, idx) => idx === 0 || a.tileCount >= 65);
+      } else {
+        const cx = Math.round(sumXByTemp[bid] / info.tileCount);
+        const cz = Math.round(sumZByTemp[bid] / info.tileCount);
+        info.centerX = Math.max(2, Math.min(size - 3, cx));
+        info.centerZ = Math.max(2, Math.min(size - 3, cz));
+        info.labelAnchors = [];
+      }
     } else {
       info.minTempC = 0;
       info.maxTempC = 0;
+      info.labelAnchors = [];
     }
   });
+
+  // Snap any kingdom or animal territory whose centroid fell outside its actual zone (e.g. concave/coastal split)
+  let needsTerritorySnap = false;
+  territoriesById.forEach((t, tid) => {
+    const idx = t.centerZ * size + t.centerX;
+    if (territoryMap[idx] !== tid) needsTerritorySnap = true;
+  });
+  if (needsTerritorySnap) {
+    const terrAnchors = findZoneInteriorAnchors(
+      territoryMap,
+      size,
+      (tid) => territoriesById.has(tid),
+      1,
+      1,
+      10,
+      (idx) => territoryIsSea[idx] === 0,
+    );
+    territoriesById.forEach((t, tid) => {
+      const idx = t.centerZ * size + t.centerX;
+      if (territoryMap[idx] !== tid) {
+        const anchor = terrAnchors.get(tid)?.[0];
+        if (anchor) {
+          t.centerX = anchor.x;
+          t.centerZ = anchor.z;
+        }
+      }
+    });
+  }
+
+  let needsKingdomSnap = false;
+  kingdomsById.forEach((k, kid) => {
+    const idx = k.centerZ * size + k.centerX;
+    if (kingdomMap[idx] !== kid || (k.landTileCount > 0 && kingdomIsSea[idx] !== 0)) {
+      needsKingdomSnap = true;
+    }
+  });
+  if (needsKingdomSnap) {
+    const kAnchors = findZoneInteriorAnchors(
+      kingdomMap,
+      size,
+      (kid) => kingdomsById.has(kid),
+      1,
+      1,
+      10,
+      (idx) => kingdomIsSea[idx] === 0,
+    );
+    kingdomsById.forEach((k, kid) => {
+      const idx = k.centerZ * size + k.centerX;
+      if (kingdomMap[idx] !== kid || (k.landTileCount > 0 && kingdomIsSea[idx] !== 0)) {
+        const anchor = kAnchors.get(kid)?.[0];
+        if (anchor) {
+          k.centerX = anchor.x;
+          k.centerZ = anchor.z;
+        }
+      }
+    });
+  }
 
   return {
     gridSize: size,
@@ -1506,7 +1822,9 @@ export function inspectTileZones(
   if (!tile) return null;
 
   const isWater =
-    tile.height === 0 || tile.terrain === 'deep_water' || tile.terrain === 'shallow_water';
+    (tile.height === 0 && tile.terrain !== 'ice') ||
+    tile.terrain === 'deep_water' ||
+    tile.terrain === 'shallow_water';
   const kId = zones.kingdomMap[idx];
   const tId = zones.territoryMap[idx];
   const bId = zones.biomeMap[idx];
@@ -1583,7 +1901,23 @@ export function buildZoneOverlayTextures(
   if (!anyActive) {
     colorData.fill(0);
     idData.fill(0);
-    return { colorData, idData, anyActive: false, labels: [] };
+    const labelOnlyList: ZoneMapLabel[] = [];
+    if (toggles.kingdomLabels) {
+      zones.kingdomsById.forEach((k) => {
+        if (k.buildingCount <= 0) return;
+        labelOnlyList.push({
+          id: `kingdom-${k.zoneId}`,
+          name: k.name,
+          epochName: k.epochName,
+          population: k.population,
+          hexColor: k.hexColor,
+          tileX: k.centerX,
+          tileZ: k.centerZ,
+          isHovered: false,
+        });
+      });
+    }
+    return { colorData, idData, anyActive: false, labels: labelOnlyList };
   }
 
   let hoveredKingdomId = 0;
@@ -1760,6 +2094,7 @@ export function buildZoneOverlayTextures(
       labels.push({
         id: `alliance-${k.zoneId}`,
         name: k.name,
+        epochName: k.epochName,
         population: k.population,
         hexColor: aCol.hex,
         tileX: k.centerX,
@@ -1767,16 +2102,18 @@ export function buildZoneOverlayTextures(
         isHovered: k.zoneId === hoveredKingdomId,
       });
     });
-  } else if (toggles.kingdoms) {
+  } else if (toggles.kingdomLabels) {
     zones.kingdomsById.forEach((k) => {
+      if (!toggles.kingdoms && k.buildingCount <= 0) return;
       labels.push({
         id: `kingdom-${k.zoneId}`,
         name: k.name,
+        epochName: k.epochName,
         population: k.population,
         hexColor: k.hexColor,
         tileX: k.centerX,
         tileZ: k.centerZ,
-        isHovered: k.zoneId === hoveredKingdomId,
+        isHovered: toggles.kingdoms && k.zoneId === hoveredKingdomId,
       });
     });
   }
@@ -1790,36 +2127,51 @@ export function buildZoneOverlayTextures(
         tileX: t.centerX,
         tileZ: t.centerZ,
         isHovered: t.zoneId === hoveredTerritoryId,
+        flatGround: true,
       });
     });
   }
   if (toggles.biomes) {
     zones.biomesById.forEach((b) => {
       if (b.tileCount >= 24 && b.name !== 'Deepseas' && b.name !== 'Shore') {
-        labels.push({
-          id: `biome-${b.zoneId}`,
-          name: b.name,
-          population: null,
-          hexColor: b.hexColor,
-          tileX: b.centerX,
-          tileZ: b.centerZ,
-          isHovered: b.zoneId === hoveredBiomeId,
-        });
+        const anchors =
+          b.labelAnchors && b.labelAnchors.length > 0
+            ? b.labelAnchors
+            : [{ x: b.centerX, z: b.centerZ, tileCount: b.tileCount }];
+        for (let ai = 0; ai < anchors.length; ai++) {
+          labels.push({
+            id: ai === 0 ? `biome-${b.zoneId}` : `biome-${b.zoneId}-${ai}`,
+            name: b.name,
+            population: null,
+            hexColor: b.hexColor,
+            tileX: anchors[ai].x,
+            tileZ: anchors[ai].z,
+            isHovered: b.zoneId === hoveredBiomeId,
+            flatGround: true,
+          });
+        }
       }
     });
   }
   if (toggles.temperature) {
     zones.tempBandsById.forEach((tm) => {
       if (tm.tileCount >= 24) {
-        labels.push({
-          id: `temp-${tm.zoneId}`,
-          name: tm.name,
-          population: null,
-          hexColor: tm.hexColor,
-          tileX: tm.centerX,
-          tileZ: tm.centerZ,
-          isHovered: tm.zoneId === hoveredTempId,
-        });
+        const anchors =
+          tm.labelAnchors && tm.labelAnchors.length > 0
+            ? tm.labelAnchors
+            : [{ x: tm.centerX, z: tm.centerZ, tileCount: tm.tileCount }];
+        for (let ai = 0; ai < anchors.length; ai++) {
+          labels.push({
+            id: ai === 0 ? `temp-${tm.zoneId}` : `temp-${tm.zoneId}-${ai}`,
+            name: tm.name,
+            population: null,
+            hexColor: tm.hexColor,
+            tileX: anchors[ai].x,
+            tileZ: anchors[ai].z,
+            isHovered: tm.zoneId === hoveredTempId,
+            flatGround: true,
+          });
+        }
       }
     });
   }
@@ -1845,4 +2197,111 @@ export function extractKingdomColorsMap(
   });
   return map;
 }
+
+/**
+ * Lightweight O(B + U) kingdom label generator used when ONLY Kingdom Labels are enabled
+ * (default gameplay state) without running full map Voronoi zone flood-fills.
+ * Emits labels exclusively for races that have founded a civilization (at least 1 standing building).
+ */
+export function computeKingdomLabelsOnly(sim: SimulationState): ZoneMapLabel[] {
+  if (sim.buildings.length === 0) return [];
+  const size = sim.gridSize;
+
+  interface FoundedSettlement {
+    id: string;
+    name: string;
+    species: SpeciesId;
+    buildingCount: number;
+    completedCount: number;
+    sumX: number;
+    sumZ: number;
+    anchorCount: number;
+    pop: number;
+  }
+
+  const settlements = new Map<string, FoundedSettlement>();
+  for (let i = 0; i < sim.buildings.length; i++) {
+    const b = sim.buildings[i];
+    if (b.hp <= 0) continue;
+    const sid = b.settlementId || 'city_default';
+    let rec = settlements.get(sid);
+    if (!rec) {
+      const sp: SpeciesId = sim.settlementSpecies?.[sid] ?? b.species ?? 'human';
+      rec = {
+        id: sid,
+        name: sim.settlementNames?.[sid] || createSeededNomadName(sid, sim.seed, sp),
+        species: sp,
+        buildingCount: 0,
+        completedCount: 0,
+        sumX: 0,
+        sumZ: 0,
+        anchorCount: 0,
+        pop: 0,
+      };
+      settlements.set(sid, rec);
+    }
+    rec.buildingCount++;
+    if (b.constructionProgress >= 100) rec.completedCount++;
+    rec.sumX += b.tileX;
+    rec.sumZ += b.tileZ;
+    rec.anchorCount++;
+  }
+
+  if (settlements.size === 0) return [];
+
+  for (let i = 0; i < sim.units.length; i++) {
+    const u = sim.units[i];
+    if (u.faction !== 'civilization' || u.state === 'ko' || u.hp <= 0) continue;
+    let rec = u.settlementId ? settlements.get(u.settlementId) : undefined;
+    if (!rec && u.kingdomId) {
+      let bestDistSq = Infinity;
+      settlements.forEach((cand) => {
+        if ((sim.settlementKingdoms?.[cand.id] ?? cand.id) !== u.kingdomId) return;
+        const cx = cand.sumX / Math.max(1, cand.anchorCount);
+        const cz = cand.sumZ / Math.max(1, cand.anchorCount);
+        const d2 = (u.x - cx) * (u.x - cx) + (u.z - cz) * (u.z - cz);
+        if (d2 < bestDistSq) {
+          bestDistSq = d2;
+          rec = cand;
+        }
+      });
+    }
+    if (rec) {
+      rec.pop++;
+    }
+  }
+
+  const labels: ZoneMapLabel[] = [];
+  const kingdomColorIndex = new Map<string, number>();
+  let kIdxCounter = 0;
+  settlements.forEach((s) => {
+    if (s.pop === 0 && s.completedCount === 0) return;
+    const zoneId = Math.min(254, ++kIdxCounter);
+    const rootKingdomId = sim.settlementKingdoms?.[s.id] ?? s.id;
+    let colorSlot = kingdomColorIndex.get(rootKingdomId);
+    if (colorSlot === undefined) {
+      colorSlot = kingdomColorIndex.size;
+      kingdomColorIndex.set(rootKingdomId, colorSlot);
+    }
+    const palette = KINGDOM_PALETTES[s.species] || KINGDOM_PALETTES.human;
+    const color = palette[colorSlot % palette.length];
+    const cx = Math.max(0, Math.min(size - 1, Math.round(s.sumX / Math.max(1, s.anchorCount))));
+    const cz = Math.max(0, Math.min(size - 1, Math.round(s.sumZ / Math.max(1, s.anchorCount))));
+    const kEpoch = getKingdomEpoch(sim, rootKingdomId);
+    const epochDef = EPOCHS[Math.max(0, Math.min(EPOCHS.length - 1, kEpoch))] || EPOCHS[0];
+    labels.push({
+      id: `kingdom-${zoneId}`,
+      name: s.name,
+      epochName: epochDef ? epochDef.name : 'Stone Age',
+      population: s.pop,
+      hexColor: rgbToHex(color),
+      tileX: cx,
+      tileZ: cz,
+      isHovered: false,
+    });
+  });
+
+  return labels;
+}
+
 

@@ -62,7 +62,9 @@ export type TerrainType =
   | 'rock'
   | 'snow'
   | 'scorched'
-  | 'crystal_field';
+  | 'crystal_field'
+  | 'void_goo'
+  | 'ice';
 
 export type ResourceNodeType =
   | 'none'
@@ -91,6 +93,19 @@ export interface TileData {
   isRiver?: boolean;
   isLake?: boolean;
   coralBleachTimer?: number;
+  tempOffset?: number;
+  frozenWaterBase?: 'deep_water' | 'shallow_water';
+  crushedTimer?: number;
+  burntTree?: boolean;
+  burntTreeBiome?:
+    | 'forest'
+    | 'meadow'
+    | 'jungle'
+    | 'taiga'
+    | 'blossom'
+    | 'savanna'
+    | 'swamp'
+    | 'highland';
 }
 
 export type BuildingType =
@@ -172,6 +187,10 @@ export type UnitRole =
   | 'raider_swarmer'
   | 'raider_ranged'
   | 'raider_behemoth'
+  | 'skeleton'
+  | 'alien_trooper'
+  | 'alien_ufo'
+  | 'alien_walker'
   | AnimalRole;
 
 export type UnitStatusEffect = 'blessed' | 'cursed' | 'plagued' | 'frenzied' | 'shielded' | 'frozen';
@@ -199,6 +218,8 @@ export interface UnitEntity {
   faction: 'civilization' | 'hostile' | 'wildlife';
   x: number;
   z: number;
+  prevX?: number;
+  prevZ?: number;
   targetX: number;
   targetZ: number;
   hp: number;
@@ -220,6 +241,8 @@ export interface UnitEntity {
   attackAnimTimer?: number;
   attackTargetX?: number;
   attackTargetZ?: number;
+  wildlifeSkillCooldown?: number;
+  dinoRushTimer?: number;
   dragonRunPhase?: 'approach' | 'strafe' | 'turn';
   dragonRunTimer?: number;
   dragonRunDirX?: number;
@@ -245,8 +268,12 @@ export interface UnitEntity {
   vzAir?: number;
   fallDamageArmed?: boolean;
   draggedByPlayer?: boolean;
+  dragFlingNonLethal?: boolean;
   dragTargetX?: number;
   dragTargetZ?: number;
+  walkerPrevStepX?: number;
+  walkerPrevStepZ?: number;
+  walkerStepParity?: number;
   dragTargetAltitude?: number;
   lastAttackerId?: string;
   underAttackTimer?: number;
@@ -293,8 +320,17 @@ export type GodPowerType =
   | 'tsunami'
   | 'meteor_strike'
   | 'earthquake'
+  | 'volcano_eruption'
+  | 'super_tornado'
+  | 'void_goo'
   | 'terraform_beam'
-  | 'wormhole_ascension';
+  | 'wormhole_ascension'
+  | 'undead_portal'
+  | 'alien_invasion'
+  | 'chrono_surge'
+  | 'harmony_dove'
+  | 'solar_orbital_laser'
+  | 'gravity_flip';
 
 export interface GodPowerDefinition {
   type: GodPowerType;
@@ -316,11 +352,26 @@ export type TerrainToolType =
   | 'seed_ore'
   | 'carve_river'
   | 'stone_road'
-  | 'rail_track';
+  | 'rail_track'
+  | 'crystal_shower'
+  | 'boulder_rain'
+  | 'blossom_rain'
+  | 'jungle_bloom'
+  | 'soil_enrich'
+  | 'desert_dunes'
+  | 'coral_reef_rain'
+  | 'salvage_drop'
+  | 'volcanic_obsidian'
+  | 'atlantis_rise'
+  | 'alpine_glacier'
+  | 'abyssal_trench'
+  | 'swamp_mire';
 
 export interface TerrainToolDefinition {
   type: TerrainToolType;
   name: string;
+  category: 'Sculpt' | 'Sky Rain' | 'Biomes' | 'Water';
+  isSkyRain?: boolean;
   summary: string;
   faithCost: number;
   color: string;
@@ -377,6 +428,7 @@ export interface VehicleEntity {
 export type DiplomaticRelation = 'allied' | 'neutral' | 'war';
 
 export type ZoneOverlayType =
+  | 'kingdomLabels'
   | 'kingdoms'
   | 'kings'
   | 'territories'
@@ -422,6 +474,7 @@ export interface VisualEffectEvent {
   type:
     | GodPowerType
     | 'terrain_sculpt'
+    | 'sky_rain_drop'
     | 'build_complete'
     | 'hit_spark'
     | 'epoch_up'
@@ -431,7 +484,11 @@ export interface VisualEffectEvent {
     | 'nuke_blast'
     | 'arcane_cataclysm'
     | 'battlewill_slash'
-    | 'projectile_tracer';
+    | 'projectile_tracer'
+    | 'huge_asteroid_strike'
+    | 'volcanic_lava_bomb'
+    | 'void_goo_splash'
+    | 'fire_spread';
   x: number;
   y: number;
   z: number;
@@ -440,7 +497,9 @@ export interface VisualEffectEvent {
   originZ?: number;
   sourceUnitId?: string;
   variant?: 'bite' | 'slam' | 'crunch' | 'peck' | 'horn_blast' | 'fire_breath';
-  vfxSubtype?: 'bullet' | 'cannon_shell' | 'bomb' | 'missile' | 'arcane_bolt' | 'plasma_beam';
+  vfxSubtype?: 'bullet' | 'cannon_shell' | 'bomb' | 'missile' | 'arcane_bolt' | 'plasma_beam' | 'laser_beam';
+  dropKind?: TerrainToolType;
+  dropTargets?: Array<{ x: number; y: number; z: number }>;
   radius: number;
   color: string;
   createdAt: number;
@@ -460,6 +519,7 @@ export interface ActiveHazardZone {
     | 'tsunami_wave'
     | 'earthquake_zone'
     | 'tornado_vortex'
+    | 'volcano_eruption'
     | 'heat_wave_zone'
     | 'freeze_wave_zone'
     | 'blessing_wave'
@@ -467,7 +527,13 @@ export interface ActiveHazardZone {
     | 'frenzy_wave'
     | 'terraform_wave'
     | 'whirlpool'
-    | 'rogue_wave';
+    | 'rogue_wave'
+    | 'asteroid_shockwave'
+    | 'undead_portal'
+    | 'alien_mothership'
+    | 'chrono_field'
+    | 'orbital_beam'
+    | 'gravity_anomaly';
   x: number;
   z: number;
   targetX?: number;
@@ -476,6 +542,7 @@ export interface ActiveHazardZone {
   windZ?: number;
   heading?: number;
   exploded?: boolean;
+  isSuper?: boolean;
   arrivalRemaining?: number;
   arrivalDuration?: number;
   impactPending?: boolean;
@@ -485,6 +552,11 @@ export interface ActiveHazardZone {
   waveWaterTarget?: boolean;
   waveTargetHeight?: number;
   waveEpochIdx?: number;
+  portalSpawnCount?: number;
+  beamDirX?: number;
+  beamDirZ?: number;
+  beaconTimer?: number;
+  laserSubTimer?: number;
   radius: number;
   remaining: number;
   duration: number;
@@ -493,6 +565,56 @@ export interface ActiveHazardZone {
   faultSegments?: EarthquakeFaultSegment[];
   quakeShapeKind?: EarthquakeShapeKind;
   quakeExtent?: number;
+}
+
+export interface VoidWispEntity {
+  id: string;
+  x: number;
+  y: number;
+  z: number;
+  vx: number;
+  vz: number;
+  size: number;
+  color: string;
+  phase: number;
+  bobSpeed: number;
+  sourceRole?: string;
+}
+
+export type RandomEventKind =
+  | 'huge_asteroid'
+  | 'volcano_eruption'
+  | 'super_tornado'
+  | 'mega_earthquake'
+  | 'heatwave_drought'
+  | 'deep_freeze'
+  | 'starfall_aurora';
+
+export interface WorldEventState {
+  id: string;
+  kind: RandomEventKind;
+  title: string;
+  subtitle: string;
+  accentColor: string;
+  targetX: number;
+  targetZ: number;
+  trackX: number;
+  trackY: number;
+  trackZ: number;
+  startX?: number;
+  startY?: number;
+  startZ?: number;
+  elapsed: number;
+  impactDelay?: number;
+  cinematicActive: boolean;
+  dismissedByUser?: boolean;
+  impactTriggered?: boolean;
+  destructive: boolean;
+  linkedHazardId?: string;
+  remaining: number;
+  duration: number;
+  startedAtYear?: number;
+  phase?: 'falling' | 'active';
 }
 
 export type GameLifecycleState = 'title' | 'playing' | 'paused' | 'gameover';
@@ -512,6 +634,24 @@ export interface GraphicsSettings {
   foliageDensity: FoliageDetailOption;
   particles: ParticleDetailOption;
   autoOptimizeFps: boolean;
+  /** Strict 100% lossless visual parity (default true); disable for Low-End / Performance Mode */
+  strictLossless?: boolean;
+  /** Toggle optional Phase 0 Performance Debug HUD (F3 hotkey or Settings) */
+  showPerformanceHud?: boolean;
+}
+
+export interface PerfTelemetrySnapshot {
+  fps: number;
+  frameMs: number;
+  drawCalls: number;
+  triangles: number;
+  visibleChunks: number;
+  totalChunks: number;
+  activeUnits: number;
+  activeBuildings: number;
+  simTickMs: number;
+  workerQueue: number;
+  gridSize: number;
 }
 
 export type WorldTemplateId =
@@ -536,6 +676,7 @@ export interface WorldRulesConfig {
   animalAttacks: boolean;
   allowRebellion: boolean;
   warsEnabled: boolean;
+  randomEvents: boolean;
   startingEpochIndex: number;
   startingSettlers: 'none' | 'pioneers' | 'colony';
 }
@@ -589,6 +730,9 @@ export interface SimulationState {
   settlementNames?: Record<string, string>;
   settlementSpecies?: Record<string, SpeciesId>;
   settlementKingdoms?: Record<string, string>;
+  kingdomEpochs?: Record<string, number>;
+  kingdomEpochProgress?: Record<string, number>;
+  averageEpochIndex?: number;
   kingdomResources?: Record<string, Resources>;
   unallocatedResources?: Resources;
   kingdomUltimateCooldowns?: Record<string, number>;
@@ -600,4 +744,10 @@ export interface SimulationState {
   wildlifeRespawnTimer?: number;
   raiderWaveTimer?: number;
   oceanEventTimer?: number;
+  worldEventTimer?: number;
+  voidGooTimer?: number;
+  voidWisps?: VoidWispEntity[];
+  activeWorldEvent?: WorldEventState | null;
+  /** Transient runtime flat TypedArray acceleration buffers (stripped on save, auto-rebuilt on load) */
+  worldGrid?: unknown;
 }

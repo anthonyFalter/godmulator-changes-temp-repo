@@ -60,6 +60,8 @@ export const GraphicsSettingsPanel: React.FC<GraphicsSettingsPanelProps> = ({
       foliageDensity: settings.foliageDensity,
       particles: settings.particles,
       autoOptimizeFps: settings.autoOptimizeFps,
+      strictLossless: settings.strictLossless ?? true,
+      showPerformanceHud: settings.showPerformanceHud ?? false,
       [key]: value,
     };
     onChange({
@@ -67,6 +69,9 @@ export const GraphicsSettingsPanel: React.FC<GraphicsSettingsPanelProps> = ({
       preset: inferGraphicsPreset(partial),
     });
   };
+
+  const isStrictLossless = settings.strictLossless !== false;
+  const showPerfHud = Boolean(settings.showPerformanceHud);
 
   return (
     <div className="space-y-3 pt-2 border-t border-[#3a332b]" data-testid="graphics-settings-section">
@@ -90,7 +95,14 @@ export const GraphicsSettingsPanel: React.FC<GraphicsSettingsPanelProps> = ({
                 data-testid={`gfx-preset-${opt.id}`}
                 onClick={() => {
                   soundEngine.playClick();
-                  onChange(applyGraphicsPreset(opt.id, settings.autoOptimizeFps));
+                  onChange(
+                    applyGraphicsPreset(
+                      opt.id,
+                      settings.autoOptimizeFps,
+                      isStrictLossless,
+                      showPerfHud,
+                    ),
+                  );
                 }}
                 className={`py-1.5 sm:py-1 text-[11px] cursor-pointer ${
                   active ? 'px-btn-active font-bold' : 'px-btn'
@@ -195,12 +207,37 @@ export const GraphicsSettingsPanel: React.FC<GraphicsSettingsPanelProps> = ({
         </div>
       </div>
 
-      {/* Auto-Optimize FPS */}
+      {/* Visual Fidelity Mode: Strict Lossless vs Low-End Performance */}
+      <div className="flex items-center justify-between gap-3 pt-1">
+        <div>
+          <div className="text-[#e8e0d2]">Visual Parity Mode</div>
+          <div className="text-[10px] text-[#9e9486]">
+            {isStrictLossless
+              ? 'Strict Lossless: full detail at all zoom levels'
+              : 'Low-End Mode: adaptive shadows & FX throttling'}
+          </div>
+        </div>
+        <button
+          type="button"
+          data-testid="gfx-lossless-toggle"
+          aria-pressed={isStrictLossless}
+          onClick={() => updateField('strictLossless', !isStrictLossless)}
+          className={`px-3 py-1.5 font-semibold cursor-pointer shrink-0 ${
+            isStrictLossless ? 'px-btn-active font-bold' : 'px-btn'
+          }`}
+        >
+          {isStrictLossless ? 'Lossless' : 'Low-End'}
+        </button>
+      </div>
+
+      {/* Auto-Optimize FPS (active when Low-End Mode is selected) */}
       <div className="flex items-center justify-between gap-3 pt-1">
         <div>
           <div className="text-[#e8e0d2]">Auto-Optimize FPS</div>
           <div className="text-[10px] text-[#9e9486]">
-            Automatically trims FX if frame rate dips
+            {isStrictLossless
+              ? 'Paused in Strict Lossless mode'
+              : 'Automatically trims FX if frame rate dips'}
           </div>
         </div>
         <button
@@ -213,6 +250,27 @@ export const GraphicsSettingsPanel: React.FC<GraphicsSettingsPanelProps> = ({
           }`}
         >
           {settings.autoOptimizeFps ? 'On' : 'Off'}
+        </button>
+      </div>
+
+      {/* Optional Performance Debug HUD (F3) */}
+      <div className="flex items-center justify-between gap-3 pt-1">
+        <div>
+          <div className="text-[#e8e0d2]">Performance HUD (F3)</div>
+          <div className="text-[10px] text-[#9e9486]">
+            Live FPS, draw calls, triangles &amp; chunk stats
+          </div>
+        </div>
+        <button
+          type="button"
+          data-testid="gfx-perf-hud-toggle"
+          aria-pressed={showPerfHud}
+          onClick={() => updateField('showPerformanceHud', !showPerfHud)}
+          className={`px-3 py-1.5 font-semibold cursor-pointer shrink-0 ${
+            showPerfHud ? 'px-btn-active font-bold' : 'px-btn'
+          }`}
+        >
+          {showPerfHud ? 'On' : 'Off'}
         </button>
       </div>
     </div>

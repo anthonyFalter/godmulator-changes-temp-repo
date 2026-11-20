@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  computeDynamicPixelScale,
+  computeDynamicRenderDimensions,
   computeTwoFingerCameraDelta,
   computeTwoFingerState,
   getResponsiveMaxZoomOut,
@@ -64,4 +66,38 @@ test('two-finger twist computes shortest wrapped rotation delta and centroid pan
   assert.equal(delta.panScreenDx, 20);
   assert.equal(delta.panScreenDy, -15);
   assert.ok(delta.panFactor > 0);
+});
+
+test('mobile portrait and landscape dynamic pixelation scales smoothly across DPR and zoom', () => {
+  // Narrow mobile portrait (360x800, DPR 3): must NOT clamp at 160px when zoomed in,
+  // must visibly sharpen as you zoom out, and must unlock HiDPI crispness at whole-map zoom
+  const portraitAspect = 360 / 800;
+  const wholePortrait = getResponsiveWholeMapFrustum(128, portraitAspect);
+
+  const sClose = computeDynamicPixelScale(8, 128, portraitAspect);
+  const sVillage = computeDynamicPixelScale(35, 128, portraitAspect);
+  const sRegion = computeDynamicPixelScale(100, 128, portraitAspect);
+  const sWhole = computeDynamicPixelScale(wholePortrait, 128, portraitAspect);
+
+  assert.equal(sClose, 2.5);
+  assert.ok(sVillage < 2.25, `Portrait village zoom should noticeably sharpen (got ${sVillage})`);
+  assert.ok(sRegion < sVillage);
+  assert.equal(sWhole, 1.0, 'Portrait whole-map view should reach crisp 1.0 pixel scale');
+
+  const dimClose = computeDynamicRenderDimensions(360, 800, sClose, 3);
+  const dimVillage = computeDynamicRenderDimensions(360, 800, sVillage, 3);
+  const dimWhole = computeDynamicRenderDimensions(360, 800, sWhole, 3);
+
+  assert.equal(dimClose.width, 144, '360px phone zoomed in must not clamp at 160px');
+  assert.ok(dimVillage.width > dimClose.width + 40, `Expected clear jump from close (${dimClose.width}) to village (${dimVillage.width})`);
+  assert.equal(dimWhole.width, 720, 'Zoomed-out HiDPI phone should unlock 2x crisp buffer width');
+  assert.equal(dimWhole.height, 1600, 'Zoomed-out HiDPI phone should unlock 2x crisp buffer height');
+
+  // Desktop 1080p (DPR 1): exact 1:1 behavior preserved
+  const pcClose = computeDynamicRenderDimensions(1920, 1080, 2.5, 1);
+  const pcFar = computeDynamicRenderDimensions(1920, 1080, 1.0, 1);
+  assert.equal(pcClose.width, 768);
+  assert.equal(pcClose.height, 432);
+  assert.equal(pcFar.width, 1920);
+  assert.equal(pcFar.height, 1080);
 });

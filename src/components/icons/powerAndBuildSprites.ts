@@ -499,6 +499,220 @@ export const POWER_SPRITES: Record<GodPowerType, CompiledSprite> = {
     c.sparkle(26, 23, RAMPS.azure.hi, false);
     c.sparkle(25, 7, RAMPS.arcane.hi, false);
   }),
+
+  // Craggy basalt volcano cone erupting with golden magma fountain & ash cloud
+  volcano_eruption: paintSprite((c) => {
+    // Ash plume puff high above
+    c.fillEllipse(16, 5.5, 6.2, 2.8, 0, (x, y, _nx, _ny, _nz, light) =>
+      quantRamp(RAMPS.stone, light * 0.65, x, y, 0.03),
+    );
+    // Lava fountain jet bursting out
+    c.fillBezier(16, 13, 12, 8, 9, 10, 2.2, 0.9, (x, y, _nx, _ny, _nz, light) =>
+      quantRamp(RAMPS.flame, light * 1.15, x, y, 0.02),
+    );
+    c.fillBezier(16, 13, 20, 8, 23, 10, 2.2, 0.9, (x, y, _nx, _ny, _nz, light) =>
+      quantRamp(RAMPS.flame, light * 1.1, x, y, 0.02),
+    );
+    // Basalt volcanic mountain cone
+    c.fillPoly(
+      [
+        [3, 28],
+        [12, 13],
+        [20, 13],
+        [29, 28],
+      ],
+      (x, y, _nx, _ny, _nz, light, u, v) => {
+        const lavaRiver = Math.abs(u - 0.5) < 0.09 && v > 0.08;
+        return quantRamp(lavaRiver ? RAMPS.flame : RAMPS.darkIron, light * (lavaRiver ? 1.15 : 0.9), x, y, 0.03);
+      },
+    );
+    c.fillEllipse(16, 13, 4.2, 1.6, 0, () => RAMPS.flame.hi);
+    c.sparkle(10, 6, RAMPS.flame.light, false);
+    c.sparkle(22, 7, RAMPS.flame.hi, false);
+  }),
+
+  // Towering violet-storm super tornado funnel with lightning & flying boulders
+  super_tornado: paintSprite((c) => {
+    const bands = [
+      { y: 7, rx: 12.2, ry: 2.8 },
+      { y: 11, rx: 9.2, ry: 2.3 },
+      { y: 15, rx: 6.8, ry: 1.9 },
+      { y: 19, rx: 4.8, ry: 1.6 },
+      { y: 23, rx: 3.1, ry: 1.3 },
+      { y: 27, rx: 1.8, ry: 1.0 },
+    ];
+    for (let i = 0; i < bands.length; i++) {
+      const b = bands[i];
+      const offsetX = i % 2 === 0 ? -0.6 : 0.6;
+      c.fillEllipse(16 + offsetX, b.y, b.rx, b.ry, 0, (x, y, _nx, _ny, _nz, light, u) =>
+        quantRamp(i === 0 ? RAMPS.darkIron : RAMPS.arcane, light * (0.92 + (u - 0.5) * 0.25), x, y, 0.025),
+      );
+    }
+    // Crackling storm bolt along side of funnel
+    c.fillCapsule(6, 9, 9, 15, 0.9, 0.7, () => RAMPS.gold.hi);
+    c.fillCapsule(9, 15, 7, 19, 0.8, 0.5, () => RAMPS.azure.hi);
+    c.fillEllipse(25, 17, 1.8, 1.5, 0, () => RAMPS.stone.light);
+    c.sparkle(24, 12, RAMPS.arcane.hi, false);
+  }),
+
+  // Bubbling eldritch violet-magenta Void Goo ooze mass with glowing eyes
+  void_goo: paintSprite((c) => {
+    c.fillEllipse(16, 22, 11.5, 6.2, 0, (x, y, _nx, _ny, _nz, light) =>
+      quantRamp(RAMPS.arcane, light * 0.9, x, y, 0.03),
+    );
+    c.fillEllipse(16, 16, 8.2, 7.6, 0, (x, y, _nx, _ny, _nz, light) => {
+      const bubble = hash2d(Math.floor(x / 2), Math.floor(y / 2), 91) > 0.76;
+      return quantRamp(bubble ? RAMPS.pink : RAMPS.arcane, light * 1.05, x, y, 0.025);
+    });
+    // Rising goo bubbles & tendrils
+    c.fillEllipse(8, 10, 2.2, 2.2, 0, (x, y, _nx, _ny, _nz, light) =>
+      quantRamp(RAMPS.pink, light * 1.1, x, y, 0.02),
+    );
+    c.fillEllipse(24, 12, 1.9, 1.9, 0, (x, y, _nx, _ny, _nz, light) =>
+      quantRamp(RAMPS.arcane, light * 1.1, x, y, 0.02),
+    );
+    c.put(13, 15, RAMPS.gold.hi);
+    c.put(19, 15, RAMPS.gold.hi);
+    c.sparkle(15, 6, RAMPS.pink.hi, false);
+  }),
+
+  // Rune-carved obsidian undead portal gateway glowing with necromantic toxic-violet vortex
+  undead_portal: paintSprite((c) => {
+    // Stone arch frame
+    c.fillIsoBox(16, 29, 11, 4.2, 2.5, RAMPS.darkIron, RAMPS.darkIron, RAMPS.stone);
+    c.fillEllipse(16, 15.5, 10.2, 11.5, 0, (x, y, _nx, _ny, _nz, light) => {
+      const rune = (x + y) % 5 === 0 && Math.hypot(x - 16, y - 15.5) > 7.5;
+      return quantRamp(rune ? RAMPS.toxic : RAMPS.darkIron, light * 0.92, x, y, 0.025);
+    });
+    // Swirling necromantic portal core
+    c.fillEllipse(16, 16, 6.8, 8.2, 0, (x, y, _nx, _ny, _nz, light) =>
+      quantRamp(RAMPS.arcane, light * 1.08, x, y, 0.03),
+    );
+    c.fillEllipse(16, 16, 4.0, 5.2, 0, (x, y, _nx, _ny, _nz, light) =>
+      quantRamp(RAMPS.toxic, light * 1.15, x, y, 0.02),
+    );
+    c.sparkle(16, 16, RAMPS.toxic.hi, true);
+  }),
+
+  // Chrome flying saucer beaming an emerald tractor beam onto ground below
+  alien_invasion: paintSprite((c) => {
+    // Glowing emerald abduction/plasma beam cone
+    c.fillPoly(
+      [
+        [13, 15],
+        [19, 15],
+        [24, 29],
+        [8, 29],
+      ],
+      (x, y, _nx, _ny, _nz, _l, u) =>
+        quantRamp(RAMPS.toxic, 1.05 - Math.abs(u - 0.5) * 0.85, x, y, 0.02),
+    );
+    // Chrome saucer disc
+    c.fillEllipse(16, 12, 11.8, 4.2, 0, (x, y, _nx, _ny, _nz, light) =>
+      quantRamp(RAMPS.steel, light * 1.08, x, y, 0.02),
+    );
+    // Emerald glass cockpit dome
+    c.fillEllipse(16, 8.8, 5.6, 3.6, 0, (x, y, _nx, _ny, _nz, light) =>
+      quantRamp(RAMPS.toxic, light * 1.1, x, y, 0.02),
+    );
+    c.put(9, 12, RAMPS.flame.hi);
+    c.put(16, 13, RAMPS.azure.hi);
+    c.put(23, 12, RAMPS.flame.hi);
+  }),
+
+  // Golden-cyan chrono hourglass/gear radiating temporal speedup arcs
+  chrono_surge: paintSprite((c) => {
+    c.fillEllipse(16, 16, 11.2, 11.2, 0, (x, y, _nx, _ny, _nz, light) => {
+      const ring = Math.hypot(x - 16, y - 16) > 8.6;
+      return quantRamp(ring ? RAMPS.gold : RAMPS.azure, light * 1.05, x, y, 0.02);
+    });
+    // Crisp clock face & golden hands
+    c.fillEllipse(16, 16, 7.6, 7.6, 0, (x, y, _nx, _ny, _nz, light) =>
+      quantRamp(RAMPS.parchment, light * 1.05, x, y, 0.01),
+    );
+    c.fillCapsule(16, 16, 16, 9.5, 1.1, 0.9, () => RAMPS.crimson.mid);
+    c.fillCapsule(16, 16, 21.5, 18.5, 1.1, 0.8, () => RAMPS.gold.deep);
+    c.sparkle(6, 6, RAMPS.azure.hi, true);
+    c.sparkle(26, 7, RAMPS.gold.hi, false);
+  }),
+
+  // Radiant snow-white peace dove carrying an emerald olive sprig
+  harmony_dove: paintSprite((c) => {
+    // Radiant golden halo aura
+    c.fillEllipse(16, 15, 11, 10, 0, (x, y, _nx, _ny, _nz, light) =>
+      Math.hypot(x - 16, y - 15) > 8.5 ? quantRamp(RAMPS.gold, light * 1.1, x, y, 0.02) : null,
+    );
+    // Spread snow-white wings & body
+    c.fillPoly(
+      [
+        [14, 15],
+        [4, 8],
+        [7, 17],
+        [14, 19],
+      ],
+      (x, y, _nx, _ny, _nz, light) => quantRamp(RAMPS.cloud, light * 1.06, x, y, 0.02),
+    );
+    c.fillPoly(
+      [
+        [16, 14],
+        [24, 6],
+        [25, 14],
+        [18, 18],
+      ],
+      (x, y, _nx, _ny, _nz, light) => quantRamp(RAMPS.cloud, light * 1.0, x, y, 0.02),
+    );
+    c.fillEllipse(16, 18.5, 5.8, 4.0, -0.2, (x, y, _nx, _ny, _nz, light) =>
+      quantRamp(RAMPS.cloud, light * 1.08, x, y, 0.02),
+    );
+    c.fillEllipse(21.5, 14, 3.0, 2.8, 0, (x, y, _nx, _ny, _nz, light) =>
+      quantRamp(RAMPS.cloud, light * 1.1, x, y, 0.01),
+    );
+    c.put(22.5, 13.5, [20, 14, 14]);
+    c.fillCapsule(24, 15, 27, 15.5, 0.7, 0.5, () => RAMPS.gold.light);
+    // Tiny emerald olive twig in beak
+    c.fillCapsule(25, 16, 28, 19, 0.6, 0.6, () => RAMPS.leaf.light);
+    c.put(28, 17, RAMPS.leaf.hi);
+  }),
+
+  // Blinding solar orbital laser beam descending onto an incandescent blast ring
+  solar_orbital_laser: paintSprite((c) => {
+    // Scorched molten ground ring
+    c.fillEllipse(16, 25, 11.5, 4.5, 0, (x, y, _nx, _ny, _nz, light) =>
+      quantRamp(RAMPS.flame, light * 1.12, x, y, 0.02),
+    );
+    // Outer golden plasma halo beam
+    c.fillCapsule(16, 2, 16, 25, 5.0, 6.0, (x, y, _nx, _ny, _nz, light) =>
+      quantRamp(RAMPS.flame, light * 1.05, x, y, 0.02),
+    );
+    // White-hot blinding solar core shaft
+    c.fillCapsule(16, 2, 16, 25, 2.2, 2.6, () => [255, 254, 232]);
+    c.sparkle(8, 22, RAMPS.flame.hi, false);
+    c.sparkle(24, 21, RAMPS.gold.hi, false);
+  }),
+
+  // Anti-gravity anomaly ripping an earthen island skyward inside an indigo vortex
+  gravity_flip: paintSprite((c) => {
+    // Swirling indigo gravity field rings
+    c.fillEllipse(16, 19, 11.5, 5.0, 0.25, (x, y, _nx, _ny, _nz, light) =>
+      Math.abs(Math.hypot((x - 16) / 11.5, (y - 19) / 5.0) - 0.85) < 0.22
+        ? quantRamp(RAMPS.arcane, light * 1.1, x, y, 0.02)
+        : null,
+    );
+    // Inverted floating earth/grass island suspended upside down
+    c.fillIsoBox(16, 17, 7.5, 3.6, 4.5, RAMPS.darkWood, RAMPS.stone, RAMPS.darkIron);
+    c.fillIsoBox(16, 12, 8.2, 3.8, 2.0, RAMPS.leaf, RAMPS.leaf, RAMPS.wood);
+    // Floating pebbles & upward cyan chevrons
+    c.fillEllipse(7, 10, 1.8, 1.5, 0, () => RAMPS.stone.light);
+    c.fillEllipse(25, 9, 1.6, 1.4, 0, () => RAMPS.stone.mid);
+    c.fillPoly(
+      [
+        [16, 21],
+        [20, 26],
+        [12, 26],
+      ],
+      () => RAMPS.azure.hi,
+    );
+  }),
 };
 
 export const BUILDING_SPRITES: Record<BuildingType, CompiledSprite> = {
