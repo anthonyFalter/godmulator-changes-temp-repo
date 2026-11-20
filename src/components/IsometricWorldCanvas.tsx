@@ -80,6 +80,12 @@ import {
   getMagicCircleTexture,
   getMagicCircleThemeForPower,
 } from '../game/magicCircles';
+import {
+  disposePixelReticleTextureCache,
+  getPixelReticleTexture,
+  getPowerEffectiveRadius,
+  getTerrainTileRadius,
+} from '../game/brushSizes';
 import { soundEngine } from '../game/sound';
 import {
   ActiveTool,
@@ -104,6 +110,7 @@ interface IsometricWorldCanvasProps {
   timeScale: number;
   activeTool: ActiveTool;
   brushRadius: number;
+  brushSize?: number;
   brushInputMode?: BrushInputMode;
   mobilePanMode?: boolean;
   pixelScale: number;
@@ -162,6 +169,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
   timeScale,
   activeTool,
   brushRadius,
+  brushSize = 1,
   brushInputMode = 'hold',
   mobilePanMode = false,
   pixelScale,
@@ -190,6 +198,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     timeScale,
     activeTool,
     brushRadius,
+    brushSize,
     brushInputMode,
     mobilePanMode,
     pixelScale,
@@ -213,6 +222,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       timeScale,
       activeTool,
       brushRadius,
+      brushSize,
       brushInputMode,
       mobilePanMode,
       pixelScale,
@@ -234,6 +244,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     timeScale,
     activeTool,
     brushRadius,
+    brushSize,
     brushInputMode,
     mobilePanMode,
     pixelScale,
@@ -968,17 +979,23 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     baseGlowTrim.position.set(gridCenter, -1.8, gridCenter);
     worldGroup.add(baseGlowTrim);
 
-    // Hover / Tool Brush Reticle Ring
+    // Hover / Tool Brush Pixelated Circle Reticle
     const reticleGroup = new THREE.Group();
-    const reticleRingGeo = new THREE.RingGeometry(0.45, 0.54, 24);
+    const reticleRingGeo = new THREE.PlaneGeometry(1, 1);
     reticleRingGeo.rotateX(-Math.PI / 2);
     const reticleMat = new THREE.MeshBasicMaterial({
       color: 0xf5b742,
+      map: getPixelReticleTexture(0),
       side: THREE.DoubleSide,
       transparent: true,
-      opacity: 0.88,
+      opacity: 0.94,
       depthWrite: false,
+      toneMapped: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2,
     });
+    let lastReticleTileRadius = 0;
     const reticleMesh = new THREE.Mesh(reticleRingGeo, reticleMat);
     reticleMesh.position.y = 0.04;
     reticleMesh.renderOrder = 5;
@@ -2923,6 +2940,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         oz: number;
         tileX: number;
         tileZ: number;
+        extraTiles?: Array<{ x: number; z: number }>;
         dropKind: TerrainToolType;
         applyOnLand: boolean;
         delay: number;
@@ -2947,6 +2965,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           d.landed = true;
           if (d.applyOnLand) {
             executeTerrainDropTileImpact(simRef.current, d.dropKind, d.tileX, d.tileZ);
+            if (d.extraTiles) {
+              for (const et of d.extraTiles) {
+                executeTerrainDropTileImpact(simRef.current, d.dropKind, et.x, et.z);
+              }
+            }
           }
         }
       }
@@ -4694,9 +4717,29 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           dropTargets && dropTargets.length > 0
             ? dropTargets
             : [{ x: tx, y: ty, z: tz }];
-        const totalDrops = Math.max(baseTargets.length, Math.min(24, Math.max(8, baseTargets.length * 2)));
+        const MAX_VISUAL_DROPS = 48;
+        const totalDrops =
+          baseTargets.length > MAX_VISUAL_DROPS
+            ? MAX_VISUAL_DROPS
+            : Math.max(baseTargets.length, Math.min(24, Math.max(8, baseTargets.length * 2)));
         const skyRainDrops: NonNullable<ActiveBurstFx['skyRainDrops']> = [];
         const assignedTileImpacts = new Set<string>();
+        const dropExtraBuckets: Array<Array<{ x: number; z: number }>> = Array.from(
+          { length: totalDrops },
+          () => [],
+        );
+        if (Boolean(deferImpact) && baseTargets.length > totalDrops) {
+          for (let ti = totalDrops; ti < baseTargets.length; ti++) {
+            const extraTgt = baseTargets[ti];
+            const ex = Math.round(extraTgt.x);
+            const ez = Math.round(extraTgt.z);
+            const eKey = `${ex},${ez}`;
+            if (!assignedTileImpacts.has(eKey)) {
+              assignedTileImpacts.add(eKey);
+              dropExtraBuckets[ti % totalDrops].push({ x: ex, z: ez });
+            }
+          }
+        }
 
         for (let di = 0; di < totalDrops; di++) {
           const tgt = baseTargets[di % baseTargets.length];
@@ -4705,6 +4748,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           const tileKey = `${tileX},${tileZ}`;
           const applyOnLand = Boolean(deferImpact) && !assignedTileImpacts.has(tileKey);
           assignedTileImpacts.add(tileKey);
+          const extraTiles = dropExtraBuckets[di].length > 0 ? dropExtraBuckets[di] : undefined;
 
           const jitterScale = di < baseTargets.length ? 0.35 : baseTargets.length === 1 ? 0.95 : 0.65;
           const jitterX = (Math.random() - 0.5) * jitterScale;
@@ -4758,8 +4802,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             oz: doz,
             tileX,
             tileZ,
+            extraTiles,
             dropKind: kind,
-            applyOnLand,
+            applyOnLand: applyOnLand || Boolean(extraTiles),
             delay: (di / totalDrops) * 0.28 + Math.random() * 0.05,
             fallDur: cfg.dur + Math.random() * 0.08,
             landed: false,
@@ -10497,7 +10542,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
                   }
                 }
               } else if (fx.deferImpact) {
-                executeGodPowerImpact(simRef.current, fx.powerType as GodPowerType, fx.tx, fx.tz);
+                executeGodPowerImpact(simRef.current, fx.powerType as GodPowerType, fx.tx, fx.tz, { radiusOverride: fx.radius });
                 soundEngine.playHeavyImpact();
               }
               fx.meteorMesh.visible = false;
@@ -10684,7 +10729,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             if (!fx.impactFired) {
               fx.impactFired = true;
               if (fx.deferImpact) {
-                executeGodPowerImpact(simRef.current, fx.powerType as GodPowerType, fx.tx, fx.tz);
+                executeGodPowerImpact(simRef.current, fx.powerType as GodPowerType, fx.tx, fx.tz, { radiusOverride: fx.radius });
                 soundEngine.playHeavyImpact();
               }
               if (fx.boltSegments) {
@@ -10755,7 +10800,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             if (!fx.impactFired) {
               fx.impactFired = true;
               if (fx.deferImpact) {
-                executeGodPowerImpact(simRef.current, fx.powerType as GodPowerType, fx.tx, fx.tz);
+                executeGodPowerImpact(simRef.current, fx.powerType as GodPowerType, fx.tx, fx.tz, { radiusOverride: fx.radius });
                 soundEngine.playBlessing();
               }
               triggerLightFlash(fx.tx, fx.ty, fx.tz, '#72efdd', 14);
@@ -10776,7 +10821,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           if (fx.age >= fx.impactDelay && !fx.impactFired) {
             fx.impactFired = true;
             if (fx.deferImpact) {
-              executeGodPowerImpact(simRef.current, fx.powerType as GodPowerType, fx.tx, fx.tz);
+              executeGodPowerImpact(simRef.current, fx.powerType as GodPowerType, fx.tx, fx.tz, { radiusOverride: fx.radius });
               soundEngine.playBlessing();
             }
             triggerLightFlash(fx.tx, fx.ty, fx.tz, '#56cfe1', 15);
@@ -10827,7 +10872,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           if (fx.age >= fx.impactDelay && !fx.impactFired) {
             fx.impactFired = true;
             if (fx.deferImpact) {
-              executeGodPowerImpact(simRef.current, fx.powerType as GodPowerType, fx.tx, fx.tz);
+              executeGodPowerImpact(simRef.current, fx.powerType as GodPowerType, fx.tx, fx.tz, { radiusOverride: fx.radius });
               soundEngine.playBlessing();
             }
             triggerLightFlash(fx.tx, fx.ty, fx.tz, '#f5b742', 14);
@@ -10868,7 +10913,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           if (fx.age >= fx.impactDelay && !fx.impactFired) {
             fx.impactFired = true;
             if (fx.deferImpact) {
-              executeGodPowerImpact(simRef.current, fx.powerType as GodPowerType, fx.tx, fx.tz);
+              executeGodPowerImpact(simRef.current, fx.powerType as GodPowerType, fx.tx, fx.tz, { radiusOverride: fx.radius });
               soundEngine.playBlessing();
               trauma = Math.min(1.0, trauma + 0.35);
             }
@@ -10916,7 +10961,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           if (fx.age >= fx.impactDelay && !fx.impactFired) {
             fx.impactFired = true;
             if (fx.deferImpact) {
-              executeGodPowerImpact(simRef.current, fx.powerType as GodPowerType, fx.tx, fx.tz);
+              executeGodPowerImpact(simRef.current, fx.powerType as GodPowerType, fx.tx, fx.tz, { radiusOverride: fx.radius });
               soundEngine.playBlessing();
             }
             triggerLightFlash(fx.tx, fx.ty, fx.tz, '#72efdd', 18);
@@ -10943,7 +10988,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           if (fx.age >= fx.impactDelay && !fx.impactFired) {
             fx.impactFired = true;
             if (fx.deferImpact) {
-              executeGodPowerImpact(simRef.current, fx.powerType as GodPowerType, fx.tx, fx.tz);
+              executeGodPowerImpact(simRef.current, fx.powerType as GodPowerType, fx.tx, fx.tz, { radiusOverride: fx.radius });
               soundEngine.playCurse();
               trauma = Math.min(1.0, trauma + 0.45);
             }
@@ -10982,7 +11027,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           if (fx.age >= fx.impactDelay && !fx.impactFired) {
             fx.impactFired = true;
             if (fx.deferImpact) {
-              executeGodPowerImpact(simRef.current, fx.powerType as GodPowerType, fx.tx, fx.tz);
+              executeGodPowerImpact(simRef.current, fx.powerType as GodPowerType, fx.tx, fx.tz, { radiusOverride: fx.radius });
               soundEngine.playCurse();
               trauma = Math.min(1.0, trauma + 0.4);
             }
@@ -11024,7 +11069,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           if (fx.age >= fx.impactDelay && !fx.impactFired) {
             fx.impactFired = true;
             if (fx.deferImpact) {
-              executeGodPowerImpact(simRef.current, fx.powerType as GodPowerType, fx.tx, fx.tz);
+              executeGodPowerImpact(simRef.current, fx.powerType as GodPowerType, fx.tx, fx.tz, { radiusOverride: fx.radius });
               soundEngine.playCurse();
             }
             triggerLightFlash(fx.tx, fx.ty, fx.tz, '#80ed99', 15);
@@ -11057,7 +11102,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           if (fx.age >= fx.impactDelay && !fx.impactFired) {
             fx.impactFired = true;
             if (fx.deferImpact) {
-              executeGodPowerImpact(simRef.current, fx.powerType as GodPowerType, fx.tx, fx.tz);
+              executeGodPowerImpact(simRef.current, fx.powerType as GodPowerType, fx.tx, fx.tz, { radiusOverride: fx.radius });
               soundEngine.playHeavyImpact();
               trauma = Math.min(1.0, trauma + 0.6);
               hitstopTimer = 0.04;
@@ -11122,7 +11167,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             if (!fx.impactFired) {
               fx.impactFired = true;
               if (fx.deferImpact) {
-                executeGodPowerImpact(simRef.current, fx.powerType as GodPowerType, fx.tx, fx.tz);
+                executeGodPowerImpact(simRef.current, fx.powerType as GodPowerType, fx.tx, fx.tz, { radiusOverride: fx.radius });
                 soundEngine.playHeavyImpact();
                 trauma = Math.min(1.0, trauma + 0.65);
                 hitstopTimer = 0.05;
@@ -11163,6 +11208,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
                 faultSegments: fx.faultSegments,
                 quakeShapeKind: fx.quakeShapeKind,
                 quakeExtent: fx.radius,
+                radiusOverride: fx.radius,
               });
             }
             trauma = Math.max(trauma, 0.64);
@@ -11297,7 +11343,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           if (fx.age >= fx.impactDelay && !fx.impactFired) {
             fx.impactFired = true;
             if (fx.deferImpact) {
-              executeGodPowerImpact(simRef.current, fx.powerType as GodPowerType, fx.tx, fx.tz);
+              executeGodPowerImpact(simRef.current, fx.powerType as GodPowerType, fx.tx, fx.tz, { radiusOverride: fx.radius });
             }
             soundEngine.playHeatWave();
             triggerLightFlash(fx.tx, fx.ty + 1.5, fx.tz, '#ff7b00', 22);
@@ -11328,7 +11374,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           if (fx.age >= fx.impactDelay && !fx.impactFired) {
             fx.impactFired = true;
             if (fx.deferImpact) {
-              executeGodPowerImpact(simRef.current, fx.powerType as GodPowerType, fx.tx, fx.tz);
+              executeGodPowerImpact(simRef.current, fx.powerType as GodPowerType, fx.tx, fx.tz, { radiusOverride: fx.radius });
             }
             soundEngine.playFreeze();
             triggerLightFlash(fx.tx, fx.ty + 1.5, fx.tz, '#7dd3fc', 22);
@@ -11361,7 +11407,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           if (fx.age >= fx.impactDelay && !fx.impactFired) {
             fx.impactFired = true;
             if (fx.deferImpact) {
-              executeGodPowerImpact(simRef.current, fx.powerType as GodPowerType, fx.tx, fx.tz);
+              executeGodPowerImpact(simRef.current, fx.powerType as GodPowerType, fx.tx, fx.tz, { radiusOverride: fx.radius });
             }
             if (fx.kind === 'tornado_summon') {
               const isSuperCast = fx.powerType === 'super_tornado';
@@ -11405,7 +11451,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
               fx.impactFired = true;
               if (fx.tracerMesh) fx.tracerMesh.visible = false;
               if (fx.deferImpact) {
-                executeGodPowerImpact(simRef.current, fx.powerType as GodPowerType, fx.tx, fx.tz);
+                executeGodPowerImpact(simRef.current, fx.powerType as GodPowerType, fx.tx, fx.tz, { radiusOverride: fx.radius });
               }
               soundEngine.playVolcanoEruption();
               trauma = Math.min(1.0, trauma + 0.78);
@@ -11476,7 +11522,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
               fx.impactFired = true;
               if (fx.tracerMesh) fx.tracerMesh.visible = false;
               if (fx.deferImpact) {
-                executeGodPowerImpact(simRef.current, 'void_goo', fx.tx, fx.tz);
+                executeGodPowerImpact(simRef.current, 'void_goo', fx.tx, fx.tz, { radiusOverride: fx.radius });
               }
               soundEngine.playVoidGoo();
               triggerLightFlash(fx.tx, fx.ty + 1.5, fx.tz, '#a855f7', 22);
@@ -11530,6 +11576,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
               d.streak.visible = false;
               if (d.applyOnLand) {
                 executeTerrainDropTileImpact(simRef.current, d.dropKind, d.tileX, d.tileZ);
+                if (d.extraTiles) {
+                  for (const et of d.extraTiles) {
+                    executeTerrainDropTileImpact(simRef.current, d.dropKind, et.x, et.z);
+                  }
+                }
                 if (di === 0) {
                   soundEngine.playBlessing();
                 }
@@ -11557,7 +11608,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             fx.impactFired = true;
             if (fx.tracerMesh && fx.powerType === 'alien_invasion') fx.tracerMesh.visible = false;
             if (fx.deferImpact) {
-              executeGodPowerImpact(simRef.current, fx.powerType as GodPowerType, fx.tx, fx.tz);
+              executeGodPowerImpact(simRef.current, fx.powerType as GodPowerType, fx.tx, fx.tz, { radiusOverride: fx.radius });
             }
             if (fx.powerType === 'undead_portal') {
               soundEngine.playPortalSummon();
@@ -12138,7 +12189,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         kingCrownsInst.instanceMatrix.needsUpdate = true;
       }
 
-      // Update Hover Reticle position & radius
+      // Update Hover Pixelated Circle Reticle position & integer tile footprint
       if (
         hoveredTileCoords &&
         propsRef.current.gameState === 'playing' &&
@@ -12154,21 +12205,34 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         reticleGroup.position.set(hoveredTileCoords.x, hy, hoveredTileCoords.z);
 
         const tool = propsRef.current.activeTool;
-        let radiusScale = 1.0;
+        const activeBrushSize = propsRef.current.brushSize ?? 1;
+        let reticleTileRadius = 0;
         let hexColor = '#f5b742';
         if (tool.kind === 'power') {
           const pDef = GOD_POWERS.find((p) => p.type === tool.power);
-          radiusScale = tool.power === 'drag_entity' ? 0.95 : pDef ? pDef.radius * 1.65 : 2.5;
+          if (tool.power === 'drag_entity') {
+            reticleTileRadius = 0;
+          } else {
+            const effR = pDef ? getPowerEffectiveRadius(pDef.radius, activeBrushSize) : 2.5;
+            reticleTileRadius = Math.max(0, Math.min(28, Math.round(effR)));
+          }
           hexColor = pDef ? pDef.color : '#f5b742';
         } else if (tool.kind === 'terrain') {
-          const br = Math.max(0, propsRef.current.brushRadius);
-          radiusScale = br <= 0 ? 0.82 : (br + 0.5) * 1.4;
+          reticleTileRadius = getTerrainTileRadius(activeBrushSize);
           hexColor = '#56cfe1';
         } else if (tool.kind === 'build') {
-          radiusScale = 1.15;
+          reticleTileRadius = 0;
           hexColor = '#80ed99';
+        } else {
+          reticleTileRadius = 0;
         }
-        reticleMesh.scale.setScalar(radiusScale);
+        if (reticleTileRadius !== lastReticleTileRadius) {
+          lastReticleTileRadius = reticleTileRadius;
+          reticleMat.map = getPixelReticleTexture(reticleTileRadius);
+          reticleMat.needsUpdate = true;
+        }
+        const gridSpan = reticleTileRadius * 2 + 1;
+        reticleMesh.scale.set(gridSpan, 1, gridSpan);
         reticleMat.color.set(hexColor);
       } else {
         reticleGroup.visible = false;
@@ -12769,6 +12833,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       sharedBattlewillEdgeGeo.dispose();
       sharedMagicCircleGeo.dispose();
       disposeMagicCircleTextureCache();
+      disposePixelReticleTextureCache();
       dragTargetReticleGeo.dispose();
       dragTargetReticleMat.dispose();
       dragTetherGeo.dispose();

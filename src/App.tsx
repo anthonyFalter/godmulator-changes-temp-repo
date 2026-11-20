@@ -31,6 +31,8 @@ import {
 import { normalizeSeed } from './game/worldGen';
 import { soundEngine } from './game/sound';
 import { toggleUnitFavorite } from './game/entityInspector';
+import { DEFAULT_BRUSH_SIZE, getTerrainTileRadius } from './game/brushSizes';
+import { PixelBrushSelector } from './components/PixelBrushSelector';
 import {
   ActiveTool,
   BrushInputMode,
@@ -377,7 +379,8 @@ export default function App() {
   const [unitFilter, setUnitFilter] = useState<'all' | 'races' | 'wildlife' | 'mythic'>('all');
   const [landFilter, setLandFilter] = useState<'all' | 'Sculpt' | 'Sky Rain' | 'Biomes' | 'Water'>('all');
   const [worldSubTab, setWorldSubTab] = useState<'ages' | 'rules'>('ages');
-  const [brushRadius, setBrushRadius] = useState<number>(0);
+  const [brushSize, setBrushSize] = useState<number>(DEFAULT_BRUSH_SIZE);
+  const brushRadius = getTerrainTileRadius(brushSize);
   const [brushInputMode, setBrushInputMode] = useState<BrushInputMode>('hold');
   const [mobilePanMode, setMobilePanMode] = useState<boolean>(false);
   const pixelScale = 2.5;
@@ -1055,7 +1058,10 @@ export default function App() {
       }
 
       if (activeTool.kind === 'power') {
-        const res = castGodPower(sim, activeTool.power, tileX, tileZ, { deferImpact: true });
+        const res = castGodPower(sim, activeTool.power, tileX, tileZ, {
+          deferImpact: true,
+          brushSize,
+        });
         const def = GOD_POWERS.find((p) => p.type === activeTool.power);
         if (res.ok) {
           if (activeTool.power === 'meteor_strike') {
@@ -1141,7 +1147,7 @@ export default function App() {
         setHudTick((t) => t + 1);
       }
     },
-    [activeTool, brushRadius, activeZones.alliances],
+    [activeTool, brushRadius, brushSize, activeZones.alliances],
   );
 
   const handleToggleGodRule = useCallback((key: BooleanWorldRuleKey) => {
@@ -1358,6 +1364,7 @@ export default function App() {
         timeScale={timeScale}
         activeTool={activeTool}
         brushRadius={brushRadius}
+        brushSize={brushSize}
         brushInputMode={brushInputMode}
         mobilePanMode={mobilePanMode}
         pixelScale={pixelScale}
@@ -3102,29 +3109,40 @@ export default function App() {
                   <div className="flex flex-nowrap sm:flex-wrap items-center justify-between gap-1 sm:gap-2 pb-1 mb-1 sm:pb-2 sm:mb-2.5 border-b border-[#2e2923] overflow-x-auto no-scrollbar">
                     {/* Left: Digestible Category Filters or Active Brush Context */}
                     <div className="flex flex-nowrap sm:flex-wrap items-center gap-1 shrink-0">
-                      {activeCategory === 'powers' &&
-                        (
-                          [
-                            { id: 'all', label: 'All' },
-                            { id: 'benevolent', label: 'Support' },
-                            { id: 'wrathful', label: 'Disasters' },
-                            { id: 'cosmic', label: 'Special' },
-                          ] as const
-                        ).map((f) => (
-                          <button
-                            key={f.id}
-                            type="button"
-                            onClick={() => {
-                              setPowerFilter(f.id);
+                      {activeCategory === 'powers' && (
+                        <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+                          <PixelBrushSelector
+                            brushSize={brushSize}
+                            onChange={(nextSize) => {
+                              setBrushSize(nextSize);
                               soundEngine.playClick();
                             }}
-                            className={`h-6 sm:h-7 px-2 sm:px-2.5 text-[10px] sm:text-[11px] font-semibold cursor-pointer whitespace-nowrap shrink-0 ${
-                              powerFilter === f.id ? 'px-btn-active font-bold' : 'px-btn'
-                            }`}
-                          >
-                            {f.label}
-                          </button>
-                        ))}
+                          />
+                          <div className="w-[1px] h-4 bg-[#3d3730] mx-0.5 shrink-0" />
+                          {(
+                            [
+                              { id: 'all', label: 'All' },
+                              { id: 'benevolent', label: 'Support' },
+                              { id: 'wrathful', label: 'Disasters' },
+                              { id: 'cosmic', label: 'Special' },
+                            ] as const
+                          ).map((f) => (
+                            <button
+                              key={f.id}
+                              type="button"
+                              onClick={() => {
+                                setPowerFilter(f.id);
+                                soundEngine.playClick();
+                              }}
+                              className={`h-6 sm:h-7 px-2 sm:px-2.5 text-[10px] sm:text-[11px] font-semibold cursor-pointer whitespace-nowrap shrink-0 ${
+                                powerFilter === f.id ? 'px-btn-active font-bold' : 'px-btn'
+                              }`}
+                            >
+                              {f.label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
 
                       {activeCategory === 'build' &&
                         (
@@ -3175,28 +3193,13 @@ export default function App() {
 
                       {activeCategory === 'terrain' && (
                         <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
-                          <div className="flex items-center gap-1 shrink-0">
-                            <span className="text-[10px] sm:text-[11px] text-[#a89f91] mr-0.5 sm:mr-1">Brush</span>
-                            {[1, 2, 3].map((size) => {
-                              const radiusVal = size - 1;
-                              return (
-                                <button
-                                  key={size}
-                                  type="button"
-                                  data-testid={`land-size-${size}x`}
-                                  onClick={() => {
-                                    setBrushRadius(radiusVal);
-                                    soundEngine.playClick();
-                                  }}
-                                  className={`h-6 sm:h-7 px-1.5 sm:px-2 font-pixel-num text-[10px] sm:text-[11px] cursor-pointer ${
-                                    brushRadius === radiusVal ? 'px-btn-active font-bold' : 'px-btn'
-                                  }`}
-                                >
-                                  {size}x
-                                </button>
-                              );
-                            })}
-                          </div>
+                          <PixelBrushSelector
+                            brushSize={brushSize}
+                            onChange={(nextSize) => {
+                              setBrushSize(nextSize);
+                              soundEngine.playClick();
+                            }}
+                          />
                           <div className="w-[1px] h-4 bg-[#3d3730] mx-0.5 shrink-0" />
                           {(
                             [
