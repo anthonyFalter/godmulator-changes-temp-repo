@@ -4162,6 +4162,22 @@ export function executeGodPowerImpact(
 
       const { faultSegments, quakeShapeKind, quakeExtent } = quakePlan;
 
+      const isUnderwaterQuake = !centerTile || centerTile.height === 0;
+      if (isUnderwaterQuake) {
+        state.activeHazards.push({
+          id: nextEntityId('haz'),
+          kind: 'tsunami_wave',
+          x: targetX,
+          z: targetZ,
+          currentRadius: 1.4,
+          maxRadius: r * 3.1,
+          radius: r,
+          remaining: 4.0,
+          duration: 4.0,
+          tickTimer: 0,
+        });
+      }
+
       state.activeHazards.push({
         id: nextEntityId('haz'),
         kind: 'earthquake_zone',
@@ -4342,15 +4358,17 @@ export function executeGodPowerImpact(
 
       state.happiness = Math.max(15, state.happiness - 8);
       const chronicleMsg =
-        quakeShapeKind === 'orogenic_uplift' || mountainsFormed >= 12
-          ? 'Earthquake pushed up new mountain peaks!'
-          : quakeShapeKind === 'long_rift'
-            ? 'A large earthquake fault split open across the land!'
-            : quakeShapeKind === 'branching_fault'
-              ? 'Earthquake fault lines cracked the ground and raised rocky ridges!'
-              : displacedTiles > 0
-                ? 'An earthquake cracked the ground and damaged nearby buildings!'
-                : 'Earthquake tremors shook the ground!';
+        isUnderwaterQuake && displacedTiles === 0
+          ? 'An undersea Earthquake shook the ocean floor and triggered a Tsunami!'
+          : quakeShapeKind === 'orogenic_uplift' || mountainsFormed >= 12
+            ? 'Earthquake pushed up new mountain peaks!'
+            : quakeShapeKind === 'long_rift'
+              ? 'A large earthquake fault split open across the land!'
+              : quakeShapeKind === 'branching_fault'
+                ? 'Earthquake fault lines cracked the ground and raised rocky ridges!'
+                : displacedTiles > 0
+                  ? 'An earthquake cracked the ground and damaged nearby buildings!'
+                  : 'Earthquake tremors shook the ground!';
       addChronicle(state, chronicleMsg, 'warning');
       break;
     }
@@ -4564,7 +4582,8 @@ export function executeGodPowerImpact(
         t.blessedTimer = 0;
         t.cursedTimer = 0;
         if (t.height === 0) {
-          // Never create fake elevated land out of open ocean!
+          // Never create fake elevated land out of open ocean, but poison & curse the sea surface!
+          t.cursedTimer = 25;
           damageOrBleachWaterTile(t, 320, true);
           continue;
         }
@@ -4604,7 +4623,7 @@ export function executeGodPowerImpact(
         id: nextEntityId('vfx'),
         type: 'void_goo_splash',
         x: targetX,
-        y: (centerTile?.height ?? 2) * 0.45 + 0.2,
+        y: Math.max(0.36, (centerTile?.height ?? 0) * 0.45 + 0.2),
         z: targetZ,
         radius: r,
         color: '#a855f7',
@@ -4614,9 +4633,13 @@ export function executeGodPowerImpact(
       state.happiness = Math.max(8, state.happiness - 15);
       addChronicle(
         state,
-        revivedCount > 0
-          ? `Dark Ooze covered ${infectedCount} tiles and turned ${revivedCount} units into wisps!`
-          : `Dark Ooze spread across ${infectedCount} tiles!`,
+        infectedCount === 0
+          ? revivedCount > 0
+            ? `Dark Ooze poisoned the waters and turned ${revivedCount} units into wisps!`
+            : 'Dark Ooze poisoned the waters!'
+          : revivedCount > 0
+            ? `Dark Ooze covered ${infectedCount} tiles and turned ${revivedCount} units into wisps!`
+            : `Dark Ooze spread across ${infectedCount} tiles!`,
         'warning',
       );
       break;
@@ -4842,17 +4865,6 @@ export function castGodPower(
   if (!def) return { ok: false, reason: 'Unknown divine power' };
 
   const centerTile = getTile(state, targetX, targetZ);
-  if (powerType === 'alien_invasion') {
-    if (
-      !centerTile ||
-      centerTile.height <= 0 ||
-      centerTile.terrain === 'deep_water' ||
-      centerTile.terrain === 'shallow_water' ||
-      centerTile.terrain === 'ice'
-    ) {
-      return { ok: false, reason: 'Probe Remote must be deployed on solid land!' };
-    }
-  }
 
   reconcileAndSyncResources(state);
   if (!state.sandboxFreeMode && state.resources.faith < def.faithCost) {
@@ -4863,7 +4875,7 @@ export function castGodPower(
     spendWorldCost(state, { faith: def.faithCost });
   }
 
-  const baseHeight = centerTile ? centerTile.height * 0.45 : 1.2;
+  const baseHeight = centerTile ? Math.max(0.36, centerTile.height * 0.45) : 1.2;
   const scaledRadius =
     options?.radiusOverride !== undefined && Number.isFinite(options.radiusOverride)
       ? Math.max(0.85, Math.min(28, options.radiusOverride))
@@ -8805,15 +8817,15 @@ function stepSimulationSingle(
         haz.beaconTimer = Math.max(0, (haz.beaconTimer ?? 0) - dt);
       } else {
         const phase = haz.portalSpawnCount ?? 0;
-        const pickLandPoint = (angle: number, dist: number): { x: number; z: number } => {
-          const distScales = [1.0, 0.65, 1.35];
+        const pickLandPoint = (angle: number, dist: number): { x: number; z: number; onLand: boolean } => {
+          const distScales = [1.0, 0.65, 1.35, 1.85, 2.4];
           const angleOffsets = [0, 0.35, -0.35, 0.75, -0.75];
           for (const scale of distScales) {
             for (const aOff of angleOffsets) {
               const candX = Math.max(2, Math.min(state.gridSize - 3, Math.round(haz.x + Math.cos(angle + aOff) * dist * scale)));
               const candZ = Math.max(2, Math.min(state.gridSize - 3, Math.round(haz.z + Math.sin(angle + aOff) * dist * scale)));
               const ct = getTile(state, candX, candZ);
-              if (ct && ct.height > 0 && !ct.buildingId) return { x: candX, z: candZ };
+              if (ct && ct.height > 0 && !ct.buildingId) return { x: candX, z: candZ, onLand: true };
             }
           }
           for (const scale of distScales) {
@@ -8821,20 +8833,25 @@ function stepSimulationSingle(
               const candX = Math.max(2, Math.min(state.gridSize - 3, Math.round(haz.x + Math.cos(angle + aOff) * dist * scale)));
               const candZ = Math.max(2, Math.min(state.gridSize - 3, Math.round(haz.z + Math.sin(angle + aOff) * dist * scale)));
               const ct = getTile(state, candX, candZ);
-              if (ct && ct.height > 0) return { x: candX, z: candZ };
+              if (ct && ct.height > 0) return { x: candX, z: candZ, onLand: true };
             }
           }
-          return { x: Math.round(haz.x), z: Math.round(haz.z) };
+          const fx = Math.max(2, Math.min(state.gridSize - 3, Math.round(haz.x + Math.cos(angle) * dist * 0.65)));
+          const fz = Math.max(2, Math.min(state.gridSize - 3, Math.round(haz.z + Math.sin(angle) * dist * 0.65)));
+          return { x: fx, z: fz, onLand: false };
         };
         if (phase === 0) {
           haz.portalSpawnCount = 1;
-          // Vanguard drop: 2 colossal AT-Walker mechs, 3 Scout UFOs, and a 14-trooper walking invasion force
+          // Vanguard drop: 2 colossal AT-Walker mechs, 3+ Scout UFOs (extra UFOs over open ocean), and a 14-trooper invasion force
+          let anyLandFound = false;
           for (let i = 0; i < 2; i++) {
             const pt = pickLandPoint(i * Math.PI + 0.5, 4.4);
+            if (pt.onLand) anyLandFound = true;
             spawnUnit(state, 'alien_walker', pt.x, pt.z, true);
           }
-          for (let i = 0; i < 3; i++) {
-            const ang = (i / 3) * Math.PI * 2;
+          const ufoCount = anyLandFound ? 3 : 5;
+          for (let i = 0; i < ufoCount; i++) {
+            const ang = (i / ufoCount) * Math.PI * 2;
             const ux = Math.max(2, Math.min(state.gridSize - 3, Math.round(haz.x + Math.cos(ang) * 5.0)));
             const uz = Math.max(2, Math.min(state.gridSize - 3, Math.round(haz.z + Math.sin(ang) * 5.0)));
             spawnUnit(state, 'alien_ufo', ux, uz, true);
@@ -8855,16 +8872,18 @@ function stepSimulationSingle(
           const waveNum = (haz.portalSpawnCount ?? 1) + 1;
           haz.portalSpawnCount = waveNum;
           const waveDist = 2.4 + (waveNum % 3) * 1.4;
+          let waveOnLand = false;
           for (let ti = 0; ti < 4; ti++) {
             const ang = (waveNum * 1.15) + (ti / 4) * Math.PI * 2;
             const rp = pickLandPoint(ang, waveDist);
+            if (rp.onLand) waveOnLand = true;
             spawnUnit(state, 'alien_trooper', rp.x, rp.z, true);
           }
           if (waveNum === 2 || waveNum === 4) {
             const wp = pickLandPoint(waveNum * 1.7, 4.6);
             spawnUnit(state, 'alien_walker', wp.x, wp.z, true);
           }
-          if (waveNum === 3) {
+          if (waveNum === 3 || (!waveOnLand && (waveNum === 2 || waveNum === 5))) {
             const ux = Math.max(2, Math.min(state.gridSize - 3, Math.round(haz.x + Math.cos(waveNum) * 4.5)));
             const uz = Math.max(2, Math.min(state.gridSize - 3, Math.round(haz.z + Math.sin(waveNum) * 4.5)));
             spawnUnit(state, 'alien_ufo', ux, uz, true);

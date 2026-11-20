@@ -6089,15 +6089,22 @@ test('God Powers Rework: gradual thermal sea ice without creating land, no ocean
   assert.equal(seaTile.height, 0, 'Sea ice must keep height === 0 and never create elevated land');
   assert.equal(seaTile.frozenWaterBase, 'shallow_water', 'Sea ice must remember underlying water type');
 
-  // Probe Remote must reject both liquid water AND sea ice without spending God Energy
+  // Probe Remote must work cleanly on both liquid water AND sea ice
   state.sandboxFreeMode = false;
-  state.resources.faith = 150;
-  const rejectWater = castGodPower(state, 'alien_invasion', 10, 10);
-  assert.equal(rejectWater.ok, false, 'Probe Remote must reject water');
-  assert.equal(state.resources.faith, 150, 'Rejected Probe Remote on water must not spend God Energy');
-  const rejectIce = castGodPower(state, 'alien_invasion', 16, 16);
-  assert.equal(rejectIce.ok, false, 'Probe Remote must reject sea ice');
-  assert.equal(state.resources.faith, 150, 'Rejected Probe Remote on sea ice must not spend God Energy');
+  state.resources.faith = 200;
+  const allowWater = castGodPower(state, 'alien_invasion', 10, 10);
+  assert.equal(allowWater.ok, true, 'Probe Remote must be usable on water blocks');
+  assert.ok(
+    state.activeHazards.some((h) => h.kind === 'alien_mothership' && h.x === 10 && h.z === 10),
+    'Probe Remote on water must summon alien_mothership hazard',
+  );
+  const allowIce = castGodPower(state, 'alien_invasion', 16, 16);
+  assert.equal(allowIce.ok, true, 'Probe Remote must be usable on sea ice blocks');
+  assert.ok(
+    state.activeHazards.some((h) => h.kind === 'alien_mothership' && h.x === 16 && h.z === 16),
+    'Probe Remote on sea ice must summon alien_mothership hazard',
+  );
+  state.activeHazards = state.activeHazards.filter((h) => h.kind !== 'alien_mothership');
   state.sandboxFreeMode = true;
 
   // Heat Wave melts sea ice back to shallow_water and keeps height === 0; heating land does not ignite until superheated

@@ -3618,4 +3618,257 @@ export function createWorldUnderglowSystem(gridSize: number): WorldUnderglowSyst
   return { mesh, update, dispose };
 }
 
+export interface ZoneOverlaySystem {
+  mesh: THREE.Mesh;
+  updateMap: (tiles: TileData[]) => void;
+  updateZones: (colorData: Uint8Array, idData: Uint8Array, anyActive: boolean) => void;
+  updateFrame: (elapsed: number) => void;
+  dispose: () => void;
+}
+
+/**
+ * Occluded-surface X-ray zone overlay pass using THREE.GreaterDepth.
+ *
+ * Each tile gets a flat horizontal quad sitting +0.03 above its terrain/water top
+ * (t.height === 0 -> y = 0.28; land -> t.height * 0.45 + 0.28).
+ * - On unobstructed open land or ocean: the quad is closer than the ground/seabed, so
+ *   GreaterDepth FAILS (zero double-tinting; styledTerrain & oceanFoam draw it cleanly).
+ * - Wherever a 3D tree canopy, building, castle, rock, unit, bridge, or ship covers a
+ *   tile: the covering object writes a closer depth value, so GreaterDepth PASSES and
+ *   projects the crisp territory fill & bold contour border directly over the occluders
+ *   with zero parallax shift and 100% tile-exact alignment.
+ */
+export function createZoneOverlaySystem(gridSize: number): ZoneOverlaySystem {
+  const tileCount = gridSize * gridSize;
+  const positions = new Float32Array(tileCount * 4 * 3);
+  const indices = new Uint32Array(tileCount * 6);
+
+  for (let z = 0; z < gridSize; z++) {
+    for (let x = 0; x < gridSize; x++) {
+      const i = z * gridSize + x;
+      const vBase = i * 4;
+      const pBase = vBase * 3;
+      const iBase = i * 6;
+
+      const x0 = x - 0.5;
+      const x1 = x + 0.5;
+      const z0 = z - 0.5;
+      const z1 = z + 0.5;
+      const y = 0.28;
+
+      // CCW winding when viewed from +Y so FrontSide faces upward
+      positions[pBase] = x0;
+      positions[pBase + 1] = y;
+      positions[pBase + 2] = z0;
+
+      positions[pBase + 3] = x0;
+      positions[pBase + 4] = y;
+      positions[pBase + 5] = z1;
+
+      positions[pBase + 6] = x1;
+      positions[pBase + 7] = y;
+      positions[pBase + 8] = z1;
+
+      positions[pBase + 9] = x1;
+      positions[pBase + 10] = y;
+      positions[pBase + 11] = z0;
+
+      indices[iBase] = vBase;
+      indices[iBase + 1] = vBase + 1;
+      indices[iBase + 2] = vBase + 2;
+      indices[iBase + 3] = vBase;
+      indices[iBase + 4] = vBase + 2;
+      indices[iBase + 5] = vBase + 3;
+    }
+  }
+
+  const geo = new THREE.BufferGeometry();
+  const posAttr = new THREE.BufferAttribute(positions, 3);
+  posAttr.setUsage(THREE.DynamicDrawUsage);
+  geo.setAttribute('position', posAttr);
+  geo.setIndex(new THREE.BufferAttribute(indices, 1));
+
+  const zoneColorBytes = new Uint8Array(tileCount * 4);
+  const zoneColorTex = new THREE.DataTexture(
+    zoneColorBytes,
+    gridSize,
+    gridSize,
+    THREE.RGBAFormat,
+  );
+  zoneColorTex.magFilter = THREE.NearestFilter;
+  zoneColorTex.minFilter = THREE.NearestFilter;
+  zoneColorTex.generateMipmaps = false;
+  zoneColorTex.flipY = false;
+
+  const zoneIdBytes = new Uint8Array(tileCount * 4);
+  const zoneIdTex = new THREE.DataTexture(
+    zoneIdBytes,
+    gridSize,
+    gridSize,
+    THREE.RGBAFormat,
+  );
+  zoneIdTex.magFilter = THREE.NearestFilter;
+  zoneIdTex.minFilter = THREE.NearestFilter;
+  zoneIdTex.generateMipmaps = false;
+  zoneIdTex.flipY = false;
+
+  const uniforms = {
+    uTime: { value: 0 },
+    uGridSize: { value: gridSize },
+    uZoneColorMap: { value: zoneColorTex },
+    uZoneIdMap: { value: zoneIdTex },
+    uZoneActive: { value: 0 },
+  };
+
+  const material = new THREE.ShaderMaterial({
+    uniforms,
+    transparent: true,
+    depthTest: true,
+    depthFunc: THREE.GreaterDepth,
+    depthWrite: false,
+    toneMapped: false,
+    side: THREE.FrontSide,
+    vertexShader: `
+      varying vec3 vWorldPos;
+      void main() {
+        vec4 worldPos = modelMatrix * vec4(position, 1.0);
+        vWorldPos = worldPos.xyz;
+        gl_Position = projectionMatrix * viewMatrix * worldPos;
+      }
+    `,
+    fragmentShader: `
+      uniform float uTime;
+      uniform float uGridSize;
+      uniform sampler2D uZoneColorMap;
+      uniform sampler2D uZoneIdMap;
+      uniform float uZoneActive;
+      varying vec3 vWorldPos;
+
+      vec4 sampleOverlayZoneColor(vec2 coord) {
+        vec2 clamped = clamp(coord, vec2(0.0), vec2(uGridSize - 1.0));
+        return texture2D(uZoneColorMap, (clamped + 0.5) / uGridSize);
+      }
+
+      vec4 sampleOverlayZoneId(vec2 coord) {
+        vec2 clamped = clamp(coord, vec2(0.0), vec2(uGridSize - 1.0));
+        return texture2D(uZoneIdMap, (clamped + 0.5) / uGridSize);
+      }
+
+      void main() {
+        if (uZoneActive < 0.5) {
+          discard;
+        }
+        vec2 tileCoord = floor(vWorldPos.xz + 0.5);
+        vec2 subUv = fract(vWorldPos.xz + 0.5);
+        vec4 zCol = sampleOverlayZoneColor(tileCoord);
+        if (zCol.a <= 0.01) {
+          discard;
+        }
+        vec4 zId = sampleOverlayZoneId(tileCoord);
+
+        vec4 zN = sampleOverlayZoneId(tileCoord + vec2(0.0, -1.0));
+        vec4 zS = sampleOverlayZoneId(tileCoord + vec2(0.0, 1.0));
+        vec4 zW = sampleOverlayZoneId(tileCoord + vec2(-1.0, 0.0));
+        vec4 zE = sampleOverlayZoneId(tileCoord + vec2(1.0, 0.0));
+        vec4 zNW = sampleOverlayZoneId(tileCoord + vec2(-1.0, -1.0));
+        vec4 zNE = sampleOverlayZoneId(tileCoord + vec2(1.0, -1.0));
+        vec4 zSW = sampleOverlayZoneId(tileCoord + vec2(-1.0, 1.0));
+        vec4 zSE = sampleOverlayZoneId(tileCoord + vec2(1.0, 1.0));
+
+        vec4 zN2 = sampleOverlayZoneId(tileCoord + vec2(0.0, -2.0));
+        vec4 zS2 = sampleOverlayZoneId(tileCoord + vec2(0.0, 2.0));
+        vec4 zW2 = sampleOverlayZoneId(tileCoord + vec2(-2.0, 0.0));
+        vec4 zE2 = sampleOverlayZoneId(tileCoord + vec2(2.0, 0.0));
+
+        bool diffN = abs(zN.r - zId.r) > 0.002 || abs(zN.g - zId.g) > 0.002;
+        bool diffS = abs(zS.r - zId.r) > 0.002 || abs(zS.g - zId.g) > 0.002;
+        bool diffW = abs(zW.r - zId.r) > 0.002 || abs(zW.g - zId.g) > 0.002;
+        bool diffE = abs(zE.r - zId.r) > 0.002 || abs(zE.g - zId.g) > 0.002;
+
+        bool diffNW = abs(zNW.r - zId.r) > 0.002 || abs(zNW.g - zId.g) > 0.002;
+        bool diffNE = abs(zNE.r - zId.r) > 0.002 || abs(zNE.g - zId.g) > 0.002;
+        bool diffSW = abs(zSW.r - zId.r) > 0.002 || abs(zSW.g - zId.g) > 0.002;
+        bool diffSE = abs(zSE.r - zId.r) > 0.002 || abs(zSE.g - zId.g) > 0.002;
+
+        bool diffN2 = abs(zN2.r - zId.r) > 0.002 || abs(zN2.g - zId.g) > 0.002;
+        bool diffS2 = abs(zS2.r - zId.r) > 0.002 || abs(zS2.g - zId.g) > 0.002;
+        bool diffW2 = abs(zW2.r - zId.r) > 0.002 || abs(zW2.g - zId.g) > 0.002;
+        bool diffE2 = abs(zE2.r - zId.r) > 0.002 || abs(zE2.g - zId.g) > 0.002;
+
+        bool isOuterBorderTile = diffN || diffS || diffW || diffE || diffNW || diffNE || diffSW || diffSE;
+        bool isInnerBorderTile = !isOuterBorderTile && (diffN2 || diffS2 || diffW2 || diffE2);
+
+        float outerDarkW = 0.44;
+        bool onDarkOuterStroke =
+          (diffN && subUv.y < outerDarkW) ||
+          (diffS && subUv.y > 1.0 - outerDarkW) ||
+          (diffW && subUv.x < outerDarkW) ||
+          (diffE && subUv.x > 1.0 - outerDarkW) ||
+          (diffNW && subUv.x < outerDarkW && subUv.y < outerDarkW) ||
+          (diffNE && subUv.x > 1.0 - outerDarkW && subUv.y < outerDarkW) ||
+          (diffSW && subUv.x < outerDarkW && subUv.y > 1.0 - outerDarkW) ||
+          (diffSE && subUv.x > 1.0 - outerDarkW && subUv.y > 1.0 - outerDarkW);
+
+        bool isHovered = zId.b > 0.5;
+        float hoverPulse = isHovered ? (0.14 + 0.08 * sin(uTime * 5.0)) : 0.0;
+
+        if (onDarkOuterStroke) {
+          vec3 outerCol = zCol.rgb * (isHovered ? 0.56 : 0.38);
+          gl_FragColor = vec4(outerCol, 0.90);
+        } else if (isOuterBorderTile || isInnerBorderTile) {
+          vec3 rimCol = zCol.rgb * (isHovered ? 0.80 : 0.62);
+          gl_FragColor = vec4(rimCol, isOuterBorderTile ? 0.84 : 0.76);
+        } else {
+          float fillAlpha = clamp(zCol.a * 0.46 + hoverPulse, 0.0, 0.66);
+          gl_FragColor = vec4(zCol.rgb, fillAlpha);
+        }
+      }
+    `,
+  });
+
+  const mesh = new THREE.Mesh(geo, material);
+  mesh.frustumCulled = false;
+  mesh.renderOrder = 11;
+  mesh.visible = false;
+
+  const updateMap = (tiles: TileData[]) => {
+    const count = Math.min(tileCount, tiles.length);
+    for (let i = 0; i < count; i++) {
+      const t = tiles[i];
+      const y = t.height <= 0 ? 0.28 : t.height * 0.45 + 0.28;
+      const pBase = i * 12;
+      positions[pBase + 1] = y;
+      positions[pBase + 4] = y;
+      positions[pBase + 7] = y;
+      positions[pBase + 10] = y;
+    }
+    posAttr.needsUpdate = true;
+  };
+
+  const updateZones = (colorData: Uint8Array, idData: Uint8Array, anyActive: boolean) => {
+    uniforms.uZoneActive.value = anyActive ? 1 : 0;
+    mesh.visible = anyActive;
+    if (anyActive) {
+      zoneColorBytes.set(colorData);
+      zoneIdBytes.set(idData);
+      zoneColorTex.needsUpdate = true;
+      zoneIdTex.needsUpdate = true;
+    }
+  };
+
+  const updateFrame = (elapsed: number) => {
+    uniforms.uTime.value = wrapShaderTime(elapsed);
+  };
+
+  const dispose = () => {
+    geo.dispose();
+    material.dispose();
+    zoneColorTex.dispose();
+    zoneIdTex.dispose();
+  };
+
+  return { mesh, updateMap, updateZones, updateFrame, dispose };
+}
+
+
 

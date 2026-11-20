@@ -6,7 +6,9 @@ import {
   createPixelSpaceSystem,
   createSkyCloudSystem,
   createWorldUnderglowSystem,
+  createZoneOverlaySystem,
 } from './skyAndSea';
+import type { TileData } from './types';
 
 test('Starry space backdrop is uniquely randomized per world seed and stays locked until a new world seed is set', () => {
   const skyA = createPixelSpaceSystem(104729);
@@ -88,3 +90,71 @@ test('Ocean surface renders before all transparent VFX, unit attacks, and magic 
   underglow.dispose();
   clouds.dispose();
 });
+
+test('Zone overlay uses GreaterDepth occluded X-ray pass above objects without double-tinting open ground', () => {
+  const gridSize = 16;
+  const overlay = createZoneOverlaySystem(gridSize);
+  const clouds = createSkyCloudSystem(gridSize);
+  const mat = overlay.mesh.material as THREE.ShaderMaterial;
+
+  // Starts hidden when no zone is active (zero GPU overhead)
+  assert.equal(overlay.mesh.visible, false);
+  assert.equal(mat.transparent, true);
+  assert.equal(mat.depthTest, true);
+  assert.equal(mat.depthFunc, THREE.GreaterDepth);
+  assert.equal(mat.depthWrite, false);
+  assert.equal(mat.toneMapped, false);
+
+  // Renders after opaque trees/buildings/units/VFX (9) and before high sky clouds (12)
+  assert.ok(overlay.mesh.renderOrder > 9, `expected renderOrder > 9, got ${overlay.mesh.renderOrder}`);
+  for (const child of clouds.group.children) {
+    assert.ok(overlay.mesh.renderOrder < child.renderOrder);
+  }
+
+  // Update map heights and verify water sits at 0.28 and land at height * 0.45 + 0.28 (+0.03 above block top)
+  const tiles: TileData[] = [];
+  for (let z = 0; z < gridSize; z++) {
+    for (let x = 0; x < gridSize; x++) {
+      tiles.push({
+        x,
+        z,
+        height: x === 5 && z === 5 ? 3 : 0,
+        terrain: x === 5 && z === 5 ? 'forest' : 'deep_water',
+        resourceNode: 'none',
+        resourceAmount: 0,
+        buildingId: null,
+        onFireTimer: 0,
+        blessedTimer: 0,
+        cursedTimer: 0,
+      });
+    }
+  }
+  overlay.updateMap(tiles);
+  const posAttr = overlay.mesh.geometry.getAttribute('position') as THREE.BufferAttribute;
+  // Tile (0,0) is water -> y = 0.28
+  assert.ok(Math.abs(posAttr.getY(0) - 0.28) < 1e-4);
+  // Tile (5,5) is height 3 -> y = 3 * 0.45 + 0.28 = 1.63
+  const landVertexIdx = (5 * gridSize + 5) * 4;
+  assert.ok(Math.abs(posAttr.getY(landVertexIdx) - (3 * 0.45 + 0.28)) < 1e-4);
+
+  // Toggling zones flips mesh visibility cleanly
+  const colors = new Uint8Array(gridSize * gridSize * 4);
+  const ids = new Uint8Array(gridSize * gridSize * 4);
+  colors[0] = 255;
+  colors[3] = 220;
+  ids[0] = 1;
+  overlay.updateZones(colors, ids, true);
+  assert.equal(overlay.mesh.visible, true);
+  assert.equal(mat.uniforms.uZoneActive.value, 1);
+
+  overlay.updateZones(colors, ids, false);
+  assert.equal(overlay.mesh.visible, false);
+  assert.equal(mat.uniforms.uZoneActive.value, 0);
+
+  overlay.updateFrame(42.5);
+  assert.ok(Number.isFinite(mat.uniforms.uTime.value));
+
+  overlay.dispose();
+  clouds.dispose();
+});
+

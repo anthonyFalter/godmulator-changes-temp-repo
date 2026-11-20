@@ -43,6 +43,7 @@ import {
   createSkyCloudSystem,
   createStyledTerrainSystem,
   createWorldUnderglowSystem,
+  createZoneOverlaySystem,
 } from '../game/skyAndSea';
 import {
   DEFAULT_GRAPHICS_SETTINGS,
@@ -398,6 +399,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     const oceanFoam = createOceanFoamSystem(sim.gridSize);
     oceanFoam.updateMap(sim.tiles);
     worldGroup.add(oceanFoam.mesh);
+
+    const zoneOverlay = createZoneOverlaySystem(sim.gridSize);
+    zoneOverlay.updateMap(sim.tiles);
+    worldGroup.add(zoneOverlay.mesh);
 
     const skyClouds = createSkyCloudSystem(sim.gridSize);
     worldGroup.add(skyClouds.shadowGroup);
@@ -6698,6 +6703,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         lastZoneOverlayVersion = zb.version;
         oceanFoam.updateZones(zb.colorData, zb.idData, zb.anyActive);
         styledTerrain.updateZones(zb.colorData, zb.idData, zb.anyActive);
+        zoneOverlay.updateZones(zb.colorData, zb.idData, zb.anyActive);
       }
 
       let propsNeedSync = false;
@@ -7049,6 +7055,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         }
         if (terrainMapDirty || waterMapNeedsSync) {
           styledTerrain.updateMap(simState.tiles, simState.buildings, simState.settlementSpecies);
+          zoneOverlay.updateMap(simState.tiles);
         }
       }
 
@@ -12434,6 +12441,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             : Math.min(5, Math.max(0.25, clampedSimSpeed));
       skyClouds.update(dt * atmosSpeed, shaderElapsed, preset);
       oceanFoam.updateFrame(shaderElapsed, preset);
+      zoneOverlay.updateFrame(shaderElapsed);
       styledTerrain.updateFrame(
         shaderElapsed,
         epochIdx,
@@ -12848,6 +12856,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       glowTrimMat.dispose();
       skyClouds.dispose();
       oceanFoam.dispose();
+      zoneOverlay.dispose();
       styledTerrain.dispose();
       metroConcreteMat.dispose();
       metroParapetMat.dispose();

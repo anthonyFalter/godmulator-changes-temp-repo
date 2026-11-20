@@ -7,12 +7,14 @@ import {
   getTerrainTileRadius,
   isInsidePixelCircle,
 } from './brushSizes';
+import { GOD_POWERS } from './catalog';
 import {
   applyTerrainTool,
   castGodPower,
   createInitialSimulationState,
   executeTerrainDropTileImpact,
   getTile,
+  stepSimulation,
 } from './simulation';
 
 test('brush presets span 0.5x to 10x with symmetric pixelated circles and monotonic scaling', () => {
@@ -142,3 +144,53 @@ test('all god powers scale radius cleanly with brushSize from 0.5x to 10x', () =
   const giantWave = state.activeHazards?.find((h) => h.kind === 'curse_wave' && h.maxRadius && h.maxRadius > 12);
   assert.ok(giantWave, '10x curse must spawn a giant expanding curse_wave with maxRadius > 12');
 });
+
+test('Alien Probe and every god power are usable on deep_water, shallow_water, and sea ice blocks', () => {
+  for (const waterTerrain of ['deep_water', 'shallow_water', 'ice'] as const) {
+    const state = createInitialSimulationState(64, `ALL-POWERS-${waterTerrain}`);
+    state.sandboxFreeMode = true;
+    for (const t of state.tiles) {
+      t.height = 0;
+      t.terrain = waterTerrain;
+      t.resourceNode = 'none';
+      t.resourceAmount = 0;
+      t.buildingId = null;
+    }
+
+    for (const power of GOD_POWERS) {
+      state.pendingVfx = [];
+      const res = castGodPower(state, power.type, 32, 32, { deferImpact: false });
+      assert.equal(res.ok, true, `${power.type} must succeed on ${waterTerrain}, got: ${res.reason}`);
+      assert.ok(state.pendingVfx.length > 0, `${power.type} on ${waterTerrain} must emit VFX`);
+      assert.ok(
+        state.pendingVfx[0].y >= 0.36,
+        `${power.type} VFX y (${state.pendingVfx[0].y}) must sit cleanly above water surface`,
+      );
+    }
+  }
+
+  // Verify Alien Invasion over open ocean summons mothership and deploys hovering UFOs + invasion force
+  const oceanState = createInitialSimulationState(64, 'ALIEN-OCEAN-INVASION');
+  oceanState.sandboxFreeMode = true;
+  for (const t of oceanState.tiles) {
+    t.height = 0;
+    t.terrain = 'deep_water';
+    t.buildingId = null;
+  }
+  const alienRes = castGodPower(oceanState, 'alien_invasion', 32, 32);
+  assert.equal(alienRes.ok, true);
+  assert.ok(oceanState.activeHazards?.some((h) => h.kind === 'alien_mothership'));
+  for (let i = 0; i < 25; i++) stepSimulation(oceanState, 0.1);
+  const ufos = oceanState.units.filter((u) => u.role === 'alien_ufo');
+  assert.ok(ufos.length >= 5, `open-ocean alien invasion should deploy >= 5 UFOs, got ${ufos.length}`);
+
+  // Verify Earthquake on open water triggers an undersea tsunami wave without raising land
+  const quakeRes = castGodPower(oceanState, 'earthquake', 20, 20);
+  assert.equal(quakeRes.ok, true);
+  assert.ok(
+    oceanState.activeHazards?.some((h) => h.kind === 'tsunami_wave' && h.x === 20 && h.z === 20),
+    'undersea earthquake must trigger a tsunami_wave',
+  );
+  assert.equal(getTile(oceanState, 20, 20)!.height, 0);
+});
+
