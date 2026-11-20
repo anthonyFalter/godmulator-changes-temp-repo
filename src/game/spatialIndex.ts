@@ -26,6 +26,8 @@ export interface SimulationTickIndex {
   cellSize: number;
   cols: number;
   cells: (UnitEntity[] | undefined)[];
+  /** Internal list of occupied cell indices for O(active) pool reset */
+  _usedCells?: number[];
   unitsById: Map<string, UnitEntity>;
   buildingsById: Map<string, BuildingEntity>;
   settlements: Map<string, SettlementTickInfo>;
@@ -110,32 +112,97 @@ export function isDangerousWildlifeRole(
 }
 
 /**
- * Builds a single-pass per-tick spatial hash & relational index for O(1) unit/building queries.
- * Eliminates all O(N^3) and O(N^2) nested loops in stepSimulation while preserving exact AI semantics.
+ * Creates a persistent pooled SimulationTickIndex to be reused across ticks via `buildSimulationTickIndex(..., pool)`.
+ */
+export function createPooledSimulationTickIndex(gridSize: number): SimulationTickIndex {
+  const cols = Math.max(1, Math.ceil(gridSize / CELL_SIZE));
+  return {
+    gridSize,
+    cellSize: CELL_SIZE,
+    cols,
+    cells: new Array(cols * cols),
+    _usedCells: [],
+    unitsById: new Map<string, UnitEntity>(),
+    buildingsById: new Map<string, BuildingEntity>(),
+    settlements: new Map<string, SettlementTickInfo>(),
+    livingCivCount: 0,
+    livingWildlifeCount: 0,
+    livingHostileCount: 0,
+    hostileUnits: [],
+    dangerousWildlife: [],
+    livingCivByKingdom: new Map<string, UnitEntity[]>(),
+    buildersByBuildingId: new Map<string, number>(),
+    upgradersByBuildingId: new Map<string, number>(),
+    gatherersByTileKey: new Map<number, number>(),
+    activeGatheringByTileKey: new Map<number, number>(),
+    gatheringBySettlement: new Map<string, UnitEntity[]>(),
+    attackersOfSettlement: new Map<string, Set<string>>(),
+    attackersOfKingdom: new Map<string, Set<string>>(),
+    unitKingdomId: new Map<string, string | undefined>(),
+    warEnemiesByKingdom: new Map<string, Set<string>>(),
+    hasCompletedBuilding: false,
+  };
+}
+
+// Reusable scratch maps for single-pass building indexing
+const _unfinishedByTileKey = new Map<number, BuildingEntity>();
+const _upgradeableByTileKey = new Map<number, BuildingEntity>();
+
+/**
+ * Builds (or resets and repopulates) a single-pass per-tick spatial hash & relational index
+ * for O(1) unit/building queries. Passing `reusePool` eliminates per-tick GC array/Map churn!
  */
 export function buildSimulationTickIndex(
   state: SimulationState,
   getKingdomIdFn: (state: SimulationState, settlementId?: string) => string | undefined,
   isCarnivoreFn: (role: UnitEntity['role'], seed?: number) => boolean,
+  reusePool?: SimulationTickIndex,
 ): SimulationTickIndex {
   const gs = state.gridSize;
   const cols = Math.max(1, Math.ceil(gs / CELL_SIZE));
-  const cells: (UnitEntity[] | undefined)[] = new Array(cols * cols);
-  const unitsById = new Map<string, UnitEntity>();
-  const buildingsById = new Map<string, BuildingEntity>();
-  const settlements = new Map<string, SettlementTickInfo>();
-  const hostileUnits: UnitEntity[] = [];
-  const dangerousWildlife: UnitEntity[] = [];
-  const livingCivByKingdom = new Map<string, UnitEntity[]>();
-  const buildersByBuildingId = new Map<string, number>();
-  const upgradersByBuildingId = new Map<string, number>();
-  const gatherersByTileKey = new Map<number, number>();
-  const activeGatheringByTileKey = new Map<number, number>();
-  const gatheringBySettlement = new Map<string, UnitEntity[]>();
-  const attackersOfSettlement = new Map<string, Set<string>>();
-  const attackersOfKingdom = new Map<string, Set<string>>();
-  const unitKingdomId = new Map<string, string | undefined>();
-  const warEnemiesByKingdom = new Map<string, Set<string>>();
+  const pool =
+    reusePool && reusePool.gridSize === gs && reusePool.cols === cols
+      ? reusePool
+      : createPooledSimulationTickIndex(gs);
+
+  const cells = pool.cells;
+  const usedCells = pool._usedCells ?? (pool._usedCells = []);
+  for (let i = 0; i < usedCells.length; i++) {
+    const bucket = cells[usedCells[i]];
+    if (bucket) bucket.length = 0;
+  }
+  usedCells.length = 0;
+
+  const unitsById = pool.unitsById;
+  unitsById.clear();
+  const buildingsById = pool.buildingsById;
+  buildingsById.clear();
+  const settlements = pool.settlements;
+  settlements.clear();
+  const hostileUnits = pool.hostileUnits;
+  hostileUnits.length = 0;
+  const dangerousWildlife = pool.dangerousWildlife;
+  dangerousWildlife.length = 0;
+  const livingCivByKingdom = pool.livingCivByKingdom;
+  livingCivByKingdom.clear();
+  const buildersByBuildingId = pool.buildersByBuildingId;
+  buildersByBuildingId.clear();
+  const upgradersByBuildingId = pool.upgradersByBuildingId;
+  upgradersByBuildingId.clear();
+  const gatherersByTileKey = pool.gatherersByTileKey;
+  gatherersByTileKey.clear();
+  const activeGatheringByTileKey = pool.activeGatheringByTileKey;
+  activeGatheringByTileKey.clear();
+  const gatheringBySettlement = pool.gatheringBySettlement;
+  gatheringBySettlement.clear();
+  const attackersOfSettlement = pool.attackersOfSettlement;
+  attackersOfSettlement.clear();
+  const attackersOfKingdom = pool.attackersOfKingdom;
+  attackersOfKingdom.clear();
+  const unitKingdomId = pool.unitKingdomId;
+  unitKingdomId.clear();
+  const warEnemiesByKingdom = pool.warEnemiesByKingdom;
+  warEnemiesByKingdom.clear();
 
   // Precompute war diplomacy adjacency once per tick
   if (state.kingdomRelations) {
@@ -162,8 +229,10 @@ export function buildSimulationTickIndex(
 
   // Pass 1: Index all buildings once
   let hasCompletedBuilding = false;
-  const unfinishedByTileKey = new Map<number, BuildingEntity>();
-  const upgradeableByTileKey = new Map<number, BuildingEntity>();
+  const unfinishedByTileKey = _unfinishedByTileKey;
+  const upgradeableByTileKey = _upgradeableByTileKey;
+  unfinishedByTileKey.clear();
+  upgradeableByTileKey.clear();
 
   for (let i = 0; i < state.buildings.length; i++) {
     const b = state.buildings[i];
@@ -227,6 +296,9 @@ export function buildSimulationTickIndex(
     if (!cellBucket) {
       cellBucket = [];
       cells[cellKey] = cellBucket;
+    }
+    if (cellBucket.length === 0) {
+      usedCells.push(cellKey);
     }
     cellBucket.push(u);
 
@@ -334,31 +406,11 @@ export function buildSimulationTickIndex(
     }
   }
 
-  return {
-    gridSize: gs,
-    cellSize: CELL_SIZE,
-    cols,
-    cells,
-    unitsById,
-    buildingsById,
-    settlements,
-    livingCivCount,
-    livingWildlifeCount,
-    livingHostileCount,
-    hostileUnits,
-    dangerousWildlife,
-    livingCivByKingdom,
-    buildersByBuildingId,
-    upgradersByBuildingId,
-    gatherersByTileKey,
-    activeGatheringByTileKey,
-    gatheringBySettlement,
-    attackersOfSettlement,
-    attackersOfKingdom,
-    unitKingdomId,
-    warEnemiesByKingdom,
-    hasCompletedBuilding,
-  };
+  pool.livingCivCount = livingCivCount;
+  pool.livingWildlifeCount = livingWildlifeCount;
+  pool.livingHostileCount = livingHostileCount;
+  pool.hasCompletedBuilding = hasCompletedBuilding;
+  return pool;
 }
 
 /**

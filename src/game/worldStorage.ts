@@ -63,7 +63,8 @@ function cloneData<T>(value: T): T {
 }
 
 export function sanitizeSimulationForSave(sim: SimulationState): SimulationState {
-  const cloned = cloneData(sim);
+  const { worldGrid: _transientGrid, ...serializable } = sim;
+  const cloned = cloneData(serializable as SimulationState);
   cloned.pendingVfx = [];
   cloned.selectedEntityId = null;
   cloned.activeWorldEvent = null;

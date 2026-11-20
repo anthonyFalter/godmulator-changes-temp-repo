@@ -107,7 +107,10 @@ export function getMaxCityPopulation(gridSize: number): number {
   if (s <= 160) return 72;
   if (s <= 192) return 90;
   if (s <= 224) return 110;
-  return 135;
+  if (s <= 256) return 135;
+  if (s <= 320) return 155;
+  if (s <= 384) return 175;
+  return 220;
 }
 
 export const BUILDINGS: BuildingDefinition[] = [

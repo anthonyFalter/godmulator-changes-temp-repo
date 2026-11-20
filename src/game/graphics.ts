@@ -16,11 +16,13 @@ export const DEFAULT_GRAPHICS_SETTINGS: GraphicsSettings = {
   foliageDensity: 'full',
   particles: 'full',
   autoOptimizeFps: true,
+  strictLossless: true,
+  showPerformanceHud: false,
 };
 
 export const GRAPHICS_PRESET_CONFIGS: Record<
   Exclude<GraphicsQualityPreset, 'custom'>,
-  Omit<GraphicsSettings, 'preset'>
+  Omit<GraphicsSettings, 'preset' | 'strictLossless' | 'showPerformanceHud'>
 > = {
   high: {
     shadows: 'on',
@@ -65,11 +67,15 @@ export function inferGraphicsPreset(
 export function applyGraphicsPreset(
   preset: Exclude<GraphicsQualityPreset, 'custom'>,
   autoOptimizeFps: boolean,
+  strictLossless = true,
+  showPerformanceHud = false,
 ): GraphicsSettings {
   return {
     preset,
     ...GRAPHICS_PRESET_CONFIGS[preset],
     autoOptimizeFps,
+    strictLossless,
+    showPerformanceHud,
   };
 }
 
@@ -92,7 +98,9 @@ export function resolveGraphicsProfile(
   let particles: ParticleDetailOption = settings.particles;
   let shadowUpdateStride: 1 | 3 = 1;
 
-  if (settings.autoOptimizeFps && autoTrimLevel > 0) {
+  // When Strict Lossless Mode is enabled (default), never downgrade visual fidelity automatically
+  const isStrictLossless = settings.strictLossless !== false;
+  if (!isStrictLossless && settings.autoOptimizeFps && autoTrimLevel > 0) {
     if (autoTrimLevel >= 1) {
       if (cloudsAndSky === 'full') cloudsAndSky = 'reduced';
       if (particles === 'full') particles = 'reduced';
@@ -145,6 +153,14 @@ export function sanitizeGraphicsSettings(raw: unknown): GraphicsSettings {
     typeof obj.autoOptimizeFps === 'boolean'
       ? obj.autoOptimizeFps
       : DEFAULT_GRAPHICS_SETTINGS.autoOptimizeFps;
+  const strictLossless =
+    typeof obj.strictLossless === 'boolean'
+      ? obj.strictLossless
+      : DEFAULT_GRAPHICS_SETTINGS.strictLossless;
+  const showPerformanceHud =
+    typeof obj.showPerformanceHud === 'boolean'
+      ? obj.showPerformanceHud
+      : DEFAULT_GRAPHICS_SETTINGS.showPerformanceHud;
 
   return {
     preset: inferGraphicsPreset({
@@ -159,6 +175,8 @@ export function sanitizeGraphicsSettings(raw: unknown): GraphicsSettings {
     foliageDensity,
     particles,
     autoOptimizeFps,
+    strictLossless,
+    showPerformanceHud,
   };
 }
 

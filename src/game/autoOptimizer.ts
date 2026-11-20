@@ -63,6 +63,7 @@ export class AutoOptimizer {
     isPlaying: boolean;
     isSoftwareGl: boolean;
     autoEnabled: boolean;
+    strictLossless?: boolean;
   }): AutoOptimizerDecisions {
     this.frameCounter = (this.frameCounter + 1) | 0;
 
@@ -75,7 +76,25 @@ export class AutoOptimizer {
       isPlaying,
       isSoftwareGl,
       autoEnabled,
+      strictLossless = false,
     } = params;
+
+    const isZoomedOut = frustumSize >= 28;
+    const isFarOverview = frustumSize >= 44;
+
+    if (strictLossless) {
+      this.tier = 0;
+      return {
+        tier: 0,
+        shadowUpdateStride: 1,
+        unitCastShadows: !isSoftwareGl,
+        crowdAnimStride: 1,
+        particleScale: 1.0,
+        pixelScaleMult: 1.0,
+        maxSimDt: totalUnitCount > 450 ? 0.065 : 0.1,
+        isZoomedOut,
+      };
+    }
 
     if (!isSoftwareGl && isPlaying && autoEnabled) {
       const clampedMs = Math.min(120, Math.max(4, rawFrameMs));
@@ -103,9 +122,6 @@ export class AutoOptimizer {
       this.tier = 0;
     }
 
-    const isZoomedOut = frustumSize >= 28;
-    const isFarOverview = frustumSize >= 44;
-
     // Shadow update cadence: imperceptibly relaxed when zoomed out or during dense crowd load
     let shadowUpdateStride: 1 | 2 | 3 | 4 = 1;
     if (this.tier >= 3 || (isFarOverview && visibleUnitCount > 140)) {
@@ -116,10 +132,6 @@ export class AutoOptimizer {
       shadowUpdateStride = 2;
     }
 
-    // Small humanoid directional shadow-map casting:
-    // At overview zoom (frustumSize >= 32), individual 0.5-tile humanoid shadow-map silhouettes are sub-pixel,
-    // while ground contact_shadow disks remain crisp and sharp. Buildings, trees, vehicles, dragons & leviathans
-    // ALWAYS keep full directional shadows.
     const unitCastShadows =
       !isSoftwareGl &&
       frustumSize < 31 &&
@@ -127,7 +139,6 @@ export class AutoOptimizer {
       !(this.tier >= 1 && visibleUnitCount > 130) &&
       visibleUnitCount < 220;
 
-    // Distant/crowded secondary micro-animation pacing (60Hz position interpolation ALWAYS stays full speed)
     let crowdAnimStride: 1 | 2 | 3 = 1;
     if (this.tier >= 3 || (isFarOverview && visibleUnitCount > 180) || visibleUnitCount > 320) {
       crowdAnimStride = 3;
@@ -135,16 +146,12 @@ export class AutoOptimizer {
       crowdAnimStride = 2;
     }
 
-    // Cosmetic particle emission budget scaling (zoomed-out + crowd pressure)
     let particleScale = 1.0;
     if (this.tier >= 3) particleScale = 0.35;
     else if (this.tier === 2 || isFarOverview) particleScale = 0.55;
     else if (this.tier === 1 || isZoomedOut || totalUnitCount > 260) particleScale = 0.78;
 
-    // Gentle dynamic pixel ratio cushion only under severe sustained GPU bottleneck (tier 3)
     const pixelScaleMult = this.tier >= 3 ? 0.8 : 1.0;
-
-    // Cap simulation step delta so heavy fast-forward frames never spiral or freeze camera controls
     const maxSimDt = totalUnitCount > 350 ? 0.065 : totalUnitCount > 200 ? 0.09 : 0.12;
 
     return {

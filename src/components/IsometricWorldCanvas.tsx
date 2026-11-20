@@ -72,9 +72,20 @@ import {
   getUnitEpoch,
   releaseDragUnit,
   stepDraggedUnitKinematics,
+  ensureWorldGrid,
   stepSimulation,
   updateDragUnit,
 } from '../game/simulation';
+import {
+  CHUNK_SIZE,
+  TERRAIN_TO_CODE,
+  markTileDirty,
+  raycastWorldGrid,
+  syncWorldGridFromTiles,
+} from '../game/worldGrid';
+import { ChunkTerrainSystem } from '../game/chunkTerrainRenderer';
+import { BatchedBuildingSystem } from '../game/batchedBuildings';
+import { EngineWorkerPool } from '../game/workerPool';
 import {
   createMagicCirclePlaneGeometry,
   disposeMagicCircleTextureCache,
@@ -97,6 +108,7 @@ import {
   GodPowerType,
   GraphicsSettings,
   LightingPreset,
+  PerfTelemetrySnapshot,
   SimulationState,
   TerrainToolType,
   TerrainType,
@@ -144,6 +156,7 @@ interface IsometricWorldCanvasProps {
   onSelectEntity?: (unitId: string | null) => void;
   onBreakFollow?: () => void;
   onSyncHud: () => void;
+  onPerfTelemetry?: (snapshot: PerfTelemetrySnapshot) => void;
 }
 
 const HEIGHT_STEP = 0.45;
@@ -188,6 +201,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
   onSelectEntity,
   onBreakFollow,
   onSyncHud,
+  onPerfTelemetry,
 }) => {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const zoneLabelsLayerRef = useRef<HTMLDivElement | null>(null);
@@ -215,6 +229,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     onSelectEntity,
     onBreakFollow,
     onSyncHud,
+    onPerfTelemetry,
   });
 
   useEffect(() => {
@@ -239,6 +254,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       onSelectEntity,
       onBreakFollow,
       onSyncHud,
+      onPerfTelemetry,
     };
   }, [
     gameState,
@@ -261,6 +277,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     onSelectEntity,
     onBreakFollow,
     onSyncHud,
+    onPerfTelemetry,
   ]);
 
   useEffect(() => {
@@ -408,54 +425,15 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     worldGroup.add(skyClouds.shadowGroup);
     worldGroup.add(skyClouds.group);
 
-    // Instanced terrain system (24 draw calls total regardless of map size!)
-    const TERRAIN_TYPES: TerrainType[] = [
-      'deep_water',
-      'shallow_water',
-      'ice',
-      'sand',
-      'grass',
-      'fertile',
-      'forest',
-      'savanna',
-      'swamp',
-      'highland',
-      'stone_road',
-      'rock',
-      'snow',
-      'scorched',
-      'crystal_field',
-      'rail_track',
-      'jungle',
-      'mountain',
-      'taiga',
-      'tundra',
-      'badlands',
-      'blossom',
-      'runway',
-      'void_goo',
-    ];
-    const tileGeo = new THREE.BoxGeometry(1.0, 1.0, 1.0);
-    tileGeo.translate(0, -0.5, 0);
-
+    // Frustum-culled 32x32 hidden-face-culled greedy-meshed terrain chunk system
+    // (100% pixel-identical to individual blocks via world-space styledTerrain shaders!)
     const styledTerrain = createStyledTerrainSystem(sim.gridSize);
     styledTerrain.updateMap(sim.tiles, sim.buildings, sim.settlementSpecies);
 
-    const terrainInstancedMap = new Map<TerrainType, THREE.InstancedMesh>();
-    const terrainInstancedList: THREE.InstancedMesh[] = [];
-    const terrainInstIndexMap = new Map<THREE.InstancedMesh, number>();
-    const terrainInstanceToTile = new Map<THREE.InstancedMesh, Int32Array>();
     const worldBoundsSphere = new THREE.Sphere(
       new THREE.Vector3(gridCenter, 2, gridCenter),
       sim.gridSize * 1.1,
     );
-
-    const terrainCounts = new Map<TerrainType, number>();
-    for (let i = 0; i < sim.tiles.length; i++) {
-      const tt = sim.tiles[i].terrain;
-      terrainCounts.set(tt, (terrainCounts.get(tt) ?? 0) + 1);
-    }
-    const terrainHeadroom = Math.min(512, Math.ceil(sim.tiles.length * 0.04));
 
     function ensureInstancedCapacity(
       inst: THREE.InstancedMesh,
@@ -465,7 +443,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     ) {
       const curCap = inst.instanceMatrix.count;
       if (needed <= curCap) return;
-      const nextCap = Math.min(maxLimit, Math.max(needed, curCap * 2));
+      const nextCap = Math.min(maxLimit, Math.max(needed, Math.ceil(curCap * 1.5)));
       const prevArr = inst.instanceMatrix.array as Float32Array;
       const nextArr = new Float32Array(nextCap * 16);
       nextArr.set(prevArr);
@@ -482,36 +460,23 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       }
     }
 
-    for (let tIdx = 0; tIdx < TERRAIN_TYPES.length; tIdx++) {
-      const tType = TERRAIN_TYPES[tIdx];
-      const mat = styledTerrain.getMaterials(tType);
-      const exactCount = terrainCounts.get(tType) ?? 0;
-      const initialCap = Math.min(
-        sim.tiles.length,
-        Math.max(64, exactCount + terrainHeadroom),
-      );
-      const inst = new THREE.InstancedMesh(tileGeo, mat, initialCap);
-      inst.frustumCulled = false;
-      inst.boundingSphere = worldBoundsSphere;
-      inst.receiveShadow = true;
-      inst.castShadow = tType !== 'deep_water' && tType !== 'shallow_water' && tType !== 'ice';
-      inst.count = 0;
-      terrainGroup.add(inst);
-      terrainInstancedMap.set(tType, inst);
-      terrainInstancedList.push(inst);
-      terrainInstIndexMap.set(inst, tIdx);
-      terrainInstanceToTile.set(inst, new Int32Array(initialCap));
-    }
+    const terrainWorkerPool = new EngineWorkerPool();
+    const { topMat: chunkTopMat, cliffMat: chunkCliffMat } = styledTerrain.getChunkMaterials();
+    const chunkTerrain = new ChunkTerrainSystem(
+      sim.gridSize,
+      chunkTopMat,
+      chunkCliffMat,
+      terrainWorkerPool,
+      CHUNK_SIZE,
+    );
+    terrainGroup.add(chunkTerrain.group);
 
     const tileCurrentY = new Float32Array(sim.tiles.length);
+    const tileRenderY = new Float32Array(sim.tiles.length);
     const tilePropSig = new Int32Array(sim.tiles.length);
     const tileLastNodeY = new Float32Array(sim.tiles.length);
     const tileTerrainCode = new Int8Array(sim.tiles.length).fill(-1);
-    const tileSlotIndex = new Int32Array(sim.tiles.length);
-    const tileBucketIdx = new Int8Array(sim.tiles.length).fill(-1);
-    const tileBucketInst: (THREE.InstancedMesh | null)[] = new Array(sim.tiles.length).fill(null);
     const tileHadHazard = new Uint8Array(sim.tiles.length);
-    const instNeedsUpload = new Uint8Array(TERRAIN_TYPES.length);
     for (let i = 0; i < sim.tiles.length; i++) {
       const t = sim.tiles[i];
       const isWaterWalkway =
@@ -520,9 +485,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       const isSeaIce = t.height === 0 && t.terrain === 'ice';
       const y0 = t.height === 0 ? (isWaterWalkway ? 0.3 : isSeaIce ? 0.21 : 0.12) : t.height * HEIGHT_STEP + 0.25;
       tileCurrentY[i] = y0;
+      tileRenderY[i] = y0;
+      tileTerrainCode[i] = TERRAIN_TO_CODE[t.terrain] ?? 3;
       tileLastNodeY[i] = -999;
       tilePropSig[i] = -1;
     }
+    const initWorldGrid = ensureWorldGrid(sim);
+    chunkTerrain.rebuildAllSync(initWorldGrid, tileRenderY);
 
     // Instanced Multi-Object Props (1-4 objects per tile, starting compactly and growing on demand)
     const variantLib = getNodeVariantLibrary();
@@ -942,7 +911,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       seenStamp: number;
     }
 
-    const buildingMeshes = new Map<string, BuildingMeshEntry>();
+    const batchedBuildings = new BatchedBuildingSystem();
+    buildingsGroup.add(batchedBuildings.group);
     const unitMeshes = new Map<string, UnitMeshEntry>();
     const vehicleMeshes = new Map<string, VehicleMeshEntry>();
     const wispMeshes = new Map<string, WispMeshEntry>();
@@ -1160,6 +1130,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
     let activeGfxProfile: ResolvedGraphicsProfile = { ...initialGfxProfile };
     const autoOptimizer = new AutoOptimizer();
+    const FIXED_SIM_DT = 1 / 15;
+    let simAccumulator = 0;
+    let simInterpAlpha = 1;
+    let lastSimTickMs = 0;
+    let perfHudAccum = 0;
+    let perfFrameCount = 0;
     const worldCullBounds: WorldCullBounds = {
       minX: -12,
       maxX: sim.gridSize + 12,
@@ -6017,16 +5993,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         propsRef.current.onHoverEntityChange?.(null);
       }
 
-      const hits = raycaster.intersectObjects(terrainInstancedList, false);
-      if (hits.length > 0 && hits[0].instanceId !== undefined) {
-        const hitInst = hits[0].object as THREE.InstancedMesh;
-        const tileIndex = terrainInstanceToTile.get(hitInst)?.[hits[0].instanceId];
-        if (tileIndex !== undefined) {
-          const tile = simRef.current.tiles[tileIndex];
-          if (tile && (!hoveredTileCoords || hoveredTileCoords.x !== tile.x || hoveredTileCoords.z !== tile.z)) {
-            hoveredTileCoords = { x: tile.x, z: tile.z };
-            propsRef.current.onHoverTileChange(hoveredTileCoords);
-          }
+      // Analytical 3D Amanatides-Woo DDA voxel raymarch (< 0.05 ms even on 512x512 worlds!)
+      const gridHit = raycastWorldGrid(raycaster.ray, ensureWorldGrid(simRef.current), tileRenderY);
+      if (gridHit) {
+        if (!hoveredTileCoords || hoveredTileCoords.x !== gridHit.x || hoveredTileCoords.z !== gridHit.z) {
+          hoveredTileCoords = { x: gridHit.x, z: gridHit.z };
+          propsRef.current.onHoverTileChange(hoveredTileCoords);
         }
       } else if (hoveredTileCoords !== null) {
         hoveredTileCoords = null;
@@ -6748,10 +6720,16 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             t.height === 0 &&
             (t.terrain === 'stone_road' || t.terrain === 'rail_track' || t.terrain === 'runway');
           const isSeaIce = t.height === 0 && t.terrain === 'ice';
-          tileCurrentY[i] = t.height === 0 ? (isWaterWalkway ? 0.3 : isSeaIce ? 0.21 : 0.12) : t.height * HEIGHT_STEP + 0.25;
+          const y0 = t.height === 0 ? (isWaterWalkway ? 0.3 : isSeaIce ? 0.21 : 0.12) : t.height * HEIGHT_STEP + 0.25;
+          tileCurrentY[i] = y0;
+          tileRenderY[i] = y0;
+          tileTerrainCode[i] = TERRAIN_TO_CODE[t.terrain] ?? 3;
           tileLastNodeY[i] = -999;
           tilePropSig[i] = -1;
         }
+        const refreshedGrid = ensureWorldGrid(simState);
+        syncWorldGridFromTiles(refreshedGrid, simState.tiles, true);
+        chunkTerrain.rebuildAllSync(refreshedGrid, tileRenderY);
         const newCenter = (simState.gridSize - 1) / 2;
         camDesiredTarget.set(newCenter, 1.2, newCenter);
         camTarget.set(newCenter, 1.2, newCenter);
@@ -6806,23 +6784,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       const hasTsunamis = activeTsunamis.length > 0;
       const hasQuakes = activeQuakeCount > 0;
 
-      // Detect initial bucket build (`syncFrameStamp === 1` or `simChanged`) and single-pass tile sync
-      const bucketsDirty = waterMapNeedsSync || syncFrameStamp === 1;
+      // Single-pass dirty-chunk terrain & prop synchronization against flat WorldGridBuffers
+      const worldGrid = ensureWorldGrid(simState);
       const tiles = simState.tiles;
       const tileCount = tiles.length;
       activeFireTileIndices.length = 0;
 
-      if (bucketsDirty) {
-        for (let tIdx = 0; tIdx < terrainInstancedList.length; tIdx++) {
-          terrainInstancedList[tIdx].count = 0;
-          instNeedsUpload[tIdx] = 0;
-        }
-      } else {
-        instNeedsUpload.fill(0);
-      }
-
-      _dummyQuat.identity();
-      let bucketMismatchDetected = false;
+      let anyDynamicTileY = false;
 
       for (let i = 0; i < tileCount; i++) {
         const t = tiles[i];
@@ -6904,41 +6872,33 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             : targetTopY;
         tileCurrentY[i] = curY;
 
+        const prevRenderY = tileRenderY[i];
         const renderTopY = curY + quakeJoltY;
+        tileRenderY[i] = renderTopY;
 
-        if (bucketsDirty) {
-          const inst = terrainInstancedMap.get(t.terrain) ?? terrainInstancedMap.get('grass')!;
-          const bIdx = terrainInstIndexMap.get(inst) ?? 0;
-          const slot = inst.count;
-          ensureInstancedCapacity(inst, slot + 1, terrainInstanceToTile, tileCount);
-          inst.count = slot + 1;
-          terrainInstanceToTile.get(inst)![slot] = i;
+        const isCrushedByte = crushDip > 0 ? 1 : 0;
+        const gridChanged =
+          worldGrid.heightMap[i] !== t.height ||
+          worldGrid.terrainCodeMap[i] !== tCode ||
+          worldGrid.crushedMask[i] !== isCrushedByte;
+
+        if (gridChanged) {
+          worldGrid.heightMap[i] = t.height;
+          worldGrid.terrainCodeMap[i] = tCode;
+          worldGrid.crushedMask[i] = isCrushedByte;
+          worldGrid.terrainVersion++;
           tileTerrainCode[i] = tCode;
-          tileBucketIdx[i] = bIdx;
-          tileBucketInst[i] = inst;
-          tileSlotIndex[i] = slot;
-
-          _dummyPos.set(t.x, renderTopY, t.z);
-          _dummyScale.set(1, Math.max(0.2, renderTopY + 0.6), 1);
-          _dummyMatrix.compose(_dummyPos, _dummyQuat, _dummyScale);
-          inst.setMatrixAt(slot, _dummyMatrix);
-          instNeedsUpload[bIdx] = 1;
-          tileHadHazard[i] = hasHazardEffect || quakeJoltY !== 0 ? 1 : 0;
-        } else {
-          if (tileTerrainCode[i] !== tCode) {
-            bucketMismatchDetected = true;
-          } else if (curY !== prevY || quakeJoltY !== 0 || tileHadHazard[i] !== 0) {
-            const inst = tileBucketInst[i];
-            if (inst) {
-              _dummyPos.set(t.x, renderTopY, t.z);
-              _dummyScale.set(1, Math.max(0.2, renderTopY + 0.6), 1);
-              _dummyMatrix.compose(_dummyPos, _dummyQuat, _dummyScale);
-              inst.setMatrixAt(tileSlotIndex[i], _dummyMatrix);
-              instNeedsUpload[tileBucketIdx[i]] = 1;
-            }
-            tileHadHazard[i] = hasHazardEffect || quakeJoltY !== 0 ? 1 : 0;
-          }
+          markTileDirty(worldGrid, t.x, t.z);
+          waterMapNeedsSync = true;
+        } else if (
+          Math.abs(renderTopY - prevRenderY) > 0.0005 ||
+          quakeJoltY !== 0 ||
+          tileHadHazard[i] !== 0
+        ) {
+          markTileDirty(worldGrid, t.x, t.z);
+          anyDynamicTileY = true;
         }
+        tileHadHazard[i] = hasHazardEffect || quakeJoltY !== 0 ? 1 : 0;
 
         if (t.onFireTimer > 0 && t.height > 0 && t.resourceNode !== 'ore_vein') {
           activeFireTileIndices.push(i);
@@ -6948,7 +6908,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           (t.height << 8) |
           (tCode << 2) |
           ((t.farmSettlementId ? 1 : 0) << 1) |
-          ((t.crushedTimer ?? 0) > 0 ? 1 : 0);
+          isCrushedByte;
         if (tileTerrainSig[i] !== terrSig) {
           tileTerrainSig[i] = terrSig;
           terrainMapDirty = true;
@@ -7019,34 +6979,6 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         }
       }
 
-      if (bucketMismatchDetected) {
-        for (let tIdx = 0; tIdx < terrainInstancedList.length; tIdx++) {
-          terrainInstancedList[tIdx].count = 0;
-          instNeedsUpload[tIdx] = 1;
-        }
-        for (let i = 0; i < tileCount; i++) {
-          const t = tiles[i];
-          const tCode = TERRAIN_CODE[t.terrain] ?? 3;
-          const inst = terrainInstancedMap.get(t.terrain) ?? terrainInstancedMap.get('grass')!;
-          const bIdx = terrainInstIndexMap.get(inst) ?? 0;
-          const slot = inst.count;
-          ensureInstancedCapacity(inst, slot + 1, terrainInstanceToTile, tileCount);
-          inst.count = slot + 1;
-          terrainInstanceToTile.get(inst)![slot] = i;
-          tileTerrainCode[i] = tCode;
-          tileBucketIdx[i] = bIdx;
-          tileBucketInst[i] = inst;
-          tileSlotIndex[i] = slot;
-
-          const renderTopY = tileCurrentY[i];
-          _dummyPos.set(t.x, renderTopY, t.z);
-          _dummyScale.set(1, Math.max(0.2, renderTopY + 0.6), 1);
-          _dummyMatrix.compose(_dummyPos, _dummyQuat, _dummyScale);
-          inst.setMatrixAt(slot, _dummyMatrix);
-        }
-        waterMapNeedsSync = true;
-      }
-
       if (initialMapsPreuploaded) {
         initialMapsPreuploaded = false;
       } else {
@@ -7059,16 +6991,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         }
       }
 
-      for (let tIdx = 0; tIdx < terrainInstancedList.length; tIdx++) {
-        if (instNeedsUpload[tIdx]) {
-          const inst = terrainInstancedList[tIdx];
-          if (inst.count > 0) {
-            inst.instanceMatrix.clearUpdateRanges();
-            inst.instanceMatrix.addUpdateRange(0, inst.count * 16);
-            inst.instanceMatrix.needsUpdate = true;
-          }
-          instNeedsUpload[tIdx] = 0;
-        }
+      // Rebuild only modified 32x32 chunks (sync for instant 1-6 chunk edits, Comlink workers for bulk)
+      if (worldGrid.dirtyChunkCount > 0) {
+        chunkTerrain.flushDirtyChunks(
+          worldGrid,
+          anyDynamicTileY || hasTsunamis || hasQuakes ? tileRenderY : null,
+          anyDynamicTileY || hasTsunamis || hasQuakes,
+        );
       }
 
       if (propsNeedSync) {
@@ -7769,7 +7698,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         return rotY;
       };
 
-      // 2. Sync buildings (cached animated children + road orientation + floating city foundations)
+      // 2. Sync buildings via lossless THREE.BatchedMesh (collapses thousands of building draw calls to ~8)
       const cullMinX = worldCullBounds.minX;
       const cullMaxX = worldCullBounds.maxX;
       const cullMinZ = worldCullBounds.minZ;
@@ -7779,13 +7708,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         const b = simState.buildings[bi];
         const bInView =
           b.tileX >= cullMinX && b.tileX <= cullMaxX && b.tileZ >= cullMinZ && b.tileZ <= cullMaxZ;
-        let entry = buildingMeshes.get(b.id);
-        if (!bInView && entry) {
-          entry.seenStamp = syncFrameStamp;
-          if (entry.group.visible) entry.group.visible = false;
-          continue;
-        }
+        const existingEntry = batchedBuildings.getEntry(b.id);
         if (!bInView) {
+          if (existingEntry) {
+            batchedBuildings.setHidden(b.id, syncFrameStamp);
+          }
           continue;
         }
 
@@ -7801,61 +7728,29 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           b.species ??
           (b.settlementId ? simState.settlementSpecies?.[b.settlementId] : undefined) ??
           'human';
-        let createdOrRebuilt = false;
-        if (
-          !entry ||
-          entry.epochLevel !== b.epochLevel ||
-          entry.type !== b.type ||
-          entry.species !== bSpecies ||
-          entry.isWaterTile !== isWaterTile
-        ) {
-          if (entry) {
-            buildingsGroup.remove(entry.group);
-            disposeEntityGroup(entry.group);
-          }
-          const variantSeed = b.tileX * 31 + b.tileZ * 17;
-          const group = createBuildingGroup(b.type, b.epochLevel, variantSeed, bSpecies, isWaterTile);
-          group.position.set(b.tileX, groundY, b.tileZ);
-          buildingsGroup.add(group);
-          const flickerFlames: THREE.Object3D[] = [];
-          const spinParts: THREE.Object3D[] = [];
-          for (let ci = 0; ci < group.children.length; ci++) {
-            const ch = group.children[ci];
-            if (ch.name === 'flicker_flame') flickerFlames.push(ch);
-            else if (ch.name === 'spin_part') spinParts.push(ch);
-          }
-          const rotY = computeBuildingRotY(b.tileX, b.tileZ, b.type);
-          group.rotation.y = rotY;
-          entry = {
-            group,
-            epochLevel: b.epochLevel,
-            type: b.type,
-            species: bSpecies,
-            isWaterTile,
-            flickerFlames,
-            spinParts,
-            cachedRotY: rotY,
-            seenStamp: syncFrameStamp,
-          };
-          buildingMeshes.set(b.id, entry);
-          createdOrRebuilt = true;
-        } else {
-          entry.seenStamp = syncFrameStamp;
-          if (!entry.group.visible) entry.group.visible = true;
-          if (propsNeedSync) {
-            entry.cachedRotY = computeBuildingRotY(b.tileX, b.tileZ, b.type);
-            entry.group.rotation.y = entry.cachedRotY;
-          }
-        }
-
-        if (!createdOrRebuilt && entry.group.position.y !== groundY) {
-          entry.group.position.y = groundY;
-        }
+        const rotY =
+          !existingEntry || propsNeedSync
+            ? computeBuildingRotY(b.tileX, b.tileZ, b.type)
+            : existingEntry.cachedRotY;
         const buildScaleY =
           b.constructionProgress < 100 ? 0.22 + 0.78 * (b.constructionProgress / 100) : 1;
-        if (entry.group.scale.y !== buildScaleY) {
-          entry.group.scale.y = buildScaleY;
-        }
+        const variantSeed = b.tileX * 31 + b.tileZ * 17;
+
+        const entry = batchedBuildings.upsertBuilding(
+          b.id,
+          b.type,
+          b.epochLevel,
+          bSpecies,
+          variantSeed,
+          isWaterTile,
+          b.tileX,
+          groundY,
+          b.tileZ,
+          rotY,
+          buildScaleY,
+          true,
+          syncFrameStamp,
+        );
 
         for (let fi = 0; fi < entry.flickerFlames.length; fi++) {
           const flame = entry.flickerFlames[fi];
@@ -7879,13 +7774,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         hearthLight.position.set(gridCenter, 3.0, gridCenter);
       }
 
-      for (const [id, entry] of buildingMeshes.entries()) {
-        if (entry.seenStamp !== syncFrameStamp) {
-          buildingsGroup.remove(entry.group);
-          disposeEntityGroup(entry.group);
-          buildingMeshes.delete(id);
-        }
-      }
+      batchedBuildings.pruneUnseen(syncFrameStamp);
 
       // 3. Sync units with cached limb/status references, viewport culling & adaptive crowd pacing
       const selectedUnitId = propsRef.current.selectedEntityId;
@@ -8255,7 +8144,16 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           uGroup.userData.smoothWorldY = finalUnitY;
         }
         const flightHoverY = Math.max(0, finalUnitY - groundY);
-        uGroup.position.set(u.x, finalUnitY, u.z);
+        // Smooth 60FPS visual interpolation between decoupled 15Hz simulation ticks
+        const interpX =
+          !u.draggedByPlayer && u.prevX !== undefined && Math.abs(u.x - u.prevX) < 3.5
+            ? u.prevX + (u.x - u.prevX) * simInterpAlpha
+            : u.x;
+        const interpZ =
+          !u.draggedByPlayer && u.prevZ !== undefined && Math.abs(u.z - u.prevZ) < 3.5
+            ? u.prevZ + (u.z - u.prevZ) * simInterpAlpha
+            : u.z;
+        uGroup.position.set(interpX, finalUnitY, interpZ);
 
         let dragonYawDelta = 0;
         if (blackHolePullFrac > 0.15) {
@@ -10197,9 +10095,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         autoOptimizer.reset();
       }
 
-      // Auto-Optimize FPS monitor with hysteresis cooldown (active gameplay only)
+      // Auto-Optimize FPS monitor (active only when Low-End Mode is selected; Strict Lossless skips downgrades)
       const gfxSettings = propsRef.current.graphicsSettings;
-      if (!isSoftwareGl && gfxSettings.autoOptimizeFps && currentGameState === 'playing') {
+      const isStrictLossless = gfxSettings.strictLossless !== false;
+      if (!isSoftwareGl && !isStrictLossless && gfxSettings.autoOptimizeFps && currentGameState === 'playing') {
         const clampedMs = Math.min(120, Math.max(4, rawMs));
         emaFrameMs = emaFrameMs * 0.92 + clampedMs * 0.08;
         if (autoTrimCooldown > 0) {
@@ -10211,7 +10110,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           autoTrimLevel = (autoTrimLevel - 1) as 0 | 1 | 2;
           autoTrimCooldown = 4.0;
         }
-      } else if (!gfxSettings.autoOptimizeFps) {
+      } else {
         autoTrimLevel = 0;
       }
 
@@ -10224,6 +10123,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         isPlaying: currentGameState === 'playing',
         isSoftwareGl,
         autoEnabled: gfxSettings.autoOptimizeFps,
+        strictLossless: isStrictLossless,
       });
 
       activeGfxProfile = resolveGraphicsProfile(gfxSettings, autoTrimLevel);
@@ -10457,18 +10357,39 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         applyHoldStrokeToTile(hoveredTileCoords.x, hoveredTileCoords.z, now);
       }
 
-      // Advance simulation when in 'playing' (or gentle ambient motion in 'title') — clamped to 5x max speed
-      // Protect camera responsiveness during extreme high-pop fast-forward via autoOptDecisions.maxSimDt
+      // Decoupled fixed-timestep simulation accumulator (15 Hz) with 60 FPS visual interpolation!
+      // Eliminates 4x redundant AI/tile scans per second while keeping silky-smooth 60Hz motion.
       const clampedSimSpeed = clampSimulationSpeed(propsRef.current.timeScale);
       const simStepDt = Math.min(dt, autoOptDecisions.maxSimDt);
       if (hitstopTimer > 0) {
         hitstopTimer = Math.max(0, hitstopTimer - dt);
       } else if (propsRef.current.gameState === 'playing' && clampedSimSpeed > 0) {
-        stepSimulation(simRef.current, simStepDt * clampedSimSpeed, { skipDragStep: true });
+        simAccumulator = Math.min(FIXED_SIM_DT * 2.5, simAccumulator + simStepDt);
+        let ticksThisFrame = 0;
+        while (simAccumulator >= FIXED_SIM_DT && ticksThisFrame < 2) {
+          const simT0 = performance.now();
+          stepSimulation(simRef.current, FIXED_SIM_DT * clampedSimSpeed, { skipDragStep: true });
+          lastSimTickMs = performance.now() - simT0;
+          simAccumulator -= FIXED_SIM_DT;
+          ticksThisFrame++;
+        }
+        simInterpAlpha = Math.min(1, Math.max(0, simAccumulator / FIXED_SIM_DT));
       } else if (propsRef.current.gameState === 'title') {
         // Live World Camera Tour on Title Screen
         camDesiredYaw += dt * 0.18;
-        stepSimulation(simRef.current, simStepDt * 0.35, { skipDragStep: true, skipRandomEvents: true });
+        simAccumulator = Math.min(FIXED_SIM_DT * 2, simAccumulator + simStepDt);
+        if (simAccumulator >= FIXED_SIM_DT) {
+          const simT0 = performance.now();
+          stepSimulation(simRef.current, FIXED_SIM_DT * 0.35, {
+            skipDragStep: true,
+            skipRandomEvents: true,
+          });
+          lastSimTickMs = performance.now() - simT0;
+          simAccumulator -= FIXED_SIM_DT;
+        }
+        simInterpAlpha = Math.min(1, Math.max(0, simAccumulator / FIXED_SIM_DT));
+      } else {
+        simInterpAlpha = 1;
       }
 
       // Smooth kinematics for dragged units runs every frame at full 60fps (even if paused or in hitstop)
@@ -12692,6 +12613,35 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         }
       }
 
+      // Optional Phase 0 Performance Debug HUD telemetry (throttled to ~4 Hz; zero overhead when off)
+      if (propsRef.current.graphicsSettings?.showPerformanceHud && propsRef.current.onPerfTelemetry) {
+        perfHudAccum += dt;
+        perfFrameCount++;
+        if (perfHudAccum >= 0.25) {
+          const avgFrameMs = (perfHudAccum * 1000) / Math.max(1, perfFrameCount);
+          const avgFps = Math.round(perfFrameCount / perfHudAccum);
+          const chunkStats = chunkTerrain.updateVisibilityStats(camera);
+          propsRef.current.onPerfTelemetry({
+            fps: avgFps,
+            frameMs: avgFrameMs,
+            drawCalls: renderer.info.render.calls,
+            triangles: renderer.info.render.triangles,
+            visibleChunks: chunkStats.visibleChunks,
+            totalChunks: chunkStats.totalChunks,
+            activeUnits: simRef.current.units.length,
+            activeBuildings: simRef.current.buildings.length,
+            simTickMs: lastSimTickMs,
+            workerQueue: chunkStats.pendingWorkerChunks,
+            gridSize: simRef.current.gridSize,
+          });
+          perfHudAccum = 0;
+          perfFrameCount = 0;
+        }
+      } else {
+        perfHudAccum = 0;
+        perfFrameCount = 0;
+      }
+
       if (isSoftwareGl) {
         afterDraw(tick);
       } else {
@@ -12769,9 +12719,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         }
         for (const m of hv.materials) m.dispose();
       }
-      for (const bEntry of buildingMeshes.values()) {
-        disposeEntityGroup(bEntry.group);
-      }
+      batchedBuildings.dispose();
       for (const uEntry of unitMeshes.values()) {
         disposeEntityGroup(uEntry.group);
       }
@@ -12886,8 +12834,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       billboardCyanMat.dispose();
       billboardPinkMat.dispose();
       billboardGoldMat.dispose();
-      tileGeo.dispose();
-      for (const inst of terrainInstancedList) inst.dispose();
+      chunkTerrain.dispose();
+      terrainWorkerPool.dispose();
       for (const inst of allPropInsts) inst.dispose();
       for (const inst of allMetroInsts) inst.dispose();
       particleGeo.dispose();

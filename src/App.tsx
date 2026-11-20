@@ -33,12 +33,15 @@ import { soundEngine } from './game/sound';
 import { toggleUnitFavorite } from './game/entityInspector';
 import { DEFAULT_BRUSH_SIZE, getTerrainTileRadius } from './game/brushSizes';
 import { PixelBrushSelector } from './components/PixelBrushSelector';
+import { PerformanceHud } from './components/PerformanceHud';
+import { getSharedWorldGenPool } from './game/workerPool';
 import {
   ActiveTool,
   BrushInputMode,
   GameLifecycleState,
   GraphicsSettings,
   LightingPreset,
+  PerfTelemetrySnapshot,
   Resources,
   SimulationState,
   ToolCategory,
@@ -387,6 +390,22 @@ export default function App() {
   const [graphicsSettings, setGraphicsSettings] = useState<GraphicsSettings>(() =>
     loadGraphicsSettings(),
   );
+  const [perfTelemetry, setPerfTelemetry] = useState<PerfTelemetrySnapshot | null>(null);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'F3') {
+        e.preventDefault();
+        setGraphicsSettings((prev) => {
+          const next = { ...prev, showPerformanceHud: !prev.showPerformanceHud };
+          saveGraphicsSettings(next);
+          return next;
+        });
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
   const [lightingPreset, setLightingPreset] = useState<LightingPreset>('noon');
   const [dockCollapsed, setDockCollapsed] = useState<boolean>(false);
   const [chronicleOpen, setChronicleOpen] = useState<boolean>(false);
@@ -552,32 +571,22 @@ export default function App() {
   useEffect(() => {
     if (gameState !== 'title' || titleMenuStep !== 'loading_world') return;
 
-    const stages = [
-      { pct: 35, text: 'Generating terrain...' },
-      { pct: 65, text: 'Seeding biomes...' },
-      { pct: 90, text: 'Spawning life...' },
-      { pct: 100, text: 'Ready' },
-    ];
+    let cancelled = false;
+    let finishTimer = 0;
 
-    const timers: number[] = [];
+    setLoadingProgress(15);
+    setLoadingStageText(`Sculpting ${worldConfig.gridSize}×${worldConfig.gridSize} terrain...`);
 
-    // Generate the actual configured world state on the second step
-    timers.push(
-      window.setTimeout(() => {
-        setLoadingProgress(stages[0].pct);
-        setLoadingStageText(stages[0].text);
-      }, 120),
-    );
-
-    timers.push(
-      window.setTimeout(() => {
-        setLoadingProgress(stages[1].pct);
-        setLoadingStageText(stages[1].text);
-        const builtSim = createInitialSimulationState(
-          worldConfig.gridSize,
-          worldConfig.seed,
-          worldConfig,
-        );
+    // Generate world off the main thread in the Comlink Web Worker so 384x384 & 512x512 never freeze UI
+    const pool = getSharedWorldGenPool();
+    pool
+      .generateWorldAsync(worldConfig.gridSize, worldConfig.seed, worldConfig, (pct, stage) => {
+        if (cancelled) return;
+        setLoadingProgress(Math.max(15, Math.min(98, pct)));
+        setLoadingStageText(stage);
+      })
+      .then((builtSim) => {
+        if (cancelled) return;
         simRef.current = builtSim;
         setSeedInput(String(builtSim.seed));
         setHoverTile(null);
@@ -589,33 +598,31 @@ export default function App() {
         setLightingPreset(builtSim.worldRules?.dayNightCycle ? 'auto' : 'noon');
         setActiveCategory('spawn');
         setActiveTool({ kind: 'spawn', unit: 'human' });
+        setLoadingProgress(100);
+        setLoadingStageText('Ready');
         setHudTick((t) => t + 1);
-      }, 320),
-    );
 
-    timers.push(
-      window.setTimeout(() => {
-        setLoadingProgress(stages[2].pct);
-        setLoadingStageText(stages[2].text);
-      }, 560),
-    );
-
-    timers.push(
-      window.setTimeout(() => {
-        setLoadingProgress(stages[3].pct);
-        setLoadingStageText(stages[3].text);
-      }, 760),
-    );
-
-      timers.push(
-      window.setTimeout(() => {
+        finishTimer = window.setTimeout(() => {
+          if (cancelled) return;
+          setTitleMenuStep('main');
+          handleStartGame();
+        }, 180);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        const fallbackSim = createInitialSimulationState(
+          worldConfig.gridSize,
+          worldConfig.seed,
+          worldConfig,
+        );
+        simRef.current = fallbackSim;
         setTitleMenuStep('main');
         handleStartGame();
-      }, 940),
-    );
+      });
 
     return () => {
-      for (const id of timers) window.clearTimeout(id);
+      cancelled = true;
+      if (finishTimer) window.clearTimeout(finishTimer);
     };
   }, [gameState, titleMenuStep, worldConfig, handleStartGame]);
 
@@ -1382,7 +1389,23 @@ export default function App() {
         onSelectEntity={handleSelectEntity}
         onBreakFollow={handleBreakFollow}
         onSyncHud={syncHud}
+        onPerfTelemetry={setPerfTelemetry}
       />
+
+      {/* Optional Phase 0 Performance Debug HUD (toggled via F3 or Settings) */}
+      {graphicsSettings.showPerformanceHud && perfTelemetry && (
+        <PerformanceHud
+          stats={perfTelemetry}
+          strictLossless={graphicsSettings.strictLossless !== false}
+          onClose={() => {
+            setGraphicsSettings((prev) => {
+              const next = { ...prev, showPerformanceHud: false };
+              saveGraphicsSettings(next);
+              return next;
+            });
+          }}
+        />
+      )}
 
       {/* TITLE SCREEN OVERLAY */}
       {gameState === 'title' && (
@@ -1678,7 +1701,7 @@ export default function App() {
                 )}
               </div>
 
-              {/* Map Size Slider */}
+              {/* Map Size Slider (64x64 up to 512x512 Titanic) */}
               <div>
                 <div className="flex items-center justify-between text-xs mb-2">
                   <label htmlFor="map-size-slider" className="text-[#b8afa2]">
@@ -1686,6 +1709,11 @@ export default function App() {
                   </label>
                   <span className="font-bold text-[#f2ece1] tabular-nums">
                     {worldConfig.gridSize}×{worldConfig.gridSize}
+                    {worldConfig.gridSize === 384
+                      ? ' (Huge)'
+                      : worldConfig.gridSize === 512
+                        ? ' (Titanic)'
+                        : ''}
                   </span>
                 </div>
                 <input
@@ -1693,7 +1721,7 @@ export default function App() {
                   data-testid="map-size-slider"
                   type="range"
                   min={64}
-                  max={256}
+                  max={512}
                   step={32}
                   value={worldConfig.gridSize}
                   onChange={(e) => {
@@ -1703,21 +1731,35 @@ export default function App() {
                   }}
                   className="px-range w-full"
                 />
-                <div className="flex justify-between text-[11px] text-[#8f8478] tabular-nums mt-1">
-                  <span>64</span>
-                  <span>128</span>
-                  <span>192</span>
-                  <span>256</span>
+                <div className="grid grid-cols-6 gap-1 mt-1.5">
+                  {([64, 128, 192, 256, 384, 512] as const).map((sz) => (
+                    <button
+                      key={sz}
+                      type="button"
+                      data-testid={`map-size-preset-${sz}`}
+                      onClick={() => {
+                        setWorldConfig((prev) => ({ ...prev, gridSize: sz }));
+                        soundEngine.playClick();
+                      }}
+                      className={`py-0.5 text-[10px] tabular-nums cursor-pointer ${
+                        worldConfig.gridSize === sz ? 'px-btn-active font-bold' : 'px-btn'
+                      }`}
+                    >
+                      {sz}
+                    </button>
+                  ))}
                 </div>
-                <div className="text-[11px] text-[#b8afa2] mt-1 tabular-nums">
+                <div className="text-[11px] text-[#b8afa2] mt-1.5 tabular-nums">
                   Max City Pop: <span className="font-semibold text-[#f2ece1]">{getMaxCityPopulation(worldConfig.gridSize)}</span> per city
                 </div>
-                {worldConfig.gridSize === 256 && (
+                {worldConfig.gridSize >= 384 && (
                   <div
                     data-testid="beefy-computer-warning"
-                    className="text-xs text-[#ff8f6b] font-semibold mt-1.5"
+                    className="text-xs text-[#56cfe1] font-semibold mt-1"
                   >
-                    Only for beefy computers!
+                    {worldConfig.gridSize === 512
+                      ? 'Titanic 512×512 world — powered by chunk greedy meshing & Web Workers!'
+                      : 'Huge 384×384 world — powered by chunk greedy meshing & Web Workers!'}
                   </div>
                 )}
               </div>

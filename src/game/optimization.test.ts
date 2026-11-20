@@ -1,0 +1,316 @@
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import * as THREE from 'three';
+import {
+  CHUNK_SIZE,
+  TERRAIN_TO_CODE,
+  createWorldGridBuffers,
+  getTileTopYFromCode,
+  markTileDirty,
+  raycastWorldGrid,
+  syncWorldGridFromTiles,
+} from './worldGrid';
+import { buildTerrainChunkGeometryData } from './terrainMesher';
+import { CoarseChunkGraph, FlowFieldManager, TimeSlicedPathBudget } from './pathfinding';
+import {
+  buildSimulationTickIndex,
+  createPooledSimulationTickIndex,
+} from './spatialIndex';
+import { BatchedBuildingSystem } from './batchedBuildings';
+import { DEFAULT_GRAPHICS_SETTINGS, resolveGraphicsProfile } from './graphics';
+import { AutoOptimizer } from './autoOptimizer';
+import { getMaxCityPopulation } from './catalog';
+import { createInitialSimulationState, ensureWorldGrid, stepSimulation } from './simulation';
+import { sanitizeSimulationForSave } from './worldStorage';
+
+describe('Major Optimization & 512x512 Scaling Suite', () => {
+  it('greedy terrain chunk mesher achieves massive triangle reduction with zero bottom faces', () => {
+    const gridSize = 64;
+    const grid = createWorldGridBuffers(gridSize, CHUNK_SIZE);
+
+    // Fill chunk (0,0) with a flat ocean border, flat grass plain, and a raised plateau
+    for (let z = 0; z < gridSize; z++) {
+      for (let x = 0; x < gridSize; x++) {
+        const i = z * gridSize + x;
+        if (x < 8 || z < 8) {
+          grid.heightMap[i] = 0;
+          grid.terrainCodeMap[i] = TERRAIN_TO_CODE.shallow_water;
+        } else if (x >= 14 && x <= 22 && z >= 14 && z <= 22) {
+          grid.heightMap[i] = 3;
+          grid.terrainCodeMap[i] = TERRAIN_TO_CODE.highland;
+        } else {
+          grid.heightMap[i] = 1;
+          grid.terrainCodeMap[i] = TERRAIN_TO_CODE.grass;
+        }
+      }
+    }
+
+    const chunk = buildTerrainChunkGeometryData(
+      grid.heightMap,
+      grid.terrainCodeMap,
+      grid.crushedMask,
+      gridSize,
+      0,
+      0,
+      CHUNK_SIZE,
+    );
+
+    const naiveCubeTriangles = CHUNK_SIZE * CHUNK_SIZE * 12; // 12,288 tris for 32x32 cubes
+    assert.ok(
+      chunk.triangleCount < naiveCubeTriangles * 0.1,
+      `Expected >90% triangle reduction on flat/plateau chunk, got ${chunk.triangleCount} vs ${naiveCubeTriangles}`,
+    );
+    assert.ok(chunk.landTopIndices.length > 0, 'Should emit land top triangles');
+    assert.ok(chunk.waterTopIndices.length > 0, 'Should emit water seabed top triangles');
+    assert.ok(chunk.cliffIndices.length > 0, 'Should emit exposed cliff wall triangles');
+
+    // Verify ZERO bottom-facing (-Y) normals exist anywhere
+    for (let i = 1; i < chunk.landTopNormals.length; i += 3) {
+      assert.equal(chunk.landTopNormals[i], 1);
+    }
+    for (let i = 1; i < chunk.cliffNormals.length; i += 3) {
+      assert.equal(chunk.cliffNormals[i], 0);
+    }
+  });
+
+  it('greedy mesher reduces triangle count by >70% on procedural continents', () => {
+    const sim = createInitialSimulationState(128, 424242);
+    const grid = ensureWorldGrid(sim);
+    let totalGreedyTris = 0;
+    for (let cz = 0; cz < grid.chunksPerSide; cz++) {
+      for (let cx = 0; cx < grid.chunksPerSide; cx++) {
+        const data = buildTerrainChunkGeometryData(
+          grid.heightMap,
+          grid.terrainCodeMap,
+          grid.crushedMask,
+          grid.gridSize,
+          cx,
+          cz,
+          CHUNK_SIZE,
+        );
+        totalGreedyTris += data.triangleCount;
+      }
+    }
+    const naiveTris = sim.tiles.length * 12;
+    const reductionPct = (1 - totalGreedyTris / naiveTris) * 100;
+    assert.ok(
+      reductionPct >= 70,
+      `Expected >=70% triangle reduction on procedural 128x128 world, got ${reductionPct.toFixed(1)}% (${totalGreedyTris} vs ${naiveTris})`,
+    );
+  });
+
+  it('WorldGridBuffers keeps 512x512 memory under 3 MB and marks cross-chunk seam neighbors dirty', () => {
+    const grid = createWorldGridBuffers(512, CHUNK_SIZE);
+    const totalBytes =
+      grid.heightMap.byteLength +
+      grid.terrainCodeMap.byteLength +
+      grid.resourceNodeMap.byteLength +
+      grid.resourceAmountMap.byteLength +
+      grid.ownerMap.byteLength +
+      grid.crushedMask.byteLength +
+      grid.dirtyChunks.byteLength;
+
+    assert.ok(
+      totalBytes < 3 * 1024 * 1024,
+      `512x512 WorldGridBuffers should stay < 3 MB, got ${(totalBytes / 1024 / 1024).toFixed(2)} MB`,
+    );
+
+    // Clear dirty flags then dirty a tile on the exact right edge of chunk (0, 0)
+    grid.dirtyChunks.fill(0);
+    grid.dirtyChunkCount = 0;
+    markTileDirty(grid, 31, 10);
+    assert.equal(grid.dirtyChunks[0], 1, 'Chunk (0,0) should be dirty');
+    assert.equal(grid.dirtyChunks[1], 1, 'Neighbor chunk (1,0) across cliff seam should also be dirty');
+    assert.equal(grid.dirtyChunkCount, 2);
+  });
+
+  it('3D Amanatides-Woo DDA voxel raymarch hits elevated hills accurately and runs fast on 512x512', () => {
+    const grid = createWorldGridBuffers(512, CHUNK_SIZE);
+    grid.heightMap.fill(1);
+    grid.terrainCodeMap.fill(TERRAIN_TO_CODE.grass);
+    // Place a tall mountain pillar at (256, 256)
+    const targetIdx = 256 * 512 + 256;
+    grid.heightMap[targetIdx] = 6;
+    grid.terrainCodeMap[targetIdx] = TERRAIN_TO_CODE.mountain;
+
+    const topY = getTileTopYFromCode(6, TERRAIN_TO_CODE.mountain);
+    // Cast an isometric ray aimed straight at the top center of (256, topY, 256)
+    const dir = new THREE.Vector3(-1, -1.1, -1).normalize();
+    const origin = new THREE.Vector3(256, topY, 256).addScaledVector(dir, -40);
+    const ray = new THREE.Ray(origin, dir);
+
+    const hit = raycastWorldGrid(ray, grid);
+    assert.ok(hit, 'Ray should hit the mountain pillar');
+    assert.equal(hit.x, 256);
+    assert.equal(hit.z, 256);
+    assert.ok(Math.abs(hit.hitY - topY) < 0.05);
+
+    // Benchmark 200 raycasts on 512x512
+    const t0 = performance.now();
+    for (let i = 0; i < 200; i++) {
+      raycastWorldGrid(ray, grid);
+    }
+    const elapsedMs = performance.now() - t0;
+    assert.ok(
+      elapsedMs < 35,
+      `200 DDA raycasts on 512x512 should complete well under 35ms, took ${elapsedMs.toFixed(2)}ms`,
+    );
+  });
+
+  it('flatqueue FlowFieldManager routes around water walls and CoarseChunkGraph paths across 512x512', () => {
+    const grid = createWorldGridBuffers(64, CHUNK_SIZE);
+    grid.heightMap.fill(1);
+    grid.terrainCodeMap.fill(TERRAIN_TO_CODE.grass);
+
+    // Build a vertical water barrier at x = 20 from z = 0..25 with a land bridge gap at z = 26..30
+    for (let z = 0; z <= 25; z++) {
+      const i = z * 64 + 20;
+      grid.heightMap[i] = 0;
+      grid.terrainCodeMap[i] = TERRAIN_TO_CODE.deep_water;
+    }
+
+    const flowMgr = new FlowFieldManager(8);
+    const field = flowMgr.getOrBuildFlowField(grid, 26, 10, 1, 32, false);
+
+    // Unit at (16, 10) must NOT step directly east into the water wall; it should steer south (+Z) toward the bridge
+    const dir = flowMgr.sampleDirection(field, 18, 10);
+    assert.ok(dir, 'Expected valid flow vector on west side of barrier');
+    assert.ok(dir.dz >= 0, `Expected southward detour around barrier, got (${dir.dx}, ${dir.dz})`);
+
+    // Coarse 32x32 HPA* across a 512x512 world
+    const bigGrid = createWorldGridBuffers(512, CHUNK_SIZE);
+    bigGrid.heightMap.fill(1);
+    bigGrid.terrainCodeMap.fill(TERRAIN_TO_CODE.grass);
+    const graph = new CoarseChunkGraph();
+    const t0 = performance.now();
+    const coarsePath = graph.findCoarsePath(bigGrid, 10, 10, 490, 490);
+    const ms = performance.now() - t0;
+    assert.ok(coarsePath && coarsePath.length >= 15, 'Expected valid multi-chunk path across 512x512');
+    assert.ok(ms < 50, `Coarse HPA* build + query on 512x512 took ${ms.toFixed(2)}ms`);
+
+    // Budget enforcement check
+    const budget = new TimeSlicedPathBudget(20);
+    let granted = 0;
+    for (let i = 0; i < 30; i++) {
+      if (budget.tryConsume()) granted++;
+    }
+    assert.equal(granted, 20);
+  });
+
+  it('pooled SimulationTickIndex reuses cell bucket arrays across consecutive ticks', () => {
+    const sim = createInitialSimulationState(64, 7777);
+    const pool = createPooledSimulationTickIndex(sim.gridSize);
+    const first = buildSimulationTickIndex(sim, () => undefined, () => false, pool);
+    const firstCellsRef = first.cells;
+    stepSimulation(sim, 0.066);
+    const second = buildSimulationTickIndex(sim, () => undefined, () => false, pool);
+    assert.equal(second, first, 'Should return the exact same pooled index object');
+    assert.equal(second.cells, firstCellsRef, 'Should reuse cell array container');
+  });
+
+  it('BatchedBuildingSystem collapses hundreds of buildings into O(1) material draw buckets', () => {
+    const sys = new BatchedBuildingSystem();
+    for (let i = 0; i < 30; i++) {
+      sys.upsertBuilding(
+        `b_${i}`,
+        i % 2 === 0 ? 'forager_hut' : 'granary',
+        1,
+        'human',
+        i,
+        false,
+        10 + i,
+        1.0,
+        10,
+        0,
+        1,
+        true,
+        1,
+      );
+    }
+    const bucketsAt30 = sys.getDrawCallBucketCount();
+    assert.equal(sys.getBuildingCount(), 30);
+    assert.ok(
+      bucketsAt30 > 0 && bucketsAt30 <= 28,
+      `Expected <= 28 BatchedMesh draw buckets for 30 rich multi-material buildings, got ${bucketsAt30}`,
+    );
+
+    // Adding 120 more buildings of the same types must create ZERO additional draw calls (O(1)!)
+    for (let i = 30; i < 150; i++) {
+      sys.upsertBuilding(
+        `b_${i}`,
+        i % 2 === 0 ? 'forager_hut' : 'granary',
+        1,
+        'human',
+        i,
+        false,
+        10 + (i % 40),
+        1.0,
+        12 + Math.floor(i / 40),
+        0,
+        1,
+        true,
+        1,
+      );
+    }
+    assert.equal(sys.getBuildingCount(), 150);
+    assert.equal(
+      sys.getDrawCallBucketCount(),
+      bucketsAt30,
+      'Draw-call bucket count must remain O(1) constant as building count scales 5x',
+    );
+
+    // Hide & prune verification
+    sys.setHidden('b_0', 2);
+    sys.pruneUnseen(2);
+    assert.equal(sys.getBuildingCount(), 1, 'Only buildings stamped with current frame should remain');
+    sys.dispose();
+  });
+
+  it('enforces Strict Lossless Mode by default, scales city caps for 384/512, and strips worldGrid on save', () => {
+    assert.equal(DEFAULT_GRAPHICS_SETTINGS.strictLossless, true);
+    assert.equal(DEFAULT_GRAPHICS_SETTINGS.showPerformanceHud, false);
+
+    // Strict Lossless ignores autoTrimLevel downgrades
+    const losslessProfile = resolveGraphicsProfile(DEFAULT_GRAPHICS_SETTINGS, 2);
+    assert.equal(losslessProfile.foliageFactor, 1.0);
+    assert.equal(losslessProfile.particleScale, 1.0);
+    assert.equal(losslessProfile.shadowUpdateStride, 1);
+
+    // Low-End mode allows adaptive trimming
+    const lowEndProfile = resolveGraphicsProfile(
+      { ...DEFAULT_GRAPHICS_SETTINGS, strictLossless: false },
+      2,
+    );
+    assert.ok(lowEndProfile.foliageFactor < 1.0);
+    assert.ok(lowEndProfile.particleScale < 1.0);
+
+    const opt = new AutoOptimizer();
+    const losslessDec = opt.update({
+      rawFrameMs: 45,
+      dt: 0.05,
+      frustumSize: 60,
+      visibleUnitCount: 300,
+      totalUnitCount: 500,
+      isPlaying: true,
+      isSoftwareGl: false,
+      autoEnabled: true,
+      strictLossless: true,
+    });
+    assert.equal(losslessDec.tier, 0);
+    assert.equal(losslessDec.crowdAnimStride, 1);
+    assert.equal(losslessDec.unitCastShadows, true);
+
+    assert.equal(getMaxCityPopulation(256), 135);
+    assert.equal(getMaxCityPopulation(384), 175);
+    assert.equal(getMaxCityPopulation(512), 220);
+
+    const sim = createInitialSimulationState(64, 9001);
+    ensureWorldGrid(sim);
+    assert.ok(sim.worldGrid, 'worldGrid should attach lazily');
+    const saved = sanitizeSimulationForSave(sim);
+    assert.equal(saved.worldGrid, undefined, 'worldGrid must be stripped before IndexedDB save');
+    const rebuiltGrid = ensureWorldGrid(saved);
+    syncWorldGridFromTiles(rebuiltGrid, saved.tiles);
+    assert.equal(rebuiltGrid.gridSize, 64);
+  });
+});

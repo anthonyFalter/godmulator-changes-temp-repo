@@ -218,6 +218,8 @@ export interface UnitEntity {
   faction: 'civilization' | 'hostile' | 'wildlife';
   x: number;
   z: number;
+  prevX?: number;
+  prevZ?: number;
   targetX: number;
   targetZ: number;
   hp: number;
@@ -632,6 +634,24 @@ export interface GraphicsSettings {
   foliageDensity: FoliageDetailOption;
   particles: ParticleDetailOption;
   autoOptimizeFps: boolean;
+  /** Strict 100% lossless visual parity (default true); disable for Low-End / Performance Mode */
+  strictLossless?: boolean;
+  /** Toggle optional Phase 0 Performance Debug HUD (F3 hotkey or Settings) */
+  showPerformanceHud?: boolean;
+}
+
+export interface PerfTelemetrySnapshot {
+  fps: number;
+  frameMs: number;
+  drawCalls: number;
+  triangles: number;
+  visibleChunks: number;
+  totalChunks: number;
+  activeUnits: number;
+  activeBuildings: number;
+  simTickMs: number;
+  workerQueue: number;
+  gridSize: number;
 }
 
 export type WorldTemplateId =
@@ -728,4 +748,6 @@ export interface SimulationState {
   voidGooTimer?: number;
   voidWisps?: VoidWispEntity[];
   activeWorldEvent?: WorldEventState | null;
+  /** Transient runtime flat TypedArray acceleration buffers (stripped on save, auto-rebuilt on load) */
+  worldGrid?: unknown;
 }

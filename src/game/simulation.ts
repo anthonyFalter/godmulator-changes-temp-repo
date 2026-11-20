@@ -48,10 +48,50 @@ import {
   forEachUnitInRadius,
   hasGatheringHelperNear,
 } from './spatialIndex';
+import {
+  WorldGridBuffers,
+  createWorldGridBuffers,
+  syncWorldGridFromTiles,
+} from './worldGrid';
+import {
+  CoarseChunkGraph,
+  FlowFieldManager,
+  TimeSlicedPathBudget,
+} from './pathfinding';
 
 const BUILDING_BY_TYPE = new Map(BUILDINGS.map((d) => [d.type, d]));
 const UNIT_BY_ROLE = new Map(UNITS.map((d) => [d.role, d]));
 let activeTickIndex: SimulationTickIndex | null = null;
+let pooledTickIndex: SimulationTickIndex | undefined;
+const simFlowFields = new FlowFieldManager(24);
+const simCoarseGraph = new CoarseChunkGraph();
+const simPathBudget = new TimeSlicedPathBudget(20);
+
+const FIRE_SPREAD_OFFSETS: readonly [number, number, number][] = [
+  [1, 0, 1.0],
+  [-1, 0, 1.0],
+  [0, 1, 1.0],
+  [0, -1, 1.0],
+  [1, 1, 0.35],
+  [-1, 1, 0.35],
+  [1, -1, 0.35],
+  [-1, -1, 0.35],
+];
+
+/**
+ * Ensures the flat TypedArray `WorldGridBuffers` acceleration structure exists on `state`.
+ * Lazily created & synced so both newly generated and loaded IndexedDB worlds work identically.
+ */
+export function ensureWorldGrid(state: SimulationState): WorldGridBuffers {
+  const existing = state.worldGrid as WorldGridBuffers | undefined;
+  if (existing && existing.gridSize === state.gridSize) {
+    return existing;
+  }
+  const grid = createWorldGridBuffers(state.gridSize);
+  syncWorldGridFromTiles(grid, state.tiles, true);
+  state.worldGrid = grid;
+  return grid;
+}
 
 const HUMAN_FIRST_NAMES = [
   'Kaelen', 'Lyra', 'Theron', 'Vesper', 'Oakhart', 'Soren', 'Mira', 'Darian',
@@ -9104,18 +9144,20 @@ function stepSimulationSingle(
   const tiles = state.tiles;
   const nTiles = tiles.length;
   const wildfireSpreadEnabled = state.worldRules?.wildfireSpread !== false;
-  const fireSpreadOffsets: readonly [number, number, number][] = [
-    [1, 0, 1.0],
-    [-1, 0, 1.0],
-    [0, 1, 1.0],
-    [0, -1, 1.0],
-    [1, 1, 0.35],
-    [-1, 1, 0.35],
-    [1, -1, 0.35],
-    [-1, -1, 0.35],
-  ];
+  const fireSpreadOffsets = FIRE_SPREAD_OFFSETS;
   for (let i = 0; i < nTiles; i++) {
     const t = tiles[i];
+    // Fast-path skip for 99%+ of quiet tiles on 384x384 / 512x512 worlds
+    if (
+      t.onFireTimer === 0 &&
+      t.blessedTimer === 0 &&
+      t.cursedTimer === 0 &&
+      !t.crushedTimer &&
+      !t.tempOffset &&
+      !t.coralBleachTimer
+    ) {
+      continue;
+    }
     if (t.blessedTimer > 0) t.blessedTimer = Math.max(0, t.blessedTimer - dt);
     if (t.cursedTimer > 0) t.cursedTimer = Math.max(0, t.cursedTimer - dt);
     if ((t.crushedTimer ?? 0) > 0) {
@@ -9357,13 +9399,18 @@ function stepSimulationSingle(
   const hazardsList = state.activeHazards ?? [];
   const hasWormholeRift = hazardsList.some((h) => h.kind === 'wormhole_rift');
 
-  activeTickIndex = buildSimulationTickIndex(
+  simPathBudget.resetTick();
+  pooledTickIndex = buildSimulationTickIndex(
     state,
     (s, sid) => (sid ? getKingdomId(s, sid) : undefined),
     isCarnivoreAnimal,
+    pooledTickIndex,
   );
+  activeTickIndex = pooledTickIndex;
   try {
   for (const u of state.units) {
+    u.prevX = u.x;
+    u.prevZ = u.z;
     const suspendedInVortex =
       hasWormholeRift &&
       !u.statusEffects.shielded &&
@@ -13771,16 +13818,50 @@ function advanceUnitPositionWithWaterRules(
     return;
   }
 
-  // Next tile is open water! Check if there is an adjacent walkway/land detour tile toward the goal
+  // Next tile is open water! Try cached flatqueue FlowField / coarse HPA* steering first so armies
+  // and settlers smoothly route around bays, rivers, and mountain ridges on large maps.
   if (currentlyOnSolid) {
-    for (const [ox, oz] of [
-      [Math.sign(dirX), 0],
-      [0, Math.sign(dirZ)],
+    const goalDistSq = (u.targetX - u.x) ** 2 + (u.targetZ - u.z) ** 2;
+    if (goalDistSq > 9 && simPathBudget.tryConsume()) {
+      const grid = ensureWorldGrid(state);
+      let steerX = u.targetX;
+      let steerZ = u.targetZ;
+      if (goalDistSq > 46 * 46) {
+        const coarsePath = simCoarseGraph.findCoarsePath(grid, u.x, u.z, u.targetX, u.targetZ);
+        if (coarsePath && coarsePath.length > 0) {
+          steerX = coarsePath[0].centerX;
+          steerZ = coarsePath[0].centerZ;
+        }
+      }
+      const field = simFlowFields.getOrBuildFlowField(grid, steerX, steerZ, state.year, 48, false);
+      const flowDir = simFlowFields.sampleDirection(field, u.x, u.z);
+      if (flowDir) {
+        const fLen = Math.hypot(flowDir.dx, flowDir.dz) || 1;
+        const fx = Math.max(1, Math.min(state.gridSize - 2, u.x + (flowDir.dx / fLen) * moveSpeed * dt));
+        const fz = Math.max(1, Math.min(state.gridSize - 2, u.z + (flowDir.dz / fLen) * moveSpeed * dt));
+        if (isWalkableOrWalkwayTile(getTile(state, Math.round(fx), Math.round(fz)))) {
+          u.x = fx;
+          u.z = fz;
+          u.isSwimming = false;
+          u.swimStamina = Math.min(100, (u.swimStamina ?? 100) + 35 * dt);
+          return;
+        }
+      }
+    }
+
+    const sdx = Math.sign(dirX);
+    const sdz = Math.sign(dirZ);
+    const detourDirs: readonly [number, number][] = [
+      [sdx, 0],
+      [0, sdz],
       [1, 0],
       [-1, 0],
       [0, 1],
       [0, -1],
-    ]) {
+    ];
+    for (let di = 0; di < detourDirs.length; di++) {
+      const ox = detourDirs[di][0];
+      const oz = detourDirs[di][1];
       if (ox === 0 && oz === 0) continue;
       const candX = Math.round(u.x) + ox;
       const candZ = Math.round(u.z) + oz;

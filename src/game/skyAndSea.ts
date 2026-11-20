@@ -404,7 +404,7 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
   zoneIdTex.wrapT = THREE.ClampToEdgeWrapping;
   zoneIdTex.flipY = false;
 
-  const oceanSegs = Math.min(64, gridSize);
+  const oceanSegs = Math.min(96, gridSize);
   const geo = new THREE.PlaneGeometry(gridSize, gridSize, oceanSegs, oceanSegs);
   geo.rotateX(-Math.PI / 2);
 
@@ -917,6 +917,11 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
 
 export interface StyledTerrainSystem {
   getMaterials: (terrain: TerrainType) => THREE.MeshStandardMaterial[];
+  /** Unified lossless materials for greedy-meshed 32x32 terrain chunks (1 top + 1 cliff material) */
+  getChunkMaterials: () => {
+    topMat: THREE.MeshStandardMaterial;
+    cliffMat: THREE.MeshStandardMaterial;
+  };
   updateMap: (
     tiles: TileData[],
     buildings?: BuildingEntity[],
@@ -2372,7 +2377,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
           vec4 self = sampleLandTile(tileCoord);
           float myHeight = decodeHeight(self);
           float myCode = decodeTerrain(self);
-          if (myHeight < 0.5) myCode = uDefaultCode;
+          if (myHeight < 0.5 && uDefaultCode >= 0.0) myCode = uDefaultCode;
 
           vec4 nN = sampleLandTile(tileCoord + vec2( 0.0, -1.0));
           vec4 nS = sampleLandTile(tileCoord + vec2( 0.0,  1.0));
@@ -2764,12 +2769,129 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
     terrainMaterialMap.set(tType, [cliffMat, cliffMat, topMat, cliffMat, cliffMat, cliffMat]);
   }
 
+  // Unified chunk top material: reuses the exact pixel-art biome shader with per-tile roughness/metalness
+  // derived directly from uLandMap so greedy-meshed 32x32 chunks render 100% pixel-identical!
+  const chunkTopMat = (terrainMaterialMap.get('grass')![2] as THREE.MeshStandardMaterial).clone();
+  const baseTopOnBeforeCompile = (terrainMaterialMap.get('grass')![2] as THREE.MeshStandardMaterial).onBeforeCompile;
+  chunkTopMat.customProgramCacheKey = () => 'aeon_land_chunk_top_pixel_v15';
+  chunkTopMat.onBeforeCompile = (shader, rendererRef) => {
+    baseTopOnBeforeCompile.call(chunkTopMat, shader, rendererRef);
+    shader.uniforms.uDefaultCode = { value: -1.0 };
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <roughnessmap_fragment>',
+        `#include <roughnessmap_fragment>
+        {
+          vec2 rTile = floor(floor((vLandWorldPos.xz + 0.5) * 16.0) / 16.0);
+          float rCode = decodeTerrain(sampleLandTile(rTile));
+          if (abs(rCode - 13.0) < 0.5) roughnessFactor = 0.34;
+          else if (abs(rCode - 9.0) < 0.5) roughnessFactor = 0.65;
+          else if (abs(rCode - 11.0) < 0.5 || abs(rCode - 18.0) < 0.5) roughnessFactor = 0.68;
+          else roughnessFactor = 0.82;
+        }`,
+      )
+      .replace(
+        '#include <metalnessmap_fragment>',
+        `#include <metalnessmap_fragment>
+        {
+          vec2 mTile = floor(floor((vLandWorldPos.xz + 0.5) * 16.0) / 16.0);
+          float mCode = decodeTerrain(sampleLandTile(mTile));
+          if (abs(mCode - 13.0) < 0.5) metalnessFactor = 0.28;
+          else if (abs(mCode - 10.0) < 0.5 || abs(mCode - 16.0) < 0.5) metalnessFactor = 0.12;
+          else metalnessFactor = 0.05;
+        }`,
+      );
+  };
+  createdMaterials.push(chunkTopMat);
+
+  // Reusable O(N) Chamfer distance-transform buffers for fast 512x512 bathymetry (replaces 81x nested scan)
+  const totalMapCells = gridSize * gridSize;
+  const distToLand = new Uint8Array(totalMapCells);
+  const distToShallow = new Uint8Array(totalMapCells);
+  const distToDeep = new Uint8Array(totalMapCells);
+
+  const runChamferPass = (buf: Uint8Array) => {
+    // Forward pass (top-left -> bottom-right), scaled by 10 (orthogonal=10, diagonal=14)
+    for (let z = 0; z < gridSize; z++) {
+      const row = z * gridSize;
+      for (let x = 0; x < gridSize; x++) {
+        const i = row + x;
+        let d = buf[i];
+        if (d === 0) continue;
+        if (x > 0) {
+          const cand = buf[i - 1] + 10;
+          if (cand < d) d = cand;
+        }
+        if (z > 0) {
+          const up = i - gridSize;
+          const candU = buf[up] + 10;
+          if (candU < d) d = candU;
+          if (x > 0) {
+            const candUL = buf[up - 1] + 14;
+            if (candUL < d) d = candUL;
+          }
+          if (x + 1 < gridSize) {
+            const candUR = buf[up + 1] + 14;
+            if (candUR < d) d = candUR;
+          }
+        }
+        buf[i] = d;
+      }
+    }
+    // Backward pass (bottom-right -> top-left)
+    for (let z = gridSize - 1; z >= 0; z--) {
+      const row = z * gridSize;
+      for (let x = gridSize - 1; x >= 0; x--) {
+        const i = row + x;
+        let d = buf[i];
+        if (d === 0) continue;
+        if (x + 1 < gridSize) {
+          const cand = buf[i + 1] + 10;
+          if (cand < d) d = cand;
+        }
+        if (z + 1 < gridSize) {
+          const dn = i + gridSize;
+          const candD = buf[dn] + 10;
+          if (candD < d) d = candD;
+          if (x + 1 < gridSize) {
+            const candDR = buf[dn + 1] + 14;
+            if (candDR < d) d = candDR;
+          }
+          if (x > 0) {
+            const candDL = buf[dn - 1] + 14;
+            if (candDL < d) d = candDL;
+          }
+        }
+        buf[i] = d;
+      }
+    }
+  };
+
   const updateMap = (
     tiles: TileData[],
     buildings?: BuildingEntity[],
     settlementSpecies?: Record<string, SpeciesId>,
   ) => {
     cityLightBytes.fill(0);
+    distToLand.fill(60);
+    distToShallow.fill(60);
+    distToDeep.fill(60);
+
+    // Seed distance transform in one O(N) pass
+    for (let i = 0; i < tiles.length; i++) {
+      const t = tiles[i];
+      if (t.height > 0) {
+        distToLand[i] = 0;
+        distToShallow[i] = 0;
+      } else if (t.terrain === 'deep_water' && !t.isRiver && !t.isLake) {
+        distToDeep[i] = 0;
+      } else {
+        distToShallow[i] = 0;
+      }
+    }
+    runChamferPass(distToLand);
+    runChamferPass(distToShallow);
+    runChamferPass(distToDeep);
 
     for (let i = 0; i < tiles.length; i++) {
       const t = tiles[i];
@@ -2786,38 +2908,16 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
           t.isLake;
         if (isReefOrSanctuary) {
           data[idx + 2] = 0;
+        } else if (t.terrain !== 'deep_water') {
+          const landD = Math.min(4.0, distToLand[i] * 0.1);
+          const deepD = Math.min(4.0, distToDeep[i] * 0.1);
+          const shoreFrac = Math.max(0, Math.min(1, (landD - 1.0) / 3.0));
+          const dropFrac = Math.max(0, Math.min(1, (3.2 - deepD) / 2.2));
+          data[idx + 2] = Math.round(shoreFrac * 42 + dropFrac * 68);
         } else {
-          let minLandDistSq = 99;
-          let minShallowDistSq = 99;
-          let minDeepDistSq = 99;
-          for (let dz = -4; dz <= 4; dz++) {
-            for (let dx = -4; dx <= 4; dx++) {
-              const nx = t.x + dx;
-              const nz = t.z + dz;
-              if (nx < 0 || nx >= gridSize || nz < 0 || nz >= gridSize) continue;
-              const nb = tiles[nz * gridSize + nx];
-              const dSq = dx * dx + dz * dz;
-              if (nb.height > 0) {
-                if (dSq < minLandDistSq) minLandDistSq = dSq;
-                if (dSq < minShallowDistSq) minShallowDistSq = dSq;
-              } else if (nb.terrain === 'deep_water' && !nb.isRiver && !nb.isLake) {
-                if (dSq < minDeepDistSq) minDeepDistSq = dSq;
-              } else {
-                if (dSq < minShallowDistSq) minShallowDistSq = dSq;
-              }
-            }
-          }
-          if (t.terrain !== 'deep_water') {
-            const landD = Math.min(4.0, Math.sqrt(minLandDistSq));
-            const deepD = Math.min(4.0, Math.sqrt(minDeepDistSq));
-            const shoreFrac = Math.max(0, Math.min(1, (landD - 1.0) / 3.0));
-            const dropFrac = Math.max(0, Math.min(1, (3.2 - deepD) / 2.2));
-            data[idx + 2] = Math.round(shoreFrac * 42 + dropFrac * 68);
-          } else {
-            const shallowD = Math.min(4.5, Math.sqrt(minShallowDistSq));
-            const slopeFrac = Math.max(0, Math.min(1, (shallowD - 1.0) / 3.2));
-            data[idx + 2] = Math.round(135 + slopeFrac * 120);
-          }
+          const shallowD = Math.min(4.5, distToShallow[i] * 0.1);
+          const slopeFrac = Math.max(0, Math.min(1, (shallowD - 1.0) / 3.2));
+          data[idx + 2] = Math.round(135 + slopeFrac * 120);
         }
       } else {
         data[idx + 2] = Math.abs(((t.x * 73856093) ^ (t.z * 19349663)) | 0) & 255;
@@ -2932,6 +3032,8 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
   const getMaterials = (terrain: TerrainType) =>
     terrainMaterialMap.get(terrain) ?? terrainMaterialMap.get('grass')!;
 
+  const getChunkMaterials = () => ({ topMat: chunkTopMat, cliffMat });
+
   const dispose = () => {
     for (const m of createdMaterials) m.dispose();
     landMapTex.dispose();
@@ -2940,7 +3042,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
     cityLightTex.dispose();
   };
 
-  return { getMaterials, updateMap, updateZones, updateFrame, dispose };
+  return { getMaterials, getChunkMaterials, updateMap, updateZones, updateFrame, dispose };
 }
 
 export interface PixelSpaceDebugState {
