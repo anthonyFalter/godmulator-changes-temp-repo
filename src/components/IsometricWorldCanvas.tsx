@@ -26,9 +26,12 @@ import {
 import {
   AutoOptimizer,
   AutoOptimizerDecisions,
+  DESPAWN_CULL_HYSTERESIS,
   WorldCullBounds,
   computeOrthoGroundCullBounds,
   computeSnappedShadowBounds,
+  isHazardIntersectingCullBounds,
+  isPointInCullBounds,
 } from '../game/autoOptimizer';
 import {
   TIME_OF_DAY_PRESETS,
@@ -1290,6 +1293,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       upSpeed = 4.5,
       sizeMult = 1.0,
     ) {
+      if (!isPointInCullBounds(x, z, worldCullBounds, 6.0)) return;
       const n = getScaledParticleCount(count);
       if (n <= 0) return;
       _burstBaseCol.set(hexColor);
@@ -1324,6 +1328,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       sizeMult = 0.95,
       lifeSec = 1.5,
     ) {
+      if (!isPointInCullBounds(x, z, worldCullBounds, 6.0 + radius)) return;
       const n = getScaledParticleCount(count);
       if (n <= 0) return;
       _burstBaseCol.set(hexColor);
@@ -1357,6 +1362,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       hexColor: string,
       spread = 0.45,
     ) {
+      if (
+        !isPointInCullBounds(ox, oz, worldCullBounds, 6.0) &&
+        !isPointInCullBounds(tx, tz, worldCullBounds, 6.0)
+      ) {
+        return;
+      }
       const n = getScaledParticleCount(count);
       if (n <= 0) return;
       _burstBaseCol.set(hexColor);
@@ -1403,6 +1414,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       outerRadius = 6.5,
       sizeMult = 0.95,
     ) {
+      if (!isPointInCullBounds(cx, cz, worldCullBounds, 6.0 + outerRadius)) return;
       const n = getScaledParticleCount(count);
       if (n <= 0) return;
       _burstBaseCol.set(hexColor);
@@ -1600,6 +1612,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       seenStamp: number;
     }
     const hazardMeshes = new Map<string, HazardVisual>();
+    function disposeHazardVisual(hv: HazardVisual) {
+      hazardsGroup.remove(hv.group);
+      if (hv.geometries) {
+        for (const g of hv.geometries) g.dispose();
+      }
+      for (const m of hv.materials) m.dispose();
+    }
 
     function createHazardVisual(
       kind: HazardVisual['kind'],
@@ -7569,12 +7588,20 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         worldCullBounds.maxX >= simState.gridSize - 1 &&
         worldCullBounds.minZ <= 0 &&
         worldCullBounds.maxZ >= simState.gridSize - 1;
+      const prevWholeMap =
+        lastPropCullMinX <= 0 &&
+        lastPropCullMaxX >= simState.gridSize - 1 &&
+        lastPropCullMinZ <= 0 &&
+        lastPropCullMaxZ >= simState.gridSize - 1;
       const boundsShifted =
         !wholeMapVisible &&
         (Math.abs(worldCullBounds.minX - lastPropCullMinX) > 4.0 ||
           Math.abs(worldCullBounds.maxX - lastPropCullMaxX) > 4.0 ||
           Math.abs(worldCullBounds.minZ - lastPropCullMinZ) > 4.0 ||
           Math.abs(worldCullBounds.maxZ - lastPropCullMaxZ) > 4.0);
+      if (boundsShifted || (wholeMapVisible && !prevWholeMap)) {
+        metroNeedsSync = true;
+      }
       const frustumDeltaPct =
         Math.abs(frustumSize - lastPropLodFrustum) / Math.max(10, lastPropLodFrustum);
       const radialCamMoved =
@@ -7741,8 +7768,15 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
         const elevatedActive = maxWorldEpoch >= 5;
         const skybridgesActive = maxWorldEpoch >= 4;
-        for (let i = 0; i < simState.tiles.length; i++) {
-          const t = simState.tiles[i];
+        const mMinX = Math.max(0, Math.floor(worldCullBounds.minX - 2));
+        const mMaxX = Math.min(gs - 1, Math.ceil(worldCullBounds.maxX + 2));
+        const mMinZ = Math.max(0, Math.floor(worldCullBounds.minZ - 2));
+        const mMaxZ = Math.min(gs - 1, Math.ceil(worldCullBounds.maxZ + 2));
+        for (let mz = mMinZ; mz <= mMaxZ; mz++) {
+          const mRowOff = mz * gs;
+          for (let mx = mMinX; mx <= mMaxX; mx++) {
+            const i = mRowOff + mx;
+            const t = simState.tiles[i];
           const isWaterWalkway =
             t.height === 0 &&
             (t.terrain === 'stone_road' || t.terrain === 'rail_track' || t.terrain === 'runway');
@@ -7983,9 +8017,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             pushInst(metroParapetNSInst, mx + perpX * 0.27, midY + 0.76, mz + perpZ * 0.27, slopeX, yaw, 0, 1, 1, spanLen);
             pushInst(metroParapetNSInst, mx - perpX * 0.27, midY + 0.76, mz - perpZ * 0.27, slopeX, yaw, 0, 1, 1, spanLen);
           }
+          }
         }
 
         for (const mInst of allMetroInsts) {
+          mInst.visible = mInst.count > 0;
           if (mInst.count > 0) {
             mInst.instanceMatrix.clearUpdateRanges();
             mInst.instanceMatrix.addUpdateRange(0, mInst.count * 16);
@@ -8028,13 +8064,15 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
       for (let bi = 0; bi < simState.buildings.length; bi++) {
         const b = simState.buildings[bi];
-        const bInView =
-          b.tileX >= cullMinX && b.tileX <= cullMaxX && b.tileZ >= cullMinZ && b.tileZ <= cullMaxZ;
         const existingEntry = batchedBuildings.getEntry(b.id);
+        const bInView = isPointInCullBounds(
+          b.tileX,
+          b.tileZ,
+          worldCullBounds,
+          existingEntry ? DESPAWN_CULL_HYSTERESIS : 0,
+        );
         if (!bInView) {
-          if (existingEntry) {
-            batchedBuildings.setHidden(b.id, syncFrameStamp);
-          }
+          // Leave seenStamp unstamped so pruneUnseen() unrenders & frees off-screen BatchedMesh slots
           continue;
         }
 
@@ -8110,28 +8148,32 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       for (let ui = 0; ui < simState.units.length; ui++) {
         const u = simState.units[ui];
         let uEntry = unitMeshes.get(u.id);
-        const isProtectedUnit =
+        const isCameraPinnedUnit =
           u.id === selectedUnitId ||
           u.id === hoveredUnitId ||
           u.id === followingUnitId ||
-          Boolean(u.draggedByPlayer) ||
-          Boolean(u.favorite) ||
-          Boolean(u.isKing) ||
+          Boolean(u.draggedByPlayer);
+        const isBossUnit =
           u.role === 'dragon' ||
           u.role === 'leviathan' ||
           u.role === 'alien_walker' ||
           u.role === 'alien_ufo';
-        const uInView =
-          isProtectedUnit ||
-          (u.x >= cullMinX && u.x <= cullMaxX && u.z >= cullMinZ && u.z <= cullMaxZ);
+        const isProtectedUnit =
+          isCameraPinnedUnit ||
+          Boolean(u.favorite) ||
+          Boolean(u.isKing) ||
+          isBossUnit;
 
-        // Hide embarked units or off-screen units (simulation continues identically; GPU & animation sleep)
-        if (u.embarkedVehicleId || !uInView) {
-          if (uEntry) {
-            uEntry.seenStamp = syncFrameStamp;
-            if (uEntry.group.visible) uEntry.group.visible = false;
-          }
+        // Embarked or off-screen units are completely unrendered and live purely in simulation data
+        if (u.embarkedVehicleId) {
           continue;
+        }
+        if (!isCameraPinnedUnit) {
+          const bossPad = isBossUnit ? 6.0 : 0.0;
+          const uPad = uEntry ? bossPad + DESPAWN_CULL_HYSTERESIS : bossPad;
+          if (!isPointInCullBounds(u.x, u.z, worldCullBounds, uPad)) {
+            continue;
+          }
         }
         visibleUnitsThisFrame++;
 
@@ -9158,14 +9200,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       if (vehicles && vehicles.length > 0) {
         for (let vi = 0; vi < vehicles.length; vi++) {
           const v = vehicles[vi];
-          const vInView =
-            v.x >= cullMinX && v.x <= cullMaxX && v.z >= cullMinZ && v.z <= cullMaxZ;
           let vEntry = vehicleMeshes.get(v.id);
-          if (!vInView) {
-            if (vEntry) {
-              vEntry.seenStamp = syncFrameStamp;
-              if (vEntry.group.visible) vEntry.group.visible = false;
-            }
+          const vBasePad =
+            v.type === 'plane' || v.type === 'bomber_plane' || v.type === 'orbital_gunship'
+              ? 3.5
+              : 0.5;
+          const vPad = vEntry ? vBasePad + DESPAWN_CULL_HYSTERESIS : vBasePad;
+          if (!isPointInCullBounds(v.x, v.z, worldCullBounds, vPad)) {
             continue;
           }
           if (
@@ -9343,14 +9384,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         const gsWisp = simState.gridSize;
         for (let wi = 0; wi < wispsList.length; wi++) {
           const w = wispsList[wi];
-          const wInView =
-            w.x >= cullMinX && w.x <= cullMaxX && w.z >= cullMinZ && w.z <= cullMaxZ;
           let wEntry = wispMeshes.get(w.id);
-          if (!wInView) {
-            if (wEntry) {
-              wEntry.seenStamp = syncFrameStamp;
-              if (wEntry.group.visible) wEntry.group.visible = false;
-            }
+          const wPad = wEntry ? DESPAWN_CULL_HYSTERESIS : 0;
+          if (!isPointInCullBounds(w.x, w.z, worldCullBounds, wPad)) {
             continue;
           }
           if (!wEntry || wEntry.color !== w.color) {
@@ -9421,9 +9457,24 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         }
       }
 
-      // 4. Consume pending VFX bursts
+      // 4. Consume pending VFX bursts (always run gameplay-deferred impacts; skip purely cosmetic off-screen VFX)
       while (simState.pendingVfx.length > 0) {
         const vfx = simState.pendingVfx.shift()!;
+        const mustRunSimulationImpact =
+          Boolean(vfx.deferImpact) ||
+          vfx.type === 'huge_asteroid_strike' ||
+          (vfx.type === 'sky_rain_drop' && Boolean(vfx.dropTargets && vfx.dropTargets.length > 0));
+        if (!mustRunSimulationImpact) {
+          const vfxPad = Math.max(4.0, (vfx.radius ?? 1) + 2.5);
+          const ox = vfx.originX ?? vfx.x;
+          const oz = vfx.originZ ?? vfx.z;
+          if (
+            !isPointInCullBounds(vfx.x, vfx.z, worldCullBounds, vfxPad) &&
+            !isPointInCullBounds(ox, oz, worldCullBounds, vfxPad)
+          ) {
+            continue;
+          }
+        }
         const vTile = getTileFromArray(simState, vfx.x, vfx.z);
         const surfY = getTileEffectSurfaceY(vTile, vfx.y);
         if (vfx.type === 'hit_spark') {
@@ -9549,10 +9600,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             continue;
           }
           let hv = hazardMeshes.get(haz.id);
+          const hazPad = hv ? DESPAWN_CULL_HYSTERESIS : 0;
+          if (!isHazardIntersectingCullBounds(haz, worldCullBounds, hazPad)) {
+            continue;
+          }
           if (!hv || hv.isSuper !== haz.isSuper) {
             if (hv) {
-              hazardsGroup.remove(hv.group);
-              for (const m of hv.materials) m.dispose();
+              disposeHazardVisual(hv);
             }
             hv = createHazardVisual(
               haz.kind,
@@ -10153,11 +10207,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
               const entryEnv = Math.sin(entryProg * Math.PI);
               animatePortalRig(hyperVfx.entryPortal, entryActive, entryProg, entryEnv, 1.0, -19.5, 0.85 * (1 - entryProg * 0.6));
 
-              if (hazAge >= 0.45 && !hv.group.userData.entryFlashDone) {
+              if (hazAge >= 0.45 && hazAge < 1.2 && !hv.group.userData.entryFlashDone) {
                 hv.group.userData.entryFlashDone = true;
                 triggerLightFlash(haz.x + fwdX * -14, hy + 21, haz.z + fwdZ * -14, '#bfdbfe', 24);
                 spawnParticleBurst(haz.x + fwdX * -14, hy + 20, haz.z + fwdZ * -14, 24, '#dbeafe', 0.9, 6.5, 0.95);
                 trauma = Math.min(1.0, trauma + 0.26);
+              } else if (hazAge >= 1.2) {
+                hv.group.userData.entryFlashDone = true;
               }
 
               // 2. Pre-Departure Hyperdrive Spool-up & Departure Hyperspace Jump Ripple (11.2 -> end)
@@ -10174,11 +10230,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
                 );
                 const punchEnv = Math.sin(punchT * Math.PI);
                 animatePortalRig(hyperVfx.exitPortal, true, punchT, Math.max(0.18, punchEnv), 1.0, 19.5, 0.95);
-                if (hazAge >= 12.78 && !hv.group.userData.exitFlashDone) {
+                if (hazAge >= 12.78 && hazAge < 13.5 && !hv.group.userData.exitFlashDone) {
                   hv.group.userData.exitFlashDone = true;
                   triggerLightFlash(haz.x + fwdX * 16, hy + 21, haz.z + fwdZ * 16, '#dbeafe', 26);
                   spawnParticleBurst(haz.x + fwdX * 16, hy + 20, haz.z + fwdZ * 16, 28, '#e0f2fe', 0.95, 7.5, 1.0);
                   trauma = Math.min(1.0, trauma + 0.28);
+                } else if (hazAge >= 13.5) {
+                  hv.group.userData.exitFlashDone = true;
                 }
               } else {
                 hyperVfx.exitPortal.group.visible = false;
@@ -10280,11 +10338,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       if (hazardMeshes.size > 0) {
         for (const [id, hv] of hazardMeshes.entries()) {
           if (hv.seenStamp !== syncFrameStamp) {
-            hazardsGroup.remove(hv.group);
-            if (hv.geometries) {
-              for (const g of hv.geometries) g.dispose();
-            }
-            for (const m of hv.materials) m.dispose();
+            disposeHazardVisual(hv);
             hazardMeshes.delete(id);
           }
         }
@@ -10301,7 +10355,15 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       for (let fi = 0; fi < activeFireTileIndices.length && fireTileCount < MAX_FIRE_TILES; fi++) {
         const i = activeFireTileIndices[fi];
         const t = simState.tiles[i];
-        if (t.onFireTimer > 0 && t.height > 0 && t.resourceNode !== 'ore_vein') {
+        if (
+          t.onFireTimer > 0 &&
+          t.height > 0 &&
+          t.resourceNode !== 'ore_vein' &&
+          t.x >= cullMinX &&
+          t.x <= cullMaxX &&
+          t.z >= cullMinZ &&
+          t.z <= cullMaxZ
+        ) {
           const fy = tileCurrentY[i] || t.height * HEIGHT_STEP + 0.25;
           const phase = ((t.x * 13 + t.z * 29) & 31) / 32;
           const fadeEnv = Math.min(1, t.onFireTimer / 0.8);
@@ -12401,6 +12463,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       for (let i = 0; i < simUnitsList.length; i++) {
         const fu = simUnitsList[i];
         if (fu.state === 'ko') continue;
+        if (!isPointInCullBounds(fu.x, fu.z, worldCullBounds, 1.5)) continue;
         if (fu.favorite && favCount < MAX_FAVORITE_STARS) {
           const metrics = getUnitInspectMetrics(fu);
           const uGrp = unitMeshes.get(fu.id)?.group;
@@ -13048,10 +13111,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       kingCrownGeo.dispose();
       kingCrownMat.dispose();
       for (const hv of hazardMeshes.values()) {
-        if (hv.geometries) {
-          for (const g of hv.geometries) g.dispose();
-        }
-        for (const m of hv.materials) m.dispose();
+        disposeHazardVisual(hv);
       }
       batchedBuildings.dispose();
       for (const uEntry of unitMeshes.values()) {

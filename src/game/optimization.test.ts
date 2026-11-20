@@ -20,7 +20,14 @@ import { BatchedBuildingSystem } from './batchedBuildings';
 import { getVoxelTreeLibrary, TreeBiomeKey } from './voxelTrees';
 import { getNodeVariantLibrary } from './meshBuilders';
 import { DEFAULT_GRAPHICS_SETTINGS, resolveGraphicsProfile } from './graphics';
-import { AutoOptimizer } from './autoOptimizer';
+import {
+  AutoOptimizer,
+  DESPAWN_CULL_HYSTERESIS,
+  WorldCullBounds,
+  isHazardIntersectingCullBounds,
+  isPointInCullBounds,
+  isRingIntersectingCullBounds,
+} from './autoOptimizer';
 import { getMaxCityPopulation } from './catalog';
 import { createInitialSimulationState, ensureWorldGrid, stepSimulation } from './simulation';
 import { sanitizeSimulationForSave } from './worldStorage';
@@ -400,4 +407,76 @@ describe('Major Optimization & 512x512 Scaling Suite', () => {
     assert.equal(sys.getLodLevel(), 0);
     sys.dispose();
   });
+
+  it('unrenders off-screen buildings/hazards via cull bounds & restores exact instances when back in view', () => {
+    const sys = new BatchedBuildingSystem();
+    const bounds: WorldCullBounds = { minX: 10, maxX: 30, minZ: 10, maxZ: 30 };
+
+    // Materialize two buildings (1 inside screen, 1 inside screen initially)
+    sys.upsertBuilding('b_near', 'forager_hut', 0, 'human', 1, false, 20, 1.0, 20, 0, 1, true, 1);
+    sys.upsertBuilding('b_far', 'granary', 2, 'human', 2, false, 80, 1.0, 80, Math.PI / 2, 1, true, 1);
+    assert.equal(sys.getBuildingCount(), 2);
+
+    // Frame 2: only stamp buildings inside keep bounds; b_far is far off-screen so pruneUnseen deletes its 3D instance
+    if (isPointInCullBounds(20, 20, bounds, DESPAWN_CULL_HYSTERESIS)) {
+      sys.upsertBuilding('b_near', 'forager_hut', 0, 'human', 1, false, 20, 1.0, 20, 0, 1, true, 2);
+    }
+    sys.pruneUnseen(2);
+    assert.equal(sys.getBuildingCount(), 1);
+    assert.equal(sys.getEntry('b_far'), undefined);
+
+    // Frame 3: pan camera over (80, 80) — both buildings flip roles cleanly
+    const pannedBounds: WorldCullBounds = { minX: 70, maxX: 90, minZ: 70, maxZ: 90 };
+    if (isPointInCullBounds(80, 80, pannedBounds, 0)) {
+      sys.upsertBuilding('b_far', 'granary', 2, 'human', 2, false, 80, 1.5, 80, Math.PI / 2, 1, true, 3);
+    }
+    sys.pruneUnseen(3);
+    assert.equal(sys.getBuildingCount(), 1);
+    assert.equal(sys.getEntry('b_near'), undefined);
+    assert.equal(sys.getEntry('b_far')?.cachedRotY, Math.PI / 2);
+    assert.equal(sys.getEntry('b_far')?.lastY, 1.5);
+    sys.dispose();
+
+    // Tsunami expanding wavefront ring intersection checks
+    assert.equal(
+      isRingIntersectingCullBounds(0, 0, 4, 8, bounds, 0),
+      false,
+      'Small tsunami far off-screen should stay unrendered',
+    );
+    assert.equal(
+      isRingIntersectingCullBounds(0, 0, 22, 28, bounds, 0),
+      true,
+      'Tsunami wavefront crossing the viewport must render even if epicenter is off-screen',
+    );
+    assert.equal(
+      isRingIntersectingCullBounds(0, 0, 60, 66, bounds, 0),
+      false,
+      'Tsunami that expanded completely past the viewport should unrender',
+    );
+
+    // Earthquake fault-segment & generic hazard bounds checks
+    assert.equal(
+      isHazardIntersectingCullBounds(
+        {
+          kind: 'earthquake_zone',
+          x: 5,
+          z: 5,
+          radius: 4,
+          faultSegments: [{ x1: 4, z1: 5, x2: 14, z2: 14, width: 2 }],
+        },
+        bounds,
+        0,
+      ),
+      true,
+    );
+    assert.equal(
+      isHazardIntersectingCullBounds(
+        { kind: 'tornado_vortex', x: 95, z: 95, radius: 5 },
+        bounds,
+        DESPAWN_CULL_HYSTERESIS,
+      ),
+      false,
+    );
+  });
 });
+
