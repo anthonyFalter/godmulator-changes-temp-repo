@@ -1,1021 +1,1099 @@
 import type { BuildingType, GodPowerType } from '../../game/types';
-import { CompiledSprite } from './pixelEngine';
-import {
-  RAMPS,
-  hash2d,
-  paintSprite,
-  quantRamp,
-} from './pixelPainter';
+import { type CompiledSprite, MAT, type MatLegend, cluster16, icon16 } from './pixelEngine';
+
+const PB_MATS: MatLegend = {
+  // Gold
+  Y: { ramp: MAT.gold, tone: 4 },
+  y: { ramp: MAT.gold, tone: 3 },
+  g: { ramp: MAT.gold, tone: 2 },
+  G: { ramp: MAT.gold, tone: 1 },
+  // Wood
+  B: { ramp: MAT.wood, tone: 4 },
+  b: { ramp: MAT.wood, tone: 3 },
+  k: { ramp: MAT.wood, tone: 2 },
+  K: { ramp: MAT.wood, tone: 1 },
+  // Leaf / Emerald
+  E: { ramp: MAT.leaf, tone: 4 },
+  e: { ramp: MAT.leaf, tone: 3 },
+  l: { ramp: MAT.leaf, tone: 2 },
+  L: { ramp: MAT.leaf, tone: 1 },
+  // Toxic Lime
+  T: { ramp: MAT.toxic, tone: 4 },
+  t: { ramp: MAT.toxic, tone: 3 },
+  w: { ramp: MAT.toxic, tone: 2 },
+  W: { ramp: MAT.toxic, tone: 1 },
+  // Azure / Cyan
+  C: { ramp: MAT.azure, tone: 4 },
+  c: { ramp: MAT.azure, tone: 3 },
+  u: { ramp: MAT.azure, tone: 2 },
+  U: { ramp: MAT.azure, tone: 1 },
+  // Steel / Silver
+  S: { ramp: MAT.steel, tone: 4 },
+  s: { ramp: MAT.steel, tone: 3 },
+  m: { ramp: MAT.steel, tone: 2 },
+  M: { ramp: MAT.steel, tone: 1 },
+  // Ruby / Crimson
+  R: { ramp: MAT.ruby, tone: 4 },
+  r: { ramp: MAT.ruby, tone: 3 },
+  q: { ramp: MAT.ruby, tone: 2 },
+  Q: { ramp: MAT.ruby, tone: 1 },
+  // Parchment / Ivory
+  I: { ramp: MAT.parchment, tone: 4 },
+  i: { ramp: MAT.parchment, tone: 3 },
+  j: { ramp: MAT.parchment, tone: 2 },
+  J: { ramp: MAT.parchment, tone: 1 },
+  // Flame
+  F: { ramp: MAT.flame, tone: 4 },
+  f: { ramp: MAT.flame, tone: 3 },
+  a: { ramp: MAT.flame, tone: 2 },
+  A: { ramp: MAT.flame, tone: 1 },
+  // Arcane
+  P: { ramp: MAT.arcane, tone: 4 },
+  p: { ramp: MAT.arcane, tone: 3 },
+  z: { ramp: MAT.arcane, tone: 2 },
+  Z: { ramp: MAT.arcane, tone: 1 },
+  // Stone
+  N: { ramp: MAT.stone, tone: 4 },
+  n: { ramp: MAT.stone, tone: 3 },
+  h: { ramp: MAT.stone, tone: 2 },
+  H: { ramp: MAT.stone, tone: 1 },
+  // Dark Iron (shadow creases / rivets / fissures)
+  D: { ramp: MAT.darkIron, tone: 1 },
+  d: { ramp: MAT.darkIron, tone: 0 },
+};
 
 export const POWER_SPRITES: Record<GodPowerType, CompiledSprite> = {
-  // Armored golden telekinetic gauntlet grasping cyan levitation rings & sparkles
-  drag_entity: paintSprite((c) => {
-    // Cuff & wrist gauntlet
-    c.fillCapsule(10, 26, 15, 20, 4.5, 4.8, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.gold, light, x, y, 0.02),
-    );
-    // Armored palm sphere
-    c.fillEllipse(16, 16, 6.0, 5.4, -0.2, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.gold, light * 1.04, x, y, 0.02),
-    );
-    // Thumb & 4 articulated fingers curved upward
-    c.fillBezier(10, 17, 6, 15, 7, 10, 1.8, 1.4, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.gold, light, x, y, 0.02),
-    );
-    for (const [fx, fy, tx, ty] of [
-      [11, 13, 10, 6],
-      [14, 12, 14, 4],
-      [18, 12, 19, 5],
-      [21, 14, 24, 8],
-    ]) {
-      c.fillCapsule(fx, fy, tx, ty, 1.7, 1.3, (x, y, _nx, _ny, _nz, light) =>
-        quantRamp(RAMPS.gold, light * 1.05, x, y, 0.02),
-      );
-    }
-    // Glowing cyan telekinetic palm gem & floating sparks
-    c.fillEllipse(16, 16, 2.3, 2.3, 0, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.azure, light * 1.15, x, y, 0.02),
-    );
-    c.sparkle(7, 6, RAMPS.azure.hi, true);
-    c.sparkle(25, 13, RAMPS.azure.hi, false);
-    c.sparkle(16, 2, RAMPS.gold.hi, false);
-  }),
+  // 16x16 Crisp 5-digit pinching hand gesture (thumb & index pinching cleanly, 3 curled fingers & azure cuff)
+  drag_entity: cluster16(
+    [
+      '................',
+      '................',
+      '....44444.......',
+      '...44444432.....',
+      '..443...3432....',
+      '..32.....3432...',
+      '.........3321...',
+      '..444....2212...',
+      '..334433.2111...',
+      '.....22332121...',
+      '......222121....',
+      '.......11111....',
+      '........CCcc....',
+      '........uuuU....',
+      '................',
+      '................',
+    ],
+    MAT.skin,
+    PB_MATS,
+  ),
 
-  // Glossy winged sacred heart under a floating golden halo
-  blessing: paintSprite((c) => {
-    // Left & right feathered angel wings
-    for (const dir of [-1, 1]) {
-      for (let i = 0; i < 3; i++) {
-        c.fillBezier(
-          16 + dir * 4,
-          17 + i * 2,
-          16 + dir * 11,
-          11 + i * 3,
-          16 + dir * 13,
-          9 + i * 3.5,
-          2.2,
-          1.0,
-          (x, y, _nx, _ny, _nz, light) => quantRamp(RAMPS.cloud, light * 1.1, x, y, 0.02),
-        );
-      }
-    }
-    // Plump 3D crimson heart lobes & pointed tip
-    c.fillEllipse(13, 14, 4.6, 4.6, 0, (x, y, nx, ny, nz, light) => {
-      if (nx < -0.25 && ny < -0.25 && nz > 0.6) return RAMPS.crimson.hi;
-      return quantRamp(RAMPS.crimson, light * 1.05, x, y, 0.02);
+  // 16x16 Classic ruby heart with symmetrical feathered angel wings & golden halo
+  blessing: cluster16(
+    [
+      '................',
+      '.....YYYYYY.....',
+      '....Yy....gG....',
+      '.SSs........sSS.',
+      '.Sss.33..33.ssM.',
+      '.Sss32233223ssM.',
+      '..ss22222222MM..',
+      '...M.222221.M...',
+      '......2221......',
+      '.......21.......',
+      '................',
+      '................',
+      '................',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.ruby,
+    PB_MATS,
+  ),
+
+  // 16x16 Bright fluffy raincloud showering crisp cyan teardrops
+  rain_of_plenty: cluster16(
+    [
+      '................',
+      '.....33333......',
+      '...333333332....',
+      '..33333333332...',
+      '.2222222222222..',
+      '..11111111111...',
+      '................',
+      '...Cc...Cc..Cc..',
+      '..Ccu..Ccu.Ccu..',
+      '..uuU..uuU.uuU..',
+      '................',
+      '.....Cc...Cc....',
+      '....Ccu..Ccu....',
+      '....uuU..uuU....',
+      '................',
+      '................',
+    ],
+    MAT.steel,
+    PB_MATS,
+  ),
+
+  // 16x16 Crisp glowing lightbulb with clear glass, filament, screw base & separated rays
+  eureka: cluster16(
+    [
+      '................',
+      '.......YY.......',
+      '..Y..........Y..',
+      '.....333333.....',
+      '....33IIII32....',
+      '.Y..3IIFFII2..Y.',
+      '....2IIFFII1....',
+      '.....22aa21.....',
+      '......1111......',
+      '.....SssssM.....',
+      '.....mMMMMM.....',
+      '.....SssssM.....',
+      '......gggg......',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.gold,
+    PB_MATS,
+  ),
+
+  // 16x16 Golden royal chalice with crisp rim, ruby gem, slender stem & wide foot
+  golden_age: cluster16(
+    [
+      '................',
+      '................',
+      '..33333333332...',
+      '..21111111112...',
+      '..2222RR22221...',
+      '...222rq2221....',
+      '....2222221.....',
+      '.....12221......',
+      '......221.......',
+      '......221.......',
+      '.....32211......',
+      '...332222111....',
+      '...111111111....',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.gold,
+    PB_MATS,
+  ),
+
+  // 16x16 Clean Paladin heater shield (silver border, royal azure field, bold gold cross)
+  divine_shield: cluster16(
+    [
+      '................',
+      '..33333333333...',
+      '..32ccYYgccc21..',
+      '..32ccYYgccc21..',
+      '..22uuYYguuu21..',
+      '..2YYYYyyyyg21..',
+      '..2ggggGGGGg21..',
+      '..21uuYYguuU11..',
+      '...1UUYYgUU11...',
+      '....1uYYgu11....',
+      '.....1YYg11.....',
+      '......1111......',
+      '................',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.steel,
+    PB_MATS,
+  ),
+
+  // 16x16 Classic RPG campfire flame (crimson tongues, orange mid, bright yellow core)
+  heat_wave: cluster16(
+    [
+      '................',
+      '.......21.......',
+      '......2321......',
+      '....223321.11...',
+      '...2334432221...',
+      '..12344443221...',
+      '..123444432211..',
+      '.1123444432211..',
+      '.1123444432211..',
+      '..12344443211...',
+      '..11233332111...',
+      '...111221111....',
+      '................',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.flame,
+    PB_MATS,
+  ),
+
+  // 16x16 Sharp geometric 6-arm frost crystal snowflake with open arm gaps
+  freeze_snap: cluster16(
+    [
+      '................',
+      '.......44.......',
+      '..4....33....4..',
+      '...3..2332..3...',
+      '....3.2CC2.3....',
+      '..4322CccC2234..',
+      '.....2cuuc2.....',
+      '..4322uuuu2234..',
+      '....2.1221.2....',
+      '...2..1221..2...',
+      '..2....11....2..',
+      '.......11.......',
+      '................',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.ice,
+    PB_MATS,
+  ),
+
+  // 16x16 Crisp crossed silver broadswords with crimson hilts
+  bloodlust_frenzy: cluster16(
+    [
+      '................',
+      '.33..........33.',
+      '.322........223.',
+      '..322Rr..rR223..',
+      '...322r..q223...',
+      '....322..223....',
+      '.....322223.....',
+      '......3321......',
+      '.....233221.....',
+      '...Yy221.221yY..',
+      '....gG1...1Gg...',
+      '...bk.......kb..',
+      '..Rr.........qQ.',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.steel,
+    PB_MATS,
+  ),
+
+  // 16x16 Arcane Abyssal Hex Sigil & Horned Hooded Cursed Eye (distinct from green toxic Plague Spore flask)
+  curse: cluster16(
+    [
+      '................',
+      '..Z..........Z..',
+      '...zP......Pz...',
+      '....33333332....',
+      '...3322222211...',
+      '..322dd22dd111..',
+      '..32dRR22RRd11..',
+      '..22222oo22211..',
+      '...2211221111...',
+      '..Z..111111..Z..',
+      '.zP.3.3..3.3.Pz.',
+      '....2.2..2.2....',
+      '...zP......Pz...',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.arcane,
+    PB_MATS,
+  ),
+
+  // 16x16 Corked lime poison flask with rising toxic bubbles
+  plague_miasma: cluster16(
+    [
+      '................',
+      '......Tt..Bb....',
+      '.........Bbk....',
+      '....w...Sskk....',
+      '.......Ss2sM....',
+      '......Ss22sM....',
+      '.....SsS22wM....',
+      '....SsS22222M...',
+      '...SsS222222M...',
+      '...sS222222WM...',
+      '...s222222WWM...',
+      '...s12222WWM....',
+      '....s1111WM.....',
+      '.....MMMMM......',
+      '................',
+      '................',
+    ],
+    MAT.toxic,
+    PB_MATS,
+  ),
+
+  // 16x16 Dark iron stormcloud unleashing a bold jagged yellow lightning bolt
+  lightning_smite: cluster16(
+    [
+      '................',
+      '.....ssmmMM.....',
+      '...ssmmMMMMM....',
+      '..smMMMMMMMMM...',
+      '.mMMMMMMMDDDDD..',
+      '.....33332......',
+      '....33332.......',
+      '...3333332......',
+      '.....2221.......',
+      '....2221........',
+      '...2221.........',
+      '..2211..........',
+      '..11............',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.gold,
+    PB_MATS,
+  ),
+
+  // 16x16 Clean sweeping grey wind funnel tornado
+  tornado: cluster16(
+    [
+      '................',
+      '..333333222211..',
+      '...1111111111...',
+      '...3333322211...',
+      '....11111111....',
+      '....3332221.....',
+      '.....111111.....',
+      '.....33221......',
+      '......1111......',
+      '......321.......',
+      '.......21.......',
+      '.......11.......',
+      '................',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.steel,
+    PB_MATS,
+  ),
+
+  // 16x16 Dramatic curling tsunami wave with bright white seafoam crest
+  tsunami: cluster16(
+    [
+      '................',
+      '......SSSSss....',
+      '....SSss222sM...',
+      '..SSs222222..S..',
+      '.SS2222221...S..',
+      '.2222211........',
+      '.222211....S....',
+      '.222211..233S...',
+      '.2221112222221..',
+      '.1111111111111..',
+      '.1111111111111..',
+      '................',
+      '................',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.azure,
+    PB_MATS,
+  ),
+
+  // 16x16 Cratered charcoal meteor blazing down-left with vivid flame wake
+  meteor_strike: cluster16(
+    [
+      '................',
+      '...........fFF..',
+      '.........ffFFa..',
+      '.......ffFFfaA..',
+      '.....ffFFfaaA...',
+      '....22FFfaaA....',
+      '...232f2aaA.....',
+      '..222F211A......',
+      '..21fF1111......',
+      '..1111f11.......',
+      '...11111........',
+      '................',
+      '................',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.darkIron,
+    PB_MATS,
+  ),
+
+  // 16x16 Tectonic earth slab cracked & fault-shifted apart with glowing magma fissure + flying pebbles
+  earthquake: cluster16(
+    [
+      '................',
+      '................',
+      '.....Nn...nN....',
+      '................',
+      '.EEEEEee........',
+      '.Bbbbbkd.EEEeeL.',
+      '.BbbbbkdF.BbbbK.',
+      '.NnnnnkFa.NnnnH.',
+      '.NnnnhdF..NnnnH.',
+      '.hhhhhKFa.hhhhH.',
+      '..HHHHd...HHHH..',
+      '................',
+      '................',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.wood,
+    PB_MATS,
+  ),
+
+  // 16x16 Radiant sky crystal firing a continuous cyan terraforming beam onto green earth
+  terraform_beam: icon16((c) => {
+    c.isoTile(MAT.leaf, MAT.wood, MAT.darkWood, 14, 3, (x, y) => {
+      if (x >= 6 && x <= 9 && y >= 8 && y <= 10) return { ramp: MAT.azure, tone: 4 };
+      return null;
     });
-    c.fillEllipse(19, 14, 4.6, 4.6, 0, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.crimson, light * 0.96, x, y, 0.02),
-    );
-    c.fillPoly(
+    c.stamp(
+      5,
+      1,
       [
-        [9, 16],
-        [23, 16],
-        [16, 26],
+        '..CC..',
+        '.Cccu.',
+        '..cc..',
+        '..CC..',
+        '..CC..',
+        '.Cccu.',
+        '.CCcc.',
+        'CCccuu',
       ],
-      (x, y, _nx, _ny, _nz, light) => quantRamp(RAMPS.crimson, light * 0.95, x, y, 0.02),
-    );
-    // Floating golden halo above
-    c.fillEllipse(16, 5.5, 6.5, 2.0, 0, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.gold, light * 1.12, x, y, 0.02),
-    );
-    c.sparkle(11, 12, [255, 250, 240], false);
-    c.sparkle(8, 25, RAMPS.gold.hi, false);
-    c.sparkle(25, 24, RAMPS.gold.hi, false);
-  }),
-
-  // Fluffy cumulus raincloud showering turquoise & emerald raindrops
-  rain_of_plenty: paintSprite((c) => {
-    // Cloud puffs (spheres blended cleanly)
-    c.fillEllipse(10, 12, 5.6, 4.6, 0, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.cloud, light * 1.04, x, y, 0.02),
-    );
-    c.fillEllipse(22, 12.5, 5.2, 4.2, 0, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.cloud, light * 0.96, x, y, 0.02),
-    );
-    c.fillEllipse(16, 9, 6.8, 5.5, 0, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.cloud, light * 1.1, x, y, 0.02),
-    );
-    c.fillCapsule(8, 13.5, 24, 13.5, 3.4, 3.2, (x, y, _nx, _ny, _nz, light, _u, v) =>
-      quantRamp(RAMPS.cloud, light * (1.0 - v * 0.35), x, y, 0.02),
-    );
-    // Teardrop rain streaks
-    const drops: ReadonlyArray<readonly [number, number, boolean]> = [
-      [8, 21, true],
-      [14, 23, false],
-      [20, 20, true],
-      [25, 23, false],
-      [11, 27, false],
-      [18, 28, true],
-    ];
-    for (const [dx, dy, isMint] of drops) {
-      c.fillCapsule(dx, dy - 1.5, dx - 0.8, dy + 1.5, 0.7, 1.5, (x, y, _nx, _ny, _nz, light) =>
-        quantRamp(isMint ? RAMPS.leaf : RAMPS.azure, light * 1.15, x, y, 0.01),
-      );
-      c.put(dx - 1, dy, [255, 255, 255]);
-    }
-  }),
-
-  // Radiant filament glass lightbulb with brass threads & sunburst rays
-  eureka: paintSprite((c) => {
-    // Radiating yellow burst rays
-    for (const [x1, y1, x2, y2] of [
-      [16, 4, 16, 1],
-      [6, 10, 3, 7],
-      [26, 10, 29, 7],
-      [5, 16, 2, 16],
-      [27, 16, 30, 16],
-    ]) {
-      c.fillCapsule(x1, y1, x2, y2, 1.0, 0.5, () => RAMPS.gold.hi);
-    }
-    // Glowing amber glass globe
-    c.fillEllipse(16, 13, 7.6, 7.8, 0, (x, y, nx, ny, nz, light) => {
-      if (nx < -0.25 && ny < -0.25 && nz > 0.55) return RAMPS.gold.hi;
-      return quantRamp(RAMPS.gold, light * 1.15, x, y, 0.02);
-    });
-    // Neck & ribbed brass screw socket
-    c.fillCapsule(16, 20, 16, 26, 3.8, 3.0, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(y % 2 === 0 ? RAMPS.steel : RAMPS.darkIron, light, x, y, 0.02),
-    );
-    c.fillEllipse(16, 27.5, 2.2, 1.4, 0, () => RAMPS.gold.mid);
-    // Warm filament curl inside bulb
-    c.put(14, 12, RAMPS.flame.mid);
-    c.put(15, 11, [255, 255, 255]);
-    c.put(16, 12, [255, 255, 255]);
-    c.put(17, 11, [255, 255, 255]);
-    c.put(18, 12, RAMPS.flame.mid);
-  }),
-
-  // Overflowing royal gold chalice brimming with coins & sparkles
-  golden_age: paintSprite((c) => {
-    // Stem & flared pedestal
-    c.fillCapsule(16, 17, 16, 25, 2.0, 2.2, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.gold, light, x, y, 0.02),
-    );
-    c.fillEllipse(16, 26.5, 6.2, 2.5, 0, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.gold, light * 0.96, x, y, 0.02),
-    );
-    // Goblet bowl
-    c.fillPoly(
-      [
-        [8, 9],
-        [24, 9],
-        [21, 18],
-        [16, 20],
-        [11, 18],
-      ],
-      (x, y, _nx, _ny, _nz, light, u) =>
-        quantRamp(RAMPS.gold, light * (1.12 - u * 0.25), x, y, 0.02),
-    );
-    // Heaped coins bubbling out top + center ruby
-    for (const [cx, cy] of [
-      [12, 8],
-      [16, 6.5],
-      [20, 8],
-      [14, 9.5],
-      [18, 9.5],
-    ]) {
-      c.fillEllipse(cx, cy, 2.3, 1.8, 0, (x, y, _nx, _ny, _nz, light) =>
-        quantRamp(RAMPS.gold, light * 1.18, x, y, 0.01),
-      );
-    }
-    c.fillEllipse(16, 14, 2.0, 2.0, 0, () => RAMPS.crimson.light);
-    c.sparkle(6, 5, RAMPS.gold.hi, true);
-    c.sparkle(26, 7, RAMPS.gold.hi, false);
-  }),
-
-  // 3/4 Winged paladin heater shield with beveled silver rim & glowing gold cross
-  divine_shield: paintSprite((c) => {
-    // Feathered wings flanking upper edges
-    for (const dir of [-1, 1]) {
-      c.fillPoly(
-        [
-          [16 + dir * 7, 10],
-          [16 + dir * 13, 6],
-          [16 + dir * 12, 13],
-          [16 + dir * 7, 15],
-        ],
-        (x, y, _nx, _ny, _nz, light) => quantRamp(RAMPS.cloud, light * 1.05, x, y, 0.02),
-      );
-    }
-    // Steel rim shield + azure field
-    c.fillPoly(
-      [
-        [7, 7],
-        [16, 5],
-        [25, 7],
-        [24, 19],
-        [16, 28],
-        [8, 19],
-      ],
-      (x, y, _nx, _ny, _nz, light, u, v) => {
-        const rim = u < 0.14 || u > 0.86 || v < 0.12 || v > 0.86;
-        const cross = Math.abs(u - 0.5) < 0.1 || Math.abs(v - 0.38) < 0.09;
-        return quantRamp(rim ? RAMPS.steel : cross ? RAMPS.gold : RAMPS.azure, light * 1.06, x, y, 0.02);
-      },
-    );
-    c.put(16, 13, [255, 255, 240]);
-  }),
-
-  // Blazing spiral solar fire vortex with white-hot core & flying embers
-  heat_wave: paintSprite((c) => {
-    c.fillEllipse(16, 17, 9.5, 9.5, 0, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.flame, light * 0.92, x, y, 0.04),
-    );
-    // Curving licking flame tongues
-    c.fillBezier(16, 18, 8, 12, 13, 4, 4.5, 1.0, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.flame, light * 1.08, x, y, 0.02),
-    );
-    c.fillBezier(18, 17, 24, 12, 21, 5, 4.0, 0.9, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.flame, light * 0.98, x, y, 0.02),
-    );
-    c.fillEllipse(16, 19, 4.8, 5.2, 0, () => RAMPS.flame.hi);
-    c.sparkle(7, 7, RAMPS.flame.light, false);
-    c.sparkle(26, 9, RAMPS.crimson.light, false);
-    c.sparkle(16, 3, RAMPS.flame.hi, false);
-  }),
-
-  // 6-branch faceted ice crystal snowflake with sapphire core
-  freeze_snap: paintSprite((c) => {
-    for (let i = 0; i < 6; i++) {
-      const a = (i * Math.PI) / 3 - Math.PI / 6;
-      const ex = 16 + Math.cos(a) * 12;
-      const ey = 16 + Math.sin(a) * 12;
-      c.fillCapsule(16, 16, ex, ey, 1.5, 0.9, (x, y, _nx, _ny, _nz, light) =>
-        quantRamp(RAMPS.ice, light * 1.12, x, y, 0.01),
-      );
-      // Crystalline side barbs
-      const bx = 16 + Math.cos(a) * 7.5;
-      const by = 16 + Math.sin(a) * 7.5;
-      for (const side of [-1, 1]) {
-        const ba = a + side * 0.72;
-        c.fillCapsule(
-          bx,
-          by,
-          bx + Math.cos(ba) * 3.8,
-          by + Math.sin(ba) * 3.8,
-          0.9,
-          0.5,
-          () => RAMPS.ice.hi,
-        );
-      }
-    }
-    c.fillEllipse(16, 16, 3.6, 3.6, 0, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.azure, light * 1.1, x, y, 0.01),
-    );
-    c.put(15, 15, [255, 255, 255]);
-  }),
-
-  // Twin crossed 45° battle claymores with crimson fullers, gold hilts & sparks
-  bloodlust_frenzy: paintSprite((c) => {
-    const drawSword = (x1: number, y1: number, x2: number, y2: number, gx1: number, gy1: number, gx2: number, gy2: number) => {
-      // Steel blade
-      c.fillCapsule(x1, y1, x2, y2, 1.8, 0.6, (x, y, _nx, _ny, _nz, light, u) =>
-        quantRamp(u < 0.3 ? RAMPS.crimson : RAMPS.steel, light * 1.05, x, y, 0.02),
-      );
-      // Golden crossguard
-      c.fillCapsule(gx1, gy1, gx2, gy2, 1.3, 1.3, (x, y, _nx, _ny, _nz, light) =>
-        quantRamp(RAMPS.gold, light, x, y, 0.02),
-      );
-      // Grip + crimson pommel
-      const px = (gx1 + gx2) * 0.5 + ((gx1 + gx2) * 0.5 - x2) * 0.28;
-      const py = (gy1 + gy2) * 0.5 + ((gy1 + gy2) * 0.5 - y2) * 0.28;
-      c.fillCapsule((gx1 + gx2) * 0.5, (gy1 + gy2) * 0.5, px, py, 1.2, 1.0, () => RAMPS.darkWood.mid);
-      c.fillEllipse(px, py, 1.8, 1.8, 0, () => RAMPS.crimson.light);
-    };
-    drawSword(22, 22, 6, 6, 18, 24, 24, 18);
-    drawSword(10, 22, 26, 6, 8, 18, 14, 24);
-    c.sparkle(16, 12, RAMPS.flame.hi, true);
-    c.sparkle(16, 4, RAMPS.crimson.light, false);
-  }),
-
-  // 3/4 Cracked cursed skull with sculpted cheekbones & glowing magenta sockets
-  curse: paintSprite((c) => {
-    // Jawbone
-    c.fillCapsule(12, 22, 20, 22, 3.2, 3.2, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.bone, light * 0.82, x, y, 0.02),
-    );
-    // Cranium dome
-    c.fillEllipse(16, 13, 8.6, 8.2, -0.08, (x, y, _nx, _ny, _nz, light) => {
-      const crack = Math.abs(x - 19 + (y - 9) * 0.35) < 0.6 && y < 14 ? -0.35 : 0;
-      return quantRamp(RAMPS.bone, light + crack, x, y, 0.03);
-    });
-    // Sunken eye sockets with glowing magenta pupils
-    c.fillEllipse(12.2, 14.5, 2.5, 2.4, 0, () => RAMPS.arcane.deep);
-    c.fillEllipse(19.5, 14.5, 2.5, 2.4, 0, () => RAMPS.arcane.deep);
-    c.put(12, 14, RAMPS.arcane.hi);
-    c.put(13, 14, RAMPS.arcane.light);
-    c.put(19, 14, RAMPS.arcane.hi);
-    c.put(20, 14, RAMPS.arcane.light);
-    // Nasal cavity + teeth slits
-    c.fillPoly(
-      [
-        [16, 16],
-        [17.5, 19],
-        [14.5, 19],
-      ],
-      () => RAMPS.arcane.deep,
-    );
-    for (const tx of [12, 14, 16, 18, 20]) {
-      c.put(tx, 23, RAMPS.arcane.deep);
-      c.put(tx, 24, RAMPS.bone.hi);
-    }
-    c.sparkle(6, 9, RAMPS.arcane.light, false);
-    c.sparkle(26, 8, RAMPS.arcane.hi, false);
-  }),
-
-  // Tilted corked emerald alchemy vial bubbling with toxic lime brew & vapors
-  plague_miasma: paintSprite((c) => {
-    // Round tilted glass flask body
-    c.fillEllipse(13, 19, 8.0, 7.6, -0.5, (x, y, nx, ny, nz, light) => {
-      if (y > 16) {
-        const bubble = hash2d(Math.floor(x / 2), Math.floor(y / 2), 99) > 0.72 ? 0.25 : 0;
-        return quantRamp(RAMPS.toxic, light * 1.06 + bubble, x, y, 0.02);
-      }
-      if (nx < -0.3 && ny < -0.3 && nz > 0.5) return RAMPS.glass.hi;
-      return quantRamp(RAMPS.glass, light * 0.92, x, y, 0.02);
-    });
-    // Angled bottle neck + flared glass lip
-    c.fillCapsule(17, 14, 22.5, 8.5, 2.7, 2.5, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.glass, light, x, y, 0.02),
-    );
-    c.fillEllipse(22.5, 8.5, 3.2, 1.8, 0.78, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.glass, light * 1.05, x, y, 0.02),
-    );
-    // Warm cork stopper
-    c.fillCapsule(22.5, 8.5, 25, 6, 2.2, 2.4, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.wood, light, x, y, 0.03),
-    );
-    // Specular streak & floating toxic bubbles
-    c.put(9, 15, [255, 255, 255]);
-    c.put(8, 16, [255, 255, 255]);
-    c.fillEllipse(8, 8, 2.2, 2.2, 0, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.toxic, light * 1.15, x, y, 0.01),
-    );
-    c.sparkle(13, 5, RAMPS.toxic.hi, false);
-    c.sparkle(25, 21, RAMPS.toxic.light, false);
-  }),
-
-  // Dark stormcloud unleashing a searing gold-white forked thunderbolt
-  lightning_smite: paintSprite((c) => {
-    c.fillEllipse(10, 9, 5.2, 4.0, 0, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.darkIron, light, x, y, 0.02),
-    );
-    c.fillEllipse(21, 9.5, 5.0, 3.8, 0, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.darkIron, light * 0.9, x, y, 0.02),
-    );
-    c.fillEllipse(16, 7, 6.4, 4.8, 0, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.steel, light * 0.65, x, y, 0.02),
-    );
-    c.fillPoly(
-      [
-        [15, 11],
-        [21, 11],
-        [17, 17],
-        [22, 17],
-        [11, 29],
-        [15, 20],
-        [11, 20],
-      ],
-      (x, y, _nx, _ny, _nz, _l, u) =>
-        quantRamp(RAMPS.gold, Math.abs(u - 0.5) < 0.2 ? 0.98 : 0.72, x, y, 0.01),
-    );
-    c.sparkle(23, 23, RAMPS.gold.hi, false);
-  }),
-
-  // Swirling multi-tier tornado cyclone funnel whipping debris
-  tornado: paintSprite((c) => {
-    const tiers: ReadonlyArray<readonly [number, number, number, number]> = [
-      [16, 7, 11.5, 3.2],
-      [15, 11, 8.8, 2.7],
-      [17, 15, 6.8, 2.3],
-      [15.5, 19, 4.8, 1.9],
-      [17, 23, 3.2, 1.5],
-      [15.5, 27, 1.8, 1.2],
-    ];
-    for (const [cx, cy, rx, ry] of tiers) {
-      c.fillEllipse(cx, cy, rx, ry, 0, (x, y, _nx, _ny, _nz, light) =>
-        quantRamp(RAMPS.cloud, light * 0.92, x, y, 0.03),
-      );
-    }
-    // Flying pebbles & wind streaks
-    c.put(5, 17, RAMPS.wood.mid);
-    c.put(26, 15, RAMPS.leaf.light);
-    c.put(9, 25, RAMPS.stone.light);
-    c.put(23, 24, RAMPS.azure.hi);
-  }),
-
-  // Towering curling ocean wave with frothy seafoam crest & droplets
-  tsunami: paintSprite((c) => {
-    // Deep wave wall & curling arch
-    c.fillBezier(6, 25, 4, 6, 21, 8, 5.5, 4.2, (x, y, _nx, _ny, _nz, light, t) =>
-      quantRamp(RAMPS.azure, light * (0.85 + t * 0.25), x, y, 0.02),
-    );
-    c.fillEllipse(18, 23, 9.5, 4.5, 0, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.azure, light * 0.9, x, y, 0.02),
-    );
-    // Frothy white seafoam curl on tip + water splash drops
-    c.fillEllipse(21, 9, 4.5, 3.2, -0.4, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.cloud, light * 1.15, x, y, 0.02),
-    );
-    c.fillEllipse(17, 13, 2.4, 1.8, 0, () => RAMPS.ice.hi);
-    c.sparkle(25, 13, RAMPS.ice.hi, false);
-    c.sparkle(27, 9, [255, 255, 255], false);
-    c.sparkle(9, 24, RAMPS.ice.hi, false);
-  }),
-
-  // Blazing craggy asteroid streaking diagonally in roaring plasma tail
-  meteor_strike: paintSprite((c) => {
-    // Fire trail streaming toward top-right
-    c.fillCapsule(12, 20, 27, 5, 6.2, 1.4, (x, y, _nx, _ny, _nz, light, u) =>
-      quantRamp(RAMPS.flame, light * (1.15 - u * 0.25), x, y, 0.03),
-    );
-    // Craggy molten-cracked asteroid sphere bottom-left
-    c.fillEllipse(11, 21, 6.8, 6.5, -0.3, (x, y, _nx, _ny, _nz, light) => {
-      const magma = hash2d(Math.floor(x / 2), Math.floor(y / 2), 77) > 0.78;
-      return quantRamp(magma ? RAMPS.flame : RAMPS.darkIron, light * 1.05, x, y, 0.02);
-    });
-    c.sparkle(21, 5, RAMPS.flame.hi, false);
-    c.sparkle(28, 12, RAMPS.flame.light, false);
-  }),
-
-  // 3/4 Isometric granite & grass slab violently cracked by glowing magma fissure
-  earthquake: paintSprite((c) => {
-    c.fillIsoBox(12, 27, 7, 4, 6, RAMPS.leaf, RAMPS.stone, RAMPS.darkIron);
-    c.fillIsoBox(21, 24, 7, 4, 6, RAMPS.leaf, RAMPS.stone, RAMPS.darkIron);
-    // Jagged glowing molten chasm in center gap
-    c.fillBezier(16, 13, 18, 19, 14, 27, 1.9, 1.4, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.flame, light * 1.15, x, y, 0.01),
-    );
-    // Flying rock chunks
-    c.fillEllipse(10, 8, 2.2, 1.8, 0.3, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.stone, light, x, y, 0.02),
-    );
-    c.fillEllipse(23, 7, 1.9, 1.6, -0.3, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.stone, light, x, y, 0.02),
+      MAT.azure,
+      PB_MATS,
     );
   }),
 
-  // Floating emerald prism projecting an iridescent beam onto sprouting earth
-  terraform_beam: paintSprite((c) => {
-    // Target verdant disc below
-    c.fillIsoBox(16, 29, 10, 4.2, 3, RAMPS.leaf, RAMPS.wood, RAMPS.darkWood);
-    // Translucent cyan-gold cone beam
-    c.fillPoly(
-      [
-        [14, 12],
-        [18, 12],
-        [22, 25],
-        [10, 25],
-      ],
-      (x, y, _nx, _ny, _nz, _l, u) =>
-        quantRamp(RAMPS.azure, 1.05 - Math.abs(u - 0.5) * 0.9, x, y, 0.02),
-    );
-    // Floating diamond prism obelisk above
-    c.fillPoly(
-      [
-        [16, 2],
-        [21, 8],
-        [16, 14],
-        [11, 8],
-      ],
-      (x, y, _nx, _ny, _nz, light, u) =>
-        quantRamp(RAMPS.gold, light + (u < 0.5 ? 0.14 : -0.1), x, y, 0.02),
-    );
-    c.sparkle(16, 6, [255, 255, 255], false);
-  }),
+  // 16x16 Swirling cosmic spiral vortex around cyan singularity + corner stars
+  wormhole_ascension: cluster16(
+    [
+      '................',
+      '..Y......3332...',
+      '.....333221121..',
+      '...332211......',
+      '..3211.CCCC221..',
+      '..221.CCccCu21..',
+      '..21..CcuuuU12..',
+      '..22..1uUUU122..',
+      '...1221112221...',
+      '....2222333.....',
+      '..3321......Y...',
+      '................',
+      '................',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.arcane,
+    PB_MATS,
+  ),
 
-  // Tilted swirling violet cosmic wormhole with glowing accretion disk & stars
-  wormhole_ascension: paintSprite((c) => {
-    c.fillEllipse(16, 16, 12.2, 8.2, -0.38, (x, y, _nx, _ny, _nz, light) => {
-      const swirl = Math.sin(Math.atan2(y - 16, x - 16) * 3 + Math.hypot(x - 16, y - 16) * 0.6) * 0.18;
-      return quantRamp(RAMPS.arcane, light + swirl, x, y, 0.03);
-    });
-    c.fillEllipse(16, 16, 6.2, 4.2, -0.38, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.azure, light * 1.12, x, y, 0.02),
-    );
-    c.fillEllipse(16, 16, 2.6, 2.0, -0.38, () => [255, 253, 245]);
-    c.sparkle(6, 8, RAMPS.gold.hi, true);
-    c.sparkle(26, 23, RAMPS.azure.hi, false);
-    c.sparkle(25, 7, RAMPS.arcane.hi, false);
-  }),
+  // 16x16 Erupting volcanic mountain cone with magma crater, lava river & smoke/embers
+  volcano_eruption: cluster16(
+    [
+      '.......fY.......',
+      '.....s..f..s....',
+      '....ms.fFa..Y...',
+      '.....mfYYf......',
+      '.....nfafNnh....',
+      '....Nnfafnhh....',
+      '....NnhaaFhhH...',
+      '...NnnffaFhhh...',
+      '...nnhhfaahhhH..',
+      '..NnhhhfaAHhhh..',
+      '..nhhHhafaHhhHH.',
+      '.NnhHHhffahhhhH.',
+      '.nhHHHHaFhhhhHH.',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.flame,
+    PB_MATS,
+  ),
 
-  // Craggy basalt volcano cone erupting with golden magma fountain & ash cloud
-  volcano_eruption: paintSprite((c) => {
-    // Ash plume puff high above
-    c.fillEllipse(16, 5.5, 6.2, 2.8, 0, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.stone, light * 0.65, x, y, 0.03),
-    );
-    // Lava fountain jet bursting out
-    c.fillBezier(16, 13, 12, 8, 9, 10, 2.2, 0.9, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.flame, light * 1.15, x, y, 0.02),
-    );
-    c.fillBezier(16, 13, 20, 8, 23, 10, 2.2, 0.9, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.flame, light * 1.1, x, y, 0.02),
-    );
-    // Basalt volcanic mountain cone
-    c.fillPoly(
-      [
-        [3, 28],
-        [12, 13],
-        [20, 13],
-        [29, 28],
-      ],
-      (x, y, _nx, _ny, _nz, light, u, v) => {
-        const lavaRiver = Math.abs(u - 0.5) < 0.09 && v > 0.08;
-        return quantRamp(lavaRiver ? RAMPS.flame : RAMPS.darkIron, light * (lavaRiver ? 1.15 : 0.9), x, y, 0.03);
-      },
-    );
-    c.fillEllipse(16, 13, 4.2, 1.6, 0, () => RAMPS.flame.hi);
-    c.sparkle(10, 6, RAMPS.flame.light, false);
-    c.sparkle(22, 7, RAMPS.flame.hi, false);
-  }),
+  // 16x16 Massive Category-5 storm super-tornado with anvil cloud, lightning & debris
+  super_tornado: cluster16(
+    [
+      '................',
+      '..mMMMMMMMMMd...',
+      '.mMMMDDDDDDDDd..',
+      '.333332222211d..',
+      '..11111111111Y..',
+      '..3333222211Y...',
+      '...111111111.C..',
+      '...33322211..p..',
+      '....111111......',
+      '..Y..33221......',
+      '......111.......',
+      '......321.......',
+      '.......21.......',
+      '.......11.......',
+      '................',
+      '................',
+    ],
+    MAT.arcane,
+    PB_MATS,
+  ),
 
-  // Towering violet-storm super tornado funnel with lightning & flying boulders
-  super_tornado: paintSprite((c) => {
-    const bands = [
-      { y: 7, rx: 12.2, ry: 2.8 },
-      { y: 11, rx: 9.2, ry: 2.3 },
-      { y: 15, rx: 6.8, ry: 1.9 },
-      { y: 19, rx: 4.8, ry: 1.6 },
-      { y: 23, rx: 3.1, ry: 1.3 },
-      { y: 27, rx: 1.8, ry: 1.0 },
-    ];
-    for (let i = 0; i < bands.length; i++) {
-      const b = bands[i];
-      const offsetX = i % 2 === 0 ? -0.6 : 0.6;
-      c.fillEllipse(16 + offsetX, b.y, b.rx, b.ry, 0, (x, y, _nx, _ny, _nz, light, u) =>
-        quantRamp(i === 0 ? RAMPS.darkIron : RAMPS.arcane, light * (0.92 + (u - 0.5) * 0.25), x, y, 0.025),
-      );
-    }
-    // Crackling storm bolt along side of funnel
-    c.fillCapsule(6, 9, 9, 15, 0.9, 0.7, () => RAMPS.gold.hi);
-    c.fillCapsule(9, 15, 7, 19, 0.8, 0.5, () => RAMPS.azure.hi);
-    c.fillEllipse(25, 17, 1.8, 1.5, 0, () => RAMPS.stone.light);
-    c.sparkle(24, 12, RAMPS.arcane.hi, false);
-  }),
+  // 16x16 Starry dark void goo mass with purple rim & floating colorful soul wisps
+  void_goo: cluster16(
+    [
+      '................',
+      '....C.......Y...',
+      '...C.I..........',
+      '......PzZZz.....',
+      '....PzDdddDZz...',
+      '...PddIdddYddZ..',
+      '..PdddDddddddZ..',
+      '..zddCdddddddZ..',
+      '..zdddddddIddD..',
+      '..ZddddYdddddD..',
+      '...ZdddddddddZ..',
+      '...zZddDdZddd...',
+      '....zzDD.zDD....',
+      '..........C.....',
+      '................',
+      '................',
+    ],
+    MAT.darkIron,
+    PB_MATS,
+  ),
 
-  // Bubbling eldritch violet-magenta Void Goo ooze mass with glowing eyes
-  void_goo: paintSprite((c) => {
-    c.fillEllipse(16, 22, 11.5, 6.2, 0, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.arcane, light * 0.9, x, y, 0.03),
-    );
-    c.fillEllipse(16, 16, 8.2, 7.6, 0, (x, y, _nx, _ny, _nz, light) => {
-      const bubble = hash2d(Math.floor(x / 2), Math.floor(y / 2), 91) > 0.76;
-      return quantRamp(bubble ? RAMPS.pink : RAMPS.arcane, light * 1.05, x, y, 0.025);
-    });
-    // Rising goo bubbles & tendrils
-    c.fillEllipse(8, 10, 2.2, 2.2, 0, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.pink, light * 1.1, x, y, 0.02),
-    );
-    c.fillEllipse(24, 12, 1.9, 1.9, 0, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.arcane, light * 1.1, x, y, 0.02),
-    );
-    c.put(13, 15, RAMPS.gold.hi);
-    c.put(19, 15, RAMPS.gold.hi);
-    c.sparkle(15, 6, RAMPS.pink.hi, false);
-  }),
+  // 16x16 Obsidian Necrotic Rift Portal summoning ivory bone swirl
+  undead_portal: cluster16(
+    [
+      '................',
+      '.....NNNNNn.....',
+      '...NN334433nn...',
+      '..Nn34IIII43nh..',
+      '.Nn34IdddId43h..',
+      '.Nn3IIdppdII3h..',
+      '.Nn34IIIIII43h..',
+      '.Nn322d22d22nh..',
+      '..Nn2222222nh...',
+      '..Nn1222221nh...',
+      '...Nn11111nh....',
+      '...DDnnnnnDD....',
+      '..DDDDDDDDDDD...',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.arcane,
+    PB_MATS,
+  ),
 
-  // Rune-carved obsidian undead portal gateway glowing with necromantic toxic-violet vortex
-  undead_portal: paintSprite((c) => {
-    // Stone arch frame
-    c.fillIsoBox(16, 29, 11, 4.2, 2.5, RAMPS.darkIron, RAMPS.darkIron, RAMPS.stone);
-    c.fillEllipse(16, 15.5, 10.2, 11.5, 0, (x, y, _nx, _ny, _nz, light) => {
-      const rune = (x + y) % 5 === 0 && Math.hypot(x - 16, y - 15.5) > 7.5;
-      return quantRamp(rune ? RAMPS.toxic : RAMPS.darkIron, light * 0.92, x, y, 0.025);
-    });
-    // Swirling necromantic portal core
-    c.fillEllipse(16, 16, 6.8, 8.2, 0, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.arcane, light * 1.08, x, y, 0.03),
-    );
-    c.fillEllipse(16, 16, 4.0, 5.2, 0, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.toxic, light * 1.15, x, y, 0.02),
-    );
-    c.sparkle(16, 16, RAMPS.toxic.hi, true);
-  }),
+  // 16x16 Xeno Probe Remote transmitting red targeting lock toward overhead saucer
+  alien_invasion: cluster16(
+    [
+      '................',
+      '.......Rr.......',
+      '......RrqQ......',
+      '....C..CC..C....',
+      '...C..3332..C...',
+      '.....33CC21.....',
+      '.....222221.....',
+      '.....2SSss1.....',
+      '.....2smmM1.....',
+      '.....2Rrrq1.....',
+      '.....2ssss1.....',
+      '.....1smmM1.....',
+      '.....111111.....',
+      '......DDDD......',
+      '................',
+      '................',
+    ],
+    MAT.steel,
+    PB_MATS,
+  ),
 
-  // Chrome flying saucer beaming an emerald tractor beam onto ground below
-  alien_invasion: paintSprite((c) => {
-    // Glowing emerald abduction/plasma beam cone
-    c.fillPoly(
-      [
-        [13, 15],
-        [19, 15],
-        [24, 29],
-        [8, 29],
-      ],
-      (x, y, _nx, _ny, _nz, _l, u) =>
-        quantRamp(RAMPS.toxic, 1.05 - Math.abs(u - 0.5) * 0.85, x, y, 0.02),
-    );
-    // Chrome saucer disc
-    c.fillEllipse(16, 12, 11.8, 4.2, 0, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.steel, light * 1.08, x, y, 0.02),
-    );
-    // Emerald glass cockpit dome
-    c.fillEllipse(16, 8.8, 5.6, 3.6, 0, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.toxic, light * 1.1, x, y, 0.02),
-    );
-    c.put(9, 12, RAMPS.flame.hi);
-    c.put(16, 13, RAMPS.azure.hi);
-    c.put(23, 12, RAMPS.flame.hi);
-  }),
+  // 16x16 Golden Chrono-Warp Hourglass radiating cyan temporal energy
+  chrono_surge: cluster16(
+    [
+      '................',
+      '...YYYYyyyygg...',
+      '...GGGGGGGGGG...',
+      '....SSCCCCSs....',
+      '....sCcuuUCs....',
+      '.....scuucs.....',
+      '......sCCs......',
+      '......sCCs......',
+      '.....scYYcs.....',
+      '....sCYYYYCs....',
+      '....SCyyyyCS....',
+      '...YYYYyyyygg...',
+      '...GGGGGGGGGG...',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.gold,
+    PB_MATS,
+  ),
 
-  // Golden-cyan chrono hourglass/gear radiating temporal speedup arcs
-  chrono_surge: paintSprite((c) => {
-    c.fillEllipse(16, 16, 11.2, 11.2, 0, (x, y, _nx, _ny, _nz, light) => {
-      const ring = Math.hypot(x - 16, y - 16) > 8.6;
-      return quantRamp(ring ? RAMPS.gold : RAMPS.azure, light * 1.05, x, y, 0.02);
-    });
-    // Crisp clock face & golden hands
-    c.fillEllipse(16, 16, 7.6, 7.6, 0, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.parchment, light * 1.05, x, y, 0.01),
-    );
-    c.fillCapsule(16, 16, 16, 9.5, 1.1, 0.9, () => RAMPS.crimson.mid);
-    c.fillCapsule(16, 16, 21.5, 18.5, 1.1, 0.8, () => RAMPS.gold.deep);
-    c.sparkle(6, 6, RAMPS.azure.hi, true);
-    c.sparkle(26, 7, RAMPS.gold.hi, false);
-  }),
+  // 16x16 Radiant Ivory Peace Dove carrying an Emerald Olive Twig
+  harmony_dove: cluster16(
+    [
+      '................',
+      '.......44.......',
+      '......4433......',
+      '.....333333.....',
+      '....33333322....',
+      '..44333222211Y..',
+      '.43332222211oY..',
+      '..3222222211....',
+      '...1122221..Ee..',
+      '....11221..eEe..',
+      '.....111....l...',
+      '......g..Y......',
+      '................',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.steel,
+    PB_MATS,
+  ),
 
-  // Radiant snow-white peace dove carrying an emerald olive sprig
-  harmony_dove: paintSprite((c) => {
-    // Radiant golden halo aura
-    c.fillEllipse(16, 15, 11, 10, 0, (x, y, _nx, _ny, _nz, light) =>
-      Math.hypot(x - 16, y - 15) > 8.5 ? quantRamp(RAMPS.gold, light * 1.1, x, y, 0.02) : null,
-    );
-    // Spread snow-white wings & body
-    c.fillPoly(
-      [
-        [14, 15],
-        [4, 8],
-        [7, 17],
-        [14, 19],
-      ],
-      (x, y, _nx, _ny, _nz, light) => quantRamp(RAMPS.cloud, light * 1.06, x, y, 0.02),
-    );
-    c.fillPoly(
-      [
-        [16, 14],
-        [24, 6],
-        [25, 14],
-        [18, 18],
-      ],
-      (x, y, _nx, _ny, _nz, light) => quantRamp(RAMPS.cloud, light * 1.0, x, y, 0.02),
-    );
-    c.fillEllipse(16, 18.5, 5.8, 4.0, -0.2, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.cloud, light * 1.08, x, y, 0.02),
-    );
-    c.fillEllipse(21.5, 14, 3.0, 2.8, 0, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.cloud, light * 1.1, x, y, 0.01),
-    );
-    c.put(22.5, 13.5, [20, 14, 14]);
-    c.fillCapsule(24, 15, 27, 15.5, 0.7, 0.5, () => RAMPS.gold.light);
-    // Tiny emerald olive twig in beak
-    c.fillCapsule(25, 16, 28, 19, 0.6, 0.6, () => RAMPS.leaf.light);
-    c.put(28, 17, RAMPS.leaf.hi);
-  }),
+  // 16x16 Intense Orbital Helios Beam firing from sky mirror onto scorched impact ring
+  solar_orbital_laser: cluster16(
+    [
+      '................',
+      '....SSSSssss....',
+      '.....mmYYmm.....',
+      '......Y44Y......',
+      '......F44F......',
+      '......F44F......',
+      '......F44F......',
+      '......F44F......',
+      '......F44F......',
+      '.....aF44Fa.....',
+      '....ffF44Fff....',
+      '..RRafYYYYfaRR..',
+      '.QqqffFFFFffqqQ.',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.flame,
+    PB_MATS,
+  ),
 
-  // Blinding solar orbital laser beam descending onto an incandescent blast ring
-  solar_orbital_laser: paintSprite((c) => {
-    // Scorched molten ground ring
-    c.fillEllipse(16, 25, 11.5, 4.5, 0, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.flame, light * 1.12, x, y, 0.02),
-    );
-    // Outer golden plasma halo beam
-    c.fillCapsule(16, 2, 16, 25, 5.0, 6.0, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.flame, light * 1.05, x, y, 0.02),
-    );
-    // White-hot blinding solar core shaft
-    c.fillCapsule(16, 2, 16, 25, 2.2, 2.6, () => [255, 254, 232]);
-    c.sparkle(8, 22, RAMPS.flame.hi, false);
-    c.sparkle(24, 21, RAMPS.gold.hi, false);
-  }),
-
-  // Anti-gravity anomaly ripping an earthen island skyward inside an indigo vortex
-  gravity_flip: paintSprite((c) => {
-    // Swirling indigo gravity field rings
-    c.fillEllipse(16, 19, 11.5, 5.0, 0.25, (x, y, _nx, _ny, _nz, light) =>
-      Math.abs(Math.hypot((x - 16) / 11.5, (y - 19) / 5.0) - 0.85) < 0.22
-        ? quantRamp(RAMPS.arcane, light * 1.1, x, y, 0.02)
-        : null,
-    );
-    // Inverted floating earth/grass island suspended upside down
-    c.fillIsoBox(16, 17, 7.5, 3.6, 4.5, RAMPS.darkWood, RAMPS.stone, RAMPS.darkIron);
-    c.fillIsoBox(16, 12, 8.2, 3.8, 2.0, RAMPS.leaf, RAMPS.leaf, RAMPS.wood);
-    // Floating pebbles & upward cyan chevrons
-    c.fillEllipse(7, 10, 1.8, 1.5, 0, () => RAMPS.stone.light);
-    c.fillEllipse(25, 9, 1.6, 1.4, 0, () => RAMPS.stone.mid);
-    c.fillPoly(
-      [
-        [16, 21],
-        [20, 26],
-        [12, 26],
-      ],
-      () => RAMPS.azure.hi,
-    );
-  }),
+  // 16x16 Indigo Gravity Flux Anomaly lifting glowing cyan distortion arrows
+  gravity_flip: cluster16(
+    [
+      '................',
+      '.......CC.......',
+      '......CCcc......',
+      '.....CcuuuC.....',
+      '.......cc.......',
+      '.....333322.....',
+      '...333222211....',
+      '..33222oo2211...',
+      '..22222222211...',
+      '...221111111....',
+      '.....111111.....',
+      '.......CC.......',
+      '.....CcuuuC.....',
+      '......cuuU......',
+      '.......uu.......',
+      '................',
+    ],
+    MAT.arcane,
+    PB_MATS,
+  ),
 };
 
 export const BUILDING_SPRITES: Record<BuildingType, CompiledSprite> = {
-  // Crossed logs in stone hearth with dancing fire & sparks
-  bonfire: paintSprite((c) => {
-    c.fillIsoBox(16, 28, 11, 5, 3, RAMPS.stone, RAMPS.stone, RAMPS.darkIron);
-    c.fillCapsule(9, 23, 23, 19, 1.8, 1.8, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.darkWood, light, x, y, 0.02),
-    );
-    c.fillCapsule(9, 19, 23, 23, 1.8, 1.8, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.wood, light, x, y, 0.02),
-    );
-    c.fillBezier(16, 21, 10, 14, 15, 4, 4.8, 0.8, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.flame, light * 1.1, x, y, 0.02),
-    );
-    c.fillBezier(17, 20, 22, 15, 19, 7, 3.6, 0.8, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.flame, light * 0.98, x, y, 0.02),
-    );
-    c.fillEllipse(16, 17, 2.4, 3.2, 0, () => RAMPS.flame.hi);
-    c.sparkle(11, 6, RAMPS.flame.light, false);
-    c.sparkle(22, 5, RAMPS.flame.hi, false);
-  }),
+  // 16x16 Stone-ringed bonfire hearth with roaring symmetrical blaze
+  bonfire: cluster16(
+    [
+      '................',
+      '................',
+      '.......22.......',
+      '......2332......',
+      '.....234432.....',
+      '....12344321....',
+      '....12344321....',
+      '....11233211....',
+      '..Bbb111111kkK..',
+      '.BBbbkkkkkbbKK..',
+      '.NNnnBbbbbkhhH..',
+      '..NNnnhhhhhHH...',
+      '................',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.flame,
+    PB_MATS,
+  ),
 
-  // Cozy thatched A-frame woodland hut on grassy base with warm lantern door
-  forager_hut: paintSprite((c) => {
-    c.fillIsoBox(16, 28, 11, 5, 2.5, RAMPS.leaf, RAMPS.wood, RAMPS.darkWood);
-    c.fillIsoBox(16, 24, 7.5, 4, 7, RAMPS.wood, RAMPS.parchment, RAMPS.wood);
-    // Steep thatched pitched roof overhang
-    c.fillPoly(
-      [
-        [6, 17],
-        [16, 6],
-        [26, 16],
-        [16, 21],
-      ],
-      (x, y, _nx, _ny, _nz, light, u, v) => {
-        const straw = hash2d(x, Math.floor(y / 2), 19) * 0.14;
-        return quantRamp(RAMPS.gold, light * (1.0 - v * 0.15) + straw - u * 0.15, x, y, 0.02);
-      },
-    );
-    // Arched glowing door on left wall
-    c.fillEllipse(12, 23, 1.8, 2.5, 0, () => RAMPS.flame.light);
-  }),
+  // 16x16 Cozy thatched cottage with symmetrical straw roof, cast eave shadow & glowing door
+  forager_hut: cluster16(
+    [
+      '................',
+      '................',
+      '.......33.......',
+      '......3332......',
+      '.....222222.....',
+      '....22222221....',
+      '...2222222211...',
+      '..111111111111..',
+      '...JjjBbbkjJJ...',
+      '...IIiBfFakjJ...',
+      '...IiBBffakJJ...',
+      '...BBbkkkkKKK...',
+      '................',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.gold,
+    PB_MATS,
+  ),
 
-  // Carved stone spirit-mask totem pole with glowing teal eyes & feather crown
-  shaman_totem: paintSprite((c) => {
-    c.fillIsoBox(16, 29, 9, 4, 2.5, RAMPS.stone, RAMPS.stone, RAMPS.darkIron);
-    c.fillCapsule(16, 25, 16, 8, 4.5, 4.0, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.stone, light, x, y, 0.03),
-    );
-    // Carved wings / ear planks + feathers
-    c.fillCapsule(8, 12, 24, 12, 1.6, 1.6, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.wood, light, x, y, 0.02),
-    );
-    c.fillPoly(
-      [
-        [12, 7],
-        [14, 2],
-        [16, 7],
-      ],
-      () => RAMPS.crimson.light,
-    );
-    c.fillPoly(
-      [
-        [16, 7],
-        [18, 2],
-        [20, 7],
-      ],
-      () => RAMPS.gold.light,
-    );
-    // Glowing cyan spirit eyes
-    c.put(14, 11, RAMPS.azure.hi);
-    c.put(18, 11, RAMPS.azure.hi);
-    c.fillCapsule(14, 18, 18, 18, 0.9, 0.9, () => RAMPS.flame.mid);
-  }),
+  // 16x16 Symmetrical carved stone totem with timber wings & spirit fire
+  shaman_totem: cluster16(
+    [
+      '................',
+      '................',
+      '....Rr...Yy.....',
+      '....rq...gG.....',
+      '.....333322.....',
+      '.BBbb2CC2CCkKK..',
+      '.bbkK222221kKK..',
+      '.....22FFf1.....',
+      '.....22ffaa.....',
+      '.....122221.....',
+      '....22222211....',
+      '...1111111111...',
+      '................',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.stone,
+    PB_MATS,
+  ),
 
-  // Round timber-hooped silo granary topped with conical golden-straw dome
-  granary: paintSprite((c) => {
-    c.fillIsoBox(16, 28, 10, 4.5, 2.5, RAMPS.stone, RAMPS.stone, RAMPS.darkIron);
-    c.fillCapsule(16, 24, 16, 13, 6.2, 6.2, (x, y, _nx, _ny, _nz, light) => {
-      const hoop = y === 17 || y === 22;
-      return quantRamp(hoop ? RAMPS.darkIron : RAMPS.parchment, light, x, y, 0.02);
-    });
-    // Conical golden-thatch dome
-    c.fillPoly(
-      [
-        [8, 13],
-        [16, 4],
-        [24, 13],
-      ],
-      (x, y, _nx, _ny, _nz, light, u) =>
-        quantRamp(RAMPS.gold, light * (1.12 - u * 0.25), x, y, 0.02),
-    );
-    c.fillEllipse(16, 23, 2.0, 2.4, 0, () => RAMPS.darkWood.deep);
-  }),
+  // 16x16 Cylindrical hooped granary silo with conical golden straw dome
+  granary: cluster16(
+    [
+      '................',
+      '................',
+      '.......Y........',
+      '......yyy.......',
+      '.....ggggg......',
+      '....ggggggG.....',
+      '...GGGGGGGGG....',
+      '...222222221....',
+      '...sssmmmMMD....',
+      '...222bkk221....',
+      '...ssmBbkMMD....',
+      '...NNnbBkhhH....',
+      '................',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.parchment,
+    PB_MATS,
+  ),
 
-  // Brick blast furnace with smoking stack and molten gold crucible
-  smeltery: paintSprite((c) => {
-    // Tall stone chimney back-right
-    c.fillCapsule(22, 23, 22, 7, 2.8, 2.4, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.stone, light * 0.88, x, y, 0.02),
-    );
-    c.fillEllipse(22, 4, 2.6, 1.8, 0, () => RAMPS.cloud.mid);
-    // Brick furnace block
-    c.fillIsoBox(14, 27, 9, 4.5, 10, RAMPS.stone, RAMPS.terracotta, RAMPS.crimson);
-    // Glowing molten furnace hearth mouth
-    c.fillEllipse(11, 22, 2.5, 3.0, 0, () => RAMPS.flame.hi);
-    c.put(11, 22, [255, 255, 240]);
-  }),
+  // 16x16 Red brick blast smeltery with tall chimney & glowing hearth mouth
+  smeltery: cluster16(
+    [
+      '................',
+      '................',
+      '.........SSss...',
+      '..........ssM...',
+      '.........NnhH...',
+      '....Nnn..NnhH...',
+      '..33333333321...',
+      '..22222222211...',
+      '..22fFFf22211...',
+      '..22FFFFfa211...',
+      '..11fFFfaa111...',
+      '..NNnffaaahHH...',
+      '................',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.ruby,
+    PB_MATS,
+  ),
 
-  // Grand 3-tiered sandstone step pyramid crowned by glowing sun altar
-  ziggurat: paintSprite((c) => {
-    c.fillIsoBox(16, 28, 13, 5.8, 4, RAMPS.sandstone, RAMPS.sandstone, RAMPS.darkWood);
-    c.fillIsoBox(16, 23, 9.5, 4.4, 4, RAMPS.sandstone, RAMPS.sandstone, RAMPS.darkWood);
-    c.fillIsoBox(16, 18, 6, 2.8, 4, RAMPS.gold, RAMPS.sandstone, RAMPS.darkWood);
-    c.fillEllipse(16, 9, 2.5, 2.5, 0, () => RAMPS.gold.hi);
-    c.sparkle(16, 4, RAMPS.gold.hi, true);
-  }),
+  // 16x16 Symmetrical 3-tier sandstone ziggurat with clear shaded ledges & sun altar
+  ziggurat: cluster16(
+    [
+      '................',
+      '................',
+      '......Yyyg......',
+      '......gGGd......',
+      '....333YY221....',
+      '....oooooooo....',
+      '..33332YY22211..',
+      '..2222oooooooo..',
+      '.333322YY222111.',
+      '.222211gg111111.',
+      '.11111111111111.',
+      '................',
+      '................',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.parchment,
+    PB_MATS,
+  ),
 
-  // Half-timbered medieval guildhall with terracotta tile roof & glowing window
-  guildhall: paintSprite((c) => {
-    c.fillIsoBox(16, 28, 10.5, 5, 9, RAMPS.terracotta, RAMPS.parchment, RAMPS.wood);
-    c.fillPoly(
-      [
-        [5, 16],
-        [16, 5],
-        [27, 16],
-        [16, 21],
-      ],
-      (x, y, _nx, _ny, _nz, light, u, v) => {
-        const tile = Math.floor(v * 6) % 2 === 0 ? 0.06 : -0.05;
-        return quantRamp(RAMPS.terracotta, light * (1.1 - u * 0.2) + tile, x, y, 0.02);
-      },
-    );
-    // Oak beams + warm glowing window + banner
-    c.fillCapsule(10, 18, 10, 26, 0.7, 0.7, () => RAMPS.darkWood.dark);
-    c.fillEllipse(12.5, 24, 1.5, 2.2, 0, () => RAMPS.flame.light);
-    c.fillPoly(
-      [
-        [19, 17],
-        [22, 17],
-        [22, 23],
-        [20.5, 21],
-        [19, 23],
-      ],
-      () => RAMPS.gold.light,
-    );
-  }),
+  // 16x16 Symmetrical half-timbered guildhall with crimson roof & cast eave shadow
+  guildhall: cluster16(
+    [
+      '................',
+      '................',
+      '.......33.......',
+      '.....333322.....',
+      '...2222222221...',
+      '..111111111111..',
+      '...bKjjKbkjYYk..',
+      '...bKIfbKiYgk...',
+      '...bKIabKigGk...',
+      '...bKbbKbkjjK...',
+      '...NNnnnnnhHH...',
+      '................',
+      '................',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.ruby,
+    PB_MATS,
+  ),
 
-  // Limestone observatory with cerulean dome & gleaming brass telescope
-  observatory: paintSprite((c) => {
-    c.fillIsoBox(16, 28, 9, 4.2, 2.5, RAMPS.stone, RAMPS.stone, RAMPS.darkIron);
-    c.fillCapsule(16, 25, 16, 14, 6.2, 6.2, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.parchment, light, x, y, 0.02),
-    );
-    c.fillEllipse(16, 13, 6.8, 6.2, 0, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.azure, light * 1.05, x, y, 0.02),
-    );
-    // Protruding brass telescope aimed top-right
-    c.fillCapsule(17, 11, 26, 4, 1.5, 1.9, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.gold, light * 1.1, x, y, 0.02),
-    );
-    c.fillEllipse(12, 23, 1.5, 2.2, 0, () => RAMPS.azure.deep);
-  }),
+  // 16x16 Domed azure observatory with brass trim & telescope
+  observatory: cluster16(
+    [
+      '................',
+      '................',
+      '...........Yy...',
+      '.........YygG...',
+      '.....33332gG....',
+      '....22222221....',
+      '...2222222211...',
+      '..YYYYyyyygggg..',
+      '...JjiuuujJjj...',
+      '...IIiuuujjjJ...',
+      '...NNnnnnnhHH...',
+      '................',
+      '................',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.azure,
+    PB_MATS,
+  ),
 
-  // Riveted red-brick & iron Victorian steam foundry with twin smokestacks
-  steam_foundry: paintSprite((c) => {
-    // Twin smokestacks
-    c.fillCapsule(11, 17, 11, 5, 2.0, 1.8, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.darkIron, light, x, y, 0.02),
-    );
-    c.fillCapsule(19, 16, 19, 4, 2.0, 1.8, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.darkIron, light * 0.9, x, y, 0.02),
-    );
-    c.fillEllipse(12, 3, 2.2, 1.4, 0, () => RAMPS.cloud.light);
-    c.fillEllipse(20, 2.5, 2.2, 1.4, 0, () => RAMPS.cloud.mid);
-    // Main brick & steel factory hall
-    c.fillIsoBox(16, 28, 11, 5, 9.5, RAMPS.steel, RAMPS.terracotta, RAMPS.crimson);
-    c.fillEllipse(11, 22, 2.3, 2.5, 0, () => RAMPS.flame.hi);
-    c.put(20, 21, RAMPS.flame.light);
-    c.put(23, 20, RAMPS.flame.light);
-  }),
+  // 16x16 Twin-smokestack brick steam foundry with flat brick body & furnace windows
+  steam_foundry: cluster16(
+    [
+      '................',
+      '................',
+      '...SSs....SSs...',
+      '...smM....smM...',
+      '...smM....smM...',
+      '..SSsssmmmMMDD..',
+      '.2222222222211..',
+      '.22fFa22fFa211..',
+      '.22ffa22ffa211..',
+      '.1111111111111..',
+      '.NNnnnnnnhhhHH..',
+      '................',
+      '................',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.ruby,
+    PB_MATS,
+  ),
 
-  // Copper-coiled Tesla dynamo plant topped by crackling electric arcs
-  dynamo_plant: paintSprite((c) => {
-    c.fillIsoBox(16, 28, 10.5, 4.8, 7.5, RAMPS.steel, RAMPS.darkIron, RAMPS.darkIron);
-    // Copper-coil Tesla column + glowing sphere
-    c.fillCapsule(16, 17, 16, 8, 2.5, 2.1, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(y % 2 === 0 ? RAMPS.gold : RAMPS.wood, light, x, y, 0.02),
-    );
-    c.fillEllipse(16, 6.5, 3.6, 3.0, 0, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.azure, light * 1.15, x, y, 0.02),
-    );
-    c.sparkle(8, 7, RAMPS.azure.hi, true);
-    c.sparkle(24, 8, RAMPS.gold.hi, false);
-    c.fillCapsule(10, 22, 14, 24, 1.2, 1.2, () => RAMPS.azure.hi);
-  }),
+  // 16x16 Symmetrical copper-coil Tesla dynamo with glowing cyan orb
+  dynamo_plant: cluster16(
+    [
+      '................',
+      '................',
+      '.....CCccc......',
+      '.....CccuuU.....',
+      '......cuuU......',
+      '......Yyyg......',
+      '.....YyggGG.....',
+      '......Yyyg......',
+      '..333333333321..',
+      '.222CCc22CCc211.',
+      '.222ccU22ccU111.',
+      '.11111111111111.',
+      '................',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.steel,
+    PB_MATS,
+  ),
 
-  // Victorian brick rail station depot with gabled clocktower, canopy & steel rails
-  rail_station: paintSprite((c) => {
-    c.fillIsoBox(16, 28, 12, 5.2, 2.5, RAMPS.stone, RAMPS.stone, RAMPS.darkIron);
-    c.fillIsoBox(16, 24, 9.5, 4.2, 6.5, RAMPS.terracotta, RAMPS.parchment, RAMPS.wood);
-    // Pitched red-slate canopy roof
-    c.fillPoly(
-      [
-        [6, 17],
-        [16, 10],
-        [26, 17],
-        [16, 20],
-      ],
-      (x, y, _nx, _ny, _nz, light, u) =>
-        quantRamp(RAMPS.crimson, light * (1.1 - u * 0.2), x, y, 0.02),
-    );
-    // Clock tower peak
-    c.fillCapsule(16, 13, 16, 6, 3.0, 2.5, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.terracotta, light, x, y, 0.02),
-    );
-    c.fillEllipse(16, 9, 2.1, 2.1, 0, () => RAMPS.parchment.hi);
-    c.put(16, 9, [20, 14, 12]);
-    // Arched glowing train bays + steel rails along platform edge
-    c.fillEllipse(12, 22, 1.6, 2.0, 0, () => RAMPS.flame.light);
-    c.fillCapsule(8, 25, 16, 28, 0.7, 0.7, () => RAMPS.steel.hi);
-    c.fillCapsule(16, 28, 24, 25, 0.7, 0.7, () => RAMPS.steel.light);
-  }),
+  // 16x16 Brick rail depot with symmetrical gabled clock tower & tracks
+  rail_station: cluster16(
+    [
+      '................',
+      '................',
+      '.....33322......',
+      '....2IIji11.....',
+      '..33333333321...',
+      '.1111111111111..',
+      '..JjbKJjbKJjj...',
+      '..IfbKIfbKIfj...',
+      '.SSsssmmmMMMMD..',
+      '.bKbKbKbKbKbKb..',
+      '.NNnnnnnnhhhHH..',
+      '................',
+      '................',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.ruby,
+    PB_MATS,
+  ),
 
-  // Containment dome & hyperboloid cooling tower pulsing with emerald Cherenkov glow
-  fission_reactor: paintSprite((c) => {
-    // Cooling tower right
-    c.fillCapsule(21, 24, 21, 8, 4.2, 3.0, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.stone, light * 0.9, x, y, 0.02),
-    );
-    c.fillEllipse(21, 5, 3.2, 1.8, 0, () => RAMPS.cloud.light);
-    // Steel containment dome left
-    c.fillEllipse(11.5, 20, 6.8, 7.5, 0, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.steel, light, x, y, 0.02),
-    );
-    // Emerald glowing core visor
-    c.fillEllipse(11.5, 21, 3.2, 2.8, 0, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.toxic, light * 1.15, x, y, 0.01),
-    );
-    c.put(10.5, 20, [255, 255, 240]);
-  }),
+  // 16x16 Atomic dome & cooling tower with glowing Cherenkov core
+  fission_reactor: cluster16(
+    [
+      '................',
+      '................',
+      '........SSss....',
+      '........Nnnh....',
+      '...3332.Nnnh....',
+      '..222221NnhH....',
+      '.22TTt21NnhHH...',
+      '.22ttwW1nhHHH...',
+      '.1111111nhHHH...',
+      '.111111111111...',
+      '................',
+      '................',
+      '................',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.steel,
+    PB_MATS,
+  ),
 
-  // Sleek obsidian-glass cybernetic spire with glowing holographic cyan bands
-  cyber_institute: paintSprite((c) => {
-    c.fillIsoBox(16, 28, 10, 4.5, 3, RAMPS.darkIron, RAMPS.darkIron, RAMPS.steel);
-    c.fillIsoBox(16, 24, 7.5, 3.8, 12, RAMPS.azure, RAMPS.darkIron, RAMPS.steel);
-    // Glowing holographic cyan visor bands
-    c.fillCapsule(10, 15, 16, 18, 1.0, 1.0, () => RAMPS.azure.hi);
-    c.fillCapsule(16, 18, 22, 15, 1.0, 1.0, () => RAMPS.azure.light);
-    c.fillCapsule(10, 20, 16, 23, 0.9, 0.9, () => RAMPS.azure.hi);
-    // Comms spire
-    c.fillCapsule(16, 9, 16, 2, 0.9, 0.6, () => RAMPS.azure.hi);
-    c.sparkle(16, 2, [255, 255, 255], true);
-  }),
+  // 16x16 Symmetrical cyber arcology with glowing cyan data bands
+  cyber_institute: cluster16(
+    [
+      '................',
+      '................',
+      '.......Cc.......',
+      '.......cu.......',
+      '....3333322.....',
+      '...2CCCCCC21....',
+      '...222222211....',
+      '...2cccccc11....',
+      '..22uuuuuu211...',
+      '..22222222211...',
+      '..222CCc22211...',
+      '..11111111111...',
+      '................',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.darkIron,
+    PB_MATS,
+  ),
 
-  // Swept ATC radar control tower beside terminal & striped tarmac runway
-  airport: paintSprite((c) => {
-    // Runway tarmac base with dashed centerline
-    c.fillIsoBox(16, 28, 12.5, 5.5, 2.5, RAMPS.darkIron, RAMPS.darkIron, RAMPS.stone);
-    c.put(9, 24, RAMPS.gold.hi);
-    c.put(13, 25, RAMPS.gold.hi);
-    c.put(17, 25, RAMPS.gold.hi);
-    // Terminal hall left + tall ATC tower right
-    c.fillIsoBox(10, 24, 5.5, 2.8, 5, RAMPS.steel, RAMPS.cloud, RAMPS.steel);
-    c.fillCapsule(22, 23, 22, 10, 2.0, 2.0, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.steel, light, x, y, 0.02),
-    );
-    c.fillEllipse(22, 9, 4.4, 2.4, 0, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.azure, light * 1.1, x, y, 0.02),
-    );
-    c.sparkle(22, 5, RAMPS.flame.light, false);
-  }),
+  // 16x16 Airport ATC tower, glass terminal & yellow-striped tarmac
+  airport: cluster16(
+    [
+      '................',
+      '................',
+      '..........Ff....',
+      '........CCccu...',
+      '........uuUUu...',
+      '...3332..321....',
+      '..22221..221....',
+      '..2CCc1..221....',
+      '..11111..111....',
+      '.MMMMMMMMMMMMM..',
+      '.MYYMMYYMMYYMM..',
+      '.MMMMMMMMMMMMM..',
+      '................',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.steel,
+    PB_MATS,
+  ),
 
-  // Steel launch gantry cradling a white-and-orange orbital rocket firing exhaust
-  launch_arcology: paintSprite((c) => {
-    c.fillIsoBox(16, 29, 11, 4.8, 3.5, RAMPS.darkIron, RAMPS.darkIron, RAMPS.steel);
-    // Launch gantry frame right
-    c.fillCapsule(23, 25, 23, 7, 1.5, 1.5, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.steel, light * 0.85, x, y, 0.02),
-    );
-    c.fillCapsule(16, 12, 23, 12, 0.9, 0.9, () => RAMPS.steel.mid);
-    // White-and-orange rocket centered
-    c.fillCapsule(14, 22, 14, 6, 3.0, 1.2, (x, y, _nx, _ny, _nz, light, u) =>
-      quantRamp(u > 0.72 ? RAMPS.terracotta : RAMPS.cloud, light * 1.05, x, y, 0.02),
-    );
-    c.fillEllipse(14, 25, 2.4, 2.2, 0, () => RAMPS.flame.hi);
-  }),
+  // 16x16 Orbital launch pad with steel gantry & crimson rocket ignition
+  launch_arcology: cluster16(
+    [
+      '................',
+      '................',
+      '.....Rr.........',
+      '....Rrr..smM....',
+      '....332..smM....',
+      '...3322mmsMM....',
+      '...2221..smM....',
+      '...RrqQ..smM....',
+      '..R2221Q.smM....',
+      '..rfFFaQ.smM....',
+      '...FFfa..smM....',
+      '..MMMMMMMMMMM...',
+      '................',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.steel,
+    PB_MATS,
+  ),
 
-  // Celestial golden-and-cyan Dyson space elevator spire piercing orbital rings
-  dyson_spire: paintSprite((c) => {
-    c.fillIsoBox(16, 29, 9.5, 4.2, 3, RAMPS.darkIron, RAMPS.steel, RAMPS.darkIron);
-    // Gleaming central golden spire
-    c.fillCapsule(16, 26, 16, 3, 2.2, 1.0, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.gold, light * 1.12, x, y, 0.02),
-    );
-    // Twin tilted holographic cyan orbital rings
-    c.fillEllipse(16, 10, 10, 2.6, -0.15, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.azure, light * 1.12, x, y, 0.02),
-    );
-    c.fillEllipse(16, 18, 8.5, 2.2, 0.15, (x, y, _nx, _ny, _nz, light) =>
-      quantRamp(RAMPS.azure, light * 1.08, x, y, 0.02),
-    );
-    c.sparkle(16, 14, [255, 255, 255], true);
-  }),
+  // 16x16 Symmetrical gold Dyson spire with glowing orbital rings
+  dyson_spire: cluster16(
+    [
+      '................',
+      '................',
+      '.......33.......',
+      '......3322......',
+      '..CCcc3322cuUU..',
+      '..Cc..2221..uU..',
+      '...cuu2221uUU...',
+      '...CCc2221cuU...',
+      '..Cc..2221..uU..',
+      '...cuu1111uUu...',
+      '.....222111.....',
+      '...SSssmmMMDD...',
+      '................',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.gold,
+    PB_MATS,
+  ),
 };
