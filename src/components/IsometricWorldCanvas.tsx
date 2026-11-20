@@ -981,6 +981,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     });
     const reticleMesh = new THREE.Mesh(reticleRingGeo, reticleMat);
     reticleMesh.position.y = 0.04;
+    reticleMesh.renderOrder = 5;
     reticleGroup.add(reticleMesh);
     worldGroup.add(reticleGroup);
 
@@ -1012,8 +1013,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       const ringRoot = new THREE.Group();
       const outerRing = new THREE.Mesh(outerGeo, ringMat);
       outerRing.position.y = 0.05;
+      outerRing.renderOrder = 5;
       const innerRing = new THREE.Mesh(innerGeo, ringMat);
       innerRing.position.y = 0.06;
+      innerRing.renderOrder = 5;
       ringRoot.add(outerRing, innerRing);
 
       const cornerOffsets: [number, number][] = [
@@ -1025,11 +1028,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       for (const [cx, cz] of cornerOffsets) {
         const post = new THREE.Mesh(postGeo, bracketMat);
         post.position.set(cx, 0.24, cz);
+        post.renderOrder = 5;
         ringRoot.add(post);
       }
 
       const pointer = new THREE.Mesh(pointerGeo, bracketMat);
       pointer.position.set(0, 1.85, 0);
+      pointer.renderOrder = 5;
 
       group.add(ringRoot, pointer);
       worldGroup.add(group);
@@ -1066,6 +1071,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     });
     const dragTargetReticle = new THREE.Mesh(dragTargetReticleGeo, dragTargetReticleMat);
     dragTargetReticle.visible = false;
+    dragTargetReticle.renderOrder = 5;
     worldGroup.add(dragTargetReticle);
 
     const dragTetherGeo = new THREE.BufferGeometry();
@@ -1078,6 +1084,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     });
     const dragTetherLine = new THREE.Line(dragTetherGeo, dragTetherMat);
     dragTetherLine.visible = false;
+    dragTetherLine.renderOrder = 5;
     worldGroup.add(dragTetherLine);
 
     const MAX_FAVORITE_STARS = 64;
@@ -1359,11 +1366,26 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     const _whiteCol = new THREE.Color(1, 1, 1);
     fireSpriteInst.frustumCulled = false;
     fireSmokeInst.frustumCulled = false;
-    fireSpriteInst.renderOrder = 3;
-    fireSmokeInst.renderOrder = 4;
+    fireSpriteInst.renderOrder = 6;
+    fireSmokeInst.renderOrder = 7;
     fireSpriteInst.count = 0;
     fireSmokeInst.count = 0;
     worldGroup.add(fireSpriteInst, fireSmokeInst);
+
+    // Surface Y & render-order helpers so VFX, magic circles, reticles, and attacks stay cleanly above water waves
+    const WATER_SURFACE_EFFECT_Y = 0.36;
+    const getTileEffectSurfaceY = (tile: { height: number } | undefined, fallbackY = 0.5): number => {
+      if (!tile) return Math.max(WATER_SURFACE_EFFECT_Y, fallbackY);
+      if (tile.height <= 0) return WATER_SURFACE_EFFECT_Y;
+      return tile.height * HEIGHT_STEP + 0.25;
+    };
+    const setSubtreeRenderOrder = (root: THREE.Object3D, order: number): void => {
+      root.renderOrder = order;
+      const children = root.children;
+      for (let i = 0; i < children.length; i++) {
+        setSubtreeRenderOrder(children[i], order);
+      }
+    };
 
     // Lingering Hazard Zones (Monsoon storm clouds, Plague miasma, Aegis shield dome, Singularity rift)
     const hazardsGroup = new THREE.Group();
@@ -1391,7 +1413,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         opacity,
         side: THREE.DoubleSide,
         depthWrite: false,
-        blending: THREE.AdditiveBlending,
+        blending: THREE.NormalBlending,
+        toneMapped: false,
+        polygonOffset: true,
+        polygonOffsetFactor: -2,
+        polygonOffsetUnits: -2,
       });
     }
     const sharedRiftTorusGeo = new THREE.TorusGeometry(1.65, 0.22, 8, 24);
@@ -2948,6 +2974,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       dropKind?: TerrainToolType,
       dropTargets?: Array<{ x: number; y: number; z: number }>,
     ) {
+      // Ensure every power burst & magic circle spawns cleanly above the animated ocean surface
+      ty = Math.max(WATER_SURFACE_EFFECT_Y, ty);
+
       // Bound simultaneous active bursts for smooth performance during continuous S-pattern painting
       if (activeBurstFx.length >= MAX_BURST_FX) {
         const dropIdx = activeBurstFx.findIndex((f) => f.impactFired || !f.deferImpact);
@@ -9112,7 +9141,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       while (simState.pendingVfx.length > 0) {
         const vfx = simState.pendingVfx.shift()!;
         const vTile = getTileFromArray(simState, vfx.x, vfx.z);
-        const surfY = vTile ? Math.max(0.22, vTile.height * HEIGHT_STEP + 0.25) : Math.max(0.45, vfx.y);
+        const surfY = getTileEffectSurfaceY(vTile, vfx.y);
         if (vfx.type === 'hit_spark') {
           spawnWeaponSparkVisual(vfx.x, surfY + 0.28, vfx.z, vfx.radius, vfx.color);
         } else if (vfx.type === 'build_complete') {
@@ -9121,7 +9150,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           const ox = vfx.originX ?? vfx.x;
           const oz = vfx.originZ ?? vfx.z;
           const oTile = getTileFromArray(simState, ox, oz);
-          const originGroundY = oTile ? Math.max(0.22, oTile.height * HEIGHT_STEP + 0.36) : surfY + 0.15;
+          const originGroundY = getTileEffectSurfaceY(oTile, surfY) + 0.11;
           spawnDirectionalFlameStream(
             ox,
             originGroundY,
@@ -9138,7 +9167,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           const ox = vfx.originX ?? vfx.x;
           const oz = vfx.originZ ?? vfx.z;
           const oTile = getTileFromArray(simState, ox, oz);
-          const originGroundY = oTile ? Math.max(0.22, oTile.height * HEIGHT_STEP + 0.25) : surfY;
+          const originGroundY = getTileEffectSurfaceY(oTile, surfY);
           spawnDragonFireBreath(
             ox,
             originGroundY + 3.05,
@@ -9154,7 +9183,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           const ox = vfx.originX ?? vfx.x;
           const oz = vfx.originZ ?? vfx.z;
           const oTile = getTileFromArray(simState, ox, oz);
-          const originGroundY = oTile ? Math.max(0.22, oTile.height * HEIGHT_STEP + 0.25) : surfY;
+          const originGroundY = getTileEffectSurfaceY(oTile, surfY);
           spawnAnimalAttackVisual(
             vfx.variant ?? 'bite',
             ox,
@@ -9175,11 +9204,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           const ox = vfx.originX ?? vfx.x;
           const oz = vfx.originZ ?? vfx.z;
           const oTile = getTileFromArray(simState, ox, oz);
-          const originGroundY = oTile ? Math.max(0.22, oTile.height * HEIGHT_STEP + 0.25) : surfY;
+          const originGroundY = getTileEffectSurfaceY(oTile, surfY);
           spawnWarWeaponVisual(
             vfx.type,
             ox,
-            vfx.originY ?? originGroundY,
+            vfx.originY !== undefined ? Math.max(originGroundY, vfx.originY) : originGroundY,
             oz,
             vfx.x,
             surfY,
@@ -9195,7 +9224,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           spawnPowerVisualEffect(
             vfx.type,
             vfx.x,
-            vfx.y,
+            Math.max(surfY, vfx.y),
             vfx.z,
             vfx.radius,
             vfx.color,
@@ -9208,6 +9237,15 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             vfx.dropKind,
             vfx.dropTargets,
           );
+        }
+      }
+
+      // Guarantee every active burst VFX (powers, magic circles, unit attacks, projectiles) renders after oceanFoam
+      for (let bi = 0; bi < activeBurstFx.length; bi++) {
+        const bGroup = activeBurstFx[bi].group;
+        if (!bGroup.userData._roApplied) {
+          setSubtreeRenderOrder(bGroup, 9);
+          bGroup.userData._roApplied = true;
         }
       }
 
@@ -9240,12 +9278,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
               haz.z,
               Boolean(haz.isSuper),
             );
+            setSubtreeRenderOrder(hv.group, 8);
             hazardsGroup.add(hv.group);
             hazardMeshes.set(haz.id, hv);
           }
           hv.seenStamp = syncFrameStamp;
           const ht = getTileFromArray(simState, haz.x, haz.z);
-          const targetHy = ht ? Math.max(0.25, ht.height * HEIGHT_STEP + 0.25) : 0.8;
+          const targetHy = getTileEffectSurfaceY(ht, 0.8);
           const hy =
             hv.currentY === undefined
               ? targetHy
@@ -10388,6 +10427,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       // `syncSceneFromSimulation` immediately updates the 3D terrain & shader texture in the exact same frame!
       for (let i = activeBurstFx.length - 1; i >= 0; i--) {
         const fx = activeBurstFx[i];
+        if (!fx.group.userData._roApplied) {
+          setSubtreeRenderOrder(fx.group, 9);
+          fx.group.userData._roApplied = true;
+        }
         fx.age += dt;
 
         if (fx.kind === 'meteor' && fx.meteorMesh && fx.ringMesh) {
@@ -11972,7 +12015,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         const tx = draggedTargetUnit.dragTargetX ?? dx;
         const tz = draggedTargetUnit.dragTargetZ ?? dz;
         const targetTile = getTileFromArray(simRef.current, Math.round(tx), Math.round(tz));
-        const reticleY = (targetTile ? Math.max(0.2, targetTile.height * HEIGHT_STEP) : 0.2) + 0.18;
+        const reticleY = getTileEffectSurfaceY(targetTile, 0.36) + 0.06;
         dragTargetReticle.visible = true;
         dragTargetReticle.position.set(tx, reticleY, tz);
         dragTargetReticle.rotation.y = elapsedTotal * 2.5;
@@ -12107,7 +12150,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           simRef.current.tiles[
             hoveredTileCoords.z * simRef.current.gridSize + hoveredTileCoords.x
           ];
-        const hy = ht ? Math.max(0.18, ht.height * HEIGHT_STEP + 0.28) : 0.5;
+        const hy = ht ? (ht.height <= 0 ? WATER_SURFACE_EFFECT_Y + 0.02 : ht.height * HEIGHT_STEP + 0.28) : 0.5;
         reticleGroup.position.set(hoveredTileCoords.x, hy, hoveredTileCoords.z);
 
         const tool = propsRef.current.activeTool;

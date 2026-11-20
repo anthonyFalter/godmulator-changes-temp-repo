@@ -187,7 +187,7 @@ export function createSkyCloudSystem(gridSize: number): SkyCloudSystem {
     cInst.castShadow = false;
     cInst.receiveShadow = false;
     cInst.frustumCulled = false;
-    cInst.renderOrder = 4;
+    cInst.renderOrder = 12;
     cInst.count = cap;
     group.add(cInst);
     cloudInsts.push(cInst);
@@ -196,7 +196,7 @@ export function createSkyCloudSystem(gridSize: number): SkyCloudSystem {
     sInst.castShadow = false;
     sInst.receiveShadow = false;
     sInst.frustumCulled = false;
-    sInst.renderOrder = 2;
+    sInst.renderOrder = -1;
     sInst.count = cap;
     shadowGroup.add(sInst);
     shadowInsts.push(sInst);
@@ -746,7 +746,7 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
   const mesh = new THREE.Mesh(geo, material);
   const center = (gridSize - 1) / 2;
   mesh.position.set(center, 0.295, center);
-  mesh.renderOrder = 2;
+  mesh.renderOrder = -5;
 
   const updateMap = (tiles: TileData[]) => {
     for (let i = 0; i < tiles.length; i++) {
@@ -3564,7 +3564,7 @@ export function createWorldUnderglowSystem(gridSize: number): WorldUnderglowSyst
   const mesh = new THREE.Mesh(geo, material);
   const center = (gridSize - 1) / 2;
   mesh.position.set(center, -1.88, center);
-  mesh.renderOrder = 0;
+  mesh.renderOrder = -2;
 
   const _innerTarget = new THREE.Color('#48bfe3');
   const _outerTarget = new THREE.Color('#273e7a');

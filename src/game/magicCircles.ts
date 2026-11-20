@@ -18,44 +18,49 @@ interface ThemePalette {
   accentB: string;
   accentC: string;
   glow: string;
+  aura: string;
 }
 
 const THEME_PALETTES: Record<MagicCircleTheme, ThemePalette> = {
   arcane: {
-    core: '#e0f2fe',
+    core: '#f0f9ff',
     primary: '#38bdf8',
     secondary: '#c084fc',
-    accentA: '#facc15',
+    accentA: '#fde047',
     accentB: '#4ade80',
     accentC: '#fb923c',
     glow: '#a855f7',
+    aura: '#2e1065',
   },
   insight: {
-    core: '#ecfeff',
+    core: '#f0fdfa',
     primary: '#38bdf8',
     secondary: '#22d3ee',
     accentA: '#fef08a',
     accentB: '#c084fc',
     accentC: '#5eead4',
     glow: '#06b6d4',
+    aura: '#0c4a6e',
   },
   blessing: {
     core: '#fefce8',
-    primary: '#facc15',
+    primary: '#fde047',
     secondary: '#80ed99',
     accentA: '#fff3b0',
     accentB: '#38bdf8',
     accentC: '#4ade80',
     glow: '#f59e0b',
+    aura: '#713f12',
   },
   golden: {
     core: '#fffbeb',
     primary: '#ffd166',
-    secondary: '#f59e0b',
+    secondary: '#fb923c',
     accentA: '#fef08a',
     accentB: '#38bdf8',
     accentC: '#fb7185',
     glow: '#f59e0b',
+    aura: '#78350f',
   },
   shield: {
     core: '#f0fdfa',
@@ -65,24 +70,27 @@ const THEME_PALETTES: Record<MagicCircleTheme, ThemePalette> = {
     accentB: '#c084fc',
     accentC: '#fde047',
     glow: '#2dd4bf',
+    aura: '#115e59',
   },
   wrath: {
     core: '#fff7ed',
-    primary: '#ef4444',
-    secondary: '#f97316',
-    accentA: '#facc15',
+    primary: '#ff4d4f',
+    secondary: '#fb923c',
+    accentA: '#fde047',
     accentB: '#fb7185',
     accentC: '#38bdf8',
-    glow: '#dc2626',
+    glow: '#ef4444',
+    aura: '#7f1d1d',
   },
   nature: {
     core: '#ecfdf5',
-    primary: '#10b981',
+    primary: '#34d399',
     secondary: '#80ed99',
-    accentA: '#38bdf8',
-    accentB: '#facc15',
+    accentA: '#5eead4',
+    accentB: '#fde047',
     accentC: '#a3e635',
-    glow: '#059669',
+    glow: '#10b981',
+    aura: '#064e3b',
   },
   frost: {
     core: '#f0f9ff',
@@ -92,6 +100,7 @@ const THEME_PALETTES: Record<MagicCircleTheme, ThemePalette> = {
     accentB: '#818cf8',
     accentC: '#a5f3fc',
     glow: '#0ea5e9',
+    aura: '#1e3a8a',
   },
 };
 
@@ -164,6 +173,15 @@ function mulberry32(seed: number): () => number {
   };
 }
 
+function hexToRgba(hex: string, alpha: number): string {
+  const clean = hex.replace('#', '');
+  const n = parseInt(clean, 16);
+  const r = (n >> 16) & 255;
+  const g = (n >> 8) & 255;
+  const b = n & 255;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
 function drawRuneGlyph(
   ctx: CanvasRenderingContext2D,
   glyphIdx: number,
@@ -172,35 +190,53 @@ function drawRuneGlyph(
   radius: number,
   angle: number,
   color: string,
+  auraColor: string,
+  coreColor: string,
   lineWidth: number,
 ) {
   const strokes = RUNIC_GLYPHS[((glyphIdx % RUNIC_GLYPHS.length) + RUNIC_GLYPHS.length) % RUNIC_GLYPHS.length];
   ctx.save();
   ctx.translate(cx, cy);
   ctx.rotate(angle);
-  ctx.strokeStyle = color;
-  ctx.shadowColor = color;
-  ctx.shadowBlur = Math.max(4, radius * 0.65);
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
 
-  // Crisp bright core + neon aura pass
-  ctx.lineWidth = lineWidth;
-  ctx.beginPath();
-  for (const poly of strokes) {
-    for (let i = 0; i < poly.length; i++) {
-      const px = poly[i][0] * radius;
-      const py = poly[i][1] * radius;
-      if (i === 0) ctx.moveTo(px, py);
-      else ctx.lineTo(px, py);
+  const tracePath = () => {
+    ctx.beginPath();
+    for (const poly of strokes) {
+      for (let i = 0; i < poly.length; i++) {
+        const px = poly[i][0] * radius;
+        const py = poly[i][1] * radius;
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
     }
-  }
+  };
+
+  // Pass 1: Soft deep theme-colored halo for clear separation over sunlit grass, sand, and water
+  ctx.shadowColor = auraColor;
+  ctx.shadowBlur = Math.max(3, radius * 0.45);
+  ctx.strokeStyle = hexToRgba(auraColor, 0.58);
+  ctx.lineWidth = lineWidth + 2.0;
+  tracePath();
   ctx.stroke();
 
-  ctx.shadowBlur = 0;
-  ctx.strokeStyle = '#ffffff';
-  ctx.globalAlpha *= 0.62;
-  ctx.lineWidth = Math.max(1, lineWidth * 0.45);
+  // Pass 2: Luminous colored neon-energy glow
+  ctx.strokeStyle = color;
+  ctx.shadowColor = color;
+  ctx.shadowBlur = Math.max(7, radius * 0.95);
+  ctx.lineWidth = lineWidth + 0.35;
+  tracePath();
+  ctx.stroke();
+
+  // Pass 3: Hot incandescent inner filament (magical light core without blurring away glyph shape)
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.shadowColor = coreColor;
+  ctx.shadowBlur = 3;
+  ctx.strokeStyle = coreColor;
+  ctx.globalAlpha *= 0.64;
+  ctx.lineWidth = Math.max(0.95, lineWidth * 0.44);
+  tracePath();
   ctx.stroke();
   ctx.restore();
 }
@@ -218,52 +254,98 @@ function renderMagicCircleTexture(theme: MagicCircleTheme, variant: number): THR
   const ctx = canvas.getContext('2d')!;
   ctx.clearRect(0, 0, size, size);
 
-  // 1. Subtle radial energy aura & center polar grid lattice (matching ref image core)
-  const bgGrad = ctx.createRadialGradient(half, half, 4, half, half, half * 0.94);
-  bgGrad.addColorStop(0, `${pal.core}88`);
-  bgGrad.addColorStop(0.22, `${pal.primary}44`);
-  bgGrad.addColorStop(0.55, `${pal.secondary}22`);
-  bgGrad.addColorStop(0.84, `${pal.glow}14`);
-  bgGrad.addColorStop(1, 'rgba(0,0,0,0)');
+  // 1. Ethereal colored mana aura (gentle tinted luminosity — radiant without whiteout fog)
+  const bgGrad = ctx.createRadialGradient(half, half, 12, half, half, half * 0.94);
+  bgGrad.addColorStop(0, hexToRgba(pal.glow, 0.24));
+  bgGrad.addColorStop(0.42, hexToRgba(pal.aura, 0.18));
+  bgGrad.addColorStop(0.66, hexToRgba(pal.glow, 0.22));
+  bgGrad.addColorStop(0.84, hexToRgba(pal.primary, 0.12));
+  bgGrad.addColorStop(1, hexToRgba(pal.glow, 0));
   ctx.fillStyle = bgGrad;
-  ctx.fillRect(0, 0, size, size);
+  ctx.beginPath();
+  ctx.arc(half, half, half * 0.94, 0, Math.PI * 2);
+  ctx.fill();
 
-  // Polar grid spokes + inner rings
+  // Soft translucent colored mana track behind the orbiting rune band (keeps runes glowing & readable)
+  ctx.save();
+  ctx.translate(half, half);
+  ctx.strokeStyle = hexToRgba(pal.aura, 0.34);
+  ctx.shadowColor = pal.glow;
+  ctx.shadowBlur = 14;
+  ctx.lineWidth = 34;
+  ctx.beginPath();
+  ctx.arc(0, 0, 151, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+
+  // Polar grid spokes + inner rings with luminous neon-tube glow
   ctx.save();
   ctx.translate(half, half);
   const spokeCount = 16;
-  ctx.strokeStyle = pal.primary;
-  ctx.lineWidth = 1.1;
   for (let i = 0; i < spokeCount; i++) {
     const a = (i / spokeCount) * Math.PI * 2;
     const isMajor = i % 2 === 0;
-    ctx.globalAlpha = isMajor ? 0.55 : 0.25;
+    const endR = isMajor ? 222 : 148;
     ctx.beginPath();
-    ctx.moveTo(Math.cos(a) * 14, Math.sin(a) * 14);
-    ctx.lineTo(Math.cos(a) * (isMajor ? 228 : 148), Math.sin(a) * (isMajor ? 228 : 148));
+    ctx.moveTo(Math.cos(a) * 18, Math.sin(a) * 18);
+    ctx.lineTo(Math.cos(a) * endR, Math.sin(a) * endR);
+
+    ctx.strokeStyle = hexToRgba(pal.aura, 0.42);
+    ctx.globalAlpha = isMajor ? 0.65 : 0.35;
+    ctx.lineWidth = isMajor ? 3.0 : 1.8;
+    ctx.shadowBlur = 0;
+    ctx.stroke();
+
+    ctx.strokeStyle = isMajor ? pal.primary : pal.secondary;
+    ctx.shadowColor = isMajor ? pal.glow : pal.secondary;
+    ctx.shadowBlur = isMajor ? 7 : 3;
+    ctx.globalAlpha = isMajor ? 0.85 : 0.48;
+    ctx.lineWidth = isMajor ? 1.55 : 1.0;
     ctx.stroke();
   }
+
   // Inner polar grid circles
-  for (const rr of [24, 42, 62, 82, 108, 134, 168, 198]) {
-    ctx.globalAlpha = rr <= 82 ? 0.45 : 0.72;
-    ctx.lineWidth = rr === 168 || rr === 134 ? 2.2 : 1.1;
-    ctx.strokeStyle = rr === 168 ? pal.secondary : pal.primary;
+  for (const rr of [26, 46, 70, 108, 134, 168, 198]) {
+    const isMain = rr === 168 || rr === 134 || rr === 198;
+    const ringCol = rr === 168 ? pal.secondary : rr === 198 ? pal.accentA : pal.primary;
     ctx.beginPath();
     ctx.arc(0, 0, rr, 0, Math.PI * 2);
+
+    ctx.strokeStyle = hexToRgba(pal.aura, 0.56);
+    ctx.globalAlpha = isMain ? 0.72 : 0.42;
+    ctx.lineWidth = isMain ? 5.2 : 2.8;
+    ctx.shadowColor = pal.aura;
+    ctx.shadowBlur = isMain ? 4 : 0;
     ctx.stroke();
+
+    ctx.strokeStyle = ringCol;
+    ctx.shadowColor = ringCol;
+    ctx.shadowBlur = isMain ? 11 : 5;
+    ctx.globalAlpha = isMain ? 0.96 : 0.72;
+    ctx.lineWidth = isMain ? 2.8 : 1.5;
+    ctx.stroke();
+
+    if (isMain) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.strokeStyle = pal.core;
+      ctx.shadowColor = pal.core;
+      ctx.shadowBlur = 4;
+      ctx.globalAlpha = 0.62;
+      ctx.lineWidth = 1.15;
+      ctx.stroke();
+      ctx.restore();
+    }
+    ctx.shadowBlur = 0;
   }
   ctx.restore();
 
-  // 2. Glowing sacred geometric octagram / hexagram star polygons
+  // 2. Luminous sacred geometric octagram / hexagram star polygons
   const drawPolygon = (sides: number, r: number, rotOffset: number, col: string, alpha: number, lw: number) => {
     ctx.save();
     ctx.translate(half, half);
     ctx.rotate(rotOffset);
-    ctx.strokeStyle = col;
-    ctx.shadowColor = col;
-    ctx.shadowBlur = 7;
-    ctx.globalAlpha = alpha;
-    ctx.lineWidth = lw;
+    ctx.lineJoin = 'round';
     ctx.beginPath();
     for (let i = 0; i <= sides; i++) {
       const a = (i / sides) * Math.PI * 2;
@@ -272,15 +354,35 @@ function renderMagicCircleTexture(theme: MagicCircleTheme, variant: number): THR
       if (i === 0) ctx.moveTo(px, py);
       else ctx.lineTo(px, py);
     }
+
+    ctx.strokeStyle = hexToRgba(pal.aura, 0.55);
+    ctx.globalAlpha = alpha * 0.75;
+    ctx.lineWidth = lw + 2.2;
+    ctx.shadowBlur = 0;
+    ctx.stroke();
+
+    ctx.strokeStyle = col;
+    ctx.shadowColor = col;
+    ctx.shadowBlur = 10;
+    ctx.globalAlpha = alpha;
+    ctx.lineWidth = lw;
+    ctx.stroke();
+
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = pal.core;
+    ctx.shadowColor = pal.core;
+    ctx.shadowBlur = 3;
+    ctx.globalAlpha = alpha * 0.55;
+    ctx.lineWidth = Math.max(0.95, lw * 0.42);
     ctx.stroke();
     ctx.restore();
   };
 
-  drawPolygon(4, 134, 0, pal.primary, 0.85, 1.8);
-  drawPolygon(4, 134, Math.PI / 4, pal.secondary, 0.85, 1.8);
-  drawPolygon(6, 108, Math.PI / 6, pal.accentA, 0.6, 1.4);
+  drawPolygon(4, 134, 0, pal.primary, 0.96, 2.45);
+  drawPolygon(4, 134, Math.PI / 4, pal.secondary, 0.96, 2.45);
+  drawPolygon(6, 108, Math.PI / 6, pal.accentA, 0.88, 1.95);
 
-  // 3. Outer precision tick-gauge ring & broken arc brackets
+  // 3. Outer precision tick-gauge ring & glowing segmented arc brackets
   ctx.save();
   ctx.translate(half, half);
   const tickCount = 72;
@@ -288,32 +390,61 @@ function renderMagicCircleTexture(theme: MagicCircleTheme, variant: number): THR
     const a = (i / tickCount) * Math.PI * 2;
     const major = i % 9 === 0;
     const mid = i % 3 === 0;
-    const r0 = major ? 174 : mid ? 178 : 181;
+    const r0 = major ? 173 : mid ? 178 : 181;
     const r1 = major ? 196 : mid ? 190 : 187;
-    ctx.strokeStyle = major ? pal.accentA : pal.primary;
-    ctx.globalAlpha = major ? 0.92 : mid ? 0.65 : 0.4;
-    ctx.lineWidth = major ? 2.2 : 1.1;
     ctx.beginPath();
     ctx.moveTo(Math.cos(a) * r0, Math.sin(a) * r0);
     ctx.lineTo(Math.cos(a) * r1, Math.sin(a) * r1);
+
+    ctx.strokeStyle = hexToRgba(pal.aura, 0.48);
+    ctx.globalAlpha = major ? 0.7 : 0.36;
+    ctx.lineWidth = major ? 4.0 : 2.2;
+    ctx.shadowBlur = 0;
+    ctx.stroke();
+
+    const tickCol = major ? pal.accentA : pal.primary;
+    ctx.strokeStyle = tickCol;
+    ctx.shadowColor = tickCol;
+    ctx.shadowBlur = major ? 8 : 3;
+    ctx.globalAlpha = major ? 0.98 : mid ? 0.82 : 0.58;
+    ctx.lineWidth = major ? 2.4 : 1.25;
     ctx.stroke();
   }
   // Segmented outer arc plates
   for (let i = 0; i < 8; i++) {
     const aStart = (i / 8) * Math.PI * 2 + 0.08;
     const aEnd = ((i + 1) / 8) * Math.PI * 2 - 0.08;
-    ctx.strokeStyle = i % 2 === 0 ? pal.primary : pal.secondary;
-    ctx.shadowColor = pal.primary;
-    ctx.shadowBlur = 8;
-    ctx.globalAlpha = 0.88;
-    ctx.lineWidth = 3.2;
+    const arcCol = i % 2 === 0 ? pal.primary : pal.secondary;
     ctx.beginPath();
     ctx.arc(0, 0, 198, aStart, aEnd);
+
+    ctx.strokeStyle = hexToRgba(pal.aura, 0.58);
+    ctx.globalAlpha = 0.75;
+    ctx.lineWidth = 6.2;
+    ctx.shadowBlur = 0;
     ctx.stroke();
+
+    ctx.strokeStyle = arcCol;
+    ctx.shadowColor = arcCol;
+    ctx.shadowBlur = 12;
+    ctx.globalAlpha = 0.98;
+    ctx.lineWidth = 3.6;
+    ctx.stroke();
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = pal.core;
+    ctx.shadowColor = pal.core;
+    ctx.shadowBlur = 4;
+    ctx.globalAlpha = 0.58;
+    ctx.lineWidth = 1.3;
+    ctx.stroke();
+    ctx.restore();
+    ctx.shadowBlur = 0;
   }
   ctx.restore();
 
-  // 4. Inscribed Mystic/Runic Letter Band (24 random runes orbiting between r=138..164)
+  // 4. Inscribed Mystic/Runic Letter Band (24 glowing runes orbiting between r=138..164)
   const bandRuneCount = 24;
   for (let i = 0; i < bandRuneCount; i++) {
     const a = (i / bandRuneCount) * Math.PI * 2;
@@ -321,14 +452,14 @@ function renderMagicCircleTexture(theme: MagicCircleTheme, variant: number): THR
     const gx = half + Math.cos(a) * r;
     const gy = half + Math.sin(a) * r;
     const gIdx = Math.floor(rng() * RUNIC_GLYPHS.length);
-    const glyphCol = i % 3 === 0 ? pal.accentA : i % 3 === 1 ? pal.core : pal.primary;
+    const glyphCol = i % 3 === 0 ? pal.accentA : i % 3 === 1 ? pal.secondary : pal.primary;
     ctx.save();
-    ctx.globalAlpha = 0.88;
-    drawRuneGlyph(ctx, gIdx, gx, gy, 8.5, a + Math.PI / 2, glyphCol, 1.85);
+    ctx.globalAlpha = 0.98;
+    drawRuneGlyph(ctx, gIdx, gx, gy, 9.2, a + Math.PI / 2, glyphCol, pal.aura, pal.core, 2.2);
     ctx.restore();
   }
 
-  // 5. 8 Glowing Circular Rune Medallions seated on the main perimeter (r=168)
+  // 5. 8 Luminous Circular Rune Medallions seated on the main perimeter (r=168)
   const accentOrder = [pal.primary, pal.accentA, pal.accentC, pal.accentB];
   for (let i = 0; i < 8; i++) {
     const a = (i / 8) * Math.PI * 2 - Math.PI / 2;
@@ -336,61 +467,134 @@ function renderMagicCircleTexture(theme: MagicCircleTheme, variant: number): THR
     const my = half + Math.sin(a) * 168;
     const nodeCol = accentOrder[(i + variant) % accentOrder.length];
 
-    // Dark translucent medallion backing so runes stay crisp even over bright terrain
     ctx.save();
+    // Glowing mana orb fill inside medallion (translucent deep theme tint + inner radiance)
+    const medGrad = ctx.createRadialGradient(mx, my, 2, mx, my, 19);
+    medGrad.addColorStop(0, hexToRgba(nodeCol, 0.34));
+    medGrad.addColorStop(0.65, hexToRgba(pal.aura, 0.62));
+    medGrad.addColorStop(1, hexToRgba(pal.aura, 0.72));
     ctx.beginPath();
-    ctx.arc(mx, my, 17, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(6, 10, 24, 0.72)';
+    ctx.arc(mx, my, 18, 0, Math.PI * 2);
+    ctx.fillStyle = medGrad;
     ctx.fill();
-    ctx.lineWidth = 2.6;
+
+    ctx.lineWidth = 3.0;
     ctx.strokeStyle = nodeCol;
     ctx.shadowColor = nodeCol;
-    ctx.shadowBlur = 10;
+    ctx.shadowBlur = 12;
+    ctx.stroke();
+
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.lineWidth = 1.1;
+    ctx.strokeStyle = pal.core;
+    ctx.shadowColor = pal.core;
+    ctx.shadowBlur = 4;
+    ctx.globalAlpha = 0.65;
     ctx.stroke();
     ctx.restore();
 
     const gIdx = Math.floor(rng() * RUNIC_GLYPHS.length);
-    drawRuneGlyph(ctx, gIdx, mx, my, 9.5, a + Math.PI / 2, nodeCol, 2.2);
+    drawRuneGlyph(ctx, gIdx, mx, my, 10.2, a + Math.PI / 2, nodeCol, pal.aura, pal.core, 2.35);
   }
 
-  // 6. 8 Outer Cardinal/Ordinal Floating Runic Sigils & Energy Rays (r=228, just like attached ref image)
+  // 6. 8 Outer Cardinal/Ordinal Floating Runic Sigils & Energy Rays (r=226)
   for (let i = 0; i < 8; i++) {
     const a = (i / 8) * Math.PI * 2 - Math.PI / 2 + Math.PI / 8;
     const sx = half + Math.cos(a) * 226;
     const sy = half + Math.sin(a) * 226;
     const sigilCol = accentOrder[(i + 1 + variant) % accentOrder.length];
 
-    // Energy ray from ring out to floating rune
     ctx.save();
-    ctx.strokeStyle = sigilCol;
-    ctx.shadowColor = sigilCol;
-    ctx.shadowBlur = 8;
-    ctx.globalAlpha = 0.72;
-    ctx.lineWidth = 1.8;
     ctx.beginPath();
     ctx.moveTo(half + Math.cos(a) * 198, half + Math.sin(a) * 198);
     ctx.lineTo(half + Math.cos(a) * 212, half + Math.sin(a) * 212);
+    ctx.strokeStyle = hexToRgba(pal.aura, 0.55);
+    ctx.lineWidth = 4.0;
+    ctx.stroke();
+
+    ctx.strokeStyle = sigilCol;
+    ctx.shadowColor = sigilCol;
+    ctx.shadowBlur = 10;
+    ctx.globalAlpha = 0.96;
+    ctx.lineWidth = 2.2;
     ctx.stroke();
     ctx.restore();
 
     const gIdx = Math.floor(rng() * RUNIC_GLYPHS.length);
-    drawRuneGlyph(ctx, gIdx, sx, sy, 13.5, a + Math.PI / 2, sigilCol, 2.7);
+    drawRuneGlyph(ctx, gIdx, sx, sy, 13.8, a + Math.PI / 2, sigilCol, pal.aura, pal.core, 2.85);
   }
 
-  // 7. Radiant White-Core Jewel at Center
+  // 7. Delicate Arcane Starlight Sparkles at Octagram Vertices (r=134)
   ctx.save();
-  const centerGlow = ctx.createRadialGradient(half, half, 0, half, half, 26);
-  centerGlow.addColorStop(0, '#ffffff');
-  centerGlow.addColorStop(0.35, pal.core);
-  centerGlow.addColorStop(0.7, `${pal.primary}88`);
-  centerGlow.addColorStop(1, 'rgba(0,0,0,0)');
-  ctx.fillStyle = centerGlow;
+  ctx.globalCompositeOperation = 'lighter';
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    const px = half + Math.cos(a) * 134;
+    const py = half + Math.sin(a) * 134;
+    const spCol = i % 2 === 0 ? pal.primary : pal.accentA;
+    const spGrad = ctx.createRadialGradient(px, py, 0.5, px, py, 10);
+    spGrad.addColorStop(0, pal.core);
+    spGrad.addColorStop(0.4, hexToRgba(spCol, 0.72));
+    spGrad.addColorStop(1, hexToRgba(spCol, 0));
+    ctx.fillStyle = spGrad;
+    ctx.beginPath();
+    ctx.arc(px, py, 10, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+
+  // 8. Radiant Glowing Star-Core Emblem at Center (magical luminous heart without blowing out the runes)
+  ctx.save();
+  ctx.translate(half, half);
+  const coreHalo = ctx.createRadialGradient(0, 0, 2, 0, 0, 38);
+  coreHalo.addColorStop(0, hexToRgba(pal.core, 0.72));
+  coreHalo.addColorStop(0.32, hexToRgba(pal.primary, 0.52));
+  coreHalo.addColorStop(0.68, hexToRgba(pal.glow, 0.24));
+  coreHalo.addColorStop(1, hexToRgba(pal.glow, 0));
+  ctx.fillStyle = coreHalo;
   ctx.beginPath();
-  ctx.arc(half, half, 26, 0, Math.PI * 2);
+  ctx.arc(0, 0, 38, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.beginPath();
+  for (let i = 0; i < 16; i++) {
+    const a = (i / 16) * Math.PI * 2 - Math.PI / 2;
+    const r = i % 2 === 0 ? 20 : 6.5;
+    const px = Math.cos(a) * r;
+    const py = Math.sin(a) * r;
+    if (i === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+  ctx.fillStyle = pal.primary;
+  ctx.shadowColor = pal.glow;
+  ctx.shadowBlur = 14;
+  ctx.fill();
+  ctx.lineWidth = 1.6;
+  ctx.strokeStyle = pal.core;
+  ctx.stroke();
+
+  // Crisp 4-point starlight cross glint at the very center
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.strokeStyle = pal.core;
+  ctx.shadowColor = pal.core;
+  ctx.shadowBlur = 8;
+  ctx.lineWidth = 1.8;
+  ctx.beginPath();
+  ctx.moveTo(-26, 0);
+  ctx.lineTo(26, 0);
+  ctx.moveTo(0, -26);
+  ctx.lineTo(0, 26);
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.arc(0, 0, 5.5, 0, Math.PI * 2);
+  ctx.fillStyle = pal.core;
   ctx.fill();
   ctx.restore();
 
   const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
   texture.needsUpdate = true;
   texture.anisotropy = 4;
   return texture;
