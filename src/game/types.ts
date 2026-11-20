@@ -97,6 +97,15 @@ export interface TileData {
   frozenWaterBase?: 'deep_water' | 'shallow_water';
   crushedTimer?: number;
   burntTree?: boolean;
+  burntTreeBiome?:
+    | 'forest'
+    | 'meadow'
+    | 'jungle'
+    | 'taiga'
+    | 'blossom'
+    | 'savanna'
+    | 'swamp'
+    | 'highland';
 }
 
 export type BuildingType =

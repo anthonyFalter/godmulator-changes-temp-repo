@@ -6720,3 +6720,120 @@ test('Burnt trees, fire spread VFX, and simple random world event descriptions',
     assert.ok(evt.subtitle.endsWith('.'), `Event ${kind} subtitle ("${evt.subtitle}") should be a complete sentence ending with a period`);
   }
 });
+
+test('Burning trees keep exact species via burntByBiome, scorch grass underneath, and fire spreads across grass blocks', () => {
+  // 1. VoxelTreeLibrary.burntByBiome must match byBiome 1:1 for every biome so trees never swap species when burning
+  const treeLib = getVoxelTreeLibrary();
+  const biomes = ['forest', 'meadow', 'jungle', 'taiga', 'blossom', 'savanna', 'swamp', 'highland'] as const;
+  for (const biome of biomes) {
+    assert.equal(
+      treeLib.burntByBiome[biome].length,
+      treeLib.byBiome[biome].length,
+      `burntByBiome.${biome} must have exact 1:1 species parity with byBiome.${biome}`,
+    );
+    for (const geo of treeLib.burntByBiome[biome]) {
+      assert.ok(geo.getAttribute('position').count > 24, `Charred ${biome} tree must have sculpted 3D geometry`);
+      assert.ok(geo.getAttribute('color').count > 24, `Charred ${biome} tree must have vertex colors`);
+    }
+  }
+
+  // 2. Burning a meadow (grass) timber_grove on a short fire must preserve burntTreeBiome='meadow' AND scorch the grass underneath
+  const state = createInitialSimulationState(64, 'GRASS-AND-TREE-BURN-TEST');
+  state.sandboxFreeMode = true;
+  state.wildlifeSeeded = true;
+  state.worldRules!.wildfireSpread = false;
+
+  const meadowTree = getTile(state, 20, 20)!;
+  meadowTree.height = 2;
+  meadowTree.terrain = 'grass';
+  meadowTree.resourceNode = 'timber_grove';
+  meadowTree.resourceAmount = 260;
+  meadowTree.onFireTimer = 4.0;
+  meadowTree.buildingId = null;
+  delete meadowTree.burntTree;
+  delete meadowTree.burntTreeBiome;
+
+  const treelessForest = getTile(state, 24, 20)!;
+  treelessForest.height = 2;
+  treelessForest.terrain = 'forest';
+  treelessForest.resourceNode = 'none';
+  treelessForest.resourceAmount = 0;
+  treelessForest.onFireTimer = 3.5;
+  treelessForest.buildingId = null;
+  delete treelessForest.burntTree;
+  delete treelessForest.burntTreeBiome;
+
+  for (let i = 0; i < 20; i++) {
+    stepSimulation(state, 0.25);
+  }
+
+  assert.equal(meadowTree.burntTree, true, 'Burned tree tile must mark burntTree = true');
+  assert.equal(
+    meadowTree.burntTreeBiome,
+    'meadow',
+    'Burned tree on grass must preserve original meadow biome instead of morphing into a forest tree',
+  );
+  assert.equal(
+    meadowTree.terrain,
+    'scorched',
+    'Grass underneath a burning tree must scorch to scorched terrain even on a short wildfire',
+  );
+  assert.equal(meadowTree.resourceNode, 'none', 'Burned-out tree tile must clear live timber_grove node');
+  assert.equal(
+    Boolean(treelessForest.burntTree),
+    false,
+    'Treeless forest tile must NOT spawn burnt trees out of thin air when burned',
+  );
+  assert.equal(treelessForest.terrain, 'scorched', 'Treeless forest grass floor must still scorch when burned');
+
+  // Soil enrich must clear both burntTree and burntTreeBiome
+  applyTerrainTool(state, 'soil_enrich', 20, 20, 0);
+  assert.equal(Boolean(meadowTree.burntTree), false, 'Soil Enrich must clear burntTree');
+  assert.equal(meadowTree.burntTreeBiome, undefined, 'Soil Enrich must clear burntTreeBiome');
+
+  // 3. Fire must reliably spread across plain grass blocks and grassy highland tiles, scorching them as it goes
+  const grassState = createInitialSimulationState(64, 'GRASS-WILDFIRE-SPREAD');
+  grassState.sandboxFreeMode = true;
+  grassState.wildlifeSeeded = true;
+  grassState.worldRules!.wildfireSpread = true;
+  const cx = 32;
+  const cz = 32;
+  for (let dz = -8; dz <= 8; dz++) {
+    for (let dx = -8; dx <= 8; dx++) {
+      const t = getTile(grassState, cx + dx, cz + dz)!;
+      t.height = dx > 4 ? 3 : 2;
+      t.terrain = dx > 4 ? 'highland' : 'grass';
+      t.resourceNode = 'none';
+      t.resourceAmount = 0;
+      t.buildingId = null;
+      t.onFireTimer = 0;
+      t.blessedTimer = 0;
+      delete t.farmSettlementId;
+      delete t.burntTree;
+      delete t.burntTreeBiome;
+    }
+  }
+  // Ignite a small 3-tile grass patch at the center
+  getTile(grassState, cx, cz)!.onFireTimer = 4.2;
+  getTile(grassState, cx + 1, cz)!.onFireTimer = 4.2;
+  getTile(grassState, cx, cz + 1)!.onFireTimer = 4.2;
+
+  const spreadGrassTiles = new Set<string>();
+  for (let i = 0; i < 60; i++) {
+    stepSimulation(grassState, 0.2);
+    for (let dz = -7; dz <= 7; dz++) {
+      for (let dx = -7; dx <= 7; dx++) {
+        if (Math.abs(dx) <= 1 && Math.abs(dz) <= 1 && (dx === 0 || dz === 0)) continue;
+        const t = getTile(grassState, cx + dx, cz + dz)!;
+        if (t.onFireTimer > 0 || t.terrain === 'scorched') {
+          spreadGrassTiles.add(`${t.x},${t.z}`);
+        }
+      }
+    }
+  }
+  assert.ok(
+    spreadGrassTiles.size >= 8,
+    `Fire must spread reliably across connected grass blocks (spread count=${spreadGrassTiles.size})`,
+  );
+});
+

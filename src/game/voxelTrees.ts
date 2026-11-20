@@ -24,6 +24,7 @@ export interface VoxelTreeSpeciesSpec {
 
 export interface VoxelTreeLibrary {
   byBiome: Record<TreeBiomeKey, THREE.BufferGeometry[]>;
+  burntByBiome: Record<TreeBiomeKey, THREE.BufferGeometry[]>;
   specsByBiome: Record<TreeBiomeKey, VoxelTreeSpeciesSpec[]>;
   allSpecs: VoxelTreeSpeciesSpec[];
   allGeometries: THREE.BufferGeometry[];
@@ -83,6 +84,12 @@ const BARK_PALM: Pal5 = [0x291d14, 0x493524, 0x6e533a, 0x927254, 0xb3926e];
 const BARK_SCOTS: Pal5 = [0x361910, 0x5f2e1d, 0x90482a, 0xbe683b, 0xde8c57];
 const BARK_SWAMP: Pal5 = [0x181d1a, 0x2c342e, 0x434d43, 0x5c695b, 0x778574];
 
+const BARK_CHARRED: Pal5 = [0x0f0c0b, 0x1a1514, 0x28211f, 0x3b312e, 0x524642];
+const BARK_ASH: Pal5 = [0x141110, 0x221d1b, 0x362f2c, 0x4f4642, 0x6e635f];
+const PAL_CHARRED_TWIGS: Pal5 = [0x151110, 0x241a16, 0x382319, 0x522e1d, 0x733e22];
+
+let activeCharredBuild = false;
+
 function hash3i(x: number, y: number, z: number, seed: number): number {
   let h = (x * 374761393 + y * 668265263 + z * 2147483647 + seed * 1442695041) | 0;
   h = ((h ^ (h >> 13)) * 1274126177) | 0;
@@ -99,16 +106,18 @@ class VoxelVolume {
   readonly sz: number;
   readonly halfX: number;
   readonly halfZ: number;
+  readonly charred: boolean;
   readonly grid: Uint16Array;
   private readonly colorToIdx = new Map<number, number>();
   readonly paletteColors: number[] = [0];
 
-  constructor(sx: number, sy: number, sz: number) {
+  constructor(sx: number, sy: number, sz: number, charred = activeCharredBuild) {
     this.sx = sx;
     this.sy = sy;
     this.sz = sz;
     this.halfX = Math.floor(sx / 2);
     this.halfZ = Math.floor(sz / 2);
+    this.charred = charred;
     this.grid = new Uint16Array(sx * sy * sz);
   }
 
@@ -122,12 +131,17 @@ class VoxelVolume {
     return idx;
   }
 
-  set(x: number, y: number, z: number, hexColor: number): void {
+  private setRaw(x: number, y: number, z: number, hexColor: number): void {
     const gx = Math.round(x) + this.halfX;
     const gy = Math.round(y);
     const gz = Math.round(z) + this.halfZ;
     if (gx < 0 || gx >= this.sx || gy < 0 || gy >= this.sy || gz < 0 || gz >= this.sz) return;
     this.grid[(gy * this.sz + gz) * this.sx + gx] = this.internColor(hexColor);
+  }
+
+  set(x: number, y: number, z: number, hexColor: number): void {
+    if (this.charred) return;
+    this.setRaw(x, y, z, hexColor);
   }
 
   atRaw(gx: number, gy: number, gz: number): number {
@@ -162,6 +176,7 @@ class VoxelVolume {
     seed = 1,
     isBirch = false,
   ): void {
+    const effectiveBark = this.charred ? (isBirch ? BARK_ASH : BARK_CHARRED) : bark;
     const dist = Math.hypot(x1 - x0, y1 - y0, z1 - z0);
     const steps = Math.max(3, Math.ceil(dist * 2.2));
     for (let s = 0; s <= steps; s++) {
@@ -183,15 +198,22 @@ class VoxelVolume {
             const nx = rad > 0.2 ? (vx - cx) / Math.max(0.55, rad) : 0;
             const nz = rad > 0.2 ? (vz - cz) / Math.max(0.55, rad) : 0;
             let shadeT = 0.52 + nx * 0.24 + nz * 0.16;
-            if (isBirch) {
+            if (this.charred) {
+              // Smoldering ember cracks along charred bark surfaces
+              if (d > rad * 0.6 && vy >= 2 && hash3i(vx, vy, vz, seed + 613) > 0.968) {
+                this.setRaw(vx, vy, vz, (vx + vy) % 2 === 0 ? 0xf97316 : 0xea580c);
+                continue;
+              }
+              shadeT = 0.42 + nx * 0.22 + nz * 0.16;
+            } else if (isBirch) {
               // Stark charcoal lenticel flecks on chalk-white birch bark
               if (hash3i(vx, vy, vz, seed + 91) > 0.80 && (vy % 2 === 0)) {
-                this.set(vx, vy, vz, bark[0]);
+                this.setRaw(vx, vy, vz, bark[0]);
                 continue;
               }
               shadeT = 0.66 + nx * 0.18 + nz * 0.14;
             }
-            this.set(vx, vy, vz, this.pickShade(bark, shadeT, vx, vy, vz, seed + 7));
+            this.setRaw(vx, vy, vz, this.pickShade(effectiveBark, shadeT, vx, vy, vz, seed + 7));
           }
         }
       }
@@ -231,10 +253,10 @@ class VoxelVolume {
         Math.sin(ang) * 0.55,
         seed + i * 17,
       );
-      if (mossy && i % 2 === 0) {
+      if (mossy && !this.charred && i % 2 === 0) {
         const mx = Math.round(cx + Math.cos(ang) * len * 0.52);
         const mz = Math.round(cz + Math.sin(ang) * len * 0.52);
-        this.set(mx, 1, mz, PAL_OAK[3]);
+        this.setRaw(mx, 1, mz, PAL_OAK[3]);
       }
     }
   }
@@ -253,6 +275,60 @@ class VoxelVolume {
     accentHex?: number,
     accentChance = 0,
   ): void {
+    if (this.charred) {
+      // Strip lush foliage down to charred inner twigs & sparse singed ember tufts preserving the exact canopy silhouette
+      const twigCount = rx >= 4.2 ? 3 : 2;
+      for (let i = 0; i < twigCount; i++) {
+        const ang = (i / twigCount) * Math.PI * 2 + (seed % 13) * 0.49;
+        const tx = cx + Math.cos(ang) * rx * 0.58;
+        const tz = cz + Math.sin(ang) * rz * 0.58;
+        const ty = cy + (i % 2 === 0 ? ry * 0.25 : -ry * 0.05);
+        this.drawWoodLimb(
+          cx * 0.85,
+          cy - ry * 0.3,
+          cz * 0.85,
+          tx,
+          ty,
+          tz,
+          0.44,
+          0.22,
+          i % 2 === 0 ? BARK_CHARRED : BARK_ASH,
+          0,
+          0,
+          seed + 710 + i,
+        );
+      }
+      const cRx = Math.max(1.0, rx * 0.42);
+      const cRy = Math.max(0.9, ry * 0.4);
+      const cRz = Math.max(1.0, rz * 0.42);
+      const minX = Math.floor(cx - cRx);
+      const maxX = Math.ceil(cx + cRx);
+      const minY = Math.floor(cy - cRy);
+      const maxY = Math.ceil(cy + cRy);
+      const minZ = Math.floor(cz - cRz);
+      const maxZ = Math.ceil(cz + cRz);
+      for (let y = minY; y <= maxY; y++) {
+        const dy = (y - cy) / Math.max(0.7, cRy);
+        for (let z = minZ; z <= maxZ; z++) {
+          const dz = (z - cz) / Math.max(0.7, cRz);
+          for (let x = minX; x <= maxX; x++) {
+            const dx = (x - cx) / Math.max(0.7, cRx);
+            const r2 = dx * dx + dy * dy + dz * dz;
+            if (r2 > 0.95) continue;
+            const n = hash3i(x, y, z, seed + 733);
+            if (n > 0.42) continue;
+            if (r2 > 0.45 && n < 0.05) {
+              this.setRaw(x, y, z, (x + z) % 2 === 0 ? 0xf97316 : 0xea580c);
+            } else {
+              const shadeT = 0.28 + dy * 0.35 + lightBoost * 0.4;
+              this.setRaw(x, y, z, this.pickShade(PAL_CHARRED_TWIGS, shadeT, x, y, z, seed + 741));
+            }
+          }
+        }
+      }
+      return;
+    }
+
     const minX = Math.floor(cx - rx - 1);
     const maxX = Math.ceil(cx + rx + 1);
     const minY = Math.floor(cy - ry - 1);
@@ -280,7 +356,7 @@ class VoxelVolume {
             dy > -0.35 &&
             hash3i(x, y, z, seed + 503) < accentChance
           ) {
-            this.set(x, y, z, accentHex);
+            this.setRaw(x, y, z, accentHex);
             continue;
           }
 
@@ -291,7 +367,7 @@ class VoxelVolume {
             dz * 0.13 +
             lightBoost +
             (r2 > 0.70 && dy > 0.25 ? 0.12 : 0);
-          this.set(x, y, z, this.pickShade(pal, shadeT, x, y, z, seed + 37));
+          this.setRaw(x, y, z, this.pickShade(pal, shadeT, x, y, z, seed + 37));
         }
       }
     }
@@ -311,6 +387,35 @@ class VoxelVolume {
     droop = 1.5,
     lightBoost = 0,
   ): void {
+    if (this.charred) {
+      // Needleless blackened branch ribs along the exact conifer whorl tiers
+      for (let a = 0; a < arms; a++) {
+        const ang = (a / arms) * Math.PI * 2 + (seed % 11) * 0.37;
+        const armLen = radius * (0.72 + hash3i(a, seed, 3, 17) * 0.18);
+        const ex = cx + Math.cos(ang) * armLen;
+        const ez = cz + Math.sin(ang) * armLen;
+        const ey = yBase + thickness * 0.2 - droop * 0.85;
+        this.drawWoodLimb(
+          cx,
+          yBase + thickness * 0.4,
+          cz,
+          ex,
+          ey,
+          ez,
+          0.44,
+          0.2,
+          a % 2 === 0 ? BARK_CHARRED : BARK_ASH,
+          0,
+          0,
+          seed + a * 19,
+        );
+        if ((a + seed) % 3 === 0) {
+          this.setRaw(Math.round(ex * 0.88), Math.round(ey + 0.3), Math.round(ez * 0.88), 0xea580c);
+        }
+      }
+      return;
+    }
+
     const coreR = Math.max(1.0, radius * 0.46);
     this.drawLeafCluster3D(cx, yBase + thickness * 0.45, cz, coreR, thickness * 0.65, coreR, pal, lightBoost - 0.08, seed);
 
@@ -336,13 +441,13 @@ class VoxelVolume {
           const vz = Math.round(pz + perpZ * w);
           const vy = Math.round(py);
           if (t < 0.80 && Math.abs(w) <= Math.max(0, rW - 1)) {
-            this.set(vx, vy - 1, vz, pal[0]);
+            this.setRaw(vx, vy - 1, vz, pal[0]);
           }
           const needleLight = 0.40 + t * 0.36 + Math.cos(ang - 0.7) * 0.14 + lightBoost;
-          this.set(vx, vy, vz, this.pickShade(pal, needleLight, vx, vy, vz, seed + a * 13));
+          this.setRaw(vx, vy, vz, this.pickShade(pal, needleLight, vx, vy, vz, seed + a * 13));
           if (snowPal && (t > 0.24 || hash3i(vx, vy, vz, seed + 89) > 0.4)) {
             const snowLight = 0.62 + t * 0.28 + lightBoost * 0.4;
-            this.set(vx, vy + 1, vz, this.pickShade(snowPal, snowLight, vx, vy + 1, vz, seed + 101));
+            this.setRaw(vx, vy + 1, vz, this.pickShade(snowPal, snowLight, vx, vy + 1, vz, seed + 101));
           }
         }
       }
@@ -366,7 +471,8 @@ class VoxelVolume {
     const perpX = -dirZ;
     const perpZ = dirX;
     const steps = Math.max(5, Math.ceil(len * 1.8));
-    for (let s = 1; s <= steps; s++) {
+    const maxStep = this.charred ? Math.max(3, Math.floor(steps * 0.78)) : steps;
+    for (let s = 1; s <= maxStep; s++) {
       const t = s / steps;
       const cx = ox + dirX * len * t;
       const cz = oz + dirZ * len * t;
@@ -374,7 +480,15 @@ class VoxelVolume {
       const vx = Math.round(cx);
       const vy = Math.round(cy);
       const vz = Math.round(cz);
-      this.set(vx, vy, vz, this.pickShade(pal, 0.70 - t * 0.24, vx, vy, vz, seed));
+      if (this.charred) {
+        const color =
+          s === maxStep && seed % 2 === 0
+            ? 0xea580c
+            : this.pickShade(BARK_CHARRED, 0.55 - t * 0.25, vx, vy, vz, seed);
+        this.setRaw(vx, vy, vz, color);
+        continue;
+      }
+      this.setRaw(vx, vy, vz, this.pickShade(pal, 0.70 - t * 0.24, vx, vy, vz, seed));
       const wingSpan = Math.sin(t * Math.PI) * 1.5;
       if (wingSpan >= 0.6) {
         const wMax = Math.round(wingSpan);
@@ -383,7 +497,7 @@ class VoxelVolume {
             const lx = Math.round(cx + perpX * side * w);
             const lz = Math.round(cz + perpZ * side * w);
             const ly = Math.round(cy - (w > 1 ? 1 : 0));
-            this.set(lx, ly, lz, this.pickShade(pal, 0.56 - w * 0.15 - t * 0.15, lx, ly, lz, seed + 19));
+            this.setRaw(lx, ly, lz, this.pickShade(pal, 0.56 - w * 0.15 - t * 0.15, lx, ly, lz, seed + 19));
           }
         }
       }
@@ -399,11 +513,13 @@ class VoxelVolume {
     pal: Pal5,
     seed: number,
   ): void {
-    for (let i = 0; i < len; i++) {
-      const t = i / Math.max(1, len - 1);
+    const effectiveLen = this.charred ? Math.min(2, len) : len;
+    const effectivePal = this.charred ? BARK_ASH : pal;
+    for (let i = 0; i < effectiveLen; i++) {
+      const t = i / Math.max(1, effectiveLen - 1);
       const vy = Math.round(yTop - i);
       if (vy < 1) break;
-      this.set(x, vy, z, this.pickShade(pal, 0.62 - t * 0.34, x, vy, z, seed));
+      this.setRaw(x, vy, z, this.pickShade(effectivePal, 0.62 - t * 0.34, x, vy, z, seed));
     }
   }
 
@@ -634,7 +750,17 @@ const SPECIES_SPECS: VoxelTreeSpeciesSpec[] = [
   { id: 'highland_krummholz', biome: 'highland', name: 'Alpine Crag Krummholz', voxelSize: 0.053, heightBias: 0.74, widthBias: 1.08 },
 ];
 
-function buildVoxelTreeGeometry(spec: VoxelTreeSpeciesSpec): THREE.BufferGeometry {
+function buildVoxelTreeGeometry(spec: VoxelTreeSpeciesSpec, charred = false): THREE.BufferGeometry {
+  const prevCharred = activeCharredBuild;
+  activeCharredBuild = charred;
+  try {
+    return buildVoxelTreeGeometryInner(spec);
+  } finally {
+    activeCharredBuild = prevCharred;
+  }
+}
+
+function buildVoxelTreeGeometryInner(spec: VoxelTreeSpeciesSpec): THREE.BufferGeometry {
   switch (spec.id) {
     // ------------------------------------------------------------------------
     // WOODLAND FOREST
@@ -778,7 +904,7 @@ function buildVoxelTreeGeometry(spec: VoxelTreeSpeciesSpec): THREE.BufferGeometr
       // Lombardy Poplar Spire — tall narrow flame-shaped column of sunlit meadow foliage
       const v = new VoxelVolume(13, 29, 13);
       v.drawRoots3D(0, 0, 1.1, BARK_OAK, 4, 2.6, 2.2, 110, true);
-      v.drawWoodLimb(0, 0, 0, 0, 14, 0, 1.1, 0.7, BARK_OAK, 0, 0, 111);
+      v.drawWoodLimb(0, 0, 0, 0, 23, 0, 1.1, 0.35, BARK_OAK, 0, 0, 111);
       const layers: [number, number, number, number][] = [
         [7.5, 3.5, 2.9, -0.10],
         [11.5, 3.8, 3.1, -0.02],
@@ -1318,6 +1444,16 @@ export function getVoxelTreeLibrary(): VoxelTreeLibrary {
     swamp: [],
     highland: [],
   };
+  const burntByBiome: Record<TreeBiomeKey, THREE.BufferGeometry[]> = {
+    forest: [],
+    meadow: [],
+    jungle: [],
+    taiga: [],
+    blossom: [],
+    savanna: [],
+    swamp: [],
+    highland: [],
+  };
   const specsByBiome: Record<TreeBiomeKey, VoxelTreeSpeciesSpec[]> = {
     forest: [],
     meadow: [],
@@ -1329,12 +1465,16 @@ export function getVoxelTreeLibrary(): VoxelTreeLibrary {
     highland: [],
   };
   const allGeometries: THREE.BufferGeometry[] = [];
+  const allBurntBiomeGeometries: THREE.BufferGeometry[] = [];
 
   for (const spec of SPECIES_SPECS) {
-    const geo = buildVoxelTreeGeometry(spec);
+    const geo = buildVoxelTreeGeometry(spec, false);
+    const burntGeo = buildVoxelTreeGeometry(spec, true);
     byBiome[spec.biome].push(geo);
+    burntByBiome[spec.biome].push(burntGeo);
     specsByBiome[spec.biome].push(spec);
     allGeometries.push(geo);
+    allBurntBiomeGeometries.push(burntGeo);
   }
 
   const burntTrees = buildBurntVoxelTreeGeometries();
@@ -1347,6 +1487,7 @@ export function getVoxelTreeLibrary(): VoxelTreeLibrary {
 
   cachedVoxelTreeLib = {
     byBiome,
+    burntByBiome,
     specsByBiome,
     allSpecs: SPECIES_SPECS,
     allGeometries,
@@ -1354,6 +1495,7 @@ export function getVoxelTreeLibrary(): VoxelTreeLibrary {
     material,
     dispose: () => {
       for (const g of allGeometries) g.dispose();
+      for (const g of allBurntBiomeGeometries) g.dispose();
       for (const g of burntTrees) g.dispose();
       material.dispose();
       cachedVoxelTreeLib = null;

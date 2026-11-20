@@ -1904,7 +1904,7 @@ function applyTerrainToolTileMutation(
               t.resourceNode = 'none';
               t.resourceAmount = 0;
               t.onFireTimer = 0;
-              delete t.burntTree;
+              clearBurntTreeState(t);
             } else if (t.height <= 7 && t.terrain === 'snow') {
               t.terrain = 'mountain';
             } else if (t.height <= 4 && (t.terrain === 'rock' || t.terrain === 'mountain')) {
@@ -1938,7 +1938,7 @@ function applyTerrainToolTileMutation(
         case 'stone_road': {
           if (t.height >= 0 && !t.buildingId) {
             t.terrain = 'stone_road';
-            delete t.burntTree;
+            clearBurntTreeState(t);
             if (t.resourceNode === 'berry_bush' || t.resourceNode === 'timber_grove') {
               t.resourceNode = 'none';
               t.resourceAmount = 0;
@@ -1951,7 +1951,7 @@ function applyTerrainToolTileMutation(
           if (t.height >= 0 && !t.buildingId) {
             t.terrain = 'rail_track';
             t.farmSettlementId = undefined;
-            delete t.burntTree;
+            clearBurntTreeState(t);
             if (t.resourceNode === 'berry_bush' || t.resourceNode === 'timber_grove') {
               t.resourceNode = 'none';
               t.resourceAmount = 0;
@@ -1963,7 +1963,7 @@ function applyTerrainToolTileMutation(
         case 'fertile_meadow': {
           if (isCultivableSoil(t)) {
             t.terrain = 'fertile';
-            delete t.burntTree;
+            clearBurntTreeState(t);
             if (!t.buildingId) {
               t.resourceNode = 'berry_bush';
               t.resourceAmount = 220;
@@ -1982,7 +1982,7 @@ function applyTerrainToolTileMutation(
             ) {
               t.terrain = 'forest';
             }
-            delete t.burntTree;
+            clearBurntTreeState(t);
             if (!t.buildingId) {
               t.resourceNode = 'timber_grove';
               t.resourceAmount = 260;
@@ -2045,7 +2045,7 @@ function applyTerrainToolTileMutation(
             t.onFireTimer = 0;
             t.cursedTimer = 0;
             t.blessedTimer = Math.max(t.blessedTimer, 18);
-            delete t.burntTree;
+            clearBurntTreeState(t);
             if (!t.buildingId) {
               t.resourceNode = (t.x + t.z) % 3 === 0 ? 'berry_bush' : 'timber_grove';
               t.resourceAmount = 280;
@@ -2058,7 +2058,7 @@ function applyTerrainToolTileMutation(
           if (isCultivableSoil(t) || t.terrain === 'swamp') {
             t.terrain = 'jungle';
             t.onFireTimer = 0;
-            delete t.burntTree;
+            clearBurntTreeState(t);
             if (!t.buildingId) {
               t.resourceNode = (t.x + t.z) % 4 === 0 ? 'berry_bush' : 'timber_grove';
               t.resourceAmount = 300;
@@ -2084,7 +2084,7 @@ function applyTerrainToolTileMutation(
               t.onFireTimer = 0;
               t.cursedTimer = 0;
               t.blessedTimer = Math.max(t.blessedTimer, 14);
-              delete t.burntTree;
+              clearBurntTreeState(t);
               if (!t.buildingId && t.resourceNode === 'none' && (t.x + t.z) % 2 === 0) {
                 t.resourceNode = 'berry_bush';
                 t.resourceAmount = 190;
@@ -2690,9 +2690,7 @@ function applyExpandingWaveSlice(
         const flammable =
           t.resourceNode === 'timber_grove' ||
           t.resourceNode === 'berry_bush' ||
-          t.terrain === 'forest' ||
-          t.terrain === 'jungle' ||
-          t.terrain === 'savanna' ||
+          isFlammableVegetationTerrain(t.terrain) ||
           t.terrain === 'scorched' ||
           Boolean(t.buildingId);
         if (isSuperheated && flammable && (normDistSq <= 0.32 || (allowSpread && ((t.x * 13 + t.z * 7) % 3 === 0)))) {
@@ -2855,12 +2853,12 @@ function applyExpandingWaveSlice(
         }
         if (t.terrain === 'scorched' || t.terrain === 'swamp' || t.terrain === 'sand' || t.terrain === 'void_goo') {
           t.terrain = dSq <= maxRSq * 0.45 ? 'fertile' : 'grass';
-          delete t.burntTree;
+          clearBurntTreeState(t);
         } else if (t.terrain === 'grass' && dSq <= maxRSq * 0.35 && !t.buildingId) {
           t.terrain = 'fertile';
-          delete t.burntTree;
+          clearBurntTreeState(t);
         } else if (t.burntTree) {
-          delete t.burntTree;
+          clearBurntTreeState(t);
           if (!t.buildingId && t.resourceNode === 'none') {
             t.resourceNode = 'timber_grove';
             t.resourceAmount = 220;
@@ -2961,6 +2959,10 @@ function applyExpandingWaveSlice(
         if (dSq > tileMaxSq || dSq > maxRSq) continue;
         if (prevR > 0 && dSq < tileMinSq) continue;
         if (dSq <= 4.2) {
+          if (t.resourceNode === 'timber_grove') {
+            preserveTreeBiomeBeforeScorch(t);
+            t.burntTree = true;
+          }
           t.terrain = 'scorched';
         } else if (Math.abs(dSq - maxRSq * 0.68) < 2.0 && ((t.x * 13 + t.z * 7) % 6 === 0)) {
           t.onFireTimer = 6;
@@ -2992,7 +2994,7 @@ function applyExpandingWaveSlice(
         t.onFireTimer = 0;
         t.cursedTimer = 0;
         t.blessedTimer = 30;
-        delete t.burntTree;
+        clearBurntTreeState(t);
         if (isWaterTarget) {
           if (dSq <= maxRSq * 0.38) {
             t.height = Math.max(2, t.height);
@@ -3511,6 +3513,9 @@ export function executeGodPowerImpact(
             t.height = Math.max(1, t.height - 1);
           }
           // Sand fuses into fulgurite crystal_field; snow melts to rock; vegetation chars to scorched
+          if (t.resourceNode === 'timber_grove') {
+            preserveTreeBiomeBeforeScorch(t);
+          }
           if (t.terrain === 'sand') {
             t.terrain = 'crystal_field';
             if (!t.buildingId && dSq <= 1.2) {
@@ -3531,6 +3536,9 @@ export function executeGodPowerImpact(
           }
         } else if (dSq <= rSq * 1.18 && t.height > 0) {
           if (dSq <= 6.25 && !t.buildingId) {
+            if (t.resourceNode === 'timber_grove') {
+              preserveTreeBiomeBeforeScorch(t);
+            }
             if (t.terrain === 'sand') t.terrain = 'crystal_field';
             else if (t.terrain === 'snow') t.terrain = 'rock';
             else t.terrain = 'scorched';
@@ -3749,11 +3757,10 @@ export function executeGodPowerImpact(
             }
           } else if (!t.buildingId) {
             // 4. Outer scorched blast ring with hot crater embers & standing charred trees
-            const hadTree =
-              t.resourceNode === 'timber_grove' ||
-              t.terrain === 'forest' ||
-              t.terrain === 'jungle' ||
-              t.terrain === 'taiga';
+            const hadTree = t.resourceNode === 'timber_grove';
+            if (hadTree) {
+              preserveTreeBiomeBeforeScorch(t);
+            }
             t.terrain = 'scorched';
             if (t.resourceNode === 'timber_grove' || t.resourceNode === 'berry_bush') {
               t.resourceNode = 'none';
@@ -4391,7 +4398,13 @@ export function executeGodPowerImpact(
           }
         } else if (t.height > 0 && !t.buildingId) {
           if (dSq <= rSq) {
-            t.terrain = ((t.x + t.z) & 1) === 0 ? 'scorched' : t.terrain;
+            if (((t.x + t.z) & 1) === 0) {
+              if (t.resourceNode === 'timber_grove') {
+                preserveTreeBiomeBeforeScorch(t);
+                t.burntTree = true;
+              }
+              t.terrain = 'scorched';
+            }
             if (t.resourceNode === 'berry_bush') {
               t.resourceNode = 'none';
               t.resourceAmount = 0;
@@ -4694,7 +4707,7 @@ export function executeGodPowerImpact(
           t.cursedTimer = 0;
           t.onFireTimer = 0;
           t.blessedTimer = 30;
-          delete t.burntTree;
+          clearBurntTreeState(t);
           if (!t.buildingId && dSq <= rSq * 0.55 && (t.terrain === 'grass' || t.terrain === 'savanna')) {
             t.terrain = (t.x + t.z) % 3 === 0 ? 'blossom' : 'fertile';
           }
@@ -5844,6 +5857,7 @@ function terraformSettlementDistrict(
         }
         if (cityEpoch >= 3 && t.terrain === 'scorched' && !t.buildingId && t.onFireTimer <= 0) {
           t.terrain = 'grass';
+          clearBurntTreeState(t);
         }
       } else if (dist <= gradeRadius) {
         // Gentle stepped apron outside the city plateau so cliffs aren't sheer 3-tier walls
@@ -9039,44 +9053,48 @@ function stepSimulationSingle(
         t.fireColor = undefined;
         continue;
       }
-      // Burn vegetation down to scorched earth and char standing trees as fire consumes the tile
-      if (t.resourceAmount > 0 && (t.resourceNode === 'timber_grove' || t.resourceNode === 'berry_bush')) {
-        t.resourceAmount = Math.max(0, t.resourceAmount - 26 * dt);
-        if (t.resourceNode === 'timber_grove' && t.resourceAmount < 185) {
-          t.burntTree = true;
+      const hasFlammableGround = isFlammableVegetationTerrain(t.terrain);
+      // Burn vegetation down to scorched earth and char standing trees in-place (preserving their biome & scorching grass underneath)
+      if (t.resourceNode === 'timber_grove') {
+        preserveTreeBiomeBeforeScorch(t);
+        if (t.resourceAmount > 0) {
+          t.resourceAmount = Math.max(0, t.resourceAmount - 34 * dt);
         }
-        if (t.resourceAmount <= 0) {
-          if (t.resourceNode === 'timber_grove') {
-            t.burntTree = true;
+        if (t.resourceAmount < 190 || t.onFireTimer <= 1.8) {
+          t.burntTree = true;
+          if (hasFlammableGround) {
+            t.terrain = 'scorched';
+            t.farmSettlementId = undefined;
           }
-          t.resourceNode = 'none';
-          t.terrain = 'scorched';
-          t.farmSettlementId = undefined;
         }
-      } else if (
-        t.onFireTimer === 0 &&
-        (t.terrain === 'forest' ||
-          t.terrain === 'jungle' ||
-          t.terrain === 'savanna' ||
-          t.terrain === 'taiga' ||
-          t.terrain === 'blossom' ||
-          t.terrain === 'fertile' ||
-          t.terrain === 'grass')
-      ) {
-        if (
-          t.terrain === 'forest' ||
-          t.terrain === 'jungle' ||
-          t.terrain === 'taiga' ||
-          t.terrain === 'blossom'
-        ) {
+        if (t.resourceAmount <= 0 || t.onFireTimer === 0) {
           t.burntTree = true;
+          t.resourceNode = 'none';
+          t.resourceAmount = 0;
+          if (hasFlammableGround || t.terrain === 'scorched') {
+            t.terrain = 'scorched';
+            t.farmSettlementId = undefined;
+          }
         }
+      } else if (t.resourceNode === 'berry_bush') {
+        if (t.resourceAmount > 0) {
+          t.resourceAmount = Math.max(0, t.resourceAmount - 42 * dt);
+        }
+        if (t.resourceAmount <= 0 || t.onFireTimer === 0) {
+          t.resourceNode = 'none';
+          t.resourceAmount = 0;
+          if (hasFlammableGround) {
+            t.terrain = 'scorched';
+            t.farmSettlementId = undefined;
+          }
+        }
+      } else if (hasFlammableGround && (t.onFireTimer <= 0.8 || t.onFireTimer === 0)) {
         t.terrain = 'scorched';
         t.farmSettlementId = undefined;
       }
 
       // Wildfire spread from any burning tile (meteor embers, lightning, dragon fire, war-braziers)
-      if (t.onFireTimer > 1.0 && wildfireSpreadEnabled) {
+      if (t.onFireTimer > 0.6 && wildfireSpreadEnabled) {
         const sourceHeatBoost =
           t.resourceNode === 'timber_grove' ||
           t.burntTree ||
@@ -9100,10 +9118,14 @@ function stepSimulationSingle(
               nb.terrain === 'forest' ||
               nb.terrain === 'jungle' ||
               nb.terrain === 'taiga'
-                ? 3.8
-                : nb.terrain === 'grass' && nb.resourceNode === 'none' && !nb.farmSettlementId
-                  ? 2.6
-                  : 3.4;
+                ? 4.4
+                : nb.terrain === 'savanna' ||
+                    nb.terrain === 'blossom' ||
+                    nb.terrain === 'fertile' ||
+                    nb.resourceNode === 'berry_bush' ||
+                    nb.farmSettlementId
+                  ? 3.9
+                  : 3.6;
             if (!pendingFireIgnitions) pendingFireIgnitions = new Map();
             pendingFireIgnitions.set(nb, {
               duration: childDuration,
@@ -11568,24 +11590,65 @@ function stepHostileUnitAI(
   }
 }
 
+type BurntTreeBiomeKey = NonNullable<TileData['burntTreeBiome']>;
+
+function getTileTreeBiome(terrain: TerrainType): BurntTreeBiomeKey {
+  if (terrain === 'jungle') return 'jungle';
+  if (terrain === 'taiga' || terrain === 'tundra' || terrain === 'snow') return 'taiga';
+  if (terrain === 'blossom') return 'blossom';
+  if (terrain === 'savanna' || terrain === 'badlands' || terrain === 'sand') return 'savanna';
+  if (terrain === 'swamp') return 'swamp';
+  if (terrain === 'highland' || terrain === 'mountain' || terrain === 'rock') return 'highland';
+  if (terrain === 'grass' || terrain === 'fertile') return 'meadow';
+  return 'forest';
+}
+
+function isFlammableVegetationTerrain(terrain: TerrainType): boolean {
+  return (
+    terrain === 'forest' ||
+    terrain === 'jungle' ||
+    terrain === 'savanna' ||
+    terrain === 'taiga' ||
+    terrain === 'blossom' ||
+    terrain === 'fertile' ||
+    terrain === 'grass' ||
+    terrain === 'highland' ||
+    terrain === 'swamp'
+  );
+}
+
+function clearBurntTreeState(t: TileData): void {
+  delete t.burntTree;
+  delete t.burntTreeBiome;
+}
+
+function preserveTreeBiomeBeforeScorch(t: TileData): void {
+  if (!t.burntTreeBiome && t.terrain !== 'scorched') {
+    t.burntTreeBiome = getTileTreeBiome(t.terrain);
+  }
+}
+
 function getTileFlammabilityRate(state: SimulationState, t: TileData): number {
   if (!t || t.height <= 0 || t.onFireTimer > 0 || t.blessedTimer > 0) return 0;
   if (t.buildingId) {
     const bld = state.buildings.find((b) => b.id === t.buildingId);
     if (!bld || bld.hp <= 0 || bld.shieldTimer > 0 || bld.blessedTimer > 0) return 0;
-    return 0.11;
+    return 0.12;
   }
-  if (t.resourceNode === 'timber_grove') return 0.21;
-  if (t.resourceNode === 'berry_bush') return 0.11;
+  if (t.resourceNode === 'timber_grove') return 0.24;
+  if (t.resourceNode === 'berry_bush') return 0.17;
   if (t.terrain === 'forest' || t.terrain === 'jungle' || t.terrain === 'taiga') {
-    return 0.15;
+    return 0.18;
   }
-  if (t.terrain === 'savanna' || t.terrain === 'blossom' || t.terrain === 'fertile') {
-    return 0.1;
+  if (t.terrain === 'savanna') return 0.18;
+  if (t.terrain === 'blossom' || t.terrain === 'fertile') {
+    return 0.16;
   }
   if (t.terrain === 'grass') {
-    return t.farmSettlementId ? 0.06 : 0.025;
+    return t.farmSettlementId ? 0.16 : 0.13;
   }
+  if (t.terrain === 'highland') return 0.11;
+  if (t.terrain === 'swamp') return 0.08;
   return 0;
 }
 
@@ -12769,13 +12832,21 @@ function stepWildlifeAI(
 
       if (!tile.buildingId) {
         if (tile.resourceNode === 'timber_grove' || tile.resourceNode === 'berry_bush') {
+          if (tile.resourceNode === 'timber_grove') {
+            preserveTreeBiomeBeforeScorch(tile);
+          }
           tile.resourceAmount = Math.max(0, tile.resourceAmount - (directHit ? 140 : 55));
           if (tile.resourceNode === 'timber_grove') {
             tile.burntTree = true;
+            if (isFlammableVegetationTerrain(tile.terrain)) {
+              tile.terrain = 'scorched';
+              tile.farmSettlementId = undefined;
+            }
           }
           if (tile.resourceAmount <= 0) {
             tile.resourceNode = 'none';
             tile.terrain = 'scorched';
+            tile.farmSettlementId = undefined;
           }
         } else if (tile.resourceNode === 'stone_outcrop' || tile.resourceNode === 'crystal_monolith') {
           if (directHit) {
@@ -12785,25 +12856,9 @@ function stepWildlifeAI(
               tile.terrain = 'scorched';
             }
           }
-        } else if (
-          directHit &&
-          (tile.terrain === 'forest' ||
-            tile.terrain === 'jungle' ||
-            tile.terrain === 'taiga' ||
-            tile.terrain === 'blossom' ||
-            tile.terrain === 'savanna' ||
-            tile.terrain === 'fertile' ||
-            tile.terrain === 'grass')
-        ) {
-          if (
-            tile.terrain === 'forest' ||
-            tile.terrain === 'jungle' ||
-            tile.terrain === 'taiga' ||
-            tile.terrain === 'blossom'
-          ) {
-            tile.burntTree = true;
-          }
+        } else if (directHit && isFlammableVegetationTerrain(tile.terrain)) {
           tile.terrain = 'scorched';
+          tile.farmSettlementId = undefined;
         }
       }
     };

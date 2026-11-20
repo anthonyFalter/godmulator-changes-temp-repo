@@ -539,7 +539,16 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       swamp: makePropInstancedList(voxelTreeLib.byBiome.swamp, voxelTreeLib.material, true),
       highland: makePropInstancedList(voxelTreeLib.byBiome.highland, voxelTreeLib.material, true),
     };
-    const burntTreeInsts = makePropInstancedList(voxelTreeLib.burntTrees, voxelTreeLib.material, true);
+    const burntTreeInstsByBiome: Record<TreeBiomeKey, THREE.InstancedMesh[]> = {
+      forest: makePropInstancedList(voxelTreeLib.burntByBiome.forest, voxelTreeLib.material, true),
+      meadow: makePropInstancedList(voxelTreeLib.burntByBiome.meadow, voxelTreeLib.material, true),
+      jungle: makePropInstancedList(voxelTreeLib.burntByBiome.jungle, voxelTreeLib.material, true),
+      taiga: makePropInstancedList(voxelTreeLib.burntByBiome.taiga, voxelTreeLib.material, true),
+      blossom: makePropInstancedList(voxelTreeLib.burntByBiome.blossom, voxelTreeLib.material, true),
+      savanna: makePropInstancedList(voxelTreeLib.burntByBiome.savanna, voxelTreeLib.material, true),
+      swamp: makePropInstancedList(voxelTreeLib.burntByBiome.swamp, voxelTreeLib.material, true),
+      highland: makePropInstancedList(voxelTreeLib.burntByBiome.highland, voxelTreeLib.material, true),
+    };
     const allVoxelTreeInsts: THREE.InstancedMesh[] = [
       ...voxelTreeInstsByBiome.forest,
       ...voxelTreeInstsByBiome.meadow,
@@ -549,7 +558,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       ...voxelTreeInstsByBiome.savanna,
       ...voxelTreeInstsByBiome.swamp,
       ...voxelTreeInstsByBiome.highland,
-      ...burntTreeInsts,
+      ...burntTreeInstsByBiome.forest,
+      ...burntTreeInstsByBiome.meadow,
+      ...burntTreeInstsByBiome.jungle,
+      ...burntTreeInstsByBiome.taiga,
+      ...burntTreeInstsByBiome.blossom,
+      ...burntTreeInstsByBiome.savanna,
+      ...burntTreeInstsByBiome.swamp,
+      ...burntTreeInstsByBiome.highland,
     ];
 
     const berryInsts = makePropInstancedList(variantLib.berry, variantLib.standardMat, true);
@@ -6866,12 +6882,29 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
         if (t.height > 0) {
           const isBurntTree =
-            t.burntTree ||
-            (t.resourceNode === 'timber_grove' &&
-              (t.terrain === 'scorched' || (t.onFireTimer > 0 && t.resourceAmount < 185)))
+            t.burntTree || (t.resourceNode === 'timber_grove' && t.terrain === 'scorched')
               ? 1
               : 0;
+          const burntBiomeCode =
+            t.burntTreeBiome === 'forest'
+              ? 1
+              : t.burntTreeBiome === 'meadow'
+                ? 2
+                : t.burntTreeBiome === 'jungle'
+                  ? 3
+                  : t.burntTreeBiome === 'taiga'
+                    ? 4
+                    : t.burntTreeBiome === 'blossom'
+                      ? 5
+                      : t.burntTreeBiome === 'savanna'
+                        ? 6
+                        : t.burntTreeBiome === 'swamp'
+                          ? 7
+                          : t.burntTreeBiome === 'highland'
+                            ? 8
+                            : 0;
           const sig =
+            (burntBiomeCode << 19) |
             (isBurntTree << 18) |
             (t.height << 12) |
             (tCode << 6) |
@@ -6988,19 +7021,18 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           // Deterministic spatial hash so clusters & rotations are rich and never flicker
           const h = Math.abs(((t.x * 73856093) ^ (t.z * 19349663) ^ (simState.seed * 2654435761)) | 0);
           const isCharredTreeTile =
-            Boolean(t.burntTree) ||
-            (t.resourceNode === 'timber_grove' &&
-              (t.terrain === 'scorched' || (t.onFireTimer > 0 && t.resourceAmount < 185)));
+            Boolean(t.burntTree) || (t.resourceNode === 'timber_grove' && t.terrain === 'scorched');
           if (t.resourceNode === 'timber_grove' || (t.resourceNode === 'none' && t.burntTree)) {
-            const biome = mapTerrainToTreeBiome(t.terrain);
-            const pool = isCharredTreeTile ? burntTreeInsts : voxelTreeInstsByBiome[biome];
+            const biome: TreeBiomeKey = t.burntTreeBiome ?? mapTerrainToTreeBiome(t.terrain);
+            const pool = isCharredTreeTile
+              ? burntTreeInstsByBiome[biome]
+              : voxelTreeInstsByBiome[biome];
             const isDenseBiome =
               biome === 'forest' ||
               biome === 'jungle' ||
               biome === 'taiga' ||
               biome === 'blossom' ||
-              biome === 'swamp' ||
-              isCharredTreeTile;
+              biome === 'swamp';
 
             // Spatial old-growth canopy wave so forest cores soar high while edges have younger trees & saplings
             const canopyWave =
