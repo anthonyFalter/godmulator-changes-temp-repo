@@ -53,6 +53,7 @@ import {
   TouchPoint,
   TwoFingerState,
   computeDynamicPixelScale,
+  computeDynamicRenderDimensions,
   computeTwoFingerCameraDelta,
   computeTwoFingerState,
   getResponsiveMaxZoomOut,
@@ -5844,6 +5845,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
     let renderWidth = 320;
     let renderHeight = 180;
+    const _renderSizeOut = { width: 320, height: 180 };
     let currentDynamicPixelScale = computeDynamicPixelScale(
       desiredFrustum,
       simRef.current.gridSize,
@@ -5856,26 +5858,35 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       const w = Math.max(1, container.clientWidth);
       const h = Math.max(1, container.clientHeight);
       const newAspect = w / h;
-      currentDynamicPixelScale = computeDynamicPixelScale(
-        frustumSize,
-        simRef.current.gridSize,
-        newAspect,
-        propsRef.current.pixelScale || 2.5,
-      );
-      const pxScale = currentDynamicPixelScale;
-      const rw = Math.max(160, Math.floor(w / pxScale));
-      const rh = Math.max(100, Math.floor(h / pxScale));
-      renderWidth = rw;
-      renderHeight = rh;
-
-      renderer.setSize(rw, rh, false);
       const maxZoomOut = getResponsiveMaxZoomOut(simRef.current.gridSize, newAspect);
       if (propsRef.current.gameState === 'title') {
         desiredFrustum = getResponsiveTitleFrustum(newAspect);
         frustumSize = desiredFrustum;
       } else if (desiredFrustum > maxZoomOut) {
         desiredFrustum = maxZoomOut;
+        if (frustumSize > maxZoomOut) frustumSize = maxZoomOut;
       }
+      const baseScale = propsRef.current.pixelScale || 2.5;
+      currentDynamicPixelScale = computeDynamicPixelScale(
+        frustumSize,
+        simRef.current.gridSize,
+        newAspect,
+        baseScale,
+      );
+      computeDynamicRenderDimensions(
+        w,
+        h,
+        currentDynamicPixelScale,
+        window.devicePixelRatio || 1,
+        baseScale,
+        1.0,
+        isSoftwareGl,
+        _renderSizeOut,
+      );
+      renderWidth = _renderSizeOut.width;
+      renderHeight = _renderSizeOut.height;
+
+      renderer.setSize(renderWidth, renderHeight, false);
       camera.left = (-frustumSize * newAspect) / 2;
       camera.right = (frustumSize * newAspect) / 2;
       camera.top = frustumSize / 2;
@@ -12312,32 +12323,44 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           camera.updateProjectionMatrix();
         }
 
-        // Dynamically and smoothly interpolate pixel scale from 2.5x (zoomed in) to 1.0x (fully zoomed out)
+        // Dynamically and smoothly interpolate pixel scale from 2.5x (zoomed in) to 1.0x (zoomed out)
+        // On HiDPI mobile devices, also unlocks up to 2x native sharpness as the player zooms out
         // Under severe sustained tier-3 GPU stalls, gently relax pixel density and recover automatically
+        const baseScale = propsRef.current.pixelScale || 2.5;
         const baseTargetPixelScale = computeDynamicPixelScale(
           frustumSize,
           simRef.current.gridSize,
           newAspect,
-          propsRef.current.pixelScale || 2.5,
+          baseScale,
         );
         const targetDynamicPixelScale =
           autoOptDecisions.pixelScaleMult < 0.99
             ? Math.min(3.0, baseTargetPixelScale / autoOptDecisions.pixelScaleMult)
             : baseTargetPixelScale;
-        if (Math.abs(currentDynamicPixelScale - targetDynamicPixelScale) > 0.001) {
+        if (Math.abs(currentDynamicPixelScale - targetDynamicPixelScale) > 0.0005) {
           currentDynamicPixelScale = THREE.MathUtils.damp(
             currentDynamicPixelScale,
             targetDynamicPixelScale,
             8,
             dt,
           );
-          const rw = Math.max(160, Math.floor(w / currentDynamicPixelScale));
-          const rh = Math.max(100, Math.floor(h / currentDynamicPixelScale));
-          if (rw !== renderWidth || rh !== renderHeight) {
-            renderWidth = rw;
-            renderHeight = rh;
-            renderer.setSize(rw, rh, false);
-          }
+        } else {
+          currentDynamicPixelScale = targetDynamicPixelScale;
+        }
+        computeDynamicRenderDimensions(
+          w,
+          h,
+          currentDynamicPixelScale,
+          window.devicePixelRatio || 1,
+          baseScale,
+          1.0,
+          isSoftwareGl,
+          _renderSizeOut,
+        );
+        if (_renderSizeOut.width !== renderWidth || _renderSizeOut.height !== renderHeight) {
+          renderWidth = _renderSizeOut.width;
+          renderHeight = _renderSizeOut.height;
+          renderer.setSize(renderWidth, renderHeight, false);
         }
       }
 
