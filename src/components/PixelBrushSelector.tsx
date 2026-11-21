@@ -13,8 +13,17 @@ const GRID_DIM = 15;
 
 function getIconCellsForSize(size: number) {
   const clamped = Math.max(1, Math.min(10, Math.round(size)));
-  // Map 1..10 cleanly to odd pixel circle diameters 3..13
-  const diameter = Math.min(13, Math.max(3, Math.floor((clamped - 1) * (10 / 9)) + 3));
+  if (clamped === 1) {
+    // Crisp single centered square block representing a 1x1 single-tile brush
+    return [
+      { x: 6, y: 6 },
+      { x: 7, y: 6 },
+      { x: 6, y: 7 },
+      { x: 7, y: 7 },
+    ];
+  }
+  // Map 2..10 cleanly to odd pixel circle diameters 3..13
+  const diameter = Math.min(13, Math.max(3, Math.floor((clamped - 2) * (10 / 8)) + 3));
   const oddDiam = diameter % 2 === 0 ? diameter - 1 : diameter;
   const offset = Math.floor((GRID_DIM - oddDiam) / 2);
   return getPixelCircleCells(oddDiam).map((c) => ({

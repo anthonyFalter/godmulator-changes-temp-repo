@@ -13192,19 +13192,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         }
       }
 
-      // Animate pixelated starry space backdrop, sculpted sky clouds & ocean coastal/reef/whitecap foaming
-      pixelSpace.update({
-        elapsed: elapsedTotal,
-        width: renderWidth,
-        height: renderHeight,
-        pixelScale: currentDynamicPixelScale,
-        camYaw,
-        camX: camTarget.x,
-        camZ: camTarget.z,
-        frustumSize,
-        preset,
-      });
-
+      // Animate sculpted sky clouds, underglow & ocean coastal/reef/whitecap foaming
       if (appliedCloudsQuality !== 'off') {
         worldUnderglow.update(
           shaderElapsed,
@@ -13253,10 +13241,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       camTarget.y = THREE.MathUtils.damp(camTarget.y, camDesiredTarget.y, followDamp, dt);
       camTarget.z = THREE.MathUtils.damp(camTarget.z, camDesiredTarget.z, followDamp, dt);
 
+      let viewportAspect = renderWidth / Math.max(1, renderHeight);
       if (container) {
         const w = Math.max(1, container.clientWidth);
         const h = Math.max(1, container.clientHeight);
         const newAspect = w / h;
+        viewportAspect = newAspect;
 
         if (Math.abs(frustumSize - desiredFrustum) > 0.01) {
           frustumSize = THREE.MathUtils.damp(frustumSize, desiredFrustum, 15, dt);
@@ -13316,6 +13306,21 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           }
         }
       }
+
+      // Update pixelated starry space backdrop AFTER camera damping & dynamic renderer.setSize()
+      // so zoom/resize frames never desync backdrop dimensions, aspect ratio, or frustum parallax
+      pixelSpace.update({
+        elapsed: elapsedTotal,
+        width: renderWidth,
+        height: renderHeight,
+        viewportAspect,
+        pixelScale: currentDynamicPixelScale,
+        camYaw,
+        camX: camTarget.x,
+        camZ: camTarget.z,
+        frustumSize,
+        preset,
+      });
 
       // Sustained earthquake tremor keeps a subtle, tapering camera rumble during active quake zones
       let maxQuakeFade = 0;

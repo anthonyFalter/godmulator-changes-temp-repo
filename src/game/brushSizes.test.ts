@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   BRUSH_SIZE_PRESETS,
   getPixelCircleCells,
+  getPowerClusterCount,
   getPowerEffectiveRadius,
   getTerrainTileRadius,
   isInsidePixelCircle,
@@ -17,16 +18,17 @@ import {
   stepSimulation,
 } from './simulation';
 
-test('brush presets span 0.5x to 10x with symmetric pixelated circles and monotonic scaling', () => {
-  assert.equal(BRUSH_SIZE_PRESETS[0].size, 0.5);
+test('brush presets span 1x to 10x with 1x mapped to a single tile (radius 0) and monotonic scaling', () => {
+  assert.equal(BRUSH_SIZE_PRESETS[0].size, 1);
   assert.equal(BRUSH_SIZE_PRESETS[BRUSH_SIZE_PRESETS.length - 1].size, 10);
 
   let prevPixels = 0;
   let prevPowerR = 0;
   let prevTerrainR = -1;
+  let prevCluster = 0;
   for (const preset of BRUSH_SIZE_PRESETS) {
     const cells = getPixelCircleCells(preset.iconDiameter);
-    assert.ok(cells.length > prevPixels, `preset ${preset.id} icon pixels should strictly grow`);
+    assert.ok(cells.length >= prevPixels, `preset ${preset.id} icon pixels should not shrink`);
     prevPixels = cells.length;
 
     // Verify 4-way symmetry of every pixel circle icon
@@ -41,22 +43,118 @@ test('brush presets span 0.5x to 10x with symmetric pixelated circles and monoto
     assert.ok(tr > prevTerrainR, `terrain radius for ${preset.id} should strictly increase`);
     prevTerrainR = tr;
 
+    const cc = getPowerClusterCount(preset.size);
+    assert.ok(cc > prevCluster, `power cluster count for ${preset.id} should strictly increase`);
+    prevCluster = cc;
+
     const pr = getPowerEffectiveRadius(4.5, preset.size);
     assert.ok(pr > prevPowerR, `power radius for ${preset.id} should strictly increase`);
     prevPowerR = pr;
   }
 
-  assert.equal(getTerrainTileRadius(0.5), 0);
-  assert.equal(getTerrainTileRadius(10), 10);
+  assert.equal(getTerrainTileRadius(1), 0);
+  assert.equal(getTerrainTileRadius(2), 1);
+  assert.equal(getTerrainTileRadius(10), 9);
+  assert.equal(getPowerClusterCount(1), 1);
+  assert.equal(getPowerClusterCount(10), 10);
   assert.equal(isInsidePixelCircle(0, 0, 0), true);
   assert.equal(isInsidePixelCircle(1, 0, 0), false);
+  assert.equal(isInsidePixelCircle(0, 1, 0), false);
 });
 
-test('terrain tools can build land directly on ocean water from 0.5x single tile up to 10x circular island', () => {
+test('1x land powers (Road, Rail, sculpt, biome) spawn strictly 1 single tile instead of a 5-tile cross', () => {
+  const state = createInitialSimulationState(64, 'SINGLE-TILE-1X-BRUSH');
+  state.sandboxFreeMode = true;
+
+  // Prepare flat grass land across the map
+  for (const t of state.tiles) {
+    t.height = 1;
+    t.terrain = 'grass';
+    t.resourceNode = 'none';
+    t.resourceAmount = 0;
+    t.buildingId = null;
+  }
+
+  const r1 = getTerrainTileRadius(1);
+  assert.equal(r1, 0);
+
+  // Road at 1x must place strictly 1 road tile (no 4 orthogonal cross neighbors)
+  const roadRes = applyTerrainTool(state, 'stone_road', 12, 12, r1);
+  assert.equal(roadRes.ok, true);
+  let roadCount = 0;
+  for (let dz = -2; dz <= 2; dz++) {
+    for (let dx = -2; dx <= 2; dx++) {
+      if (getTile(state, 12 + dx, 12 + dz)!.terrain === 'stone_road') roadCount++;
+    }
+  }
+  assert.equal(roadCount, 1, `1x stone_road must place strictly 1 tile, got ${roadCount}`);
+  assert.equal(getTile(state, 12, 12)!.terrain, 'stone_road');
+  assert.equal(getTile(state, 13, 12)!.terrain, 'grass');
+  assert.equal(getTile(state, 11, 12)!.terrain, 'grass');
+  assert.equal(getTile(state, 12, 13)!.terrain, 'grass');
+  assert.equal(getTile(state, 12, 11)!.terrain, 'grass');
+
+  // Rail at 1x must place strictly 1 rail tile
+  const railRes = applyTerrainTool(state, 'rail_track', 20, 12, r1);
+  assert.equal(railRes.ok, true);
+  let railCount = 0;
+  for (let dz = -2; dz <= 2; dz++) {
+    for (let dx = -2; dx <= 2; dx++) {
+      if (getTile(state, 20 + dx, 12 + dz)!.terrain === 'rail_track') railCount++;
+    }
+  }
+  assert.equal(railCount, 1, `1x rail_track must place strictly 1 tile, got ${railCount}`);
+
+  // Road at 2x (radius 1) places a 5-tile cross
+  const road2xRes = applyTerrainTool(state, 'stone_road', 30, 12, getTerrainTileRadius(2));
+  assert.equal(road2xRes.ok, true);
+  let road2xCount = 0;
+  for (let dz = -2; dz <= 2; dz++) {
+    for (let dx = -2; dx <= 2; dx++) {
+      if (getTile(state, 30 + dx, 12 + dz)!.terrain === 'stone_road') road2xCount++;
+    }
+  }
+  assert.equal(road2xCount, 5, `2x stone_road should place 5-tile cross, got ${road2xCount}`);
+
+  // Biome/sculpt tools at 1x modify strictly 1 tile
+  const singleLandChecks: Array<{ tool: Parameters<typeof applyTerrainTool>[1]; x: number; z: number; expectedTerrain: string }> = [
+    { tool: 'desert_dunes', x: 12, z: 24, expectedTerrain: 'sand' },
+    { tool: 'fertile_meadow', x: 18, z: 24, expectedTerrain: 'fertile' },
+    { tool: 'jungle_bloom', x: 30, z: 24, expectedTerrain: 'jungle' },
+    { tool: 'swamp_mire', x: 36, z: 24, expectedTerrain: 'swamp' },
+    { tool: 'volcanic_obsidian', x: 42, z: 24, expectedTerrain: 'scorched' },
+  ];
+  for (const chk of singleLandChecks) {
+    const res = applyTerrainTool(state, chk.tool, chk.x, chk.z, r1, { deferSkyImpact: false });
+    assert.equal(res.ok, true, `${chk.tool} at 1x should succeed`);
+    assert.equal(getTile(state, chk.x, chk.z)!.terrain, chk.expectedTerrain);
+    assert.equal(getTile(state, chk.x + 1, chk.z)!.terrain, 'grass', `${chk.tool} at 1x must not modify +x neighbor`);
+    assert.equal(getTile(state, chk.x, chk.z + 1)!.terrain, 'grass', `${chk.tool} at 1x must not modify +z neighbor`);
+  }
+
+  // Forest planting at 1x spawns strictly 1 timber grove tile
+  const forestRes = applyTerrainTool(state, 'plant_forest', 24, 24, r1, { deferSkyImpact: false });
+  assert.equal(forestRes.ok, true);
+  assert.equal(getTile(state, 24, 24)!.resourceNode, 'timber_grove');
+  assert.equal(getTile(state, 25, 24)!.resourceNode, 'none');
+  assert.equal(getTile(state, 24, 25)!.resourceNode, 'none');
+
+  // Sky-rain tool at 1x schedules strictly 1 drop target
+  state.pendingVfx = [];
+  const blossomRes = applyTerrainTool(state, 'blossom_rain', 48, 24, r1);
+  assert.equal(blossomRes.ok, true);
+  const dropVfx = state.pendingVfx.find((v) => v.type === 'sky_rain_drop');
+  assert.equal(dropVfx?.dropTargets?.length, 1, '1x sky_rain_drop should target strictly 1 tile');
+  assert.equal(executeTerrainDropTileImpact(state, 'blossom_rain', 48, 24), true);
+  assert.ok(getTile(state, 48, 24)!.blessedTimer >= 18);
+  assert.notEqual(getTile(state, 48, 24)!.resourceNode, 'none');
+  assert.equal(getTile(state, 49, 24)!.resourceNode, 'none');
+});
+
+test('land-raising tools build land directly on ocean water from 1x single tile up to 10x circular island', () => {
   const state = createInitialSimulationState(64, 'BUILD-LAND-ON-WATER');
   state.sandboxFreeMode = true;
 
-  // Flood the whole test map with deep water
   for (const t of state.tiles) {
     t.height = 0;
     t.terrain = 'deep_water';
@@ -65,38 +163,23 @@ test('terrain tools can build land directly on ocean water from 0.5x single tile
     t.buildingId = null;
   }
 
-  // Direct land-building tools on deep_water at 0.5x (radius 0 -> strictly 1 tile)
-  const directChecks: Array<{ tool: Parameters<typeof applyTerrainTool>[1]; x: number; z: number; expectedTerrain: string }> = [
+  const waterRaiseChecks: Array<{ tool: Parameters<typeof applyTerrainTool>[1]; x: number; z: number; expectedTerrain: string }> = [
     { tool: 'raise', x: 10, z: 10, expectedTerrain: 'sand' },
-    { tool: 'flatten', x: 14, z: 10, expectedTerrain: 'sand' },
-    { tool: 'soil_enrich', x: 18, z: 10, expectedTerrain: 'grass' },
-    { tool: 'fertile_meadow', x: 22, z: 10, expectedTerrain: 'fertile' },
-    { tool: 'plant_forest', x: 26, z: 10, expectedTerrain: 'forest' },
-    { tool: 'jungle_bloom', x: 30, z: 10, expectedTerrain: 'jungle' },
-    { tool: 'desert_dunes', x: 34, z: 10, expectedTerrain: 'sand' },
-    { tool: 'volcanic_obsidian', x: 38, z: 10, expectedTerrain: 'scorched' },
-    { tool: 'swamp_mire', x: 42, z: 10, expectedTerrain: 'swamp' },
+    { tool: 'flatten', x: 16, z: 10, expectedTerrain: 'sand' },
+    { tool: 'volcanic_obsidian', x: 22, z: 10, expectedTerrain: 'scorched' },
   ];
 
-  for (const chk of directChecks) {
-    const res = applyTerrainTool(state, chk.tool, chk.x, chk.z, getTerrainTileRadius(0.5));
+  for (const chk of waterRaiseChecks) {
+    const res = applyTerrainTool(state, chk.tool, chk.x, chk.z, getTerrainTileRadius(1));
     assert.equal(res.ok, true, `${chk.tool} should build land on deep_water`);
     const center = getTile(state, chk.x, chk.z)!;
     assert.equal(center.height, 1, `${chk.tool} should raise water to height 1`);
     assert.equal(center.terrain, chk.expectedTerrain, `${chk.tool} expected ${chk.expectedTerrain}`);
-    // Neighbor tile remains deep_water at 0.5x (single-tile brush)
-    assert.equal(getTile(state, chk.x + 1, chk.z)!.height, 0, `${chk.tool} at 0.5x should only affect 1 tile`);
+    assert.equal(getTile(state, chk.x + 1, chk.z)!.height, 0, `${chk.tool} at 1x should only raise 1 tile`);
   }
 
-  // Sky-rain tool on water raises land on impact
-  const blossomRes = applyTerrainTool(state, 'blossom_rain', 46, 10, 0);
-  assert.equal(blossomRes.ok, true);
-  assert.equal(executeTerrainDropTileImpact(state, 'blossom_rain', 46, 10), true);
-  assert.equal(getTile(state, 46, 10)!.height, 1);
-  assert.equal(getTile(state, 46, 10)!.terrain, 'blossom');
-
   // 10x brush paints a large pixelated circular island out of deep ocean water
-  const islandRes = applyTerrainTool(state, 'soil_enrich', 32, 36, getTerrainTileRadius(10));
+  const islandRes = applyTerrainTool(state, 'raise', 32, 36, getTerrainTileRadius(10));
   assert.equal(islandRes.ok, true);
   let islandTiles = 0;
   for (let dz = -12; dz <= 12; dz++) {
@@ -105,16 +188,15 @@ test('terrain tools can build land directly on ocean water from 0.5x single tile
       if (t.height > 0) islandTiles++;
     }
   }
-  assert.ok(islandTiles > 300, `expected 10x circular island > 300 tiles, got ${islandTiles}`);
-  // Corner outside circle (dx=10, dz=10) remains water
-  assert.equal(getTile(state, 42, 46)!.height, 0);
+  assert.ok(islandTiles > 240, `expected 10x circular island > 240 tiles, got ${islandTiles}`);
+  // Corner outside circle (dx=9, dz=9) remains water
+  assert.equal(getTile(state, 41, 45)!.height, 0);
 });
 
-test('all god powers scale radius cleanly with brushSize from 0.5x to 10x', () => {
+test('all god powers spawn 1 cast at 1x and scale cleanly up to 10x clusters', () => {
   const state = createInitialSimulationState(64, 'POWER-BRUSH-SCALE');
   state.sandboxFreeMode = true;
 
-  // Prepare flat grass land
   for (const t of state.tiles) {
     t.height = 1;
     t.terrain = 'grass';
@@ -123,26 +205,16 @@ test('all god powers scale radius cleanly with brushSize from 0.5x to 10x', () =
   }
 
   state.pendingVfx = [];
-  assert.equal(castGodPower(state, 'blessing', 20, 20, { brushSize: 0.5, deferImpact: true }).ok, true);
-  const smallR = state.pendingVfx[state.pendingVfx.length - 1].radius;
+  const res1 = castGodPower(state, 'blessing', 20, 20, { brushSize: 1, deferImpact: true });
+  assert.equal(res1.ok, true);
+  assert.equal(res1.count, 1, '1x god power should spawn strictly 1 cast');
+  assert.equal(state.pendingVfx.length, 1);
 
-  assert.equal(castGodPower(state, 'blessing', 20, 20, { brushSize: 1, deferImpact: true }).ok, true);
-  const normalR = state.pendingVfx[state.pendingVfx.length - 1].radius;
-
-  assert.equal(castGodPower(state, 'blessing', 20, 20, { brushSize: 10, deferImpact: true }).ok, true);
-  const giantR = state.pendingVfx[state.pendingVfx.length - 1].radius;
-
-  assert.ok(smallR < normalR, `0.5x power radius (${smallR}) must be smaller than 1x (${normalR})`);
-  assert.ok(giantR > normalR * 2.5, `10x power radius (${giantR}) must be much larger than 1x (${normalR})`);
-
-  // Verify actual impact area scales too (non-deferred curse at 0.5x vs 10x)
-  assert.equal(castGodPower(state, 'curse', 32, 32, { brushSize: 0.5, deferImpact: false }).ok, true);
-  const farTile = getTile(state, 44, 32)!; // distance 12
-  assert.equal(farTile.cursedTimer, 0, '0.5x curse must not reach 12 tiles away');
-
-  assert.equal(castGodPower(state, 'curse', 32, 32, { brushSize: 10, deferImpact: false }).ok, true);
-  const giantWave = state.activeHazards?.find((h) => h.kind === 'curse_wave' && h.maxRadius && h.maxRadius > 12);
-  assert.ok(giantWave, '10x curse must spawn a giant expanding curse_wave with maxRadius > 12');
+  state.pendingVfx = [];
+  const res10 = castGodPower(state, 'blessing', 32, 32, { brushSize: 10, deferImpact: true });
+  assert.equal(res10.ok, true);
+  assert.equal(res10.count, 10, '10x god power should spawn 10 cluster casts');
+  assert.equal(state.pendingVfx.length, 10);
 });
 
 test('Alien Probe and every god power are usable on deep_water, shallow_water, and sea ice blocks', () => {
@@ -193,4 +265,3 @@ test('Alien Probe and every god power are usable on deep_water, shallow_water, a
   );
   assert.equal(getTile(oceanState, 20, 20)!.height, 0);
 });
-

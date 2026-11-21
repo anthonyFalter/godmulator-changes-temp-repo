@@ -3145,6 +3145,7 @@ export interface PixelSpaceSystem {
     elapsed: number;
     width: number;
     height: number;
+    viewportAspect?: number;
     pixelScale: number;
     camYaw: number;
     camX: number;
@@ -3225,6 +3226,7 @@ export function createPixelSpaceSystem(initialSeed: number): PixelSpaceSystem {
   const uniforms = {
     uTime: { value: 0 },
     uResolution: { value: new THREE.Vector2(320, 180) },
+    uViewportAspect: { value: 16 / 9 },
     uPixelStep: { value: 1.0 },
     uPixelScale: { value: 3.0 },
     uCamYaw: { value: Math.PI / 4 },
@@ -3254,15 +3256,20 @@ export function createPixelSpaceSystem(initialSeed: number): PixelSpaceSystem {
     fog: false,
     transparent: false,
     depthTest: true,
+    depthFunc: THREE.LessEqualDepth,
     depthWrite: false,
     vertexShader: `
+      varying vec2 vUv;
       void main() {
-        gl_Position = vec4(position.xy, 0.99999, 1.0);
+        vUv = position.xy * 0.5 + 0.5;
+        gl_Position = vec4(position.xy, 0.9998, 1.0);
       }
     `,
     fragmentShader: `
+      varying vec2 vUv;
       uniform float uTime;
       uniform vec2 uResolution;
+      uniform float uViewportAspect;
       uniform float uPixelStep;
       uniform float uPixelScale;
       uniform float uCamYaw;
@@ -3347,7 +3354,8 @@ export function createPixelSpaceSystem(initialSeed: number): PixelSpaceSystem {
         return vec3(1.0, 0.72, 0.54);                           // Ember orange dwarf
       }
 
-      // Evaluates one pixel-snapped star layer with crisp 1px dots, + crosses, or ✦ hero bursts
+      // Evaluates one pixel-snapped star layer across the 2x2 nearest sky cells so 3px/5px star arms
+      // never clip or blink across cell boundaries during smooth camera zoom or rotation.
       vec3 evalStarLayer(
         vec2 pix,
         vec2 halfRes,
@@ -3358,70 +3366,78 @@ export function createPixelSpaceSystem(initialSeed: number): PixelSpaceSystem {
         float padFrac,
         float density,
         float seedBias,
-        float bandMask,
+        float bandWeight,
         float heroChance
       ) {
-        vec2 cell = floor(skyP / cellSize);
-        vec2 rnd = hash22(cell + uSeedVec + vec2(seedBias, seedBias * 1.7));
-        float prob = hash12(cell * 1.37 + uSeedVec + vec2(seedBias * 2.3, 9.1));
-
+        vec2 baseCell = floor(skyP / cellSize - 0.5);
+        vec3 acc = vec3(0.0);
         float scaledDensity = density * uStarDensityBias;
-        float localDensity = clamp(scaledDensity + bandMask * scaledDensity * 1.55, 0.0, 0.92);
-        if (prob > localDensity) {
-          return vec3(0.0);
+        float invBandW2 = 1.0 / max(2304.0, uBandWidth * uBandWidth);
+
+        for (int oy = 0; oy <= 1; oy++) {
+          for (int ox = 0; ox <= 1; ox++) {
+            vec2 cell = baseCell + vec2(float(ox), float(oy));
+            vec2 rnd = hash22(cell + uSeedVec + vec2(seedBias, seedBias * 1.7));
+            vec2 starSky = (cell + padFrac + (1.0 - 2.0 * padFrac) * rnd) * cellSize;
+
+            // Cell-invariant Milky Way proximity so all pixels of a 3px/5px star always agree
+            vec2 starMw = rot2(starSky, uBandAngle);
+            float starCurve = sin(starMw.x * 0.011 + uSeedVec.x * 0.1) * uBandCurve
+                            + cos(starMw.x * 0.023 - uSeedVec.y * 0.1) * (uBandCurve * 0.45);
+            float starDist = starMw.y - uBandOffset - starCurve;
+            float cellBandMask = exp(-(starDist * starDist) * invBandW2) * bandWeight;
+            float localDensity = clamp(scaledDensity + cellBandMask * scaledDensity * 1.55, 0.0, 0.92);
+
+            float prob = hash12(cell * 1.37 + uSeedVec + vec2(seedBias * 2.3, 9.1));
+            if (prob > localDensity) continue;
+
+            vec2 starScreen = floor(rot2(starSky - skyOrigin, -uCamYaw) / zoomScale + halfRes + 0.5);
+            vec2 sd = abs(pix - starScreen);
+            if (sd.x > 2.2 || sd.y > 2.2) continue;
+
+            float shapeRoll = hash12(cell + vec2(41.3, 19.7) + uSeedVec);
+            float bright = 0.42 + 0.58 * hash12(cell + vec2(7.9, 63.1) + uSeedVec);
+            float twinklePhase = hash12(cell + vec2(88.2, 13.4) + uSeedVec) * 6.2831;
+            float twinkleSpeed = 1.6 + hash12(cell + vec2(3.1, 51.9) + uSeedVec) * 2.8;
+            float twinkle = 0.72 + 0.28 * floor(0.5 + 0.5 * sin(uTime * twinkleSpeed + twinklePhase) * 2.0 + 0.5) * 0.5;
+
+            float mask = 0.0;
+            if (shapeRoll < heroChance) {
+              float arm = step(sd.x, 0.5) * step(sd.y, 2.1) + step(sd.y, 0.5) * step(sd.x, 2.1);
+              float core = step(sd.x, 0.5) * step(sd.y, 0.5);
+              if (arm > 0.5) {
+                mask = core > 0.5 ? 1.0 : 0.48 * twinkle;
+              }
+            } else if (shapeRoll < heroChance * 3.0) {
+              if (sd.x + sd.y < 1.2) {
+                mask = (sd.x < 0.5 && sd.y < 0.5) ? 1.0 : 0.45 * twinkle;
+              }
+            } else if (sd.x < 0.5 && sd.y < 0.5) {
+              mask = 1.0;
+            }
+
+            if (mask > 0.001) {
+              float tempRoll = hash12(cell + vec2(93.7, 27.3) + uSeedVec);
+              vec3 col = starColorFromTemp(tempRoll);
+              acc = max(acc, col * bright * twinkle * mask);
+            }
+          }
         }
-
-        vec2 starSky = (cell + padFrac + (1.0 - 2.0 * padFrac) * rnd) * cellSize;
-        vec2 starScreen = floor(rot2(starSky - skyOrigin, -uCamYaw) / zoomScale + halfRes + 0.5);
-        vec2 sd = abs(pix - starScreen);
-
-        float shapeRoll = hash12(cell + vec2(41.3, 19.7) + uSeedVec);
-        float bright = 0.42 + 0.58 * hash12(cell + vec2(7.9, 63.1) + uSeedVec);
-        float twinklePhase = hash12(cell + vec2(88.2, 13.4) + uSeedVec) * 6.2831;
-        float twinkleSpeed = 1.6 + hash12(cell + vec2(3.1, 51.9) + uSeedVec) * 2.8;
-        // Quantized retro twinkle step
-        float twinkle = 0.72 + 0.28 * floor(0.5 + 0.5 * sin(uTime * twinkleSpeed + twinklePhase) * 2.0 + 0.5) * 0.5;
-
-        float mask = 0.0;
-        if (shapeRoll < heroChance) {
-          // 5px crisp pixel-art starburst + cross
-          float arm = step(sd.x, 0.5) * step(sd.y, 2.1) + step(sd.y, 0.5) * step(sd.x, 2.1);
-          float core = step(sd.x, 0.5) * step(sd.y, 0.5);
-          if (arm > 0.5) {
-            mask = core > 0.5 ? 1.0 : 0.48 * twinkle;
-          }
-        } else if (shapeRoll < heroChance * 3.0) {
-          // 3px crisp + diamond star
-          if (sd.x + sd.y < 1.2) {
-            mask = (sd.x < 0.5 && sd.y < 0.5) ? 1.0 : 0.45 * twinkle;
-          }
-        } else {
-          // Crisp single-pixel star
-          if (sd.x < 0.5 && sd.y < 0.5) {
-            mask = 1.0;
-          }
-        }
-
-        if (mask <= 0.001) return vec3(0.0);
-
-        float tempRoll = hash12(cell + vec2(93.7, 27.3) + uSeedVec);
-        vec3 col = starColorFromTemp(tempRoll);
-        return col * bright * twinkle * mask;
+        return acc;
       }
 
       void main() {
-        // Resolution-independent virtual pixel-art grid derived from normalized UV so dynamic render
-        // resolution resizes during zoom NEVER shift, stretch, or pop the starry backdrop
-        vec2 safeRes = max(vec2(1.0), uResolution);
-        vec2 uv = gl_FragCoord.xy / safeRes;
-        float aspect = safeRes.x / safeRes.y;
+        // Hardware-interpolated quad UV + stable CSS viewport aspect so dynamic render resolution
+        // changes during zoom NEVER stretch, crop, shift, or pop the starry backdrop
+        vec2 uv = clamp(vUv, 0.0, 1.0);
+        float aspect = max(0.25, uViewportAspect);
         float virtualH = 240.0;
         vec2 res = vec2(max(32.0, floor(virtualH * aspect + 0.5)), virtualH);
         vec2 halfRes = 0.5 * res;
         vec2 pix = floor(uv * res);
         vec2 pCentered = pix - halfRes;
 
-        float zoomScale = mix(0.88, 1.28, clamp((uFrustumSize - 7.5) / 85.0, 0.0, 1.0));
+        float zoomScale = mix(0.95, 1.07, clamp((uFrustumSize - 7.5) / 95.0, 0.0, 1.0));
         vec2 skyOrigin = uCamPan * 0.55;
         vec2 skyP = rot2(pCentered * zoomScale, uCamYaw) + skyOrigin;
 
@@ -3494,13 +3510,12 @@ export function createPixelSpaceSystem(initialSeed: number): PixelSpaceSystem {
         }
 
         // 3. Multi-layer Pixel-Snapped Starfields
-        float starBoost = clamp(rawGalaxy * 1.25 + coreGlow * 0.6, 0.0, 1.0);
         // Micro star dust densely packed along the Milky Way strips
-        vec3 starsDust = evalStarLayer(pix, halfRes, skyP, skyOrigin, zoomScale, 7.0, 0.22, 0.09, 11.0, starBoost, 0.0);
+        vec3 starsDust = evalStarLayer(pix, halfRes, skyP, skyOrigin, zoomScale, 7.0, 0.22, 0.09, 11.0, 1.0, 0.0);
         // Medium field stars across space
-        vec3 starsMid = evalStarLayer(pix, halfRes, skyP, skyOrigin, zoomScale, 13.0, 0.20, 0.14, 37.0, starBoost * 0.7, 0.05);
+        vec3 starsMid = evalStarLayer(pix, halfRes, skyP, skyOrigin, zoomScale, 13.0, 0.20, 0.14, 37.0, 0.7, 0.05);
         // Sparse bright twinkling diamond/cross hero stars
-        vec3 starsHero = evalStarLayer(pix, halfRes, skyP, skyOrigin, zoomScale, 28.0, 0.22, 0.18, 79.0, starBoost * 0.4, 0.26);
+        vec3 starsHero = evalStarLayer(pix, halfRes, skyP, skyOrigin, zoomScale, 28.0, 0.22, 0.18, 79.0, 0.4, 0.26);
 
         spaceCol += starsDust * 0.58 + starsMid * 0.9 + starsHero * 1.25;
 
@@ -3577,6 +3592,7 @@ export function createPixelSpaceSystem(initialSeed: number): PixelSpaceSystem {
     elapsed,
     width,
     height,
+    viewportAspect,
     pixelScale,
     camYaw,
     camX,
@@ -3587,6 +3603,7 @@ export function createPixelSpaceSystem(initialSeed: number): PixelSpaceSystem {
     elapsed: number;
     width: number;
     height: number;
+    viewportAspect?: number;
     pixelScale: number;
     camYaw: number;
     camX: number;
@@ -3596,8 +3613,14 @@ export function createPixelSpaceSystem(initialSeed: number): PixelSpaceSystem {
   }) => {
     // Keep periodic meteor period (9.5s * 200 = 1900s) exact across wraps so shooting stars never jump
     const safeElapsed = Number.isFinite(elapsed) ? ((elapsed % 1900) + 1900) % 1900 : 0;
+    const safeW = Math.max(1, width);
+    const safeH = Math.max(1, height);
     uniforms.uTime.value = safeElapsed;
-    uniforms.uResolution.value.set(Math.max(1, width), Math.max(1, height));
+    uniforms.uResolution.value.set(safeW, safeH);
+    uniforms.uViewportAspect.value =
+      viewportAspect && Number.isFinite(viewportAspect) && viewportAspect > 0
+        ? viewportAspect
+        : safeW / safeH;
     uniforms.uPixelStep.value = 1.0;
     uniforms.uPixelScale.value = Math.max(1.0, pixelScale);
     uniforms.uCamYaw.value = camYaw;
