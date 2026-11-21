@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { EPOCHS, GOD_POWERS, getDinosaurVariant } from '../game/catalog';
+import { ANIMAL_ROLE_SET, EPOCHS, GOD_POWERS, getDinosaurVariant } from '../game/catalog';
 import { createAnimatedFireSpriteBundle } from '../game/fireSprites';
 import {
   TreeBiomeKey,
@@ -6025,19 +6025,36 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       if (u.role === 'dragon') {
         return { pickRadius: 1.65, ringScale: 1.75, bodyHeight: 1.55, centerOffsetY: 0.65 };
       }
+      if (u.role === 'phoenix' || u.role === 'griffin') {
+        return { pickRadius: 1.15, ringScale: 1.32, bodyHeight: 1.4, centerOffsetY: 0.58 };
+      }
+      if (u.role === 'elephant' || u.role === 'golem' || u.role === 'yeti') {
+        return { pickRadius: 1.12, ringScale: 1.38, bodyHeight: 1.88, centerOffsetY: 0.85 };
+      }
       if (u.role === 'dinosaur') {
         return { pickRadius: 1.05, ringScale: 1.32, bodyHeight: 1.8, centerOffsetY: 0.78 };
       }
-      if (u.role === 'bear' || u.role === 'unicorn') {
-        return { pickRadius: 0.82, ringScale: 1.15, bodyHeight: 1.38, centerOffsetY: 0.56 };
+      if (u.role === 'bear' || u.role === 'unicorn' || u.role === 'lion' || u.role === 'camel') {
+        return { pickRadius: 0.84, ringScale: 1.16, bodyHeight: 1.42, centerOffsetY: 0.58 };
       }
       if (u.role === 'raider_behemoth') {
         return { pickRadius: 0.78, ringScale: 1.15, bodyHeight: 1.52, centerOffsetY: 0.68 };
       }
-      if (u.role === 'cow' || u.role === 'pig' || u.role === 'wolf' || u.role === 'capybara') {
+      if (
+        u.role === 'cow' ||
+        u.role === 'pig' ||
+        u.role === 'wolf' ||
+        u.role === 'capybara' ||
+        u.role === 'deer' ||
+        u.role === 'sheep' ||
+        u.role === 'fox' ||
+        u.role === 'boar' ||
+        u.role === 'crocodile' ||
+        u.role === 'kitsune'
+      ) {
         return { pickRadius: 0.68, ringScale: 0.96, bodyHeight: 0.98, centerOffsetY: 0.42 };
       }
-      if (u.role === 'chicken') {
+      if (u.role === 'chicken' || u.role === 'rabbit' || u.role === 'penguin') {
         return { pickRadius: 0.54, ringScale: 0.76, bodyHeight: 0.78, centerOffsetY: 0.32 };
       }
       if (u.ageStage === 'child') {
@@ -8498,6 +8515,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         const isBossUnit =
           u.role === 'dragon' ||
           u.role === 'leviathan' ||
+          u.role === 'phoenix' ||
+          u.role === 'griffin' ||
+          u.role === 'yeti' ||
+          u.role === 'golem' ||
           u.role === 'alien_walker' ||
           u.role === 'alien_ufo';
         const isProtectedUnit =
@@ -8628,6 +8649,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         const wantUnitShadow =
           u.role === 'dragon' ||
           u.role === 'leviathan' ||
+          u.role === 'phoenix' ||
+          u.role === 'griffin' ||
+          u.role === 'yeti' ||
+          u.role === 'golem' ||
+          u.role === 'elephant' ||
           u.role === 'alien_walker' ||
           u.role === 'alien_ufo'
             ? autoOptDecisions.unitCastShadows
@@ -8780,20 +8806,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           u.state === 'gathering' || u.state === 'building' || u.state === 'fighting';
         const isDragon = u.role === 'dragon';
         const isLeviathan = u.role === 'leviathan';
-        const isAnimal =
-          u.role === 'cow' ||
-          u.role === 'pig' ||
-          u.role === 'chicken' ||
-          u.role === 'capybara' ||
-          u.role === 'wolf' ||
-          u.role === 'bear' ||
-          u.role === 'dinosaur' ||
-          u.role === 'unicorn' ||
-          isLeviathan ||
-          isDragon;
+        const isFlyingMythic = u.role === 'phoenix' || u.role === 'griffin';
+        const isHeavyTitan = u.role === 'elephant' || u.role === 'yeti' || u.role === 'golem';
+        const isAnimal = ANIMAL_ROLE_SET.has(u.role);
         const seedPhase = ((u.appearanceSeed ?? 1) % 31) * 0.41;
         const atkTimer = u.attackAnimTimer ?? 0;
-        const atkDur = isDragon ? 0.78 : 0.48;
+        const atkDur = isDragon ? 0.78 : isHeavyTitan ? 0.62 : 0.48;
         const atkProg = atkTimer > 0 ? THREE.MathUtils.clamp(1 - atkTimer / atkDur, 0, 1) : 0;
         const isGrazingAnim = isAnimal && u.state === 'gathering';
         const isAttacking = atkTimer > 0 && u.state !== 'ko' && !isGrazingAnim;
@@ -8805,33 +8823,52 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         const isAirborneVisual = simAltitude > 0.35 || Boolean(u.draggedByPlayer);
 
         const bobFreq =
-          u.role === 'chicken'
+          u.role === 'chicken' || u.role === 'rabbit'
             ? 17
-            : u.role === 'wolf'
+            : u.role === 'wolf' || u.role === 'fox' || u.role === 'deer' || u.role === 'kitsune'
               ? 14
-              : u.role === 'dinosaur' || u.role === 'bear'
-                ? 9.5
-                : unitAgeStage === 'child'
-                  ? 14.5
-                  : 11;
+              : u.role === 'lion' || u.role === 'boar'
+                ? 12.5
+                : u.role === 'penguin'
+                  ? 11.5
+                  : u.role === 'crocodile'
+                    ? 8.8
+                    : u.role === 'dinosaur' || u.role === 'bear' || u.role === 'camel'
+                      ? 9.5
+                      : isHeavyTitan
+                        ? 7.8
+                        : unitAgeStage === 'child'
+                          ? 14.5
+                          : 11;
         const walkBob =
-          isDragon || isLeviathan || u.role === 'alien_walker' || isFrozen || isAirborneVisual
+          isDragon || isLeviathan || isFlyingMythic || u.role === 'alien_walker' || isFrozen || isAirborneVisual
             ? 0
             : isMoving
               ? Math.abs(Math.sin(elapsed * bobFreq + seedPhase)) *
-                (u.role === 'chicken'
-                  ? 0.13
-                  : u.role === 'wolf' || u.role === 'unicorn'
-                    ? 0.1
-                    : unitAgeStage === 'child'
-                      ? 0.095
-                      : 0.08)
+                (u.role === 'rabbit'
+                  ? 0.21
+                  : u.role === 'chicken'
+                    ? 0.13
+                    : u.role === 'wolf' || u.role === 'unicorn' || u.role === 'deer' || u.role === 'fox' || u.role === 'kitsune'
+                      ? 0.1
+                      : u.role === 'crocodile'
+                        ? 0.028
+                        : isHeavyTitan
+                          ? 0.055
+                          : unitAgeStage === 'child'
+                            ? 0.095
+                            : 0.08)
               : isWorking
                 ? Math.abs(Math.sin(elapsed * 14 + seedPhase)) * (isAnimal ? 0.025 : 0.05)
                 : 0;
         const pounceHopY =
-          isAttacking && !isFrozen && !isDragon && !isLeviathan && u.role !== 'bear'
-            ? Math.sin(atkProg * Math.PI) * (u.role === 'wolf' ? 0.42 : u.role === 'chicken' ? 0.24 : 0.16)
+          isAttacking && !isFrozen && !isDragon && !isLeviathan && !isFlyingMythic && u.role !== 'bear' && !isHeavyTitan && u.role !== 'crocodile'
+            ? Math.sin(atkProg * Math.PI) *
+              (u.role === 'wolf' || u.role === 'lion' || u.role === 'fox'
+                ? 0.4
+                : u.role === 'chicken' || u.role === 'rabbit'
+                  ? 0.24
+                  : 0.16)
             : 0;
         const isDragonStrafing =
           isDragon && (u.dragonRunPhase === 'strafe' || isAttacking);
@@ -8842,9 +8879,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
                 : u.dragonRunPhase === 'turn'
                   ? 2.54
                   : 2.34) + Math.sin(elapsed * 2.3 + seedPhase) * (isDragonStrafing ? 0.08 : 0.22)
-            : u.role === 'alien_ufo' && u.state !== 'ko'
-              ? Math.sin(elapsed * 3.8 + seedPhase) * 0.26
-              : 0;
+            : isFlyingMythic && u.state !== 'ko'
+              ? (u.role === 'phoenix' ? 1.82 : isAttacking ? 1.15 : 1.56) +
+                Math.sin(elapsed * (u.role === 'phoenix' ? 3.2 : 2.7) + seedPhase) * 0.2
+              : u.role === 'alien_ufo' && u.state !== 'ko'
+                ? Math.sin(elapsed * 3.8 + seedPhase) * 0.26
+                : 0;
         const levitateY =
           blackHolePullFrac > 0
             ? Math.pow(blackHolePullFrac, 1.3) * 1.65 +
@@ -8857,12 +8897,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             : simAltitude * altScale;
         let finalUnitY =
           groundY + (walkBob + pounceHopY + targetHoverY) * (1 - blackHolePullFrac) + airborneAltY;
-        if (isDragon && u.state !== 'ko' && blackHolePullFrac <= 0 && !u.draggedByPlayer) {
-          const prevDragonY =
+        if ((isDragon || isFlyingMythic) && u.state !== 'ko' && blackHolePullFrac <= 0 && !u.draggedByPlayer) {
+          const prevAirY =
             typeof uGroup.userData.smoothWorldY === 'number'
               ? uGroup.userData.smoothWorldY
               : finalUnitY;
-          finalUnitY = THREE.MathUtils.damp(prevDragonY, finalUnitY, 6.2, dt);
+          finalUnitY = THREE.MathUtils.damp(prevAirY, finalUnitY, 6.2, dt);
           uGroup.userData.smoothWorldY = finalUnitY;
         }
         const flightHoverY = Math.max(0, finalUnitY - groundY);
@@ -8965,7 +9005,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           uGroup.rotation.x = blackHolePullFrac * 0.72 * Math.cos(elapsed * 6.5 + u.z);
           const bhScale = Math.max(0.58, 1 - Math.pow(blackHolePullFrac, 1.8) * 0.38);
           uGroup.scale.setScalar(bhScale);
-        } else if (isAirborneVisual && !isDragon && !isLeviathan) {
+        } else if (isAirborneVisual && !isDragon && !isLeviathan && !isFlyingMythic) {
           uGroup.rotation.z = Math.sin(elapsed * 16 + seedPhase) * 0.44;
           uGroup.rotation.x = Math.cos(elapsed * 13 + seedPhase) * 0.32;
           uGroup.scale.setScalar(1);
@@ -8976,6 +9016,16 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             : u.dragonRunPhase === 'turn'
               ? -0.1
               : 0.05 + Math.sin(elapsed * 2.3 + seedPhase) * 0.04;
+          uGroup.rotation.z = THREE.MathUtils.damp(uGroup.rotation.z, targetBank, 7.0, dt);
+          uGroup.rotation.x = THREE.MathUtils.damp(uGroup.rotation.x, targetPitch, 7.0, dt);
+          uGroup.scale.setScalar(1);
+        } else if (isFlyingMythic) {
+          const targetBank = Math.sin(elapsed * 2.2 + seedPhase) * (isMoving ? 0.16 : 0.06);
+          const targetPitch = isAttacking
+            ? 0.24
+            : isMoving
+              ? 0.1 + Math.sin(elapsed * 3.1 + seedPhase) * 0.05
+              : Math.sin(elapsed * 2.4 + seedPhase) * 0.04;
           uGroup.rotation.z = THREE.MathUtils.damp(uGroup.rotation.z, targetBank, 7.0, dt);
           uGroup.rotation.x = THREE.MathUtils.damp(uGroup.rotation.x, targetPitch, 7.0, dt);
           uGroup.scale.setScalar(1);
@@ -8997,7 +9047,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           uGroup.scale.setScalar(1);
         } else {
           uGroup.rotation.z = !isFrozen && isMoving
-            ? Math.sin(elapsed * bobFreq + seedPhase) * (u.role === 'chicken' ? 0.12 : 0.08)
+            ? Math.sin(elapsed * bobFreq + seedPhase) *
+              (u.role === 'penguin'
+                ? 0.19
+                : u.role === 'chicken'
+                  ? 0.12
+                  : u.role === 'crocodile'
+                    ? 0.035
+                    : 0.08)
             : 0;
           uGroup.rotation.x =
             !isFrozen && isWorking && !isAnimal ? Math.sin(elapsed * 16 + u.x) * 0.22 : 0;
@@ -9043,23 +9100,23 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
               bodyForward = 0.26;
             } else if (isAttacking) {
               const s = Math.sin(atkProg * Math.PI);
-              if (u.role === 'bear') {
-                bodyPitch = atkProg < 0.45 ? -0.58 * (atkProg / 0.45) : -0.58 + 0.88 * ((atkProg - 0.45) / 0.55);
+              if (u.role === 'bear' || u.role === 'yeti' || u.role === 'golem') {
+                bodyPitch = atkProg < 0.45 ? -0.52 * (atkProg / 0.45) : -0.52 + 0.84 * ((atkProg - 0.45) / 0.55);
                 bodyForward = atkProg > 0.45 ? 0.24 * Math.sin(((atkProg - 0.45) / 0.55) * Math.PI) : -0.08;
-              } else if (u.role === 'unicorn') {
-                bodyPitch = -0.34 * s;
-                bodyForward = 0.28 * s;
-              } else if (u.role === 'dinosaur') {
+              } else if (u.role === 'unicorn' || u.role === 'deer' || u.role === 'kitsune') {
+                bodyPitch = -0.3 * s;
+                bodyForward = 0.26 * s;
+              } else if (u.role === 'dinosaur' || u.role === 'elephant' || u.role === 'boar') {
                 bodyPitch = (isHerbivoreDino ? 0.34 : 0.26) * s;
-                bodyForward = 0.36 * s;
+                bodyForward = 0.34 * s;
               } else if (!isDragon) {
                 bodyPitch = 0.24 * s;
-                bodyForward = (u.role === 'wolf' ? 0.38 : 0.24) * s;
+                bodyForward = (u.role === 'wolf' || u.role === 'lion' || u.role === 'crocodile' ? 0.38 : 0.24) * s;
               }
             }
             bodyPivot.rotation.x = bodyPitch;
             bodyPivot.position.z = bodyForward;
-            const breath = isMoving || isLeviathan ? 0 : Math.sin(elapsed * 3.4 + seedPhase) * 0.035;
+            const breath = isMoving || isLeviathan || u.role === 'golem' ? 0 : Math.sin(elapsed * 3.4 + seedPhase) * 0.035;
             if (u.role !== 'dinosaur') {
               bodyPivot.scale.y = 1 + breath;
             }
@@ -9117,11 +9174,24 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
               u.role === 'pig' ||
               u.role === 'capybara' ||
               u.role === 'unicorn' ||
+              u.role === 'deer' ||
+              u.role === 'sheep' ||
+              u.role === 'rabbit' ||
+              u.role === 'camel' ||
+              u.role === 'elephant' ||
+              u.role === 'kitsune' ||
               isHerbivoreDino
             ) {
               const grazeWave = Math.max(0, Math.sin(elapsed * 0.75 + seedPhase));
               headPivot.rotation.x = !isMoving
-                ? grazeWave * (u.role === 'unicorn' ? 0.28 : isHerbivoreDino ? 0.36 : 0.45)
+                ? grazeWave *
+                  (u.role === 'unicorn' || u.role === 'kitsune' || u.role === 'camel'
+                    ? 0.26
+                    : u.role === 'elephant'
+                      ? 0.22
+                      : isHerbivoreDino
+                        ? 0.36
+                        : 0.44)
                 : Math.sin(elapsed * bobFreq + seedPhase) * 0.08;
               headPivot.rotation.y = !isMoving ? Math.sin(elapsed * 1.3 + seedPhase) * 0.24 : 0;
             } else {
@@ -9277,23 +9347,47 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
                   (isDragonStrafing ? 0.16 : 0.28);
               tailPivot.rotation.y = THREE.MathUtils.damp(tailPivot.rotation.y, targetTailY, 8, dt);
               tailPivot.rotation.x = Math.cos(elapsed * 2.8 + seedPhase) * 0.1;
-            } else if (isAttacking && u.role === 'dinosaur') {
+            } else if (isAttacking && (u.role === 'dinosaur' || u.role === 'crocodile')) {
               tailPivot.rotation.y = Math.sin(atkProg * Math.PI * 2) * 0.58;
+            } else if (u.role === 'phoenix') {
+              tailPivot.rotation.x = Math.sin(elapsed * 4.5 + seedPhase) * 0.22;
+              tailPivot.rotation.y = Math.cos(elapsed * 3.2 + seedPhase) * 0.16;
+            } else if (u.role === 'kitsune') {
+              tailPivot.rotation.y = Math.sin(elapsed * 3.8 + seedPhase) * 0.24;
+              tailPivot.rotation.x = Math.cos(elapsed * 2.6 + seedPhase) * 0.1;
             } else {
-              const tailSpeed = isMoving ? 10 : u.role === 'wolf' ? 6.5 : 3.5;
-              tailPivot.rotation.y = Math.sin(elapsed * tailSpeed + seedPhase) * (u.role === 'wolf' || u.role === 'dinosaur' ? 0.36 : 0.22);
+              const tailSpeed = isMoving
+                ? u.role === 'crocodile'
+                  ? 7.5
+                  : 10
+                : u.role === 'wolf' || u.role === 'fox' || u.role === 'lion'
+                  ? 6.5
+                  : 3.5;
+              const tailAmp =
+                u.role === 'crocodile'
+                  ? 0.42
+                  : u.role === 'wolf' || u.role === 'dinosaur' || u.role === 'fox' || u.role === 'lion'
+                    ? 0.36
+                    : 0.22;
+              tailPivot.rotation.y = Math.sin(elapsed * tailSpeed + seedPhase) * tailAmp;
             }
           }
 
           const strideFreq = isMoving ? bobFreq : 0;
-          const legAmp = isMoving ? (u.role === 'wolf' || u.role === 'unicorn' ? 0.62 : 0.48) : 0;
+          const legAmp = isMoving
+            ? u.role === 'wolf' || u.role === 'unicorn' || u.role === 'deer' || u.role === 'lion' || u.role === 'fox' || u.role === 'kitsune'
+              ? 0.62
+              : isHeavyTitan
+                ? 0.36
+                : 0.48
+            : 0;
           const legPhase = elapsed * strideFreq + seedPhase;
           const { legFL, legFR, legBL, legBR, legL, legR } = uEntry;
 
           if (legFL && legFR && legBL && legBR) {
-            if (isDragon) {
-              legFL.rotation.x = 0.52;
-              legFR.rotation.x = 0.52;
+            if (isDragon || u.role === 'griffin') {
+              legFL.rotation.x = isAttacking ? -0.45 * Math.sin(atkProg * Math.PI) : 0.52;
+              legFR.rotation.x = isAttacking ? -0.45 * Math.sin(atkProg * Math.PI) : 0.52;
               legBL.rotation.x = 0.68;
               legBR.rotation.x = 0.68;
             } else if (u.role === 'alien_walker') {
@@ -9302,12 +9396,19 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
               legBR.rotation.x = walkerSwing;
               legFR.rotation.x = -walkerSwing;
               legBL.rotation.x = -walkerSwing;
-            } else if (isAttacking && (u.role === 'bear' || u.role === 'unicorn')) {
-              const pawLift = Math.sin(atkProg * Math.PI) * -0.95;
+            } else if (isAttacking && (u.role === 'bear' || u.role === 'unicorn' || u.role === 'yeti' || u.role === 'golem')) {
+              const pawLift = Math.sin(atkProg * Math.PI) * (u.role === 'yeti' || u.role === 'golem' ? -1.15 : -0.95);
               legFL.rotation.x = pawLift;
               legFR.rotation.x = pawLift;
-              legBL.rotation.x = 0.2;
-              legBR.rotation.x = 0.2;
+              legBL.rotation.x = 0.18;
+              legBR.rotation.x = 0.18;
+            } else if (u.role === 'rabbit' && isMoving) {
+              // Synchronized rabbit hop: front pair & hind pair cycle together
+              const hopSwing = Math.sin(legPhase) * 0.72;
+              legFL.rotation.x = hopSwing;
+              legFR.rotation.x = hopSwing;
+              legBL.rotation.x = -hopSwing;
+              legBR.rotation.x = -hopSwing;
             } else {
               const swing = Math.sin(legPhase) * legAmp;
               legFL.rotation.x = swing;
@@ -9317,7 +9418,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             }
           }
           if (legL && legR) {
-            const swing = Math.sin(legPhase) * (isMoving ? 0.62 : 0);
+            const swing = Math.sin(legPhase) * (isMoving ? (u.role === 'penguin' ? 0.45 : 0.62) : 0);
             legL.rotation.x = swing;
             legR.rotation.x = -swing;
           }
@@ -9444,6 +9545,24 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
               wingOuterL.rotation.z = THREE.MathUtils.damp(wingOuterL.rotation.z, targetOuter, 11, dt);
               wingOuterR.rotation.z = THREE.MathUtils.damp(wingOuterR.rotation.z, -targetOuter, 11, dt);
             }
+          } else if (isFlyingMythic) {
+            const wingFreq = u.role === 'phoenix' ? 7.6 : 6.4;
+            const targetFlap = Math.sin(elapsed * wingFreq + seedPhase) * (isAttacking ? 0.66 : 0.52) + 0.08;
+            wingL.rotation.z = THREE.MathUtils.damp(wingL.rotation.z, targetFlap, 11, dt);
+            wingR.rotation.z = THREE.MathUtils.damp(wingR.rotation.z, -targetFlap, 11, dt);
+            if (wingOuterL && wingOuterR) {
+              const targetOuter = Math.sin(elapsed * wingFreq + seedPhase - 0.78) * 0.42;
+              wingOuterL.rotation.z = THREE.MathUtils.damp(wingOuterL.rotation.z, targetOuter, 11, dt);
+              wingOuterR.rotation.z = THREE.MathUtils.damp(wingOuterR.rotation.z, -targetOuter, 11, dt);
+            }
+          } else if (u.role === 'penguin') {
+            const flap = isMoving
+              ? 0.22 + Math.sin(elapsed * bobFreq + seedPhase) * 0.28
+              : ((elapsed + seedPhase) % 5.0 < 0.65)
+                ? 0.18 + Math.sin(elapsed * 18 + seedPhase) * 0.34
+                : 0.06;
+            wingL.rotation.z = flap;
+            wingR.rotation.z = -flap;
           } else if (u.role === 'chicken' && (isMoving || isAttacking || ((elapsed + seedPhase) % 4.5 < 0.55))) {
             const flutter = Math.sin(elapsed * 24 + seedPhase) * 0.55;
             wingL.rotation.z = flutter;

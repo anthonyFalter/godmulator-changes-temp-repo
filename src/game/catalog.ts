@@ -438,6 +438,136 @@ export const ANIMAL_UNITS: UnitDefinition[] = [
     harvestRate: 0,
   },
   {
+    role: 'deer',
+    category: 'animal',
+    name: 'Deer',
+    faction: 'wildlife',
+    roleSummary: 'Graceful antlered forest & blossom grazer',
+    cost: { faith: 6 },
+    maxHp: 78,
+    speed: 3.1,
+    attackDamage: 5,
+    attackRange: 1.1,
+    harvestRate: 0,
+  },
+  {
+    role: 'sheep',
+    category: 'animal',
+    name: 'Sheep',
+    faction: 'wildlife',
+    roleSummary: 'Woolly meadow & highland flock grazer',
+    cost: { faith: 5 },
+    maxHp: 68,
+    speed: 1.55,
+    attackDamage: 2,
+    attackRange: 1.0,
+    harvestRate: 0,
+  },
+  {
+    role: 'rabbit',
+    category: 'animal',
+    name: 'Rabbit',
+    faction: 'wildlife',
+    roleSummary: 'Nimble hopping meadow & woodland hare',
+    cost: { faith: 4 },
+    maxHp: 30,
+    speed: 3.4,
+    attackDamage: 1,
+    attackRange: 0.85,
+    harvestRate: 0,
+  },
+  {
+    role: 'fox',
+    category: 'animal',
+    name: 'Fox',
+    faction: 'wildlife',
+    roleSummary: 'Clever russet hunter of woodland & taiga',
+    cost: { faith: 8 },
+    maxHp: 76,
+    speed: 3.35,
+    attackDamage: 11,
+    attackRange: 1.25,
+    harvestRate: 0,
+  },
+  {
+    role: 'boar',
+    category: 'animal',
+    name: 'Boar',
+    faction: 'wildlife',
+    roleSummary: 'Tusked bristled woodland & swamp charger',
+    cost: { faith: 9 },
+    maxHp: 135,
+    speed: 2.45,
+    attackDamage: 14,
+    attackRange: 1.3,
+    harvestRate: 0,
+  },
+  {
+    role: 'lion',
+    category: 'animal',
+    name: 'Lion',
+    faction: 'wildlife',
+    roleSummary: 'Regal golden savanna apex predator',
+    cost: { faith: 15 },
+    maxHp: 195,
+    speed: 3.25,
+    attackDamage: 26,
+    attackRange: 1.5,
+    harvestRate: 0,
+  },
+  {
+    role: 'elephant',
+    category: 'animal',
+    name: 'Elephant',
+    faction: 'wildlife',
+    roleSummary: 'Colossal tusked savanna & jungle giant',
+    cost: { faith: 18 },
+    maxHp: 340,
+    speed: 1.55,
+    attackDamage: 28,
+    attackRange: 1.75,
+    harvestRate: 0,
+  },
+  {
+    role: 'camel',
+    category: 'animal',
+    name: 'Camel',
+    faction: 'wildlife',
+    roleSummary: 'Hardy twin-humped desert dune wanderer',
+    cost: { faith: 7 },
+    maxHp: 120,
+    speed: 2.05,
+    attackDamage: 6,
+    attackRange: 1.2,
+    harvestRate: 0,
+  },
+  {
+    role: 'penguin',
+    category: 'animal',
+    name: 'Penguin',
+    faction: 'wildlife',
+    roleSummary: 'Waddling arctic snow & sea-ice seabird',
+    cost: { faith: 5 },
+    maxHp: 48,
+    speed: 1.7,
+    attackDamage: 3,
+    attackRange: 0.95,
+    harvestRate: 0,
+  },
+  {
+    role: 'crocodile',
+    category: 'animal',
+    name: 'Crocodile',
+    faction: 'wildlife',
+    roleSummary: 'Armored marshland & riverbank ambush hunter',
+    cost: { faith: 13 },
+    maxHp: 175,
+    speed: 2.15,
+    attackDamage: 24,
+    attackRange: 1.55,
+    harvestRate: 0,
+  },
+  {
     role: 'dinosaur',
     category: 'animal',
     name: 'Dinosaur',
@@ -492,7 +622,87 @@ export const MYTHICAL_BEAST_UNITS: UnitDefinition[] = [
     attackRange: 4.8,
     harvestRate: 0,
   },
+  {
+    role: 'phoenix',
+    category: 'mythical',
+    name: 'Phoenix',
+    faction: 'wildlife',
+    roleSummary: 'Radiant firebird that heals allies and scorches hostiles',
+    cost: { faith: 42 },
+    maxHp: 420,
+    speed: 4.25,
+    attackDamage: 36,
+    attackRange: 3.8,
+    harvestRate: 0,
+  },
+  {
+    role: 'griffin',
+    category: 'mythical',
+    name: 'Griffin',
+    faction: 'wildlife',
+    roleSummary: 'Winged mountain sky-hunter with razor talons',
+    cost: { faith: 38 },
+    maxHp: 380,
+    speed: 4.0,
+    attackDamage: 34,
+    attackRange: 2.1,
+    harvestRate: 0,
+  },
+  {
+    role: 'yeti',
+    category: 'mythical',
+    name: 'Yeti',
+    faction: 'wildlife',
+    roleSummary: 'Towering frost giant whose slam freezes enemies',
+    cost: { faith: 36 },
+    maxHp: 480,
+    speed: 2.35,
+    attackDamage: 40,
+    attackRange: 1.85,
+    harvestRate: 0,
+  },
+  {
+    role: 'golem',
+    category: 'mythical',
+    name: 'Stone Golem',
+    faction: 'wildlife',
+    roleSummary: 'Ancient mossy rune titan with seismic ground slams',
+    cost: { faith: 40 },
+    maxHp: 600,
+    speed: 1.45,
+    attackDamage: 46,
+    attackRange: 1.9,
+    harvestRate: 0,
+  },
+  {
+    role: 'kitsune',
+    category: 'mythical',
+    name: 'Kitsune',
+    faction: 'wildlife',
+    roleSummary: 'Nine-tailed spirit fox that casts foxfire & blesses allies',
+    cost: { faith: 36 },
+    maxHp: 280,
+    speed: 3.7,
+    attackDamage: 26,
+    attackRange: 3.6,
+    harvestRate: 0,
+  },
 ];
+
+export const ANIMAL_ROLE_SET: ReadonlySet<string> = new Set([
+  ...ANIMAL_UNITS.map((u) => u.role),
+  ...MYTHICAL_BEAST_UNITS.map((u) => u.role),
+]);
+
+export const MYTHICAL_ROLE_SET: ReadonlySet<string> = new Set(
+  MYTHICAL_BEAST_UNITS.map((u) => u.role),
+);
+
+export const FLYING_WILDLIFE_ROLES: ReadonlySet<string> = new Set([
+  'dragon',
+  'phoenix',
+  'griffin',
+]);
 
 export const UNITS: UnitDefinition[] = [
   ...SPECIES_UNITS,
@@ -1209,30 +1419,51 @@ export function getUnitMaxLifespan(unit: {
   switch (unit.role) {
     case 'dragon':
     case 'leviathan':
+    case 'phoenix':
+    case 'golem':
       base = 500 + (seed % 65);
       break;
     case 'unicorn':
+    case 'kitsune':
       base = 350 + (seed % 70);
       break;
+    case 'griffin':
+    case 'yeti':
+      base = 240 + (seed % 55);
+      break;
     case 'dinosaur':
+    case 'elephant':
       base = 65 + (seed % 26);
+      break;
+    case 'crocodile':
+      base = 52 + (seed % 18);
+      break;
+    case 'camel':
+      base = 36 + (seed % 10);
       break;
     case 'bear':
       base = 28 + (seed % 8);
       break;
     case 'cow':
+    case 'lion':
+    case 'penguin':
       base = 18 + (seed % 7);
       break;
     case 'wolf':
+    case 'deer':
+    case 'boar':
       base = 16 + (seed % 7);
       break;
     case 'pig':
+    case 'sheep':
       base = 15 + (seed % 6);
       break;
     case 'capybara':
+    case 'fox':
       base = 12 + (seed % 5);
       break;
     case 'chicken':
+    case 'rabbit':
       base = 8 + (seed % 5);
       break;
     case 'raider_swarmer':

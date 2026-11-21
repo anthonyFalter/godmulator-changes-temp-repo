@@ -176,10 +176,25 @@ export type AnimalRole =
   | 'chicken'
   | 'pig'
   | 'capybara'
+  | 'deer'
+  | 'sheep'
+  | 'rabbit'
+  | 'fox'
+  | 'boar'
+  | 'lion'
+  | 'elephant'
+  | 'camel'
+  | 'penguin'
+  | 'crocodile'
   | 'dinosaur'
   | 'dragon'
   | 'unicorn'
-  | 'leviathan';
+  | 'leviathan'
+  | 'phoenix'
+  | 'griffin'
+  | 'yeti'
+  | 'golem'
+  | 'kitsune';
 
 export type UnitRole =
   | 'human'
