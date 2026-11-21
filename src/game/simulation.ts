@@ -1881,6 +1881,78 @@ export function isCultivableSoil(t: TileData): boolean {
   );
 }
 
+export function isHealthyTreeSoil(t: TileData): boolean {
+  if (isCultivableSoil(t)) return true;
+  if (t.height <= 0 || t.height >= 6) return false;
+  if (t.onFireTimer > 0 || t.cursedTimer > 0) return false;
+  return t.terrain === 'swamp' || t.terrain === 'highland';
+}
+
+function isBlossomSoil(t: TileData): boolean {
+  if (t.height <= 0 || t.height >= 6) return false;
+  return (
+    t.terrain === 'grass' ||
+    t.terrain === 'fertile' ||
+    t.terrain === 'forest' ||
+    t.terrain === 'savanna' ||
+    t.terrain === 'jungle' ||
+    t.terrain === 'blossom' ||
+    t.terrain === 'taiga'
+  );
+}
+
+function getBiomeResourceDeposit(
+  terrain: TerrainType,
+  toolType: 'boulder_rain' | 'seed_ore' | 'crystal_shower',
+  x: number,
+  z: number,
+): { node: TileData['resourceNode']; amount: number } {
+  if (toolType === 'boulder_rain') {
+    if (terrain === 'mountain' || terrain === 'rock' || terrain === 'highland') {
+      return { node: 'stone_outcrop', amount: 440 };
+    }
+    if (terrain === 'scorched' || terrain === 'badlands') {
+      return { node: 'stone_outcrop', amount: 400 };
+    }
+    if (terrain === 'snow' || terrain === 'tundra') {
+      return { node: 'stone_outcrop', amount: 360 };
+    }
+    if (terrain === 'sand' || terrain === 'savanna') {
+      return { node: 'stone_outcrop', amount: 320 };
+    }
+    return { node: 'stone_outcrop', amount: 300 };
+  }
+  if (toolType === 'seed_ore') {
+    if (terrain === 'crystal_field') {
+      return { node: 'crystal_monolith', amount: 440 };
+    }
+    if (terrain === 'mountain' || terrain === 'rock' || terrain === 'scorched') {
+      return {
+        node: (x + z) % 4 === 0 ? 'crystal_monolith' : 'ore_vein',
+        amount: 420,
+      };
+    }
+    if (terrain === 'badlands' || terrain === 'sand' || terrain === 'highland') {
+      return { node: 'ore_vein', amount: 360 };
+    }
+    if (terrain === 'snow' || terrain === 'tundra') {
+      return {
+        node: (x + z) % 4 === 0 ? 'crystal_monolith' : 'ore_vein',
+        amount: 340,
+      };
+    }
+    return { node: 'ore_vein', amount: 300 };
+  }
+  // crystal_shower
+  if (terrain === 'crystal_field' || terrain === 'mountain' || terrain === 'snow') {
+    return { node: 'crystal_monolith', amount: 480 };
+  }
+  if (terrain === 'rock' || terrain === 'scorched' || terrain === 'blossom') {
+    return { node: 'crystal_monolith', amount: 420 };
+  }
+  return { node: 'crystal_monolith', amount: 360 };
+}
+
 function raiseWaterTileToLand(t: TileData, terrain: TerrainType, height = 1): void {
   t.height = Math.max(1, Math.min(10, height));
   t.terrain = terrain;
@@ -1890,6 +1962,7 @@ function raiseWaterTileToLand(t: TileData, terrain: TerrainType, height = 1): vo
   t.onFireTimer = 0;
   t.cursedTimer = 0;
   clearBurntTreeState(t);
+  delete t.treeBiomeOverride;
   if (
     t.resourceNode === 'coral_reef' ||
     t.resourceNode === 'scrap_flotsam' ||
@@ -1912,49 +1985,39 @@ export function canApplyTerrainToolToTile(
     case 'carve_river':
     case 'abyssal_trench':
     case 'alpine_glacier':
+    case 'volcanic_obsidian':
+      return true;
     case 'seed_ore':
     case 'crystal_shower':
     case 'boulder_rain':
-    case 'volcanic_obsidian':
-      return true;
+      return t.height > 0 && !t.buildingId;
     case 'stone_road':
     case 'rail_track':
       return t.height >= 0 && !t.buildingId;
     case 'fertile_meadow':
+      return isCultivableSoil(t);
     case 'plant_forest':
-      return t.height === 0 || isCultivableSoil(t);
+      return isHealthyTreeSoil(t) && !t.buildingId;
     case 'blossom_rain':
-      return (
-        t.height === 0 ||
-        (t.height > 0 &&
-          t.height < 6 &&
-          (t.terrain === 'grass' ||
-            t.terrain === 'fertile' ||
-            t.terrain === 'forest' ||
-            t.terrain === 'savanna' ||
-            t.terrain === 'jungle' ||
-            t.terrain === 'blossom' ||
-            t.terrain === 'taiga'))
-      );
+      return isBlossomSoil(t);
     case 'jungle_bloom':
-      return t.height === 0 || isCultivableSoil(t) || t.terrain === 'swamp';
+      return isCultivableSoil(t) || (t.height > 0 && t.terrain === 'swamp');
     case 'soil_enrich':
       return (
-        t.height === 0 ||
-        (t.height > 0 &&
-          (t.terrain === 'scorched' ||
-            t.terrain === 'void_goo' ||
-            t.terrain === 'badlands' ||
-            t.terrain === 'rock' ||
-            t.terrain === 'swamp' ||
-            t.terrain === 'sand' ||
-            t.terrain === 'tundra' ||
-            t.cursedTimer > 0 ||
-            t.onFireTimer > 0 ||
-            t.terrain === 'grass'))
+        t.height > 0 &&
+        (t.terrain === 'scorched' ||
+          t.terrain === 'void_goo' ||
+          t.terrain === 'badlands' ||
+          t.terrain === 'rock' ||
+          t.terrain === 'swamp' ||
+          t.terrain === 'sand' ||
+          t.terrain === 'tundra' ||
+          t.cursedTimer > 0 ||
+          t.onFireTimer > 0 ||
+          t.terrain === 'grass')
       );
     case 'desert_dunes':
-      return t.height === 0 || (t.height > 0 && t.height <= 4);
+      return t.height > 0 && t.height <= 4;
     case 'coral_reef_rain':
       return t.height === 0;
     case 'salvage_drop':
@@ -1962,7 +2025,7 @@ export function canApplyTerrainToolToTile(
     case 'atlantis_rise':
       return t.height === 0 && !t.buildingId;
     case 'swamp_mire':
-      return (t.height === 0 || t.height > 0) && !t.buildingId;
+      return t.height > 0 && !t.buildingId;
   }
 }
 
@@ -1985,6 +2048,7 @@ function applyTerrainToolTileMutation(
               if (t.resourceNode === 'berry_bush' || t.resourceNode === 'timber_grove') {
                 t.resourceNode = 'none';
                 t.resourceAmount = 0;
+                delete t.treeBiomeOverride;
               }
             } else if (t.height >= 5) {
               if (
@@ -2019,6 +2083,7 @@ function applyTerrainToolTileMutation(
               t.resourceAmount = 0;
               t.onFireTimer = 0;
               clearBurntTreeState(t);
+              delete t.treeBiomeOverride;
             } else if (t.height <= 7 && t.terrain === 'snow') {
               t.terrain = 'mountain';
             } else if (t.height <= 4 && (t.terrain === 'rock' || t.terrain === 'mountain')) {
@@ -2058,6 +2123,7 @@ function applyTerrainToolTileMutation(
           if (t.height >= 0 && !t.buildingId) {
             t.terrain = 'stone_road';
             clearBurntTreeState(t);
+            delete t.treeBiomeOverride;
             if (t.resourceNode === 'berry_bush' || t.resourceNode === 'timber_grove') {
               t.resourceNode = 'none';
               t.resourceAmount = 0;
@@ -2071,6 +2137,7 @@ function applyTerrainToolTileMutation(
             t.terrain = 'rail_track';
             t.farmSettlementId = undefined;
             clearBurntTreeState(t);
+            delete t.treeBiomeOverride;
             if (t.resourceNode === 'berry_bush' || t.resourceNode === 'timber_grove') {
               t.resourceNode = 'none';
               t.resourceAmount = 0;
@@ -2080,16 +2147,10 @@ function applyTerrainToolTileMutation(
           break;
         }
         case 'fertile_meadow': {
-          if (t.height === 0) {
-            raiseWaterTileToLand(t, 'fertile', 1);
-            if (!t.buildingId) {
-              t.resourceNode = 'berry_bush';
-              t.resourceAmount = 220;
-            }
-            tileModified = true;
-          } else if (isCultivableSoil(t)) {
+          if (isCultivableSoil(t)) {
             t.terrain = 'fertile';
             clearBurntTreeState(t);
+            delete t.treeBiomeOverride;
             if (!t.buildingId) {
               t.resourceNode = 'berry_bush';
               t.resourceAmount = 220;
@@ -2099,111 +2160,77 @@ function applyTerrainToolTileMutation(
           break;
         }
         case 'plant_forest': {
-          if (t.height === 0) {
-            raiseWaterTileToLand(t, 'forest', 1);
-            if (!t.buildingId) {
-              t.resourceNode = 'timber_grove';
-              t.resourceAmount = 260;
-            }
-            tileModified = true;
-          } else if (isCultivableSoil(t)) {
-            if (
-              t.terrain !== 'jungle' &&
-              t.terrain !== 'taiga' &&
-              t.terrain !== 'blossom' &&
-              t.terrain !== 'savanna'
-            ) {
-              t.terrain = 'forest';
-            }
+          if (isHealthyTreeSoil(t) && !t.buildingId) {
             clearBurntTreeState(t);
-            if (!t.buildingId) {
-              t.resourceNode = 'timber_grove';
-              t.resourceAmount = 260;
-            }
+            delete t.treeBiomeOverride;
+            t.resourceNode = 'timber_grove';
+            t.resourceAmount = 260;
             tileModified = true;
           }
           break;
         }
         case 'seed_ore': {
-          if (t.height === 0) {
-            raiseWaterTileToLand(t, 'rock', 1);
-          } else if (t.terrain !== 'scorched' && t.terrain !== 'snow') {
-            t.terrain = 'rock';
+          if (t.height > 0 && !t.buildingId) {
+            const deposit = getBiomeResourceDeposit(t.terrain, 'seed_ore', t.x, t.z);
+            clearBurntTreeState(t);
+            delete t.treeBiomeOverride;
+            t.resourceNode = deposit.node;
+            t.resourceAmount = deposit.amount;
+            tileModified = true;
           }
-          if (!t.buildingId) {
-            t.resourceNode = (t.x + t.z) % 3 === 0 ? 'crystal_monolith' : 'ore_vein';
-            t.resourceAmount = 350;
-          }
-          tileModified = true;
           break;
         }
         case 'crystal_shower': {
-          if (t.height === 0) {
-            raiseWaterTileToLand(t, 'crystal_field', 1);
-          } else {
-            t.terrain = 'crystal_field';
+          if (t.height > 0 && !t.buildingId) {
+            const deposit = getBiomeResourceDeposit(t.terrain, 'crystal_shower', t.x, t.z);
             t.onFireTimer = 0;
             t.cursedTimer = 0;
+            clearBurntTreeState(t);
+            delete t.treeBiomeOverride;
+            t.resourceNode = deposit.node;
+            t.resourceAmount = deposit.amount;
+            tileModified = true;
           }
-          if (!t.buildingId) {
-            t.resourceNode = 'crystal_monolith';
-            t.resourceAmount = 420;
-          }
-          tileModified = true;
           break;
         }
         case 'boulder_rain': {
-          if (t.height === 0) {
-            raiseWaterTileToLand(t, 'rock', 1);
-          } else {
-            t.terrain = t.height >= 5 ? 'mountain' : 'rock';
+          if (t.height > 0 && !t.buildingId) {
+            const deposit = getBiomeResourceDeposit(t.terrain, 'boulder_rain', t.x, t.z);
             t.onFireTimer = 0;
+            clearBurntTreeState(t);
+            delete t.treeBiomeOverride;
+            t.resourceNode = deposit.node;
+            t.resourceAmount = deposit.amount;
+            tileModified = true;
           }
-          if (!t.buildingId) {
-            t.resourceNode = 'stone_outcrop';
-            t.resourceAmount = 360;
-          }
-          tileModified = true;
           break;
         }
         case 'blossom_rain': {
-          const livingBiome =
-            t.height > 0 &&
-            t.height < 6 &&
-            (t.terrain === 'grass' ||
-              t.terrain === 'fertile' ||
-              t.terrain === 'forest' ||
-              t.terrain === 'savanna' ||
-              t.terrain === 'jungle' ||
-              t.terrain === 'blossom' ||
-              t.terrain === 'taiga');
-          if (t.height === 0 || livingBiome) {
-            if (t.height === 0) {
-              raiseWaterTileToLand(t, 'blossom', 1);
-            } else {
-              t.terrain = 'blossom';
-              t.onFireTimer = 0;
-              t.cursedTimer = 0;
-              clearBurntTreeState(t);
-            }
+          if (isBlossomSoil(t)) {
+            t.onFireTimer = 0;
+            t.cursedTimer = 0;
+            clearBurntTreeState(t);
             t.blessedTimer = Math.max(t.blessedTimer, 18);
             if (!t.buildingId) {
-              t.resourceNode = (t.x + t.z) % 3 === 0 ? 'berry_bush' : 'timber_grove';
+              const isBerry = (t.x + t.z) % 3 === 0;
+              t.resourceNode = isBerry ? 'berry_bush' : 'timber_grove';
               t.resourceAmount = 280;
+              if (isBerry) {
+                delete t.treeBiomeOverride;
+              } else {
+                t.treeBiomeOverride = 'blossom';
+              }
             }
             tileModified = true;
           }
           break;
         }
         case 'jungle_bloom': {
-          if (t.height === 0 || isCultivableSoil(t) || t.terrain === 'swamp') {
-            if (t.height === 0) {
-              raiseWaterTileToLand(t, 'jungle', 1);
-            } else {
-              t.terrain = 'jungle';
-              t.onFireTimer = 0;
-              clearBurntTreeState(t);
-            }
+          if (isCultivableSoil(t) || (t.height > 0 && t.terrain === 'swamp')) {
+            t.terrain = 'jungle';
+            t.onFireTimer = 0;
+            clearBurntTreeState(t);
+            delete t.treeBiomeOverride;
             if (!t.buildingId) {
               t.resourceNode = (t.x + t.z) % 4 === 0 ? 'berry_bush' : 'timber_grove';
               t.resourceAmount = 300;
@@ -2213,15 +2240,7 @@ function applyTerrainToolTileMutation(
           break;
         }
         case 'soil_enrich': {
-          if (t.height === 0) {
-            raiseWaterTileToLand(t, 'grass', 1);
-            t.blessedTimer = Math.max(t.blessedTimer, 14);
-            if (!t.buildingId && (t.x + t.z) % 3 === 0) {
-              t.resourceNode = 'berry_bush';
-              t.resourceAmount = 190;
-            }
-            tileModified = true;
-          } else if (t.height > 0) {
+          if (t.height > 0) {
             const harsh =
               t.terrain === 'scorched' ||
               t.terrain === 'void_goo' ||
@@ -2233,11 +2252,12 @@ function applyTerrainToolTileMutation(
               t.cursedTimer > 0 ||
               t.onFireTimer > 0;
             if (harsh || t.terrain === 'grass') {
-              t.terrain = harsh ? 'grass' : 'fertile';
+              t.terrain = 'fertile';
               t.onFireTimer = 0;
               t.cursedTimer = 0;
               t.blessedTimer = Math.max(t.blessedTimer, 14);
               clearBurntTreeState(t);
+              delete t.treeBiomeOverride;
               if (!t.buildingId && t.resourceNode === 'none' && (t.x + t.z) % 2 === 0) {
                 t.resourceNode = 'berry_bush';
                 t.resourceAmount = 190;
@@ -2248,13 +2268,10 @@ function applyTerrainToolTileMutation(
           break;
         }
         case 'desert_dunes': {
-          if (t.height === 0 || (t.height > 0 && t.height <= 4)) {
-            if (t.height === 0) {
-              raiseWaterTileToLand(t, 'sand', 1);
-            } else {
-              t.terrain = 'sand';
-              t.onFireTimer = 0;
-            }
+          if (t.height > 0 && t.height <= 4) {
+            t.terrain = 'sand';
+            t.onFireTimer = 0;
+            delete t.treeBiomeOverride;
             t.tempOffset = Math.max(t.tempOffset ?? 0, 18);
             if (!t.buildingId) {
               if ((t.x * 3 + t.z * 5) % 9 === 0) {
@@ -2274,6 +2291,7 @@ function applyTerrainToolTileMutation(
             raiseWaterTileToLand(t, 'scorched', 1);
           } else {
             t.terrain = 'scorched';
+            delete t.treeBiomeOverride;
           }
           t.tempOffset = Math.min(60, (t.tempOffset ?? 0) + 25);
           if (!t.buildingId) {
@@ -2306,6 +2324,7 @@ function applyTerrainToolTileMutation(
               t.resourceNode = 'scrap_flotsam';
               t.resourceAmount = 300;
             } else {
+              delete t.treeBiomeOverride;
               t.resourceNode = (t.x + t.z) % 2 === 0 ? 'ore_vein' : 'stone_outcrop';
               t.resourceAmount = 340;
             }
@@ -2325,6 +2344,7 @@ function applyTerrainToolTileMutation(
             t.resourceNode = 'none';
             t.resourceAmount = 0;
             t.onFireTimer = 0;
+            delete t.treeBiomeOverride;
           }
           break;
         }
@@ -2337,6 +2357,7 @@ function applyTerrainToolTileMutation(
           t.resourceAmount = 0;
           t.onFireTimer = 0;
           t.farmSettlementId = undefined;
+          delete t.treeBiomeOverride;
           tileModified = true;
           break;
         }
@@ -2368,19 +2389,17 @@ function applyTerrainToolTileMutation(
             if (t.resourceNode === 'berry_bush' || t.resourceNode === 'timber_grove') {
               t.resourceNode = 'none';
               t.resourceAmount = 0;
+              delete t.treeBiomeOverride;
             }
           }
           break;
         }
         case 'swamp_mire': {
-          if (!t.buildingId) {
-            if (t.height === 0) {
-              raiseWaterTileToLand(t, 'swamp', 1);
-            } else {
-              if (t.height > 2) t.height = 2;
-              t.terrain = 'swamp';
-              t.onFireTimer = 0;
-            }
+          if (t.height > 0 && !t.buildingId) {
+            if (t.height > 2) t.height = 2;
+            t.terrain = 'swamp';
+            t.onFireTimer = 0;
+            delete t.treeBiomeOverride;
             if (t.resourceNode === 'stone_outcrop' || t.resourceNode === 'ore_vein' || t.resourceNode === 'berry_bush') {
               t.resourceNode = 'none';
               t.resourceAmount = 0;
@@ -2467,7 +2486,24 @@ export function applyTerrainTool(
     if (toolType === 'plant_forest' || toolType === 'fertile_meadow' || toolType === 'blossom_rain') {
       return {
         ok: false,
-        reason: 'Cannot cultivate dead or barren land — revive soil with Rain, Soil Revive, or Bless first!',
+        reason: 'Needs healthy land soil — revive barren land with Fertile Soil, Rain, or Bless first!',
+      };
+    }
+    if (toolType === 'seed_ore' || toolType === 'boulder_rain' || toolType === 'crystal_shower') {
+      return {
+        ok: false,
+        reason: 'Cast this sky drop over existing land!',
+      };
+    }
+    if (
+      toolType === 'soil_enrich' ||
+      toolType === 'jungle_bloom' ||
+      toolType === 'desert_dunes' ||
+      toolType === 'swamp_mire'
+    ) {
+      return {
+        ok: false,
+        reason: 'Cast this biome tool over existing land!',
       };
     }
     if (toolType === 'coral_reef_rain' || toolType === 'atlantis_rise') {
@@ -11822,7 +11858,7 @@ function clearBurntTreeState(t: TileData): void {
 
 function preserveTreeBiomeBeforeScorch(t: TileData): void {
   if (!t.burntTreeBiome && t.terrain !== 'scorched') {
-    t.burntTreeBiome = getTileTreeBiome(t.terrain);
+    t.burntTreeBiome = t.treeBiomeOverride ?? getTileTreeBiome(t.terrain);
   }
 }
 

@@ -50,6 +50,8 @@ export class BatchedStaticPool {
   private count = 0;
   private prevCount = 0;
   private readonly scratchMat = new THREE.Matrix4();
+  private readonly scratchColor = new THREE.Color();
+  private hasColors = false;
 
   constructor(
     name: string,
@@ -113,13 +115,18 @@ export class BatchedStaticPool {
     const oldMesh = this.mesh;
     const copyCount = this.count;
 
-    // Snapshot active matrices & geometry IDs before swapping
+    // Snapshot active matrices, geometry IDs, and optional instance colors before swapping
     const savedMats = new Float32Array(copyCount * 16);
     const savedGids = new Int32Array(copyCount);
+    const savedColors = this.hasColors ? new Uint32Array(copyCount) : null;
     for (let i = 0; i < copyCount; i++) {
       oldMesh.getMatrixAt(i, this.scratchMat);
       savedMats.set(this.scratchMat.elements, i * 16);
       savedGids[i] = oldMesh.getGeometryIdAt(i);
+      if (savedColors) {
+        oldMesh.getColorAt(i, this.scratchColor);
+        savedColors[i] = this.scratchColor.getHex();
+      }
     }
 
     this.group.remove(oldMesh);
@@ -136,6 +143,10 @@ export class BatchedStaticPool {
       const el = this.scratchMat.elements;
       for (let m = 0; m < 16; m++) el[m] = savedMats[off + m];
       this.mesh.setMatrixAt(id, this.scratchMat);
+      if (savedColors) {
+        this.scratchColor.setHex(savedColors[i]);
+        this.mesh.setColorAt(id, this.scratchColor);
+      }
       this.allocatedInstances++;
     }
     this.prevCount = copyCount;
@@ -145,7 +156,12 @@ export class BatchedStaticPool {
     this.count = 0;
   }
 
-  pushFromMatrixArray(geoIndex: number, matArr: Float32Array, matOffset: number): void {
+  pushFromMatrixArray(
+    geoIndex: number,
+    matArr: Float32Array,
+    matOffset: number,
+    tintHex = 0xffffff,
+  ): void {
     const gid = this.geoIds[geoIndex];
     if (gid === undefined) return;
 
@@ -158,14 +174,22 @@ export class BatchedStaticPool {
     const el = this.scratchMat.elements;
     for (let m = 0; m < 16; m++) el[m] = matArr[matOffset + m];
 
+    let id: number;
     if (slot >= this.allocatedInstances) {
-      const id = this.mesh.addInstance(gid);
+      id = this.mesh.addInstance(gid);
       this.mesh.setMatrixAt(id, this.scratchMat);
       this.allocatedInstances++;
     } else {
+      id = slot;
       this.mesh.setGeometryIdAt(slot, gid);
       this.mesh.setMatrixAt(slot, this.scratchMat);
       this.mesh.setVisibleAt(slot, true);
+    }
+
+    if (tintHex !== 0xffffff || this.hasColors) {
+      this.hasColors = true;
+      this.scratchColor.setHex(tintHex);
+      this.mesh.setColorAt(id, this.scratchColor);
     }
   }
 

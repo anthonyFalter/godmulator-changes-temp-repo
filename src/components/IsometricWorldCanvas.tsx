@@ -695,6 +695,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
     let propCacheZ = new Float32Array(propCacheCap);
     let propCacheKind = new Uint8Array(propCacheCap);
     let propCacheVar = new Uint8Array(propCacheCap);
+    let propCacheTint = new Uint32Array(propCacheCap);
     let propCacheMat = new Float32Array(propCacheCap * 16);
 
     let ambCacheCap = 512;
@@ -4816,6 +4817,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           boulder_rain: { primary: 0x94a3b8, secondary: 0x64748b, streak: 0xe2e8f0, impactHex: '#94a3b8', secondaryHex: '#475569', geo: sharedSkyOreGeo, emissive: 0.2, sway: 0.0, dur: 0.34 },
           salvage_drop: { primary: 0xeab308, secondary: 0x94a3b8, streak: 0xfef08a, impactHex: '#eab308', secondaryHex: '#38bdf8', geo: sharedSkyCrateGeo, emissive: 0.45, sway: 0.15, dur: 0.42 },
           blossom_rain: { primary: 0xf472b6, secondary: 0xfbcfe8, streak: 0xf9a8d4, impactHex: '#f472b6', secondaryHex: '#fef08a', geo: sharedSkySeedGeo, emissive: 0.72, sway: 0.55, dur: 0.54 },
+          plant_forest: { primary: 0x84cc16, secondary: 0x22c55e, streak: 0xbef264, impactHex: '#4ade80', secondaryHex: '#bef264', geo: sharedSkySeedGeo, emissive: 0.58, sway: 0.42, dur: 0.48 },
         };
         const cfg = palette[kind] ?? palette.seed_ore;
 
@@ -4940,7 +4942,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
               ? 1.15 + Math.random() * 0.55
               : kind === 'crystal_shower'
                 ? 0.98 + Math.random() * 0.48
-                : kind === 'blossom_rain'
+                : kind === 'blossom_rain' || kind === 'plant_forest'
                   ? 0.72 + Math.random() * 0.32
                   : 0.88 + Math.random() * 0.42;
           mesh.scale.setScalar(dropScale);
@@ -6891,6 +6893,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       x: number,
       z: number,
       els: number[],
+      tintHex = 0xffffff,
     ) => {
       if (propCacheCount >= propCacheCap) {
         const nextCap = propCacheCap * 2;
@@ -6898,16 +6901,19 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         const nz = new Float32Array(nextCap);
         const nk = new Uint8Array(nextCap);
         const nv = new Uint8Array(nextCap);
+        const nt = new Uint32Array(nextCap);
         const nm = new Float32Array(nextCap * 16);
         nx.set(propCacheX);
         nz.set(propCacheZ);
         nk.set(propCacheKind);
         nv.set(propCacheVar);
+        nt.set(propCacheTint);
         nm.set(propCacheMat);
         propCacheX = nx;
         propCacheZ = nz;
         propCacheKind = nk;
         propCacheVar = nv;
+        propCacheTint = nt;
         propCacheMat = nm;
         propCacheCap = nextCap;
       }
@@ -6916,6 +6922,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       propCacheZ[idx] = z;
       propCacheKind[idx] = kind;
       propCacheVar[idx] = variantIdx;
+      propCacheTint[idx] = tintHex;
       const off = idx * 16;
       for (let m = 0; m < 16; m++) propCacheMat[off + m] = els[m];
     };
@@ -7087,7 +7094,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         const v = propCacheVar[i];
         const bIdx = useLod0 ? propLod0Bucket[kind] : propLod2Bucket[kind];
         const gIdx = (useLod0 ? propLod0GeoIdx : propLod2GeoIdx)[kind][v];
-        propBatches[bIdx].pushFromMatrixArray(gIdx, propCacheMat, i * 16);
+        propBatches[bIdx].pushFromMatrixArray(gIdx, propCacheMat, i * 16, propCacheTint[i]);
       }
       for (let i = 0; i < propBatches.length; i++) {
         propBatches[i].commit();
@@ -7442,22 +7449,23 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             t.burntTree || (t.resourceNode === 'timber_grove' && t.terrain === 'scorched')
               ? 1
               : 0;
+          const overrideBiome = t.burntTreeBiome ?? t.treeBiomeOverride;
           const burntBiomeCode =
-            t.burntTreeBiome === 'forest'
+            overrideBiome === 'forest'
               ? 1
-              : t.burntTreeBiome === 'meadow'
+              : overrideBiome === 'meadow'
                 ? 2
-                : t.burntTreeBiome === 'jungle'
+                : overrideBiome === 'jungle'
                   ? 3
-                  : t.burntTreeBiome === 'taiga'
+                  : overrideBiome === 'taiga'
                     ? 4
-                    : t.burntTreeBiome === 'blossom'
+                    : overrideBiome === 'blossom'
                       ? 5
-                      : t.burntTreeBiome === 'savanna'
+                      : overrideBiome === 'savanna'
                         ? 6
-                        : t.burntTreeBiome === 'swamp'
+                        : overrideBiome === 'swamp'
                           ? 7
-                          : t.burntTreeBiome === 'highland'
+                          : overrideBiome === 'highland'
                             ? 8
                             : 0;
           const sig =
@@ -7611,7 +7619,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           const isCharredTreeTile =
             Boolean(t.burntTree) || (t.resourceNode === 'timber_grove' && t.terrain === 'scorched');
           if (t.resourceNode === 'timber_grove' || (t.resourceNode === 'none' && t.burntTree)) {
-            const biome: TreeBiomeKey = t.burntTreeBiome ?? mapTerrainToTreeBiome(t.terrain);
+            const biome: TreeBiomeKey =
+              t.burntTreeBiome ?? t.treeBiomeOverride ?? mapTerrainToTreeBiome(t.terrain);
             const biomeIdx = BIOME_KEY_TO_IDX[biome];
             const poolLen = treeBiomePoolLen[isCharredTreeTile ? 1 : 0][biomeIdx];
             const isDenseBiome =
@@ -7714,11 +7723,49 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
               pushPropCache(0, h % propKindLens[0], t.x, t.z, _dummyMatrix.elements);
             }
           } else if (t.resourceNode === 'stone_outcrop') {
-            pushPropCache(3, h % propKindLens[3], t.x, t.z, _dummyMatrix.elements);
+            const stoneTint =
+              t.terrain === 'sand' || t.terrain === 'savanna' || t.terrain === 'badlands'
+                ? 0xe8c796
+                : t.terrain === 'scorched' || t.terrain === 'void_goo'
+                  ? 0x6b6068
+                  : t.terrain === 'snow' || t.terrain === 'tundra' || t.terrain === 'ice'
+                    ? 0xd0e8fa
+                    : t.terrain === 'jungle' || t.terrain === 'swamp' || t.terrain === 'forest' || t.terrain === 'fertile'
+                      ? 0xc2d8ba
+                      : t.terrain === 'blossom'
+                        ? 0xf0d6e2
+                        : t.terrain === 'crystal_field'
+                          ? 0xdcc6f7
+                          : 0xffffff;
+            pushPropCache(3, h % propKindLens[3], t.x, t.z, _dummyMatrix.elements, stoneTint);
           } else if (t.resourceNode === 'ore_vein') {
-            pushPropCache(4, h % propKindLens[4], t.x, t.z, _dummyMatrix.elements);
+            const oreTint =
+              t.terrain === 'sand' || t.terrain === 'savanna' || t.terrain === 'badlands'
+                ? 0xf6d590
+                : t.terrain === 'scorched' || t.terrain === 'void_goo'
+                  ? 0xf09574
+                  : t.terrain === 'snow' || t.terrain === 'tundra' || t.terrain === 'ice'
+                    ? 0xc4e6ff
+                    : t.terrain === 'jungle' || t.terrain === 'swamp' || t.terrain === 'forest' || t.terrain === 'fertile'
+                      ? 0xc8e4c4
+                      : t.terrain === 'blossom'
+                        ? 0xf6cde2
+                        : t.terrain === 'crystal_field'
+                          ? 0xe0c8fa
+                          : 0xffffff;
+            pushPropCache(4, h % propKindLens[4], t.x, t.z, _dummyMatrix.elements, oreTint);
           } else if (t.resourceNode === 'crystal_monolith') {
-            pushPropCache(5, h % propKindLens[5], t.x, t.z, _dummyMatrix.elements);
+            const crystalTint =
+              t.terrain === 'scorched' || t.terrain === 'badlands'
+                ? 0xffb3c1
+                : t.terrain === 'snow' || t.terrain === 'tundra'
+                  ? 0xbef2ff
+                  : t.terrain === 'jungle' || t.terrain === 'swamp' || t.terrain === 'forest'
+                    ? 0xb8f5d8
+                    : t.terrain === 'sand' || t.terrain === 'savanna'
+                      ? 0xfee5a5
+                      : 0xffffff;
+            pushPropCache(5, h % propKindLens[5], t.x, t.z, _dummyMatrix.elements, crystalTint);
           } else {
             // Ambient multi-object sub-tile details partitioned into Low / Med / Full tiers
             const chance = (h >> 4) % 100;

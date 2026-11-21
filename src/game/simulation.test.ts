@@ -579,7 +579,9 @@ test('context-aware terraforming: asteroid on water spawns tsunami without creat
 
   const livePlantRes = applyTerrainTool(state, 'plant_forest', dx, dz, 1);
   assert.equal(livePlantRes.ok, true, 'plant_forest must succeed on revived living grass soil');
-  assert.equal(getTile(state, dx, dz)!.terrain, 'forest');
+  assert.equal(getTile(state, dx, dz)!.resourceNode, 'none', 'plant_forest waits for falling seeds to land');
+  assert.equal(executeTerrainDropTileImpact(state, 'plant_forest', dx, dz), true);
+  assert.equal(getTile(state, dx, dz)!.terrain, 'grass', 'plant_forest preserves underlying grass biome');
   assert.equal(getTile(state, dx, dz)!.resourceNode, 'timber_grove');
 });
 
@@ -5440,12 +5442,12 @@ test('Biome Tree Redesign: 3D sculpted micro-voxel trees cover all 8 biomes with
   assert.equal(mapTerrainToTreeBiome('swamp'), 'swamp');
   assert.equal(mapTerrainToTreeBiome('highland'), 'highland');
 
-  // Verify plant_forest preserves native forested biomes (jungle, taiga, blossom, savanna) while turning grass into forest
+  // Verify plant_forest drops seeds from the sky and preserves all underlying biomes (including grass)
   const state = createInitialSimulationState(4042, 48);
   state.resources.faith = 500;
   const cx = 24;
   const cz = 24;
-  const nativeBiomes = ['jungle', 'taiga', 'blossom', 'savanna'] as const;
+  const nativeBiomes = ['jungle', 'taiga', 'blossom', 'savanna', 'swamp', 'highland'] as const;
   for (let i = 0; i < nativeBiomes.length; i++) {
     const t = getTile(state, cx + i * 3, cz)!;
     t.height = 2;
@@ -5456,6 +5458,8 @@ test('Biome Tree Redesign: 3D sculpted micro-voxel trees cover all 8 biomes with
     t.cursedTimer = 0;
     const res = applyTerrainTool(state, 'plant_forest', t.x, t.z, 0);
     assert.equal(res.ok, true, `plant_forest should succeed on ${nativeBiomes[i]}`);
+    assert.equal(t.resourceNode, 'none', `plant_forest waits for falling seeds on ${nativeBiomes[i]}`);
+    assert.equal(executeTerrainDropTileImpact(state, 'plant_forest', t.x, t.z), true);
     assert.equal(t.terrain, nativeBiomes[i], `plant_forest must preserve native ${nativeBiomes[i]} terrain`);
     assert.equal(t.resourceNode, 'timber_grove', `plant_forest must spawn timber_grove on ${nativeBiomes[i]}`);
   }
@@ -5468,7 +5472,8 @@ test('Biome Tree Redesign: 3D sculpted micro-voxel trees cover all 8 biomes with
   grassTile.cursedTimer = 0;
   const grassRes = applyTerrainTool(state, 'plant_forest', grassTile.x, grassTile.z, 0);
   assert.equal(grassRes.ok, true);
-  assert.equal(grassTile.terrain, 'forest', 'plant_forest on plain grass should convert terrain to forest');
+  assert.equal(executeTerrainDropTileImpact(state, 'plant_forest', grassTile.x, grassTile.z), true);
+  assert.equal(grassTile.terrain, 'grass', 'plant_forest on plain grass should preserve grass terrain underneath');
   assert.equal(grassTile.resourceNode, 'timber_grove');
 });
 
@@ -6480,24 +6485,24 @@ test('Land Powers Expansion: 13 new creative land powers, sky_rain_drop VFX targ
   }
 
   // 2. Context-appropriate Sky Rain vs. Ground/Sea powers:
-  // Only items that physically rain from the sky (seed_ore, crystal_shower, boulder_rain, blossom_rain, salvage_drop) have isSkyRain: true
+  // Items that physically rain from the sky (blossom_rain, boulder_rain, crystal_shower, plant_forest, salvage_drop, seed_ore) have isSkyRain: true
   const skyTools = TERRAIN_TOOLS.filter((d) => d.isSkyRain);
   const skyToolTypes = skyTools.map((d) => d.type).sort();
   assert.deepEqual(
     skyToolTypes,
-    ['blossom_rain', 'boulder_rain', 'crystal_shower', 'salvage_drop', 'seed_ore'],
+    ['blossom_rain', 'boulder_rain', 'crystal_shower', 'plant_forest', 'salvage_drop', 'seed_ore'],
     'Only physical sky-dropped items should come from the sky',
   );
 
   const groundOrWaterTools = [
     'fertile_meadow',
-    'plant_forest',
     'jungle_bloom',
     'soil_enrich',
     'desert_dunes',
     'volcanic_obsidian',
     'coral_reef_rain',
     'alpine_glacier',
+    'swamp_mire',
   ] as const;
   for (const gt of groundOrWaterTools) {
     const def = TERRAIN_TOOLS.find((d) => d.type === gt);
@@ -6506,35 +6511,43 @@ test('Land Powers Expansion: 13 new creative land powers, sky_rain_drop VFX targ
     assert.notEqual(def.category, 'Sky Rain', `Ground/Water tool "${gt}" must be in Biomes/Water/Sculpt category`);
   }
 
-  // 3. Sky-rain powers wait for falling items to finish dropping before applying changes to the environment
-  // Crystal Shower -> deferred on cast, mutates to crystal_field + crystal_monolith on landing
+  // 3. Sky-rain powers wait for falling items to finish dropping and land ON TOP without terraforming ground or raising water
+  // Crystal Shower -> deferred on cast, spawns crystal_monolith on landing without changing grass terrain
   const cryTile = getTile(state, 12, 12)!;
   cryTile.terrain = 'grass';
   cryTile.height = 1;
   cryTile.resourceNode = 'none';
   state.pendingVfx = [];
   assert.equal(applyTerrainTool(state, 'crystal_shower', 12, 12, 0).ok, true);
-  assert.equal(cryTile.terrain, 'grass', 'crystal_shower must wait for falling crystals to land before mutating terrain');
+  assert.equal(cryTile.terrain, 'grass', 'crystal_shower must wait for falling crystals to land');
   assert.equal(cryTile.resourceNode, 'none', 'crystal_shower must wait for falling crystals to land before spawning crystal_monolith');
   const cryVfx = state.pendingVfx.find((v) => v.type === 'sky_rain_drop' && v.dropKind === 'crystal_shower');
   assert.ok(cryVfx && cryVfx.deferImpact, 'crystal_shower must emit sky_rain_drop with deferImpact=true');
   assert.ok(cryVfx.dropTargets?.some((t) => t.x === 12 && t.z === 12), 'dropTargets must include target tile (12,12)');
   assert.equal(executeTerrainDropTileImpact(state, 'crystal_shower', 12, 12), true);
-  assert.equal(cryTile.terrain, 'crystal_field');
+  assert.equal(cryTile.terrain, 'grass', 'crystal_shower must not terraform the ground below it');
   assert.equal(cryTile.resourceNode, 'crystal_monolith');
 
-  // Boulder Rain -> deferred on cast, mutates to rock/mountain + stone_outcrop on landing
+  // Boulder Rain -> deferred on cast, spawns stone_outcrop on landing without changing terrain, with biome-adapted yield
   const bldTile = getTile(state, 13, 12)!;
   bldTile.terrain = 'grass';
   bldTile.height = 1;
   bldTile.resourceNode = 'none';
   assert.equal(applyTerrainTool(state, 'boulder_rain', 13, 12, 0).ok, true);
-  assert.equal(bldTile.terrain, 'grass', 'boulder_rain must wait for falling boulder to land before mutating terrain');
+  assert.equal(bldTile.resourceNode, 'none', 'boulder_rain must wait for falling boulder to land');
   assert.equal(executeTerrainDropTileImpact(state, 'boulder_rain', 13, 12), true);
-  assert.equal(bldTile.terrain, 'rock');
+  assert.equal(bldTile.terrain, 'grass', 'boulder_rain must not terraform grass into rock');
   assert.equal(bldTile.resourceNode, 'stone_outcrop');
+  const mtnBldTile = getTile(state, 14, 12)!;
+  mtnBldTile.terrain = 'mountain';
+  mtnBldTile.height = 5;
+  mtnBldTile.resourceNode = 'none';
+  assert.equal(applyTerrainTool(state, 'boulder_rain', 14, 12, 0).ok, true);
+  assert.equal(executeTerrainDropTileImpact(state, 'boulder_rain', 14, 12), true);
+  assert.equal(mtnBldTile.terrain, 'mountain');
+  assert.ok(mtnBldTile.resourceAmount > bldTile.resourceAmount, 'mountain boulders should yield more stone than grass');
 
-  // Blossom Rain -> deferred on cast, mutates to blossom + clears fire/curse & heals units on landing
+  // Blossom Rain -> deferred on cast, preserves grass ground, grows blossom trees via treeBiomeOverride, clears fire/curse & heals units
   const blsTile = getTile(state, 15, 12)!;
   blsTile.terrain = 'grass';
   blsTile.height = 1;
@@ -6543,12 +6556,22 @@ test('Land Powers Expansion: 13 new creative land powers, sky_rain_drop VFX targ
   const injuredHero = spawnUnit(state, 'human', 15, 12, true).unit!;
   injuredHero.hp = 20;
   assert.equal(applyTerrainTool(state, 'blossom_rain', 15, 12, 0).ok, true);
-  assert.equal(blsTile.terrain, 'grass', 'blossom_rain must wait for falling petals to land before mutating terrain');
+  assert.equal(blsTile.terrain, 'grass', 'blossom_rain must wait for falling petals to land');
   assert.equal(executeTerrainDropTileImpact(state, 'blossom_rain', 15, 12), true);
-  assert.equal(blsTile.terrain, 'blossom');
+  assert.equal(blsTile.terrain, 'grass', 'blossom_rain must preserve underlying grass terrain');
   assert.equal(blsTile.cursedTimer, 0);
   assert.equal(blsTile.onFireTimer, 0);
   assert.ok(injuredHero.hp > 20, 'blossom_rain must heal friendly units when petals land');
+  // Non-multiple-of-3 tile spawns timber_grove with blossom treeBiomeOverride
+  const blsTreeTile = getTile(state, 15, 13)!;
+  blsTreeTile.terrain = 'grass';
+  blsTreeTile.height = 1;
+  blsTreeTile.resourceNode = 'none';
+  assert.equal(applyTerrainTool(state, 'blossom_rain', 15, 13, 0).ok, true);
+  assert.equal(executeTerrainDropTileImpact(state, 'blossom_rain', 15, 13), true);
+  assert.equal(blsTreeTile.terrain, 'grass');
+  assert.equal(blsTreeTile.resourceNode, 'timber_grove');
+  assert.equal(blsTreeTile.treeBiomeOverride, 'blossom');
 
   // Salvage Drop -> deferred on cast, spawns scrap_flotsam on sea when pod lands
   const seaSalvage = getTile(state, 22, 32)!;
@@ -6560,6 +6583,31 @@ test('Land Powers Expansion: 13 new creative land powers, sky_rain_drop VFX targ
   assert.equal(executeTerrainDropTileImpact(state, 'salvage_drop', 22, 32), true);
   assert.equal(seaSalvage.resourceNode, 'scrap_flotsam');
 
+  // Verify land-only sky drops & biome converters reject ocean water (never creating new land)
+  const oceanTestTile = getTile(state, 23, 32)!;
+  oceanTestTile.terrain = 'shallow_water';
+  oceanTestTile.height = 0;
+  oceanTestTile.resourceNode = 'none';
+  for (const landOnlyTool of [
+    'plant_forest',
+    'boulder_rain',
+    'seed_ore',
+    'crystal_shower',
+    'blossom_rain',
+    'soil_enrich',
+    'fertile_meadow',
+    'jungle_bloom',
+    'desert_dunes',
+    'swamp_mire',
+  ] as const) {
+    assert.equal(
+      applyTerrainTool(state, landOnlyTool, 23, 32, 0).ok,
+      false,
+      `${landOnlyTool} must reject water and never generate new land`,
+    );
+    assert.equal(oceanTestTile.height, 0, `${landOnlyTool} must leave ocean tile height at 0`);
+  }
+
   // 4. Non-sky Ground/Water powers apply directly and immediately
   // Jungle Bloom -> jungle + grove/bush immediately
   const jngTile = getTile(state, 16, 12)!;
@@ -6568,13 +6616,13 @@ test('Land Powers Expansion: 13 new creative land powers, sky_rain_drop VFX targ
   assert.equal(applyTerrainTool(state, 'jungle_bloom', 16, 12, 0).ok, true);
   assert.equal(jngTile.terrain, 'jungle');
 
-  // Soil Enrich -> revives dead/scorched/void earth into living grass immediately
+  // Soil Enrich (Fertile Soil) -> converts barren/scorched land into fertile soil immediately
   const scorTile = getTile(state, 18, 12)!;
   scorTile.terrain = 'scorched';
   scorTile.height = 1;
   scorTile.cursedTimer = 10;
   assert.equal(applyTerrainTool(state, 'soil_enrich', 18, 12, 0).ok, true);
-  assert.equal(scorTile.terrain, 'grass');
+  assert.equal(scorTile.terrain, 'fertile');
   assert.equal(scorTile.cursedTimer, 0);
 
   // Desert Dunes -> warm sand dunes immediately
@@ -6585,7 +6633,7 @@ test('Land Powers Expansion: 13 new creative land powers, sky_rain_drop VFX targ
   assert.equal(dunTile.terrain, 'sand');
   assert.ok((dunTile.tempOffset ?? 0) > 0);
 
-  // Volcanic Obsidian -> scorched + ore/stone vein + heat immediately
+  // Volcanic Obsidian -> scorched + ore/stone vein + heat immediately, AND still raises volcanic islands from water
   const obsTile = getTile(state, 20, 12)!;
   obsTile.terrain = 'grass';
   obsTile.height = 1;
@@ -6593,6 +6641,13 @@ test('Land Powers Expansion: 13 new creative land powers, sky_rain_drop VFX targ
   assert.equal(applyTerrainTool(state, 'volcanic_obsidian', 20, 12, 0).ok, true);
   assert.equal(obsTile.terrain, 'scorched');
   assert.ok(['ore_vein', 'stone_outcrop'].includes(obsTile.resourceNode));
+  const obsSeaTile = getTile(state, 25, 32)!;
+  obsSeaTile.terrain = 'shallow_water';
+  obsSeaTile.height = 0;
+  obsSeaTile.resourceNode = 'none';
+  assert.equal(applyTerrainTool(state, 'volcanic_obsidian', 25, 32, 0).ok, true);
+  assert.equal(obsSeaTile.height, 1, 'volcanic_obsidian can still raise volcanic islands out of water');
+  assert.equal(obsSeaTile.terrain, 'scorched');
 
   // Coral Reef -> requires water, seeds coral_reef immediately
   const coralLandFail = applyTerrainTool(state, 'coral_reef_rain', 21, 12, 0);
