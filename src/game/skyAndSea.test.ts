@@ -41,8 +41,32 @@ test('Starry space backdrop is uniquely randomized per world seed and stays lock
 
   const mat = skyA.mesh.material as THREE.ShaderMaterial;
   assert.equal(mat.depthTest, true);
+  assert.equal(mat.depthFunc, THREE.LessEqualDepth);
   assert.ok(Number.isFinite(mat.uniforms.uTime.value));
   assert.ok(mat.uniforms.uTime.value >= 0 && mat.uniforms.uTime.value < 1900);
+
+  // Zooming through dynamic framebuffer resizes keeps viewport aspect locked without integer-rounding wobble
+  const cssAspect = 1366 / 768;
+  for (const [rw, rh, frustum] of [
+    [546, 307, 10],
+    [728, 409, 28],
+    [1024, 576, 60],
+    [1366, 768, 110],
+  ] as const) {
+    skyA.update({
+      elapsed: 120,
+      width: rw,
+      height: rh,
+      viewportAspect: cssAspect,
+      pixelScale: 1366 / rw,
+      camYaw: Math.PI / 4,
+      camX: 64,
+      camZ: 64,
+      frustumSize: frustum,
+      preset: 'night',
+    });
+    assert.ok(Math.abs(mat.uniforms.uViewportAspect.value - cssAspect) < 1e-6);
+  }
 
   // Calling setSeed with the same seed leaves the cosmos unchanged
   skyA.setSeed(104729);

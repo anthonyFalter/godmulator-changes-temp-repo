@@ -10,13 +10,12 @@ export interface BrushSizePreset {
 }
 
 export const BRUSH_SIZE_PRESETS: BrushSizePreset[] = [
-  { id: '0.5x', label: '0.5', size: 0.5, terrainRadius: 0, powerScale: 0.5, iconDiameter: 1 },
-  { id: '1x', label: '1', size: 1, terrainRadius: 1, powerScale: 1.0, iconDiameter: 3 },
-  { id: '2x', label: '2', size: 2, terrainRadius: 2, powerScale: 1.35, iconDiameter: 5 },
-  { id: '3x', label: '3', size: 3, terrainRadius: 3, powerScale: 1.7, iconDiameter: 7 },
-  { id: '5x', label: '5', size: 5, terrainRadius: 5, powerScale: 2.25, iconDiameter: 9 },
-  { id: '7x', label: '7', size: 7, terrainRadius: 7, powerScale: 2.85, iconDiameter: 11 },
-  { id: '10x', label: '10', size: 10, terrainRadius: 10, powerScale: 3.6, iconDiameter: 13 },
+  { id: '1x', label: '1', size: 1, terrainRadius: 0, powerScale: 1.0, iconDiameter: 1 },
+  { id: '2x', label: '2', size: 2, terrainRadius: 1, powerScale: 1.35, iconDiameter: 3 },
+  { id: '3x', label: '3', size: 3, terrainRadius: 2, powerScale: 1.7, iconDiameter: 5 },
+  { id: '5x', label: '5', size: 5, terrainRadius: 4, powerScale: 2.25, iconDiameter: 9 },
+  { id: '7x', label: '7', size: 7, terrainRadius: 6, powerScale: 2.85, iconDiameter: 11 },
+  { id: '10x', label: '10', size: 10, terrainRadius: 9, powerScale: 3.6, iconDiameter: 13 },
 ];
 
 export const DEFAULT_BRUSH_SIZE = 1;
@@ -55,7 +54,7 @@ export function getPixelCircleCells(diameter: number): Array<{ x: number; y: num
 export function getBrushPreset(brushSize: number): BrushSizePreset {
   const exact = BRUSH_SIZE_PRESETS.find((p) => p.size === brushSize);
   if (exact) return exact;
-  let best = BRUSH_SIZE_PRESETS[1];
+  let best = BRUSH_SIZE_PRESETS[0];
   let bestDiff = Math.abs(best.size - brushSize);
   for (const p of BRUSH_SIZE_PRESETS) {
     const diff = Math.abs(p.size - brushSize);
@@ -68,10 +67,8 @@ export function getBrushPreset(brushSize: number): BrushSizePreset {
 }
 
 export function getTerrainTileRadius(brushSize: number): number {
-  if (!Number.isFinite(brushSize) || brushSize <= 0.5) return 0;
-  const preset = BRUSH_SIZE_PRESETS.find((p) => p.size === brushSize);
-  if (preset) return preset.terrainRadius;
-  return Math.max(0, Math.min(12, Math.round(brushSize)));
+  if (!Number.isFinite(brushSize) || brushSize <= 1) return 0;
+  return Math.max(0, Math.min(12, Math.round(brushSize) - 1));
 }
 
 export function getPowerClusterCount(brushSize = DEFAULT_BRUSH_SIZE): number {
