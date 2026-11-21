@@ -2417,20 +2417,77 @@ export function executeTerrainDropTileImpact(
   toolType: TerrainToolType,
   tileX: number,
   tileZ: number,
+  options?: { skipSync?: boolean },
 ): boolean {
   const t = getTile(state, tileX, tileZ);
   if (!t) return false;
   const changed = applyTerrainToolTileMutation(t, toolType, Math.max(1, t.height), t.height);
   if (!changed) return false;
 
+  if (!options?.skipSync) {
+    if (toolType === 'blossom_rain') {
+      const clearRadiusSq = 2.25 * 2.25;
+      for (const u of state.units) {
+        if (
+          u.state !== 'ko' &&
+          u.faction !== 'hostile' &&
+          (u.x - tileX) ** 2 + (u.z - tileZ) ** 2 <= clearRadiusSq
+        ) {
+          u.statusEffects.cursed = 0;
+          u.hp = Math.min(u.maxHp, u.hp + 15);
+        }
+      }
+    }
+
+    reconcileAndSyncResources(state);
+    recalculateRatesAndCaps(state);
+  }
+  return true;
+}
+
+/**
+ * Applies a batch of landed sky-drop tiles in a single pass, running blossom healing,
+ * resource reconciliation, and rate recalculation once per batch instead of per tile.
+ */
+export function executeTerrainDropBatchImpact(
+  state: SimulationState,
+  toolType: TerrainToolType,
+  coords: ReadonlyArray<{ x: number; z: number }>,
+): number {
+  let changedCount = 0;
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minZ = Infinity;
+  let maxZ = -Infinity;
+
+  for (let i = 0; i < coords.length; i++) {
+    const c = coords[i];
+    const t = getTile(state, c.x, c.z);
+    if (!t) continue;
+    if (applyTerrainToolTileMutation(t, toolType, Math.max(1, t.height), t.height)) {
+      changedCount++;
+      if (t.x < minX) minX = t.x;
+      if (t.x > maxX) maxX = t.x;
+      if (t.z < minZ) minZ = t.z;
+      if (t.z > maxZ) maxZ = t.z;
+    }
+  }
+
+  if (changedCount === 0) return 0;
+
   if (toolType === 'blossom_rain') {
-    const clearRadiusSq = 2.25 * 2.25;
-    for (const u of state.units) {
-      if (
-        u.state !== 'ko' &&
-        u.faction !== 'hostile' &&
-        (u.x - tileX) ** 2 + (u.z - tileZ) ** 2 <= clearRadiusSq
-      ) {
+    const pad = 2.25;
+    const cx = (minX + maxX) * 0.5;
+    const cz = (minZ + maxZ) * 0.5;
+    const r = Math.hypot((maxX - minX) * 0.5, (maxZ - minZ) * 0.5) + pad;
+    const rSq = r * r;
+    for (let ui = 0; ui < state.units.length; ui++) {
+      const u = state.units[ui];
+      if (u.state === 'ko' || u.faction === 'hostile') continue;
+      if (u.x < minX - pad || u.x > maxX + pad || u.z < minZ - pad || u.z > maxZ + pad) continue;
+      const dx = u.x - cx;
+      const dz = u.z - cz;
+      if (dx * dx + dz * dz <= rSq) {
         u.statusEffects.cursed = 0;
         u.hp = Math.min(u.maxHp, u.hp + 15);
       }
@@ -2439,7 +2496,7 @@ export function executeTerrainDropTileImpact(
 
   reconcileAndSyncResources(state);
   recalculateRatesAndCaps(state);
-  return true;
+  return changedCount;
 }
 
 export function applyTerrainTool(

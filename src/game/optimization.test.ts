@@ -31,7 +31,12 @@ import {
   isRingIntersectingCullBounds,
 } from './autoOptimizer';
 import { getMaxCityPopulation } from './catalog';
-import { createInitialSimulationState, ensureWorldGrid, stepSimulation } from './simulation';
+import {
+  createInitialSimulationState,
+  ensureWorldGrid,
+  executeTerrainDropBatchImpact,
+  stepSimulation,
+} from './simulation';
 import { sanitizeSimulationForSave } from './worldStorage';
 
 describe('Major Optimization & 512x512 Scaling Suite', () => {
@@ -556,6 +561,53 @@ describe('Major Optimization & 512x512 Scaling Suite', () => {
     assert.equal(propPool.getCount(), 80);
     assert.equal(propPool.mesh.visible, true);
     propPool.dispose();
+  });
+
+  it('executeTerrainDropBatchImpact applies 300+ tile sky drops in a single sync pass with blossom healing', () => {
+    const sim = createInitialSimulationState(64, 4242);
+    const coords: Array<{ x: number; z: number }> = [];
+    for (let z = 20; z < 38; z++) {
+      for (let x = 20; x < 38; x++) {
+        const t = sim.tiles[z * sim.gridSize + x];
+        t.height = 1;
+        t.terrain = 'grass';
+        t.buildingId = null;
+        t.resourceNode = 'none';
+        t.resourceAmount = 0;
+        coords.push({ x, z });
+      }
+    }
+    // Place a cursed injured unit inside the drop batch
+    if (sim.units.length > 0) {
+      sim.units[0].x = 28;
+      sim.units[0].z = 28;
+      sim.units[0].hp = 10;
+      sim.units[0].maxHp = 100;
+      sim.units[0].faction = 'civilization';
+      sim.units[0].state = 'idle';
+      sim.units[0].statusEffects.cursed = 10;
+    }
+
+    const t0 = performance.now();
+    const changed = executeTerrainDropBatchImpact(sim, 'blossom_rain', coords);
+    const elapsedMs = performance.now() - t0;
+
+    assert.equal(changed, coords.length);
+    assert.ok(elapsedMs < 50, `Expected batched sky drop to finish fast (<50ms), took ${elapsedMs.toFixed(2)}ms`);
+
+    let blossomTreeCount = 0;
+    for (const c of coords) {
+      const t = sim.tiles[c.z * sim.gridSize + c.x];
+      if (t.resourceNode === 'timber_grove' && t.treeBiomeOverride === 'blossom') {
+        blossomTreeCount++;
+      }
+    }
+    assert.ok(blossomTreeCount > 100, `Expected blossom trees spawned via treeBiomeOverride, got ${blossomTreeCount}`);
+
+    if (sim.units.length > 0) {
+      assert.equal(sim.units[0].statusEffects.cursed, 0, 'Blossom batch should cleanse curse once per batch');
+      assert.ok(sim.units[0].hp >= 25, 'Blossom batch should heal units inside drop area');
+    }
   });
 });
 

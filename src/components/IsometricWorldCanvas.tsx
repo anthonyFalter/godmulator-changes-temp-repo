@@ -69,7 +69,7 @@ import {
   closestFaultDistanceSq,
   executeGodPowerImpact,
   executeHugeAsteroidImpact,
-  executeTerrainDropTileImpact,
+  executeTerrainDropBatchImpact,
   getSettlementAnchor,
   getSettlementEpoch,
   getUnitEpoch,
@@ -3104,9 +3104,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       faultSegments?: EarthquakeFaultSegment[];
       quakeShapeKind?: EarthquakeShapeKind;
       particleEmitTimer?: number;
+      skyDropInst?: THREE.InstancedMesh;
+      skyStreakInst?: THREE.InstancedMesh;
       skyRainDrops?: Array<{
-        mesh: THREE.Mesh;
-        streak: THREE.Mesh;
+        scale: number;
+        rx: number;
+        ry: number;
         tx: number;
         ty: number;
         tz: number;
@@ -3132,22 +3135,47 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
     }
     const MAX_BURST_FX = 36;
     const activeBurstFx: ActiveBurstFx[] = [];
+    const _skyDummyPos = new THREE.Vector3();
+    const _skyDummyQuat = new THREE.Quaternion();
+    const _skyDummyEuler = new THREE.Euler();
+    const _skyDummyScale = new THREE.Vector3();
+    const _skyDummyMat = new THREE.Matrix4();
+    const _skyZeroMat = new THREE.Matrix4().makeScale(0, 0, 0);
+    const _skyStreakQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.14, 0, -0.14));
+    const _skyColorScratch = new THREE.Color();
+    const _skyLandedTilesScratch: Array<{ x: number; z: number }> = [];
 
     function flushPendingSkyRainDrops(fx: ActiveBurstFx) {
-      if (!fx.skyRainDrops) return;
-      for (const d of fx.skyRainDrops) {
+      if (!fx.skyRainDrops || fx.skyRainDrops.length === 0) return;
+      _skyLandedTilesScratch.length = 0;
+      let batchKind: TerrainToolType | null = null;
+      for (let i = 0; i < fx.skyRainDrops.length; i++) {
+        const d = fx.skyRainDrops[i];
         if (!d.landed) {
           d.landed = true;
           if (d.applyOnLand) {
-            executeTerrainDropTileImpact(simRef.current, d.dropKind, d.tileX, d.tileZ);
+            batchKind = d.dropKind;
+            _skyLandedTilesScratch.push({ x: d.tileX, z: d.tileZ });
             if (d.extraTiles) {
-              for (const et of d.extraTiles) {
-                executeTerrainDropTileImpact(simRef.current, d.dropKind, et.x, et.z);
+              for (let ei = 0; ei < d.extraTiles.length; ei++) {
+                _skyLandedTilesScratch.push(d.extraTiles[ei]);
               }
             }
           }
         }
       }
+      if (batchKind && _skyLandedTilesScratch.length > 0) {
+        executeTerrainDropBatchImpact(simRef.current, batchKind, _skyLandedTilesScratch);
+      }
+    }
+
+    function disposeBurstFx(fx: ActiveBurstFx) {
+      flushPendingSkyRainDrops(fx);
+      burstFxGroup.remove(fx.group);
+      if (fx.ejectaInst) fx.ejectaInst.dispose();
+      if (fx.skyDropInst) fx.skyDropInst.dispose();
+      if (fx.skyStreakInst) fx.skyStreakInst.dispose();
+      for (let mi = 0; mi < fx.materials.length; mi++) fx.materials[mi].dispose();
     }
 
     function triggerLightFlash(x: number, y: number, z: number, hexColor: string, intensity = 16) {
@@ -3181,9 +3209,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         const idx = dropIdx >= 0 ? dropIdx : 0;
         const old = activeBurstFx[idx];
         if (old) {
-          flushPendingSkyRainDrops(old);
-          burstFxGroup.remove(old.group);
-          for (const m of old.materials) m.dispose();
+          disposeBurstFx(old);
           activeBurstFx.splice(idx, 1);
         }
       }
@@ -4823,20 +4849,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
 
         const ringMat = createMagicCircleMat(kind, 0.92, 149);
         const outerRingMat = createMagicCircleMat(kind, 0.86, 173);
-        const dropMatPrimary = new THREE.MeshStandardMaterial({
-          color: cfg.primary,
-          emissive: new THREE.Color(cfg.primary),
-          emissiveIntensity: cfg.emissive,
-          roughness: 0.32,
-          metalness: kind === 'seed_ore' || kind === 'salvage_drop' ? 0.75 : 0.2,
-          flatShading: true,
-        });
-        const dropMatSecondary = new THREE.MeshStandardMaterial({
-          color: cfg.secondary,
-          emissive: new THREE.Color(cfg.secondary),
-          emissiveIntensity: cfg.emissive * 0.9,
-          roughness: 0.36,
-          metalness: kind === 'seed_ore' || kind === 'salvage_drop' ? 0.68 : 0.18,
+        const dropMat = new THREE.MeshStandardMaterial({
+          color: 0xffffff,
+          emissive: new THREE.Color(kind === 'crystal_shower' ? 0x3b2254 : cfg.primary),
+          emissiveIntensity: kind === 'crystal_shower' ? 0.45 : cfg.emissive * 0.72,
+          roughness: kind === 'crystal_shower' ? 0.22 : 0.34,
+          metalness: kind === 'seed_ore' || kind === 'salvage_drop' ? 0.72 : 0.2,
           flatShading: true,
         });
         const streakMat = new THREE.MeshBasicMaterial({
@@ -4845,9 +4863,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           opacity: 0.62,
           depthWrite: false,
         });
-        materials.push(ringMat, outerRingMat, dropMatPrimary, dropMatSecondary, streakMat);
+        materials.push(ringMat, outerRingMat, dropMat, streakMat);
 
-        // Multi-colored crystal materials for crystal_shower so each falling crystal has a distinct color
+        // Multi-colored crystal palette applied via per-instance color (0 extra draw calls)
         const crystalColors = [
           { hex: 0xe848a8, str: '#e848a8', sec: '#7dd3fc' },
           { hex: 0x8b5cf6, str: '#8b5cf6', sec: '#38bdf8' },
@@ -4856,21 +4874,6 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           { hex: 0x0ea5e9, str: '#0ea5e9', sec: '#e0f2fe' },
           { hex: 0xef4444, str: '#ef4444', sec: '#fda4af' },
         ];
-        const crystalDropMats: THREE.MeshStandardMaterial[] = [];
-        if (kind === 'crystal_shower') {
-          for (const cc of crystalColors) {
-            const cm = new THREE.MeshStandardMaterial({
-              color: cc.hex,
-              emissive: new THREE.Color(cc.hex),
-              emissiveIntensity: 0.75,
-              roughness: 0.22,
-              metalness: 0.2,
-              flatShading: true,
-            });
-            crystalDropMats.push(cm);
-            materials.push(cm);
-          }
-        }
 
         const ringMesh = new THREE.Mesh(sharedMagicCircleGeo, ringMat);
         ringMesh.position.set(tx, ty + 0.14, tz);
@@ -4892,6 +4895,15 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           baseTargets.length > MAX_VISUAL_DROPS
             ? MAX_VISUAL_DROPS
             : Math.max(baseTargets.length, Math.min(24, Math.max(8, baseTargets.length * 2)));
+        const skyDropInst = new THREE.InstancedMesh(cfg.geo, dropMat, totalDrops);
+        skyDropInst.frustumCulled = false;
+        skyDropInst.visible = false;
+        const skyStreakInst = new THREE.InstancedMesh(sharedSkyStreakGeo, streakMat, totalDrops);
+        skyStreakInst.frustumCulled = false;
+        skyStreakInst.visible = false;
+        group.add(skyDropInst);
+        group.add(skyStreakInst);
+
         const skyRainDrops: NonNullable<ActiveBurstFx['skyRainDrops']> = [];
         const assignedTileImpacts = new Set<string>();
         const dropExtraBuckets: Array<Array<{ x: number; z: number }>> = Array.from(
@@ -4930,13 +4942,17 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           const dox = dtx + 2.4 + (Math.random() - 0.5) * 1.2;
           const doz = dtz - 2.4 + (Math.random() - 0.5) * 1.2;
 
-          const dropMat =
-            kind === 'crystal_shower' && crystalDropMats.length > 0
-              ? crystalDropMats[di % crystalDropMats.length]
-              : di % 2 === 0
-                ? dropMatPrimary
-                : dropMatSecondary;
-          const mesh = new THREE.Mesh(cfg.geo, dropMat);
+          const ccInfo =
+            kind === 'crystal_shower'
+              ? crystalColors[di % crystalColors.length]
+              : null;
+          _skyColorScratch.setHex(
+            ccInfo ? ccInfo.hex : di % 2 === 0 ? cfg.primary : cfg.secondary,
+          );
+          skyDropInst.setColorAt(di, _skyColorScratch);
+          skyDropInst.setMatrixAt(di, _skyZeroMat);
+          skyStreakInst.setMatrixAt(di, _skyZeroMat);
+
           const dropScale =
             kind === 'boulder_rain'
               ? 1.15 + Math.random() * 0.55
@@ -4945,25 +4961,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
                 : kind === 'blossom_rain' || kind === 'plant_forest'
                   ? 0.72 + Math.random() * 0.32
                   : 0.88 + Math.random() * 0.42;
-          mesh.scale.setScalar(dropScale);
-          mesh.position.set(dox, heightStart, doz);
-          mesh.visible = false;
-          group.add(mesh);
-
-          const streak = new THREE.Mesh(sharedSkyStreakGeo, streakMat);
-          streak.position.set(dox, heightStart, doz);
-          streak.rotation.set(0.14, 0, -0.14);
-          streak.visible = false;
-          group.add(streak);
-
-          const ccInfo =
-            kind === 'crystal_shower'
-              ? crystalColors[di % crystalColors.length]
-              : null;
 
           skyRainDrops.push({
-            mesh,
-            streak,
+            scale: dropScale,
+            rx: 0,
+            ry: 0,
             tx: dtx,
             ty: dty,
             tz: dtz,
@@ -4983,9 +4985,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             swayAmp: cfg.sway,
             impactColor: ccInfo ? ccInfo.str : cfg.impactHex,
             secondaryColor: ccInfo ? ccInfo.sec : cfg.secondaryHex,
-            sparkCount: totalDrops > 12 ? 7 : 10,
+            sparkCount: totalDrops > 24 ? 4 : totalDrops > 12 ? 6 : 9,
           });
         }
+        skyDropInst.instanceMatrix.needsUpdate = true;
+        if (skyDropInst.instanceColor) skyDropInst.instanceColor.needsUpdate = true;
+        skyStreakInst.instanceMatrix.needsUpdate = true;
 
         burstFxGroup.add(group);
         activeBurstFx.push({
@@ -5004,6 +5009,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           impactFired: false,
           ringMesh,
           outerRingMesh,
+          skyDropInst,
+          skyStreakInst,
           skyRainDrops,
           colorHex,
         });
@@ -5395,9 +5402,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         const idx = dropIdx >= 0 ? dropIdx : 0;
         const old = activeBurstFx[idx];
         if (old) {
-          flushPendingSkyRainDrops(old);
-          burstFxGroup.remove(old.group);
-          for (const m of old.materials) m.dispose();
+          disposeBurstFx(old);
           activeBurstFx.splice(idx, 1);
         }
       }
@@ -5472,9 +5477,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         const idx = dropIdx >= 0 ? dropIdx : 0;
         const old = activeBurstFx[idx];
         if (old) {
-          flushPendingSkyRainDrops(old);
-          burstFxGroup.remove(old.group);
-          for (const m of old.materials) m.dispose();
+          disposeBurstFx(old);
           activeBurstFx.splice(idx, 1);
         }
       }
@@ -12296,6 +12299,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             (fx.materials[1] as THREE.MeshBasicMaterial).opacity = Math.max(0, (1 - ringProg) * 0.58);
           }
 
+          let activeDropCount = 0;
+          let instDirty = false;
+          let impactBurstsThisFrame = 0;
+          let playLandSound = false;
+          let batchDropKind: TerrainToolType | null = null;
+          _skyLandedTilesScratch.length = 0;
+
           for (let di = 0; di < fx.skyRainDrops.length; di++) {
             const d = fx.skyRainDrops[di];
             if (d.landed) continue;
@@ -12303,40 +12313,69 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             if (localAge < 0) continue;
             const fallT = Math.min(1, localAge / Math.max(0.08, d.fallDur));
             if (fallT < 1) {
+              activeDropCount++;
               const accel = fallT * fallT;
               const swayX = d.swayAmp > 0 ? Math.sin(localAge * 9 + di * 1.7) * d.swayAmp * (1 - fallT) : 0;
               const swayZ = d.swayAmp > 0 ? Math.cos(localAge * 7 + di * 1.3) * d.swayAmp * (1 - fallT) : 0;
               const curX = d.ox + (d.tx - d.ox) * accel + swayX;
               const curY = d.oy + (d.ty + 0.18 - d.oy) * accel;
               const curZ = d.oz + (d.tz - d.oz) * accel + swayZ;
-              d.mesh.visible = true;
-              d.mesh.position.set(curX, curY, curZ);
-              d.mesh.rotation.x += dt * d.spinX;
-              d.mesh.rotation.y += dt * d.spinY;
-              d.streak.visible = true;
-              d.streak.position.set(curX, curY, curZ);
-              d.streak.scale.set(1, 0.7 + fallT * 1.1, 1);
+              d.rx += dt * d.spinX;
+              d.ry += dt * d.spinY;
+              if (fx.skyDropInst) {
+                _skyDummyPos.set(curX, curY, curZ);
+                _skyDummyEuler.set(d.rx, d.ry, 0);
+                _skyDummyQuat.setFromEuler(_skyDummyEuler);
+                _skyDummyScale.setScalar(d.scale);
+                _skyDummyMat.compose(_skyDummyPos, _skyDummyQuat, _skyDummyScale);
+                fx.skyDropInst.setMatrixAt(di, _skyDummyMat);
+              }
+              if (fx.skyStreakInst) {
+                _skyDummyPos.set(curX, curY, curZ);
+                _skyDummyScale.set(1, 0.7 + fallT * 1.1, 1);
+                _skyDummyMat.compose(_skyDummyPos, _skyStreakQuat, _skyDummyScale);
+                fx.skyStreakInst.setMatrixAt(di, _skyDummyMat);
+              }
+              instDirty = true;
             } else {
               d.landed = true;
-              d.mesh.visible = false;
-              d.streak.visible = false;
+              if (fx.skyDropInst) fx.skyDropInst.setMatrixAt(di, _skyZeroMat);
+              if (fx.skyStreakInst) fx.skyStreakInst.setMatrixAt(di, _skyZeroMat);
+              instDirty = true;
               if (d.applyOnLand) {
-                executeTerrainDropTileImpact(simRef.current, d.dropKind, d.tileX, d.tileZ);
+                batchDropKind = d.dropKind;
+                _skyLandedTilesScratch.push({ x: d.tileX, z: d.tileZ });
                 if (d.extraTiles) {
-                  for (const et of d.extraTiles) {
-                    executeTerrainDropTileImpact(simRef.current, d.dropKind, et.x, et.z);
+                  for (let ei = 0; ei < d.extraTiles.length; ei++) {
+                    _skyLandedTilesScratch.push(d.extraTiles[ei]);
                   }
                 }
-                if (di === 0) {
-                  soundEngine.playBlessing();
-                }
+                if (di === 0) playLandSound = true;
               }
-              spawnParticleBurst(d.tx, d.ty + 0.25, d.tz, d.sparkCount, d.impactColor, 0.62, 3.6, 0.72);
-              spawnParticleBurst(d.tx, d.ty + 0.25, d.tz, Math.max(3, Math.floor(d.sparkCount * 0.5)), d.secondaryColor, 0.42, 4.2, 0.58);
+              // Cap per-frame impact bursts to avoid thrashing the 650-particle pool on dense 10x showers
+              if (impactBurstsThisFrame < 3) {
+                impactBurstsThisFrame++;
+                spawnParticleBurst(d.tx, d.ty + 0.25, d.tz, d.sparkCount, d.impactColor, 0.62, 3.6, 0.72);
+                spawnParticleBurst(d.tx, d.ty + 0.25, d.tz, Math.max(2, Math.floor(d.sparkCount * 0.5)), d.secondaryColor, 0.42, 4.2, 0.58);
+              }
               if (di === 0 || di === Math.floor(fx.skyRainDrops.length / 2)) {
                 triggerLightFlash(d.tx, d.ty + 1.0, d.tz, d.impactColor, 11);
               }
             }
+          }
+
+          if (batchDropKind && _skyLandedTilesScratch.length > 0) {
+            executeTerrainDropBatchImpact(simRef.current, batchDropKind, _skyLandedTilesScratch);
+            if (playLandSound) soundEngine.playBlessing();
+          }
+
+          if (fx.skyDropInst) {
+            fx.skyDropInst.visible = activeDropCount > 0;
+            if (instDirty) fx.skyDropInst.instanceMatrix.needsUpdate = true;
+          }
+          if (fx.skyStreakInst) {
+            fx.skyStreakInst.visible = activeDropCount > 0;
+            if (instDirty) fx.skyStreakInst.instanceMatrix.needsUpdate = true;
           }
         } else if (fx.kind === 'ripple_ring' && fx.ringMesh) {
           if (fx.tracerMesh && !fx.impactFired) {
@@ -12656,10 +12695,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         }
 
         if (fx.age >= fx.duration) {
-          flushPendingSkyRainDrops(fx);
-          burstFxGroup.remove(fx.group);
-          if (fx.ejectaInst) fx.ejectaInst.dispose();
-          for (const m of fx.materials) m.dispose();
+          disposeBurstFx(fx);
           activeBurstFx.splice(i, 1);
         }
       }
@@ -13585,6 +13621,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       sharedWispHaloGeo.dispose();
       sharedWispOrbitGeo.dispose();
       for (const fx of activeBurstFx) {
+        if (fx.ejectaInst) fx.ejectaInst.dispose();
+        if (fx.skyDropInst) fx.skyDropInst.dispose();
+        if (fx.skyStreakInst) fx.skyStreakInst.dispose();
         for (const m of fx.materials) m.dispose();
       }
       fireSpriteGeo.dispose();
