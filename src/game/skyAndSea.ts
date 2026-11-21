@@ -748,11 +748,110 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
   mesh.position.set(center, 0.295, center);
   mesh.renderOrder = -5;
 
+  // Preallocated O(N) Chamfer distance-field buffers (3=orthogonal step, 4=diagonal step -> dist = val / 3.0)
+  const totalCells = gridSize * gridSize;
+  const distLand = new Uint8Array(totalCells);
+  const distShallow = new Uint8Array(totalCells);
+  const distDeep = new Uint8Array(totalCells);
+  const coralFlag = new Uint8Array(totalCells); // 0=none, 1=coral_reef, 2=atlantis_ruin
+  const isLandFlag = new Uint8Array(totalCells);
+
+  const chamferPass = (buf: Uint8Array) => {
+    const gs = gridSize;
+    // Forward pass (top-left to bottom-right)
+    for (let z = 0; z < gs; z++) {
+      const row = z * gs;
+      const prevRow = row - gs;
+      for (let x = 0; x < gs; x++) {
+        const idx = row + x;
+        let v = buf[idx];
+        if (v === 0) continue;
+        if (x > 0) {
+          const c = buf[idx - 1] + 3;
+          if (c < v) v = c;
+        }
+        if (z > 0) {
+          const c = buf[prevRow + x] + 3;
+          if (c < v) v = c;
+          if (x > 0) {
+            const d = buf[prevRow + x - 1] + 4;
+            if (d < v) v = d;
+          }
+          if (x + 1 < gs) {
+            const d = buf[prevRow + x + 1] + 4;
+            if (d < v) v = d;
+          }
+        }
+        buf[idx] = v;
+      }
+    }
+    // Backward pass (bottom-right to top-left)
+    for (let z = gs - 1; z >= 0; z--) {
+      const row = z * gs;
+      const nextRow = row + gs;
+      for (let x = gs - 1; x >= 0; x--) {
+        const idx = row + x;
+        let v = buf[idx];
+        if (v === 0) continue;
+        if (x + 1 < gs) {
+          const c = buf[idx + 1] + 3;
+          if (c < v) v = c;
+        }
+        if (z + 1 < gs) {
+          const c = buf[nextRow + x] + 3;
+          if (c < v) v = c;
+          if (x + 1 < gs) {
+            const d = buf[nextRow + x + 1] + 4;
+            if (d < v) v = d;
+          }
+          if (x > 0) {
+            const d = buf[nextRow + x - 1] + 4;
+            if (d < v) v = d;
+          }
+        }
+        buf[idx] = v;
+      }
+    }
+  };
+
   const updateMap = (tiles: TileData[]) => {
+    const gs = gridSize;
+    const INF = 18; // >= 6 tiles in 3x fixed-point
     for (let i = 0; i < tiles.length; i++) {
       const t = tiles[i];
+      const land = t.height > 0 || t.terrain === 'ice';
+      isLandFlag[i] = land ? 1 : 0;
+      if (land) {
+        distLand[i] = 0;
+        distShallow[i] = 0;
+        distDeep[i] = INF;
+        coralFlag[i] = 0;
+      } else {
+        const isDeep = t.terrain === 'deep_water' && !t.isRiver && !t.isLake;
+        distLand[i] = INF;
+        distShallow[i] = isDeep ? INF : 0;
+        distDeep[i] = isDeep ? 0 : INF;
+        if (t.resourceNode === 'atlantis_ruin') {
+          coralFlag[i] = 2;
+        } else if (
+          t.resourceNode === 'coral_reef' &&
+          (t.coralBleachTimer ?? 0) <= 0 &&
+          t.resourceAmount > 0
+        ) {
+          coralFlag[i] = 1;
+        } else {
+          coralFlag[i] = 0;
+        }
+      }
+    }
+
+    chamferPass(distLand);
+    chamferPass(distShallow);
+    chamferPass(distDeep);
+
+    for (let i = 0; i < tiles.length; i++) {
       const idx = i * 4;
-      if (t.height > 0 || t.terrain === 'ice') {
+      if (isLandFlag[i]) {
         data[idx] = 0;
         data[idx + 1] = 0;
         data[idx + 2] = 0;
@@ -760,45 +859,24 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
         continue;
       }
 
-      let touchesLand = 0;
-      const isHealthyCoralOrAtlantis =
-        (t.resourceNode === 'coral_reef' && (t.coralBleachTimer ?? 0) <= 0 && t.resourceAmount > 0) ||
-        t.resourceNode === 'atlantis_ruin';
-      let adjCoralCount = isHealthyCoralOrAtlantis ? 2 : 0;
+      const t = tiles[i];
+      const isHealthyCoralOrAtlantis = coralFlag[i] > 0;
+      const touchesLand = distLand[i] <= 4 ? 255 : 0;
 
-      // Compute multi-ring distances to dry land, shallow_water, and deep_water for seamless bathymetric blending
-      let minLandDistSq = 99;
-      let minShallowDistSq = 99;
-      let minDeepDistSq = 99;
-      for (let dz = -4; dz <= 4; dz++) {
-        for (let dx = -4; dx <= 4; dx++) {
-          const nx = t.x + dx;
-          const nz = t.z + dz;
-          if (nx < 0 || nx >= gridSize || nz < 0 || nz >= gridSize) continue;
-          const nb = tiles[nz * gridSize + nx];
-          const dSq = dx * dx + dz * dz;
-          if (nb.height > 0 || nb.terrain === 'ice') {
-            if (dSq < minLandDistSq) minLandDistSq = dSq;
-            if (dSq < minShallowDistSq) minShallowDistSq = dSq;
-            if (Math.abs(dx) <= 1 && Math.abs(dz) <= 1 && dSq > 0) {
-              touchesLand = 255;
-            }
-          } else {
-            if (nb.terrain === 'deep_water' && !nb.isRiver && !nb.isLake) {
-              if (dSq < minDeepDistSq) minDeepDistSq = dSq;
-            } else {
-              if (dSq < minShallowDistSq) minShallowDistSq = dSq;
-            }
-            if (Math.abs(dx) <= 1 && Math.abs(dz) <= 1 && dSq > 0) {
-              if (
-                (nb.resourceNode === 'coral_reef' &&
-                  (nb.coralBleachTimer ?? 0) <= 0 &&
-                  nb.resourceAmount > 0) ||
-                nb.resourceNode === 'atlantis_ruin'
-              ) {
-                adjCoralCount += nb.resourceNode === 'atlantis_ruin' ? 2 : 1;
-              }
-            }
+      // 1-ring 8-neighbor coral check using flat Uint8Array (no TileData derefs)
+      let adjCoralCount = isHealthyCoralOrAtlantis ? 2 : 0;
+      if (adjCoralCount < 2) {
+        const tx = t.x;
+        const tz = t.z;
+        const z0 = tz > 0 ? tz - 1 : 0;
+        const z1 = tz + 1 < gs ? tz + 1 : gs - 1;
+        const x0 = tx > 0 ? tx - 1 : 0;
+        const x1 = tx + 1 < gs ? tx + 1 : gs - 1;
+        for (let nz = z0; nz <= z1; nz++) {
+          const nRow = nz * gs;
+          for (let nx = x0; nx <= x1; nx++) {
+            const ni = nRow + nx;
+            if (ni !== i) adjCoralCount += coralFlag[ni];
           }
         }
       }
@@ -808,14 +886,14 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
         depthVal = 54;
       } else if (t.terrain !== 'deep_water') {
         // Shallow shelf: smoothly deepens from 52 along beach/lagoon interior to 146 near the deep_water dropoff
-        const landD = Math.min(4.0, Math.sqrt(minLandDistSq));
-        const deepD = Math.min(4.0, Math.sqrt(minDeepDistSq));
+        const landD = Math.min(4.0, distLand[i] / 3.0);
+        const deepD = Math.min(4.0, distDeep[i] / 3.0);
         const shoreFactor = Math.max(0, Math.min(1, (landD - 1.0) / 3.0));
         const dropoffPull = Math.max(0, Math.min(1, (3.2 - deepD) / 2.2));
         depthVal = Math.round(52 + shoreFactor * 44 + dropoffPull * 50);
       } else {
         // Deep water: smoothly transitions from 166 at the shallow_water border across a 4-tile slope to 255 in open abyss
-        const shallowD = Math.min(4.5, Math.sqrt(minShallowDistSq));
+        const shallowD = Math.min(4.5, distShallow[i] / 3.0);
         const slopeFactor = Math.max(0, Math.min(1, (shallowD - 1.0) / 3.2));
         depthVal = Math.round(166 + slopeFactor * 89);
       }
@@ -3175,11 +3253,11 @@ export function createPixelSpaceSystem(initialSeed: number): PixelSpaceSystem {
     uniforms,
     fog: false,
     transparent: false,
-    depthTest: false,
+    depthTest: true,
     depthWrite: false,
     vertexShader: `
       void main() {
-        gl_Position = vec4(position.xy, 0.9999, 1.0);
+        gl_Position = vec4(position.xy, 0.99999, 1.0);
       }
     `,
     fragmentShader: `
@@ -3233,9 +3311,9 @@ export function createPixelSpaceSystem(initialSeed: number): PixelSpaceSystem {
 
       float fbm(vec2 p) {
         float v = 0.0;
-        float a = 0.5;
+        float a = 0.56;
         mat2 rot = mat2(0.8, -0.6, 0.6, 0.8);
-        for (int i = 0; i < 4; i++) {
+        for (int i = 0; i < 3; i++) {
           v += a * vnoise(p);
           p = rot * p * 2.02 + vec2(17.1, 31.7);
           a *= 0.5;
@@ -3449,7 +3527,7 @@ export function createPixelSpaceSystem(initialSeed: number): PixelSpaceSystem {
 
   const mesh = new THREE.Mesh(geo, material);
   mesh.frustumCulled = false;
-  mesh.renderOrder = -100;
+  mesh.renderOrder = 100;
 
   let currentSeed = -1;
   let initializedSeed = false;

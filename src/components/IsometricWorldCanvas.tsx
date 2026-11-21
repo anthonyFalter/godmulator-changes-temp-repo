@@ -306,6 +306,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     renderer.setPixelRatio(1);
     renderer.shadowMap.enabled = !isSoftwareGl;
     renderer.shadowMap.type = THREE.BasicShadowMap; // Crisp pixel-art shadow edges
+    renderer.shadowMap.autoUpdate = false;
+    renderer.shadowMap.needsUpdate = true;
 
     renderer.domElement.className = 'w-full h-full block pixelated-canvas outline-none touch-none';
     renderer.domElement.style.touchAction = 'none';
@@ -7075,6 +7077,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       maxZ: number;
     }[] = [];
 
+    let lastTileScanTime = -1;
+    let lastTileScanPendingY = true;
+    let lastPropRebuildTime = -1;
+    let pendingPropsSync = false;
+    let simSteppedThisFrame = true;
+
     function syncSceneFromSimulation(simState: SimulationState, dt: number, elapsed: number) {
       syncFrameStamp++;
 
@@ -7086,7 +7094,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         zoneOverlay.updateZones(zb.colorData, zb.idData, zb.anyActive);
       }
 
-      let propsNeedSync = false;
+      let propsNeedSync = pendingPropsSync;
       let metroNeedsSync = false;
       let terrainMapDirty = false;
       const curKingdomEpochSig = computeKingdomEpochSig(simState);
@@ -7192,13 +7200,27 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       const hasTsunamis = activeTsunamis.length > 0;
       const hasQuakes = activeQuakeCount > 0;
 
-      // Single-pass dirty-chunk terrain & prop synchronization against flat WorldGridBuffers
+      // Single-pass dirty-chunk terrain & prop synchronization against flat WorldGridBuffers.
+      // Skip scanning all 65k-262k tiles on interpolated frames where neither a sim tick nor
+      // dynamic terrain deformation ran (saves ~75% of full-map CPU scans at 60 FPS).
       const worldGrid = ensureWorldGrid(simState);
       const tiles = simState.tiles;
       const tileCount = tiles.length;
-      activeFireTileIndices.length = 0;
 
       let anyDynamicTileY = false;
+      const shouldScanTiles =
+        simChanged ||
+        simSteppedThisFrame ||
+        lastTileScanPendingY ||
+        hasTsunamis ||
+        hasQuakes ||
+        terrainMapDirty ||
+        worldGrid.dirtyChunkCount > 0 ||
+        elapsed - lastTileScanTime >= 0.065;
+
+      if (shouldScanTiles) {
+        lastTileScanTime = elapsed;
+        activeFireTileIndices.length = 0;
 
       for (let i = 0; i < tileCount; i++) {
         const t = tiles[i];
@@ -7386,6 +7408,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           }
         }
       }
+      lastTileScanPendingY = anyDynamicTileY;
+      }
 
       if (initialMapsPreuploaded) {
         initialMapsPreuploaded = false;
@@ -7408,7 +7432,15 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         );
       }
 
-      if (propsNeedSync) {
+      // Debounce routine full-map prop matrix recompositions (~5.5 Hz) while keeping world switches instant
+      const runPropsSyncNow =
+        propsNeedSync && (simChanged || lastPropRebuildTime < 0 || elapsed - lastPropRebuildTime >= 0.18);
+      if (propsNeedSync && !runPropsSyncNow) {
+        pendingPropsSync = true;
+      }
+      if (runPropsSyncNow) {
+        pendingPropsSync = false;
+        lastPropRebuildTime = elapsed;
         treeCacheCount = 0;
         propCacheCount = 0;
         ambCacheCount = 0;
@@ -10563,12 +10595,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       );
       if (wantStride !== appliedShadowStride) {
         appliedShadowStride = wantStride;
-        if (appliedShadowsEnabled) {
-          renderer.shadowMap.autoUpdate = wantStride <= 1;
-        }
+        renderer.shadowMap.autoUpdate = false;
       }
-      if (appliedShadowsEnabled && appliedShadowStride > 1) {
-        shadowFrameCounter = (shadowFrameCounter + 1) % appliedShadowStride;
+      if (appliedShadowsEnabled) {
+        // Sim ticks at 15 Hz, so 30 Hz shadow refreshes (stride >= 2) plus immediate updates on
+        // camera/frustum shifts look identical while halving GPU shadow-pass cost.
+        const effectiveStride = Math.max(2, appliedShadowStride);
+        shadowFrameCounter = (shadowFrameCounter + 1) % effectiveStride;
         if (shadowFrameCounter === 0) {
           renderer.shadowMap.needsUpdate = true;
         }
@@ -10592,7 +10625,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         // Adjust intensity & autoUpdate rather than toggling shadowMap.enabled/castShadow so
         // Three.js never recompiles 60+ shaders synchronously on toggle
         keyLight.shadow.intensity = wantShadows ? 1 : 0;
-        renderer.shadowMap.autoUpdate = wantShadows && appliedShadowStride <= 1;
+        renderer.shadowMap.autoUpdate = false;
         if (wantShadows) renderer.shadowMap.needsUpdate = true;
         gfxStaggerCooldown = 2;
       } else if (wantShadows && activeGfxProfile.shadowMapSize !== appliedShadowMapSize) {
@@ -10786,6 +10819,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
       // Decoupled fixed-timestep simulation accumulator (15 Hz) with 60 FPS visual interpolation!
       // Eliminates 4x redundant AI/tile scans per second while keeping silky-smooth 60Hz motion.
+      simSteppedThisFrame = false;
       const clampedSimSpeed = clampSimulationSpeed(propsRef.current.timeScale);
       const simStepDt = Math.min(dt, autoOptDecisions.maxSimDt);
       if (hitstopTimer > 0) {
@@ -10799,6 +10833,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           lastSimTickMs = performance.now() - simT0;
           simAccumulator -= FIXED_SIM_DT;
           ticksThisFrame++;
+          simSteppedThisFrame = true;
         }
         simInterpAlpha = Math.min(1, Math.max(0, simAccumulator / FIXED_SIM_DT));
       } else if (propsRef.current.gameState === 'title') {
@@ -10813,6 +10848,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           });
           lastSimTickMs = performance.now() - simT0;
           simAccumulator -= FIXED_SIM_DT;
+          simSteppedThisFrame = true;
         }
         simInterpAlpha = Math.min(1, Math.max(0, simAccumulator / FIXED_SIM_DT));
       } else {
@@ -12931,10 +12967,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       }
       if (
         appliedShadowsEnabled &&
-        appliedShadowStride > 1 &&
         (shadowFrustumChanged ||
-          Math.abs(lastShadowCenterX - snappedShadow.centerX) > 2.2 ||
-          Math.abs(lastShadowCenterZ - snappedShadow.centerZ) > 2.2)
+          Math.abs(lastShadowCenterX - snappedShadow.centerX) > 1.2 ||
+          Math.abs(lastShadowCenterZ - snappedShadow.centerZ) > 1.2)
       ) {
         lastShadowCenterX = snappedShadow.centerX;
         lastShadowCenterZ = snappedShadow.centerZ;

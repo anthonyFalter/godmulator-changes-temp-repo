@@ -37,9 +37,10 @@ test('Starry space backdrop is uniquely randomized per world seed and stays lock
   const stateAAfterPlay = skyA.getDebugState();
   assert.deepEqual(stateAAfterPlay, stateAInitial);
   assert.equal(stateAAfterPlay.spaceQuality, 2.0);
-  assert.equal(skyA.mesh.renderOrder, -100);
+  assert.equal(skyA.mesh.renderOrder, 100);
 
   const mat = skyA.mesh.material as THREE.ShaderMaterial;
+  assert.equal(mat.depthTest, true);
   assert.ok(Number.isFinite(mat.uniforms.uTime.value));
   assert.ok(mat.uniforms.uTime.value >= 0 && mat.uniforms.uTime.value < 1900);
 
