@@ -6915,20 +6915,20 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       }
       treeImpostors.reset();
 
-      // Pixel-matched LOD bands:
-      // 0 (<13): extreme close-up (LOD0 hero / LOD1 companion)
-      // 1 (13..26): normal close-up (LOD1 hero / LOD2 companion / impostor outer companions)
-      // 2 (26..46): mid zoom (LOD2 inner hero / LOD3 inner companion / 2-tri impostor outer)
-      // 3 (>=46): region & overview (2-tri baked impostors in 1 draw call)
-      const lodBand = frustumSize < 13 ? 0 : frustumSize < 26 ? 1 : frustumSize < 46 ? 2 : 3;
+      // Balanced high-detail LOD bands (paired with exact OBB culling so detail stays crisp further out):
+      // 0 (<22): close-up (LOD0 hero / LOD1 companion)
+      // 1 (22..40): mid-close (LOD1 hero & inner companion / LOD2 outer — 100% 3D)
+      // 2 (40..64): region (LOD2 inner 3D / 2-tri baked impostor outer)
+      // 3 (>=64): far & overview (2-tri baked impostors in 1 draw call)
+      const lodBand = frustumSize < 22 ? 0 : frustumSize < 40 ? 1 : frustumSize < 64 ? 2 : 3;
       const focusX = camTarget.x;
       const focusZ = camTarget.z;
       const innerR = Math.max(
-        6.5,
-        frustumSize * (lodBand === 0 ? 0.55 : lodBand === 1 ? 0.52 : 0.42),
+        8.5,
+        frustumSize * (lodBand === 0 ? 0.65 : lodBand === 1 ? 0.58 : 0.45),
       );
       const innerRSq = innerR * innerR;
-      const propR = Math.max(12, frustumSize * 0.5);
+      const propR = Math.max(14, frustumSize * 0.55);
       const propRSq = propR * propR;
 
       // Exact camera-oriented 2D bounding box (OBB) eliminates ~75% of off-screen trees
@@ -6949,7 +6949,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       const cMaxZ = worldCullBounds.maxZ + obbPad;
       const useImpostors = treeImpostors.isBaked;
 
-      // 1. Trees (exact OBB cull + pixel-matched 4-tier LOD + baked 2-tri impostors)
+      // 1. Trees (exact OBB cull + high-detail 4-tier LOD + baked 2-tri impostors at far/overview)
       for (let i = 0; i < treeCacheCount; i++) {
         const tx = treeCacheX[i];
         const tz = treeCacheZ[i];
@@ -6961,7 +6961,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         if (projF < -halfFBack || projF > halfFFront) continue;
 
         const flags = treeCacheFlags[i];
-        // Hide cramped under-canopy sapling layer (k===2) at region/overview where overlapping foliage occludes it
+        // Hide cramped under-canopy sapling layer (k===2) at overview where overlapping foliage occludes it
         if (lodBand === 3 && (flags & 4) !== 0) continue;
 
         const charred = flags & 1;
@@ -6977,11 +6977,6 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             treeImpostors.pushTreeFromMatrix(charred, treeCacheBiome[i], treeCacheVar[i], treeCacheMat, i * 16);
             continue;
           }
-        } else if (lodBand === 1) {
-          if (isCompanion && dx * dx + dz * dz > innerRSq && useImpostors) {
-            treeImpostors.pushTreeFromMatrix(charred, treeCacheBiome[i], treeCacheVar[i], treeCacheMat, i * 16);
-            continue;
-          }
         }
 
         let tier = 3;
@@ -6989,16 +6984,16 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           if (dx * dx + dz * dz <= innerRSq) {
             tier = isCompanion ? 5 : 0;
           } else {
-            tier = isCompanion ? 6 : 1;
+            tier = isCompanion ? 5 : 1;
           }
         } else if (lodBand === 1) {
           if (dx * dx + dz * dz <= innerRSq) {
-            tier = isCompanion ? 6 : 1;
+            tier = isCompanion ? 5 : 1;
           } else {
-            tier = isCompanion ? 4 : 2;
+            tier = isCompanion ? 6 : 2;
           }
         } else if (lodBand === 2) {
-          tier = dx * dx + dz * dz <= innerRSq ? (isCompanion ? 4 : 2) : isCompanion ? 4 : 3;
+          tier = dx * dx + dz * dz <= innerRSq ? (isCompanion ? 6 : 2) : isCompanion ? 4 : 3;
         } else {
           tier = isCompanion ? 4 : 3;
         }
@@ -7680,7 +7675,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         propViewDirty = true;
       }
 
-      const curLodBand = frustumSize < 13 ? 0 : frustumSize < 26 ? 1 : frustumSize < 46 ? 2 : 3;
+      const curLodBand = frustumSize < 22 ? 0 : frustumSize < 40 ? 1 : frustumSize < 64 ? 2 : 3;
       const wholeMapVisible =
         worldCullBounds.minX <= 0 &&
         worldCullBounds.maxX >= simState.gridSize - 1 &&
