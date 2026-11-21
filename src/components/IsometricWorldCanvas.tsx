@@ -3098,7 +3098,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       flameCoreCone?: THREE.Mesh;
       flameOuterCone?: THREE.Mesh;
       tracerMesh?: THREE.Object3D;
-      vfxSubtype?: 'bullet' | 'cannon_shell' | 'bomb' | 'missile' | 'arcane_bolt' | 'plasma_beam' | 'laser_beam';
+      vfxSubtype?: 'bullet' | 'cannon_shell' | 'bomb' | 'missile' | 'arcane_bolt' | 'plasma_beam' | 'laser_beam' | 'ice_ball' | 'foxfire_ball' | 'venom_ball';
       stemMesh?: THREE.Mesh;
       capMesh?: THREE.Mesh;
       faultSegments?: EarthquakeFaultSegment[];
@@ -5359,6 +5359,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
     sharedPlasmaBeamGeo.rotateX(Math.PI / 2);
     const sharedPlasmaMuzzleGeo = new THREE.OctahedronGeometry(0.26, 1);
     const sharedSparkShardGeo = new THREE.BoxGeometry(0.075, 0.46, 0.075);
+    // Pure blocky voxel projectile geometries for Yeti ice balls, Kitsune/Cerberus flame balls, and Hydra venom balls
+    const sharedVoxelBallCoreGeo = new THREE.BoxGeometry(0.32, 0.32, 0.32);
+    const sharedVoxelBallBandXGeo = new THREE.BoxGeometry(0.46, 0.24, 0.24);
+    const sharedVoxelBallBandYGeo = new THREE.BoxGeometry(0.24, 0.46, 0.24);
+    const sharedVoxelBallBandZGeo = new THREE.BoxGeometry(0.24, 0.24, 0.46);
+    const sharedVoxelBallChipGeo = new THREE.BoxGeometry(0.15, 0.15, 0.15);
 
     const sharedNukeStemGeo = new THREE.CylinderGeometry(0.42, 0.88, 1.0, 14);
     sharedNukeStemGeo.translate(0, 0.5, 0);
@@ -5470,7 +5476,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       tz: number,
       radius: number,
       colorHex: string,
-      vfxSubtype?: 'bullet' | 'cannon_shell' | 'bomb' | 'missile' | 'arcane_bolt' | 'plasma_beam' | 'laser_beam',
+      vfxSubtype?: 'bullet' | 'cannon_shell' | 'bomb' | 'missile' | 'arcane_bolt' | 'plasma_beam' | 'laser_beam' | 'ice_ball' | 'foxfire_ball' | 'venom_ball',
     ) {
       if (activeBurstFx.length >= MAX_BURST_FX) {
         const dropIdx = activeBurstFx.findIndex((f) => f.impactFired || !f.deferImpact);
@@ -5564,6 +5570,34 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           arcGrp.position.set(ox, startY, oz);
           arcGrp.lookAt(tx, endY, tz);
           tracerObj = arcGrp;
+        } else if (subtype === 'ice_ball' || subtype === 'foxfire_ball' || subtype === 'venom_ball') {
+          // Blocky voxel cluster built purely from BoxGeometry cubes to match the game's voxel theme
+          const voxGrp = new THREE.Group();
+          const scaleMult = subtype === 'ice_ball' ? 1.18 : subtype === 'venom_ball' ? 0.96 : 0.92;
+          const coreCube = new THREE.Mesh(
+            sharedVoxelBallCoreGeo,
+            subtype === 'ice_ball' ? coreMat : subtype === 'foxfire_ball' ? coreMat : boltMat,
+          );
+          const bandX = new THREE.Mesh(sharedVoxelBallBandXGeo, boltMat);
+          const bandY = new THREE.Mesh(sharedVoxelBallBandYGeo, boltMat);
+          const bandZ = new THREE.Mesh(sharedVoxelBallBandZGeo, boltMat);
+          const chipA = new THREE.Mesh(sharedVoxelBallChipGeo, coreMat);
+          chipA.position.set(0.2, 0.18, 0.16);
+          const chipB = new THREE.Mesh(sharedVoxelBallChipGeo, ringMat);
+          chipB.position.set(-0.2, -0.16, -0.18);
+          const chipC = new THREE.Mesh(sharedVoxelBallChipGeo, coreMat);
+          chipC.position.set(-0.16, 0.2, -0.14);
+          voxGrp.add(coreCube, bandX, bandY, bandZ, chipA, chipB, chipC);
+          voxGrp.scale.setScalar(scaleMult);
+          voxGrp.position.set(ox, startY + (subtype === 'ice_ball' ? 0.45 : 0.12), oz);
+          tracerObj = voxGrp;
+          const muzzleColor =
+            subtype === 'ice_ball'
+              ? '#e0f2fe'
+              : subtype === 'venom_ball'
+                ? '#a3e635'
+                : '#fde047';
+          spawnParticleBurst(ox, startY + 0.25, oz, 6, muzzleColor, 0.34, 2.2, 0.45);
         } else if (subtype === 'plasma_beam' || subtype === 'laser_beam') {
           const beamDist = Math.max(0.5, Math.hypot(tx - ox, endY - startY, tz - oz));
           const beamWidthMult = subtype === 'laser_beam' ? (radius >= 2.2 ? 3.2 : 1.45) : 1.65;
@@ -5606,24 +5640,36 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         if (subtype === 'plasma_beam' || subtype === 'laser_beam') {
           spawnParticleBurst(tx, ty + 0.35, tz, radius >= 2.2 ? 32 : 18, boltColor || '#56cfe1', radius >= 2.2 ? 1.45 : 0.8, 5.2, 0.96);
           spawnParticleBurst(tx, ty + 0.4, tz, 10, '#ffffff', 0.5, 5.8, 0.65);
-        } else if (subtype !== 'bomb' && subtype !== 'cannon_shell') {
+        } else if (
+          subtype !== 'bomb' &&
+          subtype !== 'cannon_shell' &&
+          subtype !== 'ice_ball' &&
+          subtype !== 'foxfire_ball' &&
+          subtype !== 'venom_ball'
+        ) {
           spawnParticleBurst(tx, ty + 0.35, tz, 10, boltColor, 0.5, 3.6, 0.78);
         }
 
         const dur =
           subtype === 'bomb'
             ? 0.44
-            : subtype === 'cannon_shell'
-              ? 0.36
-              : subtype === 'missile'
-                ? 0.32
-                : subtype === 'arcane_bolt'
-                  ? 0.27
-                  : subtype === 'laser_beam'
-                    ? 0.34
-                    : subtype === 'plasma_beam'
-                      ? 0.25
-                      : 0.2;
+            : subtype === 'ice_ball'
+              ? 0.42
+              : subtype === 'venom_ball'
+                ? 0.36
+                : subtype === 'foxfire_ball'
+                  ? 0.34
+                  : subtype === 'cannon_shell'
+                    ? 0.36
+                    : subtype === 'missile'
+                      ? 0.32
+                      : subtype === 'arcane_bolt'
+                        ? 0.27
+                        : subtype === 'laser_beam'
+                          ? 0.34
+                          : subtype === 'plasma_beam'
+                            ? 0.25
+                            : 0.2;
 
         burstFxGroup.add(group);
         activeBurstFx.push({
@@ -6025,16 +6071,34 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       if (u.role === 'dragon') {
         return { pickRadius: 1.65, ringScale: 1.75, bodyHeight: 1.55, centerOffsetY: 0.65 };
       }
-      if (u.role === 'phoenix' || u.role === 'griffin') {
+      if (u.role === 'phoenix' || u.role === 'griffin' || u.role === 'pegasus') {
         return { pickRadius: 1.15, ringScale: 1.32, bodyHeight: 1.4, centerOffsetY: 0.58 };
       }
-      if (u.role === 'elephant' || u.role === 'golem' || u.role === 'yeti') {
+      if (
+        u.role === 'elephant' ||
+        u.role === 'golem' ||
+        u.role === 'yeti' ||
+        u.role === 'hydra' ||
+        u.role === 'minotaur' ||
+        u.role === 'ent'
+      ) {
         return { pickRadius: 1.12, ringScale: 1.38, bodyHeight: 1.88, centerOffsetY: 0.85 };
       }
       if (u.role === 'dinosaur') {
         return { pickRadius: 1.05, ringScale: 1.32, bodyHeight: 1.8, centerOffsetY: 0.78 };
       }
-      if (u.role === 'bear' || u.role === 'unicorn' || u.role === 'lion' || u.role === 'camel') {
+      if (
+        u.role === 'bear' ||
+        u.role === 'unicorn' ||
+        u.role === 'lion' ||
+        u.role === 'camel' ||
+        u.role === 'horse' ||
+        u.role === 'panda' ||
+        u.role === 'polar_bear' ||
+        u.role === 'hippo' ||
+        u.role === 'rhino' ||
+        u.role === 'cerberus'
+      ) {
         return { pickRadius: 0.84, ringScale: 1.16, bodyHeight: 1.42, centerOffsetY: 0.58 };
       }
       if (u.role === 'raider_behemoth') {
@@ -6050,11 +6114,20 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         u.role === 'fox' ||
         u.role === 'boar' ||
         u.role === 'crocodile' ||
+        u.role === 'goat' ||
+        u.role === 'monkey' ||
+        u.role === 'turtle' ||
         u.role === 'kitsune'
       ) {
         return { pickRadius: 0.68, ringScale: 0.96, bodyHeight: 0.98, centerOffsetY: 0.42 };
       }
-      if (u.role === 'chicken' || u.role === 'rabbit' || u.role === 'penguin') {
+      if (
+        u.role === 'chicken' ||
+        u.role === 'rabbit' ||
+        u.role === 'penguin' ||
+        u.role === 'frog' ||
+        u.role === 'crab'
+      ) {
         return { pickRadius: 0.54, ringScale: 0.76, bodyHeight: 0.78, centerOffsetY: 0.32 };
       }
       if (u.ageStage === 'child') {
@@ -8517,8 +8590,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           u.role === 'leviathan' ||
           u.role === 'phoenix' ||
           u.role === 'griffin' ||
+          u.role === 'pegasus' ||
           u.role === 'yeti' ||
           u.role === 'golem' ||
+          u.role === 'hydra' ||
+          u.role === 'minotaur' ||
+          u.role === 'cerberus' ||
+          u.role === 'ent' ||
           u.role === 'alien_walker' ||
           u.role === 'alien_ufo';
         const isProtectedUnit =
@@ -8651,9 +8729,17 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           u.role === 'leviathan' ||
           u.role === 'phoenix' ||
           u.role === 'griffin' ||
+          u.role === 'pegasus' ||
           u.role === 'yeti' ||
           u.role === 'golem' ||
+          u.role === 'hydra' ||
+          u.role === 'minotaur' ||
+          u.role === 'cerberus' ||
+          u.role === 'ent' ||
           u.role === 'elephant' ||
+          u.role === 'rhino' ||
+          u.role === 'hippo' ||
+          u.role === 'polar_bear' ||
           u.role === 'alien_walker' ||
           u.role === 'alien_ufo'
             ? autoOptDecisions.unitCastShadows
@@ -8806,8 +8892,17 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           u.state === 'gathering' || u.state === 'building' || u.state === 'fighting';
         const isDragon = u.role === 'dragon';
         const isLeviathan = u.role === 'leviathan';
-        const isFlyingMythic = u.role === 'phoenix' || u.role === 'griffin';
-        const isHeavyTitan = u.role === 'elephant' || u.role === 'yeti' || u.role === 'golem';
+        const isFlyingMythic = u.role === 'phoenix' || u.role === 'griffin' || u.role === 'pegasus';
+        const isHeavyTitan =
+          u.role === 'elephant' ||
+          u.role === 'yeti' ||
+          u.role === 'golem' ||
+          u.role === 'rhino' ||
+          u.role === 'hippo' ||
+          u.role === 'polar_bear' ||
+          u.role === 'hydra' ||
+          u.role === 'minotaur' ||
+          u.role === 'ent';
         const isAnimal = ANIMAL_ROLE_SET.has(u.role);
         const seedPhase = ((u.appearanceSeed ?? 1) % 31) * 0.41;
         const atkTimer = u.attackAnimTimer ?? 0;
@@ -8823,17 +8918,23 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         const isAirborneVisual = simAltitude > 0.35 || Boolean(u.draggedByPlayer);
 
         const bobFreq =
-          u.role === 'chicken' || u.role === 'rabbit'
+          u.role === 'chicken' || u.role === 'rabbit' || u.role === 'frog' || u.role === 'crab'
             ? 17
-            : u.role === 'wolf' || u.role === 'fox' || u.role === 'deer' || u.role === 'kitsune'
+            : u.role === 'wolf' ||
+                u.role === 'fox' ||
+                u.role === 'deer' ||
+                u.role === 'horse' ||
+                u.role === 'monkey' ||
+                u.role === 'cerberus' ||
+                u.role === 'kitsune'
               ? 14
-              : u.role === 'lion' || u.role === 'boar'
+              : u.role === 'lion' || u.role === 'boar' || u.role === 'goat'
                 ? 12.5
                 : u.role === 'penguin'
                   ? 11.5
-                  : u.role === 'crocodile'
-                    ? 8.8
-                    : u.role === 'dinosaur' || u.role === 'bear' || u.role === 'camel'
+                  : u.role === 'crocodile' || u.role === 'turtle'
+                    ? 8.5
+                    : u.role === 'dinosaur' || u.role === 'bear' || u.role === 'camel' || u.role === 'panda'
                       ? 9.5
                       : isHeavyTitan
                         ? 7.8
@@ -8845,13 +8946,20 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             ? 0
             : isMoving
               ? Math.abs(Math.sin(elapsed * bobFreq + seedPhase)) *
-                (u.role === 'rabbit'
-                  ? 0.21
-                  : u.role === 'chicken'
+                (u.role === 'rabbit' || u.role === 'frog'
+                  ? 0.22
+                  : u.role === 'chicken' || u.role === 'monkey'
                     ? 0.13
-                    : u.role === 'wolf' || u.role === 'unicorn' || u.role === 'deer' || u.role === 'fox' || u.role === 'kitsune'
+                    : u.role === 'wolf' ||
+                        u.role === 'unicorn' ||
+                        u.role === 'deer' ||
+                        u.role === 'fox' ||
+                        u.role === 'horse' ||
+                        u.role === 'goat' ||
+                        u.role === 'cerberus' ||
+                        u.role === 'kitsune'
                       ? 0.1
-                      : u.role === 'crocodile'
+                      : u.role === 'crocodile' || u.role === 'turtle' || u.role === 'crab'
                         ? 0.028
                         : isHeavyTitan
                           ? 0.055
@@ -8862,11 +8970,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
                 ? Math.abs(Math.sin(elapsed * 14 + seedPhase)) * (isAnimal ? 0.025 : 0.05)
                 : 0;
         const pounceHopY =
-          isAttacking && !isFrozen && !isDragon && !isLeviathan && !isFlyingMythic && u.role !== 'bear' && !isHeavyTitan && u.role !== 'crocodile'
+          isAttacking && !isFrozen && !isDragon && !isLeviathan && !isFlyingMythic && u.role !== 'bear' && !isHeavyTitan && u.role !== 'crocodile' && u.role !== 'turtle'
             ? Math.sin(atkProg * Math.PI) *
-              (u.role === 'wolf' || u.role === 'lion' || u.role === 'fox'
+              (u.role === 'wolf' || u.role === 'lion' || u.role === 'fox' || u.role === 'cerberus'
                 ? 0.4
-                : u.role === 'chicken' || u.role === 'rabbit'
+                : u.role === 'chicken' || u.role === 'rabbit' || u.role === 'frog' || u.role === 'monkey'
                   ? 0.24
                   : 0.16)
             : 0;
@@ -8880,7 +8988,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
                   ? 2.54
                   : 2.34) + Math.sin(elapsed * 2.3 + seedPhase) * (isDragonStrafing ? 0.08 : 0.22)
             : isFlyingMythic && u.state !== 'ko'
-              ? (u.role === 'phoenix' ? 1.82 : isAttacking ? 1.15 : 1.56) +
+              ? (u.role === 'phoenix' ? 1.82 : u.role === 'pegasus' ? 1.62 : isAttacking ? 1.15 : 1.56) +
                 Math.sin(elapsed * (u.role === 'phoenix' ? 3.2 : 2.7) + seedPhase) * 0.2
               : u.role === 'alien_ufo' && u.state !== 'ko'
                 ? Math.sin(elapsed * 3.8 + seedPhase) * 0.26
@@ -9100,23 +9208,46 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
               bodyForward = 0.26;
             } else if (isAttacking) {
               const s = Math.sin(atkProg * Math.PI);
-              if (u.role === 'bear' || u.role === 'yeti' || u.role === 'golem') {
+              if (
+                u.role === 'bear' ||
+                u.role === 'polar_bear' ||
+                u.role === 'yeti' ||
+                u.role === 'golem' ||
+                u.role === 'minotaur' ||
+                u.role === 'ent'
+              ) {
                 bodyPitch = atkProg < 0.45 ? -0.52 * (atkProg / 0.45) : -0.52 + 0.84 * ((atkProg - 0.45) / 0.55);
                 bodyForward = atkProg > 0.45 ? 0.24 * Math.sin(((atkProg - 0.45) / 0.55) * Math.PI) : -0.08;
-              } else if (u.role === 'unicorn' || u.role === 'deer' || u.role === 'kitsune') {
+              } else if (
+                u.role === 'unicorn' ||
+                u.role === 'deer' ||
+                u.role === 'horse' ||
+                u.role === 'pegasus' ||
+                u.role === 'kitsune'
+              ) {
                 bodyPitch = -0.3 * s;
                 bodyForward = 0.26 * s;
-              } else if (u.role === 'dinosaur' || u.role === 'elephant' || u.role === 'boar') {
+              } else if (
+                u.role === 'dinosaur' ||
+                u.role === 'elephant' ||
+                u.role === 'boar' ||
+                u.role === 'rhino' ||
+                u.role === 'hippo' ||
+                u.role === 'goat'
+              ) {
                 bodyPitch = (isHerbivoreDino ? 0.34 : 0.26) * s;
                 bodyForward = 0.34 * s;
               } else if (!isDragon) {
                 bodyPitch = 0.24 * s;
-                bodyForward = (u.role === 'wolf' || u.role === 'lion' || u.role === 'crocodile' ? 0.38 : 0.24) * s;
+                bodyForward =
+                  (u.role === 'wolf' || u.role === 'lion' || u.role === 'crocodile' || u.role === 'cerberus' || u.role === 'hydra'
+                    ? 0.38
+                    : 0.24) * s;
               }
             }
             bodyPivot.rotation.x = bodyPitch;
             bodyPivot.position.z = bodyForward;
-            const breath = isMoving || isLeviathan || u.role === 'golem' ? 0 : Math.sin(elapsed * 3.4 + seedPhase) * 0.035;
+            const breath = isMoving || isLeviathan || u.role === 'golem' || u.role === 'ent' ? 0 : Math.sin(elapsed * 3.4 + seedPhase) * 0.035;
             if (u.role !== 'dinosaur') {
               bodyPivot.scale.y = 1 + breath;
             }
@@ -9179,15 +9310,21 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
               u.role === 'rabbit' ||
               u.role === 'camel' ||
               u.role === 'elephant' ||
+              u.role === 'horse' ||
+              u.role === 'goat' ||
+              u.role === 'panda' ||
+              u.role === 'hippo' ||
+              u.role === 'rhino' ||
+              u.role === 'turtle' ||
               u.role === 'kitsune' ||
               isHerbivoreDino
             ) {
               const grazeWave = Math.max(0, Math.sin(elapsed * 0.75 + seedPhase));
               headPivot.rotation.x = !isMoving
                 ? grazeWave *
-                  (u.role === 'unicorn' || u.role === 'kitsune' || u.role === 'camel'
+                  (u.role === 'unicorn' || u.role === 'kitsune' || u.role === 'camel' || u.role === 'horse'
                     ? 0.26
-                    : u.role === 'elephant'
+                    : u.role === 'elephant' || u.role === 'rhino' || u.role === 'hippo'
                       ? 0.22
                       : isHerbivoreDino
                         ? 0.36
@@ -9375,7 +9512,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
 
           const strideFreq = isMoving ? bobFreq : 0;
           const legAmp = isMoving
-            ? u.role === 'wolf' || u.role === 'unicorn' || u.role === 'deer' || u.role === 'lion' || u.role === 'fox' || u.role === 'kitsune'
+            ? u.role === 'wolf' ||
+                u.role === 'unicorn' ||
+                u.role === 'deer' ||
+                u.role === 'lion' ||
+                u.role === 'fox' ||
+                u.role === 'horse' ||
+                u.role === 'cerberus' ||
+                u.role === 'kitsune'
               ? 0.62
               : isHeavyTitan
                 ? 0.36
@@ -9385,7 +9529,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           const { legFL, legFR, legBL, legBR, legL, legR } = uEntry;
 
           if (legFL && legFR && legBL && legBR) {
-            if (isDragon || u.role === 'griffin') {
+            if (isDragon || u.role === 'griffin' || u.role === 'pegasus') {
               legFL.rotation.x = isAttacking ? -0.45 * Math.sin(atkProg * Math.PI) : 0.52;
               legFR.rotation.x = isAttacking ? -0.45 * Math.sin(atkProg * Math.PI) : 0.52;
               legBL.rotation.x = 0.68;
@@ -9396,14 +9540,27 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
               legBR.rotation.x = walkerSwing;
               legFR.rotation.x = -walkerSwing;
               legBL.rotation.x = -walkerSwing;
-            } else if (isAttacking && (u.role === 'bear' || u.role === 'unicorn' || u.role === 'yeti' || u.role === 'golem')) {
-              const pawLift = Math.sin(atkProg * Math.PI) * (u.role === 'yeti' || u.role === 'golem' ? -1.15 : -0.95);
+            } else if (
+              isAttacking &&
+              (u.role === 'bear' ||
+                u.role === 'polar_bear' ||
+                u.role === 'unicorn' ||
+                u.role === 'yeti' ||
+                u.role === 'golem' ||
+                u.role === 'minotaur' ||
+                u.role === 'ent')
+            ) {
+              const pawLift =
+                Math.sin(atkProg * Math.PI) *
+                (u.role === 'yeti' || u.role === 'golem' || u.role === 'minotaur' || u.role === 'ent'
+                  ? -1.15
+                  : -0.95);
               legFL.rotation.x = pawLift;
               legFR.rotation.x = pawLift;
               legBL.rotation.x = 0.18;
               legBR.rotation.x = 0.18;
-            } else if (u.role === 'rabbit' && isMoving) {
-              // Synchronized rabbit hop: front pair & hind pair cycle together
+            } else if ((u.role === 'rabbit' || u.role === 'frog') && isMoving) {
+              // Synchronized hop: front pair & hind pair cycle together
               const hopSwing = Math.sin(legPhase) * 0.72;
               legFL.rotation.x = hopSwing;
               legFR.rotation.x = hopSwing;
@@ -12621,6 +12778,56 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             if (flightT < 1 && Math.random() < 0.55) {
               spawnParticleBurst(curX, curY, curZ, 1, '#c084fc', 0.14, 0.5, 0.3);
             }
+          } else if (fx.vfxSubtype === 'ice_ball') {
+            // Yeti's thrown blocky voxel ice ball: high parabolic lob, tumbling cubes, snowy trail & frost shatter
+            const throwDist = Math.hypot(fx.tx - ox, fx.tz - oz);
+            const arcPeak = Math.max(0.75, Math.min(2.1, throwDist * 0.24));
+            const curX = ox + (fx.tx - ox) * flightT;
+            const curY = (oy + 0.45) + (fx.ty - (oy + 0.45)) * flightT + 4 * flightT * (1 - flightT) * arcPeak;
+            const curZ = oz + (fx.tz - oz) * flightT;
+            fx.tracerMesh.position.set(curX, curY, curZ);
+            fx.tracerMesh.rotation.x += dt * 9.5;
+            fx.tracerMesh.rotation.y += dt * 11.5;
+            if (flightT < 1 && Math.random() < 0.65) {
+              spawnParticleBurst(curX, curY, curZ, 1, Math.random() < 0.5 ? '#bae6fd' : '#ffffff', 0.18, 0.55, 0.34);
+            }
+            if (flightT >= 1 && !fx.impactFired) {
+              fx.impactFired = true;
+              spawnParticleBurst(fx.tx, fx.ty + 0.32, fx.tz, 18, '#bae6fd', Math.max(0.65, fx.radius * 0.6), 4.6, 0.85);
+              spawnParticleBurst(fx.tx, fx.ty + 0.36, fx.tz, 10, '#ffffff', 0.48, 3.8, 0.68);
+            }
+          } else if (fx.vfxSubtype === 'foxfire_ball') {
+            // Kitsune / Phoenix / Cerberus blocky flame ball: brisk arched shot, spinning embers & fiery impact
+            const curX = ox + (fx.tx - ox) * flightT;
+            const curY = (oy + 0.18) + (fx.ty - (oy + 0.18)) * flightT + Math.sin(flightT * Math.PI) * 0.44;
+            const curZ = oz + (fx.tz - oz) * flightT;
+            fx.tracerMesh.position.set(curX, curY, curZ);
+            fx.tracerMesh.rotation.x += dt * 13;
+            fx.tracerMesh.rotation.y += dt * 15;
+            if (flightT < 1 && Math.random() < 0.72) {
+              spawnParticleBurst(curX, curY, curZ, 1, Math.random() < 0.5 ? (fx.colorHex || '#ff6b1a') : '#fde047', 0.16, 0.6, 0.32);
+            }
+            if (flightT >= 1 && !fx.impactFired) {
+              fx.impactFired = true;
+              spawnParticleBurst(fx.tx, fx.ty + 0.3, fx.tz, 18, fx.colorHex || '#ff6b1a', Math.max(0.6, fx.radius * 0.65), 4.8, 0.84);
+              spawnParticleBurst(fx.tx, fx.ty + 0.34, fx.tz, 9, '#fde047', 0.45, 4.2, 0.62);
+            }
+          } else if (fx.vfxSubtype === 'venom_ball') {
+            // Hydra's three-headed blocky venom glob: lobbed arc, toxic trail & acid splash
+            const curX = ox + (fx.tx - ox) * flightT;
+            const curY = (oy + 0.35) + (fx.ty - (oy + 0.35)) * flightT + Math.sin(flightT * Math.PI) * 0.62;
+            const curZ = oz + (fx.tz - oz) * flightT;
+            fx.tracerMesh.position.set(curX, curY, curZ);
+            fx.tracerMesh.rotation.x += dt * 10;
+            fx.tracerMesh.rotation.z += dt * 12;
+            if (flightT < 1 && Math.random() < 0.62) {
+              spawnParticleBurst(curX, curY, curZ, 1, '#84cc16', 0.16, 0.55, 0.32);
+            }
+            if (flightT >= 1 && !fx.impactFired) {
+              fx.impactFired = true;
+              spawnParticleBurst(fx.tx, fx.ty + 0.3, fx.tz, 16, '#84cc16', Math.max(0.55, fx.radius * 0.6), 4.2, 0.78);
+              spawnParticleBurst(fx.tx, fx.ty + 0.32, fx.tz, 8, '#22c55e', 0.4, 3.6, 0.6);
+            }
           } else if (fx.vfxSubtype === 'plasma_beam' || fx.vfxSubtype === 'laser_beam') {
             const beamPulse = Math.max(0.28, 1.4 - prog * 1.15);
             fx.tracerMesh.scale.set(beamPulse, beamPulse, 1);
@@ -13793,6 +14000,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       sharedPlasmaBeamGeo.dispose();
       sharedPlasmaMuzzleGeo.dispose();
       sharedSparkShardGeo.dispose();
+      sharedVoxelBallCoreGeo.dispose();
+      sharedVoxelBallBandXGeo.dispose();
+      sharedVoxelBallBandYGeo.dispose();
+      sharedVoxelBallBandZGeo.dispose();
+      sharedVoxelBallChipGeo.dispose();
       sharedNukeStemGeo.dispose();
       sharedNukeCapGeo.dispose();
       sharedNukeTorusGeo.dispose();

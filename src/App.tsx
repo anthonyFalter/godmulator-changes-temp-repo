@@ -1046,7 +1046,7 @@ export default function App() {
           const def = UNITS.find((d) => d.role === nearbyUnit.role);
           const label =
             nearbyUnit.faction === 'wildlife'
-              ? `${def?.category === 'mythical' ? 'Mythical Beast' : 'Animal'} • ${def?.name ?? nearbyUnit.role}`
+              ? def?.name ?? nearbyUnit.role
               : nearbyUnit.ageStage === 'child'
                 ? `${nearbyUnit.species} child`
                 : `${nearbyUnit.species} ${nearbyUnit.role}`;
@@ -3565,7 +3565,7 @@ export default function App() {
                           }}
                           onMouseEnter={() =>
                             setHoveredHint({
-                              title: isMythic ? `${u.name} (Mythical Beast)` : u.name,
+                              title: u.name,
                               cost: formatCompactCost(u.cost, isFree),
                               detail: u.roleSummary,
                             })
