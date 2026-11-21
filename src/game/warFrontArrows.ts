@@ -27,7 +27,8 @@ const WAR_ARROW_FRAGMENT_SHADER = /* glsl */ `
     float speed = uMomentum > 0.5 ? 2.6 : (uMomentum < -0.5 ? 0.9 : 1.75);
     float edgeDist = abs(vUv.y - 0.5) * 2.0; // 0 at center, 1 at ribbon edge
     float chevronFreq = max(2.0, uLength * 0.48);
-    float chevronCoord = fract(vUv.x * chevronFreq - uTime * speed - edgeDist * 0.42);
+    // Point chevron V-tips forward toward vUv.x = 1 and scroll in +vUv.x direction (- uTime * speed + edgeDist * 0.42)
+    float chevronCoord = fract(vUv.x * chevronFreq - uTime * speed + edgeDist * 0.42);
     float chevronBand = step(0.46, chevronCoord) * step(chevronCoord, 0.86);
 
     // Bright vanguard glow near the advancing arrow tip
@@ -168,10 +169,11 @@ function createArrowEntry(arrow: WarFrontArrowData): WarArrowVisualEntry {
     fragmentShader: WAR_ARROW_FRAGMENT_SHADER,
     transparent: true,
     depthWrite: false,
+    depthTest: false,
     side: THREE.DoubleSide,
   });
   const shaftMesh = new THREE.Mesh(shaftGeo, shaftMat);
-  shaftMesh.renderOrder = 15;
+  shaftMesh.renderOrder = 25;
   shaftMesh.frustumCulled = false;
 
   const borderPos = new Float32Array(vertCount * 3);
@@ -183,10 +185,11 @@ function createArrowEntry(arrow: WarFrontArrowData): WarArrowVisualEntry {
     transparent: true,
     opacity: 0.86,
     depthWrite: false,
+    depthTest: false,
     side: THREE.DoubleSide,
   });
   const borderMesh = new THREE.Mesh(borderGeo, borderMat);
-  borderMesh.renderOrder = 14;
+  borderMesh.renderOrder = 24;
   borderMesh.frustumCulled = false;
 
   // V-notched arrowhead: 4 vertices (0: tip, 1: leftWing, 2: innerNotch, 3: rightWing) -> 2 triangles
@@ -208,10 +211,11 @@ function createArrowEntry(arrow: WarFrontArrowData): WarArrowVisualEntry {
     fragmentShader: WAR_HEAD_FRAGMENT_SHADER,
     transparent: true,
     depthWrite: false,
+    depthTest: false,
     side: THREE.DoubleSide,
   });
   const headMesh = new THREE.Mesh(headGeo, headMat);
-  headMesh.renderOrder = 16;
+  headMesh.renderOrder = 26;
   headMesh.frustumCulled = false;
 
   const headBorderPos = new Float32Array(4 * 3);
@@ -219,7 +223,7 @@ function createArrowEntry(arrow: WarFrontArrowData): WarArrowVisualEntry {
   headBorderGeo.setAttribute('position', new THREE.BufferAttribute(headBorderPos, 3));
   headBorderGeo.setIndex(new THREE.BufferAttribute(headIndices.slice(), 1));
   const headBorderMesh = new THREE.Mesh(headBorderGeo, borderMat);
-  headBorderMesh.renderOrder = 14;
+  headBorderMesh.renderOrder = 24;
   headBorderMesh.frustumCulled = false;
 
   // Faint dashed route line from current tip to defender target capital
@@ -233,9 +237,10 @@ function createArrowEntry(arrow: WarFrontArrowData): WarArrowVisualEntry {
     transparent: true,
     opacity: 0.45,
     depthWrite: false,
+    depthTest: false,
   });
   const dashLine = new THREE.Line(dashGeo, dashMat);
-  dashLine.renderOrder = 13;
+  dashLine.renderOrder = 23;
   dashLine.frustumCulled = false;
 
   group.add(dashLine, borderMesh, headBorderMesh, shaftMesh, headMesh);
@@ -385,9 +390,28 @@ export function createWarFrontArrowsSystem(): WarFrontArrowsSystem {
       const shaftEndT = Math.max(startT + 0.02, tipT - (headLenWorld * 0.62) / spanDist);
       const baseHalfW = Math.max(0.32, Math.min(0.68, spanDist * 0.018));
       const borderPad = Math.max(0.14, baseHalfW * 0.34);
-      const arcLift = Math.min(2.4, Math.max(0.55, spanDist * 0.04));
 
-      // 1. Update tapered ribbon shaft + dark outline skirt
+      // Compute a single uniform elevated plane above the highest terrain along the entire route
+      // so the arrow floats cleanly on top of terrain with zero vertical zig-zagging
+      let maxRouteSurfY = WATER_SURFACE_Y;
+      for (let k = 0; k <= 12; k++) {
+        const sampleT = k / 12;
+        const [sx, sz] = evaluateCurvePoint(
+          arrow.fromX,
+          arrow.fromZ,
+          ctrlX,
+          ctrlZ,
+          arrow.toX,
+          arrow.toZ,
+          sampleT,
+        );
+        const sy = sampleTerrainHeight(simState, sx, sz);
+        if (sy > maxRouteSurfY) maxRouteSurfY = sy;
+      }
+      const flatBaseY = Math.max(WATER_SURFACE_Y + 1.85, maxRouteSurfY + 1.45);
+      const arcLift = Math.min(0.85, Math.max(0.25, spanDist * 0.015));
+
+      // 1. Update tapered ribbon shaft + dark outline skirt on smooth elevated plane
       for (let s = 0; s <= SHAFT_SEGMENTS; s++) {
         const frac = s / SHAFT_SEGMENTS;
         const t = startT + (shaftEndT - startT) * frac;
@@ -396,8 +420,7 @@ export function createWarFrontArrowsSystem(): WarFrontArrowsSystem {
         const sideX = -tz;
         const sideZ = tx;
 
-        const surfY = sampleTerrainHeight(simState, px, pz);
-        const py = Math.max(WATER_SURFACE_Y + 0.72, surfY + 1.12) + Math.sin(t * Math.PI) * arcLift;
+        const py = flatBaseY + Math.sin(t * Math.PI) * arcLift;
 
         // Slightly widens from tail toward arrowhead for bold strategic arrow silhouette
         const halfW = baseHalfW * (0.62 + frac * 0.54);
@@ -432,8 +455,7 @@ export function createWarFrontArrowsSystem(): WarFrontArrowsSystem {
       const [tDirX, tDirZ] = evaluateCurveTangent(arrow.fromX, arrow.fromZ, ctrlX, ctrlZ, arrow.toX, arrow.toZ, tipT);
       const hSideX = -tDirZ;
       const hSideZ = tDirX;
-      const tipSurfY = sampleTerrainHeight(simState, tipX, tipZ);
-      const tipY = Math.max(WATER_SURFACE_Y + 0.72, tipSurfY + 1.12) + Math.sin(tipT * Math.PI) * arcLift;
+      const tipY = flatBaseY + Math.sin(tipT * Math.PI) * arcLift;
 
       const writeHeadQuad = (
         arr: Float32Array,
@@ -474,8 +496,7 @@ export function createWarFrontArrowsSystem(): WarFrontArrowsSystem {
         const dtFrac = d / DASH_SEGMENTS;
         const t = tipT + (dashEndT - tipT) * dtFrac;
         const [px, pz] = evaluateCurvePoint(arrow.fromX, arrow.fromZ, ctrlX, ctrlZ, arrow.toX, arrow.toZ, t);
-        const surfY = sampleTerrainHeight(simState, px, pz);
-        const py = Math.max(WATER_SURFACE_Y + 0.68, surfY + 1.04) + Math.sin(t * Math.PI) * arcLift;
+        const py = flatBaseY + Math.sin(t * Math.PI) * arcLift;
         entry.dashPos[d * 3] = px;
         entry.dashPos[d * 3 + 1] = py;
         entry.dashPos[d * 3 + 2] = pz;

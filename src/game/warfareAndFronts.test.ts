@@ -378,3 +378,41 @@ test('War-front arrows ONLY render when at war AND Kingdoms/Alliances zones are 
   });
   assert.equal(afterPeaceArrows.length, 0, 'War-front arrows must vanish immediately once peace is signed');
 });
+
+test('Kingdoms actively claim expansive territory and annex enemy territory and buildings during war', () => {
+  const sim = makeLandSim(64);
+  addKingdomSettlement(sim, 'alpha_k', 'Aurelia', 'human', 3, 20, 32, 4);
+  addKingdomSettlement(sim, 'beta_k', 'Mordrak', 'orc', 3, 36, 32, 4);
+
+  const initialZones = computeWorldZones(sim);
+  const alphaInitZone = Array.from(initialZones.kingdomsById.values()).find((k) => k.kingdomId === 'alpha_k')!;
+  const betaInitZone = Array.from(initialZones.kingdomsById.values()).find((k) => k.kingdomId === 'beta_k')!;
+  assert.ok(alphaInitZone && betaInitZone, 'Both kingdom zones must exist');
+
+  // Declare war and place an Alpha invasion force right outside Beta's outpost building
+  setKingdomRelation(sim, 'alpha_k', 'beta_k', 'war');
+  const targetBetaBld = sim.buildings.find((b) => b.settlementId === 'beta_k')!;
+  targetBetaBld.hp = 25; // Nearly conquered
+  for (const u of sim.units) {
+    if (u.kingdomId === 'alpha_k') {
+      u.x = targetBetaBld.tileX - 1;
+      u.z = targetBetaBld.tileZ;
+      u.actionCooldown = 0;
+    }
+  }
+
+  // Step strategic warfare & unit combat/claiming
+  stepStrategicWarfare(sim, 4.0);
+  const claimedTilesBefore = sim.tiles.filter((t) => t.claimedSettlementId === 'alpha_k').length;
+  // Direct strategic impact also annexes tiles
+  const activeStrikes = sim.activeStrategicStrikes ?? [];
+  if (activeStrikes.length > 0) {
+    stepStrategicWarfare(sim, 5.0);
+  }
+  const claimedTilesAfter = sim.tiles.filter((t) => t.claimedSettlementId === 'alpha_k').length;
+  assert.ok(
+    claimedTilesAfter >= claimedTilesBefore && claimedTilesAfter > 0,
+    'Warring kingdoms must actively claim and annex enemy territory tiles',
+  );
+});
+

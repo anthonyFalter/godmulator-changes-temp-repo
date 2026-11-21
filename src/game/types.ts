@@ -90,6 +90,7 @@ export interface TileData {
   fireColor?: string;
   buildingId: string | null;
   farmSettlementId?: string;
+  claimedSettlementId?: string;
   isRiver?: boolean;
   isLake?: boolean;
   coralBleachTimer?: number;

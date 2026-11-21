@@ -5685,6 +5685,75 @@ function stepKingdomDiplomacyAndRebellions(state: SimulationState, dt: number): 
   }
 }
 
+function resolvePrimarySettlementForKingdom(
+  state: SimulationState,
+  kingdomId: string,
+  nearX: number,
+  nearZ: number,
+): string | undefined {
+  let bestSid: string | undefined;
+  let bestDistSq = Infinity;
+  for (let i = 0; i < state.buildings.length; i++) {
+    const b = state.buildings[i];
+    if (b.hp <= 0 || !b.settlementId) continue;
+    if (getKingdomId(state, b.settlementId) !== kingdomId) continue;
+    const dSq = (b.tileX - nearX) ** 2 + (b.tileZ - nearZ) ** 2;
+    if (dSq < bestDistSq) {
+      bestDistSq = dSq;
+      bestSid = b.settlementId;
+    }
+  }
+  if (bestSid) return bestSid;
+  for (let i = 0; i < state.units.length; i++) {
+    const u = state.units[i];
+    if (u.faction !== 'civilization' || u.state === 'ko' || u.hp <= 0) continue;
+    const uKid = u.settlementId ? getKingdomId(state, u.settlementId) : u.kingdomId;
+    if (uKid === kingdomId && u.settlementId) return u.settlementId;
+  }
+  return state.settlementNames?.[kingdomId] ? kingdomId : undefined;
+}
+
+export function claimTerritoryAround(
+  state: SimulationState,
+  cx: number,
+  cz: number,
+  radius: number,
+  settlementId: string | undefined,
+  kingdomId: string | undefined,
+  canConquerEnemy = false,
+): number {
+  if (!settlementId || !kingdomId) return 0;
+  let claimed = 0;
+  forEachTileInRadius(state, cx, cz, radius, (t) => {
+    // Do not overwrite an intact enemy building tile until that building is destroyed
+    if (t.buildingId) {
+      const b = state.buildings.find((bld) => bld.id === t.buildingId && bld.hp > 0);
+      if (b && b.settlementId && getKingdomId(state, b.settlementId) !== kingdomId) {
+        return;
+      }
+    }
+    const existingOwnerSid = t.claimedSettlementId ?? t.farmSettlementId;
+    if (!existingOwnerSid) {
+      t.claimedSettlementId = settlementId;
+      claimed++;
+      return;
+    }
+    const existingOwnerKid = getKingdomId(state, existingOwnerSid);
+    if (existingOwnerKid === kingdomId) {
+      if (!t.claimedSettlementId) t.claimedSettlementId = settlementId;
+      return;
+    }
+    if (canConquerEnemy && areKingdomsAtWar(state, kingdomId, existingOwnerKid)) {
+      t.claimedSettlementId = settlementId;
+      if (t.farmSettlementId && getKingdomId(state, t.farmSettlementId) !== kingdomId) {
+        t.farmSettlementId = settlementId;
+      }
+      claimed++;
+    }
+  });
+  return claimed;
+}
+
 function resolveStrategicStrikeImpact(
   state: SimulationState,
   strike: StrategicWarStrike,
@@ -5861,6 +5930,7 @@ function resolveStrategicStrikeImpact(
       : strike.isSuperweapon
         ? 1.45
         : 1.15;
+  const attackerSid = resolvePrimarySettlementForKingdom(state, strike.attackerKingdomId, tx, tz);
   for (let bi = 0; bi < state.buildings.length; bi++) {
     const b = state.buildings[bi];
     if (b.hp <= 0) continue;
@@ -5873,7 +5943,15 @@ function resolveStrategicStrikeImpact(
         else continue;
       }
       b.hp = Math.max(0, b.hp - strike.damage * bldMult);
+      if (b.hp <= 0 && attackerSid) {
+        const bt = getTile(state, b.tileX, b.tileZ);
+        if (bt && bt.buildingId === b.id) bt.buildingId = null;
+        claimTerritoryAround(state, b.tileX, b.tileZ, 4.2, attackerSid, strike.attackerKingdomId, true);
+      }
     }
+  }
+  if (attackerSid) {
+    claimTerritoryAround(state, tx, tz, Math.max(2.2, r * 0.85), attackerSid, strike.attackerKingdomId, true);
   }
 }
 
@@ -8330,13 +8408,33 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
       };
       site.buildingId = siteBld.id;
       site.farmSettlementId = undefined;
+      site.claimedSettlementId = sid;
       state.buildings.push(siteBld);
       villageBuildings.push(siteBld);
       activeSites += 1;
       state.totalStructuresBuilt += 1;
       paveSettlementStreetsNear(state, site.x, site.z, sid);
+      claimTerritoryAround(state, site.x, site.z, 3.2, sid, sidKingdomId, true);
       const vName = state.settlementNames[sid] ?? 'Settlement';
       addChronicle(state, `Settlers of ${vName} break ground on a ${def.name} at (${site.x}, ${site.z}).`, 'build');
+    }
+
+    // Autonomous Territory Claiming: races constantly seek to claim as much territory as possible
+    // (they can choose to build or just claim border/frontier territory like countries do, including annexing enemy land at war!)
+    if (hasCompletedHearth && villageUnits.length >= 1) {
+      const isAtWarWithAny = Object.entries(state.kingdomRelations ?? {}).some(
+        ([kPair, rel]) => rel === 'war' && kPair.split('::').includes(sidKingdomId),
+      );
+      const claimOriginBld =
+        villageBuildings[Math.floor(Math.abs(state.year * 17) + villageBuildings.length * 3) % villageBuildings.length];
+      if (claimOriginBld) {
+        const claimReach = Math.min(24, 6 + Math.floor(villageBuildings.length * 0.75) + cityEpoch * 2);
+        const angle = ((state.year * 2.3 + claimOriginBld.tileX * 0.7 + claimOriginBld.tileZ * 1.1) % 1) * Math.PI * 2;
+        const dist = 2 + (Math.abs(Math.sin(state.year * 3.7 + claimOriginBld.tileX)) * (claimReach - 2));
+        const claimX = Math.max(1, Math.min(state.gridSize - 2, Math.round(claimOriginBld.tileX + Math.cos(angle) * dist)));
+        const claimZ = Math.max(1, Math.min(state.gridSize - 2, Math.round(claimOriginBld.tileZ + Math.sin(angle) * dist)));
+        claimTerritoryAround(state, claimX, claimZ, isAtWarWithAny ? 2.6 : 2.1, sid, sidKingdomId, isAtWarWithAny);
+      }
     }
 
     // Autonomous Frontier Colonization from this kingdom's food stock
@@ -10497,6 +10595,9 @@ function stepSimulationSingle(
           if (t.farmSettlementId === sid) {
             t.farmSettlementId = undefined;
           }
+          if (t.claimedSettlementId === sid) {
+            t.claimedSettlementId = undefined;
+          }
         }
       }
     }
@@ -12171,6 +12272,16 @@ function stepVehicles(state: SimulationState, dt: number): void {
             targetBld.hp = Math.max(0, targetBld.hp - dmg * 1.35);
             // Fortified settlements return defensive flak/turret fire against attacking vehicles
             v.hp = Math.max(0, (v.hp ?? 100) - 8);
+            if (targetBld.hp <= 0 && v.settlementId && myKid) {
+              claimTerritoryAround(state, targetBld.tileX, targetBld.tileZ, 4.2, v.settlementId, myKid, true);
+              targetBld.settlementId = v.settlementId;
+              targetBld.species = v.species ?? 'human';
+              targetBld.hp = Math.max(45, Math.round(targetBld.maxHp * 0.45));
+              targetBld.constructionProgress = 100;
+            }
+          }
+          if (v.settlementId && myKid) {
+            claimTerritoryAround(state, targetX, targetZ, 2.0, v.settlementId, myKid, true);
           }
         }
       }
@@ -15794,7 +15905,7 @@ function stepCivilianUnitAI(
   const mySettlementAttackers = u.settlementId && idx ? idx.attackersOfSettlement.get(u.settlementId) : undefined;
   const myKingdomAttackers = myKingdomId && idx ? idx.attackersOfKingdom.get(myKingdomId) : undefined;
   const isWarriorOrKingOrOrc = u.role === 'warrior' || u.isKing || u.species === 'orc';
-  const warMaxR = isWarriorOrKingOrOrc ? 28 : 18;
+  const warMaxR = isWarriorOrKingOrOrc ? 52 : 34;
 
   const considerEnemyCandidate = (other: UnitEntity, dSq: number) => {
     if (other.id === u.id || other.state === 'ko' || other.hp <= 0 || dSq >= enemyDistSq) return;
@@ -16473,6 +16584,12 @@ function stepCivilianUnitAI(
           }
           if (nearestEnemy.hp <= 0) {
             u.kills = (u.kills ?? 0) + 1;
+            const claimSid =
+              u.settlementId ??
+              (myKingdomId ? resolvePrimarySettlementForKingdom(state, myKingdomId, nearestEnemy.x, nearestEnemy.z) : undefined);
+            if (claimSid && myKingdomId) {
+              claimTerritoryAround(state, nearestEnemy.x, nearestEnemy.z, 3.0, claimSid, myKingdomId, true);
+            }
           }
           if (weaponSplash > 0) {
             for (const cand of state.units) {
@@ -16511,11 +16628,16 @@ function stepCivilianUnitAI(
       const dx = (nearestEnemy.x - u.x) / dist;
       const dz = (nearestEnemy.z - u.z) / dist;
       advanceUnitPositionWithWaterRules(state, u, dx, dz, moveSpeed, dt, dist <= 8.0);
+      const claimSid =
+        u.settlementId ?? (myKingdomId ? resolvePrimarySettlementForKingdom(state, myKingdomId, u.x, u.z) : undefined);
+      if (claimSid && myKingdomId) {
+        claimTerritoryAround(state, u.x, u.z, 1.8, claimSid, myKingdomId, true);
+      }
     }
     return;
   }
 
-  // 1a. Attack & Destroy Enemy Vehicles or Enemy Buildings belonging to Kingdoms at War!
+  // 1a. Attack, Annex & Capture Enemy Vehicles or Enemy Buildings belonging to Kingdoms at War!
   if (!isChild && (allOwnSettlementBlds.length > 0 || u.isRebel)) {
     if (state.vehicles && state.vehicles.length > 0) {
       let nearestEnemyVeh: VehicleEntity | null = null;
@@ -16594,6 +16716,8 @@ function stepCivilianUnitAI(
 
     let nearestForeignBld: BuildingEntity | null = null;
     let bestForeignBldDistSq = Infinity;
+    const isInvasionUnit =
+      u.role === 'warrior' || u.isKing || u.species === 'orc' || indivHash % 3 !== 0;
     for (const b of state.buildings) {
       if (b.hp <= 0) continue;
       const bKid = b.settlementId ? getKingdomId(state, b.settlementId) : undefined;
@@ -16604,7 +16728,8 @@ function stepCivilianUnitAI(
       if (!atWarWithBld && !u.statusEffects.frenzied) continue;
       const distToHomeSq = (b.tileX - homeAnchor.x) ** 2 + (b.tileZ - homeAnchor.z) ** 2;
       const distToUnitSq = (b.tileX - u.x) ** 2 + (b.tileZ - u.z) ** 2;
-      const encroachingHome = distToHomeSq <= 26 * 26 || distToUnitSq <= 24 * 24;
+      const maxSearchDistSq = isInvasionUnit ? 96 * 96 : 38 * 38;
+      const encroachingHome = distToHomeSq <= maxSearchDistSq || distToUnitSq <= maxSearchDistSq;
       if (!encroachingHome && !u.statusEffects.frenzied) continue;
       if (distToUnitSq < bestForeignBldDistSq) {
         bestForeignBldDistSq = distToUnitSq;
@@ -16622,8 +16747,14 @@ function stepCivilianUnitAI(
           : u.species === 'elf'
             ? Math.max(3.8, def.attackRange)
             : Math.max(isFloatingBld ? 4.2 : 1.6, def.attackRange);
+      const claimSid =
+        u.settlementId ??
+        (myKingdomId ? resolvePrimarySettlementForKingdom(state, myKingdomId, nearestForeignBld.tileX, nearestForeignBld.tileZ) : undefined);
       if (bDist <= effectiveRange) {
         u.state = 'fighting';
+        if (claimSid && myKingdomId) {
+          claimTerritoryAround(state, u.x, u.z, 2.2, claimSid, myKingdomId, true);
+        }
         if (u.actionCooldown <= 0) {
           u.actionCooldown = u.statusEffects.frenzied ? 0.45 : 0.75;
           const bldDmg =
@@ -16634,6 +16765,23 @@ function stepCivilianUnitAI(
             (u.statusEffects.frenzied ? 2.2 : 1.0);
           if (nearestForeignBld.shieldTimer <= 0) {
             nearestForeignBld.hp = Math.max(0, nearestForeignBld.hp - bldDmg);
+            // When an enemy building is conquered in war, annex its territory and capture/claim the structure for our kingdom!
+            if (nearestForeignBld.hp <= 0 && claimSid && myKingdomId) {
+              claimTerritoryAround(
+                state,
+                nearestForeignBld.tileX,
+                nearestForeignBld.tileZ,
+                4.8,
+                claimSid,
+                myKingdomId,
+                true,
+              );
+              // Capture and occupy the conquered building into the attacker's settlement so the territory flips immediately
+              nearestForeignBld.settlementId = claimSid;
+              nearestForeignBld.species = u.species;
+              nearestForeignBld.hp = Math.max(45, Math.round(nearestForeignBld.maxHp * 0.45));
+              nearestForeignBld.constructionProgress = 100;
+            }
           }
           state.pendingVfx.push({
             id: nextEntityId('vfx'),
@@ -16656,6 +16804,9 @@ function stepCivilianUnitAI(
         const dx = (u.targetX - u.x) / Math.max(0.1, bDist);
         const dz = (u.targetZ - u.z) / Math.max(0.1, bDist);
         advanceUnitPositionWithWaterRules(state, u, dx, dz, moveSpeed, dt, bDist <= 9.0);
+        if (claimSid && myKingdomId) {
+          claimTerritoryAround(state, u.x, u.z, 1.85, claimSid, myKingdomId, true);
+        }
       }
       return;
     }
@@ -17209,18 +17360,32 @@ function stepCivilianUnitAI(
       }
     }
 
-    // Patrol or stroll around OWN settlement (preferring dry land or walkways)
+    // Patrol or march out to claim frontier territory (race's main goal: expand & claim as much territory as possible!)
+    const claimSid =
+      u.settlementId ?? (myKingdomId ? resolvePrimarySettlementForKingdom(state, myKingdomId, u.x, u.z) : undefined);
+    const hasActiveWarEnemy = Boolean(warEnemiesSet && warEnemiesSet.size > 0);
+    if (claimSid && myKingdomId) {
+      claimTerritoryAround(state, u.x, u.z, hasActiveWarEnemy ? 2.2 : 1.75, claimSid, myKingdomId, hasActiveWarEnemy);
+    }
+
     if (villageBuildings.length > 0) {
       const b = villageBuildings[(indivHash + Math.floor(Math.random() * villageBuildings.length)) % villageBuildings.length];
-      u.targetX = Math.max(2, Math.min(state.gridSize - 3, b.tileX + (Math.random() - 0.5) * 5));
-      u.targetZ = Math.max(2, Math.min(state.gridSize - 3, b.tileZ + (Math.random() - 0.5) * 5));
+      const expandRadius = u.role === 'warrior' || shouldPatrolTown ? 11 : 6.5;
+      u.targetX = Math.max(2, Math.min(state.gridSize - 3, b.tileX + (Math.random() - 0.5) * expandRadius * 2));
+      u.targetZ = Math.max(2, Math.min(state.gridSize - 3, b.tileZ + (Math.random() - 0.5) * expandRadius * 2));
     } else {
-      u.targetX = Math.max(2, Math.min(state.gridSize - 3, u.x + (Math.random() - 0.5) * 4));
-      u.targetZ = Math.max(2, Math.min(state.gridSize - 3, u.z + (Math.random() - 0.5) * 4));
+      u.targetX = Math.max(2, Math.min(state.gridSize - 3, u.x + (Math.random() - 0.5) * 6));
+      u.targetZ = Math.max(2, Math.min(state.gridSize - 3, u.z + (Math.random() - 0.5) * 6));
     }
   } else if (distToTarget > 0.35) {
     u.state = 'moving';
     advanceUnitPositionWithWaterRules(state, u, dxT / distToTarget, dzT / distToTarget, moveSpeed, dt, false);
+    const claimSid =
+      u.settlementId ?? (myKingdomId ? resolvePrimarySettlementForKingdom(state, myKingdomId, u.x, u.z) : undefined);
+    const hasActiveWarEnemy = Boolean(warEnemiesSet && warEnemiesSet.size > 0);
+    if (claimSid && myKingdomId && (u.role === 'warrior' || hasActiveWarEnemy || indivHash % 3 === 0)) {
+      claimTerritoryAround(state, u.x, u.z, hasActiveWarEnemy ? 2.0 : 1.5, claimSid, myKingdomId, hasActiveWarEnemy);
+    }
   } else {
     u.state = 'idle';
   }

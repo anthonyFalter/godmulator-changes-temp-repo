@@ -804,8 +804,8 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
       maxCostByZone[zoneId] = Math.max(1.2, 5.8 * hpRatio);
     } else {
       settlementStartCost[zoneId] = 0;
-      const bonus = Math.min(7.5, s.buildingCount * 0.4 + pop * 0.16);
-      maxCostByZone[zoneId] = 8.5 + bonus;
+      const bonus = Math.min(24.0, s.buildingCount * 0.85 + pop * 0.35 + kEpoch * 1.4);
+      maxCostByZone[zoneId] = 10.5 + bonus;
     }
 
     const cIdx = cz * size + cx;
@@ -831,7 +831,7 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
     }
   }
 
-  // Seed from cultivated farm tiles
+  // Seed from cultivated farm tiles and explicitly claimed/annexed territory tiles
   for (let i = 0; i < totalTiles; i++) {
     const tile = tiles[i];
     if (tile.farmSettlementId) {
@@ -848,9 +848,22 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
         }
       }
     }
+    if (tile.claimedSettlementId) {
+      const zoneId = settlementIdToZoneId.get(tile.claimedSettlementId);
+      if (zoneId) {
+        const info = kingdomsById.get(zoneId);
+        if (info && (info.population > 0 || info.buildingCount > 0)) {
+          if (kCost[i] > 0.25) {
+            kCost[i] = 0.25;
+            kingdomMap[i] = zoneId;
+            queueIdx.push(i);
+          }
+        }
+      }
+    }
   }
 
-  // Seed lightly from living citizen positions (excluding colonists currently trekking far afield)
+  // Seed from living citizen positions (excluding colonists currently trekking far afield)
   for (const u of sim.units) {
     if (u.faction !== 'civilization' || u.state === 'ko' || u.hp <= 0) continue;
     if (u.expeditionTargetX !== undefined) continue;
@@ -860,8 +873,8 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
     const ux = Math.max(0, Math.min(size - 1, Math.round(u.x)));
     const uz = Math.max(0, Math.min(size - 1, Math.round(u.z)));
     const uIdx = uz * size + ux;
-    if (kCost[uIdx] > 2.2) {
-      kCost[uIdx] = 2.2;
+    if (kCost[uIdx] > 1.4) {
+      kCost[uIdx] = 1.4;
       kingdomMap[uIdx] = zoneId;
       queueIdx.push(uIdx);
     }
@@ -905,9 +918,9 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
       if (nTile.height === 0 || nTile.terrain === 'deep_water' || nTile.terrain === 'shallow_water') {
         // Intelligent creatures claim coastal waters, bays, harbors, and sea lanes!
         if (nTile.terrain === 'shallow_water') {
-          stepCost *= 1.5; // Shallow coastal shelf / harbor waters
+          stepCost *= 1.45; // Shallow coastal shelf / harbor waters
         } else {
-          stepCost *= 2.75; // Deep maritime territorial limit
+          stepCost *= 2.6; // Deep maritime territorial limit
         }
       } else {
         // Land terrain shaping
@@ -916,15 +929,16 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
           nTile.terrain === 'stone_road' ||
           nTile.terrain === 'rail_track' ||
           nTile.terrain === 'runway' ||
-          nTile.farmSettlementId
+          nTile.farmSettlementId ||
+          nTile.claimedSettlementId
         ) {
-          stepCost *= 0.65; // Roads, rails, and farmlands extend kingdom reach naturally
+          stepCost *= 0.62; // Roads, rails, farmlands, and claimed border lands extend kingdom reach naturally
         } else if (nTile.terrain === 'mountain' || nTile.height >= 7) {
-          stepCost *= 2.55; // Mountain ridges act as natural topographic borders
+          stepCost *= 2.65; // Mountain ridges act as natural topographic borders
         } else if (nTile.terrain === 'swamp' || nTile.terrain === 'jungle') {
-          stepCost *= 1.3;
+          stepCost *= 1.25;
         }
-        stepCost += elevDiff * 0.45;
+        stepCost += elevDiff * 0.42;
       }
 
       const nextCost = currCost + stepCost;
