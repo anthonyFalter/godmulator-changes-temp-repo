@@ -6923,10 +6923,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       const propR = Math.max(14, frustumSize * 0.48);
       const propRSq = propR * propR;
 
-      const cMinX = worldCullBounds.minX;
-      const cMaxX = worldCullBounds.maxX;
-      const cMinZ = worldCullBounds.minZ;
-      const cMaxZ = worldCullBounds.maxZ;
+      // 12-tile guard band around visible bounds prevents per-frame InstancedMesh buffer
+      // rebuilds during smooth zooming/panning while guaranteeing zero edge pop-in.
+      const cullPad = 12.0;
+      const cMinX = worldCullBounds.minX - cullPad;
+      const cMaxX = worldCullBounds.maxX + cullPad;
+      const cMinZ = worldCullBounds.minZ - cullPad;
+      const cMaxZ = worldCullBounds.maxZ + cullPad;
       const useImpostors = treeImpostors.isBaked;
 
       // 1. Trees (4-tier zoom LOD + radial focus + baked 2-tri impostors at far/overview + companion shadow opt)
@@ -7658,10 +7661,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         lastPropCullMaxZ >= simState.gridSize - 1;
       const boundsShifted =
         !wholeMapVisible &&
-        (Math.abs(worldCullBounds.minX - lastPropCullMinX) > 4.0 ||
-          Math.abs(worldCullBounds.maxX - lastPropCullMaxX) > 4.0 ||
-          Math.abs(worldCullBounds.minZ - lastPropCullMinZ) > 4.0 ||
-          Math.abs(worldCullBounds.maxZ - lastPropCullMaxZ) > 4.0);
+        (worldCullBounds.minX < lastPropCullMinX + 1.5 ||
+          worldCullBounds.maxX > lastPropCullMaxX - 1.5 ||
+          worldCullBounds.minZ < lastPropCullMinZ + 1.5 ||
+          worldCullBounds.maxZ > lastPropCullMaxZ - 1.5 ||
+          worldCullBounds.minX - lastPropCullMinX > 26.0 ||
+          lastPropCullMaxX - worldCullBounds.maxX > 26.0 ||
+          worldCullBounds.minZ - lastPropCullMinZ > 26.0 ||
+          lastPropCullMaxZ - worldCullBounds.maxZ > 26.0);
       if (boundsShifted || (wholeMapVisible && !prevWholeMap)) {
         metroNeedsSync = true;
       }
@@ -7669,15 +7676,15 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         Math.abs(frustumSize - lastPropLodFrustum) / Math.max(10, lastPropLodFrustum);
       const radialCamMoved =
         curLodBand < 3 &&
-        (Math.abs(camTarget.x - lastPropCamX) > 4.5 ||
-          Math.abs(camTarget.z - lastPropCamZ) > 4.5);
+        (Math.abs(camTarget.x - lastPropCamX) > 7.5 ||
+          Math.abs(camTarget.z - lastPropCamZ) > 7.5);
 
       if (
         propViewDirty ||
         curLodBand !== lastPropLodBand ||
         lastPropFoliageFactor !== appliedFoliageFactor ||
         boundsShifted ||
-        (curLodBand < 3 && frustumDeltaPct > 0.14) ||
+        (curLodBand < 3 && frustumDeltaPct > 0.25) ||
         radialCamMoved
       ) {
         rebuildVisiblePropsAndLod();
@@ -12899,10 +12906,19 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           isSoftwareGl,
           _renderSizeOut,
         );
-        if (_renderSizeOut.width !== renderWidth || _renderSizeOut.height !== renderHeight) {
-          renderWidth = _renderSizeOut.width;
-          renderHeight = _renderSizeOut.height;
-          renderer.setSize(renderWidth, renderHeight, false);
+        const dw = Math.abs(_renderSizeOut.width - renderWidth);
+        const dh = Math.abs(_renderSizeOut.height - renderHeight);
+        if (dw > 0 || dh > 0) {
+          const zoomSettled =
+            Math.abs(frustumSize - desiredFrustum) <= 0.08 &&
+            Math.abs(currentDynamicPixelScale - targetDynamicPixelScale) <= 0.004;
+          const bigResize =
+            dw >= Math.max(36, renderWidth * 0.08) || dh >= Math.max(24, renderHeight * 0.08);
+          if (zoomSettled || bigResize) {
+            renderWidth = _renderSizeOut.width;
+            renderHeight = _renderSizeOut.height;
+            renderer.setSize(renderWidth, renderHeight, false);
+          }
         }
       }
 
@@ -12956,7 +12972,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         snappedShadow.centerZ + todState.keyOffset[2],
       );
       let shadowFrustumChanged = false;
-      if (Math.abs(shadowBounds - snappedShadow.halfExtent) > 0.5) {
+      if (Math.abs(shadowBounds - snappedShadow.halfExtent) > Math.max(2.5, shadowBounds * 0.12)) {
         shadowBounds = snappedShadow.halfExtent;
         keyLight.shadow.camera.left = -shadowBounds;
         keyLight.shadow.camera.right = shadowBounds;
