@@ -1737,24 +1737,6 @@ export default function App() {
                   }}
                   className="px-range w-full"
                 />
-                <div className="grid grid-cols-6 gap-1 mt-1.5">
-                  {([64, 128, 192, 256, 384, 512] as const).map((sz) => (
-                    <button
-                      key={sz}
-                      type="button"
-                      data-testid={`map-size-preset-${sz}`}
-                      onClick={() => {
-                        setWorldConfig((prev) => ({ ...prev, gridSize: sz }));
-                        soundEngine.playClick();
-                      }}
-                      className={`py-0.5 text-[10px] tabular-nums cursor-pointer ${
-                        worldConfig.gridSize === sz ? 'px-btn-active font-bold' : 'px-btn'
-                      }`}
-                    >
-                      {sz}
-                    </button>
-                  ))}
-                </div>
                 <div className="text-[11px] text-[#b8afa2] mt-1.5 tabular-nums">
                   Max City Pop: <span className="font-semibold text-[#f2ece1]">{getMaxCityPopulation(worldConfig.gridSize)}</span> per city
                 </div>
