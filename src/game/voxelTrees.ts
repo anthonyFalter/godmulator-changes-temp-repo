@@ -587,11 +587,11 @@ class VoxelVolume {
     };
 
     const dims = [sx, sy, sz];
+    // Isometric top-down camera never views trees from below ground, so -y underside faces are 100% invisible.
     const dirs: [number, number, string][] = [
       [0, 1, '+x'],
       [0, -1, '-x'],
       [1, 1, '+y'],
-      [1, -1, '-y'],
       [2, 1, '+z'],
       [2, -1, '-z'],
     ];
@@ -853,11 +853,11 @@ class VoxelVolume {
       '-z': 0.74,
     };
     const dims = [msx, msy, msz];
+    // Isometric top-down camera never views trees from below ground, so -y underside faces are 100% invisible.
     const dirs: [number, number, string][] = [
       [0, 1, '+x'],
       [0, -1, '-x'],
       [1, 1, '+y'],
-      [1, -1, '-y'],
       [2, 1, '+z'],
       [2, -1, '-z'],
     ];

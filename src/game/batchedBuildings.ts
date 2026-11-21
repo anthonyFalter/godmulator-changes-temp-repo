@@ -112,6 +112,68 @@ function normalizeGeometryForBatch(
     }
   }
 
+  // Strip strictly downward-facing (-Y) triangles (e.g. box/cylinder undersides) that are
+  // 100% invisible from the fixed-pitch top-down isometric camera.
+  const pos = nonIdx.getAttribute('position');
+  const norm = nonIdx.getAttribute('normal');
+  const triCount = Math.floor(pos.count / 3);
+  if (triCount > 0 && norm) {
+    let keepTris = 0;
+    const keepMask = new Uint8Array(triCount);
+    for (let t = 0; t < triCount; t++) {
+      const i0 = t * 3;
+      const avgNy = (norm.getY(i0) + norm.getY(i0 + 1) + norm.getY(i0 + 2)) / 3;
+      if (avgNy >= -0.92) {
+        keepMask[t] = 1;
+        keepTris++;
+      }
+    }
+    if (keepTris === 0) {
+      nonIdx.dispose();
+      return null;
+    }
+    if (keepTris < triCount) {
+      const dstVerts = keepTris * 3;
+      const newPos = new Float32Array(dstVerts * 3);
+      const newNorm = new Float32Array(dstVerts * 3);
+      const srcColor = nonIdx.getAttribute('color');
+      const srcUv = nonIdx.getAttribute('uv');
+      const newColor = srcColor ? new Float32Array(dstVerts * 3) : null;
+      const newUv = srcUv ? new Float32Array(dstVerts * 2) : null;
+
+      let outV = 0;
+      for (let t = 0; t < triCount; t++) {
+        if (!keepMask[t]) continue;
+        const base = t * 3;
+        for (let k = 0; k < 3; k++) {
+          const sv = base + k;
+          const o3 = outV * 3;
+          newPos[o3] = pos.getX(sv);
+          newPos[o3 + 1] = pos.getY(sv);
+          newPos[o3 + 2] = pos.getZ(sv);
+          newNorm[o3] = norm.getX(sv);
+          newNorm[o3 + 1] = norm.getY(sv);
+          newNorm[o3 + 2] = norm.getZ(sv);
+          if (newColor && srcColor) {
+            newColor[o3] = srcColor.getX(sv);
+            newColor[o3 + 1] = srcColor.getY(sv);
+            newColor[o3 + 2] = srcColor.getZ(sv);
+          }
+          if (newUv && srcUv) {
+            const o2 = outV * 2;
+            newUv[o2] = srcUv.getX(sv);
+            newUv[o2 + 1] = srcUv.getY(sv);
+          }
+          outV++;
+        }
+      }
+      nonIdx.setAttribute('position', new THREE.BufferAttribute(newPos, 3));
+      nonIdx.setAttribute('normal', new THREE.BufferAttribute(newNorm, 3));
+      if (newColor) nonIdx.setAttribute('color', new THREE.BufferAttribute(newColor, 3));
+      if (newUv) nonIdx.setAttribute('uv', new THREE.BufferAttribute(newUv, 2));
+    }
+  }
+
   return nonIdx;
 }
 

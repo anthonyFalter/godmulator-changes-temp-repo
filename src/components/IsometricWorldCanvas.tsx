@@ -88,6 +88,7 @@ import {
 } from '../game/worldGrid';
 import { ChunkTerrainSystem } from '../game/chunkTerrainRenderer';
 import { BatchedBuildingSystem } from '../game/batchedBuildings';
+import { TreeImpostorSystem } from '../game/treeImpostors';
 import { EngineWorkerPool } from '../game/workerPool';
 import {
   createMagicCirclePlaneGeometry,
@@ -544,7 +545,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     ): THREE.InstancedMesh[][] =>
       TREE_BIOME_KEYS.map((b) => makePropInstancedList(byBiome[b], voxelTreeLib.material, castShadow));
 
-    // Indexed as [charred: 0|1][tier: 0=LOD0, 1=LOD1, 2=LOD2, 3=LOD3-shadow, 4=LOD3-noShadow][biomeIdx][variantIdx]
+    // Indexed as [charred: 0|1][tier: 0=LOD0, 1=LOD1, 2=LOD2, 3=LOD3-shadow, 4=LOD3-noShadow, 5=LOD1-noShadow][biomeIdx][variantIdx]
     const treeInstPools: THREE.InstancedMesh[][][][] = [
       [
         makeTreeBiomePools(voxelTreeLib.byBiome, true),
@@ -552,6 +553,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         makeTreeBiomePools(voxelTreeLib.byBiomeLod2, true),
         makeTreeBiomePools(voxelTreeLib.byBiomeLod3, true),
         makeTreeBiomePools(voxelTreeLib.byBiomeLod3, false),
+        makeTreeBiomePools(voxelTreeLib.byBiomeLod1, false),
       ],
       [
         makeTreeBiomePools(voxelTreeLib.burntByBiome, true),
@@ -559,6 +561,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         makeTreeBiomePools(voxelTreeLib.burntByBiomeLod2, true),
         makeTreeBiomePools(voxelTreeLib.burntByBiomeLod3, true),
         makeTreeBiomePools(voxelTreeLib.burntByBiomeLod3, false),
+        makeTreeBiomePools(voxelTreeLib.burntByBiomeLod1, false),
       ],
     ];
     const allVoxelTreeInsts: THREE.InstancedMesh[] = [];
@@ -570,6 +573,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         }
       }
     }
+
+    // Baked multi-angle pixel-art tree impostor system (2 tris/tree in 1 draw call at overview/far zoom)
+    const treeImpostors = new TreeImpostorSystem(renderer, voxelTreeLib);
+    const _impostorTint = new THREE.Color(1, 1, 1);
+    worldGroup.add(treeImpostors.mesh);
 
     const berryInsts = makePropInstancedList(variantLib.berry, variantLib.standardMat, true);
     const farmCropInsts = makePropInstancedList(variantLib.farmCrop, variantLib.standardMat, true);
@@ -6900,6 +6908,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       for (let i = 0; i < allPropInsts.length; i++) {
         allPropInsts[i].count = 0;
       }
+      treeImpostors.reset();
 
       const lodBand = frustumSize < 24 ? 0 : frustumSize < 46 ? 1 : frustumSize < 70 ? 2 : 3;
       const focusX = camTarget.x;
@@ -6916,8 +6925,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       const cMaxX = worldCullBounds.maxX;
       const cMinZ = worldCullBounds.minZ;
       const cMaxZ = worldCullBounds.maxZ;
+      const useImpostors = treeImpostors.isBaked;
 
-      // 1. Trees (4-tier zoom LOD + radial focus + overview shadow optimization)
+      // 1. Trees (4-tier zoom LOD + radial focus + baked 2-tri impostors at far/overview + companion shadow opt)
       for (let i = 0; i < treeCacheCount; i++) {
         const tx = treeCacheX[i];
         const tz = treeCacheZ[i];
@@ -6928,15 +6938,35 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
         const charred = flags & 1;
         const isCompanion = (flags & 2) !== 0;
+
+        if (lodBand === 3) {
+          if (useImpostors) {
+            treeImpostors.pushTreeFromMatrix(charred, treeCacheBiome[i], treeCacheVar[i], treeCacheMat, i * 16);
+            continue;
+          }
+        } else if (lodBand === 2) {
+          const dx = tx - focusX;
+          const dz = tz - focusZ;
+          if (dx * dx + dz * dz > innerRSq && useImpostors) {
+            treeImpostors.pushTreeFromMatrix(charred, treeCacheBiome[i], treeCacheVar[i], treeCacheMat, i * 16);
+            continue;
+          }
+        }
+
         let tier = 3;
         if (lodBand === 0) {
           const dx = tx - focusX;
           const dz = tz - focusZ;
-          tier = dx * dx + dz * dz <= innerRSq ? 0 : 1;
+          if (dx * dx + dz * dz <= innerRSq) {
+            // Hero trees render full LOD0 with shadows; smaller tucked companion trees use LOD1 no-shadow
+            tier = isCompanion ? 5 : 0;
+          } else {
+            tier = isCompanion ? 5 : 1;
+          }
         } else if (lodBand === 1) {
           const dx = tx - focusX;
           const dz = tz - focusZ;
-          tier = dx * dx + dz * dz <= innerRSq ? 1 : 2;
+          tier = dx * dx + dz * dz <= innerRSq ? (isCompanion ? 5 : 1) : 2;
         } else if (lodBand === 2) {
           const dx = tx - focusX;
           const dz = tz - focusZ;
@@ -6954,6 +6984,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         const srcOff = i * 16;
         for (let m = 0; m < 16; m++) dst[dstOff + m] = treeCacheMat[srcOff + m];
       }
+      treeImpostors.commit();
 
       // 2. Resource Props (LOD0 close/inner-mid, LOD2 outer-mid/region/overview)
       for (let i = 0; i < propCacheCount; i++) {
@@ -12628,6 +12659,16 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       );
 
       scene.background = _bgColor;
+
+      if (treeImpostors.mesh.visible) {
+        // Normalize scene lighting relative to midday studio bake so dawn/dusk/night match seamlessly
+        const daylightFactor = Math.max(
+          0.16,
+          Math.min(1.25, (keyLight.intensity * 0.58 + hemiLight.intensity * 0.42) / 1.34),
+        );
+        _impostorTint.copy(keyLight.color).lerp(hemiLight.color, 0.38);
+        treeImpostors.updateCameraAndLighting(camYaw, daylightFactor, _impostorTint);
+      }
       if (scene.fog instanceof THREE.FogExp2) {
         _targetFogColor.setHex(todState.fogColorHex);
         scene.fog.color.lerp(_targetFogColor, lightBlend);
@@ -13114,6 +13155,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         disposeHazardVisual(hv);
       }
       batchedBuildings.dispose();
+      treeImpostors.dispose();
       for (const uEntry of unitMeshes.values()) {
         disposeEntityGroup(uEntry.group);
       }

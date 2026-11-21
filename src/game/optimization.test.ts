@@ -17,6 +17,7 @@ import {
   createPooledSimulationTickIndex,
 } from './spatialIndex';
 import { BatchedBuildingSystem } from './batchedBuildings';
+import { TreeImpostorSystem } from './treeImpostors';
 import { getVoxelTreeLibrary, TreeBiomeKey } from './voxelTrees';
 import { getNodeVariantLibrary } from './meshBuilders';
 import { DEFAULT_GRAPHICS_SETTINGS, resolveGraphicsProfile } from './graphics';
@@ -478,5 +479,39 @@ describe('Major Optimization & 512x512 Scaling Suite', () => {
       false,
     );
   });
+
+  it('strips invisible -Y faces on voxel trees and packs TreeImpostorSystem instances cleanly (2 tris/tree)', () => {
+    const lib = getVoxelTreeLibrary();
+    // Verify ZERO downward-facing (-Y) normals exist across all voxel tree LOD geometries
+    for (const g of lib.allGeometries) {
+      const norm = g.getAttribute('normal');
+      if (!norm) continue;
+      for (let i = 0; i < norm.count; i++) {
+        assert.ok(norm.getY(i) >= -0.9, `Found invisible -Y underside face on voxel tree (ny=${norm.getY(i)})`);
+      }
+    }
+
+    // Verify TreeImpostorSystem gracefully handles headless (null renderer) and dynamic buffer growth
+    const impostors = new TreeImpostorSystem(null, lib, 4);
+    assert.equal(impostors.isBaked, false);
+    const mat = new THREE.Matrix4().compose(
+      new THREE.Vector3(12, 1.5, 24),
+      new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), 0.7),
+      new THREE.Vector3(1.1, 1.25, 1.1),
+    );
+    const arr = new Float32Array(mat.elements);
+    for (let i = 0; i < 600; i++) {
+      impostors.pushTreeFromMatrix(i & 1, i % 8, 0, arr, 0);
+    }
+    impostors.commit();
+    assert.equal(impostors.getCount(), 600);
+    // Base plane has 2 triangles (6 indices) -> 600 instances = 1,200 triangles total
+    const geo = impostors.mesh.geometry as THREE.InstancedBufferGeometry;
+    assert.equal(geo.index!.count / 3, 2);
+    assert.equal(geo.instanceCount, 600);
+    impostors.updateCameraAndLighting(Math.PI / 4, 0.85);
+    impostors.dispose();
+  });
 });
+
 
