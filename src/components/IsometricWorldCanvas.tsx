@@ -498,7 +498,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       tilePropSig[i] = -1;
     }
     const initWorldGrid = ensureWorldGrid(sim);
-    chunkTerrain.rebuildAllSync(initWorldGrid, tileRenderY);
+    chunkTerrain.queueProgressiveRebuild(initWorldGrid);
 
     // Instanced Multi-Object Props (1-4 objects per tile, starting compactly and growing on demand)
     const variantLib = getNodeVariantLibrary();
@@ -7209,7 +7209,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         }
         const refreshedGrid = ensureWorldGrid(simState);
         syncWorldGridFromTiles(refreshedGrid, simState.tiles, true);
-        chunkTerrain.rebuildAllSync(refreshedGrid, tileRenderY);
+        chunkTerrain.queueProgressiveRebuild(refreshedGrid);
         const newCenter = (simState.gridSize - 1) / 2;
         camDesiredTarget.set(newCenter, 1.2, newCenter);
         camTarget.set(newCenter, 1.2, newCenter);
@@ -7496,8 +7496,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         }
       }
 
-      // Rebuild only modified 32x32 chunks (sync for instant 1-6 chunk edits, Comlink workers for bulk)
-      if (worldGrid.dirtyChunkCount > 0) {
+      // Stream initial/world-switch terrain chunks center-outward (4 chunks/frame) so the browser never freezes
+      const terrainStreaming = chunkTerrain.hasPendingProgressiveRebuild();
+      if (terrainStreaming) {
+        chunkTerrain.stepProgressiveRebuild(worldGrid, tileRenderY, 4);
+      } else if (worldGrid.dirtyChunkCount > 0) {
+        // Rebuild only modified 32x32 chunks (sync for instant 1-6 chunk edits, Comlink workers for bulk)
         chunkTerrain.flushDirtyChunks(
           worldGrid,
           anyDynamicTileY || hasTsunamis || hasQuakes ? tileRenderY : null,
@@ -7505,9 +7509,18 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         );
       }
 
-      // Debounce routine full-map prop matrix recompositions (~5.5 Hz) while keeping world switches instant
+      // Progressively bake the 2048x1024 tree impostor atlas (2 species/frame) instead of 512 synchronous WebGL renders on load
+      if (!terrainStreaming && !treeImpostors.isBaked) {
+        if (treeImpostors.stepBake(2)) {
+          propViewDirty = true;
+        }
+      }
+
+      // Debounce routine full-map prop matrix recompositions (~5.5 Hz) and defer until initial terrain finishes streaming
       const runPropsSyncNow =
-        propsNeedSync && (simChanged || lastPropRebuildTime < 0 || elapsed - lastPropRebuildTime >= 0.18);
+        propsNeedSync &&
+        !terrainStreaming &&
+        (simChanged || lastPropRebuildTime < 0 || elapsed - lastPropRebuildTime >= 0.18);
       if (propsNeedSync && !runPropsSyncNow) {
         pendingPropsSync = true;
       }
@@ -8204,6 +8217,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       const cullMinZ = worldCullBounds.minZ;
       const cullMaxZ = worldCullBounds.maxZ;
 
+      const MAX_NEW_BUILDINGS_PER_FRAME = 12;
+      let newBuildingsThisFrame = 0;
       for (let bi = 0; bi < simState.buildings.length; bi++) {
         const b = simState.buildings[bi];
         const existingEntry = batchedBuildings.getEntry(b.id);
@@ -8216,6 +8231,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         if (!bInView) {
           // Leave seenStamp unstamped so pruneUnseen() unrenders & frees off-screen BatchedMesh slots
           continue;
+        }
+        if (!existingEntry) {
+          if (newBuildingsThisFrame >= MAX_NEW_BUILDINGS_PER_FRAME) continue;
+          newBuildingsThisFrame++;
         }
 
         const tile = simState.tiles[b.tileZ * gsBld + b.tileX];
@@ -8287,6 +8306,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       const autoOptFrame = autoOptimizer.getFrameCounter();
       let unitShadowCount = 0;
       let visibleUnitsThisFrame = 0;
+      const MAX_NEW_UNITS_PER_FRAME = 12;
+      let newUnitsThisFrame = 0;
 
       for (let ui = 0; ui < simState.units.length; ui++) {
         const u = simState.units[ui];
@@ -8330,6 +8351,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           uEntry.species !== unitSpecies ||
           uEntry.ageStage !== unitAgeStage
         ) {
+          if (!uEntry && !isCameraPinnedUnit) {
+            if (newUnitsThisFrame >= MAX_NEW_UNITS_PER_FRAME) continue;
+            newUnitsThisFrame++;
+          }
           if (uEntry) {
             unitsGroup.remove(uEntry.group);
             disposeEntityGroup(uEntry.group);

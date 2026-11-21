@@ -40,12 +40,22 @@ interface BakedSpeciesMeta {
  */
 export class TreeImpostorSystem {
   readonly mesh: THREE.Mesh;
-  readonly isBaked: boolean;
+  isBaked: boolean;
 
   private readonly renderTarget: THREE.WebGLRenderTarget | null;
   private readonly geometry: THREE.InstancedBufferGeometry;
   private readonly material: THREE.ShaderMaterial;
   private readonly speciesLookup: BakedSpeciesMeta[][][]; // [charred 0|1][biomeIdx 0..7][varIdx]
+
+  // Progressive frame-sliced baking state (eliminates 512 synchronous WebGL render passes on page load)
+  private bakeRenderer: THREE.WebGLRenderer | null = null;
+  private bakeScene: THREE.Scene | null = null;
+  private bakeCam: THREE.OrthographicCamera | null = null;
+  private bakeMesh: THREE.Mesh | null = null;
+  private bakeSpeciesGeos: THREE.BufferGeometry[] = [];
+  private bakeSpeciesMetas: BakedSpeciesMeta[] = [];
+  private bakeCursor = 0;
+  private bakeInitialized = false;
 
   private capacity: number;
   private count = 0;
@@ -59,6 +69,7 @@ export class TreeImpostorSystem {
     voxelTreeLib: VoxelTreeLibrary,
     initialCapacity = 2048,
     environmentTexture: THREE.Texture | null = null,
+    deferBake = true,
   ) {
     this.capacity = Math.max(256, initialCapacity);
     this.speciesLookup = [[], []];
@@ -105,17 +116,21 @@ export class TreeImpostorSystem {
       }
     }
 
-    // Bake all species into the 2048x1024 atlas if we have a live WebGLRenderer
+    // Prepare 2048x1024 atlas RenderTarget; bake progressively via stepBake() unless deferBake=false
     let rt: THREE.WebGLRenderTarget | null = null;
+    this.isBaked = false;
     if (renderer && speciesGeos.length > 0 && speciesGeos.length <= (ATLAS_COLS * ATLAS_ROWS) / ANGLES_PER_SPECIES) {
       try {
-        rt = this.bakeAtlas(renderer, voxelTreeLib.material, environmentTexture, speciesGeos, speciesMetas);
+        rt = this.initBakeContext(renderer, voxelTreeLib.material, environmentTexture, speciesGeos, speciesMetas);
+        if (!deferBake) {
+          this.stepBake(speciesGeos.length);
+        }
       } catch {
         rt = null;
+        this.clearBakeContext();
       }
     }
     this.renderTarget = rt;
-    this.isBaked = rt !== null;
 
     // Build single 2-triangle InstancedBufferGeometry
     const basePlane = new THREE.PlaneGeometry(1, 1);
@@ -205,7 +220,7 @@ export class TreeImpostorSystem {
     this.mesh.visible = false;
   }
 
-  private bakeAtlas(
+  private initBakeContext(
     renderer: THREE.WebGLRenderer,
     treeMaterial: THREE.Material,
     environmentTexture: THREE.Texture | null,
@@ -245,6 +260,45 @@ export class TreeImpostorSystem {
     const bakeMesh = new THREE.Mesh(speciesGeos[0], treeMaterial);
     bakeScene.add(bakeMesh);
 
+    this.bakeRenderer = renderer;
+    this.bakeScene = bakeScene;
+    this.bakeCam = bakeCam;
+    this.bakeMesh = bakeMesh;
+    this.bakeSpeciesGeos = speciesGeos;
+    this.bakeSpeciesMetas = speciesMetas;
+    this.bakeCursor = 0;
+    this.bakeInitialized = false;
+    return rt;
+  }
+
+  private clearBakeContext(): void {
+    this.bakeRenderer = null;
+    this.bakeScene = null;
+    this.bakeCam = null;
+    this.bakeMesh = null;
+    this.bakeSpeciesGeos = [];
+    this.bakeSpeciesMetas = [];
+  }
+
+  /**
+   * Progressively bakes up to `maxSpeciesPerFrame` species (8 yaw cells each) into the atlas.
+   * Returns `true` on the exact frame baking finishes so the caller can flip overview trees to impostors.
+   */
+  stepBake(maxSpeciesPerFrame = 2): boolean {
+    if (this.isBaked) return false;
+    const renderer = this.bakeRenderer;
+    const rt = this.renderTarget;
+    const bakeScene = this.bakeScene;
+    const bakeCam = this.bakeCam;
+    const bakeMesh = this.bakeMesh;
+    if (!renderer || !rt || !bakeScene || !bakeCam || !bakeMesh) return false;
+
+    const total = this.bakeSpeciesGeos.length;
+    if (total === 0) {
+      this.clearBakeContext();
+      return false;
+    }
+
     const prevTarget = renderer.getRenderTarget();
     const prevClearColor = new THREE.Color();
     renderer.getClearColor(prevClearColor);
@@ -257,15 +311,20 @@ export class TreeImpostorSystem {
     renderer.toneMapping = THREE.NoToneMapping;
     renderer.autoClear = false;
     renderer.setRenderTarget(rt);
-    renderer.setViewport(0, 0, ATLAS_W, ATLAS_H);
-    renderer.setScissorTest(false);
-    renderer.setClearColor(0x000000, 0);
-    renderer.clear(true, true, false);
-    renderer.setScissorTest(true);
 
-    for (let s = 0; s < speciesGeos.length; s++) {
-      const meta = speciesMetas[s];
-      bakeMesh.geometry = speciesGeos[s];
+    if (!this.bakeInitialized) {
+      this.bakeInitialized = true;
+      renderer.setViewport(0, 0, ATLAS_W, ATLAS_H);
+      renderer.setScissorTest(false);
+      renderer.setClearColor(0x000000, 0);
+      renderer.clear(true, true, false);
+    }
+
+    renderer.setScissorTest(true);
+    const end = Math.min(total, this.bakeCursor + Math.max(1, maxSpeciesPerFrame));
+    for (let s = this.bakeCursor; s < end; s++) {
+      const meta = this.bakeSpeciesMetas[s];
+      bakeMesh.geometry = this.bakeSpeciesGeos[s];
 
       const ext = meta.halfExtent;
       bakeCam.left = -ext;
@@ -296,6 +355,7 @@ export class TreeImpostorSystem {
         renderer.render(bakeScene, bakeCam);
       }
     }
+    this.bakeCursor = end;
 
     renderer.setScissorTest(false);
     renderer.setRenderTarget(prevTarget);
@@ -304,7 +364,12 @@ export class TreeImpostorSystem {
     renderer.shadowMap.enabled = prevShadowEnabled;
     renderer.toneMapping = prevToneMapping;
 
-    return rt;
+    if (this.bakeCursor >= total) {
+      this.isBaked = true;
+      this.clearBakeContext();
+      return true;
+    }
+    return false;
   }
 
   private ensureCapacity(needed: number): void {
@@ -393,6 +458,7 @@ export class TreeImpostorSystem {
   }
 
   dispose(): void {
+    this.clearBakeContext();
     this.geometry.dispose();
     this.material.dispose();
     if (this.renderTarget) {
