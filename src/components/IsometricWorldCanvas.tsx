@@ -6252,6 +6252,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       | 'none'
       | 'one_finger_pending'
       | 'one_finger_pan'
+      | 'one_finger_paint_pending'
       | 'one_finger_paint'
       | 'one_finger_drag_unit'
       | 'two_finger_transform'
@@ -6265,6 +6266,46 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       lastY: number;
     } | null = null;
     let twoFingerLast: TwoFingerState | null = null;
+
+    // Camera gestures take priority over casting on mobile: a single finger waits briefly before
+    // painting/casting so a second finger (pinch zoom / rotate) can cancel the cast before anything spawns.
+    const TOUCH_PAINT_GRACE_MS = 150;
+    let touchPaintGraceTimer: ReturnType<typeof setTimeout> | null = null;
+    const clearTouchPaintGrace = () => {
+      if (touchPaintGraceTimer !== null) {
+        clearTimeout(touchPaintGraceTimer);
+        touchPaintGraceTimer = null;
+      }
+    };
+    const commitTouchPaint = () => {
+      clearTouchPaintGrace();
+      if (
+        touchGestureMode !== 'one_finger_paint_pending' ||
+        !oneFingerInfo ||
+        activeTouches.size !== 1 ||
+        propsRef.current.gameState !== 'playing'
+      ) {
+        return;
+      }
+      touchGestureMode = 'one_finger_paint';
+      isHoldPainting = true;
+      paintedStrokeTiles.clear();
+      lastPaintTile = null;
+      lastHoldCastPos = null;
+      lastHoldCastTime = 0;
+      const nowMs = performance.now();
+      hoverRaycastTimer = nowMs;
+      updateHoverTile(oneFingerInfo.startX, oneFingerInfo.startY);
+      if (hoveredTileCoords) {
+        applyHoldStrokeToTile(hoveredTileCoords.x, hoveredTileCoords.z, nowMs);
+      }
+      if (oneFingerInfo.lastX !== oneFingerInfo.startX || oneFingerInfo.lastY !== oneFingerInfo.startY) {
+        updateHoverTile(oneFingerInfo.lastX, oneFingerInfo.lastY);
+        if (hoveredTileCoords) {
+          applyHoldStrokeToTile(hoveredTileCoords.x, hoveredTileCoords.z, nowMs);
+        }
+      }
+    };
 
     const panCameraByScreenDelta = (dx: number, dy: number, customPanFactor?: number) => {
       const rect = renderer.domElement.getBoundingClientRect();
@@ -6311,6 +6352,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
 
         // 2+ fingers: switch cleanly into simultaneous pinch zoom + twist rotate + centroid pan
         if (activeTouches.size >= 2) {
+          clearTouchPaintGrace();
           isPointerDragging = false;
           isHoldPainting = false;
           paintedStrokeTiles.clear();
@@ -6383,13 +6425,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           return;
         }
 
-        // Hold paint/cast mode with Pan disabled -> paint immediately & smoothly
-        touchGestureMode = 'one_finger_paint';
-        isHoldPainting = true;
-        paintedStrokeTiles.clear();
-        lastPaintTile = null;
-        lastHoldCastPos = null;
-        lastHoldCastTime = 0;
+        // Hold paint/cast mode with Pan disabled -> wait a short grace window so a pinch can cancel it
+        touchGestureMode = 'one_finger_paint_pending';
+        isHoldPainting = false;
         oneFingerInfo = {
           pointerId: e.pointerId,
           startX: e.clientX,
@@ -6397,9 +6435,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           lastX: e.clientX,
           lastY: e.clientY,
         };
-        if (hoveredTileCoords) {
-          applyHoldStrokeToTile(hoveredTileCoords.x, hoveredTileCoords.z, nowMs);
-        }
+        clearTouchPaintGrace();
+        touchPaintGraceTimer = setTimeout(commitTouchPaint, TOUCH_PAINT_GRACE_MS);
         return;
       }
 
@@ -6531,6 +6568,16 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         }
 
         if (
+          touchGestureMode === 'one_finger_paint_pending' &&
+          oneFingerInfo &&
+          e.pointerId === oneFingerInfo.pointerId
+        ) {
+          oneFingerInfo.lastX = e.clientX;
+          oneFingerInfo.lastY = e.clientY;
+          return;
+        }
+
+        if (
           touchGestureMode === 'one_finger_paint' &&
           oneFingerInfo &&
           e.pointerId === oneFingerInfo.pointerId
@@ -6635,6 +6682,28 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             touchGestureMode = 'none';
             oneFingerInfo = null;
           }
+          return;
+        }
+
+        if (touchGestureMode === 'one_finger_paint_pending') {
+          if (
+            e.type === 'pointerup' &&
+            oneFingerInfo &&
+            e.pointerId === oneFingerInfo.pointerId &&
+            activeTouches.size === 0
+          ) {
+            // Quick tap with no pinch -> cast exactly once at the tapped tile
+            activeTouches.set(e.pointerId, { clientX: e.clientX, clientY: e.clientY });
+            commitTouchPaint();
+            activeTouches.delete(e.pointerId);
+          }
+          clearTouchPaintGrace();
+          isHoldPainting = false;
+          paintedStrokeTiles.clear();
+          lastPaintTile = null;
+          lastHoldCastPos = null;
+          touchGestureMode = activeTouches.size > 0 ? 'wait_all_up' : 'none';
+          oneFingerInfo = null;
           return;
         }
 
@@ -6754,6 +6823,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
     };
 
     const clearInputs = () => {
+      clearTouchPaintGrace();
       keysPressed.clear();
       activeTouches.clear();
       touchGestureMode = 'none';
@@ -13475,6 +13545,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       resizeObserver.disconnect();
       window.removeEventListener('orientationchange', onOrientationOrViewportChange);
       window.visualViewport?.removeEventListener('resize', updateSize);
+      clearTouchPaintGrace();
       domElem.removeEventListener('pointerdown', onPointerDown);
       domElem.removeEventListener('pointermove', onPointerMove);
       domElem.removeEventListener('pointerleave', onPointerLeave);

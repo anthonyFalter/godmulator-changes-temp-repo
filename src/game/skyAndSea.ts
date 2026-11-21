@@ -3410,17 +3410,20 @@ export function createPixelSpaceSystem(initialSeed: number): PixelSpaceSystem {
       }
 
       void main() {
-        vec2 pix = floor(gl_FragCoord.xy / uPixelStep);
-        vec2 res = max(vec2(32.0), floor(uResolution / uPixelStep));
+        // Resolution-independent virtual pixel-art grid derived from normalized UV so dynamic render
+        // resolution resizes during zoom NEVER shift, stretch, or pop the starry backdrop
+        vec2 safeRes = max(vec2(1.0), uResolution);
+        vec2 uv = gl_FragCoord.xy / safeRes;
+        float aspect = safeRes.x / safeRes.y;
+        float virtualH = 240.0;
+        vec2 res = vec2(max(32.0, floor(virtualH * aspect + 0.5)), virtualH);
         vec2 halfRes = 0.5 * res;
+        vec2 pix = floor(uv * res);
         vec2 pCentered = pix - halfRes;
 
-        // Compensate for dynamic render resolution scale so zooming never rescales/alters the starfield layout
-        float pixelNorm = clamp(uPixelScale, 1.0, 4.0) / 3.0;
         float zoomScale = mix(0.88, 1.28, clamp((uFrustumSize - 7.5) / 85.0, 0.0, 1.0));
-        float effectiveZoom = zoomScale * pixelNorm;
         vec2 skyOrigin = uCamPan * 0.55;
-        vec2 skyP = rot2(pCentered * effectiveZoom, uCamYaw) + skyOrigin;
+        vec2 skyP = rot2(pCentered * zoomScale, uCamYaw) + skyOrigin;
 
         // Snap cosmic nebula coordinates to integer sky pixels for crisp pixel-art cohesion
         vec2 skyPix = floor(skyP);
@@ -3493,11 +3496,11 @@ export function createPixelSpaceSystem(initialSeed: number): PixelSpaceSystem {
         // 3. Multi-layer Pixel-Snapped Starfields
         float starBoost = clamp(rawGalaxy * 1.25 + coreGlow * 0.6, 0.0, 1.0);
         // Micro star dust densely packed along the Milky Way strips
-        vec3 starsDust = evalStarLayer(pix, halfRes, skyP, skyOrigin, effectiveZoom, 7.0, 0.22, 0.09, 11.0, starBoost, 0.0);
+        vec3 starsDust = evalStarLayer(pix, halfRes, skyP, skyOrigin, zoomScale, 7.0, 0.22, 0.09, 11.0, starBoost, 0.0);
         // Medium field stars across space
-        vec3 starsMid = evalStarLayer(pix, halfRes, skyP, skyOrigin, effectiveZoom, 13.0, 0.20, 0.14, 37.0, starBoost * 0.7, 0.05);
+        vec3 starsMid = evalStarLayer(pix, halfRes, skyP, skyOrigin, zoomScale, 13.0, 0.20, 0.14, 37.0, starBoost * 0.7, 0.05);
         // Sparse bright twinkling diamond/cross hero stars
-        vec3 starsHero = evalStarLayer(pix, halfRes, skyP, skyOrigin, effectiveZoom, 28.0, 0.22, 0.18, 79.0, starBoost * 0.4, 0.26);
+        vec3 starsHero = evalStarLayer(pix, halfRes, skyP, skyOrigin, zoomScale, 28.0, 0.22, 0.18, 79.0, starBoost * 0.4, 0.26);
 
         spaceCol += starsDust * 0.58 + starsMid * 0.9 + starsHero * 1.25;
 
@@ -3509,11 +3512,11 @@ export function createPixelSpaceSystem(initialSeed: number): PixelSpaceSystem {
           vec2 mSeed = hash22(vec2(meteorEpoch, 17.0) + uSeedVec);
           vec2 mStart = (mSeed - 0.5) * res * 0.82;
           vec2 mDir = normalize(vec2(0.75 + mSeed.x * 0.35, -0.45 - mSeed.y * 0.35));
-          vec2 mHead = floor(mStart + mDir * tM * (95.0 / pixelNorm));
+          vec2 mHead = floor(mStart + mDir * tM * 95.0);
           vec2 rel = pix - (mHead + halfRes);
           float along = dot(rel, -mDir);
           float perp = abs(dot(rel, vec2(-mDir.y, mDir.x)));
-          float trailLen = 12.0 / pixelNorm;
+          float trailLen = 12.0;
           if (perp < 0.7 && along >= 0.0 && along < trailLen) {
             float fade = (1.0 - along / trailLen) * sin(tM * 3.14159);
             spaceCol += vec3(0.85, 0.95, 1.0) * fade * 0.85;
@@ -3595,7 +3598,7 @@ export function createPixelSpaceSystem(initialSeed: number): PixelSpaceSystem {
     const safeElapsed = Number.isFinite(elapsed) ? ((elapsed % 1900) + 1900) % 1900 : 0;
     uniforms.uTime.value = safeElapsed;
     uniforms.uResolution.value.set(Math.max(1, width), Math.max(1, height));
-    uniforms.uPixelStep.value = pixelScale <= 1 ? 2.0 : 1.0;
+    uniforms.uPixelStep.value = 1.0;
     uniforms.uPixelScale.value = Math.max(1.0, pixelScale);
     uniforms.uCamYaw.value = camYaw;
     uniforms.uCamPan.value.set(camX, camZ);
