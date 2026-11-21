@@ -58,6 +58,7 @@ export class TreeImpostorSystem {
     renderer: THREE.WebGLRenderer | null,
     voxelTreeLib: VoxelTreeLibrary,
     initialCapacity = 2048,
+    environmentTexture: THREE.Texture | null = null,
   ) {
     this.capacity = Math.max(256, initialCapacity);
     this.speciesLookup = [[], []];
@@ -108,7 +109,7 @@ export class TreeImpostorSystem {
     let rt: THREE.WebGLRenderTarget | null = null;
     if (renderer && speciesGeos.length > 0 && speciesGeos.length <= (ATLAS_COLS * ATLAS_ROWS) / ANGLES_PER_SPECIES) {
       try {
-        rt = this.bakeAtlas(renderer, speciesGeos, speciesMetas);
+        rt = this.bakeAtlas(renderer, voxelTreeLib.material, environmentTexture, speciesGeos, speciesMetas);
       } catch {
         rt = null;
       }
@@ -206,6 +207,8 @@ export class TreeImpostorSystem {
 
   private bakeAtlas(
     renderer: THREE.WebGLRenderer,
+    treeMaterial: THREE.Material,
+    environmentTexture: THREE.Texture | null,
     speciesGeos: THREE.BufferGeometry[],
     speciesMetas: BakedSpeciesMeta[],
   ): THREE.WebGLRenderTarget {
@@ -220,28 +223,26 @@ export class TreeImpostorSystem {
     });
 
     const bakeScene = new THREE.Scene();
-    // Neutral daylight rig matching IsometricWorldCanvas studio lighting so runtime uTint scales accurately
-    const hemi = new THREE.HemisphereLight(0xdff2ff, 0x3b4d4f, 1.05);
+    if (environmentTexture) {
+      bakeScene.environment = environmentTexture;
+      bakeScene.environmentIntensity = 0.92;
+    }
+
+    // Match TIME_OF_DAY_PRESETS.noon 1:1 so midday impostors have identical brightness & hues to 3D trees
+    const hemi = new THREE.HemisphereLight(0x8ecae6, 0x2b3a3e, 0.86);
     hemi.position.set(0, 30, 0);
     bakeScene.add(hemi);
 
-    const key = new THREE.DirectionalLight(0xfff6e5, 1.55);
-    key.position.set(18, 28, 16);
+    const key = new THREE.DirectionalLight(0xffdfb0, 1.92);
+    key.position.set(12, 29, 8);
     bakeScene.add(key);
 
-    const fill = new THREE.DirectionalLight(0xaad8ff, 0.35);
-    fill.position.set(-16, 14, -14);
-    bakeScene.add(fill);
-
-    const bakeMat = new THREE.MeshStandardMaterial({
-      vertexColors: true,
-      roughness: 0.88,
-      metalness: 0.02,
-      flatShading: true,
-    });
+    const rim = new THREE.DirectionalLight(0x56cfe1, 0.55);
+    rim.position.set(-16, 15, -16);
+    bakeScene.add(rim);
 
     const bakeCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 120);
-    const bakeMesh = new THREE.Mesh(speciesGeos[0], bakeMat);
+    const bakeMesh = new THREE.Mesh(speciesGeos[0], treeMaterial);
     bakeScene.add(bakeMesh);
 
     const prevTarget = renderer.getRenderTarget();
@@ -303,7 +304,6 @@ export class TreeImpostorSystem {
     renderer.shadowMap.enabled = prevShadowEnabled;
     renderer.toneMapping = prevToneMapping;
 
-    bakeMat.dispose();
     return rt;
   }
 

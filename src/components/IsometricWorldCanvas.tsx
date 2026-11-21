@@ -579,8 +579,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     }
 
     // Baked multi-angle pixel-art tree impostor system (2 tris/tree in 1 draw call at overview/far zoom)
-    const treeImpostors = new TreeImpostorSystem(renderer, voxelTreeLib);
+    const treeImpostors = new TreeImpostorSystem(renderer, voxelTreeLib, 2048, scene.environment);
     const _impostorTint = new THREE.Color(1, 1, 1);
+    const _noonRefColor = new THREE.Color(0xffdfb0);
     worldGroup.add(treeImpostors.mesh);
 
     const berryInsts = makePropInstancedList(variantLib.berry, variantLib.standardMat, true);
@@ -12733,12 +12734,19 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       scene.background = _bgColor;
 
       if (treeImpostors.mesh.visible) {
-        // Normalize scene lighting relative to midday studio bake so dawn/dusk/night match seamlessly
-        const daylightFactor = Math.max(
-          0.16,
-          Math.min(1.25, (keyLight.intensity * 0.58 + hemiLight.intensity * 0.42) / 1.34),
+        // Normalize strictly relative to TIME_OF_DAY_PRESETS.noon (key=1.92, hemi=0.86, env=0.92)
+        // so midday impostors stay 1.0x identical to 3D trees with zero darkening, while dusk/night tint smoothly.
+        const noonRefLight = 1.92 * 0.62 + 0.86 * 0.38;
+        const curLight = keyLight.intensity * 0.62 + hemiLight.intensity * 0.38;
+        const daylightFactor = Math.max(0.24, Math.min(1.18, curLight / noonRefLight));
+        const rRatio = Math.min(1.25, keyLight.color.r / Math.max(0.05, _noonRefColor.r));
+        const gRatio = Math.min(1.25, keyLight.color.g / Math.max(0.05, _noonRefColor.g));
+        const bRatio = Math.min(1.25, keyLight.color.b / Math.max(0.05, _noonRefColor.b));
+        _impostorTint.setRGB(
+          rRatio * 0.65 + 0.35,
+          gRatio * 0.65 + 0.35,
+          bRatio * 0.65 + 0.35,
         );
-        _impostorTint.copy(keyLight.color).lerp(hemiLight.color, 0.38);
         treeImpostors.updateCameraAndLighting(camYaw, daylightFactor, _impostorTint);
       }
       if (scene.fog instanceof THREE.FogExp2) {
