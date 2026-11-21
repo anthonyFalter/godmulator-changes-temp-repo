@@ -1,7 +1,9 @@
 import {
   BUILDINGS,
   EPOCHS,
+  FLYING_WILDLIFE_ROLES,
   GOD_POWERS,
+  MYTHICAL_ROLE_SET,
   TERRAIN_TOOLS,
   UNITS,
   getDinosaurVariant,
@@ -304,6 +306,16 @@ function createUniqueUnitName(
     pig: ['Porky', 'Truffle', 'Hamlet', 'Rosie', 'Pip', 'Oinkers', 'Bramble', 'Pudding', 'Acorn', 'Snuffles', 'Bacon', 'Barnaby'],
     chicken: ['Nugget', 'Sunny', 'Pippin', 'Clucky', 'Henrietta', 'Pebbles', 'Feather', 'Waffles', 'Cinnamon', 'Biscuit', 'Peep', 'Dandelion'],
     capybara: ['Gort', 'Mochi', 'Coconut', 'Boba', 'Chill', 'Yuzu', 'Pesto', 'Matcha', 'Taro', 'Mango', 'Wonton', 'Biscotti'],
+    deer: ['Bambi', 'Fern', 'Rowan', 'Buckley', 'Fawn', 'Briar', 'Cedar', 'Aspen', 'Linden', 'Sylvan', 'Antler', 'Clover'],
+    sheep: ['Woolly', 'Cloud', 'Cotton', 'Fluffy', 'Fleece', 'Puff', 'Mallow', 'Lanolin', 'Snowball', 'Baa', 'Dolly', 'Meadow'],
+    rabbit: ['Thumper', 'Hoppy', 'Cotton', 'Nibbles', 'Cottontail', 'Clover', 'Mopsy', 'Pip', 'Binky', 'Bramble', 'Velvet', 'Juniper'],
+    fox: ['Rusty', 'Vixen', 'Cinnamon', 'Sly', 'Amber', 'Copper', 'Ember', 'Flick', 'Saffron', 'Reynard', 'Kip', 'Russet'],
+    boar: ['Tusker', 'Bristle', 'Truffles', 'Gnarl', 'Bramble', 'Razorback', 'Snort', 'Thorn', 'Tusk', 'Gruff', 'Bramblejaw', 'Mire'],
+    lion: ['Aslan', 'Simba', 'Sovereign', 'Mane', 'Sol', 'Aurelius', 'Savanna', 'Kovu', 'Gilded', 'Pride', 'Rajah', 'Sunmane'],
+    elephant: ['Babar', 'Jumbo', 'Tusk', 'Titan', 'Rumble', 'Ivory', 'Pachy', 'Ganesha', 'Boulders', 'Timber', 'Stomp', 'Kora'],
+    camel: ['Dune', 'Sahara', 'Mirage', 'Oasis', 'Sirocco', 'Nomad', 'Gobi', 'Sands', 'Caravan', 'Khamsin', 'Hump', 'Amber'],
+    penguin: ['Pingu', 'Waddles', 'Tux', 'Pebble', 'Chilly', 'Skipper', 'Flurry', 'Mumble', 'Pip', 'Glacier', 'Frosty', 'Sleet'],
+    crocodile: ['Snapper', 'Chomps', 'Sobek', 'Bayou', 'Gator', 'Scales', 'Murk', 'Jaws', 'Lurker', 'Swampjaw', 'Riptide', 'Fang'],
     wolf: ['Fang', 'Fenrir', 'Timber', 'Shadow', 'Ash', 'Silver', 'Lupus', 'Ghost', 'Frostbite', 'Nightpaw', 'Cinder', 'Bane'],
     bear: ['Barnaby', 'Kodiak', 'Ursa', 'Grizz', 'Bramble', 'Thor', 'Boulder', 'Otis', 'Bruno', 'Baloo', 'Goliath', 'Cedar'],
     dinosaur:
@@ -313,6 +325,11 @@ function createUniqueUnitName(
     dragon: ['Ignis', 'Pyre', 'Zephyr', 'Vermithrax', 'Drakon', 'Scorch', 'Cinderwing', 'Embermaw', 'Obsidia', 'Aurelion', 'Balerion', 'Valyrax'],
     unicorn: ['Lumina', 'Aurelia', 'Starlight', 'Celeste', 'Seraph', 'Sylph', 'Dawnhorn', 'Moonbeam', 'Glimmer', 'Astrid', 'Iris', 'Elysia'],
     leviathan: ['Charybdis', 'Tiamat', 'Kraken', 'Jormungandr', 'Thalassor', 'Abyssal', 'Bloop', 'Maelstrom', 'Cetus', 'Nautilus', 'Tidecaller', 'Vortex'],
+    phoenix: ['Fawkes', 'Solis', 'Ashwing', 'Helios', 'Sunburst', 'Cindercrest', 'Radiance', 'Aurelia', 'Ignis', 'Flare', 'Dawnfire', 'Pyra'],
+    griffin: ['Aerie', 'Talon', 'Skylord', 'Gryphon', 'Windcrest', 'Stormwing', 'Valkor', 'Sunbeak', 'Highclaw', 'Aether', 'Zephyrus', 'Crest'],
+    yeti: ['Boreas', 'Glacier', 'Avalanche', 'Frostfang', 'Tundra', 'Rime', 'Blizzard', 'Snowpeak', 'Kodiak', 'Permafrost', 'Ymir', 'Hail'],
+    golem: ['Granite', 'Monolith', 'Basalt', 'Runestone', 'Colossus', 'Obsidian', 'Crag', 'Aegis', 'Bedrock', 'Quartz', 'Dolmen', 'Titan'],
+    kitsune: ['Inari', 'Tamamo', 'Kuzunoha', 'Hoshi', 'Sakura', 'Kitsunebi', 'Miko', 'Yuki', 'Aoi', 'Kaguya', 'Ren', 'Shiro'],
   };
 
   const creaturePool = CREATURE_NAMES[role];
@@ -3679,8 +3696,7 @@ export function executeGodPowerImpact(
           u.role === 'alien_trooper' ||
           u.role === 'alien_ufo' ||
           u.role === 'alien_walker' ||
-          u.role === 'unicorn' ||
-          u.role === 'dragon';
+          MYTHICAL_ROLE_SET.has(u.role);
         if (dSq <= rSq && !u.statusEffects.shielded && !isConstructOrImmune) {
           u.statusEffects.plagued = 26;
         }
@@ -7969,11 +7985,12 @@ function stepSimulationSingle(
   }
   if (state.worldRules?.allowReproduction !== false) {
     state.wildlifeRespawnTimer = (state.wildlifeRespawnTimer ?? 0) + dt;
-    if (state.wildlifeRespawnTimer >= 26) {
+    if (state.wildlifeRespawnTimer >= 22) {
       state.wildlifeRespawnTimer = 0;
       const livingWildlife = state.units.filter((u) => u.faction === 'wildlife' && u.state !== 'ko').length;
-      if (livingWildlife < 20) {
-        seedWorldWildlife(state, 4);
+      const targetEcosystemFloor = Math.min(136, Math.max(46, Math.round(state.gridSize * 0.46)));
+      if (livingWildlife < targetEcosystemFloor) {
+        seedWorldWildlife(state, Math.min(8, targetEcosystemFloor - livingWildlife));
       }
     }
   }
@@ -9623,7 +9640,7 @@ function stepSimulationSingle(
           if (
             other.id !== u.id &&
             other.state !== 'ko' &&
-            other.role !== 'unicorn' &&
+            !MYTHICAL_ROLE_SET.has(other.role) &&
             other.role !== 'skeleton' &&
             other.role !== 'alien_trooper' &&
             other.role !== 'alien_ufo' &&
@@ -11944,23 +11961,63 @@ function getTileFlammabilityRate(state: SimulationState, t: TileData): number {
 }
 
 export function isCarnivoreAnimal(role: UnitRole, appearanceSeed?: number): boolean {
-  if (role === 'wolf' || role === 'bear') return true;
+  if (
+    role === 'wolf' ||
+    role === 'bear' ||
+    role === 'fox' ||
+    role === 'lion' ||
+    role === 'crocodile' ||
+    role === 'griffin' ||
+    role === 'yeti'
+  ) {
+    return true;
+  }
   if (role === 'dinosaur') return getDinosaurVariant(appearanceSeed).diet === 'carnivore';
   return false;
 }
 
 export function isHerbivoreAnimal(role: UnitRole, appearanceSeed?: number): boolean {
-  if (role === 'cow' || role === 'pig' || role === 'chicken' || role === 'capybara') return true;
+  if (
+    role === 'cow' ||
+    role === 'pig' ||
+    role === 'chicken' ||
+    role === 'capybara' ||
+    role === 'deer' ||
+    role === 'sheep' ||
+    role === 'rabbit' ||
+    role === 'elephant' ||
+    role === 'camel' ||
+    role === 'penguin'
+  ) {
+    return true;
+  }
   if (role === 'dinosaur') return getDinosaurVariant(appearanceSeed).diet === 'herbivore';
   return false;
 }
 
 function isPredatorRole(role: UnitRole, appearanceSeed?: number): boolean {
-  return role === 'dragon' || isCarnivoreAnimal(role, appearanceSeed);
+  return (
+    role === 'dragon' ||
+    role === 'boar' ||
+    role === 'golem' ||
+    role === 'phoenix' ||
+    role === 'kitsune' ||
+    isCarnivoreAnimal(role, appearanceSeed)
+  );
 }
 
 function isPreyAnimalRole(role: UnitRole): boolean {
-  return role === 'cow' || role === 'pig' || role === 'chicken' || role === 'capybara';
+  return (
+    role === 'cow' ||
+    role === 'pig' ||
+    role === 'chicken' ||
+    role === 'capybara' ||
+    role === 'deer' ||
+    role === 'sheep' ||
+    role === 'rabbit' ||
+    role === 'camel' ||
+    role === 'penguin'
+  );
 }
 
 function tileIsPlantGrazeGround(t: TileData, allowTrees: boolean): boolean {
@@ -11972,6 +12029,7 @@ function tileIsPlantGrazeGround(t: TileData, allowTrees: boolean): boolean {
     t.terrain === 'blossom' ||
     t.terrain === 'grass' ||
     t.terrain === 'savanna' ||
+    t.terrain === 'highland' ||
     (allowTrees && (t.terrain === 'forest' || t.terrain === 'jungle'))
   );
 }
@@ -11982,11 +12040,22 @@ function tileMatchesWildlifeHabitat(
   role: UnitRole,
   appearanceSeed?: number,
 ): boolean {
+  if (role === 'penguin') {
+    return t.terrain === 'snow' || t.terrain === 'tundra' || t.terrain === 'ice' || t.terrain === 'taiga';
+  }
   if (t.height <= 0) return false;
   if (role === 'cow') return t.terrain === 'grass' || t.terrain === 'fertile' || t.terrain === 'savanna';
   if (role === 'chicken') return t.terrain === 'grass' || t.terrain === 'fertile' || t.terrain === 'blossom';
   if (role === 'pig') return t.terrain === 'grass' || t.terrain === 'forest' || t.terrain === 'swamp' || t.terrain === 'fertile';
-  if (role === 'capybara') {
+  if (role === 'deer') return t.terrain === 'forest' || t.terrain === 'blossom' || t.terrain === 'fertile' || t.terrain === 'grass';
+  if (role === 'sheep') return t.terrain === 'grass' || t.terrain === 'fertile' || t.terrain === 'highland';
+  if (role === 'rabbit') return t.terrain === 'grass' || t.terrain === 'fertile' || t.terrain === 'blossom' || t.terrain === 'forest' || t.terrain === 'tundra';
+  if (role === 'fox') return t.terrain === 'forest' || t.terrain === 'taiga' || t.terrain === 'blossom' || t.terrain === 'grass' || t.terrain === 'tundra';
+  if (role === 'boar') return t.terrain === 'forest' || t.terrain === 'swamp' || t.terrain === 'savanna' || t.terrain === 'badlands';
+  if (role === 'lion') return t.terrain === 'savanna' || t.terrain === 'badlands' || t.terrain === 'sand';
+  if (role === 'elephant') return t.terrain === 'savanna' || t.terrain === 'jungle' || t.terrain === 'fertile';
+  if (role === 'camel') return t.terrain === 'sand' || t.terrain === 'badlands' || t.terrain === 'savanna';
+  if (role === 'capybara' || role === 'crocodile') {
     if (t.terrain === 'swamp' || t.terrain === 'jungle') return true;
     if (t.terrain === 'sand' || t.terrain === 'grass' || t.terrain === 'fertile') {
       for (const [ox, oz] of [
@@ -12017,6 +12086,11 @@ function tileMatchesWildlifeHabitat(
   }
   if (role === 'dragon') return t.terrain === 'mountain' || t.terrain === 'badlands' || t.terrain === 'rock' || t.terrain === 'highland';
   if (role === 'unicorn') return t.terrain === 'blossom' || t.terrain === 'forest' || t.terrain === 'fertile' || t.terrain === 'grass';
+  if (role === 'phoenix') return t.terrain === 'blossom' || t.terrain === 'mountain' || t.terrain === 'badlands' || t.terrain === 'savanna';
+  if (role === 'griffin') return t.terrain === 'highland' || t.terrain === 'mountain' || t.terrain === 'rock' || t.terrain === 'forest';
+  if (role === 'yeti') return t.terrain === 'snow' || t.terrain === 'tundra' || t.terrain === 'mountain' || t.terrain === 'taiga';
+  if (role === 'golem') return t.terrain === 'mountain' || t.terrain === 'rock' || t.terrain === 'highland' || t.terrain === 'crystal_field' || t.terrain === 'badlands';
+  if (role === 'kitsune') return t.terrain === 'blossom' || t.terrain === 'forest' || t.terrain === 'fertile' || t.terrain === 'mountain';
   return true;
 }
 
@@ -12034,29 +12108,86 @@ export function seedWorldWildlife(state: SimulationState, maxToAdd?: number): vo
   const allowDinosaurs = state.worldRules?.allowDinosaurs !== false;
   const isPrehistoric = state.worldTemplate === 'prehistoric';
 
-  const baseQuotas: Array<{ role: UnitRole; count: number; predator: boolean; appearanceSeed?: number }> = maxToAdd
-    ? [
-        { role: 'cow', count: 1, predator: false },
-        { role: 'pig', count: 1, predator: false },
-        { role: 'chicken', count: 1, predator: false },
-        { role: 'capybara', count: 1, predator: false },
-      ]
+  // Scale natural ecosystem density smoothly with map size so large worlds never feel barren
+  const mapDensityScale = Math.max(1, Math.min(2.8, gs / 96));
+  const scaled = (base: number) => Math.max(1, Math.round(base * mapDensityScale));
+
+  let cursor = (state.seed * 2654435761 + state.units.length * 19349663) >>> 0;
+  const nextRand = () => {
+    cursor = (Math.imul(cursor, 1664525) + 1013904223) >>> 0;
+    return cursor / 4294967296;
+  };
+
+  type WildlifeQuota = {
+    role: UnitRole;
+    count: number;
+    predator: boolean;
+    herdSize?: number;
+    appearanceSeed?: number;
+  };
+
+  const respawnPool: WildlifeQuota[] = [
+    { role: 'deer', count: 2, predator: false, herdSize: 2 },
+    { role: 'sheep', count: 2, predator: false, herdSize: 2 },
+    { role: 'rabbit', count: 2, predator: false, herdSize: 2 },
+    { role: 'cow', count: 1, predator: false },
+    { role: 'pig', count: 1, predator: false },
+    { role: 'chicken', count: 2, predator: false, herdSize: 2 },
+    { role: 'capybara', count: 1, predator: false },
+    { role: 'camel', count: 1, predator: false },
+    { role: 'penguin', count: 2, predator: false, herdSize: 2 },
+    { role: 'elephant', count: 1, predator: false },
+    { role: 'fox', count: 1, predator: true },
+    { role: 'boar', count: 1, predator: true },
+    { role: 'wolf', count: 1, predator: true },
+    { role: 'lion', count: 1, predator: true },
+    { role: 'crocodile', count: 1, predator: true },
+  ];
+
+  // Rotate respawn pool deterministically so successive ecosystem refills diversify every biome
+  const rotOffset = Math.floor(nextRand() * respawnPool.length);
+  const rotatedRespawn = [
+    ...respawnPool.slice(rotOffset),
+    ...respawnPool.slice(0, rotOffset),
+  ];
+
+  const baseQuotas: WildlifeQuota[] = maxToAdd
+    ? rotatedRespawn
     : [
-        { role: 'cow', count: 4, predator: false },
-        { role: 'pig', count: 4, predator: false },
-        { role: 'chicken', count: 5, predator: false },
-        { role: 'capybara', count: 4, predator: false },
-        { role: 'wolf', count: 4, predator: true },
-        { role: 'bear', count: 3, predator: true },
-        { role: 'dinosaur', count: isPrehistoric ? 3 : 1, predator: false, appearanceSeed: findDeterministicDinoSeedForMorph(1, 10) },
-        { role: 'dinosaur', count: isPrehistoric ? 3 : 1, predator: false, appearanceSeed: findDeterministicDinoSeedForMorph(2, 20) },
-        { role: 'dinosaur', count: isPrehistoric ? 4 : 2, predator: true, appearanceSeed: findDeterministicDinoSeedForMorph(0, 30) },
-        { role: 'unicorn', count: 2, predator: false },
-        { role: 'dragon', count: 2, predator: true },
+        // Lively grazing herds & small meadow/forest fauna
+        { role: 'deer', count: scaled(5), predator: false, herdSize: 3 },
+        { role: 'sheep', count: scaled(5), predator: false, herdSize: 3 },
+        { role: 'rabbit', count: scaled(6), predator: false, herdSize: 3 },
+        { role: 'cow', count: scaled(4), predator: false, herdSize: 2 },
+        { role: 'pig', count: scaled(4), predator: false, herdSize: 2 },
+        { role: 'chicken', count: scaled(5), predator: false, herdSize: 3 },
+        { role: 'capybara', count: scaled(4), predator: false, herdSize: 2 },
+        { role: 'camel', count: scaled(3), predator: false, herdSize: 2 },
+        { role: 'elephant', count: scaled(3), predator: false, herdSize: 2 },
+        { role: 'penguin', count: scaled(5), predator: false, herdSize: 3 },
+        // Biome predators & territorial fauna
+        { role: 'fox', count: scaled(4), predator: true },
+        { role: 'boar', count: scaled(3), predator: true },
+        { role: 'wolf', count: scaled(4), predator: true, herdSize: 2 },
+        { role: 'bear', count: scaled(3), predator: true },
+        { role: 'lion', count: scaled(3), predator: true, herdSize: 2 },
+        { role: 'crocodile', count: scaled(3), predator: true },
+        // Prehistoric dinosaurs
+        { role: 'dinosaur', count: isPrehistoric ? scaled(3) : 1, predator: false, appearanceSeed: findDeterministicDinoSeedForMorph(1, 10) },
+        { role: 'dinosaur', count: isPrehistoric ? scaled(3) : 1, predator: false, appearanceSeed: findDeterministicDinoSeedForMorph(2, 20) },
+        { role: 'dinosaur', count: isPrehistoric ? scaled(4) : 2, predator: true, appearanceSeed: findDeterministicDinoSeedForMorph(0, 30) },
+        // Rare Mythical Creatures anchored to signature realms
+        { role: 'unicorn', count: Math.min(3, Math.max(1, Math.round(mapDensityScale))), predator: false },
+        { role: 'kitsune', count: Math.min(3, Math.max(1, Math.round(mapDensityScale))), predator: false },
+        { role: 'phoenix', count: Math.min(2, Math.max(1, Math.round(mapDensityScale * 0.8))), predator: false },
+        { role: 'griffin', count: Math.min(2, Math.max(1, Math.round(mapDensityScale * 0.8))), predator: true },
+        { role: 'yeti', count: Math.min(2, Math.max(1, Math.round(mapDensityScale * 0.8))), predator: true },
+        { role: 'golem', count: Math.min(2, Math.max(1, Math.round(mapDensityScale * 0.8))), predator: true },
+        { role: 'dragon', count: Math.min(3, Math.max(1, Math.round(mapDensityScale))), predator: true },
       ];
 
   const quotas = baseQuotas.filter((q) => {
-    if (!allowFantasy && (q.role === 'unicorn' || q.role === 'dragon')) return false;
+    if (!allowFantasy && MYTHICAL_ROLE_SET.has(q.role)) return false;
     if (!allowDinosaurs && q.role === 'dinosaur') return false;
     return true;
   });
@@ -12072,52 +12203,64 @@ export function seedWorldWildlife(state: SimulationState, maxToAdd?: number): vo
   };
 
   let spawnedTotal = 0;
-  let cursor = (state.seed * 2654435761 + state.units.length * 19349663) >>> 0;
-  const nextRand = () => {
-    cursor = (Math.imul(cursor, 1664525) + 1013904223) >>> 0;
-    return cursor / 4294967296;
+
+  const trySpawnHerdAt = (q: WildlifeQuota, anchorX: number, anchorZ: number, remaining: number): number => {
+    const want = Math.min(remaining, q.herdSize ?? 1);
+    let added = 0;
+    for (let m = 0; m < want; m++) {
+      if (maxToAdd !== undefined && spawnedTotal >= maxToAdd) break;
+      const sx =
+        m === 0
+          ? anchorX
+          : Math.max(3, Math.min(gs - 4, anchorX + Math.round((nextRand() - 0.5) * 4)));
+      const sz =
+        m === 0
+          ? anchorZ
+          : Math.max(3, Math.min(gs - 4, anchorZ + Math.round((nextRand() - 0.5) * 4)));
+      const st = getTile(state, sx, sz);
+      if (!st || st.buildingId || st.onFireTimer > 0) continue;
+      if (st.height <= 0 && !(q.role === 'penguin' && st.terrain === 'ice')) continue;
+      const seedForSlot =
+        q.appearanceSeed !== undefined
+          ? findDeterministicDinoSeedForMorph(getDinosaurVariant(q.appearanceSeed).morph, q.appearanceSeed + (spawnedTotal + m) * 7)
+          : undefined;
+      const res = spawnUnit(state, q.role, sx, sz, true, undefined, seedForSlot ? { appearanceSeed: seedForSlot } : undefined);
+      if (res.ok) {
+        added++;
+        spawnedTotal++;
+      }
+    }
+    return added;
   };
 
   for (const q of quotas) {
     if (maxToAdd !== undefined && spawnedTotal >= maxToAdd) break;
     let placed = 0;
-    const minCivDist = q.predator ? 16 : 6;
+    const minCivDist = q.predator ? 15 : 5;
 
-    // Pass 1: habitat-matched tiles
-    for (let attempt = 0; attempt < 90 && placed < q.count; attempt++) {
+    // Pass 1: habitat-matched tiles (spawning small natural herd clusters)
+    for (let attempt = 0; attempt < 95 && placed < q.count; attempt++) {
+      if (maxToAdd !== undefined && spawnedTotal >= maxToAdd) break;
       const tx = 4 + Math.floor(nextRand() * (gs - 8));
       const tz = 4 + Math.floor(nextRand() * (gs - 8));
       const t = getTile(state, tx, tz);
-      if (!t || t.height <= 0 || t.buildingId || t.onFireTimer > 0) continue;
+      if (!t || t.buildingId || t.onFireTimer > 0) continue;
+      if (t.height <= 0 && !(q.role === 'penguin' && t.terrain === 'ice')) continue;
       if (!tileMatchesWildlifeHabitat(state, t, q.role, q.appearanceSeed)) continue;
       if (isNearCivilization(tx, tz, minCivDist)) continue;
-      const seedForSlot =
-        q.appearanceSeed !== undefined
-          ? findDeterministicDinoSeedForMorph(getDinosaurVariant(q.appearanceSeed).morph, q.appearanceSeed + placed * 7)
-          : undefined;
-      const res = spawnUnit(state, q.role, tx, tz, true, undefined, seedForSlot ? { appearanceSeed: seedForSlot } : undefined);
-      if (res.ok) {
-        placed++;
-        spawnedTotal++;
-      }
+      placed += trySpawnHerdAt(q, tx, tz, q.count - placed);
     }
 
-    // Pass 2: fallback any dry wilderness tile
-    for (let attempt = 0; attempt < 40 && placed < q.count; attempt++) {
+    // Pass 2: fallback any dry wilderness tile (skipping strict polar/desert specialists if none exist on template)
+    const strictSpecialist = q.role === 'penguin' || q.role === 'yeti';
+    for (let attempt = 0; attempt < (strictSpecialist ? 0 : 35) && placed < q.count; attempt++) {
+      if (maxToAdd !== undefined && spawnedTotal >= maxToAdd) break;
       const tx = 4 + Math.floor(nextRand() * (gs - 8));
       const tz = 4 + Math.floor(nextRand() * (gs - 8));
       const t = getTile(state, tx, tz);
       if (!t || t.height <= 0 || t.buildingId || t.onFireTimer > 0) continue;
       if (isNearCivilization(tx, tz, minCivDist)) continue;
-      const seedForSlot =
-        q.appearanceSeed !== undefined
-          ? findDeterministicDinoSeedForMorph(getDinosaurVariant(q.appearanceSeed).morph, q.appearanceSeed + placed * 7)
-          : undefined;
-      const res = spawnUnit(state, q.role, tx, tz, true, undefined, seedForSlot ? { appearanceSeed: seedForSlot } : undefined);
-      if (res.ok) {
-        placed++;
-        spawnedTotal++;
-      }
+      placed += trySpawnHerdAt(q, tx, tz, q.count - placed);
     }
   }
 
@@ -12149,7 +12292,8 @@ function stepWildlifeAI(
   dt: number,
 ): void {
   const gs = state.gridSize;
-  const isFlying = u.role === 'dragon';
+  const isFlying = FLYING_WILDLIFE_ROLES.has(u.role);
+  const canWalkIce = u.role === 'penguin' || u.role === 'yeti';
   if ((u.attackAnimTimer ?? 0) > 0) {
     u.attackAnimTimer = Math.max(0, (u.attackAnimTimer ?? 0) - dt);
   }
@@ -12160,7 +12304,7 @@ function stepWildlifeAI(
     u.dinoRushTimer = Math.max(0, (u.dinoRushTimer ?? 0) - dt);
   }
   const curTile = getTile(state, u.x, u.z);
-  if (curTile && curTile.onFireTimer > 0 && !u.statusEffects.shielded && !isFlying) {
+  if (curTile && curTile.onFireTimer > 0 && !u.statusEffects.shielded && !isFlying && u.role !== 'golem') {
     u.hp -= 10 * dt;
   }
 
@@ -12799,45 +12943,53 @@ function stepWildlifeAI(
     return;
   }
 
-  // Unicorn Mythical Aura: gently blesses & heals nearby friendly citizens and revives scorched earth
-  if (u.role === 'unicorn' && u.actionCooldown <= 0) {
+  // Benevolent Mythical Auras (Unicorn, Phoenix, Kitsune): heal/bless nearby friendly citizens & wildlife and revive scorched ground
+  if ((u.role === 'unicorn' || u.role === 'phoenix' || u.role === 'kitsune') && (u.wildlifeSkillCooldown ?? 0) <= 0) {
     let blessedAny = false;
+    const auraR = u.role === 'phoenix' ? 5.6 : 4.55;
+    const auraRSq = auraR * auraR;
     const blessUnit = (other: UnitEntity, dSq: number) => {
-      if (
-        other.faction === 'civilization' &&
-        other.state !== 'ko' &&
-        dSq <= 20.25 &&
-        (other.hp < other.maxHp || other.statusEffects.plagued || other.statusEffects.cursed)
-      ) {
-        other.hp = Math.min(other.maxHp, other.hp + 14);
+      if (other.id === u.id || other.state === 'ko' || dSq > auraRSq) return;
+      const isFriendly =
+        other.faction === 'civilization' ||
+        (other.faction === 'wildlife' && isHerbivoreAnimal(other.role, other.appearanceSeed));
+      if (!isFriendly) return;
+      if (other.hp < other.maxHp || other.statusEffects.plagued || other.statusEffects.cursed) {
+        other.hp = Math.min(other.maxHp, other.hp + (u.role === 'phoenix' ? 20 : 14));
         delete other.statusEffects.plagued;
         delete other.statusEffects.cursed;
         blessedAny = true;
       }
+      if (u.role === 'kitsune' && !other.statusEffects.blessed && dSq <= 16) {
+        other.statusEffects.blessed = 10;
+        blessedAny = true;
+      } else if (u.role === 'phoenix' && !other.statusEffects.shielded && other.hp < other.maxHp * 0.75) {
+        other.statusEffects.shielded = 6;
+        blessedAny = true;
+      }
     };
     if (activeTickIndex) {
-      forEachUnitInRadius(activeTickIndex, u.x, u.z, 4.55, blessUnit);
+      forEachUnitInRadius(activeTickIndex, u.x, u.z, auraR + 0.05, blessUnit);
     } else {
       for (const other of state.units) {
         blessUnit(other, (other.x - u.x) ** 2 + (other.z - u.z) ** 2);
       }
     }
-    const rx = Math.round(u.x);
-    const rz = Math.round(u.z);
-    for (let dz = -2; dz <= 2; dz++) {
-      for (let dx = -2; dx <= 2; dx++) {
-        const nt = getTile(state, rx + dx, rz + dz);
-        if (nt && nt.height > 0 && nt.terrain === 'scorched') {
-          nt.terrain = 'blossom';
-          blessedAny = true;
+    if (u.role === 'unicorn' || u.role === 'phoenix') {
+      const rx = Math.round(u.x);
+      const rz = Math.round(u.z);
+      for (let dz = -2; dz <= 2; dz++) {
+        for (let dx = -2; dx <= 2; dx++) {
+          const nt = getTile(state, rx + dx, rz + dz);
+          if (nt && nt.height > 0 && nt.terrain === 'scorched') {
+            nt.terrain = 'blossom';
+            nt.onFireTimer = 0;
+            blessedAny = true;
+          }
         }
       }
     }
-    if (blessedAny) {
-      u.actionCooldown = 3.2;
-    } else {
-      u.actionCooldown = 1.2;
-    }
+    u.wildlifeSkillCooldown = blessedAny ? 3.8 : 1.6;
   }
 
   const isFrenzied = Boolean(u.statusEffects.frenzied);
@@ -13244,11 +13396,33 @@ function stepWildlifeAI(
     let target: UnitEntity | null = null;
     let bestScore = Infinity;
 
-    const predScanR = u.role === 'dragon' ? 16.05 : isCarnivoreDino || isFrenzied ? 11.05 : u.role === 'wolf' ? 10.05 : u.role === 'bear' ? 9.05 : 5.05;
+    const predScanR =
+      u.role === 'dragon'
+        ? 16.05
+        : u.role === 'phoenix' || u.role === 'griffin'
+          ? 12.05
+          : isCarnivoreDino || isFrenzied || u.role === 'lion'
+            ? 11.05
+            : u.role === 'wolf' || u.role === 'yeti' || u.role === 'golem'
+              ? 10.05
+              : u.role === 'bear' || u.role === 'fox' || u.role === 'kitsune'
+                ? 9.05
+                : u.role === 'crocodile' || u.role === 'boar'
+                  ? 7.05
+                  : 5.05;
     const evaluatePredTarget = (other: UnitEntity, dSq: number) => {
       if (other.id === u.id || other.state === 'ko' || other.statusEffects.shielded) return;
       if (other.faction === 'hostile') {
-        const maxSq = u.role === 'dragon' ? 256 : u.role === 'unicorn' ? 25 : isCarnivoreDino ? 121 : 100;
+        const maxSq =
+          u.role === 'dragon'
+            ? 256
+            : u.role === 'phoenix' || u.role === 'griffin'
+              ? 144
+              : u.role === 'unicorn'
+                ? 25
+                : isCarnivoreDino || u.role === 'golem' || u.role === 'yeti'
+                  ? 121
+                  : 100;
         if (dSq <= maxSq && dSq < bestScore) {
           bestScore = dSq;
           target = other;
@@ -13260,21 +13434,51 @@ function stepWildlifeAI(
         }
       } else if (
         u.role === 'dragon' &&
-        (other.role === 'dinosaur' || other.role === 'bear' || other.role === 'wolf')
+        (other.role === 'dinosaur' || other.role === 'bear' || other.role === 'wolf' || other.role === 'lion')
       ) {
         if (dSq <= 100 && dSq + 10 < bestScore) {
           bestScore = dSq + 10;
           target = other;
         }
+      } else if (u.role === 'phoenix' || u.role === 'kitsune' || u.role === 'golem') {
+        // Noble mythical guardians defend ecosystems against hostile raiders & aggressive apex beasts
+        if ((other.role === 'wolf' || other.role === 'crocodile' || other.role === 'lion') && dSq <= 49) {
+          if (dSq + 12 < bestScore) {
+            bestScore = dSq + 12;
+            target = other;
+          }
+        }
+      } else if (u.role === 'griffin') {
+        // Griffin swoops on medium/small prey & rival predators across mountains and plains
+        if ((isPreyAnimalRole(other.role) || other.role === 'wolf' || other.role === 'fox' || other.role === 'boar') && dSq <= 121) {
+          const bias = other.role === 'sheep' || other.role === 'rabbit' || other.role === 'deer' ? 3 : 7;
+          if (dSq + bias < bestScore) {
+            bestScore = dSq + bias;
+            target = other;
+          }
+        }
+      } else if (u.role === 'yeti') {
+        // Yeti fiercely guards frozen peaks against predators & trespassers
+        if ((other.role === 'wolf' || other.role === 'bear' || isPreyAnimalRole(other.role)) && dSq <= 81) {
+          if (dSq + 6 < bestScore) {
+            bestScore = dSq + 6;
+            target = other;
+          }
+        } else if (other.faction === 'civilization' && dSq <= 16) {
+          if (dSq + 12 < bestScore) {
+            bestScore = dSq + 12;
+            target = other;
+          }
+        }
       } else if (isCarnivoreDino) {
-        // Apex carnivore dinosaur specialty: hunts herbivore dinosaurs, prey animals, rival wolves/bears & nearby citizens
+        // Apex carnivore dinosaur specialty: hunts herbivore dinosaurs, prey animals, rival predators & nearby citizens
         if (isHerbivoreAnimal(other.role, other.appearanceSeed) && dSq <= 121) {
           const herbBias = other.role === 'dinosaur' ? 4 : 6;
           if (dSq + herbBias < bestScore) {
             bestScore = dSq + herbBias;
             target = other;
           }
-        } else if ((other.role === 'wolf' || other.role === 'bear') && dSq <= 100) {
+        } else if ((other.role === 'wolf' || other.role === 'bear' || other.role === 'lion') && dSq <= 100) {
           if (dSq + 9 < bestScore) {
             bestScore = dSq + 9;
             target = other;
@@ -13285,11 +13489,58 @@ function stepWildlifeAI(
             target = other;
           }
         }
+      } else if (u.role === 'fox') {
+        // Fox specialty: agile hunter of small prey (rabbit, chicken)
+        if ((other.role === 'rabbit' || other.role === 'chicken') && dSq <= 81) {
+          if (dSq + 2 < bestScore) {
+            bestScore = dSq + 2;
+            target = other;
+          }
+        }
+      } else if (u.role === 'boar') {
+        // Boar: territorial charger against wolves, foxes, and very close trespassers
+        if ((other.role === 'wolf' || other.role === 'fox') && dSq <= 36) {
+          if (dSq + 5 < bestScore) {
+            bestScore = dSq + 5;
+            target = other;
+          }
+        }
+      } else if (u.role === 'lion') {
+        // Lion: savanna apex predator hunting grazers (deer, sheep, camel, cow, pig, boar)
+        if ((isPreyAnimalRole(other.role) || other.role === 'boar' || other.role === 'wolf') && dSq <= 110) {
+          const preyBias = other.role === 'deer' || other.role === 'sheep' || other.role === 'camel' ? 3 : 6;
+          if (dSq + preyBias < bestScore) {
+            bestScore = dSq + preyBias;
+            target = other;
+          }
+        } else if (other.faction === 'civilization' && dSq <= 9) {
+          if (dSq + 14 < bestScore) {
+            bestScore = dSq + 14;
+            target = other;
+          }
+        }
+      } else if (u.role === 'crocodile') {
+        // Crocodile: riverbank ambush predator striking close prey & wanderers
+        if ((isPreyAnimalRole(other.role) || other.role === 'boar' || other.role === 'fox') && dSq <= 49) {
+          if (dSq + 3 < bestScore) {
+            bestScore = dSq + 3;
+            target = other;
+          }
+        } else if (other.faction === 'civilization' && dSq <= 6.25) {
+          if (dSq + 10 < bestScore) {
+            bestScore = dSq + 10;
+            target = other;
+          }
+        }
       } else if (u.role === 'wolf') {
-        // Wolf specialty: swift pack predator targeting small/medium herbivores (chicken, pig, capybara, cow)
+        // Wolf specialty: swift pack predator targeting small/medium herbivores
         if (isPreyAnimalRole(other.role) && dSq <= 100) {
           const preyBias =
-            other.role === 'chicken' ? 2 : other.role === 'pig' || other.role === 'capybara' ? 4 : 7;
+            other.role === 'chicken' || other.role === 'rabbit'
+              ? 2
+              : other.role === 'sheep' || other.role === 'deer' || other.role === 'pig' || other.role === 'capybara'
+                ? 4
+                : 7;
           if (dSq + preyBias < bestScore) {
             bestScore = dSq + preyBias;
             target = other;
@@ -13301,8 +13552,8 @@ function stepWildlifeAI(
           }
         }
       } else if (u.role === 'bear') {
-        // Bear specialty: heavy predator hunting herbivores, rival wolves & close trespassers
-        if ((isPreyAnimalRole(other.role) || other.role === 'wolf') && dSq <= 81) {
+        // Bear specialty: heavy predator hunting herbivores, rival wolves/foxes/boars & close trespassers
+        if ((isPreyAnimalRole(other.role) || other.role === 'wolf' || other.role === 'fox' || other.role === 'boar') && dSq <= 81) {
           const bearBias = other.role === 'wolf' ? 8 : 5;
           if (dSq + bearBias < bestScore) {
             bestScore = dSq + bearBias;
@@ -13619,7 +13870,12 @@ function stepWildlifeAI(
         if (u.actionCooldown <= 0) {
           const isDinoChargeHit = u.role === 'dinosaur' && (u.dinoRushTimer ?? 0) > 0 && (u.wildlifeSkillCooldown ?? 0) <= 0;
           const dmg = def.attackDamage * (isFrenzied ? 1.8 : 1.0) * (isDinoChargeHit ? 1.35 : 1.0);
-          u.actionCooldown = u.role === 'wolf' ? 0.72 : 0.9;
+          u.actionCooldown =
+            u.role === 'wolf' || u.role === 'fox' || u.role === 'kitsune'
+              ? 0.72
+              : u.role === 'golem'
+                ? 1.25
+                : 0.9;
           u.attackAnimTimer = 0.48;
           u.attackTargetX = target.x;
           u.attackTargetZ = target.z;
@@ -13630,26 +13886,55 @@ function stepWildlifeAI(
           target.hp -= dmg;
           target.lastAttackerId = u.id;
           target.underAttackTimer = 8.0;
+
+          // Mythical signature combat effects: Yeti Frost Slam, Stone Golem Seismic Quake, Phoenix Solar Burst
+          if (u.role === 'yeti') {
+            target.statusEffects.frozen = Math.max(target.statusEffects.frozen ?? 0, 2.2);
+          } else if (u.role === 'golem') {
+            const quakeSplash = (other: UnitEntity, dSq: number) => {
+              if (other.id === u.id || other.id === target!.id || other.state === 'ko' || dSq > 4.84) return;
+              if (other.faction === 'hostile' || (isFrenzied && other.role !== 'golem')) {
+                other.hp -= dmg * 0.55;
+                other.lastAttackerId = u.id;
+              }
+            };
+            if (activeTickIndex) {
+              forEachUnitInRadius(activeTickIndex, target.x, target.z, 2.25, quakeSplash);
+            }
+          }
+
           const variant =
-            u.role === 'wolf'
+            u.role === 'wolf' || u.role === 'fox' || u.role === 'lion' || u.role === 'crocodile'
               ? 'bite'
-              : u.role === 'bear'
+              : u.role === 'bear' || u.role === 'yeti' || u.role === 'golem' || u.role === 'elephant' || u.role === 'boar'
                 ? 'slam'
-                : u.role === 'dinosaur'
+                : u.role === 'dinosaur' || u.role === 'griffin'
                   ? 'crunch'
-                  : u.role === 'unicorn'
+                  : u.role === 'unicorn' || u.role === 'phoenix' || u.role === 'kitsune'
                     ? 'horn_blast'
                     : 'peck';
           const color =
-            u.role === 'wolf'
+            u.role === 'wolf' || u.role === 'fox' || u.role === 'lion'
               ? '#f87171'
-              : u.role === 'bear'
-                ? '#f59e0b'
-                : u.role === 'dinosaur'
-                  ? '#fb923c'
-                  : u.role === 'unicorn'
-                    ? '#f472b6'
-                    : '#fde047';
+              : u.role === 'crocodile'
+                ? '#4ade80'
+                : u.role === 'yeti'
+                  ? '#67e8f9'
+                  : u.role === 'golem'
+                    ? '#fbbf24'
+                    : u.role === 'phoenix'
+                      ? '#ff7b00'
+                      : u.role === 'kitsune'
+                        ? '#e879f9'
+                        : u.role === 'griffin'
+                          ? '#fde047'
+                          : u.role === 'bear' || u.role === 'boar'
+                            ? '#f59e0b'
+                            : u.role === 'dinosaur'
+                              ? '#fb923c'
+                              : u.role === 'unicorn'
+                                ? '#f472b6'
+                                : '#fde047';
           state.pendingVfx.push({
             id: nextEntityId('vfx'),
             type: 'animal_attack',
@@ -13659,7 +13944,14 @@ function stepWildlifeAI(
             x: target.x,
             y: 0,
             z: target.z,
-            radius: isDinoChargeHit ? 1.8 : u.role === 'dinosaur' ? 0.95 : u.role === 'bear' ? 0.85 : 0.72,
+            radius:
+              isDinoChargeHit || u.role === 'golem' || u.role === 'yeti'
+                ? 1.85
+                : u.role === 'dinosaur' || u.role === 'phoenix'
+                  ? 1.15
+                  : u.role === 'bear' || u.role === 'lion' || u.role === 'griffin'
+                    ? 0.9
+                    : 0.72,
             color,
             createdAt: Date.now(),
           });
@@ -13673,7 +13965,7 @@ function stepWildlifeAI(
         const nx = u.x + ((target.x - u.x) / dist) * moveSpeed * chaseMult * dt;
         const nz = u.z + ((target.z - u.z) / dist) * moveSpeed * chaseMult * dt;
         const nt = getTile(state, nx, nz);
-        if (isFlying || (nt && nt.height > 0)) {
+        if (isFlying || (nt && (nt.height > 0 || (canWalkIce && nt.terrain === 'ice')))) {
           u.x = Math.max(1, Math.min(gs - 2, nx));
           u.z = Math.max(1, Math.min(gs - 2, nz));
         }
@@ -13773,7 +14065,8 @@ function stepWildlifeAI(
 
   // Natural wandering across matching biome tiles (livelier cadence)
   const distToTarget = Math.hypot(u.targetX - u.x, u.targetZ - u.z);
-  const currentTileInvalid = !isFlying && (!curTile || curTile.height <= 0);
+  const currentTileInvalid =
+    !isFlying && (!curTile || (curTile.height <= 0 && !(canWalkIce && curTile.terrain === 'ice')));
   if (
     distToTarget < (isFlying ? 2.2 : 0.35) ||
     currentTileInvalid ||
@@ -13785,7 +14078,8 @@ function stepWildlifeAI(
       const candX = Math.max(2, Math.min(gs - 3, Math.round(u.x + (Math.random() - 0.5) * roamRadius * 2)));
       const candZ = Math.max(2, Math.min(gs - 3, Math.round(u.z + (Math.random() - 0.5) * roamRadius * 2)));
       const ct = getTile(state, candX, candZ);
-      if (!ct || ct.height <= 0 || ct.onFireTimer > 0) continue;
+      if (!ct || ct.onFireTimer > 0) continue;
+      if (!isFlying && ct.height <= 0 && !(canWalkIce && ct.terrain === 'ice')) continue;
       chosen = ct;
       if (tileMatchesWildlifeHabitat(state, ct, u.role, u.appearanceSeed)) break;
     }
@@ -13809,11 +14103,11 @@ function stepWildlifeAI(
       const dz = u.targetZ - u.z;
       const dist = Math.hypot(dx, dz);
       if (dist > 0.1) {
-        const pace = isHerbivore ? 0.72 : 0.84;
+        const pace = isFlying ? 0.92 : isHerbivore ? 0.72 : 0.84;
         const nx = u.x + (dx / dist) * moveSpeed * pace * dt;
         const nz = u.z + (dz / dist) * moveSpeed * pace * dt;
         const nt = getTile(state, nx, nz);
-        if (nt && nt.height > 0) {
+        if (isFlying || (nt && (nt.height > 0 || (canWalkIce && nt.terrain === 'ice')))) {
           u.x = Math.max(1, Math.min(gs - 2, nx));
           u.z = Math.max(1, Math.min(gs - 2, nz));
         } else {
@@ -15686,9 +15980,23 @@ export function stepDraggedUnitKinematics(state: SimulationState, realDt: number
 
     // Weight-scaled physical drag lag so entities feel noticeably heavier & trailed by telekinesis
     const followRate =
-      u.role === 'dragon' || u.role === 'dinosaur' || u.role === 'bear'
+      u.role === 'dragon' ||
+      u.role === 'dinosaur' ||
+      u.role === 'bear' ||
+      u.role === 'elephant' ||
+      u.role === 'golem' ||
+      u.role === 'yeti'
         ? 3.4
-        : u.role === 'cow' || u.role === 'unicorn' || u.role === 'pig' || u.role === 'orc'
+        : u.role === 'cow' ||
+            u.role === 'unicorn' ||
+            u.role === 'pig' ||
+            u.role === 'orc' ||
+            u.role === 'lion' ||
+            u.role === 'camel' ||
+            u.role === 'crocodile' ||
+            u.role === 'boar' ||
+            u.role === 'griffin' ||
+            u.role === 'phoenix'
           ? 4.6
           : 5.8;
 

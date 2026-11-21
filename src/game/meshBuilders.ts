@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { getDragonVariant } from './catalog';
+import { ANIMAL_ROLE_SET, getDragonVariant } from './catalog';
 import { wrapShaderTime } from './dayNightLighting';
 import {
   BuildingType,
@@ -9387,6 +9387,1033 @@ function buildCreatureUnitGroup(
     surfGroup.add(outerSplashRing);
 
     bodyPivot.add(surfGroup);
+  } else if (role === 'deer') {
+    // Graceful forest/blossom deer with slender legs, white rump patch, perked ears & branching stag antlers
+    shadowRadius = 0.56;
+    auraRadius = 0.31;
+    const coats = [0xb07241, 0x9c6137, 0xc4864f, 0x8f5630];
+    const bodyMat = mat(coats[s0 % coats.length], 0.78);
+    const bellyMat = mat(0xf3e8d6, 0.82);
+    const hoofMat = mat(0x2d241e, 0.65);
+    const antlerMat = mat(0xdfd3be, 0.55, 0.08);
+
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.19, 0.21, 0.44), bodyMat);
+    body.position.set(0, 0.34, -0.02);
+    body.castShadow = true;
+    bodyPivot.add(body);
+
+    const chest = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.14, 0.14), bellyMat);
+    chest.position.set(0, 0.31, 0.16);
+    bodyPivot.add(chest);
+
+    const headPivot = makePivot('head_pivot', 0, 0.41, 0.18);
+    const neck = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.24, 0.11), bodyMat);
+    neck.position.set(0, 0.09, 0.03);
+    neck.rotation.x = 0.28;
+    neck.castShadow = true;
+    headPivot.add(neck);
+
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.2), bodyMat);
+    head.position.set(0, 0.21, 0.1);
+    head.castShadow = true;
+    headPivot.add(head);
+
+    const nose = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.048, 0.035), hoofMat);
+    nose.position.set(0, 0.19, 0.205);
+    headPivot.add(nose);
+
+    for (const ex of [-0.065, 0.065]) {
+      const ear = new THREE.Mesh(new THREE.BoxGeometry(0.038, 0.075, 0.03), bodyMat);
+      ear.position.set(ex, 0.28, 0.04);
+      ear.rotation.z = ex < 0 ? 0.35 : -0.35;
+      headPivot.add(ear);
+      const eye = new THREE.Mesh(new THREE.BoxGeometry(0.016, 0.022, 0.024), darkEyeMat);
+      eye.position.set(ex * 0.94, 0.22, 0.14);
+      headPivot.add(eye);
+      // Stags (2/3 of deer) carry branching voxel antlers
+      if (s1 % 3 !== 0) {
+        const stem = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.16, 0.022), antlerMat);
+        stem.position.set(ex * 0.85, 0.34, 0.07);
+        stem.rotation.z = ex < 0 ? 0.38 : -0.38;
+        headPivot.add(stem);
+        const tine = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.09, 0.02), antlerMat);
+        tine.position.set(ex * 1.45, 0.38, 0.11);
+        tine.rotation.x = 0.45;
+        headPivot.add(tine);
+      }
+    }
+    bodyPivot.add(headPivot);
+
+    const tailPivot = makePivot('tail_pivot', 0, 0.36, -0.24);
+    const tail = new THREE.Mesh(new THREE.BoxGeometry(0.065, 0.095, 0.055), bellyMat);
+    tail.position.set(0, 0.01, -0.02);
+    tail.rotation.x = 0.3;
+    tailPivot.add(tail);
+    bodyPivot.add(tailPivot);
+
+    for (const [name, lx, lz] of [
+      ['leg_fl', -0.068, 0.15],
+      ['leg_fr', 0.068, 0.15],
+      ['leg_bl', -0.068, -0.18],
+      ['leg_br', 0.068, -0.18],
+    ] as const) {
+      const legPivot = makePivot(name, lx, 0.24, lz);
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.046, 0.22, 0.046), bodyMat);
+      leg.position.set(0, -0.11, 0);
+      legPivot.add(leg);
+      const hoof = new THREE.Mesh(new THREE.BoxGeometry(0.048, 0.032, 0.048), hoofMat);
+      hoof.position.set(0, -0.225, 0);
+      legPivot.add(hoof);
+      group.add(legPivot);
+    }
+  } else if (role === 'sheep') {
+    // Fluffy voxel sheep with blocky fleece, dark face, floppy ears & stubby legs
+    shadowRadius = 0.52;
+    auraRadius = 0.28;
+    const fleeceHex = s0 % 5 === 0 ? 0x3b3836 : s0 % 5 === 1 ? 0xd9cbb8 : 0xf8f7f2;
+    const fleeceMat = mat(fleeceHex, 0.92);
+    const faceMat = mat(0x3a322e, 0.72);
+
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.24, 0.38), fleeceMat);
+    body.position.set(0, 0.24, -0.02);
+    body.castShadow = true;
+    bodyPivot.add(body);
+
+    const fluffTop = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.06, 0.32), fleeceMat);
+    fluffTop.position.set(0, 0.37, -0.02);
+    bodyPivot.add(fluffTop);
+
+    const headPivot = makePivot('head_pivot', 0, 0.28, 0.17);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.15, 0.17), faceMat);
+    head.position.set(0, 0.0, 0.06);
+    head.castShadow = true;
+    headPivot.add(head);
+
+    const woolCap = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.065, 0.13), fleeceMat);
+    woolCap.position.set(0, 0.085, 0.04);
+    headPivot.add(woolCap);
+
+    for (const ex of [-0.085, 0.085]) {
+      const ear = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.06, 0.035), faceMat);
+      ear.position.set(ex, 0.02, 0.04);
+      ear.rotation.z = ex < 0 ? 0.5 : -0.5;
+      headPivot.add(ear);
+      const eye = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.024, 0.02), mat(0xfef9c3, 0.3));
+      eye.position.set(ex * 0.72, 0.025, 0.145);
+      headPivot.add(eye);
+    }
+    bodyPivot.add(headPivot);
+
+    const tailPivot = makePivot('tail_pivot', 0, 0.25, -0.21);
+    const tail = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.06), fleeceMat);
+    tailPivot.add(tail);
+    bodyPivot.add(tailPivot);
+
+    for (const [name, lx, lz] of [
+      ['leg_fl', -0.085, 0.11],
+      ['leg_fr', 0.085, 0.11],
+      ['leg_bl', -0.085, -0.14],
+      ['leg_br', 0.085, -0.14],
+    ] as const) {
+      const legPivot = makePivot(name, lx, 0.13, lz);
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.056, 0.13, 0.056), faceMat);
+      leg.position.set(0, -0.065, 0);
+      legPivot.add(leg);
+      group.add(legPivot);
+    }
+  } else if (role === 'rabbit') {
+    // Nimble hopping bunny with tall upright ears, twitchy pink nose & puff cotton tail
+    shadowRadius = 0.34;
+    auraRadius = 0.21;
+    const coats = [0xf5f5f4, 0xc7a37e, 0x9b7a5e, 0x6b5b53];
+    const bodyMat = mat(coats[s0 % coats.length], 0.85);
+    const innerEarMat = mat(0xf9a8b8, 0.65);
+    const puffMat = mat(0xffffff, 0.9);
+
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.13, 0.2), bodyMat);
+    body.position.set(0, 0.11, -0.01);
+    body.castShadow = true;
+    bodyPivot.add(body);
+
+    const headPivot = makePivot('head_pivot', 0, 0.17, 0.09);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.11, 0.12), bodyMat);
+    head.position.set(0, 0.03, 0.02);
+    head.castShadow = true;
+    headPivot.add(head);
+
+    const nose = new THREE.Mesh(new THREE.BoxGeometry(0.034, 0.024, 0.022), innerEarMat);
+    nose.position.set(0, 0.02, 0.085);
+    headPivot.add(nose);
+
+    for (const ex of [-0.036, 0.036]) {
+      const ear = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.125, 0.028), bodyMat);
+      ear.position.set(ex, 0.13, 0.0);
+      ear.rotation.z = ex < 0 ? 0.12 : -0.12;
+      headPivot.add(ear);
+      const earIn = new THREE.Mesh(new THREE.BoxGeometry(0.016, 0.09, 0.014), innerEarMat);
+      earIn.position.set(ex, 0.125, 0.014);
+      headPivot.add(earIn);
+      const eye = new THREE.Mesh(new THREE.BoxGeometry(0.016, 0.022, 0.018), darkEyeMat);
+      eye.position.set(ex * 1.65, 0.045, 0.045);
+      headPivot.add(eye);
+    }
+    bodyPivot.add(headPivot);
+
+    const tailPivot = makePivot('tail_pivot', 0, 0.12, -0.12);
+    const puff = new THREE.Mesh(new THREE.BoxGeometry(0.068, 0.068, 0.065), puffMat);
+    tailPivot.add(puff);
+    bodyPivot.add(tailPivot);
+
+    for (const [name, lx, lz, h] of [
+      ['leg_fl', -0.045, 0.06, 0.06],
+      ['leg_fr', 0.045, 0.06, 0.06],
+      ['leg_bl', -0.055, -0.07, 0.08],
+      ['leg_br', 0.055, -0.07, 0.08],
+    ] as const) {
+      const legPivot = makePivot(name, lx, h, lz);
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.04, h, 0.065), bodyMat);
+      leg.position.set(0, -h * 0.5, 0.01);
+      legPivot.add(leg);
+      group.add(legPivot);
+    }
+  } else if (role === 'fox') {
+    // Sleek russet (or arctic white) fox with sharp black-tipped ears, cream chest & long white-tipped tail
+    shadowRadius = 0.5;
+    auraRadius = 0.27;
+    const isArctic = s0 % 5 === 0;
+    const bodyMat = mat(isArctic ? 0xf1f5f9 : 0xd96b27, 0.76);
+    const chestMat = mat(0xfef3e2, 0.82);
+    const darkMat = mat(isArctic ? 0x64748b : 0x261d19, 0.72);
+
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.17, 0.36), bodyMat);
+    body.position.set(0, 0.22, -0.02);
+    body.castShadow = true;
+    bodyPivot.add(body);
+
+    const chest = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.12, 0.11), chestMat);
+    chest.position.set(0, 0.2, 0.14);
+    bodyPivot.add(chest);
+
+    const headPivot = makePivot('head_pivot', 0, 0.27, 0.16);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.13, 0.15), bodyMat);
+    head.position.set(0, 0.02, 0.05);
+    head.castShadow = true;
+    headPivot.add(head);
+
+    const snout = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.062, 0.11), chestMat);
+    snout.position.set(0, -0.01, 0.15);
+    headPivot.add(snout);
+
+    const nose = new THREE.Mesh(new THREE.BoxGeometry(0.036, 0.028, 0.025), darkMat);
+    nose.position.set(0, 0.005, 0.21);
+    headPivot.add(nose);
+
+    for (const ex of [-0.055, 0.055]) {
+      const ear = new THREE.Mesh(pxCone(0.034, 0.085, 4), bodyMat);
+      ear.position.set(ex, 0.115, 0.03);
+      headPivot.add(ear);
+      const tip = new THREE.Mesh(pxCone(0.02, 0.04, 4), darkMat);
+      tip.position.set(ex, 0.145, 0.03);
+      headPivot.add(tip);
+      const eye = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.022, 0.02), darkEyeMat);
+      eye.position.set(ex * 1.15, 0.035, 0.125);
+      headPivot.add(eye);
+    }
+    bodyPivot.add(headPivot);
+
+    const tailPivot = makePivot('tail_pivot', 0, 0.24, -0.2);
+    const tailBase = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.2), bodyMat);
+    tailBase.position.set(0, 0.02, -0.1);
+    tailBase.rotation.x = 0.22;
+    tailPivot.add(tailBase);
+    const tailTip = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.09, 0.09), chestMat);
+    tailTip.position.set(0, 0.045, -0.22);
+    tailPivot.add(tailTip);
+    bodyPivot.add(tailPivot);
+
+    for (const [name, lx, lz] of [
+      ['leg_fl', -0.062, 0.11],
+      ['leg_fr', 0.062, 0.11],
+      ['leg_bl', -0.062, -0.14],
+      ['leg_br', 0.062, -0.14],
+    ] as const) {
+      const legPivot = makePivot(name, lx, 0.14, lz);
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.046, 0.14, 0.046), darkMat);
+      leg.position.set(0, -0.07, 0);
+      legPivot.add(leg);
+      group.add(legPivot);
+    }
+  } else if (role === 'boar') {
+    // Stocky bristled woodland boar with dorsal mane crest & gleaming curved ivory tusks
+    shadowRadius = 0.58;
+    auraRadius = 0.31;
+    const coats = [0x593d2b, 0x473022, 0x694a36];
+    const bodyMat = mat(coats[s0 % coats.length], 0.86);
+    const ridgeMat = mat(0x2b1d14, 0.9);
+    const tuskMat = mat(0xf6f0dc, 0.35, 0.1);
+
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.24, 0.42), bodyMat);
+    body.position.set(0, 0.22, -0.02);
+    body.castShadow = true;
+    bodyPivot.add(body);
+
+    const ridge = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.075, 0.36), ridgeMat);
+    ridge.position.set(0, 0.36, 0.0);
+    bodyPivot.add(ridge);
+
+    const headPivot = makePivot('head_pivot', 0, 0.24, 0.18);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.2, 0.2), bodyMat);
+    head.position.set(0, 0.01, 0.07);
+    head.castShadow = true;
+    headPivot.add(head);
+
+    const snout = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.095, 0.09), ridgeMat);
+    snout.position.set(0, -0.03, 0.185);
+    headPivot.add(snout);
+
+    for (const tx of [-0.085, 0.085]) {
+      const tusk = new THREE.Mesh(pxCone(0.024, 0.12, 4), tuskMat);
+      tusk.position.set(tx, -0.01, 0.21);
+      tusk.rotation.x = 0.42;
+      tusk.rotation.z = tx < 0 ? 0.32 : -0.32;
+      headPivot.add(tusk);
+      const ear = new THREE.Mesh(new THREE.BoxGeometry(0.052, 0.06, 0.034), ridgeMat);
+      ear.position.set(tx * 1.15, 0.12, 0.06);
+      headPivot.add(ear);
+      const eye = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.026, 0.02), darkEyeMat);
+      eye.position.set(tx * 0.95, 0.035, 0.168);
+      headPivot.add(eye);
+    }
+    bodyPivot.add(headPivot);
+
+    const tailPivot = makePivot('tail_pivot', 0, 0.24, -0.23);
+    const tail = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.08, 0.045), ridgeMat);
+    tail.position.set(0, -0.02, -0.02);
+    tail.rotation.x = 0.4;
+    tailPivot.add(tail);
+    bodyPivot.add(tailPivot);
+
+    for (const [name, lx, lz] of [
+      ['leg_fl', -0.095, 0.12],
+      ['leg_fr', 0.095, 0.12],
+      ['leg_bl', -0.095, -0.15],
+      ['leg_br', 0.095, -0.15],
+    ] as const) {
+      const legPivot = makePivot(name, lx, 0.13, lz);
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.072, 0.13, 0.072), ridgeMat);
+      leg.position.set(0, -0.065, 0);
+      legPivot.add(leg);
+      group.add(legPivot);
+    }
+  } else if (role === 'lion') {
+    // Regal savanna lion with golden coat, thick shaggy amber mane (male) & tufted tail
+    shadowRadius = 0.68;
+    auraRadius = 0.36;
+    const isMale = s0 % 3 !== 0;
+    const coatMat = mat(0xdba24a, 0.74);
+    const bellyMat = mat(0xf3d499, 0.8);
+    const maneMat = mat(0x7c4119, 0.88);
+
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.25, 0.54), coatMat);
+    body.position.set(0, 0.34, -0.03);
+    body.castShadow = true;
+    bodyPivot.add(body);
+
+    const belly = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.07, 0.44), bellyMat);
+    belly.position.set(0, 0.22, -0.02);
+    bodyPivot.add(belly);
+
+    const headPivot = makePivot('head_pivot', 0, 0.4, 0.22);
+    if (isMale) {
+      const mane = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.31, 0.22), maneMat);
+      mane.position.set(0, 0.02, 0.03);
+      mane.castShadow = true;
+      headPivot.add(mane);
+    }
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.21, 0.19, 0.21), coatMat);
+    head.position.set(0, 0.02, 0.1);
+    head.castShadow = true;
+    headPivot.add(head);
+
+    const muzzle = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.095, 0.09), bellyMat);
+    muzzle.position.set(0, -0.025, 0.21);
+    headPivot.add(muzzle);
+
+    const nose = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.038, 0.03), mat(0x2a1b14, 0.5));
+    nose.position.set(0, 0.005, 0.26);
+    headPivot.add(nose);
+
+    for (const ex of [-0.08, 0.08]) {
+      const ear = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.055, 0.035), coatMat);
+      ear.position.set(ex, 0.13, 0.07);
+      headPivot.add(ear);
+      const eye = new THREE.Mesh(new THREE.BoxGeometry(0.024, 0.026, 0.02), mat(0xf59e0b, 0.25, 0.1, 0xf59e0b, 0.35));
+      eye.position.set(ex * 0.9, 0.045, 0.205);
+      headPivot.add(eye);
+    }
+    bodyPivot.add(headPivot);
+
+    const tailPivot = makePivot('tail_pivot', 0, 0.36, -0.3);
+    const tail = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.045, 0.28), coatMat);
+    tail.position.set(0, -0.04, -0.13);
+    tail.rotation.x = -0.25;
+    tailPivot.add(tail);
+    const tuft = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.085, 0.09), maneMat);
+    tuft.position.set(0, -0.08, -0.27);
+    tailPivot.add(tuft);
+    bodyPivot.add(tailPivot);
+
+    for (const [name, lx, lz] of [
+      ['leg_fl', -0.095, 0.17],
+      ['leg_fr', 0.095, 0.17],
+      ['leg_bl', -0.095, -0.21],
+      ['leg_br', 0.095, -0.21],
+    ] as const) {
+      const legPivot = makePivot(name, lx, 0.23, lz);
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.082, 0.23, 0.082), coatMat);
+      leg.position.set(0, -0.115, 0);
+      legPivot.add(leg);
+      group.add(legPivot);
+    }
+  } else if (role === 'elephant') {
+    // Colossal slate-gray voxel elephant with broad flapping ears, curved ivory tusks & long articulated trunk
+    shadowRadius = 1.05;
+    auraRadius = 0.56;
+    const hideHex = s0 % 2 === 0 ? 0x7c848c : 0x6c757d;
+    const hideMat = mat(hideHex, 0.88);
+    const earInnerMat = mat(0x9ea5ad, 0.84);
+    const tuskMat = mat(0xfaf3df, 0.3, 0.15);
+    const toenailMat = mat(0xdad4c4, 0.6);
+
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.52, 0.78), hideMat);
+    body.position.set(0, 0.62, -0.04);
+    body.castShadow = true;
+    bodyPivot.add(body);
+
+    const backRidge = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.1, 0.56), hideMat);
+    backRidge.position.set(0, 0.91, -0.02);
+    bodyPivot.add(backRidge);
+
+    const headPivot = makePivot('head_pivot', 0, 0.72, 0.34);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.4, 0.36), hideMat);
+    head.position.set(0, 0.04, 0.14);
+    head.castShadow = true;
+    headPivot.add(head);
+
+    // Multi-segment curving trunk
+    const trunkTop = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.26, 0.14), hideMat);
+    trunkTop.position.set(0, -0.12, 0.32);
+    trunkTop.rotation.x = 0.18;
+    headPivot.add(trunkTop);
+    const trunkTip = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.24, 0.11), hideMat);
+    trunkTip.position.set(0, -0.34, 0.36);
+    trunkTip.rotation.x = -0.22;
+    headPivot.add(trunkTip);
+
+    for (const ex of [-1, 1]) {
+      const ear = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.34, 0.28), hideMat);
+      ear.position.set(ex * 0.26, 0.04, 0.06);
+      ear.rotation.y = ex * 0.45;
+      headPivot.add(ear);
+      const earIn = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.26, 0.2), earInnerMat);
+      earIn.position.set(ex * 0.28, 0.03, 0.08);
+      earIn.rotation.y = ex * 0.45;
+      headPivot.add(earIn);
+      const tusk = new THREE.Mesh(pxCone(0.038, 0.32, 5), tuskMat);
+      tusk.position.set(ex * 0.13, -0.12, 0.34);
+      tusk.rotation.x = 1.15;
+      tusk.rotation.z = ex * -0.15;
+      headPivot.add(tusk);
+      const eye = new THREE.Mesh(new THREE.BoxGeometry(0.028, 0.034, 0.028), darkEyeMat);
+      eye.position.set(ex * 0.21, 0.09, 0.25);
+      headPivot.add(eye);
+    }
+    bodyPivot.add(headPivot);
+
+    const tailPivot = makePivot('tail_pivot', 0, 0.62, -0.44);
+    const tail = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.26, 0.055), hideMat);
+    tail.position.set(0, -0.12, -0.02);
+    tail.rotation.x = -0.2;
+    tailPivot.add(tail);
+    bodyPivot.add(tailPivot);
+
+    for (const [name, lx, lz] of [
+      ['leg_fl', -0.19, 0.22],
+      ['leg_fr', 0.19, 0.22],
+      ['leg_bl', -0.19, -0.26],
+      ['leg_br', 0.19, -0.26],
+    ] as const) {
+      const legPivot = makePivot(name, lx, 0.38, lz);
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.38, 0.16), hideMat);
+      leg.position.set(0, -0.19, 0);
+      legPivot.add(leg);
+      const nail = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.045, 0.05), toenailMat);
+      nail.position.set(0, -0.355, 0.065);
+      legPivot.add(nail);
+      group.add(legPivot);
+    }
+  } else if (role === 'camel') {
+    // Hardy desert camel with twin humps, curved neck & padded desert feet
+    shadowRadius = 0.72;
+    auraRadius = 0.38;
+    const coats = [0xd6ad6d, 0xc79b5b, 0xdfb97a];
+    const bodyMat = mat(coats[s0 % coats.length], 0.84);
+    const humpMat = mat(0xb58647, 0.88);
+    const padMat = mat(0x5c4430, 0.82);
+
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.27, 0.26, 0.56), bodyMat);
+    body.position.set(0, 0.42, -0.02);
+    body.castShadow = true;
+    bodyPivot.add(body);
+
+    // Iconic twin humps
+    for (const hz of [0.1, -0.14]) {
+      const hump = new THREE.Mesh(new THREE.BoxGeometry(0.21, 0.15, 0.17), humpMat);
+      hump.position.set(0, 0.61, hz);
+      hump.castShadow = true;
+      bodyPivot.add(hump);
+    }
+
+    const headPivot = makePivot('head_pivot', 0, 0.44, 0.24);
+    const lowerNeck = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.16, 0.18), bodyMat);
+    lowerNeck.position.set(0, 0.0, 0.08);
+    lowerNeck.rotation.x = 0.65;
+    headPivot.add(lowerNeck);
+    const upperNeck = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.26, 0.12), bodyMat);
+    upperNeck.position.set(0, 0.16, 0.16);
+    upperNeck.castShadow = true;
+    headPivot.add(upperNeck);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.13, 0.24), bodyMat);
+    head.position.set(0, 0.3, 0.23);
+    head.castShadow = true;
+    headPivot.add(head);
+
+    for (const ex of [-0.068, 0.068]) {
+      const ear = new THREE.Mesh(new THREE.BoxGeometry(0.036, 0.044, 0.03), humpMat);
+      ear.position.set(ex, 0.37, 0.16);
+      headPivot.add(ear);
+      const eye = new THREE.Mesh(new THREE.BoxGeometry(0.018, 0.024, 0.024), darkEyeMat);
+      eye.position.set(ex * 1.05, 0.31, 0.27);
+      headPivot.add(eye);
+    }
+    bodyPivot.add(headPivot);
+
+    const tailPivot = makePivot('tail_pivot', 0, 0.42, -0.31);
+    const tail = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.18, 0.045), humpMat);
+    tail.position.set(0, -0.08, -0.02);
+    tailPivot.add(tail);
+    bodyPivot.add(tailPivot);
+
+    for (const [name, lx, lz] of [
+      ['leg_fl', -0.095, 0.18],
+      ['leg_fr', 0.095, 0.18],
+      ['leg_bl', -0.095, -0.22],
+      ['leg_br', 0.095, -0.22],
+    ] as const) {
+      const legPivot = makePivot(name, lx, 0.3, lz);
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.064, 0.28, 0.064), bodyMat);
+      leg.position.set(0, -0.14, 0);
+      legPivot.add(leg);
+      const pad = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.034, 0.085), padMat);
+      pad.position.set(0, -0.29, 0.01);
+      legPivot.add(pad);
+      group.add(legPivot);
+    }
+  } else if (role === 'penguin') {
+    // Tuxedo arctic penguin with glossy black back, crisp white belly, golden beak & side flippers
+    shadowRadius = 0.36;
+    auraRadius = 0.22;
+    const blackMat = mat(0x1e242e, 0.55, 0.08);
+    const whiteMat = mat(0xf8fafc, 0.72);
+    const beakMat = mat(0xf59e0b, 0.42, 0.08);
+
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.27, 0.16), blackMat);
+    body.position.set(0, 0.2, 0);
+    body.castShadow = true;
+    bodyPivot.add(body);
+
+    const belly = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.23, 0.04), whiteMat);
+    belly.position.set(0, 0.19, 0.072);
+    bodyPivot.add(belly);
+
+    const headPivot = makePivot('head_pivot', 0, 0.34, 0);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.14, 0.14), blackMat);
+    head.position.set(0, 0.06, 0.01);
+    head.castShadow = true;
+    headPivot.add(head);
+
+    const cheek = new THREE.Mesh(new THREE.BoxGeometry(0.154, 0.04, 0.06), mat(0xfef08a, 0.6));
+    cheek.position.set(0, 0.03, 0.03);
+    headPivot.add(cheek);
+
+    const beak = new THREE.Mesh(pxCone(0.032, 0.08, 4), beakMat);
+    beak.rotation.x = Math.PI / 2;
+    beak.position.set(0, 0.045, 0.11);
+    headPivot.add(beak);
+
+    for (const ex of [-0.076, 0.076]) {
+      const eye = new THREE.Mesh(new THREE.BoxGeometry(0.014, 0.026, 0.026), whiteMat);
+      eye.position.set(ex, 0.075, 0.045);
+      headPivot.add(eye);
+    }
+    bodyPivot.add(headPivot);
+
+    const flipGeo = new THREE.BoxGeometry(0.034, 0.18, 0.085);
+    const wingLPivot = makePivot('wing_l', -0.1, 0.29, 0);
+    const wingL = new THREE.Mesh(flipGeo, blackMat);
+    wingL.position.set(-0.016, -0.08, 0);
+    wingLPivot.add(wingL);
+    bodyPivot.add(wingLPivot);
+
+    const wingRPivot = makePivot('wing_r', 0.1, 0.29, 0);
+    const wingR = new THREE.Mesh(flipGeo, blackMat);
+    wingR.position.set(0.016, -0.08, 0);
+    wingRPivot.add(wingR);
+    bodyPivot.add(wingRPivot);
+
+    for (const [name, lx] of [
+      ['leg_l', -0.052],
+      ['leg_r', 0.052],
+    ] as const) {
+      const legPivot = makePivot(name, lx, 0.07, 0);
+      const foot = new THREE.Mesh(new THREE.BoxGeometry(0.062, 0.032, 0.095), beakMat);
+      foot.position.set(0, -0.054, 0.025);
+      legPivot.add(foot);
+      group.add(legPivot);
+    }
+  } else if (role === 'crocodile') {
+    // Low-slung armored emerald crocodile with ridged osteoderm back, toothy jaws & sweeping tail
+    shadowRadius = 0.72;
+    auraRadius = 0.36;
+    const scaleHex = s0 % 2 === 0 ? 0x3b6e3c : 0x4a6b36;
+    const bodyMat = mat(scaleHex, 0.76, 0.08);
+    const ridgeMat = mat(0x254728, 0.82);
+    const bellyMat = mat(0xc8c78a, 0.78);
+    const toothMat = mat(0xf8fafc, 0.35);
+
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.15, 0.58), bodyMat);
+    body.position.set(0, 0.13, -0.02);
+    body.castShadow = true;
+    bodyPivot.add(body);
+
+    const belly = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.04, 0.52), bellyMat);
+    belly.position.set(0, 0.055, -0.02);
+    bodyPivot.add(belly);
+
+    for (let si = 0; si < 4; si++) {
+      const plate = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.045, 0.09), ridgeMat);
+      plate.position.set(0, 0.22, 0.16 - si * 0.13);
+      bodyPivot.add(plate);
+    }
+
+    const headPivot = makePivot('head_pivot', 0, 0.14, 0.26);
+    const skull = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.11, 0.18), bodyMat);
+    skull.position.set(0, 0.02, 0.06);
+    headPivot.add(skull);
+    const snout = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.08, 0.24), bodyMat);
+    snout.position.set(0, 0.005, 0.24);
+    headPivot.add(snout);
+    for (const tx of [-0.072, 0.072]) {
+      const eyeRidge = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.045, 0.05), ridgeMat);
+      eyeRidge.position.set(tx, 0.085, 0.08);
+      headPivot.add(eyeRidge);
+      const eye = new THREE.Mesh(new THREE.BoxGeometry(0.024, 0.024, 0.028), mat(0xfacc15, 0.25, 0.1, 0xfacc15, 0.35));
+      eye.position.set(tx * 1.15, 0.09, 0.09);
+      headPivot.add(eye);
+      for (const tz of [0.18, 0.27]) {
+        const tooth = new THREE.Mesh(new THREE.BoxGeometry(0.018, 0.032, 0.018), toothMat);
+        tooth.position.set(tx * 0.95, -0.04, tz);
+        headPivot.add(tooth);
+      }
+    }
+    bodyPivot.add(headPivot);
+
+    const tailPivot = makePivot('tail_pivot', 0, 0.12, -0.31);
+    const tail1 = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.11, 0.26), bodyMat);
+    tail1.position.set(0, 0, -0.12);
+    tailPivot.add(tail1);
+    const tail2 = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.08, 0.24), ridgeMat);
+    tail2.position.set(0, -0.01, -0.34);
+    tailPivot.add(tail2);
+    bodyPivot.add(tailPivot);
+
+    for (const [name, lx, lz] of [
+      ['leg_fl', -0.16, 0.16],
+      ['leg_fr', 0.16, 0.16],
+      ['leg_bl', -0.16, -0.18],
+      ['leg_br', 0.16, -0.18],
+    ] as const) {
+      const legPivot = makePivot(name, lx, 0.09, lz);
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.09, 0.095), ridgeMat);
+      leg.position.set(lx < 0 ? -0.02 : 0.02, -0.045, 0);
+      legPivot.add(leg);
+      group.add(legPivot);
+    }
+  } else if (role === 'phoenix') {
+    // Radiant soaring firebird with layered crimson/gold wings, blazing crest & long luminous flame tail
+    shadowRadius = 0.85;
+    auraRadius = 0.48;
+    const crimsonMat = mat(0xdc2626, 0.42, 0.15, 0xef4444, 0.45);
+    const emberMat = mat(0xf97316, 0.35, 0.2, 0xf97316, 0.72);
+    const goldMat = mat(0xfde047, 0.25, 0.45, 0xfbbf24, 0.9);
+    const beakMat = mat(0xf59e0b, 0.25, 0.55);
+
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.24, 0.62), crimsonMat);
+    body.position.set(0, 0.46, 0);
+    body.castShadow = true;
+    bodyPivot.add(body);
+
+    const breast = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.14, 0.38), emberMat);
+    breast.position.set(0, 0.38, 0.1);
+    bodyPivot.add(breast);
+
+    const headPivot = makePivot('head_pivot', 0, 0.56, 0.28);
+    const neck = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.24, 0.14), emberMat);
+    neck.position.set(0, 0.08, 0.04);
+    neck.rotation.x = 0.32;
+    headPivot.add(neck);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.15, 0.2), crimsonMat);
+    head.position.set(0, 0.2, 0.12);
+    headPivot.add(head);
+    const beak = new THREE.Mesh(pxCone(0.042, 0.14, 4), beakMat);
+    beak.rotation.x = Math.PI / 2 + 0.22;
+    beak.position.set(0, 0.18, 0.26);
+    headPivot.add(beak);
+    // Blazing 3-plume solar crown
+    for (const [cx, cy, cz, rot] of [
+      [0, 0.34, 0.06, -0.38],
+      [-0.055, 0.31, 0.04, -0.5],
+      [0.055, 0.31, 0.04, -0.5],
+    ] as const) {
+      const plume = new THREE.Mesh(new THREE.BoxGeometry(0.036, 0.18, 0.045), goldMat);
+      plume.position.set(cx, cy, cz);
+      plume.rotation.x = rot;
+      headPivot.add(plume);
+    }
+    for (const ex of [-0.082, 0.082]) {
+      const eye = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.028, 0.028), goldMat);
+      eye.position.set(ex, 0.22, 0.16);
+      headPivot.add(eye);
+    }
+    bodyPivot.add(headPivot);
+
+    // Sweeping 2-segment radiant wings
+    for (const [wName, oName, dir] of [
+      ['wing_l', 'wing_outer_l', -1],
+      ['wing_r', 'wing_outer_r', 1],
+    ] as const) {
+      const wingPivot = makePivot(wName, dir * 0.14, 0.54, 0.04);
+      const innerWing = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.055, 0.42), crimsonMat);
+      innerWing.position.set(dir * 0.34, 0, -0.04);
+      wingPivot.add(innerWing);
+      const innerEdge = new THREE.Mesh(new THREE.BoxGeometry(0.66, 0.04, 0.14), emberMat);
+      innerEdge.position.set(dir * 0.34, -0.01, -0.26);
+      wingPivot.add(innerEdge);
+
+      const outerPivot = makePivot(oName, dir * 0.68, 0, 0);
+      const outerWing = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.042, 0.3), emberMat);
+      outerWing.position.set(dir * 0.28, 0, -0.05);
+      outerPivot.add(outerWing);
+      const tipFeather = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.034, 0.18), goldMat);
+      tipFeather.position.set(dir * 0.52, 0, -0.1);
+      outerPivot.add(tipFeather);
+      wingPivot.add(outerPivot);
+      bodyPivot.add(wingPivot);
+    }
+
+    // Long triple flame tail streamers
+    const tailPivot = makePivot('tail_pivot', 0, 0.48, -0.32);
+    for (const [tx, len, m] of [
+      [0, 0.72, goldMat],
+      [-0.1, 0.56, emberMat],
+      [0.1, 0.56, emberMat],
+    ] as const) {
+      const streamer = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.04, len), m);
+      streamer.position.set(tx, -0.02, -len * 0.5);
+      tailPivot.add(streamer);
+    }
+    bodyPivot.add(tailPivot);
+  } else if (role === 'griffin') {
+    // Noble sky-hunter: eagle head & wide feathered wings fused with powerful tawny lion body
+    shadowRadius = 0.82;
+    auraRadius = 0.44;
+    const lionMat = mat(0xd49b4b, 0.72);
+    const plumeMat = mat(0xf8fafc, 0.68);
+    const wingDarkMat = mat(0x7c5332, 0.76);
+    const beakMat = mat(0xfbbf24, 0.3, 0.45);
+
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.27, 0.62), lionMat);
+    body.position.set(0, 0.42, -0.04);
+    body.castShadow = true;
+    bodyPivot.add(body);
+
+    const chestPlume = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.29, 0.24), plumeMat);
+    chestPlume.position.set(0, 0.45, 0.18);
+    chestPlume.castShadow = true;
+    bodyPivot.add(chestPlume);
+
+    const headPivot = makePivot('head_pivot', 0, 0.55, 0.26);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.19, 0.19, 0.22), plumeMat);
+    head.position.set(0, 0.09, 0.08);
+    head.castShadow = true;
+    headPivot.add(head);
+    const beak = new THREE.Mesh(pxCone(0.05, 0.16, 4), beakMat);
+    beak.rotation.x = Math.PI / 2 + 0.28;
+    beak.position.set(0, 0.065, 0.24);
+    headPivot.add(beak);
+    for (const ex of [-0.085, 0.085]) {
+      const ear = new THREE.Mesh(pxCone(0.032, 0.11, 4), plumeMat);
+      ear.position.set(ex, 0.2, 0.03);
+      ear.rotation.x = -0.35;
+      headPivot.add(ear);
+      const eye = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.028, 0.024), mat(0xf59e0b, 0.2, 0.1, 0xf59e0b, 0.6));
+      eye.position.set(ex * 1.08, 0.11, 0.15);
+      headPivot.add(eye);
+    }
+    bodyPivot.add(headPivot);
+
+    for (const [wName, oName, dir] of [
+      ['wing_l', 'wing_outer_l', -1],
+      ['wing_r', 'wing_outer_r', 1],
+    ] as const) {
+      const wingPivot = makePivot(wName, dir * 0.16, 0.54, 0.06);
+      const inner = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.058, 0.38), wingDarkMat);
+      inner.position.set(dir * 0.31, 0, -0.04);
+      wingPivot.add(inner);
+      const outerPivot = makePivot(oName, dir * 0.62, 0, 0);
+      const outer = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.045, 0.28), plumeMat);
+      outer.position.set(dir * 0.25, 0, -0.06);
+      outerPivot.add(outer);
+      wingPivot.add(outerPivot);
+      bodyPivot.add(wingPivot);
+    }
+
+    const tailPivot = makePivot('tail_pivot', 0, 0.42, -0.35);
+    const tail = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.32), lionMat);
+    tail.position.set(0, -0.04, -0.15);
+    tailPivot.add(tail);
+    const tuft = new THREE.Mesh(new THREE.BoxGeometry(0.095, 0.095, 0.1), wingDarkMat);
+    tuft.position.set(0, -0.07, -0.31);
+    tailPivot.add(tuft);
+    bodyPivot.add(tailPivot);
+
+    for (const [name, lx, lz, m] of [
+      ['leg_fl', -0.11, 0.18, beakMat],
+      ['leg_fr', 0.11, 0.18, beakMat],
+      ['leg_bl', -0.11, -0.22, lionMat],
+      ['leg_br', 0.11, -0.22, lionMat],
+    ] as const) {
+      const legPivot = makePivot(name, lx, 0.28, lz);
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.26, 0.08), m);
+      leg.position.set(0, -0.13, 0);
+      legPivot.add(leg);
+      group.add(legPivot);
+    }
+  } else if (role === 'yeti') {
+    // Hulking arctic frost giant with shaggy snow shoulders, ice-blue face, curling horns & smashing fists
+    shadowRadius = 0.92;
+    auraRadius = 0.5;
+    const furMat = mat(0xf1f5f9, 0.88);
+    const shadeFurMat = mat(0xcbd5e1, 0.9);
+    const skinMat = mat(0x7dd3fc, 0.62, 0.08);
+    const hornMat = mat(0x38bdf8, 0.28, 0.25, 0x0ea5e9, 0.45);
+    const eyeGlowMat = mat(0x67e8f9, 0.15, 0.1, 0x22d3ee, 1.1);
+
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.58, 0.42), furMat);
+    torso.position.set(0, 0.72, 0);
+    torso.castShadow = true;
+    bodyPivot.add(torso);
+
+    const hump = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.26, 0.46), shadeFurMat);
+    hump.position.set(0, 0.94, -0.02);
+    hump.castShadow = true;
+    bodyPivot.add(hump);
+
+    const headPivot = makePivot('head_pivot', 0, 1.05, 0.12);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.3, 0.28), furMat);
+    head.position.set(0, 0.1, 0.04);
+    head.castShadow = true;
+    headPivot.add(head);
+    const face = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.2, 0.08), skinMat);
+    face.position.set(0, 0.09, 0.16);
+    headPivot.add(face);
+    for (const ex of [-0.14, 0.14]) {
+      const horn = new THREE.Mesh(pxCone(0.048, 0.24, 5), hornMat);
+      horn.position.set(ex * 1.25, 0.24, 0.06);
+      horn.rotation.z = ex < 0 ? 0.52 : -0.52;
+      horn.rotation.x = 0.25;
+      headPivot.add(horn);
+      const eye = new THREE.Mesh(new THREE.BoxGeometry(0.042, 0.036, 0.025), eyeGlowMat);
+      eye.position.set(ex * 0.48, 0.12, 0.205);
+      headPivot.add(eye);
+    }
+    bodyPivot.add(headPivot);
+
+    // Massive gorilla-like arms (leg_fl / leg_fr animate on attack slams & heavy stride)
+    for (const [name, ax] of [
+      ['leg_fl', -0.4],
+      ['leg_fr', 0.4],
+    ] as const) {
+      const armPivot = makePivot(name, ax, 0.94, 0.04);
+      const arm = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.56, 0.2), furMat);
+      arm.position.set(0, -0.26, 0);
+      arm.castShadow = true;
+      armPivot.add(arm);
+      const fist = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.18, 0.22), skinMat);
+      fist.position.set(0, -0.54, 0.03);
+      armPivot.add(fist);
+      group.add(armPivot);
+    }
+    for (const [name, lx] of [
+      ['leg_bl', -0.18],
+      ['leg_br', 0.18],
+    ] as const) {
+      const legPivot = makePivot(name, lx, 0.42, 0);
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.42, 0.22), shadeFurMat);
+      leg.position.set(0, -0.21, 0);
+      legPivot.add(leg);
+      group.add(legPivot);
+    }
+  } else if (role === 'golem') {
+    // Ancient mossy Stone Golem titan with towering boulder shoulders, glowing amber rune core & pillar limbs
+    shadowRadius = 0.98;
+    auraRadius = 0.54;
+    const stoneMat = mat(0x64748b, 0.92, 0.08);
+    const darkStoneMat = mat(0x475569, 0.94, 0.1);
+    const mossMat = mat(0x4d7c0f, 0.88);
+    const runeMat = mat(0xfbbf24, 0.2, 0.3, 0xf59e0b, 1.35);
+
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.62, 0.44), stoneMat);
+    torso.position.set(0, 0.78, 0);
+    torso.castShadow = true;
+    bodyPivot.add(torso);
+
+    const mossCap = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.12, 0.48), mossMat);
+    mossCap.position.set(0, 1.12, 0);
+    bodyPivot.add(mossCap);
+
+    // Glowing arcane rune chest core
+    const core = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.24, 0.08), runeMat);
+    core.position.set(0, 0.82, 0.21);
+    bodyPivot.add(core);
+
+    const headPivot = makePivot('head_pivot', 0, 1.14, 0.06);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.28, 0.3), darkStoneMat);
+    head.position.set(0, 0.12, 0);
+    head.castShadow = true;
+    headPivot.add(head);
+    const visor = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.055, 0.04), runeMat);
+    visor.position.set(0, 0.14, 0.15);
+    headPivot.add(visor);
+    bodyPivot.add(headPivot);
+
+    for (const [name, ax] of [
+      ['leg_fl', -0.46],
+      ['leg_fr', 0.46],
+    ] as const) {
+      const armPivot = makePivot(name, ax, 1.0, 0);
+      const pauldron = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.24, 0.3), mossMat);
+      pauldron.position.set(0, 0.04, 0);
+      armPivot.add(pauldron);
+      const arm = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.64, 0.24), darkStoneMat);
+      arm.position.set(0, -0.34, 0);
+      arm.castShadow = true;
+      armPivot.add(arm);
+      const runeBand = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.07, 0.26), runeMat);
+      runeBand.position.set(0, -0.46, 0);
+      armPivot.add(runeBand);
+      group.add(armPivot);
+    }
+    for (const [name, lx] of [
+      ['leg_bl', -0.2],
+      ['leg_br', 0.2],
+    ] as const) {
+      const legPivot = makePivot(name, lx, 0.46, 0);
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.46, 0.26), darkStoneMat);
+      leg.position.set(0, -0.23, 0);
+      legPivot.add(leg);
+      group.add(legPivot);
+    }
+  } else if (role === 'kitsune') {
+    // Ethereal snow-white & crimson-tipped nine-tailed spirit fox with shrine collar & radiant fanned tail crown
+    shadowRadius = 0.62;
+    auraRadius = 0.38;
+    const coatMat = mat(0xfefefe, 0.48, 0.1);
+    const crimsonMat = mat(0xe11d48, 0.42, 0.15, 0xf43f5e, 0.55);
+    const goldMat = mat(0xfde047, 0.25, 0.5, 0xfbbf24, 0.85);
+    const tipGlowMat = mat(0xe879f9, 0.25, 0.2, 0xd946ef, 0.95);
+
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.19, 0.42), coatMat);
+    body.position.set(0, 0.27, -0.02);
+    body.castShadow = true;
+    bodyPivot.add(body);
+
+    // Sacred crimson shrine scarf collar + golden bell
+    const collar = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.08, 0.1), crimsonMat);
+    collar.position.set(0, 0.3, 0.17);
+    bodyPivot.add(collar);
+    const bell = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.055, 0.055), goldMat);
+    bell.position.set(0, 0.26, 0.23);
+    bodyPivot.add(bell);
+
+    const headPivot = makePivot('head_pivot', 0, 0.33, 0.18);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.15, 0.17), coatMat);
+    head.position.set(0, 0.03, 0.06);
+    head.castShadow = true;
+    headPivot.add(head);
+    const snout = new THREE.Mesh(new THREE.BoxGeometry(0.088, 0.068, 0.12), coatMat);
+    snout.position.set(0, 0.0, 0.17);
+    headPivot.add(snout);
+    for (const ex of [-0.065, 0.065]) {
+      const ear = new THREE.Mesh(pxCone(0.038, 0.11, 4), coatMat);
+      ear.position.set(ex, 0.14, 0.04);
+      headPivot.add(ear);
+      const earTip = new THREE.Mesh(pxCone(0.022, 0.05, 4), crimsonMat);
+      earTip.position.set(ex, 0.18, 0.04);
+      headPivot.add(earTip);
+      const eye = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.026, 0.02), goldMat);
+      eye.position.set(ex * 1.15, 0.045, 0.145);
+      headPivot.add(eye);
+    }
+    bodyPivot.add(headPivot);
+
+    // Radiant fanned multi-tail spirit crown (5 visible sculpted fanned voxel tails evoking the Nine-Tailed Fox!)
+    const tailPivot = makePivot('tail_pivot', 0, 0.3, -0.22);
+    for (const [angY, angX, len] of [
+      [0, 0.52, 0.4],
+      [-0.46, 0.42, 0.36],
+      [0.46, 0.42, 0.36],
+      [-0.86, 0.26, 0.32],
+      [0.86, 0.26, 0.32],
+    ] as const) {
+      const subTail = new THREE.Group();
+      subTail.rotation.y = angY;
+      subTail.rotation.x = angX;
+      const shaft = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, len), coatMat);
+      shaft.position.set(0, 0, -len * 0.5);
+      subTail.add(shaft);
+      const tip = new THREE.Mesh(new THREE.BoxGeometry(0.088, 0.088, 0.11), tipGlowMat);
+      tip.position.set(0, 0, -len - 0.03);
+      subTail.add(tip);
+      tailPivot.add(subTail);
+    }
+    bodyPivot.add(tailPivot);
+
+    for (const [name, lx, lz] of [
+      ['leg_fl', -0.07, 0.13],
+      ['leg_fr', 0.07, 0.13],
+      ['leg_bl', -0.07, -0.16],
+      ['leg_br', 0.07, -0.16],
+    ] as const) {
+      const legPivot = makePivot(name, lx, 0.18, lz);
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.052, 0.18, 0.052), coatMat);
+      leg.position.set(0, -0.09, 0);
+      legPivot.add(leg);
+      const paw = new THREE.Mesh(new THREE.BoxGeometry(0.056, 0.04, 0.056), crimsonMat);
+      paw.position.set(0, -0.165, 0);
+      legPivot.add(paw);
+      group.add(legPivot);
+    }
   } else {
     // Unicorn: radiant ivory steed, golden spiral horn, animated legs & pastel mane
     shadowRadius = 0.68;
@@ -9837,18 +10864,7 @@ export function createUnitGroup(
   const s2 = Math.abs(Math.imul(seed ^ 0xc2b2ae35, 3266489917)) >>> 0;
   const s3 = Math.abs(Math.imul(seed ^ 0x27d4eb2f, 668265263)) >>> 0;
 
-  if (
-    role === 'cow' ||
-    role === 'bear' ||
-    role === 'wolf' ||
-    role === 'chicken' ||
-    role === 'pig' ||
-    role === 'capybara' ||
-    role === 'dinosaur' ||
-    role === 'dragon' ||
-    role === 'unicorn' ||
-    role === 'leviathan'
-  ) {
+  if (ANIMAL_ROLE_SET.has(role)) {
     return buildCreatureUnitGroup(group, role, s0, s1, s2, s3);
   }
 
