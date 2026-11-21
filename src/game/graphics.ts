@@ -98,9 +98,16 @@ export function resolveGraphicsProfile(
   let particles: ParticleDetailOption = settings.particles;
   let shadowUpdateStride: 1 | 3 = 1;
 
-  // When Strict Lossless Mode is enabled (default), never downgrade visual fidelity automatically
+  // Quality mode (strictLossless=true): keep full user-selected detail at all times
+  // Dynamic FPS mode (!strictLossless && autoOptimizeFps): adaptively trim when FPS dips
+  // Performance mode (!strictLossless && !autoOptimizeFps): always prioritize smoother frame rates
   const isStrictLossless = settings.strictLossless !== false;
-  if (!isStrictLossless && settings.autoOptimizeFps && autoTrimLevel > 0) {
+  if (!isStrictLossless && !settings.autoOptimizeFps) {
+    if (cloudsAndSky === 'full') cloudsAndSky = 'reduced';
+    if (foliageDensity === 'full') foliageDensity = 'medium';
+    if (particles === 'full') particles = 'reduced';
+    shadowUpdateStride = 3;
+  } else if (!isStrictLossless && settings.autoOptimizeFps && autoTrimLevel > 0) {
     if (autoTrimLevel >= 1) {
       if (cloudsAndSky === 'full') cloudsAndSky = 'reduced';
       if (particles === 'full') particles = 'reduced';

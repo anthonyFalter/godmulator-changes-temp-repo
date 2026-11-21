@@ -24,11 +24,20 @@ export interface VoxelTreeSpeciesSpec {
 
 export interface VoxelTreeLibrary {
   byBiome: Record<TreeBiomeKey, THREE.BufferGeometry[]>;
+  byBiomeLod1: Record<TreeBiomeKey, THREE.BufferGeometry[]>;
+  byBiomeLod2: Record<TreeBiomeKey, THREE.BufferGeometry[]>;
+  byBiomeLod3: Record<TreeBiomeKey, THREE.BufferGeometry[]>;
   burntByBiome: Record<TreeBiomeKey, THREE.BufferGeometry[]>;
+  burntByBiomeLod1: Record<TreeBiomeKey, THREE.BufferGeometry[]>;
+  burntByBiomeLod2: Record<TreeBiomeKey, THREE.BufferGeometry[]>;
+  burntByBiomeLod3: Record<TreeBiomeKey, THREE.BufferGeometry[]>;
   specsByBiome: Record<TreeBiomeKey, VoxelTreeSpeciesSpec[]>;
   allSpecs: VoxelTreeSpeciesSpec[];
   allGeometries: THREE.BufferGeometry[];
   burntTrees: THREE.BufferGeometry[];
+  burntTreesLod1: THREE.BufferGeometry[];
+  burntTreesLod2: THREE.BufferGeometry[];
+  burntTreesLod3: THREE.BufferGeometry[];
   material: THREE.MeshStandardMaterial;
   dispose: () => void;
 }
@@ -564,7 +573,7 @@ class VoxelVolume {
         if (this.atRaw(ax, ay + 1, az)) occ++;
         if (this.atRaw(ax, ay - 1, az)) occ++;
       }
-      return occ >= 1 ? 1 : 0;
+      return occ >= 2 ? 1 : 0;
     };
 
     const AO_MULT = [1.0, 0.74];
@@ -578,11 +587,11 @@ class VoxelVolume {
     };
 
     const dims = [sx, sy, sz];
+    // Isometric top-down camera never views trees from below ground, so -y underside faces are 100% invisible.
     const dirs: [number, number, string][] = [
       [0, 1, '+x'],
       [0, -1, '-x'],
       [1, 1, '+y'],
-      [1, -1, '-y'],
       [2, 1, '+z'],
       [2, -1, '-z'],
     ];
@@ -694,6 +703,295 @@ class VoxelVolume {
     geo.computeBoundingSphere();
     return geo;
   }
+
+  /**
+   * Generates a geometrically simplified LOD (step=2 mid-zoom, step=3 far-zoom) anchored to the exact
+   * tree trunk origin with preserved silhouettes, trunk continuity, and palette tones.
+   */
+  toDownsampledGreedyBufferGeometry(
+    origVoxelSize: number,
+    step: 2 | 3 | 4,
+    simplifyShading = false,
+  ): THREE.BufferGeometry {
+    const { sx, sy, sz, halfX, halfZ } = this;
+    const halfStep = Math.floor(step / 2);
+    const mHalfX = Math.ceil((halfX + halfStep) / step);
+    const mHalfZ = Math.ceil((halfZ + halfStep) / step);
+    const baseGx = halfX - halfStep - mHalfX * step;
+    const baseGz = halfZ - halfStep - mHalfZ * step;
+    const msx = mHalfX + 1 + Math.ceil((sx - (halfX - halfStep + step)) / step);
+    const msy = Math.ceil(sy / step);
+    const msz = mHalfZ + 1 + Math.ceil((sz - (halfZ - halfStep + step)) / step);
+
+    const macroGrid = new Uint16Array(msx * msy * msz);
+    const minOcc = step === 2 ? 2 : step === 3 ? 5 : 11;
+    const counts = new Uint16Array(this.paletteColors.length);
+    const touched: number[] = [];
+    const stemStemLimitY = Math.ceil(msy * 0.72);
+    const rawColorFreq = new Uint32Array(this.paletteColors.length);
+
+    for (let my = 0; my < msy; my++) {
+      const gy0 = my * step;
+      for (let mz = 0; mz < msz; mz++) {
+        const gz0 = baseGz + mz * step;
+        for (let mx = 0; mx < msx; mx++) {
+          const gx0 = baseGx + mx * step;
+          let filled = 0;
+          let yLayerMask = 0;
+          let bestC = 0;
+          let bestCount = 0;
+          touched.length = 0;
+
+          for (let dy = 0; dy < step; dy++) {
+            const gy = gy0 + dy;
+            if (gy < 0 || gy >= sy) continue;
+            let rowHit = false;
+            for (let dz = 0; dz < step; dz++) {
+              const gz = gz0 + dz;
+              if (gz < 0 || gz >= sz) continue;
+              for (let dx = 0; dx < step; dx++) {
+                const gx = gx0 + dx;
+                if (gx < 0 || gx >= sx) continue;
+                const c = this.grid[(gy * sz + gz) * sx + gx];
+                if (c !== 0) {
+                  filled++;
+                  rowHit = true;
+                  if (counts[c] === 0) touched.push(c);
+                  counts[c]++;
+                  if (counts[c] > bestCount) {
+                    bestCount = counts[c];
+                    bestC = c;
+                  }
+                }
+              }
+            }
+            if (rowHit) yLayerMask |= 1 << dy;
+          }
+
+          for (let ti = 0; ti < touched.length; ti++) counts[touched[ti]] = 0;
+
+          if (filled === 0) continue;
+          let yHits = 0;
+          for (let b = 0; b < step; b++) {
+            if (yLayerMask & (1 << b)) yHits++;
+          }
+          const nearBase = my === 0 && Math.abs(mx - mHalfX) <= 1 && Math.abs(mz - mHalfZ) <= 1;
+          const verticalStem =
+            yHits >= (step >= 4 ? 3 : 2) &&
+            my <= stemStemLimitY &&
+            Math.abs(mx - mHalfX) <= 1 &&
+            Math.abs(mz - mHalfZ) <= 1;
+          if (filled >= minOcc || nearBase || verticalStem) {
+            macroGrid[(my * msz + mz) * msx + mx] = bestC;
+            rawColorFreq[bestC]++;
+          }
+        }
+      }
+    }
+
+    const macroPalette: number[] = this.paletteColors.slice();
+    if (simplifyShading) {
+      // Cluster raw palette entries to their nearest frequent representative in exact RGB space
+      // so zero bitwise hue distortion occurs while maximizing greedy quad merges on far zoom.
+      const colorOrder: number[] = [];
+      for (let c = 1; c < macroPalette.length; c++) {
+        if (rawColorFreq[c] > 0) colorOrder.push(c);
+      }
+      colorOrder.sort((a, b) => rawColorFreq[b] - rawColorFreq[a]);
+
+      const distSqLimit = step >= 4 ? 62 * 62 : 34 * 34;
+      const reps: number[] = [];
+      const remap = new Uint16Array(macroPalette.length);
+      for (const c of colorOrder) {
+        const hex = macroPalette[c];
+        const r = (hex >> 16) & 0xff;
+        const g = (hex >> 8) & 0xff;
+        const b = hex & 0xff;
+        let mapped = 0;
+        let bestDist = distSqLimit;
+        for (const rep of reps) {
+          const rHex = macroPalette[rep];
+          const dr = r - ((rHex >> 16) & 0xff);
+          const dg = g - ((rHex >> 8) & 0xff);
+          const db = b - (rHex & 0xff);
+          const d2 = dr * dr + dg * dg + db * db;
+          if (d2 <= bestDist) {
+            bestDist = d2;
+            mapped = rep;
+          }
+        }
+        if (mapped === 0) {
+          reps.push(c);
+          remap[c] = c;
+        } else {
+          remap[c] = mapped;
+        }
+      }
+      for (let i = 0; i < macroGrid.length; i++) {
+        const c = macroGrid[i];
+        if (c !== 0) macroGrid[i] = remap[c];
+      }
+    }
+
+    const atMacro = (gx: number, gy: number, gz: number): number => {
+      if (gx < 0 || gx >= msx || gy < 0 || gy >= msy || gz < 0 || gz >= msz) return 0;
+      return macroGrid[(gy * msz + gz) * msx + gx];
+    };
+
+    const positions: number[] = [];
+    const normals: number[] = [];
+    const colors: number[] = [];
+    const indices: number[] = [];
+    const tmpColor = new THREE.Color();
+    const AO_MULT = [1.0, 0.78];
+    const FACE_SHADE: Record<string, number> = {
+      '+y': 1.08,
+      '-y': 0.54,
+      '+x': 0.96,
+      '-x': 0.78,
+      '+z': 0.92,
+      '-z': 0.74,
+    };
+    const dims = [msx, msy, msz];
+    // Isometric top-down camera never views trees from below ground, so -y underside faces are 100% invisible.
+    const dirs: [number, number, string][] = [
+      [0, 1, '+x'],
+      [0, -1, '-x'],
+      [1, 1, '+y'],
+      [2, 1, '+z'],
+      [2, -1, '-z'],
+    ];
+
+    for (const [d, sign, key] of dirs) {
+      const u = (d + 1) % 3;
+      const v = (d + 2) % 3;
+      const dimD = dims[d];
+      const dimU = dims[u];
+      const dimV = dims[v];
+      const mask = new Int32Array(dimU * dimV);
+      const nVec = [0, 0, 0];
+      nVec[d] = sign;
+      const faceMult = FACE_SHADE[key];
+
+      for (let slice = 0; slice < dimD; slice++) {
+        let anyFace = false;
+        const coord = [0, 0, 0];
+        coord[d] = slice;
+        const nCoord = [0, 0, 0];
+        nCoord[d] = slice + sign;
+
+        for (let iv = 0; iv < dimV; iv++) {
+          coord[v] = iv;
+          nCoord[v] = iv;
+          for (let iu = 0; iu < dimU; iu++) {
+            coord[u] = iu;
+            nCoord[u] = iu;
+            const cIdx = atMacro(coord[0], coord[1], coord[2]);
+            if (cIdx === 0 || atMacro(nCoord[0], nCoord[1], nCoord[2]) !== 0) {
+              mask[iv * dimU + iu] = 0;
+            } else if (d === 1 && sign === -1 && slice === 0) {
+              mask[iv * dimU + iu] = 0;
+            } else {
+              let ao = 0;
+              if (!simplifyShading) {
+                const ax = coord[0] + nVec[0];
+                const ay = coord[1] + nVec[1];
+                const az = coord[2] + nVec[2];
+                let occ = 0;
+                if (nVec[0] !== 0) {
+                  if (atMacro(ax, ay + 1, az)) occ++;
+                  if (atMacro(ax, ay - 1, az)) occ++;
+                  if (atMacro(ax, ay, az + 1)) occ++;
+                  if (atMacro(ax, ay, az - 1)) occ++;
+                } else if (nVec[1] !== 0) {
+                  if (atMacro(ax + 1, ay, az)) occ++;
+                  if (atMacro(ax - 1, ay, az)) occ++;
+                  if (atMacro(ax, ay, az + 1)) occ++;
+                  if (atMacro(ax, ay, az - 1)) occ++;
+                } else {
+                  if (atMacro(ax + 1, ay, az)) occ++;
+                  if (atMacro(ax - 1, ay, az)) occ++;
+                  if (atMacro(ax, ay + 1, az)) occ++;
+                  if (atMacro(ax, ay - 1, az)) occ++;
+                }
+                if (occ >= 2) ao = 1;
+              }
+              mask[iv * dimU + iu] = (cIdx << 2) | ao;
+              anyFace = true;
+            }
+          }
+        }
+        if (!anyFace) continue;
+
+        for (let iv = 0; iv < dimV; iv++) {
+          for (let iu = 0; iu < dimU; ) {
+            const mKey = mask[iv * dimU + iu];
+            if (mKey === 0) {
+              iu++;
+              continue;
+            }
+            let w = 1;
+            while (iu + w < dimU && mask[iv * dimU + iu + w] === mKey) w++;
+            let h = 1;
+            outer: while (iv + h < dimV) {
+              for (let k = 0; k < w; k++) {
+                if (mask[(iv + h) * dimU + iu + k] !== mKey) break outer;
+              }
+              h++;
+            }
+
+            for (let dh = 0; dh < h; dh++) {
+              for (let dw = 0; dw < w; dw++) {
+                mask[(iv + dh) * dimU + iu + dw] = 0;
+              }
+            }
+
+            const cIdx = mKey >> 2;
+            const aoLevel = mKey & 3;
+            tmpColor.setHex(macroPalette[cIdx]);
+            const shade = faceMult * AO_MULT[aoLevel];
+            const cr = Math.min(1, tmpColor.r * shade);
+            const cg = Math.min(1, tmpColor.g * shade);
+            const cb = Math.min(1, tmpColor.b * shade);
+
+            const planeD = slice + (sign > 0 ? 1 : 0);
+            const p0 = [0, 0, 0];
+            const p1 = [0, 0, 0];
+            const p2 = [0, 0, 0];
+            const p3 = [0, 0, 0];
+
+            p0[d] = planeD; p0[u] = iu;     p0[v] = iv;
+            p1[d] = planeD; p1[u] = iu + w; p1[v] = iv;
+            p2[d] = planeD; p2[u] = iu + w; p2[v] = iv + h;
+            p3[d] = planeD; p3[u] = iu;     p3[v] = iv + h;
+
+            const vBase = positions.length / 3;
+            const quadVerts = sign > 0 ? [p0, p1, p2, p3] : [p0, p3, p2, p1];
+            for (let q = 0; q < 4; q++) {
+              const pt = quadVerts[q];
+              positions.push(
+                (baseGx + pt[0] * step - halfX - 0.5) * origVoxelSize,
+                pt[1] * step * origVoxelSize,
+                (baseGz + pt[2] * step - halfZ - 0.5) * origVoxelSize,
+              );
+              normals.push(nVec[0], nVec[1], nVec[2]);
+              colors.push(cr, cg, cb);
+            }
+            indices.push(vBase, vBase + 1, vBase + 2, vBase, vBase + 2, vBase + 3);
+            iu += w;
+          }
+        }
+      }
+    }
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    geo.setIndex(indices);
+    geo.computeBoundingSphere();
+    return geo;
+  }
 }
 
 // ============================================================================
@@ -750,17 +1048,26 @@ const SPECIES_SPECS: VoxelTreeSpeciesSpec[] = [
   { id: 'highland_krummholz', biome: 'highland', name: 'Alpine Crag Krummholz', voxelSize: 0.053, heightBias: 0.74, widthBias: 1.08 },
 ];
 
-function buildVoxelTreeGeometry(spec: VoxelTreeSpeciesSpec, charred = false): THREE.BufferGeometry {
+function buildVoxelTreeLods(
+  spec: VoxelTreeSpeciesSpec,
+  charred = false,
+): [THREE.BufferGeometry, THREE.BufferGeometry, THREE.BufferGeometry, THREE.BufferGeometry] {
   const prevCharred = activeCharredBuild;
   activeCharredBuild = charred;
   try {
-    return buildVoxelTreeGeometryInner(spec);
+    const vol = buildVoxelTreeVolumeInner(spec);
+    return [
+      vol.toGreedyBufferGeometry(spec.voxelSize),
+      vol.toDownsampledGreedyBufferGeometry(spec.voxelSize, 2, false),
+      vol.toDownsampledGreedyBufferGeometry(spec.voxelSize, 3, true),
+      vol.toDownsampledGreedyBufferGeometry(spec.voxelSize, 4, true),
+    ];
   } finally {
     activeCharredBuild = prevCharred;
   }
 }
 
-function buildVoxelTreeGeometryInner(spec: VoxelTreeSpeciesSpec): THREE.BufferGeometry {
+function buildVoxelTreeVolumeInner(spec: VoxelTreeSpeciesSpec): VoxelVolume {
   switch (spec.id) {
     // ------------------------------------------------------------------------
     // WOODLAND FOREST
@@ -783,7 +1090,7 @@ function buildVoxelTreeGeometryInner(spec: VoxelTreeSpeciesSpec): THREE.BufferGe
       v.drawLeafCluster3D(-2.6, 15.8, 1.6, 3.6, 2.8, 3.6, PAL_OAK, 0.18, 25);
       v.drawLeafCluster3D(3.0, 15.5, -1.6, 3.4, 2.7, 3.4, PAL_OAK, 0.12, 26);
       v.drawLeafCluster3D(0.2, 17.8, 0.3, 3.8, 2.8, 3.8, PAL_OAK, 0.26, 27);
-      return v.toGreedyBufferGeometry(spec.voxelSize);
+      return v;
     }
 
     case 'forest_pine': {
@@ -807,7 +1114,7 @@ function buildVoxelTreeGeometryInner(spec: VoxelTreeSpeciesSpec): THREE.BufferGe
       }
       v.set(0, 26, 0, PAL_PINE[3]);
       v.set(0, 27, 0, PAL_PINE[4]);
-      return v.toGreedyBufferGeometry(spec.voxelSize);
+      return v;
     }
 
     case 'forest_birch': {
@@ -822,7 +1129,7 @@ function buildVoxelTreeGeometryInner(spec: VoxelTreeSpeciesSpec): THREE.BufferGe
       v.drawLeafCluster3D(0.4, 19.0, 2.2, 3.3, 3.0, 3.0, PAL_BIRCH_LEAF, 0.14, 56);
       v.drawLeafCluster3D(-0.8, 21.2, -1.2, 3.4, 3.1, 3.3, PAL_BIRCH_LEAF, 0.20, 57);
       v.drawLeafCluster3D(0.2, 23.5, 0.2, 2.8, 2.5, 2.8, PAL_BIRCH_LEAF, 0.26, 58);
-      return v.toGreedyBufferGeometry(spec.voxelSize);
+      return v;
     }
 
     case 'forest_redwood': {
@@ -843,7 +1150,7 @@ function buildVoxelTreeGeometryInner(spec: VoxelTreeSpeciesSpec): THREE.BufferGe
         v.drawConiferWhorl3D(0, w.y, 0, w.r, w.th, w.arms, PAL_REDWOOD, 65 + i * 7, undefined, w.d, w.lb);
       }
       v.set(0, 32, 0, PAL_REDWOOD[4]);
-      return v.toGreedyBufferGeometry(spec.voxelSize);
+      return v;
     }
 
     case 'forest_maple': {
@@ -861,7 +1168,7 @@ function buildVoxelTreeGeometryInner(spec: VoxelTreeSpeciesSpec): THREE.BufferGe
       v.drawLeafCluster3D(-1.8, 16.5, 0.8, 3.4, 2.7, 3.4, PAL_MAPLE, 0.20, 80);
       v.drawLeafCluster3D(2.0, 16.5, -0.8, 3.3, 2.7, 3.3, PAL_MAPLE, 0.16, 81);
       v.drawLeafCluster3D(0, 18.5, 0, 3.1, 2.3, 3.1, PAL_MAPLE, 0.26, 82);
-      return v.toGreedyBufferGeometry(spec.voxelSize);
+      return v;
     }
 
     // ------------------------------------------------------------------------
@@ -883,7 +1190,7 @@ function buildVoxelTreeGeometryInner(spec: VoxelTreeSpeciesSpec): THREE.BufferGe
         const rad = 4.6 + (i % 3) * 0.9;
         v.drawHangingStrand3D(Math.round(Math.cos(ang) * rad), 13.5, Math.round(Math.sin(ang) * rad), 7 + (i % 4) * 2, PAL_WILLOW, 93 + i);
       }
-      return v.toGreedyBufferGeometry(spec.voxelSize);
+      return v;
     }
 
     case 'meadow_orchard': {
@@ -897,7 +1204,7 @@ function buildVoxelTreeGeometryInner(spec: VoxelTreeSpeciesSpec): THREE.BufferGe
       v.drawLeafCluster3D(-2.8, 12.5, 1.6, 3.3, 2.8, 3.3, PAL_ORCHARD, 0.12, 105, 0xe53935, 0.11);
       v.drawLeafCluster3D(2.8, 12.2, -1.5, 3.3, 2.7, 3.3, PAL_ORCHARD, 0.04, 106, 0xfbbf24, 0.09);
       v.drawLeafCluster3D(0, 15.0, 0, 3.6, 2.6, 3.6, PAL_ORCHARD, 0.22, 107, 0xe53935, 0.09);
-      return v.toGreedyBufferGeometry(spec.voxelSize);
+      return v;
     }
 
     case 'meadow_poplar': {
@@ -917,7 +1224,7 @@ function buildVoxelTreeGeometryInner(spec: VoxelTreeSpeciesSpec): THREE.BufferGe
         const [y, r, ry, lb] = layers[i];
         v.drawLeafCluster3D(0, y, 0, r, ry, r, PAL_ORCHARD, lb, 112 + i);
       }
-      return v.toGreedyBufferGeometry(spec.voxelSize);
+      return v;
     }
 
     // ------------------------------------------------------------------------
@@ -942,7 +1249,7 @@ function buildVoxelTreeGeometryInner(spec: VoxelTreeSpeciesSpec): THREE.BufferGe
         const rad = 5.0 + (i % 3) * 1.2;
         v.drawHangingStrand3D(Math.round(Math.cos(ang) * rad), 21.5, Math.round(Math.sin(ang) * rad), 7 + (i % 3) * 3, PAL_JUNGLE, 131 + i);
       }
-      return v.toGreedyBufferGeometry(spec.voxelSize);
+      return v;
     }
 
     case 'jungle_palm': {
@@ -959,7 +1266,7 @@ function buildVoxelTreeGeometryInner(spec: VoxelTreeSpeciesSpec): THREE.BufferGe
         const upper = i % 2 === 0;
         v.drawPalmFrond3D(2.0, 19.0, 1.2, ang, upper ? 6.6 : 7.4, upper ? 3.8 : 2.5, upper ? 3.2 : 5.0, PAL_PALM, 140 + i);
       }
-      return v.toGreedyBufferGeometry(spec.voxelSize);
+      return v;
     }
 
     case 'jungle_banyan': {
@@ -978,7 +1285,7 @@ function buildVoxelTreeGeometryInner(spec: VoxelTreeSpeciesSpec): THREE.BufferGe
       v.drawLeafCluster3D(-4.2, 15.4, 2.2, 3.8, 2.8, 3.8, PAL_JUNGLE, 0.12, 167);
       v.drawLeafCluster3D(4.2, 15.4, -2.2, 3.8, 2.8, 3.8, PAL_JUNGLE, -0.02, 168);
       v.drawLeafCluster3D(0, 18.8, 0, 4.8, 3.0, 4.8, PAL_JUNGLE, 0.22, 169);
-      return v.toGreedyBufferGeometry(spec.voxelSize);
+      return v;
     }
 
     case 'jungle_fanpalm': {
@@ -992,7 +1299,7 @@ function buildVoxelTreeGeometryInner(spec: VoxelTreeSpeciesSpec): THREE.BufferGe
         v.drawPalmFrond3D(3.8, 19.0, 1.8, a1 + 0.4, 5.8, 3.0, 3.8, PAL_JUNGLE, 178 + i);
       }
       v.drawLeafCluster3D(0, 1.8, 0, 3.2, 1.8, 3.2, PAL_JUNGLE, 0.08, 185);
-      return v.toGreedyBufferGeometry(spec.voxelSize);
+      return v;
     }
 
     // ------------------------------------------------------------------------
@@ -1016,7 +1323,7 @@ function buildVoxelTreeGeometryInner(spec: VoxelTreeSpeciesSpec): THREE.BufferGe
         v.drawConiferWhorl3D(0, w.y, 0, w.r, w.th, w.arms, PAL_TAIGA, 195 + i * 7, PAL_SNOW, w.d, i * 0.04);
       }
       v.set(0, 26.5, 0, PAL_SNOW[4]);
-      return v.toGreedyBufferGeometry(spec.voxelSize);
+      return v;
     }
 
     case 'taiga_fir': {
@@ -1039,7 +1346,7 @@ function buildVoxelTreeGeometryInner(spec: VoxelTreeSpeciesSpec): THREE.BufferGe
       }
       v.set(0, 32.5, 0, PAL_SNOW[4]);
       v.set(0, 33.5, 0, PAL_SNOW[3]);
-      return v.toGreedyBufferGeometry(spec.voxelSize);
+      return v;
     }
 
     case 'taiga_larch': {
@@ -1060,7 +1367,7 @@ function buildVoxelTreeGeometryInner(spec: VoxelTreeSpeciesSpec): THREE.BufferGe
         v.drawConiferWhorl3D(0, w.y, 0, w.r, w.th, w.arms, PAL_LARCH, 225 + i * 7, undefined, 1.3, i * 0.05);
       }
       v.set(0, 25.5, 0, PAL_LARCH[4]);
-      return v.toGreedyBufferGeometry(spec.voxelSize);
+      return v;
     }
 
     case 'taiga_snowpine': {
@@ -1078,7 +1385,7 @@ function buildVoxelTreeGeometryInner(spec: VoxelTreeSpeciesSpec): THREE.BufferGe
         const w = whorls[i];
         v.drawConiferWhorl3D(0, w.y, 0, w.r, w.th, w.arms, PAL_TAIGA, 240 + i * 9, PAL_SNOW, 1.6, i * 0.05);
       }
-      return v.toGreedyBufferGeometry(spec.voxelSize);
+      return v;
     }
 
     // ------------------------------------------------------------------------
@@ -1103,7 +1410,7 @@ function buildVoxelTreeGeometryInner(spec: VoxelTreeSpeciesSpec): THREE.BufferGe
         const rad = 4.8 + (i % 3) * 0.9;
         v.drawHangingStrand3D(Math.round(Math.cos(ang) * rad), 12.2, Math.round(Math.sin(ang) * rad), 4 + (i % 3) * 2, PAL_SAKURA, 261 + i);
       }
-      return v.toGreedyBufferGeometry(spec.voxelSize);
+      return v;
     }
 
     case 'blossom_bonsai': {
@@ -1117,7 +1424,7 @@ function buildVoxelTreeGeometryInner(spec: VoxelTreeSpeciesSpec): THREE.BufferGe
       v.drawLeafCluster3D(5.2, 11.4, -1.5, 4.0, 2.2, 3.6, PAL_SAKURA, 0.04, 275);
       v.drawLeafCluster3D(-5.5, 13.6, 1.6, 4.2, 2.3, 4.0, PAL_SAKURA, 0.14, 276);
       v.drawLeafCluster3D(0.8, 16.0, 0, 5.0, 2.6, 4.8, PAL_SAKURA, 0.24, 277);
-      return v.toGreedyBufferGeometry(spec.voxelSize);
+      return v;
     }
 
     case 'blossom_pagoda': {
@@ -1129,7 +1436,7 @@ function buildVoxelTreeGeometryInner(spec: VoxelTreeSpeciesSpec): THREE.BufferGe
       v.drawLeafCluster3D(0, 15.0, 0, 5.7, 2.2, 5.7, PAL_SAKURA, 0.06, 283);
       v.drawLeafCluster3D(0, 19.2, 0, 4.5, 2.0, 4.5, PAL_SAKURA, 0.16, 284);
       v.drawLeafCluster3D(0, 23.0, 0, 3.2, 1.8, 3.2, PAL_SAKURA, 0.26, 285);
-      return v.toGreedyBufferGeometry(spec.voxelSize);
+      return v;
     }
 
     case 'blossom_plum': {
@@ -1143,7 +1450,7 @@ function buildVoxelTreeGeometryInner(spec: VoxelTreeSpeciesSpec): THREE.BufferGe
       v.drawLeafCluster3D(-3.2, 13.4, 1.5, 3.3, 2.6, 3.3, PAL_PLUM_WHITE, 0.12, 295, 0xef9eb9, 0.11);
       v.drawLeafCluster3D(3.2, 13.4, -1.5, 3.3, 2.6, 3.3, PAL_PLUM_WHITE, 0.06, 296, 0xef9eb9, 0.10);
       v.drawLeafCluster3D(0, 16.0, 0, 3.6, 2.6, 3.6, PAL_PLUM_WHITE, 0.22, 297, 0xef9eb9, 0.09);
-      return v.toGreedyBufferGeometry(spec.voxelSize);
+      return v;
     }
 
     // ------------------------------------------------------------------------
@@ -1163,7 +1470,7 @@ function buildVoxelTreeGeometryInner(spec: VoxelTreeSpeciesSpec): THREE.BufferGe
       v.drawLeafCluster3D(-0.8, 16.8, 5.0, 4.9, 1.7, 4.4, PAL_ACACIA, 0.12, 308);
       v.drawLeafCluster3D(1.2, 17.5, -5.0, 4.8, 1.6, 4.4, PAL_ACACIA, 0.10, 309);
       v.drawLeafCluster3D(0, 18.6, 0, 7.0, 1.9, 6.8, PAL_ACACIA, 0.22, 310);
-      return v.toGreedyBufferGeometry(spec.voxelSize);
+      return v;
     }
 
     case 'savanna_baobab': {
@@ -1180,7 +1487,7 @@ function buildVoxelTreeGeometryInner(spec: VoxelTreeSpeciesSpec): THREE.BufferGe
         v.drawLeafCluster3D(bx, 21.0 + (i % 2) * 1.5, bz, 3.2, 1.7, 3.2, PAL_ACACIA, 0.08 + (i % 2) * 0.1, 330 + i);
       }
       v.drawLeafCluster3D(0, 22.4, 0, 4.0, 1.8, 4.0, PAL_ACACIA, 0.22, 338);
-      return v.toGreedyBufferGeometry(spec.voxelSize);
+      return v;
     }
 
     case 'savanna_thorn': {
@@ -1192,7 +1499,7 @@ function buildVoxelTreeGeometryInner(spec: VoxelTreeSpeciesSpec): THREE.BufferGe
       v.drawLeafCluster3D(-5.0, 11.8, 1.5, 4.8, 1.8, 4.4, PAL_ACACIA, 0.10, 343);
       v.drawLeafCluster3D(4.6, 14.8, -1.5, 5.2, 1.9, 4.8, PAL_ACACIA, 0.18, 344);
       v.drawLeafCluster3D(0.4, 15.8, 1.2, 4.0, 1.6, 3.8, PAL_ACACIA, 0.22, 345);
-      return v.toGreedyBufferGeometry(spec.voxelSize);
+      return v;
     }
 
     case 'savanna_datepalm': {
@@ -1209,7 +1516,7 @@ function buildVoxelTreeGeometryInner(spec: VoxelTreeSpeciesSpec): THREE.BufferGe
         const upper = i % 2 === 0;
         v.drawPalmFrond3D(-1.5, 18.2, -0.8, ang, upper ? 6.2 : 7.0, upper ? 3.5 : 2.2, upper ? 3.0 : 4.5, PAL_OASIS, 355 + i);
       }
-      return v.toGreedyBufferGeometry(spec.voxelSize);
+      return v;
     }
 
     // ------------------------------------------------------------------------
@@ -1235,7 +1542,7 @@ function buildVoxelTreeGeometryInner(spec: VoxelTreeSpeciesSpec): THREE.BufferGe
         const rad = 4.8 + (i % 3) * 1.0;
         v.drawHangingStrand3D(Math.round(Math.cos(ang) * rad), 17.8, Math.round(Math.sin(ang) * rad), 6 + (i % 3) * 2, PAL_SPANISH_MOSS, 378 + i);
       }
-      return v.toGreedyBufferGeometry(spec.voxelSize);
+      return v;
     }
 
     case 'swamp_mangrove': {
@@ -1256,7 +1563,7 @@ function buildVoxelTreeGeometryInner(spec: VoxelTreeSpeciesSpec): THREE.BufferGe
       v.drawLeafCluster3D(-3.8, 14.6, 1.8, 3.6, 2.6, 3.6, PAL_SWAMP, 0.10, 404);
       v.drawLeafCluster3D(3.8, 14.6, -1.8, 3.6, 2.6, 3.6, PAL_SWAMP, 0.02, 405);
       v.drawLeafCluster3D(0, 17.8, 0, 4.2, 2.6, 4.2, PAL_SWAMP, 0.20, 406);
-      return v.toGreedyBufferGeometry(spec.voxelSize);
+      return v;
     }
 
     case 'swamp_bogwillow': {
@@ -1272,7 +1579,7 @@ function buildVoxelTreeGeometryInner(spec: VoxelTreeSpeciesSpec): THREE.BufferGe
         const rad = 4.3 + (i % 3) * 0.9;
         v.drawHangingStrand3D(Math.round(1.2 + Math.cos(ang) * rad), 13.0, Math.round(0.4 + Math.sin(ang) * rad), 5 + (i % 3) * 2, i % 2 === 0 ? PAL_SPANISH_MOSS : PAL_SWAMP, 415 + i);
       }
-      return v.toGreedyBufferGeometry(spec.voxelSize);
+      return v;
     }
 
     case 'swamp_ancient': {
@@ -1288,7 +1595,7 @@ function buildVoxelTreeGeometryInner(spec: VoxelTreeSpeciesSpec): THREE.BufferGe
         const ang = (i / 8) * Math.PI * 2;
         v.drawHangingStrand3D(Math.round(Math.cos(ang) * 4.0), 18.5, Math.round(Math.sin(ang) * 4.0), 6 + (i % 3) * 2, PAL_SPANISH_MOSS, 436 + i);
       }
-      return v.toGreedyBufferGeometry(spec.voxelSize);
+      return v;
     }
 
     // ------------------------------------------------------------------------
@@ -1306,7 +1613,7 @@ function buildVoxelTreeGeometryInner(spec: VoxelTreeSpeciesSpec): THREE.BufferGe
       v.drawLeafCluster3D(5.5, 18.5, -1.6, 4.4, 2.2, 4.0, PAL_SCOTS_LEAF, 0.02, 451);
       v.drawLeafCluster3D(0.4, 19.6, 0, 5.6, 2.5, 5.2, PAL_SCOTS_LEAF, 0.16, 452);
       v.drawLeafCluster3D(1.8, 22.0, -0.8, 4.0, 2.1, 3.8, PAL_SCOTS_LEAF, 0.24, 453);
-      return v.toGreedyBufferGeometry(spec.voxelSize);
+      return v;
     }
 
     case 'highland_rowan': {
@@ -1320,7 +1627,7 @@ function buildVoxelTreeGeometryInner(spec: VoxelTreeSpeciesSpec): THREE.BufferGe
       v.drawLeafCluster3D(-3.2, 13.8, 1.5, 3.4, 2.6, 3.4, PAL_ROWAN, 0.12, 465);
       v.drawLeafCluster3D(3.2, 13.8, -1.5, 3.4, 2.6, 3.4, PAL_ROWAN, 0.04, 466);
       v.drawLeafCluster3D(0, 17.0, 0, 3.6, 2.6, 3.6, PAL_ROWAN, 0.22, 467);
-      return v.toGreedyBufferGeometry(spec.voxelSize);
+      return v;
     }
 
     case 'highland_aspen': {
@@ -1333,7 +1640,7 @@ function buildVoxelTreeGeometryInner(spec: VoxelTreeSpeciesSpec): THREE.BufferGe
       v.drawLeafCluster3D(2.4, 19.2, 1.0, 3.8, 3.5, 3.8, PAL_ASPEN, 0.14, 474);
       v.drawLeafCluster3D(0, 21.6, 0, 3.6, 3.2, 3.6, PAL_ASPEN, 0.22, 475);
       v.drawLeafCluster3D(1.2, 24.0, 0.4, 2.8, 2.4, 2.8, PAL_ASPEN, 0.28, 476);
-      return v.toGreedyBufferGeometry(spec.voxelSize);
+      return v;
     }
 
     case 'highland_krummholz':
@@ -1348,12 +1655,17 @@ function buildVoxelTreeGeometryInner(spec: VoxelTreeSpeciesSpec): THREE.BufferGe
       v.drawLeafCluster3D(5.5, 12.0, -1.2, 4.2, 2.3, 4.0, PAL_SCOTS_LEAF, 0.02, 485);
       v.drawLeafCluster3D(1.5, 12.8, 0.4, 4.8, 2.5, 4.6, PAL_SCOTS_LEAF, 0.16, 486);
       v.drawLeafCluster3D(-0.4, 15.0, 0.4, 3.6, 2.0, 3.5, PAL_SCOTS_LEAF, 0.24, 487);
-      return v.toGreedyBufferGeometry(spec.voxelSize);
+      return v;
     }
   }
 }
 
-function buildBurntVoxelTreeGeometries(): THREE.BufferGeometry[] {
+function buildBurntVoxelTreeLodSets(): {
+  lod0: THREE.BufferGeometry[];
+  lod1: THREE.BufferGeometry[];
+  lod2: THREE.BufferGeometry[];
+  lod3: THREE.BufferGeometry[];
+} {
   const BARK_CHARRED: Pal5 = [0x0f0c0b, 0x1a1514, 0x28211f, 0x3b312e, 0x524642];
   const BARK_ASH: Pal5 = [0x141110, 0x221d1b, 0x362f2c, 0x4f4642, 0x6e635f];
   const PAL_SCORCHED_TWIGS: Pal5 = [0x1c120e, 0x2d1b13, 0x452719, 0x63361f, 0x8a4b29];
@@ -1421,63 +1733,71 @@ function buildBurntVoxelTreeGeometries(): THREE.BufferGeometry[] {
   v3.drawLeafCluster3D(4.2, 17.0, -1.6, 2.3, 1.4, 2.2, PAL_SCORCHED_TWIGS, 0.05, 666, 0xea580c, 0.06);
   v3.drawLeafCluster3D(-1.0, 18.5, -3.4, 1.9, 1.2, 1.9, PAL_SCORCHED_TWIGS, 0.1, 667);
 
-  return [
-    v0.toGreedyBufferGeometry(0.056),
-    v1.toGreedyBufferGeometry(0.054),
-    v2.toGreedyBufferGeometry(0.056),
-    v3.toGreedyBufferGeometry(0.055),
+  const vols: [VoxelVolume, number][] = [
+    [v0, 0.056],
+    [v1, 0.054],
+    [v2, 0.056],
+    [v3, 0.055],
   ];
+  return {
+    lod0: vols.map(([v, s]) => v.toGreedyBufferGeometry(s)),
+    lod1: vols.map(([v, s]) => v.toDownsampledGreedyBufferGeometry(s, 2, false)),
+    lod2: vols.map(([v, s]) => v.toDownsampledGreedyBufferGeometry(s, 3, true)),
+    lod3: vols.map(([v, s]) => v.toDownsampledGreedyBufferGeometry(s, 4, true)),
+  };
 }
 
 let cachedVoxelTreeLib: VoxelTreeLibrary | null = null;
 
+function makeEmptyBiomeRecord<T>(): Record<TreeBiomeKey, T[]> {
+  return {
+    forest: [],
+    meadow: [],
+    jungle: [],
+    taiga: [],
+    blossom: [],
+    savanna: [],
+    swamp: [],
+    highland: [],
+  };
+}
+
 export function getVoxelTreeLibrary(): VoxelTreeLibrary {
   if (cachedVoxelTreeLib) return cachedVoxelTreeLib;
 
-  const byBiome: Record<TreeBiomeKey, THREE.BufferGeometry[]> = {
-    forest: [],
-    meadow: [],
-    jungle: [],
-    taiga: [],
-    blossom: [],
-    savanna: [],
-    swamp: [],
-    highland: [],
-  };
-  const burntByBiome: Record<TreeBiomeKey, THREE.BufferGeometry[]> = {
-    forest: [],
-    meadow: [],
-    jungle: [],
-    taiga: [],
-    blossom: [],
-    savanna: [],
-    swamp: [],
-    highland: [],
-  };
-  const specsByBiome: Record<TreeBiomeKey, VoxelTreeSpeciesSpec[]> = {
-    forest: [],
-    meadow: [],
-    jungle: [],
-    taiga: [],
-    blossom: [],
-    savanna: [],
-    swamp: [],
-    highland: [],
-  };
+  const byBiome = makeEmptyBiomeRecord<THREE.BufferGeometry>();
+  const byBiomeLod1 = makeEmptyBiomeRecord<THREE.BufferGeometry>();
+  const byBiomeLod2 = makeEmptyBiomeRecord<THREE.BufferGeometry>();
+  const byBiomeLod3 = makeEmptyBiomeRecord<THREE.BufferGeometry>();
+  const burntByBiome = makeEmptyBiomeRecord<THREE.BufferGeometry>();
+  const burntByBiomeLod1 = makeEmptyBiomeRecord<THREE.BufferGeometry>();
+  const burntByBiomeLod2 = makeEmptyBiomeRecord<THREE.BufferGeometry>();
+  const burntByBiomeLod3 = makeEmptyBiomeRecord<THREE.BufferGeometry>();
+  const specsByBiome = makeEmptyBiomeRecord<VoxelTreeSpeciesSpec>();
   const allGeometries: THREE.BufferGeometry[] = [];
-  const allBurntBiomeGeometries: THREE.BufferGeometry[] = [];
+  const allExtraLodGeometries: THREE.BufferGeometry[] = [];
 
   for (const spec of SPECIES_SPECS) {
-    const geo = buildVoxelTreeGeometry(spec, false);
-    const burntGeo = buildVoxelTreeGeometry(spec, true);
-    byBiome[spec.biome].push(geo);
-    burntByBiome[spec.biome].push(burntGeo);
+    const [g0, g1, g2, g3] = buildVoxelTreeLods(spec, false);
+    const [b0, b1, b2, b3] = buildVoxelTreeLods(spec, true);
+    byBiome[spec.biome].push(g0);
+    byBiomeLod1[spec.biome].push(g1);
+    byBiomeLod2[spec.biome].push(g2);
+    byBiomeLod3[spec.biome].push(g3);
+    burntByBiome[spec.biome].push(b0);
+    burntByBiomeLod1[spec.biome].push(b1);
+    burntByBiomeLod2[spec.biome].push(b2);
+    burntByBiomeLod3[spec.biome].push(b3);
     specsByBiome[spec.biome].push(spec);
-    allGeometries.push(geo);
-    allBurntBiomeGeometries.push(burntGeo);
+    allGeometries.push(g0);
+    allExtraLodGeometries.push(g1, g2, g3, b0, b1, b2, b3);
   }
 
-  const burntTrees = buildBurntVoxelTreeGeometries();
+  const burntSets = buildBurntVoxelTreeLodSets();
+  const burntTrees = burntSets.lod0;
+  const burntTreesLod1 = burntSets.lod1;
+  const burntTreesLod2 = burntSets.lod2;
+  const burntTreesLod3 = burntSets.lod3;
 
   const material = new THREE.MeshStandardMaterial({
     vertexColors: true,
@@ -1487,16 +1807,28 @@ export function getVoxelTreeLibrary(): VoxelTreeLibrary {
 
   cachedVoxelTreeLib = {
     byBiome,
+    byBiomeLod1,
+    byBiomeLod2,
+    byBiomeLod3,
     burntByBiome,
+    burntByBiomeLod1,
+    burntByBiomeLod2,
+    burntByBiomeLod3,
     specsByBiome,
     allSpecs: SPECIES_SPECS,
     allGeometries,
     burntTrees,
+    burntTreesLod1,
+    burntTreesLod2,
+    burntTreesLod3,
     material,
     dispose: () => {
       for (const g of allGeometries) g.dispose();
-      for (const g of allBurntBiomeGeometries) g.dispose();
+      for (const g of allExtraLodGeometries) g.dispose();
       for (const g of burntTrees) g.dispose();
+      for (const g of burntTreesLod1) g.dispose();
+      for (const g of burntTreesLod2) g.dispose();
+      for (const g of burntTreesLod3) g.dispose();
       material.dispose();
       cachedVoxelTreeLib = null;
     },

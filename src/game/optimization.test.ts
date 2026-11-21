@@ -17,10 +17,26 @@ import {
   createPooledSimulationTickIndex,
 } from './spatialIndex';
 import { BatchedBuildingSystem } from './batchedBuildings';
+import { BatchedStaticPool } from './batchedStaticProps';
+import { TreeImpostorSystem } from './treeImpostors';
+import { getVoxelTreeLibrary, TreeBiomeKey } from './voxelTrees';
+import { getNodeVariantLibrary } from './meshBuilders';
 import { DEFAULT_GRAPHICS_SETTINGS, resolveGraphicsProfile } from './graphics';
-import { AutoOptimizer } from './autoOptimizer';
+import {
+  AutoOptimizer,
+  DESPAWN_CULL_HYSTERESIS,
+  WorldCullBounds,
+  isHazardIntersectingCullBounds,
+  isPointInCullBounds,
+  isRingIntersectingCullBounds,
+} from './autoOptimizer';
 import { getMaxCityPopulation } from './catalog';
-import { createInitialSimulationState, ensureWorldGrid, stepSimulation } from './simulation';
+import {
+  createInitialSimulationState,
+  ensureWorldGrid,
+  executeTerrainDropBatchImpact,
+  stepSimulation,
+} from './simulation';
 import { sanitizeSimulationForSave } from './worldStorage';
 
 describe('Major Optimization & 512x512 Scaling Suite', () => {
@@ -313,4 +329,286 @@ describe('Major Optimization & 512x512 Scaling Suite', () => {
     syncWorldGridFromTiles(rebuiltGrid, saved.tiles);
     assert.equal(rebuiltGrid.gridSize, 64);
   });
+
+  it('4-tier VoxelTree LODs monotonically slash triangle count (>90% at LOD3) while preserving height', () => {
+    const lib = getVoxelTreeLibrary();
+    const trisOf = (g: THREE.BufferGeometry): number => {
+      const idx = g.getIndex();
+      if (idx) return Math.floor(idx.count / 3);
+      return Math.floor((g.getAttribute('position')?.count ?? 0) / 3);
+    };
+
+    const biomes: TreeBiomeKey[] = [
+      'forest',
+      'meadow',
+      'jungle',
+      'taiga',
+      'blossom',
+      'savanna',
+      'swamp',
+      'highland',
+    ];
+    let sum0 = 0;
+    let sum3 = 0;
+
+    for (const biome of biomes) {
+      const l0 = lib.byBiome[biome];
+      const l1 = lib.byBiomeLod1[biome];
+      const l2 = lib.byBiomeLod2[biome];
+      const l3 = lib.byBiomeLod3[biome];
+      assert.equal(l1.length, l0.length);
+      assert.equal(l2.length, l0.length);
+      assert.equal(l3.length, l0.length);
+
+      for (let i = 0; i < l0.length; i++) {
+        const t0 = trisOf(l0[i]);
+        const t1 = trisOf(l1[i]);
+        const t2 = trisOf(l2[i]);
+        const t3 = trisOf(l3[i]);
+        sum0 += t0;
+        sum3 += t3;
+        assert.ok(t1 < t0 && t2 < t1 && t3 <= t2, `Non-monotonic LOD tris for ${biome}[${i}]: ${t0}->${t1}->${t2}->${t3}`);
+        assert.ok(t3 >= 40, `LOD3 collapsed too much for ${biome}[${i}]: ${t3}`);
+
+        l0[i].computeBoundingBox();
+        l3[i].computeBoundingBox();
+        const h0 = l0[i].boundingBox!.max.y - l0[i].boundingBox!.min.y;
+        const h3 = l3[i].boundingBox!.max.y - l3[i].boundingBox!.min.y;
+        assert.ok(h3 >= h0 * 0.65, `LOD3 lost canopy height for ${biome}[${i}]: ${h3.toFixed(2)} vs ${h0.toFixed(2)}`);
+      }
+    }
+
+    const overallReduction = 1 - sum3 / sum0;
+    assert.ok(
+      overallReduction >= 0.9,
+      `Expected >=90% tree triangle reduction at overview LOD3, got ${(overallReduction * 100).toFixed(1)}%`,
+    );
+  });
+
+  it('NodeVariantLibrary Prop LOD2s and BatchedBuildingSystem LOD1 reduce triangle geometry cleanly', () => {
+    const nLib = getNodeVariantLibrary();
+    const trisOf = (g: THREE.BufferGeometry): number => {
+      const idx = g.getIndex();
+      return idx ? Math.floor(idx.count / 3) : Math.floor((g.getAttribute('position')?.count ?? 0) / 3);
+    };
+    const avgTris = (arr: THREE.BufferGeometry[]) =>
+      arr.reduce((acc, g) => acc + trisOf(g), 0) / Math.max(1, arr.length);
+
+    assert.ok(avgTris(nLib.coralReefLod2) < avgTris(nLib.coralReef) * 0.25, 'coralReefLod2 should cut >=75% tris');
+    assert.ok(avgTris(nLib.coralReefBleachedLod2) < avgTris(nLib.coralReefBleached) * 0.25);
+    assert.ok(avgTris(nLib.atlantisRuinLod2) < avgTris(nLib.atlantisRuin) * 0.35);
+    assert.ok(avgTris(nLib.berryLod2) < avgTris(nLib.berry) * 0.6);
+    assert.ok(avgTris(nLib.stoneLod2) < avgTris(nLib.stone) * 0.5);
+    assert.ok(avgTris(nLib.oreLod2) < avgTris(nLib.ore) * 0.5);
+    assert.ok(avgTris(nLib.crystalLod2) < avgTris(nLib.crystal) * 0.65);
+
+    const sys = new BatchedBuildingSystem();
+    assert.equal(sys.getLodLevel(), 0);
+    const bTypes = ['forager_hut', 'granary', 'guildhall', 'steam_foundry', 'fission_reactor', 'dyson_spire'] as const;
+    bTypes.forEach((tp, idx) => {
+      sys.upsertBuilding(`b_${idx}`, tp, 5, 'human', idx, false, 10 + idx, 1, 10, 0, 1, true, 1);
+    });
+    sys.setLodLevel(1);
+    assert.equal(sys.getLodLevel(), 1);
+    sys.setLodLevel(0);
+    assert.equal(sys.getLodLevel(), 0);
+    sys.dispose();
+  });
+
+  it('unrenders off-screen buildings/hazards via cull bounds & restores exact instances when back in view', () => {
+    const sys = new BatchedBuildingSystem();
+    const bounds: WorldCullBounds = { minX: 10, maxX: 30, minZ: 10, maxZ: 30 };
+
+    // Materialize two buildings (1 inside screen, 1 inside screen initially)
+    sys.upsertBuilding('b_near', 'forager_hut', 0, 'human', 1, false, 20, 1.0, 20, 0, 1, true, 1);
+    sys.upsertBuilding('b_far', 'granary', 2, 'human', 2, false, 80, 1.0, 80, Math.PI / 2, 1, true, 1);
+    assert.equal(sys.getBuildingCount(), 2);
+
+    // Frame 2: only stamp buildings inside keep bounds; b_far is far off-screen so pruneUnseen deletes its 3D instance
+    if (isPointInCullBounds(20, 20, bounds, DESPAWN_CULL_HYSTERESIS)) {
+      sys.upsertBuilding('b_near', 'forager_hut', 0, 'human', 1, false, 20, 1.0, 20, 0, 1, true, 2);
+    }
+    sys.pruneUnseen(2);
+    assert.equal(sys.getBuildingCount(), 1);
+    assert.equal(sys.getEntry('b_far'), undefined);
+
+    // Frame 3: pan camera over (80, 80) — both buildings flip roles cleanly
+    const pannedBounds: WorldCullBounds = { minX: 70, maxX: 90, minZ: 70, maxZ: 90 };
+    if (isPointInCullBounds(80, 80, pannedBounds, 0)) {
+      sys.upsertBuilding('b_far', 'granary', 2, 'human', 2, false, 80, 1.5, 80, Math.PI / 2, 1, true, 3);
+    }
+    sys.pruneUnseen(3);
+    assert.equal(sys.getBuildingCount(), 1);
+    assert.equal(sys.getEntry('b_near'), undefined);
+    assert.equal(sys.getEntry('b_far')?.cachedRotY, Math.PI / 2);
+    assert.equal(sys.getEntry('b_far')?.lastY, 1.5);
+    sys.dispose();
+
+    // Tsunami expanding wavefront ring intersection checks
+    assert.equal(
+      isRingIntersectingCullBounds(0, 0, 4, 8, bounds, 0),
+      false,
+      'Small tsunami far off-screen should stay unrendered',
+    );
+    assert.equal(
+      isRingIntersectingCullBounds(0, 0, 22, 28, bounds, 0),
+      true,
+      'Tsunami wavefront crossing the viewport must render even if epicenter is off-screen',
+    );
+    assert.equal(
+      isRingIntersectingCullBounds(0, 0, 60, 66, bounds, 0),
+      false,
+      'Tsunami that expanded completely past the viewport should unrender',
+    );
+
+    // Earthquake fault-segment & generic hazard bounds checks
+    assert.equal(
+      isHazardIntersectingCullBounds(
+        {
+          kind: 'earthquake_zone',
+          x: 5,
+          z: 5,
+          radius: 4,
+          faultSegments: [{ x1: 4, z1: 5, x2: 14, z2: 14, width: 2 }],
+        },
+        bounds,
+        0,
+      ),
+      true,
+    );
+    assert.equal(
+      isHazardIntersectingCullBounds(
+        { kind: 'tornado_vortex', x: 95, z: 95, radius: 5 },
+        bounds,
+        DESPAWN_CULL_HYSTERESIS,
+      ),
+      false,
+    );
+  });
+
+  it('strips invisible -Y faces on voxel trees and packs TreeImpostorSystem instances cleanly (2 tris/tree)', () => {
+    const lib = getVoxelTreeLibrary();
+    // Verify ZERO downward-facing (-Y) normals exist across all voxel tree LOD geometries
+    for (const g of lib.allGeometries) {
+      const norm = g.getAttribute('normal');
+      if (!norm) continue;
+      for (let i = 0; i < norm.count; i++) {
+        assert.ok(norm.getY(i) >= -0.9, `Found invisible -Y underside face on voxel tree (ny=${norm.getY(i)})`);
+      }
+    }
+
+    // Verify TreeImpostorSystem gracefully handles headless (null renderer) and dynamic buffer growth
+    const impostors = new TreeImpostorSystem(null, lib, 4);
+    assert.equal(impostors.isBaked, false);
+    const mat = new THREE.Matrix4().compose(
+      new THREE.Vector3(12, 1.5, 24),
+      new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), 0.7),
+      new THREE.Vector3(1.1, 1.25, 1.1),
+    );
+    const arr = new Float32Array(mat.elements);
+    for (let i = 0; i < 600; i++) {
+      impostors.pushTreeFromMatrix(i & 1, i % 8, 0, arr, 0);
+    }
+    impostors.commit();
+    assert.equal(impostors.getCount(), 600);
+    // Base plane has 2 triangles (6 indices) -> 600 instances = 1,200 triangles total
+    const geo = impostors.mesh.geometry as THREE.InstancedBufferGeometry;
+    assert.equal(geo.index!.count / 3, 2);
+    assert.equal(geo.instanceCount, 600);
+    impostors.updateCameraAndLighting(Math.PI / 4, 0.85);
+    impostors.dispose();
+  });
+
+  it('BatchedStaticPool collapses multi-variant static props into 1 BatchedMesh with dynamic growth & shrink', () => {
+    const vLib = getVoxelTreeLibrary();
+    const nLib = getNodeVariantLibrary();
+    const mat = new Float32Array(new THREE.Matrix4().makeTranslation(10, 1, 20).elements);
+
+    // 1. Indexed geometries (voxel trees) with growth past initial capacity (64 -> >120)
+    const treeGeos = [...vLib.byBiome.forest, ...vLib.byBiomeLod1.forest];
+    const treePool = new BatchedStaticPool('test_trees', vLib.material, treeGeos, true, true, 64);
+    for (let i = 0; i < 120; i++) {
+      treePool.pushFromMatrixArray(i % treeGeos.length, mat, 0);
+    }
+    treePool.commit();
+    assert.equal(treePool.getCount(), 120);
+    assert.equal(treePool.mesh.visible, true);
+
+    // Shrink & hide unused slots cleanly
+    treePool.reset();
+    for (let i = 0; i < 12; i++) {
+      treePool.pushFromMatrixArray(i % treeGeos.length, mat, 0);
+    }
+    treePool.commit();
+    assert.equal(treePool.getCount(), 12);
+    assert.equal(treePool.mesh.getVisibleAt(0), true);
+    assert.equal(treePool.mesh.getVisibleAt(11), true);
+    assert.equal(treePool.mesh.getVisibleAt(12), false);
+
+    // Reset to 0 hides mesh completely
+    treePool.reset();
+    treePool.commit();
+    assert.equal(treePool.mesh.visible, false);
+    treePool.dispose();
+
+    // 2. Non-indexed / mixed geometries (ambient & resource props)
+    const propGeos = [...nLib.berry, ...nLib.stone, ...nLib.ambientGrass];
+    const propPool = new BatchedStaticPool('test_props', nLib.standardMat, propGeos, false, true, 64);
+    for (let i = 0; i < 80; i++) {
+      propPool.pushFromMatrixArray(i % propGeos.length, mat, 0);
+    }
+    propPool.commit();
+    assert.equal(propPool.getCount(), 80);
+    assert.equal(propPool.mesh.visible, true);
+    propPool.dispose();
+  });
+
+  it('executeTerrainDropBatchImpact applies 300+ tile sky drops in a single sync pass with blossom healing', () => {
+    const sim = createInitialSimulationState(64, 4242);
+    const coords: Array<{ x: number; z: number }> = [];
+    for (let z = 20; z < 38; z++) {
+      for (let x = 20; x < 38; x++) {
+        const t = sim.tiles[z * sim.gridSize + x];
+        t.height = 1;
+        t.terrain = 'grass';
+        t.buildingId = null;
+        t.resourceNode = 'none';
+        t.resourceAmount = 0;
+        coords.push({ x, z });
+      }
+    }
+    // Place a cursed injured unit inside the drop batch
+    if (sim.units.length > 0) {
+      sim.units[0].x = 28;
+      sim.units[0].z = 28;
+      sim.units[0].hp = 10;
+      sim.units[0].maxHp = 100;
+      sim.units[0].faction = 'civilization';
+      sim.units[0].state = 'idle';
+      sim.units[0].statusEffects.cursed = 10;
+    }
+
+    const t0 = performance.now();
+    const changed = executeTerrainDropBatchImpact(sim, 'blossom_rain', coords);
+    const elapsedMs = performance.now() - t0;
+
+    assert.equal(changed, coords.length);
+    assert.ok(elapsedMs < 50, `Expected batched sky drop to finish fast (<50ms), took ${elapsedMs.toFixed(2)}ms`);
+
+    let blossomTreeCount = 0;
+    for (const c of coords) {
+      const t = sim.tiles[c.z * sim.gridSize + c.x];
+      if (t.resourceNode === 'timber_grove' && t.treeBiomeOverride === 'blossom') {
+        blossomTreeCount++;
+      }
+    }
+    assert.ok(blossomTreeCount > 100, `Expected blossom trees spawned via treeBiomeOverride, got ${blossomTreeCount}`);
+
+    if (sim.units.length > 0) {
+      assert.equal(sim.units[0].statusEffects.cursed, 0, 'Blossom batch should cleanse curse once per batch');
+      assert.ok(sim.units[0].hp >= 25, 'Blossom batch should heal units inside drop area');
+    }
+  });
 });
+
+

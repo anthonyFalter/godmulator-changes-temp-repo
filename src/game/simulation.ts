@@ -10,7 +10,12 @@ import {
   getUnitMaxLifespan,
 } from './catalog';
 export { getMaxCityPopulation, getUnitMaxLifespan };
-import { getPowerEffectiveRadius, isInsidePixelCircle } from './brushSizes';
+import {
+  getPowerClusterCount,
+  getPowerClusterTargets,
+  getPowerEffectiveRadius,
+  isInsidePixelCircle,
+} from './brushSizes';
 import {
   ActiveHazardZone,
   BuildingEntity,
@@ -376,6 +381,58 @@ export function getTile(state: SimulationState, x: number, z: number): TileData 
   const rz = Math.round(z);
   if (rx < 0 || rx >= state.gridSize || rz < 0 || rz >= state.gridSize) return undefined;
   return state.tiles[getTileIndex(rx, rz, state.gridSize)];
+}
+
+export function forEachTileInRadius(
+  state: SimulationState,
+  cx: number,
+  cz: number,
+  radius: number,
+  fn: (tile: TileData, dSq: number) => void,
+): void {
+  const gs = state.gridSize;
+  const tiles = state.tiles;
+  const rSq = radius * radius;
+  const minX = Math.max(0, Math.floor(cx - radius));
+  const maxX = Math.min(gs - 1, Math.ceil(cx + radius));
+  const minZ = Math.max(0, Math.floor(cz - radius));
+  const maxZ = Math.min(gs - 1, Math.ceil(cz + radius));
+  for (let z = minZ; z <= maxZ; z++) {
+    const dz = z - cz;
+    const dzSq = dz * dz;
+    const rowOff = z * gs;
+    for (let x = minX; x <= maxX; x++) {
+      const dx = x - cx;
+      const dSq = dx * dx + dzSq;
+      if (dSq <= rSq) {
+        const tile = tiles[rowOff + x];
+        if (tile) fn(tile, dSq);
+      }
+    }
+  }
+}
+
+export function forEachTileInBounds(
+  state: SimulationState,
+  minX: number,
+  maxX: number,
+  minZ: number,
+  maxZ: number,
+  fn: (tile: TileData) => void,
+): void {
+  const gs = state.gridSize;
+  const tiles = state.tiles;
+  const x0 = Math.max(0, Math.floor(minX));
+  const x1 = Math.min(gs - 1, Math.ceil(maxX));
+  const z0 = Math.max(0, Math.floor(minZ));
+  const z1 = Math.min(gs - 1, Math.ceil(maxZ));
+  for (let z = z0; z <= z1; z++) {
+    const rowOff = z * gs;
+    for (let x = x0; x <= x1; x++) {
+      const tile = tiles[rowOff + x];
+      if (tile) fn(tile);
+    }
+  }
 }
 
 export function formatYearLabel(year: number): string {
@@ -1824,6 +1881,78 @@ export function isCultivableSoil(t: TileData): boolean {
   );
 }
 
+export function isHealthyTreeSoil(t: TileData): boolean {
+  if (isCultivableSoil(t)) return true;
+  if (t.height <= 0 || t.height >= 6) return false;
+  if (t.onFireTimer > 0 || t.cursedTimer > 0) return false;
+  return t.terrain === 'swamp' || t.terrain === 'highland';
+}
+
+function isBlossomSoil(t: TileData): boolean {
+  if (t.height <= 0 || t.height >= 6) return false;
+  return (
+    t.terrain === 'grass' ||
+    t.terrain === 'fertile' ||
+    t.terrain === 'forest' ||
+    t.terrain === 'savanna' ||
+    t.terrain === 'jungle' ||
+    t.terrain === 'blossom' ||
+    t.terrain === 'taiga'
+  );
+}
+
+function getBiomeResourceDeposit(
+  terrain: TerrainType,
+  toolType: 'boulder_rain' | 'seed_ore' | 'crystal_shower',
+  x: number,
+  z: number,
+): { node: TileData['resourceNode']; amount: number } {
+  if (toolType === 'boulder_rain') {
+    if (terrain === 'mountain' || terrain === 'rock' || terrain === 'highland') {
+      return { node: 'stone_outcrop', amount: 440 };
+    }
+    if (terrain === 'scorched' || terrain === 'badlands') {
+      return { node: 'stone_outcrop', amount: 400 };
+    }
+    if (terrain === 'snow' || terrain === 'tundra') {
+      return { node: 'stone_outcrop', amount: 360 };
+    }
+    if (terrain === 'sand' || terrain === 'savanna') {
+      return { node: 'stone_outcrop', amount: 320 };
+    }
+    return { node: 'stone_outcrop', amount: 300 };
+  }
+  if (toolType === 'seed_ore') {
+    if (terrain === 'crystal_field') {
+      return { node: 'crystal_monolith', amount: 440 };
+    }
+    if (terrain === 'mountain' || terrain === 'rock' || terrain === 'scorched') {
+      return {
+        node: (x + z) % 4 === 0 ? 'crystal_monolith' : 'ore_vein',
+        amount: 420,
+      };
+    }
+    if (terrain === 'badlands' || terrain === 'sand' || terrain === 'highland') {
+      return { node: 'ore_vein', amount: 360 };
+    }
+    if (terrain === 'snow' || terrain === 'tundra') {
+      return {
+        node: (x + z) % 4 === 0 ? 'crystal_monolith' : 'ore_vein',
+        amount: 340,
+      };
+    }
+    return { node: 'ore_vein', amount: 300 };
+  }
+  // crystal_shower
+  if (terrain === 'crystal_field' || terrain === 'mountain' || terrain === 'snow') {
+    return { node: 'crystal_monolith', amount: 480 };
+  }
+  if (terrain === 'rock' || terrain === 'scorched' || terrain === 'blossom') {
+    return { node: 'crystal_monolith', amount: 420 };
+  }
+  return { node: 'crystal_monolith', amount: 360 };
+}
+
 function raiseWaterTileToLand(t: TileData, terrain: TerrainType, height = 1): void {
   t.height = Math.max(1, Math.min(10, height));
   t.terrain = terrain;
@@ -1833,6 +1962,7 @@ function raiseWaterTileToLand(t: TileData, terrain: TerrainType, height = 1): vo
   t.onFireTimer = 0;
   t.cursedTimer = 0;
   clearBurntTreeState(t);
+  delete t.treeBiomeOverride;
   if (
     t.resourceNode === 'coral_reef' ||
     t.resourceNode === 'scrap_flotsam' ||
@@ -1855,49 +1985,39 @@ export function canApplyTerrainToolToTile(
     case 'carve_river':
     case 'abyssal_trench':
     case 'alpine_glacier':
+    case 'volcanic_obsidian':
+      return true;
     case 'seed_ore':
     case 'crystal_shower':
     case 'boulder_rain':
-    case 'volcanic_obsidian':
-      return true;
+      return t.height > 0 && !t.buildingId;
     case 'stone_road':
     case 'rail_track':
       return t.height >= 0 && !t.buildingId;
     case 'fertile_meadow':
+      return isCultivableSoil(t);
     case 'plant_forest':
-      return t.height === 0 || isCultivableSoil(t);
+      return isHealthyTreeSoil(t) && !t.buildingId;
     case 'blossom_rain':
-      return (
-        t.height === 0 ||
-        (t.height > 0 &&
-          t.height < 6 &&
-          (t.terrain === 'grass' ||
-            t.terrain === 'fertile' ||
-            t.terrain === 'forest' ||
-            t.terrain === 'savanna' ||
-            t.terrain === 'jungle' ||
-            t.terrain === 'blossom' ||
-            t.terrain === 'taiga'))
-      );
+      return isBlossomSoil(t);
     case 'jungle_bloom':
-      return t.height === 0 || isCultivableSoil(t) || t.terrain === 'swamp';
+      return isCultivableSoil(t) || (t.height > 0 && t.terrain === 'swamp');
     case 'soil_enrich':
       return (
-        t.height === 0 ||
-        (t.height > 0 &&
-          (t.terrain === 'scorched' ||
-            t.terrain === 'void_goo' ||
-            t.terrain === 'badlands' ||
-            t.terrain === 'rock' ||
-            t.terrain === 'swamp' ||
-            t.terrain === 'sand' ||
-            t.terrain === 'tundra' ||
-            t.cursedTimer > 0 ||
-            t.onFireTimer > 0 ||
-            t.terrain === 'grass'))
+        t.height > 0 &&
+        (t.terrain === 'scorched' ||
+          t.terrain === 'void_goo' ||
+          t.terrain === 'badlands' ||
+          t.terrain === 'rock' ||
+          t.terrain === 'swamp' ||
+          t.terrain === 'sand' ||
+          t.terrain === 'tundra' ||
+          t.cursedTimer > 0 ||
+          t.onFireTimer > 0 ||
+          t.terrain === 'grass')
       );
     case 'desert_dunes':
-      return t.height === 0 || (t.height > 0 && t.height <= 4);
+      return t.height > 0 && t.height <= 4;
     case 'coral_reef_rain':
       return t.height === 0;
     case 'salvage_drop':
@@ -1905,7 +2025,7 @@ export function canApplyTerrainToolToTile(
     case 'atlantis_rise':
       return t.height === 0 && !t.buildingId;
     case 'swamp_mire':
-      return (t.height === 0 || t.height > 0) && !t.buildingId;
+      return t.height > 0 && !t.buildingId;
   }
 }
 
@@ -1928,6 +2048,7 @@ function applyTerrainToolTileMutation(
               if (t.resourceNode === 'berry_bush' || t.resourceNode === 'timber_grove') {
                 t.resourceNode = 'none';
                 t.resourceAmount = 0;
+                delete t.treeBiomeOverride;
               }
             } else if (t.height >= 5) {
               if (
@@ -1962,6 +2083,7 @@ function applyTerrainToolTileMutation(
               t.resourceAmount = 0;
               t.onFireTimer = 0;
               clearBurntTreeState(t);
+              delete t.treeBiomeOverride;
             } else if (t.height <= 7 && t.terrain === 'snow') {
               t.terrain = 'mountain';
             } else if (t.height <= 4 && (t.terrain === 'rock' || t.terrain === 'mountain')) {
@@ -2001,6 +2123,7 @@ function applyTerrainToolTileMutation(
           if (t.height >= 0 && !t.buildingId) {
             t.terrain = 'stone_road';
             clearBurntTreeState(t);
+            delete t.treeBiomeOverride;
             if (t.resourceNode === 'berry_bush' || t.resourceNode === 'timber_grove') {
               t.resourceNode = 'none';
               t.resourceAmount = 0;
@@ -2014,6 +2137,7 @@ function applyTerrainToolTileMutation(
             t.terrain = 'rail_track';
             t.farmSettlementId = undefined;
             clearBurntTreeState(t);
+            delete t.treeBiomeOverride;
             if (t.resourceNode === 'berry_bush' || t.resourceNode === 'timber_grove') {
               t.resourceNode = 'none';
               t.resourceAmount = 0;
@@ -2023,16 +2147,10 @@ function applyTerrainToolTileMutation(
           break;
         }
         case 'fertile_meadow': {
-          if (t.height === 0) {
-            raiseWaterTileToLand(t, 'fertile', 1);
-            if (!t.buildingId) {
-              t.resourceNode = 'berry_bush';
-              t.resourceAmount = 220;
-            }
-            tileModified = true;
-          } else if (isCultivableSoil(t)) {
+          if (isCultivableSoil(t)) {
             t.terrain = 'fertile';
             clearBurntTreeState(t);
+            delete t.treeBiomeOverride;
             if (!t.buildingId) {
               t.resourceNode = 'berry_bush';
               t.resourceAmount = 220;
@@ -2042,111 +2160,77 @@ function applyTerrainToolTileMutation(
           break;
         }
         case 'plant_forest': {
-          if (t.height === 0) {
-            raiseWaterTileToLand(t, 'forest', 1);
-            if (!t.buildingId) {
-              t.resourceNode = 'timber_grove';
-              t.resourceAmount = 260;
-            }
-            tileModified = true;
-          } else if (isCultivableSoil(t)) {
-            if (
-              t.terrain !== 'jungle' &&
-              t.terrain !== 'taiga' &&
-              t.terrain !== 'blossom' &&
-              t.terrain !== 'savanna'
-            ) {
-              t.terrain = 'forest';
-            }
+          if (isHealthyTreeSoil(t) && !t.buildingId) {
             clearBurntTreeState(t);
-            if (!t.buildingId) {
-              t.resourceNode = 'timber_grove';
-              t.resourceAmount = 260;
-            }
+            delete t.treeBiomeOverride;
+            t.resourceNode = 'timber_grove';
+            t.resourceAmount = 260;
             tileModified = true;
           }
           break;
         }
         case 'seed_ore': {
-          if (t.height === 0) {
-            raiseWaterTileToLand(t, 'rock', 1);
-          } else if (t.terrain !== 'scorched' && t.terrain !== 'snow') {
-            t.terrain = 'rock';
+          if (t.height > 0 && !t.buildingId) {
+            const deposit = getBiomeResourceDeposit(t.terrain, 'seed_ore', t.x, t.z);
+            clearBurntTreeState(t);
+            delete t.treeBiomeOverride;
+            t.resourceNode = deposit.node;
+            t.resourceAmount = deposit.amount;
+            tileModified = true;
           }
-          if (!t.buildingId) {
-            t.resourceNode = (t.x + t.z) % 3 === 0 ? 'crystal_monolith' : 'ore_vein';
-            t.resourceAmount = 350;
-          }
-          tileModified = true;
           break;
         }
         case 'crystal_shower': {
-          if (t.height === 0) {
-            raiseWaterTileToLand(t, 'crystal_field', 1);
-          } else {
-            t.terrain = 'crystal_field';
+          if (t.height > 0 && !t.buildingId) {
+            const deposit = getBiomeResourceDeposit(t.terrain, 'crystal_shower', t.x, t.z);
             t.onFireTimer = 0;
             t.cursedTimer = 0;
+            clearBurntTreeState(t);
+            delete t.treeBiomeOverride;
+            t.resourceNode = deposit.node;
+            t.resourceAmount = deposit.amount;
+            tileModified = true;
           }
-          if (!t.buildingId) {
-            t.resourceNode = 'crystal_monolith';
-            t.resourceAmount = 420;
-          }
-          tileModified = true;
           break;
         }
         case 'boulder_rain': {
-          if (t.height === 0) {
-            raiseWaterTileToLand(t, 'rock', 1);
-          } else {
-            t.terrain = t.height >= 5 ? 'mountain' : 'rock';
+          if (t.height > 0 && !t.buildingId) {
+            const deposit = getBiomeResourceDeposit(t.terrain, 'boulder_rain', t.x, t.z);
             t.onFireTimer = 0;
+            clearBurntTreeState(t);
+            delete t.treeBiomeOverride;
+            t.resourceNode = deposit.node;
+            t.resourceAmount = deposit.amount;
+            tileModified = true;
           }
-          if (!t.buildingId) {
-            t.resourceNode = 'stone_outcrop';
-            t.resourceAmount = 360;
-          }
-          tileModified = true;
           break;
         }
         case 'blossom_rain': {
-          const livingBiome =
-            t.height > 0 &&
-            t.height < 6 &&
-            (t.terrain === 'grass' ||
-              t.terrain === 'fertile' ||
-              t.terrain === 'forest' ||
-              t.terrain === 'savanna' ||
-              t.terrain === 'jungle' ||
-              t.terrain === 'blossom' ||
-              t.terrain === 'taiga');
-          if (t.height === 0 || livingBiome) {
-            if (t.height === 0) {
-              raiseWaterTileToLand(t, 'blossom', 1);
-            } else {
-              t.terrain = 'blossom';
-              t.onFireTimer = 0;
-              t.cursedTimer = 0;
-              clearBurntTreeState(t);
-            }
+          if (isBlossomSoil(t)) {
+            t.onFireTimer = 0;
+            t.cursedTimer = 0;
+            clearBurntTreeState(t);
             t.blessedTimer = Math.max(t.blessedTimer, 18);
             if (!t.buildingId) {
-              t.resourceNode = (t.x + t.z) % 3 === 0 ? 'berry_bush' : 'timber_grove';
+              const isBerry = (t.x + t.z) % 3 === 0;
+              t.resourceNode = isBerry ? 'berry_bush' : 'timber_grove';
               t.resourceAmount = 280;
+              if (isBerry) {
+                delete t.treeBiomeOverride;
+              } else {
+                t.treeBiomeOverride = 'blossom';
+              }
             }
             tileModified = true;
           }
           break;
         }
         case 'jungle_bloom': {
-          if (t.height === 0 || isCultivableSoil(t) || t.terrain === 'swamp') {
-            if (t.height === 0) {
-              raiseWaterTileToLand(t, 'jungle', 1);
-            } else {
-              t.terrain = 'jungle';
-              t.onFireTimer = 0;
-              clearBurntTreeState(t);
-            }
+          if (isCultivableSoil(t) || (t.height > 0 && t.terrain === 'swamp')) {
+            t.terrain = 'jungle';
+            t.onFireTimer = 0;
+            clearBurntTreeState(t);
+            delete t.treeBiomeOverride;
             if (!t.buildingId) {
               t.resourceNode = (t.x + t.z) % 4 === 0 ? 'berry_bush' : 'timber_grove';
               t.resourceAmount = 300;
@@ -2156,15 +2240,7 @@ function applyTerrainToolTileMutation(
           break;
         }
         case 'soil_enrich': {
-          if (t.height === 0) {
-            raiseWaterTileToLand(t, 'grass', 1);
-            t.blessedTimer = Math.max(t.blessedTimer, 14);
-            if (!t.buildingId && (t.x + t.z) % 3 === 0) {
-              t.resourceNode = 'berry_bush';
-              t.resourceAmount = 190;
-            }
-            tileModified = true;
-          } else if (t.height > 0) {
+          if (t.height > 0) {
             const harsh =
               t.terrain === 'scorched' ||
               t.terrain === 'void_goo' ||
@@ -2176,11 +2252,12 @@ function applyTerrainToolTileMutation(
               t.cursedTimer > 0 ||
               t.onFireTimer > 0;
             if (harsh || t.terrain === 'grass') {
-              t.terrain = harsh ? 'grass' : 'fertile';
+              t.terrain = 'fertile';
               t.onFireTimer = 0;
               t.cursedTimer = 0;
               t.blessedTimer = Math.max(t.blessedTimer, 14);
               clearBurntTreeState(t);
+              delete t.treeBiomeOverride;
               if (!t.buildingId && t.resourceNode === 'none' && (t.x + t.z) % 2 === 0) {
                 t.resourceNode = 'berry_bush';
                 t.resourceAmount = 190;
@@ -2191,13 +2268,10 @@ function applyTerrainToolTileMutation(
           break;
         }
         case 'desert_dunes': {
-          if (t.height === 0 || (t.height > 0 && t.height <= 4)) {
-            if (t.height === 0) {
-              raiseWaterTileToLand(t, 'sand', 1);
-            } else {
-              t.terrain = 'sand';
-              t.onFireTimer = 0;
-            }
+          if (t.height > 0 && t.height <= 4) {
+            t.terrain = 'sand';
+            t.onFireTimer = 0;
+            delete t.treeBiomeOverride;
             t.tempOffset = Math.max(t.tempOffset ?? 0, 18);
             if (!t.buildingId) {
               if ((t.x * 3 + t.z * 5) % 9 === 0) {
@@ -2217,6 +2291,7 @@ function applyTerrainToolTileMutation(
             raiseWaterTileToLand(t, 'scorched', 1);
           } else {
             t.terrain = 'scorched';
+            delete t.treeBiomeOverride;
           }
           t.tempOffset = Math.min(60, (t.tempOffset ?? 0) + 25);
           if (!t.buildingId) {
@@ -2249,6 +2324,7 @@ function applyTerrainToolTileMutation(
               t.resourceNode = 'scrap_flotsam';
               t.resourceAmount = 300;
             } else {
+              delete t.treeBiomeOverride;
               t.resourceNode = (t.x + t.z) % 2 === 0 ? 'ore_vein' : 'stone_outcrop';
               t.resourceAmount = 340;
             }
@@ -2268,6 +2344,7 @@ function applyTerrainToolTileMutation(
             t.resourceNode = 'none';
             t.resourceAmount = 0;
             t.onFireTimer = 0;
+            delete t.treeBiomeOverride;
           }
           break;
         }
@@ -2280,6 +2357,7 @@ function applyTerrainToolTileMutation(
           t.resourceAmount = 0;
           t.onFireTimer = 0;
           t.farmSettlementId = undefined;
+          delete t.treeBiomeOverride;
           tileModified = true;
           break;
         }
@@ -2311,19 +2389,17 @@ function applyTerrainToolTileMutation(
             if (t.resourceNode === 'berry_bush' || t.resourceNode === 'timber_grove') {
               t.resourceNode = 'none';
               t.resourceAmount = 0;
+              delete t.treeBiomeOverride;
             }
           }
           break;
         }
         case 'swamp_mire': {
-          if (!t.buildingId) {
-            if (t.height === 0) {
-              raiseWaterTileToLand(t, 'swamp', 1);
-            } else {
-              if (t.height > 2) t.height = 2;
-              t.terrain = 'swamp';
-              t.onFireTimer = 0;
-            }
+          if (t.height > 0 && !t.buildingId) {
+            if (t.height > 2) t.height = 2;
+            t.terrain = 'swamp';
+            t.onFireTimer = 0;
+            delete t.treeBiomeOverride;
             if (t.resourceNode === 'stone_outcrop' || t.resourceNode === 'ore_vein' || t.resourceNode === 'berry_bush') {
               t.resourceNode = 'none';
               t.resourceAmount = 0;
@@ -2341,20 +2417,77 @@ export function executeTerrainDropTileImpact(
   toolType: TerrainToolType,
   tileX: number,
   tileZ: number,
+  options?: { skipSync?: boolean },
 ): boolean {
   const t = getTile(state, tileX, tileZ);
   if (!t) return false;
   const changed = applyTerrainToolTileMutation(t, toolType, Math.max(1, t.height), t.height);
   if (!changed) return false;
 
+  if (!options?.skipSync) {
+    if (toolType === 'blossom_rain') {
+      const clearRadiusSq = 2.25 * 2.25;
+      for (const u of state.units) {
+        if (
+          u.state !== 'ko' &&
+          u.faction !== 'hostile' &&
+          (u.x - tileX) ** 2 + (u.z - tileZ) ** 2 <= clearRadiusSq
+        ) {
+          u.statusEffects.cursed = 0;
+          u.hp = Math.min(u.maxHp, u.hp + 15);
+        }
+      }
+    }
+
+    reconcileAndSyncResources(state);
+    recalculateRatesAndCaps(state);
+  }
+  return true;
+}
+
+/**
+ * Applies a batch of landed sky-drop tiles in a single pass, running blossom healing,
+ * resource reconciliation, and rate recalculation once per batch instead of per tile.
+ */
+export function executeTerrainDropBatchImpact(
+  state: SimulationState,
+  toolType: TerrainToolType,
+  coords: ReadonlyArray<{ x: number; z: number }>,
+): number {
+  let changedCount = 0;
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minZ = Infinity;
+  let maxZ = -Infinity;
+
+  for (let i = 0; i < coords.length; i++) {
+    const c = coords[i];
+    const t = getTile(state, c.x, c.z);
+    if (!t) continue;
+    if (applyTerrainToolTileMutation(t, toolType, Math.max(1, t.height), t.height)) {
+      changedCount++;
+      if (t.x < minX) minX = t.x;
+      if (t.x > maxX) maxX = t.x;
+      if (t.z < minZ) minZ = t.z;
+      if (t.z > maxZ) maxZ = t.z;
+    }
+  }
+
+  if (changedCount === 0) return 0;
+
   if (toolType === 'blossom_rain') {
-    const clearRadiusSq = 2.25 * 2.25;
-    for (const u of state.units) {
-      if (
-        u.state !== 'ko' &&
-        u.faction !== 'hostile' &&
-        (u.x - tileX) ** 2 + (u.z - tileZ) ** 2 <= clearRadiusSq
-      ) {
+    const pad = 2.25;
+    const cx = (minX + maxX) * 0.5;
+    const cz = (minZ + maxZ) * 0.5;
+    const r = Math.hypot((maxX - minX) * 0.5, (maxZ - minZ) * 0.5) + pad;
+    const rSq = r * r;
+    for (let ui = 0; ui < state.units.length; ui++) {
+      const u = state.units[ui];
+      if (u.state === 'ko' || u.faction === 'hostile') continue;
+      if (u.x < minX - pad || u.x > maxX + pad || u.z < minZ - pad || u.z > maxZ + pad) continue;
+      const dx = u.x - cx;
+      const dz = u.z - cz;
+      if (dx * dx + dz * dz <= rSq) {
         u.statusEffects.cursed = 0;
         u.hp = Math.min(u.maxHp, u.hp + 15);
       }
@@ -2363,7 +2496,7 @@ export function executeTerrainDropTileImpact(
 
   reconcileAndSyncResources(state);
   recalculateRatesAndCaps(state);
-  return true;
+  return changedCount;
 }
 
 export function applyTerrainTool(
@@ -2410,7 +2543,24 @@ export function applyTerrainTool(
     if (toolType === 'plant_forest' || toolType === 'fertile_meadow' || toolType === 'blossom_rain') {
       return {
         ok: false,
-        reason: 'Cannot cultivate dead or barren land — revive soil with Rain, Soil Revive, or Bless first!',
+        reason: 'Needs healthy land soil — revive barren land with Fertile Soil, Rain, or Bless first!',
+      };
+    }
+    if (toolType === 'seed_ore' || toolType === 'boulder_rain' || toolType === 'crystal_shower') {
+      return {
+        ok: false,
+        reason: 'Cast this sky drop over existing land!',
+      };
+    }
+    if (
+      toolType === 'soil_enrich' ||
+      toolType === 'jungle_bloom' ||
+      toolType === 'desert_dunes' ||
+      toolType === 'swamp_mire'
+    ) {
+      return {
+        ok: false,
+        reason: 'Cast this biome tool over existing land!',
       };
     }
     if (toolType === 'coral_reef_rain' || toolType === 'atlantis_rise') {
@@ -3240,7 +3390,7 @@ export function executeGodPowerImpact(
         });
       }
 
-      for (const t of state.tiles) {
+      forEachTileInBounds(state, targetX - r, targetX + r, targetZ - r, targetZ + r, (t) => {
         const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
         if (dSq <= rSq && t.height === 0) {
           t.cursedTimer = 0;
@@ -3275,7 +3425,7 @@ export function executeGodPowerImpact(
             }
           }
         }
-      }
+      });
       for (const u of state.units) {
         const dSq = (u.x - targetX) ** 2 + (u.z - targetZ) ** 2;
         if (dSq <= rSq && u.state !== 'ko') {
@@ -3345,7 +3495,7 @@ export function executeGodPowerImpact(
         }
       }
       // Pave stone roads around structures & crystallize nearby stone outcrops
-      for (const t of state.tiles) {
+      forEachTileInBounds(state, targetX - r, targetX + r, targetZ - r, targetZ + r, (t) => {
         const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
         if (dSq <= rSq && t.height > 0) {
           if (t.resourceNode === 'stone_outcrop' && dSq <= rSq * 0.45) {
@@ -3360,7 +3510,7 @@ export function executeGodPowerImpact(
             t.terrain = 'stone_road';
           }
         }
-      }
+      });
       addChronicle(state, 'Divine Insight granted +140 Knowledge, boosted kingdom eras, repaired ships & completed builds!', 'divine');
       break;
     }
@@ -3387,7 +3537,7 @@ export function executeGodPowerImpact(
       for (const v of state.vehicles ?? []) {
         v.hp = v.maxHp ?? 150;
       }
-      for (const t of state.tiles) {
+      forEachTileInBounds(state, targetX - r, targetX + r, targetZ - r, targetZ + r, (t) => {
         const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
         if (dSq <= rSq && t.height > 0) {
           t.onFireTimer = 0;
@@ -3401,7 +3551,7 @@ export function executeGodPowerImpact(
             t.terrain = (t.x === targetX || t.z === targetZ) && dSq > 1.5 ? 'stone_road' : 'fertile';
           }
         }
-      }
+      });
       // Inspire a baby boom across active towns
       const settlementIds = Array.from(new Set(state.buildings.map((b) => b.settlementId ?? 'city_default')));
       for (const sid of settlementIds) {
@@ -3452,14 +3602,14 @@ export function executeGodPowerImpact(
           }
         }
       }
-      for (const t of state.tiles) {
+      forEachTileInBounds(state, targetX - r, targetX + r, targetZ - r, targetZ + r, (t) => {
         const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
         if (dSq <= rSq && t.height > 0) {
           t.onFireTimer = 0;
           t.cursedTimer = 0;
           t.blessedTimer = 30;
         }
-      }
+      });
       addChronicle(state, 'Aegis Sanctuary dome erected, repelling foes and shielding all within!', 'divine');
       break;
     }
@@ -3535,7 +3685,7 @@ export function executeGodPowerImpact(
           u.statusEffects.plagued = 26;
         }
       }
-      for (const t of state.tiles) {
+      forEachTileInBounds(state, targetX - r, targetX + r, targetZ - r, targetZ + r, (t) => {
         const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
         if (dSq <= rSq && t.height === 0) {
           damageOrBleachWaterTile(t, 260, false);
@@ -3558,7 +3708,7 @@ export function executeGodPowerImpact(
             t.resourceAmount = Math.floor(t.resourceAmount * 0.35);
           }
         }
-      }
+      });
       state.happiness = Math.max(15, state.happiness - 12);
       addChronicle(state, 'Plague cloud spread sickness and spoiled nearby crops!', 'warning');
       break;
@@ -3614,7 +3764,7 @@ export function executeGodPowerImpact(
           v.hp = Math.max(0, (v.hp ?? 100) - (isWaterStrike ? 280 : 230));
         }
       }
-      for (const t of state.tiles) {
+      forEachTileInBounds(state, targetX - Math.max(Math.sqrt(effectiveRSq), r * 1.15, 2.5), targetX + Math.max(Math.sqrt(effectiveRSq), r * 1.15, 2.5), targetZ - Math.max(Math.sqrt(effectiveRSq), r * 1.15, 2.5), targetZ + Math.max(Math.sqrt(effectiveRSq), r * 1.15, 2.5), (t) => {
         const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
         if (t.height === 0 && dSq <= effectiveRSq * 0.75) {
           damageOrBleachWaterTile(t, 280, dSq <= 4.5);
@@ -3677,7 +3827,7 @@ export function executeGodPowerImpact(
             }
           }
         }
-      }
+      });
       addChronicle(
         state,
         isWaterStrike
@@ -3713,7 +3863,7 @@ export function executeGodPowerImpact(
         });
 
         // Deepen shallow water in the impact core to deep_water & flood/erode immediate shoreline
-        for (const t of state.tiles) {
+        forEachTileInBounds(state, targetX - r * 1.55, targetX + r * 1.55, targetZ - r * 1.55, targetZ + r * 1.55, (t) => {
           const dx = t.x - targetX;
           const dz = t.z - targetZ;
           const dSq = dx * dx + dz * dz;
@@ -3752,7 +3902,7 @@ export function executeGodPowerImpact(
               }
             }
           }
-        }
+        });
 
         // Immediate inner blast wave on naval/coastal units & buildings
         for (const b of state.buildings) {
@@ -3804,7 +3954,7 @@ export function executeGodPowerImpact(
       let waterTilesInRadius = 0;
       let waterSumX = 0;
       let waterSumZ = 0;
-      for (const t of state.tiles) {
+      forEachTileInBounds(state, targetX - (r + 1.8), targetX + (r + 1.8), targetZ - (r + 1.8), targetZ + (r + 1.8), (t) => {
         const dx = t.x - targetX;
         const dz = t.z - targetZ;
         const dSq = dx * dx + dz * dz;
@@ -3818,7 +3968,7 @@ export function executeGodPowerImpact(
             t.terrain = dSq <= 12.0 ? 'deep_water' : 'shallow_water';
             delete t.frozenWaterBase;
             t.onFireTimer = 0;
-            continue;
+            return;
           }
 
           const tileH = Math.max(1, t.height);
@@ -3902,7 +4052,7 @@ export function executeGodPowerImpact(
             t.onFireTimer = Math.max(t.onFireTimer, 7.5);
           }
         }
-      }
+      });
 
       // If the land impact hit right on a coastline with water nearby, also trigger a coastal tsunami wave from the water center
       if (waterTilesInRadius >= 6) {
@@ -4041,7 +4191,7 @@ export function executeGodPowerImpact(
         state.epochProgress = Math.min(100, state.epochProgress + 28);
       }
 
-      for (const t of state.tiles) {
+      forEachTileInBounds(state, targetX - r, targetX + r, targetZ - r, targetZ + r, (t) => {
         const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
         if (dSq <= rSq && t.height > 0 && !t.buildingId) {
           if (dSq <= 12.5) {
@@ -4052,7 +4202,7 @@ export function executeGodPowerImpact(
             }
           }
         }
-      }
+      });
       for (const u of state.units) {
         const dSq = (u.x - targetX) ** 2 + (u.z - targetZ) ** 2;
         if (dSq <= rSq && u.state !== 'ko') {
@@ -4248,19 +4398,19 @@ export function executeGodPowerImpact(
       let mountainsFormed = 0;
       const isOrogenic = quakeShapeKind === 'orogenic_uplift';
 
-      for (const t of state.tiles) {
-        if (t.x < minX || t.x > maxX || t.z < minZ || t.z > maxZ) continue;
+      forEachTileInBounds(state, minX, maxX, minZ, maxZ, (t) => {
+        if (t.x < minX || t.x > maxX || t.z < minZ || t.z > maxZ) return;
         if (t.height === 0) {
           const { distSq, segment } = closestFaultDistanceSq(t.x, t.z, faultSegments);
           if (segment && distSq <= (segment.width * 1.5) ** 2) {
             damageOrBleachWaterTile(t, 260, true);
           }
-          continue; // Never thrust ocean floor tiles into dry land
+          return; // Never thrust ocean floor tiles into dry land
         }
 
         const dCenterSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
         const { distSq, signedSide, segment } = closestFaultDistanceSq(t.x, t.z, faultSegments);
-        if (!segment) continue;
+        if (!segment) return;
 
         const segWidth = segment.width;
         const hashVal = Math.abs((t.x * 73856093) ^ (t.z * 19349663) ^ Math.round(targetX * 31));
@@ -4354,7 +4504,7 @@ export function executeGodPowerImpact(
             displacedTiles++;
           }
         }
-      }
+      });
 
       for (const b of state.buildings) {
         const dSq = (b.tileX - targetX) ** 2 + (b.tileZ - targetZ) ** 2;
@@ -4437,7 +4587,7 @@ export function executeGodPowerImpact(
           duration: 4.2,
           tickTimer: 0,
         });
-        for (const t of state.tiles) {
+        forEachTileInBounds(state, targetX - r, targetX + r, targetZ - r, targetZ + r, (t) => {
           const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
           if (dSq <= rSq) {
             t.blessedTimer = 0;
@@ -4455,7 +4605,7 @@ export function executeGodPowerImpact(
               t.terrain = 'scorched';
             }
           }
-        }
+        });
         for (const u of state.units) {
           const dSq = (u.x - targetX) ** 2 + (u.z - targetZ) ** 2;
           if (dSq <= rSq && u.state !== 'ko' && !u.statusEffects.shielded) {
@@ -4482,9 +4632,9 @@ export function executeGodPowerImpact(
       const blastR = Math.max(r * 1.35, 8.5);
       const blastRSq = blastR * blastR;
 
-      for (const t of state.tiles) {
+      forEachTileInBounds(state, targetX - blastR, targetX + blastR, targetZ - blastR, targetZ + blastR, (t) => {
         const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
-        if (dSq > blastRSq) continue;
+        if (dSq > blastRSq) return;
         t.blessedTimer = 0;
 
         if (dSq <= coneRSq) {
@@ -4496,7 +4646,7 @@ export function executeGodPowerImpact(
               t.terrain = t.frozenWaterBase ?? 'shallow_water';
               delete t.frozenWaterBase;
             }
-            continue;
+            return;
           }
           if (!t.buildingId) {
             t.farmSettlementId = undefined;
@@ -4542,7 +4692,7 @@ export function executeGodPowerImpact(
             t.onFireTimer = Math.max(t.onFireTimer, 7.5);
           }
         }
-      }
+      });
 
       for (const b of state.buildings) {
         const dSq = (b.tileX - targetX) ** 2 + (b.tileZ - targetZ) ** 2;
@@ -4614,9 +4764,9 @@ export function executeGodPowerImpact(
       isHeavy = true;
       let infectedCount = 0;
       let revivedCount = 0;
-      for (const t of state.tiles) {
+      forEachTileInBounds(state, targetX - r, targetX + r, targetZ - r, targetZ + r, (t) => {
         const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
-        if (dSq > rSq) continue;
+        if (dSq > rSq) return;
         t.onFireTimer = 0;
         t.fireColor = undefined;
         t.blessedTimer = 0;
@@ -4625,7 +4775,7 @@ export function executeGodPowerImpact(
           // Never create fake elevated land out of open ocean, but poison & curse the sea surface!
           t.cursedTimer = 25;
           damageOrBleachWaterTile(t, 320, true);
-          continue;
+          return;
         }
         t.terrain = 'void_goo';
         t.farmSettlementId = undefined;
@@ -4634,7 +4784,7 @@ export function executeGodPowerImpact(
           t.resourceAmount = 0;
         }
         infectedCount++;
-      }
+      });
 
       for (const b of state.buildings) {
         const dSq = (b.tileX - targetX) ** 2 + (b.tileZ - targetZ) ** 2;
@@ -4700,13 +4850,13 @@ export function executeGodPowerImpact(
       });
       // Immediately curse & darken the ground beneath the rift (without changing ocean height)
       const portalCurseRSq = Math.max(2.25, rSq);
-      for (const t of state.tiles) {
+      forEachTileInBounds(state, targetX - Math.max(1.5, r), targetX + Math.max(1.5, r), targetZ - Math.max(1.5, r), targetZ + Math.max(1.5, r), (t) => {
         const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
         if (dSq <= portalCurseRSq) {
           t.cursedTimer = 25;
           t.blessedTimer = 0;
         }
-      }
+      });
       // Initial vanguard skeletons
       for (let i = 0; i < 2; i++) {
         const sx = Math.max(2, Math.min(state.gridSize - 3, targetX + (i === 0 ? -1 : 1)));
@@ -4749,7 +4899,7 @@ export function executeGodPowerImpact(
         tickTimer: 0.35,
       });
       // Immediate chronological pulse: regrow harvests, finish buildings, heal units/vehicles, boost nearby kingdom progress
-      for (const t of state.tiles) {
+      forEachTileInBounds(state, targetX - r, targetX + r, targetZ - r, targetZ + r, (t) => {
         const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
         if (dSq <= rSq && t.height > 0 && !t.buildingId) {
           if (t.resourceNode === 'berry_bush' || t.resourceNode === 'timber_grove') {
@@ -4759,7 +4909,7 @@ export function executeGodPowerImpact(
             t.resourceAmount = 220;
           }
         }
-      }
+      });
       const boostKids = new Set<string>();
       for (const b of state.buildings) {
         if ((b.tileX - targetX) ** 2 + (b.tileZ - targetZ) ** 2 <= rSq) {
@@ -4835,7 +4985,7 @@ export function executeGodPowerImpact(
           setKingdomRelation(state, kidsArr[i], kidsArr[j], 'allied');
         }
       }
-      for (const t of state.tiles) {
+      forEachTileInBounds(state, targetX - r, targetX + r, targetZ - r, targetZ + r, (t) => {
         const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
         if (dSq <= rSq && t.height > 0) {
           t.cursedTimer = 0;
@@ -4846,7 +4996,7 @@ export function executeGodPowerImpact(
             t.terrain = (t.x + t.z) % 3 === 0 ? 'blossom' : 'fertile';
           }
         }
-      }
+      });
       state.happiness = Math.min(100, state.happiness + 20);
       addChronicle(state, 'Peace Treaty ended wars, calmed predators, and grew meadows!', 'divine');
       break;
@@ -4900,28 +5050,30 @@ export function castGodPower(
   targetX: number,
   targetZ: number,
   options?: { deferImpact?: boolean; brushSize?: number; radiusOverride?: number },
-): { ok: boolean; reason?: string; isHeavy?: boolean } {
+): { ok: boolean; reason?: string; isHeavy?: boolean; count?: number; totalCost?: number } {
   const def = GOD_POWERS.find((p) => p.type === powerType);
   if (!def) return { ok: false, reason: 'Unknown divine power' };
 
-  const centerTile = getTile(state, targetX, targetZ);
+  const hasExplicitRadius =
+    options?.radiusOverride !== undefined && Number.isFinite(options.radiusOverride);
+  const clusterCount =
+    powerType === 'drag_entity' || hasExplicitRadius
+      ? 1
+      : getPowerClusterCount(options?.brushSize ?? 1);
+  const totalFaithCost = def.faithCost * clusterCount;
 
   reconcileAndSyncResources(state);
-  if (!state.sandboxFreeMode && state.resources.faith < def.faithCost) {
-    return { ok: false, reason: `Requires ${def.faithCost} God Energy` };
+  if (!state.sandboxFreeMode && state.resources.faith < totalFaithCost) {
+    return { ok: false, reason: `Requires ${totalFaithCost} God Energy` };
   }
 
   if (!state.sandboxFreeMode) {
-    spendWorldCost(state, { faith: def.faithCost });
+    spendWorldCost(state, { faith: totalFaithCost });
   }
 
-  const baseHeight = centerTile ? Math.max(0.36, centerTile.height * 0.45) : 1.2;
-  const scaledRadius =
-    options?.radiusOverride !== undefined && Number.isFinite(options.radiusOverride)
-      ? Math.max(0.85, Math.min(28, options.radiusOverride))
-      : powerType === 'drag_entity'
-        ? def.radius
-        : getPowerEffectiveRadius(def.radius, options?.brushSize ?? 1);
+  const singleRadius = hasExplicitRadius
+    ? Math.max(0.85, Math.min(28, options!.radiusOverride!))
+    : def.radius;
 
   const deferImpact = Boolean(options?.deferImpact);
   let isHeavy =
@@ -4932,63 +5084,79 @@ export function castGodPower(
     powerType !== 'harmony_dove' &&
     powerType !== 'drag_entity';
 
-  const earthquakePlan =
-    powerType === 'earthquake' ? generateEarthquakeFaultNetwork(targetX, targetZ, scaledRadius) : null;
+  const targets = getPowerClusterTargets(
+    clusterCount,
+    singleRadius,
+    targetX,
+    targetZ,
+    state.gridSize,
+  );
 
-  if (!deferImpact) {
-    isHeavy = executeGodPowerImpact(
-      state,
-      powerType,
-      targetX,
-      targetZ,
-      earthquakePlan
-        ? { ...earthquakePlan, radiusOverride: scaledRadius }
-        : { radiusOverride: scaledRadius },
-    );
-  } else if (powerType === 'rain_of_plenty') {
-    // Spawn the monsoon cloud upwind immediately so it rushes fast into the summoned spot (targetX, targetZ)
-    if (!state.activeHazards) state.activeHazards = [];
-    const windAngle = 0.58 + (((targetX * 17 + targetZ * 31) & 7) - 3.5) * 0.08;
-    const windX = Math.cos(windAngle);
-    const windZ = Math.sin(windAngle);
-    const startDist = 18.5;
-    state.activeHazards.push({
-      id: nextEntityId('haz'),
-      kind: 'rain_cloud',
-      x: targetX - windX * startDist,
-      z: targetZ - windZ * startDist,
-      targetX,
-      targetZ,
-      windX,
-      windZ,
-      arrivalRemaining: 0.72,
-      arrivalDuration: 0.72,
-      impactPending: true,
-      currentSpeed: 42,
-      radius: scaledRadius,
-      remaining: 10.5,
-      duration: 10.5,
-      tickTimer: 0,
+  for (let ti = 0; ti < targets.length; ti++) {
+    const tx = targets[ti].x;
+    const tz = targets[ti].z;
+    const tTile = getTile(state, tx, tz);
+    const baseHeight = tTile ? Math.max(0.36, tTile.height * 0.45) : 1.2;
+
+    const earthquakePlan =
+      powerType === 'earthquake' ? generateEarthquakeFaultNetwork(tx, tz, singleRadius) : null;
+
+    if (!deferImpact) {
+      const impactHeavy = executeGodPowerImpact(
+        state,
+        powerType,
+        tx,
+        tz,
+        earthquakePlan
+          ? { ...earthquakePlan, radiusOverride: singleRadius }
+          : { radiusOverride: singleRadius },
+      );
+      if (impactHeavy) isHeavy = true;
+    } else if (powerType === 'rain_of_plenty') {
+      // Spawn the monsoon cloud upwind immediately so it rushes fast into the summoned spot (tx, tz)
+      if (!state.activeHazards) state.activeHazards = [];
+      const windAngle = 0.58 + (((tx * 17 + tz * 31) & 7) - 3.5) * 0.08;
+      const windX = Math.cos(windAngle);
+      const windZ = Math.sin(windAngle);
+      const startDist = 18.5;
+      state.activeHazards.push({
+        id: nextEntityId('haz'),
+        kind: 'rain_cloud',
+        x: tx - windX * startDist,
+        z: tz - windZ * startDist,
+        targetX: tx,
+        targetZ: tz,
+        windX,
+        windZ,
+        arrivalRemaining: 0.72,
+        arrivalDuration: 0.72,
+        impactPending: true,
+        currentSpeed: 42,
+        radius: singleRadius,
+        remaining: 10.5,
+        duration: 10.5,
+        tickTimer: 0,
+      });
+    }
+
+    state.totalMiraclesCast += 1;
+    state.pendingVfx.push({
+      id: nextEntityId('vfx'),
+      type: powerType,
+      x: tx,
+      y: baseHeight,
+      z: tz,
+      radius: earthquakePlan?.quakeExtent ?? singleRadius,
+      color: def.color,
+      createdAt: Date.now() + ti * 25,
+      deferImpact,
+      faultSegments: earthquakePlan?.faultSegments,
+      quakeShapeKind: earthquakePlan?.quakeShapeKind,
+      quakeExtent: earthquakePlan?.quakeExtent,
     });
   }
 
-  state.totalMiraclesCast += 1;
-  state.pendingVfx.push({
-    id: nextEntityId('vfx'),
-    type: powerType,
-    x: targetX,
-    y: baseHeight,
-    z: targetZ,
-    radius: earthquakePlan?.quakeExtent ?? scaledRadius,
-    color: def.color,
-    createdAt: Date.now(),
-    deferImpact,
-    faultSegments: earthquakePlan?.faultSegments,
-    quakeShapeKind: earthquakePlan?.quakeShapeKind,
-    quakeExtent: earthquakePlan?.quakeExtent,
-  });
-
-  return { ok: true, isHeavy };
+  return { ok: true, isHeavy, count: clusterCount, totalCost: totalFaithCost };
 }
 
 function createVillageName(state: SimulationState, species: SpeciesId = 'human'): string {
@@ -8028,9 +8196,8 @@ function stepSimulationSingle(
       haz.tickTimer -= 0.35;
       const rSq = haz.radius * haz.radius;
       if (haz.kind === 'rain_cloud') {
-        for (const t of state.tiles) {
-          const dSq = (t.x - haz.x) ** 2 + (t.z - haz.z) ** 2;
-          if (dSq <= rSq && t.height > 0) {
+        forEachTileInRadius(state, haz.x, haz.z, haz.radius, (t, dSq) => {
+          if (t.height > 0) {
             t.onFireTimer = 0;
             t.cursedTimer = 0;
             t.blessedTimer = Math.max(t.blessedTimer, 16);
@@ -8040,7 +8207,7 @@ function stepSimulationSingle(
               t.terrain = 'grass';
             }
           }
-        }
+        });
       } else if (haz.kind === 'plague_cloud') {
         for (const u of state.units) {
           const dSq = (u.x - haz.x) ** 2 + (u.z - haz.z) ** 2;
@@ -8086,14 +8253,12 @@ function stepSimulationSingle(
       } else if (haz.kind === 'wormhole_rift') {
         // Gradually tear & excavate terrain blocks around the black hole into its swirling vortex
         const ripR = haz.radius * 1.05;
-        const ripRSq = ripR * ripR;
         let erodedThisTick = 0;
-        for (const t of state.tiles) {
-          const dSq = (t.x - haz.x) ** 2 + (t.z - haz.z) ** 2;
-          if (dSq > ripRSq || t.buildingId) continue;
+        forEachTileInRadius(state, haz.x, haz.z, ripR, (t, dSq) => {
+          if (t.buildingId) return;
           if (t.height === 0) {
             damageOrBleachWaterTile(t, 260, true);
-            continue;
+            return;
           }
           if (t.resourceNode === 'timber_grove' || t.resourceNode === 'berry_bush') {
             t.resourceNode = 'none';
@@ -8108,16 +8273,14 @@ function stepSimulationSingle(
               erodedThisTick++;
             }
           }
-        }
+        });
       } else if (haz.kind === 'tornado_vortex') {
         // Tear up trees, crops & scatter debris along the tornado's ground track
-        const tearRSq = (haz.radius * 0.72) ** 2;
-        for (const t of state.tiles) {
-          const dSq = (t.x - haz.x) ** 2 + (t.z - haz.z) ** 2;
-          if (dSq > tearRSq || t.buildingId) continue;
+        forEachTileInRadius(state, haz.x, haz.z, haz.radius * 0.72, (t) => {
+          if (t.buildingId) return;
           if (t.height === 0) {
             damageOrBleachWaterTile(t, 260, true);
-            continue;
+            return;
           }
           t.onFireTimer = 0;
           if (t.resourceNode === 'timber_grove' || t.resourceNode === 'berry_bush') {
@@ -8126,7 +8289,7 @@ function stepSimulationSingle(
             t.terrain = 'grass';
             t.farmSettlementId = undefined;
           }
-        }
+        });
       } else if (haz.kind === 'undead_portal') {
         // Spawn risen skeletons periodically from the necrotic portal (max 7 total)
         const spawned = haz.portalSpawnCount ?? 0;
@@ -8259,21 +8422,19 @@ function stepSimulationSingle(
             v.hp = 0;
           }
         }
-        for (const t of state.tiles) {
-          const dSq = (t.x - haz.x) ** 2 + (t.z - haz.z) ** 2;
-          if (dSq <= (haz.radius * 0.82) ** 2 && !t.buildingId) {
-            if (t.height === 0) {
-              damageOrBleachWaterTile(t, 400, true);
-              continue;
-            }
-            if (t.height >= 2) t.height = Math.max(1, t.height - 1);
-            t.terrain = dSq <= 6.0 ? 'scorched' : 'crystal_field';
-            if (t.resourceNode === 'timber_grove' || t.resourceNode === 'berry_bush') {
-              t.resourceNode = 'none';
-              t.resourceAmount = 0;
-            }
+        forEachTileInRadius(state, haz.x, haz.z, haz.radius * 0.82, (t, dSq) => {
+          if (t.buildingId) return;
+          if (t.height === 0) {
+            damageOrBleachWaterTile(t, 400, true);
+            return;
           }
-        }
+          if (t.height >= 2) t.height = Math.max(1, t.height - 1);
+          t.terrain = dSq <= 6.0 ? 'scorched' : 'crystal_field';
+          if (t.resourceNode === 'timber_grove' || t.resourceNode === 'berry_bush') {
+            t.resourceNode = 'none';
+            t.resourceAmount = 0;
+          }
+        });
         // Fling all trapped / orbiting entities violently outward to random places across the map with high fall damage!
         for (let ui = 0; ui < state.units.length; ui++) {
           const u = state.units[ui];
@@ -8462,13 +8623,9 @@ function stepSimulationSingle(
       haz.currentRadius = nextR;
 
       const innerBandSq = Math.max(0, prevR - 1.8) ** 2;
-      const outerBandSq = (nextR + 0.9) ** 2;
 
-      for (const t of state.tiles) {
-        const dx = t.x - haz.x;
-        const dz = t.z - haz.z;
-        const dSq = dx * dx + dz * dz;
-        if (dSq >= innerBandSq && dSq <= outerBandSq) {
+      forEachTileInRadius(state, haz.x, haz.z, nextR + 0.9, (t, dSq) => {
+        if (dSq >= innerBandSq) {
           t.onFireTimer = 0;
           t.cursedTimer = 0;
           if (t.height === 0) {
@@ -8547,7 +8704,7 @@ function stepSimulationSingle(
             }
           }
         }
-      }
+      });
 
       // Lethal drowning & surge crushing on non-flying NPCs & wildlife caught in the crashing tsunami crest
       for (const u of state.units) {
@@ -8600,19 +8757,15 @@ function stepSimulationSingle(
       const nextR = Math.min(maxR, 8.0 + (maxR - 8.0) * Math.pow(progress, 0.78));
       haz.currentRadius = nextR;
       const innerBandSq = Math.max(0, prevR - 1.8) ** 2;
-      const outerBandSq = (nextR + 1.8) ** 2;
 
       // Wide environmental blast wave: uproots forests/groves, chars vegetation, and scatters thermal brushfires out to 30 tiles
-      for (const t of state.tiles) {
-        const dx = t.x - haz.x;
-        const dz = t.z - haz.z;
-        const dSq = dx * dx + dz * dz;
-        if (dSq < innerBandSq || dSq > outerBandSq) continue;
+      forEachTileInRadius(state, haz.x, haz.z, nextR + 1.8, (t, dSq) => {
+        if (dSq < innerBandSq) return;
         if (t.height === 0) {
           if (dSq <= 22.0 ** 2) {
             damageOrBleachWaterTile(t, 120 * dt, false);
           }
-          continue;
+          return;
         }
         const dist = Math.sqrt(dSq);
         if (
@@ -8655,7 +8808,7 @@ function stepSimulationSingle(
             }
           }
         }
-      }
+      });
 
       // Hurricane blast winds hurling units radially outward across a 60-tile diameter
       for (const u of state.units) {
@@ -8712,13 +8865,10 @@ function stepSimulationSingle(
     // Ocean Whirlpool (varying sizes): spins ships & swimmers inward and deals lethal maelstrom DOT while active
     if (haz.kind === 'whirlpool') {
       const pullR = haz.radius * 1.5;
-      for (const t of state.tiles) {
-        if (t.height !== 0) continue;
-        const dSq = (t.x - haz.x) ** 2 + (t.z - haz.z) ** 2;
-        if (dSq <= (haz.radius * 0.95) ** 2) {
-          damageOrBleachWaterTile(t, 45 * dt, false);
-        }
-      }
+      forEachTileInRadius(state, haz.x, haz.z, haz.radius * 0.95, (t) => {
+        if (t.height !== 0) return;
+        damageOrBleachWaterTile(t, 45 * dt, false);
+      });
       for (const b of state.buildings) {
         if (b.shieldTimer > 0) continue;
         const bt = getTile(state, b.tileX, b.tileZ);
@@ -8969,21 +9119,18 @@ function stepSimulationSingle(
             createdAt: Date.now(),
           });
           // Apply annihilation blast
-          for (const t of state.tiles) {
-            const dSq = (t.x - strikeX) ** 2 + (t.z - strikeZ) ** 2;
-            if (dSq <= 6.25) {
-              if (t.height === 0) {
-                damageOrBleachWaterTile(t, 280, true);
-                if (t.terrain === 'ice') {
-                  t.terrain = t.frozenWaterBase ?? 'shallow_water';
-                  delete t.frozenWaterBase;
-                }
-              } else if (!t.buildingId) {
-                t.terrain = 'scorched';
-                t.onFireTimer = Math.max(t.onFireTimer, 6.0);
+          forEachTileInRadius(state, strikeX, strikeZ, 2.5, (t) => {
+            if (t.height === 0) {
+              damageOrBleachWaterTile(t, 280, true);
+              if (t.terrain === 'ice') {
+                t.terrain = t.frozenWaterBase ?? 'shallow_water';
+                delete t.frozenWaterBase;
               }
+            } else if (!t.buildingId) {
+              t.terrain = 'scorched';
+              t.onFireTimer = Math.max(t.onFireTimer, 6.0);
             }
-          }
+          });
           for (const b of state.buildings) {
             if (b.shieldTimer <= 0 && (b.tileX - strikeX) ** 2 + (b.tileZ - strikeZ) ** 2 <= 6.5) {
               b.hp = Math.max(0, b.hp - 210);
@@ -9021,10 +9168,9 @@ function stepSimulationSingle(
       const bz = haz.beamDirZ ?? 0;
       haz.x = Math.max(2, Math.min(state.gridSize - 3, haz.x + bx * 4.2 * dt));
       haz.z = Math.max(2, Math.min(state.gridSize - 3, haz.z + bz * 4.2 * dt));
-      const bSq = (haz.radius * 0.72) ** 2;
-      for (const t of state.tiles) {
-        const dSq = (t.x - haz.x) ** 2 + (t.z - haz.z) ** 2;
-        if (dSq > bSq) continue;
+      const bR = haz.radius * 0.72;
+      const bSq = bR * bR;
+      forEachTileInRadius(state, haz.x, haz.z, bR, (t) => {
         t.tempOffset = Math.min(80, (t.tempOffset ?? 0) + 45 * dt);
         if (t.height === 0) {
           if (t.terrain === 'ice') {
@@ -9037,7 +9183,7 @@ function stepSimulationSingle(
           else if (t.terrain !== 'crystal_field') t.terrain = 'scorched';
           t.onFireTimer = Math.max(t.onFireTimer, 7.5);
         }
-      }
+      });
       for (const b of state.buildings) {
         if (b.shieldTimer <= 0 && (b.tileX - haz.x) ** 2 + (b.tileZ - haz.z) ** 2 <= bSq) {
           b.hp = Math.max(0, b.hp - 260 * dt);
@@ -11769,7 +11915,7 @@ function clearBurntTreeState(t: TileData): void {
 
 function preserveTreeBiomeBeforeScorch(t: TileData): void {
   if (!t.burntTreeBiome && t.terrain !== 'scorched') {
-    t.burntTreeBiome = getTileTreeBiome(t.terrain);
+    t.burntTreeBiome = t.treeBiomeOverride ?? getTileTreeBiome(t.terrain);
   }
 }
 
@@ -15869,14 +16015,13 @@ export function executeHugeAsteroidImpact(
       duration: 6.4,
       tickTimer: 0,
     });
-    for (const t of state.tiles) {
-      const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
-      if (dSq <= rSq && t.height === 0) {
+    forEachTileInRadius(state, targetX, targetZ, r, (t, dSq) => {
+      if (t.height === 0) {
         damageOrBleachWaterTile(t, 450, true);
         t.terrain = dSq <= 36 ? 'deep_water' : 'shallow_water';
         delete t.frozenWaterBase;
       }
-    }
+    });
     for (const b of state.buildings) {
       if ((b.tileX - targetX) ** 2 + (b.tileZ - targetZ) ** 2 <= rSq && b.shieldTimer <= 0) {
         b.hp = 0;
@@ -15899,19 +16044,13 @@ export function executeHugeAsteroidImpact(
   }
 
   const baseH = Math.max(3, centerTile.height);
-  const outerApronSq = 21.5 * 21.5;
-  for (const t of state.tiles) {
-    const dx = t.x - targetX;
-    const dz = t.z - targetZ;
-    const dSq = dx * dx + dz * dz;
-    if (dSq > outerApronSq) continue;
-
+  forEachTileInRadius(state, targetX, targetZ, 21.5, (t, dSq) => {
     if (t.height === 0) {
       damageOrBleachWaterTile(t, 450, true);
       t.terrain = dSq <= 36 ? 'deep_water' : 'shallow_water';
       delete t.frozenWaterBase;
       t.onFireTimer = 0;
-      continue;
+      return;
     }
 
     const tileH = Math.max(1, t.height);
@@ -15963,7 +16102,7 @@ export function executeHugeAsteroidImpact(
         t.onFireTimer = Math.max(t.onFireTimer, 11);
       }
     }
-  }
+  });
 
   const blastBuildingRSq = (r * 1.35) ** 2;
   for (const b of state.buildings) {
@@ -16302,16 +16441,13 @@ export function triggerRandomWorldEvent(
     // Rare celestial wonder: Aurora Shower
     executeGodPowerImpact(state, 'blessing', tx, tz);
     grantResourcesToKingdomOrPool(state, { faith: 80, knowledge: 90 });
-    for (const t of state.tiles) {
-      if (t.height > 0 && !t.buildingId && t.resourceNode === 'none') {
-        const dSq = (t.x - tx) ** 2 + (t.z - tz) ** 2;
-        if (dSq <= 25 && ((t.x * 13 + t.z * 7) % 11 === 0)) {
-          t.terrain = 'crystal_field';
-          t.resourceNode = 'crystal_monolith';
-          t.resourceAmount = 320;
-        }
+    forEachTileInRadius(state, tx, tz, 5, (t) => {
+      if (t.height > 0 && !t.buildingId && t.resourceNode === 'none' && ((t.x * 13 + t.z * 7) % 11 === 0)) {
+        t.terrain = 'crystal_field';
+        t.resourceNode = 'crystal_monolith';
+        t.resourceAmount = 320;
       }
-    }
+    });
     state.pendingVfx.push({
       id: nextEntityId('vfx'),
       type: 'eureka',

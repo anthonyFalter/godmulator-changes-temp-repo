@@ -26,9 +26,12 @@ import {
 import {
   AutoOptimizer,
   AutoOptimizerDecisions,
+  DESPAWN_CULL_HYSTERESIS,
   WorldCullBounds,
   computeOrthoGroundCullBounds,
   computeSnappedShadowBounds,
+  isHazardIntersectingCullBounds,
+  isPointInCullBounds,
 } from '../game/autoOptimizer';
 import {
   TIME_OF_DAY_PRESETS,
@@ -66,7 +69,7 @@ import {
   closestFaultDistanceSq,
   executeGodPowerImpact,
   executeHugeAsteroidImpact,
-  executeTerrainDropTileImpact,
+  executeTerrainDropBatchImpact,
   getSettlementAnchor,
   getSettlementEpoch,
   getUnitEpoch,
@@ -85,6 +88,8 @@ import {
 } from '../game/worldGrid';
 import { ChunkTerrainSystem } from '../game/chunkTerrainRenderer';
 import { BatchedBuildingSystem } from '../game/batchedBuildings';
+import { BatchedStaticPool } from '../game/batchedStaticProps';
+import { TreeImpostorSystem } from '../game/treeImpostors';
 import { EngineWorkerPool } from '../game/workerPool';
 import {
   createMagicCirclePlaneGeometry,
@@ -177,7 +182,7 @@ interface PooledParticle {
   color: THREE.Color;
 }
 
-export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
+export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.memo(({
   simRef,
   gameState,
   timeScale,
@@ -288,6 +293,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       antialias: false, // Deliberate crisp pixel edges
       powerPreference: 'high-performance',
     });
+    // Prevent synchronous gl.getProgramInfoLog() CPU<->GPU pipeline stalls during initial shader compilation
+    renderer.debug.checkShaderErrors = false;
     const isSoftwareGl = (() => {
       const gl = renderer.getContext();
       if (!gl) return true;
@@ -302,6 +309,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     renderer.setPixelRatio(1);
     renderer.shadowMap.enabled = !isSoftwareGl;
     renderer.shadowMap.type = THREE.BasicShadowMap; // Crisp pixel-art shadow edges
+    renderer.shadowMap.autoUpdate = false;
+    renderer.shadowMap.needsUpdate = true;
 
     renderer.domElement.className = 'w-full h-full block pixelated-canvas outline-none touch-none';
     renderer.domElement.style.touchAction = 'none';
@@ -491,149 +500,219 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       tilePropSig[i] = -1;
     }
     const initWorldGrid = ensureWorldGrid(sim);
-    chunkTerrain.rebuildAllSync(initWorldGrid, tileRenderY);
+    chunkTerrain.queueProgressiveRebuild(initWorldGrid);
 
     // Instanced Multi-Object Props (1-4 objects per tile, starting compactly and growing on demand)
     const variantLib = getNodeVariantLibrary();
-    const INITIAL_PROP_CAPACITY = 128;
-    const makePropInstancedList = (
-      geos: THREE.BufferGeometry[],
-      mat: THREE.Material,
-      castShadow: boolean,
-    ) =>
-      geos.map((geo) => {
-        const inst = new THREE.InstancedMesh(geo, mat, INITIAL_PROP_CAPACITY);
-        inst.frustumCulled = false;
-        inst.boundingSphere = worldBoundsSphere;
-        inst.castShadow = castShadow;
-        inst.receiveShadow = true;
-        inst.count = 0;
-        nodesGroup.add(inst);
-        return inst;
-      });
 
-    // 3D Sculpted Micro-Voxel Biome Trees (hidden-face culled + greedy-merged static InstancedMeshes)
+
+    // 3D Sculpted Micro-Voxel Biome Trees (4-tier zoom LOD greedy-merged static InstancedMeshes)
     const voxelTreeLib = getVoxelTreeLibrary();
-    const voxelTreeInstsByBiome: Record<TreeBiomeKey, THREE.InstancedMesh[]> = {
-      forest: makePropInstancedList(voxelTreeLib.byBiome.forest, voxelTreeLib.material, true),
-      meadow: makePropInstancedList(voxelTreeLib.byBiome.meadow, voxelTreeLib.material, true),
-      jungle: makePropInstancedList(voxelTreeLib.byBiome.jungle, voxelTreeLib.material, true),
-      taiga: makePropInstancedList(voxelTreeLib.byBiome.taiga, voxelTreeLib.material, true),
-      blossom: makePropInstancedList(voxelTreeLib.byBiome.blossom, voxelTreeLib.material, true),
-      savanna: makePropInstancedList(voxelTreeLib.byBiome.savanna, voxelTreeLib.material, true),
-      swamp: makePropInstancedList(voxelTreeLib.byBiome.swamp, voxelTreeLib.material, true),
-      highland: makePropInstancedList(voxelTreeLib.byBiome.highland, voxelTreeLib.material, true),
+    const TREE_BIOME_KEYS: TreeBiomeKey[] = [
+      'forest',
+      'meadow',
+      'jungle',
+      'taiga',
+      'blossom',
+      'savanna',
+      'swamp',
+      'highland',
+    ];
+    const BIOME_KEY_TO_IDX: Record<TreeBiomeKey, number> = {
+      forest: 0,
+      meadow: 1,
+      jungle: 2,
+      taiga: 3,
+      blossom: 4,
+      savanna: 5,
+      swamp: 6,
+      highland: 7,
     };
-    const burntTreeInstsByBiome: Record<TreeBiomeKey, THREE.InstancedMesh[]> = {
-      forest: makePropInstancedList(voxelTreeLib.burntByBiome.forest, voxelTreeLib.material, true),
-      meadow: makePropInstancedList(voxelTreeLib.burntByBiome.meadow, voxelTreeLib.material, true),
-      jungle: makePropInstancedList(voxelTreeLib.burntByBiome.jungle, voxelTreeLib.material, true),
-      taiga: makePropInstancedList(voxelTreeLib.burntByBiome.taiga, voxelTreeLib.material, true),
-      blossom: makePropInstancedList(voxelTreeLib.burntByBiome.blossom, voxelTreeLib.material, true),
-      savanna: makePropInstancedList(voxelTreeLib.burntByBiome.savanna, voxelTreeLib.material, true),
-      swamp: makePropInstancedList(voxelTreeLib.burntByBiome.swamp, voxelTreeLib.material, true),
-      highland: makePropInstancedList(voxelTreeLib.burntByBiome.highland, voxelTreeLib.material, true),
-    };
-    const allVoxelTreeInsts: THREE.InstancedMesh[] = [
-      ...voxelTreeInstsByBiome.forest,
-      ...voxelTreeInstsByBiome.meadow,
-      ...voxelTreeInstsByBiome.jungle,
-      ...voxelTreeInstsByBiome.taiga,
-      ...voxelTreeInstsByBiome.blossom,
-      ...voxelTreeInstsByBiome.savanna,
-      ...voxelTreeInstsByBiome.swamp,
-      ...voxelTreeInstsByBiome.highland,
-      ...burntTreeInstsByBiome.forest,
-      ...burntTreeInstsByBiome.meadow,
-      ...burntTreeInstsByBiome.jungle,
-      ...burntTreeInstsByBiome.taiga,
-      ...burntTreeInstsByBiome.blossom,
-      ...burntTreeInstsByBiome.savanna,
-      ...burntTreeInstsByBiome.swamp,
-      ...burntTreeInstsByBiome.highland,
+
+    // Collapse all 32 live + 32 burnt voxel tree species × 4 LODs (384 InstancedMeshes -> 2 BatchedMeshes!)
+    const treeBatchGeos: THREE.BufferGeometry[] = [];
+    // Indexed as [charred: 0|1][lod: 0..3][biomeIdx: 0..7][varIdx] -> flat geometry index
+    const treeGeoIdx: number[][][][] = [[], []];
+    const treeBiomePoolLen: number[][] = [[], []];
+    const treeLodRecords = [
+      [voxelTreeLib.byBiome, voxelTreeLib.byBiomeLod1, voxelTreeLib.byBiomeLod2, voxelTreeLib.byBiomeLod3],
+      [
+        voxelTreeLib.burntByBiome,
+        voxelTreeLib.burntByBiomeLod1,
+        voxelTreeLib.burntByBiomeLod2,
+        voxelTreeLib.burntByBiomeLod3,
+      ],
     ];
-
-    const berryInsts = makePropInstancedList(variantLib.berry, variantLib.standardMat, true);
-    const farmCropInsts = makePropInstancedList(variantLib.farmCrop, variantLib.standardMat, true);
-    const sciFiFarmInsts = makePropInstancedList(variantLib.sciFiFarm, variantLib.crystalMat, true);
-    const stoneInsts = makePropInstancedList(variantLib.stone, variantLib.standardMat, true);
-    const oreInsts = makePropInstancedList(variantLib.ore, variantLib.standardMat, true);
-    const crystalInsts = makePropInstancedList(variantLib.crystal, variantLib.crystalMat, true);
-    const coralReefInsts = makePropInstancedList(variantLib.coralReef, variantLib.coralReefMat, false);
-    const coralReefBleachedInsts = makePropInstancedList(
-      variantLib.coralReefBleached,
-      variantLib.standardMat,
-      false,
-    );
-    const scrapFlotsamInsts = makePropInstancedList(variantLib.scrapFlotsam, variantLib.standardMat, true);
-    const atlantisRuinInsts = makePropInstancedList(variantLib.atlantisRuin, variantLib.standardMat, true);
-    const ambGrassInsts = makePropInstancedList(variantLib.ambientGrass, variantLib.standardMat, false);
-    const ambForestInsts = makePropInstancedList(variantLib.ambientForest, variantLib.standardMat, false);
-    const ambSandInsts = makePropInstancedList(variantLib.ambientSand, variantLib.standardMat, false);
-    const ambRockInsts = makePropInstancedList(variantLib.ambientRock, variantLib.standardMat, false);
-    const ambSnowInsts = makePropInstancedList(variantLib.ambientSnow, variantLib.standardMat, false);
-    const ambSavannaInsts = makePropInstancedList(variantLib.ambientSavanna, variantLib.standardMat, false);
-    const ambSwampInsts = makePropInstancedList(variantLib.ambientSwamp, variantLib.standardMat, false);
-    const ambHighlandInsts = makePropInstancedList(variantLib.ambientHighland, variantLib.standardMat, false);
-    const ambJungleInsts = makePropInstancedList(variantLib.ambientJungle, variantLib.standardMat, false);
-    const ambMountainInsts = makePropInstancedList(variantLib.ambientMountain, variantLib.standardMat, false);
-    const ambTaigaInsts = makePropInstancedList(variantLib.ambientTaiga, variantLib.standardMat, false);
-    const ambTundraInsts = makePropInstancedList(variantLib.ambientTundra, variantLib.standardMat, false);
-    const ambBadlandsInsts = makePropInstancedList(variantLib.ambientBadlands, variantLib.standardMat, false);
-    const ambBlossomInsts = makePropInstancedList(variantLib.ambientBlossom, variantLib.standardMat, false);
-
-    const resourcePropInsts: THREE.InstancedMesh[] = [
-      ...allVoxelTreeInsts,
-      ...berryInsts,
-      ...farmCropInsts,
-      ...sciFiFarmInsts,
-      ...stoneInsts,
-      ...oreInsts,
-      ...crystalInsts,
-      ...coralReefInsts,
-      ...coralReefBleachedInsts,
-      ...scrapFlotsamInsts,
-      ...atlantisRuinInsts,
-    ];
-
-    const ambientPropInsts: THREE.InstancedMesh[] = [
-      ...ambGrassInsts,
-      ...ambForestInsts,
-      ...ambSandInsts,
-      ...ambRockInsts,
-      ...ambSnowInsts,
-      ...ambSavannaInsts,
-      ...ambSwampInsts,
-      ...ambHighlandInsts,
-      ...ambJungleInsts,
-      ...ambMountainInsts,
-      ...ambTaigaInsts,
-      ...ambTundraInsts,
-      ...ambBadlandsInsts,
-      ...ambBlossomInsts,
-    ];
-
-    const allPropInsts: THREE.InstancedMesh[] = [...resourcePropInsts, ...ambientPropInsts];
-    const ambientPropSet = new Set<THREE.InstancedMesh>(ambientPropInsts);
-    const ambTierCounts = new Map<THREE.InstancedMesh, { low: number; med: number; full: number }>();
-    const ambMedStage = new Map<THREE.InstancedMesh, number[]>();
-    const ambFullStage = new Map<THREE.InstancedMesh, number[]>();
-    for (const inst of ambientPropInsts) {
-      ambTierCounts.set(inst, { low: 0, med: 0, full: 0 });
-      ambMedStage.set(inst, []);
-      ambFullStage.set(inst, []);
+    for (let c = 0; c < 2; c++) {
+      for (let lod = 0; lod < 4; lod++) {
+        const byBiomeArr: number[][] = [];
+        const rec = treeLodRecords[c][lod];
+        for (let b = 0; b < TREE_BIOME_KEYS.length; b++) {
+          const geos = rec[TREE_BIOME_KEYS[b]];
+          if (lod === 0) treeBiomePoolLen[c][b] = geos.length;
+          const varIds: number[] = [];
+          for (let v = 0; v < geos.length; v++) {
+            varIds.push(treeBatchGeos.length);
+            treeBatchGeos.push(geos[v]);
+          }
+          byBiomeArr.push(varIds);
+        }
+        treeGeoIdx[c].push(byBiomeArr);
+      }
     }
+    const treeBatchShadow = new BatchedStaticPool(
+      'batched_trees_shadow',
+      voxelTreeLib.material,
+      treeBatchGeos,
+      true,
+      true,
+      2048,
+    );
+    const treeBatchNoShadow = new BatchedStaticPool(
+      'batched_trees_noshadow',
+      voxelTreeLib.material,
+      treeBatchGeos,
+      false,
+      true,
+      1024,
+    );
+    worldGroup.add(treeBatchShadow.group);
+    worldGroup.add(treeBatchNoShadow.group);
+
+    // Baked multi-angle pixel-art tree impostor system (2 tris/tree in 1 draw call at overview/far zoom)
+    const treeImpostors = new TreeImpostorSystem(renderer, voxelTreeLib, 2048, scene.environment);
+    const _impostorTint = new THREE.Color(1, 1, 1);
+    const _noonRefColor = new THREE.Color(0xffdfb0);
+    worldGroup.add(treeImpostors.mesh);
+
+    // Collapse all 10 resource prop kinds × 2 LODs (~70 InstancedMeshes -> 5 BatchedMeshes!)
+    // Buckets: 0=std+shadow, 1=std+noShadow, 2=crystal+shadow, 3=crystal+noShadow, 4=coral+noShadow
+    const propBucketGeos: THREE.BufferGeometry[][] = [[], [], [], [], []];
+    const propKindSpecs: {
+      lod0: THREE.BufferGeometry[];
+      lod2: THREE.BufferGeometry[];
+      b0: number;
+      b2: number;
+    }[] = [
+      { lod0: variantLib.berry, lod2: variantLib.berryLod2, b0: 0, b2: 1 }, // 0: berry
+      { lod0: variantLib.farmCrop, lod2: variantLib.farmCropLod2, b0: 0, b2: 1 }, // 1: farmCrop
+      { lod0: variantLib.sciFiFarm, lod2: variantLib.sciFiFarmLod2, b0: 2, b2: 3 }, // 2: sciFiFarm
+      { lod0: variantLib.stone, lod2: variantLib.stoneLod2, b0: 0, b2: 1 }, // 3: stone
+      { lod0: variantLib.ore, lod2: variantLib.oreLod2, b0: 0, b2: 1 }, // 4: ore
+      { lod0: variantLib.crystal, lod2: variantLib.crystalLod2, b0: 2, b2: 2 }, // 5: crystal
+      { lod0: variantLib.coralReef, lod2: variantLib.coralReefLod2, b0: 4, b2: 4 }, // 6: coralReef
+      { lod0: variantLib.coralReefBleached, lod2: variantLib.coralReefBleachedLod2, b0: 1, b2: 1 }, // 7: coralReefBleached
+      { lod0: variantLib.scrapFlotsam, lod2: variantLib.scrapFlotsamLod2, b0: 0, b2: 1 }, // 8: scrapFlotsam
+      { lod0: variantLib.atlantisRuin, lod2: variantLib.atlantisRuinLod2, b0: 0, b2: 0 }, // 9: atlantisRuin
+    ];
+    const propKindLens: number[] = [];
+    const propLod0Bucket: number[] = [];
+    const propLod2Bucket: number[] = [];
+    const propLod0GeoIdx: number[][] = [];
+    const propLod2GeoIdx: number[][] = [];
+    for (let k = 0; k < propKindSpecs.length; k++) {
+      const spec = propKindSpecs[k];
+      propKindLens.push(spec.lod0.length);
+      propLod0Bucket.push(spec.b0);
+      propLod2Bucket.push(spec.b2);
+      const ids0: number[] = [];
+      for (let v = 0; v < spec.lod0.length; v++) {
+        ids0.push(propBucketGeos[spec.b0].length);
+        propBucketGeos[spec.b0].push(spec.lod0[v]);
+      }
+      propLod0GeoIdx.push(ids0);
+      const ids2: number[] = [];
+      for (let v = 0; v < spec.lod2.length; v++) {
+        ids2.push(propBucketGeos[spec.b2].length);
+        propBucketGeos[spec.b2].push(spec.lod2[v]);
+      }
+      propLod2GeoIdx.push(ids2);
+    }
+    const propBatches: BatchedStaticPool[] = [
+      new BatchedStaticPool('batched_props_std_shadow', variantLib.standardMat, propBucketGeos[0], true, true, 512),
+      new BatchedStaticPool('batched_props_std_noshadow', variantLib.standardMat, propBucketGeos[1], false, true, 512),
+      new BatchedStaticPool('batched_props_crystal_shadow', variantLib.crystalMat, propBucketGeos[2], true, true, 256),
+      new BatchedStaticPool('batched_props_crystal_noshadow', variantLib.crystalMat, propBucketGeos[3], false, true, 128),
+      new BatchedStaticPool('batched_props_coral_noshadow', variantLib.coralReefMat, propBucketGeos[4], false, true, 256),
+    ];
+    for (let i = 0; i < propBatches.length; i++) {
+      nodesGroup.add(propBatches[i].group);
+    }
+
+    // Collapse all 14 ambient biome detail groups (35 InstancedMeshes -> 1 BatchedMesh draw call!)
+    const ambSourceLists: THREE.BufferGeometry[][] = [
+      variantLib.ambientGrass,
+      variantLib.ambientForest,
+      variantLib.ambientSand,
+      variantLib.ambientRock,
+      variantLib.ambientSnow,
+      variantLib.ambientSavanna,
+      variantLib.ambientSwamp,
+      variantLib.ambientHighland,
+      variantLib.ambientJungle,
+      variantLib.ambientMountain,
+      variantLib.ambientTaiga,
+      variantLib.ambientTundra,
+      variantLib.ambientBadlands,
+      variantLib.ambientBlossom,
+    ];
+    const ambBatchGeos: THREE.BufferGeometry[] = [];
+    const ambGeoIdx: number[][] = [];
+    const ambGroupLens: number[] = [];
+    for (let g = 0; g < ambSourceLists.length; g++) {
+      const list = ambSourceLists[g];
+      ambGroupLens.push(list.length);
+      const ids: number[] = [];
+      for (let v = 0; v < list.length; v++) {
+        ids.push(ambBatchGeos.length);
+        ambBatchGeos.push(list[v]);
+      }
+      ambGeoIdx.push(ids);
+    }
+    const ambBatch = new BatchedStaticPool(
+      'batched_ambient_details',
+      variantLib.standardMat,
+      ambBatchGeos,
+      false,
+      true,
+      2048,
+    );
+    worldGroup.add(ambBatch.group);
+
+    // Flat typed placement caches for zero-GC zoom LOD & viewport frustum culling
+    let treeCacheCap = 1024;
+    let treeCacheCount = 0;
+    let treeCacheX = new Float32Array(treeCacheCap);
+    let treeCacheZ = new Float32Array(treeCacheCap);
+    let treeCacheBiome = new Uint8Array(treeCacheCap);
+    let treeCacheVar = new Uint8Array(treeCacheCap);
+    let treeCacheFlags = new Uint8Array(treeCacheCap); // bit0=charred, bit1=companion(k>=1), bit2=underSapling(k===2)
+    let treeCacheMat = new Float32Array(treeCacheCap * 16);
+
+    let propCacheCap = 512;
+    let propCacheCount = 0;
+    let propCacheX = new Float32Array(propCacheCap);
+    let propCacheZ = new Float32Array(propCacheCap);
+    let propCacheKind = new Uint8Array(propCacheCap);
+    let propCacheVar = new Uint8Array(propCacheCap);
+    let propCacheTint = new Uint32Array(propCacheCap);
+    let propCacheMat = new Float32Array(propCacheCap * 16);
+
+    let ambCacheCap = 512;
+    let ambCacheCount = 0;
+    let ambCacheX = new Float32Array(ambCacheCap);
+    let ambCacheZ = new Float32Array(ambCacheCap);
+    let ambCacheGroup = new Uint8Array(ambCacheCap);
+    let ambCacheVar = new Uint8Array(ambCacheCap);
+    let ambCacheTier = new Uint8Array(ambCacheCap); // 0=low, 1=med, 2=full
+    let ambCacheMat = new Float32Array(ambCacheCap * 16);
+
+    let propViewDirty = true;
     const tileTerrainSig = new Int32Array(sim.tiles.length).fill(-1);
     const tileMetroSig = new Int32Array(sim.tiles.length).fill(-1);
 
-    function applyAmbientFoliageFactor(factor: number) {
-      const tier = factor < 0.35 ? 'low' : factor < 0.75 ? 'med' : 'full';
-      for (let i = 0; i < ambientPropInsts.length; i++) {
-        const inst = ambientPropInsts[i];
-        const tc = ambTierCounts.get(inst);
-        if (!tc) continue;
-        inst.count = tier === 'low' ? tc.low : tier === 'med' ? tc.med : tc.full;
-      }
+    function applyAmbientFoliageFactor(_factor: number) {
+      propViewDirty = true;
     }
 
     // Elevated Metro Viaduct System (Epoch 5+ concrete / Epoch 6+ titanium-maglev on T-pillars) & Runway Beacons
@@ -859,6 +938,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       legL?: THREE.Object3D;
       legR?: THREE.Object3D;
       contactShadow?: THREE.Object3D;
+      contactShadowScale: number;
       heldTool?: THREE.Object3D;
       carryBox?: THREE.Mesh;
       statusRing?: THREE.Mesh;
@@ -1088,6 +1168,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       MAX_FAVORITE_STARS,
     );
     favoriteStarsInst.count = 0;
+    favoriteStarsInst.visible = false;
     favoriteStarsInst.frustumCulled = false;
     worldGroup.add(favoriteStarsInst);
 
@@ -1100,8 +1181,25 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       MAX_KING_CROWNS,
     );
     kingCrownsInst.count = 0;
+    kingCrownsInst.visible = false;
     kingCrownsInst.frustumCulled = false;
     worldGroup.add(kingCrownsInst);
+
+    // Single InstancedMesh for ALL unit contact shadows (collapses 100-500+ shadow disc draw calls into 1!)
+    const unitShadowGeo = new THREE.CircleGeometry(0.38, 12);
+    unitShadowGeo.rotateX(-Math.PI / 2);
+    const unitShadowMat = new THREE.MeshBasicMaterial({
+      color: 0x090d14,
+      transparent: true,
+      opacity: 0.34,
+      depthWrite: false,
+    });
+    const unitContactShadowsInst = new THREE.InstancedMesh(unitShadowGeo, unitShadowMat, 512);
+    unitContactShadowsInst.count = 0;
+    unitContactShadowsInst.visible = false;
+    unitContactShadowsInst.frustumCulled = false;
+    unitContactShadowsInst.renderOrder = 1;
+    worldGroup.add(unitContactShadowsInst);
 
     // Zero-GC Pooled Particle System (InstancedMesh)
     const particleGeo = new THREE.BoxGeometry(0.22, 0.22, 0.22);
@@ -1109,6 +1207,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     const particleInstanced = new THREE.InstancedMesh(particleGeo, particleMat, MAX_PARTICLES);
     particleInstanced.frustumCulled = false;
     particleInstanced.count = 0;
+    particleInstanced.visible = false;
     worldGroup.add(particleInstanced);
 
     const particles: PooledParticle[] = Array.from({ length: MAX_PARTICLES }, () => ({
@@ -1185,6 +1284,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       upSpeed = 4.5,
       sizeMult = 1.0,
     ) {
+      if (!isPointInCullBounds(x, z, worldCullBounds, 6.0)) return;
       const n = getScaledParticleCount(count);
       if (n <= 0) return;
       _burstBaseCol.set(hexColor);
@@ -1219,6 +1319,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       sizeMult = 0.95,
       lifeSec = 1.5,
     ) {
+      if (!isPointInCullBounds(x, z, worldCullBounds, 6.0 + radius)) return;
       const n = getScaledParticleCount(count);
       if (n <= 0) return;
       _burstBaseCol.set(hexColor);
@@ -1252,6 +1353,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       hexColor: string,
       spread = 0.45,
     ) {
+      if (
+        !isPointInCullBounds(ox, oz, worldCullBounds, 6.0) &&
+        !isPointInCullBounds(tx, tz, worldCullBounds, 6.0)
+      ) {
+        return;
+      }
       const n = getScaledParticleCount(count);
       if (n <= 0) return;
       _burstBaseCol.set(hexColor);
@@ -1298,6 +1405,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       outerRadius = 6.5,
       sizeMult = 0.95,
     ) {
+      if (!isPointInCullBounds(cx, cz, worldCullBounds, 6.0 + outerRadius)) return;
       const n = getScaledParticleCount(count);
       if (n <= 0) return;
       _burstBaseCol.set(hexColor);
@@ -1367,7 +1475,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     fireSpriteInst.renderOrder = 6;
     fireSmokeInst.renderOrder = 7;
     fireSpriteInst.count = 0;
+    fireSpriteInst.visible = false;
     fireSmokeInst.count = 0;
+    fireSmokeInst.visible = false;
     worldGroup.add(fireSpriteInst, fireSmokeInst);
 
     // Surface Y & render-order helpers so VFX, magic circles, reticles, and attacks stay cleanly above water waves
@@ -1424,6 +1534,26 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     const sharedWaveFaceGeo = new THREE.BoxGeometry(1.12, 1.48, 0.92);
     const sharedWaveLipGeo = new THREE.BoxGeometry(1.16, 0.62, 1.05);
     const sharedWaveFoamGeo = new THREE.BoxGeometry(1.22, 0.44, 0.68);
+    // Pre-baked local-offset wave geometries so all 68 tsunami segments render in 4 InstancedMeshes (340 -> 4 draw calls!)
+    const sharedWaveBaseBakedGeo = sharedWaveBaseGeo.clone();
+    sharedWaveBaseBakedGeo.translate(0, 0.36, -0.38);
+    const sharedWaveFaceBakedGeo = sharedWaveFaceGeo.clone();
+    sharedWaveFaceBakedGeo.translate(0, 0.74, 0.12);
+    const sharedWaveLipBakedGeo = sharedWaveLipGeo.clone();
+    sharedWaveLipBakedGeo.rotateX(0.46);
+    sharedWaveLipBakedGeo.translate(0, 1.42, 0.56);
+    const sharedWaveFoamBakedGeo = (() => {
+      const top = sharedWaveFoamGeo.clone();
+      top.rotateX(0.3);
+      top.translate(0, 1.56, 0.88);
+      const toe = sharedWaveFoamGeo.clone();
+      toe.scale(1.06, 0.68, 0.85);
+      toe.translate(0, 0.22, 0.96);
+      const merged = mergeGeometries([top, toe], false);
+      top.dispose();
+      toe.dispose();
+      return merged;
+    })();
     const sharedFaultCrackGeo = new THREE.BoxGeometry(1, 0.14, 1);
     const sharedTornadoRingGeo = new THREE.BoxGeometry(1.35, 0.24, 1.35);
     const sharedTornadoFunnelGeo = new THREE.CylinderGeometry(1.95, 0.28, 5.8, 24, 16, true);
@@ -1435,7 +1565,6 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     const sharedWhirlpoolFunnelGeo = new THREE.CylinderGeometry(0.92, 0.14, 0.26, 28, 1, true);
 
     interface TsunamiWaveSegment {
-      group: THREE.Group;
       angle: number;
       isWake: boolean;
       phase: number;
@@ -1478,8 +1607,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       group: THREE.Group;
       materials: THREE.Material[];
       geometries?: THREE.BufferGeometry[];
-      drops?: { mesh: THREE.Mesh; offsetY: number; speed: number; baseX: number; baseZ: number }[];
+      dropsInst?: THREE.InstancedMesh;
+      drops?: { offsetY: number; speed: number; baseX: number; baseZ: number }[];
       spores?: { mesh: THREE.Mesh; angle: number; dist: number; phase: number; height: number }[];
+      waveInsts?: THREE.InstancedMesh[];
       waveSegments?: TsunamiWaveSegment[];
       gravityRings?: THREE.Mesh[];
       vortexMotes?: VortexMote[];
@@ -1495,6 +1626,17 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       seenStamp: number;
     }
     const hazardMeshes = new Map<string, HazardVisual>();
+    function disposeHazardVisual(hv: HazardVisual) {
+      hazardsGroup.remove(hv.group);
+      if (hv.dropsInst) hv.dropsInst.dispose();
+      if (hv.waveInsts) {
+        for (const inst of hv.waveInsts) inst.dispose();
+      }
+      if (hv.geometries) {
+        for (const g of hv.geometries) g.dispose();
+      }
+      for (const m of hv.materials) m.dispose();
+    }
 
     function createHazardVisual(
       kind: HazardVisual['kind'],
@@ -1555,24 +1697,24 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         ringMesh.scale.setScalar(radius * 0.92);
         group.add(ringMesh);
 
-        const drops: { mesh: THREE.Mesh; offsetY: number; speed: number; baseX: number; baseZ: number }[] = [];
-        for (let i = 0; i < 40; i++) {
-          const a = (i / 40) * Math.PI * 2 + (i % 5) * 0.35;
+        const dropCount = 40;
+        const dropsInst = new THREE.InstancedMesh(sharedRainDropGeo, dropMat, dropCount);
+        dropsInst.frustumCulled = false;
+        group.add(dropsInst);
+        const drops: { offsetY: number; speed: number; baseX: number; baseZ: number }[] = [];
+        for (let i = 0; i < dropCount; i++) {
+          const a = (i / dropCount) * Math.PI * 2 + (i % 5) * 0.35;
           const r = (0.15 + ((i * 29) % 100) / 100) * radius * 0.82;
           const bx = Math.cos(a) * r;
           const bz = Math.sin(a) * r;
-          const dMesh = new THREE.Mesh(sharedRainDropGeo, dropMat);
-          dMesh.position.set(bx, 2.2, bz);
-          group.add(dMesh);
           drops.push({
-            mesh: dMesh,
             offsetY: (i * 0.19) % 4.4,
             speed: 7.5 + (i % 4) * 1.4,
             baseX: bx,
             baseZ: bz,
           });
         }
-        return { kind, group, materials, drops, ringMesh, cloudBody, seenStamp: 0 };
+        return { kind, group, materials, dropsInst, drops, ringMesh, cloudBody, seenStamp: 0 };
       }
 
       if (kind === 'plague_cloud') {
@@ -1668,43 +1810,23 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         });
         materials.push(deepSwellMat, waveWallMat, waveLipMat, crestFoamMat);
 
+        const totalSegs = 40 + 28;
+        const baseInst = new THREE.InstancedMesh(sharedWaveBaseBakedGeo, deepSwellMat, totalSegs);
+        const faceInst = new THREE.InstancedMesh(sharedWaveFaceBakedGeo, waveWallMat, totalSegs);
+        const lipInst = new THREE.InstancedMesh(sharedWaveLipBakedGeo, waveLipMat, totalSegs);
+        const foamInst = new THREE.InstancedMesh(sharedWaveFoamBakedGeo, crestFoamMat, totalSegs);
+        const waveInsts = [baseInst, faceInst, lipInst, foamInst];
+        for (const inst of waveInsts) {
+          inst.frustumCulled = false;
+          inst.count = 0;
+          group.add(inst);
+        }
+
         const waveSegments: TsunamiWaveSegment[] = [];
         const buildWaveRing = (count: number, isWake: boolean) => {
           for (let i = 0; i < count; i++) {
-            const angle = (i / count) * Math.PI * 2;
-            const segGroup = new THREE.Group();
-
-            // 1. Deep ocean swell back-slope
-            const baseMesh = new THREE.Mesh(sharedWaveBaseGeo, deepSwellMat);
-            baseMesh.position.set(0, 0.36, -0.38);
-            segGroup.add(baseMesh);
-
-            // 2. Steep rising ocean wave wall
-            const faceMesh = new THREE.Mesh(sharedWaveFaceGeo, waveWallMat);
-            faceMesh.position.set(0, 0.74, 0.12);
-            segGroup.add(faceMesh);
-
-            // 3. Forward-curling turquoise wave tube / lip overhanging the front
-            const lipMesh = new THREE.Mesh(sharedWaveLipGeo, waveLipMat);
-            lipMesh.position.set(0, 1.42, 0.56);
-            lipMesh.rotation.x = 0.46;
-            segGroup.add(lipMesh);
-
-            // 4. Chunky pixelated white surf crown & breaking toe foam
-            const topFoamMesh = new THREE.Mesh(sharedWaveFoamGeo, crestFoamMat);
-            topFoamMesh.position.set(0, 1.56, 0.88);
-            topFoamMesh.rotation.x = 0.3;
-            segGroup.add(topFoamMesh);
-
-            const toeFoamMesh = new THREE.Mesh(sharedWaveFoamGeo, crestFoamMat);
-            toeFoamMesh.position.set(0, 0.22, 0.96);
-            toeFoamMesh.scale.set(1.06, 0.68, 0.85);
-            segGroup.add(toeFoamMesh);
-
-            group.add(segGroup);
             waveSegments.push({
-              group: segGroup,
-              angle,
+              angle: (i / count) * Math.PI * 2,
               isWake,
               phase: i * 0.65 + (isWake ? 1.9 : 0),
             });
@@ -1715,7 +1837,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         buildWaveRing(40, false);
         buildWaveRing(28, true);
 
-        return { kind, group, materials, waveSegments, seenStamp: 0 };
+        return { kind, group, materials, waveInsts, waveSegments, seenStamp: 0 };
       }
 
       if (kind === 'earthquake_zone') {
@@ -2318,40 +2440,49 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         secondaryRingMesh.scale.setScalar(0.1);
         group.add(secondaryRingMesh);
 
-        // 3D Blocky Stepped Voxel Volcano Cone that animates rising up from the earth before lava flows!
+        const volcanoGeos: THREE.BufferGeometry[] = [];
+        // 3D Blocky Stepped Voxel Volcano Cone (merged from 20 sub-meshes into 2 draw calls!)
         const coneGroup = new THREE.Group();
         const coneTiers = [
-          { y: 0.28, w: 3.8, h: 0.56, d: 3.8, mat: basaltRockMat },
-          { y: 0.78, w: 3.05, h: 0.54, d: 3.05, mat: basaltRockMat },
-          { y: 1.26, w: 2.35, h: 0.5, d: 2.35, mat: scorchedRimMat },
-          { y: 1.72, w: 1.72, h: 0.48, d: 1.72, mat: scorchedRimMat },
+          { y: 0.28, w: 3.8, h: 0.56, d: 3.8, isBasalt: true },
+          { y: 0.78, w: 3.05, h: 0.54, d: 3.05, isBasalt: true },
+          { y: 1.26, w: 2.35, h: 0.5, d: 2.35, isBasalt: false },
+          { y: 1.72, w: 1.72, h: 0.48, d: 1.72, isBasalt: false },
         ];
+        const basaltParts: THREE.BufferGeometry[] = [];
+        const scorchedParts: THREE.BufferGeometry[] = [];
         for (let ti = 0; ti < coneTiers.length; ti++) {
           const ct = coneTiers[ti];
-          const slab = new THREE.Mesh(sharedDebrisCubeGeo, ct.mat);
-          slab.position.set(0, ct.y, 0);
-          slab.scale.set(ct.w / 0.32, ct.h / 0.32, ct.d / 0.32);
-          coneGroup.add(slab);
-          // Stepped corner buttress blocks for an authentic voxel mountain silhouette
+          const target = ct.isBasalt ? basaltParts : scorchedParts;
+          const slab = new THREE.BoxGeometry(ct.w, ct.h, ct.d);
+          slab.translate(0, ct.y, 0);
+          target.push(slab);
           for (const [cx, cz] of [
             [ct.w * 0.45, 0],
             [-ct.w * 0.45, 0],
             [0, ct.d * 0.45],
             [0, -ct.d * 0.45],
           ]) {
-            const buttress = new THREE.Mesh(sharedDebrisCubeGeo, ct.mat);
-            buttress.position.set(cx, ct.y - 0.06, cz);
-            buttress.scale.set((ct.w * 0.34) / 0.32, (ct.h * 0.85) / 0.32, (ct.d * 0.34) / 0.32);
-            coneGroup.add(buttress);
+            const buttress = new THREE.BoxGeometry(ct.w * 0.34, ct.h * 0.85, ct.d * 0.34);
+            buttress.translate(cx, ct.y - 0.06, cz);
+            target.push(buttress);
           }
         }
+        const basaltConeGeo = mergeGeometries(basaltParts, false);
+        const scorchedConeGeo = mergeGeometries(scorchedParts, false);
+        for (const p of basaltParts) p.dispose();
+        for (const p of scorchedParts) p.dispose();
+        volcanoGeos.push(basaltConeGeo, scorchedConeGeo);
+        coneGroup.add(new THREE.Mesh(basaltConeGeo, basaltRockMat));
+        coneGroup.add(new THREE.Mesh(scorchedConeGeo, scorchedRimMat));
+
         // Glowing bubbling caldera lava pool at the summit
         const craterPool = new THREE.Mesh(sharedDebrisCubeGeo, coreHotMat);
         craterPool.position.set(0, 1.98, 0);
         craterPool.scale.set(1.18 / 0.32, 0.14 / 0.32, 1.18 / 0.32);
         coneGroup.add(craterPool);
 
-        // 4 Stepped Blocky Molten Lava Streams (N, S, E, W, plus 4 diagonals) that animate flowing down the flanks after emergence
+        // 8 Stepped Blocky Molten Lava Streams merged into 6 step rings (48 -> 6 draw calls!)
         const lavaStreams: THREE.Mesh[] = [];
         const streamDirs = [
           [1, 0],
@@ -2364,23 +2495,31 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           [-0.72, -0.72],
         ];
         const stepsPerStream = 6;
-        for (let si = 0; si < streamDirs.length; si++) {
-          const [dx, dz] = streamDirs[si];
-          for (let step = 0; step < stepsPerStream; step++) {
-            const frac = step / (stepsPerStream - 1);
-            const dist = 0.62 + frac * 1.85;
-            const ly = 1.86 - frac * 1.62;
-            const lMesh = new THREE.Mesh(sharedDebrisCubeGeo, step < 2 ? coreHotMat : magmaMat);
-            lMesh.position.set(dx * dist, ly, dz * dist);
-            lMesh.userData.stepIndex = step;
-            lMesh.userData.targetScaleX = (0.36 + frac * 0.28) / 0.32;
-            lMesh.userData.targetScaleY = 0.22 / 0.32;
-            lMesh.userData.targetScaleZ = (0.36 + frac * 0.28) / 0.32;
-            lMesh.scale.setScalar(0.001);
-            lMesh.visible = false;
-            coneGroup.add(lMesh);
-            lavaStreams.push(lMesh);
+        for (let step = 0; step < stepsPerStream; step++) {
+          const frac = step / (stepsPerStream - 1);
+          const dist = 0.62 + frac * 1.85;
+          const ly = 1.86 - frac * 1.62;
+          const sz = 0.36 + frac * 0.28;
+          const ringParts: THREE.BufferGeometry[] = [];
+          for (let si = 0; si < streamDirs.length; si++) {
+            const [dx, dz] = streamDirs[si];
+            const b = new THREE.BoxGeometry(sz, 0.22, sz);
+            b.translate(dx * dist, 0, dz * dist);
+            ringParts.push(b);
           }
+          const stepGeo = mergeGeometries(ringParts, false);
+          for (const rp of ringParts) rp.dispose();
+          volcanoGeos.push(stepGeo);
+          const lMesh = new THREE.Mesh(stepGeo, step < 2 ? coreHotMat : magmaMat);
+          lMesh.position.set(0, ly, 0);
+          lMesh.userData.stepIndex = step;
+          lMesh.userData.targetScaleX = 1;
+          lMesh.userData.targetScaleY = 1;
+          lMesh.userData.targetScaleZ = 1;
+          lMesh.scale.setScalar(0.001);
+          lMesh.visible = false;
+          coneGroup.add(lMesh);
+          lavaStreams.push(lMesh);
         }
         coneGroup.scale.set(1, 0.04, 1);
         group.userData.coneGroup = coneGroup;
@@ -2419,6 +2558,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           kind,
           group,
           materials,
+          geometries: volcanoGeos,
           ringMesh,
           secondaryRingMesh,
           cloudBody,
@@ -2770,6 +2910,52 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       return mergedAura;
     })();
 
+    // Single merged blocky mushroom-cloud plume (108 tris, 1 draw call instead of 9x 1,320-tri meteor meshes)
+    const sharedAsteroidPlumeGeo = (() => {
+      const stemConfigs = [
+        { x: 0, y: 1.0, z: 0, sx: 1.6, sy: 2.0, sz: 1.6 },
+        { x: 0, y: 2.8, z: 0, sx: 1.3, sy: 2.0, sz: 1.3 },
+        { x: 0, y: 4.5, z: 0, sx: 3.6, sy: 1.4, sz: 3.6 },
+        { x: 0, y: 5.5, z: 0, sx: 4.8, sy: 1.2, sz: 4.8 },
+        { x: 0, y: 6.4, z: 0, sx: 3.2, sy: 1.0, sz: 3.2 },
+        { x: 1.9, y: 5.2, z: 0, sx: 1.8, sy: 1.1, sz: 2.2 },
+        { x: -1.9, y: 5.2, z: 0, sx: 1.8, sy: 1.1, sz: 2.2 },
+        { x: 0, y: 5.2, z: 1.9, sx: 2.2, sy: 1.1, sz: 1.8 },
+        { x: 0, y: 5.2, z: -1.9, sx: 2.2, sy: 1.1, sz: 1.8 },
+      ];
+      const parts: THREE.BufferGeometry[] = [];
+      for (const sc of stemConfigs) {
+        const b = new THREE.BoxGeometry(sc.sx * 0.95, sc.sy * 0.95, sc.sz * 0.95).toNonIndexed();
+        b.translate(sc.x, sc.y, sc.z);
+        parts.push(b);
+      }
+      const merged = mergeGeometries(parts, false);
+      for (const p of parts) p.dispose();
+      merged.computeVertexNormals();
+      return merged;
+    })();
+
+    // Chunky 2-box vertex-colored voxel boulder (24 tris) for asteroid lobes & instanced ejecta
+    const sharedEjectaBoulderGeo = (() => {
+      const b1 = new THREE.BoxGeometry(1.1, 0.9, 1.0).toNonIndexed();
+      const b2 = new THREE.BoxGeometry(0.75, 0.72, 0.82).toNonIndexed();
+      b2.translate(0.32, 0.24, -0.22);
+      const merged = mergeGeometries([b1, b2], false);
+      b1.dispose();
+      b2.dispose();
+      const posCount = merged.attributes.position.count;
+      const colors = new Float32Array(posCount * 3);
+      for (let i = 0; i < posCount; i++) {
+        const hot = i >= posCount * 0.6;
+        colors[i * 3] = hot ? 0.95 : 0.28;
+        colors[i * 3 + 1] = hot ? 0.36 : 0.25;
+        colors[i * 3 + 2] = hot ? 0.1 : 0.24;
+      }
+      merged.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+      merged.computeVertexNormals();
+      return merged;
+    })();
+
     const sharedExplosionDomeGeo = new THREE.SphereGeometry(1, 20, 14, 0, Math.PI * 2, 0, Math.PI / 2);
     const sharedBoltGeo = new THREE.BoxGeometry(0.34, 6.2, 0.34);
     const sharedPillarSpikeGeo = new THREE.BoxGeometry(0.45, 2.2, 0.45);
@@ -2878,8 +3064,16 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       outerRingMesh?: THREE.Mesh;
       thirdRingMesh?: THREE.Mesh;
       plumeGroup?: THREE.Group;
+      ejectaInst?: THREE.InstancedMesh;
       ejectaBoulders?: {
-        mesh: THREE.Mesh;
+        active: boolean;
+        x: number;
+        y: number;
+        z: number;
+        scale: number;
+        rx: number;
+        ry: number;
+        rz: number;
         vx: number;
         vy: number;
         vz: number;
@@ -2910,9 +3104,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       faultSegments?: EarthquakeFaultSegment[];
       quakeShapeKind?: EarthquakeShapeKind;
       particleEmitTimer?: number;
+      skyDropInst?: THREE.InstancedMesh;
+      skyStreakInst?: THREE.InstancedMesh;
       skyRainDrops?: Array<{
-        mesh: THREE.Mesh;
-        streak: THREE.Mesh;
+        scale: number;
+        rx: number;
+        ry: number;
         tx: number;
         ty: number;
         tz: number;
@@ -2938,22 +3135,47 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     }
     const MAX_BURST_FX = 36;
     const activeBurstFx: ActiveBurstFx[] = [];
+    const _skyDummyPos = new THREE.Vector3();
+    const _skyDummyQuat = new THREE.Quaternion();
+    const _skyDummyEuler = new THREE.Euler();
+    const _skyDummyScale = new THREE.Vector3();
+    const _skyDummyMat = new THREE.Matrix4();
+    const _skyZeroMat = new THREE.Matrix4().makeScale(0, 0, 0);
+    const _skyStreakQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.14, 0, -0.14));
+    const _skyColorScratch = new THREE.Color();
+    const _skyLandedTilesScratch: Array<{ x: number; z: number }> = [];
 
     function flushPendingSkyRainDrops(fx: ActiveBurstFx) {
-      if (!fx.skyRainDrops) return;
-      for (const d of fx.skyRainDrops) {
+      if (!fx.skyRainDrops || fx.skyRainDrops.length === 0) return;
+      _skyLandedTilesScratch.length = 0;
+      let batchKind: TerrainToolType | null = null;
+      for (let i = 0; i < fx.skyRainDrops.length; i++) {
+        const d = fx.skyRainDrops[i];
         if (!d.landed) {
           d.landed = true;
           if (d.applyOnLand) {
-            executeTerrainDropTileImpact(simRef.current, d.dropKind, d.tileX, d.tileZ);
+            batchKind = d.dropKind;
+            _skyLandedTilesScratch.push({ x: d.tileX, z: d.tileZ });
             if (d.extraTiles) {
-              for (const et of d.extraTiles) {
-                executeTerrainDropTileImpact(simRef.current, d.dropKind, et.x, et.z);
+              for (let ei = 0; ei < d.extraTiles.length; ei++) {
+                _skyLandedTilesScratch.push(d.extraTiles[ei]);
               }
             }
           }
         }
       }
+      if (batchKind && _skyLandedTilesScratch.length > 0) {
+        executeTerrainDropBatchImpact(simRef.current, batchKind, _skyLandedTilesScratch);
+      }
+    }
+
+    function disposeBurstFx(fx: ActiveBurstFx) {
+      flushPendingSkyRainDrops(fx);
+      burstFxGroup.remove(fx.group);
+      if (fx.ejectaInst) fx.ejectaInst.dispose();
+      if (fx.skyDropInst) fx.skyDropInst.dispose();
+      if (fx.skyStreakInst) fx.skyStreakInst.dispose();
+      for (let mi = 0; mi < fx.materials.length; mi++) fx.materials[mi].dispose();
     }
 
     function triggerLightFlash(x: number, y: number, z: number, hexColor: string, intensity = 16) {
@@ -2987,9 +3209,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         const idx = dropIdx >= 0 ? dropIdx : 0;
         const old = activeBurstFx[idx];
         if (old) {
-          flushPendingSkyRainDrops(old);
-          burstFxGroup.remove(old.group);
-          for (const m of old.materials) m.dispose();
+          disposeBurstFx(old);
           activeBurstFx.splice(idx, 1);
         }
       }
@@ -3095,9 +3315,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           { x: -0.42, y: -0.64, z: -0.64, s: 0.42 },
         ];
         for (const lb of lobeOffsets) {
-          const lobe = new THREE.Mesh(sharedMeteorGeo, rockMat);
+          const lobe = new THREE.Mesh(sharedEjectaBoulderGeo, rockMat);
           lobe.position.set(lb.x, lb.y, lb.z);
-          lobe.scale.setScalar(lb.s);
+          lobe.scale.setScalar(lb.s * 1.45);
           meteorRockCore.add(lobe);
         }
         meteorRockCore.add(meteorRock);
@@ -3167,51 +3387,44 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           spikes.push(sp);
         }
 
-        // Rising 3D blocky voxel mushroom cloud & ballistic ejecta boulders for mega asteroid
+        // Rising 3D blocky voxel mushroom cloud (1 draw call) & instanced ballistic ejecta boulders (1 draw call)
         let plumeGroup: THREE.Group | undefined;
+        let ejectaInst: THREE.InstancedMesh | undefined;
         let ejectaBoulders: ActiveBurstFx['ejectaBoulders'];
         if (isMegaMeteor) {
           plumeGroup = new THREE.Group();
           plumeGroup.position.set(tx, ty + 0.2, tz);
           plumeGroup.visible = false;
-          // Stem & multi-tiered blocky cap
-          const stemConfigs = [
-            { x: 0, y: 1.0, z: 0, sx: 1.6, sy: 2.0, sz: 1.6 },
-            { x: 0, y: 2.8, z: 0, sx: 1.3, sy: 2.0, sz: 1.3 },
-            { x: 0, y: 4.5, z: 0, sx: 3.6, sy: 1.4, sz: 3.6 },
-            { x: 0, y: 5.5, z: 0, sx: 4.8, sy: 1.2, sz: 4.8 },
-            { x: 0, y: 6.4, z: 0, sx: 3.2, sy: 1.0, sz: 3.2 },
-            { x: 1.9, y: 5.2, z: 0, sx: 1.8, sy: 1.1, sz: 2.2 },
-            { x: -1.9, y: 5.2, z: 0, sx: 1.8, sy: 1.1, sz: 2.2 },
-            { x: 0, y: 5.2, z: 1.9, sx: 2.2, sy: 1.1, sz: 1.8 },
-            { x: 0, y: 5.2, z: -1.9, sx: 2.2, sy: 1.1, sz: 1.8 },
-          ];
-          for (const sc of stemConfigs) {
-            const pBox = new THREE.Mesh(sharedMeteorGeo, plumeSmokeMat);
-            pBox.position.set(sc.x, sc.y, sc.z);
-            pBox.scale.set(sc.sx * 0.55, sc.sy * 0.55, sc.sz * 0.55);
-            plumeGroup.add(pBox);
-          }
+          const plumeMesh = new THREE.Mesh(sharedAsteroidPlumeGeo, plumeSmokeMat);
+          plumeGroup.add(plumeMesh);
           group.add(plumeGroup);
 
+          const ejectaCount = 24;
+          ejectaInst = new THREE.InstancedMesh(sharedEjectaBoulderGeo, rockMat, ejectaCount);
+          ejectaInst.frustumCulled = false;
+          ejectaInst.visible = false;
+          ejectaInst.count = 0;
+          group.add(ejectaInst);
+
           ejectaBoulders = [];
-          for (let bi = 0; bi < 24; bi++) {
-            const angle = (bi / 24) * Math.PI * 2 + (bi % 3) * 0.14;
+          for (let bi = 0; bi < ejectaCount; bi++) {
+            const angle = (bi / ejectaCount) * Math.PI * 2 + (bi % 3) * 0.14;
             const speed = 7.5 + (bi % 5) * 2.3;
             const upVel = 9.5 + (bi % 4) * 2.8;
-            const bMesh = new THREE.Mesh(sharedMeteorGeo, bi % 3 === 0 ? coreGlowMat : rockMat);
-            const bScale = 0.24 + (bi % 4) * 0.11;
-            bMesh.scale.setScalar(bScale);
-            bMesh.position.set(tx, ty + 0.4, tz);
-            bMesh.visible = false;
-            group.add(bMesh);
             ejectaBoulders.push({
-              mesh: bMesh,
+              active: false,
+              x: tx,
+              y: ty + 0.4,
+              z: tz,
+              scale: 0.34 + (bi % 4) * 0.14,
+              rx: 0,
+              ry: 0,
+              rz: 0,
               vx: Math.cos(angle) * speed,
               vy: upVel,
               vz: Math.sin(angle) * speed,
               rotX: (bi % 2 === 0 ? 1 : -1) * (4.5 + (bi % 3) * 1.8),
-              rotY: (3.8 + (bi % 4) * 1.5),
+              rotY: 3.8 + (bi % 4) * 1.5,
               rotZ: (bi % 3 === 0 ? -1 : 1) * 4.2,
             });
           }
@@ -3243,6 +3456,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           outerRingMesh,
           thirdRingMesh,
           plumeGroup,
+          ejectaInst,
           ejectaBoulders,
           spikes,
           particleEmitTimer: 0,
@@ -4629,25 +4843,18 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           boulder_rain: { primary: 0x94a3b8, secondary: 0x64748b, streak: 0xe2e8f0, impactHex: '#94a3b8', secondaryHex: '#475569', geo: sharedSkyOreGeo, emissive: 0.2, sway: 0.0, dur: 0.34 },
           salvage_drop: { primary: 0xeab308, secondary: 0x94a3b8, streak: 0xfef08a, impactHex: '#eab308', secondaryHex: '#38bdf8', geo: sharedSkyCrateGeo, emissive: 0.45, sway: 0.15, dur: 0.42 },
           blossom_rain: { primary: 0xf472b6, secondary: 0xfbcfe8, streak: 0xf9a8d4, impactHex: '#f472b6', secondaryHex: '#fef08a', geo: sharedSkySeedGeo, emissive: 0.72, sway: 0.55, dur: 0.54 },
+          plant_forest: { primary: 0x84cc16, secondary: 0x22c55e, streak: 0xbef264, impactHex: '#4ade80', secondaryHex: '#bef264', geo: sharedSkySeedGeo, emissive: 0.58, sway: 0.42, dur: 0.48 },
         };
         const cfg = palette[kind] ?? palette.seed_ore;
 
         const ringMat = createMagicCircleMat(kind, 0.92, 149);
         const outerRingMat = createMagicCircleMat(kind, 0.86, 173);
-        const dropMatPrimary = new THREE.MeshStandardMaterial({
-          color: cfg.primary,
-          emissive: new THREE.Color(cfg.primary),
-          emissiveIntensity: cfg.emissive,
-          roughness: 0.32,
-          metalness: kind === 'seed_ore' || kind === 'salvage_drop' ? 0.75 : 0.2,
-          flatShading: true,
-        });
-        const dropMatSecondary = new THREE.MeshStandardMaterial({
-          color: cfg.secondary,
-          emissive: new THREE.Color(cfg.secondary),
-          emissiveIntensity: cfg.emissive * 0.9,
-          roughness: 0.36,
-          metalness: kind === 'seed_ore' || kind === 'salvage_drop' ? 0.68 : 0.18,
+        const dropMat = new THREE.MeshStandardMaterial({
+          color: 0xffffff,
+          emissive: new THREE.Color(kind === 'crystal_shower' ? 0x3b2254 : cfg.primary),
+          emissiveIntensity: kind === 'crystal_shower' ? 0.45 : cfg.emissive * 0.72,
+          roughness: kind === 'crystal_shower' ? 0.22 : 0.34,
+          metalness: kind === 'seed_ore' || kind === 'salvage_drop' ? 0.72 : 0.2,
           flatShading: true,
         });
         const streakMat = new THREE.MeshBasicMaterial({
@@ -4656,9 +4863,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           opacity: 0.62,
           depthWrite: false,
         });
-        materials.push(ringMat, outerRingMat, dropMatPrimary, dropMatSecondary, streakMat);
+        materials.push(ringMat, outerRingMat, dropMat, streakMat);
 
-        // Multi-colored crystal materials for crystal_shower so each falling crystal has a distinct color
+        // Multi-colored crystal palette applied via per-instance color (0 extra draw calls)
         const crystalColors = [
           { hex: 0xe848a8, str: '#e848a8', sec: '#7dd3fc' },
           { hex: 0x8b5cf6, str: '#8b5cf6', sec: '#38bdf8' },
@@ -4667,21 +4874,6 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           { hex: 0x0ea5e9, str: '#0ea5e9', sec: '#e0f2fe' },
           { hex: 0xef4444, str: '#ef4444', sec: '#fda4af' },
         ];
-        const crystalDropMats: THREE.MeshStandardMaterial[] = [];
-        if (kind === 'crystal_shower') {
-          for (const cc of crystalColors) {
-            const cm = new THREE.MeshStandardMaterial({
-              color: cc.hex,
-              emissive: new THREE.Color(cc.hex),
-              emissiveIntensity: 0.75,
-              roughness: 0.22,
-              metalness: 0.2,
-              flatShading: true,
-            });
-            crystalDropMats.push(cm);
-            materials.push(cm);
-          }
-        }
 
         const ringMesh = new THREE.Mesh(sharedMagicCircleGeo, ringMat);
         ringMesh.position.set(tx, ty + 0.14, tz);
@@ -4703,6 +4895,15 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           baseTargets.length > MAX_VISUAL_DROPS
             ? MAX_VISUAL_DROPS
             : Math.max(baseTargets.length, Math.min(24, Math.max(8, baseTargets.length * 2)));
+        const skyDropInst = new THREE.InstancedMesh(cfg.geo, dropMat, totalDrops);
+        skyDropInst.frustumCulled = false;
+        skyDropInst.visible = false;
+        const skyStreakInst = new THREE.InstancedMesh(sharedSkyStreakGeo, streakMat, totalDrops);
+        skyStreakInst.frustumCulled = false;
+        skyStreakInst.visible = false;
+        group.add(skyDropInst);
+        group.add(skyStreakInst);
+
         const skyRainDrops: NonNullable<ActiveBurstFx['skyRainDrops']> = [];
         const assignedTileImpacts = new Set<string>();
         const dropExtraBuckets: Array<Array<{ x: number; z: number }>> = Array.from(
@@ -4741,40 +4942,30 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           const dox = dtx + 2.4 + (Math.random() - 0.5) * 1.2;
           const doz = dtz - 2.4 + (Math.random() - 0.5) * 1.2;
 
-          const dropMat =
-            kind === 'crystal_shower' && crystalDropMats.length > 0
-              ? crystalDropMats[di % crystalDropMats.length]
-              : di % 2 === 0
-                ? dropMatPrimary
-                : dropMatSecondary;
-          const mesh = new THREE.Mesh(cfg.geo, dropMat);
+          const ccInfo =
+            kind === 'crystal_shower'
+              ? crystalColors[di % crystalColors.length]
+              : null;
+          _skyColorScratch.setHex(
+            ccInfo ? ccInfo.hex : di % 2 === 0 ? cfg.primary : cfg.secondary,
+          );
+          skyDropInst.setColorAt(di, _skyColorScratch);
+          skyDropInst.setMatrixAt(di, _skyZeroMat);
+          skyStreakInst.setMatrixAt(di, _skyZeroMat);
+
           const dropScale =
             kind === 'boulder_rain'
               ? 1.15 + Math.random() * 0.55
               : kind === 'crystal_shower'
                 ? 0.98 + Math.random() * 0.48
-                : kind === 'blossom_rain'
+                : kind === 'blossom_rain' || kind === 'plant_forest'
                   ? 0.72 + Math.random() * 0.32
                   : 0.88 + Math.random() * 0.42;
-          mesh.scale.setScalar(dropScale);
-          mesh.position.set(dox, heightStart, doz);
-          mesh.visible = false;
-          group.add(mesh);
-
-          const streak = new THREE.Mesh(sharedSkyStreakGeo, streakMat);
-          streak.position.set(dox, heightStart, doz);
-          streak.rotation.set(0.14, 0, -0.14);
-          streak.visible = false;
-          group.add(streak);
-
-          const ccInfo =
-            kind === 'crystal_shower'
-              ? crystalColors[di % crystalColors.length]
-              : null;
 
           skyRainDrops.push({
-            mesh,
-            streak,
+            scale: dropScale,
+            rx: 0,
+            ry: 0,
             tx: dtx,
             ty: dty,
             tz: dtz,
@@ -4794,9 +4985,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             swayAmp: cfg.sway,
             impactColor: ccInfo ? ccInfo.str : cfg.impactHex,
             secondaryColor: ccInfo ? ccInfo.sec : cfg.secondaryHex,
-            sparkCount: totalDrops > 12 ? 7 : 10,
+            sparkCount: totalDrops > 24 ? 4 : totalDrops > 12 ? 6 : 9,
           });
         }
+        skyDropInst.instanceMatrix.needsUpdate = true;
+        if (skyDropInst.instanceColor) skyDropInst.instanceColor.needsUpdate = true;
+        skyStreakInst.instanceMatrix.needsUpdate = true;
 
         burstFxGroup.add(group);
         activeBurstFx.push({
@@ -4815,6 +5009,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           impactFired: false,
           ringMesh,
           outerRingMesh,
+          skyDropInst,
+          skyStreakInst,
           skyRainDrops,
           colorHex,
         });
@@ -5206,9 +5402,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         const idx = dropIdx >= 0 ? dropIdx : 0;
         const old = activeBurstFx[idx];
         if (old) {
-          flushPendingSkyRainDrops(old);
-          burstFxGroup.remove(old.group);
-          for (const m of old.materials) m.dispose();
+          disposeBurstFx(old);
           activeBurstFx.splice(idx, 1);
         }
       }
@@ -5283,9 +5477,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         const idx = dropIdx >= 0 ? dropIdx : 0;
         const old = activeBurstFx[idx];
         if (old) {
-          flushPendingSkyRainDrops(old);
-          burstFxGroup.remove(old.group);
-          for (const m of old.materials) m.dispose();
+          disposeBurstFx(old);
           activeBurstFx.splice(idx, 1);
         }
       }
@@ -6063,6 +6255,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       | 'none'
       | 'one_finger_pending'
       | 'one_finger_pan'
+      | 'one_finger_paint_pending'
       | 'one_finger_paint'
       | 'one_finger_drag_unit'
       | 'two_finger_transform'
@@ -6076,6 +6269,46 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       lastY: number;
     } | null = null;
     let twoFingerLast: TwoFingerState | null = null;
+
+    // Camera gestures take priority over casting on mobile: a single finger waits briefly before
+    // painting/casting so a second finger (pinch zoom / rotate) can cancel the cast before anything spawns.
+    const TOUCH_PAINT_GRACE_MS = 150;
+    let touchPaintGraceTimer: ReturnType<typeof setTimeout> | null = null;
+    const clearTouchPaintGrace = () => {
+      if (touchPaintGraceTimer !== null) {
+        clearTimeout(touchPaintGraceTimer);
+        touchPaintGraceTimer = null;
+      }
+    };
+    const commitTouchPaint = () => {
+      clearTouchPaintGrace();
+      if (
+        touchGestureMode !== 'one_finger_paint_pending' ||
+        !oneFingerInfo ||
+        activeTouches.size !== 1 ||
+        propsRef.current.gameState !== 'playing'
+      ) {
+        return;
+      }
+      touchGestureMode = 'one_finger_paint';
+      isHoldPainting = true;
+      paintedStrokeTiles.clear();
+      lastPaintTile = null;
+      lastHoldCastPos = null;
+      lastHoldCastTime = 0;
+      const nowMs = performance.now();
+      hoverRaycastTimer = nowMs;
+      updateHoverTile(oneFingerInfo.startX, oneFingerInfo.startY);
+      if (hoveredTileCoords) {
+        applyHoldStrokeToTile(hoveredTileCoords.x, hoveredTileCoords.z, nowMs);
+      }
+      if (oneFingerInfo.lastX !== oneFingerInfo.startX || oneFingerInfo.lastY !== oneFingerInfo.startY) {
+        updateHoverTile(oneFingerInfo.lastX, oneFingerInfo.lastY);
+        if (hoveredTileCoords) {
+          applyHoldStrokeToTile(hoveredTileCoords.x, hoveredTileCoords.z, nowMs);
+        }
+      }
+    };
 
     const panCameraByScreenDelta = (dx: number, dy: number, customPanFactor?: number) => {
       const rect = renderer.domElement.getBoundingClientRect();
@@ -6122,6 +6355,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
         // 2+ fingers: switch cleanly into simultaneous pinch zoom + twist rotate + centroid pan
         if (activeTouches.size >= 2) {
+          clearTouchPaintGrace();
           isPointerDragging = false;
           isHoldPainting = false;
           paintedStrokeTiles.clear();
@@ -6194,13 +6428,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           return;
         }
 
-        // Hold paint/cast mode with Pan disabled -> paint immediately & smoothly
-        touchGestureMode = 'one_finger_paint';
-        isHoldPainting = true;
-        paintedStrokeTiles.clear();
-        lastPaintTile = null;
-        lastHoldCastPos = null;
-        lastHoldCastTime = 0;
+        // Hold paint/cast mode with Pan disabled -> wait a short grace window so a pinch can cancel it
+        touchGestureMode = 'one_finger_paint_pending';
+        isHoldPainting = false;
         oneFingerInfo = {
           pointerId: e.pointerId,
           startX: e.clientX,
@@ -6208,9 +6438,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           lastX: e.clientX,
           lastY: e.clientY,
         };
-        if (hoveredTileCoords) {
-          applyHoldStrokeToTile(hoveredTileCoords.x, hoveredTileCoords.z, nowMs);
-        }
+        clearTouchPaintGrace();
+        touchPaintGraceTimer = setTimeout(commitTouchPaint, TOUCH_PAINT_GRACE_MS);
         return;
       }
 
@@ -6342,6 +6571,16 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         }
 
         if (
+          touchGestureMode === 'one_finger_paint_pending' &&
+          oneFingerInfo &&
+          e.pointerId === oneFingerInfo.pointerId
+        ) {
+          oneFingerInfo.lastX = e.clientX;
+          oneFingerInfo.lastY = e.clientY;
+          return;
+        }
+
+        if (
           touchGestureMode === 'one_finger_paint' &&
           oneFingerInfo &&
           e.pointerId === oneFingerInfo.pointerId
@@ -6446,6 +6685,28 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             touchGestureMode = 'none';
             oneFingerInfo = null;
           }
+          return;
+        }
+
+        if (touchGestureMode === 'one_finger_paint_pending') {
+          if (
+            e.type === 'pointerup' &&
+            oneFingerInfo &&
+            e.pointerId === oneFingerInfo.pointerId &&
+            activeTouches.size === 0
+          ) {
+            // Quick tap with no pinch -> cast exactly once at the tapped tile
+            activeTouches.set(e.pointerId, { clientX: e.clientX, clientY: e.clientY });
+            commitTouchPaint();
+            activeTouches.delete(e.pointerId);
+          }
+          clearTouchPaintGrace();
+          isHoldPainting = false;
+          paintedStrokeTiles.clear();
+          lastPaintTile = null;
+          lastHoldCastPos = null;
+          touchGestureMode = activeTouches.size > 0 ? 'wait_all_up' : 'none';
+          oneFingerInfo = null;
           return;
         }
 
@@ -6565,6 +6826,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     };
 
     const clearInputs = () => {
+      clearTouchPaintGrace();
       keysPressed.clear();
       activeTouches.clear();
       touchGestureMode = 'none';
@@ -6647,6 +6909,302 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     let initialMapsPreuploaded = true;
     const activeFireTileIndices: number[] = [];
 
+    let lastPropLodBand = -1;
+    let lastPropLodFrustum = -1;
+    let lastPropCullMinX = 0;
+    let lastPropCullMaxX = 0;
+    let lastPropCullMinZ = 0;
+    let lastPropCullMaxZ = 0;
+    let lastPropCamX = -9999;
+    let lastPropCamZ = -9999;
+    let lastPropCamYaw = -9999;
+    let lastPropFoliageFactor = -1;
+
+    const pushTreeCache = (
+      x: number,
+      z: number,
+      biomeIdx: number,
+      variantIdx: number,
+      flags: number,
+      els: number[],
+    ) => {
+      if (treeCacheCount >= treeCacheCap) {
+        const nextCap = treeCacheCap * 2;
+        const nx = new Float32Array(nextCap);
+        const nz = new Float32Array(nextCap);
+        const nb = new Uint8Array(nextCap);
+        const nv = new Uint8Array(nextCap);
+        const nf = new Uint8Array(nextCap);
+        const nm = new Float32Array(nextCap * 16);
+        nx.set(treeCacheX);
+        nz.set(treeCacheZ);
+        nb.set(treeCacheBiome);
+        nv.set(treeCacheVar);
+        nf.set(treeCacheFlags);
+        nm.set(treeCacheMat);
+        treeCacheX = nx;
+        treeCacheZ = nz;
+        treeCacheBiome = nb;
+        treeCacheVar = nv;
+        treeCacheFlags = nf;
+        treeCacheMat = nm;
+        treeCacheCap = nextCap;
+      }
+      const idx = treeCacheCount++;
+      treeCacheX[idx] = x;
+      treeCacheZ[idx] = z;
+      treeCacheBiome[idx] = biomeIdx;
+      treeCacheVar[idx] = variantIdx;
+      treeCacheFlags[idx] = flags;
+      const off = idx * 16;
+      for (let m = 0; m < 16; m++) treeCacheMat[off + m] = els[m];
+    };
+
+    const pushPropCache = (
+      kind: number,
+      variantIdx: number,
+      x: number,
+      z: number,
+      els: number[],
+      tintHex = 0xffffff,
+    ) => {
+      if (propCacheCount >= propCacheCap) {
+        const nextCap = propCacheCap * 2;
+        const nx = new Float32Array(nextCap);
+        const nz = new Float32Array(nextCap);
+        const nk = new Uint8Array(nextCap);
+        const nv = new Uint8Array(nextCap);
+        const nt = new Uint32Array(nextCap);
+        const nm = new Float32Array(nextCap * 16);
+        nx.set(propCacheX);
+        nz.set(propCacheZ);
+        nk.set(propCacheKind);
+        nv.set(propCacheVar);
+        nt.set(propCacheTint);
+        nm.set(propCacheMat);
+        propCacheX = nx;
+        propCacheZ = nz;
+        propCacheKind = nk;
+        propCacheVar = nv;
+        propCacheTint = nt;
+        propCacheMat = nm;
+        propCacheCap = nextCap;
+      }
+      const idx = propCacheCount++;
+      propCacheX[idx] = x;
+      propCacheZ[idx] = z;
+      propCacheKind[idx] = kind;
+      propCacheVar[idx] = variantIdx;
+      propCacheTint[idx] = tintHex;
+      const off = idx * 16;
+      for (let m = 0; m < 16; m++) propCacheMat[off + m] = els[m];
+    };
+
+    const pushAmbCache = (
+      groupIdx: number,
+      variantIdx: number,
+      tier: number,
+      x: number,
+      z: number,
+      els: number[],
+    ) => {
+      if (ambCacheCount >= ambCacheCap) {
+        const nextCap = ambCacheCap * 2;
+        const nx = new Float32Array(nextCap);
+        const nz = new Float32Array(nextCap);
+        const ng = new Uint8Array(nextCap);
+        const nv = new Uint8Array(nextCap);
+        const nt = new Uint8Array(nextCap);
+        const nm = new Float32Array(nextCap * 16);
+        nx.set(ambCacheX);
+        nz.set(ambCacheZ);
+        ng.set(ambCacheGroup);
+        nv.set(ambCacheVar);
+        nt.set(ambCacheTier);
+        nm.set(ambCacheMat);
+        ambCacheX = nx;
+        ambCacheZ = nz;
+        ambCacheGroup = ng;
+        ambCacheVar = nv;
+        ambCacheTier = nt;
+        ambCacheMat = nm;
+        ambCacheCap = nextCap;
+      }
+      const idx = ambCacheCount++;
+      ambCacheX[idx] = x;
+      ambCacheZ[idx] = z;
+      ambCacheGroup[idx] = groupIdx;
+      ambCacheVar[idx] = variantIdx;
+      ambCacheTier[idx] = tier;
+      const off = idx * 16;
+      for (let m = 0; m < 16; m++) ambCacheMat[off + m] = els[m];
+    };
+
+    const rebuildVisiblePropsAndLod = () => {
+      for (let i = 0; i < propBatches.length; i++) {
+        propBatches[i].reset();
+      }
+      treeImpostors.reset();
+      treeBatchShadow.reset();
+      treeBatchNoShadow.reset();
+      ambBatch.reset();
+
+      // Balanced high-detail LOD bands (paired with exact OBB culling so detail stays crisp further out):
+      // 0 (<22): close-up (LOD0 hero / LOD1 companion)
+      // 1 (22..40): mid-close (LOD1 hero & inner companion / LOD2 outer — 100% 3D)
+      // 2 (40..64): region (LOD2 inner 3D / 2-tri baked impostor outer)
+      // 3 (>=64): far & overview (2-tri baked impostors in 1 draw call)
+      const lodBand = frustumSize < 22 ? 0 : frustumSize < 40 ? 1 : frustumSize < 64 ? 2 : 3;
+      const focusX = camTarget.x;
+      const focusZ = camTarget.z;
+      const innerR = Math.max(
+        8.5,
+        frustumSize * (lodBand === 0 ? 0.65 : lodBand === 1 ? 0.58 : 0.45),
+      );
+      const innerRSq = innerR * innerR;
+      const propR = Math.max(14, frustumSize * 0.55);
+      const propRSq = propR * propR;
+
+      // Exact camera-oriented 2D bounding box (OBB) eliminates ~75% of off-screen trees
+      // that used to leak through the 4 empty diagonal corners of the axis-aligned AABB.
+      const obbAspect = getCurrentAspect();
+      const obbPad = 6.0;
+      const rx = Math.cos(camYaw);
+      const rz = -Math.sin(camYaw);
+      const fx = Math.sin(camYaw);
+      const fz = Math.cos(camYaw);
+      const halfW = (frustumSize * obbAspect) * 0.5 + obbPad;
+      const halfFFront = frustumSize * 0.82 + 3.0 + obbPad;
+      const halfFBack = frustumSize * 0.82 + 7.5 + obbPad;
+
+      const cMinX = worldCullBounds.minX - obbPad;
+      const cMaxX = worldCullBounds.maxX + obbPad;
+      const cMinZ = worldCullBounds.minZ - obbPad;
+      const cMaxZ = worldCullBounds.maxZ + obbPad;
+      const useImpostors = treeImpostors.isBaked;
+
+      // 1. Trees (exact OBB cull + high-detail 4-tier LOD in 2 BatchedMesh draw calls + baked 2-tri impostors at far/overview)
+      for (let i = 0; i < treeCacheCount; i++) {
+        const tx = treeCacheX[i];
+        const tz = treeCacheZ[i];
+        const dx = tx - focusX;
+        const dz = tz - focusZ;
+        const projR = dx * rx + dz * rz;
+        if (projR < -halfW || projR > halfW) continue;
+        const projF = dx * fx + dz * fz;
+        if (projF < -halfFBack || projF > halfFFront) continue;
+
+        const flags = treeCacheFlags[i];
+        // Hide cramped under-canopy sapling layer (k===2) at overview where overlapping foliage occludes it
+        if (lodBand === 3 && (flags & 4) !== 0) continue;
+
+        const charred = flags & 1;
+        const isCompanion = (flags & 2) !== 0;
+
+        if (lodBand === 3) {
+          if (useImpostors) {
+            treeImpostors.pushTreeFromMatrix(charred, treeCacheBiome[i], treeCacheVar[i], treeCacheMat, i * 16);
+            continue;
+          }
+        } else if (lodBand === 2) {
+          if (dx * dx + dz * dz > innerRSq && useImpostors) {
+            treeImpostors.pushTreeFromMatrix(charred, treeCacheBiome[i], treeCacheVar[i], treeCacheMat, i * 16);
+            continue;
+          }
+        }
+
+        let lod = 3;
+        let castShad = !isCompanion;
+        if (lodBand === 0) {
+          if (dx * dx + dz * dz <= innerRSq) {
+            lod = isCompanion ? 1 : 0;
+          } else {
+            lod = 1;
+          }
+        } else if (lodBand === 1) {
+          if (dx * dx + dz * dz <= innerRSq) {
+            lod = 1;
+          } else {
+            lod = 2;
+          }
+        } else if (lodBand === 2) {
+          lod = dx * dx + dz * dz <= innerRSq ? 2 : 3;
+        } else {
+          lod = 3;
+        }
+
+        const gIdx = treeGeoIdx[charred][lod][treeCacheBiome[i]][treeCacheVar[i]];
+        if (castShad) {
+          treeBatchShadow.pushFromMatrixArray(gIdx, treeCacheMat, i * 16);
+        } else {
+          treeBatchNoShadow.pushFromMatrixArray(gIdx, treeCacheMat, i * 16);
+        }
+      }
+      treeImpostors.commit();
+      treeBatchShadow.commit();
+      treeBatchNoShadow.commit();
+
+      // 2. Resource Props (exact OBB cull + LOD0 close-up, LOD2 mid/region/overview)
+      for (let i = 0; i < propCacheCount; i++) {
+        const px = propCacheX[i];
+        const pz = propCacheZ[i];
+        const kind = propCacheKind[i];
+        const pad = kind === 9 ? 3.5 : 0; // Atlantis ruins have ~1.7u outer perimeter
+        const dx = px - focusX;
+        const dz = pz - focusZ;
+        const projR = dx * rx + dz * rz;
+        if (projR < -halfW - pad || projR > halfW + pad) continue;
+        const projF = dx * fx + dz * fz;
+        if (projF < -halfFBack - pad || projF > halfFFront + pad) continue;
+
+        let useLod0 = false;
+        if (lodBand === 0) {
+          useLod0 = true;
+        } else if (lodBand === 1) {
+          useLod0 = dx * dx + dz * dz <= propRSq;
+        }
+
+        const v = propCacheVar[i];
+        const bIdx = useLod0 ? propLod0Bucket[kind] : propLod2Bucket[kind];
+        const gIdx = (useLod0 ? propLod0GeoIdx : propLod2GeoIdx)[kind][v];
+        propBatches[bIdx].pushFromMatrixArray(gIdx, propCacheMat, i * 16, propCacheTint[i]);
+      }
+      for (let i = 0; i < propBatches.length; i++) {
+        propBatches[i].commit();
+      }
+
+      // 3. Ambient Ground Details (exact OBB cull + 1 single BatchedMesh draw call)
+      const factorTier = appliedFoliageFactor < 0.35 ? 0 : appliedFoliageFactor < 0.75 ? 1 : 2;
+      const zoomAmbTier = lodBand >= 2 ? 0 : lodBand === 1 ? 1 : 2;
+      const allowedAmbTier = Math.min(factorTier, zoomAmbTier);
+      for (let i = 0; i < ambCacheCount; i++) {
+        if (ambCacheTier[i] > allowedAmbTier) continue;
+        const ax = ambCacheX[i];
+        const az = ambCacheZ[i];
+        const dx = ax - focusX;
+        const dz = az - focusZ;
+        const projR = dx * rx + dz * rz;
+        if (projR < -halfW || projR > halfW) continue;
+        const projF = dx * fx + dz * fz;
+        if (projF < -halfFBack || projF > halfFFront) continue;
+        const gIdx = ambGeoIdx[ambCacheGroup[i]][ambCacheVar[i]];
+        ambBatch.pushFromMatrixArray(gIdx, ambCacheMat, i * 16);
+      }
+      ambBatch.commit();
+
+      propViewDirty = false;
+      lastPropLodBand = lodBand;
+      lastPropLodFrustum = frustumSize;
+      lastPropCullMinX = cMinX;
+      lastPropCullMaxX = cMaxX;
+      lastPropCullMinZ = cMinZ;
+      lastPropCullMaxZ = cMaxZ;
+      lastPropCamX = focusX;
+      lastPropCamZ = focusZ;
+      lastPropCamYaw = camYaw;
+      lastPropFoliageFactor = appliedFoliageFactor;
+    };
+
     const computeKingdomEpochSig = (s: SimulationState): string => {
       const ke = s.kingdomEpochs;
       if (!ke) return `${s.epochIndex}`;
@@ -6667,6 +7225,31 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       maxZ: number;
     }[] = [];
 
+    let lastTileScanTime = -1;
+    let lastTileScanPendingY = true;
+    let lastPropRebuildTime = -1;
+    let pendingPropsSync = false;
+    let lastMapTexSyncTime = -1;
+    let pendingWaterMapSync = false;
+    let pendingTerrainMapSync = false;
+    let simSteppedThisFrame = true;
+
+    // Staged progressive reveal spreads WebGL shader compilation across frames instead of freezing Frame 0
+    // 0: space+ocean only -> 1: terrain chunks -> 2: clouds+zones -> 3: props+ambient -> 4: trees -> 5: buildings+units+metro -> 6: impostors
+    let startupRevealStage = 0;
+    let startupStageWait = 0;
+    terrainGroup.visible = false;
+    skyClouds.group.visible = false;
+    skyClouds.shadowGroup.visible = false;
+    zoneOverlay.mesh.visible = false;
+    nodesGroup.visible = false;
+    ambBatch.group.visible = false;
+    treeBatchShadow.group.visible = false;
+    treeBatchNoShadow.group.visible = false;
+    buildingsGroup.visible = false;
+    unitsGroup.visible = false;
+    metroGroup.visible = false;
+
     function syncSceneFromSimulation(simState: SimulationState, dt: number, elapsed: number) {
       syncFrameStamp++;
 
@@ -6678,7 +7261,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         zoneOverlay.updateZones(zb.colorData, zb.idData, zb.anyActive);
       }
 
-      let propsNeedSync = false;
+      let propsNeedSync = pendingPropsSync;
       let metroNeedsSync = false;
       let terrainMapDirty = false;
       const curKingdomEpochSig = computeKingdomEpochSig(simState);
@@ -6729,7 +7312,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         }
         const refreshedGrid = ensureWorldGrid(simState);
         syncWorldGridFromTiles(refreshedGrid, simState.tiles, true);
-        chunkTerrain.rebuildAllSync(refreshedGrid, tileRenderY);
+        chunkTerrain.queueProgressiveRebuild(refreshedGrid);
         const newCenter = (simState.gridSize - 1) / 2;
         camDesiredTarget.set(newCenter, 1.2, newCenter);
         camTarget.set(newCenter, 1.2, newCenter);
@@ -6784,13 +7367,27 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       const hasTsunamis = activeTsunamis.length > 0;
       const hasQuakes = activeQuakeCount > 0;
 
-      // Single-pass dirty-chunk terrain & prop synchronization against flat WorldGridBuffers
+      // Single-pass dirty-chunk terrain & prop synchronization against flat WorldGridBuffers.
+      // Skip scanning all 65k-262k tiles on interpolated frames where neither a sim tick nor
+      // dynamic terrain deformation ran (saves ~75% of full-map CPU scans at 60 FPS).
       const worldGrid = ensureWorldGrid(simState);
       const tiles = simState.tiles;
       const tileCount = tiles.length;
-      activeFireTileIndices.length = 0;
 
       let anyDynamicTileY = false;
+      const shouldScanTiles =
+        simChanged ||
+        simSteppedThisFrame ||
+        lastTileScanPendingY ||
+        hasTsunamis ||
+        hasQuakes ||
+        terrainMapDirty ||
+        worldGrid.dirtyChunkCount > 0 ||
+        elapsed - lastTileScanTime >= 0.065;
+
+      if (shouldScanTiles) {
+        lastTileScanTime = elapsed;
+        activeFireTileIndices.length = 0;
 
       for (let i = 0; i < tileCount; i++) {
         const t = tiles[i];
@@ -6925,22 +7522,23 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             t.burntTree || (t.resourceNode === 'timber_grove' && t.terrain === 'scorched')
               ? 1
               : 0;
+          const overrideBiome = t.burntTreeBiome ?? t.treeBiomeOverride;
           const burntBiomeCode =
-            t.burntTreeBiome === 'forest'
+            overrideBiome === 'forest'
               ? 1
-              : t.burntTreeBiome === 'meadow'
+              : overrideBiome === 'meadow'
                 ? 2
-                : t.burntTreeBiome === 'jungle'
+                : overrideBiome === 'jungle'
                   ? 3
-                  : t.burntTreeBiome === 'taiga'
+                  : overrideBiome === 'taiga'
                     ? 4
-                    : t.burntTreeBiome === 'blossom'
+                    : overrideBiome === 'blossom'
                       ? 5
-                      : t.burntTreeBiome === 'savanna'
+                      : overrideBiome === 'savanna'
                         ? 6
-                        : t.burntTreeBiome === 'swamp'
+                        : overrideBiome === 'swamp'
                           ? 7
-                          : t.burntTreeBiome === 'highland'
+                          : overrideBiome === 'highland'
                             ? 8
                             : 0;
           const sig =
@@ -6978,21 +7576,68 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           }
         }
       }
+      lastTileScanPendingY = anyDynamicTileY;
+      }
 
       if (initialMapsPreuploaded) {
         initialMapsPreuploaded = false;
       } else {
-        if (waterMapNeedsSync) {
-          oceanFoam.updateMap(simState.tiles);
-        }
-        if (terrainMapDirty || waterMapNeedsSync) {
-          styledTerrain.updateMap(simState.tiles, simState.buildings, simState.settlementSpecies);
-          zoneOverlay.updateMap(simState.tiles);
+        if (waterMapNeedsSync) pendingWaterMapSync = true;
+        if (terrainMapDirty || waterMapNeedsSync) pendingTerrainMapSync = true;
+        const canRunMapTexSync =
+          simChanged || lastMapTexSyncTime < 0 || elapsed - lastMapTexSyncTime >= 0.12;
+        if (canRunMapTexSync && (pendingWaterMapSync || pendingTerrainMapSync)) {
+          lastMapTexSyncTime = elapsed;
+          if (pendingWaterMapSync) {
+            pendingWaterMapSync = false;
+            oceanFoam.updateMap(simState.tiles);
+          }
+          if (pendingTerrainMapSync) {
+            pendingTerrainMapSync = false;
+            styledTerrain.updateMap(simState.tiles, simState.buildings, simState.settlementSpecies);
+            zoneOverlay.updateMap(simState.tiles);
+          }
         }
       }
 
-      // Rebuild only modified 32x32 chunks (sync for instant 1-6 chunk edits, Comlink workers for bulk)
-      if (worldGrid.dirtyChunkCount > 0) {
+      // Advance staged progressive reveal (1 layer per frame) so Frame 0 stays light while the full title background loads in ~4 frames
+      if (startupRevealStage < 4) {
+        startupStageWait++;
+        if (startupRevealStage === 0 && startupStageWait >= 1) {
+          startupRevealStage = 1;
+          startupStageWait = 0;
+          terrainGroup.visible = true;
+          skyClouds.group.visible = true;
+          skyClouds.shadowGroup.visible = true;
+          zoneOverlay.mesh.visible = true;
+        } else if (startupRevealStage === 1 && !chunkTerrain.hasPendingProgressiveRebuild()) {
+          startupRevealStage = 2;
+          startupStageWait = 0;
+          nodesGroup.visible = true;
+          ambBatch.group.visible = true;
+          treeBatchShadow.group.visible = true;
+          treeBatchNoShadow.group.visible = true;
+          propViewDirty = true;
+        } else if (startupRevealStage === 2 && startupStageWait >= 1) {
+          startupRevealStage = 3;
+          startupStageWait = 0;
+          buildingsGroup.visible = true;
+          unitsGroup.visible = true;
+          metroGroup.visible = true;
+        } else if (startupRevealStage === 3 && startupStageWait >= 1) {
+          startupRevealStage = 4;
+          startupStageWait = 0;
+        }
+      }
+
+      // Stream initial/world-switch terrain chunks center-outward (8 chunks/frame) so the island appears in 2 frames without freezing
+      const terrainStreaming = chunkTerrain.hasPendingProgressiveRebuild();
+      if (terrainStreaming) {
+        if (startupRevealStage >= 1) {
+          chunkTerrain.stepProgressiveRebuild(worldGrid, tileRenderY, 8);
+        }
+      } else if (worldGrid.dirtyChunkCount > 0) {
+        // Rebuild only modified 32x32 chunks (sync for instant 1-6 chunk edits, Comlink workers for bulk)
         chunkTerrain.flushDirtyChunks(
           worldGrid,
           anyDynamicTileY || hasTsunamis || hasQuakes ? tileRenderY : null,
@@ -7000,14 +7645,28 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         );
       }
 
-      if (propsNeedSync) {
-        for (let i = 0; i < resourcePropInsts.length; i++) resourcePropInsts[i].count = 0;
-        for (let i = 0; i < ambientPropInsts.length; i++) {
-          const inst = ambientPropInsts[i];
-          inst.count = 0;
-          ambMedStage.get(inst)!.length = 0;
-          ambFullStage.get(inst)!.length = 0;
+      // Progressively bake the 2048x1024 tree impostor atlas (2 species/frame) once all scene layers have revealed
+      if (startupRevealStage >= 4 && !terrainStreaming && !treeImpostors.isBaked) {
+        if (treeImpostors.stepBake(2)) {
+          propViewDirty = true;
         }
+      }
+
+      // Debounce routine full-map prop matrix recompositions (~5.5 Hz) and defer until props/trees reveal stage
+      const runPropsSyncNow =
+        propsNeedSync &&
+        startupRevealStage >= 2 &&
+        !terrainStreaming &&
+        (simChanged || lastPropRebuildTime < 0 || elapsed - lastPropRebuildTime >= 0.18);
+      if (propsNeedSync && !runPropsSyncNow) {
+        pendingPropsSync = true;
+      }
+      if (runPropsSyncNow) {
+        pendingPropsSync = false;
+        lastPropRebuildTime = elapsed;
+        treeCacheCount = 0;
+        propCacheCount = 0;
+        ambCacheCount = 0;
 
         for (let i = 0; i < simState.tiles.length; i++) {
           const t = simState.tiles[i];
@@ -7033,10 +7692,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           const isCharredTreeTile =
             Boolean(t.burntTree) || (t.resourceNode === 'timber_grove' && t.terrain === 'scorched');
           if (t.resourceNode === 'timber_grove' || (t.resourceNode === 'none' && t.burntTree)) {
-            const biome: TreeBiomeKey = t.burntTreeBiome ?? mapTerrainToTreeBiome(t.terrain);
-            const pool = isCharredTreeTile
-              ? burntTreeInstsByBiome[biome]
-              : voxelTreeInstsByBiome[biome];
+            const biome: TreeBiomeKey =
+              t.burntTreeBiome ?? t.treeBiomeOverride ?? mapTerrainToTreeBiome(t.terrain);
+            const biomeIdx = BIOME_KEY_TO_IDX[biome];
+            const poolLen = treeBiomePoolLen[isCharredTreeTile ? 1 : 0][biomeIdx];
             const isDenseBiome =
               biome === 'forest' ||
               biome === 'jungle' ||
@@ -7058,15 +7717,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
               : roll < 58
                 ? 2
                 : 1;
-            const heroSlot = h % pool.length;
+            const heroSlot = h % poolLen;
             const baseAng = ((h >> 4) & 7) * (Math.PI / 4);
 
             for (let k = 0; k < treeCount; k++) {
               const kh = Math.abs((h ^ ((k + 1) * 2654435761) ^ (k * 97531)) | 0);
-              const treeInst =
-                k === 0
-                  ? pool[heroSlot]
-                  : pool[(heroSlot + 1 + (kh % Math.max(1, pool.length - 1))) % pool.length];
+              const variantIdx =
+                k === 0 ? heroSlot : (heroSlot + 1 + (kh % Math.max(1, poolLen - 1))) % poolLen;
 
               // 16-angle compass 3D rotation + clustered triangular grove spacing so neighboring canopies weave together
               const rotAngle = ((kh >> 2) & 15) * (Math.PI / 8);
@@ -7080,12 +7737,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
                 ox = Math.cos(ang) * rad;
                 oz = Math.sin(ang) * rad;
               }
-              _dummyPos.set(t.x + ox, curY, t.z + oz);
+              const wx = t.x + ox;
+              const wz = t.z + oz;
+              _dummyPos.set(wx, curY, wz);
 
               // Lush layered canopy heights: tall hero (0.82x..1.38x), medium companion (0.62x..0.94x), young sapling (0.48x..0.68x)
               const sizeTier = (kh >> 16) % 7;
               let scaleY = 0.78 + sizeTier * 0.092 + canopyWave * 0.72;
-              let scaleXZ = 0.80 + sizeTier * 0.058 + (((kh >> 20) & 7) - 3.5) * 0.025 + canopyWave * 0.35;
+              let scaleXZ = 0.8 + sizeTier * 0.058 + (((kh >> 20) & 7) - 3.5) * 0.025 + canopyWave * 0.35;
               if (k === 1) {
                 scaleY *= 0.72 + ((kh >> 22) & 3) * 0.06;
                 scaleXZ *= 0.76 + ((kh >> 24) & 3) * 0.05;
@@ -7098,10 +7757,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
               _propScale.set(scaleXZ, scaleY, scaleXZ);
               _dummyMatrix.compose(_dummyPos, _propQuat, _propScale);
-              const pSlot = treeInst.count;
-              ensureInstancedCapacity(treeInst, pSlot + 1);
-              treeInst.count = pSlot + 1;
-              treeInst.setMatrixAt(pSlot, _dummyMatrix);
+              const flags = (isCharredTreeTile ? 1 : 0) | (k >= 1 ? 2 : 0) | (k === 2 ? 4 : 0);
+              pushTreeCache(wx, wz, biomeIdx, variantIdx, flags, _dummyMatrix.elements);
             }
             _propScale.set(1, 1, 1);
             continue;
@@ -7120,156 +7777,178 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           _dummyMatrix.compose(_dummyPos, _propQuat, _propScale);
           _propScale.set(1, 1, 1);
 
-          let targetInst: THREE.InstancedMesh | null = null;
-          let ambThresh = 0;
           if (t.resourceNode === 'coral_reef') {
             const isBleached = (t.coralBleachTimer ?? 0) > 0 || t.resourceAmount <= 0;
-            targetInst = isBleached
-              ? coralReefBleachedInsts[h % coralReefBleachedInsts.length]
-              : coralReefInsts[h % coralReefInsts.length];
+            const kind = isBleached ? 7 : 6;
+            const len = propKindLens[kind];
+            pushPropCache(kind, h % len, t.x, t.z, _dummyMatrix.elements);
           } else if (t.resourceNode === 'scrap_flotsam') {
-            targetInst = scrapFlotsamInsts[h % scrapFlotsamInsts.length];
+            pushPropCache(8, h % propKindLens[8], t.x, t.z, _dummyMatrix.elements);
           } else if (t.resourceNode === 'atlantis_ruin') {
-            targetInst = atlantisRuinInsts[h % atlantisRuinInsts.length];
+            pushPropCache(9, h % propKindLens[9], t.x, t.z, _dummyMatrix.elements);
           } else if (t.resourceNode === 'berry_bush') {
             const farmEpoch = t.farmSettlementId ? getSettlementEpoch(simState, t.farmSettlementId) : 0;
             if (t.farmSettlementId && farmEpoch >= 6) {
-              targetInst = sciFiFarmInsts[h % sciFiFarmInsts.length];
+              pushPropCache(2, h % propKindLens[2], t.x, t.z, _dummyMatrix.elements);
             } else if (t.farmSettlementId && farmEpoch >= 1) {
-              targetInst = farmCropInsts[h % farmCropInsts.length];
+              pushPropCache(1, h % propKindLens[1], t.x, t.z, _dummyMatrix.elements);
             } else {
-              targetInst = berryInsts[h % berryInsts.length];
+              pushPropCache(0, h % propKindLens[0], t.x, t.z, _dummyMatrix.elements);
             }
           } else if (t.resourceNode === 'stone_outcrop') {
-            targetInst = stoneInsts[h % stoneInsts.length];
+            const stoneTint =
+              t.terrain === 'sand' || t.terrain === 'savanna' || t.terrain === 'badlands'
+                ? 0xe8c796
+                : t.terrain === 'scorched' || t.terrain === 'void_goo'
+                  ? 0x6b6068
+                  : t.terrain === 'snow' || t.terrain === 'tundra' || t.terrain === 'ice'
+                    ? 0xd0e8fa
+                    : t.terrain === 'jungle' || t.terrain === 'swamp' || t.terrain === 'forest' || t.terrain === 'fertile'
+                      ? 0xc2d8ba
+                      : t.terrain === 'blossom'
+                        ? 0xf0d6e2
+                        : t.terrain === 'crystal_field'
+                          ? 0xdcc6f7
+                          : 0xffffff;
+            pushPropCache(3, h % propKindLens[3], t.x, t.z, _dummyMatrix.elements, stoneTint);
           } else if (t.resourceNode === 'ore_vein') {
-            targetInst = oreInsts[h % oreInsts.length];
+            const oreTint =
+              t.terrain === 'sand' || t.terrain === 'savanna' || t.terrain === 'badlands'
+                ? 0xf6d590
+                : t.terrain === 'scorched' || t.terrain === 'void_goo'
+                  ? 0xf09574
+                  : t.terrain === 'snow' || t.terrain === 'tundra' || t.terrain === 'ice'
+                    ? 0xc4e6ff
+                    : t.terrain === 'jungle' || t.terrain === 'swamp' || t.terrain === 'forest' || t.terrain === 'fertile'
+                      ? 0xc8e4c4
+                      : t.terrain === 'blossom'
+                        ? 0xf6cde2
+                        : t.terrain === 'crystal_field'
+                          ? 0xe0c8fa
+                          : 0xffffff;
+            pushPropCache(4, h % propKindLens[4], t.x, t.z, _dummyMatrix.elements, oreTint);
           } else if (t.resourceNode === 'crystal_monolith') {
-            targetInst = crystalInsts[h % crystalInsts.length];
+            const crystalTint =
+              t.terrain === 'scorched' || t.terrain === 'badlands'
+                ? 0xffb3c1
+                : t.terrain === 'snow' || t.terrain === 'tundra'
+                  ? 0xbef2ff
+                  : t.terrain === 'jungle' || t.terrain === 'swamp' || t.terrain === 'forest'
+                    ? 0xb8f5d8
+                    : t.terrain === 'sand' || t.terrain === 'savanna'
+                      ? 0xfee5a5
+                      : 0xffffff;
+            pushPropCache(5, h % propKindLens[5], t.x, t.z, _dummyMatrix.elements, crystalTint);
           } else {
-            // Ambient multi-object sub-tile details partitioned into contiguous Low / Med / Full tiers
+            // Ambient multi-object sub-tile details partitioned into Low / Med / Full tiers
             const chance = (h >> 4) % 100;
+            let ambGroupIdx = -1;
+            let ambThresh = 0;
             if (t.terrain === 'grass' || (t.terrain === 'fertile' && !t.farmSettlementId)) {
               ambThresh = 48;
-              if (chance < ambThresh) targetInst = ambGrassInsts[h % ambGrassInsts.length];
+              ambGroupIdx = 0;
             } else if (t.terrain === 'forest') {
               ambThresh = 60;
-              if (chance < ambThresh) targetInst = ambForestInsts[h % ambForestInsts.length];
+              ambGroupIdx = 1;
             } else if (t.terrain === 'sand') {
               ambThresh = 44;
-              if (chance < ambThresh) targetInst = ambSandInsts[h % ambSandInsts.length];
+              ambGroupIdx = 2;
             } else if (t.terrain === 'rock') {
               ambThresh = 45;
-              if (chance < ambThresh) targetInst = ambRockInsts[h % ambRockInsts.length];
+              ambGroupIdx = 3;
             } else if (t.terrain === 'snow') {
               ambThresh = 42;
-              if (chance < ambThresh) targetInst = ambSnowInsts[h % ambSnowInsts.length];
+              ambGroupIdx = 4;
             } else if (t.terrain === 'savanna') {
               ambThresh = 50;
-              if (chance < ambThresh) targetInst = ambSavannaInsts[h % ambSavannaInsts.length];
+              ambGroupIdx = 5;
             } else if (t.terrain === 'swamp') {
               ambThresh = 55;
-              if (chance < ambThresh) targetInst = ambSwampInsts[h % ambSwampInsts.length];
+              ambGroupIdx = 6;
             } else if (t.terrain === 'highland') {
               ambThresh = 48;
-              if (chance < ambThresh) targetInst = ambHighlandInsts[h % ambHighlandInsts.length];
+              ambGroupIdx = 7;
             } else if (t.terrain === 'jungle') {
               ambThresh = 72;
-              if (chance < ambThresh) targetInst = ambJungleInsts[h % ambJungleInsts.length];
+              ambGroupIdx = 8;
             } else if (t.terrain === 'mountain') {
               ambThresh = 62;
-              if (chance < ambThresh) targetInst = ambMountainInsts[h % ambMountainInsts.length];
+              ambGroupIdx = 9;
             } else if (t.terrain === 'taiga') {
               ambThresh = 58;
-              if (chance < ambThresh) targetInst = ambTaigaInsts[h % ambTaigaInsts.length];
+              ambGroupIdx = 10;
             } else if (t.terrain === 'tundra') {
               ambThresh = 52;
-              if (chance < ambThresh) targetInst = ambTundraInsts[h % ambTundraInsts.length];
+              ambGroupIdx = 11;
             } else if (t.terrain === 'badlands') {
               ambThresh = 58;
-              if (chance < ambThresh) targetInst = ambBadlandsInsts[h % ambBadlandsInsts.length];
+              ambGroupIdx = 12;
             } else if (t.terrain === 'blossom') {
               ambThresh = 66;
-              if (chance < ambThresh) targetInst = ambBlossomInsts[h % ambBlossomInsts.length];
+              ambGroupIdx = 13;
             } else if (t.terrain === 'crystal_field') {
               ambThresh = 64;
               if (chance < ambThresh) {
-                targetInst = crystalInsts[(h >> 3) % crystalInsts.length];
-                _dummyMatrix.scale(new THREE.Vector3(0.62, 0.62, 0.62));
+                _propScale.set(0.62, 0.62, 0.62);
+                _dummyMatrix.compose(_dummyPos, _propQuat, _propScale);
+                _propScale.set(1, 1, 1);
+                pushPropCache(5, (h >> 3) % propKindLens[5], t.x, t.z, _dummyMatrix.elements);
               }
             }
 
-            if (targetInst && ambientPropSet.has(targetInst)) {
-              if (chance < ambThresh * 0.22) {
-                const pSlot = targetInst.count;
-                ensureInstancedCapacity(targetInst, pSlot + 1);
-                targetInst.count = pSlot + 1;
-                targetInst.setMatrixAt(pSlot, _dummyMatrix);
-              } else {
-                const els = _dummyMatrix.elements;
-                const stage =
-                  chance < ambThresh * 0.55
-                    ? ambMedStage.get(targetInst)!
-                    : ambFullStage.get(targetInst)!;
-                for (let k = 0; k < 16; k++) stage.push(els[k]);
-              }
-              targetInst = null;
+            if (ambGroupIdx >= 0 && chance < ambThresh) {
+              const ambTier = chance < ambThresh * 0.22 ? 0 : chance < ambThresh * 0.55 ? 1 : 2;
+              const len = ambGroupLens[ambGroupIdx];
+              pushAmbCache(ambGroupIdx, h % len, ambTier, t.x, t.z, _dummyMatrix.elements);
             }
           }
-
-          if (targetInst) {
-            const pSlot = targetInst.count;
-            ensureInstancedCapacity(targetInst, pSlot + 1);
-            targetInst.count = pSlot + 1;
-            targetInst.setMatrixAt(pSlot, _dummyMatrix);
-          }
         }
 
-        for (let i = 0; i < resourcePropInsts.length; i++) {
-          const pInst = resourcePropInsts[i];
-          if (pInst.count > 0) {
-            pInst.instanceMatrix.clearUpdateRanges();
-            pInst.instanceMatrix.addUpdateRange(0, pInst.count * 16);
-            pInst.instanceMatrix.needsUpdate = true;
-          }
-        }
+        propViewDirty = true;
+      }
 
-        for (let i = 0; i < ambientPropInsts.length; i++) {
-          const pInst = ambientPropInsts[i];
-          const lowCount = pInst.count;
-          const med = ambMedStage.get(pInst)!;
-          const full = ambFullStage.get(pInst)!;
-          const totalNeeded = lowCount + ((med.length + full.length) >> 4);
-          if (totalNeeded > pInst.instanceMatrix.count) {
-            ensureInstancedCapacity(pInst, totalNeeded);
-          }
-          const cap = pInst.instanceMatrix.count;
-          const arr = pInst.instanceMatrix.array as Float32Array;
+      const curLodBand = frustumSize < 22 ? 0 : frustumSize < 40 ? 1 : frustumSize < 64 ? 2 : 3;
+      const wholeMapVisible =
+        worldCullBounds.minX <= 0 &&
+        worldCullBounds.maxX >= simState.gridSize - 1 &&
+        worldCullBounds.minZ <= 0 &&
+        worldCullBounds.maxZ >= simState.gridSize - 1;
+      const prevWholeMap =
+        lastPropCullMinX <= 0 &&
+        lastPropCullMaxX >= simState.gridSize - 1 &&
+        lastPropCullMinZ <= 0 &&
+        lastPropCullMaxZ >= simState.gridSize - 1;
+      const boundsShifted =
+        !wholeMapVisible &&
+        (worldCullBounds.minX < lastPropCullMinX + 1.0 ||
+          worldCullBounds.maxX > lastPropCullMaxX - 1.0 ||
+          worldCullBounds.minZ < lastPropCullMinZ + 1.0 ||
+          worldCullBounds.maxZ > lastPropCullMaxZ - 1.0 ||
+          worldCullBounds.minX - lastPropCullMinX > 16.0 ||
+          lastPropCullMaxX - worldCullBounds.maxX > 16.0 ||
+          worldCullBounds.minZ - lastPropCullMinZ > 16.0 ||
+          lastPropCullMaxZ - worldCullBounds.maxZ > 16.0);
+      if (boundsShifted || (wholeMapVisible && !prevWholeMap)) {
+        metroNeedsSync = true;
+      }
+      const frustumDeltaPct =
+        Math.abs(frustumSize - lastPropLodFrustum) / Math.max(10, lastPropLodFrustum);
+      const radialCamMoved =
+        !wholeMapVisible &&
+        (Math.abs(camTarget.x - lastPropCamX) > 4.2 ||
+          Math.abs(camTarget.z - lastPropCamZ) > 4.2);
+      const yawMoved = !wholeMapVisible && Math.abs(camYaw - lastPropCamYaw) > 0.14;
 
-          let cursor = lowCount;
-          let outOff = cursor * 16;
-          for (let m = 0; m < med.length && cursor < cap; m += 16) {
-            for (let k = 0; k < 16; k++) arr[outOff + k] = med[m + k];
-            outOff += 16;
-            cursor++;
-          }
-          const medCount = cursor;
-
-          for (let f = 0; f < full.length && cursor < cap; f += 16) {
-            for (let k = 0; k < 16; k++) arr[outOff + k] = full[f + k];
-            outOff += 16;
-            cursor++;
-          }
-          const fullCount = cursor;
-
-          ambTierCounts.set(pInst, { low: lowCount, med: medCount, full: fullCount });
-          if (fullCount > 0) {
-            pInst.instanceMatrix.clearUpdateRanges();
-            pInst.instanceMatrix.addUpdateRange(0, fullCount * 16);
-            pInst.instanceMatrix.needsUpdate = true;
-          }
-        }
-        applyAmbientFoliageFactor(appliedFoliageFactor);
+      if (
+        propViewDirty ||
+        curLodBand !== lastPropLodBand ||
+        lastPropFoliageFactor !== appliedFoliageFactor ||
+        boundsShifted ||
+        yawMoved ||
+        (curLodBand < 3 && frustumDeltaPct > 0.22) ||
+        radialCamMoved
+      ) {
+        rebuildVisiblePropsAndLod();
       }
 
       if (metroNeedsSync) {
@@ -7420,8 +8099,15 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
         const elevatedActive = maxWorldEpoch >= 5;
         const skybridgesActive = maxWorldEpoch >= 4;
-        for (let i = 0; i < simState.tiles.length; i++) {
-          const t = simState.tiles[i];
+        const mMinX = Math.max(0, Math.floor(worldCullBounds.minX - 2));
+        const mMaxX = Math.min(gs - 1, Math.ceil(worldCullBounds.maxX + 2));
+        const mMinZ = Math.max(0, Math.floor(worldCullBounds.minZ - 2));
+        const mMaxZ = Math.min(gs - 1, Math.ceil(worldCullBounds.maxZ + 2));
+        for (let mz = mMinZ; mz <= mMaxZ; mz++) {
+          const mRowOff = mz * gs;
+          for (let mx = mMinX; mx <= mMaxX; mx++) {
+            const i = mRowOff + mx;
+            const t = simState.tiles[i];
           const isWaterWalkway =
             t.height === 0 &&
             (t.terrain === 'stone_road' || t.terrain === 'rail_track' || t.terrain === 'runway');
@@ -7662,9 +8348,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             pushInst(metroParapetNSInst, mx + perpX * 0.27, midY + 0.76, mz + perpZ * 0.27, slopeX, yaw, 0, 1, 1, spanLen);
             pushInst(metroParapetNSInst, mx - perpX * 0.27, midY + 0.76, mz - perpZ * 0.27, slopeX, yaw, 0, 1, 1, spanLen);
           }
+          }
         }
 
         for (const mInst of allMetroInsts) {
+          mInst.visible = mInst.count > 0;
           if (mInst.count > 0) {
             mInst.instanceMatrix.clearUpdateRanges();
             mInst.instanceMatrix.addUpdateRange(0, mInst.count * 16);
@@ -7698,22 +8386,31 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         return rotY;
       };
 
-      // 2. Sync buildings via lossless THREE.BatchedMesh (collapses thousands of building draw calls to ~8)
+      // 2. Sync buildings via lossless THREE.BatchedMesh with 2-tier zoom LOD
+      batchedBuildings.setLodLevel(frustumSize >= 46 ? 1 : 0);
       const cullMinX = worldCullBounds.minX;
       const cullMaxX = worldCullBounds.maxX;
       const cullMinZ = worldCullBounds.minZ;
       const cullMaxZ = worldCullBounds.maxZ;
 
+      const MAX_NEW_BUILDINGS_PER_FRAME = startupRevealStage >= 3 ? 12 : 0;
+      let newBuildingsThisFrame = 0;
       for (let bi = 0; bi < simState.buildings.length; bi++) {
         const b = simState.buildings[bi];
-        const bInView =
-          b.tileX >= cullMinX && b.tileX <= cullMaxX && b.tileZ >= cullMinZ && b.tileZ <= cullMaxZ;
         const existingEntry = batchedBuildings.getEntry(b.id);
+        const bInView = isPointInCullBounds(
+          b.tileX,
+          b.tileZ,
+          worldCullBounds,
+          existingEntry ? DESPAWN_CULL_HYSTERESIS : 0,
+        );
         if (!bInView) {
-          if (existingEntry) {
-            batchedBuildings.setHidden(b.id, syncFrameStamp);
-          }
+          // Leave seenStamp unstamped so pruneUnseen() unrenders & frees off-screen BatchedMesh slots
           continue;
+        }
+        if (!existingEntry) {
+          if (newBuildingsThisFrame >= MAX_NEW_BUILDINGS_PER_FRAME) continue;
+          newBuildingsThisFrame++;
         }
 
         const tile = simState.tiles[b.tileZ * gsBld + b.tileX];
@@ -7776,40 +8473,49 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
       batchedBuildings.pruneUnseen(syncFrameStamp);
 
-      // 3. Sync units with cached limb/status references, viewport culling & adaptive crowd pacing
+      // 3. Sync units with cached limb/status references, viewport culling & zoom-aware shadow/detail LOD
       const selectedUnitId = propsRef.current.selectedEntityId;
       const hoveredUnitId = propsRef.current.hoveredEntityId ?? hoveredEntityInternal;
       const followingUnitId = propsRef.current.followingEntityId;
-      const wantUnitShadow = autoOptDecisions.unitCastShadows;
+      const curGfx = propsRef.current.graphicsSettings;
+      const isPerfMode = curGfx.strictLossless === false && !curGfx.autoOptimizeFps;
+      const wantSmallUnitShadow = !isPerfMode && autoOptDecisions.unitCastShadows && frustumSize < 56;
       const crowdAnimStride = autoOptDecisions.crowdAnimStride;
       const autoOptFrame = autoOptimizer.getFrameCounter();
+      let unitShadowCount = 0;
       let visibleUnitsThisFrame = 0;
+      const MAX_NEW_UNITS_PER_FRAME = startupRevealStage >= 3 ? 12 : 0;
+      let newUnitsThisFrame = 0;
 
       for (let ui = 0; ui < simState.units.length; ui++) {
         const u = simState.units[ui];
         let uEntry = unitMeshes.get(u.id);
-        const isProtectedUnit =
+        const isCameraPinnedUnit =
           u.id === selectedUnitId ||
           u.id === hoveredUnitId ||
           u.id === followingUnitId ||
-          Boolean(u.draggedByPlayer) ||
-          Boolean(u.favorite) ||
-          Boolean(u.isKing) ||
+          Boolean(u.draggedByPlayer);
+        const isBossUnit =
           u.role === 'dragon' ||
           u.role === 'leviathan' ||
           u.role === 'alien_walker' ||
           u.role === 'alien_ufo';
-        const uInView =
-          isProtectedUnit ||
-          (u.x >= cullMinX && u.x <= cullMaxX && u.z >= cullMinZ && u.z <= cullMaxZ);
+        const isProtectedUnit =
+          isCameraPinnedUnit ||
+          Boolean(u.favorite) ||
+          Boolean(u.isKing) ||
+          isBossUnit;
 
-        // Hide embarked units or off-screen units (simulation continues identically; GPU & animation sleep)
-        if (u.embarkedVehicleId || !uInView) {
-          if (uEntry) {
-            uEntry.seenStamp = syncFrameStamp;
-            if (uEntry.group.visible) uEntry.group.visible = false;
-          }
+        // Embarked or off-screen units are completely unrendered and live purely in simulation data
+        if (u.embarkedVehicleId) {
           continue;
+        }
+        if (!isCameraPinnedUnit) {
+          const bossPad = isBossUnit ? 6.0 : 0.0;
+          const uPad = uEntry ? bossPad + DESPAWN_CULL_HYSTERESIS : bossPad;
+          if (!isPointInCullBounds(u.x, u.z, worldCullBounds, uPad)) {
+            continue;
+          }
         }
         visibleUnitsThisFrame++;
 
@@ -7823,6 +8529,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           uEntry.species !== unitSpecies ||
           uEntry.ageStage !== unitAgeStage
         ) {
+          if (!uEntry && !isCameraPinnedUnit) {
+            if (newUnitsThisFrame >= MAX_NEW_UNITS_PER_FRAME) continue;
+            newUnitsThisFrame++;
+          }
           if (uEntry) {
             unitsGroup.remove(uEntry.group);
             disposeEntityGroup(uEntry.group);
@@ -7870,7 +8580,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             kneeBR: group.getObjectByName('knee_br'),
             legL: group.getObjectByName('leg_l'),
             legR: group.getObjectByName('leg_r'),
-            contactShadow: group.getObjectByName('contact_shadow'),
+            contactShadow: (() => {
+              const cs = group.getObjectByName('contact_shadow');
+              if (cs) cs.visible = false;
+              return cs;
+            })(),
+            contactShadowScale: group.getObjectByName('contact_shadow')?.scale.x ?? 0,
             heldTool: group.getObjectByName('held_tool'),
             carryBox: group.getObjectByName('carry_box') as THREE.Mesh | undefined,
             statusRing: group.getObjectByName('status_ring') as THREE.Mesh | undefined,
@@ -7909,7 +8624,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         if (!uGroup.visible) uGroup.visible = true;
 
         // Toggle small humanoid directional shadow-map casting automatically when zoomed out or under dense crowd load
-        // (ground contact_shadow disks remain crisp at all zoom distances)
+        // (ground contact_shadow disks remain crisp at all zoom distances; giant bosses keep directional shadows)
+        const wantUnitShadow =
+          u.role === 'dragon' ||
+          u.role === 'leviathan' ||
+          u.role === 'alien_walker' ||
+          u.role === 'alien_ufo'
+            ? autoOptDecisions.unitCastShadows
+            : wantSmallUnitShadow;
         if (uEntry.shadowCasters.length > 0 && uEntry.lastUnitCastShadow !== wantUnitShadow) {
           uEntry.lastUnitCastShadow = wantUnitShadow;
           for (let sci = 0; sci < uEntry.shadowCasters.length; sci++) {
@@ -8732,17 +9454,41 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           }
         }
 
-        const unitShadow = uEntry.contactShadow;
-        if (unitShadow) {
+        if (uEntry.contactShadowScale > 0 && !(u.role === 'leviathan' && u.leviathanSubmerged)) {
           const totalAir = flightHoverY + airborneAltY + pounceHopY;
-          unitShadow.scale.setScalar(Math.max(0.28, 1 - totalAir * 0.18));
+          const s = uEntry.contactShadowScale * Math.max(0.28, 1 - totalAir * 0.18);
+          const slot = unitShadowCount++;
+          ensureInstancedCapacity(unitContactShadowsInst, unitShadowCount);
+          const arr = unitContactShadowsInst.instanceMatrix.array as Float32Array;
+          const off = slot * 16;
+          arr[off] = s;
+          arr[off + 1] = 0;
+          arr[off + 2] = 0;
+          arr[off + 3] = 0;
+          arr[off + 4] = 0;
+          arr[off + 5] = s;
+          arr[off + 6] = 0;
+          arr[off + 7] = 0;
+          arr[off + 8] = 0;
+          arr[off + 9] = 0;
+          arr[off + 10] = s;
+          arr[off + 11] = 0;
+          arr[off + 12] = uGroup.position.x;
+          arr[off + 13] = uGroup.position.y + 0.018;
+          arr[off + 14] = uGroup.position.z;
+          arr[off + 15] = 1;
         }
 
         const heldTool = uEntry.heldTool;
-        if (heldTool) {
+        if (heldTool && heldTool.visible && runMicroAnim) {
           heldTool.rotation.x = isWorking && !isFrozen ? 0.45 + Math.sin(elapsed * 18) * 0.65 : 0.35;
         }
         } // end runMicroAnim
+
+        if (uEntry.heldTool) {
+          const showTool = frustumSize < 38;
+          if (uEntry.heldTool.visible !== showTool) uEntry.heldTool.visible = showTool;
+        }
 
         const carryBox = uEntry.carryBox;
         if (carryBox) {
@@ -8810,6 +9556,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       }
 
       visibleUnitCountLastFrame = visibleUnitsThisFrame;
+      unitContactShadowsInst.count = unitShadowCount;
+      unitContactShadowsInst.visible = unitShadowCount > 0;
+      if (unitShadowCount > 0) {
+        unitContactShadowsInst.instanceMatrix.clearUpdateRanges();
+        unitContactShadowsInst.instanceMatrix.addUpdateRange(0, unitShadowCount * 16);
+        unitContactShadowsInst.instanceMatrix.needsUpdate = true;
+      }
 
       for (const [id, uEntry] of unitMeshes.entries()) {
         if (uEntry.seenStamp !== syncFrameStamp) {
@@ -8824,14 +9577,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       if (vehicles && vehicles.length > 0) {
         for (let vi = 0; vi < vehicles.length; vi++) {
           const v = vehicles[vi];
-          const vInView =
-            v.x >= cullMinX && v.x <= cullMaxX && v.z >= cullMinZ && v.z <= cullMaxZ;
           let vEntry = vehicleMeshes.get(v.id);
-          if (!vInView) {
-            if (vEntry) {
-              vEntry.seenStamp = syncFrameStamp;
-              if (vEntry.group.visible) vEntry.group.visible = false;
-            }
+          const vBasePad =
+            v.type === 'plane' || v.type === 'bomber_plane' || v.type === 'orbital_gunship'
+              ? 3.5
+              : 0.5;
+          const vPad = vEntry ? vBasePad + DESPAWN_CULL_HYSTERESIS : vBasePad;
+          if (!isPointInCullBounds(v.x, v.z, worldCullBounds, vPad)) {
             continue;
           }
           if (
@@ -9009,14 +9761,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         const gsWisp = simState.gridSize;
         for (let wi = 0; wi < wispsList.length; wi++) {
           const w = wispsList[wi];
-          const wInView =
-            w.x >= cullMinX && w.x <= cullMaxX && w.z >= cullMinZ && w.z <= cullMaxZ;
           let wEntry = wispMeshes.get(w.id);
-          if (!wInView) {
-            if (wEntry) {
-              wEntry.seenStamp = syncFrameStamp;
-              if (wEntry.group.visible) wEntry.group.visible = false;
-            }
+          const wPad = wEntry ? DESPAWN_CULL_HYSTERESIS : 0;
+          if (!isPointInCullBounds(w.x, w.z, worldCullBounds, wPad)) {
             continue;
           }
           if (!wEntry || wEntry.color !== w.color) {
@@ -9087,9 +9834,24 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         }
       }
 
-      // 4. Consume pending VFX bursts
+      // 4. Consume pending VFX bursts (always run gameplay-deferred impacts; skip purely cosmetic off-screen VFX)
       while (simState.pendingVfx.length > 0) {
         const vfx = simState.pendingVfx.shift()!;
+        const mustRunSimulationImpact =
+          Boolean(vfx.deferImpact) ||
+          vfx.type === 'huge_asteroid_strike' ||
+          (vfx.type === 'sky_rain_drop' && Boolean(vfx.dropTargets && vfx.dropTargets.length > 0));
+        if (!mustRunSimulationImpact) {
+          const vfxPad = Math.max(4.0, (vfx.radius ?? 1) + 2.5);
+          const ox = vfx.originX ?? vfx.x;
+          const oz = vfx.originZ ?? vfx.z;
+          if (
+            !isPointInCullBounds(vfx.x, vfx.z, worldCullBounds, vfxPad) &&
+            !isPointInCullBounds(ox, oz, worldCullBounds, vfxPad)
+          ) {
+            continue;
+          }
+        }
         const vTile = getTileFromArray(simState, vfx.x, vfx.z);
         const surfY = getTileEffectSurfaceY(vTile, vfx.y);
         if (vfx.type === 'hit_spark') {
@@ -9215,10 +9977,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             continue;
           }
           let hv = hazardMeshes.get(haz.id);
+          const hazPad = hv ? DESPAWN_CULL_HYSTERESIS : 0;
+          if (!isHazardIntersectingCullBounds(haz, worldCullBounds, hazPad)) {
+            continue;
+          }
           if (!hv || hv.isSuper !== haz.isSuper) {
             if (hv) {
-              hazardsGroup.remove(hv.group);
-              for (const m of hv.materials) m.dispose();
+              disposeHazardVisual(hv);
             }
             hv = createHazardVisual(
               haz.kind,
@@ -9258,14 +10023,27 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
               hv.cloudBody.position.y = Math.sin(elapsed * 2.6) * 0.18 * (1 - speedNorm * 0.6);
             }
 
-            for (let di = 0; di < hv.drops.length; di++) {
-              const d = hv.drops[di];
-              const fallProgress = ((elapsed * (d.speed + speedNorm * 4.5) + d.offsetY) % 4.4) / 4.4;
-              const dropY = 4.4 * (1 - fallProgress);
-              const windLag = fallProgress * speedNorm * 1.65;
-              d.mesh.position.set(d.baseX - wx * windLag, dropY, d.baseZ - wz * windLag);
-              d.mesh.rotation.z = wx * speedNorm * 0.42;
-              d.mesh.rotation.x = -wz * speedNorm * 0.42;
+            if (hv.dropsInst) {
+              _dummyMatrix.makeRotationFromEuler(
+                new THREE.Euler(-wz * speedNorm * 0.42, 0, wx * speedNorm * 0.42),
+              );
+              const el = _dummyMatrix.elements;
+              const arr = hv.dropsInst.instanceMatrix.array as Float32Array;
+              for (let di = 0; di < hv.drops.length; di++) {
+                const d = hv.drops[di];
+                const fallProgress = ((elapsed * (d.speed + speedNorm * 4.5) + d.offsetY) % 4.4) / 4.4;
+                const dropY = 4.4 * (1 - fallProgress);
+                const windLag = fallProgress * speedNorm * 1.65;
+                const off = di * 16;
+                arr[off + 0] = el[0]; arr[off + 1] = el[1]; arr[off + 2] = el[2]; arr[off + 3] = 0;
+                arr[off + 4] = el[4]; arr[off + 5] = el[5]; arr[off + 6] = el[6]; arr[off + 7] = 0;
+                arr[off + 8] = el[8]; arr[off + 9] = el[9]; arr[off + 10] = el[10]; arr[off + 11] = 0;
+                arr[off + 12] = d.baseX - wx * windLag;
+                arr[off + 13] = dropY;
+                arr[off + 14] = d.baseZ - wz * windLag;
+                arr[off + 15] = 1;
+              }
+              hv.dropsInst.instanceMatrix.needsUpdate = true;
             }
             if (hv.ringMesh) {
               hv.ringMesh.scale.setScalar(
@@ -9424,9 +10202,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             const maxR = haz.maxRadius ?? haz.radius * 3.8;
             const expandProg = Math.min(1, curR / Math.max(1, maxR));
 
-            if (hv.waveSegments) {
+            if (hv.waveSegments && hv.waveInsts) {
               const primaryCount = 40;
               const wakeCount = 28;
+              let visCount = 0;
+              const segEuler = new THREE.Euler();
               for (let si = 0; si < hv.waveSegments.length; si++) {
                 const seg = hv.waveSegments[si];
                 const baseR = seg.isWake ? Math.max(0.7, curR * 0.65) : curR;
@@ -9438,10 +10218,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
                 const segTile = getTileFromArray(simState, wx, wz);
 
                 if (!segTile || segTile.height >= 4) {
-                  seg.group.visible = false;
                   continue;
                 }
-                seg.group.visible = true;
 
                 const baseY = segTile.height === 0 ? 0.32 : segTile.height * HEIGHT_STEP + 0.22;
                 const shoalMult =
@@ -9455,15 +10233,21 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
                 const segCount = seg.isWake ? wakeCount : primaryCount;
                 const arcWidth = Math.max(0.68, ((2 * Math.PI * rippledR) / segCount) * 1.14);
 
-                seg.group.position.set(dx, baseY, dz);
                 const breakPitch =
                   0.1 + Math.sin(elapsed * 9.2 + seg.phase) * 0.1 + (segTile.height >= 1 ? 0.2 : 0);
-                seg.group.rotation.set(breakPitch, Math.atan2(dx, dz), 0);
-                seg.group.scale.set(
+                _dummyPos.set(dx, baseY, dz);
+                segEuler.set(breakPitch, Math.atan2(dx, dz), 0);
+                _dummyQuat.setFromEuler(segEuler);
+                _dummyScale.set(
                   arcWidth,
                   waveH,
                   (seg.isWake ? 0.78 : 1.18) * (0.92 + Math.cos(elapsed * 7.2 + seg.phase) * 0.12),
                 );
+                _dummyMatrix.compose(_dummyPos, _dummyQuat, _dummyScale);
+                for (let wi = 0; wi < hv.waveInsts.length; wi++) {
+                  hv.waveInsts[wi].setMatrixAt(visCount, _dummyMatrix);
+                }
+                visCount++;
 
                 if (!seg.isWake && ((si + Math.floor(elapsed * 30)) % 7 === 0)) {
                   const isLandBreak = segTile.height >= 1;
@@ -9478,6 +10262,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
                     isLandBreak ? 1.25 : 0.95,
                   );
                 }
+              }
+              for (let wi = 0; wi < hv.waveInsts.length; wi++) {
+                hv.waveInsts[wi].count = visCount;
+                hv.waveInsts[wi].visible = visCount > 0;
+                if (visCount > 0) hv.waveInsts[wi].instanceMatrix.needsUpdate = true;
               }
             }
             (hv.materials[0] as THREE.MeshStandardMaterial).opacity = 0.86 * fade;
@@ -9819,11 +10608,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
               const entryEnv = Math.sin(entryProg * Math.PI);
               animatePortalRig(hyperVfx.entryPortal, entryActive, entryProg, entryEnv, 1.0, -19.5, 0.85 * (1 - entryProg * 0.6));
 
-              if (hazAge >= 0.45 && !hv.group.userData.entryFlashDone) {
+              if (hazAge >= 0.45 && hazAge < 1.2 && !hv.group.userData.entryFlashDone) {
                 hv.group.userData.entryFlashDone = true;
                 triggerLightFlash(haz.x + fwdX * -14, hy + 21, haz.z + fwdZ * -14, '#bfdbfe', 24);
                 spawnParticleBurst(haz.x + fwdX * -14, hy + 20, haz.z + fwdZ * -14, 24, '#dbeafe', 0.9, 6.5, 0.95);
                 trauma = Math.min(1.0, trauma + 0.26);
+              } else if (hazAge >= 1.2) {
+                hv.group.userData.entryFlashDone = true;
               }
 
               // 2. Pre-Departure Hyperdrive Spool-up & Departure Hyperspace Jump Ripple (11.2 -> end)
@@ -9840,11 +10631,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
                 );
                 const punchEnv = Math.sin(punchT * Math.PI);
                 animatePortalRig(hyperVfx.exitPortal, true, punchT, Math.max(0.18, punchEnv), 1.0, 19.5, 0.95);
-                if (hazAge >= 12.78 && !hv.group.userData.exitFlashDone) {
+                if (hazAge >= 12.78 && hazAge < 13.5 && !hv.group.userData.exitFlashDone) {
                   hv.group.userData.exitFlashDone = true;
                   triggerLightFlash(haz.x + fwdX * 16, hy + 21, haz.z + fwdZ * 16, '#dbeafe', 26);
                   spawnParticleBurst(haz.x + fwdX * 16, hy + 20, haz.z + fwdZ * 16, 28, '#e0f2fe', 0.95, 7.5, 1.0);
                   trauma = Math.min(1.0, trauma + 0.28);
+                } else if (hazAge >= 13.5) {
+                  hv.group.userData.exitFlashDone = true;
                 }
               } else {
                 hyperVfx.exitPortal.group.visible = false;
@@ -9946,11 +10739,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       if (hazardMeshes.size > 0) {
         for (const [id, hv] of hazardMeshes.entries()) {
           if (hv.seenStamp !== syncFrameStamp) {
-            hazardsGroup.remove(hv.group);
-            if (hv.geometries) {
-              for (const g of hv.geometries) g.dispose();
-            }
-            for (const m of hv.materials) m.dispose();
+            disposeHazardVisual(hv);
             hazardMeshes.delete(id);
           }
         }
@@ -9967,7 +10756,15 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       for (let fi = 0; fi < activeFireTileIndices.length && fireTileCount < MAX_FIRE_TILES; fi++) {
         const i = activeFireTileIndices[fi];
         const t = simState.tiles[i];
-        if (t.onFireTimer > 0 && t.height > 0 && t.resourceNode !== 'ore_vein') {
+        if (
+          t.onFireTimer > 0 &&
+          t.height > 0 &&
+          t.resourceNode !== 'ore_vein' &&
+          t.x >= cullMinX &&
+          t.x <= cullMaxX &&
+          t.z >= cullMinZ &&
+          t.z <= cullMaxZ
+        ) {
           const fy = tileCurrentY[i] || t.height * HEIGHT_STEP + 0.25;
           const phase = ((t.x * 13 + t.z * 29) & 31) / 32;
           const fadeEnv = Math.min(1, t.onFireTimer / 0.8);
@@ -10043,7 +10840,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         }
       }
       fireSpriteInst.count = fireSpriteCount;
+      fireSpriteInst.visible = fireSpriteCount > 0;
       fireSmokeInst.count = fireTileCount;
+      fireSmokeInst.visible = fireTileCount > 0;
       if (fireSpriteCount > 0) {
         fireSpriteInst.instanceMatrix.needsUpdate = true;
         fireDataAttr.needsUpdate = true;
@@ -10136,12 +10935,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       );
       if (wantStride !== appliedShadowStride) {
         appliedShadowStride = wantStride;
-        if (appliedShadowsEnabled) {
-          renderer.shadowMap.autoUpdate = wantStride <= 1;
-        }
+        renderer.shadowMap.autoUpdate = false;
       }
-      if (appliedShadowsEnabled && appliedShadowStride > 1) {
-        shadowFrameCounter = (shadowFrameCounter + 1) % appliedShadowStride;
+      if (appliedShadowsEnabled) {
+        // Sim ticks at 15 Hz, so 30 Hz shadow refreshes (stride >= 2) plus immediate updates on
+        // camera/frustum shifts look identical while halving GPU shadow-pass cost.
+        const effectiveStride = Math.max(2, appliedShadowStride);
+        shadowFrameCounter = (shadowFrameCounter + 1) % effectiveStride;
         if (shadowFrameCounter === 0) {
           renderer.shadowMap.needsUpdate = true;
         }
@@ -10165,7 +10965,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         // Adjust intensity & autoUpdate rather than toggling shadowMap.enabled/castShadow so
         // Three.js never recompiles 60+ shaders synchronously on toggle
         keyLight.shadow.intensity = wantShadows ? 1 : 0;
-        renderer.shadowMap.autoUpdate = wantShadows && appliedShadowStride <= 1;
+        renderer.shadowMap.autoUpdate = false;
         if (wantShadows) renderer.shadowMap.needsUpdate = true;
         gfxStaggerCooldown = 2;
       } else if (wantShadows && activeGfxProfile.shadowMapSize !== appliedShadowMapSize) {
@@ -10359,6 +11159,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
       // Decoupled fixed-timestep simulation accumulator (15 Hz) with 60 FPS visual interpolation!
       // Eliminates 4x redundant AI/tile scans per second while keeping silky-smooth 60Hz motion.
+      simSteppedThisFrame = false;
       const clampedSimSpeed = clampSimulationSpeed(propsRef.current.timeScale);
       const simStepDt = Math.min(dt, autoOptDecisions.maxSimDt);
       if (hitstopTimer > 0) {
@@ -10372,6 +11173,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           lastSimTickMs = performance.now() - simT0;
           simAccumulator -= FIXED_SIM_DT;
           ticksThisFrame++;
+          simSteppedThisFrame = true;
         }
         simInterpAlpha = Math.min(1, Math.max(0, simAccumulator / FIXED_SIM_DT));
       } else if (propsRef.current.gameState === 'title') {
@@ -10386,6 +11188,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           });
           lastSimTickMs = performance.now() - simT0;
           simAccumulator -= FIXED_SIM_DT;
+          simSteppedThisFrame = true;
         }
         simInterpAlpha = Math.min(1, Math.max(0, simAccumulator / FIXED_SIM_DT));
       } else {
@@ -10444,10 +11247,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
               fx.outerRingMesh.scale.setScalar(fx.radius * (1.55 - easeIn * 1.15));
               (fx.materials[4] as THREE.MeshBasicMaterial).opacity = 0.25 + dropPhase * 0.65;
             }
-            // Thick blazing comet trail + dark re-entry smoke
-            spawnParticleBurst(mx, my, mz, fx.isMegaMeteor ? 12 : 6, '#ff5400', fx.isMegaMeteor ? 2.2 : 1.1, 2.4, 1.75);
-            spawnParticleBurst(mx, my, mz, fx.isMegaMeteor ? 7 : 4, '#ffee55', fx.isMegaMeteor ? 1.3 : 0.6, 1.7, 1.45);
-            spawnParticleBurst(mx + 0.6, my + 0.9, mz - 0.6, fx.isMegaMeteor ? 6 : 3, '#2b2d42', fx.isMegaMeteor ? 2.3 : 1.2, 1.4, 1.9);
+            // Thick blazing comet trail + dark re-entry smoke (throttled to ~20 Hz to avoid thrashing the 650-particle pool)
+            fx.particleEmitTimer = (fx.particleEmitTimer ?? 0) + dt;
+            if (fx.particleEmitTimer >= 0.05) {
+              fx.particleEmitTimer = 0;
+              spawnParticleBurst(mx, my, mz, fx.isMegaMeteor ? 8 : 5, '#ff5400', fx.isMegaMeteor ? 2.2 : 1.1, 2.4, 1.75);
+              spawnParticleBurst(mx, my, mz, fx.isMegaMeteor ? 5 : 3, '#ffee55', fx.isMegaMeteor ? 1.3 : 0.6, 1.7, 1.45);
+              spawnParticleBurst(mx + 0.6, my + 0.9, mz - 0.6, fx.isMegaMeteor ? 4 : 2, '#2b2d42', fx.isMegaMeteor ? 2.3 : 1.2, 1.4, 1.9);
+            }
           } else {
             if (!fx.impactFired) {
               fx.impactFired = true;
@@ -10490,23 +11297,24 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
                 if (fx.materials[6]) (fx.materials[6] as THREE.MeshBasicMaterial).color.setHex(0x90e0ef);
                 if (fx.materials[7]) (fx.materials[7] as THREE.MeshBasicMaterial).color.setHex(0xcaf0f8);
                 triggerLightFlash(fx.tx, fx.ty + 3, fx.tz, '#48cae4', fx.isMegaMeteor ? 68 : 42);
-                spawnParticleBurst(fx.tx, fx.ty + 0.5, fx.tz, fx.isMegaMeteor ? 190 : 140, '#00b4d8', fx.radius * 1.55, 16.5, 2.1);
-                spawnParticleBurst(fx.tx, fx.ty + 0.8, fx.tz, fx.isMegaMeteor ? 130 : 95, '#e0fbfc', fx.radius * 1.25, 18.5, 1.75);
-                spawnParticleBurst(fx.tx, fx.ty + 0.4, fx.tz, fx.isMegaMeteor ? 85 : 55, '#0077b6', fx.radius * 1.05, 12.5, 2.2);
+                spawnParticleBurst(fx.tx, fx.ty + 0.5, fx.tz, fx.isMegaMeteor ? 120 : 90, '#00b4d8', fx.radius * 1.55, 16.5, 2.1);
+                spawnParticleBurst(fx.tx, fx.ty + 0.8, fx.tz, fx.isMegaMeteor ? 80 : 60, '#e0fbfc', fx.radius * 1.25, 18.5, 1.75);
+                spawnParticleBurst(fx.tx, fx.ty + 0.4, fx.tz, fx.isMegaMeteor ? 55 : 40, '#0077b6', fx.radius * 1.05, 12.5, 2.2);
               } else {
                 if (fx.shockWallMesh) fx.shockWallMesh.visible = true;
                 if (fx.outerShockWallMesh) fx.outerShockWallMesh.visible = Boolean(fx.isMegaMeteor);
                 if (fx.outerRingMesh) fx.outerRingMesh.visible = true;
                 if (fx.thirdRingMesh) fx.thirdRingMesh.visible = Boolean(fx.isMegaMeteor);
                 if (fx.plumeGroup) fx.plumeGroup.visible = true;
-                if (fx.ejectaBoulders) {
-                  for (const eb of fx.ejectaBoulders) eb.mesh.visible = true;
+                if (fx.ejectaBoulders && fx.ejectaInst) {
+                  for (const eb of fx.ejectaBoulders) eb.active = true;
+                  fx.ejectaInst.visible = true;
                 }
                 triggerLightFlash(fx.tx, fx.ty + 3.5, fx.tz, '#ffbe0b', fx.isMegaMeteor ? 75 : 42);
                 // Colossal lava, white-hot blinding flash, spark & pyroclastic ash eruption
-                spawnParticleBurst(fx.tx, fx.ty + 0.5, fx.tz, fx.isMegaMeteor ? 180 : 120, '#ff5400', fx.radius * 1.65, 14.5, 2.05);
-                spawnParticleBurst(fx.tx, fx.ty + 0.6, fx.tz, fx.isMegaMeteor ? 110 : 60, '#fff3b0', fx.radius * 1.25, 16.5, 1.65);
-                spawnParticleBurst(fx.tx, fx.ty + 0.8, fx.tz, fx.isMegaMeteor ? 95 : 45, '#2b2d42', fx.radius * 1.15, 11.5, 2.35);
+                spawnParticleBurst(fx.tx, fx.ty + 0.5, fx.tz, fx.isMegaMeteor ? 120 : 85, '#ff5400', fx.radius * 1.65, 14.5, 2.05);
+                spawnParticleBurst(fx.tx, fx.ty + 0.6, fx.tz, fx.isMegaMeteor ? 75 : 45, '#fff3b0', fx.radius * 1.25, 16.5, 1.65);
+                spawnParticleBurst(fx.tx, fx.ty + 0.8, fx.tz, fx.isMegaMeteor ? 60 : 35, '#2b2d42', fx.radius * 1.15, 11.5, 2.35);
               }
               if (fx.spikes) {
                 for (const sp of fx.spikes) sp.visible = true;
@@ -10522,7 +11330,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             if (fx.isMegaMeteor && fastShockPhase < 1) {
               trauma = Math.max(trauma, (1 - fastShockPhase) * 0.68);
               fx.particleEmitTimer = (fx.particleEmitTimer ?? 0) + dt;
-              if (fx.particleEmitTimer >= 0.065) {
+              if (fx.particleEmitTimer >= 0.08) {
                 fx.particleEmitTimer = 0;
                 const gustR = 3.0 + shockEase * 28.0;
                 for (let gi = 0; gi < 6; gi++) {
@@ -10533,7 +11341,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
                     gx,
                     fx.ty + 0.45,
                     gz,
-                    3,
+                    2,
                     gi % 2 === 0 ? '#ffd166' : '#adb5bd',
                     1.4,
                     4.2,
@@ -10543,22 +11351,35 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
               }
             }
 
-            // Animate ballistic voxel ejecta boulders flying out of the crater
-            if (fx.ejectaBoulders) {
+            // Animate ballistic voxel ejecta boulders flying out of the crater (1 InstancedMesh draw call)
+            if (fx.ejectaBoulders && fx.ejectaInst) {
+              let activeEjecta = 0;
+              const ebEuler = new THREE.Euler();
               for (const eb of fx.ejectaBoulders) {
-                if (!eb.mesh.visible) continue;
-                eb.mesh.position.x += eb.vx * dt;
-                eb.mesh.position.y += eb.vy * dt;
-                eb.mesh.position.z += eb.vz * dt;
+                if (!eb.active) continue;
+                eb.x += eb.vx * dt;
+                eb.y += eb.vy * dt;
+                eb.z += eb.vz * dt;
                 eb.vy -= 18.5 * dt;
-                eb.mesh.rotation.x += eb.rotX * dt;
-                eb.mesh.rotation.y += eb.rotY * dt;
-                eb.mesh.rotation.z += eb.rotZ * dt;
-                if (eb.mesh.position.y <= fx.ty + 0.15 && postImpactElapsed > 0.25) {
-                  eb.mesh.visible = false;
-                  spawnParticleBurst(eb.mesh.position.x, fx.ty + 0.2, eb.mesh.position.z, 5, '#ff6b35', 0.8, 3.2, 1.1);
+                eb.rx += eb.rotX * dt;
+                eb.ry += eb.rotY * dt;
+                eb.rz += eb.rotZ * dt;
+                if (eb.y <= fx.ty + 0.15 && postImpactElapsed > 0.25) {
+                  eb.active = false;
+                  spawnParticleBurst(eb.x, fx.ty + 0.2, eb.z, 4, '#ff6b35', 0.8, 3.2, 1.1);
+                  continue;
                 }
+                _dummyPos.set(eb.x, eb.y, eb.z);
+                ebEuler.set(eb.rx, eb.ry, eb.rz);
+                _dummyQuat.setFromEuler(ebEuler);
+                _dummyScale.setScalar(eb.scale);
+                _dummyMatrix.compose(_dummyPos, _dummyQuat, _dummyScale);
+                fx.ejectaInst.setMatrixAt(activeEjecta, _dummyMatrix);
+                activeEjecta++;
               }
+              fx.ejectaInst.count = activeEjecta;
+              fx.ejectaInst.visible = activeEjecta > 0;
+              if (activeEjecta > 0) fx.ejectaInst.instanceMatrix.needsUpdate = true;
             }
 
             // Animate rising 3D blocky mushroom plume
@@ -11478,6 +12299,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             (fx.materials[1] as THREE.MeshBasicMaterial).opacity = Math.max(0, (1 - ringProg) * 0.58);
           }
 
+          let activeDropCount = 0;
+          let instDirty = false;
+          let impactBurstsThisFrame = 0;
+          let playLandSound = false;
+          let batchDropKind: TerrainToolType | null = null;
+          _skyLandedTilesScratch.length = 0;
+
           for (let di = 0; di < fx.skyRainDrops.length; di++) {
             const d = fx.skyRainDrops[di];
             if (d.landed) continue;
@@ -11485,40 +12313,69 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             if (localAge < 0) continue;
             const fallT = Math.min(1, localAge / Math.max(0.08, d.fallDur));
             if (fallT < 1) {
+              activeDropCount++;
               const accel = fallT * fallT;
               const swayX = d.swayAmp > 0 ? Math.sin(localAge * 9 + di * 1.7) * d.swayAmp * (1 - fallT) : 0;
               const swayZ = d.swayAmp > 0 ? Math.cos(localAge * 7 + di * 1.3) * d.swayAmp * (1 - fallT) : 0;
               const curX = d.ox + (d.tx - d.ox) * accel + swayX;
               const curY = d.oy + (d.ty + 0.18 - d.oy) * accel;
               const curZ = d.oz + (d.tz - d.oz) * accel + swayZ;
-              d.mesh.visible = true;
-              d.mesh.position.set(curX, curY, curZ);
-              d.mesh.rotation.x += dt * d.spinX;
-              d.mesh.rotation.y += dt * d.spinY;
-              d.streak.visible = true;
-              d.streak.position.set(curX, curY, curZ);
-              d.streak.scale.set(1, 0.7 + fallT * 1.1, 1);
+              d.rx += dt * d.spinX;
+              d.ry += dt * d.spinY;
+              if (fx.skyDropInst) {
+                _skyDummyPos.set(curX, curY, curZ);
+                _skyDummyEuler.set(d.rx, d.ry, 0);
+                _skyDummyQuat.setFromEuler(_skyDummyEuler);
+                _skyDummyScale.setScalar(d.scale);
+                _skyDummyMat.compose(_skyDummyPos, _skyDummyQuat, _skyDummyScale);
+                fx.skyDropInst.setMatrixAt(di, _skyDummyMat);
+              }
+              if (fx.skyStreakInst) {
+                _skyDummyPos.set(curX, curY, curZ);
+                _skyDummyScale.set(1, 0.7 + fallT * 1.1, 1);
+                _skyDummyMat.compose(_skyDummyPos, _skyStreakQuat, _skyDummyScale);
+                fx.skyStreakInst.setMatrixAt(di, _skyDummyMat);
+              }
+              instDirty = true;
             } else {
               d.landed = true;
-              d.mesh.visible = false;
-              d.streak.visible = false;
+              if (fx.skyDropInst) fx.skyDropInst.setMatrixAt(di, _skyZeroMat);
+              if (fx.skyStreakInst) fx.skyStreakInst.setMatrixAt(di, _skyZeroMat);
+              instDirty = true;
               if (d.applyOnLand) {
-                executeTerrainDropTileImpact(simRef.current, d.dropKind, d.tileX, d.tileZ);
+                batchDropKind = d.dropKind;
+                _skyLandedTilesScratch.push({ x: d.tileX, z: d.tileZ });
                 if (d.extraTiles) {
-                  for (const et of d.extraTiles) {
-                    executeTerrainDropTileImpact(simRef.current, d.dropKind, et.x, et.z);
+                  for (let ei = 0; ei < d.extraTiles.length; ei++) {
+                    _skyLandedTilesScratch.push(d.extraTiles[ei]);
                   }
                 }
-                if (di === 0) {
-                  soundEngine.playBlessing();
-                }
+                if (di === 0) playLandSound = true;
               }
-              spawnParticleBurst(d.tx, d.ty + 0.25, d.tz, d.sparkCount, d.impactColor, 0.62, 3.6, 0.72);
-              spawnParticleBurst(d.tx, d.ty + 0.25, d.tz, Math.max(3, Math.floor(d.sparkCount * 0.5)), d.secondaryColor, 0.42, 4.2, 0.58);
+              // Cap per-frame impact bursts to avoid thrashing the 650-particle pool on dense 10x showers
+              if (impactBurstsThisFrame < 3) {
+                impactBurstsThisFrame++;
+                spawnParticleBurst(d.tx, d.ty + 0.25, d.tz, d.sparkCount, d.impactColor, 0.62, 3.6, 0.72);
+                spawnParticleBurst(d.tx, d.ty + 0.25, d.tz, Math.max(2, Math.floor(d.sparkCount * 0.5)), d.secondaryColor, 0.42, 4.2, 0.58);
+              }
               if (di === 0 || di === Math.floor(fx.skyRainDrops.length / 2)) {
                 triggerLightFlash(d.tx, d.ty + 1.0, d.tz, d.impactColor, 11);
               }
             }
+          }
+
+          if (batchDropKind && _skyLandedTilesScratch.length > 0) {
+            executeTerrainDropBatchImpact(simRef.current, batchDropKind, _skyLandedTilesScratch);
+            if (playLandSound) soundEngine.playBlessing();
+          }
+
+          if (fx.skyDropInst) {
+            fx.skyDropInst.visible = activeDropCount > 0;
+            if (instDirty) fx.skyDropInst.instanceMatrix.needsUpdate = true;
+          }
+          if (fx.skyStreakInst) {
+            fx.skyStreakInst.visible = activeDropCount > 0;
+            if (instDirty) fx.skyStreakInst.instanceMatrix.needsUpdate = true;
           }
         } else if (fx.kind === 'ripple_ring' && fx.ringMesh) {
           if (fx.tracerMesh && !fx.impactFired) {
@@ -11838,9 +12695,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         }
 
         if (fx.age >= fx.duration) {
-          flushPendingSkyRainDrops(fx);
-          burstFxGroup.remove(fx.group);
-          for (const m of fx.materials) m.dispose();
+          disposeBurstFx(fx);
           activeBurstFx.splice(i, 1);
         }
       }
@@ -11942,6 +12797,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         i++;
       }
       particleInstanced.count = activeParticleCount;
+      particleInstanced.visible = activeParticleCount > 0;
       if (activeParticleCount > 0 || hadParticles) {
         particleInstanced.instanceMatrix.needsUpdate = true;
         if (particleInstanced.instanceColor) particleInstanced.instanceColor.needsUpdate = true;
@@ -12067,6 +12923,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       for (let i = 0; i < simUnitsList.length; i++) {
         const fu = simUnitsList[i];
         if (fu.state === 'ko') continue;
+        if (!isPointInCullBounds(fu.x, fu.z, worldCullBounds, 1.5)) continue;
         if (fu.favorite && favCount < MAX_FAVORITE_STARS) {
           const metrics = getUnitInspectMetrics(fu);
           const uGrp = unitMeshes.get(fu.id)?.group;
@@ -12109,10 +12966,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       }
       _dummyQuat.identity();
       favoriteStarsInst.count = favCount;
+      favoriteStarsInst.visible = favCount > 0;
       if (favCount > 0) {
         favoriteStarsInst.instanceMatrix.needsUpdate = true;
       }
       kingCrownsInst.count = kingCount;
+      kingCrownsInst.visible = kingCount > 0;
       if (kingCount > 0) {
         kingCrownsInst.instanceMatrix.needsUpdate = true;
       }
@@ -12231,6 +13090,23 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       );
 
       scene.background = _bgColor;
+
+      if (treeImpostors.mesh.visible) {
+        // Normalize strictly relative to TIME_OF_DAY_PRESETS.noon (key=1.92, hemi=0.86, env=0.92)
+        // so midday impostors stay 1.0x identical to 3D trees with zero darkening, while dusk/night tint smoothly.
+        const noonRefLight = 1.92 * 0.62 + 0.86 * 0.38;
+        const curLight = keyLight.intensity * 0.62 + hemiLight.intensity * 0.38;
+        const daylightFactor = Math.max(0.24, Math.min(1.18, curLight / noonRefLight));
+        const rRatio = Math.min(1.25, keyLight.color.r / Math.max(0.05, _noonRefColor.r));
+        const gRatio = Math.min(1.25, keyLight.color.g / Math.max(0.05, _noonRefColor.g));
+        const bRatio = Math.min(1.25, keyLight.color.b / Math.max(0.05, _noonRefColor.b));
+        _impostorTint.setRGB(
+          rRatio * 0.65 + 0.35,
+          gRatio * 0.65 + 0.35,
+          bRatio * 0.65 + 0.35,
+        );
+        treeImpostors.updateCameraAndLighting(camYaw, daylightFactor, _impostorTint);
+      }
       if (scene.fog instanceof THREE.FogExp2) {
         _targetFogColor.setHex(todState.fogColorHex);
         scene.fog.color.lerp(_targetFogColor, lightBlend);
@@ -12425,10 +13301,19 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           isSoftwareGl,
           _renderSizeOut,
         );
-        if (_renderSizeOut.width !== renderWidth || _renderSizeOut.height !== renderHeight) {
-          renderWidth = _renderSizeOut.width;
-          renderHeight = _renderSizeOut.height;
-          renderer.setSize(renderWidth, renderHeight, false);
+        const dw = Math.abs(_renderSizeOut.width - renderWidth);
+        const dh = Math.abs(_renderSizeOut.height - renderHeight);
+        if (dw > 0 || dh > 0) {
+          const zoomSettled =
+            Math.abs(frustumSize - desiredFrustum) <= 0.08 &&
+            Math.abs(currentDynamicPixelScale - targetDynamicPixelScale) <= 0.004;
+          const bigResize =
+            dw >= Math.max(36, renderWidth * 0.08) || dh >= Math.max(24, renderHeight * 0.08);
+          if (zoomSettled || bigResize) {
+            renderWidth = _renderSizeOut.width;
+            renderHeight = _renderSizeOut.height;
+            renderer.setSize(renderWidth, renderHeight, false);
+          }
         }
       }
 
@@ -12482,7 +13367,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         snappedShadow.centerZ + todState.keyOffset[2],
       );
       let shadowFrustumChanged = false;
-      if (Math.abs(shadowBounds - snappedShadow.halfExtent) > 0.5) {
+      if (Math.abs(shadowBounds - snappedShadow.halfExtent) > Math.max(2.5, shadowBounds * 0.12)) {
         shadowBounds = snappedShadow.halfExtent;
         keyLight.shadow.camera.left = -shadowBounds;
         keyLight.shadow.camera.right = shadowBounds;
@@ -12493,10 +13378,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       }
       if (
         appliedShadowsEnabled &&
-        appliedShadowStride > 1 &&
         (shadowFrustumChanged ||
-          Math.abs(lastShadowCenterX - snappedShadow.centerX) > 2.2 ||
-          Math.abs(lastShadowCenterZ - snappedShadow.centerZ) > 2.2)
+          Math.abs(lastShadowCenterX - snappedShadow.centerX) > 1.2 ||
+          Math.abs(lastShadowCenterZ - snappedShadow.centerZ) > 1.2)
       ) {
         lastShadowCenterX = snappedShadow.centerX;
         lastShadowCenterZ = snappedShadow.centerZ;
@@ -12697,6 +13581,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       resizeObserver.disconnect();
       window.removeEventListener('orientationchange', onOrientationOrViewportChange);
       window.visualViewport?.removeEventListener('resize', updateSize);
+      clearTouchPaintGrace();
       domElem.removeEventListener('pointerdown', onPointerDown);
       domElem.removeEventListener('pointermove', onPointerMove);
       domElem.removeEventListener('pointerleave', onPointerLeave);
@@ -12713,13 +13598,16 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       favoriteStarMat.dispose();
       kingCrownGeo.dispose();
       kingCrownMat.dispose();
+      unitShadowGeo.dispose();
+      unitShadowMat.dispose();
       for (const hv of hazardMeshes.values()) {
-        if (hv.geometries) {
-          for (const g of hv.geometries) g.dispose();
-        }
-        for (const m of hv.materials) m.dispose();
+        disposeHazardVisual(hv);
       }
       batchedBuildings.dispose();
+      treeImpostors.dispose();
+      treeBatchShadow.dispose();
+      treeBatchNoShadow.dispose();
+      ambBatch.dispose();
       for (const uEntry of unitMeshes.values()) {
         disposeEntityGroup(uEntry.group);
       }
@@ -12733,6 +13621,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       sharedWispHaloGeo.dispose();
       sharedWispOrbitGeo.dispose();
       for (const fx of activeBurstFx) {
+        if (fx.ejectaInst) fx.ejectaInst.dispose();
+        if (fx.skyDropInst) fx.skyDropInst.dispose();
+        if (fx.skyStreakInst) fx.skyStreakInst.dispose();
         for (const m of fx.materials) m.dispose();
       }
       fireSpriteGeo.dispose();
@@ -12836,7 +13727,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       billboardGoldMat.dispose();
       chunkTerrain.dispose();
       terrainWorkerPool.dispose();
-      for (const inst of allPropInsts) inst.dispose();
+      for (const batch of propBatches) batch.dispose();
       for (const inst of allMetroInsts) inst.dispose();
       particleGeo.dispose();
       particleMat.dispose();
@@ -12989,4 +13880,4 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       )}
     </>
   );
-};
+});

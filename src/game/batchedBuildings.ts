@@ -13,10 +13,14 @@ interface MaterialBatchBucket {
   maxIndices: number;
   usedVertices: number;
   usedIndices: number;
-  /** templateKey -> BatchedMesh geometryId */
+  /** templateKey -> BatchedMesh geometryId (LOD0) */
   templateGeoIds: Map<string, number>;
+  /** templateKey -> BatchedMesh geometryId (LOD1, may share gid with LOD0 or be omitted for micro-only buckets) */
+  templateGeoIdsLod1: Map<string, number>;
   /** templateKey -> baked normalized BufferGeometry (retained for 1.5x buffer resize) */
   templateGeos: Map<string, THREE.BufferGeometry>;
+  /** templateKey -> LOD1 BufferGeometry (retained for 1.5x buffer resize) */
+  templateGeosLod1: Map<string, THREE.BufferGeometry>;
   /** buildingId -> { instanceId, templateKey, matrix, visible } */
   instances: Map<
     string,
@@ -38,6 +42,7 @@ interface BakedBuildingTemplate {
     castShadow: boolean;
     receiveShadow: boolean;
     geometry: THREE.BufferGeometry;
+    geometryLod1: THREE.BufferGeometry | null;
   }>;
   /** Animated parts that stay as lightweight scene meshes (rare: flicker_flame, spin_part) */
   animatedParts: Array<{
@@ -107,6 +112,68 @@ function normalizeGeometryForBatch(
     }
   }
 
+  // Strip strictly downward-facing (-Y) triangles (e.g. box/cylinder undersides) that are
+  // 100% invisible from the fixed-pitch top-down isometric camera.
+  const pos = nonIdx.getAttribute('position');
+  const norm = nonIdx.getAttribute('normal');
+  const triCount = Math.floor(pos.count / 3);
+  if (triCount > 0 && norm) {
+    let keepTris = 0;
+    const keepMask = new Uint8Array(triCount);
+    for (let t = 0; t < triCount; t++) {
+      const i0 = t * 3;
+      const avgNy = (norm.getY(i0) + norm.getY(i0 + 1) + norm.getY(i0 + 2)) / 3;
+      if (avgNy >= -0.92) {
+        keepMask[t] = 1;
+        keepTris++;
+      }
+    }
+    if (keepTris === 0) {
+      nonIdx.dispose();
+      return null;
+    }
+    if (keepTris < triCount) {
+      const dstVerts = keepTris * 3;
+      const newPos = new Float32Array(dstVerts * 3);
+      const newNorm = new Float32Array(dstVerts * 3);
+      const srcColor = nonIdx.getAttribute('color');
+      const srcUv = nonIdx.getAttribute('uv');
+      const newColor = srcColor ? new Float32Array(dstVerts * 3) : null;
+      const newUv = srcUv ? new Float32Array(dstVerts * 2) : null;
+
+      let outV = 0;
+      for (let t = 0; t < triCount; t++) {
+        if (!keepMask[t]) continue;
+        const base = t * 3;
+        for (let k = 0; k < 3; k++) {
+          const sv = base + k;
+          const o3 = outV * 3;
+          newPos[o3] = pos.getX(sv);
+          newPos[o3 + 1] = pos.getY(sv);
+          newPos[o3 + 2] = pos.getZ(sv);
+          newNorm[o3] = norm.getX(sv);
+          newNorm[o3 + 1] = norm.getY(sv);
+          newNorm[o3 + 2] = norm.getZ(sv);
+          if (newColor && srcColor) {
+            newColor[o3] = srcColor.getX(sv);
+            newColor[o3 + 1] = srcColor.getY(sv);
+            newColor[o3 + 2] = srcColor.getZ(sv);
+          }
+          if (newUv && srcUv) {
+            const o2 = outV * 2;
+            newUv[o2] = srcUv.getX(sv);
+            newUv[o2 + 1] = srcUv.getY(sv);
+          }
+          outV++;
+        }
+      }
+      nonIdx.setAttribute('position', new THREE.BufferAttribute(newPos, 3));
+      nonIdx.setAttribute('normal', new THREE.BufferAttribute(newNorm, 3));
+      if (newColor) nonIdx.setAttribute('color', new THREE.BufferAttribute(newColor, 3));
+      if (newUv) nonIdx.setAttribute('uv', new THREE.BufferAttribute(newUv, 2));
+    }
+  }
+
   return nonIdx;
 }
 
@@ -145,14 +212,44 @@ export class BatchedBuildingSystem {
   private buckets = new Map<string, MaterialBatchBucket>();
   private templates = new Map<string, BakedBuildingTemplate>();
   private entries = new Map<string, BatchedBuildingEntry>();
+  private lodLevel: 0 | 1 = 0;
   private scratchPos = new THREE.Vector3();
   private scratchQuat = new THREE.Quaternion();
   private scratchScale = new THREE.Vector3();
   private scratchEuler = new THREE.Euler();
   private scratchMat = new THREE.Matrix4();
+  private scratchBboxSize = new THREE.Vector3();
 
   constructor() {
     this.group.name = 'batched_buildings_root';
+  }
+
+  getLodLevel(): 0 | 1 {
+    return this.lodLevel;
+  }
+
+  setLodLevel(lod: 0 | 1): void {
+    if (this.lodLevel === lod) return;
+    this.lodLevel = lod;
+    for (const bucket of this.buckets.values()) {
+      for (const [, inst] of bucket.instances.entries()) {
+        if (lod === 1) {
+          const gid1 = bucket.templateGeoIdsLod1.get(inst.templateKey);
+          if (gid1 !== undefined) {
+            bucket.mesh.setGeometryIdAt(inst.instanceId, gid1);
+            bucket.mesh.setVisibleAt(inst.instanceId, inst.visible);
+          } else {
+            bucket.mesh.setVisibleAt(inst.instanceId, false);
+          }
+        } else {
+          const gid0 = bucket.templateGeoIds.get(inst.templateKey);
+          if (gid0 !== undefined) {
+            bucket.mesh.setGeometryIdAt(inst.instanceId, gid0);
+          }
+          bucket.mesh.setVisibleAt(inst.instanceId, inst.visible);
+        }
+      }
+    }
   }
 
   getEntry(id: string): BatchedBuildingEntry | undefined {
@@ -189,9 +286,11 @@ export class BatchedBuildingSystem {
         castShadow: boolean;
         receiveShadow: boolean;
         geos: THREE.BufferGeometry[];
+        lod1Flags: boolean[];
       }
     >();
     const animatedParts: BakedBuildingTemplate['animatedParts'] = [];
+    let nonMicroTotal = 0;
 
     proto.traverse((obj) => {
       if (!(obj instanceof THREE.Mesh)) return;
@@ -221,6 +320,23 @@ export class BatchedBuildingSystem {
       const normGeo = normalizeGeometryForBatch(obj.geometry, obj.matrixWorld);
       if (!normGeo) return;
 
+      normGeo.computeBoundingBox();
+      let keepLod1 = true;
+      if (normGeo.boundingBox) {
+        normGeo.boundingBox.getSize(this.scratchBboxSize);
+        const maxDim = Math.max(this.scratchBboxSize.x, this.scratchBboxSize.y, this.scratchBboxSize.z);
+        const minDim = Math.min(this.scratchBboxSize.x, this.scratchBboxSize.y, this.scratchBboxSize.z);
+        const isTinyCube =
+          this.scratchBboxSize.x <= 0.24 &&
+          this.scratchBboxSize.y <= 0.24 &&
+          this.scratchBboxSize.z <= 0.24;
+        const isTinyTrim = maxDim <= 0.2 || (minDim <= 0.06 && maxDim <= 0.36);
+        if (isTinyCube || isTinyTrim) {
+          keepLod1 = false;
+        }
+      }
+      if (keepLod1) nonMicroTotal++;
+
       const matTag = getMaterialTag(mat);
       const bKey = `${matTag}|${obj.castShadow ? 1 : 0}|${obj.receiveShadow ? 1 : 0}`;
       let b = staticBuckets.get(bKey);
@@ -230,14 +346,36 @@ export class BatchedBuildingSystem {
           castShadow: obj.castShadow,
           receiveShadow: obj.receiveShadow,
           geos: [],
+          lod1Flags: [],
         };
         staticBuckets.set(bKey, b);
       }
       b.geos.push(normGeo);
+      b.lod1Flags.push(keepLod1);
     });
 
     const staticParts: BakedBuildingTemplate['staticParts'] = [];
     for (const [bucketKey, b] of staticBuckets.entries()) {
+      let keptCount = 0;
+      for (let i = 0; i < b.lod1Flags.length; i++) {
+        if (b.lod1Flags[i] || nonMicroTotal === 0) keptCount++;
+      }
+
+      let geometryLod1: THREE.BufferGeometry | null = null;
+      if (keptCount > 0 && keptCount < b.geos.length) {
+        const lod1Clones: THREE.BufferGeometry[] = [];
+        for (let i = 0; i < b.geos.length; i++) {
+          if (b.lod1Flags[i] || nonMicroTotal === 0) {
+            lod1Clones.push(b.geos[i].clone());
+          }
+        }
+        alignAttributesForMerge(lod1Clones);
+        geometryLod1 = lod1Clones.length === 1 ? lod1Clones[0] : mergeGeometries(lod1Clones, false);
+        if (lod1Clones.length > 1) {
+          for (let i = 0; i < lod1Clones.length; i++) lod1Clones[i].dispose();
+        }
+      }
+
       alignAttributesForMerge(b.geos);
       const merged = b.geos.length === 1 ? b.geos[0] : mergeGeometries(b.geos, false);
       if (b.geos.length > 1) {
@@ -250,7 +388,10 @@ export class BatchedBuildingSystem {
           castShadow: b.castShadow,
           receiveShadow: b.receiveShadow,
           geometry: merged,
+          geometryLod1: keptCount === 0 ? null : geometryLod1 ?? merged,
         });
+      } else if (geometryLod1) {
+        geometryLod1.dispose();
       }
     }
 
@@ -314,7 +455,9 @@ export class BatchedBuildingSystem {
       usedVertices: 0,
       usedIndices: 0,
       templateGeoIds: new Map(),
+      templateGeoIdsLod1: new Map(),
       templateGeos: new Map(),
+      templateGeosLod1: new Map(),
       instances: new Map(),
     };
     this.buckets.set(bucketKey, bucket);
@@ -341,6 +484,7 @@ export class BatchedBuildingSystem {
     );
 
     const newGeoIds = new Map<string, number>();
+    const newGeoIdsLod1 = new Map<string, number>();
     let usedV = 0;
     let usedI = 0;
 
@@ -351,9 +495,31 @@ export class BatchedBuildingSystem {
       usedI += geo.index ? geo.index.count : geo.getAttribute('position').count;
     }
 
+    for (const [tKey, geo1] of bucket.templateGeosLod1.entries()) {
+      const geo0 = bucket.templateGeos.get(tKey);
+      if (geo1 === geo0) {
+        const gid0 = newGeoIds.get(tKey);
+        if (gid0 !== undefined) newGeoIdsLod1.set(tKey, gid0);
+      } else {
+        const gid1 = newMesh.addGeometry(geo1);
+        newGeoIdsLod1.set(tKey, gid1);
+        usedV += geo1.getAttribute('position').count;
+        usedI += geo1.index ? geo1.index.count : geo1.getAttribute('position').count;
+      }
+    }
+
+    const useLod1 = this.lodLevel === 1;
     for (const [, inst] of bucket.instances.entries()) {
-      const gid = newGeoIds.get(inst.templateKey);
-      if (gid === undefined) continue;
+      const gid = useLod1 ? newGeoIdsLod1.get(inst.templateKey) : newGeoIds.get(inst.templateKey);
+      if (gid === undefined) {
+        const gid0 = newGeoIds.get(inst.templateKey);
+        if (gid0 === undefined) continue;
+        const newId = newMesh.addInstance(gid0);
+        newMesh.setMatrixAt(newId, inst.matrix);
+        newMesh.setVisibleAt(newId, false);
+        inst.instanceId = newId;
+        continue;
+      }
       const newId = newMesh.addInstance(gid);
       newMesh.setMatrixAt(newId, inst.matrix);
       newMesh.setVisibleAt(newId, inst.visible);
@@ -371,36 +537,58 @@ export class BatchedBuildingSystem {
     bucket.usedVertices = usedV;
     bucket.usedIndices = usedI;
     bucket.templateGeoIds = newGeoIds;
+    bucket.templateGeoIdsLod1 = newGeoIdsLod1;
   }
 
-  private ensureGeometryInBucket(
+  private ensureGeometryPairInBucket(
     bucket: MaterialBatchBucket,
     templateKey: string,
     geometry: THREE.BufferGeometry,
-  ): number {
-    const existing = bucket.templateGeoIds.get(templateKey);
-    if (existing !== undefined) return existing;
+    geometryLod1: THREE.BufferGeometry | null,
+  ): { gid0: number; gid1: number | undefined } {
+    const existing0 = bucket.templateGeoIds.get(templateKey);
+    if (existing0 !== undefined) {
+      return { gid0: existing0, gid1: bucket.templateGeoIdsLod1.get(templateKey) };
+    }
 
-    const vCount = geometry.getAttribute('position').count;
-    const iCount = geometry.index ? geometry.index.count : vCount;
+    const vCount0 = geometry.getAttribute('position').count;
+    const iCount0 = geometry.index ? geometry.index.count : vCount0;
+    const hasDistinctLod1 = geometryLod1 !== null && geometryLod1 !== geometry;
+    const vCount1 = hasDistinctLod1 ? geometryLod1.getAttribute('position').count : 0;
+    const iCount1 = hasDistinctLod1 ? (geometryLod1.index ? geometryLod1.index.count : vCount1) : 0;
+
     if (
-      bucket.usedVertices + vCount > bucket.maxVertices ||
-      bucket.usedIndices + iCount > bucket.maxIndices
+      bucket.usedVertices + vCount0 + vCount1 > bucket.maxVertices ||
+      bucket.usedIndices + iCount0 + iCount1 > bucket.maxIndices
     ) {
       this.growBucket(
         bucket,
         bucket.maxInstances,
-        bucket.usedVertices + vCount + 4096,
-        bucket.usedIndices + iCount + 6144,
+        bucket.usedVertices + vCount0 + vCount1 + 4096,
+        bucket.usedIndices + iCount0 + iCount1 + 6144,
       );
     }
 
-    const gid = bucket.mesh.addGeometry(geometry);
-    bucket.templateGeoIds.set(templateKey, gid);
+    const gid0 = bucket.mesh.addGeometry(geometry);
+    bucket.templateGeoIds.set(templateKey, gid0);
     bucket.templateGeos.set(templateKey, geometry);
-    bucket.usedVertices += vCount;
-    bucket.usedIndices += iCount;
-    return gid;
+    bucket.usedVertices += vCount0;
+    bucket.usedIndices += iCount0;
+
+    let gid1: number | undefined;
+    if (geometryLod1 === geometry) {
+      gid1 = gid0;
+      bucket.templateGeoIdsLod1.set(templateKey, gid0);
+      bucket.templateGeosLod1.set(templateKey, geometry);
+    } else if (geometryLod1 !== null) {
+      gid1 = bucket.mesh.addGeometry(geometryLod1);
+      bucket.templateGeoIdsLod1.set(templateKey, gid1);
+      bucket.templateGeosLod1.set(templateKey, geometryLod1);
+      bucket.usedVertices += vCount1;
+      bucket.usedIndices += iCount1;
+    }
+
+    return { gid0, gid1 };
   }
 
   private removeBuildingInstances(id: string): void {
@@ -473,7 +661,7 @@ export class BatchedBuildingSystem {
           vCount,
           iCount,
         );
-        const gid = this.ensureGeometryInBucket(bucket, tpl.key, part.geometry);
+        this.ensureGeometryPairInBucket(bucket, tpl.key, part.geometry, part.geometryLod1);
 
         if (bucket.instances.size + 1 >= bucket.maxInstances) {
           this.growBucket(
@@ -484,10 +672,13 @@ export class BatchedBuildingSystem {
           );
         }
 
-        const safeGid = bucket.templateGeoIds.get(tpl.key) ?? gid;
-        const instId = bucket.mesh.addInstance(safeGid);
+        const safeGid0 = bucket.templateGeoIds.get(tpl.key)!;
+        const safeGid1 = bucket.templateGeoIdsLod1.get(tpl.key);
+        const activeGid = this.lodLevel === 1 && safeGid1 !== undefined ? safeGid1 : safeGid0;
+        const effectiveVisible = this.lodLevel === 1 ? visible && safeGid1 !== undefined : visible;
+        const instId = bucket.mesh.addInstance(activeGid);
         bucket.mesh.setMatrixAt(instId, this.scratchMat);
-        bucket.mesh.setVisibleAt(instId, visible);
+        bucket.mesh.setVisibleAt(instId, effectiveVisible);
         bucket.instances.set(id, {
           instanceId: instId,
           templateKey: tpl.key,
@@ -581,7 +772,11 @@ export class BatchedBuildingSystem {
           }
           if (visChanged) {
             inst.visible = visible;
-            bucket.mesh.setVisibleAt(inst.instanceId, visible);
+            const effectiveVisible =
+              this.lodLevel === 1
+                ? visible && bucket.templateGeoIdsLod1.has(inst.templateKey)
+                : visible;
+            bucket.mesh.setVisibleAt(inst.instanceId, effectiveVisible);
           }
         }
       }
@@ -643,7 +838,11 @@ export class BatchedBuildingSystem {
     this.buckets.clear();
     for (const tpl of this.templates.values()) {
       for (let i = 0; i < tpl.staticParts.length; i++) {
-        tpl.staticParts[i].geometry.dispose();
+        const p = tpl.staticParts[i];
+        p.geometry.dispose();
+        if (p.geometryLod1 && p.geometryLod1 !== p.geometry) {
+          p.geometryLod1.dispose();
+        }
       }
     }
     this.templates.clear();

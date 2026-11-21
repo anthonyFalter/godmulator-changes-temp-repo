@@ -217,6 +217,71 @@ export class ChunkTerrainSystem {
     grid.dirtyChunkCount = 0;
   }
 
+  private progressiveQueue: number[] = [];
+
+  /**
+   * Queues all terrain chunks for progressive center-outward meshing across frames
+   * (prevents multi-second main-thread freeze on initial site load or large-map switches).
+   */
+  queueProgressiveRebuild(grid: WorldGridBuffers): void {
+    const cps = this.chunksPerSide;
+    const center = (cps - 1) * 0.5;
+    const indices: number[] = [];
+    for (let cz = 0; cz < cps; cz++) {
+      for (let cx = 0; cx < cps; cx++) {
+        const idx = cz * cps + cx;
+        indices.push(idx);
+        grid.dirtyChunks[idx] = 0;
+      }
+    }
+    grid.dirtyChunkCount = 0;
+    indices.sort((a, b) => {
+      const ax = (a % cps) - center;
+      const az = Math.floor(a / cps) - center;
+      const bx = (b % cps) - center;
+      const bz = Math.floor(b / cps) - center;
+      return ax * ax + az * az - (bx * bx + bz * bz);
+    });
+    this.progressiveQueue = indices;
+  }
+
+  hasPendingProgressiveRebuild(): boolean {
+    return this.progressiveQueue.length > 0;
+  }
+
+  /**
+   * Meshes up to `maxChunksPerFrame` queued chunks (center-outward).
+   * Returns `true` if more chunks remain in the queue.
+   */
+  stepProgressiveRebuild(
+    grid: WorldGridBuffers,
+    yOverrides?: Float32Array | null,
+    maxChunksPerFrame = 4,
+  ): boolean {
+    if (this.progressiveQueue.length === 0) return false;
+    const budget = Math.min(this.progressiveQueue.length, Math.max(1, maxChunksPerFrame));
+    const batch = this.progressiveQueue.splice(0, budget);
+    for (let k = 0; k < batch.length; k++) {
+      const idx = batch[k];
+      const node = this.chunks[idx];
+      if (!node) continue;
+      node.revision++;
+      const data = buildTerrainChunkGeometryData(
+        grid.heightMap,
+        grid.terrainCodeMap,
+        grid.crushedMask,
+        grid.gridSize,
+        node.chunkX,
+        node.chunkZ,
+        this.chunkSize,
+        yOverrides,
+      );
+      this.applyChunkData(node, data);
+      grid.dirtyChunks[idx] = 0;
+    }
+    return this.progressiveQueue.length > 0;
+  }
+
   /**
    * Rebuilds any dirty chunks in `grid.dirtyChunks`.
    * Small edits (1–4 chunks, such as terraforming or active tsunami wave) rebuild synchronously

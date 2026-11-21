@@ -12,6 +12,100 @@ import {
   VehicleType,
 } from './types';
 
+// Pixel-scale curved primitive helpers: cap invisible sub-pixel tessellation while preserving
+// exact silhouettes at the game's 2.5x pixel-art resolution (4-5 sided shapes remain untouched).
+function pxTorus(
+  radius = 1,
+  tube = 0.4,
+  radialSegments = 12,
+  tubularSegments = 48,
+  arc = Math.PI * 2,
+): THREE.TorusGeometry {
+  const rSegs = radius > 1.0 ? Math.min(radialSegments, 6) : Math.min(radialSegments, 4);
+  const tSegs =
+    radius > 1.0
+      ? Math.min(tubularSegments, 16)
+      : radius > 0.45
+        ? Math.min(tubularSegments, 10)
+        : Math.min(tubularSegments, 8);
+  return new THREE.TorusGeometry(radius, tube, rSegs, tSegs, arc);
+}
+
+function pxSphere(
+  radius = 1,
+  widthSegments = 32,
+  heightSegments = 16,
+  phiStart?: number,
+  phiLength?: number,
+  thetaStart?: number,
+  thetaLength?: number,
+): THREE.SphereGeometry {
+  const wSegs =
+    radius > 1.0
+      ? Math.min(widthSegments, 14)
+      : radius > 0.35
+        ? Math.min(widthSegments, 8)
+        : Math.min(widthSegments, 6);
+  const hSegs =
+    radius > 1.0
+      ? Math.min(heightSegments, 10)
+      : radius > 0.35
+        ? Math.min(heightSegments, 6)
+        : Math.min(heightSegments, 5);
+  return new THREE.SphereGeometry(radius, wSegs, hSegs, phiStart, phiLength, thetaStart, thetaLength);
+}
+
+function pxCylinder(
+  radiusTop = 1,
+  radiusBottom = 1,
+  height = 1,
+  radialSegments = 32,
+  heightSegments = 1,
+  openEnded = false,
+  thetaStart?: number,
+  thetaLength?: number,
+): THREE.CylinderGeometry {
+  const maxR = Math.max(radiusTop, radiusBottom);
+  const segs =
+    maxR > 1.0
+      ? Math.min(radialSegments, 12)
+      : maxR > 0.45
+        ? Math.min(radialSegments, 7)
+        : maxR > 0.14
+          ? Math.min(radialSegments, 6)
+          : Math.min(radialSegments, 5);
+  return new THREE.CylinderGeometry(
+    radiusTop,
+    radiusBottom,
+    height,
+    segs,
+    heightSegments,
+    openEnded,
+    thetaStart,
+    thetaLength,
+  );
+}
+
+function pxCone(
+  radius = 1,
+  height = 1,
+  radialSegments = 32,
+  heightSegments = 1,
+  openEnded = false,
+  thetaStart?: number,
+  thetaLength?: number,
+): THREE.ConeGeometry {
+  const segs =
+    radius > 1.0
+      ? Math.min(radialSegments, 12)
+      : radius > 0.45
+        ? Math.min(radialSegments, 7)
+        : radius > 0.14
+          ? Math.min(radialSegments, 6)
+          : Math.min(radialSegments, 4);
+  return new THREE.ConeGeometry(radius, height, segs, heightSegments, openEnded, thetaStart, thetaLength);
+}
+
 const textureCache = new Map<string, THREE.Texture>();
 
 export function getPixelArtTexture(
@@ -501,9 +595,25 @@ function bakeVertexColoredStaticMeshes(
       (!mat.emissive || mat.emissive.getHex() === 0 || mat.emissiveIntensity === 0) &&
       !mat.vertexColors
     ) {
-      // Quantize PBR response into 3 clean sheen buckets so visual finish is preserved while collapsing draw calls
-      const mBucket = mat.metalness >= 0.45 ? 0.62 : mat.metalness >= 0.2 ? 0.28 : 0.08;
-      const rBucket = mat.metalness >= 0.45 ? 0.32 : mat.roughness <= 0.45 ? 0.42 : 0.68;
+      // Quantize PBR response into clean sheen buckets so visual finish is preserved while collapsing draw calls
+      const mBucket = options?.unifyCastShadow
+        ? mat.metalness >= 0.42
+          ? 0.58
+          : 0.08
+        : mat.metalness >= 0.45
+          ? 0.62
+          : mat.metalness >= 0.2
+            ? 0.28
+            : 0.08;
+      const rBucket = options?.unifyCastShadow
+        ? mat.metalness >= 0.42
+          ? 0.34
+          : 0.68
+        : mat.metalness >= 0.45
+          ? 0.32
+          : mat.roughness <= 0.45
+            ? 0.42
+            : 0.68;
       const castShadow = options?.unifyCastShadow ? true : child.castShadow;
       const receiveShadow = child.receiveShadow;
       const key = `${rBucket}|${mBucket}|${castShadow ? 1 : 0}|${receiveShadow ? 1 : 0}`;
@@ -644,6 +754,79 @@ function addColoredBox(
   parts.push(g);
 }
 
+function stripDownwardTriangles(geo: THREE.BufferGeometry): THREE.BufferGeometry {
+  const nonIdx = geo.index ? geo.toNonIndexed() : geo;
+  if (!nonIdx.getAttribute('normal')) {
+    nonIdx.computeVertexNormals();
+  }
+  const pos = nonIdx.getAttribute('position');
+  const norm = nonIdx.getAttribute('normal');
+  const triCount = Math.floor((pos?.count ?? 0) / 3);
+  if (triCount === 0 || !norm) {
+    if (nonIdx !== geo) nonIdx.dispose();
+    return geo;
+  }
+
+  let keepTris = 0;
+  const keepMask = new Uint8Array(triCount);
+  for (let t = 0; t < triCount; t++) {
+    const i0 = t * 3;
+    const avgNy = (norm.getY(i0) + norm.getY(i0 + 1) + norm.getY(i0 + 2)) / 3;
+    if (avgNy >= -0.92) {
+      keepMask[t] = 1;
+      keepTris++;
+    }
+  }
+  if (keepTris === triCount || keepTris === 0) {
+    if (nonIdx !== geo) nonIdx.dispose();
+    return geo;
+  }
+
+  const dstVerts = keepTris * 3;
+  const newPos = new Float32Array(dstVerts * 3);
+  const newNorm = new Float32Array(dstVerts * 3);
+  const srcColor = nonIdx.getAttribute('color');
+  const srcUv = nonIdx.getAttribute('uv');
+  const newColor = srcColor ? new Float32Array(dstVerts * 3) : null;
+  const newUv = srcUv ? new Float32Array(dstVerts * 2) : null;
+
+  let outV = 0;
+  for (let t = 0; t < triCount; t++) {
+    if (!keepMask[t]) continue;
+    const base = t * 3;
+    for (let k = 0; k < 3; k++) {
+      const sv = base + k;
+      const o3 = outV * 3;
+      newPos[o3] = pos.getX(sv);
+      newPos[o3 + 1] = pos.getY(sv);
+      newPos[o3 + 2] = pos.getZ(sv);
+      newNorm[o3] = norm.getX(sv);
+      newNorm[o3 + 1] = norm.getY(sv);
+      newNorm[o3 + 2] = norm.getZ(sv);
+      if (newColor && srcColor) {
+        newColor[o3] = srcColor.getX(sv);
+        newColor[o3 + 1] = srcColor.getY(sv);
+        newColor[o3 + 2] = srcColor.getZ(sv);
+      }
+      if (newUv && srcUv) {
+        const o2 = outV * 2;
+        newUv[o2] = srcUv.getX(sv);
+        newUv[o2 + 1] = srcUv.getY(sv);
+      }
+      outV++;
+    }
+  }
+
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.BufferAttribute(newPos, 3));
+  out.setAttribute('normal', new THREE.BufferAttribute(newNorm, 3));
+  if (newColor) out.setAttribute('color', new THREE.BufferAttribute(newColor, 3));
+  if (newUv) out.setAttribute('uv', new THREE.BufferAttribute(newUv, 2));
+  if (nonIdx !== geo) nonIdx.dispose();
+  geo.dispose();
+  return out;
+}
+
 function finalizeMergedParts(parts: THREE.BufferGeometry[]): THREE.BufferGeometry {
   if (parts.length === 0) return new THREE.BoxGeometry(0.1, 0.1, 0.1);
   let hasIndexed = false;
@@ -670,7 +853,7 @@ function finalizeMergedParts(parts: THREE.BufferGeometry[]): THREE.BufferGeometr
   const merged = mergeGeometries(normalized, false);
   for (const p of parts) p.dispose();
   for (const t of tempToDispose) t.dispose();
-  return merged ?? new THREE.BoxGeometry(0.1, 0.1, 0.1);
+  return merged ? stripDownwardTriangles(merged) : new THREE.BoxGeometry(0.1, 0.1, 0.1);
 }
 
 const _treeColorA = new THREE.Color();
@@ -683,7 +866,7 @@ const _treeMat = new THREE.Matrix4();
 
 /** Soft octagonal contact shadow pad beneath sculpted trees (replaces square shadow boxes). */
 function addTreeShadowDisk(parts: THREE.BufferGeometry[], x: number, z: number, radius: number, hex: number) {
-  const g = new THREE.CylinderGeometry(radius * 0.96, radius, 0.014, 8).toNonIndexed();
+  const g = pxCylinder(radius * 0.96, radius, 0.014, 8).toNonIndexed();
   g.deleteAttribute('uv');
   g.translate(x, 0.008, z);
   _treeColorA.setHex(hex);
@@ -717,7 +900,7 @@ function addOrganicLimb(
   _treeDir.set(x2 - x1, y2 - y1, z2 - z1);
   const len = _treeDir.length();
   if (len < 0.004) return;
-  const g = new THREE.CylinderGeometry(rTop, rBot, len, segs, 1, openEnded).toNonIndexed();
+  const g = pxCylinder(rTop, rBot, len, segs, 1, openEnded).toNonIndexed();
   g.deleteAttribute('uv');
   const pos = g.attributes.position;
   _treeColorA.setHex(hexBot);
@@ -824,7 +1007,7 @@ function addScallopedConiferWhorl(
 ) {
   const effectiveLobes = Math.min(5, lobes);
   const segs = effectiveLobes * 2;
-  const g = new THREE.CylinderGeometry(rTop, rBot, h, segs, 1, false).toNonIndexed();
+  const g = pxCylinder(rTop, rBot, h, segs, 1, false).toNonIndexed();
   g.deleteAttribute('uv');
   const pos = g.attributes.position;
   _treeColorA.setHex(hexDark);
@@ -1820,11 +2003,17 @@ export interface NodeVariantLibrary {
   timberSwamp: THREE.BufferGeometry[];
   timberHighland: THREE.BufferGeometry[];
   berry: THREE.BufferGeometry[];
+  berryLod2: THREE.BufferGeometry[];
   farmCrop: THREE.BufferGeometry[];
+  farmCropLod2: THREE.BufferGeometry[];
   sciFiFarm: THREE.BufferGeometry[];
+  sciFiFarmLod2: THREE.BufferGeometry[];
   stone: THREE.BufferGeometry[];
+  stoneLod2: THREE.BufferGeometry[];
   ore: THREE.BufferGeometry[];
+  oreLod2: THREE.BufferGeometry[];
   crystal: THREE.BufferGeometry[];
+  crystalLod2: THREE.BufferGeometry[];
   ambientGrass: THREE.BufferGeometry[];
   ambientForest: THREE.BufferGeometry[];
   ambientJungle: THREE.BufferGeometry[];
@@ -1840,9 +2029,13 @@ export interface NodeVariantLibrary {
   ambientSwamp: THREE.BufferGeometry[];
   ambientHighland: THREE.BufferGeometry[];
   coralReef: THREE.BufferGeometry[];
+  coralReefLod2: THREE.BufferGeometry[];
   coralReefBleached: THREE.BufferGeometry[];
+  coralReefBleachedLod2: THREE.BufferGeometry[];
   scrapFlotsam: THREE.BufferGeometry[];
+  scrapFlotsamLod2: THREE.BufferGeometry[];
   atlantisRuin: THREE.BufferGeometry[];
+  atlantisRuinLod2: THREE.BufferGeometry[];
   standardMat: THREE.MeshStandardMaterial;
   crystalMat: THREE.MeshStandardMaterial;
   coralReefMat: THREE.MeshStandardMaterial;
@@ -2076,7 +2269,7 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
   ) => {
     const shaftH = height * 0.72;
     const tipH = height * 0.28;
-    const shaft = new THREE.CylinderGeometry(radius * 0.88, radius, shaftH, 6);
+    const shaft = pxCylinder(radius * 0.88, radius, shaftH, 6);
     shaft.translate(0, shaftH * 0.5, 0);
     if (rotY !== 0) shaft.rotateY(rotY);
     if (tiltX !== 0) shaft.rotateX(tiltX);
@@ -2085,7 +2278,7 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     paintCrystalPart(shaft, bodyHex);
     parts.push(shaft);
 
-    const tip = new THREE.ConeGeometry(radius * 0.88, tipH, 6);
+    const tip = pxCone(radius * 0.88, tipH, 6);
     tip.translate(0, shaftH + tipH * 0.5, 0);
     if (rotY !== 0) tip.rotateY(rotY);
     if (tiltX !== 0) tip.rotateX(tiltX);
@@ -2711,7 +2904,7 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     rotY = 0,
     rotZ = 0,
   ) => {
-    const g = new THREE.CylinderGeometry(rTop, rBot, h, segs);
+    const g = pxCylinder(rTop, rBot, h, segs);
     if (rotZ !== 0) g.rotateZ(rotZ);
     if (rotX !== 0) g.rotateX(rotX);
     if (rotY !== 0) g.rotateY(rotY);
@@ -2741,7 +2934,35 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     scaleY = 1,
     scaleZ = 1,
   ) => {
-    const g = new THREE.SphereGeometry(radius, wSegs, hSegs, 0, Math.PI * 2, 0, Math.PI * 0.52);
+    const g = pxSphere(radius, wSegs, hSegs, 0, Math.PI * 2, 0, Math.PI * 0.52);
+    if (scaleX !== 1 || scaleY !== 1 || scaleZ !== 1) {
+      g.scale(scaleX, scaleY, scaleZ);
+    }
+    g.translate(x, y, z);
+    _tmpColor.setHex(hex);
+    const count = g.attributes.position.count;
+    const colors = new Float32Array(count * 3);
+    for (let i = 0; i < count; i++) {
+      colors[i * 3] = _tmpColor.r;
+      colors[i * 3 + 1] = _tmpColor.g;
+      colors[i * 3 + 2] = _tmpColor.b;
+    }
+    g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    parts.push(g);
+  };
+
+  const addColoredOcta = (
+    parts: THREE.BufferGeometry[],
+    radius: number,
+    x: number,
+    y: number,
+    z: number,
+    hex: number,
+    scaleX = 1,
+    scaleY = 1,
+    scaleZ = 1,
+  ) => {
+    const g = new THREE.OctahedronGeometry(radius, 0);
     if (scaleX !== 1 || scaleY !== 1 || scaleZ !== 1) {
       g.scale(scaleX, scaleY, scaleZ);
     }
@@ -2767,12 +2988,12 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     corallineCrestHex: number,
   ) => {
     // Broad sunlit reef-sand shoal base
-    addColoredCylinder(parts, 0.41, 0.45, 0.022, 10, 0.0, 0.011, 0.0, sandHex, 0, 0.18);
+    addColoredCylinder(parts, 0.41, 0.45, 0.022, 7, 0.0, 0.011, 0.0, sandHex, 0, 0.18);
     // Terraced coralline-algae ledges (lavender-rose, violet & coral-pink encrusted reef rock)
-    addColoredCylinder(parts, 0.33, 0.39, 0.032, 9, -0.04, 0.024, 0.03, corallineBaseHex, 0, 0.55);
-    addColoredCylinder(parts, 0.26, 0.32, 0.036, 8, 0.13, 0.028, -0.09, corallineMidHex, 0, -0.42);
-    addColoredCylinder(parts, 0.23, 0.29, 0.034, 8, -0.15, 0.026, -0.11, corallineCrestHex, 0, 0.85);
-    addColoredCylinder(parts, 0.21, 0.26, 0.030, 8, 0.10, 0.024, 0.14, corallineBaseHex, 0, 1.25);
+    addColoredCylinder(parts, 0.33, 0.39, 0.032, 6, -0.04, 0.024, 0.03, corallineBaseHex, 0, 0.55);
+    addColoredCylinder(parts, 0.26, 0.32, 0.036, 6, 0.13, 0.028, -0.09, corallineMidHex, 0, -0.42);
+    addColoredCylinder(parts, 0.23, 0.29, 0.034, 6, -0.15, 0.026, -0.11, corallineCrestHex, 0, 0.85);
+    addColoredCylinder(parts, 0.21, 0.26, 0.030, 6, 0.10, 0.024, 0.14, corallineBaseHex, 0, 1.25);
   };
 
   // Majestic Spiraling Acropora Pagoda & Table Canopy with layered gradient disks and radial glowing polyp pearls
@@ -2790,20 +3011,20 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     rotY = 0,
   ) => {
     // Sculpted pedicel column
-    addColoredCylinder(parts, radius * 0.28, radius * 0.42, 0.036, 8, cx, baseY + 0.018, cz, stalkHex, 0, rotY);
+    addColoredCylinder(parts, radius * 0.28, radius * 0.42, 0.036, 5, cx, baseY + 0.018, cz, stalkHex, 0, rotY);
     // Broad flared lower fan canopy
-    addColoredCylinder(parts, radius * 1.06, radius * 0.62, 0.022, 10, cx, baseY + 0.038, cz, plateHex, 0, rotY);
+    addColoredCylinder(parts, radius * 1.06, radius * 0.62, 0.022, 7, cx, baseY + 0.038, cz, plateHex, 0, rotY);
     // Vibrant middle coral terrace
-    addColoredCylinder(parts, radius * 0.88, radius * 1.04, 0.014, 10, cx, baseY + 0.050, cz, midHex, 0, rotY + 0.18);
+    addColoredCylinder(parts, radius * 0.88, radius * 1.04, 0.014, 7, cx, baseY + 0.050, cz, midHex, 0, rotY + 0.18);
     // Luminous outer growth rim
-    addColoredCylinder(parts, radius * 1.02, radius * 1.08, 0.010, 10, cx, baseY + 0.056, cz, rimHex, 0, rotY + 0.32);
+    addColoredCylinder(parts, radius * 1.02, radius * 1.08, 0.010, 7, cx, baseY + 0.056, cz, rimHex, 0, rotY + 0.32);
     // Radial crown of glowing polyp pearls along the canopy edge
-    const pearlCount = 8;
+    const pearlCount = 6;
     for (let pi = 0; pi < pearlCount; pi++) {
       const ang = rotY + (pi * Math.PI * 2) / pearlCount;
       const px = cx + Math.cos(ang) * radius * 0.86;
       const pz = cz + Math.sin(ang) * radius * 0.86;
-      addColoredDome(parts, radius * 0.11, 6, 4, px, baseY + 0.058, pz, polypHex, 1.0, 0.72, 1.0);
+      addColoredOcta(parts, radius * 0.11, px, baseY + 0.058, pz, polypHex, 1.0, 0.72, 1.0);
     }
   };
 
@@ -2820,15 +3041,15 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     tipHex: number,
   ) => {
     const s = Math.min(1.02, scale);
-    addColoredDome(parts, 0.11 * s, 8, 5, cx, baseY, cz, stemHex, 1.25, 0.55, 1.25);
+    addColoredDome(parts, 0.11 * s, 5, 3, cx, baseY, cz, stemHex, 1.25, 0.55, 1.25);
     // Central royal spire + glowing crown tip
     const centerH = 0.105 * s;
-    addColoredCylinder(parts, 0.022 * s, 0.038 * s, centerH, 7, cx, baseY + centerH * 0.5, cz, branchHex);
-    addColoredDome(parts, 0.028 * s, 6, 4, cx, baseY + centerH * 0.98, cz, tipHex, 1.0, 0.85, 1.0);
+    addColoredCylinder(parts, 0.022 * s, 0.038 * s, centerH, 5, cx, baseY + centerH * 0.5, cz, branchHex);
+    addColoredOcta(parts, 0.028 * s, cx, baseY + centerH * 0.98, cz, tipHex, 1.0, 0.85, 1.0);
 
-    // Inner ring of 6 ascending antler tines
-    for (let i = 0; i < 6; i++) {
-      const ang = (i * Math.PI) / 3 + 0.22;
+    // Inner ring of 5 ascending antler tines
+    for (let i = 0; i < 5; i++) {
+      const ang = (i * Math.PI * 2) / 5 + 0.22;
       const tilt = i % 2 === 0 ? 0.28 : 0.34;
       const dist = 0.046 * s;
       const bx = cx + Math.cos(ang) * dist;
@@ -2839,7 +3060,7 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
         0.019 * s,
         0.032 * s,
         bh,
-        6,
+        5,
         bx,
         baseY + bh * 0.5,
         bz,
@@ -2851,12 +3072,12 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
       const tx = cx + Math.cos(ang) * (dist + Math.sin(tilt) * bh * 0.46);
       const tz = cz + Math.sin(ang) * (dist + Math.sin(tilt) * bh * 0.46);
       const ty = baseY + Math.cos(tilt) * bh * 0.94;
-      addColoredDome(parts, 0.024 * s, 6, 4, tx, ty, tz, tipHex, 1.0, 0.8, 1.0);
+      addColoredOcta(parts, 0.024 * s, tx, ty, tz, tipHex, 1.0, 0.8, 1.0);
     }
 
-    // Outer ring of 6 sweeping elkhorn branches
-    for (let i = 0; i < 6; i++) {
-      const ang = (i * Math.PI) / 3 + 0.74;
+    // Outer ring of 5 sweeping elkhorn branches
+    for (let i = 0; i < 5; i++) {
+      const ang = (i * Math.PI * 2) / 5 + 0.84;
       const tilt = 0.44;
       const dist = 0.078 * s;
       const bx = cx + Math.cos(ang) * dist;
@@ -2867,7 +3088,7 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
         0.017 * s,
         0.028 * s,
         bh,
-        6,
+        5,
         bx,
         baseY + bh * 0.48,
         bz,
@@ -2879,7 +3100,7 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
       const tx = cx + Math.cos(ang) * (dist + Math.sin(tilt) * bh * 0.46);
       const tz = cz + Math.sin(ang) * (dist + Math.sin(tilt) * bh * 0.46);
       const ty = baseY + Math.cos(tilt) * bh * 0.90;
-      addColoredDome(parts, 0.022 * s, 6, 4, tx, ty, tz, tipHex, 1.0, 0.78, 1.0);
+      addColoredOcta(parts, 0.022 * s, tx, ty, tz, tipHex, 1.0, 0.78, 1.0);
     }
   };
 
@@ -2905,9 +3126,9 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     ];
     for (const [ox, oz, rad, h, useAlt] of tubes) {
       const col = useAlt ? outerHex : midHex;
-      addColoredCylinder(parts, rad * 1.12, rad * 0.84, h, 8, cx + ox, baseY + h * 0.5, cz + oz, col);
-      addColoredCylinder(parts, rad * 1.02, rad * 1.16, 0.014, 8, cx + ox, baseY + h + 0.005, cz + oz, rimHex);
-      addColoredCylinder(parts, rad * 0.62, rad * 0.62, 0.010, 7, cx + ox, baseY + h + 0.010, cz + oz, innerHex);
+      addColoredCylinder(parts, rad * 1.12, rad * 0.84, h, 6, cx + ox, baseY + h * 0.5, cz + oz, col);
+      addColoredCylinder(parts, rad * 1.02, rad * 1.16, 0.014, 6, cx + ox, baseY + h + 0.005, cz + oz, rimHex);
+      addColoredCylinder(parts, rad * 0.62, rad * 0.62, 0.010, 5, cx + ox, baseY + h + 0.010, cz + oz, innerHex);
     }
   };
 
@@ -2923,10 +3144,10 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     crestHex: number,
     pearlHex: number,
   ) => {
-    addColoredDome(parts, radius * 1.06, 9, 5, cx, baseY, cz, baseHex, 1.10, 0.52, 1.04);
-    addColoredDome(parts, radius * 0.90, 9, 5, cx, baseY + radius * 0.11, cz, grooveHex, 1.05, 0.48, 1.00);
-    addColoredDome(parts, radius * 0.72, 8, 4, cx, baseY + radius * 0.22, cz, crestHex, 1.0, 0.44, 0.96);
-    addColoredDome(parts, radius * 0.44, 7, 4, cx, baseY + radius * 0.32, cz, pearlHex, 1.0, 0.40, 1.0);
+    addColoredDome(parts, radius * 1.06, 6, 3, cx, baseY, cz, baseHex, 1.10, 0.52, 1.04);
+    addColoredDome(parts, radius * 0.90, 6, 3, cx, baseY + radius * 0.11, cz, grooveHex, 1.05, 0.48, 1.00);
+    addColoredDome(parts, radius * 0.72, 6, 3, cx, baseY + radius * 0.22, cz, crestHex, 1.0, 0.44, 0.96);
+    addColoredDome(parts, radius * 0.44, 5, 2, cx, baseY + radius * 0.32, cz, pearlHex, 1.0, 0.40, 1.0);
   };
 
   // Blooming Sea-Lotus Anemone Crown with radiating bioluminescent tentacles and pearl oral center
@@ -2940,8 +3161,8 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     petalHex: number,
     coreHex: number,
   ) => {
-    addColoredCylinder(parts, radius * 0.68, radius * 0.52, 0.034, 8, cx, baseY + 0.017, cz, calyxHex);
-    const petals = 10;
+    addColoredCylinder(parts, radius * 0.68, radius * 0.52, 0.034, 6, cx, baseY + 0.017, cz, calyxHex);
+    const petals = 8;
     for (let i = 0; i < petals; i++) {
       const ang = (i * Math.PI * 2) / petals;
       const dist = radius * 0.56;
@@ -2952,7 +3173,7 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
         radius * 0.12,
         radius * 0.18,
         radius * 0.52,
-        6,
+        5,
         px,
         baseY + 0.042,
         pz,
@@ -2963,9 +3184,9 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
       );
       const tx = cx + Math.cos(ang) * (dist + radius * 0.22);
       const tz = cz + Math.sin(ang) * (dist + radius * 0.22);
-      addColoredDome(parts, radius * 0.14, 6, 4, tx, baseY + 0.062, tz, coreHex, 1.0, 0.75, 1.0);
+      addColoredOcta(parts, radius * 0.14, tx, baseY + 0.062, tz, coreHex, 1.0, 0.75, 1.0);
     }
-    addColoredDome(parts, radius * 0.38, 8, 4, cx, baseY + 0.032, cz, coreHex, 1.0, 0.65, 1.0);
+    addColoredDome(parts, radius * 0.38, 6, 3, cx, baseY + 0.032, cz, coreHex, 1.0, 0.65, 1.0);
   };
 
   const coralReef: THREE.BufferGeometry[] = [];
@@ -3076,16 +3297,16 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     const p: THREE.BufferGeometry[] = [];
     // 1. EXPANSIVE SUBMERGED ATLANTEAN CITY FOUNDATION & CONCENTRIC RINGS (local y = 0.01..0.165, world y = 0.13..0.285)
     // Outer sunken sea-marble metropolis foundation disc (diameter ~3.36 tiles)
-    addColoredCylinder(p, 1.66, 1.74, 0.036, 12, 0, 0.018, 0, 0xcbd5e1);
+    addColoredCylinder(p, 1.66, 1.74, 0.036, 8, 0, 0.018, 0, 0xcbd5e1);
     // Outer golden orichalcum city wall ring & raised perimeter walkway (clearly visible just below the water surface)
-    addColoredCylinder(p, 1.54, 1.60, 0.042, 12, 0, 0.056, 0, 0xf5b742);
+    addColoredCylinder(p, 1.54, 1.60, 0.042, 8, 0, 0.056, 0, 0xf5b742);
     // Submerged inner lagoon floor in deep Atlantean lapis-teal to contrast with the white marble & glowing cyan canals
-    addColoredCylinder(p, 1.44, 1.46, 0.020, 12, 0, 0.082, 0, 0x0f4c5c);
+    addColoredCylinder(p, 1.44, 1.46, 0.020, 8, 0, 0.082, 0, 0x0f4c5c);
     // Middle concentric white-marble acropolis terrace & golden orichalcum ring
-    addColoredCylinder(p, 1.14, 1.20, 0.036, 12, 0, 0.102, 0, 0xe2e8f0);
-    addColoredCylinder(p, 1.02, 1.06, 0.024, 12, 0, 0.128, 0, 0xf5b742);
+    addColoredCylinder(p, 1.14, 1.20, 0.036, 8, 0, 0.102, 0, 0xe2e8f0);
+    addColoredCylinder(p, 1.02, 1.06, 0.024, 8, 0, 0.128, 0, 0xf5b742);
     // Inner sunken sanctum dais right beneath the water surface (local y = 0.146 -> world y = 0.266)
-    addColoredCylinder(p, 0.80, 0.86, 0.032, 12, 0, 0.146, 0, 0xf8fafc);
+    addColoredCylinder(p, 0.80, 0.86, 0.032, 8, 0, 0.146, 0, 0xf8fafc);
 
     // Glowing Underwater Cyan Ley-Line Canals & Cross-Avenues spanning the entire 3.4-tile sunken city
     addColoredBox(p, 3.24, 0.030, 0.22, 0, 0.118, 0, 0x00f5d4);
@@ -3133,14 +3354,14 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
       const ang = (i * Math.PI) / 4 + Math.PI / 8;
       const ox = Math.cos(ang) * 1.42;
       const oz = Math.sin(ang) * 1.42;
-      addColoredCylinder(p, 0.08, 0.10, 0.09, 6, ox, 0.095, oz, 0xf1f5f9);
-      addColoredCylinder(p, 0.10, 0.10, 0.024, 6, ox, 0.146, oz, 0xf5b742);
-      addColoredCylinder(p, 0.02, 0.06, 0.028, 6, ox, 0.162, oz, 0x00f5d4);
+      addColoredCylinder(p, 0.08, 0.10, 0.09, 5, ox, 0.095, oz, 0xf1f5f9);
+      addColoredCylinder(p, 0.10, 0.10, 0.024, 5, ox, 0.146, oz, 0xf5b742);
+      addColoredCylinder(p, 0.02, 0.06, 0.028, 5, ox, 0.162, oz, 0x00f5d4);
     }
 
     // Fallen / Ruined Underwater Marble Columns resting on the sunken courtyard floor
-    addColoredCylinder(p, 0.065, 0.065, 0.48, 8, -0.68, 0.125, 1.18, 0xf1f5f9, 0, 0.35, Math.PI / 2);
-    addColoredCylinder(p, 0.065, 0.065, 0.46, 8, 1.18, 0.125, -0.64, 0xf1f5f9, Math.PI / 2, -0.28, 0);
+    addColoredCylinder(p, 0.065, 0.065, 0.48, 6, -0.68, 0.125, 1.18, 0xf1f5f9, 0, 0.35, Math.PI / 2);
+    addColoredCylinder(p, 0.065, 0.065, 0.46, 6, 1.18, 0.125, -0.64, 0xf1f5f9, Math.PI / 2, -0.28, 0);
 
     // 2. EMERGENT ABOVE-WATER TEMPLE COLONNADE & PORTAL GATEWAY (rising from y = 0.16 through the water surface up to y = 0.90)
     for (const [px, pz, colH, hasCap] of [
@@ -3149,8 +3370,8 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
       [-0.46, 0.46, variantIdx === 0 ? 0.42 : 0.58, variantIdx !== 0],
       [0.46, 0.46, 0.58, true],
     ] as const) {
-      addColoredCylinder(p, 0.12, 0.14, 0.06, 8, px, 0.17, pz, 0xf5b742); // golden column base
-      addColoredCylinder(p, 0.085, 0.095, colH, 8, px, 0.18 + colH * 0.5, pz, 0xf8fafc); // fluted marble column shaft
+      addColoredCylinder(p, 0.12, 0.14, 0.06, 6, px, 0.17, pz, 0xf5b742); // golden column base
+      addColoredCylinder(p, 0.085, 0.095, colH, 6, px, 0.18 + colH * 0.5, pz, 0xf8fafc); // fluted marble column shaft
       if (hasCap) {
         addColoredBox(p, 0.22, 0.06, 0.22, px, 0.20 + colH, pz, 0xf5b742); // golden orichalcum capital
       }
@@ -3166,14 +3387,159 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     }
 
     // Central Atlantean Sanctum Altar & Levitating Sea-Crystal Portal Spire
-    addColoredCylinder(p, 0.28, 0.34, 0.10, 8, 0, 0.19, 0, 0xe2e8f0);
-    addColoredCylinder(p, 0.22, 0.26, 0.06, 8, 0, 0.26, 0, 0xf5b742);
+    addColoredCylinder(p, 0.28, 0.34, 0.10, 6, 0, 0.19, 0, 0xe2e8f0);
+    addColoredCylinder(p, 0.22, 0.26, 0.06, 6, 0, 0.26, 0, 0xf5b742);
     addColoredBox(p, 0.22, 0.58, 0.22, 0, 0.54, 0, 0x48bfe3, Math.PI / 4); // towering glowing portal crystal
     addColoredBox(p, 0.34, 0.05, 0.34, 0, 0.54, 0, 0xf5b742, Math.PI / 4); // floating golden orichalcum containment ring
     return finalizeMergedParts(p);
   };
   atlantisRuin.push(buildAtlantisComplex(0));
   atlantisRuin.push(buildAtlantisComplex(1));
+
+  // ---------------------------------------------------------------------------
+  // Zoom-Responsive Prop LOD2 Library (~24-160 tris per prop preserving exact colors & silhouettes)
+  // ---------------------------------------------------------------------------
+  const coralReefLod2: THREE.BufferGeometry[] = [
+    (() => {
+      const p: THREE.BufferGeometry[] = [];
+      addColoredCylinder(p, 0.38, 0.44, 0.026, 6, 0, 0.013, 0, 0xc77dff);
+      addColoredCylinder(p, 0.25, 0.16, 0.032, 6, -0.10, 0.045, 0.08, 0xf43f5e);
+      addColoredCylinder(p, 0.18, 0.12, 0.028, 6, 0.0, 0.080, 0.02, 0xff8fa3);
+      addColoredCylinder(p, 0.05, 0.08, 0.10, 5, 0.16, 0.075, -0.10, 0xffaa00);
+      addColoredDome(p, 0.14, 5, 2, -0.16, 0.03, -0.14, 0x00b4d8, 1.0, 0.6, 1.0);
+      addColoredCylinder(p, 0.14, 0.09, 0.035, 5, 0.15, 0.038, 0.15, 0xf72585);
+      return finalizeMergedParts(p);
+    })(),
+    (() => {
+      const p: THREE.BufferGeometry[] = [];
+      addColoredCylinder(p, 0.38, 0.44, 0.026, 6, 0, 0.013, 0, 0x9d4edd);
+      addColoredCylinder(p, 0.08, 0.06, 0.12, 5, -0.13, 0.08, -0.06, 0xb5179e);
+      addColoredCylinder(p, 0.06, 0.05, 0.09, 5, -0.06, 0.065, 0.04, 0xff70a6);
+      addColoredDome(p, 0.20, 5, 2, 0.12, 0.03, 0.07, 0x00b4d8, 1.0, 0.55, 1.0);
+      addColoredCylinder(p, 0.05, 0.08, 0.10, 5, 0.15, 0.075, -0.14, 0xff9f1c);
+      return finalizeMergedParts(p);
+    })(),
+    (() => {
+      const p: THREE.BufferGeometry[] = [];
+      addColoredCylinder(p, 0.38, 0.44, 0.026, 6, 0, 0.013, 0, 0xe0aaff);
+      addColoredCylinder(p, 0.26, 0.16, 0.030, 6, -0.10, 0.045, -0.08, 0xff7b00);
+      addColoredCylinder(p, 0.19, 0.12, 0.028, 6, 0.03, 0.078, 0.0, 0xffbd00);
+      addColoredCylinder(p, 0.16, 0.10, 0.026, 5, 0.15, 0.05, 0.13, 0xff4d6d);
+      addColoredCylinder(p, 0.05, 0.08, 0.10, 5, -0.15, 0.075, 0.14, 0x9d4edd);
+      return finalizeMergedParts(p);
+    })(),
+    (() => {
+      const p: THREE.BufferGeometry[] = [];
+      addColoredCylinder(p, 0.38, 0.44, 0.026, 6, 0, 0.013, 0, 0xc77dff);
+      addColoredCylinder(p, 0.06, 0.09, 0.11, 5, -0.08, 0.078, 0.04, 0xff4d6d);
+      addColoredCylinder(p, 0.08, 0.06, 0.11, 5, 0.14, 0.075, -0.09, 0x00b4d8);
+      addColoredCylinder(p, 0.20, 0.12, 0.028, 6, 0.12, 0.048, 0.14, 0xc77dff);
+      addColoredDome(p, 0.14, 5, 2, -0.16, 0.03, -0.14, 0xfcbf49, 1.0, 0.55, 1.0);
+      return finalizeMergedParts(p);
+    })(),
+  ];
+
+  const coralReefBleachedLod2: THREE.BufferGeometry[] = [
+    (() => {
+      const p: THREE.BufferGeometry[] = [];
+      addColoredCylinder(p, 0.38, 0.44, 0.026, 6, 0, 0.013, 0, 0x64748b);
+      addColoredCylinder(p, 0.25, 0.15, 0.030, 6, -0.10, 0.045, 0.08, 0xcbd5e1);
+      addColoredCylinder(p, 0.18, 0.11, 0.026, 6, 0.0, 0.078, 0.02, 0xe2e8f0);
+      addColoredCylinder(p, 0.05, 0.08, 0.09, 5, 0.15, 0.07, -0.10, 0x94a3b8);
+      return finalizeMergedParts(p);
+    })(),
+    (() => {
+      const p: THREE.BufferGeometry[] = [];
+      addColoredCylinder(p, 0.38, 0.44, 0.026, 6, 0, 0.013, 0, 0x64748b);
+      addColoredCylinder(p, 0.08, 0.06, 0.11, 5, -0.13, 0.075, -0.06, 0x94a3b8);
+      addColoredDome(p, 0.19, 5, 2, 0.12, 0.03, 0.07, 0xcbd5e1, 1.0, 0.55, 1.0);
+      addColoredCylinder(p, 0.05, 0.08, 0.09, 5, 0.15, 0.07, -0.14, 0xf1f5f9);
+      return finalizeMergedParts(p);
+    })(),
+  ];
+
+  const berryLod2: THREE.BufferGeometry[] = berry.map((_, idx) => {
+    const p: THREE.BufferGeometry[] = [];
+    const fruitHex = idx === 1 ? 0xe0a943 : idx === 2 ? 0xf2b749 : 0xd94e34;
+    addColoredBox(p, 0.36, 0.24, 0.36, -0.12, 0.12, -0.08, 0x3b6e33);
+    addColoredBox(p, 0.28, 0.20, 0.28, 0.16, 0.10, 0.12, 0x4f8a42);
+    addColoredBox(p, 0.10, 0.08, 0.10, -0.10, 0.25, -0.06, fruitHex);
+    addColoredBox(p, 0.08, 0.08, 0.08, 0.16, 0.21, 0.12, fruitHex);
+    return finalizeMergedParts(p);
+  });
+
+  const farmCropLod2: THREE.BufferGeometry[] = farmCrop.map((_, idx) => {
+    const p: THREE.BufferGeometry[] = [];
+    addColoredBox(p, 0.72, 0.06, 0.66, 0, 0.03, 0, 0x5c3e26);
+    addColoredBox(p, 0.66, 0.18, 0.22, 0, 0.14, -0.18, 0xe9b44c);
+    addColoredBox(p, 0.66, 0.18, 0.22, 0, 0.14, 0.18, idx % 2 === 0 ? 0xdba13a : 0xe9b44c);
+    return finalizeMergedParts(p);
+  });
+
+  const sciFiFarmLod2: THREE.BufferGeometry[] = sciFiFarm.map((_, idx) => {
+    const p: THREE.BufferGeometry[] = [];
+    addColoredBox(p, 0.82, 0.08, 0.82, 0, 0.04, 0, 0x263238);
+    addColoredBox(p, 0.72, 0.14, 0.56, 0, 0.14, 0, idx % 2 === 0 ? 0x64dfdf : 0x52b788);
+    addColoredBox(p, 0.74, 0.08, 0.24, 0, 0.26, 0, 0x56cfe1);
+    return finalizeMergedParts(p);
+  });
+
+  const stoneLod2: THREE.BufferGeometry[] = stone.map((_, idx) => {
+    const p: THREE.BufferGeometry[] = [];
+    addColoredOcta(p, 0.22, -0.05, 0.14, -0.04, idx % 2 === 0 ? 0x8f8b82 : 0x7a766e, 1.15, 0.85, 1.1);
+    addColoredOcta(p, 0.15, 0.18, 0.09, 0.14, 0x99958b, 1.0, 0.75, 1.0);
+    return finalizeMergedParts(p);
+  });
+
+  const oreLod2: THREE.BufferGeometry[] = ore.map((_, idx) => {
+    const p: THREE.BufferGeometry[] = [];
+    addColoredOcta(p, 0.22, -0.04, 0.14, -0.04, 0x6e6a62, 1.1, 0.85, 1.05);
+    addColoredOcta(p, 0.12, 0.02, 0.24, -0.02, idx % 2 === 0 ? 0xf5b742 : 0xe08e36, 0.9, 0.9, 0.9);
+    addColoredOcta(p, 0.14, 0.18, 0.10, 0.14, 0xd97228, 1.0, 0.8, 1.0);
+    return finalizeMergedParts(p);
+  });
+
+  const crystalLod2Palettes: [number, number, number][] = [
+    [0xe848a8, 0x9b5de5, 0x38bdf8],
+    [0x10b981, 0xf59e0b, 0xf43f5e],
+    [0x8b5cf6, 0x06b6d4, 0xf97316],
+    [0xeab308, 0xd946ef, 0x14b8a6],
+    [0x0ea5e9, 0xf43f5e, 0x22c55e],
+    [0xef4444, 0x06b6d4, 0xfacc15],
+  ];
+  const crystalLod2: THREE.BufferGeometry[] = crystalLod2Palettes.map(([c0, c1, c2]) => {
+    const p: THREE.BufferGeometry[] = [];
+    addColoredCylinder(p, 0.22, 0.25, 0.06, 5, 0, 0.03, 0, 0x72bee8);
+    addColoredCylinder(p, 0.01, 0.10, 0.68, 4, 0, 0.36, 0, c0);
+    addColoredCylinder(p, 0.01, 0.075, 0.44, 4, 0.15, 0.24, 0.1, c1, 0.16, 0, -0.2);
+    addColoredCylinder(p, 0.01, 0.068, 0.38, 4, -0.14, 0.21, -0.1, c2, -0.16, 0, 0.2);
+    return finalizeMergedParts(p);
+  });
+
+  const scrapFlotsamLod2: THREE.BufferGeometry[] = scrapFlotsam.map((_, idx) => {
+    const p: THREE.BufferGeometry[] = [];
+    addColoredBox(p, 0.42, 0.06, 0.22, 0, 0.02, 0, 0x7c5334, idx * 0.2);
+    addColoredBox(p, 0.18, 0.16, 0.18, 0.04, 0.10, 0.06, idx % 2 === 0 ? 0xb45309 : 0x64748b);
+    return finalizeMergedParts(p);
+  });
+
+  const atlantisRuinLod2: THREE.BufferGeometry[] = [0, 1].map((vIdx) => {
+    const p: THREE.BufferGeometry[] = [];
+    addColoredCylinder(p, 1.56, 1.66, 0.04, 6, 0, 0.02, 0, 0xf5b742);
+    addColoredCylinder(p, 1.12, 1.18, 0.04, 6, 0, 0.09, 0, 0xe2e8f0);
+    addColoredBox(p, 3.0, 0.03, 0.24, 0, 0.12, 0, 0x00f5d4);
+    addColoredBox(p, 0.24, 0.03, 3.0, 0, 0.12, 0, 0x00f5d4);
+    for (const [qx, qz] of [[-0.96, -0.96], [0.96, -0.96], [-0.96, 0.96], [0.96, 0.96]] as const) {
+      addColoredBox(p, 0.52, 0.09, 0.52, qx, 0.09, qz, 0xe2e8f0);
+      addColoredBox(p, 0.34, 0.04, 0.34, qx, 0.15, qz, 0x00f5d4);
+    }
+    for (const [px, pz] of [[-0.46, -0.46], [0.46, -0.46], [-0.46, 0.46], [0.46, 0.46]] as const) {
+      addColoredBox(p, 0.16, 0.58, 0.16, px, 0.45, pz, 0xf8fafc);
+    }
+    addColoredBox(p, vIdx === 0 ? 1.12 : 0.24, 0.09, vIdx === 0 ? 0.24 : 1.12, vIdx === 0 ? 0 : -0.46, 0.80, vIdx === 0 ? -0.46 : 0, 0xf5b742);
+    addColoredBox(p, 0.22, 0.56, 0.22, 0, 0.54, 0, 0x48bfe3, Math.PI / 4);
+    return finalizeMergedParts(p);
+  });
 
   cachedVariantLib = {
     timber,
@@ -3185,11 +3551,17 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     timberSwamp,
     timberHighland,
     berry,
+    berryLod2,
     farmCrop,
+    farmCropLod2,
     sciFiFarm,
+    sciFiFarmLod2,
     stone,
+    stoneLod2,
     ore,
+    oreLod2,
     crystal,
+    crystalLod2,
     ambientGrass,
     ambientForest,
     ambientJungle,
@@ -3205,9 +3577,13 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     ambientSwamp,
     ambientHighland,
     coralReef,
+    coralReefLod2,
     coralReefBleached,
+    coralReefBleachedLod2,
     scrapFlotsam,
+    scrapFlotsamLod2,
     atlantisRuin,
+    atlantisRuinLod2,
     standardMat: new THREE.MeshStandardMaterial({
       vertexColors: true,
       roughness: 0.78,
@@ -3759,7 +4135,7 @@ export function createBuildingGroup(
           [-0.44, 0.44],
           [0.44, 0.44],
         ] as const) {
-          const tusk = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.16, 4), orcBoneMat);
+          const tusk = new THREE.Mesh(pxCone(0.035, 0.16, 4), orcBoneMat);
           tusk.position.set(cx, 0.07, cz);
           platGroup.add(tusk);
         }
@@ -3789,7 +4165,7 @@ export function createBuildingGroup(
       caisson.position.set(0, -0.05, 0);
       platGroup.add(caisson);
       for (const sx of [-0.46, 0.46]) {
-        const pontoon = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 1.0, 8), rimM);
+        const pontoon = new THREE.Mesh(pxCylinder(0.07, 0.07, 1.0, 8), rimM);
         pontoon.rotation.x = Math.PI / 2;
         pontoon.position.set(sx, -0.08, 0);
         platGroup.add(pontoon);
@@ -3808,7 +4184,7 @@ export function createBuildingGroup(
       }
     } else {
       // Orbital & Interstellar: Anti-gravity repulsor sea-pad with glowing racial plasma rings
-      const pad = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.54, 0.1, 8), raceTechWallMat);
+      const pad = new THREE.Mesh(pxCylinder(0.62, 0.54, 0.1, 8), raceTechWallMat);
       pad.position.set(0, -0.04, 0);
       platGroup.add(pad);
       const glowRing = new THREE.Mesh(new THREE.BoxGeometry(0.96, 0.04, 0.96), raceGlowMat);
@@ -3837,7 +4213,7 @@ export function createBuildingGroup(
     log2.position.set(cx, 0.038, cz);
     log2.rotation.y = -0.65;
     group.add(log2);
-    const emberCore = new THREE.Mesh(new THREE.ConeGeometry(0.065, 0.14, 5), fireMat);
+    const emberCore = new THREE.Mesh(pxCone(0.065, 0.14, 5), fireMat);
     emberCore.position.set(cx, 0.095, cz);
     emberCore.name = 'flicker_flame';
     group.add(emberCore);
@@ -4051,7 +4427,7 @@ export function createBuildingGroup(
       const dmBody = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.12, 0.16), wallMat);
       dmBody.position.set(cx + w * 0.06, dmY, dmZ);
       group.add(dmBody);
-      const dmCap = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.1, 4), roofMat);
+      const dmCap = new THREE.Mesh(pxCone(0.12, 0.1, 4), roofMat);
       dmCap.rotation.y = Math.PI / 4;
       dmCap.position.set(cx + w * 0.06, dmY + 0.1, dmZ);
       group.add(dmCap);
@@ -4079,7 +4455,7 @@ export function createBuildingGroup(
       flue.position.set(chX, 0.05 + chH + 0.015, chZ);
       group.add(flue);
 
-      const pot = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.034, 0.07, 6), brickMat);
+      const pot = new THREE.Mesh(pxCylinder(0.028, 0.034, 0.07, 6), brickMat);
       pot.position.set(chX, 0.05 + chH + 0.065, chZ);
       group.add(pot);
     }
@@ -4105,7 +4481,7 @@ export function createBuildingGroup(
 
     // Double-stepped carved moonstone plinth + ceremonial front stair apron
     const plinthLow = new THREE.Mesh(
-      new THREE.CylinderGeometry(radius + 0.09, radius + 0.12, 0.045, 8),
+      pxCylinder(radius + 0.09, radius + 0.12, 0.045, 8),
       epochIndex >= 6 ? elfJadeRoofMat : elfMossStoneMat,
     );
     plinthLow.position.set(cx, 0.022, cz);
@@ -4113,7 +4489,7 @@ export function createBuildingGroup(
     group.add(plinthLow);
 
     const plinthTop = new THREE.Mesh(
-      new THREE.CylinderGeometry(radius + 0.045, radius + 0.075, 0.04, 8),
+      pxCylinder(radius + 0.045, radius + 0.075, 0.04, 8),
       epochIndex >= 5 ? elfFiligreeMat : elfBirchMat,
     );
     plinthTop.position.set(cx, 0.062, cz);
@@ -4126,7 +4502,7 @@ export function createBuildingGroup(
     // Corner lotus bollard lanterns flanking entrance steps
     if (epochIndex >= 1) {
       for (const sx of [-0.11, 0.11]) {
-        const post = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.028, 0.12, 6), trimRibMat);
+        const post = new THREE.Mesh(pxCylinder(0.022, 0.028, 0.12, 6), trimRibMat);
         post.position.set(cx + sx, 0.09, cz + radius + 0.05);
         group.add(post);
         const orb = new THREE.Mesh(new THREE.OctahedronGeometry(0.032, 0), elfAquaGlowMat);
@@ -4141,7 +4517,7 @@ export function createBuildingGroup(
       const r = radius * tScale;
       const th = h * (t === 0 ? 1 : 0.76);
 
-      const body = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.92, r, th, 8), wallMat);
+      const body = new THREE.Mesh(pxCylinder(r * 0.92, r, th, 8), wallMat);
       body.position.set(cx, curY + th * 0.5, cz);
       body.castShadow = true;
       body.receiveShadow = true;
@@ -4151,14 +4527,14 @@ export function createBuildingGroup(
       for (let c = 0; c < 8; c++) {
         const a = (c / 8) * Math.PI * 2 + Math.PI / 8;
         const col = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.018, 0.024, th + 0.02, 6),
+          pxCylinder(0.018, 0.024, th + 0.02, 6),
           trimRibMat,
         );
         col.position.set(cx + Math.cos(a) * r * 0.95, curY + th * 0.5, cz + Math.sin(a) * r * 0.95);
         group.add(col);
 
         // Swept upturned pagoda corner wingtip horn at each vertex
-        const eaveTip = new THREE.Mesh(new THREE.ConeGeometry(0.026, 0.12, 4), accentGlowMat);
+        const eaveTip = new THREE.Mesh(pxCone(0.026, 0.12, 4), accentGlowMat);
         eaveTip.position.set(cx + Math.cos(a) * (r * 1.32), curY + th + 0.09, cz + Math.sin(a) * (r * 1.32));
         eaveTip.rotation.z = -Math.cos(a) * 0.58;
         eaveTip.rotation.x = Math.sin(a) * 0.58;
@@ -4168,7 +4544,7 @@ export function createBuildingGroup(
       // Continuous filigree balustrade gallery collar under upper tiers
       if (t > 0) {
         const rail = new THREE.Mesh(
-          new THREE.TorusGeometry(r * 1.06, 0.018, 5, 8),
+          pxTorus(r * 1.06, 0.018, 5, 8),
           trimRibMat,
         );
         rail.rotation.x = Math.PI / 2;
@@ -4215,7 +4591,7 @@ export function createBuildingGroup(
 
       // Flared upturned canopy eaves + ribbed leaf cone roof + crown collar
       const eaveFlare = new THREE.Mesh(
-        new THREE.CylinderGeometry(r * 0.76, r * 1.4, 0.075, 8),
+        pxCylinder(r * 0.76, r * 1.4, 0.075, 8),
         roofMat,
       );
       eaveFlare.position.set(cx, curY + th + 0.038, cz);
@@ -4224,7 +4600,7 @@ export function createBuildingGroup(
 
       const coneH = 0.22 * tScale;
       const roofCone = new THREE.Mesh(
-        new THREE.ConeGeometry(r * 0.92, coneH, 8),
+        pxCone(r * 0.92, coneH, 8),
         roofMat,
       );
       roofCone.position.set(cx, curY + th + 0.075 + coneH * 0.5, cz);
@@ -4235,12 +4611,12 @@ export function createBuildingGroup(
     }
 
     // Tiered Lotus Collar & Starlight Spire Finial
-    const crownBead = new THREE.Mesh(new THREE.SphereGeometry(0.055, 8, 6), accentGlowMat);
+    const crownBead = new THREE.Mesh(pxSphere(0.055, 8, 6), accentGlowMat);
     crownBead.position.set(cx, curY + 0.06, cz);
     group.add(crownBead);
 
     const finial = new THREE.Mesh(
-      new THREE.ConeGeometry(0.042, 0.22, 6),
+      pxCone(0.042, 0.22, 6),
       epochIndex >= 6 ? elfAquaGlowMat : goldMat,
     );
     finial.position.set(cx, curY + 0.19, cz);
@@ -4267,7 +4643,7 @@ export function createBuildingGroup(
 
     // Sloped battered basalt seawall base + thick armored sub-plinth
     const skirt = new THREE.Mesh(
-      new THREE.CylinderGeometry(Math.max(w, d) * 0.62, Math.max(w, d) * 0.74, 0.09, 4),
+      pxCylinder(Math.max(w, d) * 0.62, Math.max(w, d) * 0.74, 0.09, 4),
       epochIndex >= 6 ? orcGunmetalMat : orcBasaltMat,
     );
     skirt.rotation.y = Math.PI / 4;
@@ -4298,7 +4674,7 @@ export function createBuildingGroup(
       rib.castShadow = true;
       group.add(rib);
 
-      const merlon = new THREE.Mesh(new THREE.ConeGeometry(0.055, 0.12, 4), orcIronMat);
+      const merlon = new THREE.Mesh(pxCone(0.055, 0.12, 4), orcIronMat);
       merlon.rotation.y = Math.PI / 4;
       merlon.position.set(cx + sx, 0.08 + h + 0.1, cz + sz);
       group.add(merlon);
@@ -4347,7 +4723,7 @@ export function createBuildingGroup(
     // Heavy pitched armor roof slabs + spiked spine ridge
     addSteppedGableRoof(cx, 0.08 + h, cz, d + 0.12, w + 0.08, 4, 0.075, roofMat, wallMat, false);
     for (let s = -1; s <= 1; s++) {
-      const ridgeSpike = new THREE.Mesh(new THREE.ConeGeometry(0.036, 0.12, 4), orcIronMat);
+      const ridgeSpike = new THREE.Mesh(pxCone(0.036, 0.12, 4), orcIronMat);
       ridgeSpike.position.set(cx + s * (w * 0.28), 0.08 + h + 0.36, cz);
       group.add(ridgeSpike);
     }
@@ -4364,7 +4740,7 @@ export function createBuildingGroup(
       collar.position.set(cx + tx * 0.92, 0.08 + h + 0.08, cz + tz * 0.92);
       group.add(collar);
 
-      const tusk = new THREE.Mesh(new THREE.ConeGeometry(0.044, 0.28, 5), tuskMat);
+      const tusk = new THREE.Mesh(pxCone(0.044, 0.28, 5), tuskMat);
       tusk.position.set(cx + tx, 0.11 + h + 0.18, cz + tz);
       tusk.rotation.z = rz;
       tusk.rotation.x = rx;
@@ -4393,10 +4769,10 @@ export function createBuildingGroup(
       if (isElf) {
         if (type === 'bonfire' && epochIndex === 0) {
           // Elven Ep 0: Woven willow-arbor ring, stepping stones & hanging lantern pods around spirit flame
-          const mossRing = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.48, 0.065, 10), elfMossStoneMat);
+          const mossRing = new THREE.Mesh(pxCylinder(0.42, 0.48, 0.065, 10), elfMossStoneMat);
           mossRing.position.y = 0.032;
           group.add(mossRing);
-          const innerBasin = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.28, 0.08, 8), elfBirchMat);
+          const innerBasin = new THREE.Mesh(pxCylinder(0.24, 0.28, 0.08, 8), elfBirchMat);
           innerBasin.position.y = 0.045;
           group.add(innerBasin);
 
@@ -4410,10 +4786,10 @@ export function createBuildingGroup(
             group.add(bough);
           }
 
-          const leafCrown = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.3, 0.14, 8), elfLeafRoofMat);
+          const leafCrown = new THREE.Mesh(pxCylinder(0.1, 0.3, 0.14, 8), elfLeafRoofMat);
           leafCrown.position.y = 0.62;
           group.add(leafCrown);
-          const haloBranch = new THREE.Mesh(new THREE.TorusGeometry(0.18, 0.025, 5, 10), elfHeartwoodMat);
+          const haloBranch = new THREE.Mesh(pxTorus(0.18, 0.025, 5, 10), elfHeartwoodMat);
           haloBranch.rotation.x = Math.PI / 2;
           haloBranch.position.y = 0.56;
           group.add(haloBranch);
@@ -4424,22 +4800,22 @@ export function createBuildingGroup(
           group.add(spiritFire);
         } else if (type === 'bonfire' && epochIndex === 1) {
           // Elven Ep 1: Crescent Birch & Moonstone Colonnade Ring with Filigree Halo
-          const dais = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.48, 0.1, 8), elfMossStoneMat);
+          const dais = new THREE.Mesh(pxCylinder(0.42, 0.48, 0.1, 8), elfMossStoneMat);
           dais.position.y = 0.05;
           group.add(dais);
-          const plinthInner = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.36, 0.06, 8), elfFiligreeMat);
+          const plinthInner = new THREE.Mesh(pxCylinder(0.32, 0.36, 0.06, 8), elfFiligreeMat);
           plinthInner.position.y = 0.12;
           group.add(plinthInner);
 
           for (let i = 0; i < 6; i++) {
             const a = (i / 6) * Math.PI * 2 + Math.PI / 6;
-            const arch = new THREE.Mesh(new THREE.CylinderGeometry(0.036, 0.048, 0.44, 6), elfBirchMat);
+            const arch = new THREE.Mesh(pxCylinder(0.036, 0.048, 0.44, 6), elfBirchMat);
             arch.position.set(Math.cos(a) * 0.28, 0.34, Math.sin(a) * 0.28);
             arch.castShadow = true;
             group.add(arch);
           }
 
-          const halo = new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.036, 6, 14), elfJadeRoofMat);
+          const halo = new THREE.Mesh(pxTorus(0.28, 0.036, 6, 14), elfJadeRoofMat);
           halo.position.y = 0.57;
           halo.rotation.x = Math.PI / 2;
           group.add(halo);
@@ -4455,12 +4831,12 @@ export function createBuildingGroup(
           const bodyMat = isSciFi ? elfPearlTechMat : elfBirchMat;
           const roofMat = isSciFi ? elfJadeRoofMat : epochIndex >= 3 ? elfVerdigrisMat : elfJadeRoofMat;
 
-          const tier1 = new THREE.Mesh(new THREE.CylinderGeometry(0.46, 0.52, 0.12, 8), daisMat);
+          const tier1 = new THREE.Mesh(pxCylinder(0.46, 0.52, 0.12, 8), daisMat);
           tier1.position.y = 0.06;
           tier1.receiveShadow = true;
           group.add(tier1);
 
-          const tier2 = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.44, 0.09, 8), roofMat);
+          const tier2 = new THREE.Mesh(pxCylinder(0.38, 0.44, 0.09, 8), roofMat);
           tier2.position.y = 0.16;
           group.add(tier2);
 
@@ -4469,12 +4845,12 @@ export function createBuildingGroup(
             const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
             const px = Math.cos(a) * 0.34;
             const pz = Math.sin(a) * 0.34;
-            const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.055, 0.44, 6), bodyMat);
+            const pillar = new THREE.Mesh(pxCylinder(0.04, 0.055, 0.44, 6), bodyMat);
             pillar.position.set(px, 0.38, pz);
             pillar.castShadow = true;
             group.add(pillar);
 
-            const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.04, 0.05, 6), roofMat);
+            const cap = new THREE.Mesh(pxCylinder(0.08, 0.04, 0.05, 6), roofMat);
             cap.position.set(px, 0.61, pz);
             group.add(cap);
 
@@ -4496,7 +4872,7 @@ export function createBuildingGroup(
           });
 
           const astrolabe = new THREE.Mesh(
-            new THREE.TorusGeometry(0.28, 0.03, 6, 16),
+            pxTorus(0.28, 0.03, 6, 16),
             isSciFi ? elfAquaGlowMat : goldMat,
           );
           astrolabe.position.y = 1.18;
@@ -4510,17 +4886,17 @@ export function createBuildingGroup(
       if (isOrc) {
         if (type === 'bonfire' && epochIndex === 0) {
           // Orc Ep 0: Jagged boulder pit, bone war-tusks, iron cauldron tripod & roaring pyre
-          const pit = new THREE.Mesh(new THREE.CylinderGeometry(0.44, 0.52, 0.08, 7), orcBasaltMat);
+          const pit = new THREE.Mesh(pxCylinder(0.44, 0.52, 0.08, 7), orcBasaltMat);
           pit.position.y = 0.04;
           group.add(pit);
-          const ashRim = new THREE.Mesh(new THREE.TorusGeometry(0.26, 0.04, 5, 7), orcCharredLogMat);
+          const ashRim = new THREE.Mesh(pxTorus(0.26, 0.04, 5, 7), orcCharredLogMat);
           ashRim.rotation.x = Math.PI / 2;
           ashRim.position.y = 0.09;
           group.add(ashRim);
 
           for (let i = 0; i < 4; i++) {
             const a = (i / 4) * Math.PI * 2 + 0.4;
-            const tusk = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.58, 5), orcBoneMat);
+            const tusk = new THREE.Mesh(pxCone(0.06, 0.58, 5), orcBoneMat);
             tusk.position.set(Math.cos(a) * 0.27, 0.29, Math.sin(a) * 0.27);
             tusk.rotation.z = Math.cos(a) * 0.45;
             tusk.rotation.x = -Math.sin(a) * 0.45;
@@ -4550,7 +4926,7 @@ export function createBuildingGroup(
             const ped = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.2, 0.14), orcBasaltMat);
             ped.position.set(cx, 0.2, cz);
             group.add(ped);
-            const fang = new THREE.Mesh(new THREE.ConeGeometry(0.075, 0.48, 5), orcBoneMat);
+            const fang = new THREE.Mesh(pxCone(0.075, 0.48, 5), orcBoneMat);
             fang.position.set(cx, 0.44, cz);
             fang.rotation.z = Math.sign(cx) * 0.26;
             fang.rotation.x = -Math.sign(cz) * 0.26;
@@ -4609,7 +4985,7 @@ export function createBuildingGroup(
             group.add(collar);
 
             const horn = new THREE.Mesh(
-              new THREE.ConeGeometry(0.08, 0.52, 5),
+              pxCone(0.08, 0.52, 5),
               isSciFi ? orcIronMat : orcBoneMat,
             );
             horn.position.set(tx * 1.1, 0.92, tz * 1.1);
@@ -4625,7 +5001,7 @@ export function createBuildingGroup(
           group.add(magmaCore);
 
           if (isSciFi) {
-            const armorRing = new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.04, 5, 8), fireMat);
+            const armorRing = new THREE.Mesh(pxTorus(0.32, 0.04, 5, 8), fireMat);
             armorRing.position.y = 1.06;
             armorRing.rotation.x = Math.PI / 2;
             armorRing.name = 'spin_part';
@@ -4637,7 +5013,7 @@ export function createBuildingGroup(
 
       // HUMAN: Campfire -> Stone Brazier -> Iconic Twin White Marble Spires -> Twin Titanium Tech Spires
       if (type === 'bonfire' && epochIndex === 0) {
-        const earthMound = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.46, 0.06, 8), mudEarthMat);
+        const earthMound = new THREE.Mesh(pxCylinder(0.4, 0.46, 0.06, 8), mudEarthMat);
         earthMound.position.y = 0.03;
         group.add(earthMound);
 
@@ -4688,7 +5064,7 @@ export function createBuildingGroup(
           [-0.26, 0.26],
           [0.26, 0.26],
         ]) {
-          const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.065, 0.38, 6), marbleWhiteMat);
+          const pillar = new THREE.Mesh(pxCylinder(0.055, 0.065, 0.38, 6), marbleWhiteMat);
           pillar.position.set(cx, 0.29, cz);
           pillar.castShadow = true;
           group.add(pillar);
@@ -4783,7 +5159,7 @@ export function createBuildingGroup(
         group.add(centerFlame);
 
         if (isSciFi) {
-          const haloRing = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.03, 6, 12), glowCyanMat);
+          const haloRing = new THREE.Mesh(pxTorus(0.24, 0.03, 6, 12), glowCyanMat);
           haloRing.position.y = 1.15;
           haloRing.rotation.x = Math.PI / 2;
           haloRing.name = 'spin_part';
@@ -4846,14 +5222,14 @@ export function createBuildingGroup(
         } else if (epochIndex === 5) {
           // Elven Ep 5 (Info Age): Towering Sculpted Living Helix Conservatory Spire (spiraling filigree ribs + 5 cantilevered sky-gardens + floating rune holoscreens)
           const spireH = 1.45 + (variant % 3) * 0.22;
-          const dais = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.47, 0.1, 10), elfMossStoneMat);
+          const dais = new THREE.Mesh(pxCylinder(0.42, 0.47, 0.1, 10), elfMossStoneMat);
           dais.position.y = 0.05;
           group.add(dais);
-          const atriumRing = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.36, 0.14, 10), elfFiligreeMat);
+          const atriumRing = new THREE.Mesh(pxCylinder(0.32, 0.36, 0.14, 10), elfFiligreeMat);
           atriumRing.position.y = 0.16;
           group.add(atriumRing);
 
-          const coreSpire = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.26, spireH, 10), elfPearlTechMat);
+          const coreSpire = new THREE.Mesh(pxCylinder(0.13, 0.26, spireH, 10), elfPearlTechMat);
           coreSpire.position.y = 0.16 + spireH * 0.5;
           coreSpire.castShadow = true;
           group.add(coreSpire);
@@ -4874,11 +5250,11 @@ export function createBuildingGroup(
             const ang = (ti * Math.PI) / 2 + variant * 0.45;
             const px = Math.cos(ang) * 0.15;
             const pz = Math.sin(ang) * 0.15;
-            const pod = new THREE.Mesh(new THREE.CylinderGeometry(0.22 - ti * 0.018, 0.15, 0.075, 8), elfVerdigrisMat);
+            const pod = new THREE.Mesh(pxCylinder(0.22 - ti * 0.018, 0.15, 0.075, 8), elfVerdigrisMat);
             pod.position.set(px, ty, pz);
             pod.castShadow = true;
             group.add(pod);
-            const rail = new THREE.Mesh(new THREE.TorusGeometry(0.21 - ti * 0.018, 0.014, 5, 10), elfFiligreeMat);
+            const rail = new THREE.Mesh(pxTorus(0.21 - ti * 0.018, 0.014, 5, 10), elfFiligreeMat);
             rail.rotation.x = Math.PI / 2;
             rail.position.set(px, ty + 0.055, pz);
             group.add(rail);
@@ -4898,22 +5274,22 @@ export function createBuildingGroup(
             runeScreen.position.set(sx, 0.46, 0.18);
             group.add(runeScreen);
           }
-          const crownBud = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.38, 8), elfJadeRoofMat);
+          const crownBud = new THREE.Mesh(pxCone(0.18, 0.38, 8), elfJadeRoofMat);
           crownBud.position.y = 0.18 + spireH + 0.14;
           group.add(crownBud);
         } else {
           // Elven Ep 6+: Towering Pearl-Lotus Orbital Spire Arcology (fluted crystal needle + 6 unfolding lotus shell petals + levitating starlight rings)
           const spireH = 1.65 + (variant % 3) * 0.22;
-          const plinth = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.46, 0.1, 12), elfPearlTechMat);
+          const plinth = new THREE.Mesh(pxCylinder(0.42, 0.46, 0.1, 12), elfPearlTechMat);
           plinth.position.y = 0.05;
           group.add(plinth);
-          const waterCollar = new THREE.Mesh(new THREE.TorusGeometry(0.36, 0.028, 6, 14), elfAquaGlowMat);
+          const waterCollar = new THREE.Mesh(pxTorus(0.36, 0.028, 6, 14), elfAquaGlowMat);
           waterCollar.rotation.x = Math.PI / 2;
           waterCollar.position.y = 0.11;
           group.add(waterCollar);
 
           // Fluted pearl-crystal arcology tower shaft
-          const crystalShaft = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.27, spireH, 8), elfPearlTechMat);
+          const crystalShaft = new THREE.Mesh(pxCylinder(0.11, 0.27, spireH, 8), elfPearlTechMat);
           crystalShaft.position.y = 0.1 + spireH * 0.5;
           crystalShaft.castShadow = true;
           group.add(crystalShaft);
@@ -4922,11 +5298,11 @@ export function createBuildingGroup(
           for (let tier = 0; tier < 3; tier++) {
             const ty = 0.38 + tier * (spireH * 0.28);
             const rad = 0.26 - tier * 0.04;
-            const ring = new THREE.Mesh(new THREE.TorusGeometry(rad, 0.02, 6, 12), elfAquaGlowMat);
+            const ring = new THREE.Mesh(pxTorus(rad, 0.02, 6, 12), elfAquaGlowMat);
             ring.rotation.x = Math.PI / 2;
             ring.position.y = ty;
             group.add(ring);
-            const terrace = new THREE.Mesh(new THREE.CylinderGeometry(rad * 0.92, rad * 0.75, 0.06, 8), elfJadeRoofMat);
+            const terrace = new THREE.Mesh(pxCylinder(rad * 0.92, rad * 0.75, 0.06, 8), elfJadeRoofMat);
             terrace.position.y = ty - 0.03;
             group.add(terrace);
           }
@@ -4934,7 +5310,7 @@ export function createBuildingGroup(
           // 6 Unfolding curved lotus shell petals framing the base sanctuary
           for (let p = 0; p < 6; p++) {
             const a = (p / 6) * Math.PI * 2 + variant * 0.25;
-            const petal = new THREE.Mesh(new THREE.ConeGeometry(0.095, 0.48, 4), elfJadeRoofMat);
+            const petal = new THREE.Mesh(pxCone(0.095, 0.48, 4), elfJadeRoofMat);
             petal.position.set(Math.cos(a) * 0.29, 0.28, Math.sin(a) * 0.29);
             petal.rotation.z = -Math.cos(a) * 0.48;
             petal.rotation.x = Math.sin(a) * 0.48;
@@ -4953,11 +5329,11 @@ export function createBuildingGroup(
       if (isOrc) {
         if (epochIndex === 0) {
           // Orc Ep 0: Ribbed Animal-Hide War Yurt with External Timber Poles, Bone Crown & Cauldron Campfire
-          const earth = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.48, 0.06, 7), orcBasaltMat);
+          const earth = new THREE.Mesh(pxCylinder(0.42, 0.48, 0.06, 7), orcBasaltMat);
           earth.position.y = 0.03;
           group.add(earth);
           const yurt = new THREE.Mesh(
-            new THREE.CylinderGeometry(0.24, 0.36, 0.26, 7),
+            pxCylinder(0.24, 0.36, 0.26, 7),
             variant % 2 === 0 ? orcHideMat : orcCrimsonMat,
           );
           yurt.position.y = 0.18;
@@ -4969,12 +5345,12 @@ export function createBuildingGroup(
             pole.position.set(Math.cos(a) * 0.31, 0.18, Math.sin(a) * 0.31);
             group.add(pole);
           }
-          const roof = new THREE.Mesh(new THREE.ConeGeometry(0.39, 0.28, 7), orcHideMat);
+          const roof = new THREE.Mesh(pxCone(0.39, 0.28, 7), orcHideMat);
           roof.position.y = 0.44;
           roof.castShadow = true;
           group.add(roof);
           for (const sx of [-0.22, 0.22]) {
-            const tusk = new THREE.Mesh(new THREE.ConeGeometry(0.038, 0.28, 5), orcBoneMat);
+            const tusk = new THREE.Mesh(pxCone(0.038, 0.28, 5), orcBoneMat);
             tusk.position.set(sx, 0.42, 0.22);
             tusk.rotation.z = -Math.sign(sx) * 0.4;
             group.add(tusk);
@@ -5005,11 +5381,11 @@ export function createBuildingGroup(
         } else if (epochIndex === 5) {
           // Orc Ep 5 (Info Age): Towering Brutalist Ironclad Ziggurat Megablock (Exoskeleton Armor Ribs, Neon War-Screens, Twin Blast Stacks)
           const towerH = 1.28 + (variant % 3) * 0.22;
-          const podium = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.54, 0.2, 4), orcBasaltMat);
+          const podium = new THREE.Mesh(pxCylinder(0.45, 0.54, 0.2, 4), orcBasaltMat);
           podium.rotation.y = Math.PI / 4;
           podium.position.y = 0.1;
           group.add(podium);
-          const block = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.41, towerH, 4), orcGunmetalMat);
+          const block = new THREE.Mesh(pxCylinder(0.26, 0.41, towerH, 4), orcGunmetalMat);
           block.rotation.y = Math.PI / 4;
           block.position.y = 0.2 + towerH * 0.5;
           block.castShadow = true;
@@ -5021,10 +5397,10 @@ export function createBuildingGroup(
             group.add(spine);
           }
           for (const sx of [-0.27, 0.27]) {
-            const flues = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.065, towerH + 0.28, 6), orcIronMat);
+            const flues = new THREE.Mesh(pxCylinder(0.045, 0.065, towerH + 0.28, 6), orcIronMat);
             flues.position.set(sx, 0.24 + towerH * 0.5, -0.2);
             group.add(flues);
-            const flueCollar = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.05, 6), orcCrimsonMat);
+            const flueCollar = new THREE.Mesh(pxCylinder(0.075, 0.075, 0.05, 6), orcCrimsonMat);
             flueCollar.position.set(sx, 0.38 + towerH, -0.2);
             group.add(flueCollar);
           }
@@ -5052,7 +5428,7 @@ export function createBuildingGroup(
           crownBunker.position.y = 0.24 + towerH;
           group.add(crownBunker);
           for (const sx of [-0.18, 0.18]) {
-            const horn = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.32, 4), orcCrimsonMat);
+            const horn = new THREE.Mesh(pxCone(0.05, 0.32, 4), orcCrimsonMat);
             horn.position.set(sx, 0.34 + towerH, 0);
             horn.rotation.z = -Math.sign(sx) * 0.3;
             group.add(horn);
@@ -5063,14 +5439,14 @@ export function createBuildingGroup(
         } else {
           // Orc Ep 6+: Towering Hexagonal Ironclad Siege Ziggurat with 6 Claw Buttresses & Magma Core
           const towerH = 1.52 + (variant % 3) * 0.2;
-          const skirt = new THREE.Mesh(new THREE.CylinderGeometry(0.46, 0.52, 0.14, 6), orcBasaltMat);
+          const skirt = new THREE.Mesh(pxCylinder(0.46, 0.52, 0.14, 6), orcBasaltMat);
           skirt.position.y = 0.07;
           group.add(skirt);
-          const lowerHull = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.46, towerH * 0.55, 6), orcGunmetalMat);
+          const lowerHull = new THREE.Mesh(pxCylinder(0.34, 0.46, towerH * 0.55, 6), orcGunmetalMat);
           lowerHull.position.y = 0.14 + towerH * 0.275;
           lowerHull.castShadow = true;
           group.add(lowerHull);
-          const upperHull = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.34, towerH * 0.45, 6), orcIronMat);
+          const upperHull = new THREE.Mesh(pxCylinder(0.24, 0.34, towerH * 0.45, 6), orcIronMat);
           upperHull.position.y = 0.14 + towerH * 0.775;
           upperHull.castShadow = true;
           group.add(upperHull);
@@ -5082,7 +5458,7 @@ export function createBuildingGroup(
             armorPlate.rotation.y = -a + Math.PI / 2;
             group.add(armorPlate);
             if (i % 2 === 0) {
-              const claw = new THREE.Mesh(new THREE.ConeGeometry(0.055, 0.42, 4), orcCrimsonMat);
+              const claw = new THREE.Mesh(pxCone(0.055, 0.42, 4), orcCrimsonMat);
               claw.position.set(Math.cos(a) * 0.28, 0.18 + towerH, Math.sin(a) * 0.28);
               claw.rotation.z = Math.cos(a) * 0.42;
               claw.rotation.x = -Math.sin(a) * 0.42;
@@ -5091,7 +5467,7 @@ export function createBuildingGroup(
           }
           for (let f = 0; f < 4; f++) {
             const slit = new THREE.Mesh(
-              new THREE.CylinderGeometry(0.37 - f * 0.03, 0.37 - f * 0.03, 0.045, 6),
+              pxCylinder(0.37 - f * 0.03, 0.37 - f * 0.03, 0.045, 6),
               orcMagmaGlowMat,
             );
             slit.position.y = 0.34 + f * (towerH * 0.22);
@@ -5107,7 +5483,7 @@ export function createBuildingGroup(
 
       // HUMAN Houses -> Cottages (Ep 1-2) -> Brick Brownstone Rowhouses (Ep 3) -> Art-Deco Mid-Rises (Ep 4) -> Manhattan/Tokyo Skyscrapers (Ep 5) -> Neo-Futurist Arcology Skyscrapers (Ep 6+)
       if (epochIndex === 0) {
-        const earthPad = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.44, 0.05, 8), mudEarthMat);
+        const earthPad = new THREE.Mesh(pxCylinder(0.38, 0.44, 0.05, 8), mudEarthMat);
         earthPad.position.y = 0.025;
         group.add(earthPad);
         if (variant % 2 === 0) {
@@ -5119,7 +5495,7 @@ export function createBuildingGroup(
           door.position.set(0, 0.14, 0.3);
           group.add(door);
         } else {
-          const mudWall = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.34, 0.22, 8), mudEarthMat);
+          const mudWall = new THREE.Mesh(pxCylinder(0.3, 0.34, 0.22, 8), mudEarthMat);
           mudWall.position.y = 0.15;
           mudWall.castShadow = true;
           group.add(mudWall);
@@ -5128,7 +5504,7 @@ export function createBuildingGroup(
           group.add(doorGlow);
           for (let s = 0; s < 4; s++) {
             const r = 0.38 - s * 0.08;
-            const tier = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.75, r, 0.09, 8), thatchMat);
+            const tier = new THREE.Mesh(pxCylinder(r * 0.75, r, 0.09, 8), thatchMat);
             tier.position.y = 0.28 + s * 0.085;
             tier.castShadow = true;
             group.add(tier);
@@ -5267,10 +5643,10 @@ export function createBuildingGroup(
         const bulkhead = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.14, 0.2), concreteMat);
         bulkhead.position.set(-0.14, 0.2 + midH, 0.08);
         group.add(bulkhead);
-        const waterTank = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.13, 8), woodMat);
+        const waterTank = new THREE.Mesh(pxCylinder(0.08, 0.08, 0.13, 8), woodMat);
         waterTank.position.set(0.16, 0.26 + midH, -0.1);
         group.add(waterTank);
-        const tankRoof = new THREE.Mesh(new THREE.ConeGeometry(0.095, 0.07, 8), slateRoofMat);
+        const tankRoof = new THREE.Mesh(pxCone(0.095, 0.07, 8), slateRoofMat);
         tankRoof.position.set(0.16, 0.36 + midH, -0.1);
         group.add(tankRoof);
         if (variant % 2 === 0) {
@@ -5358,7 +5734,7 @@ export function createBuildingGroup(
           const cornerLedS = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.2, 0.34), neonAmberMat);
           cornerLedS.position.set(0.31, 0.44, 0.11);
           group.add(cornerLedS);
-          const needle = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.035, 0.46, 6), goldMat);
+          const needle = new THREE.Mesh(pxCylinder(0.012, 0.035, 0.46, 6), goldMat);
           needle.position.y = 0.22 + towerH + 0.22;
           group.add(needle);
         } else {
@@ -5411,7 +5787,7 @@ export function createBuildingGroup(
           roofBillboard.position.set(0, 0.42 + towerH, 0.18);
           group.add(roofBillboard);
           for (const ax of [-0.09, 0.09]) {
-            const antenna = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.024, 0.38, 6), techMat);
+            const antenna = new THREE.Mesh(pxCylinder(0.014, 0.024, 0.38, 6), techMat);
             antenna.position.set(ax, 0.54 + towerH, 0);
             group.add(antenna);
           }
@@ -5422,7 +5798,7 @@ export function createBuildingGroup(
       } else {
         // Orbital & Interstellar (Ep 6+): Towering Neo-Futurist Cyber-Arcology Skyscraper with Cantilevered Sky-Plazas, Holographic Billboards & Geodesic Crown
         const towerH = 1.68 + variant * 0.19;
-        const octDeck = new THREE.Mesh(new THREE.CylinderGeometry(0.44, 0.5, 0.14, 8), darkTechMat);
+        const octDeck = new THREE.Mesh(pxCylinder(0.44, 0.5, 0.14, 8), darkTechMat);
         octDeck.position.y = 0.07;
         group.add(octDeck);
 
@@ -5465,22 +5841,22 @@ export function createBuildingGroup(
         group.add(holoPanel);
 
         // Crown Geodesic Bio-Dome & Orbital Spire at the top of the skyscraper
-        const crownDeck = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.38, 0.08, 8), techMat);
+        const crownDeck = new THREE.Mesh(pxCylinder(0.34, 0.38, 0.08, 8), techMat);
         crownDeck.position.y = 0.16 + towerH;
         group.add(crownDeck);
         const bioDome = new THREE.Mesh(
-          new THREE.SphereGeometry(0.22, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2),
+          pxSphere(0.22, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2),
           glowCyanMat,
         );
         bioDome.position.set(0, 0.2 + towerH, 0);
         group.add(bioDome);
         for (let r = 0; r < 2; r++) {
-          const rib = new THREE.Mesh(new THREE.TorusGeometry(0.228, 0.016, 5, 12, Math.PI), techMat);
+          const rib = new THREE.Mesh(pxTorus(0.228, 0.016, 5, 12, Math.PI), techMat);
           rib.rotation.y = r * (Math.PI / 2);
           rib.position.set(0, 0.2 + towerH, 0);
           group.add(rib);
         }
-        const spire = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.03, 0.36, 6), techMat);
+        const spire = new THREE.Mesh(pxCylinder(0.012, 0.03, 0.36, 6), techMat);
         spire.position.set(0, 0.54 + towerH, 0);
         group.add(spire);
       }
@@ -5490,14 +5866,14 @@ export function createBuildingGroup(
     case 'shaman_totem': {
       if (isElf) {
         if (epochIndex === 0) {
-          const base = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.34, 0.08, 8), elfMossStoneMat);
+          const base = new THREE.Mesh(pxCylinder(0.3, 0.34, 0.08, 8), elfMossStoneMat);
           base.position.y = 0.04;
           group.add(base);
-          const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.095, 0.62, 6), elfBirchMat);
+          const trunk = new THREE.Mesh(pxCylinder(0.065, 0.095, 0.62, 6), elfBirchMat);
           trunk.position.y = 0.35;
           trunk.castShadow = true;
           group.add(trunk);
-          const halo = new THREE.Mesh(new THREE.TorusGeometry(0.21, 0.032, 6, 12), elfLeafRoofMat);
+          const halo = new THREE.Mesh(pxTorus(0.21, 0.032, 6, 12), elfLeafRoofMat);
           halo.position.y = 0.58;
           group.add(halo);
           const rune = new THREE.Mesh(new THREE.OctahedronGeometry(0.08, 0), elfAquaGlowMat);
@@ -5507,12 +5883,12 @@ export function createBuildingGroup(
           // Elven Ep 1+: Twin Crescent Moon-Gate Shrine with Filigree Buttresses & Levitating Crystal
           const isSciFi = epochIndex >= 6;
           const dais = new THREE.Mesh(
-            new THREE.CylinderGeometry(0.38, 0.44, 0.1, 8),
+            pxCylinder(0.38, 0.44, 0.1, 8),
             isSciFi ? elfPearlTechMat : elfMossStoneMat,
           );
           dais.position.y = 0.05;
           group.add(dais);
-          const innerRing = new THREE.Mesh(new THREE.TorusGeometry(0.26, 0.022, 5, 12), elfFiligreeMat);
+          const innerRing = new THREE.Mesh(pxTorus(0.26, 0.022, 5, 12), elfFiligreeMat);
           innerRing.rotation.x = Math.PI / 2;
           innerRing.position.y = 0.11;
           group.add(innerRing);
@@ -5531,7 +5907,7 @@ export function createBuildingGroup(
             group.add(pillar);
           }
           const crownArc = new THREE.Mesh(
-            new THREE.TorusGeometry(0.21, 0.042, 6, 12, Math.PI),
+            pxTorus(0.21, 0.042, 6, 12, Math.PI),
             isSciFi ? elfJadeRoofMat : goldMat,
           );
           crownArc.position.y = 0.58;
@@ -5547,7 +5923,7 @@ export function createBuildingGroup(
 
       if (isOrc) {
         if (epochIndex === 0) {
-          const mound = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.34, 0.1, 6), orcBasaltMat);
+          const mound = new THREE.Mesh(pxCylinder(0.28, 0.34, 0.1, 6), orcBasaltMat);
           mound.position.y = 0.05;
           group.add(mound);
           const pole = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.66, 0.14), orcCharredLogMat);
@@ -5557,7 +5933,7 @@ export function createBuildingGroup(
           maskPlate.position.y = 0.48;
           group.add(maskPlate);
           for (const sx of [-0.18, 0.18]) {
-            const horn = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.32, 5), orcBoneMat);
+            const horn = new THREE.Mesh(pxCone(0.05, 0.32, 5), orcBoneMat);
             horn.position.set(sx, 0.64, 0);
             horn.rotation.z = -Math.sign(sx) * 0.6;
             group.add(horn);
@@ -5577,7 +5953,7 @@ export function createBuildingGroup(
 
           for (const sx of [-0.22, 0.22]) {
             const fang = new THREE.Mesh(
-              new THREE.ConeGeometry(0.09, 0.64, 5),
+              pxCone(0.09, 0.64, 5),
               isSciFi ? orcIronMat : orcBasaltMat,
             );
             fang.position.set(sx, 0.44, 0);
@@ -5595,7 +5971,7 @@ export function createBuildingGroup(
 
       // HUMAN Shrines (Carved Timber Totem Ep 0 / Cross-Stepped Altar Sanctuary Ep 1+)
       if (epochIndex === 0) {
-        const earthBase = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.32, 0.1, 6), mudEarthMat);
+        const earthBase = new THREE.Mesh(pxCylinder(0.26, 0.32, 0.1, 6), mudEarthMat);
         earthBase.position.y = 0.05;
         group.add(earthBase);
         const totemPole = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.66, 0.16), stickWoodMat);
@@ -5637,7 +6013,7 @@ export function createBuildingGroup(
           [-0.21, 0.21],
           [0.21, 0.21],
         ]) {
-          const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.055, 0.34, 8), pillarMat);
+          const pillar = new THREE.Mesh(pxCylinder(0.045, 0.055, 0.34, 8), pillarMat);
           pillar.position.set(px, 0.34, pz);
           pillar.castShadow = true;
           group.add(pillar);
@@ -5675,16 +6051,16 @@ export function createBuildingGroup(
         // ELVES: Terraced Botanical Seed-Vault Conservatory with 6 Curved Ribs, Lantern Slits & Amphora Porch
         const isSciFi = epochIndex >= 6;
         const daisMat = isSciFi ? elfPearlTechMat : elfMossStoneMat;
-        const dais = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.47, 0.075, 10), daisMat);
+        const dais = new THREE.Mesh(pxCylinder(0.42, 0.47, 0.075, 10), daisMat);
         dais.position.y = 0.037;
         dais.receiveShadow = true;
         group.add(dais);
-        const curbCollar = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.39, 0.045, 10), elfFiligreeMat);
+        const curbCollar = new THREE.Mesh(pxCylinder(0.36, 0.39, 0.045, 10), elfFiligreeMat);
         curbCollar.position.y = 0.095;
         group.add(curbCollar);
 
         const vault = new THREE.Mesh(
-          new THREE.SphereGeometry(0.3, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.62),
+          pxSphere(0.3, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.62),
           isSciFi ? elfPearlTechMat : elfBirchMat,
         );
         vault.scale.set(1, 1.38, 1);
@@ -5696,7 +6072,7 @@ export function createBuildingGroup(
         for (let r = 0; r < 6; r++) {
           const a = (r / 6) * Math.PI * 2;
           const rib = new THREE.Mesh(
-            new THREE.TorusGeometry(0.312, 0.024, 5, 10, Math.PI * 0.62),
+            pxTorus(0.312, 0.024, 5, 10, Math.PI * 0.62),
             isSciFi ? elfJadeRoofMat : elfVerdigrisMat,
           );
           rib.rotation.y = a;
@@ -5719,12 +6095,12 @@ export function createBuildingGroup(
         porchDoor.position.set(0, 0.17, 0.32);
         group.add(porchDoor);
 
-        const seedCrownCollar = new THREE.Mesh(new THREE.TorusGeometry(0.085, 0.018, 5, 10), elfFiligreeMat);
+        const seedCrownCollar = new THREE.Mesh(pxTorus(0.085, 0.018, 5, 10), elfFiligreeMat);
         seedCrownCollar.rotation.x = Math.PI / 2;
         seedCrownCollar.position.y = 0.52;
         group.add(seedCrownCollar);
         const seedCrown = new THREE.Mesh(
-          new THREE.ConeGeometry(0.095, 0.24, 8),
+          pxCone(0.095, 0.24, 8),
           isSciFi ? elfAquaGlowMat : goldMat,
         );
         seedCrown.position.y = 0.64;
@@ -5735,10 +6111,10 @@ export function createBuildingGroup(
           [-0.27, 0.27, 1],
           [-0.17, 0.32, 0.78],
         ] as const) {
-          const urn = new THREE.Mesh(new THREE.CylinderGeometry(0.055 * sc, 0.082 * sc, 0.19 * sc, 8), goldMat);
+          const urn = new THREE.Mesh(pxCylinder(0.055 * sc, 0.082 * sc, 0.19 * sc, 8), goldMat);
           urn.position.set(ux, 0.15 * sc, uz);
           group.add(urn);
-          const urnLip = new THREE.Mesh(new THREE.CylinderGeometry(0.068 * sc, 0.05 * sc, 0.03 * sc, 8), elfVerdigrisMat);
+          const urnLip = new THREE.Mesh(pxCylinder(0.068 * sc, 0.05 * sc, 0.03 * sc, 8), elfVerdigrisMat);
           urnLip.position.set(ux, 0.245 * sc, uz);
           group.add(urnLip);
         }
@@ -5753,7 +6129,7 @@ export function createBuildingGroup(
         group.add(base);
 
         const wallMat = epochIndex >= 6 ? orcGunmetalMat : epochIndex >= 3 ? orcIronMat : orcCharredLogMat;
-        const smokehouse = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.39, 0.34, 4), wallMat);
+        const smokehouse = new THREE.Mesh(pxCylinder(0.25, 0.39, 0.34, 4), wallMat);
         smokehouse.rotation.y = Math.PI / 4;
         smokehouse.position.set(0.06, 0.28, 0.04);
         smokehouse.castShadow = true;
@@ -5764,7 +6140,7 @@ export function createBuildingGroup(
         strap.position.set(0.06, 0.26, 0.04);
         group.add(strap);
 
-        const ironCap = new THREE.Mesh(new THREE.ConeGeometry(0.32, 0.22, 4), orcCrimsonMat);
+        const ironCap = new THREE.Mesh(pxCone(0.32, 0.22, 4), orcCrimsonMat);
         ironCap.rotation.y = Math.PI / 4;
         ironCap.position.set(0.06, 0.56, 0.04);
         ironCap.castShadow = true;
@@ -5772,14 +6148,14 @@ export function createBuildingGroup(
 
         // Heavy brick/iron curing kiln chimney with banded iron collars & glowing vent
         const curingKiln = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.13, 0.17, 0.58, 6),
+          pxCylinder(0.13, 0.17, 0.58, 6),
           epochIndex >= 6 ? orcIronMat : orcBasaltMat,
         );
         curingKiln.position.set(-0.27, 0.32, -0.2);
         curingKiln.castShadow = true;
         group.add(curingKiln);
         for (const ky of [0.22, 0.42, 0.58]) {
-          const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.036, 6), orcRustPlateMat);
+          const collar = new THREE.Mesh(pxCylinder(0.16, 0.16, 0.036, 6), orcRustPlateMat);
           collar.position.set(-0.27, ky, -0.2);
           group.add(collar);
         }
@@ -5799,7 +6175,7 @@ export function createBuildingGroup(
         cargoHook.position.set(0.09, 0.36, 0.28);
         group.add(cargoHook);
 
-        const tuskCrane = new THREE.Mesh(new THREE.ConeGeometry(0.042, 0.32, 5), orcBoneMat);
+        const tuskCrane = new THREE.Mesh(pxCone(0.042, 0.32, 5), orcBoneMat);
         tuskCrane.position.set(-0.28, 0.28, 0.25);
         tuskCrane.rotation.z = 0.42;
         group.add(tuskCrane);
@@ -5880,16 +6256,16 @@ export function createBuildingGroup(
         const siloH = epochIndex === 5 ? 0.72 : 0.62;
         for (const pz of [-0.15, 0.15]) {
           const silo = new THREE.Mesh(
-            new THREE.CylinderGeometry(0.125, 0.13, siloH, 10),
+            pxCylinder(0.125, 0.13, siloH, 10),
             epochIndex === 3 ? woodMat : concreteMat,
           );
           silo.position.set(-0.25, 0.05 + siloH * 0.5, pz);
           silo.castShadow = true;
           group.add(silo);
-          const hoop = new THREE.Mesh(new THREE.CylinderGeometry(0.136, 0.136, 0.032, 10), darkStoneMat);
+          const hoop = new THREE.Mesh(pxCylinder(0.136, 0.136, 0.032, 10), darkStoneMat);
           hoop.position.set(-0.25, 0.05 + siloH * 0.55, pz);
           group.add(hoop);
-          const siloCap = new THREE.Mesh(new THREE.ConeGeometry(0.145, 0.12, 10), capM);
+          const siloCap = new THREE.Mesh(pxCone(0.145, 0.12, 10), capM);
           siloCap.position.set(-0.25, 0.05 + siloH + 0.06, pz);
           group.add(siloCap);
         }
@@ -5913,14 +6289,14 @@ export function createBuildingGroup(
           chimneySide: 'none',
         });
         for (const pz of [-0.15, 0.15]) {
-          const cryoSilo = new THREE.Mesh(new THREE.CylinderGeometry(0.125, 0.125, 0.68, 10), glowCyanMat);
+          const cryoSilo = new THREE.Mesh(pxCylinder(0.125, 0.125, 0.68, 10), glowCyanMat);
           cryoSilo.position.set(-0.25, 0.39, pz);
           group.add(cryoSilo);
-          const cageRing = new THREE.Mesh(new THREE.TorusGeometry(0.138, 0.018, 5, 10), darkTechMat);
+          const cageRing = new THREE.Mesh(pxTorus(0.138, 0.018, 5, 10), darkTechMat);
           cageRing.rotation.x = Math.PI / 2;
           cageRing.position.set(-0.25, 0.52, pz);
           group.add(cageRing);
-          const cryoCap = new THREE.Mesh(new THREE.ConeGeometry(0.135, 0.1, 10), techMat);
+          const cryoCap = new THREE.Mesh(pxCone(0.135, 0.1, 10), techMat);
           cryoCap.position.set(-0.25, 0.78, pz);
           group.add(cryoCap);
         }
@@ -5945,13 +6321,13 @@ export function createBuildingGroup(
         const wingWall = epochIndex >= 5 ? elfPearlTechMat : elfBirchMat;
         const wingRoof = epochIndex >= 3 ? elfVerdigrisMat : elfJadeRoofMat;
         for (const sx of [-0.36, 0.36]) {
-          const wingPlinth = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.15, 0.08, 6), elfMossStoneMat);
+          const wingPlinth = new THREE.Mesh(pxCylinder(0.12, 0.15, 0.08, 6), elfMossStoneMat);
           wingPlinth.position.set(sx, 0.04, 0.06);
           group.add(wingPlinth);
-          const post = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.04, 0.24, 6), wingWall);
+          const post = new THREE.Mesh(pxCylinder(0.032, 0.04, 0.24, 6), wingWall);
           post.position.set(sx, 0.18, 0.06);
           group.add(post);
-          const gazeboCap = new THREE.Mesh(new THREE.ConeGeometry(0.15, 0.12, 6), wingRoof);
+          const gazeboCap = new THREE.Mesh(pxCone(0.15, 0.12, 6), wingRoof);
           gazeboCap.position.set(sx, 0.34, 0.06);
           gazeboCap.castShadow = true;
           group.add(gazeboCap);
@@ -5960,7 +6336,7 @@ export function createBuildingGroup(
           group.add(lantern);
         }
         if (epochIndex >= 6) {
-          const halo = new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.03, 6, 14), elfAquaGlowMat);
+          const halo = new THREE.Mesh(pxTorus(0.32, 0.03, 6, 14), elfAquaGlowMat);
           halo.position.y = 0.94;
           halo.rotation.x = Math.PI / 2;
           halo.name = 'spin_part';
@@ -5983,22 +6359,22 @@ export function createBuildingGroup(
           // Twin flanking crenellated gate-turrets + war-drums
           for (const sx of [-0.38, 0.38]) {
             const turret = new THREE.Mesh(
-              new THREE.CylinderGeometry(0.11, 0.14, epochIndex === 5 ? 0.66 : 0.46, 6),
+              pxCylinder(0.11, 0.14, epochIndex === 5 ? 0.66 : 0.46, 6),
               epochIndex >= 4 ? orcGunmetalMat : orcBasaltMat,
             );
             turret.position.set(sx, (epochIndex === 5 ? 0.66 : 0.46) * 0.5, 0.16);
             turret.castShadow = true;
             group.add(turret);
-            const turretCollar = new THREE.Mesh(new THREE.CylinderGeometry(0.135, 0.12, 0.055, 6), orcRustPlateMat);
+            const turretCollar = new THREE.Mesh(pxCylinder(0.135, 0.12, 0.055, 6), orcRustPlateMat);
             turretCollar.position.set(sx, epochIndex === 5 ? 0.66 : 0.46, 0.16);
             group.add(turretCollar);
-            const spike = new THREE.Mesh(new THREE.ConeGeometry(0.075, 0.16, 4), orcCrimsonMat);
+            const spike = new THREE.Mesh(pxCone(0.075, 0.16, 4), orcCrimsonMat);
             spike.position.set(sx, (epochIndex === 5 ? 0.66 : 0.46) + 0.11, 0.16);
             group.add(spike);
           }
         } else {
           // Orc Ep 6+: Dreadnought Command Citadel with 4 Armored Buttresses & Spinning Magma War-Rotor
-          const glacis = new THREE.Mesh(new THREE.CylinderGeometry(0.46, 0.54, 0.18, 4), orcBasaltMat);
+          const glacis = new THREE.Mesh(pxCylinder(0.46, 0.54, 0.18, 4), orcBasaltMat);
           glacis.rotation.y = Math.PI / 4;
           glacis.position.y = 0.09;
           group.add(glacis);
@@ -6078,14 +6454,14 @@ export function createBuildingGroup(
         porticoFloor.position.set(0, 0.03, 0.33);
         group.add(porticoFloor);
         for (const cx of [-0.17, -0.06, 0.06, 0.17]) {
-          const col = new THREE.Mesh(new THREE.CylinderGeometry(0.026, 0.032, 0.34, 8), marbleWhiteMat);
+          const col = new THREE.Mesh(pxCylinder(0.026, 0.032, 0.34, 8), marbleWhiteMat);
           col.position.set(cx, 0.23, 0.36);
           group.add(col);
         }
         const pedimentBase = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.045, 0.14), marbleWhiteMat);
         pedimentBase.position.set(0, 0.42, 0.34);
         group.add(pedimentBase);
-        const pedimentGable = new THREE.Mesh(new THREE.ConeGeometry(0.23, 0.1, 4), slateRoofMat);
+        const pedimentGable = new THREE.Mesh(pxCone(0.23, 0.1, 4), slateRoofMat);
         pedimentGable.rotation.y = Math.PI / 4;
         pedimentGable.scale.set(1.3, 1, 0.45);
         pedimentGable.position.set(0, 0.49, 0.34);
@@ -6108,7 +6484,7 @@ export function createBuildingGroup(
         const clkLantern = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.12, 0.15), windowModernWarmMat);
         clkLantern.position.set(0, 1.02, 0);
         group.add(clkLantern);
-        const clkCap = new THREE.Mesh(new THREE.ConeGeometry(0.13, 0.24, 4), copperMat);
+        const clkCap = new THREE.Mesh(pxCone(0.13, 0.24, 4), copperMat);
         clkCap.position.set(0, 1.19, 0);
         clkCap.rotation.y = Math.PI / 4;
         group.add(clkCap);
@@ -6158,7 +6534,7 @@ export function createBuildingGroup(
         penthouse.position.y = 1.9;
         group.add(penthouse);
         for (const mx of [-0.08, 0.08]) {
-          const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.03, 0.38, 6), techMat);
+          const mast = new THREE.Mesh(pxCylinder(0.015, 0.03, 0.38, 6), techMat);
           mast.position.set(mx, 2.18, 0);
           group.add(mast);
         }
@@ -6235,12 +6611,12 @@ export function createBuildingGroup(
       if (isElf) {
         // ELVES: Open Solar-Mirror Crucible Sanctuary with 6 Angled Collector Petals & Lotus Crucible
         const basePad = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.42, 0.46, 0.08, 12),
+          pxCylinder(0.42, 0.46, 0.08, 12),
           epochIndex >= 6 ? elfPearlTechMat : elfMossStoneMat,
         );
         basePad.position.y = 0.04;
         group.add(basePad);
-        const crucibleRim = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.028, 5, 12), elfFiligreeMat);
+        const crucibleRim = new THREE.Mesh(pxTorus(0.24, 0.028, 5, 12), elfFiligreeMat);
         crucibleRim.rotation.x = Math.PI / 2;
         crucibleRim.position.y = 0.14;
         group.add(crucibleRim);
@@ -6272,7 +6648,7 @@ export function createBuildingGroup(
         const deck = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.12, 0.68), orcBasaltMat);
         deck.position.y = 0.06;
         group.add(deck);
-        const anvilHull = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.35, 0.36, 4), wallM);
+        const anvilHull = new THREE.Mesh(pxCylinder(0.25, 0.35, 0.36, 4), wallM);
         anvilHull.rotation.y = Math.PI / 4;
         anvilHull.position.set(0.08, 0.29, 0.06);
         anvilHull.castShadow = true;
@@ -6284,12 +6660,12 @@ export function createBuildingGroup(
           [-0.24, 0.2],
           [0.24, -0.2],
         ] as const) {
-          const blastStack = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.13, 0.74, 6), orcIronMat);
+          const blastStack = new THREE.Mesh(pxCylinder(0.085, 0.13, 0.74, 6), orcIronMat);
           blastStack.position.set(sx, 0.44, -0.16);
           blastStack.rotation.z = rz;
           blastStack.castShadow = true;
           group.add(blastStack);
-          const stackCap = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.09, 0.06, 6), orcCrimsonMat);
+          const stackCap = new THREE.Mesh(pxCylinder(0.12, 0.09, 0.06, 6), orcCrimsonMat);
           stackCap.position.set(sx - Math.sin(rz) * 0.37, 0.44 + Math.cos(rz) * 0.37, -0.16);
           stackCap.rotation.z = rz;
           group.add(stackCap);
@@ -6298,7 +6674,7 @@ export function createBuildingGroup(
         const gantryBeam = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.055, 0.065), orcRustPlateMat);
         gantryBeam.position.set(0.04, 0.56, 0.08);
         group.add(gantryBeam);
-        const magmaVat = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.2, 0.16, 6), orcMagmaGlowMat);
+        const magmaVat = new THREE.Mesh(pxCylinder(0.16, 0.2, 0.16, 6), orcMagmaGlowMat);
         magmaVat.position.set(0.22, 0.16, 0.24);
         magmaVat.name = 'flicker_flame';
         group.add(magmaVat);
@@ -6312,7 +6688,7 @@ export function createBuildingGroup(
           chimneySide: 'none',
         });
         for (const sx of [-0.18, 0.18]) {
-          const exhaust = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, 0.68, 8), techMat);
+          const exhaust = new THREE.Mesh(pxCylinder(0.07, 0.09, 0.68, 8), techMat);
           exhaust.position.set(sx, 0.48, -0.16);
           group.add(exhaust);
         }
@@ -6348,7 +6724,7 @@ export function createBuildingGroup(
           band.position.set(-0.2, fy, -0.14);
           group.add(band);
         }
-        const tuyerePipe = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.28, 6), darkStoneMat);
+        const tuyerePipe = new THREE.Mesh(pxCylinder(0.045, 0.045, 0.28, 6), darkStoneMat);
         tuyerePipe.rotation.z = Math.PI / 2;
         tuyerePipe.position.set(-0.04, 0.44, -0.14);
         group.add(tuyerePipe);
@@ -6370,15 +6746,15 @@ export function createBuildingGroup(
     case 'observatory': {
       if (isElf) {
         const baseMat = epochIndex >= 6 ? elfPearlTechMat : elfBirchMat;
-        const dais = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.4, 0.1, 8), elfMossStoneMat);
+        const dais = new THREE.Mesh(pxCylinder(0.34, 0.4, 0.1, 8), elfMossStoneMat);
         dais.position.y = 0.05;
         group.add(dais);
-        const spire = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.28, 0.72, 8), baseMat);
+        const spire = new THREE.Mesh(pxCylinder(0.18, 0.28, 0.72, 8), baseMat);
         spire.position.y = 0.42;
         spire.castShadow = true;
         group.add(spire);
         // Carved filigree balcony ring + 4 aqua lancet slit windows
-        const balcony = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.26, 0.055, 8), elfFiligreeMat);
+        const balcony = new THREE.Mesh(pxCylinder(0.32, 0.26, 0.055, 8), elfFiligreeMat);
         balcony.position.y = 0.66;
         group.add(balcony);
         for (let i = 0; i < 4; i++) {
@@ -6388,13 +6764,13 @@ export function createBuildingGroup(
           slit.rotation.y = -a;
           group.add(slit);
         }
-        const eave = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.42, 0.09, 8), elfJadeRoofMat);
+        const eave = new THREE.Mesh(pxCylinder(0.24, 0.42, 0.09, 8), elfJadeRoofMat);
         eave.position.y = 0.76;
         eave.castShadow = true;
         group.add(eave);
 
         const astrolabe = new THREE.Mesh(
-          new THREE.TorusGeometry(0.24, 0.03, 6, 16),
+          pxTorus(0.24, 0.03, 6, 16),
           epochIndex >= 6 ? elfAquaGlowMat : goldMat,
         );
         astrolabe.position.y = 0.99;
@@ -6419,21 +6795,21 @@ export function createBuildingGroup(
           rib.position.set(bx, 0.2, bz);
           group.add(rib);
         }
-        const keep = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.32, 0.5, 7), orcIronMat);
+        const keep = new THREE.Mesh(pxCylinder(0.26, 0.32, 0.5, 7), orcIronMat);
         keep.position.y = 0.56;
         keep.castShadow = true;
         group.add(keep);
-        const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.3, 0.06, 7), orcRustPlateMat);
+        const collar = new THREE.Mesh(pxCylinder(0.32, 0.3, 0.06, 7), orcRustPlateMat);
         collar.position.y = 0.8;
         group.add(collar);
         const spikedDome = new THREE.Mesh(
-          new THREE.SphereGeometry(0.26, 8, 6, 0, Math.PI * 2, 0, Math.PI / 2),
+          pxSphere(0.26, 8, 6, 0, Math.PI * 2, 0, Math.PI / 2),
           epochIndex >= 6 ? orcGunmetalMat : orcCrimsonMat,
         );
         spikedDome.position.y = 0.82;
         group.add(spikedDome);
         // Heavy iron spyglass barrel
-        const spyglass = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.065, 0.36, 6), orcBoneMat);
+        const spyglass = new THREE.Mesh(pxCylinder(0.05, 0.065, 0.36, 6), orcBoneMat);
         spyglass.position.set(0.14, 0.96, 0.14);
         spyglass.rotation.z = -0.58;
         spyglass.rotation.x = 0.42;
@@ -6446,10 +6822,10 @@ export function createBuildingGroup(
       }
 
       if (epochIndex >= 6) {
-        const plinth = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.42, 0.12, 8), darkTechMat);
+        const plinth = new THREE.Mesh(pxCylinder(0.38, 0.42, 0.12, 8), darkTechMat);
         plinth.position.y = 0.06;
         group.add(plinth);
-        const tower = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.32, 0.68, 8), techMat);
+        const tower = new THREE.Mesh(pxCylinder(0.26, 0.32, 0.68, 8), techMat);
         tower.position.y = 0.4;
         tower.castShadow = true;
         group.add(tower);
@@ -6457,12 +6833,12 @@ export function createBuildingGroup(
         collar.position.y = 0.74;
         group.add(collar);
         const dome = new THREE.Mesh(
-          new THREE.SphereGeometry(0.26, 10, 8, 0, Math.PI * 2, 0, Math.PI / 2),
+          pxSphere(0.26, 10, 8, 0, Math.PI * 2, 0, Math.PI / 2),
           darkTechMat,
         );
         dome.position.y = 0.78;
         group.add(dome);
-        const dish = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.05, 0.12, 8), glowCyanMat);
+        const dish = new THREE.Mesh(pxCylinder(0.22, 0.05, 0.12, 8), glowCyanMat);
         dish.position.set(0.1, 1.06, 0.1);
         dish.rotation.z = -0.5;
         dish.name = 'spin_part';
@@ -6477,7 +6853,7 @@ export function createBuildingGroup(
         entryStoop.position.set(0, 0.1, 0.34);
         group.add(entryStoop);
 
-        const tower = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.3, 0.56, 10), drumMat);
+        const tower = new THREE.Mesh(pxCylinder(0.25, 0.3, 0.56, 10), drumMat);
         tower.position.y = 0.48;
         tower.castShadow = true;
         group.add(tower);
@@ -6492,12 +6868,12 @@ export function createBuildingGroup(
           group.add(win);
         }
 
-        const balcony = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.32, 0.065, 10), darkStoneMat);
+        const balcony = new THREE.Mesh(pxCylinder(0.34, 0.32, 0.065, 10), darkStoneMat);
         balcony.position.y = 0.76;
         group.add(balcony);
 
         const dome = new THREE.Mesh(
-          new THREE.SphereGeometry(0.25, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2),
+          pxSphere(0.25, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2),
           epochIndex >= 4 ? techMat : copperMat,
         );
         dome.position.y = 0.79;
@@ -6509,12 +6885,12 @@ export function createBuildingGroup(
         domeSlit.rotation.y = Math.PI / 4;
         group.add(domeSlit);
 
-        const scope = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.062, 0.36, 8), goldMat);
+        const scope = new THREE.Mesh(pxCylinder(0.042, 0.062, 0.36, 8), goldMat);
         scope.position.set(0.14, 0.94, 0.14);
         scope.rotation.z = -0.6;
         scope.rotation.x = 0.4;
         group.add(scope);
-        const scopeLens = new THREE.Mesh(new THREE.CylinderGeometry(0.052, 0.048, 0.05, 8), glowCyanMat);
+        const scopeLens = new THREE.Mesh(pxCylinder(0.052, 0.048, 0.05, 8), glowCyanMat);
         scopeLens.position.set(0.24, 1.04, 0.22);
         scopeLens.rotation.z = -0.6;
         scopeLens.rotation.x = 0.4;
@@ -6528,12 +6904,12 @@ export function createBuildingGroup(
       if (isElf) {
         // ELVES: Ley-Line Harmonic Sanctuary with 6 Curved Turquoise Fin Buttresses & Spinning Crystal Prism
         const pool = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.42, 0.46, 0.1, 12),
+          pxCylinder(0.42, 0.46, 0.1, 12),
           epochIndex >= 6 ? elfPearlTechMat : elfMossStoneMat,
         );
         pool.position.y = 0.05;
         group.add(pool);
-        const poolRim = new THREE.Mesh(new THREE.TorusGeometry(0.38, 0.024, 5, 14), elfFiligreeMat);
+        const poolRim = new THREE.Mesh(pxTorus(0.38, 0.024, 5, 14), elfFiligreeMat);
         poolRim.rotation.x = Math.PI / 2;
         poolRim.position.y = 0.11;
         group.add(poolRim);
@@ -6546,7 +6922,7 @@ export function createBuildingGroup(
           fin.castShadow = true;
           group.add(fin);
         }
-        const resonanceRing = new THREE.Mesh(new THREE.TorusGeometry(0.22, 0.025, 5, 12), goldMat);
+        const resonanceRing = new THREE.Mesh(pxTorus(0.22, 0.025, 5, 12), goldMat);
         resonanceRing.rotation.x = Math.PI / 2;
         resonanceRing.position.y = 0.46;
         group.add(resonanceRing);
@@ -6566,7 +6942,7 @@ export function createBuildingGroup(
         pad.position.y = 0.07;
         group.add(pad);
         const drum = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.27, 0.3, 0.46, 10),
+          pxCylinder(0.27, 0.3, 0.46, 10),
           epochIndex >= 6 ? orcGunmetalMat : orcIronMat,
         );
         drum.rotation.z = Math.PI / 2;
@@ -6574,18 +6950,18 @@ export function createBuildingGroup(
         drum.castShadow = true;
         group.add(drum);
         for (const bx of [-0.18, -0.04, 0.1]) {
-          const strap = new THREE.Mesh(new THREE.TorusGeometry(0.295, 0.024, 5, 10), orcCrimsonMat);
+          const strap = new THREE.Mesh(pxTorus(0.295, 0.024, 5, 10), orcCrimsonMat);
           strap.rotation.y = Math.PI / 2;
           strap.position.set(bx, 0.32, 0.06);
           group.add(strap);
         }
         for (const sx of [-0.24, 0.06]) {
-          const stack = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.12, 0.88, 6), orcCrimsonMat);
+          const stack = new THREE.Mesh(pxCylinder(0.08, 0.12, 0.88, 6), orcCrimsonMat);
           stack.position.set(sx, 0.56, -0.22);
           stack.rotation.x = -0.12;
           stack.castShadow = true;
           group.add(stack);
-          const flange = new THREE.Mesh(new THREE.CylinderGeometry(0.115, 0.115, 0.045, 6), orcRustPlateMat);
+          const flange = new THREE.Mesh(pxCylinder(0.115, 0.115, 0.045, 6), orcRustPlateMat);
           flange.position.set(sx, 0.94, -0.27);
           flange.rotation.x = -0.12;
           group.add(flange);
@@ -6607,7 +6983,7 @@ export function createBuildingGroup(
           chimneySide: 'none',
         });
         for (const px of [-0.22, 0.02]) {
-          const pylon = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.095, 0.8, 8), darkTechMat);
+          const pylon = new THREE.Mesh(pxCylinder(0.075, 0.095, 0.8, 8), darkTechMat);
           pylon.position.set(px, 0.52, -0.18);
           group.add(pylon);
         }
@@ -6633,7 +7009,7 @@ export function createBuildingGroup(
         const sawtooth = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.09, 0.16), windowModernWarmMat);
         sawtooth.position.set(0, 0.52, 0.08);
         group.add(sawtooth);
-        const pipeManifold = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.42, 6), copperMat);
+        const pipeManifold = new THREE.Mesh(pxCylinder(0.04, 0.04, 0.42, 6), copperMat);
         pipeManifold.rotation.z = Math.PI / 2;
         pipeManifold.position.set(-0.08, 0.48, -0.18);
         group.add(pipeManifold);
@@ -6642,11 +7018,11 @@ export function createBuildingGroup(
           [-0.22, 0.84],
           [0.02, 0.74],
         ] as const) {
-          const stack = new THREE.Mesh(new THREE.CylinderGeometry(0.072, 0.1, sh, 8), darkStoneMat);
+          const stack = new THREE.Mesh(pxCylinder(0.072, 0.1, sh, 8), darkStoneMat);
           stack.position.set(sx, 0.14 + sh * 0.5, -0.18);
           stack.castShadow = true;
           group.add(stack);
-          const rim = new THREE.Mesh(new THREE.CylinderGeometry(0.098, 0.08, 0.045, 8), copperMat);
+          const rim = new THREE.Mesh(pxCylinder(0.098, 0.08, 0.045, 8), copperMat);
           rim.position.set(sx, 0.14 + sh, -0.18);
           group.add(rim);
         }
@@ -6665,10 +7041,10 @@ export function createBuildingGroup(
     case 'fission_reactor': {
       if (isElf) {
         // ELVES: Harmonic Bio-Resonance Lotus Basin cradling a spinning starlight plasma core
-        const waterPool = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.46, 0.08, 12), elfJadeRoofMat);
+        const waterPool = new THREE.Mesh(pxCylinder(0.42, 0.46, 0.08, 12), elfJadeRoofMat);
         waterPool.position.y = 0.04;
         group.add(waterPool);
-        const poolRim = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.024, 5, 14), elfFiligreeMat);
+        const poolRim = new THREE.Mesh(pxTorus(0.42, 0.024, 5, 14), elfFiligreeMat);
         poolRim.rotation.x = Math.PI / 2;
         poolRim.position.y = 0.09;
         group.add(poolRim);
@@ -6686,7 +7062,7 @@ export function createBuildingGroup(
           innerRib.rotation.z = -0.3;
           group.add(innerRib);
         }
-        const torus = new THREE.Mesh(new THREE.TorusGeometry(0.25, 0.035, 6, 14), goldMat);
+        const torus = new THREE.Mesh(pxTorus(0.25, 0.035, 6, 14), goldMat);
         torus.position.y = 0.52;
         torus.rotation.x = Math.PI / 2;
         group.add(torus);
@@ -6696,16 +7072,16 @@ export function createBuildingGroup(
         group.add(coreCrystal);
       } else if (isOrc) {
         // ORCS: Volcanic Magma-Core Crater Reactor with 4 Slanted Exhaust Manifolds, Buttress Fins & Blast Grate
-        const plinth = new THREE.Mesh(new THREE.CylinderGeometry(0.46, 0.52, 0.1, 7), orcBasaltMat);
+        const plinth = new THREE.Mesh(pxCylinder(0.46, 0.52, 0.1, 7), orcBasaltMat);
         plinth.position.y = 0.05;
         group.add(plinth);
-        const crater = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.46, 0.36, 7), orcGunmetalMat);
+        const crater = new THREE.Mesh(pxCylinder(0.35, 0.46, 0.36, 7), orcGunmetalMat);
         crater.position.y = 0.24;
         crater.castShadow = true;
         group.add(crater);
         for (let i = 0; i < 4; i++) {
           const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
-          const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.088, 0.64, 6), orcIronMat);
+          const pipe = new THREE.Mesh(pxCylinder(0.065, 0.088, 0.64, 6), orcIronMat);
           pipe.position.set(Math.cos(a) * 0.28, 0.48, Math.sin(a) * 0.28);
           pipe.rotation.z = -Math.cos(a) * 0.32;
           pipe.rotation.x = Math.sin(a) * 0.32;
@@ -6716,7 +7092,7 @@ export function createBuildingGroup(
           fin.rotation.y = -a + Math.PI / 2;
           group.add(fin);
         }
-        const grate = new THREE.Mesh(new THREE.TorusGeometry(0.22, 0.045, 5, 8), orcCrimsonMat);
+        const grate = new THREE.Mesh(pxTorus(0.22, 0.045, 5, 8), orcCrimsonMat);
         grate.position.y = 0.44;
         grate.rotation.x = Math.PI / 2;
         group.add(grate);
@@ -6740,7 +7116,7 @@ export function createBuildingGroup(
         hall.castShadow = true;
         group.add(hall);
         const containmentDome = new THREE.Mesh(
-          new THREE.SphereGeometry(0.17, 10, 8, 0, Math.PI * 2, 0, Math.PI / 2),
+          pxSphere(0.17, 10, 8, 0, Math.PI * 2, 0, Math.PI / 2),
           epochIndex >= 6 ? darkTechMat : slateRoofMat,
         );
         containmentDome.position.set(0.21, 0.4, 0.1);
@@ -6755,14 +7131,14 @@ export function createBuildingGroup(
         const stackMat = epochIndex >= 6 ? techMat : concreteMat;
         for (const pz of [-0.19, 0.19]) {
           // Intake basin collar & 4 diagonal concrete stilts supporting the hyperbolic shell
-          const basin = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.22, 0.04, 12), darkStoneMat);
+          const basin = new THREE.Mesh(pxCylinder(0.2, 0.22, 0.04, 12), darkStoneMat);
           basin.position.set(-0.19, 0.12, pz);
           group.add(basin);
           const tower = new THREE.Mesh(coolingGeo, stackMat);
           tower.position.set(-0.19, 0.13, pz);
           tower.castShadow = true;
           group.add(tower);
-          const rimCollar = new THREE.Mesh(new THREE.TorusGeometry(0.145, 0.018, 5, 12), darkStoneMat);
+          const rimCollar = new THREE.Mesh(pxTorus(0.145, 0.018, 5, 12), darkStoneMat);
           rimCollar.rotation.x = Math.PI / 2;
           rimCollar.position.set(-0.19, 0.87, pz);
           group.add(rimCollar);
@@ -6779,14 +7155,14 @@ export function createBuildingGroup(
     case 'cyber_institute': {
       if (isElf) {
         // ELVES: Helical Crystalline Starlight Academy (Plaza, 3 Arches, Dual Counter-Tilted Gyroscope Rings)
-        const base = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.46, 0.12, 12), elfPearlTechMat);
+        const base = new THREE.Mesh(pxCylinder(0.4, 0.46, 0.12, 12), elfPearlTechMat);
         base.position.y = 0.06;
         group.add(base);
-        const plazaTrim = new THREE.Mesh(new THREE.TorusGeometry(0.38, 0.02, 5, 14), elfFiligreeMat);
+        const plazaTrim = new THREE.Mesh(pxTorus(0.38, 0.02, 5, 14), elfFiligreeMat);
         plazaTrim.rotation.x = Math.PI / 2;
         plazaTrim.position.y = 0.13;
         group.add(plazaTrim);
-        const lanternAtrium = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.16, 0.26, 8), elfAquaGlowMat);
+        const lanternAtrium = new THREE.Mesh(pxCylinder(0.14, 0.16, 0.26, 8), elfAquaGlowMat);
         lanternAtrium.position.y = 0.24;
         group.add(lanternAtrium);
         for (let i = 0; i < 3; i++) {
@@ -6798,12 +7174,12 @@ export function createBuildingGroup(
           arch.castShadow = true;
           group.add(arch);
         }
-        const gyroOuter = new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.03, 6, 16), elfJadeRoofMat);
+        const gyroOuter = new THREE.Mesh(pxTorus(0.28, 0.03, 6, 16), elfJadeRoofMat);
         gyroOuter.position.y = 0.88;
         gyroOuter.rotation.x = 0.6;
         gyroOuter.name = 'spin_part';
         group.add(gyroOuter);
-        const gyroInner = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.022, 6, 14), goldMat);
+        const gyroInner = new THREE.Mesh(pxTorus(0.2, 0.022, 6, 14), goldMat);
         gyroInner.position.y = 0.88;
         gyroInner.rotation.y = 0.7;
         gyroInner.name = 'spin_part';
@@ -6818,7 +7194,7 @@ export function createBuildingGroup(
         plinth.position.y = 0.07;
         group.add(plinth);
         const fortress = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.24, 0.42, 0.86, 4),
+          pxCylinder(0.24, 0.42, 0.86, 4),
           epochIndex >= 6 ? orcGunmetalMat : orcIronMat,
         );
         fortress.rotation.y = Math.PI / 4;
@@ -6839,7 +7215,7 @@ export function createBuildingGroup(
         visor.position.y = 0.82;
         group.add(visor);
         for (const sx of [-0.22, 0.22]) {
-          const warHorn = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.44, 4), orcCrimsonMat);
+          const warHorn = new THREE.Mesh(pxCone(0.06, 0.44, 4), orcCrimsonMat);
           warHorn.position.set(sx, 1.16, 0);
           warHorn.rotation.z = -Math.sign(sx) * 0.25;
           group.add(warHorn);
@@ -6907,15 +7283,15 @@ export function createBuildingGroup(
         // ELVES: Crescent Vine-Arch Blossom Canopy with Carved Filigree Ribs & Suspended Lantern Pavilion
         const colonnadeM = epochIndex >= 5 ? elfPearlTechMat : elfBirchMat;
         for (const px of [-0.3, 0.3]) {
-          const ped = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.085, 0.08, 8), elfMossStoneMat);
+          const ped = new THREE.Mesh(pxCylinder(0.07, 0.085, 0.08, 8), elfMossStoneMat);
           ped.position.set(px, 0.12, -0.06);
           group.add(ped);
-          const pier = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.06, 0.36, 8), colonnadeM);
+          const pier = new THREE.Mesh(pxCylinder(0.045, 0.06, 0.36, 8), colonnadeM);
           pier.position.set(px, 0.26, -0.06);
           group.add(pier);
         }
         const archVault = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.36, 0.38, 0.72, 12, 1, false, 0, Math.PI),
+          pxCylinder(0.36, 0.38, 0.72, 12, 1, false, 0, Math.PI),
           epochIndex >= 5 ? elfJadeRoofMat : elfVerdigrisMat,
         );
         archVault.rotation.z = Math.PI / 2;
@@ -6923,7 +7299,7 @@ export function createBuildingGroup(
         archVault.castShadow = true;
         group.add(archVault);
         for (const rx of [-0.26, 0, 0.26]) {
-          const filigreeRib = new THREE.Mesh(new THREE.TorusGeometry(0.375, 0.022, 5, 12, Math.PI), elfFiligreeMat);
+          const filigreeRib = new THREE.Mesh(pxTorus(0.375, 0.022, 5, 12, Math.PI), elfFiligreeMat);
           filigreeRib.rotation.y = Math.PI / 2;
           filigreeRib.position.set(rx, 0.28, -0.06);
           group.add(filigreeRib);
@@ -6933,12 +7309,12 @@ export function createBuildingGroup(
         group.add(spiritLamp);
         if (epochIndex >= 5) {
           for (const px of [-0.32, 0.32]) {
-            const archPier = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.08, 0.66, 8), colonnadeM);
+            const archPier = new THREE.Mesh(pxCylinder(0.055, 0.08, 0.66, 8), colonnadeM);
             archPier.position.set(px, 0.38, 0.24);
             group.add(archPier);
           }
           const skyCanopy = new THREE.Mesh(
-            new THREE.CylinderGeometry(0.24, 0.42, 0.88, 10, 1, false, 0, Math.PI),
+            pxCylinder(0.24, 0.42, 0.88, 10, 1, false, 0, Math.PI),
             elfJadeRoofMat,
           );
           skyCanopy.rotation.z = Math.PI / 2;
@@ -6948,20 +7324,20 @@ export function createBuildingGroup(
       } else if (isOrc) {
         // ORCS: Armored Iron-Tusk Locomotive Shed + Siege Viaduct Overpass
         const hullM = epochIndex >= 5 ? orcGunmetalMat : orcIronMat;
-        const shed = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.4, 0.78, 4), hullM);
+        const shed = new THREE.Mesh(pxCylinder(0.28, 0.4, 0.78, 4), hullM);
         shed.rotation.z = Math.PI / 2;
         shed.rotation.x = Math.PI / 4;
         shed.position.set(0, 0.28, -0.08);
         shed.castShadow = true;
         group.add(shed);
         for (const rx of [-0.28, 0, 0.28]) {
-          const rib = new THREE.Mesh(new THREE.TorusGeometry(0.34, 0.04, 5, 8, Math.PI), orcCrimsonMat);
+          const rib = new THREE.Mesh(pxTorus(0.34, 0.04, 5, 8, Math.PI), orcCrimsonMat);
           rib.rotation.y = Math.PI / 2;
           rib.position.set(rx, 0.26, -0.06);
           group.add(rib);
         }
         for (const sx of [-0.36, 0.36]) {
-          const horn = new THREE.Mesh(new THREE.ConeGeometry(0.055, 0.28, 4), orcBoneMat);
+          const horn = new THREE.Mesh(pxCone(0.055, 0.28, 4), orcBoneMat);
           horn.position.set(sx, 0.56, 0.24);
           horn.rotation.x = 0.45;
           group.add(horn);
@@ -6986,7 +7362,7 @@ export function createBuildingGroup(
         group.add(concourseWins);
 
         const glassBarrel = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.26, 0.26, 0.74, 12, 1, false, 0, Math.PI),
+          pxCylinder(0.26, 0.26, 0.74, 12, 1, false, 0, Math.PI),
           epochIndex >= 5 ? glassCurtainMat : slateRoofMat,
         );
         glassBarrel.rotation.z = Math.PI / 2;
@@ -6994,7 +7370,7 @@ export function createBuildingGroup(
         group.add(glassBarrel);
         // 4 Exposed iron barrel-vault ribs
         for (const rx of [-0.32, -0.11, 0.11, 0.32]) {
-          const archRib = new THREE.Mesh(new THREE.TorusGeometry(0.27, 0.022, 5, 12, Math.PI), darkStoneMat);
+          const archRib = new THREE.Mesh(pxTorus(0.27, 0.022, 5, 12, Math.PI), darkStoneMat);
           archRib.rotation.y = Math.PI / 2;
           archRib.position.set(rx, 0.32, -0.04);
           group.add(archRib);
@@ -7005,7 +7381,7 @@ export function createBuildingGroup(
         const gableTrim = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.032, 0.09), copperMat);
         gableTrim.position.set(0, 0.54, 0.22);
         group.add(gableTrim);
-        const dial = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.04, 10), goldMat);
+        const dial = new THREE.Mesh(pxCylinder(0.075, 0.075, 0.04, 10), goldMat);
         dial.rotation.x = Math.PI / 2;
         dial.position.set(0, 0.44, 0.265);
         group.add(dial);
@@ -7068,13 +7444,13 @@ export function createBuildingGroup(
           spar.rotation.y = sx * 0.18;
           group.add(spar);
         }
-        const blossomHall = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.3, 0.24, 10), elfPearlTechMat);
+        const blossomHall = new THREE.Mesh(pxCylinder(0.24, 0.3, 0.24, 10), elfPearlTechMat);
         blossomHall.position.set(0, 0.18, -0.08);
         group.add(blossomHall);
         const pierDeck = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.06, 0.28), elfAquaGlowMat);
         pierDeck.position.set(0, 0.14, 0.24);
         group.add(pierDeck);
-        const spireNeck = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.11, 0.86, 8), elfBirchMat);
+        const spireNeck = new THREE.Mesh(pxCylinder(0.05, 0.11, 0.86, 8), elfBirchMat);
         spireNeck.position.set(0.26, 0.48, 0.26);
         group.add(spireNeck);
         const lotusOrb = new THREE.Mesh(new THREE.OctahedronGeometry(0.14, 0), elfAquaGlowMat);
@@ -7084,7 +7460,7 @@ export function createBuildingGroup(
       } else if (isOrc) {
         // ORCS: Armored Sawtooth Bomber Bastion + Flak Spotlight Tower + Spiked Blast Shields
         for (const rx of [-0.22, 0.14]) {
-          const sawtooth = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.26, 0.46, 4), orcGunmetalMat);
+          const sawtooth = new THREE.Mesh(pxCylinder(0.18, 0.26, 0.46, 4), orcGunmetalMat);
           sawtooth.rotation.z = Math.PI / 2;
           sawtooth.rotation.x = Math.PI / 4;
           sawtooth.position.set(rx, 0.22, -0.14);
@@ -7094,11 +7470,11 @@ export function createBuildingGroup(
         const blastTrim = new THREE.Mesh(new THREE.BoxGeometry(0.76, 0.08, 0.1), orcCrimsonMat);
         blastTrim.position.set(-0.04, 0.12, 0.08);
         group.add(blastTrim);
-        const flakTower = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.18, 0.72, 6), orcIronMat);
+        const flakTower = new THREE.Mesh(pxCylinder(0.12, 0.18, 0.72, 6), orcIronMat);
         flakTower.position.set(0.28, 0.42, 0.26);
         flakTower.castShadow = true;
         group.add(flakTower);
-        const flakCollar = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.14, 0.06, 6), orcRustPlateMat);
+        const flakCollar = new THREE.Mesh(pxCylinder(0.16, 0.14, 0.06, 6), orcRustPlateMat);
         flakCollar.position.set(0.28, 0.76, 0.26);
         group.add(flakCollar);
         const redEye = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.12, 0.22), orcMagmaGlowMat);
@@ -7106,7 +7482,7 @@ export function createBuildingGroup(
         redEye.name = 'spin_part';
         group.add(redEye);
         for (const sx of [-0.36, -0.16]) {
-          const spike = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.22, 4), orcBoneMat);
+          const spike = new THREE.Mesh(pxCone(0.05, 0.22, 4), orcBoneMat);
           spike.position.set(sx, 0.16, 0.32);
           spike.rotation.x = -0.35;
           group.add(spike);
@@ -7123,7 +7499,7 @@ export function createBuildingGroup(
         hangarDoor.position.set(-0.22, 0.14, -0.04);
         group.add(hangarDoor);
         const hangarRoof = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.19, 0.19, 0.38, 10, 1, false, 0, Math.PI),
+          pxCylinder(0.19, 0.19, 0.38, 10, 1, false, 0, Math.PI),
           termRoof,
         );
         hangarRoof.rotation.z = Math.PI / 2;
@@ -7151,17 +7527,17 @@ export function createBuildingGroup(
           group.add(cabHead);
         }
 
-        const towerShaft = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.12, 0.78, 8), termWall);
+        const towerShaft = new THREE.Mesh(pxCylinder(0.08, 0.12, 0.78, 8), termWall);
         towerShaft.position.set(0.28, 0.45, 0.28);
         towerShaft.castShadow = true;
         group.add(towerShaft);
-        const catwalkDeck = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.14, 0.045, 8), darkTechMat);
+        const catwalkDeck = new THREE.Mesh(pxCylinder(0.18, 0.14, 0.045, 8), darkTechMat);
         catwalkDeck.position.set(0.28, 0.8, 0.28);
         group.add(catwalkDeck);
-        const controlCab = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.14, 0.14, 8), glowCyanMat);
+        const controlCab = new THREE.Mesh(pxCylinder(0.19, 0.14, 0.14, 8), glowCyanMat);
         controlCab.position.set(0.28, 0.89, 0.28);
         group.add(controlCab);
-        const cabRoof = new THREE.Mesh(new THREE.CylinderGeometry(0.21, 0.21, 0.05, 8), termRoof);
+        const cabRoof = new THREE.Mesh(pxCylinder(0.21, 0.21, 0.05, 8), termRoof);
         cabRoof.position.set(0.28, 0.98, 0.28);
         group.add(cabRoof);
         const radarBar = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.04, 0.06), goldMat);
@@ -7170,11 +7546,11 @@ export function createBuildingGroup(
         group.add(radarBar);
       }
 
-      const sockPole = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.34, 5), concreteMat);
+      const sockPole = new THREE.Mesh(pxCylinder(0.02, 0.02, 0.34, 5), concreteMat);
       sockPole.position.set(-0.38, 0.23, 0.34);
       group.add(sockPole);
       const windSock = new THREE.Mesh(
-        new THREE.ConeGeometry(0.045, 0.14, 6),
+        pxCone(0.045, 0.14, 6),
         isElf ? elfAquaGlowMat : isOrc ? orcCrimsonMat : redRoofMat,
       );
       windSock.rotation.z = -Math.PI / 2;
@@ -7186,10 +7562,10 @@ export function createBuildingGroup(
     case 'launch_arcology': {
       if (isElf) {
         // ELVES: Unfolding 6-Petal Lotus Solar-Sail Star-Needle
-        const dais = new THREE.Mesh(new THREE.CylinderGeometry(0.44, 0.48, 0.12, 12), elfJadeRoofMat);
+        const dais = new THREE.Mesh(pxCylinder(0.44, 0.48, 0.12, 12), elfJadeRoofMat);
         dais.position.y = 0.06;
         group.add(dais);
-        const trimRing = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.022, 5, 14), elfFiligreeMat);
+        const trimRing = new THREE.Mesh(pxTorus(0.42, 0.022, 5, 14), elfFiligreeMat);
         trimRing.rotation.x = Math.PI / 2;
         trimRing.position.y = 0.13;
         group.add(trimRing);
@@ -7201,18 +7577,18 @@ export function createBuildingGroup(
           petal.rotation.z = -0.35;
           group.add(petal);
         }
-        const needle = new THREE.Mesh(new THREE.ConeGeometry(0.11, 1.2, 10), elfPearlTechMat);
+        const needle = new THREE.Mesh(pxCone(0.11, 1.2, 10), elfPearlTechMat);
         needle.position.y = 0.84;
         needle.castShadow = true;
         group.add(needle);
-        const solarSail = new THREE.Mesh(new THREE.TorusGeometry(0.25, 0.028, 6, 16), elfAquaGlowMat);
+        const solarSail = new THREE.Mesh(pxTorus(0.25, 0.028, 6, 16), elfAquaGlowMat);
         solarSail.position.y = 0.94;
         solarSail.rotation.x = Math.PI / 2;
         solarSail.name = 'spin_part';
         group.add(solarSail);
       } else if (isOrc) {
         // ORCS: Recessed Hexagonal War-Silo Braced by 3 Iron Claws + Broad Twin-Booster Juggernaut
-        const bunker = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.48, 0.2, 6), orcBasaltMat);
+        const bunker = new THREE.Mesh(pxCylinder(0.42, 0.48, 0.2, 6), orcBasaltMat);
         bunker.position.y = 0.1;
         group.add(bunker);
         for (let i = 0; i < 3; i++) {
@@ -7224,17 +7600,17 @@ export function createBuildingGroup(
           claw.castShadow = true;
           group.add(claw);
         }
-        const hull = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.24, 0.72, 6), orcGunmetalMat);
+        const hull = new THREE.Mesh(pxCylinder(0.16, 0.24, 0.72, 6), orcGunmetalMat);
         hull.position.y = 0.56;
         hull.castShadow = true;
         group.add(hull);
-        const hullCollar = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.06, 6), orcRustPlateMat);
+        const hullCollar = new THREE.Mesh(pxCylinder(0.22, 0.22, 0.06, 6), orcRustPlateMat);
         hullCollar.position.y = 0.72;
         group.add(hullCollar);
-        const warhead = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.34, 6), orcCrimsonMat);
+        const warhead = new THREE.Mesh(pxCone(0.18, 0.34, 6), orcCrimsonMat);
         warhead.position.y = 1.09;
         group.add(warhead);
-        const flameBell = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.26, 0.14, 6), orcMagmaGlowMat);
+        const flameBell = new THREE.Mesh(pxCylinder(0.22, 0.26, 0.14, 6), orcMagmaGlowMat);
         flameBell.position.y = 0.24;
         flameBell.name = 'flicker_flame';
         group.add(flameBell);
@@ -7271,19 +7647,19 @@ export function createBuildingGroup(
           group.add(swingArm);
         }
 
-        const core = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.12, 0.88, 10), goldMat);
+        const core = new THREE.Mesh(pxCylinder(0.11, 0.12, 0.88, 10), goldMat);
         core.position.set(0.08, 0.66, 0.06);
         core.castShadow = true;
         group.add(core);
         for (const sOff of [-0.145, 0.145]) {
-          const srb = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.06, 0.62, 8), whitePlasterMat);
+          const srb = new THREE.Mesh(pxCylinder(0.055, 0.06, 0.62, 8), whitePlasterMat);
           srb.position.set(0.08 + sOff, 0.52, 0.06);
           group.add(srb);
-          const srbCap = new THREE.Mesh(new THREE.ConeGeometry(0.056, 0.12, 8), whitePlasterMat);
+          const srbCap = new THREE.Mesh(pxCone(0.056, 0.12, 8), whitePlasterMat);
           srbCap.position.set(0.08 + sOff, 0.89, 0.06);
           group.add(srbCap);
         }
-        const noseCone = new THREE.Mesh(new THREE.ConeGeometry(0.11, 0.24, 10), whitePlasterMat);
+        const noseCone = new THREE.Mesh(pxCone(0.11, 0.24, 10), whitePlasterMat);
         noseCone.position.set(0.08, 1.22, 0.06);
         group.add(noseCone);
         const thrusterGlow = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.1, 0.18), glowCyanMat);
@@ -7296,10 +7672,10 @@ export function createBuildingGroup(
     case 'dyson_spire': {
       if (isElf) {
         // ELVES: Floating Tri-Ring Celestial Sanctuary Orrery suspended by 3 Curved Ivory Ribs + Filigree Collar
-        const dais = new THREE.Mesh(new THREE.CylinderGeometry(0.44, 0.48, 0.14, 12), elfMossStoneMat);
+        const dais = new THREE.Mesh(pxCylinder(0.44, 0.48, 0.14, 12), elfMossStoneMat);
         dais.position.y = 0.07;
         group.add(dais);
-        const collar = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.024, 5, 14), elfFiligreeMat);
+        const collar = new THREE.Mesh(pxTorus(0.42, 0.024, 5, 14), elfFiligreeMat);
         collar.rotation.x = Math.PI / 2;
         collar.position.y = 0.15;
         group.add(collar);
@@ -7312,12 +7688,12 @@ export function createBuildingGroup(
           rib.castShadow = true;
           group.add(rib);
         }
-        const ring1 = new THREE.Mesh(new THREE.TorusGeometry(0.34, 0.032, 6, 18), goldMat);
+        const ring1 = new THREE.Mesh(pxTorus(0.34, 0.032, 6, 18), goldMat);
         ring1.position.y = 0.96;
         ring1.rotation.x = 0.7;
         ring1.name = 'spin_part';
         group.add(ring1);
-        const ring2 = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.028, 6, 16), elfAquaGlowMat);
+        const ring2 = new THREE.Mesh(pxTorus(0.24, 0.028, 6, 16), elfAquaGlowMat);
         ring2.position.y = 0.96;
         ring2.rotation.y = 0.8;
         ring2.name = 'spin_part';
@@ -7325,7 +7701,7 @@ export function createBuildingGroup(
         const starCore = new THREE.Mesh(new THREE.OctahedronGeometry(0.14, 0), elfAquaGlowMat);
         starCore.position.y = 0.96;
         group.add(starCore);
-        const skyBeam = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 3.0, 8), elfAquaGlowMat);
+        const skyBeam = new THREE.Mesh(pxCylinder(0.055, 0.055, 3.0, 8), elfAquaGlowMat);
         skyBeam.position.y = 2.25;
         group.add(skyBeam);
       } else if (isOrc) {
@@ -7345,7 +7721,7 @@ export function createBuildingGroup(
           [-0.26, 0.26],
           [0.26, 0.26],
         ]) {
-          const pincer = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.88, 4), orcIronMat);
+          const pincer = new THREE.Mesh(pxCone(0.08, 0.88, 4), orcIronMat);
           pincer.position.set(cx, 0.78, cz);
           pincer.rotation.z = Math.sign(cx) * 0.26;
           pincer.rotation.x = -Math.sign(cz) * 0.26;
@@ -7356,7 +7732,7 @@ export function createBuildingGroup(
         forgeSun.position.y = 0.92;
         forgeSun.name = 'spin_part';
         group.add(forgeSun);
-        const plasmaBeam = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.085, 3.0, 6), orcMagmaGlowMat);
+        const plasmaBeam = new THREE.Mesh(pxCylinder(0.085, 0.085, 3.0, 6), orcMagmaGlowMat);
         plasmaBeam.position.y = 2.25;
         group.add(plasmaBeam);
       } else {
@@ -7364,7 +7740,7 @@ export function createBuildingGroup(
         const tier1 = new THREE.Mesh(new THREE.BoxGeometry(0.86, 0.16, 0.86), darkTechMat);
         tier1.position.y = 0.08;
         group.add(tier1);
-        const pyramid = new THREE.Mesh(new THREE.ConeGeometry(0.32, 1.12, 4), techMat);
+        const pyramid = new THREE.Mesh(pxCone(0.32, 1.12, 4), techMat);
         pyramid.rotation.y = Math.PI / 4;
         pyramid.position.y = 0.72;
         pyramid.castShadow = true;
@@ -7379,12 +7755,12 @@ export function createBuildingGroup(
           fin.position.set(Math.cos(a + 0.785) * 0.36, 0.28, Math.sin(a + 0.785) * 0.36);
           group.add(fin);
         }
-        const haloRing = new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.04, 6, 14), glowCyanMat);
+        const haloRing = new THREE.Mesh(pxTorus(0.32, 0.04, 6, 14), glowCyanMat);
         haloRing.position.y = 1.04;
         haloRing.rotation.x = Math.PI / 2;
         haloRing.name = 'spin_part';
         group.add(haloRing);
-        const skyBeam = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.065, 3.0, 8), glowCyanMat);
+        const skyBeam = new THREE.Mesh(pxCylinder(0.065, 0.065, 3.0, 8), glowCyanMat);
         skyBeam.position.y = 2.22;
         group.add(skyBeam);
       }
@@ -7495,7 +7871,7 @@ function makeTransformedCone(
   ry = 0,
   rz = 0,
 ): THREE.BufferGeometry {
-  const g = new THREE.ConeGeometry(r, h, seg);
+  const g = pxCone(r, h, seg);
   if (rx) g.rotateX(rx);
   if (ry) g.rotateY(ry);
   if (rz) g.rotateZ(rz);
@@ -8016,7 +8392,7 @@ function buildCreatureUnitGroup(
     headPivot.add(muzzle);
 
     for (const hx of [-0.115, 0.115]) {
-      const horn = new THREE.Mesh(new THREE.ConeGeometry(0.032, 0.085, 5), hornMat);
+      const horn = new THREE.Mesh(pxCone(0.032, 0.085, 5), hornMat);
       horn.position.set(hx, 0.125, 0.07);
       horn.rotation.z = hx < 0 ? 0.55 : -0.55;
       headPivot.add(horn);
@@ -8079,14 +8455,14 @@ function buildCreatureUnitGroup(
     jaw.position.set(0, 0, 0.055);
     jawPivot.add(jaw);
     for (const fx of [-0.032, 0.032]) {
-      const fang = new THREE.Mesh(new THREE.ConeGeometry(0.012, 0.035, 4), fangMat);
+      const fang = new THREE.Mesh(pxCone(0.012, 0.035, 4), fangMat);
       fang.position.set(fx, 0.025, 0.09);
       jawPivot.add(fang);
     }
     headPivot.add(jawPivot);
 
     for (const ex of [-0.06, 0.06]) {
-      const ear = new THREE.Mesh(new THREE.ConeGeometry(0.038, 0.095, 4), furMat);
+      const ear = new THREE.Mesh(pxCone(0.038, 0.095, 4), furMat);
       ear.position.set(ex, 0.14, 0.04);
       headPivot.add(ear);
       const eye = new THREE.Mesh(new THREE.BoxGeometry(0.024, 0.022, 0.022), eyeMat);
@@ -8211,14 +8587,14 @@ function buildCreatureUnitGroup(
       jaw.position.set(0, -0.04, 0.11);
       jawPivot.add(jaw);
       for (const tx of [-0.08, 0.08]) {
-        const tooth = new THREE.Mesh(new THREE.ConeGeometry(0.022, 0.065, 4), hornMat);
+        const tooth = new THREE.Mesh(pxCone(0.022, 0.065, 4), hornMat);
         tooth.position.set(tx, 0.025, 0.25);
         jawPivot.add(tooth);
       }
       headPivot.add(jawPivot);
 
       for (const tx of [-0.085, 0.085]) {
-        const upperTooth = new THREE.Mesh(new THREE.ConeGeometry(0.024, 0.07, 4), hornMat);
+        const upperTooth = new THREE.Mesh(pxCone(0.024, 0.07, 4), hornMat);
         upperTooth.rotation.x = Math.PI;
         upperTooth.position.set(tx, -0.035, 0.31);
         headPivot.add(upperTooth);
@@ -8270,12 +8646,12 @@ function buildCreatureUnitGroup(
       headPivot.add(head);
 
       for (const hx of [-0.13, 0.13]) {
-        const browHorn = new THREE.Mesh(new THREE.ConeGeometry(0.046, 0.32, 5), hornMat);
+        const browHorn = new THREE.Mesh(pxCone(0.046, 0.32, 5), hornMat);
         browHorn.rotation.x = Math.PI * 0.42;
         browHorn.position.set(hx, 0.13, 0.31);
         headPivot.add(browHorn);
       }
-      const noseHorn = new THREE.Mesh(new THREE.ConeGeometry(0.038, 0.18, 5), hornMat);
+      const noseHorn = new THREE.Mesh(pxCone(0.038, 0.18, 5), hornMat);
       noseHorn.rotation.x = Math.PI * 0.32;
       noseHorn.position.set(0, 0.05, 0.33);
       headPivot.add(noseHorn);
@@ -8325,7 +8701,7 @@ function buildCreatureUnitGroup(
       tail.position.set(0, 0, -0.24);
       tailPivot.add(tail);
       for (const sx of [-0.085, 0.085]) {
-        const spike = new THREE.Mesh(new THREE.ConeGeometry(0.032, 0.18, 4), hornMat);
+        const spike = new THREE.Mesh(pxCone(0.032, 0.18, 4), hornMat);
         spike.rotation.z = sx < 0 ? 0.85 : -0.85;
         spike.position.set(sx, 0.08, -0.38);
         tailPivot.add(spike);
@@ -8513,14 +8889,14 @@ function buildCreatureUnitGroup(
 
     for (const side of [-1, 1]) {
       // Swept-back curved cranial horns
-      const silHorn = addSilMesh(new THREE.ConeGeometry(0.28, 2.1, 6), silCoreMat, silHeadPivot);
+      const silHorn = addSilMesh(pxCone(0.28, 2.1, 6), silCoreMat, silHeadPivot);
       silHorn.rotation.x = -Math.PI / 2;
       silHorn.rotation.z = -side * 0.42;
       silHorn.scale.set(1.0, 1.0, 0.18);
       silHorn.position.set(side * 1.35, 0.01, 0.25);
 
       // Forward split reaper mandibles
-      const silMandible = addSilMesh(new THREE.ConeGeometry(0.24, 1.65, 6), silCoreMat, silHeadPivot);
+      const silMandible = addSilMesh(pxCone(0.24, 1.65, 6), silCoreMat, silHeadPivot);
       silMandible.rotation.x = Math.PI / 2;
       silMandible.rotation.z = side * 0.28;
       silMandible.scale.set(1.0, 1.0, 0.18);
@@ -8528,7 +8904,7 @@ function buildCreatureUnitGroup(
 
       // Glowing abyssal predator eyes & bioluminescent gill slits visible through the water
       for (let ei = 0; ei < 2; ei++) {
-        const silEye = addSilMesh(new THREE.SphereGeometry(0.16 - ei * 0.03, 6, 4), silEyeMat, silHeadPivot);
+        const silEye = addSilMesh(pxSphere(0.16 - ei * 0.03, 6, 4), silEyeMat, silHeadPivot);
         silEye.scale.set(0.85, 0.35, 1.35);
         silEye.position.set(side * (0.86 - ei * 0.14), 0.03, 1.55 - ei * 0.48);
       }
@@ -8546,7 +8922,7 @@ function buildCreatureUnitGroup(
 
     for (const side of [-1, 1]) {
       const finPiv = makePivot(side < 0 ? 'sil_fin_l' : 'sil_fin_r', side * 1.2, 0.0, 0.35);
-      const scythe = addSilMesh(new THREE.ConeGeometry(0.72, 3.1, 6), silCoreMat, finPiv);
+      const scythe = addSilMesh(pxCone(0.72, 3.1, 6), silCoreMat, finPiv);
       scythe.rotation.z = -side * (Math.PI / 2);
       scythe.rotation.y = -side * 0.42;
       scythe.scale.set(0.14, 1.0, 1.0);
@@ -8562,7 +8938,7 @@ function buildCreatureUnitGroup(
     const silSeg1 = makePivot('sil_seg_1', 0, 0.04, -1.55);
     addSilMesh(new THREE.BoxGeometry(2.15, 0.08, 2.35), silCoreMat, silSeg1);
     for (const side of [-1, 1]) {
-      const rearFin = addSilMesh(new THREE.ConeGeometry(0.45, 1.85, 5), silCoreMat, silSeg1);
+      const rearFin = addSilMesh(pxCone(0.45, 1.85, 5), silCoreMat, silSeg1);
       rearFin.rotation.z = -side * (Math.PI / 2);
       rearFin.rotation.y = -side * 0.48;
       rearFin.scale.set(0.14, 1.0, 1.0);
@@ -8578,7 +8954,7 @@ function buildCreatureUnitGroup(
     const silTailShaft = addSilMesh(new THREE.BoxGeometry(1.05, 0.07, 2.15), silCoreMat, silTail);
     silTailShaft.position.set(0, 0, -0.95);
     for (const side of [-1, 1]) {
-      const fluke = addSilMesh(new THREE.ConeGeometry(0.38, 1.95, 5), silCoreMat, silTail);
+      const fluke = addSilMesh(pxCone(0.38, 1.95, 5), silCoreMat, silTail);
       fluke.rotation.x = -Math.PI / 2;
       fluke.rotation.z = -side * 0.62;
       fluke.scale.set(1.0, 1.0, 0.12);
@@ -8689,7 +9065,7 @@ function buildCreatureUnitGroup(
 
       // Towering curved dorsal bone-spines & crimson fin webbing along the anterior back
       const spineH = 1.65 - pi * 0.14;
-      const spine = new THREE.Mesh(new THREE.ConeGeometry(0.20, spineH, 5), hornBoneMat);
+      const spine = new THREE.Mesh(pxCone(0.20, spineH, 5), hornBoneMat);
       spine.position.set(0, 2.28 - pi * 0.11, 1.50 - pi * 0.82);
       spine.rotation.x = -0.44;
       surfGroup.add(spine);
@@ -8703,7 +9079,7 @@ function buildCreatureUnitGroup(
     // Articulated Wing-Like Scythe Pectoral Fins (`wing_l`, `wing_r`) & Pelvic Hydrofoils (`wing_outer_l`, `wing_outer_r`)
     for (const side of [-1, 1]) {
       const finPivot = makePivot(side < 0 ? 'wing_l' : 'wing_r', side * 1.28, 0.72, 0.78);
-      const finArm = new THREE.Mesh(new THREE.ConeGeometry(0.52, 3.15, 6), carapaceMat);
+      const finArm = new THREE.Mesh(pxCone(0.52, 3.15, 6), carapaceMat);
       finArm.rotation.z = -side * (Math.PI / 2 - 0.15);
       finArm.rotation.y = -side * 0.38;
       finArm.scale.set(0.32, 1.0, 1.0);
@@ -8721,7 +9097,7 @@ function buildCreatureUnitGroup(
       finVein.rotation.y = -side * 0.38;
       finPivot.add(finVein);
 
-      const finClaw = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.95, 5), hornBoneMat);
+      const finClaw = new THREE.Mesh(pxCone(0.18, 0.95, 5), hornBoneMat);
       finClaw.position.set(side * 2.75, -0.28, -0.82);
       finClaw.rotation.z = side * 1.28;
       finClaw.rotation.x = -0.45;
@@ -8729,7 +9105,7 @@ function buildCreatureUnitGroup(
       surfGroup.add(finPivot);
 
       const pelvicPivot = makePivot(side < 0 ? 'wing_outer_l' : 'wing_outer_r', side * 1.08, 0.56, -1.45);
-      const pelvicBlade = new THREE.Mesh(new THREE.ConeGeometry(0.38, 2.05, 5), chitinMat);
+      const pelvicBlade = new THREE.Mesh(pxCone(0.38, 2.05, 5), chitinMat);
       pelvicBlade.rotation.z = -side * (Math.PI / 2 - 0.18);
       pelvicBlade.rotation.y = -side * 0.44;
       pelvicBlade.scale.set(0.28, 1.0, 1.0);
@@ -8759,7 +9135,7 @@ function buildCreatureUnitGroup(
     tailPivot.add(abdBelly);
 
     for (let ti = 0; ti < 2; ti++) {
-      const tSpine = new THREE.Mesh(new THREE.ConeGeometry(0.16, 1.05 - ti * 0.18, 5), hornBoneMat);
+      const tSpine = new THREE.Mesh(pxCone(0.16, 1.05 - ti * 0.18, 5), hornBoneMat);
       tSpine.position.set(0, 0.98 - ti * 0.14, -0.65 - ti * 0.95);
       tSpine.rotation.x = -0.46;
       tailPivot.add(tSpine);
@@ -8778,20 +9154,20 @@ function buildCreatureUnitGroup(
 
     // Forked crimson & bone trident tail-fluke blades
     for (const side of [-1, 1]) {
-      const flukeBlade = new THREE.Mesh(new THREE.ConeGeometry(0.44, 2.35, 5), crimsonWebMat);
+      const flukeBlade = new THREE.Mesh(pxCone(0.44, 2.35, 5), crimsonWebMat);
       flukeBlade.position.set(side * 0.96, 0.06, -2.15);
       flukeBlade.rotation.x = -Math.PI * 0.5;
       flukeBlade.rotation.z = -side * 0.54;
       flukeBlade.scale.set(1.0, 1.0, 0.28);
       tailMidPivot.add(flukeBlade);
 
-      const flukeSpike = new THREE.Mesh(new THREE.ConeGeometry(0.16, 1.15, 5), hornBoneMat);
+      const flukeSpike = new THREE.Mesh(pxCone(0.16, 1.15, 5), hornBoneMat);
       flukeSpike.position.set(side * 1.65, 0.06, -2.75);
       flukeSpike.rotation.x = -Math.PI * 0.5;
       flukeSpike.rotation.z = -side * 0.48;
       tailMidPivot.add(flukeSpike);
     }
-    const centerFlukeSpike = new THREE.Mesh(new THREE.ConeGeometry(0.18, 1.45, 5), biolumVeinMat);
+    const centerFlukeSpike = new THREE.Mesh(pxCone(0.18, 1.45, 5), biolumVeinMat);
     centerFlukeSpike.position.set(0, 0.06, -2.65);
     centerFlukeSpike.rotation.x = -Math.PI * 0.5;
     tailMidPivot.add(centerFlukeSpike);
@@ -8822,7 +9198,7 @@ function buildCreatureUnitGroup(
     headPivot.add(browArmorBlock);
 
     // Nasal horn spike & glowing forehead abyssal crest
-    const nasalHorn = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.98, 5), hornBoneMat);
+    const nasalHorn = new THREE.Mesh(pxCone(0.22, 0.98, 5), hornBoneMat);
     nasalHorn.position.set(0, 0.96, 2.65);
     nasalHorn.rotation.x = 0.38;
     headPivot.add(nasalHorn);
@@ -8834,20 +9210,20 @@ function buildCreatureUnitGroup(
 
     // Swept-back demonic cranial horns, flared gill-frill fans & hinged lateral reaper mandibles (`mandible_l`, `mandible_r`)
     for (const side of [-1, 1]) {
-      const mainHorn = new THREE.Mesh(new THREE.ConeGeometry(0.28, 2.35, 6), hornBoneMat);
+      const mainHorn = new THREE.Mesh(pxCone(0.28, 2.35, 6), hornBoneMat);
       mainHorn.position.set(side * 1.28, 1.18, 0.25);
       mainHorn.rotation.x = -1.08;
       mainHorn.rotation.z = -side * 0.44;
       headPivot.add(mainHorn);
 
-      const cheekSpike = new THREE.Mesh(new THREE.ConeGeometry(0.20, 1.48, 5), hornBoneMat);
+      const cheekSpike = new THREE.Mesh(pxCone(0.20, 1.48, 5), hornBoneMat);
       cheekSpike.position.set(side * 1.48, 0.48, 0.55);
       cheekSpike.rotation.x = -0.88;
       cheekSpike.rotation.z = -side * 0.68;
       headPivot.add(cheekSpike);
 
       // Bioluminescent abyssal frill fan
-      const frillFan = new THREE.Mesh(new THREE.ConeGeometry(0.68, 1.55, 5), crimsonWebMat);
+      const frillFan = new THREE.Mesh(pxCone(0.68, 1.55, 5), crimsonWebMat);
       frillFan.position.set(side * 1.55, 0.62, 0.15);
       frillFan.rotation.z = -side * 1.12;
       frillFan.rotation.x = -0.52;
@@ -8861,14 +9237,14 @@ function buildCreatureUnitGroup(
       mandibleArm.rotation.y = side * 0.18;
       mandPivot.add(mandibleArm);
 
-      const mandiblePincer = new THREE.Mesh(new THREE.ConeGeometry(0.20, 1.05, 5), hornBoneMat);
+      const mandiblePincer = new THREE.Mesh(pxCone(0.20, 1.05, 5), hornBoneMat);
       mandiblePincer.position.set(side * 0.12, 0, 1.95);
       mandiblePincer.rotation.x = Math.PI * 0.5;
       mandiblePincer.rotation.z = side * 0.48;
       mandPivot.add(mandiblePincer);
 
       for (let mf = 0; mf < 3; mf++) {
-        const inFang = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.36, 4), toothMat);
+        const inFang = new THREE.Mesh(pxCone(0.08, 0.36, 4), toothMat);
         inFang.rotation.z = side * (Math.PI / 2);
         inFang.position.set(side * 0.05, 0, 0.65 + mf * 0.42);
         mandPivot.add(inFang);
@@ -8877,7 +9253,7 @@ function buildCreatureUnitGroup(
 
       // 3 blazing crimson predator eyes per side
       for (let ei = 0; ei < 3; ei++) {
-        const eye = new THREE.Mesh(new THREE.SphereGeometry(0.15 - ei * 0.02, 6, 5), eyeGlowMat);
+        const eye = new THREE.Mesh(pxSphere(0.15 - ei * 0.02, 6, 5), eyeGlowMat);
         eye.scale.set(0.75, 0.85, 1.35);
         eye.position.set(side * (1.18 - ei * 0.08), 0.64 + (ei === 1 ? 0.12 : 0), 1.92 - ei * 0.48);
         headPivot.add(eye);
@@ -8894,7 +9270,7 @@ function buildCreatureUnitGroup(
     for (let ti = -5; ti <= 5; ti++) {
       const isCornerTusk = Math.abs(ti) === 5 || Math.abs(ti) === 3;
       const fangLen = isCornerTusk ? 0.72 : 0.48;
-      const fang = new THREE.Mesh(new THREE.ConeGeometry(0.11, fangLen, 5), toothMat);
+      const fang = new THREE.Mesh(pxCone(0.11, fangLen, 5), toothMat);
       fang.rotation.x = Math.PI;
       fang.position.set(ti * 0.19, -0.04, 2.48 - Math.abs(ti) * 0.15);
       headPivot.add(fang);
@@ -8911,7 +9287,7 @@ function buildCreatureUnitGroup(
     jawPivot.add(chinTip);
 
     for (let bi = -1; bi <= 1; bi++) {
-      const chinSpike = new THREE.Mesh(new THREE.ConeGeometry(0.14, 0.68, 5), hornBoneMat);
+      const chinSpike = new THREE.Mesh(pxCone(0.14, 0.68, 5), hornBoneMat);
       chinSpike.rotation.x = Math.PI * 0.78;
       chinSpike.position.set(bi * 0.48, -0.58, 2.22 - Math.abs(bi) * 0.2);
       jawPivot.add(chinSpike);
@@ -8920,7 +9296,7 @@ function buildCreatureUnitGroup(
     for (let ti = -5; ti <= 5; ti++) {
       const isTusk = Math.abs(ti) === 4;
       const fang = new THREE.Mesh(
-        new THREE.ConeGeometry(0.11, isTusk ? 0.68 : 0.46, 5),
+        pxCone(0.11, isTusk ? 0.68 : 0.46, 5),
         toothMat,
       );
       fang.position.set(ti * 0.18, 0.10, 2.35 - Math.abs(ti) * 0.14);
@@ -8958,19 +9334,19 @@ function buildCreatureUnitGroup(
     });
 
     // Muzzle charge sphere at the jaws
-    const muzzleOrb = new THREE.Mesh(new THREE.SphereGeometry(0.78, 10, 8), beamCoreMat);
+    const muzzleOrb = new THREE.Mesh(pxSphere(0.78, 10, 8), beamCoreMat);
     muzzleOrb.name = 'beam_muzzle';
     beamGroup.add(muzzleOrb);
 
     // Inner high-pressure white-cyan hydro-laser core (unit length along +Z, scaled dynamically to target distance)
     const beamShaft = new THREE.Group();
     beamShaft.name = 'beam_shaft';
-    const coreCyl = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.32, 1.0, 10, 1, true), beamCoreMat);
+    const coreCyl = new THREE.Mesh(pxCylinder(0.42, 0.32, 1.0, 10, 1, true), beamCoreMat);
     coreCyl.rotation.x = Math.PI / 2;
     coreCyl.position.set(0, 0, 0.5);
     beamShaft.add(coreCyl);
 
-    const outerCyl = new THREE.Mesh(new THREE.CylinderGeometry(0.88, 0.54, 1.0, 12, 1, true), beamOuterMat);
+    const outerCyl = new THREE.Mesh(pxCylinder(0.88, 0.54, 1.0, 12, 1, true), beamOuterMat);
     outerCyl.rotation.x = Math.PI / 2;
     outerCyl.position.set(0, 0, 0.5);
     beamShaft.add(outerCyl);
@@ -8985,7 +9361,7 @@ function buildCreatureUnitGroup(
     // Impact hydro-geyser dome at the end of the beam
     const impactGeyser = new THREE.Group();
     impactGeyser.name = 'beam_impact';
-    const geyserCone = new THREE.Mesh(new THREE.CylinderGeometry(1.65, 0.75, 2.2, 12, 1, true), beamOuterMat);
+    const geyserCone = new THREE.Mesh(pxCylinder(1.65, 0.75, 2.2, 12, 1, true), beamOuterMat);
     geyserCone.position.set(0, 0.9, 0);
     impactGeyser.add(geyserCone);
     const geyserRing = new THREE.Mesh(new THREE.RingGeometry(0.8, 2.4, 16), beamCoreMat);
@@ -9038,7 +9414,7 @@ function buildCreatureUnitGroup(
     head.castShadow = true;
     headPivot.add(head);
 
-    const horn = new THREE.Mesh(new THREE.ConeGeometry(0.036, 0.28, 6), hornMat);
+    const horn = new THREE.Mesh(pxCone(0.036, 0.28, 6), hornMat);
     horn.rotation.x = 0.42;
     horn.position.set(0, 0.38, 0.24);
     headPivot.add(horn);
@@ -9053,7 +9429,7 @@ function buildCreatureUnitGroup(
     }
 
     for (const ex of [-0.08, 0.08]) {
-      const ear = new THREE.Mesh(new THREE.ConeGeometry(0.028, 0.075, 4), bodyMat);
+      const ear = new THREE.Mesh(pxCone(0.028, 0.075, 4), bodyMat);
       ear.position.set(ex * 0.72, 0.32, 0.07);
       headPivot.add(ear);
       const eye = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.028, 0.03), mat(0x38bdf8, 0.25, 0.1, 0x38bdf8, 0.65));
@@ -9102,7 +9478,34 @@ function buildCreatureUnitGroup(
   const auraRing = new THREE.Mesh(auraGeo, auraMat);
   auraRing.position.y = 0.03;
   auraRing.name = 'status_ring';
+  auraRing.visible = false;
   group.add(auraRing);
+
+  // Merge static sub-meshes within each animated animal pivot (body_pivot, head_pivot, legs, wings)
+  // to cut per-animal draw calls by ~60% while keeping every articulated pivot 100% intact.
+  const animalSkip = new Set([
+    'contact_shadow',
+    'status_ring',
+    'fire_maw',
+    'beam_muzzle',
+    'beam_shaft',
+    'beam_impact',
+    'leviathan_splash_inner',
+    'leviathan_splash_outer',
+  ]);
+  const animalPivots: THREE.Group[] = [];
+  group.traverse((obj) => {
+    if (obj instanceof THREE.Group && obj !== group && obj.children.length > 1) {
+      animalPivots.push(obj);
+    }
+  });
+  for (let pi = 0; pi < animalPivots.length; pi++) {
+    bakeVertexColoredStaticMeshes(animalPivots[pi], animalSkip, {
+      unifyCastShadow: role !== 'leviathan',
+      tagUnitShadowCaster: role !== 'dragon' && role !== 'leviathan',
+      disposeSourceMaterials: true,
+    });
+  }
 
   return group;
 }
@@ -9232,16 +9635,16 @@ function buildSpecialHostileUnitGroup(
     const coreMat = new THREE.MeshBasicMaterial({ color: 0xff3b5c });
 
     // Main saucer disc
-    const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.68, 0.88, 0.24, 16), hullMat);
+    const disc = new THREE.Mesh(pxCylinder(0.68, 0.88, 0.24, 16), hullMat);
     disc.castShadow = true;
     bodyPivot.add(disc);
-    const underDisc = new THREE.Mesh(new THREE.CylinderGeometry(0.84, 0.42, 0.16, 16), darkHullMat);
+    const underDisc = new THREE.Mesh(pxCylinder(0.84, 0.42, 0.16, 16), darkHullMat);
     underDisc.position.y = -0.18;
     bodyPivot.add(underDisc);
-    const dome = new THREE.Mesh(new THREE.SphereGeometry(0.36, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.55), domeMat);
+    const dome = new THREE.Mesh(pxSphere(0.36, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.55), domeMat);
     dome.position.y = 0.08;
     bodyPivot.add(dome);
-    const emitter = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.24, 0.1, 10), coreMat);
+    const emitter = new THREE.Mesh(pxCylinder(0.18, 0.24, 0.1, 10), coreMat);
     emitter.position.y = -0.26;
     bodyPivot.add(emitter);
 
@@ -9294,7 +9697,7 @@ function buildSpecialHostileUnitGroup(
     const headPivot = makePivot('head_pivot', 0, 3.44, 1.58);
     for (let ni = 0; ni < 3; ni++) {
       const neckSeg = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.42, 0.46, 0.24, 8),
+        pxCylinder(0.42, 0.46, 0.24, 8),
         ni % 2 === 0 ? jointMat : bellyMat,
       );
       neckSeg.rotation.x = Math.PI / 2;
@@ -9320,12 +9723,12 @@ function buildSpecialHostileUnitGroup(
       earPod.position.set(side * 0.7, 0.04, 1.02);
       headPivot.add(earPod);
 
-      const cheekGun = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.075, 0.68, 6), jointMat);
+      const cheekGun = new THREE.Mesh(pxCylinder(0.06, 0.075, 0.68, 6), jointMat);
       cheekGun.rotation.x = Math.PI / 2;
       cheekGun.position.set(side * 0.72, -0.06, 1.48);
       headPivot.add(cheekGun);
 
-      const chinBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.078, 0.092, 1.06, 8), jointMat);
+      const chinBarrel = new THREE.Mesh(pxCylinder(0.078, 0.092, 1.06, 8), jointMat);
       chinBarrel.rotation.x = Math.PI / 2;
       chinBarrel.position.set(side * 0.36, -0.34, 1.94);
       headPivot.add(chinBarrel);
@@ -9344,7 +9747,7 @@ function buildSpecialHostileUnitGroup(
       ['leg_br', 'knee_br', 1.08, -1.26],
     ] as const) {
       const legPivot = makePivot(hipName, lx, 2.65, lz);
-      const hipDrum = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.36, 0.38, 8), jointMat);
+      const hipDrum = new THREE.Mesh(pxCylinder(0.36, 0.36, 0.38, 8), jointMat);
       hipDrum.rotation.z = Math.PI / 2;
       legPivot.add(hipDrum);
 
@@ -9357,13 +9760,13 @@ function buildSpecialHostileUnitGroup(
       upperStrut.castShadow = true;
       legPivot.add(upperStrut);
 
-      const upperPiston = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 1.15, 6), bellyMat);
+      const upperPiston = new THREE.Mesh(pxCylinder(0.08, 0.08, 1.15, 6), bellyMat);
       upperPiston.position.set(0, -0.64, -0.24);
       legPivot.add(upperPiston);
 
       // Articulated Knee Pivot at y = -1.32 below hip (total y = 1.33 above ground)
       const kneePivot = makePivot(kneeName, 0, -1.32, 0);
-      const kneeDrum = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.44, 8), jointMat);
+      const kneeDrum = new THREE.Mesh(pxCylinder(0.28, 0.28, 0.44, 8), jointMat);
       kneeDrum.rotation.z = Math.PI / 2;
       kneePivot.add(kneeDrum);
 
@@ -9376,12 +9779,12 @@ function buildSpecialHostileUnitGroup(
       lowerStrut.castShadow = true;
       kneePivot.add(lowerStrut);
 
-      const ankleJoint = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.28, 0.22, 8), jointMat);
+      const ankleJoint = new THREE.Mesh(pxCylinder(0.24, 0.28, 0.22, 8), jointMat);
       ankleJoint.position.set(0, -1.18, 0);
       kneePivot.add(ankleJoint);
 
       // Heavy circular splayed AT-AT Footpad flush at y = -1.33 (sole at world y = 0)
-      const footPad = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.64, 0.24, 8), jointMat);
+      const footPad = new THREE.Mesh(pxCylinder(0.5, 0.64, 0.24, 8), jointMat);
       footPad.position.set(0, -1.21, 0.05);
       footPad.castShadow = true;
       kneePivot.add(footPad);
@@ -9862,7 +10265,7 @@ export function createUnitGroup(
 
     if (isChild) {
       const stick = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.015 * scale, 0.018 * scale, 0.17 * scale, 5),
+        pxCylinder(0.015 * scale, 0.018 * scale, 0.17 * scale, 5),
         woodShaftMat,
       );
       stick.position.y = 0.07 * scale;
@@ -9881,14 +10284,14 @@ export function createUnitGroup(
       if (epochLevel <= 1) {
         // Sylvan curved longbow + arrow
         const bowArc = new THREE.Mesh(
-          new THREE.TorusGeometry(0.15 * scale, 0.014 * scale, 5, 10, Math.PI * 0.95),
+          pxTorus(0.15 * scale, 0.014 * scale, 5, 10, Math.PI * 0.95),
           woodShaftMat,
         );
         bowArc.rotation.z = -Math.PI * 0.48;
         bowArc.position.set(0, 0.06 * scale, 0.04 * scale);
         toolGroup.add(bowArc);
         const arrowShaft = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.008 * scale, 0.008 * scale, 0.24 * scale, 4),
+          pxCylinder(0.008 * scale, 0.008 * scale, 0.24 * scale, 4),
           goldTrimMat,
         );
         arrowShaft.rotation.x = Math.PI / 2;
@@ -9897,13 +10300,13 @@ export function createUnitGroup(
       } else if (epochLevel <= 3) {
         // Ornate Gold-Trimmed Crystal Runestaff
         const staff = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.016 * scale, 0.014 * scale, 0.38 * scale, 6),
+          pxCylinder(0.016 * scale, 0.014 * scale, 0.38 * scale, 6),
           goldTrimMat,
         );
         staff.position.y = 0.12 * scale;
         toolGroup.add(staff);
         const cradle = new THREE.Mesh(
-          new THREE.TorusGeometry(0.042 * scale, 0.01 * scale, 5, 8, Math.PI * 1.3),
+          pxTorus(0.042 * scale, 0.01 * scale, 5, 8, Math.PI * 1.3),
           goldTrimMat,
         );
         cradle.rotation.z = -Math.PI * 0.15;
@@ -9921,7 +10324,7 @@ export function createUnitGroup(
         receiver.position.set(0, 0.05 * scale, 0.08 * scale);
         toolGroup.add(receiver);
         const barrel = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.015 * scale, 0.018 * scale, 0.24 * scale, 6),
+          pxCylinder(0.015 * scale, 0.018 * scale, 0.24 * scale, 6),
           crystalMat,
         );
         barrel.rotation.x = Math.PI / 2;
@@ -9944,7 +10347,7 @@ export function createUnitGroup(
       if (epochLevel <= 1) {
         // Jagged Stone-Spiked War Club
         const haft = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.02 * scale, 0.015 * scale, 0.28 * scale, 6),
+          pxCylinder(0.02 * scale, 0.015 * scale, 0.28 * scale, 6),
           woodShaftMat,
         );
         haft.position.y = 0.09 * scale;
@@ -9955,14 +10358,14 @@ export function createUnitGroup(
         );
         head.position.set(0, 0.21 * scale, 0.02 * scale);
         toolGroup.add(head);
-        const spike = new THREE.Mesh(new THREE.ConeGeometry(0.026 * scale, 0.07 * scale, 4), steelMat);
+        const spike = new THREE.Mesh(pxCone(0.026 * scale, 0.07 * scale, 4), steelMat);
         spike.rotation.x = Math.PI / 2;
         spike.position.set(0, 0.22 * scale, 0.075 * scale);
         toolGroup.add(spike);
       } else if (epochLevel <= 3) {
         // Massive Double-Headed Iron Battleaxe
         const haft = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.018 * scale, 0.018 * scale, 0.34 * scale, 6),
+          pxCylinder(0.018 * scale, 0.018 * scale, 0.34 * scale, 6),
           darkMetalMat,
         );
         haft.position.y = 0.11 * scale;
@@ -9999,17 +10402,17 @@ export function createUnitGroup(
       // Humans: Spear -> Longsword -> Bayonet Musket -> Assault Rifle -> Space Plasma Carbine
       if (epochLevel <= 1) {
         const shaft = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.014 * scale, 0.015 * scale, 0.36 * scale, 5),
+          pxCylinder(0.014 * scale, 0.015 * scale, 0.36 * scale, 5),
           woodShaftMat,
         );
         shaft.position.y = 0.12 * scale;
         toolGroup.add(shaft);
-        const tip = new THREE.Mesh(new THREE.ConeGeometry(0.03 * scale, 0.1 * scale, 4), goldTrimMat);
+        const tip = new THREE.Mesh(pxCone(0.03 * scale, 0.1 * scale, 4), goldTrimMat);
         tip.position.y = 0.32 * scale;
         toolGroup.add(tip);
       } else if (epochLevel === 2) {
         const grip = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.014 * scale, 0.014 * scale, 0.08 * scale, 5),
+          pxCylinder(0.014 * scale, 0.014 * scale, 0.08 * scale, 5),
           woodShaftMat,
         );
         grip.position.y = 0.02 * scale;
@@ -10035,13 +10438,13 @@ export function createUnitGroup(
         stock.position.set(0, 0.04 * scale, 0.06 * scale);
         toolGroup.add(stock);
         const barrel = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.012 * scale, 0.014 * scale, 0.24 * scale, 6),
+          pxCylinder(0.012 * scale, 0.014 * scale, 0.24 * scale, 6),
           darkMetalMat,
         );
         barrel.rotation.x = Math.PI / 2;
         barrel.position.set(0, 0.065 * scale, 0.2 * scale);
         toolGroup.add(barrel);
-        const bayonet = new THREE.Mesh(new THREE.ConeGeometry(0.012 * scale, 0.08 * scale, 4), steelMat);
+        const bayonet = new THREE.Mesh(pxCone(0.012 * scale, 0.08 * scale, 4), steelMat);
         bayonet.rotation.x = Math.PI / 2;
         bayonet.position.set(0, 0.048 * scale, 0.31 * scale);
         toolGroup.add(bayonet);
@@ -10061,7 +10464,7 @@ export function createUnitGroup(
         mag.rotation.x = 0.25;
         toolGroup.add(mag);
         const barrel = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.012 * scale, 0.012 * scale, 0.16 * scale, 6),
+          pxCylinder(0.012 * scale, 0.012 * scale, 0.16 * scale, 6),
           steelMat,
         );
         barrel.rotation.x = Math.PI / 2;
@@ -10131,7 +10534,7 @@ export function createUnitGroup(
     const bwArmorMat = sharedBattlewillArmorMat;
     const bwCoreMat = sharedBattlewillCoreMat;
 
-    const bwTorso = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.24, 0.78, 6), bwAuraMat);
+    const bwTorso = new THREE.Mesh(pxCylinder(0.36, 0.24, 0.78, 6), bwAuraMat);
     bwTorso.position.set(0, 0.92, 0);
     bwGroup.add(bwTorso);
 
@@ -10152,13 +10555,13 @@ export function createUnitGroup(
     bwGroup.add(helmVisor);
 
     // Back Battlewill Flame Halo / Spikes
-    const haloRing = new THREE.Mesh(new THREE.TorusGeometry(0.66, 0.045, 5, 14, Math.PI * 1.45), bwCoreMat);
+    const haloRing = new THREE.Mesh(pxTorus(0.66, 0.045, 5, 14, Math.PI * 1.45), bwCoreMat);
     haloRing.rotation.z = -Math.PI * 0.225;
     haloRing.position.set(0, 1.25, -0.22);
     bwGroup.add(haloRing);
 
     for (const side of [-1, 1]) {
-      const horn = new THREE.Mesh(new THREE.ConeGeometry(0.085, 0.34, 5), bwCoreMat);
+      const horn = new THREE.Mesh(pxCone(0.085, 0.34, 5), bwCoreMat);
       horn.position.set(side * 0.21, 1.76, 0.04);
       horn.rotation.z = -side * 0.48;
       bwGroup.add(horn);
@@ -10168,7 +10571,7 @@ export function createUnitGroup(
       pauldron.rotation.z = -side * 0.3;
       bwGroup.add(pauldron);
 
-      const pauldronSpike = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.22, 4), bwCoreMat);
+      const pauldronSpike = new THREE.Mesh(pxCone(0.06, 0.22, 4), bwCoreMat);
       pauldronSpike.position.set(side * 0.54, 1.42, 0);
       pauldronSpike.rotation.z = -side * 0.45;
       bwGroup.add(pauldronSpike);
@@ -10202,7 +10605,7 @@ export function createUnitGroup(
     swordCore.rotation.x = 0.25;
     swordPivot.add(swordCore);
 
-    const swordTip = new THREE.Mesh(new THREE.ConeGeometry(0.11, 0.36, 4), bwCoreMat);
+    const swordTip = new THREE.Mesh(pxCone(0.11, 0.36, 4), bwCoreMat);
     swordTip.position.set(0, 1.4, 0.68);
     swordTip.rotation.x = 0.25;
     swordTip.rotation.y = Math.PI / 4;
@@ -10370,21 +10773,21 @@ export function createVehicleGroup(
     group.add(tailBar);
 
     // SpaceX Cold-Gas Thruster Nozzles (twin rear rocket pods + twin belly VTOL nozzles)
-    const nozzleGeo = new THREE.CylinderGeometry(0.022, 0.032, 0.06, 8);
+    const nozzleGeo = pxCylinder(0.022, 0.032, 0.06, 8);
     nozzleGeo.rotateX(Math.PI / 2);
     for (const nx of [-0.055, 0.055]) {
       const rearPod = new THREE.Mesh(nozzleGeo, thrusterBodyMat);
       rearPod.position.set(nx, 0.085, -0.235);
       group.add(rearPod);
 
-      const plumeOuter = new THREE.Mesh(new THREE.ConeGeometry(0.038, 0.28, 7), coldGasOuterMat);
+      const plumeOuter = new THREE.Mesh(pxCone(0.038, 0.28, 7), coldGasOuterMat);
       plumeOuter.rotation.x = -Math.PI / 2;
       plumeOuter.position.set(nx, 0.085, -0.39);
       plumeOuter.name = 'thruster_plume';
       plumeOuter.visible = false;
       group.add(plumeOuter);
 
-      const plumeCore = new THREE.Mesh(new THREE.ConeGeometry(0.02, 0.18, 6), coldGasCoreMat);
+      const plumeCore = new THREE.Mesh(pxCone(0.02, 0.18, 6), coldGasCoreMat);
       plumeCore.rotation.x = -Math.PI / 2;
       plumeCore.position.set(nx, 0.085, -0.34);
       plumeCore.name = 'thruster_plume';
@@ -10392,7 +10795,7 @@ export function createVehicleGroup(
       group.add(plumeCore);
 
       // Belly VTOL cold-gas jets for vertical jumps / hover spins
-      const vtolPlume = new THREE.Mesh(new THREE.ConeGeometry(0.036, 0.24, 7), coldGasOuterMat);
+      const vtolPlume = new THREE.Mesh(pxCone(0.036, 0.24, 7), coldGasOuterMat);
       vtolPlume.rotation.x = Math.PI;
       vtolPlume.position.set(nx, -0.07, 0);
       vtolPlume.name = 'thruster_plume';
@@ -10413,27 +10816,27 @@ export function createVehicleGroup(
       // Majestic Elf Sylvan Swan-Skiff: levitating ivory-and-gold curved gondola with sweeping lotus prows & floating crystal orb
       const ivoryMat = new THREE.MeshStandardMaterial({ color: 0xfefae0, roughness: 0.22, metalness: 0.35 });
       const goldMat = new THREE.MeshStandardMaterial({ color: 0xffb703, roughness: 0.2, metalness: 0.85 });
-      const hullRing = new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.032, 7, 16), goldMat);
+      const hullRing = new THREE.Mesh(pxTorus(0.16, 0.032, 7, 16), goldMat);
       hullRing.rotation.x = Math.PI / 2;
       hullRing.scale.set(0.85, 1.45, 1);
       hullRing.position.set(0, 0.14, 0);
       hullRing.castShadow = true;
       group.add(hullRing);
 
-      const swanHull = new THREE.Mesh(new THREE.ConeGeometry(0.11, 0.46, 6), ivoryMat);
+      const swanHull = new THREE.Mesh(pxCone(0.11, 0.46, 6), ivoryMat);
       swanHull.rotation.x = Math.PI / 2;
       swanHull.scale.set(1.1, 0.65, 1);
       swanHull.position.set(0, 0.14, 0.02);
       swanHull.castShadow = true;
       group.add(swanHull);
 
-      const swanNeck = new THREE.Mesh(new THREE.ConeGeometry(0.045, 0.24, 5), goldMat);
+      const swanNeck = new THREE.Mesh(pxCone(0.045, 0.24, 5), goldMat);
       swanNeck.position.set(0, 0.24, 0.22);
       swanNeck.rotation.x = 0.45;
       group.add(swanNeck);
 
       for (const side of [-1, 1]) {
-        const petalFin = new THREE.Mesh(new THREE.ConeGeometry(0.055, 0.28, 4), ivoryMat);
+        const petalFin = new THREE.Mesh(pxCone(0.055, 0.28, 4), ivoryMat);
         petalFin.rotation.x = -Math.PI / 2;
         petalFin.rotation.z = side * 0.55;
         petalFin.position.set(side * 0.16, 0.17, -0.06);
@@ -10457,23 +10860,23 @@ export function createVehicleGroup(
       warFrame.castShadow = true;
       group.add(warFrame);
 
-      const frontRoller = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.065, 0.28, 8), ironMat);
+      const frontRoller = new THREE.Mesh(pxCylinder(0.065, 0.065, 0.28, 8), ironMat);
       frontRoller.rotation.z = Math.PI / 2;
       frontRoller.position.set(0, 0.068, 0.2);
       group.add(frontRoller);
 
       for (const sx of [-0.14, 0.14]) {
-        const rearWheel = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.085, 0.06, 8), tireMat);
+        const rearWheel = new THREE.Mesh(pxCylinder(0.085, 0.085, 0.06, 8), tireMat);
         rearWheel.rotation.z = Math.PI / 2;
         rearWheel.position.set(sx, 0.085, -0.14);
         group.add(rearWheel);
 
-        const tusk = new THREE.Mesh(new THREE.ConeGeometry(0.032, 0.16, 4), boneMat);
+        const tusk = new THREE.Mesh(pxCone(0.032, 0.16, 4), boneMat);
         tusk.rotation.x = Math.PI / 2 - 0.2;
         tusk.position.set(sx * 0.75, 0.1, 0.27);
         group.add(tusk);
 
-        const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.028, 0.22, 5), ironMat);
+        const pipe = new THREE.Mesh(pxCylinder(0.022, 0.028, 0.22, 5), ironMat);
         pipe.position.set(sx * 0.85, 0.22, -0.12);
         pipe.rotation.x = -0.35;
         group.add(pipe);
@@ -10588,11 +10991,11 @@ export function createVehicleGroup(
         crystalCar.castShadow = true;
         group.add(crystalCar);
 
-        const halo = new THREE.Mesh(new THREE.TorusGeometry(0.17, 0.022, 6, 14), goldMat);
+        const halo = new THREE.Mesh(pxTorus(0.17, 0.022, 6, 14), goldMat);
         halo.position.set(0, railBaseY + 0.16, cz);
         group.add(halo);
       }
-      const prowLance = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.28, 6), glowMat);
+      const prowLance = new THREE.Mesh(pxCone(0.09, 0.28, 6), glowMat);
       prowLance.rotation.x = Math.PI / 2;
       prowLance.position.set(0, railBaseY + 0.14, leadZ + 0.28);
       group.add(prowLance);
@@ -10608,14 +11011,14 @@ export function createVehicleGroup(
       loco.castShadow = true;
       group.add(loco);
 
-      const ramPlow = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.24, 4), bloodMat);
+      const ramPlow = new THREE.Mesh(pxCone(0.22, 0.24, 4), bloodMat);
       ramPlow.rotation.x = Math.PI / 2;
       ramPlow.rotation.y = Math.PI / 4;
       ramPlow.position.set(0, railBaseY + 0.1, leadZ + 0.32);
       group.add(ramPlow);
 
       for (const sx of [-0.09, 0.09]) {
-        const stack = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.055, 0.22, 6), bloodMat);
+        const stack = new THREE.Mesh(pxCylinder(0.045, 0.055, 0.22, 6), bloodMat);
         stack.position.set(sx, railBaseY + 0.34, leadZ + 0.08);
         group.add(stack);
       }
@@ -10635,11 +11038,11 @@ export function createVehicleGroup(
     group.add(leadBody);
 
     if (isSteam) {
-      const boiler = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 0.3, 8), trimMat);
+      const boiler = new THREE.Mesh(pxCylinder(0.11, 0.11, 0.3, 8), trimMat);
       boiler.rotation.x = Math.PI / 2;
       boiler.position.set(0, railBaseY + 0.22, leadZ + 0.06);
       group.add(boiler);
-      const stack = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.05, 0.14, 6), trimMat);
+      const stack = new THREE.Mesh(pxCylinder(0.04, 0.05, 0.14, 6), trimMat);
       stack.position.set(0, railBaseY + 0.33, leadZ + 0.14);
       group.add(stack);
     } else {
@@ -10683,7 +11086,7 @@ export function createVehicleGroup(
       const goldMat = new THREE.MeshStandardMaterial({ color: 0xffb703, roughness: 0.18, metalness: 0.88 });
 
       // Central Golden Crescent Bow-Arc
-      const crescentArc = new THREE.Mesh(new THREE.TorusGeometry(0.38, 0.028, 7, 18, Math.PI * 1.15), goldMat);
+      const crescentArc = new THREE.Mesh(pxTorus(0.38, 0.028, 7, 18, Math.PI * 1.15), goldMat);
       crescentArc.rotation.x = Math.PI / 2;
       crescentArc.rotation.z = -Math.PI * 0.075;
       crescentArc.position.set(0, 0.2, 0.08);
@@ -10697,7 +11100,7 @@ export function createVehicleGroup(
       crystalSpire.castShadow = true;
       group.add(crystalSpire);
 
-      const hawkBeak = new THREE.Mesh(new THREE.ConeGeometry(0.065, 0.34, 5), goldMat);
+      const hawkBeak = new THREE.Mesh(pxCone(0.065, 0.34, 5), goldMat);
       hawkBeak.rotation.x = Math.PI / 2 - 0.12;
       hawkBeak.position.set(0, 0.21, 0.58);
       group.add(hawkBeak);
@@ -10711,7 +11114,7 @@ export function createVehicleGroup(
         for (let fi = 0; fi < 3; fi++) {
           const featherLen = 0.58 - fi * 0.11;
           const feather = new THREE.Mesh(
-            new THREE.ConeGeometry(0.065 - fi * 0.01, featherLen, 4),
+            pxCone(0.065 - fi * 0.01, featherLen, 4),
             fi === 1 ? glowMat : ivoryMat,
           );
           feather.rotation.z = -side * (Math.PI / 2 - 0.18 - fi * 0.08);
@@ -10721,7 +11124,7 @@ export function createVehicleGroup(
           feather.castShadow = true;
           group.add(feather);
         }
-        const tailRibbon = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.52, 4), goldMat);
+        const tailRibbon = new THREE.Mesh(pxCone(0.04, 0.52, 4), goldMat);
         tailRibbon.rotation.x = -Math.PI / 2 + 0.18;
         tailRibbon.rotation.y = side * 0.22;
         tailRibbon.position.set(side * 0.12, 0.23, -0.54);
@@ -10754,7 +11157,7 @@ export function createVehicleGroup(
       skullBlock.castShadow = true;
       group.add(skullBlock);
 
-      const noseCleaver = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.38, 3), ironMat);
+      const noseCleaver = new THREE.Mesh(pxCone(0.12, 0.38, 3), ironMat);
       noseCleaver.rotation.x = Math.PI / 2;
       noseCleaver.scale.set(0.35, 1.3, 1);
       noseCleaver.position.set(0, 0.19, 0.56);
@@ -10762,14 +11165,14 @@ export function createVehicleGroup(
 
       // Giant Curved Bone Tusks flanking the skull jaw
       for (const side of [-1, 1]) {
-        const tusk = new THREE.Mesh(new THREE.ConeGeometry(0.055, 0.36, 4), boneMat);
+        const tusk = new THREE.Mesh(pxCone(0.055, 0.36, 4), boneMat);
         tusk.rotation.x = Math.PI / 2 - 0.28;
         tusk.rotation.y = side * 0.25;
         tusk.position.set(side * 0.16, 0.15, 0.52);
         group.add(tusk);
 
         // Jagged Bat-Claw Wings (3 splayed iron/crimson talons per side)
-        const wingArm = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.045, 0.68, 5), ironMat);
+        const wingArm = new THREE.Mesh(pxCylinder(0.032, 0.045, 0.68, 5), ironMat);
         wingArm.rotation.z = side * (Math.PI / 2 - 0.22);
         wingArm.rotation.y = side * 0.24;
         wingArm.position.set(side * 0.38, 0.24, 0.16);
@@ -10777,7 +11180,7 @@ export function createVehicleGroup(
 
         for (let ci = 0; ci < 3; ci++) {
           const clawMembrane = new THREE.Mesh(
-            new THREE.ConeGeometry(0.16, 0.56 - ci * 0.08, 3),
+            pxCone(0.16, 0.56 - ci * 0.08, 3),
             ci === 1 ? ironMat : bloodMat,
           );
           clawMembrane.rotation.x = -Math.PI / 2;
@@ -10788,7 +11191,7 @@ export function createVehicleGroup(
           group.add(clawMembrane);
         }
 
-        const wingHook = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.24, 4), boneMat);
+        const wingHook = new THREE.Mesh(pxCone(0.05, 0.24, 4), boneMat);
         wingHook.rotation.x = Math.PI / 2;
         wingHook.position.set(side * 0.68, 0.26, 0.34);
         group.add(wingHook);
@@ -10796,7 +11199,7 @@ export function createVehicleGroup(
 
       // Dorsal Spine Spikes & Industrial Nose Propeller (Epoch 3)
       for (const sz of [0.16, -0.06, -0.28]) {
-        const dorsalSpike = new THREE.Mesh(new THREE.ConeGeometry(0.045, 0.2, 4), boneMat);
+        const dorsalSpike = new THREE.Mesh(pxCone(0.045, 0.2, 4), boneMat);
         dorsalSpike.rotation.x = -0.35;
         dorsalSpike.position.set(0, 0.34, sz);
         group.add(dorsalSpike);
@@ -10827,7 +11230,7 @@ export function createVehicleGroup(
 
     // Human Fixed-wing Wooden Glider (Epoch 2) -> WWI Propeller Biplane Fighter (Epoch 3)
     const fuselage = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.065, 0.038, isBiplaneFighter ? 0.96 : 0.88, 8),
+      pxCylinder(0.065, 0.038, isBiplaneFighter ? 0.96 : 0.88, 8),
       sparMat,
     );
     fuselage.rotation.x = Math.PI / 2;
@@ -10836,7 +11239,7 @@ export function createVehicleGroup(
     group.add(fuselage);
 
     const noseCap = new THREE.Mesh(
-      new THREE.ConeGeometry(0.068, 0.2, 8),
+      pxCone(0.068, 0.2, 8),
       isBiplaneFighter ? trimMat : sparMat,
     );
     noseCap.rotation.x = Math.PI / 2;
@@ -10867,11 +11270,11 @@ export function createVehicleGroup(
         upWing.castShadow = true;
         group.add(upWing);
 
-        const strut = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.18, 5), sparMat);
+        const strut = new THREE.Mesh(pxCylinder(0.015, 0.015, 0.18, 5), sparMat);
         strut.position.set(side * 0.4, 0.25, 0.08);
         group.add(strut);
 
-        const gunPod = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.026, 0.24, 6), trimMat);
+        const gunPod = new THREE.Mesh(pxCylinder(0.022, 0.026, 0.24, 6), trimMat);
         gunPod.rotation.x = Math.PI / 2;
         gunPod.position.set(side * 0.24, 0.13, 0.18);
         group.add(gunPod);
@@ -10923,7 +11326,7 @@ export function createVehicleGroup(
         crystalCore.castShadow = true;
         group.add(crystalCore);
 
-        const cradleArch = new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.026, 7, 18), goldMat);
+        const cradleArch = new THREE.Mesh(pxTorus(0.32, 0.026, 7, 18), goldMat);
         cradleArch.rotation.y = Math.PI / 2;
         cradleArch.position.set(0, 0.28, 0);
         group.add(cradleArch);
@@ -10941,7 +11344,7 @@ export function createVehicleGroup(
         }
       } else {
         // Epoch 5+: Sleek Swept Valkyrie Gunship with emerald visor, swept razor forward wings, twin crystal missile pods & star-lance chin beam
-        const valkyrieHull = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.14, 0.86, 8), ivoryMat);
+        const valkyrieHull = new THREE.Mesh(pxCylinder(0.11, 0.14, 0.86, 8), ivoryMat);
         valkyrieHull.rotation.x = Math.PI / 2;
         valkyrieHull.scale.set(1.15, 0.82, 1);
         valkyrieHull.position.set(0, 0.22, 0.04);
@@ -10953,7 +11356,7 @@ export function createVehicleGroup(
         canopy.position.set(0, 0.28, 0.34);
         group.add(canopy);
 
-        const starLance = new THREE.Mesh(new THREE.ConeGeometry(0.045, 0.42, 6), glowMat);
+        const starLance = new THREE.Mesh(pxCone(0.045, 0.42, 6), glowMat);
         starLance.rotation.x = Math.PI / 2;
         starLance.position.set(0, 0.13, 0.56);
         group.add(starLance);
@@ -10981,16 +11384,16 @@ export function createVehicleGroup(
       const mainRotor = new THREE.Group();
       mainRotor.name = 'spin_rotor';
       mainRotor.position.set(0, isApacheGunship ? 0.52 : 0.56, 0);
-      const outerHalo = new THREE.Mesh(new THREE.TorusGeometry(isApacheGunship ? 0.64 : 0.56, 0.022, 6, 20), goldMat);
+      const outerHalo = new THREE.Mesh(pxTorus(isApacheGunship ? 0.64 : 0.56, 0.022, 6, 20), goldMat);
       outerHalo.rotation.x = Math.PI / 2;
       mainRotor.add(outerHalo);
-      const innerHalo = new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.018, 6, 16), glowMat);
+      const innerHalo = new THREE.Mesh(pxTorus(0.32, 0.018, 6, 16), glowMat);
       innerHalo.rotation.x = Math.PI / 2;
       mainRotor.add(innerHalo);
       const petalCount = isApacheGunship ? 8 : 6;
       for (let pi = 0; pi < petalCount; pi++) {
         const ang = (pi / petalCount) * Math.PI * 2;
-        const petal = new THREE.Mesh(new THREE.ConeGeometry(0.08, isApacheGunship ? 0.62 : 0.54, 4), pi % 2 === 0 ? glowMat : ivoryMat);
+        const petal = new THREE.Mesh(pxCone(0.08, isApacheGunship ? 0.62 : 0.54, 4), pi % 2 === 0 ? glowMat : ivoryMat);
         petal.rotation.x = Math.PI / 2;
         petal.rotation.z = ang;
         petal.scale.set(1, 1, 0.28);
@@ -11002,7 +11405,7 @@ export function createVehicleGroup(
       const tailRotor = new THREE.Group();
       tailRotor.name = 'spin_prop';
       tailRotor.position.set(0, 0.28, -0.48);
-      const starRing = new THREE.Mesh(new THREE.TorusGeometry(0.14, 0.016, 6, 12), goldMat);
+      const starRing = new THREE.Mesh(pxTorus(0.14, 0.016, 6, 12), goldMat);
       tailRotor.add(starRing);
       for (let si = 0; si < 4; si++) {
         const spoke = new THREE.Mesh(new THREE.OctahedronGeometry(0.04, 0), glowMat);
@@ -11034,7 +11437,7 @@ export function createVehicleGroup(
       skullCore.castShadow = true;
       group.add(skullCore);
 
-      const ironJaw = new THREE.Mesh(new THREE.ConeGeometry(0.24, 0.34, 4), bloodMat);
+      const ironJaw = new THREE.Mesh(pxCone(0.24, 0.34, 4), bloodMat);
       ironJaw.rotation.x = Math.PI / 2;
       ironJaw.rotation.y = Math.PI / 4;
       ironJaw.position.set(0, 0.14, 0.46);
@@ -11047,18 +11450,18 @@ export function createVehicleGroup(
       }
 
       for (const side of [-1, 1]) {
-        const megaTusk = new THREE.Mesh(new THREE.ConeGeometry(0.068, 0.46, 5), boneMat);
+        const megaTusk = new THREE.Mesh(pxCone(0.068, 0.46, 5), boneMat);
         megaTusk.rotation.x = Math.PI / 2 - 0.32;
         megaTusk.rotation.y = side * 0.28;
         megaTusk.position.set(side * 0.22, 0.16, 0.56);
         group.add(megaTusk);
 
-        const gatlingDrum = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.12, 0.5, 6), bloodMat);
+        const gatlingDrum = new THREE.Mesh(pxCylinder(0.11, 0.12, 0.5, 6), bloodMat);
         gatlingDrum.rotation.x = Math.PI / 2;
         gatlingDrum.position.set(side * 0.36, 0.22, 0.14);
         group.add(gatlingDrum);
 
-        const exhaustPipe = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.06, 0.34, 6), ironMat);
+        const exhaustPipe = new THREE.Mesh(pxCylinder(0.045, 0.06, 0.34, 6), ironMat);
         exhaustPipe.position.set(side * 0.26, 0.44, -0.18);
         exhaustPipe.rotation.x = -0.42;
         exhaustPipe.rotation.z = -side * 0.25;
@@ -11069,18 +11472,18 @@ export function createVehicleGroup(
           const stubWing = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.06, 0.26), ironMat);
           stubWing.position.set(side * 0.42, 0.22, 0.04);
           group.add(stubWing);
-          const rocketPod = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.085, 0.42, 6), glowMat);
+          const rocketPod = new THREE.Mesh(pxCylinder(0.085, 0.085, 0.42, 6), glowMat);
           rocketPod.rotation.x = Math.PI / 2;
           rocketPod.position.set(side * 0.58, 0.18, 0.12);
           group.add(rocketPod);
-          const turbineNacelle = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.09, 0.42, 7), bloodMat);
+          const turbineNacelle = new THREE.Mesh(pxCylinder(0.075, 0.09, 0.42, 7), bloodMat);
           turbineNacelle.rotation.x = Math.PI / 2;
           turbineNacelle.position.set(side * 0.28, 0.36, -0.06);
           group.add(turbineNacelle);
         }
       }
 
-      const tailChain = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.08, 0.58, 5), ironMat);
+      const tailChain = new THREE.Mesh(pxCylinder(0.05, 0.08, 0.58, 5), ironMat);
       tailChain.rotation.x = Math.PI / 2;
       tailChain.position.set(0, 0.25, -0.46);
       group.add(tailChain);
@@ -11088,13 +11491,13 @@ export function createVehicleGroup(
       const mainRotor = new THREE.Group();
       mainRotor.name = 'spin_rotor';
       mainRotor.position.set(0, 0.56, 0.04);
-      const sawRing = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.032, 5, 10), bloodMat);
+      const sawRing = new THREE.Mesh(pxTorus(0.24, 0.032, 5, 10), bloodMat);
       sawRing.rotation.x = Math.PI / 2;
       mainRotor.add(sawRing);
       const bladeCount = isApacheGunship ? 6 : 4;
       for (let bi = 0; bi < bladeCount; bi++) {
         const ang = (bi * Math.PI * 2) / bladeCount;
-        const cleaverBlade = new THREE.Mesh(new THREE.ConeGeometry(0.14, isApacheGunship ? 0.88 : 0.78, 3), ironMat);
+        const cleaverBlade = new THREE.Mesh(pxCone(0.14, isApacheGunship ? 0.88 : 0.78, 3), ironMat);
         cleaverBlade.rotation.x = Math.PI / 2;
         cleaverBlade.rotation.z = ang;
         cleaverBlade.scale.set(1, 1, 0.22);
@@ -11107,7 +11510,7 @@ export function createVehicleGroup(
       tailRotor.name = 'spin_prop';
       tailRotor.position.set(0.08, 0.28, -0.74);
       tailRotor.rotation.y = Math.PI / 2;
-      const buzzDisc = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.025, 7), bloodMat);
+      const buzzDisc = new THREE.Mesh(pxCylinder(0.18, 0.18, 0.025, 7), bloodMat);
       buzzDisc.rotation.x = Math.PI / 2;
       tailRotor.add(buzzDisc);
       group.add(tailRotor);
@@ -11122,19 +11525,19 @@ export function createVehicleGroup(
 
     if (!isApacheGunship) {
       // Epoch 4 (Atomic Age 1965 CE): Classic UH-1 Huey / Bell Bubble-Canopy Utility Chopper (NO Apache stub-wings or Hellfire pods)
-      const hueyBody = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.13, 0.54, 8), heliMat);
+      const hueyBody = new THREE.Mesh(pxCylinder(0.14, 0.13, 0.54, 8), heliMat);
       hueyBody.rotation.x = Math.PI / 2;
       hueyBody.scale.set(1.0, 0.92, 1.0);
       hueyBody.position.set(0, 0.21, 0.06);
       hueyBody.castShadow = true;
       group.add(hueyBody);
 
-      const bubbleCanopy = new THREE.Mesh(new THREE.SphereGeometry(0.145, 8, 8), glassMat);
+      const bubbleCanopy = new THREE.Mesh(pxSphere(0.145, 8, 8), glassMat);
       bubbleCanopy.scale.set(0.95, 0.85, 1.25);
       bubbleCanopy.position.set(0, 0.22, 0.32);
       group.add(bubbleCanopy);
 
-      const topTurbine = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.075, 0.28, 7), trimMat);
+      const topTurbine = new THREE.Mesh(pxCylinder(0.065, 0.075, 0.28, 7), trimMat);
       topTurbine.rotation.x = Math.PI / 2;
       topTurbine.position.set(0, 0.34, -0.02);
       group.add(topTurbine);
@@ -11145,18 +11548,18 @@ export function createVehicleGroup(
       cabin.castShadow = true;
       group.add(cabin);
 
-      const cockpitNose = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.14, 0.3, 8), glassMat);
+      const cockpitNose = new THREE.Mesh(pxCylinder(0.08, 0.14, 0.3, 8), glassMat);
       cockpitNose.rotation.x = Math.PI / 2;
       cockpitNose.position.set(0, 0.21, 0.48);
       group.add(cockpitNose);
 
-      const chinTurret = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.025, 0.22, 6), trimMat);
+      const chinTurret = new THREE.Mesh(pxCylinder(0.02, 0.025, 0.22, 6), trimMat);
       chinTurret.rotation.x = Math.PI / 2;
       chinTurret.position.set(0, 0.1, 0.56);
       group.add(chinTurret);
     }
 
-    const tailBoom = new THREE.Mesh(new THREE.CylinderGeometry(0.036, 0.075, 0.64, 7), heliMat);
+    const tailBoom = new THREE.Mesh(pxCylinder(0.036, 0.075, 0.64, 7), heliMat);
     tailBoom.rotation.x = Math.PI / 2;
     tailBoom.position.set(0, 0.24, -0.5);
     group.add(tailBoom);
@@ -11167,7 +11570,7 @@ export function createVehicleGroup(
     group.add(tailFin);
 
     for (const sx of [-0.16, 0.16]) {
-      const skid = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.68, 6), trimMat);
+      const skid = new THREE.Mesh(pxCylinder(0.018, 0.018, 0.68, 6), trimMat);
       skid.rotation.x = Math.PI / 2;
       skid.position.set(sx, 0.05, 0.06);
       group.add(skid);
@@ -11182,26 +11585,26 @@ export function createVehicleGroup(
         const pylonArm = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.04, 0.12), trimMat);
         pylonArm.position.set(sx * 1.15, 0.19, 0.05);
         group.add(pylonArm);
-        const rocketPod = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.28, 7), bodyMat);
+        const rocketPod = new THREE.Mesh(pxCylinder(0.055, 0.055, 0.28, 7), bodyMat);
         rocketPod.rotation.x = Math.PI / 2;
         rocketPod.position.set(sx * 1.65, 0.18, 0.08);
         group.add(rocketPod);
 
-        const engineNacelle = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.065, 0.34, 7), trimMat);
+        const engineNacelle = new THREE.Mesh(pxCylinder(0.055, 0.065, 0.34, 7), trimMat);
         engineNacelle.rotation.x = Math.PI / 2;
         engineNacelle.position.set(sx * 0.72, 0.33, -0.02);
         group.add(engineNacelle);
       }
     }
 
-    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.04, 0.18, 6), trimMat);
+    const mast = new THREE.Mesh(pxCylinder(0.032, 0.04, 0.18, 6), trimMat);
     mast.position.set(0, 0.4, 0.02);
     group.add(mast);
 
     const mainRotor = new THREE.Group();
     mainRotor.name = 'spin_rotor';
     mainRotor.position.set(0, 0.49, 0.02);
-    const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.04, 8), trimMat);
+    const hub = new THREE.Mesh(pxCylinder(0.06, 0.06, 0.04, 8), trimMat);
     mainRotor.add(hub);
     const blade1 = new THREE.Mesh(new THREE.BoxGeometry(1.36, 0.022, 0.075), trimMat);
     mainRotor.add(blade1);
@@ -11246,7 +11649,7 @@ export function createVehicleGroup(
 
       if (isIndustrial) {
         // Epoch 3 Industrial: Ornate 4-wheeled gilded sun-carriage + brass prism cannon
-        const carriage = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.2, 0.56, 7), ivoryMat);
+        const carriage = new THREE.Mesh(pxCylinder(0.16, 0.2, 0.56, 7), ivoryMat);
         carriage.rotation.x = Math.PI / 2;
         carriage.scale.set(1.25, 0.72, 1);
         carriage.position.set(0, baseHoverY + 0.05, 0);
@@ -11259,7 +11662,7 @@ export function createVehicleGroup(
           [-0.26, -0.2],
           [0.26, -0.2],
         ]) {
-          const wheel = new THREE.Mesh(new THREE.TorusGeometry(0.1, 0.025, 6, 12), goldMat);
+          const wheel = new THREE.Mesh(pxTorus(0.1, 0.025, 6, 12), goldMat);
           wheel.rotation.y = Math.PI / 2;
           wheel.position.set(wx, 0.1, wz);
           group.add(wheel);
@@ -11268,12 +11671,12 @@ export function createVehicleGroup(
           group.add(hub);
         }
 
-        const prowCrest = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.28, 5), goldMat);
+        const prowCrest = new THREE.Mesh(pxCone(0.1, 0.28, 5), goldMat);
         prowCrest.rotation.x = Math.PI / 2 - 0.2;
         prowCrest.position.set(0, baseHoverY + 0.12, 0.36);
         group.add(prowCrest);
 
-        const brassBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.045, 0.36, 6), goldMat);
+        const brassBarrel = new THREE.Mesh(pxCylinder(0.032, 0.045, 0.36, 6), goldMat);
         brassBarrel.rotation.x = Math.PI / 2;
         brassBarrel.position.set(0, baseHoverY + 0.22, 0.22);
         group.add(brassBarrel);
@@ -11286,13 +11689,13 @@ export function createVehicleGroup(
 
       if (isAtomic) {
         // Epoch 4 Atomic: Levitating Lotus Strider with single halo ring + side crystal shield vanes
-        const levRing = new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.028, 7, 18), goldMat);
+        const levRing = new THREE.Mesh(pxTorus(0.28, 0.028, 7, 18), goldMat);
         levRing.rotation.x = Math.PI / 2;
         levRing.scale.set(0.9, 1.24, 1);
         levRing.position.set(0, baseHoverY, 0);
         group.add(levRing);
 
-        const lotusHull = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.18, 6), ivoryMat);
+        const lotusHull = new THREE.Mesh(pxCone(0.22, 0.18, 6), ivoryMat);
         lotusHull.rotation.x = Math.PI;
         lotusHull.position.set(0, baseHoverY + 0.04, 0);
         lotusHull.castShadow = true;
@@ -11310,7 +11713,7 @@ export function createVehicleGroup(
         prismTurret.position.set(0, baseHoverY + 0.22, -0.02);
         group.add(prismTurret);
 
-        const crystalCannon = new THREE.Mesh(new THREE.ConeGeometry(0.045, 0.42, 6), glowMat);
+        const crystalCannon = new THREE.Mesh(pxCone(0.045, 0.42, 6), glowMat);
         crystalCannon.rotation.x = Math.PI / 2;
         crystalCannon.position.set(0, baseHoverY + 0.22, 0.28);
         group.add(crystalCannon);
@@ -11329,19 +11732,19 @@ export function createVehicleGroup(
           wingBlade.rotation.y = kx < 0 ? 0.32 : -0.32;
           group.add(wingBlade);
         }
-        const coreDeck = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.2, 0.56, 6), ivoryMat);
+        const coreDeck = new THREE.Mesh(pxCylinder(0.16, 0.2, 0.56, 6), ivoryMat);
         coreDeck.rotation.x = Math.PI / 2;
         coreDeck.scale.set(1.2, 0.5, 1);
         coreDeck.position.set(0, baseHoverY + 0.06, 0.02);
         group.add(coreDeck);
 
-        const astrolabe = new THREE.Mesh(new THREE.TorusGeometry(0.17, 0.02, 6, 14), goldMat);
+        const astrolabe = new THREE.Mesh(pxTorus(0.17, 0.02, 6, 14), goldMat);
         astrolabe.rotation.x = Math.PI / 2;
         astrolabe.name = 'spin_rotor';
         astrolabe.position.set(0, baseHoverY + 0.26, -0.04);
         group.add(astrolabe);
 
-        const railSpire = new THREE.Mesh(new THREE.CylinderGeometry(0.024, 0.036, 0.54, 6), glowMat);
+        const railSpire = new THREE.Mesh(pxCylinder(0.024, 0.036, 0.54, 6), glowMat);
         railSpire.rotation.x = Math.PI / 2;
         railSpire.position.set(0, baseHoverY + 0.2, 0.34);
         group.add(railSpire);
@@ -11349,26 +11752,26 @@ export function createVehicleGroup(
       }
 
       // Epoch 6+ (Orbital / Star): Celestial Sun-Prism Sanctuary
-      const outerHalo = new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.032, 7, 20), goldMat);
+      const outerHalo = new THREE.Mesh(pxTorus(0.32, 0.032, 7, 20), goldMat);
       outerHalo.rotation.x = Math.PI / 2;
       outerHalo.scale.set(0.92, 1.28, 1);
       outerHalo.position.set(0, baseHoverY, 0);
       outerHalo.castShadow = true;
       group.add(outerHalo);
 
-      const innerRuneRing = new THREE.Mesh(new THREE.TorusGeometry(0.22, 0.02, 6, 16), glowMat);
+      const innerRuneRing = new THREE.Mesh(pxTorus(0.22, 0.02, 6, 16), glowMat);
       innerRuneRing.rotation.x = Math.PI / 2;
       innerRuneRing.position.set(0, baseHoverY - 0.03, 0);
       group.add(innerRuneRing);
 
-      const lotusPlatform = new THREE.Mesh(new THREE.ConeGeometry(0.24, 0.18, 6), ivoryMat);
+      const lotusPlatform = new THREE.Mesh(pxCone(0.24, 0.18, 6), ivoryMat);
       lotusPlatform.rotation.x = Math.PI;
       lotusPlatform.position.set(0, baseHoverY + 0.04, 0);
       lotusPlatform.castShadow = true;
       group.add(lotusPlatform);
 
       for (const side of [-1, 1]) {
-        const wingArch = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.48, 4), ivoryMat);
+        const wingArch = new THREE.Mesh(pxCone(0.08, 0.48, 4), ivoryMat);
         wingArch.rotation.x = -Math.PI / 2 + 0.25;
         wingArch.rotation.z = side * 0.48;
         wingArch.position.set(side * 0.28, baseHoverY + 0.12, -0.04);
@@ -11387,18 +11790,18 @@ export function createVehicleGroup(
       sunPrism.castShadow = true;
       group.add(sunPrism);
 
-      const prismCrown = new THREE.Mesh(new THREE.TorusGeometry(0.18, 0.022, 6, 14), goldMat);
+      const prismCrown = new THREE.Mesh(pxTorus(0.18, 0.022, 6, 14), goldMat);
       prismCrown.rotation.y = Math.PI / 2;
       prismCrown.position.set(0, baseHoverY + 0.32, 0.06);
       group.add(prismCrown);
 
-      const starLance = new THREE.Mesh(new THREE.ConeGeometry(0.055, 0.48, 6), goldMat);
+      const starLance = new THREE.Mesh(pxCone(0.055, 0.48, 6), goldMat);
       starLance.rotation.x = Math.PI / 2;
       starLance.position.set(0, baseHoverY + 0.32, 0.34);
       group.add(starLance);
 
       if (isStarSiege) {
-        const archonCrown = new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.02, 6, 16), glowMat);
+        const archonCrown = new THREE.Mesh(pxTorus(0.28, 0.02, 6, 16), glowMat);
         archonCrown.position.set(0, baseHoverY + 0.52, -0.06);
         archonCrown.rotation.x = Math.PI / 3;
         group.add(archonCrown);
@@ -11432,28 +11835,28 @@ export function createVehicleGroup(
         boilerBox.castShadow = true;
         group.add(boilerBox);
 
-        const grinderDrum = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.52, 8), ironMat);
+        const grinderDrum = new THREE.Mesh(pxCylinder(0.14, 0.14, 0.52, 8), ironMat);
         grinderDrum.rotation.z = Math.PI / 2;
         grinderDrum.position.set(0, baseY, 0.34);
         group.add(grinderDrum);
 
         for (const gx of [-0.18, 0, 0.18]) {
-          const spike = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.14, 4), boneMat);
+          const spike = new THREE.Mesh(pxCone(0.04, 0.14, 4), boneMat);
           spike.rotation.x = Math.PI / 2;
           spike.position.set(gx, baseY + 0.02, 0.5);
           group.add(spike);
         }
         for (const side of [-1, 1]) {
-          const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.1, 7), ironMat);
+          const wheel = new THREE.Mesh(pxCylinder(0.14, 0.14, 0.1, 7), ironMat);
           wheel.rotation.z = Math.PI / 2;
           wheel.position.set(side * 0.26, baseY, -0.18);
           group.add(wheel);
 
-          const chimney = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.055, 0.28, 6), ironMat);
+          const chimney = new THREE.Mesh(pxCylinder(0.042, 0.055, 0.28, 6), ironMat);
           chimney.position.set(side * 0.14, baseY + 0.32, -0.22);
           group.add(chimney);
         }
-        const shortCannon = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.065, 0.26, 6), ironMat);
+        const shortCannon = new THREE.Mesh(pxCylinder(0.055, 0.065, 0.26, 6), ironMat);
         shortCannon.rotation.x = Math.PI / 2;
         shortCannon.position.set(0, baseY + 0.24, 0.22);
         group.add(shortCannon);
@@ -11484,12 +11887,12 @@ export function createVehicleGroup(
         group.add(skullTurret);
 
         for (const side of [-1, 1]) {
-          const horn = new THREE.Mesh(new THREE.ConeGeometry(0.055, 0.32, 5), boneMat);
+          const horn = new THREE.Mesh(pxCone(0.055, 0.32, 5), boneMat);
           horn.rotation.z = -side * 0.65;
           horn.position.set(side * 0.24, baseY + 0.32, 0.04);
           group.add(horn);
         }
-        const bigBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.048, 0.06, 0.48, 6), ironMat);
+        const bigBarrel = new THREE.Mesh(pxCylinder(0.048, 0.06, 0.48, 6), ironMat);
         bigBarrel.rotation.x = Math.PI / 2;
         bigBarrel.position.set(0, baseY + 0.25, 0.32);
         group.add(bigBarrel);
@@ -11523,12 +11926,12 @@ export function createVehicleGroup(
           missilePod.position.set(side * 0.3, baseY + 0.3, -0.06);
           group.add(missilePod);
 
-          const twinCannon = new THREE.Mesh(new THREE.CylinderGeometry(0.036, 0.045, 0.52, 6), trimMat);
+          const twinCannon = new THREE.Mesh(pxCylinder(0.036, 0.045, 0.52, 6), trimMat);
           twinCannon.rotation.x = Math.PI / 2;
           twinCannon.position.set(side * 0.1, baseY + 0.24, 0.34);
           group.add(twinCannon);
 
-          const megaHorn = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.38, 5), boneMat);
+          const megaHorn = new THREE.Mesh(pxCone(0.06, 0.38, 5), boneMat);
           megaHorn.rotation.x = Math.PI / 2 - 0.25;
           megaHorn.position.set(side * 0.2, baseY + 0.1, 0.44);
           group.add(megaHorn);
@@ -11559,29 +11962,29 @@ export function createVehicleGroup(
       }
 
       for (const side of [-1, 1]) {
-        const megaHorn = new THREE.Mesh(new THREE.ConeGeometry(0.065, 0.44, 5), boneMat);
+        const megaHorn = new THREE.Mesh(pxCone(0.065, 0.44, 5), boneMat);
         megaHorn.rotation.z = -side * 0.65;
         megaHorn.rotation.x = 0.35;
         megaHorn.position.set(side * 0.28, baseY + 0.42, 0.04);
         group.add(megaHorn);
 
-        const prowTusk = new THREE.Mesh(new THREE.ConeGeometry(0.052, 0.32, 4), boneMat);
+        const prowTusk = new THREE.Mesh(pxCone(0.052, 0.32, 4), boneMat);
         prowTusk.rotation.x = Math.PI / 2;
         prowTusk.position.set(side * 0.18, baseY + 0.1, 0.44);
         group.add(prowTusk);
 
-        const siegeMortar = new THREE.Mesh(new THREE.CylinderGeometry(0.062, 0.078, 0.5, 6), glowMat);
+        const siegeMortar = new THREE.Mesh(pxCylinder(0.062, 0.078, 0.5, 6), glowMat);
         siegeMortar.rotation.x = Math.PI / 2 - 0.08;
         siegeMortar.position.set(side * 0.14, baseY + 0.34, 0.28);
         group.add(siegeMortar);
 
-        const smokestack = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.065, 0.34, 6), ironMat);
+        const smokestack = new THREE.Mesh(pxCylinder(0.05, 0.065, 0.34, 6), ironMat);
         smokestack.position.set(side * 0.2, baseY + 0.42, -0.28);
         smokestack.rotation.x = -0.3;
         group.add(smokestack);
       }
       if (isStarSiege) {
-        const dorsalCannon = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.085, 0.62, 7), glowMat);
+        const dorsalCannon = new THREE.Mesh(pxCylinder(0.07, 0.085, 0.62, 7), glowMat);
         dorsalCannon.rotation.x = Math.PI / 2;
         dorsalCannon.position.set(0, baseY + 0.52, 0.18);
         group.add(dorsalCannon);
@@ -11653,11 +12056,11 @@ export function createVehicleGroup(
         eraCheek.position.set(sx, 0.26, 0.04);
         group.add(eraCheek);
       }
-      const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.026, 0.032, 0.52, 6), trimMat);
+      const barrel = new THREE.Mesh(pxCylinder(0.026, 0.032, 0.52, 6), trimMat);
       barrel.rotation.x = Math.PI / 2;
       barrel.position.set(0, 0.26, 0.34);
       group.add(barrel);
-      const muzzle = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.042, 0.07, 6), tireMat);
+      const muzzle = new THREE.Mesh(pxCylinder(0.042, 0.042, 0.07, 6), tireMat);
       muzzle.rotation.x = Math.PI / 2;
       muzzle.position.set(0, 0.26, 0.59);
       group.add(muzzle);
@@ -11667,19 +12070,19 @@ export function createVehicleGroup(
         const tread = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.12, 0.62), tireMat);
         tread.position.set(tx, 0.07, 0);
         group.add(tread);
-        const fuelDrum = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.042, 0.16, 7), trimMat);
+        const fuelDrum = new THREE.Mesh(pxCylinder(0.042, 0.042, 0.16, 7), trimMat);
         fuelDrum.rotation.z = Math.PI / 2;
         fuelDrum.position.set(tx * 0.52, 0.22, -0.28);
         group.add(fuelDrum);
       }
-      const castTurret = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.16, 0.11, 10), bodyMat);
+      const castTurret = new THREE.Mesh(pxCylinder(0.14, 0.16, 0.11, 10), bodyMat);
       castTurret.position.set(0, 0.26, 0.01);
       castTurret.castShadow = true;
       group.add(castTurret);
-      const cupola = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.05, 8), trimMat);
+      const cupola = new THREE.Mesh(pxCylinder(0.045, 0.045, 0.05, 8), trimMat);
       cupola.position.set(-0.05, 0.33, -0.02);
       group.add(cupola);
-      const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.034, 0.44, 6), trimMat);
+      const barrel = new THREE.Mesh(pxCylinder(0.028, 0.034, 0.44, 6), trimMat);
       barrel.rotation.x = Math.PI / 2;
       barrel.position.set(0, 0.26, 0.3);
       group.add(barrel);
@@ -11695,11 +12098,11 @@ export function createVehicleGroup(
       boxTurret.castShadow = true;
       group.add(boxTurret);
       for (const sx of [-0.11, 0.11]) {
-        const exhaust = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.03, 0.16, 6), trimMat);
+        const exhaust = new THREE.Mesh(pxCylinder(0.025, 0.03, 0.16, 6), trimMat);
         exhaust.position.set(sx, 0.28, -0.24);
         group.add(exhaust);
       }
-      const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.036, 0.042, 0.3, 6), trimMat);
+      const barrel = new THREE.Mesh(pxCylinder(0.036, 0.042, 0.3, 6), trimMat);
       barrel.rotation.x = Math.PI / 2;
       barrel.position.set(0, 0.28, 0.2);
       group.add(barrel);
@@ -11733,20 +12136,20 @@ export function createVehicleGroup(
         side: THREE.DoubleSide,
       });
       for (let li = -2; li <= 2; li++) {
-        const log = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.042, 0.76, 6), logMat);
+        const log = new THREE.Mesh(pxCylinder(0.042, 0.042, 0.76, 6), logMat);
         log.rotation.x = Math.PI / 2;
         log.position.set(li * 0.075, 0.08, 0);
         log.castShadow = true;
         group.add(log);
       }
-      const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.024, 0.48, 5), logMat);
+      const mast = new THREE.Mesh(pxCylinder(0.018, 0.024, 0.48, 5), logMat);
       mast.position.set(0, 0.32, 0.04);
       group.add(mast);
       const sail = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.28, 0.025), sailMat);
       sail.position.set(0, 0.36, 0.06);
       group.add(sail);
       if (isElf) {
-        const outrigger = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.68, 5), logMat);
+        const outrigger = new THREE.Mesh(pxCylinder(0.025, 0.025, 0.68, 5), logMat);
         outrigger.rotation.x = Math.PI / 2;
         outrigger.position.set(0.32, 0.07, 0);
         group.add(outrigger);
@@ -11756,7 +12159,7 @@ export function createVehicleGroup(
       } else if (isOrc) {
         const boneMat = new THREE.MeshStandardMaterial({ color: 0xe5dec9, roughness: 0.7 });
         for (const sx of [-0.14, 0.14]) {
-          const tusk = new THREE.Mesh(new THREE.ConeGeometry(0.032, 0.18, 4), boneMat);
+          const tusk = new THREE.Mesh(pxCone(0.032, 0.18, 4), boneMat);
           tusk.rotation.x = Math.PI * 0.38;
           tusk.position.set(sx, 0.14, 0.42);
           group.add(tusk);
@@ -11779,7 +12182,7 @@ export function createVehicleGroup(
       hull.castShadow = true;
       group.add(hull);
 
-      const bow = new THREE.Mesh(new THREE.ConeGeometry(0.22, hullLen * 0.34, 4), hullMat);
+      const bow = new THREE.Mesh(pxCone(0.22, hullLen * 0.34, 4), hullMat);
       bow.rotation.x = Math.PI / 2;
       bow.rotation.y = Math.PI / 4;
       bow.position.set(0, 0.12, hullLen * 0.42);
@@ -11794,7 +12197,7 @@ export function createVehicleGroup(
 
       const masts = isMedievalShip ? [-0.12, 0.18] : [0.05];
       for (const mz of masts) {
-        const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.03, 0.66, 6), trimMat);
+        const mast = new THREE.Mesh(pxCylinder(0.022, 0.03, 0.66, 6), trimMat);
         mast.position.set(0, 0.44, mz);
         group.add(mast);
         const sail = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.32, 0.03), sailMat);
@@ -11810,7 +12213,7 @@ export function createVehicleGroup(
         }
       } else if (isOrc) {
         // War-ram & iron side bucklers
-        const spike = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.28, 4), trimMat);
+        const spike = new THREE.Mesh(pxCone(0.08, 0.28, 4), trimMat);
         spike.rotation.x = Math.PI / 2;
         spike.position.set(0, 0.14, hullLen * 0.62);
         group.add(spike);
@@ -11851,17 +12254,17 @@ export function createVehicleGroup(
       if (isOrc) {
         // Twin smoky iron stacks + angular armored ram prow
         for (const sx of [-0.1, 0.1]) {
-          const stack = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.05, 0.36, 7), tireMat);
+          const stack = new THREE.Mesh(pxCylinder(0.04, 0.05, 0.36, 7), tireMat);
           stack.position.set(sx, 0.49, -0.14);
           group.add(stack);
         }
-        const ram = new THREE.Mesh(new THREE.ConeGeometry(0.14, 0.28, 4), trimMat);
+        const ram = new THREE.Mesh(pxCone(0.14, 0.28, 4), trimMat);
         ram.rotation.x = Math.PI / 2;
         ram.position.set(0, 0.12, 0.64);
         group.add(ram);
       } else if (isElf) {
         // Arched golden canopy ribs & stern crystal lantern
-        const spire = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.32, 6), glowMat);
+        const spire = new THREE.Mesh(pxCone(0.07, 0.32, 6), glowMat);
         spire.position.set(0, 0.52, -0.2);
         group.add(spire);
         for (const side of [-1, 1]) {
@@ -11870,13 +12273,13 @@ export function createVehicleGroup(
           group.add(fin);
         }
       } else {
-        const funnel = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.055, 0.34, 8), tireMat);
+        const funnel = new THREE.Mesh(pxCylinder(0.045, 0.055, 0.34, 8), tireMat);
         funnel.position.set(0, 0.48, -0.1);
         group.add(funnel);
       }
 
       for (const side of [-1, 1]) {
-        const paddleWheel = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.09, 8), taillightMat);
+        const paddleWheel = new THREE.Mesh(pxCylinder(0.14, 0.14, 0.09, 8), taillightMat);
         paddleWheel.rotation.z = Math.PI / 2;
         paddleWheel.position.set(side * 0.26, 0.14, 0);
         paddleWheel.name = 'spin_prop';
@@ -11946,7 +12349,7 @@ export function createVehicleGroup(
     baseHull.castShadow = true;
     group.add(baseHull);
 
-    const bowCone = new THREE.Mesh(new THREE.ConeGeometry(0.26, hullLen * 0.34, 4), hullMat);
+    const bowCone = new THREE.Mesh(pxCone(0.26, hullLen * 0.34, 4), hullMat);
     bowCone.rotation.x = Math.PI / 2;
     bowCone.rotation.y = Math.PI / 4;
     bowCone.position.set(0, 0.14, hullLen * 0.44);
@@ -12023,14 +12426,14 @@ export function createVehicleGroup(
         metalness: isOrbitalCruiser ? 0.68 : isInfoStealthShip ? 0.52 : 0.28,
       });
       const hullLen = isOrbitalCruiser ? 1.44 : isInfoStealthShip || isAtomicDestroyer ? 1.28 : isIronclad ? 1.18 : 1.08;
-      const spine = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.12, hullLen * 0.72, 8), hullMat);
+      const spine = new THREE.Mesh(pxCylinder(0.14, 0.12, hullLen * 0.72, 8), hullMat);
       spine.rotation.x = Math.PI / 2;
       spine.scale.set(1.25, 0.62, 1);
       spine.position.y = 0.12;
       spine.castShadow = true;
       group.add(spine);
 
-      const swanProw = new THREE.Mesh(new THREE.ConeGeometry(0.12, hullLen * 0.38, 6), trimMat);
+      const swanProw = new THREE.Mesh(pxCone(0.12, hullLen * 0.38, 6), trimMat);
       swanProw.rotation.x = Math.PI / 2 - 0.18;
       swanProw.position.set(0, 0.2, hullLen * 0.44);
       group.add(swanProw);
@@ -12039,10 +12442,10 @@ export function createVehicleGroup(
         const sailMat = new THREE.MeshStandardMaterial({ color: 0xb8f2e6, roughness: 0.48, side: THREE.DoubleSide });
         const masts = isMedievalGalleon ? [-0.14, 0.18] : [0.02];
         for (const mz of masts) {
-          const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.032, isMedievalGalleon ? 0.86 : 0.72, 6), trimMat);
+          const mast = new THREE.Mesh(pxCylinder(0.02, 0.032, isMedievalGalleon ? 0.86 : 0.72, 6), trimMat);
           mast.position.set(0, 0.52, mz);
           group.add(mast);
-          const lateenSail = new THREE.Mesh(new THREE.ConeGeometry(0.28, 0.6, 3), sailMat);
+          const lateenSail = new THREE.Mesh(pxCone(0.28, 0.6, 3), sailMat);
           lateenSail.scale.set(0.18, 1, 1.3);
           lateenSail.position.set(0, 0.56, mz);
           lateenSail.castShadow = true;
@@ -12067,7 +12470,7 @@ export function createVehicleGroup(
         group.add(sternWings);
       } else if (isIronclad) {
         for (const ox of [-0.26, 0.26]) {
-          const pontoon = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.82, 7), hullMat);
+          const pontoon = new THREE.Mesh(pxCylinder(0.06, 0.06, 0.82, 7), hullMat);
           pontoon.rotation.x = Math.PI / 2;
           pontoon.position.set(ox, 0.1, -0.02);
           group.add(pontoon);
@@ -12075,7 +12478,7 @@ export function createVehicleGroup(
           brace.position.set(ox * 0.5, 0.18, 0);
           group.add(brace);
         }
-        const spireTower = new THREE.Mesh(new THREE.ConeGeometry(0.11, 0.48, 6), bodyMat);
+        const spireTower = new THREE.Mesh(pxCone(0.11, 0.48, 6), bodyMat);
         spireTower.position.set(0, 0.38, -0.04);
         group.add(spireTower);
         const beacon = new THREE.Mesh(new THREE.OctahedronGeometry(0.075, 0), glowMat);
@@ -12088,17 +12491,17 @@ export function createVehicleGroup(
           foilHull.position.set(ox, 0.13, -0.02);
           group.add(foilHull);
         }
-        const archSpire = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.12, 0.34, 6), bodyMat);
+        const archSpire = new THREE.Mesh(pxCylinder(0.06, 0.12, 0.34, 6), bodyMat);
         archSpire.position.set(0, 0.32, 0);
         group.add(archSpire);
         for (const [tz, dir] of [
           [0.34, 1],
           [-0.34, -1],
         ] as const) {
-          const domeTurret = new THREE.Mesh(new THREE.SphereGeometry(0.09, 7, 7), trimMat);
+          const domeTurret = new THREE.Mesh(pxSphere(0.09, 7, 7), trimMat);
           domeTurret.position.set(0, 0.23, tz);
           group.add(domeTurret);
-          const gunSpire = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.028, 0.26, 6), glowMat);
+          const gunSpire = new THREE.Mesh(pxCylinder(0.02, 0.028, 0.26, 6), glowMat);
           gunSpire.rotation.x = Math.PI / 2;
           gunSpire.position.set(0, 0.24, tz + dir * 0.16);
           group.add(gunSpire);
@@ -12114,10 +12517,10 @@ export function createVehicleGroup(
           crystalFin.position.set(ox * 0.95, 0.26, -0.14);
           group.add(crystalFin);
         }
-        const aegisPyramid = new THREE.Mesh(new THREE.ConeGeometry(0.14, 0.36, 4), hullMat);
+        const aegisPyramid = new THREE.Mesh(pxCone(0.14, 0.36, 4), hullMat);
         aegisPyramid.position.set(0, 0.34, 0.02);
         group.add(aegisPyramid);
-        const astroRing = new THREE.Mesh(new THREE.TorusGeometry(0.18, 0.024, 6, 12), glowMat);
+        const astroRing = new THREE.Mesh(pxTorus(0.18, 0.024, 6, 12), glowMat);
         astroRing.name = 'spin_rotor';
         astroRing.position.set(0, 0.54, 0.02);
         group.add(astroRing);
@@ -12131,14 +12534,14 @@ export function createVehicleGroup(
           crystalFin.position.set(ox, 0.25, -0.14);
           group.add(crystalFin);
         }
-        const spireBridge = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.14, 0.4, 6), hullMat);
+        const spireBridge = new THREE.Mesh(pxCylinder(0.07, 0.14, 0.4, 6), hullMat);
         spireBridge.position.set(0, 0.34, -0.08);
         group.add(spireBridge);
-        const astroRing = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.024, 6, 12), glowMat);
+        const astroRing = new THREE.Mesh(pxTorus(0.2, 0.024, 6, 12), glowMat);
         astroRing.name = 'spin_rotor';
         astroRing.position.set(0, 0.56, -0.08);
         group.add(astroRing);
-        const starLance = new THREE.Mesh(new THREE.CylinderGeometry(0.026, 0.04, 0.54, 6), glowMat);
+        const starLance = new THREE.Mesh(pxCylinder(0.026, 0.04, 0.54, 6), glowMat);
         starLance.rotation.x = Math.PI / 2;
         starLance.position.set(0, 0.26, 0.5);
         group.add(starLance);
@@ -12172,7 +12575,7 @@ export function createVehicleGroup(
       ramJaw.position.set(0, 0.12, hullLen * 0.42);
       group.add(ramJaw);
       for (const tx of [-0.14, 0, 0.14]) {
-        const ramSpike = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.22, 4), trimMat);
+        const ramSpike = new THREE.Mesh(pxCone(0.04, 0.22, 4), trimMat);
         ramSpike.rotation.x = Math.PI / 2;
         ramSpike.position.set(tx, 0.12, hullLen * 0.56);
         group.add(ramSpike);
@@ -12180,7 +12583,7 @@ export function createVehicleGroup(
 
       if (isBronzeGalley || isMedievalGalleon) {
         const sailMat = new THREE.MeshStandardMaterial({ color: 0x9b2226, roughness: 0.72, side: THREE.DoubleSide });
-        const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.036, 0.045, 0.74, 6), trimMat);
+        const mast = new THREE.Mesh(pxCylinder(0.036, 0.045, 0.74, 6), trimMat);
         mast.position.set(0, 0.5, 0);
         group.add(mast);
         const warSail = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.34, 0.035), sailMat);
@@ -12196,7 +12599,7 @@ export function createVehicleGroup(
             }
           }
         } else {
-          const foreMast = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.035, 0.56, 6), trimMat);
+          const foreMast = new THREE.Mesh(pxCylinder(0.028, 0.035, 0.56, 6), trimMat);
           foreMast.position.set(0, 0.4, 0.26);
           group.add(foreMast);
           const foreSail = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.24, 0.035), sailMat);
@@ -12211,12 +12614,12 @@ export function createVehicleGroup(
         ironCitadel.position.set(0, 0.3, -0.04);
         group.add(ironCitadel);
         for (const sz of [-0.2, 0.02, 0.22]) {
-          const stack = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.068, 0.3, 6), tireMat);
+          const stack = new THREE.Mesh(pxCylinder(0.055, 0.068, 0.3, 6), tireMat);
           stack.position.set(0, 0.48, sz);
           group.add(stack);
         }
         for (const cx of [-0.26, 0.26]) {
-          const sideCannon = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.032, 0.16, 6), trimMat);
+          const sideCannon = new THREE.Mesh(pxCylinder(0.028, 0.032, 0.16, 6), trimMat);
           sideCannon.rotation.z = Math.PI / 2;
           sideCannon.position.set(cx, 0.22, 0.06);
           group.add(sideCannon);
@@ -12227,7 +12630,7 @@ export function createVehicleGroup(
         gunBunker.position.set(0, 0.32, -0.06);
         group.add(gunBunker);
         for (const fx of [-0.12, 0.12]) {
-          const funnel = new THREE.Mesh(new THREE.CylinderGeometry(0.048, 0.06, 0.28, 6), tireMat);
+          const funnel = new THREE.Mesh(pxCylinder(0.048, 0.06, 0.28, 6), tireMat);
           funnel.position.set(fx, 0.46, -0.18);
           funnel.rotation.x = -0.2;
           group.add(funnel);
@@ -12240,7 +12643,7 @@ export function createVehicleGroup(
           turret.position.set(0, 0.27, tz);
           group.add(turret);
           for (const bx of [-0.05, 0.05]) {
-            const gun = new THREE.Mesh(new THREE.CylinderGeometry(0.026, 0.034, 0.34, 6), trimMat);
+            const gun = new THREE.Mesh(pxCylinder(0.026, 0.034, 0.34, 6), trimMat);
             gun.rotation.x = Math.PI / 2;
             gun.position.set(bx, 0.28, tz + dir * 0.2);
             group.add(gun);
@@ -12279,7 +12682,7 @@ export function createVehicleGroup(
           const gunTurret = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.11, 0.2), trimMat);
           gunTurret.position.set(0, 0.26, tx);
           group.add(gunTurret);
-          const cannon = new THREE.Mesh(new THREE.CylinderGeometry(0.036, 0.044, 0.38, 6), glowMat);
+          const cannon = new THREE.Mesh(pxCylinder(0.036, 0.044, 0.38, 6), glowMat);
           cannon.rotation.x = Math.PI / 2;
           cannon.position.set(0, 0.27, tx + (tx > 0 ? 0.22 : -0.22));
           group.add(cannon);
@@ -12291,7 +12694,7 @@ export function createVehicleGroup(
         }
         if (isStarDreadnought) {
           for (const bx of [-0.14, 0.14]) {
-            const extraBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.05, 0.56, 6), glowMat);
+            const extraBarrel = new THREE.Mesh(pxCylinder(0.04, 0.05, 0.56, 6), glowMat);
             extraBarrel.rotation.x = Math.PI / 2;
             extraBarrel.position.set(bx, 0.44, 0.16);
             group.add(extraBarrel);
@@ -12337,7 +12740,7 @@ export function createVehicleGroup(
       group.add(gunwale);
     }
 
-    const bowHull = new THREE.Mesh(new THREE.ConeGeometry(0.24, hullLen * 0.36, 4), hullMat);
+    const bowHull = new THREE.Mesh(pxCone(0.24, hullLen * 0.36, 4), hullMat);
     bowHull.rotation.x = Math.PI / 2;
     bowHull.rotation.y = Math.PI / 4;
     bowHull.scale.set(1.15, 0.72, 1);
@@ -12345,7 +12748,7 @@ export function createVehicleGroup(
     bowHull.castShadow = true;
     group.add(bowHull);
 
-    const sternHull = new THREE.Mesh(new THREE.ConeGeometry(0.22, hullLen * 0.26, 4), hullMat);
+    const sternHull = new THREE.Mesh(pxCone(0.22, hullLen * 0.26, 4), hullMat);
     sternHull.rotation.x = -Math.PI / 2;
     sternHull.rotation.y = Math.PI / 4;
     sternHull.scale.set(1.1, 0.75, 1);
@@ -12355,14 +12758,14 @@ export function createVehicleGroup(
     if (isBronzeGalley || isMedievalGalleon) {
       if (isBronzeGalley) {
         const ram = new THREE.Mesh(
-          new THREE.ConeGeometry(0.085, 0.24, 5),
+          pxCone(0.085, 0.24, 5),
           new THREE.MeshStandardMaterial({ color: 0xd97706, roughness: 0.3, metalness: 0.75 }),
         );
         ram.rotation.x = Math.PI / 2;
         ram.position.set(0, 0.09, hullLen * 0.56);
         group.add(ram);
       } else {
-        const bowsprit = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.028, 0.42, 6), trimMat);
+        const bowsprit = new THREE.Mesh(pxCylinder(0.016, 0.028, 0.42, 6), trimMat);
         bowsprit.rotation.x = Math.PI / 2 - 0.25;
         bowsprit.position.set(0, 0.25, hullLen * 0.52);
         group.add(bowsprit);
@@ -12379,18 +12782,18 @@ export function createVehicleGroup(
       const sailMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.68, side: THREE.DoubleSide });
       const mastOffsets = isMedievalGalleon ? [-0.14, 0.18] : [0.04];
       for (const mz of mastOffsets) {
-        const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.034, isMedievalGalleon ? 0.78 : 0.68, 6), trimMat);
+        const mast = new THREE.Mesh(pxCylinder(0.025, 0.034, isMedievalGalleon ? 0.78 : 0.68, 6), trimMat);
         mast.position.set(0, 0.54, mz);
         group.add(mast);
 
-        const yard = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, mz > 0 ? 0.52 : 0.42, 5), trimMat);
+        const yard = new THREE.Mesh(pxCylinder(0.016, 0.016, mz > 0 ? 0.52 : 0.42, 5), trimMat);
         yard.rotation.z = Math.PI / 2;
         yard.position.set(0, 0.72, mz + 0.02);
         group.add(yard);
 
         const sailRadius = mz > 0 ? 0.24 : 0.2;
         const sailSheet = new THREE.Mesh(
-          new THREE.CylinderGeometry(sailRadius, sailRadius, 0.36, 8, 1, true, -Math.PI * 0.42, Math.PI * 0.84),
+          pxCylinder(sailRadius, sailRadius, 0.36, 8, 1, true, -Math.PI * 0.42, Math.PI * 0.84),
           sailMat,
         );
         sailSheet.rotation.y = Math.PI / 2;
@@ -12411,7 +12814,7 @@ export function createVehicleGroup(
             oar.position.set(ox, 0.08, oz);
             oar.rotation.z = ox < 0 ? 0.32 : -0.32;
             group.add(oar);
-            const shield = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.042, 0.015, 8), bodyMat);
+            const shield = new THREE.Mesh(pxCylinder(0.042, 0.042, 0.015, 8), bodyMat);
             shield.rotation.z = Math.PI / 2;
             shield.position.set(ox * 0.82, 0.18, oz);
             group.add(shield);
@@ -12420,7 +12823,7 @@ export function createVehicleGroup(
       } else {
         for (const cx of [-0.21, 0.21]) {
           for (const cz of [-0.1, 0.08]) {
-            const portGun = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.018, 0.08, 5), tireMat);
+            const portGun = new THREE.Mesh(pxCylinder(0.016, 0.018, 0.08, 5), tireMat);
             portGun.rotation.z = Math.PI / 2;
             portGun.position.set(cx, 0.16, cz);
             group.add(portGun);
@@ -12436,11 +12839,11 @@ export function createVehicleGroup(
       bridgeTower.position.set(0, 0.41, 0.08);
       group.add(bridgeTower);
       for (const sz of [-0.2, -0.02]) {
-        const stack = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.056, 0.3, 8), tireMat);
+        const stack = new THREE.Mesh(pxCylinder(0.045, 0.056, 0.3, 8), tireMat);
         stack.position.set(0, 0.46, sz);
         stack.rotation.x = -0.14;
         group.add(stack);
-        const stackBand = new THREE.Mesh(new THREE.CylinderGeometry(0.048, 0.048, 0.05, 8), taillightMat);
+        const stackBand = new THREE.Mesh(pxCylinder(0.048, 0.048, 0.05, 8), taillightMat);
         stackBand.position.set(0, 0.56, sz - 0.02);
         stackBand.rotation.x = -0.14;
         group.add(stackBand);
@@ -12449,11 +12852,11 @@ export function createVehicleGroup(
         [0.3, 1],
         [-0.36, -1],
       ] as const) {
-        const turret = new THREE.Mesh(new THREE.CylinderGeometry(0.095, 0.11, 0.09, 8), trimMat);
+        const turret = new THREE.Mesh(pxCylinder(0.095, 0.11, 0.09, 8), trimMat);
         turret.position.set(0, 0.26, tz);
         group.add(turret);
         for (const bx of [-0.032, 0.032]) {
-          const cannon = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.022, 0.26, 6), trimMat);
+          const cannon = new THREE.Mesh(pxCylinder(0.018, 0.022, 0.26, 6), trimMat);
           cannon.rotation.x = Math.PI / 2;
           cannon.position.set(bx, 0.27, tz + dir * 0.16);
           group.add(cannon);
@@ -12469,7 +12872,7 @@ export function createVehicleGroup(
       bridgeWindow.position.set(0, 0.37, 0.16);
       group.add(bridgeWindow);
 
-      const radarMast = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.038, 0.26, 6), trimMat);
+      const radarMast = new THREE.Mesh(pxCylinder(0.02, 0.038, 0.26, 6), trimMat);
       radarMast.position.set(0, 0.52, 0.06);
       group.add(radarMast);
       const radarBar = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.03, 0.04), glowMat);
@@ -12478,7 +12881,7 @@ export function createVehicleGroup(
       group.add(radarBar);
 
       for (const fz of [-0.06, -0.22]) {
-        const funnel = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.052, 0.2, 7), tireMat);
+        const funnel = new THREE.Mesh(pxCylinder(0.042, 0.052, 0.2, 7), tireMat);
         funnel.position.set(0, 0.32, fz);
         funnel.rotation.x = -0.15;
         group.add(funnel);
@@ -12491,14 +12894,14 @@ export function createVehicleGroup(
         const gunTurret = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.09, 0.16), trimMat);
         gunTurret.position.set(0, 0.25, tz);
         group.add(gunTurret);
-        const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.024, 0.28, 6), trimMat);
+        const barrel = new THREE.Mesh(pxCylinder(0.018, 0.024, 0.28, 6), trimMat);
         barrel.rotation.x = Math.PI / 2;
         barrel.position.set(0, 0.26, tz + dir * 0.16);
         group.add(barrel);
       }
     } else if (isInfoStealthShip) {
       // Epoch 5 Info: Stealth Aegis Guided-Missile Destroyer (faceted integrated tower, VLS cell deck, single stealth turret, rear helipad)
-      const stealthSuper = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.32, 4), bodyMat);
+      const stealthSuper = new THREE.Mesh(pxCone(0.22, 0.32, 4), bodyMat);
       stealthSuper.rotation.y = Math.PI / 4;
       stealthSuper.position.set(0, 0.35, 0.04);
       stealthSuper.castShadow = true;
@@ -12518,7 +12921,7 @@ export function createVehicleGroup(
       const bowTurret = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.08, 0.16), bodyMat);
       bowTurret.position.set(0, 0.25, 0.45);
       group.add(bowTurret);
-      const cannon = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.024, 0.24, 6), trimMat);
+      const cannon = new THREE.Mesh(pxCylinder(0.018, 0.024, 0.24, 6), trimMat);
       cannon.rotation.x = Math.PI / 2;
       cannon.position.set(0, 0.26, 0.57);
       group.add(cannon);
@@ -12554,13 +12957,13 @@ export function createVehicleGroup(
         }
       }
       for (const rx of [-0.055, 0.055]) {
-        const rail = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.028, 0.48, 6), glowMat);
+        const rail = new THREE.Mesh(pxCylinder(0.022, 0.028, 0.48, 6), glowMat);
         rail.rotation.x = Math.PI / 2;
         rail.position.set(rx, 0.28, 0.44);
         group.add(rail);
       }
       if (isStarDreadnought) {
-        const haloDish = new THREE.Mesh(new THREE.TorusGeometry(0.18, 0.022, 6, 14), glowMat);
+        const haloDish = new THREE.Mesh(pxTorus(0.18, 0.022, 6, 14), glowMat);
         haloDish.position.set(0, 0.56, -0.06);
         haloDish.rotation.x = Math.PI / 3;
         group.add(haloDish);
@@ -12581,7 +12984,7 @@ export function createVehicleGroup(
         metalness: isIonCruiser ? 0.65 : 0.32,
       });
       const skyEnvelope = new THREE.Mesh(
-        new THREE.CylinderGeometry(isIonCruiser ? 0.2 : 0.17, 0.12, isIonCruiser ? 1.36 : 1.18, 8),
+        pxCylinder(isIonCruiser ? 0.2 : 0.17, 0.12, isIonCruiser ? 1.36 : 1.18, 8),
         ivoryMat,
       );
       skyEnvelope.rotation.x = Math.PI / 2;
@@ -12590,13 +12993,13 @@ export function createVehicleGroup(
       skyEnvelope.castShadow = true;
       group.add(skyEnvelope);
 
-      const deckHull = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.1, 1.1, 8), bodyMat);
+      const deckHull = new THREE.Mesh(pxCylinder(0.14, 0.1, 1.1, 8), bodyMat);
       deckHull.rotation.x = Math.PI / 2;
       deckHull.scale.set(1.15, 0.58, 1);
       deckHull.position.set(0, 0.15, 0);
       group.add(deckHull);
 
-      const prowSpire = new THREE.Mesh(new THREE.ConeGeometry(0.11, 0.36, 6), trimMat);
+      const prowSpire = new THREE.Mesh(pxCone(0.11, 0.36, 6), trimMat);
       prowSpire.rotation.x = Math.PI / 2;
       prowSpire.position.set(0, 0.28, 0.7);
       group.add(prowSpire);
@@ -12615,7 +13018,7 @@ export function createVehicleGroup(
         group.add(crystalSail);
 
         if (isRigidZeppelin) {
-          const vanePod = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.055, 0.22, 6), trimMat);
+          const vanePod = new THREE.Mesh(pxCylinder(0.045, 0.055, 0.22, 6), trimMat);
           vanePod.rotation.x = Math.PI / 2;
           vanePod.position.set(side * 0.32, 0.16, -0.1);
           group.add(vanePod);
@@ -12632,7 +13035,7 @@ export function createVehicleGroup(
 
       const ringPositions = isIonCruiser ? [-0.34, 0, 0.34] : [-0.22, 0.22];
       for (const rz of ringPositions) {
-        const levRing = new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.032, 7, 14), glowMat);
+        const levRing = new THREE.Mesh(pxTorus(0.28, 0.032, 7, 14), glowMat);
         levRing.position.set(0, 0.34, rz);
         group.add(levRing);
       }
@@ -12652,7 +13055,7 @@ export function createVehicleGroup(
         metalness: isIonCruiser ? 0.72 : 0.28,
       });
       const balloon = new THREE.Mesh(
-        new THREE.CylinderGeometry(isIonCruiser ? 0.31 : 0.29, 0.25, isIonCruiser ? 1.26 : 1.12, 8),
+        pxCylinder(isIonCruiser ? 0.31 : 0.29, 0.25, isIonCruiser ? 1.26 : 1.12, 8),
         orcBag,
       );
       balloon.rotation.x = Math.PI / 2;
@@ -12661,12 +13064,12 @@ export function createVehicleGroup(
       group.add(balloon);
 
       for (const bz of [-0.32, 0, 0.32]) {
-        const ironBand = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.06, 8), trimMat);
+        const ironBand = new THREE.Mesh(pxCylinder(0.3, 0.3, 0.06, 8), trimMat);
         ironBand.rotation.x = Math.PI / 2;
         ironBand.position.set(0, 0.46, bz);
         group.add(ironBand);
       }
-      const jawNose = new THREE.Mesh(new THREE.ConeGeometry(0.26, 0.34, 5), trimMat);
+      const jawNose = new THREE.Mesh(pxCone(0.26, 0.34, 5), trimMat);
       jawNose.rotation.x = Math.PI / 2;
       jawNose.position.set(0, 0.46, 0.68);
       group.add(jawNose);
@@ -12681,14 +13084,14 @@ export function createVehicleGroup(
 
       if (isIonCruiser) {
         for (const ex of [-0.32, 0.32]) {
-          const magmaPod = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.09, 0.42, 7), glowMat);
+          const magmaPod = new THREE.Mesh(pxCylinder(0.08, 0.09, 0.42, 7), glowMat);
           magmaPod.rotation.x = Math.PI / 2;
           magmaPod.position.set(ex, 0.26, -0.06);
           group.add(magmaPod);
         }
       } else if (isRigidZeppelin) {
         for (const ex of [-0.26, 0.26]) {
-          const pod = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.075, 0.3, 6), bodyMat);
+          const pod = new THREE.Mesh(pxCylinder(0.065, 0.075, 0.3, 6), bodyMat);
           pod.rotation.x = Math.PI / 2;
           pod.position.set(ex, 0.24, -0.08);
           group.add(pod);
@@ -12712,18 +13115,18 @@ export function createVehicleGroup(
       metalness: isIonCruiser ? 0.78 : isRigidZeppelin ? 0.55 : 0.08,
     });
     const envelope = new THREE.Mesh(
-      new THREE.CylinderGeometry(isIonCruiser ? 0.28 : 0.26, 0.22, isIonCruiser ? 1.32 : isRigidZeppelin ? 1.24 : 0.96, 10),
+      pxCylinder(isIonCruiser ? 0.28 : 0.26, 0.22, isIonCruiser ? 1.32 : isRigidZeppelin ? 1.24 : 0.96, 10),
       bagMat,
     );
     envelope.rotation.x = Math.PI / 2;
     envelope.position.set(0, 0.44, 0);
     envelope.castShadow = true;
     group.add(envelope);
-    const nose = new THREE.Mesh(new THREE.SphereGeometry(0.27, 8, 8), isIonCruiser ? glassMat : trimMat);
+    const nose = new THREE.Mesh(pxSphere(0.27, 8, 8), isIonCruiser ? glassMat : trimMat);
     nose.scale.set(1, 1, 1.25);
     nose.position.set(0, 0.44, isIonCruiser ? 0.64 : isRigidZeppelin ? 0.58 : 0.46);
     group.add(nose);
-    const sternCone = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.34, 8), bagMat);
+    const sternCone = new THREE.Mesh(pxCone(0.22, 0.34, 8), bagMat);
     sternCone.rotation.x = -Math.PI / 2;
     sternCone.position.set(0, 0.44, isRigidZeppelin ? -0.74 : -0.62);
     group.add(sternCone);
@@ -12740,11 +13143,11 @@ export function createVehicleGroup(
 
     if (isIonCruiser) {
       for (const px of [-0.34, 0.34]) {
-        const pod = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.08, 0.38, 8), trimMat);
+        const pod = new THREE.Mesh(pxCylinder(0.07, 0.08, 0.38, 8), trimMat);
         pod.rotation.x = Math.PI / 2;
         pod.position.set(px, 0.28, -0.05);
         group.add(pod);
-        const core = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.1, 6), glowMat);
+        const core = new THREE.Mesh(pxCylinder(0.06, 0.06, 0.1, 6), glowMat);
         core.rotation.x = Math.PI / 2;
         core.position.set(px, 0.28, -0.26);
         group.add(core);
@@ -12754,7 +13157,7 @@ export function createVehicleGroup(
       group.add(bellyRing);
     } else if (isRigidZeppelin) {
       for (const px of [-0.3, 0.3]) {
-        const pod = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.06, 0.24, 7), trimMat);
+        const pod = new THREE.Mesh(pxCylinder(0.055, 0.06, 0.24, 7), trimMat);
         pod.rotation.x = Math.PI / 2;
         pod.position.set(px, 0.24, 0);
         group.add(pod);
@@ -12797,7 +13200,7 @@ export function createVehicleGroup(
     skullCore.castShadow = true;
     group.add(skullCore);
 
-    const ironJaw = new THREE.Mesh(new THREE.ConeGeometry(0.24, 0.34, 4), bloodMat);
+    const ironJaw = new THREE.Mesh(pxCone(0.24, 0.34, 4), bloodMat);
     ironJaw.rotation.x = Math.PI / 2;
     ironJaw.rotation.y = Math.PI / 4;
     ironJaw.position.set(0, 0.14, 0.46);
@@ -12810,18 +13213,18 @@ export function createVehicleGroup(
     }
 
     for (const side of [-1, 1]) {
-      const megaTusk = new THREE.Mesh(new THREE.ConeGeometry(0.068, 0.46, 5), boneMat);
+      const megaTusk = new THREE.Mesh(pxCone(0.068, 0.46, 5), boneMat);
       megaTusk.rotation.x = Math.PI / 2 - 0.32;
       megaTusk.rotation.y = side * 0.28;
       megaTusk.position.set(side * 0.22, 0.16, 0.56);
       group.add(megaTusk);
 
-      const gatlingDrum = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.12, 0.5, 6), bloodMat);
+      const gatlingDrum = new THREE.Mesh(pxCylinder(0.11, 0.12, 0.5, 6), bloodMat);
       gatlingDrum.rotation.x = Math.PI / 2;
       gatlingDrum.position.set(side * 0.36, 0.22, 0.14);
       group.add(gatlingDrum);
 
-      const exhaustPipe = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.06, 0.34, 6), ironMat);
+      const exhaustPipe = new THREE.Mesh(pxCylinder(0.045, 0.06, 0.34, 6), ironMat);
       exhaustPipe.position.set(side * 0.26, 0.44, -0.18);
       exhaustPipe.rotation.x = -0.42;
       exhaustPipe.rotation.z = -side * 0.25;
@@ -12831,18 +13234,18 @@ export function createVehicleGroup(
         const stubWing = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.06, 0.26), ironMat);
         stubWing.position.set(side * 0.44, 0.22, 0.04);
         group.add(stubWing);
-        const rocketPod = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.085, 0.44, 6), glowMat);
+        const rocketPod = new THREE.Mesh(pxCylinder(0.085, 0.085, 0.44, 6), glowMat);
         rocketPod.rotation.x = Math.PI / 2;
         rocketPod.position.set(side * 0.6, 0.18, 0.12);
         group.add(rocketPod);
-        const turbinePod = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.09, 0.42, 7), bloodMat);
+        const turbinePod = new THREE.Mesh(pxCylinder(0.075, 0.09, 0.42, 7), bloodMat);
         turbinePod.rotation.x = Math.PI / 2;
         turbinePod.position.set(side * 0.28, 0.36, -0.06);
         group.add(turbinePod);
       }
     }
 
-    const tailChain = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.08, 0.58, 5), ironMat);
+    const tailChain = new THREE.Mesh(pxCylinder(0.05, 0.08, 0.58, 5), ironMat);
     tailChain.rotation.x = Math.PI / 2;
     tailChain.position.set(0, 0.25, -0.46);
     group.add(tailChain);
@@ -12850,13 +13253,13 @@ export function createVehicleGroup(
     const mainRotor = new THREE.Group();
     mainRotor.name = 'spin_rotor';
     mainRotor.position.set(0, 0.56, 0.04);
-    const sawRing = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.032, 5, 10), bloodMat);
+    const sawRing = new THREE.Mesh(pxTorus(0.24, 0.032, 5, 10), bloodMat);
     sawRing.rotation.x = Math.PI / 2;
     mainRotor.add(sawRing);
     const bladeCount = isHeavyTurbine ? 6 : 4;
     for (let bi = 0; bi < bladeCount; bi++) {
       const ang = (bi * Math.PI * 2) / bladeCount;
-      const cleaverBlade = new THREE.Mesh(new THREE.ConeGeometry(0.14, isHeavyTurbine ? 0.88 : 0.78, 3), ironMat);
+      const cleaverBlade = new THREE.Mesh(pxCone(0.14, isHeavyTurbine ? 0.88 : 0.78, 3), ironMat);
       cleaverBlade.rotation.x = Math.PI / 2;
       cleaverBlade.rotation.z = ang;
       cleaverBlade.scale.set(1, 1, 0.22);
@@ -12869,7 +13272,7 @@ export function createVehicleGroup(
     tailRotor.name = 'spin_prop';
     tailRotor.position.set(0.08, 0.28, -0.74);
     tailRotor.rotation.y = Math.PI / 2;
-    const buzzDisc = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.025, 7), bloodMat);
+    const buzzDisc = new THREE.Mesh(pxCylinder(0.18, 0.18, 0.025, 7), bloodMat);
     buzzDisc.rotation.x = Math.PI / 2;
     tailRotor.add(buzzDisc);
     group.add(tailRotor);
@@ -12896,7 +13299,7 @@ export function createVehicleGroup(
       const goldMat = new THREE.MeshStandardMaterial({ color: 0xffb703, roughness: 0.2, metalness: 0.86 });
 
       const spine = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.095, 0.065, isPlasmaBomber ? 1.44 : 1.32, 8),
+        pxCylinder(0.095, 0.065, isPlasmaBomber ? 1.44 : 1.32, 8),
         hullMat,
       );
       spine.rotation.x = Math.PI / 2;
@@ -12923,7 +13326,7 @@ export function createVehicleGroup(
 
         if (isAtomicProp) {
           // Twin Sylvan Gold-Crystal Propeller Pods
-          const pod = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.065, 0.28, 7), goldMat);
+          const pod = new THREE.Mesh(pxCylinder(0.055, 0.065, 0.28, 7), goldMat);
           pod.rotation.x = Math.PI / 2;
           pod.position.set(side * 0.38, 0.22, 0.14);
           group.add(pod);
@@ -12935,7 +13338,7 @@ export function createVehicleGroup(
             new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.28, 0.016), goldMat),
           );
           group.add(prop);
-          const ribbonFin = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.44, 4), goldMat);
+          const ribbonFin = new THREE.Mesh(pxCone(0.04, 0.44, 4), goldMat);
           ribbonFin.rotation.x = -Math.PI / 2 + 0.15;
           ribbonFin.position.set(side * 0.14, 0.26, -0.62);
           group.add(ribbonFin);
@@ -12957,7 +13360,7 @@ export function createVehicleGroup(
             group.add(forwardCanard);
           }
           if (isStarBomber) {
-            const wingLance = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.03, 0.56, 6), glowMat);
+            const wingLance = new THREE.Mesh(pxCylinder(0.022, 0.03, 0.56, 6), glowMat);
             wingLance.rotation.x = Math.PI / 2;
             wingLance.position.set(side * 0.62, 0.22, 0.18);
             group.add(wingLance);
@@ -12968,7 +13371,7 @@ export function createVehicleGroup(
         const bellyOrb = new THREE.Mesh(new THREE.OctahedronGeometry(0.14, 0), glowMat);
         bellyOrb.position.set(0, 0.14, 0.02);
         group.add(bellyOrb);
-        const dorsalHalo = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.022, 6, 14), goldMat);
+        const dorsalHalo = new THREE.Mesh(pxTorus(0.24, 0.022, 6, 14), goldMat);
         dorsalHalo.position.set(0, 0.38, -0.08);
         dorsalHalo.rotation.x = Math.PI / 3;
         group.add(dorsalHalo);
@@ -13000,7 +13403,7 @@ export function createVehicleGroup(
         const slit = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.07, 0.16), glassMat);
         slit.position.set(0, 0.3, 0.48);
         group.add(slit);
-        const bellyBomb = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.54, 7), glowMat);
+        const bellyBomb = new THREE.Mesh(pxCylinder(0.1, 0.1, 0.54, 7), glowMat);
         bellyBomb.rotation.x = Math.PI / 2;
         bellyBomb.position.set(0, 0.1, 0.18);
         group.add(bellyBomb);
@@ -13051,7 +13454,7 @@ export function createVehicleGroup(
         sweptWing.castShadow = true;
         group.add(sweptWing);
 
-        const noseTusk = new THREE.Mesh(new THREE.ConeGeometry(0.055, 0.34, 4), boneMat);
+        const noseTusk = new THREE.Mesh(pxCone(0.055, 0.34, 4), boneMat);
         noseTusk.rotation.x = Math.PI / 2;
         noseTusk.position.set(side * 0.16, 0.2, 0.74);
         group.add(noseTusk);
@@ -13061,12 +13464,12 @@ export function createVehicleGroup(
         cantedFin.rotation.z = side * 0.42;
         group.add(cantedFin);
 
-        const jetPod = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.085, 0.42, 7), orcMetal);
+        const jetPod = new THREE.Mesh(pxCylinder(0.075, 0.085, 0.42, 7), orcMetal);
         jetPod.rotation.x = Math.PI / 2;
         jetPod.position.set(side * 0.44, 0.18, -0.08);
         group.add(jetPod);
 
-        const flame = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.3, 6), glowMat);
+        const flame = new THREE.Mesh(pxCone(0.08, 0.3, 6), glowMat);
         flame.rotation.x = -Math.PI / 2;
         flame.position.set(side * 0.44, 0.18, -0.4);
         group.add(flame);
@@ -13079,7 +13482,7 @@ export function createVehicleGroup(
         }
       }
       if (isStarBomber) {
-        const dorsalGun = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.055, 0.56, 6), glowMat);
+        const dorsalGun = new THREE.Mesh(pxCylinder(0.045, 0.055, 0.56, 6), glowMat);
         dorsalGun.rotation.x = Math.PI / 2;
         dorsalGun.position.set(0, 0.42, 0.18);
         group.add(dorsalGun);
@@ -13099,7 +13502,7 @@ export function createVehicleGroup(
 
     if (isStealth) {
       // Epoch 5 Info: True Tailless B-2 Stealth Flying Wing
-      const centerWing = new THREE.Mesh(new THREE.ConeGeometry(0.56, 0.92, 4), hullMat);
+      const centerWing = new THREE.Mesh(pxCone(0.56, 0.92, 4), hullMat);
       centerWing.rotation.x = Math.PI / 2;
       centerWing.rotation.y = Math.PI / 4;
       centerWing.scale.set(1.45, 0.22, 1);
@@ -13118,7 +13521,7 @@ export function createVehicleGroup(
         outerWing.castShadow = true;
         group.add(outerWing);
 
-        const exhaust = new THREE.Mesh(new THREE.ConeGeometry(0.065, 0.22, 6), glowMat);
+        const exhaust = new THREE.Mesh(pxCone(0.065, 0.22, 6), glowMat);
         exhaust.rotation.x = -Math.PI / 2;
         exhaust.position.set(side * 0.26, 0.24, -0.34);
         group.add(exhaust);
@@ -13127,7 +13530,7 @@ export function createVehicleGroup(
     }
 
     const fuselage = new THREE.Mesh(
-      new THREE.CylinderGeometry(isPlasmaBomber ? 0.13 : 0.15, 0.11, isPlasmaBomber ? 1.36 : 1.24, 8),
+      pxCylinder(isPlasmaBomber ? 0.13 : 0.15, 0.11, isPlasmaBomber ? 1.36 : 1.24, 8),
       hullMat,
     );
     fuselage.rotation.x = Math.PI / 2;
@@ -13136,7 +13539,7 @@ export function createVehicleGroup(
     fuselage.castShadow = true;
     group.add(fuselage);
 
-    const noseCone = new THREE.Mesh(new THREE.ConeGeometry(0.14, 0.34, 8), isPlasmaBomber ? hullMat : glassMat);
+    const noseCone = new THREE.Mesh(pxCone(0.14, 0.34, 8), isPlasmaBomber ? hullMat : glassMat);
     noseCone.rotation.x = Math.PI / 2;
     noseCone.position.set(0, 0.24, 0.72);
     group.add(noseCone);
@@ -13163,7 +13566,7 @@ export function createVehicleGroup(
         group.add(canard);
       }
       if (isStarBomber) {
-        const railPod = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.036, 0.52, 6), glowMat);
+        const railPod = new THREE.Mesh(pxCylinder(0.028, 0.036, 0.52, 6), glowMat);
         railPod.rotation.x = Math.PI / 2;
         railPod.position.set(side * (halfSpan + 0.02), 0.24, 0.08);
         group.add(railPod);
@@ -13193,7 +13596,7 @@ export function createVehicleGroup(
     const engineXs = isAtomicProp ? [-0.68, -0.36, 0.36, 0.68] : [-0.46, 0.46];
     for (const ex of engineXs) {
       const eng = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.06, 0.072, 0.3, 8),
+        pxCylinder(0.06, 0.072, 0.3, 8),
         isPlasmaBomber ? glowMat : trimMat,
       );
       eng.rotation.x = Math.PI / 2;
@@ -13209,7 +13612,7 @@ export function createVehicleGroup(
         );
         group.add(prop);
       } else {
-        const exhaustGlow = new THREE.Mesh(new THREE.ConeGeometry(0.068, 0.24, 6), glowMat);
+        const exhaustGlow = new THREE.Mesh(pxCone(0.068, 0.24, 6), glowMat);
         exhaustGlow.rotation.x = -Math.PI / 2;
         exhaustGlow.position.set(ex, 0.2, -0.18);
         group.add(exhaustGlow);
@@ -13224,7 +13627,7 @@ export function createVehicleGroup(
     if (isElf) {
       // Elf Astral Arch-Seraph: Needle crystal hull encircled by a vertical/canted golden halo ring & quadruple feather-vanes
       const alloyHull = new THREE.MeshStandardMaterial({ color: 0xd8f3dc, roughness: 0.2, metalness: 0.72 });
-      const needle = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.08, isSuperDreadnought ? 1.56 : 1.38, 8), alloyHull);
+      const needle = new THREE.Mesh(pxCylinder(0.11, 0.08, isSuperDreadnought ? 1.56 : 1.38, 8), alloyHull);
       needle.rotation.x = Math.PI / 2;
       needle.scale.set(1.15, 0.75, 1);
       needle.position.y = 0.24;
@@ -13237,7 +13640,7 @@ export function createVehicleGroup(
       group.add(spearTip);
 
       // Halo Ring around mid-hull
-      const haloRing = new THREE.Mesh(new THREE.TorusGeometry(0.36, 0.032, 7, 16), trimMat);
+      const haloRing = new THREE.Mesh(pxTorus(0.36, 0.032, 7, 16), trimMat);
       haloRing.position.set(0, 0.26, -0.1);
       group.add(haloRing);
 
@@ -13254,14 +13657,14 @@ export function createVehicleGroup(
         lowerFeather.rotation.z = -side * 0.18;
         group.add(lowerFeather);
 
-        const starLance = new THREE.Mesh(new THREE.CylinderGeometry(0.026, 0.035, 0.56, 6), glowMat);
+        const starLance = new THREE.Mesh(pxCylinder(0.026, 0.035, 0.56, 6), glowMat);
         starLance.rotation.x = Math.PI / 2;
         starLance.position.set(side * 0.34, 0.22, 0.32);
         group.add(starLance);
       }
 
       if (isSuperDreadnought) {
-        const crownHalo = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.024, 6, 12), glowMat);
+        const crownHalo = new THREE.Mesh(pxTorus(0.24, 0.024, 6, 12), glowMat);
         crownHalo.position.set(0, 0.46, -0.2);
         crownHalo.rotation.x = Math.PI / 3;
         group.add(crownHalo);
@@ -13282,7 +13685,7 @@ export function createVehicleGroup(
       group.add(hammerProw);
 
       for (const side of [-1, 1]) {
-        const prowTusk = new THREE.Mesh(new THREE.ConeGeometry(0.065, 0.3, 4), trimMat);
+        const prowTusk = new THREE.Mesh(pxCone(0.065, 0.3, 4), trimMat);
         prowTusk.rotation.x = Math.PI / 2;
         prowTusk.position.set(side * 0.28, 0.24, isSuperDreadnought ? 0.98 : 0.88);
         group.add(prowTusk);
@@ -13292,12 +13695,12 @@ export function createVehicleGroup(
         armoredWing.castShadow = true;
         group.add(armoredWing);
 
-        const megaCannon = new THREE.Mesh(new THREE.CylinderGeometry(0.052, 0.062, 0.58, 6), glowMat);
+        const megaCannon = new THREE.Mesh(pxCylinder(0.052, 0.062, 0.58, 6), glowMat);
         megaCannon.rotation.x = Math.PI / 2;
         megaCannon.position.set(side * 0.62, 0.24, 0.26);
         group.add(megaCannon);
 
-        const sideThruster = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.11, 0.28, 7), glowMat);
+        const sideThruster = new THREE.Mesh(pxCylinder(0.085, 0.11, 0.28, 7), glowMat);
         sideThruster.rotation.x = Math.PI / 2;
         sideThruster.position.set(side * 0.44, 0.22, isSuperDreadnought ? -0.78 : -0.7);
         group.add(sideThruster);
@@ -13307,7 +13710,7 @@ export function createVehicleGroup(
       bridgeCitadel.position.set(0, 0.44, -0.16);
       group.add(bridgeCitadel);
       if (isSuperDreadnought) {
-        const dorsalMegaGun = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.07, 0.68, 6), glowMat);
+        const dorsalMegaGun = new THREE.Mesh(pxCylinder(0.055, 0.07, 0.68, 6), glowMat);
         dorsalMegaGun.rotation.x = Math.PI / 2;
         dorsalMegaGun.position.set(0, 0.48, 0.22);
         group.add(dorsalMegaGun);
@@ -13322,7 +13725,7 @@ export function createVehicleGroup(
       metalness: 0.82,
     });
     const hull = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.18, 0.14, isSuperDreadnought ? 1.48 : 1.32, 8),
+      pxCylinder(0.18, 0.14, isSuperDreadnought ? 1.48 : 1.32, 8),
       alloyHull,
     );
     hull.rotation.x = Math.PI / 2;
@@ -13331,7 +13734,7 @@ export function createVehicleGroup(
     hull.castShadow = true;
     group.add(hull);
 
-    const nose = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.36, 6), alloyHull);
+    const nose = new THREE.Mesh(pxCone(0.18, 0.36, 6), alloyHull);
     nose.rotation.x = Math.PI / 2;
     nose.position.set(0, 0.24, isSuperDreadnought ? 0.86 : 0.78);
     group.add(nose);
@@ -13346,12 +13749,12 @@ export function createVehicleGroup(
       sweptWing.castShadow = true;
       group.add(sweptWing);
 
-      const railCannon = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.038, 0.54, 6), glowMat);
+      const railCannon = new THREE.Mesh(pxCylinder(0.032, 0.038, 0.54, 6), glowMat);
       railCannon.rotation.x = Math.PI / 2;
       railCannon.position.set(side * 0.52, 0.22, 0.3);
       group.add(railCannon);
 
-      const vtolPod = new THREE.Mesh(new THREE.TorusGeometry(0.11, 0.028, 6, 10), glowMat);
+      const vtolPod = new THREE.Mesh(pxTorus(0.11, 0.028, 6, 10), glowMat);
       vtolPod.rotation.x = Math.PI / 2;
       vtolPod.position.set(side * 0.36, 0.18, -0.06);
       group.add(vtolPod);
@@ -13371,7 +13774,7 @@ export function createVehicleGroup(
       dorsalTurret.position.set(0, 0.39, -0.18);
       group.add(dorsalTurret);
     }
-    const coreDrive = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.14, 0.24, 8), glowMat);
+    const coreDrive = new THREE.Mesh(pxCylinder(0.1, 0.14, 0.24, 8), glowMat);
     coreDrive.rotation.x = Math.PI / 2;
     coreDrive.position.set(0, 0.22, isSuperDreadnought ? -0.82 : -0.74);
     group.add(coreDrive);
@@ -13385,7 +13788,7 @@ export function createVehicleGroup(
   const isOrbitalShuttle = epochLevel >= 6;
 
   const fuselage = new THREE.Mesh(
-    new THREE.CylinderGeometry(isOrbitalShuttle ? 0.12 : 0.105, isOrbitalShuttle ? 0.1 : 0.085, isOrbitalShuttle ? 0.96 : 1.06, 10),
+    pxCylinder(isOrbitalShuttle ? 0.12 : 0.105, isOrbitalShuttle ? 0.1 : 0.085, isOrbitalShuttle ? 0.96 : 1.06, 10),
     fuselageMat,
   );
   fuselage.rotation.x = Math.PI / 2;
@@ -13393,18 +13796,18 @@ export function createVehicleGroup(
   fuselage.castShadow = true;
   group.add(fuselage);
 
-  const nose = new THREE.Mesh(new THREE.ConeGeometry(0.11, 0.26, 8), fuselageMat);
+  const nose = new THREE.Mesh(pxCone(0.11, 0.26, 8), fuselageMat);
   nose.rotation.x = Math.PI / 2;
   nose.position.set(0, 0.2, 0.64);
   group.add(nose);
 
   if (isElf) {
-    const crestRing = new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.018, 6, 12), trimMat);
+    const crestRing = new THREE.Mesh(pxTorus(0.16, 0.018, 6, 12), trimMat);
     crestRing.position.set(0, 0.2, 0.12);
     group.add(crestRing);
   } else if (isOrc) {
     for (const tx of [-0.09, 0.09]) {
-      const tusk = new THREE.Mesh(new THREE.ConeGeometry(0.032, 0.18, 4), trimMat);
+      const tusk = new THREE.Mesh(pxCone(0.032, 0.18, 4), trimMat);
       tusk.rotation.x = Math.PI / 2;
       tusk.position.set(tx, 0.17, 0.62);
       group.add(tusk);
@@ -13443,7 +13846,7 @@ export function createVehicleGroup(
 
   for (const ex of [-0.34, 0.34]) {
     const pod = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.055, 0.06, 0.24, 8),
+      pxCylinder(0.055, 0.06, 0.24, 8),
       isOrbitalShuttle ? glowMat : trimMat,
     );
     pod.rotation.x = Math.PI / 2;
@@ -13679,7 +14082,7 @@ export function createAlienMothershipVisual(radius: number): AlienMothershipVisu
     gunHousing.position.set(side * 0.92 * s, -0.82 * s, 8.8 * s);
     shipGroup.add(gunHousing);
 
-    const barrelGeo = trackGeo(new THREE.CylinderGeometry(0.14 * s, 0.17 * s, 5.2 * s, 8));
+    const barrelGeo = trackGeo(pxCylinder(0.14 * s, 0.17 * s, 5.2 * s, 8));
     barrelGeo.rotateX(Math.PI / 2);
     const barrel = new THREE.Mesh(barrelGeo, armorBlackMat);
     barrel.position.set(side * 0.92 * s, -0.82 * s, 11.4 * s);
@@ -13718,10 +14121,10 @@ export function createAlienMothershipVisual(radius: number): AlienMothershipVisu
     rail.position.set(cx * s, cy * s, -3.7 * s);
     shipGroup.add(rail);
   }
-  const drumCoreGeo = trackGeo(new THREE.CylinderGeometry(0.95 * s, 0.95 * s, 1.15 * s, 6));
+  const drumCoreGeo = trackGeo(pxCylinder(0.95 * s, 0.95 * s, 1.15 * s, 6));
   drumCoreGeo.rotateX(Math.PI / 2);
-  const drumRibGeo = trackGeo(new THREE.TorusGeometry(1.08 * s, 0.14 * s, 6, 6));
-  const drumInnerGeo = trackGeo(new THREE.CylinderGeometry(0.64 * s, 0.64 * s, 1.28 * s, 8));
+  const drumRibGeo = trackGeo(pxTorus(1.08 * s, 0.14 * s, 6, 6));
+  const drumInnerGeo = trackGeo(pxCylinder(0.64 * s, 0.64 * s, 1.28 * s, 8));
   drumInnerGeo.rotateX(Math.PI / 2);
 
   for (let di = 0; di < 3; di++) {
@@ -13775,7 +14178,7 @@ export function createAlienMothershipVisual(radius: number): AlienMothershipVisu
   }
 
   // 6. 6 Armored Broadside/Dorsal Dual-Barrel Turrets (tucked neatly along shoulders, NO wings)
-  const turretBaseGeo = trackGeo(new THREE.CylinderGeometry(0.36 * s, 0.44 * s, 0.28 * s, 8));
+  const turretBaseGeo = trackGeo(pxCylinder(0.36 * s, 0.44 * s, 0.28 * s, 8));
   const turretGunGeo = trackGeo(new THREE.BoxGeometry(0.1 * s, 0.1 * s, 0.88 * s));
   for (const side of [-1, 1]) {
     for (let ti = 0; ti < 3; ti++) {
@@ -13818,12 +14221,12 @@ export function createAlienMothershipVisual(radius: number): AlienMothershipVisu
   shipGroup.add(ventralKeel);
 
   // Ventral deployment bay cowl + thin ice-blue aperture ring
-  const emitterCowlGeo = trackGeo(new THREE.CylinderGeometry(1.45 * s, 1.08 * s, 0.72 * s, 8));
+  const emitterCowlGeo = trackGeo(pxCylinder(1.45 * s, 1.08 * s, 0.72 * s, 8));
   const emitterCowl = new THREE.Mesh(emitterCowlGeo, armorBlackMat);
   emitterCowl.position.set(0, -1.32 * s, 0.2 * s);
   shipGroup.add(emitterCowl);
 
-  const emitterRingGeo = trackGeo(new THREE.TorusGeometry(1.04 * s, 0.11 * s, 6, 12));
+  const emitterRingGeo = trackGeo(pxTorus(1.04 * s, 0.11 * s, 6, 12));
   emitterRingGeo.rotateX(Math.PI / 2);
   const emitterRing = new THREE.Mesh(emitterRingGeo, subtleBlueMat);
   emitterRing.position.set(0, -1.68 * s, 0.2 * s);
@@ -13831,9 +14234,9 @@ export function createAlienMothershipVisual(radius: number): AlienMothershipVisu
 
   // 8. Heavy Wingless Stern Engine Nacelles & 6 Matte-Black Thruster Cowls + Subtle Ice-Blue Plumes
   const pylonGeo = trackGeo(new THREE.BoxGeometry(1.95 * s, 2.05 * s, 4.6 * s));
-  const nozzleCowlGeo = trackGeo(new THREE.CylinderGeometry(0.58 * s, 0.74 * s, 1.15 * s, 8));
+  const nozzleCowlGeo = trackGeo(pxCylinder(0.58 * s, 0.74 * s, 1.15 * s, 8));
   nozzleCowlGeo.rotateX(Math.PI / 2);
-  const plumeGeo = trackGeo(new THREE.ConeGeometry(0.46 * s, 2.15 * s, 8));
+  const plumeGeo = trackGeo(pxCone(0.46 * s, 2.15 * s, 8));
   plumeGeo.rotateX(-Math.PI / 2);
 
   for (const side of [-1, 1]) {
@@ -13932,8 +14335,8 @@ export function createHyperspaceRippleEffects(radius: number): HyperspaceRippleE
   };
 
   const portalDiscGeo = trackGeo(new THREE.PlaneGeometry(24 * s, 24 * s, 1, 1));
-  const torusRingGeo = trackGeo(new THREE.TorusGeometry(1, 0.042, 8, 48));
-  const streakGeo = trackGeo(new THREE.CylinderGeometry(0.024, 0.13, 1.0, 6));
+  const torusRingGeo = trackGeo(pxTorus(1, 0.042, 8, 48));
+  const streakGeo = trackGeo(pxCylinder(0.024, 0.13, 1.0, 6));
   streakGeo.rotateX(Math.PI / 2);
 
   const createRippleShaderMat = (direction: number) =>

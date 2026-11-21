@@ -31,7 +31,11 @@ import {
 import { normalizeSeed } from './game/worldGen';
 import { soundEngine } from './game/sound';
 import { toggleUnitFavorite } from './game/entityInspector';
-import { DEFAULT_BRUSH_SIZE, getTerrainTileRadius } from './game/brushSizes';
+import {
+  DEFAULT_BRUSH_SIZE,
+  getPowerClusterCount,
+  getTerrainTileRadius,
+} from './game/brushSizes';
 import { PixelBrushSelector } from './components/PixelBrushSelector';
 import { PerformanceHud } from './components/PerformanceHud';
 import { getSharedWorldGenPool } from './game/workerPool';
@@ -1104,7 +1108,9 @@ export default function App() {
           } else {
             soundEngine.playClick();
           }
-          setStatusFeedback(`${def?.name} cast`);
+          setStatusFeedback(
+            res.count && res.count > 1 ? `${def?.name} ×${res.count} cast` : `${def?.name} cast`,
+          );
         } else {
           setStatusFeedback(res.reason || 'Need more God Energy');
         }
@@ -1228,11 +1234,11 @@ export default function App() {
         .join(',')
     : '';
   const zoneCacheKey = shouldComputeZones
-    ? `${sim.seed}:${Math.floor(sim.year)}:${sim.buildings.length}:${sim.units.length}:${kingdomEpochsKey}:${Math.floor(hudTick / 3)}`
+    ? `${sim.seed}:${Math.floor(sim.year)}:${sim.buildings.length}:${sim.units.length}:${kingdomEpochsKey}:${Math.floor(hudTick / 10)}`
     : 'idle';
   const kingdomLabelsKey =
     !anyZoneActive && activeZones.kingdomLabels && gameState !== 'title'
-      ? `${sim.seed}:${sim.buildings.length}:${sim.units.length}:${kingdomEpochsKey}:${Math.floor(hudTick / 3)}`
+      ? `${sim.seed}:${sim.buildings.length}:${sim.units.length}:${kingdomEpochsKey}:${Math.floor(hudTick / 10)}`
       : 'off';
 
   const worldZones = useMemo(() => {
@@ -1731,24 +1737,6 @@ export default function App() {
                   }}
                   className="px-range w-full"
                 />
-                <div className="grid grid-cols-6 gap-1 mt-1.5">
-                  {([64, 128, 192, 256, 384, 512] as const).map((sz) => (
-                    <button
-                      key={sz}
-                      type="button"
-                      data-testid={`map-size-preset-${sz}`}
-                      onClick={() => {
-                        setWorldConfig((prev) => ({ ...prev, gridSize: sz }));
-                        soundEngine.playClick();
-                      }}
-                      className={`py-0.5 text-[10px] tabular-nums cursor-pointer ${
-                        worldConfig.gridSize === sz ? 'px-btn-active font-bold' : 'px-btn'
-                      }`}
-                    >
-                      {sz}
-                    </button>
-                  ))}
-                </div>
                 <div className="text-[11px] text-[#b8afa2] mt-1.5 tabular-nums">
                   Max City Pop: <span className="font-semibold text-[#f2ece1]">{getMaxCityPopulation(worldConfig.gridSize)}</span> per city
                 </div>
@@ -2766,37 +2754,46 @@ export default function App() {
 
                   {speedMenuOpen && (
                     <div
-                      role="menu"
+                      role="dialog"
                       aria-label="Simulation Speed"
-                      className="px-panel absolute right-0 top-[calc(100%+6px)] z-30 p-1.5 max-w-[calc(100vw-16px)] overflow-x-auto flex items-center gap-1"
+                      data-testid="hud-speed-popover"
+                      className="px-panel absolute right-0 top-[calc(100%+6px)] z-30 w-44 sm:w-48 p-2.5 space-y-2"
                     >
-                      {SIMULATION_SPEED_OPTIONS.map((scale) => (
-                        <button
-                          key={scale}
-                          type="button"
-                          onClick={() => {
-                            const clamped = clampSimulationSpeed(scale);
-                            if (clamped > 0) {
-                              lastNonZeroSpeedRef.current = clamped;
-                            }
-                            setTimeScale(clamped);
-                            setSpeedMenuOpen(false);
-                            soundEngine.playClick();
-                          }}
-                          title={
-                            scale === 0
-                              ? 'Pause time'
-                              : scale === 0.5
-                                ? '0.5x (1 year / 2s)'
-                                : `${scale}x (${scale} ${scale === 1 ? 'year' : 'years'} / sec)`
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="text-[#b8afa2]">Speed</span>
+                        <span className="font-pixel-num font-bold text-[#f5b742] tabular-nums">
+                          {timeScale === 0 ? 'Paused (0x)' : `${timeScale}x`}
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        data-testid="hud-speed-slider"
+                        min={0}
+                        max={SIMULATION_SPEED_OPTIONS.length - 1}
+                        step={1}
+                        value={Math.max(
+                          0,
+                          SIMULATION_SPEED_OPTIONS.indexOf(
+                            timeScale as (typeof SIMULATION_SPEED_OPTIONS)[number],
+                          ),
+                        )}
+                        onChange={(e) => {
+                          const idx = Number(e.target.value);
+                          const scale = SIMULATION_SPEED_OPTIONS[idx] ?? 1;
+                          const clamped = clampSimulationSpeed(scale);
+                          if (clamped > 0) {
+                            lastNonZeroSpeedRef.current = clamped;
                           }
-                          className={`h-8 px-2 font-pixel-num text-[11px] cursor-pointer whitespace-nowrap shrink-0 ${
-                            timeScale === scale ? 'px-btn-active font-bold' : 'px-btn'
-                          }`}
-                        >
-                          {scale}x
-                        </button>
-                      ))}
+                          setTimeScale(clamped);
+                          soundEngine.playClick();
+                        }}
+                        className="px-range w-full cursor-pointer"
+                      />
+                      <div className="flex items-center justify-between text-[10px] text-[#9e9486] font-pixel-num">
+                        <span>0x</span>
+                        <span>1x</span>
+                        <span>{SIMULATION_SPEED_OPTIONS[SIMULATION_SPEED_OPTIONS.length - 1]}x</span>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -3155,6 +3152,7 @@ export default function App() {
                         <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
                           <PixelBrushSelector
                             brushSize={brushSize}
+                            mode="powers"
                             onChange={(nextSize) => {
                               setBrushSize(nextSize);
                               soundEngine.playClick();
@@ -3340,8 +3338,11 @@ export default function App() {
                     }).map((power) => {
                       const isSelected =
                         activeTool.kind === 'power' && activeTool.power === power.type;
+                      const clusterCount =
+                        power.type === 'drag_entity' ? 1 : getPowerClusterCount(brushSize);
+                      const totalFaithCost = power.faithCost * clusterCount;
                       const affordable =
-                        sim.sandboxFreeMode || sim.resources.faith >= power.faithCost;
+                        sim.sandboxFreeMode || sim.resources.faith >= totalFaithCost;
                       return (
                         <button
                           key={power.type}
@@ -3354,8 +3355,10 @@ export default function App() {
                           }}
                           onMouseEnter={() =>
                             setHoveredHint({
-                              title: power.name,
-                              cost: sim.sandboxFreeMode ? 'Free' : `${power.faithCost} God Energy`,
+                              title: clusterCount > 1 ? `${power.name} (×${clusterCount})` : power.name,
+                              cost: sim.sandboxFreeMode
+                                ? 'Free'
+                                : `${totalFaithCost} God Energy`,
                               detail: power.summary,
                             })
                           }
@@ -3367,7 +3370,7 @@ export default function App() {
                           <PowerPixelIcon power={power.type} className="w-7 h-7 sm:w-8 sm:h-8 pixelated-canvas" />
                           {!sim.sandboxFreeMode && (
                             <span className="absolute bottom-0.5 right-0.5 sm:right-1 font-pixel-num text-[8px] text-[#ffd166] leading-none">
-                              {power.faithCost}
+                              {totalFaithCost}
                             </span>
                           )}
                         </button>

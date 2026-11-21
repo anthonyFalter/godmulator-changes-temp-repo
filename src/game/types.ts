@@ -106,6 +106,15 @@ export interface TileData {
     | 'savanna'
     | 'swamp'
     | 'highland';
+  treeBiomeOverride?:
+    | 'forest'
+    | 'meadow'
+    | 'jungle'
+    | 'taiga'
+    | 'blossom'
+    | 'savanna'
+    | 'swamp'
+    | 'highland';
 }
 
 export type BuildingType =

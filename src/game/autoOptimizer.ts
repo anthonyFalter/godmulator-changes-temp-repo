@@ -260,3 +260,124 @@ export function computeSnappedShadowBounds(
   const centerZ = Math.round(clampedZ / snapStep) * snapStep;
   return { centerX, centerZ, halfExtent };
 }
+
+/** Hysteresis buffer (tiles) outside spawn cull bounds before existing 3D objects are unrendered & disposed. */
+export const DESPAWN_CULL_HYSTERESIS = 4.0;
+
+/** Zero-GC point-in-AABB check against the padded camera ground cull bounds. */
+export function isPointInCullBounds(
+  x: number,
+  z: number,
+  bounds: WorldCullBounds,
+  pad = 0,
+): boolean {
+  return (
+    x >= bounds.minX - pad &&
+    x <= bounds.maxX + pad &&
+    z >= bounds.minZ - pad &&
+    z <= bounds.maxZ + pad
+  );
+}
+
+/** Zero-GC AABB-vs-AABB overlap test against camera ground cull bounds. */
+export function isAabbIntersectingCullBounds(
+  aMinX: number,
+  aMaxX: number,
+  aMinZ: number,
+  aMaxZ: number,
+  bounds: WorldCullBounds,
+  pad = 0,
+): boolean {
+  return (
+    aMaxX >= bounds.minX - pad &&
+    aMinX <= bounds.maxX + pad &&
+    aMaxZ >= bounds.minZ - pad &&
+    aMinZ <= bounds.maxZ + pad
+  );
+}
+
+/**
+ * Exact zero-GC annulus/ring vs AABB overlap test.
+ * Used for expanding tsunami wavefronts so off-screen waves stay unrendered until their crest crosses the viewport.
+ */
+export function isRingIntersectingCullBounds(
+  cx: number,
+  cz: number,
+  innerRadius: number,
+  outerRadius: number,
+  bounds: WorldCullBounds,
+  pad = 0,
+): boolean {
+  const bMinX = bounds.minX - pad;
+  const bMaxX = bounds.maxX + pad;
+  const bMinZ = bounds.minZ - pad;
+  const bMaxZ = bounds.maxZ + pad;
+
+  const nearX = cx < bMinX ? bMinX : cx > bMaxX ? bMaxX : cx;
+  const nearZ = cz < bMinZ ? bMinZ : cz > bMaxZ ? bMaxZ : cz;
+  const ndx = cx - nearX;
+  const ndz = cz - nearZ;
+  const rOut = Math.max(0, outerRadius);
+  if (ndx * ndx + ndz * ndz > rOut * rOut) {
+    return false;
+  }
+
+  if (innerRadius <= 0) {
+    return true;
+  }
+
+  const fdx = Math.max(Math.abs(cx - bMinX), Math.abs(cx - bMaxX));
+  const fdz = Math.max(Math.abs(cz - bMinZ), Math.abs(cz - bMaxZ));
+  return fdx * fdx + fdz * fdz >= innerRadius * innerRadius;
+}
+
+/**
+ * Zero-GC visibility check for lingering world hazards (tsunamis, quakes, mothership, tornadoes, storms, volcanoes, etc.).
+ */
+export function isHazardIntersectingCullBounds(
+  haz: {
+    kind: string;
+    x: number;
+    z: number;
+    radius: number;
+    currentRadius?: number;
+    faultSegments?: ReadonlyArray<{ x1: number; z1: number; x2: number; z2: number; width?: number }>;
+  },
+  bounds: WorldCullBounds,
+  pad = 0,
+): boolean {
+  if (haz.kind === 'tsunami_wave') {
+    const curR = haz.currentRadius ?? haz.radius;
+    const innerR = Math.max(0, curR * 0.65 - 2.5 - pad);
+    const outerR = curR + 3.5 + pad;
+    return isRingIntersectingCullBounds(haz.x, haz.z, innerR, outerR, bounds, 0);
+  }
+
+  if (haz.kind === 'earthquake_zone' && haz.faultSegments && haz.faultSegments.length > 0) {
+    let minX = haz.x - 4;
+    let maxX = haz.x + 4;
+    let minZ = haz.z - 4;
+    let maxZ = haz.z + 4;
+    for (let i = 0; i < haz.faultSegments.length; i++) {
+      const s = haz.faultSegments[i];
+      const segPad = (s.width ?? 1) * 1.5 + 1.5;
+      if (s.x1 - segPad < minX) minX = s.x1 - segPad;
+      if (s.x2 - segPad < minX) minX = s.x2 - segPad;
+      if (s.x1 + segPad > maxX) maxX = s.x1 + segPad;
+      if (s.x2 + segPad > maxX) maxX = s.x2 + segPad;
+      if (s.z1 - segPad < minZ) minZ = s.z1 - segPad;
+      if (s.z2 - segPad < minZ) minZ = s.z2 - segPad;
+      if (s.z1 + segPad > maxZ) maxZ = s.z1 + segPad;
+      if (s.z2 + segPad > maxZ) maxZ = s.z2 + segPad;
+    }
+    return isAabbIntersectingCullBounds(minX, maxX, minZ, maxZ, bounds, pad);
+  }
+
+  if (haz.kind === 'alien_mothership') {
+    return isPointInCullBounds(haz.x, haz.z, bounds, Math.max(36, haz.radius * 3) + pad);
+  }
+
+  const r = Math.max(2.5, (haz.radius || 4) * 1.45 + 2.0);
+  return isPointInCullBounds(haz.x, haz.z, bounds, r + pad);
+}
+
