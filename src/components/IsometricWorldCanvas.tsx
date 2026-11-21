@@ -14907,12 +14907,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           className="fixed inset-0 z-15 pointer-events-none overflow-hidden select-none"
         >
           {activeWarArrows.map((wa) => {
+            const absTiles = Math.abs(wa.tileDelta);
+            const tileWord = absTiles === 1 ? 'Tile' : 'Tiles';
             const deltaText =
               wa.tileDelta > 0
-                ? `+${wa.tileDelta}`
+                ? `+${wa.tileDelta} ${tileWord} Taken`
                 : wa.tileDelta < 0
-                  ? `${wa.tileDelta}`
-                  : '0';
+                  ? `${wa.tileDelta} ${tileWord} Lost`
+                  : '0 Tiles';
             const momentumGlyph =
               wa.momentum === 'advancing' ? '▲' : wa.momentum === 'retreating' ? '▼' : '◆';
             const momentumColor =
@@ -14934,7 +14936,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
                   opacity: 0,
                   boxShadow: '0 2px 0 #0b0a09',
                 }}
-                className="absolute px-1.5 py-0.5 border-2 flex items-center gap-1 whitespace-nowrap"
+                className="absolute px-1.5 py-0.5 border-2 flex items-center gap-1.5 whitespace-nowrap"
               >
                 <span
                   className="text-[9px] font-bold leading-none"
@@ -14944,10 +14946,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
                   {momentumGlyph}
                 </span>
                 <span className="font-pixel-num text-[10px] font-bold text-[#f8f4ec] tabular-nums leading-none">
-                  {wa.claimPercent}%
+                  {wa.claimPercent}%{' '}
+                  <span className="text-[9px] font-semibold text-[#d6cec0]">Push</span>
                 </span>
                 <span
-                  className="font-pixel-num text-[9px] font-bold tabular-nums leading-none border-l border-white/20 pl-1"
+                  className="font-pixel-num text-[9px] font-bold tabular-nums leading-none border-l border-white/20 pl-1.5"
                   style={{ color: momentumColor }}
                 >
                   {deltaText}
