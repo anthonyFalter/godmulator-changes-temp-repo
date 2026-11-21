@@ -31,6 +31,8 @@ import {
   Resources,
   SimulationState,
   SpeciesId,
+  StrategicStrikeKind,
+  StrategicWarStrike,
   TerrainToolType,
   TerrainType,
   TileData,
@@ -41,6 +43,7 @@ import {
   VehicleType,
   VisualEffectEvent,
   VoidWispEntity,
+  WarFrontBaseline,
   WorldEventState,
   WorldGenConfig,
   WorldRulesConfig,
@@ -5227,6 +5230,34 @@ export function getKingdomRelation(
   return state.kingdomRelations?.[getKingdomPairKey(kA, kB)] ?? 'neutral';
 }
 
+function recordWarFrontBaselineIfMissing(
+  state: SimulationState,
+  kA: string,
+  kB: string,
+): void {
+  if (!kA || !kB || kA === kB) return;
+  const key = getKingdomPairKey(kA, kB);
+  if (!state.warFrontBaselines) state.warFrontBaselines = {};
+  if (state.warFrontBaselines[key]) return;
+  const [firstId, secondId] = kA < kB ? [kA, kB] : [kB, kA];
+  let bldA = 0;
+  let bldB = 0;
+  for (let i = 0; i < state.buildings.length; i++) {
+    const b = state.buildings[i];
+    if (b.hp <= 0 || !b.settlementId) continue;
+    const bKid = getKingdomId(state, b.settlementId);
+    if (bKid === firstId) bldA++;
+    else if (bKid === secondId) bldB++;
+  }
+  state.warFrontBaselines[key] = {
+    startYear: state.year ?? 0,
+    initialTilesA: 0,
+    initialTilesB: 0,
+    initialBuildingsA: Math.max(1, bldA),
+    initialBuildingsB: Math.max(1, bldB),
+  };
+}
+
 export function setKingdomRelation(
   state: SimulationState,
   kA: string,
@@ -5235,7 +5266,13 @@ export function setKingdomRelation(
 ): void {
   if (!kA || !kB || kA === kB) return;
   if (!state.kingdomRelations) state.kingdomRelations = {};
-  state.kingdomRelations[getKingdomPairKey(kA, kB)] = relation;
+  const key = getKingdomPairKey(kA, kB);
+  state.kingdomRelations[key] = relation;
+  if (relation === 'war') {
+    recordWarFrontBaselineIfMissing(state, kA, kB);
+  } else if (state.warFrontBaselines && state.warFrontBaselines[key]) {
+    delete state.warFrontBaselines[key];
+  }
 }
 
 function deterministicUnitFloat(seed: number, strA: string, strB = ''): number {
@@ -5310,6 +5347,9 @@ export function initializeKingdomDiplomacyPair(
     rel = pairRoll < 0.62 ? 'allied' : 'neutral';
   }
   state.kingdomRelations[key] = rel;
+  if (rel === 'war') {
+    recordWarFrontBaselineIfMissing(state, kA, kB);
+  }
   return rel;
 }
 
@@ -5640,6 +5680,493 @@ function stepKingdomDiplomacyAndRebellions(state: SimulationState, dt: number): 
             if (triggerCityRebellion(state, sid)) break;
           }
         }
+      }
+    }
+  }
+}
+
+function resolveStrategicStrikeImpact(
+  state: SimulationState,
+  strike: StrategicWarStrike,
+): void {
+  const gs = state.gridSize;
+  const tx = Math.max(1, Math.min(gs - 2, strike.targetX));
+  const tz = Math.max(1, Math.min(gs - 2, strike.targetZ));
+  const targetTile = getTile(state, tx, tz);
+  const hitY = (targetTile?.height ?? 2) * 0.45 + 0.35;
+  const originTile = getTile(state, strike.originX, strike.originZ);
+  const originY = (originTile?.height ?? 2) * 0.45 + 0.55;
+
+  const atkName = state.settlementNames?.[strike.attackerKingdomId] ?? 'Empire';
+  const defName = state.settlementNames?.[strike.targetKingdomId] ?? 'Rival Realm';
+
+  if (strike.kind === 'icbm_nuke') {
+    state.pendingVfx.push({
+      id: nextEntityId('vfx'),
+      type: 'nuke_blast',
+      originX: strike.originX,
+      originY,
+      originZ: strike.originZ,
+      x: tx,
+      y: hitY,
+      z: tz,
+      radius: strike.radius,
+      color: '#ff9e00',
+      createdAt: Date.now(),
+    });
+    applySuperweaponEnvironmentImpact(state, tx, tz, Math.max(3.6, strike.radius * 0.88), 'nuke');
+    addChronicle(state, `${atkName}'s ballistic warhead struck ${defName}!`, 'warning');
+  } else if (strike.kind === 'elf_astral_cataclysm') {
+    state.pendingVfx.push({
+      id: nextEntityId('vfx'),
+      type: 'arcane_cataclysm',
+      originX: strike.originX,
+      originY,
+      originZ: strike.originZ,
+      x: tx,
+      y: hitY,
+      z: tz,
+      radius: strike.radius,
+      color: '#c084fc',
+      createdAt: Date.now(),
+    });
+    applySuperweaponEnvironmentImpact(state, tx, tz, Math.max(3.5, strike.radius * 0.85), 'arcane');
+    addChronicle(state, `${atkName} called down a Starfall Cataclysm upon ${defName}!`, 'warning');
+  } else if (strike.kind === 'orc_siege_boulder') {
+    state.pendingVfx.push({
+      id: nextEntityId('vfx'),
+      type: 'animal_attack',
+      variant: 'slam',
+      originX: strike.originX,
+      originZ: strike.originZ,
+      x: tx,
+      y: hitY,
+      z: tz,
+      radius: strike.radius,
+      color: '#ff5400',
+      createdAt: Date.now(),
+    });
+    if (targetTile && targetTile.height > 0 && state.worldRules?.wildfireSpread !== false) {
+      targetTile.onFireTimer = Math.max(targetTile.onFireTimer, 6.5);
+      state.pendingVfx.push({
+        id: nextEntityId('vfx'),
+        type: 'fire_spread',
+        x: tx,
+        y: hitY,
+        z: tz,
+        radius: 1.6,
+        color: '#ff5400',
+        createdAt: Date.now(),
+      });
+    }
+  } else if (strike.kind === 'orc_waagh_rocket') {
+    state.pendingVfx.push({
+      id: nextEntityId('vfx'),
+      type: 'hit_spark',
+      x: tx,
+      y: hitY,
+      z: tz,
+      radius: strike.radius * 1.1,
+      color: '#ff3b30',
+      createdAt: Date.now(),
+    });
+    if (targetTile && targetTile.height > 0 && state.worldRules?.wildfireSpread !== false) {
+      targetTile.onFireTimer = Math.max(targetTile.onFireTimer, 5.5);
+    }
+  } else if (strike.kind === 'elf_starfall_spell') {
+    state.pendingVfx.push({
+      id: nextEntityId('vfx'),
+      type: 'hit_spark',
+      x: tx,
+      y: hitY,
+      z: tz,
+      radius: strike.radius * 1.15,
+      color: '#c084fc',
+      createdAt: Date.now(),
+    });
+  } else {
+    // Conventional Human ICBM / ballistic missile strike
+    state.pendingVfx.push({
+      id: nextEntityId('vfx'),
+      type: 'hit_spark',
+      x: tx,
+      y: hitY,
+      z: tz,
+      radius: strike.radius * 1.15,
+      color: '#ff6b35',
+      createdAt: Date.now(),
+    });
+    if (targetTile && targetTile.height > 0 && state.worldRules?.wildfireSpread !== false) {
+      targetTile.onFireTimer = Math.max(targetTile.onFireTimer, 4.5);
+    }
+  }
+
+  const r = strike.radius;
+  const isElfSpell = strike.kind === 'elf_starfall_spell' || strike.kind === 'elf_astral_cataclysm';
+  const isHeavyBlast =
+    strike.kind === 'icbm_nuke' ||
+    strike.kind === 'elf_astral_cataclysm' ||
+    strike.kind === 'orc_siege_boulder' ||
+    strike.kind === 'orc_waagh_rocket';
+
+  for (let i = 0; i < state.units.length; i++) {
+    const candidate = state.units[i];
+    if (candidate.state === 'ko' || candidate.hp <= 0 || candidate.statusEffects?.shielded) continue;
+    const cKid =
+      candidate.faction === 'civilization'
+        ? candidate.settlementId
+          ? getKingdomId(state, candidate.settlementId)
+          : candidate.kingdomId
+        : undefined;
+    if (cKid === strike.attackerKingdomId) {
+      if (isElfSpell && Math.hypot(candidate.x - tx, candidate.z - tz) <= r + 1.5) {
+        candidate.hp = Math.min(candidate.maxHp, candidate.hp + 25);
+      }
+      continue;
+    }
+    if (candidate.ageStage === 'child') continue;
+    const d = Math.hypot(candidate.x - tx, candidate.z - tz);
+    if (d <= r) {
+      const falloff = d <= r * 0.5 ? 1.0 : 0.65;
+      candidate.hp -= strike.damage * falloff;
+      candidate.underAttackTimer = 8.0;
+      if (isElfSpell && candidate.statusEffects) {
+        candidate.statusEffects.cursed = Math.max(candidate.statusEffects.cursed ?? 0, 4.5);
+      }
+      if (candidate.hp > 0 && isHeavyBlast) {
+        const safeD = Math.max(0.35, d);
+        const launchPower = strike.isSuperweapon ? 7.2 : 4.2;
+        candidate.vxAir = ((candidate.x - tx) / safeD) * launchPower;
+        candidate.vzAir = ((candidate.z - tz) / safeD) * launchPower;
+        candidate.altitude = Math.max(candidate.altitude ?? 0, 0.85);
+        candidate.vzVertical = strike.isSuperweapon ? 6.8 : 4.4;
+        candidate.fallDamageArmed = true;
+      }
+    }
+  }
+
+  for (let vi = 0; vi < (state.vehicles?.length ?? 0); vi++) {
+    const v = state.vehicles![vi];
+    if ((v.hp ?? 0) <= 0) continue;
+    const vKid = v.kingdomId ?? getKingdomId(state, v.settlementId);
+    if (vKid === strike.attackerKingdomId) continue;
+    if (Math.hypot(v.x - tx, v.z - tz) <= r) {
+      v.hp = Math.max(0, (v.hp ?? 100) - strike.damage * 0.85);
+    }
+  }
+
+  const bldMult =
+    strike.kind === 'orc_siege_boulder'
+      ? 1.55
+      : strike.isSuperweapon
+        ? 1.45
+        : 1.15;
+  for (let bi = 0; bi < state.buildings.length; bi++) {
+    const b = state.buildings[bi];
+    if (b.hp <= 0) continue;
+    const bKid = b.settlementId ? getKingdomId(state, b.settlementId) : undefined;
+    if (bKid === strike.attackerKingdomId) continue;
+    const bd = Math.hypot(b.tileX - tx, b.tileZ - tz);
+    if (bd <= r + 0.5) {
+      if (b.shieldTimer > 0) {
+        if (strike.isSuperweapon && bd <= 3.0) b.shieldTimer = 0;
+        else continue;
+      }
+      b.hp = Math.max(0, b.hp - strike.damage * bldMult);
+    }
+  }
+}
+
+export function stepStrategicWarfare(state: SimulationState, dt: number): void {
+  // 1. Advance and resolve all in-flight transcontinental missiles, spells & siege barrages
+  const strikes = state.activeStrategicStrikes;
+  if (strikes && strikes.length > 0) {
+    for (let i = strikes.length - 1; i >= 0; i--) {
+      const s = strikes[i];
+      s.elapsed += dt;
+      if (s.elapsed >= s.flightDuration) {
+        resolveStrategicStrikeImpact(state, s);
+        strikes.splice(i, 1);
+      }
+    }
+  }
+
+  if (state.worldRules?.warsEnabled === false) return;
+
+  state.strategicWarTimer = (state.strategicWarTimer ?? 0) + dt;
+  if (state.strategicWarTimer < 3.6) return;
+  state.strategicWarTimer = 0;
+
+  if ((state.activeStrategicStrikes?.length ?? 0) >= 14) return;
+
+  // 2. Gather living kingdoms & their military launch sites / targets
+  interface KingdomWarInfo {
+    kingdomId: string;
+    species: SpeciesId;
+    epoch: number;
+    launchX: number;
+    launchZ: number;
+    hasLaunchPriority: boolean;
+    buildings: BuildingEntity[];
+    units: UnitEntity[];
+  }
+  const byKid = new Map<string, KingdomWarInfo>();
+
+  for (let bi = 0; bi < state.buildings.length; bi++) {
+    const b = state.buildings[bi];
+    if (b.hp <= 0 || !b.settlementId) continue;
+    const kid = getKingdomId(state, b.settlementId);
+    const sp: SpeciesId = state.settlementSpecies?.[kid] ?? state.settlementSpecies?.[b.settlementId] ?? b.species ?? 'human';
+    let info = byKid.get(kid);
+    if (!info) {
+      info = {
+        kingdomId: kid,
+        species: sp,
+        epoch: getKingdomEpoch(state, kid),
+        launchX: b.tileX,
+        launchZ: b.tileZ,
+        hasLaunchPriority: false,
+        buildings: [],
+        units: [],
+      };
+      byKid.set(kid, info);
+    }
+    info.buildings.push(b);
+    const isPriorityLauncher =
+      b.type === 'launch_arcology' ||
+      b.type === 'dyson_spire' ||
+      b.type === 'fission_reactor' ||
+      b.type === 'airport' ||
+      b.type === 'steam_foundry' ||
+      b.type === 'observatory' ||
+      b.type === 'ziggurat' ||
+      b.type === 'shaman_totem';
+    if (isPriorityLauncher && !info.hasLaunchPriority) {
+      info.launchX = b.tileX;
+      info.launchZ = b.tileZ;
+      info.hasLaunchPriority = true;
+    }
+  }
+
+  for (let ui = 0; ui < state.units.length; ui++) {
+    const u = state.units[ui];
+    if (u.faction !== 'civilization' || u.state === 'ko' || u.hp <= 0) continue;
+    const kid = u.settlementId ? getKingdomId(state, u.settlementId) : u.kingdomId;
+    if (!kid) continue;
+    let info = byKid.get(kid);
+    if (!info) {
+      info = {
+        kingdomId: kid,
+        species: u.species,
+        epoch: getKingdomEpoch(state, kid),
+        launchX: u.x,
+        launchZ: u.z,
+        hasLaunchPriority: false,
+        buildings: [],
+        units: [],
+      };
+      byKid.set(kid, info);
+    }
+    info.units.push(u);
+  }
+
+  const kingdoms = Array.from(byKid.values());
+  if (kingdoms.length < 2) return;
+
+  if (!state.activeStrategicStrikes) state.activeStrategicStrikes = [];
+
+  for (let ai = 0; ai < kingdoms.length; ai++) {
+    if (state.activeStrategicStrikes.length >= 14) break;
+    const atk = kingdoms[ai];
+    if (atk.buildings.length === 0 && atk.units.length < 2) continue;
+
+    // Pick a warring enemy kingdom
+    const enemies = kingdoms.filter(
+      (def) =>
+        def.kingdomId !== atk.kingdomId &&
+        (def.buildings.length > 0 || def.units.length > 0) &&
+        areKingdomsAtWar(state, atk.kingdomId, def.kingdomId),
+    );
+    if (enemies.length === 0) continue;
+
+    const enemyIdx = Math.floor(Math.abs(state.year * 13 + ai * 7)) % enemies.length;
+    const def = enemies[enemyIdx];
+
+    // Pick a high-value target in enemy territory (building preferred, else warrior/king)
+    let targetX = def.launchX;
+    let targetZ = def.launchZ;
+    if (def.buildings.length > 0) {
+      const bPick = def.buildings[Math.floor(Math.random() * def.buildings.length)];
+      targetX = bPick.tileX;
+      targetZ = bPick.tileZ;
+    } else if (def.units.length > 0) {
+      const uPick = def.units[Math.floor(Math.random() * def.units.length)];
+      targetX = uPick.x;
+      targetZ = uPick.z;
+    }
+
+    // Pick a fresh launch building from attacker's settlements so salvos fan out naturally
+    let originX = atk.launchX;
+    let originZ = atk.launchZ;
+    if (atk.buildings.length > 0) {
+      const launchCandidates = atk.buildings.filter(
+        (b) =>
+          b.type === 'launch_arcology' ||
+          b.type === 'dyson_spire' ||
+          b.type === 'fission_reactor' ||
+          b.type === 'airport' ||
+          b.type === 'steam_foundry' ||
+          b.type === 'observatory' ||
+          b.type === 'ziggurat' ||
+          b.type === 'shaman_totem',
+      );
+      const pool = launchCandidates.length > 0 ? launchCandidates : atk.buildings;
+      const picked = pool[Math.floor(Math.random() * pool.length)];
+      originX = picked.tileX;
+      originZ = picked.tileZ;
+    }
+
+    const dist = Math.hypot(targetX - originX, targetZ - originZ);
+    if (dist < 7.5) continue;
+
+    const originTile = getTile(state, originX, originZ);
+    const originY = (originTile?.height ?? 2) * 0.45 + 0.65;
+    const targetTile = getTile(state, targetX, targetZ);
+    const targetY = (targetTile?.height ?? 2) * 0.45 + 0.35;
+    const kUltReady = (state.kingdomUltimateCooldowns?.[atk.kingdomId] ?? 0) <= 0;
+
+    const queueStrike = (
+      kind: StrategicStrikeKind,
+      vfxSubtype: VisualEffectEvent['vfxSubtype'],
+      tx: number,
+      tz: number,
+      flightDuration: number,
+      damage: number,
+      radius: number,
+      color: string,
+      isSuperweapon = false,
+    ) => {
+      const strikeId = nextEntityId('strike');
+      state.activeStrategicStrikes!.push({
+        id: strikeId,
+        attackerKingdomId: atk.kingdomId,
+        targetKingdomId: def.kingdomId,
+        species: atk.species,
+        kind,
+        originX,
+        originZ,
+        targetX: tx,
+        targetZ: tz,
+        elapsed: 0,
+        flightDuration,
+        damage,
+        radius,
+        isSuperweapon,
+      });
+      state.pendingVfx.push({
+        id: nextEntityId('vfx'),
+        type: 'projectile_tracer',
+        vfxSubtype,
+        species: atk.species,
+        originX,
+        originY,
+        originZ,
+        x: tx,
+        y: targetY,
+        z: tz,
+        radius: isSuperweapon ? 2.4 : 1.55,
+        color,
+        flightDuration,
+        createdAt: Date.now(),
+      });
+    };
+
+    if (atk.species === 'human') {
+      // Humans prioritize transcontinental ballistic missile warfare over magic!
+      if (atk.epoch >= 4 && kUltReady && (def.buildings.length >= 2 || def.units.length >= 3)) {
+        if (!state.kingdomUltimateCooldowns) state.kingdomUltimateCooldowns = {};
+        state.kingdomUltimateCooldowns[atk.kingdomId] = 42.0;
+        const flightDur = Math.max(1.85, Math.min(3.8, 1.35 + dist * 0.032));
+        queueStrike('icbm_nuke', 'icbm_missile', targetX, targetZ, flightDur, 220, 5.8, '#ff6b35', true);
+      } else if (atk.epoch >= 3) {
+        // Transcontinental cruise/ballistic missile salvo (1-2 missiles)
+        const salvoCount = atk.epoch >= 5 ? 2 : 1;
+        for (let si = 0; si < salvoCount; si++) {
+          const jx = si === 0 ? 0 : (Math.random() - 0.5) * 3.5;
+          const jz = si === 0 ? 0 : (Math.random() - 0.5) * 3.5;
+          const tx = Math.max(2, Math.min(state.gridSize - 3, targetX + jx));
+          const tz = Math.max(2, Math.min(state.gridSize - 3, targetZ + jz));
+          const flightDur = Math.max(1.4, Math.min(3.3, 1.05 + dist * 0.028 + si * 0.25));
+          queueStrike(
+            'icbm_missile',
+            'icbm_missile',
+            tx,
+            tz,
+            flightDur,
+            46 + atk.epoch * 12,
+            2.6,
+            atk.epoch >= 6 ? '#38bdf8' : '#ff6b35',
+            false,
+          );
+        }
+      } else if (atk.epoch >= 2 && dist <= 34) {
+        // Iron/Medieval Age long-range artillery barrage
+        const flightDur = Math.max(1.1, Math.min(2.3, 0.85 + dist * 0.03));
+        queueStrike('icbm_missile', 'cannon_shell', targetX, targetZ, flightDur, 36, 2.1, '#ffd166', false);
+      }
+    } else if (atk.species === 'elf') {
+      // Elves NEVER use steel missiles — they weave long-range astral starfall spells across continents!
+      if (atk.epoch >= 4 && kUltReady && (def.buildings.length >= 2 || def.units.length >= 3)) {
+        if (!state.kingdomUltimateCooldowns) state.kingdomUltimateCooldowns = {};
+        state.kingdomUltimateCooldowns[atk.kingdomId] = 42.0;
+        const flightDur = Math.max(1.9, Math.min(3.7, 1.4 + dist * 0.03));
+        queueStrike('elf_astral_cataclysm', 'elf_starfall_spell', targetX, targetZ, flightDur, 210, 5.6, '#c084fc', true);
+      } else if (atk.epoch >= 1) {
+        const spellCount = atk.epoch >= 4 ? 2 : 1;
+        for (let si = 0; si < spellCount; si++) {
+          const jx = si === 0 ? 0 : (Math.random() - 0.5) * 3.8;
+          const jz = si === 0 ? 0 : (Math.random() - 0.5) * 3.8;
+          const tx = Math.max(2, Math.min(state.gridSize - 3, targetX + jx));
+          const tz = Math.max(2, Math.min(state.gridSize - 3, targetZ + jz));
+          const flightDur = Math.max(1.45, Math.min(3.4, 1.1 + dist * 0.028 + si * 0.28));
+          queueStrike(
+            'elf_starfall_spell',
+            'elf_starfall_spell',
+            tx,
+            tz,
+            flightDur,
+            40 + atk.epoch * 11,
+            2.7,
+            si === 0 ? '#c084fc' : '#5eead4',
+            false,
+          );
+        }
+      }
+    } else {
+      // Orcs: Flaming magma siege boulders early -> chaotic corkscrewing WAAAGH! scrap-rocket swarms later!
+      if (atk.epoch >= 3) {
+        const rocketCount = atk.epoch >= 5 ? 3 : 2;
+        for (let ri = 0; ri < rocketCount; ri++) {
+          const scatter = 2.8 + ri * 1.4;
+          const tx = Math.max(2, Math.min(state.gridSize - 3, targetX + (Math.random() - 0.5) * scatter));
+          const tz = Math.max(2, Math.min(state.gridSize - 3, targetZ + (Math.random() - 0.5) * scatter));
+          const flightDur = Math.max(1.3, Math.min(3.1, 0.98 + dist * 0.026 + ri * 0.22));
+          queueStrike(
+            'orc_waagh_rocket',
+            'orc_waagh_rocket',
+            tx,
+            tz,
+            flightDur,
+            34 + atk.epoch * 9,
+            2.5,
+            ri % 2 === 0 ? '#ff3b30' : '#ff6b1a',
+            false,
+          );
+        }
+      } else if (dist <= 46) {
+        // Brutal flaming magma siege boulder catapult barrage
+        const flightDur = Math.max(1.35, Math.min(2.9, 1.05 + dist * 0.032));
+        queueStrike('orc_siege_boulder', 'orc_siege_boulder', targetX, targetZ, flightDur, 42 + atk.epoch * 10, 2.6, '#ff5400', false);
       }
     }
   }
@@ -8037,6 +8564,7 @@ function stepSimulationSingle(
     state.raiderWaveTimer = 0;
   }
   stepKingdomDiplomacyAndRebellions(state, dt);
+  stepStrategicWarfare(state, dt);
   stepCivilizationPlanner(state, dt);
 
   // 5. Per-Civilization Epoch Progression with Proximity Tech Diffusion & Non-Overtaking Catch-Up Curve
@@ -11445,21 +11973,33 @@ function stepVehicles(state: SimulationState, dt: number): void {
         const hitY = (hitTile?.height ?? 2) * 0.45 + 0.35;
 
         const vfxSubtype: VisualEffectEvent['vfxSubtype'] =
-          v.type === 'orbital_gunship' || (vEpoch >= 6 && (v.type === 'tank' || v.type === 'warship' || v.type === 'bomber_plane'))
-            ? 'plasma_beam'
-            : v.species === 'elf' && vEpoch >= 2 && v.type !== 'glider'
-              ? 'arcane_bolt'
-              : v.type === 'bomber_plane'
-                ? targetDist <= 6.2
-                  ? 'bomb'
+          v.species === 'elf'
+            ? v.type === 'orbital_gunship' || vEpoch >= 6
+              ? 'plasma_beam'
+              : v.type === 'bomber_plane' || v.type === 'warship' || (v.type === 'tank' && vEpoch >= 3)
+                ? 'elf_starfall_spell'
+                : 'arcane_bolt'
+            : v.species === 'orc'
+              ? vEpoch >= 3
+                ? v.type === 'orc_flyer' || v.type === 'bomber_plane' || v.type === 'warship' || v.type === 'tank'
+                  ? 'orc_waagh_rocket'
                   : 'bullet'
-                : v.type === 'glider'
-                  ? 'bullet'
-                  : v.type === 'helicopter' || v.type === 'orc_flyer'
-                    ? Math.floor(state.year * 10 + v.variantSeed) % 2 === 0
-                      ? 'missile'
-                      : 'bullet'
-                    : 'cannon_shell';
+                : 'orc_siege_boulder'
+              : v.type === 'orbital_gunship' || (vEpoch >= 6 && (v.type === 'tank' || v.type === 'warship' || v.type === 'bomber_plane'))
+                ? 'plasma_beam'
+                : v.type === 'bomber_plane'
+                  ? targetDist <= 6.2
+                    ? 'bomb'
+                    : 'missile'
+                  : v.type === 'glider'
+                    ? 'bullet'
+                    : v.type === 'helicopter'
+                      ? Math.floor(state.year * 10 + v.variantSeed) % 2 === 0
+                        ? 'missile'
+                        : 'bullet'
+                      : vEpoch >= 4 && (v.type === 'warship' || v.type === 'tank') && targetDist >= 6.5
+                        ? 'missile'
+                        : 'cannon_shell';
 
         // Evolved Atomic+ Bombers & Orbital Gunships deliver tactical payloads only when kingdom ultimate cooldown is ready against tough targets
         const kUltReady = !myKid || (state.kingdomUltimateCooldowns?.[myKid] ?? 0) <= 0;
@@ -11478,20 +12018,56 @@ function stepVehicles(state: SimulationState, dt: number): void {
             state.kingdomUltimateCooldowns[myKid] = 42.0;
           }
           const splashDmg = dmg * 1.9;
-          if (v.type === 'bomber_plane') {
-            // Also drop a visible falling bomb into target just before detonation
+          if (v.species === 'elf') {
             state.pendingVfx.push({
               id: nextEntityId('vfx'),
               type: 'projectile_tracer',
-              vfxSubtype: 'bomb',
+              vfxSubtype: 'elf_starfall_spell',
+              species: 'elf',
+              originX: v.x,
+              originY: cruiseY + 0.15,
+              originZ: v.z,
+              x: targetX,
+              y: hitY,
+              z: targetZ,
+              radius: 2.3,
+              color: '#c084fc',
+              flightDuration: 0.72,
+              createdAt: Date.now(),
+            });
+          } else if (v.species === 'orc') {
+            state.pendingVfx.push({
+              id: nextEntityId('vfx'),
+              type: 'projectile_tracer',
+              vfxSubtype: 'orc_waagh_rocket',
+              species: 'orc',
+              originX: v.x,
+              originY: cruiseY + 0.15,
+              originZ: v.z,
+              x: targetX,
+              y: hitY,
+              z: targetZ,
+              radius: 2.4,
+              color: '#ff4d1a',
+              flightDuration: 0.7,
+              createdAt: Date.now(),
+            });
+          } else {
+            // Human tactical air-launched missile / falling bomb into target
+            state.pendingVfx.push({
+              id: nextEntityId('vfx'),
+              type: 'projectile_tracer',
+              vfxSubtype: v.type === 'bomber_plane' ? 'bomb' : 'icbm_missile',
+              species: 'human',
               originX: v.x,
               originY: cruiseY + 0.1,
               originZ: v.z,
               x: targetX,
               y: hitY,
               z: targetZ,
-              radius: 2.1,
+              radius: 2.2,
               color: '#ff9e00',
+              flightDuration: 0.65,
               createdAt: Date.now(),
             });
           }
@@ -15499,15 +16075,58 @@ function stepCivilianUnitAI(
           }
           const blastRadius = 6.8;
           const blastDmg = Math.max(240, baseDmg * 5.8);
+          // Launch a visible incoming ballistic missile trail from the Human homeland/launcher so nukes never appear out of thin air
+          let launchX = u.x;
+          let launchZ = u.z;
+          if (myKingdomId) {
+            for (let bi = 0; bi < state.buildings.length; bi++) {
+              const kb = state.buildings[bi];
+              if (kb.hp > 0 && kb.settlementId && getKingdomId(state, kb.settlementId) === myKingdomId) {
+                launchX = kb.tileX;
+                launchZ = kb.tileZ;
+                if (
+                  kb.type === 'launch_arcology' ||
+                  kb.type === 'fission_reactor' ||
+                  kb.type === 'airport' ||
+                  kb.type === 'steam_foundry'
+                ) {
+                  break;
+                }
+              }
+            }
+          }
+          const launchDist = Math.hypot(nearestEnemy.x - launchX, nearestEnemy.z - launchZ);
+          if (launchDist < 4) {
+            launchX = Math.max(2, Math.min(state.gridSize - 3, u.x - (nearestEnemy.x - u.x) * 2.5));
+            launchZ = Math.max(2, Math.min(state.gridSize - 3, u.z - (nearestEnemy.z - u.z) * 2.5));
+          }
+          const launchTile = getTile(state, launchX, launchZ);
+          const launchY = (launchTile?.height ?? 2) * 0.45 + 0.5;
+          state.pendingVfx.push({
+            id: nextEntityId('vfx'),
+            type: 'projectile_tracer',
+            vfxSubtype: 'icbm_missile',
+            species: 'human',
+            originX: launchX,
+            originY: launchY,
+            originZ: launchZ,
+            x: nearestEnemy.x,
+            y: targetY,
+            z: nearestEnemy.z,
+            radius: 2.2,
+            color: '#ff6b35',
+            flightDuration: Math.max(0.75, Math.min(1.6, 0.55 + launchDist * 0.025)),
+            createdAt: Date.now(),
+          });
           state.pendingVfx.push({
             id: nextEntityId('vfx'),
             type: 'nuke_blast',
             x: nearestEnemy.x,
             y: targetY,
             z: nearestEnemy.z,
-            originX: u.x,
-            originY,
-            originZ: u.z,
+            originX: launchX,
+            originY: launchY,
+            originZ: launchZ,
             radius: blastRadius,
             color: '#ff9e00',
             createdAt: Date.now(),
@@ -15570,6 +16189,22 @@ function stepCivilianUnitAI(
           }
           const cataclysmRadius = 6.5;
           const arcaneDmg = Math.max(240, baseDmg * 5.8);
+          state.pendingVfx.push({
+            id: nextEntityId('vfx'),
+            type: 'projectile_tracer',
+            vfxSubtype: 'elf_starfall_spell',
+            species: 'elf',
+            x: nearestEnemy.x,
+            y: targetY,
+            z: nearestEnemy.z,
+            originX: u.x,
+            originY,
+            originZ: u.z,
+            radius: 2.4,
+            color: '#c084fc',
+            flightDuration: 0.9,
+            createdAt: Date.now(),
+          });
           state.pendingVfx.push({
             id: nextEntityId('vfx'),
             type: 'arcane_cataclysm',
@@ -15730,21 +16365,23 @@ function stepCivilianUnitAI(
             nearestEnemy.role === 'alien_ufo' || (isNavalOrColossalTarget && dist > 1.75);
 
           if (u.species === 'elf') {
+            // Elves strictly weave magic & astral spells — NEVER steel missiles or gunpowder cannons
             if (u.statusEffects && !u.statusEffects.shielded && hasElfArcaneTech && shotCycle % 4 === 0) {
               u.statusEffects.shielded = 4.0;
             }
             isRangedShot = myEpoch >= 1 || dist > 1.5 || forceVerticalRanged;
             if (myEpoch >= 6) {
-              weaponSubtype = shotCycle % 3 === 0 ? 'plasma_beam' : shotCycle % 3 === 1 ? 'arcane_bolt' : 'missile';
+              weaponSubtype = shotCycle % 3 === 0 ? 'plasma_beam' : shotCycle % 3 === 1 ? 'elf_starfall_spell' : 'arcane_bolt';
               weaponColor = weaponSubtype === 'plasma_beam' ? '#56cfe1' : '#e879f9';
-              weaponSplash = weaponSubtype === 'missile' ? 1.8 : 0;
-            } else if (myEpoch >= 4) {
-              weaponSubtype = shotCycle % 4 === 0 ? 'missile' : shotCycle % 4 === 1 ? 'plasma_beam' : 'arcane_bolt';
+              weaponSplash = weaponSubtype === 'elf_starfall_spell' ? 1.85 : 0;
+            } else if (myEpoch >= 3) {
+              weaponSubtype = shotCycle % 3 === 0 ? 'elf_starfall_spell' : shotCycle % 3 === 1 ? 'plasma_beam' : 'arcane_bolt';
               weaponColor = weaponSubtype === 'plasma_beam' ? '#38bdf8' : '#c084fc';
-              weaponSplash = weaponSubtype === 'missile' ? 1.6 : 0;
+              weaponSplash = weaponSubtype === 'elf_starfall_spell' ? 1.65 : 0;
             } else {
-              weaponSubtype = shotCycle % 4 === 0 && myEpoch >= 2 ? 'cannon_shell' : 'arcane_bolt';
+              weaponSubtype = shotCycle % 4 === 0 && myEpoch >= 2 ? 'elf_starfall_spell' : 'arcane_bolt';
               weaponColor = hasElfArcaneTech ? '#5eead4' : '#c084fc';
+              weaponSplash = weaponSubtype === 'elf_starfall_spell' ? 1.35 : 0;
             }
           } else if (u.species === 'human') {
             isRangedShot = hasHumanGuns || (myEpoch >= 1 && dist > 1.6) || forceVerticalRanged;
@@ -15765,19 +16402,20 @@ function stepCivilianUnitAI(
               weaponColor = '#fca311';
             }
           } else {
-            // Orc arsenal: Iron axes/cleavers early -> Dakka cannons, flak shells & iron rockets later
+            // Orc arsenal: Flaming siege boulders early -> chaotic WAAAGH! scrap-rockets & dakka later
             isRangedShot = myEpoch >= 3 || (myEpoch >= 2 && dist > 2.2) || forceVerticalRanged;
             if (myEpoch >= 5) {
-              weaponSubtype = shotCycle % 3 === 0 ? 'missile' : shotCycle % 3 === 1 ? 'cannon_shell' : 'plasma_beam';
+              weaponSubtype = shotCycle % 3 === 0 ? 'orc_waagh_rocket' : shotCycle % 3 === 1 ? 'orc_siege_boulder' : 'plasma_beam';
               weaponColor = '#ff5400';
               weaponSplash = 1.9;
             } else if (myEpoch >= 3) {
-              weaponSubtype = shotCycle % 3 === 0 ? 'missile' : shotCycle % 3 === 1 ? 'cannon_shell' : 'bullet';
-              weaponColor = '#ff4d4d';
+              weaponSubtype = shotCycle % 3 === 0 ? 'orc_waagh_rocket' : shotCycle % 3 === 1 ? 'orc_siege_boulder' : 'bullet';
+              weaponColor = '#ff4d1a';
               weaponSplash = weaponSubtype !== 'bullet' ? 1.65 : 0;
             } else {
-              weaponSubtype = 'cannon_shell';
+              weaponSubtype = 'orc_siege_boulder';
               weaponColor = '#ff3b30';
+              weaponSplash = 1.4;
             }
           }
 
@@ -15786,6 +16424,7 @@ function stepCivilianUnitAI(
               id: nextEntityId('vfx'),
               type: 'projectile_tracer',
               vfxSubtype: weaponSubtype,
+              species: u.species,
               x: nearestEnemy.x,
               y: targetY,
               z: nearestEnemy.z,

@@ -560,12 +560,18 @@ export interface VisualEffectEvent {
     | 'cannon_shell'
     | 'bomb'
     | 'missile'
+    | 'icbm_missile'
     | 'arcane_bolt'
+    | 'elf_starfall_spell'
+    | 'orc_siege_boulder'
+    | 'orc_waagh_rocket'
     | 'plasma_beam'
     | 'laser_beam'
     | 'ice_ball'
     | 'foxfire_ball'
     | 'venom_ball';
+  flightDuration?: number;
+  species?: SpeciesId;
   dropKind?: TerrainToolType;
   dropTargets?: Array<{ x: number; y: number; z: number }>;
   radius: number;
@@ -575,6 +581,57 @@ export interface VisualEffectEvent {
   faultSegments?: EarthquakeFaultSegment[];
   quakeShapeKind?: EarthquakeShapeKind;
   quakeExtent?: number;
+}
+
+export type StrategicStrikeKind =
+  | 'icbm_missile'
+  | 'icbm_nuke'
+  | 'elf_starfall_spell'
+  | 'elf_astral_cataclysm'
+  | 'orc_siege_boulder'
+  | 'orc_waagh_rocket';
+
+export interface StrategicWarStrike {
+  id: string;
+  attackerKingdomId: string;
+  targetKingdomId: string;
+  species: SpeciesId;
+  kind: StrategicStrikeKind;
+  originX: number;
+  originZ: number;
+  targetX: number;
+  targetZ: number;
+  elapsed: number;
+  flightDuration: number;
+  damage: number;
+  radius: number;
+  isSuperweapon?: boolean;
+}
+
+export interface WarFrontBaseline {
+  startYear: number;
+  initialTilesA: number;
+  initialTilesB: number;
+  initialBuildingsA: number;
+  initialBuildingsB: number;
+}
+
+export interface WarFrontArrowData {
+  id: string;
+  attackerKingdomId: string;
+  defenderKingdomId: string;
+  attackerName: string;
+  defenderName: string;
+  attackerSpecies: SpeciesId;
+  fromX: number;
+  fromZ: number;
+  toX: number;
+  toZ: number;
+  progress: number; // 0.08..0.96
+  tileDelta: number;
+  claimPercent: number; // 0..100
+  hexColor: string;
+  momentum: 'advancing' | 'contested' | 'retreating';
 }
 
 export interface ActiveHazardZone {
@@ -806,6 +863,9 @@ export interface SimulationState {
   kingdomUltimateCooldowns?: Record<string, number>;
   kingdomRelations?: Record<string, DiplomaticRelation>;
   kingdomPeacefulTraits?: Record<string, boolean>;
+  warFrontBaselines?: Record<string, WarFrontBaseline>;
+  activeStrategicStrikes?: StrategicWarStrike[];
+  strategicWarTimer?: number;
   diplomacyTimer?: number;
   rebellionTimer?: number;
   wildlifeSeeded?: boolean;

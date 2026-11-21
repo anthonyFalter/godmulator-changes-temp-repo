@@ -72,6 +72,7 @@ import {
   DEFAULT_ZONE_TOGGLES,
   buildZoneOverlayTextures,
   computeKingdomLabelsOnly,
+  computeWarFrontArrows,
   computeWorldZones,
   extractKingdomColorsMap,
   inspectTileZones,
@@ -1260,6 +1261,18 @@ export default function App() {
   const zoneHighlightHoverTile =
     isInspectTabActive || activeCategory === 'zones' ? hoverTile : null;
 
+  const kingdomRelationsKey = sim.kingdomRelations
+    ? Object.entries(sim.kingdomRelations)
+        .filter(([, rel]) => rel === 'war')
+        .map(([k]) => k)
+        .sort()
+        .join(',')
+    : '';
+  const warFrontRefreshTick =
+    (activeZones.kingdoms || activeZones.alliances) && kingdomRelationsKey.length > 0
+      ? Math.floor(hudTick / 3)
+      : 0;
+
   const zoneOverlayBuffers = useMemo(() => {
     zoneOverlayVersionRef.current += 1;
     if (!worldZones || !anyZoneActive) {
@@ -1276,6 +1289,7 @@ export default function App() {
         version: zoneOverlayVersionRef.current,
         labels: defaultLabels,
         kingdomColors: {} as Record<string, string>,
+        warFrontArrows: [],
       };
     }
 
@@ -1296,6 +1310,12 @@ export default function App() {
     zoneColorBufRef.current = packed.colorData;
     zoneIdBufRef.current = packed.idData;
     const kingdomColors = extractKingdomColorsMap(worldZones, simRef.current);
+    const warFrontArrows =
+      activeZones.kingdoms || activeZones.alliances
+        ? computeWarFrontArrows(worldZones, simRef.current, activeZones, {
+            selectedAllianceKingdomId,
+          })
+        : [];
     return {
       colorData: packed.colorData,
       idData: packed.idData,
@@ -1305,6 +1325,7 @@ export default function App() {
       version: zoneOverlayVersionRef.current,
       labels: packed.labels,
       kingdomColors,
+      warFrontArrows,
     };
   }, [
     worldZones,
@@ -1314,6 +1335,8 @@ export default function App() {
     selectedAllianceKingdomId,
     zoneCacheKey,
     kingdomLabelsKey,
+    kingdomRelationsKey,
+    warFrontRefreshTick,
     gameState,
   ]);
 
