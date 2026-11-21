@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { applyGraphicsPreset, inferGraphicsPreset } from '../game/graphics';
 import { soundEngine } from '../game/sound';
 import {
@@ -9,6 +9,7 @@ import {
   ShadowQualityOption,
   SkyCloudsQualityOption,
 } from '../game/types';
+import { HudPixelIcon } from './GameIcons';
 
 interface GraphicsSettingsPanelProps {
   settings: GraphicsSettings;
@@ -53,13 +54,113 @@ const FRAME_RATE_MODE_OPTIONS: { id: FrameRateMode; label: string; hint: string 
   { id: 'performance', label: 'Performance', hint: 'Prioritize smoother frame rates' },
 ];
 
-const SELECT_CLASS =
-  'w-36 sm:w-44 shrink-0 bg-[#1e1b17] text-[#f2ece1] text-xs font-semibold px-2.5 py-1.5 border border-[#4a4137] hover:border-[#706455] focus:border-[#f5b742] outline-none cursor-pointer';
+interface PixelDropdownProps<T extends string> {
+  id: string;
+  testId: string;
+  value: T;
+  displayLabel: string;
+  options: { id: T; label: string }[];
+  openId: string | null;
+  setOpenId: (id: string | null) => void;
+  onSelect: (val: T) => void;
+  openUpward?: boolean;
+}
+
+function PixelDropdown<T extends string>({
+  id,
+  testId,
+  value,
+  displayLabel,
+  options,
+  openId,
+  setOpenId,
+  onSelect,
+  openUpward = false,
+}: PixelDropdownProps<T>) {
+  const isOpen = openId === id;
+  return (
+    <div className="relative w-32 sm:w-40 shrink-0">
+      <button
+        type="button"
+        data-testid={testId}
+        aria-expanded={isOpen}
+        aria-haspopup="listbox"
+        onClick={() => {
+          soundEngine.playClick();
+          setOpenId(isOpen ? null : id);
+        }}
+        className={`w-full px-2.5 py-1.5 sm:py-1 text-[11px] flex items-center justify-between gap-1.5 cursor-pointer whitespace-nowrap ${
+          isOpen ? 'px-btn-active font-bold' : 'px-btn font-semibold'
+        }`}
+      >
+        <span className="truncate">{displayLabel}</span>
+        <HudPixelIcon
+          kind="chevronDown"
+          className={`w-2.5 h-2.5 sm:w-3 sm:h-3 pixelated-canvas shrink-0 transition-transform ${
+            isOpen ? 'rotate-180' : ''
+          }`}
+        />
+      </button>
+
+      {isOpen && (
+        <div
+          role="listbox"
+          className={`px-panel absolute right-0 z-50 w-full p-1 flex flex-col gap-1 ${
+            openUpward ? 'bottom-[calc(100%+4px)]' : 'top-[calc(100%+4px)]'
+          }`}
+        >
+          {options.map((opt) => {
+            const active = value === opt.id;
+            return (
+              <button
+                key={opt.id}
+                type="button"
+                role="option"
+                aria-selected={active}
+                data-testid={`${testId}-${opt.id}`}
+                onClick={() => {
+                  onSelect(opt.id);
+                  setOpenId(null);
+                }}
+                className={`w-full px-2 py-1 text-left text-[11px] cursor-pointer whitespace-nowrap ${
+                  active ? 'px-btn-active font-bold' : 'px-btn'
+                }`}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export const GraphicsSettingsPanel: React.FC<GraphicsSettingsPanelProps> = ({
   settings,
   onChange,
 }) => {
+  const [openId, setOpenId] = useState<string | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!openId) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (panelRef.current && e.target instanceof Node && !panelRef.current.contains(e.target)) {
+        setOpenId(null);
+      }
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpenId(null);
+    };
+    window.addEventListener('pointerdown', onPointerDown);
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown);
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [openId]);
+
   const isQualityMode = settings.strictLossless !== false;
   const frameRateMode: FrameRateMode = isQualityMode
     ? 'quality'
@@ -108,144 +209,125 @@ export const GraphicsSettingsPanel: React.FC<GraphicsSettingsPanelProps> = ({
     });
   };
 
-  const activeModeHint =
-    FRAME_RATE_MODE_OPTIONS.find((m) => m.id === frameRateMode)?.hint ?? '';
+  const presetLabel =
+    settings.preset === 'custom'
+      ? 'Custom'
+      : (PRESET_OPTIONS.find((o) => o.id === settings.preset)?.label ?? 'High');
+  const shadowLabel = SHADOW_OPTIONS.find((o) => o.id === settings.shadows)?.label ?? 'High';
+  const skyLabel = SKY_OPTIONS.find((o) => o.id === settings.cloudsAndSky)?.label ?? 'High';
+  const foliageLabel = FOLIAGE_OPTIONS.find((o) => o.id === settings.foliageDensity)?.label ?? 'High';
+  const particleLabel = PARTICLE_OPTIONS.find((o) => o.id === settings.particles)?.label ?? 'High';
+  const activeMode =
+    FRAME_RATE_MODE_OPTIONS.find((m) => m.id === frameRateMode) ?? FRAME_RATE_MODE_OPTIONS[0];
 
   return (
-    <div className="space-y-3 pt-2 border-t border-[#3a332b]" data-testid="graphics-settings-section">
+    <div
+      ref={panelRef}
+      className="space-y-2.5 pt-2 border-t border-[#3a332b]"
+      data-testid="graphics-settings-section"
+    >
       <div className="flex items-center justify-between">
         <span className="text-xs font-bold text-[#f5b742]">Graphics</span>
       </div>
 
       {/* Quality Preset */}
       <div className="flex items-center justify-between gap-2 sm:gap-3">
-        <label htmlFor="gfx-preset-select" className="text-[#e8e0d2] min-w-0 truncate">
-          Quality
-        </label>
-        <select
-          id="gfx-preset-select"
-          data-testid="gfx-preset-select"
-          value={settings.preset}
-          onChange={(e) => {
-            const val = e.target.value as GraphicsQualityPreset;
-            if (val === 'custom') return;
+        <span className="text-[#e8e0d2] min-w-0 truncate">Quality</span>
+        <PixelDropdown
+          id="preset"
+          testId="gfx-preset"
+          value={settings.preset === 'custom' ? 'high' : settings.preset}
+          displayLabel={presetLabel}
+          options={PRESET_OPTIONS}
+          openId={openId}
+          setOpenId={setOpenId}
+          onSelect={(val) => {
             soundEngine.playClick();
             onChange(
               applyGraphicsPreset(val, settings.autoOptimizeFps, isQualityMode, showPerfHud),
             );
           }}
-          className={SELECT_CLASS}
-        >
-          {PRESET_OPTIONS.map((opt) => (
-            <option key={opt.id} value={opt.id}>
-              {opt.label}
-            </option>
-          ))}
-          {settings.preset === 'custom' && <option value="custom">Custom</option>}
-        </select>
+        />
       </div>
 
       {/* Shadows */}
       <div className="flex items-center justify-between gap-2 sm:gap-3">
-        <label htmlFor="gfx-shadows-select" className="text-[#e8e0d2] min-w-0 truncate">
-          Shadows
-        </label>
-        <select
-          id="gfx-shadows-select"
-          data-testid="gfx-shadows-select"
+        <span className="text-[#e8e0d2] min-w-0 truncate">Shadows</span>
+        <PixelDropdown
+          id="shadows"
+          testId="gfx-shadows"
           value={settings.shadows}
-          onChange={(e) => updateField('shadows', e.target.value as ShadowQualityOption)}
-          className={SELECT_CLASS}
-        >
-          {SHADOW_OPTIONS.map((opt) => (
-            <option key={opt.id} value={opt.id}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
+          displayLabel={shadowLabel}
+          options={SHADOW_OPTIONS}
+          openId={openId}
+          setOpenId={setOpenId}
+          onSelect={(val) => updateField('shadows', val)}
+        />
       </div>
 
       {/* Clouds & Sky */}
       <div className="flex items-center justify-between gap-2 sm:gap-3">
-        <label htmlFor="gfx-sky-select" className="text-[#e8e0d2] min-w-0 truncate">
-          Clouds &amp; Sky
-        </label>
-        <select
-          id="gfx-sky-select"
-          data-testid="gfx-sky-select"
+        <span className="text-[#e8e0d2] min-w-0 truncate">Clouds &amp; Sky</span>
+        <PixelDropdown
+          id="sky"
+          testId="gfx-sky"
           value={settings.cloudsAndSky}
-          onChange={(e) => updateField('cloudsAndSky', e.target.value as SkyCloudsQualityOption)}
-          className={SELECT_CLASS}
-        >
-          {SKY_OPTIONS.map((opt) => (
-            <option key={opt.id} value={opt.id}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
+          displayLabel={skyLabel}
+          options={SKY_OPTIONS}
+          openId={openId}
+          setOpenId={setOpenId}
+          onSelect={(val) => updateField('cloudsAndSky', val)}
+        />
       </div>
 
       {/* Foliage */}
       <div className="flex items-center justify-between gap-2 sm:gap-3">
-        <label htmlFor="gfx-foliage-select" className="text-[#e8e0d2] min-w-0 truncate">
-          Foliage
-        </label>
-        <select
-          id="gfx-foliage-select"
-          data-testid="gfx-foliage-select"
+        <span className="text-[#e8e0d2] min-w-0 truncate">Foliage</span>
+        <PixelDropdown
+          id="foliage"
+          testId="gfx-foliage"
           value={settings.foliageDensity}
-          onChange={(e) => updateField('foliageDensity', e.target.value as FoliageDetailOption)}
-          className={SELECT_CLASS}
-        >
-          {FOLIAGE_OPTIONS.map((opt) => (
-            <option key={opt.id} value={opt.id}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
+          displayLabel={foliageLabel}
+          options={FOLIAGE_OPTIONS}
+          openId={openId}
+          setOpenId={setOpenId}
+          onSelect={(val) => updateField('foliageDensity', val)}
+        />
       </div>
 
       {/* Effects */}
       <div className="flex items-center justify-between gap-2 sm:gap-3">
-        <label htmlFor="gfx-particles-select" className="text-[#e8e0d2] min-w-0 truncate">
-          Effects
-        </label>
-        <select
-          id="gfx-particles-select"
-          data-testid="gfx-particles-select"
+        <span className="text-[#e8e0d2] min-w-0 truncate">Effects</span>
+        <PixelDropdown
+          id="particles"
+          testId="gfx-particles"
           value={settings.particles}
-          onChange={(e) => updateField('particles', e.target.value as ParticleDetailOption)}
-          className={SELECT_CLASS}
-        >
-          {PARTICLE_OPTIONS.map((opt) => (
-            <option key={opt.id} value={opt.id}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
+          displayLabel={particleLabel}
+          options={PARTICLE_OPTIONS}
+          openId={openId}
+          setOpenId={setOpenId}
+          onSelect={(val) => updateField('particles', val)}
+          openUpward
+        />
       </div>
 
-      {/* Frame Rate Mode */}
-      <div className="flex items-center justify-between gap-2 sm:gap-3 pt-1">
+      {/* Performance Mode */}
+      <div className="flex items-center justify-between gap-2 sm:gap-3 pt-0.5">
         <div className="min-w-0">
-          <label htmlFor="gfx-mode-select" className="block text-[#e8e0d2]">
-            Performance Mode
-          </label>
-          <div className="text-[10px] text-[#9e9486]">{activeModeHint}</div>
+          <div className="text-[#e8e0d2]">Performance Mode</div>
+          <div className="text-[10px] text-[#9e9486]">{activeMode.hint}</div>
         </div>
-        <select
-          id="gfx-mode-select"
-          data-testid="gfx-mode-select"
+        <PixelDropdown
+          id="mode"
+          testId="gfx-mode"
           value={frameRateMode}
-          onChange={(e) => handleFrameRateModeChange(e.target.value as FrameRateMode)}
-          className={SELECT_CLASS}
-        >
-          {FRAME_RATE_MODE_OPTIONS.map((opt) => (
-            <option key={opt.id} value={opt.id}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
+          displayLabel={activeMode.label}
+          options={FRAME_RATE_MODE_OPTIONS}
+          openId={openId}
+          setOpenId={setOpenId}
+          onSelect={handleFrameRateModeChange}
+          openUpward
+        />
       </div>
     </div>
   );
