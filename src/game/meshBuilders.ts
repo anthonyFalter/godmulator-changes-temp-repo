@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { ANIMAL_ROLE_SET, getDragonVariant } from './catalog';
 import { wrapShaderTime } from './dayNightLighting';
+import { getVoxelTreeLibrary } from './voxelTrees';
 import {
   BuildingType,
   ResourceNodeType,
@@ -10958,87 +10959,116 @@ function buildCreatureUnitGroup(
       group.add(legPivot);
     }
   } else if (role === 'hydra') {
-    // Towering three-headed swamp hydra with armored emerald scales, glowing venom eyes & thick sweeping tail
-    shadowRadius = 1.18;
-    auraRadius = 0.68;
-    const scaleMat = mat(0x166534, 0.62, 0.14);
-    const darkScaleMat = mat(0x14532d, 0.68, 0.12);
-    const bellyMat = mat(0x84cc16, 0.64, 0.08);
-    const venomEyeMat = mat(0xbef264, 0.2, 0.1, 0xa3e635, 1.35);
-    const fangMat = mat(0xf8fafc, 0.35, 0.1);
+    // Coiled 5-headed mythological serpent-dragon (zero dinosaur silhouette!): sinuous coils, cobra neck hoods, glowing bio-laser throats & barbed aquatic tail
+    shadowRadius = 1.24;
+    auraRadius = 0.72;
+    const scaleMat = mat(0x0f766e, 0.52, 0.22);
+    const deepScaleMat = mat(0x115e59, 0.58, 0.18);
+    const bellyMat = mat(0x99f6e4, 0.6, 0.08);
+    const finMat = mat(0x065f46, 0.54, 0.16);
+    const bioGlowMat = mat(0x4ade80, 0.16, 0.1, 0x22ff88, 1.55);
+    const hornMat = mat(0x134e4a, 0.45, 0.28);
+    const fangMat = mat(0xf8fafc, 0.3, 0.1);
 
-    const body = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.44, 0.92), scaleMat);
-    body.position.set(0, 0.46, -0.06);
-    body.castShadow = true;
-    bodyPivot.add(body);
-    const under = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.14, 0.78), bellyMat);
-    under.position.set(0, 0.25, -0.04);
-    bodyPivot.add(under);
+    // Coiled legless serpent torso resting in an S-coil
+    const coilRear = new THREE.Mesh(new THREE.BoxGeometry(0.66, 0.26, 0.52), deepScaleMat);
+    coilRear.position.set(0.14, 0.13, -0.34);
+    coilRear.rotation.y = -0.32;
+    coilRear.castShadow = true;
+    bodyPivot.add(coilRear);
+    const coilMid = new THREE.Mesh(new THREE.BoxGeometry(0.74, 0.34, 0.62), scaleMat);
+    coilMid.position.set(-0.1, 0.21, -0.02);
+    coilMid.rotation.y = 0.28;
+    coilMid.castShadow = true;
+    bodyPivot.add(coilMid);
+    const coilChest = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.46, 0.48), scaleMat);
+    coilChest.position.set(0, 0.36, 0.28);
+    coilChest.castShadow = true;
+    bodyPivot.add(coilChest);
+    const chestBelly = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.34, 0.12), bellyMat);
+    chestBelly.position.set(0, 0.32, 0.5);
+    bodyPivot.add(chestBelly);
+    // Glowing bio-energy dorsal core & aquatic lateral fins
     for (let si = 0; si < 4; si++) {
-      const ridge = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.14), darkScaleMat);
-      ridge.position.set(0, 0.71, 0.24 - si * 0.22);
-      bodyPivot.add(ridge);
+      const spine = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.15, 0.12), bioGlowMat);
+      spine.position.set(si % 2 === 0 ? -0.05 : 0.06, 0.46 - si * 0.04, 0.2 - si * 0.22);
+      bodyPivot.add(spine);
+    }
+    for (const side of [-1, 1]) {
+      const sideFin = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.08, 0.34), finMat);
+      sideFin.position.set(side * 0.44, 0.22, 0.14);
+      sideFin.rotation.z = side * -0.25;
+      bodyPivot.add(sideFin);
     }
 
-    // Three distinct serpentine necks & fanged heads fanned out from head_pivot
-    const headPivot = makePivot('head_pivot', 0, 0.56, 0.34);
-    for (const [hx, hy, hz, yaw, pitch] of [
-      [0, 0.46, 0.24, 0, -0.1],
-      [-0.32, 0.34, 0.18, 0.36, 0.05],
-      [0.32, 0.34, 0.18, -0.36, 0.05],
-    ] as const) {
+    // 5 dramatic fanned serpentine necks & horned serpent-dragon heads with glowing laser throats
+    const headPivot = makePivot('head_pivot', 0, 0.54, 0.32);
+    const hydraHeads = [
+      { x: 0, y: 0.72, z: 0.28, yaw: 0, pitch: -0.08, scale: 1.08 },
+      { x: -0.34, y: 0.56, z: 0.24, yaw: 0.34, pitch: 0.02, scale: 0.96 },
+      { x: 0.34, y: 0.56, z: 0.24, yaw: -0.34, pitch: 0.02, scale: 0.96 },
+      { x: -0.62, y: 0.36, z: 0.16, yaw: 0.62, pitch: 0.1, scale: 0.88 },
+      { x: 0.62, y: 0.36, z: 0.16, yaw: -0.62, pitch: 0.1, scale: 0.88 },
+    ];
+    for (const h of hydraHeads) {
       const neckGrp = new THREE.Group();
-      neckGrp.rotation.y = yaw;
-      neckGrp.rotation.x = pitch;
-      const neckA = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.34, 0.15), scaleMat);
-      neckA.position.set(hx * 0.48, hy * 0.44, hz * 0.42);
-      neckA.rotation.x = 0.32;
-      neckA.castShadow = true;
-      neckGrp.add(neckA);
-      const neckB = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.28, 0.14), scaleMat);
-      neckB.position.set(hx * 0.85, hy * 0.82, hz * 0.82);
-      neckB.rotation.x = 0.18;
-      neckGrp.add(neckB);
-      const skull = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.17, 0.28), darkScaleMat);
-      skull.position.set(hx, hy, hz + 0.14);
+      neckGrp.rotation.y = h.yaw;
+      neckGrp.rotation.x = h.pitch;
+      const n1 = new THREE.Mesh(new THREE.BoxGeometry(0.12 * h.scale, 0.36 * h.scale, 0.12 * h.scale), scaleMat);
+      n1.position.set(h.x * 0.36, h.y * 0.34, h.z * 0.32);
+      n1.rotation.z = -h.x * 0.55;
+      n1.rotation.x = 0.28;
+      n1.castShadow = true;
+      neckGrp.add(n1);
+      const n2 = new THREE.Mesh(new THREE.BoxGeometry(0.11 * h.scale, 0.34 * h.scale, 0.11 * h.scale), deepScaleMat);
+      n2.position.set(h.x * 0.74, h.y * 0.72, h.z * 0.72);
+      n2.rotation.z = -h.x * 0.25;
+      n2.rotation.x = -0.14;
+      n2.castShadow = true;
+      neckGrp.add(n2);
+      // Flared cobra hood behind skull
+      const hood = new THREE.Mesh(new THREE.BoxGeometry(0.28 * h.scale, 0.22 * h.scale, 0.06 * h.scale), finMat);
+      hood.position.set(h.x * 0.92, h.y * 0.92, h.z + 0.03);
+      neckGrp.add(hood);
+      // Sleek serpent-dragon head + glowing bio-laser maw core
+      const skull = new THREE.Mesh(new THREE.BoxGeometry(0.16 * h.scale, 0.13 * h.scale, 0.32 * h.scale), deepScaleMat);
+      skull.position.set(h.x, h.y, h.z + 0.16);
       skull.castShadow = true;
       neckGrp.add(skull);
-      const crest = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.11, 0.16), bellyMat);
-      crest.position.set(hx, hy + 0.11, hz + 0.06);
-      neckGrp.add(crest);
-      for (const fx of [-0.06, 0.06]) {
-        const fang = new THREE.Mesh(new THREE.BoxGeometry(0.028, 0.075, 0.028), fangMat);
-        fang.position.set(hx + fx, hy - 0.085, hz + 0.25);
-        neckGrp.add(fang);
-        const eye = new THREE.Mesh(new THREE.BoxGeometry(0.032, 0.032, 0.03), venomEyeMat);
-        eye.position.set(hx + fx * 1.45, hy + 0.03, hz + 0.21);
+      const laserCore = new THREE.Mesh(new THREE.BoxGeometry(0.1 * h.scale, 0.065 * h.scale, 0.14 * h.scale), bioGlowMat);
+      laserCore.position.set(h.x, h.y - 0.055 * h.scale, h.z + 0.24);
+      neckGrp.add(laserCore);
+      for (const sx of [-1, 1]) {
+        const horn = new THREE.Mesh(pxCone(0.025 * h.scale, 0.18 * h.scale, 4), hornMat);
+        horn.position.set(h.x + sx * 0.075 * h.scale, h.y + 0.1 * h.scale, h.z + 0.05);
+        horn.rotation.x = -0.75;
+        horn.rotation.z = sx * -0.25;
+        neckGrp.add(horn);
+        const eye = new THREE.Mesh(new THREE.BoxGeometry(0.03 * h.scale, 0.028 * h.scale, 0.032 * h.scale), bioGlowMat);
+        eye.position.set(h.x + sx * 0.08 * h.scale, h.y + 0.025 * h.scale, h.z + 0.22);
         neckGrp.add(eye);
+        const fang = new THREE.Mesh(new THREE.BoxGeometry(0.02 * h.scale, 0.06 * h.scale, 0.02 * h.scale), fangMat);
+        fang.position.set(h.x + sx * 0.045 * h.scale, h.y - 0.08 * h.scale, h.z + 0.29);
+        neckGrp.add(fang);
       }
       headPivot.add(neckGrp);
     }
     bodyPivot.add(headPivot);
 
-    const tailPivot = makePivot('tail_pivot', 0, 0.38, -0.52);
-    const tailA = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.24, 0.46), scaleMat);
-    tailA.position.set(0, -0.03, -0.22);
+    // Long sinuous barbed sea-serpent tail
+    const tailPivot = makePivot('tail_pivot', 0.14, 0.18, -0.56);
+    const tailA = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.2, 0.48), scaleMat);
+    tailA.position.set(-0.06, -0.02, -0.24);
+    tailA.rotation.y = 0.22;
     tailPivot.add(tailA);
-    const tailB = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.15, 0.44), darkScaleMat);
-    tailB.position.set(0, -0.06, -0.62);
+    const tailB = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.14, 0.46), deepScaleMat);
+    tailB.position.set(0.04, -0.05, -0.66);
+    tailB.rotation.y = -0.24;
     tailPivot.add(tailB);
+    const tailFin = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.22, 0.34), bioGlowMat);
+    tailFin.position.set(0.08, 0.02, -0.96);
+    tailPivot.add(tailFin);
     bodyPivot.add(tailPivot);
-
-    for (const [name, lx, lz] of [
-      ['leg_fl', -0.26, 0.24],
-      ['leg_fr', 0.26, 0.24],
-      ['leg_bl', -0.26, -0.3],
-      ['leg_br', 0.26, -0.3],
-    ] as const) {
-      const legPivot = makePivot(name, lx, 0.28, lz);
-      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.28, 0.18), darkScaleMat);
-      leg.position.set(0, -0.14, 0);
-      legPivot.add(leg);
-      group.add(legPivot);
-    }
   } else if (role === 'minotaur') {
     // Hulking bronze-armored bull-headed warrior with sweeping ivory horns & heavy voxel battle-axe
     shadowRadius = 0.96;
@@ -11285,7 +11315,7 @@ function buildCreatureUnitGroup(
       group.add(legPivot);
     }
   } else if (role === 'ent') {
-    // Ancient walking Treant guardian with gnarled bark torso, glowing forest eyes & lush voxel foliage crown
+    // Ancient walking Treant guardian + "very not so obvious" forest oak tree disguise form!
     shadowRadius = 1.02;
     auraRadius = 0.6;
     const barkMat = mat(0x5c3a21, 0.9, 0.04);
@@ -11293,6 +11323,11 @@ function buildCreatureUnitGroup(
     const leafMat = mat(0x228b22, 0.78, 0.05);
     const brightLeafMat = mat(0x4ade80, 0.72, 0.06);
     const eyeGlowMat = mat(0xa3e635, 0.2, 0.1, 0x84cc16, 1.3);
+
+    const treantAwakened = new THREE.Group();
+    treantAwakened.name = 'treant_awakened';
+    group.remove(bodyPivot);
+    treantAwakened.add(bodyPivot);
 
     const trunk = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.86, 0.48), barkMat);
     trunk.position.set(0, 0.9, 0);
@@ -11339,7 +11374,7 @@ function buildCreatureUnitGroup(
       const leafCuff = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.18, 0.24), brightLeafMat);
       leafCuff.position.set(0, -0.62, 0);
       armPivot.add(leafCuff);
-      group.add(armPivot);
+      treantAwakened.add(armPivot);
     }
     for (const [name, lx] of [
       ['leg_bl', -0.2],
@@ -11349,8 +11384,1028 @@ function buildCreatureUnitGroup(
       const rootLeg = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.48, 0.26), darkBarkMat);
       rootLeg.position.set(0, -0.24, 0);
       legPivot.add(rootLeg);
+      treantAwakened.add(legPivot);
+    }
+    group.add(treantAwakened);
+
+    // Disguised form: clones a genuine forest oak geometry from voxelTrees so it blends in seamlessly!
+    const treantDisguised = new THREE.Group();
+    treantDisguised.name = 'treant_disguised';
+    treantDisguised.visible = false;
+    const treeLib = getVoxelTreeLibrary();
+    const oakPool = treeLib.byBiome.forest;
+    const oakGeo = oakPool[s0 % oakPool.length].clone();
+    const oakMat = new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      roughness: 0.86,
+      metalness: 0.04,
+    });
+    const oakMesh = new THREE.Mesh(oakGeo, oakMat);
+    oakMesh.name = 'treant_disguised_tree';
+    oakMesh.castShadow = true;
+    oakMesh.receiveShadow = true;
+    oakMesh.scale.setScalar(1.02 + (s1 % 3) * 0.04);
+    treantDisguised.add(oakMesh);
+    group.add(treantDisguised);
+  } else if (role === 'giraffe') {
+    // Tall spotted savanna giraffe with long slender neck, ossicones & tufted tail
+    shadowRadius = 0.64;
+    auraRadius = 0.4;
+    const coatMat = mat(0xfbbf24, 0.72, 0.05);
+    const spotMat = mat(0x92400e, 0.78, 0.05);
+    const bellyMat = mat(0xfef3c7, 0.76, 0.04);
+
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.24, 0.46), coatMat);
+    body.position.set(0, 0.52, -0.02);
+    body.castShadow = true;
+    bodyPivot.add(body);
+    for (const [sx, sy, sz] of [
+      [-0.125, 0.56, 0.08],
+      [0.125, 0.5, -0.08],
+      [-0.125, 0.48, -0.14],
+      [0.125, 0.58, 0.12],
+    ]) {
+      const spot = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.085, 0.095), spotMat);
+      spot.position.set(sx, sy, sz);
+      bodyPivot.add(spot);
+    }
+
+    const headPivot = makePivot('head_pivot', 0, 0.62, 0.18);
+    const neck = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.68, 0.12), coatMat);
+    neck.position.set(0, 0.32, 0.08);
+    neck.rotation.x = 0.2;
+    neck.castShadow = true;
+    headPivot.add(neck);
+    for (const ny of [0.16, 0.36, 0.52]) {
+      const nSpot = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.06, 0.06), spotMat);
+      nSpot.position.set(0, ny, 0.05 + ny * 0.16);
+      headPivot.add(nSpot);
+    }
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.11, 0.22), coatMat);
+    head.position.set(0, 0.66, 0.2);
+    head.castShadow = true;
+    headPivot.add(head);
+    const muzzle = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.08, 0.09), bellyMat);
+    muzzle.position.set(0, 0.64, 0.32);
+    headPivot.add(muzzle);
+    for (const ex of [-0.04, 0.04]) {
+      const ossicone = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.09, 0.025), spotMat);
+      ossicone.position.set(ex, 0.75, 0.15);
+      headPivot.add(ossicone);
+      const eye = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.024, 0.024), darkEyeMat);
+      eye.position.set(ex * 1.65, 0.68, 0.23);
+      headPivot.add(eye);
+    }
+    bodyPivot.add(headPivot);
+
+    const tailPivot = makePivot('tail_pivot', 0, 0.52, -0.26);
+    const tail = new THREE.Mesh(new THREE.BoxGeometry(0.032, 0.24, 0.032), coatMat);
+    tail.position.set(0, -0.1, -0.02);
+    tail.rotation.x = 0.25;
+    tailPivot.add(tail);
+    const tuft = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.07, 0.05), spotMat);
+    tuft.position.set(0, -0.22, -0.05);
+    tailPivot.add(tuft);
+    bodyPivot.add(tailPivot);
+
+    for (const [name, lx, lz] of [
+      ['leg_fl', -0.085, 0.14],
+      ['leg_fr', 0.085, 0.14],
+      ['leg_bl', -0.085, -0.18],
+      ['leg_br', 0.085, -0.18],
+    ] as const) {
+      const legPivot = makePivot(name, lx, 0.42, lz);
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.054, 0.42, 0.054), coatMat);
+      leg.position.set(0, -0.21, 0);
+      legPivot.add(leg);
       group.add(legPivot);
     }
+  } else if (role === 'zebra') {
+    // Striped savanna zebra with crisp black-and-white voxel bands and upright spiky mane
+    shadowRadius = 0.58;
+    auraRadius = 0.36;
+    const whiteMat = mat(0xf8fafc, 0.68, 0.05);
+    const stripeMat = mat(0x18181b, 0.72, 0.08);
+
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.23, 0.5), whiteMat);
+    body.position.set(0, 0.35, -0.02);
+    body.castShadow = true;
+    bodyPivot.add(body);
+    for (const sz of [-0.18, -0.06, 0.06, 0.16]) {
+      const band = new THREE.Mesh(new THREE.BoxGeometry(0.252, 0.236, 0.052), stripeMat);
+      band.position.set(0, 0.35, sz);
+      bodyPivot.add(band);
+    }
+
+    const headPivot = makePivot('head_pivot', 0, 0.43, 0.2);
+    const neck = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.26, 0.13), whiteMat);
+    neck.position.set(0, 0.1, 0.04);
+    neck.rotation.x = 0.32;
+    neck.castShadow = true;
+    headPivot.add(neck);
+    const mane = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.24, 0.06), stripeMat);
+    mane.position.set(0, 0.14, -0.02);
+    mane.rotation.x = 0.32;
+    headPivot.add(mane);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.13, 0.24), whiteMat);
+    head.position.set(0, 0.22, 0.14);
+    headPivot.add(head);
+    const snout = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.11, 0.08), stripeMat);
+    snout.position.set(0, 0.2, 0.26);
+    headPivot.add(snout);
+    for (const ex of [-0.05, 0.05]) {
+      const ear = new THREE.Mesh(new THREE.BoxGeometry(0.032, 0.075, 0.032), whiteMat);
+      ear.position.set(ex, 0.31, 0.07);
+      headPivot.add(ear);
+      const eye = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.025, 0.025), darkEyeMat);
+      eye.position.set(ex * 1.45, 0.24, 0.18);
+      headPivot.add(eye);
+    }
+    bodyPivot.add(headPivot);
+
+    const tailPivot = makePivot('tail_pivot', 0, 0.36, -0.28);
+    const tail = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.22, 0.045), stripeMat);
+    tail.position.set(0, -0.08, -0.04);
+    tail.rotation.x = 0.42;
+    tailPivot.add(tail);
+    bodyPivot.add(tailPivot);
+
+    for (const [name, lx, lz] of [
+      ['leg_fl', -0.085, 0.16],
+      ['leg_fr', 0.085, 0.16],
+      ['leg_bl', -0.085, -0.2],
+      ['leg_br', 0.085, -0.2],
+    ] as const) {
+      const legPivot = makePivot(name, lx, 0.24, lz);
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.2, 0.06), whiteMat);
+      leg.position.set(0, -0.1, 0);
+      legPivot.add(leg);
+      const hoof = new THREE.Mesh(new THREE.BoxGeometry(0.064, 0.045, 0.064), stripeMat);
+      hoof.position.set(0, -0.22, 0);
+      legPivot.add(hoof);
+      group.add(legPivot);
+    }
+  } else if (role === 'tiger') {
+    // Sleek striped orange jungle predator with white ruff, charcoal stripes & long striped tail
+    shadowRadius = 0.64;
+    auraRadius = 0.38;
+    const orangeMat = mat(0xf97316, 0.68, 0.06);
+    const stripeMat = mat(0x1c1917, 0.78, 0.05);
+    const whiteMat = mat(0xfef3c7, 0.74, 0.04);
+    const amberEyeMat = mat(0xfacc15, 0.25, 0.1, 0xf59e0b, 0.65);
+
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.24, 0.56), orangeMat);
+    body.position.set(0, 0.28, -0.02);
+    body.castShadow = true;
+    bodyPivot.add(body);
+    const belly = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.08, 0.44), whiteMat);
+    belly.position.set(0, 0.16, -0.01);
+    bodyPivot.add(belly);
+    for (const sz of [-0.18, -0.05, 0.08, 0.19]) {
+      const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.292, 0.16, 0.045), stripeMat);
+      stripe.position.set(0, 0.32, sz);
+      bodyPivot.add(stripe);
+    }
+
+    const headPivot = makePivot('head_pivot', 0, 0.34, 0.28);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.21, 0.22), orangeMat);
+    head.position.set(0, 0.04, 0.08);
+    head.castShadow = true;
+    headPivot.add(head);
+    const cheekRuff = new THREE.Mesh(new THREE.BoxGeometry(0.27, 0.09, 0.14), whiteMat);
+    cheekRuff.position.set(0, -0.02, 0.09);
+    headPivot.add(cheekRuff);
+    const snout = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.09, 0.1), whiteMat);
+    snout.position.set(0, -0.01, 0.21);
+    headPivot.add(snout);
+    for (const ex of [-0.085, 0.085]) {
+      const ear = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.055, 0.04), orangeMat);
+      ear.position.set(ex, 0.16, 0.05);
+      headPivot.add(ear);
+      const eye = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.026, 0.024), amberEyeMat);
+      eye.position.set(ex * 0.72, 0.07, 0.19);
+      headPivot.add(eye);
+    }
+    bodyPivot.add(headPivot);
+
+    const tailPivot = makePivot('tail_pivot', 0, 0.3, -0.32);
+    const tail = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.055, 0.38), orangeMat);
+    tail.position.set(0, 0.02, -0.18);
+    tail.rotation.x = 0.22;
+    tailPivot.add(tail);
+    const tailTip = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 0.09), stripeMat);
+    tailTip.position.set(0, 0.06, -0.36);
+    tailPivot.add(tailTip);
+    bodyPivot.add(tailPivot);
+
+    for (const [name, lx, lz] of [
+      ['leg_fl', -0.1, 0.18],
+      ['leg_fr', 0.1, 0.18],
+      ['leg_bl', -0.1, -0.22],
+      ['leg_br', 0.1, -0.22],
+    ] as const) {
+      const legPivot = makePivot(name, lx, 0.2, lz);
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.18, 0.085), orangeMat);
+      leg.position.set(0, -0.09, 0);
+      legPivot.add(leg);
+      const paw = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.04, 0.095), whiteMat);
+      paw.position.set(0, -0.19, 0.01);
+      legPivot.add(paw);
+      group.add(legPivot);
+    }
+  } else if (role === 'gorilla') {
+    // Broad-chested silverback jungle gorilla with heavy brow & knuckle-walking arms
+    shadowRadius = 0.7;
+    auraRadius = 0.42;
+    const furMat = mat(0x1f2937, 0.84, 0.05);
+    const silverMat = mat(0xcbd5e1, 0.76, 0.08);
+    const faceMat = mat(0x374151, 0.72, 0.08);
+
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.42, 0.36), furMat);
+    torso.position.set(0, 0.46, 0.02);
+    torso.rotation.x = 0.32;
+    torso.castShadow = true;
+    bodyPivot.add(torso);
+    const silverBack = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.26, 0.1), silverMat);
+    silverBack.position.set(0, 0.48, -0.16);
+    silverBack.rotation.x = 0.32;
+    bodyPivot.add(silverBack);
+
+    const headPivot = makePivot('head_pivot', 0, 0.68, 0.14);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.25, 0.24), furMat);
+    head.position.set(0, 0.08, 0.04);
+    head.castShadow = true;
+    headPivot.add(head);
+    const brow = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.06, 0.08), furMat);
+    brow.position.set(0, 0.14, 0.16);
+    headPivot.add(brow);
+    const face = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.14, 0.08), faceMat);
+    face.position.set(0, 0.04, 0.15);
+    headPivot.add(face);
+    for (const ex of [-0.055, 0.055]) {
+      const eye = new THREE.Mesh(new THREE.BoxGeometry(0.028, 0.024, 0.02), darkEyeMat);
+      eye.position.set(ex, 0.09, 0.195);
+      headPivot.add(eye);
+    }
+    bodyPivot.add(headPivot);
+
+    for (const [name, ax] of [
+      ['leg_fl', -0.29],
+      ['leg_fr', 0.29],
+    ] as const) {
+      const armPivot = makePivot(name, ax, 0.54, 0.12);
+      const arm = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.52, 0.16), furMat);
+      arm.position.set(0, -0.26, 0.02);
+      arm.castShadow = true;
+      armPivot.add(arm);
+      group.add(armPivot);
+    }
+    for (const [name, lx] of [
+      ['leg_bl', -0.14],
+      ['leg_br', 0.14],
+    ] as const) {
+      const legPivot = makePivot(name, lx, 0.28, -0.1);
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.28, 0.15), furMat);
+      leg.position.set(0, -0.14, 0);
+      legPivot.add(leg);
+      group.add(legPivot);
+    }
+  } else if (role === 'kangaroo') {
+    // Upright ochre hopper with big hind feet, tucked paws, tall ears & heavy balancing tail
+    shadowRadius = 0.54;
+    auraRadius = 0.34;
+    const coatMat = mat(0xc2692c, 0.76, 0.05);
+    const bellyMat = mat(0xfde68a, 0.78, 0.04);
+    const darkMat = mat(0x451a03, 0.8, 0.05);
+
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.36, 0.24), coatMat);
+    body.position.set(0, 0.42, 0);
+    body.rotation.x = 0.36;
+    body.castShadow = true;
+    bodyPivot.add(body);
+    const belly = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.26, 0.08), bellyMat);
+    belly.position.set(0, 0.4, 0.12);
+    belly.rotation.x = 0.36;
+    bodyPivot.add(belly);
+
+    const headPivot = makePivot('head_pivot', 0, 0.62, 0.14);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.12, 0.2), coatMat);
+    head.position.set(0, 0.08, 0.08);
+    headPivot.add(head);
+    const nose = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.05, 0.04), darkMat);
+    nose.position.set(0, 0.07, 0.19);
+    headPivot.add(nose);
+    for (const ex of [-0.045, 0.045]) {
+      const ear = new THREE.Mesh(new THREE.BoxGeometry(0.032, 0.14, 0.032), coatMat);
+      ear.position.set(ex, 0.19, 0.02);
+      ear.rotation.z = ex < 0 ? 0.18 : -0.18;
+      headPivot.add(ear);
+      const eye = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.024, 0.024), darkEyeMat);
+      eye.position.set(ex * 1.4, 0.1, 0.12);
+      headPivot.add(eye);
+    }
+    bodyPivot.add(headPivot);
+
+    const tailPivot = makePivot('tail_pivot', 0, 0.26, -0.14);
+    const tail = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.09, 0.44), coatMat);
+    tail.position.set(0, -0.08, -0.2);
+    tail.rotation.x = -0.35;
+    tailPivot.add(tail);
+    bodyPivot.add(tailPivot);
+
+    for (const [name, ax] of [
+      ['leg_fl', -0.12],
+      ['leg_fr', 0.12],
+    ] as const) {
+      const pawPivot = makePivot(name, ax, 0.48, 0.1);
+      const paw = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.14, 0.06), coatMat);
+      paw.position.set(0, -0.05, 0.04);
+      paw.rotation.x = -0.55;
+      pawPivot.add(paw);
+      group.add(pawPivot);
+    }
+    for (const [name, lx] of [
+      ['leg_bl', -0.1],
+      ['leg_br', 0.1],
+    ] as const) {
+      const legPivot = makePivot(name, lx, 0.28, -0.02);
+      const thigh = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.22, 0.12), coatMat);
+      thigh.position.set(0, -0.1, 0);
+      legPivot.add(thigh);
+      const foot = new THREE.Mesh(new THREE.BoxGeometry(0.065, 0.05, 0.22), darkMat);
+      foot.position.set(0, -0.25, 0.08);
+      legPivot.add(foot);
+      group.add(legPivot);
+    }
+  } else if (role === 'moose') {
+    // Towering dark-brown forest moose with humped shoulders & huge wide shovel antlers
+    shadowRadius = 0.74;
+    auraRadius = 0.44;
+    const hideMat = mat(0x451a03, 0.82, 0.05);
+    const darkMat = mat(0x271003, 0.86, 0.04);
+    const antlerMat = mat(0xd6c7b2, 0.62, 0.08);
+
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.34, 0.64), hideMat);
+    body.position.set(0, 0.56, -0.02);
+    body.castShadow = true;
+    bodyPivot.add(body);
+    const hump = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.16, 0.26), darkMat);
+    hump.position.set(0, 0.76, 0.14);
+    bodyPivot.add(hump);
+
+    const headPivot = makePivot('head_pivot', 0, 0.68, 0.3);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.18, 0.34), hideMat);
+    head.position.set(0, 0.06, 0.18);
+    head.castShadow = true;
+    headPivot.add(head);
+    const bell = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.14, 0.06), darkMat);
+    bell.position.set(0, -0.08, 0.08);
+    headPivot.add(bell);
+    for (const side of [-1, 1]) {
+      // Wide palmated shovel antlers!
+      const stem = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.045, 0.045), antlerMat);
+      stem.position.set(side * 0.16, 0.18, 0.08);
+      headPivot.add(stem);
+      const paddle = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.14, 0.18), antlerMat);
+      paddle.position.set(side * 0.32, 0.26, 0.09);
+      paddle.rotation.z = side * -0.3;
+      paddle.castShadow = true;
+      headPivot.add(paddle);
+      const eye = new THREE.Mesh(new THREE.BoxGeometry(0.024, 0.024, 0.024), darkEyeMat);
+      eye.position.set(side * 0.095, 0.1, 0.22);
+      headPivot.add(eye);
+    }
+    bodyPivot.add(headPivot);
+
+    for (const [name, lx, lz] of [
+      ['leg_fl', -0.12, 0.2],
+      ['leg_fr', 0.12, 0.2],
+      ['leg_bl', -0.12, -0.24],
+      ['leg_br', 0.12, -0.24],
+    ] as const) {
+      const legPivot = makePivot(name, lx, 0.4, lz);
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.38, 0.08), darkMat);
+      leg.position.set(0, -0.19, 0);
+      legPivot.add(leg);
+      group.add(legPivot);
+    }
+  } else if (role === 'bison') {
+    // Shaggy plains bison with massive wooly shoulder hump, bearded head & short curved horns
+    shadowRadius = 0.72;
+    auraRadius = 0.44;
+    const shagMat = mat(0x3b1f0e, 0.9, 0.04);
+    const hideMat = mat(0x5c341d, 0.85, 0.05);
+    const hornMat = mat(0xe5e7eb, 0.45, 0.1);
+
+    const hind = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.3, 0.36), hideMat);
+    hind.position.set(0, 0.36, -0.14);
+    hind.castShadow = true;
+    bodyPivot.add(hind);
+    const shagHump = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.46, 0.38), shagMat);
+    shagHump.position.set(0, 0.46, 0.14);
+    shagHump.castShadow = true;
+    bodyPivot.add(shagHump);
+
+    const headPivot = makePivot('head_pivot', 0, 0.42, 0.32);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.28, 0.24), shagMat);
+    head.position.set(0, -0.02, 0.1);
+    head.castShadow = true;
+    headPivot.add(head);
+    const beard = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.14, 0.1), shagMat);
+    beard.position.set(0, -0.18, 0.14);
+    headPivot.add(beard);
+    for (const side of [-1, 1]) {
+      const horn = new THREE.Mesh(pxCone(0.032, 0.14, 4), hornMat);
+      horn.position.set(side * 0.16, 0.1, 0.12);
+      horn.rotation.z = side * -0.55;
+      headPivot.add(horn);
+      const eye = new THREE.Mesh(new THREE.BoxGeometry(0.024, 0.024, 0.024), darkEyeMat);
+      eye.position.set(side * 0.142, 0.04, 0.16);
+      headPivot.add(eye);
+    }
+    bodyPivot.add(headPivot);
+
+    const tailPivot = makePivot('tail_pivot', 0, 0.42, -0.34);
+    const tail = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.2, 0.04), shagMat);
+    tail.position.set(0, -0.1, -0.02);
+    tailPivot.add(tail);
+    bodyPivot.add(tailPivot);
+
+    for (const [name, lx, lz] of [
+      ['leg_fl', -0.15, 0.18],
+      ['leg_fr', 0.15, 0.18],
+      ['leg_bl', -0.12, -0.22],
+      ['leg_br', 0.12, -0.22],
+    ] as const) {
+      const legPivot = makePivot(name, lx, 0.24, lz);
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.095, 0.24, 0.095), shagMat);
+      leg.position.set(0, -0.12, 0);
+      legPivot.add(leg);
+      group.add(legPivot);
+    }
+  } else if (role === 'flamingo') {
+    // Tall coral-pink wading bird with S-curved neck, black-tipped hooked beak & stilt legs
+    shadowRadius = 0.34;
+    auraRadius = 0.24;
+    const pinkMat = mat(0xf472b6, 0.62, 0.06);
+    const hotPinkMat = mat(0xec4899, 0.65, 0.06);
+    const beakTipMat = mat(0x18181b, 0.45, 0.1);
+    const legMat = mat(0xf9a8d4, 0.68, 0.05);
+
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.15, 0.26), pinkMat);
+    body.position.set(0, 0.38, -0.02);
+    body.castShadow = true;
+    bodyPivot.add(body);
+    for (const wx of [-0.09, 0.09]) {
+      const wing = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.12, 0.2), hotPinkMat);
+      wing.position.set(wx, 0.38, -0.03);
+      bodyPivot.add(wing);
+    }
+
+    const headPivot = makePivot('head_pivot', 0, 0.44, 0.1);
+    const neckA = new THREE.Mesh(new THREE.BoxGeometry(0.048, 0.22, 0.048), pinkMat);
+    neckA.position.set(0, 0.1, 0.02);
+    neckA.rotation.x = -0.22;
+    headPivot.add(neckA);
+    const neckB = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.16, 0.045), pinkMat);
+    neckB.position.set(0, 0.25, 0.01);
+    neckB.rotation.x = 0.28;
+    headPivot.add(neckB);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.08, 0.09), pinkMat);
+    head.position.set(0, 0.33, 0.06);
+    headPivot.add(head);
+    const beak = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.075, 0.05), beakTipMat);
+    beak.position.set(0, 0.28, 0.12);
+    beak.rotation.x = 0.4;
+    headPivot.add(beak);
+    for (const ex of [-0.044, 0.044]) {
+      const eye = new THREE.Mesh(new THREE.BoxGeometry(0.016, 0.018, 0.018), darkEyeMat);
+      eye.position.set(ex, 0.34, 0.08);
+      headPivot.add(eye);
+    }
+    bodyPivot.add(headPivot);
+
+    for (const [name, lx] of [
+      ['leg_l', -0.045],
+      ['leg_r', 0.045],
+    ] as const) {
+      const legPivot = makePivot(name, lx, 0.32, -0.02);
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.026, 0.32, 0.026), legMat);
+      leg.position.set(0, -0.16, 0);
+      legPivot.add(leg);
+      group.add(legPivot);
+    }
+  } else if (role === 'ostrich') {
+    // Fast sprint-bird with plump black feathered body, white tail plumes & long neck/legs
+    shadowRadius = 0.46;
+    auraRadius = 0.3;
+    const featherMat = mat(0x18181b, 0.8, 0.06);
+    const plumeMat = mat(0xf8fafc, 0.72, 0.04);
+    const neckMat = mat(0xfdba74, 0.7, 0.05);
+    const beakMat = mat(0xf59e0b, 0.55, 0.08);
+
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.22, 0.34), featherMat);
+    body.position.set(0, 0.44, -0.02);
+    body.castShadow = true;
+    bodyPivot.add(body);
+    const tailPlume = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.16, 0.14), plumeMat);
+    tailPlume.position.set(0, 0.46, -0.22);
+    bodyPivot.add(tailPlume);
+
+    const headPivot = makePivot('head_pivot', 0, 0.52, 0.14);
+    const neck = new THREE.Mesh(new THREE.BoxGeometry(0.065, 0.36, 0.065), neckMat);
+    neck.position.set(0, 0.18, 0.04);
+    neck.rotation.x = 0.12;
+    headPivot.add(neck);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.09, 0.12), neckMat);
+    head.position.set(0, 0.38, 0.07);
+    headPivot.add(head);
+    const beak = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.036, 0.09), beakMat);
+    beak.position.set(0, 0.37, 0.16);
+    headPivot.add(beak);
+    for (const ex of [-0.052, 0.052]) {
+      const eye = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.024, 0.024), darkEyeMat);
+      eye.position.set(ex, 0.39, 0.09);
+      headPivot.add(eye);
+    }
+    bodyPivot.add(headPivot);
+
+    for (const [name, lx] of [
+      ['leg_l', -0.07],
+      ['leg_r', 0.07],
+    ] as const) {
+      const legPivot = makePivot(name, lx, 0.34, -0.02);
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.042, 0.34, 0.048), neckMat);
+      leg.position.set(0, -0.17, 0);
+      legPivot.add(leg);
+      group.add(legPivot);
+    }
+  } else if (role === 'seal') {
+    // Plump silver-grey flipper seal with glossy eyes, side flippers & flared rear tail
+    shadowRadius = 0.48;
+    auraRadius = 0.3;
+    const coatMat = mat(0x64748b, 0.52, 0.14);
+    const bellyMat = mat(0xcbd5e1, 0.58, 0.1);
+    const flipperMat = mat(0x334155, 0.56, 0.12);
+
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.2, 0.44), coatMat);
+    body.position.set(0, 0.12, 0);
+    body.castShadow = true;
+    bodyPivot.add(body);
+    const belly = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.07, 0.36), bellyMat);
+    belly.position.set(0, 0.04, 0.01);
+    bodyPivot.add(belly);
+
+    const headPivot = makePivot('head_pivot', 0, 0.18, 0.2);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.16, 0.18), coatMat);
+    head.position.set(0, 0.06, 0.08);
+    head.castShadow = true;
+    headPivot.add(head);
+    const muzzle = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.07, 0.07), bellyMat);
+    muzzle.position.set(0, 0.03, 0.19);
+    headPivot.add(muzzle);
+    for (const ex of [-0.065, 0.065]) {
+      const eye = new THREE.Mesh(new THREE.BoxGeometry(0.028, 0.028, 0.022), darkEyeMat);
+      eye.position.set(ex, 0.09, 0.17);
+      headPivot.add(eye);
+    }
+    bodyPivot.add(headPivot);
+
+    const tailPivot = makePivot('tail_pivot', 0, 0.1, -0.24);
+    const rear = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.12, 0.18), coatMat);
+    rear.position.set(0, -0.02, -0.08);
+    tailPivot.add(rear);
+    for (const fx of [-0.08, 0.08]) {
+      const fin = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.04, 0.15), flipperMat);
+      fin.position.set(fx, -0.04, -0.2);
+      fin.rotation.y = fx < 0 ? 0.35 : -0.35;
+      tailPivot.add(fin);
+    }
+    bodyPivot.add(tailPivot);
+
+    for (const [name, fx] of [
+      ['leg_fl', -0.15],
+      ['leg_fr', 0.15],
+    ] as const) {
+      const flipPivot = makePivot(name, fx, 0.09, 0.1);
+      const flipper = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.045, 0.12), flipperMat);
+      flipper.position.set(fx < 0 ? -0.05 : 0.05, -0.02, 0);
+      flipPivot.add(flipper);
+      group.add(flipPivot);
+    }
+  } else if (role === 'basilisk') {
+    // Crested royal serpent king with golden crown spikes, flared cobra hood & glowing petrifying eyes
+    shadowRadius = 0.92;
+    auraRadius = 0.56;
+    const scaleMat = mat(0x1e3a2f, 0.48, 0.22);
+    const darkScaleMat = mat(0x0f241d, 0.54, 0.2);
+    const goldMat = mat(0xeab308, 0.32, 0.55);
+    const gazeEyeMat = mat(0xd9f99d, 0.15, 0.1, 0xa3e635, 1.65);
+    const fangMat = mat(0xf8fafc, 0.3, 0.1);
+
+    // Sinuous coiled legless serpent body
+    const seg1 = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.24, 0.44), scaleMat);
+    seg1.position.set(0, 0.14, 0.14);
+    seg1.castShadow = true;
+    bodyPivot.add(seg1);
+    const seg2 = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.22, 0.46), darkScaleMat);
+    seg2.position.set(-0.14, 0.12, -0.22);
+    seg2.rotation.y = 0.35;
+    bodyPivot.add(seg2);
+    const neck = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.52, 0.24), scaleMat);
+    neck.position.set(0, 0.44, 0.28);
+    neck.rotation.x = 0.22;
+    neck.castShadow = true;
+    bodyPivot.add(neck);
+    // Flared royal hood
+    const hood = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.38, 0.1), darkScaleMat);
+    hood.position.set(0, 0.54, 0.24);
+    bodyPivot.add(hood);
+    const hoodTrim = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.08, 0.12), goldMat);
+    hoodTrim.position.set(0, 0.68, 0.25);
+    bodyPivot.add(hoodTrim);
+
+    const headPivot = makePivot('head_pivot', 0, 0.68, 0.34);
+    const skull = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.2, 0.38), scaleMat);
+    skull.position.set(0, 0.08, 0.18);
+    skull.castShadow = true;
+    headPivot.add(skull);
+    // Golden serpent crown
+    for (const cx of [-0.08, 0, 0.08]) {
+      const spike = new THREE.Mesh(pxCone(0.034, cx === 0 ? 0.18 : 0.13, 4), goldMat);
+      spike.position.set(cx, 0.24, 0.08);
+      headPivot.add(spike);
+    }
+    for (const ex of [-0.11, 0.11]) {
+      const eye = new THREE.Mesh(new THREE.BoxGeometry(0.042, 0.04, 0.045), gazeEyeMat);
+      eye.position.set(ex, 0.11, 0.26);
+      headPivot.add(eye);
+      const fang = new THREE.Mesh(new THREE.BoxGeometry(0.028, 0.085, 0.028), fangMat);
+      fang.position.set(ex * 0.65, -0.04, 0.34);
+      headPivot.add(fang);
+    }
+    bodyPivot.add(headPivot);
+
+    const tailPivot = makePivot('tail_pivot', -0.16, 0.12, -0.46);
+    const tailA = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.16, 0.44), scaleMat);
+    tailA.position.set(0.1, -0.02, -0.2);
+    tailA.rotation.y = -0.3;
+    tailPivot.add(tailA);
+    const rattle = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.12, 0.24), goldMat);
+    rattle.position.set(0.2, -0.04, -0.5);
+    tailPivot.add(rattle);
+    bodyPivot.add(tailPivot);
+  } else if (role === 'thunderbird') {
+    // Colossal storm eagle with indigo-gold plumage, glowing cyan lightning edges & sweeping wings
+    shadowRadius = 1.05;
+    auraRadius = 0.62;
+    const plumeMat = mat(0x1e3a8a, 0.56, 0.18);
+    const darkPlumeMat = mat(0x0f172a, 0.62, 0.16);
+    const goldMat = mat(0xfacc15, 0.3, 0.55, 0xf59e0b, 0.35);
+    const voltMat = mat(0x7dd3fc, 0.15, 0.1, 0x38bdf8, 1.55);
+
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.34, 0.64), plumeMat);
+    body.position.set(0, 0.48, 0);
+    body.castShadow = true;
+    bodyPivot.add(body);
+    const chestRune = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.24, 0.08), voltMat);
+    chestRune.position.set(0, 0.46, 0.31);
+    bodyPivot.add(chestRune);
+
+    const headPivot = makePivot('head_pivot', 0, 0.58, 0.3);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.22, 0.24), darkPlumeMat);
+    head.position.set(0, 0.1, 0.12);
+    head.castShadow = true;
+    headPivot.add(head);
+    const beak = new THREE.Mesh(pxCone(0.068, 0.22, 4), goldMat);
+    beak.position.set(0, 0.06, 0.31);
+    beak.rotation.x = Math.PI * 0.55;
+    headPivot.add(beak);
+    for (const cx of [-0.07, 0, 0.07]) {
+      const crest = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.16, 0.09), cx === 0 ? voltMat : goldMat);
+      crest.position.set(cx, 0.24, 0.05);
+      crest.rotation.x = -0.45;
+      headPivot.add(crest);
+    }
+    for (const ex of [-0.11, 0.11]) {
+      const eye = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.03, 0.03), voltMat);
+      eye.position.set(ex, 0.13, 0.19);
+      headPivot.add(eye);
+    }
+    bodyPivot.add(headPivot);
+
+    for (const [side, wName, oName] of [
+      [-1, 'wing_l', 'wing_outer_l'],
+      [1, 'wing_r', 'wing_outer_r'],
+    ] as const) {
+      const wPivot = makePivot(wName, side * 0.18, 0.56, 0.06);
+      const innerWing = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.08, 0.36), plumeMat);
+      innerWing.position.set(side * 0.31, 0, -0.04);
+      innerWing.castShadow = true;
+      wPivot.add(innerWing);
+      const boltEdge = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.04, 0.06), voltMat);
+      boltEdge.position.set(side * 0.3, 0.025, 0.12);
+      wPivot.add(boltEdge);
+      const outerPivot = makePivot(oName, side * 0.6, 0, -0.02);
+      const outerWing = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.06, 0.28), darkPlumeMat);
+      outerWing.position.set(side * 0.28, 0, -0.06);
+      outerPivot.add(outerWing);
+      const tipBolt = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.04, 0.06), goldMat);
+      tipBolt.position.set(side * 0.26, 0.02, 0.06);
+      outerPivot.add(tipBolt);
+      wPivot.add(outerPivot);
+      bodyPivot.add(wPivot);
+    }
+
+    const tailPivot = makePivot('tail_pivot', 0, 0.46, -0.34);
+    const tailFan = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.06, 0.36), plumeMat);
+    tailFan.position.set(0, 0, -0.18);
+    tailPivot.add(tailFan);
+    const tailVolt = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.07, 0.32), voltMat);
+    tailVolt.position.set(0, 0.01, -0.2);
+    tailPivot.add(tailVolt);
+    bodyPivot.add(tailPivot);
+
+    for (const [name, lx] of [
+      ['leg_l', -0.11],
+      ['leg_r', 0.11],
+    ] as const) {
+      const legPivot = makePivot(name, lx, 0.3, 0.02);
+      const talon = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.2, 0.12), goldMat);
+      talon.position.set(0, -0.1, 0.02);
+      legPivot.add(talon);
+      group.add(legPivot);
+    }
+  } else if (role === 'kraken') {
+    // Colossal abyssal Kraken cephalopod with bulbous ribbed mantle, glowing amber eyes & 8 curling voxel tentacles
+    shadowRadius = 1.38;
+    auraRadius = 0.82;
+    const mantleMat = mat(0x4c1d95, 0.46, 0.18);
+    const deepMat = mat(0x2e1065, 0.54, 0.14);
+    const crimsonMat = mat(0xbe123c, 0.44, 0.18);
+    const suckerMat = mat(0xfda4af, 0.65, 0.06);
+    const krakenEyeMat = mat(0xfef08a, 0.15, 0.1, 0xf59e0b, 1.6);
+
+    const headPivot = makePivot('head_pivot', 0, 0.44, 0);
+    const mantleBase = new THREE.Mesh(new THREE.BoxGeometry(0.76, 0.66, 0.76), mantleMat);
+    mantleBase.position.set(0, 0.44, 0);
+    mantleBase.castShadow = true;
+    headPivot.add(mantleBase);
+    const mantleDome = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.52, 0.58), crimsonMat);
+    mantleDome.position.set(0, 0.92, -0.04);
+    mantleDome.castShadow = true;
+    headPivot.add(mantleDome);
+    const mantleTip = new THREE.Mesh(pxCone(0.32, 0.42, 4), deepMat);
+    mantleTip.position.set(0, 1.34, -0.06);
+    headPivot.add(mantleTip);
+    for (const side of [-1, 1]) {
+      const earFin = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.28, 0.14), crimsonMat);
+      earFin.position.set(side * 0.44, 1.02, -0.04);
+      earFin.rotation.z = side * 0.35;
+      headPivot.add(earFin);
+      const eye = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.11, 0.08), krakenEyeMat);
+      eye.position.set(side * 0.24, 0.26, 0.38);
+      headPivot.add(eye);
+    }
+    bodyPivot.add(headPivot);
+
+    // 4 primary animated tentacles (leg_fl/fr/bl/br) + 4 outer curling tentacles
+    const tentacleDirs: ReadonlyArray<readonly [string, number, number, number]> = [
+      ['leg_fl', -0.42, 0.42, 0.78],
+      ['leg_fr', 0.42, 0.42, -0.78],
+      ['leg_bl', -0.42, -0.42, 2.35],
+      ['leg_br', 0.42, -0.42, -2.35],
+    ];
+    for (const [name, tx, tz, yaw] of tentacleDirs) {
+      const tPivot = makePivot(name, tx, 0.32, tz);
+      tPivot.rotation.y = yaw;
+      const segA = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.18, 0.56), mantleMat);
+      segA.position.set(0, -0.08, 0.28);
+      segA.rotation.x = 0.22;
+      segA.castShadow = true;
+      tPivot.add(segA);
+      const segB = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.44, 0.16), crimsonMat);
+      segB.position.set(0, 0.06, 0.62);
+      segB.rotation.x = -0.35;
+      tPivot.add(segB);
+      const sucker = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.24, 0.06), suckerMat);
+      sucker.position.set(0, 0.04, 0.52);
+      tPivot.add(sucker);
+      group.add(tPivot);
+    }
+    // 4 secondary outer tentacles fixed to bodyPivot
+    for (const [ox, oz, yaw] of [
+      [-0.56, 0, Math.PI * 0.5],
+      [0.56, 0, -Math.PI * 0.5],
+      [0, 0.56, 0],
+      [0, -0.56, Math.PI],
+    ]) {
+      const subT = new THREE.Group();
+      subT.position.set(ox, 0.26, oz);
+      subT.rotation.y = yaw;
+      const arm = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.15, 0.48), deepMat);
+      arm.position.set(0, -0.06, 0.24);
+      subT.add(arm);
+      const curl = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.34, 0.12), mantleMat);
+      curl.position.set(0, 0.08, 0.52);
+      curl.rotation.x = -0.4;
+      subT.add(curl);
+      bodyPivot.add(subT);
+    }
+  } else if (role === 'manticore') {
+    // Crimson winged lion with horned feline skull, bat wings & arching venomous scorpion stinger tail
+    shadowRadius = 0.92;
+    auraRadius = 0.54;
+    const crimsonMat = mat(0xb91c1c, 0.65, 0.1);
+    const darkManeMat = mat(0x450a0a, 0.78, 0.08);
+    const wingMembraneMat = mat(0x7f1d1d, 0.62, 0.12);
+    const venomMat = mat(0x84cc16, 0.18, 0.1, 0xa3e635, 1.45);
+    const eyeGlowMat = mat(0xfef08a, 0.2, 0.1, 0xf59e0b, 1.35);
+
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.3, 0.66), crimsonMat);
+    body.position.set(0, 0.4, -0.02);
+    body.castShadow = true;
+    bodyPivot.add(body);
+    const mane = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.4, 0.26), darkManeMat);
+    mane.position.set(0, 0.46, 0.22);
+    mane.castShadow = true;
+    bodyPivot.add(mane);
+
+    const headPivot = makePivot('head_pivot', 0, 0.52, 0.36);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.22, 0.24), crimsonMat);
+    head.position.set(0, 0.04, 0.08);
+    headPivot.add(head);
+    for (const side of [-1, 1]) {
+      const horn = new THREE.Mesh(pxCone(0.034, 0.16, 4), darkManeMat);
+      horn.position.set(side * 0.11, 0.18, 0.02);
+      horn.rotation.x = -0.45;
+      headPivot.add(horn);
+      const eye = new THREE.Mesh(new THREE.BoxGeometry(0.032, 0.028, 0.024), eyeGlowMat);
+      eye.position.set(side * 0.07, 0.07, 0.2);
+      headPivot.add(eye);
+    }
+    bodyPivot.add(headPivot);
+
+    // Sweeping crimson bat-wings
+    for (const [side, wName, oName] of [
+      [-1, 'wing_l', 'wing_outer_l'],
+      [1, 'wing_r', 'wing_outer_r'],
+    ] as const) {
+      const wPivot = makePivot(wName, side * 0.18, 0.52, 0.08);
+      const innerWing = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.065, 0.3), wingMembraneMat);
+      innerWing.position.set(side * 0.25, 0, -0.04);
+      innerWing.castShadow = true;
+      wPivot.add(innerWing);
+      const outerPivot = makePivot(oName, side * 0.48, 0, -0.02);
+      const outerWing = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.05, 0.24), darkManeMat);
+      outerWing.position.set(side * 0.24, 0, -0.06);
+      outerPivot.add(outerWing);
+      wPivot.add(outerPivot);
+      bodyPivot.add(wPivot);
+    }
+
+    // High-arching segmented scorpion tail with glowing green venom stinger
+    const tailPivot = makePivot('tail_pivot', 0, 0.46, -0.34);
+    const tSeg1 = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.28, 0.11), darkManeMat);
+    tSeg1.position.set(0, 0.12, -0.08);
+    tSeg1.rotation.x = -0.35;
+    tailPivot.add(tSeg1);
+    const tSeg2 = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.28, 0.1), crimsonMat);
+    tSeg2.position.set(0, 0.36, -0.04);
+    tSeg2.rotation.x = 0.45;
+    tailPivot.add(tSeg2);
+    const stingerBulb = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.13, 0.14), darkManeMat);
+    stingerBulb.position.set(0, 0.48, 0.1);
+    tailPivot.add(stingerBulb);
+    const stingerSpike = new THREE.Mesh(pxCone(0.045, 0.2, 4), venomMat);
+    stingerSpike.position.set(0, 0.44, 0.24);
+    stingerSpike.rotation.x = Math.PI * 0.58;
+    tailPivot.add(stingerSpike);
+    bodyPivot.add(tailPivot);
+
+    for (const [name, lx, lz] of [
+      ['leg_fl', -0.14, 0.2],
+      ['leg_fr', 0.14, 0.2],
+      ['leg_bl', -0.14, -0.22],
+      ['leg_br', 0.14, -0.22],
+    ] as const) {
+      const legPivot = makePivot(name, lx, 0.28, lz);
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.26, 0.1), crimsonMat);
+      leg.position.set(0, -0.13, 0);
+      legPivot.add(leg);
+      group.add(legPivot);
+    }
+  } else if (role === 'gargoyle') {
+    // Stone-winged obsidian Gargoyle with toggleable awakened flying form vs crouched gothic stone statue form!
+    shadowRadius = 0.86;
+    auraRadius = 0.52;
+    const stoneMat = mat(0x475569, 0.84, 0.16);
+    const darkStoneMat = mat(0x334155, 0.88, 0.14);
+    const mossMat = mat(0x4d7c0f, 0.86, 0.05);
+    const eyeGlowMat = mat(0xfef08a, 0.2, 0.1, 0xf59e0b, 1.45);
+
+    const gargoyleAwakened = new THREE.Group();
+    gargoyleAwakened.name = 'gargoyle_awakened';
+    group.remove(bodyPivot);
+    gargoyleAwakened.add(bodyPivot);
+
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.48, 0.3), stoneMat);
+    torso.position.set(0, 0.62, 0);
+    torso.castShadow = true;
+    bodyPivot.add(torso);
+
+    const headPivot = makePivot('head_pivot', 0, 0.9, 0.06);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.22, 0.24), darkStoneMat);
+    head.position.set(0, 0.08, 0.04);
+    head.castShadow = true;
+    headPivot.add(head);
+    for (const side of [-1, 1]) {
+      const horn = new THREE.Mesh(pxCone(0.036, 0.2, 4), darkStoneMat);
+      horn.position.set(side * 0.11, 0.22, 0.0);
+      horn.rotation.x = -0.35;
+      horn.rotation.z = side * -0.3;
+      headPivot.add(horn);
+      const eye = new THREE.Mesh(new THREE.BoxGeometry(0.032, 0.026, 0.024), eyeGlowMat);
+      eye.position.set(side * 0.065, 0.1, 0.16);
+      headPivot.add(eye);
+    }
+    bodyPivot.add(headPivot);
+
+    for (const [side, wName, oName] of [
+      [-1, 'wing_l', 'wing_outer_l'],
+      [1, 'wing_r', 'wing_outer_r'],
+    ] as const) {
+      const wPivot = makePivot(wName, side * 0.2, 0.78, -0.06);
+      const innerWing = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.08, 0.34), stoneMat);
+      innerWing.position.set(side * 0.24, 0, -0.05);
+      innerWing.castShadow = true;
+      wPivot.add(innerWing);
+      const outerPivot = makePivot(oName, side * 0.46, 0, -0.04);
+      const outerWing = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.06, 0.28), darkStoneMat);
+      outerWing.position.set(side * 0.22, 0, -0.06);
+      outerPivot.add(outerWing);
+      wPivot.add(outerPivot);
+      bodyPivot.add(wPivot);
+    }
+
+    const tailPivot = makePivot('tail_pivot', 0, 0.44, -0.16);
+    const tail = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.07, 0.36), darkStoneMat);
+    tail.position.set(0, -0.04, -0.18);
+    tailPivot.add(tail);
+    bodyPivot.add(tailPivot);
+
+    for (const [name, ax] of [
+      ['leg_fl', -0.28],
+      ['leg_fr', 0.28],
+    ] as const) {
+      const armPivot = makePivot(name, ax, 0.78, 0.04);
+      const arm = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.42, 0.14), stoneMat);
+      arm.position.set(0, -0.2, 0);
+      armPivot.add(arm);
+      gargoyleAwakened.add(armPivot);
+    }
+    for (const [name, lx] of [
+      ['leg_bl', -0.13],
+      ['leg_br', 0.13],
+    ] as const) {
+      const legPivot = makePivot(name, lx, 0.38, 0);
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.38, 0.16), darkStoneMat);
+      leg.position.set(0, -0.19, 0);
+      legPivot.add(leg);
+      gargoyleAwakened.add(legPivot);
+    }
+    group.add(gargoyleAwakened);
+
+    // Petrified Stone Statue form: crouched motionless on a weathered mossy gothic stone plinth!
+    const gargoyleStatue = new THREE.Group();
+    gargoyleStatue.name = 'gargoyle_statue';
+    gargoyleStatue.visible = false;
+    const plinth = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.24, 0.68), darkStoneMat);
+    plinth.position.set(0, 0.12, 0);
+    plinth.castShadow = true;
+    gargoyleStatue.add(plinth);
+    const mossPatch = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.05, 0.26), mossMat);
+    mossPatch.position.set(-0.14, 0.25, 0.14);
+    gargoyleStatue.add(mossPatch);
+    const crouchBody = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.44, 0.4), stoneMat);
+    crouchBody.position.set(0, 0.44, 0);
+    crouchBody.castShadow = true;
+    gargoyleStatue.add(crouchBody);
+    const crouchHead = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.22, 0.24), darkStoneMat);
+    crouchHead.position.set(0, 0.74, 0.08);
+    crouchHead.rotation.x = 0.32;
+    gargoyleStatue.add(crouchHead);
+    for (const side of [-1, 1]) {
+      const foldedWing = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.56, 0.36), darkStoneMat);
+      foldedWing.position.set(side * 0.26, 0.54, -0.06);
+      foldedWing.rotation.z = side * -0.18;
+      foldedWing.castShadow = true;
+      gargoyleStatue.add(foldedWing);
+      const sHorn = new THREE.Mesh(pxCone(0.034, 0.18, 4), darkStoneMat);
+      sHorn.position.set(side * 0.1, 0.88, 0.04);
+      gargoyleStatue.add(sHorn);
+    }
+    group.add(gargoyleStatue);
   } else {
     // Unicorn: radiant ivory steed, golden spiral horn, animated legs & pastel mane
     shadowRadius = 0.68;
@@ -11456,6 +12511,7 @@ function buildCreatureUnitGroup(
     'beam_impact',
     'leviathan_splash_inner',
     'leviathan_splash_outer',
+    'treant_disguised_tree',
   ]);
   const animalPivots: THREE.Group[] = [];
   group.traverse((obj) => {

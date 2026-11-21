@@ -263,8 +263,38 @@ export function getUnitIntrinsicGene(
   if (role === 'crab') {
     return 'Iron Pincers';
   }
+  if (role === 'giraffe') {
+    return 'Tall Neck';
+  }
+  if (role === 'zebra') {
+    return 'Dazzle Stripes';
+  }
+  if (role === 'tiger') {
+    return 'Jungle Stalker';
+  }
+  if (role === 'gorilla') {
+    return 'Silverback Might';
+  }
+  if (role === 'kangaroo') {
+    return 'Power Leap';
+  }
+  if (role === 'moose') {
+    return 'Broad Antlers';
+  }
+  if (role === 'bison') {
+    return 'Stampede Bulk';
+  }
+  if (role === 'flamingo') {
+    return 'Wading Plumes';
+  }
+  if (role === 'ostrich') {
+    return 'Sprint Stride';
+  }
+  if (role === 'seal') {
+    return 'Arctic Blubber';
+  }
   if (role === 'hydra') {
-    return 'Three Heads';
+    return 'Five-Head Laser';
   }
   if (role === 'minotaur') {
     return 'Labyrinth Fury';
@@ -277,6 +307,21 @@ export function getUnitIntrinsicGene(
   }
   if (role === 'ent') {
     return 'Living Bark';
+  }
+  if (role === 'basilisk') {
+    return 'Petrifying Gaze';
+  }
+  if (role === 'thunderbird') {
+    return 'Storm Caller';
+  }
+  if (role === 'kraken') {
+    return 'Abyssal Tentacles';
+  }
+  if (role === 'manticore') {
+    return 'Venom Tail';
+  }
+  if (role === 'gargoyle') {
+    return 'Living Stone';
   }
   if (role === 'skeleton') {
     return 'Undead Bones';
@@ -342,11 +387,27 @@ export function isIntrinsicGene(gene: string): boolean {
     'Hard Shell',
     'Pond Hopper',
     'Iron Pincers',
+    'Tall Neck',
+    'Dazzle Stripes',
+    'Jungle Stalker',
+    'Silverback Might',
+    'Power Leap',
+    'Broad Antlers',
+    'Stampede Bulk',
+    'Wading Plumes',
+    'Sprint Stride',
+    'Arctic Blubber',
     'Three Heads',
+    'Five-Head Laser',
     'Labyrinth Fury',
     'Sky Wings',
     'Hellhound Jaws',
     'Living Bark',
+    'Petrifying Gaze',
+    'Storm Caller',
+    'Abyssal Tentacles',
+    'Venom Tail',
+    'Living Stone',
     'Raider Grit',
     'Undead Bones',
     'Alien Armor',
@@ -391,7 +452,15 @@ export function generateUnitGenes(
   const roll = seededHash(seed, 77) % 100;
   if (roll < 18) {
     let pool: string[];
-    if (role === 'dragon' || role === 'phoenix' || role === 'griffin' || role === 'pegasus') {
+    if (
+      role === 'dragon' ||
+      role === 'phoenix' ||
+      role === 'griffin' ||
+      role === 'pegasus' ||
+      role === 'thunderbird' ||
+      role === 'manticore' ||
+      role === 'gargoyle'
+    ) {
       pool = RARE_GENE_POOLS.dragon;
     } else if (role === 'unicorn' || role === 'kitsune' || role === 'ent') {
       pool = RARE_GENE_POOLS.unicorn;
@@ -404,6 +473,10 @@ export function generateUnitGenes(
       role === 'fox' ||
       role === 'boar' ||
       role === 'lion' ||
+      role === 'tiger' ||
+      role === 'gorilla' ||
+      role === 'moose' ||
+      role === 'bison' ||
       role === 'crocodile' ||
       role === 'polar_bear' ||
       role === 'hippo' ||
@@ -413,7 +486,10 @@ export function generateUnitGenes(
       role === 'golem' ||
       role === 'hydra' ||
       role === 'minotaur' ||
-      role === 'cerberus'
+      role === 'cerberus' ||
+      role === 'basilisk' ||
+      role === 'kraken' ||
+      role === 'leviathan'
     ) {
       pool = RARE_GENE_POOLS.carnivore;
     } else if (
@@ -432,7 +508,13 @@ export function generateUnitGenes(
       role === 'monkey' ||
       role === 'panda' ||
       role === 'turtle' ||
-      role === 'frog'
+      role === 'frog' ||
+      role === 'giraffe' ||
+      role === 'zebra' ||
+      role === 'kangaroo' ||
+      role === 'flamingo' ||
+      role === 'ostrich' ||
+      role === 'seal'
     ) {
       pool = RARE_GENE_POOLS.herbivore;
     } else if (
@@ -523,11 +605,26 @@ export function generateUnitItems(
   if (role === 'turtle') return ['Green Shell', 'Sea Kelp'];
   if (role === 'frog') return ['Lily Pad', 'Swamp Moss'];
   if (role === 'crab') return ['Red Claw', 'Sea Shell'];
-  if (role === 'hydra') return ['Venom Fang', 'Regen Scale', 'Swamp Heart'];
+  if (role === 'giraffe') return ['Acacia Leaf', 'Spotted Pelt'];
+  if (role === 'zebra') return ['Striped Hide', 'Plains Grass'];
+  if (role === 'tiger') return ['Striped Pelt', 'Razor Fang'];
+  if (role === 'gorilla') return ['Jungle Fruit', 'Silver Fur'];
+  if (role === 'kangaroo') return ['Spring Tendon', 'Red Fur'];
+  if (role === 'moose') return ['Broad Antler', 'Pine Bark'];
+  if (role === 'bison') return ['Shaggy Wool', 'Heavy Horn'];
+  if (role === 'flamingo') return ['Pink Feather', 'Brine Shrimp'];
+  if (role === 'ostrich') return ['Plume Feather', 'Large Egg'];
+  if (role === 'seal') return ['Silver Fish', 'Thick Blubber'];
+  if (role === 'hydra') return ['Laser Gland', 'Regen Scale', 'Serpent Fang'];
   if (role === 'minotaur') return ['Bronze Axe', 'Bull Horn', 'War Belt'];
   if (role === 'pegasus') return ['Sky Feather', 'Golden Hoof', 'Cloud Mane'];
   if (role === 'cerberus') return ['Ember Fang', 'Lava Collar', 'Ash Pelt'];
   if (role === 'ent') return ['Heartwood', 'Ancient Acorn', 'Living Moss'];
+  if (role === 'basilisk') return ['Stone Eye', 'Venom Fang', 'Golden Crest'];
+  if (role === 'thunderbird') return ['Storm Feather', 'Arc Talon', 'Cloud Crest'];
+  if (role === 'kraken') return ['Sucker Tentacle', 'Ink Sac', 'Abyssal Beak'];
+  if (role === 'manticore') return ['Venom Stinger', 'Crimson Mane', 'Bat Wing'];
+  if (role === 'gargoyle') return ['Carved Granite', 'Stone Wing', 'Mossy Horn'];
 
   if (role === 'raider_swarmer') return ['Iron Cleaver', 'Loot Bag'];
   if (role === 'raider_ranged') return ['Hunting Bow', 'Arrow Quiver'];
@@ -750,55 +847,130 @@ function getDietInfo(unit: UnitEntity): EntityDietInfo {
         category: 'Omnivore',
         detail: 'Scavenges along sandy beaches and shallow tides',
       };
+    case 'giraffe':
+      return {
+        category: 'Herbivore',
+        detail: 'Nibbles tall treetop leaves across sunny plains and savannas',
+      };
+    case 'zebra':
+      return {
+        category: 'Herbivore',
+        detail: 'Grazes in open herds and sprints away when predators get close',
+      };
+    case 'tiger':
+      return {
+        category: 'Carnivore',
+        detail: 'Striped jungle hunter that stalks prey through thick woods',
+      };
+    case 'gorilla':
+      return {
+        category: 'Forager',
+        detail: 'Eats jungle fruit and shoots, then slams anyone who picks a fight',
+      };
+    case 'kangaroo':
+      return {
+        category: 'Herbivore',
+        detail: 'Bounds over dry scrubland and kicks back if cornered',
+      };
+    case 'moose':
+      return {
+        category: 'Forest Herbivore',
+        detail: 'Browses cold pine woods and charges wolves with wide antlers',
+      };
+    case 'bison':
+      return {
+        category: 'Herbivore',
+        detail: 'Grazes on open grass and bowls over attackers in heavy charges',
+      };
+    case 'flamingo':
+      return {
+        category: 'Sea Predator',
+        detail: 'Wades through shallow coastal water sifting for tiny shrimp',
+      };
+    case 'ostrich':
+      return {
+        category: 'Herbivore',
+        detail: 'Pecks seeds and desert plants, then outruns nearly every hunter',
+      };
+    case 'seal':
+      return {
+        category: 'Sea Predator',
+        detail: 'Catches fish around icy shores and naps on floating sea ice',
+      };
     case 'phoenix':
       return {
         category: 'Fire Carnivore',
-        detail: 'Flies overhead, heals nearby allies, and blasts enemies with fire',
+        detail: 'Flies overhead, shoots flame balls, heals allies, and rises once from ashes',
       };
     case 'griffin':
       return {
         category: 'Carnivore',
-        detail: 'Hunts from the sky and dives on raiders and wild prey',
+        detail: 'Dives from the sky and blasts enemies back with heavy wing gusts',
       };
     case 'yeti':
       return {
         category: 'Carnivore',
-        detail: 'Lives on snowy peaks and throws chunky ice balls at intruders',
+        detail: 'Lives on snowy peaks and hurls blocky ice balls that freeze foes',
       };
     case 'golem':
       return {
         category: 'Omnivore',
-        detail: 'Guards mountains and smashes hostiles with heavy stone fists',
+        detail: 'Shrugs off half of incoming hits and slams the ground with seismic shockwaves',
       };
     case 'kitsune':
       return {
         category: 'Forager',
-        detail: 'Blesses friendly units and fires flame balls when attacked',
+        detail: 'Blesses friendly units, blinks out of melee range, and fires flame balls back',
       };
     case 'hydra':
       return {
         category: 'Sea Predator',
-        detail: 'Spits venom from three heads and heals back its own wounds',
+        detail: 'Five-headed sea serpent that fires green bio-laser beams and regenerates wounds',
       };
     case 'minotaur':
       return {
         category: 'Carnivore',
-        detail: 'Charges into battle swinging a massive axe at nearby enemies',
+        detail: 'Charges in with a bull rush and swings a heavy bronze axe through crowds',
       };
     case 'pegasus':
       return {
         category: 'Forest Herbivore',
-        detail: 'Soars over meadows and heals friendly creatures below',
+        detail: 'Soars over meadows, heals friendly creatures, and knocks foes away with gale gusts',
       };
     case 'cerberus':
       return {
         category: 'Fire Carnivore',
-        detail: 'Three-headed hound that ignores fire and spits flame balls',
+        detail: 'Ignores fire completely and fires triple hellfire balls that scorch the ground',
       };
     case 'ent':
       return {
         category: 'Forest Herbivore',
-        detail: 'Regrows burned woods and crushes anyone attacking its forest',
+        detail: 'Disguises itself as a normal oak tree until enemies get close, then ambushes them',
+      };
+    case 'basilisk':
+      return {
+        category: 'Carnivore',
+        detail: 'Crowned desert serpent whose glowing laser gaze turns targets to solid stone',
+      };
+    case 'thunderbird':
+      return {
+        category: 'Carnivore',
+        detail: 'Giant storm eagle that calls lightning bolts down and chains shocks across foes',
+      };
+    case 'kraken':
+      return {
+        category: 'Sea Predator',
+        detail: 'Swims deep ocean waters, slams enemies with wide tentacles, and blinds them in ink',
+      };
+    case 'manticore':
+      return {
+        category: 'Carnivore',
+        detail: 'Bat-winged crimson beast that fires twin poisoned tail spikes from the air',
+      };
+    case 'gargoyle':
+      return {
+        category: 'Omnivore',
+        detail: 'Perches as a hard stone statue to heal fast, then wakes up to dive-slam intruders',
       };
     case 'raider_swarmer':
     case 'raider_ranged':
@@ -866,7 +1038,12 @@ function getSubtitleAndFaction(
     unit.role === 'minotaur' ||
     unit.role === 'pegasus' ||
     unit.role === 'cerberus' ||
-    unit.role === 'ent'
+    unit.role === 'ent' ||
+    unit.role === 'basilisk' ||
+    unit.role === 'thunderbird' ||
+    unit.role === 'kraken' ||
+    unit.role === 'manticore' ||
+    unit.role === 'gargoyle'
   ) {
     return { subtitle: def?.name ?? cap(unit.role), factionLabel: 'Mythical' };
   }
@@ -897,11 +1074,18 @@ function getSubtitleAndFaction(
 }
 
 function formatActivity(unit: UnitEntity): string {
+  if (unit.state === 'ko') return 'Defeated';
+  if (unit.role === 'ent' && unit.treantDisguised) return 'Disguised as Tree';
+  if (unit.role === 'gargoyle' && unit.gargoylePetrified) return 'Stone Statue';
+
   const isFlyer =
     unit.role === 'dragon' ||
     unit.role === 'phoenix' ||
     unit.role === 'griffin' ||
-    unit.role === 'pegasus';
+    unit.role === 'pegasus' ||
+    unit.role === 'thunderbird' ||
+    unit.role === 'manticore' ||
+    unit.role === 'gargoyle';
   switch (unit.state) {
     case 'fighting':
       if (unit.role === 'dragon') return 'Breathing Fire';
@@ -909,10 +1093,15 @@ function formatActivity(unit: UnitEntity): string {
         return 'Shooting Flame Balls';
       }
       if (unit.role === 'yeti') return 'Throwing Ice';
-      if (unit.role === 'hydra') return 'Spitting Venom';
+      if (unit.role === 'hydra') return 'Firing Bio-Laser';
+      if (unit.role === 'basilisk') return 'Petrifying Gaze';
+      if (unit.role === 'thunderbird') return 'Calling Lightning';
+      if (unit.role === 'kraken') return 'Whipping Tentacles';
+      if (unit.role === 'manticore') return 'Firing Tail Spikes';
       if (unit.role === 'golem' || unit.role === 'ent') return 'Smashing';
-      if (unit.role === 'minotaur') return 'Cleaving';
-      if (unit.role === 'griffin') return 'Diving';
+      if (unit.role === 'minotaur') return 'Bull Rush';
+      if (unit.role === 'griffin' || unit.role === 'gargoyle') return 'Diving';
+      if (unit.role === 'pegasus') return 'Wing Gust';
       return 'Fighting';
     case 'gathering':
       return unit.faction === 'wildlife' ? 'Grazing' : 'Gathering';
@@ -924,22 +1113,45 @@ function formatActivity(unit: UnitEntity): string {
       return 'Researching';
     case 'moving':
       if (isFlyer) return 'Flying';
+      if (unit.role === 'kraken' || unit.role === 'seal' || unit.role === 'leviathan') return 'Swimming';
       if (unit.role === 'penguin') return 'Waddling';
-      if (unit.role === 'frog' || unit.role === 'rabbit') return 'Hopping';
+      if (unit.role === 'frog' || unit.role === 'rabbit' || unit.role === 'kangaroo') return 'Hopping';
       if (unit.role === 'crab') return 'Scuttling';
       return 'Walking';
-    case 'ko':
-      return 'Defeated';
     default:
       return isFlyer ? 'Soaring' : 'Idle';
   }
 }
 
 function getAgeStageLabel(unit: UnitEntity): string {
-  if (unit.role === 'dragon' || unit.role === 'phoenix' || unit.role === 'kitsune') return 'Elder';
-  if (unit.role === 'golem' || unit.role === 'ent') return 'Ancient';
-  if (unit.role === 'unicorn' || unit.role === 'griffin' || unit.role === 'pegasus' || unit.role === 'cerberus') return 'Adult';
-  if (unit.role === 'leviathan' || unit.role === 'yeti' || unit.role === 'hydra' || unit.role === 'minotaur') return 'Giant';
+  if (
+    unit.role === 'dragon' ||
+    unit.role === 'phoenix' ||
+    unit.role === 'kitsune' ||
+    unit.role === 'thunderbird' ||
+    unit.role === 'manticore'
+  ) {
+    return 'Elder';
+  }
+  if (unit.role === 'golem' || unit.role === 'ent' || unit.role === 'gargoyle') return 'Ancient';
+  if (
+    unit.role === 'unicorn' ||
+    unit.role === 'griffin' ||
+    unit.role === 'pegasus' ||
+    unit.role === 'cerberus'
+  ) {
+    return 'Adult';
+  }
+  if (
+    unit.role === 'leviathan' ||
+    unit.role === 'yeti' ||
+    unit.role === 'hydra' ||
+    unit.role === 'minotaur' ||
+    unit.role === 'basilisk' ||
+    unit.role === 'kraken'
+  ) {
+    return 'Giant';
+  }
   if (unit.ageStage === 'child') return 'Child';
   if (unit.faction === 'wildlife') return 'Adult';
   return 'Adult';
