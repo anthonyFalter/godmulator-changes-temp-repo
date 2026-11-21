@@ -209,7 +209,22 @@ export type AnimalRole =
   | 'minotaur'
   | 'pegasus'
   | 'cerberus'
-  | 'ent';
+  | 'ent'
+  | 'giraffe'
+  | 'zebra'
+  | 'tiger'
+  | 'gorilla'
+  | 'kangaroo'
+  | 'moose'
+  | 'bison'
+  | 'flamingo'
+  | 'ostrich'
+  | 'seal'
+  | 'basilisk'
+  | 'thunderbird'
+  | 'kraken'
+  | 'manticore'
+  | 'gargoyle';
 
 export type UnitRole =
   | 'human'
@@ -340,6 +355,10 @@ export interface UnitEntity {
   leviathanLeapTargetX?: number;
   leviathanLeapTargetZ?: number;
   leviathanEatIslandCooldown?: number;
+  treantDisguised?: boolean;
+  treantIdleTimer?: number;
+  gargoylePetrified?: boolean;
+  phoenixReborn?: boolean;
 }
 
 export type GodPowerType =

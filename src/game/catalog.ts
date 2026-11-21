@@ -710,6 +710,136 @@ export const ANIMAL_UNITS: UnitDefinition[] = [
     attackRange: 1.9,
     harvestRate: 0,
   },
+  {
+    role: 'giraffe',
+    category: 'animal',
+    name: 'Giraffe',
+    faction: 'wildlife',
+    roleSummary: 'Tall spotted grazer that munches leaves off savanna trees',
+    cost: { faith: 10 },
+    maxHp: 170,
+    speed: 2.9,
+    attackDamage: 12,
+    attackRange: 1.35,
+    harvestRate: 0,
+  },
+  {
+    role: 'zebra',
+    category: 'animal',
+    name: 'Zebra',
+    faction: 'wildlife',
+    roleSummary: 'Striped savanna runner that bolts fast when predators show up',
+    cost: { faith: 8 },
+    maxHp: 110,
+    speed: 3.7,
+    attackDamage: 9,
+    attackRange: 1.15,
+    harvestRate: 0,
+  },
+  {
+    role: 'tiger',
+    category: 'animal',
+    name: 'Tiger',
+    faction: 'wildlife',
+    roleSummary: 'Striped jungle hunter that stalks deer and ambushes prey',
+    cost: { faith: 14 },
+    maxHp: 215,
+    speed: 3.55,
+    attackDamage: 27,
+    attackRange: 1.45,
+    harvestRate: 0,
+  },
+  {
+    role: 'gorilla',
+    category: 'animal',
+    name: 'Gorilla',
+    faction: 'wildlife',
+    roleSummary: 'Heavy jungle ape that mostly eats fruit but smashes intruders',
+    cost: { faith: 14 },
+    maxHp: 255,
+    speed: 2.55,
+    attackDamage: 26,
+    attackRange: 1.5,
+    harvestRate: 0,
+  },
+  {
+    role: 'kangaroo',
+    category: 'animal',
+    name: 'Kangaroo',
+    faction: 'wildlife',
+    roleSummary: 'Hops across dry plains and kicks back when cornered',
+    cost: { faith: 8 },
+    maxHp: 125,
+    speed: 3.45,
+    attackDamage: 14,
+    attackRange: 1.25,
+    harvestRate: 0,
+  },
+  {
+    role: 'moose',
+    category: 'animal',
+    name: 'Moose',
+    faction: 'wildlife',
+    roleSummary: 'Huge antlered forest beast that stands its ground in cold woods',
+    cost: { faith: 12 },
+    maxHp: 230,
+    speed: 2.8,
+    attackDamage: 22,
+    attackRange: 1.5,
+    harvestRate: 0,
+  },
+  {
+    role: 'bison',
+    category: 'animal',
+    name: 'Bison',
+    faction: 'wildlife',
+    roleSummary: 'Shaggy plains grazer that charges predators in a heavy rush',
+    cost: { faith: 12 },
+    maxHp: 245,
+    speed: 2.7,
+    attackDamage: 23,
+    attackRange: 1.45,
+    harvestRate: 0,
+  },
+  {
+    role: 'flamingo',
+    category: 'animal',
+    name: 'Flamingo',
+    faction: 'wildlife',
+    roleSummary: 'Tall pink wading bird that hangs around shallow water and beaches',
+    cost: { faith: 6 },
+    maxHp: 58,
+    speed: 2.6,
+    attackDamage: 4,
+    attackRange: 1.0,
+    harvestRate: 0,
+  },
+  {
+    role: 'ostrich',
+    category: 'animal',
+    name: 'Ostrich',
+    faction: 'wildlife',
+    roleSummary: 'Flightless bird that sprints across open plains at top speed',
+    cost: { faith: 7 },
+    maxHp: 96,
+    speed: 4.15,
+    attackDamage: 10,
+    attackRange: 1.2,
+    harvestRate: 0,
+  },
+  {
+    role: 'seal',
+    category: 'animal',
+    name: 'Seal',
+    faction: 'wildlife',
+    roleSummary: 'Chubby flipper swimmer that lounges on icy shores and swims shallows',
+    cost: { faith: 6 },
+    maxHp: 84,
+    speed: 2.05,
+    attackDamage: 6,
+    attackRange: 1.0,
+    harvestRate: 0,
+  },
 ];
 
 export const MYTHICAL_BEAST_UNITS: UnitDefinition[] = [
@@ -757,7 +887,7 @@ export const MYTHICAL_BEAST_UNITS: UnitDefinition[] = [
     category: 'mythical',
     name: 'Phoenix',
     faction: 'wildlife',
-    roleSummary: 'Fire bird that heals allies, revives ash, and throws flame balls',
+    roleSummary: 'Fire bird that heals allies, throws flame balls, and rises once from ashes',
     cost: { faith: 42 },
     maxHp: 420,
     speed: 4.25,
@@ -770,12 +900,12 @@ export const MYTHICAL_BEAST_UNITS: UnitDefinition[] = [
     category: 'mythical',
     name: 'Griffin',
     faction: 'wildlife',
-    roleSummary: 'Half eagle, half lion—flies over peaks and dives on prey',
+    roleSummary: 'Half eagle, half lion—dives on prey and blasts crowds back with wing gusts',
     cost: { faith: 38 },
     maxHp: 380,
     speed: 4.0,
     attackDamage: 34,
-    attackRange: 2.1,
+    attackRange: 2.3,
     harvestRate: 0,
   },
   {
@@ -796,7 +926,7 @@ export const MYTHICAL_BEAST_UNITS: UnitDefinition[] = [
     category: 'mythical',
     name: 'Stone Golem',
     faction: 'wildlife',
-    roleSummary: 'Walking rock giant that smashes crowds with shockwaves',
+    roleSummary: 'Walking rock giant with armored stone skin and ground-shaking slams',
     cost: { faith: 40 },
     maxHp: 600,
     speed: 1.45,
@@ -809,7 +939,7 @@ export const MYTHICAL_BEAST_UNITS: UnitDefinition[] = [
     category: 'mythical',
     name: 'Kitsune',
     faction: 'wildlife',
-    roleSummary: 'Multi-tailed fox that blesses friends and shoots flame balls to defend itself',
+    roleSummary: 'Nine-tailed fox that blesses friends, blinks out of danger, and shoots flame balls',
     cost: { faith: 36 },
     maxHp: 280,
     speed: 3.7,
@@ -822,12 +952,12 @@ export const MYTHICAL_BEAST_UNITS: UnitDefinition[] = [
     category: 'mythical',
     name: 'Hydra',
     faction: 'wildlife',
-    roleSummary: 'Three-headed swamp serpent that regenerates health and spits venom',
+    roleSummary: 'Five-headed coiled sea serpent that fires green laser beams and regrows health fast',
     cost: { faith: 46 },
-    maxHp: 620,
-    speed: 2.1,
-    attackDamage: 42,
-    attackRange: 4.5,
+    maxHp: 640,
+    speed: 2.15,
+    attackDamage: 44,
+    attackRange: 6.2,
     harvestRate: 0,
   },
   {
@@ -835,7 +965,7 @@ export const MYTHICAL_BEAST_UNITS: UnitDefinition[] = [
     category: 'mythical',
     name: 'Minotaur',
     faction: 'wildlife',
-    roleSummary: 'Horned bull warrior swinging a heavy axe that cleaves groups',
+    roleSummary: 'Horned bull warrior that bull-rushes foes and cleaves groups with a giant axe',
     cost: { faith: 38 },
     maxHp: 490,
     speed: 2.65,
@@ -848,12 +978,12 @@ export const MYTHICAL_BEAST_UNITS: UnitDefinition[] = [
     category: 'mythical',
     name: 'Pegasus',
     faction: 'wildlife',
-    roleSummary: 'Winged horse that flies everywhere and blesses friendly units',
+    roleSummary: 'Winged horse that blesses allies and shoves predators back with wind blasts',
     cost: { faith: 36 },
     maxHp: 310,
     speed: 4.35,
     attackDamage: 20,
-    attackRange: 1.6,
+    attackRange: 2.2,
     harvestRate: 0,
   },
   {
@@ -861,12 +991,12 @@ export const MYTHICAL_BEAST_UNITS: UnitDefinition[] = [
     category: 'mythical',
     name: 'Cerberus',
     faction: 'wildlife',
-    roleSummary: 'Three-headed fire hound that launches flame balls at intruders',
+    roleSummary: 'Three-headed fire hound that launches triple flame volleys and scorches dirt',
     cost: { faith: 44 },
     maxHp: 520,
     speed: 3.2,
     attackDamage: 44,
-    attackRange: 4.6,
+    attackRange: 4.8,
     harvestRate: 0,
   },
   {
@@ -874,12 +1004,77 @@ export const MYTHICAL_BEAST_UNITS: UnitDefinition[] = [
     category: 'mythical',
     name: 'Treant',
     faction: 'wildlife',
-    roleSummary: 'Living giant tree that regrows forests and crushes raiders',
+    roleSummary: 'Living tree that disguises itself as a normal oak and ambushes raiders',
     cost: { faith: 40 },
     maxHp: 640,
     speed: 1.35,
     attackDamage: 44,
     attackRange: 2.1,
+    harvestRate: 0,
+  },
+  {
+    role: 'basilisk',
+    category: 'mythical',
+    name: 'Basilisk',
+    faction: 'wildlife',
+    roleSummary: 'Crested giant serpent whose golden eye beam turns enemies to solid stone',
+    cost: { faith: 42 },
+    maxHp: 460,
+    speed: 2.5,
+    attackDamage: 36,
+    attackRange: 5.6,
+    harvestRate: 0,
+  },
+  {
+    role: 'thunderbird',
+    category: 'mythical',
+    name: 'Thunderbird',
+    faction: 'wildlife',
+    roleSummary: 'Huge storm eagle that flies overhead and calls lightning down on enemies',
+    cost: { faith: 46 },
+    maxHp: 470,
+    speed: 4.4,
+    attackDamage: 42,
+    attackRange: 5.8,
+    harvestRate: 0,
+  },
+  {
+    role: 'kraken',
+    category: 'mythical',
+    name: 'Kraken',
+    faction: 'wildlife',
+    roleSummary: 'Giant ocean squid that slams waves with tentacles and blinds foes in ink',
+    cost: { faith: 48 },
+    maxHp: 690,
+    speed: 3.1,
+    attackDamage: 50,
+    attackRange: 3.6,
+    harvestRate: 0,
+  },
+  {
+    role: 'manticore',
+    category: 'mythical',
+    name: 'Manticore',
+    faction: 'wildlife',
+    roleSummary: 'Winged crimson lion with a scorpion tail that fires volleys of poison spikes',
+    cost: { faith: 42 },
+    maxHp: 450,
+    speed: 3.85,
+    attackDamage: 38,
+    attackRange: 5.2,
+    harvestRate: 0,
+  },
+  {
+    role: 'gargoyle',
+    category: 'mythical',
+    name: 'Gargoyle',
+    faction: 'wildlife',
+    roleSummary: 'Stone-winged sentinel that perches as a statue to heal, then dives on foes',
+    cost: { faith: 38 },
+    maxHp: 510,
+    speed: 3.65,
+    attackDamage: 36,
+    attackRange: 2.2,
     harvestRate: 0,
   },
 ];
@@ -898,6 +1093,9 @@ export const FLYING_WILDLIFE_ROLES: ReadonlySet<string> = new Set([
   'phoenix',
   'griffin',
   'pegasus',
+  'thunderbird',
+  'manticore',
+  'gargoyle',
 ]);
 
 export const UNITS: UnitDefinition[] = [
@@ -1619,17 +1817,22 @@ export function getUnitMaxLifespan(unit: {
     case 'golem':
     case 'hydra':
     case 'ent':
+    case 'kraken':
+    case 'gargoyle':
       base = 500 + (seed % 65);
       break;
     case 'unicorn':
     case 'kitsune':
     case 'pegasus':
+    case 'thunderbird':
       base = 350 + (seed % 70);
       break;
     case 'griffin':
     case 'yeti':
     case 'minotaur':
     case 'cerberus':
+    case 'basilisk':
+    case 'manticore':
       base = 240 + (seed % 55);
       break;
     case 'turtle':
@@ -1642,21 +1845,31 @@ export function getUnitMaxLifespan(unit: {
     case 'crocodile':
     case 'hippo':
     case 'rhino':
+    case 'gorilla':
+    case 'ostrich':
       base = 46 + (seed % 16);
       break;
     case 'camel':
     case 'horse':
+    case 'giraffe':
+    case 'zebra':
+    case 'flamingo':
+    case 'seal':
       base = 32 + (seed % 10);
       break;
     case 'bear':
     case 'polar_bear':
     case 'panda':
+    case 'bison':
+    case 'moose':
       base = 26 + (seed % 8);
       break;
     case 'cow':
     case 'lion':
+    case 'tiger':
     case 'penguin':
     case 'monkey':
+    case 'kangaroo':
       base = 18 + (seed % 7);
       break;
     case 'wolf':
