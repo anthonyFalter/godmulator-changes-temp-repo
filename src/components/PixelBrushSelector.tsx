@@ -73,12 +73,7 @@ export const PixelBrushSelector: React.FC<PixelBrushSelectorProps> = ({
     };
   }, [open]);
 
-  const valueHint =
-    mode === 'powers'
-      ? clampedSize === 1
-        ? '1× power'
-        : `${clampedSize}× cluster`
-      : `${clampedSize * 2 + 1}×${clampedSize * 2 + 1} tiles`;
+  const valueHint = `${clampedSize}×`;
 
   return (
     <div className="relative shrink-0" role="group" aria-label="Brush size">
