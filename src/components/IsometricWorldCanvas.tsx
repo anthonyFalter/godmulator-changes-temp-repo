@@ -7519,48 +7519,41 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         }
       }
 
-      // Advance staged progressive reveal (1 layer every 2 frames) so the 26 WebGL shaders never compile all on Frame 0
-      if (startupRevealStage < 6) {
+      // Advance staged progressive reveal (1 layer per frame) so Frame 0 stays light while the full title background loads in ~4 frames
+      if (startupRevealStage < 4) {
         startupStageWait++;
-        if (startupRevealStage === 0 && startupStageWait >= 2) {
+        if (startupRevealStage === 0 && startupStageWait >= 1) {
           startupRevealStage = 1;
           startupStageWait = 0;
           terrainGroup.visible = true;
-        } else if (startupRevealStage === 1 && !chunkTerrain.hasPendingProgressiveRebuild() && startupStageWait >= 2) {
-          startupRevealStage = 2;
-          startupStageWait = 0;
           skyClouds.group.visible = true;
           skyClouds.shadowGroup.visible = true;
           zoneOverlay.mesh.visible = true;
-        } else if (startupRevealStage === 2 && startupStageWait >= 2) {
-          startupRevealStage = 3;
+        } else if (startupRevealStage === 1 && !chunkTerrain.hasPendingProgressiveRebuild()) {
+          startupRevealStage = 2;
           startupStageWait = 0;
           nodesGroup.visible = true;
           ambBatch.group.visible = true;
-          propViewDirty = true;
-        } else if (startupRevealStage === 3 && startupStageWait >= 2) {
-          startupRevealStage = 4;
-          startupStageWait = 0;
           treeBatchShadow.group.visible = true;
           treeBatchNoShadow.group.visible = true;
           propViewDirty = true;
-        } else if (startupRevealStage === 4 && startupStageWait >= 2) {
-          startupRevealStage = 5;
+        } else if (startupRevealStage === 2 && startupStageWait >= 1) {
+          startupRevealStage = 3;
           startupStageWait = 0;
           buildingsGroup.visible = true;
           unitsGroup.visible = true;
           metroGroup.visible = true;
-        } else if (startupRevealStage === 5 && startupStageWait >= 2) {
-          startupRevealStage = 6;
+        } else if (startupRevealStage === 3 && startupStageWait >= 1) {
+          startupRevealStage = 4;
           startupStageWait = 0;
         }
       }
 
-      // Stream initial/world-switch terrain chunks center-outward (4 chunks/frame) so the browser never freezes
+      // Stream initial/world-switch terrain chunks center-outward (8 chunks/frame) so the island appears in 2 frames without freezing
       const terrainStreaming = chunkTerrain.hasPendingProgressiveRebuild();
       if (terrainStreaming) {
         if (startupRevealStage >= 1) {
-          chunkTerrain.stepProgressiveRebuild(worldGrid, tileRenderY, 4);
+          chunkTerrain.stepProgressiveRebuild(worldGrid, tileRenderY, 8);
         }
       } else if (worldGrid.dirtyChunkCount > 0) {
         // Rebuild only modified 32x32 chunks (sync for instant 1-6 chunk edits, Comlink workers for bulk)
@@ -7572,7 +7565,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       }
 
       // Progressively bake the 2048x1024 tree impostor atlas (2 species/frame) once all scene layers have revealed
-      if (startupRevealStage >= 6 && !terrainStreaming && !treeImpostors.isBaked) {
+      if (startupRevealStage >= 4 && !terrainStreaming && !treeImpostors.isBaked) {
         if (treeImpostors.stepBake(2)) {
           propViewDirty = true;
         }
@@ -7581,7 +7574,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       // Debounce routine full-map prop matrix recompositions (~5.5 Hz) and defer until props/trees reveal stage
       const runPropsSyncNow =
         propsNeedSync &&
-        startupRevealStage >= 3 &&
+        startupRevealStage >= 2 &&
         !terrainStreaming &&
         (simChanged || lastPropRebuildTime < 0 || elapsed - lastPropRebuildTime >= 0.18);
       if (propsNeedSync && !runPropsSyncNow) {
@@ -8280,7 +8273,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       const cullMinZ = worldCullBounds.minZ;
       const cullMaxZ = worldCullBounds.maxZ;
 
-      const MAX_NEW_BUILDINGS_PER_FRAME = 12;
+      const MAX_NEW_BUILDINGS_PER_FRAME = startupRevealStage >= 3 ? 12 : 0;
       let newBuildingsThisFrame = 0;
       for (let bi = 0; bi < simState.buildings.length; bi++) {
         const b = simState.buildings[bi];
@@ -8369,7 +8362,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       const autoOptFrame = autoOptimizer.getFrameCounter();
       let unitShadowCount = 0;
       let visibleUnitsThisFrame = 0;
-      const MAX_NEW_UNITS_PER_FRAME = startupRevealStage >= 5 ? 12 : 0;
+      const MAX_NEW_UNITS_PER_FRAME = startupRevealStage >= 3 ? 12 : 0;
       let newUnitsThisFrame = 0;
 
       for (let ui = 0; ui < simState.units.length; ui++) {
