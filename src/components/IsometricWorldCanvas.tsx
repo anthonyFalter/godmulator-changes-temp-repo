@@ -293,6 +293,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       antialias: false, // Deliberate crisp pixel edges
       powerPreference: 'high-performance',
     });
+    // Prevent synchronous gl.getProgramInfoLog() CPU<->GPU pipeline stalls during initial shader compilation
+    renderer.debug.checkShaderErrors = false;
     const isSoftwareGl = (() => {
       const gl = renderer.getContext();
       if (!gl) return true;
@@ -564,7 +566,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       treeBatchGeos,
       true,
       true,
-      512,
+      2048,
     );
     const treeBatchNoShadow = new BatchedStaticPool(
       'batched_trees_noshadow',
@@ -572,7 +574,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       treeBatchGeos,
       false,
       true,
-      512,
+      1024,
     );
     worldGroup.add(treeBatchShadow.group);
     worldGroup.add(treeBatchNoShadow.group);
@@ -673,7 +675,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       ambBatchGeos,
       false,
       true,
-      512,
+      2048,
     );
     worldGroup.add(ambBatch.group);
 
@@ -1165,6 +1167,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       MAX_FAVORITE_STARS,
     );
     favoriteStarsInst.count = 0;
+    favoriteStarsInst.visible = false;
     favoriteStarsInst.frustumCulled = false;
     worldGroup.add(favoriteStarsInst);
 
@@ -1177,6 +1180,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       MAX_KING_CROWNS,
     );
     kingCrownsInst.count = 0;
+    kingCrownsInst.visible = false;
     kingCrownsInst.frustumCulled = false;
     worldGroup.add(kingCrownsInst);
 
@@ -1202,6 +1206,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
     const particleInstanced = new THREE.InstancedMesh(particleGeo, particleMat, MAX_PARTICLES);
     particleInstanced.frustumCulled = false;
     particleInstanced.count = 0;
+    particleInstanced.visible = false;
     worldGroup.add(particleInstanced);
 
     const particles: PooledParticle[] = Array.from({ length: MAX_PARTICLES }, () => ({
@@ -1469,7 +1474,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
     fireSpriteInst.renderOrder = 6;
     fireSmokeInst.renderOrder = 7;
     fireSpriteInst.count = 0;
+    fireSpriteInst.visible = false;
     fireSmokeInst.count = 0;
+    fireSmokeInst.visible = false;
     worldGroup.add(fireSpriteInst, fireSmokeInst);
 
     // Surface Y & render-order helpers so VFX, magic circles, reticles, and attacks stay cleanly above water waves
@@ -7147,6 +7154,22 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
     let pendingTerrainMapSync = false;
     let simSteppedThisFrame = true;
 
+    // Staged progressive reveal spreads WebGL shader compilation across frames instead of freezing Frame 0
+    // 0: space+ocean only -> 1: terrain chunks -> 2: clouds+zones -> 3: props+ambient -> 4: trees -> 5: buildings+units+metro -> 6: impostors
+    let startupRevealStage = 0;
+    let startupStageWait = 0;
+    terrainGroup.visible = false;
+    skyClouds.group.visible = false;
+    skyClouds.shadowGroup.visible = false;
+    zoneOverlay.mesh.visible = false;
+    nodesGroup.visible = false;
+    ambBatch.group.visible = false;
+    treeBatchShadow.group.visible = false;
+    treeBatchNoShadow.group.visible = false;
+    buildingsGroup.visible = false;
+    unitsGroup.visible = false;
+    metroGroup.visible = false;
+
     function syncSceneFromSimulation(simState: SimulationState, dt: number, elapsed: number) {
       syncFrameStamp++;
 
@@ -7496,10 +7519,49 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         }
       }
 
+      // Advance staged progressive reveal (1 layer every 2 frames) so the 26 WebGL shaders never compile all on Frame 0
+      if (startupRevealStage < 6) {
+        startupStageWait++;
+        if (startupRevealStage === 0 && startupStageWait >= 2) {
+          startupRevealStage = 1;
+          startupStageWait = 0;
+          terrainGroup.visible = true;
+        } else if (startupRevealStage === 1 && !chunkTerrain.hasPendingProgressiveRebuild() && startupStageWait >= 2) {
+          startupRevealStage = 2;
+          startupStageWait = 0;
+          skyClouds.group.visible = true;
+          skyClouds.shadowGroup.visible = true;
+          zoneOverlay.mesh.visible = true;
+        } else if (startupRevealStage === 2 && startupStageWait >= 2) {
+          startupRevealStage = 3;
+          startupStageWait = 0;
+          nodesGroup.visible = true;
+          ambBatch.group.visible = true;
+          propViewDirty = true;
+        } else if (startupRevealStage === 3 && startupStageWait >= 2) {
+          startupRevealStage = 4;
+          startupStageWait = 0;
+          treeBatchShadow.group.visible = true;
+          treeBatchNoShadow.group.visible = true;
+          propViewDirty = true;
+        } else if (startupRevealStage === 4 && startupStageWait >= 2) {
+          startupRevealStage = 5;
+          startupStageWait = 0;
+          buildingsGroup.visible = true;
+          unitsGroup.visible = true;
+          metroGroup.visible = true;
+        } else if (startupRevealStage === 5 && startupStageWait >= 2) {
+          startupRevealStage = 6;
+          startupStageWait = 0;
+        }
+      }
+
       // Stream initial/world-switch terrain chunks center-outward (4 chunks/frame) so the browser never freezes
       const terrainStreaming = chunkTerrain.hasPendingProgressiveRebuild();
       if (terrainStreaming) {
-        chunkTerrain.stepProgressiveRebuild(worldGrid, tileRenderY, 4);
+        if (startupRevealStage >= 1) {
+          chunkTerrain.stepProgressiveRebuild(worldGrid, tileRenderY, 4);
+        }
       } else if (worldGrid.dirtyChunkCount > 0) {
         // Rebuild only modified 32x32 chunks (sync for instant 1-6 chunk edits, Comlink workers for bulk)
         chunkTerrain.flushDirtyChunks(
@@ -7509,16 +7571,17 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         );
       }
 
-      // Progressively bake the 2048x1024 tree impostor atlas (2 species/frame) instead of 512 synchronous WebGL renders on load
-      if (!terrainStreaming && !treeImpostors.isBaked) {
+      // Progressively bake the 2048x1024 tree impostor atlas (2 species/frame) once all scene layers have revealed
+      if (startupRevealStage >= 6 && !terrainStreaming && !treeImpostors.isBaked) {
         if (treeImpostors.stepBake(2)) {
           propViewDirty = true;
         }
       }
 
-      // Debounce routine full-map prop matrix recompositions (~5.5 Hz) and defer until initial terrain finishes streaming
+      // Debounce routine full-map prop matrix recompositions (~5.5 Hz) and defer until props/trees reveal stage
       const runPropsSyncNow =
         propsNeedSync &&
+        startupRevealStage >= 3 &&
         !terrainStreaming &&
         (simChanged || lastPropRebuildTime < 0 || elapsed - lastPropRebuildTime >= 0.18);
       if (propsNeedSync && !runPropsSyncNow) {
@@ -8306,7 +8369,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       const autoOptFrame = autoOptimizer.getFrameCounter();
       let unitShadowCount = 0;
       let visibleUnitsThisFrame = 0;
-      const MAX_NEW_UNITS_PER_FRAME = 12;
+      const MAX_NEW_UNITS_PER_FRAME = startupRevealStage >= 5 ? 12 : 0;
       let newUnitsThisFrame = 0;
 
       for (let ui = 0; ui < simState.units.length; ui++) {
@@ -10662,7 +10725,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         }
       }
       fireSpriteInst.count = fireSpriteCount;
+      fireSpriteInst.visible = fireSpriteCount > 0;
       fireSmokeInst.count = fireTileCount;
+      fireSmokeInst.visible = fireTileCount > 0;
       if (fireSpriteCount > 0) {
         fireSpriteInst.instanceMatrix.needsUpdate = true;
         fireDataAttr.needsUpdate = true;
@@ -12584,6 +12649,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         i++;
       }
       particleInstanced.count = activeParticleCount;
+      particleInstanced.visible = activeParticleCount > 0;
       if (activeParticleCount > 0 || hadParticles) {
         particleInstanced.instanceMatrix.needsUpdate = true;
         if (particleInstanced.instanceColor) particleInstanced.instanceColor.needsUpdate = true;
@@ -12752,10 +12818,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       }
       _dummyQuat.identity();
       favoriteStarsInst.count = favCount;
+      favoriteStarsInst.visible = favCount > 0;
       if (favCount > 0) {
         favoriteStarsInst.instanceMatrix.needsUpdate = true;
       }
       kingCrownsInst.count = kingCount;
+      kingCrownsInst.visible = kingCount > 0;
       if (kingCount > 0) {
         kingCrownsInst.instanceMatrix.needsUpdate = true;
       }
