@@ -363,6 +363,7 @@ function createUniqueUnitName(
     kraken: ['Cthul', 'Tidebreaker', 'Inkmaw', 'Davy', 'Nautilus', 'Abyss', 'Scylla', 'Riptide', 'Trench', 'Gorgon', 'Bloop', 'Swell'],
     manticore: ['Stinger', 'Crimson', 'Venomtail', 'Maw', 'Scorpion', 'Raze', 'Fury', 'Brimclaw', 'Gorgor', 'Barb', 'Cinder', 'Bane'],
     gargoyle: ['Granite', 'Spire', 'Belfry', 'Obsidian', 'Goliath', 'Perch', 'Slate', 'Stonewing', 'Crag', 'Sentinel', 'Vesper', 'Basalt'],
+    giant_spider: ['Arachne', 'Shelob', 'Venomfang', 'Widow', 'Silkspinner', 'Blightweaver', 'Tarantula', 'Nox', 'Webclaw', 'Mirebite', 'Chitin', 'Skitter'],
   };
 
   const creaturePool = CREATURE_NAMES[role];
@@ -1927,6 +1928,7 @@ export function isCultivableSoil(t: TileData): boolean {
     t.terrain === 'savanna' ||
     t.terrain === 'jungle' ||
     t.terrain === 'blossom' ||
+    t.terrain === 'floral_plains' ||
     t.terrain === 'taiga'
   );
 }
@@ -1935,7 +1937,12 @@ export function isHealthyTreeSoil(t: TileData): boolean {
   if (isCultivableSoil(t)) return true;
   if (t.height <= 0 || t.height >= 6) return false;
   if (t.onFireTimer > 0 || t.cursedTimer > 0) return false;
-  return t.terrain === 'swamp' || t.terrain === 'highland';
+  return (
+    t.terrain === 'swamp' ||
+    t.terrain === 'highland' ||
+    t.terrain === 'volcanic_wasteland' ||
+    t.terrain === 'blighted_mire'
+  );
 }
 
 function isBlossomSoil(t: TileData): boolean {
@@ -1947,6 +1954,7 @@ function isBlossomSoil(t: TileData): boolean {
     t.terrain === 'savanna' ||
     t.terrain === 'jungle' ||
     t.terrain === 'blossom' ||
+    t.terrain === 'floral_plains' ||
     t.terrain === 'taiga'
   );
 }
@@ -1958,13 +1966,13 @@ function getBiomeResourceDeposit(
   z: number,
 ): { node: TileData['resourceNode']; amount: number } {
   if (toolType === 'boulder_rain') {
-    if (terrain === 'mountain' || terrain === 'rock' || terrain === 'highland') {
+    if (terrain === 'mountain' || terrain === 'rock' || terrain === 'highland' || terrain === 'volcanic_wasteland') {
       return { node: 'stone_outcrop', amount: 440 };
     }
-    if (terrain === 'scorched' || terrain === 'badlands') {
+    if (terrain === 'scorched' || terrain === 'badlands' || terrain === 'blighted_mire') {
       return { node: 'stone_outcrop', amount: 400 };
     }
-    if (terrain === 'snow' || terrain === 'tundra') {
+    if (terrain === 'snow' || terrain === 'tundra' || terrain === 'floral_plains') {
       return { node: 'stone_outcrop', amount: 360 };
     }
     if (terrain === 'sand' || terrain === 'savanna') {
@@ -1976,16 +1984,16 @@ function getBiomeResourceDeposit(
     if (terrain === 'crystal_field') {
       return { node: 'crystal_monolith', amount: 440 };
     }
-    if (terrain === 'mountain' || terrain === 'rock' || terrain === 'scorched') {
+    if (terrain === 'mountain' || terrain === 'rock' || terrain === 'scorched' || terrain === 'volcanic_wasteland') {
       return {
         node: (x + z) % 4 === 0 ? 'crystal_monolith' : 'ore_vein',
         amount: 420,
       };
     }
-    if (terrain === 'badlands' || terrain === 'sand' || terrain === 'highland') {
+    if (terrain === 'badlands' || terrain === 'sand' || terrain === 'highland' || terrain === 'blighted_mire') {
       return { node: 'ore_vein', amount: 360 };
     }
-    if (terrain === 'snow' || terrain === 'tundra') {
+    if (terrain === 'snow' || terrain === 'tundra' || terrain === 'floral_plains') {
       return {
         node: (x + z) % 4 === 0 ? 'crystal_monolith' : 'ore_vein',
         amount: 340,
@@ -1994,10 +2002,10 @@ function getBiomeResourceDeposit(
     return { node: 'ore_vein', amount: 300 };
   }
   // crystal_shower
-  if (terrain === 'crystal_field' || terrain === 'mountain' || terrain === 'snow') {
+  if (terrain === 'crystal_field' || terrain === 'mountain' || terrain === 'snow' || terrain === 'floral_plains') {
     return { node: 'crystal_monolith', amount: 480 };
   }
-  if (terrain === 'rock' || terrain === 'scorched' || terrain === 'blossom') {
+  if (terrain === 'rock' || terrain === 'scorched' || terrain === 'blossom' || terrain === 'volcanic_wasteland' || terrain === 'blighted_mire') {
     return { node: 'crystal_monolith', amount: 420 };
   }
   return { node: 'crystal_monolith', amount: 360 };
@@ -2007,6 +2015,7 @@ function raiseWaterTileToLand(t: TileData, terrain: TerrainType, height = 1): vo
   t.height = Math.max(1, Math.min(10, height));
   t.terrain = terrain;
   t.isRiver = false;
+  delete t.waterKind;
   delete t.frozenWaterBase;
   delete t.coralBleachTimer;
   t.onFireTimer = 0;
@@ -2033,9 +2042,12 @@ export function canApplyTerrainToolToTile(
     case 'lower':
     case 'flatten':
     case 'carve_river':
+    case 'lava_river':
+    case 'poison_river':
     case 'abyssal_trench':
     case 'alpine_glacier':
     case 'volcanic_obsidian':
+    case 'volcanic_wasteland':
       return true;
     case 'seed_ore':
     case 'crystal_shower':
@@ -2049,7 +2061,8 @@ export function canApplyTerrainToolToTile(
     case 'plant_forest':
       return isHealthyTreeSoil(t) && !t.buildingId;
     case 'blossom_rain':
-      return isBlossomSoil(t);
+    case 'floral_rain':
+      return isBlossomSoil(t) || (toolType === 'floral_rain' && t.height > 0 && !t.buildingId);
     case 'jungle_bloom':
       return isCultivableSoil(t) || (t.height > 0 && t.terrain === 'swamp');
     case 'soil_enrich':
@@ -2057,6 +2070,8 @@ export function canApplyTerrainToolToTile(
         t.height > 0 &&
         (t.terrain === 'scorched' ||
           t.terrain === 'void_goo' ||
+          t.terrain === 'volcanic_wasteland' ||
+          t.terrain === 'blighted_mire' ||
           t.terrain === 'badlands' ||
           t.terrain === 'rock' ||
           t.terrain === 'swamp' ||
@@ -2075,6 +2090,8 @@ export function canApplyTerrainToolToTile(
     case 'atlantis_rise':
       return t.height === 0 && !t.buildingId;
     case 'swamp_mire':
+    case 'blighted_mire':
+    case 'floral_plains':
       return t.height > 0 && !t.buildingId;
   }
 }
@@ -2103,6 +2120,7 @@ function applyTerrainToolTileMutation(
             } else if (t.height >= 5) {
               if (
                 t.terrain !== 'scorched' &&
+                t.terrain !== 'volcanic_wasteland' &&
                 t.terrain !== 'crystal_field' &&
                 t.terrain !== 'rock' &&
                 t.terrain !== 'badlands'
@@ -2157,7 +2175,7 @@ function applyTerrainToolTileMutation(
       } else if (t.height > 0) {
         t.height = targetFlattenHeight;
         if (t.height >= 8) t.terrain = 'snow';
-        else if (t.height >= 5 && t.terrain !== 'scorched' && t.terrain !== 'badlands' && t.terrain !== 'rock') {
+        else if (t.height >= 5 && t.terrain !== 'scorched' && t.terrain !== 'volcanic_wasteland' && t.terrain !== 'badlands' && t.terrain !== 'rock') {
           t.terrain = 'mountain';
         } else if (
           t.height < 5 &&
@@ -2275,6 +2293,31 @@ function applyTerrainToolTileMutation(
           }
           break;
         }
+        case 'floral_rain': {
+          if (t.height > 0 && !t.buildingId) {
+            t.terrain = 'floral_plains';
+            t.onFireTimer = 0;
+            t.cursedTimer = 0;
+            clearBurntTreeState(t);
+            t.blessedTimer = Math.max(t.blessedTimer, 22);
+            const roll = (t.x * 7 + t.z * 11) % 6;
+            if (roll === 0) {
+              t.resourceNode = 'stone_outcrop';
+              t.resourceAmount = 260;
+              delete t.treeBiomeOverride;
+            } else if (roll <= 2) {
+              t.resourceNode = 'berry_bush';
+              t.resourceAmount = 260;
+              delete t.treeBiomeOverride;
+            } else {
+              t.resourceNode = 'timber_grove';
+              t.resourceAmount = 300;
+              t.treeBiomeOverride = 'floral';
+            }
+            tileModified = true;
+          }
+          break;
+        }
         case 'jungle_bloom': {
           if (isCultivableSoil(t) || (t.height > 0 && t.terrain === 'swamp')) {
             t.terrain = 'jungle';
@@ -2294,6 +2337,8 @@ function applyTerrainToolTileMutation(
             const harsh =
               t.terrain === 'scorched' ||
               t.terrain === 'void_goo' ||
+              t.terrain === 'volcanic_wasteland' ||
+              t.terrain === 'blighted_mire' ||
               t.terrain === 'badlands' ||
               t.terrain === 'rock' ||
               t.terrain === 'swamp' ||
@@ -2351,6 +2396,85 @@ function applyTerrainToolTileMutation(
           tileModified = true;
           break;
         }
+        case 'volcanic_wasteland': {
+          if (t.height === 0) {
+            raiseWaterTileToLand(t, 'volcanic_wasteland', 1);
+          } else {
+            t.terrain = 'volcanic_wasteland';
+            clearBurntTreeState(t);
+            delete t.treeBiomeOverride;
+          }
+          t.tempOffset = Math.min(65, Math.max(t.tempOffset ?? 0, 26));
+          if (!t.buildingId) {
+            const roll = (t.x * 13 + t.z * 17) % 7;
+            if (roll <= 1) {
+              t.resourceNode = 'timber_grove';
+              t.resourceAmount = 240;
+            } else if (roll === 2) {
+              t.resourceNode = 'ore_vein';
+              t.resourceAmount = 360;
+            } else if (roll === 3) {
+              t.resourceNode = 'stone_outcrop';
+              t.resourceAmount = 310;
+            } else {
+              t.resourceNode = 'none';
+              t.resourceAmount = 0;
+            }
+          }
+          tileModified = true;
+          break;
+        }
+        case 'blighted_mire': {
+          if (t.height > 0 && !t.buildingId) {
+            if (t.height > 3) t.height = 3;
+            t.terrain = 'blighted_mire';
+            t.onFireTimer = 0;
+            clearBurntTreeState(t);
+            delete t.treeBiomeOverride;
+            const roll = (t.x * 11 + t.z * 19) % 7;
+            if (roll <= 2) {
+              t.resourceNode = 'timber_grove';
+              t.resourceAmount = 230;
+            } else if (roll === 3) {
+              t.resourceNode = 'stone_outcrop';
+              t.resourceAmount = 270;
+            } else if (roll === 4) {
+              t.resourceNode = 'ore_vein';
+              t.resourceAmount = 300;
+            } else {
+              t.resourceNode = 'none';
+              t.resourceAmount = 0;
+            }
+            tileModified = true;
+          }
+          break;
+        }
+        case 'floral_plains': {
+          if (t.height > 0 && !t.buildingId) {
+            t.terrain = 'floral_plains';
+            t.onFireTimer = 0;
+            t.cursedTimer = 0;
+            t.blessedTimer = Math.max(t.blessedTimer, 18);
+            clearBurntTreeState(t);
+            delete t.treeBiomeOverride;
+            const roll = (t.x * 9 + t.z * 13) % 8;
+            if (roll <= 2) {
+              t.resourceNode = 'timber_grove';
+              t.resourceAmount = 270;
+            } else if (roll <= 4) {
+              t.resourceNode = 'berry_bush';
+              t.resourceAmount = 240;
+            } else if (roll === 5) {
+              t.resourceNode = 'stone_outcrop';
+              t.resourceAmount = 250;
+            } else {
+              t.resourceNode = 'none';
+              t.resourceAmount = 0;
+            }
+            tileModified = true;
+          }
+          break;
+        }
         case 'coral_reef_rain': {
           if (t.height === 0) {
             if (t.terrain === 'ice') {
@@ -2391,6 +2515,7 @@ function applyTerrainToolTileMutation(
             t.height = 0;
             t.terrain = 'shallow_water';
             t.isRiver = true;
+            delete t.waterKind;
             t.resourceNode = 'none';
             t.resourceAmount = 0;
             t.onFireTimer = 0;
@@ -2398,10 +2523,42 @@ function applyTerrainToolTileMutation(
           }
           break;
         }
+        case 'lava_river': {
+          tileModified = true;
+          t.height = 0;
+          t.terrain = 'shallow_water';
+          t.waterKind = 'lava';
+          t.isRiver = true;
+          t.tempOffset = Math.min(80, Math.max(t.tempOffset ?? 0, 35));
+          delete t.frozenWaterBase;
+          t.resourceNode = 'none';
+          t.resourceAmount = 0;
+          t.onFireTimer = 0;
+          t.farmSettlementId = undefined;
+          clearBurntTreeState(t);
+          delete t.treeBiomeOverride;
+          break;
+        }
+        case 'poison_river': {
+          tileModified = true;
+          t.height = 0;
+          t.terrain = 'shallow_water';
+          t.waterKind = 'poison';
+          t.isRiver = true;
+          delete t.frozenWaterBase;
+          t.resourceNode = 'none';
+          t.resourceAmount = 0;
+          t.onFireTimer = 0;
+          t.farmSettlementId = undefined;
+          clearBurntTreeState(t);
+          delete t.treeBiomeOverride;
+          break;
+        }
         case 'abyssal_trench': {
           t.height = 0;
           t.terrain = 'deep_water';
           t.isRiver = false;
+          delete t.waterKind;
           delete t.frozenWaterBase;
           t.resourceNode = 'none';
           t.resourceAmount = 0;
@@ -2475,7 +2632,7 @@ export function executeTerrainDropTileImpact(
   if (!changed) return false;
 
   if (!options?.skipSync) {
-    if (toolType === 'blossom_rain') {
+    if (toolType === 'blossom_rain' || toolType === 'floral_rain') {
       const clearRadiusSq = 2.25 * 2.25;
       for (const u of state.units) {
         if (
@@ -2484,7 +2641,8 @@ export function executeTerrainDropTileImpact(
           (u.x - tileX) ** 2 + (u.z - tileZ) ** 2 <= clearRadiusSq
         ) {
           u.statusEffects.cursed = 0;
-          u.hp = Math.min(u.maxHp, u.hp + 15);
+          u.statusEffects.plagued = 0;
+          u.hp = Math.min(u.maxHp, u.hp + 18);
         }
       }
     }
@@ -2525,7 +2683,7 @@ export function executeTerrainDropBatchImpact(
 
   if (changedCount === 0) return 0;
 
-  if (toolType === 'blossom_rain') {
+  if (toolType === 'blossom_rain' || toolType === 'floral_rain') {
     const pad = 2.25;
     const cx = (minX + maxX) * 0.5;
     const cz = (minZ + maxZ) * 0.5;
@@ -2539,7 +2697,8 @@ export function executeTerrainDropBatchImpact(
       const dz = u.z - cz;
       if (dx * dx + dz * dz <= rSq) {
         u.statusEffects.cursed = 0;
-        u.hp = Math.min(u.maxHp, u.hp + 15);
+        u.statusEffects.plagued = 0;
+        u.hp = Math.min(u.maxHp, u.hp + 18);
       }
     }
   }
@@ -2590,7 +2749,7 @@ export function applyTerrainTool(
   }
 
   if (modifiedCount === 0) {
-    if (toolType === 'plant_forest' || toolType === 'fertile_meadow' || toolType === 'blossom_rain') {
+    if (toolType === 'plant_forest' || toolType === 'fertile_meadow' || toolType === 'blossom_rain' || toolType === 'floral_rain') {
       return {
         ok: false,
         reason: 'Needs healthy land soil — revive barren land with Fertile Soil, Rain, or Bless first!',
@@ -2606,7 +2765,9 @@ export function applyTerrainTool(
       toolType === 'soil_enrich' ||
       toolType === 'jungle_bloom' ||
       toolType === 'desert_dunes' ||
-      toolType === 'swamp_mire'
+      toolType === 'swamp_mire' ||
+      toolType === 'blighted_mire' ||
+      toolType === 'floral_plains'
     ) {
       return {
         ok: false,
@@ -2622,12 +2783,13 @@ export function applyTerrainTool(
     return { ok: false, reason: 'Cannot apply tool on this terrain' };
   }
 
-  if (!deferSkyImpact && toolType === 'blossom_rain') {
+  if (!deferSkyImpact && (toolType === 'blossom_rain' || toolType === 'floral_rain')) {
     const clearRadiusSq = (clampedRadius + 2) ** 2;
     for (const u of state.units) {
       if (u.state !== 'ko' && u.faction !== 'hostile' && (u.x - centerX) ** 2 + (u.z - centerZ) ** 2 <= clearRadiusSq) {
         u.statusEffects.cursed = 0;
-        u.hp = Math.min(u.maxHp, u.hp + 15);
+        u.statusEffects.plagued = 0;
+        u.hp = Math.min(u.maxHp, u.hp + 18);
       }
     }
   }
@@ -5086,6 +5248,216 @@ export function executeGodPowerImpact(
       addChronicle(state, 'Anti-Gravity lifted units and animals high into the air!', 'warning');
       break;
     }
+
+    case 'lava_deluge': {
+      isHeavy = true;
+      const riverAng = (((targetX * 17 + targetZ * 29) & 31) / 32) * Math.PI * 2;
+      const rCos = Math.cos(riverAng);
+      const rSin = Math.sin(riverAng);
+      forEachTileInBounds(state, targetX - r, targetX + r, targetZ - r, targetZ + r, (t) => {
+        const dx = t.x - targetX;
+        const dz = t.z - targetZ;
+        const dSq = dx * dx + dz * dz;
+        if (dSq > rSq) return;
+        t.blessedTimer = 0;
+        t.tempOffset = Math.min(80, Math.max(t.tempOffset ?? 0, 36));
+        const along = dx * rCos + dz * rSin;
+        const perp = -dx * rSin + dz * rCos + Math.sin(along * 0.7) * 0.75;
+        const isLavaLake = dSq <= 2.25;
+        const isLavaStream = Math.abs(perp) <= 0.72 && dSq <= rSq * 0.85;
+        if (!t.buildingId && (isLavaLake || isLavaStream || t.height === 0)) {
+          t.height = 0;
+          t.terrain = 'shallow_water';
+          t.waterKind = 'lava';
+          t.isLake = isLavaLake || undefined;
+          t.isRiver = !isLavaLake || undefined;
+          t.resourceNode = 'none';
+          t.resourceAmount = 0;
+          t.farmSettlementId = undefined;
+          clearBurntTreeState(t);
+          delete t.treeBiomeOverride;
+        } else if (t.height > 0 && !t.buildingId) {
+          t.terrain = 'volcanic_wasteland';
+          t.farmSettlementId = undefined;
+          clearBurntTreeState(t);
+          delete t.treeBiomeOverride;
+          const hRoll = Math.abs((t.x * 13 + t.z * 23) % 7);
+          if (hRoll <= 1) {
+            t.resourceNode = 'timber_grove';
+            t.resourceAmount = 240;
+          } else if (hRoll === 2) {
+            t.resourceNode = 'ore_vein';
+            t.resourceAmount = 360;
+          } else if (hRoll === 3) {
+            t.resourceNode = 'stone_outcrop';
+            t.resourceAmount = 300;
+          } else if (t.resourceNode === 'berry_bush') {
+            t.resourceNode = 'none';
+            t.resourceAmount = 0;
+          }
+        }
+      });
+      for (const b of state.buildings) {
+        const dSq = (b.tileX - targetX) ** 2 + (b.tileZ - targetZ) ** 2;
+        if (dSq <= rSq && b.shieldTimer <= 0) {
+          b.hp = Math.max(0, b.hp - 220);
+        }
+      }
+      for (const u of state.units) {
+        if (u.state === 'ko' || u.statusEffects.shielded) continue;
+        const dSq = (u.x - targetX) ** 2 + (u.z - targetZ) ** 2;
+        if (dSq <= rSq && u.role !== 'dragon' && u.role !== 'phoenix' && u.role !== 'cerberus') {
+          u.hp = Math.max(0, u.hp - 120);
+          if (u.hp <= 0) {
+            u.state = 'ko';
+            u.koTimer = 0.45;
+          }
+        }
+      }
+      addChronicle(state, 'Lava Deluge flooded the land with flowing lava rivers, lakes, and volcanic wasteland!', 'warning');
+      break;
+    }
+
+    case 'blight_plague': {
+      isHeavy = true;
+      const riverAng = (((targetX * 19 + targetZ * 31) & 31) / 32) * Math.PI * 2;
+      const rCos = Math.cos(riverAng);
+      const rSin = Math.sin(riverAng);
+      forEachTileInBounds(state, targetX - r, targetX + r, targetZ - r, targetZ + r, (t) => {
+        const dx = t.x - targetX;
+        const dz = t.z - targetZ;
+        const dSq = dx * dx + dz * dz;
+        if (dSq > rSq) return;
+        t.blessedTimer = 0;
+        t.onFireTimer = 0;
+        const along = dx * rCos + dz * rSin;
+        const perp = -dx * rSin + dz * rCos + Math.sin(along * 0.65) * 0.75;
+        const isPoisonLake = dSq <= 2.4;
+        const isPoisonStream = Math.abs(perp) <= 0.72 && dSq <= rSq * 0.82;
+        if (!t.buildingId && (t.height === 0 || isPoisonLake || isPoisonStream)) {
+          t.height = 0;
+          t.terrain = 'shallow_water';
+          t.waterKind = 'poison';
+          t.isLake = isPoisonLake || undefined;
+          t.isRiver = !isPoisonLake || undefined;
+          t.resourceNode = 'none';
+          t.resourceAmount = 0;
+          t.farmSettlementId = undefined;
+          clearBurntTreeState(t);
+          delete t.treeBiomeOverride;
+        } else if (t.height > 0 && !t.buildingId) {
+          t.terrain = 'blighted_mire';
+          t.farmSettlementId = undefined;
+          clearBurntTreeState(t);
+          delete t.treeBiomeOverride;
+          const hRoll = Math.abs((t.x * 11 + t.z * 17) % 7);
+          if (hRoll <= 2) {
+            t.resourceNode = 'timber_grove';
+            t.resourceAmount = 220;
+          } else if (hRoll === 3) {
+            t.resourceNode = 'stone_outcrop';
+            t.resourceAmount = 260;
+          } else if (t.resourceNode === 'berry_bush') {
+            t.resourceNode = 'none';
+            t.resourceAmount = 0;
+          }
+        }
+      });
+      for (const u of state.units) {
+        if (u.state === 'ko' || u.statusEffects.shielded || u.role === 'giant_spider') continue;
+        const dSq = (u.x - targetX) ** 2 + (u.z - targetZ) ** 2;
+        if (dSq <= rSq) {
+          u.statusEffects.plagued = 16;
+          u.statusEffects.cursed = 12;
+        }
+      }
+      // Spawn 2-3 Giant Spiders on dry blighted tiles within the radius
+      let spidersSpawned = 0;
+      for (const [ox, oz] of [
+        [2, 0],
+        [-2, 1],
+        [0, -2],
+        [2, 2],
+        [-2, -2],
+      ]) {
+        if (spidersSpawned >= 3) break;
+        const sx = Math.max(2, Math.min(state.gridSize - 3, Math.round(targetX + ox)));
+        const sz = Math.max(2, Math.min(state.gridSize - 3, Math.round(targetZ + oz)));
+        const st = getTile(state, sx, sz);
+        if (st && st.height > 0 && !st.buildingId) {
+          const res = spawnUnit(state, 'giant_spider', sx, sz, true);
+          if (res.ok) spidersSpawned++;
+        }
+      }
+      addChronicle(state, 'Blight Plague poisoned the soil into dark purple mire and spawned Giant Spiders!', 'warning');
+      break;
+    }
+
+    case 'floral_paradise': {
+      isHeavy = false;
+      forEachTileInBounds(state, targetX - r, targetX + r, targetZ - r, targetZ + r, (t) => {
+        const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
+        if (dSq > rSq) return;
+        t.onFireTimer = 0;
+        t.cursedTimer = 0;
+        t.blessedTimer = Math.max(t.blessedTimer, 30);
+        clearBurntTreeState(t);
+        if (t.height === 0) {
+          t.terrain = 'shallow_water';
+          t.waterKind = 'floral';
+          delete t.frozenWaterBase;
+          delete t.coralBleachTimer;
+        } else if (!t.buildingId) {
+          t.terrain = 'floral_plains';
+          delete t.treeBiomeOverride;
+          const hRoll = Math.abs((t.x * 7 + t.z * 13) % 8);
+          if (hRoll <= 2) {
+            t.resourceNode = 'timber_grove';
+            t.resourceAmount = 280;
+          } else if (hRoll <= 4) {
+            t.resourceNode = 'berry_bush';
+            t.resourceAmount = 250;
+          } else if (hRoll === 5) {
+            t.resourceNode = 'stone_outcrop';
+            t.resourceAmount = 260;
+          }
+        }
+      });
+      for (const u of state.units) {
+        if (u.state === 'ko' || u.faction === 'hostile') continue;
+        const dSq = (u.x - targetX) ** 2 + (u.z - targetZ) ** 2;
+        if (dSq <= rSq) {
+          u.hp = u.maxHp;
+          u.statusEffects.blessed = 25;
+          delete u.statusEffects.cursed;
+          delete u.statusEffects.plagued;
+        }
+      }
+      for (const b of state.buildings) {
+        if ((b.tileX - targetX) ** 2 + (b.tileZ - targetZ) ** 2 <= rSq) {
+          b.hp = b.maxHp;
+          b.blessedTimer = 25;
+          b.cursedTimer = 0;
+        }
+      }
+      // Spawn peaceful Floral Plains wildlife (Deer, Rabbit, or Unicorn)
+      const floralAnimals: UnitRole[] =
+        state.worldRules?.allowFantasy !== false
+          ? ['deer', 'rabbit', 'unicorn']
+          : ['deer', 'rabbit', 'horse'];
+      let spawned = 0;
+      for (let i = 0; i < floralAnimals.length; i++) {
+        const sx = Math.max(2, Math.min(state.gridSize - 3, Math.round(targetX + (i - 1) * 2)));
+        const sz = Math.max(2, Math.min(state.gridSize - 3, Math.round(targetZ + ((i % 2) * 2 - 1))));
+        const st = getTile(state, sx, sz);
+        if (st && st.height > 0 && !st.buildingId) {
+          if (spawnUnit(state, floralAnimals[i], sx, sz, true).ok) spawned++;
+        }
+      }
+      state.happiness = Math.min(100, state.happiness + 18);
+      addChronicle(state, `Floral Paradise bloomed into majestic fantasy steppes${spawned > 0 ? ' and attracted wildlife' : ''}!`, 'divine');
+      break;
+    }
   }
 
   syncStateResourcesFromKingdoms(state);
@@ -5127,6 +5499,7 @@ export function castGodPower(
   const deferImpact = Boolean(options?.deferImpact);
   let isHeavy =
     powerType !== 'blessing' &&
+    powerType !== 'floral_paradise' &&
     powerType !== 'rain_of_plenty' &&
     powerType !== 'freeze_snap' &&
     powerType !== 'heat_wave' &&
@@ -12677,6 +13050,9 @@ function getTileTreeBiome(terrain: TerrainType): BurntTreeBiomeKey {
   if (terrain === 'blossom') return 'blossom';
   if (terrain === 'savanna' || terrain === 'badlands' || terrain === 'sand') return 'savanna';
   if (terrain === 'swamp') return 'swamp';
+  if (terrain === 'volcanic_wasteland') return 'volcanic';
+  if (terrain === 'blighted_mire') return 'blight';
+  if (terrain === 'floral_plains') return 'floral';
   if (terrain === 'highland' || terrain === 'mountain' || terrain === 'rock') return 'highland';
   if (terrain === 'grass' || terrain === 'fertile') return 'meadow';
   return 'forest';
@@ -12689,6 +13065,8 @@ function isFlammableVegetationTerrain(terrain: TerrainType): boolean {
     terrain === 'savanna' ||
     terrain === 'taiga' ||
     terrain === 'blossom' ||
+    terrain === 'floral_plains' ||
+    terrain === 'blighted_mire' ||
     terrain === 'fertile' ||
     terrain === 'grass' ||
     terrain === 'highland' ||
@@ -12720,13 +13098,13 @@ function getTileFlammabilityRate(state: SimulationState, t: TileData): number {
     return 0.18;
   }
   if (t.terrain === 'savanna') return 0.18;
-  if (t.terrain === 'blossom' || t.terrain === 'fertile') {
+  if (t.terrain === 'blossom' || t.terrain === 'floral_plains' || t.terrain === 'fertile') {
     return 0.16;
   }
   if (t.terrain === 'grass') {
     return t.farmSettlementId ? 0.16 : 0.13;
   }
-  if (t.terrain === 'highland') return 0.11;
+  if (t.terrain === 'highland' || t.terrain === 'blighted_mire') return 0.11;
   if (t.terrain === 'swamp') return 0.08;
   return 0;
 }
@@ -12740,6 +13118,7 @@ export function isCarnivoreAnimal(role: UnitRole, appearanceSeed?: number): bool
     role === 'tiger' ||
     role === 'crocodile' ||
     role === 'polar_bear' ||
+    role === 'giant_spider' ||
     role === 'griffin' ||
     role === 'yeti' ||
     role === 'hydra' ||
@@ -12840,6 +13219,7 @@ function tileIsPlantGrazeGround(t: TileData, allowTrees: boolean): boolean {
   return (
     t.terrain === 'fertile' ||
     t.terrain === 'blossom' ||
+    t.terrain === 'floral_plains' ||
     t.terrain === 'grass' ||
     t.terrain === 'savanna' ||
     t.terrain === 'highland' ||
@@ -12855,6 +13235,9 @@ function tileMatchesWildlifeHabitat(
 ): boolean {
   if (role === 'kraken') {
     return t.height === 0 && !t.isRiver && !t.isLake && (t.terrain === 'deep_water' || t.terrain === 'shallow_water');
+  }
+  if (role === 'giant_spider') {
+    return t.height > 0 && (t.terrain === 'blighted_mire' || t.terrain === 'swamp' || t.terrain === 'forest');
   }
   if (role === 'penguin' || role === 'polar_bear' || role === 'seal') {
     if (role === 'seal' && t.terrain === 'shallow_water') return true;
@@ -12876,25 +13259,25 @@ function tileMatchesWildlifeHabitat(
     return t.terrain === 'sand';
   }
   if (t.height <= 0) return false;
-  if (role === 'cow') return t.terrain === 'grass' || t.terrain === 'fertile' || t.terrain === 'savanna';
-  if (role === 'horse' || role === 'bison') return t.terrain === 'grass' || t.terrain === 'fertile' || t.terrain === 'savanna' || t.terrain === 'highland';
-  if (role === 'chicken') return t.terrain === 'grass' || t.terrain === 'fertile' || t.terrain === 'blossom';
+  if (role === 'cow') return t.terrain === 'grass' || t.terrain === 'fertile' || t.terrain === 'floral_plains' || t.terrain === 'savanna';
+  if (role === 'horse' || role === 'bison') return t.terrain === 'grass' || t.terrain === 'fertile' || t.terrain === 'floral_plains' || t.terrain === 'savanna' || t.terrain === 'highland';
+  if (role === 'chicken') return t.terrain === 'grass' || t.terrain === 'fertile' || t.terrain === 'blossom' || t.terrain === 'floral_plains';
   if (role === 'pig') return t.terrain === 'grass' || t.terrain === 'forest' || t.terrain === 'swamp' || t.terrain === 'fertile';
-  if (role === 'deer') return t.terrain === 'forest' || t.terrain === 'blossom' || t.terrain === 'fertile' || t.terrain === 'grass';
+  if (role === 'deer') return t.terrain === 'forest' || t.terrain === 'blossom' || t.terrain === 'floral_plains' || t.terrain === 'fertile' || t.terrain === 'grass';
   if (role === 'moose') return t.terrain === 'taiga' || t.terrain === 'forest' || t.terrain === 'snow' || t.terrain === 'tundra';
-  if (role === 'sheep') return t.terrain === 'grass' || t.terrain === 'fertile' || t.terrain === 'highland';
+  if (role === 'sheep') return t.terrain === 'grass' || t.terrain === 'fertile' || t.terrain === 'floral_plains' || t.terrain === 'highland';
   if (role === 'goat') return t.terrain === 'highland' || t.terrain === 'mountain' || t.terrain === 'rock' || t.terrain === 'taiga';
   if (role === 'monkey' || role === 'gorilla' || role === 'tiger') return t.terrain === 'jungle' || t.terrain === 'forest' || t.terrain === 'blossom';
-  if (role === 'panda') return t.terrain === 'forest' || t.terrain === 'blossom' || t.terrain === 'jungle' || t.terrain === 'fertile';
-  if (role === 'rabbit') return t.terrain === 'grass' || t.terrain === 'fertile' || t.terrain === 'blossom' || t.terrain === 'forest' || t.terrain === 'tundra';
-  if (role === 'fox') return t.terrain === 'forest' || t.terrain === 'taiga' || t.terrain === 'blossom' || t.terrain === 'grass' || t.terrain === 'tundra';
+  if (role === 'panda') return t.terrain === 'forest' || t.terrain === 'blossom' || t.terrain === 'floral_plains' || t.terrain === 'jungle' || t.terrain === 'fertile';
+  if (role === 'rabbit') return t.terrain === 'grass' || t.terrain === 'fertile' || t.terrain === 'blossom' || t.terrain === 'floral_plains' || t.terrain === 'forest' || t.terrain === 'tundra';
+  if (role === 'fox') return t.terrain === 'forest' || t.terrain === 'taiga' || t.terrain === 'blossom' || t.terrain === 'floral_plains' || t.terrain === 'grass' || t.terrain === 'tundra';
   if (role === 'boar') return t.terrain === 'forest' || t.terrain === 'swamp' || t.terrain === 'savanna' || t.terrain === 'badlands';
   if (role === 'lion' || role === 'rhino' || role === 'giraffe' || role === 'zebra' || role === 'ostrich') return t.terrain === 'savanna' || t.terrain === 'badlands' || t.terrain === 'grass' || t.terrain === 'sand';
   if (role === 'kangaroo') return t.terrain === 'savanna' || t.terrain === 'badlands' || t.terrain === 'sand';
   if (role === 'elephant') return t.terrain === 'savanna' || t.terrain === 'jungle' || t.terrain === 'fertile';
   if (role === 'camel') return t.terrain === 'sand' || t.terrain === 'badlands' || t.terrain === 'savanna';
   if (role === 'capybara' || role === 'crocodile' || role === 'hippo' || role === 'frog' || role === 'hydra' || role === 'basilisk') {
-    if (t.terrain === 'swamp' || t.terrain === 'jungle' || (role === 'basilisk' && (t.terrain === 'badlands' || t.terrain === 'rock'))) return true;
+    if (t.terrain === 'swamp' || t.terrain === 'blighted_mire' || t.terrain === 'jungle' || (role === 'basilisk' && (t.terrain === 'badlands' || t.terrain === 'rock'))) return true;
     if (t.terrain === 'sand' || t.terrain === 'grass' || t.terrain === 'fertile') {
       for (const [ox, oz] of [
         [1, 0],
@@ -12917,21 +13300,22 @@ function tileMatchesWildlifeHabitat(
         t.terrain === 'forest' ||
         t.terrain === 'fertile' ||
         t.terrain === 'savanna' ||
-        t.terrain === 'blossom'
+        t.terrain === 'blossom' ||
+        t.terrain === 'floral_plains'
       );
     }
     return t.terrain === 'jungle' || t.terrain === 'badlands' || t.terrain === 'highland' || t.terrain === 'savanna';
   }
-  if (role === 'dragon') return t.terrain === 'mountain' || t.terrain === 'badlands' || t.terrain === 'rock' || t.terrain === 'highland';
-  if (role === 'unicorn' || role === 'pegasus') return t.terrain === 'blossom' || t.terrain === 'forest' || t.terrain === 'fertile' || t.terrain === 'grass' || t.terrain === 'highland';
-  if (role === 'phoenix') return t.terrain === 'blossom' || t.terrain === 'mountain' || t.terrain === 'badlands' || t.terrain === 'savanna';
+  if (role === 'dragon') return t.terrain === 'mountain' || t.terrain === 'volcanic_wasteland' || t.terrain === 'badlands' || t.terrain === 'rock' || t.terrain === 'highland';
+  if (role === 'unicorn' || role === 'pegasus') return t.terrain === 'floral_plains' || t.terrain === 'blossom' || t.terrain === 'forest' || t.terrain === 'fertile' || t.terrain === 'grass' || t.terrain === 'highland';
+  if (role === 'phoenix') return t.terrain === 'volcanic_wasteland' || t.terrain === 'blossom' || t.terrain === 'mountain' || t.terrain === 'badlands' || t.terrain === 'savanna';
   if (role === 'griffin' || role === 'thunderbird') return t.terrain === 'highland' || t.terrain === 'mountain' || t.terrain === 'rock' || t.terrain === 'taiga';
   if (role === 'yeti') return t.terrain === 'snow' || t.terrain === 'tundra' || t.terrain === 'mountain' || t.terrain === 'taiga';
-  if (role === 'golem' || role === 'gargoyle') return t.terrain === 'mountain' || t.terrain === 'rock' || t.terrain === 'highland' || t.terrain === 'crystal_field' || t.terrain === 'badlands';
-  if (role === 'kitsune') return t.terrain === 'blossom' || t.terrain === 'forest' || t.terrain === 'fertile' || t.terrain === 'mountain';
+  if (role === 'golem' || role === 'gargoyle') return t.terrain === 'mountain' || t.terrain === 'volcanic_wasteland' || t.terrain === 'rock' || t.terrain === 'highland' || t.terrain === 'crystal_field' || t.terrain === 'badlands';
+  if (role === 'kitsune') return t.terrain === 'floral_plains' || t.terrain === 'blossom' || t.terrain === 'forest' || t.terrain === 'fertile' || t.terrain === 'mountain';
   if (role === 'minotaur' || role === 'manticore') return t.terrain === 'badlands' || t.terrain === 'rock' || t.terrain === 'highland' || t.terrain === 'savanna' || t.terrain === 'sand';
-  if (role === 'cerberus') return t.terrain === 'badlands' || t.terrain === 'rock' || t.terrain === 'mountain' || t.terrain === 'scorched';
-  if (role === 'ent') return t.terrain === 'forest' || t.terrain === 'jungle' || t.terrain === 'blossom' || t.terrain === 'taiga';
+  if (role === 'cerberus') return t.terrain === 'volcanic_wasteland' || t.terrain === 'badlands' || t.terrain === 'rock' || t.terrain === 'mountain' || t.terrain === 'scorched';
+  if (role === 'ent') return t.terrain === 'forest' || t.terrain === 'jungle' || t.terrain === 'blossom' || t.terrain === 'floral_plains' || t.terrain === 'taiga';
   return true;
 }
 
@@ -12993,6 +13377,7 @@ export function seedWorldWildlife(state: SimulationState, maxToAdd?: number): vo
     { role: 'hippo', count: 1, predator: true },
     { role: 'rhino', count: 1, predator: true },
     { role: 'crocodile', count: 1, predator: true },
+    { role: 'giant_spider', count: 2, predator: true, herdSize: 2 },
     { role: 'giraffe', count: 2, predator: false, herdSize: 2 },
     { role: 'zebra', count: 2, predator: false, herdSize: 2 },
     { role: 'kangaroo', count: 2, predator: false, herdSize: 2 },
@@ -13053,6 +13438,7 @@ export function seedWorldWildlife(state: SimulationState, maxToAdd?: number): vo
         { role: 'hippo', count: scaled(2), predator: true },
         { role: 'rhino', count: scaled(2), predator: true },
         { role: 'crocodile', count: scaled(2), predator: true },
+        { role: 'giant_spider', count: scaled(3), predator: true, herdSize: 2 },
         // Prehistoric dinosaurs
         { role: 'dinosaur', count: isPrehistoric ? scaled(3) : 1, predator: false, appearanceSeed: findDeterministicDinoSeedForMorph(1, 10) },
         { role: 'dinosaur', count: isPrehistoric ? scaled(3) : 1, predator: false, appearanceSeed: findDeterministicDinoSeedForMorph(2, 20) },
@@ -13146,7 +13532,7 @@ export function seedWorldWildlife(state: SimulationState, maxToAdd?: number): vo
     }
 
     // Pass 2: fallback any dry wilderness tile (skipping strict polar specialists if none exist on template)
-    const strictSpecialist = q.role === 'penguin' || q.role === 'polar_bear' || q.role === 'yeti' || q.role === 'seal';
+    const strictSpecialist = q.role === 'penguin' || q.role === 'polar_bear' || q.role === 'yeti' || q.role === 'seal' || q.role === 'giant_spider';
     for (let attempt = 0; attempt < (strictSpecialist ? 0 : 35) && placed < q.count; attempt++) {
       if (maxToAdd !== undefined && spawnedTotal >= maxToAdd) break;
       const tx = 4 + Math.floor(nextRand() * (gs - 8));
@@ -13211,6 +13597,7 @@ function stepWildlifeAI(
     u.role === 'frog' ||
     u.role === 'hippo' ||
     u.role === 'crocodile' ||
+    u.role === 'giant_spider' ||
     u.role === 'hydra' ||
     u.role === 'basilisk' ||
     u.role === 'flamingo' ||
@@ -13233,14 +13620,26 @@ function stepWildlifeAI(
   const curTile = getTile(state, u.x, u.z);
   if (
     curTile &&
-    curTile.onFireTimer > 0 &&
+    (curTile.onFireTimer > 0 || (curTile.height === 0 && curTile.waterKind === 'lava')) &&
     !u.statusEffects.shielded &&
     !isFlying &&
     u.role !== 'golem' &&
     u.role !== 'cerberus' &&
     u.role !== 'gargoyle'
   ) {
-    u.hp -= 10 * dt;
+    u.hp -= (curTile.waterKind === 'lava' ? 22 : 10) * dt;
+  }
+  if (
+    curTile &&
+    curTile.height === 0 &&
+    curTile.waterKind === 'poison' &&
+    !u.statusEffects.shielded &&
+    !isFlying &&
+    u.role !== 'giant_spider' &&
+    u.role !== 'hydra' &&
+    u.role !== 'basilisk'
+  ) {
+    u.statusEffects.plagued = Math.max(u.statusEffects.plagued ?? 0, 5.0);
   }
   // Hydra passive multi-head regeneration & Stone Golem rock-armor mending
   if (u.role === 'hydra' && u.state !== 'ko' && u.hp < u.maxHp) {
@@ -14551,10 +14950,10 @@ function stepWildlifeAI(
             target = other;
           }
         }
-      } else if (u.role === 'wolf') {
+      } else if (u.role === 'wolf' || u.role === 'giant_spider') {
         if (isPreyAnimalRole(other.role) && dSq <= 100) {
           const preyBias =
-            other.role === 'chicken' || other.role === 'rabbit'
+            other.role === 'chicken' || other.role === 'rabbit' || other.role === 'frog'
               ? 2
               : other.role === 'sheep' || other.role === 'deer' || other.role === 'pig' || other.role === 'capybara' || other.role === 'goat' || other.role === 'kangaroo'
                 ? 4
@@ -14563,9 +14962,9 @@ function stepWildlifeAI(
             bestScore = dSq + preyBias;
             target = other;
           }
-        } else if (other.faction === 'civilization' && dSq <= 5.5) {
-          if (dSq + 14 < bestScore) {
-            bestScore = dSq + 14;
+        } else if (other.faction === 'civilization' && dSq <= (u.role === 'giant_spider' ? 16 : 5.5)) {
+          if (dSq + 12 < bestScore) {
+            bestScore = dSq + 12;
             target = other;
           }
         }
@@ -15072,8 +15471,11 @@ function stepWildlifeAI(
             if (activeTickIndex) {
               forEachUnitInRadius(activeTickIndex, target.x, target.z, 3.05, tentacleSplash);
             }
-          } else if (u.role === 'manticore') {
+          } else if (u.role === 'manticore' || u.role === 'giant_spider') {
             target.statusEffects.cursed = Math.max(target.statusEffects.cursed ?? 0, 4.5);
+            if (u.role === 'giant_spider') {
+              target.statusEffects.plagued = Math.max(target.statusEffects.plagued ?? 0, 5.5);
+            }
           } else if (u.role === 'griffin' || u.role === 'pegasus') {
             const gustPush = u.role === 'pegasus' ? 1.8 : 1.35;
             knockUnitAway(target, u.x, u.z, gustPush);
@@ -15185,7 +15587,8 @@ function stepWildlifeAI(
               u.role === 'polar_bear' ||
               u.role === 'hippo' ||
               u.role === 'cerberus' ||
-              u.role === 'manticore'
+              u.role === 'manticore' ||
+              u.role === 'giant_spider'
                 ? 'bite'
                 : u.role === 'bear' ||
                     u.role === 'yeti' ||
@@ -15209,7 +15612,7 @@ function stepWildlifeAI(
             const color =
               u.role === 'wolf' || u.role === 'fox' || u.role === 'lion' || u.role === 'tiger' || u.role === 'minotaur' || u.role === 'manticore'
                 ? '#f87171'
-                : u.role === 'crocodile' || u.role === 'ent'
+                : u.role === 'crocodile' || u.role === 'ent' || u.role === 'giant_spider'
                   ? '#4ade80'
                   : u.role === 'yeti' || u.role === 'polar_bear'
                     ? '#67e8f9'

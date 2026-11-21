@@ -960,6 +960,92 @@ export const TERRAIN_SPRITES: Record<TerrainToolType, CompiledSprite> = {
       MATS,
     );
   }),
+
+  volcanic_wasteland: icon16((c) => {
+    c.isoTile(MAT.darkIron, MAT.flame, MAT.darkIron, 14, 3);
+    c.stamp(
+      2,
+      1,
+      [
+        '...FYYf...',
+        '..DFYYfD..',
+        '.DdFffFdD.',
+        '..dF..Fd..',
+        '.Ff....fF.',
+      ],
+      MAT.flame,
+      MATS,
+    );
+  }),
+
+  blighted_mire: icon16((c) => {
+    c.isoTile(MAT.arcane, MAT.darkIron, MAT.darkIron, 14, 3);
+    c.stamp(
+      2,
+      1,
+      [
+        '..D....D..',
+        '.DpD..DpD.',
+        '..pE..Ep..',
+        '...EeEe...',
+        '..p.ll.p..',
+      ],
+      MAT.arcane,
+      MATS,
+    );
+  }),
+
+  floral_plains: icon16((c) => {
+    c.isoTile(MAT.leaf, MAT.wood, MAT.darkWood, 14, 3);
+    c.stamp(
+      2,
+      1,
+      [
+        '.Rr.YY.Pp.',
+        'RrY.yg.PpY',
+        '.l..E...l.',
+        '..Ee.Cc...',
+        '.el..cu...',
+      ],
+      MAT.ruby,
+      MATS,
+    );
+  }),
+
+  lava_river: icon16((c) => {
+    c.isoTile(MAT.darkIron, MAT.flame, MAT.darkIron, 12, 4, (x, y) => {
+      const band = Math.abs(x - 7.5 + (y - 6) * 1.4);
+      if (band <= 1.2) return { ramp: MAT.gold, tone: 4 };
+      if (band <= 2.4) return { ramp: MAT.flame, tone: 3 };
+      return null;
+    });
+  }),
+
+  poison_river: icon16((c) => {
+    c.isoTile(MAT.arcane, MAT.darkIron, MAT.darkIron, 12, 4, (x, y) => {
+      const band = Math.abs(x - 7.5 + (y - 6) * 1.4);
+      if (band <= 1.4) return { ramp: MAT.leaf, tone: 4 };
+      if (band <= 2.5) return { ramp: MAT.leaf, tone: 3 };
+      return null;
+    });
+  }),
+
+  floral_rain: icon16((c) => {
+    c.isoTile(MAT.leaf, MAT.wood, MAT.darkWood, 14, 3);
+    c.stamp(
+      2,
+      1,
+      [
+        '.Rr..Y..P.',
+        'RrY.YyY.pY',
+        '.q...y..z.',
+        '..Cc..Rr..',
+        '.cYu.RrY..',
+      ],
+      MAT.ruby,
+      MATS,
+    );
+  }),
 };
 
 export const HUD_SPRITES: Record<

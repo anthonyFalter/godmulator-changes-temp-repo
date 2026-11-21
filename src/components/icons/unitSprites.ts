@@ -1947,4 +1947,29 @@ export const UNIT_SPRITES: Record<UnitRole, CompiledSprite> = {
     MAT.steel,
     UNIT_MATS,
   ),
+
+  // 16x16 Dark-purple Blight Giant Spider with glowing toxic green eyes, markings & 8 legs
+  giant_spider: cluster16(
+    [
+      '................',
+      '..3....33....3..',
+      '.32...3EE3...23.',
+      '.2...333333...2.',
+      '..23.33EE33.32..',
+      '...2332222332...',
+      '..32.233332.23..',
+      '.32..3EoEE3..23.',
+      '.2..32333323..2.',
+      '..23..E..E..32..',
+      '.32..........23.',
+      '.1............1.',
+      '................',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.arcane,
+    UNIT_MATS,
+  ),
 };
+

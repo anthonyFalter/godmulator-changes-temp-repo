@@ -526,6 +526,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       'savanna',
       'swamp',
       'highland',
+      'volcanic',
+      'blight',
+      'floral',
     ];
     const BIOME_KEY_TO_IDX: Record<TreeBiomeKey, number> = {
       forest: 0,
@@ -536,6 +539,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       savanna: 5,
       swamp: 6,
       highland: 7,
+      volcanic: 8,
+      blight: 9,
+      floral: 10,
     };
 
     // Collapse all 32 live + 32 burnt voxel tree species × 4 LODs (384 InstancedMeshes -> 2 BatchedMeshes!)
@@ -648,7 +654,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       nodesGroup.add(propBatches[i].group);
     }
 
-    // Collapse all 14 ambient biome detail groups (35 InstancedMeshes -> 1 BatchedMesh draw call!)
+    // Collapse all 17 ambient biome detail groups into 1 BatchedMesh draw call!
     const ambSourceLists: THREE.BufferGeometry[][] = [
       variantLib.ambientGrass,
       variantLib.ambientForest,
@@ -664,6 +670,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       variantLib.ambientTundra,
       variantLib.ambientBadlands,
       variantLib.ambientBlossom,
+      variantLib.ambientVolcanic,
+      variantLib.ambientBlight,
+      variantLib.ambientFloral,
     ];
     const ambBatchGeos: THREE.BufferGeometry[] = [];
     const ambGeoIdx: number[][] = [];
@@ -3728,12 +3737,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         return;
       }
 
-      // 5. BLESS (blessing): Blooming golden-emerald runic magic circle & ascending spiral life petals
-      if (type === 'blessing') {
-        const goldMat = createMagicCircleMat('blessing', 0.95, 19);
-        const emeraldMat = createMagicCircleMat('blessing', 0.85, 53);
+      // 5. BLESS & FLORAL PARADISE (blessing, floral_paradise): Blooming golden-emerald runic magic circle & ascending spiral life petals
+      if (type === 'blessing' || type === 'floral_paradise') {
+        const goldMat = createMagicCircleMat(type, 0.95, 19);
+        const emeraldMat = createMagicCircleMat(type, 0.85, 53);
         const petalMat = new THREE.MeshBasicMaterial({
-          color: 0xfff3b0,
+          color: type === 'floral_paradise' ? 0xf472b6 : 0xfff3b0,
           transparent: true,
           opacity: 0.92,
         });
@@ -4048,13 +4057,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         return;
       }
 
-      // 10. PLAGUE MIASMA (plague_miasma): Bubbling bio-toxic mire globules swelling & popping from a runic ground circle
-      if (type === 'plague_miasma') {
-        const toxicMat = createMagicCircleMat('plague_miasma', 0.92, 59);
+      // 10. PLAGUE MIASMA & BLIGHT PLAGUE (plague_miasma, blight_plague): Bubbling bio-toxic mire globules swelling & popping from a runic ground circle
+      if (type === 'plague_miasma' || type === 'blight_plague') {
+        const toxicMat = createMagicCircleMat(type, 0.92, 59);
         const mireMat = new THREE.MeshBasicMaterial({
-          color: 0x38b000,
+          color: type === 'blight_plague' ? 0x9333ea : 0x38b000,
           transparent: true,
-          opacity: 0.82,
+          opacity: 0.85,
         });
         materials.push(toxicMat, mireMat);
 
@@ -4590,7 +4599,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         return;
       }
 
-      if (type === 'volcano_eruption') {
+      if (type === 'volcano_eruption' || type === 'lava_deluge') {
         const ringMat = new THREE.MeshBasicMaterial({
           color: 0xff5400,
           transparent: true,
@@ -4887,6 +4896,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           boulder_rain: { primary: 0x94a3b8, secondary: 0x64748b, streak: 0xe2e8f0, impactHex: '#94a3b8', secondaryHex: '#475569', geo: sharedSkyOreGeo, emissive: 0.2, sway: 0.0, dur: 0.34 },
           salvage_drop: { primary: 0xeab308, secondary: 0x94a3b8, streak: 0xfef08a, impactHex: '#eab308', secondaryHex: '#38bdf8', geo: sharedSkyCrateGeo, emissive: 0.45, sway: 0.15, dur: 0.42 },
           blossom_rain: { primary: 0xf472b6, secondary: 0xfbcfe8, streak: 0xf9a8d4, impactHex: '#f472b6', secondaryHex: '#fef08a', geo: sharedSkySeedGeo, emissive: 0.72, sway: 0.55, dur: 0.54 },
+          floral_rain: { primary: 0xfacc15, secondary: 0xf472b6, streak: 0x86efac, impactHex: '#f472b6', secondaryHex: '#4ade80', geo: sharedSkySeedGeo, emissive: 0.78, sway: 0.62, dur: 0.52 },
           plant_forest: { primary: 0x84cc16, secondary: 0x22c55e, streak: 0xbef264, impactHex: '#4ade80', secondaryHex: '#bef264', geo: sharedSkySeedGeo, emissive: 0.58, sway: 0.42, dur: 0.48 },
         };
         const cfg = palette[kind] ?? palette.seed_ore;
@@ -8205,6 +8215,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
               biome === 'jungle' ||
               biome === 'taiga' ||
               biome === 'blossom' ||
+              biome === 'floral' ||
               biome === 'swamp';
 
             // Spatial old-growth canopy wave so forest cores soar high while edges have younger trees & saplings
@@ -8303,45 +8314,63 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             const stoneTint =
               t.terrain === 'sand' || t.terrain === 'savanna' || t.terrain === 'badlands'
                 ? 0xe8c796
-                : t.terrain === 'scorched' || t.terrain === 'void_goo'
-                  ? 0x6b6068
-                  : t.terrain === 'snow' || t.terrain === 'tundra' || t.terrain === 'ice'
-                    ? 0xd0e8fa
-                    : t.terrain === 'jungle' || t.terrain === 'swamp' || t.terrain === 'forest' || t.terrain === 'fertile'
-                      ? 0xc2d8ba
-                      : t.terrain === 'blossom'
-                        ? 0xf0d6e2
-                        : t.terrain === 'crystal_field'
-                          ? 0xdcc6f7
-                          : 0xffffff;
+                : t.terrain === 'volcanic_wasteland'
+                  ? 0x7a4b3a
+                  : t.terrain === 'blighted_mire'
+                    ? 0x6e4a85
+                    : t.terrain === 'floral_plains'
+                      ? 0xd8f3dc
+                      : t.terrain === 'scorched' || t.terrain === 'void_goo'
+                        ? 0x6b6068
+                        : t.terrain === 'snow' || t.terrain === 'tundra' || t.terrain === 'ice'
+                          ? 0xd0e8fa
+                          : t.terrain === 'jungle' || t.terrain === 'swamp' || t.terrain === 'forest' || t.terrain === 'fertile'
+                            ? 0xc2d8ba
+                            : t.terrain === 'blossom'
+                              ? 0xf0d6e2
+                              : t.terrain === 'crystal_field'
+                                ? 0xdcc6f7
+                                : 0xffffff;
             pushPropCache(3, h % propKindLens[3], t.x, t.z, _dummyMatrix.elements, stoneTint);
           } else if (t.resourceNode === 'ore_vein') {
             const oreTint =
               t.terrain === 'sand' || t.terrain === 'savanna' || t.terrain === 'badlands'
                 ? 0xf6d590
-                : t.terrain === 'scorched' || t.terrain === 'void_goo'
-                  ? 0xf09574
-                  : t.terrain === 'snow' || t.terrain === 'tundra' || t.terrain === 'ice'
-                    ? 0xc4e6ff
-                    : t.terrain === 'jungle' || t.terrain === 'swamp' || t.terrain === 'forest' || t.terrain === 'fertile'
-                      ? 0xc8e4c4
-                      : t.terrain === 'blossom'
-                        ? 0xf6cde2
-                        : t.terrain === 'crystal_field'
-                          ? 0xe0c8fa
-                          : 0xffffff;
+                : t.terrain === 'volcanic_wasteland'
+                  ? 0xff8c42
+                  : t.terrain === 'blighted_mire'
+                    ? 0x86efac
+                    : t.terrain === 'floral_plains'
+                      ? 0xfde68a
+                      : t.terrain === 'scorched' || t.terrain === 'void_goo'
+                        ? 0xf09574
+                        : t.terrain === 'snow' || t.terrain === 'tundra' || t.terrain === 'ice'
+                          ? 0xc4e6ff
+                          : t.terrain === 'jungle' || t.terrain === 'swamp' || t.terrain === 'forest' || t.terrain === 'fertile'
+                            ? 0xc8e4c4
+                            : t.terrain === 'blossom'
+                              ? 0xf6cde2
+                              : t.terrain === 'crystal_field'
+                                ? 0xe0c8fa
+                                : 0xffffff;
             pushPropCache(4, h % propKindLens[4], t.x, t.z, _dummyMatrix.elements, oreTint);
           } else if (t.resourceNode === 'crystal_monolith') {
             const crystalTint =
-              t.terrain === 'scorched' || t.terrain === 'badlands'
-                ? 0xffb3c1
-                : t.terrain === 'snow' || t.terrain === 'tundra'
-                  ? 0xbef2ff
-                  : t.terrain === 'jungle' || t.terrain === 'swamp' || t.terrain === 'forest'
-                    ? 0xb8f5d8
-                    : t.terrain === 'sand' || t.terrain === 'savanna'
-                      ? 0xfee5a5
-                      : 0xffffff;
+              t.terrain === 'volcanic_wasteland'
+                ? 0xff6b35
+                : t.terrain === 'blighted_mire'
+                  ? 0xa3e635
+                  : t.terrain === 'floral_plains'
+                    ? 0xf9a8d4
+                    : t.terrain === 'scorched' || t.terrain === 'badlands'
+                      ? 0xffb3c1
+                      : t.terrain === 'snow' || t.terrain === 'tundra'
+                        ? 0xbef2ff
+                        : t.terrain === 'jungle' || t.terrain === 'swamp' || t.terrain === 'forest'
+                          ? 0xb8f5d8
+                          : t.terrain === 'sand' || t.terrain === 'savanna'
+                            ? 0xfee5a5
+                            : 0xffffff;
             pushPropCache(5, h % propKindLens[5], t.x, t.z, _dummyMatrix.elements, crystalTint);
           } else {
             // Ambient multi-object sub-tile details partitioned into Low / Med / Full tiers
@@ -8390,6 +8419,15 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             } else if (t.terrain === 'blossom') {
               ambThresh = 66;
               ambGroupIdx = 13;
+            } else if (t.terrain === 'volcanic_wasteland') {
+              ambThresh = 66;
+              ambGroupIdx = 14;
+            } else if (t.terrain === 'blighted_mire') {
+              ambThresh = 66;
+              ambGroupIdx = 15;
+            } else if (t.terrain === 'floral_plains') {
+              ambThresh = 76;
+              ambGroupIdx = 16;
             } else if (t.terrain === 'crystal_field') {
               ambThresh = 64;
               if (chance < ambThresh) {

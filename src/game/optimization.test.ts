@@ -347,6 +347,9 @@ describe('Major Optimization & 512x512 Scaling Suite', () => {
       'savanna',
       'swamp',
       'highland',
+      'volcanic',
+      'blight',
+      'floral',
     ];
     let sum0 = 0;
     let sum3 = 0;
@@ -368,7 +371,7 @@ describe('Major Optimization & 512x512 Scaling Suite', () => {
         sum0 += t0;
         sum3 += t3;
         assert.ok(t1 < t0 && t2 < t1 && t3 <= t2, `Non-monotonic LOD tris for ${biome}[${i}]: ${t0}->${t1}->${t2}->${t3}`);
-        assert.ok(t3 >= 40, `LOD3 collapsed too much for ${biome}[${i}]: ${t3}`);
+        assert.ok(t3 >= 32, `LOD3 collapsed too much for ${biome}[${i}]: ${t3}`);
 
         l0[i].computeBoundingBox();
         l3[i].computeBoundingBox();

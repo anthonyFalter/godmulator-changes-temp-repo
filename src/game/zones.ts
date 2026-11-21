@@ -327,6 +327,24 @@ const BIOME_META: Record<
     color: [124, 58, 237],
     baseTempC: -18,
   },
+  volcanic_wasteland: {
+    name: 'Volcanic Wasteland',
+    category: 'Cataclysmic',
+    color: [249, 115, 22],
+    baseTempC: 44,
+  },
+  blighted_mire: {
+    name: 'Land of Blight',
+    category: 'Cataclysmic',
+    color: [147, 51, 234],
+    baseTempC: 21,
+  },
+  floral_plains: {
+    name: 'Floral Plains',
+    category: 'Terrestrial',
+    color: [244, 114, 182],
+    baseTempC: 19,
+  },
 };
 
 const THERMAL_BAND_META: Array<{
@@ -1186,6 +1204,18 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
           canEnterDeepWater: true,
           canEnterLand: false,
         };
+      case 'giant_spider':
+        return {
+          titlePrefix: 'Blight Spider Nest',
+          speciesLabel: 'Giant Spiders',
+          diet: 'Carnivore',
+          domainType: 'Terrestrial',
+          color: [168, 85, 247],
+          preferredBiomes: ['Land of Blight', 'Marshlands', 'Ancient Woods'],
+          canEnterShallowWater: true,
+          canEnterDeepWater: false,
+          canEnterLand: true,
+        };
       default:
         return {
           titlePrefix: 'Marine Shoal',
@@ -1427,6 +1457,9 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
     'crystal_field',
     'void_goo',
     'ice',
+    'volcanic_wasteland',
+    'blighted_mire',
+    'floral_plains',
   ];
 
   const biomeToZoneId = new Map<TerrainType, number>();

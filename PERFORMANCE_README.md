@@ -25,14 +25,14 @@ This document summarizes the performance architecture implemented across Godmula
   - `src/game/meshBuilders.ts` (`stripDownwardTriangles` inside `finalizeMergedParts`)
 - **Pixel-Scale Curved Primitives (`src/game/meshBuilders.ts`)**: Replaced over-tessellated Three.js primitives with `pxTorus`, `pxSphere`, `pxCylinder`, and `pxCone` that cap sub-pixel segment counts while preserving exact silhouettes.
 - **4-Tier Voxel Tree LODs + 2-Triangle Baked Impostors (`src/game/treeImpostors.ts`)**:
-  - `TreeImpostorSystem` renders all 32 live + 32 burnt LOD0 voxel tree species from 8 yaw angles at the exact isometric camera pitch into a `2048×1024` `NearestFilter` atlas.
+  - `TreeImpostorSystem` renders all 44 live + 44 burnt LOD0 voxel tree species (across 11 biomes including Volcanic Wasteland, Land of Blight, and Floral Plains) from 8 yaw angles at the exact isometric camera pitch into a `2048×2048` `NearestFilter` atlas.
   - At far/overview zoom, trees render as 2-triangle camera-facing quads in **1 draw call** with `scene.environment` + noon-calibrated lighting so far trees match 3D tree brightness identically.
 
 ### B. Draw-Call Batching (`370 → ~100–150` draw calls)
 - **`BatchedStaticPool` (`src/game/batchedStaticProps.ts`)**: Wraps `THREE.BatchedMesh` with normalized vertex attributes (`position`, `normal`, `color`), automatic indexed/non-indexed handling, pre-sized buffers, and dynamic `1.6×` growth.
-  - **Trees**: `384 InstancedMesh`es → **2 `BatchedMesh`es** (`treeBatchShadow`, `treeBatchNoShadow`) + 1 impostor draw call.
+  - **Trees**: `352+ InstancedMesh`es → **2 `BatchedMesh`es** (`treeBatchShadow`, `treeBatchNoShadow`) + 1 impostor draw call.
   - **Resource Props**: `~70 InstancedMesh`es → **5 `BatchedMesh`es** grouped by material (`standardMat`, `crystalMat`, `coralReefMat`) and shadow flag.
-  - **Ambient Ground Details**: `35 InstancedMesh`es across 14 biomes → **1 `BatchedMesh`** (`ambBatch`).
+  - **Ambient Ground Details**: `44 InstancedMesh`es across 17 biomes → **1 `BatchedMesh`** (`ambBatch`).
 - **Unit & Wildlife Batching (`src/components/IsometricWorldCanvas.tsx`, `src/game/meshBuilders.ts`)**:
   - Collapsed per-unit `contact_shadow` discs into **1 `InstancedMesh`** (`unitContactShadowsInst`).
   - Merged static sub-meshes inside wildlife animal rigs (e.g., cow `16 → 7` draw calls), hid `status_ring` by default, quantized PBR sheen buckets, and hid tiny `held_tool` meshes when `frustumSize >= 38`.

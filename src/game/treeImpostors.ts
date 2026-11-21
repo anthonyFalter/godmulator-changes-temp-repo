@@ -10,14 +10,17 @@ const IMPOSTOR_BIOME_ORDER: readonly TreeBiomeKey[] = [
   'savanna',
   'swamp',
   'highland',
+  'volcanic',
+  'blight',
+  'floral',
 ];
 
 const ANGLES_PER_SPECIES = 8;
 const CELL_PX = 64;
 const ATLAS_COLS = 32; // 4 species * 8 angles per row
-const ATLAS_ROWS = 16; // up to 64 species (32 live + 32 burnt)
+const ATLAS_ROWS = 32; // up to 128 species (live + burnt across all biomes)
 const ATLAS_W = ATLAS_COLS * CELL_PX; // 2048
-const ATLAS_H = ATLAS_ROWS * CELL_PX; // 1024
+const ATLAS_H = ATLAS_ROWS * CELL_PX; // 2048
 
 // Match IsometricWorldCanvas camera elevation (isoDist=28, isoHeight=22.5)
 const BAKE_ISO_DIST = 28;

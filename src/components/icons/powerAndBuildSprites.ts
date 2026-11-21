@@ -710,6 +710,78 @@ export const POWER_SPRITES: Record<GodPowerType, CompiledSprite> = {
     MAT.arcane,
     PB_MATS,
   ),
+
+  // 16x16 Volcanic Lava Deluge erupting molten magma rivers & obsidian spires
+  lava_deluge: cluster16(
+    [
+      '................',
+      '......YYYY......',
+      '.....YFFFFY.....',
+      '....YF4444FY....',
+      '...DFF3333FFD...',
+      '..DDf332233fDD..',
+      '..Ddf22FF22fdD..',
+      '.DDdfFFYYFFfdDD.',
+      '.DddFYYYYYYFddD.',
+      '..FFYYYYYYYYFF..',
+      '.FFffffYYffffFF.',
+      '.faaaaffffaaaaf.',
+      '..aaaaaaaaaaaa..',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.flame,
+    PB_MATS,
+  ),
+
+  // 16x16 Dark Purple Blight Plague skull & venomous green spider mire
+  blight_plague: cluster16(
+    [
+      '................',
+      '.....PPPPPP.....',
+      '...PPpzzzzpPP...',
+      '..PpzDDDDDDzpP..',
+      '..pzDEEddEEDzp..',
+      '..pzDElDDlEDzp..',
+      '...pzDDDDDDzp...',
+      '....pzD44Dzp....',
+      '..EE.pzzzzp.EE..',
+      '.Eeel.EEEE.leeE.',
+      '..ll.Ee44eE.ll..',
+      '....EelLLleE....',
+      '...ll......ll...',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.arcane,
+    PB_MATS,
+  ),
+
+  // 16x16 Majestic Floral Paradise blooming crown of golden-pink blossoms & emerald steppes
+  floral_paradise: cluster16(
+    [
+      '................',
+      '......YYYY......',
+      '...Rr.Y44Y.Pp...',
+      '..RrY.yYYy.PpY..',
+      '..rq..EEEE..pz..',
+      '.YY..EEeeEE..YY.',
+      'Y44Y.EeYYeE.Y44Y',
+      '.YY..EeyyeE..YY.',
+      '..Cc..eeee..Rr..',
+      '.CcY.EEllEE.RrY.',
+      '..u.EEllllEE.q..',
+      '...EEllllllEE...',
+      '....llllllll....',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.leaf,
+    PB_MATS,
+  ),
 };
 
 export const BUILDING_SPRITES: Record<BuildingType, CompiledSprite> = {

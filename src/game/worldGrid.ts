@@ -34,6 +34,9 @@ export const TERRAIN_TO_CODE: Record<TerrainType, number> = {
   runway: 21,
   void_goo: 22,
   ice: 23,
+  volcanic_wasteland: 24,
+  blighted_mire: 25,
+  floral_plains: 26,
 };
 
 export const RESOURCE_NODE_TO_CODE: Record<ResourceNodeType, number> = {

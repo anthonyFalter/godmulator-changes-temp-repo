@@ -840,6 +840,19 @@ export const ANIMAL_UNITS: UnitDefinition[] = [
     attackRange: 1.0,
     harvestRate: 0,
   },
+  {
+    role: 'giant_spider',
+    category: 'animal',
+    name: 'Giant Spider',
+    faction: 'wildlife',
+    roleSummary: 'Venomous blight spider that hunts prey with toxic fangs and thrives in poisoned land',
+    cost: { faith: 14 },
+    maxHp: 210,
+    speed: 3.35,
+    attackDamage: 26,
+    attackRange: 1.5,
+    harvestRate: 0,
+  },
 ];
 
 export const MYTHICAL_BEAST_UNITS: UnitDefinition[] = [
@@ -1570,6 +1583,36 @@ export const GOD_POWERS: GodPowerDefinition[] = [
     keyHint: '',
     color: '#818cf8',
   },
+  {
+    type: 'lava_deluge',
+    name: 'Lava Deluge',
+    category: 'Wrathful',
+    summary: 'Floods land with volcanic wasteland, flowing lava rivers & lakes, and volcanic cinder trees',
+    faithCost: 50,
+    radius: 6.5,
+    keyHint: '',
+    color: '#ff5400',
+  },
+  {
+    type: 'blight_plague',
+    name: 'Blight Plague',
+    category: 'Wrathful',
+    summary: 'Poisons land into dark purple blight with toxic green lakes, dead trees, and Giant Spiders',
+    faithCost: 45,
+    radius: 6.5,
+    keyHint: '',
+    color: '#a855f7',
+  },
+  {
+    type: 'floral_paradise',
+    name: 'Floral Paradise',
+    category: 'Benevolent',
+    summary: 'Transforms land into majestic fantasy floral plains with flowering trees, crystal springs, and animals',
+    faithCost: 40,
+    radius: 7.0,
+    keyHint: '',
+    color: '#f472b6',
+  },
 ];
 
 export const TERRAIN_TOOLS: TerrainToolDefinition[] = [
@@ -1667,6 +1710,15 @@ export const TERRAIN_TOOLS: TerrainToolDefinition[] = [
     color: '#f472b6',
   },
   {
+    type: 'floral_rain',
+    name: 'Floral Bloom',
+    category: 'Sky Rain',
+    isSkyRain: true,
+    summary: 'Rains fantasy flower seeds onto soil, growing majestic floral trees, flower rocks, and steppes',
+    faithCost: 5,
+    color: '#ec4899',
+  },
+  {
     type: 'salvage_drop',
     name: 'Scrap Drop',
     category: 'Sky Rain',
@@ -1708,6 +1760,30 @@ export const TERRAIN_TOOLS: TerrainToolDefinition[] = [
     color: '#ef4444',
   },
   {
+    type: 'volcanic_wasteland',
+    name: 'Volcanic Wasteland',
+    category: 'Biomes',
+    summary: 'Transforms land into a volcanic wasteland of magma veins, obsidian boulders, and pyroclastic trees',
+    faithCost: 6,
+    color: '#f97316',
+  },
+  {
+    type: 'blighted_mire',
+    name: 'Land of Blight',
+    category: 'Biomes',
+    summary: 'Corrupts soil into dark poisoned purple land with dead webbed trees and toxic rocks',
+    faithCost: 6,
+    color: '#9333ea',
+  },
+  {
+    type: 'floral_plains',
+    name: 'Floral Plains',
+    category: 'Biomes',
+    summary: 'Shapes majestic fantasy floral steppes carpeted in vivid wildflowers, healthy soil, and blossom groves',
+    faithCost: 5,
+    color: '#4ade80',
+  },
+  {
     type: 'coral_reef_rain',
     name: 'Coral Reef',
     category: 'Water',
@@ -1722,6 +1798,22 @@ export const TERRAIN_TOOLS: TerrainToolDefinition[] = [
     summary: 'Carves rivers, lakes, or shallow coastal water',
     faithCost: 3,
     color: '#3a86ff',
+  },
+  {
+    type: 'lava_river',
+    name: 'Lava River',
+    category: 'Water',
+    summary: 'Carves glowing molten lava rivers and lava lakes through volcanic wasteland',
+    faithCost: 5,
+    color: '#ff5400',
+  },
+  {
+    type: 'poison_river',
+    name: 'Poison Water',
+    category: 'Water',
+    summary: 'Carves poison-filled toxic green water lakes and rivers across blighted soil',
+    faithCost: 5,
+    color: '#84cc16',
   },
   {
     type: 'abyssal_trench',
@@ -1862,6 +1954,7 @@ export function getUnitMaxLifespan(unit: {
     case 'panda':
     case 'bison':
     case 'moose':
+    case 'giant_spider':
       base = 26 + (seed % 8);
       break;
     case 'cow':

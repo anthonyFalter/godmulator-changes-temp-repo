@@ -2029,6 +2029,9 @@ export interface NodeVariantLibrary {
   ambientSavanna: THREE.BufferGeometry[];
   ambientSwamp: THREE.BufferGeometry[];
   ambientHighland: THREE.BufferGeometry[];
+  ambientVolcanic: THREE.BufferGeometry[];
+  ambientBlight: THREE.BufferGeometry[];
+  ambientFloral: THREE.BufferGeometry[];
   coralReef: THREE.BufferGeometry[];
   coralReefLod2: THREE.BufferGeometry[];
   coralReefBleached: THREE.BufferGeometry[];
@@ -2888,6 +2891,78 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     ambientBlossom.push(finalizeMergedParts(p));
   }
 
+  // Volcanic Wasteland ambient details: mini erupting volcano fumaroles, glowing lava blisters & obsidian shards
+  const ambientVolcanic: THREE.BufferGeometry[] = [];
+  {
+    // Mini volcano vent cone with glowing molten magma crater & obsidian shard
+    const p: THREE.BufferGeometry[] = [];
+    addColoredBox(p, 0.28, 0.12, 0.28, -0.10, 0.06, -0.08, 0x261c1a);
+    addColoredBox(p, 0.20, 0.14, 0.20, -0.10, 0.16, -0.08, 0x3b2824);
+    addColoredBox(p, 0.12, 0.05, 0.12, -0.10, 0.24, -0.08, 0xff6b1a);
+    addColoredBox(p, 0.07, 0.04, 0.07, -0.10, 0.27, -0.08, 0xfef08a);
+    addColoredBox(p, 0.12, 0.18, 0.12, 0.20, 0.09, 0.16, 0x1c1417, 0.4);
+    addColoredBox(p, 0.08, 0.05, 0.08, 0.16, 0.025, -0.18, 0xf97316);
+    ambientVolcanic.push(finalizeMergedParts(p));
+  }
+  {
+    // Jagged obsidian monolith cluster & molten lava puddle
+    const p: THREE.BufferGeometry[] = [];
+    addColoredBox(p, 0.16, 0.28, 0.14, 0.12, 0.14, -0.10, 0x1f171a, 0.35);
+    addColoredBox(p, 0.12, 0.18, 0.12, -0.16, 0.09, 0.14, 0x332422, -0.25);
+    addColoredBox(p, 0.22, 0.03, 0.18, -0.06, 0.015, -0.14, 0xea580c);
+    addColoredBox(p, 0.12, 0.04, 0.10, -0.06, 0.02, -0.14, 0xfacc15);
+    ambientVolcanic.push(finalizeMergedParts(p));
+  }
+
+  // Land of Blight ambient details: glowing toxic green mushroom clusters, spider silk egg cocoons & poisoned purple thorns
+  const ambientBlight: THREE.BufferGeometry[] = [];
+  {
+    // Toxic green mushroom cluster & dark-purple blighted root thorns
+    const p: THREE.BufferGeometry[] = [];
+    addColoredBox(p, 0.06, 0.10, 0.06, -0.16, 0.05, -0.12, 0x4c1d95);
+    addColoredBox(p, 0.15, 0.06, 0.15, -0.16, 0.11, -0.12, 0x22c55e);
+    addColoredBox(p, 0.07, 0.03, 0.07, -0.16, 0.145, -0.12, 0xd9f99d);
+    addColoredBox(p, 0.05, 0.07, 0.05, 0.18, 0.035, 0.15, 0x3b0764);
+    addColoredBox(p, 0.11, 0.05, 0.11, 0.18, 0.075, 0.15, 0x4ade80);
+    addColoredBox(p, 0.14, 0.08, 0.10, 0.12, 0.04, -0.18, 0x581c87, 0.5);
+    ambientBlight.push(finalizeMergedParts(p));
+  }
+  {
+    // Giant Spider silk egg sac cocoon, webbed skull & toxic green puddle
+    const p: THREE.BufferGeometry[] = [];
+    addColoredBox(p, 0.16, 0.20, 0.16, -0.14, 0.10, 0.12, 0xe2d9f3);
+    addColoredBox(p, 0.10, 0.06, 0.10, -0.14, 0.21, 0.12, 0x86efac);
+    addColoredBox(p, 0.22, 0.025, 0.18, 0.14, 0.012, -0.12, 0x22c55e);
+    addColoredBox(p, 0.10, 0.12, 0.10, 0.18, 0.06, 0.16, 0x3b1763, 0.3);
+    ambientBlight.push(finalizeMergedParts(p));
+  }
+
+  // Floral Plains ambient details: majestic multi-tiered fantasy flower gardens, blossom rings & flower-draped steppe stones
+  const ambientFloral: THREE.BufferGeometry[] = [];
+  {
+    // Majestic fantasy flower bed: golden sunbursts, royal rose-pink & enchanted lavender blooms over lush emerald leaves
+    const p: THREE.BufferGeometry[] = [];
+    addColoredBox(p, 0.22, 0.06, 0.22, -0.16, 0.03, -0.14, 0x2e8558);
+    addColoredBox(p, 0.12, 0.09, 0.12, -0.18, 0.08, -0.14, 0xfacc15);
+    addColoredBox(p, 0.08, 0.07, 0.08, -0.10, 0.07, -0.10, 0xfef08a);
+    addColoredBox(p, 0.20, 0.06, 0.20, 0.18, 0.03, 0.14, 0x349e66);
+    addColoredBox(p, 0.12, 0.10, 0.12, 0.18, 0.08, 0.14, 0xf472b6);
+    addColoredBox(p, 0.10, 0.09, 0.10, -0.12, 0.06, 0.20, 0xc084fc);
+    addColoredBox(p, 0.09, 0.08, 0.09, 0.16, 0.05, -0.18, 0x38bdf8);
+    ambientFloral.push(finalizeMergedParts(p));
+  }
+  {
+    // Flower-draped fantasy steppe boulder & glowing fairy-ring blossoms
+    const p: THREE.BufferGeometry[] = [];
+    addColoredBox(p, 0.20, 0.12, 0.18, -0.12, 0.06, -0.10, 0x8da399);
+    addColoredBox(p, 0.14, 0.05, 0.14, -0.12, 0.13, -0.10, 0x4cc278);
+    addColoredBox(p, 0.09, 0.07, 0.09, -0.12, 0.17, -0.10, 0xf472b6);
+    addColoredBox(p, 0.11, 0.11, 0.11, 0.18, 0.055, 0.16, 0xfacc15);
+    addColoredBox(p, 0.10, 0.09, 0.10, 0.20, 0.045, -0.14, 0xc084fc);
+    addColoredBox(p, 0.09, 0.08, 0.09, -0.18, 0.04, 0.18, 0xffffff);
+    ambientFloral.push(finalizeMergedParts(p));
+  }
+
   // 7a. Submerged Warm-Ocean Coral Reef Formations:
   // Built with organic cylindrical/conical staghorn antler branches, hemispherical brain-coral boulder domes,
   // clustered tubular barrel sponges / organ-pipe corals, and octagonal flared Acropora table plates on sculpted coralline limestone mounds.
@@ -3577,6 +3652,9 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     ambientSavanna,
     ambientSwamp,
     ambientHighland,
+    ambientVolcanic,
+    ambientBlight,
+    ambientFloral,
     coralReef,
     coralReefLod2,
     coralReefBleached,
@@ -12406,6 +12484,124 @@ function buildCreatureUnitGroup(
       gargoyleStatue.add(sHorn);
     }
     group.add(gargoyleStatue);
+  } else if (role === 'giant_spider') {
+    // Giant Spider (Land of Blight apex arachnid): dark poisoned purple carapace, bulbous toxic-green marked abdomen, 8 articulated legs (grouped into 4 animated leg pivots for <=6 draw calls), venomous fangs & cluster of 6 glowing acid-green eyes
+    shadowRadius = 0.78;
+    auraRadius = 0.44;
+    const carapaceHex = s0 % 2 === 0 ? 0x2e1042 : 0x1e0b2e;
+    const abdomenHex = s0 % 2 === 0 ? 0x3b1763 : 0x4c1d95;
+    const carapaceMat = mat(carapaceHex, 0.52, 0.22);
+    const abdomenMat = mat(abdomenHex, 0.58, 0.18);
+    const legMat = mat(0x240c36, 0.62, 0.2);
+    const toxicGlowMat = mat(0x4ade80, 0.25, 0.1, 0x22c55e, 1.35);
+    const fangMat = mat(0xd9f99d, 0.35, 0.25, 0x4ade80, 0.45);
+
+    // Cephalothorax (front armored torso)
+    const thorax = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.18, 0.28), carapaceMat);
+    thorax.position.set(0, 0.26, 0.08);
+    thorax.castShadow = true;
+    bodyPivot.add(thorax);
+
+    // Bulbous Blighted Abdomen with glowing toxic green hourglass / dorsal markings & spinnerets
+    const abdomen = new THREE.Mesh(new THREE.BoxGeometry(0.40, 0.30, 0.46), abdomenMat);
+    abdomen.position.set(0, 0.33, -0.26);
+    abdomen.rotation.x = 0.14;
+    abdomen.castShadow = true;
+    bodyPivot.add(abdomen);
+
+    const dorsalMark1 = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.04, 0.14), toxicGlowMat);
+    dorsalMark1.position.set(0, 0.48, -0.20);
+    dorsalMark1.rotation.x = 0.14;
+    bodyPivot.add(dorsalMark1);
+
+    const dorsalMark2 = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.04, 0.12), toxicGlowMat);
+    dorsalMark2.position.set(0, 0.46, -0.36);
+    dorsalMark2.rotation.x = 0.14;
+    bodyPivot.add(dorsalMark2);
+
+    for (const side of [-1, 1]) {
+      const bioSpot = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.08, 0.08), toxicGlowMat);
+      bioSpot.position.set(side * 0.20, 0.35, -0.25);
+      bodyPivot.add(bioSpot);
+    }
+
+    // Head, Chelicerae Fangs & 6 Glowing Green Arachnid Eyes
+    const headPivot = makePivot('head_pivot', 0, 0.26, 0.22);
+    const facePlate = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.14, 0.12), carapaceMat);
+    facePlate.position.set(0, 0.0, 0.04);
+    headPivot.add(facePlate);
+
+    for (const side of [-1, 1]) {
+      const chelicera = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.10, 0.08), carapaceMat);
+      chelicera.position.set(side * 0.06, -0.03, 0.10);
+      headPivot.add(chelicera);
+
+      const fang = new THREE.Mesh(pxCone(0.024, 0.11, 4), fangMat);
+      fang.position.set(side * 0.06, -0.10, 0.12);
+      fang.rotation.x = 2.75;
+      fang.rotation.z = side * 0.22;
+      headPivot.add(fang);
+
+      // Primary, secondary, and lateral glowing toxic eyes
+      const mainEye = new THREE.Mesh(new THREE.BoxGeometry(0.034, 0.034, 0.025), toxicGlowMat);
+      mainEye.position.set(side * 0.042, 0.03, 0.105);
+      headPivot.add(mainEye);
+
+      const upperEye = new THREE.Mesh(new THREE.BoxGeometry(0.024, 0.024, 0.022), toxicGlowMat);
+      upperEye.position.set(side * 0.078, 0.052, 0.095);
+      headPivot.add(upperEye);
+
+      const sideEye = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.022, 0.022), toxicGlowMat);
+      sideEye.position.set(side * 0.098, 0.02, 0.075);
+      headPivot.add(sideEye);
+    }
+    bodyPivot.add(headPivot);
+
+    // 8 Articulated Arachnid Legs grouped into 4 animated quadruped pivots (leg_fl, leg_fr, leg_bl, leg_br)
+    // so all 8 legs scuttle dynamically while keeping draw calls strictly <= 6!
+    const legPairs: Array<{
+      pivotName: 'leg_fl' | 'leg_fr' | 'leg_bl' | 'leg_br';
+      side: -1 | 1;
+      pz: number;
+      zOffsets: [number, number];
+      yawAngles: [number, number];
+    }> = [
+      { pivotName: 'leg_fl', side: -1, pz: 0.14, zOffsets: [0.06, -0.05], yawAngles: [0.46, 0.12] },
+      { pivotName: 'leg_fr', side: 1, pz: 0.14, zOffsets: [0.06, -0.05], yawAngles: [-0.46, -0.12] },
+      { pivotName: 'leg_bl', side: -1, pz: -0.04, zOffsets: [0.04, -0.08], yawAngles: [-0.16, -0.52] },
+      { pivotName: 'leg_br', side: 1, pz: -0.04, zOffsets: [0.04, -0.08], yawAngles: [0.16, 0.52] },
+    ];
+
+    for (const lp of legPairs) {
+      const legPivot = makePivot(lp.pivotName, lp.side * 0.14, 0.25, lp.pz);
+      for (let sub = 0; sub < 2; sub++) {
+        const subGroup = new THREE.Group();
+        subGroup.position.set(0, 0, lp.zOffsets[sub]);
+        subGroup.rotation.y = lp.yawAngles[sub];
+
+        // Upper femur rising outward
+        const femur = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.055, 0.055), legMat);
+        femur.position.set(lp.side * 0.11, 0.07, 0);
+        femur.rotation.z = lp.side * 0.52;
+        femur.castShadow = true;
+        subGroup.add(femur);
+
+        // Glowing toxic jointband at the knee apex
+        const kneeJoint = new THREE.Mesh(new THREE.BoxGeometry(0.058, 0.058, 0.058), toxicGlowMat);
+        kneeJoint.position.set(lp.side * 0.21, 0.12, 0);
+        subGroup.add(kneeJoint);
+
+        // Lower tibia/tarsus descending sharply to the ground
+        const tibia = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.34, 0.05), legMat);
+        tibia.position.set(lp.side * 0.27, -0.04, 0);
+        tibia.rotation.z = lp.side * -0.28;
+        tibia.castShadow = true;
+        subGroup.add(tibia);
+
+        legPivot.add(subGroup);
+      }
+      group.add(legPivot);
+    }
   } else {
     // Unicorn: radiant ivory steed, golden spiral horn, animated legs & pastel mane
     shadowRadius = 0.68;

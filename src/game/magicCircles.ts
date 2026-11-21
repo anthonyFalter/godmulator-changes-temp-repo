@@ -627,6 +627,9 @@ export function getMagicCircleThemeForPower(powerOrTool: string): MagicCircleThe
       return 'insight';
     case 'blessing':
     case 'harmony_dove':
+    case 'floral_paradise':
+    case 'floral_plains':
+    case 'floral_rain':
       return 'blessing';
     case 'golden_age':
     case 'chrono_surge':
@@ -642,6 +645,9 @@ export function getMagicCircleThemeForPower(powerOrTool: string): MagicCircleThe
       return 'frost';
     case 'bloodlust_frenzy':
     case 'volcano_eruption':
+    case 'lava_deluge':
+    case 'volcanic_wasteland':
+    case 'lava_river':
     case 'meteor_strike':
     case 'huge_asteroid_strike':
     case 'solar_orbital_laser':
@@ -651,6 +657,9 @@ export function getMagicCircleThemeForPower(powerOrTool: string): MagicCircleThe
       return 'wrath';
     case 'terraform_beam':
     case 'plague_miasma':
+    case 'blight_plague':
+    case 'blighted_mire':
+    case 'poison_river':
     case 'fertile_meadow':
     case 'plant_forest':
     case 'jungle_bloom':

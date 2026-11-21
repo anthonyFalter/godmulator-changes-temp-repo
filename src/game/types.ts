@@ -64,7 +64,10 @@ export type TerrainType =
   | 'scorched'
   | 'crystal_field'
   | 'void_goo'
-  | 'ice';
+  | 'ice'
+  | 'volcanic_wasteland'
+  | 'blighted_mire'
+  | 'floral_plains';
 
 export type ResourceNodeType =
   | 'none'
@@ -93,6 +96,7 @@ export interface TileData {
   claimedSettlementId?: string;
   isRiver?: boolean;
   isLake?: boolean;
+  waterKind?: 'lava' | 'poison' | 'floral';
   coralBleachTimer?: number;
   tempOffset?: number;
   frozenWaterBase?: 'deep_water' | 'shallow_water';
@@ -106,7 +110,10 @@ export interface TileData {
     | 'blossom'
     | 'savanna'
     | 'swamp'
-    | 'highland';
+    | 'highland'
+    | 'volcanic'
+    | 'blight'
+    | 'floral';
   treeBiomeOverride?:
     | 'forest'
     | 'meadow'
@@ -115,7 +122,10 @@ export interface TileData {
     | 'blossom'
     | 'savanna'
     | 'swamp'
-    | 'highland';
+    | 'highland'
+    | 'volcanic'
+    | 'blight'
+    | 'floral';
 }
 
 export type BuildingType =
@@ -225,7 +235,8 @@ export type AnimalRole =
   | 'thunderbird'
   | 'kraken'
   | 'manticore'
-  | 'gargoyle';
+  | 'gargoyle'
+  | 'giant_spider';
 
 export type UnitRole =
   | 'human'
@@ -389,7 +400,10 @@ export type GodPowerType =
   | 'chrono_surge'
   | 'harmony_dove'
   | 'solar_orbital_laser'
-  | 'gravity_flip';
+  | 'gravity_flip'
+  | 'lava_deluge'
+  | 'blight_plague'
+  | 'floral_paradise';
 
 export interface GodPowerDefinition {
   type: GodPowerType;
@@ -424,7 +438,13 @@ export type TerrainToolType =
   | 'atlantis_rise'
   | 'alpine_glacier'
   | 'abyssal_trench'
-  | 'swamp_mire';
+  | 'swamp_mire'
+  | 'volcanic_wasteland'
+  | 'blighted_mire'
+  | 'floral_plains'
+  | 'lava_river'
+  | 'poison_river'
+  | 'floral_rain';
 
 export interface TerrainToolDefinition {
   type: TerrainToolType;
