@@ -137,9 +137,7 @@ export const PixelBrushSelector: React.FC<PixelBrushSelectorProps> = ({
           className="px-panel fixed z-50 w-48 p-2.5 space-y-2"
         >
           <div className="flex items-center justify-between text-[11px]">
-            <span className="text-[#b8afa2]">
-              {mode === 'powers' ? 'Cluster Size' : 'Brush Size'}
-            </span>
+            <span className="text-[#b8afa2]">Brush Size</span>
             <span className="font-pixel-num font-bold text-[#f5b742] tabular-nums">
               {valueHint}
             </span>
