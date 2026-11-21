@@ -1228,11 +1228,11 @@ export default function App() {
         .join(',')
     : '';
   const zoneCacheKey = shouldComputeZones
-    ? `${sim.seed}:${Math.floor(sim.year)}:${sim.buildings.length}:${sim.units.length}:${kingdomEpochsKey}:${Math.floor(hudTick / 3)}`
+    ? `${sim.seed}:${Math.floor(sim.year)}:${sim.buildings.length}:${sim.units.length}:${kingdomEpochsKey}:${Math.floor(hudTick / 10)}`
     : 'idle';
   const kingdomLabelsKey =
     !anyZoneActive && activeZones.kingdomLabels && gameState !== 'title'
-      ? `${sim.seed}:${sim.buildings.length}:${sim.units.length}:${kingdomEpochsKey}:${Math.floor(hudTick / 3)}`
+      ? `${sim.seed}:${sim.buildings.length}:${sim.units.length}:${kingdomEpochsKey}:${Math.floor(hudTick / 10)}`
       : 'off';
 
   const worldZones = useMemo(() => {

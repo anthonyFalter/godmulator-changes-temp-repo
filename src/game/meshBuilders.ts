@@ -595,9 +595,25 @@ function bakeVertexColoredStaticMeshes(
       (!mat.emissive || mat.emissive.getHex() === 0 || mat.emissiveIntensity === 0) &&
       !mat.vertexColors
     ) {
-      // Quantize PBR response into 3 clean sheen buckets so visual finish is preserved while collapsing draw calls
-      const mBucket = mat.metalness >= 0.45 ? 0.62 : mat.metalness >= 0.2 ? 0.28 : 0.08;
-      const rBucket = mat.metalness >= 0.45 ? 0.32 : mat.roughness <= 0.45 ? 0.42 : 0.68;
+      // Quantize PBR response into clean sheen buckets so visual finish is preserved while collapsing draw calls
+      const mBucket = options?.unifyCastShadow
+        ? mat.metalness >= 0.42
+          ? 0.58
+          : 0.08
+        : mat.metalness >= 0.45
+          ? 0.62
+          : mat.metalness >= 0.2
+            ? 0.28
+            : 0.08;
+      const rBucket = options?.unifyCastShadow
+        ? mat.metalness >= 0.42
+          ? 0.34
+          : 0.68
+        : mat.metalness >= 0.45
+          ? 0.32
+          : mat.roughness <= 0.45
+            ? 0.42
+            : 0.68;
       const castShadow = options?.unifyCastShadow ? true : child.castShadow;
       const receiveShadow = child.receiveShadow;
       const key = `${rBucket}|${mBucket}|${castShadow ? 1 : 0}|${receiveShadow ? 1 : 0}`;
@@ -9462,7 +9478,34 @@ function buildCreatureUnitGroup(
   const auraRing = new THREE.Mesh(auraGeo, auraMat);
   auraRing.position.y = 0.03;
   auraRing.name = 'status_ring';
+  auraRing.visible = false;
   group.add(auraRing);
+
+  // Merge static sub-meshes within each animated animal pivot (body_pivot, head_pivot, legs, wings)
+  // to cut per-animal draw calls by ~60% while keeping every articulated pivot 100% intact.
+  const animalSkip = new Set([
+    'contact_shadow',
+    'status_ring',
+    'fire_maw',
+    'beam_muzzle',
+    'beam_shaft',
+    'beam_impact',
+    'leviathan_splash_inner',
+    'leviathan_splash_outer',
+  ]);
+  const animalPivots: THREE.Group[] = [];
+  group.traverse((obj) => {
+    if (obj instanceof THREE.Group && obj !== group && obj.children.length > 1) {
+      animalPivots.push(obj);
+    }
+  });
+  for (let pi = 0; pi < animalPivots.length; pi++) {
+    bakeVertexColoredStaticMeshes(animalPivots[pi], animalSkip, {
+      unifyCastShadow: role !== 'leviathan',
+      tagUnitShadowCaster: role !== 'dragon' && role !== 'leviathan',
+      disposeSourceMaterials: true,
+    });
+  }
 
   return group;
 }

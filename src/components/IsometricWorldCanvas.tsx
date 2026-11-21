@@ -181,7 +181,7 @@ interface PooledParticle {
   color: THREE.Color;
 }
 
-export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
+export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.memo(({
   simRef,
   gameState,
   timeScale,
@@ -980,6 +980,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       legL?: THREE.Object3D;
       legR?: THREE.Object3D;
       contactShadow?: THREE.Object3D;
+      contactShadowScale: number;
       heldTool?: THREE.Object3D;
       carryBox?: THREE.Mesh;
       statusRing?: THREE.Mesh;
@@ -1223,6 +1224,22 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     kingCrownsInst.count = 0;
     kingCrownsInst.frustumCulled = false;
     worldGroup.add(kingCrownsInst);
+
+    // Single InstancedMesh for ALL unit contact shadows (collapses 100-500+ shadow disc draw calls into 1!)
+    const unitShadowGeo = new THREE.CircleGeometry(0.38, 12);
+    unitShadowGeo.rotateX(-Math.PI / 2);
+    const unitShadowMat = new THREE.MeshBasicMaterial({
+      color: 0x090d14,
+      transparent: true,
+      opacity: 0.34,
+      depthWrite: false,
+    });
+    const unitContactShadowsInst = new THREE.InstancedMesh(unitShadowGeo, unitShadowMat, 512);
+    unitContactShadowsInst.count = 0;
+    unitContactShadowsInst.visible = false;
+    unitContactShadowsInst.frustumCulled = false;
+    unitContactShadowsInst.renderOrder = 1;
+    worldGroup.add(unitContactShadowsInst);
 
     // Zero-GC Pooled Particle System (InstancedMesh)
     const particleGeo = new THREE.BoxGeometry(0.22, 0.22, 0.22);
@@ -8243,6 +8260,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       const wantSmallUnitShadow = autoOptDecisions.unitCastShadows && frustumSize < 56;
       const crowdAnimStride = autoOptDecisions.crowdAnimStride;
       const autoOptFrame = autoOptimizer.getFrameCounter();
+      let unitShadowCount = 0;
       let visibleUnitsThisFrame = 0;
 
       for (let ui = 0; ui < simState.units.length; ui++) {
@@ -8334,7 +8352,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             kneeBR: group.getObjectByName('knee_br'),
             legL: group.getObjectByName('leg_l'),
             legR: group.getObjectByName('leg_r'),
-            contactShadow: group.getObjectByName('contact_shadow'),
+            contactShadow: (() => {
+              const cs = group.getObjectByName('contact_shadow');
+              if (cs) cs.visible = false;
+              return cs;
+            })(),
+            contactShadowScale: group.getObjectByName('contact_shadow')?.scale.x ?? 0,
             heldTool: group.getObjectByName('held_tool'),
             carryBox: group.getObjectByName('carry_box') as THREE.Mesh | undefined,
             statusRing: group.getObjectByName('status_ring') as THREE.Mesh | undefined,
@@ -9203,10 +9226,29 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
           }
         }
 
-        const unitShadow = uEntry.contactShadow;
-        if (unitShadow) {
+        if (uEntry.contactShadowScale > 0 && !(u.role === 'leviathan' && u.leviathanSubmerged)) {
           const totalAir = flightHoverY + airborneAltY + pounceHopY;
-          unitShadow.scale.setScalar(Math.max(0.28, 1 - totalAir * 0.18));
+          const s = uEntry.contactShadowScale * Math.max(0.28, 1 - totalAir * 0.18);
+          const slot = unitShadowCount++;
+          ensureInstancedCapacity(unitContactShadowsInst, unitShadowCount);
+          const arr = unitContactShadowsInst.instanceMatrix.array as Float32Array;
+          const off = slot * 16;
+          arr[off] = s;
+          arr[off + 1] = 0;
+          arr[off + 2] = 0;
+          arr[off + 3] = 0;
+          arr[off + 4] = 0;
+          arr[off + 5] = s;
+          arr[off + 6] = 0;
+          arr[off + 7] = 0;
+          arr[off + 8] = 0;
+          arr[off + 9] = 0;
+          arr[off + 10] = s;
+          arr[off + 11] = 0;
+          arr[off + 12] = uGroup.position.x;
+          arr[off + 13] = uGroup.position.y + 0.018;
+          arr[off + 14] = uGroup.position.z;
+          arr[off + 15] = 1;
         }
 
         const heldTool = uEntry.heldTool;
@@ -9216,7 +9258,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         } // end runMicroAnim
 
         if (uEntry.heldTool) {
-          const showTool = frustumSize < 64;
+          const showTool = frustumSize < 38;
           if (uEntry.heldTool.visible !== showTool) uEntry.heldTool.visible = showTool;
         }
 
@@ -9286,6 +9328,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       }
 
       visibleUnitCountLastFrame = visibleUnitsThisFrame;
+      unitContactShadowsInst.count = unitShadowCount;
+      unitContactShadowsInst.visible = unitShadowCount > 0;
+      if (unitShadowCount > 0) {
+        unitContactShadowsInst.instanceMatrix.clearUpdateRanges();
+        unitContactShadowsInst.instanceMatrix.addUpdateRange(0, unitShadowCount * 16);
+        unitContactShadowsInst.instanceMatrix.needsUpdate = true;
+      }
 
       for (const [id, uEntry] of unitMeshes.entries()) {
         if (uEntry.seenStamp !== syncFrameStamp) {
@@ -13239,6 +13288,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       favoriteStarMat.dispose();
       kingCrownGeo.dispose();
       kingCrownMat.dispose();
+      unitShadowGeo.dispose();
+      unitShadowMat.dispose();
       for (const hv of hazardMeshes.values()) {
         disposeHazardVisual(hv);
       }
@@ -13513,4 +13564,4 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       )}
     </>
   );
-};
+});
