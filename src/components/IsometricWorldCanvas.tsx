@@ -547,7 +547,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     ): THREE.InstancedMesh[][] =>
       TREE_BIOME_KEYS.map((b) => makePropInstancedList(byBiome[b], voxelTreeLib.material, castShadow));
 
-    // Indexed as [charred: 0|1][tier: 0=LOD0, 1=LOD1, 2=LOD2, 3=LOD3-shadow, 4=LOD3-noShadow, 5=LOD1-noShadow][biomeIdx][variantIdx]
+    // Indexed as [charred: 0|1][tier: 0=LOD0, 1=LOD1, 2=LOD2, 3=LOD3-shadow, 4=LOD3-noShadow, 5=LOD1-noShadow, 6=LOD2-noShadow][biomeIdx][variantIdx]
     const treeInstPools: THREE.InstancedMesh[][][][] = [
       [
         makeTreeBiomePools(voxelTreeLib.byBiome, true),
@@ -556,6 +556,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         makeTreeBiomePools(voxelTreeLib.byBiomeLod3, true),
         makeTreeBiomePools(voxelTreeLib.byBiomeLod3, false),
         makeTreeBiomePools(voxelTreeLib.byBiomeLod1, false),
+        makeTreeBiomePools(voxelTreeLib.byBiomeLod2, false),
       ],
       [
         makeTreeBiomePools(voxelTreeLib.burntByBiome, true),
@@ -564,6 +565,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         makeTreeBiomePools(voxelTreeLib.burntByBiomeLod3, true),
         makeTreeBiomePools(voxelTreeLib.burntByBiomeLod3, false),
         makeTreeBiomePools(voxelTreeLib.burntByBiomeLod1, false),
+        makeTreeBiomePools(voxelTreeLib.burntByBiomeLod2, false),
       ],
     ];
     const allVoxelTreeInsts: THREE.InstancedMesh[] = [];
@@ -6789,6 +6791,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
     let lastPropCullMaxZ = 0;
     let lastPropCamX = -9999;
     let lastPropCamZ = -9999;
+    let lastPropCamYaw = -9999;
     let lastPropFoliageFactor = -1;
 
     const pushTreeCache = (
@@ -6912,33 +6915,53 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       }
       treeImpostors.reset();
 
-      const lodBand = frustumSize < 24 ? 0 : frustumSize < 46 ? 1 : frustumSize < 70 ? 2 : 3;
+      // Pixel-matched LOD bands:
+      // 0 (<13): extreme close-up (LOD0 hero / LOD1 companion)
+      // 1 (13..26): normal close-up (LOD1 hero / LOD2 companion / impostor outer companions)
+      // 2 (26..46): mid zoom (LOD2 inner hero / LOD3 inner companion / 2-tri impostor outer)
+      // 3 (>=46): region & overview (2-tri baked impostors in 1 draw call)
+      const lodBand = frustumSize < 13 ? 0 : frustumSize < 26 ? 1 : frustumSize < 46 ? 2 : 3;
       const focusX = camTarget.x;
       const focusZ = camTarget.z;
       const innerR = Math.max(
-        7.5,
-        frustumSize * (lodBand === 0 ? 0.42 : lodBand === 1 ? 0.45 : 0.38),
+        6.5,
+        frustumSize * (lodBand === 0 ? 0.55 : lodBand === 1 ? 0.52 : 0.42),
       );
       const innerRSq = innerR * innerR;
-      const propR = Math.max(14, frustumSize * 0.48);
+      const propR = Math.max(12, frustumSize * 0.5);
       const propRSq = propR * propR;
 
-      // 12-tile guard band around visible bounds prevents per-frame InstancedMesh buffer
-      // rebuilds during smooth zooming/panning while guaranteeing zero edge pop-in.
-      const cullPad = 12.0;
-      const cMinX = worldCullBounds.minX - cullPad;
-      const cMaxX = worldCullBounds.maxX + cullPad;
-      const cMinZ = worldCullBounds.minZ - cullPad;
-      const cMaxZ = worldCullBounds.maxZ + cullPad;
+      // Exact camera-oriented 2D bounding box (OBB) eliminates ~75% of off-screen trees
+      // that used to leak through the 4 empty diagonal corners of the axis-aligned AABB.
+      const obbAspect = getCurrentAspect();
+      const obbPad = 6.0;
+      const rx = Math.cos(camYaw);
+      const rz = -Math.sin(camYaw);
+      const fx = Math.sin(camYaw);
+      const fz = Math.cos(camYaw);
+      const halfW = (frustumSize * obbAspect) * 0.5 + obbPad;
+      const halfFFront = frustumSize * 0.82 + 3.0 + obbPad;
+      const halfFBack = frustumSize * 0.82 + 7.5 + obbPad;
+
+      const cMinX = worldCullBounds.minX - obbPad;
+      const cMaxX = worldCullBounds.maxX + obbPad;
+      const cMinZ = worldCullBounds.minZ - obbPad;
+      const cMaxZ = worldCullBounds.maxZ + obbPad;
       const useImpostors = treeImpostors.isBaked;
 
-      // 1. Trees (4-tier zoom LOD + radial focus + baked 2-tri impostors at far/overview + companion shadow opt)
+      // 1. Trees (exact OBB cull + pixel-matched 4-tier LOD + baked 2-tri impostors)
       for (let i = 0; i < treeCacheCount; i++) {
         const tx = treeCacheX[i];
         const tz = treeCacheZ[i];
-        if (tx < cMinX || tx > cMaxX || tz < cMinZ || tz > cMaxZ) continue;
+        const dx = tx - focusX;
+        const dz = tz - focusZ;
+        const projR = dx * rx + dz * rz;
+        if (projR < -halfW || projR > halfW) continue;
+        const projF = dx * fx + dz * fz;
+        if (projF < -halfFBack || projF > halfFFront) continue;
+
         const flags = treeCacheFlags[i];
-        // Hide cramped under-canopy sapling layer (k===2) at whole-map overview where overlapping foliage occludes it
+        // Hide cramped under-canopy sapling layer (k===2) at region/overview where overlapping foliage occludes it
         if (lodBand === 3 && (flags & 4) !== 0) continue;
 
         const charred = flags & 1;
@@ -6950,9 +6973,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
             continue;
           }
         } else if (lodBand === 2) {
-          const dx = tx - focusX;
-          const dz = tz - focusZ;
           if (dx * dx + dz * dz > innerRSq && useImpostors) {
+            treeImpostors.pushTreeFromMatrix(charred, treeCacheBiome[i], treeCacheVar[i], treeCacheMat, i * 16);
+            continue;
+          }
+        } else if (lodBand === 1) {
+          if (isCompanion && dx * dx + dz * dz > innerRSq && useImpostors) {
             treeImpostors.pushTreeFromMatrix(charred, treeCacheBiome[i], treeCacheVar[i], treeCacheMat, i * 16);
             continue;
           }
@@ -6960,22 +6986,19 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
 
         let tier = 3;
         if (lodBand === 0) {
-          const dx = tx - focusX;
-          const dz = tz - focusZ;
           if (dx * dx + dz * dz <= innerRSq) {
-            // Hero trees render full LOD0 with shadows; smaller tucked companion trees use LOD1 no-shadow
             tier = isCompanion ? 5 : 0;
           } else {
-            tier = isCompanion ? 5 : 1;
+            tier = isCompanion ? 6 : 1;
           }
         } else if (lodBand === 1) {
-          const dx = tx - focusX;
-          const dz = tz - focusZ;
-          tier = dx * dx + dz * dz <= innerRSq ? (isCompanion ? 5 : 1) : 2;
+          if (dx * dx + dz * dz <= innerRSq) {
+            tier = isCompanion ? 6 : 1;
+          } else {
+            tier = isCompanion ? 4 : 2;
+          }
         } else if (lodBand === 2) {
-          const dx = tx - focusX;
-          const dz = tz - focusZ;
-          tier = dx * dx + dz * dz <= innerRSq ? 2 : isCompanion ? 4 : 3;
+          tier = dx * dx + dz * dz <= innerRSq ? (isCompanion ? 4 : 2) : isCompanion ? 4 : 3;
         } else {
           tier = isCompanion ? 4 : 3;
         }
@@ -6991,20 +7014,23 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       }
       treeImpostors.commit();
 
-      // 2. Resource Props (LOD0 close/inner-mid, LOD2 outer-mid/region/overview)
+      // 2. Resource Props (exact OBB cull + LOD0 close-up, LOD2 mid/region/overview)
       for (let i = 0; i < propCacheCount; i++) {
         const px = propCacheX[i];
         const pz = propCacheZ[i];
         const kind = propCacheKind[i];
         const pad = kind === 9 ? 3.5 : 0; // Atlantis ruins have ~1.7u outer perimeter
-        if (px < cMinX - pad || px > cMaxX + pad || pz < cMinZ - pad || pz > cMaxZ + pad) continue;
+        const dx = px - focusX;
+        const dz = pz - focusZ;
+        const projR = dx * rx + dz * rz;
+        if (projR < -halfW - pad || projR > halfW + pad) continue;
+        const projF = dx * fx + dz * fz;
+        if (projF < -halfFBack - pad || projF > halfFFront + pad) continue;
 
         let useLod0 = false;
         if (lodBand === 0) {
           useLod0 = true;
         } else if (lodBand === 1) {
-          const dx = px - focusX;
-          const dz = pz - focusZ;
           useLod0 = dx * dx + dz * dz <= propRSq;
         }
 
@@ -7019,7 +7045,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         for (let m = 0; m < 16; m++) dst[dstOff + m] = propCacheMat[srcOff + m];
       }
 
-      // 3. Ambient Ground Details (coupled zoom tier + user graphics foliageFactor)
+      // 3. Ambient Ground Details (exact OBB cull + coupled zoom tier + user graphics foliageFactor)
       const factorTier = appliedFoliageFactor < 0.35 ? 0 : appliedFoliageFactor < 0.75 ? 1 : 2;
       const zoomAmbTier = lodBand >= 2 ? 0 : lodBand === 1 ? 1 : 2;
       const allowedAmbTier = Math.min(factorTier, zoomAmbTier);
@@ -7027,7 +7053,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         if (ambCacheTier[i] > allowedAmbTier) continue;
         const ax = ambCacheX[i];
         const az = ambCacheZ[i];
-        if (ax < cMinX || ax > cMaxX || az < cMinZ || az > cMaxZ) continue;
+        const dx = ax - focusX;
+        const dz = az - focusZ;
+        const projR = dx * rx + dz * rz;
+        if (projR < -halfW || projR > halfW) continue;
+        const projF = dx * fx + dz * fz;
+        if (projF < -halfFBack || projF > halfFFront) continue;
         const inst = ambInstGroups[ambCacheGroup[i]][ambCacheVar[i]];
         const slot = inst.count;
         ensureInstancedCapacity(inst, slot + 1);
@@ -7057,6 +7088,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
       lastPropCullMaxZ = cMaxZ;
       lastPropCamX = focusX;
       lastPropCamZ = focusZ;
+      lastPropCamYaw = camYaw;
       lastPropFoliageFactor = appliedFoliageFactor;
     };
 
@@ -7648,7 +7680,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         propViewDirty = true;
       }
 
-      const curLodBand = frustumSize < 24 ? 0 : frustumSize < 46 ? 1 : frustumSize < 70 ? 2 : 3;
+      const curLodBand = frustumSize < 13 ? 0 : frustumSize < 26 ? 1 : frustumSize < 46 ? 2 : 3;
       const wholeMapVisible =
         worldCullBounds.minX <= 0 &&
         worldCullBounds.maxX >= simState.gridSize - 1 &&
@@ -7661,30 +7693,32 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = ({
         lastPropCullMaxZ >= simState.gridSize - 1;
       const boundsShifted =
         !wholeMapVisible &&
-        (worldCullBounds.minX < lastPropCullMinX + 1.5 ||
-          worldCullBounds.maxX > lastPropCullMaxX - 1.5 ||
-          worldCullBounds.minZ < lastPropCullMinZ + 1.5 ||
-          worldCullBounds.maxZ > lastPropCullMaxZ - 1.5 ||
-          worldCullBounds.minX - lastPropCullMinX > 26.0 ||
-          lastPropCullMaxX - worldCullBounds.maxX > 26.0 ||
-          worldCullBounds.minZ - lastPropCullMinZ > 26.0 ||
-          lastPropCullMaxZ - worldCullBounds.maxZ > 26.0);
+        (worldCullBounds.minX < lastPropCullMinX + 1.0 ||
+          worldCullBounds.maxX > lastPropCullMaxX - 1.0 ||
+          worldCullBounds.minZ < lastPropCullMinZ + 1.0 ||
+          worldCullBounds.maxZ > lastPropCullMaxZ - 1.0 ||
+          worldCullBounds.minX - lastPropCullMinX > 16.0 ||
+          lastPropCullMaxX - worldCullBounds.maxX > 16.0 ||
+          worldCullBounds.minZ - lastPropCullMinZ > 16.0 ||
+          lastPropCullMaxZ - worldCullBounds.maxZ > 16.0);
       if (boundsShifted || (wholeMapVisible && !prevWholeMap)) {
         metroNeedsSync = true;
       }
       const frustumDeltaPct =
         Math.abs(frustumSize - lastPropLodFrustum) / Math.max(10, lastPropLodFrustum);
       const radialCamMoved =
-        curLodBand < 3 &&
-        (Math.abs(camTarget.x - lastPropCamX) > 7.5 ||
-          Math.abs(camTarget.z - lastPropCamZ) > 7.5);
+        !wholeMapVisible &&
+        (Math.abs(camTarget.x - lastPropCamX) > 4.2 ||
+          Math.abs(camTarget.z - lastPropCamZ) > 4.2);
+      const yawMoved = !wholeMapVisible && Math.abs(camYaw - lastPropCamYaw) > 0.14;
 
       if (
         propViewDirty ||
         curLodBand !== lastPropLodBand ||
         lastPropFoliageFactor !== appliedFoliageFactor ||
         boundsShifted ||
-        (curLodBand < 3 && frustumDeltaPct > 0.25) ||
+        yawMoved ||
+        (curLodBand < 3 && frustumDeltaPct > 0.22) ||
         radialCamMoved
       ) {
         rebuildVisiblePropsAndLod();
