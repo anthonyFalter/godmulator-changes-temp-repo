@@ -17,38 +17,57 @@ interface GraphicsSettingsPanelProps {
 
 const PRESET_OPTIONS: { id: Exclude<GraphicsQualityPreset, 'custom'>; label: string }[] = [
   { id: 'high', label: 'High' },
-  { id: 'balanced', label: 'Balanced' },
-  { id: 'fast', label: 'Fast' },
+  { id: 'balanced', label: 'Medium' },
+  { id: 'fast', label: 'Low' },
 ];
 
 const SHADOW_OPTIONS: { id: ShadowQualityOption; label: string }[] = [
-  { id: 'on', label: 'On' },
-  { id: 'fast', label: 'Fast' },
+  { id: 'on', label: 'High' },
+  { id: 'fast', label: 'Low' },
   { id: 'off', label: 'Off' },
 ];
 
 const SKY_OPTIONS: { id: SkyCloudsQualityOption; label: string }[] = [
-  { id: 'full', label: 'Full' },
-  { id: 'reduced', label: 'Reduced' },
+  { id: 'full', label: 'High' },
+  { id: 'reduced', label: 'Low' },
   { id: 'off', label: 'Off' },
 ];
 
 const FOLIAGE_OPTIONS: { id: FoliageDetailOption; label: string }[] = [
-  { id: 'full', label: 'Full' },
-  { id: 'medium', label: 'Med' },
+  { id: 'full', label: 'High' },
+  { id: 'medium', label: 'Medium' },
   { id: 'low', label: 'Low' },
 ];
 
 const PARTICLE_OPTIONS: { id: ParticleDetailOption; label: string }[] = [
-  { id: 'full', label: 'Full' },
-  { id: 'reduced', label: 'Reduced' },
+  { id: 'full', label: 'High' },
+  { id: 'reduced', label: 'Medium' },
   { id: 'low', label: 'Low' },
 ];
+
+type FrameRateMode = 'quality' | 'dynamic' | 'performance';
+
+const FRAME_RATE_MODE_OPTIONS: { id: FrameRateMode; label: string; hint: string }[] = [
+  { id: 'quality', label: 'Quality', hint: 'Keep full visual detail' },
+  { id: 'dynamic', label: 'Dynamic FPS', hint: 'Lower effects automatically to hold 60 FPS' },
+  { id: 'performance', label: 'Performance', hint: 'Prioritize smoother frame rates' },
+];
+
+const SELECT_CLASS =
+  'w-36 sm:w-44 shrink-0 bg-[#1e1b17] text-[#f2ece1] text-xs font-semibold px-2.5 py-1.5 border border-[#4a4137] hover:border-[#706455] focus:border-[#f5b742] outline-none cursor-pointer';
 
 export const GraphicsSettingsPanel: React.FC<GraphicsSettingsPanelProps> = ({
   settings,
   onChange,
 }) => {
+  const isQualityMode = settings.strictLossless !== false;
+  const frameRateMode: FrameRateMode = isQualityMode
+    ? 'quality'
+    : settings.autoOptimizeFps
+      ? 'dynamic'
+      : 'performance';
+  const showPerfHud = Boolean(settings.showPerformanceHud);
+
   const updateField = <K extends keyof Omit<GraphicsSettings, 'preset'>>(
     key: K,
     value: GraphicsSettings[K],
@@ -61,7 +80,7 @@ export const GraphicsSettingsPanel: React.FC<GraphicsSettingsPanelProps> = ({
       particles: settings.particles,
       autoOptimizeFps: settings.autoOptimizeFps,
       strictLossless: settings.strictLossless ?? true,
-      showPerformanceHud: settings.showPerformanceHud ?? false,
+      showPerformanceHud: showPerfHud,
       [key]: value,
     };
     onChange({
@@ -70,208 +89,163 @@ export const GraphicsSettingsPanel: React.FC<GraphicsSettingsPanelProps> = ({
     });
   };
 
-  const isStrictLossless = settings.strictLossless !== false;
-  const showPerfHud = Boolean(settings.showPerformanceHud);
+  const handleFrameRateModeChange = (mode: FrameRateMode) => {
+    soundEngine.playClick();
+    const strictLossless = mode === 'quality';
+    const autoOptimizeFps = mode === 'dynamic';
+    const partial: Omit<GraphicsSettings, 'preset'> = {
+      shadows: settings.shadows,
+      cloudsAndSky: settings.cloudsAndSky,
+      foliageDensity: settings.foliageDensity,
+      particles: settings.particles,
+      autoOptimizeFps,
+      strictLossless,
+      showPerformanceHud: showPerfHud,
+    };
+    onChange({
+      ...partial,
+      preset: inferGraphicsPreset(partial),
+    });
+  };
+
+  const activeModeHint =
+    FRAME_RATE_MODE_OPTIONS.find((m) => m.id === frameRateMode)?.hint ?? '';
 
   return (
     <div className="space-y-3 pt-2 border-t border-[#3a332b]" data-testid="graphics-settings-section">
       <div className="flex items-center justify-between">
         <span className="text-xs font-bold text-[#f5b742]">Graphics</span>
-        {settings.preset === 'custom' && (
-          <span className="text-[11px] font-semibold text-[#56cfe1]">Custom</span>
-        )}
       </div>
 
-      {/* Overall Preset */}
+      {/* Quality Preset */}
       <div className="flex items-center justify-between gap-2 sm:gap-3">
-        <span className="text-[#e8e0d2] min-w-0 truncate">Preset</span>
-        <div className="grid grid-cols-3 gap-1 w-36 sm:w-48 shrink-0">
-          {PRESET_OPTIONS.map((opt) => {
-            const active = settings.preset === opt.id;
-            return (
-              <button
-                key={opt.id}
-                type="button"
-                data-testid={`gfx-preset-${opt.id}`}
-                onClick={() => {
-                  soundEngine.playClick();
-                  onChange(
-                    applyGraphicsPreset(
-                      opt.id,
-                      settings.autoOptimizeFps,
-                      isStrictLossless,
-                      showPerfHud,
-                    ),
-                  );
-                }}
-                className={`py-1.5 sm:py-1 text-[11px] cursor-pointer ${
-                  active ? 'px-btn-active font-bold' : 'px-btn'
-                }`}
-              >
-                {opt.label}
-              </button>
+        <label htmlFor="gfx-preset-select" className="text-[#e8e0d2] min-w-0 truncate">
+          Quality
+        </label>
+        <select
+          id="gfx-preset-select"
+          data-testid="gfx-preset-select"
+          value={settings.preset}
+          onChange={(e) => {
+            const val = e.target.value as GraphicsQualityPreset;
+            if (val === 'custom') return;
+            soundEngine.playClick();
+            onChange(
+              applyGraphicsPreset(val, settings.autoOptimizeFps, isQualityMode, showPerfHud),
             );
-          })}
-        </div>
+          }}
+          className={SELECT_CLASS}
+        >
+          {PRESET_OPTIONS.map((opt) => (
+            <option key={opt.id} value={opt.id}>
+              {opt.label}
+            </option>
+          ))}
+          {settings.preset === 'custom' && <option value="custom">Custom</option>}
+        </select>
       </div>
 
       {/* Shadows */}
       <div className="flex items-center justify-between gap-2 sm:gap-3">
-        <span className="text-[#e8e0d2] min-w-0 truncate">Shadows</span>
-        <div className="grid grid-cols-3 gap-1 w-36 sm:w-48 shrink-0">
-          {SHADOW_OPTIONS.map((opt) => {
-            const active = settings.shadows === opt.id;
-            return (
-              <button
-                key={opt.id}
-                type="button"
-                data-testid={`gfx-shadows-${opt.id}`}
-                onClick={() => updateField('shadows', opt.id)}
-                className={`py-1.5 sm:py-1 text-[11px] cursor-pointer ${
-                  active ? 'px-btn-active font-bold' : 'px-btn'
-                }`}
-              >
-                {opt.label}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Sky & Clouds */}
-      <div className="flex items-center justify-between gap-2 sm:gap-3">
-        <span className="text-[#e8e0d2] min-w-0 truncate">Sky &amp; Clouds</span>
-        <div className="grid grid-cols-3 gap-1 w-36 sm:w-48 shrink-0">
-          {SKY_OPTIONS.map((opt) => {
-            const active = settings.cloudsAndSky === opt.id;
-            return (
-              <button
-                key={opt.id}
-                type="button"
-                data-testid={`gfx-sky-${opt.id}`}
-                onClick={() => updateField('cloudsAndSky', opt.id)}
-                className={`py-1.5 sm:py-1 text-[11px] cursor-pointer ${
-                  active ? 'px-btn-active font-bold' : 'px-btn'
-                }`}
-              >
-                {opt.label}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Foliage Detail */}
-      <div className="flex items-center justify-between gap-2 sm:gap-3">
-        <span className="text-[#e8e0d2] min-w-0 truncate">Foliage Detail</span>
-        <div className="grid grid-cols-3 gap-1 w-36 sm:w-48 shrink-0">
-          {FOLIAGE_OPTIONS.map((opt) => {
-            const active = settings.foliageDensity === opt.id;
-            return (
-              <button
-                key={opt.id}
-                type="button"
-                data-testid={`gfx-foliage-${opt.id}`}
-                onClick={() => updateField('foliageDensity', opt.id)}
-                className={`py-1.5 sm:py-1 text-[11px] cursor-pointer ${
-                  active ? 'px-btn-active font-bold' : 'px-btn'
-                }`}
-              >
-                {opt.label}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Particles */}
-      <div className="flex items-center justify-between gap-2 sm:gap-3">
-        <span className="text-[#e8e0d2] min-w-0 truncate">Particles</span>
-        <div className="grid grid-cols-3 gap-1 w-36 sm:w-48 shrink-0">
-          {PARTICLE_OPTIONS.map((opt) => {
-            const active = settings.particles === opt.id;
-            return (
-              <button
-                key={opt.id}
-                type="button"
-                data-testid={`gfx-particles-${opt.id}`}
-                onClick={() => updateField('particles', opt.id)}
-                className={`py-1.5 sm:py-1 text-[11px] cursor-pointer ${
-                  active ? 'px-btn-active font-bold' : 'px-btn'
-                }`}
-              >
-                {opt.label}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Visual Fidelity Mode: Strict Lossless vs Low-End Performance */}
-      <div className="flex items-center justify-between gap-3 pt-1">
-        <div>
-          <div className="text-[#e8e0d2]">Visual Parity Mode</div>
-          <div className="text-[10px] text-[#9e9486]">
-            {isStrictLossless
-              ? 'Strict Lossless: full detail at all zoom levels'
-              : 'Low-End Mode: adaptive shadows & FX throttling'}
-          </div>
-        </div>
-        <button
-          type="button"
-          data-testid="gfx-lossless-toggle"
-          aria-pressed={isStrictLossless}
-          onClick={() => updateField('strictLossless', !isStrictLossless)}
-          className={`px-3 py-1.5 font-semibold cursor-pointer shrink-0 ${
-            isStrictLossless ? 'px-btn-active font-bold' : 'px-btn'
-          }`}
+        <label htmlFor="gfx-shadows-select" className="text-[#e8e0d2] min-w-0 truncate">
+          Shadows
+        </label>
+        <select
+          id="gfx-shadows-select"
+          data-testid="gfx-shadows-select"
+          value={settings.shadows}
+          onChange={(e) => updateField('shadows', e.target.value as ShadowQualityOption)}
+          className={SELECT_CLASS}
         >
-          {isStrictLossless ? 'Lossless' : 'Low-End'}
-        </button>
+          {SHADOW_OPTIONS.map((opt) => (
+            <option key={opt.id} value={opt.id}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
       </div>
 
-      {/* Auto-Optimize FPS (active when Low-End Mode is selected) */}
-      <div className="flex items-center justify-between gap-3 pt-1">
-        <div>
-          <div className="text-[#e8e0d2]">Auto-Optimize FPS</div>
-          <div className="text-[10px] text-[#9e9486]">
-            {isStrictLossless
-              ? 'Paused in Strict Lossless mode'
-              : 'Automatically trims FX if frame rate dips'}
-          </div>
-        </div>
-        <button
-          type="button"
-          data-testid="gfx-auto-fps-toggle"
-          aria-pressed={settings.autoOptimizeFps}
-          onClick={() => updateField('autoOptimizeFps', !settings.autoOptimizeFps)}
-          className={`px-3 py-1.5 font-semibold cursor-pointer shrink-0 ${
-            settings.autoOptimizeFps ? 'px-btn-active font-bold' : 'px-btn'
-          }`}
+      {/* Clouds & Sky */}
+      <div className="flex items-center justify-between gap-2 sm:gap-3">
+        <label htmlFor="gfx-sky-select" className="text-[#e8e0d2] min-w-0 truncate">
+          Clouds &amp; Sky
+        </label>
+        <select
+          id="gfx-sky-select"
+          data-testid="gfx-sky-select"
+          value={settings.cloudsAndSky}
+          onChange={(e) => updateField('cloudsAndSky', e.target.value as SkyCloudsQualityOption)}
+          className={SELECT_CLASS}
         >
-          {settings.autoOptimizeFps ? 'On' : 'Off'}
-        </button>
+          {SKY_OPTIONS.map((opt) => (
+            <option key={opt.id} value={opt.id}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
       </div>
 
-      {/* Optional Performance Debug HUD (F3) */}
-      <div className="flex items-center justify-between gap-3 pt-1">
-        <div>
-          <div className="text-[#e8e0d2]">Performance HUD (F3)</div>
-          <div className="text-[10px] text-[#9e9486]">
-            Live FPS, draw calls, triangles &amp; chunk stats
-          </div>
-        </div>
-        <button
-          type="button"
-          data-testid="gfx-perf-hud-toggle"
-          aria-pressed={showPerfHud}
-          onClick={() => updateField('showPerformanceHud', !showPerfHud)}
-          className={`px-3 py-1.5 font-semibold cursor-pointer shrink-0 ${
-            showPerfHud ? 'px-btn-active font-bold' : 'px-btn'
-          }`}
+      {/* Foliage */}
+      <div className="flex items-center justify-between gap-2 sm:gap-3">
+        <label htmlFor="gfx-foliage-select" className="text-[#e8e0d2] min-w-0 truncate">
+          Foliage
+        </label>
+        <select
+          id="gfx-foliage-select"
+          data-testid="gfx-foliage-select"
+          value={settings.foliageDensity}
+          onChange={(e) => updateField('foliageDensity', e.target.value as FoliageDetailOption)}
+          className={SELECT_CLASS}
         >
-          {showPerfHud ? 'On' : 'Off'}
-        </button>
+          {FOLIAGE_OPTIONS.map((opt) => (
+            <option key={opt.id} value={opt.id}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* Effects */}
+      <div className="flex items-center justify-between gap-2 sm:gap-3">
+        <label htmlFor="gfx-particles-select" className="text-[#e8e0d2] min-w-0 truncate">
+          Effects
+        </label>
+        <select
+          id="gfx-particles-select"
+          data-testid="gfx-particles-select"
+          value={settings.particles}
+          onChange={(e) => updateField('particles', e.target.value as ParticleDetailOption)}
+          className={SELECT_CLASS}
+        >
+          {PARTICLE_OPTIONS.map((opt) => (
+            <option key={opt.id} value={opt.id}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* Frame Rate Mode */}
+      <div className="flex items-center justify-between gap-2 sm:gap-3 pt-1">
+        <div className="min-w-0">
+          <label htmlFor="gfx-mode-select" className="block text-[#e8e0d2]">
+            Performance Mode
+          </label>
+          <div className="text-[10px] text-[#9e9486]">{activeModeHint}</div>
+        </div>
+        <select
+          id="gfx-mode-select"
+          data-testid="gfx-mode-select"
+          value={frameRateMode}
+          onChange={(e) => handleFrameRateModeChange(e.target.value as FrameRateMode)}
+          className={SELECT_CLASS}
+        >
+          {FRAME_RATE_MODE_OPTIONS.map((opt) => (
+            <option key={opt.id} value={opt.id}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
       </div>
     </div>
   );

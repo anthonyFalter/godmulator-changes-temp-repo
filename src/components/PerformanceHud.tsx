@@ -46,7 +46,7 @@ export const PerformanceHud: React.FC<PerformanceHudProps> = ({
             Performance
           </h2>
           <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-[#9e9486] leading-none">
-            <span>{strictLossless ? 'Lossless' : 'Low-End'}</span>
+            <span>{strictLossless ? 'Quality' : 'Dynamic'}</span>
             <span aria-hidden="true">·</span>
             <span>F3</span>
           </div>
