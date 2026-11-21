@@ -15899,14 +15899,13 @@ export function executeHugeAsteroidImpact(
       duration: 6.4,
       tickTimer: 0,
     });
-    for (const t of state.tiles) {
-      const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
-      if (dSq <= rSq && t.height === 0) {
+    forEachTileInRadius(state, targetX, targetZ, r, (t, dSq) => {
+      if (t.height === 0) {
         damageOrBleachWaterTile(t, 450, true);
         t.terrain = dSq <= 36 ? 'deep_water' : 'shallow_water';
         delete t.frozenWaterBase;
       }
-    }
+    });
     for (const b of state.buildings) {
       if ((b.tileX - targetX) ** 2 + (b.tileZ - targetZ) ** 2 <= rSq && b.shieldTimer <= 0) {
         b.hp = 0;
@@ -15929,19 +15928,13 @@ export function executeHugeAsteroidImpact(
   }
 
   const baseH = Math.max(3, centerTile.height);
-  const outerApronSq = 21.5 * 21.5;
-  for (const t of state.tiles) {
-    const dx = t.x - targetX;
-    const dz = t.z - targetZ;
-    const dSq = dx * dx + dz * dz;
-    if (dSq > outerApronSq) continue;
-
+  forEachTileInRadius(state, targetX, targetZ, 21.5, (t, dSq) => {
     if (t.height === 0) {
       damageOrBleachWaterTile(t, 450, true);
       t.terrain = dSq <= 36 ? 'deep_water' : 'shallow_water';
       delete t.frozenWaterBase;
       t.onFireTimer = 0;
-      continue;
+      return;
     }
 
     const tileH = Math.max(1, t.height);
@@ -15993,7 +15986,7 @@ export function executeHugeAsteroidImpact(
         t.onFireTimer = Math.max(t.onFireTimer, 11);
       }
     }
-  }
+  });
 
   const blastBuildingRSq = (r * 1.35) ** 2;
   for (const b of state.buildings) {
@@ -16332,16 +16325,13 @@ export function triggerRandomWorldEvent(
     // Rare celestial wonder: Aurora Shower
     executeGodPowerImpact(state, 'blessing', tx, tz);
     grantResourcesToKingdomOrPool(state, { faith: 80, knowledge: 90 });
-    for (const t of state.tiles) {
-      if (t.height > 0 && !t.buildingId && t.resourceNode === 'none') {
-        const dSq = (t.x - tx) ** 2 + (t.z - tz) ** 2;
-        if (dSq <= 25 && ((t.x * 13 + t.z * 7) % 11 === 0)) {
-          t.terrain = 'crystal_field';
-          t.resourceNode = 'crystal_monolith';
-          t.resourceAmount = 320;
-        }
+    forEachTileInRadius(state, tx, tz, 5, (t) => {
+      if (t.height > 0 && !t.buildingId && t.resourceNode === 'none' && ((t.x * 13 + t.z * 7) % 11 === 0)) {
+        t.terrain = 'crystal_field';
+        t.resourceNode = 'crystal_monolith';
+        t.resourceAmount = 320;
       }
-    }
+    });
     state.pendingVfx.push({
       id: nextEntityId('vfx'),
       type: 'eureka',

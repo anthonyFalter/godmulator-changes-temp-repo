@@ -1526,6 +1526,26 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
     const sharedWaveFaceGeo = new THREE.BoxGeometry(1.12, 1.48, 0.92);
     const sharedWaveLipGeo = new THREE.BoxGeometry(1.16, 0.62, 1.05);
     const sharedWaveFoamGeo = new THREE.BoxGeometry(1.22, 0.44, 0.68);
+    // Pre-baked local-offset wave geometries so all 68 tsunami segments render in 4 InstancedMeshes (340 -> 4 draw calls!)
+    const sharedWaveBaseBakedGeo = sharedWaveBaseGeo.clone();
+    sharedWaveBaseBakedGeo.translate(0, 0.36, -0.38);
+    const sharedWaveFaceBakedGeo = sharedWaveFaceGeo.clone();
+    sharedWaveFaceBakedGeo.translate(0, 0.74, 0.12);
+    const sharedWaveLipBakedGeo = sharedWaveLipGeo.clone();
+    sharedWaveLipBakedGeo.rotateX(0.46);
+    sharedWaveLipBakedGeo.translate(0, 1.42, 0.56);
+    const sharedWaveFoamBakedGeo = (() => {
+      const top = sharedWaveFoamGeo.clone();
+      top.rotateX(0.3);
+      top.translate(0, 1.56, 0.88);
+      const toe = sharedWaveFoamGeo.clone();
+      toe.scale(1.06, 0.68, 0.85);
+      toe.translate(0, 0.22, 0.96);
+      const merged = mergeGeometries([top, toe], false);
+      top.dispose();
+      toe.dispose();
+      return merged;
+    })();
     const sharedFaultCrackGeo = new THREE.BoxGeometry(1, 0.14, 1);
     const sharedTornadoRingGeo = new THREE.BoxGeometry(1.35, 0.24, 1.35);
     const sharedTornadoFunnelGeo = new THREE.CylinderGeometry(1.95, 0.28, 5.8, 24, 16, true);
@@ -1537,7 +1557,6 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
     const sharedWhirlpoolFunnelGeo = new THREE.CylinderGeometry(0.92, 0.14, 0.26, 28, 1, true);
 
     interface TsunamiWaveSegment {
-      group: THREE.Group;
       angle: number;
       isWake: boolean;
       phase: number;
@@ -1583,6 +1602,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       dropsInst?: THREE.InstancedMesh;
       drops?: { offsetY: number; speed: number; baseX: number; baseZ: number }[];
       spores?: { mesh: THREE.Mesh; angle: number; dist: number; phase: number; height: number }[];
+      waveInsts?: THREE.InstancedMesh[];
       waveSegments?: TsunamiWaveSegment[];
       gravityRings?: THREE.Mesh[];
       vortexMotes?: VortexMote[];
@@ -1601,6 +1621,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
     function disposeHazardVisual(hv: HazardVisual) {
       hazardsGroup.remove(hv.group);
       if (hv.dropsInst) hv.dropsInst.dispose();
+      if (hv.waveInsts) {
+        for (const inst of hv.waveInsts) inst.dispose();
+      }
       if (hv.geometries) {
         for (const g of hv.geometries) g.dispose();
       }
@@ -1779,43 +1802,23 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         });
         materials.push(deepSwellMat, waveWallMat, waveLipMat, crestFoamMat);
 
+        const totalSegs = 40 + 28;
+        const baseInst = new THREE.InstancedMesh(sharedWaveBaseBakedGeo, deepSwellMat, totalSegs);
+        const faceInst = new THREE.InstancedMesh(sharedWaveFaceBakedGeo, waveWallMat, totalSegs);
+        const lipInst = new THREE.InstancedMesh(sharedWaveLipBakedGeo, waveLipMat, totalSegs);
+        const foamInst = new THREE.InstancedMesh(sharedWaveFoamBakedGeo, crestFoamMat, totalSegs);
+        const waveInsts = [baseInst, faceInst, lipInst, foamInst];
+        for (const inst of waveInsts) {
+          inst.frustumCulled = false;
+          inst.count = 0;
+          group.add(inst);
+        }
+
         const waveSegments: TsunamiWaveSegment[] = [];
         const buildWaveRing = (count: number, isWake: boolean) => {
           for (let i = 0; i < count; i++) {
-            const angle = (i / count) * Math.PI * 2;
-            const segGroup = new THREE.Group();
-
-            // 1. Deep ocean swell back-slope
-            const baseMesh = new THREE.Mesh(sharedWaveBaseGeo, deepSwellMat);
-            baseMesh.position.set(0, 0.36, -0.38);
-            segGroup.add(baseMesh);
-
-            // 2. Steep rising ocean wave wall
-            const faceMesh = new THREE.Mesh(sharedWaveFaceGeo, waveWallMat);
-            faceMesh.position.set(0, 0.74, 0.12);
-            segGroup.add(faceMesh);
-
-            // 3. Forward-curling turquoise wave tube / lip overhanging the front
-            const lipMesh = new THREE.Mesh(sharedWaveLipGeo, waveLipMat);
-            lipMesh.position.set(0, 1.42, 0.56);
-            lipMesh.rotation.x = 0.46;
-            segGroup.add(lipMesh);
-
-            // 4. Chunky pixelated white surf crown & breaking toe foam
-            const topFoamMesh = new THREE.Mesh(sharedWaveFoamGeo, crestFoamMat);
-            topFoamMesh.position.set(0, 1.56, 0.88);
-            topFoamMesh.rotation.x = 0.3;
-            segGroup.add(topFoamMesh);
-
-            const toeFoamMesh = new THREE.Mesh(sharedWaveFoamGeo, crestFoamMat);
-            toeFoamMesh.position.set(0, 0.22, 0.96);
-            toeFoamMesh.scale.set(1.06, 0.68, 0.85);
-            segGroup.add(toeFoamMesh);
-
-            group.add(segGroup);
             waveSegments.push({
-              group: segGroup,
-              angle,
+              angle: (i / count) * Math.PI * 2,
               isWake,
               phase: i * 0.65 + (isWake ? 1.9 : 0),
             });
@@ -1826,7 +1829,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         buildWaveRing(40, false);
         buildWaveRing(28, true);
 
-        return { kind, group, materials, waveSegments, seenStamp: 0 };
+        return { kind, group, materials, waveInsts, waveSegments, seenStamp: 0 };
       }
 
       if (kind === 'earthquake_zone') {
@@ -2429,40 +2432,49 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         secondaryRingMesh.scale.setScalar(0.1);
         group.add(secondaryRingMesh);
 
-        // 3D Blocky Stepped Voxel Volcano Cone that animates rising up from the earth before lava flows!
+        const volcanoGeos: THREE.BufferGeometry[] = [];
+        // 3D Blocky Stepped Voxel Volcano Cone (merged from 20 sub-meshes into 2 draw calls!)
         const coneGroup = new THREE.Group();
         const coneTiers = [
-          { y: 0.28, w: 3.8, h: 0.56, d: 3.8, mat: basaltRockMat },
-          { y: 0.78, w: 3.05, h: 0.54, d: 3.05, mat: basaltRockMat },
-          { y: 1.26, w: 2.35, h: 0.5, d: 2.35, mat: scorchedRimMat },
-          { y: 1.72, w: 1.72, h: 0.48, d: 1.72, mat: scorchedRimMat },
+          { y: 0.28, w: 3.8, h: 0.56, d: 3.8, isBasalt: true },
+          { y: 0.78, w: 3.05, h: 0.54, d: 3.05, isBasalt: true },
+          { y: 1.26, w: 2.35, h: 0.5, d: 2.35, isBasalt: false },
+          { y: 1.72, w: 1.72, h: 0.48, d: 1.72, isBasalt: false },
         ];
+        const basaltParts: THREE.BufferGeometry[] = [];
+        const scorchedParts: THREE.BufferGeometry[] = [];
         for (let ti = 0; ti < coneTiers.length; ti++) {
           const ct = coneTiers[ti];
-          const slab = new THREE.Mesh(sharedDebrisCubeGeo, ct.mat);
-          slab.position.set(0, ct.y, 0);
-          slab.scale.set(ct.w / 0.32, ct.h / 0.32, ct.d / 0.32);
-          coneGroup.add(slab);
-          // Stepped corner buttress blocks for an authentic voxel mountain silhouette
+          const target = ct.isBasalt ? basaltParts : scorchedParts;
+          const slab = new THREE.BoxGeometry(ct.w, ct.h, ct.d);
+          slab.translate(0, ct.y, 0);
+          target.push(slab);
           for (const [cx, cz] of [
             [ct.w * 0.45, 0],
             [-ct.w * 0.45, 0],
             [0, ct.d * 0.45],
             [0, -ct.d * 0.45],
           ]) {
-            const buttress = new THREE.Mesh(sharedDebrisCubeGeo, ct.mat);
-            buttress.position.set(cx, ct.y - 0.06, cz);
-            buttress.scale.set((ct.w * 0.34) / 0.32, (ct.h * 0.85) / 0.32, (ct.d * 0.34) / 0.32);
-            coneGroup.add(buttress);
+            const buttress = new THREE.BoxGeometry(ct.w * 0.34, ct.h * 0.85, ct.d * 0.34);
+            buttress.translate(cx, ct.y - 0.06, cz);
+            target.push(buttress);
           }
         }
+        const basaltConeGeo = mergeGeometries(basaltParts, false);
+        const scorchedConeGeo = mergeGeometries(scorchedParts, false);
+        for (const p of basaltParts) p.dispose();
+        for (const p of scorchedParts) p.dispose();
+        volcanoGeos.push(basaltConeGeo, scorchedConeGeo);
+        coneGroup.add(new THREE.Mesh(basaltConeGeo, basaltRockMat));
+        coneGroup.add(new THREE.Mesh(scorchedConeGeo, scorchedRimMat));
+
         // Glowing bubbling caldera lava pool at the summit
         const craterPool = new THREE.Mesh(sharedDebrisCubeGeo, coreHotMat);
         craterPool.position.set(0, 1.98, 0);
         craterPool.scale.set(1.18 / 0.32, 0.14 / 0.32, 1.18 / 0.32);
         coneGroup.add(craterPool);
 
-        // 4 Stepped Blocky Molten Lava Streams (N, S, E, W, plus 4 diagonals) that animate flowing down the flanks after emergence
+        // 8 Stepped Blocky Molten Lava Streams merged into 6 step rings (48 -> 6 draw calls!)
         const lavaStreams: THREE.Mesh[] = [];
         const streamDirs = [
           [1, 0],
@@ -2475,23 +2487,31 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           [-0.72, -0.72],
         ];
         const stepsPerStream = 6;
-        for (let si = 0; si < streamDirs.length; si++) {
-          const [dx, dz] = streamDirs[si];
-          for (let step = 0; step < stepsPerStream; step++) {
-            const frac = step / (stepsPerStream - 1);
-            const dist = 0.62 + frac * 1.85;
-            const ly = 1.86 - frac * 1.62;
-            const lMesh = new THREE.Mesh(sharedDebrisCubeGeo, step < 2 ? coreHotMat : magmaMat);
-            lMesh.position.set(dx * dist, ly, dz * dist);
-            lMesh.userData.stepIndex = step;
-            lMesh.userData.targetScaleX = (0.36 + frac * 0.28) / 0.32;
-            lMesh.userData.targetScaleY = 0.22 / 0.32;
-            lMesh.userData.targetScaleZ = (0.36 + frac * 0.28) / 0.32;
-            lMesh.scale.setScalar(0.001);
-            lMesh.visible = false;
-            coneGroup.add(lMesh);
-            lavaStreams.push(lMesh);
+        for (let step = 0; step < stepsPerStream; step++) {
+          const frac = step / (stepsPerStream - 1);
+          const dist = 0.62 + frac * 1.85;
+          const ly = 1.86 - frac * 1.62;
+          const sz = 0.36 + frac * 0.28;
+          const ringParts: THREE.BufferGeometry[] = [];
+          for (let si = 0; si < streamDirs.length; si++) {
+            const [dx, dz] = streamDirs[si];
+            const b = new THREE.BoxGeometry(sz, 0.22, sz);
+            b.translate(dx * dist, 0, dz * dist);
+            ringParts.push(b);
           }
+          const stepGeo = mergeGeometries(ringParts, false);
+          for (const rp of ringParts) rp.dispose();
+          volcanoGeos.push(stepGeo);
+          const lMesh = new THREE.Mesh(stepGeo, step < 2 ? coreHotMat : magmaMat);
+          lMesh.position.set(0, ly, 0);
+          lMesh.userData.stepIndex = step;
+          lMesh.userData.targetScaleX = 1;
+          lMesh.userData.targetScaleY = 1;
+          lMesh.userData.targetScaleZ = 1;
+          lMesh.scale.setScalar(0.001);
+          lMesh.visible = false;
+          coneGroup.add(lMesh);
+          lavaStreams.push(lMesh);
         }
         coneGroup.scale.set(1, 0.04, 1);
         group.userData.coneGroup = coneGroup;
@@ -2530,6 +2550,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           kind,
           group,
           materials,
+          geometries: volcanoGeos,
           ringMesh,
           secondaryRingMesh,
           cloudBody,
@@ -2881,6 +2902,52 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       return mergedAura;
     })();
 
+    // Single merged blocky mushroom-cloud plume (108 tris, 1 draw call instead of 9x 1,320-tri meteor meshes)
+    const sharedAsteroidPlumeGeo = (() => {
+      const stemConfigs = [
+        { x: 0, y: 1.0, z: 0, sx: 1.6, sy: 2.0, sz: 1.6 },
+        { x: 0, y: 2.8, z: 0, sx: 1.3, sy: 2.0, sz: 1.3 },
+        { x: 0, y: 4.5, z: 0, sx: 3.6, sy: 1.4, sz: 3.6 },
+        { x: 0, y: 5.5, z: 0, sx: 4.8, sy: 1.2, sz: 4.8 },
+        { x: 0, y: 6.4, z: 0, sx: 3.2, sy: 1.0, sz: 3.2 },
+        { x: 1.9, y: 5.2, z: 0, sx: 1.8, sy: 1.1, sz: 2.2 },
+        { x: -1.9, y: 5.2, z: 0, sx: 1.8, sy: 1.1, sz: 2.2 },
+        { x: 0, y: 5.2, z: 1.9, sx: 2.2, sy: 1.1, sz: 1.8 },
+        { x: 0, y: 5.2, z: -1.9, sx: 2.2, sy: 1.1, sz: 1.8 },
+      ];
+      const parts: THREE.BufferGeometry[] = [];
+      for (const sc of stemConfigs) {
+        const b = new THREE.BoxGeometry(sc.sx * 0.95, sc.sy * 0.95, sc.sz * 0.95).toNonIndexed();
+        b.translate(sc.x, sc.y, sc.z);
+        parts.push(b);
+      }
+      const merged = mergeGeometries(parts, false);
+      for (const p of parts) p.dispose();
+      merged.computeVertexNormals();
+      return merged;
+    })();
+
+    // Chunky 2-box vertex-colored voxel boulder (24 tris) for asteroid lobes & instanced ejecta
+    const sharedEjectaBoulderGeo = (() => {
+      const b1 = new THREE.BoxGeometry(1.1, 0.9, 1.0).toNonIndexed();
+      const b2 = new THREE.BoxGeometry(0.75, 0.72, 0.82).toNonIndexed();
+      b2.translate(0.32, 0.24, -0.22);
+      const merged = mergeGeometries([b1, b2], false);
+      b1.dispose();
+      b2.dispose();
+      const posCount = merged.attributes.position.count;
+      const colors = new Float32Array(posCount * 3);
+      for (let i = 0; i < posCount; i++) {
+        const hot = i >= posCount * 0.6;
+        colors[i * 3] = hot ? 0.95 : 0.28;
+        colors[i * 3 + 1] = hot ? 0.36 : 0.25;
+        colors[i * 3 + 2] = hot ? 0.1 : 0.24;
+      }
+      merged.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+      merged.computeVertexNormals();
+      return merged;
+    })();
+
     const sharedExplosionDomeGeo = new THREE.SphereGeometry(1, 20, 14, 0, Math.PI * 2, 0, Math.PI / 2);
     const sharedBoltGeo = new THREE.BoxGeometry(0.34, 6.2, 0.34);
     const sharedPillarSpikeGeo = new THREE.BoxGeometry(0.45, 2.2, 0.45);
@@ -2989,8 +3056,16 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       outerRingMesh?: THREE.Mesh;
       thirdRingMesh?: THREE.Mesh;
       plumeGroup?: THREE.Group;
+      ejectaInst?: THREE.InstancedMesh;
       ejectaBoulders?: {
-        mesh: THREE.Mesh;
+        active: boolean;
+        x: number;
+        y: number;
+        z: number;
+        scale: number;
+        rx: number;
+        ry: number;
+        rz: number;
         vx: number;
         vy: number;
         vz: number;
@@ -3206,9 +3281,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           { x: -0.42, y: -0.64, z: -0.64, s: 0.42 },
         ];
         for (const lb of lobeOffsets) {
-          const lobe = new THREE.Mesh(sharedMeteorGeo, rockMat);
+          const lobe = new THREE.Mesh(sharedEjectaBoulderGeo, rockMat);
           lobe.position.set(lb.x, lb.y, lb.z);
-          lobe.scale.setScalar(lb.s);
+          lobe.scale.setScalar(lb.s * 1.45);
           meteorRockCore.add(lobe);
         }
         meteorRockCore.add(meteorRock);
@@ -3278,51 +3353,44 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           spikes.push(sp);
         }
 
-        // Rising 3D blocky voxel mushroom cloud & ballistic ejecta boulders for mega asteroid
+        // Rising 3D blocky voxel mushroom cloud (1 draw call) & instanced ballistic ejecta boulders (1 draw call)
         let plumeGroup: THREE.Group | undefined;
+        let ejectaInst: THREE.InstancedMesh | undefined;
         let ejectaBoulders: ActiveBurstFx['ejectaBoulders'];
         if (isMegaMeteor) {
           plumeGroup = new THREE.Group();
           plumeGroup.position.set(tx, ty + 0.2, tz);
           plumeGroup.visible = false;
-          // Stem & multi-tiered blocky cap
-          const stemConfigs = [
-            { x: 0, y: 1.0, z: 0, sx: 1.6, sy: 2.0, sz: 1.6 },
-            { x: 0, y: 2.8, z: 0, sx: 1.3, sy: 2.0, sz: 1.3 },
-            { x: 0, y: 4.5, z: 0, sx: 3.6, sy: 1.4, sz: 3.6 },
-            { x: 0, y: 5.5, z: 0, sx: 4.8, sy: 1.2, sz: 4.8 },
-            { x: 0, y: 6.4, z: 0, sx: 3.2, sy: 1.0, sz: 3.2 },
-            { x: 1.9, y: 5.2, z: 0, sx: 1.8, sy: 1.1, sz: 2.2 },
-            { x: -1.9, y: 5.2, z: 0, sx: 1.8, sy: 1.1, sz: 2.2 },
-            { x: 0, y: 5.2, z: 1.9, sx: 2.2, sy: 1.1, sz: 1.8 },
-            { x: 0, y: 5.2, z: -1.9, sx: 2.2, sy: 1.1, sz: 1.8 },
-          ];
-          for (const sc of stemConfigs) {
-            const pBox = new THREE.Mesh(sharedMeteorGeo, plumeSmokeMat);
-            pBox.position.set(sc.x, sc.y, sc.z);
-            pBox.scale.set(sc.sx * 0.55, sc.sy * 0.55, sc.sz * 0.55);
-            plumeGroup.add(pBox);
-          }
+          const plumeMesh = new THREE.Mesh(sharedAsteroidPlumeGeo, plumeSmokeMat);
+          plumeGroup.add(plumeMesh);
           group.add(plumeGroup);
 
+          const ejectaCount = 24;
+          ejectaInst = new THREE.InstancedMesh(sharedEjectaBoulderGeo, rockMat, ejectaCount);
+          ejectaInst.frustumCulled = false;
+          ejectaInst.visible = false;
+          ejectaInst.count = 0;
+          group.add(ejectaInst);
+
           ejectaBoulders = [];
-          for (let bi = 0; bi < 24; bi++) {
-            const angle = (bi / 24) * Math.PI * 2 + (bi % 3) * 0.14;
+          for (let bi = 0; bi < ejectaCount; bi++) {
+            const angle = (bi / ejectaCount) * Math.PI * 2 + (bi % 3) * 0.14;
             const speed = 7.5 + (bi % 5) * 2.3;
             const upVel = 9.5 + (bi % 4) * 2.8;
-            const bMesh = new THREE.Mesh(sharedMeteorGeo, bi % 3 === 0 ? coreGlowMat : rockMat);
-            const bScale = 0.24 + (bi % 4) * 0.11;
-            bMesh.scale.setScalar(bScale);
-            bMesh.position.set(tx, ty + 0.4, tz);
-            bMesh.visible = false;
-            group.add(bMesh);
             ejectaBoulders.push({
-              mesh: bMesh,
+              active: false,
+              x: tx,
+              y: ty + 0.4,
+              z: tz,
+              scale: 0.34 + (bi % 4) * 0.14,
+              rx: 0,
+              ry: 0,
+              rz: 0,
               vx: Math.cos(angle) * speed,
               vy: upVel,
               vz: Math.sin(angle) * speed,
               rotX: (bi % 2 === 0 ? 1 : -1) * (4.5 + (bi % 3) * 1.8),
-              rotY: (3.8 + (bi % 4) * 1.5),
+              rotY: 3.8 + (bi % 4) * 1.5,
               rotZ: (bi % 3 === 0 ? -1 : 1) * 4.2,
             });
           }
@@ -3354,6 +3422,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           outerRingMesh,
           thirdRingMesh,
           plumeGroup,
+          ejectaInst,
           ejectaBoulders,
           spikes,
           particleEmitTimer: 0,
@@ -9930,9 +9999,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             const maxR = haz.maxRadius ?? haz.radius * 3.8;
             const expandProg = Math.min(1, curR / Math.max(1, maxR));
 
-            if (hv.waveSegments) {
+            if (hv.waveSegments && hv.waveInsts) {
               const primaryCount = 40;
               const wakeCount = 28;
+              let visCount = 0;
+              const segEuler = new THREE.Euler();
               for (let si = 0; si < hv.waveSegments.length; si++) {
                 const seg = hv.waveSegments[si];
                 const baseR = seg.isWake ? Math.max(0.7, curR * 0.65) : curR;
@@ -9944,10 +10015,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
                 const segTile = getTileFromArray(simState, wx, wz);
 
                 if (!segTile || segTile.height >= 4) {
-                  seg.group.visible = false;
                   continue;
                 }
-                seg.group.visible = true;
 
                 const baseY = segTile.height === 0 ? 0.32 : segTile.height * HEIGHT_STEP + 0.22;
                 const shoalMult =
@@ -9961,15 +10030,21 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
                 const segCount = seg.isWake ? wakeCount : primaryCount;
                 const arcWidth = Math.max(0.68, ((2 * Math.PI * rippledR) / segCount) * 1.14);
 
-                seg.group.position.set(dx, baseY, dz);
                 const breakPitch =
                   0.1 + Math.sin(elapsed * 9.2 + seg.phase) * 0.1 + (segTile.height >= 1 ? 0.2 : 0);
-                seg.group.rotation.set(breakPitch, Math.atan2(dx, dz), 0);
-                seg.group.scale.set(
+                _dummyPos.set(dx, baseY, dz);
+                segEuler.set(breakPitch, Math.atan2(dx, dz), 0);
+                _dummyQuat.setFromEuler(segEuler);
+                _dummyScale.set(
                   arcWidth,
                   waveH,
                   (seg.isWake ? 0.78 : 1.18) * (0.92 + Math.cos(elapsed * 7.2 + seg.phase) * 0.12),
                 );
+                _dummyMatrix.compose(_dummyPos, _dummyQuat, _dummyScale);
+                for (let wi = 0; wi < hv.waveInsts.length; wi++) {
+                  hv.waveInsts[wi].setMatrixAt(visCount, _dummyMatrix);
+                }
+                visCount++;
 
                 if (!seg.isWake && ((si + Math.floor(elapsed * 30)) % 7 === 0)) {
                   const isLandBreak = segTile.height >= 1;
@@ -9984,6 +10059,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
                     isLandBreak ? 1.25 : 0.95,
                   );
                 }
+              }
+              for (let wi = 0; wi < hv.waveInsts.length; wi++) {
+                hv.waveInsts[wi].count = visCount;
+                hv.waveInsts[wi].visible = visCount > 0;
+                if (visCount > 0) hv.waveInsts[wi].instanceMatrix.needsUpdate = true;
               }
             }
             (hv.materials[0] as THREE.MeshStandardMaterial).opacity = 0.86 * fade;
@@ -10962,10 +11042,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
               fx.outerRingMesh.scale.setScalar(fx.radius * (1.55 - easeIn * 1.15));
               (fx.materials[4] as THREE.MeshBasicMaterial).opacity = 0.25 + dropPhase * 0.65;
             }
-            // Thick blazing comet trail + dark re-entry smoke
-            spawnParticleBurst(mx, my, mz, fx.isMegaMeteor ? 12 : 6, '#ff5400', fx.isMegaMeteor ? 2.2 : 1.1, 2.4, 1.75);
-            spawnParticleBurst(mx, my, mz, fx.isMegaMeteor ? 7 : 4, '#ffee55', fx.isMegaMeteor ? 1.3 : 0.6, 1.7, 1.45);
-            spawnParticleBurst(mx + 0.6, my + 0.9, mz - 0.6, fx.isMegaMeteor ? 6 : 3, '#2b2d42', fx.isMegaMeteor ? 2.3 : 1.2, 1.4, 1.9);
+            // Thick blazing comet trail + dark re-entry smoke (throttled to ~20 Hz to avoid thrashing the 650-particle pool)
+            fx.particleEmitTimer = (fx.particleEmitTimer ?? 0) + dt;
+            if (fx.particleEmitTimer >= 0.05) {
+              fx.particleEmitTimer = 0;
+              spawnParticleBurst(mx, my, mz, fx.isMegaMeteor ? 8 : 5, '#ff5400', fx.isMegaMeteor ? 2.2 : 1.1, 2.4, 1.75);
+              spawnParticleBurst(mx, my, mz, fx.isMegaMeteor ? 5 : 3, '#ffee55', fx.isMegaMeteor ? 1.3 : 0.6, 1.7, 1.45);
+              spawnParticleBurst(mx + 0.6, my + 0.9, mz - 0.6, fx.isMegaMeteor ? 4 : 2, '#2b2d42', fx.isMegaMeteor ? 2.3 : 1.2, 1.4, 1.9);
+            }
           } else {
             if (!fx.impactFired) {
               fx.impactFired = true;
@@ -11008,23 +11092,24 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
                 if (fx.materials[6]) (fx.materials[6] as THREE.MeshBasicMaterial).color.setHex(0x90e0ef);
                 if (fx.materials[7]) (fx.materials[7] as THREE.MeshBasicMaterial).color.setHex(0xcaf0f8);
                 triggerLightFlash(fx.tx, fx.ty + 3, fx.tz, '#48cae4', fx.isMegaMeteor ? 68 : 42);
-                spawnParticleBurst(fx.tx, fx.ty + 0.5, fx.tz, fx.isMegaMeteor ? 190 : 140, '#00b4d8', fx.radius * 1.55, 16.5, 2.1);
-                spawnParticleBurst(fx.tx, fx.ty + 0.8, fx.tz, fx.isMegaMeteor ? 130 : 95, '#e0fbfc', fx.radius * 1.25, 18.5, 1.75);
-                spawnParticleBurst(fx.tx, fx.ty + 0.4, fx.tz, fx.isMegaMeteor ? 85 : 55, '#0077b6', fx.radius * 1.05, 12.5, 2.2);
+                spawnParticleBurst(fx.tx, fx.ty + 0.5, fx.tz, fx.isMegaMeteor ? 120 : 90, '#00b4d8', fx.radius * 1.55, 16.5, 2.1);
+                spawnParticleBurst(fx.tx, fx.ty + 0.8, fx.tz, fx.isMegaMeteor ? 80 : 60, '#e0fbfc', fx.radius * 1.25, 18.5, 1.75);
+                spawnParticleBurst(fx.tx, fx.ty + 0.4, fx.tz, fx.isMegaMeteor ? 55 : 40, '#0077b6', fx.radius * 1.05, 12.5, 2.2);
               } else {
                 if (fx.shockWallMesh) fx.shockWallMesh.visible = true;
                 if (fx.outerShockWallMesh) fx.outerShockWallMesh.visible = Boolean(fx.isMegaMeteor);
                 if (fx.outerRingMesh) fx.outerRingMesh.visible = true;
                 if (fx.thirdRingMesh) fx.thirdRingMesh.visible = Boolean(fx.isMegaMeteor);
                 if (fx.plumeGroup) fx.plumeGroup.visible = true;
-                if (fx.ejectaBoulders) {
-                  for (const eb of fx.ejectaBoulders) eb.mesh.visible = true;
+                if (fx.ejectaBoulders && fx.ejectaInst) {
+                  for (const eb of fx.ejectaBoulders) eb.active = true;
+                  fx.ejectaInst.visible = true;
                 }
                 triggerLightFlash(fx.tx, fx.ty + 3.5, fx.tz, '#ffbe0b', fx.isMegaMeteor ? 75 : 42);
                 // Colossal lava, white-hot blinding flash, spark & pyroclastic ash eruption
-                spawnParticleBurst(fx.tx, fx.ty + 0.5, fx.tz, fx.isMegaMeteor ? 180 : 120, '#ff5400', fx.radius * 1.65, 14.5, 2.05);
-                spawnParticleBurst(fx.tx, fx.ty + 0.6, fx.tz, fx.isMegaMeteor ? 110 : 60, '#fff3b0', fx.radius * 1.25, 16.5, 1.65);
-                spawnParticleBurst(fx.tx, fx.ty + 0.8, fx.tz, fx.isMegaMeteor ? 95 : 45, '#2b2d42', fx.radius * 1.15, 11.5, 2.35);
+                spawnParticleBurst(fx.tx, fx.ty + 0.5, fx.tz, fx.isMegaMeteor ? 120 : 85, '#ff5400', fx.radius * 1.65, 14.5, 2.05);
+                spawnParticleBurst(fx.tx, fx.ty + 0.6, fx.tz, fx.isMegaMeteor ? 75 : 45, '#fff3b0', fx.radius * 1.25, 16.5, 1.65);
+                spawnParticleBurst(fx.tx, fx.ty + 0.8, fx.tz, fx.isMegaMeteor ? 60 : 35, '#2b2d42', fx.radius * 1.15, 11.5, 2.35);
               }
               if (fx.spikes) {
                 for (const sp of fx.spikes) sp.visible = true;
@@ -11040,7 +11125,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             if (fx.isMegaMeteor && fastShockPhase < 1) {
               trauma = Math.max(trauma, (1 - fastShockPhase) * 0.68);
               fx.particleEmitTimer = (fx.particleEmitTimer ?? 0) + dt;
-              if (fx.particleEmitTimer >= 0.065) {
+              if (fx.particleEmitTimer >= 0.08) {
                 fx.particleEmitTimer = 0;
                 const gustR = 3.0 + shockEase * 28.0;
                 for (let gi = 0; gi < 6; gi++) {
@@ -11051,7 +11136,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
                     gx,
                     fx.ty + 0.45,
                     gz,
-                    3,
+                    2,
                     gi % 2 === 0 ? '#ffd166' : '#adb5bd',
                     1.4,
                     4.2,
@@ -11061,22 +11146,35 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
               }
             }
 
-            // Animate ballistic voxel ejecta boulders flying out of the crater
-            if (fx.ejectaBoulders) {
+            // Animate ballistic voxel ejecta boulders flying out of the crater (1 InstancedMesh draw call)
+            if (fx.ejectaBoulders && fx.ejectaInst) {
+              let activeEjecta = 0;
+              const ebEuler = new THREE.Euler();
               for (const eb of fx.ejectaBoulders) {
-                if (!eb.mesh.visible) continue;
-                eb.mesh.position.x += eb.vx * dt;
-                eb.mesh.position.y += eb.vy * dt;
-                eb.mesh.position.z += eb.vz * dt;
+                if (!eb.active) continue;
+                eb.x += eb.vx * dt;
+                eb.y += eb.vy * dt;
+                eb.z += eb.vz * dt;
                 eb.vy -= 18.5 * dt;
-                eb.mesh.rotation.x += eb.rotX * dt;
-                eb.mesh.rotation.y += eb.rotY * dt;
-                eb.mesh.rotation.z += eb.rotZ * dt;
-                if (eb.mesh.position.y <= fx.ty + 0.15 && postImpactElapsed > 0.25) {
-                  eb.mesh.visible = false;
-                  spawnParticleBurst(eb.mesh.position.x, fx.ty + 0.2, eb.mesh.position.z, 5, '#ff6b35', 0.8, 3.2, 1.1);
+                eb.rx += eb.rotX * dt;
+                eb.ry += eb.rotY * dt;
+                eb.rz += eb.rotZ * dt;
+                if (eb.y <= fx.ty + 0.15 && postImpactElapsed > 0.25) {
+                  eb.active = false;
+                  spawnParticleBurst(eb.x, fx.ty + 0.2, eb.z, 4, '#ff6b35', 0.8, 3.2, 1.1);
+                  continue;
                 }
+                _dummyPos.set(eb.x, eb.y, eb.z);
+                ebEuler.set(eb.rx, eb.ry, eb.rz);
+                _dummyQuat.setFromEuler(ebEuler);
+                _dummyScale.setScalar(eb.scale);
+                _dummyMatrix.compose(_dummyPos, _dummyQuat, _dummyScale);
+                fx.ejectaInst.setMatrixAt(activeEjecta, _dummyMatrix);
+                activeEjecta++;
               }
+              fx.ejectaInst.count = activeEjecta;
+              fx.ejectaInst.visible = activeEjecta > 0;
+              if (activeEjecta > 0) fx.ejectaInst.instanceMatrix.needsUpdate = true;
             }
 
             // Animate rising 3D blocky mushroom plume
@@ -12358,6 +12456,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         if (fx.age >= fx.duration) {
           flushPendingSkyRainDrops(fx);
           burstFxGroup.remove(fx.group);
+          if (fx.ejectaInst) fx.ejectaInst.dispose();
           for (const m of fx.materials) m.dispose();
           activeBurstFx.splice(i, 1);
         }
