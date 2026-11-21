@@ -88,6 +88,7 @@ import {
 } from '../game/worldGrid';
 import { ChunkTerrainSystem } from '../game/chunkTerrainRenderer';
 import { BatchedBuildingSystem } from '../game/batchedBuildings';
+import { BatchedStaticPool } from '../game/batchedStaticProps';
 import { TreeImpostorSystem } from '../game/treeImpostors';
 import { EngineWorkerPool } from '../game/workerPool';
 import {
@@ -501,22 +502,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
 
     // Instanced Multi-Object Props (1-4 objects per tile, starting compactly and growing on demand)
     const variantLib = getNodeVariantLibrary();
-    const INITIAL_PROP_CAPACITY = 128;
-    const makePropInstancedList = (
-      geos: THREE.BufferGeometry[],
-      mat: THREE.Material,
-      castShadow: boolean,
-    ) =>
-      geos.map((geo) => {
-        const inst = new THREE.InstancedMesh(geo, mat, INITIAL_PROP_CAPACITY);
-        inst.frustumCulled = false;
-        inst.boundingSphere = worldBoundsSphere;
-        inst.castShadow = castShadow;
-        inst.receiveShadow = true;
-        inst.count = 0;
-        nodesGroup.add(inst);
-        return inst;
-      });
+
 
     // 3D Sculpted Micro-Voxel Biome Trees (4-tier zoom LOD greedy-merged static InstancedMeshes)
     const voxelTreeLib = getVoxelTreeLibrary();
@@ -541,42 +527,55 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       highland: 7,
     };
 
-    const makeTreeBiomePools = (
-      byBiome: Record<TreeBiomeKey, THREE.BufferGeometry[]>,
-      castShadow: boolean,
-    ): THREE.InstancedMesh[][] =>
-      TREE_BIOME_KEYS.map((b) => makePropInstancedList(byBiome[b], voxelTreeLib.material, castShadow));
-
-    // Indexed as [charred: 0|1][tier: 0=LOD0, 1=LOD1, 2=LOD2, 3=LOD3-shadow, 4=LOD3-noShadow, 5=LOD1-noShadow, 6=LOD2-noShadow][biomeIdx][variantIdx]
-    const treeInstPools: THREE.InstancedMesh[][][][] = [
+    // Collapse all 32 live + 32 burnt voxel tree species × 4 LODs (384 InstancedMeshes -> 2 BatchedMeshes!)
+    const treeBatchGeos: THREE.BufferGeometry[] = [];
+    // Indexed as [charred: 0|1][lod: 0..3][biomeIdx: 0..7][varIdx] -> flat geometry index
+    const treeGeoIdx: number[][][][] = [[], []];
+    const treeBiomePoolLen: number[][] = [[], []];
+    const treeLodRecords = [
+      [voxelTreeLib.byBiome, voxelTreeLib.byBiomeLod1, voxelTreeLib.byBiomeLod2, voxelTreeLib.byBiomeLod3],
       [
-        makeTreeBiomePools(voxelTreeLib.byBiome, true),
-        makeTreeBiomePools(voxelTreeLib.byBiomeLod1, true),
-        makeTreeBiomePools(voxelTreeLib.byBiomeLod2, true),
-        makeTreeBiomePools(voxelTreeLib.byBiomeLod3, true),
-        makeTreeBiomePools(voxelTreeLib.byBiomeLod3, false),
-        makeTreeBiomePools(voxelTreeLib.byBiomeLod1, false),
-        makeTreeBiomePools(voxelTreeLib.byBiomeLod2, false),
-      ],
-      [
-        makeTreeBiomePools(voxelTreeLib.burntByBiome, true),
-        makeTreeBiomePools(voxelTreeLib.burntByBiomeLod1, true),
-        makeTreeBiomePools(voxelTreeLib.burntByBiomeLod2, true),
-        makeTreeBiomePools(voxelTreeLib.burntByBiomeLod3, true),
-        makeTreeBiomePools(voxelTreeLib.burntByBiomeLod3, false),
-        makeTreeBiomePools(voxelTreeLib.burntByBiomeLod1, false),
-        makeTreeBiomePools(voxelTreeLib.burntByBiomeLod2, false),
+        voxelTreeLib.burntByBiome,
+        voxelTreeLib.burntByBiomeLod1,
+        voxelTreeLib.burntByBiomeLod2,
+        voxelTreeLib.burntByBiomeLod3,
       ],
     ];
-    const allVoxelTreeInsts: THREE.InstancedMesh[] = [];
-    for (let c = 0; c < treeInstPools.length; c++) {
-      for (let t = 0; t < treeInstPools[c].length; t++) {
-        for (let b = 0; b < treeInstPools[c][t].length; b++) {
-          const list = treeInstPools[c][t][b];
-          for (let v = 0; v < list.length; v++) allVoxelTreeInsts.push(list[v]);
+    for (let c = 0; c < 2; c++) {
+      for (let lod = 0; lod < 4; lod++) {
+        const byBiomeArr: number[][] = [];
+        const rec = treeLodRecords[c][lod];
+        for (let b = 0; b < TREE_BIOME_KEYS.length; b++) {
+          const geos = rec[TREE_BIOME_KEYS[b]];
+          if (lod === 0) treeBiomePoolLen[c][b] = geos.length;
+          const varIds: number[] = [];
+          for (let v = 0; v < geos.length; v++) {
+            varIds.push(treeBatchGeos.length);
+            treeBatchGeos.push(geos[v]);
+          }
+          byBiomeArr.push(varIds);
         }
+        treeGeoIdx[c].push(byBiomeArr);
       }
     }
+    const treeBatchShadow = new BatchedStaticPool(
+      'batched_trees_shadow',
+      voxelTreeLib.material,
+      treeBatchGeos,
+      true,
+      true,
+      512,
+    );
+    const treeBatchNoShadow = new BatchedStaticPool(
+      'batched_trees_noshadow',
+      voxelTreeLib.material,
+      treeBatchGeos,
+      false,
+      true,
+      512,
+    );
+    worldGroup.add(treeBatchShadow.group);
+    worldGroup.add(treeBatchNoShadow.group);
 
     // Baked multi-angle pixel-art tree impostor system (2 tris/tree in 1 draw call at overview/far zoom)
     const treeImpostors = new TreeImpostorSystem(renderer, voxelTreeLib, 2048, scene.environment);
@@ -584,143 +583,99 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
     const _noonRefColor = new THREE.Color(0xffdfb0);
     worldGroup.add(treeImpostors.mesh);
 
-    const berryInsts = makePropInstancedList(variantLib.berry, variantLib.standardMat, true);
-    const farmCropInsts = makePropInstancedList(variantLib.farmCrop, variantLib.standardMat, true);
-    const sciFiFarmInsts = makePropInstancedList(variantLib.sciFiFarm, variantLib.crystalMat, true);
-    const stoneInsts = makePropInstancedList(variantLib.stone, variantLib.standardMat, true);
-    const oreInsts = makePropInstancedList(variantLib.ore, variantLib.standardMat, true);
-    const crystalInsts = makePropInstancedList(variantLib.crystal, variantLib.crystalMat, true);
-    const coralReefInsts = makePropInstancedList(variantLib.coralReef, variantLib.coralReefMat, false);
-    const coralReefBleachedInsts = makePropInstancedList(
-      variantLib.coralReefBleached,
-      variantLib.standardMat,
-      false,
-    );
-    const scrapFlotsamInsts = makePropInstancedList(variantLib.scrapFlotsam, variantLib.standardMat, true);
-    const atlantisRuinInsts = makePropInstancedList(variantLib.atlantisRuin, variantLib.standardMat, true);
+    // Collapse all 10 resource prop kinds × 2 LODs (~70 InstancedMeshes -> 5 BatchedMeshes!)
+    // Buckets: 0=std+shadow, 1=std+noShadow, 2=crystal+shadow, 3=crystal+noShadow, 4=coral+noShadow
+    const propBucketGeos: THREE.BufferGeometry[][] = [[], [], [], [], []];
+    const propKindSpecs: {
+      lod0: THREE.BufferGeometry[];
+      lod2: THREE.BufferGeometry[];
+      b0: number;
+      b2: number;
+    }[] = [
+      { lod0: variantLib.berry, lod2: variantLib.berryLod2, b0: 0, b2: 1 }, // 0: berry
+      { lod0: variantLib.farmCrop, lod2: variantLib.farmCropLod2, b0: 0, b2: 1 }, // 1: farmCrop
+      { lod0: variantLib.sciFiFarm, lod2: variantLib.sciFiFarmLod2, b0: 2, b2: 3 }, // 2: sciFiFarm
+      { lod0: variantLib.stone, lod2: variantLib.stoneLod2, b0: 0, b2: 1 }, // 3: stone
+      { lod0: variantLib.ore, lod2: variantLib.oreLod2, b0: 0, b2: 1 }, // 4: ore
+      { lod0: variantLib.crystal, lod2: variantLib.crystalLod2, b0: 2, b2: 2 }, // 5: crystal
+      { lod0: variantLib.coralReef, lod2: variantLib.coralReefLod2, b0: 4, b2: 4 }, // 6: coralReef
+      { lod0: variantLib.coralReefBleached, lod2: variantLib.coralReefBleachedLod2, b0: 1, b2: 1 }, // 7: coralReefBleached
+      { lod0: variantLib.scrapFlotsam, lod2: variantLib.scrapFlotsamLod2, b0: 0, b2: 1 }, // 8: scrapFlotsam
+      { lod0: variantLib.atlantisRuin, lod2: variantLib.atlantisRuinLod2, b0: 0, b2: 0 }, // 9: atlantisRuin
+    ];
+    const propKindLens: number[] = [];
+    const propLod0Bucket: number[] = [];
+    const propLod2Bucket: number[] = [];
+    const propLod0GeoIdx: number[][] = [];
+    const propLod2GeoIdx: number[][] = [];
+    for (let k = 0; k < propKindSpecs.length; k++) {
+      const spec = propKindSpecs[k];
+      propKindLens.push(spec.lod0.length);
+      propLod0Bucket.push(spec.b0);
+      propLod2Bucket.push(spec.b2);
+      const ids0: number[] = [];
+      for (let v = 0; v < spec.lod0.length; v++) {
+        ids0.push(propBucketGeos[spec.b0].length);
+        propBucketGeos[spec.b0].push(spec.lod0[v]);
+      }
+      propLod0GeoIdx.push(ids0);
+      const ids2: number[] = [];
+      for (let v = 0; v < spec.lod2.length; v++) {
+        ids2.push(propBucketGeos[spec.b2].length);
+        propBucketGeos[spec.b2].push(spec.lod2[v]);
+      }
+      propLod2GeoIdx.push(ids2);
+    }
+    const propBatches: BatchedStaticPool[] = [
+      new BatchedStaticPool('batched_props_std_shadow', variantLib.standardMat, propBucketGeos[0], true, true, 512),
+      new BatchedStaticPool('batched_props_std_noshadow', variantLib.standardMat, propBucketGeos[1], false, true, 512),
+      new BatchedStaticPool('batched_props_crystal_shadow', variantLib.crystalMat, propBucketGeos[2], true, true, 256),
+      new BatchedStaticPool('batched_props_crystal_noshadow', variantLib.crystalMat, propBucketGeos[3], false, true, 128),
+      new BatchedStaticPool('batched_props_coral_noshadow', variantLib.coralReefMat, propBucketGeos[4], false, true, 256),
+    ];
+    for (let i = 0; i < propBatches.length; i++) {
+      nodesGroup.add(propBatches[i].group);
+    }
 
-    const berryLod2Insts = makePropInstancedList(variantLib.berryLod2, variantLib.standardMat, false);
-    const farmCropLod2Insts = makePropInstancedList(variantLib.farmCropLod2, variantLib.standardMat, false);
-    const sciFiFarmLod2Insts = makePropInstancedList(variantLib.sciFiFarmLod2, variantLib.crystalMat, false);
-    const stoneLod2Insts = makePropInstancedList(variantLib.stoneLod2, variantLib.standardMat, false);
-    const oreLod2Insts = makePropInstancedList(variantLib.oreLod2, variantLib.standardMat, false);
-    const crystalLod2Insts = makePropInstancedList(variantLib.crystalLod2, variantLib.crystalMat, true);
-    const coralReefLod2Insts = makePropInstancedList(variantLib.coralReefLod2, variantLib.coralReefMat, false);
-    const coralReefBleachedLod2Insts = makePropInstancedList(
-      variantLib.coralReefBleachedLod2,
+    // Collapse all 14 ambient biome detail groups (35 InstancedMeshes -> 1 BatchedMesh draw call!)
+    const ambSourceLists: THREE.BufferGeometry[][] = [
+      variantLib.ambientGrass,
+      variantLib.ambientForest,
+      variantLib.ambientSand,
+      variantLib.ambientRock,
+      variantLib.ambientSnow,
+      variantLib.ambientSavanna,
+      variantLib.ambientSwamp,
+      variantLib.ambientHighland,
+      variantLib.ambientJungle,
+      variantLib.ambientMountain,
+      variantLib.ambientTaiga,
+      variantLib.ambientTundra,
+      variantLib.ambientBadlands,
+      variantLib.ambientBlossom,
+    ];
+    const ambBatchGeos: THREE.BufferGeometry[] = [];
+    const ambGeoIdx: number[][] = [];
+    const ambGroupLens: number[] = [];
+    for (let g = 0; g < ambSourceLists.length; g++) {
+      const list = ambSourceLists[g];
+      ambGroupLens.push(list.length);
+      const ids: number[] = [];
+      for (let v = 0; v < list.length; v++) {
+        ids.push(ambBatchGeos.length);
+        ambBatchGeos.push(list[v]);
+      }
+      ambGeoIdx.push(ids);
+    }
+    const ambBatch = new BatchedStaticPool(
+      'batched_ambient_details',
       variantLib.standardMat,
+      ambBatchGeos,
       false,
-    );
-    const scrapFlotsamLod2Insts = makePropInstancedList(
-      variantLib.scrapFlotsamLod2,
-      variantLib.standardMat,
-      false,
-    );
-    const atlantisRuinLod2Insts = makePropInstancedList(
-      variantLib.atlantisRuinLod2,
-      variantLib.standardMat,
       true,
+      512,
     );
-
-    const propLod0Groups: THREE.InstancedMesh[][] = [
-      berryInsts,
-      farmCropInsts,
-      sciFiFarmInsts,
-      stoneInsts,
-      oreInsts,
-      crystalInsts,
-      coralReefInsts,
-      coralReefBleachedInsts,
-      scrapFlotsamInsts,
-      atlantisRuinInsts,
-    ];
-    const propLod2Groups: THREE.InstancedMesh[][] = [
-      berryLod2Insts,
-      farmCropLod2Insts,
-      sciFiFarmLod2Insts,
-      stoneLod2Insts,
-      oreLod2Insts,
-      crystalLod2Insts,
-      coralReefLod2Insts,
-      coralReefBleachedLod2Insts,
-      scrapFlotsamLod2Insts,
-      atlantisRuinLod2Insts,
-    ];
-
-    const ambGrassInsts = makePropInstancedList(variantLib.ambientGrass, variantLib.standardMat, false);
-    const ambForestInsts = makePropInstancedList(variantLib.ambientForest, variantLib.standardMat, false);
-    const ambSandInsts = makePropInstancedList(variantLib.ambientSand, variantLib.standardMat, false);
-    const ambRockInsts = makePropInstancedList(variantLib.ambientRock, variantLib.standardMat, false);
-    const ambSnowInsts = makePropInstancedList(variantLib.ambientSnow, variantLib.standardMat, false);
-    const ambSavannaInsts = makePropInstancedList(variantLib.ambientSavanna, variantLib.standardMat, false);
-    const ambSwampInsts = makePropInstancedList(variantLib.ambientSwamp, variantLib.standardMat, false);
-    const ambHighlandInsts = makePropInstancedList(variantLib.ambientHighland, variantLib.standardMat, false);
-    const ambJungleInsts = makePropInstancedList(variantLib.ambientJungle, variantLib.standardMat, false);
-    const ambMountainInsts = makePropInstancedList(variantLib.ambientMountain, variantLib.standardMat, false);
-    const ambTaigaInsts = makePropInstancedList(variantLib.ambientTaiga, variantLib.standardMat, false);
-    const ambTundraInsts = makePropInstancedList(variantLib.ambientTundra, variantLib.standardMat, false);
-    const ambBadlandsInsts = makePropInstancedList(variantLib.ambientBadlands, variantLib.standardMat, false);
-    const ambBlossomInsts = makePropInstancedList(variantLib.ambientBlossom, variantLib.standardMat, false);
-
-    const ambInstGroups: THREE.InstancedMesh[][] = [
-      ambGrassInsts,
-      ambForestInsts,
-      ambSandInsts,
-      ambRockInsts,
-      ambSnowInsts,
-      ambSavannaInsts,
-      ambSwampInsts,
-      ambHighlandInsts,
-      ambJungleInsts,
-      ambMountainInsts,
-      ambTaigaInsts,
-      ambTundraInsts,
-      ambBadlandsInsts,
-      ambBlossomInsts,
-    ];
-
-    const resourcePropInsts: THREE.InstancedMesh[] = [
-      ...allVoxelTreeInsts,
-      ...berryInsts,
-      ...farmCropInsts,
-      ...sciFiFarmInsts,
-      ...stoneInsts,
-      ...oreInsts,
-      ...crystalInsts,
-      ...coralReefInsts,
-      ...coralReefBleachedInsts,
-      ...scrapFlotsamInsts,
-      ...atlantisRuinInsts,
-      ...berryLod2Insts,
-      ...farmCropLod2Insts,
-      ...sciFiFarmLod2Insts,
-      ...stoneLod2Insts,
-      ...oreLod2Insts,
-      ...crystalLod2Insts,
-      ...coralReefLod2Insts,
-      ...coralReefBleachedLod2Insts,
-      ...scrapFlotsamLod2Insts,
-      ...atlantisRuinLod2Insts,
-    ];
-
-    const ambientPropInsts: THREE.InstancedMesh[] = [
-      ...ambGrassInsts,
-      ...ambForestInsts,
-      ...ambSandInsts,
-      ...ambRockInsts,
-      ...ambSnowInsts,
-      ...ambSavannaInsts,
-      ...ambSwampInsts,
-      ...ambHighlandInsts,
-      ...ambJungleInsts,
-      ...ambMountainInsts,
-      ...ambTaigaInsts,
-      ...ambTundraInsts,
-      ...ambBadlandsInsts,
-      ...ambBlossomInsts,
-    ];
-
-    const allPropInsts: THREE.InstancedMesh[] = [...resourcePropInsts, ...ambientPropInsts];
+    worldGroup.add(ambBatch.group);
 
     // Flat typed placement caches for zero-GC zoom LOD & viewport frustum culling
     let treeCacheCap = 1024;
@@ -6928,10 +6883,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
     };
 
     const rebuildVisiblePropsAndLod = () => {
-      for (let i = 0; i < allPropInsts.length; i++) {
-        allPropInsts[i].count = 0;
+      for (let i = 0; i < propBatches.length; i++) {
+        propBatches[i].reset();
       }
       treeImpostors.reset();
+      treeBatchShadow.reset();
+      treeBatchNoShadow.reset();
+      ambBatch.reset();
 
       // Balanced high-detail LOD bands (paired with exact OBB culling so detail stays crisp further out):
       // 0 (<22): close-up (LOD0 hero / LOD1 companion)
@@ -6967,7 +6925,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       const cMaxZ = worldCullBounds.maxZ + obbPad;
       const useImpostors = treeImpostors.isBaked;
 
-      // 1. Trees (exact OBB cull + high-detail 4-tier LOD + baked 2-tri impostors at far/overview)
+      // 1. Trees (exact OBB cull + high-detail 4-tier LOD in 2 BatchedMesh draw calls + baked 2-tri impostors at far/overview)
       for (let i = 0; i < treeCacheCount; i++) {
         const tx = treeCacheX[i];
         const tz = treeCacheZ[i];
@@ -6997,35 +6955,36 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           }
         }
 
-        let tier = 3;
+        let lod = 3;
+        let castShad = !isCompanion;
         if (lodBand === 0) {
           if (dx * dx + dz * dz <= innerRSq) {
-            tier = isCompanion ? 5 : 0;
+            lod = isCompanion ? 1 : 0;
           } else {
-            tier = isCompanion ? 5 : 1;
+            lod = 1;
           }
         } else if (lodBand === 1) {
           if (dx * dx + dz * dz <= innerRSq) {
-            tier = isCompanion ? 5 : 1;
+            lod = 1;
           } else {
-            tier = isCompanion ? 6 : 2;
+            lod = 2;
           }
         } else if (lodBand === 2) {
-          tier = dx * dx + dz * dz <= innerRSq ? (isCompanion ? 6 : 2) : isCompanion ? 4 : 3;
+          lod = dx * dx + dz * dz <= innerRSq ? 2 : 3;
         } else {
-          tier = isCompanion ? 4 : 3;
+          lod = 3;
         }
 
-        const inst = treeInstPools[charred][tier][treeCacheBiome[i]][treeCacheVar[i]];
-        const slot = inst.count;
-        ensureInstancedCapacity(inst, slot + 1);
-        inst.count = slot + 1;
-        const dst = inst.instanceMatrix.array as Float32Array;
-        const dstOff = slot * 16;
-        const srcOff = i * 16;
-        for (let m = 0; m < 16; m++) dst[dstOff + m] = treeCacheMat[srcOff + m];
+        const gIdx = treeGeoIdx[charred][lod][treeCacheBiome[i]][treeCacheVar[i]];
+        if (castShad) {
+          treeBatchShadow.pushFromMatrixArray(gIdx, treeCacheMat, i * 16);
+        } else {
+          treeBatchNoShadow.pushFromMatrixArray(gIdx, treeCacheMat, i * 16);
+        }
       }
       treeImpostors.commit();
+      treeBatchShadow.commit();
+      treeBatchNoShadow.commit();
 
       // 2. Resource Props (exact OBB cull + LOD0 close-up, LOD2 mid/region/overview)
       for (let i = 0; i < propCacheCount; i++) {
@@ -7048,17 +7007,15 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         }
 
         const v = propCacheVar[i];
-        const inst = (useLod0 ? propLod0Groups : propLod2Groups)[kind][v];
-        const slot = inst.count;
-        ensureInstancedCapacity(inst, slot + 1);
-        inst.count = slot + 1;
-        const dst = inst.instanceMatrix.array as Float32Array;
-        const dstOff = slot * 16;
-        const srcOff = i * 16;
-        for (let m = 0; m < 16; m++) dst[dstOff + m] = propCacheMat[srcOff + m];
+        const bIdx = useLod0 ? propLod0Bucket[kind] : propLod2Bucket[kind];
+        const gIdx = (useLod0 ? propLod0GeoIdx : propLod2GeoIdx)[kind][v];
+        propBatches[bIdx].pushFromMatrixArray(gIdx, propCacheMat, i * 16);
+      }
+      for (let i = 0; i < propBatches.length; i++) {
+        propBatches[i].commit();
       }
 
-      // 3. Ambient Ground Details (exact OBB cull + coupled zoom tier + user graphics foliageFactor)
+      // 3. Ambient Ground Details (exact OBB cull + 1 single BatchedMesh draw call)
       const factorTier = appliedFoliageFactor < 0.35 ? 0 : appliedFoliageFactor < 0.75 ? 1 : 2;
       const zoomAmbTier = lodBand >= 2 ? 0 : lodBand === 1 ? 1 : 2;
       const allowedAmbTier = Math.min(factorTier, zoomAmbTier);
@@ -7072,25 +7029,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         if (projR < -halfW || projR > halfW) continue;
         const projF = dx * fx + dz * fz;
         if (projF < -halfFBack || projF > halfFFront) continue;
-        const inst = ambInstGroups[ambCacheGroup[i]][ambCacheVar[i]];
-        const slot = inst.count;
-        ensureInstancedCapacity(inst, slot + 1);
-        inst.count = slot + 1;
-        const dst = inst.instanceMatrix.array as Float32Array;
-        const dstOff = slot * 16;
-        const srcOff = i * 16;
-        for (let m = 0; m < 16; m++) dst[dstOff + m] = ambCacheMat[srcOff + m];
+        const gIdx = ambGeoIdx[ambCacheGroup[i]][ambCacheVar[i]];
+        ambBatch.pushFromMatrixArray(gIdx, ambCacheMat, i * 16);
       }
-
-      for (let i = 0; i < allPropInsts.length; i++) {
-        const inst = allPropInsts[i];
-        inst.visible = inst.count > 0;
-        if (inst.count > 0) {
-          inst.instanceMatrix.clearUpdateRanges();
-          inst.instanceMatrix.addUpdateRange(0, inst.count * 16);
-          inst.instanceMatrix.needsUpdate = true;
-        }
-      }
+      ambBatch.commit();
 
       propViewDirty = false;
       lastPropLodBand = lodBand;
@@ -7519,7 +7461,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           if (t.resourceNode === 'timber_grove' || (t.resourceNode === 'none' && t.burntTree)) {
             const biome: TreeBiomeKey = t.burntTreeBiome ?? mapTerrainToTreeBiome(t.terrain);
             const biomeIdx = BIOME_KEY_TO_IDX[biome];
-            const poolLen = treeInstPools[isCharredTreeTile ? 1 : 0][0][biomeIdx].length;
+            const poolLen = treeBiomePoolLen[isCharredTreeTile ? 1 : 0][biomeIdx];
             const isDenseBiome =
               biome === 'forest' ||
               biome === 'jungle' ||
@@ -7604,27 +7546,27 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           if (t.resourceNode === 'coral_reef') {
             const isBleached = (t.coralBleachTimer ?? 0) > 0 || t.resourceAmount <= 0;
             const kind = isBleached ? 7 : 6;
-            const len = propLod0Groups[kind].length;
+            const len = propKindLens[kind];
             pushPropCache(kind, h % len, t.x, t.z, _dummyMatrix.elements);
           } else if (t.resourceNode === 'scrap_flotsam') {
-            pushPropCache(8, h % scrapFlotsamInsts.length, t.x, t.z, _dummyMatrix.elements);
+            pushPropCache(8, h % propKindLens[8], t.x, t.z, _dummyMatrix.elements);
           } else if (t.resourceNode === 'atlantis_ruin') {
-            pushPropCache(9, h % atlantisRuinInsts.length, t.x, t.z, _dummyMatrix.elements);
+            pushPropCache(9, h % propKindLens[9], t.x, t.z, _dummyMatrix.elements);
           } else if (t.resourceNode === 'berry_bush') {
             const farmEpoch = t.farmSettlementId ? getSettlementEpoch(simState, t.farmSettlementId) : 0;
             if (t.farmSettlementId && farmEpoch >= 6) {
-              pushPropCache(2, h % sciFiFarmInsts.length, t.x, t.z, _dummyMatrix.elements);
+              pushPropCache(2, h % propKindLens[2], t.x, t.z, _dummyMatrix.elements);
             } else if (t.farmSettlementId && farmEpoch >= 1) {
-              pushPropCache(1, h % farmCropInsts.length, t.x, t.z, _dummyMatrix.elements);
+              pushPropCache(1, h % propKindLens[1], t.x, t.z, _dummyMatrix.elements);
             } else {
-              pushPropCache(0, h % berryInsts.length, t.x, t.z, _dummyMatrix.elements);
+              pushPropCache(0, h % propKindLens[0], t.x, t.z, _dummyMatrix.elements);
             }
           } else if (t.resourceNode === 'stone_outcrop') {
-            pushPropCache(3, h % stoneInsts.length, t.x, t.z, _dummyMatrix.elements);
+            pushPropCache(3, h % propKindLens[3], t.x, t.z, _dummyMatrix.elements);
           } else if (t.resourceNode === 'ore_vein') {
-            pushPropCache(4, h % oreInsts.length, t.x, t.z, _dummyMatrix.elements);
+            pushPropCache(4, h % propKindLens[4], t.x, t.z, _dummyMatrix.elements);
           } else if (t.resourceNode === 'crystal_monolith') {
-            pushPropCache(5, h % crystalInsts.length, t.x, t.z, _dummyMatrix.elements);
+            pushPropCache(5, h % propKindLens[5], t.x, t.z, _dummyMatrix.elements);
           } else {
             // Ambient multi-object sub-tile details partitioned into Low / Med / Full tiers
             const chance = (h >> 4) % 100;
@@ -7678,13 +7620,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
                 _propScale.set(0.62, 0.62, 0.62);
                 _dummyMatrix.compose(_dummyPos, _propQuat, _propScale);
                 _propScale.set(1, 1, 1);
-                pushPropCache(5, (h >> 3) % crystalInsts.length, t.x, t.z, _dummyMatrix.elements);
+                pushPropCache(5, (h >> 3) % propKindLens[5], t.x, t.z, _dummyMatrix.elements);
               }
             }
 
             if (ambGroupIdx >= 0 && chance < ambThresh) {
               const ambTier = chance < ambThresh * 0.22 ? 0 : chance < ambThresh * 0.55 ? 1 : 2;
-              const len = ambInstGroups[ambGroupIdx].length;
+              const len = ambGroupLens[ambGroupIdx];
               pushAmbCache(ambGroupIdx, h % len, ambTier, t.x, t.z, _dummyMatrix.elements);
             }
           }
@@ -13295,6 +13237,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       }
       batchedBuildings.dispose();
       treeImpostors.dispose();
+      treeBatchShadow.dispose();
+      treeBatchNoShadow.dispose();
+      ambBatch.dispose();
       for (const uEntry of unitMeshes.values()) {
         disposeEntityGroup(uEntry.group);
       }
@@ -13411,7 +13356,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       billboardGoldMat.dispose();
       chunkTerrain.dispose();
       terrainWorkerPool.dispose();
-      for (const inst of allPropInsts) inst.dispose();
+      for (const batch of propBatches) batch.dispose();
       for (const inst of allMetroInsts) inst.dispose();
       particleGeo.dispose();
       particleMat.dispose();

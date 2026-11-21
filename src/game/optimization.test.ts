@@ -17,6 +17,7 @@ import {
   createPooledSimulationTickIndex,
 } from './spatialIndex';
 import { BatchedBuildingSystem } from './batchedBuildings';
+import { BatchedStaticPool } from './batchedStaticProps';
 import { TreeImpostorSystem } from './treeImpostors';
 import { getVoxelTreeLibrary, TreeBiomeKey } from './voxelTrees';
 import { getNodeVariantLibrary } from './meshBuilders';
@@ -511,6 +512,50 @@ describe('Major Optimization & 512x512 Scaling Suite', () => {
     assert.equal(geo.instanceCount, 600);
     impostors.updateCameraAndLighting(Math.PI / 4, 0.85);
     impostors.dispose();
+  });
+
+  it('BatchedStaticPool collapses multi-variant static props into 1 BatchedMesh with dynamic growth & shrink', () => {
+    const vLib = getVoxelTreeLibrary();
+    const nLib = getNodeVariantLibrary();
+    const mat = new Float32Array(new THREE.Matrix4().makeTranslation(10, 1, 20).elements);
+
+    // 1. Indexed geometries (voxel trees) with growth past initial capacity (64 -> >120)
+    const treeGeos = [...vLib.byBiome.forest, ...vLib.byBiomeLod1.forest];
+    const treePool = new BatchedStaticPool('test_trees', vLib.material, treeGeos, true, true, 64);
+    for (let i = 0; i < 120; i++) {
+      treePool.pushFromMatrixArray(i % treeGeos.length, mat, 0);
+    }
+    treePool.commit();
+    assert.equal(treePool.getCount(), 120);
+    assert.equal(treePool.mesh.visible, true);
+
+    // Shrink & hide unused slots cleanly
+    treePool.reset();
+    for (let i = 0; i < 12; i++) {
+      treePool.pushFromMatrixArray(i % treeGeos.length, mat, 0);
+    }
+    treePool.commit();
+    assert.equal(treePool.getCount(), 12);
+    assert.equal(treePool.mesh.getVisibleAt(0), true);
+    assert.equal(treePool.mesh.getVisibleAt(11), true);
+    assert.equal(treePool.mesh.getVisibleAt(12), false);
+
+    // Reset to 0 hides mesh completely
+    treePool.reset();
+    treePool.commit();
+    assert.equal(treePool.mesh.visible, false);
+    treePool.dispose();
+
+    // 2. Non-indexed / mixed geometries (ambient & resource props)
+    const propGeos = [...nLib.berry, ...nLib.stone, ...nLib.ambientGrass];
+    const propPool = new BatchedStaticPool('test_props', nLib.standardMat, propGeos, false, true, 64);
+    for (let i = 0; i < 80; i++) {
+      propPool.pushFromMatrixArray(i % propGeos.length, mat, 0);
+    }
+    propPool.commit();
+    assert.equal(propPool.getCount(), 80);
+    assert.equal(propPool.mesh.visible, true);
+    propPool.dispose();
   });
 });
 
