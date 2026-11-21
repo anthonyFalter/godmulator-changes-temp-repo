@@ -233,6 +233,51 @@ export function getUnitIntrinsicGene(
   if (role === 'crocodile') {
     return 'Armored Scales';
   }
+  if (role === 'horse') {
+    return 'Fast Gallop';
+  }
+  if (role === 'goat') {
+    return 'Cliff Climber';
+  }
+  if (role === 'monkey') {
+    return 'Tree Swinger';
+  }
+  if (role === 'panda') {
+    return 'Bamboo Chewer';
+  }
+  if (role === 'polar_bear') {
+    return 'Frost Coat';
+  }
+  if (role === 'hippo') {
+    return 'River Bulk';
+  }
+  if (role === 'rhino') {
+    return 'Armored Horn';
+  }
+  if (role === 'turtle') {
+    return 'Hard Shell';
+  }
+  if (role === 'frog') {
+    return 'Pond Hopper';
+  }
+  if (role === 'crab') {
+    return 'Iron Pincers';
+  }
+  if (role === 'hydra') {
+    return 'Three Heads';
+  }
+  if (role === 'minotaur') {
+    return 'Labyrinth Fury';
+  }
+  if (role === 'pegasus') {
+    return 'Sky Wings';
+  }
+  if (role === 'cerberus') {
+    return 'Hellhound Jaws';
+  }
+  if (role === 'ent') {
+    return 'Living Bark';
+  }
   if (role === 'skeleton') {
     return 'Undead Bones';
   }
@@ -287,6 +332,21 @@ export function isIntrinsicGene(gene: string): boolean {
     'Glacial Titan',
     'Runestone Core',
     'Nine-Tail Spirit',
+    'Fast Gallop',
+    'Cliff Climber',
+    'Tree Swinger',
+    'Bamboo Chewer',
+    'Frost Coat',
+    'River Bulk',
+    'Armored Horn',
+    'Hard Shell',
+    'Pond Hopper',
+    'Iron Pincers',
+    'Three Heads',
+    'Labyrinth Fury',
+    'Sky Wings',
+    'Hellhound Jaws',
+    'Living Bark',
     'Raider Grit',
     'Undead Bones',
     'Alien Armor',
@@ -331,9 +391,9 @@ export function generateUnitGenes(
   const roll = seededHash(seed, 77) % 100;
   if (roll < 18) {
     let pool: string[];
-    if (role === 'dragon' || role === 'phoenix' || role === 'griffin') {
+    if (role === 'dragon' || role === 'phoenix' || role === 'griffin' || role === 'pegasus') {
       pool = RARE_GENE_POOLS.dragon;
-    } else if (role === 'unicorn' || role === 'kitsune') {
+    } else if (role === 'unicorn' || role === 'kitsune' || role === 'ent') {
       pool = RARE_GENE_POOLS.unicorn;
     } else if (role === 'dinosaur') {
       const diet = dinoDiet ?? getDinosaurVariant(seed).diet;
@@ -345,8 +405,15 @@ export function generateUnitGenes(
       role === 'boar' ||
       role === 'lion' ||
       role === 'crocodile' ||
+      role === 'polar_bear' ||
+      role === 'hippo' ||
+      role === 'rhino' ||
+      role === 'crab' ||
       role === 'yeti' ||
-      role === 'golem'
+      role === 'golem' ||
+      role === 'hydra' ||
+      role === 'minotaur' ||
+      role === 'cerberus'
     ) {
       pool = RARE_GENE_POOLS.carnivore;
     } else if (
@@ -359,7 +426,13 @@ export function generateUnitGenes(
       role === 'rabbit' ||
       role === 'elephant' ||
       role === 'camel' ||
-      role === 'penguin'
+      role === 'penguin' ||
+      role === 'horse' ||
+      role === 'goat' ||
+      role === 'monkey' ||
+      role === 'panda' ||
+      role === 'turtle' ||
+      role === 'frog'
     ) {
       pool = RARE_GENE_POOLS.herbivore;
     } else if (
@@ -440,6 +513,21 @@ export function generateUnitItems(
   if (role === 'camel') return ['Desert Saddle', 'Water Flask'];
   if (role === 'penguin') return ['Ice Pebble', 'Silver Fish'];
   if (role === 'crocodile') return ['Armored Scale', 'River Fang'];
+  if (role === 'horse') return ['Iron Horseshoe', 'Oat Bundle'];
+  if (role === 'goat') return ['Mountain Horn', 'Alpine Grass'];
+  if (role === 'monkey') return ['Ripe Banana', 'Jungle Vine'];
+  if (role === 'panda') return ['Bamboo Stalk', 'Soft Fur'];
+  if (role === 'polar_bear') return ['Arctic Pelt', 'Frost Claw'];
+  if (role === 'hippo') return ['River Tusk', 'Thick Hide'];
+  if (role === 'rhino') return ['Heavy Horn', 'Plated Hide'];
+  if (role === 'turtle') return ['Green Shell', 'Sea Kelp'];
+  if (role === 'frog') return ['Lily Pad', 'Swamp Moss'];
+  if (role === 'crab') return ['Red Claw', 'Sea Shell'];
+  if (role === 'hydra') return ['Venom Fang', 'Regen Scale', 'Swamp Heart'];
+  if (role === 'minotaur') return ['Bronze Axe', 'Bull Horn', 'War Belt'];
+  if (role === 'pegasus') return ['Sky Feather', 'Golden Hoof', 'Cloud Mane'];
+  if (role === 'cerberus') return ['Ember Fang', 'Lava Collar', 'Ash Pelt'];
+  if (role === 'ent') return ['Heartwood', 'Ancient Acorn', 'Living Moss'];
 
   if (role === 'raider_swarmer') return ['Iron Cleaver', 'Loot Bag'];
   if (role === 'raider_ranged') return ['Hunting Bow', 'Arrow Quiver'];
@@ -565,77 +653,152 @@ function getDietInfo(unit: UnitEntity): EntityDietInfo {
     case 'deer':
       return {
         category: 'Forest Herbivore',
-        detail: 'Swift woodland grazer of shoots, berries, and meadow grass',
+        detail: 'Eats forest grass, shoots, and berries',
       };
     case 'sheep':
       return {
         category: 'Herbivore',
-        detail: 'Gentle flock animal that grazes meadows and highland clover',
+        detail: 'Grazes on meadow grass and clover',
       };
     case 'rabbit':
       return {
         category: 'Herbivore',
-        detail: 'Agile burrower that nibbles clover, blossoms, and wild herbs',
+        detail: 'Eats clover, flowers, and wild herbs',
       };
     case 'fox':
       return {
         category: 'Carnivore',
-        detail: 'Cunning woodland stalker that hunts rabbits, chickens, and berries',
+        detail: 'Hunts rabbits and chickens, and snacks on berries',
       };
     case 'boar':
       return {
         category: 'Omnivore',
-        detail: 'Fierce tusked forager that roots for truffles and charges threats',
+        detail: 'Roots up mushrooms and acorns; charges when provoked',
       };
     case 'lion':
       return {
         category: 'Carnivore',
-        detail: 'Savanna apex predator that prowls grasslands and hunts herds',
+        detail: 'Hunts large prey across open plains and savannas',
       };
     case 'elephant':
       return {
         category: 'Herbivore',
-        detail: 'Colossal herbivore that feeds on acacia trees and defends its herd',
+        detail: 'Eats tree leaves and grass; fights back hard if threatened',
       };
     case 'camel':
       return {
         category: 'Herbivore',
-        detail: 'Hardy desert wanderer that feeds on scrub, dates, and oasis reeds',
+        detail: 'Eats desert scrub and oasis plants',
       };
     case 'penguin':
       return {
         category: 'Sea Predator',
-        detail: 'Playful polar bird that waddles on sea ice and dives for fish',
+        detail: 'Catches fish along snowy coasts and ice sheets',
       };
     case 'crocodile':
       return {
         category: 'Sea Predator',
-        detail: 'Armored marsh and riverbank predator that ambushes passing prey',
+        detail: 'Waits in swamps and shallows to ambush anything that walks by',
+      };
+    case 'horse':
+      return {
+        category: 'Herbivore',
+        detail: 'Grazes on open grass and gallops away from predators',
+      };
+    case 'goat':
+      return {
+        category: 'Herbivore',
+        detail: 'Eats mountain grass and shrubs on steep hills',
+      };
+    case 'monkey':
+      return {
+        category: 'Forager',
+        detail: 'Eats jungle fruit, nuts, and berries',
+      };
+    case 'panda':
+      return {
+        category: 'Forest Herbivore',
+        detail: 'Chews on bamboo shoots and forest leaves all day',
+      };
+    case 'polar_bear':
+      return {
+        category: 'Carnivore',
+        detail: 'Hunts penguins and anything else on snow and sea ice',
+      };
+    case 'hippo':
+      return {
+        category: 'Herbivore',
+        detail: 'Eats river grass but attacks anyone who gets too close',
+      };
+    case 'rhino':
+      return {
+        category: 'Herbivore',
+        detail: 'Eats savanna grass and charges threats head-on',
+      };
+    case 'turtle':
+      return {
+        category: 'Herbivore',
+        detail: 'Eats beach grass, reeds, and shallow sea plants',
+      };
+    case 'frog':
+      return {
+        category: 'Forager',
+        detail: 'Catches bugs around swamps and shallow ponds',
+      };
+    case 'crab':
+      return {
+        category: 'Omnivore',
+        detail: 'Scavenges along sandy beaches and shallow tides',
       };
     case 'phoenix':
       return {
         category: 'Fire Carnivore',
-        detail: 'Immortal solar firebird that heals allies and purges dark forces',
+        detail: 'Flies overhead, heals nearby allies, and blasts enemies with fire',
       };
     case 'griffin':
       return {
         category: 'Carnivore',
-        detail: 'Winged mountain hunter that swoops on raiders and wild prey',
+        detail: 'Hunts from the sky and dives on raiders and wild prey',
       };
     case 'yeti':
       return {
         category: 'Carnivore',
-        detail: 'Massive tundra beast that hunts in blizzards and freezes foes',
+        detail: 'Lives on snowy peaks and throws chunky ice balls at intruders',
       };
     case 'golem':
       return {
         category: 'Omnivore',
-        detail: 'Rune-bound stone colossus sustained by ancient mountain crystal energy',
+        detail: 'Guards mountains and smashes hostiles with heavy stone fists',
       };
     case 'kitsune':
       return {
         category: 'Forager',
-        detail: 'Blossom shrine spirit that feeds on dew and channels foxfire blessings',
+        detail: 'Blesses friendly units and fires flame balls when attacked',
+      };
+    case 'hydra':
+      return {
+        category: 'Sea Predator',
+        detail: 'Spits venom from three heads and heals back its own wounds',
+      };
+    case 'minotaur':
+      return {
+        category: 'Carnivore',
+        detail: 'Charges into battle swinging a massive axe at nearby enemies',
+      };
+    case 'pegasus':
+      return {
+        category: 'Forest Herbivore',
+        detail: 'Soars over meadows and heals friendly creatures below',
+      };
+    case 'cerberus':
+      return {
+        category: 'Fire Carnivore',
+        detail: 'Three-headed hound that ignores fire and spits flame balls',
+      };
+    case 'ent':
+      return {
+        category: 'Forest Herbivore',
+        detail: 'Regrows burned woods and crushes anyone attacking its forest',
       };
     case 'raider_swarmer':
     case 'raider_ranged':
@@ -691,38 +854,31 @@ function getSubtitleAndFaction(
     return { subtitle: 'Unicorn', factionLabel: 'Mythical' };
   }
   if (unit.role === 'leviathan') {
-    return {
-      subtitle: unit.leviathanSubmerged ? 'Leviathan (Underwater)' : 'Leviathan (Surfaced)',
-      factionLabel: 'Mythical',
-    };
+    return { subtitle: 'Leviathan', factionLabel: 'Mythical' };
   }
-  if (unit.role === 'phoenix') {
-    return { subtitle: 'Phoenix • Solar Firebird', factionLabel: 'Mythical' };
-  }
-  if (unit.role === 'griffin') {
-    return { subtitle: 'Griffin • Sky Hunter', factionLabel: 'Mythical' };
-  }
-  if (unit.role === 'yeti') {
-    return { subtitle: 'Frost Yeti • Glacial Titan', factionLabel: 'Mythical' };
-  }
-  if (unit.role === 'golem') {
-    return { subtitle: 'Stone Golem • Living Colossus', factionLabel: 'Mythical' };
-  }
-  if (unit.role === 'kitsune') {
-    return { subtitle: 'Kitsune • Shrine Spirit', factionLabel: 'Mythical' };
+  if (
+    unit.role === 'phoenix' ||
+    unit.role === 'griffin' ||
+    unit.role === 'yeti' ||
+    unit.role === 'golem' ||
+    unit.role === 'kitsune' ||
+    unit.role === 'hydra' ||
+    unit.role === 'minotaur' ||
+    unit.role === 'pegasus' ||
+    unit.role === 'cerberus' ||
+    unit.role === 'ent'
+  ) {
+    return { subtitle: def?.name ?? cap(unit.role), factionLabel: 'Mythical' };
   }
   if (unit.role === 'dinosaur') {
     const dino = getDinosaurVariant(unit.appearanceSeed);
-    return {
-      subtitle: `${dino.speciesName} • ${dino.diet === 'carnivore' ? 'Carnivore' : 'Herbivore'}`,
-      factionLabel: 'Wildlife',
-    };
+    return { subtitle: dino.speciesName, factionLabel: 'Wildlife' };
   }
   if (unit.faction === 'wildlife') {
-    return { subtitle: `${def?.name ?? cap(unit.role)} • Wildlife`, factionLabel: 'Wildlife' };
+    return { subtitle: def?.name ?? cap(unit.role), factionLabel: 'Wildlife' };
   }
   if (unit.faction === 'hostile') {
-    return { subtitle: `${def?.name ?? cap(unit.role)} • Hostile`, factionLabel: 'Hostile' };
+    return { subtitle: def?.name ?? cap(unit.role), factionLabel: 'Hostile' };
   }
   const speciesLabel = cap(unit.species);
   if (unit.isKing) {
@@ -741,14 +897,21 @@ function getSubtitleAndFaction(
 }
 
 function formatActivity(unit: UnitEntity): string {
-  const isFlyer = unit.role === 'dragon' || unit.role === 'phoenix' || unit.role === 'griffin';
+  const isFlyer =
+    unit.role === 'dragon' ||
+    unit.role === 'phoenix' ||
+    unit.role === 'griffin' ||
+    unit.role === 'pegasus';
   switch (unit.state) {
     case 'fighting':
       if (unit.role === 'dragon') return 'Breathing Fire';
-      if (unit.role === 'phoenix') return 'Casting Solar Flare';
-      if (unit.role === 'kitsune') return 'Casting Foxfire';
-      if (unit.role === 'yeti') return 'Frost Slamming';
-      if (unit.role === 'golem') return 'Quake Slamming';
+      if (unit.role === 'phoenix' || unit.role === 'kitsune' || unit.role === 'cerberus') {
+        return 'Shooting Flame Balls';
+      }
+      if (unit.role === 'yeti') return 'Throwing Ice';
+      if (unit.role === 'hydra') return 'Spitting Venom';
+      if (unit.role === 'golem' || unit.role === 'ent') return 'Smashing';
+      if (unit.role === 'minotaur') return 'Cleaving';
       if (unit.role === 'griffin') return 'Diving';
       return 'Fighting';
     case 'gathering':
@@ -760,7 +923,11 @@ function formatActivity(unit: UnitEntity): string {
     case 'researching':
       return 'Researching';
     case 'moving':
-      return isFlyer ? 'Flying' : unit.role === 'penguin' ? 'Waddling' : 'Walking';
+      if (isFlyer) return 'Flying';
+      if (unit.role === 'penguin') return 'Waddling';
+      if (unit.role === 'frog' || unit.role === 'rabbit') return 'Hopping';
+      if (unit.role === 'crab') return 'Scuttling';
+      return 'Walking';
     case 'ko':
       return 'Defeated';
     default:
@@ -770,9 +937,9 @@ function formatActivity(unit: UnitEntity): string {
 
 function getAgeStageLabel(unit: UnitEntity): string {
   if (unit.role === 'dragon' || unit.role === 'phoenix' || unit.role === 'kitsune') return 'Elder';
-  if (unit.role === 'golem') return 'Ancient';
-  if (unit.role === 'unicorn' || unit.role === 'griffin') return 'Adult';
-  if (unit.role === 'leviathan' || unit.role === 'yeti') return 'Giant';
+  if (unit.role === 'golem' || unit.role === 'ent') return 'Ancient';
+  if (unit.role === 'unicorn' || unit.role === 'griffin' || unit.role === 'pegasus' || unit.role === 'cerberus') return 'Adult';
+  if (unit.role === 'leviathan' || unit.role === 'yeti' || unit.role === 'hydra' || unit.role === 'minotaur') return 'Giant';
   if (unit.ageStage === 'child') return 'Child';
   if (unit.faction === 'wildlife') return 'Adult';
   return 'Adult';

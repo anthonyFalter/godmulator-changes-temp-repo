@@ -186,6 +186,16 @@ export type AnimalRole =
   | 'camel'
   | 'penguin'
   | 'crocodile'
+  | 'horse'
+  | 'goat'
+  | 'monkey'
+  | 'panda'
+  | 'polar_bear'
+  | 'hippo'
+  | 'rhino'
+  | 'turtle'
+  | 'frog'
+  | 'crab'
   | 'dinosaur'
   | 'dragon'
   | 'unicorn'
@@ -194,7 +204,12 @@ export type AnimalRole =
   | 'griffin'
   | 'yeti'
   | 'golem'
-  | 'kitsune';
+  | 'kitsune'
+  | 'hydra'
+  | 'minotaur'
+  | 'pegasus'
+  | 'cerberus'
+  | 'ent';
 
 export type UnitRole =
   | 'human'
@@ -521,7 +536,17 @@ export interface VisualEffectEvent {
   originZ?: number;
   sourceUnitId?: string;
   variant?: 'bite' | 'slam' | 'crunch' | 'peck' | 'horn_blast' | 'fire_breath';
-  vfxSubtype?: 'bullet' | 'cannon_shell' | 'bomb' | 'missile' | 'arcane_bolt' | 'plasma_beam' | 'laser_beam';
+  vfxSubtype?:
+    | 'bullet'
+    | 'cannon_shell'
+    | 'bomb'
+    | 'missile'
+    | 'arcane_bolt'
+    | 'plasma_beam'
+    | 'laser_beam'
+    | 'ice_ball'
+    | 'foxfire_ball'
+    | 'venom_ball';
   dropKind?: TerrainToolType;
   dropTargets?: Array<{ x: number; y: number; z: number }>;
   radius: number;
