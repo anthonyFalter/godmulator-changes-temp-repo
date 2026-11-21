@@ -1580,7 +1580,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       group: THREE.Group;
       materials: THREE.Material[];
       geometries?: THREE.BufferGeometry[];
-      drops?: { mesh: THREE.Mesh; offsetY: number; speed: number; baseX: number; baseZ: number }[];
+      dropsInst?: THREE.InstancedMesh;
+      drops?: { offsetY: number; speed: number; baseX: number; baseZ: number }[];
       spores?: { mesh: THREE.Mesh; angle: number; dist: number; phase: number; height: number }[];
       waveSegments?: TsunamiWaveSegment[];
       gravityRings?: THREE.Mesh[];
@@ -1599,6 +1600,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
     const hazardMeshes = new Map<string, HazardVisual>();
     function disposeHazardVisual(hv: HazardVisual) {
       hazardsGroup.remove(hv.group);
+      if (hv.dropsInst) hv.dropsInst.dispose();
       if (hv.geometries) {
         for (const g of hv.geometries) g.dispose();
       }
@@ -1664,24 +1666,24 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         ringMesh.scale.setScalar(radius * 0.92);
         group.add(ringMesh);
 
-        const drops: { mesh: THREE.Mesh; offsetY: number; speed: number; baseX: number; baseZ: number }[] = [];
-        for (let i = 0; i < 40; i++) {
-          const a = (i / 40) * Math.PI * 2 + (i % 5) * 0.35;
+        const dropCount = 40;
+        const dropsInst = new THREE.InstancedMesh(sharedRainDropGeo, dropMat, dropCount);
+        dropsInst.frustumCulled = false;
+        group.add(dropsInst);
+        const drops: { offsetY: number; speed: number; baseX: number; baseZ: number }[] = [];
+        for (let i = 0; i < dropCount; i++) {
+          const a = (i / dropCount) * Math.PI * 2 + (i % 5) * 0.35;
           const r = (0.15 + ((i * 29) % 100) / 100) * radius * 0.82;
           const bx = Math.cos(a) * r;
           const bz = Math.sin(a) * r;
-          const dMesh = new THREE.Mesh(sharedRainDropGeo, dropMat);
-          dMesh.position.set(bx, 2.2, bz);
-          group.add(dMesh);
           drops.push({
-            mesh: dMesh,
             offsetY: (i * 0.19) % 4.4,
             speed: 7.5 + (i % 4) * 1.4,
             baseX: bx,
             baseZ: bz,
           });
         }
-        return { kind, group, materials, drops, ringMesh, cloudBody, seenStamp: 0 };
+        return { kind, group, materials, dropsInst, drops, ringMesh, cloudBody, seenStamp: 0 };
       }
 
       if (kind === 'plague_cloud') {
@@ -7071,6 +7073,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
     let lastTileScanPendingY = true;
     let lastPropRebuildTime = -1;
     let pendingPropsSync = false;
+    let lastMapTexSyncTime = -1;
+    let pendingWaterMapSync = false;
+    let pendingTerrainMapSync = false;
     let simSteppedThisFrame = true;
 
     function syncSceneFromSimulation(simState: SimulationState, dt: number, elapsed: number) {
@@ -7404,12 +7409,21 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       if (initialMapsPreuploaded) {
         initialMapsPreuploaded = false;
       } else {
-        if (waterMapNeedsSync) {
-          oceanFoam.updateMap(simState.tiles);
-        }
-        if (terrainMapDirty || waterMapNeedsSync) {
-          styledTerrain.updateMap(simState.tiles, simState.buildings, simState.settlementSpecies);
-          zoneOverlay.updateMap(simState.tiles);
+        if (waterMapNeedsSync) pendingWaterMapSync = true;
+        if (terrainMapDirty || waterMapNeedsSync) pendingTerrainMapSync = true;
+        const canRunMapTexSync =
+          simChanged || lastMapTexSyncTime < 0 || elapsed - lastMapTexSyncTime >= 0.12;
+        if (canRunMapTexSync && (pendingWaterMapSync || pendingTerrainMapSync)) {
+          lastMapTexSyncTime = elapsed;
+          if (pendingWaterMapSync) {
+            pendingWaterMapSync = false;
+            oceanFoam.updateMap(simState.tiles);
+          }
+          if (pendingTerrainMapSync) {
+            pendingTerrainMapSync = false;
+            styledTerrain.updateMap(simState.tiles, simState.buildings, simState.settlementSpecies);
+            zoneOverlay.updateMap(simState.tiles);
+          }
         }
       }
 
@@ -9737,14 +9751,27 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
               hv.cloudBody.position.y = Math.sin(elapsed * 2.6) * 0.18 * (1 - speedNorm * 0.6);
             }
 
-            for (let di = 0; di < hv.drops.length; di++) {
-              const d = hv.drops[di];
-              const fallProgress = ((elapsed * (d.speed + speedNorm * 4.5) + d.offsetY) % 4.4) / 4.4;
-              const dropY = 4.4 * (1 - fallProgress);
-              const windLag = fallProgress * speedNorm * 1.65;
-              d.mesh.position.set(d.baseX - wx * windLag, dropY, d.baseZ - wz * windLag);
-              d.mesh.rotation.z = wx * speedNorm * 0.42;
-              d.mesh.rotation.x = -wz * speedNorm * 0.42;
+            if (hv.dropsInst) {
+              _dummyMatrix.makeRotationFromEuler(
+                new THREE.Euler(-wz * speedNorm * 0.42, 0, wx * speedNorm * 0.42),
+              );
+              const el = _dummyMatrix.elements;
+              const arr = hv.dropsInst.instanceMatrix.array as Float32Array;
+              for (let di = 0; di < hv.drops.length; di++) {
+                const d = hv.drops[di];
+                const fallProgress = ((elapsed * (d.speed + speedNorm * 4.5) + d.offsetY) % 4.4) / 4.4;
+                const dropY = 4.4 * (1 - fallProgress);
+                const windLag = fallProgress * speedNorm * 1.65;
+                const off = di * 16;
+                arr[off + 0] = el[0]; arr[off + 1] = el[1]; arr[off + 2] = el[2]; arr[off + 3] = 0;
+                arr[off + 4] = el[4]; arr[off + 5] = el[5]; arr[off + 6] = el[6]; arr[off + 7] = 0;
+                arr[off + 8] = el[8]; arr[off + 9] = el[9]; arr[off + 10] = el[10]; arr[off + 11] = 0;
+                arr[off + 12] = d.baseX - wx * windLag;
+                arr[off + 13] = dropY;
+                arr[off + 14] = d.baseZ - wz * windLag;
+                arr[off + 15] = 1;
+              }
+              hv.dropsInst.instanceMatrix.needsUpdate = true;
             }
             if (hv.ringMesh) {
               hv.ringMesh.scale.setScalar(

@@ -378,6 +378,58 @@ export function getTile(state: SimulationState, x: number, z: number): TileData 
   return state.tiles[getTileIndex(rx, rz, state.gridSize)];
 }
 
+export function forEachTileInRadius(
+  state: SimulationState,
+  cx: number,
+  cz: number,
+  radius: number,
+  fn: (tile: TileData, dSq: number) => void,
+): void {
+  const gs = state.gridSize;
+  const tiles = state.tiles;
+  const rSq = radius * radius;
+  const minX = Math.max(0, Math.floor(cx - radius));
+  const maxX = Math.min(gs - 1, Math.ceil(cx + radius));
+  const minZ = Math.max(0, Math.floor(cz - radius));
+  const maxZ = Math.min(gs - 1, Math.ceil(cz + radius));
+  for (let z = minZ; z <= maxZ; z++) {
+    const dz = z - cz;
+    const dzSq = dz * dz;
+    const rowOff = z * gs;
+    for (let x = minX; x <= maxX; x++) {
+      const dx = x - cx;
+      const dSq = dx * dx + dzSq;
+      if (dSq <= rSq) {
+        const tile = tiles[rowOff + x];
+        if (tile) fn(tile, dSq);
+      }
+    }
+  }
+}
+
+export function forEachTileInBounds(
+  state: SimulationState,
+  minX: number,
+  maxX: number,
+  minZ: number,
+  maxZ: number,
+  fn: (tile: TileData) => void,
+): void {
+  const gs = state.gridSize;
+  const tiles = state.tiles;
+  const x0 = Math.max(0, Math.floor(minX));
+  const x1 = Math.min(gs - 1, Math.ceil(maxX));
+  const z0 = Math.max(0, Math.floor(minZ));
+  const z1 = Math.min(gs - 1, Math.ceil(maxZ));
+  for (let z = z0; z <= z1; z++) {
+    const rowOff = z * gs;
+    for (let x = x0; x <= x1; x++) {
+      const tile = tiles[rowOff + x];
+      if (tile) fn(tile);
+    }
+  }
+}
+
 export function formatYearLabel(year: number): string {
   const wholeYear = Math.max(0, Math.floor(year + 1e-6));
   return `Year ${wholeYear.toLocaleString()}`;
@@ -3240,7 +3292,7 @@ export function executeGodPowerImpact(
         });
       }
 
-      for (const t of state.tiles) {
+      forEachTileInBounds(state, targetX - r, targetX + r, targetZ - r, targetZ + r, (t) => {
         const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
         if (dSq <= rSq && t.height === 0) {
           t.cursedTimer = 0;
@@ -3275,7 +3327,7 @@ export function executeGodPowerImpact(
             }
           }
         }
-      }
+      });
       for (const u of state.units) {
         const dSq = (u.x - targetX) ** 2 + (u.z - targetZ) ** 2;
         if (dSq <= rSq && u.state !== 'ko') {
@@ -3345,7 +3397,7 @@ export function executeGodPowerImpact(
         }
       }
       // Pave stone roads around structures & crystallize nearby stone outcrops
-      for (const t of state.tiles) {
+      forEachTileInBounds(state, targetX - r, targetX + r, targetZ - r, targetZ + r, (t) => {
         const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
         if (dSq <= rSq && t.height > 0) {
           if (t.resourceNode === 'stone_outcrop' && dSq <= rSq * 0.45) {
@@ -3360,7 +3412,7 @@ export function executeGodPowerImpact(
             t.terrain = 'stone_road';
           }
         }
-      }
+      });
       addChronicle(state, 'Divine Insight granted +140 Knowledge, boosted kingdom eras, repaired ships & completed builds!', 'divine');
       break;
     }
@@ -3387,7 +3439,7 @@ export function executeGodPowerImpact(
       for (const v of state.vehicles ?? []) {
         v.hp = v.maxHp ?? 150;
       }
-      for (const t of state.tiles) {
+      forEachTileInBounds(state, targetX - r, targetX + r, targetZ - r, targetZ + r, (t) => {
         const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
         if (dSq <= rSq && t.height > 0) {
           t.onFireTimer = 0;
@@ -3401,7 +3453,7 @@ export function executeGodPowerImpact(
             t.terrain = (t.x === targetX || t.z === targetZ) && dSq > 1.5 ? 'stone_road' : 'fertile';
           }
         }
-      }
+      });
       // Inspire a baby boom across active towns
       const settlementIds = Array.from(new Set(state.buildings.map((b) => b.settlementId ?? 'city_default')));
       for (const sid of settlementIds) {
@@ -3452,14 +3504,14 @@ export function executeGodPowerImpact(
           }
         }
       }
-      for (const t of state.tiles) {
+      forEachTileInBounds(state, targetX - r, targetX + r, targetZ - r, targetZ + r, (t) => {
         const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
         if (dSq <= rSq && t.height > 0) {
           t.onFireTimer = 0;
           t.cursedTimer = 0;
           t.blessedTimer = 30;
         }
-      }
+      });
       addChronicle(state, 'Aegis Sanctuary dome erected, repelling foes and shielding all within!', 'divine');
       break;
     }
@@ -3535,7 +3587,7 @@ export function executeGodPowerImpact(
           u.statusEffects.plagued = 26;
         }
       }
-      for (const t of state.tiles) {
+      forEachTileInBounds(state, targetX - r, targetX + r, targetZ - r, targetZ + r, (t) => {
         const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
         if (dSq <= rSq && t.height === 0) {
           damageOrBleachWaterTile(t, 260, false);
@@ -3558,7 +3610,7 @@ export function executeGodPowerImpact(
             t.resourceAmount = Math.floor(t.resourceAmount * 0.35);
           }
         }
-      }
+      });
       state.happiness = Math.max(15, state.happiness - 12);
       addChronicle(state, 'Plague cloud spread sickness and spoiled nearby crops!', 'warning');
       break;
@@ -3614,7 +3666,7 @@ export function executeGodPowerImpact(
           v.hp = Math.max(0, (v.hp ?? 100) - (isWaterStrike ? 280 : 230));
         }
       }
-      for (const t of state.tiles) {
+      forEachTileInBounds(state, targetX - Math.max(Math.sqrt(effectiveRSq), r * 1.15, 2.5), targetX + Math.max(Math.sqrt(effectiveRSq), r * 1.15, 2.5), targetZ - Math.max(Math.sqrt(effectiveRSq), r * 1.15, 2.5), targetZ + Math.max(Math.sqrt(effectiveRSq), r * 1.15, 2.5), (t) => {
         const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
         if (t.height === 0 && dSq <= effectiveRSq * 0.75) {
           damageOrBleachWaterTile(t, 280, dSq <= 4.5);
@@ -3677,7 +3729,7 @@ export function executeGodPowerImpact(
             }
           }
         }
-      }
+      });
       addChronicle(
         state,
         isWaterStrike
@@ -3713,7 +3765,7 @@ export function executeGodPowerImpact(
         });
 
         // Deepen shallow water in the impact core to deep_water & flood/erode immediate shoreline
-        for (const t of state.tiles) {
+        forEachTileInBounds(state, targetX - r * 1.55, targetX + r * 1.55, targetZ - r * 1.55, targetZ + r * 1.55, (t) => {
           const dx = t.x - targetX;
           const dz = t.z - targetZ;
           const dSq = dx * dx + dz * dz;
@@ -3752,7 +3804,7 @@ export function executeGodPowerImpact(
               }
             }
           }
-        }
+        });
 
         // Immediate inner blast wave on naval/coastal units & buildings
         for (const b of state.buildings) {
@@ -3804,7 +3856,7 @@ export function executeGodPowerImpact(
       let waterTilesInRadius = 0;
       let waterSumX = 0;
       let waterSumZ = 0;
-      for (const t of state.tiles) {
+      forEachTileInBounds(state, targetX - (r + 1.8), targetX + (r + 1.8), targetZ - (r + 1.8), targetZ + (r + 1.8), (t) => {
         const dx = t.x - targetX;
         const dz = t.z - targetZ;
         const dSq = dx * dx + dz * dz;
@@ -3818,7 +3870,7 @@ export function executeGodPowerImpact(
             t.terrain = dSq <= 12.0 ? 'deep_water' : 'shallow_water';
             delete t.frozenWaterBase;
             t.onFireTimer = 0;
-            continue;
+            return;
           }
 
           const tileH = Math.max(1, t.height);
@@ -3902,7 +3954,7 @@ export function executeGodPowerImpact(
             t.onFireTimer = Math.max(t.onFireTimer, 7.5);
           }
         }
-      }
+      });
 
       // If the land impact hit right on a coastline with water nearby, also trigger a coastal tsunami wave from the water center
       if (waterTilesInRadius >= 6) {
@@ -4041,7 +4093,7 @@ export function executeGodPowerImpact(
         state.epochProgress = Math.min(100, state.epochProgress + 28);
       }
 
-      for (const t of state.tiles) {
+      forEachTileInBounds(state, targetX - r, targetX + r, targetZ - r, targetZ + r, (t) => {
         const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
         if (dSq <= rSq && t.height > 0 && !t.buildingId) {
           if (dSq <= 12.5) {
@@ -4052,7 +4104,7 @@ export function executeGodPowerImpact(
             }
           }
         }
-      }
+      });
       for (const u of state.units) {
         const dSq = (u.x - targetX) ** 2 + (u.z - targetZ) ** 2;
         if (dSq <= rSq && u.state !== 'ko') {
@@ -4248,19 +4300,19 @@ export function executeGodPowerImpact(
       let mountainsFormed = 0;
       const isOrogenic = quakeShapeKind === 'orogenic_uplift';
 
-      for (const t of state.tiles) {
-        if (t.x < minX || t.x > maxX || t.z < minZ || t.z > maxZ) continue;
+      forEachTileInBounds(state, minX, maxX, minZ, maxZ, (t) => {
+        if (t.x < minX || t.x > maxX || t.z < minZ || t.z > maxZ) return;
         if (t.height === 0) {
           const { distSq, segment } = closestFaultDistanceSq(t.x, t.z, faultSegments);
           if (segment && distSq <= (segment.width * 1.5) ** 2) {
             damageOrBleachWaterTile(t, 260, true);
           }
-          continue; // Never thrust ocean floor tiles into dry land
+          return; // Never thrust ocean floor tiles into dry land
         }
 
         const dCenterSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
         const { distSq, signedSide, segment } = closestFaultDistanceSq(t.x, t.z, faultSegments);
-        if (!segment) continue;
+        if (!segment) return;
 
         const segWidth = segment.width;
         const hashVal = Math.abs((t.x * 73856093) ^ (t.z * 19349663) ^ Math.round(targetX * 31));
@@ -4354,7 +4406,7 @@ export function executeGodPowerImpact(
             displacedTiles++;
           }
         }
-      }
+      });
 
       for (const b of state.buildings) {
         const dSq = (b.tileX - targetX) ** 2 + (b.tileZ - targetZ) ** 2;
@@ -4437,7 +4489,7 @@ export function executeGodPowerImpact(
           duration: 4.2,
           tickTimer: 0,
         });
-        for (const t of state.tiles) {
+        forEachTileInBounds(state, targetX - r, targetX + r, targetZ - r, targetZ + r, (t) => {
           const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
           if (dSq <= rSq) {
             t.blessedTimer = 0;
@@ -4455,7 +4507,7 @@ export function executeGodPowerImpact(
               t.terrain = 'scorched';
             }
           }
-        }
+        });
         for (const u of state.units) {
           const dSq = (u.x - targetX) ** 2 + (u.z - targetZ) ** 2;
           if (dSq <= rSq && u.state !== 'ko' && !u.statusEffects.shielded) {
@@ -4482,9 +4534,9 @@ export function executeGodPowerImpact(
       const blastR = Math.max(r * 1.35, 8.5);
       const blastRSq = blastR * blastR;
 
-      for (const t of state.tiles) {
+      forEachTileInBounds(state, targetX - blastR, targetX + blastR, targetZ - blastR, targetZ + blastR, (t) => {
         const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
-        if (dSq > blastRSq) continue;
+        if (dSq > blastRSq) return;
         t.blessedTimer = 0;
 
         if (dSq <= coneRSq) {
@@ -4496,7 +4548,7 @@ export function executeGodPowerImpact(
               t.terrain = t.frozenWaterBase ?? 'shallow_water';
               delete t.frozenWaterBase;
             }
-            continue;
+            return;
           }
           if (!t.buildingId) {
             t.farmSettlementId = undefined;
@@ -4542,7 +4594,7 @@ export function executeGodPowerImpact(
             t.onFireTimer = Math.max(t.onFireTimer, 7.5);
           }
         }
-      }
+      });
 
       for (const b of state.buildings) {
         const dSq = (b.tileX - targetX) ** 2 + (b.tileZ - targetZ) ** 2;
@@ -4614,9 +4666,9 @@ export function executeGodPowerImpact(
       isHeavy = true;
       let infectedCount = 0;
       let revivedCount = 0;
-      for (const t of state.tiles) {
+      forEachTileInBounds(state, targetX - r, targetX + r, targetZ - r, targetZ + r, (t) => {
         const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
-        if (dSq > rSq) continue;
+        if (dSq > rSq) return;
         t.onFireTimer = 0;
         t.fireColor = undefined;
         t.blessedTimer = 0;
@@ -4625,7 +4677,7 @@ export function executeGodPowerImpact(
           // Never create fake elevated land out of open ocean, but poison & curse the sea surface!
           t.cursedTimer = 25;
           damageOrBleachWaterTile(t, 320, true);
-          continue;
+          return;
         }
         t.terrain = 'void_goo';
         t.farmSettlementId = undefined;
@@ -4634,7 +4686,7 @@ export function executeGodPowerImpact(
           t.resourceAmount = 0;
         }
         infectedCount++;
-      }
+      });
 
       for (const b of state.buildings) {
         const dSq = (b.tileX - targetX) ** 2 + (b.tileZ - targetZ) ** 2;
@@ -4700,13 +4752,13 @@ export function executeGodPowerImpact(
       });
       // Immediately curse & darken the ground beneath the rift (without changing ocean height)
       const portalCurseRSq = Math.max(2.25, rSq);
-      for (const t of state.tiles) {
+      forEachTileInBounds(state, targetX - Math.max(1.5, r), targetX + Math.max(1.5, r), targetZ - Math.max(1.5, r), targetZ + Math.max(1.5, r), (t) => {
         const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
         if (dSq <= portalCurseRSq) {
           t.cursedTimer = 25;
           t.blessedTimer = 0;
         }
-      }
+      });
       // Initial vanguard skeletons
       for (let i = 0; i < 2; i++) {
         const sx = Math.max(2, Math.min(state.gridSize - 3, targetX + (i === 0 ? -1 : 1)));
@@ -4749,7 +4801,7 @@ export function executeGodPowerImpact(
         tickTimer: 0.35,
       });
       // Immediate chronological pulse: regrow harvests, finish buildings, heal units/vehicles, boost nearby kingdom progress
-      for (const t of state.tiles) {
+      forEachTileInBounds(state, targetX - r, targetX + r, targetZ - r, targetZ + r, (t) => {
         const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
         if (dSq <= rSq && t.height > 0 && !t.buildingId) {
           if (t.resourceNode === 'berry_bush' || t.resourceNode === 'timber_grove') {
@@ -4759,7 +4811,7 @@ export function executeGodPowerImpact(
             t.resourceAmount = 220;
           }
         }
-      }
+      });
       const boostKids = new Set<string>();
       for (const b of state.buildings) {
         if ((b.tileX - targetX) ** 2 + (b.tileZ - targetZ) ** 2 <= rSq) {
@@ -4835,7 +4887,7 @@ export function executeGodPowerImpact(
           setKingdomRelation(state, kidsArr[i], kidsArr[j], 'allied');
         }
       }
-      for (const t of state.tiles) {
+      forEachTileInBounds(state, targetX - r, targetX + r, targetZ - r, targetZ + r, (t) => {
         const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
         if (dSq <= rSq && t.height > 0) {
           t.cursedTimer = 0;
@@ -4846,7 +4898,7 @@ export function executeGodPowerImpact(
             t.terrain = (t.x + t.z) % 3 === 0 ? 'blossom' : 'fertile';
           }
         }
-      }
+      });
       state.happiness = Math.min(100, state.happiness + 20);
       addChronicle(state, 'Peace Treaty ended wars, calmed predators, and grew meadows!', 'divine');
       break;
@@ -8028,9 +8080,8 @@ function stepSimulationSingle(
       haz.tickTimer -= 0.35;
       const rSq = haz.radius * haz.radius;
       if (haz.kind === 'rain_cloud') {
-        for (const t of state.tiles) {
-          const dSq = (t.x - haz.x) ** 2 + (t.z - haz.z) ** 2;
-          if (dSq <= rSq && t.height > 0) {
+        forEachTileInRadius(state, haz.x, haz.z, haz.radius, (t, dSq) => {
+          if (t.height > 0) {
             t.onFireTimer = 0;
             t.cursedTimer = 0;
             t.blessedTimer = Math.max(t.blessedTimer, 16);
@@ -8040,7 +8091,7 @@ function stepSimulationSingle(
               t.terrain = 'grass';
             }
           }
-        }
+        });
       } else if (haz.kind === 'plague_cloud') {
         for (const u of state.units) {
           const dSq = (u.x - haz.x) ** 2 + (u.z - haz.z) ** 2;
@@ -8086,14 +8137,12 @@ function stepSimulationSingle(
       } else if (haz.kind === 'wormhole_rift') {
         // Gradually tear & excavate terrain blocks around the black hole into its swirling vortex
         const ripR = haz.radius * 1.05;
-        const ripRSq = ripR * ripR;
         let erodedThisTick = 0;
-        for (const t of state.tiles) {
-          const dSq = (t.x - haz.x) ** 2 + (t.z - haz.z) ** 2;
-          if (dSq > ripRSq || t.buildingId) continue;
+        forEachTileInRadius(state, haz.x, haz.z, ripR, (t, dSq) => {
+          if (t.buildingId) return;
           if (t.height === 0) {
             damageOrBleachWaterTile(t, 260, true);
-            continue;
+            return;
           }
           if (t.resourceNode === 'timber_grove' || t.resourceNode === 'berry_bush') {
             t.resourceNode = 'none';
@@ -8108,16 +8157,14 @@ function stepSimulationSingle(
               erodedThisTick++;
             }
           }
-        }
+        });
       } else if (haz.kind === 'tornado_vortex') {
         // Tear up trees, crops & scatter debris along the tornado's ground track
-        const tearRSq = (haz.radius * 0.72) ** 2;
-        for (const t of state.tiles) {
-          const dSq = (t.x - haz.x) ** 2 + (t.z - haz.z) ** 2;
-          if (dSq > tearRSq || t.buildingId) continue;
+        forEachTileInRadius(state, haz.x, haz.z, haz.radius * 0.72, (t) => {
+          if (t.buildingId) return;
           if (t.height === 0) {
             damageOrBleachWaterTile(t, 260, true);
-            continue;
+            return;
           }
           t.onFireTimer = 0;
           if (t.resourceNode === 'timber_grove' || t.resourceNode === 'berry_bush') {
@@ -8126,7 +8173,7 @@ function stepSimulationSingle(
             t.terrain = 'grass';
             t.farmSettlementId = undefined;
           }
-        }
+        });
       } else if (haz.kind === 'undead_portal') {
         // Spawn risen skeletons periodically from the necrotic portal (max 7 total)
         const spawned = haz.portalSpawnCount ?? 0;
@@ -8259,21 +8306,19 @@ function stepSimulationSingle(
             v.hp = 0;
           }
         }
-        for (const t of state.tiles) {
-          const dSq = (t.x - haz.x) ** 2 + (t.z - haz.z) ** 2;
-          if (dSq <= (haz.radius * 0.82) ** 2 && !t.buildingId) {
-            if (t.height === 0) {
-              damageOrBleachWaterTile(t, 400, true);
-              continue;
-            }
-            if (t.height >= 2) t.height = Math.max(1, t.height - 1);
-            t.terrain = dSq <= 6.0 ? 'scorched' : 'crystal_field';
-            if (t.resourceNode === 'timber_grove' || t.resourceNode === 'berry_bush') {
-              t.resourceNode = 'none';
-              t.resourceAmount = 0;
-            }
+        forEachTileInRadius(state, haz.x, haz.z, haz.radius * 0.82, (t, dSq) => {
+          if (t.buildingId) return;
+          if (t.height === 0) {
+            damageOrBleachWaterTile(t, 400, true);
+            return;
           }
-        }
+          if (t.height >= 2) t.height = Math.max(1, t.height - 1);
+          t.terrain = dSq <= 6.0 ? 'scorched' : 'crystal_field';
+          if (t.resourceNode === 'timber_grove' || t.resourceNode === 'berry_bush') {
+            t.resourceNode = 'none';
+            t.resourceAmount = 0;
+          }
+        });
         // Fling all trapped / orbiting entities violently outward to random places across the map with high fall damage!
         for (let ui = 0; ui < state.units.length; ui++) {
           const u = state.units[ui];
@@ -8462,13 +8507,9 @@ function stepSimulationSingle(
       haz.currentRadius = nextR;
 
       const innerBandSq = Math.max(0, prevR - 1.8) ** 2;
-      const outerBandSq = (nextR + 0.9) ** 2;
 
-      for (const t of state.tiles) {
-        const dx = t.x - haz.x;
-        const dz = t.z - haz.z;
-        const dSq = dx * dx + dz * dz;
-        if (dSq >= innerBandSq && dSq <= outerBandSq) {
+      forEachTileInRadius(state, haz.x, haz.z, nextR + 0.9, (t, dSq) => {
+        if (dSq >= innerBandSq) {
           t.onFireTimer = 0;
           t.cursedTimer = 0;
           if (t.height === 0) {
@@ -8547,7 +8588,7 @@ function stepSimulationSingle(
             }
           }
         }
-      }
+      });
 
       // Lethal drowning & surge crushing on non-flying NPCs & wildlife caught in the crashing tsunami crest
       for (const u of state.units) {
@@ -8600,19 +8641,15 @@ function stepSimulationSingle(
       const nextR = Math.min(maxR, 8.0 + (maxR - 8.0) * Math.pow(progress, 0.78));
       haz.currentRadius = nextR;
       const innerBandSq = Math.max(0, prevR - 1.8) ** 2;
-      const outerBandSq = (nextR + 1.8) ** 2;
 
       // Wide environmental blast wave: uproots forests/groves, chars vegetation, and scatters thermal brushfires out to 30 tiles
-      for (const t of state.tiles) {
-        const dx = t.x - haz.x;
-        const dz = t.z - haz.z;
-        const dSq = dx * dx + dz * dz;
-        if (dSq < innerBandSq || dSq > outerBandSq) continue;
+      forEachTileInRadius(state, haz.x, haz.z, nextR + 1.8, (t, dSq) => {
+        if (dSq < innerBandSq) return;
         if (t.height === 0) {
           if (dSq <= 22.0 ** 2) {
             damageOrBleachWaterTile(t, 120 * dt, false);
           }
-          continue;
+          return;
         }
         const dist = Math.sqrt(dSq);
         if (
@@ -8655,7 +8692,7 @@ function stepSimulationSingle(
             }
           }
         }
-      }
+      });
 
       // Hurricane blast winds hurling units radially outward across a 60-tile diameter
       for (const u of state.units) {
@@ -8712,13 +8749,10 @@ function stepSimulationSingle(
     // Ocean Whirlpool (varying sizes): spins ships & swimmers inward and deals lethal maelstrom DOT while active
     if (haz.kind === 'whirlpool') {
       const pullR = haz.radius * 1.5;
-      for (const t of state.tiles) {
-        if (t.height !== 0) continue;
-        const dSq = (t.x - haz.x) ** 2 + (t.z - haz.z) ** 2;
-        if (dSq <= (haz.radius * 0.95) ** 2) {
-          damageOrBleachWaterTile(t, 45 * dt, false);
-        }
-      }
+      forEachTileInRadius(state, haz.x, haz.z, haz.radius * 0.95, (t) => {
+        if (t.height !== 0) return;
+        damageOrBleachWaterTile(t, 45 * dt, false);
+      });
       for (const b of state.buildings) {
         if (b.shieldTimer > 0) continue;
         const bt = getTile(state, b.tileX, b.tileZ);
@@ -8969,21 +9003,18 @@ function stepSimulationSingle(
             createdAt: Date.now(),
           });
           // Apply annihilation blast
-          for (const t of state.tiles) {
-            const dSq = (t.x - strikeX) ** 2 + (t.z - strikeZ) ** 2;
-            if (dSq <= 6.25) {
-              if (t.height === 0) {
-                damageOrBleachWaterTile(t, 280, true);
-                if (t.terrain === 'ice') {
-                  t.terrain = t.frozenWaterBase ?? 'shallow_water';
-                  delete t.frozenWaterBase;
-                }
-              } else if (!t.buildingId) {
-                t.terrain = 'scorched';
-                t.onFireTimer = Math.max(t.onFireTimer, 6.0);
+          forEachTileInRadius(state, strikeX, strikeZ, 2.5, (t) => {
+            if (t.height === 0) {
+              damageOrBleachWaterTile(t, 280, true);
+              if (t.terrain === 'ice') {
+                t.terrain = t.frozenWaterBase ?? 'shallow_water';
+                delete t.frozenWaterBase;
               }
+            } else if (!t.buildingId) {
+              t.terrain = 'scorched';
+              t.onFireTimer = Math.max(t.onFireTimer, 6.0);
             }
-          }
+          });
           for (const b of state.buildings) {
             if (b.shieldTimer <= 0 && (b.tileX - strikeX) ** 2 + (b.tileZ - strikeZ) ** 2 <= 6.5) {
               b.hp = Math.max(0, b.hp - 210);
@@ -9021,10 +9052,9 @@ function stepSimulationSingle(
       const bz = haz.beamDirZ ?? 0;
       haz.x = Math.max(2, Math.min(state.gridSize - 3, haz.x + bx * 4.2 * dt));
       haz.z = Math.max(2, Math.min(state.gridSize - 3, haz.z + bz * 4.2 * dt));
-      const bSq = (haz.radius * 0.72) ** 2;
-      for (const t of state.tiles) {
-        const dSq = (t.x - haz.x) ** 2 + (t.z - haz.z) ** 2;
-        if (dSq > bSq) continue;
+      const bR = haz.radius * 0.72;
+      const bSq = bR * bR;
+      forEachTileInRadius(state, haz.x, haz.z, bR, (t) => {
         t.tempOffset = Math.min(80, (t.tempOffset ?? 0) + 45 * dt);
         if (t.height === 0) {
           if (t.terrain === 'ice') {
@@ -9037,7 +9067,7 @@ function stepSimulationSingle(
           else if (t.terrain !== 'crystal_field') t.terrain = 'scorched';
           t.onFireTimer = Math.max(t.onFireTimer, 7.5);
         }
-      }
+      });
       for (const b of state.buildings) {
         if (b.shieldTimer <= 0 && (b.tileX - haz.x) ** 2 + (b.tileZ - haz.z) ** 2 <= bSq) {
           b.hp = Math.max(0, b.hp - 260 * dt);
