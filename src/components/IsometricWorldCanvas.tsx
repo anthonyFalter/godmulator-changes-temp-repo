@@ -8357,7 +8357,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       const selectedUnitId = propsRef.current.selectedEntityId;
       const hoveredUnitId = propsRef.current.hoveredEntityId ?? hoveredEntityInternal;
       const followingUnitId = propsRef.current.followingEntityId;
-      const wantSmallUnitShadow = autoOptDecisions.unitCastShadows && frustumSize < 56;
+      const curGfx = propsRef.current.graphicsSettings;
+      const isPerfMode = curGfx.strictLossless === false && !curGfx.autoOptimizeFps;
+      const wantSmallUnitShadow = !isPerfMode && autoOptDecisions.unitCastShadows && frustumSize < 56;
       const crowdAnimStride = autoOptDecisions.crowdAnimStride;
       const autoOptFrame = autoOptimizer.getFrameCounter();
       let unitShadowCount = 0;
