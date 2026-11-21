@@ -7,6 +7,7 @@ import {
   SimulationState,
   SpeciesId,
   TerrainType,
+  WarFrontArrowData,
   ZoneOverlayType,
   ZoneToggleState,
 } from './types';
@@ -2303,5 +2304,260 @@ export function computeKingdomLabelsOnly(sim: SimulationState): ZoneMapLabel[] {
 
   return labels;
 }
+
+/**
+ * Computes active war-front conquest arrows between warring kingdoms ONLY when
+ * Kingdoms or Alliances zone overlays are enabled and wars are active.
+ * Each arrow's `progress` (0.10..0.94) dynamically expands toward the target
+ * capital as territory is claimed, enemy structures fall, or armies push across
+ * the border — and decreases/retracts when pushed back.
+ */
+export function computeWarFrontArrows(
+  zones: WorldZonesData,
+  sim: SimulationState,
+  toggles: ZoneToggleState,
+  allianceContext?: {
+    selectedAllianceKingdomId?: string | null;
+  },
+): WarFrontArrowData[] {
+  if (sim.worldRules?.warsEnabled === false) return [];
+  if (!toggles.kingdoms && !toggles.alliances) return [];
+
+  const relations = sim.kingdomRelations;
+  if (!relations) return [];
+
+  interface AggKingdom {
+    kingdomId: string;
+    name: string;
+    species: SpeciesId;
+    hexColor: string;
+    totalTiles: number;
+    landTiles: number;
+    buildingCount: number;
+    centerX: number;
+    centerZ: number;
+    weightSum: number;
+  }
+
+  const byRoot = new Map<string, AggKingdom>();
+  zones.kingdomsById.forEach((k) => {
+    const rootId = sim.settlementKingdoms?.[k.settlementId] ?? k.kingdomId;
+    let agg = byRoot.get(rootId);
+    const w = Math.max(1, k.totalTileCount + k.buildingCount * 10);
+    if (!agg) {
+      agg = {
+        kingdomId: rootId,
+        name: sim.settlementNames?.[rootId] || k.name,
+        species: k.species,
+        hexColor: k.hexColor,
+        totalTiles: 0,
+        landTiles: 0,
+        buildingCount: 0,
+        centerX: 0,
+        centerZ: 0,
+        weightSum: 0,
+      };
+      byRoot.set(rootId, agg);
+    }
+    agg.totalTiles += k.totalTileCount;
+    agg.landTiles += k.landTileCount;
+    agg.buildingCount += k.buildingCount;
+    agg.centerX += k.centerX * w;
+    agg.centerZ += k.centerZ * w;
+    agg.weightSum += w;
+  });
+
+  if (byRoot.size < 2) return [];
+  byRoot.forEach((agg) => {
+    agg.centerX /= Math.max(1, agg.weightSum);
+    agg.centerZ /= Math.max(1, agg.weightSum);
+  });
+
+  // Collect military units & war vehicles per root kingdom for live frontline push sampling
+  const armyPointsByRoot = new Map<string, Array<{ x: number; z: number }>>();
+  for (let i = 0; i < sim.units.length; i++) {
+    const u = sim.units[i];
+    if (u.faction !== 'civilization' || u.state === 'ko' || u.hp <= 0 || u.ageStage === 'child') continue;
+    const rootId = u.settlementId ? (sim.settlementKingdoms?.[u.settlementId] ?? u.settlementId) : u.kingdomId;
+    if (!rootId || !byRoot.has(rootId)) continue;
+    let pts = armyPointsByRoot.get(rootId);
+    if (!pts) {
+      pts = [];
+      armyPointsByRoot.set(rootId, pts);
+    }
+    pts.push({ x: u.x, z: u.z });
+  }
+  for (let vi = 0; vi < (sim.vehicles?.length ?? 0); vi++) {
+    const v = sim.vehicles![vi];
+    if (!v.isMilitary || (v.hp ?? 0) <= 0) continue;
+    const rootId = v.kingdomId ?? (sim.settlementKingdoms?.[v.settlementId] ?? v.settlementId);
+    if (!rootId || !byRoot.has(rootId)) continue;
+    let pts = armyPointsByRoot.get(rootId);
+    if (!pts) {
+      pts = [];
+      armyPointsByRoot.set(rootId, pts);
+    }
+    pts.push({ x: v.x, z: v.z });
+  }
+
+  const rootList = Array.from(byRoot.values());
+  const selectedAllianceRoot = allianceContext?.selectedAllianceKingdomId
+    ? (sim.settlementKingdoms?.[allianceContext.selectedAllianceKingdomId] ?? allianceContext.selectedAllianceKingdomId)
+    : null;
+
+  const arrows: WarFrontArrowData[] = [];
+
+  for (let i = 0; i < rootList.length; i++) {
+    for (let j = i + 1; j < rootList.length; j++) {
+      const kA = rootList[i];
+      const kB = rootList[j];
+      const [firstId, secondId] = kA.kingdomId < kB.kingdomId ? [kA.kingdomId, kB.kingdomId] : [kB.kingdomId, kA.kingdomId];
+      const pairKey = `${firstId}::${secondId}`;
+      if (resolveKingdomRelationPair(relations, firstId, secondId) !== 'war') continue;
+
+      const dist = Math.hypot(kB.centerX - kA.centerX, kB.centerZ - kA.centerZ);
+      if (dist < 2.5) continue;
+
+      // Lazily capture accurate tile baseline the first time a war is measured with zones computed
+      if (!sim.warFrontBaselines) sim.warFrontBaselines = {};
+      let baseline = sim.warFrontBaselines[pairKey];
+      const tilesFirst = kA.kingdomId === firstId ? kA.totalTiles : kB.totalTiles;
+      const tilesSecond = kA.kingdomId === firstId ? kB.totalTiles : kA.totalTiles;
+      const bldFirst = kA.kingdomId === firstId ? kA.buildingCount : kB.buildingCount;
+      const bldSecond = kA.kingdomId === firstId ? kB.buildingCount : kA.buildingCount;
+      if (!baseline) {
+        baseline = {
+          startYear: sim.year ?? 0,
+          initialTilesA: Math.max(1, tilesFirst),
+          initialTilesB: Math.max(1, tilesSecond),
+          initialBuildingsA: Math.max(1, bldFirst),
+          initialBuildingsB: Math.max(1, bldSecond),
+        };
+        sim.warFrontBaselines[pairKey] = baseline;
+      } else if (baseline.initialTilesA <= 0 || baseline.initialTilesB <= 0) {
+        baseline.initialTilesA = Math.max(1, tilesFirst);
+        baseline.initialTilesB = Math.max(1, tilesSecond);
+      }
+
+      const initTilesA = kA.kingdomId === firstId ? baseline.initialTilesA : baseline.initialTilesB;
+      const initTilesB = kA.kingdomId === firstId ? baseline.initialTilesB : baseline.initialTilesA;
+      const initBldA = kA.kingdomId === firstId ? baseline.initialBuildingsA : baseline.initialBuildingsB;
+      const initBldB = kA.kingdomId === firstId ? baseline.initialBuildingsB : baseline.initialBuildingsA;
+
+      const emitDirectionalArrow = (
+        atk: AggKingdom,
+        def: AggKingdom,
+        atkInitTiles: number,
+        defInitTiles: number,
+        defInitBld: number,
+      ) => {
+        if (toggles.alliances && selectedAllianceRoot) {
+          const involvesSelected =
+            atk.kingdomId === selectedAllianceRoot ||
+            def.kingdomId === selectedAllianceRoot ||
+            resolveKingdomRelationPair(relations, atk.kingdomId, selectedAllianceRoot) === 'allied' ||
+            resolveKingdomRelationPair(relations, def.kingdomId, selectedAllianceRoot) === 'allied';
+          if (!involvesSelected) return;
+        }
+
+        const dx = def.centerX - atk.centerX;
+        const dz = def.centerZ - atk.centerZ;
+        const len = Math.max(1, Math.hypot(dx, dz));
+        const ux = dx / len;
+        const uz = dz / len;
+
+        // 1. Measure troop vanguard advancement along atk -> def axis
+        const armyPts = armyPointsByRoot.get(atk.kingdomId) ?? [];
+        let vanguardMax = 0;
+        let vanguardTopSum = 0;
+        let vanguardTopCount = 0;
+        const projections: number[] = [];
+        for (let p = 0; p < armyPts.length; p++) {
+          const proj = ((armyPts[p].x - atk.centerX) * ux + (armyPts[p].z - atk.centerZ) * uz) / len;
+          if (proj > 0.05) {
+            projections.push(Math.min(1.0, proj));
+            if (proj > vanguardMax) vanguardMax = proj;
+          }
+        }
+        if (projections.length > 0) {
+          projections.sort((a, b) => b - a);
+          const take = Math.min(4, projections.length);
+          for (let ti = 0; ti < take; ti++) {
+            vanguardTopSum += projections[ti];
+            vanguardTopCount++;
+          }
+        }
+        const troopAdvance = vanguardTopCount > 0 ? (vanguardTopSum / vanguardTopCount) * 0.7 + vanguardMax * 0.3 : 0;
+
+        // 2. Measure territorial claim shift & enemy building attrition
+        const totalNow = Math.max(1, atk.totalTiles + def.totalTiles);
+        const totalInit = Math.max(1, atkInitTiles + defInitTiles);
+        const curShare = atk.totalTiles / totalNow;
+        const baseShare = atkInitTiles / totalInit;
+        const shareShift = curShare - baseShare; // positive when expanding, negative when losing ground
+        const tileDelta = Math.round(atk.totalTiles - atkInitTiles);
+        const enemyBldLossFrac =
+          defInitBld > 0 ? Math.max(0, Math.min(1, (defInitBld - def.buildingCount) / defInitBld)) : 0;
+
+        // 3. Combine into smooth expanding/decreasing war-front progress (0.12..0.94)
+        const territoryScore = 0.28 + shareShift * 1.35 + enemyBldLossFrac * 0.42;
+        const combinedProgress = Math.max(
+          0.12,
+          Math.min(0.94, territoryScore * 0.65 + Math.max(0.18, troopAdvance) * 0.35),
+        );
+        const claimPercent = Math.max(0, Math.min(100, Math.round(combinedProgress * 100)));
+
+        const momentum: WarFrontArrowData['momentum'] =
+          shareShift >= 0.04 || enemyBldLossFrac >= 0.15 || combinedProgress >= 0.52
+            ? 'advancing'
+            : shareShift <= -0.04 || combinedProgress <= 0.24
+              ? 'retreating'
+              : 'contested';
+
+        // Alliance mode colors: Blue for selected kingdom / allies, Crimson Red for enemies
+        let arrowColor = atk.hexColor;
+        if (toggles.alliances) {
+          if (selectedAllianceRoot) {
+            const isAllySide =
+              atk.kingdomId === selectedAllianceRoot ||
+              resolveKingdomRelationPair(relations, atk.kingdomId, selectedAllianceRoot) === 'allied';
+            arrowColor = isAllySide ? '#3b82f6' : '#ef4444';
+          } else {
+            arrowColor = '#ef4444';
+          }
+        }
+
+        // Offset opposing arrows slightly to the right-hand side of their marching vector so both fronts stay crisp & separated
+        const rightX = -uz;
+        const rightZ = ux;
+        const latOff = Math.min(1.6, Math.max(0.75, len * 0.045));
+
+        arrows.push({
+          id: `warfront-${atk.kingdomId}-to-${def.kingdomId}`,
+          attackerKingdomId: atk.kingdomId,
+          defenderKingdomId: def.kingdomId,
+          attackerName: atk.name,
+          defenderName: def.name,
+          attackerSpecies: atk.species,
+          fromX: atk.centerX + rightX * latOff,
+          fromZ: atk.centerZ + rightZ * latOff,
+          toX: def.centerX + rightX * latOff,
+          toZ: def.centerZ + rightZ * latOff,
+          progress: combinedProgress,
+          tileDelta,
+          claimPercent,
+          hexColor: arrowColor,
+          momentum,
+        });
+      };
+
+      emitDirectionalArrow(kA, kB, initTilesA, initTilesB, initBldB);
+      emitDirectionalArrow(kB, kA, initTilesB, initTilesA, initBldA);
+    }
+  }
+
+  return arrows;
+}
+
 
 

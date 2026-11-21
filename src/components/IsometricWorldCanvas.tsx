@@ -119,8 +119,10 @@ import {
   TerrainType,
   UnitEntity,
   VehicleType,
+  WarFrontArrowData,
 } from '../game/types';
 import { ZoneMapLabel } from '../game/zones';
+import { createWarFrontArrowsSystem } from '../game/warFrontArrows';
 
 interface IsometricWorldCanvasProps {
   simRef: React.MutableRefObject<SimulationState>;
@@ -154,6 +156,7 @@ interface IsometricWorldCanvasProps {
     version: number;
     labels?: ZoneMapLabel[];
     kingdomColors?: Record<string, string>;
+    warFrontArrows?: WarFrontArrowData[];
   };
   onTileInteract: (tileX: number, tileZ: number) => void;
   onHoverTileChange: (tile: { x: number; z: number } | null) => void;
@@ -211,6 +214,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
   const mountRef = useRef<HTMLDivElement | null>(null);
   const zoneLabelsLayerRef = useRef<HTMLDivElement | null>(null);
   const kingMarkersLayerRef = useRef<HTMLDivElement | null>(null);
+  const warArrowLabelsLayerRef = useRef<HTMLDivElement | null>(null);
 
   // Store latest props in refs so WebGLRenderer mounts once and never tears down on HUD updates
   const propsRef = useRef({
@@ -429,6 +433,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
     const zoneOverlay = createZoneOverlaySystem(sim.gridSize);
     zoneOverlay.updateMap(sim.tiles);
     worldGroup.add(zoneOverlay.mesh);
+
+    const warFrontArrows = createWarFrontArrowsSystem();
+    worldGroup.add(warFrontArrows.group);
 
     const skyClouds = createSkyCloudSystem(sim.gridSize);
     worldGroup.add(skyClouds.shadowGroup);
@@ -3102,7 +3109,35 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       flameCoreCone?: THREE.Mesh;
       flameOuterCone?: THREE.Mesh;
       tracerMesh?: THREE.Object3D;
-      vfxSubtype?: 'bullet' | 'cannon_shell' | 'bomb' | 'missile' | 'arcane_bolt' | 'plasma_beam' | 'laser_beam' | 'ice_ball' | 'foxfire_ball' | 'venom_ball';
+      originRingMesh?: THREE.Mesh;
+      trailMesh?: THREE.Mesh;
+      trailGeo?: THREE.BufferGeometry;
+      trailPositions?: Float32Array;
+      trailHistoryX?: Float32Array;
+      trailHistoryY?: Float32Array;
+      trailHistoryZ?: Float32Array;
+      trailCount?: number;
+      trailMaxPoints?: number;
+      trailWidth?: number;
+      trailSampleAccum?: number;
+      flightPeakY?: number;
+      wobbleSeed?: number;
+      flightEndFrac?: number;
+      vfxSubtype?:
+        | 'bullet'
+        | 'cannon_shell'
+        | 'bomb'
+        | 'missile'
+        | 'arcane_bolt'
+        | 'plasma_beam'
+        | 'laser_beam'
+        | 'ice_ball'
+        | 'foxfire_ball'
+        | 'venom_ball'
+        | 'icbm_missile'
+        | 'elf_starfall_spell'
+        | 'orc_siege_boulder'
+        | 'orc_waagh_rocket';
       stemMesh?: THREE.Mesh;
       capMesh?: THREE.Mesh;
       faultSegments?: EarthquakeFaultSegment[];
@@ -3137,8 +3172,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       }>;
       colorHex: string;
     }
-    const MAX_BURST_FX = 36;
+    const MAX_BURST_FX = 64;
     const activeBurstFx: ActiveBurstFx[] = [];
+    const _warArrowProjVec = new THREE.Vector3();
+    const _trailLookVec = new THREE.Vector3();
     const _skyDummyPos = new THREE.Vector3();
     const _skyDummyQuat = new THREE.Quaternion();
     const _skyDummyEuler = new THREE.Euler();
@@ -3179,6 +3216,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       if (fx.ejectaInst) fx.ejectaInst.dispose();
       if (fx.skyDropInst) fx.skyDropInst.dispose();
       if (fx.skyStreakInst) fx.skyStreakInst.dispose();
+      if (fx.trailGeo) fx.trailGeo.dispose();
       for (let mi = 0; mi < fx.materials.length; mi++) fx.materials[mi].dispose();
     }
 
@@ -5470,6 +5508,139 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       });
     }
 
+    function createProjectileTrailRibbon(
+      trailColor: string,
+      maxPoints: number,
+      width: number,
+      opacity = 0.82,
+    ) {
+      const positions = new Float32Array(maxPoints * 2 * 3);
+      const indices = new Uint16Array((maxPoints - 1) * 6);
+      let ptr = 0;
+      for (let i = 0; i < maxPoints - 1; i++) {
+        const a = i * 2;
+        const b = a + 1;
+        const c = a + 2;
+        const d = a + 3;
+        indices[ptr++] = a;
+        indices[ptr++] = b;
+        indices[ptr++] = c;
+        indices[ptr++] = b;
+        indices[ptr++] = d;
+        indices[ptr++] = c;
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      geo.setIndex(new THREE.BufferAttribute(indices, 1));
+      geo.setDrawRange(0, 0);
+      const mat = new THREE.MeshBasicMaterial({
+        color: trailColor,
+        transparent: true,
+        opacity,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.frustumCulled = false;
+      return {
+        mesh,
+        geo,
+        mat,
+        positions,
+        historyX: new Float32Array(maxPoints),
+        historyY: new Float32Array(maxPoints),
+        historyZ: new Float32Array(maxPoints),
+        maxPoints,
+        width,
+      };
+    }
+
+    function appendProjectileTrailPoint(
+      fx: ActiveBurstFx,
+      x: number,
+      y: number,
+      z: number,
+    ) {
+      if (
+        !fx.trailGeo ||
+        !fx.trailPositions ||
+        !fx.trailHistoryX ||
+        !fx.trailHistoryY ||
+        !fx.trailHistoryZ ||
+        !fx.trailMaxPoints
+      ) {
+        return;
+      }
+      const maxPts = fx.trailMaxPoints;
+      let count = fx.trailCount ?? 0;
+      if (count > 0) {
+        const lastIdx = count - 1;
+        const dx = x - fx.trailHistoryX[lastIdx];
+        const dy = y - fx.trailHistoryY[lastIdx];
+        const dz = z - fx.trailHistoryZ[lastIdx];
+        if (dx * dx + dy * dy + dz * dz < 0.015) return;
+      }
+      if (count < maxPts) {
+        fx.trailHistoryX[count] = x;
+        fx.trailHistoryY[count] = y;
+        fx.trailHistoryZ[count] = z;
+        count++;
+      } else {
+        for (let i = 0; i < maxPts - 1; i++) {
+          fx.trailHistoryX[i] = fx.trailHistoryX[i + 1];
+          fx.trailHistoryY[i] = fx.trailHistoryY[i + 1];
+          fx.trailHistoryZ[i] = fx.trailHistoryZ[i + 1];
+        }
+        fx.trailHistoryX[maxPts - 1] = x;
+        fx.trailHistoryY[maxPts - 1] = y;
+        fx.trailHistoryZ[maxPts - 1] = z;
+      }
+      fx.trailCount = count;
+      if (count < 2) {
+        fx.trailGeo.setDrawRange(0, 0);
+        return;
+      }
+
+      const pos = fx.trailPositions;
+      const baseHalfW = (fx.trailWidth ?? 0.16) * 0.5;
+      const hx = fx.trailHistoryX;
+      const hy = fx.trailHistoryY;
+      const hz = fx.trailHistoryZ;
+      for (let i = 0; i < count; i++) {
+        const prev = i > 0 ? i - 1 : i;
+        const next = i < count - 1 ? i + 1 : i;
+        const tx = hx[next] - hx[prev];
+        const ty = hy[next] - hy[prev];
+        const tz = hz[next] - hz[prev];
+        // Cross tangent with camera-ish diagonal up vector for crisp volumetric ribbon width
+        let sx = tz * 0.82 - ty * 0.45;
+        let sy = tx * 0.45 - tz * 0.35;
+        let sz = ty * 0.35 - tx * 0.82;
+        const sLen = Math.hypot(sx, sy, sz);
+        if (sLen > 0.0001) {
+          sx /= sLen;
+          sy /= sLen;
+          sz /= sLen;
+        } else {
+          sx = 0.707;
+          sy = 0;
+          sz = 0.707;
+        }
+        // Taper gracefully from thin tail (0.14) to full width right behind warhead (1.0)
+        const frac = i / Math.max(1, count - 1);
+        const halfW = baseHalfW * (0.14 + frac * 0.86);
+        const vIdx = i * 6;
+        pos[vIdx] = hx[i] - sx * halfW;
+        pos[vIdx + 1] = hy[i] - sy * halfW;
+        pos[vIdx + 2] = hz[i] - sz * halfW;
+        pos[vIdx + 3] = hx[i] + sx * halfW;
+        pos[vIdx + 4] = hy[i] + sy * halfW;
+        pos[vIdx + 5] = hz[i] + sz * halfW;
+      }
+      fx.trailGeo.attributes.position.needsUpdate = true;
+      fx.trailGeo.setDrawRange(0, (count - 1) * 6);
+    }
+
     function spawnWarWeaponVisual(
       kind: 'projectile_tracer' | 'nuke_blast' | 'arcane_cataclysm' | 'battlewill_slash',
       ox: number,
@@ -5480,7 +5651,22 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       tz: number,
       radius: number,
       colorHex: string,
-      vfxSubtype?: 'bullet' | 'cannon_shell' | 'bomb' | 'missile' | 'arcane_bolt' | 'plasma_beam' | 'laser_beam' | 'ice_ball' | 'foxfire_ball' | 'venom_ball',
+      vfxSubtype?:
+        | 'bullet'
+        | 'cannon_shell'
+        | 'bomb'
+        | 'missile'
+        | 'arcane_bolt'
+        | 'plasma_beam'
+        | 'laser_beam'
+        | 'ice_ball'
+        | 'foxfire_ball'
+        | 'venom_ball'
+        | 'icbm_missile'
+        | 'elf_starfall_spell'
+        | 'orc_siege_boulder'
+        | 'orc_waagh_rocket',
+      flightDuration?: number,
     ) {
       if (activeBurstFx.length >= MAX_BURST_FX) {
         const dropIdx = activeBurstFx.findIndex((f) => f.impactFired || !f.deferImpact);
@@ -5499,17 +5685,46 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         const subtype = vfxSubtype ?? 'bullet';
         const boltColor = colorHex || '#fde047';
         const boltMat = new THREE.MeshBasicMaterial({
-          color: subtype === 'bomb' ? '#334155' : boltColor,
+          color:
+            subtype === 'bomb'
+              ? '#334155'
+              : subtype === 'orc_siege_boulder'
+                ? '#292524'
+                : boltColor,
           transparent: true,
           opacity: 0.96,
         });
         const coreMat = new THREE.MeshBasicMaterial({
-          color: subtype === 'bomb' ? '#ff9e00' : subtype === 'plasma_beam' || subtype === 'laser_beam' ? '#ecfeff' : '#ffffff',
+          color:
+            subtype === 'bomb'
+              ? '#ff9e00'
+              : subtype === 'icbm_missile'
+                ? '#f8fafc'
+                : subtype === 'elf_starfall_spell'
+                  ? '#e0f2fe'
+                  : subtype === 'orc_siege_boulder'
+                    ? '#f97316'
+                    : subtype === 'orc_waagh_rocket'
+                      ? '#facc15'
+                      : subtype === 'plasma_beam' || subtype === 'laser_beam'
+                        ? '#ecfeff'
+                        : '#ffffff',
           transparent: true,
           opacity: 0.94,
         });
         const ringMat = new THREE.MeshBasicMaterial({
-          color: subtype === 'bomb' ? '#ff6b35' : boltColor,
+          color:
+            subtype === 'bomb'
+              ? '#ff6b35'
+              : subtype === 'icbm_missile'
+                ? '#fb923c'
+                : subtype === 'elf_starfall_spell'
+                  ? '#c084fc'
+                  : subtype === 'orc_siege_boulder'
+                    ? '#ea580c'
+                    : subtype === 'orc_waagh_rocket'
+                      ? '#ef4444'
+                      : boltColor,
           transparent: true,
           opacity: 0.9,
           side: THREE.DoubleSide,
@@ -5519,10 +5734,113 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
 
         const startY = subtype === 'bomb' ? oy : oy + 0.45;
         const endY = ty + 0.35;
+        const horizDist = Math.hypot(tx - ox, tz - oz);
         let tracerObj: THREE.Object3D;
         let muzzleRingMesh: THREE.Mesh | undefined;
+        let originRingMesh: THREE.Mesh | undefined;
+        let flightPeakY = 0;
 
-        if (subtype === 'bomb') {
+        if (subtype === 'icbm_missile') {
+          // Human Transcontinental Ballistic Missile: multi-stage white fuselage, crimson warhead, fins, blazing booster
+          const icbmGrp = new THREE.Group();
+          const boosterStage = new THREE.Mesh(sharedMissileGeo, coreMat);
+          boosterStage.scale.set(1.8, 1.8, 2.35);
+          const warheadCone = new THREE.Mesh(sharedMissileWarheadGeo, boltMat);
+          warheadCone.scale.set(1.85, 1.85, 2.1);
+          warheadCone.position.z = 0.78;
+          const tailFins = new THREE.Mesh(sharedBombFinGeo, boltMat);
+          tailFins.scale.set(1.25, 1.25, 1.4);
+          tailFins.position.z = -0.58;
+          const thrusterFlare = new THREE.Mesh(sharedMissilePlumeGeo, ringMat);
+          thrusterFlare.scale.set(1.65, 1.65, 2.5);
+          thrusterFlare.position.z = -1.05;
+          icbmGrp.add(boosterStage, warheadCone, tailFins, thrusterFlare);
+          icbmGrp.position.set(ox, startY + 0.3, oz);
+          icbmGrp.lookAt(tx, endY + 6.0, tz);
+          tracerObj = icbmGrp;
+          flightPeakY = Math.min(18.5, Math.max(4.4, horizDist * 0.34));
+          muzzleRingMesh = new THREE.Mesh(sharedHazRingGeo, ringMat);
+          muzzleRingMesh.position.set(ox, oy + 0.2, oz);
+          muzzleRingMesh.scale.setScalar(0.45);
+          group.add(muzzleRingMesh);
+          spawnParticleBurst(ox, startY + 0.3, oz, 16, '#e2e8f0', 0.85, 3.4, 0.95);
+          spawnParticleBurst(ox, startY + 0.2, oz, 10, '#fb923c', 0.55, 2.8, 0.7);
+        } else if (subtype === 'elf_starfall_spell') {
+          // Elf Long-Range Astral Spell: spinning runic casting circle at launch + radiant crystal comet with twin orbiting halo rings
+          const starGrp = new THREE.Group();
+          const starCore = new THREE.Mesh(sharedArcaneBoltGeo, coreMat);
+          starCore.scale.setScalar(1.65);
+          const outerCrystal = new THREE.Mesh(sharedArcaneBoltGeo, boltMat);
+          outerCrystal.scale.set(2.15, 1.15, 2.15);
+          const haloA = new THREE.Mesh(sharedArcaneRingGeo, ringMat);
+          haloA.scale.setScalar(1.75);
+          const haloB = new THREE.Mesh(sharedArcaneRingGeo, coreMat);
+          haloB.scale.setScalar(1.45);
+          haloB.rotation.x = Math.PI / 2;
+          starGrp.add(starCore, outerCrystal, haloA, haloB);
+          starGrp.position.set(ox, startY + 0.7, oz);
+          tracerObj = starGrp;
+          flightPeakY = Math.min(13.8, Math.max(3.4, horizDist * 0.28));
+
+          const castCircleMat = new THREE.MeshBasicMaterial({
+            map: getMagicCircleTexture('arcane'),
+            color: boltColor || '#a855f7',
+            transparent: true,
+            opacity: 0.94,
+            side: THREE.DoubleSide,
+            depthWrite: false,
+          });
+          materials.push(castCircleMat);
+          originRingMesh = new THREE.Mesh(sharedMagicCircleGeo, castCircleMat);
+          originRingMesh.position.set(ox, oy + 0.22, oz);
+          originRingMesh.scale.setScalar(1.45);
+          group.add(originRingMesh);
+          spawnParticleBurst(ox, startY + 0.65, oz, 12, '#c084fc', 0.65, 3.1, 0.78);
+          spawnParticleBurst(ox, startY + 0.65, oz, 8, '#38bdf8', 0.45, 2.6, 0.6);
+        } else if (subtype === 'orc_siege_boulder') {
+          // Orc Flaming Magma Siege Boulder: chunky tumbling obsidian-and-lava voxel boulder
+          const bldGrp = new THREE.Group();
+          const boulderCore = new THREE.Mesh(sharedVoxelBallCoreGeo, coreMat);
+          boulderCore.scale.setScalar(1.65);
+          const bandX = new THREE.Mesh(sharedVoxelBallBandXGeo, boltMat);
+          bandX.scale.setScalar(1.55);
+          const bandY = new THREE.Mesh(sharedVoxelBallBandYGeo, boltMat);
+          bandY.scale.setScalar(1.55);
+          const bandZ = new THREE.Mesh(sharedVoxelBallBandZGeo, boltMat);
+          bandZ.scale.setScalar(1.55);
+          const magmaCrackA = new THREE.Mesh(sharedVoxelBallChipGeo, ringMat);
+          magmaCrackA.scale.setScalar(1.8);
+          magmaCrackA.position.set(0.26, 0.22, 0.2);
+          const magmaCrackB = new THREE.Mesh(sharedVoxelBallChipGeo, coreMat);
+          magmaCrackB.scale.setScalar(1.6);
+          magmaCrackB.position.set(-0.24, -0.2, -0.22);
+          bldGrp.add(boulderCore, bandX, bandY, bandZ, magmaCrackA, magmaCrackB);
+          bldGrp.position.set(ox, startY + 0.6, oz);
+          tracerObj = bldGrp;
+          flightPeakY = Math.min(11.8, Math.max(2.6, horizDist * 0.31));
+          spawnParticleBurst(ox, startY + 0.5, oz, 10, '#ea580c', 0.55, 2.8, 0.65);
+        } else if (subtype === 'orc_waagh_rocket') {
+          // Orc WAAAGH! Scrap-Rocket: jagged crimson-iron warhead with bolted fins and roaring exhaust
+          const waaghGrp = new THREE.Group();
+          const scrapBody = new THREE.Mesh(sharedMissileGeo, boltMat);
+          scrapBody.scale.set(1.6, 1.6, 1.9);
+          const jaggedNose = new THREE.Mesh(sharedMissileWarheadGeo, coreMat);
+          jaggedNose.scale.set(1.75, 1.75, 1.8);
+          jaggedNose.position.z = 0.62;
+          const boltedFins = new THREE.Mesh(sharedBombFinGeo, coreMat);
+          boltedFins.scale.set(1.2, 1.2, 1.15);
+          boltedFins.position.z = -0.45;
+          const wildFlame = new THREE.Mesh(sharedMissilePlumeGeo, ringMat);
+          wildFlame.scale.set(1.6, 1.6, 2.2);
+          wildFlame.position.z = -0.82;
+          waaghGrp.add(scrapBody, jaggedNose, boltedFins, wildFlame);
+          waaghGrp.position.set(ox, startY + 0.4, oz);
+          waaghGrp.lookAt(tx, endY + 3.0, tz);
+          tracerObj = waaghGrp;
+          flightPeakY = Math.min(13.2, Math.max(3.0, horizDist * 0.27));
+          spawnParticleBurst(ox, startY + 0.35, oz, 12, '#44403c', 0.6, 3.0, 0.72);
+          spawnParticleBurst(ox, startY + 0.35, oz, 8, '#f97316', 0.45, 2.8, 0.58);
+        } else if (subtype === 'bomb') {
           const bombGrp = new THREE.Group();
           const casing = new THREE.Mesh(sharedBombBodyGeo, boltMat);
           const finCross = new THREE.Mesh(sharedBombFinGeo, coreMat);
@@ -5636,6 +5954,30 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
 
         group.add(tracerObj);
 
+        // Persistent 3D flight trail ribbon for race warfare & tactical projectiles
+        let trailBundle: ReturnType<typeof createProjectileTrailRibbon> | undefined;
+        if (subtype === 'icbm_missile') {
+          trailBundle = createProjectileTrailRibbon('#f1f5f9', 36, 0.34, 0.86);
+        } else if (subtype === 'elf_starfall_spell') {
+          trailBundle = createProjectileTrailRibbon(boltColor || '#c084fc', 32, 0.28, 0.88);
+        } else if (subtype === 'orc_siege_boulder') {
+          trailBundle = createProjectileTrailRibbon('#fb923c', 26, 0.28, 0.82);
+        } else if (subtype === 'orc_waagh_rocket') {
+          trailBundle = createProjectileTrailRibbon('#dc2626', 34, 0.26, 0.84);
+        } else if (subtype === 'missile') {
+          trailBundle = createProjectileTrailRibbon('#e2e8f0', 18, 0.16, 0.78);
+        } else if (subtype === 'cannon_shell') {
+          trailBundle = createProjectileTrailRibbon('#fdba74', 16, 0.14, 0.72);
+        } else if (subtype === 'arcane_bolt') {
+          trailBundle = createProjectileTrailRibbon(boltColor || '#c084fc', 18, 0.16, 0.82);
+        } else if (subtype === 'bullet') {
+          trailBundle = createProjectileTrailRibbon('#fef08a', 10, 0.08, 0.65);
+        }
+        if (trailBundle) {
+          materials.push(trailBundle.mat);
+          group.add(trailBundle.mesh);
+        }
+
         const ringMesh = new THREE.Mesh(sharedHazRingGeo, ringMat);
         ringMesh.position.set(tx, ty + 0.14, tz);
         ringMesh.scale.setScalar(subtype === 'bomb' ? 0.28 : 0.18);
@@ -5649,34 +5991,63 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           subtype !== 'cannon_shell' &&
           subtype !== 'ice_ball' &&
           subtype !== 'foxfire_ball' &&
-          subtype !== 'venom_ball'
+          subtype !== 'venom_ball' &&
+          subtype !== 'icbm_missile' &&
+          subtype !== 'elf_starfall_spell' &&
+          subtype !== 'orc_siege_boulder' &&
+          subtype !== 'orc_waagh_rocket'
         ) {
           spawnParticleBurst(tx, ty + 0.35, tz, 10, boltColor, 0.5, 3.6, 0.78);
         }
 
-        const dur =
-          subtype === 'bomb'
-            ? 0.44
-            : subtype === 'ice_ball'
-              ? 0.42
-              : subtype === 'venom_ball'
-                ? 0.36
-                : subtype === 'foxfire_ball'
-                  ? 0.34
-                  : subtype === 'cannon_shell'
-                    ? 0.36
-                    : subtype === 'missile'
-                      ? 0.32
-                      : subtype === 'arcane_bolt'
-                        ? 0.27
-                        : subtype === 'laser_beam'
+        const isStrategicFlight =
+          subtype === 'icbm_missile' ||
+          subtype === 'elf_starfall_spell' ||
+          subtype === 'orc_siege_boulder' ||
+          subtype === 'orc_waagh_rocket';
+
+        // For strategic transcontinental strikes, match exact sim arrival flightDuration and keep a lingering post-impact trail fade!
+        const defaultFlightDur =
+          subtype === 'icbm_missile'
+            ? 2.2
+            : subtype === 'elf_starfall_spell'
+              ? 1.75
+              : subtype === 'orc_waagh_rocket'
+                ? 1.65
+                : subtype === 'orc_siege_boulder'
+                  ? 1.45
+                  : subtype === 'bomb'
+                    ? 0.44
+                    : subtype === 'ice_ball'
+                      ? 0.42
+                      : subtype === 'venom_ball'
+                        ? 0.36
+                        : subtype === 'foxfire_ball'
                           ? 0.34
-                          : subtype === 'plasma_beam'
-                            ? 0.25
-                            : 0.2;
+                          : subtype === 'cannon_shell'
+                            ? 0.36
+                            : subtype === 'missile'
+                              ? 0.42
+                              : subtype === 'arcane_bolt'
+                                ? 0.34
+                                : subtype === 'laser_beam'
+                                  ? 0.34
+                                  : subtype === 'plasma_beam'
+                                    ? 0.25
+                                    : 0.22;
+
+        const baseFlightDur =
+          flightDuration && flightDuration > 0.15 ? flightDuration : defaultFlightDur;
+        const postTrailFade = isStrategicFlight ? Math.min(1.45, Math.max(0.75, baseFlightDur * 0.45)) : 0;
+        const dur = isStrategicFlight ? baseFlightDur + postTrailFade : baseFlightDur;
+        const flightEndFrac = isStrategicFlight
+          ? baseFlightDur / dur
+          : subtype === 'plasma_beam' || subtype === 'laser_beam'
+            ? 0.38
+            : 0.65;
 
         burstFxGroup.add(group);
-        activeBurstFx.push({
+        const fxEntry: ActiveBurstFx = {
           kind: 'projectile_tracer',
           vfxSubtype: subtype,
           powerType: kind,
@@ -5684,7 +6055,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           materials,
           age: 0,
           duration: dur,
-          impactDelay: dur * 0.62,
+          impactDelay: dur * flightEndFrac,
           deferImpact: false,
           tx,
           ty: endY,
@@ -5697,8 +6068,26 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           tracerMesh: tracerObj,
           ringMesh,
           muzzleRingMesh,
+          originRingMesh,
+          trailMesh: trailBundle?.mesh,
+          trailGeo: trailBundle?.geo,
+          trailPositions: trailBundle?.positions,
+          trailHistoryX: trailBundle?.historyX,
+          trailHistoryY: trailBundle?.historyY,
+          trailHistoryZ: trailBundle?.historyZ,
+          trailCount: 0,
+          trailMaxPoints: trailBundle?.maxPoints,
+          trailWidth: trailBundle?.width,
+          trailSampleAccum: 0,
+          flightPeakY,
+          wobbleSeed: (ox * 1.37 + tz * 2.13) % (Math.PI * 2),
+          flightEndFrac,
           colorHex,
-        });
+        };
+        if (trailBundle) {
+          appendProjectileTrailPoint(fxEntry, ox, startY + 0.3, oz);
+        }
+        activeBurstFx.push(fxEntry);
         return;
       }
 
@@ -10300,6 +10689,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             vfx.radius,
             vfx.color,
             vfx.vfxSubtype,
+            vfx.flightDuration,
           );
         } else {
           if (vfx.type === 'huge_asteroid_strike') {
@@ -12821,16 +13211,134 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           }
         } else if (fx.kind === 'projectile_tracer' && fx.tracerMesh && fx.ringMesh) {
           const prog = Math.min(1, fx.age / fx.duration);
-          const flightEndFrac = fx.vfxSubtype === 'plasma_beam' || fx.vfxSubtype === 'laser_beam' ? 0.38 : 0.65;
+          const flightEndFrac =
+            fx.flightEndFrac ??
+            (fx.vfxSubtype === 'plasma_beam' || fx.vfxSubtype === 'laser_beam' ? 0.38 : 0.65);
           const flightT = Math.min(1, prog / flightEndFrac);
           const ox = fx.ox ?? fx.tx;
           const oy = fx.oy ?? fx.ty;
           const oz = fx.oz ?? fx.tz;
 
-          if (fx.vfxSubtype === 'bomb') {
-            const curX = ox + (fx.tx - ox) * flightT;
-            const curZ = oz + (fx.tz - oz) * flightT;
-            const curY = oy + (fx.ty - oy) * (flightT * flightT);
+          let curX = ox + (fx.tx - ox) * flightT;
+          let curY = oy + (fx.ty - oy) * flightT;
+          let curZ = oz + (fx.tz - oz) * flightT;
+          let trackTrail = false;
+
+          if (fx.vfxSubtype === 'icbm_missile') {
+            // Human stratospheric ballistic arc: steep vertical liftoff, soaring apogee, nose-first terminal dive
+            const arcPeak = fx.flightPeakY ?? 8.5;
+            curX = ox + (fx.tx - ox) * flightT;
+            curZ = oz + (fx.tz - oz) * flightT;
+            curY = oy + (fx.ty - oy) * flightT + 4 * flightT * (1 - flightT) * arcPeak;
+            const nextT = Math.min(1, flightT + 0.035);
+            const nextX = ox + (fx.tx - ox) * nextT;
+            const nextZ = oz + (fx.tz - oz) * nextT;
+            const nextY = oy + (fx.ty - oy) * nextT + 4 * nextT * (1 - nextT) * arcPeak;
+            fx.tracerMesh.position.set(curX, curY, curZ);
+            if (flightT < 0.99) {
+              _trailLookVec.set(nextX, nextY, nextZ);
+              fx.tracerMesh.lookAt(_trailLookVec);
+            }
+            trackTrail = flightT < 1;
+            if (flightT < 1 && Math.random() < 0.85) {
+              spawnParticleBurst(curX, curY, curZ, 1, Math.random() < 0.72 ? '#f1f5f9' : '#fb923c', 0.24, 0.75, 0.52);
+            }
+            if (flightT >= 1 && !fx.impactFired) {
+              fx.impactFired = true;
+              spawnParticleBurst(fx.tx, fx.ty + 0.35, fx.tz, 34, '#fb923c', Math.max(1.1, fx.radius * 0.9), 6.2, 1.15);
+              spawnParticleBurst(fx.tx, fx.ty + 0.45, fx.tz, 18, '#fef08a', 0.75, 5.4, 0.88);
+            }
+          } else if (fx.vfxSubtype === 'elf_starfall_spell') {
+            // Elf long-range astral comet: rotating casting rune circle + graceful harmonic S-weave across sky
+            const arcPeak = fx.flightPeakY ?? 6.8;
+            const dx = fx.tx - ox;
+            const dz = fx.tz - oz;
+            const span = Math.max(1, Math.hypot(dx, dz));
+            const perpX = -dz / span;
+            const perpZ = dx / span;
+            const weave = Math.sin(flightT * Math.PI * 2 + (fx.wobbleSeed ?? 0)) * Math.sin(flightT * Math.PI) * Math.min(1.6, span * 0.06);
+            curX = ox + dx * flightT + perpX * weave;
+            curZ = oz + dz * flightT + perpZ * weave;
+            curY = (oy + 0.65) + (fx.ty - (oy + 0.65)) * flightT + Math.sin(flightT * Math.PI) * arcPeak;
+            fx.tracerMesh.position.set(curX, curY, curZ);
+            fx.tracerMesh.rotation.y += dt * 11;
+            fx.tracerMesh.rotation.z += dt * 8.5;
+            trackTrail = flightT < 1;
+            if (fx.originRingMesh) {
+              const castFade = Math.max(0, 1 - prog * 1.65);
+              fx.originRingMesh.rotation.y += dt * 4.5;
+              fx.originRingMesh.scale.setScalar(1.25 + Math.min(1, prog * 2.4) * 1.35);
+              const castMat = fx.originRingMesh.material as THREE.MeshBasicMaterial;
+              castMat.opacity = castFade * 0.92;
+            }
+            if (flightT < 1 && Math.random() < 0.82) {
+              spawnParticleBurst(curX, curY, curZ, 1, Math.random() < 0.55 ? '#c084fc' : '#38bdf8', 0.2, 0.7, 0.46);
+            }
+            if (flightT >= 1 && !fx.impactFired) {
+              fx.impactFired = true;
+              spawnParticleBurst(fx.tx, fx.ty + 0.35, fx.tz, 28, fx.colorHex || '#c084fc', Math.max(0.95, fx.radius * 0.85), 5.6, 1.02);
+              spawnParticleBurst(fx.tx, fx.ty + 0.4, fx.tz, 14, '#e0f2fe', 0.65, 4.8, 0.76);
+            }
+          } else if (fx.vfxSubtype === 'orc_siege_boulder') {
+            // Orc flaming magma boulder lob: heavy catapult parabola + violent tumbling + cinder shatter
+            const arcPeak = fx.flightPeakY ?? 5.2;
+            curX = ox + (fx.tx - ox) * flightT;
+            curZ = oz + (fx.tz - oz) * flightT;
+            curY = (oy + 0.55) + (fx.ty - (oy + 0.55)) * flightT + 4 * flightT * (1 - flightT) * arcPeak;
+            fx.tracerMesh.position.set(curX, curY, curZ);
+            fx.tracerMesh.rotation.x += dt * 10.5;
+            fx.tracerMesh.rotation.y += dt * 8.2;
+            fx.tracerMesh.rotation.z += dt * 7.4;
+            trackTrail = flightT < 1;
+            if (flightT < 1 && Math.random() < 0.8) {
+              spawnParticleBurst(curX, curY, curZ, 1, Math.random() < 0.55 ? '#f97316' : '#44403c', 0.24, 0.72, 0.48);
+            }
+            if (flightT >= 1 && !fx.impactFired) {
+              fx.impactFired = true;
+              spawnParticleBurst(fx.tx, fx.ty + 0.3, fx.tz, 30, '#ea580c', Math.max(0.95, fx.radius * 0.88), 5.8, 1.05);
+              spawnParticleBurst(fx.tx, fx.ty + 0.35, fx.tz, 16, '#44403c', 0.75, 4.2, 0.95);
+            }
+          } else if (fx.vfxSubtype === 'orc_waagh_rocket') {
+            // Orc WAAAGH! scrap-rocket: erratic helical corkscrew spiraling wildly toward target!
+            const arcPeak = fx.flightPeakY ?? 6.2;
+            const dx = fx.tx - ox;
+            const dz = fx.tz - oz;
+            const span = Math.max(1, Math.hypot(dx, dz));
+            const perpX = -dz / span;
+            const perpZ = dx / span;
+            const corkscrewEnv = Math.sin(flightT * Math.PI);
+            const corkPhase = flightT * Math.PI * 6.5 + (fx.wobbleSeed ?? 0);
+            const corkAmp = Math.min(1.85, Math.max(0.55, span * 0.065)) * corkscrewEnv;
+            const lateralOff = Math.cos(corkPhase) * corkAmp;
+            const vertOff = Math.sin(corkPhase) * corkAmp * 0.65;
+            curX = ox + dx * flightT + perpX * lateralOff;
+            curZ = oz + dz * flightT + perpZ * lateralOff;
+            curY = (oy + 0.4) + (fx.ty - (oy + 0.4)) * flightT + 4 * flightT * (1 - flightT) * arcPeak + vertOff;
+            const nextT = Math.min(1, flightT + 0.03);
+            const nextEnv = Math.sin(nextT * Math.PI);
+            const nextPhase = nextT * Math.PI * 6.5 + (fx.wobbleSeed ?? 0);
+            const nextAmp = Math.min(1.85, Math.max(0.55, span * 0.065)) * nextEnv;
+            const nextX = ox + dx * nextT + perpX * Math.cos(nextPhase) * nextAmp;
+            const nextZ = oz + dz * nextT + perpZ * Math.cos(nextPhase) * nextAmp;
+            const nextY = (oy + 0.4) + (fx.ty - (oy + 0.4)) * nextT + 4 * nextT * (1 - nextT) * arcPeak + Math.sin(nextPhase) * nextAmp * 0.65;
+            fx.tracerMesh.position.set(curX, curY, curZ);
+            if (flightT < 0.99) {
+              _trailLookVec.set(nextX, nextY, nextZ);
+              fx.tracerMesh.lookAt(_trailLookVec);
+            }
+            trackTrail = flightT < 1;
+            if (flightT < 1 && Math.random() < 0.88) {
+              spawnParticleBurst(curX, curY, curZ, 1, Math.random() < 0.5 ? '#dc2626' : '#292524', 0.24, 0.8, 0.5);
+            }
+            if (flightT >= 1 && !fx.impactFired) {
+              fx.impactFired = true;
+              spawnParticleBurst(fx.tx, fx.ty + 0.35, fx.tz, 30, '#ef4444', Math.max(0.95, fx.radius * 0.85), 5.8, 1.04);
+              spawnParticleBurst(fx.tx, fx.ty + 0.35, fx.tz, 16, '#facc15', 0.68, 4.6, 0.82);
+            }
+          } else if (fx.vfxSubtype === 'bomb') {
+            curX = ox + (fx.tx - ox) * flightT;
+            curZ = oz + (fx.tz - oz) * flightT;
+            curY = oy + (fx.ty - oy) * (flightT * flightT);
             fx.tracerMesh.position.set(curX, curY, curZ);
             fx.tracerMesh.rotation.x = 0.35 + flightT * 1.15;
             if (flightT >= 1 && !fx.impactFired) {
@@ -12841,10 +13349,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           } else if (fx.vfxSubtype === 'cannon_shell') {
             const horizDist = Math.hypot(fx.tx - ox, fx.tz - oz);
             const arcPeak = Math.min(3.1, Math.max(0.55, horizDist * 0.25));
-            const curX = ox + (fx.tx - ox) * flightT;
-            const curZ = oz + (fx.tz - oz) * flightT;
-            const curY = oy + (fx.ty - oy) * flightT + 4 * flightT * (1 - flightT) * arcPeak;
+            curX = ox + (fx.tx - ox) * flightT;
+            curZ = oz + (fx.tz - oz) * flightT;
+            curY = oy + (fx.ty - oy) * flightT + 4 * flightT * (1 - flightT) * arcPeak;
             fx.tracerMesh.position.set(curX, curY, curZ);
+            trackTrail = flightT < 1;
             if (flightT < 1 && Math.random() < 0.4) {
               spawnParticleBurst(curX, curY, curZ, 1, '#94a3b8', 0.14, 0.4, 0.32);
             }
@@ -12853,10 +13362,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
               spawnParticleBurst(fx.tx, fx.ty + 0.25, fx.tz, 24, '#ff9e00', fx.radius * 0.85, 5.4, 1.05);
             }
           } else if (fx.vfxSubtype === 'missile') {
-            const curX = ox + (fx.tx - ox) * flightT;
-            const curY = oy + (fx.ty - oy) * flightT + Math.sin(flightT * Math.PI) * 0.52;
-            const curZ = oz + (fx.tz - oz) * flightT;
+            curX = ox + (fx.tx - ox) * flightT;
+            curY = oy + (fx.ty - oy) * flightT + Math.sin(flightT * Math.PI) * 0.75;
+            curZ = oz + (fx.tz - oz) * flightT;
             fx.tracerMesh.position.set(curX, curY, curZ);
+            trackTrail = flightT < 1;
             if (flightT < 1 && Math.random() < 0.75) {
               spawnParticleBurst(curX, curY, curZ, 1, '#e2e8f0', 0.16, 0.5, 0.34);
             }
@@ -12865,12 +13375,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
               spawnParticleBurst(fx.tx, fx.ty + 0.25, fx.tz, 24, '#ff6b35', fx.radius * 0.8, 5.2, 0.98);
             }
           } else if (fx.vfxSubtype === 'arcane_bolt') {
-            const curX = ox + (fx.tx - ox) * flightT;
-            const curY = oy + (fx.ty - oy) * flightT + Math.sin(flightT * Math.PI) * 0.34;
-            const curZ = oz + (fx.tz - oz) * flightT;
+            curX = ox + (fx.tx - ox) * flightT;
+            curY = oy + (fx.ty - oy) * flightT + Math.sin(flightT * Math.PI) * 0.48;
+            curZ = oz + (fx.tz - oz) * flightT;
             fx.tracerMesh.position.set(curX, curY, curZ);
             fx.tracerMesh.rotation.z = prog * 16;
             fx.tracerMesh.rotation.y += dt * 12;
+            trackTrail = flightT < 1;
             if (flightT < 1 && Math.random() < 0.55) {
               spawnParticleBurst(curX, curY, curZ, 1, '#c084fc', 0.14, 0.5, 0.3);
             }
@@ -12878,9 +13389,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             // Yeti's thrown blocky voxel ice ball: high parabolic lob, tumbling cubes, snowy trail & frost shatter
             const throwDist = Math.hypot(fx.tx - ox, fx.tz - oz);
             const arcPeak = Math.max(0.75, Math.min(2.1, throwDist * 0.24));
-            const curX = ox + (fx.tx - ox) * flightT;
-            const curY = (oy + 0.45) + (fx.ty - (oy + 0.45)) * flightT + 4 * flightT * (1 - flightT) * arcPeak;
-            const curZ = oz + (fx.tz - oz) * flightT;
+            curX = ox + (fx.tx - ox) * flightT;
+            curY = (oy + 0.45) + (fx.ty - (oy + 0.45)) * flightT + 4 * flightT * (1 - flightT) * arcPeak;
+            curZ = oz + (fx.tz - oz) * flightT;
             fx.tracerMesh.position.set(curX, curY, curZ);
             fx.tracerMesh.rotation.x += dt * 9.5;
             fx.tracerMesh.rotation.y += dt * 11.5;
@@ -12894,9 +13405,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             }
           } else if (fx.vfxSubtype === 'foxfire_ball') {
             // Kitsune / Phoenix / Cerberus blocky flame ball: brisk arched shot, spinning embers & fiery impact
-            const curX = ox + (fx.tx - ox) * flightT;
-            const curY = (oy + 0.18) + (fx.ty - (oy + 0.18)) * flightT + Math.sin(flightT * Math.PI) * 0.44;
-            const curZ = oz + (fx.tz - oz) * flightT;
+            curX = ox + (fx.tx - ox) * flightT;
+            curY = (oy + 0.18) + (fx.ty - (oy + 0.18)) * flightT + Math.sin(flightT * Math.PI) * 0.44;
+            curZ = oz + (fx.tz - oz) * flightT;
             fx.tracerMesh.position.set(curX, curY, curZ);
             fx.tracerMesh.rotation.x += dt * 13;
             fx.tracerMesh.rotation.y += dt * 15;
@@ -12910,9 +13421,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             }
           } else if (fx.vfxSubtype === 'venom_ball') {
             // Hydra's three-headed blocky venom glob: lobbed arc, toxic trail & acid splash
-            const curX = ox + (fx.tx - ox) * flightT;
-            const curY = (oy + 0.35) + (fx.ty - (oy + 0.35)) * flightT + Math.sin(flightT * Math.PI) * 0.62;
-            const curZ = oz + (fx.tz - oz) * flightT;
+            curX = ox + (fx.tx - ox) * flightT;
+            curY = (oy + 0.35) + (fx.ty - (oy + 0.35)) * flightT + Math.sin(flightT * Math.PI) * 0.62;
+            curZ = oz + (fx.tz - oz) * flightT;
             fx.tracerMesh.position.set(curX, curY, curZ);
             fx.tracerMesh.rotation.x += dt * 10;
             fx.tracerMesh.rotation.z += dt * 12;
@@ -12928,29 +13439,60 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             const beamPulse = Math.max(0.28, 1.4 - prog * 1.15);
             fx.tracerMesh.scale.set(beamPulse, beamPulse, 1);
           } else {
-            fx.tracerMesh.position.set(
-              ox + (fx.tx - ox) * flightT,
-              oy + (fx.ty - oy) * flightT,
-              oz + (fx.tz - oz) * flightT,
-            );
+            fx.tracerMesh.position.set(curX, curY, curZ);
+            trackTrail = flightT < 1;
           }
+
+          // Update persistent 3D flight trail ribbon & post-impact fade
+          if (fx.trailMesh && fx.trailGeo) {
+            if (trackTrail) {
+              appendProjectileTrailPoint(fx, curX, curY, curZ);
+            } else if (flightT >= 1 && fx.trailCount && fx.trailCount < (fx.trailMaxPoints ?? 0)) {
+              appendProjectileTrailPoint(fx, fx.tx, fx.ty, fx.tz);
+            }
+            const trailMat = fx.trailMesh.material as THREE.MeshBasicMaterial;
+            if (flightT < 1) {
+              trailMat.opacity = 0.86;
+            } else {
+              const postFrac = (prog - flightEndFrac) / Math.max(0.05, 1 - flightEndFrac);
+              trailMat.opacity = Math.max(0, (1 - postFrac) * 0.84);
+            }
+          }
+
+          const isStrategicShot =
+            fx.vfxSubtype === 'icbm_missile' ||
+            fx.vfxSubtype === 'elf_starfall_spell' ||
+            fx.vfxSubtype === 'orc_siege_boulder' ||
+            fx.vfxSubtype === 'orc_waagh_rocket';
 
           const bodyOpacity =
             fx.vfxSubtype === 'plasma_beam' || fx.vfxSubtype === 'laser_beam'
               ? Math.max(0, 1 - prog)
-              : flightT < 1
-                ? 0.96
-                : Math.max(0, 1 - (prog - flightEndFrac) / Math.max(0.05, 1 - flightEndFrac));
+              : isStrategicShot
+                ? flightT < 1
+                  ? 0.98
+                  : 0
+                : flightT < 1
+                  ? 0.96
+                  : Math.max(0, 1 - (prog - flightEndFrac) / Math.max(0.05, 1 - flightEndFrac));
+          fx.tracerMesh.visible = bodyOpacity > 0.01;
           if (fx.materials[0]) (fx.materials[0] as THREE.MeshBasicMaterial).opacity = bodyOpacity;
           if (fx.materials[1]) (fx.materials[1] as THREE.MeshBasicMaterial).opacity = bodyOpacity * 0.92;
           const ringMat = fx.materials[2] ?? fx.materials[1];
-          fx.ringMesh.scale.setScalar(
-            (fx.vfxSubtype === 'bomb' ? 0.34 : 0.2) +
-              prog * fx.radius * (fx.vfxSubtype === 'bomb' ? 1.65 : 1.2),
-          );
-          if (ringMat) (ringMat as THREE.MeshBasicMaterial).opacity = Math.max(0, (1 - prog) * 0.88);
+          if (isStrategicShot) {
+            const impactP = flightT < 1 ? 0 : (prog - flightEndFrac) / Math.max(0.05, 1 - flightEndFrac);
+            fx.ringMesh.visible = flightT >= 1;
+            fx.ringMesh.scale.setScalar(0.35 + impactP * fx.radius * 1.9);
+            if (ringMat) (ringMat as THREE.MeshBasicMaterial).opacity = Math.max(0, (1 - impactP) * 0.92);
+          } else {
+            fx.ringMesh.scale.setScalar(
+              (fx.vfxSubtype === 'bomb' ? 0.34 : 0.2) +
+                prog * fx.radius * (fx.vfxSubtype === 'bomb' ? 1.65 : 1.2),
+            );
+            if (ringMat) (ringMat as THREE.MeshBasicMaterial).opacity = Math.max(0, (1 - prog) * 0.88);
+          }
           if (fx.muzzleRingMesh) {
-            fx.muzzleRingMesh.scale.setScalar(0.16 + Math.min(1, prog * 3.5) * 0.55);
+            fx.muzzleRingMesh.scale.setScalar(0.16 + Math.min(1, prog * 3.5) * (isStrategicShot ? 1.6 : 0.55));
           }
         } else if (fx.kind === 'nuke_blast' && fx.ringMesh) {
           const prog = Math.min(1, fx.age / fx.duration);
@@ -13397,6 +13939,16 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       if (kingCount > 0) {
         kingCrownsInst.instanceMatrix.needsUpdate = true;
       }
+
+      // Sync expanding/decreasing 3D War-Front Arrows (strictly visible ONLY when at war & Kingdoms/Alliances zones open)
+      warFrontArrows.sync(
+        propsRef.current.gameState !== 'title'
+          ? propsRef.current.zoneOverlayBuffers?.warFrontArrows
+          : undefined,
+        simRef.current,
+        dt,
+        elapsedTotal,
+      );
 
       // Update Hover Pixelated Circle Reticle position & integer tile footprint
       if (
@@ -13915,6 +14467,41 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         }
       }
 
+      // Project crisp War-Front territory claim markers onto active expanding/decreasing war arrows
+      const warArrowLayer = warArrowLabelsLayerRef.current;
+      if (warArrowLayer && warArrowLayer.children.length > 0) {
+        const cWidth = container?.clientWidth || window.innerWidth;
+        const cHeight = container?.clientHeight || window.innerHeight;
+        for (let i = 0; i < warArrowLayer.children.length; i++) {
+          const el = warArrowLayer.children[i] as HTMLElement;
+          const arrowId = el.dataset.arrowId;
+          if (!arrowId || !warFrontArrows.getMarkerWorldPosition(arrowId, _warArrowProjVec)) {
+            if (el.dataset.lastOpacity !== '0') {
+              el.dataset.lastOpacity = '0';
+              el.style.opacity = '0';
+            }
+            continue;
+          }
+          _warArrowProjVec.project(camera);
+          const sx = (_warArrowProjVec.x * 0.5 + 0.5) * cWidth;
+          const sy = (-_warArrowProjVec.y * 0.5 + 0.5) * cHeight;
+          const offscreen =
+            _warArrowProjVec.z > 1 || sx < -120 || sx > cWidth + 120 || sy < -60 || sy > cHeight + 60;
+          const nextOpacity = offscreen ? '0' : '1';
+          if (el.dataset.lastOpacity !== nextOpacity) {
+            el.dataset.lastOpacity = nextOpacity;
+            el.style.opacity = nextOpacity;
+          }
+          if (!offscreen) {
+            const nextTransform = `translate3d(${Math.round(sx)}px, ${Math.round(sy)}px, 0) translate(-50%, -50%)`;
+            if (el.dataset.lastTransform !== nextTransform) {
+              el.dataset.lastTransform = nextTransform;
+              el.style.transform = nextTransform;
+            }
+          }
+        }
+      }
+
       // Throttle React HUD state synchronization to <= 6 Hz during gameplay so we never setState at 60Hz or during title screen
       hudSyncAccumulator += dt;
       if (hudSyncAccumulator >= 0.18) {
@@ -14051,6 +14638,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         if (fx.ejectaInst) fx.ejectaInst.dispose();
         if (fx.skyDropInst) fx.skyDropInst.dispose();
         if (fx.skyStreakInst) fx.skyStreakInst.dispose();
+        if (fx.trailGeo) fx.trailGeo.dispose();
         for (const m of fx.materials) m.dispose();
       }
       fireSpriteGeo.dispose();
@@ -14128,6 +14716,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       skyClouds.dispose();
       oceanFoam.dispose();
       zoneOverlay.dispose();
+      warFrontArrows.dispose();
       styledTerrain.dispose();
       metroConcreteMat.dispose();
       metroParapetMat.dispose();
@@ -14171,6 +14760,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
   }, [cameraActionRef, captureThumbnailRef, simRef]);
 
   const activeLabels = zoneOverlayBuffers?.labels ?? [];
+  const activeWarArrows = zoneOverlayBuffers?.warFrontArrows ?? [];
   const kingsOverlayOn = Boolean(zoneOverlayBuffers?.kingsActive);
   const activeKings =
     gameState !== 'title' && kingsOverlayOn
@@ -14308,6 +14898,63 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
               )}
             </div>
           ))}
+        </div>
+      )}
+      {gameState !== 'title' && activeWarArrows.length > 0 && (
+        <div
+          ref={warArrowLabelsLayerRef}
+          data-testid="war-front-arrows-layer"
+          className="fixed inset-0 z-15 pointer-events-none overflow-hidden select-none"
+        >
+          {activeWarArrows.map((wa) => {
+            const deltaText =
+              wa.tileDelta > 0
+                ? `+${wa.tileDelta}`
+                : wa.tileDelta < 0
+                  ? `${wa.tileDelta}`
+                  : '0';
+            const momentumGlyph =
+              wa.momentum === 'advancing' ? '▲' : wa.momentum === 'retreating' ? '▼' : '◆';
+            const momentumColor =
+              wa.momentum === 'advancing'
+                ? '#4ade80'
+                : wa.momentum === 'retreating'
+                  ? '#f87171'
+                  : '#fbbf24';
+            return (
+              <div
+                key={wa.id}
+                data-testid={`war-front-arrow-marker-${wa.id}`}
+                data-arrow-id={wa.id}
+                style={{
+                  backgroundColor: `color-mix(in srgb, ${wa.hexColor} 26%, #14110e)`,
+                  borderColor: `color-mix(in srgb, ${wa.hexColor} 68%, #000000)`,
+                  left: 0,
+                  top: 0,
+                  opacity: 0,
+                  boxShadow: '0 2px 0 #0b0a09',
+                }}
+                className="absolute px-1.5 py-0.5 border-2 flex items-center gap-1 whitespace-nowrap"
+              >
+                <span
+                  className="text-[9px] font-bold leading-none"
+                  style={{ color: momentumColor }}
+                  aria-hidden="true"
+                >
+                  {momentumGlyph}
+                </span>
+                <span className="font-pixel-num text-[10px] font-bold text-[#f8f4ec] tabular-nums leading-none">
+                  {wa.claimPercent}%
+                </span>
+                <span
+                  className="font-pixel-num text-[9px] font-bold tabular-nums leading-none border-l border-white/20 pl-1"
+                  style={{ color: momentumColor }}
+                >
+                  {deltaText}
+                </span>
+              </div>
+            );
+          })}
         </div>
       )}
     </>
