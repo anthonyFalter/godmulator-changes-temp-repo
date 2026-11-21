@@ -3,22 +3,31 @@ import test from 'node:test';
 import {
   MAX_SIMULATION_SPEED,
   SHADER_TIME_WRAP_PERIOD,
+  SIMULATION_BASE_PACE_SCALE,
   SIMULATION_SPEED_OPTIONS,
   TIME_OF_DAY_PRESETS,
   clampSimulationSpeed,
+  getEffectiveSimulationSpeed,
   getEpochCityLightProfile,
   getTimeOfDayLightingState,
   resolveCyclePresetFromPhase,
   wrapShaderTime,
 } from './dayNightLighting';
 
-test('Simulation speed options are capped at 5x', () => {
+test('Simulation speed options are capped at 5x and re-baselined so 1x uses the former 0.5x pace', () => {
   assert.equal(MAX_SIMULATION_SPEED, 5);
+  assert.equal(SIMULATION_BASE_PACE_SCALE, 0.5);
   assert.deepEqual([...SIMULATION_SPEED_OPTIONS], [0, 0.5, 1, 2, 5]);
   assert.equal(clampSimulationSpeed(10), 5);
   assert.equal(clampSimulationSpeed(5), 5);
   assert.equal(clampSimulationSpeed(2), 2);
   assert.equal(clampSimulationSpeed(-3), 0);
+  // 1x runs at 0.5 effective pace, 0.5x runs at 0.25, 2x at 1.0, 5x at 2.5
+  assert.equal(getEffectiveSimulationSpeed(0), 0);
+  assert.equal(getEffectiveSimulationSpeed(0.5), 0.25);
+  assert.equal(getEffectiveSimulationSpeed(1), 0.5);
+  assert.equal(getEffectiveSimulationSpeed(2), 1.0);
+  assert.equal(getEffectiveSimulationSpeed(5), 2.5);
 });
 
 test('Time-of-day presets produce distinct lighting, shading, atmospheric fog, and sun angles for Dawn, Noon, Dusk, Night, and Midnight', () => {

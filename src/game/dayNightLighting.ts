@@ -2,6 +2,11 @@ import { LightingPreset, SpeciesId } from './types';
 
 export const MAX_SIMULATION_SPEED = 5;
 export const SIMULATION_SPEED_OPTIONS = [0, 0.5, 1, 2, 5] as const;
+/**
+ * Re-baselines simulation time pacing so 1x runs at the previous 0.5x speed,
+ * 0.5x runs twice as slow as the new 1x (0.25x legacy pace), and 2x / 5x scale proportionally.
+ */
+export const SIMULATION_BASE_PACE_SCALE = 0.5;
 
 export const SHADER_TIME_WRAP_PERIOD = 1800;
 
@@ -13,6 +18,10 @@ export function wrapShaderTime(elapsed: number): number {
 export function clampSimulationSpeed(speed: number): number {
   if (!Number.isFinite(speed) || speed <= 0) return 0;
   return Math.min(MAX_SIMULATION_SPEED, Math.max(0, speed));
+}
+
+export function getEffectiveSimulationSpeed(speed: number): number {
+  return clampSimulationSpeed(speed) * SIMULATION_BASE_PACE_SCALE;
 }
 
 export type ConcreteLightingPreset = Exclude<LightingPreset, 'auto'>;

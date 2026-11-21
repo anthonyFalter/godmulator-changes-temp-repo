@@ -36,6 +36,7 @@ import {
 import {
   TIME_OF_DAY_PRESETS,
   clampSimulationSpeed,
+  getEffectiveSimulationSpeed,
   getEpochCityLightProfile,
   getTimeOfDayLightingState,
   wrapShaderTime,
@@ -123,6 +124,7 @@ import {
 } from '../game/types';
 import { ZoneMapLabel } from '../game/zones';
 import { createWarFrontArrowsSystem } from '../game/warFrontArrows';
+import { UnitPixelIcon } from './GameIcons';
 
 interface IsometricWorldCanvasProps {
   simRef: React.MutableRefObject<SimulationState>;
@@ -11922,7 +11924,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       // Decoupled fixed-timestep simulation accumulator (15 Hz) with 60 FPS visual interpolation!
       // Eliminates 4x redundant AI/tile scans per second while keeping silky-smooth 60Hz motion.
       simSteppedThisFrame = false;
-      const clampedSimSpeed = clampSimulationSpeed(propsRef.current.timeScale);
+      const clampedSimSpeed = getEffectiveSimulationSpeed(propsRef.current.timeScale);
       const simStepDt = Math.min(dt, autoOptDecisions.maxSimDt);
       if (hitstopTimer > 0) {
         hitstopTimer = Math.max(0, hitstopTimer - dt);
@@ -11944,7 +11946,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         simAccumulator = Math.min(FIXED_SIM_DT * 2, simAccumulator + simStepDt);
         if (simAccumulator >= FIXED_SIM_DT) {
           const simT0 = performance.now();
-          stepSimulation(simRef.current, FIXED_SIM_DT * 0.35, {
+          stepSimulation(simRef.current, FIXED_SIM_DT * 0.2, {
             skipDragStep: true,
             skipRandomEvents: true,
           });
@@ -14007,8 +14009,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       if (isCycleActive) {
         const cycleRate =
           propsRef.current.gameState === 'title'
-            ? 0.35
-            : clampSimulationSpeed(propsRef.current.timeScale);
+            ? 0.2
+            : getEffectiveSimulationSpeed(propsRef.current.timeScale);
         dayNightClock = (dayNightClock + dt * cycleRate) % 80;
         cyclePhase01 = dayNightClock / 80;
       }
@@ -14878,6 +14880,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
                 lbl.isHovered ? 'scale-110 z-20' : 'z-10'
               }`}
             >
+              {lbl.species && (
+                <UnitPixelIcon
+                  role={lbl.species}
+                  className="w-3.5 h-3.5 shrink-0 pixelated-canvas"
+                />
+              )}
               <span
                 className="w-2 h-2 shrink-0"
                 style={{ backgroundColor: lbl.hexColor }}

@@ -416,3 +416,36 @@ test('Kingdoms actively claim expansive territory and annex enemy territory and 
   );
 });
 
+test('War-front arrows emit at most 1 primary arrow per warring kingdom and civilization labels carry race species', () => {
+  const sim = makeLandSim(64);
+  addKingdomSettlement(sim, 'alpha_k', 'Aurelia', 'human', 3, 14, 16, 4);
+  addKingdomSettlement(sim, 'beta_k', 'Mordrak', 'orc', 3, 48, 16, 4);
+  addKingdomSettlement(sim, 'gamma_k', 'Sylvanor', 'elf', 3, 48, 48, 2);
+
+  // Even if Alpha is at war with both Beta and Gamma, Alpha emits strictly 1 primary war-front arrow toward its main rival
+  setKingdomRelation(sim, 'alpha_k', 'beta_k', 'war');
+  setKingdomRelation(sim, 'alpha_k', 'gamma_k', 'war');
+
+  const zones = computeWorldZones(sim);
+  const arrows = computeWarFrontArrows(zones, sim, {
+    ...DEFAULT_ZONE_TOGGLES,
+    kingdoms: true,
+  });
+  const alphaOutbound = arrows.filter((a) => a.attackerKingdomId === 'alpha_k');
+  assert.equal(
+    alphaOutbound.length,
+    1,
+    'Each warring kingdom must emit strictly 1 primary outbound war-front arrow so massive wars never flood the screen',
+  );
+  assert.equal(
+    alphaOutbound[0].defenderKingdomId,
+    'beta_k',
+    'Primary war-front arrow should target the largest enemy kingdom',
+  );
+
+  for (const k of zones.kingdomsById.values()) {
+    assert.ok(k.species === 'human' || k.species === 'orc' || k.species === 'elf');
+  }
+});
+
+

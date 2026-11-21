@@ -111,6 +111,7 @@ export interface TemperatureZoneInfo {
 export interface ZoneMapLabel {
   id: string;
   name: string;
+  species?: SpeciesId;
   epochName?: string;
   population: number | null;
   hexColor: string;
@@ -1923,6 +1924,7 @@ export function buildZoneOverlayTextures(
         labelOnlyList.push({
           id: `kingdom-${k.zoneId}`,
           name: k.name,
+          species: k.species,
           epochName: k.epochName,
           population: k.population,
           hexColor: k.hexColor,
@@ -2109,6 +2111,7 @@ export function buildZoneOverlayTextures(
       labels.push({
         id: `alliance-${k.zoneId}`,
         name: k.name,
+        species: k.species,
         epochName: k.epochName,
         population: k.population,
         hexColor: aCol.hex,
@@ -2123,6 +2126,7 @@ export function buildZoneOverlayTextures(
       labels.push({
         id: `kingdom-${k.zoneId}`,
         name: k.name,
+        species: k.species,
         epochName: k.epochName,
         population: k.population,
         hexColor: k.hexColor,
@@ -2307,6 +2311,7 @@ export function computeKingdomLabelsOnly(sim: SimulationState): ZoneMapLabel[] {
     labels.push({
       id: `kingdom-${zoneId}`,
       name: s.name,
+      species: s.species,
       epochName: epochDef ? epochDef.name : 'Stone Age',
       population: s.pop,
       hexColor: rgbToHex(color),
@@ -2381,6 +2386,13 @@ export function computeWarFrontArrows(
     agg.weightSum += w;
   });
 
+  // Ignore transient 0-building nomad camps so only real established kingdoms emit war-front arrows
+  byRoot.forEach((agg, rootId) => {
+    if (agg.buildingCount <= 0) {
+      byRoot.delete(rootId);
+    }
+  });
+
   if (byRoot.size < 2) return [];
   byRoot.forEach((agg) => {
     agg.centerX /= Math.max(1, agg.weightSum);
@@ -2419,7 +2431,11 @@ export function computeWarFrontArrows(
     ? (sim.settlementKingdoms?.[allianceContext.selectedAllianceKingdomId] ?? allianceContext.selectedAllianceKingdomId)
     : null;
 
-  const arrows: WarFrontArrowData[] = [];
+  interface CandidateArrow {
+    arrow: WarFrontArrowData;
+    priorityScore: number;
+  }
+  const bestArrowByAttacker = new Map<string, CandidateArrow>();
 
   for (let i = 0; i < rootList.length; i++) {
     for (let j = i + 1; j < rootList.length; j++) {
@@ -2546,7 +2562,7 @@ export function computeWarFrontArrows(
         const rightZ = ux;
         const latOff = Math.min(1.6, Math.max(0.75, len * 0.045));
 
-        arrows.push({
+        const candidate: WarFrontArrowData = {
           id: `warfront-${atk.kingdomId}-to-${def.kingdomId}`,
           attackerKingdomId: atk.kingdomId,
           defenderKingdomId: def.kingdomId,
@@ -2562,7 +2578,20 @@ export function computeWarFrontArrows(
           claimPercent,
           hexColor: arrowColor,
           momentum,
-        });
+        };
+
+        // Each warring kingdom emits strictly 1 primary war-front arrow toward its biggest/most active war target
+        // so the screen never floods with N*(N-1) arrows when empires have multiple enemies or splinter states
+        const selectedBonus =
+          selectedAllianceRoot && (atk.kingdomId === selectedAllianceRoot || def.kingdomId === selectedAllianceRoot)
+            ? 100000
+            : 0;
+        const priorityScore =
+          selectedBonus + def.totalTiles + def.buildingCount * 15 - len * 0.25;
+        const prevBest = bestArrowByAttacker.get(atk.kingdomId);
+        if (!prevBest || priorityScore > prevBest.priorityScore) {
+          bestArrowByAttacker.set(atk.kingdomId, { arrow: candidate, priorityScore });
+        }
       };
 
       emitDirectionalArrow(kA, kB, initTilesA, initTilesB, initBldB);
@@ -2570,7 +2599,7 @@ export function computeWarFrontArrows(
     }
   }
 
-  return arrows;
+  return Array.from(bestArrowByAttacker.values()).map((c) => c.arrow);
 }
 
 

@@ -5604,15 +5604,17 @@ function stepKingdomDiplomacyAndRebellions(state: SimulationState, dt: number): 
           const isEmpireAtWar = kingdoms.some(
             (k) => k.kingdomId !== kid && areKingdomsAtWar(state, kid, k.kingdomId),
           );
+          // Do not auto-fragment multi-city empires into splinter kingdoms merely for being at war with another nation;
+          // provinces only secede when internal happiness drops or empire overextends (>= 5 cities) while not rallied in a foreign war
           const isUnstableEmpire =
-            kSids.length >= 4 || isEmpireAtWar || state.happiness < 75;
+            (!isEmpireAtWar && kSids.length >= 5) || state.happiness < 68;
           if (!isUnstableEmpire) continue;
 
           const satelliteSid = kSids[kSids.length - 1];
           const satPop = state.units.filter(
             (u) => u.faction === 'civilization' && u.state !== 'ko' && u.settlementId === satelliteSid,
           ).length;
-          if (satPop >= 2 && Math.random() < 0.36) {
+          if (satPop >= 2 && Math.random() < 0.24) {
             if (!state.settlementKingdoms) state.settlementKingdoms = {};
             state.settlementKingdoms[satelliteSid] = satelliteSid;
             const satUnits = state.units.filter((u) => u.settlementId === satelliteSid);
