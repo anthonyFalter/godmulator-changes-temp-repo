@@ -74,16 +74,53 @@ export function getTerrainTileRadius(brushSize: number): number {
   return Math.max(0, Math.min(12, Math.round(brushSize)));
 }
 
+export function getPowerClusterCount(brushSize = DEFAULT_BRUSH_SIZE): number {
+  if (!Number.isFinite(brushSize) || brushSize <= 1) return 1;
+  return Math.max(1, Math.min(10, Math.round(brushSize)));
+}
+
+export function getPowerClusterSpreadRadius(baseRadius: number, brushSize = DEFAULT_BRUSH_SIZE): number {
+  const count = getPowerClusterCount(brushSize);
+  if (count <= 1) return 0;
+  const safeBase = Math.max(1.0, baseRadius);
+  return Math.min(16, Math.max(2.4, Math.sqrt(count) * Math.max(1.35, safeBase * 0.55)));
+}
+
+export function getPowerClusterTargets(
+  count: number,
+  baseRadius: number,
+  centerX: number,
+  centerZ: number,
+  gridSize: number,
+): Array<{ x: number; z: number }> {
+  const safeCount = Math.max(1, Math.min(10, Math.round(count)));
+  const clampCoord = (v: number) => Math.max(2, Math.min(gridSize - 3, Math.round(v)));
+  const cx = clampCoord(centerX);
+  const cz = clampCoord(centerZ);
+  if (safeCount === 1) return [{ x: cx, z: cz }];
+
+  const spread = getPowerClusterSpreadRadius(baseRadius, safeCount);
+  const targets: Array<{ x: number; z: number }> = [{ x: cx, z: cz }];
+  const goldenAngle = 2.399963229728653;
+  const basePhase = (((cx * 73856093) ^ (cz * 19349663)) & 255) * 0.0245;
+
+  for (let i = 1; i < safeCount; i++) {
+    const frac = Math.sqrt(i / (safeCount - 1));
+    const dist = Math.max(1.5, spread * frac);
+    const angle = basePhase + i * goldenAngle;
+    targets.push({
+      x: clampCoord(cx + Math.cos(angle) * dist),
+      z: clampCoord(cz + Math.sin(angle) * dist),
+    });
+  }
+  return targets;
+}
+
 export function getPowerEffectiveRadius(baseRadius: number, brushSize = DEFAULT_BRUSH_SIZE): number {
   const safeBase = Math.max(0.5, baseRadius);
-  if (!Number.isFinite(brushSize) || brushSize === 1) return safeBase;
-  const preset = BRUSH_SIZE_PRESETS.find((p) => p.size === brushSize);
-  const scale = preset
-    ? preset.powerScale
-    : brushSize < 1
-      ? Math.max(0.35, brushSize)
-      : 1 + (brushSize - 1) * 0.29;
-  return Math.min(28, Math.max(0.85, Number((safeBase * scale).toFixed(2))));
+  const count = getPowerClusterCount(brushSize);
+  if (count <= 1) return safeBase;
+  return Math.min(28, Number((safeBase + getPowerClusterSpreadRadius(safeBase, count)).toFixed(2)));
 }
 
 const reticleTextureCache = new Map<number, THREE.CanvasTexture>();

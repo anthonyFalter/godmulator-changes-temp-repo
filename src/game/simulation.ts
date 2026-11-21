@@ -10,7 +10,12 @@ import {
   getUnitMaxLifespan,
 } from './catalog';
 export { getMaxCityPopulation, getUnitMaxLifespan };
-import { getPowerEffectiveRadius, isInsidePixelCircle } from './brushSizes';
+import {
+  getPowerClusterCount,
+  getPowerClusterTargets,
+  getPowerEffectiveRadius,
+  isInsidePixelCircle,
+} from './brushSizes';
 import {
   ActiveHazardZone,
   BuildingEntity,
@@ -4952,28 +4957,30 @@ export function castGodPower(
   targetX: number,
   targetZ: number,
   options?: { deferImpact?: boolean; brushSize?: number; radiusOverride?: number },
-): { ok: boolean; reason?: string; isHeavy?: boolean } {
+): { ok: boolean; reason?: string; isHeavy?: boolean; count?: number; totalCost?: number } {
   const def = GOD_POWERS.find((p) => p.type === powerType);
   if (!def) return { ok: false, reason: 'Unknown divine power' };
 
-  const centerTile = getTile(state, targetX, targetZ);
+  const hasExplicitRadius =
+    options?.radiusOverride !== undefined && Number.isFinite(options.radiusOverride);
+  const clusterCount =
+    powerType === 'drag_entity' || hasExplicitRadius
+      ? 1
+      : getPowerClusterCount(options?.brushSize ?? 1);
+  const totalFaithCost = def.faithCost * clusterCount;
 
   reconcileAndSyncResources(state);
-  if (!state.sandboxFreeMode && state.resources.faith < def.faithCost) {
-    return { ok: false, reason: `Requires ${def.faithCost} God Energy` };
+  if (!state.sandboxFreeMode && state.resources.faith < totalFaithCost) {
+    return { ok: false, reason: `Requires ${totalFaithCost} God Energy` };
   }
 
   if (!state.sandboxFreeMode) {
-    spendWorldCost(state, { faith: def.faithCost });
+    spendWorldCost(state, { faith: totalFaithCost });
   }
 
-  const baseHeight = centerTile ? Math.max(0.36, centerTile.height * 0.45) : 1.2;
-  const scaledRadius =
-    options?.radiusOverride !== undefined && Number.isFinite(options.radiusOverride)
-      ? Math.max(0.85, Math.min(28, options.radiusOverride))
-      : powerType === 'drag_entity'
-        ? def.radius
-        : getPowerEffectiveRadius(def.radius, options?.brushSize ?? 1);
+  const singleRadius = hasExplicitRadius
+    ? Math.max(0.85, Math.min(28, options!.radiusOverride!))
+    : def.radius;
 
   const deferImpact = Boolean(options?.deferImpact);
   let isHeavy =
@@ -4984,63 +4991,79 @@ export function castGodPower(
     powerType !== 'harmony_dove' &&
     powerType !== 'drag_entity';
 
-  const earthquakePlan =
-    powerType === 'earthquake' ? generateEarthquakeFaultNetwork(targetX, targetZ, scaledRadius) : null;
+  const targets = getPowerClusterTargets(
+    clusterCount,
+    singleRadius,
+    targetX,
+    targetZ,
+    state.gridSize,
+  );
 
-  if (!deferImpact) {
-    isHeavy = executeGodPowerImpact(
-      state,
-      powerType,
-      targetX,
-      targetZ,
-      earthquakePlan
-        ? { ...earthquakePlan, radiusOverride: scaledRadius }
-        : { radiusOverride: scaledRadius },
-    );
-  } else if (powerType === 'rain_of_plenty') {
-    // Spawn the monsoon cloud upwind immediately so it rushes fast into the summoned spot (targetX, targetZ)
-    if (!state.activeHazards) state.activeHazards = [];
-    const windAngle = 0.58 + (((targetX * 17 + targetZ * 31) & 7) - 3.5) * 0.08;
-    const windX = Math.cos(windAngle);
-    const windZ = Math.sin(windAngle);
-    const startDist = 18.5;
-    state.activeHazards.push({
-      id: nextEntityId('haz'),
-      kind: 'rain_cloud',
-      x: targetX - windX * startDist,
-      z: targetZ - windZ * startDist,
-      targetX,
-      targetZ,
-      windX,
-      windZ,
-      arrivalRemaining: 0.72,
-      arrivalDuration: 0.72,
-      impactPending: true,
-      currentSpeed: 42,
-      radius: scaledRadius,
-      remaining: 10.5,
-      duration: 10.5,
-      tickTimer: 0,
+  for (let ti = 0; ti < targets.length; ti++) {
+    const tx = targets[ti].x;
+    const tz = targets[ti].z;
+    const tTile = getTile(state, tx, tz);
+    const baseHeight = tTile ? Math.max(0.36, tTile.height * 0.45) : 1.2;
+
+    const earthquakePlan =
+      powerType === 'earthquake' ? generateEarthquakeFaultNetwork(tx, tz, singleRadius) : null;
+
+    if (!deferImpact) {
+      const impactHeavy = executeGodPowerImpact(
+        state,
+        powerType,
+        tx,
+        tz,
+        earthquakePlan
+          ? { ...earthquakePlan, radiusOverride: singleRadius }
+          : { radiusOverride: singleRadius },
+      );
+      if (impactHeavy) isHeavy = true;
+    } else if (powerType === 'rain_of_plenty') {
+      // Spawn the monsoon cloud upwind immediately so it rushes fast into the summoned spot (tx, tz)
+      if (!state.activeHazards) state.activeHazards = [];
+      const windAngle = 0.58 + (((tx * 17 + tz * 31) & 7) - 3.5) * 0.08;
+      const windX = Math.cos(windAngle);
+      const windZ = Math.sin(windAngle);
+      const startDist = 18.5;
+      state.activeHazards.push({
+        id: nextEntityId('haz'),
+        kind: 'rain_cloud',
+        x: tx - windX * startDist,
+        z: tz - windZ * startDist,
+        targetX: tx,
+        targetZ: tz,
+        windX,
+        windZ,
+        arrivalRemaining: 0.72,
+        arrivalDuration: 0.72,
+        impactPending: true,
+        currentSpeed: 42,
+        radius: singleRadius,
+        remaining: 10.5,
+        duration: 10.5,
+        tickTimer: 0,
+      });
+    }
+
+    state.totalMiraclesCast += 1;
+    state.pendingVfx.push({
+      id: nextEntityId('vfx'),
+      type: powerType,
+      x: tx,
+      y: baseHeight,
+      z: tz,
+      radius: earthquakePlan?.quakeExtent ?? singleRadius,
+      color: def.color,
+      createdAt: Date.now() + ti * 25,
+      deferImpact,
+      faultSegments: earthquakePlan?.faultSegments,
+      quakeShapeKind: earthquakePlan?.quakeShapeKind,
+      quakeExtent: earthquakePlan?.quakeExtent,
     });
   }
 
-  state.totalMiraclesCast += 1;
-  state.pendingVfx.push({
-    id: nextEntityId('vfx'),
-    type: powerType,
-    x: targetX,
-    y: baseHeight,
-    z: targetZ,
-    radius: earthquakePlan?.quakeExtent ?? scaledRadius,
-    color: def.color,
-    createdAt: Date.now(),
-    deferImpact,
-    faultSegments: earthquakePlan?.faultSegments,
-    quakeShapeKind: earthquakePlan?.quakeShapeKind,
-    quakeExtent: earthquakePlan?.quakeExtent,
-  });
-
-  return { ok: true, isHeavy };
+  return { ok: true, isHeavy, count: clusterCount, totalCost: totalFaithCost };
 }
 
 function createVillageName(state: SimulationState, species: SpeciesId = 'human'): string {
