@@ -300,6 +300,11 @@ export class TreeImpostorSystem {
     }
 
     const prevTarget = renderer.getRenderTarget();
+    const prevViewport = new THREE.Vector4();
+    renderer.getViewport(prevViewport);
+    const prevScissor = new THREE.Vector4();
+    renderer.getScissor(prevScissor);
+    const prevScissorTest = renderer.getScissorTest();
     const prevClearColor = new THREE.Color();
     renderer.getClearColor(prevClearColor);
     const prevClearAlpha = renderer.getClearAlpha();
@@ -357,8 +362,10 @@ export class TreeImpostorSystem {
     }
     this.bakeCursor = end;
 
-    renderer.setScissorTest(false);
     renderer.setRenderTarget(prevTarget);
+    renderer.setViewport(prevViewport);
+    renderer.setScissor(prevScissor);
+    renderer.setScissorTest(prevScissorTest);
     renderer.setClearColor(prevClearColor, prevClearAlpha);
     renderer.autoClear = prevAutoClear;
     renderer.shadowMap.enabled = prevShadowEnabled;
