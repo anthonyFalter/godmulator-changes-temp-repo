@@ -45,10 +45,8 @@ export const PerformanceHud: React.FC<PerformanceHudProps> = ({
           <h2 className="text-xs sm:text-sm font-bold text-[#f5b742] leading-tight">
             Performance
           </h2>
-          <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-[#9e9486] leading-none">
-            <span>{strictLossless ? 'Quality' : 'Dynamic'}</span>
-            <span aria-hidden="true">·</span>
-            <span>F3</span>
+          <div className="mt-0.5 text-[10px] text-[#9e9486] leading-none">
+            {strictLossless ? 'Quality' : 'Dynamic'} (F3)
           </div>
         </div>
 
@@ -72,7 +70,7 @@ export const PerformanceHud: React.FC<PerformanceHudProps> = ({
           <span className="text-[11px] text-[#a89f91]">Frame Rate</span>
           <span className="font-pixel-num text-xs font-bold tabular-nums whitespace-nowrap">
             <span className={fpsTextClass}>{stats.fps} fps</span>
-            <span className="text-[#9e9486] font-normal"> · {stats.frameMs.toFixed(1)} ms</span>
+            <span className="text-[#9e9486] font-normal"> ({stats.frameMs.toFixed(1)} ms)</span>
           </span>
         </div>
         <div

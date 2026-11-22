@@ -1067,7 +1067,7 @@ export default function App() {
               else if (rel === 'war') enemyCount++;
             });
             setStatusFeedback(
-              `${zInspect.kingdom.name}: ${allyCount} Allies (Blue) · ${enemyCount} Enemies (Red)`,
+              `${zInspect.kingdom.name}: ${allyCount} Allies (Blue), ${enemyCount} Enemies (Red)`,
             );
             soundEngine.playClick();
             setHudTick((t) => t + 1);
@@ -1400,7 +1400,7 @@ export default function App() {
         }
         setStatusFeedback(
           nextVal
-            ? 'Alliances ON · Click any kingdom zone to view Allies (Blue) & Enemies (Red)'
+            ? 'Alliances ON - Click any kingdom zone to view Allies (Blue) & Enemies (Red)'
             : `${label}: OFF`,
         );
       } else {
@@ -2417,13 +2417,10 @@ export default function App() {
                               </div>
                             )}
 
-                            <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] text-[#cfc6b8] tabular-nums">
+                            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#cfc6b8] tabular-nums">
                               <span className="text-[#f5b742] font-semibold">{epochName}</span>
-                              <span>·</span>
                               <span>{formatYearLabel(w.year)}</span>
-                              <span>·</span>
                               <span className="text-[#80ed99]">Pop: {w.population}</span>
-                              <span>·</span>
                               <span>
                                 {w.gridSize}×{w.gridSize}
                               </span>
@@ -3999,9 +3996,11 @@ export default function App() {
                             <span>World Info</span>
                           </button>
                         </div>
-                        <span className="hidden sm:inline text-[11px] text-[#a89f91] tabular-nums">
-                          {sim.worldName || 'World'} · {sim.gridSize}×{sim.gridSize} · Seed #{sim.seed}
-                        </span>
+                        <div className="hidden sm:flex items-center gap-3 text-[11px] text-[#a89f91] tabular-nums">
+                          <span>{sim.worldName || 'World'}</span>
+                          <span>{sim.gridSize}×{sim.gridSize}</span>
+                          <span>Seed #{sim.seed}</span>
+                        </div>
                       </div>
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-4 px-0.5">
@@ -4132,7 +4131,7 @@ export default function App() {
                             {hoveredZoneInfo.kingdom.maxPopulation > 0
                               ? `/${hoveredZoneInfo.kingdom.maxPopulation}`
                               : ''}
-                            {hoveredZoneInfo.isKingdomMaritime ? ' · Maritime Waters' : ''})
+                            {hoveredZoneInfo.isKingdomMaritime ? ', Maritime Waters' : ''})
                           </span>
                         )}
                         {hoveredZoneInfo.territory && (
@@ -4455,9 +4454,12 @@ export default function App() {
                   <h2 className="text-base font-bold text-[#f5b742] truncate">
                     {sim.worldName || 'World Info'}
                   </h2>
-                  <p className="text-[11px] text-[#a89f91] mt-0.5 tabular-nums">
-                    {formatYearLabel(sim.year)} · {currentEpoch.name} · {sim.gridSize}×{sim.gridSize} · Seed #{sim.seed}
-                  </p>
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-[#a89f91] mt-0.5 tabular-nums">
+                    <span>{formatYearLabel(sim.year)}</span>
+                    <span>{currentEpoch.name}</span>
+                    <span>{sim.gridSize}×{sim.gridSize}</span>
+                    <span>Seed #{sim.seed}</span>
+                  </div>
                 </div>
                 <button
                   type="button"
@@ -4485,9 +4487,9 @@ export default function App() {
                     </span>
                   </div>
                   <div className="flex items-center justify-between tabular-nums">
-                    <span className="text-[#a89f91]">Humans · Elves · Orcs</span>
+                    <span className="text-[#a89f91]">Humans / Elves / Orcs</span>
                     <span className="text-[#f2ece1]">
-                      {livingHumans.toLocaleString()} · {livingElves.toLocaleString()} · {livingOrcs.toLocaleString()}
+                      {livingHumans.toLocaleString()} / {livingElves.toLocaleString()} / {livingOrcs.toLocaleString()}
                     </span>
                   </div>
                   <div className="flex items-center justify-between tabular-nums">
@@ -4554,16 +4556,20 @@ export default function App() {
                     </span>
                   </div>
                   <div className="flex items-center justify-between tabular-nums">
-                    <span className="text-[#a89f91]">Active Wars · Alliances</span>
-                    <span className="text-[#f2ece1]">
-                      {activeWars} · {activeAlliances}
-                    </span>
+                    <span className="text-[#a89f91]">Active Wars</span>
+                    <span className="text-[#f2ece1]">{activeWars}</span>
                   </div>
                   <div className="flex items-center justify-between tabular-nums">
-                    <span className="text-[#a89f91]">Total Wars · Rebellions</span>
-                    <span className="text-[#f2ece1]">
-                      {wStats.warsStarted.toLocaleString()} · {wStats.rebellionsTriggered.toLocaleString()}
-                    </span>
+                    <span className="text-[#a89f91]">Active Alliances</span>
+                    <span className="text-[#f2ece1]">{activeAlliances}</span>
+                  </div>
+                  <div className="flex items-center justify-between tabular-nums">
+                    <span className="text-[#a89f91]">Total Wars</span>
+                    <span className="text-[#f2ece1]">{wStats.warsStarted.toLocaleString()}</span>
+                  </div>
+                  <div className="flex items-center justify-between tabular-nums">
+                    <span className="text-[#a89f91]">Rebellions</span>
+                    <span className="text-[#f2ece1]">{wStats.rebellionsTriggered.toLocaleString()}</span>
                   </div>
                 </div>
 

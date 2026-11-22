@@ -223,7 +223,7 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                   type="button"
                   onClick={() => onFocusUnit(selectedUnit)}
                   aria-label={isFollowing ? 'Stop following entity' : 'Follow entity with camera'}
-                  title={isFollowing ? 'Following entity · Click to stop' : 'Follow entity with camera'}
+                  title={isFollowing ? 'Following entity (click to stop)' : 'Follow entity with camera'}
                   className={`w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center cursor-pointer transition-colors ${
                     isFollowing
                       ? 'px-btn-active text-[#80ed99] border-[#40916c]'
@@ -358,9 +358,12 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
               {profile.informations.statusEffects.length > 0 && (
                 <div className="space-y-1 pt-1">
                   <div className="text-[11px] text-[#8f8679]">Active effects</div>
-                  <div className="text-xs text-[#80ed99] flex flex-wrap gap-x-2 gap-y-0.5">
-                    {profile.informations.statusEffects.map((eff) => (
-                      <span key={eff}>· {formatEffectName(eff)}</span>
+                  <div className="text-xs text-[#80ed99] flex flex-wrap gap-x-1.5 gap-y-0.5">
+                    {profile.informations.statusEffects.map((eff, idx, arr) => (
+                      <span key={eff}>
+                        {formatEffectName(eff)}
+                        {idx < arr.length - 1 ? ',' : ''}
+                      </span>
                     ))}
                   </div>
                 </div>

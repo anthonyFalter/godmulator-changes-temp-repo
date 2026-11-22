@@ -15810,7 +15810,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
                     className="text-[10px] font-semibold leading-none"
                     style={{ color: `color-mix(in srgb, ${kingdomHex} 45%, #e5dfd3)` }}
                   >
-                    · {kingdomName}
+                    of {kingdomName}
                   </span>
                 )}
               </div>
