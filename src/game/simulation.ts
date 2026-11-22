@@ -363,6 +363,13 @@ function createUniqueUnitName(
     kraken: ['Cthul', 'Tidebreaker', 'Inkmaw', 'Davy', 'Nautilus', 'Abyss', 'Scylla', 'Riptide', 'Trench', 'Gorgon', 'Bloop', 'Swell'],
     manticore: ['Stinger', 'Crimson', 'Venomtail', 'Maw', 'Scorpion', 'Raze', 'Fury', 'Brimclaw', 'Gorgor', 'Barb', 'Cinder', 'Bane'],
     gargoyle: ['Granite', 'Spire', 'Belfry', 'Obsidian', 'Goliath', 'Perch', 'Slate', 'Stonewing', 'Crag', 'Sentinel', 'Vesper', 'Basalt'],
+    giant_spider: ['Arachne', 'Shelob', 'Venomfang', 'Widow', 'Silkspinner', 'Blightweaver', 'Tarantula', 'Nox', 'Webclaw', 'Mirebite', 'Chitin', 'Skitter'],
+    firefly: ['Glimmer', 'Spark', 'Flicker', 'Lumen', 'Twinkle', 'Glowbug', 'Beam', 'Dusk', 'Shimmer', 'Wink', 'Flash', 'Ember'],
+    glow_moth: ['Luna', 'Selene', 'Moonwing', 'Mist', 'Crescent', 'Sylph', 'Velvet', 'Luster', 'Aurora', 'Nyx', 'Gossamer', 'Opal'],
+    lantern_jelly: ['Lumina', 'Aurelia', 'Drift', 'Beacon', 'Pulse', 'Prism', 'Astra', 'Halo', 'Nimbus', 'Glim', 'Lantern', 'Float'],
+    fairy: ['Pip', 'Tinker', 'Blossom', 'Starlight', 'Dewdrop', 'Pixie', 'Petal', 'Sparkle', 'Breeze', 'Lilly', 'Sunbeam', 'Twinkle'],
+    fae: ['Sylvan', 'Oberon', 'Titania', 'Elara', 'Thistle', 'Briar', 'Feywild', 'Grove', 'Verdant', 'Aether', 'Lyra', 'Willow'],
+    will_o_wisp: ['Ignis', 'Wisp', 'Phantom', 'Mirelight', 'Lantern', 'Specter', 'Eerie', 'Glimmer', 'Shade', 'Drift', 'Aether', 'Cinder'],
   };
 
   const creaturePool = CREATURE_NAMES[role];
@@ -1186,6 +1193,21 @@ export const WORLD_TEMPLATES: WorldTemplatePreset[] = [
     },
   },
   {
+    id: 'single_biome',
+    name: 'Single Biome',
+    tagline: 'One biome across the world',
+    description: 'Choose any biome to cover the entire landmass. All god powers remain available.',
+    badge: 'Biome',
+    accentColor: '#34d399',
+    defaultWorldName: 'My World',
+    seaLevel: 'normal',
+    mountainDensity: 'normal',
+    climate: 'temperate',
+    rules: {
+      ...DEFAULT_WORLD_RULES,
+    },
+  },
+  {
     id: 'custom',
     name: 'Custom',
     tagline: 'Tune land & climate',
@@ -1202,6 +1224,36 @@ export const WORLD_TEMPLATES: WorldTemplatePreset[] = [
   },
 ];
 
+export interface SingleBiomeOption {
+  id: TerrainType;
+  label: string;
+  swatch: string;
+}
+
+export const SINGLE_BIOME_OPTIONS: SingleBiomeOption[] = [
+  { id: 'grass', label: 'Grasslands', swatch: '#5fa853' },
+  { id: 'fertile', label: 'Fertile Meadow', swatch: '#4f9d45' },
+  { id: 'forest', label: 'Woodland Forest', swatch: '#3c7a3e' },
+  { id: 'jungle', label: 'Tropical Jungle', swatch: '#2b6e3f' },
+  { id: 'savanna', label: 'Golden Savanna', swatch: '#b7a14a' },
+  { id: 'swamp', label: 'Misty Swamp', swatch: '#4c6642' },
+  { id: 'sand', label: 'Arid Desert', swatch: '#d6bc72' },
+  { id: 'badlands', label: 'Red Badlands', swatch: '#b96543' },
+  { id: 'highland', label: 'Alpine Highlands', swatch: '#6d875c' },
+  { id: 'mountain', label: 'Mountain Peaks', swatch: '#777b82' },
+  { id: 'rock', label: 'Rocky Crags', swatch: '#6c6c6c' },
+  { id: 'taiga', label: 'Boreal Taiga', swatch: '#3f6a56' },
+  { id: 'tundra', label: 'Arctic Tundra', swatch: '#8a9b8e' },
+  { id: 'snow', label: 'Snowfields', swatch: '#dce8f2' },
+  { id: 'blossom', label: 'Blossom Grove', swatch: '#d98fb3' },
+  { id: 'crystal_field', label: 'Crystal Field', swatch: '#56cfe1' },
+  { id: 'volcanic_wasteland', label: 'Volcanic Wasteland', swatch: '#4a2b24' },
+  { id: 'blighted_mire', label: 'Land of Blight', swatch: '#5a356d' },
+  { id: 'floral_plains', label: 'Floral Plains', swatch: '#75c46b' },
+  { id: 'scorched', label: 'Scorched Ashlands', swatch: '#443b37' },
+  { id: 'void_goo', label: 'Void Mire', swatch: '#35224d' },
+];
+
 export function createWorldConfigFromTemplate(
   templateId: WorldTemplateId,
   overrides?: Partial<WorldGenConfig>,
@@ -1212,6 +1264,10 @@ export function createWorldConfigFromTemplate(
     seed: overrides?.seed ?? normalizeSeed(undefined),
     gridSize: overrides?.gridSize ?? 128,
     template: templateId,
+    singleBiome:
+      templateId === 'single_biome'
+        ? (overrides?.singleBiome ?? 'forest')
+        : overrides?.singleBiome,
     seaLevel: overrides?.seaLevel ?? preset.seaLevel,
     mountainDensity: overrides?.mountainDensity ?? preset.mountainDensity,
     climate: overrides?.climate ?? preset.climate,
@@ -1246,6 +1302,7 @@ export function createInitialSimulationState(
 
   const tiles = generateWorldTiles(resolvedGridSize, seed, {
     template,
+    singleBiome: config?.singleBiome,
     seaLevelBias,
     mountainBias,
     climateBias,
@@ -1927,6 +1984,7 @@ export function isCultivableSoil(t: TileData): boolean {
     t.terrain === 'savanna' ||
     t.terrain === 'jungle' ||
     t.terrain === 'blossom' ||
+    t.terrain === 'floral_plains' ||
     t.terrain === 'taiga'
   );
 }
@@ -1935,7 +1993,12 @@ export function isHealthyTreeSoil(t: TileData): boolean {
   if (isCultivableSoil(t)) return true;
   if (t.height <= 0 || t.height >= 6) return false;
   if (t.onFireTimer > 0 || t.cursedTimer > 0) return false;
-  return t.terrain === 'swamp' || t.terrain === 'highland';
+  return (
+    t.terrain === 'swamp' ||
+    t.terrain === 'highland' ||
+    t.terrain === 'volcanic_wasteland' ||
+    t.terrain === 'blighted_mire'
+  );
 }
 
 function isBlossomSoil(t: TileData): boolean {
@@ -1947,6 +2010,7 @@ function isBlossomSoil(t: TileData): boolean {
     t.terrain === 'savanna' ||
     t.terrain === 'jungle' ||
     t.terrain === 'blossom' ||
+    t.terrain === 'floral_plains' ||
     t.terrain === 'taiga'
   );
 }
@@ -1958,13 +2022,13 @@ function getBiomeResourceDeposit(
   z: number,
 ): { node: TileData['resourceNode']; amount: number } {
   if (toolType === 'boulder_rain') {
-    if (terrain === 'mountain' || terrain === 'rock' || terrain === 'highland') {
+    if (terrain === 'mountain' || terrain === 'rock' || terrain === 'highland' || terrain === 'volcanic_wasteland') {
       return { node: 'stone_outcrop', amount: 440 };
     }
-    if (terrain === 'scorched' || terrain === 'badlands') {
+    if (terrain === 'scorched' || terrain === 'badlands' || terrain === 'blighted_mire') {
       return { node: 'stone_outcrop', amount: 400 };
     }
-    if (terrain === 'snow' || terrain === 'tundra') {
+    if (terrain === 'snow' || terrain === 'tundra' || terrain === 'floral_plains') {
       return { node: 'stone_outcrop', amount: 360 };
     }
     if (terrain === 'sand' || terrain === 'savanna') {
@@ -1976,16 +2040,16 @@ function getBiomeResourceDeposit(
     if (terrain === 'crystal_field') {
       return { node: 'crystal_monolith', amount: 440 };
     }
-    if (terrain === 'mountain' || terrain === 'rock' || terrain === 'scorched') {
+    if (terrain === 'mountain' || terrain === 'rock' || terrain === 'scorched' || terrain === 'volcanic_wasteland') {
       return {
         node: (x + z) % 4 === 0 ? 'crystal_monolith' : 'ore_vein',
         amount: 420,
       };
     }
-    if (terrain === 'badlands' || terrain === 'sand' || terrain === 'highland') {
+    if (terrain === 'badlands' || terrain === 'sand' || terrain === 'highland' || terrain === 'blighted_mire') {
       return { node: 'ore_vein', amount: 360 };
     }
-    if (terrain === 'snow' || terrain === 'tundra') {
+    if (terrain === 'snow' || terrain === 'tundra' || terrain === 'floral_plains') {
       return {
         node: (x + z) % 4 === 0 ? 'crystal_monolith' : 'ore_vein',
         amount: 340,
@@ -1994,10 +2058,10 @@ function getBiomeResourceDeposit(
     return { node: 'ore_vein', amount: 300 };
   }
   // crystal_shower
-  if (terrain === 'crystal_field' || terrain === 'mountain' || terrain === 'snow') {
+  if (terrain === 'crystal_field' || terrain === 'mountain' || terrain === 'snow' || terrain === 'floral_plains') {
     return { node: 'crystal_monolith', amount: 480 };
   }
-  if (terrain === 'rock' || terrain === 'scorched' || terrain === 'blossom') {
+  if (terrain === 'rock' || terrain === 'scorched' || terrain === 'blossom' || terrain === 'volcanic_wasteland' || terrain === 'blighted_mire') {
     return { node: 'crystal_monolith', amount: 420 };
   }
   return { node: 'crystal_monolith', amount: 360 };
@@ -2007,6 +2071,7 @@ function raiseWaterTileToLand(t: TileData, terrain: TerrainType, height = 1): vo
   t.height = Math.max(1, Math.min(10, height));
   t.terrain = terrain;
   t.isRiver = false;
+  delete t.waterKind;
   delete t.frozenWaterBase;
   delete t.coralBleachTimer;
   t.onFireTimer = 0;
@@ -2033,9 +2098,17 @@ export function canApplyTerrainToolToTile(
     case 'lower':
     case 'flatten':
     case 'carve_river':
+    case 'lava_river':
+    case 'poison_river':
     case 'abyssal_trench':
     case 'alpine_glacier':
     case 'volcanic_obsidian':
+    case 'volcanic_wasteland':
+    case 'canyon_carve':
+    case 'mesa_plateau':
+    case 'volcanic_crater':
+    case 'smooth_terrain':
+    case 'island_bridge':
       return true;
     case 'seed_ore':
     case 'crystal_shower':
@@ -2049,7 +2122,8 @@ export function canApplyTerrainToolToTile(
     case 'plant_forest':
       return isHealthyTreeSoil(t) && !t.buildingId;
     case 'blossom_rain':
-      return isBlossomSoil(t);
+    case 'floral_rain':
+      return isBlossomSoil(t) || (toolType === 'floral_rain' && t.height > 0 && !t.buildingId);
     case 'jungle_bloom':
       return isCultivableSoil(t) || (t.height > 0 && t.terrain === 'swamp');
     case 'soil_enrich':
@@ -2057,6 +2131,8 @@ export function canApplyTerrainToolToTile(
         t.height > 0 &&
         (t.terrain === 'scorched' ||
           t.terrain === 'void_goo' ||
+          t.terrain === 'volcanic_wasteland' ||
+          t.terrain === 'blighted_mire' ||
           t.terrain === 'badlands' ||
           t.terrain === 'rock' ||
           t.terrain === 'swamp' ||
@@ -2075,6 +2151,8 @@ export function canApplyTerrainToolToTile(
     case 'atlantis_rise':
       return t.height === 0 && !t.buildingId;
     case 'swamp_mire':
+    case 'blighted_mire':
+    case 'floral_plains':
       return t.height > 0 && !t.buildingId;
   }
 }
@@ -2084,6 +2162,8 @@ function applyTerrainToolTileMutation(
   toolType: TerrainToolType,
   targetFlattenHeight: number,
   _centerHeight: number,
+  normDist = 0,
+  state?: SimulationState,
 ): boolean {
   let tileModified = false;
   switch (toolType) {
@@ -2103,6 +2183,7 @@ function applyTerrainToolTileMutation(
             } else if (t.height >= 5) {
               if (
                 t.terrain !== 'scorched' &&
+                t.terrain !== 'volcanic_wasteland' &&
                 t.terrain !== 'crystal_field' &&
                 t.terrain !== 'rock' &&
                 t.terrain !== 'badlands'
@@ -2157,7 +2238,7 @@ function applyTerrainToolTileMutation(
       } else if (t.height > 0) {
         t.height = targetFlattenHeight;
         if (t.height >= 8) t.terrain = 'snow';
-        else if (t.height >= 5 && t.terrain !== 'scorched' && t.terrain !== 'badlands' && t.terrain !== 'rock') {
+        else if (t.height >= 5 && t.terrain !== 'scorched' && t.terrain !== 'volcanic_wasteland' && t.terrain !== 'badlands' && t.terrain !== 'rock') {
           t.terrain = 'mountain';
         } else if (
           t.height < 5 &&
@@ -2275,6 +2356,31 @@ function applyTerrainToolTileMutation(
           }
           break;
         }
+        case 'floral_rain': {
+          if (t.height > 0 && !t.buildingId) {
+            t.terrain = 'floral_plains';
+            t.onFireTimer = 0;
+            t.cursedTimer = 0;
+            clearBurntTreeState(t);
+            t.blessedTimer = Math.max(t.blessedTimer, 22);
+            const roll = (t.x * 7 + t.z * 11) % 6;
+            if (roll === 0) {
+              t.resourceNode = 'stone_outcrop';
+              t.resourceAmount = 260;
+              delete t.treeBiomeOverride;
+            } else if (roll <= 2) {
+              t.resourceNode = 'berry_bush';
+              t.resourceAmount = 260;
+              delete t.treeBiomeOverride;
+            } else {
+              t.resourceNode = 'timber_grove';
+              t.resourceAmount = 300;
+              t.treeBiomeOverride = 'floral';
+            }
+            tileModified = true;
+          }
+          break;
+        }
         case 'jungle_bloom': {
           if (isCultivableSoil(t) || (t.height > 0 && t.terrain === 'swamp')) {
             t.terrain = 'jungle';
@@ -2294,6 +2400,8 @@ function applyTerrainToolTileMutation(
             const harsh =
               t.terrain === 'scorched' ||
               t.terrain === 'void_goo' ||
+              t.terrain === 'volcanic_wasteland' ||
+              t.terrain === 'blighted_mire' ||
               t.terrain === 'badlands' ||
               t.terrain === 'rock' ||
               t.terrain === 'swamp' ||
@@ -2351,6 +2459,85 @@ function applyTerrainToolTileMutation(
           tileModified = true;
           break;
         }
+        case 'volcanic_wasteland': {
+          if (t.height === 0) {
+            raiseWaterTileToLand(t, 'volcanic_wasteland', 1);
+          } else {
+            t.terrain = 'volcanic_wasteland';
+            clearBurntTreeState(t);
+            delete t.treeBiomeOverride;
+          }
+          t.tempOffset = Math.min(65, Math.max(t.tempOffset ?? 0, 26));
+          if (!t.buildingId) {
+            const roll = (t.x * 13 + t.z * 17) % 7;
+            if (roll <= 1) {
+              t.resourceNode = 'timber_grove';
+              t.resourceAmount = 240;
+            } else if (roll === 2) {
+              t.resourceNode = 'ore_vein';
+              t.resourceAmount = 360;
+            } else if (roll === 3) {
+              t.resourceNode = 'stone_outcrop';
+              t.resourceAmount = 310;
+            } else {
+              t.resourceNode = 'none';
+              t.resourceAmount = 0;
+            }
+          }
+          tileModified = true;
+          break;
+        }
+        case 'blighted_mire': {
+          if (t.height > 0 && !t.buildingId) {
+            if (t.height > 3) t.height = 3;
+            t.terrain = 'blighted_mire';
+            t.onFireTimer = 0;
+            clearBurntTreeState(t);
+            delete t.treeBiomeOverride;
+            const roll = (t.x * 11 + t.z * 19) % 7;
+            if (roll <= 2) {
+              t.resourceNode = 'timber_grove';
+              t.resourceAmount = 230;
+            } else if (roll === 3) {
+              t.resourceNode = 'stone_outcrop';
+              t.resourceAmount = 270;
+            } else if (roll === 4) {
+              t.resourceNode = 'ore_vein';
+              t.resourceAmount = 300;
+            } else {
+              t.resourceNode = 'none';
+              t.resourceAmount = 0;
+            }
+            tileModified = true;
+          }
+          break;
+        }
+        case 'floral_plains': {
+          if (t.height > 0 && !t.buildingId) {
+            t.terrain = 'floral_plains';
+            t.onFireTimer = 0;
+            t.cursedTimer = 0;
+            t.blessedTimer = Math.max(t.blessedTimer, 18);
+            clearBurntTreeState(t);
+            delete t.treeBiomeOverride;
+            const roll = (t.x * 9 + t.z * 13) % 8;
+            if (roll <= 2) {
+              t.resourceNode = 'timber_grove';
+              t.resourceAmount = 270;
+            } else if (roll <= 4) {
+              t.resourceNode = 'berry_bush';
+              t.resourceAmount = 240;
+            } else if (roll === 5) {
+              t.resourceNode = 'stone_outcrop';
+              t.resourceAmount = 250;
+            } else {
+              t.resourceNode = 'none';
+              t.resourceAmount = 0;
+            }
+            tileModified = true;
+          }
+          break;
+        }
         case 'coral_reef_rain': {
           if (t.height === 0) {
             if (t.terrain === 'ice') {
@@ -2384,13 +2571,26 @@ function applyTerrainToolTileMutation(
         }
         case 'carve_river': {
           tileModified = true;
-          if (t.height >= 3) {
+          if (t.height === 0 && t.waterKind === 'lava') {
+            // Water poured onto lava cools & solidifies into stone!
+            t.height = 1;
+            t.terrain = 'rock';
+            delete t.waterKind;
+            t.isRiver = false;
+            t.isLake = false;
+            t.onFireTimer = 0;
+            if ((t.x * 7 + t.z * 13) % 3 === 0) {
+              t.resourceNode = 'stone_outcrop';
+              t.resourceAmount = 220;
+            }
+          } else if (t.height >= 3) {
             t.height = Math.max(1, t.height - 2);
             if (t.terrain === 'snow' || t.terrain === 'rock') t.terrain = 'rock';
           } else {
             t.height = 0;
             t.terrain = 'shallow_water';
             t.isRiver = true;
+            delete t.waterKind;
             t.resourceNode = 'none';
             t.resourceAmount = 0;
             t.onFireTimer = 0;
@@ -2398,10 +2598,90 @@ function applyTerrainToolTileMutation(
           }
           break;
         }
+        case 'lava_river': {
+          tileModified = true;
+          if (state) specialLiquidPossibleByState.set(state, true);
+          if (t.height === 0 && t.waterKind === 'poison') {
+            // Lava + Poison -> violent corrosive crater!
+            t.height = 0;
+            t.terrain = 'scorched';
+            delete t.waterKind;
+            t.isRiver = false;
+            t.isLake = false;
+            t.cursedTimer = Math.max(t.cursedTimer, 10);
+            t.resourceNode = 'none';
+            t.resourceAmount = 0;
+          } else if (t.height === 0 && !t.waterKind && t.terrain !== 'ice') {
+            // Lava + Water -> cools & hardens into stone!
+            t.height = 1;
+            t.terrain = 'rock';
+            delete t.waterKind;
+            t.isRiver = false;
+            t.isLake = false;
+            t.onFireTimer = 0;
+            if ((t.x * 11 + t.z * 5) % 3 === 0) {
+              t.resourceNode = 'stone_outcrop';
+              t.resourceAmount = 220;
+            }
+          } else {
+            t.height = 0;
+            t.terrain = 'shallow_water';
+            t.waterKind = 'lava';
+            t.isRiver = true;
+            t.tempOffset = Math.min(80, Math.max(t.tempOffset ?? 0, 35));
+            delete t.frozenWaterBase;
+            t.resourceNode = 'none';
+            t.resourceAmount = 0;
+            t.onFireTimer = 0;
+            t.farmSettlementId = undefined;
+            clearBurntTreeState(t);
+            delete t.treeBiomeOverride;
+          }
+          break;
+        }
+        case 'poison_river': {
+          tileModified = true;
+          if (state) specialLiquidPossibleByState.set(state, true);
+          if (t.height === 0 && t.waterKind === 'lava') {
+            // Poison + Lava -> violent corrosive crater!
+            t.height = 0;
+            t.terrain = 'scorched';
+            delete t.waterKind;
+            t.isRiver = false;
+            t.isLake = false;
+            t.cursedTimer = Math.max(t.cursedTimer, 10);
+            t.resourceNode = 'none';
+            t.resourceAmount = 0;
+          } else {
+            t.height = 0;
+            t.terrain = 'shallow_water';
+            t.waterKind = 'poison';
+            t.isRiver = true;
+            delete t.frozenWaterBase;
+            t.resourceNode = 'none';
+            t.resourceAmount = 0;
+            t.onFireTimer = 0;
+            t.farmSettlementId = undefined;
+            clearBurntTreeState(t);
+            delete t.treeBiomeOverride;
+          }
+          break;
+        }
         case 'abyssal_trench': {
+          if (t.height === 0 && t.waterKind === 'lava') {
+            t.height = 1;
+            t.terrain = 'rock';
+            delete t.waterKind;
+            t.isRiver = false;
+            t.isLake = false;
+            t.onFireTimer = 0;
+            tileModified = true;
+            break;
+          }
           t.height = 0;
           t.terrain = 'deep_water';
           t.isRiver = false;
+          delete t.waterKind;
           delete t.frozenWaterBase;
           t.resourceNode = 'none';
           t.resourceAmount = 0;
@@ -2458,6 +2738,95 @@ function applyTerrainToolTileMutation(
           }
           break;
         }
+        case 'canyon_carve': {
+          if (t.height > 0 && !t.buildingId) {
+            const drop = normDist <= 0.55 ? 3 : 1;
+            t.height = Math.max(1, t.height - drop);
+            t.terrain = normDist <= 0.45 ? 'rock' : 'badlands';
+            if (t.resourceNode === 'berry_bush' || t.resourceNode === 'timber_grove') {
+              t.resourceNode = 'none';
+              t.resourceAmount = 0;
+              delete t.treeBiomeOverride;
+            }
+            tileModified = true;
+          }
+          break;
+        }
+        case 'mesa_plateau': {
+          if (!t.buildingId) {
+            if (t.height === 0) raiseWaterTileToLand(t, 'badlands', 1);
+            const targetH = normDist <= 0.62
+              ? Math.min(9, Math.max(5, targetFlattenHeight + 3))
+              : Math.min(7, Math.max(3, targetFlattenHeight + 1));
+            t.height = Math.max(t.height, targetH);
+            t.terrain = normDist <= 0.62 ? 'badlands' : 'highland';
+            if (t.resourceNode === 'berry_bush' || t.resourceNode === 'timber_grove') {
+              t.resourceNode = 'none';
+              t.resourceAmount = 0;
+              delete t.treeBiomeOverride;
+            }
+            tileModified = true;
+          }
+          break;
+        }
+        case 'volcanic_crater': {
+          if (!t.buildingId) {
+            if (t.height === 0) raiseWaterTileToLand(t, 'rock', 1);
+            if (normDist <= 0.52) {
+              t.height = Math.max(1, targetFlattenHeight - 2);
+              t.terrain = 'rock';
+            } else {
+              t.height = Math.min(9, Math.max(t.height, targetFlattenHeight + 2));
+              t.terrain = t.height >= 5 ? 'mountain' : 'rock';
+            }
+            if (t.resourceNode === 'berry_bush' || t.resourceNode === 'timber_grove') {
+              t.resourceNode = 'none';
+              t.resourceAmount = 0;
+              delete t.treeBiomeOverride;
+            }
+            tileModified = true;
+          }
+          break;
+        }
+        case 'smooth_terrain': {
+          if (state && !t.buildingId) {
+            let sum = 0;
+            let cnt = 0;
+            for (let oz = -1; oz <= 1; oz++) {
+              for (let ox = -1; ox <= 1; ox++) {
+                const nt = getTile(state, t.x + ox, t.z + oz);
+                if (nt) {
+                  sum += nt.height;
+                  cnt++;
+                }
+              }
+            }
+            if (cnt > 0) {
+              const avg = Math.round(sum / cnt);
+              if (avg !== t.height) {
+                if (t.height === 0 && avg > 0) {
+                  raiseWaterTileToLand(t, 'sand', avg);
+                } else if (t.height > 0 && avg === 0) {
+                  t.height = 0;
+                  t.terrain = 'shallow_water';
+                  t.resourceNode = 'none';
+                  t.resourceAmount = 0;
+                } else {
+                  t.height = avg;
+                }
+                tileModified = true;
+              }
+            }
+          }
+          break;
+        }
+        case 'island_bridge': {
+          if (t.height === 0 && !t.buildingId) {
+            raiseWaterTileToLand(t, 'stone_road', 1);
+            tileModified = true;
+          }
+          break;
+        }
       }
   return tileModified;
 }
@@ -2475,7 +2844,7 @@ export function executeTerrainDropTileImpact(
   if (!changed) return false;
 
   if (!options?.skipSync) {
-    if (toolType === 'blossom_rain') {
+    if (toolType === 'blossom_rain' || toolType === 'floral_rain') {
       const clearRadiusSq = 2.25 * 2.25;
       for (const u of state.units) {
         if (
@@ -2484,7 +2853,8 @@ export function executeTerrainDropTileImpact(
           (u.x - tileX) ** 2 + (u.z - tileZ) ** 2 <= clearRadiusSq
         ) {
           u.statusEffects.cursed = 0;
-          u.hp = Math.min(u.maxHp, u.hp + 15);
+          u.statusEffects.plagued = 0;
+          u.hp = Math.min(u.maxHp, u.hp + 18);
         }
       }
     }
@@ -2525,7 +2895,7 @@ export function executeTerrainDropBatchImpact(
 
   if (changedCount === 0) return 0;
 
-  if (toolType === 'blossom_rain') {
+  if (toolType === 'blossom_rain' || toolType === 'floral_rain') {
     const pad = 2.25;
     const cx = (minX + maxX) * 0.5;
     const cz = (minZ + maxZ) * 0.5;
@@ -2539,7 +2909,8 @@ export function executeTerrainDropBatchImpact(
       const dz = u.z - cz;
       if (dx * dx + dz * dz <= rSq) {
         u.statusEffects.cursed = 0;
-        u.hp = Math.min(u.maxHp, u.hp + 15);
+        u.statusEffects.plagued = 0;
+        u.hp = Math.min(u.maxHp, u.hp + 18);
       }
     }
   }
@@ -2547,6 +2918,169 @@ export function executeTerrainDropBatchImpact(
   reconcileAndSyncResources(state);
   recalculateRatesAndCaps(state);
   return changedCount;
+}
+
+const POISON_CORRUPTIBLE_SOILS = new Set<TerrainType>([
+  'grass',
+  'fertile',
+  'savanna',
+  'forest',
+  'jungle',
+  'taiga',
+  'blossom',
+  'floral_plains',
+  'sand',
+  'tundra',
+  'swamp',
+]);
+
+/**
+ * Resolves emergent elemental liquid & terrain reactions in a bounded radius:
+ * - Lava + Water -> cools & hardens into solid stone (+ steam VFX)
+ * - Lava + Poison -> violent corrosive crater (+ acid-magma VFX + unit damage)
+ * - Poison + Dirt/Grass/Soil -> corrupts shoreline into purple Land of Blight (blighted_mire)
+ * - Lava + Flammable land/trees/buildings -> sets surroundings on fire
+ */
+function resolveLiquidReactionsAround(
+  state: SimulationState,
+  cx: number,
+  cz: number,
+  radius: number,
+): void {
+  const gs = state.gridSize;
+  const r = Math.ceil(radius) + 1;
+  const minX = Math.max(0, Math.floor(cx - r));
+  const maxX = Math.min(gs - 1, Math.ceil(cx + r));
+  const minZ = Math.max(0, Math.floor(cz - r));
+  const maxZ = Math.min(gs - 1, Math.ceil(cz + r));
+  const dirs: ReadonlyArray<[number, number]> = [
+    [1, 0],
+    [-1, 0],
+    [0, 1],
+    [0, -1],
+  ];
+
+  let steamVfxCount = 0;
+  let corrodeVfxCount = 0;
+
+  for (let z = minZ; z <= maxZ; z++) {
+    const rowOff = z * gs;
+    for (let x = minX; x <= maxX; x++) {
+      const t = state.tiles[rowOff + x];
+      if (!t || t.height !== 0) continue;
+
+      if (t.waterKind === 'lava') {
+        specialLiquidPossibleByState.set(state, true);
+        let touchedWater = false;
+        let touchedPoison = false;
+        for (let d = 0; d < 4; d++) {
+          const nx = x + dirs[d][0];
+          const nz = z + dirs[d][1];
+          if (nx < 0 || nz < 0 || nx >= gs || nz >= gs) continue;
+          const nb = state.tiles[nz * gs + nx];
+          if (!nb) continue;
+          if (nb.height === 0) {
+            if (nb.waterKind === 'poison') {
+              touchedPoison = true;
+              // Corrode the meeting poison tile too
+              nb.terrain = 'scorched';
+              delete nb.waterKind;
+              nb.isRiver = false;
+              nb.isLake = false;
+              nb.cursedTimer = Math.max(nb.cursedTimer, 10);
+            } else if (!nb.waterKind && nb.terrain !== 'ice') {
+              touchedWater = true;
+            } else if (nb.terrain === 'ice') {
+              nb.terrain = nb.frozenWaterBase ?? 'shallow_water';
+              delete nb.frozenWaterBase;
+              touchedWater = true;
+            }
+          } else if (
+            nb.blessedTimer <= 0 &&
+            (nb.buildingId ||
+              nb.resourceNode === 'timber_grove' ||
+              nb.resourceNode === 'berry_bush' ||
+              isFlammableVegetationTerrain(nb.terrain))
+          ) {
+            // Lava sets adjacent flammable vegetation & structures on fire!
+            nb.onFireTimer = Math.max(nb.onFireTimer, 4.5);
+          }
+        }
+
+        if (touchedPoison) {
+          t.height = 0;
+          t.terrain = 'scorched';
+          delete t.waterKind;
+          t.isRiver = false;
+          t.isLake = false;
+          t.cursedTimer = Math.max(t.cursedTimer, 10);
+          t.resourceNode = 'none';
+          t.resourceAmount = 0;
+          if (corrodeVfxCount < 4 && state.pendingVfx.length < 48) {
+            corrodeVfxCount++;
+            state.pendingVfx.push({
+              id: nextEntityId('vfx'),
+              type: 'hit_spark',
+              x: t.x,
+              y: 0.45,
+              z: t.z,
+              radius: 1.6,
+              color: '#a3e635',
+              createdAt: Date.now(),
+            });
+          }
+          // Corrosive blast damages nearby unshielded units
+          for (const u of state.units) {
+            if (u.state === 'ko' || u.statusEffects.shielded) continue;
+            if ((u.x - t.x) ** 2 + (u.z - t.z) ** 2 <= 9) {
+              u.hp = Math.max(0, u.hp - 28);
+              u.statusEffects.plagued = Math.max(u.statusEffects.plagued ?? 0, 8);
+            }
+          }
+        } else if (touchedWater) {
+          // Lava + Water -> cools into solid stone!
+          t.height = 1;
+          t.terrain = 'rock';
+          delete t.waterKind;
+          t.isRiver = false;
+          t.isLake = false;
+          t.onFireTimer = 0;
+          if ((t.x * 7 + t.z * 13) % 3 === 0) {
+            t.resourceNode = 'stone_outcrop';
+            t.resourceAmount = 220;
+          }
+          if (steamVfxCount < 4 && state.pendingVfx.length < 48) {
+            steamVfxCount++;
+            state.pendingVfx.push({
+              id: nextEntityId('vfx'),
+              type: 'hit_spark',
+              x: t.x,
+              y: 0.55,
+              z: t.z,
+              radius: 1.35,
+              color: '#e2e8f0',
+              createdAt: Date.now(),
+            });
+          }
+        }
+      } else if (t.waterKind === 'poison') {
+        specialLiquidPossibleByState.set(state, true);
+        // Poison touching dirt/grass/soil turns adjacent shoreline into purple Land of Blight!
+        for (let d = 0; d < 4; d++) {
+          const nx = x + dirs[d][0];
+          const nz = z + dirs[d][1];
+          if (nx < 0 || nz < 0 || nx >= gs || nz >= gs) continue;
+          const nb = state.tiles[nz * gs + nx];
+          if (!nb || nb.height <= 0 || nb.buildingId || nb.blessedTimer > 0) continue;
+          if (POISON_CORRUPTIBLE_SOILS.has(nb.terrain)) {
+            nb.terrain = 'blighted_mire';
+            nb.farmSettlementId = undefined;
+            delete nb.treeBiomeOverride;
+          }
+        }
+      }
+    }
+  }
 }
 
 export function applyTerrainTool(
@@ -2578,9 +3112,10 @@ export function applyTerrainTool(
       if (!isInsidePixelCircle(dx, dz, clampedRadius)) continue;
       const t = getTile(state, centerX + dx, centerZ + dz);
       if (!t) continue;
+      const normDist = clampedRadius > 0 ? Math.hypot(dx, dz) / clampedRadius : 0;
       const tileEligible = deferSkyImpact
         ? canApplyTerrainToolToTile(t, toolType, centerTile.height)
-        : applyTerrainToolTileMutation(t, toolType, targetFlattenHeight, centerTile.height);
+        : applyTerrainToolTileMutation(t, toolType, targetFlattenHeight, centerTile.height, normDist, state);
 
       if (tileEligible) {
         modifiedCount++;
@@ -2590,7 +3125,7 @@ export function applyTerrainTool(
   }
 
   if (modifiedCount === 0) {
-    if (toolType === 'plant_forest' || toolType === 'fertile_meadow' || toolType === 'blossom_rain') {
+    if (toolType === 'plant_forest' || toolType === 'fertile_meadow' || toolType === 'blossom_rain' || toolType === 'floral_rain') {
       return {
         ok: false,
         reason: 'Needs healthy land soil — revive barren land with Fertile Soil, Rain, or Bless first!',
@@ -2606,7 +3141,9 @@ export function applyTerrainTool(
       toolType === 'soil_enrich' ||
       toolType === 'jungle_bloom' ||
       toolType === 'desert_dunes' ||
-      toolType === 'swamp_mire'
+      toolType === 'swamp_mire' ||
+      toolType === 'blighted_mire' ||
+      toolType === 'floral_plains'
     ) {
       return {
         ok: false,
@@ -2622,12 +3159,13 @@ export function applyTerrainTool(
     return { ok: false, reason: 'Cannot apply tool on this terrain' };
   }
 
-  if (!deferSkyImpact && toolType === 'blossom_rain') {
+  if (!deferSkyImpact && (toolType === 'blossom_rain' || toolType === 'floral_rain')) {
     const clearRadiusSq = (clampedRadius + 2) ** 2;
     for (const u of state.units) {
       if (u.state !== 'ko' && u.faction !== 'hostile' && (u.x - centerX) ** 2 + (u.z - centerZ) ** 2 <= clearRadiusSq) {
         u.statusEffects.cursed = 0;
-        u.hp = Math.min(u.maxHp, u.hp + 15);
+        u.statusEffects.plagued = 0;
+        u.hp = Math.min(u.maxHp, u.hp + 18);
       }
     }
   }
@@ -2662,6 +3200,15 @@ export function applyTerrainTool(
       color: def.color,
       createdAt: Date.now(),
     });
+  }
+
+  if (
+    toolType === 'lava_river' ||
+    toolType === 'poison_river' ||
+    toolType === 'carve_river' ||
+    toolType === 'abyssal_trench'
+  ) {
+    resolveLiquidReactionsAround(state, centerTile.x, centerTile.z, clampedRadius + 1);
   }
 
   recalculateRatesAndCaps(state);
@@ -2885,6 +3432,9 @@ function getBaseBiomeTempC(terrain: TerrainType): number {
     case 'scorched': return 42;
     case 'crystal_field': return 7;
     case 'void_goo': return -18;
+    case 'volcanic_wasteland': return 46;
+    case 'blighted_mire': return 12;
+    case 'floral_plains': return 21;
   }
 }
 
@@ -2945,10 +3495,10 @@ function applyExpandingWaveSlice(
 
   switch (kind) {
     case 'heat_wave_zone': {
-      for (const t of state.tiles) {
+      forEachTileInBounds(state, targetX - maxR, targetX + maxR, targetZ - maxR, targetZ + maxR, (t) => {
         const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
-        if (dSq > tileMaxSq || dSq > maxRSq) continue;
-        if (prevR > 0 && dSq < tileMinSq) continue;
+        if (dSq > tileMaxSq || dSq > maxRSq) return;
+        if (prevR > 0 && dSq < tileMinSq) return;
         t.blessedTimer = 0;
         const normDistSq = dSq / Math.max(1, maxRSq);
         const heatDelta = normDistSq <= 0.58 ? 16 : 9;
@@ -2961,10 +3511,18 @@ function applyExpandingWaveSlice(
           if (t.terrain === 'ice' && effC >= 0) {
             t.terrain = t.frozenWaterBase ?? 'shallow_water';
             delete t.frozenWaterBase;
+          } else if (t.terrain === 'shallow_water' && !t.waterKind && (t.isRiver || t.isLake || normDistSq <= 0.45) && effC >= 34) {
+            // Heat Wave evaporates shallow lakes, rivers & shoals into parched desert sand!
+            t.height = 1;
+            t.terrain = 'sand';
+            t.isRiver = false;
+            t.isLake = false;
+            t.resourceNode = 'none';
+            t.resourceAmount = 0;
           } else if (effC >= 36) {
             damageOrBleachWaterTile(t, 140, false);
           }
-          continue;
+          return;
         }
 
         if (!t.buildingId || t.terrain === 'snow' || t.terrain === 'tundra') {
@@ -2978,31 +3536,27 @@ function applyExpandingWaveSlice(
             (t.terrain === 'swamp' ||
               t.terrain === 'fertile' ||
               t.terrain === 'blossom' ||
+              t.terrain === 'floral_plains' ||
               t.terrain === 'grass' ||
               t.terrain === 'forest') &&
-            effC >= 27
+            effC >= 25
           ) {
             t.terrain = 'savanna';
-          } else if (t.terrain === 'savanna' && effC >= 36) {
+            t.farmSettlementId = undefined;
+          } else if (t.terrain === 'savanna' && effC >= 34) {
             t.terrain = 'sand';
             t.farmSettlementId = undefined;
-          } else if ((t.terrain === 'sand' || t.terrain === 'badlands') && effC >= 48) {
-            t.terrain = 'scorched';
+          } else if ((t.terrain === 'sand' || t.terrain === 'badlands') && effC >= 46) {
+            t.terrain = 'badlands';
             t.farmSettlementId = undefined;
           }
         }
-
-        const isSuperheated = effC >= 42 || t.tempOffset >= 24;
-        const flammable =
-          t.resourceNode === 'timber_grove' ||
-          t.resourceNode === 'berry_bush' ||
-          isFlammableVegetationTerrain(t.terrain) ||
-          t.terrain === 'scorched' ||
-          Boolean(t.buildingId);
-        if (isSuperheated && flammable && (normDistSq <= 0.32 || (allowSpread && ((t.x * 13 + t.z * 7) % 3 === 0)))) {
-          t.onFireTimer = Math.max(t.onFireTimer, 6.5);
+        // Drought withers berry bushes without turning Heat Wave into a duplicate Firestorm
+        if (effC >= 38 && t.resourceNode === 'berry_bush') {
+          t.resourceNode = 'none';
+          t.resourceAmount = 0;
         }
-      }
+      });
       for (const u of state.units) {
         if (u.state === 'ko' || u.statusEffects.shielded || appliedIds.has(u.id)) continue;
         const dSq = (u.x - targetX) ** 2 + (u.z - targetZ) ** 2;
@@ -3351,6 +3905,36 @@ function applyExpandingWaveSlice(
   }
 }
 
+function findTargetedKingdomId(
+  state: SimulationState,
+  targetX: number,
+  targetZ: number,
+  maxRadius: number,
+): string | undefined {
+  const maxSq = maxRadius * maxRadius;
+  let bestKid: string | undefined;
+  let bestDistSq = maxSq;
+  for (const b of state.buildings) {
+    if (!b.settlementId || b.hp <= 0) continue;
+    const dSq = (b.tileX - targetX) ** 2 + (b.tileZ - targetZ) ** 2;
+    if (dSq <= bestDistSq) {
+      bestDistSq = dSq;
+      bestKid = getKingdomId(state, b.settlementId);
+    }
+  }
+  for (const u of state.units) {
+    if (u.faction !== 'civilization' || u.state === 'ko') continue;
+    const kid = u.kingdomId ?? (u.settlementId ? getKingdomId(state, u.settlementId) : undefined);
+    if (!kid) continue;
+    const dSq = (u.x - targetX) ** 2 + (u.z - targetZ) ** 2;
+    if (dSq <= bestDistSq) {
+      bestDistSq = dSq;
+      bestKid = kid;
+    }
+  }
+  return bestKid;
+}
+
 export function executeGodPowerImpact(
   state: SimulationState,
   powerType: GodPowerType,
@@ -3523,18 +4107,23 @@ export function executeGodPowerImpact(
         state.epochProgress = Math.min(100, state.epochProgress + 22);
       }
 
+      const targetKidSet = new Set(targetKids);
+      const cityReachSq = (r * 2.6) ** 2;
       for (const u of state.units) {
+        if (u.faction !== 'civilization' || u.state === 'ko') continue;
         const dSq = (u.x - targetX) ** 2 + (u.z - targetZ) ** 2;
-        if (dSq <= rSq && u.faction === 'civilization') {
-          u.statusEffects.blessed = 25;
+        const uKid = u.kingdomId ?? (u.settlementId ? getKingdomId(state, u.settlementId) : undefined);
+        if (dSq <= rSq || (uKid && targetKidSet.has(uKid) && dSq <= cityReachSq)) {
+          u.statusEffects.blessed = Math.max(u.statusEffects.blessed ?? 0, 25);
         }
       }
       for (const b of state.buildings) {
         const dSq = (b.tileX - targetX) ** 2 + (b.tileZ - targetZ) ** 2;
-        if (dSq <= rSq) {
+        const bKid = b.settlementId ? getKingdomId(state, b.settlementId) : undefined;
+        if (dSq <= rSq || (bKid && targetKidSet.has(bKid) && dSq <= cityReachSq)) {
           b.constructionProgress = 100;
           b.hp = b.maxHp;
-          b.blessedTimer = 25;
+          b.blessedTimer = Math.max(b.blessedTimer, 25);
           b.cursedTimer = 0;
         }
       }
@@ -3618,49 +4207,79 @@ export function executeGodPowerImpact(
 
     case 'divine_shield': {
       isHeavy = true;
+      const targetKid = findTargetedKingdomId(state, targetX, targetZ, Math.max(r + 4.5, 11));
+      const domeRadius = Math.max(r, targetKid ? 7.5 : r);
+      const domeRSq = domeRadius * domeRadius;
       state.activeHazards.push({
         id: nextEntityId('haz'),
         kind: 'shield_dome',
         x: targetX,
         z: targetZ,
-        radius: r,
-        remaining: 14.0,
-        duration: 14.0,
+        radius: domeRadius,
+        remaining: 18.0,
+        duration: 18.0,
         tickTimer: 0,
+        ownerKingdomId: targetKid,
       });
       for (const b of state.buildings) {
         const dSq = (b.tileX - targetX) ** 2 + (b.tileZ - targetZ) ** 2;
-        if (dSq <= rSq) {
+        const bKid = b.settlementId ? getKingdomId(state, b.settlementId) : undefined;
+        const belongsToTargetKingdom = Boolean(targetKid && bKid === targetKid);
+        if (belongsToTargetKingdom || (!targetKid && dSq <= domeRSq)) {
           b.hp = b.maxHp;
-          b.shieldTimer = 40;
+          b.cursedTimer = 0;
+          b.shieldTimer = Math.max(b.shieldTimer, 40);
         }
       }
       for (const u of state.units) {
+        if (u.state === 'ko') continue;
         const dSq = (u.x - targetX) ** 2 + (u.z - targetZ) ** 2;
-        if (dSq <= rSq) {
-          if (u.faction === 'civilization') {
-            u.statusEffects.shielded = 35;
-            delete u.statusEffects.plagued;
-            delete u.statusEffects.cursed;
-            u.hp = u.maxHp;
-          } else if (u.faction === 'hostile' && u.state !== 'ko') {
-            // Shockwave repels hostile raiders outside the sanctuary dome!
-            const dist = Math.max(0.25, Math.sqrt(dSq));
-            u.x = Math.max(1, Math.min(state.gridSize - 2, targetX + ((u.x - targetX) / dist) * (r + 1.5)));
-            u.z = Math.max(1, Math.min(state.gridSize - 2, targetZ + ((u.z - targetZ) / dist) * (r + 1.5)));
+        const uKid =
+          u.faction === 'civilization'
+            ? u.kingdomId ?? (u.settlementId ? getKingdomId(state, u.settlementId) : undefined)
+            : undefined;
+        const isEnemyOfTarget =
+          u.faction === 'hostile' ||
+          Boolean(
+            targetKid &&
+              uKid &&
+              uKid !== targetKid &&
+              getKingdomRelation(state, targetKid, uKid) === 'war',
+          );
+        if (isEnemyOfTarget && dSq <= domeRSq) {
+          // Shockwave repels hostile raiders and invading enemy-kingdom soldiers outside the dome!
+          const dist = Math.max(0.25, Math.sqrt(dSq));
+          u.x = Math.max(1, Math.min(state.gridSize - 2, targetX + ((u.x - targetX) / dist) * (domeRadius + 2.0)));
+          u.z = Math.max(1, Math.min(state.gridSize - 2, targetZ + ((u.z - targetZ) / dist) * (domeRadius + 2.0)));
+          if (!u.statusEffects.shielded) {
             u.hp = Math.max(0, u.hp - 35);
           }
+        } else if (
+          (targetKid && uKid === targetKid) ||
+          (!targetKid && u.faction === 'civilization' && dSq <= domeRSq)
+        ) {
+          u.statusEffects.shielded = Math.max(u.statusEffects.shielded ?? 0, 35);
+          delete u.statusEffects.plagued;
+          delete u.statusEffects.cursed;
+          delete u.statusEffects.frozen;
+          u.hp = u.maxHp;
         }
       }
-      forEachTileInBounds(state, targetX - r, targetX + r, targetZ - r, targetZ + r, (t) => {
+      forEachTileInBounds(state, targetX - domeRadius, targetX + domeRadius, targetZ - domeRadius, targetZ + domeRadius, (t) => {
         const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
-        if (dSq <= rSq && t.height > 0) {
+        if (dSq <= domeRSq && t.height > 0) {
           t.onFireTimer = 0;
           t.cursedTimer = 0;
           t.blessedTimer = 30;
         }
       });
-      addChronicle(state, 'Aegis Sanctuary dome erected, repelling foes and shielding all within!', 'divine');
+      addChronicle(
+        state,
+        targetKid
+          ? 'Protective Shield raised around the kingdom, repelling enemies and shielding all citizens and buildings!'
+          : 'Protective Shield dome raised, repelling foes and shielding all within!',
+        'divine',
+      );
       break;
     }
 
@@ -4166,35 +4785,53 @@ export function executeGodPowerImpact(
 
     case 'terraform_beam': {
       isHeavy = true;
-      const isWaterTarget =
-        !centerTile ||
-        centerTile.height === 0 ||
-        centerTile.terrain === 'deep_water' ||
-        centerTile.terrain === 'shallow_water';
-      const targetH = !isWaterTarget && centerTile ? Math.max(2, Math.min(6, centerTile.height + 1)) : 3;
-      const seedR = Math.min(r, 1.55);
-      const haz: ActiveHazardZone = {
-        id: nextEntityId('haz'),
-        kind: 'terraform_wave',
+      // Mutagen Beam: evolves nearby units/wildlife into empowered champions & crystallizes ground with crystal monoliths
+      let mutatedCount = 0;
+      for (const u of state.units) {
+        if (u.state === 'ko') continue;
+        if ((u.x - targetX) ** 2 + (u.z - targetZ) ** 2 <= rSq) {
+          u.maxHp = Math.min(900, Math.round(u.maxHp * 1.55));
+          u.hp = u.maxHp;
+          u.statusEffects.blessed = Math.max(u.statusEffects.blessed ?? 0, 28);
+          u.statusEffects.shielded = Math.max(u.statusEffects.shielded ?? 0, 14);
+          if (u.role === 'villager') {
+            u.role = 'warrior';
+          }
+          if (u.faction === 'wildlife') {
+            u.statusEffects.frenzied = Math.max(u.statusEffects.frenzied ?? 0, 18);
+          }
+          mutatedCount++;
+        }
+      }
+      forEachTileInBounds(state, targetX - r, targetX + r, targetZ - r, targetZ + r, (t) => {
+        const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
+        if (dSq > rSq || t.height <= 0 || t.buildingId) return;
+        t.onFireTimer = 0;
+        t.cursedTimer = 0;
+        if (dSq <= rSq * 0.65) {
+          t.terrain = 'crystal_field';
+          if ((t.x * 11 + t.z * 17) % 7 === 0) {
+            t.resourceNode = 'crystal_monolith';
+            t.resourceAmount = 380;
+          }
+        }
+      });
+      state.pendingVfx.push({
+        id: nextEntityId('vfx'),
+        type: 'animal_attack',
+        variant: 'horn_blast',
+        originX: targetX,
+        originZ: targetZ,
         x: targetX,
+        y: (centerTile?.height ?? 2) * 0.45 + 0.5,
         z: targetZ,
-        currentRadius: seedR,
-        maxRadius: r,
-        waveWaterTarget: isWaterTarget,
-        waveTargetHeight: targetH,
-        waveEpochIdx: state.epochIndex,
-        radius: r,
-        remaining: 1.6,
-        duration: 1.6,
-        tickTimer: 0,
-      };
-      applyExpandingWaveSlice(state, 'terraform_wave', targetX, targetZ, r, 0, seedR, getWaveAppliedSet(haz), haz);
-      state.activeHazards.push(haz);
+        radius: r * 0.9,
+        color: '#06d6a0',
+        createdAt: Date.now(),
+      });
       addChronicle(
         state,
-        isWaterTarget
-          ? 'Terraform raised a flat island from the sea!'
-          : 'Terraform shaped the ground into a flat stepped plateau!',
+        `Mutagen Beam crystallized the ground and evolved ${mutatedCount} creature${mutatedCount === 1 ? '' : 's'} into champions!`,
         'divine',
       );
       break;
@@ -4332,19 +4969,40 @@ export function executeGodPowerImpact(
 
     case 'tornado': {
       isHeavy = true;
-      const heading = (((targetX * 17 + targetZ * 31) & 63) / 64) * Math.PI * 2;
-      state.activeHazards.push({
-        id: nextEntityId('haz'),
-        kind: 'tornado_vortex',
-        x: targetX,
-        z: targetZ,
-        heading,
-        radius: r,
-        remaining: 11.0,
-        duration: 11.0,
-        tickTimer: 0,
-      });
-      addChronicle(state, 'A Tornado touched down and swept across the land!', 'warning');
+      const nearbyTornado = state.activeHazards.find(
+        (h) => h.kind === 'tornado_vortex' && Math.hypot(h.x - targetX, h.z - targetZ) <= 10.0,
+      );
+      if (nearbyTornado) {
+        nearbyTornado.isSuper = true;
+        nearbyTornado.radius = Math.max(nearbyTornado.radius, 8.2);
+        nearbyTornado.remaining = Math.max(nearbyTornado.remaining, 16.0);
+        nearbyTornado.duration = Math.max(nearbyTornado.duration, 16.0);
+        state.pendingVfx.push({
+          id: nextEntityId('vfx'),
+          type: 'hit_spark',
+          x: nearbyTornado.x,
+          y: 2.2,
+          z: nearbyTornado.z,
+          radius: 3.6,
+          color: '#7c3aed',
+          createdAt: Date.now(),
+        });
+        addChronicle(state, 'Two cyclones collided and fused into a colossal Mega Tornado!', 'warning');
+      } else {
+        const heading = (((targetX * 17 + targetZ * 31) & 63) / 64) * Math.PI * 2;
+        state.activeHazards.push({
+          id: nextEntityId('haz'),
+          kind: 'tornado_vortex',
+          x: targetX,
+          z: targetZ,
+          heading,
+          radius: r,
+          remaining: 11.0,
+          duration: 11.0,
+          tickTimer: 0,
+        });
+        addChronicle(state, 'A Tornado touched down and swept across the land!', 'warning');
+      }
       break;
     }
 
@@ -4827,6 +5485,7 @@ export function executeGodPowerImpact(
           return;
         }
         t.terrain = 'void_goo';
+        voidGooPossibleByState.set(state, true);
         t.farmSettlementId = undefined;
         if (t.resourceNode === 'berry_bush' || t.resourceNode === 'timber_grove') {
           t.resourceNode = 'none';
@@ -5086,6 +5745,348 @@ export function executeGodPowerImpact(
       addChronicle(state, 'Anti-Gravity lifted units and animals high into the air!', 'warning');
       break;
     }
+
+    case 'lava_deluge': {
+      isHeavy = true;
+      specialLiquidPossibleByState.set(state, true);
+      state.activeHazards.push({
+        id: nextEntityId('haz'),
+        kind: 'biome_bloom_wave',
+        biomeWaveKind: 'lava',
+        elementAffinity: 'fire',
+        x: targetX,
+        z: targetZ,
+        heading: (((targetX * 17 + targetZ * 29) & 31) / 32) * Math.PI * 2,
+        radius: r,
+        currentRadius: 0.7,
+        maxRadius: r,
+        remaining: 4.6,
+        duration: 4.6,
+        tickTimer: 0.05,
+      });
+      addChronicle(state, 'A surging Lava Deluge began melting the earth into flowing magma rivers and volcanic wasteland!', 'warning');
+      break;
+    }
+
+    case 'blight_plague': {
+      isHeavy = true;
+      specialLiquidPossibleByState.set(state, true);
+      state.activeHazards.push({
+        id: nextEntityId('haz'),
+        kind: 'biome_bloom_wave',
+        biomeWaveKind: 'blight',
+        elementAffinity: 'poison',
+        x: targetX,
+        z: targetZ,
+        heading: (((targetX * 19 + targetZ * 31) & 31) / 32) * Math.PI * 2,
+        radius: r,
+        currentRadius: 0.7,
+        maxRadius: r,
+        remaining: 4.6,
+        duration: 4.6,
+        tickTimer: 0.05,
+      });
+      addChronicle(state, 'A creeping Blight Plague began corrupting the land into dark purple mire and poison pools!', 'warning');
+      break;
+    }
+
+    case 'floral_paradise': {
+      isHeavy = false;
+      state.activeHazards.push({
+        id: nextEntityId('haz'),
+        kind: 'biome_bloom_wave',
+        biomeWaveKind: 'floral',
+        elementAffinity: 'water',
+        x: targetX,
+        z: targetZ,
+        radius: r,
+        currentRadius: 0.7,
+        maxRadius: r,
+        remaining: 4.4,
+        duration: 4.4,
+        tickTimer: 0.05,
+      });
+      state.happiness = Math.min(100, state.happiness + 18);
+      addChronicle(state, 'A radiant Floral Blossom began blooming outward across the land!', 'divine');
+      break;
+    }
+
+    case 'fortify_walls': {
+      isHeavy = true;
+      const eyeR = Math.max(9.5, r);
+      state.activeHazards.push({
+        id: nextEntityId('haz'),
+        kind: 'sentinel_eye',
+        elementAffinity: 'fire',
+        x: targetX,
+        z: targetZ,
+        radius: eyeR,
+        remaining: 18.0,
+        duration: 18.0,
+        tickTimer: 0.22,
+        beamFireTimer: 0,
+        eyeYaw: 0,
+      });
+      addChronicle(state, 'The Eye of Judgment manifested above the realm, firing searing laser beams at everyone in sight!', 'warning');
+      break;
+    }
+
+    case 'bountiful_harvest': {
+      isHeavy = false;
+      const targetKid = findTargetedKingdomId(state, targetX, targetZ, Math.max(r + 5, 12));
+      const anchorBld = targetKid
+        ? state.buildings.find((b) => b.settlementId && getKingdomId(state, b.settlementId) === targetKid && b.hp > 0)
+        : undefined;
+      const sid = anchorBld?.settlementId;
+      grantResourcesToKingdomOrPool(state, { food: 240, wood: 180, stone: 140, ore: 100 }, targetKid);
+      let sprouted = 0;
+      forEachTileInBounds(state, targetX - r, targetX + r, targetZ - r, targetZ + r, (t) => {
+        if ((t.x - targetX) ** 2 + (t.z - targetZ) ** 2 > rSq || t.height <= 0 || t.buildingId) return;
+        if (t.resourceNode === 'berry_bush' || t.resourceNode === 'timber_grove' || t.resourceNode === 'ore_vein' || t.resourceNode === 'stone_outcrop') {
+          t.resourceAmount = Math.max(t.resourceAmount, 460);
+        } else if (t.terrain === 'grass' || t.terrain === 'savanna' || t.terrain === 'fertile') {
+          t.terrain = 'fertile';
+          if (sid) t.farmSettlementId = sid;
+          if ((t.x * 7 + t.z * 11) % 5 === 0) {
+            t.resourceNode = 'berry_bush';
+            t.resourceAmount = 320;
+            sprouted++;
+          }
+        }
+      });
+      state.pendingVfx.push({
+        id: nextEntityId('vfx'),
+        type: 'build_complete',
+        x: targetX,
+        y: 1.0,
+        z: targetZ,
+        radius: 2.6,
+        color: '#facc15',
+        createdAt: Date.now(),
+      });
+      state.happiness = Math.min(100, state.happiness + 16);
+      addChronicle(state, `Harvest Feast sprouted ${sprouted > 0 ? 'lush farms & groves and ' : ''}filled kingdom stockpiles!`, 'divine');
+      break;
+    }
+
+    case 'recruit_legion': {
+      isHeavy = false;
+      const targetKid = findTargetedKingdomId(state, targetX, targetZ, Math.max(r + 5, 12));
+      const anchorBld = targetKid
+        ? state.buildings.find((b) => b.settlementId && getKingdomId(state, b.settlementId) === targetKid && b.hp > 0)
+        : undefined;
+      const sid = anchorBld?.settlementId;
+      const sp = sid ? (state.settlementSpecies?.[sid] ?? 'human') : 'human';
+      for (const u of state.units) {
+        if (u.state === 'ko' || u.faction !== 'civilization') continue;
+        if ((u.x - targetX) ** 2 + (u.z - targetZ) ** 2 <= rSq) {
+          u.hp = u.maxHp;
+          u.statusEffects.blessed = Math.max(u.statusEffects.blessed ?? 0, 22);
+          u.statusEffects.shielded = Math.max(u.statusEffects.shielded ?? 0, 10);
+        }
+      }
+      let recruited = 0;
+      for (let i = 0; i < 6; i++) {
+        const ang = (i / 6) * Math.PI * 2;
+        const sx = Math.max(2, Math.min(state.gridSize - 3, Math.round(targetX + Math.cos(ang) * 2.2)));
+        const sz = Math.max(2, Math.min(state.gridSize - 3, Math.round(targetZ + Math.sin(ang) * 2.2)));
+        const t = getTile(state, sx, sz);
+        if (!t || t.height <= 0) continue;
+        const spawned = spawnUnit(state, 'warrior', sx, sz, true, sid);
+        if (spawned.ok && spawned.unit) {
+          spawned.unit.species = sp;
+          spawned.unit.statusEffects.blessed = 24;
+          spawned.unit.statusEffects.shielded = 10;
+          recruited++;
+        }
+      }
+      state.pendingVfx.push({
+        id: nextEntityId('vfx'),
+        type: 'animal_attack',
+        variant: 'horn_blast',
+        originX: targetX,
+        originZ: targetZ,
+        x: targetX,
+        y: 0.7,
+        z: targetZ,
+        radius: 3.8,
+        color: '#ef4444',
+        createdAt: Date.now(),
+      });
+      addChronicle(state, `Rally Militia sounded the war horn and armed ${recruited} shielded warriors!`, 'divine');
+      break;
+    }
+
+    case 'cleanse_land': {
+      isHeavy = false;
+      const cleanR = Math.max(6.0, r);
+      state.activeHazards.push({
+        id: nextEntityId('haz'),
+        kind: 'purify_wave',
+        x: targetX,
+        z: targetZ,
+        radius: cleanR,
+        currentRadius: 0.45,
+        maxRadius: cleanR,
+        remaining: 4.4,
+        duration: 4.4,
+        tickTimer: 0,
+      });
+      addChronicle(state, 'A radiant pillar of purifying light descended from the heavens and expanded outward to cleanse the land!', 'divine');
+      break;
+    }
+
+    case 'summon_fleet': {
+      isHeavy = false;
+      const targetKid = findTargetedKingdomId(state, targetX, targetZ, Math.max(r + 6, 14));
+      const anchorBld = targetKid
+        ? state.buildings.find((b) => b.settlementId && getKingdomId(state, b.settlementId) === targetKid && b.hp > 0)
+        : state.buildings[0];
+      const sid = anchorBld?.settlementId ?? 'city_default';
+      const kid = targetKid ?? (anchorBld?.settlementId ? getKingdomId(state, anchorBld.settlementId) : undefined);
+      const sp = state.settlementSpecies?.[sid] ?? 'human';
+      const cityEpoch = kid ? getKingdomEpoch(state, kid) : state.epochIndex;
+      const waterSpots: Array<{ x: number; z: number }> = [];
+      forEachTileInBounds(state, targetX - r, targetX + r, targetZ - r, targetZ + r, (t) => {
+        if (t.height === 0 && !t.buildingId && t.terrain !== 'ice' && t.waterKind !== 'lava' && (t.x - targetX) ** 2 + (t.z - targetZ) ** 2 <= rSq) {
+          waterSpots.push({ x: t.x, z: t.z });
+        }
+      });
+      if (!state.vehicles) state.vehicles = [];
+      const shipCount = Math.min(3, waterSpots.length);
+      const shipHp = 140 + cityEpoch * 40;
+      for (let i = 0; i < shipCount; i++) {
+        const spot = waterSpots[Math.floor((i * waterSpots.length) / shipCount)];
+        state.vehicles.push({
+          id: nextEntityId('veh_shp'),
+          type: 'passenger_ship',
+          species: sp,
+          settlementId: sid,
+          kingdomId: kid,
+          hp: shipHp,
+          maxHp: shipHp,
+          epochLevel: cityEpoch,
+          x: spot.x,
+          y: cityEpoch >= 6 ? 0.22 : 0.12,
+          z: spot.z,
+          heading: Math.random() * Math.PI * 2,
+          pitch: 0,
+          bank: 0,
+          speed: 2.8 + cityEpoch * 0.35,
+          path: [{ x: spot.x, z: spot.z }],
+          pathIndex: 0,
+          variantSeed: state.vehicles.length + spot.x * 5 + spot.z * 11,
+          passengerIds: [],
+        });
+      }
+      addChronicle(
+        state,
+        shipCount > 0 ? `Launch Fleet built ${shipCount} ship${shipCount === 1 ? '' : 's'} on nearby water!` : 'Launch Fleet needs nearby open water to build ships.',
+        'divine',
+      );
+      break;
+    }
+
+    case 'acid_rain': {
+      isHeavy = true;
+      const windAng = Math.random() * Math.PI * 2;
+      state.activeHazards.push({
+        id: nextEntityId('haz'),
+        kind: 'acid_cloud',
+        elementAffinity: 'poison',
+        x: targetX,
+        z: targetZ,
+        windX: Math.cos(windAng) * 2.1,
+        windZ: Math.sin(windAng) * 2.1,
+        radius: Math.max(4.5, r * 0.85),
+        remaining: 9.0,
+        duration: 9.0,
+        tickTimer: 0.12,
+      });
+      addChronicle(state, 'A corrosive Acid Cloud drifted over the region, dissolving foliage and poisoning soil!', 'warning');
+      break;
+    }
+
+    case 'blizzard': {
+      isHeavy = true;
+      const blizR = Math.max(5.5, r * 0.85);
+      const galeAng = Math.random() * Math.PI * 2;
+      state.activeHazards.push({
+        id: nextEntityId('haz'),
+        kind: 'blizzard_gale',
+        elementAffinity: 'ice',
+        isSuper: true,
+        x: targetX,
+        z: targetZ,
+        windX: Math.cos(galeAng) * 3.0,
+        windZ: Math.sin(galeAng) * 3.0,
+        radius: blizR,
+        remaining: 8.0,
+        duration: 8.0,
+        tickTimer: 0.12,
+      });
+      addChronicle(state, 'A howling Blizzard Gale swept across the land, blowing units back and freezing lakes solid!', 'warning');
+      break;
+    }
+
+    case 'sinkhole': {
+      isHeavy = true;
+      const pitR = Math.max(4.6, r);
+      state.activeHazards.push({
+        id: nextEntityId('haz'),
+        kind: 'sinkhole_collapse',
+        x: targetX,
+        z: targetZ,
+        radius: pitR,
+        currentRadius: 0.5,
+        maxRadius: pitR,
+        remaining: 4.6,
+        duration: 4.6,
+        tickTimer: 0.08,
+      });
+      addChronicle(state, 'The earth violently fractured and collapsed into a spiraling Sinkhole chasm!', 'warning');
+      break;
+    }
+
+    case 'locust_swarm': {
+      isHeavy = true;
+      const heading = Math.random() * Math.PI * 2;
+      state.activeHazards.push({
+        id: nextEntityId('haz'),
+        kind: 'locust_swarm',
+        x: targetX,
+        z: targetZ,
+        heading,
+        windX: Math.cos(heading),
+        windZ: Math.sin(heading),
+        radius: Math.max(4.0, r * 0.65),
+        remaining: 10.5,
+        duration: 10.5,
+        tickTimer: 0.15,
+      });
+      addChronicle(state, 'A ravenous Locust Swarm descended, hunting nearby farms and forests!', 'warning');
+      break;
+    }
+
+    case 'wildfire_ring': {
+      isHeavy = true;
+      specialLiquidPossibleByState.set(state, true);
+      state.activeHazards.push({
+        id: nextEntityId('haz'),
+        kind: 'magma_geyser',
+        elementAffinity: 'fire',
+        x: targetX,
+        z: targetZ,
+        radius: Math.max(5.0, r),
+        currentRadius: 1.0,
+        maxRadius: Math.max(5.0, r),
+        remaining: 7.5,
+        duration: 7.5,
+        tickTimer: 0.2,
+      });
+      addChronicle(state, 'A Magma Geyser cracked open the earth, pulsing fountains of molten lava!', 'warning');
+      break;
+    }
   }
 
   syncStateResourcesFromKingdoms(state);
@@ -5127,6 +6128,7 @@ export function castGodPower(
   const deferImpact = Boolean(options?.deferImpact);
   let isHeavy =
     powerType !== 'blessing' &&
+    powerType !== 'floral_paradise' &&
     powerType !== 'rain_of_plenty' &&
     powerType !== 'freeze_snap' &&
     powerType !== 'heat_wave' &&
@@ -5604,15 +6606,17 @@ function stepKingdomDiplomacyAndRebellions(state: SimulationState, dt: number): 
           const isEmpireAtWar = kingdoms.some(
             (k) => k.kingdomId !== kid && areKingdomsAtWar(state, kid, k.kingdomId),
           );
+          // Do not auto-fragment multi-city empires into splinter kingdoms merely for being at war with another nation;
+          // provinces only secede when internal happiness drops or empire overextends (>= 5 cities) while not rallied in a foreign war
           const isUnstableEmpire =
-            kSids.length >= 4 || isEmpireAtWar || state.happiness < 75;
+            (!isEmpireAtWar && kSids.length >= 5) || state.happiness < 68;
           if (!isUnstableEmpire) continue;
 
           const satelliteSid = kSids[kSids.length - 1];
           const satPop = state.units.filter(
             (u) => u.faction === 'civilization' && u.state !== 'ko' && u.settlementId === satelliteSid,
           ).length;
-          if (satPop >= 2 && Math.random() < 0.36) {
+          if (satPop >= 2 && Math.random() < 0.24) {
             if (!state.settlementKingdoms) state.settlementKingdoms = {};
             state.settlementKingdoms[satelliteSid] = satelliteSid;
             const satUnits = state.units.filter((u) => u.settlementId === satelliteSid);
@@ -5683,6 +6687,75 @@ function stepKingdomDiplomacyAndRebellions(state: SimulationState, dt: number): 
       }
     }
   }
+}
+
+function resolvePrimarySettlementForKingdom(
+  state: SimulationState,
+  kingdomId: string,
+  nearX: number,
+  nearZ: number,
+): string | undefined {
+  let bestSid: string | undefined;
+  let bestDistSq = Infinity;
+  for (let i = 0; i < state.buildings.length; i++) {
+    const b = state.buildings[i];
+    if (b.hp <= 0 || !b.settlementId) continue;
+    if (getKingdomId(state, b.settlementId) !== kingdomId) continue;
+    const dSq = (b.tileX - nearX) ** 2 + (b.tileZ - nearZ) ** 2;
+    if (dSq < bestDistSq) {
+      bestDistSq = dSq;
+      bestSid = b.settlementId;
+    }
+  }
+  if (bestSid) return bestSid;
+  for (let i = 0; i < state.units.length; i++) {
+    const u = state.units[i];
+    if (u.faction !== 'civilization' || u.state === 'ko' || u.hp <= 0) continue;
+    const uKid = u.settlementId ? getKingdomId(state, u.settlementId) : u.kingdomId;
+    if (uKid === kingdomId && u.settlementId) return u.settlementId;
+  }
+  return state.settlementNames?.[kingdomId] ? kingdomId : undefined;
+}
+
+export function claimTerritoryAround(
+  state: SimulationState,
+  cx: number,
+  cz: number,
+  radius: number,
+  settlementId: string | undefined,
+  kingdomId: string | undefined,
+  canConquerEnemy = false,
+): number {
+  if (!settlementId || !kingdomId) return 0;
+  let claimed = 0;
+  forEachTileInRadius(state, cx, cz, radius, (t) => {
+    // Do not overwrite an intact enemy building tile until that building is destroyed
+    if (t.buildingId) {
+      const b = state.buildings.find((bld) => bld.id === t.buildingId && bld.hp > 0);
+      if (b && b.settlementId && getKingdomId(state, b.settlementId) !== kingdomId) {
+        return;
+      }
+    }
+    const existingOwnerSid = t.claimedSettlementId ?? t.farmSettlementId;
+    if (!existingOwnerSid) {
+      t.claimedSettlementId = settlementId;
+      claimed++;
+      return;
+    }
+    const existingOwnerKid = getKingdomId(state, existingOwnerSid);
+    if (existingOwnerKid === kingdomId) {
+      if (!t.claimedSettlementId) t.claimedSettlementId = settlementId;
+      return;
+    }
+    if (canConquerEnemy && areKingdomsAtWar(state, kingdomId, existingOwnerKid)) {
+      t.claimedSettlementId = settlementId;
+      if (t.farmSettlementId && getKingdomId(state, t.farmSettlementId) !== kingdomId) {
+        t.farmSettlementId = settlementId;
+      }
+      claimed++;
+    }
+  });
+  return claimed;
 }
 
 function resolveStrategicStrikeImpact(
@@ -5861,6 +6934,7 @@ function resolveStrategicStrikeImpact(
       : strike.isSuperweapon
         ? 1.45
         : 1.15;
+  const attackerSid = resolvePrimarySettlementForKingdom(state, strike.attackerKingdomId, tx, tz);
   for (let bi = 0; bi < state.buildings.length; bi++) {
     const b = state.buildings[bi];
     if (b.hp <= 0) continue;
@@ -5873,7 +6947,15 @@ function resolveStrategicStrikeImpact(
         else continue;
       }
       b.hp = Math.max(0, b.hp - strike.damage * bldMult);
+      if (b.hp <= 0 && attackerSid) {
+        const bt = getTile(state, b.tileX, b.tileZ);
+        if (bt && bt.buildingId === b.id) bt.buildingId = null;
+        claimTerritoryAround(state, b.tileX, b.tileZ, 4.2, attackerSid, strike.attackerKingdomId, true);
+      }
     }
+  }
+  if (attackerSid) {
+    claimTerritoryAround(state, tx, tz, Math.max(2.2, r * 0.85), attackerSid, strike.attackerKingdomId, true);
   }
 }
 
@@ -5978,7 +7060,9 @@ export function stepStrategicWarfare(state: SimulationState, dt: number): void {
   for (let ai = 0; ai < kingdoms.length; ai++) {
     if (state.activeStrategicStrikes.length >= 14) break;
     const atk = kingdoms[ai];
-    if (atk.buildings.length === 0 && atk.units.length < 2) continue;
+    const completedAtkBlds = atk.buildings.filter((b) => b.hp > 0 && b.constructionProgress >= 100);
+    // Fight-back strategic barrages require a working population and established settlement infrastructure
+    if (completedAtkBlds.length < 3 || atk.units.length < 5) continue;
 
     // Pick a warring enemy kingdom
     const enemies = kingdoms.filter(
@@ -6005,29 +7089,55 @@ export function stepStrategicWarfare(state: SimulationState, dt: number): void {
       targetZ = uPick.z;
     }
 
-    // Pick a fresh launch building from attacker's settlements so salvos fan out naturally
+    // Pick a fresh launch building from attacker's completed settlements so salvos fan out naturally
     let originX = atk.launchX;
     let originZ = atk.launchZ;
-    if (atk.buildings.length > 0) {
-      const launchCandidates = atk.buildings.filter(
-        (b) =>
-          b.type === 'launch_arcology' ||
-          b.type === 'dyson_spire' ||
-          b.type === 'fission_reactor' ||
-          b.type === 'airport' ||
-          b.type === 'steam_foundry' ||
-          b.type === 'observatory' ||
-          b.type === 'ziggurat' ||
-          b.type === 'shaman_totem',
-      );
-      const pool = launchCandidates.length > 0 ? launchCandidates : atk.buildings;
-      const picked = pool[Math.floor(Math.random() * pool.length)];
-      originX = picked.tileX;
-      originZ = picked.tileZ;
-    }
+    const launchCandidates = completedAtkBlds.filter(
+      (b) =>
+        b.type === 'launch_arcology' ||
+        b.type === 'dyson_spire' ||
+        b.type === 'fission_reactor' ||
+        b.type === 'airport' ||
+        b.type === 'steam_foundry' ||
+        b.type === 'observatory' ||
+        b.type === 'ziggurat' ||
+        b.type === 'shaman_totem',
+    );
+    const pool = launchCandidates.length > 0 ? launchCandidates : completedAtkBlds;
+    const picked = pool[Math.floor(Math.random() * pool.length)];
+    originX = picked.tileX;
+    originZ = picked.tileZ;
 
     const dist = Math.hypot(targetX - originX, targetZ - originZ);
     if (dist < 7.5) continue;
+
+    const hasIndustrialFacility = completedAtkBlds.some(
+      (b) =>
+        b.type === 'steam_foundry' ||
+        b.type === 'dynamo_plant' ||
+        b.type === 'fission_reactor' ||
+        b.type === 'airport' ||
+        b.type === 'launch_arcology' ||
+        b.type === 'dyson_spire' ||
+        b.type === 'smeltery' ||
+        b.type === 'cyber_institute',
+    );
+    const hasSuperweaponFacility = completedAtkBlds.some(
+      (b) =>
+        b.type === 'fission_reactor' ||
+        b.type === 'airport' ||
+        b.type === 'launch_arcology' ||
+        b.type === 'dyson_spire' ||
+        b.type === 'cyber_institute' ||
+        b.type === 'observatory',
+    );
+    const atkStock = ensureKingdomResources(state, atk.kingdomId);
+    const trySpendStrikeCost = (cost: Partial<Resources>): boolean => {
+      if (state.sandboxFreeMode) return true;
+      if (!canAfford(atkStock, cost, false)) return false;
+      spendWorldCost(state, cost, atk.kingdomId);
+      return true;
+    };
 
     const originTile = getTile(state, originX, originZ);
     const originY = (originTile?.height ?? 2) * 0.45 + 0.65;
@@ -6082,13 +7192,27 @@ export function stepStrategicWarfare(state: SimulationState, dt: number): void {
     };
 
     if (atk.species === 'human') {
-      // Humans prioritize transcontinental ballistic missile warfare over magic!
-      if (atk.epoch >= 4 && kUltReady && (def.buildings.length >= 2 || def.units.length >= 3)) {
+      // Humans prioritize transcontinental ballistic missile warfare — requires industrial/military buildings, population & munitions!
+      if (
+        atk.epoch >= 4 &&
+        kUltReady &&
+        completedAtkBlds.length >= 9 &&
+        atk.units.length >= 16 &&
+        hasSuperweaponFacility &&
+        (def.buildings.length >= 2 || def.units.length >= 3) &&
+        trySpendStrikeCost({ ore: 28, alloy: 20 })
+      ) {
         if (!state.kingdomUltimateCooldowns) state.kingdomUltimateCooldowns = {};
         state.kingdomUltimateCooldowns[atk.kingdomId] = 42.0;
         const flightDur = Math.max(1.85, Math.min(3.8, 1.35 + dist * 0.032));
         queueStrike('icbm_nuke', 'icbm_missile', targetX, targetZ, flightDur, 220, 5.8, '#ff6b35', true);
-      } else if (atk.epoch >= 3) {
+      } else if (
+        atk.epoch >= 3 &&
+        completedAtkBlds.length >= 6 &&
+        atk.units.length >= 10 &&
+        hasIndustrialFacility &&
+        trySpendStrikeCost({ ore: 12, alloy: 6 })
+      ) {
         // Transcontinental cruise/ballistic missile salvo (1-2 missiles)
         const salvoCount = atk.epoch >= 5 ? 2 : 1;
         for (let si = 0; si < salvoCount; si++) {
@@ -6109,19 +7233,27 @@ export function stepStrategicWarfare(state: SimulationState, dt: number): void {
             false,
           );
         }
-      } else if (atk.epoch >= 2 && dist <= 34) {
+      } else if (atk.epoch >= 2 && dist <= 34 && trySpendStrikeCost({ stone: 10, ore: 6 })) {
         // Iron/Medieval Age long-range artillery barrage
         const flightDur = Math.max(1.1, Math.min(2.3, 0.85 + dist * 0.03));
         queueStrike('icbm_missile', 'cannon_shell', targetX, targetZ, flightDur, 36, 2.1, '#ffd166', false);
       }
     } else if (atk.species === 'elf') {
-      // Elves NEVER use steel missiles — they weave long-range astral starfall spells across continents!
-      if (atk.epoch >= 4 && kUltReady && (def.buildings.length >= 2 || def.units.length >= 3)) {
+      // Elves weave long-range astral starfall spells — requires population, lore buildings & knowledge!
+      if (
+        atk.epoch >= 4 &&
+        kUltReady &&
+        completedAtkBlds.length >= 9 &&
+        atk.units.length >= 16 &&
+        hasSuperweaponFacility &&
+        (def.buildings.length >= 2 || def.units.length >= 3) &&
+        trySpendStrikeCost({ knowledge: 30, alloy: 16 })
+      ) {
         if (!state.kingdomUltimateCooldowns) state.kingdomUltimateCooldowns = {};
         state.kingdomUltimateCooldowns[atk.kingdomId] = 42.0;
         const flightDur = Math.max(1.9, Math.min(3.7, 1.4 + dist * 0.03));
         queueStrike('elf_astral_cataclysm', 'elf_starfall_spell', targetX, targetZ, flightDur, 210, 5.6, '#c084fc', true);
-      } else if (atk.epoch >= 1) {
+      } else if (atk.epoch >= 1 && completedAtkBlds.length >= 4 && atk.units.length >= 7 && trySpendStrikeCost({ knowledge: 14, wood: 8 })) {
         const spellCount = atk.epoch >= 4 ? 2 : 1;
         for (let si = 0; si < spellCount; si++) {
           const jx = si === 0 ? 0 : (Math.random() - 0.5) * 3.8;
@@ -6143,8 +7275,14 @@ export function stepStrategicWarfare(state: SimulationState, dt: number): void {
         }
       }
     } else {
-      // Orcs: Flaming magma siege boulders early -> chaotic corkscrewing WAAAGH! scrap-rocket swarms later!
-      if (atk.epoch >= 3) {
+      // Orcs: Flaming magma siege boulders early -> chaotic WAAAGH! scrap-rocket swarms when properly built & stocked!
+      if (
+        atk.epoch >= 3 &&
+        completedAtkBlds.length >= 6 &&
+        atk.units.length >= 10 &&
+        hasIndustrialFacility &&
+        trySpendStrikeCost({ ore: 16, wood: 10 })
+      ) {
         const rocketCount = atk.epoch >= 5 ? 3 : 2;
         for (let ri = 0; ri < rocketCount; ri++) {
           const scatter = 2.8 + ri * 1.4;
@@ -6163,7 +7301,7 @@ export function stepStrategicWarfare(state: SimulationState, dt: number): void {
             false,
           );
         }
-      } else if (dist <= 46) {
+      } else if (dist <= 46 && trySpendStrikeCost({ stone: 12, wood: 8 })) {
         // Brutal flaming magma siege boulder catapult barrage
         const flightDur = Math.max(1.35, Math.min(2.9, 1.05 + dist * 0.032));
         queueStrike('orc_siege_boulder', 'orc_siege_boulder', targetX, targetZ, flightDur, 42 + atk.epoch * 10, 2.6, '#ff5400', false);
@@ -7175,17 +8313,123 @@ function paveSettlementStreetsNear(
   connectSettlementRoads(state, settlementId);
 }
 
+function ensureSettlementDistricts(
+  state: SimulationState,
+  settlementId: string,
+  anchorX: number,
+  anchorZ: number,
+) {
+  if (!state.settlementDistricts) state.settlementDistricts = {};
+  const existing = state.settlementDistricts[settlementId];
+  if (existing) return existing;
+
+  const dirs: ReadonlyArray<readonly [number, number]> = [
+    [1, 0],
+    [-1, 0],
+    [0, 1],
+    [0, -1],
+    [1, 1],
+    [-1, 1],
+    [1, -1],
+    [-1, -1],
+  ];
+
+  // 1. Pick best dedicated 7x7 Farmland Territory (most dry gentle land)
+  let bestFarmX = Math.max(5, Math.min(state.gridSize - 6, anchorX + 7));
+  let bestFarmZ = anchorZ;
+  let bestFarmScore = -Infinity;
+  let bestFarmHeight = 2;
+
+  for (const [ux, uz] of dirs) {
+    const cx = Math.max(5, Math.min(state.gridSize - 6, Math.round(anchorX + ux * 7.5)));
+    const cz = Math.max(5, Math.min(state.gridSize - 6, Math.round(anchorZ + uz * 7.5)));
+    let score = 0;
+    let hSum = 0;
+    let hCount = 0;
+    for (let oz = -3; oz <= 3; oz++) {
+      for (let ox = -3; ox <= 3; ox++) {
+        const t = getTile(state, cx + ox, cz + oz);
+        if (!t || t.height <= 0 || t.buildingId) continue;
+        hSum += t.height;
+        hCount++;
+        score += t.height <= 3 ? 3 : 1;
+        if (t.terrain === 'fertile' || t.terrain === 'grass' || t.terrain === 'floral_plains') score += 2;
+      }
+    }
+    if (score > bestFarmScore) {
+      bestFarmScore = score;
+      bestFarmX = cx;
+      bestFarmZ = cz;
+      bestFarmHeight = hCount > 0 ? Math.max(1, Math.min(3, Math.round(hSum / hCount))) : 2;
+    }
+  }
+
+  // 2. Pick separate dedicated 5x5 Mining / Quarry Territory (favoring rocks, ore, hills, away from farmland)
+  let bestQuarryX = Math.max(4, Math.min(state.gridSize - 5, anchorX - 7));
+  let bestQuarryZ = anchorZ;
+  let bestQuarryScore = -Infinity;
+  let bestQuarryHeight = 2;
+
+  for (const [ux, uz] of dirs) {
+    const cx = Math.max(4, Math.min(state.gridSize - 5, Math.round(anchorX + ux * 8.0)));
+    const cz = Math.max(4, Math.min(state.gridSize - 5, Math.round(anchorZ + uz * 8.0)));
+    if (Math.hypot(cx - bestFarmX, cz - bestFarmZ) < 8) continue;
+    let score = 0;
+    let hSum = 0;
+    let hCount = 0;
+    for (let oz = -2; oz <= 2; oz++) {
+      for (let ox = -2; ox <= 2; ox++) {
+        const t = getTile(state, cx + ox, cz + oz);
+        if (!t || t.height <= 0 || t.buildingId) continue;
+        hSum += t.height;
+        hCount++;
+        score += 2;
+        if (t.resourceNode === 'ore_vein') score += 9;
+        else if (t.resourceNode === 'stone_outcrop') score += 7;
+        if (t.terrain === 'rock' || t.terrain === 'mountain' || t.terrain === 'badlands' || t.terrain === 'highland') {
+          score += 4;
+        }
+      }
+    }
+    if (score > bestQuarryScore) {
+      bestQuarryScore = score;
+      bestQuarryX = cx;
+      bestQuarryZ = cz;
+      bestQuarryHeight = hCount > 0 ? Math.max(1, Math.min(4, Math.round(hSum / hCount))) : 2;
+    }
+  }
+
+  const created = {
+    farmX: bestFarmX,
+    farmZ: bestFarmZ,
+    farmHalfSize: 3,
+    farmTargetHeight: bestFarmHeight,
+    quarryX: bestQuarryX,
+    quarryZ: bestQuarryZ,
+    quarryHalfSize: 2,
+    quarryTargetHeight: bestQuarryHeight,
+  };
+  state.settlementDistricts[settlementId] = created;
+  return created;
+}
+
 function findBuildableTileNear(
   state: SimulationState,
   anchorX: number,
   anchorZ: number,
   maxRadius = 18,
   settlementId = 'city_default',
+  desiredType?: BuildingType,
 ): TileData | null {
   const anchorTile = getTile(state, anchorX, anchorZ);
   const isFloatingSettlement = Boolean(anchorTile && anchorTile.height === 0) || state.worldTemplate === 'scrap_sea';
   const preferredHeight = anchorTile && anchorTile.height > 0 ? anchorTile.height : isFloatingSettlement ? 0 : 2;
   const variant = getSettlementLayoutVariant(state, settlementId, anchorX, anchorZ);
+  const districts = !isFloatingSettlement
+    ? ensureSettlementDistricts(state, settlementId, anchorX, anchorZ)
+    : undefined;
+  const isFarmBuilding = desiredType === 'granary' || desiredType === 'forager_hut';
+  const isQuarryBuilding = desiredType === 'smeltery' || desiredType === 'steam_foundry';
   const villageBuildings = state.buildings.filter(
     (b) => (b.settlementId ?? 'city_default') === settlementId,
   );
@@ -7203,6 +8447,31 @@ function findBuildableTileNear(
         const t = getTile(state, anchorX + dx, anchorZ + dz);
         if (!t || t.height >= 6 || t.buildingId) continue;
         if (t.height <= 0 && !allowWaterLots) continue;
+
+        // Protect dedicated Farmland & Quarry territories from random residential buildings
+        const inFarmZone = Boolean(
+          districts &&
+            Math.abs(t.x - districts.farmX) <= districts.farmHalfSize &&
+            Math.abs(t.z - districts.farmZ) <= districts.farmHalfSize,
+        );
+        const inQuarryZone = Boolean(
+          districts &&
+            Math.abs(t.x - districts.quarryX) <= districts.quarryHalfSize &&
+            Math.abs(t.z - districts.quarryZ) <= districts.quarryHalfSize,
+        );
+        if ((inFarmZone && !isFarmBuilding) || (inQuarryZone && !isQuarryBuilding)) {
+          continue;
+        }
+        // Keep the actual center of the quarry pit open for rock/ore excavation
+        if (
+          inQuarryZone &&
+          isQuarryBuilding &&
+          districts &&
+          Math.abs(t.x - districts.quarryX) <= 1 &&
+          Math.abs(t.z - districts.quarryZ) <= 1
+        ) {
+          continue;
+        }
 
         if (!emergencyFallback) emergencyFallback = t;
 
@@ -7249,6 +8518,11 @@ function findBuildableTileNear(
 
         const dist = Math.hypot(dx, dz);
         let score = dist * 2.5;
+        if (districts && isFarmBuilding) {
+          score += Math.hypot(t.x - districts.farmX, t.z - districts.farmZ) * 4.5 - 25;
+        } else if (districts && isQuarryBuilding) {
+          score += Math.hypot(t.x - districts.quarryX, t.z - districts.quarryZ) * 4.5 - 25;
+        }
         if (touchesStreet) score -= 20;
         if (nearCottageCount > 0) score -= Math.min(18, nearCottageCount * 5.0);
         if (t.height === preferredHeight) score -= 8;
@@ -7828,8 +9102,10 @@ function transformSettlementEnvironment(
     for (let fx = minFX; fx <= maxFX; fx++) {
       const ft = state.tiles[fz * state.gridSize + fx];
       if (!ft || ft.farmSettlementId !== sid) continue;
+      if (ft.farmPlotKind === 'timber_plantation' || ft.farmPlotKind === 'quarry') continue;
       if (ft.buildingId || ft.height <= 0 || ft.terrain !== 'fertile') {
         ft.farmSettlementId = undefined;
+        ft.farmPlotKind = undefined;
         continue;
       }
       ownedFarms.push(ft);
@@ -7846,6 +9122,7 @@ function transformSettlementEnvironment(
     for (let i = 0; i < excess; i++) {
       const ex = ownedFarms[i];
       ex.farmSettlementId = undefined;
+      ex.farmPlotKind = undefined;
       ex.terrain = 'grass';
       if (ex.resourceNode === 'berry_bush') {
         ex.resourceNode = 'none';
@@ -7857,7 +9134,7 @@ function transformSettlementEnvironment(
     const fallowPlot = ownedFarms.find((f) => f.resourceNode === 'none');
     if (fallowPlot) {
       fallowPlot.resourceNode = 'berry_bush';
-      fallowPlot.resourceAmount = 190;
+      fallowPlot.resourceAmount = 210;
     } else if (
       ownedFarms.length < maxFarmFields &&
       (sampleBld.type === 'forager_hut' ||
@@ -7866,30 +9143,129 @@ function transformSettlementEnvironment(
         sampleBld.type === 'launch_arcology' ||
         sampleBld.type === 'bonfire')
     ) {
-      const variant = getSettlementLayoutVariant(state, sid, anchor.x, anchor.z);
-      for (let attempt = 0; attempt < 5; attempt++) {
-        const fx = sampleBld.tileX + Math.floor(Math.random() * 9) - 4;
-        const fz = sampleBld.tileZ + Math.floor(Math.random() * 9) - 4;
-        const ft = getTile(state, fx, fz);
-        if (
-          ft &&
-          ft.height > 0 &&
-          ft.height <= 4 &&
-          !ft.buildingId &&
-          !ft.farmSettlementId &&
-          ft.resourceNode === 'none' &&
-          !isSettlementRoadTile(ft.x - anchor.x, ft.z - anchor.z, variant) &&
-          (ft.terrain === 'grass' ||
-            ft.terrain === 'savanna' ||
-            ft.terrain === 'fertile' ||
-            ft.terrain === 'jungle' ||
-            ft.terrain === 'blossom')
+      // Dedicated Farmland Territory: actively clear trees, rocks & uneven ground, then plant tidy square wheat plots
+      const districts = ensureSettlementDistricts(state, sid, anchor.x, anchor.z);
+      const farmKid = getKingdomId(state, sid);
+      let workedFarmTiles = 0;
+      for (
+        let oz = -districts.farmHalfSize;
+        oz <= districts.farmHalfSize && workedFarmTiles < 3 && ownedFarms.length + workedFarmTiles < maxFarmFields;
+        oz++
+      ) {
+        for (
+          let ox = -districts.farmHalfSize;
+          ox <= districts.farmHalfSize && workedFarmTiles < 3 && ownedFarms.length + workedFarmTiles < maxFarmFields;
+          ox++
         ) {
-          ft.terrain = 'fertile';
-          ft.resourceNode = 'berry_bush';
-          ft.resourceAmount = 190;
-          ft.farmSettlementId = sid;
-          break;
+          // Keep a clean 1-tile central cross-lane between the 4 square crop fields
+          if (ox === 0 || oz === 0) continue;
+          const ft = getTile(state, districts.farmX + ox, districts.farmZ + oz);
+          if (!ft || ft.height <= 0 || ft.buildingId) continue;
+          if (ft.farmSettlementId === sid && ft.farmPlotKind === 'wheat' && ft.height === districts.farmTargetHeight) {
+            continue;
+          }
+          // 1. Actively clear trees & rocks on the farmland lot (salvaging wood & stone!)
+          if (ft.resourceNode === 'timber_grove') {
+            ft.resourceNode = 'none';
+            ft.resourceAmount = 0;
+            delete ft.treeBiomeOverride;
+            grantResourcesToKingdomOrPool(state, { wood: 18 }, farmKid);
+          } else if (ft.resourceNode === 'stone_outcrop' || ft.resourceNode === 'ore_vein') {
+            const wasOre = ft.resourceNode === 'ore_vein';
+            ft.resourceNode = 'none';
+            ft.resourceAmount = 0;
+            grantResourcesToKingdomOrPool(state, wasOre ? { ore: 12, stone: 8 } : { stone: 16 }, farmKid);
+          }
+          // 2. Actively level uneven terrain toward the farmland district's flat elevation
+          if (ft.height !== districts.farmTargetHeight) {
+            ft.height += ft.height < districts.farmTargetHeight ? 1 : -1;
+            ft.terrain = 'grass';
+            workedFarmTiles++;
+            continue;
+          }
+          // 3. Cultivate flat cleared tile into dedicated square farmland
+          if (ft.terrain !== 'stone_road' && ft.terrain !== 'rail_track' && ft.terrain !== 'runway') {
+            ft.terrain = 'fertile';
+            ft.resourceNode = 'berry_bush';
+            ft.resourceAmount = 210;
+            ft.farmSettlementId = sid;
+            ft.farmPlotKind = 'wheat';
+            workedFarmTiles++;
+          }
+        }
+      }
+    }
+  }
+
+  // 2.4 Dedicated Mining / Quarry Territory: actively clear trees/bushes, terrace quarry floor & expose rock/ore faces
+  {
+    const districts = ensureSettlementDistricts(state, sid, anchor.x, anchor.z);
+    const quarryKid = getKingdomId(state, sid);
+    let workedQuarryTiles = 0;
+    for (let oz = -districts.quarryHalfSize; oz <= districts.quarryHalfSize && workedQuarryTiles < 2; oz++) {
+      for (let ox = -districts.quarryHalfSize; ox <= districts.quarryHalfSize && workedQuarryTiles < 2; ox++) {
+        const qt = getTile(state, districts.quarryX + ox, districts.quarryZ + oz);
+        if (!qt || qt.height <= 0 || qt.buildingId) continue;
+        const isPitCore = Math.abs(ox) <= 1 && Math.abs(oz) <= 1;
+        const targetQH = Math.max(1, districts.quarryTargetHeight - (isPitCore ? 1 : 0));
+        if (qt.farmSettlementId === sid && qt.farmPlotKind === 'quarry' && qt.height === targetQH) continue;
+
+        // Actively clear surface trees & bushes from the quarry site
+        if (qt.resourceNode === 'timber_grove' || qt.resourceNode === 'berry_bush') {
+          const wasTree = qt.resourceNode === 'timber_grove';
+          qt.resourceNode = 'none';
+          qt.resourceAmount = 0;
+          delete qt.treeBiomeOverride;
+          if (wasTree) grantResourcesToKingdomOrPool(state, { wood: 14 }, quarryKid);
+        }
+        // Step/level the quarry pit floor
+        if (qt.height !== targetQH) {
+          qt.height += qt.height < targetQH ? 1 : -1;
+        }
+        qt.terrain = isPitCore ? 'rock' : 'badlands';
+        qt.farmSettlementId = sid;
+        qt.farmPlotKind = 'quarry';
+        if (qt.resourceNode === 'none' && ((ox + oz) & 1) === 0) {
+          qt.resourceNode = isPitCore ? 'ore_vein' : 'stone_outcrop';
+          qt.resourceAmount = 320;
+        }
+        workedQuarryTiles++;
+      }
+    }
+  }
+
+  // 2.5 Industrial Era+ Managed Square Tree Plantations (neat 3x3 organized forestry blocks on city outskirts)
+  const plantationEpoch = getKingdomEpoch(state, getKingdomId(state, sid));
+  if (plantationEpoch >= 3) {
+    const plantationCenters: ReadonlyArray<readonly [number, number]> = [
+      [8, -5],
+      [-8, 5],
+      [5, 8],
+      [-5, -8],
+    ];
+    let replantedTrees = 0;
+    for (const [px, pz] of plantationCenters) {
+      if (replantedTrees >= 2) break;
+      const baseX = anchor.x + px;
+      const baseZ = anchor.z + pz;
+      for (let oz = -1; oz <= 1 && replantedTrees < 2; oz++) {
+        for (let ox = -1; ox <= 1 && replantedTrees < 2; ox++) {
+          const pt = getTile(state, baseX + ox, baseZ + oz);
+          if (
+            pt &&
+            pt.height > 0 &&
+            pt.height <= 4 &&
+            !pt.buildingId &&
+            pt.resourceNode === 'none' &&
+            (pt.terrain === 'grass' || pt.terrain === 'forest' || pt.terrain === 'fertile' || pt.terrain === 'savanna')
+          ) {
+            pt.terrain = 'forest';
+            pt.resourceNode = 'timber_grove';
+            pt.resourceAmount = 260;
+            pt.farmSettlementId = sid;
+            pt.farmPlotKind = 'timber_plantation';
+            replantedTrees++;
+          }
         }
       }
     }
@@ -8293,7 +9669,7 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
       if (!desiredType) break;
       const def = BUILDINGS.find((b) => b.type === desiredType);
       if (!def || !canAfford(currentStock, def.cost, state.sandboxFreeMode)) break;
-      const site = findBuildableTileNear(state, villageAnchor.x, villageAnchor.z, 22, sid);
+      const site = findBuildableTileNear(state, villageAnchor.x, villageAnchor.z, 22, sid, desiredType);
       if (!site) break;
 
       state.kingdomResources![sidKingdomId] = deductCost(currentStock, def.cost, state.sandboxFreeMode);
@@ -8330,13 +9706,33 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
       };
       site.buildingId = siteBld.id;
       site.farmSettlementId = undefined;
+      site.claimedSettlementId = sid;
       state.buildings.push(siteBld);
       villageBuildings.push(siteBld);
       activeSites += 1;
       state.totalStructuresBuilt += 1;
       paveSettlementStreetsNear(state, site.x, site.z, sid);
+      claimTerritoryAround(state, site.x, site.z, 3.2, sid, sidKingdomId, true);
       const vName = state.settlementNames[sid] ?? 'Settlement';
       addChronicle(state, `Settlers of ${vName} break ground on a ${def.name} at (${site.x}, ${site.z}).`, 'build');
+    }
+
+    // Autonomous Territory Claiming: races constantly seek to claim as much territory as possible
+    // (they can choose to build or just claim border/frontier territory like countries do, including annexing enemy land at war!)
+    if (hasCompletedHearth && villageUnits.length >= 1) {
+      const isAtWarWithAny = Object.entries(state.kingdomRelations ?? {}).some(
+        ([kPair, rel]) => rel === 'war' && kPair.split('::').includes(sidKingdomId),
+      );
+      const claimOriginBld =
+        villageBuildings[Math.floor(Math.abs(state.year * 17) + villageBuildings.length * 3) % villageBuildings.length];
+      if (claimOriginBld) {
+        const claimReach = Math.min(24, 6 + Math.floor(villageBuildings.length * 0.75) + cityEpoch * 2);
+        const angle = ((state.year * 2.3 + claimOriginBld.tileX * 0.7 + claimOriginBld.tileZ * 1.1) % 1) * Math.PI * 2;
+        const dist = 2 + (Math.abs(Math.sin(state.year * 3.7 + claimOriginBld.tileX)) * (claimReach - 2));
+        const claimX = Math.max(1, Math.min(state.gridSize - 2, Math.round(claimOriginBld.tileX + Math.cos(angle) * dist)));
+        const claimZ = Math.max(1, Math.min(state.gridSize - 2, Math.round(claimOriginBld.tileZ + Math.sin(angle) * dist)));
+        claimTerritoryAround(state, claimX, claimZ, isAtWarWithAny ? 2.6 : 2.1, sid, sidKingdomId, isAtWarWithAny);
+      }
     }
 
     // Autonomous Frontier Colonization from this kingdom's food stock
@@ -8402,6 +9798,13 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
   ensureSettlementKings(state);
 }
 
+const tileTimerAccumByState = new WeakMap<SimulationState, number>();
+const vehicleSpawnAccumByState = new WeakMap<SimulationState, number>();
+const simTickCounterByState = new WeakMap<SimulationState, number>();
+const voidGooPossibleByState = new WeakMap<SimulationState, boolean>();
+const specialLiquidPossibleByState = new WeakMap<SimulationState, boolean>();
+const liquidReactionAccumByState = new WeakMap<SimulationState, number>();
+
 export function stepSimulation(
   state: SimulationState,
   rawDt: number,
@@ -8421,8 +9824,12 @@ function stepSimulationSingle(
   options?: { skipDragStep?: boolean; skipRandomEvents?: boolean },
 ): void {
   if (dt <= 0) return;
+  const simTick = ((simTickCounterByState.get(state) ?? 0) + 1) | 0;
+  simTickCounterByState.set(state, simTick);
 
-  reconcileKingdomEpochs(state, true);
+  if ((simTick & 3) === 1) {
+    reconcileKingdomEpochs(state, true);
+  }
   reconcileAndSyncResources(state);
 
   if (!options?.skipDragStep) {
@@ -8463,7 +9870,9 @@ function stepSimulationSingle(
   }
 
   // 3. Accumulate passive completed-building production into each kingdom's own stockpile & apply food upkeep
-  recalculateRatesAndCaps(state);
+  if ((simTick & 1) === 1) {
+    recalculateRatesAndCaps(state);
+  }
   const paceMult = state.sandboxFreeMode ? 1.0 : 0.34;
   const goldenMult = state.goldenAgeTimer > 0 ? 2 : 1;
 
@@ -8618,6 +10027,7 @@ function stepSimulationSingle(
       const resReadiness = ratioCount > 0 ? ratioSum / ratioCount : 0;
 
       const completedCount = kCompleted.length;
+      const kPop = popByKid.get(kid) ?? 0;
       const requiredStructures =
         kEpoch === 0
           ? 2
@@ -8632,30 +10042,58 @@ function stepSimulationSingle(
                   : kEpoch === 5
                     ? 22
                     : 26;
+      const requiredPop =
+        kEpoch === 0
+          ? 4
+          : kEpoch === 1
+            ? 8
+            : kEpoch === 2
+              ? 14
+              : kEpoch === 3
+                ? 20
+                : kEpoch === 4
+                  ? 26
+                  : kEpoch === 5
+                    ? 32
+                    : 38;
 
       const upgradedCount = kCompleted.filter((b) => b.epochLevel >= kEpoch).length;
-      const upgradeReady = kEpoch < 4 || upgradedCount >= Math.ceil(completedCount * 0.75);
-      const lateTechReady =
-        kEpoch === 5
-          ? kCompleted.some((b) => b.type === 'cyber_institute' || b.type === 'fission_reactor')
-          : kEpoch === 6
-            ? kCompleted.some((b) => b.type === 'launch_arcology')
-            : true;
+      const upgradeReady = kEpoch < 3 || upgradedCount >= Math.ceil(completedCount * 0.65);
+      const eraInfraReady =
+        kEpoch === 2
+          ? kCompleted.some(
+              (b) =>
+                b.type === 'smeltery' ||
+                b.type === 'guildhall' ||
+                b.type === 'ziggurat' ||
+                b.type === 'observatory',
+            )
+          : kEpoch === 3
+            ? kCompleted.some(
+                (b) => b.type === 'steam_foundry' || b.type === 'dynamo_plant' || b.type === 'rail_station',
+              )
+            : kEpoch === 5
+              ? kCompleted.some((b) => b.type === 'cyber_institute' || b.type === 'fission_reactor')
+              : kEpoch === 6
+                ? kCompleted.some((b) => b.type === 'launch_arcology')
+                : true;
+
+      const hasFullFoundation =
+        completedCount >= requiredStructures && kPop >= requiredPop && upgradeReady && eraInfraReady;
+      // Diffusion catch-up can ease thresholds slightly (75% structures, 70% pop), but NEVER lets a 1-building outpost skip eras
+      const hasDiffusionFoundation =
+        completedCount >= Math.max(2, Math.ceil(requiredStructures * 0.75)) &&
+        kPop >= Math.max(4, Math.ceil(requiredPop * 0.7)) &&
+        eraInfraReady;
 
       // Full economic/structural readiness allows immediate organic ascension (respects species & stockpiles)
       const costWithFaith: Resources = { ...kStock, faith: state.resources.faith };
-      if (
-        completedCount >= requiredStructures &&
-        upgradeReady &&
-        lateTechReady &&
-        canAfford(costWithFaith, nextEpoch.unlockCost, false)
-      ) {
+      if (hasFullFoundation && canAfford(costWithFaith, nextEpoch.unlockCost, false)) {
         advanceKingdomEpoch(state, kid, false, { skipAverageSync: true });
         continue;
       }
 
       // Continuous growth rate: native development + proximity diffusion catch-up curve from higher-age neighbors
-      const kPop = popByKid.get(kid) ?? 0;
       const kSpecies: SpeciesId =
         kCompleted[0]?.species ??
         (kCompleted[0]?.settlementId ? state.settlementSpecies?.[kCompleted[0].settlementId] : undefined) ??
@@ -8674,21 +10112,17 @@ function stepSimulationSingle(
         // Proximity-based diminishing catch-up curve: steep when far behind a close neighbor, tapering as gap -> 0
         const diffusionRatePerSec = diff.diffusionBoost * (1.85 + 0.25 * Math.min(4, completedCount));
         const nextProg = (state.kingdomEpochProgress[kid] ?? 0) + (nativeRatePerSec + diffusionRatePerSec) * dt;
-        if (nextProg >= 100) {
+        if (nextProg >= 100 && hasDiffusionFoundation) {
           // Advance by +1 toward neighbor's age; reset progress to 0 so diffusion NEVER overtakes a leading neighbor!
           advanceKingdomEpoch(state, kid, false, { freeFromProgress: true, skipAverageSync: true });
           state.kingdomEpochProgress[kid] = 0;
         } else {
-          state.kingdomEpochProgress[kid] = Math.min(99.9, nextProg);
+          state.kingdomEpochProgress[kid] = Math.min(99, nextProg);
         }
       } else {
         // Equal age or leading: zero diffusion boost — progression depends strictly on own civilization strength
         const nextProg = (state.kingdomEpochProgress[kid] ?? 0) + nativeRatePerSec * dt;
-        const canAscendNatively =
-          completedCount >= Math.min(requiredStructures, Math.max(2, kEpoch + 2)) &&
-          upgradeReady &&
-          lateTechReady &&
-          (resReadiness >= 0.65 || state.sandboxFreeMode);
+        const canAscendNatively = hasFullFoundation && (resReadiness >= 0.65 || state.sandboxFreeMode);
         if (nextProg >= 100 && canAscendNatively) {
           advanceKingdomEpoch(state, kid, false, { freeFromProgress: true, skipAverageSync: true });
           state.kingdomEpochProgress[kid] = 0;
@@ -8766,8 +10200,17 @@ function stepSimulationSingle(
       haz.remaining -= dt;
     }
 
-    haz.tickTimer += dt;
-    if (haz.tickTimer >= 0.35) {
+    const usesOwnCountdownTimer =
+      haz.kind === 'acid_cloud' ||
+      haz.kind === 'sinkhole_collapse' ||
+      haz.kind === 'locust_swarm' ||
+      haz.kind === 'magma_geyser' ||
+      haz.kind === 'sentinel_eye' ||
+      haz.kind === 'blizzard_gale';
+    if (!usesOwnCountdownTimer) {
+      haz.tickTimer += dt;
+    }
+    if (!usesOwnCountdownTimer && haz.tickTimer >= 0.35) {
       haz.tickTimer -= 0.35;
       const rSq = haz.radius * haz.radius;
       if (haz.kind === 'rain_cloud') {
@@ -8857,7 +10300,7 @@ function stepSimulationSingle(
             damageOrBleachWaterTile(t, 260, true);
             return;
           }
-          t.onFireTimer = 0;
+          if (haz.elementAffinity !== 'fire') t.onFireTimer = 0;
           if (t.resourceNode === 'timber_grove' || t.resourceNode === 'berry_bush') {
             t.resourceNode = 'none';
             t.resourceAmount = 0;
@@ -8889,17 +10332,32 @@ function stepSimulationSingle(
           }
         }
       } else if (haz.kind === 'chrono_field') {
-        // Periodically regrow farms/groves and accelerate upgrades inside the chrono distortion
+        // True 4x localized Time Bubble: accelerates construction, upgrades, child growth, cooldowns & movement inside the dome
         for (const b of state.buildings) {
           if ((b.tileX - haz.x) ** 2 + (b.tileZ - haz.z) ** 2 <= rSq) {
-            b.hp = Math.min(b.maxHp, b.hp + 15);
-            b.upgradeProgress = Math.min(99, (b.upgradeProgress ?? 0) + 5);
+            if (b.constructionProgress < 100) {
+              b.constructionProgress = Math.min(100, b.constructionProgress + 28);
+            } else {
+              b.upgradeProgress = Math.min(99, (b.upgradeProgress ?? 0) + 18);
+            }
           }
         }
         for (const u of state.units) {
-          if (u.faction === 'civilization' && u.state !== 'ko' && (u.x - haz.x) ** 2 + (u.z - haz.z) ** 2 <= rSq) {
-            u.hp = Math.min(u.maxHp, u.hp + 8);
-            if (!u.statusEffects.blessed) u.statusEffects.blessed = 4;
+          if (u.state !== 'ko' && (u.x - haz.x) ** 2 + (u.z - haz.z) ** 2 <= rSq) {
+            u.actionCooldown = Math.max(0, u.actionCooldown - 0.6);
+            if (u.weaponCooldown) u.weaponCooldown = Math.max(0, u.weaponCooldown - 0.6);
+            if (u.ageStage === 'child' && u.growthTimer !== undefined) {
+              u.growthTimer = Math.max(0, u.growthTimer - 4.0);
+            }
+            // Extra burst step toward current target so units visibly zip at ~4x speed inside the time dome!
+            const dxT = u.targetX - u.x;
+            const dzT = u.targetZ - u.z;
+            const distT = Math.hypot(dxT, dzT);
+            if (distT > 0.4 && u.state === 'moving') {
+              const step = Math.min(distT - 0.2, 1.35);
+              u.x = Math.max(1, Math.min(state.gridSize - 2, u.x + (dxT / distT) * step));
+              u.z = Math.max(1, Math.min(state.gridSize - 2, u.z + (dzT / distT) * step));
+            }
           }
         }
       }
@@ -9126,7 +10584,794 @@ function stepSimulationSingle(
             u.vzVertical = (isSuper ? 13.5 : 9.5) + Math.random() * 4.0;
             u.fallDamageArmed = true;
           }
+          // Apply tornado's absorbed elemental affinity to lifted units
+          if (haz.elementAffinity === 'fire') {
+            u.hp = Math.max(0, u.hp - 22 * dt);
+          } else if (haz.elementAffinity === 'poison') {
+            u.statusEffects.plagued = Math.max(u.statusEffects.plagued ?? 0, 10);
+          } else if (haz.elementAffinity === 'ice') {
+            u.statusEffects.frozen = Math.max(u.statusEffects.frozen ?? 0, 5);
+          }
         }
+      }
+
+      // Environmental Affinity: tornado absorbs fire, poison, ice, water, or sand as it roams!
+      const coreX = Math.round(haz.x);
+      const coreZ = Math.round(haz.z);
+      let fireHits = 0;
+      let poisonHits = 0;
+      let iceHits = 0;
+      let waterHits = 0;
+      let sandHits = 0;
+      forEachTileInBounds(state, coreX - 2, coreX + 2, coreZ - 2, coreZ + 2, (st) => {
+        if (st.onFireTimer > 0 || st.waterKind === 'lava' || st.terrain === 'volcanic_wasteland') fireHits++;
+        else if (st.waterKind === 'poison' || st.terrain === 'blighted_mire' || st.terrain === 'swamp') poisonHits++;
+        else if (st.terrain === 'snow' || st.terrain === 'ice') iceHits++;
+        else if (st.height === 0 && !st.waterKind) waterHits++;
+        else if (st.terrain === 'sand') sandHits++;
+      });
+      const prevAffinity = haz.elementAffinity ?? 'none';
+      let nextAffinity = prevAffinity;
+      if (fireHits >= 1) nextAffinity = 'fire';
+      else if (poisonHits >= 2 && prevAffinity !== 'fire') nextAffinity = 'poison';
+      else if (iceHits >= 3 && prevAffinity === 'none') nextAffinity = 'ice';
+      else if (waterHits >= 4 && (prevAffinity === 'none' || prevAffinity === 'fire')) {
+        // Crossing deep water cools a Firenado into a Waterspout!
+        nextAffinity = 'water';
+      } else if (sandHits >= 4 && prevAffinity === 'none') nextAffinity = 'sand';
+
+      if (nextAffinity !== prevAffinity) {
+        haz.elementAffinity = nextAffinity;
+        const label =
+          nextAffinity === 'fire'
+            ? 'a raging Firestorm'
+            : nextAffinity === 'poison'
+              ? 'a Toxic Cyclone'
+              : nextAffinity === 'ice'
+                ? 'a Blizzard Vortex'
+                : nextAffinity === 'water'
+                  ? 'a surging Waterspout'
+                  : 'a blinding Sandstorm';
+        addChronicle(state, `The Tornado absorbed the surrounding terrain and transformed into ${label}!`, 'warning');
+      }
+
+      // Elemental trail effects as the infused tornado roams
+      const aff = haz.elementAffinity ?? 'none';
+      if (aff !== 'none') {
+        const trailR = Math.max(2, Math.round(haz.radius * 0.58));
+        forEachTileInBounds(state, coreX - trailR, coreX + trailR, coreZ - trailR, coreZ + trailR, (st) => {
+          if ((st.x - haz.x) ** 2 + (st.z - haz.z) ** 2 > trailR * trailR) return;
+          if (aff === 'fire') {
+            if (st.height > 0 && st.blessedTimer <= 0 && Math.random() < dt * 3.5) {
+              st.onFireTimer = Math.max(st.onFireTimer, 6.5);
+              st.tempOffset = Math.min(80, (st.tempOffset ?? 0) + 12);
+            } else if (st.height === 0 && st.terrain === 'ice') {
+              st.terrain = st.frozenWaterBase ?? 'shallow_water';
+              delete st.frozenWaterBase;
+            }
+          } else if (aff === 'poison') {
+            if (st.height > 0 && !st.buildingId && st.blessedTimer <= 0 && POISON_CORRUPTIBLE_SOILS.has(st.terrain) && Math.random() < dt * 2.8) {
+              st.terrain = 'blighted_mire';
+              st.farmSettlementId = undefined;
+            } else if (st.height === 0 && !st.waterKind && st.terrain === 'shallow_water' && Math.random() < dt * 1.8) {
+              st.waterKind = 'poison';
+              specialLiquidPossibleByState.set(state, true);
+            }
+          } else if (aff === 'ice') {
+            st.onFireTimer = 0;
+            st.tempOffset = Math.max(-50, (st.tempOffset ?? 0) - 18 * dt);
+            if (st.height === 0 && st.terrain !== 'ice' && st.waterKind !== 'lava' && Math.random() < dt * 2.5) {
+              st.frozenWaterBase = st.terrain === 'deep_water' ? 'deep_water' : 'shallow_water';
+              st.terrain = 'ice';
+            } else if (st.height > 0 && !st.buildingId && Math.random() < dt * 2.4) {
+              st.terrain = 'snow';
+            }
+          } else if (aff === 'water') {
+            st.onFireTimer = 0;
+            if (st.height === 0 && st.waterKind === 'lava' && Math.random() < dt * 3.0) {
+              st.height = 1;
+              st.terrain = 'rock';
+              delete st.waterKind;
+            }
+          } else if (aff === 'sand') {
+            if (st.height > 0 && !st.buildingId && (st.terrain === 'grass' || st.terrain === 'fertile' || st.terrain === 'savanna') && Math.random() < dt * 2.2) {
+              st.terrain = 'sand';
+              st.farmSettlementId = undefined;
+            }
+          }
+        });
+      }
+
+      // Emergent in-flight fusion: if two roaming tornadoes collide, merge them into a Mega Tornado!
+      if (!haz.isSuper) {
+        for (const other of state.activeHazards) {
+          if (other.id !== haz.id && other.kind === 'tornado_vortex' && other.remaining > 0.2) {
+            if ((other.x - haz.x) ** 2 + (other.z - haz.z) ** 2 <= 4.5 * 4.5) {
+              other.isSuper = true;
+              other.radius = Math.max(other.radius, 8.2);
+              other.remaining = Math.max(other.remaining, 15.0);
+              other.duration = Math.max(other.duration, 15.0);
+              if (haz.elementAffinity && haz.elementAffinity !== 'none') {
+                other.elementAffinity = haz.elementAffinity;
+              }
+              haz.remaining = 0;
+              addChronicle(state, 'Two roaming tornadoes collided and merged into a colossal Mega Tornado!', 'warning');
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    // Drifting Corrosive Acid Cloud: erodes hill elevation, dissolves foliage, melts buildings & vehicles, and poisons water
+    if (haz.kind === 'acid_cloud') {
+      haz.x = Math.max(3, Math.min(state.gridSize - 4, haz.x + (haz.windX ?? 1.5) * dt));
+      haz.z = Math.max(3, Math.min(state.gridSize - 4, haz.z + (haz.windZ ?? 0.8) * dt));
+      haz.tickTimer -= dt;
+      if (haz.tickTimer <= 0) {
+        haz.tickTimer = 0.32;
+        const cr = haz.radius;
+        const crSq = cr * cr;
+        forEachTileInBounds(state, haz.x - cr, haz.x + cr, haz.z - cr, haz.z + cr, (st) => {
+          const dSq = (st.x - haz.x) ** 2 + (st.z - haz.z) ** 2;
+          if (dSq > crSq || Math.random() > 0.35) return;
+          if (st.height === 0) {
+            if (st.waterKind === 'lava') {
+              // Acid rain on lava triggers corrosion!
+              st.terrain = 'scorched';
+              delete st.waterKind;
+              st.cursedTimer = Math.max(st.cursedTimer, 10);
+            } else if (!st.waterKind && st.terrain === 'shallow_water') {
+              st.waterKind = 'poison';
+              specialLiquidPossibleByState.set(state, true);
+            }
+          } else {
+            if (st.resourceNode === 'timber_grove' || st.resourceNode === 'berry_bush') {
+              st.resourceNode = 'none';
+              st.resourceAmount = 0;
+              delete st.treeBiomeOverride;
+            }
+            if (!st.buildingId && st.height > 1 && dSq <= crSq * 0.32 && Math.random() < 0.35) {
+              // Corrosive acid physically erodes hill elevation!
+              st.height = Math.max(1, st.height - 1);
+            }
+            if (!st.buildingId && st.blessedTimer <= 0 && POISON_CORRUPTIBLE_SOILS.has(st.terrain)) {
+              st.terrain = dSq <= crSq * 0.35 ? 'scorched' : 'blighted_mire';
+              st.farmSettlementId = undefined;
+            }
+          }
+        });
+        for (const b of state.buildings) {
+          if ((b.tileX - haz.x) ** 2 + (b.tileZ - haz.z) ** 2 <= crSq && b.shieldTimer <= 0) {
+            b.hp = Math.max(0, b.hp - Math.round(b.maxHp * 0.08));
+          }
+        }
+        for (const u of state.units) {
+          if (u.state === 'ko' || u.statusEffects.shielded) continue;
+          if ((u.x - haz.x) ** 2 + (u.z - haz.z) ** 2 <= crSq) {
+            u.hp = Math.max(0, u.hp - 12);
+            u.statusEffects.plagued = Math.max(u.statusEffects.plagued ?? 0, 8);
+          }
+        }
+      }
+    }
+
+    // Gradual Collapsing Sinkhole: pulls units inward while cracking rim tiles & collapsing ring-by-ring into deep water
+    if (haz.kind === 'sinkhole_collapse') {
+      const progress = Math.min(1, 1 - haz.remaining / Math.max(0.1, haz.duration));
+      const maxR = haz.maxRadius ?? haz.radius;
+      const prevR = haz.currentRadius ?? 0.5;
+      const nextR = Math.max(0.6, maxR * Math.pow(progress, 0.78));
+      haz.currentRadius = nextR;
+      const pullR = nextR + 3.2;
+
+      // Pull nearby units toward the collapsing pit rim
+      for (const u of state.units) {
+        if (u.state === 'ko' || u.statusEffects.shielded || FLYING_WILDLIFE_ROLES.has(u.role) || u.draggedByPlayer) continue;
+        const dx = haz.x - u.x;
+        const dz = haz.z - u.z;
+        const dist = Math.hypot(dx, dz);
+        if (dist > 0.35 && dist <= pullR) {
+          const pull = (1 - dist / pullR) * 4.2 * dt;
+          u.x = Math.max(1, Math.min(state.gridSize - 2, u.x + (dx / dist) * pull));
+          u.z = Math.max(1, Math.min(state.gridSize - 2, u.z + (dz / dist) * pull));
+          if (dist <= nextR) {
+            u.hp = Math.max(0, u.hp - 36 * dt);
+            u.swimStamina = Math.min(u.swimStamina ?? 40, 18);
+          }
+        }
+      }
+
+      haz.tickTimer -= dt;
+      if (haz.tickTimer <= 0 || nextR - prevR >= 0.4) {
+        haz.tickTimer = 0.14;
+        const innerR = Math.max(0.4, nextR * 0.72);
+        const outerR = Math.min(maxR, nextR + 1.1);
+        forEachTileInBounds(state, haz.x - outerR, haz.x + outerR, haz.z - outerR, haz.z + outerR, (st) => {
+          const d = Math.hypot(st.x - haz.x, st.z - haz.z);
+          if (d <= innerR) {
+            if (st.height > 0 || st.terrain !== 'deep_water') {
+              st.height = 0;
+              st.terrain = d <= maxR * 0.52 ? 'deep_water' : 'shallow_water';
+              delete st.waterKind;
+              delete st.frozenWaterBase;
+              st.resourceNode = 'none';
+              st.resourceAmount = 0;
+              st.onFireTimer = 0;
+              st.farmSettlementId = undefined;
+              clearBurntTreeState(st);
+              delete st.treeBiomeOverride;
+            }
+          } else if (d <= outerR && st.height > 0) {
+            // Cracking rim before it drops!
+            st.height = Math.max(1, st.height - 1);
+            if (!st.buildingId) st.terrain = 'rock';
+          }
+        });
+        for (const b of state.buildings) {
+          if (b.hp > 0 && b.shieldTimer <= 0 && (b.tileX - haz.x) ** 2 + (b.tileZ - haz.z) ** 2 <= innerR * innerR) {
+            b.hp = 0;
+          }
+        }
+      }
+    }
+
+    // Roaming Locust Swarm: actively hunts nearby farms, forests & city food stockpiles
+    if (haz.kind === 'locust_swarm') {
+      // Steer gently toward nearest farm/berry/forest tile or city building within 22 tiles
+      let targetX: number | null = null;
+      let targetZ: number | null = null;
+      let bestDistSq = 22 * 22;
+      for (const b of state.buildings) {
+        if (b.hp <= 0) continue;
+        const dSq = (b.tileX - haz.x) ** 2 + (b.tileZ - haz.z) ** 2;
+        if (dSq > 4 && dSq < bestDistSq) {
+          bestDistSq = dSq;
+          targetX = b.tileX;
+          targetZ = b.tileZ;
+        }
+      }
+      if (targetX !== null && targetZ !== null) {
+        const desired = Math.atan2(targetZ - haz.z, targetX - haz.x);
+        const curH = haz.heading ?? 0;
+        haz.heading = curH + wrapAngleRad(desired - curH) * Math.min(1, dt * 1.8);
+      } else {
+        haz.heading = (haz.heading ?? 0) + Math.sin((haz.duration - haz.remaining) * 2.1) * dt * 1.2;
+      }
+      const swarmSpd = 4.4;
+      haz.x = Math.max(3, Math.min(state.gridSize - 4, haz.x + Math.cos(haz.heading ?? 0) * swarmSpd * dt));
+      haz.z = Math.max(3, Math.min(state.gridSize - 4, haz.z + Math.sin(haz.heading ?? 0) * swarmSpd * dt));
+
+      haz.tickTimer -= dt;
+      if (haz.tickTimer <= 0) {
+        haz.tickTimer = 0.25;
+        const sr = haz.radius;
+        const srSq = sr * sr;
+        forEachTileInBounds(state, haz.x - sr, haz.x + sr, haz.z - sr, haz.z + sr, (st) => {
+          if (st.height <= 0 || (st.x - haz.x) ** 2 + (st.z - haz.z) ** 2 > srSq) return;
+          if (st.resourceNode === 'berry_bush' || st.resourceNode === 'timber_grove') {
+            st.resourceNode = 'none';
+            st.resourceAmount = 0;
+            delete st.treeBiomeOverride;
+          }
+          if (st.farmSettlementId) {
+            st.farmSettlementId = undefined;
+          }
+          if (!st.buildingId && (st.terrain === 'fertile' || st.terrain === 'floral_plains' || st.terrain === 'grass' || st.terrain === 'forest')) {
+            st.terrain = 'savanna';
+          }
+        });
+        const hitKid = findTargetedKingdomId(state, Math.round(haz.x), Math.round(haz.z), sr + 3);
+        if (hitKid && state.kingdomResources?.[hitKid]) {
+          state.kingdomResources[hitKid].food = Math.max(0, state.kingdomResources[hitKid].food - 14);
+        }
+        for (const u of state.units) {
+          if (u.state === 'ko' || u.statusEffects.shielded) continue;
+          if ((u.x - haz.x) ** 2 + (u.z - haz.z) ** 2 <= srSq) {
+            u.hp = Math.max(0, u.hp - 5);
+          }
+        }
+      }
+    }
+
+    // Tectonic Lava Fissure: tears a glowing molten crack line outward in both directions, splitting armies & igniting banks
+    if (haz.kind === 'magma_geyser') {
+      if (haz.heading === undefined) {
+        haz.heading = (((Math.round(haz.x) * 19 + Math.round(haz.z) * 37) & 31) / 32) * Math.PI;
+      }
+      haz.tickTimer -= dt;
+      if (haz.tickTimer <= 0) {
+        haz.tickTimer = 0.28;
+        const progress = Math.min(1, 1 - haz.remaining / Math.max(0.1, haz.duration));
+        const maxHalfLen = Math.max(6.5, (haz.maxRadius ?? haz.radius) * 1.25);
+        const curHalfLen = Math.max(1.0, maxHalfLen * progress);
+        haz.currentRadius = curHalfLen;
+        const dirX = Math.cos(haz.heading);
+        const dirZ = Math.sin(haz.heading);
+        const perpX = -dirZ;
+        const perpZ = dirX;
+
+        // Tear both ends of the jagged lava fissure outward
+        for (const side of [-1, 1]) {
+          const distAlong = side * curHalfLen;
+          const jitter = Math.sin(curHalfLen * 1.7 + side) * 1.1;
+          const fx = Math.max(2, Math.min(state.gridSize - 3, Math.round(haz.x + dirX * distAlong + perpX * jitter)));
+          const fz = Math.max(2, Math.min(state.gridSize - 3, Math.round(haz.z + dirZ * distAlong + perpZ * jitter)));
+          const ft = getTile(state, fx, fz);
+          if (ft && !ft.buildingId) {
+            if (ft.height === 0 && ft.waterKind === 'poison') {
+              ft.terrain = 'scorched';
+              delete ft.waterKind;
+              ft.cursedTimer = Math.max(ft.cursedTimer, 10);
+            } else if (ft.height === 0 && !ft.waterKind && ft.terrain !== 'ice') {
+              ft.height = 1;
+              ft.terrain = 'rock';
+            } else {
+              ft.height = 0;
+              ft.terrain = 'shallow_water';
+              ft.waterKind = 'lava';
+              ft.isRiver = true;
+              ft.resourceNode = 'none';
+              ft.resourceAmount = 0;
+              ft.farmSettlementId = undefined;
+              clearBurntTreeState(ft);
+            }
+          }
+          // Ignite both banks of the fissure
+          for (const bank of [-1, 1]) {
+            const bx = Math.max(1, Math.min(state.gridSize - 2, Math.round(fx + perpX * bank)));
+            const bz = Math.max(1, Math.min(state.gridSize - 2, Math.round(fz + perpZ * bank)));
+            const bt = getTile(state, bx, bz);
+            if (bt && bt.height > 0 && bt.blessedTimer <= 0) {
+              bt.onFireTimer = Math.max(bt.onFireTimer, 7.5);
+              bt.tempOffset = Math.min(80, (bt.tempOffset ?? 0) + 22);
+              if (!bt.buildingId && (bt.terrain === 'grass' || bt.terrain === 'fertile' || bt.terrain === 'forest')) {
+                bt.terrain = 'scorched';
+              }
+            }
+          }
+          if (state.pendingVfx.length < 48) {
+            state.pendingVfx.push({
+              id: nextEntityId('vfx'),
+              type: 'fire_spread',
+              originX: haz.x,
+              originY: 0.9,
+              originZ: haz.z,
+              x: fx,
+              y: 0.65,
+              z: fz,
+              radius: 1.4,
+              color: '#ff5400',
+              createdAt: Date.now(),
+            });
+          }
+          // Fling nearby units outward away from the tearing rift!
+          for (const u of state.units) {
+            if (u.state === 'ko' || u.statusEffects.shielded || u.role === 'dragon' || u.role === 'phoenix' || u.role === 'cerberus') continue;
+            const dSq = (u.x - fx) ** 2 + (u.z - fz) ** 2;
+            if (dSq <= 6.25) {
+              u.hp = Math.max(0, u.hp - 26);
+              const pushSign = (u.x - fx) * perpX + (u.z - fz) * perpZ >= 0 ? 1 : -1;
+              u.vxAir = perpX * pushSign * 7.5;
+              u.vzAir = perpZ * pushSign * 7.5;
+              u.vzVertical = 5.0;
+            }
+          }
+        }
+        resolveLiquidReactionsAround(state, haz.x, haz.z, curHalfLen + 2);
+      }
+    }
+
+    // Eye of Judgment: colossal hovering eye that tracks and blasts ANY unit or structure in range with searing laser beams
+    if (haz.kind === 'sentinel_eye') {
+      haz.beamFireTimer = Math.max(0, (haz.beamFireTimer ?? 0) - dt);
+      haz.tickTimer -= dt;
+      if (haz.tickTimer <= 0) {
+        haz.tickTimer = 0.42;
+        const scanR = haz.radius;
+        const scanRSq = scanR * scanR;
+
+        // Target the nearest living unit (any faction/species!) in range
+        let bestUnit: UnitEntity | null = null;
+        let bestDistSq = scanRSq;
+        for (const u of state.units) {
+          if (u.state === 'ko') continue;
+          const dSq = (u.x - haz.x) ** 2 + (u.z - haz.z) ** 2;
+          if (dSq <= bestDistSq) {
+            bestDistSq = dSq;
+            bestUnit = u;
+          }
+        }
+
+        let aimX: number | undefined;
+        let aimZ: number | undefined;
+        let aimBld: BuildingEntity | null = null;
+        if (bestUnit) {
+          aimX = bestUnit.x;
+          aimZ = bestUnit.z;
+        } else {
+          // If no living unit is in sight, vaporize nearby structures!
+          let bestBldDistSq = scanRSq;
+          for (const b of state.buildings) {
+            if (b.hp <= 0) continue;
+            const dSq = (b.tileX - haz.x) ** 2 + (b.tileZ - haz.z) ** 2;
+            if (dSq <= bestBldDistSq) {
+              bestBldDistSq = dSq;
+              aimBld = b;
+            }
+          }
+          if (aimBld) {
+            aimX = aimBld.tileX;
+            aimZ = aimBld.tileZ;
+          }
+        }
+
+        if (aimX !== undefined && aimZ !== undefined) {
+          haz.beamTargetX = aimX;
+          haz.beamTargetZ = aimZ;
+          haz.beamFireTimer = 0.34;
+          haz.eyeYaw = Math.atan2(aimZ - haz.z, aimX - haz.x);
+
+          // Direct hit + tight splash damage on any units near the laser strike
+          const splashRSq = 1.65 * 1.65;
+          for (const u of state.units) {
+            if (u.state === 'ko' || u.statusEffects.shielded) continue;
+            const dSq = (u.x - aimX) ** 2 + (u.z - aimZ) ** 2;
+            if (u === bestUnit || dSq <= splashRSq) {
+              const dmg = u === bestUnit ? 48 : 26;
+              u.hp = Math.max(0, u.hp - dmg);
+              const kdx = u.x - haz.x;
+              const kdz = u.z - haz.z;
+              const kLen = Math.max(0.25, Math.hypot(kdx, kdz));
+              u.vxAir = (kdx / kLen) * 4.5;
+              u.vzAir = (kdz / kLen) * 4.5;
+              u.vzVertical = Math.max(u.vzVertical ?? 0, 2.8);
+            }
+          }
+
+          // Damage targeted or splash buildings
+          for (const b of state.buildings) {
+            if (b.hp <= 0 || b.shieldTimer > 0) continue;
+            const dSq = (b.tileX - aimX) ** 2 + (b.tileZ - aimZ) ** 2;
+            if (b === aimBld || dSq <= splashRSq) {
+              b.hp = Math.max(0, b.hp - Math.max(38, Math.round(b.maxHp * 0.14)));
+            }
+          }
+
+          // Bounded scorch around impact point (strictly O(1) tiles via forEachTileInBounds)
+          forEachTileInBounds(state, aimX - 1.3, aimX + 1.3, aimZ - 1.3, aimZ + 1.3, (st) => {
+            if ((st.x - aimX!) ** 2 + (st.z - aimZ!) ** 2 > 1.75) return;
+            if (st.height > 0 && st.blessedTimer <= 0) {
+              st.onFireTimer = Math.max(st.onFireTimer, 4.5);
+              st.tempOffset = Math.min(75, (st.tempOffset ?? 0) + 18);
+              if (!st.buildingId && (st.terrain === 'grass' || st.terrain === 'fertile' || st.terrain === 'forest')) {
+                st.terrain = 'scorched';
+              }
+            }
+          });
+
+          // Emit blazing laser_beam VFX from eye pupil down to target
+          if (state.pendingVfx.length < 48) {
+            const originTile = getTile(state, Math.round(haz.x), Math.round(haz.z));
+            const targetTile = getTile(state, Math.round(aimX), Math.round(aimZ));
+            const originGroundY = originTile ? Math.max(0.4, originTile.height * 0.45) : 0.6;
+            const targetGroundY = targetTile ? Math.max(0.4, targetTile.height * 0.45) : 0.6;
+            state.pendingVfx.push({
+              id: nextEntityId('vfx'),
+              type: 'projectile_tracer',
+              vfxSubtype: 'laser_beam',
+              originX: haz.x,
+              originY: originGroundY + 5.2,
+              originZ: haz.z,
+              x: aimX,
+              y: targetGroundY + 0.35,
+              z: aimZ,
+              radius: 2.35,
+              color: '#ff4500',
+              flightDuration: 0.28,
+              createdAt: Date.now(),
+            });
+          }
+        } else {
+          // Idle sweeping gaze across the horizon
+          haz.eyeYaw = (haz.eyeYaw ?? 0) + 0.72;
+        }
+      }
+    }
+
+    // 3-Phase Purify Sky Beam: Phase 1 (0–18%) sky descent, Phase 2 (18–78%) expanding light pillar & cleansing, Phase 3 (78–100%) skyward ascension
+    if (haz.kind === 'purify_wave') {
+      const progress = Math.min(1, 1 - haz.remaining / Math.max(0.1, haz.duration));
+      const maxR = haz.maxRadius ?? haz.radius;
+      const prevR = haz.currentRadius ?? 0.45;
+      if (progress < 0.18) {
+        // Beam still descending from the sky
+        haz.currentRadius = 0.45;
+      } else if (progress <= 0.78) {
+        const expandP = (progress - 0.18) / 0.6;
+        const nextR = Math.max(0.65, maxR * expandP);
+        haz.currentRadius = nextR;
+        const minRSq = Math.max(0, prevR - 0.6) ** 2;
+        const maxRSq = nextR * nextR;
+
+        forEachTileInBounds(state, haz.x - nextR, haz.x + nextR, haz.z - nextR, haz.z + nextR, (st) => {
+          const dSq = (st.x - haz.x) ** 2 + (st.z - haz.z) ** 2;
+          if (dSq > maxRSq || dSq < minRSq) return;
+          st.onFireTimer = 0;
+          st.cursedTimer = 0;
+          st.blessedTimer = Math.max(st.blessedTimer, 14);
+          clearBurntTreeState(st);
+          if (st.height === 0) {
+            if (st.waterKind === 'lava') {
+              st.height = 1;
+              st.terrain = 'rock';
+              delete st.waterKind;
+            } else if (st.waterKind === 'poison') {
+              delete st.waterKind;
+            }
+          } else if (
+            st.terrain === 'blighted_mire' ||
+            st.terrain === 'volcanic_wasteland' ||
+            st.terrain === 'scorched' ||
+            st.terrain === 'void_goo'
+          ) {
+            st.terrain = 'grass';
+          }
+        });
+        for (const u of state.units) {
+          if (u.state === 'ko') continue;
+          const dSq = (u.x - haz.x) ** 2 + (u.z - haz.z) ** 2;
+          if (dSq <= maxRSq && dSq >= minRSq) {
+            delete u.statusEffects.plagued;
+            delete u.statusEffects.cursed;
+            delete u.statusEffects.frozen;
+            u.hp = Math.min(u.maxHp, u.hp + Math.round(u.maxHp * 0.25));
+          }
+        }
+      } else {
+        // Phase 3: Beam contracts and retracts back up into the sky
+        const retractP = (progress - 0.78) / 0.22;
+        haz.currentRadius = Math.max(0.35, maxR * (1 - retractP * 0.88));
+      }
+    }
+
+    // Gradually spreading Biome Bloom Wave (Floral Blossom, Blight Plague, Lava Deluge): creeps outward tile-by-tile
+    if (haz.kind === 'biome_bloom_wave') {
+      const bKind = haz.biomeWaveKind ?? 'floral';
+      const progress = Math.min(1, 1 - haz.remaining / Math.max(0.1, haz.duration));
+      const maxR = haz.maxRadius ?? haz.radius;
+      const prevR = haz.currentRadius ?? 0.7;
+      const nextR = Math.max(0.7, maxR * progress);
+      haz.currentRadius = nextR;
+      const minRSq = Math.max(0, prevR - 0.55) ** 2;
+      const maxRSq = nextR * nextR;
+      const rCos = Math.cos(haz.heading ?? 0);
+      const rSin = Math.sin(haz.heading ?? 0);
+
+      forEachTileInBounds(state, haz.x - nextR, haz.x + nextR, haz.z - nextR, haz.z + nextR, (st) => {
+        const dx = st.x - haz.x;
+        const dz = st.z - haz.z;
+        const dSq = dx * dx + dz * dz;
+        if (dSq > maxRSq || dSq < minRSq) return;
+        // Organic ragged creeping edge
+        const edgeJitter = Math.sin(st.x * 1.3 + st.z * 0.9) * 0.45;
+        if (Math.sqrt(dSq) + edgeJitter > maxR) return;
+
+        if (bKind === 'floral') {
+          st.onFireTimer = 0;
+          st.cursedTimer = 0;
+          st.blessedTimer = Math.max(st.blessedTimer, 30);
+          clearBurntTreeState(st);
+          if (st.height === 0) {
+            st.terrain = 'shallow_water';
+            st.waterKind = 'floral';
+            delete st.frozenWaterBase;
+            delete st.coralBleachTimer;
+          } else if (!st.buildingId) {
+            st.terrain = 'floral_plains';
+            delete st.treeBiomeOverride;
+            const hRoll = Math.abs((st.x * 7 + st.z * 13) % 8);
+            if (hRoll <= 2) {
+              st.resourceNode = 'timber_grove';
+              st.resourceAmount = 280;
+            } else if (hRoll <= 4) {
+              st.resourceNode = 'berry_bush';
+              st.resourceAmount = 250;
+            } else if (hRoll === 5) {
+              st.resourceNode = 'stone_outcrop';
+              st.resourceAmount = 260;
+            }
+          }
+        } else if (bKind === 'blight') {
+          st.blessedTimer = 0;
+          st.onFireTimer = 0;
+          const along = dx * rCos + dz * rSin;
+          const perp = -dx * rSin + dz * rCos + Math.sin(along * 0.65) * 0.75;
+          const isPoisonLake = dSq <= 2.4;
+          const isPoisonStream = Math.abs(perp) <= 0.72 && dSq <= maxR * maxR * 0.82;
+          if (!st.buildingId && (st.height === 0 || isPoisonLake || isPoisonStream)) {
+            if (st.height === 0 && st.waterKind === 'lava') {
+              st.terrain = 'scorched';
+              delete st.waterKind;
+              st.cursedTimer = Math.max(st.cursedTimer, 10);
+            } else {
+              st.height = 0;
+              st.terrain = 'shallow_water';
+              st.waterKind = 'poison';
+              st.isLake = isPoisonLake || undefined;
+              st.isRiver = !isPoisonLake || undefined;
+              st.resourceNode = 'none';
+              st.resourceAmount = 0;
+              st.farmSettlementId = undefined;
+              clearBurntTreeState(st);
+              delete st.treeBiomeOverride;
+            }
+          } else if (st.height > 0 && !st.buildingId) {
+            st.terrain = 'blighted_mire';
+            st.farmSettlementId = undefined;
+            clearBurntTreeState(st);
+            delete st.treeBiomeOverride;
+            const hRoll = Math.abs((st.x * 11 + st.z * 17) % 7);
+            if (hRoll <= 2) {
+              st.resourceNode = 'timber_grove';
+              st.resourceAmount = 220;
+            } else if (hRoll === 3) {
+              st.resourceNode = 'stone_outcrop';
+              st.resourceAmount = 260;
+            } else if (st.resourceNode === 'berry_bush') {
+              st.resourceNode = 'none';
+              st.resourceAmount = 0;
+            }
+          }
+        } else {
+          // 'lava'
+          st.blessedTimer = 0;
+          st.tempOffset = Math.min(80, Math.max(st.tempOffset ?? 0, 36));
+          const along = dx * rCos + dz * rSin;
+          const perp = -dx * rSin + dz * rCos + Math.sin(along * 0.7) * 0.75;
+          const isLavaLake = dSq <= 2.25;
+          const isLavaStream = Math.abs(perp) <= 0.72 && dSq <= maxR * maxR * 0.85;
+          if (!st.buildingId && (isLavaLake || isLavaStream || st.height === 0)) {
+            if (st.height === 0 && st.waterKind === 'poison') {
+              st.terrain = 'scorched';
+              delete st.waterKind;
+              st.cursedTimer = Math.max(st.cursedTimer, 10);
+            } else if (st.height === 0 && !st.waterKind && st.terrain !== 'ice') {
+              st.height = 1;
+              st.terrain = 'rock';
+            } else {
+              st.height = 0;
+              st.terrain = 'shallow_water';
+              st.waterKind = 'lava';
+              st.isLake = isLavaLake || undefined;
+              st.isRiver = !isLavaLake || undefined;
+              st.resourceNode = 'none';
+              st.resourceAmount = 0;
+              st.farmSettlementId = undefined;
+              clearBurntTreeState(st);
+              delete st.treeBiomeOverride;
+            }
+          } else if (st.height > 0 && !st.buildingId) {
+            st.terrain = 'volcanic_wasteland';
+            st.onFireTimer = Math.max(st.onFireTimer, 5.0);
+            st.farmSettlementId = undefined;
+            clearBurntTreeState(st);
+            delete st.treeBiomeOverride;
+            const hRoll = Math.abs((st.x * 13 + st.z * 23) % 7);
+            if (hRoll <= 1) {
+              st.resourceNode = 'timber_grove';
+              st.resourceAmount = 240;
+            } else if (hRoll === 2) {
+              st.resourceNode = 'ore_vein';
+              st.resourceAmount = 360;
+            } else if (hRoll === 3) {
+              st.resourceNode = 'stone_outcrop';
+              st.resourceAmount = 300;
+            } else if (st.resourceNode === 'berry_bush') {
+              st.resourceNode = 'none';
+              st.resourceAmount = 0;
+            }
+          }
+        }
+      });
+
+      // Affect units & buildings as the wave front reaches them
+      for (const u of state.units) {
+        if (u.state === 'ko') continue;
+        const dSq = (u.x - haz.x) ** 2 + (u.z - haz.z) ** 2;
+        if (dSq > maxRSq || dSq < minRSq) continue;
+        if (bKind === 'floral' && u.faction !== 'hostile') {
+          u.hp = u.maxHp;
+          u.statusEffects.blessed = 25;
+          delete u.statusEffects.cursed;
+          delete u.statusEffects.plagued;
+        } else if (bKind === 'blight' && !u.statusEffects.shielded && u.role !== 'giant_spider') {
+          u.statusEffects.plagued = 16;
+          u.statusEffects.cursed = 12;
+        } else if (bKind === 'lava' && !u.statusEffects.shielded && u.role !== 'dragon' && u.role !== 'phoenix' && u.role !== 'cerberus') {
+          u.hp = Math.max(0, u.hp - 120);
+        }
+      }
+      for (const b of state.buildings) {
+        const dSq = (b.tileX - haz.x) ** 2 + (b.tileZ - haz.z) ** 2;
+        if (dSq > maxRSq || dSq < minRSq) continue;
+        if (bKind === 'floral') {
+          b.hp = b.maxHp;
+          b.blessedTimer = 25;
+          b.cursedTimer = 0;
+        } else if (bKind === 'lava' && b.shieldTimer <= 0) {
+          b.hp = Math.max(0, b.hp - 220);
+        }
+      }
+
+      // When wave reaches midpoint, spawn signature biome wildlife once
+      if (!haz.exploded && progress >= 0.55) {
+        haz.exploded = true;
+        if (bKind === 'floral') {
+          const floralAnimals: UnitRole[] =
+            state.worldRules?.allowFantasy !== false ? ['deer', 'rabbit', 'unicorn'] : ['deer', 'rabbit', 'horse'];
+          for (let i = 0; i < floralAnimals.length; i++) {
+            const sx = Math.max(2, Math.min(state.gridSize - 3, Math.round(haz.x + (i - 1) * 2)));
+            const sz = Math.max(2, Math.min(state.gridSize - 3, Math.round(haz.z + ((i % 2) * 2 - 1))));
+            const st = getTile(state, sx, sz);
+            if (st && st.height > 0 && !st.buildingId) spawnUnit(state, floralAnimals[i], sx, sz, true);
+          }
+        } else if (bKind === 'blight') {
+          for (const [ox, oz] of [[2, 0], [-2, 1], [0, -2]]) {
+            const sx = Math.max(2, Math.min(state.gridSize - 3, Math.round(haz.x + ox)));
+            const sz = Math.max(2, Math.min(state.gridSize - 3, Math.round(haz.z + oz)));
+            const st = getTile(state, sx, sz);
+            if (st && st.height > 0 && !st.buildingId) spawnUnit(state, 'giant_spider', sx, sz, true);
+          }
+        }
+        if (bKind === 'lava' || bKind === 'blight') {
+          resolveLiquidReactionsAround(state, haz.x, haz.z, nextR + 1);
+        }
+      }
+    }
+
+    // Drifting Howling Blizzard Gale: moves across terrain blowing units sideways, freezing water & burying snow
+    if (haz.kind === 'blizzard_gale') {
+      const wx = haz.windX ?? 2.4;
+      const wz = haz.windZ ?? 1.2;
+      haz.x = Math.max(3, Math.min(state.gridSize - 4, haz.x + wx * dt));
+      haz.z = Math.max(3, Math.min(state.gridSize - 4, haz.z + wz * dt));
+      const br = haz.radius;
+      const brSq = br * br;
+
+      // Blow unshielded units sideways in the howling gale!
+      for (const u of state.units) {
+        if (u.state === 'ko' || u.statusEffects.shielded || u.draggedByPlayer) continue;
+        if ((u.x - haz.x) ** 2 + (u.z - haz.z) ** 2 <= brSq) {
+          u.x = Math.max(1, Math.min(state.gridSize - 2, u.x + wx * 1.15 * dt));
+          u.z = Math.max(1, Math.min(state.gridSize - 2, u.z + wz * 1.15 * dt));
+          u.statusEffects.frozen = Math.max(u.statusEffects.frozen ?? 0, 6);
+          if (u.role !== 'yeti' && u.role !== 'polar_bear' && u.role !== 'penguin') {
+            u.hp = Math.max(0, u.hp - 12 * dt);
+          }
+        }
+      }
+
+      haz.tickTimer -= dt;
+      if (haz.tickTimer <= 0) {
+        haz.tickTimer = 0.22;
+        forEachTileInBounds(state, haz.x - br, haz.x + br, haz.z - br, haz.z + br, (st) => {
+          if ((st.x - haz.x) ** 2 + (st.z - haz.z) ** 2 > brSq || Math.random() > 0.45) return;
+          st.onFireTimer = 0;
+          st.tempOffset = -45;
+          if (st.height === 0) {
+            if (st.terrain !== 'ice' && st.waterKind !== 'lava') {
+              st.frozenWaterBase = st.terrain === 'deep_water' ? 'deep_water' : 'shallow_water';
+              st.terrain = 'ice';
+            }
+          } else if (!st.buildingId) {
+            st.terrain = 'snow';
+            if (st.resourceNode === 'berry_bush') {
+              st.resourceNode = 'none';
+              st.resourceAmount = 0;
+            }
+          }
+        });
       }
     }
 
@@ -9807,6 +12052,54 @@ function stepSimulationSingle(
       }
     }
 
+    // Protective Shield Dome ('shield_dome'): continuously shields friendly units/buildings and repels enemies
+    if (haz.kind === 'shield_dome' && haz.remaining > 0) {
+      const domeSq = haz.radius * haz.radius;
+      const ownerKid = haz.ownerKingdomId;
+      haz.tickTimer -= dt;
+      if (haz.tickTimer <= 0) {
+        haz.tickTimer = 0.25;
+        for (const b of state.buildings) {
+          const dSq = (b.tileX - haz.x) ** 2 + (b.tileZ - haz.z) ** 2;
+          if (dSq > domeSq) continue;
+          const bKid = b.settlementId ? getKingdomId(state, b.settlementId) : undefined;
+          if (!ownerKid || bKid === ownerKid) {
+            b.shieldTimer = Math.max(b.shieldTimer, 4.0);
+            b.cursedTimer = 0;
+          }
+        }
+        forEachTileInBounds(state, haz.x - haz.radius, haz.x + haz.radius, haz.z - haz.radius, haz.z + haz.radius, (t) => {
+          if ((t.x - haz.x) ** 2 + (t.z - haz.z) ** 2 <= domeSq && t.onFireTimer > 0) {
+            t.onFireTimer = 0;
+          }
+        });
+      }
+      for (const u of state.units) {
+        if (u.state === 'ko') continue;
+        const dSq = (u.x - haz.x) ** 2 + (u.z - haz.z) ** 2;
+        if (dSq > domeSq) continue;
+        const uKid =
+          u.faction === 'civilization'
+            ? u.kingdomId ?? (u.settlementId ? getKingdomId(state, u.settlementId) : undefined)
+            : undefined;
+        const isEnemy =
+          u.faction === 'hostile' ||
+          Boolean(
+            ownerKid &&
+              uKid &&
+              uKid !== ownerKid &&
+              getKingdomRelation(state, ownerKid, uKid) === 'war',
+          );
+        if (isEnemy) {
+          const dist = Math.max(0.25, Math.sqrt(dSq));
+          u.x = Math.max(1, Math.min(state.gridSize - 2, haz.x + ((u.x - haz.x) / dist) * (haz.radius + 1.2)));
+          u.z = Math.max(1, Math.min(state.gridSize - 2, haz.z + ((u.z - haz.z) / dist) * (haz.radius + 1.2)));
+        } else if ((!ownerKid && u.faction === 'civilization') || (ownerKid && uKid === ownerKid)) {
+          u.statusEffects.shielded = Math.max(u.statusEffects.shielded ?? 0, 4.0);
+        }
+      }
+    }
+
     if (haz.remaining > 0) {
       remainingHazards.push(haz);
     }
@@ -9861,13 +12154,61 @@ function stepSimulationSingle(
     }
   }
 
+  // Throttle full-map tile timer sweep to 4 Hz with accumulated dt (cuts 16k-262k tile scans by ~75% with identical decay)
+  const prevTileTimerAccum = tileTimerAccumByState.get(state) ?? 0;
+  const nextTileTimerAccum = prevTileTimerAccum + dt;
+  const runTileTimerSweep = nextTileTimerAccum >= 0.25;
+  const tileSweepDt = runTileTimerSweep ? nextTileTimerAccum : 0;
+  tileTimerAccumByState.set(state, runTileTimerSweep ? 0 : nextTileTimerAccum);
+
+  const nextLiqAccum = (liquidReactionAccumByState.get(state) ?? 0) + tileSweepDt;
+  const runLiquidEdgePulse = runTileTimerSweep && nextLiqAccum >= 1.25;
+  if (runTileTimerSweep) {
+    liquidReactionAccumByState.set(state, runLiquidEdgePulse ? 0 : nextLiqAccum);
+  }
+  const gsSweep = state.gridSize;
+
   let pendingFireIgnitions: Map<TileData, { duration: number; fireColor?: string }> | null = null;
   const tiles = state.tiles;
-  const nTiles = tiles.length;
+  const nTiles = runTileTimerSweep ? tiles.length : 0;
   const wildfireSpreadEnabled = state.worldRules?.wildfireSpread !== false;
   const fireSpreadOffsets = FIRE_SPREAD_OFFSETS;
   for (let i = 0; i < nTiles; i++) {
     const t = tiles[i];
+    if (runLiquidEdgePulse && t.height === 0 && (t.waterKind === 'lava' || t.waterKind === 'poison')) {
+      const lx = t.x;
+      const lz = t.z;
+      const isLava = t.waterKind === 'lava';
+      // Check 4 cardinal neighbors: lava ignites adjacent flammable tiles; poison blights adjacent soil
+      const nIndices = [
+        lx > 0 ? i - 1 : -1,
+        lx + 1 < gsSweep ? i + 1 : -1,
+        lz > 0 ? i - gsSweep : -1,
+        lz + 1 < gsSweep ? i + gsSweep : -1,
+      ];
+      for (let ni = 0; ni < 4; ni++) {
+        const nIdx = nIndices[ni];
+        if (nIdx < 0) continue;
+        const nb = tiles[nIdx];
+        if (!nb || nb.height <= 0 || nb.blessedTimer > 0) continue;
+        if (isLava) {
+          if (
+            nb.onFireTimer <= 0 &&
+            (nb.buildingId ||
+              nb.resourceNode === 'timber_grove' ||
+              nb.resourceNode === 'berry_bush' ||
+              isFlammableVegetationTerrain(nb.terrain)) &&
+            Math.random() < 0.16
+          ) {
+            nb.onFireTimer = 4.6;
+          }
+        } else if (!nb.buildingId && POISON_CORRUPTIBLE_SOILS.has(nb.terrain) && Math.random() < 0.09) {
+          nb.terrain = 'blighted_mire';
+          nb.farmSettlementId = undefined;
+          delete nb.treeBiomeOverride;
+        }
+      }
+    }
     // Fast-path skip for 99%+ of quiet tiles on 384x384 / 512x512 worlds
     if (
       t.onFireTimer === 0 &&
@@ -9879,13 +12220,13 @@ function stepSimulationSingle(
     ) {
       continue;
     }
-    if (t.blessedTimer > 0) t.blessedTimer = Math.max(0, t.blessedTimer - dt);
-    if (t.cursedTimer > 0) t.cursedTimer = Math.max(0, t.cursedTimer - dt);
+    if (t.blessedTimer > 0) t.blessedTimer = Math.max(0, t.blessedTimer - tileSweepDt);
+    if (t.cursedTimer > 0) t.cursedTimer = Math.max(0, t.cursedTimer - tileSweepDt);
     if ((t.crushedTimer ?? 0) > 0) {
-      t.crushedTimer = Math.max(0, (t.crushedTimer ?? 0) - dt);
+      t.crushedTimer = Math.max(0, (t.crushedTimer ?? 0) - tileSweepDt);
     }
     if (t.tempOffset) {
-      const decay = 0.38 * dt;
+      const decay = 0.38 * tileSweepDt;
       if (Math.abs(t.tempOffset) <= decay) {
         delete t.tempOffset;
       } else {
@@ -9901,14 +12242,14 @@ function stepSimulationSingle(
     }
     if (t.height === 0 && t.resourceNode === 'coral_reef') {
       if ((t.coralBleachTimer ?? 0) > 0) {
-        t.coralBleachTimer = Math.max(0, (t.coralBleachTimer ?? 0) - dt);
+        t.coralBleachTimer = Math.max(0, (t.coralBleachTimer ?? 0) - tileSweepDt);
         if (t.coralBleachTimer === 0 && t.resourceAmount <= 0) {
           t.resourceAmount = 240;
         }
       }
     }
     if (t.onFireTimer > 0) {
-      t.onFireTimer = Math.max(0, t.onFireTimer - dt);
+      t.onFireTimer = Math.max(0, t.onFireTimer - tileSweepDt);
       if (t.height <= 0) {
         t.onFireTimer = 0;
         t.fireColor = undefined;
@@ -9919,7 +12260,7 @@ function stepSimulationSingle(
       if (t.resourceNode === 'timber_grove') {
         preserveTreeBiomeBeforeScorch(t);
         if (t.resourceAmount > 0) {
-          t.resourceAmount = Math.max(0, t.resourceAmount - 34 * dt);
+          t.resourceAmount = Math.max(0, t.resourceAmount - 34 * tileSweepDt);
         }
         if (t.resourceAmount < 190 || t.onFireTimer <= 1.8) {
           t.burntTree = true;
@@ -9939,7 +12280,7 @@ function stepSimulationSingle(
         }
       } else if (t.resourceNode === 'berry_bush') {
         if (t.resourceAmount > 0) {
-          t.resourceAmount = Math.max(0, t.resourceAmount - 42 * dt);
+          t.resourceAmount = Math.max(0, t.resourceAmount - 42 * tileSweepDt);
         }
         if (t.resourceAmount <= 0 || t.onFireTimer === 0) {
           t.resourceNode = 'none';
@@ -10193,7 +12534,8 @@ function stepSimulationSingle(
 
     if (u.statusEffects.plagued) {
       u.hp -= 4.5 * dt;
-      if (activeTickIndex) {
+      const tickNum = simTickCounterByState.get(state) ?? 0;
+      if (activeTickIndex && ((tickNum + (u.appearanceSeed ?? 0)) & 3) === 0) {
         forEachUnitInRadius(activeTickIndex, u.x, u.z, 1.12, (other, dSq) => {
           if (
             other.id !== u.id &&
@@ -10233,6 +12575,31 @@ function stepSimulationSingle(
       }
       remainingUnits.push(u);
       continue;
+    }
+
+    // Environmental liquid hazards: Lava & Poison lakes/rivers gradually kill non-flying, non-immune units
+    if (!u.embarkedVehicleId && !u.statusEffects.shielded && !FLYING_WILDLIFE_ROLES.has(u.role) && u.role !== 'alien_ufo') {
+      const liquidTile = getTile(state, u.x, u.z);
+      if (liquidTile && liquidTile.height === 0) {
+        if (
+          liquidTile.waterKind === 'lava' &&
+          u.role !== 'golem' &&
+          u.role !== 'cerberus' &&
+          u.role !== 'gargoyle'
+        ) {
+          u.hp -= 28 * dt;
+          u.underAttackTimer = Math.max(u.underAttackTimer ?? 0, 1.0);
+        } else if (
+          liquidTile.waterKind === 'poison' &&
+          u.role !== 'giant_spider' &&
+          u.role !== 'hydra' &&
+          u.role !== 'basilisk'
+        ) {
+          u.hp -= 16 * dt;
+          u.statusEffects.plagued = Math.max(u.statusEffects.plagued ?? 0, 5.0);
+          u.underAttackTimer = Math.max(u.underAttackTimer ?? 0, 1.0);
+        }
+      }
     }
 
     if (u.hp <= 0) {
@@ -10497,6 +12864,9 @@ function stepSimulationSingle(
           if (t.farmSettlementId === sid) {
             t.farmSettlementId = undefined;
           }
+          if (t.claimedSettlementId === sid) {
+            t.claimedSettlementId = undefined;
+          }
         }
       }
     }
@@ -10505,8 +12875,10 @@ function stepSimulationSingle(
   // 8b. Void Goo infection spread & Void Wisp soul kinematics
   stepVoidGooAndWisps(state, dt);
 
-  // 8c. Guarantee strictly 1 living King per kingdom on every tick (handles immediate succession when a King falls)
-  ensureSettlementKings(state);
+  // 8c. Guarantee strictly 1 living King per kingdom (checked every 2nd tick for fast succession with half the scan cost)
+  if ((simTick & 1) === 1) {
+    ensureSettlementKings(state);
+  }
 
   // 9. Update transit vehicles (Trains on rail_track, Cars on stone_road, Planes at airports)
   stepVehicles(state, dt);
@@ -10615,7 +12987,7 @@ function stepVehicles(state: SimulationState, dt: number): void {
     if (v.hp <= 0 || !aliveSettlement) {
       if (v.passengerIds && v.passengerIds.length > 0) {
         for (const pid of v.passengerIds) {
-          const pu = state.units.find((u) => u.id === pid);
+          const pu = activeTickIndex?.unitsById.get(pid) ?? state.units.find((u) => u.id === pid);
           if (pu) pu.embarkedVehicleId = undefined;
         }
       }
@@ -10646,7 +13018,15 @@ function stepVehicles(state: SimulationState, dt: number): void {
       );
     }
     if (v.type === 'warship') return vEpoch >= 1;
-    if (v.type === 'train' || v.type === 'car' || v.type === 'tank' || v.type === 'glider' || v.type === 'airship') {
+    if (
+      v.type === 'train' ||
+      v.type === 'car' ||
+      v.type === 'tank' ||
+      v.type === 'glider' ||
+      v.type === 'airship' ||
+      v.type === 'farm_tractor' ||
+      v.type === 'quarry_truck'
+    ) {
       return vEpoch >= 3;
     }
     if (v.type === 'bomber_plane' || v.type === 'helicopter' || v.type === 'orc_flyer') return vEpoch >= 4;
@@ -10659,6 +13039,12 @@ function stepVehicles(state: SimulationState, dt: number): void {
     isSettlementAliveAndPopulated(sid),
   );
 
+  // Throttle heavy vehicle spawning tile scans to ~0.8 Hz (movement in section D still runs at full tick rate)
+  const vSpawnAccum = (vehicleSpawnAccumByState.get(state) ?? 1.2) + dt;
+  const runVehicleSpawners = vSpawnAccum >= 1.2;
+  vehicleSpawnAccumByState.set(state, runVehicleSpawners ? 0 : vSpawnAccum);
+
+  if (runVehicleSpawners) {
   // A0. Maintain active Civilian / Passenger & Cargo Ships (Epoch 0+ canoes/rafts -> galleys -> medieval carracks/longships -> steam ferries -> car ferries -> cruise ships -> star-liners)
   for (const sid of settlementIds) {
     if (state.vehicles.filter((v) => v.type === 'passenger_ship').length >= 16) break;
@@ -10815,6 +13201,126 @@ function stepVehicles(state: SimulationState, dt: number): void {
     }
   }
 
+  // B1.5. Maintain Industrial+ Farm Tractors (working dedicated farmland plots) & Quarry Haul Trucks (mining stone/ore)
+  for (const sid of settlementIds) {
+    const cityEpoch = getSettlementTechEpoch(sid);
+    if (cityEpoch < 3) continue;
+    const sp: SpeciesId = state.settlementSpecies?.[sid] ?? 'human';
+    const kid = getKingdomId(state, sid);
+    const anchor = getSettlementAnchorForId(state, sid);
+
+    // Farm Tractor: spawns when settlement has >= 4 farmland tiles around its windmill/granary
+    if (
+      state.vehicles.filter((v) => v.type === 'farm_tractor').length < 12 &&
+      !state.vehicles.some((v) => v.type === 'farm_tractor' && v.settlementId === sid)
+    ) {
+      const farmTiles: TileData[] = [];
+      for (let dz = -14; dz <= 14; dz++) {
+        for (let dx = -14; dx <= 14; dx++) {
+          const ft = getTile(state, anchor.x + dx, anchor.z + dz);
+          if (ft && ft.farmSettlementId === sid && ft.farmPlotKind === 'wheat' && ft.height > 0 && !ft.buildingId) {
+            farmTiles.push(ft);
+          }
+        }
+      }
+      if (farmTiles.length >= 4) {
+        const startF = farmTiles[0];
+        const nextF = farmTiles[Math.min(1, farmTiles.length - 1)];
+        state.vehicles.push({
+          id: nextEntityId('veh_trc'),
+          type: 'farm_tractor',
+          species: sp,
+          settlementId: sid,
+          kingdomId: kid,
+          hp: 110,
+          maxHp: 110,
+          epochLevel: cityEpoch,
+          x: startF.x,
+          y: 0.02,
+          z: startF.z,
+          heading: Math.atan2(nextF.x - startF.x, nextF.z - startF.z),
+          pitch: 0,
+          bank: 0,
+          speed: 1.85,
+          path: [
+            { x: startF.x, z: startF.z },
+            { x: nextF.x, z: nextF.z },
+          ],
+          pathIndex: 1,
+          variantSeed: startF.x * 7 + startF.z * 13,
+        });
+      }
+    }
+
+    // Quarry Truck: spawns when settlement has a Smeltery or Steam Foundry to haul rock & ore from dedicated Quarry Territory
+    if (
+      state.vehicles.filter((v) => v.type === 'quarry_truck').length < 12 &&
+      !state.vehicles.some((v) => v.type === 'quarry_truck' && v.settlementId === sid)
+    ) {
+      const quarryHub = state.buildings.find(
+        (b) =>
+          b.settlementId === sid &&
+          b.constructionProgress >= 100 &&
+          (b.type === 'steam_foundry' || b.type === 'smeltery'),
+      );
+      if (quarryHub) {
+        const districts = state.settlementDistricts?.[sid];
+        let quarryTile: TileData | null = districts ? getTile(state, districts.quarryX, districts.quarryZ) ?? null : null;
+        if (quarryTile && (quarryTile.height <= 0 || quarryTile.buildingId)) {
+          quarryTile = null;
+        }
+        let bestDistSq = Infinity;
+        if (!quarryTile) {
+          for (let dz = -16; dz <= 16; dz++) {
+            for (let dx = -16; dx <= 16; dx++) {
+              const qt = getTile(state, quarryHub.tileX + dx, quarryHub.tileZ + dz);
+              if (!qt || qt.height <= 0 || qt.buildingId) continue;
+              if (
+                qt.farmPlotKind === 'quarry' ||
+                qt.resourceNode === 'ore_vein' ||
+                qt.resourceNode === 'stone_outcrop' ||
+                qt.terrain === 'rock' ||
+                qt.terrain === 'mountain' ||
+                qt.terrain === 'badlands'
+              ) {
+                const dSq = dx * dx + dz * dz;
+                if (dSq >= 4 && dSq < bestDistSq) {
+                  bestDistSq = dSq;
+                  quarryTile = qt;
+                }
+              }
+            }
+          }
+        }
+        if (quarryTile) {
+          state.vehicles.push({
+            id: nextEntityId('veh_qry'),
+            type: 'quarry_truck',
+            species: sp,
+            settlementId: sid,
+            kingdomId: kid,
+            hp: 165,
+            maxHp: 165,
+            epochLevel: cityEpoch,
+            x: quarryHub.tileX,
+            y: 0.02,
+            z: quarryHub.tileZ,
+            heading: Math.atan2(quarryTile.x - quarryHub.tileX, quarryTile.z - quarryHub.tileZ),
+            pitch: 0,
+            bank: 0,
+            speed: 2.05,
+            path: [
+              { x: quarryHub.tileX, z: quarryHub.tileZ },
+              { x: quarryTile.x, z: quarryTile.z },
+            ],
+            pathIndex: 1,
+            variantSeed: quarryHub.tileX * 5 + quarryHub.tileZ * 11,
+          });
+        }
+      }
+    }
+  }
+
   // B2. Easter Egg: Latest Tesla Roadster with SpaceX Cold-Gas Thruster Stunts (Information Age Epoch 5+ per settlement)
   for (const sid of settlementIds) {
     const cityEpoch = getSettlementTechEpoch(sid);
@@ -10922,6 +13428,14 @@ function stepVehicles(state: SimulationState, dt: number): void {
       });
     }
   }
+  }
+
+  const airports = state.buildings.filter(
+    (b) =>
+      b.hp > 0 &&
+      b.type === 'airport' &&
+      b.constructionProgress >= 100,
+  );
 
   // D. Advance every vehicle smoothly
   for (const v of state.vehicles) {
@@ -11268,6 +13782,81 @@ function stepVehicles(state: SimulationState, dt: number): void {
           const nextPt = pool[Math.abs(pickIdx)];
           v.path = [{ x: target.x, z: target.z }, { x: nextPt.x, z: nextPt.z }];
         }
+      }
+    } else if (v.type === 'farm_tractor') {
+      const vEpoch = v.epochLevel ?? 3;
+      v.speed = vEpoch <= 3 ? 1.85 : vEpoch === 4 ? 2.25 : 2.75;
+      v.y = 0.02;
+      const target = v.path[1] ?? v.path[0] ?? { x: v.x, z: v.z };
+      const dx = target.x - v.x;
+      const dz = target.z - v.z;
+      const dist = Math.hypot(dx, dz);
+      const step = v.speed * dt;
+      if (dist > step && dist > 0.04) {
+        v.x += (dx / dist) * step;
+        v.z += (dz / dist) * step;
+        const desiredHeading = Math.atan2(dx, dz);
+        v.heading += wrapAngleRad(desiredHeading - v.heading) * Math.min(1, dt * 10);
+      } else {
+        v.x = target.x;
+        v.z = target.z;
+        // Harvest crops at this farmland tile & replant so mechanized farming stays super productive
+        const curFarmTile = getTile(state, Math.round(v.x), Math.round(v.z));
+        if (curFarmTile && curFarmTile.farmSettlementId === v.settlementId && curFarmTile.farmPlotKind === 'wheat') {
+          const harvestYield = 10 + Math.min(8, (vEpoch - 3) * 3);
+          const vKid = v.kingdomId ?? getKingdomId(state, v.settlementId);
+          grantResourcesToKingdomOrPool(state, { food: harvestYield }, vKid);
+          curFarmTile.resourceNode = 'berry_bush';
+          curFarmTile.resourceAmount = 220;
+        }
+        // Pick next farmland tile in the settlement's organized farm rows
+        const anchor = getSettlementAnchorForId(state, v.settlementId);
+        const farmRows: TileData[] = [];
+        for (let fz = -14; fz <= 14; fz++) {
+          for (let fx = -14; fx <= 14; fx++) {
+            const ft = getTile(state, anchor.x + fx, anchor.z + fz);
+            if (ft && ft.farmSettlementId === v.settlementId && ft.farmPlotKind === 'wheat' && ft.height > 0 && !ft.buildingId) {
+              farmRows.push(ft);
+            }
+          }
+        }
+        if (farmRows.length > 0) {
+          const nextIdx = (v.pathIndex + 1) % farmRows.length;
+          v.pathIndex = nextIdx;
+          const nextTile = farmRows[nextIdx];
+          v.path = [{ x: v.x, z: v.z }, { x: nextTile.x, z: nextTile.z }];
+        }
+      }
+    } else if (v.type === 'quarry_truck') {
+      const vEpoch = v.epochLevel ?? 3;
+      v.speed = vEpoch <= 3 ? 2.0 : vEpoch === 4 ? 2.5 : 3.1;
+      v.y = 0.02;
+      const target = v.path[1] ?? v.path[0] ?? { x: v.x, z: v.z };
+      const dx = target.x - v.x;
+      const dz = target.z - v.z;
+      const dist = Math.hypot(dx, dz);
+      const step = v.speed * dt;
+      if (dist > step && dist > 0.05) {
+        v.x += (dx / dist) * step;
+        v.z += (dz / dist) * step;
+        const desiredHeading = Math.atan2(dx, dz);
+        v.heading += wrapAngleRad(desiredHeading - v.heading) * Math.min(1, dt * 9);
+      } else {
+        v.x = target.x;
+        v.z = target.z;
+        // Shuttle back and forth between quarry hub (path[0]) and rock/ore deposit (path[1])
+        const hubPt = v.path[0] ?? { x: v.x, z: v.z };
+        const depositPt = v.path[1] ?? { x: v.x, z: v.z };
+        const vKid = v.kingdomId ?? getKingdomId(state, v.settlementId);
+        // When returning to quarry hub (pathIndex === 0), deposit high-efficiency Stone, Ore & Alloy
+        if (v.pathIndex === 0) {
+          const stoneHaul = 14 + Math.min(10, (vEpoch - 3) * 4);
+          const oreHaul = 12 + Math.min(10, (vEpoch - 3) * 3);
+          const alloyHaul = vEpoch >= 5 ? 6 : 0;
+          grantResourcesToKingdomOrPool(state, { stone: stoneHaul, ore: oreHaul, alloy: alloyHaul }, vKid);
+        }
+        v.pathIndex = v.pathIndex === 1 ? 0 : 1;
+        v.path = [depositPt, hubPt];
       }
     } else if (v.type === 'roadster') {
       const vEpoch = v.epochLevel ?? 5;
@@ -12167,10 +14756,20 @@ function stepVehicles(state: SimulationState, dt: number): void {
                 createdAt: Date.now(),
               });
             }
-          } else if (targetBld) {
+          } else if (targetBld && targetBld.shieldTimer <= 0) {
             targetBld.hp = Math.max(0, targetBld.hp - dmg * 1.35);
             // Fortified settlements return defensive flak/turret fire against attacking vehicles
             v.hp = Math.max(0, (v.hp ?? 100) - 8);
+            if (targetBld.hp <= 0 && v.settlementId && myKid) {
+              claimTerritoryAround(state, targetBld.tileX, targetBld.tileZ, 4.2, v.settlementId, myKid, true);
+              targetBld.settlementId = v.settlementId;
+              targetBld.species = v.species ?? 'human';
+              targetBld.hp = Math.max(45, Math.round(targetBld.maxHp * 0.45));
+              targetBld.constructionProgress = 100;
+            }
+          }
+          if (v.settlementId && myKid) {
+            claimTerritoryAround(state, targetX, targetZ, 2.0, v.settlementId, myKid, true);
           }
         }
       }
@@ -12564,6 +15163,9 @@ function getTileTreeBiome(terrain: TerrainType): BurntTreeBiomeKey {
   if (terrain === 'blossom') return 'blossom';
   if (terrain === 'savanna' || terrain === 'badlands' || terrain === 'sand') return 'savanna';
   if (terrain === 'swamp') return 'swamp';
+  if (terrain === 'volcanic_wasteland') return 'volcanic';
+  if (terrain === 'blighted_mire') return 'blight';
+  if (terrain === 'floral_plains') return 'floral';
   if (terrain === 'highland' || terrain === 'mountain' || terrain === 'rock') return 'highland';
   if (terrain === 'grass' || terrain === 'fertile') return 'meadow';
   return 'forest';
@@ -12576,6 +15178,8 @@ function isFlammableVegetationTerrain(terrain: TerrainType): boolean {
     terrain === 'savanna' ||
     terrain === 'taiga' ||
     terrain === 'blossom' ||
+    terrain === 'floral_plains' ||
+    terrain === 'blighted_mire' ||
     terrain === 'fertile' ||
     terrain === 'grass' ||
     terrain === 'highland' ||
@@ -12607,13 +15211,13 @@ function getTileFlammabilityRate(state: SimulationState, t: TileData): number {
     return 0.18;
   }
   if (t.terrain === 'savanna') return 0.18;
-  if (t.terrain === 'blossom' || t.terrain === 'fertile') {
+  if (t.terrain === 'blossom' || t.terrain === 'floral_plains' || t.terrain === 'fertile') {
     return 0.16;
   }
   if (t.terrain === 'grass') {
     return t.farmSettlementId ? 0.16 : 0.13;
   }
-  if (t.terrain === 'highland') return 0.11;
+  if (t.terrain === 'highland' || t.terrain === 'blighted_mire') return 0.11;
   if (t.terrain === 'swamp') return 0.08;
   return 0;
 }
@@ -12627,6 +15231,7 @@ export function isCarnivoreAnimal(role: UnitRole, appearanceSeed?: number): bool
     role === 'tiger' ||
     role === 'crocodile' ||
     role === 'polar_bear' ||
+    role === 'giant_spider' ||
     role === 'griffin' ||
     role === 'yeti' ||
     role === 'hydra' ||
@@ -12727,6 +15332,7 @@ function tileIsPlantGrazeGround(t: TileData, allowTrees: boolean): boolean {
   return (
     t.terrain === 'fertile' ||
     t.terrain === 'blossom' ||
+    t.terrain === 'floral_plains' ||
     t.terrain === 'grass' ||
     t.terrain === 'savanna' ||
     t.terrain === 'highland' ||
@@ -12742,6 +15348,9 @@ function tileMatchesWildlifeHabitat(
 ): boolean {
   if (role === 'kraken') {
     return t.height === 0 && !t.isRiver && !t.isLake && (t.terrain === 'deep_water' || t.terrain === 'shallow_water');
+  }
+  if (role === 'giant_spider') {
+    return t.height > 0 && (t.terrain === 'blighted_mire' || t.terrain === 'swamp' || t.terrain === 'forest');
   }
   if (role === 'penguin' || role === 'polar_bear' || role === 'seal') {
     if (role === 'seal' && t.terrain === 'shallow_water') return true;
@@ -12763,25 +15372,25 @@ function tileMatchesWildlifeHabitat(
     return t.terrain === 'sand';
   }
   if (t.height <= 0) return false;
-  if (role === 'cow') return t.terrain === 'grass' || t.terrain === 'fertile' || t.terrain === 'savanna';
-  if (role === 'horse' || role === 'bison') return t.terrain === 'grass' || t.terrain === 'fertile' || t.terrain === 'savanna' || t.terrain === 'highland';
-  if (role === 'chicken') return t.terrain === 'grass' || t.terrain === 'fertile' || t.terrain === 'blossom';
+  if (role === 'cow') return t.terrain === 'grass' || t.terrain === 'fertile' || t.terrain === 'floral_plains' || t.terrain === 'savanna';
+  if (role === 'horse' || role === 'bison') return t.terrain === 'grass' || t.terrain === 'fertile' || t.terrain === 'floral_plains' || t.terrain === 'savanna' || t.terrain === 'highland';
+  if (role === 'chicken') return t.terrain === 'grass' || t.terrain === 'fertile' || t.terrain === 'blossom' || t.terrain === 'floral_plains';
   if (role === 'pig') return t.terrain === 'grass' || t.terrain === 'forest' || t.terrain === 'swamp' || t.terrain === 'fertile';
-  if (role === 'deer') return t.terrain === 'forest' || t.terrain === 'blossom' || t.terrain === 'fertile' || t.terrain === 'grass';
+  if (role === 'deer') return t.terrain === 'forest' || t.terrain === 'blossom' || t.terrain === 'floral_plains' || t.terrain === 'fertile' || t.terrain === 'grass';
   if (role === 'moose') return t.terrain === 'taiga' || t.terrain === 'forest' || t.terrain === 'snow' || t.terrain === 'tundra';
-  if (role === 'sheep') return t.terrain === 'grass' || t.terrain === 'fertile' || t.terrain === 'highland';
+  if (role === 'sheep') return t.terrain === 'grass' || t.terrain === 'fertile' || t.terrain === 'floral_plains' || t.terrain === 'highland';
   if (role === 'goat') return t.terrain === 'highland' || t.terrain === 'mountain' || t.terrain === 'rock' || t.terrain === 'taiga';
   if (role === 'monkey' || role === 'gorilla' || role === 'tiger') return t.terrain === 'jungle' || t.terrain === 'forest' || t.terrain === 'blossom';
-  if (role === 'panda') return t.terrain === 'forest' || t.terrain === 'blossom' || t.terrain === 'jungle' || t.terrain === 'fertile';
-  if (role === 'rabbit') return t.terrain === 'grass' || t.terrain === 'fertile' || t.terrain === 'blossom' || t.terrain === 'forest' || t.terrain === 'tundra';
-  if (role === 'fox') return t.terrain === 'forest' || t.terrain === 'taiga' || t.terrain === 'blossom' || t.terrain === 'grass' || t.terrain === 'tundra';
+  if (role === 'panda') return t.terrain === 'forest' || t.terrain === 'blossom' || t.terrain === 'floral_plains' || t.terrain === 'jungle' || t.terrain === 'fertile';
+  if (role === 'rabbit') return t.terrain === 'grass' || t.terrain === 'fertile' || t.terrain === 'blossom' || t.terrain === 'floral_plains' || t.terrain === 'forest' || t.terrain === 'tundra';
+  if (role === 'fox') return t.terrain === 'forest' || t.terrain === 'taiga' || t.terrain === 'blossom' || t.terrain === 'floral_plains' || t.terrain === 'grass' || t.terrain === 'tundra';
   if (role === 'boar') return t.terrain === 'forest' || t.terrain === 'swamp' || t.terrain === 'savanna' || t.terrain === 'badlands';
   if (role === 'lion' || role === 'rhino' || role === 'giraffe' || role === 'zebra' || role === 'ostrich') return t.terrain === 'savanna' || t.terrain === 'badlands' || t.terrain === 'grass' || t.terrain === 'sand';
   if (role === 'kangaroo') return t.terrain === 'savanna' || t.terrain === 'badlands' || t.terrain === 'sand';
   if (role === 'elephant') return t.terrain === 'savanna' || t.terrain === 'jungle' || t.terrain === 'fertile';
   if (role === 'camel') return t.terrain === 'sand' || t.terrain === 'badlands' || t.terrain === 'savanna';
   if (role === 'capybara' || role === 'crocodile' || role === 'hippo' || role === 'frog' || role === 'hydra' || role === 'basilisk') {
-    if (t.terrain === 'swamp' || t.terrain === 'jungle' || (role === 'basilisk' && (t.terrain === 'badlands' || t.terrain === 'rock'))) return true;
+    if (t.terrain === 'swamp' || t.terrain === 'blighted_mire' || t.terrain === 'jungle' || (role === 'basilisk' && (t.terrain === 'badlands' || t.terrain === 'rock'))) return true;
     if (t.terrain === 'sand' || t.terrain === 'grass' || t.terrain === 'fertile') {
       for (const [ox, oz] of [
         [1, 0],
@@ -12804,21 +15413,22 @@ function tileMatchesWildlifeHabitat(
         t.terrain === 'forest' ||
         t.terrain === 'fertile' ||
         t.terrain === 'savanna' ||
-        t.terrain === 'blossom'
+        t.terrain === 'blossom' ||
+        t.terrain === 'floral_plains'
       );
     }
     return t.terrain === 'jungle' || t.terrain === 'badlands' || t.terrain === 'highland' || t.terrain === 'savanna';
   }
-  if (role === 'dragon') return t.terrain === 'mountain' || t.terrain === 'badlands' || t.terrain === 'rock' || t.terrain === 'highland';
-  if (role === 'unicorn' || role === 'pegasus') return t.terrain === 'blossom' || t.terrain === 'forest' || t.terrain === 'fertile' || t.terrain === 'grass' || t.terrain === 'highland';
-  if (role === 'phoenix') return t.terrain === 'blossom' || t.terrain === 'mountain' || t.terrain === 'badlands' || t.terrain === 'savanna';
+  if (role === 'dragon') return t.terrain === 'mountain' || t.terrain === 'volcanic_wasteland' || t.terrain === 'badlands' || t.terrain === 'rock' || t.terrain === 'highland';
+  if (role === 'unicorn' || role === 'pegasus') return t.terrain === 'floral_plains' || t.terrain === 'blossom' || t.terrain === 'forest' || t.terrain === 'fertile' || t.terrain === 'grass' || t.terrain === 'highland';
+  if (role === 'phoenix') return t.terrain === 'volcanic_wasteland' || t.terrain === 'blossom' || t.terrain === 'mountain' || t.terrain === 'badlands' || t.terrain === 'savanna';
   if (role === 'griffin' || role === 'thunderbird') return t.terrain === 'highland' || t.terrain === 'mountain' || t.terrain === 'rock' || t.terrain === 'taiga';
   if (role === 'yeti') return t.terrain === 'snow' || t.terrain === 'tundra' || t.terrain === 'mountain' || t.terrain === 'taiga';
-  if (role === 'golem' || role === 'gargoyle') return t.terrain === 'mountain' || t.terrain === 'rock' || t.terrain === 'highland' || t.terrain === 'crystal_field' || t.terrain === 'badlands';
-  if (role === 'kitsune') return t.terrain === 'blossom' || t.terrain === 'forest' || t.terrain === 'fertile' || t.terrain === 'mountain';
+  if (role === 'golem' || role === 'gargoyle') return t.terrain === 'mountain' || t.terrain === 'volcanic_wasteland' || t.terrain === 'rock' || t.terrain === 'highland' || t.terrain === 'crystal_field' || t.terrain === 'badlands';
+  if (role === 'kitsune') return t.terrain === 'floral_plains' || t.terrain === 'blossom' || t.terrain === 'forest' || t.terrain === 'fertile' || t.terrain === 'mountain';
   if (role === 'minotaur' || role === 'manticore') return t.terrain === 'badlands' || t.terrain === 'rock' || t.terrain === 'highland' || t.terrain === 'savanna' || t.terrain === 'sand';
-  if (role === 'cerberus') return t.terrain === 'badlands' || t.terrain === 'rock' || t.terrain === 'mountain' || t.terrain === 'scorched';
-  if (role === 'ent') return t.terrain === 'forest' || t.terrain === 'jungle' || t.terrain === 'blossom' || t.terrain === 'taiga';
+  if (role === 'cerberus') return t.terrain === 'volcanic_wasteland' || t.terrain === 'badlands' || t.terrain === 'rock' || t.terrain === 'mountain' || t.terrain === 'scorched';
+  if (role === 'ent') return t.terrain === 'forest' || t.terrain === 'jungle' || t.terrain === 'blossom' || t.terrain === 'floral_plains' || t.terrain === 'taiga';
   return true;
 }
 
@@ -12880,6 +15490,7 @@ export function seedWorldWildlife(state: SimulationState, maxToAdd?: number): vo
     { role: 'hippo', count: 1, predator: true },
     { role: 'rhino', count: 1, predator: true },
     { role: 'crocodile', count: 1, predator: true },
+    { role: 'giant_spider', count: 2, predator: true, herdSize: 2 },
     { role: 'giraffe', count: 2, predator: false, herdSize: 2 },
     { role: 'zebra', count: 2, predator: false, herdSize: 2 },
     { role: 'kangaroo', count: 2, predator: false, herdSize: 2 },
@@ -12940,6 +15551,7 @@ export function seedWorldWildlife(state: SimulationState, maxToAdd?: number): vo
         { role: 'hippo', count: scaled(2), predator: true },
         { role: 'rhino', count: scaled(2), predator: true },
         { role: 'crocodile', count: scaled(2), predator: true },
+        { role: 'giant_spider', count: scaled(3), predator: true, herdSize: 2 },
         // Prehistoric dinosaurs
         { role: 'dinosaur', count: isPrehistoric ? scaled(3) : 1, predator: false, appearanceSeed: findDeterministicDinoSeedForMorph(1, 10) },
         { role: 'dinosaur', count: isPrehistoric ? scaled(3) : 1, predator: false, appearanceSeed: findDeterministicDinoSeedForMorph(2, 20) },
@@ -13033,7 +15645,7 @@ export function seedWorldWildlife(state: SimulationState, maxToAdd?: number): vo
     }
 
     // Pass 2: fallback any dry wilderness tile (skipping strict polar specialists if none exist on template)
-    const strictSpecialist = q.role === 'penguin' || q.role === 'polar_bear' || q.role === 'yeti' || q.role === 'seal';
+    const strictSpecialist = q.role === 'penguin' || q.role === 'polar_bear' || q.role === 'yeti' || q.role === 'seal' || q.role === 'giant_spider';
     for (let attempt = 0; attempt < (strictSpecialist ? 0 : 35) && placed < q.count; attempt++) {
       if (maxToAdd !== undefined && spawnedTotal >= maxToAdd) break;
       const tx = 4 + Math.floor(nextRand() * (gs - 8));
@@ -13098,6 +15710,7 @@ function stepWildlifeAI(
     u.role === 'frog' ||
     u.role === 'hippo' ||
     u.role === 'crocodile' ||
+    u.role === 'giant_spider' ||
     u.role === 'hydra' ||
     u.role === 'basilisk' ||
     u.role === 'flamingo' ||
@@ -13573,7 +16186,9 @@ function stepWildlifeAI(
               u.hp = Math.max(0, u.hp - 18);
             }
           } else if (targetUnit && !targetUnit.statusEffects.shielded) {
-            targetUnit.hp = Math.max(0, targetUnit.hp - def.attackDamage);
+            if (!targetUnit.statusEffects.shielded) {
+              targetUnit.hp = Math.max(0, targetUnit.hp - def.attackDamage);
+            }
             targetUnit.lastAttackerId = u.id;
             targetUnit.underAttackTimer = 8.0;
             if (targetUnit.hp <= 0) {
@@ -13780,13 +16395,15 @@ function stepWildlifeAI(
     return;
   }
 
-  // Benevolent Mythical Auras (Unicorn, Phoenix, Kitsune, Pegasus, Treant): heal/bless nearby friendly units and revive scorched ground / forests
+  // Benevolent Mythical Auras (Unicorn, Phoenix, Kitsune, Pegasus, Treant, Fairy, Fae): heal/bless nearby friendly units and revive scorched ground / forests
   if (
     (u.role === 'unicorn' ||
       u.role === 'phoenix' ||
       u.role === 'kitsune' ||
       u.role === 'pegasus' ||
-      u.role === 'ent') &&
+      u.role === 'ent' ||
+      u.role === 'fairy' ||
+      u.role === 'fae') &&
     (u.wildlifeSkillCooldown ?? 0) <= 0
   ) {
     let blessedAny = false;
@@ -13804,7 +16421,7 @@ function stepWildlifeAI(
         delete other.statusEffects.cursed;
         blessedAny = true;
       }
-      if ((u.role === 'kitsune' || u.role === 'pegasus') && !other.statusEffects.blessed && dSq <= 18) {
+      if ((u.role === 'kitsune' || u.role === 'pegasus' || u.role === 'fairy') && !other.statusEffects.blessed && dSq <= 18) {
         other.statusEffects.blessed = 10;
         blessedAny = true;
       } else if (u.role === 'phoenix' && !other.statusEffects.shielded && other.hp < other.maxHp * 0.75) {
@@ -13819,7 +16436,7 @@ function stepWildlifeAI(
         blessUnit(other, (other.x - u.x) ** 2 + (other.z - u.z) ** 2);
       }
     }
-    if (u.role === 'unicorn' || u.role === 'phoenix' || u.role === 'ent') {
+    if (u.role === 'unicorn' || u.role === 'phoenix' || u.role === 'ent' || u.role === 'fae') {
       const rx = Math.round(u.x);
       const rz = Math.round(u.z);
       let regrewTree = false;
@@ -13851,6 +16468,30 @@ function stepWildlifeAI(
     u.wildlifeSkillCooldown = blessedAny ? 3.8 : 1.6;
   }
 
+  // Thunderbird Localized Rainstorm: extinguishes fires and hydrates scorched/dry ground beneath its flight path
+  if (u.role === 'thunderbird' && (u.wildlifeSkillCooldown ?? 0) <= 0) {
+    const rx = Math.round(u.x);
+    const rz = Math.round(u.z);
+    for (let dz = -2; dz <= 2; dz++) {
+      for (let dx = -2; dx <= 2; dx++) {
+        if (dx * dx + dz * dz > 5) continue;
+        const nt = getTile(state, rx + dx, rz + dz);
+        if (!nt || nt.height <= 0) continue;
+        if (nt.onFireTimer > 0) {
+          nt.onFireTimer = 0;
+        }
+        if (!nt.buildingId) {
+          if (nt.terrain === 'scorched') {
+            nt.terrain = 'grass';
+          } else if (nt.terrain === 'grass' && Math.random() < 0.06) {
+            nt.terrain = 'fertile';
+          }
+        }
+      }
+    }
+    u.wildlifeSkillCooldown = 1.2;
+  }
+
   const isFrenzied = Boolean(u.statusEffects.frenzied);
   const isHerbivore = isHerbivoreAnimal(u.role, u.appearanceSeed);
 
@@ -13871,11 +16512,15 @@ function stepWildlifeAI(
         foundThreat = other;
       }
     };
-    if (activeTickIndex) {
-      forEachUnitInRadius(activeTickIndex, u.x, u.z, fleeRadius + 0.05, checkThreat);
-    } else {
-      for (const other of state.units) {
-        checkThreat(other, (other.x - u.x) ** 2 + (other.z - u.z) ** 2);
+    const wildlifeTick = simTickCounterByState.get(state) ?? 0;
+    const runPreyThreatScan = (u.underAttackTimer ?? 0) > 0 || ((wildlifeTick + (u.appearanceSeed ?? 0)) % 3) === 0;
+    if (runPreyThreatScan) {
+      if (activeTickIndex) {
+        forEachUnitInRadius(activeTickIndex, u.x, u.z, fleeRadius + 0.05, checkThreat);
+      } else {
+        for (const other of state.units) {
+          checkThreat(other, (other.x - u.x) ** 2 + (other.z - u.z) ** 2);
+        }
       }
     }
     const threat = foundThreat as UnitEntity | null;
@@ -14438,10 +17083,10 @@ function stepWildlifeAI(
             target = other;
           }
         }
-      } else if (u.role === 'wolf') {
+      } else if (u.role === 'wolf' || u.role === 'giant_spider') {
         if (isPreyAnimalRole(other.role) && dSq <= 100) {
           const preyBias =
-            other.role === 'chicken' || other.role === 'rabbit'
+            other.role === 'chicken' || other.role === 'rabbit' || other.role === 'frog'
               ? 2
               : other.role === 'sheep' || other.role === 'deer' || other.role === 'pig' || other.role === 'capybara' || other.role === 'goat' || other.role === 'kangaroo'
                 ? 4
@@ -14450,9 +17095,9 @@ function stepWildlifeAI(
             bestScore = dSq + preyBias;
             target = other;
           }
-        } else if (other.faction === 'civilization' && dSq <= 5.5) {
-          if (dSq + 14 < bestScore) {
-            bestScore = dSq + 14;
+        } else if (other.faction === 'civilization' && dSq <= (u.role === 'giant_spider' ? 16 : 5.5)) {
+          if (dSq + 12 < bestScore) {
+            bestScore = dSq + 12;
             target = other;
           }
         }
@@ -14471,14 +17116,28 @@ function stepWildlifeAI(
         }
       }
     };
-    if (activeTickIndex) {
-      forEachUnitInRadius(activeTickIndex, u.x, u.z, predScanR, evaluatePredTarget);
-    } else {
-      for (const other of state.units) {
-        evaluatePredTarget(other, (other.x - u.x) ** 2 + (other.z - u.z) ** 2);
+    const predTick = simTickCounterByState.get(state) ?? 0;
+    if (activeTickIndex && u.targetEntityId) {
+      const cachedTarget = activeTickIndex.unitsById.get(u.targetEntityId);
+      if (cachedTarget && cachedTarget.state !== 'ko' && cachedTarget.hp > 0) {
+        const cdSq = (cachedTarget.x - u.x) ** 2 + (cachedTarget.z - u.z) ** 2;
+        if (cdSq <= predScanR * predScanR) {
+          evaluatePredTarget(cachedTarget, cdSq);
+        }
+      }
+    }
+    const runPredScan = !target && (((predTick + (u.appearanceSeed ?? 0)) & 1) === 0 || (u.underAttackTimer ?? 0) > 0);
+    if (runPredScan) {
+      if (activeTickIndex) {
+        forEachUnitInRadius(activeTickIndex, u.x, u.z, predScanR, evaluatePredTarget);
+      } else {
+        for (const other of state.units) {
+          evaluatePredTarget(other, (other.x - u.x) ** 2 + (other.z - u.z) ** 2);
+        }
       }
     }
     target = target as UnitEntity | null;
+    if (target) u.targetEntityId = target.id;
 
     // Environmental rampage: Dragons remain unchanged (torch everything);
     // Carnivore dinosaurs smash buildings, trees, bushes & boulders; Bears smash trees, bushes & nearby structures; Frenzied beasts smash surroundings.
@@ -14860,7 +17519,9 @@ function stepWildlifeAI(
               : target.role === 'gargoyle' && target.gargoylePetrified
                 ? 0.5
                 : 1.0;
-          target.hp -= dmg * targetArmorMult;
+          if (!target.statusEffects.shielded) {
+            target.hp -= dmg * targetArmorMult;
+          }
           target.lastAttackerId = u.id;
           target.underAttackTimer = 8.0;
 
@@ -14959,8 +17620,11 @@ function stepWildlifeAI(
             if (activeTickIndex) {
               forEachUnitInRadius(activeTickIndex, target.x, target.z, 3.05, tentacleSplash);
             }
-          } else if (u.role === 'manticore') {
+          } else if (u.role === 'manticore' || u.role === 'giant_spider') {
             target.statusEffects.cursed = Math.max(target.statusEffects.cursed ?? 0, 4.5);
+            if (u.role === 'giant_spider') {
+              target.statusEffects.plagued = Math.max(target.statusEffects.plagued ?? 0, 5.5);
+            }
           } else if (u.role === 'griffin' || u.role === 'pegasus') {
             const gustPush = u.role === 'pegasus' ? 1.8 : 1.35;
             knockUnitAway(target, u.x, u.z, gustPush);
@@ -15072,7 +17736,8 @@ function stepWildlifeAI(
               u.role === 'polar_bear' ||
               u.role === 'hippo' ||
               u.role === 'cerberus' ||
-              u.role === 'manticore'
+              u.role === 'manticore' ||
+              u.role === 'giant_spider'
                 ? 'bite'
                 : u.role === 'bear' ||
                     u.role === 'yeti' ||
@@ -15096,7 +17761,7 @@ function stepWildlifeAI(
             const color =
               u.role === 'wolf' || u.role === 'fox' || u.role === 'lion' || u.role === 'tiger' || u.role === 'minotaur' || u.role === 'manticore'
                 ? '#f87171'
-                : u.role === 'crocodile' || u.role === 'ent'
+                : u.role === 'crocodile' || u.role === 'ent' || u.role === 'giant_spider'
                   ? '#4ade80'
                   : u.role === 'yeti' || u.role === 'polar_bear'
                     ? '#67e8f9'
@@ -15794,10 +18459,21 @@ function stepCivilianUnitAI(
   const mySettlementAttackers = u.settlementId && idx ? idx.attackersOfSettlement.get(u.settlementId) : undefined;
   const myKingdomAttackers = myKingdomId && idx ? idx.attackersOfKingdom.get(myKingdomId) : undefined;
   const isWarriorOrKingOrOrc = u.role === 'warrior' || u.isKing || u.species === 'orc';
-  const warMaxR = isWarriorOrKingOrOrc ? 28 : 18;
+  const warMaxR = isWarriorOrKingOrOrc ? 52 : 34;
 
   const considerEnemyCandidate = (other: UnitEntity, dSq: number) => {
     if (other.id === u.id || other.state === 'ko' || other.hp <= 0 || dSq >= enemyDistSq) return;
+    const otherKingdomId =
+      other.faction === 'civilization'
+        ? idx
+          ? idx.unitKingdomId.get(other.id)
+          : other.settlementId
+            ? getKingdomId(state, other.settlementId)
+            : other.kingdomId
+        : undefined;
+    const isSameKingdom = Boolean(myKingdomId && otherKingdomId && myKingdomId === otherKingdomId);
+    // Fast-path reject 95% of friendly neighbors in O(1) before any combat/beast checks
+    if (isSameKingdom) return;
     const isDirectAttacker = (u.underAttackTimer ?? 0) > 0 && other.id === u.lastAttackerId;
     const isHostileRaider = other.faction === 'hostile';
     const isDangerousBeast =
@@ -15814,21 +18490,11 @@ function stepCivilianUnitAI(
           allOwnSettlementBlds.length > 0 &&
           (other.x - homeAnchor.x) ** 2 + (other.z - homeAnchor.z) ** 2 <= (other.role === 'leviathan' ? 24 * 24 : 16 * 16)));
 
-    const otherKingdomId =
-      other.faction === 'civilization'
-        ? idx
-          ? idx.unitKingdomId.get(other.id)
-          : other.settlementId
-            ? getKingdomId(state, other.settlementId)
-            : other.kingdomId
-        : undefined;
-    const isSameKingdom = Boolean(myKingdomId && otherKingdomId && myKingdomId === otherKingdomId);
     const isKingdomWar =
       !isChild &&
       warsEnabled &&
       other.faction === 'civilization' &&
       other.ageStage !== 'child' &&
-      !isSameKingdom &&
       Boolean(
         myKingdomId &&
           otherKingdomId &&
@@ -15838,14 +18504,13 @@ function stepCivilianUnitAI(
     // O(1) kin defense lookup (replaces O(N^3) state.units.some scan)
     const isAttackingKin =
       other.faction === 'civilization' &&
-      !isSameKingdom &&
       other.state === 'fighting' &&
       dSq <= 14 * 14 &&
       (isKingdomWar ||
         Boolean(mySettlementAttackers?.has(other.id)) ||
         Boolean(myKingdomAttackers?.has(other.id)));
 
-    const isRivalFrenzy = !isChild && Boolean(u.statusEffects.frenzied && !isSameKingdom);
+    const isRivalFrenzy = !isChild && Boolean(u.statusEffects.frenzied);
 
     if (
       !isDirectAttacker &&
@@ -15911,14 +18576,34 @@ function stepCivilianUnitAI(
         }
       }
     }
-    // 5. Active kingdom war enemies — scan ONLY enemy-kingdom units (skips 100% of allies & wildlife)
+    // 5. Active kingdom war enemies — O(1) cached target -> fast local spatial query -> staggered far-range scan
     if (!isChild && warsEnabled && warEnemiesSet && warEnemiesSet.size > 0) {
-      for (const enemyKid of warEnemiesSet) {
-        const enemyUnits = idx.livingCivByKingdom.get(enemyKid);
-        if (!enemyUnits) continue;
-        for (let ei = 0; ei < enemyUnits.length; ei++) {
-          const eUnit = enemyUnits[ei];
-          considerEnemyCandidate(eUnit, (eUnit.x - u.x) ** 2 + (eUnit.z - u.z) ** 2);
+      if (u.targetEntityId) {
+        const curTarget = idx.unitsById.get(u.targetEntityId);
+        if (curTarget && curTarget.state !== 'ko' && curTarget.hp > 0) {
+          considerEnemyCandidate(curTarget, (curTarget.x - u.x) ** 2 + (curTarget.z - u.z) ** 2);
+        }
+      }
+      const tickNum = simTickCounterByState.get(state) ?? 0;
+      const seed = u.appearanceSeed ?? 0;
+      const localStrideMask = u.role === 'warrior' || u.state === 'fighting' ? 1 : 3;
+      const localStrideHit = ((tickNum + seed) & localStrideMask) === 0;
+      const farStrideHit = ((tickNum + seed) & 3) === 0;
+      if (!nearestEnemy && localStrideHit) {
+        // Fast local spatial search catches all nearby frontline enemies without scanning friendly neighbors every tick
+        forEachUnitInRadius(idx, u.x, u.z, 13.5, considerEnemyCandidate);
+      }
+      if (!nearestEnemy && farStrideHit) {
+        for (const enemyKid of warEnemiesSet) {
+          const enemyUnits = idx.livingCivByKingdom.get(enemyKid);
+          if (!enemyUnits) continue;
+          // Sample-strided scan when enemy army is huge (>50 units) so lategame mega-wars stay O(1) per unit
+          const step = enemyUnits.length > 50 ? 4 : 1;
+          const offset = (tickNum + seed) % step;
+          for (let ei = offset; ei < enemyUnits.length; ei += step) {
+            const eUnit = enemyUnits[ei];
+            considerEnemyCandidate(eUnit, (eUnit.x - u.x) ** 2 + (eUnit.z - u.z) ** 2);
+          }
         }
       }
     }
@@ -16452,7 +19137,9 @@ function stepCivilianUnitAI(
             baseDmg *
             ((u.battlewillActive ?? 0) > 0 ? 1.55 : 1.0) *
             (weaponSplash > 0 ? 1.18 : 1.0);
-          nearestEnemy.hp -= strikeDmg;
+          if (!nearestEnemy.statusEffects.shielded) {
+            nearestEnemy.hp -= strikeDmg;
+          }
           nearestEnemy.lastAttackerId = u.id;
           nearestEnemy.underAttackTimer = 8.0;
           if (nearestEnemy.role === 'leviathan') {
@@ -16473,6 +19160,12 @@ function stepCivilianUnitAI(
           }
           if (nearestEnemy.hp <= 0) {
             u.kills = (u.kills ?? 0) + 1;
+            const claimSid =
+              u.settlementId ??
+              (myKingdomId ? resolvePrimarySettlementForKingdom(state, myKingdomId, nearestEnemy.x, nearestEnemy.z) : undefined);
+            if (claimSid && myKingdomId) {
+              claimTerritoryAround(state, nearestEnemy.x, nearestEnemy.z, 3.0, claimSid, myKingdomId, true);
+            }
           }
           if (weaponSplash > 0) {
             for (const cand of state.units) {
@@ -16511,11 +19204,16 @@ function stepCivilianUnitAI(
       const dx = (nearestEnemy.x - u.x) / dist;
       const dz = (nearestEnemy.z - u.z) / dist;
       advanceUnitPositionWithWaterRules(state, u, dx, dz, moveSpeed, dt, dist <= 8.0);
+      const claimSid =
+        u.settlementId ?? (myKingdomId ? resolvePrimarySettlementForKingdom(state, myKingdomId, u.x, u.z) : undefined);
+      if (claimSid && myKingdomId) {
+        claimTerritoryAround(state, u.x, u.z, 1.8, claimSid, myKingdomId, true);
+      }
     }
     return;
   }
 
-  // 1a. Attack & Destroy Enemy Vehicles or Enemy Buildings belonging to Kingdoms at War!
+  // 1a. Attack, Annex & Capture Enemy Vehicles or Enemy Buildings belonging to Kingdoms at War!
   if (!isChild && (allOwnSettlementBlds.length > 0 || u.isRebel)) {
     if (state.vehicles && state.vehicles.length > 0) {
       let nearestEnemyVeh: VehicleEntity | null = null;
@@ -16594,6 +19292,8 @@ function stepCivilianUnitAI(
 
     let nearestForeignBld: BuildingEntity | null = null;
     let bestForeignBldDistSq = Infinity;
+    const isInvasionUnit =
+      u.role === 'warrior' || u.isKing || u.species === 'orc' || indivHash % 3 !== 0;
     for (const b of state.buildings) {
       if (b.hp <= 0) continue;
       const bKid = b.settlementId ? getKingdomId(state, b.settlementId) : undefined;
@@ -16604,7 +19304,8 @@ function stepCivilianUnitAI(
       if (!atWarWithBld && !u.statusEffects.frenzied) continue;
       const distToHomeSq = (b.tileX - homeAnchor.x) ** 2 + (b.tileZ - homeAnchor.z) ** 2;
       const distToUnitSq = (b.tileX - u.x) ** 2 + (b.tileZ - u.z) ** 2;
-      const encroachingHome = distToHomeSq <= 26 * 26 || distToUnitSq <= 24 * 24;
+      const maxSearchDistSq = isInvasionUnit ? 96 * 96 : 38 * 38;
+      const encroachingHome = distToHomeSq <= maxSearchDistSq || distToUnitSq <= maxSearchDistSq;
       if (!encroachingHome && !u.statusEffects.frenzied) continue;
       if (distToUnitSq < bestForeignBldDistSq) {
         bestForeignBldDistSq = distToUnitSq;
@@ -16622,8 +19323,14 @@ function stepCivilianUnitAI(
           : u.species === 'elf'
             ? Math.max(3.8, def.attackRange)
             : Math.max(isFloatingBld ? 4.2 : 1.6, def.attackRange);
+      const claimSid =
+        u.settlementId ??
+        (myKingdomId ? resolvePrimarySettlementForKingdom(state, myKingdomId, nearestForeignBld.tileX, nearestForeignBld.tileZ) : undefined);
       if (bDist <= effectiveRange) {
         u.state = 'fighting';
+        if (claimSid && myKingdomId) {
+          claimTerritoryAround(state, u.x, u.z, 2.2, claimSid, myKingdomId, true);
+        }
         if (u.actionCooldown <= 0) {
           u.actionCooldown = u.statusEffects.frenzied ? 0.45 : 0.75;
           const bldDmg =
@@ -16634,6 +19341,23 @@ function stepCivilianUnitAI(
             (u.statusEffects.frenzied ? 2.2 : 1.0);
           if (nearestForeignBld.shieldTimer <= 0) {
             nearestForeignBld.hp = Math.max(0, nearestForeignBld.hp - bldDmg);
+            // When an enemy building is conquered in war, annex its territory and capture/claim the structure for our kingdom!
+            if (nearestForeignBld.hp <= 0 && claimSid && myKingdomId) {
+              claimTerritoryAround(
+                state,
+                nearestForeignBld.tileX,
+                nearestForeignBld.tileZ,
+                4.8,
+                claimSid,
+                myKingdomId,
+                true,
+              );
+              // Capture and occupy the conquered building into the attacker's settlement so the territory flips immediately
+              nearestForeignBld.settlementId = claimSid;
+              nearestForeignBld.species = u.species;
+              nearestForeignBld.hp = Math.max(45, Math.round(nearestForeignBld.maxHp * 0.45));
+              nearestForeignBld.constructionProgress = 100;
+            }
           }
           state.pendingVfx.push({
             id: nextEntityId('vfx'),
@@ -16656,6 +19380,9 @@ function stepCivilianUnitAI(
         const dx = (u.targetX - u.x) / Math.max(0.1, bDist);
         const dz = (u.targetZ - u.z) / Math.max(0.1, bDist);
         advanceUnitPositionWithWaterRules(state, u, dx, dz, moveSpeed, dt, bDist <= 9.0);
+        if (claimSid && myKingdomId) {
+          claimTerritoryAround(state, u.x, u.z, 1.85, claimSid, myKingdomId, true);
+        }
       }
       return;
     }
@@ -17173,6 +19900,8 @@ function stepCivilianUnitAI(
         preferred = ['berry_bush', 'coral_reef', 'timber_grove', 'scrap_flotsam', 'stone_outcrop'];
       } else if (kStock.wood < 25 || villageBuildings.length <= 1) {
         preferred = ['timber_grove', 'scrap_flotsam', 'berry_bush', 'coral_reef', 'stone_outcrop'];
+      } else if (kStock.stone < 22) {
+        preferred = ['stone_outcrop', 'ore_vein', 'timber_grove', 'berry_bush'];
       } else if (vocation === 0) {
         preferred = ['timber_grove', 'scrap_flotsam', 'berry_bush', 'stone_outcrop', 'ore_vein'];
       } else if (vocation === 1) {
@@ -17209,18 +19938,33 @@ function stepCivilianUnitAI(
       }
     }
 
-    // Patrol or stroll around OWN settlement (preferring dry land or walkways)
+    // Patrol or march out to claim frontier territory (race's main goal: expand & claim as much territory as possible!)
+    const claimSid =
+      u.settlementId ?? (myKingdomId ? resolvePrimarySettlementForKingdom(state, myKingdomId, u.x, u.z) : undefined);
+    const hasActiveWarEnemy = Boolean(warEnemiesSet && warEnemiesSet.size > 0);
+    if (claimSid && myKingdomId) {
+      claimTerritoryAround(state, u.x, u.z, hasActiveWarEnemy ? 2.2 : 1.75, claimSid, myKingdomId, hasActiveWarEnemy);
+    }
+
     if (villageBuildings.length > 0) {
       const b = villageBuildings[(indivHash + Math.floor(Math.random() * villageBuildings.length)) % villageBuildings.length];
-      u.targetX = Math.max(2, Math.min(state.gridSize - 3, b.tileX + (Math.random() - 0.5) * 5));
-      u.targetZ = Math.max(2, Math.min(state.gridSize - 3, b.tileZ + (Math.random() - 0.5) * 5));
+      const expandRadius = u.role === 'warrior' || shouldPatrolTown ? 11 : 6.5;
+      u.targetX = Math.max(2, Math.min(state.gridSize - 3, b.tileX + (Math.random() - 0.5) * expandRadius * 2));
+      u.targetZ = Math.max(2, Math.min(state.gridSize - 3, b.tileZ + (Math.random() - 0.5) * expandRadius * 2));
     } else {
-      u.targetX = Math.max(2, Math.min(state.gridSize - 3, u.x + (Math.random() - 0.5) * 4));
-      u.targetZ = Math.max(2, Math.min(state.gridSize - 3, u.z + (Math.random() - 0.5) * 4));
+      u.targetX = Math.max(2, Math.min(state.gridSize - 3, u.x + (Math.random() - 0.5) * 6));
+      u.targetZ = Math.max(2, Math.min(state.gridSize - 3, u.z + (Math.random() - 0.5) * 6));
     }
   } else if (distToTarget > 0.35) {
     u.state = 'moving';
     advanceUnitPositionWithWaterRules(state, u, dxT / distToTarget, dzT / distToTarget, moveSpeed, dt, false);
+    const claimSid =
+      u.settlementId ?? (myKingdomId ? resolvePrimarySettlementForKingdom(state, myKingdomId, u.x, u.z) : undefined);
+    const hasActiveWarEnemy = Boolean(warEnemiesSet && warEnemiesSet.size > 0);
+    const moveTick = simTickCounterByState.get(state) ?? 0;
+    if (claimSid && myKingdomId && ((moveTick + indivHash) & 3) === 0 && (u.role === 'warrior' || hasActiveWarEnemy || indivHash % 3 === 0)) {
+      claimTerritoryAround(state, u.x, u.z, hasActiveWarEnemy ? 2.0 : 1.5, claimSid, myKingdomId, hasActiveWarEnemy);
+    }
   } else {
     u.state = 'idle';
   }
@@ -17454,80 +20198,96 @@ function killUnitIntoVoidWisp(state: SimulationState, u: UnitEntity): void {
 function stepVoidGooAndWisps(state: SimulationState, dt: number): void {
   if (!state.voidWisps) state.voidWisps = [];
 
-  // 1. Living non-shielded units standing directly on Void Goo terrain die and revive as moving wisps
-  for (const u of state.units) {
-    if (u.state === 'ko' || u.hp <= 0 || u.statusEffects.shielded || u.draggedByPlayer) continue;
-    if ((u.altitude ?? 0) >= 1.25) continue;
-    const ut = getTile(state, Math.round(u.x), Math.round(u.z));
-    if (ut && ut.terrain === 'void_goo') {
-      killUnitIntoVoidWisp(state, u);
-    }
-  }
-
-  // 2. Periodically creep Void Goo outward onto neighboring land tiles & damage unshielded structures
-  state.voidGooTimer = (state.voidGooTimer ?? 0) + dt;
-  if (state.voidGooTimer >= 0.48) {
-    state.voidGooTimer = 0;
-    const gs = state.gridSize;
-    const voidIndices: number[] = [];
+  let voidGooActive = voidGooPossibleByState.get(state);
+  if (voidGooActive === undefined) {
+    voidGooActive = false;
     for (let i = 0; i < state.tiles.length; i++) {
       if (state.tiles[i].terrain === 'void_goo') {
-        voidIndices.push(i);
+        voidGooActive = true;
+        break;
       }
     }
-    if (voidIndices.length > 0 && voidIndices.length < state.tiles.length * 0.92) {
-      const toInfect = new Set<TileData>();
-      const dirs: readonly [number, number][] = [
-        [1, 0],
-        [-1, 0],
-        [0, 1],
-        [0, -1],
-        [1, 1],
-        [-1, 1],
-        [1, -1],
-        [-1, -1],
-      ];
-      // Shuffle starting offset deterministically so expansion looks organic
-      const stride = voidIndices.length > 900 ? 2 : 1;
-      const offset = Math.floor(Math.random() * stride);
-      for (let idx = offset; idx < voidIndices.length && toInfect.size < 52; idx += stride) {
-        const vt = state.tiles[voidIndices[idx]];
-        for (let k = 0; k < dirs.length; k++) {
-          const [ox, oz] = dirs[k];
-          const nx = vt.x + ox;
-          const nz = vt.z + oz;
-          if (nx < 0 || nz < 0 || nx >= gs || nz >= gs) continue;
-          const nb = state.tiles[nz * gs + nx];
-          if (!nb || nb.terrain === 'void_goo' || nb.blessedTimer > 0) continue;
-          const isDiag = k >= 4;
-          if (nb.height > 0) {
-            const chance = isDiag ? 0.24 : 0.62;
-            if (Math.random() < chance) {
-              toInfect.add(nb);
+    voidGooPossibleByState.set(state, voidGooActive);
+  }
+
+  if (voidGooActive) {
+    // 1. Living non-shielded units standing directly on Void Goo terrain die and revive as moving wisps
+    for (const u of state.units) {
+      if (u.state === 'ko' || u.hp <= 0 || u.statusEffects.shielded || u.draggedByPlayer) continue;
+      if ((u.altitude ?? 0) >= 1.25) continue;
+      const ut = getTile(state, Math.round(u.x), Math.round(u.z));
+      if (ut && ut.terrain === 'void_goo') {
+        killUnitIntoVoidWisp(state, u);
+      }
+    }
+
+    // 2. Periodically creep Void Goo outward onto neighboring land tiles & damage unshielded structures
+    state.voidGooTimer = (state.voidGooTimer ?? 0) + dt;
+    if (state.voidGooTimer >= 0.48) {
+      state.voidGooTimer = 0;
+      const gs = state.gridSize;
+      const voidIndices: number[] = [];
+      for (let i = 0; i < state.tiles.length; i++) {
+        if (state.tiles[i].terrain === 'void_goo') {
+          voidIndices.push(i);
+        }
+      }
+      if (voidIndices.length === 0) {
+        voidGooPossibleByState.set(state, false);
+      } else if (voidIndices.length < state.tiles.length * 0.92) {
+        const toInfect = new Set<TileData>();
+        const dirs: readonly [number, number][] = [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+          [1, 1],
+          [-1, 1],
+          [1, -1],
+          [-1, -1],
+        ];
+        // Shuffle starting offset deterministically so expansion looks organic
+        const stride = voidIndices.length > 900 ? 2 : 1;
+        const offset = Math.floor(Math.random() * stride);
+        for (let idx = offset; idx < voidIndices.length && toInfect.size < 52; idx += stride) {
+          const vt = state.tiles[voidIndices[idx]];
+          for (let k = 0; k < dirs.length; k++) {
+            const [ox, oz] = dirs[k];
+            const nx = vt.x + ox;
+            const nz = vt.z + oz;
+            if (nx < 0 || nz < 0 || nx >= gs || nz >= gs) continue;
+            const nb = state.tiles[nz * gs + nx];
+            if (!nb || nb.terrain === 'void_goo' || nb.blessedTimer > 0) continue;
+            const isDiag = k >= 4;
+            if (nb.height > 0) {
+              const chance = isDiag ? 0.24 : 0.62;
+              if (Math.random() < chance) {
+                toInfect.add(nb);
+              }
             }
+            if (toInfect.size >= 52) break;
           }
-          if (toInfect.size >= 52) break;
         }
-      }
 
-      for (const targetTile of toInfect) {
-        if (targetTile.height <= 0) continue;
-        targetTile.terrain = 'void_goo';
-        targetTile.onFireTimer = 0;
-        targetTile.fireColor = undefined;
-        targetTile.cursedTimer = 0;
-        targetTile.farmSettlementId = undefined;
-        if (targetTile.resourceNode === 'berry_bush' || targetTile.resourceNode === 'timber_grove') {
-          targetTile.resourceNode = 'none';
-          targetTile.resourceAmount = 0;
+        for (const targetTile of toInfect) {
+          if (targetTile.height <= 0) continue;
+          targetTile.terrain = 'void_goo';
+          targetTile.onFireTimer = 0;
+          targetTile.fireColor = undefined;
+          targetTile.cursedTimer = 0;
+          targetTile.farmSettlementId = undefined;
+          if (targetTile.resourceNode === 'berry_bush' || targetTile.resourceNode === 'timber_grove') {
+            targetTile.resourceNode = 'none';
+            targetTile.resourceAmount = 0;
+          }
         }
-      }
 
-      for (const b of state.buildings) {
-        if (b.hp <= 0 || b.shieldTimer > 0) continue;
-        const bt = getTile(state, b.tileX, b.tileZ);
-        if (bt && bt.terrain === 'void_goo') {
-          b.hp = Math.max(0, b.hp - 36);
+        for (const b of state.buildings) {
+          if (b.hp <= 0 || b.shieldTimer > 0) continue;
+          const bt = getTile(state, b.tileX, b.tileZ);
+          if (bt && bt.terrain === 'void_goo') {
+            b.hp = Math.max(0, b.hp - 36);
+          }
         }
       }
     }

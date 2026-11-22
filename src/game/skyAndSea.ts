@@ -574,14 +574,30 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
         );
 
         // Feathered localized Coral Reef & Atlantis Sanctuary lagoon hue
-        float selfReef = smoothstep(0.78, 0.98, self.b);
+        float selfReef = smoothstep(0.81, 0.98, self.b);
         float nbReef = max(
-          max(smoothstep(0.78, 0.98, nN.b) * (1.0 - subUv.y), smoothstep(0.78, 0.98, nS.b) * subUv.y),
-          max(smoothstep(0.78, 0.98, nW.b) * (1.0 - subUv.x), smoothstep(0.78, 0.98, nE.b) * subUv.x)
+          max(smoothstep(0.81, 0.98, nN.b) * (1.0 - subUv.y), smoothstep(0.81, 0.98, nS.b) * subUv.y),
+          max(smoothstep(0.81, 0.98, nW.b) * (1.0 - subUv.x), smoothstep(0.81, 0.98, nE.b) * subUv.x)
         );
         float reefMask = clamp(max(selfReef, nbReef * 0.78), 0.0, 1.0);
-        bool isRiver = self.b > 0.54 && self.b <= 0.78;
-        bool isLake = self.b > 0.25 && self.b <= 0.54;
+        bool isFloralWater = self.b > 0.72 && self.b <= 0.81;
+        bool isRiver = self.b > 0.60 && self.b <= 0.72;
+        bool isLavaWater = self.b > 0.48 && self.b <= 0.60;
+        bool isLake = self.b > 0.33 && self.b <= 0.48;
+        float pSelf = (self.b > 0.18 && self.b <= 0.33) ? 1.0 : 0.0;
+        float pN  = (nN.b  > 0.18 && nN.b  <= 0.33) ? 1.0 : 0.0;
+        float pS  = (nS.b  > 0.18 && nS.b  <= 0.33) ? 1.0 : 0.0;
+        float pW  = (nW.b  > 0.18 && nW.b  <= 0.33) ? 1.0 : 0.0;
+        float pE  = (nE.b  > 0.18 && nE.b  <= 0.33) ? 1.0 : 0.0;
+        float pNW = (nNW.b > 0.18 && nNW.b <= 0.33) ? 1.0 : 0.0;
+        float pNE = (nNE.b > 0.18 && nNE.b <= 0.33) ? 1.0 : 0.0;
+        float pSW = (nSW.b > 0.18 && nSW.b <= 0.33) ? 1.0 : 0.0;
+        float pSE = (nSE.b > 0.18 && nSE.b <= 0.33) ? 1.0 : 0.0;
+        float pX = subUv.x < 0.5 ? mix(pW, pSelf, clamp(subUv.x + 0.5, 0.0, 1.0)) : mix(pSelf, pE, clamp(subUv.x - 0.5, 0.0, 1.0));
+        float pY = subUv.y < 0.5 ? mix(pN, pSelf, clamp(subUv.y + 0.5, 0.0, 1.0)) : mix(pSelf, pS, clamp(subUv.y - 0.5, 0.0, 1.0));
+        float pCorner = (pNW + pNE + pSW + pSE) * 0.25;
+        float poisonMask = isLavaWater ? 0.0 : smoothstep(0.05, 0.88, clamp(pX * 0.44 + pY * 0.44 + pCorner * 0.12 + (swellA - 0.5) * 0.10, 0.0, 1.0));
+        bool isPoisonWater = poisonMask > 0.55;
 
         // Multi-stop continuous ocean color gradient from sunlit turquoise shore -> aquamarine shelf -> azure slope -> deep navy sea
         vec3 shoreTurquoise = mix(uShallowColor, uCrestColor, 0.54);
@@ -609,7 +625,33 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
           waterAlpha = min(waterAlpha, mix(0.12, 0.26, smoothstep(0.05, 1.2, landDist)));
         }
 
-        if (reefMask > 0.01) {
+        if (isLavaWater) {
+          // Flowing Lava Rivers & Lakes (Volcanic Wasteland): bright molten magma current, cooled basalt crust islands & white-hot embers
+          vec2 lavaDrift = chunkPos * 0.95 + vec2(-uTime * 0.48, uTime * 0.36);
+          float lavaFlowA = valueNoise(lavaDrift);
+          float lavaFlowB = valueNoise(chunkPos * 1.85 - vec2(uTime * 0.62, uTime * 0.44));
+          float magmaField = lavaFlowA * 0.6 + lavaFlowB * 0.4;
+          vec3 basaltCrust = vec3(0.14, 0.06, 0.05);
+          vec3 magmaCrimson = vec3(0.84, 0.18, 0.04);
+          vec3 magmaOrange = vec3(1.0, 0.44, 0.06);
+          vec3 magmaGold = vec3(1.0, 0.85, 0.24);
+          baseWater = mix(basaltCrust, magmaCrimson, smoothstep(0.20, 0.44, magmaField));
+          baseWater = mix(baseWater, magmaOrange, smoothstep(0.44, 0.70, magmaField));
+          baseWater = mix(baseWater, magmaGold, step(0.76, magmaField));
+          waterAlpha = 0.94;
+        } else if (isFloralWater) {
+          // Majestic Floral Plains Spring Water: crystal-clear celeste-emerald water with floating golden & rose blossom petals
+          vec3 floralSpring = vec3(0.20, 0.82, 0.86);
+          vec3 floralJade = vec3(0.32, 0.94, 0.78);
+          float streamShimmer = step(0.66, fract(chunkPos.x * 0.8 + chunkPos.y * 0.8 - uTime * 1.15 + swellA * 0.5));
+          baseWater = mix(baseWater, floralSpring, 0.68);
+          baseWater = mix(baseWater, floralJade, streamShimmer * 0.46);
+          float petalSpot = hash12(floor(pixPos * 8.0 + vec2(uTime * 0.4, -uTime * 0.3)));
+          if (petalSpot > 0.965) {
+            baseWater = petalSpot > 0.982 ? vec3(1.0, 0.86, 0.38) : vec3(0.98, 0.58, 0.82);
+          }
+          waterAlpha = 0.20;
+        } else if (reefMask > 0.01) {
           // Warm Coral Reef & Atlantis Sanctuary Lagoon: ultra-transparent turquoise glass window so 3D corals & sunken city ruins shine through!
           float caustic = step(0.76, valueNoise(chunkPos * 1.35 + vec2(uTime * 0.35, -uTime * 0.28)));
           vec3 reefAqua = mix(uReefWaterColor, uCrestColor, 0.24 + caustic * 0.28);
@@ -628,13 +670,31 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
           waterAlpha = 0.25;
         }
 
+        if (!isLavaWater && poisonMask > 0.01) {
+          // Smooth gradient between normal water and bubbling toxic poison sludge
+          vec2 poisonDrift = chunkPos * 1.15 + vec2(uTime * 0.32, -uTime * 0.26);
+          float toxA = valueNoise(poisonDrift);
+          float toxB = valueNoise(chunkPos * 2.1 - vec2(uTime * 0.45, -uTime * 0.38));
+          float toxField = toxA * 0.58 + toxB * 0.42;
+          vec3 mirePurple = vec3(0.16, 0.10, 0.22);
+          vec3 acidDeep = vec3(0.08, 0.48, 0.18);
+          vec3 poisonGreen = vec3(0.24, 0.82, 0.28);
+          vec3 toxicLime = vec3(0.74, 0.96, 0.32);
+          vec3 poisonColor = mix(mirePurple, acidDeep, smoothstep(0.18, 0.40, toxField));
+          poisonColor = mix(poisonColor, poisonGreen, smoothstep(0.40, 0.68, toxField));
+          poisonColor = mix(poisonColor, toxicLime, step(0.75, toxField));
+          baseWater = mix(baseWater, poisonColor, poisonMask);
+          waterAlpha = mix(waterAlpha, 0.82, poisonMask);
+        }
+
         // Pixelated rolling wave bands (suppressed over crystal-clear reef/Atlantis lagoons & shallow shoals so underwater structures aren't obscured)
         float shallowCalm = smoothstep(0.22, 0.65, smoothDepth);
         float calmFactor = (1.0 - reefMask * 0.94) * (0.35 + 0.65 * shallowCalm);
         float ridge = step(0.63, waveField) * calmFactor;
         float glint = step(0.80, waveField + 0.06 * sin(chunkPos.x * 1.1 + uTime * 2.1)) * calmFactor;
-        vec3 color = mix(baseWater, mix(baseWater, uCrestColor, 0.36), ridge * 0.44);
-        color = mix(color, uCrestColor, glint * 0.30);
+        vec3 crestTint = isLavaWater ? vec3(1.0, 0.92, 0.35) : isPoisonWater ? vec3(0.78, 0.98, 0.38) : uCrestColor;
+        vec3 color = mix(baseWater, mix(baseWater, crestTint, 0.36), ridge * 0.44);
+        color = mix(color, crestTint, glint * 0.30);
 
         // --- FOAM 1: Coast hitting dry land (rhythmic crashing shoreline surge + rolling breaker ring) ---
         float coastWobble = (swellB - 0.5) * 0.26 + sin((pixPos.x - pixPos.y) * 1.1 + uTime * 2.0) * 0.06;
@@ -663,8 +723,10 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
         float mintMask = max(coastFoamMint * reefFoamSuppress, openFoamMint);
         float whiteMask = max(coastFoamCore * reefFoamSuppress, openFoamCore);
 
-        color = mix(color, uFoamMint, mintMask * 0.82);
-        color = mix(color, uFoamColor, whiteMask * 0.98);
+        vec3 foamMintCol = isLavaWater ? vec3(1.0, 0.54, 0.08) : isPoisonWater ? vec3(0.45, 0.92, 0.26) : uFoamMint;
+        vec3 foamCoreCol = isLavaWater ? vec3(1.0, 0.94, 0.42) : isPoisonWater ? vec3(0.82, 1.0, 0.48) : uFoamColor;
+        color = mix(color, foamMintCol, mintMask * 0.82);
+        color = mix(color, foamCoreCol, whiteMask * 0.98);
 
         if (uZoneActive > 0.5) {
           vec4 zCol = sampleZoneColor(tileCoord);
@@ -901,14 +963,61 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
 
       data[idx + 1] = touchesLand;
       // Encode water special feature in B channel:
-      // 255 = coral_reef / atlantis_ruin or dense reef lagoon interior, 220 = reef lagoon fringe, 170 = shallow river, 100 = inland lake, 0 = standard sea
+      // 255 = coral_reef / atlantis_ruin or dense reef lagoon interior, 220 = reef lagoon fringe,
+      // 195 = enchanted floral spring water, 170 = shallow river, 135 = flowing lava river/lake,
+      // 100 = inland lake, 65 = poison-filled green water river/lake, 0 = standard sea
       const reefByte =
         isHealthyCoralOrAtlantis || adjCoralCount >= 2
           ? 255
           : adjCoralCount === 1
             ? 220
             : 0;
-      data[idx + 2] = reefByte > 0 ? reefByte : t.isRiver ? 170 : t.isLake ? 100 : 0;
+      let waterFeatureByte = 0;
+      if (t.waterKind === 'lava') {
+        waterFeatureByte = 135;
+      } else if (t.waterKind === 'poison') {
+        waterFeatureByte = 65;
+      } else if (t.waterKind === 'floral') {
+        waterFeatureByte = 195;
+      } else if (reefByte > 0) {
+        waterFeatureByte = reefByte;
+      } else if (t.isRiver || t.isLake) {
+        // Auto-detect rivers/lakes bordering Volcanic Wasteland, Land of Blight, or Floral Plains
+        let adjLava = false;
+        let adjPoison = false;
+        let adjFloral = false;
+        const tx = t.x;
+        const tz = t.z;
+        if (tx > 0) {
+          const nb = tiles[i - 1].terrain;
+          if (nb === 'volcanic_wasteland') adjLava = true;
+          else if (nb === 'blighted_mire') adjPoison = true;
+          else if (nb === 'floral_plains') adjFloral = true;
+        }
+        if (tx + 1 < gs) {
+          const nb = tiles[i + 1].terrain;
+          if (nb === 'volcanic_wasteland') adjLava = true;
+          else if (nb === 'blighted_mire') adjPoison = true;
+          else if (nb === 'floral_plains') adjFloral = true;
+        }
+        if (tz > 0) {
+          const nb = tiles[i - gs].terrain;
+          if (nb === 'volcanic_wasteland') adjLava = true;
+          else if (nb === 'blighted_mire') adjPoison = true;
+          else if (nb === 'floral_plains') adjFloral = true;
+        }
+        if (tz + 1 < gs) {
+          const nb = tiles[i + gs].terrain;
+          if (nb === 'volcanic_wasteland') adjLava = true;
+          else if (nb === 'blighted_mire') adjPoison = true;
+          else if (nb === 'floral_plains') adjFloral = true;
+        }
+        if (adjLava) waterFeatureByte = 135;
+        else if (adjPoison) waterFeatureByte = 65;
+        else if (adjFloral) waterFeatureByte = 195;
+        else waterFeatureByte = t.isRiver ? 170 : 100;
+      }
+      data[idx + 2] = waterFeatureByte;
 
       const phaseByte = Math.abs(((t.x * 73856093) ^ (t.z * 19349663)) | 0) & 255;
       data[idx + 3] = phaseByte;
@@ -1040,6 +1149,9 @@ const STYLED_TERRAIN_CODE: Record<TerrainType, number> = {
   runway: 21,
   void_goo: 22,
   ice: 23,
+  volcanic_wasteland: 24,
+  blighted_mire: 25,
+  floral_plains: 26,
 };
 
 export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem {
@@ -1602,7 +1714,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
           c = mix(c, dimStar, twinkleB * 0.88);
         }
         return c;
-      } else {
+      } else if (code < 23.5) {
         // Sea Ice (23): Frozen oceanic floes with glacial cyan facets, frost fracture seams & crisp ice glints
         float fracNoise = landNoise(vec2(chunkPos.x * 1.4 + chunkPos.y * 0.6, chunkPos.y * 1.4));
         float seam = step(0.84, abs(sin(pixPos.x * 2.4 + fracNoise * 3.1)) * abs(cos(pixPos.y * 2.4 - fracNoise * 2.5)));
@@ -1614,6 +1726,75 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         c = mix(c, iceHi, step(0.66, fracNoise));
         c = mix(c, iceDeep, seam * 0.65);
         return mix(c, vec3(1.0), glint);
+      } else if (code < 24.5) {
+        // Volcanic Wasteland (24): Jagged dark basalt & pyroclastic ash plains traversed by flowing molten lava rivers & glowing magma veins
+        vec2 lavaDrift = chunkPos * 0.92 + vec2(-tTime * 0.38, tTime * 0.28);
+        float lavaStream = landNoise(lavaDrift);
+        float fissure = landNoise(chunkPos * 1.55 + vec2(4.7, 9.1));
+        float flowChannel = step(0.66, lavaStream * 0.58 + fissure * 0.42);
+        float hotCore = step(0.76, lavaStream * 0.58 + fissure * 0.42);
+        float whiteCore = step(0.84, lavaStream * 0.62 + fissure * 0.38);
+        float pulse = 0.72 + 0.28 * sin(tTime * 3.6 + pixPos.x * 2.4 - pixPos.y * 1.9);
+        vec3 basaltBlack = landSrgb(20.0, 15.0, 17.0);
+        vec3 pyroSlate   = landSrgb(42.0, 31.0, 30.0);
+        vec3 cinderUmber = landSrgb(72.0, 42.0, 34.0);
+        vec3 magmaRed    = landSrgb(228.0, 58.0, 16.0);
+        vec3 magmaOrange = landSrgb(255.0, 128.0, 24.0);
+        vec3 magmaGold   = landSrgb(255.0, 224.0, 82.0);
+        vec3 c = mix(basaltBlack, pyroSlate, step(0.32, patchVal));
+        c = mix(c, cinderUmber, step(0.66, patchVal));
+        if (detail > 0.90) c = mix(c, magmaOrange, 0.78 * pulse);
+        c = mix(c, magmaRed, flowChannel * 0.92);
+        c = mix(c, magmaOrange, hotCore * (0.82 + 0.18 * pulse));
+        return mix(c, magmaGold, whiteCore * pulse);
+      } else if (code < 25.5) {
+        // Land of Blight (25): Deep dark-purple poisoned necrotic soil with glowing toxic green veins, acid pools & spore speckles
+        vec2 mireDrift = chunkPos * 1.1 + vec2(tTime * 0.22, -tTime * 0.18);
+        float toxNoise = landNoise(mireDrift);
+        float veinNoise = landNoise(chunkPos * 1.65 + vec2(8.3, 2.9));
+        float toxPool = step(0.70, toxNoise * 0.55 + veinNoise * 0.45);
+        float acidCore = step(0.80, toxNoise * 0.55 + veinNoise * 0.45);
+        float pulse = 0.70 + 0.30 * sin(tTime * 2.8 + (pixPos.x + pixPos.y) * 2.1);
+        vec3 deepBlight  = landSrgb(28.0, 11.0, 42.0);
+        vec3 purpleSoil  = landSrgb(52.0, 22.0, 74.0);
+        vec3 violetCrust = landSrgb(78.0, 36.0, 106.0);
+        vec3 poisonGreen = landSrgb(34.0, 197.0, 94.0);
+        vec3 acidLime    = landSrgb(163.0, 230.0, 53.0);
+        vec3 c = mix(deepBlight, purpleSoil, step(0.32, patchVal));
+        c = mix(c, violetCrust, step(0.66, patchVal));
+        if (detail > 0.91) {
+          c = detail > 0.96 ? acidLime : landSrgb(147.0, 51.0, 234.0);
+        }
+        c = mix(c, poisonGreen, toxPool * (0.80 + 0.20 * pulse));
+        return mix(c, acidLime, acidCore * pulse);
+      } else {
+        // Floral Plains (26): Majestic fantasy emerald-jade steppes, rich dark healthy soil & dense multi-colored blossom carpets waving in the wind
+        float wind = sin(pixPos.x * 0.78 + pixPos.y * 0.52 - tTime * 1.55) * 0.09;
+        float bloomWave = landNoise(chunkPos * 1.15 + vec2(5.4, 9.8));
+        float bloomPatch = landNoise(chunkPos * 0.68 - vec2(3.2, 6.1));
+        vec3 richLoam    = landSrgb(52.0, 108.0, 62.0);
+        vec3 jadeSteppe  = landSrgb(76.0, 158.0, 88.0);
+        vec3 sunlitGrass = landSrgb(124.0, 202.0, 112.0);
+        vec3 goldenMeadow = landSrgb(166.0, 224.0, 118.0);
+        vec3 c = mix(richLoam, jadeSteppe, step(0.28, patchVal));
+        c = mix(c, sunlitGrass, step(0.54, patchVal + wind));
+        c = mix(c, goldenMeadow, step(0.76, patchVal + wind));
+        // Dense majestic fantasy flower carpets across the steppes
+        if (bloomWave > 0.56 || detail > 0.72) {
+          float flowerSeed = fract(detail * 7.13 + bloomPatch * 1.37);
+          vec3 blossomCol = flowerSeed < 0.22
+            ? landSrgb(255.0, 214.0, 74.0)  // Sunburst Marigold Gold
+            : flowerSeed < 0.44
+              ? landSrgb(244.0, 114.0, 182.0) // Royal Rose-Sakura Pink
+              : flowerSeed < 0.66
+                ? landSrgb(192.0, 132.0, 252.0) // Enchanted Lavender-Orchid
+                : flowerSeed < 0.84
+                  ? landSrgb(96.0, 218.0, 250.0) // Celestial Azure-Starflower
+                  : landSrgb(255.0, 248.0, 238.0); // Ivory-Pearl Lily
+          float petalMix = detail > 0.76 ? 0.92 : 0.68;
+          c = mix(c, blossomCol, petalMix);
+        }
+        return c;
       }
     }
 
@@ -2283,11 +2464,13 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         float ownerCode = decodeTerrain(sampleLandTile(cliffOwnerCoord));
         float neighborCode = decodeTerrain(sampleLandTile(cliffNeighborCoord));
         bool isVoidWall = abs(ownerCode - 22.0) < 0.5 || abs(neighborCode - 22.0) < 0.5;
-        bool isCraterWall = abs(ownerCode - 12.0) < 0.5 || abs(neighborCode - 12.0) < 0.5;
+        bool isCraterWall = abs(ownerCode - 12.0) < 0.5 || abs(neighborCode - 12.0) < 0.5 || abs(ownerCode - 24.0) < 0.5 || abs(neighborCode - 24.0) < 0.5;
+        bool isBlightWall = abs(ownerCode - 25.0) < 0.5 || abs(neighborCode - 25.0) < 0.5;
+        bool isFloralWall = abs(ownerCode - 26.0) < 0.5;
         bool isBadlandsWall = abs(ownerCode - 19.0) < 0.5 || abs(neighborCode - 19.0) < 0.5;
         bool isMountainWall = abs(ownerCode - 16.0) < 0.5 || abs(ownerCode - 11.0) < 0.5;
         bool isUrbanRetainingWall =
-          !isVoidWall && !isCraterWall &&
+          !isVoidWall && !isCraterWall && !isBlightWall &&
           (abs(ownerCode - 9.0) < 0.5 || abs(ownerCode - 14.0) < 0.5 || abs(ownerCode - 21.0) < 0.5 ||
            (uEpoch >= 3.5 && neighborCode < 1.5));
 
@@ -2323,31 +2506,43 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         } else {
           vec3 stoneBase = isVoidWall
             ? vec3(0.015, 0.008, 0.035)
-            : isCraterWall
-            ? landSrgb(48.0, 36.0, 34.0)
-            : isBadlandsWall
-              ? landSrgb(162.0, 82.0, 48.0)
-              : isMountainWall
-                ? landSrgb(88.0, 96.0, 106.0)
-                : landSrgb(74.0, 89.0, 95.0);
+            : isBlightWall
+              ? landSrgb(48.0, 22.0, 68.0)
+              : isCraterWall
+              ? landSrgb(44.0, 32.0, 30.0)
+              : isFloralWall
+                ? landSrgb(92.0, 118.0, 88.0)
+                : isBadlandsWall
+                  ? landSrgb(162.0, 82.0, 48.0)
+                  : isMountainWall
+                    ? landSrgb(88.0, 96.0, 106.0)
+                    : landSrgb(74.0, 89.0, 95.0);
           vec3 stoneHi = isVoidWall
             ? landSrgb(58.0, 24.0, 96.0)
-            : isCraterWall
-            ? landSrgb(78.0, 52.0, 42.0)
-            : isBadlandsWall
-              ? landSrgb(206.0, 122.0, 72.0)
-              : isMountainWall
-                ? landSrgb(126.0, 136.0, 146.0)
-                : landSrgb(104.0, 122.0, 129.0);
+            : isBlightWall
+              ? landSrgb(76.0, 38.0, 104.0)
+              : isCraterWall
+              ? landSrgb(78.0, 52.0, 42.0)
+              : isFloralWall
+                ? landSrgb(132.0, 168.0, 116.0)
+                : isBadlandsWall
+                  ? landSrgb(206.0, 122.0, 72.0)
+                  : isMountainWall
+                    ? landSrgb(126.0, 136.0, 146.0)
+                    : landSrgb(104.0, 122.0, 129.0);
           vec3 stoneSh = isVoidWall
             ? vec3(0.004, 0.002, 0.012)
-            : isCraterWall
-            ? landSrgb(24.0, 17.0, 18.0)
-            : isBadlandsWall
-              ? landSrgb(106.0, 52.0, 32.0)
-              : isMountainWall
-                ? landSrgb(54.0, 60.0, 68.0)
-                : landSrgb(45.0, 56.0, 61.0);
+            : isBlightWall
+              ? landSrgb(24.0, 10.0, 36.0)
+              : isCraterWall
+              ? landSrgb(22.0, 15.0, 16.0)
+              : isFloralWall
+                ? landSrgb(56.0, 78.0, 54.0)
+                : isBadlandsWall
+                  ? landSrgb(106.0, 52.0, 32.0)
+                  : isMountainWall
+                    ? landSrgb(54.0, 60.0, 68.0)
+                    : landSrgb(45.0, 56.0, 61.0);
 
           cliffCol = mix(stoneSh, stoneBase, step(0.32, strata * 0.7 + brickTone * 0.3));
           cliffCol = mix(cliffCol, stoneHi, step(0.68, strata * 0.65 + brickTone * 0.35));
@@ -2356,9 +2551,12 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
           if (isVoidWall) {
             float wallStar = landHash12(floor(wallPix * 16.0 + vec2(uTime * 2.2, -uTime * 1.4)));
             if (wallStar > 0.962) cliffCol = mix(cliffCol, vec3(0.75, 0.62, 1.0), 0.92);
+          } else if (isBlightWall) {
+            float toxVein = step(0.80, strata * 0.6 + brickTone * 0.4);
+            cliffCol = mix(cliffCol, landSrgb(74.0, 222.0, 128.0), toxVein * 0.78);
           } else if (isCraterWall) {
-            float emberVein = step(0.82, strata * 0.6 + brickTone * 0.4);
-            cliffCol = mix(cliffCol, landSrgb(245.0, 98.0, 28.0), emberVein * 0.75);
+            float emberVein = step(0.76, strata * 0.6 + brickTone * 0.4);
+            cliffCol = mix(cliffCol, landSrgb(255.0, 112.0, 24.0), emberVein * 0.85);
           }
         }
 
@@ -2974,7 +3172,11 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
     for (let i = 0; i < tiles.length; i++) {
       const t = tiles[i];
       const idx = i * 4;
-      const code = STYLED_TERRAIN_CODE[t.terrain] ?? 3;
+      let code = STYLED_TERRAIN_CODE[t.terrain] ?? 3;
+      if (t.height === 0) {
+        if (t.waterKind === 'lava') code = 24;
+        else if (t.waterKind === 'poison') code = 25;
+      }
       data[idx] = Math.min(255, code * 8);
       data[idx + 1] = Math.min(255, t.height * 20);
       if (t.height === 0) {

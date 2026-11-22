@@ -627,34 +627,52 @@ export function getMagicCircleThemeForPower(powerOrTool: string): MagicCircleThe
       return 'insight';
     case 'blessing':
     case 'harmony_dove':
+    case 'floral_paradise':
+    case 'floral_plains':
+    case 'floral_rain':
+    case 'cleanse_land':
       return 'blessing';
     case 'golden_age':
     case 'chrono_surge':
     case 'seed_ore':
+    case 'bountiful_harvest':
+    case 'locust_swarm':
       return 'golden';
     case 'divine_shield':
     case 'rain_of_plenty':
     case 'tsunami':
     case 'coral_reef_rain':
+    case 'summon_fleet':
       return 'shield';
     case 'freeze_snap':
     case 'alpine_glacier':
+    case 'blizzard':
       return 'frost';
     case 'bloodlust_frenzy':
     case 'volcano_eruption':
+    case 'lava_deluge':
+    case 'volcanic_wasteland':
+    case 'lava_river':
     case 'meteor_strike':
     case 'huge_asteroid_strike':
     case 'solar_orbital_laser':
     case 'heat_wave':
     case 'volcanic_obsidian':
     case 'lightning_smite':
+    case 'fortify_walls':
+    case 'recruit_legion':
+    case 'wildfire_ring':
       return 'wrath';
     case 'terraform_beam':
     case 'plague_miasma':
+    case 'blight_plague':
+    case 'blighted_mire':
+    case 'poison_river':
     case 'fertile_meadow':
     case 'plant_forest':
     case 'jungle_bloom':
     case 'soil_enrich':
+    case 'acid_rain':
       return 'nature';
     case 'curse':
     case 'wormhole_ascension':
@@ -663,6 +681,7 @@ export function getMagicCircleThemeForPower(powerOrTool: string): MagicCircleThe
     case 'undead_portal':
     case 'crystal_shower':
     case 'blossom_rain':
+    case 'sinkhole':
     default:
       return 'arcane';
   }

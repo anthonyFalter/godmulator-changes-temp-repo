@@ -329,6 +329,22 @@ export const GraphicsSettingsPanel: React.FC<GraphicsSettingsPanelProps> = ({
           openUpward
         />
       </div>
+
+      {/* Performance Stats */}
+      <div className="flex items-center justify-between gap-2 sm:gap-3 pt-0.5">
+        <span className="text-[#e8e0d2] min-w-0 truncate">Performance Stats</span>
+        <button
+          type="button"
+          data-testid="gfx-perf-stats"
+          aria-pressed={showPerfHud}
+          onClick={() => updateField('showPerformanceHud', !showPerfHud)}
+          className={`px-3 py-1 text-[11px] font-semibold cursor-pointer ${
+            showPerfHud ? 'px-btn-active font-bold' : 'px-btn'
+          }`}
+        >
+          {showPerfHud ? 'On' : 'Off'}
+        </button>
+      </div>
     </div>
   );
 };

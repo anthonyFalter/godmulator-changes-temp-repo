@@ -8,7 +8,10 @@ export type TreeBiomeKey =
   | 'blossom'
   | 'savanna'
   | 'swamp'
-  | 'highland';
+  | 'highland'
+  | 'volcanic'
+  | 'blight'
+  | 'floral';
 
 export interface VoxelTreeSpeciesSpec {
   id: string;
@@ -43,6 +46,9 @@ export interface VoxelTreeLibrary {
 }
 
 export function mapTerrainToTreeBiome(terrain: string): TreeBiomeKey {
+  if (terrain === 'volcanic_wasteland' || terrain === 'scorched') return 'volcanic';
+  if (terrain === 'blighted_mire' || terrain === 'void_goo') return 'blight';
+  if (terrain === 'floral_plains') return 'floral';
   if (terrain === 'jungle') return 'jungle';
   if (terrain === 'taiga' || terrain === 'tundra' || terrain === 'snow') return 'taiga';
   if (terrain === 'blossom') return 'blossom';
@@ -82,6 +88,22 @@ const PAL_SPANISH_MOSS: Pal5 = [0x2d3f37, 0x4c6458, 0x718978, 0x98ad9a, 0xc1d0bc
 const PAL_SCOTS_LEAF: Pal5 = [0x13241f, 0x223e32, 0x385e46, 0x587f55, 0x8aa765];
 const PAL_ROWAN: Pal5 = [0x421416, 0x762321, 0xb23829, 0xdd6032, 0xf5a04c];
 const PAL_ASPEN: Pal5 = [0x42310c, 0x765a16, 0xb48e21, 0xe0bd34, 0xf9e570];
+
+// New Biome Palettes: Volcanic Wasteland, Land of Blight, Floral Plains
+const BARK_VOLCANIC: Pal5 = [0x4a4d52, 0x666a70, 0x858a91, 0xa8adb5, 0xcbd0d6];
+const PAL_VOLCANIC_EMBER: Pal5 = [0x45120a, 0x8a230f, 0xd94814, 0xf97316, 0xfef08a];
+const PAL_VOLCANIC_ASH: Pal5 = [0x1f191a, 0x382d2e, 0x574645, 0x856356, 0xf97316];
+
+const BARK_BLIGHT: Pal5 = [0x140d09, 0x241710, 0x382418, 0x4d3322, 0x63442e];
+const PAL_BLIGHT_TOXIC: Pal5 = [0x14331b, 0x1d5928, 0x22993e, 0x4ade80, 0xd9f99d];
+const PAL_BLIGHT_WEB: Pal5 = [0x4a3e59, 0x756887, 0xa89bb8, 0xd8cfe3, 0xf5f0fa];
+const PAL_BLIGHT_SPORE: Pal5 = [0x2e1042, 0x581c87, 0x7e22ce, 0xa855f7, 0x86efac];
+
+const BARK_FLORAL: Pal5 = [0x2b1d19, 0x473129, 0x69493d, 0x8c6454, 0xb08370];
+const PAL_FLORAL_GOLD: Pal5 = [0x5c380e, 0x996218, 0xd49424, 0xfacc15, 0xfef9c3];
+const PAL_FLORAL_WISTERIA: Pal5 = [0x3b1763, 0x62289e, 0x934ce0, 0xc084fc, 0xf3e8ff];
+const PAL_FLORAL_ROSE: Pal5 = [0x591636, 0x962458, 0xd64584, 0xf472b6, 0xfce7f3];
+const PAL_FLORAL_JADE: Pal5 = [0x0f2e22, 0x1c543b, 0x2e8558, 0x4cc278, 0xa7f3d0];
 
 const BARK_OAK: Pal5 = [0x221510, 0x3a261a, 0x583b28, 0x78563c, 0x977352];
 const BARK_DARK: Pal5 = [0x1a1210, 0x2e201b, 0x463228, 0x614839, 0x7d614e];
@@ -1046,6 +1068,24 @@ const SPECIES_SPECS: VoxelTreeSpeciesSpec[] = [
   { id: 'highland_rowan', biome: 'highland', name: 'Highland Crimson Rowan', voxelSize: 0.053, heightBias: 0.92, widthBias: 0.96 },
   { id: 'highland_aspen', biome: 'highland', name: 'Golden Quaking Aspen', voxelSize: 0.055, heightBias: 1.22, widthBias: 0.88 },
   { id: 'highland_krummholz', biome: 'highland', name: 'Alpine Crag Krummholz', voxelSize: 0.053, heightBias: 0.74, widthBias: 1.08 },
+
+  // Volcanic Wasteland (4 unique pyroclastic & ember-crowned species)
+  { id: 'volcanic_pyro_oak', biome: 'volcanic', name: 'Pyroclastic Ember Oak', voxelSize: 0.057, heightBias: 1.08, widthBias: 1.12 },
+  { id: 'volcanic_magma_spire', biome: 'volcanic', name: 'Magma-Vented Basalt Spire', voxelSize: 0.056, heightBias: 1.28, widthBias: 0.88 },
+  { id: 'volcanic_cinder_claw', biome: 'volcanic', name: 'Obsidian Cinder Claw Snag', voxelSize: 0.055, heightBias: 0.96, widthBias: 1.06 },
+  { id: 'volcanic_ash_willow', biome: 'volcanic', name: 'Smoldering Ash-Drip Tree', voxelSize: 0.056, heightBias: 1.02, widthBias: 1.10 },
+
+  // Land of Blight (4 unique dead/poisoned & spider-webbed species)
+  { id: 'blight_dead_oak', biome: 'blight', name: 'Poisoned Necrotic Deadwood', voxelSize: 0.057, heightBias: 1.10, widthBias: 1.12 },
+  { id: 'blight_spider_snag', biome: 'blight', name: 'Silken Spider-Webbed Dead Tree', voxelSize: 0.056, heightBias: 1.04, widthBias: 1.14 },
+  { id: 'blight_venom_willow', biome: 'blight', name: 'Venom-Drip Blight Willow', voxelSize: 0.055, heightBias: 0.96, widthBias: 1.10 },
+  { id: 'blight_thorn_spire', biome: 'blight', name: 'Twisted Blight-Thorn Spire', voxelSize: 0.055, heightBias: 1.22, widthBias: 0.92 },
+
+  // Floral Plains (4 majestic fantasy flowering tree species)
+  { id: 'floral_grand_crown', biome: 'floral', name: 'Majestic Sunburst Floral Monarch', voxelSize: 0.058, heightBias: 1.24, widthBias: 1.22 },
+  { id: 'floral_wisteria', biome: 'floral', name: 'Enchanted Weeping Wisteria', voxelSize: 0.057, heightBias: 1.10, widthBias: 1.18 },
+  { id: 'floral_star_jacaranda', biome: 'floral', name: 'Royal Rose-Gold Fantasy Jacaranda', voxelSize: 0.056, heightBias: 1.16, widthBias: 1.14 },
+  { id: 'floral_steppe_spire', biome: 'floral', name: 'Blooming Emerald Steppe Spire', voxelSize: 0.055, heightBias: 1.30, widthBias: 0.94 },
 ];
 
 function buildVoxelTreeLods(
@@ -1643,8 +1683,7 @@ function buildVoxelTreeVolumeInner(spec: VoxelTreeSpeciesSpec): VoxelVolume {
       return v;
     }
 
-    case 'highland_krummholz':
-    default: {
+    case 'highland_krummholz': {
       // Alpine Crag Krummholz Cedar — fiercely wind-bent gnarled mountain pine gripping rocky roots
       const v = new VoxelVolume(19, 18, 19);
       v.drawRoots3D(-2.6, 0, 1.5, BARK_DARK, 5, 4.2, 2.8, 480, false);
@@ -1655,6 +1694,204 @@ function buildVoxelTreeVolumeInner(spec: VoxelTreeSpeciesSpec): VoxelVolume {
       v.drawLeafCluster3D(5.5, 12.0, -1.2, 4.2, 2.3, 4.0, PAL_SCOTS_LEAF, 0.02, 485);
       v.drawLeafCluster3D(1.5, 12.8, 0.4, 4.8, 2.5, 4.6, PAL_SCOTS_LEAF, 0.16, 486);
       v.drawLeafCluster3D(-0.4, 15.0, 0.4, 3.6, 2.0, 3.5, PAL_SCOTS_LEAF, 0.24, 487);
+      return v;
+    }
+
+    // ------------------------------------------------------------------------
+    // VOLCANIC WASTELAND (Pyroclastic Ember & Obsidian Trees)
+    // ------------------------------------------------------------------------
+    case 'volcanic_pyro_oak': {
+      // Pyroclastic Ember Oak — blackened basalt trunk veined with magma, crowned with glowing ember-ash foliage
+      const v = new VoxelVolume(19, 23, 19);
+      v.drawRoots3D(0, 0, 1.75, BARK_VOLCANIC, 5, 4.4, 2.8, 701, false);
+      v.drawWoodLimb(0, 0, 0, -0.3, 10.5, 0.2, 1.75, 1.1, BARK_VOLCANIC, -0.5, 0.3, 702);
+      v.drawWoodLimb(-0.3, 8.8, 0.2, -4.6, 14.5, -1.8, 0.95, 0.45, BARK_VOLCANIC, -0.7, -0.3, 703);
+      v.drawWoodLimb(-0.2, 9.2, 0.2, 4.5, 15.0, 1.6, 0.92, 0.45, BARK_VOLCANIC, 0.7, 0.3, 704);
+      v.drawLeafCluster3D(-4.4, 15.2, -1.6, 3.8, 2.4, 3.8, PAL_VOLCANIC_EMBER, 0.06, 705, 0xfef08a, 0.14);
+      v.drawLeafCluster3D(4.2, 15.8, 1.5, 3.8, 2.4, 3.8, PAL_VOLCANIC_EMBER, 0.08, 706, 0xf97316, 0.14);
+      v.drawLeafCluster3D(0, 17.5, 0, 5.2, 2.8, 5.2, PAL_VOLCANIC_ASH, 0.14, 707, 0xf97316, 0.18);
+      v.drawLeafCluster3D(0, 20.0, 0, 3.6, 2.2, 3.6, PAL_VOLCANIC_EMBER, 0.22, 708, 0xfef08a, 0.18);
+      v.set(1, 4, 0, 0xf97316);
+      v.set(-1, 6, 1, 0xfacc15);
+      v.set(0, 8, -1, 0xea580c);
+      return v;
+    }
+
+    case 'volcanic_magma_spire': {
+      // Magma-Vented Basalt Spire — tall jagged volcanic vent column with glowing magma core & ember plumes
+      const v = new VoxelVolume(15, 27, 15);
+      v.drawRoots3D(0, 0, 1.6, BARK_VOLCANIC, 5, 3.6, 2.6, 715, false);
+      v.drawWoodLimb(0, 0, 0, 0, 22.0, 0, 1.55, 0.55, BARK_VOLCANIC, 0.3, -0.2, 716);
+      v.drawConiferWhorl3D(0, 8.5, 0, 4.6, 2.2, 6, PAL_VOLCANIC_ASH, 717, PAL_VOLCANIC_EMBER, 1.2, 0.04);
+      v.drawConiferWhorl3D(0, 13.5, 0, 3.8, 2.0, 5, PAL_VOLCANIC_ASH, 718, PAL_VOLCANIC_EMBER, 1.1, 0.10);
+      v.drawConiferWhorl3D(0, 18.2, 0, 2.8, 1.8, 5, PAL_VOLCANIC_EMBER, 719, undefined, 0.9, 0.18);
+      v.set(0, 23, 0, 0xfef08a);
+      v.set(0, 24, 0, 0xf97316);
+      return v;
+    }
+
+    case 'volcanic_cinder_claw': {
+      // Obsidian Cinder Claw Snag — split obsidian claw limbs cradling a glowing molten fire heart
+      const v = new VoxelVolume(17, 22, 17);
+      v.drawRoots3D(0, 0, 1.9, BARK_VOLCANIC, 5, 4.4, 3.0, 725, false);
+      v.drawWoodLimb(0, 0, 0, 0, 8.5, 0, 1.85, 1.3, BARK_VOLCANIC, -0.3, 0.2, 726);
+      v.drawWoodLimb(-0.4, 7.8, 0, -4.4, 17.0, 1.5, 1.0, 0.38, BARK_VOLCANIC, -1.1, 0.4, 727);
+      v.drawWoodLimb(0.5, 7.8, 0, 4.2, 16.5, -1.5, 1.0, 0.38, BARK_VOLCANIC, 1.1, -0.4, 728);
+      v.drawWoodLimb(0, 8.0, 0.4, 0.6, 15.8, 4.2, 0.85, 0.35, BARK_VOLCANIC, 0.2, 0.9, 729);
+      v.drawLeafCluster3D(0, 10.5, 0, 2.6, 2.4, 2.6, PAL_VOLCANIC_EMBER, 0.25, 730, 0xfef08a, 0.25);
+      v.drawLeafCluster3D(-4.2, 17.2, 1.5, 2.6, 1.8, 2.6, PAL_VOLCANIC_ASH, 0.08, 731, 0xf97316, 0.15);
+      v.drawLeafCluster3D(4.0, 16.8, -1.5, 2.6, 1.8, 2.6, PAL_VOLCANIC_ASH, 0.08, 732, 0xf97316, 0.15);
+      return v;
+    }
+
+    case 'volcanic_ash_willow': {
+      // Smoldering Ash-Drip Tree — broad ash canopy with hanging glowing ember strands
+      const v = new VoxelVolume(19, 22, 19);
+      v.drawRoots3D(0, 0, 1.6, BARK_VOLCANIC, 5, 4.0, 2.8, 735, false);
+      v.drawWoodLimb(0, 0, 0, 0.4, 12.0, -0.2, 1.55, 0.9, BARK_VOLCANIC, -0.8, 0.4, 736);
+      v.drawLeafCluster3D(0.4, 14.8, -0.2, 5.8, 3.0, 5.8, PAL_VOLCANIC_ASH, 0.04, 737, 0xf97316, 0.12);
+      v.drawLeafCluster3D(-3.2, 15.5, 1.4, 3.6, 2.4, 3.6, PAL_VOLCANIC_EMBER, 0.12, 738, 0xfef08a, 0.15);
+      v.drawLeafCluster3D(3.6, 15.2, -1.4, 3.6, 2.4, 3.6, PAL_VOLCANIC_EMBER, 0.10, 739, 0xfef08a, 0.15);
+      for (let i = 0; i < 10; i++) {
+        const ang = (i / 10) * Math.PI * 2;
+        const rad = 4.2 + (i % 2) * 0.8;
+        v.drawHangingStrand3D(Math.round(0.4 + Math.cos(ang) * rad), 13.2, Math.round(-0.2 + Math.sin(ang) * rad), 4 + (i % 3), PAL_VOLCANIC_EMBER, 740 + i);
+      }
+      return v;
+    }
+
+    // ------------------------------------------------------------------------
+    // LAND OF BLIGHT (Dead Poisoned Purple Trees, Toxic Green Spores & Spider Webs)
+    // ------------------------------------------------------------------------
+    case 'blight_dead_oak': {
+      // Poisoned Necrotic Deadwood — dark purple-barked twisted dead oak with toxic green spore pods
+      const v = new VoxelVolume(19, 24, 19);
+      v.drawRoots3D(0, 0, 1.8, BARK_BLIGHT, 6, 4.6, 3.0, 750, false);
+      v.drawWoodLimb(0, 0, 0, -0.4, 11.2, 0.2, 1.75, 1.05, BARK_BLIGHT, -0.6, 0.3, 751);
+      v.drawWoodLimb(-0.4, 9.2, 0.2, -5.2, 15.8, -2.0, 0.95, 0.35, BARK_BLIGHT, -0.9, -0.4, 752);
+      v.drawWoodLimb(-0.2, 9.8, 0.2, 4.8, 16.4, 1.8, 0.90, 0.35, BARK_BLIGHT, 0.8, 0.3, 753);
+      v.drawWoodLimb(-0.3, 10.5, 0.2, 0.6, 18.2, -4.4, 0.82, 0.30, BARK_BLIGHT, 0.2, -0.8, 754);
+      v.drawLeafCluster3D(-5.0, 16.0, -1.8, 2.5, 1.6, 2.5, PAL_BLIGHT_SPORE, 0.08, 755, 0x4ade80, 0.22);
+      v.drawLeafCluster3D(4.6, 16.6, 1.6, 2.5, 1.6, 2.5, PAL_BLIGHT_TOXIC, 0.12, 756, 0xd9f99d, 0.18);
+      v.drawLeafCluster3D(0.5, 18.4, -4.2, 2.2, 1.5, 2.2, PAL_BLIGHT_SPORE, 0.14, 757, 0x4ade80, 0.22);
+      return v;
+    }
+
+    case 'blight_spider_snag': {
+      // Silken Spider-Webbed Dead Tree — gnarled purple deadwood draped in pale spider-silk cocoons & toxic green egg sacs
+      const v = new VoxelVolume(19, 23, 19);
+      v.drawRoots3D(0, 0, 1.75, BARK_BLIGHT, 5, 4.4, 2.8, 760, false);
+      v.drawWoodLimb(0, 0, 0, 0.3, 10.8, -0.2, 1.70, 1.0, BARK_BLIGHT, 0.5, -0.3, 761);
+      v.drawWoodLimb(0.3, 8.8, -0.2, -4.6, 15.0, 1.8, 0.90, 0.38, BARK_BLIGHT, -0.7, 0.4, 762);
+      v.drawWoodLimb(0.3, 9.4, -0.2, 4.6, 15.6, -1.6, 0.90, 0.38, BARK_BLIGHT, 0.7, -0.4, 763);
+      // Silken spiderweb canopy shrouds & hanging cocoon strands
+      v.drawLeafCluster3D(0, 14.5, 0, 5.2, 2.4, 5.2, PAL_BLIGHT_WEB, 0.12, 764, 0x86efac, 0.12);
+      v.drawLeafCluster3D(-4.2, 15.2, 1.6, 3.0, 2.0, 3.0, PAL_BLIGHT_WEB, 0.08, 765, 0x4ade80, 0.14);
+      v.drawLeafCluster3D(4.2, 15.8, -1.4, 3.0, 2.0, 3.0, PAL_BLIGHT_WEB, 0.08, 766, 0x4ade80, 0.14);
+      for (let i = 0; i < 10; i++) {
+        const ang = (i / 10) * Math.PI * 2;
+        const rad = 3.8 + (i % 3) * 0.7;
+        v.drawHangingStrand3D(Math.round(Math.cos(ang) * rad), 13.5, Math.round(Math.sin(ang) * rad), 5 + (i % 3) * 2, i % 3 === 0 ? PAL_BLIGHT_TOXIC : PAL_BLIGHT_WEB, 767 + i);
+      }
+      return v;
+    }
+
+    case 'blight_venom_willow': {
+      // Venom-Drip Blight Willow — stooped dark-purple tree weeping glowing toxic green tendrils
+      const v = new VoxelVolume(19, 22, 19);
+      v.drawRoots3D(-1.2, 0, 1.65, BARK_BLIGHT, 5, 4.2, 3.0, 780, false);
+      v.drawWoodLimb(-1.2, 0, 0, 1.6, 12.4, 0.4, 1.6, 0.88, BARK_BLIGHT, -1.7, 0.7, 781);
+      v.drawLeafCluster3D(1.0, 15.0, 0.4, 5.8, 3.0, 5.8, PAL_BLIGHT_SPORE, 0.02, 782, 0x4ade80, 0.20);
+      v.drawLeafCluster3D(-2.6, 15.6, 1.4, 3.4, 2.4, 3.4, PAL_BLIGHT_TOXIC, 0.14, 783, 0xd9f99d, 0.16);
+      v.drawLeafCluster3D(4.0, 14.6, -1.4, 3.4, 2.4, 3.4, PAL_BLIGHT_TOXIC, 0.08, 784, 0xd9f99d, 0.16);
+      for (let i = 0; i < 12; i++) {
+        const ang = (i / 12) * Math.PI * 2;
+        const rad = 4.2 + (i % 3) * 0.8;
+        v.drawHangingStrand3D(Math.round(1.0 + Math.cos(ang) * rad), 13.2, Math.round(0.4 + Math.sin(ang) * rad), 5 + (i % 3) * 2, PAL_BLIGHT_TOXIC, 785 + i);
+      }
+      return v;
+    }
+
+    case 'blight_thorn_spire': {
+      // Twisted Blight-Thorn Spire — tall skeletal purple spire bristling with thorny ribs & glowing poison sacs
+      const v = new VoxelVolume(15, 27, 15);
+      v.drawRoots3D(0, 0, 1.35, BARK_BLIGHT, 5, 3.4, 2.4, 800, false);
+      v.drawWoodLimb(0, 0, 0, 0, 23.0, 0, 1.35, 0.40, BARK_BLIGHT, 0.4, -0.3, 801);
+      const ribY = [6.5, 10.2, 13.8, 17.2, 20.2];
+      for (let i = 0; i < ribY.length; i++) {
+        const ry = ribY[i];
+        const span = 4.6 - i * 0.68;
+        for (let a = 0; a < 4; a++) {
+          const ang = (a / 4) * Math.PI * 2 + i * 0.6;
+          const ex = Math.cos(ang) * span;
+          const ez = Math.sin(ang) * span;
+          v.drawWoodLimb(0, ry, 0, ex, ry + 0.8, ez, 0.55, 0.25, BARK_BLIGHT, 0, 0, 802 + i * 4 + a);
+          v.set(Math.round(ex * 0.9), Math.round(ry + 0.5), Math.round(ez * 0.9), 0x4ade80);
+        }
+      }
+      v.drawLeafCluster3D(0, 22.8, 0, 2.4, 2.2, 2.4, PAL_BLIGHT_TOXIC, 0.22, 825, 0xd9f99d, 0.24);
+      return v;
+    }
+
+    // ------------------------------------------------------------------------
+    // FLORAL PLAINS (Majestic Fantasy Flowering Canopy Trees)
+    // ------------------------------------------------------------------------
+    case 'floral_grand_crown': {
+      // Majestic Sunburst Floral Monarch — sweeping fantasy oak with lush jade leaves, golden sunburst & rose-pink blossom tiers
+      const v = new VoxelVolume(21, 25, 21);
+      v.drawRoots3D(0, 0, 1.85, BARK_FLORAL, 6, 4.8, 3.2, 830, true);
+      v.drawWoodLimb(0, 0, 0, -0.2, 10.2, 0.2, 1.80, 1.15, BARK_FLORAL, -0.4, 0.3, 831);
+      v.drawWoodLimb(0, 8.2, 0, -4.8, 13.2, -1.8, 0.95, 0.52, BARK_FLORAL, -0.7, -0.3, 832);
+      v.drawWoodLimb(0, 8.5, 0, 4.8, 13.6, 1.8, 0.95, 0.52, BARK_FLORAL, 0.7, 0.3, 833);
+      v.drawLeafCluster3D(0, 15.2, 0, 6.8, 3.6, 6.8, PAL_FLORAL_JADE, -0.02, 834, 0xfacc15, 0.16);
+      v.drawLeafCluster3D(-4.6, 15.6, -1.6, 4.4, 3.0, 4.4, PAL_FLORAL_GOLD, 0.14, 835, 0xf472b6, 0.18);
+      v.drawLeafCluster3D(4.6, 16.0, 1.6, 4.4, 3.0, 4.4, PAL_FLORAL_ROSE, 0.12, 836, 0xfef08a, 0.18);
+      v.drawLeafCluster3D(0, 19.2, 0, 5.4, 3.2, 5.4, PAL_FLORAL_GOLD, 0.22, 837, 0xffffff, 0.18);
+      v.drawLeafCluster3D(0, 22.0, 0, 3.6, 2.2, 3.6, PAL_FLORAL_ROSE, 0.28, 838, 0xfef08a, 0.22);
+      return v;
+    }
+
+    case 'floral_wisteria': {
+      // Enchanted Weeping Wisteria — arching fantasy tree with cascading lavender-violet & celeste floral curtains
+      const v = new VoxelVolume(21, 24, 21);
+      v.drawRoots3D(0, 0, 1.7, BARK_FLORAL, 6, 4.6, 3.0, 845, true);
+      v.drawWoodLimb(0, 0, 0, 0.6, 12.2, -0.3, 1.65, 1.0, BARK_FLORAL, -0.9, 0.5, 846);
+      v.drawWoodLimb(0.5, 10.0, -0.2, -4.6, 14.4, 1.6, 0.90, 0.50, BARK_FLORAL, -0.6, 0.3, 847);
+      v.drawWoodLimb(0.5, 10.4, -0.2, 4.8, 14.8, -1.6, 0.90, 0.50, BARK_FLORAL, 0.6, -0.3, 848);
+      v.drawLeafCluster3D(0.4, 16.2, -0.2, 6.6, 3.4, 6.6, PAL_FLORAL_WISTERIA, 0.08, 849, 0xfef08a, 0.14);
+      v.drawLeafCluster3D(-4.4, 15.8, 1.6, 4.2, 2.8, 4.2, PAL_FLORAL_WISTERIA, 0.14, 850, 0x38bdf8, 0.16);
+      v.drawLeafCluster3D(4.6, 16.0, -1.6, 4.2, 2.8, 4.2, PAL_FLORAL_ROSE, 0.12, 851, 0xfef08a, 0.16);
+      v.drawLeafCluster3D(0.4, 19.6, -0.2, 4.6, 2.8, 4.6, PAL_FLORAL_WISTERIA, 0.24, 852, 0xffffff, 0.18);
+      for (let i = 0; i < 14; i++) {
+        const ang = (i / 14) * Math.PI * 2;
+        const rad = 4.6 + (i % 3) * 0.8;
+        v.drawHangingStrand3D(Math.round(0.4 + Math.cos(ang) * rad), 14.5, Math.round(-0.2 + Math.sin(ang) * rad), 6 + (i % 3) * 2, i % 2 === 0 ? PAL_FLORAL_WISTERIA : PAL_FLORAL_ROSE, 853 + i);
+      }
+      return v;
+    }
+
+    case 'floral_star_jacaranda': {
+      // Royal Rose-Gold Fantasy Jacaranda — tiered pagoda-style fantasy canopy bursting with rose, lavender & gold blooms
+      const v = new VoxelVolume(19, 25, 19);
+      v.drawRoots3D(0, 0, 1.6, BARK_FLORAL, 5, 4.2, 2.8, 870, true);
+      v.drawWoodLimb(0, 0, 0, -0.4, 18.5, 0.2, 1.55, 0.65, BARK_FLORAL, 0.7, -0.4, 871);
+      v.drawLeafCluster3D(3.8, 12.6, -1.4, 4.4, 2.4, 4.2, PAL_FLORAL_ROSE, 0.06, 872, 0xfacc15, 0.16);
+      v.drawLeafCluster3D(-3.8, 15.6, 1.4, 4.6, 2.5, 4.4, PAL_FLORAL_WISTERIA, 0.12, 873, 0xfef08a, 0.16);
+      v.drawLeafCluster3D(0, 18.8, 0, 5.4, 2.6, 5.2, PAL_FLORAL_GOLD, 0.18, 874, 0xf472b6, 0.18);
+      v.drawLeafCluster3D(-0.4, 22.0, 0.2, 3.8, 2.2, 3.8, PAL_FLORAL_ROSE, 0.26, 875, 0xffffff, 0.20);
+      return v;
+    }
+
+    case 'floral_steppe_spire':
+    default: {
+      // Blooming Emerald Steppe Spire — tall graceful cypress-like fantasy spire studded with golden, rose & azure star-flowers
+      const v = new VoxelVolume(15, 28, 15);
+      v.drawRoots3D(0, 0, 1.45, BARK_FLORAL, 5, 3.4, 2.6, 885, true);
+      v.drawWoodLimb(0, 0, 0, 0, 22.5, 0, 1.4, 0.45, BARK_FLORAL, 0.2, -0.1, 886);
+      v.drawLeafCluster3D(0, 9.0, 0, 4.2, 3.8, 4.2, PAL_FLORAL_JADE, 0.04, 887, 0xfacc15, 0.18);
+      v.drawLeafCluster3D(0, 14.0, 0, 3.8, 3.8, 3.8, PAL_FLORAL_JADE, 0.12, 888, 0xf472b6, 0.20);
+      v.drawLeafCluster3D(0, 19.0, 0, 3.2, 3.6, 3.2, PAL_FLORAL_GOLD, 0.20, 889, 0xc084fc, 0.20);
+      v.drawLeafCluster3D(0, 23.5, 0, 2.2, 2.8, 2.2, PAL_FLORAL_ROSE, 0.28, 890, 0xfef08a, 0.24);
       return v;
     }
   }
@@ -1759,6 +1996,9 @@ function makeEmptyBiomeRecord<T>(): Record<TreeBiomeKey, T[]> {
     savanna: [],
     swamp: [],
     highland: [],
+    volcanic: [],
+    blight: [],
+    floral: [],
   };
 }
 

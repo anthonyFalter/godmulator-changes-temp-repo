@@ -293,6 +293,9 @@ export function getUnitIntrinsicGene(
   if (role === 'seal') {
     return 'Arctic Blubber';
   }
+  if (role === 'giant_spider') {
+    return 'Venom Fangs';
+  }
   if (role === 'hydra') {
     return 'Five-Head Laser';
   }
@@ -397,6 +400,7 @@ export function isIntrinsicGene(gene: string): boolean {
     'Wading Plumes',
     'Sprint Stride',
     'Arctic Blubber',
+    'Venom Fangs',
     'Three Heads',
     'Five-Head Laser',
     'Labyrinth Fury',
@@ -482,6 +486,7 @@ export function generateUnitGenes(
       role === 'hippo' ||
       role === 'rhino' ||
       role === 'crab' ||
+      role === 'giant_spider' ||
       role === 'yeti' ||
       role === 'golem' ||
       role === 'hydra' ||
@@ -615,6 +620,7 @@ export function generateUnitItems(
   if (role === 'flamingo') return ['Pink Feather', 'Brine Shrimp'];
   if (role === 'ostrich') return ['Plume Feather', 'Large Egg'];
   if (role === 'seal') return ['Silver Fish', 'Thick Blubber'];
+  if (role === 'giant_spider') return ['Venom Gland', 'Spider Silk', 'Chitin Fang'];
   if (role === 'hydra') return ['Laser Gland', 'Regen Scale', 'Serpent Fang'];
   if (role === 'minotaur') return ['Bronze Axe', 'Bull Horn', 'War Belt'];
   if (role === 'pegasus') return ['Sky Feather', 'Golden Hoof', 'Cloud Mane'];
@@ -897,6 +903,11 @@ function getDietInfo(unit: UnitEntity): EntityDietInfo {
         category: 'Sea Predator',
         detail: 'Catches fish around icy shores and naps on floating sea ice',
       };
+    case 'giant_spider':
+      return {
+        category: 'Carnivore',
+        detail: 'Venomous predator of the Land of Blight that hunts prey with poisoned fangs',
+      };
     case 'phoenix':
       return {
         category: 'Fire Carnivore',
@@ -1102,6 +1113,7 @@ function formatActivity(unit: UnitEntity): string {
       if (unit.role === 'minotaur') return 'Bull Rush';
       if (unit.role === 'griffin' || unit.role === 'gargoyle') return 'Diving';
       if (unit.role === 'pegasus') return 'Wing Gust';
+      if (unit.role === 'giant_spider') return 'Venom Bite';
       return 'Fighting';
     case 'gathering':
       return unit.faction === 'wildlife' ? 'Grazing' : 'Gathering';
@@ -1116,7 +1128,7 @@ function formatActivity(unit: UnitEntity): string {
       if (unit.role === 'kraken' || unit.role === 'seal' || unit.role === 'leviathan') return 'Swimming';
       if (unit.role === 'penguin') return 'Waddling';
       if (unit.role === 'frog' || unit.role === 'rabbit' || unit.role === 'kangaroo') return 'Hopping';
-      if (unit.role === 'crab') return 'Scuttling';
+      if (unit.role === 'crab' || unit.role === 'giant_spider') return 'Scuttling';
       return 'Walking';
     default:
       return isFlyer ? 'Soaring' : 'Idle';

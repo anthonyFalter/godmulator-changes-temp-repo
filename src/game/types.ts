@@ -64,7 +64,10 @@ export type TerrainType =
   | 'scorched'
   | 'crystal_field'
   | 'void_goo'
-  | 'ice';
+  | 'ice'
+  | 'volcanic_wasteland'
+  | 'blighted_mire'
+  | 'floral_plains';
 
 export type ResourceNodeType =
   | 'none'
@@ -90,8 +93,11 @@ export interface TileData {
   fireColor?: string;
   buildingId: string | null;
   farmSettlementId?: string;
+  farmPlotKind?: 'wheat' | 'timber_plantation' | 'quarry';
+  claimedSettlementId?: string;
   isRiver?: boolean;
   isLake?: boolean;
+  waterKind?: 'lava' | 'poison' | 'floral';
   coralBleachTimer?: number;
   tempOffset?: number;
   frozenWaterBase?: 'deep_water' | 'shallow_water';
@@ -105,7 +111,10 @@ export interface TileData {
     | 'blossom'
     | 'savanna'
     | 'swamp'
-    | 'highland';
+    | 'highland'
+    | 'volcanic'
+    | 'blight'
+    | 'floral';
   treeBiomeOverride?:
     | 'forest'
     | 'meadow'
@@ -114,7 +123,10 @@ export interface TileData {
     | 'blossom'
     | 'savanna'
     | 'swamp'
-    | 'highland';
+    | 'highland'
+    | 'volcanic'
+    | 'blight'
+    | 'floral';
 }
 
 export type BuildingType =
@@ -224,7 +236,14 @@ export type AnimalRole =
   | 'thunderbird'
   | 'kraken'
   | 'manticore'
-  | 'gargoyle';
+  | 'gargoyle'
+  | 'giant_spider'
+  | 'firefly'
+  | 'glow_moth'
+  | 'lantern_jelly'
+  | 'fairy'
+  | 'fae'
+  | 'will_o_wisp';
 
 export type UnitRole =
   | 'human'
@@ -388,7 +407,20 @@ export type GodPowerType =
   | 'chrono_surge'
   | 'harmony_dove'
   | 'solar_orbital_laser'
-  | 'gravity_flip';
+  | 'gravity_flip'
+  | 'lava_deluge'
+  | 'blight_plague'
+  | 'floral_paradise'
+  | 'fortify_walls'
+  | 'bountiful_harvest'
+  | 'recruit_legion'
+  | 'cleanse_land'
+  | 'summon_fleet'
+  | 'acid_rain'
+  | 'blizzard'
+  | 'sinkhole'
+  | 'locust_swarm'
+  | 'wildfire_ring';
 
 export interface GodPowerDefinition {
   type: GodPowerType;
@@ -423,7 +455,18 @@ export type TerrainToolType =
   | 'atlantis_rise'
   | 'alpine_glacier'
   | 'abyssal_trench'
-  | 'swamp_mire';
+  | 'swamp_mire'
+  | 'volcanic_wasteland'
+  | 'blighted_mire'
+  | 'floral_plains'
+  | 'lava_river'
+  | 'poison_river'
+  | 'floral_rain'
+  | 'canyon_carve'
+  | 'mesa_plateau'
+  | 'volcanic_crater'
+  | 'smooth_terrain'
+  | 'island_bridge';
 
 export interface TerrainToolDefinition {
   type: TerrainToolType;
@@ -448,7 +491,9 @@ export type VehicleType =
   | 'helicopter'
   | 'bomber_plane'
   | 'orc_flyer'
-  | 'orbital_gunship';
+  | 'orbital_gunship'
+  | 'farm_tractor'
+  | 'quarry_truck';
 
 export interface VehicleEntity {
   id: string;
@@ -658,7 +703,17 @@ export interface ActiveHazardZone {
     | 'alien_mothership'
     | 'chrono_field'
     | 'orbital_beam'
-    | 'gravity_anomaly';
+    | 'gravity_anomaly'
+    | 'acid_cloud'
+    | 'sinkhole_collapse'
+    | 'locust_swarm'
+    | 'magma_geyser'
+    | 'purify_wave'
+    | 'biome_bloom_wave'
+    | 'blizzard_gale'
+    | 'sentinel_eye';
+  elementAffinity?: 'none' | 'fire' | 'water' | 'ice' | 'poison' | 'sand';
+  biomeWaveKind?: 'floral' | 'blight' | 'lava';
   x: number;
   z: number;
   targetX?: number;
@@ -668,6 +723,7 @@ export interface ActiveHazardZone {
   heading?: number;
   exploded?: boolean;
   isSuper?: boolean;
+  ownerKingdomId?: string;
   arrivalRemaining?: number;
   arrivalDuration?: number;
   impactPending?: boolean;
@@ -680,6 +736,10 @@ export interface ActiveHazardZone {
   portalSpawnCount?: number;
   beamDirX?: number;
   beamDirZ?: number;
+  beamTargetX?: number;
+  beamTargetZ?: number;
+  beamFireTimer?: number;
+  eyeYaw?: number;
   beaconTimer?: number;
   laserSubTimer?: number;
   radius: number;
@@ -786,6 +846,7 @@ export type WorldTemplateId =
   | 'prehistoric'
   | 'archipelago'
   | 'scrap_sea'
+  | 'single_biome'
   | 'custom';
 
 export interface WorldRulesConfig {
@@ -809,6 +870,7 @@ export interface WorldRulesConfig {
 export interface WorldGenConfig {
   worldName: string;
   template: WorldTemplateId;
+  singleBiome?: TerrainType;
   gridSize: number;
   seed: number;
   seaLevel: 'low' | 'normal' | 'high';
@@ -854,6 +916,19 @@ export interface SimulationState {
   harvestWindowTimer?: number;
   settlementNames?: Record<string, string>;
   settlementSpecies?: Record<string, SpeciesId>;
+  settlementDistricts?: Record<
+    string,
+    {
+      farmX: number;
+      farmZ: number;
+      farmHalfSize: number;
+      farmTargetHeight: number;
+      quarryX: number;
+      quarryZ: number;
+      quarryHalfSize: number;
+      quarryTargetHeight: number;
+    }
+  >;
   settlementKingdoms?: Record<string, string>;
   kingdomEpochs?: Record<string, number>;
   kingdomEpochProgress?: Record<string, number>;

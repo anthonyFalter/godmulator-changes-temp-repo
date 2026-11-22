@@ -3,6 +3,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { ANIMAL_ROLE_SET, getDragonVariant } from './catalog';
 import { wrapShaderTime } from './dayNightLighting';
 import { getVoxelTreeLibrary } from './voxelTrees';
+import { enhanceMythicBeastModel } from './mythicEnhancements';
 import {
   BuildingType,
   ResourceNodeType,
@@ -2029,6 +2030,9 @@ export interface NodeVariantLibrary {
   ambientSavanna: THREE.BufferGeometry[];
   ambientSwamp: THREE.BufferGeometry[];
   ambientHighland: THREE.BufferGeometry[];
+  ambientVolcanic: THREE.BufferGeometry[];
+  ambientBlight: THREE.BufferGeometry[];
+  ambientFloral: THREE.BufferGeometry[];
   coralReef: THREE.BufferGeometry[];
   coralReefLod2: THREE.BufferGeometry[];
   coralReefBleached: THREE.BufferGeometry[];
@@ -2888,6 +2892,78 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     ambientBlossom.push(finalizeMergedParts(p));
   }
 
+  // Volcanic Wasteland ambient details: mini erupting volcano fumaroles, glowing lava blisters & obsidian shards
+  const ambientVolcanic: THREE.BufferGeometry[] = [];
+  {
+    // Mini volcano vent cone with glowing molten magma crater & obsidian shard
+    const p: THREE.BufferGeometry[] = [];
+    addColoredBox(p, 0.28, 0.12, 0.28, -0.10, 0.06, -0.08, 0x261c1a);
+    addColoredBox(p, 0.20, 0.14, 0.20, -0.10, 0.16, -0.08, 0x3b2824);
+    addColoredBox(p, 0.12, 0.05, 0.12, -0.10, 0.24, -0.08, 0xff6b1a);
+    addColoredBox(p, 0.07, 0.04, 0.07, -0.10, 0.27, -0.08, 0xfef08a);
+    addColoredBox(p, 0.12, 0.18, 0.12, 0.20, 0.09, 0.16, 0x1c1417, 0.4);
+    addColoredBox(p, 0.08, 0.05, 0.08, 0.16, 0.025, -0.18, 0xf97316);
+    ambientVolcanic.push(finalizeMergedParts(p));
+  }
+  {
+    // Jagged obsidian monolith cluster & molten lava puddle
+    const p: THREE.BufferGeometry[] = [];
+    addColoredBox(p, 0.16, 0.28, 0.14, 0.12, 0.14, -0.10, 0x1f171a, 0.35);
+    addColoredBox(p, 0.12, 0.18, 0.12, -0.16, 0.09, 0.14, 0x332422, -0.25);
+    addColoredBox(p, 0.22, 0.03, 0.18, -0.06, 0.015, -0.14, 0xea580c);
+    addColoredBox(p, 0.12, 0.04, 0.10, -0.06, 0.02, -0.14, 0xfacc15);
+    ambientVolcanic.push(finalizeMergedParts(p));
+  }
+
+  // Land of Blight ambient details: glowing toxic green mushroom clusters, spider silk egg cocoons & poisoned purple thorns
+  const ambientBlight: THREE.BufferGeometry[] = [];
+  {
+    // Toxic green mushroom cluster & dark-purple blighted root thorns
+    const p: THREE.BufferGeometry[] = [];
+    addColoredBox(p, 0.06, 0.10, 0.06, -0.16, 0.05, -0.12, 0x4c1d95);
+    addColoredBox(p, 0.15, 0.06, 0.15, -0.16, 0.11, -0.12, 0x22c55e);
+    addColoredBox(p, 0.07, 0.03, 0.07, -0.16, 0.145, -0.12, 0xd9f99d);
+    addColoredBox(p, 0.05, 0.07, 0.05, 0.18, 0.035, 0.15, 0x3b0764);
+    addColoredBox(p, 0.11, 0.05, 0.11, 0.18, 0.075, 0.15, 0x4ade80);
+    addColoredBox(p, 0.14, 0.08, 0.10, 0.12, 0.04, -0.18, 0x581c87, 0.5);
+    ambientBlight.push(finalizeMergedParts(p));
+  }
+  {
+    // Giant Spider silk egg sac cocoon, webbed skull & toxic green puddle
+    const p: THREE.BufferGeometry[] = [];
+    addColoredBox(p, 0.16, 0.20, 0.16, -0.14, 0.10, 0.12, 0xe2d9f3);
+    addColoredBox(p, 0.10, 0.06, 0.10, -0.14, 0.21, 0.12, 0x86efac);
+    addColoredBox(p, 0.22, 0.025, 0.18, 0.14, 0.012, -0.12, 0x22c55e);
+    addColoredBox(p, 0.10, 0.12, 0.10, 0.18, 0.06, 0.16, 0x3b1763, 0.3);
+    ambientBlight.push(finalizeMergedParts(p));
+  }
+
+  // Floral Plains ambient details: majestic multi-tiered fantasy flower gardens, blossom rings & flower-draped steppe stones
+  const ambientFloral: THREE.BufferGeometry[] = [];
+  {
+    // Majestic fantasy flower bed: golden sunbursts, royal rose-pink & enchanted lavender blooms over lush emerald leaves
+    const p: THREE.BufferGeometry[] = [];
+    addColoredBox(p, 0.22, 0.06, 0.22, -0.16, 0.03, -0.14, 0x2e8558);
+    addColoredBox(p, 0.12, 0.09, 0.12, -0.18, 0.08, -0.14, 0xfacc15);
+    addColoredBox(p, 0.08, 0.07, 0.08, -0.10, 0.07, -0.10, 0xfef08a);
+    addColoredBox(p, 0.20, 0.06, 0.20, 0.18, 0.03, 0.14, 0x349e66);
+    addColoredBox(p, 0.12, 0.10, 0.12, 0.18, 0.08, 0.14, 0xf472b6);
+    addColoredBox(p, 0.10, 0.09, 0.10, -0.12, 0.06, 0.20, 0xc084fc);
+    addColoredBox(p, 0.09, 0.08, 0.09, 0.16, 0.05, -0.18, 0x38bdf8);
+    ambientFloral.push(finalizeMergedParts(p));
+  }
+  {
+    // Flower-draped fantasy steppe boulder & glowing fairy-ring blossoms
+    const p: THREE.BufferGeometry[] = [];
+    addColoredBox(p, 0.20, 0.12, 0.18, -0.12, 0.06, -0.10, 0x8da399);
+    addColoredBox(p, 0.14, 0.05, 0.14, -0.12, 0.13, -0.10, 0x4cc278);
+    addColoredBox(p, 0.09, 0.07, 0.09, -0.12, 0.17, -0.10, 0xf472b6);
+    addColoredBox(p, 0.11, 0.11, 0.11, 0.18, 0.055, 0.16, 0xfacc15);
+    addColoredBox(p, 0.10, 0.09, 0.10, 0.20, 0.045, -0.14, 0xc084fc);
+    addColoredBox(p, 0.09, 0.08, 0.09, -0.18, 0.04, 0.18, 0xffffff);
+    ambientFloral.push(finalizeMergedParts(p));
+  }
+
   // 7a. Submerged Warm-Ocean Coral Reef Formations:
   // Built with organic cylindrical/conical staghorn antler branches, hemispherical brain-coral boulder domes,
   // clustered tubular barrel sponges / organ-pipe corals, and octagonal flared Acropora table plates on sculpted coralline limestone mounds.
@@ -3577,6 +3653,9 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     ambientSavanna,
     ambientSwamp,
     ambientHighland,
+    ambientVolcanic,
+    ambientBlight,
+    ambientFloral,
     coralReef,
     coralReefLod2,
     coralReefBleached,
@@ -12406,6 +12485,345 @@ function buildCreatureUnitGroup(
       gargoyleStatue.add(sHorn);
     }
     group.add(gargoyleStatue);
+  } else if (role === 'giant_spider') {
+    // Giant Spider (Land of Blight apex arachnid): dark poisoned purple carapace, bulbous toxic-green marked abdomen, 8 articulated legs (grouped into 4 animated leg pivots for <=6 draw calls), venomous fangs & cluster of 6 glowing acid-green eyes
+    shadowRadius = 0.78;
+    auraRadius = 0.44;
+    const carapaceHex = s0 % 2 === 0 ? 0x2e1042 : 0x1e0b2e;
+    const abdomenHex = s0 % 2 === 0 ? 0x3b1763 : 0x4c1d95;
+    const carapaceMat = mat(carapaceHex, 0.52, 0.22);
+    const abdomenMat = mat(abdomenHex, 0.58, 0.18);
+    const legMat = mat(0x240c36, 0.62, 0.2);
+    const toxicGlowMat = mat(0x4ade80, 0.25, 0.1, 0x22c55e, 1.35);
+    const fangMat = mat(0xd9f99d, 0.35, 0.25, 0x4ade80, 0.45);
+
+    // Cephalothorax (front armored torso)
+    const thorax = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.18, 0.28), carapaceMat);
+    thorax.position.set(0, 0.26, 0.08);
+    thorax.castShadow = true;
+    bodyPivot.add(thorax);
+
+    // Bulbous Blighted Abdomen with glowing toxic green hourglass / dorsal markings & spinnerets
+    const abdomen = new THREE.Mesh(new THREE.BoxGeometry(0.40, 0.30, 0.46), abdomenMat);
+    abdomen.position.set(0, 0.33, -0.26);
+    abdomen.rotation.x = 0.14;
+    abdomen.castShadow = true;
+    bodyPivot.add(abdomen);
+
+    const dorsalMark1 = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.04, 0.14), toxicGlowMat);
+    dorsalMark1.position.set(0, 0.48, -0.20);
+    dorsalMark1.rotation.x = 0.14;
+    bodyPivot.add(dorsalMark1);
+
+    const dorsalMark2 = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.04, 0.12), toxicGlowMat);
+    dorsalMark2.position.set(0, 0.46, -0.36);
+    dorsalMark2.rotation.x = 0.14;
+    bodyPivot.add(dorsalMark2);
+
+    for (const side of [-1, 1]) {
+      const bioSpot = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.08, 0.08), toxicGlowMat);
+      bioSpot.position.set(side * 0.20, 0.35, -0.25);
+      bodyPivot.add(bioSpot);
+    }
+
+    // Head, Chelicerae Fangs & 6 Glowing Green Arachnid Eyes
+    const headPivot = makePivot('head_pivot', 0, 0.26, 0.22);
+    const facePlate = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.14, 0.12), carapaceMat);
+    facePlate.position.set(0, 0.0, 0.04);
+    headPivot.add(facePlate);
+
+    for (const side of [-1, 1]) {
+      const chelicera = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.10, 0.08), carapaceMat);
+      chelicera.position.set(side * 0.06, -0.03, 0.10);
+      headPivot.add(chelicera);
+
+      const fang = new THREE.Mesh(pxCone(0.024, 0.11, 4), fangMat);
+      fang.position.set(side * 0.06, -0.10, 0.12);
+      fang.rotation.x = 2.75;
+      fang.rotation.z = side * 0.22;
+      headPivot.add(fang);
+
+      // Primary, secondary, and lateral glowing toxic eyes
+      const mainEye = new THREE.Mesh(new THREE.BoxGeometry(0.034, 0.034, 0.025), toxicGlowMat);
+      mainEye.position.set(side * 0.042, 0.03, 0.105);
+      headPivot.add(mainEye);
+
+      const upperEye = new THREE.Mesh(new THREE.BoxGeometry(0.024, 0.024, 0.022), toxicGlowMat);
+      upperEye.position.set(side * 0.078, 0.052, 0.095);
+      headPivot.add(upperEye);
+
+      const sideEye = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.022, 0.022), toxicGlowMat);
+      sideEye.position.set(side * 0.098, 0.02, 0.075);
+      headPivot.add(sideEye);
+    }
+    bodyPivot.add(headPivot);
+
+    // 8 Articulated Arachnid Legs grouped into 4 animated quadruped pivots (leg_fl, leg_fr, leg_bl, leg_br)
+    // so all 8 legs scuttle dynamically while keeping draw calls strictly <= 6!
+    const legPairs: Array<{
+      pivotName: 'leg_fl' | 'leg_fr' | 'leg_bl' | 'leg_br';
+      side: -1 | 1;
+      pz: number;
+      zOffsets: [number, number];
+      yawAngles: [number, number];
+    }> = [
+      { pivotName: 'leg_fl', side: -1, pz: 0.14, zOffsets: [0.06, -0.05], yawAngles: [0.46, 0.12] },
+      { pivotName: 'leg_fr', side: 1, pz: 0.14, zOffsets: [0.06, -0.05], yawAngles: [-0.46, -0.12] },
+      { pivotName: 'leg_bl', side: -1, pz: -0.04, zOffsets: [0.04, -0.08], yawAngles: [-0.16, -0.52] },
+      { pivotName: 'leg_br', side: 1, pz: -0.04, zOffsets: [0.04, -0.08], yawAngles: [0.16, 0.52] },
+    ];
+
+    for (const lp of legPairs) {
+      const legPivot = makePivot(lp.pivotName, lp.side * 0.14, 0.25, lp.pz);
+      for (let sub = 0; sub < 2; sub++) {
+        const subGroup = new THREE.Group();
+        subGroup.position.set(0, 0, lp.zOffsets[sub]);
+        subGroup.rotation.y = lp.yawAngles[sub];
+
+        // Upper femur rising outward
+        const femur = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.055, 0.055), legMat);
+        femur.position.set(lp.side * 0.11, 0.07, 0);
+        femur.rotation.z = lp.side * 0.52;
+        femur.castShadow = true;
+        subGroup.add(femur);
+
+        // Glowing toxic jointband at the knee apex
+        const kneeJoint = new THREE.Mesh(new THREE.BoxGeometry(0.058, 0.058, 0.058), toxicGlowMat);
+        kneeJoint.position.set(lp.side * 0.21, 0.12, 0);
+        subGroup.add(kneeJoint);
+
+        // Lower tibia/tarsus descending sharply to the ground
+        const tibia = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.34, 0.05), legMat);
+        tibia.position.set(lp.side * 0.27, -0.04, 0);
+        tibia.rotation.z = lp.side * -0.28;
+        tibia.castShadow = true;
+        subGroup.add(tibia);
+
+        legPivot.add(subGroup);
+      }
+      group.add(legPivot);
+    }
+  } else if (role === 'firefly') {
+    // Glowing golden-lime firefly with bright lantern abdomen, fluttering translucent wings & soft halo
+    shadowRadius = 0.22;
+    auraRadius = 0.24;
+    const thoraxMat = mat(0x27272a, 0.5, 0.2);
+    const lanternMat = mat(0xecfccb, 0.12, 0.1, 0xbef264, 2.8);
+    const wingMat = mat(0xfef9c3, 0.15, 0.1, 0xfef08a, 1.4);
+
+    const thorax = new THREE.Mesh(new THREE.BoxGeometry(0.10, 0.09, 0.14), thoraxMat);
+    thorax.position.set(0, 0.28, 0.06);
+    bodyPivot.add(thorax);
+    const lantern = new THREE.Mesh(new THREE.OctahedronGeometry(0.11, 0), lanternMat);
+    lantern.position.set(0, 0.26, -0.08);
+    lantern.scale.set(0.95, 0.9, 1.35);
+    bodyPivot.add(lantern);
+
+    for (const [wName, dir] of [['wing_l', -1], ['wing_r', 1]] as const) {
+      const wPivot = makePivot(wName, dir * 0.05, 0.33, 0.04);
+      const wing = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.02, 0.11), wingMat);
+      wing.position.set(dir * 0.12, 0.02, -0.02);
+      wPivot.add(wing);
+      bodyPivot.add(wPivot);
+    }
+
+    const aura = new THREE.Group();
+    aura.name = 'mythic_aura_pivot';
+    aura.position.set(0, 0.28, -0.04);
+    for (let i = 0; i < 3; i++) {
+      const ang = (i / 3) * Math.PI * 2;
+      const mote = new THREE.Mesh(new THREE.OctahedronGeometry(0.032, 0), lanternMat);
+      mote.position.set(Math.cos(ang) * 0.26, (i % 2 === 0 ? 1 : -1) * 0.05, Math.sin(ang) * 0.26);
+      aura.add(mote);
+    }
+    bodyPivot.add(aura);
+  } else if (role === 'glow_moth') {
+    // Luminescent Luna Moth with glowing cyan-mint crescent wings, feathered antennae & moon-spots
+    shadowRadius = 0.36;
+    auraRadius = 0.32;
+    const bodyMat = mat(0xe0f2fe, 0.3, 0.1, 0x67e8f9, 1.3);
+    const wingMat = mat(0xa5f3fc, 0.18, 0.1, 0x22d3ee, 2.2);
+    const spotMat = mat(0xfef9c3, 0.12, 0.1, 0xfde047, 2.6);
+
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.11, 0.34), bodyMat);
+    body.position.set(0, 0.34, 0);
+    bodyPivot.add(body);
+    for (const ax of [-0.05, 0.05]) {
+      const ant = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.12, 0.03), spotMat);
+      ant.position.set(ax, 0.42, 0.19);
+      ant.rotation.x = 0.45;
+      bodyPivot.add(ant);
+    }
+
+    for (const [wName, dir] of [['wing_l', -1], ['wing_r', 1]] as const) {
+      const wPivot = makePivot(wName, dir * 0.06, 0.36, 0.02);
+      const upperWing = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.025, 0.24), wingMat);
+      upperWing.position.set(dir * 0.21, 0, 0.04);
+      wPivot.add(upperWing);
+      const lowerWing = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.022, 0.22), wingMat);
+      lowerWing.position.set(dir * 0.15, -0.01, -0.15);
+      wPivot.add(lowerWing);
+      const moonSpot = new THREE.Mesh(new THREE.OctahedronGeometry(0.052, 0), spotMat);
+      moonSpot.position.set(dir * 0.25, 0.02, 0.04);
+      moonSpot.scale.set(1, 0.4, 1);
+      wPivot.add(moonSpot);
+      bodyPivot.add(wPivot);
+    }
+
+    const aura = new THREE.Group();
+    aura.name = 'mythic_aura_pivot';
+    aura.position.set(0, 0.36, 0);
+    for (let i = 0; i < 4; i++) {
+      const ang = (i / 4) * Math.PI * 2;
+      const mote = new THREE.Mesh(new THREE.OctahedronGeometry(0.036, 0), i % 2 === 0 ? wingMat : spotMat);
+      mote.position.set(Math.cos(ang) * 0.38, (i % 2 === 0 ? 1 : -1) * 0.06, Math.sin(ang) * 0.38);
+      aura.add(mote);
+    }
+    bodyPivot.add(aura);
+  } else if (role === 'lantern_jelly') {
+    // Floating bioluminescent sky-jellyfish with glowing translucent bell & trailing neon tendrils
+    shadowRadius = 0.38;
+    auraRadius = 0.36;
+    const bellMat = mat(0x7dd3fc, 0.15, 0.1, 0x38bdf8, 2.3);
+    const coreMat = mat(0xf5d0fe, 0.12, 0.1, 0xe879f9, 2.7);
+    const tendrilMat = mat(0xbae6fd, 0.18, 0.1, 0x0ea5e9, 2.0);
+
+    const bell = new THREE.Mesh(new THREE.OctahedronGeometry(0.28, 0), bellMat);
+    bell.position.set(0, 0.56, 0);
+    bell.scale.set(1.15, 0.85, 1.15);
+    bodyPivot.add(bell);
+    const innerCore = new THREE.Mesh(new THREE.OctahedronGeometry(0.16, 0), coreMat);
+    innerCore.position.set(0, 0.50, 0);
+    bodyPivot.add(innerCore);
+    const rim = new THREE.Mesh(pxTorus(0.26, 0.032, 6, 12), coreMat);
+    rim.rotation.x = Math.PI / 2;
+    rim.position.set(0, 0.44, 0);
+    bodyPivot.add(rim);
+
+    const tailPivot = makePivot('tail_pivot', 0, 0.42, 0);
+    for (let i = 0; i < 6; i++) {
+      const ang = (i / 6) * Math.PI * 2;
+      const len = 0.34 + (i % 2) * 0.14;
+      const tendril = new THREE.Mesh(new THREE.BoxGeometry(0.032, len, 0.032), i % 2 === 0 ? tendrilMat : coreMat);
+      tendril.position.set(Math.cos(ang) * 0.15, -len * 0.5, Math.sin(ang) * 0.15);
+      tailPivot.add(tendril);
+    }
+    bodyPivot.add(tailPivot);
+
+    const aura = new THREE.Group();
+    aura.name = 'mythic_aura_pivot';
+    aura.position.set(0, 0.52, 0);
+    for (let i = 0; i < 4; i++) {
+      const ang = (i / 4) * Math.PI * 2;
+      const mote = new THREE.Mesh(new THREE.OctahedronGeometry(0.04, 0), i % 2 === 0 ? coreMat : bellMat);
+      mote.position.set(Math.cos(ang) * 0.42, (i % 2 === 0 ? 1 : -1) * 0.08, Math.sin(ang) * 0.42);
+      aura.add(mote);
+    }
+    bodyPivot.add(aura);
+  } else if (role === 'fairy') {
+    // Radiant pink-gold Fairy sprite with glowing dress, shimmering butterfly wings & starlight halo
+    shadowRadius = 0.30;
+    auraRadius = 0.32;
+    const dressMat = mat(0xfbcfe8, 0.18, 0.1, 0xf472b6, 2.2);
+    const goldMat = mat(0xfef08a, 0.12, 0.25, 0xfacc15, 2.7);
+    const wingMat = mat(0xfce7f3, 0.15, 0.1, 0xf472b6, 2.4);
+
+    const torso = new THREE.Mesh(new THREE.OctahedronGeometry(0.14, 0), dressMat);
+    torso.position.set(0, 0.34, 0);
+    torso.scale.set(0.85, 1.45, 0.85);
+    bodyPivot.add(torso);
+    const head = new THREE.Mesh(new THREE.OctahedronGeometry(0.095, 0), goldMat);
+    head.position.set(0, 0.55, 0);
+    bodyPivot.add(head);
+    const crownHalo = new THREE.Mesh(pxTorus(0.11, 0.016, 6, 12), goldMat);
+    crownHalo.rotation.x = Math.PI / 2;
+    crownHalo.position.set(0, 0.67, 0);
+    bodyPivot.add(crownHalo);
+
+    for (const [wName, dir] of [['wing_l', -1], ['wing_r', 1]] as const) {
+      const wPivot = makePivot(wName, dir * 0.07, 0.42, -0.04);
+      const topW = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.22, 0.025), wingMat);
+      topW.position.set(dir * 0.19, 0.09, -0.02);
+      topW.rotation.z = dir * 0.22;
+      wPivot.add(topW);
+      const botW = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.16, 0.022), goldMat);
+      botW.position.set(dir * 0.13, -0.08, -0.02);
+      botW.rotation.z = dir * -0.18;
+      wPivot.add(botW);
+      bodyPivot.add(wPivot);
+    }
+
+    const aura = new THREE.Group();
+    aura.name = 'mythic_aura_pivot';
+    aura.position.set(0, 0.42, 0);
+    bodyPivot.add(aura);
+  } else if (role === 'fae') {
+    // Graceful emerald-violet Fae Spirit with crystalline wings, antlered crown & luminous core
+    shadowRadius = 0.36;
+    auraRadius = 0.38;
+    const emeraldMat = mat(0x6ee7b7, 0.16, 0.15, 0x10b981, 2.3);
+    const violetMat = mat(0xd8b4fe, 0.16, 0.15, 0xa855f7, 2.2);
+    const coreGold = mat(0xfef08a, 0.12, 0.2, 0x4ade80, 2.7);
+
+    const robe = new THREE.Mesh(new THREE.OctahedronGeometry(0.18, 0), emeraldMat);
+    robe.position.set(0, 0.42, 0);
+    robe.scale.set(0.85, 1.65, 0.85);
+    bodyPivot.add(robe);
+    const head = new THREE.Mesh(new THREE.OctahedronGeometry(0.11, 0), coreGold);
+    head.position.set(0, 0.72, 0);
+    bodyPivot.add(head);
+    for (const side of [-1, 1]) {
+      const antler = new THREE.Mesh(new THREE.BoxGeometry(0.032, 0.18, 0.032), violetMat);
+      antler.position.set(side * 0.09, 0.85, 0);
+      antler.rotation.z = side * -0.4;
+      bodyPivot.add(antler);
+    }
+
+    for (const [wName, dir] of [['wing_l', -1], ['wing_r', 1]] as const) {
+      const wPivot = makePivot(wName, dir * 0.1, 0.54, -0.05);
+      const upper = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.24, 0.028), emeraldMat);
+      upper.position.set(dir * 0.24, 0.10, -0.02);
+      upper.rotation.z = dir * 0.28;
+      wPivot.add(upper);
+      const lower = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.18, 0.025), violetMat);
+      lower.position.set(dir * 0.18, -0.10, -0.02);
+      lower.rotation.z = dir * -0.22;
+      wPivot.add(lower);
+      bodyPivot.add(wPivot);
+    }
+
+    const aura = new THREE.Group();
+    aura.name = 'mythic_aura_pivot';
+    aura.position.set(0, 0.52, 0);
+    bodyPivot.add(aura);
+  } else if (role === 'will_o_wisp') {
+    // Floating ethereal blue-cyan Will-o'-Wisp spirit flame orb ringed by dancing arcane embers
+    shadowRadius = 0.28;
+    auraRadius = 0.34;
+    const coreWhite = mat(0xf0f9ff, 0.08, 0.1, 0x7dd3fc, 2.9);
+    const flameCyan = mat(0x38bdf8, 0.12, 0.1, 0x0ea5e9, 2.4);
+    const flameIndigo = mat(0x818cf8, 0.16, 0.1, 0x6366f1, 2.0);
+
+    const orb = new THREE.Mesh(new THREE.OctahedronGeometry(0.19, 0), coreWhite);
+    orb.position.set(0, 0.44, 0);
+    orb.scale.set(1, 1.25, 1);
+    bodyPivot.add(orb);
+    const crownFlame = new THREE.Mesh(new THREE.OctahedronGeometry(0.12, 0), flameCyan);
+    crownFlame.position.set(0, 0.68, 0);
+    crownFlame.scale.set(0.75, 1.55, 0.75);
+    bodyPivot.add(crownFlame);
+
+    const aura = new THREE.Group();
+    aura.name = 'mythic_aura_pivot';
+    aura.position.set(0, 0.46, 0);
+    for (let i = 0; i < 3; i++) {
+      const ang = (i / 3) * Math.PI * 2;
+      const flame = new THREE.Mesh(new THREE.OctahedronGeometry(0.048, 0), i % 2 === 0 ? flameCyan : flameIndigo);
+      flame.position.set(Math.cos(ang) * 0.34, (i % 2 === 0 ? 1 : -1) * 0.09, Math.sin(ang) * 0.34);
+      flame.scale.set(0.85, 1.5, 0.85);
+      aura.add(flame);
+    }
+    bodyPivot.add(aura);
   } else {
     // Unicorn: radiant ivory steed, golden spiral horn, animated legs & pastel mane
     shadowRadius = 0.68;
@@ -12500,6 +12918,9 @@ function buildCreatureUnitGroup(
   auraRing.visible = false;
   group.add(auraRing);
 
+  // Enrich all mythical beasts (except dragon & leviathan) with sculpted glowing anatomy & animated aura rings
+  enhanceMythicBeastModel(role, group);
+
   // Merge static sub-meshes within each animated animal pivot (body_pivot, head_pivot, legs, wings)
   // to cut per-animal draw calls by ~60% while keeping every articulated pivot 100% intact.
   const animalSkip = new Set([
@@ -12512,6 +12933,7 @@ function buildCreatureUnitGroup(
     'leviathan_splash_inner',
     'leviathan_splash_outer',
     'treant_disguised_tree',
+    'mythic_aura_pivot',
   ]);
   const animalPivots: THREE.Group[] = [];
   group.traverse((obj) => {
@@ -13629,7 +14051,29 @@ export function createUnitGroup(
   return group;
 }
 
+const VEHICLE_SKIP_MERGE_NAMES = new Set<string>([
+  'contact_shadow',
+  'spin_prop',
+  'spin_rotor',
+  'thruster_plume',
+]);
+
 export function createVehicleGroup(
+  type: VehicleType,
+  epochLevel: number,
+  species: SpeciesId = 'human',
+  variantSeed = 0,
+): THREE.Group {
+  const group = buildVehicleGroupInner(type, epochLevel, species, variantSeed);
+  // Collapse 10-18 static sub-meshes per vehicle into 1-2 shared-material vertex-colored draw calls (PERFORMANCE_README Rule 2)
+  bakeVertexColoredStaticMeshes(group, VEHICLE_SKIP_MERGE_NAMES, {
+    unifyCastShadow: true,
+    disposeSourceMaterials: false,
+  });
+  return group;
+}
+
+function buildVehicleGroupInner(
   type: VehicleType,
   epochLevel: number,
   species: SpeciesId = 'human',
@@ -13811,6 +14255,121 @@ export function createVehicleGroup(
       vtolPlume.visible = false;
       group.add(vtolPlume);
     }
+    return group;
+  }
+
+  if (type === 'farm_tractor') {
+    // Industrial Farm Tractor / Combine Harvester with large rear wheels, cab, exhaust stack & golden front harvester bar
+    group.add(createContactShadow(0.46));
+    const paintHex = isElf ? 0x10b981 : isOrc ? 0xb91c1c : variant % 2 === 0 ? 0x16a34a : 0xdc2626;
+    const bodyMat = new THREE.MeshStandardMaterial({ color: paintHex, roughness: 0.42, metalness: 0.28 });
+    const goldMat = new THREE.MeshStandardMaterial({ color: 0xfacc15, roughness: 0.32, metalness: 0.45 });
+    const glassMat = new THREE.MeshStandardMaterial({ color: 0xbae6fd, roughness: 0.15, metalness: 0.4 });
+    const metalMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.5, metalness: 0.65 });
+
+    // Tractor hood & chassis
+    const hood = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.14, 0.26), bodyMat);
+    hood.position.set(0, 0.15, 0.08);
+    hood.castShadow = true;
+    group.add(hood);
+
+    // Elevated operator cab
+    const cab = new THREE.Mesh(new THREE.BoxGeometry(0.20, 0.18, 0.18), glassMat);
+    cab.position.set(0, 0.24, -0.09);
+    cab.castShadow = true;
+    group.add(cab);
+    const roof = new THREE.Mesh(new THREE.BoxGeometry(0.23, 0.035, 0.21), bodyMat);
+    roof.position.set(0, 0.34, -0.09);
+    group.add(roof);
+
+    // Vertical exhaust stack
+    const stack = new THREE.Mesh(pxCylinder(0.018, 0.022, 0.18, 5), metalMat);
+    stack.position.set(0.08, 0.28, 0.12);
+    group.add(stack);
+
+    // Oversized rear treaded tractor tires & smaller front wheels
+    for (const sx of [-0.13, 0.13]) {
+      const rearTire = new THREE.Mesh(pxCylinder(0.105, 0.105, 0.065, 8), tireMat);
+      rearTire.rotation.z = Math.PI / 2;
+      rearTire.position.set(sx, 0.105, -0.10);
+      group.add(rearTire);
+      const rearHub = new THREE.Mesh(pxCylinder(0.048, 0.048, 0.072, 6), goldMat);
+      rearHub.rotation.z = Math.PI / 2;
+      rearHub.position.set(sx, 0.105, -0.10);
+      group.add(rearHub);
+
+      const frontTire = new THREE.Mesh(pxCylinder(0.062, 0.062, 0.048, 7), tireMat);
+      frontTire.rotation.z = Math.PI / 2;
+      frontTire.position.set(sx * 0.85, 0.062, 0.15);
+      group.add(frontTire);
+    }
+
+    // Wide golden combine harvester reel bar on front
+    const headerBar = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.06, 0.08), goldMat);
+    headerBar.position.set(0, 0.08, 0.26);
+    headerBar.castShadow = true;
+    group.add(headerBar);
+    const reel = new THREE.Mesh(pxCylinder(0.036, 0.036, 0.40, 6), metalMat);
+    reel.rotation.z = Math.PI / 2;
+    reel.position.set(0, 0.11, 0.29);
+    group.add(reel);
+
+    return group;
+  }
+
+  if (type === 'quarry_truck') {
+    // Heavy Industrial Quarry Dump Truck / Mining Hauler with yellow armored body, loaded rock/ore bed & amber beacon
+    group.add(createContactShadow(0.54));
+    const yellowMat = new THREE.MeshStandardMaterial({ color: 0xf59e0b, roughness: 0.42, metalness: 0.32 });
+    const darkMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.6, metalness: 0.55 });
+    const glassMat = new THREE.MeshStandardMaterial({ color: 0x7dd3fc, roughness: 0.18, metalness: 0.45 });
+    const rockMat = new THREE.MeshStandardMaterial({ color: 0x78716c, roughness: 0.85 });
+    const oreMat = new THREE.MeshStandardMaterial({ color: 0xfbbf24, emissive: 0xd97706, emissiveIntensity: 0.65, roughness: 0.3, metalness: 0.6 });
+    const beaconMat = new THREE.MeshStandardMaterial({ color: 0xfef08a, emissive: 0xf97316, emissiveIntensity: 1.8, roughness: 0.2 });
+
+    // Heavy chassis
+    const chassis = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.09, 0.50), darkMat);
+    chassis.position.set(0, 0.11, 0);
+    chassis.castShadow = true;
+    group.add(chassis);
+
+    // Armored front cab & windshield
+    const cab = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.16, 0.16), yellowMat);
+    cab.position.set(0, 0.22, 0.17);
+    cab.castShadow = true;
+    group.add(cab);
+    const windshield = new THREE.Mesh(new THREE.BoxGeometry(0.21, 0.07, 0.04), glassMat);
+    windshield.position.set(0, 0.24, 0.245);
+    group.add(windshield);
+    const beacon = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.045, 0.05), beaconMat);
+    beacon.position.set(0, 0.32, 0.17);
+    group.add(beacon);
+
+    // Large angled quarry dump bed filled with mined stone & ore chunks
+    const bed = new THREE.Mesh(new THREE.BoxGeometry(0.30, 0.16, 0.30), yellowMat);
+    bed.position.set(0, 0.22, -0.09);
+    bed.castShadow = true;
+    group.add(bed);
+    const rockPile1 = new THREE.Mesh(new THREE.OctahedronGeometry(0.085, 0), rockMat);
+    rockPile1.position.set(-0.05, 0.31, -0.07);
+    group.add(rockPile1);
+    const rockPile2 = new THREE.Mesh(new THREE.OctahedronGeometry(0.075, 0), rockMat);
+    rockPile2.position.set(0.06, 0.30, -0.14);
+    group.add(rockPile2);
+    const oreChunk = new THREE.Mesh(new THREE.OctahedronGeometry(0.068, 0), oreMat);
+    oreChunk.position.set(0.03, 0.33, -0.04);
+    group.add(oreChunk);
+
+    // 4 oversized rugged mining tires
+    for (const sx of [-0.16, 0.16]) {
+      for (const sz of [-0.15, 0.14]) {
+        const wheel = new THREE.Mesh(pxCylinder(0.095, 0.095, 0.075, 8), tireMat);
+        wheel.rotation.z = Math.PI / 2;
+        wheel.position.set(sx, 0.095, sz);
+        group.add(wheel);
+      }
+    }
+
     return group;
   }
 

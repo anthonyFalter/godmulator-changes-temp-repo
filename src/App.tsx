@@ -12,6 +12,7 @@ import {
 } from './game/catalog';
 import {
   DEFAULT_WORLD_RULES,
+  SINGLE_BIOME_OPTIONS,
   WORLD_TEMPLATES,
   applyTerrainTool,
   canAfford,
@@ -48,6 +49,7 @@ import {
   PerfTelemetrySnapshot,
   Resources,
   SimulationState,
+  TerrainType,
   ToolCategory,
   UnitEntity,
   WorldGenConfig,
@@ -426,6 +428,7 @@ export default function App() {
     ...DEFAULT_ZONE_TOGGLES,
   }));
   const [selectedAllianceKingdomId, setSelectedAllianceKingdomId] = useState<string | null>(null);
+  const [showWarFrontArrows, setShowWarFrontArrows] = useState<boolean>(true);
 
   // Start UI navigation & World Creation Wizard state
   const [titleMenuStep, setTitleMenuStep] = useState<TitleMenuStep>('main');
@@ -510,6 +513,7 @@ export default function App() {
       const next = createWorldConfigFromTemplate(templateId, {
         seed: prev.seed,
         gridSize: prev.gridSize,
+        singleBiome: prev.singleBiome,
       });
       // Update rotating background preview at 128x128 so the player sees the template's biome & sea level live
       const previewSim = createInitialSimulationState(128, next.seed, {
@@ -518,6 +522,24 @@ export default function App() {
       });
       simRef.current = previewSim;
       setSeedInput(String(previewSim.seed));
+      setHudTick((t) => t + 1);
+      return next;
+    });
+  }, []);
+
+  const handleSelectSingleBiome = useCallback((biome: TerrainType) => {
+    soundEngine.playClick();
+    setWorldConfig((prev) => {
+      const next: WorldGenConfig = {
+        ...prev,
+        template: 'single_biome',
+        singleBiome: biome,
+      };
+      const previewSim = createInitialSimulationState(128, next.seed, {
+        ...next,
+        gridSize: 128,
+      });
+      simRef.current = previewSim;
       setHudTick((t) => t + 1);
       return next;
     });
@@ -1269,7 +1291,9 @@ export default function App() {
         .join(',')
     : '';
   const warFrontRefreshTick =
-    (activeZones.kingdoms || activeZones.alliances) && kingdomRelationsKey.length > 0
+    showWarFrontArrows &&
+    (activeZones.kingdoms || activeZones.alliances) &&
+    kingdomRelationsKey.length > 0
       ? Math.floor(hudTick / 3)
       : 0;
 
@@ -1311,7 +1335,7 @@ export default function App() {
     zoneIdBufRef.current = packed.idData;
     const kingdomColors = extractKingdomColorsMap(worldZones, simRef.current);
     const warFrontArrows =
-      activeZones.kingdoms || activeZones.alliances
+      showWarFrontArrows && (activeZones.kingdoms || activeZones.alliances)
         ? computeWarFrontArrows(worldZones, simRef.current, activeZones, {
             selectedAllianceKingdomId,
           })
@@ -1333,6 +1357,7 @@ export default function App() {
     anyZoneActive,
     zoneHighlightHoverTile,
     selectedAllianceKingdomId,
+    showWarFrontArrows,
     zoneCacheKey,
     kingdomLabelsKey,
     kingdomRelationsKey,
@@ -1839,6 +1864,46 @@ export default function App() {
                         </button>
                       ))}
                     </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Single Biome Picker (Progressive Disclosure when Single Biome is active) */}
+              {worldConfig.template === 'single_biome' && (
+                <div className="pt-1">
+                  <div className="flex items-center justify-between text-xs mb-1.5">
+                    <span className="text-[#b8afa2]">Starting Biome</span>
+                    <span className="text-[#f2ece1] font-bold">
+                      {SINGLE_BIOME_OPTIONS.find(
+                        (b) => b.id === (worldConfig.singleBiome ?? 'forest'),
+                      )?.label ?? 'Woodland Forest'}
+                    </span>
+                  </div>
+                  <div
+                    data-testid="single-biome-picker"
+                    className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 max-h-44 overflow-y-auto pr-0.5"
+                  >
+                    {SINGLE_BIOME_OPTIONS.map((biomeOpt) => {
+                      const isSelected = (worldConfig.singleBiome ?? 'forest') === biomeOpt.id;
+                      return (
+                        <button
+                          key={biomeOpt.id}
+                          type="button"
+                          data-testid={`single-biome-${biomeOpt.id}`}
+                          aria-pressed={isSelected}
+                          onClick={() => handleSelectSingleBiome(biomeOpt.id)}
+                          className={`px-2 py-1.5 text-left text-[11px] flex items-center gap-1.5 cursor-pointer ${
+                            isSelected ? 'px-btn-active font-bold' : 'px-btn'
+                          }`}
+                        >
+                          <span
+                            className="w-2.5 h-2.5 shrink-0 border border-black/40"
+                            style={{ backgroundColor: biomeOpt.swatch }}
+                          />
+                          <span className="truncate">{biomeOpt.label}</span>
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -3007,6 +3072,44 @@ export default function App() {
                 onToggleFavorite={handleToggleFavoriteEntity}
                 onSelectUnit={handleSelectEntity}
                 onFocusUnit={handleFocusEntity}
+                onRenameUnit={(unitId, newName) => {
+                  const target = simRef.current.units.find((u) => u.id === unitId);
+                  if (target) {
+                    target.name = newName;
+                    setStatusFeedback(`Renamed entity to ${newName}`);
+                    setHudTick((v) => v + 1);
+                  }
+                }}
+                onRenameSettlement={(settlementId, newName) => {
+                  const s = simRef.current;
+                  const oldName = s.settlementNames?.[settlementId];
+                  if (!s.settlementNames) s.settlementNames = {};
+                  s.settlementNames[settlementId] = newName;
+                  // Keep capital kingdom name in sync if it matched the old city name
+                  const kid = s.settlementKingdoms?.[settlementId];
+                  if (kid && kid !== settlementId && (!s.settlementNames[kid] || s.settlementNames[kid] === oldName)) {
+                    s.settlementNames[kid] = newName;
+                  }
+                  setStatusFeedback(`Renamed city to ${newName}`);
+                  setHudTick((v) => v + 1);
+                }}
+                onRenameKingdom={(kingdomId, newName) => {
+                  const s = simRef.current;
+                  const oldName = s.settlementNames?.[kingdomId];
+                  if (!s.settlementNames) s.settlementNames = {};
+                  s.settlementNames[kingdomId] = newName;
+                  // Also rename capital settlement if it matched the old kingdom name
+                  if (s.settlementKingdoms) {
+                    for (const [sid, kid] of Object.entries(s.settlementKingdoms)) {
+                      if (kid === kingdomId && (!s.settlementNames[sid] || s.settlementNames[sid] === oldName)) {
+                        s.settlementNames[sid] = newName;
+                        break;
+                      }
+                    }
+                  }
+                  setStatusFeedback(`Renamed kingdom to ${newName}`);
+                  setHudTick((v) => v + 1);
+                }}
               />
             )}
 
@@ -3692,7 +3795,7 @@ export default function App() {
                             onMouseEnter={() =>
                               setHoveredHint({
                                 title: zItem.label,
-                                cost: isOn ? 'ON (Active)' : 'OFF',
+                                cost: zItem.count > 0 ? `${zItem.count}` : '',
                                 detail: zItem.summary,
                               })
                             }
@@ -3701,21 +3804,44 @@ export default function App() {
                             }`}
                           >
                             <ZonePixelIcon zone={zItem.id} className="w-6 h-6 sm:w-8 sm:h-8 shrink-0 pixelated-canvas" />
-                            <div className="flex flex-col items-start leading-tight">
-                              <span className="text-[10px] sm:text-xs font-bold text-[#f2ece1] whitespace-nowrap">
-                                {zItem.shortLabel}
-                              </span>
-                              <span
-                                className={`font-pixel-num text-[8px] sm:text-[9px] tabular-nums ${
-                                  isOn ? 'text-[#80ed99]' : 'text-[#9e9486]'
-                                }`}
-                              >
-                                {isOn ? `ON · ${zItem.count}` : 'OFF'}
-                              </span>
-                            </div>
+                            <span className="text-[10px] sm:text-xs font-bold text-[#f2ece1] whitespace-nowrap">
+                              {zItem.shortLabel}
+                            </span>
                           </button>
                         );
                       })}
+
+                      {(activeZones.kingdoms || activeZones.alliances) && (
+                        <button
+                          type="button"
+                          aria-pressed={showWarFrontArrows}
+                          aria-label="War Arrows & Info"
+                          data-testid="zone-toggle-war-arrows"
+                          onClick={() => {
+                            setShowWarFrontArrows((prev) => {
+                              const next = !prev;
+                              setStatusFeedback(`War Arrows & Info ${next ? 'enabled' : 'disabled'}`);
+                              return next;
+                            });
+                            soundEngine.playClick();
+                          }}
+                          onMouseEnter={() =>
+                            setHoveredHint({
+                              title: 'War Arrows & Info',
+                              cost: '',
+                              detail:
+                                'Show or hide animated war-front arrows and battle push labels while viewing Kingdoms or Alliances',
+                            })
+                          }
+                          className={`relative px-2 sm:px-2.5 h-[38px] sm:h-11 shrink-0 flex items-center gap-1.5 cursor-pointer transition-colors ${
+                            showWarFrontArrows ? 'px-slot-active' : 'px-slot'
+                          }`}
+                        >
+                          <span className="text-[10px] sm:text-xs font-bold text-[#f2ece1] whitespace-nowrap">
+                            War Info
+                          </span>
+                        </button>
+                      )}
 
                       {(anyZoneActive || activeZones.kingdomLabels) && (
                         <button

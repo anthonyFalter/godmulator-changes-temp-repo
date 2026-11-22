@@ -116,10 +116,97 @@ export function createNoise2D(seed: number) {
 
 export interface WorldGenOptions {
   template?: WorldTemplateId;
+  singleBiome?: TerrainType;
   seaLevelBias?: 'low' | 'normal' | 'high';
   mountainBias?: 'low' | 'normal' | 'high';
   climateBias?: 'cold' | 'balanced' | 'warm';
   allowFantasyBiomes?: boolean;
+}
+
+function pickSingleBiomeResource(
+  biome: TerrainType,
+  roll: number,
+  allowFantasyBiomes: boolean,
+): { node: ResourceNodeType; amount: number } {
+  switch (biome) {
+    case 'forest':
+    case 'jungle':
+    case 'taiga':
+    case 'blossom':
+      if (roll < 0.72) return { node: 'timber_grove', amount: 250 };
+      if (roll < 0.84) return { node: 'berry_bush', amount: 210 };
+      return { node: 'none', amount: 0 };
+    case 'floral_plains':
+      if (roll < 0.46) return { node: 'timber_grove', amount: 260 };
+      if (roll < 0.72) return { node: 'berry_bush', amount: 230 };
+      if (roll < 0.80) return { node: 'stone_outcrop', amount: 240 };
+      return { node: 'none', amount: 0 };
+    case 'fertile':
+      if (roll < 0.38) return { node: 'berry_bush', amount: 220 };
+      if (roll < 0.56) return { node: 'timber_grove', amount: 230 };
+      return { node: 'none', amount: 0 };
+    case 'grass':
+      if (roll < 0.16) return { node: 'timber_grove', amount: 220 };
+      if (roll < 0.26) return { node: 'berry_bush', amount: 190 };
+      if (roll < 0.31) return { node: 'stone_outcrop', amount: 240 };
+      return { node: 'none', amount: 0 };
+    case 'savanna':
+      if (roll < 0.24) return { node: 'timber_grove', amount: 210 };
+      if (roll < 0.34) return { node: 'stone_outcrop', amount: 220 };
+      if (roll < 0.42) return { node: 'berry_bush', amount: 180 };
+      return { node: 'none', amount: 0 };
+    case 'swamp':
+      if (roll < 0.54) return { node: 'timber_grove', amount: 220 };
+      if (roll < 0.66) return { node: 'berry_bush', amount: 190 };
+      return { node: 'none', amount: 0 };
+    case 'highland':
+      if (roll < 0.22) return { node: 'stone_outcrop', amount: 240 };
+      if (roll < 0.36) return { node: 'timber_grove', amount: 220 };
+      if (roll < 0.44) return { node: 'ore_vein', amount: 280 };
+      return { node: 'none', amount: 0 };
+    case 'mountain':
+    case 'rock':
+    case 'badlands':
+      if (roll < 0.22) return { node: 'ore_vein', amount: 320 };
+      if (roll < 0.44) return { node: 'stone_outcrop', amount: 270 };
+      return { node: 'none', amount: 0 };
+    case 'snow':
+      if (roll < 0.14) {
+        return { node: allowFantasyBiomes ? 'crystal_monolith' : 'ore_vein', amount: 360 };
+      }
+      if (roll < 0.32) return { node: 'stone_outcrop', amount: 280 };
+      if (roll < 0.42) return { node: 'timber_grove', amount: 210 };
+      return { node: 'none', amount: 0 };
+    case 'tundra':
+      if (roll < 0.16) return { node: 'stone_outcrop', amount: 240 };
+      if (roll < 0.24) return { node: 'ore_vein', amount: 270 };
+      if (roll < 0.34) return { node: 'timber_grove', amount: 210 };
+      return { node: 'none', amount: 0 };
+    case 'crystal_field':
+      if (roll < 0.36) return { node: 'crystal_monolith', amount: 360 };
+      if (roll < 0.48) return { node: 'stone_outcrop', amount: 260 };
+      return { node: 'none', amount: 0 };
+    case 'volcanic_wasteland':
+      if (roll < 0.24) return { node: 'timber_grove', amount: 230 };
+      if (roll < 0.44) return { node: 'ore_vein', amount: 340 };
+      if (roll < 0.60) return { node: 'stone_outcrop', amount: 280 };
+      return { node: 'none', amount: 0 };
+    case 'blighted_mire':
+      if (roll < 0.48) return { node: 'timber_grove', amount: 220 };
+      if (roll < 0.64) return { node: 'stone_outcrop', amount: 250 };
+      if (roll < 0.72) return { node: 'ore_vein', amount: 290 };
+      return { node: 'none', amount: 0 };
+    case 'sand':
+    case 'scorched':
+    case 'void_goo':
+      if (roll < 0.16) return { node: 'stone_outcrop', amount: 240 };
+      if (roll < 0.24) return { node: 'ore_vein', amount: 280 };
+      return { node: 'none', amount: 0 };
+    default:
+      if (roll < 0.20) return { node: 'timber_grove', amount: 220 };
+      if (roll < 0.30) return { node: 'stone_outcrop', amount: 240 };
+      return { node: 'none', amount: 0 };
+  }
 }
 
 export function generateWorldTiles(
@@ -130,6 +217,8 @@ export function generateWorldTiles(
   const seed = normalizeSeed(rawSeed);
   const rng = createRng(seed ^ 0x9e3779b9);
   const isScrapSea = options?.template === 'scrap_sea';
+  const forcedSingleBiome: TerrainType | null =
+    options?.template === 'single_biome' ? (options.singleBiome ?? 'forest') : null;
 
   // Separate uncorrelated noise channels derived from the master seed
   const elevNoise = createNoise2D(seed + 101);
@@ -581,6 +670,11 @@ export function generateWorldTiles(
             resourceAmount = 260;
           }
         }
+      } else if (forcedSingleBiome) {
+        terrain = forcedSingleBiome;
+        const picked = pickSingleBiomeResource(forcedSingleBiome, roll, allowFantasyBiomes);
+        resourceNode = picked.node;
+        resourceAmount = picked.amount;
       } else if (h >= 8 || (h >= 7 && temp < 0.45)) {
         // High alpine snow summits crowning towering mountain ranges
         terrain = 'snow';
@@ -768,10 +862,31 @@ export function generateWorldTiles(
             resourceAmount = 190;
           }
         } else if (
+          allowFantasyBiomes &&
+          temp >= 0.42 &&
+          temp <= 0.64 &&
+          moist >= 0.46 &&
+          moist <= 0.66 &&
+          bVar > 0.66 &&
+          dist > 6.0
+        ) {
+          // Majestic Fantasy Floral Plains & Steppes
+          terrain = 'floral_plains';
+          if (roll < 0.48) {
+            resourceNode = 'timber_grove';
+            resourceAmount = 260;
+          } else if (roll < 0.72) {
+            resourceNode = 'berry_bush';
+            resourceAmount = 230;
+          } else if (roll < 0.80) {
+            resourceNode = 'stone_outcrop';
+            resourceAmount = 250;
+          }
+        } else if (
           temp >= 0.39 &&
           temp <= 0.62 &&
           moist > 0.47 &&
-          bVar > 0.58 &&
+          bVar > 0.54 &&
           dist > 6.0
         ) {
           // Blooming Cherry Blossom Sakura Grove
@@ -782,6 +897,32 @@ export function generateWorldTiles(
           } else if (roll < 0.78) {
             resourceNode = 'berry_bush';
             resourceAmount = 200;
+          }
+        } else if (allowFantasyBiomes && temp > 0.64 && moist < 0.34 && bVar < 0.34 && dist > 8.0) {
+          // Volcanic Wasteland
+          terrain = 'volcanic_wasteland';
+          if (roll < 0.28) {
+            resourceNode = 'timber_grove';
+            resourceAmount = 220;
+          } else if (roll < 0.46) {
+            resourceNode = 'ore_vein';
+            resourceAmount = 320;
+          } else if (roll < 0.62) {
+            resourceNode = 'stone_outcrop';
+            resourceAmount = 270;
+          }
+        } else if (allowFantasyBiomes && h <= 3 && moist > 0.62 && temp > 0.44 && bVar < 0.32 && dist > 8.0) {
+          // Land of Blight (Poisoned Purple Mire)
+          terrain = 'blighted_mire';
+          if (roll < 0.54) {
+            resourceNode = 'timber_grove';
+            resourceAmount = 210;
+          } else if (roll < 0.68) {
+            resourceNode = 'stone_outcrop';
+            resourceAmount = 240;
+          } else if (roll < 0.76) {
+            resourceNode = 'ore_vein';
+            resourceAmount = 280;
           }
         } else if (temp > 0.56 && moist < 0.48 && dist > 5.5) {
           // Golden Savanna Steppe
@@ -829,6 +970,17 @@ export function generateWorldTiles(
         }
       }
 
+      const singleBiomeWaterKind =
+        h === 0 && (isRiverTile || isLakeTile)
+          ? forcedSingleBiome === 'volcanic_wasteland'
+            ? ('lava' as const)
+            : forcedSingleBiome === 'blighted_mire'
+              ? ('poison' as const)
+              : forcedSingleBiome === 'floral_plains'
+                ? ('floral' as const)
+                : undefined
+          : undefined;
+
       tiles[idx] = {
         x,
         z,
@@ -842,7 +994,166 @@ export function generateWorldTiles(
         buildingId: null,
         isRiver: isRiverTile || undefined,
         isLake: isLakeTile || undefined,
+        waterKind: singleBiomeWaterKind,
       };
+    }
+  }
+
+  // Stage 5.5: Seed Distinct Volcanic Wasteland, Land of Blight, and Floral Plains Signature Regions
+  // complete with flowing lava rivers/lakes, poison green lakes/rivers, and crystal floral springs
+  if (!isScrapSea && allowFantasyBiomes && !forcedSingleBiome) {
+    const signatureLandCandidates: Array<{ x: number; z: number }> = [];
+    for (let z = 10; z < gridSize - 10; z += 4) {
+      for (let x = 10; x < gridSize - 10; x += 4) {
+        const distCenter = Math.hypot(x - center, z - center);
+        if (distCenter < 10.5 || distCenter > maxRadius * 0.78) continue;
+        const t = tiles[z * gridSize + x];
+        if (t && t.height >= 1 && t.height <= 4) {
+          signatureLandCandidates.push({ x, z });
+        }
+      }
+    }
+
+    const pickedBiomeCenters: Array<{ x: number; z: number; kind: 'volcanic_wasteland' | 'blighted_mire' | 'floral_plains' }> = [];
+    const biomeTargets: Array<'volcanic_wasteland' | 'blighted_mire' | 'floral_plains'> = [
+      'floral_plains',
+      'volcanic_wasteland',
+      'blighted_mire',
+    ];
+    for (const kind of biomeTargets) {
+      for (let attempt = 0; attempt < 40 && signatureLandCandidates.length > 0; attempt++) {
+        const pick = Math.floor(rng() * signatureLandCandidates.length);
+        const cand = signatureLandCandidates[pick];
+        if (pickedBiomeCenters.some((p) => Math.hypot(p.x - cand.x, p.z - cand.z) < 15)) continue;
+        signatureLandCandidates.splice(pick, 1);
+        pickedBiomeCenters.push({ x: cand.x, z: cand.z, kind });
+        break;
+      }
+    }
+
+    for (const bc of pickedBiomeCenters) {
+      const radius = bc.kind === 'floral_plains' ? 6.4 + rng() * 1.8 : 5.4 + rng() * 1.6;
+      const rCeil = Math.ceil(radius + 2);
+      const riverAngle = rng() * Math.PI * 2;
+      const rCos = Math.cos(riverAngle);
+      const rSin = Math.sin(riverAngle);
+
+      for (let oz = -rCeil; oz <= rCeil; oz++) {
+        for (let ox = -rCeil; ox <= rCeil; ox++) {
+          const nx = bc.x + ox;
+          const nz = bc.z + oz;
+          if (nx <= 2 || nx >= gridSize - 3 || nz <= 2 || nz >= gridSize - 3) continue;
+          if (Math.hypot(nx - center, nz - center) < 7.5) continue;
+          const nIdx = nz * gridSize + nx;
+          const t = tiles[nIdx];
+          if (!t) continue;
+          const wobble = (warpNoise.sample(nx * 0.2 + bc.x, nz * 0.2 + bc.z) - 0.5) * 1.45;
+          const d = Math.hypot(ox, oz) + wobble;
+          if (d > radius) continue;
+
+          // Local coordinate along & perpendicular to the biome's signature river channel
+          const along = ox * rCos + oz * rSin;
+          const perp = -ox * rSin + oz * rCos + Math.sin(along * 0.65) * 0.85;
+          const tileRoll = ((Math.abs(((nx * 73856093) ^ (nz * 19349663) ^ seed) | 0)) % 1000) / 1000;
+
+          if (bc.kind === 'volcanic_wasteland') {
+            // Central volcano caldera lava lake + flowing lava river channel
+            const isCalderaPool = Math.hypot(ox, oz) <= 1.45;
+            const isLavaChannel = along >= -0.5 && along <= radius * 0.92 && Math.abs(perp) <= 0.68;
+            if (isCalderaPool || isLavaChannel) {
+              t.height = 0;
+              t.terrain = 'shallow_water';
+              t.waterKind = 'lava';
+              t.isLake = isCalderaPool || undefined;
+              t.isRiver = !isCalderaPool || undefined;
+              t.resourceNode = 'none';
+              t.resourceAmount = 0;
+            } else {
+              // Stepped volcanic rim around caldera
+              if (Math.hypot(ox, oz) <= 2.6) {
+                t.height = Math.max(t.height, 3);
+              } else if (t.height === 0) {
+                t.height = 1;
+              }
+              t.terrain = 'volcanic_wasteland';
+              t.waterKind = undefined;
+              if (tileRoll < 0.28) {
+                t.resourceNode = 'timber_grove';
+                t.resourceAmount = 230;
+              } else if (tileRoll < 0.48) {
+                t.resourceNode = 'ore_vein';
+                t.resourceAmount = 340;
+              } else if (tileRoll < 0.64) {
+                t.resourceNode = 'stone_outcrop';
+                t.resourceAmount = 280;
+              } else {
+                t.resourceNode = 'none';
+                t.resourceAmount = 0;
+              }
+            }
+          } else if (bc.kind === 'blighted_mire') {
+            // Poison-filled green lake & winding toxic river through dark purple soil
+            const isPoisonLake = Math.hypot(ox - 0.5, oz + 0.5) <= 1.75;
+            const isPoisonChannel = along >= -radius * 0.75 && along <= radius * 0.85 && Math.abs(perp) <= 0.72;
+            if (isPoisonLake || isPoisonChannel) {
+              t.height = 0;
+              t.terrain = 'shallow_water';
+              t.waterKind = 'poison';
+              t.isLake = isPoisonLake || undefined;
+              t.isRiver = !isPoisonLake || undefined;
+              t.resourceNode = 'none';
+              t.resourceAmount = 0;
+            } else {
+              if (t.height === 0) t.height = 1;
+              t.terrain = 'blighted_mire';
+              t.waterKind = undefined;
+              if (tileRoll < 0.52) {
+                t.resourceNode = 'timber_grove';
+                t.resourceAmount = 220;
+              } else if (tileRoll < 0.68) {
+                t.resourceNode = 'stone_outcrop';
+                t.resourceAmount = 250;
+              } else if (tileRoll < 0.76) {
+                t.resourceNode = 'ore_vein';
+                t.resourceAmount = 290;
+              } else {
+                t.resourceNode = 'none';
+                t.resourceAmount = 0;
+              }
+            }
+          } else if (bc.kind === 'floral_plains') {
+            // Majestic fantasy floral steppes with a crystal-clear floral spring pond
+            const isFloralSpring = Math.hypot(ox, oz) <= 1.35;
+            if (isFloralSpring) {
+              t.height = 0;
+              t.terrain = 'shallow_water';
+              t.waterKind = 'floral';
+              t.isLake = true;
+              t.resourceNode = 'none';
+              t.resourceAmount = 0;
+            } else {
+              if (t.height === 0) t.height = 1;
+              // Gentle fantasy steppe terraces (heights 1..3)
+              t.height = Math.min(3, Math.max(1, t.height));
+              t.terrain = 'floral_plains';
+              t.waterKind = undefined;
+              if (tileRoll < 0.52) {
+                t.resourceNode = 'timber_grove';
+                t.resourceAmount = 270;
+              } else if (tileRoll < 0.76) {
+                t.resourceNode = 'berry_bush';
+                t.resourceAmount = 240;
+              } else if (tileRoll < 0.84) {
+                t.resourceNode = 'stone_outcrop';
+                t.resourceAmount = 250;
+              } else {
+                t.resourceNode = 'none';
+                t.resourceAmount = 0;
+              }
+            }
+          }
+        }
+      }
     }
   }
 
@@ -919,7 +1230,7 @@ export function generateWorldTiles(
         const t = tiles[(iz + oz) * gridSize + (ix + ox)];
         if (t && t.height === 0 && t.terrain === 'deep_water') {
           t.height = ox === 0 && oz === 0 ? 2 : 1;
-          t.terrain = ox === 0 && oz === 0 ? 'mountain' : 'sand';
+          t.terrain = forcedSingleBiome ?? (ox === 0 && oz === 0 ? 'mountain' : 'sand');
           t.resourceNode = ox === 0 && oz === 0 ? 'stone_outcrop' : 'none';
           t.resourceAmount = ox === 0 && oz === 0 ? 220 : 0;
         }

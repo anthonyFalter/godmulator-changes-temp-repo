@@ -2,8 +2,24 @@ import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { ANIMAL_ROLE_SET, EPOCHS, GOD_POWERS, getDinosaurVariant } from '../game/catalog';
+import {
+  ANIMAL_ROLE_SET,
+  EPOCHS,
+  GOD_POWERS,
+  LUMINOUS_ENTITY_ROLES,
+  LUMINOUS_LIGHT_COLORS,
+  getDinosaurVariant,
+} from '../game/catalog';
 import { createAnimatedFireSpriteBundle } from '../game/fireSprites';
+import {
+  ENHANCED_HAZARD_KINDS,
+  EnhancedHazardKind,
+  EnhancedHazardVfxState,
+  createEnhancedHazardVfx,
+  createSharedGodPowerGeos,
+  disposeEnhancedHazardVfx,
+  updateEnhancedHazardVfx,
+} from '../game/godPowerVfx';
 import {
   TreeBiomeKey,
   getVoxelTreeLibrary,
@@ -36,6 +52,7 @@ import {
 import {
   TIME_OF_DAY_PRESETS,
   clampSimulationSpeed,
+  getEffectiveSimulationSpeed,
   getEpochCityLightProfile,
   getTimeOfDayLightingState,
   wrapShaderTime,
@@ -123,6 +140,7 @@ import {
 } from '../game/types';
 import { ZoneMapLabel } from '../game/zones';
 import { createWarFrontArrowsSystem } from '../game/warFrontArrows';
+import { UnitPixelIcon } from './GameIcons';
 
 interface IsometricWorldCanvasProps {
   simRef: React.MutableRefObject<SimulationState>;
@@ -391,11 +409,20 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
     scene.add(hearthLight);
 
     const cityClusterLights: THREE.PointLight[] = [];
-    for (let ci = 0; ci < 4; ci++) {
-      const cLight = new THREE.PointLight(0xffa62b, 0, 12, 1.5);
+    for (let ci = 0; ci < 2; ci++) {
+      const cLight = new THREE.PointLight(0xffa62b, 0, 14, 1.45);
       cLight.position.set(gridCenter, 2.5, gridCenter);
       scene.add(cLight);
       cityClusterLights.push(cLight);
+    }
+
+    // Pooled dynamic night lights for luminous wildlife & mythics (kept lean at 2 lights to respect PBR PointLight budget)
+    const luminousCreatureLights: THREE.PointLight[] = [];
+    for (let li = 0; li < 2; li++) {
+      const lLight = new THREE.PointLight(0xd9f99d, 0, 11.0, 1.45);
+      lLight.position.set(gridCenter, 2.0, gridCenter);
+      scene.add(lLight);
+      luminousCreatureLights.push(lLight);
     }
 
     // Dynamic God Power Flash Light (illuminates terrain & structures during miracle/disaster casts)
@@ -524,6 +551,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       'savanna',
       'swamp',
       'highland',
+      'volcanic',
+      'blight',
+      'floral',
     ];
     const BIOME_KEY_TO_IDX: Record<TreeBiomeKey, number> = {
       forest: 0,
@@ -534,6 +564,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       savanna: 5,
       swamp: 6,
       highland: 7,
+      volcanic: 8,
+      blight: 9,
+      floral: 10,
     };
 
     // Collapse all 32 live + 32 burnt voxel tree species × 4 LODs (384 InstancedMeshes -> 2 BatchedMeshes!)
@@ -646,7 +679,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       nodesGroup.add(propBatches[i].group);
     }
 
-    // Collapse all 14 ambient biome detail groups (35 InstancedMeshes -> 1 BatchedMesh draw call!)
+    // Collapse all 17 ambient biome detail groups into 1 BatchedMesh draw call!
     const ambSourceLists: THREE.BufferGeometry[][] = [
       variantLib.ambientGrass,
       variantLib.ambientForest,
@@ -662,6 +695,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       variantLib.ambientTundra,
       variantLib.ambientBadlands,
       variantLib.ambientBlossom,
+      variantLib.ambientVolcanic,
+      variantLib.ambientBlight,
+      variantLib.ambientFloral,
     ];
     const ambBatchGeos: THREE.BufferGeometry[] = [];
     const ambGeoIdx: number[][] = [];
@@ -974,6 +1010,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       gargoyleAwakened?: THREE.Object3D;
       gargoyleStatue?: THREE.Object3D;
       ufoRing?: THREE.Object3D;
+      mythicAura?: THREE.Object3D;
+      mythicFxAccum: number;
       lastCarryType: string | null;
       lastStatusKey: number;
       shadowCasters: THREE.Mesh[];
@@ -1613,11 +1651,20 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         | 'alien_mothership'
         | 'chrono_field'
         | 'orbital_beam'
-        | 'gravity_anomaly';
+        | 'gravity_anomaly'
+        | 'acid_cloud'
+        | 'sinkhole_collapse'
+        | 'locust_swarm'
+        | 'magma_geyser'
+        | 'purify_wave'
+        | 'biome_bloom_wave'
+        | 'blizzard_gale'
+        | 'sentinel_eye';
       isSuper?: boolean;
       group: THREE.Group;
       materials: THREE.Material[];
       geometries?: THREE.BufferGeometry[];
+      enhancedVfx?: EnhancedHazardVfxState;
       dropsInst?: THREE.InstancedMesh;
       drops?: { offsetY: number; speed: number; baseX: number; baseZ: number }[];
       spores?: { mesh: THREE.Mesh; angle: number; dist: number; phase: number; height: number }[];
@@ -1636,9 +1683,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       faultSegments?: EarthquakeFaultSegment[];
       seenStamp: number;
     }
+    const sharedGodPowerGeos = createSharedGodPowerGeos();
     const hazardMeshes = new Map<string, HazardVisual>();
     function disposeHazardVisual(hv: HazardVisual) {
       hazardsGroup.remove(hv.group);
+      if (hv.enhancedVfx) {
+        disposeEnhancedHazardVfx(hv.enhancedVfx);
+      }
       if (hv.dropsInst) hv.dropsInst.dispose();
       if (hv.waveInsts) {
         for (const inst of hv.waveInsts) inst.dispose();
@@ -1657,6 +1708,23 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       originZ = 0,
       isSuper = false,
     ): HazardVisual {
+      if (ENHANCED_HAZARD_KINDS.has(kind)) {
+        const enhancedVfx = createEnhancedHazardVfx(
+          kind as EnhancedHazardKind,
+          radius,
+          sharedGodPowerGeos,
+          sharedMagicCircleGeo,
+          createMagicCircleMat,
+        );
+        return {
+          kind,
+          isSuper,
+          group: enhancedVfx.group,
+          materials: [],
+          enhancedVfx,
+          seenStamp: 0,
+        };
+      }
       const group = new THREE.Group();
       const materials: THREE.Material[] = [];
 
@@ -1914,6 +1982,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             uTime: { value: 0 },
             uOpacity: { value: 0.94 },
             uIsSuper: { value: isSuper ? 1.0 : 0.0 },
+            uAffinityColor: { value: new THREE.Color(0xffffff) },
+            uAffinityMix: { value: 0.0 },
           },
           vertexShader: /* glsl */ `
             varying vec2 vUvCentered;
@@ -1926,6 +1996,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             uniform float uTime;
             uniform float uOpacity;
             uniform float uIsSuper;
+            uniform vec3 uAffinityColor;
+            uniform float uAffinityMix;
             varying vec2 vUvCentered;
 
             void main() {
@@ -1955,6 +2027,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
               col = mix(col, windCyan, armSecondary * 0.68);
               col = mix(col, crestWhite, clamp(gustCrest + innerEyeWall * 0.85, 0.0, 1.0));
               col = mix(col, eyeDark, throatMask);
+              col = mix(col, uAffinityColor * (0.55 + armPrimary * 0.45 + gustCrest * 0.35), uAffinityMix);
 
               float outerFade = 1.0 - smoothstep(0.74, 1.0, r);
               float alpha = clamp((0.78 + gustCrest * 0.2 + throatMask * 0.16) * outerFade * uOpacity, 0.0, 0.96);
@@ -1972,6 +2045,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             uTime: { value: 0 },
             uOpacity: { value: 0.92 },
             uIsSuper: { value: isSuper ? 1.0 : 0.0 },
+            uAffinityColor: { value: new THREE.Color(0xffffff) },
+            uAffinityMix: { value: 0.0 },
           },
           vertexShader: /* glsl */ `
             uniform float uTime;
@@ -1990,6 +2065,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             uniform float uTime;
             uniform float uOpacity;
             uniform float uIsSuper;
+            uniform vec3 uAffinityColor;
+            uniform float uAffinityMix;
             varying vec2 vUv;
 
             void main() {
@@ -2012,6 +2089,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
               vec3 col = mix(baseCol, midCol, bandPrimary * 0.82);
               col = mix(col, hiCol, bandSecondary * 0.72);
               col = mix(col, crestCol, streakCrest * 0.85);
+              col = mix(col, uAffinityColor * (0.45 + bandPrimary * 0.45 + streakCrest * 0.45), uAffinityMix);
 
               float verticalEdge = smoothstep(0.0, 0.08, h) * (1.0 - smoothstep(0.88, 1.0, h));
               float alpha = (0.58 + bandPrimary * 0.24 + streakCrest * 0.16) * verticalEdge * uOpacity;
@@ -2828,6 +2906,212 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           gravityRings,
           seenStamp: 0,
         };
+      }
+
+      if (kind === 'acid_cloud') {
+        const cloudBody = new THREE.Group();
+        const acidMat = new THREE.MeshStandardMaterial({
+          color: 0x4d7c0f,
+          emissive: 0x84cc16,
+          emissiveIntensity: 0.45,
+          roughness: 0.85,
+          transparent: true,
+          opacity: 0.88,
+        });
+        const ringMat = new THREE.MeshBasicMaterial({
+          color: 0xa3e635,
+          transparent: true,
+          opacity: 0.55,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        materials.push(acidMat, ringMat);
+        for (let ci = 0; ci < 5; ci++) {
+          const ang = (ci / 5) * Math.PI * 2;
+          const puff = new THREE.Mesh(
+            new THREE.BoxGeometry(radius * 0.65, 1.15, radius * 0.65),
+            acidMat,
+          );
+          puff.position.set(
+            ci === 0 ? 0 : Math.cos(ang) * radius * 0.42,
+            4.8 + (ci === 0 ? 0.55 : (ci % 2) * 0.25),
+            ci === 0 ? 0 : Math.sin(ang) * radius * 0.42,
+          );
+          cloudBody.add(puff);
+        }
+        group.add(cloudBody);
+        const ringMesh = new THREE.Mesh(sharedMagicCircleGeo, ringMat);
+        ringMesh.position.y = 0.16;
+        ringMesh.scale.setScalar(radius * 0.95);
+        group.add(ringMesh);
+        return { kind, group, materials, cloudBody, ringMesh, seenStamp: 0 };
+      }
+
+      if (kind === 'sinkhole_collapse') {
+        const pitMat = new THREE.MeshBasicMaterial({
+          color: 0x1e293b,
+          transparent: true,
+          opacity: 0.78,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        const crackMat = new THREE.MeshBasicMaterial({
+          color: 0x64748b,
+          transparent: true,
+          opacity: 0.72,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        materials.push(pitMat, crackMat);
+        const ringMesh = new THREE.Mesh(sharedMagicCircleGeo, crackMat);
+        ringMesh.position.y = 0.18;
+        group.add(ringMesh);
+        const secondaryRingMesh = new THREE.Mesh(sharedMagicCircleGeo, pitMat);
+        secondaryRingMesh.position.y = 0.14;
+        group.add(secondaryRingMesh);
+        return { kind, group, materials, ringMesh, secondaryRingMesh, seenStamp: 0 };
+      }
+
+      if (kind === 'locust_swarm') {
+        const swarmMat = new THREE.MeshBasicMaterial({
+          color: 0x713f12,
+          transparent: true,
+          opacity: 0.72,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        const ringMat = new THREE.MeshBasicMaterial({
+          color: 0xeab308,
+          transparent: true,
+          opacity: 0.5,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        materials.push(swarmMat, ringMat);
+        const cloudBody = new THREE.Group();
+        for (let i = 0; i < 6; i++) {
+          const ang = (i / 6) * Math.PI * 2;
+          const b = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.35, 0.9), swarmMat);
+          b.position.set(Math.cos(ang) * radius * 0.45, 1.3 + (i % 3) * 0.45, Math.sin(ang) * radius * 0.45);
+          cloudBody.add(b);
+        }
+        group.add(cloudBody);
+        const ringMesh = new THREE.Mesh(sharedMagicCircleGeo, ringMat);
+        ringMesh.position.y = 0.2;
+        ringMesh.scale.setScalar(radius * 0.85);
+        group.add(ringMesh);
+        return { kind, group, materials, cloudBody, ringMesh, seenStamp: 0 };
+      }
+
+      if (kind === 'magma_geyser') {
+        const magmaMat = new THREE.MeshBasicMaterial({
+          color: 0xff5400,
+          transparent: true,
+          opacity: 0.86,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        const coreMat = new THREE.MeshBasicMaterial({
+          color: 0xfef08a,
+          transparent: true,
+          opacity: 0.92,
+          depthWrite: false,
+        });
+        materials.push(magmaMat, coreMat);
+        const ringMesh = new THREE.Mesh(sharedMagicCircleGeo, magmaMat);
+        ringMesh.position.y = 0.2;
+        group.add(ringMesh);
+        const jetGeo = new THREE.CylinderGeometry(0.32, 0.95, 4.2, 8, 1, true);
+        const secondaryRingMesh = new THREE.Mesh(jetGeo, coreMat);
+        secondaryRingMesh.position.y = 2.1;
+        group.add(secondaryRingMesh);
+        return { kind, group, materials, geometries: [jetGeo], ringMesh, secondaryRingMesh, seenStamp: 0 };
+      }
+
+      if (kind === 'purify_wave') {
+        const cyanMat = new THREE.MeshBasicMaterial({
+          color: 0x38bdf8,
+          transparent: true,
+          opacity: 0.82,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        const goldMat = new THREE.MeshBasicMaterial({
+          color: 0xfef08a,
+          transparent: true,
+          opacity: 0.72,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        materials.push(cyanMat, goldMat);
+        const ringMesh = new THREE.Mesh(sharedMagicCircleGeo, cyanMat);
+        ringMesh.position.y = 0.22;
+        group.add(ringMesh);
+        const secondaryRingMesh = new THREE.Mesh(sharedMagicCircleGeo, goldMat);
+        secondaryRingMesh.position.y = 0.45;
+        group.add(secondaryRingMesh);
+        return { kind, group, materials, ringMesh, secondaryRingMesh, seenStamp: 0 };
+      }
+
+      if (kind === 'biome_bloom_wave') {
+        const outerMat = new THREE.MeshBasicMaterial({
+          color: 0xf472b6,
+          transparent: true,
+          opacity: 0.78,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        const innerMat = new THREE.MeshBasicMaterial({
+          color: 0xfacc15,
+          transparent: true,
+          opacity: 0.65,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        materials.push(outerMat, innerMat);
+        const ringMesh = new THREE.Mesh(sharedMagicCircleGeo, outerMat);
+        ringMesh.position.y = 0.22;
+        group.add(ringMesh);
+        const secondaryRingMesh = new THREE.Mesh(sharedMagicCircleGeo, innerMat);
+        secondaryRingMesh.position.y = 0.38;
+        group.add(secondaryRingMesh);
+        return { kind, group, materials, ringMesh, secondaryRingMesh, seenStamp: 0 };
+      }
+
+      if (kind === 'blizzard_gale') {
+        const cloudBody = new THREE.Group();
+        const snowCloudMat = new THREE.MeshStandardMaterial({
+          color: 0xdbeafe,
+          emissive: 0x38bdf8,
+          emissiveIntensity: 0.35,
+          roughness: 0.85,
+          transparent: true,
+          opacity: 0.88,
+        });
+        const frostRingMat = new THREE.MeshBasicMaterial({
+          color: 0xbae6fd,
+          transparent: true,
+          opacity: 0.62,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        materials.push(snowCloudMat, frostRingMat);
+        for (let ci = 0; ci < 5; ci++) {
+          const ang = (ci / 5) * Math.PI * 2;
+          const puff = new THREE.Mesh(new THREE.BoxGeometry(radius * 0.62, 1.05, radius * 0.62), snowCloudMat);
+          puff.position.set(
+            ci === 0 ? 0 : Math.cos(ang) * radius * 0.42,
+            4.5 + (ci === 0 ? 0.5 : (ci % 2) * 0.25),
+            ci === 0 ? 0 : Math.sin(ang) * radius * 0.42,
+          );
+          cloudBody.add(puff);
+        }
+        group.add(cloudBody);
+        const ringMesh = new THREE.Mesh(sharedMagicCircleGeo, frostRingMat);
+        ringMesh.position.y = 0.18;
+        ringMesh.scale.setScalar(radius * 0.95);
+        group.add(ringMesh);
+        return { kind, group, materials, cloudBody, ringMesh, seenStamp: 0 };
       }
 
       return {
@@ -3726,12 +4010,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         return;
       }
 
-      // 5. BLESS (blessing): Blooming golden-emerald runic magic circle & ascending spiral life petals
-      if (type === 'blessing') {
-        const goldMat = createMagicCircleMat('blessing', 0.95, 19);
-        const emeraldMat = createMagicCircleMat('blessing', 0.85, 53);
+      // 5. BLESS & FLORAL PARADISE (blessing, floral_paradise): Blooming golden-emerald runic magic circle & ascending spiral life petals
+      if (type === 'blessing' || type === 'floral_paradise') {
+        const goldMat = createMagicCircleMat(type, 0.95, 19);
+        const emeraldMat = createMagicCircleMat(type, 0.85, 53);
         const petalMat = new THREE.MeshBasicMaterial({
-          color: 0xfff3b0,
+          color: type === 'floral_paradise' ? 0xf472b6 : 0xfff3b0,
           transparent: true,
           opacity: 0.92,
         });
@@ -4046,13 +4330,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         return;
       }
 
-      // 10. PLAGUE MIASMA (plague_miasma): Bubbling bio-toxic mire globules swelling & popping from a runic ground circle
-      if (type === 'plague_miasma') {
-        const toxicMat = createMagicCircleMat('plague_miasma', 0.92, 59);
+      // 10. PLAGUE MIASMA & BLIGHT PLAGUE (plague_miasma, blight_plague): Bubbling bio-toxic mire globules swelling & popping from a runic ground circle
+      if (type === 'plague_miasma' || type === 'blight_plague') {
+        const toxicMat = createMagicCircleMat(type, 0.92, 59);
         const mireMat = new THREE.MeshBasicMaterial({
-          color: 0x38b000,
+          color: type === 'blight_plague' ? 0x9333ea : 0x38b000,
           transparent: true,
-          opacity: 0.82,
+          opacity: 0.85,
         });
         materials.push(toxicMat, mireMat);
 
@@ -4588,7 +4872,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         return;
       }
 
-      if (type === 'volcano_eruption') {
+      if (type === 'volcano_eruption' || type === 'lava_deluge') {
         const ringMat = new THREE.MeshBasicMaterial({
           color: 0xff5400,
           transparent: true,
@@ -4805,20 +5089,31 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         return;
       }
 
-      // New Creative God Powers (Necrotic Rift, Probe Remote, Chrono Warp, Peace Accord, Helios Orbital Beam, Gravity Flux)
-      if (type === 'undead_portal' || type === 'alien_invasion' || type === 'chrono_surge' || type === 'harmony_dove' || type === 'solar_orbital_laser' || type === 'gravity_flip') {
+      // Dramatic Cast Bursts for Creative & Reworked God Powers
+      if (
+        type === 'undead_portal' ||
+        type === 'alien_invasion' ||
+        type === 'chrono_surge' ||
+        type === 'harmony_dove' ||
+        type === 'solar_orbital_laser' ||
+        type === 'gravity_flip' ||
+        type === 'fortify_walls' ||
+        type === 'bountiful_harvest' ||
+        type === 'recruit_legion' ||
+        type === 'summon_fleet'
+      ) {
         const ringMat = createMagicCircleMat(type, 0.96, 101);
         const outerRingMat = createMagicCircleMat(type, 0.88, 131);
         materials.push(ringMat, outerRingMat);
 
         const ringMesh = new THREE.Mesh(sharedMagicCircleGeo, ringMat);
         ringMesh.position.set(tx, ty + 0.14, tz);
-        ringMesh.scale.setScalar(Math.max(1.5, radius * 0.65));
+        ringMesh.scale.setScalar(Math.max(1.8, radius * 0.72));
         group.add(ringMesh);
 
         const outerRingMesh = new THREE.Mesh(sharedMagicCircleGeo, outerRingMat);
-        outerRingMesh.position.set(tx, ty + 0.18, tz);
-        outerRingMesh.scale.setScalar(Math.max(1.05, radius * 0.42));
+        outerRingMesh.position.set(tx, ty + 0.19, tz);
+        outerRingMesh.scale.setScalar(Math.max(1.25, radius * 0.48));
         group.add(outerRingMesh);
 
         let dropObj: THREE.Object3D | undefined;
@@ -4846,6 +5141,79 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           doveGrp.position.set(tx, ty + 2.0, tz);
           group.add(doveGrp);
           dropObj = doveGrp;
+          spawnRisingParticles(tx, ty + 0.4, tz, 18, '#fef08a', radius * 0.7, 4.4, 1.15, 1.05);
+        } else if (type === 'fortify_walls') {
+          // Eye of Judgment dramatic golden-crimson manifestation spire + burst!
+          const flareMat = new THREE.MeshBasicMaterial({
+            color: 0xf59e0b,
+            transparent: true,
+            opacity: 0.84,
+            side: THREE.DoubleSide,
+            depthWrite: false,
+            blending: THREE.AdditiveBlending,
+          });
+          materials.push(flareMat);
+          const pillar = new THREE.Mesh(sharedDomeCylinderGeo, flareMat);
+          pillar.position.set(tx, ty + 0.1, tz);
+          pillar.scale.set(1.45, 9.5, 1.45);
+          group.add(pillar);
+          dropObj = pillar;
+          spawnParticleBurst(tx, ty + 5.2, tz, 24, '#f59e0b', 2.2, 6.8, 1.15);
+          spawnParticleBurst(tx, ty + 5.2, tz, 16, '#ef4444', 1.6, 5.4, 0.95);
+        } else if (type === 'bountiful_harvest') {
+          // Golden harvest column + rising celebratory grain sparkles
+          const pillarMat = new THREE.MeshBasicMaterial({
+            color: 0xfacc15,
+            transparent: true,
+            opacity: 0.62,
+            side: THREE.DoubleSide,
+            depthWrite: false,
+            blending: THREE.AdditiveBlending,
+          });
+          materials.push(pillarMat);
+          const pillar = new THREE.Mesh(sharedDomeCylinderGeo, pillarMat);
+          pillar.position.set(tx, ty + 0.1, tz);
+          pillar.scale.set(radius * 0.42, 7.5, radius * 0.42);
+          group.add(pillar);
+          dropObj = pillar;
+          spawnRisingParticles(tx, ty + 0.3, tz, 22, '#facc15', radius * 0.85, 4.6, 1.1, 1.05);
+          spawnRisingParticles(tx, ty + 0.3, tz, 14, '#4ade80', radius * 0.7, 3.8, 0.95, 0.9);
+        } else if (type === 'recruit_legion') {
+          // Crimson war-horn battle pillar + rallying sparks
+          const pillarMat = new THREE.MeshBasicMaterial({
+            color: 0xef4444,
+            transparent: true,
+            opacity: 0.65,
+            side: THREE.DoubleSide,
+            depthWrite: false,
+            blending: THREE.AdditiveBlending,
+          });
+          materials.push(pillarMat);
+          const pillar = new THREE.Mesh(sharedDomeCylinderGeo, pillarMat);
+          pillar.position.set(tx, ty + 0.1, tz);
+          pillar.scale.set(radius * 0.38, 6.5, radius * 0.38);
+          group.add(pillar);
+          dropObj = pillar;
+          spawnParticleBurst(tx, ty + 0.9, tz, 22, '#ef4444', 2.4, 6.2, 1.05);
+          spawnRisingParticles(tx, ty + 0.3, tz, 14, '#fde047', radius * 0.7, 4.2, 0.95, 0.95);
+        } else if (type === 'summon_fleet') {
+          // Azure tidal summoning beacon + sea-foam burst
+          const pillarMat = new THREE.MeshBasicMaterial({
+            color: 0x0ea5e9,
+            transparent: true,
+            opacity: 0.62,
+            side: THREE.DoubleSide,
+            depthWrite: false,
+            blending: THREE.AdditiveBlending,
+          });
+          materials.push(pillarMat);
+          const pillar = new THREE.Mesh(sharedDomeCylinderGeo, pillarMat);
+          pillar.position.set(tx, ty + 0.1, tz);
+          pillar.scale.set(radius * 0.4, 6.8, radius * 0.4);
+          group.add(pillar);
+          dropObj = pillar;
+          spawnRisingParticles(tx, ty + 0.3, tz, 20, '#38bdf8', radius * 0.82, 4.4, 1.0, 1.0);
+          spawnParticleBurst(tx, ty + 0.5, tz, 14, '#e0f2fe', 2.4, 5.0, 0.95);
         }
 
         burstFxGroup.add(group);
@@ -4855,8 +5223,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           group,
           materials,
           age: 0,
-          duration: type === 'alien_invasion' ? 1.35 : 1.05,
-          impactDelay: type === 'alien_invasion' ? 0.42 : type === 'solar_orbital_laser' ? 0.26 : 0.16,
+          duration: type === 'alien_invasion' ? 1.35 : 1.15,
+          impactDelay: type === 'alien_invasion' ? 0.42 : type === 'solar_orbital_laser' ? 0.26 : 0.14,
           deferImpact,
           tx,
           ty,
@@ -4864,7 +5232,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           ox: tx,
           oy: ty + (type === 'alien_invasion' ? 16 : 2.0),
           oz: tz,
-          radius: Math.max(2.0, radius),
+          radius: Math.max(2.2, radius),
           impactFired: false,
           tracerMesh: dropObj,
           ringMesh,
@@ -4885,6 +5253,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           boulder_rain: { primary: 0x94a3b8, secondary: 0x64748b, streak: 0xe2e8f0, impactHex: '#94a3b8', secondaryHex: '#475569', geo: sharedSkyOreGeo, emissive: 0.2, sway: 0.0, dur: 0.34 },
           salvage_drop: { primary: 0xeab308, secondary: 0x94a3b8, streak: 0xfef08a, impactHex: '#eab308', secondaryHex: '#38bdf8', geo: sharedSkyCrateGeo, emissive: 0.45, sway: 0.15, dur: 0.42 },
           blossom_rain: { primary: 0xf472b6, secondary: 0xfbcfe8, streak: 0xf9a8d4, impactHex: '#f472b6', secondaryHex: '#fef08a', geo: sharedSkySeedGeo, emissive: 0.72, sway: 0.55, dur: 0.54 },
+          floral_rain: { primary: 0xfacc15, secondary: 0xf472b6, streak: 0x86efac, impactHex: '#f472b6', secondaryHex: '#4ade80', geo: sharedSkySeedGeo, emissive: 0.78, sway: 0.62, dur: 0.52 },
           plant_forest: { primary: 0x84cc16, secondary: 0x22c55e, streak: 0xbef264, impactHex: '#4ade80', secondaryHex: '#bef264', geo: sharedSkySeedGeo, emissive: 0.58, sway: 0.42, dur: 0.48 },
         };
         const cfg = palette[kind] ?? palette.seed_ore;
@@ -8203,6 +8572,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
               biome === 'jungle' ||
               biome === 'taiga' ||
               biome === 'blossom' ||
+              biome === 'floral' ||
               biome === 'swamp';
 
             // Spatial old-growth canopy wave so forest cores soar high while edges have younger trees & saplings
@@ -8301,45 +8671,63 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             const stoneTint =
               t.terrain === 'sand' || t.terrain === 'savanna' || t.terrain === 'badlands'
                 ? 0xe8c796
-                : t.terrain === 'scorched' || t.terrain === 'void_goo'
-                  ? 0x6b6068
-                  : t.terrain === 'snow' || t.terrain === 'tundra' || t.terrain === 'ice'
-                    ? 0xd0e8fa
-                    : t.terrain === 'jungle' || t.terrain === 'swamp' || t.terrain === 'forest' || t.terrain === 'fertile'
-                      ? 0xc2d8ba
-                      : t.terrain === 'blossom'
-                        ? 0xf0d6e2
-                        : t.terrain === 'crystal_field'
-                          ? 0xdcc6f7
-                          : 0xffffff;
+                : t.terrain === 'volcanic_wasteland'
+                  ? 0x7a4b3a
+                  : t.terrain === 'blighted_mire'
+                    ? 0x6e4a85
+                    : t.terrain === 'floral_plains'
+                      ? 0xd8f3dc
+                      : t.terrain === 'scorched' || t.terrain === 'void_goo'
+                        ? 0x6b6068
+                        : t.terrain === 'snow' || t.terrain === 'tundra' || t.terrain === 'ice'
+                          ? 0xd0e8fa
+                          : t.terrain === 'jungle' || t.terrain === 'swamp' || t.terrain === 'forest' || t.terrain === 'fertile'
+                            ? 0xc2d8ba
+                            : t.terrain === 'blossom'
+                              ? 0xf0d6e2
+                              : t.terrain === 'crystal_field'
+                                ? 0xdcc6f7
+                                : 0xffffff;
             pushPropCache(3, h % propKindLens[3], t.x, t.z, _dummyMatrix.elements, stoneTint);
           } else if (t.resourceNode === 'ore_vein') {
             const oreTint =
               t.terrain === 'sand' || t.terrain === 'savanna' || t.terrain === 'badlands'
                 ? 0xf6d590
-                : t.terrain === 'scorched' || t.terrain === 'void_goo'
-                  ? 0xf09574
-                  : t.terrain === 'snow' || t.terrain === 'tundra' || t.terrain === 'ice'
-                    ? 0xc4e6ff
-                    : t.terrain === 'jungle' || t.terrain === 'swamp' || t.terrain === 'forest' || t.terrain === 'fertile'
-                      ? 0xc8e4c4
-                      : t.terrain === 'blossom'
-                        ? 0xf6cde2
-                        : t.terrain === 'crystal_field'
-                          ? 0xe0c8fa
-                          : 0xffffff;
+                : t.terrain === 'volcanic_wasteland'
+                  ? 0xff8c42
+                  : t.terrain === 'blighted_mire'
+                    ? 0x86efac
+                    : t.terrain === 'floral_plains'
+                      ? 0xfde68a
+                      : t.terrain === 'scorched' || t.terrain === 'void_goo'
+                        ? 0xf09574
+                        : t.terrain === 'snow' || t.terrain === 'tundra' || t.terrain === 'ice'
+                          ? 0xc4e6ff
+                          : t.terrain === 'jungle' || t.terrain === 'swamp' || t.terrain === 'forest' || t.terrain === 'fertile'
+                            ? 0xc8e4c4
+                            : t.terrain === 'blossom'
+                              ? 0xf6cde2
+                              : t.terrain === 'crystal_field'
+                                ? 0xe0c8fa
+                                : 0xffffff;
             pushPropCache(4, h % propKindLens[4], t.x, t.z, _dummyMatrix.elements, oreTint);
           } else if (t.resourceNode === 'crystal_monolith') {
             const crystalTint =
-              t.terrain === 'scorched' || t.terrain === 'badlands'
-                ? 0xffb3c1
-                : t.terrain === 'snow' || t.terrain === 'tundra'
-                  ? 0xbef2ff
-                  : t.terrain === 'jungle' || t.terrain === 'swamp' || t.terrain === 'forest'
-                    ? 0xb8f5d8
-                    : t.terrain === 'sand' || t.terrain === 'savanna'
-                      ? 0xfee5a5
-                      : 0xffffff;
+              t.terrain === 'volcanic_wasteland'
+                ? 0xff6b35
+                : t.terrain === 'blighted_mire'
+                  ? 0xa3e635
+                  : t.terrain === 'floral_plains'
+                    ? 0xf9a8d4
+                    : t.terrain === 'scorched' || t.terrain === 'badlands'
+                      ? 0xffb3c1
+                      : t.terrain === 'snow' || t.terrain === 'tundra'
+                        ? 0xbef2ff
+                        : t.terrain === 'jungle' || t.terrain === 'swamp' || t.terrain === 'forest'
+                          ? 0xb8f5d8
+                          : t.terrain === 'sand' || t.terrain === 'savanna'
+                            ? 0xfee5a5
+                            : 0xffffff;
             pushPropCache(5, h % propKindLens[5], t.x, t.z, _dummyMatrix.elements, crystalTint);
           } else {
             // Ambient multi-object sub-tile details partitioned into Low / Med / Full tiers
@@ -8388,6 +8776,15 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             } else if (t.terrain === 'blossom') {
               ambThresh = 66;
               ambGroupIdx = 13;
+            } else if (t.terrain === 'volcanic_wasteland') {
+              ambThresh = 66;
+              ambGroupIdx = 14;
+            } else if (t.terrain === 'blighted_mire') {
+              ambThresh = 66;
+              ambGroupIdx = 15;
+            } else if (t.terrain === 'floral_plains') {
+              ambThresh = 76;
+              ambGroupIdx = 16;
             } else if (t.terrain === 'crystal_field') {
               ambThresh = 64;
               if (chance < ambThresh) {
@@ -9130,6 +9527,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             gargoyleAwakened: group.getObjectByName('gargoyle_awakened'),
             gargoyleStatue: group.getObjectByName('gargoyle_statue'),
             ufoRing: group.getObjectByName('ufo_ring'),
+            mythicAura: group.getObjectByName('mythic_aura_pivot'),
+            mythicFxAccum: Math.random() * 0.15,
             lastCarryType: '__unset__',
             lastStatusKey: -1,
             shadowCasters,
@@ -9342,6 +9741,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           u.role === 'pegasus' ||
           u.role === 'thunderbird' ||
           u.role === 'manticore' ||
+          u.role === 'firefly' ||
+          u.role === 'glow_moth' ||
+          u.role === 'lantern_jelly' ||
+          u.role === 'fairy' ||
+          u.role === 'fae' ||
+          u.role === 'will_o_wisp' ||
           (u.role === 'gargoyle' && !u.gargoylePetrified);
         const isHeavyTitan =
           u.role === 'elephant' ||
@@ -10067,6 +10472,181 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           if (uEntry.ufoRing) {
             uEntry.ufoRing.rotation.y = elapsed * 4.5 + seedPhase;
           }
+          if (uEntry.mythicAura) {
+            const hideAura =
+              (u.role === 'ent' && Boolean(u.treantDisguised)) ||
+              (u.role === 'gargoyle' && Boolean(u.gargoylePetrified));
+            uEntry.mythicAura.visible = !hideAura;
+            if (!hideAura) {
+              const spinRate =
+                u.role === 'thunderbird' || u.role === 'phoenix'
+                  ? 3.1
+                  : u.role === 'kitsune' || u.role === 'pegasus' || u.role === 'griffin'
+                    ? 2.4
+                    : 1.7;
+              uEntry.mythicAura.rotation.y = elapsed * spinRate + seedPhase;
+              uEntry.mythicAura.rotation.x = Math.sin(elapsed * 1.9 + seedPhase) * 0.22;
+              const auraPulse = 1 + Math.sin(elapsed * 4.2 + seedPhase) * 0.08;
+              uEntry.mythicAura.scale.setScalar(auraPulse);
+            }
+          }
+
+          // Pooled zero-allocation magical trails, glowing wisps & Thunderbird localized rain
+          if (
+            uEntry.mythicAura &&
+            uEntry.mythicAura.visible &&
+            !isFrozen &&
+            isPointInCullBounds(interpX, interpZ, worldCullBounds, 6.0)
+          ) {
+            const fxScale = activeGfxProfile.particleScale * autoOptDecisions.particleScale;
+            if (fxScale > 0.05) {
+              uEntry.mythicFxAccum += dt * Math.min(1.2, Math.max(0.35, fxScale));
+              const yaw = uGroup.rotation.y;
+              const backX = -Math.sin(yaw);
+              const backZ = -Math.cos(yaw);
+              const sideX = Math.cos(yaw);
+              const sideZ = -Math.sin(yaw);
+
+              if (u.role === 'phoenix' && uEntry.mythicFxAccum >= 0.036) {
+                uEntry.mythicFxAccum = 0;
+                // Blazing fire trail behind wings & tail while flying
+                for (let k = 0; k < 2; k++) {
+                  const p = allocParticleSlot();
+                  p.active = true;
+                  const wingSpread = (Math.random() - 0.5) * 0.95;
+                  const trailBack = 0.28 + Math.random() * 0.55;
+                  p.x = interpX + backX * trailBack + sideX * wingSpread;
+                  p.y = finalUnitY + 0.44 + (Math.random() - 0.5) * 0.28;
+                  p.z = interpZ + backZ * trailBack + sideZ * wingSpread;
+                  p.vx = backX * (1.2 + Math.random() * 1.4) + (Math.random() - 0.5) * 0.7;
+                  p.vy = 0.65 + Math.random() * 1.15;
+                  p.vz = backZ * (1.2 + Math.random() * 1.4) + (Math.random() - 0.5) * 0.7;
+                  p.gravity = -1.8;
+                  p.maxLife = 0.45 + Math.random() * 0.35;
+                  p.life = p.maxLife;
+                  p.size = 0.68 + Math.random() * 0.65;
+                  const cRoll = Math.random();
+                  p.color.setHex(cRoll < 0.34 ? 0xfef08a : cRoll < 0.72 ? 0xf97316 : 0xef4444);
+                }
+              } else if (u.role === 'thunderbird' && uEntry.mythicFxAccum >= 0.038) {
+                uEntry.mythicFxAccum = 0;
+                // Crackling lightning trail behind storm wings
+                const pBolt = allocParticleSlot();
+                pBolt.active = true;
+                const jitterSide = (Math.random() - 0.5) * 1.25;
+                const trailBack = 0.25 + Math.random() * 0.65;
+                pBolt.x = interpX + backX * trailBack + sideX * jitterSide;
+                pBolt.y = finalUnitY + 0.48 + (Math.random() - 0.5) * 0.45;
+                pBolt.z = interpZ + backZ * trailBack + sideZ * jitterSide;
+                pBolt.vx = backX * 0.8 + (Math.random() - 0.5) * 2.1;
+                pBolt.vy = (Math.random() - 0.5) * 1.6;
+                pBolt.vz = backZ * 0.8 + (Math.random() - 0.5) * 2.1;
+                pBolt.gravity = 0;
+                pBolt.maxLife = 0.24 + Math.random() * 0.2;
+                pBolt.life = pBolt.maxLife;
+                pBolt.size = 0.62 + Math.random() * 0.55;
+                pBolt.color.setHex(Math.random() < 0.28 ? 0xfde047 : Math.random() < 0.65 ? 0x38bdf8 : 0xe0f2fe);
+
+                // Localized rainstorm droplets falling directly beneath the Thunderbird
+                for (let r = 0; r < 2; r++) {
+                  const pRain = allocParticleSlot();
+                  pRain.active = true;
+                  const rAng = Math.random() * Math.PI * 2;
+                  const rRad = Math.random() * 2.35;
+                  pRain.x = interpX + Math.cos(rAng) * rRad;
+                  pRain.y = finalUnitY + 0.15 + Math.random() * 0.4;
+                  pRain.z = interpZ + Math.sin(rAng) * rRad;
+                  pRain.vx = (Math.random() - 0.5) * 0.45;
+                  pRain.vy = -4.6 - Math.random() * 2.2;
+                  pRain.vz = (Math.random() - 0.5) * 0.45;
+                  pRain.gravity = 7.5;
+                  pRain.maxLife = 0.42 + Math.random() * 0.26;
+                  pRain.life = pRain.maxLife;
+                  pRain.size = 0.42 + Math.random() * 0.28;
+                  pRain.color.setHex(Math.random() < 0.5 ? 0x60a5fa : 0x93c5fd);
+                }
+
+                // Occasional dark localized storm-cloud puff beneath its wings
+                if (Math.random() < 0.35) {
+                  const pCloud = allocParticleSlot();
+                  pCloud.active = true;
+                  pCloud.x = interpX + (Math.random() - 0.5) * 1.9;
+                  pCloud.y = finalUnitY + 0.08 + Math.random() * 0.28;
+                  pCloud.z = interpZ + (Math.random() - 0.5) * 1.9;
+                  pCloud.vx = backX * 0.35 + (Math.random() - 0.5) * 0.4;
+                  pCloud.vy = 0.15;
+                  pCloud.vz = backZ * 0.35 + (Math.random() - 0.5) * 0.4;
+                  pCloud.gravity = 0;
+                  pCloud.maxLife = 0.65 + Math.random() * 0.35;
+                  pCloud.life = pCloud.maxLife;
+                  pCloud.size = 1.25 + Math.random() * 0.7;
+                  pCloud.color.setHex(Math.random() < 0.5 ? 0x475569 : 0x64748b);
+                }
+              } else if (uEntry.mythicFxAccum >= 0.068) {
+                uEntry.mythicFxAccum = 0;
+                const p = allocParticleSlot();
+                p.active = true;
+                const spreadR = u.role === 'kraken' ? 1.1 : 0.65;
+                p.x = interpX + backX * 0.22 + (Math.random() - 0.5) * spreadR;
+                p.y = finalUnitY + 0.35 + Math.random() * 0.55;
+                p.z = interpZ + backZ * 0.22 + (Math.random() - 0.5) * spreadR;
+                p.vx = backX * (isMoving ? 0.8 : 0.2) + (Math.random() - 0.5) * 0.55;
+                p.vy = 0.45 + Math.random() * 0.85;
+                p.vz = backZ * (isMoving ? 0.8 : 0.2) + (Math.random() - 0.5) * 0.55;
+                p.gravity = -0.6;
+                p.maxLife = 0.5 + Math.random() * 0.45;
+                p.life = p.maxLife;
+                p.size = 0.48 + Math.random() * 0.45;
+
+                const cr = Math.random();
+                if (u.role === 'unicorn') {
+                  p.color.setHex(cr < 0.35 ? 0xfbcfe8 : cr < 0.7 ? 0xfef08a : 0xbae6fd);
+                } else if (u.role === 'pegasus') {
+                  p.color.setHex(cr < 0.55 ? 0xe0f2fe : cr < 0.85 ? 0x7dd3fc : 0xfde047);
+                } else if (u.role === 'griffin') {
+                  p.color.setHex(cr < 0.5 ? 0xfef9c3 : cr < 0.8 ? 0xfbbf24 : 0xe2e8f0);
+                } else if (u.role === 'kitsune') {
+                  p.color.setHex(cr < 0.45 ? 0xfef08a : cr < 0.8 ? 0xf97316 : 0xf87171);
+                } else if (u.role === 'yeti') {
+                  p.vy = -0.5 - Math.random() * 0.6;
+                  p.gravity = 0.8;
+                  p.color.setHex(cr < 0.5 ? 0xe0f2fe : cr < 0.8 ? 0xbae6fd : 0xffffff);
+                } else if (u.role === 'golem') {
+                  p.color.setHex(cr < 0.65 ? 0x67e8f9 : 0xfde047);
+                } else if (u.role === 'hydra') {
+                  p.color.setHex(cr < 0.55 ? 0x4ade80 : 0xbef264);
+                } else if (u.role === 'minotaur') {
+                  p.color.setHex(cr < 0.5 ? 0xf97316 : cr < 0.8 ? 0xef4444 : 0xfde047);
+                } else if (u.role === 'cerberus') {
+                  p.color.setHex(cr < 0.45 ? 0xf97316 : cr < 0.8 ? 0xdc2626 : 0x44403c);
+                } else if (u.role === 'ent') {
+                  p.color.setHex(cr < 0.55 ? 0x4ade80 : cr < 0.85 ? 0x6ee7b7 : 0xfef08a);
+                } else if (u.role === 'basilisk') {
+                  p.color.setHex(cr < 0.6 ? 0xfde047 : 0x4ade80);
+                } else if (u.role === 'kraken') {
+                  p.color.setHex(cr < 0.45 ? 0x67e8f9 : cr < 0.8 ? 0xc084fc : 0x312e81);
+                } else if (u.role === 'manticore') {
+                  p.color.setHex(cr < 0.55 ? 0xbef264 : cr < 0.85 ? 0x84cc16 : 0xef4444);
+                } else if (u.role === 'firefly') {
+                  p.size *= 0.72;
+                  p.color.setHex(cr < 0.55 ? 0xecfccb : 0xbef264);
+                } else if (u.role === 'glow_moth') {
+                  p.color.setHex(cr < 0.55 ? 0xa5f3fc : cr < 0.85 ? 0x22d3ee : 0xfef08a);
+                } else if (u.role === 'lantern_jelly') {
+                  p.color.setHex(cr < 0.5 ? 0x7dd3fc : cr < 0.8 ? 0xe879f9 : 0x38bdf8);
+                } else if (u.role === 'fairy') {
+                  p.color.setHex(cr < 0.45 ? 0xfbcfe8 : cr < 0.8 ? 0xf472b6 : 0xfef08a);
+                } else if (u.role === 'fae') {
+                  p.color.setHex(cr < 0.45 ? 0x6ee7b7 : cr < 0.8 ? 0x34d399 : 0xd8b4fe);
+                } else if (u.role === 'will_o_wisp') {
+                  p.color.setHex(cr < 0.5 ? 0xe0f2fe : cr < 0.85 ? 0x38bdf8 : 0x818cf8);
+                } else {
+                  // gargoyle
+                  p.color.setHex(cr < 0.5 ? 0xd8b4fe : cr < 0.8 ? 0xa855f7 : 0x64748b);
+                }
+              }
+            }
+          }
         } else if (u.role === 'alien_walker' && u.state !== 'ko') {
           // Colossal AT-Walker: vertical-only hydraulic body motion + 4-beat articulated hip & knee stride
           const { legFL, legFR, legBL, legBR, kneeFL, kneeFR, kneeBL, kneeBR } = uEntry;
@@ -10398,6 +10978,20 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             const laneX = -Math.cos(v.heading) * 0.14;
             const laneZ = Math.sin(v.heading) * 0.14;
             vGroup.position.set(v.x + laneX, groundY + v.y, v.z + laneZ);
+          } else if (v.type === 'farm_tractor' || v.type === 'quarry_truck') {
+            vGroup.position.set(v.x, groundY + v.y, v.z);
+            if (frustumSize < 48 && Math.random() < 0.14 * activeGfxProfile.particleScale) {
+              spawnParticleBurst(
+                v.x - Math.sin(v.heading) * 0.25,
+                groundY + 0.08,
+                v.z - Math.cos(v.heading) * 0.25,
+                1,
+                v.type === 'farm_tractor' ? '#facc15' : '#a8a29e',
+                0.22,
+                0.9,
+                0.35,
+              );
+            }
           } else if (v.type === 'roadster') {
             const laneScale = v.y > 0.25 ? Math.max(0, 1 - (v.y - 0.25) * 0.8) : 1;
             const laneX = -Math.cos(v.heading) * 0.12 * laneScale;
@@ -10770,7 +11364,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           hv.group.position.set(haz.x, hy, haz.z);
 
           const fade = Math.min(1, haz.remaining / 1.35);
-          if (hv.drops) {
+          if (hv.enhancedVfx) {
+            updateEnhancedHazardVfx(hv.enhancedVfx, haz, hy, elapsed, dt, fade, {
+              spawnBurst: spawnParticleBurst,
+              spawnRising: spawnRisingParticles,
+              getGroundY: (gx, gz) => getTileEffectSurfaceY(getTileFromArray(simState, gx, gz), 0.8),
+            });
+          } else if (hv.drops) {
             const speed = haz.currentSpeed ?? 0.55;
             const wx = haz.windX ?? 0.78;
             const wz = haz.windZ ?? 0.62;
@@ -10909,15 +11509,132 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             hv.group.scale.setScalar(Math.max(0.05, pulse));
           } else if (hv.kind === 'tornado_vortex') {
             const safeT = wrapShaderTime(elapsed);
+            const aff = haz.elementAffinity ?? 'none';
+            const affHex =
+              aff === 'fire'
+                ? 0xff6200
+                : aff === 'poison'
+                  ? 0x4ade80
+                  : aff === 'ice'
+                    ? 0x7dd3fc
+                    : aff === 'water'
+                      ? 0x06b6d4
+                      : aff === 'sand'
+                        ? 0xeab308
+                        : 0xffffff;
+            const targetMix = aff === 'none' ? 0.0 : aff === 'fire' ? 0.96 : 0.84;
+            const lerpRate = Math.min(1, dt * 6.0);
             const groundShader = hv.materials[0] as THREE.ShaderMaterial | undefined;
             if (groundShader && groundShader.uniforms) {
               groundShader.uniforms.uTime.value = safeT;
               groundShader.uniforms.uOpacity.value = 0.94 * fade;
+              if (groundShader.uniforms.uAffinityColor) {
+                (groundShader.uniforms.uAffinityColor.value as THREE.Color).lerp(
+                  new THREE.Color(affHex),
+                  lerpRate,
+                );
+                groundShader.uniforms.uAffinityMix.value = THREE.MathUtils.lerp(
+                  groundShader.uniforms.uAffinityMix.value as number,
+                  targetMix,
+                  lerpRate,
+                );
+              }
             }
             const funnelShader = hv.materials[1] as THREE.ShaderMaterial | undefined;
             if (funnelShader && funnelShader.uniforms) {
               funnelShader.uniforms.uTime.value = safeT;
               funnelShader.uniforms.uOpacity.value = 0.92 * fade;
+              if (funnelShader.uniforms.uAffinityColor) {
+                (funnelShader.uniforms.uAffinityColor.value as THREE.Color).lerp(
+                  new THREE.Color(affHex),
+                  lerpRate,
+                );
+                funnelShader.uniforms.uAffinityMix.value = THREE.MathUtils.lerp(
+                  funnelShader.uniforms.uAffinityMix.value as number,
+                  targetMix,
+                  lerpRate,
+                );
+              }
+            }
+            // Also tint outer vortex rings, inner core, storm cap & swirling debris so Firestorms glow unmistakably orange!
+            const outerRingMat = hv.materials[2] as THREE.MeshBasicMaterial | undefined;
+            const coreMat = hv.materials[3] as THREE.MeshBasicMaterial | undefined;
+            const capMat = hv.materials[4] as THREE.MeshStandardMaterial | undefined;
+            const debrisMat = hv.materials[6] as THREE.MeshStandardMaterial | undefined;
+            if (outerRingMat?.color) {
+              const outerTarget =
+                aff === 'fire'
+                  ? 0xff5a00
+                  : aff === 'poison'
+                    ? 0x22c55e
+                    : aff === 'ice'
+                      ? 0x7dd3fc
+                      : aff === 'water'
+                        ? 0x06b6d4
+                        : aff === 'sand'
+                          ? 0xd97706
+                          : hv.isSuper
+                            ? 0x7c3aed
+                            : 0x94a3b8;
+              outerRingMat.color.lerp(new THREE.Color(outerTarget), lerpRate);
+            }
+            if (coreMat?.color) {
+              const coreTarget =
+                aff === 'fire'
+                  ? 0xffd000
+                  : aff === 'poison'
+                    ? 0xa3e635
+                    : aff === 'ice'
+                      ? 0xe0f2fe
+                      : aff === 'water'
+                        ? 0x67e8f9
+                        : aff === 'sand'
+                          ? 0xfef08a
+                          : hv.isSuper
+                            ? 0x38bdf8
+                            : 0xe2e8f0;
+              coreMat.color.lerp(new THREE.Color(coreTarget), lerpRate);
+            }
+            if (capMat?.color) {
+              const capTarget =
+                aff === 'fire'
+                  ? 0x9a2b08
+                  : aff === 'poison'
+                    ? 0x166534
+                    : aff === 'ice'
+                      ? 0x93c5fd
+                      : aff === 'water'
+                        ? 0x0e7490
+                        : aff === 'sand'
+                          ? 0x92400e
+                          : hv.isSuper
+                            ? 0x1e1b4b
+                            : 0x334155;
+              capMat.color.lerp(new THREE.Color(capTarget), lerpRate);
+              if (capMat.emissive) {
+                capMat.emissive.lerp(
+                  new THREE.Color(aff === 'fire' ? 0xff4500 : aff === 'poison' ? 0x22c55e : 0x000000),
+                  lerpRate,
+                );
+                capMat.emissiveIntensity = aff === 'fire' ? 0.75 : aff === 'poison' ? 0.45 : 0;
+              }
+            }
+            if (debrisMat?.color) {
+              const debTarget =
+                aff === 'fire'
+                  ? 0xff8c00
+                  : aff === 'poison'
+                    ? 0x84cc16
+                    : aff === 'ice'
+                      ? 0xbae6fd
+                      : aff === 'water'
+                        ? 0x38bdf8
+                        : aff === 'sand'
+                          ? 0xfacc15
+                          : hv.isSuper
+                            ? 0x38bdf8
+                            : 0x4f772d;
+              debrisMat.color.lerp(new THREE.Color(debTarget), lerpRate);
             }
             if (hv.ringMesh) {
               const pulse = 1 + Math.sin(elapsed * 5.2) * 0.05;
@@ -10955,7 +11672,21 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
               }
             }
             if (Math.random() < 0.6) {
-              spawnRisingParticles(haz.x, hy, haz.z, 2, hv.isSuper ? '#38bdf8' : '#cbd5e1', haz.radius * 0.85, 5.5, 0.9, 1.1);
+              const pColor =
+                aff === 'fire'
+                  ? '#ff6b00'
+                  : aff === 'poison'
+                    ? '#4ade80'
+                    : aff === 'ice'
+                      ? '#bae6fd'
+                      : aff === 'water'
+                        ? '#38bdf8'
+                        : aff === 'sand'
+                          ? '#eab308'
+                          : hv.isSuper
+                            ? '#38bdf8'
+                            : '#cbd5e1';
+              spawnRisingParticles(haz.x, hy, haz.z, 2, pColor, haz.radius * 0.85, 5.5, 0.9, 1.1);
             }
             hv.group.scale.setScalar(Math.max(0.1, fade));
           } else if (hv.kind === 'tsunami_wave') {
@@ -11495,6 +12226,135 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             if (Math.random() < 0.55) {
               spawnRisingParticles(haz.x, hy + 0.2, haz.z, 2, '#c084fc', haz.radius * 0.75, 4.2, 0.85, 1.0);
             }
+          } else if (hv.kind === 'acid_cloud') {
+            if (hv.cloudBody) {
+              hv.cloudBody.rotation.y = elapsed * 0.45;
+              hv.cloudBody.position.y = Math.sin(elapsed * 2.2) * 0.25;
+            }
+            if (hv.ringMesh) {
+              hv.ringMesh.rotation.set(0, -elapsed * 1.1, 0);
+              hv.ringMesh.scale.setScalar(haz.radius * (0.94 + Math.sin(elapsed * 4) * 0.05) * fade);
+            }
+            if (Math.random() < 0.55) {
+              spawnParticleBurst(
+                haz.x + (Math.random() - 0.5) * haz.radius * 1.4,
+                hy + 4.4,
+                haz.z + (Math.random() - 0.5) * haz.radius * 1.4,
+                2,
+                '#a3e635',
+                0.35,
+                1.2,
+                0.7,
+              );
+            }
+          } else if (hv.kind === 'sinkhole_collapse') {
+            const curR = haz.currentRadius ?? haz.radius;
+            if (hv.ringMesh) {
+              hv.ringMesh.rotation.set(0, elapsed * 2.4, 0);
+              hv.ringMesh.scale.setScalar(Math.max(0.5, (curR + 1.0) * fade));
+            }
+            if (hv.secondaryRingMesh) {
+              hv.secondaryRingMesh.rotation.set(0, -elapsed * 3.8, 0);
+              hv.secondaryRingMesh.scale.setScalar(Math.max(0.4, curR * 0.82 * fade));
+            }
+            if (Math.random() < 0.6) {
+              const ang = Math.random() * Math.PI * 2;
+              spawnParticleBurst(
+                haz.x + Math.cos(ang) * curR,
+                hy + 0.3,
+                haz.z + Math.sin(ang) * curR,
+                2,
+                Math.random() < 0.5 ? '#64748b' : '#38bdf8',
+                0.75,
+                2.6,
+                0.7,
+              );
+            }
+          } else if (hv.kind === 'locust_swarm') {
+            if (hv.cloudBody) {
+              hv.cloudBody.rotation.y = elapsed * 4.8;
+              hv.cloudBody.position.y = Math.sin(elapsed * 6.5) * 0.28;
+            }
+            if (hv.ringMesh) {
+              hv.ringMesh.rotation.set(0, elapsed * 3.0, 0);
+              hv.ringMesh.scale.setScalar(haz.radius * 0.85 * fade);
+            }
+            if (Math.random() < 0.65) {
+              spawnRisingParticles(haz.x, hy + 0.5, haz.z, 3, '#eab308', haz.radius * 0.85, 2.2, 0.55, 0.75);
+            }
+          } else if (hv.kind === 'magma_geyser') {
+            const pulse = 0.85 + Math.sin(elapsed * 12) * 0.22;
+            const curR = haz.currentRadius ?? haz.radius * 0.5;
+            if (hv.ringMesh) {
+              hv.ringMesh.rotation.set(0, elapsed * 1.8, 0);
+              hv.ringMesh.scale.setScalar(Math.max(1.2, curR * 0.65) * pulse * fade);
+            }
+            if (hv.secondaryRingMesh) {
+              hv.secondaryRingMesh.scale.set(0.85 * pulse * fade, (0.7 + Math.abs(Math.sin(elapsed * 5.5)) * 0.75) * fade, 0.85 * pulse * fade);
+            }
+            if (Math.random() < 0.75) {
+              spawnRisingParticles(haz.x, hy + 0.4, haz.z, 3, Math.random() < 0.5 ? '#ff5400' : '#facc15', 1.2, 6.2, 0.9, 1.1);
+            }
+          } else if (hv.kind === 'purify_wave') {
+            const curR = haz.currentRadius ?? haz.radius;
+            if (hv.ringMesh) {
+              hv.ringMesh.rotation.set(0, elapsed * 2.2, 0);
+              hv.ringMesh.scale.setScalar(Math.max(0.6, curR) * fade);
+            }
+            if (hv.secondaryRingMesh) {
+              hv.secondaryRingMesh.rotation.set(0, -elapsed * 1.6, 0);
+              hv.secondaryRingMesh.scale.setScalar(Math.max(0.4, curR * 0.78) * fade);
+            }
+            if (Math.random() < 0.55) {
+              spawnRisingParticles(haz.x, hy + 0.3, haz.z, 2, '#38bdf8', curR * 0.85, 3.6, 0.75, 0.95);
+            }
+          } else if (hv.kind === 'biome_bloom_wave') {
+            const bKind = haz.biomeWaveKind ?? 'floral';
+            const curR = haz.currentRadius ?? haz.radius;
+            const outerHex = bKind === 'floral' ? 0xf472b6 : bKind === 'blight' ? 0x9333ea : 0xff5400;
+            const innerHex = bKind === 'floral' ? 0xfacc15 : bKind === 'blight' ? 0x4ade80 : 0xfacc15;
+            const m0 = hv.materials[0] as THREE.MeshBasicMaterial | undefined;
+            const m1 = hv.materials[1] as THREE.MeshBasicMaterial | undefined;
+            if (m0?.color) m0.color.setHex(outerHex);
+            if (m1?.color) m1.color.setHex(innerHex);
+            if (hv.ringMesh) {
+              hv.ringMesh.rotation.set(0, elapsed * 1.4, 0);
+              hv.ringMesh.scale.setScalar(Math.max(0.6, curR) * fade);
+            }
+            if (hv.secondaryRingMesh) {
+              hv.secondaryRingMesh.rotation.set(0, -elapsed * 2.0, 0);
+              hv.secondaryRingMesh.scale.setScalar(Math.max(0.4, curR * 0.82) * fade);
+            }
+            if (Math.random() < 0.65) {
+              const pCol =
+                bKind === 'floral'
+                  ? Math.random() < 0.5 ? '#f472b6' : '#facc15'
+                  : bKind === 'blight'
+                    ? Math.random() < 0.5 ? '#a855f7' : '#4ade80'
+                    : Math.random() < 0.5 ? '#ff5400' : '#facc15';
+              spawnRisingParticles(haz.x, hy + 0.25, haz.z, 3, pCol, curR * 0.95, 3.2, 0.85, 0.95);
+            }
+          } else if (hv.kind === 'blizzard_gale') {
+            if (hv.cloudBody) {
+              hv.cloudBody.rotation.y = elapsed * 1.2;
+              hv.cloudBody.position.y = Math.sin(elapsed * 3.0) * 0.25;
+            }
+            if (hv.ringMesh) {
+              hv.ringMesh.rotation.set(0, elapsed * 3.2, 0);
+              hv.ringMesh.scale.setScalar(haz.radius * (0.95 + Math.sin(elapsed * 5) * 0.05) * fade);
+            }
+            if (Math.random() < 0.7) {
+              spawnParticleBurst(
+                haz.x + (Math.random() - 0.5) * haz.radius * 1.5,
+                hy + 3.8,
+                haz.z + (Math.random() - 0.5) * haz.radius * 1.5,
+                3,
+                Math.random() < 0.5 ? '#e0f2fe' : '#7dd3fc',
+                0.85,
+                2.0,
+                0.75,
+              );
+            }
           }
         }
       }
@@ -11922,7 +12782,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       // Decoupled fixed-timestep simulation accumulator (15 Hz) with 60 FPS visual interpolation!
       // Eliminates 4x redundant AI/tile scans per second while keeping silky-smooth 60Hz motion.
       simSteppedThisFrame = false;
-      const clampedSimSpeed = clampSimulationSpeed(propsRef.current.timeScale);
+      const clampedSimSpeed = getEffectiveSimulationSpeed(propsRef.current.timeScale);
       const simStepDt = Math.min(dt, autoOptDecisions.maxSimDt);
       if (hitstopTimer > 0) {
         hitstopTimer = Math.max(0, hitstopTimer - dt);
@@ -11944,7 +12804,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         simAccumulator = Math.min(FIXED_SIM_DT * 2, simAccumulator + simStepDt);
         if (simAccumulator >= FIXED_SIM_DT) {
           const simT0 = performance.now();
-          stepSimulation(simRef.current, FIXED_SIM_DT * 0.35, {
+          stepSimulation(simRef.current, FIXED_SIM_DT * 0.2, {
             skipDragStep: true,
             skipRandomEvents: true,
           });
@@ -13173,8 +14033,27 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             } else if (fx.powerType === 'gravity_flip') {
               soundEngine.playGravityFlux();
               trauma = Math.min(1.0, trauma + 0.45);
+            } else if (fx.powerType === 'fortify_walls') {
+              soundEngine.playOrbitalLaser();
+              trauma = Math.min(1.0, trauma + 0.52);
+            } else if (fx.powerType === 'cleanse_land' || fx.powerType === 'bountiful_harvest' || fx.powerType === 'summon_fleet') {
+              soundEngine.playBlessing();
+            } else if (fx.powerType === 'sinkhole') {
+              soundEngine.playEarthquake();
+              trauma = Math.min(1.0, trauma + 0.54);
+            } else if (fx.powerType === 'wildfire_ring') {
+              soundEngine.playHeavyImpact();
+              trauma = Math.min(1.0, trauma + 0.48);
+            } else if (fx.powerType === 'blizzard') {
+              soundEngine.playFreeze();
+            } else if (fx.powerType === 'locust_swarm' || fx.powerType === 'acid_rain') {
+              soundEngine.playCurse();
+              trauma = Math.min(1.0, trauma + 0.22);
+            } else if (fx.powerType === 'recruit_legion') {
+              soundEngine.playBuild();
+              trauma = Math.min(1.0, trauma + 0.25);
             }
-            triggerLightFlash(fx.tx, fx.ty + 1.5, fx.tz, fx.colorHex, 20);
+            triggerLightFlash(fx.tx, fx.ty + 1.5, fx.tz, fx.colorHex, 24);
             spawnParticleBurst(fx.tx, fx.ty + 0.25, fx.tz, 26, fx.colorHex, fx.radius * 0.72, 4.4, 1.0);
           }
           if (fx.tracerMesh && fx.powerType === 'harmony_dove') {
@@ -13184,6 +14063,23 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           }
           const wavePhase = Math.min(1, fx.age / fx.duration);
           const easeOut = 1 - (1 - wavePhase) * (1 - wavePhase);
+          if (
+            fx.tracerMesh &&
+            (fx.powerType === 'fortify_walls' ||
+              fx.powerType === 'bountiful_harvest' ||
+              fx.powerType === 'recruit_legion' ||
+              fx.powerType === 'summon_fleet')
+          ) {
+            const pillarScale = 0.7 + easeOut * 1.35;
+            fx.tracerMesh.scale.set(
+              (fx.powerType === 'fortify_walls' ? 1.45 : fx.radius * 0.4) * pillarScale,
+              (fx.powerType === 'fortify_walls' ? 9.5 : 7.0) * (1 - wavePhase * 0.35),
+              (fx.powerType === 'fortify_walls' ? 1.45 : fx.radius * 0.4) * pillarScale,
+            );
+            fx.tracerMesh.rotation.y += dt * 2.2;
+            const pMat = fx.materials[2] as THREE.MeshBasicMaterial | undefined;
+            if (pMat) pMat.opacity = Math.max(0, (1 - wavePhase) * 0.72);
+          }
           fx.ringMesh.scale.setScalar(0.35 + easeOut * fx.radius * 1.05);
           fx.ringMesh.rotation.set(0, fx.age * 1.5, 0);
           (fx.materials[0] as THREE.MeshBasicMaterial).opacity = (1 - wavePhase) * 0.85;
@@ -14007,8 +14903,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       if (isCycleActive) {
         const cycleRate =
           propsRef.current.gameState === 'title'
-            ? 0.35
-            : clampSimulationSpeed(propsRef.current.timeScale);
+            ? 0.2
+            : getEffectiveSimulationSpeed(propsRef.current.timeScale);
         dayNightClock = (dayNightClock + dt * cycleRate) % 80;
         cyclePhase01 = dayNightClock / 80;
       }
@@ -14164,6 +15060,29 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         } else {
           cLight.intensity = 0;
         }
+      }
+
+      // Dynamic pooled night illumination from luminous wildlife & mythics (fireflies, fairies, faes, wisps, phoenix, thunderbird)
+      let lumLightIdx = 0;
+      const lumNightBoost = 0.32 + currentDarkness * 4.4;
+      const lumUnits = simRef.current.units;
+      for (let ui = 0; ui < lumUnits.length && lumLightIdx < luminousCreatureLights.length; ui++) {
+        const lu = lumUnits[ui];
+        if (lu.state === 'ko' || !LUMINOUS_ENTITY_ROLES.has(lu.role)) continue;
+        if (!isPointInCullBounds(lu.x, lu.z, worldCullBounds, 4.0)) continue;
+        const lLight = luminousCreatureLights[lumLightIdx++];
+        const lx = Math.max(0, Math.min(simRef.current.gridSize - 1, Math.round(lu.x)));
+        const lz = Math.max(0, Math.min(simRef.current.gridSize - 1, Math.round(lu.z)));
+        const lTile = simRef.current.tiles[lz * simRef.current.gridSize + lx];
+        const baseY = lTile ? Math.max(0.25, lTile.height * HEIGHT_STEP + 0.35) : 1.0;
+        const pulse = 0.84 + Math.sin(shaderElapsed * 3.6 + (lu.appearanceSeed ?? ui)) * 0.16;
+        lLight.position.set(lu.x, baseY + 1.45, lu.z);
+        lLight.color.setHex(LUMINOUS_LIGHT_COLORS[lu.role] ?? 0xd9f99d);
+        lLight.distance = lu.role === 'firefly' ? 7.5 : 10.5;
+        lLight.intensity = lumNightBoost * (lu.role === 'firefly' ? 0.72 : 1.0) * pulse;
+      }
+      for (let li = lumLightIdx; li < luminousCreatureLights.length; li++) {
+        luminousCreatureLights[li].intensity = 0;
       }
 
       // Animate sculpted sky clouds, underglow & ocean coastal/reef/whitecap foaming
@@ -14617,6 +15536,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       for (const hv of hazardMeshes.values()) {
         disposeHazardVisual(hv);
       }
+      sharedGodPowerGeos.dispose();
       batchedBuildings.dispose();
       treeImpostors.dispose();
       treeBatchShadow.dispose();
@@ -14878,6 +15798,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
                 lbl.isHovered ? 'scale-110 z-20' : 'z-10'
               }`}
             >
+              {lbl.species && (
+                <UnitPixelIcon
+                  role={lbl.species}
+                  className="w-3.5 h-3.5 shrink-0 pixelated-canvas"
+                />
+              )}
               <span
                 className="w-2 h-2 shrink-0"
                 style={{ backgroundColor: lbl.hexColor }}
@@ -14907,12 +15833,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           className="fixed inset-0 z-15 pointer-events-none overflow-hidden select-none"
         >
           {activeWarArrows.map((wa) => {
+            const absTiles = Math.abs(wa.tileDelta);
+            const tileWord = absTiles === 1 ? 'Tile' : 'Tiles';
             const deltaText =
               wa.tileDelta > 0
-                ? `+${wa.tileDelta}`
+                ? `+${wa.tileDelta} ${tileWord} Taken`
                 : wa.tileDelta < 0
-                  ? `${wa.tileDelta}`
-                  : '0';
+                  ? `${wa.tileDelta} ${tileWord} Lost`
+                  : '0 Tiles';
             const momentumGlyph =
               wa.momentum === 'advancing' ? '▲' : wa.momentum === 'retreating' ? '▼' : '◆';
             const momentumColor =
@@ -14934,7 +15862,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
                   opacity: 0,
                   boxShadow: '0 2px 0 #0b0a09',
                 }}
-                className="absolute px-1.5 py-0.5 border-2 flex items-center gap-1 whitespace-nowrap"
+                className="absolute px-1.5 py-0.5 border-2 flex items-center gap-1.5 whitespace-nowrap"
               >
                 <span
                   className="text-[9px] font-bold leading-none"
@@ -14944,10 +15872,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
                   {momentumGlyph}
                 </span>
                 <span className="font-pixel-num text-[10px] font-bold text-[#f8f4ec] tabular-nums leading-none">
-                  {wa.claimPercent}%
+                  {wa.claimPercent}%{' '}
+                  <span className="text-[9px] font-semibold text-[#d6cec0]">Push</span>
                 </span>
                 <span
-                  className="font-pixel-num text-[9px] font-bold tabular-nums leading-none border-l border-white/20 pl-1"
+                  className="font-pixel-num text-[9px] font-bold tabular-nums leading-none border-l border-white/20 pl-1.5"
                   style={{ color: momentumColor }}
                 >
                   {deltaText}

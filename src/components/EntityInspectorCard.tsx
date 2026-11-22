@@ -25,6 +25,9 @@ interface EntityInspectorCardProps {
   onToggleFavorite: (unitId: string) => void;
   onSelectUnit: (unitId: string | null) => void;
   onFocusUnit: (unit: UnitEntity) => void;
+  onRenameUnit?: (unitId: string, newName: string) => void;
+  onRenameSettlement?: (settlementId: string, newName: string) => void;
+  onRenameKingdom?: (kingdomId: string, newName: string) => void;
 }
 
 type InspectorTab = 'profile' | 'traits' | 'favorites';
@@ -57,9 +60,29 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
   onToggleFavorite,
   onSelectUnit,
   onFocusUnit,
+  onRenameUnit,
+  onRenameSettlement,
+  onRenameKingdom,
 }) => {
   const [activeTab, setActiveTab] = useState<InspectorTab>('profile');
   const [minimized, setMinimized] = useState<boolean>(false);
+  const [editingTarget, setEditingTarget] = useState<{
+    kind: 'unit' | 'settlement' | 'kingdom';
+    id: string;
+    label: string;
+  } | null>(null);
+  const [draftName, setDraftName] = useState<string>('');
+
+  const commitRename = () => {
+    if (!editingTarget) return;
+    const trimmed = draftName.trim();
+    if (trimmed.length > 0) {
+      if (editingTarget.kind === 'unit') onRenameUnit?.(editingTarget.id, trimmed);
+      else if (editingTarget.kind === 'settlement') onRenameSettlement?.(editingTarget.id, trimmed);
+      else if (editingTarget.kind === 'kingdom') onRenameKingdom?.(editingTarget.id, trimmed);
+    }
+    setEditingTarget(null);
+  };
 
   const displayUnit = hoveredUnit ?? selectedUnit;
   const isSelectedDisplayed = Boolean(
@@ -93,20 +116,68 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
         <>
           {/* Header Block: Avatar, Name, Affordance & Primary Action Buttons */}
           <div className="flex items-start justify-between gap-2 sm:gap-3">
-            <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+            <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
               <div
                 className="w-9 h-9 sm:w-11 sm:h-11 shrink-0 flex items-center justify-center bg-[#191613] border border-[#2f2720]"
                 aria-hidden="true"
               >
                 <UnitPixelIcon role={displayUnit.role} className="w-7 h-7 sm:w-8 sm:h-8" />
               </div>
-              <div className="min-w-0">
-                <h2
-                  className="text-xs sm:text-sm font-bold text-[#f2ece1] truncate leading-tight"
-                  data-testid="inspector-entity-name"
-                >
-                  {profile.name}
-                </h2>
+              <div className="min-w-0 flex-1">
+                {editingTarget?.kind === 'unit' && editingTarget.id === displayUnit.id ? (
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      commitRename();
+                    }}
+                    className="flex items-center gap-1"
+                  >
+                    <input
+                      type="text"
+                      value={draftName}
+                      maxLength={32}
+                      autoFocus
+                      data-testid="inspector-rename-unit-input"
+                      onChange={(e) => setDraftName(e.target.value)}
+                      onKeyDown={(e) => {
+                        e.stopPropagation();
+                        if (e.key === 'Escape') setEditingTarget(null);
+                      }}
+                      className="w-full min-w-0 bg-[#141210] border border-[#f5b742] px-1.5 py-0.5 text-xs text-[#f2ece1] outline-none"
+                    />
+                    <button
+                      type="submit"
+                      className="px-btn-active px-1.5 py-0.5 text-[10px] font-bold text-[#f5b742] cursor-pointer shrink-0"
+                    >
+                      Save
+                    </button>
+                  </form>
+                ) : (
+                  <div className="flex items-center gap-1 min-w-0">
+                    <h2
+                      className="text-xs sm:text-sm font-bold text-[#f2ece1] truncate leading-tight"
+                      data-testid="inspector-entity-name"
+                    >
+                      {profile.name}
+                    </h2>
+                    {onRenameUnit && (
+                      <button
+                        type="button"
+                        data-testid="inspector-rename-unit-btn"
+                        aria-label="Rename entity"
+                        title="Rename entity"
+                        onClick={() => {
+                          if (!isSelectedDisplayed) onSelectUnit(displayUnit.id);
+                          setEditingTarget({ kind: 'unit', id: displayUnit.id, label: 'Entity' });
+                          setDraftName(displayUnit.name);
+                        }}
+                        className="text-[11px] text-[#9e9486] hover:text-[#f5b742] cursor-pointer shrink-0 px-0.5"
+                      >
+                        ✎
+                      </button>
+                    )}
+                  </div>
+                )}
                 <div className="text-[11px] sm:text-xs text-[#cfc6b8] leading-tight mt-0.5 truncate">
                   <span>{profile.subtitle}</span>
                 </div>
@@ -313,11 +384,65 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                     {profile.informations.activity}
                   </span>
                 </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-[#8f8679]">Home</span>
-                  <span className="text-[#f2ece1] truncate max-w-[170px] text-right font-medium">
-                    {profile.informations.settlementName ?? 'Wilderness'}
-                  </span>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[#8f8679] shrink-0">Home</span>
+                  {displayUnit.settlementId &&
+                  editingTarget?.kind === 'settlement' &&
+                  editingTarget.id === displayUnit.settlementId ? (
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        commitRename();
+                      }}
+                      className="flex items-center gap-1 min-w-0 flex-1 justify-end"
+                    >
+                      <input
+                        type="text"
+                        value={draftName}
+                        maxLength={32}
+                        autoFocus
+                        data-testid="inspector-rename-city-input"
+                        onChange={(e) => setDraftName(e.target.value)}
+                        onKeyDown={(e) => {
+                          e.stopPropagation();
+                          if (e.key === 'Escape') setEditingTarget(null);
+                        }}
+                        className="w-full max-w-[140px] bg-[#141210] border border-[#f5b742] px-1.5 py-0.5 text-xs text-[#f2ece1] outline-none"
+                      />
+                      <button
+                        type="submit"
+                        className="px-btn-active px-1.5 py-0.5 text-[10px] font-bold text-[#f5b742] cursor-pointer shrink-0"
+                      >
+                        Save
+                      </button>
+                    </form>
+                  ) : (
+                    <div className="flex items-center gap-1 min-w-0 justify-end">
+                      <span className="text-[#f2ece1] truncate max-w-[155px] text-right font-medium">
+                        {profile.informations.settlementName ?? 'Wilderness'}
+                      </span>
+                      {displayUnit.settlementId && onRenameSettlement && (
+                        <button
+                          type="button"
+                          data-testid="inspector-rename-city-btn"
+                          aria-label="Rename city"
+                          title="Rename city"
+                          onClick={() => {
+                            if (!isSelectedDisplayed) onSelectUnit(displayUnit.id);
+                            setEditingTarget({
+                              kind: 'settlement',
+                              id: displayUnit.settlementId!,
+                              label: 'City',
+                            });
+                            setDraftName(profile.informations.settlementName ?? '');
+                          }}
+                          className="text-[11px] text-[#9e9486] hover:text-[#f5b742] cursor-pointer shrink-0 px-0.5"
+                        >
+                          ✎
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-[#8f8679]">Location</span>
@@ -470,6 +595,46 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
             </button>
           </div>
 
+          {editingTarget?.kind === 'kingdom' && (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                commitRename();
+              }}
+              className="bg-[#191613] px-2.5 py-2 border border-[#f5b742] space-y-1.5"
+            >
+              <div className="text-[10px] text-[#f5b742] font-semibold">Rename City / Kingdom</div>
+              <div className="flex items-center gap-1">
+                <input
+                  type="text"
+                  value={draftName}
+                  maxLength={32}
+                  autoFocus
+                  data-testid="inspector-rename-kingdom-input"
+                  onChange={(e) => setDraftName(e.target.value)}
+                  onKeyDown={(e) => {
+                    e.stopPropagation();
+                    if (e.key === 'Escape') setEditingTarget(null);
+                  }}
+                  className="w-full min-w-0 bg-[#141210] border border-[#3a332b] px-1.5 py-0.5 text-xs text-[#f2ece1] outline-none"
+                />
+                <button
+                  type="submit"
+                  className="px-btn-active px-2 py-0.5 text-[10px] font-bold text-[#f5b742] cursor-pointer shrink-0"
+                >
+                  Save
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditingTarget(null)}
+                  className="px-btn px-1.5 py-0.5 text-[10px] text-[#a89f91] cursor-pointer shrink-0"
+                >
+                  ✕
+                </button>
+              </div>
+            </form>
+          )}
+
           {(() => {
             const otherZonesOnly =
               !activeZones?.kingdoms &&
@@ -501,9 +666,30 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                     data-testid="inspect-zone-kingdom"
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <span className="font-bold text-[#f2ece1] truncate">
-                        {hoveredZoneInfo.kingdom.name}
-                      </span>
+                      <div className="flex items-center gap-1 min-w-0">
+                        <span className="font-bold text-[#f2ece1] truncate">
+                          {hoveredZoneInfo.kingdom.name}
+                        </span>
+                        {onRenameKingdom && (
+                          <button
+                            type="button"
+                            data-testid="inspector-rename-kingdom-btn"
+                            aria-label="Rename city or kingdom"
+                            title="Rename city / kingdom"
+                            onClick={() => {
+                              setEditingTarget({
+                                kind: 'kingdom',
+                                id: hoveredZoneInfo.kingdom!.kingdomId,
+                                label: 'Kingdom',
+                              });
+                              setDraftName(hoveredZoneInfo.kingdom!.name);
+                            }}
+                            className="text-[11px] text-[#9e9486] hover:text-[#f5b742] cursor-pointer shrink-0 px-0.5"
+                          >
+                            ✎
+                          </button>
+                        )}
+                      </div>
                       <span className="font-pixel-num text-xs font-bold text-[#80ed99] tabular-nums shrink-0">
                         Pop {hoveredZoneInfo.kingdom.population}
                       </span>
