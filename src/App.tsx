@@ -5,6 +5,7 @@ import {
   EPOCHS,
   GOD_POWERS,
   MYTHICAL_BEAST_UNITS,
+  MYTHICAL_ROLE_SET,
   SPECIES_UNITS,
   TERRAIN_TOOLS,
   UNITS,
@@ -18,6 +19,7 @@ import {
   canAfford,
   castGodPower,
   computeAverageCivilizationEpoch,
+  createEmptyWorldStats,
   createInitialSimulationState,
   createWorldConfigFromTemplate,
   dismissWorldEventCinematic,
@@ -109,6 +111,15 @@ interface HoveredHint {
   cost: string;
   detail: string;
 }
+
+const WORLD_SKY_PRESETS: ReadonlyArray<{ id: LightingPreset; label: string; shortLabel: string }> = [
+  { id: 'auto', label: 'Cycle', shortLabel: 'Cycle' },
+  { id: 'dawn', label: 'Dawn', shortLabel: 'Dawn' },
+  { id: 'noon', label: 'Noon', shortLabel: 'Noon' },
+  { id: 'dusk', label: 'Dusk', shortLabel: 'Dusk' },
+  { id: 'night', label: 'Night', shortLabel: 'Night' },
+  { id: 'midnight', label: 'Midnight', shortLabel: 'Mid' },
+];
 
 type BooleanWorldRuleKey = {
   [K in keyof WorldRulesConfig]: WorldRulesConfig[K] extends boolean ? K : never;
@@ -388,7 +399,8 @@ export default function App() {
   const [buildFilter, setBuildFilter] = useState<'all' | 'current' | 'advanced'>('all');
   const [unitFilter, setUnitFilter] = useState<'all' | 'races' | 'wildlife' | 'mythic'>('all');
   const [landFilter, setLandFilter] = useState<'all' | 'Sculpt' | 'Sky Rain' | 'Biomes' | 'Water'>('all');
-  const [worldSubTab, setWorldSubTab] = useState<'ages' | 'rules'>('ages');
+  const [showGodRulesModal, setShowGodRulesModal] = useState<boolean>(false);
+  const [showWorldInfoModal, setShowWorldInfoModal] = useState<boolean>(false);
   const [brushSize, setBrushSize] = useState<number>(DEFAULT_BRUSH_SIZE);
   const brushRadius = getTerrainTileRadius(brushSize);
   const [brushInputMode, setBrushInputMode] = useState<BrushInputMode>('hold');
@@ -436,8 +448,6 @@ export default function App() {
     typeof window !== 'undefined' ? window.innerWidth < 768 || window.innerHeight < 540 : false,
   );
   const [showTemplatesDropdown, setShowTemplatesDropdown] = useState<boolean>(false);
-  const [showWorldAgeDropdown, setShowWorldAgeDropdown] = useState<boolean>(false);
-  const [showWorldSkyDropdown, setShowWorldSkyDropdown] = useState<boolean>(false);
   const [worldConfig, setWorldConfig] = useState<WorldGenConfig>(() =>
     createWorldConfigFromTemplate('fantastic', {
       seed: simRef.current.seed,
@@ -925,6 +935,13 @@ export default function App() {
         return;
       }
 
+      if ((showGodRulesModal || showWorldInfoModal) && e.code === 'Escape') {
+        e.preventDefault();
+        setShowGodRulesModal(false);
+        setShowWorldInfoModal(false);
+        return;
+      }
+
       if ((speedMenuOpen || cameraMenuOpen) && e.code === 'Escape') {
         e.preventDefault();
         setSpeedMenuOpen(false);
@@ -972,7 +989,16 @@ export default function App() {
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [cameraMenuOpen, editingRulesWorldId, gameState, quitConfirmOpen, saveModalStep, speedMenuOpen]);
+  }, [
+    cameraMenuOpen,
+    editingRulesWorldId,
+    gameState,
+    quitConfirmOpen,
+    saveModalStep,
+    showGodRulesModal,
+    showWorldInfoModal,
+    speedMenuOpen,
+  ]);
 
   const handleSelectEntity = useCallback((unitId: string | null) => {
     selectedEntityIdRef.current = unitId;
@@ -1413,6 +1439,49 @@ export default function App() {
       return BUILDINGS.find((b) => b.type === activeTool.building)?.name ?? 'Build';
     }
     return UNITS.find((u) => u.role === activeTool.unit)?.name ?? 'Unit';
+  })();
+
+  const activeToolInfo: HoveredHint | null = (() => {
+    if (activeCategory === 'powers' && activeTool.kind === 'power') {
+      const power = GOD_POWERS.find((p) => p.type === activeTool.power);
+      if (!power) return null;
+      const clusterCount =
+        power.type === 'drag_entity' ? 1 : getPowerClusterCount(brushSize);
+      const totalFaithCost = power.faithCost * clusterCount;
+      return {
+        title: clusterCount > 1 ? `${power.name} (×${clusterCount})` : power.name,
+        cost: sim.sandboxFreeMode ? 'Free' : `${totalFaithCost} God Energy`,
+        detail: power.summary,
+      };
+    }
+    if (activeCategory === 'terrain' && activeTool.kind === 'terrain') {
+      const tool = TERRAIN_TOOLS.find((t) => t.type === activeTool.tool);
+      if (!tool) return null;
+      return {
+        title: tool.name,
+        cost: sim.sandboxFreeMode ? 'Free' : `${tool.faithCost} God Energy`,
+        detail: tool.summary,
+      };
+    }
+    if (activeCategory === 'build' && activeTool.kind === 'build') {
+      const bld = BUILDINGS.find((b) => b.type === activeTool.building);
+      if (!bld) return null;
+      return {
+        title: bld.name,
+        cost: formatCompactCost(bld.cost, sim.sandboxFreeMode),
+        detail: bld.roleSummary,
+      };
+    }
+    if (activeCategory === 'spawn' && activeTool.kind === 'spawn') {
+      const unit = UNITS.find((u) => u.role === activeTool.unit);
+      if (!unit) return null;
+      return {
+        title: unit.name,
+        cost: formatCompactCost(unit.cost, sim.sandboxFreeMode),
+        detail: unit.roleSummary,
+      };
+    }
+    return null;
   })();
 
   return (
@@ -3151,12 +3220,30 @@ export default function App() {
 
           {/* BOTTOM PIXEL TOOLBAR DOCK: Compact horizontal-rail layout on mobile, full grid on desktop */}
           <div className="pointer-events-auto self-center relative flex flex-col items-center w-full max-w-[min(880px,calc(100vw-8px))] sm:max-w-[min(880px,calc(100vw-24px))]">
-            {/* Hover Tooltip */}
+            {/* Hover Tooltip (Desktop) */}
             {!dockCollapsed && hoveredHint && (
               <div className="px-panel px-3 py-1.5 mb-2 max-w-[calc(100vw-24px)] hidden md:flex items-center gap-3 text-xs flex-wrap justify-center pointer-events-none">
                 <span className="font-bold text-[#f5b742]">{hoveredHint.title}</span>
                 <span className="text-[#80ed99] font-semibold tabular-nums">{hoveredHint.cost}</span>
                 <span className="text-[#cfc6b8]">{hoveredHint.detail}</span>
+              </div>
+            )}
+
+            {/* Active Tool / Power Description Bar (Mobile) */}
+            {!dockCollapsed && activeToolInfo && (
+              <div
+                data-testid="mobile-tool-description"
+                className="px-panel px-2.5 py-1 mb-1 max-w-[calc(100vw-8px)] w-full flex md:hidden flex-col gap-0.5 pointer-events-none"
+              >
+                <div className="flex items-center justify-between gap-2 text-[11px] leading-tight">
+                  <span className="font-bold text-[#f5b742] truncate">{activeToolInfo.title}</span>
+                  <span className="text-[#80ed99] font-semibold tabular-nums shrink-0">
+                    {activeToolInfo.cost}
+                  </span>
+                </div>
+                <p className="text-[10px] text-[#cfc6b8] leading-snug line-clamp-2">
+                  {activeToolInfo.detail}
+                </p>
               </div>
             )}
 
@@ -3866,227 +3953,164 @@ export default function App() {
                   </div>
                 )}
 
-                {/* TAB 6: WORLD (Ages, Sky, Seed + God Rules Sub-Tab) */}
-                {(activeCategory === 'epochs' || activeCategory === 'rules') && (
-                  <div className="flex flex-col gap-1.5 sm:gap-2.5">
-                    <div className="flex items-center justify-between gap-2 pb-1 sm:pb-2 border-b border-[#2e2923]">
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          data-testid="world-subtab-ages"
-                          onClick={() => {
-                            setActiveCategory('epochs');
-                            setWorldSubTab('ages');
-                            soundEngine.playClick();
-                          }}
-                          className={`h-6 sm:h-7 px-2 sm:px-2.5 flex items-center gap-1 sm:gap-1.5 text-[10px] sm:text-[11px] font-semibold cursor-pointer ${
-                            worldSubTab === 'ages' && activeCategory !== 'rules'
-                              ? 'px-btn-active font-bold'
-                              : 'px-btn'
-                          }`}
-                        >
-                          <TabPixelIcon category="epochs" className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
-                          <span>Ages &amp; Sky</span>
-                        </button>
-                        <button
-                          type="button"
-                          data-testid="world-subtab-rules"
-                          onClick={() => {
-                            setActiveCategory('epochs');
-                            setWorldSubTab('rules');
-                            soundEngine.playClick();
-                          }}
-                          className={`h-6 sm:h-7 px-2 sm:px-2.5 flex items-center gap-1 sm:gap-1.5 text-[10px] sm:text-[11px] font-semibold cursor-pointer ${
-                            worldSubTab === 'rules' || activeCategory === 'rules'
-                              ? 'px-btn-active font-bold'
-                              : 'px-btn'
-                          }`}
-                        >
-                          <TabPixelIcon category="rules" className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
-                          <span>God Rules</span>
-                        </button>
-                      </div>
-                      {(worldSubTab === 'rules' || activeCategory === 'rules') && (
-                        <span className="hidden sm:inline text-[11px] text-[#a89f91]">
-                          Toggle live world laws &amp; creature rules
+                {/* TAB 6: WORLD (Ages & Sky Sliders + God Rules & World Info Overlay Triggers) */}
+                {(activeCategory === 'epochs' || activeCategory === 'rules') && (() => {
+                  const isCycleSky =
+                    Boolean(sim.worldRules?.dayNightCycle) || lightingPreset === 'auto';
+                  const activeSkyIdx = isCycleSky
+                    ? 0
+                    : Math.max(
+                        1,
+                        WORLD_SKY_PRESETS.findIndex((p) => p.id === lightingPreset),
+                      );
+                  const activeSkyPreset = WORLD_SKY_PRESETS[activeSkyIdx] ?? WORLD_SKY_PRESETS[2];
+                  return (
+                    <div className="flex flex-col gap-2 sm:gap-2.5">
+                      <div className="flex items-center justify-between gap-2 pb-1.5 sm:pb-2 border-b border-[#2e2923]">
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            data-testid="world-open-god-rules"
+                            onClick={() => {
+                              setShowWorldInfoModal(false);
+                              setShowGodRulesModal(true);
+                              soundEngine.playClick();
+                            }}
+                            className={`h-7 px-2.5 flex items-center gap-1.5 text-[11px] font-semibold cursor-pointer ${
+                              showGodRulesModal ? 'px-btn-active font-bold' : 'px-btn'
+                            }`}
+                          >
+                            <TabPixelIcon category="rules" className="w-3.5 h-3.5" />
+                            <span>God Rules</span>
+                          </button>
+                          <button
+                            type="button"
+                            data-testid="world-open-world-info"
+                            onClick={() => {
+                              setShowGodRulesModal(false);
+                              setShowWorldInfoModal(true);
+                              soundEngine.playClick();
+                            }}
+                            className={`h-7 px-2.5 flex items-center gap-1.5 text-[11px] font-semibold cursor-pointer ${
+                              showWorldInfoModal ? 'px-btn-active font-bold' : 'px-btn'
+                            }`}
+                          >
+                            <HudPixelIcon kind="log" className="w-3.5 h-3.5" />
+                            <span>World Info</span>
+                          </button>
+                        </div>
+                        <span className="hidden sm:inline text-[11px] text-[#a89f91] tabular-nums">
+                          {sim.worldName || 'World'} · {sim.gridSize}×{sim.gridSize} · Seed #{sim.seed}
                         </span>
-                      )}
-                    </div>
+                      </div>
 
-                    {worldSubTab === 'rules' || activeCategory === 'rules' ? (
-                      <div
-                        className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-1 sm:gap-1.5"
-                        data-testid="god-rules-panel"
-                      >
-                        {GOD_RULE_SWITCHES.map((rule) => {
-                          const activeRules = sim.worldRules ?? DEFAULT_WORLD_RULES;
-                          const isOn =
-                            rule.key === 'autoBuildEnabled'
-                              ? sim.autoBuildEnabled
-                              : rule.key === 'sandboxFreeMode'
-                                ? sim.sandboxFreeMode
-                                : rule.key === 'dayNightCycle'
-                                  ? Boolean(activeRules.dayNightCycle || lightingPreset === 'auto')
-                                  : Boolean(activeRules[rule.key]);
-                          return (
-                            <button
-                              key={rule.key}
-                              type="button"
-                              aria-pressed={isOn}
-                              data-testid={`god-rule-${rule.key}`}
-                              onClick={() => handleToggleGodRule(rule.key)}
-                              onMouseEnter={() =>
-                                setHoveredHint({
-                                  title: rule.label,
-                                  cost: isOn ? 'Active' : 'Disabled',
-                                  detail: rule.summary,
-                                })
-                              }
-                              className={`px-2 sm:px-2.5 h-7 sm:h-9 flex items-center justify-between gap-1.5 sm:gap-2 text-[10px] sm:text-[11px] cursor-pointer ${
-                                isOn
-                                  ? 'px-slot-active font-bold text-[#f2ece1]'
-                                  : 'px-slot text-[#9d9486]'
-                              }`}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-4 px-0.5">
+                        {/* Age Slider */}
+                        <div className="flex flex-col gap-1">
+                          <div className="flex items-center justify-between text-[11px] sm:text-xs">
+                            <label htmlFor="world-age-slider" className="text-[#b8afa2]">
+                              Age
+                            </label>
+                            <span
+                              data-testid="world-age-value"
+                              className="text-[#f5b742] font-bold"
                             >
-                              <span className="truncate">{rule.label}</span>
-                              <span
-                                className={`w-2 h-2 sm:w-2.5 sm:h-2.5 border border-[#0b0a09] shrink-0 ${
-                                  isOn ? 'bg-[#80ed99]' : 'bg-[#34302a]'
-                                }`}
-                              />
-                            </button>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <div className="flex flex-col gap-1.5 sm:gap-2">
-                        {/* Age Dropdown (matches Create World dropdown style) */}
-                        <div>
-                          <button
-                            type="button"
-                            data-testid="world-age-dropdown-toggle"
-                            aria-expanded={showWorldAgeDropdown}
-                            onClick={() => {
-                              soundEngine.playClick();
-                              setShowWorldAgeDropdown((prev) => !prev);
+                              {currentEpoch.name}
+                            </span>
+                          </div>
+                          <input
+                            id="world-age-slider"
+                            data-testid="world-age-slider"
+                            type="range"
+                            min={0}
+                            max={EPOCHS.length - 1}
+                            step={1}
+                            value={Math.max(0, Math.min(EPOCHS.length - 1, sim.epochIndex))}
+                            onChange={(e) => {
+                              const idx = Number(e.target.value);
+                              const ep = EPOCHS[idx];
+                              if (!ep) return;
+                              const s = simRef.current;
+                              s.epochIndex = ep.index;
+                              if (!s.kingdomEpochs) s.kingdomEpochs = {};
+                              if (!s.kingdomEpochProgress) s.kingdomEpochProgress = {};
+                              for (const b of s.buildings) {
+                                b.epochLevel = ep.index;
+                                if (b.settlementId) {
+                                  const kid = getKingdomId(s, b.settlementId);
+                                  s.kingdomEpochs[kid] = ep.index;
+                                  s.kingdomEpochProgress[kid] =
+                                    ep.index >= EPOCHS.length - 1 ? 100 : 0;
+                                }
+                              }
+                              syncAverageEpochFromKingdoms(s);
+                              soundEngine.playEpochAscend();
+                              setStatusFeedback(ep.name);
+                              setHudTick((t) => t + 1);
                             }}
-                            className="w-full flex items-center justify-between py-0.5 sm:py-1 bg-transparent border-0 outline-none text-[11px] sm:text-xs text-[#b8afa2] hover:text-[#f2ece1] cursor-pointer select-none"
-                          >
-                            <span>
-                              Age{' '}
-                              <span className="text-[#f5b742] font-semibold">
-                                ({currentEpoch.name})
-                              </span>
-                            </span>
-                            <span className="text-[11px] text-[#b8afa2] leading-none flex items-center">
-                              {showWorldAgeDropdown ? (
-                                <HudPixelIcon kind="chevronDown" className="w-3 h-3 pixelated-canvas" />
-                              ) : (
-                                '>'
-                              )}
-                            </span>
-                          </button>
-                          {showWorldAgeDropdown && (
-                            <div className="flex flex-nowrap sm:flex-wrap items-center justify-start gap-1 mt-1.5 overflow-x-auto sm:overflow-visible no-scrollbar">
-                              {EPOCHS.map((ep) => {
-                                const isCurrent = sim.epochIndex === ep.index;
-                                return (
-                                  <button
-                                    key={ep.id}
-                                    type="button"
-                                    onClick={() => {
-                                      const s = simRef.current;
-                                      s.epochIndex = ep.index;
-                                      if (!s.kingdomEpochs) s.kingdomEpochs = {};
-                                      if (!s.kingdomEpochProgress) s.kingdomEpochProgress = {};
-                                      for (const b of s.buildings) {
-                                        b.epochLevel = ep.index;
-                                        if (b.settlementId) {
-                                          const kid = getKingdomId(s, b.settlementId);
-                                          s.kingdomEpochs[kid] = ep.index;
-                                          s.kingdomEpochProgress[kid] = ep.index >= EPOCHS.length - 1 ? 100 : 0;
-                                        }
-                                      }
-                                      syncAverageEpochFromKingdoms(s);
-                                      soundEngine.playEpochAscend();
-                                      setStatusFeedback(ep.name);
-                                      setShowWorldAgeDropdown(false);
-                                      setHudTick((t) => t + 1);
-                                    }}
-                                    className={`px-1.5 sm:px-2.5 py-0.5 sm:py-1 text-[10px] sm:text-xs font-semibold cursor-pointer whitespace-nowrap shrink-0 ${
-                                      isCurrent ? 'px-btn-active' : 'px-btn'
-                                    }`}
-                                  >
-                                    {ep.name}
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          )}
+                            className="px-range w-full cursor-pointer"
+                          />
+                          <div className="flex items-center justify-between text-[9px] sm:text-[10px] text-[#8d8477]">
+                            <span>{EPOCHS[0]?.name}</span>
+                            <span>{EPOCHS[EPOCHS.length - 1]?.name}</span>
+                          </div>
                         </div>
 
-                        {/* Sky Dropdown (matches Create World dropdown style) */}
-                        <div>
-                          <button
-                            type="button"
-                            data-testid="world-sky-dropdown-toggle"
-                            aria-expanded={showWorldSkyDropdown}
-                            onClick={() => {
+                        {/* Sky Slider */}
+                        <div className="flex flex-col gap-1">
+                          <div className="flex items-center justify-between text-[11px] sm:text-xs">
+                            <label htmlFor="world-sky-slider" className="text-[#b8afa2]">
+                              Sky
+                            </label>
+                            <span
+                              data-testid="world-sky-value"
+                              className="text-[#f5b742] font-bold"
+                            >
+                              {activeSkyPreset.label}
+                            </span>
+                          </div>
+                          <input
+                            id="world-sky-slider"
+                            data-testid="world-sky-slider"
+                            type="range"
+                            min={0}
+                            max={WORLD_SKY_PRESETS.length - 1}
+                            step={1}
+                            value={activeSkyIdx}
+                            onChange={(e) => {
+                              const idx = Number(e.target.value);
+                              const presetObj = WORLD_SKY_PRESETS[idx];
+                              if (!presetObj) return;
+                              setLightingPreset(presetObj.id);
+                              if (!simRef.current.worldRules) {
+                                simRef.current.worldRules = { ...DEFAULT_WORLD_RULES };
+                              }
+                              simRef.current.worldRules.dayNightCycle = presetObj.id === 'auto';
                               soundEngine.playClick();
-                              setShowWorldSkyDropdown((prev) => !prev);
+                              setStatusFeedback(`Sky: ${presetObj.label}`);
+                              setHudTick((t) => t + 1);
                             }}
-                            className="w-full flex items-center justify-between py-0.5 sm:py-1 bg-transparent border-0 outline-none text-[11px] sm:text-xs text-[#b8afa2] hover:text-[#f2ece1] cursor-pointer select-none"
-                          >
-                            <span>
-                              Sky{' '}
-                              <span className="text-[#f5b742] font-semibold capitalize">
-                                ({sim.worldRules?.dayNightCycle || lightingPreset === 'auto' ? 'Cycle' : lightingPreset})
+                            className="px-range w-full cursor-pointer"
+                          />
+                          <div className="flex items-center justify-between text-[9px] sm:text-[10px] text-[#8d8477]">
+                            {WORLD_SKY_PRESETS.map((p) => (
+                              <span
+                                key={p.id}
+                                className={
+                                  p.id === activeSkyPreset.id
+                                    ? 'text-[#f2ece1] font-semibold'
+                                    : undefined
+                                }
+                              >
+                                {p.shortLabel}
                               </span>
-                            </span>
-                            <span className="text-[11px] text-[#b8afa2] leading-none flex items-center">
-                              {showWorldSkyDropdown ? (
-                                <HudPixelIcon kind="chevronDown" className="w-3 h-3 pixelated-canvas" />
-                              ) : (
-                                '>'
-                              )}
-                            </span>
-                          </button>
-                          {showWorldSkyDropdown && (
-                            <div className="flex flex-nowrap sm:flex-wrap items-center justify-start gap-1 mt-1.5 overflow-x-auto sm:overflow-visible no-scrollbar">
-                              {(['auto', 'dawn', 'noon', 'dusk', 'night', 'midnight'] as LightingPreset[]).map((lp) => {
-                                const isSkyActive =
-                                  lp === 'auto'
-                                    ? lightingPreset === 'auto' || Boolean(sim.worldRules?.dayNightCycle)
-                                    : lightingPreset === lp && !sim.worldRules?.dayNightCycle;
-                                return (
-                                  <button
-                                    key={lp}
-                                    type="button"
-                                    onClick={() => {
-                                      setLightingPreset(lp);
-                                      if (!simRef.current.worldRules) {
-                                        simRef.current.worldRules = { ...DEFAULT_WORLD_RULES };
-                                      }
-                                      simRef.current.worldRules.dayNightCycle = lp === 'auto';
-                                      soundEngine.playClick();
-                                      setShowWorldSkyDropdown(false);
-                                      setHudTick((t) => t + 1);
-                                    }}
-                                    className={`px-1.5 sm:px-2 py-0.5 sm:py-1 capitalize text-[10px] sm:text-xs cursor-pointer shrink-0 ${
-                                      isSkyActive ? 'px-btn-active font-bold' : 'px-btn'
-                                    }`}
-                                  >
-                                    {lp === 'auto' ? 'Cycle' : lp}
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          )}
+                            ))}
+                          </div>
                         </div>
                       </div>
-                    )}
-                  </div>
-                )}
+                    </div>
+                  );
+                })()}
 
                 {/* TAB 7: INSPECT */}
                 {activeCategory === 'inspect' && (
@@ -4254,6 +4278,378 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* GOD RULES OVERLAY */}
+      {showGodRulesModal && gameState === 'playing' && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="God Rules"
+          data-testid="god-rules-modal"
+          onClick={() => {
+            soundEngine.playClick();
+            setShowGodRulesModal(false);
+          }}
+          className="fixed inset-0 z-40 flex items-center justify-center p-2 sm:p-4"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-[min(36rem,calc(100vw-16px))] max-h-[82dvh] px-panel p-4 sm:p-5 flex flex-col gap-3"
+          >
+            <div className="flex items-center justify-between gap-3 pb-2 border-b border-[#34302a] shrink-0">
+              <div className="min-w-0">
+                <h2 className="text-base font-bold text-[#f5b742] flex items-center gap-2">
+                  <TabPixelIcon category="rules" className="w-4 h-4 shrink-0" />
+                  <span>God Rules</span>
+                </h2>
+                <p className="text-[11px] text-[#a89f91] mt-0.5">
+                  Toggle live world laws and creature rules
+                </p>
+              </div>
+              <button
+                type="button"
+                data-testid="close-god-rules-modal"
+                onClick={() => {
+                  soundEngine.playClick();
+                  setShowGodRulesModal(false);
+                }}
+                className="px-btn px-2.5 py-1 text-xs font-semibold cursor-pointer shrink-0"
+              >
+                Close
+              </button>
+            </div>
+
+            <div
+              data-testid="god-rules-panel"
+              className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 overflow-y-auto pr-1"
+            >
+              {GOD_RULE_SWITCHES.map((rule) => {
+                const activeRules = sim.worldRules ?? DEFAULT_WORLD_RULES;
+                const isOn =
+                  rule.key === 'autoBuildEnabled'
+                    ? sim.autoBuildEnabled
+                    : rule.key === 'sandboxFreeMode'
+                      ? sim.sandboxFreeMode
+                      : rule.key === 'dayNightCycle'
+                        ? Boolean(activeRules.dayNightCycle || lightingPreset === 'auto')
+                        : Boolean(activeRules[rule.key]);
+                return (
+                  <button
+                    key={rule.key}
+                    type="button"
+                    aria-pressed={isOn}
+                    data-testid={`god-rule-${rule.key}`}
+                    onClick={() => handleToggleGodRule(rule.key)}
+                    className={`px-3 py-2 text-left flex items-start justify-between gap-2.5 cursor-pointer ${
+                      isOn
+                        ? 'px-slot-active text-[#f2ece1]'
+                        : 'px-slot text-[#b8afa2]'
+                    }`}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-bold leading-tight">{rule.label}</div>
+                      <p className="text-[10px] text-[#9d9486] leading-snug mt-0.5">
+                        {rule.summary}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0 pt-0.5">
+                      <span
+                        className={`text-[10px] font-bold ${
+                          isOn ? 'text-[#80ed99]' : 'text-[#8d8477]'
+                        }`}
+                      >
+                        {isOn ? 'On' : 'Off'}
+                      </span>
+                      <span
+                        className={`w-2.5 h-2.5 border border-[#0b0a09] shrink-0 ${
+                          isOn ? 'bg-[#80ed99]' : 'bg-[#34302a]'
+                        }`}
+                      />
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* WORLD INFO OVERLAY */}
+      {showWorldInfoModal && gameState === 'playing' && (() => {
+        const wStats = sim.worldStats ?? createEmptyWorldStats();
+        let livingCivs = 0;
+        let livingHumans = 0;
+        let livingElves = 0;
+        let livingOrcs = 0;
+        let livingChildren = 0;
+        let livingWildlife = 0;
+        let livingMythical = 0;
+        let livingHostiles = 0;
+
+        for (const u of sim.units) {
+          if (u.state === 'ko' || u.hp <= 0) continue;
+          const uDef = UNITS.find((d) => d.role === u.role);
+          if (MYTHICAL_ROLE_SET.has(u.role) || uDef?.category === 'mythical') {
+            livingMythical += 1;
+          } else if (uDef?.category === 'animal') {
+            livingWildlife += 1;
+          }
+          if (u.faction === 'civilization') {
+            livingCivs += 1;
+            if (u.ageStage === 'child') livingChildren += 1;
+            if (u.species === 'elf') livingElves += 1;
+            else if (u.species === 'orc') livingOrcs += 1;
+            else livingHumans += 1;
+          } else if (u.faction === 'hostile') {
+            livingHostiles += 1;
+          }
+        }
+
+        const activeCityIds = new Set<string>();
+        const activeKingdomIds = new Set<string>();
+        for (const b of sim.buildings) {
+          if (b.settlementId) {
+            activeCityIds.add(b.settlementId);
+            activeKingdomIds.add(getKingdomId(sim, b.settlementId));
+          }
+        }
+        const activeCities = activeCityIds.size;
+        const activeKingdoms = activeKingdomIds.size;
+        const citiesCreatedTotal = Math.max(wStats.citiesCreated, activeCities);
+        const wildlifeSpawnedTotal = Math.max(wStats.wildlifeSpawned, livingWildlife + wStats.wildlifeDeaths);
+        const mythicalSpawnedTotal = Math.max(wStats.mythicalSpawned, livingMythical + wStats.mythicalDeaths);
+        const hostilesSpawnedTotal = Math.max(wStats.hostilesSpawned, livingHostiles + wStats.hostilesKilled);
+        const hostilesKilledTotal = Math.max(wStats.hostilesKilled, sim.totalRaidersDefeated);
+
+        let activeWars = 0;
+        let activeAlliances = 0;
+        const kingdomList = Array.from(activeKingdomIds);
+        for (let i = 0; i < kingdomList.length; i++) {
+          for (let j = i + 1; j < kingdomList.length; j++) {
+            const rel = getKingdomRelation(sim, kingdomList[i], kingdomList[j]);
+            if (rel === 'war') activeWars += 1;
+            else if (rel === 'allied') activeAlliances += 1;
+          }
+        }
+
+        const activeVehicles = sim.vehicles?.length ?? 0;
+
+        return (
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="World Info"
+            data-testid="world-info-modal"
+            onClick={() => {
+              soundEngine.playClick();
+              setShowWorldInfoModal(false);
+            }}
+            className="fixed inset-0 z-40 flex items-center justify-center p-2 sm:p-4"
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="w-[min(27rem,calc(100vw-16px))] max-h-[82dvh] px-panel p-4 sm:p-5 flex flex-col gap-3"
+            >
+              <div className="flex items-center justify-between gap-3 pb-2 border-b border-[#34302a] shrink-0">
+                <div className="min-w-0">
+                  <h2 className="text-base font-bold text-[#f5b742] truncate">
+                    {sim.worldName || 'World Info'}
+                  </h2>
+                  <p className="text-[11px] text-[#a89f91] mt-0.5 tabular-nums">
+                    {formatYearLabel(sim.year)} · {currentEpoch.name} · {sim.gridSize}×{sim.gridSize} · Seed #{sim.seed}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  data-testid="close-world-info-modal"
+                  onClick={() => {
+                    soundEngine.playClick();
+                    setShowWorldInfoModal(false);
+                  }}
+                  className="px-btn px-2.5 py-1 text-xs font-semibold cursor-pointer shrink-0"
+                >
+                  Close
+                </button>
+              </div>
+
+              <div className="overflow-y-auto pr-1 space-y-3 text-xs">
+                {/* Life & Population */}
+                <div className="space-y-1">
+                  <div className="text-[11px] font-bold text-[#f5b742] mb-1">
+                    Life &amp; Population
+                  </div>
+                  <div className="flex items-center justify-between tabular-nums">
+                    <span className="text-[#a89f91]">Population</span>
+                    <span className="text-[#f2ece1] font-semibold">
+                      {livingCivs.toLocaleString()} / {sim.populationCap.toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between tabular-nums">
+                    <span className="text-[#a89f91]">Humans · Elves · Orcs</span>
+                    <span className="text-[#f2ece1]">
+                      {livingHumans.toLocaleString()} · {livingElves.toLocaleString()} · {livingOrcs.toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between tabular-nums">
+                    <span className="text-[#a89f91]">Newborns</span>
+                    <span
+                      data-testid="world-stat-total-births"
+                      className="text-[#f2ece1] font-semibold"
+                    >
+                      {wStats.totalBirths.toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between tabular-nums">
+                    <span className="text-[#a89f91]">Children</span>
+                    <span className="text-[#f2ece1]">{livingChildren.toLocaleString()}</span>
+                  </div>
+                  <div className="flex items-center justify-between tabular-nums">
+                    <span className="text-[#a89f91]">Total Deaths</span>
+                    <span
+                      data-testid="world-stat-total-deaths"
+                      className="text-[#f2ece1] font-semibold"
+                    >
+                      {wStats.totalDeaths.toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between tabular-nums">
+                    <span className="text-[#a89f91]">Civilian Deaths</span>
+                    <span className="text-[#f2ece1]">{wStats.civilianDeaths.toLocaleString()}</span>
+                  </div>
+                  <div className="flex items-center justify-between tabular-nums">
+                    <span className="text-[#a89f91]">World Happiness</span>
+                    <span className="text-[#f2ece1]">{Math.round(sim.happiness)}%</span>
+                  </div>
+                </div>
+
+                {/* Cities & Kingdoms */}
+                <div className="space-y-1 pt-2.5 border-t border-[#34302a]">
+                  <div className="text-[11px] font-bold text-[#f5b742] mb-1">
+                    Cities &amp; Kingdoms
+                  </div>
+                  <div className="flex items-center justify-between tabular-nums">
+                    <span className="text-[#a89f91]">Active Cities</span>
+                    <span className="text-[#f2ece1] font-semibold">{activeCities.toLocaleString()}</span>
+                  </div>
+                  <div className="flex items-center justify-between tabular-nums">
+                    <span className="text-[#a89f91]">Active Kingdoms</span>
+                    <span className="text-[#f2ece1]">{activeKingdoms.toLocaleString()}</span>
+                  </div>
+                  <div className="flex items-center justify-between tabular-nums">
+                    <span className="text-[#a89f91]">Cities Created</span>
+                    <span
+                      data-testid="world-stat-cities-created"
+                      className="text-[#f2ece1] font-semibold"
+                    >
+                      {citiesCreatedTotal.toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between tabular-nums">
+                    <span className="text-[#a89f91]">Cities Destroyed</span>
+                    <span
+                      data-testid="world-stat-cities-destroyed"
+                      className="text-[#f2ece1] font-semibold"
+                    >
+                      {wStats.citiesDestroyed.toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between tabular-nums">
+                    <span className="text-[#a89f91]">Active Wars · Alliances</span>
+                    <span className="text-[#f2ece1]">
+                      {activeWars} · {activeAlliances}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between tabular-nums">
+                    <span className="text-[#a89f91]">Total Wars · Rebellions</span>
+                    <span className="text-[#f2ece1]">
+                      {wStats.warsStarted.toLocaleString()} · {wStats.rebellionsTriggered.toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Wildlife & Mythical Creatures */}
+                <div className="space-y-1 pt-2.5 border-t border-[#34302a]">
+                  <div className="grid grid-cols-[1fr_auto_auto_auto] gap-x-4 items-baseline mb-1">
+                    <span className="text-[11px] font-bold text-[#f5b742]">Creatures</span>
+                    <span className="text-[10px] text-[#8d8477] text-right w-12">Living</span>
+                    <span className="text-[10px] text-[#8d8477] text-right w-14">Spawned</span>
+                    <span className="text-[10px] text-[#8d8477] text-right w-12">Died</span>
+                  </div>
+                  <div className="grid grid-cols-[1fr_auto_auto_auto] gap-x-4 items-baseline tabular-nums">
+                    <span className="text-[#a89f91]">Wildlife</span>
+                    <span className="text-[#f2ece1] font-semibold text-right w-12">
+                      {livingWildlife.toLocaleString()}
+                    </span>
+                    <span className="text-[#f2ece1] text-right w-14">
+                      {wildlifeSpawnedTotal.toLocaleString()}
+                    </span>
+                    <span className="text-[#f2ece1] text-right w-12">
+                      {wStats.wildlifeDeaths.toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-[1fr_auto_auto_auto] gap-x-4 items-baseline tabular-nums">
+                    <span className="text-[#a89f91]">Mythical</span>
+                    <span className="text-[#f2ece1] font-semibold text-right w-12">
+                      {livingMythical.toLocaleString()}
+                    </span>
+                    <span
+                      data-testid="world-stat-mythical-spawned"
+                      className="text-[#f2ece1] text-right w-14"
+                    >
+                      {mythicalSpawnedTotal.toLocaleString()}
+                    </span>
+                    <span
+                      data-testid="world-stat-mythical-deaths"
+                      className="text-[#f2ece1] text-right w-12"
+                    >
+                      {wStats.mythicalDeaths.toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-[1fr_auto_auto_auto] gap-x-4 items-baseline tabular-nums">
+                    <span className="text-[#a89f91]">Hostiles</span>
+                    <span className="text-[#f2ece1] font-semibold text-right w-12">
+                      {livingHostiles.toLocaleString()}
+                    </span>
+                    <span className="text-[#f2ece1] text-right w-14">
+                      {hostilesSpawnedTotal.toLocaleString()}
+                    </span>
+                    <span className="text-[#f2ece1] text-right w-12">
+                      {hostilesKilledTotal.toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Buildings & History */}
+                <div className="space-y-1 pt-2.5 border-t border-[#34302a]">
+                  <div className="text-[11px] font-bold text-[#f5b742] mb-1">
+                    Buildings &amp; History
+                  </div>
+                  <div className="flex items-center justify-between tabular-nums">
+                    <span className="text-[#a89f91]">Active Buildings</span>
+                    <span className="text-[#f2ece1]">{sim.buildings.length.toLocaleString()}</span>
+                  </div>
+                  <div className="flex items-center justify-between tabular-nums">
+                    <span className="text-[#a89f91]">Structures Built</span>
+                    <span className="text-[#f2ece1]">{sim.totalStructuresBuilt.toLocaleString()}</span>
+                  </div>
+                  <div className="flex items-center justify-between tabular-nums">
+                    <span className="text-[#a89f91]">Buildings Destroyed</span>
+                    <span className="text-[#f2ece1]">{wStats.buildingsDestroyed.toLocaleString()}</span>
+                  </div>
+                  <div className="flex items-center justify-between tabular-nums">
+                    <span className="text-[#a89f91]">Vehicles &amp; Fleets</span>
+                    <span className="text-[#f2ece1]">{activeVehicles.toLocaleString()}</span>
+                  </div>
+                  <div className="flex items-center justify-between tabular-nums">
+                    <span className="text-[#a89f91]">God Powers Cast</span>
+                    <span className="text-[#f2ece1]">{sim.totalMiraclesCast.toLocaleString()}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* QUIT TO MAIN MENU GUARD MODAL (unsaved worlds only) */}
       {quitConfirmOpen && !hasSavedWorld && gameState !== 'title' && (

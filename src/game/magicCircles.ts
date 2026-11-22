@@ -104,7 +104,7 @@ const THEME_PALETTES: Record<MagicCircleTheme, ThemePalette> = {
   },
 };
 
-export const MAGIC_CIRCLE_VARIANTS = 4;
+export const MAGIC_CIRCLE_VARIANTS = 2;
 
 // Vector stroke definitions on normalized [-1, 1] x [-1, 1] rune cell
 // Inspired by Elder Futhark + arcane geometric sigils
@@ -215,7 +215,7 @@ function drawRuneGlyph(
 
   // Pass 1: Soft deep theme-colored halo for clear separation over sunlit grass, sand, and water
   ctx.shadowColor = auraColor;
-  ctx.shadowBlur = Math.max(3, radius * 0.45);
+  ctx.shadowBlur = Math.max(1.5, radius * 0.22);
   ctx.strokeStyle = hexToRgba(auraColor, 0.58);
   ctx.lineWidth = lineWidth + 2.0;
   tracePath();
@@ -224,7 +224,7 @@ function drawRuneGlyph(
   // Pass 2: Luminous colored neon-energy glow
   ctx.strokeStyle = color;
   ctx.shadowColor = color;
-  ctx.shadowBlur = Math.max(7, radius * 0.95);
+  ctx.shadowBlur = Math.max(3.5, radius * 0.45);
   ctx.lineWidth = lineWidth + 0.35;
   tracePath();
   ctx.stroke();
@@ -232,7 +232,7 @@ function drawRuneGlyph(
   // Pass 3: Hot incandescent inner filament (magical light core without blurring away glyph shape)
   ctx.globalCompositeOperation = 'lighter';
   ctx.shadowColor = coreColor;
-  ctx.shadowBlur = 3;
+  ctx.shadowBlur = 1.5;
   ctx.strokeStyle = coreColor;
   ctx.globalAlpha *= 0.64;
   ctx.lineWidth = Math.max(0.95, lineWidth * 0.44);
@@ -242,17 +242,20 @@ function drawRuneGlyph(
 }
 
 function renderMagicCircleTexture(theme: MagicCircleTheme, variant: number): THREE.CanvasTexture {
-  const size = 512;
-  const half = size / 2;
+  const logicalSize = 512;
+  const half = logicalSize / 2;
+  const pixelSize = 256;
   const pal = THEME_PALETTES[theme];
   const themeHash = theme.split('').reduce((acc, ch) => acc * 31 + ch.charCodeAt(0), 7);
   const rng = mulberry32(themeHash * 101 + variant * 7919 + 1337);
 
   const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
+  canvas.width = pixelSize;
+  canvas.height = pixelSize;
   const ctx = canvas.getContext('2d')!;
-  ctx.clearRect(0, 0, size, size);
+  ctx.clearRect(0, 0, pixelSize, pixelSize);
+  // Render in 512x512 logical coordinates onto a 256x256 canvas (~8x faster CPU shadowBlur with identical layout)
+  ctx.scale(0.5, 0.5);
 
   // 1. Ethereal colored mana aura (gentle tinted luminosity — radiant without whiteout fog)
   const bgGrad = ctx.createRadialGradient(half, half, 12, half, half, half * 0.94);
@@ -271,7 +274,7 @@ function renderMagicCircleTexture(theme: MagicCircleTheme, variant: number): THR
   ctx.translate(half, half);
   ctx.strokeStyle = hexToRgba(pal.aura, 0.34);
   ctx.shadowColor = pal.glow;
-  ctx.shadowBlur = 14;
+  ctx.shadowBlur = 7;
   ctx.lineWidth = 34;
   ctx.beginPath();
   ctx.arc(0, 0, 151, 0, Math.PI * 2);
@@ -298,7 +301,7 @@ function renderMagicCircleTexture(theme: MagicCircleTheme, variant: number): THR
 
     ctx.strokeStyle = isMajor ? pal.primary : pal.secondary;
     ctx.shadowColor = isMajor ? pal.glow : pal.secondary;
-    ctx.shadowBlur = isMajor ? 7 : 3;
+    ctx.shadowBlur = isMajor ? 3.5 : 1.5;
     ctx.globalAlpha = isMajor ? 0.85 : 0.48;
     ctx.lineWidth = isMajor ? 1.55 : 1.0;
     ctx.stroke();
@@ -315,12 +318,12 @@ function renderMagicCircleTexture(theme: MagicCircleTheme, variant: number): THR
     ctx.globalAlpha = isMain ? 0.72 : 0.42;
     ctx.lineWidth = isMain ? 5.2 : 2.8;
     ctx.shadowColor = pal.aura;
-    ctx.shadowBlur = isMain ? 4 : 0;
+    ctx.shadowBlur = isMain ? 2 : 0;
     ctx.stroke();
 
     ctx.strokeStyle = ringCol;
     ctx.shadowColor = ringCol;
-    ctx.shadowBlur = isMain ? 11 : 5;
+    ctx.shadowBlur = isMain ? 5.5 : 2.5;
     ctx.globalAlpha = isMain ? 0.96 : 0.72;
     ctx.lineWidth = isMain ? 2.8 : 1.5;
     ctx.stroke();
@@ -330,7 +333,7 @@ function renderMagicCircleTexture(theme: MagicCircleTheme, variant: number): THR
       ctx.globalCompositeOperation = 'lighter';
       ctx.strokeStyle = pal.core;
       ctx.shadowColor = pal.core;
-      ctx.shadowBlur = 4;
+      ctx.shadowBlur = 2;
       ctx.globalAlpha = 0.62;
       ctx.lineWidth = 1.15;
       ctx.stroke();
@@ -363,7 +366,7 @@ function renderMagicCircleTexture(theme: MagicCircleTheme, variant: number): THR
 
     ctx.strokeStyle = col;
     ctx.shadowColor = col;
-    ctx.shadowBlur = 10;
+    ctx.shadowBlur = 5;
     ctx.globalAlpha = alpha;
     ctx.lineWidth = lw;
     ctx.stroke();
@@ -371,7 +374,7 @@ function renderMagicCircleTexture(theme: MagicCircleTheme, variant: number): THR
     ctx.globalCompositeOperation = 'lighter';
     ctx.strokeStyle = pal.core;
     ctx.shadowColor = pal.core;
-    ctx.shadowBlur = 3;
+    ctx.shadowBlur = 1.5;
     ctx.globalAlpha = alpha * 0.55;
     ctx.lineWidth = Math.max(0.95, lw * 0.42);
     ctx.stroke();
@@ -405,7 +408,7 @@ function renderMagicCircleTexture(theme: MagicCircleTheme, variant: number): THR
     const tickCol = major ? pal.accentA : pal.primary;
     ctx.strokeStyle = tickCol;
     ctx.shadowColor = tickCol;
-    ctx.shadowBlur = major ? 8 : 3;
+    ctx.shadowBlur = major ? 4 : 1.5;
     ctx.globalAlpha = major ? 0.98 : mid ? 0.82 : 0.58;
     ctx.lineWidth = major ? 2.4 : 1.25;
     ctx.stroke();
@@ -426,7 +429,7 @@ function renderMagicCircleTexture(theme: MagicCircleTheme, variant: number): THR
 
     ctx.strokeStyle = arcCol;
     ctx.shadowColor = arcCol;
-    ctx.shadowBlur = 12;
+    ctx.shadowBlur = 6;
     ctx.globalAlpha = 0.98;
     ctx.lineWidth = 3.6;
     ctx.stroke();
@@ -435,7 +438,7 @@ function renderMagicCircleTexture(theme: MagicCircleTheme, variant: number): THR
     ctx.globalCompositeOperation = 'lighter';
     ctx.strokeStyle = pal.core;
     ctx.shadowColor = pal.core;
-    ctx.shadowBlur = 4;
+    ctx.shadowBlur = 2;
     ctx.globalAlpha = 0.58;
     ctx.lineWidth = 1.3;
     ctx.stroke();
@@ -481,14 +484,14 @@ function renderMagicCircleTexture(theme: MagicCircleTheme, variant: number): THR
     ctx.lineWidth = 3.0;
     ctx.strokeStyle = nodeCol;
     ctx.shadowColor = nodeCol;
-    ctx.shadowBlur = 12;
+    ctx.shadowBlur = 6;
     ctx.stroke();
 
     ctx.globalCompositeOperation = 'lighter';
     ctx.lineWidth = 1.1;
     ctx.strokeStyle = pal.core;
     ctx.shadowColor = pal.core;
-    ctx.shadowBlur = 4;
+    ctx.shadowBlur = 2;
     ctx.globalAlpha = 0.65;
     ctx.stroke();
     ctx.restore();
@@ -514,7 +517,7 @@ function renderMagicCircleTexture(theme: MagicCircleTheme, variant: number): THR
 
     ctx.strokeStyle = sigilCol;
     ctx.shadowColor = sigilCol;
-    ctx.shadowBlur = 10;
+    ctx.shadowBlur = 5;
     ctx.globalAlpha = 0.96;
     ctx.lineWidth = 2.2;
     ctx.stroke();
@@ -568,7 +571,7 @@ function renderMagicCircleTexture(theme: MagicCircleTheme, variant: number): THR
   ctx.closePath();
   ctx.fillStyle = pal.primary;
   ctx.shadowColor = pal.glow;
-  ctx.shadowBlur = 14;
+  ctx.shadowBlur = 7;
   ctx.fill();
   ctx.lineWidth = 1.6;
   ctx.strokeStyle = pal.core;
@@ -578,7 +581,7 @@ function renderMagicCircleTexture(theme: MagicCircleTheme, variant: number): THR
   ctx.globalCompositeOperation = 'lighter';
   ctx.strokeStyle = pal.core;
   ctx.shadowColor = pal.core;
-  ctx.shadowBlur = 8;
+  ctx.shadowBlur = 4;
   ctx.lineWidth = 1.8;
   ctx.beginPath();
   ctx.moveTo(-26, 0);

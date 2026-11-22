@@ -750,6 +750,29 @@ export interface ActiveHazardZone {
   faultSegments?: EarthquakeFaultSegment[];
   quakeShapeKind?: EarthquakeShapeKind;
   quakeExtent?: number;
+  solarProjectiles?: SolarProjectile[];
+  solarFlareTimer?: number;
+  solarFlareCount?: number;
+  recentSolarImpacts?: SolarImpactEvent[];
+}
+
+export interface SolarProjectile {
+  id: string;
+  startX: number;
+  startY: number;
+  startZ: number;
+  targetX: number;
+  targetZ: number;
+  progress: number;
+  duration: number;
+  peakY: number;
+  impactRadius: number;
+}
+
+export interface SolarImpactEvent {
+  x: number;
+  z: number;
+  radius: number;
 }
 
 export interface VoidWispEntity {
@@ -823,6 +846,8 @@ export interface GraphicsSettings {
   strictLossless?: boolean;
   /** Toggle optional Phase 0 Performance Debug HUD (F3 hotkey or Settings) */
   showPerformanceHud?: boolean;
+  /** Toggle screen/camera shake effects during impacts & god powers (default true) */
+  cameraShake?: boolean;
 }
 
 export interface PerfTelemetrySnapshot {
@@ -879,6 +904,23 @@ export interface WorldGenConfig {
   rules: WorldRulesConfig;
 }
 
+export interface WorldStats {
+  totalDeaths: number;
+  civilianDeaths: number;
+  totalBirths: number;
+  citiesCreated: number;
+  citiesDestroyed: number;
+  wildlifeSpawned: number;
+  wildlifeDeaths: number;
+  mythicalSpawned: number;
+  mythicalDeaths: number;
+  hostilesSpawned: number;
+  hostilesKilled: number;
+  buildingsDestroyed: number;
+  warsStarted: number;
+  rebellionsTriggered: number;
+}
+
 export interface SimulationState {
   seed: number;
   gridSize: number;
@@ -907,6 +949,7 @@ export interface SimulationState {
   totalMiraclesCast: number;
   totalStructuresBuilt: number;
   totalRaidersDefeated: number;
+  worldStats?: WorldStats;
   selectedEntityId: string | null;
   selectedTile: { x: number; z: number } | null;
   outcome: 'none' | 'ascension_victory' | 'collapse_defeat';

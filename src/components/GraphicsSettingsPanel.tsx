@@ -168,6 +168,7 @@ export const GraphicsSettingsPanel: React.FC<GraphicsSettingsPanelProps> = ({
       ? 'dynamic'
       : 'performance';
   const showPerfHud = Boolean(settings.showPerformanceHud);
+  const cameraShakeEnabled = settings.cameraShake !== false;
 
   const updateField = <K extends keyof Omit<GraphicsSettings, 'preset'>>(
     key: K,
@@ -182,6 +183,7 @@ export const GraphicsSettingsPanel: React.FC<GraphicsSettingsPanelProps> = ({
       autoOptimizeFps: settings.autoOptimizeFps,
       strictLossless: settings.strictLossless ?? true,
       showPerformanceHud: showPerfHud,
+      cameraShake: cameraShakeEnabled,
       [key]: value,
     };
     onChange({
@@ -202,6 +204,7 @@ export const GraphicsSettingsPanel: React.FC<GraphicsSettingsPanelProps> = ({
       autoOptimizeFps,
       strictLossless,
       showPerformanceHud: showPerfHud,
+      cameraShake: cameraShakeEnabled,
     };
     onChange({
       ...partial,
@@ -244,7 +247,13 @@ export const GraphicsSettingsPanel: React.FC<GraphicsSettingsPanelProps> = ({
           onSelect={(val) => {
             soundEngine.playClick();
             onChange(
-              applyGraphicsPreset(val, settings.autoOptimizeFps, isQualityMode, showPerfHud),
+              applyGraphicsPreset(
+                val,
+                settings.autoOptimizeFps,
+                isQualityMode,
+                showPerfHud,
+                cameraShakeEnabled,
+              ),
             );
           }}
         />
@@ -328,6 +337,22 @@ export const GraphicsSettingsPanel: React.FC<GraphicsSettingsPanelProps> = ({
           onSelect={handleFrameRateModeChange}
           openUpward
         />
+      </div>
+
+      {/* Camera Shake */}
+      <div className="flex items-center justify-between gap-2 sm:gap-3 pt-0.5">
+        <span className="text-[#e8e0d2] min-w-0 truncate">Camera Shake</span>
+        <button
+          type="button"
+          data-testid="gfx-camera-shake"
+          aria-pressed={cameraShakeEnabled}
+          onClick={() => updateField('cameraShake', !cameraShakeEnabled)}
+          className={`px-3 py-1 text-[11px] font-semibold cursor-pointer ${
+            cameraShakeEnabled ? 'px-btn-active font-bold' : 'px-btn'
+          }`}
+        >
+          {cameraShakeEnabled ? 'On' : 'Off'}
+        </button>
       </div>
 
       {/* Performance Stats */}

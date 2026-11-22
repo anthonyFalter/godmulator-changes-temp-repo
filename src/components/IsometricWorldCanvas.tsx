@@ -8103,6 +8103,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
     let lastMapTexSyncTime = -1;
     let pendingWaterMapSync = false;
     let pendingTerrainMapSync = false;
+    let pendingZoneOverlayMapSync = false;
     let simSteppedThisFrame = true;
 
     // Staged progressive reveal spreads WebGL shader compilation across frames instead of freezing Frame 0
@@ -8130,11 +8131,16 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         oceanFoam.updateZones(zb.colorData, zb.idData, zb.anyActive);
         styledTerrain.updateZones(zb.colorData, zb.idData, zb.anyActive);
         zoneOverlay.updateZones(zb.colorData, zb.idData, zb.anyActive);
+        if (zb.anyActive && pendingZoneOverlayMapSync) {
+          pendingZoneOverlayMapSync = false;
+          zoneOverlay.updateMap(simState.tiles);
+        }
       }
 
       let propsNeedSync = pendingPropsSync;
       let metroNeedsSync = false;
       let terrainMapDirty = false;
+      let zoneHeightDirty = false;
       const curKingdomEpochSig = computeKingdomEpochSig(simState);
       if (simState.epochIndex !== lastSyncedEpochIndex || curKingdomEpochSig !== lastSyncedKingdomEpochSig) {
         lastSyncedEpochIndex = simState.epochIndex;
@@ -8335,8 +8341,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
 
         const prevY = tileCurrentY[i];
         const curY =
-          Math.abs(prevY - targetTopY) > 0.001
-            ? THREE.MathUtils.damp(prevY, targetTopY, 14, dt)
+          Math.abs(prevY - targetTopY) > 0.014
+            ? THREE.MathUtils.damp(prevY, targetTopY, 24, dt)
             : targetTopY;
         tileCurrentY[i] = curY;
 
@@ -8345,9 +8351,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         tileRenderY[i] = renderTopY;
 
         const isCrushedByte = crushDip > 0 ? 1 : 0;
+        const prevHeight = worldGrid.heightMap[i];
+        const prevTCode = worldGrid.terrainCodeMap[i];
         const gridChanged =
-          worldGrid.heightMap[i] !== t.height ||
-          worldGrid.terrainCodeMap[i] !== tCode ||
+          prevHeight !== t.height ||
+          prevTCode !== tCode ||
           worldGrid.crushedMask[i] !== isCrushedByte;
 
         if (gridChanged) {
@@ -8357,9 +8365,24 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           worldGrid.terrainVersion++;
           tileTerrainCode[i] = tCode;
           markTileDirty(worldGrid, t.x, t.z);
-          waterMapNeedsSync = true;
+          if (prevHeight !== t.height) {
+            zoneHeightDirty = true;
+          }
+          // Only rebuild the full-map ocean Chamfer distance texture when water/shoreline/ice tiles actually change
+          if (
+            prevHeight === 0 ||
+            t.height === 0 ||
+            prevTCode === 0 ||
+            prevTCode === 1 ||
+            prevTCode === 23 ||
+            tCode === 0 ||
+            tCode === 1 ||
+            tCode === 23
+          ) {
+            waterMapNeedsSync = true;
+          }
         } else if (
-          Math.abs(renderTopY - prevRenderY) > 0.0005 ||
+          Math.abs(renderTopY - prevRenderY) > 0.012 ||
           quakeJoltY !== 0 ||
           tileHadHazard[i] !== 0
         ) {
@@ -8419,7 +8442,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             (tCode << 6) |
             ((NODE_CODE[t.resourceNode] ?? 0) << 1) |
             (t.buildingId ? 1 : 0);
-          if (tilePropSig[i] !== sig || Math.abs(curY - tileLastNodeY[i]) > 0.002) {
+          const hasPropOnTile = t.resourceNode !== 'none' || Boolean(t.burntTree);
+          const heightMovedEnoughForProp =
+            hasPropOnTile &&
+            (Math.abs(curY - tileLastNodeY[i]) > 0.045 ||
+              (curY === targetTopY && Math.abs(curY - tileLastNodeY[i]) > 0.005));
+          if (tilePropSig[i] !== sig || heightMovedEnoughForProp) {
             if (tilePropSig[i] <= 0 && !initialMapsPreuploaded) waterMapNeedsSync = true;
             tilePropSig[i] = sig;
             tileLastNodeY[i] = curY;
@@ -8432,7 +8460,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             ((t.coralBleachTimer ?? 0) > 0 || t.resourceAmount <= 0)
               ? 1
               : 0;
+          const waterKindCode =
+            t.waterKind === 'lava' ? 1 : t.waterKind === 'poison' ? 2 : t.waterKind === 'floral' ? 3 : 0;
           const waterFlags =
+            (waterKindCode << 9) |
             (isCoralBleached << 8) |
             (waterNodeCode << 4) |
             ((t.isRiver ? 1 : 0) << 3) |
@@ -8455,9 +8486,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       } else {
         if (waterMapNeedsSync) pendingWaterMapSync = true;
         if (terrainMapDirty || waterMapNeedsSync) pendingTerrainMapSync = true;
+        if (simChanged || zoneHeightDirty) pendingZoneOverlayMapSync = true;
         const canRunMapTexSync =
-          simChanged || lastMapTexSyncTime < 0 || elapsed - lastMapTexSyncTime >= 0.12;
-        if (canRunMapTexSync && (pendingWaterMapSync || pendingTerrainMapSync)) {
+          simChanged || lastMapTexSyncTime < 0 || elapsed - lastMapTexSyncTime >= 0.36;
+        if (canRunMapTexSync && (pendingWaterMapSync || pendingTerrainMapSync || pendingZoneOverlayMapSync)) {
           lastMapTexSyncTime = elapsed;
           if (pendingWaterMapSync) {
             pendingWaterMapSync = false;
@@ -8466,6 +8498,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           if (pendingTerrainMapSync) {
             pendingTerrainMapSync = false;
             styledTerrain.updateMap(simState.tiles, simState.buildings, simState.settlementSpecies);
+          }
+          // Skip multi-megabyte zone vertex-buffer rewrite when Zone Overlay is turned off;
+          // pendingZoneOverlayMapSync stays true and flushes immediately when zones are toggled on.
+          if (pendingZoneOverlayMapSync && (simChanged || Boolean(zb?.anyActive))) {
+            pendingZoneOverlayMapSync = false;
             zoneOverlay.updateMap(simState.tiles);
           }
         }
@@ -8480,7 +8517,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           terrainGroup.visible = true;
           skyClouds.group.visible = true;
           skyClouds.shadowGroup.visible = true;
-          zoneOverlay.mesh.visible = true;
+          zoneOverlay.mesh.visible = Boolean(propsRef.current.zoneOverlayBuffers?.anyActive);
         } else if (startupRevealStage === 1 && !chunkTerrain.hasPendingProgressiveRebuild()) {
           startupRevealStage = 2;
           startupStageWait = 0;
@@ -8523,12 +8560,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         }
       }
 
-      // Debounce routine full-map prop matrix recompositions (~5.5 Hz) and defer until props/trees reveal stage
+      // Debounce routine full-map prop matrix recompositions (~2.6 Hz during power cascades) and defer until props/trees reveal stage
       const runPropsSyncNow =
         propsNeedSync &&
         startupRevealStage >= 2 &&
         !terrainStreaming &&
-        (simChanged || lastPropRebuildTime < 0 || elapsed - lastPropRebuildTime >= 0.18);
+        (simChanged || lastPropRebuildTime < 0 || elapsed - lastPropRebuildTime >= 0.38);
       if (propsNeedSync && !runPropsSyncNow) {
         pendingPropsSync = true;
       }
@@ -11334,7 +11371,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           }
           let hv = hazardMeshes.get(haz.id);
           const hazPad = hv ? DESPAWN_CULL_HYSTERESIS : 0;
-          if (!isHazardIntersectingCullBounds(haz, worldCullBounds, hazPad)) {
+          if (haz.kind !== 'orbital_beam' && !isHazardIntersectingCullBounds(haz, worldCullBounds, hazPad)) {
             continue;
           }
           if (!hv || hv.isSuper !== haz.isSuper) {
@@ -11369,6 +11406,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
               spawnBurst: spawnParticleBurst,
               spawnRising: spawnRisingParticles,
               getGroundY: (gx, gz) => getTileEffectSurfaceY(getTileFromArray(simState, gx, gz), 0.8),
+              spawnImpactFlash: (fx, fy, fz, col, intensity, shake = 0) => {
+                triggerLightFlash(fx, fy, fz, col, intensity);
+                if (shake > 0) trauma = Math.min(0.26, trauma + shake);
+              },
             });
           } else if (hv.drops) {
             const speed = haz.currentSpeed ?? 0.55;
@@ -14029,7 +14070,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
               soundEngine.playPeaceAccord();
             } else if (fx.powerType === 'solar_orbital_laser') {
               soundEngine.playOrbitalLaser();
-              trauma = Math.min(1.0, trauma + 0.58);
+              trauma = Math.min(0.28, trauma + 0.16);
             } else if (fx.powerType === 'gravity_flip') {
               soundEngine.playGravityFlux();
               trauma = Math.min(1.0, trauma + 0.45);
@@ -15225,7 +15266,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           if (fade > maxQuakeFade) maxQuakeFade = fade;
         }
       }
-      if (maxQuakeFade > 0) {
+      if (propsRef.current.graphicsSettings?.cameraShake === false) {
+        trauma = 0;
+      } else if (maxQuakeFade > 0) {
         const quakeFloor = 0.24 + 0.24 * maxQuakeFade;
         if (trauma > quakeFloor) {
           trauma = Math.max(quakeFloor, trauma - dt * 1.5);
@@ -15235,7 +15278,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       } else {
         trauma = Math.max(0, trauma - dt * 2.0);
       }
-      const shakePower = trauma * trauma;
+      const shakePower =
+        propsRef.current.graphicsSettings?.cameraShake === false ? 0 : trauma * trauma;
       const shakeHoriz =
         frustumSize *
         0.013 *

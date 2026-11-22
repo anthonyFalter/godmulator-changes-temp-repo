@@ -47,6 +47,7 @@ import {
   WorldEventState,
   WorldGenConfig,
   WorldRulesConfig,
+  WorldStats,
   WorldTemplateId,
 } from './types';
 import { generateUnitGenes, generateUnitItems } from './entityInspector';
@@ -71,6 +72,33 @@ import {
 
 const BUILDING_BY_TYPE = new Map(BUILDINGS.map((d) => [d.type, d]));
 const UNIT_BY_ROLE = new Map(UNITS.map((d) => [d.role, d]));
+
+export function createEmptyWorldStats(): WorldStats {
+  return {
+    totalDeaths: 0,
+    civilianDeaths: 0,
+    totalBirths: 0,
+    citiesCreated: 0,
+    citiesDestroyed: 0,
+    wildlifeSpawned: 0,
+    wildlifeDeaths: 0,
+    mythicalSpawned: 0,
+    mythicalDeaths: 0,
+    hostilesSpawned: 0,
+    hostilesKilled: 0,
+    buildingsDestroyed: 0,
+    warsStarted: 0,
+    rebellionsTriggered: 0,
+  };
+}
+
+export function ensureWorldStats(state: SimulationState): WorldStats {
+  if (!state.worldStats) {
+    state.worldStats = createEmptyWorldStats();
+  }
+  return state.worldStats;
+}
+
 let activeTickIndex: SimulationTickIndex | null = null;
 let pooledTickIndex: SimulationTickIndex | undefined;
 const simFlowFields = new FlowFieldManager(24);
@@ -1372,6 +1400,7 @@ export function createInitialSimulationState(
     totalMiraclesCast: 0,
     totalStructuresBuilt: 0,
     totalRaidersDefeated: 0,
+    worldStats: createEmptyWorldStats(),
     selectedEntityId: null,
     selectedTile: { x: cx, z: cz },
     outcome: 'none',
@@ -1721,6 +1750,7 @@ export function placeBuilding(
   state.settlementSpecies[settlementId] = species;
   if (!state.settlementNames[settlementId]) {
     state.settlementNames[settlementId] = createVillageName(state, species);
+    ensureWorldStats(state).citiesCreated += 1;
   }
   if (!state.settlementKingdoms[settlementId]) {
     state.settlementKingdoms[settlementId] = settlementId;
@@ -1822,7 +1852,13 @@ export function spawnUnit(
   z: number,
   freeOverride = false,
   settlementIdOverride?: string,
-  options?: { ageStage?: UnitAgeStage; appearanceSeed?: number; ageYears?: number; maxLifespan?: number },
+  options?: {
+    ageStage?: UnitAgeStage;
+    appearanceSeed?: number;
+    ageYears?: number;
+    maxLifespan?: number;
+    isBirth?: boolean;
+  },
 ): { ok: boolean; reason?: string; unit?: UnitEntity } {
   const def = UNITS.find((u) => u.role === role);
   if (!def) return { ok: false, reason: 'Unknown unit role' };
@@ -1967,6 +2003,18 @@ export function spawnUnit(
   };
 
   state.units.push(unit);
+  const wStats = ensureWorldStats(state);
+  if (options?.isBirth) {
+    wStats.totalBirths += 1;
+  }
+  if (def.category === 'animal') {
+    wStats.wildlifeSpawned += 1;
+  } else if (def.category === 'mythical' || MYTHICAL_ROLE_SET.has(role)) {
+    wStats.mythicalSpawned += 1;
+  }
+  if (def.faction === 'hostile') {
+    wStats.hostilesSpawned += 1;
+  }
   if (def.faction === 'civilization') {
     ensureSettlementKings(state);
   }
@@ -4197,7 +4245,7 @@ export function executeGodPowerImpact(
         const hub = state.buildings.find((b) => b.settlementId === sid && b.constructionProgress >= 100);
         if (hub) {
           const sp = state.settlementSpecies?.[sid] ?? 'human';
-          spawnUnit(state, sp, hub.tileX, hub.tileZ, true, sid, { ageStage: 'child' });
+          spawnUnit(state, sp, hub.tileX, hub.tileZ, true, sid, { ageStage: 'child', isBirth: true });
           spawnUnit(state, sp, hub.tileX, hub.tileZ, true, sid, { ageStage: 'adult' });
         }
       }
@@ -5712,20 +5760,29 @@ export function executeGodPowerImpact(
 
     case 'solar_orbital_laser': {
       isHeavy = true;
+      specialLiquidPossibleByState.set(state, true);
       const sweepAngle = (((targetX * 23 + targetZ * 41) & 63) / 64) * Math.PI * 2;
       state.activeHazards.push({
         id: nextEntityId('haz'),
         kind: 'orbital_beam',
         x: targetX,
         z: targetZ,
-        radius: r,
-        remaining: 4.5,
-        duration: 4.5,
+        radius: Math.max(3.6, r),
+        remaining: 8.5,
+        duration: 8.5,
         tickTimer: 0,
         beamDirX: Math.cos(sweepAngle),
         beamDirZ: Math.sin(sweepAngle),
+        solarFlareTimer: 0.35,
+        solarFlareCount: 0,
+        solarProjectiles: [],
+        recentSolarImpacts: [],
       });
-      addChronicle(state, 'Solar Beam fired from above, burning a path across the ground!', 'warning');
+      addChronicle(
+        state,
+        'A blazing Sun ignited overhead, channeling a Solar Beam and hurling molten solar flares across the world!',
+        'warning',
+      );
       break;
     }
 
@@ -6445,6 +6502,7 @@ export function triggerCityRebellion(
     const parentEpoch = getKingdomEpoch(state, parentKingdomId);
     rebelSettlementId = rebelKingdomId;
     state.settlementNames[rebelSettlementId] = createVillageName(state, parentSpecies);
+    ensureWorldStats(state).citiesCreated += 1;
     state.settlementSpecies[rebelSettlementId] = parentSpecies;
     state.settlementKingdoms[rebelSettlementId] = rebelKingdomId;
     state.kingdomEpochs[rebelKingdomId] = parentEpoch;
@@ -6521,7 +6579,11 @@ export function triggerCityRebellion(
   }
   syncStateResourcesFromKingdoms(state);
 
+  ensureWorldStats(state).rebellionsTriggered += 1;
   if (state.worldRules?.warsEnabled !== false) {
+    if (getKingdomRelation(state, parentKingdomId, rebelKingdomId) !== 'war') {
+      ensureWorldStats(state).warsStarted += 1;
+    }
     setKingdomRelation(state, parentKingdomId, rebelKingdomId, 'war');
   } else {
     setKingdomRelation(state, parentKingdomId, rebelKingdomId, 'neutral');
@@ -6566,6 +6628,7 @@ function stepKingdomDiplomacyAndRebellions(state: SimulationState, dt: number): 
           const warChance = !peaceA || !peaceB ? 0.35 : 0.08;
           if (roll < warChance) {
             setKingdomRelation(state, kA.kingdomId, kB.kingdomId, 'war');
+            ensureWorldStats(state).warsStarted += 1;
             addChronicle(state, `War declared between ${kA.name} and ${kB.name}!`, 'warning');
           } else if (peaceA && peaceB && roll > 0.72) {
             setKingdomRelation(state, kA.kingdomId, kB.kingdomId, 'allied');
@@ -9470,6 +9533,7 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
       const sp = pioneer.species ?? 'human';
       const villageName = createVillageName(state, sp);
       state.settlementNames[newSettlementId] = villageName;
+      ensureWorldStats(state).citiesCreated += 1;
       state.settlementSpecies[newSettlementId] = sp;
 
       const isKingdomAlive = (kid: string) =>
@@ -9572,6 +9636,7 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
       if (!state.settlementSpecies['city_default']) state.settlementSpecies['city_default'] = 'human';
       if (!state.settlementNames['city_default']) {
         state.settlementNames['city_default'] = createVillageName(state, 'human');
+        ensureWorldStats(state).citiesCreated += 1;
       }
     }
   }
@@ -9618,6 +9683,7 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
       const birthAgeStage: UnitAgeStage = villageUnits.length >= 2 ? 'child' : 'adult';
       spawnUnit(state, villageSpecies, spawnHub.tileX, spawnHub.tileZ, true, sid, {
         ageStage: birthAgeStage,
+        isBirth: true,
       });
 
       // Young bands with healthy food reserves can birth a second child so founders don't die before sustaining pop
@@ -9630,6 +9696,7 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
         kRes.food -= 14;
         spawnUnit(state, villageSpecies, spawnHub.tileX, spawnHub.tileZ, true, sid, {
           ageStage: 'child',
+          isBirth: true,
         });
       }
     }
@@ -11982,16 +12049,21 @@ function stepSimulationSingle(
       }
     }
 
-    // Sweeping Helios Solar Orbital Beam ('orbital_beam'): tracks across land superheating terrain, melting ice & vaporizing targets
+    // Sweeping Helios Solar Beam ('orbital_beam'): blazing overhead Sun channels a searing laser
+    // across terrain while periodically launching map-wide solar projectiles that erupt into lava on impact!
     if (haz.kind === 'orbital_beam') {
       const bx = haz.beamDirX ?? 1;
       const bz = haz.beamDirZ ?? 0;
-      haz.x = Math.max(2, Math.min(state.gridSize - 3, haz.x + bx * 4.2 * dt));
-      haz.z = Math.max(2, Math.min(state.gridSize - 3, haz.z + bz * 4.2 * dt));
-      const bR = haz.radius * 0.72;
+      haz.x = Math.max(3, Math.min(state.gridSize - 4, haz.x + bx * 3.6 * dt));
+      haz.z = Math.max(3, Math.min(state.gridSize - 4, haz.z + bz * 3.6 * dt));
+      // Gently steer back inward if approaching the map rim so the Sun keeps sweeping across the world
+      if (haz.x <= 4 || haz.x >= state.gridSize - 5) haz.beamDirX = -bx;
+      if (haz.z <= 4 || haz.z >= state.gridSize - 5) haz.beamDirZ = -bz;
+
+      const bR = haz.radius * 0.78;
       const bSq = bR * bR;
       forEachTileInRadius(state, haz.x, haz.z, bR, (t) => {
-        t.tempOffset = Math.min(80, (t.tempOffset ?? 0) + 45 * dt);
+        t.tempOffset = Math.min(80, (t.tempOffset ?? 0) + 52 * dt);
         if (t.height === 0) {
           if (t.terrain === 'ice') {
             t.terrain = t.frozenWaterBase ?? 'shallow_water';
@@ -12000,8 +12072,11 @@ function stepSimulationSingle(
           damageOrBleachWaterTile(t, 260 * dt, true);
         } else if (!t.buildingId) {
           if (t.terrain === 'sand') t.terrain = 'crystal_field';
-          else if (t.terrain !== 'crystal_field') t.terrain = 'scorched';
-          t.onFireTimer = Math.max(t.onFireTimer, 7.5);
+          else if (t.terrain !== 'crystal_field') {
+            const coreDistSq = (t.x - haz.x) ** 2 + (t.z - haz.z) ** 2;
+            t.terrain = coreDistSq <= 1.6 ? 'volcanic_wasteland' : 'scorched';
+          }
+          t.onFireTimer = Math.max(t.onFireTimer, 8.0);
         }
       });
       for (const b of state.buildings) {
@@ -12022,6 +12097,137 @@ function stepSimulationSingle(
             u.koTimer = 0.45;
             if (u.faction === 'hostile') state.totalRaidersDefeated += 1;
           }
+        }
+      }
+
+      // Periodically launch map-wide flaming solar projectiles from the Sun's corona!
+      if (!haz.solarProjectiles) haz.solarProjectiles = [];
+      if (!haz.recentSolarImpacts) haz.recentSolarImpacts = [];
+      haz.solarFlareTimer = (haz.solarFlareTimer ?? 0.35) - dt;
+      if (haz.solarFlareTimer <= 0 && haz.remaining > 1.25) {
+        haz.solarFlareTimer = 0.72;
+        const salvoSize = haz.radius >= 6.0 ? 3 : 2;
+        const margin = 4;
+        const span = Math.max(8, state.gridSize - margin * 2);
+        const halfSpan = span * 0.5;
+        for (let s = 0; s < salvoSize; s++) {
+          if (haz.solarProjectiles.length >= 24) break;
+          const idx = (haz.solarFlareCount ?? 0) + 1;
+          haz.solarFlareCount = idx;
+          // Distribute projectiles evenly across ALL 4 map quadrants (NW, NE, SW, SE) using golden-ratio Halton spread
+          const quad = (idx - 1) & 3;
+          const rx = ((idx * 0.61803398875 + s * 0.371) % 1 + 1) % 1;
+          const rz = ((idx * 0.38196601125 + s * 0.739) % 1 + 1) % 1;
+          const qx = quad === 0 || quad === 2 ? 0 : halfSpan;
+          const qz = quad === 0 || quad === 1 ? 0 : halfSpan;
+          const tx = Math.max(margin, Math.min(state.gridSize - margin - 1, Math.round(margin + qx + rx * halfSpan)));
+          const tz = Math.max(margin, Math.min(state.gridSize - margin - 1, Math.round(margin + qz + rz * halfSpan)));
+          const dist = Math.hypot(tx - haz.x, tz - haz.z);
+          const maxFlight = Math.max(0.55, Math.min(1.15, haz.remaining - 0.12));
+          const flightDur = Math.min(maxFlight, 0.72 + (dist / Math.max(24, state.gridSize)) * 0.68);
+          haz.solarProjectiles.push({
+            id: nextEntityId('sproj'),
+            startX: haz.x,
+            startY: 17.6,
+            startZ: haz.z,
+            targetX: tx,
+            targetZ: tz,
+            progress: 0,
+            duration: Math.max(0.5, flightDur),
+            peakY: Math.min(34, Math.max(20.5, 18.2 + dist * 0.18)),
+            impactRadius: 2.0 + (idx % 3) * 0.4,
+          });
+        }
+      }
+
+      // Advance in-flight solar projectiles and erupt glowing lava pools on landing!
+      for (let pi = haz.solarProjectiles.length - 1; pi >= 0; pi--) {
+        const proj = haz.solarProjectiles[pi];
+        proj.progress += dt / Math.max(0.25, proj.duration);
+        if (proj.progress >= 1) {
+          specialLiquidPossibleByState.set(state, true);
+          const impR = proj.impactRadius;
+          const coreR = Math.max(1.25, impR * 0.68);
+          const coreRSq = coreR * coreR;
+          const outerR = impR + 0.95;
+          const outerRSq = outerR * outerR;
+
+          forEachTileInRadius(state, proj.targetX, proj.targetZ, outerR, (t) => {
+            const dx = t.x - proj.targetX;
+            const dz = t.z - proj.targetZ;
+            const dSq = dx * dx + dz * dz;
+            if (dSq > outerRSq) return;
+            t.blessedTimer = 0;
+            t.tempOffset = 80;
+            if (t.buildingId) return;
+
+            if (dSq <= coreRSq) {
+              // Molten glowing liquid lava crater core on ALL parts of the map!
+              t.height = 0;
+              t.terrain = 'shallow_water';
+              t.waterKind = 'lava';
+              t.isLake = true;
+              t.isRiver = false;
+              delete t.frozenWaterBase;
+              t.resourceNode = 'none';
+              t.resourceAmount = 0;
+              t.onFireTimer = 0;
+              t.farmSettlementId = undefined;
+              clearBurntTreeState(t);
+              delete t.treeBiomeOverride;
+            } else {
+              // Scorched volcanic basalt/obsidian rim surrounding the lava pool
+              if (t.height === 0 && t.waterKind !== 'lava') {
+                // Boil open water / sea ice along the impact rim into volcanic rock crust
+                t.height = 1;
+                t.terrain = 'volcanic_wasteland';
+                delete t.waterKind;
+                delete t.frozenWaterBase;
+                t.isRiver = false;
+                t.isLake = false;
+                t.resourceNode = 'none';
+                t.resourceAmount = 0;
+              } else if (t.height > 0) {
+                t.terrain = 'volcanic_wasteland';
+                t.onFireTimer = Math.max(t.onFireTimer, 9.0);
+                t.farmSettlementId = undefined;
+                if (t.resourceNode === 'berry_bush') {
+                  t.resourceNode = 'none';
+                  t.resourceAmount = 0;
+                } else if (t.resourceNode === 'timber_grove') {
+                  t.burntTree = true;
+                }
+              }
+            }
+          });
+
+          // Blast damage at the solar projectile landing zone
+          const dmgRSq = (impR + 0.9) ** 2;
+          for (const b of state.buildings) {
+            if (b.shieldTimer <= 0 && (b.tileX - proj.targetX) ** 2 + (b.tileZ - proj.targetZ) ** 2 <= dmgRSq) {
+              b.hp = Math.max(0, b.hp - 125);
+            }
+          }
+          for (const v of state.vehicles ?? []) {
+            if ((v.x - proj.targetX) ** 2 + (v.z - proj.targetZ) ** 2 <= dmgRSq) {
+              v.hp = Math.max(0, (v.hp ?? 100) - 110);
+            }
+          }
+          for (const u of state.units) {
+            if (u.state !== 'ko' && !u.statusEffects.shielded && (u.x - proj.targetX) ** 2 + (u.z - proj.targetZ) ** 2 <= dmgRSq) {
+              u.hp = Math.max(0, u.hp - 95);
+              if (u.hp <= 0) {
+                u.state = 'ko';
+                u.koTimer = 0.45;
+                if (u.faction === 'hostile') state.totalRaidersDefeated += 1;
+              }
+            }
+          }
+
+          if (haz.recentSolarImpacts.length < 16) {
+            haz.recentSolarImpacts.push({ x: proj.targetX, z: proj.targetZ, radius: impR });
+          }
+          haz.solarProjectiles.splice(pi, 1);
         }
       }
     }
@@ -12519,6 +12725,19 @@ function stepSimulationSingle(
       if (u.koTimer > 0) {
         remainingUnits.push(u);
       } else {
+        const wStats = ensureWorldStats(state);
+        wStats.totalDeaths += 1;
+        const diedDef = UNIT_BY_ROLE.get(u.role);
+        if (MYTHICAL_ROLE_SET.has(u.role) || diedDef?.category === 'mythical') {
+          wStats.mythicalDeaths += 1;
+        } else if (diedDef?.category === 'animal') {
+          wStats.wildlifeDeaths += 1;
+        }
+        if (u.faction === 'hostile') {
+          wStats.hostilesKilled += 1;
+        } else if (u.faction === 'civilization') {
+          wStats.civilianDeaths += 1;
+        }
         if (u.isKing && (u.ageYears ?? 0) < (u.maxLifespan ?? 999)) {
           addChronicle(state, `${u.name} has fallen! The realm mourns and seeks a worthy successor.`, 'warning');
         } else if (u.role === 'leviathan') {
@@ -12824,6 +13043,7 @@ function stepSimulationSingle(
   const destroyedSettlementIds = new Set<string>();
   state.buildings = state.buildings.filter((b) => {
     if (b.hp <= 0) {
+      ensureWorldStats(state).buildingsDestroyed += 1;
       const t = getTile(state, b.tileX, b.tileZ);
       if (t && t.buildingId === b.id) t.buildingId = null;
       if (b.settlementId) destroyedSettlementIds.add(b.settlementId);
@@ -12849,6 +13069,7 @@ function stepSimulationSingle(
         (u) => u.faction === 'civilization' && u.state !== 'ko' && u.hp > 0 && u.settlementId === sid,
       );
       if (!stillHasBlds && !stillHasUnits) {
+        ensureWorldStats(state).citiesDestroyed += 1;
         const fallenName = state.settlementNames?.[sid];
         if (fallenName) {
           addChronicle(

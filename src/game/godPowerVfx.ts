@@ -21,7 +21,8 @@ export type EnhancedHazardKind =
   | 'magma_geyser'
   | 'biome_bloom_wave'
   | 'chrono_field'
-  | 'gravity_anomaly';
+  | 'gravity_anomaly'
+  | 'orbital_beam';
 
 export const ENHANCED_HAZARD_KINDS = new Set<string>([
   'locust_swarm',
@@ -34,6 +35,7 @@ export const ENHANCED_HAZARD_KINDS = new Set<string>([
   'biome_bloom_wave',
   'chrono_field',
   'gravity_anomaly',
+  'orbital_beam',
 ]);
 
 export interface EnhancedHazardVfxState {
@@ -70,6 +72,7 @@ export interface GodPowerParticleCallbacks {
     scale?: number,
   ) => void;
   getGroundY: (x: number, z: number) => number;
+  spawnImpactFlash?: (x: number, y: number, z: number, color: string, intensity: number, shake?: number) => void;
 }
 
 // Module-level scratch math objects — ZERO per-frame heap allocations!
@@ -141,6 +144,10 @@ export interface SharedGodPowerGeos {
   puddleGeo: THREE.BufferGeometry;
   beamCylGeo: THREE.BufferGeometry;
   flareSphereGeo: THREE.BufferGeometry;
+  sunCoreGeo: THREE.BufferGeometry;
+  sunCoronaGeo: THREE.BufferGeometry;
+  solarLensGeo: THREE.BufferGeometry;
+  solarProjGeo: THREE.BufferGeometry;
   dispose: () => void;
 }
 
@@ -294,6 +301,61 @@ export function createSharedGodPowerGeos(): SharedGodPowerGeos {
   const beamCylGeo = new THREE.CylinderGeometry(1, 1, 1, 10, 1, true);
   const flareSphereGeo = new THREE.IcosahedronGeometry(1, 1);
 
+  // 8. Sculpted Multi-Layered Voxel Sun Core (white-hot heart, golden photosphere cubes, orange-crimson solar convection plates)
+  const sunCoreParts: THREE.BufferGeometry[] = [
+    // Inner incandescent cube + chamfered axial layers forming a chunky stylized voxel star
+    makeColoredBox(3.1, 3.1, 3.1, 0, 0, 0, 0xfff7cc),
+    makeColoredBox(3.75, 2.55, 2.55, 0, 0, 0, 0xfde047),
+    makeColoredBox(2.55, 3.75, 2.55, 0, 0, 0, 0xfde047),
+    makeColoredBox(2.55, 2.55, 3.75, 0, 0, 0, 0xfde047),
+    // Equatorial & polar fiery orange convection plates
+    makeColoredBox(4.15, 1.45, 1.45, 0, 0, 0, 0xfb923c),
+    makeColoredBox(1.45, 4.15, 1.45, 0, 0, 0, 0xfb923c),
+    makeColoredBox(1.45, 1.45, 4.15, 0, 0, 0, 0xfb923c),
+    // Diagonal hot plasma knots & sunspot ridges
+    makeColoredBox(2.9, 2.9, 2.9, 0, 0, 0, 0xf97316, Math.PI * 0.25, Math.PI * 0.25, 0),
+    makeColoredBox(2.9, 2.9, 2.9, 0, 0, 0, 0xfacc15, 0, Math.PI * 0.25, Math.PI * 0.25),
+    makeColoredBox(2.9, 2.9, 2.9, 0, 0, 0, 0xef4444, Math.PI * 0.25, 0, Math.PI * 0.25),
+  ];
+  const sunCoreGeo = mergeGeometries(sunCoreParts, false)!;
+  sunCoreParts.forEach((g) => g.dispose());
+
+  // 9. 18 Jagged 3D Volumetric Solar Corona Spikes & Prominence Flares erupting around the Sun
+  const sunCoronaParts: THREE.BufferGeometry[] = [];
+  const coronaDirs: Array<[number, number, number, boolean]> = [
+    [1, 0, 0, true], [-1, 0, 0, true], [0, 1, 0, true], [0, -1, 0, true], [0, 0, 1, true], [0, 0, -1, true],
+    [0.7, 0.7, 0, false], [-0.7, 0.7, 0, false], [0.7, -0.7, 0, false], [-0.7, -0.7, 0, false],
+    [0, 0.7, 0.7, false], [0, 0.7, -0.7, false], [0, -0.7, 0.7, false], [0, -0.7, -0.7, false],
+    [0.7, 0, 0.7, false], [-0.7, 0, 0.7, false], [0.7, 0, -0.7, false], [-0.7, 0, -0.7, false],
+  ];
+  for (let i = 0; i < coronaDirs.length; i++) {
+    const [dx, dy, dz, isMajor] = coronaDirs[i];
+    const len = isMajor ? 2.15 : 1.55;
+    const thick = isMajor ? 0.56 : 0.4;
+    const dist = 2.45 + len * 0.35;
+    const spike = new THREE.BoxGeometry(thick, len, thick);
+    _dir.set(dx, dy, dz).normalize();
+    _quat.setFromUnitVectors(_up, _dir);
+    _mat4.compose(_pos.copy(_dir).multiplyScalar(dist), _quat, _scale.set(1, 1, 1));
+    spike.applyMatrix4(_mat4);
+    sunCoronaParts.push(applyUniformColor(spike, isMajor ? 0xff7b00 : 0xfacc15));
+  }
+  const sunCoronaGeo = mergeGeometries(sunCoronaParts, false)!;
+  sunCoronaParts.forEach((g) => g.dispose());
+
+  // 10. Focusing Plasma Aperture Cone (channels energy out of the bottom of the Sun into the Solar Beam)
+  const solarLensGeo = new THREE.CylinderGeometry(2.15, 0.55, 2.8, 12, 1, true);
+
+  // 11. Blocky Voxel Solar Magma Projectile Meteor (bright yellow-white core + jagged orange crust)
+  const solarProjParts: THREE.BufferGeometry[] = [
+    makeColoredBox(0.88, 0.88, 0.88, 0, 0, 0, 0xfff3a3),
+    makeColoredBox(1.12, 0.58, 0.58, 0, 0, 0, 0xff6b00),
+    makeColoredBox(0.58, 1.12, 0.58, 0, 0, 0, 0xf97316),
+    makeColoredBox(0.58, 0.58, 1.12, 0, 0, 0, 0xef4444),
+  ];
+  const solarProjGeo = mergeGeometries(solarProjParts, false)!;
+  solarProjParts.forEach((g) => g.dispose());
+
   const allGeos = [
     locustGeo,
     rockChunkGeo,
@@ -316,6 +378,10 @@ export function createSharedGodPowerGeos(): SharedGodPowerGeos {
     puddleGeo,
     beamCylGeo,
     flareSphereGeo,
+    sunCoreGeo,
+    sunCoronaGeo,
+    solarLensGeo,
+    solarProjGeo,
   ];
 
   return {
@@ -340,6 +406,10 @@ export function createSharedGodPowerGeos(): SharedGodPowerGeos {
     puddleGeo,
     beamCylGeo,
     flareSphereGeo,
+    sunCoreGeo,
+    sunCoronaGeo,
+    solarLensGeo,
+    solarProjGeo,
     dispose: () => {
       for (const g of allGeos) g.dispose();
     },
@@ -370,10 +440,8 @@ export function createEnhancedHazardVfx(
   // -------------------------------------------------------------------------
   if (kind === 'locust_swarm') {
     const COUNT = 76;
-    const locustMat = new THREE.MeshStandardMaterial({
+    const locustMat = new THREE.MeshLambertMaterial({
       vertexColors: true,
-      roughness: 0.55,
-      metalness: 0.18,
       flatShading: true,
     });
     const hazeMat = new THREE.MeshBasicMaterial({
@@ -433,12 +501,10 @@ export function createEnhancedHazardVfx(
     group.add(eyeAssembly);
 
     // Outer ornate gilded-obsidian spiky crown & frame
-    const crownMat = new THREE.MeshStandardMaterial({
+    const crownMat = new THREE.MeshLambertMaterial({
       vertexColors: true,
-      roughness: 0.32,
-      metalness: 0.72,
       emissive: 0x7c2d12,
-      emissiveIntensity: 0.32,
+      emissiveIntensity: 0.35,
       flatShading: true,
     });
     const crownMesh = new THREE.Mesh(geos.eyeCrownGeo, crownMat);
@@ -448,12 +514,10 @@ export function createEnhancedHazardVfx(
     const eyePivot = new THREE.Group();
     eyeAssembly.add(eyePivot);
 
-    const scleraMat = new THREE.MeshStandardMaterial({
+    const scleraMat = new THREE.MeshLambertMaterial({
       color: 0xfef3c7,
       emissive: 0xf59e0b,
-      emissiveIntensity: 0.25,
-      roughness: 0.22,
-      metalness: 0.08,
+      emissiveIntensity: 0.28,
       flatShading: true,
     });
     const scleraMesh = new THREE.Mesh(geos.eyeScleraGeo, scleraMat);
@@ -502,12 +566,10 @@ export function createEnhancedHazardVfx(
     eyePivot.add(pupilCore);
 
     // Articulated upper & lower obsidian-gold eyelids (pry open on summon, squint when firing!)
-    const lidMat = new THREE.MeshStandardMaterial({
+    const lidMat = new THREE.MeshLambertMaterial({
       color: 0x1e1b2e,
       emissive: 0x92400e,
-      emissiveIntensity: 0.28,
-      roughness: 0.35,
-      metalness: 0.65,
+      emissiveIntensity: 0.32,
       side: THREE.DoubleSide,
       flatShading: true,
     });
@@ -540,12 +602,10 @@ export function createEnhancedHazardVfx(
 
     // 14 orbiting floating obsidian-gold rune obelisk shards (1 InstancedMesh!)
     const SHARD_COUNT = 14;
-    const shardMat = new THREE.MeshStandardMaterial({
+    const shardMat = new THREE.MeshLambertMaterial({
       color: 0xf59e0b,
       emissive: 0xef4444,
       emissiveIntensity: 0.65,
-      roughness: 0.3,
-      metalness: 0.75,
       flatShading: true,
     });
     const shardInst = new THREE.InstancedMesh(geos.eyeShardGeo, shardMat, SHARD_COUNT);
@@ -767,16 +827,12 @@ export function createEnhancedHazardVfx(
       side: THREE.DoubleSide,
       depthWrite: false,
     });
-    const crackMat = new THREE.MeshStandardMaterial({
+    const crackMat = new THREE.MeshLambertMaterial({
       vertexColors: true,
-      roughness: 0.95,
-      metalness: 0.05,
       flatShading: true,
     });
-    const rockMat = new THREE.MeshStandardMaterial({
+    const rockMat = new THREE.MeshLambertMaterial({
       color: 0xffffff,
-      roughness: 0.88,
-      metalness: 0.08,
       flatShading: true,
     });
     const funnelMat = new THREE.MeshBasicMaterial({
@@ -848,11 +904,10 @@ export function createEnhancedHazardVfx(
   // 5. ACID CLOUD (`acid_cloud`) — Merged Toxic Storm Deck + 52 Acid Rain Streaks + 18 Bubbling Puddles!
   // -------------------------------------------------------------------------
   if (kind === 'acid_cloud') {
-    const cloudMat = new THREE.MeshStandardMaterial({
+    const cloudMat = new THREE.MeshLambertMaterial({
       color: 0x365314,
       emissive: 0x84cc16,
       emissiveIntensity: 0.45,
-      roughness: 0.85,
       transparent: true,
       opacity: 0.92,
       flatShading: true,
@@ -931,11 +986,10 @@ export function createEnhancedHazardVfx(
   // 6. BLIZZARD GALE (`blizzard_gale`) — Glacial Storm Canopy + Swirling Funnel + 64 Whipping Ice Shards!
   // -------------------------------------------------------------------------
   if (kind === 'blizzard_gale') {
-    const cloudMat = new THREE.MeshStandardMaterial({
+    const cloudMat = new THREE.MeshLambertMaterial({
       color: 0xdbeafe,
       emissive: 0x38bdf8,
       emissiveIntensity: 0.42,
-      roughness: 0.78,
       transparent: true,
       opacity: 0.9,
       flatShading: true,
@@ -1003,11 +1057,10 @@ export function createEnhancedHazardVfx(
   // 7. LAVA FISSURE (`magma_geyser`) — Tectonic Molten Crack + Roaring Lava Column + 36 Erupting Bombs!
   // -------------------------------------------------------------------------
   if (kind === 'magma_geyser') {
-    const trenchMat = new THREE.MeshStandardMaterial({
+    const trenchMat = new THREE.MeshLambertMaterial({
       vertexColors: true,
       emissive: 0xff4500,
       emissiveIntensity: 0.65,
-      roughness: 0.62,
       flatShading: true,
     });
     const outerJetMat = new THREE.MeshBasicMaterial({
@@ -1219,7 +1272,232 @@ export function createEnhancedHazardVfx(
   }
 
   // -------------------------------------------------------------------------
-  // 10. ANTI-GRAVITY (`gravity_anomaly`) — Violet Distortion Field + Rising Rings + 36 Levitating Rocks!
+  // 10. SOLAR BEAM (`orbital_beam`) — Blazing Voxel Sun + Multi-Layer Cascading Beam + Map-Wide Solar Projectiles!
+  // -------------------------------------------------------------------------
+  if (kind === 'orbital_beam') {
+    const SUN_Y = 17.5;
+    const sunAssembly = new THREE.Group();
+    sunAssembly.position.y = SUN_Y;
+    group.add(sunAssembly);
+
+    // 1. Churning Voxel Sun Core
+    const sunCoreMat = new THREE.MeshLambertMaterial({
+      vertexColors: true,
+      emissive: 0xffb703,
+      emissiveIntensity: 0.92,
+      flatShading: true,
+    });
+    const sunCoreMesh = new THREE.Mesh(geos.sunCoreGeo, sunCoreMat);
+    sunAssembly.add(sunCoreMesh);
+
+    // 2. Jagged 3D Solar Corona Prominences
+    const sunCoronaMat = new THREE.MeshBasicMaterial({
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.94,
+    });
+    const sunCoronaMesh = new THREE.Mesh(geos.sunCoronaGeo, sunCoronaMat);
+    sunAssembly.add(sunCoronaMesh);
+
+    // 3. Additive Golden Solar Halo Aura Sphere
+    const sunAuraMat = new THREE.MeshBasicMaterial({
+      color: 0xffaa00,
+      transparent: true,
+      opacity: 0.34,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    const sunAuraSphere = new THREE.Mesh(geos.flareSphereGeo, sunAuraMat);
+    sunAuraSphere.scale.setScalar(4.15);
+    sunAssembly.add(sunAuraSphere);
+
+    // 4 & 5. Counter-Rotating Tilted Solar Orbital Astrolabe Plasma Rings
+    const sunRingMat1 = new THREE.MeshBasicMaterial({
+      color: 0xfef08a,
+      transparent: true,
+      opacity: 0.85,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    const sunRingMat2 = new THREE.MeshBasicMaterial({
+      color: 0xf97316,
+      transparent: true,
+      opacity: 0.72,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    const sunRingOuter = new THREE.Mesh(geos.torusRingGeo, sunRingMat1);
+    sunRingOuter.scale.setScalar(3.55);
+    sunRingOuter.rotation.x = Math.PI * 0.36;
+    sunAssembly.add(sunRingOuter);
+
+    const sunRingInner = new THREE.Mesh(geos.torusRingGeo, sunRingMat2);
+    sunRingInner.scale.setScalar(4.35);
+    sunRingInner.rotation.x = -Math.PI * 0.42;
+    sunRingInner.rotation.z = Math.PI * 0.22;
+    sunAssembly.add(sunRingInner);
+
+    // 6. Focusing Plasma Funnel Lens beneath the Sun channeling energy into the beam
+    const lensMat = new THREE.MeshBasicMaterial({
+      color: 0xfde047,
+      transparent: true,
+      opacity: 0.58,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    const lensFunnelMesh = new THREE.Mesh(geos.solarLensGeo, lensMat);
+    lensFunnelMesh.position.y = -2.45;
+    sunAssembly.add(lensFunnelMesh);
+
+    // 7, 8, 9. Triple-Layer High-Energy Solar Beam (White-Gold Core + Golden Plasma Sheath + Fiery Red-Orange Curtain)
+    const beamCoreMat = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.96,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    const beamSheathMat = new THREE.MeshBasicMaterial({
+      color: 0xfacc15,
+      transparent: true,
+      opacity: 0.58,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    const beamOuterMat = new THREE.MeshBasicMaterial({
+      color: 0xf97316,
+      transparent: true,
+      opacity: 0.34,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+
+    const beamCore = new THREE.Mesh(geos.lightPillarGeo, beamCoreMat);
+    const beamSheath = new THREE.Mesh(geos.lightPillarGeo, beamSheathMat);
+    const beamOuter = new THREE.Mesh(geos.lightPillarGeo, beamOuterMat);
+    group.add(beamCore, beamSheath, beamOuter);
+
+    // 10. 16 Cascading Downward Solar Plasma Energy Rings surging from Sun to Ground (1 InstancedMesh!)
+    const RING_COUNT = 16;
+    const beamRingMat = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.86,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    const beamRingsInst = new THREE.InstancedMesh(geos.torusRingGeo, beamRingMat, RING_COUNT);
+    beamRingsInst.frustumCulled = false;
+    for (let i = 0; i < RING_COUNT; i++) {
+      _color.setHex(i % 3 === 0 ? 0xffffff : i % 3 === 1 ? 0xfde047 : 0xf97316);
+      beamRingsInst.setColorAt(i, _color);
+    }
+    if (beamRingsInst.instanceColor) beamRingsInst.instanceColor.needsUpdate = true;
+    group.add(beamRingsInst);
+    instancedMeshes.push(beamRingsInst);
+
+    // 11 & 12. Ground Solar Scorch Magic Circle & Molten Meltdown Flare
+    const groundSigilMat = createMagicCircleMat('solar_orbital_laser', 0.94, 5);
+    const groundSigil = new THREE.Mesh(sharedMagicCircleGeo, groundSigilMat);
+    groundSigil.position.y = 0.16;
+    groundSigil.scale.setScalar(Math.max(2.6, radius * 0.92));
+    group.add(groundSigil);
+
+    const impactFlareMat = new THREE.MeshBasicMaterial({
+      color: 0xfef08a,
+      transparent: true,
+      opacity: 0.88,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    const impactFlare = new THREE.Mesh(geos.flareSphereGeo, impactFlareMat);
+    impactFlare.position.y = 0.55;
+    group.add(impactFlare);
+
+    // 13 & 14. Map-Wide Flaming Solar Projectiles (1 InstancedMesh for cores + 1 InstancedMesh for comet trails!)
+    const MAX_PROJ = 24;
+    const TRAIL_SEGS = 4;
+    const projCoreMat = new THREE.MeshBasicMaterial({
+      vertexColors: true,
+    });
+    const projCoreInst = new THREE.InstancedMesh(geos.solarProjGeo, projCoreMat, MAX_PROJ);
+    projCoreInst.frustumCulled = false;
+    projCoreInst.count = 0;
+    group.add(projCoreInst);
+    instancedMeshes.push(projCoreInst);
+
+    const projTrailMat = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.82,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    const projTrailInst = new THREE.InstancedMesh(geos.flareSphereGeo, projTrailMat, MAX_PROJ * TRAIL_SEGS);
+    projTrailInst.frustumCulled = false;
+    projTrailInst.count = 0;
+    for (let i = 0; i < MAX_PROJ * TRAIL_SEGS; i++) {
+      const seg = i % TRAIL_SEGS;
+      _color.setHex(seg === 0 ? 0xfef08a : seg === 1 ? 0xfb923c : seg === 2 ? 0xf97316 : 0xdc2626);
+      projTrailInst.setColorAt(i, _color);
+    }
+    if (projTrailInst.instanceColor) projTrailInst.instanceColor.needsUpdate = true;
+    group.add(projTrailInst);
+    instancedMeshes.push(projTrailInst);
+
+    materials.push(
+      sunCoreMat,
+      sunCoronaMat,
+      sunAuraMat,
+      sunRingMat1,
+      sunRingMat2,
+      lensMat,
+      beamCoreMat,
+      beamSheathMat,
+      beamOuterMat,
+      beamRingMat,
+      groundSigilMat,
+      impactFlareMat,
+      projCoreMat,
+      projTrailMat,
+    );
+
+    refs.sunAssembly = sunAssembly;
+    refs.sunCoreMesh = sunCoreMesh;
+    refs.sunCoronaMesh = sunCoronaMesh;
+    refs.sunAuraSphere = sunAuraSphere;
+    refs.sunRingOuter = sunRingOuter;
+    refs.sunRingInner = sunRingInner;
+    refs.lensFunnelMesh = lensFunnelMesh;
+    refs.beamCore = beamCore;
+    refs.beamSheath = beamSheath;
+    refs.beamOuter = beamOuter;
+    refs.beamRingsInst = beamRingsInst;
+    refs.groundSigil = groundSigil;
+    refs.impactFlare = impactFlare;
+    refs.projCoreInst = projCoreInst;
+    refs.projTrailInst = projTrailInst;
+    refs.sunAuraMat = sunAuraMat;
+    refs.beamCoreMat = beamCoreMat;
+    refs.beamSheathMat = beamSheathMat;
+    refs.beamOuterMat = beamOuterMat;
+    refs.impactFlareMat = impactFlareMat;
+    refs.ringCount = RING_COUNT;
+    refs.maxProj = MAX_PROJ;
+    refs.trailSegs = TRAIL_SEGS;
+    refs.sunY = SUN_Y;
+    refs.lastFlareCount = 0;
+
+    return { kind, group, materials, geometries, instancedMeshes, particleTimer: 0, refs };
+  }
+
+  // -------------------------------------------------------------------------
+  // 11. ANTI-GRAVITY (`gravity_anomaly`) — Violet Distortion Field + Rising Rings + 36 Levitating Rocks!
   // -------------------------------------------------------------------------
   const domeMat = new THREE.MeshBasicMaterial({
     color: 0x818cf8,
@@ -1231,11 +1509,10 @@ export function createEnhancedHazardVfx(
   });
   const violetMat = createMagicCircleMat('gravity_flip', 0.9, 0);
   const deepMat = createMagicCircleMat('gravity_flip', 0.78, 2);
-  const rubbleMat = new THREE.MeshStandardMaterial({
+  const rubbleMat = new THREE.MeshLambertMaterial({
     color: 0xffffff,
     emissive: 0x6366f1,
     emissiveIntensity: 0.38,
-    roughness: 0.72,
     flatShading: true,
   });
   materials.push(domeMat, violetMat, deepMat, rubbleMat);
@@ -2051,6 +2328,178 @@ export function updateEnhancedHazardVfx(
 
     if (emitParticles) {
       particles.spawnRising(haz.x, hy + 0.3, haz.z, 2, '#38bdf8', r * 0.75, 4.0, 0.75, 0.85);
+    }
+    return;
+  }
+
+  // -------------------------------------------------------------------------
+  // 10. SOLAR BEAM (`orbital_beam`) — Blazing Voxel Sun + Cascading Beam + Map-Wide Lava Projectiles!
+  // -------------------------------------------------------------------------
+  if (vfx.kind === 'orbital_beam') {
+    const sunAssembly = refs.sunAssembly as THREE.Group;
+    const sunCoreMesh = refs.sunCoreMesh as THREE.Mesh;
+    const sunCoronaMesh = refs.sunCoronaMesh as THREE.Mesh;
+    const sunAuraSphere = refs.sunAuraSphere as THREE.Mesh;
+    const sunRingOuter = refs.sunRingOuter as THREE.Mesh;
+    const sunRingInner = refs.sunRingInner as THREE.Mesh;
+    const lensFunnelMesh = refs.lensFunnelMesh as THREE.Mesh;
+    const beamCore = refs.beamCore as THREE.Mesh;
+    const beamSheath = refs.beamSheath as THREE.Mesh;
+    const beamOuter = refs.beamOuter as THREE.Mesh;
+    const beamRingsInst = refs.beamRingsInst as THREE.InstancedMesh;
+    const groundSigil = refs.groundSigil as THREE.Mesh;
+    const impactFlare = refs.impactFlare as THREE.Mesh;
+    const projCoreInst = refs.projCoreInst as THREE.InstancedMesh;
+    const projTrailInst = refs.projTrailInst as THREE.InstancedMesh;
+    const sunAuraMat = refs.sunAuraMat as THREE.MeshBasicMaterial;
+    const beamCoreMat = refs.beamCoreMat as THREE.MeshBasicMaterial;
+    const beamSheathMat = refs.beamSheathMat as THREE.MeshBasicMaterial;
+    const beamOuterMat = refs.beamOuterMat as THREE.MeshBasicMaterial;
+    const impactFlareMat = refs.impactFlareMat as THREE.MeshBasicMaterial;
+    const ringCount = refs.ringCount as number;
+    const maxProj = refs.maxProj as number;
+    const trailSegs = refs.trailSegs as number;
+    const sunY = refs.sunY as number;
+
+    const r = haz.radius;
+    // Smooth 3-stage Sun ignition -> full blazing radiance -> solar collapse
+    const igniteT = Math.min(1, progress / 0.08);
+    const igniteEase = 1 - (1 - igniteT) * (1 - igniteT);
+    const collapseFade = Math.min(1, haz.remaining / 0.95);
+    const sunEnv = igniteEase * collapseFade;
+    const beamDescend = Math.min(1, progress / 0.06);
+
+    // Flare burst pulse when the Sun launches a new salvo of solar projectiles!
+    const curFlareCount = haz.solarFlareCount ?? 0;
+    const prevFlareCount = refs.lastFlareCount as number;
+    if (curFlareCount > prevFlareCount) {
+      refs.lastFlareCount = curFlareCount;
+      particles.spawnBurst(haz.x, hy + sunY, haz.z, 12, '#fde047', 2.4, 7.5, 1.15);
+      particles.spawnImpactFlash?.(haz.x, hy + sunY, haz.z, '#ffaa00', 22, 0.025);
+    }
+
+    const pulse = 0.92 + Math.sin(elapsed * 24) * 0.09 + Math.sin(elapsed * 11) * 0.05;
+    const sunScale = (0.95 + Math.sin(elapsed * 5.2) * 0.06) * sunEnv;
+
+    // Animate Overhead Voxel Sun
+    sunAssembly.position.y = sunY + Math.sin(elapsed * 2.4) * 0.35;
+    sunAssembly.scale.setScalar(Math.max(0.001, sunScale));
+    sunCoreMesh.rotation.set(elapsed * 0.55, elapsed * 0.92, elapsed * 0.31);
+    sunCoronaMesh.rotation.set(-elapsed * 0.42, -elapsed * 1.15, elapsed * 0.68);
+    sunCoronaMesh.scale.setScalar(0.96 + Math.sin(elapsed * 9.5) * 0.1);
+    sunAuraSphere.scale.setScalar(4.15 + Math.sin(elapsed * 7.2) * 0.38);
+    sunAuraMat.opacity = 0.34 * sunEnv;
+    sunRingOuter.rotation.z = elapsed * 1.9;
+    sunRingOuter.rotation.y = elapsed * 0.7;
+    sunRingInner.rotation.z = -elapsed * 2.4;
+    sunRingInner.rotation.y = -elapsed * 1.1;
+    lensFunnelMesh.rotation.y = elapsed * 3.8;
+
+    // Animate Multi-Layer Solar Beam connecting the Sun's Aperture Lens down to the Ground
+    const beamTop = sunAssembly.position.y - 1.6;
+    const beamBot = beamTop * (1 - beamDescend);
+    const beamH = Math.max(0.1, beamTop - beamBot);
+    const beamMid = (beamTop + beamBot) * 0.5;
+    const beamWidthEnv = Math.min(1, beamDescend * 1.2) * collapseFade;
+
+    beamCore.position.y = beamMid;
+    beamCore.scale.set(0.68 * pulse * beamWidthEnv, beamH, 0.68 * pulse * beamWidthEnv);
+    beamCore.rotation.y = elapsed * 4.2;
+    beamCoreMat.opacity = 0.95 * beamWidthEnv;
+
+    beamSheath.position.y = beamMid;
+    beamSheath.scale.set(1.42 * pulse * beamWidthEnv, beamH, 1.42 * pulse * beamWidthEnv);
+    beamSheath.rotation.y = -elapsed * 3.4;
+    beamSheathMat.opacity = 0.56 * beamWidthEnv;
+
+    beamOuter.position.y = beamMid;
+    beamOuter.scale.set(Math.max(2.1, r * 0.54) * pulse * beamWidthEnv, beamH, Math.max(2.1, r * 0.54) * pulse * beamWidthEnv);
+    beamOuter.rotation.y = elapsed * 2.1;
+    beamOuterMat.opacity = 0.32 * beamWidthEnv;
+
+    // 16 Cascading Plasma Rings rushing down the Solar Beam from Sun -> Ground
+    for (let i = 0; i < ringCount; i++) {
+      const cycle = ((elapsed * 2.35 + i / ringCount) % 1 + 1) % 1;
+      const py = beamTop - cycle * beamH;
+      const ringR = (0.95 + Math.sin(cycle * Math.PI) * 0.95 + (i % 2) * 0.35) * pulse * beamWidthEnv;
+      _pos.set(0, py, 0);
+      _euler.set(Math.PI * 0.5 + Math.sin(elapsed * 5 + i) * 0.14, elapsed * 3.5 + i * 0.6, 0);
+      _quat.setFromEuler(_euler);
+      _scale.set(ringR, ringR, Math.max(0.01, beamWidthEnv * 1.35));
+      _mat4.compose(_pos, _quat, _scale);
+      beamRingsInst.setMatrixAt(i, _mat4);
+    }
+    beamRingsInst.instanceMatrix.needsUpdate = true;
+
+    // Ground Meltdown Impact Zone
+    groundSigil.rotation.set(0, elapsed * 2.6, 0);
+    groundSigil.scale.setScalar(Math.max(2.5, r * 0.94) * (0.94 + Math.sin(elapsed * 12) * 0.07) * beamWidthEnv);
+    impactFlare.scale.set(1.65 * pulse * beamWidthEnv, 0.95 * pulse * beamWidthEnv, 1.65 * pulse * beamWidthEnv);
+    impactFlareMat.opacity = 0.86 * beamWidthEnv;
+
+    // Render ALL In-Flight Map-Wide Solar Projectiles + 4-Segment Blazing Comet Trails!
+    const projs = haz.solarProjectiles;
+    const activeCount = projs ? Math.min(maxProj, projs.length) : 0;
+    projCoreInst.count = activeCount;
+    projTrailInst.count = activeCount * trailSegs;
+    for (let i = 0; i < activeCount; i++) {
+      const p = projs![i];
+      const t = Math.min(1, Math.max(0, p.progress));
+      const targetGroundY = particles.getGroundY(p.targetX, p.targetZ);
+      const startWorldY = hy + p.startY;
+      // Parabolic arc from the Sun's corona high across the sky to any tile on the map
+      const wx = p.startX + (p.targetX - p.startX) * t;
+      const wz = p.startZ + (p.targetZ - p.startZ) * t;
+      const linearY = startWorldY + (targetGroundY - startWorldY) * t;
+      const arcLift = 4 * t * (1 - t) * Math.max(2.5, p.peakY - Math.max(startWorldY, targetGroundY));
+      const wy = linearY + arcLift;
+
+      // Local coordinates relative to hv.group (which sits at haz.x, hy, haz.z)
+      _pos.set(wx - haz.x, wy - hy, wz - haz.z);
+      _euler.set(elapsed * 6.5 + i * 1.1, elapsed * 8.2 + i, elapsed * 5.0);
+      _quat.setFromEuler(_euler);
+      const projScale = 0.95 + Math.sin(elapsed * 18 + i) * 0.14;
+      _scale.setScalar(projScale);
+      _mat4.compose(_pos, _quat, _scale);
+      projCoreInst.setMatrixAt(i, _mat4);
+
+      // 4 glowing fiery comet tail spheres trailing smoothly back along the parabola
+      for (let s = 0; s < trailSegs; s++) {
+        const ts = Math.max(0, t - (s + 1) * 0.036);
+        const twx = p.startX + (p.targetX - p.startX) * ts;
+        const twz = p.startZ + (p.targetZ - p.startZ) * ts;
+        const tLinY = startWorldY + (targetGroundY - startWorldY) * ts;
+        const tLift = 4 * ts * (1 - ts) * Math.max(2.5, p.peakY - Math.max(startWorldY, targetGroundY));
+        const twy = tLinY + tLift;
+        const segScale = Math.max(0.18, (0.78 - s * 0.15) * (t > 0.02 ? 1 : 0.2));
+        _pos2.set(twx - haz.x, twy - hy, twz - haz.z);
+        _quat.identity();
+        _scale.setScalar(segScale);
+        _mat4.compose(_pos2, _quat, _scale);
+        projTrailInst.setMatrixAt(i * trailSegs + s, _mat4);
+      }
+    }
+    if (activeCount > 0) {
+      projCoreInst.instanceMatrix.needsUpdate = true;
+      projTrailInst.instanceMatrix.needsUpdate = true;
+    }
+
+    // Drain recent solar projectile impacts -> explosive lava splash bursts + light flashes across the map!
+    if (haz.recentSolarImpacts && haz.recentSolarImpacts.length > 0) {
+      for (let ii = 0; ii < haz.recentSolarImpacts.length; ii++) {
+        const imp = haz.recentSolarImpacts[ii];
+        const igy = particles.getGroundY(imp.x, imp.z);
+        particles.spawnBurst(imp.x, igy + 0.45, imp.z, 18, '#ff5400', imp.radius * 0.95, 7.2, 1.15);
+        particles.spawnBurst(imp.x, igy + 0.65, imp.z, 10, '#fef08a', imp.radius * 0.6, 5.4, 0.95);
+        particles.spawnRising(imp.x, igy + 0.3, imp.z, 6, '#fb923c', imp.radius * 0.85, 5.2, 0.85, 1.0);
+        particles.spawnImpactFlash?.(imp.x, igy + 1.4, imp.z, '#ff6b00', 22, 0.035);
+      }
+      haz.recentSolarImpacts.length = 0;
+    }
+
+    if (emitParticles) {
+      particles.spawnBurst(haz.x, hy + 0.35, haz.z, 3, '#fb923c', 1.4, 6.2, 0.95);
+      particles.spawnRising(haz.x, hy + 0.3, haz.z, 2, '#fde047', r * 0.55, 5.8, 0.72, 0.85);
     }
     return;
   }

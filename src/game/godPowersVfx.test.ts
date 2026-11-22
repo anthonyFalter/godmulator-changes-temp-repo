@@ -13,9 +13,15 @@ import {
 import {
   castGodPower,
   createInitialSimulationState,
+  placeBuilding,
   spawnUnit,
   stepSimulation,
 } from './simulation';
+import {
+  DEFAULT_GRAPHICS_SETTINGS,
+  applyGraphicsPreset,
+  sanitizeGraphicsSettings,
+} from './graphics';
 import type { ActiveHazardZone } from './types';
 
 function makeDummyCircleMat() {
@@ -186,5 +192,120 @@ describe('God Powers Dramatic VFX & Gameplay Rework', () => {
 
     magicCircleGeo.dispose();
     geos.dispose();
+  });
+
+  it('reworks Solar Beam into a blazing overhead Sun that periodically launches map-wide solar projectiles creating lava on impact', () => {
+    assert.ok(ENHANCED_HAZARD_KINDS.has('orbital_beam'), 'orbital_beam should use the enhanced Sun + Beam VFX');
+
+    const state = createInitialSimulationState();
+    state.sandboxFreeMode = true;
+    const center = Math.floor(state.gridSize / 2);
+
+    const res = castGodPower(state, 'solar_orbital_laser', center, center);
+    assert.equal(res.ok, true);
+
+    const beamHaz = state.activeHazards.find((h) => h.kind === 'orbital_beam');
+    assert.ok(beamHaz, 'orbital_beam hazard should spawn');
+    assert.ok(beamHaz.duration >= 8.0, 'Solar Beam should stay active long enough for multiple flare salvos');
+
+    let sawInFlightProjectiles = false;
+    const impactPositions: Array<{ x: number; z: number }> = [];
+
+    for (let step = 0; step < 65; step++) {
+      stepSimulation(state, 0.1);
+      if ((beamHaz.solarProjectiles?.length ?? 0) > 0) {
+        sawInFlightProjectiles = true;
+      }
+      if (beamHaz.recentSolarImpacts && beamHaz.recentSolarImpacts.length > 0) {
+        for (const imp of beamHaz.recentSolarImpacts) {
+          impactPositions.push({ x: imp.x, z: imp.z });
+        }
+        beamHaz.recentSolarImpacts.length = 0;
+      }
+    }
+
+    assert.equal(sawInFlightProjectiles, true, 'Sun should periodically launch solar projectiles');
+    assert.ok(impactPositions.length >= 6, `Expected >= 6 map-wide solar impacts, got ${impactPositions.length}`);
+
+    // Verify impacts spread across multiple distinct quadrants of the map
+    const half = state.gridSize / 2;
+    const quadrantsHit = new Set(
+      impactPositions.map((p) => `${p.x < half ? 'W' : 'E'}${p.z < half ? 'N' : 'S'}`),
+    );
+    assert.ok(quadrantsHit.size >= 3, `Solar projectiles should hit across the map (quadrants hit: ${quadrantsHit.size})`);
+
+    // Verify landing projectiles created real glowing molten lava tiles
+    const lavaTiles = state.tiles.filter((t) => t.waterKind === 'lava');
+    assert.ok(lavaTiles.length >= 12, `Expected >= 12 molten lava tiles from impacts, got ${lavaTiles.length}`);
+  });
+
+  it('tracks WorldStats accurately for births, deaths, cities created/destroyed, wildlife, and mythical creatures', () => {
+    const state = createInitialSimulationState();
+    state.sandboxFreeMode = true;
+    const landTile = state.tiles.find((t) => t.height >= 1 && t.height <= 4 && !t.buildingId);
+    assert.ok(landTile, 'Expected a land tile');
+
+    const startStats = { ...(state.worldStats!) };
+
+    // Spawn a newborn citizen, a wildlife animal, and a mythical dragon
+    const birthRes = spawnUnit(state, 'human', landTile.x, landTile.z, true, undefined, {
+      ageStage: 'child',
+      isBirth: true,
+    });
+    assert.equal(birthRes.ok, true);
+
+    const wolfRes = spawnUnit(state, 'wolf', landTile.x, landTile.z, true);
+    assert.equal(wolfRes.ok, true);
+
+    const dragonRes = spawnUnit(state, 'dragon', landTile.x, landTile.z, true);
+    assert.equal(dragonRes.ok, true);
+
+    assert.equal(state.worldStats!.totalBirths, startStats.totalBirths + 1);
+    assert.equal(state.worldStats!.wildlifeSpawned, startStats.wildlifeSpawned + 1);
+    assert.equal(state.worldStats!.mythicalSpawned, startStats.mythicalSpawned + 1);
+
+    // Kill the wildlife and mythical unit and step past koTimer
+    wolfRes.unit!.hp = 0;
+    dragonRes.unit!.hp = 0;
+    for (let i = 0; i < 12; i++) {
+      stepSimulation(state, 0.1);
+    }
+
+    assert.ok(state.worldStats!.totalDeaths >= startStats.totalDeaths + 2);
+    assert.ok(state.worldStats!.wildlifeDeaths >= startStats.wildlifeDeaths + 1);
+    assert.ok(state.worldStats!.mythicalDeaths >= startStats.mythicalDeaths + 1);
+
+    // Create a brand new isolated city via building placement and then destroy it
+    const isolatedTile = state.tiles.find(
+      (t) =>
+        t.height >= 1 &&
+        t.height <= 3 &&
+        !t.buildingId &&
+        state.buildings.every((b) => Math.hypot(b.tileX - t.x, b.tileZ - t.z) > 16),
+    );
+    if (isolatedTile) {
+      const citiesBefore = state.worldStats!.citiesCreated;
+      const destroyedBefore = state.worldStats!.citiesDestroyed;
+      const bldRes = placeBuilding(state, 'bonfire', isolatedTile.x, isolatedTile.z);
+      assert.equal(bldRes.ok, true);
+      assert.equal(state.worldStats!.citiesCreated, citiesBefore + 1);
+
+      const newBld = state.buildings.find((b) => b.tileX === isolatedTile.x && b.tileZ === isolatedTile.z);
+      assert.ok(newBld);
+      // Remove any adopted units in that settlement so destroying the building destroys the city
+      state.units = state.units.filter((u) => u.settlementId !== newBld.settlementId);
+      newBld.hp = 0;
+      stepSimulation(state, 0.1);
+      assert.equal(state.worldStats!.citiesDestroyed, destroyedBefore + 1);
+      assert.ok(state.worldStats!.buildingsDestroyed >= 1);
+    }
+  });
+
+  it('defaults cameraShake to true and preserves disabled state through sanitizeGraphicsSettings and applyGraphicsPreset', () => {
+    assert.equal(DEFAULT_GRAPHICS_SETTINGS.cameraShake, true);
+    assert.equal(sanitizeGraphicsSettings({}).cameraShake, true);
+    assert.equal(sanitizeGraphicsSettings({ cameraShake: false }).cameraShake, false);
+    assert.equal(applyGraphicsPreset('fast', true, true, false, false).cameraShake, false);
+    assert.equal(applyGraphicsPreset('high', true, true, false, true).cameraShake, true);
   });
 });
