@@ -33,7 +33,22 @@ import {
 } from './game/simulation';
 import { normalizeSeed } from './game/worldGen';
 import { soundEngine } from './game/sound';
-import { toggleUnitFavorite } from './game/entityInspector';
+import {
+  generateUnitGenes,
+  generateUnitItems,
+  toggleUnitFavorite,
+} from './game/entityInspector';
+import {
+  addUnitItem,
+  generateUnitTraits,
+  healUnitFull,
+  removeUnitItem,
+  resetUnitStatBonuses,
+  setUnitAgeYears,
+  setUnitStatValue,
+  toggleUnitGene,
+  toggleUnitTrait,
+} from './game/unitCustomization';
 import {
   DEFAULT_BRUSH_SIZE,
   getPowerClusterCount,
@@ -3175,6 +3190,100 @@ export default function App() {
                   }
                   setStatusFeedback(`Renamed kingdom to ${newName}`);
                   setHudTick((v) => v + 1);
+                }}
+                onSetUnitStat={(unitId, statKey, value) => {
+                  const target = simRef.current.units.find((u) => u.id === unitId);
+                  if (!target) return;
+                  if (target.traits === undefined) {
+                    target.traits = generateUnitTraits(target.role, target.species, target.appearanceSeed);
+                  }
+                  if (target.genes === undefined) {
+                    target.genes = generateUnitGenes(target.role, target.species, target.appearanceSeed);
+                  }
+                  if (target.items === undefined) {
+                    target.items = generateUnitItems(
+                      target.role,
+                      target.species,
+                      simRef.current.epochIndex,
+                      target.appearanceSeed,
+                    );
+                  }
+                  setUnitStatValue(target, statKey, value);
+                  setHudTick((v) => v + 1);
+                }}
+                onResetUnitStats={(unitId) => {
+                  const target = simRef.current.units.find((u) => u.id === unitId);
+                  if (!target) return;
+                  resetUnitStatBonuses(target);
+                  setStatusFeedback(`Reset ${target.name}'s stat edits`);
+                  setHudTick((v) => v + 1);
+                }}
+                onHealUnit={(unitId) => {
+                  const target = simRef.current.units.find((u) => u.id === unitId);
+                  if (!target) return;
+                  healUnitFull(target);
+                  soundEngine.playClick();
+                  setStatusFeedback(`Restored ${target.name} to full health`);
+                  setHudTick((v) => v + 1);
+                }}
+                onSetUnitAge={(unitId, ageYears) => {
+                  const target = simRef.current.units.find((u) => u.id === unitId);
+                  if (!target) return;
+                  setUnitAgeYears(target, ageYears);
+                  setHudTick((v) => v + 1);
+                }}
+                onToggleUnitTrait={(unitId, traitId) => {
+                  const target = simRef.current.units.find((u) => u.id === unitId);
+                  if (!target) return;
+                  if (target.traits === undefined) {
+                    target.traits = generateUnitTraits(target.role, target.species, target.appearanceSeed);
+                  }
+                  toggleUnitTrait(target, traitId);
+                  soundEngine.playClick();
+                  setHudTick((v) => v + 1);
+                }}
+                onToggleUnitGene={(unitId, geneName) => {
+                  const target = simRef.current.units.find((u) => u.id === unitId);
+                  if (!target) return;
+                  if (target.genes === undefined) {
+                    target.genes = generateUnitGenes(target.role, target.species, target.appearanceSeed);
+                  }
+                  toggleUnitGene(target, geneName);
+                  soundEngine.playClick();
+                  setHudTick((v) => v + 1);
+                }}
+                onAddUnitItem={(unitId, itemName) => {
+                  const target = simRef.current.units.find((u) => u.id === unitId);
+                  if (!target) return;
+                  if (target.items === undefined) {
+                    target.items = generateUnitItems(
+                      target.role,
+                      target.species,
+                      simRef.current.epochIndex,
+                      target.appearanceSeed,
+                    );
+                  }
+                  if (addUnitItem(target, itemName)) {
+                    soundEngine.playClick();
+                    setStatusFeedback(`Gave ${itemName} to ${target.name}`);
+                    setHudTick((v) => v + 1);
+                  }
+                }}
+                onRemoveUnitItem={(unitId, itemIndex) => {
+                  const target = simRef.current.units.find((u) => u.id === unitId);
+                  if (!target) return;
+                  if (target.items === undefined) {
+                    target.items = generateUnitItems(
+                      target.role,
+                      target.species,
+                      simRef.current.epochIndex,
+                      target.appearanceSeed,
+                    );
+                  }
+                  if (removeUnitItem(target, itemIndex)) {
+                    soundEngine.playClick();
+                    setHudTick((v) => v + 1);
+                  }
                 }}
               />
             )}

@@ -14,6 +14,18 @@ import {
   UnitStatusEffect,
 } from './types';
 
+import {
+  EffectiveUnitStats,
+  GeneDefinition,
+  ItemDefinition,
+  TRAIT_BY_ID,
+  TraitDefinition,
+  computeUnitEffectiveStats,
+  generateUnitTraits,
+  resolveGeneInfo,
+  resolveItemInfo,
+} from './unitCustomization';
+
 export type DietCategory =
   | 'Herbivore'
   | 'Carnivore'
@@ -47,13 +59,37 @@ export interface EntityInspectProfile {
     attackDamage: number;
     attackRange: number;
     speed: number;
+    armor: number;
+    critChance: number;
+    regenPerSec: number;
+    attackSpeedMult: number;
+    harvestMult: number;
+    kills: number;
+    fireproof: boolean;
+    thorns: boolean;
+    venomous: boolean;
+    vampiric: boolean;
     statusEffects: UnitStatusEffect[];
     breathCooldown: number | null;
     tileX: number;
     tileZ: number;
   };
+  baseStats: EffectiveUnitStats;
+  hasStatOverrides: boolean;
+  traits: TraitDefinition[];
   items: string[];
+  itemDetails: {
+    name: string;
+    isCargo: boolean;
+    itemIndex: number | null;
+    info: ItemDefinition;
+  }[];
   genes: string[];
+  geneDetails: {
+    name: string;
+    isIntrinsic: boolean;
+    info: GeneDefinition;
+  }[];
   favorite: boolean;
 }
 
@@ -1179,7 +1215,7 @@ export function getEntityInspectProfile(
   const { subtitle, factionLabel } = getSubtitleAndFaction(unit);
 
   const baseItems =
-    unit.items && unit.items.length > 0
+    unit.items !== undefined
       ? unit.items
       : generateUnitItems(
           unit.role,
@@ -1195,27 +1231,45 @@ export function getEntityInspectProfile(
   const items = cargoLabel ? [cargoLabel, ...baseItems] : [...baseItems];
 
   const genes =
-    unit.genes && unit.genes.length > 0
+    unit.genes !== undefined
       ? [...unit.genes]
       : generateUnitGenes(unit.role, unit.species, unit.appearanceSeed, dinoDiet);
+
+  const traitIds =
+    unit.traits !== undefined
+      ? unit.traits
+      : generateUnitTraits(unit.role, unit.species, unit.appearanceSeed);
+  const traits: TraitDefinition[] = [];
+  for (const tid of traitIds) {
+    const tdef = TRAIT_BY_ID.get(tid);
+    if (tdef) traits.push(tdef);
+  }
 
   const activeEffects = (Object.keys(unit.statusEffects) as UnitStatusEffect[]).filter(
     (k) => (unit.statusEffects[k] ?? 0) > 0,
   );
 
-  const attackMult = unit.statusEffects.frenzied ? 1.45 : unit.statusEffects.blessed ? 1.2 : 1;
-  const speedMult = unit.statusEffects.frozen
-    ? 0.08
-    : unit.statusEffects.frenzied
-      ? 1.35
-      : unit.statusEffects.cursed || unit.statusEffects.plagued
-        ? 0.78
-        : 1;
-
-  const baseAtk = def?.attackDamage ?? 8;
-  const baseRng = def?.attackRange ?? 1.2;
-  const baseSpd = def?.speed ?? 2.2;
-  const ageMult = unit.ageStage === 'child' ? 0.75 : 1;
+  const worldImmortal = state.worldRules?.immortalEntities === true;
+  const effectiveWithStatus = computeUnitEffectiveStats(
+    {
+      ...unit,
+      traits: traitIds,
+      genes,
+      items: baseItems,
+    },
+    def,
+    { includeStatusEffects: true, worldImmortal },
+  );
+  const baseStats = computeUnitEffectiveStats(
+    {
+      ...unit,
+      traits: traitIds,
+      genes,
+      items: baseItems,
+    },
+    def,
+    { includeStatusEffects: false, worldImmortal },
+  );
 
   const settlementName =
     unit.settlementId && state.settlementNames?.[unit.settlementId]
@@ -1226,16 +1280,57 @@ export function getEntityInspectProfile(
     0,
     Math.floor(unit.ageYears ?? (state.year - (unit.bornYear ?? state.year))),
   );
-  const immortal = state.worldRules?.immortalEntities === true;
-  const maxLifespan = immortal ? null : getUnitMaxLifespan({
-    role: unit.role,
-    species: unit.species,
-    appearanceSeed: unit.appearanceSeed,
-    genes,
-    maxLifespan: unit.maxLifespan,
-  });
+  const immortal = worldImmortal || effectiveWithStatus.immortal;
+  const maxLifespan = immortal
+    ? null
+    : unit.maxLifespan !== undefined
+      ? Math.max(10, Math.round(unit.maxLifespan))
+      : Math.max(
+          10,
+          Math.round(
+            getUnitMaxLifespan({
+              role: unit.role,
+              species: unit.species,
+              appearanceSeed: unit.appearanceSeed,
+              genes,
+            }) + effectiveWithStatus.lifespanBonus,
+          ),
+        );
   const maxHp = Math.max(1, Math.round(unit.maxHp));
   const hp = Math.max(0, Math.round(unit.hp));
+
+  const itemDetails: EntityInspectProfile['itemDetails'] = [];
+  if (cargoLabel) {
+    itemDetails.push({
+      name: cargoLabel,
+      isCargo: true,
+      itemIndex: null,
+      info: resolveItemInfo(cargoLabel),
+    });
+  }
+  for (let idx = 0; idx < baseItems.length; idx++) {
+    const itemName = baseItems[idx];
+    itemDetails.push({
+      name: itemName,
+      isCargo: false,
+      itemIndex: idx,
+      info: resolveItemInfo(itemName),
+    });
+  }
+
+  const geneDetails: EntityInspectProfile['geneDetails'] = genes.map((gene, idx) => {
+    const intrinsic = isIntrinsicGene(gene) || (idx === 0 && unit.genes === undefined);
+    return {
+      name: gene,
+      isIntrinsic: intrinsic,
+      info: resolveGeneInfo(gene, intrinsic),
+    };
+  });
+
+  const hasStatOverrides = Boolean(
+    unit.statBonuses &&
+      Object.values(unit.statBonuses).some((v) => typeof v === 'number' && Math.abs(v) > 0.001),
+  );
 
   return {
     id: unit.id,
@@ -1253,9 +1348,19 @@ export function getEntityInspectProfile(
       immortal,
       settlementName,
       activity: formatActivity(unit),
-      attackDamage: Math.round(baseAtk * attackMult * ageMult),
-      attackRange: Number(baseRng.toFixed(1)),
-      speed: Number((baseSpd * speedMult).toFixed(1)),
+      attackDamage: effectiveWithStatus.attackDamage,
+      attackRange: Number(effectiveWithStatus.attackRange.toFixed(1)),
+      speed: Number(effectiveWithStatus.speed.toFixed(1)),
+      armor: effectiveWithStatus.armor,
+      critChance: effectiveWithStatus.critChance,
+      regenPerSec: effectiveWithStatus.regenPerSec,
+      attackSpeedMult: effectiveWithStatus.attackSpeedMult,
+      harvestMult: effectiveWithStatus.harvestMult,
+      kills: Math.max(0, Math.floor(unit.kills ?? 0)),
+      fireproof: effectiveWithStatus.fireproof,
+      thorns: effectiveWithStatus.thorns,
+      venomous: effectiveWithStatus.venomous,
+      vampiric: effectiveWithStatus.vampiric,
       statusEffects: activeEffects,
       breathCooldown:
         unit.role === 'dragon'
@@ -1264,8 +1369,13 @@ export function getEntityInspectProfile(
       tileX: Math.round(unit.x),
       tileZ: Math.round(unit.z),
     },
+    baseStats,
+    hasStatOverrides,
+    traits,
     items,
+    itemDetails,
     genes,
+    geneDetails,
     favorite: Boolean(unit.favorite),
   };
 }

@@ -1,8 +1,23 @@
-import React, { useState } from 'react';
-import { getEntityInspectProfile, isIntrinsicGene } from '../game/entityInspector';
-import { Resources, SimulationState, UnitEntity, UnitStatusEffect, ZoneToggleState } from '../game/types';
+import React, { useMemo, useState } from 'react';
+import { getEntityInspectProfile } from '../game/entityInspector';
+import {
+  Resources,
+  SimulationState,
+  UnitEntity,
+  UnitStatKey,
+  UnitStatusEffect,
+  ZoneToggleState,
+} from '../game/types';
+import {
+  ItemSlot,
+  TraitCategory,
+  UNIT_GENES,
+  UNIT_ITEMS,
+  UNIT_TRAITS,
+  formatModifierList,
+} from '../game/unitCustomization';
 import { TileZoneInspection } from '../game/zones';
-import { HudPixelIcon, ResourceIconSvg, UnitPixelIcon } from './GameIcons';
+import { HudPixelIcon, InspectorPixelIcon, ResourceIconSvg, UnitPixelIcon } from './GameIcons';
 
 const INSPECT_RESOURCE_KEYS: { key: keyof Resources; label: string }[] = [
   { key: 'food', label: 'Food' },
@@ -14,7 +29,18 @@ const INSPECT_RESOURCE_KEYS: { key: keyof Resources; label: string }[] = [
   { key: 'faith', label: 'God Energy' },
 ];
 
-interface EntityInspectorCardProps {
+export interface UnitEditHandlers {
+  onSetUnitStat?: (unitId: string, stat: UnitStatKey, value: number) => void;
+  onResetUnitStats?: (unitId: string) => void;
+  onHealUnit?: (unitId: string) => void;
+  onSetUnitAge?: (unitId: string, ageYears: number) => void;
+  onToggleUnitTrait?: (unitId: string, traitId: string) => void;
+  onToggleUnitGene?: (unitId: string, geneName: string) => void;
+  onAddUnitItem?: (unitId: string, itemName: string) => void;
+  onRemoveUnitItem?: (unitId: string, itemIndex: number) => void;
+}
+
+interface EntityInspectorCardProps extends UnitEditHandlers {
   sim: SimulationState;
   hoveredUnit: UnitEntity | null;
   selectedUnit: UnitEntity | null;
@@ -30,7 +56,41 @@ interface EntityInspectorCardProps {
   onRenameKingdom?: (kingdomId: string, newName: string) => void;
 }
 
-type InspectorTab = 'profile' | 'traits' | 'favorites';
+type InspectorTab = 'stats' | 'traits' | 'genes' | 'items' | 'favorites';
+
+interface EditableStatMeta {
+  key: UnitStatKey;
+  label: string;
+  step: number;
+  min: number;
+  max: number;
+  suffix?: string;
+}
+
+const EDITABLE_STAT_ROWS: EditableStatMeta[] = [
+  { key: 'maxHp', label: 'Max HP', step: 25, min: 10, max: 9999 },
+  { key: 'attackDamage', label: 'Damage', step: 5, min: 1, max: 999 },
+  { key: 'armor', label: 'Armor', step: 5, min: 0, max: 75, suffix: '%' },
+  { key: 'speed', label: 'Speed', step: 0.5, min: 0.4, max: 12 },
+  { key: 'critChance', label: 'Crit', step: 5, min: 0, max: 85, suffix: '%' },
+  { key: 'attackRange', label: 'Range', step: 0.5, min: 0.8, max: 14 },
+  { key: 'regenPerSec', label: 'Regen', step: 1, min: 0, max: 50, suffix: '/s' },
+];
+
+const TRAIT_FILTERS: { id: 'all' | TraitCategory; label: string }[] = [
+  { id: 'all', label: 'All' },
+  { id: 'combat', label: 'Combat' },
+  { id: 'body', label: 'Body' },
+  { id: 'mind', label: 'Mind' },
+  { id: 'special', label: 'Special' },
+];
+
+const ITEM_FILTERS: { id: Exclude<ItemSlot, 'natural'>; label: string }[] = [
+  { id: 'weapon', label: 'Weapons' },
+  { id: 'armor', label: 'Armor' },
+  { id: 'tool', label: 'Tools' },
+  { id: 'trinket', label: 'Trinkets' },
+];
 
 function formatEffectName(effect: UnitStatusEffect): string {
   switch (effect) {
@@ -49,6 +109,21 @@ function formatEffectName(effect: UnitStatusEffect): string {
   }
 }
 
+function formatSlotLabel(slot: ItemSlot): string {
+  switch (slot) {
+    case 'weapon':
+      return 'Weapon';
+    case 'armor':
+      return 'Armor';
+    case 'tool':
+      return 'Tool';
+    case 'trinket':
+      return 'Trinket';
+    case 'natural':
+      return 'Natural';
+  }
+}
+
 export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
   sim,
   hoveredUnit,
@@ -63,9 +138,21 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
   onRenameUnit,
   onRenameSettlement,
   onRenameKingdom,
+  onSetUnitStat,
+  onResetUnitStats,
+  onHealUnit,
+  onSetUnitAge,
+  onToggleUnitTrait,
+  onToggleUnitGene,
+  onAddUnitItem,
+  onRemoveUnitItem,
 }) => {
-  const [activeTab, setActiveTab] = useState<InspectorTab>('profile');
+  const [activeTab, setActiveTab] = useState<InspectorTab>('stats');
   const [minimized, setMinimized] = useState<boolean>(false);
+  const [editMode, setEditMode] = useState<boolean>(false);
+  const [traitFilter, setTraitFilter] = useState<'all' | TraitCategory>('all');
+  const [geneFilter, setGeneFilter] = useState<'all' | 'mutation' | 'intrinsic'>('all');
+  const [itemFilter, setItemFilter] = useState<Exclude<ItemSlot, 'natural'>>('weapon');
   const [editingTarget, setEditingTarget] = useState<{
     kind: 'unit' | 'settlement' | 'kingdom';
     id: string;
@@ -84,7 +171,8 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
     setEditingTarget(null);
   };
 
-  const displayUnit = hoveredUnit ?? selectedUnit;
+  // While editing, lock onto the selected unit so moving the mouse over the canvas doesn't swap panels
+  const displayUnit = editMode ? (selectedUnit ?? hoveredUnit) : (hoveredUnit ?? selectedUnit);
   const isSelectedDisplayed = Boolean(
     displayUnit && selectedUnit && displayUnit.id === selectedUnit.id,
   );
@@ -92,6 +180,48 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
     displayUnit && followingEntityId && displayUnit.id === followingEntityId,
   );
   const profile = displayUnit ? getEntityInspectProfile(sim, displayUnit) : null;
+
+  const canEdit = Boolean(
+    onSetUnitStat || onToggleUnitTrait || onToggleUnitGene || onAddUnitItem,
+  );
+
+  const toggleEditMode = () => {
+    if (!displayUnit) return;
+    if (!editMode && !isSelectedDisplayed) {
+      onSelectUnit(displayUnit.id);
+    }
+    setEditMode((prev) => !prev);
+  };
+
+  const activeTraitIds = useMemo(
+    () => new Set(profile?.traits.map((t) => t.id) ?? []),
+    [profile?.traits],
+  );
+  const activeGeneNames = useMemo(
+    () => new Set(profile?.genes ?? []),
+    [profile?.genes],
+  );
+
+  const filteredTraits = useMemo(
+    () =>
+      traitFilter === 'all'
+        ? UNIT_TRAITS
+        : UNIT_TRAITS.filter((t) => t.category === traitFilter),
+    [traitFilter],
+  );
+
+  const filteredGenes = useMemo(
+    () =>
+      geneFilter === 'all'
+        ? UNIT_GENES
+        : UNIT_GENES.filter((g) => g.kind === geneFilter),
+    [geneFilter],
+  );
+
+  const filteredCatalogItems = useMemo(
+    () => UNIT_ITEMS.filter((item) => item.slot === itemFilter),
+    [itemFilter],
+  );
 
   if (minimized) {
     return (
@@ -110,15 +240,15 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
     <aside
       aria-label="Entity Information"
       data-testid="entity-inspector-panel"
-      className="pointer-events-auto absolute left-0 top-0 z-10 w-[min(276px,100%)] sm:w-[316px] max-h-[min(240px,100%)] sm:max-h-full px-panel p-2 sm:p-4 flex flex-col gap-2 sm:gap-3.5 overflow-y-auto"
+      className="pointer-events-auto absolute left-0 top-0 z-10 w-[min(320px,100%)] sm:w-[360px] max-h-[min(340px,100%)] sm:max-h-full px-panel p-2.5 sm:p-3.5 flex flex-col gap-2.5 overflow-y-auto"
     >
       {profile && displayUnit ? (
         <>
-          {/* Header Block: Avatar, Name, Affordance & Primary Action Buttons */}
-          <div className="flex items-start justify-between gap-2 sm:gap-3">
-            <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
+          {/* Header Block: Avatar, Name, Subtitle & Primary Actions */}
+          <div className="flex items-start justify-between gap-2 shrink-0">
+            <div className="flex items-center gap-2.5 min-w-0 flex-1">
               <div
-                className="w-9 h-9 sm:w-11 sm:h-11 shrink-0 flex items-center justify-center bg-[#191613] border border-[#2f2720]"
+                className="w-9 h-9 sm:w-10 sm:h-10 shrink-0 flex items-center justify-center bg-[#191613] border border-[#2f2720]"
                 aria-hidden="true"
               >
                 <UnitPixelIcon role={displayUnit.role} className="w-7 h-7 sm:w-8 sm:h-8" />
@@ -178,15 +308,31 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                     )}
                   </div>
                 )}
-                <div className="text-[11px] sm:text-xs text-[#cfc6b8] leading-tight mt-0.5 truncate">
+                <div className="text-[11px] text-[#cfc6b8] leading-tight mt-0.5 truncate">
                   <span>{profile.subtitle}</span>
                 </div>
-
               </div>
             </div>
 
             {/* Action Buttons */}
             <div className="flex items-center gap-1 shrink-0 pt-0.5">
+              {canEdit && (
+                <button
+                  type="button"
+                  data-testid="inspector-edit-toggle-btn"
+                  onClick={toggleEditMode}
+                  aria-label={editMode ? 'Finish editing unit' : 'Edit unit stats and gear'}
+                  title={editMode ? 'Done editing' : 'Edit stats, traits, genes & items'}
+                  className={`h-7 sm:h-8 px-2 flex items-center justify-center cursor-pointer text-[11px] font-bold transition-colors ${
+                    editMode
+                      ? 'px-btn-active text-[#f5b742]'
+                      : 'px-btn text-[#d8cfc2] hover:text-[#f5b742]'
+                  }`}
+                >
+                  {editMode ? 'Done' : 'Edit'}
+                </button>
+              )}
+
               {isSelectedDisplayed ? (
                 <button
                   type="button"
@@ -237,7 +383,10 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
               {selectedUnit && (
                 <button
                   type="button"
-                  onClick={() => onSelectUnit(null)}
+                  onClick={() => {
+                    setEditMode(false);
+                    onSelectUnit(null);
+                  }}
                   aria-label="Unpin selection"
                   title="Unpin selection"
                   className="px-btn w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center cursor-pointer text-[#8f8679] hover:text-[#f2ece1] transition-colors"
@@ -258,13 +407,28 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
             </div>
           </div>
 
-          {/* Integrated Health Gauge: Clean unboxed layout with tabular figures */}
-          <div className="space-y-1.5">
+          {/* Integrated Health Gauge */}
+          <div className="space-y-1 shrink-0">
             <div className="flex items-center justify-between text-xs">
-              <span className="text-[#a89f91]">Health</span>
-              <span className="font-pixel-num text-[11px] text-[#f2ece1] tabular-nums">
-                {profile.informations.hp} / {profile.informations.maxHp}
-              </span>
+              <div className="flex items-center gap-1.5 text-[#a89f91]">
+                <InspectorPixelIcon kind="heart" className="w-3.5 h-3.5 pixelated-canvas" />
+                <span>Health</span>
+              </div>
+              <div className="flex items-center gap-2">
+                {editMode && onHealUnit && (
+                  <button
+                    type="button"
+                    data-testid="inspector-heal-btn"
+                    onClick={() => onHealUnit(displayUnit.id)}
+                    className="px-btn px-1.5 py-0.5 text-[10px] font-bold text-[#80ed99] cursor-pointer"
+                  >
+                    Heal Full
+                  </button>
+                )}
+                <span className="font-pixel-num text-[11px] text-[#f2ece1] tabular-nums">
+                  {profile.informations.hp} / {profile.informations.maxHp}
+                </span>
+              </div>
             </div>
             <div className="w-full h-1.5 bg-[#191613] overflow-hidden">
               <div
@@ -282,65 +446,287 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
             </div>
           </div>
 
-          {/* Progressive Disclosure: Clean Segmented Navigation (No Pill Badges) */}
-          <div className="flex items-center gap-1 border-b border-[#2c2620] pb-1.5 sm:pb-2 text-[11px] sm:text-xs">
-            <button
-              type="button"
-              onClick={() => setActiveTab('profile')}
-              className={`px-2 py-0.5 sm:px-2.5 sm:py-1 font-semibold cursor-pointer transition-colors whitespace-nowrap ${
-                activeTab === 'profile' ? 'px-btn-active text-[#f5b742]' : 'px-btn text-[#a89f91]'
-              }`}
-            >
-              Profile
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('traits')}
-              className={`px-2 py-0.5 sm:px-2.5 sm:py-1 font-semibold cursor-pointer transition-colors whitespace-nowrap ${
-                activeTab === 'traits' ? 'px-btn-active text-[#f5b742]' : 'px-btn text-[#a89f91]'
-              }`}
-            >
-              Traits &amp; Gear
-            </button>
+          {/* Section Navigation Tabs: All tabs always visible without clipping */}
+          <div className="flex items-stretch gap-1 border-b border-[#2c2620] pb-1.5 shrink-0">
+            <div className="grid grid-cols-4 gap-1 flex-1 min-w-0">
+              {(
+                [
+                  { id: 'stats', label: 'Stats', count: null },
+                  { id: 'traits', label: 'Traits', count: profile.traits.length },
+                  { id: 'genes', label: 'Genes', count: profile.genes.length },
+                  { id: 'items', label: 'Items', count: profile.itemDetails.length },
+                ] as { id: InspectorTab; label: string; count: number | null }[]
+              ).map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  data-testid={`inspector-tab-${tab.id}`}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`min-w-0 px-1 py-1 text-[10px] sm:text-[11px] font-semibold cursor-pointer transition-colors flex items-center justify-center gap-1 whitespace-nowrap ${
+                    activeTab === tab.id ? 'px-btn-active text-[#f5b742]' : 'px-btn text-[#a89f91]'
+                  }`}
+                >
+                  <span>{tab.label}</span>
+                  {tab.count !== null && (
+                    <span className="font-pixel-num text-[9px] opacity-80 tabular-nums">
+                      {tab.count}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
             {favoriteUnits.length > 0 && (
               <button
                 type="button"
+                data-testid="inspector-tab-favorites"
                 onClick={() => setActiveTab('favorites')}
-                className={`px-2 py-0.5 sm:px-2.5 sm:py-1 font-semibold cursor-pointer transition-colors whitespace-nowrap ${
+                className={`shrink-0 px-1.5 py-1 text-[10px] sm:text-[11px] font-semibold cursor-pointer transition-colors flex items-center justify-center gap-1 whitespace-nowrap ${
                   activeTab === 'favorites'
                     ? 'px-btn-active text-[#ffd166]'
                     : 'px-btn text-[#a89f91]'
                 }`}
+                title="Favorite units"
               >
-                Favorites ({favoriteUnits.length})
+                <HudPixelIcon kind="starOn" className="w-3 h-3 pixelated-canvas shrink-0" />
+                <span className="font-pixel-num text-[9px] tabular-nums">{favoriteUnits.length}</span>
               </button>
             )}
           </div>
 
-          {/* TAB CONTENT: PROFILE */}
-          {activeTab === 'profile' && (
-            <div className="space-y-2 sm:space-y-3 text-xs">
-              {/* Combat & Movement Attributes: Clean Tabular Metric Strip */}
-              <div className="grid grid-cols-3 gap-1.5 sm:gap-2 pt-0.5 sm:pt-1 text-center">
-                <div className="bg-[#191613] p-1.5 sm:p-2">
-                  <div className="text-[10px] text-[#8f8679]">Attack</div>
-                  <div className="font-pixel-num text-xs sm:text-sm font-bold text-[#ff9f68] tabular-nums mt-0.5">
-                    {profile.informations.attackDamage}
+          {/* ================================================================
+              TAB 1: STATS (Read-only & Inline Edit Mode)
+             ================================================================ */}
+          {activeTab === 'stats' && (
+            <div className="space-y-2.5 text-xs" data-testid="inspector-stats-tab">
+              {editMode && onSetUnitStat ? (
+                <div className="space-y-1.5 bg-[#191613] border border-[#2f2720] p-2">
+                  <div className="flex items-center justify-between pb-1 border-b border-[#2c2620]">
+                    <span className="text-[11px] font-bold text-[#f5b742]">Edit Base Stats</span>
+                    {onResetUnitStats && profile.hasStatOverrides && (
+                      <button
+                        type="button"
+                        data-testid="inspector-reset-stats-btn"
+                        onClick={() => onResetUnitStats(displayUnit.id)}
+                        className="px-btn px-1.5 py-0.5 text-[10px] text-[#ff9f68] cursor-pointer"
+                      >
+                        Reset
+                      </button>
+                    )}
                   </div>
+                  {EDITABLE_STAT_ROWS.map((row) => {
+                    const currentVal = profile.baseStats[row.key];
+                    const isDecimal = row.step < 1;
+                    return (
+                      <div
+                        key={row.key}
+                        className="flex items-center justify-between gap-2 text-[11px]"
+                      >
+                        <span className="text-[#cfc6b8] w-16 shrink-0">{row.label}</span>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            data-testid={`stat-dec-${row.key}`}
+                            onClick={() =>
+                              onSetUnitStat(
+                                displayUnit.id,
+                                row.key,
+                                Math.max(row.min, Number((currentVal - row.step).toFixed(2))),
+                              )
+                            }
+                            className="px-btn w-6 h-6 flex items-center justify-center text-xs font-bold text-[#f2ece1] cursor-pointer"
+                          >
+                            -
+                          </button>
+                          <input
+                            type="number"
+                            data-testid={`stat-input-${row.key}`}
+                            value={isDecimal ? Number(currentVal.toFixed(1)) : Math.round(currentVal)}
+                            step={row.step}
+                            min={row.min}
+                            max={row.max}
+                            onKeyDown={(e) => e.stopPropagation()}
+                            onChange={(e) => {
+                              const parsed = parseFloat(e.target.value);
+                              if (!Number.isNaN(parsed)) {
+                                onSetUnitStat(displayUnit.id, row.key, parsed);
+                              }
+                            }}
+                            className="w-16 bg-[#141210] border border-[#3a332b] focus:border-[#f5b742] px-1.5 py-0.5 text-center font-pixel-num text-[11px] text-[#f2ece1] tabular-nums outline-none"
+                          />
+                          <button
+                            type="button"
+                            data-testid={`stat-inc-${row.key}`}
+                            onClick={() =>
+                              onSetUnitStat(
+                                displayUnit.id,
+                                row.key,
+                                Math.min(row.max, Number((currentVal + row.step).toFixed(2))),
+                              )
+                            }
+                            className="px-btn w-6 h-6 flex items-center justify-center text-xs font-bold text-[#f2ece1] cursor-pointer"
+                          >
+                            +
+                          </button>
+                          <span className="w-4 text-[10px] text-[#8f8679]">{row.suffix ?? ''}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {onSetUnitAge && (
+                    <div className="flex items-center justify-between gap-2 text-[11px] pt-1 border-t border-[#2c2620]">
+                      <span className="text-[#cfc6b8] w-16 shrink-0">Age (y)</span>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onSetUnitAge(displayUnit.id, Math.max(0, profile.informations.ageYears - 5))
+                          }
+                          className="px-btn w-6 h-6 flex items-center justify-center text-xs font-bold text-[#f2ece1] cursor-pointer"
+                        >
+                          -
+                        </button>
+                        <input
+                          type="number"
+                          data-testid="stat-input-age"
+                          value={profile.informations.ageYears}
+                          min={0}
+                          max={9999}
+                          onKeyDown={(e) => e.stopPropagation()}
+                          onChange={(e) => {
+                            const parsed = parseInt(e.target.value, 10);
+                            if (!Number.isNaN(parsed)) onSetUnitAge(displayUnit.id, parsed);
+                          }}
+                          className="w-16 bg-[#141210] border border-[#3a332b] focus:border-[#f5b742] px-1.5 py-0.5 text-center font-pixel-num text-[11px] text-[#f2ece1] tabular-nums outline-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onSetUnitAge(displayUnit.id, profile.informations.ageYears + 5)
+                          }
+                          className="px-btn w-6 h-6 flex items-center justify-center text-xs font-bold text-[#f2ece1] cursor-pointer"
+                        >
+                          +
+                        </button>
+                        <span className="w-4 text-[10px] text-[#8f8679]">y</span>
+                      </div>
+                    </div>
+                  )}
                 </div>
-                <div className="bg-[#191613] p-1.5 sm:p-2">
-                  <div className="text-[10px] text-[#8f8679]">Range</div>
-                  <div className="font-pixel-num text-xs sm:text-sm font-bold text-[#f2ece1] tabular-nums mt-0.5">
-                    {profile.informations.attackRange}
+              ) : (
+                <>
+                  {/* Compact 2-column stat readout with pixel icons */}
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <div className="bg-[#191613] px-2 py-1.5 flex items-center justify-between gap-1.5">
+                      <span className="flex items-center gap-1.5 text-[11px] text-[#a89f91]">
+                        <InspectorPixelIcon kind="sword" className="w-3.5 h-3.5 shrink-0" />
+                        Damage
+                      </span>
+                      <span className="font-pixel-num text-xs font-bold text-[#ff9f68] tabular-nums">
+                        {profile.informations.attackDamage}
+                      </span>
+                    </div>
+                    <div className="bg-[#191613] px-2 py-1.5 flex items-center justify-between gap-1.5">
+                      <span className="flex items-center gap-1.5 text-[11px] text-[#a89f91]">
+                        <InspectorPixelIcon kind="shield" className="w-3.5 h-3.5 shrink-0" />
+                        Armor
+                      </span>
+                      <span className="font-pixel-num text-xs font-bold text-[#cbd5e1] tabular-nums">
+                        {profile.informations.armor}%
+                      </span>
+                    </div>
+                    <div className="bg-[#191613] px-2 py-1.5 flex items-center justify-between gap-1.5">
+                      <span className="flex items-center gap-1.5 text-[11px] text-[#a89f91]">
+                        <InspectorPixelIcon kind="boot" className="w-3.5 h-3.5 shrink-0" />
+                        Speed
+                      </span>
+                      <span className="font-pixel-num text-xs font-bold text-[#56cfe1] tabular-nums">
+                        {profile.informations.speed}
+                      </span>
+                    </div>
+                    <div className="bg-[#191613] px-2 py-1.5 flex items-center justify-between gap-1.5">
+                      <span className="flex items-center gap-1.5 text-[11px] text-[#a89f91]">
+                        <InspectorPixelIcon kind="crit" className="w-3.5 h-3.5 shrink-0" />
+                        Crit
+                      </span>
+                      <span className="font-pixel-num text-xs font-bold text-[#f5b742] tabular-nums">
+                        {profile.informations.critChance}%
+                      </span>
+                    </div>
+                    <div className="bg-[#191613] px-2 py-1.5 flex items-center justify-between gap-1.5">
+                      <span className="flex items-center gap-1.5 text-[11px] text-[#a89f91]">
+                        <InspectorPixelIcon kind="range" className="w-3.5 h-3.5 shrink-0" />
+                        Range
+                      </span>
+                      <span className="font-pixel-num text-xs font-bold text-[#f2ece1] tabular-nums">
+                        {profile.informations.attackRange}
+                      </span>
+                    </div>
+                    <div className="bg-[#191613] px-2 py-1.5 flex items-center justify-between gap-1.5">
+                      <span className="flex items-center gap-1.5 text-[11px] text-[#a89f91]">
+                        <InspectorPixelIcon kind="regen" className="w-3.5 h-3.5 shrink-0" />
+                        Regen
+                      </span>
+                      <span className="font-pixel-num text-xs font-bold text-[#80ed99] tabular-nums">
+                        {profile.informations.regenPerSec > 0
+                          ? `+${profile.informations.regenPerSec}/s`
+                          : '0/s'}
+                      </span>
+                    </div>
+                    <div className="bg-[#191613] px-2 py-1.5 flex items-center justify-between gap-1.5">
+                      <span className="flex items-center gap-1.5 text-[11px] text-[#a89f91]">
+                        <InspectorPixelIcon kind="pickaxe" className="w-3.5 h-3.5 shrink-0" />
+                        Gather
+                      </span>
+                      <span className="font-pixel-num text-xs font-bold text-[#e2d8c5] tabular-nums">
+                        {Math.round(profile.informations.harvestMult * 100)}%
+                      </span>
+                    </div>
+                    <div className="bg-[#191613] px-2 py-1.5 flex items-center justify-between gap-1.5">
+                      <span className="flex items-center gap-1.5 text-[11px] text-[#a89f91]">
+                        <InspectorPixelIcon kind="skull" className="w-3.5 h-3.5 shrink-0" />
+                        Kills
+                      </span>
+                      <span className="font-pixel-num text-xs font-bold text-[#ff8f6b] tabular-nums">
+                        {profile.informations.kills}
+                      </span>
+                    </div>
                   </div>
-                </div>
-                <div className="bg-[#191613] p-1.5 sm:p-2">
-                  <div className="text-[10px] text-[#8f8679]">Speed</div>
-                  <div className="font-pixel-num text-xs sm:text-sm font-bold text-[#56cfe1] tabular-nums mt-0.5">
-                    {profile.informations.speed}
-                  </div>
-                </div>
-              </div>
+
+                  {/* Special active passives summary */}
+                  {(profile.informations.fireproof ||
+                    profile.informations.thorns ||
+                    profile.informations.venomous ||
+                    profile.informations.vampiric) && (
+                    <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-[#f5b742] pt-0.5">
+                      {profile.informations.fireproof && (
+                        <span className="flex items-center gap-1">
+                          <InspectorPixelIcon kind="flame" className="w-3 h-3" />
+                          Fireproof
+                        </span>
+                      )}
+                      {profile.informations.thorns && (
+                        <span className="flex items-center gap-1">
+                          <InspectorPixelIcon kind="spike" className="w-3 h-3" />
+                          Thorns
+                        </span>
+                      )}
+                      {profile.informations.venomous && (
+                        <span className="flex items-center gap-1">
+                          <InspectorPixelIcon kind="venom" className="w-3 h-3" />
+                          Venomous
+                        </span>
+                      )}
+                      {profile.informations.vampiric && (
+                        <span className="flex items-center gap-1">
+                          <InspectorPixelIcon kind="blood" className="w-3 h-3" />
+                          Lifesteal
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
 
               {/* Dragon Flame Breath if applicable */}
               {profile.informations.breathCooldown !== null && (
@@ -354,25 +740,20 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                 </div>
               )}
 
-              {/* Status Effects: Clean inline typography (No Pill Badges) */}
+              {/* Status Effects */}
               {profile.informations.statusEffects.length > 0 && (
-                <div className="space-y-1 pt-1">
-                  <div className="text-[11px] text-[#8f8679]">Active effects</div>
-                  <div className="text-xs text-[#80ed99] flex flex-wrap gap-x-1.5 gap-y-0.5">
-                    {profile.informations.statusEffects.map((eff, idx, arr) => (
-                      <span key={eff}>
-                        {formatEffectName(eff)}
-                        {idx < arr.length - 1 ? ',' : ''}
-                      </span>
-                    ))}
-                  </div>
+                <div className="flex items-baseline justify-between gap-2 text-xs pt-0.5">
+                  <span className="text-[#8f8679] shrink-0">Effects</span>
+                  <span className="text-[#80ed99] text-right">
+                    {profile.informations.statusEffects.map(formatEffectName).join(', ')}
+                  </span>
                 </div>
               )}
 
-              {/* Demographic & Location Data: Clean Key-Value Pairs */}
-              <div className="space-y-1.5 pt-1 text-xs text-[#b8afa2]">
+              {/* Demographic & Location Details */}
+              <div className="space-y-1.5 pt-1 border-t border-[#2c2620] text-xs text-[#b8afa2]">
                 <div className="flex items-center justify-between">
-                  <span className="text-[#8f8679]">Stage &amp; Lifespan</span>
+                  <span className="text-[#8f8679]">Age</span>
                   <span className="text-[#f2ece1] tabular-nums font-medium">
                     {profile.informations.ageStageLabel} ({profile.informations.ageYears}y /{' '}
                     {profile.informations.immortal
@@ -421,7 +802,7 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                     </form>
                   ) : (
                     <div className="flex items-center gap-1 min-w-0 justify-end">
-                      <span className="text-[#f2ece1] truncate max-w-[155px] text-right font-medium">
+                      <span className="text-[#f2ece1] truncate max-w-[165px] text-right font-medium">
                         {profile.informations.settlementName ?? 'Wilderness'}
                       </span>
                       {displayUnit.settlementId && onRenameSettlement && (
@@ -457,85 +838,341 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
             </div>
           )}
 
-          {/* TAB CONTENT: TRAITS & GEAR */}
+          {/* ================================================================
+              TAB 2: TRAITS (Icons, Descriptions, Live Add/Remove Picker)
+             ================================================================ */}
           {activeTab === 'traits' && (
-            <div className="space-y-3.5 text-xs">
-              {/* Equipment & Cargo: Clean Unboxed List */}
-              <div className="space-y-1.5">
-                <div className="font-semibold text-[#f2ece1]">Equipment &amp; Cargo</div>
-                <div
-                  className="space-y-1 text-xs"
-                  data-testid="inspector-entity-items"
-                >
-                  {profile.items.map((item) => (
-                    <div
-                      key={item}
-                      className={`flex items-baseline gap-2 ${
-                        item.startsWith('Carrying ')
-                          ? 'text-[#80ed99] font-medium'
-                          : 'text-[#cfc6b8]'
-                      }`}
-                    >
-                      <span className="text-[#8f8679]" aria-hidden="true">
-                        •
-                      </span>
-                      <span>{item}</span>
-                    </div>
-                  ))}
+            <div className="space-y-2.5 text-xs" data-testid="inspector-entity-traits">
+              {profile.traits.length === 0 ? (
+                <div className="text-[#8f8679] text-[11px] py-2">
+                  No traits assigned. Click Edit to add traits.
                 </div>
-              </div>
-
-              {/* Genetics & Lineage: Clean Unboxed List with Intrinsic vs Rare Distinction */}
-              <div className="space-y-1.5 pt-1">
-                <div className="flex items-center justify-between">
-                  <span className="font-semibold text-[#f2ece1]">Genetics &amp; Lineage</span>
-                  <span className="text-[10px] text-[#8f8679] tabular-nums">
-                    {profile.genes.length} {profile.genes.length === 1 ? 'trait' : 'traits'}
-                  </span>
-                </div>
-                <div
-                  className="space-y-1.5 text-xs"
-                  data-testid="inspector-entity-genes"
-                >
-                  {profile.genes.map((gene, idx) => {
-                    const isIntrinsic = isIntrinsicGene(gene) || idx === 0;
+              ) : (
+                <div className="space-y-1.5">
+                  {profile.traits.map((trait) => {
+                    const modLabels = formatModifierList(trait.mods);
                     return (
                       <div
-                        key={gene}
-                        className="flex items-baseline justify-between gap-2"
+                        key={trait.id}
+                        className="bg-[#191613] border border-[#2c2620] p-2 flex items-start gap-2"
                       >
-                        <div className="flex items-baseline gap-2 min-w-0">
-                          <span
-                            className={isIntrinsic ? 'text-[#3a7d8a]' : 'text-[#d97706]'}
-                            aria-hidden="true"
-                          >
-                            •
-                          </span>
-                          <span
-                            className={`truncate ${
-                              isIntrinsic ? 'text-[#56cfe1]' : 'text-[#ffd166] font-medium'
-                            }`}
-                          >
-                            {gene}
-                          </span>
+                        <div className="w-7 h-7 shrink-0 bg-[#141210] border border-[#2f2720] flex items-center justify-center mt-0.5">
+                          <InspectorPixelIcon kind={trait.icon} className="w-5 h-5" />
                         </div>
-                        <span
-                          className={`text-[10px] whitespace-nowrap tabular-nums ${
-                            isIntrinsic ? 'text-[#8f8679]' : 'text-[#ffd166]'
-                          }`}
-                        >
-                          {isIntrinsic ? 'Intrinsic' : 'Rare Mutation'}
-                        </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <span
+                              className={`font-bold truncate ${
+                                trait.negative ? 'text-[#ff8f6b]' : 'text-[#f2ece1]'
+                              }`}
+                            >
+                              {trait.name}
+                            </span>
+                            {editMode && onToggleUnitTrait && (
+                              <button
+                                type="button"
+                                data-testid={`remove-trait-${trait.id}`}
+                                onClick={() => onToggleUnitTrait(displayUnit.id, trait.id)}
+                                className="px-btn px-1.5 py-0.5 text-[10px] text-[#ff8f6b] cursor-pointer shrink-0"
+                              >
+                                Remove
+                              </button>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-[#a89f91] leading-snug mt-0.5">
+                            {trait.description}
+                          </p>
+                          {modLabels.length > 0 && (
+                            <div className="text-[10px] font-semibold text-[#80ed99] mt-1 tabular-nums">
+                              {modLabels.join(', ')}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     );
                   })}
-
                 </div>
-              </div>
+              )}
+
+              {editMode && onToggleUnitTrait && (
+                <div className="pt-2 border-t border-[#2c2620] space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-[#f5b742]">Add or Toggle Traits</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {TRAIT_FILTERS.map((f) => (
+                      <button
+                        key={f.id}
+                        type="button"
+                        onClick={() => setTraitFilter(f.id)}
+                        className={`px-1.5 py-0.5 text-[10px] font-semibold cursor-pointer ${
+                          traitFilter === f.id ? 'px-btn-active text-[#f5b742]' : 'px-btn text-[#a89f91]'
+                        }`}
+                      >
+                        {f.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="grid grid-cols-2 gap-1 max-h-48 overflow-y-auto pr-0.5">
+                    {filteredTraits.map((trait) => {
+                      const active = activeTraitIds.has(trait.id);
+                      const modText = formatModifierList(trait.mods).join(', ');
+                      return (
+                        <button
+                          key={trait.id}
+                          type="button"
+                          data-testid={`pick-trait-${trait.id}`}
+                          title={`${trait.description}${modText ? ` (${modText})` : ''}`}
+                          onClick={() => onToggleUnitTrait(displayUnit.id, trait.id)}
+                          className={`p-1.5 flex items-center gap-1.5 text-left cursor-pointer transition-colors ${
+                            active
+                              ? 'px-btn-active text-[#f5b742]'
+                              : 'bg-[#191613] hover:bg-[#221d18] border border-[#2c2620] text-[#d8cfc2]'
+                          }`}
+                        >
+                          <InspectorPixelIcon kind={trait.icon} className="w-4 h-4 shrink-0" />
+                          <span className="text-[11px] font-semibold truncate">{trait.name}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
-          {/* TAB CONTENT: FAVORITES LIST */}
+          {/* ================================================================
+              TAB 3: GENES (Icons, Descriptions, Live Add/Remove Picker)
+             ================================================================ */}
+          {activeTab === 'genes' && (
+            <div className="space-y-2.5 text-xs" data-testid="inspector-entity-genes">
+              {profile.geneDetails.length === 0 ? (
+                <div className="text-[#8f8679] text-[11px] py-2">
+                  No genetic traits listed. Click Edit to splice genes.
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  {profile.geneDetails.map((entry) => {
+                    const modLabels = formatModifierList(entry.info.mods);
+                    return (
+                      <div
+                        key={entry.name}
+                        className="bg-[#191613] border border-[#2c2620] p-2 flex items-start gap-2"
+                      >
+                        <div className="w-7 h-7 shrink-0 bg-[#141210] border border-[#2f2720] flex items-center justify-center mt-0.5">
+                          <InspectorPixelIcon kind={entry.info.icon} className="w-5 h-5" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <span
+                              className={`font-bold truncate ${
+                                entry.isIntrinsic ? 'text-[#56cfe1]' : 'text-[#ffd166]'
+                              }`}
+                            >
+                              {entry.name}
+                            </span>
+                            {editMode && onToggleUnitGene ? (
+                              <button
+                                type="button"
+                                data-testid={`remove-gene-${entry.name}`}
+                                onClick={() => onToggleUnitGene(displayUnit.id, entry.name)}
+                                className="px-btn px-1.5 py-0.5 text-[10px] text-[#ff8f6b] cursor-pointer shrink-0"
+                              >
+                                Remove
+                              </button>
+                            ) : (
+                              <span
+                                className={`text-[10px] shrink-0 ${
+                                  entry.isIntrinsic ? 'text-[#8f8679]' : 'text-[#ffd166]'
+                                }`}
+                              >
+                                {entry.isIntrinsic ? 'Intrinsic' : 'Mutation'}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-[#a89f91] leading-snug mt-0.5">
+                            {entry.info.description}
+                          </p>
+                          {modLabels.length > 0 && (
+                            <div className="text-[10px] font-semibold text-[#80ed99] mt-1 tabular-nums">
+                              {modLabels.join(', ')}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {editMode && onToggleUnitGene && (
+                <div className="pt-2 border-t border-[#2c2620] space-y-2">
+                  <div className="text-[11px] font-bold text-[#f5b742]">Edit Genetics</div>
+                  <div className="flex flex-wrap gap-1">
+                    {(
+                      [
+                        { id: 'all', label: 'All' },
+                        { id: 'mutation', label: 'Mutations' },
+                        { id: 'intrinsic', label: 'Lineage' },
+                      ] as const
+                    ).map((f) => (
+                      <button
+                        key={f.id}
+                        type="button"
+                        onClick={() => setGeneFilter(f.id)}
+                        className={`px-1.5 py-0.5 text-[10px] font-semibold cursor-pointer ${
+                          geneFilter === f.id ? 'px-btn-active text-[#f5b742]' : 'px-btn text-[#a89f91]'
+                        }`}
+                      >
+                        {f.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="grid grid-cols-2 gap-1 max-h-48 overflow-y-auto pr-0.5">
+                    {filteredGenes.map((gene) => {
+                      const active = activeGeneNames.has(gene.name);
+                      const modText = formatModifierList(gene.mods).join(', ');
+                      return (
+                        <button
+                          key={gene.name}
+                          type="button"
+                          data-testid={`pick-gene-${gene.name}`}
+                          title={`${gene.description}${modText ? ` (${modText})` : ''}`}
+                          onClick={() => onToggleUnitGene(displayUnit.id, gene.name)}
+                          className={`p-1.5 flex items-center gap-1.5 text-left cursor-pointer transition-colors ${
+                            active
+                              ? 'px-btn-active text-[#ffd166]'
+                              : 'bg-[#191613] hover:bg-[#221d18] border border-[#2c2620] text-[#d8cfc2]'
+                          }`}
+                        >
+                          <InspectorPixelIcon kind={gene.icon} className="w-4 h-4 shrink-0" />
+                          <span className="text-[11px] font-semibold truncate">{gene.name}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ================================================================
+              TAB 4: ITEMS & GEAR (Icons, Descriptions, Add/Remove Equipment)
+             ================================================================ */}
+          {activeTab === 'items' && (
+            <div className="space-y-2.5 text-xs" data-testid="inspector-entity-items">
+              {profile.itemDetails.length === 0 ? (
+                <div className="text-[#8f8679] text-[11px] py-2">
+                  No items carried. Click Edit to equip gear.
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  {profile.itemDetails.map((entry, idx) => {
+                    const modLabels = formatModifierList(entry.info.mods);
+                    return (
+                      <div
+                        key={`${entry.name}-${idx}`}
+                        className="bg-[#191613] border border-[#2c2620] p-2 flex items-start gap-2"
+                      >
+                        <div className="w-7 h-7 shrink-0 bg-[#141210] border border-[#2f2720] flex items-center justify-center mt-0.5">
+                          <InspectorPixelIcon kind={entry.info.icon} className="w-5 h-5" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <span
+                              className={`font-bold truncate ${
+                                entry.isCargo ? 'text-[#80ed99]' : 'text-[#f2ece1]'
+                              }`}
+                            >
+                              {entry.name}
+                            </span>
+                            {editMode && !entry.isCargo && entry.itemIndex !== null && onRemoveUnitItem ? (
+                              <button
+                                type="button"
+                                data-testid={`remove-item-${entry.itemIndex}`}
+                                onClick={() => onRemoveUnitItem(displayUnit.id, entry.itemIndex!)}
+                                className="px-btn px-1.5 py-0.5 text-[10px] text-[#ff8f6b] cursor-pointer shrink-0"
+                              >
+                                Drop
+                              </button>
+                            ) : (
+                              <span className="text-[10px] text-[#8f8679] shrink-0">
+                                {entry.isCargo ? 'Cargo' : formatSlotLabel(entry.info.slot)}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-[#a89f91] leading-snug mt-0.5">
+                            {entry.info.description}
+                          </p>
+                          {modLabels.length > 0 && (
+                            <div className="text-[10px] font-semibold text-[#80ed99] mt-1 tabular-nums">
+                              {modLabels.join(', ')}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {editMode && onAddUnitItem && (
+                <div className="pt-2 border-t border-[#2c2620] space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-[#f5b742]">Give Item</span>
+                    <span className="text-[10px] text-[#8f8679] tabular-nums">
+                      {(displayUnit.items?.length ?? 0)} / 12
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {ITEM_FILTERS.map((f) => (
+                      <button
+                        key={f.id}
+                        type="button"
+                        onClick={() => setItemFilter(f.id)}
+                        className={`px-1.5 py-0.5 text-[10px] font-semibold cursor-pointer ${
+                          itemFilter === f.id ? 'px-btn-active text-[#f5b742]' : 'px-btn text-[#a89f91]'
+                        }`}
+                      >
+                        {f.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="space-y-1 max-h-48 overflow-y-auto pr-0.5">
+                    {filteredCatalogItems.map((item) => {
+                      const modText = formatModifierList(item.mods).join(', ');
+                      return (
+                        <button
+                          key={item.name}
+                          type="button"
+                          data-testid={`give-item-${item.name}`}
+                          onClick={() => onAddUnitItem(displayUnit.id, item.name)}
+                          className="w-full p-1.5 bg-[#191613] hover:bg-[#241f19] border border-[#2c2620] flex items-center justify-between gap-2 text-left cursor-pointer transition-colors"
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <InspectorPixelIcon kind={item.icon} className="w-4 h-4 shrink-0" />
+                            <div className="min-w-0">
+                              <div className="text-[11px] font-semibold text-[#f2ece1] truncate">
+                                {item.name}
+                              </div>
+                              <div className="text-[10px] text-[#80ed99] truncate tabular-nums">
+                                {modText || item.description}
+                              </div>
+                            </div>
+                          </div>
+                          <span className="text-[10px] font-bold text-[#f5b742] shrink-0">+ Add</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ================================================================
+              TAB 5: FAVORITES LIST
+             ================================================================ */}
           {activeTab === 'favorites' && favoriteUnits.length > 0 && (
             <div className="space-y-2 text-xs">
               <div className="text-[11px] text-[#8f8679]">
@@ -656,7 +1293,7 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
             if (!showAnyZone || !hoveredZoneInfo) {
               return (
                 <p className="text-xs text-[#a89f91]">
-                  Hover or tap on a unit, city, or zone to see stats!
+                  Hover or tap on a unit, city, or zone to see stats and edit traits or gear.
                 </p>
               );
             }

@@ -19,6 +19,8 @@ import {
 } from './icons/uiAndWorldSprites';
 import { BUILDING_SPRITES, POWER_SPRITES } from './icons/powerAndBuildSprites';
 import { UNIT_SPRITES } from './icons/unitSprites';
+import { INSPECTOR_SPRITES } from './icons/inspectorSprites';
+import type { InspectorIconKey } from '../game/unitCustomization';
 
 export const TitleEmblemSvg: React.FC<{ centered?: boolean }> = React.memo(({ centered = true }) => (
   <div className={centered ? 'mb-3 flex justify-center' : 'flex items-center'}>
@@ -71,4 +73,11 @@ export const HudPixelIcon: React.FC<{
   className?: string;
 }> = React.memo(({ kind, className = 'w-4 h-4 pixelated-canvas' }) => (
   <PixelArtSvg sprite={HUD_SPRITES[kind]} className={className} />
+));
+
+export const InspectorPixelIcon: React.FC<{
+  kind: InspectorIconKey;
+  className?: string;
+}> = React.memo(({ kind, className = 'w-4 h-4 pixelated-canvas' }) => (
+  <PixelArtSvg sprite={INSPECTOR_SPRITES[kind] ?? INSPECTOR_SPRITES.star} className={className} />
 ));

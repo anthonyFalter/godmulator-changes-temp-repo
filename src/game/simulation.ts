@@ -51,6 +51,11 @@ import {
   WorldTemplateId,
 } from './types';
 import { generateUnitGenes, generateUnitItems } from './entityInspector';
+import {
+  computeUnitEffectiveStats,
+  generateUnitTraits,
+  syncUnitDerivedStats,
+} from './unitCustomization';
 import { generateWorldTiles, normalizeSeed } from './worldGen';
 import {
   SimulationTickIndex,
@@ -1922,7 +1927,6 @@ export function spawnUnit(
     }
   }
 
-  const maxHp = ageStage === 'child' ? Math.max(45, Math.round(def.maxHp * 0.68)) : def.maxHp;
   const growthTimer = ageStage === 'child' ? 12 + (appearanceSeed % 7) : undefined;
 
   const dinoDiet = role === 'dinosaur' ? getDinosaurVariant(appearanceSeed).diet : undefined;
@@ -1932,13 +1936,38 @@ export function spawnUnit(
       : createUniqueUnitName(state, role, species, dinoDiet);
 
   const genes = generateUnitGenes(role, species, appearanceSeed, dinoDiet);
-  const maxLifespan = getUnitMaxLifespan({
+  const traits = generateUnitTraits(role, species, appearanceSeed);
+  const items = generateUnitItems(
+    role,
+    species,
+    resolvedKingdomId ? getKingdomEpoch(state, resolvedKingdomId) : 0,
+    appearanceSeed,
+    dinoDiet,
+  );
+  const effInit = computeUnitEffectiveStats(
+    {
+      role,
+      species,
+      ageStage,
+      traits,
+      genes,
+      items,
+      statusEffects: {},
+    },
+    def,
+  );
+  const maxHp = effInit.maxHp;
+  const baseMaxLifespan = getUnitMaxLifespan({
     role,
     species,
     appearanceSeed,
     genes,
     maxLifespan: options?.maxLifespan,
   });
+  const maxLifespan =
+    options?.maxLifespan !== undefined
+      ? baseMaxLifespan
+      : Math.max(10, Math.round(baseMaxLifespan + effInit.lifespanBonus));
 
   const isOpenWaterTile =
     tile.height === 0 &&
@@ -1978,14 +2007,9 @@ export function spawnUnit(
     targetEntityId: null,
     harvestTimer: 0,
     favorite: false,
+    traits,
     genes,
-    items: generateUnitItems(
-      role,
-      species,
-      resolvedKingdomId ? getKingdomEpoch(state, resolvedKingdomId) : 0,
-      appearanceSeed,
-      dinoDiet,
-    ),
+    items,
     bornYear: state.year,
     ageYears: Math.max(0, options?.ageYears ?? 0),
     maxLifespan,
@@ -2258,6 +2282,10 @@ function applyTerrainToolTileMutation(
             t.height = Math.max(0, t.height - 1);
             if (t.height === 0) {
               t.terrain = 'shallow_water';
+              delete t.waterKind;
+              delete t.frozenWaterBase;
+              t.isRiver = false;
+              t.isLake = false;
               t.resourceNode = 'none';
               t.resourceAmount = 0;
               t.onFireTimer = 0;
@@ -2620,16 +2648,15 @@ function applyTerrainToolTileMutation(
         case 'carve_river': {
           tileModified = true;
           if (t.height === 0 && t.waterKind === 'lava') {
-            // Water poured onto lava cools & solidifies into stone!
-            t.height = 1;
-            t.terrain = 'rock';
+            // Water poured onto lava quenches it directly into steaming water
+            t.height = 0;
+            t.terrain = 'shallow_water';
             delete t.waterKind;
-            t.isRiver = false;
+            t.isRiver = true;
             t.isLake = false;
             t.onFireTimer = 0;
-            if ((t.x * 7 + t.z * 13) % 3 === 0) {
-              t.resourceNode = 'stone_outcrop';
-              t.resourceAmount = 220;
+            if ((t.tempOffset ?? 0) > 0) {
+              t.tempOffset = Math.max(0, (t.tempOffset ?? 0) - 28);
             }
           } else if (t.height >= 3) {
             t.height = Math.max(1, t.height - 2);
@@ -2660,17 +2687,14 @@ function applyTerrainToolTileMutation(
             t.resourceNode = 'none';
             t.resourceAmount = 0;
           } else if (t.height === 0 && !t.waterKind && t.terrain !== 'ice') {
-            // Lava + Water -> cools & hardens into stone!
-            t.height = 1;
-            t.terrain = 'rock';
+            // Lava poured into active water quenches immediately into steaming water
+            t.height = 0;
+            t.terrain = 'shallow_water';
             delete t.waterKind;
             t.isRiver = false;
             t.isLake = false;
             t.onFireTimer = 0;
-            if ((t.x * 11 + t.z * 5) % 3 === 0) {
-              t.resourceNode = 'stone_outcrop';
-              t.resourceAmount = 220;
-            }
+            t.tempOffset = Math.min(25, (t.tempOffset ?? 0) + 10);
           } else {
             t.height = 0;
             t.terrain = 'shallow_water';
@@ -2717,12 +2741,15 @@ function applyTerrainToolTileMutation(
         }
         case 'abyssal_trench': {
           if (t.height === 0 && t.waterKind === 'lava') {
-            t.height = 1;
-            t.terrain = 'rock';
+            t.height = 0;
+            t.terrain = 'deep_water';
             delete t.waterKind;
             t.isRiver = false;
             t.isLake = false;
             t.onFireTimer = 0;
+            if ((t.tempOffset ?? 0) > 0) {
+              t.tempOffset = Math.max(0, (t.tempOffset ?? 0) - 28);
+            }
             tileModified = true;
             break;
           }
@@ -2857,6 +2884,11 @@ function applyTerrainToolTileMutation(
                 } else if (t.height > 0 && avg === 0) {
                   t.height = 0;
                   t.terrain = 'shallow_water';
+                  delete t.waterKind;
+                  delete t.frozenWaterBase;
+                  t.isRiver = false;
+                  t.isLake = false;
+                  t.onFireTimer = 0;
                   t.resourceNode = 'none';
                   t.resourceAmount = 0;
                 } else {
@@ -2984,8 +3016,9 @@ const POISON_CORRUPTIBLE_SOILS = new Set<TerrainType>([
 
 /**
  * Resolves emergent elemental liquid & terrain reactions in a bounded radius:
- * - Lava + Water -> cools & hardens into solid stone (+ steam VFX)
+ * - Lava + Water -> quenches lava directly into steaming water (+ steam VFX)
  * - Lava + Poison -> violent corrosive crater (+ acid-magma VFX + unit damage)
+ * - Poison + Open Water -> dilutes exposed tips into clean water (+ smooth shader plume)
  * - Poison + Dirt/Grass/Soil -> corrupts shoreline into purple Land of Blight (blighted_mire)
  * - Lava + Flammable land/trees/buildings -> sets surroundings on fire
  */
@@ -3010,6 +3043,8 @@ function resolveLiquidReactionsAround(
 
   let steamVfxCount = 0;
   let corrodeVfxCount = 0;
+  const lavaToQuench: TileData[] = [];
+  const poisonToDilute: TileData[] = [];
 
   for (let z = minZ; z <= maxZ; z++) {
     const rowOff = z * gs;
@@ -3086,48 +3121,68 @@ function resolveLiquidReactionsAround(
             }
           }
         } else if (touchedWater) {
-          // Lava + Water -> cools into solid stone!
-          t.height = 1;
-          t.terrain = 'rock';
-          delete t.waterKind;
-          t.isRiver = false;
-          t.isLake = false;
-          t.onFireTimer = 0;
-          if ((t.x * 7 + t.z * 13) % 3 === 0) {
-            t.resourceNode = 'stone_outcrop';
-            t.resourceAmount = 220;
-          }
-          if (steamVfxCount < 4 && state.pendingVfx.length < 48) {
-            steamVfxCount++;
-            state.pendingVfx.push({
-              id: nextEntityId('vfx'),
-              type: 'hit_spark',
-              x: t.x,
-              y: 0.55,
-              z: t.z,
-              radius: 1.35,
-              color: '#e2e8f0',
-              createdAt: Date.now(),
-            });
-          }
+          lavaToQuench.push(t);
         }
       } else if (t.waterKind === 'poison') {
         specialLiquidPossibleByState.set(state, true);
+        let cleanWaterNeighbors = 0;
         // Poison touching dirt/grass/soil turns adjacent shoreline into purple Land of Blight!
         for (let d = 0; d < 4; d++) {
           const nx = x + dirs[d][0];
           const nz = z + dirs[d][1];
           if (nx < 0 || nz < 0 || nx >= gs || nz >= gs) continue;
           const nb = state.tiles[nz * gs + nx];
-          if (!nb || nb.height <= 0 || nb.buildingId || nb.blessedTimer > 0) continue;
+          if (!nb) continue;
+          if (nb.height === 0 && !nb.waterKind && nb.terrain !== 'ice') {
+            cleanWaterNeighbors++;
+            continue;
+          }
+          if (nb.height <= 0 || nb.buildingId || nb.blessedTimer > 0) continue;
           if (POISON_CORRUPTIBLE_SOILS.has(nb.terrain)) {
             nb.terrain = 'blighted_mire';
             nb.farmSettlementId = undefined;
             delete nb.treeBiomeOverride;
           }
         }
+        if (cleanWaterNeighbors >= 3) {
+          poisonToDilute.push(t);
+        }
       }
     }
+  }
+
+  for (let i = 0; i < lavaToQuench.length; i++) {
+    const qt = lavaToQuench[i];
+    qt.height = 0;
+    qt.terrain = 'shallow_water';
+    delete qt.waterKind;
+    qt.isRiver = false;
+    qt.isLake = false;
+    qt.onFireTimer = 0;
+    if ((qt.tempOffset ?? 0) > 0) {
+      qt.tempOffset = Math.max(0, (qt.tempOffset ?? 0) - 28);
+    }
+    if (steamVfxCount < 4 && state.pendingVfx.length < 48) {
+      steamVfxCount++;
+      state.pendingVfx.push({
+        id: nextEntityId('vfx'),
+        type: 'hit_spark',
+        x: qt.x,
+        y: 0.55,
+        z: qt.z,
+        radius: 1.35,
+        color: '#e2e8f0',
+        createdAt: Date.now(),
+      });
+    }
+  }
+
+  for (let i = 0; i < poisonToDilute.length; i++) {
+    const pt = poisonToDilute[i];
+    delete pt.waterKind;
+    pt.terrain = 'shallow_water';
+    pt.isRiver = false;
+    pt.isLake = false;
   }
 }
 
@@ -3254,9 +3309,18 @@ export function applyTerrainTool(
     toolType === 'lava_river' ||
     toolType === 'poison_river' ||
     toolType === 'carve_river' ||
-    toolType === 'abyssal_trench'
+    toolType === 'abyssal_trench' ||
+    toolType === 'lower' ||
+    toolType === 'raise' ||
+    toolType === 'flatten' ||
+    toolType === 'canyon_carve' ||
+    toolType === 'mesa_plateau' ||
+    toolType === 'volcanic_crater' ||
+    toolType === 'smooth_terrain' ||
+    toolType === 'island_bridge' ||
+    toolType === 'alpine_glacier'
   ) {
-    resolveLiquidReactionsAround(state, centerTile.x, centerTile.z, clampedRadius + 1);
+    resolveLiquidReactionsAround(state, centerTile.x, centerTile.z, clampedRadius + 2);
   }
 
   recalculateRatesAndCaps(state);
@@ -3543,6 +3607,7 @@ function applyExpandingWaveSlice(
 
   switch (kind) {
     case 'heat_wave_zone': {
+      const shieldCheckedBlds = new Map<string, boolean>();
       forEachTileInBounds(state, targetX - maxR, targetX + maxR, targetZ - maxR, targetZ + maxR, (t) => {
         const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
         if (dSq > tileMaxSq || dSq > maxRSq) return;
@@ -3559,8 +3624,8 @@ function applyExpandingWaveSlice(
           if (t.terrain === 'ice' && effC >= 0) {
             t.terrain = t.frozenWaterBase ?? 'shallow_water';
             delete t.frozenWaterBase;
-          } else if (t.terrain === 'shallow_water' && !t.waterKind && (t.isRiver || t.isLake || normDistSq <= 0.45) && effC >= 34) {
-            // Heat Wave evaporates shallow lakes, rivers & shoals into parched desert sand!
+          } else if (t.terrain === 'shallow_water' && !t.waterKind && (t.isRiver || t.isLake) && effC >= 34) {
+            // Heat Wave evaporates inland shallow lakes & rivers into parched sand (open ocean never turns into fake land)
             t.height = 1;
             t.terrain = 'sand';
             t.isRiver = false;
@@ -3572,6 +3637,16 @@ function applyExpandingWaveSlice(
           }
           return;
         }
+
+        const prevTerrain = t.terrain;
+        const wasFlammable =
+          isFlammableVegetationTerrain(prevTerrain) ||
+          t.resourceNode === 'timber_grove' ||
+          t.resourceNode === 'berry_bush' ||
+          Boolean(t.farmSettlementId);
+        // Holding/repeating Heat Wave superheats dried brush, forests, farms & buildings into active wildfire
+        // without turning a single cool tap on temperate grass into an instant firestorm.
+        const shouldIgnite = effC >= 46 && (prevTemp >= 14 || effC >= 54);
 
         if (!t.buildingId || t.terrain === 'snow' || t.terrain === 'tundra') {
           if (t.terrain === 'snow' && effC >= -2) {
@@ -3591,7 +3666,7 @@ function applyExpandingWaveSlice(
           ) {
             t.terrain = 'savanna';
             t.farmSettlementId = undefined;
-          } else if (t.terrain === 'savanna' && effC >= 34) {
+          } else if (t.terrain === 'savanna' && effC >= 34 && !(shouldIgnite && wasFlammable)) {
             t.terrain = 'sand';
             t.farmSettlementId = undefined;
           } else if ((t.terrain === 'sand' || t.terrain === 'badlands') && effC >= 46) {
@@ -3599,8 +3674,23 @@ function applyExpandingWaveSlice(
             t.farmSettlementId = undefined;
           }
         }
-        // Drought withers berry bushes without turning Heat Wave into a duplicate Firestorm
-        if (effC >= 38 && t.resourceNode === 'berry_bush') {
+
+        if (shouldIgnite && !t.blessedTimer) {
+          if (!t.buildingId && wasFlammable) {
+            t.onFireTimer = Math.max(t.onFireTimer, allowSpread ? 5.2 : 3.4);
+          } else if (t.buildingId && effC >= 52) {
+            let unshielded = shieldCheckedBlds.get(t.buildingId);
+            if (unshielded === undefined) {
+              const bld = state.buildings.find((b) => b.id === t.buildingId);
+              unshielded = Boolean(bld && bld.hp > 0 && bld.shieldTimer <= 0 && bld.blessedTimer <= 0);
+              shieldCheckedBlds.set(t.buildingId, unshielded);
+            }
+            if (unshielded) {
+              t.onFireTimer = Math.max(t.onFireTimer, allowSpread ? 4.4 : 3.0);
+            }
+          }
+        } else if (effC >= 38 && t.resourceNode === 'berry_bush') {
+          // Moderate drought withers berry bushes before superheat ignition threshold
           t.resourceNode = 'none';
           t.resourceAmount = 0;
         }
@@ -3652,10 +3742,10 @@ function applyExpandingWaveSlice(
     }
 
     case 'freeze_wave_zone': {
-      for (const t of state.tiles) {
+      forEachTileInBounds(state, targetX - maxR, targetX + maxR, targetZ - maxR, targetZ + maxR, (t) => {
         const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
-        if (dSq > tileMaxSq || dSq > maxRSq) continue;
-        if (prevR > 0 && dSq < tileMinSq) continue;
+        if (dSq > tileMaxSq || dSq > maxRSq) return;
+        if (prevR > 0 && dSq < tileMinSq) return;
         t.onFireTimer = 0;
         t.fireColor = undefined;
         t.cursedTimer = 0;
@@ -3672,7 +3762,7 @@ function applyExpandingWaveSlice(
             t.frozenWaterBase = t.terrain;
             t.terrain = 'ice';
           }
-          continue;
+          return;
         }
         if (!t.buildingId) {
           if (t.terrain === 'scorched' && effC <= 20) {
@@ -3702,7 +3792,7 @@ function applyExpandingWaveSlice(
             t.terrain = 'snow';
           }
         }
-      }
+      });
       for (const u of state.units) {
         if (u.state === 'ko' || u.statusEffects.shielded || appliedIds.has(u.id)) continue;
         const dSq = (u.x - targetX) ** 2 + (u.z - targetZ) ** 2;
@@ -3745,10 +3835,10 @@ function applyExpandingWaveSlice(
     }
 
     case 'blessing_wave': {
-      for (const t of state.tiles) {
+      forEachTileInBounds(state, targetX - maxR, targetX + maxR, targetZ - maxR, targetZ + maxR, (t) => {
         const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
-        if (dSq > tileMaxSq || dSq > maxRSq) continue;
-        if (prevR > 0 && dSq < tileMinSq) continue;
+        if (dSq > tileMaxSq || dSq > maxRSq) return;
+        if (prevR > 0 && dSq < tileMinSq) return;
         t.onFireTimer = 0;
         t.cursedTimer = 0;
         t.blessedTimer = 30;
@@ -3757,7 +3847,7 @@ function applyExpandingWaveSlice(
             t.coralBleachTimer = 0;
             t.resourceAmount = Math.max(240, Math.min(360, t.resourceAmount + 140));
           }
-          continue;
+          return;
         }
         if (t.terrain === 'scorched' || t.terrain === 'swamp' || t.terrain === 'sand' || t.terrain === 'void_goo') {
           t.terrain = dSq <= maxRSq * 0.45 ? 'fertile' : 'grass';
@@ -3783,7 +3873,7 @@ function applyExpandingWaveSlice(
           t.resourceNode = 'berry_bush';
           t.resourceAmount = 220;
         }
-      }
+      });
       for (const u of state.units) {
         if (u.faction === 'hostile' || u.state === 'ko' || appliedIds.has(u.id)) continue;
         const dSq = (u.x - targetX) ** 2 + (u.z - targetZ) ** 2;
@@ -3822,13 +3912,13 @@ function applyExpandingWaveSlice(
 
     case 'curse_wave': {
       // Occult Abyssal Hex: corrupts souls & rots structures (leaves biome terrain & sea reefs distinct from Plague Spore!)
-      for (const t of state.tiles) {
+      forEachTileInBounds(state, targetX - maxR, targetX + maxR, targetZ - maxR, targetZ + maxR, (t) => {
         const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
-        if (dSq > tileMaxSq || dSq > maxRSq) continue;
-        if (prevR > 0 && dSq < tileMinSq) continue;
+        if (dSq > tileMaxSq || dSq > maxRSq) return;
+        if (prevR > 0 && dSq < tileMinSq) return;
         t.cursedTimer = 30;
         t.blessedTimer = 0;
-      }
+      });
       for (const u of state.units) {
         if (u.state === 'ko' || u.statusEffects.shielded || appliedIds.has(u.id)) continue;
         const dSq = (u.x - targetX) ** 2 + (u.z - targetZ) ** 2;
@@ -3861,11 +3951,11 @@ function applyExpandingWaveSlice(
     }
 
     case 'frenzy_wave': {
-      for (const t of state.tiles) {
-        if (t.height <= 0 || t.buildingId) continue;
+      forEachTileInBounds(state, targetX - maxR, targetX + maxR, targetZ - maxR, targetZ + maxR, (t) => {
+        if (t.height <= 0 || t.buildingId) return;
         const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
-        if (dSq > tileMaxSq || dSq > maxRSq) continue;
-        if (prevR > 0 && dSq < tileMinSq) continue;
+        if (dSq > tileMaxSq || dSq > maxRSq) return;
+        if (prevR > 0 && dSq < tileMinSq) return;
         if (dSq <= 4.2) {
           if (t.resourceNode === 'timber_grove') {
             preserveTreeBiomeBeforeScorch(t);
@@ -3875,7 +3965,7 @@ function applyExpandingWaveSlice(
         } else if (Math.abs(dSq - maxRSq * 0.68) < 2.0 && ((t.x * 13 + t.z * 7) % 6 === 0)) {
           t.onFireTimer = 6;
         }
-      }
+      });
       for (const u of state.units) {
         if (u.state === 'ko' || appliedIds.has(u.id)) continue;
         const dSq = (u.x - targetX) ** 2 + (u.z - targetZ) ** 2;
@@ -3895,10 +3985,10 @@ function applyExpandingWaveSlice(
       const isWaterTarget = Boolean(meta?.waveWaterTarget);
       const targetH = meta?.waveTargetHeight ?? 3;
       const epochIdx = meta?.waveEpochIdx ?? state.epochIndex;
-      for (const t of state.tiles) {
+      forEachTileInBounds(state, targetX - maxR, targetX + maxR, targetZ - maxR, targetZ + maxR, (t) => {
         const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
-        if (dSq > tileMaxSq || dSq > maxRSq) continue;
-        if (prevR > 0 && dSq < tileMinSq) continue;
+        if (dSq > tileMaxSq || dSq > maxRSq) return;
+        if (prevR > 0 && dSq < tileMinSq) return;
         t.onFireTimer = 0;
         t.cursedTimer = 0;
         t.blessedTimer = 30;
@@ -3928,7 +4018,7 @@ function applyExpandingWaveSlice(
             if (dSq <= maxRSq * 0.65 && t.terrain === 'deep_water') {
               t.terrain = 'shallow_water';
             }
-            continue;
+            return;
           }
           t.height = dSq <= maxRSq * 0.62 ? targetH : Math.max(1, targetH - 1);
           if (!t.buildingId) {
@@ -3947,7 +4037,7 @@ function applyExpandingWaveSlice(
             }
           }
         }
-      }
+      });
       break;
     }
   }
@@ -9871,6 +9961,7 @@ const simTickCounterByState = new WeakMap<SimulationState, number>();
 const voidGooPossibleByState = new WeakMap<SimulationState, boolean>();
 const specialLiquidPossibleByState = new WeakMap<SimulationState, boolean>();
 const liquidReactionAccumByState = new WeakMap<SimulationState, number>();
+const liquidContactAccumByState = new WeakMap<SimulationState, number>();
 
 export function stepSimulation(
   state: SimulationState,
@@ -12372,31 +12463,68 @@ function stepSimulationSingle(
   if (runTileTimerSweep) {
     liquidReactionAccumByState.set(state, runLiquidEdgePulse ? 0 : nextLiqAccum);
   }
+  const nextLiqContactAccum = (liquidContactAccumByState.get(state) ?? 0) + tileSweepDt;
+  const runLiquidContactPulse = runTileTimerSweep && nextLiqContactAccum >= 0.45;
+  if (runTileTimerSweep) {
+    liquidContactAccumByState.set(state, runLiquidContactPulse ? 0 : nextLiqContactAccum);
+  }
   const gsSweep = state.gridSize;
 
   let pendingFireIgnitions: Map<TileData, { duration: number; fireColor?: string }> | null = null;
+  let pendingLavaQuench: TileData[] | null = null;
+  let pendingLavaPoison: Array<[TileData, TileData]> | null = null;
+  let pendingPoisonDilute: TileData[] | null = null;
   const tiles = state.tiles;
   const nTiles = runTileTimerSweep ? tiles.length : 0;
   const wildfireSpreadEnabled = state.worldRules?.wildfireSpread !== false;
   const fireSpreadOffsets = FIRE_SPREAD_OFFSETS;
   for (let i = 0; i < nTiles; i++) {
     const t = tiles[i];
-    if (runLiquidEdgePulse && t.height === 0 && (t.waterKind === 'lava' || t.waterKind === 'poison')) {
+    if (
+      (runLiquidEdgePulse || runLiquidContactPulse) &&
+      t.height === 0 &&
+      (t.waterKind === 'lava' || t.waterKind === 'poison')
+    ) {
       const lx = t.x;
       const lz = t.z;
       const isLava = t.waterKind === 'lava';
-      // Check 4 cardinal neighbors: lava ignites adjacent flammable tiles; poison blights adjacent soil
-      const nIndices = [
-        lx > 0 ? i - 1 : -1,
-        lx + 1 < gsSweep ? i + 1 : -1,
-        lz > 0 ? i - gsSweep : -1,
-        lz + 1 < gsSweep ? i + gsSweep : -1,
-      ];
+      const n0 = lx > 0 ? i - 1 : -1;
+      const n1 = lx + 1 < gsSweep ? i + 1 : -1;
+      const n2 = lz > 0 ? i - gsSweep : -1;
+      const n3 = lz + 1 < gsSweep ? i + gsSweep : -1;
+      let lavaHitWater = false;
+      let lavaPoisonNb: TileData | null = null;
+      let cleanWaterNeighbors = 0;
+      let poisonNeighbors = 0;
+
       for (let ni = 0; ni < 4; ni++) {
-        const nIdx = nIndices[ni];
+        const nIdx = ni === 0 ? n0 : ni === 1 ? n1 : ni === 2 ? n2 : n3;
         if (nIdx < 0) continue;
         const nb = tiles[nIdx];
-        if (!nb || nb.height <= 0 || nb.blessedTimer > 0) continue;
+        if (!nb) continue;
+        if (nb.height === 0) {
+          if (runLiquidContactPulse) {
+            if (isLava) {
+              if (nb.waterKind === 'poison') {
+                lavaPoisonNb = nb;
+              } else if (!nb.waterKind && nb.terrain !== 'ice') {
+                lavaHitWater = true;
+              } else if (nb.terrain === 'ice') {
+                nb.terrain = nb.frozenWaterBase ?? 'shallow_water';
+                delete nb.frozenWaterBase;
+                lavaHitWater = true;
+              }
+            } else {
+              if (!nb.waterKind && nb.terrain !== 'ice') {
+                cleanWaterNeighbors++;
+              } else if (nb.waterKind === 'poison') {
+                poisonNeighbors++;
+              }
+            }
+          }
+          continue;
+        }
+        if (!runLiquidEdgePulse || nb.blessedTimer > 0) continue;
         if (isLava) {
           if (
             nb.onFireTimer <= 0 &&
@@ -12412,6 +12540,32 @@ function stepSimulationSingle(
           nb.terrain = 'blighted_mire';
           nb.farmSettlementId = undefined;
           delete nb.treeBiomeOverride;
+        }
+      }
+
+      if (runLiquidContactPulse) {
+        if (isLava) {
+          if (lavaPoisonNb) {
+            if (!pendingLavaPoison) pendingLavaPoison = [];
+            pendingLavaPoison.push([t, lavaPoisonNb]);
+          } else if (lavaHitWater) {
+            if (!pendingLavaQuench) pendingLavaQuench = [];
+            pendingLavaQuench.push(t);
+          }
+        } else if (cleanWaterNeighbors > 0) {
+          // Gradually dilute poison borders when connected to active open water
+          const diluteProb =
+            cleanWaterNeighbors >= 3
+              ? 1.0
+              : cleanWaterNeighbors === 2
+                ? 0.24
+                : poisonNeighbors <= 2
+                  ? 0.08
+                  : 0.03;
+          if (diluteProb >= 1.0 || Math.random() < diluteProb) {
+            if (!pendingPoisonDilute) pendingPoisonDilute = [];
+            pendingPoisonDilute.push(t);
+          }
         }
       }
     }
@@ -12569,6 +12723,88 @@ function stepSimulationSingle(
     for (const [nb, ign] of pendingFireIgnitions) {
       nb.onFireTimer = ign.duration;
       nb.fireColor = ign.fireColor;
+    }
+  }
+  if (pendingLavaQuench) {
+    let steamVfxCount = 0;
+    for (let i = 0; i < pendingLavaQuench.length; i++) {
+      const qt = pendingLavaQuench[i];
+      if (qt.height !== 0 || qt.waterKind !== 'lava') continue;
+      qt.height = 0;
+      qt.terrain = 'shallow_water';
+      delete qt.waterKind;
+      qt.isRiver = false;
+      qt.isLake = false;
+      qt.onFireTimer = 0;
+      if ((qt.tempOffset ?? 0) > 0) {
+        qt.tempOffset = Math.max(0, (qt.tempOffset ?? 0) - 28);
+      }
+      if (steamVfxCount < 4 && state.pendingVfx.length < 48) {
+        steamVfxCount++;
+        state.pendingVfx.push({
+          id: nextEntityId('vfx'),
+          type: 'hit_spark',
+          x: qt.x,
+          y: 0.55,
+          z: qt.z,
+          radius: 1.35,
+          color: '#e2e8f0',
+          createdAt: Date.now(),
+        });
+      }
+    }
+  }
+  if (pendingLavaPoison) {
+    let corrodeVfxCount = 0;
+    for (let i = 0; i < pendingLavaPoison.length; i++) {
+      const [lt, pt] = pendingLavaPoison[i];
+      for (const ct of [lt, pt]) {
+        ct.height = 0;
+        ct.terrain = 'scorched';
+        delete ct.waterKind;
+        ct.isRiver = false;
+        ct.isLake = false;
+        ct.cursedTimer = Math.max(ct.cursedTimer, 10);
+        ct.resourceNode = 'none';
+        ct.resourceAmount = 0;
+      }
+      if (corrodeVfxCount < 3 && state.pendingVfx.length < 48) {
+        corrodeVfxCount++;
+        state.pendingVfx.push({
+          id: nextEntityId('vfx'),
+          type: 'hit_spark',
+          x: lt.x,
+          y: 0.45,
+          z: lt.z,
+          radius: 1.5,
+          color: '#a3e635',
+          createdAt: Date.now(),
+        });
+      }
+    }
+  }
+  if (pendingPoisonDilute) {
+    let diluteVfxCount = 0;
+    for (let i = 0; i < pendingPoisonDilute.length; i++) {
+      const pt = pendingPoisonDilute[i];
+      if (pt.height !== 0 || pt.waterKind !== 'poison') continue;
+      delete pt.waterKind;
+      pt.terrain = 'shallow_water';
+      pt.isRiver = false;
+      pt.isLake = false;
+      if (diluteVfxCount < 2 && state.pendingVfx.length < 48) {
+        diluteVfxCount++;
+        state.pendingVfx.push({
+          id: nextEntityId('vfx'),
+          type: 'hit_spark',
+          x: pt.x,
+          y: 0.35,
+          z: pt.z,
+          radius: 1.0,
+          color: '#5eead4',
+          createdAt: Date.now(),
+        });
+      }
     }
   }
 
@@ -12775,13 +13011,18 @@ function stepSimulationSingle(
       }
     }
 
+    const def = UNIT_BY_ROLE.get(u.role)!;
+    const effStats = computeUnitEffectiveStats(u, def, {
+      worldImmortal: state.worldRules?.immortalEntities === true,
+    });
+
     if (u.maxLifespan === undefined) {
-      u.maxLifespan = getUnitMaxLifespan(u);
+      u.maxLifespan = Math.max(10, Math.round(getUnitMaxLifespan(u) + effStats.lifespanBonus));
     }
-    const immortalEntities = state.worldRules?.immortalEntities === true;
+    const immortalEntity = state.worldRules?.immortalEntities === true || effStats.immortal;
     u.ageYears = (u.ageYears ?? Math.max(0, state.year - (u.bornYear ?? state.year))) + YEARS_PER_SEC_AT_1X * dt;
 
-    if (!immortalEntities && u.ageYears >= u.maxLifespan) {
+    if (!immortalEntity && u.ageYears >= u.maxLifespan) {
       u.hp = 0;
       u.state = 'ko';
       u.koTimer = 0.45;
@@ -12796,12 +13037,18 @@ function stepSimulationSingle(
       continue;
     }
 
+    // Passive HP regeneration from traits, genes, items, or stat edits
+    if (effStats.regenPerSec > 0 && u.hp > 0 && u.hp < u.maxHp) {
+      u.hp = Math.min(u.maxHp, u.hp + effStats.regenPerSec * dt);
+    }
+
     // Environmental liquid hazards: Lava & Poison lakes/rivers gradually kill non-flying, non-immune units
     if (!u.embarkedVehicleId && !u.statusEffects.shielded && !FLYING_WILDLIFE_ROLES.has(u.role) && u.role !== 'alien_ufo') {
       const liquidTile = getTile(state, u.x, u.z);
       if (liquidTile && liquidTile.height === 0) {
         if (
           liquidTile.waterKind === 'lava' &&
+          !effStats.fireproof &&
           u.role !== 'golem' &&
           u.role !== 'cerberus' &&
           u.role !== 'gargoyle'
@@ -12881,14 +13128,12 @@ function stepSimulationSingle(
       }
     }
 
-    const def = UNIT_BY_ROLE.get(u.role)!;
     if (u.ageStage === 'child') {
       u.growthTimer = (u.growthTimer ?? 24) - dt;
       if (u.growthTimer <= 0) {
         u.ageStage = 'adult';
         u.growthTimer = undefined;
-        u.maxHp = def.maxHp;
-        u.hp = Math.min(u.maxHp, u.hp + 30);
+        syncUnitDerivedStats(u, true);
       }
     }
 
@@ -12899,8 +13144,7 @@ function stepSimulationSingle(
       (u.statusEffects.frenzied ? 1.5 : 1.0) *
       (u.statusEffects.cursed ? 0.55 : 1.0) *
       (u.statusEffects.frozen ? 0.06 : 1.0);
-    const ageSpeedMult = u.ageStage === 'child' ? 1.14 : 1.0;
-    const moveSpeed = def.speed * roadBoost * statusSpeedMult * ageSpeedMult;
+    const moveSpeed = effStats.speed * roadBoost * statusSpeedMult;
 
     if (u.actionCooldown > 0) u.actionCooldown = Math.max(0, u.actionCooldown - dt);
     if (u.weaponCooldown && u.weaponCooldown > 0) {
@@ -13063,6 +13307,7 @@ function stepSimulationSingle(
   });
 
   if (destroyedSettlementIds.size > 0) {
+    const fallenIds = new Set<string>();
     for (const sid of destroyedSettlementIds) {
       const stillHasBlds = state.buildings.some((b) => b.settlementId === sid);
       const stillHasUnits = state.units.some(
@@ -13081,13 +13326,16 @@ function stepSimulationSingle(
         if (state.settlementNames) delete state.settlementNames[sid];
         if (state.settlementSpecies) delete state.settlementSpecies[sid];
         if (state.settlementKingdoms) delete state.settlementKingdoms[sid];
-        for (const t of state.tiles) {
-          if (t.farmSettlementId === sid) {
-            t.farmSettlementId = undefined;
-          }
-          if (t.claimedSettlementId === sid) {
-            t.claimedSettlementId = undefined;
-          }
+        fallenIds.add(sid);
+      }
+    }
+    if (fallenIds.size > 0) {
+      for (const t of state.tiles) {
+        if (t.farmSettlementId && fallenIds.has(t.farmSettlementId)) {
+          t.farmSettlementId = undefined;
+        }
+        if (t.claimedSettlementId && fallenIds.has(t.claimedSettlementId)) {
+          t.claimedSettlementId = undefined;
         }
       }
     }
@@ -15302,6 +15550,8 @@ function stepHostileUnitAI(
   }
   const dist = Math.sqrt(bestDistSq);
 
+  const hostileEff = computeUnitEffectiveStats(u, def);
+
   if (u.role === 'raider_ranged' || isAlienRanged) {
     const kiteMin = u.role === 'alien_ufo' ? 2.2 : 2.1;
     if (dist < kiteMin && u.role !== 'alien_walker') {
@@ -15310,16 +15560,22 @@ function stepHostileUnitAI(
       const dz = (u.z - nearestCiv.z) / Math.max(0.1, dist);
       u.x = Math.max(1, Math.min(state.gridSize - 2, u.x + dx * moveSpeed * dt));
       u.z = Math.max(1, Math.min(state.gridSize - 2, u.z + dz * moveSpeed * dt));
-    } else if (dist <= def.attackRange) {
+    } else if (dist <= Math.max(def.attackRange, hostileEff.attackRange)) {
       u.state = 'fighting';
       u.targetX = nearestCiv.x;
       u.targetZ = nearestCiv.z;
       if (u.actionCooldown <= 0) {
-        u.actionCooldown = u.role === 'alien_walker' ? 1.25 : 0.95;
+        u.actionCooldown = (u.role === 'alien_walker' ? 1.25 : 0.95) / hostileEff.attackSpeedMult;
         if (!nearestCiv.statusEffects.shielded) {
-          nearestCiv.hp -= def.attackDamage;
+          const defEff = computeUnitEffectiveStats(nearestCiv);
+          const isCrit = Math.random() * 100 < hostileEff.critChance;
+          const dealt = Math.max(1, hostileEff.attackDamage * (isCrit ? 1.65 : 1) * (1 - defEff.armor / 100));
+          nearestCiv.hp -= dealt;
           nearestCiv.lastAttackerId = u.id;
           nearestCiv.underAttackTimer = 8.0;
+          if (hostileEff.vampiric && u.hp > 0) u.hp = Math.min(u.maxHp, u.hp + dealt * 0.2);
+          if (hostileEff.venomous) nearestCiv.statusEffects.plagued = Math.max(nearestCiv.statusEffects.plagued ?? 0, 7);
+          if (nearestCiv.hp <= 0) u.kills = (u.kills ?? 0) + 1;
         }
         if (u.role === 'alien_walker') {
           // Twin heavy laser splash damage
@@ -15331,7 +15587,8 @@ function stepHostileUnitAI(
               !other.statusEffects.shielded &&
               (other.x - nearestCiv.x) ** 2 + (other.z - nearestCiv.z) ** 2 <= 3.2
             ) {
-              other.hp -= Math.round(def.attackDamage * 0.45);
+              const otherEff = computeUnitEffectiveStats(other);
+              other.hp -= Math.max(1, Math.round(hostileEff.attackDamage * 0.45 * (1 - otherEff.armor / 100)));
             }
           }
         }
@@ -15353,16 +15610,23 @@ function stepHostileUnitAI(
     return;
   }
 
-  if (dist <= def.attackRange) {
+  if (dist <= Math.max(def.attackRange, hostileEff.attackRange)) {
     u.state = 'fighting';
     u.targetX = nearestCiv.x;
     u.targetZ = nearestCiv.z;
     if (u.actionCooldown <= 0) {
-      u.actionCooldown = 0.75;
+      u.actionCooldown = 0.75 / hostileEff.attackSpeedMult;
       if (!nearestCiv.statusEffects.shielded) {
-        nearestCiv.hp -= def.attackDamage;
+        const defEff = computeUnitEffectiveStats(nearestCiv);
+        const isCrit = Math.random() * 100 < hostileEff.critChance;
+        const dealt = Math.max(1, hostileEff.attackDamage * (isCrit ? 1.65 : 1) * (1 - defEff.armor / 100));
+        nearestCiv.hp -= dealt;
         nearestCiv.lastAttackerId = u.id;
         nearestCiv.underAttackTimer = 8.0;
+        if (hostileEff.vampiric && u.hp > 0) u.hp = Math.min(u.maxHp, u.hp + dealt * 0.2);
+        if (hostileEff.venomous) nearestCiv.statusEffects.plagued = Math.max(nearestCiv.statusEffects.plagued ?? 0, 7);
+        if (defEff.thorns && !u.statusEffects.shielded) u.hp -= Math.max(1, dealt * 0.25);
+        if (nearestCiv.hp <= 0) u.kills = (u.kills ?? 0) + 1;
       }
     }
   } else {
@@ -17706,8 +17970,9 @@ function stepWildlifeAI(
 
       u.targetX = target.x;
       u.targetZ = target.z;
+      const wildEff = computeUnitEffectiveStats(u, def);
       const reach = Math.max(
-        def.attackRange,
+        wildEff.attackRange,
         target.role === 'alien_walker' ? 2.8 : target.role === 'alien_ufo' ? 4.8 : def.attackRange,
       );
       if (dist <= reach) {
@@ -17717,15 +17982,20 @@ function stepWildlifeAI(
             (u.role === 'dinosaur' || u.role === 'minotaur' || u.role === 'bison' || u.role === 'rhino') &&
             (u.dinoRushTimer ?? 0) > 0 &&
             (u.wildlifeSkillCooldown ?? 0) <= 0;
-          const dmg = def.attackDamage * (isFrenzied ? 1.8 : 1.0) * (isChargeHit ? 1.38 : 1.0);
+          const isCrit = Math.random() * 100 < wildEff.critChance;
+          const dmg =
+            wildEff.attackDamage *
+            (isFrenzied ? 1.8 : 1.0) *
+            (isChargeHit ? 1.38 : 1.0) *
+            (isCrit ? 1.65 : 1.0);
           u.actionCooldown =
-            u.role === 'wolf' || u.role === 'fox' || u.role === 'kitsune'
+            (u.role === 'wolf' || u.role === 'fox' || u.role === 'kitsune'
               ? 0.72
               : u.role === 'golem' || u.role === 'kraken'
                 ? 1.25
                 : u.role === 'hydra' || u.role === 'basilisk' || u.role === 'thunderbird'
                   ? 1.1
-                  : 0.9;
+                  : 0.9) / wildEff.attackSpeedMult;
           u.attackAnimTimer = 0.48;
           u.attackTargetX = target.x;
           u.attackTargetZ = target.z;
@@ -17733,15 +18003,18 @@ function stepWildlifeAI(
           if (isChargeHit) {
             u.wildlifeSkillCooldown = 5.2;
           }
-          // Stone Golem & Petrified Gargoyle resist incoming melee/ranged strikes
-          const targetArmorMult =
-            target.role === 'golem'
-              ? 0.72
-              : target.role === 'gargoyle' && target.gargoylePetrified
-                ? 0.5
-                : 1.0;
+          const targetEff = computeUnitEffectiveStats(target);
+          const petrifiedMult = target.role === 'gargoyle' && target.gargoylePetrified ? 0.5 : 1.0;
+          const targetArmorMult = (1 - targetEff.armor / 100) * petrifiedMult;
           if (!target.statusEffects.shielded) {
-            target.hp -= dmg * targetArmorMult;
+            const dealt = Math.max(1, dmg * targetArmorMult);
+            target.hp -= dealt;
+            if (wildEff.vampiric && u.hp > 0) u.hp = Math.min(u.maxHp, u.hp + dealt * 0.2);
+            if (wildEff.venomous) target.statusEffects.plagued = Math.max(target.statusEffects.plagued ?? 0, 7);
+            if (targetEff.thorns && dist <= 2.4 && !u.statusEffects.shielded) {
+              u.hp -= Math.max(1, dealt * 0.25);
+            }
+            if (target.hp <= 0) u.kills = (u.kills ?? 0) + 1;
           }
           target.lastAttackerId = u.id;
           target.underAttackTimer = 8.0;
@@ -18864,20 +19137,21 @@ function stepCivilianUnitAI(
       nearestEnemy.role === 'alien_ufo' ||
       Boolean(enemyTileCheck && enemyTileCheck.height === 0);
 
+    const attackerEff = computeUnitEffectiveStats(u, def);
     const baseRange =
       u.species === 'human'
         ? hasHumanGuns
-          ? 5.8
+          ? Math.max(5.8, attackerEff.attackRange)
           : myEpoch >= 1
-            ? Math.max(2.0, def.attackRange)
-            : def.attackRange
+            ? Math.max(2.0, attackerEff.attackRange)
+            : attackerEff.attackRange
         : u.species === 'elf'
           ? hasElfGuns
-            ? 6.2
-            : Math.max(4.2, def.attackRange)
+            ? Math.max(6.2, attackerEff.attackRange)
+            : Math.max(4.2, attackerEff.attackRange)
           : (u.battlewillActive ?? 0) > 0 || (orcCanBattlewill && (u.battlewillCooldown ?? 0) <= 0)
-            ? 4.2
-            : Math.max(1.85, def.attackRange);
+            ? Math.max(4.2, attackerEff.attackRange)
+            : Math.max(1.85, attackerEff.attackRange);
     const effectiveRange = isNavalOrColossalTarget ? Math.max(5.5, baseRange) : baseRange;
 
     if (dist <= effectiveRange) {
@@ -18893,11 +19167,13 @@ function stepCivilianUnitAI(
       }
 
       if (u.actionCooldown <= 0) {
-        u.actionCooldown = u.statusEffects.frenzied ? 0.45 : u.species === 'elf' ? 0.68 : 0.78;
+        u.actionCooldown =
+          (u.statusEffects.frenzied ? 0.45 : u.species === 'elf' ? 0.68 : 0.78) /
+          attackerEff.attackSpeedMult;
         u.attackAnimTimer = 0.45;
 
         const baseDmg =
-          def.attackDamage *
+          attackerEff.attackDamage *
           speciesCombatMult *
           kingMult *
           (u.statusEffects.frenzied ? 2.4 : 1.0);
@@ -19354,12 +19630,25 @@ function stepCivilianUnitAI(
             });
           }
 
+          const isCrit = Math.random() * 100 < attackerEff.critChance;
           const strikeDmg =
             baseDmg *
             ((u.battlewillActive ?? 0) > 0 ? 1.55 : 1.0) *
-            (weaponSplash > 0 ? 1.18 : 1.0);
+            (weaponSplash > 0 ? 1.18 : 1.0) *
+            (isCrit ? 1.65 : 1.0);
           if (!nearestEnemy.statusEffects.shielded) {
-            nearestEnemy.hp -= strikeDmg;
+            const defEff = computeUnitEffectiveStats(nearestEnemy);
+            const dealt = Math.max(1, strikeDmg * (1 - defEff.armor / 100));
+            nearestEnemy.hp -= dealt;
+            if (attackerEff.vampiric && u.hp > 0) {
+              u.hp = Math.min(u.maxHp, u.hp + dealt * 0.2);
+            }
+            if (attackerEff.venomous) {
+              nearestEnemy.statusEffects.plagued = Math.max(nearestEnemy.statusEffects.plagued ?? 0, 7.0);
+            }
+            if (!isRangedShot && defEff.thorns && !u.statusEffects.shielded) {
+              u.hp -= Math.max(1, dealt * 0.25);
+            }
           }
           nearestEnemy.lastAttackerId = u.id;
           nearestEnemy.underAttackTimer = 8.0;
@@ -19953,15 +20242,17 @@ function stepCivilianUnitAI(
               Math.hypot(other.x - targetTile.x, other.z - targetTile.z) <= 1.5,
           );
       const coopMult = hasHelperHere ? 1.35 : 1.0;
+      const harvestEff = computeUnitEffectiveStats(u, def);
       const workMult =
         (def.harvestRate / 6) *
+        harvestEff.harvestMult *
         coopMult *
         (u.statusEffects.blessed ? 1.75 : 1.0) *
         (u.statusEffects.cursed ? 0.5 : 1.0);
       u.harvestTimer = (u.harvestTimer ?? 0) + dt * workMult;
       if (u.harvestTimer >= 0.8) {
         u.harvestTimer -= 0.8;
-        const take = Math.min(targetTile.resourceAmount, 8 + Math.round(def.harvestRate * 0.5));
+        const take = Math.min(targetTile.resourceAmount, 8 + Math.round(def.harvestRate * harvestEff.harvestMult * 0.5));
         targetTile.resourceAmount -= take;
 
         const yieldType: keyof Resources =

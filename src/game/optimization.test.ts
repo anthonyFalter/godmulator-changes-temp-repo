@@ -17,6 +17,7 @@ import {
   createPooledSimulationTickIndex,
 } from './spatialIndex';
 import { BatchedBuildingSystem } from './batchedBuildings';
+import { BatchedUnitSystem, getBatchedUnitPose, getBatchedUnitTemplateKey } from './batchedUnits';
 import { BatchedStaticPool } from './batchedStaticProps';
 import { TreeImpostorSystem } from './treeImpostors';
 import { getVoxelTreeLibrary, TreeBiomeKey } from './voxelTrees';
@@ -33,6 +34,7 @@ import {
 import { getMaxCityPopulation } from './catalog';
 import {
   createInitialSimulationState,
+  createWorldConfigFromTemplate,
   ensureWorldGrid,
   executeTerrainDropBatchImpact,
   stepSimulation,
@@ -611,6 +613,64 @@ describe('Major Optimization & 512x512 Scaling Suite', () => {
       assert.equal(sim.units[0].statusEffects.cursed, 0, 'Blossom batch should cleanse curse once per batch');
       assert.ok(sim.units[0].hp >= 25, 'Blossom batch should heal units inside drop area');
     }
+  });
+
+  it('BatchedUnitSystem collapses 180+ starting world units into <= 2 draw calls while preserving morph/pose keys', () => {
+    const sim = createInitialSimulationState(
+      128,
+      626984,
+      createWorldConfigFromTemplate('fantastic', { gridSize: 128, seed: 626984 }),
+    );
+    assert.ok(sim.units.length >= 150, `Expected 150+ initial units on 128x128 world, got ${sim.units.length}`);
+
+    const batchSys = new BatchedUnitSystem();
+    batchSys.beginFrame();
+    for (let i = 0; i < sim.units.length; i++) {
+      const u = sim.units[i];
+      batchSys.pushUnit(
+        u,
+        0,
+        u.species ?? 'human',
+        u.ageStage ?? 'adult',
+        u.appearanceSeed ?? (i + 1),
+        u.x,
+        1.0,
+        u.z,
+        0.5,
+        0,
+        1.0,
+      );
+    }
+    batchSys.commit();
+
+    const drawCalls = batchSys.getActiveDrawCallCount();
+    assert.ok(drawCalls >= 1 && drawCalls <= 2, `Expected <= 2 batched unit draw calls for ${sim.units.length} units, got ${drawCalls}`);
+
+    const posOut = new THREE.Vector3();
+    const firstUnit = sim.units[0];
+    assert.equal(batchSys.getUnitPosition(firstUnit.id, posOut), true);
+    assert.equal(posOut.x, firstUnit.x);
+    assert.equal(posOut.z, firstUnit.z);
+
+    // Distinct dinosaur morphs, submerged leviathan, disguised treant, and petrified gargoyle must keep distinct template keys
+    const dinoRexKey = getBatchedUnitTemplateKey('dinosaur', 'wildlife', 0, 'human', 'adult', 1, 'default');
+    const dinoTriKey = getBatchedUnitTemplateKey('dinosaur', 'wildlife', 0, 'human', 'adult', 2, 'default');
+    assert.notEqual(dinoRexKey, dinoTriKey);
+
+    assert.equal(
+      getBatchedUnitPose({ role: 'leviathan', leviathanSubmerged: true, treantDisguised: false, gargoylePetrified: false, state: 'idle' }),
+      'submerged',
+    );
+    assert.equal(
+      getBatchedUnitPose({ role: 'ent', leviathanSubmerged: false, treantDisguised: true, gargoylePetrified: false, state: 'idle' }),
+      'disguised',
+    );
+    assert.equal(
+      getBatchedUnitPose({ role: 'gargoyle', leviathanSubmerged: false, treantDisguised: false, gargoylePetrified: true, state: 'idle' }),
+      'petrified',
+    );
+
+    batchSys.dispose();
   });
 });
 

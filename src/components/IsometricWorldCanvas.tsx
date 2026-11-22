@@ -105,6 +105,7 @@ import {
 } from '../game/worldGrid';
 import { ChunkTerrainSystem } from '../game/chunkTerrainRenderer';
 import { BatchedBuildingSystem } from '../game/batchedBuildings';
+import { BatchedUnitSystem, getBatchedUnitPose } from '../game/batchedUnits';
 import { BatchedStaticPool } from '../game/batchedStaticProps';
 import { TreeImpostorSystem } from '../game/treeImpostors';
 import { EngineWorkerPool } from '../game/workerPool';
@@ -408,22 +409,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
     hearthLight.position.set(gridCenter, 3.0, gridCenter);
     scene.add(hearthLight);
 
-    const cityClusterLights: THREE.PointLight[] = [];
-    for (let ci = 0; ci < 2; ci++) {
-      const cLight = new THREE.PointLight(0xffa62b, 0, 14, 1.45);
-      cLight.position.set(gridCenter, 2.5, gridCenter);
-      scene.add(cLight);
-      cityClusterLights.push(cLight);
-    }
-
-    // Pooled dynamic night lights for luminous wildlife & mythics (kept lean at 2 lights to respect PBR PointLight budget)
-    const luminousCreatureLights: THREE.PointLight[] = [];
-    for (let li = 0; li < 2; li++) {
-      const lLight = new THREE.PointLight(0xd9f99d, 0, 11.0, 1.45);
-      lLight.position.set(gridCenter, 2.0, gridCenter);
-      scene.add(lLight);
-      luminousCreatureLights.push(lLight);
-    }
+    // Pooled dynamic accent point light (shared by 2nd night city cluster or visible luminous wildlife/mythics)
+    // Keeping total PBR PointLights strictly at 3 (hearth + accent + vfxFlash) minimizes shader compile & fragment cost.
+    const accentPointLight = new THREE.PointLight(0xffa62b, 0, 14, 1.45);
+    accentPointLight.position.set(gridCenter, 2.5, gridCenter);
+    scene.add(accentPointLight);
 
     // Dynamic God Power Flash Light (illuminates terrain & structures during miracle/disaster casts)
     const vfxFlashLight = new THREE.PointLight(0xff922b, 0, 26, 1.2);
@@ -860,6 +850,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       inst.castShadow = castShadow;
       inst.receiveShadow = true;
       inst.count = 0;
+      inst.visible = false;
       metroGroup.add(inst);
       return inst;
     };
@@ -1042,7 +1033,18 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
 
     const batchedBuildings = new BatchedBuildingSystem();
     buildingsGroup.add(batchedBuildings.group);
+    const batchedUnits = new BatchedUnitSystem();
+    unitsGroup.add(batchedUnits.group);
     const unitMeshes = new Map<string, UnitMeshEntry>();
+    const _unitPosScratch = new THREE.Vector3();
+    const getUnitRenderPos = (unitId: string, out: THREE.Vector3): boolean => {
+      const uGrp = unitMeshes.get(unitId)?.group;
+      if (uGrp) {
+        out.copy(uGrp.position);
+        return true;
+      }
+      return batchedUnits.getUnitPosition(unitId, out);
+    };
     const vehicleMeshes = new Map<string, VehicleMeshEntry>();
     const wispMeshes = new Map<string, WispMeshEntry>();
     const sharedWispCoreGeo = new THREE.OctahedronGeometry(0.3, 0);
@@ -6927,14 +6929,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         const u = simUnits[i];
         if (u.state === 'ko') continue;
         const metrics = getUnitInspectMetrics(u);
-        const uGroup = unitMeshes.get(u.id)?.group;
         let ux = u.x;
         let uz = u.z;
         let uy = 0.5;
-        if (uGroup) {
-          ux = uGroup.position.x;
-          uy = uGroup.position.y;
-          uz = uGroup.position.z;
+        if (getUnitRenderPos(u.id, _unitPosScratch)) {
+          ux = _unitPosScratch.x;
+          uy = _unitPosScratch.y;
+          uz = _unitPosScratch.z;
         } else {
           const tx = Math.round(THREE.MathUtils.clamp(u.x, 0, gSize - 1));
           const tz = Math.round(THREE.MathUtils.clamp(u.z, 0, gSize - 1));
@@ -8260,7 +8261,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         hasQuakes ||
         terrainMapDirty ||
         worldGrid.dirtyChunkCount > 0 ||
-        elapsed - lastTileScanTime >= 0.065;
+        elapsed - lastTileScanTime >= 0.32;
 
       if (shouldScanTiles) {
         lastTileScanTime = elapsed;
@@ -9422,6 +9423,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       let visibleUnitsThisFrame = 0;
       const MAX_NEW_UNITS_PER_FRAME = startupRevealStage >= 3 ? 12 : 0;
       let newUnitsThisFrame = 0;
+      const MAX_NEW_BATCH_TEMPLATES_PER_FRAME = startupRevealStage >= 3 ? 18 : 0;
+      let newBatchTemplatesThisFrame = 0;
+      batchedUnits.beginFrame();
+      const batchCrowdDistSq = (frustumSize * 0.42) * (frustumSize * 0.42);
 
       for (let ui = 0; ui < simState.units.length; ui++) {
         const u = simState.units[ui];
@@ -9472,6 +9477,222 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         const desiredEpoch = u.faction === 'civilization' ? getUnitEpoch(simState, u) : 0;
         const unitSpecies = u.species ?? 'human';
         const unitAgeStage = u.ageStage ?? 'adult';
+        const fallbackSeed = Math.abs(
+          (u.id.charCodeAt(u.id.length - 1) * 73856093) ^ (u.id.charCodeAt(0) * 19349663),
+        );
+        const appSeed = u.appearanceSeed ?? fallbackSeed;
+
+        const distFromCamSq =
+          (u.x - camTarget.x) * (u.x - camTarget.x) +
+          (u.z - camTarget.z) * (u.z - camTarget.z);
+        const canBatchUnit =
+          !isCameraPinnedUnit &&
+          (u.battlewillActive ?? 0) <= 0 &&
+          !(u.role === 'leviathan' && (u.leviathanBeamTimer ?? 0) > 0) &&
+          !(u.role === 'dragon' && (u.dragonRunPhase === 'strafe' || (u.attackAnimTimer ?? 0) > 0));
+        const shouldBatchThisUnit =
+          canBatchUnit &&
+          (frustumSize >= 36 ||
+            (visibleUnitsThisFrame > 55 && distFromCamSq > batchCrowdDistSq) ||
+            (!uEntry && newUnitsThisFrame >= MAX_NEW_UNITS_PER_FRAME));
+
+        if (shouldBatchThisUnit) {
+          const batchPose = getBatchedUnitPose(u);
+          if (
+            !batchedUnits.hasCachedTemplate(
+              u.role,
+              u.faction,
+              desiredEpoch,
+              unitSpecies,
+              unitAgeStage,
+              appSeed,
+              batchPose,
+            )
+          ) {
+            if (newBatchTemplatesThisFrame >= MAX_NEW_BATCH_TEMPLATES_PER_FRAME) {
+              continue;
+            }
+            newBatchTemplatesThisFrame++;
+          }
+
+          const txB = Math.round(THREE.MathUtils.clamp(u.x, 0, gsBld - 1));
+          const tzB = Math.round(THREE.MathUtils.clamp(u.z, 0, gsBld - 1));
+          const tileB = simState.tiles[tzB * gsBld + txB];
+          const isWaterWalkB =
+            tileB &&
+            tileB.height === 0 &&
+            (tileB.terrain === 'stone_road' ||
+              tileB.terrain === 'rail_track' ||
+              tileB.terrain === 'runway' ||
+              Boolean(tileB.buildingId));
+          const isSeaIceB = tileB && tileB.height === 0 && tileB.terrain === 'ice';
+          const groundYB = tileB
+            ? u.role === 'leviathan'
+              ? u.leviathanSubmerged
+                ? 0.295
+                : 0.34
+              : u.role === 'kraken' && tileB.height === 0
+                ? 0.14 + Math.sin(elapsed * 2.8 + (appSeed % 17)) * 0.06
+                : u.isSwimming
+                  ? 0.12 + Math.sin(elapsed * 5.5 + u.x) * 0.035
+                  : isWaterWalkB
+                    ? 0.3
+                    : isSeaIceB
+                      ? 0.21
+                      : Math.max(
+                          0.18,
+                          tileB.height * HEIGHT_STEP +
+                            0.25 -
+                            ((tileB.crushedTimer ?? 0) > 0 && tileB.height > 0 ? 0.14 : 0),
+                        )
+            : 0.5;
+
+          const isMovingB = u.state === 'moving';
+          const isWorkingB = u.state === 'gathering' || u.state === 'building' || u.state === 'fighting';
+          const isDragonB = u.role === 'dragon';
+          const isLeviathanB = u.role === 'leviathan';
+          const isFlyingMythicB =
+            u.role === 'phoenix' ||
+            u.role === 'griffin' ||
+            u.role === 'pegasus' ||
+            u.role === 'thunderbird' ||
+            u.role === 'manticore' ||
+            u.role === 'firefly' ||
+            u.role === 'glow_moth' ||
+            u.role === 'lantern_jelly' ||
+            u.role === 'fairy' ||
+            u.role === 'fae' ||
+            u.role === 'will_o_wisp' ||
+            (u.role === 'gargoyle' && !u.gargoylePetrified);
+          const isHeavyTitanB =
+            u.role === 'elephant' ||
+            u.role === 'yeti' ||
+            u.role === 'golem' ||
+            u.role === 'rhino' ||
+            u.role === 'hippo' ||
+            u.role === 'polar_bear' ||
+            u.role === 'hydra' ||
+            u.role === 'minotaur' ||
+            u.role === 'ent' ||
+            u.role === 'kraken' ||
+            u.role === 'basilisk' ||
+            u.role === 'gorilla' ||
+            u.role === 'moose' ||
+            u.role === 'bison';
+          const isStillDisguisedB =
+            (u.role === 'ent' && Boolean(u.treantDisguised)) ||
+            (u.role === 'gargoyle' && Boolean(u.gargoylePetrified));
+          const isAnimalB = ANIMAL_ROLE_SET.has(u.role);
+          const seedPhaseB = (appSeed % 31) * 0.41;
+          const isFrozenB = Boolean(u.statusEffects.frozen);
+          const simAltitudeB = u.altitude ?? 0;
+          const bobFreqB = isHeavyTitanB ? 7.8 : unitAgeStage === 'child' ? 14.5 : 11;
+          const walkBobB =
+            isDragonB ||
+            isLeviathanB ||
+            isFlyingMythicB ||
+            isStillDisguisedB ||
+            u.role === 'alien_walker' ||
+            isFrozenB ||
+            simAltitudeB > 0.35
+              ? 0
+              : isMovingB
+                ? Math.abs(Math.sin(elapsed * bobFreqB + seedPhaseB)) *
+                  (isHeavyTitanB ? 0.055 : unitAgeStage === 'child' ? 0.095 : 0.08)
+                : isWorkingB
+                  ? Math.abs(Math.sin(elapsed * 14 + seedPhaseB)) * (isAnimalB ? 0.025 : 0.05)
+                  : 0;
+          const targetHoverYB =
+            isDragonB && u.state !== 'ko'
+              ? (u.dragonRunPhase === 'turn' ? 2.54 : 2.34) + Math.sin(elapsed * 2.3 + seedPhaseB) * 0.22
+              : isFlyingMythicB && u.state !== 'ko'
+                ? (u.role === 'phoenix' || u.role === 'thunderbird' ? 1.92 : 1.56) +
+                  Math.sin(elapsed * 2.8 + seedPhaseB) * 0.2
+                : u.role === 'alien_ufo' && u.state !== 'ko'
+                  ? Math.sin(elapsed * 3.8 + seedPhaseB) * 0.26
+                  : 0;
+          const altScaleB = isLeviathanB ? 0.72 : u.role === 'alien_ufo' ? 0.85 : 0.55;
+          const finalYB = groundYB + walkBobB + targetHoverYB + simAltitudeB * altScaleB;
+          const interpXB =
+            u.prevX !== undefined && Math.abs(u.x - u.prevX) < 3.5
+              ? u.prevX + (u.x - u.prevX) * simInterpAlpha
+              : u.x;
+          const interpZB =
+            u.prevZ !== undefined && Math.abs(u.z - u.prevZ) < 3.5
+              ? u.prevZ + (u.z - u.prevZ) * simInterpAlpha
+              : u.z;
+
+          let yawB = 0;
+          if (isDragonB) {
+            const dxD = u.dragonRunDirX !== undefined ? u.dragonRunDirX : u.targetX - u.x;
+            const dzD = u.dragonRunDirZ !== undefined ? u.dragonRunDirZ : u.targetZ - u.z;
+            if (dxD * dxD + dzD * dzD > 0.0005) yawB = Math.atan2(dxD, dzD);
+          } else {
+            const dxB = u.targetX - u.x;
+            const dzB = u.targetZ - u.z;
+            if (dxB * dxB + dzB * dzB > 0.005) yawB = Math.atan2(dxB, dzB);
+          }
+
+          const koTiltZB =
+            u.state === 'ko'
+              ? Math.PI / 2
+              : !isFrozenB &&
+                  isMovingB &&
+                  !isDragonB &&
+                  !isFlyingMythicB &&
+                  !isLeviathanB &&
+                  !isStillDisguisedB &&
+                  u.role !== 'alien_walker'
+                ? Math.sin(elapsed * bobFreqB + seedPhaseB) * (isAnimalB ? 0.065 : 0.08)
+                : 0;
+
+          let scaleB = 1.0;
+          if (isLeviathanB && u.leviathanSubmerged && (u.leviathanLeapTimer ?? 0) > 4.0) {
+            const diveFrac = THREE.MathUtils.clamp(((u.leviathanLeapTimer ?? 0) - 4.0) / 2.2, 0, 1);
+            scaleB = Math.max(0.05, Math.pow(diveFrac, 1.8));
+          }
+
+          const csScale = batchedUnits.pushUnit(
+            u,
+            desiredEpoch,
+            unitSpecies,
+            unitAgeStage,
+            appSeed,
+            interpXB,
+            finalYB,
+            interpZB,
+            yawB,
+            koTiltZB,
+            scaleB,
+          );
+          if (csScale > 0 && !(isLeviathanB && u.leviathanSubmerged)) {
+            const totalAirB = Math.max(0, finalYB - groundYB);
+            const s = csScale * Math.max(0.28, 1 - totalAirB * 0.18);
+            const slot = unitShadowCount++;
+            ensureInstancedCapacity(unitContactShadowsInst, unitShadowCount);
+            const arr = unitContactShadowsInst.instanceMatrix.array as Float32Array;
+            const off = slot * 16;
+            arr[off] = s;
+            arr[off + 1] = 0;
+            arr[off + 2] = 0;
+            arr[off + 3] = 0;
+            arr[off + 4] = 0;
+            arr[off + 5] = s;
+            arr[off + 6] = 0;
+            arr[off + 7] = 0;
+            arr[off + 8] = 0;
+            arr[off + 9] = 0;
+            arr[off + 10] = s;
+            arr[off + 11] = 0;
+            arr[off + 12] = interpXB;
+            arr[off + 13] = finalYB + 0.018;
+            arr[off + 14] = interpZB;
+            arr[off + 15] = 1;
+          }
+          // Leave any old uEntry unstamped so unitMeshes.prune() disposes it cleanly at loop end
+          continue;
+        }
+
         if (
           !uEntry ||
           uEntry.epochLevel !== desiredEpoch ||
@@ -10933,6 +11154,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         }
       }
 
+      batchedUnits.commit();
       visibleUnitCountLastFrame = visibleUnitsThisFrame;
       unitContactShadowsInst.count = unitShadowCount;
       unitContactShadowsInst.visible = unitShadowCount > 0;
@@ -12601,9 +12823,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         renderer.shadowMap.autoUpdate = false;
       }
       if (appliedShadowsEnabled) {
-        // Sim ticks at 15 Hz, so 30 Hz shadow refreshes (stride >= 2) plus immediate updates on
-        // camera/frustum shifts look identical while halving GPU shadow-pass cost.
-        const effectiveStride = Math.max(2, appliedShadowStride);
+        // Sim ticks at 15 Hz, so 30 Hz close-up / 15 Hz overview shadow refreshes plus immediate
+        // updates on camera/frustum shifts look identical while cutting GPU shadow-pass cost.
+        const effectiveStride =
+          frustumSize >= 48
+            ? Math.max(4, appliedShadowStride)
+            : Math.max(2, appliedShadowStride);
         shadowFrameCounter = (shadowFrameCounter + 1) % effectiveStride;
         if (shadowFrameCounter === 0) {
           renderer.shadowMap.needsUpdate = true;
@@ -12791,10 +13016,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             (u) => u.id === activeFollowId && u.state !== 'ko',
           );
           if (followUnit) {
-            const uGroup = unitMeshes.get(activeFollowId)?.group;
-            const targetX = uGroup ? uGroup.position.x : followUnit.x;
-            const targetY = uGroup ? Math.max(1.2, uGroup.position.y * 0.8) : 1.2;
-            const targetZ = uGroup ? uGroup.position.z : followUnit.z;
+            const hasPos = getUnitRenderPos(activeFollowId, _unitPosScratch);
+            const targetX = hasPos ? _unitPosScratch.x : followUnit.x;
+            const targetY = hasPos ? Math.max(1.2, _unitPosScratch.y * 0.8) : 1.2;
+            const targetZ = hasPos ? _unitPosScratch.z : followUnit.z;
 
             camDesiredTarget.x = THREE.MathUtils.clamp(targetX, 2, simRef.current.gridSize - 3);
             camDesiredTarget.y = targetY;
@@ -14736,10 +14961,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         : undefined;
       if (draggedTargetUnit) {
         const metrics = getUnitInspectMetrics(draggedTargetUnit);
-        const uGrp = unitMeshes.get(draggedTargetUnit.id)?.group;
-        const dx = uGrp ? uGrp.position.x : draggedTargetUnit.x;
-        const dy = uGrp ? uGrp.position.y : 2.0;
-        const dz = uGrp ? uGrp.position.z : draggedTargetUnit.z;
+        const hasPos = getUnitRenderPos(draggedTargetUnit.id, _unitPosScratch);
+        const dx = hasPos ? _unitPosScratch.x : draggedTargetUnit.x;
+        const dy = hasPos ? _unitPosScratch.y : 2.0;
+        const dz = hasPos ? _unitPosScratch.z : draggedTargetUnit.z;
         dragHighlightRig.group.visible = true;
         dragHighlightRig.group.position.set(dx, dy, dz);
         dragHighlightRig.ringRoot.scale.setScalar(metrics.ringScale * (1.1 + Math.sin(elapsedTotal * 12) * 0.1));
@@ -14774,10 +14999,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         : undefined;
       if (hoverTargetUnit) {
         const metrics = getUnitInspectMetrics(hoverTargetUnit);
-        const uGrp = unitMeshes.get(hoverTargetUnit.id)?.group;
-        const hx = uGrp ? uGrp.position.x : hoverTargetUnit.x;
-        const hy = uGrp ? uGrp.position.y : 0.5;
-        const hz = uGrp ? uGrp.position.z : hoverTargetUnit.z;
+        const hasPos = getUnitRenderPos(hoverTargetUnit.id, _unitPosScratch);
+        const hx = hasPos ? _unitPosScratch.x : hoverTargetUnit.x;
+        const hy = hasPos ? _unitPosScratch.y : 0.5;
+        const hz = hasPos ? _unitPosScratch.z : hoverTargetUnit.z;
         const pulse = 1 + Math.sin(elapsedTotal * 7.5) * 0.08;
         hoverHighlightRig.group.visible = true;
         hoverHighlightRig.group.position.set(hx, hy, hz);
@@ -14800,10 +15025,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             : undefined;
       if (selectedTargetUnit) {
         const metrics = getUnitInspectMetrics(selectedTargetUnit);
-        const uGrp = unitMeshes.get(selectedTargetUnit.id)?.group;
-        const sx = uGrp ? uGrp.position.x : selectedTargetUnit.x;
-        const sy = uGrp ? uGrp.position.y : 0.5;
-        const sz = uGrp ? uGrp.position.z : selectedTargetUnit.z;
+        const hasPos = getUnitRenderPos(selectedTargetUnit.id, _unitPosScratch);
+        const sx = hasPos ? _unitPosScratch.x : selectedTargetUnit.x;
+        const sy = hasPos ? _unitPosScratch.y : 0.5;
+        const sz = hasPos ? _unitPosScratch.z : selectedTargetUnit.z;
         const ringPad = selectedTargetUnit.id === activeHoverUnitId ? 1.18 : 1.0;
         selectedHighlightRig.group.visible = true;
         selectedHighlightRig.group.position.set(sx, sy, sz);
@@ -14827,14 +15052,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         if (!isPointInCullBounds(fu.x, fu.z, worldCullBounds, 1.5)) continue;
         if (fu.favorite && favCount < MAX_FAVORITE_STARS) {
           const metrics = getUnitInspectMetrics(fu);
-          const uGrp = unitMeshes.get(fu.id)?.group;
-          const fx = uGrp ? uGrp.position.x : fu.x;
+          const hasPos = getUnitRenderPos(fu.id, _unitPosScratch);
+          const fx = hasPos ? _unitPosScratch.x : fu.x;
           const fy =
-            (uGrp ? uGrp.position.y : 0.5) +
+            (hasPos ? _unitPosScratch.y : 0.5) +
             metrics.bodyHeight +
             0.32 +
             Math.sin(elapsedTotal * 3.8 + favCount * 1.1) * 0.06;
-          const fz = uGrp ? uGrp.position.z : fu.z;
+          const fz = hasPos ? _unitPosScratch.z : fu.z;
           _dummyPos.set(fx, fy, fz);
           _dummyQuat.setFromAxisAngle(_propAxisY, elapsedTotal * 2.2 + favCount);
           _dummyScale.set(1.1, 1.35, 1.1);
@@ -14849,14 +15074,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           kingCount < MAX_KING_CROWNS
         ) {
           const metrics = getUnitInspectMetrics(fu);
-          const uGrp = unitMeshes.get(fu.id)?.group;
-          const kx = uGrp ? uGrp.position.x : fu.x;
+          const hasPos = getUnitRenderPos(fu.id, _unitPosScratch);
+          const kx = hasPos ? _unitPosScratch.x : fu.x;
           const ky =
-            (uGrp ? uGrp.position.y : 0.5) +
+            (hasPos ? _unitPosScratch.y : 0.5) +
             metrics.bodyHeight +
             0.22 +
             Math.sin(elapsedTotal * 3.0 + kingCount) * 0.04;
-          const kz = uGrp ? uGrp.position.z : fu.z;
+          const kz = hasPos ? _unitPosScratch.z : fu.z;
           _dummyPos.set(kx, ky, kz);
           _dummyQuat.setFromAxisAngle(_propAxisY, elapsedTotal * 1.6 + kingCount);
           _dummyScale.set(1.0, 1.0, 1.0);
@@ -15075,55 +15300,57 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           ? Math.max(0.85, cityLightProfile.pointLightIntensity)
           : 0.35 * (1 - currentDarkness * 0.5);
 
-      for (let ci = 0; ci < cityClusterLights.length; ci++) {
-        const cLight = cityClusterLights[ci];
-        if (blds.length > ci + 1 && currentDarkness > 0.08) {
-          const step = Math.max(1, Math.floor(blds.length / (cityClusterLights.length + 1)));
-          const bld = blds[Math.min(blds.length - 1, (ci + 1) * step)];
-          const bTile = simRef.current.tiles[bld.tileZ * simRef.current.gridSize + bld.tileX];
-          const by = (bTile ? Math.max(0.18, bTile.height * HEIGHT_STEP + 0.25) : 1.0) + 1.65;
-          cLight.position.set(bld.tileX, by, bld.tileZ);
-          const bSpec =
-            bld.species ??
-            (bld.settlementId
-              ? simRef.current.settlementSpecies?.[bld.settlementId]
-              : undefined) ??
-            primarySpecies;
-          const bProf = getEpochCityLightProfile(
-            bld.epochLevel ?? epochIdx,
-            bSpec,
-            currentDarkness,
-            shaderElapsed + ci * 1.3,
-          );
-          cLight.color.setHex(ci % 2 === 0 ? bProf.primaryHex : bProf.secondaryHex);
-          cLight.distance = bProf.pointLightDistance;
-          cLight.intensity = bProf.pointLightIntensity * 0.85;
-        } else {
-          cLight.intensity = 0;
-        }
-      }
-
-      // Dynamic pooled night illumination from luminous wildlife & mythics (fireflies, fairies, faes, wisps, phoenix, thunderbird)
-      let lumLightIdx = 0;
-      const lumNightBoost = 0.32 + currentDarkness * 4.4;
+      // Pooled 3rd PointLight: prioritizes closest visible luminous creature, or falls back to 2nd city cluster at night
+      let closestLumUnit: UnitEntity | null = null;
+      let closestLumDistSq = Infinity;
       const lumUnits = simRef.current.units;
-      for (let ui = 0; ui < lumUnits.length && lumLightIdx < luminousCreatureLights.length; ui++) {
+      for (let ui = 0; ui < lumUnits.length; ui++) {
         const lu = lumUnits[ui];
         if (lu.state === 'ko' || !LUMINOUS_ENTITY_ROLES.has(lu.role)) continue;
         if (!isPointInCullBounds(lu.x, lu.z, worldCullBounds, 4.0)) continue;
-        const lLight = luminousCreatureLights[lumLightIdx++];
-        const lx = Math.max(0, Math.min(simRef.current.gridSize - 1, Math.round(lu.x)));
-        const lz = Math.max(0, Math.min(simRef.current.gridSize - 1, Math.round(lu.z)));
+        const dSq =
+          (lu.x - camTarget.x) * (lu.x - camTarget.x) +
+          (lu.z - camTarget.z) * (lu.z - camTarget.z);
+        if (dSq < closestLumDistSq) {
+          closestLumDistSq = dSq;
+          closestLumUnit = lu;
+        }
+      }
+
+      if (closestLumUnit) {
+        const lumNightBoost = 0.32 + currentDarkness * 4.4;
+        const lx = Math.max(0, Math.min(simRef.current.gridSize - 1, Math.round(closestLumUnit.x)));
+        const lz = Math.max(0, Math.min(simRef.current.gridSize - 1, Math.round(closestLumUnit.z)));
         const lTile = simRef.current.tiles[lz * simRef.current.gridSize + lx];
         const baseY = lTile ? Math.max(0.25, lTile.height * HEIGHT_STEP + 0.35) : 1.0;
-        const pulse = 0.84 + Math.sin(shaderElapsed * 3.6 + (lu.appearanceSeed ?? ui)) * 0.16;
-        lLight.position.set(lu.x, baseY + 1.45, lu.z);
-        lLight.color.setHex(LUMINOUS_LIGHT_COLORS[lu.role] ?? 0xd9f99d);
-        lLight.distance = lu.role === 'firefly' ? 7.5 : 10.5;
-        lLight.intensity = lumNightBoost * (lu.role === 'firefly' ? 0.72 : 1.0) * pulse;
-      }
-      for (let li = lumLightIdx; li < luminousCreatureLights.length; li++) {
-        luminousCreatureLights[li].intensity = 0;
+        const pulse =
+          0.84 +
+          Math.sin(shaderElapsed * 3.6 + (closestLumUnit.appearanceSeed ?? 1)) * 0.16;
+        accentPointLight.position.set(closestLumUnit.x, baseY + 1.45, closestLumUnit.z);
+        accentPointLight.color.setHex(LUMINOUS_LIGHT_COLORS[closestLumUnit.role] ?? 0xd9f99d);
+        accentPointLight.distance = closestLumUnit.role === 'firefly' ? 7.5 : 10.5;
+        accentPointLight.intensity =
+          lumNightBoost * (closestLumUnit.role === 'firefly' ? 0.72 : 1.0) * pulse;
+      } else if (blds.length > 1 && currentDarkness > 0.08) {
+        const bld = blds[Math.min(blds.length - 1, Math.floor(blds.length / 2))];
+        const bTile = simRef.current.tiles[bld.tileZ * simRef.current.gridSize + bld.tileX];
+        const by = (bTile ? Math.max(0.18, bTile.height * HEIGHT_STEP + 0.25) : 1.0) + 1.65;
+        accentPointLight.position.set(bld.tileX, by, bld.tileZ);
+        const bSpec =
+          bld.species ??
+          (bld.settlementId ? simRef.current.settlementSpecies?.[bld.settlementId] : undefined) ??
+          primarySpecies;
+        const bProf = getEpochCityLightProfile(
+          bld.epochLevel ?? epochIdx,
+          bSpec,
+          currentDarkness,
+          shaderElapsed,
+        );
+        accentPointLight.color.setHex(bProf.secondaryHex);
+        accentPointLight.distance = bProf.pointLightDistance;
+        accentPointLight.intensity = bProf.pointLightIntensity * 0.85;
+      } else {
+        accentPointLight.intensity = 0;
       }
 
       // Animate sculpted sky clouds, underglow & ocean coastal/reef/whitecap foaming
@@ -15403,12 +15630,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             }
             continue;
           }
-          const uGrp = unitMeshes.get(kingUnit.id)?.group;
-          const kx = uGrp ? uGrp.position.x : kingUnit.x;
-          const kz = uGrp ? uGrp.position.z : kingUnit.z;
+          const hasPos = getUnitRenderPos(kingUnit.id, _unitPosScratch);
+          const kx = hasPos ? _unitPosScratch.x : kingUnit.x;
+          const kz = hasPos ? _unitPosScratch.z : kingUnit.z;
           const tile = curSim.tiles[Math.round(kz) * gSize + Math.round(kx)];
-          const baseY = uGrp
-            ? uGrp.position.y
+          const baseY = hasPos
+            ? _unitPosScratch.y
             : Math.max(0.5, (tile ? tile.height : 1) * HEIGHT_STEP);
           _kingProjVec.set(kx, baseY + 1.45, kz).project(camera);
           const sx = (_kingProjVec.x * 0.5 + 0.5) * cWidth;
@@ -15582,6 +15809,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       }
       sharedGodPowerGeos.dispose();
       batchedBuildings.dispose();
+      batchedUnits.dispose();
       treeImpostors.dispose();
       treeBatchShadow.dispose();
       treeBatchNoShadow.dispose();

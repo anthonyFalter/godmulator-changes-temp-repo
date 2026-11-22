@@ -52,6 +52,11 @@ const MATS: MatLegend = {
   n: { ramp: MAT.stone, tone: 3 },
   h: { ramp: MAT.stone, tone: 2 },
   H: { ramp: MAT.stone, tone: 1 },
+  // Copper / Terracotta
+  X: { ramp: MAT.copper, tone: 4 },
+  x: { ramp: MAT.copper, tone: 3 },
+  v: { ramp: MAT.copper, tone: 2 },
+  V: { ramp: MAT.copper, tone: 1 },
   // Dark Iron (shadow creases / rivets)
   D: { ramp: MAT.darkIron, tone: 1 },
   d: { ramp: MAT.darkIron, tone: 0 },
@@ -618,54 +623,74 @@ export const ZONE_SPRITES: Record<ZoneOverlayType, CompiledSprite> = {
 };
 
 export const TERRAIN_SPRITES: Record<TerrainToolType, CompiledSprite> = {
-  raise: icon16((c) => {
-    c.isoTile(MAT.leaf, MAT.wood, MAT.darkWood, 14, 3);
-    c.stamp(
-      4,
-      1,
-      [
-        '...43...',
-        '..3332..',
-        '.233221.',
-        '...22...',
-        '...22...',
-        '...11...',
-      ],
-      MAT.gold,
-      MATS,
-    );
-  }),
+  raise: cluster16(
+    [
+      '.......YY.......',
+      '......YyyY......',
+      '.....YyyggY.....',
+      '....YygggggY....',
+      '......yggG......',
+      '......yggG......',
+      '.....EEeeEE.....',
+      '....EeelleeE....',
+      '...EeeelleeeE...',
+      '..EllbBbbBblLE..',
+      '..llbbkBkkbbll..',
+      '.lbkkBkkkkBkkbl.',
+      '.bkkKkkkkkkKkkb.',
+      '.kkKKkKKKKkKKkk.',
+      '..KKKKKKKKKKKK..',
+      '................',
+    ],
+    MAT.leaf,
+    MATS,
+  ),
 
-  lower: icon16((c) => {
-    c.isoTile(MAT.leaf, MAT.wood, MAT.darkWood, 14, 3);
-    c.stamp(
-      4,
-      1,
-      [
-        '...22...',
-        '...22...',
-        '.332211.',
-        '..2221..',
-        '...11...',
-      ],
-      MAT.flame,
-      MATS,
-    );
-  }),
+  lower: cluster16(
+    [
+      '......FffF......',
+      '......FffA......',
+      '......faaA......',
+      '....FffaaaAF....',
+      '.....faaaAA.....',
+      '......aaAA......',
+      '.EEee..AA..eeEE.',
+      '.EelLE....ELleE.',
+      '.bbkL......Lkbb.',
+      '.bkkK.uUUu.Kkkb.',
+      '.kkK.CuuuuC.Kkk.',
+      '.kkK.uuuuUU.Kkk.',
+      '.kKKKUUUUUUKKKk.',
+      '..KKKKKKKKKKKK..',
+      '................',
+      '................',
+    ],
+    MAT.flame,
+    MATS,
+  ),
 
-  flatten: icon16((c) => {
-    c.isoTile(MAT.stone, MAT.stone, MAT.darkIron, 14, 3);
-    c.stamp(
-      2,
-      2,
-      [
-        '333333333322',
-        '111111111111',
-      ],
-      MAT.gold,
-      MATS,
-    );
-  }),
+  flatten: cluster16(
+    [
+      '................',
+      '......yYYy......',
+      '.....YgGGgY.....',
+      '..YYYYYYYYYYYY..',
+      '.YyyIICCIIyygGY.',
+      '.YggGGGGGGGGGGY.',
+      '..GGGGGGGGGGGG..',
+      '................',
+      '.NNNNNNNNNNNNNN.',
+      '.NnnnnhhhhnnnNN.',
+      '.nhhHHhhhhHHhhn.',
+      '.hhHHHhHHhHHHhh.',
+      '.kHHkHHHHHHkHHk.',
+      '..HHHHHHHHHHHH..',
+      '................',
+      '................',
+    ],
+    MAT.stone,
+    MATS,
+  ),
 
   fertile_meadow: icon16((c) => {
     c.isoTile(MAT.leaf, MAT.wood, MAT.darkWood, 14, 3);
@@ -724,20 +749,51 @@ export const TERRAIN_SPRITES: Record<TerrainToolType, CompiledSprite> = {
     });
   }),
 
-  stone_road: icon16((c) => {
-    c.isoTile(MAT.stone, MAT.wood, MAT.darkWood, 12, 4, (x, y) => {
-      if ((x + y) % 3 === 0) return { ramp: MAT.darkIron, tone: 1 };
-      return { ramp: MAT.stone, tone: 3 };
-    });
-  }),
+  stone_road: cluster16(
+    [
+      '................',
+      '......EeNN......',
+      '.....EelNnh.....',
+      '....EelNnnH.....',
+      '....elNnnHnE....',
+      '...EelNnhNnle...',
+      '...elNnnHnnle...',
+      '..EelNnhNnhnle..',
+      '..elNnnHnnnHle..',
+      '..elNnhHnnnhle..',
+      '.EelNnnHNnnHle..',
+      '.elNnnHHnnnhHle.',
+      '.elNnhHHnnnhHle.',
+      '.LLNnnHHnnnhHLL.',
+      '..LHHHHHHHHHHLL.',
+      '................',
+    ],
+    MAT.stone,
+    MATS,
+  ),
 
-  rail_track: icon16((c) => {
-    c.isoTile(MAT.stone, MAT.darkWood, MAT.darkIron, 12, 4, (x, y) => {
-      if (x === 5 || x === 10) return { ramp: MAT.steel, tone: 4 };
-      if (x >= 4 && x <= 11 && y % 2 === 0) return { ramp: MAT.wood, tone: 2 };
-      return null;
-    });
-  }),
+  rail_track: cluster16(
+    [
+      '................',
+      '.....S....S.....',
+      '....SsbkkbsS....',
+      '....SsmkkmsS....',
+      '....Ss....sS....',
+      '...SsbBkkBbsS...',
+      '...SsmkkkkmsS...',
+      '...Ss......sS...',
+      '..SsbBkkkkBbsS..',
+      '..SsmkKKKKkmsS..',
+      '..Ss........sS..',
+      '.SsbBkkkkkkBbsS.',
+      '.SsmkKKKKKKkmsS.',
+      '.Ssm........msS.',
+      '.MM..........MM.',
+      '................',
+    ],
+    MAT.steel,
+    MATS,
+  ),
 
   crystal_shower: icon16((c) => {
     c.isoTile(MAT.arcane, MAT.stone, MAT.darkIron, 14, 3);
@@ -912,22 +968,28 @@ export const TERRAIN_SPRITES: Record<TerrainToolType, CompiledSprite> = {
     );
   }),
 
-  alpine_glacier: icon16((c) => {
-    c.isoTile(MAT.azure, MAT.stone, MAT.darkIron, 14, 3);
-    c.stamp(
-      2,
-      1,
-      [
-        '....II....',
-        '...IIiI...',
-        '..ICciII..',
-        '.ICcuiiCC.',
-        'Cccuuuiicc',
-      ],
-      MAT.parchment,
-      MATS,
-    );
-  }),
+  alpine_glacier: cluster16(
+    [
+      '.......II.......',
+      '......IIiI......',
+      '.....IIiiCC.....',
+      '....IIiiCccC....',
+      '...IIiICcucCI...',
+      '..IIiCCcuuuCIi..',
+      '..IiCCcuuuCCiI..',
+      '.IiCCcuuNnhCCcC.',
+      '.ICccuuNnnnhCcu.',
+      '.CcuuuNnnnhHcuU.',
+      '.cuuUNnnnhHHuUU.',
+      '.uUUNnnnhHHHuUU.',
+      '.UUNnnnhHHHHHUU.',
+      '..NHHHHHHHHHHH..',
+      '................',
+      '................',
+    ],
+    MAT.azure,
+    MATS,
+  ),
 
   abyssal_trench: icon16((c) => {
     c.isoTile(MAT.azure, MAT.darkIron, MAT.darkIron, 14, 3);
@@ -1047,51 +1109,120 @@ export const TERRAIN_SPRITES: Record<TerrainToolType, CompiledSprite> = {
     );
   }),
 
-  canyon_carve: icon16((c) => {
-    c.isoTile(MAT.copper, MAT.darkWood, MAT.darkWood, 12, 4, (x, y) => {
-      const band = Math.abs(x - 7.5 + (y - 6) * 0.6);
-      if (band <= 1.6) return { ramp: MAT.darkWood, tone: 1 };
-      if (band <= 2.6) return { ramp: MAT.wood, tone: 2 };
-      return null;
-    });
-  }),
+  canyon_carve: cluster16(
+    [
+      '................',
+      '.XXXxx....xxXXX.',
+      '.Xxxvv....vvxxX.',
+      '.xvvvV....Vvvvx.',
+      '.vvVVk....kVVvv.',
+      '.XXxxk....kxxXX.',
+      '.XxxvK.dd.KvxxX.',
+      '.xvvVK.dd.KVvvx.',
+      '.vvVVk.dd.kVVvv.',
+      '.xxvvK.dd.Kvvxx.',
+      '.vvVVk.dd.kVVvv.',
+      '.vVVKk.dd.kKVVv.',
+      '.VVKKk.DD.kKKVV.',
+      '..KKKKDDDDKKKK..',
+      '................',
+      '................',
+    ],
+    MAT.copper,
+    MATS,
+  ),
 
-  mesa_plateau: icon16((c) => {
-    c.isoTile(MAT.copper, MAT.wood, MAT.darkWood, 14, 2);
-    c.isoTile(MAT.copper, MAT.wood, MAT.darkWood, 8, 5);
-  }),
+  mesa_plateau: cluster16(
+    [
+      '................',
+      '................',
+      '...XXXXXXXXXX...',
+      '..XxxxxxxxxxxX..',
+      '..XxxvvvvvvxxX..',
+      '..vvvvVVVVvvvv..',
+      '..YyyggVVggyyY..',
+      '..vvvVVVVVVvvv..',
+      '.XxxvvVVVVvvxxX.',
+      '.xvvVVVVVVVVvvx.',
+      '.vVVKKVVVVKKVVv.',
+      '.YyygggVVgggyyY.',
+      '.yggggGGGGggggy.',
+      '..GGGGGGGGGGGG..',
+      '................',
+      '................',
+    ],
+    MAT.copper,
+    MATS,
+  ),
 
-  volcanic_crater: icon16((c) => {
-    c.isoTile(MAT.stone, MAT.darkIron, MAT.darkIron, 13, 3, (x, y) => {
-      const d = Math.hypot(x - 7.5, (y - 6.5) * 1.45);
-      if (d <= 2.2) return { ramp: MAT.darkIron, tone: 1 };
-      if (d <= 3.6) return { ramp: MAT.stone, tone: 4 };
-      return null;
-    });
-  }),
+  volcanic_crater: cluster16(
+    [
+      '................',
+      '................',
+      '....NNNNNNNN....',
+      '..NNnnhhhhnNNN..',
+      '.NNnhHddddHhnN..',
+      '.NnhHddFFddHhnN.',
+      '.nhHdDFYYFDdHhn.',
+      '.nhHdDFfaFDdHhn.',
+      '.nhHHddaaDdHHhn.',
+      '.nnhHHddddHHhnn.',
+      '.nnhhHHHHHHhhnn.',
+      '.hhHHHHHHHHHHhh.',
+      '..HHHHHHHHHHHH..',
+      '..DDHHHHHHHHDD..',
+      '................',
+      '................',
+    ],
+    MAT.stone,
+    MATS,
+  ),
 
-  smooth_terrain: icon16((c) => {
-    c.isoTile(MAT.leaf, MAT.wood, MAT.darkWood, 14, 3);
-    c.stamp(
-      3,
-      3,
-      [
-        '..CCCC..',
-        '.C4444C.',
-        'C4....4C',
-      ],
-      MAT.azure,
-      MATS,
-    );
-  }),
+  smooth_terrain: cluster16(
+    [
+      '................',
+      '................',
+      '....CCCCCCCC....',
+      '..CCcc....ccCC..',
+      '.Cc..........cC.',
+      '................',
+      '.....EEeeEE.....',
+      '...EEeeelleeE...',
+      '..EeellllllleE..',
+      '.EelllllllllLLE.',
+      '.elllllLLLLLLle.',
+      '.bBbbLLLLLLbbBb.',
+      '.bbkkbBBBBbkkbb.',
+      '..kkkkKKKKkkkk..',
+      '................',
+      '................',
+    ],
+    MAT.leaf,
+    MATS,
+  ),
 
-  island_bridge: icon16((c) => {
-    c.isoTile(MAT.azure, MAT.azure, MAT.darkIron, 12, 4, (x, y) => {
-      const band = Math.abs(x - 7.5 - (y - 6) * 1.2);
-      if (band <= 1.7) return { ramp: MAT.parchment, tone: 3 };
-      return null;
-    });
-  }),
+  island_bridge: cluster16(
+    [
+      '................',
+      '................',
+      '................',
+      '.....NNNNNN.....',
+      '...NNnnNNnnNN...',
+      '..NnnBbbbbBnnN..',
+      '.EEeBbbkkbbBeEE.',
+      '.EelBkH..HkBleE.',
+      '.llkKH.CC.HKkll.',
+      '.kKHCccuucCCHKk.',
+      '.KHCcuuuuuucCHK.',
+      '.CCcuuuuuuuucCC.',
+      '.cuuUUuuuuUUuuc.',
+      '..UUUUUUUUUUUU..',
+      '................',
+      '................',
+    ],
+    MAT.azure,
+    MATS,
+  ),
 };
 
 export const HUD_SPRITES: Record<

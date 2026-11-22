@@ -465,6 +465,11 @@ function getSharedVertexColorMaterial(roughnessBucket: number, metalnessBucket: 
   return mat;
 }
 
+const sharedVertexColorBasicMat = Object.assign(
+  new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true }),
+  { userData: { sharedResource: true } },
+);
+
 const sharedCarryGeo = new THREE.BoxGeometry(0.13, 0.13, 0.13);
 sharedCarryGeo.userData.sharedResource = true;
 const sharedCarryMaterials: Record<string, THREE.MeshStandardMaterial> = {
@@ -577,6 +582,10 @@ function bakeVertexColoredStaticMeshes(
       meshes: THREE.Mesh[];
     }
   >();
+  const vcBasicBuckets = new Map<
+    string,
+    { castShadow: boolean; receiveShadow: boolean; meshes: THREE.Mesh[] }
+  >();
   const matBuckets = new Map<
     string,
     { mat: THREE.Material; castShadow: boolean; receiveShadow: boolean; meshes: THREE.Mesh[] }
@@ -623,6 +632,21 @@ function bakeVertexColoredStaticMeshes(
       if (!bucket) {
         bucket = { roughness: rBucket, metalness: mBucket, castShadow, receiveShadow, meshes: [] };
         vcBuckets.set(key, bucket);
+      }
+      bucket.meshes.push(child);
+    } else if (
+      mat instanceof THREE.MeshBasicMaterial &&
+      !mat.transparent &&
+      !mat.map &&
+      !mat.vertexColors
+    ) {
+      const castShadow = false;
+      const receiveShadow = child.receiveShadow;
+      const key = `${castShadow ? 1 : 0}|${receiveShadow ? 1 : 0}`;
+      let bucket = vcBasicBuckets.get(key);
+      if (!bucket) {
+        bucket = { castShadow, receiveShadow, meshes: [] };
+        vcBasicBuckets.set(key, bucket);
       }
       bucket.meshes.push(child);
     } else {
@@ -678,6 +702,47 @@ function bakeVertexColoredStaticMeshes(
       if (options?.tagUnitShadowCaster && bucket.castShadow) {
         combined.userData.isUnitShadowCaster = true;
       }
+      group.add(combined);
+    }
+  }
+
+  for (const bucket of vcBasicBuckets.values()) {
+    if (bucket.meshes.length === 0) continue;
+    if (bucket.meshes.length === 1 && !options?.disposeSourceMaterials) continue;
+    const prepped: THREE.BufferGeometry[] = [];
+    for (const m of bucket.meshes) {
+      m.updateMatrix();
+      const raw = m.geometry;
+      const g = raw.index ? raw.toNonIndexed() : raw.clone();
+      if (!g.attributes.normal) g.computeVertexNormals();
+      if (g.attributes.uv) g.deleteAttribute('uv');
+      const vCount = g.attributes.position.count;
+      const colors = new Float32Array(vCount * 3);
+      const col = (m.material as THREE.MeshBasicMaterial).color;
+      for (let vi = 0; vi < vCount; vi++) {
+        colors[vi * 3] = col.r;
+        colors[vi * 3 + 1] = col.g;
+        colors[vi * 3 + 2] = col.b;
+      }
+      g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+      g.applyMatrix4(m.matrix);
+      prepped.push(g);
+    }
+    const merged = mergeGeometries(prepped, false);
+    for (const p of prepped) p.dispose();
+    if (merged) {
+      for (const m of bucket.meshes) {
+        group.remove(m);
+        if (!m.geometry.userData?.sharedResource && !options?.protectGeometries?.has(m.geometry)) {
+          m.geometry.dispose();
+        }
+        if (options?.disposeSourceMaterials && !Array.isArray(m.material) && !m.material.userData?.sharedResource) {
+          disposedSourceMats.add(m.material);
+        }
+      }
+      const combined = new THREE.Mesh(merged, sharedVertexColorBasicMat);
+      combined.castShadow = bucket.castShadow;
+      combined.receiveShadow = bucket.receiveShadow;
       group.add(combined);
     }
   }

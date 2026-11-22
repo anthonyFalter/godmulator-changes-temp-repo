@@ -283,6 +283,17 @@ export interface UnitDefinition {
   harvestRate: number;
 }
 
+export type UnitStatKey =
+  | 'maxHp'
+  | 'attackDamage'
+  | 'armor'
+  | 'speed'
+  | 'critChance'
+  | 'attackRange'
+  | 'regenPerSec';
+
+export type UnitStatBonuses = Partial<Record<UnitStatKey, number>>;
+
 export interface UnitEntity {
   id: string;
   name: string;
@@ -329,8 +340,10 @@ export interface UnitEntity {
   expeditionTimer?: number;
   favorite?: boolean;
   isKing?: boolean;
+  traits?: string[];
   genes?: string[];
   items?: string[];
+  statBonuses?: UnitStatBonuses;
   bornYear?: number;
   ageYears?: number;
   maxLifespan?: number;

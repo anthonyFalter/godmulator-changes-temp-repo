@@ -503,6 +503,10 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
         return texture2D(uZoneIdMap, (clamped + 0.5) / uGridSize);
       }
 
+      float decodePoison(float b) {
+        return (b > 0.002 && b <= 0.32) ? clamp(b / 0.298, 0.0, 1.0) : 0.0;
+      }
+
       void main() {
         // Snap ocean & foam texture shading to 16x16 sub-tile pixel grid
         vec2 gridPos = vWorldPos.xz + 0.5;
@@ -584,20 +588,21 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
         bool isRiver = self.b > 0.60 && self.b <= 0.72;
         bool isLavaWater = self.b > 0.48 && self.b <= 0.60;
         bool isLake = self.b > 0.33 && self.b <= 0.48;
-        float pSelf = (self.b > 0.18 && self.b <= 0.33) ? 1.0 : 0.0;
-        float pN  = (nN.b  > 0.18 && nN.b  <= 0.33) ? 1.0 : 0.0;
-        float pS  = (nS.b  > 0.18 && nS.b  <= 0.33) ? 1.0 : 0.0;
-        float pW  = (nW.b  > 0.18 && nW.b  <= 0.33) ? 1.0 : 0.0;
-        float pE  = (nE.b  > 0.18 && nE.b  <= 0.33) ? 1.0 : 0.0;
-        float pNW = (nNW.b > 0.18 && nNW.b <= 0.33) ? 1.0 : 0.0;
-        float pNE = (nNE.b > 0.18 && nNE.b <= 0.33) ? 1.0 : 0.0;
-        float pSW = (nSW.b > 0.18 && nSW.b <= 0.33) ? 1.0 : 0.0;
-        float pSE = (nSE.b > 0.18 && nSE.b <= 0.33) ? 1.0 : 0.0;
+        float pSelf = decodePoison(self.b);
+        float pN  = nN.r  < 0.15 ? pSelf : decodePoison(nN.b);
+        float pS  = nS.r  < 0.15 ? pSelf : decodePoison(nS.b);
+        float pW  = nW.r  < 0.15 ? pSelf : decodePoison(nW.b);
+        float pE  = nE.r  < 0.15 ? pSelf : decodePoison(nE.b);
+        float pNW = nNW.r < 0.15 ? pSelf : decodePoison(nNW.b);
+        float pNE = nNE.r < 0.15 ? pSelf : decodePoison(nNE.b);
+        float pSW = nSW.r < 0.15 ? pSelf : decodePoison(nSW.b);
+        float pSE = nSE.r < 0.15 ? pSelf : decodePoison(nSE.b);
         float pX = subUv.x < 0.5 ? mix(pW, pSelf, clamp(subUv.x + 0.5, 0.0, 1.0)) : mix(pSelf, pE, clamp(subUv.x - 0.5, 0.0, 1.0));
         float pY = subUv.y < 0.5 ? mix(pN, pSelf, clamp(subUv.y + 0.5, 0.0, 1.0)) : mix(pSelf, pS, clamp(subUv.y - 0.5, 0.0, 1.0));
         float pCorner = (pNW + pNE + pSW + pSE) * 0.25;
-        float poisonMask = isLavaWater ? 0.0 : smoothstep(0.05, 0.88, clamp(pX * 0.44 + pY * 0.44 + pCorner * 0.12 + (swellA - 0.5) * 0.10, 0.0, 1.0));
-        bool isPoisonWater = poisonMask > 0.55;
+        float rawPoison = clamp(pX * 0.42 + pY * 0.42 + pCorner * 0.16, 0.0, 1.0);
+        float plumeSwirl = (valueNoise(chunkPos * 1.1 + vec2(uTime * 0.22, -uTime * 0.18)) - 0.5) * 0.16 * sin(rawPoison * 3.14159);
+        float poisonMask = isLavaWater ? 0.0 : clamp(rawPoison + plumeSwirl, 0.0, 1.0);
 
         // Multi-stop continuous ocean color gradient from sunlit turquoise shore -> aquamarine shelf -> azure slope -> deep navy sea
         vec3 shoreTurquoise = mix(uShallowColor, uCrestColor, 0.54);
@@ -670,21 +675,25 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
           waterAlpha = 0.25;
         }
 
-        if (!isLavaWater && poisonMask > 0.01) {
-          // Smooth gradient between normal water and bubbling toxic poison sludge
+        if (!isLavaWater && poisonMask > 0.005) {
+          // Multi-stage smooth dilution gradient: clean water -> translucent emerald-teal plume -> murky green -> bubbling toxic sludge
           vec2 poisonDrift = chunkPos * 1.15 + vec2(uTime * 0.32, -uTime * 0.26);
           float toxA = valueNoise(poisonDrift);
           float toxB = valueNoise(chunkPos * 2.1 - vec2(uTime * 0.45, -uTime * 0.38));
           float toxField = toxA * 0.58 + toxB * 0.42;
+          vec3 dilutedTeal = vec3(0.08, 0.62, 0.46);
           vec3 mirePurple = vec3(0.16, 0.10, 0.22);
           vec3 acidDeep = vec3(0.08, 0.48, 0.18);
           vec3 poisonGreen = vec3(0.24, 0.82, 0.28);
           vec3 toxicLime = vec3(0.74, 0.96, 0.32);
-          vec3 poisonColor = mix(mirePurple, acidDeep, smoothstep(0.18, 0.40, toxField));
-          poisonColor = mix(poisonColor, poisonGreen, smoothstep(0.40, 0.68, toxField));
-          poisonColor = mix(poisonColor, toxicLime, step(0.75, toxField));
-          baseWater = mix(baseWater, poisonColor, poisonMask);
-          waterAlpha = mix(waterAlpha, 0.82, poisonMask);
+          float coreStrength = smoothstep(0.32, 0.92, poisonMask);
+          vec3 sludgeColor = mix(mirePurple, acidDeep, smoothstep(0.18, 0.40, toxField));
+          sludgeColor = mix(sludgeColor, poisonGreen, smoothstep(0.40, 0.68, toxField));
+          sludgeColor = mix(sludgeColor, toxicLime, step(0.75, toxField) * coreStrength);
+          vec3 plumeColor = mix(dilutedTeal, sludgeColor, coreStrength);
+          float colorMix = smoothstep(0.0, 0.85, poisonMask);
+          baseWater = mix(baseWater, plumeColor, colorMix);
+          waterAlpha = mix(waterAlpha, 0.84, smoothstep(0.10, 0.95, poisonMask));
         }
 
         // Pixelated rolling wave bands (suppressed over crystal-clear reef/Atlantis lagoons & shallow shoals so underwater structures aren't obscured)
@@ -692,7 +701,8 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
         float calmFactor = (1.0 - reefMask * 0.94) * (0.35 + 0.65 * shallowCalm);
         float ridge = step(0.63, waveField) * calmFactor;
         float glint = step(0.80, waveField + 0.06 * sin(chunkPos.x * 1.1 + uTime * 2.1)) * calmFactor;
-        vec3 crestTint = isLavaWater ? vec3(1.0, 0.92, 0.35) : isPoisonWater ? vec3(0.78, 0.98, 0.38) : uCrestColor;
+        float poisonTintAmt = smoothstep(0.15, 0.85, poisonMask);
+        vec3 crestTint = isLavaWater ? vec3(1.0, 0.92, 0.35) : mix(uCrestColor, vec3(0.78, 0.98, 0.38), poisonTintAmt);
         vec3 color = mix(baseWater, mix(baseWater, crestTint, 0.36), ridge * 0.44);
         color = mix(color, crestTint, glint * 0.30);
 
@@ -723,8 +733,8 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
         float mintMask = max(coastFoamMint * reefFoamSuppress, openFoamMint);
         float whiteMask = max(coastFoamCore * reefFoamSuppress, openFoamCore);
 
-        vec3 foamMintCol = isLavaWater ? vec3(1.0, 0.54, 0.08) : isPoisonWater ? vec3(0.45, 0.92, 0.26) : uFoamMint;
-        vec3 foamCoreCol = isLavaWater ? vec3(1.0, 0.94, 0.42) : isPoisonWater ? vec3(0.82, 1.0, 0.48) : uFoamColor;
+        vec3 foamMintCol = isLavaWater ? vec3(1.0, 0.54, 0.08) : mix(uFoamMint, vec3(0.45, 0.92, 0.26), poisonTintAmt);
+        vec3 foamCoreCol = isLavaWater ? vec3(1.0, 0.94, 0.42) : mix(uFoamColor, vec3(0.82, 1.0, 0.48), poisonTintAmt);
         color = mix(color, foamMintCol, mintMask * 0.82);
         color = mix(color, foamCoreCol, whiteMask * 0.98);
 
@@ -815,6 +825,9 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
   const distLand = new Uint8Array(totalCells);
   const distShallow = new Uint8Array(totalCells);
   const distDeep = new Uint8Array(totalCells);
+  const distPoison = new Uint8Array(totalCells);
+  const poisonPassable = new Uint8Array(totalCells);
+  const poisonQueue = new Int32Array(totalCells);
   const coralFlag = new Uint8Array(totalCells); // 0=none, 1=coral_reef, 2=atlantis_ruin
   const isLandFlag = new Uint8Array(totalCells);
 
@@ -879,6 +892,9 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
   const updateMap = (tiles: TileData[]) => {
     const gs = gridSize;
     const INF = 18; // >= 6 tiles in 3x fixed-point
+    const POISON_MAX_DIST = 15; // 5 tiles in 3x fixed-point
+    let pqHead = 0;
+    let pqTail = 0;
     for (let i = 0; i < tiles.length; i++) {
       const t = tiles[i];
       const land = t.height > 0 || t.terrain === 'ice';
@@ -887,12 +903,22 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
         distLand[i] = 0;
         distShallow[i] = 0;
         distDeep[i] = INF;
+        distPoison[i] = 255;
+        poisonPassable[i] = 0;
         coralFlag[i] = 0;
       } else {
         const isDeep = t.terrain === 'deep_water' && !t.isRiver && !t.isLake;
         distLand[i] = INF;
         distShallow[i] = isDeep ? INF : 0;
         distDeep[i] = isDeep ? 0 : INF;
+        const isLava = t.waterKind === 'lava';
+        poisonPassable[i] = isLava ? 0 : 1;
+        if (t.waterKind === 'poison') {
+          distPoison[i] = 0;
+          poisonQueue[pqTail++] = i;
+        } else {
+          distPoison[i] = 255;
+        }
         if (t.resourceNode === 'atlantis_ruin') {
           coralFlag[i] = 2;
         } else if (
@@ -910,6 +936,40 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
     chamferPass(distLand);
     chamferPass(distShallow);
     chamferPass(distDeep);
+
+    // Bounded water-only BFS so poison smoothly gradients through connected water channels (never across land barriers)
+    if (pqTail > 0) {
+      const nDx = [1, -1, 0, 0, 1, -1, 1, -1];
+      const nDz = [0, 0, 1, -1, 1, 1, -1, -1];
+      const nCost = [3, 3, 3, 3, 4, 4, 4, 4];
+      while (pqHead !== pqTail) {
+        const cur = poisonQueue[pqHead++];
+        if (pqHead === totalCells) pqHead = 0;
+        const curD = distPoison[cur];
+        if (curD >= POISON_MAX_DIST) continue;
+        const cx = cur % gs;
+        const cz = (cur - cx) / gs;
+        for (let k = 0; k < 8; k++) {
+          const dx = nDx[k];
+          const dz = nDz[k];
+          const nx = cx + dx;
+          const nz = cz + dz;
+          if (nx < 0 || nz < 0 || nx >= gs || nz >= gs) continue;
+          const ni = nz * gs + nx;
+          if (!poisonPassable[ni]) continue;
+          // Prevent diagonal bleed across touching land corners
+          if (k >= 4 && !poisonPassable[cz * gs + nx] && !poisonPassable[nz * gs + cx]) {
+            continue;
+          }
+          const nd = curD + nCost[k];
+          if (nd <= POISON_MAX_DIST && nd < distPoison[ni]) {
+            distPoison[ni] = nd;
+            poisonQueue[pqTail++] = ni;
+            if (pqTail === totalCells) pqTail = 0;
+          }
+        }
+      }
+    }
 
     for (let i = 0; i < tiles.length; i++) {
       const idx = i * 4;
@@ -965,7 +1025,8 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
       // Encode water special feature in B channel:
       // 255 = coral_reef / atlantis_ruin or dense reef lagoon interior, 220 = reef lagoon fringe,
       // 195 = enchanted floral spring water, 170 = shallow river, 135 = flowing lava river/lake,
-      // 100 = inland lake, 65 = poison-filled green water river/lake, 0 = standard sea
+      // 100 = inland lake, 1..76 = continuous poison concentration & water-connected dilution gradient,
+      // 0 = standard sea
       const reefByte =
         isHealthyCoralOrAtlantis || adjCoralCount >= 2
           ? 255
@@ -976,46 +1037,25 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
       if (t.waterKind === 'lava') {
         waterFeatureByte = 135;
       } else if (t.waterKind === 'poison') {
-        waterFeatureByte = 65;
+        waterFeatureByte = 76;
+      } else if (distPoison[i] <= POISON_MAX_DIST) {
+        // Connected active water within ~5 tiles of poison: encode smooth continuous dilution concentration (1..70)
+        const frac = Math.max(0, 1 - distPoison[i] / (POISON_MAX_DIST + 1.2));
+        waterFeatureByte = Math.max(1, Math.min(72, Math.round(74 * Math.pow(frac, 1.35))));
       } else if (t.waterKind === 'floral') {
         waterFeatureByte = 195;
       } else if (reefByte > 0) {
         waterFeatureByte = reefByte;
       } else if (t.isRiver || t.isLake) {
-        // Auto-detect rivers/lakes bordering Volcanic Wasteland, Land of Blight, or Floral Plains
-        let adjLava = false;
-        let adjPoison = false;
+        // Auto-detect floral springs bordering Floral Plains (never fake lava/poison on quenched water)
         let adjFloral = false;
         const tx = t.x;
         const tz = t.z;
-        if (tx > 0) {
-          const nb = tiles[i - 1].terrain;
-          if (nb === 'volcanic_wasteland') adjLava = true;
-          else if (nb === 'blighted_mire') adjPoison = true;
-          else if (nb === 'floral_plains') adjFloral = true;
-        }
-        if (tx + 1 < gs) {
-          const nb = tiles[i + 1].terrain;
-          if (nb === 'volcanic_wasteland') adjLava = true;
-          else if (nb === 'blighted_mire') adjPoison = true;
-          else if (nb === 'floral_plains') adjFloral = true;
-        }
-        if (tz > 0) {
-          const nb = tiles[i - gs].terrain;
-          if (nb === 'volcanic_wasteland') adjLava = true;
-          else if (nb === 'blighted_mire') adjPoison = true;
-          else if (nb === 'floral_plains') adjFloral = true;
-        }
-        if (tz + 1 < gs) {
-          const nb = tiles[i + gs].terrain;
-          if (nb === 'volcanic_wasteland') adjLava = true;
-          else if (nb === 'blighted_mire') adjPoison = true;
-          else if (nb === 'floral_plains') adjFloral = true;
-        }
-        if (adjLava) waterFeatureByte = 135;
-        else if (adjPoison) waterFeatureByte = 65;
-        else if (adjFloral) waterFeatureByte = 195;
-        else waterFeatureByte = t.isRiver ? 170 : 100;
+        if (tx > 0 && tiles[i - 1].terrain === 'floral_plains') adjFloral = true;
+        else if (tx + 1 < gs && tiles[i + 1].terrain === 'floral_plains') adjFloral = true;
+        else if (tz > 0 && tiles[i - gs].terrain === 'floral_plains') adjFloral = true;
+        else if (tz + 1 < gs && tiles[i + gs].terrain === 'floral_plains') adjFloral = true;
+        waterFeatureByte = adjFloral ? 195 : t.isRiver ? 170 : 100;
       }
       data[idx + 2] = waterFeatureByte;
 

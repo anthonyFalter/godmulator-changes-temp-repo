@@ -183,3 +183,69 @@ test('Zone overlay uses GreaterDepth occluded X-ray pass above objects without d
   clouds.dispose();
 });
 
+test('Poison smoothly gradients across connected active water and never bleeds through land barriers', () => {
+  const gridSize = 16;
+  const ocean = createOceanFoamSystem(gridSize);
+  const tiles: TileData[] = [];
+  for (let z = 0; z < gridSize; z++) {
+    for (let x = 0; x < gridSize; x++) {
+      // Wall along x === 4 separates poison (x=3) from right-side water (x>=5),
+      // while row z === 8 has an open channel at (4, 8) once lowered!
+      const isBarrier = x === 4;
+      tiles.push({
+        x,
+        z,
+        height: isBarrier ? 1 : 0,
+        terrain: isBarrier ? 'grass' : 'shallow_water',
+        waterKind: x === 3 && z === 8 ? 'poison' : undefined,
+        resourceNode: 'none',
+        resourceAmount: 0,
+        buildingId: null,
+        onFireTimer: 0,
+        blessedTimer: 0,
+        cursedTimer: 0,
+      });
+    }
+  }
+
+  const mat = ocean.mesh.material as THREE.ShaderMaterial;
+  const waterTex = mat.uniforms.uWaterMap.value as THREE.DataTexture;
+  const getBlue = (x: number, z: number) => (waterTex.image.data as Uint8Array)[(z * gridSize + x) * 4 + 2];
+
+  // With intact land barrier at x=4, poison (3,8) must NOT bleed onto water at (5,8)
+  ocean.updateMap(tiles);
+  assert.equal(getBlue(3, 8), 76, 'Poison source tile should encode full concentration 76');
+  assert.equal(getBlue(5, 8), 0, 'Land barrier must block poison from bleeding across dry land');
+  // Connected clean water on the left (2,8 -> 1,8 -> 0,8) should form a smoothly decreasing dilution gradient
+  const b1 = getBlue(2, 8);
+  const b2 = getBlue(1, 8);
+  const b3 = getBlue(0, 8);
+  assert.ok(b1 > b2 && b2 > b3 && b3 > 0 && b1 < 76, `Expected monotonic dilution gradient, got ${b1}, ${b2}, ${b3}`);
+
+  // Lowering the barrier at (4,8) connects poison to right-side active water
+  const barrier = tiles[8 * gridSize + 4];
+  barrier.height = 0;
+  barrier.terrain = 'shallow_water';
+  ocean.updateMap(tiles);
+  const bBarrier = getBlue(4, 8);
+  const bRight1 = getBlue(5, 8);
+  const bRight2 = getBlue(6, 8);
+  assert.ok(
+    bBarrier > bRight1 && bRight1 > bRight2 && bRight2 > 0,
+    `Expected smooth dilution gradient through opened channel, got ${bBarrier}, ${bRight1}, ${bRight2}`,
+  );
+
+  // Verify quenched river tile next to volcanic_wasteland does NOT falsely render as lava (135)
+  tiles[2 * gridSize + 10].height = 1;
+  tiles[2 * gridSize + 10].terrain = 'volcanic_wasteland';
+  tiles[2 * gridSize + 11].height = 0;
+  tiles[2 * gridSize + 11].terrain = 'shallow_water';
+  tiles[2 * gridSize + 11].isRiver = true;
+  delete tiles[2 * gridSize + 11].waterKind;
+  ocean.updateMap(tiles);
+  assert.equal(getBlue(11, 2), 170, 'Quenched river next to volcanic_wasteland should render as river water, not lava');
+
+  ocean.dispose();
+});
+
+

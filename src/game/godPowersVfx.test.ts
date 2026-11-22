@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { GOD_POWERS } from './catalog';
+import { GOD_POWERS, TERRAIN_TOOLS } from './catalog';
 import {
   ENHANCED_HAZARD_KINDS,
   EnhancedHazardKind,
@@ -11,12 +11,14 @@ import {
   updateEnhancedHazardVfx,
 } from './godPowerVfx';
 import {
+  applyTerrainTool,
   castGodPower,
   createInitialSimulationState,
   placeBuilding,
   spawnUnit,
   stepSimulation,
 } from './simulation';
+import { TERRAIN_SPRITES } from '../components/icons/uiAndWorldSprites';
 import {
   DEFAULT_GRAPHICS_SETTINGS,
   applyGraphicsPreset,
@@ -307,5 +309,94 @@ describe('God Powers Dramatic VFX & Gameplay Rework', () => {
     assert.equal(sanitizeGraphicsSettings({ cameraShake: false }).cameraShake, false);
     assert.equal(applyGraphicsPreset('fast', true, true, false, false).cameraShake, false);
     assert.equal(applyGraphicsPreset('high', true, true, false, true).cameraShake, true);
+  });
+
+  it('quenches lava into water when a barrier block between lava and water is lowered and propagates across connected lava', () => {
+    const state = createInitialSimulationState();
+    state.sandboxFreeMode = true;
+    const gs = state.gridSize;
+    const cx = Math.floor(gs / 2);
+    const cz = Math.floor(gs / 2);
+    const tileAt = (x: number, z: number) => state.tiles[z * gs + x];
+
+    // Build a clean test arena: active water on the left (cx-2), 1-block land barrier at cx-1, lava strip at cx..cx+2
+    for (let dz = -2; dz <= 2; dz++) {
+      for (let dx = -3; dx <= 3; dx++) {
+        const t = tileAt(cx + dx, cz + dz);
+        t.buildingId = null;
+        t.resourceNode = 'none';
+        t.resourceAmount = 0;
+        t.height = 1;
+        t.terrain = 'grass';
+        delete t.waterKind;
+        t.isRiver = false;
+        t.isLake = false;
+      }
+    }
+    const waterTile = tileAt(cx - 2, cz);
+    waterTile.height = 0;
+    waterTile.terrain = 'shallow_water';
+
+    for (let dx = 0; dx <= 2; dx++) {
+      const lt = tileAt(cx + dx, cz);
+      lt.height = 0;
+      lt.terrain = 'shallow_water';
+      lt.waterKind = 'lava';
+    }
+
+    // Lower the barrier tile at (cx - 1, cz) using the terrain sculpt lower tool (radius 0)
+    const lowerRes = applyTerrainTool(state, 'lower', cx - 1, cz, 0);
+    assert.equal(lowerRes.ok, true);
+    assert.equal(tileAt(cx - 1, cz).height, 0);
+    assert.equal(tileAt(cx - 1, cz).waterKind, undefined);
+    // Immediately touching lava tile at (cx, cz) should quench straight into water
+    assert.equal(tileAt(cx, cz).height, 0, 'Quenched lava should stay at water height 0');
+    assert.equal(tileAt(cx, cz).waterKind, undefined, 'Touching lava tile should quench into regular water');
+    assert.equal(tileAt(cx, cz).terrain, 'shallow_water');
+
+    // Step simulation so the water wave front quenches the remaining connected lava tiles (cx+1, cx+2)
+    for (let i = 0; i < 20; i++) {
+      stepSimulation(state, 0.1);
+    }
+    assert.equal(tileAt(cx + 1, cz).waterKind, undefined, 'Connected lava tile 2 should quench to water');
+    assert.equal(tileAt(cx + 2, cz).waterKind, undefined, 'Connected lava tile 3 should quench to water');
+  });
+
+  it('dilutes exposed poison tiles when connected to active open water', () => {
+    const state = createInitialSimulationState();
+    state.sandboxFreeMode = true;
+    const gs = state.gridSize;
+    const cx = Math.floor(gs / 2);
+    const cz = Math.floor(gs / 2);
+    const tileAt = (x: number, z: number) => state.tiles[z * gs + x];
+
+    for (let dz = -2; dz <= 2; dz++) {
+      for (let dx = -2; dx <= 2; dx++) {
+        const t = tileAt(cx + dx, cz + dz);
+        t.buildingId = null;
+        t.height = 0;
+        t.terrain = 'shallow_water';
+        delete t.waterKind;
+      }
+    }
+    // Single exposed poison tile surrounded by clean water should dilute smoothly
+    const poisonTip = tileAt(cx, cz);
+    poisonTip.waterKind = 'poison';
+
+    for (let i = 0; i < 10; i++) {
+      stepSimulation(state, 0.1);
+    }
+    assert.equal(poisonTip.waterKind, undefined, 'Exposed poison surrounded by active water should dilute to clean water');
+  });
+
+  it('compiles non-empty 16x16 pixel sprites for all Terrain Sculpt tools', () => {
+    const sculptTools = TERRAIN_TOOLS.filter((t) => t.category === 'Sculpt');
+    assert.ok(sculptTools.length >= 11);
+    for (const tool of sculptTools) {
+      const sprite = TERRAIN_SPRITES[tool.type];
+      assert.ok(sprite, `Missing sprite for ${tool.type}`);
+      assert.equal(sprite.size, 16, `Expected 16x16 sprite for ${tool.type}`);
+      assert.ok(sprite.paths.length > 0, `Expected non-empty paths for ${tool.type}`);
+    }
   });
 });

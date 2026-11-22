@@ -6899,3 +6899,66 @@ test('Burning trees keep exact species via burntByBiome, scorch grass underneath
   );
 });
 
+test('heat_wave warms gently on single tap and ignites flammable vegetation & buildings when held long enough', () => {
+  const sim = createInitialSimulationState(64, 'HEAT-WAVE-HOLD-TEST');
+  sim.sandboxFreeMode = true;
+  sim.wildlifeSeeded = true;
+  sim.worldRules!.wildfireSpread = true;
+
+  for (const t of sim.tiles) {
+    t.height = 2;
+    t.terrain = 'grass';
+    t.resourceNode = 'none';
+    t.resourceAmount = 0;
+    t.buildingId = null;
+    t.onFireTimer = 0;
+    t.blessedTimer = 0;
+    t.tempOffset = 0;
+  }
+
+  const forestTile = getTile(sim, 30, 30)!;
+  forestTile.terrain = 'forest';
+  forestTile.resourceNode = 'timber_grove';
+  forestTile.resourceAmount = 100;
+
+  const houseTile = getTile(sim, 31, 30)!;
+  sim.buildings.push({
+    id: 'heat_test_house',
+    type: 'forager_hut',
+    tileX: 31,
+    tileZ: 30,
+    hp: 120,
+    maxHp: 120,
+    constructionProgress: 100,
+    epochLevel: 0,
+    blessedTimer: 0,
+    cursedTimer: 0,
+    shieldTimer: 0,
+    species: 'human',
+  });
+  houseTile.buildingId = 'heat_test_house';
+
+  // Single quick cast warms the environment without immediately setting forests/houses ablaze
+  castGodPower(sim, 'heat_wave', 30, 30);
+  for (let i = 0; i < 4; i++) stepSimulation(sim, 0.1);
+  assert.equal(forestTile.onFireTimer, 0, 'Single gentle heat_wave tap must not instantaneously ignite cool forest');
+  assert.equal(houseTile.onFireTimer, 0, 'Single gentle heat_wave tap must not instantaneously ignite cool house');
+
+  // Holding / repeating heat_wave superheats terrain, igniting flammable trees and buildings
+  for (let i = 0; i < 5; i++) {
+    castGodPower(sim, 'heat_wave', 30, 30);
+    stepSimulation(sim, 0.15);
+  }
+  const latestForestTerrain: string = forestTile.terrain;
+  const latestHouseTerrain: string = houseTile.terrain;
+  assert.ok(
+    forestTile.onFireTimer > 0 || latestForestTerrain === 'scorched',
+    `Sustained heat_wave must ignite forest/timber_grove (onFireTimer=${forestTile.onFireTimer}, terrain=${latestForestTerrain})`,
+  );
+  assert.ok(
+    houseTile.onFireTimer > 0 || latestHouseTerrain === 'scorched',
+    `Sustained heat_wave must ignite unshielded building tiles (onFireTimer=${houseTile.onFireTimer})`,
+  );
+});
+
+
