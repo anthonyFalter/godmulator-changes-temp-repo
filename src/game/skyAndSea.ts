@@ -703,6 +703,11 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
           waterAlpha = min(waterAlpha, mix(0.12, 0.26, smoothstep(0.05, 1.2, landDist)));
         }
 
+        float riverRapidMint = 0.0;
+        float riverRapidCore = 0.0;
+        float lakeRippleGlow = 0.0;
+        float lakeSparkleBoost = 0.0;
+
         if (uHasLava > 0.5 && isLavaWater) {
           // Flowing Lava Rivers & Lakes (Volcanic Wasteland): bright molten magma current, cooled basalt crust islands & white-hot embers
           vec2 lavaDrift = chunkPos * 0.95 + vec2(-uTime * 0.48, uTime * 0.36);
@@ -728,7 +733,7 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
           if (petalSpot > 0.965) {
             baseWater = petalSpot > 0.982 ? vec3(1.0, 0.86, 0.38) : vec3(0.98, 0.58, 0.82);
           }
-          waterAlpha = 0.20;
+          waterAlpha = 0.24;
         } else if (reefMask > 0.01) {
           // Warm Coral Reef & Atlantis Sanctuary Lagoon: ultra-transparent turquoise glass window so 3D corals & sunken city ruins shine through!
           float caustic = step(0.76, valueNoise(chunkPos * 1.35 + vec2(uTime * 0.35, -uTime * 0.28)));
@@ -736,16 +741,92 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
           baseWater = mix(baseWater, reefAqua, reefMask * 0.84);
           waterAlpha = mix(waterAlpha, 0.05, reefMask);
         } else if (isRiver) {
-          // Lively Shallow River: crystal-clear shallow aqua with animated current ripples showing sandy riverbed underneath
-          vec3 livelyRiverAqua = mix(uShallowColor, uCrestColor, 0.56);
-          float streamRipple = step(0.64, fract(chunkPos.x * 0.85 + chunkPos.y * 0.85 - uTime * 1.35 + swellA * 0.5));
-          baseWater = mix(baseWater, livelyRiverAqua, 0.62);
-          baseWater = mix(baseWater, uFoamMint, streamRipple * 0.44);
-          waterAlpha = 0.22;
+          // Living Flowing River: channel-following braided currents, sunlit glints, pool depth & lively whitewater riffles
+          float wN  = nN.r  >= 0.15 ? 1.0 : 0.0;
+          float wS  = nS.r  >= 0.15 ? 1.0 : 0.0;
+          float wW  = nW.r  >= 0.15 ? 1.0 : 0.0;
+          float wE  = nE.r  >= 0.15 ? 1.0 : 0.0;
+          float wNW = nNW.r >= 0.15 ? 1.0 : 0.0;
+          float wNE = nNE.r >= 0.15 ? 1.0 : 0.0;
+          float wSW = nSW.r >= 0.15 ? 1.0 : 0.0;
+          float wSE = nSE.r >= 0.15 ? 1.0 : 0.0;
+
+          vec2 rawFlow =
+            vec2(1.0, 0.0) * (wW + wE) +
+            vec2(0.0, 1.0) * (wN + wS) +
+            vec2(0.707, 0.707) * (wNW + wSE) * 0.65 +
+            vec2(0.707, -0.707) * (wNE + wSW) * 0.65 +
+            vec2(wE - wW, wS - wN) * 0.45;
+          vec2 flowDir = length(rawFlow) > 0.05 ? normalize(rawFlow) : vec2(0.707, 0.707);
+          vec2 flowPerp = vec2(-flowDir.y, flowDir.x);
+
+          float along = dot(pixPos, flowDir);
+          float across = dot(pixPos, flowPerp);
+          float centerSpeed = mix(0.72, 1.18, smoothstep(0.08, 0.55, landDist));
+          float braidWobble = (valueNoise(vec2(along * 0.55 - uTime * 0.75, across * 1.35)) - 0.5) * 0.80;
+
+          float ribbonA = valueNoise(vec2(along * 0.85 - uTime * 2.05 * centerSpeed, across * 3.1 + braidWobble));
+          float ribbonB = valueNoise(vec2(along * 1.65 - uTime * 2.95 * centerSpeed, across * 5.0 - braidWobble * 0.55));
+          float currentField = ribbonA * 0.60 + ribbonB * 0.40;
+          float currentStreak = step(0.61, currentField);
+          float brightCurrent = step(0.77, ribbonA * 0.48 + ribbonB * 0.52);
+          float sunFlecks = step(0.87, valueNoise(vec2(along * 3.4 - uTime * 3.6, across * 4.2)) * 0.55 + ribbonB * 0.45);
+
+          float riverDepthFrac = smoothstep(0.20, 0.44, smoothDepth);
+          vec3 riverBankCol = mix(uShallowColor, uReefWaterColor, 0.34);
+          vec3 riverPoolCol = mix(uShallowColor, uDeepColor, 0.46);
+          vec3 riverTint = mix(riverBankCol, riverPoolCol, riverDepthFrac);
+
+          baseWater = mix(baseWater, riverTint, 0.74);
+          baseWater = mix(baseWater, mix(uCrestColor, uFoamMint, 0.45), currentStreak * 0.36);
+          baseWater = mix(baseWater, uFoamColor, max(brightCurrent * 0.30, sunFlecks * 0.52));
+          waterAlpha = mix(0.32, 0.58, riverDepthFrac) + currentStreak * 0.07 + sunFlecks * 0.08;
+
+          // Lively bank eddies & mid-channel whitewater riffles
+          float riffleNoise = valueNoise(vec2(along * 1.4 - uTime * 2.4, across * 2.9));
+          float bankEddy = smoothstep(0.24, 0.03, landDist) * step(0.45, riffleNoise + 0.16 * sin(uTime * 3.2 + along * 2.6));
+          float midRapid = step(0.77, riffleNoise * 0.62 + ribbonB * 0.38) * smoothstep(0.06, 0.28, landDist);
+          riverRapidMint = max(bankEddy * 0.85, midRapid * 0.72);
+          riverRapidCore = max(
+            smoothstep(0.14, 0.02, landDist) * step(0.58, riffleNoise),
+            step(0.84, riffleNoise * 0.58 + ribbonB * 0.42) * smoothstep(0.08, 0.30, landDist)
+          );
         } else if (isLake) {
-          // Inland Lake: serene translucent emerald-turquoise shallow water over sandy lakebed
-          baseWater = mix(baseWater, mix(uShallowColor, uReefWaterColor, 0.42), 0.56);
-          waterAlpha = 0.25;
+          // Living Inland Lake: depth-layered emerald-to-sapphire basin, breeze wavelets, dancing sun sparkles & expanding ripple rings
+          float lakeDepthFrac = smoothstep(0.20, 0.78, smoothDepth);
+          vec3 lakeShoreCol = mix(uShallowColor, uReefWaterColor, 0.44);
+          vec3 lakeMidCol   = mix(uShallowColor, uDeepColor, 0.44);
+          vec3 lakeDeepCol  = mix(uDeepColor, uShallowColor * 0.55, 0.18);
+          vec3 lakeTint = lakeDepthFrac < 0.48
+            ? mix(lakeShoreCol, lakeMidCol, smoothstep(0.0, 0.48, lakeDepthFrac))
+            : mix(lakeMidCol, lakeDeepCol, smoothstep(0.48, 1.0, lakeDepthFrac));
+
+          float breezeA = valueNoise(chunkPos * 1.15 + vec2(uTime * 0.42, uTime * 0.16));
+          float breezeB = valueNoise(chunkPos * 2.15 - vec2(uTime * 0.26, -uTime * 0.34));
+          float lakeWavelet = step(0.64, breezeA * 0.58 + breezeB * 0.42);
+          float lakeSparkle = step(0.86, valueNoise(pixPos * 4.4 + vec2(uTime * 0.85, -uTime * 0.60)) * 0.55 + breezeB * 0.45);
+          lakeSparkleBoost = lakeSparkle;
+
+          // Periodic organic concentric ripple rings (fish rises / water striders)
+          vec2 ripCell = floor(pixPos * 0.42);
+          vec2 ripLocal = fract(pixPos * 0.42);
+          vec2 ripCenter = vec2(
+            0.22 + 0.56 * hash12(ripCell + vec2(3.1, 7.7)),
+            0.22 + 0.56 * hash12(ripCell + vec2(19.4, 2.9))
+          );
+          float ripSeed = hash12(ripCell + vec2(11.2, 41.6));
+          float ripCycle = fract(uTime * 0.24 + ripSeed);
+          float ripActive = step(0.52, ripSeed) * step(ripCycle, 0.56);
+          float ripAge = ripCycle / 0.56;
+          float ripDist = length(ripLocal - ripCenter);
+          float ripRadius = 0.04 + ripAge * 0.31;
+          float ripRing = (1.0 - smoothstep(0.0, 0.032, abs(ripDist - ripRadius))) * (1.0 - ripAge) * ripActive * smoothstep(0.10, 0.34, landDist);
+          lakeRippleGlow = step(0.24, ripRing) * (1.0 - ripAge * 0.60);
+
+          baseWater = mix(baseWater, lakeTint, 0.78);
+          baseWater = mix(baseWater, mix(lakeTint, uCrestColor, 0.44), lakeWavelet * 0.36);
+          baseWater = mix(baseWater, uFoamColor, max(lakeSparkle * 0.55, lakeRippleGlow * 0.58));
+          waterAlpha = mix(0.30, 0.74, lakeDepthFrac) + lakeWavelet * 0.05 + lakeSparkle * 0.10 + lakeRippleGlow * 0.14;
         }
 
         if (uHasPoison > 0.5 && !isLavaWater && poisonMask > 0.005) {
@@ -769,36 +850,51 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
           waterAlpha = mix(waterAlpha, 0.84, smoothstep(0.10, 0.95, poisonMask));
         }
 
-        // Pixelated rolling wave bands (suppressed over crystal-clear reef/Atlantis lagoons & shallow shoals so underwater structures aren't obscured)
+        // Pixelated rolling wave bands (suppressed over crystal-clear reef/Atlantis lagoons; tailored for inland lakes & rivers)
         float shallowCalm = smoothstep(0.22, 0.65, smoothDepth);
-        float calmFactor = (1.0 - reefMask * 0.94) * (0.35 + 0.65 * shallowCalm);
+        float calmFactor = (isRiver || isLake)
+          ? (isLake ? 0.52 : 0.38)
+          : (1.0 - reefMask * 0.94) * (0.35 + 0.65 * shallowCalm);
         float ridge = step(0.63, waveField) * calmFactor;
         float glint = step(0.80, waveField + 0.06 * sin(chunkPos.x * 1.1 + uTime * 2.1)) * calmFactor;
         float poisonTintAmt = smoothstep(0.15, 0.85, poisonMask);
         vec3 crestTint = isLavaWater ? vec3(1.0, 0.92, 0.35) : mix(uCrestColor, vec3(0.78, 0.98, 0.38), poisonTintAmt);
         vec3 color = mix(baseWater, mix(baseWater, crestTint, 0.36), ridge * 0.44);
-        color = mix(color, crestTint, glint * 0.30);
+        color = mix(color, crestTint, max(glint * 0.30, lakeSparkleBoost * 0.22));
 
-        // --- FOAM 1: Coast hitting dry land (rhythmic crashing shoreline surge + rolling breaker ring) ---
+        // --- FOAM 1: Coast hitting dry land (ocean crashing surf vs gentle lake wavelets vs lively river riffles) ---
         float coastWobble = (swellB - 0.5) * 0.26 + sin((pixPos.x - pixPos.y) * 1.1 + uTime * 2.0) * 0.06;
-        float surgeLap = 0.28 + 0.11 * sin(uTime * 2.8 + (pixPos.x + pixPos.y) * 0.42);
-        float shoreCrest = step(landDist + coastWobble * 0.42, surgeLap);
+        float coastFoamMint = 0.0;
+        float coastFoamCore = 0.0;
+        if (isRiver && !isLavaWater) {
+          coastFoamMint = riverRapidMint;
+          coastFoamCore = riverRapidCore;
+        } else if (isLake && !isLavaWater) {
+          // Gentle lapping lakeshore edge shimmer (no heavy ocean breakers)
+          float lakeLap = 0.13 + 0.045 * sin(uTime * 1.85 + (pixPos.x - pixPos.y) * 0.85);
+          float lapBreak = step(0.36, valueNoise(chunkPos * 1.9 + vec2(uTime * 0.24, -uTime * 0.20)));
+          coastFoamMint = step(landDist + coastWobble * 0.22, lakeLap) * (0.55 + 0.45 * lapBreak);
+          coastFoamCore = step(landDist + coastWobble * 0.15, lakeLap * 0.58) * lapBreak;
+        } else {
+          float surgeLap = 0.28 + 0.11 * sin(uTime * 2.8 + (pixPos.x + pixPos.y) * 0.42);
+          float shoreCrest = step(landDist + coastWobble * 0.42, surgeLap);
 
-        float breakerWave = fract(landDist * 1.35 + uTime * 0.62 + coastWobble * 0.45);
-        float breakerBand = nearCoastInfluence * step(0.7, breakerWave) * smoothstep(1.2, 0.06, landDist);
-        float breakerBreakup = step(0.32, valueNoise(chunkPos * 1.45 + vec2(uTime * 0.38, -uTime * 0.28)));
+          float breakerWave = fract(landDist * 1.35 + uTime * 0.62 + coastWobble * 0.45);
+          float breakerBand = nearCoastInfluence * step(0.7, breakerWave) * smoothstep(1.2, 0.06, landDist);
+          float breakerBreakup = step(0.32, valueNoise(chunkPos * 1.45 + vec2(uTime * 0.38, -uTime * 0.28)));
 
-        float coastFoamCore = step(landDist + coastWobble * 0.3, surgeLap * 0.76);
-        float coastFoamMint = max(shoreCrest, breakerBand * breakerBreakup);
+          coastFoamCore = step(landDist + coastWobble * 0.3, surgeLap * 0.76);
+          coastFoamMint = max(shoreCrest, breakerBand * breakerBreakup);
+        }
 
-        // --- FOAM 2: Random open-sea whitecaps & ephemeral bubble trails (suppressed over coral/Atlantis lagoons & shallow water for clarity) ---
+        // --- FOAM 2: Random open-sea whitecaps & ephemeral bubble trails (suppressed on calm inland lakes/rivers & reefs) ---
         float capA = valueNoise(chunkPos * 0.55 + vec2(uTime * 0.26, uTime * 0.16));
         float capB = valueNoise(chunkPos * 1.35 - vec2(uTime * 0.38, -uTime * 0.2));
         float capPulse = 0.5 + 0.5 * sin(uTime * 1.4 + self.a * 6.2831 + chunkPos.x * 0.3);
         float combinedCap = capA * 0.54 + capB * 0.32 + capPulse * 0.14;
 
         float capThresh = isDeep ? 0.78 : 0.88;
-        float openFoamAllow = step(reefMask, 0.10) * smoothstep(0.32, 0.65, smoothDepth);
+        float openFoamAllow = (isRiver || isLake) ? 0.0 : step(reefMask, 0.10) * smoothstep(0.32, 0.65, smoothDepth);
         float openFoamMint = step(capThresh, combinedCap) * openFoamAllow;
         float openFoamCore = step(capThresh + 0.045, combinedCap) * openFoamAllow;
 
@@ -1083,8 +1179,19 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
       }
 
       let depthVal = 255;
-      if (t.isRiver || t.isLake || isHealthyCoralOrAtlantis) {
+      if (isHealthyCoralOrAtlantis) {
         depthVal = 54;
+      } else if (t.isLake) {
+        // Inland lake bathymetry: shallow sunlit pebble shelf -> deepening jade slope -> deep alpine lake heart
+        const landD = Math.min(4.2, distLand[i] / 3.0);
+        const basinFrac = Math.max(0, Math.min(1, (landD - 0.85) / 2.65));
+        depthVal = Math.round(56 + Math.pow(basinFrac, 0.85) * 148);
+      } else if (t.isRiver) {
+        // River channel bathymetry: shallow gravelly banks -> deeper mid-channel thalweg pools
+        const landD = Math.min(2.6, distLand[i] / 3.0);
+        const channelFrac = Math.max(0, Math.min(1, (landD - 0.8) / 1.5));
+        const poolVar = (((t.x * 37 + t.z * 73) ^ (t.x * 13)) & 15);
+        depthVal = Math.round(54 + channelFrac * 36 + poolVar * 0.7);
       } else if (t.terrain !== 'deep_water') {
         // Shallow shelf: smoothly deepens from 52 along beach/lagoon interior to 146 near the deep_water dropoff
         const landD = Math.min(4.0, distLand[i] / 3.0);
@@ -2941,7 +3048,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
             col = computeRunwayColor(pixPos, subUv, uTime, wN, wS, wW, wE, marginCol);
           } else {
             col = computeBiomeColor(myCode, pixPos, chunkPos, subUv, uTime, self.a > 0.72);
-            // Smooth bathymetric seabed color transition from sunlit shallow sand -> turquoise shoal -> marine slope -> deep abyssal floor
+            // Smooth bathymetric seabed / freshwater riverbed & lakebed rendering
             if (myHeight < 0.5 && myCode < 1.5) {
               float bSelf = self.b;
               float bN = hN < 0.5 ? nN.b : 0.0;
@@ -2951,16 +3058,59 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
               float bX = subUv.x < 0.5 ? mix(bW, bSelf, subUv.x + 0.5) : mix(bSelf, bE, subUv.x - 0.5);
               float bY = subUv.y < 0.5 ? mix(bN, bSelf, subUv.y + 0.5) : mix(bSelf, bS, subUv.y - 0.5);
               float bDepth = clamp((bX + bY) * 0.5, 0.0, 1.0);
-              vec3 shallowSandCol = computeBiomeColor(1.0, pixPos, chunkPos, subUv, uTime, false);
-              vec3 midShoalCol    = landSrgb(82.0, 146.0, 156.0);
-              vec3 slopeTealCol   = landSrgb(34.0, 82.0, 108.0);
-              vec3 deepFloorCol   = computeBiomeColor(0.0, pixPos, chunkPos, subUv, uTime, false);
-              if (bDepth < 0.42) {
-                col = mix(shallowSandCol, midShoalCol, smoothstep(0.15, 0.42, bDepth));
-              } else if (bDepth < 0.74) {
-                col = mix(midShoalCol, slopeTealCol, smoothstep(0.42, 0.74, bDepth));
+
+              if (self.a > 0.72) {
+                // Natural Inland Lakebed: shallow pebble gravel & mossy olive stones -> rich silt -> deep alpine teal sediment + refracted sunlight caustics
+                float cobble = landHash12(floor(pixPos * 8.0));
+                float siltPatch = landNoise(chunkPos * 0.72 + vec2(4.3, 9.1));
+                float mossPatch = landNoise(chunkPos * 1.15 - vec2(7.2, 3.8));
+                vec3 shoreGravel = mix(landSrgb(154.0, 146.0, 118.0), landSrgb(184.0, 174.0, 140.0), step(0.50, cobble));
+                vec3 mossyStone  = landSrgb(88.0, 114.0, 84.0);
+                vec3 lakeSilt    = landSrgb(56.0, 86.0, 82.0);
+                vec3 deepBasin   = landSrgb(22.0, 52.0, 68.0);
+                vec3 bed = mix(shoreGravel, mossyStone, step(0.56, mossPatch) * 0.65);
+                if (cobble < 0.16) bed *= 0.80;
+                bed = mix(bed, lakeSilt, smoothstep(0.08, 0.42, bDepth));
+                bed = mix(bed, deepBasin, smoothstep(0.38, 0.78, bDepth));
+                if (siltPatch > 0.68 && bDepth < 0.45) bed = mix(bed, mossyStone * 0.88, 0.35);
+                // Animated refracted sunlight caustics shimmering on shallow lake shelves
+                float caustA = landNoise(chunkPos * 1.45 + vec2(uTime * 0.36, -uTime * 0.24));
+                float caustB = landNoise(chunkPos * 2.10 - vec2(uTime * 0.28, uTime * 0.34));
+                float caustic = step(0.72, caustA * 0.54 + caustB * 0.46) * (1.0 - smoothstep(0.12, 0.58, bDepth));
+                col = mix(bed, landSrgb(182.0, 232.0, 218.0), caustic * 0.38);
+              } else if (self.a > 0.25) {
+                // Natural Riverbed: wet river-worn cobbles, ochre sandbars, olive river-moss & flowing sunlight caustics
+                float pebbleA = landHash12(floor(pixPos * 8.0));
+                float pebbleB = landHash12(floor(pixPos * 16.0));
+                float gravelWave = landNoise(chunkPos * 0.95 + vec2(3.1, 6.4));
+                float mossStreak = landNoise(chunkPos * 1.35 - vec2(5.4, 2.7));
+                vec3 wetSand    = landSrgb(166.0, 152.0, 118.0);
+                vec3 warmCobble = landSrgb(138.0, 128.0, 108.0);
+                vec3 slateStone = landSrgb(92.0, 100.0, 96.0);
+                vec3 riverMoss  = landSrgb(72.0, 104.0, 72.0);
+                vec3 bed = mix(wetSand, warmCobble, step(0.36, gravelWave));
+                if (pebbleA > 0.66) bed = mix(bed, slateStone, 0.72);
+                else if (pebbleA < 0.20) bed = mix(bed, landSrgb(186.0, 174.0, 140.0), 0.55);
+                if (mossStreak > 0.62) bed = mix(bed, riverMoss, 0.55);
+                if (pebbleB < 0.14) bed *= 0.74; // crisp dark pebble crevices
+                bed = mix(bed, landSrgb(48.0, 78.0, 82.0), smoothstep(0.14, 0.52, bDepth) * 0.65);
+                // Lively moving underwater river caustics
+                float caustA = landNoise(chunkPos * 1.65 + vec2(-uTime * 0.65, -uTime * 0.45));
+                float caustB = landNoise(chunkPos * 2.40 + vec2(-uTime * 0.42, uTime * 0.52));
+                float caustic = step(0.70, caustA * 0.55 + caustB * 0.45);
+                col = mix(bed, landSrgb(198.0, 240.0, 234.0), caustic * 0.42);
               } else {
-                col = mix(slopeTealCol, deepFloorCol, smoothstep(0.74, 0.98, bDepth));
+                vec3 shallowSandCol = computeBiomeColor(1.0, pixPos, chunkPos, subUv, uTime, false);
+                vec3 midShoalCol    = landSrgb(82.0, 146.0, 156.0);
+                vec3 slopeTealCol   = landSrgb(34.0, 82.0, 108.0);
+                vec3 deepFloorCol   = computeBiomeColor(0.0, pixPos, chunkPos, subUv, uTime, false);
+                if (bDepth < 0.42) {
+                  col = mix(shallowSandCol, midShoalCol, smoothstep(0.15, 0.42, bDepth));
+                } else if (bDepth < 0.74) {
+                  col = mix(midShoalCol, slopeTealCol, smoothstep(0.42, 0.74, bDepth));
+                } else {
+                  col = mix(slopeTealCol, deepFloorCol, smoothstep(0.74, 0.98, bDepth));
+                }
               }
             }
           }
@@ -3837,28 +3987,40 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
       data[idx + 1] = Math.min(255, t.height * 20);
       if (t.height === 0) {
         // Encode smooth bathymetric seabed depth (0 = sunlit coastal/reef sand .. 255 = deep abyssal floor)
+        // Alpha channel on height===0 tiles marks freshwater bed type: 0 = sea, 128 = riverbed, 255 = lakebed
         const isReefOrSanctuary =
           (t.resourceNode === 'coral_reef' && (t.coralBleachTimer ?? 0) <= 0 && t.resourceAmount > 0) ||
-          t.resourceNode === 'atlantis_ruin' ||
-          t.isRiver ||
-          t.isLake;
+          t.resourceNode === 'atlantis_ruin';
         if (isReefOrSanctuary) {
           data[idx + 2] = 0;
+          data[idx + 3] = 0;
+        } else if (t.isLake && !t.waterKind) {
+          const landD = Math.min(3.5, distToLand[i] * 0.1);
+          const lakeFrac = Math.max(0, Math.min(1, (landD - 0.5) / 2.8));
+          data[idx + 2] = Math.round(lakeFrac * 195);
+          data[idx + 3] = 255;
+        } else if (t.isRiver && !t.waterKind) {
+          const landD = Math.min(2.2, distToLand[i] * 0.1);
+          const riverFrac = Math.max(0, Math.min(1, (landD - 0.5) / 1.5));
+          data[idx + 2] = Math.round(riverFrac * 110);
+          data[idx + 3] = 128;
         } else if (t.terrain !== 'deep_water') {
           const landD = Math.min(4.0, distToLand[i] * 0.1);
           const deepD = Math.min(4.0, distToDeep[i] * 0.1);
           const shoreFrac = Math.max(0, Math.min(1, (landD - 1.0) / 3.0));
           const dropFrac = Math.max(0, Math.min(1, (3.2 - deepD) / 2.2));
           data[idx + 2] = Math.round(shoreFrac * 42 + dropFrac * 68);
+          data[idx + 3] = 0;
         } else {
           const shallowD = Math.min(4.5, distToShallow[i] * 0.1);
           const slopeFrac = Math.max(0, Math.min(1, (shallowD - 1.0) / 3.2));
           data[idx + 2] = Math.round(135 + slopeFrac * 120);
+          data[idx + 3] = 0;
         }
       } else {
         data[idx + 2] = Math.abs(((t.x * 73856093) ^ (t.z * 19349663)) | 0) & 255;
+        data[idx + 3] = (t.crushedTimer ?? 0) > 0 ? 110 : t.farmSettlementId ? 255 : 0;
       }
-      data[idx + 3] = t.height > 0 && (t.crushedTimer ?? 0) > 0 ? 110 : t.farmSettlementId ? 255 : 0;
 
       if (t.height > 0 && (t.terrain === 'stone_road' || t.terrain === 'rail_track' || t.terrain === 'runway')) {
         cityLightBytes[idx + 1] = Math.max(cityLightBytes[idx + 1], 240);

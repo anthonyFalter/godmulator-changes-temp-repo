@@ -643,6 +643,7 @@ export function getMagicCircleThemeForPower(powerOrTool: string): MagicCircleThe
       return 'golden';
     case 'divine_shield':
     case 'rain_of_plenty':
+    case 'water_drop':
     case 'tsunami':
     case 'coral_reef_rain':
     case 'summon_fleet':

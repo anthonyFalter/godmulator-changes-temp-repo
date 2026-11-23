@@ -1006,9 +1006,21 @@ export default function App() {
 
       if (gameState !== 'playing') return;
 
-      // Only preserve the Hide dock keybind (H); all power & toolbar keybinds removed
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+      // Preserve Hide dock (H) and desktop Camera Pan Mode toggle (V)
       if (e.code === 'KeyH') {
         setDockCollapsed((prev) => !prev);
+      } else if (e.code === 'KeyV') {
+        setMobilePanMode((prev) => {
+          const next = !prev;
+          setStatusFeedback(
+            next
+              ? 'Pan mode ON: drag moves camera'
+              : 'Pan mode OFF: click/drag uses active tool',
+          );
+          return next;
+        });
       }
     };
 
@@ -1089,7 +1101,7 @@ export default function App() {
   const lastInteractSoundRef = useRef(0);
 
   const handleTileInteract = useCallback(
-    (tileX: number, tileZ: number) => {
+    (tileX: number, tileZ: number, interactOptions?: { flattenHeightOverride?: number }) => {
       const sim = simRef.current;
       sim.selectedTile = { x: tileX, z: tileZ };
       const notifyInteractHud = (msg: string) => {
@@ -1232,7 +1244,9 @@ export default function App() {
       }
 
       if (activeTool.kind === 'terrain') {
-        const res = applyTerrainTool(sim, activeTool.tool, tileX, tileZ, brushRadius);
+        const res = applyTerrainTool(sim, activeTool.tool, tileX, tileZ, brushRadius, {
+          flattenHeightOverride: interactOptions?.flattenHeightOverride,
+        });
         const def = TERRAIN_TOOLS.find((t) => t.type === activeTool.tool);
         if (res.ok) {
           const nowSfx = performance.now();
@@ -1576,7 +1590,7 @@ export default function App() {
   const hasAnyBlockingModal = hasInGameOverlayModal || hasSavedWorldRulesModal;
 
   return (
-    <main className="relative w-[100dvw] h-[100dvh] overflow-hidden bg-[#141210] text-[#f2ece1]">
+    <main className="relative w-[100dvw] h-[100dvh] overflow-hidden bg-[#15100e] text-[#f4e7d4]">
       {/* 3D Pixelated Isometric World Canvas */}
       <IsometricWorldCanvas
         key={sim.gridSize}
@@ -1641,15 +1655,15 @@ export default function App() {
                   setUpdateLogCollapsed(false);
                   soundEngine.playClick();
                 }}
-                className="px-panel px-2.5 sm:px-3 py-1.5 sm:py-2 flex items-center gap-2 text-xs font-semibold text-[#e8e0d2] cursor-pointer hover:text-[#f5b742]"
+                className="px-panel px-2.5 sm:px-3 py-1.5 sm:py-2 flex items-center gap-2 text-xs font-semibold text-[#eadbc6] cursor-pointer hover:text-[#f2c478]"
               >
-                <HudPixelIcon kind="log" className="w-4 h-4 text-[#f5b742]" />
+                <HudPixelIcon kind="log" className="w-4 h-4 text-[#f2c478]" />
                 <span>Updates</span>
               </button>
             ) : (
               <div className="px-panel w-[min(17.5rem,calc(100vw-16px))] sm:w-64 p-3 sm:p-4 max-h-[calc(100dvh-24px)] flex flex-col">
                 <div className="flex items-center justify-between mb-2.5 sm:mb-3 shrink-0">
-                  <span className="text-sm font-bold text-[#f5b742]">Updates</span>
+                  <span className="text-sm font-bold text-[#f2c478]">Updates</span>
                   <button
                     type="button"
                     data-testid="toggle-update-log"
@@ -1657,7 +1671,7 @@ export default function App() {
                       setUpdateLogCollapsed(true);
                       soundEngine.playClick();
                     }}
-                    className="text-xs text-[#a89f91] hover:text-[#f2ece1] cursor-pointer"
+                    className="text-xs text-[#b09880] hover:text-[#f4e7d4] cursor-pointer"
                   >
                     Hide
                   </button>
@@ -1668,12 +1682,12 @@ export default function App() {
                     <div key={entry.version}>
                       <div
                         className={`font-bold tabular-nums mb-1 ${
-                          entry.isMajor ? 'text-[#f5b742]' : 'text-[#e8e0d2]'
+                          entry.isMajor ? 'text-[#f2c478]' : 'text-[#eadbc6]'
                         }`}
                       >
                         {entry.version}
                       </div>
-                      <ul className="space-y-0.5 text-[#b8afa2] leading-snug">
+                      <ul className="space-y-0.5 text-[#bfa88f] leading-snug">
                         {entry.items.map((item, idx) => (
                           <li key={idx}>• {item}</li>
                         ))}
@@ -1690,7 +1704,7 @@ export default function App() {
           {!hasSavedWorldRulesModal && (
           <div
             data-testid="game-version-badge"
-            className="pointer-events-auto fixed left-2.5 bottom-2 sm:left-4 sm:bottom-4 z-30 text-[11px] sm:text-xs text-[#cfc6b8] tabular-nums select-none drop-shadow-[0_2px_0_#0b0a09]"
+            className="pointer-events-auto fixed left-2.5 bottom-2 sm:left-4 sm:bottom-4 z-30 text-[11px] sm:text-xs text-[#ccb69c] tabular-nums select-none drop-shadow-[0_2px_0_#110c0a]"
           >
             Godmulator {GAME_VERSION}
           </div>
@@ -1700,7 +1714,7 @@ export default function App() {
           {titleMenuStep === 'main' && (
             <div
               data-testid="start-menu-main"
-              className="pointer-events-auto w-[min(280px,calc(100vw-16px))] max-h-[calc(100dvh-20px)] overflow-y-auto px-panel p-4 sm:p-6 [@media(max-height:460px)]:p-3.5 sm:-translate-y-3 flex flex-col items-center gap-4 sm:gap-6 [@media(max-height:460px)]:gap-2.5"
+              className="pointer-events-auto w-[min(280px,calc(100vw-16px))] max-h-[calc(100dvh-20px)] overflow-y-auto px-panel-hero p-5 sm:p-6 [@media(max-height:460px)]:p-3.5 sm:-translate-y-3 flex flex-col items-center gap-4 sm:gap-6 [@media(max-height:460px)]:gap-2.5"
             >
               <TitleEmblemSvg centered />
 
@@ -1716,7 +1730,7 @@ export default function App() {
                     setWorldConfig((prev) => ({ ...prev, worldName: 'My World' }));
                     setTitleMenuStep('create_world');
                   }}
-                  className="px-btn-primary w-full min-h-[42px] sm:min-h-[44px] py-2 sm:py-2.5 text-base font-bold cursor-pointer focus-visible:outline-2 focus-visible:outline-[#ffd166]"
+                  className="px-btn-primary w-full min-h-[42px] sm:min-h-[44px] py-2 sm:py-2.5 text-base font-bold cursor-pointer focus-visible:outline-2 focus-visible:outline-[#ffd36b]"
                 >
                   New World
                 </button>
@@ -1732,7 +1746,7 @@ export default function App() {
                     setTitleMenuStep('continue_worlds');
                     void refreshSavedWorlds();
                   }}
-                  className="px-btn w-full min-h-[42px] sm:min-h-[44px] py-2 sm:py-2.5 text-sm font-semibold cursor-pointer focus-visible:outline-2 focus-visible:outline-[#ffd166]"
+                  className="px-btn w-full min-h-[42px] sm:min-h-[44px] py-2 sm:py-2.5 text-sm font-semibold cursor-pointer focus-visible:outline-2 focus-visible:outline-[#ffd36b]"
                 >
                   Continue
                 </button>
@@ -1744,7 +1758,7 @@ export default function App() {
                     soundEngine.playClick();
                     setTitleMenuStep('settings');
                   }}
-                  className="px-btn w-full min-h-[42px] sm:min-h-[44px] py-2 sm:py-2.5 text-sm font-semibold cursor-pointer focus-visible:outline-2 focus-visible:outline-[#ffd166]"
+                  className="px-btn w-full min-h-[42px] sm:min-h-[44px] py-2 sm:py-2.5 text-sm font-semibold cursor-pointer focus-visible:outline-2 focus-visible:outline-[#ffd36b]"
                 >
                   Settings
                 </button>
@@ -1756,7 +1770,7 @@ export default function App() {
                     soundEngine.playClick();
                     setTitleMenuStep('credits');
                   }}
-                  className="px-btn w-full min-h-[42px] sm:min-h-[44px] py-2 sm:py-2.5 text-sm font-semibold cursor-pointer focus-visible:outline-2 focus-visible:outline-[#ffd166]"
+                  className="px-btn w-full min-h-[42px] sm:min-h-[44px] py-2 sm:py-2.5 text-sm font-semibold cursor-pointer focus-visible:outline-2 focus-visible:outline-[#ffd36b]"
                 >
                   Credits
                 </button>
@@ -1768,17 +1782,17 @@ export default function App() {
           {titleMenuStep === 'create_world' && (
             <div
               data-testid="create-world-modal"
-              className="pointer-events-auto w-[min(28rem,calc(100vw-16px))] max-h-[calc(100dvh-16px)] overflow-y-auto px-panel p-4 sm:p-6 space-y-3.5 sm:space-y-5"
+              className="pointer-events-auto w-[min(28rem,calc(100vw-16px))] max-h-[calc(100dvh-16px)] overflow-y-auto px-panel-hero p-4 sm:p-6 space-y-3.5 sm:space-y-5"
             >
               <div className="flex items-center justify-between">
-                <h2 className="text-lg font-bold text-[#f5b742]">Create World</h2>
+                <h2 className="text-lg font-bold text-[#f2c478]">Create World</h2>
                 <button
                   type="button"
                   onClick={() => {
                     soundEngine.playClick();
                     setTitleMenuStep('main');
                   }}
-                  className="text-xs text-[#b8afa2] hover:text-[#f2ece1] cursor-pointer px-1 py-1"
+                  className="text-xs text-[#bfa88f] hover:text-[#f4e7d4] cursor-pointer px-1 py-1"
                 >
                   Back
                 </button>
@@ -1787,7 +1801,7 @@ export default function App() {
               {/* Name & Seed */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3 text-xs">
                 <div>
-                  <label htmlFor="create-world-name" className="block text-[#b8afa2] mb-1">
+                  <label htmlFor="create-world-name" className="block text-[#bfa88f] mb-1">
                     Name
                   </label>
                   <div className="flex gap-1">
@@ -1798,7 +1812,7 @@ export default function App() {
                       onChange={(e) =>
                         setWorldConfig((prev) => ({ ...prev, worldName: e.target.value }))
                       }
-                      className="px-panel-inset w-full px-2.5 py-2 text-xs text-[#f2ece1] outline-none focus:border-[#f5b742]"
+                      className="px-panel-inset w-full px-2.5 py-2 text-xs text-[#f4e7d4] outline-none focus:border-[#f2c478]"
                     />
                     <button
                       type="button"
@@ -1826,7 +1840,7 @@ export default function App() {
                 </div>
 
                 <div>
-                  <label htmlFor="title-seed-input" className="block text-[#b8afa2] mb-1">
+                  <label htmlFor="title-seed-input" className="block text-[#bfa88f] mb-1">
                     Seed
                   </label>
                   <div className="flex gap-1">
@@ -1842,7 +1856,7 @@ export default function App() {
                           seed: normalizeSeed(val || undefined),
                         }));
                       }}
-                      className="px-panel-inset w-full px-2.5 py-2 text-xs text-[#f2ece1] tabular-nums outline-none focus:border-[#f5b742]"
+                      className="px-panel-inset w-full px-2.5 py-2 text-xs text-[#f4e7d4] tabular-nums outline-none focus:border-[#f2c478]"
                     />
                     <button
                       type="button"
@@ -1880,15 +1894,15 @@ export default function App() {
                     soundEngine.playClick();
                     setShowTemplatesDropdown((prev) => !prev);
                   }}
-                  className="w-full flex items-center justify-between py-1 bg-transparent border-0 outline-none text-xs text-[#b8afa2] hover:text-[#f2ece1] cursor-pointer select-none"
+                  className="w-full flex items-center justify-between py-1 bg-transparent border-0 outline-none text-xs text-[#bfa88f] hover:text-[#f4e7d4] cursor-pointer select-none"
                 >
                   <span>
                     Templates{' '}
-                    <span className="text-[#f5b742] font-semibold">
+                    <span className="text-[#f2c478] font-semibold">
                       ({WORLD_TEMPLATES.find((t) => t.id === worldConfig.template)?.name ?? 'Fantasy'})
                     </span>
                   </span>
-                  <span className="text-[11px] text-[#b8afa2] leading-none flex items-center">
+                  <span className="text-[11px] text-[#bfa88f] leading-none flex items-center">
                     {showTemplatesDropdown ? (
                       <HudPixelIcon kind="chevronDown" className="w-3 h-3 pixelated-canvas" />
                     ) : (
@@ -1910,8 +1924,8 @@ export default function App() {
                             isSelected ? 'px-slot-active' : 'px-slot'
                           }`}
                         >
-                          <div className="text-xs font-bold text-[#f2ece1]">{tpl.name}</div>
-                          <div className="text-[11px] text-[#9e9486] leading-tight mt-0.5">
+                          <div className="text-xs font-bold text-[#f4e7d4]">{tpl.name}</div>
+                          <div className="text-[11px] text-[#9e866f] leading-tight mt-0.5">
                             {tpl.tagline}
                           </div>
                         </button>
@@ -1924,10 +1938,10 @@ export default function App() {
               {/* Map Size Slider (64x64 up to 512x512 Titanic) */}
               <div>
                 <div className="flex items-center justify-between text-xs mb-2">
-                  <label htmlFor="map-size-slider" className="text-[#b8afa2]">
+                  <label htmlFor="map-size-slider" className="text-[#bfa88f]">
                     Map Size
                   </label>
-                  <span className="font-bold text-[#f2ece1] tabular-nums">
+                  <span className="font-bold text-[#f4e7d4] tabular-nums">
                     {worldConfig.gridSize}×{worldConfig.gridSize}
                     {worldConfig.gridSize === 384
                       ? ' (Huge)'
@@ -1951,8 +1965,8 @@ export default function App() {
                   }}
                   className="px-range w-full"
                 />
-                <div className="text-[11px] text-[#b8afa2] mt-1.5 tabular-nums">
-                  Max City Pop: <span className="font-semibold text-[#f2ece1]">{getMaxCityPopulation(worldConfig.gridSize)}</span> per city
+                <div className="text-[11px] text-[#bfa88f] mt-1.5 tabular-nums">
+                  Max City Pop: <span className="font-semibold text-[#f4e7d4]">{getMaxCityPopulation(worldConfig.gridSize)}</span> per city
                 </div>
                 {worldConfig.gridSize >= 384 && (
                   <div
@@ -1970,7 +1984,7 @@ export default function App() {
               {worldConfig.template === 'custom' && (
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs pt-1">
                   <div>
-                    <span className="block text-[#b8afa2] mb-1">Sea Level</span>
+                    <span className="block text-[#bfa88f] mb-1">Sea Level</span>
                     <div className="grid grid-cols-3 gap-1">
                       {(['low', 'normal', 'high'] as const).map((lvl) => (
                         <button
@@ -1991,7 +2005,7 @@ export default function App() {
                   </div>
 
                   <div>
-                    <span className="block text-[#b8afa2] mb-1">Relief</span>
+                    <span className="block text-[#bfa88f] mb-1">Relief</span>
                     <div className="grid grid-cols-3 gap-1">
                       {(['low', 'normal', 'high'] as const).map((mtn) => (
                         <button
@@ -2012,7 +2026,7 @@ export default function App() {
                   </div>
 
                   <div>
-                    <span className="block text-[#b8afa2] mb-1">Climate</span>
+                    <span className="block text-[#bfa88f] mb-1">Climate</span>
                     <div className="grid grid-cols-3 gap-1">
                       {(['cold', 'temperate', 'warm'] as const).map((clim) => (
                         <button
@@ -2038,8 +2052,8 @@ export default function App() {
               {worldConfig.template === 'single_biome' && (
                 <div className="pt-1">
                   <div className="flex items-center justify-between text-xs mb-1.5">
-                    <span className="text-[#b8afa2]">Starting Biome</span>
-                    <span className="text-[#f2ece1] font-bold">
+                    <span className="text-[#bfa88f]">Starting Biome</span>
+                    <span className="text-[#f4e7d4] font-bold">
                       {SINGLE_BIOME_OPTIONS.find(
                         (b) => b.id === (worldConfig.singleBiome ?? 'forest'),
                       )?.label ?? 'Woodland Forest'}
@@ -2106,17 +2120,17 @@ export default function App() {
           {titleMenuStep === 'world_rules' && (
             <div
               data-testid="world-rules-modal"
-              className="pointer-events-auto w-[min(28rem,calc(100vw-16px))] max-h-[calc(100dvh-16px)] overflow-y-auto px-panel p-4 sm:p-6 space-y-3.5 sm:space-y-5"
+              className="pointer-events-auto w-[min(28rem,calc(100vw-16px))] max-h-[calc(100dvh-16px)] overflow-y-auto px-panel-hero p-4 sm:p-6 space-y-3.5 sm:space-y-5"
             >
               <div className="flex items-center justify-between">
-                <h2 className="text-lg font-bold text-[#f5b742]">World Rules</h2>
+                <h2 className="text-lg font-bold text-[#f2c478]">World Rules</h2>
                 <button
                   type="button"
                   onClick={() => {
                     soundEngine.playClick();
                     setTitleMenuStep('create_world');
                   }}
-                  className="text-xs text-[#b8afa2] hover:text-[#f2ece1] cursor-pointer"
+                  className="text-xs text-[#bfa88f] hover:text-[#f4e7d4] cursor-pointer"
                 >
                   Back
                 </button>
@@ -2125,10 +2139,10 @@ export default function App() {
               {/* Starting Age Slider */}
               <div>
                 <div className="flex items-center justify-between text-xs mb-2">
-                  <label htmlFor="starting-age-slider" className="text-[#b8afa2]">
+                  <label htmlFor="starting-age-slider" className="text-[#bfa88f]">
                     Starting Age
                   </label>
-                  <span className="font-bold text-[#f2ece1]">
+                  <span className="font-bold text-[#f4e7d4]">
                     {EPOCHS[worldConfig.rules.startingEpochIndex]?.name}
                   </span>
                 </div>
@@ -2154,7 +2168,7 @@ export default function App() {
 
               {/* Starting Settlers */}
               <div>
-                <div className="text-xs text-[#b8afa2] mb-1.5">Starting Settlers</div>
+                <div className="text-xs text-[#bfa88f] mb-1.5">Starting Settlers</div>
                 <div className="grid grid-cols-3 gap-2">
                   {(
                     [
@@ -2189,7 +2203,7 @@ export default function App() {
 
               {/* Concise Rule Switches */}
               <div>
-                <div className="text-xs text-[#b8afa2] mb-1.5">God Rules</div>
+                <div className="text-xs text-[#bfa88f] mb-1.5">God Rules</div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-[34dvh] sm:max-h-[210px] overflow-y-auto pr-0.5">
                   {GOD_RULE_SWITCHES.map((rule) => {
                     const isOn = worldConfig.rules[rule.key];
@@ -2211,13 +2225,13 @@ export default function App() {
                           }));
                         }}
                         className={`px-3 py-2 flex items-center justify-between text-xs cursor-pointer ${
-                          isOn ? 'px-slot-active font-bold text-[#f2ece1]' : 'px-slot text-[#b8afa2]'
+                          isOn ? 'px-slot-active font-bold text-[#f4e7d4]' : 'px-slot text-[#bfa88f]'
                         }`}
                       >
                         <span className="truncate pr-2">{rule.label}</span>
                         <span
-                          className={`w-2.5 h-2.5 border border-[#0b0a09] shrink-0 ${
-                            isOn ? 'bg-[#80ed99]' : 'bg-[#34302a]'
+                          className={`w-2.5 h-2.5 border border-[#110c0a] shrink-0 ${
+                            isOn ? 'bg-[#80ed99]' : 'bg-[#423229]'
                           }`}
                         />
                       </button>
@@ -2255,22 +2269,22 @@ export default function App() {
           {titleMenuStep === 'loading_world' && (
             <div
               data-testid="loading-world-modal"
-              className="pointer-events-auto w-[min(20rem,calc(100vw-16px))] px-panel p-5 sm:p-6 text-center space-y-3"
+              className="pointer-events-auto w-[min(20rem,calc(100vw-16px))] px-panel-hero p-5 sm:p-6 text-center space-y-3"
             >
-              <div className="text-base font-bold text-[#f5b742]">
+              <div className="text-base font-bold text-[#f2c478]">
                 {worldConfig.worldName}
               </div>
 
-              <div className="px-panel-inset w-full h-4 p-0.5 overflow-hidden">
+              <div className="px-bar-track w-full h-4 overflow-hidden">
                 <div
-                  className="h-full bg-[#f5b742] transition-all duration-150"
+                  className="px-bar-fill bg-[#d9a441] transition-all duration-150"
                   style={{ width: `${loadingProgress}%` }}
                 />
               </div>
 
-              <div className="flex items-center justify-between text-xs text-[#b8afa2] tabular-nums">
+              <div className="flex items-center justify-between text-xs text-[#bfa88f] tabular-nums">
                 <span className="truncate pr-2">{loadingStageText}</span>
-                <span className="text-[#f2ece1] font-bold">{loadingProgress}%</span>
+                <span className="text-[#f4e7d4] font-bold">{loadingProgress}%</span>
               </div>
             </div>
           )}
@@ -2279,17 +2293,17 @@ export default function App() {
           {titleMenuStep === 'settings' && (
             <div
               data-testid="start-settings-modal"
-              className="pointer-events-auto w-[min(28rem,calc(100vw-16px))] max-h-[calc(100dvh-16px)] overflow-y-auto px-panel p-4 sm:p-6 space-y-4 sm:space-y-5"
+              className="pointer-events-auto w-[min(28rem,calc(100vw-16px))] max-h-[calc(100dvh-16px)] overflow-y-auto px-panel-hero p-4 sm:p-6 space-y-4 sm:space-y-5"
             >
               <div className="flex items-center justify-between">
-                <h2 className="text-lg font-bold text-[#f5b742]">Settings</h2>
+                <h2 className="text-lg font-bold text-[#f2c478]">Settings</h2>
                 <button
                   type="button"
                   onClick={() => {
                     soundEngine.playClick();
                     setTitleMenuStep('main');
                   }}
-                  className="text-xs text-[#b8afa2] hover:text-[#f2ece1] cursor-pointer px-1 py-1"
+                  className="text-xs text-[#bfa88f] hover:text-[#f4e7d4] cursor-pointer px-1 py-1"
                 >
                   Back
                 </button>
@@ -2297,7 +2311,7 @@ export default function App() {
 
               <div className="space-y-4 text-xs">
                 <div className="flex items-center justify-between">
-                  <span className="text-[#e8e0d2]">Sound Effects</span>
+                  <span className="text-[#eadbc6]">Sound Effects</span>
                   <button
                     type="button"
                     onClick={handleToggleMute}
@@ -2332,30 +2346,30 @@ export default function App() {
           {titleMenuStep === 'credits' && (
             <div
               data-testid="start-credits-modal"
-              className="pointer-events-auto w-[min(24rem,calc(100vw-16px))] max-h-[calc(100dvh-16px)] overflow-y-auto px-panel p-4 sm:p-6 space-y-4"
+              className="pointer-events-auto w-[min(24rem,calc(100vw-16px))] max-h-[calc(100dvh-16px)] overflow-y-auto px-panel-hero p-4 sm:p-6 space-y-4"
             >
               <div className="flex items-center justify-between">
-                <h2 className="text-lg font-bold text-[#f5b742]">Credits</h2>
+                <h2 className="text-lg font-bold text-[#f2c478]">Credits</h2>
                 <button
                   type="button"
                   onClick={() => {
                     soundEngine.playClick();
                     setTitleMenuStep('main');
                   }}
-                  className="text-xs text-[#b8afa2] hover:text-[#f2ece1] cursor-pointer px-1 py-1"
+                  className="text-xs text-[#bfa88f] hover:text-[#f4e7d4] cursor-pointer px-1 py-1"
                 >
                   Back
                 </button>
               </div>
 
-              <div className="space-y-2.5 text-xs text-[#cfc6b8] leading-relaxed">
-                <div className="text-[#f2ece1] font-bold">
+              <div className="space-y-2.5 text-xs text-[#ccb69c] leading-relaxed">
+                <div className="text-[#f4e7d4] font-bold">
                   Godmulator {GAME_VERSION}
                 </div>
                 <p>
                   3D pixel god simulator with procedural continents, dynamic land &amp; sea zones, and multi-epoch civilizations.
                 </p>
-                <div className="pt-1 text-[#b8afa2] space-y-1">
+                <div className="pt-1 text-[#bfa88f] space-y-1">
                   <div>Drag / WASD / Right-Drag — Pan</div>
                   <div>Pinch / Scroll — Zoom</div>
                   <div>Two-Finger Twist / Buttons — Rotate</div>
@@ -2383,13 +2397,13 @@ export default function App() {
               className={
                 hasSavedWorldRulesModal
                   ? 'pointer-events-auto'
-                  : 'pointer-events-auto w-[min(46rem,calc(100vw-16px))] max-h-[calc(100dvh-20px)] flex flex-col px-panel p-4 sm:p-6 gap-3.5'
+                  : 'pointer-events-auto w-[min(46rem,calc(100vw-16px))] max-h-[calc(100dvh-20px)] flex flex-col px-panel-hero p-4 sm:p-6 gap-3.5'
               }
             >
               {!hasSavedWorldRulesModal && (
                 <>
               <div className="flex items-center justify-between shrink-0">
-                <h2 className="text-lg font-bold text-[#f5b742]">Saved Worlds</h2>
+                <h2 className="text-lg font-bold text-[#f2c478]">Saved Worlds</h2>
                 <button
                   type="button"
                   data-testid="continue-back-btn"
@@ -2406,7 +2420,7 @@ export default function App() {
               </div>
 
               {savedWorldsLoading ? (
-                <div className="px-panel-inset p-6 text-center text-xs text-[#b8afa2]">
+                <div className="px-panel-inset p-6 text-center text-xs text-[#bfa88f]">
                   Loading saved worlds...
                 </div>
               ) : savedWorlds.length === 0 ? (
@@ -2414,10 +2428,10 @@ export default function App() {
                   data-testid="saved-worlds-empty"
                   className="px-panel-inset p-6 text-center space-y-3"
                 >
-                  <div className="text-sm font-semibold text-[#e8e0d2]">
+                  <div className="text-sm font-semibold text-[#eadbc6]">
                     No saved worlds yet
                   </div>
-                  <p className="text-xs text-[#a89f91]">
+                  <p className="text-xs text-[#b09880]">
                     Create a new world and save your progress to continue later.
                   </p>
                   <button
@@ -2455,7 +2469,7 @@ export default function App() {
                         className="px-panel-inset p-2.5 sm:p-3 flex flex-col sm:flex-row gap-3 items-stretch"
                       >
                         {/* Static Map Thumbnail */}
-                        <div className="w-full sm:w-44 h-28 sm:h-[104px] shrink-0 bg-[#0d0b09] border border-[#3a3026] overflow-hidden flex items-center justify-center">
+                        <div className="w-full sm:w-44 h-28 sm:h-[104px] shrink-0 bg-[#14100e] border border-[#544034] overflow-hidden flex items-center justify-center">
                           {w.thumbnailDataUrl ? (
                             <img
                               src={w.thumbnailDataUrl}
@@ -2464,10 +2478,10 @@ export default function App() {
                             />
                           ) : (
                             <div className="text-center px-2">
-                              <div className="text-[11px] font-bold text-[#f5b742]">
+                              <div className="text-[11px] font-bold text-[#f2c478]">
                                 {w.gridSize}×{w.gridSize}
                               </div>
-                              <div className="text-[10px] text-[#8f8478]">No Thumbnail</div>
+                              <div className="text-[10px] text-[#8f7862]">No Thumbnail</div>
                             </div>
                           )}
                         </div>
@@ -2511,17 +2525,17 @@ export default function App() {
                               </div>
                             ) : (
                               <div className="flex items-baseline justify-between gap-2">
-                                <h3 className="text-sm sm:text-base font-bold text-[#f2ece1] truncate">
+                                <h3 className="text-sm sm:text-base font-bold text-[#f4e7d4] truncate">
                                   {w.name}
                                 </h3>
-                                <span className="text-[11px] text-[#8f8478] shrink-0 tabular-nums">
+                                <span className="text-[11px] text-[#8f7862] shrink-0 tabular-nums">
                                   {savedDateLabel}
                                 </span>
                               </div>
                             )}
 
-                            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#cfc6b8] tabular-nums">
-                              <span className="text-[#f5b742] font-semibold">{epochName}</span>
+                            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#ccb69c] tabular-nums">
+                              <span className="text-[#f2c478] font-semibold">{epochName}</span>
                               <span>{formatYearLabel(w.year)}</span>
                               <span className="text-[#80ed99]">Pop: {w.population}</span>
                               <span>
@@ -2531,7 +2545,7 @@ export default function App() {
                             {w.description && (
                               <p
                                 data-testid={`saved-world-desc-${w.id}`}
-                                className="mt-1 text-[11px] text-[#a89f91] leading-snug line-clamp-2"
+                                className="mt-1 text-[11px] text-[#b09880] leading-snug line-clamp-2"
                               >
                                 {w.description}
                               </p>
@@ -2617,11 +2631,11 @@ export default function App() {
                   aria-modal="true"
                   aria-label="Edit Saved World Rules"
                   data-testid="saved-world-rules-modal"
-                  className="fixed inset-0 z-50 flex items-center justify-center bg-[#0d0c0b]/80 p-2 sm:p-4"
+                  className="fixed inset-0 z-50 flex items-center justify-center px-backdrop p-2 sm:p-4"
                 >
-                  <div className="w-[min(30rem,calc(100vw-16px))] max-h-[calc(100dvh-20px)] overflow-y-auto px-panel p-4 sm:p-6 space-y-4">
+                  <div className="w-[min(30rem,calc(100vw-16px))] max-h-[calc(100dvh-20px)] overflow-y-auto px-panel-hero p-4 sm:p-6 space-y-4">
                     <div className="flex items-center justify-between">
-                      <h3 className="text-base sm:text-lg font-bold text-[#f5b742]">
+                      <h3 className="text-base sm:text-lg font-bold text-[#f2c478]">
                         Edit World Rules
                       </h3>
                       <button
@@ -2631,7 +2645,7 @@ export default function App() {
                           setEditingRulesWorldId(null);
                           setEditingRulesDraft(null);
                         }}
-                        className="text-xs text-[#b8afa2] hover:text-[#f2ece1] cursor-pointer"
+                        className="text-xs text-[#bfa88f] hover:text-[#f4e7d4] cursor-pointer"
                       >
                         Close
                       </button>
@@ -2640,10 +2654,10 @@ export default function App() {
                     {/* Age Slider */}
                     <div>
                       <div className="flex items-center justify-between text-xs mb-1.5">
-                        <label htmlFor="saved-world-age-slider" className="text-[#b8afa2]">
+                        <label htmlFor="saved-world-age-slider" className="text-[#bfa88f]">
                           World Age
                         </label>
-                        <span className="font-bold text-[#f2ece1]">
+                        <span className="font-bold text-[#f4e7d4]">
                           {EPOCHS[editingEpochDraft]?.name ?? 'Prehistoric Age'}
                         </span>
                       </div>
@@ -2664,7 +2678,7 @@ export default function App() {
 
                     {/* Sky Lighting Preset */}
                     <div>
-                      <div className="text-xs text-[#b8afa2] mb-1.5">Sky Lighting</div>
+                      <div className="text-xs text-[#bfa88f] mb-1.5">Sky Lighting</div>
                       <div className="grid grid-cols-3 sm:grid-cols-6 gap-1">
                         {(['auto', 'dawn', 'noon', 'dusk', 'night', 'midnight'] as LightingPreset[]).map(
                           (lp) => (
@@ -2699,8 +2713,8 @@ export default function App() {
                             className="px-panel-inset px-2.5 py-2 flex items-center justify-between gap-3"
                           >
                             <div className="min-w-0">
-                              <div className="text-xs font-bold text-[#f2ece1]">{sw.label}</div>
-                              <div className="text-[11px] text-[#a89f91] leading-snug">
+                              <div className="text-xs font-bold text-[#f4e7d4]">{sw.label}</div>
+                              <div className="text-[11px] text-[#b09880] leading-snug">
                                 {sw.summary}
                               </div>
                             </div>
@@ -2719,7 +2733,7 @@ export default function App() {
                                 });
                               }}
                               className={`shrink-0 px-2.5 py-1 text-xs font-bold cursor-pointer ${
-                                enabled ? 'px-btn-active' : 'px-btn text-[#8f8478]'
+                                enabled ? 'px-btn-active' : 'px-btn text-[#8f7862]'
                               }`}
                             >
                               {enabled ? 'ON' : 'OFF'}
@@ -2802,14 +2816,14 @@ export default function App() {
                     : '#38bdf8'
                   : activeWorldEvent.kind === 'starfall_aurora'
                     ? idx % 2 === 0
-                      ? '#ffd166'
+                      ? '#ffd36b'
                       : '#56cfe1'
                     : activeWorldEvent.kind === 'super_tornado'
                       ? idx % 2 === 0
                         ? '#c084fc'
                         : '#818cf8'
                       : idx % 2 === 0
-                        ? '#ffd166'
+                        ? '#ffd36b'
                         : '#ff6b35';
               return Array.from({ length: steps }).map((__, sIdx) => {
                 const r = innerR + sIdx * 5.2;
@@ -2843,7 +2857,7 @@ export default function App() {
               className="text-lg sm:text-3xl font-bold uppercase tracking-[0.22em] leading-tight"
               style={{
                 color: activeWorldEvent.accentColor,
-                textShadow: '2px 2px 0 #090807, -1px -1px 0 #090807, 1px -1px 0 #090807, -1px 1px 0 #090807',
+                textShadow: '2px 2px 0 #050812, -1px -1px 0 #050812, 1px -1px 0 #050812, -1px 1px 0 #050812',
               }}
             >
               {activeWorldEvent.title}
@@ -2851,9 +2865,9 @@ export default function App() {
             {activeWorldEvent.subtitle && (
               <p
                 data-testid="world-event-description"
-                className="mt-1 text-xs sm:text-sm font-medium tracking-[0.06em] text-[#f2ece1] max-w-xl mx-auto"
+                className="mt-1 text-xs sm:text-sm font-medium tracking-[0.06em] text-[#f4e7d4] max-w-xl mx-auto"
                 style={{
-                  textShadow: '1px 1px 0 #090807, -1px -1px 0 #090807, 1px -1px 0 #090807, -1px 1px 0 #090807',
+                  textShadow: '1px 1px 0 #050812, -1px -1px 0 #050812, 1px -1px 0 #050812, -1px 1px 0 #050812',
                 }}
               >
                 {activeWorldEvent.subtitle}
@@ -2862,9 +2876,9 @@ export default function App() {
           </div>
 
           <span
-            className="pointer-events-none text-[10px] sm:text-xs uppercase tracking-[0.18em] text-[#f2ece1]/90 mb-2"
+            className="pointer-events-none text-[10px] sm:text-xs uppercase tracking-[0.18em] text-[#f4e7d4]/90 mb-2"
             style={{
-              textShadow: '1px 1px 0 #090807, -1px -1px 0 #090807',
+              textShadow: '1px 1px 0 #050812, -1px -1px 0 #050812',
             }}
           >
             Click anywhere to return
@@ -2879,7 +2893,7 @@ export default function App() {
           {activeWorldEvent && activeWorldEvent.remaining > 0 && (
             <div
               data-testid="world-event-active-banner"
-              className="pointer-events-none self-center px-4 py-1 text-center bg-[#12100e]/85 border-t-2 border-b-2"
+              className="pointer-events-none self-center px-4 py-1 text-center bg-[#15100e]/85 border-t-2 border-b-2"
               style={{ borderColor: activeWorldEvent.accentColor }}
             >
               <div
@@ -2891,7 +2905,7 @@ export default function App() {
               {activeWorldEvent.subtitle && (
                 <div
                   data-testid="world-event-active-description"
-                  className="text-[11px] sm:text-xs text-[#f2ece1]/90 tracking-[0.04em]"
+                  className="text-[11px] sm:text-xs text-[#f4e7d4]/90 tracking-[0.04em]"
                 >
                   {activeWorldEvent.subtitle}
                 </div>
@@ -2909,20 +2923,20 @@ export default function App() {
                 <div className="flex items-baseline gap-1 sm:gap-2 min-w-0">
                   <span
                     data-testid="hud-average-age"
-                    className="font-bold text-[10px] sm:text-sm text-[#f5b742] whitespace-nowrap truncate leading-tight"
+                    className="font-bold text-[10px] sm:text-sm text-[#f2c478] whitespace-nowrap truncate leading-tight"
                   >
                     {currentEpoch.name}
                   </span>
-                  <span className="font-pixel-num text-[9px] sm:text-[11px] text-[#e8e0d2] whitespace-nowrap leading-tight shrink-0">
+                  <span className="font-pixel-num text-[9px] sm:text-[11px] text-[#eadbc6] whitespace-nowrap leading-tight shrink-0">
                     {formatYearLabel(sim.year)}
                   </span>
                 </div>
-                <div className="flex items-center gap-1 sm:gap-2 text-[9px] sm:text-xs text-[#b8afa2] tabular-nums leading-tight">
+                <div className="flex items-center gap-1 sm:gap-2 text-[9px] sm:text-xs text-[#bfa88f] tabular-nums leading-tight">
                   <span className="whitespace-nowrap">
-                    Pop <span className="font-pixel-num text-[9px] sm:text-[10px] text-[#f2ece1]">{sim.population}</span>
+                    Pop <span className="font-pixel-num text-[9px] sm:text-[10px] text-[#f4e7d4]">{sim.population}</span>
                   </span>
                   {sim.goldenAgeTimer > 0 && (
-                    <span className="font-pixel-num text-[9px] sm:text-[10px] text-[#ffd166] whitespace-nowrap">
+                    <span className="font-pixel-num text-[9px] sm:text-[10px] text-[#ffd36b] whitespace-nowrap">
                       ★ {Math.ceil(sim.goldenAgeTimer)}s
                     </span>
                   )}
@@ -2930,7 +2944,7 @@ export default function App() {
               </div>
               <div
                 role="tooltip"
-                className="pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-150 absolute left-0 top-full mt-1.5 z-40 px-panel px-2.5 py-1.5 text-[10px] sm:text-xs text-[#f2ece1] whitespace-nowrap shadow-lg"
+                className="pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-150 absolute left-0 top-full mt-1.5 z-40 px-panel px-2.5 py-1.5 text-[10px] sm:text-xs text-[#f4e7d4] whitespace-nowrap shadow-lg"
               >
                 The current average age of civilization in the world
               </div>
@@ -2953,7 +2967,7 @@ export default function App() {
                     className="flex flex-row sm:flex-col items-center justify-center gap-0.5 sm:gap-0 sm:min-w-[34px] shrink-0 [@media(max-height:480px)]:flex-row [@media(max-height:480px)]:gap-1 [@media(max-height:480px)]:min-w-0"
                   >
                     <ResourceIconSvg resource={key} className="w-3 h-3 sm:w-4 sm:h-4 pixelated-canvas shrink-0" />
-                    <span className="font-pixel-num text-[9px] sm:text-[10px] text-[#f2ece1] leading-none sm:mt-1 [@media(max-height:480px)]:mt-0">
+                    <span className="font-pixel-num text-[9px] sm:text-[10px] text-[#f4e7d4] leading-none sm:mt-1 [@media(max-height:480px)]:mt-0">
                       {amount}
                     </span>
                   </div>
@@ -3019,8 +3033,8 @@ export default function App() {
                       className="px-panel absolute right-0 top-[calc(100%+6px)] z-30 w-44 sm:w-48 p-2.5 space-y-2"
                     >
                       <div className="flex items-center justify-between text-[11px]">
-                        <span className="text-[#b8afa2]">Speed</span>
-                        <span className="font-pixel-num font-bold text-[#f5b742] tabular-nums">
+                        <span className="text-[#bfa88f]">Speed</span>
+                        <span className="font-pixel-num font-bold text-[#f2c478] tabular-nums">
                           {timeScale === 0 ? 'Paused (0x)' : `${timeScale}x`}
                         </span>
                       </div>
@@ -3048,7 +3062,7 @@ export default function App() {
                         }}
                         className="px-range w-full cursor-pointer"
                       />
-                      <div className="flex items-center justify-between text-[10px] text-[#9e9486] font-pixel-num">
+                      <div className="flex items-center justify-between text-[10px] text-[#9e866f] font-pixel-num">
                         <span>0x</span>
                         <span>1x</span>
                         <span>{SIMULATION_SPEED_OPTIONS[SIMULATION_SPEED_OPTIONS.length - 1]}x</span>
@@ -3082,9 +3096,9 @@ export default function App() {
                     <div
                       role="dialog"
                       aria-label="Camera Controls"
-                      className="px-panel absolute right-0 top-[calc(100%+6px)] z-30 p-2 w-48 max-w-[calc(100vw-16px)] space-y-2"
+                      className="px-panel absolute right-0 top-[calc(100%+6px)] z-30 p-2 w-52 max-w-[calc(100vw-16px)] space-y-2"
                     >
-                      <div className="text-[11px] font-bold text-[#f5b742]">Camera Controls</div>
+                      <div className="text-[11px] font-bold text-[#f2c478]">Camera Controls</div>
                       <div className="grid grid-cols-5 gap-1">
                         <button
                           type="button"
@@ -3094,7 +3108,7 @@ export default function App() {
                           }}
                           className="px-btn h-8 flex items-center justify-center cursor-pointer"
                           aria-label="Zoom In"
-                          title="Zoom In"
+                          title="Zoom In (+ / =)"
                         >
                           <HudPixelIcon kind="zoomIn" className="w-4 h-4 pixelated-canvas" />
                         </button>
@@ -3106,7 +3120,7 @@ export default function App() {
                           }}
                           className="px-btn h-8 flex items-center justify-center cursor-pointer"
                           aria-label="Zoom Out"
-                          title="Zoom Out"
+                          title="Zoom Out (-)"
                         >
                           <HudPixelIcon kind="zoomOut" className="w-4 h-4 pixelated-canvas" />
                         </button>
@@ -3118,7 +3132,7 @@ export default function App() {
                           }}
                           className="px-btn h-8 flex items-center justify-center cursor-pointer"
                           aria-label="Rotate Left"
-                          title="Rotate Left"
+                          title="Rotate Left (Q / [)"
                         >
                           <HudPixelIcon kind="rotateLeft" className="w-4 h-4 pixelated-canvas" />
                         </button>
@@ -3130,7 +3144,7 @@ export default function App() {
                           }}
                           className="px-btn h-8 flex items-center justify-center cursor-pointer"
                           aria-label="Center Camera"
-                          title="Center on Town"
+                          title="Center on Town (C / Home)"
                         >
                           <HudPixelIcon kind="center" className="w-4 h-4 pixelated-canvas" />
                         </button>
@@ -3142,7 +3156,7 @@ export default function App() {
                           }}
                           className="px-btn h-8 flex items-center justify-center cursor-pointer"
                           aria-label="Rotate Right"
-                          title="Rotate Right"
+                          title="Rotate Right (E / ])"
                         >
                           <HudPixelIcon kind="rotateRight" className="w-4 h-4 pixelated-canvas" />
                         </button>
@@ -3161,13 +3175,28 @@ export default function App() {
                           });
                           soundEngine.playClick();
                         }}
+                        title="Toggle Drag Pan Mode (V)"
                         className={`w-full h-8 px-2 flex items-center justify-center gap-1.5 text-xs font-semibold cursor-pointer ${
-                          mobilePanMode ? 'px-btn-active font-bold' : 'px-btn text-[#e8e0d2]'
+                          mobilePanMode ? 'px-btn-active font-bold' : 'px-btn text-[#eadbc6]'
                         }`}
                       >
                         <HudPixelIcon kind="pan" className="w-4 h-4 pixelated-canvas" />
                         <span>{mobilePanMode ? '1-Drag Pan: ON' : '1-Drag Pan: OFF'}</span>
                       </button>
+                      <div className="hidden sm:grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 pt-1.5 border-t border-[#423229] text-[10px] text-[#b09880]">
+                        <span className="font-pixel-num text-[#eadbc6]">WASD / ↑↓←→</span>
+                        <span className="text-right">Pan (+Shift fast)</span>
+                        <span className="font-pixel-num text-[#eadbc6]">Q/E, [/]</span>
+                        <span className="text-right">Rotate / Snap 45°</span>
+                        <span className="font-pixel-num text-[#eadbc6]">+ / −</span>
+                        <span className="text-right">Zoom In / Out</span>
+                        <span className="font-pixel-num text-[#eadbc6]">C / Home</span>
+                        <span className="text-right">Center Town</span>
+                        <span className="font-pixel-num text-[#eadbc6]">R / 0</span>
+                        <span className="text-right">Reset Overview</span>
+                        <span className="font-pixel-num text-[#eadbc6]">V</span>
+                        <span className="text-right">Toggle Pan Mode</span>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -3380,7 +3409,7 @@ export default function App() {
                     inspectedCity.hexColor ||
                     zoneOverlayBuffers.kingdomColors?.[inspectedCity.settlementId] ||
                     zoneOverlayBuffers.kingdomColors?.[inspectedCity.kingdomId] ||
-                    '#f5b742'
+                    '#f2c478'
                   }
                   offsetForEntityInspector={isInspectTabActive}
                   onClose={() => {
@@ -3490,7 +3519,7 @@ export default function App() {
             {chronicleOpen && !speedMenuOpen && !cameraMenuOpen && (
               <div className="pointer-events-auto absolute right-0 top-0 z-20 w-[min(24rem,100%)] max-h-[min(240px,100%)] sm:max-h-full px-panel p-2 sm:p-3 overflow-y-auto">
                 <div className="flex items-center justify-between gap-2 mb-2">
-                  <h2 className="font-bold text-sm text-[#f5b742]">World Log</h2>
+                  <h2 className="font-bold text-sm text-[#f2c478]">World Log</h2>
                   <div className="flex items-center gap-1">
                     <button
                       type="button"
@@ -3519,30 +3548,54 @@ export default function App() {
                     </button>
                   </div>
                 </div>
-                <div className="space-y-1.5 text-xs">
+                <div className="space-y-1 text-xs">
                   {sim.chronicle
                     .filter((entry) => chronicleFilter === 'all' || entry.tone !== 'build')
-                    .map((entry) => (
-                    <div key={entry.id} className="leading-snug flex gap-2">
-                      <span className="font-pixel-num text-[10px] text-[#9e9486] shrink-0 pt-0.5">
-                        {entry.yearLabel}
-                      </span>
-                      <span
-                        className={
-                          entry.tone === 'epoch'
-                            ? 'text-[#ffd166]'
-                            : entry.tone === 'warning'
-                              ? 'text-[#ff8f6b]'
-                              : 'text-[#e8e0d2]'
-                        }
-                      >
-                        {entry.text}
-                      </span>
-                    </div>
-                  ))}
+                    .map((entry) => {
+                      const hasLoc = entry.x !== undefined && entry.z !== undefined;
+                      return (
+                        <button
+                          key={entry.id}
+                          type="button"
+                          disabled={!hasLoc}
+                          onClick={() => {
+                            if (entry.x !== undefined && entry.z !== undefined) {
+                              cameraActionRef.current.focusTarget = { x: entry.x, z: entry.z, zoom: 11.5 };
+                            }
+                          }}
+                          title={hasLoc ? `Jump to (${entry.x}, ${entry.z})` : undefined}
+                          className={`w-full text-left leading-snug flex items-start gap-2 rounded px-1 py-0.5 transition-colors ${
+                            hasLoc
+                              ? 'cursor-pointer hover:bg-[#213357]/70 active:bg-[#2c4270]'
+                              : 'cursor-default'
+                          }`}
+                        >
+                          <span className="font-pixel-num text-[10px] text-[#9e866f] shrink-0 pt-0.5">
+                            {entry.yearLabel}
+                          </span>
+                          <span
+                            className={`flex-1 ${
+                              entry.tone === 'epoch'
+                                ? 'text-[#ffd36b]'
+                                : entry.tone === 'warning'
+                                  ? 'text-[#ff8f6b]'
+                                  : 'text-[#eadbc6]'
+                            }`}
+                          >
+                            {entry.text}
+                          </span>
+                          {hasLoc && (
+                            <span className="text-[10px] text-[#7dd3fc] shrink-0 pt-0.5 opacity-80">
+                              ⌖
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
                 </div>
               </div>
             )}
+
           </div>
 
           {/* BOTTOM PIXEL TOOLBAR DOCK: Compact horizontal-rail layout on mobile, full grid on desktop */}
@@ -3550,9 +3603,9 @@ export default function App() {
             {/* Hover Tooltip (Desktop) */}
             {!dockCollapsed && hoveredHint && (
               <div className="px-panel px-3 py-1.5 mb-2 max-w-[calc(100vw-24px)] hidden md:flex items-center gap-3 text-xs flex-wrap justify-center pointer-events-none">
-                <span className="font-bold text-[#f5b742]">{hoveredHint.title}</span>
+                <span className="font-bold text-[#f2c478]">{hoveredHint.title}</span>
                 <span className="text-[#80ed99] font-semibold tabular-nums">{hoveredHint.cost}</span>
-                <span className="text-[#cfc6b8]">{hoveredHint.detail}</span>
+                <span className="text-[#ccb69c]">{hoveredHint.detail}</span>
               </div>
             )}
 
@@ -3563,12 +3616,12 @@ export default function App() {
                 className="px-panel px-2.5 py-1 mb-1 max-w-[calc(100vw-8px)] w-full flex md:hidden flex-col gap-0.5 pointer-events-none"
               >
                 <div className="flex items-center justify-between gap-2 text-[11px] leading-tight">
-                  <span className="font-bold text-[#f5b742] truncate">{activeToolInfo.title}</span>
+                  <span className="font-bold text-[#f2c478] truncate">{activeToolInfo.title}</span>
                   <span className="text-[#80ed99] font-semibold tabular-nums shrink-0">
                     {activeToolInfo.cost}
                   </span>
                 </div>
-                <p className="text-[10px] text-[#cfc6b8] leading-snug line-clamp-2">
+                <p className="text-[10px] text-[#ccb69c] leading-snug line-clamp-2">
                   {activeToolInfo.detail}
                 </p>
               </div>
@@ -3661,7 +3714,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => setDockCollapsed((prev) => !prev)}
-                  className="px-btn h-[22px] sm:h-7 px-1.5 sm:px-2.5 flex items-center gap-1 text-[10px] sm:text-xs font-semibold text-[#f5b742] cursor-pointer whitespace-nowrap shrink-0"
+                  className="px-btn h-[22px] sm:h-7 px-1.5 sm:px-2.5 flex items-center gap-1 text-[10px] sm:text-xs font-semibold text-[#f2c478] cursor-pointer whitespace-nowrap shrink-0"
                   title="Toggle Dock (H)"
                   aria-label={dockCollapsed ? 'Show Tools' : 'Hide Tools'}
                 >
@@ -3685,7 +3738,7 @@ export default function App() {
                   activeCategory === 'terrain' ||
                   activeCategory === 'build' ||
                   activeCategory === 'spawn') && (
-                  <div className="flex flex-nowrap sm:flex-wrap items-center justify-between gap-1 sm:gap-2 pb-1 mb-1 sm:pb-2 sm:mb-2.5 border-b border-[#2e2923] overflow-x-auto no-scrollbar">
+                  <div className="flex flex-nowrap sm:flex-wrap items-center justify-between gap-1 sm:gap-2 pb-1 mb-1 sm:pb-2 sm:mb-2.5 border-b border-[#423229] overflow-x-auto no-scrollbar">
                     {/* Left: Digestible Category Filters or Active Brush Context */}
                     <div className="flex flex-nowrap sm:flex-wrap items-center gap-1 shrink-0">
                       {activeCategory === 'powers' && (
@@ -3698,7 +3751,7 @@ export default function App() {
                               soundEngine.playClick();
                             }}
                           />
-                          <div className="w-[1px] h-4 bg-[#3d3730] mx-0.5 shrink-0" />
+                          <div className="w-[1px] h-4 bg-[#544034] mx-0.5 shrink-0" />
                           {(
                             [
                               { id: 'all', label: 'All' },
@@ -3780,7 +3833,7 @@ export default function App() {
                               soundEngine.playClick();
                             }}
                           />
-                          <div className="w-[1px] h-4 bg-[#3d3730] mx-0.5 shrink-0" />
+                          <div className="w-[1px] h-4 bg-[#544034] mx-0.5 shrink-0" />
                           {(
                             [
                               { id: 'all', label: 'All' },
@@ -3810,8 +3863,8 @@ export default function App() {
 
                     {/* Right: Active Tool Label + Input Mode Controls */}
                     <div className="flex items-center gap-1 sm:gap-1.5 ml-auto shrink-0">
-                      <span className="hidden md:inline text-[11px] text-[#cfc6b8] mr-1 truncate max-w-[200px]">
-                        Selected: <strong className="text-[#f5b742]">{activeToolLabel}</strong>
+                      <span className="hidden md:inline text-[11px] text-[#ccb69c] mr-1 truncate max-w-[200px]">
+                        Selected: <strong className="text-[#f2c478]">{activeToolLabel}</strong>
                       </span>
                       <button
                         type="button"
@@ -3830,7 +3883,7 @@ export default function App() {
                           soundEngine.playClick();
                         }}
                         className={`h-6 sm:h-7 px-1.5 sm:px-2 flex items-center gap-1 text-[10px] sm:text-[11px] font-semibold cursor-pointer whitespace-nowrap shrink-0 ${
-                          mobilePanMode ? 'px-btn-active font-bold' : 'px-btn text-[#e8e0d2]'
+                          mobilePanMode ? 'px-btn-active font-bold' : 'px-btn text-[#eadbc6]'
                         }`}
                         title="Toggle Pan Camera Mode"
                         aria-label="Pan Camera Mode"
@@ -3856,7 +3909,7 @@ export default function App() {
                         className={`h-6 sm:h-7 px-1.5 sm:px-2 text-[10px] sm:text-[11px] font-semibold cursor-pointer whitespace-nowrap shrink-0 ${
                           brushInputMode === 'hold'
                             ? 'px-btn-active font-bold'
-                            : 'px-btn text-[#e8e0d2]'
+                            : 'px-btn text-[#eadbc6]'
                         }`}
                         title="Switch between Hold-to-Paint/Cast and Single Tap"
                       >
@@ -3909,7 +3962,7 @@ export default function App() {
                         >
                           <PowerPixelIcon power={power.type} className="w-7 h-7 sm:w-8 sm:h-8 pixelated-canvas" />
                           {!sim.sandboxFreeMode && (
-                            <span className="absolute bottom-0.5 right-0.5 sm:right-1 font-pixel-num text-[8px] text-[#ffd166] leading-none">
+                            <span className="absolute bottom-0.5 right-0.5 sm:right-1 font-pixel-num text-[8px] text-[#ffd36b] leading-none">
                               {totalFaithCost}
                             </span>
                           )}
@@ -3949,7 +4002,7 @@ export default function App() {
                         >
                           <TerrainPixelIcon tool={tool.type} className="w-7 h-7 sm:w-8 sm:h-8 pixelated-canvas" />
                           {!sim.sandboxFreeMode && (
-                            <span className="absolute bottom-0.5 right-0.5 sm:right-1 font-pixel-num text-[8px] text-[#ffd166] leading-none">
+                            <span className="absolute bottom-0.5 right-0.5 sm:right-1 font-pixel-num text-[8px] text-[#ffd36b] leading-none">
                               {tool.faithCost}
                             </span>
                           )}
@@ -4009,7 +4062,7 @@ export default function App() {
                             />
                           )}
                           {badge && (
-                            <span className="absolute bottom-0.5 right-0.5 sm:right-1 font-pixel-num text-[8px] text-[#f5b742] leading-none">
+                            <span className="absolute bottom-0.5 right-0.5 sm:right-1 font-pixel-num text-[8px] text-[#f2c478] leading-none">
                               {badge}
                             </span>
                           )}
@@ -4056,11 +4109,11 @@ export default function App() {
                             }`}
                           >
                             <UnitPixelIcon role={u.role} className="w-7 h-7 sm:w-8 sm:h-8 pixelated-canvas shrink-0" />
-                            <span className="text-[10px] sm:text-xs font-bold text-[#f2ece1] whitespace-nowrap">
+                            <span className="text-[10px] sm:text-xs font-bold text-[#f4e7d4] whitespace-nowrap">
                               {u.name}
                             </span>
                             {badge && (
-                              <span className="font-pixel-num text-[9px] text-[#ffd166] leading-none">
+                              <span className="font-pixel-num text-[9px] text-[#ffd36b] leading-none">
                                 {badge}
                               </span>
                             )}
@@ -4070,7 +4123,7 @@ export default function App() {
 
                     {unitFilter === 'all' && (
                       <span
-                        className="w-px h-7 bg-[#3a332b] mx-0.5 hidden sm:inline-block"
+                        className="w-px h-7 bg-[#544034] mx-0.5 hidden sm:inline-block"
                         aria-hidden="true"
                       />
                     )}
@@ -4117,7 +4170,7 @@ export default function App() {
                         >
                           <UnitPixelIcon role={u.role} className="w-7 h-7 sm:w-8 sm:h-8 pixelated-canvas" />
                           {badge && (
-                            <span className="absolute bottom-0.5 right-0.5 sm:right-1 font-pixel-num text-[8px] text-[#ffd166] leading-none">
+                            <span className="absolute bottom-0.5 right-0.5 sm:right-1 font-pixel-num text-[8px] text-[#ffd36b] leading-none">
                               {badge}
                             </span>
                           )}
@@ -4218,7 +4271,7 @@ export default function App() {
                             }`}
                           >
                             <ZonePixelIcon zone={zItem.id} className="w-6 h-6 sm:w-8 sm:h-8 shrink-0 pixelated-canvas" />
-                            <span className="text-[10px] sm:text-xs font-bold text-[#f2ece1] whitespace-nowrap">
+                            <span className="text-[10px] sm:text-xs font-bold text-[#f4e7d4] whitespace-nowrap">
                               {zItem.shortLabel}
                             </span>
                           </button>
@@ -4251,7 +4304,7 @@ export default function App() {
                             showWarFrontArrows ? 'px-slot-active' : 'px-slot'
                           }`}
                         >
-                          <span className="text-[10px] sm:text-xs font-bold text-[#f2ece1] whitespace-nowrap">
+                          <span className="text-[10px] sm:text-xs font-bold text-[#f4e7d4] whitespace-nowrap">
                             War Info
                           </span>
                         </button>
@@ -4293,7 +4346,7 @@ export default function App() {
                   const activeSkyPreset = WORLD_SKY_PRESETS[activeSkyIdx] ?? WORLD_SKY_PRESETS[2];
                   return (
                     <div className="flex flex-col gap-2 sm:gap-2.5">
-                      <div className="flex items-center justify-between gap-2 pb-1.5 sm:pb-2 border-b border-[#2e2923]">
+                      <div className="flex items-center justify-between gap-2 pb-1.5 sm:pb-2 border-b border-[#423229]">
                         <div className="flex items-center gap-1.5">
                           <button
                             type="button"
@@ -4326,7 +4379,7 @@ export default function App() {
                             <span>World Info</span>
                           </button>
                         </div>
-                        <div className="hidden sm:flex items-center gap-3 text-[11px] text-[#a89f91] tabular-nums">
+                        <div className="hidden sm:flex items-center gap-3 text-[11px] text-[#b09880] tabular-nums">
                           <span>{sim.worldName || 'World'}</span>
                           <span>{sim.gridSize}×{sim.gridSize}</span>
                           <span>Seed #{sim.seed}</span>
@@ -4337,12 +4390,12 @@ export default function App() {
                         {/* Age Slider */}
                         <div className="flex flex-col gap-1">
                           <div className="flex items-center justify-between text-[11px] sm:text-xs">
-                            <label htmlFor="world-age-slider" className="text-[#b8afa2]">
+                            <label htmlFor="world-age-slider" className="text-[#bfa88f]">
                               Age
                             </label>
                             <span
                               data-testid="world-age-value"
-                              className="text-[#f5b742] font-bold"
+                              className="text-[#f2c478] font-bold"
                             >
                               {currentEpoch.name}
                             </span>
@@ -4379,7 +4432,7 @@ export default function App() {
                             }}
                             className="px-range w-full cursor-pointer"
                           />
-                          <div className="flex items-center justify-between text-[9px] sm:text-[10px] text-[#8d8477]">
+                          <div className="flex items-center justify-between text-[9px] sm:text-[10px] text-[#8f7862]">
                             <span>{EPOCHS[0]?.name}</span>
                             <span>{EPOCHS[EPOCHS.length - 1]?.name}</span>
                           </div>
@@ -4388,12 +4441,12 @@ export default function App() {
                         {/* Sky Slider */}
                         <div className="flex flex-col gap-1">
                           <div className="flex items-center justify-between text-[11px] sm:text-xs">
-                            <label htmlFor="world-sky-slider" className="text-[#b8afa2]">
+                            <label htmlFor="world-sky-slider" className="text-[#bfa88f]">
                               Sky
                             </label>
                             <span
                               data-testid="world-sky-value"
-                              className="text-[#f5b742] font-bold"
+                              className="text-[#f2c478] font-bold"
                             >
                               {activeSkyPreset.label}
                             </span>
@@ -4421,13 +4474,13 @@ export default function App() {
                             }}
                             className="px-range w-full cursor-pointer"
                           />
-                          <div className="flex items-center justify-between text-[9px] sm:text-[10px] text-[#8d8477]">
+                          <div className="flex items-center justify-between text-[9px] sm:text-[10px] text-[#8f7862]">
                             {WORLD_SKY_PRESETS.map((p) => (
                               <span
                                 key={p.id}
                                 className={
                                   p.id === activeSkyPreset.id
-                                    ? 'text-[#f2ece1] font-semibold'
+                                    ? 'text-[#f4e7d4] font-semibold'
                                     : undefined
                                 }
                               >
@@ -4443,10 +4496,10 @@ export default function App() {
 
                 {/* TAB 7: INSPECT */}
                 {activeCategory === 'inspect' && (
-                  <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3 text-[11px] sm:text-xs text-[#e8e0d2] min-h-[36px] sm:min-h-[48px]">
+                  <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3 text-[11px] sm:text-xs text-[#eadbc6] min-h-[36px] sm:min-h-[48px]">
                     <span>{statusFeedback}</span>
                     {inspectedTile && (
-                      <span className="text-[#f5b742] tabular-nums">
+                      <span className="text-[#f2c478] tabular-nums">
                         ({inspectedTile.x}, {inspectedTile.z}) Height {inspectedTile.height}{' '}
                         {inspectedBuilding
                           ? `${inspectedBuilding.settlementId && sim.settlementNames?.[inspectedBuilding.settlementId] ? `${sim.settlementNames[inspectedBuilding.settlementId]} ` : ''}${inspectedBuilding.type.replace('_', ' ')}`
@@ -4475,7 +4528,7 @@ export default function App() {
                             Biome: {hoveredZoneInfo.biomeZone.name}
                           </span>
                         )}
-                        <span className="font-pixel-num text-[#ffd166] tabular-nums">
+                        <span className="font-pixel-num text-[#ffd36b] tabular-nums">
                           Temp: {hoveredZoneInfo.tileTempC}°C ({hoveredZoneInfo.temperatureZone?.name})
                         </span>
                       </>
@@ -4495,16 +4548,16 @@ export default function App() {
           aria-modal="true"
           aria-label="Settings"
           data-testid="ingame-settings-modal"
-          className="fixed inset-0 z-40 flex items-center justify-center bg-[#0d0c0b]/75 p-2 sm:p-4"
+          className="fixed inset-0 z-40 flex items-center justify-center px-backdrop p-2 sm:p-4"
         >
-          <div className="w-[min(28rem,calc(100vw-16px))] max-h-[calc(100dvh-16px)] overflow-y-auto px-panel p-4 sm:p-6 space-y-4 sm:space-y-5">
+          <div className="w-[min(28rem,calc(100vw-16px))] max-h-[calc(100dvh-16px)] overflow-y-auto px-panel-hero p-4 sm:p-6 space-y-4 sm:space-y-5">
             <div className="flex items-baseline justify-between">
-              <h2 className="text-lg font-bold text-[#f5b742]">Settings</h2>
+              <h2 className="text-lg font-bold text-[#f2c478]">Settings</h2>
             </div>
 
             <div className="space-y-4 text-xs">
               <div className="flex items-center justify-between">
-                <span className="text-[#e8e0d2]">Sound Effects</span>
+                <span className="text-[#eadbc6]">Sound Effects</span>
                 <button
                   type="button"
                   onClick={handleToggleMute}
@@ -4538,7 +4591,7 @@ export default function App() {
                 data-testid="pause-save-btn"
                 disabled={isSavingWorld}
                 onClick={() => handleOpenSaveFlow(false)}
-                className="px-btn w-full py-2 text-xs font-semibold cursor-pointer text-[#ffd166]"
+                className="px-btn w-full py-2 text-xs font-semibold cursor-pointer text-[#ffd36b]"
               >
                 {isSavingWorld ? 'Saving...' : 'Save World'}
               </button>
@@ -4561,26 +4614,26 @@ export default function App() {
           role="dialog"
           aria-modal="true"
           aria-label="Victory"
-          className="fixed inset-0 z-40 flex items-center justify-center bg-[#0d0c0b]/80 p-2 sm:p-4"
+          className="fixed inset-0 z-40 flex items-center justify-center px-backdrop p-2 sm:p-4"
         >
-          <div className="w-[min(24rem,calc(100vw-16px))] max-h-[calc(100dvh-16px)] overflow-y-auto px-panel p-4 sm:p-6">
-            <h2 className="text-2xl font-bold text-[#ffd166] mb-1">Star Ascension</h2>
-            <p className="text-xs text-[#cfc6b8] mb-5">
+          <div className="w-[min(24rem,calc(100vw-16px))] max-h-[calc(100dvh-16px)] overflow-y-auto px-panel-hero p-4 sm:p-6">
+            <h2 className="text-2xl font-bold text-[#ffd36b] mb-1">Star Ascension</h2>
+            <p className="text-xs text-[#ccb69c] mb-5">
               Your world reached the stars.
             </p>
 
             <div className="grid grid-cols-3 gap-2 mb-6 px-panel-inset p-3 text-center">
               <div>
-                <div className="font-pixel-num text-base font-bold text-[#ffd166]">{sim.totalStructuresBuilt}</div>
-                <div className="text-[11px] text-[#a89f91]">Built</div>
+                <div className="font-pixel-num text-base font-bold text-[#ffd36b]">{sim.totalStructuresBuilt}</div>
+                <div className="text-[11px] text-[#b09880]">Built</div>
               </div>
               <div>
                 <div className="font-pixel-num text-base font-bold text-[#56cfe1]">{sim.totalMiraclesCast}</div>
-                <div className="text-[11px] text-[#a89f91]">Powers</div>
+                <div className="text-[11px] text-[#b09880]">Powers</div>
               </div>
               <div>
                 <div className="font-pixel-num text-base font-bold text-[#80ed99]">{sim.population}</div>
-                <div className="text-[11px] text-[#a89f91]">Pop</div>
+                <div className="text-[11px] text-[#b09880]">Pop</div>
               </div>
             </div>
 
@@ -4619,19 +4672,19 @@ export default function App() {
             soundEngine.playClick();
             setShowGodRulesModal(false);
           }}
-          className="fixed inset-0 z-40 flex items-center justify-center bg-[#0d0c0b]/75 p-2 sm:p-4"
+          className="fixed inset-0 z-40 flex items-center justify-center px-backdrop p-2 sm:p-4"
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="w-[min(36rem,calc(100vw-16px))] max-h-[82dvh] px-panel p-4 sm:p-5 flex flex-col gap-3"
+            className="w-[min(36rem,calc(100vw-16px))] max-h-[82dvh] px-panel-hero p-4 sm:p-5 flex flex-col gap-3"
           >
-            <div className="flex items-center justify-between gap-3 pb-2 border-b border-[#34302a] shrink-0">
+            <div className="flex items-center justify-between gap-3 pb-2 border-b border-[#423229] shrink-0">
               <div className="min-w-0">
-                <h2 className="text-base font-bold text-[#f5b742] flex items-center gap-2">
+                <h2 className="text-base font-bold text-[#f2c478] flex items-center gap-2">
                   <TabPixelIcon category="rules" className="w-4 h-4 shrink-0" />
                   <span>God Rules</span>
                 </h2>
-                <p className="text-[11px] text-[#a89f91] mt-0.5">
+                <p className="text-[11px] text-[#b09880] mt-0.5">
                   Toggle live world laws and creature rules
                 </p>
               </div>
@@ -4671,27 +4724,27 @@ export default function App() {
                     onClick={() => handleToggleGodRule(rule.key)}
                     className={`px-3 py-2 text-left flex items-start justify-between gap-2.5 cursor-pointer ${
                       isOn
-                        ? 'px-slot-active text-[#f2ece1]'
-                        : 'px-slot text-[#b8afa2]'
+                        ? 'px-slot-active text-[#f4e7d4]'
+                        : 'px-slot text-[#bfa88f]'
                     }`}
                   >
                     <div className="min-w-0 flex-1">
                       <div className="text-xs font-bold leading-tight">{rule.label}</div>
-                      <p className="text-[10px] text-[#9d9486] leading-snug mt-0.5">
+                      <p className="text-[10px] text-[#9e866f] leading-snug mt-0.5">
                         {rule.summary}
                       </p>
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0 pt-0.5">
                       <span
                         className={`text-[10px] font-bold ${
-                          isOn ? 'text-[#80ed99]' : 'text-[#8d8477]'
+                          isOn ? 'text-[#80ed99]' : 'text-[#8f7862]'
                         }`}
                       >
                         {isOn ? 'On' : 'Off'}
                       </span>
                       <span
-                        className={`w-2.5 h-2.5 border border-[#0b0a09] shrink-0 ${
-                          isOn ? 'bg-[#80ed99]' : 'bg-[#34302a]'
+                        className={`w-2.5 h-2.5 border border-[#110c0a] shrink-0 ${
+                          isOn ? 'bg-[#80ed99]' : 'bg-[#423229]'
                         }`}
                       />
                     </div>
@@ -4777,18 +4830,18 @@ export default function App() {
               soundEngine.playClick();
               setShowWorldInfoModal(false);
             }}
-            className="fixed inset-0 z-40 flex items-center justify-center bg-[#0d0c0b]/75 p-2 sm:p-4"
+            className="fixed inset-0 z-40 flex items-center justify-center px-backdrop p-2 sm:p-4"
           >
             <div
               onClick={(e) => e.stopPropagation()}
-              className="w-[min(27rem,calc(100vw-16px))] max-h-[82dvh] px-panel p-4 sm:p-5 flex flex-col gap-3"
+              className="w-[min(27rem,calc(100vw-16px))] max-h-[82dvh] px-panel-hero p-4 sm:p-5 flex flex-col gap-3"
             >
-              <div className="flex items-center justify-between gap-3 pb-2 border-b border-[#34302a] shrink-0">
+              <div className="flex items-center justify-between gap-3 pb-2 border-b border-[#423229] shrink-0">
                 <div className="min-w-0">
-                  <h2 className="text-base font-bold text-[#f5b742] truncate">
+                  <h2 className="text-base font-bold text-[#f2c478] truncate">
                     {sim.worldName || 'World Info'}
                   </h2>
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-[#a89f91] mt-0.5 tabular-nums">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-[#b09880] mt-0.5 tabular-nums">
                     <span>{formatYearLabel(sim.year)}</span>
                     <span>{currentEpoch.name}</span>
                     <span>{sim.gridSize}×{sim.gridSize}</span>
@@ -4811,184 +4864,184 @@ export default function App() {
               <div className="overflow-y-auto pr-1 space-y-3 text-xs">
                 {/* Life & Population */}
                 <div className="space-y-1">
-                  <div className="text-[11px] font-bold text-[#f5b742] mb-1">
+                  <div className="text-[11px] font-bold text-[#f2c478] mb-1">
                     Life &amp; Population
                   </div>
                   <div className="flex items-center justify-between tabular-nums">
-                    <span className="text-[#a89f91]">Population</span>
-                    <span className="text-[#f2ece1] font-semibold">
+                    <span className="text-[#b09880]">Population</span>
+                    <span className="text-[#f4e7d4] font-semibold">
                       {livingCivs.toLocaleString()} / {sim.populationCap.toLocaleString()}
                     </span>
                   </div>
                   <div className="flex items-center justify-between tabular-nums">
-                    <span className="text-[#a89f91]">Humans / Elves / Orcs</span>
-                    <span className="text-[#f2ece1]">
+                    <span className="text-[#b09880]">Humans / Elves / Orcs</span>
+                    <span className="text-[#f4e7d4]">
                       {livingHumans.toLocaleString()} / {livingElves.toLocaleString()} / {livingOrcs.toLocaleString()}
                     </span>
                   </div>
                   <div className="flex items-center justify-between tabular-nums">
-                    <span className="text-[#a89f91]">Dwarves / Lizardfolk</span>
-                    <span className="text-[#f2ece1]">
+                    <span className="text-[#b09880]">Dwarves / Lizardfolk</span>
+                    <span className="text-[#f4e7d4]">
                       {livingDwarves.toLocaleString()} / {livingLizardfolk.toLocaleString()}
                     </span>
                   </div>
                   <div className="flex items-center justify-between tabular-nums">
-                    <span className="text-[#a89f91]">Newborns</span>
+                    <span className="text-[#b09880]">Newborns</span>
                     <span
                       data-testid="world-stat-total-births"
-                      className="text-[#f2ece1] font-semibold"
+                      className="text-[#f4e7d4] font-semibold"
                     >
                       {wStats.totalBirths.toLocaleString()}
                     </span>
                   </div>
                   <div className="flex items-center justify-between tabular-nums">
-                    <span className="text-[#a89f91]">Children</span>
-                    <span className="text-[#f2ece1]">{livingChildren.toLocaleString()}</span>
+                    <span className="text-[#b09880]">Children</span>
+                    <span className="text-[#f4e7d4]">{livingChildren.toLocaleString()}</span>
                   </div>
                   <div className="flex items-center justify-between tabular-nums">
-                    <span className="text-[#a89f91]">Total Deaths</span>
+                    <span className="text-[#b09880]">Total Deaths</span>
                     <span
                       data-testid="world-stat-total-deaths"
-                      className="text-[#f2ece1] font-semibold"
+                      className="text-[#f4e7d4] font-semibold"
                     >
                       {wStats.totalDeaths.toLocaleString()}
                     </span>
                   </div>
                   <div className="flex items-center justify-between tabular-nums">
-                    <span className="text-[#a89f91]">Civilian Deaths</span>
-                    <span className="text-[#f2ece1]">{wStats.civilianDeaths.toLocaleString()}</span>
+                    <span className="text-[#b09880]">Civilian Deaths</span>
+                    <span className="text-[#f4e7d4]">{wStats.civilianDeaths.toLocaleString()}</span>
                   </div>
                   <div className="flex items-center justify-between tabular-nums">
-                    <span className="text-[#a89f91]">World Happiness</span>
-                    <span className="text-[#f2ece1]">{Math.round(sim.happiness)}%</span>
+                    <span className="text-[#b09880]">World Happiness</span>
+                    <span className="text-[#f4e7d4]">{Math.round(sim.happiness)}%</span>
                   </div>
                 </div>
 
                 {/* Cities & Kingdoms */}
-                <div className="space-y-1 pt-2.5 border-t border-[#34302a]">
-                  <div className="text-[11px] font-bold text-[#f5b742] mb-1">
+                <div className="space-y-1 pt-2.5 border-t border-[#423229]">
+                  <div className="text-[11px] font-bold text-[#f2c478] mb-1">
                     Cities &amp; Kingdoms
                   </div>
                   <div className="flex items-center justify-between tabular-nums">
-                    <span className="text-[#a89f91]">Active Cities</span>
-                    <span className="text-[#f2ece1] font-semibold">{activeCities.toLocaleString()}</span>
+                    <span className="text-[#b09880]">Active Cities</span>
+                    <span className="text-[#f4e7d4] font-semibold">{activeCities.toLocaleString()}</span>
                   </div>
                   <div className="flex items-center justify-between tabular-nums">
-                    <span className="text-[#a89f91]">Active Kingdoms</span>
-                    <span className="text-[#f2ece1]">{activeKingdoms.toLocaleString()}</span>
+                    <span className="text-[#b09880]">Active Kingdoms</span>
+                    <span className="text-[#f4e7d4]">{activeKingdoms.toLocaleString()}</span>
                   </div>
                   <div className="flex items-center justify-between tabular-nums">
-                    <span className="text-[#a89f91]">Cities Created</span>
+                    <span className="text-[#b09880]">Cities Created</span>
                     <span
                       data-testid="world-stat-cities-created"
-                      className="text-[#f2ece1] font-semibold"
+                      className="text-[#f4e7d4] font-semibold"
                     >
                       {citiesCreatedTotal.toLocaleString()}
                     </span>
                   </div>
                   <div className="flex items-center justify-between tabular-nums">
-                    <span className="text-[#a89f91]">Cities Destroyed</span>
+                    <span className="text-[#b09880]">Cities Destroyed</span>
                     <span
                       data-testid="world-stat-cities-destroyed"
-                      className="text-[#f2ece1] font-semibold"
+                      className="text-[#f4e7d4] font-semibold"
                     >
                       {wStats.citiesDestroyed.toLocaleString()}
                     </span>
                   </div>
                   <div className="flex items-center justify-between tabular-nums">
-                    <span className="text-[#a89f91]">Active Wars</span>
-                    <span className="text-[#f2ece1]">{activeWars}</span>
+                    <span className="text-[#b09880]">Active Wars</span>
+                    <span className="text-[#f4e7d4]">{activeWars}</span>
                   </div>
                   <div className="flex items-center justify-between tabular-nums">
-                    <span className="text-[#a89f91]">Active Alliances</span>
-                    <span className="text-[#f2ece1]">{activeAlliances}</span>
+                    <span className="text-[#b09880]">Active Alliances</span>
+                    <span className="text-[#f4e7d4]">{activeAlliances}</span>
                   </div>
                   <div className="flex items-center justify-between tabular-nums">
-                    <span className="text-[#a89f91]">Total Wars</span>
-                    <span className="text-[#f2ece1]">{wStats.warsStarted.toLocaleString()}</span>
+                    <span className="text-[#b09880]">Total Wars</span>
+                    <span className="text-[#f4e7d4]">{wStats.warsStarted.toLocaleString()}</span>
                   </div>
                   <div className="flex items-center justify-between tabular-nums">
-                    <span className="text-[#a89f91]">Rebellions</span>
-                    <span className="text-[#f2ece1]">{wStats.rebellionsTriggered.toLocaleString()}</span>
+                    <span className="text-[#b09880]">Rebellions</span>
+                    <span className="text-[#f4e7d4]">{wStats.rebellionsTriggered.toLocaleString()}</span>
                   </div>
                 </div>
 
                 {/* Wildlife & Mythical Creatures */}
-                <div className="space-y-1 pt-2.5 border-t border-[#34302a]">
+                <div className="space-y-1 pt-2.5 border-t border-[#423229]">
                   <div className="grid grid-cols-[1fr_auto_auto_auto] gap-x-4 items-baseline mb-1">
-                    <span className="text-[11px] font-bold text-[#f5b742]">Creatures</span>
-                    <span className="text-[10px] text-[#8d8477] text-right w-12">Living</span>
-                    <span className="text-[10px] text-[#8d8477] text-right w-14">Spawned</span>
-                    <span className="text-[10px] text-[#8d8477] text-right w-12">Died</span>
+                    <span className="text-[11px] font-bold text-[#f2c478]">Creatures</span>
+                    <span className="text-[10px] text-[#8f7862] text-right w-12">Living</span>
+                    <span className="text-[10px] text-[#8f7862] text-right w-14">Spawned</span>
+                    <span className="text-[10px] text-[#8f7862] text-right w-12">Died</span>
                   </div>
                   <div className="grid grid-cols-[1fr_auto_auto_auto] gap-x-4 items-baseline tabular-nums">
-                    <span className="text-[#a89f91]">Wildlife</span>
-                    <span className="text-[#f2ece1] font-semibold text-right w-12">
+                    <span className="text-[#b09880]">Wildlife</span>
+                    <span className="text-[#f4e7d4] font-semibold text-right w-12">
                       {livingWildlife.toLocaleString()}
                     </span>
-                    <span className="text-[#f2ece1] text-right w-14">
+                    <span className="text-[#f4e7d4] text-right w-14">
                       {wildlifeSpawnedTotal.toLocaleString()}
                     </span>
-                    <span className="text-[#f2ece1] text-right w-12">
+                    <span className="text-[#f4e7d4] text-right w-12">
                       {wStats.wildlifeDeaths.toLocaleString()}
                     </span>
                   </div>
                   <div className="grid grid-cols-[1fr_auto_auto_auto] gap-x-4 items-baseline tabular-nums">
-                    <span className="text-[#a89f91]">Mythical</span>
-                    <span className="text-[#f2ece1] font-semibold text-right w-12">
+                    <span className="text-[#b09880]">Mythical</span>
+                    <span className="text-[#f4e7d4] font-semibold text-right w-12">
                       {livingMythical.toLocaleString()}
                     </span>
                     <span
                       data-testid="world-stat-mythical-spawned"
-                      className="text-[#f2ece1] text-right w-14"
+                      className="text-[#f4e7d4] text-right w-14"
                     >
                       {mythicalSpawnedTotal.toLocaleString()}
                     </span>
                     <span
                       data-testid="world-stat-mythical-deaths"
-                      className="text-[#f2ece1] text-right w-12"
+                      className="text-[#f4e7d4] text-right w-12"
                     >
                       {wStats.mythicalDeaths.toLocaleString()}
                     </span>
                   </div>
                   <div className="grid grid-cols-[1fr_auto_auto_auto] gap-x-4 items-baseline tabular-nums">
-                    <span className="text-[#a89f91]">Hostiles</span>
-                    <span className="text-[#f2ece1] font-semibold text-right w-12">
+                    <span className="text-[#b09880]">Hostiles</span>
+                    <span className="text-[#f4e7d4] font-semibold text-right w-12">
                       {livingHostiles.toLocaleString()}
                     </span>
-                    <span className="text-[#f2ece1] text-right w-14">
+                    <span className="text-[#f4e7d4] text-right w-14">
                       {hostilesSpawnedTotal.toLocaleString()}
                     </span>
-                    <span className="text-[#f2ece1] text-right w-12">
+                    <span className="text-[#f4e7d4] text-right w-12">
                       {hostilesKilledTotal.toLocaleString()}
                     </span>
                   </div>
                 </div>
 
                 {/* Buildings & History */}
-                <div className="space-y-1 pt-2.5 border-t border-[#34302a]">
-                  <div className="text-[11px] font-bold text-[#f5b742] mb-1">
+                <div className="space-y-1 pt-2.5 border-t border-[#423229]">
+                  <div className="text-[11px] font-bold text-[#f2c478] mb-1">
                     Buildings &amp; History
                   </div>
                   <div className="flex items-center justify-between tabular-nums">
-                    <span className="text-[#a89f91]">Active Buildings</span>
-                    <span className="text-[#f2ece1]">{sim.buildings.length.toLocaleString()}</span>
+                    <span className="text-[#b09880]">Active Buildings</span>
+                    <span className="text-[#f4e7d4]">{sim.buildings.length.toLocaleString()}</span>
                   </div>
                   <div className="flex items-center justify-between tabular-nums">
-                    <span className="text-[#a89f91]">Structures Built</span>
-                    <span className="text-[#f2ece1]">{sim.totalStructuresBuilt.toLocaleString()}</span>
+                    <span className="text-[#b09880]">Structures Built</span>
+                    <span className="text-[#f4e7d4]">{sim.totalStructuresBuilt.toLocaleString()}</span>
                   </div>
                   <div className="flex items-center justify-between tabular-nums">
-                    <span className="text-[#a89f91]">Buildings Destroyed</span>
-                    <span className="text-[#f2ece1]">{wStats.buildingsDestroyed.toLocaleString()}</span>
+                    <span className="text-[#b09880]">Buildings Destroyed</span>
+                    <span className="text-[#f4e7d4]">{wStats.buildingsDestroyed.toLocaleString()}</span>
                   </div>
                   <div className="flex items-center justify-between tabular-nums">
-                    <span className="text-[#a89f91]">Vehicles &amp; Fleets</span>
-                    <span className="text-[#f2ece1]">{activeVehicles.toLocaleString()}</span>
+                    <span className="text-[#b09880]">Vehicles &amp; Fleets</span>
+                    <span className="text-[#f4e7d4]">{activeVehicles.toLocaleString()}</span>
                   </div>
                   <div className="flex items-center justify-between tabular-nums">
-                    <span className="text-[#a89f91]">God Powers Cast</span>
-                    <span className="text-[#f2ece1]">{sim.totalMiraclesCast.toLocaleString()}</span>
+                    <span className="text-[#b09880]">God Powers Cast</span>
+                    <span className="text-[#f4e7d4]">{sim.totalMiraclesCast.toLocaleString()}</span>
                   </div>
                 </div>
               </div>
@@ -5004,13 +5057,13 @@ export default function App() {
           aria-modal="true"
           aria-label="Quit to Main Menu"
           data-testid="quit-confirm-modal"
-          className="fixed inset-0 z-50 flex items-center justify-center bg-[#0d0c0b]/85 p-2 sm:p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center px-backdrop p-2 sm:p-4"
         >
-          <div className="w-[min(25rem,calc(100vw-16px))] px-panel p-4 sm:p-6 space-y-4">
-            <h2 className="text-base sm:text-lg font-bold text-[#f5b742]">Return to Main Menu</h2>
+          <div className="w-[min(25rem,calc(100vw-16px))] px-panel-hero p-4 sm:p-6 space-y-4">
+            <h2 className="text-base sm:text-lg font-bold text-[#f2c478]">Return to Main Menu</h2>
             <p
               data-testid="quit-confirm-message"
-              className="text-xs sm:text-sm text-[#e8e0d2] leading-relaxed"
+              className="text-xs sm:text-sm text-[#eadbc6] leading-relaxed"
             >
               Your current world has not been saved yet, are you sure you want to quit?
             </p>
@@ -5067,14 +5120,14 @@ export default function App() {
                   ? 'save-overwrite-modal'
                   : 'save-details-modal'
             }
-            className="fixed inset-0 z-50 flex items-center justify-center bg-[#0d0c0b]/85 p-2 sm:p-4"
+            className="fixed inset-0 z-50 flex items-center justify-center px-backdrop p-2 sm:p-4"
           >
             {saveModalStep === 'confirm' ? (
-              <div className="w-[min(25rem,calc(100vw-16px))] px-panel p-4 sm:p-6 space-y-4">
-                <h2 className="text-base sm:text-lg font-bold text-[#f5b742]">Save World</h2>
+              <div className="w-[min(25rem,calc(100vw-16px))] px-panel-hero p-4 sm:p-6 space-y-4">
+                <h2 className="text-base sm:text-lg font-bold text-[#f2c478]">Save World</h2>
                 <p
                   data-testid="save-confirm-prompt"
-                  className="text-xs sm:text-sm text-[#e8e0d2] leading-relaxed"
+                  className="text-xs sm:text-sm text-[#eadbc6] leading-relaxed"
                 >
                   Are you sure you want to save?
                 </p>
@@ -5105,9 +5158,9 @@ export default function App() {
                 </div>
               </div>
             ) : saveModalStep === 'details' ? (
-              <div className="w-[min(27rem,calc(100vw-16px))] px-panel p-4 sm:p-6 space-y-4">
+              <div className="w-[min(27rem,calc(100vw-16px))] px-panel-hero p-4 sm:p-6 space-y-4">
                 <div className="flex items-center justify-between">
-                  <h2 className="text-base sm:text-lg font-bold text-[#f5b742]">
+                  <h2 className="text-base sm:text-lg font-bold text-[#f2c478]">
                     World Name &amp; Description
                   </h2>
                   <button
@@ -5116,7 +5169,7 @@ export default function App() {
                       soundEngine.playClick();
                       setSaveModalStep('confirm');
                     }}
-                    className="text-xs text-[#b8afa2] hover:text-[#f2ece1] cursor-pointer"
+                    className="text-xs text-[#bfa88f] hover:text-[#f4e7d4] cursor-pointer"
                   >
                     Back
                   </button>
@@ -5126,7 +5179,7 @@ export default function App() {
                   <div>
                     <label
                       htmlFor="save-world-name-input"
-                      className="block text-xs text-[#b8afa2] mb-1.5"
+                      className="block text-xs text-[#bfa88f] mb-1.5"
                     >
                       World Name
                     </label>
@@ -5145,7 +5198,7 @@ export default function App() {
                   <div>
                     <label
                       htmlFor="save-world-description-input"
-                      className="block text-xs text-[#b8afa2] mb-1.5"
+                      className="block text-xs text-[#bfa88f] mb-1.5"
                     >
                       Description
                     </label>
@@ -5198,13 +5251,13 @@ export default function App() {
                 </div>
               </div>
             ) : (
-              <div className="w-[min(26rem,calc(100vw-16px))] px-panel p-4 sm:p-6 space-y-4">
-                <h2 className="text-base sm:text-lg font-bold text-[#ffd166]">
+              <div className="w-[min(26rem,calc(100vw-16px))] px-panel-hero p-4 sm:p-6 space-y-4">
+                <h2 className="text-base sm:text-lg font-bold text-[#ffd36b]">
                   Overwrite Existing World?
                 </h2>
                 <p
                   data-testid="save-overwrite-prompt"
-                  className="text-xs sm:text-sm text-[#e8e0d2] leading-relaxed"
+                  className="text-xs sm:text-sm text-[#eadbc6] leading-relaxed"
                 >
                   A world with the name &quot;{trimmedRawName || 'My World'}&quot; already exists, do you want to overwrite?
                 </p>

@@ -78,7 +78,16 @@ export type ResourceNodeType =
   | 'crystal_monolith'
   | 'coral_reef'
   | 'scrap_flotsam'
-  | 'atlantis_ruin';
+  | 'atlantis_ruin'
+  | 'ancient_ruin';
+
+export type CropType =
+  | 'wheat'
+  | 'corn'
+  | 'pumpkin'
+  | 'sunflower'
+  | 'root_crop'
+  | 'berry_vine';
 
 export interface TileData {
   x: number;
@@ -94,10 +103,15 @@ export interface TileData {
   buildingId: string | null;
   farmSettlementId?: string;
   farmPlotKind?: 'wheat' | 'timber_plantation' | 'quarry';
+  cropType?: CropType;
+  cropStage?: 0 | 1 | 2 | 3;
+  cropGrowth?: number;
   claimedSettlementId?: string;
   isRiver?: boolean;
   isLake?: boolean;
   waterKind?: 'lava' | 'poison' | 'floral';
+  liquidLevel?: number; // Elevated stackable liquid surface height (1..10) when pooling in mountain holes/basins
+  liquidKind?: 'water' | 'lava' | 'poison'; // Liquid type for elevated stacked pools
   coralBleachTimer?: number;
   tempOffset?: number;
   frozenWaterBase?: 'deep_water' | 'shallow_water';
@@ -483,7 +497,8 @@ export type TerrainToolType =
   | 'mesa_plateau'
   | 'volcanic_crater'
   | 'smooth_terrain'
-  | 'island_bridge';
+  | 'island_bridge'
+  | 'water_drop';
 
 export interface TerrainToolDefinition {
   type: TerrainToolType;
@@ -573,6 +588,30 @@ export interface ChronicleEvent {
   text: string;
   tone: 'divine' | 'epoch' | 'warning' | 'build';
   timestamp: number;
+  x?: number;
+  z?: number;
+}
+
+export interface WorldWonder {
+  id: string;
+  kingdomId: string;
+  settlementId: string;
+  species: SpeciesId;
+  name: string;
+  tileX: number;
+  tileZ: number;
+  builtYear: number;
+  bonusSummary: string;
+}
+
+export interface BattleMemorial {
+  id: string;
+  tileX: number;
+  tileZ: number;
+  yearLabel: string;
+  fallenCount: number;
+  species?: SpeciesId;
+  label: string;
 }
 
 export type EarthquakeShapeKind = 'short_rupture' | 'long_rift' | 'branching_fault' | 'orogenic_uplift';
@@ -608,7 +647,8 @@ export interface VisualEffectEvent {
     | 'huge_asteroid_strike'
     | 'volcanic_lava_bomb'
     | 'void_goo_splash'
-    | 'fire_spread';
+    | 'fire_spread'
+    | 'festival_lanterns';
   x: number;
   y: number;
   z: number;
@@ -967,6 +1007,8 @@ export interface SimulationState {
   autoBuildEnabled: boolean;
   sandboxFreeMode: boolean;
   chronicle: ChronicleEvent[];
+  worldWonders?: WorldWonder[];
+  battleMemorials?: BattleMemorial[];
   pendingVfx: VisualEffectEvent[];
   activeHazards: ActiveHazardZone[];
   totalMiraclesCast: number;

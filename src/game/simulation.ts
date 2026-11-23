@@ -23,6 +23,7 @@ import {
   BuildingEntity,
   BuildingType,
   ChronicleEvent,
+  CropType,
   DiplomaticRelation,
   EarthquakeFaultSegment,
   EarthquakeShapeKind,
@@ -67,6 +68,7 @@ import {
 import {
   WorldGridBuffers,
   createWorldGridBuffers,
+  syncTileToWorldGrid,
   syncWorldGridFromTiles,
 } from './worldGrid';
 import {
@@ -499,7 +501,7 @@ export function getMaxCityBuildings(epochIndex: number): number {
 }
 
 export function getMaxCityFarmFields(cityBuildingCount: number): number {
-  return cityBuildingCount <= 0 ? 0 : cityBuildingCount * 2;
+  return cityBuildingCount <= 0 ? 0 : Math.min(64, cityBuildingCount * 4);
 }
 
 let idCounter = 1000;
@@ -1745,10 +1747,40 @@ export function addChronicle(
   state: SimulationState,
   text: string,
   tone: ChronicleEvent['tone'] = 'divine',
+  coords?: { x: number; z: number },
 ): void {
   if (state.chronicle.slice(0, 5).some((c) => c.text === text)) {
     return;
   }
+
+  let resolvedX = coords?.x;
+  let resolvedZ = coords?.z;
+
+  // Smart fallback: extract explicit (x, z) from text, or locate mentioned settlement/kingdom/active event
+  if (resolvedX === undefined || resolvedZ === undefined) {
+    const coordMatch = text.match(/\((\d+),\s*(\d+)\)/);
+    if (coordMatch) {
+      resolvedX = Number(coordMatch[1]);
+      resolvedZ = Number(coordMatch[2]);
+    }
+  }
+  if ((resolvedX === undefined || resolvedZ === undefined) && state.settlementNames) {
+    for (const [sid, sName] of Object.entries(state.settlementNames)) {
+      if (sName && text.includes(sName)) {
+        const b = state.buildings.find((bld) => bld.settlementId === sid);
+        if (b) {
+          resolvedX = b.tileX;
+          resolvedZ = b.tileZ;
+          break;
+        }
+      }
+    }
+  }
+  if ((resolvedX === undefined || resolvedZ === undefined) && state.activeWorldEvent) {
+    resolvedX = state.activeWorldEvent.targetX;
+    resolvedZ = state.activeWorldEvent.targetZ;
+  }
+
   state.chronicle = [
     {
       id: nextEntityId('chr'),
@@ -1756,6 +1788,9 @@ export function addChronicle(
       text,
       tone,
       timestamp: Date.now(),
+      ...(resolvedX !== undefined && resolvedZ !== undefined
+        ? { x: Math.round(resolvedX), z: Math.round(resolvedZ) }
+        : {}),
     },
     ...state.chronicle.slice(0, 119),
   ];
@@ -2246,6 +2281,8 @@ export function canApplyTerrainToolToTile(
     case 'smooth_terrain':
     case 'island_bridge':
       return true;
+    case 'water_drop':
+      return !t.buildingId;
     case 'seed_ore':
     case 'crystal_shower':
     case 'boulder_rain':
@@ -2263,21 +2300,7 @@ export function canApplyTerrainToolToTile(
     case 'jungle_bloom':
       return isCultivableSoil(t) || (t.height > 0 && t.terrain === 'swamp');
     case 'soil_enrich':
-      return (
-        t.height > 0 &&
-        (t.terrain === 'scorched' ||
-          t.terrain === 'void_goo' ||
-          t.terrain === 'volcanic_wasteland' ||
-          t.terrain === 'blighted_mire' ||
-          t.terrain === 'badlands' ||
-          t.terrain === 'rock' ||
-          t.terrain === 'swamp' ||
-          t.terrain === 'sand' ||
-          t.terrain === 'tundra' ||
-          t.cursedTimer > 0 ||
-          t.onFireTimer > 0 ||
-          t.terrain === 'grass')
-      );
+      return t.height > 0 && !t.buildingId && (t.terrain !== 'fertile' || t.cursedTimer > 0 || t.onFireTimer > 0);
     case 'desert_dunes':
       return t.height > 0 && t.height <= 4;
     case 'coral_reef_rain':
@@ -2304,11 +2327,20 @@ function applyTerrainToolTileMutation(
   let tileModified = false;
   switch (toolType) {
         case 'raise': {
+          // Organic feathered rim so sculpted hills & coastlines feel hand-painted rather than stamped circles
+          if (normDist > 0.84 && (((t.x * 13 + t.z * 29) & 3) === 0)) {
+            break;
+          }
           tileModified = true;
           if (t.height === 0) {
-            raiseWaterTileToLand(t, 'sand', 1);
+            if (normDist <= 0.55) {
+              raiseWaterTileToLand(t, 'grass', 2);
+            } else {
+              raiseWaterTileToLand(t, 'sand', 1);
+            }
           } else {
-            t.height = Math.min(10, t.height + 1);
+            const liftStep = normDist <= 0.32 && t.height < 8 ? 2 : 1;
+            t.height = Math.min(10, t.height + liftStep);
             if (t.height >= 8) {
               t.terrain = 'snow';
               if (t.resourceNode === 'berry_bush' || t.resourceNode === 'timber_grove') {
@@ -2331,12 +2363,15 @@ function applyTerrainToolTileMutation(
                 t.resourceAmount = 0;
               }
             } else if (t.height >= 2 && t.terrain === 'sand') {
-              t.terrain = 'savanna';
+              t.terrain = 'grass';
             }
           }
           break;
         }
         case 'lower': {
+          if (normDist > 0.84 && (((t.x * 17 + t.z * 23) & 3) === 0)) {
+            break;
+          }
           tileModified = true;
           if (t.height === 0) {
             if (t.terrain !== 'deep_water') {
@@ -2536,30 +2571,14 @@ function applyTerrainToolTileMutation(
           break;
         }
         case 'soil_enrich': {
-          if (t.height > 0) {
-            const harsh =
-              t.terrain === 'scorched' ||
-              t.terrain === 'void_goo' ||
-              t.terrain === 'volcanic_wasteland' ||
-              t.terrain === 'blighted_mire' ||
-              t.terrain === 'badlands' ||
-              t.terrain === 'rock' ||
-              t.terrain === 'swamp' ||
-              t.terrain === 'sand' ||
-              t.terrain === 'tundra' ||
-              t.cursedTimer > 0 ||
-              t.onFireTimer > 0;
-            if (harsh || t.terrain === 'grass') {
+          if (t.height > 0 && !t.buildingId) {
+            if (t.terrain !== 'fertile' || t.cursedTimer > 0 || t.onFireTimer > 0) {
               t.terrain = 'fertile';
               t.onFireTimer = 0;
               t.cursedTimer = 0;
               t.blessedTimer = Math.max(t.blessedTimer, 14);
               clearBurntTreeState(t);
               delete t.treeBiomeOverride;
-              if (!t.buildingId && t.resourceNode === 'none' && (t.x + t.z) % 2 === 0) {
-                t.resourceNode = 'berry_bush';
-                t.resourceAmount = 190;
-              }
               tileModified = true;
             }
           }
@@ -2734,6 +2753,46 @@ function applyTerrainToolTileMutation(
             t.resourceAmount = 0;
             t.onFireTimer = 0;
             delete t.treeBiomeOverride;
+          }
+          break;
+        }
+        case 'water_drop': {
+          if (t.buildingId) break;
+          tileModified = true;
+          if (t.height === 0 && t.waterKind === 'lava') {
+            t.height = 0;
+            t.terrain = 'shallow_water';
+            delete t.waterKind;
+            t.isRiver = false;
+            t.isLake = true;
+            t.onFireTimer = 0;
+            if ((t.tempOffset ?? 0) > 0) {
+              t.tempOffset = Math.max(0, (t.tempOffset ?? 0) - 24);
+            }
+          } else if (t.height === 0 && t.waterKind === 'poison') {
+            t.height = 0;
+            t.terrain = 'shallow_water';
+            delete t.waterKind;
+            t.isRiver = false;
+            t.isLake = true;
+            t.onFireTimer = 0;
+          } else {
+            t.height = 0;
+            t.terrain = 'shallow_water';
+            t.isLake = true;
+            t.isRiver = false;
+            delete t.waterKind;
+            delete t.frozenWaterBase;
+            t.resourceNode = 'none';
+            t.resourceAmount = 0;
+            t.onFireTimer = 0;
+            t.crushedTimer = 0;
+            t.farmSettlementId = undefined;
+            clearBurntTreeState(t);
+            delete t.treeBiomeOverride;
+            if ((t.tempOffset ?? 0) > 0) {
+              t.tempOffset = Math.max(0, (t.tempOffset ?? 0) - 18);
+            }
           }
           break;
         }
@@ -2975,6 +3034,767 @@ function applyTerrainToolTileMutation(
   return tileModified;
 }
 
+export type LiquidKind = 'water' | 'lava' | 'poison';
+
+function getTileLiquidKind(t: TileData): LiquidKind | null {
+  if ((t.liquidLevel ?? 0) > t.height) {
+    return t.liquidKind ?? 'water';
+  }
+  if (t.height !== 0) return null;
+  if (t.waterKind === 'lava') return 'lava';
+  if (t.waterKind === 'poison') return 'poison';
+  if (t.terrain === 'shallow_water' || t.terrain === 'deep_water') return 'water';
+  return null;
+}
+
+function getTileSurfaceHeight(t: TileData): number {
+  return Math.max(t.height, t.liquidLevel ?? 0);
+}
+
+function applyElevatedLiquidToTile(
+  state: SimulationState,
+  t: TileData,
+  level: number,
+  kind: LiquidKind,
+): boolean {
+  if (t.buildingId) return false;
+  const clampedLevel = Math.max(t.height + 1, Math.min(10, Math.round(level)));
+  const existingElevated = (t.liquidLevel ?? 0) > t.height ? (t.liquidKind ?? 'water') : null;
+  const existingSea = t.height === 0 ? getTileLiquidKind(t) : null;
+  const existing = existingElevated ?? existingSea;
+
+  if (kind === 'lava' || kind === 'poison') {
+    specialLiquidPossibleByState.set(state, true);
+  }
+
+  let finalKind: LiquidKind = kind;
+  if ((existing === 'lava' && kind === 'poison') || (existing === 'poison' && kind === 'lava')) {
+    // Violent corrosive reaction clears the pool on this tile and scorches the floor
+    delete t.liquidLevel;
+    delete t.liquidKind;
+    t.terrain = 'scorched';
+    t.cursedTimer = Math.max(t.cursedTimer, 10);
+    t.resourceNode = 'none';
+    t.resourceAmount = 0;
+    syncTileToWorldGrid(ensureWorldGrid(state), t);
+    return true;
+  } else if ((existing === 'lava' && kind === 'water') || (existing === 'water' && kind === 'lava')) {
+    // Water + Lava quenches into steaming water
+    finalKind = 'water';
+    t.tempOffset = Math.min(25, Math.max(0, (t.tempOffset ?? 0) + (kind === 'lava' ? 10 : -20)));
+  } else if (existing === 'poison' && kind === 'water') {
+    finalKind = 'water';
+  }
+
+  if (t.liquidLevel === clampedLevel && (t.liquidKind ?? 'water') === finalKind) {
+    return false;
+  }
+
+  t.liquidLevel = clampedLevel;
+  t.liquidKind = finalKind;
+  t.onFireTimer = 0;
+  t.crushedTimer = 0;
+  t.resourceNode = 'none';
+  t.resourceAmount = 0;
+  t.farmSettlementId = undefined;
+  clearBurntTreeState(t);
+  delete t.treeBiomeOverride;
+  if (finalKind === 'lava') {
+    t.tempOffset = Math.min(80, Math.max(t.tempOffset ?? 0, 35));
+  } else if (finalKind === 'water' && (t.tempOffset ?? 0) > 0) {
+    t.tempOffset = Math.max(0, (t.tempOffset ?? 0) - 18);
+  }
+  return true;
+}
+
+function applyLiquidToTile(
+  state: SimulationState,
+  t: TileData,
+  kind: LiquidKind,
+  asLake = true,
+): boolean {
+  if (t.buildingId) return false;
+  const existing = getTileLiquidKind(t);
+  if (existing === kind && t.height === 0 && !(t.liquidLevel && t.liquidLevel > 0)) return false;
+
+  if (kind === 'lava' || kind === 'poison') {
+    specialLiquidPossibleByState.set(state, true);
+  }
+
+  delete t.liquidLevel;
+  delete t.liquidKind;
+
+  // Elemental liquid-on-liquid reactions
+  if ((existing === 'lava' && kind === 'poison') || (existing === 'poison' && kind === 'lava')) {
+    t.height = 0;
+    t.terrain = 'scorched';
+    delete t.waterKind;
+    t.isRiver = false;
+    t.isLake = false;
+    t.cursedTimer = Math.max(t.cursedTimer, 10);
+    t.resourceNode = 'none';
+    t.resourceAmount = 0;
+  } else if ((existing === 'lava' && kind === 'water') || (existing === 'water' && kind === 'lava')) {
+    t.height = 0;
+    t.terrain = 'shallow_water';
+    delete t.waterKind;
+    t.isRiver = false;
+    t.isLake = asLake;
+    t.onFireTimer = 0;
+    t.tempOffset = Math.min(25, Math.max(0, (t.tempOffset ?? 0) + (kind === 'lava' ? 10 : -24)));
+  } else {
+    t.height = 0;
+    t.terrain = 'shallow_water';
+    t.isLake = asLake;
+    t.isRiver = !asLake;
+    if (kind === 'water') {
+      delete t.waterKind;
+      if ((t.tempOffset ?? 0) > 0) t.tempOffset = Math.max(0, (t.tempOffset ?? 0) - 18);
+    } else if (kind === 'lava') {
+      t.waterKind = 'lava';
+      t.tempOffset = Math.min(80, Math.max(t.tempOffset ?? 0, 35));
+    } else {
+      t.waterKind = 'poison';
+    }
+    delete t.frozenWaterBase;
+    t.resourceNode = 'none';
+    t.resourceAmount = 0;
+    t.onFireTimer = 0;
+    t.crushedTimer = 0;
+    t.farmSettlementId = undefined;
+    clearBurntTreeState(t);
+    delete t.treeBiomeOverride;
+  }
+
+  syncTileToWorldGrid(ensureWorldGrid(state), t);
+  return true;
+}
+
+/**
+ * Dynamically fills and STACKS water, lava, or poison upward inside any enclosed hole, crater,
+ * terraced mountain bowl, or valley!
+ * - Rolls downhill from sloped inner walls to the bottom of the hole first.
+ * - Raises the liquid surface by +1 height step (`liquidLevel`) across all enclosed tiles
+ *   with `height < targetLevel`, stopping cleanly at the rim without flooding open plains or oceans.
+ */
+export function fillLiquidBasin(
+  state: SimulationState,
+  startX: number,
+  startZ: number,
+  kind: LiquidKind,
+  maxTiles = 220,
+): number {
+  const initialTile = getTile(state, startX, startZ);
+  if (!initialTile || initialTile.buildingId) return 0;
+
+  const gs = state.gridSize;
+  const dirs: ReadonlyArray<[number, number]> = [
+    [1, 0],
+    [-1, 0],
+    [0, 1],
+    [0, -1],
+  ];
+
+  // 1. Gravity roll-down: if the player clicked a sloped inner wall of a crater/bowl,
+  //    slide down to the local lowest floor tile so the hole fills from the bottom up.
+  let seedTile = initialTile;
+  for (let step = 0; step < 18; step++) {
+    const curSurf = getTileSurfaceHeight(seedTile);
+    let bestNb: TileData | null = null;
+    let bestSurf = curSurf;
+    for (let d = 0; d < 4; d++) {
+      const nx = seedTile.x + dirs[d][0];
+      const nz = seedTile.z + dirs[d][1];
+      if (nx <= 0 || nz <= 0 || nx >= gs - 1 || nz >= gs - 1) continue;
+      const nb = state.tiles[nz * gs + nx];
+      if (!nb || nb.buildingId) continue;
+      const nbSurf = getTileSurfaceHeight(nb);
+      if (nbSurf < bestSurf) {
+        bestSurf = nbSurf;
+        bestNb = nb;
+      }
+    }
+    if (!bestNb) break;
+    seedTile = bestNb;
+  }
+
+  const curSurface = getTileSurfaceHeight(seedTile);
+  if (curSurface >= 10) return 0;
+  const targetLevel = Math.min(10, curSurface + 1);
+
+  // 2. Bounded flood-fill at `targetLevel`: find all connected tiles strictly below `targetLevel`.
+  //    If the region is enclosed by rim tiles (`nb.height >= targetLevel`) within `maxTiles`,
+  //    stack liquid to `targetLevel` across the entire basin!
+  const visited: TileData[] = [];
+  const seen = new Set<number>();
+  const queue: TileData[] = [seedTile];
+  seen.add(seedTile.z * gs + seedTile.x);
+
+  let rimContacts = 0;
+  let enclosed = true;
+
+  for (let qi = 0; qi < queue.length; qi++) {
+    const cur = queue[qi];
+    if (cur.x <= 0 || cur.z <= 0 || cur.x >= gs - 1 || cur.z >= gs - 1) {
+      enclosed = false;
+      break;
+    }
+    visited.push(cur);
+    if (visited.length > maxTiles) {
+      enclosed = false;
+      break;
+    }
+
+    for (let d = 0; d < 4; d++) {
+      const nx = cur.x + dirs[d][0];
+      const nz = cur.z + dirs[d][1];
+      const nIdx = nz * gs + nx;
+      if (seen.has(nIdx)) continue;
+      const nb = state.tiles[nIdx];
+      if (!nb) continue;
+
+      if (nb.height >= targetLevel || nb.buildingId) {
+        rimContacts++;
+        continue;
+      }
+
+      seen.add(nIdx);
+      queue.push(nb);
+    }
+  }
+
+  if (!enclosed || visited.length === 0 || rimContacts < 4) {
+    return 0;
+  }
+
+  let filledCount = 0;
+  let minX = seedTile.x;
+  let maxX = seedTile.x;
+  let minZ = seedTile.z;
+  let maxZ = seedTile.z;
+
+  for (let i = 0; i < visited.length; i++) {
+    const vt = visited[i];
+    if (applyElevatedLiquidToTile(state, vt, targetLevel, kind)) {
+      filledCount++;
+      if (vt.x < minX) minX = vt.x;
+      if (vt.x > maxX) maxX = vt.x;
+      if (vt.z < minZ) minZ = vt.z;
+      if (vt.z > maxZ) maxZ = vt.z;
+    }
+  }
+
+  if (filledCount > 0) {
+    const cx = (minX + maxX) * 0.5;
+    const cz = (minZ + maxZ) * 0.5;
+    const r = Math.min(14, Math.ceil(Math.hypot(maxX - minX, maxZ - minZ) * 0.5) + 2);
+    resolveLiquidReactionsAround(state, cx, cz, r);
+  }
+
+  return filledCount;
+}
+
+const liquidFlowTimerByState = new WeakMap<SimulationState, number>();
+
+/**
+ * Dynamically flows water, lava, and poison into newly destroyed, crushed, or breached
+ * terrain gaps — both at sea level AND from elevated stacked mountain lakes when a rim wall
+ * is broken or a side chamber is carved!
+ */
+function stepDynamicLiquidFlow(state: SimulationState, dt: number): void {
+  const prevTimer = liquidFlowTimerByState.get(state) ?? 0;
+  const nextTimer = prevTimer + dt;
+  if (nextTimer < 0.35) {
+    liquidFlowTimerByState.set(state, nextTimer);
+    return;
+  }
+  liquidFlowTimerByState.set(state, 0);
+
+  const gs = state.gridSize;
+  const tiles = state.tiles;
+  const pendingSea: Array<{ tile: TileData; kind: LiquidKind }> = [];
+  const pendingElevated: Array<{ tile: TileData; level: number; kind: LiquidKind }> = [];
+  const pendingDrain: Array<{ tile: TileData; nextLevel: number }> = [];
+  const MAX_FLOW_PER_PULSE = 24;
+
+  for (let z = 1; z < gs - 1; z++) {
+    const rowOff = z * gs;
+    for (let x = 1; x < gs - 1; x++) {
+      const t = tiles[rowOff + x];
+      if (!t) continue;
+
+      // Clean up invalid elevated liquid if terrain was raised above it
+      if ((t.liquidLevel ?? 0) > 0 && t.height >= (t.liquidLevel ?? 0)) {
+        delete t.liquidLevel;
+        delete t.liquidKind;
+      }
+
+      // A. Elevated stacked liquid spreading / breaching downhill
+      if ((t.liquidLevel ?? 0) > t.height && pendingElevated.length < MAX_FLOW_PER_PULSE) {
+        const curLevel = t.liquidLevel!;
+        const kind: LiquidKind = t.liquidKind ?? 'water';
+        const nbs = [
+          tiles[rowOff + x + 1],
+          tiles[rowOff + x - 1],
+          tiles[rowOff + gs + x],
+          tiles[rowOff - gs + x],
+        ];
+        let spilledDownhill = false;
+        for (let d = 0; d < 4; d++) {
+          const nb = nbs[d];
+          if (!nb || nb.buildingId) continue;
+          const nbSurf = getTileSurfaceHeight(nb);
+          if (nbSurf < curLevel) {
+            if (nb.height === 0 && getTileLiquidKind(nb) !== null) {
+              // Drains directly into open sea/river below
+              spilledDownhill = true;
+            } else if (nb.height === 0) {
+              pendingSea.push({ tile: nb, kind });
+              spilledDownhill = true;
+            } else {
+              // Spread horizontally into a carved gap at the same level, or spill 1 step down a breach
+              const spreadLevel =
+                nb.height < curLevel - 1 && nbSurf === nb.height
+                  ? Math.min(curLevel, nb.height + 1)
+                  : curLevel;
+              pendingElevated.push({ tile: nb, level: spreadLevel, kind });
+              if (nb.height < t.height) {
+                spilledDownhill = true;
+              }
+            }
+          }
+        }
+        if (spilledDownhill) {
+          const nextLvl = curLevel - 1;
+          pendingDrain.push({ tile: t, nextLevel: nextLvl > t.height ? nextLvl : 0 });
+        }
+        continue;
+      }
+
+      if (t.buildingId || pendingSea.length >= MAX_FLOW_PER_PULSE) continue;
+
+      // B. Sea-level breach inflow (crushed, scorched, or dry height-0 gaps next to sea-level liquid)
+      let requiredLiquidNeighbors = 0;
+      if (t.height === 0) {
+        if (getTileLiquidKind(t) !== null) continue;
+        if (
+          t.terrain === 'stone_road' ||
+          t.terrain === 'rail_track' ||
+          t.terrain === 'runway' ||
+          t.terrain === 'ice' ||
+          (t.terrain === 'scorched' && t.cursedTimer > 0)
+        ) {
+          continue;
+        }
+        requiredLiquidNeighbors = 1;
+      } else if (t.height === 1) {
+        if ((t.crushedTimer ?? 0) > 0 || t.terrain === 'scorched') {
+          requiredLiquidNeighbors = 1;
+        } else if (
+          t.terrain === 'rock' ||
+          t.terrain === 'volcanic_wasteland' ||
+          t.terrain === 'badlands'
+        ) {
+          requiredLiquidNeighbors = 2;
+        } else {
+          continue;
+        }
+      } else {
+        continue;
+      }
+
+      let waterN = 0;
+      let lavaN = 0;
+      let poisonN = 0;
+      const n0 = getTileLiquidKind(tiles[rowOff + x + 1]);
+      const n1 = getTileLiquidKind(tiles[rowOff + x - 1]);
+      const n2 = getTileLiquidKind(tiles[rowOff + gs + x]);
+      const n3 = getTileLiquidKind(tiles[rowOff - gs + x]);
+      if (n0 === 'water') waterN++;
+      else if (n0 === 'lava') lavaN++;
+      else if (n0 === 'poison') poisonN++;
+      if (n1 === 'water') waterN++;
+      else if (n1 === 'lava') lavaN++;
+      else if (n1 === 'poison') poisonN++;
+      if (n2 === 'water') waterN++;
+      else if (n2 === 'lava') lavaN++;
+      else if (n2 === 'poison') poisonN++;
+      if (n3 === 'water') waterN++;
+      else if (n3 === 'lava') lavaN++;
+      else if (n3 === 'poison') poisonN++;
+
+      const totalLiquidN = waterN + lavaN + poisonN;
+      if (totalLiquidN < requiredLiquidNeighbors) continue;
+
+      const dominantKind: LiquidKind =
+        lavaN >= waterN && lavaN >= poisonN && lavaN > 0
+          ? 'lava'
+          : poisonN >= waterN && poisonN > 0
+            ? 'poison'
+            : 'water';
+      pendingSea.push({ tile: t, kind: dominantKind });
+    }
+  }
+
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minZ = Infinity;
+  let maxZ = -Infinity;
+  let changed = 0;
+
+  for (let i = 0; i < pendingDrain.length; i++) {
+    const d = pendingDrain[i];
+    if (d.nextLevel <= d.tile.height) {
+      delete d.tile.liquidLevel;
+      delete d.tile.liquidKind;
+    } else {
+      d.tile.liquidLevel = d.nextLevel;
+    }
+  }
+
+  for (let i = 0; i < pendingElevated.length; i++) {
+    const p = pendingElevated[i];
+    if (applyElevatedLiquidToTile(state, p.tile, p.level, p.kind)) {
+      changed++;
+      if (p.tile.x < minX) minX = p.tile.x;
+      if (p.tile.x > maxX) maxX = p.tile.x;
+      if (p.tile.z < minZ) minZ = p.tile.z;
+      if (p.tile.z > maxZ) maxZ = p.tile.z;
+    }
+  }
+
+  for (let i = 0; i < pendingSea.length; i++) {
+    const p = pendingSea[i];
+    if (applyLiquidToTile(state, p.tile, p.kind, false)) {
+      changed++;
+      if (p.tile.x < minX) minX = p.tile.x;
+      if (p.tile.x > maxX) maxX = p.tile.x;
+      if (p.tile.z < minZ) minZ = p.tile.z;
+      if (p.tile.z > maxZ) maxZ = p.tile.z;
+    }
+  }
+
+  if (changed > 0) {
+    const cx = (minX + maxX) * 0.5;
+    const cz = (minZ + maxZ) * 0.5;
+    const r = Math.min(12, Math.ceil(Math.hypot(maxX - minX, maxZ - minZ) * 0.5) + 2);
+    resolveLiquidReactionsAround(state, cx, cz, r);
+  }
+}
+
+const ruinScanTimerByState = new WeakMap<SimulationState, number>();
+
+/**
+ * Checks if any live civilization unit has discovered an unexplored overland Ancient Ruin.
+ * Discovering a ruin awards a relic/knowledge trove (72%) or awakens ancient skeleton tomb guardians (28%).
+ */
+function stepAncientRuinExploration(state: SimulationState, dt: number): void {
+  const nextT = (ruinScanTimerByState.get(state) ?? 0) + dt;
+  if (nextT < 0.35) {
+    ruinScanTimerByState.set(state, nextT);
+    return;
+  }
+  ruinScanTimerByState.set(state, 0);
+
+  const tiles = state.tiles;
+  const units = state.units;
+  if (units.length === 0) return;
+
+  for (let i = 0; i < tiles.length; i++) {
+    const t = tiles[i];
+    if (!t || t.resourceNode !== 'ancient_ruin' || t.resourceAmount <= 0) continue;
+
+    let explorer: UnitEntity | null = null;
+    for (let ui = 0; ui < units.length; ui++) {
+      const u = units[ui];
+      if (u.faction !== 'civilization' || u.state === 'ko' || u.hp <= 0) continue;
+      const dx = u.x - t.x;
+      const dz = u.z - t.z;
+      if (dx * dx + dz * dz <= 4.41) {
+        explorer = u;
+        break;
+      }
+    }
+    if (!explorer) continue;
+
+    // Mark ruin explored (structure stays as weathered stone landmark, glowing orb vanishes)
+    t.resourceAmount = 0;
+    const sid = explorer.settlementId;
+    const kid = sid ? getKingdomId(state, sid) : explorer.kingdomId;
+    const townName = (sid && state.settlementNames?.[sid]) || 'their realm';
+    const groundY = Math.max(0.4, t.height * 0.45 + 0.3);
+
+    if (Math.random() < 0.72) {
+      if (kid) {
+        const stock = ensureKingdomResources(state, kid);
+        stock.knowledge += 55;
+        stock.ore += 40;
+        stock.alloy += 20;
+      } else {
+        state.resources.knowledge += 55;
+        state.resources.ore += 40;
+      }
+      explorer.statusEffects.blessed = Math.max(explorer.statusEffects.blessed ?? 0, 25);
+      explorer.hp = explorer.maxHp;
+      state.pendingVfx.push({
+        id: nextEntityId('vfx'),
+        type: 'festival_lanterns',
+        x: t.x,
+        y: groundY,
+        z: t.z,
+        radius: 3.2,
+        color: '#38bdf8',
+        createdAt: Date.now(),
+      });
+      addChronicle(
+        state,
+        `${explorer.name} of ${townName} uncovered an Ancient Relic! (+55 Knowledge, +40 Ore, +20 Alloy)`,
+        'divine',
+        { x: t.x, z: t.z },
+      );
+    } else {
+      const guardCount = 2 + (Math.random() < 0.45 ? 1 : 0);
+      for (let g = 0; g < guardCount; g++) {
+        const ang = (g / guardCount) * Math.PI * 2;
+        spawnUnit(
+          state,
+          'skeleton',
+          Math.max(1, Math.min(state.gridSize - 2, t.x + Math.cos(ang) * 1.4)),
+          Math.max(1, Math.min(state.gridSize - 2, t.z + Math.sin(ang) * 1.4)),
+          true,
+        );
+      }
+      state.pendingVfx.push({
+        id: nextEntityId('vfx'),
+        type: 'hit_spark',
+        x: t.x,
+        y: groundY + 0.4,
+        z: t.z,
+        radius: 2.6,
+        color: '#a855f7',
+        createdAt: Date.now(),
+      });
+      addChronicle(
+        state,
+        `${explorer.name} disturbed an Ancient Tomb near ${townName}! Skeleton guardians awakened!`,
+        'warning',
+        { x: t.x, z: t.z },
+      );
+    }
+  }
+}
+
+const RACE_WONDER_INFO: Record<SpeciesId, { name: string; bonusSummary: string }> = {
+  human: { name: 'Grand Sun Lighthouse', bonusSummary: '+3.5 Knowledge/s & +2.5 Faith/s' },
+  elf: { name: 'World Tree Sanctuary', bonusSummary: '+3.5 Knowledge/s & +2.5 Faith/s' },
+  orc: { name: 'Iron War Colossus', bonusSummary: '+3.5 Knowledge/s & +2.5 Faith/s' },
+  dwarf: { name: 'Runic Titan Forge', bonusSummary: '+3.5 Knowledge/s & +2.5 Faith/s' },
+  lizardfolk: { name: 'Great Solar Ziggurat', bonusSummary: '+3.5 Knowledge/s & +2.5 Faith/s' },
+};
+
+const wonderCheckTimerByState = new WeakMap<SimulationState, number>();
+
+/**
+ * Prosperous kingdoms (epoch >= 2 or 5+ completed buildings & 10+ citizens) autonomously
+ * erect a bespoke race-themed World Wonder near their capital (1 per kingdom).
+ * Wonders grant steady Knowledge & Faith buffs and collapse if sunk underwater.
+ */
+function stepWorldWonders(state: SimulationState, dt: number): void {
+  if (!state.worldWonders) state.worldWonders = [];
+
+  // Apply passive kingdom-wide Wonder buffs & prune any Wonder sunk into the sea
+  for (let i = state.worldWonders.length - 1; i >= 0; i--) {
+    const w = state.worldWonders[i];
+    const t = getTile(state, w.tileX, w.tileZ);
+    if (!t || t.height <= 0) {
+      state.worldWonders.splice(i, 1);
+      addChronicle(
+        state,
+        `The ${w.name} collapsed into the waters!`,
+        'warning',
+        { x: w.tileX, z: w.tileZ },
+      );
+      continue;
+    }
+    const stock = ensureKingdomResources(state, w.kingdomId);
+    stock.knowledge += 3.5 * dt;
+    if (!state.unallocatedResources) state.unallocatedResources = emptyResources();
+    state.unallocatedResources.faith += 2.5 * dt;
+  }
+
+  const nextCheck = (wonderCheckTimerByState.get(state) ?? 0) + dt;
+  if (nextCheck < 3.0) {
+    wonderCheckTimerByState.set(state, nextCheck);
+    return;
+  }
+  wonderCheckTimerByState.set(state, 0);
+
+  if (state.worldWonders.length >= 8) return;
+
+  const existingKids = new Set(state.worldWonders.map((w) => w.kingdomId));
+  const buildingsByKid = new Map<string, BuildingEntity[]>();
+  for (let i = 0; i < state.buildings.length; i++) {
+    const b = state.buildings[i];
+    if (b.constructionProgress < 100 || !b.settlementId) continue;
+    const kid = getKingdomId(state, b.settlementId);
+    let arr = buildingsByKid.get(kid);
+    if (!arr) {
+      arr = [];
+      buildingsByKid.set(kid, arr);
+    }
+    arr.push(b);
+  }
+
+  const popByKid = new Map<string, number>();
+  for (let i = 0; i < state.units.length; i++) {
+    const u = state.units[i];
+    if (u.faction === 'civilization' && u.state !== 'ko' && u.hp > 0) {
+      const kid = u.settlementId ? getKingdomId(state, u.settlementId) : u.kingdomId;
+      if (kid) popByKid.set(kid, (popByKid.get(kid) ?? 0) + 1);
+    }
+  }
+
+  for (const [kid, blds] of buildingsByKid.entries()) {
+    if (existingKids.has(kid)) continue;
+    const kEpoch = state.kingdomEpochs?.[kid] ?? 0;
+    const kPop = popByKid.get(kid) ?? 0;
+    // Strictly Medieval Age (Epoch 2+) with an established kingdom — never in Stone or Bronze Age
+    if (kEpoch < 2 || blds.length < 6 || kPop < 12) continue;
+
+    const anchor = blds[0];
+    const sid = anchor.settlementId!;
+    const species: SpeciesId = anchor.species ?? state.settlementSpecies?.[sid] ?? 'human';
+    let bestTile: TileData | null = null;
+    for (let r = 3; r <= 8 && !bestTile; r++) {
+      for (let dz = -r; dz <= r && !bestTile; dz++) {
+        for (let dx = -r; dx <= r && !bestTile; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+          const cand = getTile(state, anchor.tileX + dx, anchor.tileZ + dz);
+          if (
+            !cand ||
+            cand.height < 1 ||
+            cand.height > 6 ||
+            cand.buildingId ||
+            cand.farmSettlementId ||
+            cand.resourceNode === 'ancient_ruin' ||
+            (cand.liquidLevel ?? 0) > cand.height
+          ) {
+            continue;
+          }
+          if (state.worldWonders.some((ew) => Math.hypot(ew.tileX - cand.x, ew.tileZ - cand.z) < 6)) {
+            continue;
+          }
+          bestTile = cand;
+        }
+      }
+    }
+    if (!bestTile) continue;
+
+    bestTile.resourceNode = 'none';
+    bestTile.resourceAmount = 0;
+    const info = RACE_WONDER_INFO[species] ?? RACE_WONDER_INFO.human;
+    const townName = state.settlementNames?.[sid] ?? 'A great realm';
+    state.worldWonders.push({
+      id: nextEntityId('wnd'),
+      kingdomId: kid,
+      settlementId: sid,
+      species,
+      name: info.name,
+      tileX: bestTile.x,
+      tileZ: bestTile.z,
+      builtYear: Math.floor(state.year),
+      bonusSummary: info.bonusSummary,
+    });
+    state.pendingVfx.push({
+      id: nextEntityId('vfx'),
+      type: 'festival_lanterns',
+      x: bestTile.x,
+      y: bestTile.height * 0.45 + 0.4,
+      z: bestTile.z,
+      radius: 5.5,
+      color: '#ffd166',
+      createdAt: Date.now(),
+    });
+    addChronicle(
+      state,
+      `${townName} completed a World Wonder: ${info.name}! (${info.bonusSummary})`,
+      'epoch',
+      { x: bestTile.x, z: bestTile.z },
+    );
+    break; // Build at most 1 Wonder per cycle
+  }
+}
+
+interface CombatDeathCluster {
+  x: number;
+  z: number;
+  count: number;
+  lastYear: number;
+  species?: SpeciesId;
+}
+
+const combatDeathClustersByState = new WeakMap<SimulationState, CombatDeathCluster[]>();
+
+function recordCombatDeathForMemorial(state: SimulationState, u: UnitEntity): void {
+  if (u.faction !== 'civilization' && u.faction !== 'hostile') return;
+  if (!state.battleMemorials) state.battleMemorials = [];
+  if (state.battleMemorials.length >= 24) return;
+
+  let clusters = combatDeathClustersByState.get(state);
+  if (!clusters) {
+    clusters = [];
+    combatDeathClustersByState.set(state, clusters);
+  }
+
+  let matched: CombatDeathCluster | null = null;
+  for (let i = 0; i < clusters.length; i++) {
+    const c = clusters[i];
+    if (Math.hypot(c.x - u.x, c.z - u.z) <= 5.5) {
+      c.count += 1;
+      c.lastYear = state.year;
+      matched = c;
+      break;
+    }
+  }
+  if (!matched) {
+    matched = {
+      x: u.x,
+      z: u.z,
+      count: 1,
+      lastYear: state.year,
+      species: u.species,
+    };
+    clusters.push(matched);
+    if (clusters.length > 32) clusters.shift();
+  }
+
+  if (matched.count >= 4) {
+    const tx = Math.max(1, Math.min(state.gridSize - 2, Math.round(matched.x)));
+    const tz = Math.max(1, Math.min(state.gridSize - 2, Math.round(matched.z)));
+    const tooClose = state.battleMemorials.some((m) => Math.hypot(m.tileX - tx, m.tileZ - tz) < 8);
+    const tile = getTile(state, tx, tz);
+    if (!tooClose && tile && tile.height >= 1 && !tile.buildingId) {
+      const yearLabel = formatYearLabel(state.year);
+      state.battleMemorials.push({
+        id: nextEntityId('mem'),
+        tileX: tile.x,
+        tileZ: tile.z,
+        yearLabel,
+        fallenCount: matched.count,
+        species: matched.species,
+        label: `Battle Memorial (${yearLabel})`,
+      });
+      addChronicle(
+        state,
+        `A Battle Memorial was raised at (${tile.x}, ${tile.z}) to honor the fallen.`,
+        'divine',
+        { x: tile.x, z: tile.z },
+      );
+      matched.count = 0;
+    }
+  }
+}
+
 export function executeTerrainDropTileImpact(
   state: SimulationState,
   toolType: TerrainToolType,
@@ -2984,7 +3804,24 @@ export function executeTerrainDropTileImpact(
 ): boolean {
   const t = getTile(state, tileX, tileZ);
   if (!t) return false;
-  const changed = applyTerrainToolTileMutation(t, toolType, Math.max(1, t.height), t.height);
+  let changed = false;
+  if (toolType === 'water_drop') {
+    const filled = fillLiquidBasin(state, tileX, tileZ, 'water', 220);
+    if (filled > 0) {
+      changed = true;
+    } else if ((t.liquidLevel ?? 0) > t.height) {
+      // Basin is already brim-full to its rim — do not erode or punch through its floor
+      changed = false;
+    } else {
+      changed = applyTerrainToolTileMutation(t, toolType, Math.max(1, t.height), t.height, 0, state);
+      if (changed) {
+        syncTileToWorldGrid(ensureWorldGrid(state), t);
+        resolveLiquidReactionsAround(state, tileX, tileZ, 3);
+      }
+    }
+  } else {
+    changed = applyTerrainToolTileMutation(t, toolType, Math.max(1, t.height), t.height, 0, state);
+  }
   if (!changed) return false;
 
   if (!options?.skipSync) {
@@ -3024,20 +3861,65 @@ export function executeTerrainDropBatchImpact(
   let minZ = Infinity;
   let maxZ = -Infinity;
 
-  for (let i = 0; i < coords.length; i++) {
-    const c = coords[i];
-    const t = getTile(state, c.x, c.z);
-    if (!t) continue;
-    if (applyTerrainToolTileMutation(t, toolType, Math.max(1, t.height), t.height)) {
-      changedCount++;
-      if (t.x < minX) minX = t.x;
-      if (t.x > maxX) maxX = t.x;
-      if (t.z < minZ) minZ = t.z;
-      if (t.z > maxZ) maxZ = t.z;
+  if (toolType === 'water_drop') {
+    // Allow up to 1 stack per droplet for small brushes (capped at 2 stacks per landed batch so water rises smoothly!)
+    let basinStacksThisBatch = 0;
+    const maxStacksPerBatch = coords.length >= 4 ? 2 : 1;
+    let anyBasinHandled = false;
+
+    for (let i = 0; i < coords.length; i++) {
+      const c = coords[i];
+      const t = getTile(state, c.x, c.z);
+      if (!t) continue;
+      if (basinStacksThisBatch < maxStacksPerBatch) {
+        const filled = fillLiquidBasin(state, c.x, c.z, 'water', 220);
+        if (filled > 0) {
+          basinStacksThisBatch++;
+          anyBasinHandled = true;
+          changedCount += filled;
+          if (t.x < minX) minX = t.x;
+          if (t.x > maxX) maxX = t.x;
+          if (t.z < minZ) minZ = t.z;
+          if (t.z > maxZ) maxZ = t.z;
+          continue;
+        }
+      }
+      if (anyBasinHandled || (t.liquidLevel ?? 0) > t.height) {
+        // Already stacked this basin or basin is brim-full: don't carve through its floor or rim
+        continue;
+      }
+      if (applyTerrainToolTileMutation(t, toolType, Math.max(1, t.height), t.height, 0, state)) {
+        syncTileToWorldGrid(ensureWorldGrid(state), t);
+        changedCount++;
+        if (t.x < minX) minX = t.x;
+        if (t.x > maxX) maxX = t.x;
+        if (t.z < minZ) minZ = t.z;
+        if (t.z > maxZ) maxZ = t.z;
+      }
+    }
+  } else {
+    for (let i = 0; i < coords.length; i++) {
+      const c = coords[i];
+      const t = getTile(state, c.x, c.z);
+      if (!t) continue;
+      if (applyTerrainToolTileMutation(t, toolType, Math.max(1, t.height), t.height, 0, state)) {
+        changedCount++;
+        if (t.x < minX) minX = t.x;
+        if (t.x > maxX) maxX = t.x;
+        if (t.z < minZ) minZ = t.z;
+        if (t.z > maxZ) maxZ = t.z;
+      }
     }
   }
 
   if (changedCount === 0) return 0;
+
+  if (toolType === 'water_drop') {
+    const cx = (minX + maxX) * 0.5;
+    const cz = (minZ + maxZ) * 0.5;
+    const r = Math.min(14, Math.ceil(Math.hypot(maxX - minX, maxZ - minZ) * 0.5) + 2);
+    resolveLiquidReactionsAround(state, cx, cz, r);
+  }
 
   if (toolType === 'blossom_rain' || toolType === 'floral_rain') {
     const pad = 2.25;
@@ -3256,7 +4138,7 @@ export function applyTerrainTool(
   centerX: number,
   centerZ: number,
   brushRadius = 1,
-  options?: { deferSkyImpact?: boolean },
+  options?: { deferSkyImpact?: boolean; flattenHeightOverride?: number },
 ): { ok: boolean; reason?: string } {
   const def = TERRAIN_TOOLS.find((t) => t.type === toolType);
   if (!def) return { ok: false, reason: 'Unknown terrain tool' };
@@ -3268,25 +4150,53 @@ export function applyTerrainTool(
     return { ok: false, reason: 'Need more God Energy to sculpt terrain' };
   }
 
-  const targetFlattenHeight = Math.max(1, centerTile.height);
+  const targetFlattenHeight =
+    options?.flattenHeightOverride !== undefined
+      ? Math.max(1, Math.min(10, Math.round(options.flattenHeightOverride)))
+      : Math.max(1, centerTile.height);
   const clampedRadius = Math.max(0, Math.min(12, Math.floor(brushRadius)));
   const deferSkyImpact = Boolean(def.isSkyRain) && (options?.deferSkyImpact ?? true);
   let modifiedCount = 0;
   const dropTargets: Array<{ x: number; y: number; z: number }> = [];
 
-  for (let dz = -clampedRadius; dz <= clampedRadius; dz++) {
-    for (let dx = -clampedRadius; dx <= clampedRadius; dx++) {
-      if (!isInsidePixelCircle(dx, dz, clampedRadius)) continue;
-      const t = getTile(state, centerX + dx, centerZ + dz);
-      if (!t) continue;
-      const normDist = clampedRadius > 0 ? Math.hypot(dx, dz) / clampedRadius : 0;
-      const tileEligible = deferSkyImpact
-        ? canApplyTerrainToolToTile(t, toolType, centerTile.height)
-        : applyTerrainToolTileMutation(t, toolType, targetFlattenHeight, centerTile.height, normDist, state);
+  // Dynamic basin fill: pouring water, lava, or poison into an enclosed hole/crater fills the whole basin cleanly up to the rim!
+  const basinLiquidKind: LiquidKind | null =
+    !deferSkyImpact
+      ? toolType === 'water_drop' || toolType === 'carve_river'
+        ? 'water'
+        : toolType === 'lava_river'
+          ? 'lava'
+          : toolType === 'poison_river'
+            ? 'poison'
+            : null
+      : null;
+  let filledBasinCount = 0;
+  if (basinLiquidKind) {
+    filledBasinCount = fillLiquidBasin(state, centerX, centerZ, basinLiquidKind, 220);
+    if (filledBasinCount > 0) {
+      modifiedCount += filledBasinCount;
+      dropTargets.push({ x: centerTile.x, y: Math.max(0.36, getTileSurfaceHeight(centerTile) * 0.45 + 0.14), z: centerTile.z });
+    } else if ((centerTile.liquidLevel ?? 0) > centerTile.height) {
+      // Elevated crater is already filled to the brim — don't punch through its floor
+      return { ok: true };
+    }
+  }
 
-      if (tileEligible) {
-        modifiedCount++;
-        dropTargets.push({ x: t.x, y: Math.max(0.36, t.height * 0.45 + 0.25), z: t.z });
+  if (filledBasinCount === 0) {
+    for (let dz = -clampedRadius; dz <= clampedRadius; dz++) {
+      for (let dx = -clampedRadius; dx <= clampedRadius; dx++) {
+        if (!isInsidePixelCircle(dx, dz, clampedRadius)) continue;
+        const t = getTile(state, centerX + dx, centerZ + dz);
+        if (!t) continue;
+        const normDist = clampedRadius > 0 ? Math.hypot(dx, dz) / clampedRadius : 0;
+        const tileEligible = deferSkyImpact
+          ? canApplyTerrainToolToTile(t, toolType, centerTile.height)
+          : applyTerrainToolTileMutation(t, toolType, targetFlattenHeight, centerTile.height, normDist, state);
+
+        if (tileEligible) {
+          modifiedCount++;
+          dropTargets.push({ x: t.x, y: Math.max(0.36, t.height * 0.45 + 0.25), z: t.z });
+        }
       }
     }
   }
@@ -3370,6 +4280,7 @@ export function applyTerrainTool(
   }
 
   if (
+    toolType === 'water_drop' ||
     toolType === 'lava_river' ||
     toolType === 'poison_river' ||
     toolType === 'carve_river' ||
@@ -8862,11 +9773,11 @@ function ensureSettlementDistricts(
   const created = {
     farmX: bestFarmX,
     farmZ: bestFarmZ,
-    farmHalfSize: 3,
+    farmHalfSize: 4,
     farmTargetHeight: bestFarmHeight,
     quarryX: bestQuarryX,
     quarryZ: bestQuarryZ,
-    quarryHalfSize: 2,
+    quarryHalfSize: 3,
     quarryTargetHeight: bestQuarryHeight,
   };
   state.settlementDistricts[settlementId] = created;
@@ -9128,12 +10039,23 @@ export function advanceKingdomEpoch(
     color: nextEpoch.accentColor,
     createdAt: Date.now(),
   });
+  state.pendingVfx.push({
+    id: nextEntityId('vfx'),
+    type: 'festival_lanterns',
+    x: anchor.x,
+    y: (centerTile?.height ?? 3) * 0.45 + 0.3,
+    z: anchor.z,
+    radius: 5.0,
+    color: nextEpoch.accentColor,
+    createdAt: Date.now(),
+  });
 
   const realmName = state.settlementNames?.[settlementIds[0] ?? kingdomId] ?? 'A civilization';
   addChronicle(
     state,
     `${realmName} has ascended to the ${nextEpoch.name} (${formatYearLabel(state.year)})!`,
     'epoch',
+    { x: anchor.x, z: anchor.z },
   );
 
   if (!options?.skipAverageSync) {
@@ -9618,12 +10540,12 @@ function transformSettlementEnvironment(
       let workedFarmTiles = 0;
       for (
         let oz = -districts.farmHalfSize;
-        oz <= districts.farmHalfSize && workedFarmTiles < 3 && ownedFarms.length + workedFarmTiles < maxFarmFields;
+        oz <= districts.farmHalfSize && workedFarmTiles < 4 && ownedFarms.length + workedFarmTiles < maxFarmFields;
         oz++
       ) {
         for (
           let ox = -districts.farmHalfSize;
-          ox <= districts.farmHalfSize && workedFarmTiles < 3 && ownedFarms.length + workedFarmTiles < maxFarmFields;
+          ox <= districts.farmHalfSize && workedFarmTiles < 4 && ownedFarms.length + workedFarmTiles < maxFarmFields;
           ox++
         ) {
           // Keep a clean 1-tile central cross-lane between the 4 square crop fields
@@ -9652,13 +10574,18 @@ function transformSettlementEnvironment(
             workedFarmTiles++;
             continue;
           }
-          // 3. Cultivate flat cleared tile into dedicated square farmland
+          // 3. Cultivate flat cleared tile into dedicated square farmland with diverse crops & growth stages
           if (ft.terrain !== 'stone_road' && ft.terrain !== 'rail_track' && ft.terrain !== 'runway') {
+            const farmSpecies = state.settlementSpecies?.[sid] ?? 'human';
             ft.terrain = 'fertile';
             ft.resourceNode = 'berry_bush';
-            ft.resourceAmount = 210;
+            ft.resourceAmount = 160;
             ft.farmSettlementId = sid;
             ft.farmPlotKind = 'wheat';
+            ft.cropType = pickCropTypeForFarmQuadrant(farmSpecies, ox, oz);
+            const initGrowth = (Math.abs(ox * 17 + oz * 31) % 30);
+            ft.cropGrowth = initGrowth;
+            ft.cropStage = initGrowth >= 25 ? 1 : 0;
             workedFarmTiles++;
           }
         }
@@ -9671,8 +10598,8 @@ function transformSettlementEnvironment(
     const districts = ensureSettlementDistricts(state, sid, anchor.x, anchor.z);
     const quarryKid = getKingdomId(state, sid);
     let workedQuarryTiles = 0;
-    for (let oz = -districts.quarryHalfSize; oz <= districts.quarryHalfSize && workedQuarryTiles < 2; oz++) {
-      for (let ox = -districts.quarryHalfSize; ox <= districts.quarryHalfSize && workedQuarryTiles < 2; ox++) {
+    for (let oz = -districts.quarryHalfSize; oz <= districts.quarryHalfSize && workedQuarryTiles < 3; oz++) {
+      for (let ox = -districts.quarryHalfSize; ox <= districts.quarryHalfSize && workedQuarryTiles < 3; ox++) {
         const qt = getTile(state, districts.quarryX + ox, districts.quarryZ + oz);
         if (!qt || qt.height <= 0 || qt.buildingId) continue;
         const isPitCore = Math.abs(ox) <= 1 && Math.abs(oz) <= 1;
@@ -10437,11 +11364,13 @@ function stepSimulationSingle(
     seedWorldWildlife(state);
   }
   if (state.worldRules?.allowReproduction !== false) {
+    stepWildlifeReproduction(state, dt);
     state.wildlifeRespawnTimer = (state.wildlifeRespawnTimer ?? 0) + dt;
     if (state.wildlifeRespawnTimer >= 22) {
       state.wildlifeRespawnTimer = 0;
       const livingWildlife = state.units.filter((u) => u.faction === 'wildlife' && u.state !== 'ko').length;
-      const targetEcosystemFloor = Math.min(136, Math.max(46, Math.round(state.gridSize * 0.46)));
+      const hiddenCap = getHiddenWorldWildlifeCap(state.gridSize);
+      const targetEcosystemFloor = Math.max(36, Math.round(hiddenCap * 0.45));
       if (livingWildlife < targetEcosystemFloor) {
         seedWorldWildlife(state, Math.min(8, targetEcosystemFloor - livingWildlife));
       }
@@ -10462,6 +11391,11 @@ function stepSimulationSingle(
   stepKingdomDiplomacyAndRebellions(state, dt);
   stepStrategicWarfare(state, dt);
   stepCivilizationPlanner(state, dt);
+  stepCivilizationBridging(state, dt);
+  stepFarmCropGrowth(state, dt);
+  stepDynamicLiquidFlow(state, dt);
+  stepAncientRuinExploration(state, dt);
+  stepWorldWonders(state, dt);
 
   // 5. Per-Civilization Epoch Progression with Proximity Tech Diffusion & Non-Overtaking Catch-Up Curve
   const liveKids = getLiveKingdomIds(state);
@@ -13468,15 +14402,17 @@ function stepSimulationSingle(
         }
         if (u.faction === 'hostile') {
           wStats.hostilesKilled += 1;
+          recordCombatDeathForMemorial(state, u);
         } else if (u.faction === 'civilization') {
           wStats.civilianDeaths += 1;
+          recordCombatDeathForMemorial(state, u);
         }
         if (u.isKing && (u.ageYears ?? 0) < (u.maxLifespan ?? 999)) {
-          addChronicle(state, `${u.name} has fallen! The realm mourns and seeks a worthy successor.`, 'warning');
+          addChronicle(state, `${u.name} has fallen! The realm mourns and seeks a worthy successor.`, 'warning', { x: u.x, z: u.z });
         } else if (u.role === 'leviathan') {
-          addChronicle(state, `The Leviathan (${u.name}) has been defeated! The seas are safe again.`, 'divine');
+          addChronicle(state, `The Leviathan (${u.name}) has been defeated! The seas are safe again.`, 'divine', { x: u.x, z: u.z });
         } else if (u.role === 'dragon') {
-          addChronicle(state, `Dragon ${u.name} has been vanquished!`, 'divine');
+          addChronicle(state, `Dragon ${u.name} has been vanquished!`, 'divine', { x: u.x, z: u.z });
         }
       }
       continue;
@@ -14709,8 +15645,16 @@ function stepVehicles(state: SimulationState, dt: number): void {
       }
     } else if (v.type === 'car') {
       const vEpoch = v.epochLevel ?? 3;
-      v.speed = vEpoch <= 3 ? 2.2 : vEpoch === 4 ? 3.2 : vEpoch === 5 ? 4.2 : 5.2;
-      v.y = vEpoch >= 6 ? 0.14 : 0.02;
+      const isStarHybrid = vEpoch >= 7;
+      const isAirborneMode = isStarHybrid && v.flightPhase === 'cruise';
+      v.speed = vEpoch <= 3 ? 2.2 : vEpoch === 4 ? 3.2 : vEpoch === 5 ? 4.2 : isAirborneMode ? 7.2 : 5.4;
+
+      if (!isStarHybrid) {
+        v.y = vEpoch >= 6 ? 0.14 : 0.02;
+        v.pitch = 0;
+        v.bank = 0;
+      }
+
       const target = v.path[1] ?? v.path[0] ?? { x: v.x, z: v.z };
       const dx = target.x - v.x;
       const dz = target.z - v.z;
@@ -14720,10 +15664,61 @@ function stepVehicles(state: SimulationState, dt: number): void {
         v.x += (dx / dist) * step;
         v.z += (dz / dist) * step;
         const desiredHeading = Math.atan2(dx, dz);
-        v.heading += wrapAngleRad(desiredHeading - v.heading) * Math.min(1, dt * 14);
+        const turnDelta = wrapAngleRad(desiredHeading - v.heading);
+        v.heading += turnDelta * Math.min(1, dt * (isAirborneMode ? 6.5 : 14));
+
+        if (isStarHybrid) {
+          // Smooth hybrid altitude curve: climb into aerial sky-lane in mid-flight, descend smoothly toward destination street
+          const legStart = v.path[0] ?? target;
+          const totalLeg = Math.max(1, Math.hypot(target.x - legStart.x, target.z - legStart.z));
+          const progress = Math.max(0, Math.min(1, 1 - dist / totalLeg));
+          const cruiseAlt = 1.65 + (v.variantSeed % 4) * 0.24;
+          const targetY = isAirborneMode
+            ? 0.14 + Math.sin(progress * Math.PI) * cruiseAlt
+            : 0.14;
+          const prevY = v.y;
+          v.y += (targetY - v.y) * Math.min(1, dt * 6.5);
+          const climbRate = (v.y - prevY) / Math.max(0.016, dt);
+          v.pitch = Math.max(-0.28, Math.min(0.28, -climbRate * 0.12));
+          v.bank = isAirborneMode
+            ? Math.max(-0.38, Math.min(0.38, -turnDelta * 0.55))
+            : v.bank * Math.max(0, 1 - dt * 8);
+          v.thrusterActive = v.y > 0.32;
+        }
       } else {
         v.x = target.x;
         v.z = target.z;
+        if (isStarHybrid) {
+          v.y = 0.14;
+          v.pitch = 0;
+          v.bank = 0;
+          v.thrusterActive = false;
+          // Alternate between road cruising and aerial sky-lane hops (~45% chance to take off after a road leg!)
+          const shouldTakeOff =
+            !isAirborneMode &&
+            ((v.variantSeed + Math.floor(state.year * 17) + Math.round(target.x * 3 + target.z * 7)) % 5 < 2);
+          if (shouldTakeOff && v.settlementId) {
+            const anchor = getSettlementAnchorForId(state, v.settlementId);
+            const skyTargets: Array<{ x: number; z: number }> = [];
+            for (let sz = -16; sz <= 16; sz += 2) {
+              for (let sx = -16; sx <= 16; sx += 2) {
+                const st = getTile(state, anchor.x + sx, anchor.z + sz);
+                if (st && st.terrain === 'stone_road') {
+                  const d = Math.hypot(st.x - target.x, st.z - target.z);
+                  if (d >= 7 && d <= 22) skyTargets.push({ x: st.x, z: st.z });
+                }
+              }
+            }
+            if (skyTargets.length > 0) {
+              const pick = skyTargets[Math.abs(v.variantSeed + Math.floor(state.year * 23)) % skyTargets.length];
+              v.flightPhase = 'cruise';
+              v.path = [{ x: target.x, z: target.z }, pick];
+              continue;
+            }
+          }
+          v.flightPhase = undefined;
+        }
+
         const prev = v.path[0] ?? target;
         const candidates: Array<{ x: number; z: number; ang: number }> = [];
         for (const [ox, oz] of VEHICLE_DIRS) {
@@ -16953,6 +17948,153 @@ export function seedWorldWildlife(state: SimulationState, maxToAdd?: number): vo
         spawnedTotal++;
       }
     }
+  }
+}
+
+const wildlifeBreedCooldownMap = new WeakMap<UnitEntity, number>();
+const wildlifeBreedTickMap = new WeakMap<SimulationState, number>();
+
+/** Hidden world-size wildlife population limit (never displayed in HUD). */
+function getHiddenWorldWildlifeCap(gridSize: number): number {
+  return Math.round(Math.min(640, Math.max(70, gridSize * 1.45)));
+}
+
+/** Hidden per-species population cap scaled by world size so no single species crowds out the map. */
+function getHiddenSpeciesWildlifeCap(gridSize: number, role: UnitRole): number {
+  if (MYTHICAL_ROLE_SET.has(role)) {
+    return Math.max(1, Math.min(4, Math.round(gridSize / 64)));
+  }
+  return Math.max(4, Math.min(18, Math.round(gridSize / 16)));
+}
+
+/**
+ * Natural wildlife reproduction:
+ * - Strictly respects `state.worldRules.allowReproduction !== false`.
+ * - Enforces hidden world-size total and per-species caps.
+ * - Healthy, mature, well-fed animals pair with a nearby same-species mate (or trigger rare
+ *   herd recovery if they are the lone survivor of a non-mythic species) to birth a juvenile.
+ */
+function stepWildlifeReproduction(state: SimulationState, dt: number): void {
+  if (state.worldRules?.allowReproduction === false) return;
+
+  const acc = (wildlifeBreedTickMap.get(state) ?? 0) + dt;
+  if (acc < 3.2) {
+    wildlifeBreedTickMap.set(state, acc);
+    return;
+  }
+  wildlifeBreedTickMap.set(state, 0);
+
+  const worldCap = getHiddenWorldWildlifeCap(state.gridSize);
+  const livingWildlife: UnitEntity[] = [];
+  const countByRole = new Map<UnitRole, number>();
+  for (let i = 0; i < state.units.length; i++) {
+    const u = state.units[i];
+    if (u.faction !== 'wildlife' || u.state === 'ko') continue;
+    livingWildlife.push(u);
+    countByRole.set(u.role, (countByRole.get(u.role) ?? 0) + 1);
+  }
+
+  let totalWildlife = livingWildlife.length;
+  if (totalWildlife >= worldCap || totalWildlife === 0) return;
+
+  const nowYear = state.year ?? 0;
+  const maxBirthsPerCycle = Math.min(6, worldCap - totalWildlife);
+  let birthsThisCycle = 0;
+  const pairedThisCycle = new Set<string>();
+
+  for (let i = 0; i < livingWildlife.length && birthsThisCycle < maxBirthsPerCycle; i++) {
+    const parentA = livingWildlife[i];
+    if (pairedThisCycle.has(parentA.id)) continue;
+    if (parentA.state === 'fighting' || parentA.draggedByPlayer) continue;
+    if (parentA.hp < parentA.maxHp * 0.55) continue;
+    if ((parentA.ageYears ?? 0) < 1.5) continue;
+    if ((parentA.statusEffects?.plagued ?? 0) > 0) continue;
+
+    const nextReadyA = wildlifeBreedCooldownMap.get(parentA) ?? 0;
+    if (nowYear < nextReadyA) continue;
+
+    const roleCount = countByRole.get(parentA.role) ?? 0;
+    const speciesCap = getHiddenSpeciesWildlifeCap(state.gridSize, parentA.role);
+    if (roleCount >= speciesCap) continue;
+
+    const isMythic = MYTHICAL_ROLE_SET.has(parentA.role);
+    let mate: UnitEntity | null = null;
+    for (let j = i + 1; j < livingWildlife.length; j++) {
+      const cand = livingWildlife[j];
+      if (cand.role !== parentA.role || pairedThisCycle.has(cand.id)) continue;
+      if (cand.state === 'fighting' || cand.draggedByPlayer) continue;
+      if (cand.hp < cand.maxHp * 0.55 || (cand.ageYears ?? 0) < 1.5 || (cand.statusEffects?.plagued ?? 0) > 0) continue;
+      if (nowYear < (wildlifeBreedCooldownMap.get(cand) ?? 0)) continue;
+      const distSq = (cand.x - parentA.x) ** 2 + (cand.z - parentA.z) ** 2;
+      if (distSq <= 14 * 14) {
+        mate = cand;
+        break;
+      }
+    }
+
+    // Allow lone surviving non-mythic animals in good health to slowly repopulate so species don't vanish permanently
+    const allowLoneRecovery = !mate && !isMythic && roleCount === 1 && parentA.hp >= parentA.maxHp * 0.75;
+    if (!mate && !allowLoneRecovery) continue;
+
+    // Pick a valid spawn spot right beside parentA matching parentA's land/water habitat
+    const px = Math.round(parentA.x);
+    const pz = Math.round(parentA.z);
+    const parentTile = getTile(state, px, pz);
+    const parentInWater = Boolean(parentTile && parentTile.height === 0);
+    let spawnX = px;
+    let spawnZ = pz;
+    const offsets: readonly [number, number][] = [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+      [1, 1],
+      [-1, -1],
+      [0, 0],
+    ];
+    for (let oi = 0; oi < offsets.length; oi++) {
+      const cx = Math.max(1, Math.min(state.gridSize - 2, px + offsets[oi][0]));
+      const cz = Math.max(1, Math.min(state.gridSize - 2, pz + offsets[oi][1]));
+      const ct = getTile(state, cx, cz);
+      if (!ct || ct.buildingId) continue;
+      if (parentInWater ? ct.height === 0 : ct.height > 0) {
+        spawnX = cx;
+        spawnZ = cz;
+        break;
+      }
+    }
+
+    const res = spawnUnit(state, parentA.role, spawnX, spawnZ, true, undefined, {
+      ageStage: 'child',
+      ageYears: 0,
+      isBirth: true,
+    });
+    if (!res.ok || !res.unit) continue;
+
+    // Cooldown in simulation years (~6-7 years for normal wildlife, ~18 years for mythics)
+    const cooldownYears = isMythic ? 18 : 6.5;
+    wildlifeBreedCooldownMap.set(parentA, nowYear + cooldownYears);
+    pairedThisCycle.add(parentA.id);
+    if (mate) {
+      wildlifeBreedCooldownMap.set(mate, nowYear + cooldownYears);
+      pairedThisCycle.add(mate.id);
+    }
+
+    // Subtle soft-pink birth spark VFX
+    state.pendingVfx.push({
+      id: nextEntityId('vfx'),
+      type: 'hit_spark',
+      x: spawnX,
+      y: (getTile(state, spawnX, spawnZ)?.height ?? 1) * 0.45 + 0.35,
+      z: spawnZ,
+      radius: 0.55,
+      color: '#f9a8d4',
+      createdAt: Date.now(),
+    });
+
+    countByRole.set(parentA.role, roleCount + 1);
+    totalWildlife++;
+    birthsThisCycle++;
   }
 }
 
@@ -19320,6 +20462,83 @@ function stepWildlifeAI(
   }
 }
 
+const RACE_CROP_QUADRANTS: Record<SpeciesId, readonly [CropType, CropType, CropType, CropType]> = {
+  human: ['wheat', 'pumpkin', 'corn', 'sunflower'],
+  elf: ['berry_vine', 'sunflower', 'wheat', 'root_crop'],
+  dwarf: ['root_crop', 'wheat', 'pumpkin', 'corn'],
+  lizardfolk: ['corn', 'pumpkin', 'sunflower', 'berry_vine'],
+  orc: ['root_crop', 'pumpkin', 'wheat', 'corn'],
+};
+
+function pickCropTypeForFarmQuadrant(species: SpeciesId, ox: number, oz: number): CropType {
+  const palette = RACE_CROP_QUADRANTS[species] ?? RACE_CROP_QUADRANTS.human;
+  const quadIdx = (ox > 0 ? 1 : 0) + (oz > 0 ? 2 : 0);
+  return palette[quadIdx];
+}
+
+const farmGrowthAccumMap = new WeakMap<SimulationState, number>();
+
+/**
+ * Advances growth phases (0=seeded -> 1=sprouting -> 2=growing -> 3=ripe) on all cultivated farm plots.
+ * Windmills at the center of Bronze+ farm districts boost nearby crop growth by 1.5x.
+ */
+function stepFarmCropGrowth(state: SimulationState, dt: number): void {
+  const acc = (farmGrowthAccumMap.get(state) ?? 0) + dt;
+  if (acc < 0.45) {
+    farmGrowthAccumMap.set(state, acc);
+    return;
+  }
+  farmGrowthAccumMap.set(state, 0);
+
+  const districtsMap = state.settlementDistricts;
+  const tiles = state.tiles;
+  for (let i = 0; i < tiles.length; i++) {
+    const t = tiles[i];
+    if (!t.farmSettlementId || t.farmPlotKind !== 'wheat' || t.resourceNode !== 'berry_bush') continue;
+
+    // Backfill legacy/existing farm plots without cropType
+    if (!t.cropType) {
+      const sp = state.settlementSpecies?.[t.farmSettlementId] ?? 'human';
+      const dist = districtsMap?.[t.farmSettlementId];
+      const ox = dist ? t.x - dist.farmX : (t.x % 2 === 0 ? 1 : -1);
+      const oz = dist ? t.z - dist.farmZ : (t.z % 2 === 0 ? 1 : -1);
+      t.cropType = pickCropTypeForFarmQuadrant(sp, ox, oz);
+    }
+
+    const curGrowth = t.cropGrowth ?? (t.cropStage !== undefined ? t.cropStage * 33 : 100);
+    if (curGrowth >= 100) {
+      t.cropGrowth = 100;
+      t.cropStage = 3;
+      if (t.resourceAmount <= 0) t.resourceAmount = 160;
+      continue;
+    }
+
+    // Windmill bonus: settlements at Epoch >= 1 have an active windmill at their farm district center
+    const farmEpoch = getSettlementEpoch(state, t.farmSettlementId);
+    const dist = districtsMap?.[t.farmSettlementId];
+    const hasWindmillBonus =
+      farmEpoch >= 1 &&
+      dist !== undefined &&
+      Math.abs(t.x - dist.farmX) <= dist.farmHalfSize + 1 &&
+      Math.abs(t.z - dist.farmZ) <= dist.farmHalfSize + 1;
+
+    let rate = 3.8; // ~26s from freshly seeded to ripe; ~17s with windmill
+    if (hasWindmillBonus) rate *= 1.5;
+    if (t.blessedTimer > 0) rate *= 1.4;
+    if (t.cursedTimer > 0 || t.onFireTimer > 0) rate *= 0.35;
+
+    const prevStage = t.cropStage ?? 0;
+    const nextGrowth = Math.min(100, curGrowth + rate * acc);
+    t.cropGrowth = nextGrowth;
+    const nextStage: 0 | 1 | 2 | 3 =
+      nextGrowth >= 95 ? 3 : nextGrowth >= 60 ? 2 : nextGrowth >= 25 ? 1 : 0;
+    t.cropStage = nextStage;
+    if (prevStage < 3 && nextStage === 3 && t.resourceAmount < 120) {
+      t.resourceAmount = 160;
+    }
+  }
+}
+
 function findNearestResourceTile(
   state: SimulationState,
   ux: number,
@@ -19349,6 +20568,8 @@ function findNearestResourceTile(
       for (let tx = minX; tx <= maxX; tx++) {
         const t = state.tiles[tz * state.gridSize + tx];
         if (!t || t.resourceAmount <= 0 || (t.coralBleachTimer ?? 0) > 0 || t.resourceNode === 'none') continue;
+        // Cultivated farm plots can ONLY be harvested when ripe (Stage 3)!
+        if (t.farmSettlementId && t.farmPlotKind === 'wheat' && (t.cropStage ?? 3) < 3) continue;
         const dist = Math.hypot(tx - ux, tz - uz);
         if (t.height <= 0 && !unitOnWaterOrWalkway && dist > 6.5) continue;
         const prefIdx = preferredNodes.indexOf(t.resourceNode);
@@ -19356,6 +20577,15 @@ function findNearestResourceTile(
 
         let score = dist + prefIdx * 3.2;
         if (t.height === 0 && !unitOnWaterOrWalkway) score += 8.0;
+        // Citizens actively prioritize harvesting ripe crops in their own settlement's farmfields
+        if (
+          t.farmSettlementId &&
+          t.farmPlotKind === 'wheat' &&
+          t.cropStage === 3 &&
+          (!unit?.settlementId || t.farmSettlementId === unit.settlementId)
+        ) {
+          score -= 6.5;
+        }
 
         if (unit) {
           // O(1) count of fellow villagers already heading to or working at this node
@@ -19411,6 +20641,331 @@ function findNearestResourceTile(
     if (bestTile) return bestTile;
   }
   return bestTile;
+}
+
+const unitBridgeNextTimeMap = new WeakMap<UnitEntity, number>();
+const civBridgePlannerTimerMap = new WeakMap<SimulationState, { timer: number; cursor: number; announced: Set<string> }>();
+
+function layBridgeTile(state: SimulationState, tile: TileData): boolean {
+  if (tile.height > 0 || tile.buildingId) return false;
+  raiseWaterTileToLand(tile, 'stone_road', 1);
+  tile.isLake = false;
+  tile.farmSettlementId = undefined;
+  syncTileToWorldGrid(ensureWorldGrid(state), tile);
+  return true;
+}
+
+/**
+ * Traces a 4-connected grid line from (startX, startZ) toward (targetX, targetZ).
+ * If it enters open water and reaches solid land on the far shore within `maxSpan` water tiles,
+ * returns the ordered list of water tiles to bridge. Otherwise returns null.
+ */
+function findBridgeableWaterLine(
+  state: SimulationState,
+  startX: number,
+  startZ: number,
+  targetX: number,
+  targetZ: number,
+  maxSpan: number,
+): TileData[] | null {
+  const dxTotal = targetX - startX;
+  const dzTotal = targetZ - startZ;
+  const dist = Math.hypot(dxTotal, dzTotal);
+  if (dist < 1.2) return null;
+
+  const stepX = dxTotal / dist;
+  const stepZ = dzTotal / dist;
+  const maxProbe = Math.min(Math.ceil(dist) + 2, maxSpan + 18);
+
+  const waterTiles: TileData[] = [];
+  const seen = new Set<number>();
+  let prevX = startX;
+  let prevZ = startZ;
+  let enteredWater = false;
+
+  const pushIfWater = (tx: number, tz: number): 'water' | 'land' | 'blocked' => {
+    const t = getTile(state, tx, tz);
+    if (!t) return 'blocked';
+    if (isWalkableOrWalkwayTile(t)) return 'land';
+    if (t.buildingId) return 'blocked';
+    const key = tz * state.gridSize + tx;
+    if (!seen.has(key)) {
+      seen.add(key);
+      waterTiles.push(t);
+    }
+    return 'water';
+  };
+
+  for (let i = 1; i <= maxProbe; i++) {
+    const cx = Math.round(startX + stepX * i);
+    const cz = Math.round(startZ + stepZ * i);
+    if (cx === prevX && cz === prevZ) continue;
+
+    // Ensure 4-connectivity (no diagonal jumps across water corners)
+    const intermediates: Array<[number, number]> =
+      cx !== prevX && cz !== prevZ
+        ? [
+            [cx, prevZ],
+            [cx, cz],
+          ]
+        : [[cx, cz]];
+
+    for (const [ix, iz] of intermediates) {
+      const res = pushIfWater(ix, iz);
+      if (res === 'blocked') return null;
+      if (res === 'water') {
+        enteredWater = true;
+        if (waterTiles.length > maxSpan) return null;
+      } else if (enteredWater) {
+        // Reached solid land on the far side!
+        return waterTiles.length > 0 ? waterTiles : null;
+      }
+    }
+
+    prevX = cx;
+    prevZ = cz;
+  }
+
+  return null;
+}
+
+/**
+ * Allows blocked civilization units (soldiers marching to war, settlers, gatherers)
+ * to actively construct a bridge tile-by-tile across bridgeable rivers/straits.
+ * Returns:
+ * - 'built': laid a bridge tile and stepped onto it
+ * - 'building': waiting on short construction cooldown (stay on shore, keep target)
+ * - 'none': gap is not bridgeable
+ */
+function tryBuildUnitFieldBridge(
+  state: SimulationState,
+  u: UnitEntity,
+): 'built' | 'building' | 'none' {
+  if (u.faction !== 'civilization') return 'none';
+  const curX = Math.round(u.x);
+  const curZ = Math.round(u.z);
+  const tgtX = Math.round(u.targetX);
+  const tgtZ = Math.round(u.targetZ);
+  if (Math.hypot(tgtX - curX, tgtZ - curZ) < 1.5) return 'none';
+
+  const myKid = u.settlementId ? getKingdomId(state, u.settlementId) : u.kingdomId;
+  let isAtWar = false;
+  if (myKid && state.kingdomRelations) {
+    for (const [pairKey, rel] of Object.entries(state.kingdomRelations)) {
+      if (rel === 'war' && pairKey.includes(myKid)) {
+        isAtWar = true;
+        break;
+      }
+    }
+  }
+  const isWarOrExpedition =
+    isAtWar ||
+    u.state === 'fighting' ||
+    u.attackTargetX !== undefined ||
+    u.expeditionTargetX !== undefined;
+
+  const maxSpan = isWarOrExpedition ? 16 : 10;
+  const waterLine = findBridgeableWaterLine(state, curX, curZ, tgtX, tgtZ, maxSpan);
+  if (!waterLine || waterLine.length === 0) return 'none';
+
+  const now = state.year;
+  const nextAllowed = unitBridgeNextTimeMap.get(u) ?? 0;
+  // ~0.45s during war, ~0.85s during peace (state.year advances ~0.35/s, use 0.14 / 0.28 year units)
+  const cooldown = isWarOrExpedition ? 0.14 : 0.28;
+  if (now < nextAllowed) {
+    return 'building';
+  }
+
+  // Spend a modest resource cost when available (war sappers can always build emergency bridges)
+  if (!state.sandboxFreeMode && myKid && state.kingdomResources?.[myKid]) {
+    const kRes = state.kingdomResources[myKid];
+    if ((kRes.stone ?? 0) >= 1) {
+      kRes.stone = Math.max(0, (kRes.stone ?? 0) - 1);
+    } else if ((kRes.wood ?? 0) >= 1) {
+      kRes.wood = Math.max(0, (kRes.wood ?? 0) - 1);
+    }
+  }
+
+  const nextWaterTile = waterLine[0];
+  if (!layBridgeTile(state, nextWaterTile)) return 'none';
+  unitBridgeNextTimeMap.set(u, now + cooldown);
+
+  u.x = Math.max(1, Math.min(state.gridSize - 2, nextWaterTile.x));
+  u.z = Math.max(1, Math.min(state.gridSize - 2, nextWaterTile.z));
+  u.isSwimming = false;
+  u.swimStamina = 100;
+  return 'built';
+}
+
+/**
+ * Proactive strategic bridge builder:
+ * 1. Kingdoms at war actively construct war bridges across bridgeable channels (up to 18 tiles)
+ *    between their closest settlement and the enemy's closest settlement.
+ * 2. Peaceful settlements gradually bridge narrow rivers/straits (2-10 tiles) to reach nearby
+ *    unreached land/islands so citizens can expand and gather across water.
+ */
+function stepCivilizationBridging(state: SimulationState, dt: number): void {
+  let tracker = civBridgePlannerTimerMap.get(state);
+  if (!tracker) {
+    tracker = { timer: 0, cursor: 0, announced: new Set<string>() };
+    civBridgePlannerTimerMap.set(state, tracker);
+  }
+  tracker.timer += dt;
+  if (tracker.timer < 0.9) return;
+  tracker.timer = 0;
+
+  if (state.buildings.length === 0) return;
+
+  // Group completed buildings by kingdom and settlement
+  const bldByKingdom = new Map<string, BuildingEntity[]>();
+  const settlementAnchors: Array<{ settlementId: string; kingdomId: string; x: number; z: number }> = [];
+  const seenSettlements = new Set<string>();
+
+  for (let i = 0; i < state.buildings.length; i++) {
+    const b = state.buildings[i];
+    if (b.hp <= 0 || b.constructionProgress < 100 || !b.settlementId) continue;
+    const kid = getKingdomId(state, b.settlementId);
+    let list = bldByKingdom.get(kid);
+    if (!list) {
+      list = [];
+      bldByKingdom.set(kid, list);
+    }
+    list.push(b);
+    if (!seenSettlements.has(b.settlementId)) {
+      seenSettlements.add(b.settlementId);
+      settlementAnchors.push({ settlementId: b.settlementId, kingdomId: kid, x: b.tileX, z: b.tileZ });
+    }
+  }
+
+  // 1. Active War Bridges between warring kingdoms
+  if (state.kingdomRelations) {
+    const warPairsProcessed = new Set<string>();
+    for (const [pairKey, rel] of Object.entries(state.kingdomRelations)) {
+      if (rel !== 'war' || warPairsProcessed.has(pairKey)) continue;
+      warPairsProcessed.add(pairKey);
+      const [kA, kB] = pairKey.split('::');
+      if (!kA || !kB) continue;
+      const listA = bldByKingdom.get(kA);
+      const listB = bldByKingdom.get(kB);
+      if (!listA || !listB || listA.length === 0 || listB.length === 0) continue;
+
+      // Find closest building pair between kA and kB
+      let bestA = listA[0];
+      let bestB = listB[0];
+      let bestDistSq = Infinity;
+      for (let i = 0; i < listA.length; i++) {
+        const a = listA[i];
+        for (let j = 0; j < listB.length; j++) {
+          const b = listB[j];
+          const dSq = (a.tileX - b.tileX) ** 2 + (a.tileZ - b.tileZ) ** 2;
+          if (dSq < bestDistSq) {
+            bestDistSq = dSq;
+            bestA = a;
+            bestB = b;
+          }
+        }
+      }
+
+      // Check if there's a bridgeable water crossing (up to 18 tiles) along the war front
+      const warWaterLine = findBridgeableWaterLine(
+        state,
+        bestA.tileX,
+        bestA.tileZ,
+        bestB.tileX,
+        bestB.tileZ,
+        18,
+      );
+      if (warWaterLine && warWaterLine.length > 0) {
+        const epochA = state.kingdomEpochs?.[kA] ?? 0;
+        const tilesToLay = epochA >= 2 ? 2 : 1;
+        let laid = 0;
+        for (let tIdx = 0; tIdx < Math.min(tilesToLay, warWaterLine.length); tIdx++) {
+          if (layBridgeTile(state, warWaterLine[tIdx])) {
+            laid++;
+          }
+        }
+        if (laid > 0 && !tracker.announced.has(`war:${pairKey}`)) {
+          tracker.announced.add(`war:${pairKey}`);
+          const nameA = state.settlementNames?.[kA] ?? state.settlementNames?.[bestA.settlementId!] ?? 'A kingdom';
+          const nameB = state.settlementNames?.[kB] ?? state.settlementNames?.[bestB.settlementId!] ?? 'its rival';
+          addChronicle(
+            state,
+            `War engineers of ${nameA} began bridging the waters to march on ${nameB}!`,
+            'warning',
+          );
+        }
+      }
+    }
+  }
+
+  // 2. Proactive Expansion Bridges for settlements near bridgeable rivers/straits (1 settlement per cycle)
+  if (settlementAnchors.length > 0) {
+    const anchor = settlementAnchors[tracker.cursor % settlementAnchors.length];
+    tracker.cursor = (tracker.cursor + 1) % settlementAnchors.length;
+    const dirs: readonly [number, number][] = [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+      [1, 1],
+      [-1, 1],
+      [1, -1],
+      [-1, -1],
+    ];
+    for (let d = 0; d < dirs.length; d++) {
+      const [dx, dz] = dirs[d];
+      const probeDist = 18;
+      const targetX = Math.max(1, Math.min(state.gridSize - 2, anchor.x + dx * probeDist));
+      const targetZ = Math.max(1, Math.min(state.gridSize - 2, anchor.z + dz * probeDist));
+      const waterLine = findBridgeableWaterLine(state, anchor.x, anchor.z, targetX, targetZ, 10);
+      if (!waterLine || waterLine.length === 0) continue;
+
+      // If we are already extending this bridge (tile directly behind is stone_road), keep going!
+      // Otherwise avoid starting a brand-new parallel bridge right next to an existing crossing.
+      const firstTile = waterLine[0];
+      const behindTile = getTile(state, firstTile.x - dx, firstTile.z - dz);
+      const isContinuingBridge = Boolean(behindTile && behindTile.terrain === 'stone_road' && behindTile.height === 1);
+      if (!isContinuingBridge) {
+        let nearbyBridge = false;
+        for (let oz = -3; oz <= 3 && !nearbyBridge; oz++) {
+          for (let ox = -3; ox <= 3; ox++) {
+            if (ox === 0 && oz === 0) continue;
+            const nt = getTile(state, firstTile.x + ox, firstTile.z + oz);
+            if (nt && nt.terrain === 'stone_road' && nt.height === 1) {
+              const adjW =
+                getTile(state, nt.x + 1, nt.z)?.height === 0 ||
+                getTile(state, nt.x - 1, nt.z)?.height === 0 ||
+                getTile(state, nt.x, nt.z + 1)?.height === 0 ||
+                getTile(state, nt.x, nt.z - 1)?.height === 0;
+              if (adjW) {
+                nearbyBridge = true;
+                break;
+              }
+            }
+          }
+        }
+        if (nearbyBridge) continue;
+      }
+
+      // Spend 2 wood or stone if not in sandbox free mode
+      if (!state.sandboxFreeMode) {
+        const kRes = state.kingdomResources?.[anchor.kingdomId];
+        if (!kRes || ((kRes.wood ?? 0) < 2 && (kRes.stone ?? 0) < 2)) break;
+        if ((kRes.stone ?? 0) >= 2) kRes.stone -= 2;
+        else kRes.wood -= 2;
+      }
+
+      if (layBridgeTile(state, firstTile)) {
+        const announceKey = `exp:${anchor.settlementId}:${d}`;
+        if (!tracker.announced.has(announceKey) && waterLine.length >= 3) {
+          tracker.announced.add(announceKey);
+          const sName = state.settlementNames?.[anchor.settlementId] ?? 'A settlement';
+          addChronicle(state, `Builders of ${sName} started bridging the waters to expand.`, 'build');
+        }
+        break;
+      }
+    }
+  }
 }
 
 function isWalkableOrWalkwayTile(t: TileData | undefined): boolean {
@@ -19539,6 +21094,14 @@ function advanceUnitPositionWithWaterRules(
         nearbyFerry.targetIslandX = u.expeditionTargetX ?? u.targetX;
         nearbyFerry.targetIslandZ = u.expeditionTargetZ ?? u.targetZ;
       }
+      return;
+    }
+
+    // Actively bridge across bridgeable rivers/channels when destination is unreachable on foot
+    const bridgeAttempt = tryBuildUnitFieldBridge(state, u);
+    if (bridgeAttempt === 'built' || bridgeAttempt === 'building') {
+      u.isSwimming = false;
+      u.swimStamina = Math.min(100, (u.swimStamina ?? 100) + 35 * dt);
       return;
     }
 
@@ -21234,7 +22797,8 @@ function stepCivilianUnitAI(
     targetTile &&
     targetTile.resourceNode !== 'none' &&
     targetTile.resourceAmount > 0 &&
-    (targetTile.coralBleachTimer ?? 0) <= 0
+    (targetTile.coralBleachTimer ?? 0) <= 0 &&
+    !(targetTile.farmSettlementId && targetTile.farmPlotKind === 'wheat' && (targetTile.cropStage ?? 3) < 3)
   ) {
     if (distToTarget > 0.95) {
       u.state = 'moving';
@@ -21269,7 +22833,11 @@ function stepCivilianUnitAI(
       u.harvestTimer = (u.harvestTimer ?? 0) + dt * workMult;
       if (u.harvestTimer >= 0.8) {
         u.harvestTimer -= 0.8;
-        const take = Math.min(targetTile.resourceAmount, 8 + Math.round(def.harvestRate * harvestEff.harvestMult * 0.5));
+        const isCultivatedCrop = Boolean(targetTile.farmSettlementId && targetTile.farmPlotKind === 'wheat');
+        const windmillBonus =
+          isCultivatedCrop && getSettlementEpoch(state, targetTile.farmSettlementId!) >= 1 ? 1.25 : 1.0;
+        const baseTake = Math.round((8 + def.harvestRate * harvestEff.harvestMult * 0.5) * windmillBonus);
+        const take = Math.min(targetTile.resourceAmount, baseTake);
         targetTile.resourceAmount -= take;
 
         const yieldType: keyof Resources =
@@ -21304,6 +22872,12 @@ function stepCivilianUnitAI(
             targetTile.resourceNode = 'coral_reef';
             targetTile.resourceAmount = 0;
             targetTile.coralBleachTimer = 26;
+          } else if (isCultivatedCrop) {
+            // Re-seed cultivated farm field back to Stage 0 so it visibly regrows through all 4 phases!
+            targetTile.resourceNode = 'berry_bush';
+            targetTile.cropStage = 0;
+            targetTile.cropGrowth = 0;
+            targetTile.resourceAmount = 160;
           } else {
             targetTile.resourceNode = 'none';
             targetTile.resourceAmount = 0;

@@ -211,7 +211,7 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
         type="button"
         data-testid="entity-inspector-expand"
         onClick={() => setMinimized(false)}
-        className="pointer-events-auto px-panel px-2.5 py-1.5 text-xs font-bold text-[#f5b742] cursor-pointer self-start shrink-0"
+        className="pointer-events-auto px-panel px-2.5 py-1.5 text-xs font-bold text-[#f2c478] cursor-pointer self-start shrink-0"
       >
         {profile ? `Inspect: ${profile.name}` : 'Inspect >'}
       </button>
@@ -222,7 +222,7 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
     <aside
       aria-label="Entity Information"
       data-testid="entity-inspector-panel"
-      className="pointer-events-auto absolute left-0 top-0 z-10 w-[min(320px,100%)] sm:w-[360px] max-h-[min(340px,100%)] sm:max-h-full px-panel p-2.5 sm:p-3.5 flex flex-col gap-2.5 overflow-y-auto"
+      className="pointer-events-auto absolute left-0 top-0 z-10 w-[min(320px,100%)] sm:w-[360px] max-h-[min(340px,100%)] sm:max-h-[min(78dvh,100%)] px-panel p-2.5 sm:p-3.5 flex flex-col gap-2.5 overflow-y-auto"
     >
       {profile && displayUnit ? (
         <>
@@ -230,7 +230,7 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
           <div className="flex items-start justify-between gap-2 shrink-0">
             <div className="flex items-center gap-2.5 min-w-0 flex-1">
               <div
-                className="w-9 h-9 sm:w-10 sm:h-10 shrink-0 flex items-center justify-center bg-[#191613] border border-[#2f2720]"
+                className="w-9 h-9 sm:w-10 sm:h-10 shrink-0 flex items-center justify-center bg-[#181310] border border-[#544034]"
                 aria-hidden="true"
               >
                 <UnitPixelIcon role={displayUnit.role} className="w-7 h-7 sm:w-8 sm:h-8" />
@@ -255,11 +255,11 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                         e.stopPropagation();
                         if (e.key === 'Escape') setEditingTarget(null);
                       }}
-                      className="w-full min-w-0 bg-[#141210] border border-[#f5b742] px-1.5 py-0.5 text-xs text-[#f2ece1] outline-none"
+                      className="w-full min-w-0 bg-[#15100e] border border-[#f2c478] px-1.5 py-0.5 text-xs text-[#f4e7d4] outline-none"
                     />
                     <button
                       type="submit"
-                      className="px-btn-active px-1.5 py-0.5 text-[10px] font-bold text-[#f5b742] cursor-pointer shrink-0"
+                      className="px-btn-active px-1.5 py-0.5 text-[10px] font-bold text-[#fff6e6] cursor-pointer shrink-0"
                     >
                       Save
                     </button>
@@ -267,7 +267,7 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                 ) : (
                   <div className="flex items-center gap-1 min-w-0">
                     <h2
-                      className="text-xs sm:text-sm font-bold text-[#f2ece1] truncate leading-tight"
+                      className="text-xs sm:text-sm font-bold text-[#f4e7d4] truncate leading-tight"
                       data-testid="inspector-entity-name"
                     >
                       {profile.name}
@@ -283,14 +283,14 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                           setEditingTarget({ kind: 'unit', id: displayUnit.id, label: 'Entity' });
                           setDraftName(displayUnit.name);
                         }}
-                        className="text-[11px] text-[#9e9486] hover:text-[#f5b742] cursor-pointer shrink-0 px-0.5"
+                        className="text-[11px] text-[#9e866f] hover:text-[#f2c478] cursor-pointer shrink-0 px-0.5"
                       >
                         ✎
                       </button>
                     )}
                   </div>
                 )}
-                <div className="text-[11px] text-[#cfc6b8] leading-tight mt-0.5 truncate">
+                <div className="text-[11px] text-[#ccb69c] leading-tight mt-0.5 truncate">
                   <span>{profile.subtitle}</span>
                 </div>
               </div>
@@ -303,15 +303,18 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                   type="button"
                   data-testid="inspector-edit-toggle-btn"
                   onClick={toggleEditMode}
-                  aria-label={editMode ? 'Finish editing unit' : 'Edit unit stats and gear'}
-                  title={editMode ? 'Done editing' : 'Edit stats, traits, genes & items'}
-                  className={`h-7 sm:h-8 px-2 flex items-center justify-center cursor-pointer text-[11px] font-bold transition-colors ${
+                  aria-label={editMode ? 'View entity info' : 'Edit entity stats and gear'}
+                  title={editMode ? 'View info' : 'Edit stats, traits, genes & items'}
+                  className={`w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center cursor-pointer transition-colors ${
                     editMode
-                      ? 'px-btn-active text-[#f5b742]'
-                      : 'px-btn text-[#d8cfc2] hover:text-[#f5b742]'
+                      ? 'px-btn-active text-[#fff6e6]'
+                      : 'px-btn text-[#dbc7ae] hover:text-[#f2c478]'
                   }`}
                 >
-                  {editMode ? 'Done' : 'Edit'}
+                  <HudPixelIcon
+                    kind={editMode ? 'document' : 'pencil'}
+                    className="w-3.5 h-3.5 sm:w-4 sm:h-4 pixelated-canvas"
+                  />
                 </button>
               )}
 
@@ -324,8 +327,8 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                   title={profile.favorite ? 'Remove from favorites' : 'Add to favorites'}
                   className={`w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center cursor-pointer transition-colors ${
                     profile.favorite
-                      ? 'px-btn-active text-[#ffd166]'
-                      : 'px-btn text-[#a89f91] hover:text-[#ffd166]'
+                      ? 'px-btn-active text-[#fff6e6]'
+                      : 'px-btn text-[#b09880] hover:text-[#ffd36b]'
                   }`}
                 >
                   <HudPixelIcon kind={profile.favorite ? 'starOn' : 'star'} className="w-3.5 h-3.5 sm:w-4 sm:h-4 pixelated-canvas" />
@@ -340,7 +343,7 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                   }}
                   aria-label="Select and favorite entity"
                   title="Select & Favorite"
-                  className="px-btn w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center cursor-pointer text-[#a89f91] hover:text-[#ffd166] transition-colors"
+                  className="px-btn w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center cursor-pointer text-[#b09880] hover:text-[#ffd36b] transition-colors"
                 >
                   <HudPixelIcon kind={profile.favorite ? 'starOn' : 'star'} className="w-3.5 h-3.5 sm:w-4 sm:h-4 pixelated-canvas" />
                 </button>
@@ -354,7 +357,7 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                   title={isFollowing ? 'Following entity (click to stop)' : 'Follow entity with camera'}
                   className={`w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center cursor-pointer transition-colors ${
                     isFollowing
-                      ? 'px-btn-active text-[#80ed99] border-[#40916c]'
+                      ? 'px-btn-primary text-[#fff8eb]'
                       : 'px-btn text-[#56cfe1] hover:text-[#80ed99]'
                   }`}
                 >
@@ -371,7 +374,7 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                   }}
                   aria-label="Unpin selection"
                   title="Unpin selection"
-                  className="px-btn w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center cursor-pointer text-[#8f8679] hover:text-[#f2ece1] transition-colors"
+                  className="px-btn w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center cursor-pointer text-[#9e866f] hover:text-[#f4e7d4] transition-colors"
                 >
                   <HudPixelIcon kind="unpin" className="w-3.5 h-3.5 sm:w-4 sm:h-4 pixelated-canvas" />
                 </button>
@@ -380,7 +383,7 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
               <button
                 type="button"
                 onClick={() => setMinimized(true)}
-                className="sm:hidden px-btn w-7 h-7 flex items-center justify-center cursor-pointer text-[#b8afa2] hover:text-[#f2ece1]"
+                className="sm:hidden px-btn w-7 h-7 flex items-center justify-center cursor-pointer text-[#bfa88f] hover:text-[#f4e7d4]"
                 aria-label="Minimize Inspector"
                 title="Minimize"
               >
@@ -392,7 +395,7 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
           {/* Integrated Health Gauge */}
           <div className="space-y-1 shrink-0">
             <div className="flex items-center justify-between text-xs">
-              <div className="flex items-center gap-1.5 text-[#a89f91]">
+              <div className="flex items-center gap-1.5 text-[#b09880]">
                 <InspectorPixelIcon kind="heart" className="w-3.5 h-3.5 pixelated-canvas" />
                 <span>Health</span>
               </div>
@@ -407,29 +410,29 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                     Heal Full
                   </button>
                 )}
-                <span className="font-pixel-num text-[11px] text-[#f2ece1] tabular-nums">
+                <span className="font-pixel-num text-[11px] text-[#f4e7d4] tabular-nums">
                   {profile.informations.hp} / {profile.informations.maxHp}
                 </span>
               </div>
             </div>
-            <div className="w-full h-1.5 bg-[#191613] overflow-hidden">
+            <div className="px-bar-track w-full h-3 overflow-hidden">
               <div
-                className="h-full transition-all duration-200"
+                className="px-bar-fill transition-all duration-200"
                 style={{
                   width: `${profile.informations.hpPercent}%`,
                   backgroundColor:
                     profile.informations.hpPercent > 50
-                      ? '#80ed99'
+                      ? '#48a832'
                       : profile.informations.hpPercent > 25
-                        ? '#f5b742'
-                        : '#ff6b6b',
+                        ? '#d9a441'
+                        : '#c92a2a',
                 }}
               />
             </div>
           </div>
 
           {/* Section Navigation Tabs: All tabs always visible without clipping */}
-          <div className="flex items-stretch gap-1 border-b border-[#2c2620] pb-1.5 shrink-0">
+          <div className="flex items-stretch gap-1 border-b border-[#423229] pb-1.5 shrink-0">
             <div className="grid grid-cols-4 gap-1 flex-1 min-w-0">
               {(
                 [
@@ -444,8 +447,8 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                   type="button"
                   data-testid={`inspector-tab-${tab.id}`}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`min-w-0 px-1 py-1 text-[10px] sm:text-[11px] font-semibold cursor-pointer transition-colors flex items-center justify-center gap-1 whitespace-nowrap ${
-                    activeTab === tab.id ? 'px-btn-active text-[#f5b742]' : 'px-btn text-[#a89f91]'
+                  className={`min-w-0 px-1 py-1 text-[10px] sm:text-[11px] cursor-pointer transition-colors flex items-center justify-center gap-1 whitespace-nowrap ${
+                    activeTab === tab.id ? 'px-btn-active font-bold text-[#fff6e6]' : 'px-btn font-semibold text-[#bfa88f]'
                   }`}
                 >
                   <span>{tab.label}</span>
@@ -462,10 +465,10 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                 type="button"
                 data-testid="inspector-tab-favorites"
                 onClick={() => setActiveTab('favorites')}
-                className={`shrink-0 px-1.5 py-1 text-[10px] sm:text-[11px] font-semibold cursor-pointer transition-colors flex items-center justify-center gap-1 whitespace-nowrap ${
+                className={`shrink-0 px-1.5 py-1 text-[10px] sm:text-[11px] cursor-pointer transition-colors flex items-center justify-center gap-1 whitespace-nowrap ${
                   activeTab === 'favorites'
-                    ? 'px-btn-active text-[#ffd166]'
-                    : 'px-btn text-[#a89f91]'
+                    ? 'px-btn-active font-bold text-[#fff6e6]'
+                    : 'px-btn font-semibold text-[#bfa88f]'
                 }`}
                 title="Favorite units"
               >
@@ -481,9 +484,9 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
           {activeTab === 'stats' && (
             <div className="space-y-2.5 text-xs" data-testid="inspector-stats-tab">
               {editMode && onSetUnitStat ? (
-                <div className="space-y-1.5 bg-[#191613] border border-[#2f2720] p-2">
-                  <div className="flex items-center justify-between pb-1 border-b border-[#2c2620]">
-                    <span className="text-[11px] font-bold text-[#f5b742]">Edit Base Stats</span>
+                <div className="space-y-1.5 px-card p-2">
+                  <div className="flex items-center justify-between pb-1 border-b border-[#423229]">
+                    <span className="text-[11px] font-bold text-[#f2c478]">Edit Base Stats</span>
                     {onResetUnitStats && profile.hasStatOverrides && (
                       <button
                         type="button"
@@ -503,7 +506,7 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                         key={row.key}
                         className="flex items-center justify-between gap-2 text-[11px]"
                       >
-                        <span className="text-[#cfc6b8] w-16 shrink-0">{row.label}</span>
+                        <span className="text-[#ccb69c] w-16 shrink-0">{row.label}</span>
                         <div className="flex items-center gap-1">
                           <button
                             type="button"
@@ -515,7 +518,7 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                                 Math.max(row.min, Number((currentVal - row.step).toFixed(2))),
                               )
                             }
-                            className="px-btn w-6 h-6 flex items-center justify-center text-xs font-bold text-[#f2ece1] cursor-pointer"
+                            className="px-btn w-6 h-6 flex items-center justify-center text-xs font-bold text-[#f4e7d4] cursor-pointer"
                           >
                             -
                           </button>
@@ -533,7 +536,7 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                                 onSetUnitStat(displayUnit.id, row.key, parsed);
                               }
                             }}
-                            className="w-16 bg-[#141210] border border-[#3a332b] focus:border-[#f5b742] px-1.5 py-0.5 text-center font-pixel-num text-[11px] text-[#f2ece1] tabular-nums outline-none"
+                            className="w-16 bg-[#15100e] border border-[#544034] focus:border-[#f2c478] px-1.5 py-0.5 text-center font-pixel-num text-[11px] text-[#f4e7d4] tabular-nums outline-none"
                           />
                           <button
                             type="button"
@@ -545,26 +548,26 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                                 Math.min(row.max, Number((currentVal + row.step).toFixed(2))),
                               )
                             }
-                            className="px-btn w-6 h-6 flex items-center justify-center text-xs font-bold text-[#f2ece1] cursor-pointer"
+                            className="px-btn w-6 h-6 flex items-center justify-center text-xs font-bold text-[#f4e7d4] cursor-pointer"
                           >
                             +
                           </button>
-                          <span className="w-4 text-[10px] text-[#8f8679]">{row.suffix ?? ''}</span>
+                          <span className="w-4 text-[10px] text-[#8f7862]">{row.suffix ?? ''}</span>
                         </div>
                       </div>
                     );
                   })}
 
                   {onSetUnitAge && (
-                    <div className="flex items-center justify-between gap-2 text-[11px] pt-1 border-t border-[#2c2620]">
-                      <span className="text-[#cfc6b8] w-16 shrink-0">Age (y)</span>
+                    <div className="flex items-center justify-between gap-2 text-[11px] pt-1 border-t border-[#423229]">
+                      <span className="text-[#ccb69c] w-16 shrink-0">Age (y)</span>
                       <div className="flex items-center gap-1">
                         <button
                           type="button"
                           onClick={() =>
                             onSetUnitAge(displayUnit.id, Math.max(0, profile.informations.ageYears - 5))
                           }
-                          className="px-btn w-6 h-6 flex items-center justify-center text-xs font-bold text-[#f2ece1] cursor-pointer"
+                          className="px-btn w-6 h-6 flex items-center justify-center text-xs font-bold text-[#f4e7d4] cursor-pointer"
                         >
                           -
                         </button>
@@ -579,26 +582,26 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                             const parsed = parseInt(e.target.value, 10);
                             if (!Number.isNaN(parsed)) onSetUnitAge(displayUnit.id, parsed);
                           }}
-                          className="w-16 bg-[#141210] border border-[#3a332b] focus:border-[#f5b742] px-1.5 py-0.5 text-center font-pixel-num text-[11px] text-[#f2ece1] tabular-nums outline-none"
+                          className="w-16 bg-[#15100e] border border-[#544034] focus:border-[#f2c478] px-1.5 py-0.5 text-center font-pixel-num text-[11px] text-[#f4e7d4] tabular-nums outline-none"
                         />
                         <button
                           type="button"
                           onClick={() =>
                             onSetUnitAge(displayUnit.id, profile.informations.ageYears + 5)
                           }
-                          className="px-btn w-6 h-6 flex items-center justify-center text-xs font-bold text-[#f2ece1] cursor-pointer"
+                          className="px-btn w-6 h-6 flex items-center justify-center text-xs font-bold text-[#f4e7d4] cursor-pointer"
                         >
                           +
                         </button>
-                        <span className="w-4 text-[10px] text-[#8f8679]">y</span>
+                        <span className="w-4 text-[10px] text-[#8f7862]">y</span>
                       </div>
                     </div>
                   )}
 
                   {onSetUnitSizeScale && (
-                    <div className="flex flex-col gap-1.5 text-[11px] pt-1.5 border-t border-[#2c2620]">
+                    <div className="flex flex-col gap-1.5 text-[11px] pt-1.5 border-t border-[#423229]">
                       <div className="flex items-center justify-between gap-2">
-                        <span className="text-[#cfc6b8] w-16 shrink-0">Size</span>
+                        <span className="text-[#ccb69c] w-16 shrink-0">Size</span>
                         <div className="flex items-center gap-1">
                           <button
                             type="button"
@@ -608,7 +611,7 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                                 Math.max(0.35, Number((profile.informations.sizeScale - 0.15).toFixed(2))),
                               )
                             }
-                            className="px-btn w-6 h-6 flex items-center justify-center text-xs font-bold text-[#f2ece1] cursor-pointer"
+                            className="px-btn w-6 h-6 flex items-center justify-center text-xs font-bold text-[#f4e7d4] cursor-pointer"
                           >
                             -
                           </button>
@@ -624,7 +627,7 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                               const parsed = parseFloat(e.target.value);
                               if (!Number.isNaN(parsed)) onSetUnitSizeScale(displayUnit.id, parsed);
                             }}
-                            className="w-16 bg-[#141210] border border-[#3a332b] focus:border-[#f5b742] px-1.5 py-0.5 text-center font-pixel-num text-[11px] text-[#f2ece1] tabular-nums outline-none"
+                            className="w-16 bg-[#15100e] border border-[#544034] focus:border-[#f2c478] px-1.5 py-0.5 text-center font-pixel-num text-[11px] text-[#f4e7d4] tabular-nums outline-none"
                           />
                           <button
                             type="button"
@@ -634,11 +637,11 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                                 Math.min(4.0, Number((profile.informations.sizeScale + 0.15).toFixed(2))),
                               )
                             }
-                            className="px-btn w-6 h-6 flex items-center justify-center text-xs font-bold text-[#f2ece1] cursor-pointer"
+                            className="px-btn w-6 h-6 flex items-center justify-center text-xs font-bold text-[#f4e7d4] cursor-pointer"
                           >
                             +
                           </button>
-                          <span className="w-4 text-[10px] text-[#8f8679]">×</span>
+                          <span className="w-4 text-[10px] text-[#8f7862]">×</span>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
@@ -653,13 +656,13 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                             const parsed = parseFloat(e.target.value);
                             if (!Number.isNaN(parsed)) onSetUnitSizeScale(displayUnit.id, parsed);
                           }}
-                          className="w-full accent-[#f5b742] cursor-pointer h-1.5"
+                          className="px-range w-full cursor-pointer"
                         />
                         {Math.abs(profile.informations.sizeScale - 1.0) > 0.005 && (
                           <button
                             type="button"
                             onClick={() => onSetUnitSizeScale(displayUnit.id, 1.0)}
-                            className="px-btn px-1.5 py-0.5 text-[10px] text-[#cfc6b8] hover:text-[#f5b742] shrink-0 cursor-pointer"
+                            className="px-btn px-1.5 py-0.5 text-[10px] text-[#ccb69c] hover:text-[#f2c478] shrink-0 cursor-pointer"
                           >
                             1×
                           </button>
@@ -672,8 +675,8 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                 <>
                   {/* Compact 2-column stat readout with pixel icons */}
                   <div className="grid grid-cols-2 gap-1.5">
-                    <div className="bg-[#191613] px-2 py-1.5 flex items-center justify-between gap-1.5">
-                      <span className="flex items-center gap-1.5 text-[11px] text-[#a89f91]">
+                    <div className="px-card px-2 py-1.5 flex items-center justify-between gap-1.5">
+                      <span className="flex items-center gap-1.5 text-[11px] text-[#b09880]">
                         <InspectorPixelIcon kind="sword" className="w-3.5 h-3.5 shrink-0" />
                         Damage
                       </span>
@@ -681,8 +684,8 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                         {profile.informations.attackDamage}
                       </span>
                     </div>
-                    <div className="bg-[#191613] px-2 py-1.5 flex items-center justify-between gap-1.5">
-                      <span className="flex items-center gap-1.5 text-[11px] text-[#a89f91]">
+                    <div className="px-card px-2 py-1.5 flex items-center justify-between gap-1.5">
+                      <span className="flex items-center gap-1.5 text-[11px] text-[#b09880]">
                         <InspectorPixelIcon kind="shield" className="w-3.5 h-3.5 shrink-0" />
                         Armor
                       </span>
@@ -690,8 +693,8 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                         {profile.informations.armor}%
                       </span>
                     </div>
-                    <div className="bg-[#191613] px-2 py-1.5 flex items-center justify-between gap-1.5">
-                      <span className="flex items-center gap-1.5 text-[11px] text-[#a89f91]">
+                    <div className="px-card px-2 py-1.5 flex items-center justify-between gap-1.5">
+                      <span className="flex items-center gap-1.5 text-[11px] text-[#b09880]">
                         <InspectorPixelIcon kind="boot" className="w-3.5 h-3.5 shrink-0" />
                         Speed
                       </span>
@@ -699,26 +702,26 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                         {profile.informations.speed}
                       </span>
                     </div>
-                    <div className="bg-[#191613] px-2 py-1.5 flex items-center justify-between gap-1.5">
-                      <span className="flex items-center gap-1.5 text-[11px] text-[#a89f91]">
+                    <div className="px-card px-2 py-1.5 flex items-center justify-between gap-1.5">
+                      <span className="flex items-center gap-1.5 text-[11px] text-[#b09880]">
                         <InspectorPixelIcon kind="crit" className="w-3.5 h-3.5 shrink-0" />
                         Crit
                       </span>
-                      <span className="font-pixel-num text-xs font-bold text-[#f5b742] tabular-nums">
+                      <span className="font-pixel-num text-xs font-bold text-[#f2c478] tabular-nums">
                         {profile.informations.critChance}%
                       </span>
                     </div>
-                    <div className="bg-[#191613] px-2 py-1.5 flex items-center justify-between gap-1.5">
-                      <span className="flex items-center gap-1.5 text-[11px] text-[#a89f91]">
+                    <div className="px-card px-2 py-1.5 flex items-center justify-between gap-1.5">
+                      <span className="flex items-center gap-1.5 text-[11px] text-[#b09880]">
                         <InspectorPixelIcon kind="range" className="w-3.5 h-3.5 shrink-0" />
                         Range
                       </span>
-                      <span className="font-pixel-num text-xs font-bold text-[#f2ece1] tabular-nums">
+                      <span className="font-pixel-num text-xs font-bold text-[#f4e7d4] tabular-nums">
                         {profile.informations.attackRange}
                       </span>
                     </div>
-                    <div className="bg-[#191613] px-2 py-1.5 flex items-center justify-between gap-1.5">
-                      <span className="flex items-center gap-1.5 text-[11px] text-[#a89f91]">
+                    <div className="px-card px-2 py-1.5 flex items-center justify-between gap-1.5">
+                      <span className="flex items-center gap-1.5 text-[11px] text-[#b09880]">
                         <InspectorPixelIcon kind="regen" className="w-3.5 h-3.5 shrink-0" />
                         Regen
                       </span>
@@ -728,17 +731,17 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                           : '0/s'}
                       </span>
                     </div>
-                    <div className="bg-[#191613] px-2 py-1.5 flex items-center justify-between gap-1.5">
-                      <span className="flex items-center gap-1.5 text-[11px] text-[#a89f91]">
+                    <div className="px-card px-2 py-1.5 flex items-center justify-between gap-1.5">
+                      <span className="flex items-center gap-1.5 text-[11px] text-[#b09880]">
                         <InspectorPixelIcon kind="pickaxe" className="w-3.5 h-3.5 shrink-0" />
                         Gather
                       </span>
-                      <span className="font-pixel-num text-xs font-bold text-[#e2d8c5] tabular-nums">
+                      <span className="font-pixel-num text-xs font-bold text-[#eadbc6] tabular-nums">
                         {Math.round(profile.informations.harvestMult * 100)}%
                       </span>
                     </div>
-                    <div className="bg-[#191613] px-2 py-1.5 flex items-center justify-between gap-1.5">
-                      <span className="flex items-center gap-1.5 text-[11px] text-[#a89f91]">
+                    <div className="px-card px-2 py-1.5 flex items-center justify-between gap-1.5">
+                      <span className="flex items-center gap-1.5 text-[11px] text-[#b09880]">
                         <InspectorPixelIcon kind="skull" className="w-3.5 h-3.5 shrink-0" />
                         Kills
                       </span>
@@ -753,7 +756,7 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                     profile.informations.thorns ||
                     profile.informations.venomous ||
                     profile.informations.vampiric) && (
-                    <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-[#f5b742] pt-0.5">
+                    <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-[#f2c478] pt-0.5">
                       {profile.informations.fireproof && (
                         <span className="flex items-center gap-1">
                           <InspectorPixelIcon kind="flame" className="w-3 h-3" />
@@ -785,9 +788,9 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
 
               {/* Dragon Flame Breath if applicable */}
               {profile.informations.breathCooldown !== null && (
-                <div className="flex items-center justify-between text-xs bg-[#191613] px-2.5 py-1.5">
-                  <span className="text-[#b8afa2]">Flame breath</span>
-                  <span className="font-pixel-num text-[11px] text-[#f5b742] tabular-nums">
+                <div className="flex items-center justify-between text-xs px-card px-2.5 py-1.5">
+                  <span className="text-[#bfa88f]">Flame breath</span>
+                  <span className="font-pixel-num text-[11px] text-[#f2c478] tabular-nums">
                     {profile.informations.breathCooldown <= 0
                       ? 'Ready'
                       : `${profile.informations.breathCooldown}s`}
@@ -798,7 +801,7 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
               {/* Status Effects */}
               {profile.informations.statusEffects.length > 0 && (
                 <div className="flex items-baseline justify-between gap-2 text-xs pt-0.5">
-                  <span className="text-[#8f8679] shrink-0">Effects</span>
+                  <span className="text-[#8f7862] shrink-0">Effects</span>
                   <span className="text-[#80ed99] text-right">
                     {profile.informations.statusEffects.map(formatEffectName).join(', ')}
                   </span>
@@ -806,10 +809,10 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
               )}
 
               {/* Demographic & Location Details */}
-              <div className="space-y-1.5 pt-1 border-t border-[#2c2620] text-xs text-[#b8afa2]">
+              <div className="space-y-1.5 pt-1 border-t border-[#423229] text-xs text-[#bfa88f]">
                 <div className="flex items-center justify-between">
-                  <span className="text-[#8f8679]">Age</span>
-                  <span className="text-[#f2ece1] tabular-nums font-medium">
+                  <span className="text-[#8f7862]">Age</span>
+                  <span className="text-[#f4e7d4] tabular-nums font-medium">
                     {profile.informations.ageStageLabel} ({profile.informations.ageYears}y /{' '}
                     {profile.informations.immortal
                       ? 'Immortal'
@@ -818,13 +821,13 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-[#8f8679]">Activity</span>
+                  <span className="text-[#8f7862]">Activity</span>
                   <span className="text-[#80ed99] font-medium">
                     {profile.informations.activity}
                   </span>
                 </div>
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-[#8f8679] shrink-0">Home</span>
+                  <span className="text-[#8f7862] shrink-0">Home</span>
                   {displayUnit.settlementId &&
                   editingTarget?.kind === 'settlement' &&
                   editingTarget.id === displayUnit.settlementId ? (
@@ -846,18 +849,18 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                           e.stopPropagation();
                           if (e.key === 'Escape') setEditingTarget(null);
                         }}
-                        className="w-full max-w-[140px] bg-[#141210] border border-[#f5b742] px-1.5 py-0.5 text-xs text-[#f2ece1] outline-none"
+                        className="w-full max-w-[140px] bg-[#15100e] border border-[#f2c478] px-1.5 py-0.5 text-xs text-[#f4e7d4] outline-none"
                       />
                       <button
                         type="submit"
-                        className="px-btn-active px-1.5 py-0.5 text-[10px] font-bold text-[#f5b742] cursor-pointer shrink-0"
+                        className="px-btn-active px-1.5 py-0.5 text-[10px] font-bold text-[#fff6e6] cursor-pointer shrink-0"
                       >
                         Save
                       </button>
                     </form>
                   ) : (
                     <div className="flex items-center gap-1 min-w-0 justify-end">
-                      <span className="text-[#f2ece1] truncate max-w-[165px] text-right font-medium">
+                      <span className="text-[#f4e7d4] truncate max-w-[165px] text-right font-medium">
                         {profile.informations.settlementName ?? 'Wilderness'}
                       </span>
                       {displayUnit.settlementId && onRenameSettlement && (
@@ -875,7 +878,7 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                             });
                             setDraftName(profile.informations.settlementName ?? '');
                           }}
-                          className="text-[11px] text-[#9e9486] hover:text-[#f5b742] cursor-pointer shrink-0 px-0.5"
+                          className="text-[11px] text-[#9e866f] hover:text-[#f2c478] cursor-pointer shrink-0 px-0.5"
                         >
                           ✎
                         </button>
@@ -884,8 +887,8 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                   )}
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-[#8f8679]">Location</span>
-                  <span className="font-pixel-num text-[11px] text-[#cfc6b8] tabular-nums">
+                  <span className="text-[#8f7862]">Location</span>
+                  <span className="font-pixel-num text-[11px] text-[#ccb69c] tabular-nums">
                     ({profile.informations.tileX}, {profile.informations.tileZ})
                   </span>
                 </div>
@@ -899,26 +902,26 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
           {activeTab === 'traits' && (
             <div className="space-y-2.5 text-xs" data-testid="inspector-entity-traits">
               {profile.traits.length === 0 ? (
-                <div className="text-[#8f8679] text-[11px] py-2">
+                <div className="text-[#8f7862] text-[11px] py-2">
                   No traits assigned. Click Edit to add traits.
                 </div>
               ) : (
-                <div className="space-y-1.5">
+                <div className={`space-y-1.5 overflow-y-auto pr-1 ${editMode ? 'max-h-40' : 'max-h-60'}`}>
                   {profile.traits.map((trait) => {
                     const modLabels = formatModifierList(trait.mods);
                     return (
                       <div
                         key={trait.id}
-                        className="bg-[#191613] border border-[#2c2620] p-2 flex items-start gap-2"
+                        className="px-card p-2 flex items-start gap-2"
                       >
-                        <div className="w-7 h-7 shrink-0 bg-[#141210] border border-[#2f2720] flex items-center justify-center mt-0.5">
+                        <div className="w-7 h-7 shrink-0 bg-[#15100e] border border-[#544034] flex items-center justify-center mt-0.5">
                           <InspectorPixelIcon kind={trait.icon} className="w-5 h-5" />
                         </div>
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center justify-between gap-2">
                             <span
                               className={`font-bold truncate ${
-                                trait.negative ? 'text-[#ff8f6b]' : 'text-[#f2ece1]'
+                                trait.negative ? 'text-[#ff8f6b]' : 'text-[#f4e7d4]'
                               }`}
                             >
                               {trait.name}
@@ -934,7 +937,7 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                               </button>
                             )}
                           </div>
-                          <p className="text-[11px] text-[#a89f91] leading-snug mt-0.5">
+                          <p className="text-[11px] text-[#b09880] leading-snug mt-0.5">
                             {trait.description}
                           </p>
                           {modLabels.length > 0 && (
@@ -950,9 +953,9 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
               )}
 
               {editMode && onToggleUnitTrait && (
-                <div className="pt-2 border-t border-[#2c2620] space-y-2">
+                <div className="pt-2 border-t border-[#423229] space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-bold text-[#f5b742]">Add or Toggle Traits</span>
+                    <span className="text-[11px] font-bold text-[#f2c478]">Add or Toggle Traits</span>
                   </div>
                   <div className="flex flex-wrap gap-1">
                     {TRAIT_FILTERS.map((f) => (
@@ -960,8 +963,8 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                         key={f.id}
                         type="button"
                         onClick={() => setTraitFilter(f.id)}
-                        className={`px-1.5 py-0.5 text-[10px] font-semibold cursor-pointer ${
-                          traitFilter === f.id ? 'px-btn-active text-[#f5b742]' : 'px-btn text-[#a89f91]'
+                        className={`px-1.5 py-0.5 text-[10px] cursor-pointer ${
+                          traitFilter === f.id ? 'px-btn-active font-bold text-[#fff6e6]' : 'px-btn font-semibold text-[#bfa88f]'
                         }`}
                       >
                         {f.label}
@@ -981,8 +984,8 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                           onClick={() => onToggleUnitTrait(displayUnit.id, trait.id)}
                           className={`p-1.5 flex items-center gap-1.5 text-left cursor-pointer transition-colors ${
                             active
-                              ? 'px-btn-active text-[#f5b742]'
-                              : 'bg-[#191613] hover:bg-[#221d18] border border-[#2c2620] text-[#d8cfc2]'
+                              ? 'px-btn-active font-bold text-[#fff6e6]'
+                              : 'px-item-btn text-[#dbc7ae]'
                           }`}
                         >
                           <InspectorPixelIcon kind={trait.icon} className="w-4 h-4 shrink-0" />
@@ -1002,26 +1005,26 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
           {activeTab === 'genes' && (
             <div className="space-y-2.5 text-xs" data-testid="inspector-entity-genes">
               {profile.geneDetails.length === 0 ? (
-                <div className="text-[#8f8679] text-[11px] py-2">
+                <div className="text-[#8f7862] text-[11px] py-2">
                   No genetic traits listed. Click Edit to splice genes.
                 </div>
               ) : (
-                <div className="space-y-1.5">
+                <div className={`space-y-1.5 overflow-y-auto pr-1 ${editMode ? 'max-h-40' : 'max-h-60'}`}>
                   {profile.geneDetails.map((entry) => {
                     const modLabels = formatModifierList(entry.info.mods);
                     return (
                       <div
                         key={entry.name}
-                        className="bg-[#191613] border border-[#2c2620] p-2 flex items-start gap-2"
+                        className="px-card p-2 flex items-start gap-2"
                       >
-                        <div className="w-7 h-7 shrink-0 bg-[#141210] border border-[#2f2720] flex items-center justify-center mt-0.5">
+                        <div className="w-7 h-7 shrink-0 bg-[#15100e] border border-[#544034] flex items-center justify-center mt-0.5">
                           <InspectorPixelIcon kind={entry.info.icon} className="w-5 h-5" />
                         </div>
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center justify-between gap-2">
                             <span
                               className={`font-bold truncate ${
-                                entry.isIntrinsic ? 'text-[#56cfe1]' : 'text-[#ffd166]'
+                                entry.isIntrinsic ? 'text-[#56cfe1]' : 'text-[#ffd36b]'
                               }`}
                             >
                               {entry.name}
@@ -1038,14 +1041,14 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                             ) : (
                               <span
                                 className={`text-[10px] shrink-0 ${
-                                  entry.isIntrinsic ? 'text-[#8f8679]' : 'text-[#ffd166]'
+                                  entry.isIntrinsic ? 'text-[#8f7862]' : 'text-[#ffd36b]'
                                 }`}
                               >
                                 {entry.isIntrinsic ? 'Intrinsic' : 'Mutation'}
                               </span>
                             )}
                           </div>
-                          <p className="text-[11px] text-[#a89f91] leading-snug mt-0.5">
+                          <p className="text-[11px] text-[#b09880] leading-snug mt-0.5">
                             {entry.info.description}
                           </p>
                           {modLabels.length > 0 && (
@@ -1061,8 +1064,8 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
               )}
 
               {editMode && onToggleUnitGene && (
-                <div className="pt-2 border-t border-[#2c2620] space-y-2">
-                  <div className="text-[11px] font-bold text-[#f5b742]">Edit Genetics</div>
+                <div className="pt-2 border-t border-[#423229] space-y-2">
+                  <div className="text-[11px] font-bold text-[#f2c478]">Edit Genetics</div>
                   <div className="flex flex-wrap gap-1">
                     {(
                       [
@@ -1075,8 +1078,8 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                         key={f.id}
                         type="button"
                         onClick={() => setGeneFilter(f.id)}
-                        className={`px-1.5 py-0.5 text-[10px] font-semibold cursor-pointer ${
-                          geneFilter === f.id ? 'px-btn-active text-[#f5b742]' : 'px-btn text-[#a89f91]'
+                        className={`px-1.5 py-0.5 text-[10px] cursor-pointer ${
+                          geneFilter === f.id ? 'px-btn-active font-bold text-[#fff6e6]' : 'px-btn font-semibold text-[#bfa88f]'
                         }`}
                       >
                         {f.label}
@@ -1096,8 +1099,8 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                           onClick={() => onToggleUnitGene(displayUnit.id, gene.name)}
                           className={`p-1.5 flex items-center gap-1.5 text-left cursor-pointer transition-colors ${
                             active
-                              ? 'px-btn-active text-[#ffd166]'
-                              : 'bg-[#191613] hover:bg-[#221d18] border border-[#2c2620] text-[#d8cfc2]'
+                              ? 'px-btn-active font-bold text-[#fff6e6]'
+                              : 'px-item-btn text-[#dbc7ae]'
                           }`}
                         >
                           <InspectorPixelIcon kind={gene.icon} className="w-4 h-4 shrink-0" />
@@ -1117,26 +1120,26 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
           {activeTab === 'items' && (
             <div className="space-y-2.5 text-xs" data-testid="inspector-entity-items">
               {profile.itemDetails.length === 0 ? (
-                <div className="text-[#8f8679] text-[11px] py-2">
+                <div className="text-[#8f7862] text-[11px] py-2">
                   No items carried. Click Edit to equip gear.
                 </div>
               ) : (
-                <div className="space-y-1.5">
+                <div className={`space-y-1.5 overflow-y-auto pr-1 ${editMode ? 'max-h-40' : 'max-h-60'}`}>
                   {profile.itemDetails.map((entry, idx) => {
                     const modLabels = formatModifierList(entry.info.mods);
                     return (
                       <div
                         key={`${entry.name}-${idx}`}
-                        className="bg-[#191613] border border-[#2c2620] p-2 flex items-start gap-2"
+                        className="px-card p-2 flex items-start gap-2"
                       >
-                        <div className="w-7 h-7 shrink-0 bg-[#141210] border border-[#2f2720] flex items-center justify-center mt-0.5">
+                        <div className="w-7 h-7 shrink-0 bg-[#15100e] border border-[#544034] flex items-center justify-center mt-0.5">
                           <InspectorPixelIcon kind={entry.info.icon} className="w-5 h-5" />
                         </div>
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center justify-between gap-2">
                             <span
                               className={`font-bold truncate ${
-                                entry.isCargo ? 'text-[#80ed99]' : 'text-[#f2ece1]'
+                                entry.isCargo ? 'text-[#80ed99]' : 'text-[#f4e7d4]'
                               }`}
                             >
                               {entry.name}
@@ -1151,12 +1154,12 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                                 Drop
                               </button>
                             ) : (
-                              <span className="text-[10px] text-[#8f8679] shrink-0">
+                              <span className="text-[10px] text-[#8f7862] shrink-0">
                                 {entry.isCargo ? 'Cargo' : formatSlotLabel(entry.info.slot)}
                               </span>
                             )}
                           </div>
-                          <p className="text-[11px] text-[#a89f91] leading-snug mt-0.5">
+                          <p className="text-[11px] text-[#b09880] leading-snug mt-0.5">
                             {entry.info.description}
                           </p>
                           {modLabels.length > 0 && (
@@ -1172,10 +1175,10 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
               )}
 
               {editMode && onAddUnitItem && (
-                <div className="pt-2 border-t border-[#2c2620] space-y-2">
+                <div className="pt-2 border-t border-[#423229] space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-bold text-[#f5b742]">Give Item</span>
-                    <span className="text-[10px] text-[#8f8679] tabular-nums">
+                    <span className="text-[11px] font-bold text-[#f2c478]">Give Item</span>
+                    <span className="text-[10px] text-[#8f7862] tabular-nums">
                       {(displayUnit.items?.length ?? 0)} / 12
                     </span>
                   </div>
@@ -1185,8 +1188,8 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                         key={f.id}
                         type="button"
                         onClick={() => setItemFilter(f.id)}
-                        className={`px-1.5 py-0.5 text-[10px] font-semibold cursor-pointer ${
-                          itemFilter === f.id ? 'px-btn-active text-[#f5b742]' : 'px-btn text-[#a89f91]'
+                        className={`px-1.5 py-0.5 text-[10px] cursor-pointer ${
+                          itemFilter === f.id ? 'px-btn-active font-bold text-[#fff6e6]' : 'px-btn font-semibold text-[#bfa88f]'
                         }`}
                       >
                         {f.label}
@@ -1202,12 +1205,12 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                           type="button"
                           data-testid={`give-item-${item.name}`}
                           onClick={() => onAddUnitItem(displayUnit.id, item.name)}
-                          className="w-full p-1.5 bg-[#191613] hover:bg-[#241f19] border border-[#2c2620] flex items-center justify-between gap-2 text-left cursor-pointer transition-colors"
+                          className="w-full p-1.5 px-item-btn flex items-center justify-between gap-2 text-left cursor-pointer"
                         >
                           <div className="flex items-center gap-2 min-w-0">
                             <InspectorPixelIcon kind={item.icon} className="w-4 h-4 shrink-0" />
                             <div className="min-w-0">
-                              <div className="text-[11px] font-semibold text-[#f2ece1] truncate">
+                              <div className="text-[11px] font-semibold text-[#f4e7d4] truncate">
                                 {item.name}
                               </div>
                               <div className="text-[10px] text-[#80ed99] truncate tabular-nums">
@@ -1215,7 +1218,7 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                               </div>
                             </div>
                           </div>
-                          <span className="text-[10px] font-bold text-[#f5b742] shrink-0">+ Add</span>
+                          <span className="text-[10px] font-bold text-[#f2c478] shrink-0">+ Add</span>
                         </button>
                       );
                     })}
@@ -1230,7 +1233,7 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
              ================================================================ */}
           {activeTab === 'favorites' && favoriteUnits.length > 0 && (
             <div className="space-y-2 text-xs">
-              <div className="text-[11px] text-[#8f8679]">
+              <div className="text-[11px] text-[#8f7862]">
                 Click an entity to select and center the camera:
               </div>
               <div className="space-y-1.5 max-h-48 overflow-y-auto pr-0.5">
@@ -1241,8 +1244,8 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                       key={fav.id}
                       className={`flex items-center justify-between gap-2 p-1.5 transition-colors ${
                         isCurrent
-                          ? 'bg-[#292218] border border-[#f5b742]'
-                          : 'bg-[#191613] hover:bg-[#201c18]'
+                          ? 'px-item-btn-active'
+                          : 'px-item-btn'
                       }`}
                     >
                       <button
@@ -1255,7 +1258,7 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                         title="Select & focus camera"
                       >
                         <UnitPixelIcon role={fav.role} className="w-5 h-5 shrink-0" />
-                        <span className="font-semibold text-[#f2ece1] truncate">{fav.name}</span>
+                        <span className="font-semibold text-[#f4e7d4] truncate">{fav.name}</span>
                         <span className="font-pixel-num text-[10px] text-[#80ed99] tabular-nums shrink-0">
                           {Math.round(fav.hp)}hp
                         </span>
@@ -1264,7 +1267,7 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                         type="button"
                         onClick={() => onToggleFavorite(fav.id)}
                         aria-label={`Unfavorite ${fav.name}`}
-                        className="text-[#ffd166] hover:text-[#ff8f6b] cursor-pointer p-1"
+                        className="text-[#ffd36b] hover:text-[#ff8f6b] cursor-pointer p-1"
                         title="Unfavorite"
                       >
                         <HudPixelIcon kind="starOn" className="w-3.5 h-3.5 pixelated-canvas" />
@@ -1277,31 +1280,31 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
           )}
         </>
       ) : (
-        <div className="space-y-2 text-xs text-[#cfc6b8]" data-testid="entity-inspector-empty">
+        <div className="space-y-2 text-xs text-[#ccb69c]" data-testid="entity-inspector-empty">
           <div className="flex items-center justify-between gap-2">
-            <h2 className="font-bold text-[#f5b742] text-xs sm:text-sm">Entity Inspector</h2>
+            <h2 className="font-bold text-[#f2c478] text-xs sm:text-sm">Entity Inspector</h2>
             <button
               type="button"
               onClick={() => setMinimized(true)}
-              className="sm:hidden px-btn px-1.5 py-0.5 text-[10px] text-[#b8afa2] cursor-pointer"
+              className="sm:hidden px-btn px-1.5 py-0.5 text-[10px] text-[#bfa88f] cursor-pointer"
               aria-label="Minimize Inspector"
             >
               Hide
             </button>
           </div>
 
-          <p className="text-xs text-[#a89f91]">
+          <p className="text-xs text-[#b09880]">
             Hover or tap on any unit or creature to inspect stats, traits, genetics, and items.
           </p>
 
           {favoriteUnits.length > 0 && (
-            <div className="space-y-1.5 pt-1 border-t border-[#2c2620]">
-              <div className="text-[11px] font-semibold text-[#ffd166]">Favorites</div>
+            <div className="space-y-1.5 pt-1 border-t border-[#423229]">
+              <div className="text-[11px] font-semibold text-[#ffd36b]">Favorites</div>
               <div className="space-y-1 max-h-40 overflow-y-auto pr-0.5">
                 {favoriteUnits.map((fav) => (
                   <div
                     key={fav.id}
-                    className="flex items-center justify-between gap-2 p-1.5 bg-[#191613] hover:bg-[#201c18] transition-colors"
+                    className="flex items-center justify-between gap-2 p-1.5 px-item-btn"
                   >
                     <button
                       type="button"
@@ -1313,7 +1316,7 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                       title="Select & focus camera"
                     >
                       <UnitPixelIcon role={fav.role} className="w-5 h-5 shrink-0" />
-                      <span className="font-semibold text-[#f2ece1] truncate">{fav.name}</span>
+                      <span className="font-semibold text-[#f4e7d4] truncate">{fav.name}</span>
                       <span className="font-pixel-num text-[10px] text-[#80ed99] tabular-nums shrink-0">
                         {Math.round(fav.hp)}hp
                       </span>
@@ -1322,7 +1325,7 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                       type="button"
                       onClick={() => onToggleFavorite(fav.id)}
                       aria-label={`Unfavorite ${fav.name}`}
-                      className="text-[#ffd166] hover:text-[#ff8f6b] cursor-pointer p-1"
+                      className="text-[#ffd36b] hover:text-[#ff8f6b] cursor-pointer p-1"
                       title="Unfavorite"
                     >
                       <HudPixelIcon kind="starOn" className="w-3.5 h-3.5 pixelated-canvas" />

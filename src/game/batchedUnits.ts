@@ -402,7 +402,9 @@ export function getBatchedUnitTemplateKey(
   const varBucket =
     role === 'dinosaur'
       ? `${getDinosaurVariant(seed).morph}_${seed % 2}`
-      : `${seed % 3}`;
+      : faction === 'civilization'
+        ? `${seed % 6}`
+        : `${seed % 3}`;
   return `${role}|${faction}|${epochLevel}|${species}|${ageStage}|${varBucket}|${pose}`;
 }
 

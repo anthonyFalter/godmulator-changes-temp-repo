@@ -1516,6 +1516,39 @@ export function generateWorldTiles(
     }
   }
 
+  // Seed explorable overland Ancient Ruins across continents (discoverable by citizens for relics or tomb guardians)
+  const desiredRuins = Math.min(12, Math.max(4, Math.round(gridSize / 18)));
+  const landRuinCandidates: number[] = [];
+  for (let z = 5; z < gridSize - 5; z += 3) {
+    for (let x = 5; x < gridSize - 5; x += 3) {
+      const idx = z * gridSize + x;
+      const t = tiles[idx];
+      if (
+        t &&
+        t.height >= 1 &&
+        t.height <= 5 &&
+        !t.buildingId &&
+        t.resourceNode === 'none' &&
+        Math.hypot(x - center, z - center) > 10
+      ) {
+        landRuinCandidates.push(idx);
+      }
+    }
+  }
+  const placedRuins: Array<{ x: number; z: number }> = [];
+  let ruinAttempts = 0;
+  while (placedRuins.length < desiredRuins && landRuinCandidates.length > 0 && ruinAttempts < 120) {
+    ruinAttempts++;
+    const pick = Math.floor(rng() * landRuinCandidates.length);
+    const idx = landRuinCandidates.splice(pick, 1)[0];
+    const rx = idx % gridSize;
+    const rz = Math.floor(idx / gridSize);
+    if (placedRuins.some((p) => Math.hypot(p.x - rx, p.z - rz) < 12)) continue;
+    tiles[idx].resourceNode = 'ancient_ruin';
+    tiles[idx].resourceAmount = 1;
+    placedRuins.push({ x: rx, z: rz });
+  }
+
   // Stage 7: Seed 2-3 small isolated deep-sea rocky islets surrounded directly by deep_water
   if (!isScrapSea && options?.seaLevelBias !== 'low') {
     const deepIsletCandidates: number[] = [];

@@ -2098,6 +2098,8 @@ export interface NodeVariantLibrary {
   ambientVolcanic: THREE.BufferGeometry[];
   ambientBlight: THREE.BufferGeometry[];
   ambientFloral: THREE.BufferGeometry[];
+  ambientLake: THREE.BufferGeometry[];
+  ambientRiver: THREE.BufferGeometry[];
   coralReef: THREE.BufferGeometry[];
   coralReefLod2: THREE.BufferGeometry[];
   coralReefBleached: THREE.BufferGeometry[];
@@ -2106,6 +2108,9 @@ export interface NodeVariantLibrary {
   scrapFlotsamLod2: THREE.BufferGeometry[];
   atlantisRuin: THREE.BufferGeometry[];
   atlantisRuinLod2: THREE.BufferGeometry[];
+  windmillTowers: THREE.BufferGeometry[];
+  windmillBladesVariants: THREE.BufferGeometry[];
+  miningFacilities: THREE.BufferGeometry[];
   standardMat: THREE.MeshStandardMaterial;
   crystalMat: THREE.MeshStandardMaterial;
   coralReefMat: THREE.MeshStandardMaterial;
@@ -2205,30 +2210,431 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     berry.push(finalizeMergedParts(p));
   }
 
-  // 2b. Cultivated Agricultural Farm Fields (Bronze -> Industrial Ages: plowed furrows, golden wheat rows & wooden fence)
+  // 2b. Cultivated Agricultural Farm Fields: 6 distinct crop types × 4 visible growth phases (24 variants)
+  // Indexing: cropIdx * 4 + stage
+  //   0=wheat, 1=corn, 2=pumpkin, 3=sunflower, 4=root_crop, 5=berry_vine
+  //   stage 0=plowed/seeded, 1=sprouting, 2=growing, 3=ripe & ready to harvest
   const farmCrop: THREE.BufferGeometry[] = [];
-  for (let v = 0; v < 4; v++) {
+  for (let cropIdx = 0; cropIdx < 6; cropIdx++) {
+    for (let stage = 0; stage < 4; stage++) {
+      const p: THREE.BufferGeometry[] = [];
+      // Plowed dark-earth soil furrows (shared base for every crop)
+      for (let r = -1; r <= 1; r++) {
+        const rz = r * 0.25;
+        addColoredBox(p, 0.76, 0.055, 0.14, 0, 0.028, rz, stage === 0 ? 0x4b311c : 0x5c3e26);
+      }
+
+      if (cropIdx === 0) {
+        // WHEAT: plowed sprouts -> green shoots -> tall green stalks -> swaying golden wheat + sheaf
+        for (let r = -1; r <= 1; r++) {
+          const rz = r * 0.25;
+          if (stage === 0) {
+            addColoredBox(p, 0.08, 0.05, 0.06, -0.22, 0.075, rz, 0x86c166);
+            addColoredBox(p, 0.08, 0.05, 0.06, 0.04, 0.075, rz, 0x7cb342);
+            addColoredBox(p, 0.08, 0.05, 0.06, 0.24, 0.075, rz, 0x86c166);
+          } else if (stage === 1) {
+            addColoredBox(p, 0.64, 0.11, 0.08, 0, 0.105, rz, 0x6ab04c);
+          } else if (stage === 2) {
+            addColoredBox(p, 0.68, 0.20, 0.09, 0, 0.15, rz, r === 0 ? 0x88c440 : 0x72b035);
+          } else {
+            const h = 0.27 + (r === 0 ? 0.04 : 0);
+            addColoredBox(p, 0.70, h, 0.10, 0, 0.05 + h * 0.5, rz, r % 2 === 0 ? 0xf2c14e : 0xe0a832);
+            addColoredBox(p, 0.66, 0.06, 0.11, 0, 0.05 + h + 0.02, rz, 0xf7d774);
+          }
+        }
+        if (stage === 3) {
+          // Bound golden harvest sheaf at corner
+          addColoredBox(p, 0.14, 0.18, 0.14, 0.31, 0.10, 0.31, 0xdca02e);
+          addColoredBox(p, 0.15, 0.03, 0.15, 0.31, 0.10, 0.31, 0x7a4b2a);
+        }
+      } else if (cropIdx === 1) {
+        // CORN: soil mounds -> short leafy stalks -> tall green stalks -> tall stalks with bright yellow cobs
+        for (let r = -1; r <= 1; r++) {
+          const rz = r * 0.25;
+          for (let c = -1; c <= 1; c++) {
+            const cx = c * 0.24;
+            if (stage === 0) {
+              addColoredBox(p, 0.06, 0.06, 0.06, cx, 0.08, rz, 0x7bc96f);
+            } else if (stage === 1) {
+              addColoredBox(p, 0.07, 0.16, 0.07, cx, 0.13, rz, 0x4ca64c);
+            } else if (stage === 2) {
+              addColoredBox(p, 0.08, 0.29, 0.08, cx, 0.195, rz, 0x3b8c3b);
+              addColoredBox(p, 0.14, 0.04, 0.05, cx, 0.24, rz, 0x56ab56);
+            } else {
+              addColoredBox(p, 0.08, 0.38, 0.08, cx, 0.24, rz, 0x358235);
+              addColoredBox(p, 0.15, 0.04, 0.06, cx, 0.28, rz, 0x4fa34f);
+              // Bright yellow corn cob & pale tassel
+              addColoredBox(p, 0.06, 0.11, 0.06, cx + 0.06, 0.24, rz + 0.02, 0xfacc15);
+              addColoredBox(p, 0.05, 0.06, 0.05, cx, 0.45, rz, 0xe8d27a);
+            }
+          }
+        }
+      } else if (cropIdx === 2) {
+        // PUMPKIN PATCH: seedlings -> spreading vines -> small green gourds -> plump orange pumpkins
+        if (stage === 0) {
+          addColoredBox(p, 0.09, 0.05, 0.09, -0.20, 0.075, -0.20, 0x6bbf59);
+          addColoredBox(p, 0.09, 0.05, 0.09, 0.20, 0.075, 0.20, 0x6bbf59);
+        } else if (stage === 1) {
+          addColoredBox(p, 0.56, 0.05, 0.10, 0, 0.075, -0.18, 0x3f8f3f);
+          addColoredBox(p, 0.56, 0.05, 0.10, 0, 0.075, 0.18, 0x4ca14c);
+        } else if (stage === 2) {
+          addColoredBox(p, 0.68, 0.06, 0.54, 0, 0.08, 0, 0x357a38);
+          addColoredBox(p, 0.13, 0.11, 0.13, -0.18, 0.13, -0.14, 0x84cc16);
+          addColoredBox(p, 0.13, 0.11, 0.13, 0.18, 0.13, 0.16, 0xa3c940);
+        } else {
+          addColoredBox(p, 0.70, 0.06, 0.58, 0, 0.08, 0, 0x2f6e31);
+          // Three plump bright orange pumpkins with dark stems
+          const spots: [number, number, number][] = [
+            [-0.20, -0.15, 0.19],
+            [0.19, 0.16, 0.20],
+            [0.16, -0.20, 0.15],
+          ];
+          for (const [px, pz, sz] of spots) {
+            addColoredBox(p, sz, sz * 0.85, sz, px, 0.08 + sz * 0.42, pz, 0xea6a19);
+            addColoredBox(p, 0.04, 0.06, 0.04, px, 0.08 + sz * 0.88, pz, 0x4a3520);
+          }
+        }
+      } else if (cropIdx === 3) {
+        // SUNFLOWER: sprouts -> short stems -> tall budded stems -> tall golden blooms with dark centers
+        for (let r = -1; r <= 1; r += 2) {
+          const rz = r * 0.22;
+          for (let c = -1; c <= 1; c++) {
+            const cx = c * 0.24;
+            if (stage === 0) {
+              addColoredBox(p, 0.06, 0.05, 0.06, cx, 0.075, rz, 0x82c96e);
+            } else if (stage === 1) {
+              addColoredBox(p, 0.06, 0.14, 0.06, cx, 0.12, rz, 0x4e9a3f);
+            } else if (stage === 2) {
+              addColoredBox(p, 0.06, 0.28, 0.06, cx, 0.19, rz, 0x3d8231);
+              addColoredBox(p, 0.10, 0.08, 0.10, cx, 0.34, rz, 0x6ab04c);
+            } else {
+              addColoredBox(p, 0.06, 0.34, 0.06, cx, 0.22, rz, 0x357a2a);
+              // Radiant yellow petals + dark seed head
+              addColoredBox(p, 0.16, 0.16, 0.06, cx, 0.41, rz, 0xfacc15);
+              addColoredBox(p, 0.09, 0.09, 0.08, cx, 0.41, rz, 0x4e2a14);
+            }
+          }
+        }
+      } else if (cropIdx === 4) {
+        // ROOT CROPS (Carrots & Turnips): tiny sprigs -> green leafy rows -> bushy tops -> peeking orange & purple roots
+        for (let r = -1; r <= 1; r++) {
+          const rz = r * 0.25;
+          if (stage === 0) {
+            addColoredBox(p, 0.06, 0.04, 0.06, -0.20, 0.07, rz, 0x7bc96f);
+            addColoredBox(p, 0.06, 0.04, 0.06, 0.20, 0.07, rz, 0x7bc96f);
+          } else if (stage === 1) {
+            addColoredBox(p, 0.58, 0.09, 0.09, 0, 0.095, rz, 0x52b748);
+          } else if (stage === 2) {
+            addColoredBox(p, 0.64, 0.15, 0.12, 0, 0.125, rz, 0x389438);
+          } else {
+            // Plump orange carrots & purple-white turnip crowns poking above dark soil + lush tops
+            for (let c = -1; c <= 1; c++) {
+              const cx = c * 0.23;
+              const isTurnip = (r + c) % 2 === 0;
+              addColoredBox(p, 0.10, 0.09, 0.10, cx, 0.085, rz, isTurnip ? 0xb5539c : 0xf97316);
+              addColoredBox(p, 0.11, 0.12, 0.11, cx, 0.17, rz, 0x3da33d);
+            }
+          }
+        }
+      } else {
+        // BERRY / GRAPE VINES: wooden trellises -> climbing shoots -> leafy trellis -> ruby & violet fruit clusters
+        for (let r = -1; r <= 1; r += 2) {
+          const rz = r * 0.24;
+          // Wooden trellis stakes & crossbar
+          addColoredBox(p, 0.05, 0.28, 0.05, -0.32, 0.14, rz, 0x6b442a);
+          addColoredBox(p, 0.05, 0.28, 0.05, 0.32, 0.14, rz, 0x6b442a);
+          addColoredBox(p, 0.68, 0.035, 0.035, 0, 0.24, rz, 0x855839);
+          if (stage === 0) {
+            addColoredBox(p, 0.10, 0.07, 0.08, -0.18, 0.08, rz, 0x65a34e);
+            addColoredBox(p, 0.10, 0.07, 0.08, 0.18, 0.08, rz, 0x65a34e);
+          } else if (stage === 1) {
+            addColoredBox(p, 0.56, 0.13, 0.10, 0, 0.115, rz, 0x458f3d);
+          } else if (stage === 2) {
+            addColoredBox(p, 0.64, 0.22, 0.13, 0, 0.16, rz, 0x2f7d32);
+          } else {
+            addColoredBox(p, 0.66, 0.24, 0.14, 0, 0.17, rz, 0x266b29);
+            // Rich ruby & grape-violet fruit clusters
+            addColoredBox(p, 0.09, 0.09, 0.17, -0.18, 0.18, rz, 0x9333ea);
+            addColoredBox(p, 0.09, 0.09, 0.17, 0.02, 0.21, rz, 0xdc2626);
+            addColoredBox(p, 0.09, 0.09, 0.17, 0.20, 0.16, rz, 0x7e22ce);
+          }
+        }
+      }
+
+      farmCrop.push(finalizeMergedParts(p));
+    }
+  }
+
+  // 2b-ii. Race-Unique & Era-Evolving Windmills (5 races × 3 eras = 15 bespoke towers + 15 spinning rotors)
+  // Indexing: raceIdx * 3 + eraTier
+  //   raceIdx: 0=human, 1=elf, 2=dwarf, 3=lizardfolk, 4=orc
+  //   eraTier: 0=Early (Epoch 0-2), 1=Industrial/Steam (Epoch 3-5), 2=Modern/Info & Sci-Fi (Epoch 6+)
+  const windmillTowers: THREE.BufferGeometry[] = [];
+  const windmillBladesVariants: THREE.BufferGeometry[] = [];
+  const racePalettes = [
+    // 0: Human (timber/plaster -> Victorian red-brick/copper -> sleek white-titanium/cobalt)
+    {
+      base0: 0x7d776f, wall0: 0xe0d4c0, trim0: 0x6b442a, roof0: 0x9e4731, sail0: 0xf4ecd8,
+      base1: 0x52525b, wall1: 0x9a3d2e, trim1: 0x27272a, roof1: 0x3b8c76, sail1: 0xd9d2c5,
+      base2: 0x334155, wall2: 0xf1f5f9, trim2: 0x38bdf8, roof2: 0xe2e8f0, sail2: 0xf8fafc,
+    },
+    // 1: Elf (living ivory-wood & emerald leaf -> white marble & crystal -> pearl & sapphire harmonic spire)
+    {
+      base0: 0x5a7d50, wall0: 0xede6d3, trim0: 0x8c7046, roof0: 0x2e7d47, sail0: 0xeef7e4,
+      base1: 0xd6d3cd, wall1: 0xf7f5f0, trim1: 0xd4a843, roof1: 0x2a9d8f, sail1: 0xb5f2ea,
+      base2: 0xe2e8f0, wall2: 0xf8fafc, trim2: 0x67e8f9, roof2: 0x38bdf8, sail2: 0xa5f3fc,
+    },
+    // 2: Dwarf (basalt & bronze dome -> iron-and-brass steam cog-mill -> tungsten & gold aero-turbine)
+    {
+      base0: 0x4b4844, wall0: 0x69645e, trim0: 0xb87333, roof0: 0xcd853f, sail0: 0xd9a05b,
+      base1: 0x3f3f46, wall1: 0x52525b, trim1: 0xd97706, roof1: 0xb45309, sail1: 0xf59e0b,
+      base2: 0x27272a, wall2: 0x44403c, trim2: 0xf59e0b, roof2: 0xfbbf24, sail2: 0xd6d3d1,
+    },
+    // 3: Lizardfolk (stepped sandstone & jade -> obsidian-and-gold sun-engine -> floating solar-plasma obelisk)
+    {
+      base0: 0xa89268, wall0: 0xc9b487, trim0: 0x0d9488, roof0: 0xd97706, sail0: 0xfde68a,
+      base1: 0x292524, wall1: 0x44403c, trim1: 0xeab308, roof1: 0x10b981, sail1: 0xfacc15,
+      base2: 0x1c1917, wall2: 0x292524, trim2: 0x34d399, roof2: 0xfbbf24, sail2: 0x6ee7b7,
+    },
+    // 4: Orc (iron-spiked timber & black stone -> bolted black-steel smelter-mill -> gunmetal & crimson cyber-turbine)
+    {
+      base0: 0x3b3532, wall0: 0x5c4333, trim0: 0x27272a, roof0: 0x991b1b, sail0: 0xc9b194,
+      base1: 0x27272a, wall1: 0x3f3f46, trim1: 0xdc2626, roof1: 0x18181b, sail1: 0x71717a,
+      base2: 0x18181b, wall2: 0x334155, trim2: 0xef4444, roof2: 0x1f2937, sail2: 0x94a3b8,
+    },
+  ];
+
+  for (let raceIdx = 0; raceIdx < 5; raceIdx++) {
+    const pal = racePalettes[raceIdx];
+    for (let eraTier = 0; eraTier < 3; eraTier++) {
+      const tp: THREE.BufferGeometry[] = [];
+      const bp: THREE.BufferGeometry[] = [];
+
+      if (eraTier === 0) {
+        // TIER 0: Early / Rustic Race-Unique Windmill
+        addColoredBox(tp, 0.88, 0.24, 0.88, 0, 0.12, 0, pal.base0);
+        if (raceIdx === 1) {
+          // Elf: slender curved ivory-bark spire with emerald leaf cupola
+          addColoredBox(tp, 0.54, 0.66, 0.54, 0, 0.57, 0, pal.wall0);
+          addColoredBox(tp, 0.42, 0.62, 0.42, 0, 1.21, 0, pal.wall0);
+          addColoredBox(tp, 0.58, 0.08, 0.58, 0, 0.90, 0, pal.trim0);
+          addColoredBox(tp, 0.52, 0.24, 0.52, 0, 1.62, 0, pal.roof0);
+          addColoredBox(tp, 0.30, 0.28, 0.30, 0, 1.88, 0, pal.roof0);
+          addColoredBox(tp, 0.10, 0.26, 0.10, 0, 2.12, 0, 0xd4a843);
+        } else if (raceIdx === 2) {
+          // Dwarf: stout fortified stone & bronze-domed forge-mill
+          addColoredBox(tp, 0.84, 0.54, 0.84, 0, 0.51, 0, pal.wall0);
+          addColoredBox(tp, 0.74, 0.48, 0.74, 0, 1.02, 0, pal.wall0);
+          addColoredBox(tp, 0.86, 0.08, 0.86, 0, 0.78, 0, pal.trim0);
+          addColoredBox(tp, 0.78, 0.20, 0.78, 0, 1.36, 0, pal.roof0);
+          addColoredBox(tp, 0.52, 0.22, 0.52, 0, 1.56, 0, pal.trim0);
+        } else if (raceIdx === 3) {
+          // Lizardfolk: stepped Mesoamerican sun-pylon mill with jade trim
+          addColoredBox(tp, 0.86, 0.36, 0.86, 0, 0.42, 0, pal.wall0);
+          addColoredBox(tp, 0.68, 0.38, 0.68, 0, 0.79, 0, pal.wall0);
+          addColoredBox(tp, 0.54, 0.38, 0.54, 0, 1.17, 0, pal.wall0);
+          addColoredBox(tp, 0.72, 0.06, 0.72, 0, 0.60, 0, pal.trim0);
+          addColoredBox(tp, 0.58, 0.06, 0.58, 0, 0.98, 0, pal.trim0);
+          addColoredBox(tp, 0.44, 0.16, 0.44, 0, 1.44, 0, pal.roof0);
+        } else if (raceIdx === 4) {
+          // Orc: iron-spiked timber war-mill with crimson banner roof
+          addColoredBox(tp, 0.76, 0.56, 0.76, 0, 0.52, 0, pal.wall0);
+          addColoredBox(tp, 0.64, 0.54, 0.64, 0, 1.07, 0, pal.wall0);
+          addColoredBox(tp, 0.80, 0.08, 0.80, 0, 0.80, 0, pal.trim0);
+          addColoredBox(tp, 0.70, 0.22, 0.70, 0, 1.44, 0, pal.roof0);
+          addColoredBox(tp, 0.10, 0.40, 0.10, -0.34, 1.62, -0.34, pal.trim0);
+          addColoredBox(tp, 0.10, 0.40, 0.10, 0.34, 1.62, -0.34, pal.trim0);
+        } else {
+          // Human: classic timber-framed plaster windmill with red shingled cap
+          addColoredBox(tp, 0.72, 0.56, 0.72, 0, 0.52, 0, pal.wall0);
+          addColoredBox(tp, 0.60, 0.54, 0.60, 0, 1.07, 0, pal.wall0);
+          addColoredBox(tp, 0.76, 0.07, 0.76, 0, 0.80, 0, pal.trim0);
+          addColoredBox(tp, 0.68, 0.18, 0.68, 0, 1.44, 0, pal.roof0);
+          addColoredBox(tp, 0.46, 0.22, 0.46, 0, 1.64, 0, pal.roof0);
+          addColoredBox(tp, 0.22, 0.18, 0.22, 0, 1.84, 0, pal.trim0);
+        }
+        // Door, warm glowing window, grain sacks & rotor axle
+        addColoredBox(tp, 0.22, 0.32, 0.08, 0, 0.22, 0.41, pal.trim0);
+        addColoredBox(tp, 0.16, 0.16, 0.06, 0, 0.96, 0.34, 0xf6c95b);
+        addColoredBox(tp, 0.18, 0.16, 0.14, 0.35, 0.08, 0.35, 0xd9b372);
+        addColoredBox(tp, 0.14, 0.14, 0.26, 0, 1.24, 0.38, pal.trim0);
+
+        // Tier 0 Rotor: classic 4-blade cross sails
+        addColoredBox(bp, 0.16, 0.16, 0.10, 0, 0, 0, pal.trim0);
+        addColoredBox(bp, 0.06, 1.86, 0.04, 0, 0, 0, pal.trim0);
+        addColoredBox(bp, 1.86, 0.06, 0.04, 0, 0, 0, pal.trim0);
+        addColoredBox(bp, 0.22, 0.72, 0.025, 0.14, 0.56, 0.01, pal.sail0);
+        addColoredBox(bp, 0.22, 0.72, 0.025, -0.14, -0.56, 0.01, pal.sail0);
+        addColoredBox(bp, 0.72, 0.22, 0.025, 0.56, -0.14, 0.01, pal.sail0);
+        addColoredBox(bp, 0.72, 0.22, 0.025, -0.56, 0.14, 0.01, pal.sail0);
+      } else if (eraTier === 1) {
+        // TIER 1: Industrial / Steam Era Race-Unique Windmill
+        addColoredBox(tp, 0.92, 0.28, 0.92, 0, 0.14, 0, pal.base1);
+        addColoredBox(tp, 0.74, 0.64, 0.74, 0, 0.60, 0, pal.wall1);
+        addColoredBox(tp, 0.62, 0.64, 0.62, 0, 1.24, 0, pal.wall1);
+        addColoredBox(tp, 0.78, 0.08, 0.78, 0, 0.92, 0, pal.trim1);
+        addColoredBox(tp, 0.68, 0.08, 0.68, 0, 1.54, 0, pal.trim1);
+        addColoredBox(tp, 0.64, 0.24, 0.64, 0, 1.68, 0, pal.roof1);
+        addColoredBox(tp, 0.42, 0.22, 0.42, 0, 1.90, 0, pal.roof1);
+        // Side steam/boiler stack (Dwarf/Orc/Human) or crystal spire (Elf/Lizardfolk)
+        addColoredBox(tp, 0.16, 0.85, 0.16, -0.44, 0.75, -0.20, pal.trim1);
+        addColoredBox(tp, 0.22, 0.12, 0.22, -0.44, 1.22, -0.20, pal.roof1);
+        addColoredBox(tp, 0.20, 0.22, 0.06, 0, 1.10, 0.34, 0xfde047);
+        addColoredBox(tp, 0.16, 0.16, 0.28, 0, 1.38, 0.38, pal.trim1);
+
+        // Tier 1 Rotor: 6-blade industrial/reinforced multi-vane turbine wheel
+        addColoredBox(bp, 0.20, 0.20, 0.12, 0, 0, 0, pal.trim1);
+        for (let k = 0; k < 3; k++) {
+          const ang = (k * Math.PI) / 3;
+          const spar = new THREE.BoxGeometry(0.06, 1.98, 0.04);
+          spar.rotateZ(ang);
+          const vaneA = new THREE.BoxGeometry(0.20, 0.68, 0.03);
+          vaneA.translate(0.12, 0.56, 0.01);
+          vaneA.rotateZ(ang);
+          const vaneB = new THREE.BoxGeometry(0.20, 0.68, 0.03);
+          vaneB.translate(-0.12, -0.56, 0.01);
+          vaneB.rotateZ(ang);
+          const colorize = (g: THREE.BufferGeometry, hex: number) => {
+            const c = new THREE.Color(hex);
+            const count = g.attributes.position.count;
+            const arr = new Float32Array(count * 3);
+            for (let i = 0; i < count; i++) {
+              arr[i * 3] = c.r;
+              arr[i * 3 + 1] = c.g;
+              arr[i * 3 + 2] = c.b;
+            }
+            g.setAttribute('color', new THREE.BufferAttribute(arr, 3));
+            return g;
+          };
+          bp.push(colorize(spar, pal.trim1), colorize(vaneA, pal.sail1), colorize(vaneB, pal.sail1));
+        }
+      } else {
+        // TIER 2: Modern / Info & Sci-Fi Race-Unique Aero-Turbine
+        addColoredBox(tp, 0.72, 0.20, 0.72, 0, 0.10, 0, pal.base2);
+        addColoredBox(tp, 0.30, 1.05, 0.30, 0, 0.72, 0, pal.wall2);
+        addColoredBox(tp, 0.22, 0.95, 0.22, 0, 1.62, 0, pal.wall2);
+        // Glowing race accent strips along pylon
+        addColoredBox(tp, 0.34, 0.08, 0.34, 0, 0.90, 0, pal.trim2);
+        addColoredBox(tp, 0.26, 0.08, 0.26, 0, 1.65, 0, pal.trim2);
+        // Sleek aerodynamic nacelle housing at top
+        addColoredBox(tp, 0.32, 0.30, 0.68, 0, 2.12, 0.10, pal.roof2);
+        addColoredBox(tp, 0.16, 0.12, 0.16, 0, 2.30, -0.10, pal.trim2);
+
+        // Tier 2 Rotor: sleek 3-blade aerospace wind turbine rotor
+        addColoredBox(bp, 0.20, 0.20, 0.24, 0, 0, 0.06, pal.trim2);
+        for (let k = 0; k < 3; k++) {
+          const ang = (k * Math.PI * 2) / 3;
+          const blade = new THREE.BoxGeometry(0.11, 1.24, 0.035);
+          blade.translate(0, 0.64, 0.04);
+          blade.rotateZ(ang);
+          const tip = new THREE.BoxGeometry(0.08, 0.22, 0.04);
+          tip.translate(0, 1.18, 0.04);
+          tip.rotateZ(ang);
+          const colorize = (g: THREE.BufferGeometry, hex: number) => {
+            const c = new THREE.Color(hex);
+            const count = g.attributes.position.count;
+            const arr = new Float32Array(count * 3);
+            for (let i = 0; i < count; i++) {
+              arr[i * 3] = c.r;
+              arr[i * 3 + 1] = c.g;
+              arr[i * 3 + 2] = c.b;
+            }
+            g.setAttribute('color', new THREE.BufferAttribute(arr, 3));
+            return g;
+          };
+          bp.push(colorize(blade, pal.sail2), colorize(tip, pal.trim2));
+        }
+      }
+
+      windmillTowers.push(finalizeMergedParts(tp));
+      windmillBladesVariants.push(finalizeMergedParts(bp));
+    }
+  }
+
+  // 2b-iii. Heavy Industrial Mining & Quarry Facilities (4 bespoke structures)
+  //   0: Early Quarry Timber & Iron Derrick Crane (Epoch 1-2)
+  //   1: Heavy Industrial Yellow-Steel Tower Crane with Counterweight & Hoisted Ore Bucket (Epoch 3+)
+  //   2: Industrial Ore Crusher, Hopper & Heavy-Metal Steel Ingot Rack
+  //   3: Tracked Quarry Excavator & Heavy Steel Girder Stockpile
+  const miningFacilities: THREE.BufferGeometry[] = [];
+  {
+    // 0: Timber & Iron Quarry Derrick Crane
     const p: THREE.BufferGeometry[] = [];
-    // Plowed dark-earth ridges & golden wheat crop rows
-    for (let r = -1; r <= 1; r++) {
-      const rz = r * 0.24;
-      addColoredBox(p, 0.72, 0.05, 0.12, 0, 0.025, rz, 0x5c3e26);
-      const wheatHeight = 0.18 + ((v + r + 2) % 3) * 0.04;
-      const wheatColor = (v + r) % 2 === 0 ? 0xe9b44c : 0xdba13a;
-      addColoredBox(p, 0.66, wheatHeight, 0.08, 0, 0.05 + wheatHeight * 0.5, rz, wheatColor);
+    addColoredBox(p, 0.86, 0.16, 0.86, 0, 0.08, 0, 0x6b665e);
+    addColoredBox(p, 0.16, 1.45, 0.16, -0.18, 0.82, 0, 0x6b442a);
+    addColoredBox(p, 0.12, 0.12, 1.25, -0.18, 1.48, 0.45, 0x7c5032);
+    // Iron pulley & hanging stone block
+    addColoredBox(p, 0.05, 0.62, 0.05, -0.18, 1.15, 0.98, 0x3f3f46);
+    addColoredBox(p, 0.30, 0.26, 0.30, -0.18, 0.72, 0.98, 0x8f8b82);
+    addColoredBox(p, 0.28, 0.22, 0.28, 0.24, 0.22, -0.20, 0x52525b);
+    miningFacilities.push(finalizeMergedParts(p));
+  }
+  {
+    // 1: Heavy Industrial Steel Tower Crane (real-life yellow-steel lattice mast, jib boom, cab, counterweight, ore hoist)
+    const p: THREE.BufferGeometry[] = [];
+    // Reinforced concrete & dark-steel base plinth
+    addColoredBox(p, 0.94, 0.20, 0.94, 0, 0.10, 0, 0x52525b);
+    addColoredBox(p, 0.70, 0.16, 0.70, 0, 0.26, 0, 0x27272a);
+    // Tall yellow-steel lattice mast (4 corner struts + cross braces)
+    for (const [sx, sz] of [[-0.14, -0.14], [0.14, -0.14], [-0.14, 0.14], [0.14, 0.14]] as const) {
+      addColoredBox(p, 0.07, 2.05, 0.07, sx, 1.32, sz, 0xeab308);
     }
-    // Corner wooden fence posts & side rail
-    addColoredBox(p, 0.06, 0.22, 0.06, -0.38, 0.11, -0.38, 0x6b442a);
-    addColoredBox(p, 0.06, 0.22, 0.06, 0.38, 0.11, -0.38, 0x6b442a);
-    addColoredBox(p, 0.78, 0.04, 0.04, 0, 0.16, -0.38, 0x855839);
-    if (v % 2 === 0) {
-      // Harvest pumpkin / grain bale
-      addColoredBox(p, 0.14, 0.14, 0.14, 0.32, 0.07, 0.32, 0xe07a2b);
-    } else {
-      // Wooden water trough
-      addColoredBox(p, 0.22, 0.1, 0.12, -0.28, 0.05, 0.34, 0x4ea8de);
+    for (let y = 0.65; y <= 2.15; y += 0.38) {
+      addColoredBox(p, 0.34, 0.05, 0.34, 0, y, 0, 0xca8a04);
     }
-    farmCrop.push(finalizeMergedParts(p));
+    // Operator cab with dark glass + hazard stripe
+    addColoredBox(p, 0.44, 0.36, 0.42, 0.22, 2.05, 0.08, 0xfacc15);
+    addColoredBox(p, 0.22, 0.20, 0.34, 0.36, 2.08, 0.12, 0x38bdf8);
+    // Long horizontal steel jib boom + rear counter-jib + heavy concrete counterweight
+    addColoredBox(p, 0.24, 0.20, 2.25, 0, 2.38, 0.42, 0xeab308);
+    addColoredBox(p, 0.30, 0.14, 0.30, 0, 2.60, 0, 0xca8a04);
+    addColoredBox(p, 0.46, 0.34, 0.44, 0, 2.34, -0.68, 0x71717a);
+    // Steel trolley, hoist cable & suspended heavy-metal iron ore bucket
+    addColoredBox(p, 0.28, 0.12, 0.24, 0, 2.26, 1.24, 0x27272a);
+    addColoredBox(p, 0.04, 1.18, 0.04, 0, 1.66, 1.24, 0x94a3b8);
+    addColoredBox(p, 0.36, 0.28, 0.36, 0, 0.98, 1.24, 0x3f3f46);
+    addColoredBox(p, 0.28, 0.12, 0.28, 0, 1.14, 1.24, 0xd97706);
+    miningFacilities.push(finalizeMergedParts(p));
+  }
+  {
+    // 2: Industrial Ore Crusher, Hopper & Heavy-Metal Steel Ingot Rack
+    const p: THREE.BufferGeometry[] = [];
+    // Heavy bolted gunmetal chassis
+    addColoredBox(p, 0.92, 0.24, 0.88, 0, 0.12, 0, 0x27272a);
+    addColoredBox(p, 0.78, 0.56, 0.68, -0.06, 0.52, 0, 0x3f3f46);
+    // Hazard-yellow safety trim & steel funnel hopper filled with glowing ore
+    addColoredBox(p, 0.82, 0.07, 0.72, -0.06, 0.80, 0, 0xeab308);
+    addColoredBox(p, 0.62, 0.26, 0.56, -0.06, 0.96, 0, 0x52525b);
+    addColoredBox(p, 0.48, 0.14, 0.44, -0.06, 1.06, 0, 0xf59e0b);
+    // Twin industrial exhaust pipes + glowing smelter grate
+    addColoredBox(p, 0.12, 0.75, 0.12, -0.34, 1.08, -0.26, 0x18181b);
+    addColoredBox(p, 0.12, 0.62, 0.12, -0.18, 1.02, -0.26, 0x27272a);
+    addColoredBox(p, 0.30, 0.22, 0.06, -0.06, 0.44, 0.36, 0xf97316);
+    // Conveyor chute & stacked heavy-metal steel beams on the side
+    addColoredBox(p, 0.22, 0.12, 0.52, 0.36, 0.34, 0.14, 0x64748b);
+    addColoredBox(p, 0.12, 0.10, 0.58, 0.36, 0.09, -0.18, 0x94a3b8);
+    addColoredBox(p, 0.12, 0.10, 0.58, 0.46, 0.09, -0.18, 0x71717a);
+    miningFacilities.push(finalizeMergedParts(p));
+  }
+  {
+    // 3: Tracked Quarry Excavator & Heavy-Metal Steel Girder Yard
+    const p: THREE.BufferGeometry[] = [];
+    // Heavy black steel treads
+    addColoredBox(p, 0.22, 0.20, 0.84, -0.28, 0.10, 0, 0x18181b);
+    addColoredBox(p, 0.22, 0.20, 0.84, 0.28, 0.10, 0, 0x18181b);
+    // Yellow-steel excavator cab & engine housing
+    addColoredBox(p, 0.62, 0.36, 0.62, 0, 0.38, -0.06, 0xeab308);
+    addColoredBox(p, 0.28, 0.34, 0.34, -0.14, 0.64, 0.04, 0xfacc15);
+    addColoredBox(p, 0.24, 0.20, 0.24, -0.14, 0.68, 0.14, 0x38bdf8);
+    // Articulated hydraulic steel boom & dark-iron digging bucket
+    addColoredBox(p, 0.12, 0.64, 0.12, 0.16, 0.72, 0.26, 0xca8a04);
+    addColoredBox(p, 0.10, 0.12, 0.52, 0.16, 0.96, 0.52, 0xeab308);
+    addColoredBox(p, 0.10, 0.42, 0.10, 0.16, 0.72, 0.74, 0x3f3f46);
+    addColoredBox(p, 0.28, 0.22, 0.26, 0.16, 0.44, 0.78, 0x27272a);
+    // Stacked heavy steel I-beams & iron ingots beside the excavator
+    addColoredBox(p, 0.64, 0.10, 0.12, -0.10, 0.05, -0.54, 0x64748b);
+    addColoredBox(p, 0.64, 0.10, 0.12, -0.10, 0.15, -0.54, 0x94a3b8);
+    miningFacilities.push(finalizeMergedParts(p));
   }
 
   // 2c. Techno-Modern Sci-Fi Hydroponic Bio-Domes (Atomic -> Orbital & Interstellar Ages)
@@ -2578,6 +2984,106 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     addColoredBox(p, 0.16, 0.1, 0.14, 0.16, 0.05, -0.12, 0x5d676b);
     addColoredBox(p, 0.1, 0.08, 0.1, -0.2, 0.04, 0.18, 0x87628a);
     ambientHighland.push(finalizeMergedParts(p));
+  }
+
+  // Freshwater Lake micro-voxel props (y = 0 aligns with water surface at y ~ 0.295)
+  const ambientLake: THREE.BufferGeometry[] = [];
+  {
+    // Variant 0: Floating lily pad cluster with blooming pink lotus flower
+    const p: THREE.BufferGeometry[] = [];
+    // Primary notched lily pad
+    addColoredBox(p, 0.24, 0.022, 0.20, -0.10, 0.012, -0.08, 0x2f7d44);
+    addColoredBox(p, 0.10, 0.022, 0.10, -0.20, 0.012, -0.02, 0x3b9452);
+    // Secondary lily pads
+    addColoredBox(p, 0.18, 0.02, 0.18, 0.18, 0.011, 0.14, 0x3e9a56);
+    addColoredBox(p, 0.13, 0.018, 0.13, -0.18, 0.010, 0.22, 0x286b3a);
+    // Layered pink-and-gold lotus blossom resting on main pad
+    addColoredBox(p, 0.11, 0.032, 0.11, -0.08, 0.036, -0.08, 0xf472b6);
+    addColoredBox(p, 0.075, 0.045, 0.075, -0.08, 0.052, -0.08, 0xfbcfe8);
+    addColoredBox(p, 0.04, 0.035, 0.04, -0.08, 0.068, -0.08, 0xfacc15);
+    ambientLake.push(finalizeMergedParts(p));
+  }
+  {
+    // Variant 1: Shoreline cattail reed clump, arching sedges & companion lily pad
+    const p: THREE.BufferGeometry[] = [];
+    // Tall cattail stalks rooted down into lakebed
+    addColoredBox(p, 0.036, 0.50, 0.036, -0.20, 0.05, -0.18, 0x3f6f38);
+    addColoredBox(p, 0.062, 0.11, 0.062, -0.20, 0.27, -0.18, 0x6b4226); // cattail head
+    addColoredBox(p, 0.032, 0.42, 0.032, -0.10, 0.01, -0.24, 0x4f8342);
+    addColoredBox(p, 0.056, 0.095, 0.056, -0.10, 0.20, -0.24, 0x5c361e); // cattail head
+    addColoredBox(p, 0.032, 0.36, 0.032, -0.26, -0.02, -0.08, 0x5d944c); // sedge blade
+    addColoredBox(p, 0.03, 0.30, 0.03, -0.04, -0.04, -0.14, 0x6da856); // sedge blade
+    // Small floating lily pad beside reeds
+    addColoredBox(p, 0.16, 0.02, 0.16, 0.18, 0.011, 0.16, 0x36884a);
+    addColoredBox(p, 0.06, 0.03, 0.06, 0.18, 0.032, 0.16, 0xfef9c3); // tiny white water-lily
+    ambientLake.push(finalizeMergedParts(p));
+  }
+  {
+    // Variant 2: Submerged mossy lakebed cobbles + pondweed + floating white water-lily
+    const p: THREE.BufferGeometry[] = [];
+    addColoredBox(p, 0.22, 0.09, 0.18, -0.10, -0.15, 0.06, 0x6b726e); // submerged cobble
+    addColoredBox(p, 0.14, 0.06, 0.14, 0.16, -0.16, -0.12, 0x58665e);
+    addColoredBox(p, 0.08, 0.11, 0.08, -0.12, -0.10, 0.04, 0x3a6f47); // submerged pondweed
+    addColoredBox(p, 0.18, 0.02, 0.16, 0.12, 0.011, 0.10, 0x307e46); // floating pad
+    addColoredBox(p, 0.08, 0.032, 0.08, 0.12, 0.034, 0.10, 0xffffff); // white water-lily
+    addColoredBox(p, 0.035, 0.028, 0.035, 0.12, 0.052, 0.10, 0xfde047); // golden center
+    ambientLake.push(finalizeMergedParts(p));
+  }
+  {
+    // Variant 3: Half-submerged mossy weathered driftwood log + green sprouts + lily pad
+    const p: THREE.BufferGeometry[] = [];
+    addColoredBox(p, 0.44, 0.10, 0.11, -0.02, -0.01, -0.06, 0x6e533b); // weathered log
+    addColoredBox(p, 0.16, 0.07, 0.09, 0.20, -0.03, -0.02, 0x58412d); // submerged end
+    addColoredBox(p, 0.14, 0.04, 0.09, -0.08, 0.05, -0.06, 0x4c8a47); // moss cap
+    addColoredBox(p, 0.04, 0.11, 0.04, -0.14, 0.09, -0.07, 0x6cb256); // tiny sprout
+    addColoredBox(p, 0.15, 0.02, 0.15, 0.14, 0.011, 0.20, 0x3b8f4e); // lily pad
+    ambientLake.push(finalizeMergedParts(p));
+  }
+
+  // Freshwater River micro-voxel props (y = 0 aligns with water surface at y ~ 0.295)
+  const ambientRiver: THREE.BufferGeometry[] = [];
+  {
+    // Variant 0: Moss-capped river stepping stones peeking through the current
+    const p: THREE.BufferGeometry[] = [];
+    addColoredBox(p, 0.24, 0.24, 0.20, -0.12, -0.07, -0.06, 0x70787b); // main river boulder
+    addColoredBox(p, 0.16, 0.045, 0.14, -0.12, 0.06, -0.06, 0x52884b); // damp moss cap
+    addColoredBox(p, 0.17, 0.20, 0.16, 0.18, -0.08, 0.14, 0x838b8e); // secondary stone
+    addColoredBox(p, 0.11, 0.035, 0.10, 0.18, 0.03, 0.14, 0x639856);
+    // Subtle waterline foam flecks hugging the upstream edge
+    addColoredBox(p, 0.08, 0.016, 0.22, -0.25, 0.012, -0.06, 0xd8f5f8);
+    ambientRiver.push(finalizeMergedParts(p));
+  }
+  {
+    // Variant 1: Riverbank rushes, cattails & wet shore cobbles
+    const p: THREE.BufferGeometry[] = [];
+    addColoredBox(p, 0.034, 0.44, 0.034, -0.22, 0.03, -0.16, 0x457b3d);
+    addColoredBox(p, 0.056, 0.095, 0.056, -0.22, 0.22, -0.16, 0x663e24);
+    addColoredBox(p, 0.032, 0.34, 0.032, -0.14, -0.01, -0.24, 0x5b964c);
+    addColoredBox(p, 0.03, 0.28, 0.03, -0.26, -0.03, -0.06, 0x6ca858);
+    addColoredBox(p, 0.16, 0.14, 0.14, 0.12, -0.10, 0.14, 0x7b7e76); // wet pebble
+    addColoredBox(p, 0.11, 0.10, 0.11, -0.04, -0.13, 0.18, 0x928c7a);
+    ambientRiver.push(finalizeMergedParts(p));
+  }
+  {
+    // Variant 2: Submerged river-gravel pebble shoal & trailing aquatic river-moss
+    const p: THREE.BufferGeometry[] = [];
+    addColoredBox(p, 0.20, 0.08, 0.16, -0.14, -0.15, 0.08, 0x827d6e);
+    addColoredBox(p, 0.15, 0.07, 0.15, 0.14, -0.16, -0.10, 0x687272);
+    addColoredBox(p, 0.12, 0.06, 0.10, 0.04, -0.16, 0.18, 0x998e77);
+    addColoredBox(p, 0.24, 0.04, 0.08, -0.02, -0.12, -0.02, 0x3b7644); // trailing river-moss
+    ambientRiver.push(finalizeMergedParts(p));
+  }
+  {
+    // Variant 3: Mid-stream weathered boulder splitting the current with whitewater collar
+    const p: THREE.BufferGeometry[] = [];
+    addColoredBox(p, 0.28, 0.30, 0.24, 0.0, -0.04, 0.0, 0x646e73);
+    addColoredBox(p, 0.18, 0.08, 0.16, 0.02, 0.12, -0.02, 0x7d888c);
+    addColoredBox(p, 0.12, 0.035, 0.10, -0.04, 0.16, 0.02, 0x558c4d); // moss tuft
+    // Crisp whitewater foam wake hugging boulder
+    addColoredBox(p, 0.36, 0.018, 0.07, 0.0, 0.013, -0.15, 0xe8fbff);
+    addColoredBox(p, 0.07, 0.018, 0.32, -0.17, 0.013, 0.0, 0xc9f2f7);
+    addColoredBox(p, 0.14, 0.016, 0.08, 0.16, 0.011, 0.15, 0xbcebf2);
+    ambientRiver.push(finalizeMergedParts(p));
   }
 
   // 6b. Biome-specific Timber Groves (Meadow, Jungle, Taiga, Sakura Blossom, Savanna, Swamp, Highland)
@@ -3611,10 +4117,17 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
   });
 
   const farmCropLod2: THREE.BufferGeometry[] = farmCrop.map((_, idx) => {
+    const cropIdx = Math.floor(idx / 4);
+    const stage = idx % 4;
     const p: THREE.BufferGeometry[] = [];
-    addColoredBox(p, 0.72, 0.06, 0.66, 0, 0.03, 0, 0x5c3e26);
-    addColoredBox(p, 0.66, 0.18, 0.22, 0, 0.14, -0.18, 0xe9b44c);
-    addColoredBox(p, 0.66, 0.18, 0.22, 0, 0.14, 0.18, idx % 2 === 0 ? 0xdba13a : 0xe9b44c);
+    addColoredBox(p, 0.74, 0.06, 0.68, 0, 0.03, 0, stage === 0 ? 0x4b311c : 0x5c3e26);
+    if (stage > 0) {
+      const ripeColors = [0xf2c14e, 0x4ca64c, 0xea6a19, 0xfacc15, 0xf97316, 0x9333ea];
+      const stageColor = stage === 1 ? 0x6ab04c : stage === 2 ? 0x3b8c3b : ripeColors[cropIdx] ?? 0xe9b44c;
+      const h = stage === 1 ? 0.09 : stage === 2 ? 0.16 : 0.24;
+      addColoredBox(p, 0.66, h, 0.24, 0, 0.05 + h * 0.5, -0.18, stageColor);
+      addColoredBox(p, 0.66, h, 0.24, 0, 0.05 + h * 0.5, 0.18, stageColor);
+    }
     return finalizeMergedParts(p);
   });
 
@@ -3721,6 +4234,8 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     ambientVolcanic,
     ambientBlight,
     ambientFloral,
+    ambientLake,
+    ambientRiver,
     coralReef,
     coralReefLod2,
     coralReefBleached,
@@ -3729,6 +4244,9 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     scrapFlotsamLod2,
     atlantisRuin,
     atlantisRuinLod2,
+    windmillTowers,
+    windmillBladesVariants,
+    miningFacilities,
     standardMat: new THREE.MeshStandardMaterial({
       vertexColors: true,
       roughness: 0.78,
@@ -8355,6 +8873,279 @@ export function createBuildingGroup(
     }
   }
 
+  }
+
+  // STAR AGE (Epoch 7 / Interstellar): Bespoke futuristic architectural evolution per race & building role
+  // (Distinct structural silhouettes per race — not recolors of Orbital Age!)
+  if (epochIndex >= 7 && type !== 'rail_station' && type !== 'airport') {
+    while (group.children.length > 0) {
+      group.remove(group.children[0]);
+    }
+    const vShift = ((variant % 3) - 1) * 0.08;
+    const isMonument =
+      type === 'dyson_spire' ||
+      type === 'launch_arcology' ||
+      type === 'ziggurat' ||
+      type === 'guildhall';
+    const isScience =
+      type === 'cyber_institute' ||
+      type === 'observatory' ||
+      type === 'shaman_totem' ||
+      type === 'fission_reactor';
+    const isIndustry =
+      type === 'steam_foundry' ||
+      type === 'dynamo_plant' ||
+      type === 'smeltery' ||
+      type === 'granary';
+    const heightScale = isMonument ? 1.45 : isScience ? 1.22 : isIndustry ? 1.05 : 0.92;
+
+    if (isElf) {
+      // ELF STAR AGE: Celestial Star-Lotus & Floating Astral Spire (sweeping ivory petals + levitating crystal star-core + twin tilted halo rings)
+      const baseLotus = new THREE.Mesh(pxCylinder(0.42, 0.48, 0.14, 8), elfPearlTechMat);
+      baseLotus.position.y = 0.07;
+      baseLotus.castShadow = true;
+      group.add(baseLotus);
+
+      // 4 sweeping upward pearlescent petal-arches
+      for (let i = 0; i < 4; i++) {
+        const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+        const petal = new THREE.Mesh(
+          new THREE.BoxGeometry(0.16, 0.92 * heightScale, 0.07),
+          elfPearlTechMat,
+        );
+        petal.position.set(Math.cos(a) * 0.28, 0.48 * heightScale, Math.sin(a) * 0.28);
+        petal.rotation.y = -a + Math.PI / 2;
+        petal.rotation.x = 0.26;
+        petal.castShadow = true;
+        group.add(petal);
+
+        const tip = new THREE.Mesh(pxCone(0.06, 0.28 * heightScale, 4), elfFiligreeMat);
+        tip.position.set(Math.cos(a) * 0.18, 0.98 * heightScale, Math.sin(a) * 0.18);
+        group.add(tip);
+      }
+
+      // Floating upper star-terrace & levitating crystal star-core
+      const floatCore = new THREE.Mesh(
+        new THREE.OctahedronGeometry(0.18 * (isMonument ? 1.25 : 1), 0),
+        elfAquaGlowMat,
+      );
+      floatCore.position.y = 0.82 * heightScale + vShift;
+      floatCore.name = 'spin_part';
+      group.add(floatCore);
+
+      const haloA = new THREE.Mesh(pxTorus(0.32, 0.028, 6, 16), elfFiligreeMat);
+      haloA.position.y = 0.82 * heightScale;
+      haloA.rotation.set(Math.PI / 3, 0.4, 0);
+      haloA.name = 'spin_part';
+      group.add(haloA);
+
+      if (isMonument || isScience) {
+        const haloB = new THREE.Mesh(pxTorus(0.42, 0.022, 6, 16), elfAquaGlowMat);
+        haloB.position.y = 1.18 * heightScale;
+        haloB.rotation.set(-Math.PI / 3, -0.3, 0.4);
+        haloB.name = 'spin_part';
+        group.add(haloB);
+        const starNeedle = new THREE.Mesh(pxCone(0.05, 0.65 * heightScale, 6), elfAquaGlowMat);
+        starNeedle.position.y = 1.52 * heightScale;
+        group.add(starNeedle);
+      }
+    } else if (isDwarf) {
+      // DWARF STAR AGE: Star-Forge Vault & Gyroscopic Dyson Anvil (heavy octagonal tungsten bastion + interlocking brass-plasma star rings)
+      const plinth = new THREE.Mesh(pxCylinder(0.46, 0.50, 0.22, 8), darkTechMat);
+      plinth.position.y = 0.11;
+      plinth.castShadow = true;
+      group.add(plinth);
+
+      const vault = new THREE.Mesh(
+        pxCylinder(0.38, 0.42, 0.62 * heightScale, 8),
+        orcGunmetalMat,
+      );
+      vault.position.y = 0.22 + 0.31 * heightScale;
+      vault.castShadow = true;
+      group.add(vault);
+
+      // 4 armored golden-bronze buttress ribs & heat-radiator fins
+      for (let i = 0; i < 4; i++) {
+        const a = (i / 4) * Math.PI * 2;
+        const rib = new THREE.Mesh(
+          new THREE.BoxGeometry(0.11, 0.78 * heightScale, 0.14),
+          goldMat,
+        );
+        rib.position.set(Math.cos(a) * 0.38, 0.46 * heightScale, Math.sin(a) * 0.38);
+        rib.rotation.y = -a;
+        rib.castShadow = true;
+        group.add(rib);
+      }
+
+      // Blazing miniature forge-star cradled in a gyroscopic brass containment ring
+      const forgeStar = new THREE.Mesh(
+        pxSphere(0.16 * (isMonument ? 1.25 : 1), 8, 6),
+        neonAmberMat,
+      );
+      forgeStar.position.y = 0.88 * heightScale + 0.22;
+      group.add(forgeStar);
+
+      const gyroRing = new THREE.Mesh(pxTorus(0.30, 0.042, 6, 14), goldMat);
+      gyroRing.position.y = 0.88 * heightScale + 0.22;
+      gyroRing.rotation.x = Math.PI / 2.6;
+      gyroRing.name = 'spin_part';
+      group.add(gyroRing);
+
+      if (isMonument || isIndustry || isScience) {
+        const crownCap = new THREE.Mesh(pxTorus(0.40, 0.032, 6, 12), copperMat);
+        crownCap.position.y = 0.88 * heightScale + 0.22;
+        crownCap.rotation.y = Math.PI / 4;
+        crownCap.rotation.x = -Math.PI / 3;
+        crownCap.name = 'spin_part';
+        group.add(crownCap);
+      }
+    } else if (isLizardfolk) {
+      // LIZARDFOLK STAR AGE: Floating Stepped Solar-Obsidian Ziggurat & Levitating Sun-Prism
+      const step1 = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.20, 0.92), orcBasaltMat);
+      step1.position.y = 0.10;
+      step1.castShadow = true;
+      group.add(step1);
+
+      const step2 = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.24 * heightScale, 0.72), darkTechMat);
+      step2.position.y = 0.20 + 0.12 * heightScale;
+      step2.castShadow = true;
+      group.add(step2);
+
+      // Glowing emerald-jade solar conduits climbing all 4 cardinal staircases
+      for (let i = 0; i < 4; i++) {
+        const a = (i / 4) * Math.PI * 2;
+        const conduit = new THREE.Mesh(
+          new THREE.BoxGeometry(0.08, 0.42 * heightScale, 0.08),
+          elfAquaGlowMat,
+        );
+        conduit.position.set(Math.cos(a) * 0.36, 0.28 * heightScale, Math.sin(a) * 0.36);
+        group.add(conduit);
+
+        // Hovering corner jade obelisk pylons
+        const obelisk = new THREE.Mesh(pxCone(0.06, 0.36 * heightScale, 4), goldMat);
+        obelisk.position.set(
+          Math.cos(a + Math.PI / 4) * 0.42,
+          0.56 * heightScale,
+          Math.sin(a + Math.PI / 4) * 0.42,
+        );
+        group.add(obelisk);
+      }
+
+      // Anti-gravity floating golden solar prism + suspended obsidian capstone hovering above!
+      const solarPrism = new THREE.Mesh(
+        new THREE.OctahedronGeometry(0.18 * (isMonument ? 1.25 : 1), 0),
+        goldMat,
+      );
+      solarPrism.position.y = 0.68 * heightScale + 0.18;
+      solarPrism.name = 'spin_part';
+      group.add(solarPrism);
+
+      const floatCap = new THREE.Mesh(
+        pxCone(0.32, 0.36 * heightScale, 4),
+        orcBasaltMat,
+      );
+      floatCap.rotation.y = Math.PI / 4;
+      floatCap.position.y = 1.04 * heightScale + 0.22;
+      floatCap.castShadow = true;
+      group.add(floatCap);
+
+      const emeraldRing = new THREE.Mesh(pxTorus(0.34, 0.028, 6, 12), elfAquaGlowMat);
+      emeraldRing.position.y = 0.68 * heightScale + 0.18;
+      emeraldRing.rotation.x = Math.PI / 2;
+      emeraldRing.name = 'spin_part';
+      group.add(emeraldRing);
+    } else if (isOrc) {
+      // ORC STAR AGE: Brutalist Dreadnought Star-Bastion & Caged Plasma War-Reactor
+      const bastionBase = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.24, 0.92), orcGunmetalMat);
+      bastionBase.position.y = 0.12;
+      bastionBase.castShadow = true;
+      group.add(bastionBase);
+
+      // Swept-back angular spiked armor wings
+      for (let i = 0; i < 4; i++) {
+        const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+        const wing = new THREE.Mesh(
+          new THREE.BoxGeometry(0.14, 0.84 * heightScale, 0.24),
+          orcIronMat,
+        );
+        wing.position.set(Math.cos(a) * 0.34, 0.50 * heightScale, Math.sin(a) * 0.34);
+        wing.rotation.y = -a;
+        wing.rotation.z = 0.18;
+        wing.castShadow = true;
+        group.add(wing);
+
+        const spike = new THREE.Mesh(pxCone(0.065, 0.32 * heightScale, 4), orcCrimsonMat);
+        spike.position.set(Math.cos(a) * 0.38, 1.02 * heightScale, Math.sin(a) * 0.38);
+        group.add(spike);
+      }
+
+      // Roaring caged magma-star plasma core + jagged rotating containment ring
+      const warCore = new THREE.Mesh(
+        pxSphere(0.19 * (isMonument ? 1.25 : 1), 7, 6),
+        orcMagmaGlowMat,
+      );
+      warCore.position.y = 0.66 * heightScale + 0.14;
+      group.add(warCore);
+
+      const bladeRing = new THREE.Mesh(pxTorus(0.32, 0.045, 5, 10), orcCrimsonMat);
+      bladeRing.position.y = 0.66 * heightScale + 0.14;
+      bladeRing.rotation.x = Math.PI / 2;
+      bladeRing.name = 'spin_part';
+      group.add(bladeRing);
+
+      if (isMonument || isScience) {
+        const warSpire = new THREE.Mesh(pxCylinder(0.06, 0.11, 0.72 * heightScale, 6), orcMagmaGlowMat);
+        warSpire.position.y = 1.22 * heightScale;
+        group.add(warSpire);
+      }
+    } else {
+      // HUMAN STAR AGE: Sleek Solarpunk Titanium Arcology with Cantilevered Sky-Fins & Floating Magnetic Halo
+      const deck = new THREE.Mesh(pxCylinder(0.46, 0.50, 0.14, 12), darkTechMat);
+      deck.position.y = 0.07;
+      deck.castShadow = true;
+      group.add(deck);
+
+      // Sculpted curved cobalt-glass hyper-atrium core
+      const atrium = new THREE.Mesh(
+        pxCylinder(0.24, 0.34, 0.88 * heightScale, 10),
+        glassCurtainMat,
+      );
+      atrium.position.y = 0.14 + 0.44 * heightScale;
+      atrium.castShadow = true;
+      group.add(atrium);
+
+      // 3 dramatic cantilevered white-titanium aerospace arcology fins
+      for (let i = 0; i < 3; i++) {
+        const a = (i / 3) * Math.PI * 2 + variant * 0.6;
+        const fin = new THREE.Mesh(
+          new THREE.BoxGeometry(0.10, 1.05 * heightScale, 0.28),
+          techMat,
+        );
+        fin.position.set(Math.cos(a) * 0.28, 0.58 * heightScale, Math.sin(a) * 0.28);
+        fin.rotation.y = -a + Math.PI / 2;
+        fin.castShadow = true;
+        group.add(fin);
+      }
+
+      // Floating cyan magnetic gravity-ring orbiting the upper arcology
+      const gravRing = new THREE.Mesh(pxTorus(0.36, 0.032, 6, 16), glowCyanMat);
+      gravRing.position.y = 0.88 * heightScale + 0.14;
+      gravRing.rotation.x = Math.PI / 2;
+      gravRing.name = 'spin_part';
+      group.add(gravRing);
+
+      // Sky-port crown & vertical holo-beacon spire
+      const crown = new THREE.Mesh(pxCylinder(0.20, 0.24, 0.10, 10), techMat);
+      crown.position.y = 1.06 * heightScale + 0.14;
+      group.add(crown);
+
+      const beacon = new THREE.Mesh(
+        pxCylinder(0.03, 0.05, (isMonument ? 0.85 : 0.45) * heightScale, 6),
+        glowCyanMat,
+      );
+      beacon.position.y = 1.12 * heightScale + (isMonument ? 0.56 : 0.36);
+      group.add(beacon);
+    }
   }
 
   finalizeStaticBuildingMeshes(group);
@@ -13847,17 +14638,18 @@ export function createUnitGroup(
       : 0.58;
   group.add(createContactShadow(shadowRadius));
 
-  // 1. Diverse multi-ethnic skin tones per race
+  // 1. Diverse multi-ethnic skin tones per race (interleaved so even small groups span the full spectrum)
   const humanSkins = [
-    0xf8dcc8, // pale ivory
-    0xecc1a1, // warm peach
+    0xf5d6be, // pale ivory
+    0x8a5029, // rich caramel brown
     0xdba67b, // golden olive
-    0xc48a54, // warm tan
-    0xa5693c, // rich bronze
-    0x885028, // caramel brown
-    0x6c3d1e, // chestnut umber
     0x4e2b16, // deep mahogany
-    0x371d0f, // dark espresso
+    0xc48a54, // warm tan
+    0x381d0f, // dark espresso
+    0xecc1a1, // warm peach
+    0x6c3d1e, // chestnut umber
+    0xa5693c, // warm bronze
+    0x5d341a, // deep sienna
   ];
   const elfSkins = [
     0xfaeadc, // moonlit porcelain
@@ -13880,12 +14672,13 @@ export function createUnitGroup(
     0x8f825b, // dune tan
   ];
   const dwarfSkins = [
-    0xf0c2a0, // warm forge fair
-    0xdca178, // ruddy copper
-    0xc5855c, // hearth bronze
-    0xa66e4c, // stone-tanned
-    0x8f6b58, // deep mountain umber
-    0x7e838a, // iron-bearded slate
+    0x8a5436, // deep hearth bronze
+    0x633925, // forge-tanned umber
+    0x75442b, // roasted chestnut
+    0x4a2a1c, // smoked espresso
+    0x6e4733, // burnished copper-brown
+    0x522f20, // dark ironwood brown
+    0x5c4f49, // deep mountain slate-umber
   ];
   const lizardfolkSkins = [
     0x10b981, // emerald jade
@@ -15123,6 +15916,156 @@ function buildVehicleGroupInner(
     const isModern = epochLevel === 5;
     const isBus = epochLevel >= 4 && variant % 4 === 0;
     const isHover = epochLevel >= 6;
+
+    // STAR AGE (Epoch 7+): Bespoke race-unique Hybrid Land & Flying Cruisers (distinct silhouettes per race!)
+    if (epochLevel >= 7) {
+      if (isElf) {
+        // ELF STAR-MANTA SKIMMER: sweeping pearlescent crescent wings, golden filigree prow & floating aqua star-core
+        const pearlMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.18, metalness: 0.42 });
+        const goldMat = new THREE.MeshStandardMaterial({ color: 0xfbbf24, roughness: 0.2, metalness: 0.85 });
+        const body = new THREE.Mesh(pxCone(0.10, 0.48, 6), pearlMat);
+        body.rotation.x = Math.PI / 2;
+        body.scale.set(1.25, 0.55, 1);
+        body.position.set(0, 0.15, 0.02);
+        body.castShadow = true;
+        group.add(body);
+        for (const side of [-1, 1]) {
+          const wing = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.025, 0.22), pearlMat);
+          wing.position.set(side * 0.16, 0.15, -0.04);
+          wing.rotation.y = side * -0.42;
+          wing.rotation.z = side * 0.14;
+          group.add(wing);
+          const trim = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.02, 0.03), goldMat);
+          trim.position.set(side * 0.16, 0.16, 0.05);
+          trim.rotation.y = side * -0.42;
+          group.add(trim);
+        }
+        const halo = new THREE.Mesh(pxTorus(0.12, 0.02, 6, 14), glowMat);
+        halo.rotation.x = Math.PI / 2;
+        halo.position.set(0, 0.09, -0.02);
+        group.add(halo);
+        const core = new THREE.Mesh(new THREE.OctahedronGeometry(0.065, 0), glowMat);
+        core.position.set(0, 0.22, -0.02);
+        group.add(core);
+        return group;
+      }
+
+      if (species === 'dwarf') {
+        // DWARF HOVER-IRONCLAD CRUISER: armored gunmetal-and-gold hull with twin side brass gyro-thruster pods
+        const armorMat = new THREE.MeshStandardMaterial({ color: 0x3f3f46, roughness: 0.35, metalness: 0.82 });
+        const brassMat = new THREE.MeshStandardMaterial({ color: 0xd97706, roughness: 0.25, metalness: 0.85 });
+        const amberGlow = new THREE.MeshStandardMaterial({ color: 0xfbbf24, emissive: 0xf59e0b, emissiveIntensity: 0.9 });
+        const hull = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.12, 0.44), armorMat);
+        hull.position.set(0, 0.14, 0);
+        hull.castShadow = true;
+        group.add(hull);
+        const canopy = new THREE.Mesh(new THREE.BoxGeometry(0.20, 0.07, 0.20), brassMat);
+        canopy.position.set(0, 0.22, 0.02);
+        group.add(canopy);
+        for (const side of [-1, 1]) {
+          const pod = new THREE.Mesh(pxCylinder(0.055, 0.065, 0.26, 8), brassMat);
+          pod.rotation.x = Math.PI / 2;
+          pod.position.set(side * 0.18, 0.13, -0.04);
+          group.add(pod);
+          const nozzle = new THREE.Mesh(pxTorus(0.048, 0.016, 6, 10), amberGlow);
+          nozzle.rotation.x = Math.PI / 2;
+          nozzle.position.set(side * 0.18, 0.08, -0.04);
+          group.add(nozzle);
+        }
+        const grille = new THREE.Mesh(new THREE.BoxGeometry(0.20, 0.05, 0.04), amberGlow);
+        grille.position.set(0, 0.13, 0.23);
+        group.add(grille);
+        return group;
+      }
+
+      if (species === 'lizardfolk') {
+        // LIZARDFOLK SOLAR-SERPENT GLIDER: obsidian-and-gold stepped prow with splayed emerald-jade sun-wings
+        const obsMat = new THREE.MeshStandardMaterial({ color: 0x1c1917, roughness: 0.28, metalness: 0.65 });
+        const goldMat = new THREE.MeshStandardMaterial({ color: 0xeab308, roughness: 0.22, metalness: 0.85 });
+        const jadeGlow = new THREE.MeshStandardMaterial({ color: 0x34d399, emissive: 0x10b981, emissiveIntensity: 0.95 });
+        const spine = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.09, 0.48), obsMat);
+        spine.position.set(0, 0.15, 0);
+        spine.castShadow = true;
+        group.add(spine);
+        const crest = new THREE.Mesh(pxCone(0.07, 0.18, 4), goldMat);
+        crest.rotation.x = Math.PI / 2;
+        crest.position.set(0, 0.16, 0.26);
+        group.add(crest);
+        for (const side of [-1, 1]) {
+          const sunWing = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.025, 0.16), goldMat);
+          sunWing.position.set(side * 0.17, 0.16, -0.02);
+          sunWing.rotation.y = side * 0.35;
+          group.add(sunWing);
+          const jadeStrip = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.03, 0.04), jadeGlow);
+          jadeStrip.position.set(side * 0.16, 0.17, -0.02);
+          jadeStrip.rotation.y = side * 0.35;
+          group.add(jadeStrip);
+        }
+        const sunDisk = new THREE.Mesh(pxTorus(0.13, 0.02, 6, 12), jadeGlow);
+        sunDisk.rotation.x = Math.PI / 2;
+        sunDisk.position.set(0, 0.09, 0);
+        group.add(sunDisk);
+        return group;
+      }
+
+      if (isOrc) {
+        // ORC STAR-INTERCEPTOR: spiked gunmetal & crimson hybrid war-speeder with forward prongs & roaring plasma jets
+        const steelMat = new THREE.MeshStandardMaterial({ color: 0x27272a, roughness: 0.48, metalness: 0.82 });
+        const crimsonMat = new THREE.MeshStandardMaterial({ color: 0xb91c1c, roughness: 0.38, metalness: 0.55 });
+        const plasmaGlow = new THREE.MeshStandardMaterial({ color: 0xf97316, emissive: 0xea580c, emissiveIntensity: 1.0 });
+        const chassis = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.11, 0.42), steelMat);
+        chassis.position.set(0, 0.14, -0.02);
+        chassis.castShadow = true;
+        group.add(chassis);
+        const armorTop = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.06, 0.24), crimsonMat);
+        armorTop.position.set(0, 0.21, -0.04);
+        group.add(armorTop);
+        for (const side of [-1, 1]) {
+          const prong = new THREE.Mesh(pxCone(0.038, 0.22, 4), steelMat);
+          prong.rotation.x = Math.PI / 2;
+          prong.position.set(side * 0.11, 0.13, 0.26);
+          group.add(prong);
+          const jet = new THREE.Mesh(pxCylinder(0.045, 0.055, 0.20, 6), steelMat);
+          jet.rotation.x = Math.PI / 2;
+          jet.position.set(side * 0.16, 0.14, -0.18);
+          group.add(jet);
+          const flame = new THREE.Mesh(pxSphere(0.042, 6, 5), plasmaGlow);
+          flame.position.set(side * 0.16, 0.13, -0.29);
+          group.add(flame);
+        }
+        return group;
+      }
+
+      // HUMAN STAR AGE AERO-CRUISER: sleek white-titanium & cobalt-glass hybrid land/sky vehicle with swept aero-fins & ventral cyan thrusters
+      const tiMat = new THREE.MeshStandardMaterial({ color: 0xf1f5f9, roughness: 0.18, metalness: 0.55 });
+      const glassMat = new THREE.MeshStandardMaterial({ color: 0x0284c7, roughness: 0.12, metalness: 0.85 });
+      const cyanGlow = new THREE.MeshStandardMaterial({ color: 0x38bdf8, emissive: 0x0ea5e9, emissiveIntensity: 1.0 });
+      const fuselage = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.085, 0.46), tiMat);
+      fuselage.position.set(0, 0.14, 0);
+      fuselage.castShadow = true;
+      group.add(fuselage);
+      const canopy = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.065, 0.24), glassMat);
+      canopy.position.set(0, 0.20, 0.02);
+      group.add(canopy);
+      for (const side of [-1, 1]) {
+        const aeroWing = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.025, 0.20), tiMat);
+        aeroWing.position.set(side * 0.17, 0.13, -0.05);
+        aeroWing.rotation.y = side * -0.28;
+        group.add(aeroWing);
+        const tailFin = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.09, 0.12), tiMat);
+        tailFin.position.set(side * 0.13, 0.20, -0.19);
+        tailFin.rotation.z = side * -0.25;
+        group.add(tailFin);
+        const thrusterRing = new THREE.Mesh(pxTorus(0.045, 0.015, 6, 10), cyanGlow);
+        thrusterRing.rotation.x = Math.PI / 2;
+        thrusterRing.position.set(side * 0.14, 0.085, -0.02);
+        group.add(thrusterRing);
+      }
+      const lightBar = new THREE.Mesh(new THREE.BoxGeometry(0.20, 0.028, 0.025), cyanGlow);
+      lightBar.position.set(0, 0.14, 0.24);
+      group.add(lightBar);
+      return group;
+    }
 
     if (isElf) {
       // Majestic Elf Sylvan Swan-Skiff: levitating ivory-and-gold curved gondola with sweeping lotus prows & floating crystal orb

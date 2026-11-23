@@ -49,6 +49,7 @@ export const RESOURCE_NODE_TO_CODE: Record<ResourceNodeType, number> = {
   coral_reef: 6,
   scrap_flotsam: 7,
   atlantis_ruin: 8,
+  ancient_ruin: 9,
 };
 
 export interface WorldGridBuffers {

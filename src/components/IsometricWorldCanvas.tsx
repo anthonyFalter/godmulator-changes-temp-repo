@@ -66,6 +66,10 @@ import {
   createWorldUnderglowSystem,
   createZoneOverlaySystem,
 } from '../game/skyAndSea';
+import { createAmbientFaunaSystem } from '../game/ambientFauna';
+import { createCitizenBubbleSystem } from '../game/citizenBubbles';
+import { createSpectacleEffectsSystem } from '../game/spectacleEffects';
+import { createMonumentsSystem } from '../game/monumentsSystem';
 import {
   DEFAULT_GRAPHICS_SETTINGS,
   ResolvedGraphicsProfile,
@@ -180,7 +184,7 @@ interface IsometricWorldCanvasProps {
     kingdomColors?: Record<string, string>;
     warFrontArrows?: WarFrontArrowData[];
   };
-  onTileInteract: (tileX: number, tileZ: number) => void;
+  onTileInteract: (tileX: number, tileZ: number, options?: { flattenHeightOverride?: number }) => void;
   onHoverTileChange: (tile: { x: number; z: number } | null) => void;
   onHoverEntityChange?: (unitId: string | null) => void;
   onSelectEntity?: (unitId: string | null) => void;
@@ -461,6 +465,89 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
     oceanFoam.updateMap(sim.tiles);
     worldGroup.add(oceanFoam.mesh);
 
+    // 3D stackable elevated liquid volumes (mountain crater lakes, lava calderas, poison basins)
+    const ELEVATED_LIQUID_CAP = Math.min(8192, sim.tiles.length);
+    const elevatedLiquidGeo = new THREE.BoxGeometry(1.01, 1.0, 1.01);
+    const elevatedWaterMat = new THREE.MeshStandardMaterial({
+      color: new THREE.Color('#2eb8e6'),
+      emissive: new THREE.Color('#0284c7'),
+      emissiveIntensity: 0.22,
+      roughness: 0.14,
+      metalness: 0.12,
+      transparent: true,
+      opacity: 0.82,
+      depthWrite: false,
+    });
+    const elevatedLavaMat = new THREE.MeshStandardMaterial({
+      color: new THREE.Color('#ff5a00'),
+      emissive: new THREE.Color('#ff2e00'),
+      emissiveIntensity: 0.88,
+      roughness: 0.32,
+      metalness: 0.05,
+    });
+    const elevatedPoisonMat = new THREE.MeshStandardMaterial({
+      color: new THREE.Color('#84cc16'),
+      emissive: new THREE.Color('#4d7c0f'),
+      emissiveIntensity: 0.52,
+      roughness: 0.2,
+      metalness: 0.08,
+      transparent: true,
+      opacity: 0.88,
+      depthWrite: false,
+    });
+    const elevatedWaterInst = new THREE.InstancedMesh(elevatedLiquidGeo, elevatedWaterMat, ELEVATED_LIQUID_CAP);
+    const elevatedLavaInst = new THREE.InstancedMesh(elevatedLiquidGeo, elevatedLavaMat, ELEVATED_LIQUID_CAP);
+    const elevatedPoisonInst = new THREE.InstancedMesh(elevatedLiquidGeo, elevatedPoisonMat, ELEVATED_LIQUID_CAP);
+    elevatedWaterInst.count = 0;
+    elevatedLavaInst.count = 0;
+    elevatedPoisonInst.count = 0;
+    elevatedWaterInst.visible = false;
+    elevatedLavaInst.visible = false;
+    elevatedPoisonInst.visible = false;
+    elevatedWaterInst.frustumCulled = false;
+    elevatedLavaInst.frustumCulled = false;
+    elevatedPoisonInst.frustumCulled = false;
+    elevatedWaterInst.renderOrder = -4;
+    elevatedLavaInst.renderOrder = -4;
+    elevatedPoisonInst.renderOrder = -4;
+    const elevatedLiquidGroup = new THREE.Group();
+    elevatedLiquidGroup.add(elevatedWaterInst, elevatedLavaInst, elevatedPoisonInst);
+    worldGroup.add(elevatedLiquidGroup);
+    const _elevLiquidDummy = new THREE.Object3D();
+    const syncElevatedLiquids = (tiles: typeof sim.tiles) => {
+      let wCount = 0;
+      let lCount = 0;
+      let pCount = 0;
+      for (let i = 0; i < tiles.length; i++) {
+        const t = tiles[i];
+        const lvl = t.liquidLevel ?? 0;
+        if (lvl <= t.height) continue;
+        const floorY = t.height <= 0 ? 0.12 : t.height * 0.45 + 0.25;
+        const topY = lvl * 0.45 + 0.16;
+        const thick = Math.max(0.18, topY - floorY + 0.04);
+        _elevLiquidDummy.position.set(t.x, floorY - 0.04 + thick * 0.5, t.z);
+        _elevLiquidDummy.scale.set(1, thick, 1);
+        _elevLiquidDummy.updateMatrix();
+        if (t.liquidKind === 'lava') {
+          if (lCount < ELEVATED_LIQUID_CAP) elevatedLavaInst.setMatrixAt(lCount++, _elevLiquidDummy.matrix);
+        } else if (t.liquidKind === 'poison') {
+          if (pCount < ELEVATED_LIQUID_CAP) elevatedPoisonInst.setMatrixAt(pCount++, _elevLiquidDummy.matrix);
+        } else {
+          if (wCount < ELEVATED_LIQUID_CAP) elevatedWaterInst.setMatrixAt(wCount++, _elevLiquidDummy.matrix);
+        }
+      }
+      elevatedWaterInst.count = wCount;
+      elevatedWaterInst.visible = wCount > 0;
+      if (wCount > 0) elevatedWaterInst.instanceMatrix.needsUpdate = true;
+      elevatedLavaInst.count = lCount;
+      elevatedLavaInst.visible = lCount > 0;
+      if (lCount > 0) elevatedLavaInst.instanceMatrix.needsUpdate = true;
+      elevatedPoisonInst.count = pCount;
+      elevatedPoisonInst.visible = pCount > 0;
+      if (pCount > 0) elevatedPoisonInst.instanceMatrix.needsUpdate = true;
+    };
+    syncElevatedLiquids(sim.tiles);
+
     const zoneOverlay = createZoneOverlaySystem(sim.gridSize);
     if (propsRef.current.zoneOverlayBuffers?.anyActive) {
       zoneOverlay.updateMap(sim.tiles);
@@ -473,6 +560,18 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
     const skyClouds = createSkyCloudSystem(sim.gridSize);
     worldGroup.add(skyClouds.shadowGroup);
     worldGroup.add(skyClouds.group);
+
+    const ambientFauna = createAmbientFaunaSystem(sim.gridSize, sim.tiles);
+    worldGroup.add(ambientFauna.group);
+
+    const citizenBubbles = createCitizenBubbleSystem();
+    worldGroup.add(citizenBubbles.group);
+
+    const spectacleEffects = createSpectacleEffectsSystem(sim.tiles);
+    worldGroup.add(spectacleEffects.group);
+
+    const monuments = createMonumentsSystem();
+    worldGroup.add(monuments.group);
 
     // Frustum-culled 32x32 hidden-face-culled greedy-meshed terrain chunk system
     // (100% pixel-identical to individual blocks via world-space styledTerrain shaders!)
@@ -528,6 +627,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
     const tileCurrentY = new Float32Array(sim.tiles.length);
     const tileRenderY = new Float32Array(sim.tiles.length);
     const tilePropSig = new Int32Array(sim.tiles.length);
+    const tileLiquidSig = new Int32Array(sim.tiles.length);
     const tileLastNodeY = new Float32Array(sim.tiles.length);
     const tileTerrainCode = new Int8Array(sim.tiles.length).fill(-1);
     const tileHadHazard = new Uint8Array(sim.tiles.length);
@@ -690,7 +790,46 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       nodesGroup.add(propBatches[i].group);
     }
 
-    // Collapse all 17 ambient biome detail groups into 1 BatchedMesh draw call!
+    // Race-unique & Era-evolving Farm Windmills (15 towers + 15 spinning rotors in 2 BatchedMesh draw calls!)
+    const windmillTowerPool = new BatchedStaticPool(
+      'batched_windmill_towers',
+      variantLib.standardMat,
+      variantLib.windmillTowers,
+      true,
+      true,
+      64,
+    );
+    const windmillBladesPool = new BatchedStaticPool(
+      'batched_windmill_blades',
+      variantLib.standardMat,
+      variantLib.windmillBladesVariants,
+      true,
+      true,
+      64,
+    );
+    // Heavy Industrial Mining & Quarry Facilities (cranes, ore crushers, tracked excavators in 1 BatchedMesh draw call!)
+    const miningFacilityPool = new BatchedStaticPool(
+      'batched_mining_facilities',
+      variantLib.standardMat,
+      variantLib.miningFacilities,
+      true,
+      true,
+      128,
+    );
+    nodesGroup.add(windmillTowerPool.group);
+    nodesGroup.add(windmillBladesPool.group);
+    nodesGroup.add(miningFacilityPool.group);
+
+    const _wmQuat = new THREE.Quaternion();
+    const _wmSpinQuat = new THREE.Quaternion();
+    const _wmEuler = new THREE.Euler();
+    const _wmPos = new THREE.Vector3();
+    const _wmScale = new THREE.Vector3(1, 1, 1);
+    const _wmMat = new THREE.Matrix4();
+    const _wmMatBuf = new Float32Array(16);
+    const _wmAxisZ = new THREE.Vector3(0, 0, 1);
+
+    // Collapse all 19 ambient biome & freshwater detail groups into 1 BatchedMesh draw call!
     const ambSourceLists: THREE.BufferGeometry[][] = [
       variantLib.ambientGrass,
       variantLib.ambientForest,
@@ -709,6 +848,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       variantLib.ambientVolcanic,
       variantLib.ambientBlight,
       variantLib.ambientFloral,
+      variantLib.ambientLake,
+      variantLib.ambientRiver,
     ];
     const ambBatchGeos: THREE.BufferGeometry[] = [];
     const ambGeoIdx: number[][] = [];
@@ -955,6 +1096,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       coral_reef: 6,
       scrap_flotsam: 7,
       atlantis_ruin: 8,
+      ancient_ruin: 9,
     };
 
     interface BuildingMeshEntry {
@@ -5287,6 +5429,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           blossom_rain: { primary: 0xf472b6, secondary: 0xfbcfe8, streak: 0xf9a8d4, impactHex: '#f472b6', secondaryHex: '#fef08a', geo: sharedSkySeedGeo, emissive: 0.72, sway: 0.55, dur: 0.54 },
           floral_rain: { primary: 0xfacc15, secondary: 0xf472b6, streak: 0x86efac, impactHex: '#f472b6', secondaryHex: '#4ade80', geo: sharedSkySeedGeo, emissive: 0.78, sway: 0.62, dur: 0.52 },
           plant_forest: { primary: 0x84cc16, secondary: 0x22c55e, streak: 0xbef264, impactHex: '#4ade80', secondaryHex: '#bef264', geo: sharedSkySeedGeo, emissive: 0.58, sway: 0.42, dur: 0.48 },
+          water_drop: { primary: 0x38bdf8, secondary: 0x0ea5e9, streak: 0xbae6fd, impactHex: '#38bdf8', secondaryHex: '#e0f2fe', geo: sharedSkySeedGeo, emissive: 0.75, sway: 0.12, dur: 0.34 },
         };
         const cfg = palette[kind] ?? palette.seed_ore;
 
@@ -5457,6 +5600,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           skyRainDrops,
           colorHex,
         });
+        return;
+      }
+
+      if (type === 'festival_lanterns') {
+        spectacleEffects.spawnFestival(tx, ty, tz, colorHex);
         return;
       }
 
@@ -7014,7 +7162,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
 
     let isHoldPainting = false;
     let lastPaintTile: { x: number; z: number } | null = null;
-    const paintedStrokeTiles = new Set<string>();
+    const paintedStrokeTiles = new Map<string, number>();
+    let strokeFlattenHeight: number | null = null;
     let lastHoldCastTime = 0;
     let lastHoldCastPos: { x: number; z: number } | null = null;
 
@@ -7088,7 +7237,15 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       pointerNdc.x = ((clientX - rect.left) / rect.width) * 2 - 1;
       pointerNdc.y = -((clientY - rect.top) / rect.height) * 2 + 1;
 
-      raycaster.setFromCamera(pointerNdc, camera);
+      const setOrthoPickRay = (ndc: THREE.Vector2) => {
+        raycaster.setFromCamera(ndc, camera);
+        // At max zoom-out on an OrthographicCamera, rays on the lower half of the screen can
+        // originate below ground (y < 0), causing t < 0 misses in DDA raymarching & plane checks.
+        // Pull the origin back along -direction so every ray enters the world from high above.
+        raycaster.ray.origin.addScaledVector(raycaster.ray.direction, -Math.max(120, frustumSize * 2.0));
+      };
+
+      setOrthoPickRay(pointerNdc);
 
       if (propsRef.current.activeTool.kind === 'inspect' || isDragPowerActive()) {
         const pickedUnit = pickLivingUnitAtRay(raycaster.ray);
@@ -7117,6 +7274,19 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
     const applyHoldStrokeToTile = (tx: number, tz: number, nowMs: number) => {
       const tool = propsRef.current.activeTool;
       if (tool.kind === 'terrain' || tool.kind === 'build') {
+        const isFlattenTool = tool.kind === 'terrain' && tool.tool === 'flatten';
+        if (isFlattenTool && paintedStrokeTiles.size === 0) {
+          const gSize = simRef.current.gridSize;
+          const startTile = simRef.current.tiles[tz * gSize + tx];
+          strokeFlattenHeight = Math.max(1, startTile?.height ?? 1);
+        } else if (!isFlattenTool) {
+          strokeFlattenHeight = null;
+        }
+        const isAirbrushSculpt =
+          tool.kind === 'terrain' &&
+          (tool.tool === 'raise' || tool.tool === 'lower' || tool.tool === 'smooth_terrain');
+        const airbrushRepeatMs = 240;
+
         const sx = lastPaintTile ? lastPaintTile.x : tx;
         const sz = lastPaintTile ? lastPaintTile.z : tz;
         let x0 = sx;
@@ -7128,9 +7298,16 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         let err = dx - dz;
         for (let guard = 0; guard < 128; guard++) {
           const key = `${x0},${z0}`;
-          if (!paintedStrokeTiles.has(key)) {
-            paintedStrokeTiles.add(key);
-            propsRef.current.onTileInteract(x0, z0);
+          const lastAt = paintedStrokeTiles.get(key);
+          const canPaint =
+            lastAt === undefined || (isAirbrushSculpt && nowMs - lastAt >= airbrushRepeatMs);
+          if (canPaint) {
+            paintedStrokeTiles.set(key, nowMs);
+            propsRef.current.onTileInteract(
+              x0,
+              z0,
+              strokeFlattenHeight !== null ? { flattenHeightOverride: strokeFlattenHeight } : undefined,
+            );
           }
           if (x0 === tx && z0 === tz) break;
           const e2 = 2 * err;
@@ -7447,6 +7624,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             pointerNdc.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
             pointerNdc.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
             raycaster.setFromCamera(pointerNdc, camera);
+            raycaster.ray.origin.addScaledVector(raycaster.ray.direction, -Math.max(120, frustumSize * 2.0));
             if (raycaster.ray.intersectPlane(dragPlane, _dragIntersectPt)) {
               const nowMs = performance.now();
               const dtDrag = Math.max(0.008, (nowMs - lastDragWorld.time) / 1000);
@@ -7529,6 +7707,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           pointerNdc.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
           pointerNdc.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
           raycaster.setFromCamera(pointerNdc, camera);
+          raycaster.ray.origin.addScaledVector(raycaster.ray.direction, -Math.max(120, frustumSize * 2.0));
           if (raycaster.ray.intersectPlane(dragPlane, _dragIntersectPt)) {
             const nowMs = performance.now();
             const dtDrag = Math.max(0.008, (nowMs - lastDragWorld.time) / 1000);
@@ -7733,8 +7912,33 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
     };
 
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement ||
+        e.target instanceof HTMLSelectElement ||
+        (e.target instanceof HTMLElement && e.target.isContentEditable)
+      ) {
+        return;
+      }
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
       keysPressed.add(e.code);
+
+      if (propsRef.current.gameState !== 'playing') return;
+
+      // Single-press desktop camera view shortcuts
+      if (e.code === 'BracketLeft') {
+        e.preventDefault();
+        cameraActionRef.current.rotateDelta -= Math.PI / 4;
+      } else if (e.code === 'BracketRight') {
+        e.preventDefault();
+        cameraActionRef.current.rotateDelta += Math.PI / 4;
+      } else if (e.code === 'KeyC' || e.code === 'Home') {
+        e.preventDefault();
+        cameraActionRef.current.centerHome = true;
+      } else if (e.code === 'KeyR' || e.code === 'Digit0' || e.code === 'Numpad0') {
+        e.preventDefault();
+        cameraActionRef.current.playTransition = true;
+      }
     };
 
     const onKeyUp = (e: KeyboardEvent) => {
@@ -8195,6 +8399,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
 
       const simChanged = simState !== lastSyncedSim;
       let waterMapNeedsSync = simChanged;
+      let elevatedLiquidNeedsSync = false;
       if (simChanged) {
         initialMapsPreuploaded = false;
         lastSyncedSim = simState;
@@ -8445,6 +8650,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         }
 
         const terrSig =
+          ((t.isLake ? 1 : 0) << 15) |
+          ((t.isRiver ? 1 : 0) << 14) |
           (t.height << 8) |
           (tCode << 2) |
           ((t.farmSettlementId ? 1 : 0) << 1) |
@@ -8488,7 +8695,24 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
                             ? 8
                             : 0
             : 0;
+          const isFarmPlotBit = t.farmSettlementId && t.farmPlotKind === 'wheat' ? 1 : 0;
+          const cropTypeCode =
+            t.cropType === 'corn'
+              ? 1
+              : t.cropType === 'pumpkin'
+                ? 2
+                : t.cropType === 'sunflower'
+                  ? 3
+                  : t.cropType === 'root_crop'
+                    ? 4
+                    : t.cropType === 'berry_vine'
+                      ? 5
+                      : 0;
+          const cropStageCode = isFarmPlotBit ? ((t.cropStage ?? 3) & 3) : 0;
           const sig =
+            (isFarmPlotBit << 28) |
+            (cropTypeCode << 25) |
+            (cropStageCode << 23) |
             (burntBiomeCode << 19) |
             (isBurntTree << 18) |
             (t.height << 12) |
@@ -8530,8 +8754,27 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             if (!initialMapsPreuploaded) waterMapNeedsSync = true;
           }
         }
+        const elevLvl = t.liquidLevel ?? 0;
+        const lqSig =
+          elevLvl > t.height
+            ? ((elevLvl & 15) << 8) |
+              ((t.height & 15) << 4) |
+              (t.liquidKind === 'lava' ? 2 : t.liquidKind === 'poison' ? 3 : 1)
+            : 0;
+        if (tileLiquidSig[i] !== lqSig) {
+          tileLiquidSig[i] = lqSig;
+          elevatedLiquidNeedsSync = true;
+        }
       }
       lastTileScanPendingY = anyDynamicTileY;
+      }
+
+      if (elevatedLiquidNeedsSync || simChanged) {
+        syncElevatedLiquids(simState.tiles);
+      }
+      if (simChanged) {
+        ambientFauna.reseed(simState.tiles, simState.gridSize);
+        spectacleEffects.syncRuins(simState.tiles);
       }
 
       let heavyWorkDoneThisFrame = false;
@@ -8586,6 +8829,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             lastWaterMapSyncTime = elapsed;
             pendingWaterMapSync = false;
             oceanFoam.updateMap(simState.tiles);
+            ambientFauna.reseed(simState.tiles, simState.gridSize);
             heavyWorkDoneThisFrame = true;
           } else if (pendingZoneOverlayMapSync && Boolean(zb?.anyActive)) {
             pendingZoneOverlayMapSync = false;
@@ -8724,7 +8968,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             const i = rowBase + tx;
             const t = simState.tiles[i];
           if (t.buildingId) continue;
-          if (t.height <= 0) {
+          const isFreshwaterSurfaceProp =
+            t.height <= 0 &&
+            t.resourceNode === 'none' &&
+            !t.waterKind &&
+            t.terrain === 'shallow_water' &&
+            (t.isRiver || t.isLake);
+          if (t.height <= 0 && !isFreshwaterSurfaceProp) {
             if (
               t.resourceNode !== 'coral_reef' &&
               t.resourceNode !== 'scrap_flotsam' &&
@@ -8736,9 +8986,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
 
           const curY =
             t.height <= 0
-              ? t.resourceNode === 'coral_reef' || t.resourceNode === 'atlantis_ruin'
-                ? tileCurrentY[i]
-                : 0.25
+              ? isFreshwaterSurfaceProp
+                ? 0.295
+                : t.resourceNode === 'coral_reef' || t.resourceNode === 'atlantis_ruin'
+                  ? tileCurrentY[i]
+                  : 0.25
               : tileCurrentY[i];
           // Deterministic spatial hash so clusters & rotations are rich and never flicker
           const h = Math.abs(((t.x * 73856093) ^ (t.z * 19349663) ^ (simState.seed * 2654435761)) | 0);
@@ -8843,9 +9095,29 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           } else if (t.resourceNode === 'berry_bush') {
             const farmEpoch = t.farmSettlementId ? getSettlementEpoch(simState, t.farmSettlementId) : 0;
             if (t.farmSettlementId && farmEpoch >= 6) {
+              const stage = t.cropStage ?? 3;
+              if (t.farmPlotKind === 'wheat' && stage < 3) {
+                _propScale.set(1, 0.72 + stage * 0.1, 1);
+                _dummyMatrix.compose(_dummyPos, _propQuat, _propScale);
+                _propScale.set(1, 1, 1);
+              }
               pushPropCache(2, h % propKindLens[2], t.x, t.z, _dummyMatrix.elements);
-            } else if (t.farmSettlementId && farmEpoch >= 1) {
-              pushPropCache(1, h % propKindLens[1], t.x, t.z, _dummyMatrix.elements);
+            } else if (t.farmSettlementId && (t.farmPlotKind === 'wheat' || farmEpoch >= 1)) {
+              const cropIdx =
+                t.cropType === 'corn'
+                  ? 1
+                  : t.cropType === 'pumpkin'
+                    ? 2
+                    : t.cropType === 'sunflower'
+                      ? 3
+                      : t.cropType === 'root_crop'
+                        ? 4
+                        : t.cropType === 'berry_vine'
+                          ? 5
+                          : 0;
+              const stage = t.cropStage ?? 3;
+              const variantIdx = Math.min(propKindLens[1] - 1, cropIdx * 4 + stage);
+              pushPropCache(1, variantIdx, t.x, t.z, _dummyMatrix.elements);
             } else {
               pushPropCache(0, h % propKindLens[0], t.x, t.z, _dummyMatrix.elements);
             }
@@ -8967,6 +9239,37 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             } else if (t.terrain === 'floral_plains') {
               ambThresh = 76;
               ambGroupIdx = 16;
+            } else if (isFreshwaterSurfaceProp) {
+              const touchesShore =
+                (tx > 0 && simState.tiles[i - 1].height > 0) ||
+                (tx + 1 < gsProps && simState.tiles[i + 1].height > 0) ||
+                (tz > 0 && simState.tiles[i - gsProps].height > 0) ||
+                (tz + 1 < gsProps && simState.tiles[i + gsProps].height > 0);
+              if (t.isLake) {
+                ambGroupIdx = 17;
+                ambThresh = touchesShore ? 48 : 20;
+                if (chance < ambThresh) {
+                  const ambTier = chance < ambThresh * 0.28 ? 0 : chance < ambThresh * 0.62 ? 1 : 2;
+                  const lakeVariant = touchesShore
+                    ? [1, 1, 0, 0, 3, 2][(h >> 3) % 6]
+                    : ((h >> 3) & 1) === 0
+                      ? 0
+                      : 2;
+                  pushAmbCache(ambGroupIdx, lakeVariant, ambTier, t.x, t.z, _dummyMatrix.elements);
+                }
+                ambGroupIdx = -1;
+              } else {
+                ambGroupIdx = 18;
+                ambThresh = touchesShore ? 38 : 28;
+                if (chance < ambThresh) {
+                  const ambTier = chance < ambThresh * 0.28 ? 0 : chance < ambThresh * 0.62 ? 1 : 2;
+                  const riverVariant = touchesShore
+                    ? [1, 0, 2, 3][(h >> 3) % 4]
+                    : [0, 2, 3][(h >> 3) % 3];
+                  pushAmbCache(ambGroupIdx, riverVariant, ambTier, t.x, t.z, _dummyMatrix.elements);
+                }
+                ambGroupIdx = -1;
+              }
             } else if (t.terrain === 'crystal_field') {
               ambThresh = 64;
               if (chance < ambThresh) {
@@ -9024,6 +9327,143 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         radialCamMoved
       ) {
         rebuildVisiblePropsAndLod();
+      }
+
+      // Sync & animate Race-Unique Era-Evolving Farm Windmills + Heavy Industrial Quarry/Mining Facilities
+      {
+        const districtsMap = simState.settlementDistricts;
+        const wmGridSize = simState.gridSize;
+        windmillTowerPool.reset();
+        windmillBladesPool.reset();
+        miningFacilityPool.reset();
+
+        if (districtsMap) {
+          let wmIdx = 0;
+          for (const [sid, dist] of Object.entries(districtsMap)) {
+            const farmEpoch = getSettlementEpoch(simState, sid);
+            const species = simState.settlementSpecies?.[sid] ?? 'human';
+            const raceIdx =
+              species === 'elf'
+                ? 1
+                : species === 'dwarf'
+                  ? 2
+                  : species === 'lizardfolk'
+                    ? 3
+                    : species === 'orc'
+                      ? 4
+                      : 0;
+            const eraTier = farmEpoch >= 6 ? 2 : farmEpoch >= 3 ? 1 : 0;
+            const wmVariantIdx = raceIdx * 3 + eraTier;
+
+            // 1. Race-unique, era-evolving Windmill / Aero-Turbine at farm district center (Medieval Age / Epoch 2+)
+            const cx = dist.farmX;
+            const cz = dist.farmZ;
+            const centerIdx = cz * wmGridSize + cx;
+            const centerTile = simState.tiles[centerIdx];
+            if (farmEpoch >= 2 && centerTile && centerTile.height > 0 && !centerTile.buildingId && isPointInCullBounds(cx, cz, worldCullBounds, 4.5)) {
+              let nearbyFarms = 0;
+              for (let oz = -2; oz <= 2 && nearbyFarms < 4; oz++) {
+                for (let ox = -2; ox <= 2 && nearbyFarms < 4; ox++) {
+                  if (ox === 0 && oz === 0) continue;
+                  const fx = cx + ox;
+                  const fz = cz + oz;
+                  if (fx < 0 || fz < 0 || fx >= wmGridSize || fz >= wmGridSize) continue;
+                  const ft = simState.tiles[fz * wmGridSize + fx];
+                  if (ft && ft.farmSettlementId === sid && ft.farmPlotKind === 'wheat') {
+                    nearbyFarms++;
+                  }
+                }
+              }
+              if (nearbyFarms >= 4) {
+                const topY = tileCurrentY[centerIdx] ?? centerTile.height * HEIGHT_STEP;
+                const yaw = ((cx * 7 + cz * 13) % 4) * (Math.PI * 0.5) + Math.PI * 0.25;
+                _wmEuler.set(0, yaw, 0);
+                _wmQuat.setFromEuler(_wmEuler);
+                _wmPos.set(cx, topY, cz);
+                _wmMat.compose(_wmPos, _wmQuat, _wmScale);
+                _wmMatBuf.set(_wmMat.elements);
+                windmillTowerPool.pushFromMatrixArray(wmVariantIdx, _wmMatBuf, 0);
+
+                // Rotor hub height & spin speed evolve cleanly with era tier
+                const hubY = eraTier === 2 ? 2.12 : eraTier === 1 ? 1.38 : 1.24;
+                const hubFwd = eraTier === 2 ? 0.44 : 0.48;
+                const spinSpeed = eraTier === 2 ? 2.3 : eraTier === 1 ? 1.7 : 1.35;
+                const spinAngle = elapsedTotal * spinSpeed + wmIdx * 1.1;
+                _wmSpinQuat.setFromAxisAngle(_wmAxisZ, spinAngle);
+                _wmQuat.multiply(_wmSpinQuat);
+                _wmPos.set(
+                  cx + Math.sin(yaw) * hubFwd,
+                  topY + hubY,
+                  cz + Math.cos(yaw) * hubFwd,
+                );
+                _wmMat.compose(_wmPos, _wmQuat, _wmScale);
+                _wmMatBuf.set(_wmMat.elements);
+                windmillBladesPool.pushFromMatrixArray(wmVariantIdx, _wmMatBuf, 0);
+                wmIdx++;
+              }
+            }
+
+            // 2. Heavy Industrial Quarry / Mining Facilities (Cranes, Ore Crushers, Tracked Excavators & Steel Yards)
+            // Stone Age (Epoch 0) uses raw hand-carved pits; timber derricks unlock at Bronze Age (Epoch 1+)
+            const qx = dist.quarryX;
+            const qz = dist.quarryZ;
+            if (farmEpoch >= 1 && isPointInCullBounds(qx, qz, worldCullBounds, 6.0)) {
+              let quarryCount = 0;
+              for (let oz = -dist.quarryHalfSize; oz <= dist.quarryHalfSize && quarryCount < 4; oz++) {
+                for (let ox = -dist.quarryHalfSize; ox <= dist.quarryHalfSize && quarryCount < 4; ox++) {
+                  const tx = qx + ox;
+                  const tz = qz + oz;
+                  if (tx < 0 || tz < 0 || tx >= wmGridSize || tz >= wmGridSize) continue;
+                  const qt = simState.tiles[tz * wmGridSize + tx];
+                  if (qt && qt.farmSettlementId === sid && qt.farmPlotKind === 'quarry') {
+                    quarryCount++;
+                  }
+                }
+              }
+
+              if (quarryCount >= 4) {
+                const placeMiningMachine = (
+                  ox: number,
+                  oz: number,
+                  machineIdx: number,
+                  yawOffset: number,
+                ) => {
+                  const tx = qx + ox;
+                  const tz = qz + oz;
+                  if (tx < 1 || tz < 1 || tx >= wmGridSize - 1 || tz >= wmGridSize - 1) return;
+                  const tidx = tz * wmGridSize + tx;
+                  const mt = simState.tiles[tidx];
+                  if (!mt || mt.height <= 0 || mt.buildingId) return;
+                  const topY = tileCurrentY[tidx] ?? mt.height * HEIGHT_STEP;
+                  _wmEuler.set(0, yawOffset, 0);
+                  _wmQuat.setFromEuler(_wmEuler);
+                  _wmPos.set(tx, topY, tz);
+                  _wmMat.compose(_wmPos, _wmQuat, _wmScale);
+                  _wmMatBuf.set(_wmMat.elements);
+                  miningFacilityPool.pushFromMatrixArray(machineIdx, _wmMatBuf, 0);
+                };
+
+                // Primary Quarry Crane: Timber/Iron Derrick (Epoch 1-2) -> Yellow-Steel Heavy Industrial Tower Crane (Epoch 3+)
+                const craneVariant = farmEpoch >= 3 ? 1 : 0;
+                placeMiningMachine(0, 0, craneVariant, ((qx * 5 + qz * 11) % 4) * (Math.PI * 0.5));
+
+                // Secondary Industrial Ore Crusher & Steel Ingot Rack (Epoch 2+)
+                if (farmEpoch >= 2) {
+                  placeMiningMachine(2, -1, 2, Math.PI * 0.5);
+                }
+
+                // Heavy-Metal Tracked Excavator & Steel Girder Yard (Epoch 3+)
+                if (farmEpoch >= 3) {
+                  placeMiningMachine(-2, 2, 3, -Math.PI * 0.25);
+                }
+              }
+            }
+          }
+        }
+
+        windmillTowerPool.commit();
+        windmillBladesPool.commit();
+        miningFacilityPool.commit();
       }
 
       if (metroNeedsSync) {
@@ -11437,9 +11877,32 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           const groundY = vTile ? Math.max(0.18, vTile.height * HEIGHT_STEP + 0.25) : 0.5;
 
           if (v.type === 'car') {
-            const laneX = -Math.cos(v.heading) * 0.14;
-            const laneZ = Math.sin(v.heading) * 0.14;
+            const laneScale = v.y > 0.25 ? Math.max(0, 1 - (v.y - 0.25) * 0.9) : 1;
+            const laneX = -Math.cos(v.heading) * 0.14 * laneScale;
+            const laneZ = Math.sin(v.heading) * 0.14 * laneScale;
             vGroup.position.set(v.x + laneX, groundY + v.y, v.z + laneZ);
+            if (v.y > 0.45 && frustumSize < 56 && Math.random() < 0.28 * activeGfxProfile.particleScale) {
+              const thrusterColor =
+                v.species === 'elf'
+                  ? '#67e8f9'
+                  : v.species === 'dwarf'
+                    ? '#fbbf24'
+                    : v.species === 'lizardfolk'
+                      ? '#34d399'
+                      : v.species === 'orc'
+                        ? '#f97316'
+                        : '#38bdf8';
+              spawnParticleBurst(
+                v.x - Math.sin(v.heading) * 0.22,
+                groundY + v.y + 0.05,
+                v.z - Math.cos(v.heading) * 0.22,
+                1,
+                thrusterColor,
+                0.18,
+                0.85,
+                0.28,
+              );
+            }
           } else if (v.type === 'farm_tractor' || v.type === 'quarry_truck') {
             vGroup.position.set(v.x, groundY + v.y, v.z);
             if (frustumSize < 48 && Math.random() < 0.14 * activeGfxProfile.particleScale) {
@@ -13121,37 +13584,66 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         camAct.focusTarget = null;
       }
 
-      // Keyboard WASD / Arrow camera pan & Q/E rotate (scales with zoom for 128x128 navigation)
-      const panSpeed = Math.max(12, frustumSize * 1.15) * dt;
-      const forwardX = -Math.sin(camYaw);
-      const forwardZ = -Math.cos(camYaw);
-      const rightX = Math.cos(camYaw);
-      const rightZ = -Math.sin(camYaw);
-
+      // Desktop keyboard camera controls: WASD/Arrows pan (+Shift boost), Q/E rotate, +/-/PgUp/PgDn zoom
       let panKeyMoved = false;
-      if (keysPressed.has('KeyW') || keysPressed.has('ArrowUp')) {
-        camDesiredTarget.x += forwardX * panSpeed;
-        camDesiredTarget.z += forwardZ * panSpeed;
-        panKeyMoved = true;
-      }
-      if (keysPressed.has('KeyS') || keysPressed.has('ArrowDown')) {
-        camDesiredTarget.x -= forwardX * panSpeed;
-        camDesiredTarget.z -= forwardZ * panSpeed;
-        panKeyMoved = true;
-      }
-      if (keysPressed.has('KeyA') || keysPressed.has('ArrowLeft')) {
-        camDesiredTarget.x -= rightX * panSpeed;
-        camDesiredTarget.z -= rightZ * panSpeed;
-        panKeyMoved = true;
-      }
-      if (keysPressed.has('KeyD') || keysPressed.has('ArrowRight')) {
-        camDesiredTarget.x += rightX * panSpeed;
-        camDesiredTarget.z += rightZ * panSpeed;
-        panKeyMoved = true;
-      }
+      if (currentGameState === 'playing') {
+        const boost = keysPressed.has('ShiftLeft') || keysPressed.has('ShiftRight') ? 2.0 : 1.0;
+        const panSpeed = Math.max(12, frustumSize * 1.15) * boost * dt;
+        const forwardX = -Math.sin(camYaw);
+        const forwardZ = -Math.cos(camYaw);
+        const rightX = Math.cos(camYaw);
+        const rightZ = -Math.sin(camYaw);
 
-      if (panKeyMoved && propsRef.current.followingEntityId) {
-        propsRef.current.onBreakFollow?.();
+        if (keysPressed.has('KeyW') || keysPressed.has('ArrowUp')) {
+          camDesiredTarget.x += forwardX * panSpeed;
+          camDesiredTarget.z += forwardZ * panSpeed;
+          panKeyMoved = true;
+        }
+        if (keysPressed.has('KeyS') || keysPressed.has('ArrowDown')) {
+          camDesiredTarget.x -= forwardX * panSpeed;
+          camDesiredTarget.z -= forwardZ * panSpeed;
+          panKeyMoved = true;
+        }
+        if (keysPressed.has('KeyA') || keysPressed.has('ArrowLeft')) {
+          camDesiredTarget.x -= rightX * panSpeed;
+          camDesiredTarget.z -= rightZ * panSpeed;
+          panKeyMoved = true;
+        }
+        if (keysPressed.has('KeyD') || keysPressed.has('ArrowRight')) {
+          camDesiredTarget.x += rightX * panSpeed;
+          camDesiredTarget.z += rightZ * panSpeed;
+          panKeyMoved = true;
+        }
+
+        // Q / E continuous camera yaw rotation
+        const rotSpeed = 1.65 * boost * dt;
+        if (keysPressed.has('KeyQ')) {
+          camDesiredYaw -= rotSpeed;
+        }
+        if (keysPressed.has('KeyE')) {
+          camDesiredYaw += rotSpeed;
+        }
+
+        // + / = / PageUp zoom in, - / PageDown zoom out (multiplicative to match scroll wheel)
+        const zoomRate = 1.35 * boost * dt;
+        if (
+          keysPressed.has('Equal') ||
+          keysPressed.has('NumpadAdd') ||
+          keysPressed.has('PageUp')
+        ) {
+          desiredFrustum = THREE.MathUtils.clamp(desiredFrustum * Math.exp(-zoomRate), 7.5, maxZoomOut);
+        }
+        if (
+          keysPressed.has('Minus') ||
+          keysPressed.has('NumpadSubtract') ||
+          keysPressed.has('PageDown')
+        ) {
+          desiredFrustum = THREE.MathUtils.clamp(desiredFrustum * Math.exp(zoomRate), 7.5, maxZoomOut);
+        }
+
+        if (panKeyMoved && propsRef.current.followingEntityId) {
+          propsRef.current.onBreakFollow?.();
+        }
       }
 
       // Live Entity / Random Event Cinematic Camera Tracking
@@ -15722,7 +16214,38 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             ? 0
             : Math.min(5, Math.max(0.25, clampedSimSpeed));
       skyClouds.update(dt * atmosSpeed, shaderElapsed, preset, worldCullBounds);
+      ambientFauna.update(
+        dt * atmosSpeed,
+        shaderElapsed,
+        simRef.current.tiles,
+        simRef.current.gridSize,
+        preset,
+        propsRef.current.graphicsSettings?.particles ?? 'full',
+      );
+      citizenBubbles.update(
+        simRef.current,
+        shaderElapsed,
+        camTarget.x,
+        camTarget.z,
+        frustumSize,
+      );
+      spectacleEffects.update(
+        dt * atmosSpeed,
+        shaderElapsed,
+        simRef.current,
+        propsRef.current.graphicsSettings?.particles ?? 'full',
+      );
+      monuments.update(simRef.current, shaderElapsed);
       oceanFoam.updateFrame(shaderElapsed, preset);
+      if (elevatedWaterInst.visible || elevatedLavaInst.visible || elevatedPoisonInst.visible) {
+        elevatedLiquidGroup.position.y = Math.sin(shaderElapsed * 2.15) * 0.015;
+        if (elevatedLavaInst.visible) {
+          elevatedLavaMat.emissiveIntensity = 0.8 + Math.sin(shaderElapsed * 3.1) * 0.16;
+        }
+        if (elevatedPoisonInst.visible) {
+          elevatedPoisonMat.emissiveIntensity = 0.48 + Math.sin(shaderElapsed * 2.6 + 1.2) * 0.1;
+        }
+      }
       zoneOverlay.updateFrame(shaderElapsed);
       styledTerrain.updateFrame(
         shaderElapsed,
@@ -16271,7 +16794,15 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       glowTrimGeo.dispose();
       glowTrimMat.dispose();
       skyClouds.dispose();
+      ambientFauna.dispose();
+      citizenBubbles.dispose();
+      spectacleEffects.dispose();
+      monuments.dispose();
       oceanFoam.dispose();
+      elevatedLiquidGeo.dispose();
+      elevatedWaterMat.dispose();
+      elevatedLavaMat.dispose();
+      elevatedPoisonMat.dispose();
       zoneOverlay.dispose();
       warFrontArrows.dispose();
       styledTerrain.dispose();
@@ -16331,7 +16862,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       <div
         ref={mountRef}
         data-testid="isometric-world-canvas"
-        className="fixed inset-0 w-full h-full bg-[#141210] overflow-hidden touch-none select-none"
+        className="fixed inset-0 w-full h-full bg-[#14100e] overflow-hidden touch-none select-none"
       />
       {gameState !== 'title' && activeKings.length > 0 && (
         <div
@@ -16370,11 +16901,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
                 data-unit-id={king.id}
                 data-kingdom-color={kingdomHex}
                 style={{
-                  backgroundColor: `color-mix(in srgb, ${kingdomHex} 28%, #161310)`,
-                  borderColor: `color-mix(in srgb, ${kingdomHex} 55%, #000000)`,
+                  backgroundColor: `color-mix(in srgb, ${kingdomHex} 28%, #181310)`,
+                  borderColor: `color-mix(in srgb, ${kingdomHex} 55%, #110c0a)`,
                   left: 0,
                   top: 0,
-                  boxShadow: '0 2px 0 #0b0a09',
+                  boxShadow: '0 2px 0 #060a14',
                 }}
                 className="absolute px-2 py-0.5 border-2 flex items-center gap-1.5 whitespace-nowrap"
               >
@@ -16405,7 +16936,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
                 {kingdomName && (
                   <span
                     className="text-[10px] font-semibold leading-none"
-                    style={{ color: `color-mix(in srgb, ${kingdomHex} 45%, #e5dfd3)` }}
+                    style={{ color: `color-mix(in srgb, ${kingdomHex} 45%, #d6e4ff)` }}
                   >
                     of {kingdomName}
                   </span>
@@ -16427,13 +16958,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
               isCityClickable && selectedCityId && lbl.settlementId === selectedCityId,
             );
             const sharedStyle: React.CSSProperties = {
-              backgroundColor: `color-mix(in srgb, ${lbl.hexColor} 28%, #161310)`,
+              backgroundColor: `color-mix(in srgb, ${lbl.hexColor} 28%, #181310)`,
               borderColor: isCitySelected
-                ? '#f5b742'
-                : `color-mix(in srgb, ${lbl.hexColor} 55%, #000000)`,
+                ? '#f2c478'
+                : `color-mix(in srgb, ${lbl.hexColor} 55%, #110c0a)`,
               left: 0,
               top: 0,
               opacity: 0,
+              boxShadow: '0 2px 0 #110c0a',
             };
             const sharedContent = (
               <>
@@ -16443,21 +16975,16 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
                     className="w-3.5 h-3.5 shrink-0 pixelated-canvas"
                   />
                 )}
-                <span
-                  className="w-2 h-2 shrink-0"
-                  style={{ backgroundColor: lbl.hexColor }}
-                  aria-hidden="true"
-                />
-                <span className="text-[11px] font-bold text-[#f2ece1]">
+                <span className="text-[11px] font-bold text-[#edf3ff]">
                   {lbl.name}
                 </span>
                 {lbl.epochName && (
-                  <span className="text-[10px] font-semibold text-[#d6cec0] border-l border-white/20 pl-1.5">
+                  <span className="text-[10px] font-semibold text-[#c5d6f5] border-l border-white/20 pl-1.5">
                     {lbl.epochName}
                   </span>
                 )}
                 {lbl.population !== null && (
-                  <span className="font-pixel-num text-[10px] font-bold text-[#ffd166] tabular-nums">
+                  <span className="font-pixel-num text-[10px] font-bold text-[#ffd36b] tabular-nums">
                     {lbl.population}
                   </span>
                 )}
@@ -16550,12 +17077,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
                 data-testid={`war-front-arrow-marker-${wa.id}`}
                 data-arrow-id={wa.id}
                 style={{
-                  backgroundColor: `color-mix(in srgb, ${wa.hexColor} 26%, #14110e)`,
-                  borderColor: `color-mix(in srgb, ${wa.hexColor} 68%, #000000)`,
+                  backgroundColor: `color-mix(in srgb, ${wa.hexColor} 26%, #181310)`,
+                  borderColor: `color-mix(in srgb, ${wa.hexColor} 68%, #110c0a)`,
                   left: 0,
                   top: 0,
                   opacity: 0,
-                  boxShadow: '0 2px 0 #0b0a09',
+                  boxShadow: '0 2px 0 #060a14',
                 }}
                 className="absolute px-1.5 py-0.5 border-2 flex items-center gap-1.5 whitespace-nowrap"
               >
@@ -16566,9 +17093,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
                 >
                   {momentumGlyph}
                 </span>
-                <span className="font-pixel-num text-[10px] font-bold text-[#f8f4ec] tabular-nums leading-none">
+                <span className="font-pixel-num text-[10px] font-bold text-[#edf3ff] tabular-nums leading-none">
                   {wa.claimPercent}%{' '}
-                  <span className="text-[9px] font-semibold text-[#d6cec0]">Push</span>
+                  <span className="text-[9px] font-semibold text-[#c5d6f5]">Push</span>
                 </span>
                 <span
                   className="font-pixel-num text-[9px] font-bold tabular-nums leading-none border-l border-white/20 pl-1.5"

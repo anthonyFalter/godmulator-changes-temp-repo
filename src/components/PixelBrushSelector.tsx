@@ -116,7 +116,7 @@ export const PixelBrushSelector: React.FC<PixelBrushSelectorProps> = ({
               y={c.y}
               width={1}
               height={1}
-              fill={open ? '#1b1610' : '#f2ece1'}
+              fill={open ? '#fff6e6' : '#f4e7d4'}
             />
           ))}
         </svg>
@@ -141,8 +141,8 @@ export const PixelBrushSelector: React.FC<PixelBrushSelectorProps> = ({
           className="px-panel fixed z-50 w-48 p-2.5 space-y-2"
         >
           <div className="flex items-center justify-between text-[11px]">
-            <span className="text-[#b8afa2]">Brush Size</span>
-            <span className="font-pixel-num font-bold text-[#f5b742] tabular-nums">
+            <span className="text-[#bfa88f]">Brush Size</span>
+            <span className="font-pixel-num font-bold text-[#f2c478] tabular-nums">
               {valueHint}
             </span>
           </div>
@@ -159,7 +159,7 @@ export const PixelBrushSelector: React.FC<PixelBrushSelectorProps> = ({
             }}
             className="px-range w-full cursor-pointer"
           />
-          <div className="flex items-center justify-between text-[10px] text-[#9e9486] font-pixel-num">
+          <div className="flex items-center justify-between text-[10px] text-[#9e866f] font-pixel-num">
             <span>1</span>
             <span>5</span>
             <span>10</span>

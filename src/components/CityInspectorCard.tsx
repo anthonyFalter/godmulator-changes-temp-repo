@@ -58,7 +58,6 @@ function getSpeciesCityLabel(species: SpeciesId): string {
 export const CityInspectorCard: React.FC<CityInspectorCardProps> = ({
   sim,
   cityRef,
-  accentHex = '#f5b742',
   offsetForEntityInspector = false,
   onClose,
   onFocusTile,
@@ -222,13 +221,8 @@ export const CityInspectorCard: React.FC<CityInspectorCardProps> = ({
         type="button"
         data-testid="city-inspector-expand"
         onClick={() => setMinimized(false)}
-        className={`pointer-events-auto absolute ${positionClass} px-panel px-2.5 py-1.5 text-xs font-bold text-[#f5b742] cursor-pointer flex items-center gap-1.5`}
+        className={`pointer-events-auto absolute ${positionClass} px-panel px-2.5 py-1.5 text-xs font-bold text-[#f2c478] cursor-pointer flex items-center gap-1.5`}
       >
-        <span
-          className="w-2 h-2 shrink-0"
-          style={{ backgroundColor: accentHex }}
-          aria-hidden="true"
-        />
         <span>City: {summary.cityName}</span>
       </button>
     );
@@ -256,14 +250,10 @@ export const CityInspectorCard: React.FC<CityInspectorCardProps> = ({
       <div className="flex items-start justify-between gap-2 shrink-0">
         <div className="flex items-center gap-2.5 min-w-0 flex-1">
           <div
-            className="w-9 h-9 sm:w-10 sm:h-10 shrink-0 flex items-center justify-center bg-[#191613] border border-[#2f2720] relative"
+            className="w-9 h-9 sm:w-10 sm:h-10 shrink-0 flex items-center justify-center bg-[#181310] border border-[#544034]"
             aria-hidden="true"
           >
             <UnitPixelIcon role={summary.species} className="w-7 h-7 sm:w-8 sm:h-8" />
-            <span
-              className="absolute bottom-0 right-0 w-2.5 h-2.5 border border-[#141210]"
-              style={{ backgroundColor: accentHex }}
-            />
           </div>
           <div className="min-w-0 flex-1">
             {renameTarget === 'settlement' ? (
@@ -285,11 +275,11 @@ export const CityInspectorCard: React.FC<CityInspectorCardProps> = ({
                     e.stopPropagation();
                     if (e.key === 'Escape') setRenameTarget(null);
                   }}
-                  className="w-full min-w-0 bg-[#141210] border border-[#f5b742] px-1.5 py-0.5 text-xs text-[#f2ece1] outline-none"
+                  className="w-full min-w-0 bg-[#15100e] border border-[#f2c478] px-1.5 py-0.5 text-xs text-[#f4e7d4] outline-none"
                 />
                 <button
                   type="submit"
-                  className="px-btn-active px-1.5 py-0.5 text-[10px] font-bold text-[#f5b742] cursor-pointer shrink-0"
+                  className="px-btn-active px-1.5 py-0.5 text-[10px] font-bold text-[#fff6e6] cursor-pointer shrink-0"
                 >
                   Save
                 </button>
@@ -297,7 +287,7 @@ export const CityInspectorCard: React.FC<CityInspectorCardProps> = ({
             ) : (
               <div className="flex items-center gap-1 min-w-0">
                 <h2
-                  className="text-xs sm:text-sm font-bold text-[#f2ece1] truncate leading-tight"
+                  className="text-xs sm:text-sm font-bold text-[#f4e7d4] truncate leading-tight"
                   data-testid="city-inspector-name"
                 >
                   {summary.cityName}
@@ -311,13 +301,13 @@ export const CityInspectorCard: React.FC<CityInspectorCardProps> = ({
                     setRenameTarget('settlement');
                     setDraftName(summary.cityName);
                   }}
-                  className="text-[11px] text-[#9e9486] hover:text-[#f5b742] cursor-pointer shrink-0 px-0.5"
+                  className="text-[11px] text-[#9e866f] hover:text-[#f2c478] cursor-pointer shrink-0 px-0.5"
                 >
                   ✎
                 </button>
               </div>
             )}
-            <div className="text-[11px] text-[#cfc6b8] leading-tight mt-0.5 truncate">
+            <div className="text-[11px] text-[#ccb69c] leading-tight mt-0.5 truncate">
               {getSpeciesCityLabel(summary.species)}
               {summary.kid !== summary.sid ? ` of ${summary.kingdomName}` : ''}
             </div>
@@ -331,14 +321,17 @@ export const CityInspectorCard: React.FC<CityInspectorCardProps> = ({
             data-testid="city-inspector-edit-toggle"
             onClick={() => setActivePage((prev) => (prev === 'info' ? 'era' : 'info'))}
             aria-label={activePage === 'info' ? 'Edit city and kingdom' : 'View city info'}
-            title={activePage === 'info' ? 'Open edit pages' : 'Back to city info'}
-            className={`h-7 sm:h-8 px-2 flex items-center justify-center cursor-pointer text-[11px] font-bold transition-colors ${
+            title={activePage === 'info' ? 'Edit city & kingdom' : 'View city info'}
+            className={`w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center cursor-pointer transition-colors ${
               activePage !== 'info'
-                ? 'px-btn-active text-[#f5b742]'
-                : 'px-btn text-[#d8cfc2] hover:text-[#f5b742]'
+                ? 'px-btn-active text-[#fff6e6]'
+                : 'px-btn text-[#dbc7ae] hover:text-[#f2c478]'
             }`}
           >
-            {activePage === 'info' ? 'Edit' : 'Info'}
+            <HudPixelIcon
+              kind={activePage === 'info' ? 'pencil' : 'document'}
+              className="w-3.5 h-3.5 sm:w-4 sm:h-4 pixelated-canvas"
+            />
           </button>
 
           <button
@@ -354,7 +347,7 @@ export const CityInspectorCard: React.FC<CityInspectorCardProps> = ({
           <button
             type="button"
             onClick={() => setMinimized(true)}
-            className="sm:hidden px-btn w-7 h-7 flex items-center justify-center cursor-pointer text-[#b8afa2] hover:text-[#f2ece1]"
+            className="sm:hidden px-btn w-7 h-7 flex items-center justify-center cursor-pointer text-[#bfa88f] hover:text-[#f4e7d4]"
             aria-label="Minimize City Inspector"
             title="Minimize"
           >
@@ -367,7 +360,7 @@ export const CityInspectorCard: React.FC<CityInspectorCardProps> = ({
             onClick={onClose}
             aria-label="Close city inspector"
             title="Close"
-            className="px-btn w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center cursor-pointer text-[#8f8679] hover:text-[#f2ece1] text-xs font-bold transition-colors"
+            className="px-btn w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center cursor-pointer text-[#9e866f] hover:text-[#f4e7d4] text-xs font-bold transition-colors"
           >
             ✕
           </button>
@@ -375,12 +368,12 @@ export const CityInspectorCard: React.FC<CityInspectorCardProps> = ({
       </div>
 
       {!summary.exists ? (
-        <div className="bg-[#191613] border border-[#2f2720] p-3 text-xs text-[#a89f91] space-y-2">
+        <div className="px-card p-3 text-xs text-[#b09880] space-y-2">
           <p>This settlement no longer stands in the world.</p>
           <button
             type="button"
             onClick={onClose}
-            className="px-btn px-2.5 py-1 text-[11px] font-semibold text-[#f2ece1] cursor-pointer"
+            className="px-btn px-2.5 py-1 text-[11px] font-semibold text-[#f4e7d4] cursor-pointer"
           >
             Dismiss
           </button>
@@ -388,13 +381,13 @@ export const CityInspectorCard: React.FC<CityInspectorCardProps> = ({
       ) : (
         <>
           {/* Page Tabs: Overview + Two Dedicated Edit Pages */}
-          <div className="grid grid-cols-3 gap-1 border-b border-[#2c2620] pb-1.5 shrink-0">
+          <div className="grid grid-cols-3 gap-1 border-b border-[#423229] pb-1.5 shrink-0">
             <button
               type="button"
               data-testid="city-tab-info"
               onClick={() => setActivePage('info')}
-              className={`px-1.5 py-1 text-[10px] sm:text-[11px] font-semibold cursor-pointer transition-colors whitespace-nowrap ${
-                activePage === 'info' ? 'px-btn-active text-[#f5b742]' : 'px-btn text-[#a89f91]'
+              className={`px-1.5 py-1 text-[10px] sm:text-[11px] cursor-pointer transition-colors whitespace-nowrap ${
+                activePage === 'info' ? 'px-btn-active font-bold text-[#fff6e6]' : 'px-btn font-semibold text-[#bfa88f]'
               }`}
             >
               Overview
@@ -403,8 +396,8 @@ export const CityInspectorCard: React.FC<CityInspectorCardProps> = ({
               type="button"
               data-testid="city-tab-era"
               onClick={() => setActivePage('era')}
-              className={`px-1.5 py-1 text-[10px] sm:text-[11px] font-semibold cursor-pointer transition-colors whitespace-nowrap ${
-                activePage === 'era' ? 'px-btn-active text-[#f5b742]' : 'px-btn text-[#a89f91]'
+              className={`px-1.5 py-1 text-[10px] sm:text-[11px] cursor-pointer transition-colors whitespace-nowrap ${
+                activePage === 'era' ? 'px-btn-active font-bold text-[#fff6e6]' : 'px-btn font-semibold text-[#bfa88f]'
               }`}
             >
               Edit Realm
@@ -413,10 +406,10 @@ export const CityInspectorCard: React.FC<CityInspectorCardProps> = ({
               type="button"
               data-testid="city-tab-stockpile"
               onClick={() => setActivePage('stockpile')}
-              className={`px-1.5 py-1 text-[10px] sm:text-[11px] font-semibold cursor-pointer transition-colors whitespace-nowrap ${
+              className={`px-1.5 py-1 text-[10px] sm:text-[11px] cursor-pointer transition-colors whitespace-nowrap ${
                 activePage === 'stockpile'
-                  ? 'px-btn-active text-[#f5b742]'
-                  : 'px-btn text-[#a89f91]'
+                  ? 'px-btn-active font-bold text-[#fff6e6]'
+                  : 'px-btn font-semibold text-[#bfa88f]'
               }`}
             >
               Stockpile
@@ -431,18 +424,18 @@ export const CityInspectorCard: React.FC<CityInspectorCardProps> = ({
               {/* Era & Progress Gauge */}
               <div className="space-y-1">
                 <div className="flex items-center justify-between text-[11px]">
-                  <span className="text-[#f5b742] font-semibold">
+                  <span className="text-[#f2c478] font-semibold">
                     {summary.currentEpoch.name}
                   </span>
-                  <span className="font-pixel-num text-[#cfc6b8] tabular-nums">
+                  <span className="font-pixel-num text-[#ccb69c] tabular-nums">
                     {summary.currentEpochIdx >= EPOCHS.length - 1
                       ? 'Max Era'
                       : `${summary.epochProgress}%`}
                   </span>
                 </div>
-                <div className="w-full h-1.5 bg-[#191613] overflow-hidden">
+                <div className="px-bar-track w-full h-3 overflow-hidden">
                   <div
-                    className="h-full transition-all duration-200 bg-[#f5b742]"
+                    className="px-bar-fill transition-all duration-200 bg-[#d9a441]"
                     style={{
                       width: `${
                         summary.currentEpochIdx >= EPOCHS.length - 1 ? 100 : summary.epochProgress
@@ -454,33 +447,33 @@ export const CityInspectorCard: React.FC<CityInspectorCardProps> = ({
 
               {/* Key Stats Grid */}
               <div className="grid grid-cols-2 gap-1.5">
-                <div className="bg-[#191613] px-2.5 py-1.5 flex items-center justify-between gap-1.5">
-                  <span className="text-[11px] text-[#a89f91]">Population</span>
+                <div className="px-card px-2.5 py-1.5 flex items-center justify-between gap-1.5">
+                  <span className="text-[11px] text-[#b09880]">Population</span>
                   <span className="font-pixel-num text-xs font-bold text-[#80ed99] tabular-nums">
                     {summary.population}
                     {summary.maxPopulation > 0 ? `/${summary.maxPopulation}` : ''}
                   </span>
                 </div>
-                <div className="bg-[#191613] px-2.5 py-1.5 flex items-center justify-between gap-1.5">
-                  <span className="text-[11px] text-[#a89f91]">Buildings</span>
-                  <span className="font-pixel-num text-xs font-bold text-[#f2ece1] tabular-nums">
+                <div className="px-card px-2.5 py-1.5 flex items-center justify-between gap-1.5">
+                  <span className="text-[11px] text-[#b09880]">Buildings</span>
+                  <span className="font-pixel-num text-xs font-bold text-[#f4e7d4] tabular-nums">
                     {summary.completedCount}
                     {summary.buildingCount > summary.completedCount
                       ? ` (+${summary.buildingCount - summary.completedCount})`
                       : ''}
                   </span>
                 </div>
-                <div className="bg-[#191613] px-2.5 py-1.5 flex items-center justify-between gap-1.5">
-                  <span className="text-[11px] text-[#a89f91]">Adults / Youth</span>
+                <div className="px-card px-2.5 py-1.5 flex items-center justify-between gap-1.5">
+                  <span className="text-[11px] text-[#b09880]">Adults / Youth</span>
                   <span className="font-pixel-num text-[11px] font-bold text-[#56cfe1] tabular-nums">
                     {summary.adults} / {summary.children}
                   </span>
                 </div>
-                <div className="bg-[#191613] px-2.5 py-1.5 flex items-center justify-between gap-1.5">
-                  <span className="text-[11px] text-[#a89f91]">Policy</span>
+                <div className="px-card px-2.5 py-1.5 flex items-center justify-between gap-1.5">
+                  <span className="text-[11px] text-[#b09880]">Policy</span>
                   <span
                     className={`text-[11px] font-bold ${
-                      summary.isPeaceful ? 'text-[#80ed99]' : 'text-[#f5b742]'
+                      summary.isPeaceful ? 'text-[#80ed99]' : 'text-[#f2c478]'
                     }`}
                   >
                     {summary.isPeaceful ? 'Peaceful' : 'Expansionist'}
@@ -489,23 +482,23 @@ export const CityInspectorCard: React.FC<CityInspectorCardProps> = ({
               </div>
 
               {/* Realm / Leader / Diplomacy / Farm Details */}
-              <div className="space-y-1.5 pt-1 border-t border-[#2c2620] text-xs text-[#b8afa2]">
+              <div className="space-y-1.5 pt-1 border-t border-[#423229] text-xs text-[#bfa88f]">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-[#8f8679] shrink-0">Kingdom</span>
-                  <span className="text-[#f2ece1] font-medium truncate">
+                  <span className="text-[#8f7862] shrink-0">Kingdom</span>
+                  <span className="text-[#f4e7d4] font-medium truncate">
                     {summary.kingdomName}
                   </span>
                 </div>
                 {summary.leaderName && (
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-[#8f8679] shrink-0">Ruler</span>
-                    <span className="text-[#ffd166] font-medium truncate">
+                    <span className="text-[#8f7862] shrink-0">Ruler</span>
+                    <span className="text-[#ffd36b] font-medium truncate">
                       {summary.leaderName}
                     </span>
                   </div>
                 )}
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-[#8f8679]">Diplomacy</span>
+                  <span className="text-[#8f7862]">Diplomacy</span>
                   <span className="font-pixel-num text-[11px] tabular-nums">
                     <span className="text-[#56cfe1]">{summary.alliesCount} Allied</span>
                     {'  '}
@@ -513,8 +506,8 @@ export const CityInspectorCard: React.FC<CityInspectorCardProps> = ({
                   </span>
                 </div>
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-[#8f8679]">Farms & Center</span>
-                  <span className="font-pixel-num text-[11px] text-[#cfc6b8] tabular-nums">
+                  <span className="text-[#8f7862]">Farms & Center</span>
+                  <span className="font-pixel-num text-[11px] text-[#ccb69c] tabular-nums">
                     {summary.farmCount} farms ({summary.centerX}, {summary.centerZ})
                   </span>
                 </div>
@@ -522,16 +515,16 @@ export const CityInspectorCard: React.FC<CityInspectorCardProps> = ({
 
               {/* Structures Breakdown */}
               {summary.topBuildings.length > 0 && (
-                <div className="space-y-1 pt-1 border-t border-[#2c2620]">
-                  <div className="text-[10px] font-semibold text-[#8f8679]">Structures</div>
+                <div className="space-y-1 pt-1 border-t border-[#423229]">
+                  <div className="text-[10px] font-semibold text-[#8f7862]">Structures</div>
                   <div className="grid grid-cols-2 gap-1">
                     {summary.topBuildings.map(([name, count]) => (
                       <div
                         key={name}
-                        className="bg-[#141210] px-2 py-1 flex items-center justify-between gap-1 text-[10px]"
+                        className="px-card px-2 py-1 flex items-center justify-between gap-1 text-[10px]"
                       >
-                        <span className="text-[#cfc6b8] truncate">{name}</span>
-                        <span className="font-pixel-num text-[#f2ece1] font-bold tabular-nums">
+                        <span className="text-[#ccb69c] truncate">{name}</span>
+                        <span className="font-pixel-num text-[#f4e7d4] font-bold tabular-nums">
                           {count}
                         </span>
                       </div>
@@ -541,13 +534,13 @@ export const CityInspectorCard: React.FC<CityInspectorCardProps> = ({
               )}
 
               {/* Stockpile Readout */}
-              <div className="space-y-1 pt-1 border-t border-[#2c2620]">
+              <div className="space-y-1 pt-1 border-t border-[#423229]">
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-semibold text-[#8f8679]">Stockpile</span>
+                  <span className="text-[10px] font-semibold text-[#8f7862]">Stockpile</span>
                   <button
                     type="button"
                     onClick={() => setActivePage('stockpile')}
-                    className="text-[10px] text-[#f5b742] hover:underline cursor-pointer"
+                    className="text-[10px] text-[#f2c478] hover:underline cursor-pointer"
                   >
                     Edit Stockpile
                   </button>
@@ -560,13 +553,13 @@ export const CityInspectorCard: React.FC<CityInspectorCardProps> = ({
                     <div
                       key={key}
                       title={`${label}: ${Math.floor(summary.resources[key] ?? 0)}`}
-                      className="bg-[#141210] px-1.5 py-1 flex items-center justify-between gap-1"
+                      className="px-card px-1.5 py-1 flex items-center justify-between gap-1"
                     >
                       <ResourceIconSvg
                         resource={key}
                         className="w-3.5 h-3.5 pixelated-canvas shrink-0"
                       />
-                      <span className="font-pixel-num text-[10px] text-[#e8e0d2] tabular-nums">
+                      <span className="font-pixel-num text-[10px] text-[#eadbc6] tabular-nums">
                         {Math.floor(summary.resources[key] ?? 0)}
                       </span>
                     </div>
@@ -582,11 +575,11 @@ export const CityInspectorCard: React.FC<CityInspectorCardProps> = ({
           {activePage === 'era' && (
             <div className="space-y-2.5 text-xs" data-testid="city-edit-era-page">
               {/* Rename City & Kingdom */}
-              <div className="bg-[#191613] border border-[#2f2720] p-2 space-y-2">
+              <div className="px-card p-2 space-y-2">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-[11px] text-[#b8afa2]">City Name</span>
+                  <span className="text-[11px] text-[#bfa88f]">City Name</span>
                   <div className="flex items-center gap-1 min-w-0">
-                    <span className="text-[#f2ece1] font-semibold truncate max-w-[155px]">
+                    <span className="text-[#f4e7d4] font-semibold truncate max-w-[155px]">
                       {summary.cityName}
                     </span>
                     <button
@@ -595,7 +588,7 @@ export const CityInspectorCard: React.FC<CityInspectorCardProps> = ({
                         setRenameTarget('settlement');
                         setDraftName(summary.cityName);
                       }}
-                      className="px-btn px-1.5 py-0.5 text-[10px] text-[#f5b742] cursor-pointer"
+                      className="px-btn px-1.5 py-0.5 text-[10px] text-[#f2c478] cursor-pointer"
                     >
                       Rename
                     </button>
@@ -608,7 +601,7 @@ export const CityInspectorCard: React.FC<CityInspectorCardProps> = ({
                       e.preventDefault();
                       commitRename();
                     }}
-                    className="flex items-center gap-1 pt-1 border-t border-[#2c2620]"
+                    className="flex items-center gap-1 pt-1 border-t border-[#423229]"
                   >
                     <input
                       type="text"
@@ -621,27 +614,27 @@ export const CityInspectorCard: React.FC<CityInspectorCardProps> = ({
                         e.stopPropagation();
                         if (e.key === 'Escape') setRenameTarget(null);
                       }}
-                      className="w-full min-w-0 bg-[#141210] border border-[#f5b742] px-1.5 py-0.5 text-xs text-[#f2ece1] outline-none"
+                      className="w-full min-w-0 bg-[#15100e] border border-[#f2c478] px-1.5 py-0.5 text-xs text-[#f4e7d4] outline-none"
                     />
                     <button
                       type="submit"
-                      className="px-btn-active px-2 py-0.5 text-[10px] font-bold text-[#f5b742] cursor-pointer shrink-0"
+                      className="px-btn-active px-2 py-0.5 text-[10px] font-bold text-[#fff6e6] cursor-pointer shrink-0"
                     >
                       Save
                     </button>
                     <button
                       type="button"
                       onClick={() => setRenameTarget(null)}
-                      className="px-btn px-1.5 py-0.5 text-[10px] text-[#a89f91] cursor-pointer shrink-0"
+                      className="px-btn px-1.5 py-0.5 text-[10px] text-[#b09880] cursor-pointer shrink-0"
                     >
                       ✕
                     </button>
                   </form>
                 ) : (
-                  <div className="flex items-center justify-between gap-2 pt-1 border-t border-[#2c2620]">
-                    <span className="text-[11px] text-[#b8afa2]">Kingdom Name</span>
+                  <div className="flex items-center justify-between gap-2 pt-1 border-t border-[#423229]">
+                    <span className="text-[11px] text-[#bfa88f]">Kingdom Name</span>
                     <div className="flex items-center gap-1 min-w-0">
-                      <span className="text-[#f2ece1] font-semibold truncate max-w-[155px]">
+                      <span className="text-[#f4e7d4] font-semibold truncate max-w-[155px]">
                         {summary.kingdomName}
                       </span>
                       <button
@@ -651,7 +644,7 @@ export const CityInspectorCard: React.FC<CityInspectorCardProps> = ({
                           setRenameTarget('kingdom');
                           setDraftName(summary.kingdomName);
                         }}
-                        className="px-btn px-1.5 py-0.5 text-[10px] text-[#f5b742] cursor-pointer"
+                        className="px-btn px-1.5 py-0.5 text-[10px] text-[#f2c478] cursor-pointer"
                       >
                         Rename
                       </button>
@@ -661,10 +654,10 @@ export const CityInspectorCard: React.FC<CityInspectorCardProps> = ({
               </div>
 
               {/* Age / Era Selector */}
-              <div className="bg-[#191613] border border-[#2f2720] p-2 space-y-2">
+              <div className="px-card p-2 space-y-2">
                 <div className="flex items-center justify-between text-[11px]">
-                  <span className="font-semibold text-[#cfc6b8]">Age / Era</span>
-                  <span className="font-pixel-num text-[#f5b742]">{summary.currentEpoch.yearLabel}</span>
+                  <span className="font-semibold text-[#ccb69c]">Age / Era</span>
+                  <span className="font-pixel-num text-[#f2c478]">{summary.currentEpoch.yearLabel}</span>
                 </div>
                 <div className="flex items-center gap-1">
                   <button
@@ -672,7 +665,7 @@ export const CityInspectorCard: React.FC<CityInspectorCardProps> = ({
                     data-testid="city-era-prev-btn"
                     disabled={summary.currentEpochIdx <= 0}
                     onClick={() => onSetKingdomEpoch(summary.kid, summary.currentEpochIdx - 1)}
-                    className="px-btn px-2 py-1 text-xs font-bold text-[#e8e0d2] disabled:opacity-40 cursor-pointer"
+                    className="px-btn px-2 py-1 text-xs font-bold text-[#eadbc6] disabled:opacity-40 cursor-pointer"
                     aria-label="Previous era"
                   >
                     −
@@ -681,7 +674,7 @@ export const CityInspectorCard: React.FC<CityInspectorCardProps> = ({
                     data-testid="city-era-select"
                     value={summary.currentEpochIdx}
                     onChange={(e) => onSetKingdomEpoch(summary.kid, Number(e.target.value))}
-                    className="flex-1 min-w-0 bg-[#141210] border border-[#3a332b] px-2 py-1 text-xs text-[#f2ece1] outline-none cursor-pointer"
+                    className="flex-1 min-w-0 px-select px-2 py-1 text-xs outline-none cursor-pointer"
                   >
                     {EPOCHS.map((ep) => (
                       <option key={ep.id} value={ep.index}>
@@ -694,7 +687,7 @@ export const CityInspectorCard: React.FC<CityInspectorCardProps> = ({
                     data-testid="city-era-next-btn"
                     disabled={summary.currentEpochIdx >= EPOCHS.length - 1}
                     onClick={() => onSetKingdomEpoch(summary.kid, summary.currentEpochIdx + 1)}
-                    className="px-btn px-2 py-1 text-xs font-bold text-[#e8e0d2] disabled:opacity-40 cursor-pointer"
+                    className="px-btn px-2 py-1 text-xs font-bold text-[#eadbc6] disabled:opacity-40 cursor-pointer"
                     aria-label="Next era"
                   >
                     +
@@ -702,10 +695,10 @@ export const CityInspectorCard: React.FC<CityInspectorCardProps> = ({
                 </div>
 
                 {summary.currentEpochIdx < EPOCHS.length - 1 && (
-                  <div className="space-y-1 pt-1 border-t border-[#2c2620]">
+                  <div className="space-y-1 pt-1 border-t border-[#423229]">
                     <div className="flex items-center justify-between text-[11px]">
-                      <span className="text-[#b8afa2]">Era Progress</span>
-                      <span className="font-pixel-num text-[#f2ece1] tabular-nums">
+                      <span className="text-[#bfa88f]">Era Progress</span>
+                      <span className="font-pixel-num text-[#f4e7d4] tabular-nums">
                         {summary.epochProgress}%
                       </span>
                     </div>
@@ -737,7 +730,7 @@ export const CityInspectorCard: React.FC<CityInspectorCardProps> = ({
                       <button
                         type="button"
                         onClick={() => onSetKingdomEpochProgress(summary.kid, 0)}
-                        className="px-btn px-2 py-0.5 text-[10px] text-[#cfc6b8] cursor-pointer"
+                        className="px-btn px-2 py-0.5 text-[10px] text-[#ccb69c] cursor-pointer"
                       >
                         Reset
                       </button>
@@ -747,10 +740,10 @@ export const CityInspectorCard: React.FC<CityInspectorCardProps> = ({
               </div>
 
               {/* Policy / Temperament */}
-              <div className="bg-[#191613] border border-[#2f2720] p-2 flex items-center justify-between gap-2">
+              <div className="px-card p-2 flex items-center justify-between gap-2">
                 <div>
-                  <div className="text-[11px] font-semibold text-[#cfc6b8]">Temperament</div>
-                  <div className="text-[10px] text-[#8f8679]">
+                  <div className="text-[11px] font-semibold text-[#ccb69c]">Temperament</div>
+                  <div className="text-[10px] text-[#8f7862]">
                     {summary.isPeaceful
                       ? 'Avoids declaring offensive wars'
                       : 'Claims territory and rivals neighbors'}
@@ -762,8 +755,8 @@ export const CityInspectorCard: React.FC<CityInspectorCardProps> = ({
                   onClick={() => onToggleKingdomPeaceful(summary.kid)}
                   className={`px-2.5 py-1 text-[11px] font-bold cursor-pointer shrink-0 ${
                     summary.isPeaceful
-                      ? 'px-btn-active text-[#80ed99]'
-                      : 'px-btn text-[#f5b742]'
+                      ? 'px-btn-primary text-[#fff8eb]'
+                      : 'px-btn text-[#f2c478]'
                   }`}
                 >
                   {summary.isPeaceful ? 'Peaceful' : 'Expansionist'}
@@ -777,8 +770,8 @@ export const CityInspectorCard: React.FC<CityInspectorCardProps> = ({
              ============================================================== */}
           {activePage === 'stockpile' && (
             <div className="space-y-2 text-xs" data-testid="city-edit-stockpile-page">
-              <div className="flex items-center justify-between gap-1 bg-[#191613] border border-[#2f2720] p-2">
-                <span className="text-[11px] font-semibold text-[#b8afa2]">Quick Grant</span>
+              <div className="flex items-center justify-between gap-1 px-card p-2">
+                <span className="text-[11px] font-semibold text-[#bfa88f]">Quick Grant</span>
                 <div className="flex items-center gap-1">
                   <button
                     type="button"
@@ -792,7 +785,7 @@ export const CityInspectorCard: React.FC<CityInspectorCardProps> = ({
                     type="button"
                     data-testid="city-boost-1000-btn"
                     onClick={() => onBoostKingdomResources(summary.kid, 1000)}
-                    className="px-btn px-2 py-0.5 text-[10px] text-[#f5b742] font-bold cursor-pointer"
+                    className="px-btn px-2 py-0.5 text-[10px] text-[#f2c478] font-bold cursor-pointer"
                   >
                     +1000
                   </button>
@@ -813,14 +806,14 @@ export const CityInspectorCard: React.FC<CityInspectorCardProps> = ({
                   return (
                     <div
                       key={key}
-                      className="bg-[#191613] border border-[#2f2720] px-2 py-1 flex items-center justify-between gap-1.5"
+                      className="px-card px-2 py-1 flex items-center justify-between gap-1.5"
                     >
                       <div className="flex items-center gap-1.5 min-w-0">
                         <ResourceIconSvg
                           resource={key}
                           className="w-3.5 h-3.5 pixelated-canvas shrink-0"
                         />
-                        <span className="text-[11px] text-[#cfc6b8] truncate">{label}</span>
+                        <span className="text-[11px] text-[#ccb69c] truncate">{label}</span>
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
                         <button
@@ -828,7 +821,7 @@ export const CityInspectorCard: React.FC<CityInspectorCardProps> = ({
                           onClick={() =>
                             onSetKingdomResource(summary.kid, key, Math.max(0, val - 100))
                           }
-                          className="px-btn w-6 h-6 flex items-center justify-center text-[11px] font-bold text-[#d8cfc2] cursor-pointer"
+                          className="px-btn w-6 h-6 flex items-center justify-center text-[11px] font-bold text-[#dbc7ae] cursor-pointer"
                           aria-label={`Decrease ${label}`}
                         >
                           −
@@ -845,7 +838,7 @@ export const CityInspectorCard: React.FC<CityInspectorCardProps> = ({
                             }
                           }}
                           onKeyDown={(e) => e.stopPropagation()}
-                          className="w-16 bg-[#141210] border border-[#3a332b] focus:border-[#f5b742] px-1.5 py-0.5 text-[11px] font-pixel-num text-[#f2ece1] text-right tabular-nums outline-none"
+                          className="w-16 bg-[#15100e] border border-[#544034] focus:border-[#f2c478] px-1.5 py-0.5 text-[11px] font-pixel-num text-[#f4e7d4] text-right tabular-nums outline-none"
                         />
                         <button
                           type="button"

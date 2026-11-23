@@ -6568,7 +6568,7 @@ test('Land Powers Expansion: 13 new creative land powers, sky_rain_drop VFX targ
   const skyToolTypes = skyTools.map((d) => d.type).sort();
   assert.deepEqual(
     skyToolTypes,
-    ['blossom_rain', 'boulder_rain', 'crystal_shower', 'plant_forest', 'salvage_drop', 'seed_ore'],
+    ['blossom_rain', 'boulder_rain', 'crystal_shower', 'plant_forest', 'salvage_drop', 'seed_ore', 'water_drop'],
     'Only physical sky-dropped items should come from the sky',
   );
 

@@ -226,16 +226,16 @@ export const GraphicsSettingsPanel: React.FC<GraphicsSettingsPanelProps> = ({
   return (
     <div
       ref={panelRef}
-      className="space-y-2.5 pt-2 border-t border-[#3a332b]"
+      className="space-y-2.5 pt-2 border-t border-[#47362c]"
       data-testid="graphics-settings-section"
     >
       <div className="flex items-center justify-between">
-        <span className="text-xs font-bold text-[#f5b742]">Graphics</span>
+        <span className="text-xs font-bold text-[#f2c478]">Graphics</span>
       </div>
 
       {/* Quality Preset */}
       <div className="flex items-center justify-between gap-2 sm:gap-3">
-        <span className="text-[#e8e0d2] min-w-0 truncate">Quality</span>
+        <span className="text-[#eadbc6] min-w-0 truncate">Quality</span>
         <PixelDropdown
           id="preset"
           testId="gfx-preset"
@@ -261,7 +261,7 @@ export const GraphicsSettingsPanel: React.FC<GraphicsSettingsPanelProps> = ({
 
       {/* Shadows */}
       <div className="flex items-center justify-between gap-2 sm:gap-3">
-        <span className="text-[#e8e0d2] min-w-0 truncate">Shadows</span>
+        <span className="text-[#eadbc6] min-w-0 truncate">Shadows</span>
         <PixelDropdown
           id="shadows"
           testId="gfx-shadows"
@@ -276,7 +276,7 @@ export const GraphicsSettingsPanel: React.FC<GraphicsSettingsPanelProps> = ({
 
       {/* Clouds & Sky */}
       <div className="flex items-center justify-between gap-2 sm:gap-3">
-        <span className="text-[#e8e0d2] min-w-0 truncate">Clouds &amp; Sky</span>
+        <span className="text-[#eadbc6] min-w-0 truncate">Clouds &amp; Sky</span>
         <PixelDropdown
           id="sky"
           testId="gfx-sky"
@@ -291,7 +291,7 @@ export const GraphicsSettingsPanel: React.FC<GraphicsSettingsPanelProps> = ({
 
       {/* Foliage */}
       <div className="flex items-center justify-between gap-2 sm:gap-3">
-        <span className="text-[#e8e0d2] min-w-0 truncate">Foliage</span>
+        <span className="text-[#eadbc6] min-w-0 truncate">Foliage</span>
         <PixelDropdown
           id="foliage"
           testId="gfx-foliage"
@@ -306,7 +306,7 @@ export const GraphicsSettingsPanel: React.FC<GraphicsSettingsPanelProps> = ({
 
       {/* Effects */}
       <div className="flex items-center justify-between gap-2 sm:gap-3">
-        <span className="text-[#e8e0d2] min-w-0 truncate">Effects</span>
+        <span className="text-[#eadbc6] min-w-0 truncate">Effects</span>
         <PixelDropdown
           id="particles"
           testId="gfx-particles"
@@ -323,8 +323,8 @@ export const GraphicsSettingsPanel: React.FC<GraphicsSettingsPanelProps> = ({
       {/* Performance Mode */}
       <div className="flex items-center justify-between gap-2 sm:gap-3 pt-0.5">
         <div className="min-w-0">
-          <div className="text-[#e8e0d2]">Performance Mode</div>
-          <div className="text-[10px] text-[#9e9486]">{activeMode.hint}</div>
+          <div className="text-[#eadbc6]">Performance Mode</div>
+          <div className="text-[10px] text-[#9e866f]">{activeMode.hint}</div>
         </div>
         <PixelDropdown
           id="mode"
@@ -341,7 +341,7 @@ export const GraphicsSettingsPanel: React.FC<GraphicsSettingsPanelProps> = ({
 
       {/* Camera Shake */}
       <div className="flex items-center justify-between gap-2 sm:gap-3 pt-0.5">
-        <span className="text-[#e8e0d2] min-w-0 truncate">Camera Shake</span>
+        <span className="text-[#eadbc6] min-w-0 truncate">Camera Shake</span>
         <button
           type="button"
           data-testid="gfx-camera-shake"
@@ -357,7 +357,7 @@ export const GraphicsSettingsPanel: React.FC<GraphicsSettingsPanelProps> = ({
 
       {/* Performance Stats */}
       <div className="flex items-center justify-between gap-2 sm:gap-3 pt-0.5">
-        <span className="text-[#e8e0d2] min-w-0 truncate">Performance Stats</span>
+        <span className="text-[#eadbc6] min-w-0 truncate">Performance Stats</span>
         <button
           type="button"
           data-testid="gfx-perf-stats"
