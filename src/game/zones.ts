@@ -110,6 +110,9 @@ export interface TemperatureZoneInfo {
 
 export interface ZoneMapLabel {
   id: string;
+  kind?: 'city' | 'territory' | 'biome' | 'temperature';
+  settlementId?: string;
+  kingdomId?: string;
   name: string;
   species?: SpeciesId;
   epochName?: string;
@@ -171,6 +174,18 @@ const KINGDOM_PALETTES: Record<SpeciesId, Array<[number, number, number]>> = {
     [249, 115, 22],  // Blood Orange
     [217, 70, 239],  // Warlock Magenta
     [234, 88, 12],   // Rust Iron
+  ],
+  dwarf: [
+    [217, 119, 6],   // Forged Amber
+    [245, 158, 11],  // Mithril Gold
+    [180, 83, 9],    // Copper Anvil
+    [234, 179, 8],   // Runic Brass
+  ],
+  lizardfolk: [
+    [234, 179, 8],   // Sunscale Gold
+    [101, 163, 13],  // Jungle Jade
+    [202, 138, 4],   // Temple Ochre
+    [13, 148, 136],  // Lagoon Teal
   ],
 };
 
@@ -1956,6 +1971,9 @@ export function buildZoneOverlayTextures(
         if (k.buildingCount <= 0) return;
         labelOnlyList.push({
           id: `kingdom-${k.zoneId}`,
+          kind: 'city',
+          settlementId: k.settlementId,
+          kingdomId: k.kingdomId,
           name: k.name,
           species: k.species,
           epochName: k.epochName,
@@ -2143,6 +2161,9 @@ export function buildZoneOverlayTextures(
       const aCol = getAllianceRgb(k.settlementId);
       labels.push({
         id: `alliance-${k.zoneId}`,
+        kind: 'city',
+        settlementId: k.settlementId,
+        kingdomId: k.kingdomId,
         name: k.name,
         species: k.species,
         epochName: k.epochName,
@@ -2158,6 +2179,9 @@ export function buildZoneOverlayTextures(
       if (!toggles.kingdoms && k.buildingCount <= 0) return;
       labels.push({
         id: `kingdom-${k.zoneId}`,
+        kind: 'city',
+        settlementId: k.settlementId,
+        kingdomId: k.kingdomId,
         name: k.name,
         species: k.species,
         epochName: k.epochName,
@@ -2173,6 +2197,7 @@ export function buildZoneOverlayTextures(
     zones.territoriesById.forEach((t) => {
       labels.push({
         id: `territory-${t.zoneId}`,
+        kind: 'territory',
         name: t.name,
         population: t.animalCount,
         hexColor: t.hexColor,
@@ -2193,6 +2218,7 @@ export function buildZoneOverlayTextures(
         for (let ai = 0; ai < anchors.length; ai++) {
           labels.push({
             id: ai === 0 ? `biome-${b.zoneId}` : `biome-${b.zoneId}-${ai}`,
+            kind: 'biome',
             name: b.name,
             population: null,
             hexColor: b.hexColor,
@@ -2215,6 +2241,7 @@ export function buildZoneOverlayTextures(
         for (let ai = 0; ai < anchors.length; ai++) {
           labels.push({
             id: ai === 0 ? `temp-${tm.zoneId}` : `temp-${tm.zoneId}-${ai}`,
+            kind: 'temperature',
             name: tm.name,
             population: null,
             hexColor: tm.hexColor,
@@ -2343,6 +2370,9 @@ export function computeKingdomLabelsOnly(sim: SimulationState): ZoneMapLabel[] {
     const epochDef = EPOCHS[Math.max(0, Math.min(EPOCHS.length - 1, kEpoch))] || EPOCHS[0];
     labels.push({
       id: `kingdom-${zoneId}`,
+      kind: 'city',
+      settlementId: s.id,
+      kingdomId: rootKingdomId,
       name: s.name,
       species: s.species,
       epochName: epochDef ? epochDef.name : 'Stone Age',

@@ -2508,6 +2508,77 @@ test('World Creator templates (Realistic, Fantastic, Sci-Fi Orbital) and map siz
   assert.equal(colossalSim.tiles.length, 256 * 256);
 });
 
+test('Archipelago / Island Chains world template generates multiple distinct island chains separated by ocean across seeds', () => {
+  for (const seed of [123456, 626984, 31337]) {
+    const archCfg = createWorldConfigFromTemplate('archipelago', { seed, gridSize: 128 });
+    const sim = createInitialSimulationState(archCfg.gridSize, archCfg.seed, archCfg);
+    const size = sim.gridSize;
+    const visited = new Uint8Array(sim.tiles.length);
+    const islandSizes: number[] = [];
+    let landTiles = 0;
+    let shallowTiles = 0;
+    let deepTiles = 0;
+
+    for (let i = 0; i < sim.tiles.length; i++) {
+      const t = sim.tiles[i];
+      if (t.height > 0) landTiles++;
+      else if (t.terrain === 'shallow_water') shallowTiles++;
+      else if (t.terrain === 'deep_water') deepTiles++;
+    }
+
+    const q: number[] = [];
+    for (let i = 0; i < sim.tiles.length; i++) {
+      if (sim.tiles[i].height > 0 && !visited[i]) {
+        let count = 0;
+        visited[i] = 1;
+        q.push(i);
+        while (q.length > 0) {
+          const cur = q.pop()!;
+          count++;
+          const x = cur % size;
+          const z = Math.floor(cur / size);
+          for (const [ox, oz] of [
+            [1, 0],
+            [-1, 0],
+            [0, 1],
+            [0, -1],
+          ]) {
+            const nx = x + ox;
+            const nz = z + oz;
+            if (nx >= 0 && nx < size && nz >= 0 && nz < size) {
+              const ni = nz * size + nx;
+              if (sim.tiles[ni].height > 0 && !visited[ni]) {
+                visited[ni] = 1;
+                q.push(ni);
+              }
+            }
+          }
+        }
+        if (count >= 6) islandSizes.push(count);
+      }
+    }
+
+    islandSizes.sort((a, b) => b - a);
+    assert.ok(
+      islandSizes.length >= 10,
+      `Seed ${seed}: expected >= 10 distinct archipelago islands, got ${islandSizes.length}`,
+    );
+    assert.ok(
+      landTiles > 600 && landTiles < size * size * 0.35,
+      `Seed ${seed}: archipelago land coverage should stay oceanic (got ${landTiles} tiles)`,
+    );
+    assert.ok(
+      islandSizes[0] / Math.max(1, landTiles) < 0.45,
+      `Seed ${seed}: archipelago must not collapse into a single continent (largest island ${islandSizes[0]}/${landTiles})`,
+    );
+    assert.ok(shallowTiles > 800 && deepTiles > 2000, `Seed ${seed}: expected both shallow chain lagoons and deep sea`);
+    assert.ok(sim.population >= 4, `Seed ${seed}: expected starting pioneers on an archipelago island`);
+    assert.ok(sim.selectedTile !== null, `Seed ${seed}: expected non-null selectedTile`);
+    const selTile = sim.tiles[sim.selectedTile.z * size + sim.selectedTile.x];
+    assert.ok(selTile && selTile.height >= 1, `Seed ${seed}: starter focus tile must be dry land`);
+  }
+});
+
 test('kingdoms maintain strictly 1 King across all branched-out zones', () => {
   const state = createInitialSimulationState(128, 'SINGLE-KING-BRANCH');
   state.sandboxFreeMode = true;
@@ -5980,11 +6051,16 @@ test('Kingdom Labels default ON without zone shading and appear once a race star
   const fastLabels = computeKingdomLabelsOnly(state);
   assert.equal(fastLabels.length, 1, 'Founded civilization must immediately emit a kingdom label by default');
   assert.equal(fastLabels[0].epochName, EPOCHS[0].name, 'Default kingdom label must show Stone Age beside name');
+  assert.equal(fastLabels[0].kind, 'city', 'Kingdom label must be tagged kind="city" for clickable city inspection');
+  assert.ok(fastLabels[0].settlementId, 'City label must expose settlementId');
+  assert.ok(fastLabels[0].kingdomId, 'City label must expose kingdomId');
 
   const zones = computeWorldZones(state);
   const defaultPack = buildZoneOverlayTextures(zones, DEFAULT_ZONE_TOGGLES, null);
   assert.equal(defaultPack.anyActive, false, 'Default toggles must NOT paint colored kingdom zones');
   assert.equal(defaultPack.labels.length, 1, 'Default toggles must still display the kingdom label');
+  assert.equal(defaultPack.labels[0].kind, 'city');
+  assert.equal(defaultPack.labels[0].settlementId, fastLabels[0].settlementId);
 
   const disabledPack = buildZoneOverlayTextures(
     zones,
@@ -6043,6 +6119,8 @@ test('Biome and Temperature zone labels anchor strictly inside their contiguous 
       `Dunes label at (${lbl.tileX}, ${lbl.tileZ}) must sit strictly inside sand terrain (found ${tile.terrain})`,
     );
     assert.equal(lbl.flatGround, true, 'Biome labels must be marked flatGround for centered ground projection');
+    assert.equal(lbl.kind, 'biome', 'Biome labels must not be tagged as clickable city labels');
+    assert.equal(lbl.settlementId, undefined, 'Biome labels must not expose a settlementId');
   }
 
   // Temperature labels must likewise sit strictly inside their matching thermal band

@@ -177,7 +177,7 @@ export interface BuildingEntity {
   species?: SpeciesId;
 }
 
-export type SpeciesId = 'human' | 'elf' | 'orc';
+export type SpeciesId = 'human' | 'elf' | 'orc' | 'dwarf' | 'lizardfolk';
 
 export type UnitAgeStage = 'child' | 'adult';
 
@@ -249,6 +249,8 @@ export type UnitRole =
   | 'human'
   | 'elf'
   | 'orc'
+  | 'dwarf'
+  | 'lizardfolk'
   | 'villager'
   | 'forager'
   | 'miner'
@@ -344,6 +346,8 @@ export interface UnitEntity {
   genes?: string[];
   items?: string[];
   statBonuses?: UnitStatBonuses;
+  /** Custom visual size multiplier edited in Entity Inspector (0.35..4.0, default 1.0) */
+  sizeScale?: number;
   bornYear?: number;
   ageYears?: number;
   maxLifespan?: number;
@@ -623,6 +627,8 @@ export interface VisualEffectEvent {
     | 'elf_starfall_spell'
     | 'orc_siege_boulder'
     | 'orc_waagh_rocket'
+    | 'dwarf_quake_mortar'
+    | 'lizard_solar_lance'
     | 'plasma_beam'
     | 'laser_beam'
     | 'ice_ball'
@@ -647,7 +653,11 @@ export type StrategicStrikeKind =
   | 'elf_starfall_spell'
   | 'elf_astral_cataclysm'
   | 'orc_siege_boulder'
-  | 'orc_waagh_rocket';
+  | 'orc_waagh_rocket'
+  | 'dwarf_quake_mortar'
+  | 'dwarf_seismic_hammer'
+  | 'lizard_solar_lance'
+  | 'lizard_solar_cataclysm';
 
 export interface StrategicWarStrike {
   id: string;
@@ -994,6 +1004,12 @@ export interface SimulationState {
   kingdomUltimateCooldowns?: Record<string, number>;
   kingdomRelations?: Record<string, DiplomaticRelation>;
   kingdomPeacefulTraits?: Record<string, boolean>;
+  /** Canonical pairKey -> game year until which a formal Peace Treaty / Truce blocks war */
+  kingdomPeaceTreaties?: Record<string, number>;
+  /** Canonical pairKey -> game year until which an active Trade Agreement boosts both kingdoms */
+  kingdomTradePacts?: Record<string, number>;
+  /** Canonical pairKey -> game year when the current war began (drives war exhaustion & peace talks) */
+  kingdomWarStartYears?: Record<string, number>;
   warFrontBaselines?: Record<string, WarFrontBaseline>;
   activeStrategicStrikes?: StrategicWarStrike[];
   strategicWarTimer?: number;

@@ -399,4 +399,158 @@ describe('God Powers Dramatic VFX & Gameplay Rework', () => {
       assert.ok(sprite.paths.length > 0, `Expected non-empty paths for ${tool.type}`);
     }
   });
+
+  it('burns down elevated blocks and evaporates water under the sweeping Solar Beam', () => {
+    const state = createInitialSimulationState();
+    state.sandboxFreeMode = true;
+    const gs = state.gridSize;
+    const tileAt = (x: number, z: number) => state.tiles[z * gs + x];
+
+    // 1. Elevated 4-block mountain plateau around (28, 28)
+    const mx = 28;
+    const mz = 28;
+    for (let dz = -4; dz <= 4; dz++) {
+      for (let dx = -4; dx <= 4; dx++) {
+        const t = tileAt(mx + dx, mz + dz);
+        t.buildingId = null;
+        t.height = 4;
+        t.terrain = 'rock';
+        delete t.waterKind;
+        t.resourceNode = dx === 0 && dz === 0 ? 'timber_grove' : 'none';
+        t.resourceAmount = dx === 0 && dz === 0 ? 100 : 0;
+      }
+    }
+    const resLand = castGodPower(state, 'solar_orbital_laser', mx, mz);
+    assert.equal(resLand.ok, true);
+    for (let i = 0; i < 14; i++) {
+      stepSimulation(state, 0.1);
+    }
+
+    let carvedCount = 0;
+    for (let dz = -4; dz <= 4; dz++) {
+      for (let dx = -4; dx <= 4; dx++) {
+        const t = tileAt(mx + dx, mz + dz);
+        if (t.height < 4) carvedCount++;
+      }
+    }
+    assert.ok(carvedCount >= 4, `Solar Beam should burn down elevated blocks (carved ${carvedCount} tiles)`);
+    assert.equal(tileAt(mx, mz).resourceNode, 'none', 'Solar Beam core should vaporize trees/resources');
+
+    // 2. Deep & shallow water patch around (48, 48)
+    state.activeHazards = [];
+    const wx = 48;
+    const wz = 48;
+    for (let dz = -4; dz <= 4; dz++) {
+      for (let dx = -4; dx <= 4; dx++) {
+        const t = tileAt(wx + dx, wz + dz);
+        t.buildingId = null;
+        t.height = 0;
+        t.terrain = Math.abs(dx) <= 1 && Math.abs(dz) <= 1 ? 'shallow_water' : 'deep_water';
+        delete t.waterKind;
+        t.isLake = true;
+        t.resourceNode = 'none';
+        t.resourceAmount = 0;
+      }
+    }
+    const resWater = castGodPower(state, 'solar_orbital_laser', wx, wz);
+    assert.equal(resWater.ok, true);
+    for (let i = 0; i < 16; i++) {
+      stepSimulation(state, 0.1);
+    }
+
+    let evaporatedCount = 0;
+    let shallowedDeepCount = 0;
+    for (let dz = -4; dz <= 4; dz++) {
+      for (let dx = -4; dx <= 4; dx++) {
+        const t = tileAt(wx + dx, wz + dz);
+        if (t.height >= 1 && !t.waterKind) evaporatedCount++;
+        else if (t.height === 0 && t.terrain === 'shallow_water' && !t.waterKind) shallowedDeepCount++;
+      }
+    }
+    assert.ok(evaporatedCount >= 3, `Solar Beam should evaporate water to dry seabed (evaporated ${evaporatedCount} tiles)`);
+    assert.ok(
+      evaporatedCount + shallowedDeepCount >= 6,
+      `Solar Beam should boil deep water shallower before drying it`,
+    );
+  });
+
+  it('cracks open Lava Fissure across the ground first before erupting lava beams and bombs', () => {
+    const geos = createSharedGodPowerGeos();
+    const magicCircleGeo = new THREE.PlaneGeometry(2, 2);
+    const callbacks = {
+      spawnBurst: () => {},
+      spawnRising: () => {},
+      getGroundY: () => 1.0,
+    };
+
+    const vfx = createEnhancedHazardVfx('magma_geyser', 7.0, geos, magicCircleGeo, makeDummyCircleMat);
+    const haz: ActiveHazardZone = {
+      id: 'fissure_test',
+      kind: 'magma_geyser',
+      x: 32,
+      z: 32,
+      radius: 7.0,
+      currentRadius: 1.5,
+      maxRadius: 7.0,
+      remaining: 7.5,
+      duration: 7.5,
+      tickTimer: 0.1,
+      heading: 0.4,
+    };
+
+    const outerPillar = vfx.refs.outerPillar as THREE.Mesh;
+    const corePillar = vfx.refs.corePillar as THREE.Mesh;
+    const ventJetInst = vfx.refs.ventJetInst as THREE.InstancedMesh;
+    const bombInst = vfx.refs.bombInst as THREE.InstancedMesh;
+
+    // Stage 1 (progress = 0.16): Fissure tearing open — NO lava beam or bombs yet!
+    haz.remaining = haz.duration * 0.84;
+    updateEnhancedHazardVfx(vfx, haz, 1.0, 1.2, 0.016, 1.0, callbacks);
+    assert.equal(outerPillar.visible, false, 'Stage 1 should show ground fissure before outer lava beam erupts');
+    assert.equal(corePillar.visible, false, 'Stage 1 should show ground fissure before core lava beam erupts');
+    assert.equal(ventJetInst.count, 0, 'Stage 1 should keep crack vent jets hidden before eruption');
+    assert.equal(bombInst.count, 0, 'Stage 1 should keep magma bombs hidden before eruption');
+
+    // Stage 2 (progress = 0.62): Pressurized lava beam & fissure vents erupting!
+    haz.remaining = haz.duration * 0.38;
+    updateEnhancedHazardVfx(vfx, haz, 1.0, 4.65, 0.016, 1.0, callbacks);
+    assert.equal(outerPillar.visible, true, 'Stage 2 should erupt outer lava beam from the fissure');
+    assert.equal(corePillar.visible, true, 'Stage 2 should erupt core lava beam from the fissure');
+    assert.ok(outerPillar.scale.y > 3.0, `Erupted lava beam height should be > 3.0, got ${outerPillar.scale.y}`);
+    assert.equal(ventJetInst.count, 7, 'Stage 2 should erupt staggered vent plumes along the fissure');
+    assert.equal(bombInst.count, 36, 'Stage 2 should hurl volcanic bombs out of the fissure');
+
+    disposeEnhancedHazardVfx(vfx);
+    magicCircleGeo.dispose();
+    geos.dispose();
+
+    // Verify 2-stage simulation timeline: Stage 1 cracks ground before Stage 2 eruption burst triggers
+    const state = createInitialSimulationState();
+    state.sandboxFreeMode = true;
+    const cx = Math.floor(state.gridSize / 2);
+    const cz = Math.floor(state.gridSize / 2);
+    for (let dz = -10; dz <= 10; dz++) {
+      for (let dx = -10; dx <= 10; dx++) {
+        const t = state.tiles[(cz + dz) * state.gridSize + (cx + dx)];
+        t.buildingId = null;
+        t.height = 1;
+        t.terrain = 'grass';
+        delete t.waterKind;
+      }
+    }
+    const castRes = castGodPower(state, 'wildfire_ring', cx, cz);
+    assert.equal(castRes.ok, true);
+    const fissureHaz = state.activeHazards.find((h) => h.kind === 'magma_geyser')!;
+    assert.ok(fissureHaz, 'wildfire_ring should spawn magma_geyser hazard');
+
+    // Step 1.2s (Stage 1)
+    for (let i = 0; i < 12; i++) stepSimulation(state, 0.1);
+    assert.ok(!fissureHaz.exploded, 'Stage 1 should crack open fault before triggering Stage 2 eruption burst');
+
+    // Step past 3.3s (Stage 2)
+    for (let i = 0; i < 24; i++) stepSimulation(state, 0.1);
+    assert.equal(fissureHaz.exploded, true, 'Stage 2 should trigger eruption burst after fissure opens');
+    const fissureLava = state.tiles.filter((t) => t.waterKind === 'lava');
+    assert.ok(fissureLava.length >= 6, `Erupted Lava Fissure should create molten lava crack tiles, got ${fissureLava.length}`);
+  });
 });

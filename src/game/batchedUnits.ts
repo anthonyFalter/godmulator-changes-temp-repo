@@ -47,6 +47,41 @@ function normalizeUnitSubmeshForBatch(
   const nonIdx = source.index ? source.toNonIndexed() : source.clone();
   nonIdx.applyMatrix4(worldMatrix);
 
+  const det = worldMatrix.determinant();
+  if (det < 0) {
+    // Flip triangle winding for mirrored submeshes (scale.x = -1, etc.) so FrontSide doesn't cull them
+    const pArr = nonIdx.getAttribute('position');
+    const nArr = nonIdx.getAttribute('normal');
+    const cArr = nonIdx.getAttribute('color');
+    const triN = Math.floor(pArr.count / 3);
+    for (let t = 0; t < triN; t++) {
+      const i1 = t * 3 + 1;
+      const i2 = t * 3 + 2;
+      const px = pArr.getX(i1);
+      const py = pArr.getY(i1);
+      const pz = pArr.getZ(i1);
+      pArr.setXYZ(i1, pArr.getX(i2), pArr.getY(i2), pArr.getZ(i2));
+      pArr.setXYZ(i2, px, py, pz);
+      if (nArr) {
+        const nx = nArr.getX(i1);
+        const ny = nArr.getY(i1);
+        const nz = nArr.getZ(i1);
+        nArr.setXYZ(i1, nArr.getX(i2), nArr.getY(i2), nArr.getZ(i2));
+        nArr.setXYZ(i2, nx, ny, nz);
+      }
+      if (cArr) {
+        const cx = cArr.getX(i1);
+        const cy = cArr.getY(i1);
+        const cz = cArr.getZ(i1);
+        cArr.setXYZ(i1, cArr.getX(i2), cArr.getY(i2), cArr.getZ(i2));
+        cArr.setXYZ(i2, cx, cy, cz);
+      }
+    }
+    pArr.needsUpdate = true;
+    if (nArr) nArr.needsUpdate = true;
+    if (cArr) cArr.needsUpdate = true;
+  }
+
   if (!nonIdx.getAttribute('normal')) {
     nonIdx.computeVertexNormals();
   }
@@ -91,8 +126,56 @@ function normalizeUnitSubmeshForBatch(
     }
   }
 
-  // Strip strictly downward-facing (-Y) triangles occluded beneath the unit
   const triCount = Math.floor(vCount / 3);
+  const isDoubleSided = mat.side === THREE.DoubleSide;
+
+  if (isDoubleSided && triCount > 0 && norm) {
+    // Emit both front and back faces for DoubleSide thin wings/membranes/fins so they never vanish in FrontSide BatchedMesh
+    const dstVerts = triCount * 6;
+    const newPos = new Float32Array(dstVerts * 3);
+    const newNorm = new Float32Array(dstVerts * 3);
+    const newCol = new Float32Array(dstVerts * 3);
+    let outV = 0;
+    for (let t = 0; t < triCount; t++) {
+      const base = t * 3;
+      // Front face (0, 1, 2)
+      for (let k = 0; k < 3; k++) {
+        const sv = base + k;
+        const o3 = outV * 3;
+        newPos[o3] = pos.getX(sv);
+        newPos[o3 + 1] = pos.getY(sv);
+        newPos[o3 + 2] = pos.getZ(sv);
+        newNorm[o3] = norm.getX(sv);
+        newNorm[o3 + 1] = norm.getY(sv);
+        newNorm[o3 + 2] = norm.getZ(sv);
+        newCol[o3] = bakedColors[sv * 3];
+        newCol[o3 + 1] = bakedColors[sv * 3 + 1];
+        newCol[o3 + 2] = bakedColors[sv * 3 + 2];
+        outV++;
+      }
+      // Back face (0, 2, 1) with inverted normal
+      for (const k of [0, 2, 1]) {
+        const sv = base + k;
+        const o3 = outV * 3;
+        newPos[o3] = pos.getX(sv);
+        newPos[o3 + 1] = pos.getY(sv);
+        newPos[o3 + 2] = pos.getZ(sv);
+        newNorm[o3] = -norm.getX(sv);
+        newNorm[o3 + 1] = -norm.getY(sv);
+        newNorm[o3 + 2] = -norm.getZ(sv);
+        newCol[o3] = bakedColors[sv * 3];
+        newCol[o3 + 1] = bakedColors[sv * 3 + 1];
+        newCol[o3 + 2] = bakedColors[sv * 3 + 2];
+        outV++;
+      }
+    }
+    nonIdx.setAttribute('position', new THREE.BufferAttribute(newPos, 3));
+    nonIdx.setAttribute('normal', new THREE.BufferAttribute(newNorm, 3));
+    nonIdx.setAttribute('color', new THREE.BufferAttribute(newCol, 3));
+    return nonIdx;
+  }
+
+  // Strip strictly downward-facing (-Y) triangles occluded beneath solid opaque unit limbs/bodies
   if (triCount > 0 && norm) {
     let keepTris = 0;
     const keepMask = new Uint8Array(triCount);
@@ -501,10 +584,15 @@ export class BatchedUnitSystem {
     return this.templates.has(key);
   }
 
-  beginFrame(): void {
+  private frameBakeBudget = 0;
+  private frameBakedCount = 0;
+
+  beginFrame(maxNewTemplates = 0): void {
     this.stdBucket.beginFrame();
     this.glowBucket.beginFrame();
     this.unitPositions.clear();
+    this.frameBakeBudget = maxNewTemplates;
+    this.frameBakedCount = 0;
   }
 
   pushUnit(
@@ -521,6 +609,23 @@ export class BatchedUnitSystem {
     scale = 1.0,
   ): number {
     const pose = getBatchedUnitPose(unit);
+    if (this.frameBakeBudget > 0) {
+      const key = getBatchedUnitTemplateKey(
+        unit.role,
+        unit.faction,
+        epochLevel,
+        species,
+        ageStage,
+        appearanceSeed,
+        pose,
+      );
+      if (!this.templates.has(key)) {
+        if (this.frameBakedCount >= this.frameBakeBudget) {
+          return 0;
+        }
+        this.frameBakedCount++;
+      }
+    }
     const tpl = this.getOrBakeTemplate(
       unit.role,
       unit.faction,

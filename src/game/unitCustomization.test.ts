@@ -8,9 +8,12 @@ import {
   UNIT_TRAITS,
   addUnitItem,
   computeUnitEffectiveStats,
+  getEffectiveUnitSizeScale,
+  getUnitSizeScale,
   healUnitFull,
   removeUnitItem,
   resetUnitStatBonuses,
+  setUnitSizeScale,
   setUnitStatValue,
   toggleUnitGene,
   toggleUnitTrait,
@@ -124,4 +127,32 @@ test('all catalog traits, genes, and items have concise non-empty descriptions a
   for (const item of UNIT_ITEMS) {
     assert.ok(item.name.length > 0 && item.description.length > 5 && item.icon.length > 0);
   }
+});
+
+test('creature size editing clamps bounds, combines with giant/tiny traits, exposes in inspector, and resets cleanly', () => {
+  const sim = createInitialSimulationState(48, 77);
+  const tile = sim.tiles.find((t) => t.height >= 1 && !t.buildingId)!;
+  const unit = spawnUnit(sim, 'wolf', tile.x, tile.z, true, undefined, { appearanceSeed: 3 }).unit!;
+  unit.traits = [];
+
+  assert.equal(getUnitSizeScale(unit), 1.0);
+  assert.equal(getEffectiveUnitSizeScale(unit), 1.0);
+
+  // Set custom size and verify clamping
+  assert.equal(setUnitSizeScale(unit, 2.5), 2.5);
+  assert.equal(getEntityInspectProfile(sim, unit).informations.sizeScale, 2.5);
+  assert.equal(getEntityInspectProfile(sim, unit).hasStatOverrides, true);
+
+  assert.equal(setUnitSizeScale(unit, 99), 4.0);
+  assert.equal(setUnitSizeScale(unit, 0.05), 0.35);
+
+  // Combines cleanly with giant/tiny traits
+  setUnitSizeScale(unit, 2.0);
+  toggleUnitTrait(unit, 'giant');
+  assert.ok(Math.abs(getEffectiveUnitSizeScale(unit) - 2.56) < 0.01);
+
+  // Reset restores 1.0x
+  resetUnitStatBonuses(unit);
+  assert.equal(unit.sizeScale, undefined);
+  assert.equal(getUnitSizeScale(unit), 1.0);
 });

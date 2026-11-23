@@ -252,7 +252,7 @@ export function buildTerrainChunkGeometryData(
       }
       const x0 = wx - 0.5;
       const x1 = wx + run - 0.5;
-      // CCW viewed from -Z: (x1, top)->(x0, top)->(x0, bot)->(x1, bot)
+      // CCW viewed from -Z: (x1, top)->(x1, bot)->(x0, bot)->(x0, top)
       pushQuad(
         cliffPos,
         cliffNorm,
@@ -260,14 +260,14 @@ export function buildTerrainChunkGeometryData(
         x1,
         myTop,
         zNorth,
-        x0,
-        myTop,
-        zNorth,
-        x0,
-        nbTop,
-        zNorth,
         x1,
         nbTop,
+        zNorth,
+        x0,
+        nbTop,
+        zNorth,
+        x0,
+        myTop,
         zNorth,
         0,
         0,

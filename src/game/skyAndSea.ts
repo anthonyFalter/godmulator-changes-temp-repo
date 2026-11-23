@@ -10,6 +10,7 @@ import {
 } from './types';
 import { getTimeOfDayLightingState, wrapShaderTime } from './dayNightLighting';
 import { createRng, normalizeSeed } from './worldGen';
+import { WorldCullBounds, isPointInCullBounds } from './autoOptimizer';
 
 function addSteppedPuff(
   parts: THREE.BufferGeometry[],
@@ -134,13 +135,21 @@ interface CloudInstanceData {
   bobAmp: number;
   variant: number;
   slot: number;
+  reducedActive: boolean;
+  cloudInstId: number;
+  shadowInstId: number;
 }
 
 export interface SkyCloudSystem {
   group: THREE.Group;
   shadowGroup: THREE.Group;
   setQuality: (quality: SkyCloudsQualityOption) => void;
-  update: (dt: number, elapsed: number, preset: LightingPreset) => void;
+  update: (
+    dt: number,
+    elapsed: number,
+    preset: LightingPreset,
+    cullBounds?: WorldCullBounds,
+  ) => void;
   dispose: () => void;
 }
 
@@ -172,35 +181,41 @@ export function createSkyCloudSystem(gridSize: number): SkyCloudSystem {
   const pad = 18;
   const span = gridSize + pad * 2;
 
-  const variantCapacities = variants.map(() => 0);
+  const variantFullCounts = variants.map(() => 0);
   for (let i = 0; i < cloudCount; i++) {
-    variantCapacities[i % variants.length]++;
+    variantFullCounts[i % variants.length]++;
   }
+  const variantReducedLimits = variantFullCounts.map((cap) => Math.ceil(cap * 0.5));
 
-  const cloudInsts: THREE.InstancedMesh[] = [];
-  const shadowInsts: THREE.InstancedMesh[] = [];
-  const variantFullCounts = variantCapacities.slice();
-
+  let totalVerts = 0;
+  let totalIndices = 0;
   for (let v = 0; v < variants.length; v++) {
-    const cap = Math.max(1, variantCapacities[v]);
-    const cInst = new THREE.InstancedMesh(variants[v], cloudMat, cap);
-    cInst.castShadow = false;
-    cInst.receiveShadow = false;
-    cInst.frustumCulled = false;
-    cInst.renderOrder = 12;
-    cInst.count = cap;
-    group.add(cInst);
-    cloudInsts.push(cInst);
-
-    const sInst = new THREE.InstancedMesh(variants[v], shadowMat, cap);
-    sInst.castShadow = false;
-    sInst.receiveShadow = false;
-    sInst.frustumCulled = false;
-    sInst.renderOrder = -1;
-    sInst.count = cap;
-    shadowGroup.add(sInst);
-    shadowInsts.push(sInst);
+    totalVerts += variants[v].attributes.position.count;
+    const idxAttr = variants[v].index;
+    totalIndices += idxAttr ? idxAttr.count : variants[v].attributes.position.count;
   }
+
+  // Collapse 4+4 cloud InstancedMeshes into 2 BatchedMesh draw calls total
+  const cloudBatch = new THREE.BatchedMesh(cloudCount, totalVerts, totalIndices, cloudMat);
+  cloudBatch.castShadow = false;
+  cloudBatch.receiveShadow = false;
+  cloudBatch.frustumCulled = false;
+  cloudBatch.perObjectFrustumCulled = false;
+  cloudBatch.sortObjects = false;
+  cloudBatch.renderOrder = 12;
+  group.add(cloudBatch);
+
+  const shadowBatch = new THREE.BatchedMesh(cloudCount, totalVerts, totalIndices, shadowMat);
+  shadowBatch.castShadow = false;
+  shadowBatch.receiveShadow = false;
+  shadowBatch.frustumCulled = false;
+  shadowBatch.perObjectFrustumCulled = false;
+  shadowBatch.sortObjects = false;
+  shadowBatch.renderOrder = -1;
+  shadowGroup.add(shadowBatch);
+
+  const cloudGeoIds = variants.map((geo) => cloudBatch.addGeometry(geo));
+  const shadowGeoIds = variants.map((geo) => shadowBatch.addGeometry(geo));
 
   let rng = 133791;
   const nextRand = () => {
@@ -215,6 +230,8 @@ export function createSkyCloudSystem(gridSize: number): SkyCloudSystem {
   const _mat = new THREE.Matrix4();
   const variantQuats: THREE.Quaternion[] = [];
   const variantSlotCursor = variants.map(() => 0);
+  const cloudVisState = new Uint8Array(cloudCount).fill(1);
+  const shadowVisState = new Uint8Array(cloudCount).fill(1);
 
   for (let i = 0; i < cloudCount; i++) {
     const variant = i % variants.length;
@@ -240,15 +257,17 @@ export function createSkyCloudSystem(gridSize: number): SkyCloudSystem {
     const q = new THREE.Quaternion().setFromAxisAngle(_yAxis, rotY);
     variantQuats.push(q);
 
+    const cloudInstId = cloudBatch.addInstance(cloudGeoIds[variant]);
     _pos.set(x, y, z);
     _scale.set(scaleX, scaleY, scaleZ);
     _mat.compose(_pos, q, _scale);
-    cloudInsts[variant].setMatrixAt(slot, _mat);
+    cloudBatch.setMatrixAt(cloudInstId, _mat);
 
+    const shadowInstId = shadowBatch.addInstance(shadowGeoIds[variant]);
     _pos.set(x - 2.4, 0.32, z - 1.8);
     _scale.set(scaleX * 0.88, 0.02, scaleZ * 0.88);
     _mat.compose(_pos, q, _scale);
-    shadowInsts[variant].setMatrixAt(slot, _mat);
+    shadowBatch.setMatrixAt(shadowInstId, _mat);
 
     clouds.push({
       x,
@@ -264,15 +283,14 @@ export function createSkyCloudSystem(gridSize: number): SkyCloudSystem {
       bobAmp: 0.08 + nextRand() * 0.07,
       variant,
       slot,
+      reducedActive: slot < variantReducedLimits[variant],
+      cloudInstId,
+      shadowInstId,
     });
   }
 
-  for (let v = 0; v < variants.length; v++) {
-    cloudInsts[v].instanceMatrix.needsUpdate = true;
-    shadowInsts[v].instanceMatrix.needsUpdate = true;
-  }
-
   let currentQuality: SkyCloudsQualityOption = 'full';
+  let qualityDirty = false;
 
   const setQuality = (quality: SkyCloudsQualityOption) => {
     if (currentQuality === quality) return;
@@ -280,18 +298,31 @@ export function createSkyCloudSystem(gridSize: number): SkyCloudSystem {
     const isOff = quality === 'off';
     group.visible = !isOff;
     shadowGroup.visible = !isOff;
-    for (let v = 0; v < variants.length; v++) {
-      const fullCap = variantFullCounts[v];
-      const count = isOff ? 0 : quality === 'reduced' ? Math.ceil(fullCap * 0.5) : fullCap;
-      cloudInsts[v].count = count;
-      shadowInsts[v].count = count;
+    qualityDirty = true;
+    for (let i = 0; i < clouds.length; i++) {
+      const c = clouds[i];
+      const vis = !isOff && (quality === 'full' || c.reducedActive);
+      const visFlag = vis ? 1 : 0;
+      if (cloudVisState[i] !== visFlag) {
+        cloudVisState[i] = visFlag;
+        cloudBatch.setVisibleAt(c.cloudInstId, vis);
+      }
+      if (shadowVisState[i] !== visFlag) {
+        shadowVisState[i] = visFlag;
+        shadowBatch.setVisibleAt(c.shadowInstId, vis);
+      }
     }
   };
 
   const _targetTint = new THREE.Color('#f7fbff');
   const _curTint = new THREE.Color('#f7fbff');
 
-  const update = (dt: number, elapsed: number, preset: LightingPreset) => {
+  const update = (
+    dt: number,
+    elapsed: number,
+    preset: LightingPreset,
+    cullBounds?: WorldCullBounds,
+  ) => {
     if (currentQuality === 'off') return;
 
     if (preset === 'midnight') {
@@ -316,48 +347,83 @@ export function createSkyCloudSystem(gridSize: number): SkyCloudSystem {
       shadowMat.opacity = 0.09;
     }
 
-    _curTint.lerp(_targetTint, Math.min(1, dt * 4));
+    const tintBlend = dt > 0 ? Math.min(1, dt * 4) : 0.08;
+    _curTint.lerp(_targetTint, tintBlend);
     cloudMat.color.copy(_curTint);
     const safeElapsed = wrapShaderTime(elapsed);
+    const isMoving = dt > 0;
+    const isFullQuality = currentQuality === 'full';
 
     for (let i = 0; i < clouds.length; i++) {
       const c = clouds[i];
-      const activeLimit = cloudInsts[c.variant].count;
-      if (c.slot >= activeLimit) continue;
+      const allowedByQuality = isFullQuality || c.reducedActive;
+      if (!allowedByQuality) {
+        if (cloudVisState[i] !== 0) {
+          cloudVisState[i] = 0;
+          cloudBatch.setVisibleAt(c.cloudInstId, false);
+        }
+        if (shadowVisState[i] !== 0) {
+          shadowVisState[i] = 0;
+          shadowBatch.setVisibleAt(c.shadowInstId, false);
+        }
+        continue;
+      }
 
-      const breeze = 1.0 + Math.sin(safeElapsed * 0.35 + c.phase) * 0.14;
-      c.x += c.vx * breeze * dt;
-      c.z += (c.vz + Math.cos(safeElapsed * 0.25 + c.phase) * 0.1) * dt;
+      if (isMoving) {
+        const breeze = 1.0 + Math.sin(safeElapsed * 0.35 + c.phase) * 0.14;
+        c.x += c.vx * breeze * dt;
+        c.z += (c.vz + Math.cos(safeElapsed * 0.25 + c.phase) * 0.1) * dt;
 
-      if (c.x > gridSize + pad) c.x -= span;
-      if (c.x < -pad) c.x += span;
-      if (c.z > gridSize + pad) c.z -= span;
-      if (c.z < -pad) c.z += span;
+        if (c.x > gridSize + pad) c.x -= span;
+        if (c.x < -pad) c.x += span;
+        if (c.z > gridSize + pad) c.z -= span;
+        if (c.z < -pad) c.z += span;
+      }
 
-      const bobY = Math.sin(safeElapsed * 0.9 + c.phase) * c.bobAmp;
+      const cloudVis = !cullBounds || isPointInCullBounds(c.x, c.z, cullBounds, 7.5);
+      const shadowVis = !cullBounds || isPointInCullBounds(c.x - 2.4, c.z - 1.8, cullBounds, 7.5);
+      const cVisFlag = cloudVis ? 1 : 0;
+      const sVisFlag = shadowVis ? 1 : 0;
+      const cBecameVis = cloudVis && cloudVisState[i] === 0;
+      const sBecameVis = shadowVis && shadowVisState[i] === 0;
+
+      if (cloudVisState[i] !== cVisFlag) {
+        cloudVisState[i] = cVisFlag;
+        cloudBatch.setVisibleAt(c.cloudInstId, cloudVis);
+      }
+      if (shadowVisState[i] !== sVisFlag) {
+        shadowVisState[i] = sVisFlag;
+        shadowBatch.setVisibleAt(c.shadowInstId, shadowVis);
+      }
+
+      const needCloudMatrix = cloudVis && (isMoving || cBecameVis || qualityDirty);
+      const needShadowMatrix = shadowVis && (isMoving || sBecameVis || qualityDirty);
+      if (!needCloudMatrix && !needShadowMatrix) continue;
+
       const puffPulse = 1.0 + Math.sin(safeElapsed * 0.75 + c.phase) * 0.025;
       _quat.copy(variantQuats[i]);
 
-      _pos.set(c.x, c.y + bobY, c.z);
-      _scale.set(c.scaleX * puffPulse, c.scaleY, c.scaleZ * puffPulse);
-      _mat.compose(_pos, _quat, _scale);
-      cloudInsts[c.variant].setMatrixAt(c.slot, _mat);
+      if (needCloudMatrix) {
+        const bobY = Math.sin(safeElapsed * 0.9 + c.phase) * c.bobAmp;
+        _pos.set(c.x, c.y + bobY, c.z);
+        _scale.set(c.scaleX * puffPulse, c.scaleY, c.scaleZ * puffPulse);
+        _mat.compose(_pos, _quat, _scale);
+        cloudBatch.setMatrixAt(c.cloudInstId, _mat);
+      }
 
-      _pos.set(c.x - 2.4, 0.32, c.z - 1.8);
-      _scale.set(c.scaleX * 0.88 * puffPulse, 0.02, c.scaleZ * 0.88 * puffPulse);
-      _mat.compose(_pos, _quat, _scale);
-      shadowInsts[c.variant].setMatrixAt(c.slot, _mat);
-    }
-
-    for (let v = 0; v < variants.length; v++) {
-      if (cloudInsts[v].count > 0) {
-        cloudInsts[v].instanceMatrix.needsUpdate = true;
-        shadowInsts[v].instanceMatrix.needsUpdate = true;
+      if (needShadowMatrix) {
+        _pos.set(c.x - 2.4, 0.32, c.z - 1.8);
+        _scale.set(c.scaleX * 0.88 * puffPulse, 0.02, c.scaleZ * 0.88 * puffPulse);
+        _mat.compose(_pos, _quat, _scale);
+        shadowBatch.setMatrixAt(c.shadowInstId, _mat);
       }
     }
+    qualityDirty = false;
   };
 
   const dispose = () => {
+    cloudBatch.dispose();
+    shadowBatch.dispose();
     for (const geo of variants) geo.dispose();
     cloudMat.dispose();
     shadowMat.dispose();
@@ -404,7 +470,7 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
   zoneIdTex.wrapT = THREE.ClampToEdgeWrapping;
   zoneIdTex.flipY = false;
 
-  const oceanSegs = Math.min(96, gridSize);
+  const oceanSegs = Math.min(48, Math.max(16, Math.ceil(gridSize / 2)));
   const geo = new THREE.PlaneGeometry(gridSize, gridSize, oceanSegs, oceanSegs);
   geo.rotateX(-Math.PI / 2);
 
@@ -417,6 +483,8 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
       uZoneColorMap: { value: null as THREE.DataTexture | null },
       uZoneIdMap: { value: null as THREE.DataTexture | null },
       uZoneActive: { value: 0 },
+      uHasPoison: { value: 0 },
+      uHasLava: { value: 0 },
       uShallowColor: { value: new THREE.Color('#2896ab') },
       uDeepColor: { value: new THREE.Color('#193f54') },
       uCrestColor: { value: new THREE.Color('#5ce1e6') },
@@ -462,6 +530,8 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
       uniform sampler2D uZoneColorMap;
       uniform sampler2D uZoneIdMap;
       uniform float uZoneActive;
+      uniform float uHasPoison;
+      uniform float uHasLava;
       uniform vec3 uShallowColor;
       uniform vec3 uDeepColor;
       uniform vec3 uCrestColor;
@@ -588,21 +658,24 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
         bool isRiver = self.b > 0.60 && self.b <= 0.72;
         bool isLavaWater = self.b > 0.48 && self.b <= 0.60;
         bool isLake = self.b > 0.33 && self.b <= 0.48;
-        float pSelf = decodePoison(self.b);
-        float pN  = nN.r  < 0.15 ? pSelf : decodePoison(nN.b);
-        float pS  = nS.r  < 0.15 ? pSelf : decodePoison(nS.b);
-        float pW  = nW.r  < 0.15 ? pSelf : decodePoison(nW.b);
-        float pE  = nE.r  < 0.15 ? pSelf : decodePoison(nE.b);
-        float pNW = nNW.r < 0.15 ? pSelf : decodePoison(nNW.b);
-        float pNE = nNE.r < 0.15 ? pSelf : decodePoison(nNE.b);
-        float pSW = nSW.r < 0.15 ? pSelf : decodePoison(nSW.b);
-        float pSE = nSE.r < 0.15 ? pSelf : decodePoison(nSE.b);
-        float pX = subUv.x < 0.5 ? mix(pW, pSelf, clamp(subUv.x + 0.5, 0.0, 1.0)) : mix(pSelf, pE, clamp(subUv.x - 0.5, 0.0, 1.0));
-        float pY = subUv.y < 0.5 ? mix(pN, pSelf, clamp(subUv.y + 0.5, 0.0, 1.0)) : mix(pSelf, pS, clamp(subUv.y - 0.5, 0.0, 1.0));
-        float pCorner = (pNW + pNE + pSW + pSE) * 0.25;
-        float rawPoison = clamp(pX * 0.42 + pY * 0.42 + pCorner * 0.16, 0.0, 1.0);
-        float plumeSwirl = (valueNoise(chunkPos * 1.1 + vec2(uTime * 0.22, -uTime * 0.18)) - 0.5) * 0.16 * sin(rawPoison * 3.14159);
-        float poisonMask = isLavaWater ? 0.0 : clamp(rawPoison + plumeSwirl, 0.0, 1.0);
+        float poisonMask = 0.0;
+        if (uHasPoison > 0.5 && !isLavaWater) {
+          float pSelf = decodePoison(self.b);
+          float pN  = nN.r  < 0.15 ? pSelf : decodePoison(nN.b);
+          float pS  = nS.r  < 0.15 ? pSelf : decodePoison(nS.b);
+          float pW  = nW.r  < 0.15 ? pSelf : decodePoison(nW.b);
+          float pE  = nE.r  < 0.15 ? pSelf : decodePoison(nE.b);
+          float pNW = nNW.r < 0.15 ? pSelf : decodePoison(nNW.b);
+          float pNE = nNE.r < 0.15 ? pSelf : decodePoison(nNE.b);
+          float pSW = nSW.r < 0.15 ? pSelf : decodePoison(nSW.b);
+          float pSE = nSE.r < 0.15 ? pSelf : decodePoison(nSE.b);
+          float pX = subUv.x < 0.5 ? mix(pW, pSelf, clamp(subUv.x + 0.5, 0.0, 1.0)) : mix(pSelf, pE, clamp(subUv.x - 0.5, 0.0, 1.0));
+          float pY = subUv.y < 0.5 ? mix(pN, pSelf, clamp(subUv.y + 0.5, 0.0, 1.0)) : mix(pSelf, pS, clamp(subUv.y - 0.5, 0.0, 1.0));
+          float pCorner = (pNW + pNE + pSW + pSE) * 0.25;
+          float rawPoison = clamp(pX * 0.42 + pY * 0.42 + pCorner * 0.16, 0.0, 1.0);
+          float plumeSwirl = (valueNoise(chunkPos * 1.1 + vec2(uTime * 0.22, -uTime * 0.18)) - 0.5) * 0.16 * sin(rawPoison * 3.14159);
+          poisonMask = clamp(rawPoison + plumeSwirl, 0.0, 1.0);
+        }
 
         // Multi-stop continuous ocean color gradient from sunlit turquoise shore -> aquamarine shelf -> azure slope -> deep navy sea
         vec3 shoreTurquoise = mix(uShallowColor, uCrestColor, 0.54);
@@ -630,7 +703,7 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
           waterAlpha = min(waterAlpha, mix(0.12, 0.26, smoothstep(0.05, 1.2, landDist)));
         }
 
-        if (isLavaWater) {
+        if (uHasLava > 0.5 && isLavaWater) {
           // Flowing Lava Rivers & Lakes (Volcanic Wasteland): bright molten magma current, cooled basalt crust islands & white-hot embers
           vec2 lavaDrift = chunkPos * 0.95 + vec2(-uTime * 0.48, uTime * 0.36);
           float lavaFlowA = valueNoise(lavaDrift);
@@ -675,7 +748,7 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
           waterAlpha = 0.25;
         }
 
-        if (!isLavaWater && poisonMask > 0.005) {
+        if (uHasPoison > 0.5 && !isLavaWater && poisonMask > 0.005) {
           // Multi-stage smooth dilution gradient: clean water -> translucent emerald-teal plume -> murky green -> bubbling toxic sludge
           vec2 poisonDrift = chunkPos * 1.15 + vec2(uTime * 0.32, -uTime * 0.26);
           float toxA = valueNoise(poisonDrift);
@@ -738,10 +811,12 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
         color = mix(color, foamMintCol, mintMask * 0.82);
         color = mix(color, foamCoreCol, whiteMask * 0.98);
 
+        float zoneAlpha = 0.0;
         if (uZoneActive > 0.5) {
           vec4 zCol = sampleZoneColor(tileCoord);
           vec4 zId = sampleZoneId(tileCoord);
-          if (zCol.a > 0.01) {
+          zoneAlpha = zCol.a;
+          if (zoneAlpha > 0.01) {
             vec4 zN = sampleZoneId(tileCoord + vec2(0.0, -1.0));
             vec4 zS = sampleZoneId(tileCoord + vec2(0.0, 1.0));
             vec4 zW = sampleZoneId(tileCoord + vec2(-1.0, 0.0));
@@ -802,7 +877,7 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
         }
 
         waterAlpha = clamp(waterAlpha + mintMask * 0.32 + whiteMask * 0.56, 0.0, 0.98);
-        if (uZoneActive > 0.5 && sampleZoneColor(tileCoord).a > 0.01) {
+        if (zoneAlpha > 0.01) {
           waterAlpha = max(waterAlpha, 0.88);
         }
 
@@ -895,6 +970,8 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
     const POISON_MAX_DIST = 15; // 5 tiles in 3x fixed-point
     let pqHead = 0;
     let pqTail = 0;
+    let hasAnyPoison = false;
+    let hasAnyLava = false;
     for (let i = 0; i < tiles.length; i++) {
       const t = tiles[i];
       const land = t.height > 0 || t.terrain === 'ice';
@@ -912,8 +989,10 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
         distShallow[i] = isDeep ? INF : 0;
         distDeep[i] = isDeep ? 0 : INF;
         const isLava = t.waterKind === 'lava';
+        if (isLava) hasAnyLava = true;
         poisonPassable[i] = isLava ? 0 : 1;
         if (t.waterKind === 'poison') {
+          hasAnyPoison = true;
           distPoison[i] = 0;
           poisonQueue[pqTail++] = i;
         } else {
@@ -1062,6 +1141,8 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
       const phaseByte = Math.abs(((t.x * 73856093) ^ (t.z * 19349663)) | 0) & 255;
       data[idx + 3] = phaseByte;
     }
+    material.uniforms.uHasPoison.value = hasAnyPoison ? 1 : 0;
+    material.uniforms.uHasLava.value = hasAnyLava ? 1 : 0;
     waterMapTex.needsUpdate = true;
   };
 
@@ -1144,15 +1225,17 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
 
 export interface StyledTerrainSystem {
   getMaterials: (terrain: TerrainType) => THREE.MeshStandardMaterial[];
-  /** Unified lossless materials for greedy-meshed 32x32 terrain chunks (1 top + 1 cliff material) */
+  /** Unified lossless materials for greedy-meshed 32x32 terrain chunks (1 top + 1 cliff + single-draw unifiedMat) */
   getChunkMaterials: () => {
     topMat: THREE.MeshStandardMaterial;
     cliffMat: THREE.MeshStandardMaterial;
+    unifiedMat: THREE.MeshStandardMaterial;
   };
   updateMap: (
     tiles: TileData[],
     buildings?: BuildingEntity[],
     settlementSpecies?: Record<string, SpeciesId>,
+    waterChanged?: boolean,
   ) => void;
   updateZones: (colorData: Uint8Array, idData: Uint8Array, anyActive: boolean) => void;
   updateFrame: (
@@ -1484,6 +1567,9 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
       }
     }
 
+  `;
+
+  const topOnlyGlslHelpers = `
     vec3 computeBiomeColor(float code, vec2 pixPos, vec2 chunkPos, vec2 subUv, float tTime, bool isCultivatedFarm) {
       float waveA = landNoise(chunkPos * 0.42);
       float waveB = landNoise(chunkPos * 0.92 + vec2(11.3, 7.1));
@@ -2443,7 +2529,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
     }
   `;
 
-  const orderedHelpers = glslHelpers;
+  const orderedHelpers = glslHelpers + topOnlyGlslHelpers;
 
   const patchVertexShader = (shader: THREE.WebGLProgramParametersWithUniforms) => {
     shader.vertexShader =
@@ -2474,7 +2560,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
     roughness: 0.84,
     metalness: 0.08,
   });
-  cliffMat.customProgramCacheKey = () => 'aeon_cliff_pixel_v8';
+  cliffMat.customProgramCacheKey = () => 'aeon_cliff_pixel_v9';
   cliffMat.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = sharedTime;
     shader.uniforms.uEpoch = sharedEpoch;
@@ -2491,7 +2577,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
     patchVertexShader(shader);
 
     shader.fragmentShader =
-      orderedHelpers +
+      glslHelpers +
       shader.fragmentShader.replace(
         '#include <color_fragment>',
         `#include <color_fragment>
@@ -3120,6 +3206,530 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
   };
   createdMaterials.push(chunkTopMat);
 
+  // Unified single-draw-call solid chunk material combining exact topMat & cliffMat shaders by normal.y.
+  // Halves chunk solidMesh draw calls (main + shadow passes) with pixel-for-pixel identical output.
+  const unifiedMat = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    roughness: 0.82,
+    metalness: 0.05,
+  });
+  unifiedMat.customProgramCacheKey = () => 'aeon_land_unified_chunk_v1';
+  unifiedMat.onBeforeCompile = (shader) => {
+    shader.uniforms.uTime = sharedTime;
+    shader.uniforms.uEpoch = sharedEpoch;
+    shader.uniforms.uGridSize = sharedGridSize;
+    shader.uniforms.uLandMap = sharedLandMap;
+    shader.uniforms.uZoneColorMap = sharedZoneColorMap;
+    shader.uniforms.uZoneIdMap = sharedZoneIdMap;
+    shader.uniforms.uZoneActive = sharedZoneActive;
+    shader.uniforms.uCityLightMap = sharedCityLightMap;
+    shader.uniforms.uDarkness = sharedDarkness;
+    shader.uniforms.uSunDir = sharedSunDir;
+    shader.uniforms.uSunTint = sharedSunTint;
+    shader.uniforms.uShadowTint = sharedShadowTint;
+    shader.uniforms.uDefaultCode = { value: -1.0 };
+    patchVertexShader(shader);
+
+    shader.fragmentShader =
+      `uniform float uDefaultCode;\n` +
+      orderedHelpers +
+      shader.fragmentShader
+        .replace(
+          '#include <color_fragment>',
+        `#include <color_fragment>
+        bool aeonIsTop = abs(vLandWorldNormal.y) > 0.5;
+        vec2 pixPos = vec2(0.0);
+        vec2 tileCoord = vec2(0.0);
+        vec2 subUv = vec2(0.5);
+        float myCode = 0.0;
+        vec3 col = vec3(0.0);
+        vec2 cliffOwnerCoord = vec2(0.0);
+        vec2 cliffNeighborCoord = vec2(0.0);
+        float ownerCode = 0.0;
+        if (aeonIsTop) {
+          vec2 gridPos = vLandWorldPos.xz + 0.5;
+          pixPos = floor(gridPos * 16.0) / 16.0;
+          vec2 chunkPos = floor(pixPos * 8.0) / 8.0;
+          tileCoord = floor(pixPos);
+          subUv = fract(pixPos);
+
+          vec4 self = sampleLandTile(tileCoord);
+          float myHeight = decodeHeight(self);
+          myCode = decodeTerrain(self);
+          if (myHeight < 0.5 && uDefaultCode >= 0.0) myCode = uDefaultCode;
+
+          vec4 nN = sampleLandTile(tileCoord + vec2( 0.0, -1.0));
+          vec4 nS = sampleLandTile(tileCoord + vec2( 0.0,  1.0));
+          vec4 nW = sampleLandTile(tileCoord + vec2(-1.0,  0.0));
+          vec4 nE = sampleLandTile(tileCoord + vec2( 1.0,  0.0));
+
+          float hN = decodeHeight(nN);
+          float hS = decodeHeight(nS);
+          float hW = decodeHeight(nW);
+          float hE = decodeHeight(nE);
+
+          float cN = decodeTerrain(nN);
+          float cS = decodeTerrain(nS);
+          float cW = decodeTerrain(nW);
+          float cE = decodeTerrain(nE);
+
+          float cornerR = 0.46;
+          if (myCode != 9.0 && myCode != 14.0) {
+            if (subUv.x < cornerR && subUv.y < cornerR && cN != myCode && cW != myCode && (cN == cW || cN == 12.0 || cW == 12.0)) {
+              if (length(vec2(cornerR, cornerR) - subUv) > cornerR * 0.92) {
+                myCode = (cN == 12.0) ? cN : cW;
+              }
+            } else if ((1.0 - subUv.x) < cornerR && subUv.y < cornerR && cN != myCode && cE != myCode && (cN == cE || cN == 12.0 || cE == 12.0)) {
+              if (length(vec2(1.0 - cornerR, cornerR) - subUv) > cornerR * 0.92) {
+                myCode = (cN == 12.0) ? cN : cE;
+              }
+            } else if (subUv.x < cornerR && (1.0 - subUv.y) < cornerR && cS != myCode && cW != myCode && (cS == cW || cS == 12.0 || cW == 12.0)) {
+              if (length(vec2(cornerR, 1.0 - cornerR) - subUv) > cornerR * 0.92) {
+                myCode = (cS == 12.0) ? cS : cW;
+              }
+            } else if ((1.0 - subUv.x) < cornerR && (1.0 - subUv.y) < cornerR && cS != myCode && cE != myCode && (cS == cE || cS == 12.0 || cE == 12.0)) {
+              if (length(vec2(1.0 - cornerR, 1.0 - cornerR) - subUv) > cornerR * 0.92) {
+                myCode = (cS == 12.0) ? cS : cE;
+              }
+            }
+          }
+
+          if (abs(myCode - 9.0) < 0.5) {
+            float cNW = decodeTerrain(sampleLandTile(tileCoord + vec2(-1.0, -1.0)));
+            float cNE = decodeTerrain(sampleLandTile(tileCoord + vec2( 1.0, -1.0)));
+            float cSW = decodeTerrain(sampleLandTile(tileCoord + vec2(-1.0,  1.0)));
+            float cSE = decodeTerrain(sampleLandTile(tileCoord + vec2( 1.0,  1.0)));
+            bool rN = abs(cN - 9.0) < 0.5 || abs(cN - 21.0) < 0.5;
+            bool rS = abs(cS - 9.0) < 0.5 || abs(cS - 21.0) < 0.5;
+            bool rW = abs(cW - 9.0) < 0.5 || abs(cW - 21.0) < 0.5;
+            bool rE = abs(cE - 9.0) < 0.5 || abs(cE - 21.0) < 0.5;
+            bool rNW = abs(cNW - 9.0) < 0.5 || abs(cNW - 21.0) < 0.5;
+            bool rNE = abs(cNE - 9.0) < 0.5 || abs(cNE - 21.0) < 0.5;
+            bool rSW = abs(cSW - 9.0) < 0.5 || abs(cSW - 21.0) < 0.5;
+            bool rSE = abs(cSE - 9.0) < 0.5 || abs(cSE - 21.0) < 0.5;
+
+            bool isBridgeTile = myHeight < 0.5 || cN < 1.5 || cS < 1.5 || cW < 1.5 || cE < 1.5;
+            float marginBiome = -1.0;
+            if (!rN && subUv.y < 0.35 && cN >= 2.0 && abs(cN - 9.0) > 0.5 && abs(cN - 14.0) > 0.5) marginBiome = cN;
+            else if (!rS && subUv.y > 0.65 && cS >= 2.0 && abs(cS - 9.0) > 0.5 && abs(cS - 14.0) > 0.5) marginBiome = cS;
+            else if (!rW && subUv.x < 0.35 && cW >= 2.0 && abs(cW - 9.0) > 0.5 && abs(cW - 14.0) > 0.5) marginBiome = cW;
+            else if (!rE && subUv.x > 0.65 && cE >= 2.0 && abs(cE - 9.0) > 0.5 && abs(cE - 14.0) > 0.5) marginBiome = cE;
+            else if (!rN && cN >= 2.0 && abs(cN - 9.0) > 0.5 && abs(cN - 14.0) > 0.5) marginBiome = cN;
+            else if (!rS && cS >= 2.0 && abs(cS - 9.0) > 0.5 && abs(cS - 14.0) > 0.5) marginBiome = cS;
+            else if (!rW && cW >= 2.0 && abs(cW - 9.0) > 0.5 && abs(cW - 14.0) > 0.5) marginBiome = cW;
+            else if (!rE && cE >= 2.0 && abs(cE - 9.0) > 0.5 && abs(cE - 14.0) > 0.5) marginBiome = cE;
+            else if (cNW >= 2.0 && abs(cNW - 9.0) > 0.5 && abs(cNW - 14.0) > 0.5) marginBiome = cNW;
+            else if (cNE >= 2.0 && abs(cNE - 9.0) > 0.5 && abs(cNE - 14.0) > 0.5) marginBiome = cNE;
+            else if (cSW >= 2.0 && abs(cSW - 9.0) > 0.5 && abs(cSW - 14.0) > 0.5) marginBiome = cSW;
+            else if (cSE >= 2.0 && abs(cSE - 9.0) > 0.5 && abs(cSE - 14.0) > 0.5) marginBiome = cSE;
+
+            vec3 marginCol;
+            if (isBridgeTile || marginBiome < 0.0) {
+              marginCol = uEpoch < 1.5
+                ? landSrgb(120.0, 88.0, 58.0)
+                : uEpoch < 3.5
+                  ? landSrgb(156.0, 146.0, 134.0)
+                  : uEpoch < 5.5
+                    ? landSrgb(132.0, 142.0, 156.0)
+                    : landSrgb(68.0, 84.0, 102.0);
+            } else {
+              marginCol = computeBiomeColor(marginBiome, pixPos, chunkPos, subUv, uTime, false);
+            }
+            col = computeRoadColor(pixPos, subUv, uTime, rN, rS, rW, rE, rNW, rNE, rSW, rSE, marginCol);
+
+            if (uEpoch < 4.5) {
+              bool crossWE = abs(cW - 14.0) < 0.5 && abs(cE - 14.0) < 0.5;
+              bool crossNS = abs(cN - 14.0) < 0.5 && abs(cS - 14.0) < 0.5;
+              if (crossWE) {
+                float railStrip = step(abs(abs(subUv.y - 0.5) - 0.125), 0.036);
+                col = mix(col, landSrgb(218.0, 228.0, 240.0), railStrip * 0.92);
+              }
+              if (crossNS) {
+                float railStrip = step(abs(abs(subUv.x - 0.5) - 0.125), 0.036);
+                col = mix(col, landSrgb(218.0, 228.0, 240.0), railStrip * 0.92);
+              }
+            }
+          } else if (abs(myCode - 14.0) < 0.5) {
+            float cNW = decodeTerrain(sampleLandTile(tileCoord + vec2(-1.0, -1.0)));
+            float cNE = decodeTerrain(sampleLandTile(tileCoord + vec2( 1.0, -1.0)));
+            float cSW = decodeTerrain(sampleLandTile(tileCoord + vec2(-1.0,  1.0)));
+            float cSE = decodeTerrain(sampleLandTile(tileCoord + vec2( 1.0,  1.0)));
+            bool tN = abs(cN - 14.0) < 0.5 || (abs(cN - 9.0) < 0.5 && abs(cS - 14.0) < 0.5);
+            bool tS = abs(cS - 14.0) < 0.5 || (abs(cS - 9.0) < 0.5 && abs(cN - 14.0) < 0.5);
+            bool tW = abs(cW - 14.0) < 0.5 || (abs(cW - 9.0) < 0.5 && abs(cE - 14.0) < 0.5);
+            bool tE = abs(cE - 14.0) < 0.5 || (abs(cE - 9.0) < 0.5 && abs(cW - 14.0) < 0.5);
+            bool tNW = abs(cNW - 14.0) < 0.5 || (abs(cNW - 9.0) < 0.5 && abs(cSE - 14.0) < 0.5);
+            bool tNE = abs(cNE - 14.0) < 0.5 || (abs(cNE - 9.0) < 0.5 && abs(cSW - 14.0) < 0.5);
+            bool tSW = abs(cSW - 14.0) < 0.5 || (abs(cSW - 9.0) < 0.5 && abs(cNE - 14.0) < 0.5);
+            bool tSE = abs(cSE - 14.0) < 0.5 || (abs(cSE - 9.0) < 0.5 && abs(cNW - 14.0) < 0.5);
+
+            float marginBiome = 3.0;
+            if (!tN && subUv.y < 0.35 && cN >= 2.0 && abs(cN - 14.0) > 0.5 && abs(cN - 9.0) > 0.5 && abs(cN - 21.0) > 0.5) marginBiome = cN;
+            else if (!tS && subUv.y > 0.65 && cS >= 2.0 && abs(cS - 14.0) > 0.5 && abs(cS - 9.0) > 0.5 && abs(cS - 21.0) > 0.5) marginBiome = cS;
+            else if (!tW && subUv.x < 0.35 && cW >= 2.0 && abs(cW - 14.0) > 0.5 && abs(cW - 9.0) > 0.5 && abs(cW - 21.0) > 0.5) marginBiome = cW;
+            else if (!tE && subUv.x > 0.65 && cE >= 2.0 && abs(cE - 14.0) > 0.5 && abs(cE - 9.0) > 0.5 && abs(cE - 21.0) > 0.5) marginBiome = cE;
+            else if (!tN && cN >= 2.0 && abs(cN - 14.0) > 0.5 && abs(cN - 9.0) > 0.5 && abs(cN - 21.0) > 0.5) marginBiome = cN;
+            else if (!tS && cS >= 2.0 && abs(cS - 14.0) > 0.5 && abs(cS - 9.0) > 0.5 && abs(cS - 21.0) > 0.5) marginBiome = cS;
+            else if (!tW && cW >= 2.0 && abs(cW - 14.0) > 0.5 && abs(cW - 9.0) > 0.5 && abs(cW - 21.0) > 0.5) marginBiome = cW;
+            else if (!tE && cE >= 2.0 && abs(cE - 14.0) > 0.5 && abs(cE - 9.0) > 0.5 && abs(cE - 21.0) > 0.5) marginBiome = cE;
+            vec3 marginCol = computeBiomeColor(marginBiome, pixPos, chunkPos, subUv, uTime, false);
+            col = computeRailColor(pixPos, subUv, uTime, tN, tS, tW, tE, tNW, tNE, tSW, tSE, marginCol);
+          } else if (abs(myCode - 21.0) < 0.5) {
+            bool wN = abs(cN - 21.0) < 0.5;
+            bool wS = abs(cS - 21.0) < 0.5;
+            bool wW = abs(cW - 21.0) < 0.5;
+            bool wE = abs(cE - 21.0) < 0.5;
+            float marginBiome = 3.0;
+            if (!wN && cN >= 2.0 && abs(cN - 21.0) > 0.5 && abs(cN - 9.0) > 0.5) marginBiome = cN;
+            else if (!wS && cS >= 2.0 && abs(cS - 21.0) > 0.5 && abs(cS - 9.0) > 0.5) marginBiome = cS;
+            else if (!wW && cW >= 2.0 && abs(cW - 21.0) > 0.5 && abs(cW - 9.0) > 0.5) marginBiome = cW;
+            else if (!wE && cE >= 2.0 && abs(cE - 21.0) > 0.5 && abs(cE - 9.0) > 0.5) marginBiome = cE;
+            vec3 marginCol = computeBiomeColor(marginBiome, pixPos, chunkPos, subUv, uTime, false);
+            col = computeRunwayColor(pixPos, subUv, uTime, wN, wS, wW, wE, marginCol);
+          } else {
+            col = computeBiomeColor(myCode, pixPos, chunkPos, subUv, uTime, self.a > 0.72);
+            if (myHeight < 0.5 && myCode < 1.5) {
+              float bSelf = self.b;
+              float bN = hN < 0.5 ? nN.b : 0.0;
+              float bS = hS < 0.5 ? nS.b : 0.0;
+              float bW = hW < 0.5 ? nW.b : 0.0;
+              float bE = hE < 0.5 ? nE.b : 0.0;
+              float bX = subUv.x < 0.5 ? mix(bW, bSelf, subUv.x + 0.5) : mix(bSelf, bE, subUv.x - 0.5);
+              float bY = subUv.y < 0.5 ? mix(bN, bSelf, subUv.y + 0.5) : mix(bSelf, bS, subUv.y - 0.5);
+              float bDepth = clamp((bX + bY) * 0.5, 0.0, 1.0);
+              vec3 shallowSandCol = computeBiomeColor(1.0, pixPos, chunkPos, subUv, uTime, false);
+              vec3 midShoalCol    = landSrgb(82.0, 146.0, 156.0);
+              vec3 slopeTealCol   = landSrgb(34.0, 82.0, 108.0);
+              vec3 deepFloorCol   = computeBiomeColor(0.0, pixPos, chunkPos, subUv, uTime, false);
+              if (bDepth < 0.42) col = mix(shallowSandCol, midShoalCol, smoothstep(0.15, 0.42, bDepth));
+              else if (bDepth < 0.74) col = mix(midShoalCol, slopeTealCol, smoothstep(0.42, 0.74, bDepth));
+              else col = mix(slopeTealCol, deepFloorCol, smoothstep(0.74, 0.98, bDepth));
+            }
+          }
+
+          if (myCode != 9.0 && myCode != 14.0 && myCode != 21.0 && myHeight > 0.5) {
+            float ditherRng = landHash12(pixPos * 16.0);
+            if (hN == myHeight && cN != myCode && cN != 9.0 && cN != 14.0 && cN != 21.0 && subUv.y < 0.24 && ditherRng > subUv.y * 3.8) {
+              col = computeBiomeColor(cN, pixPos, chunkPos, subUv, uTime, nN.a > 0.72);
+            } else if (hS == myHeight && cS != myCode && cS != 9.0 && cS != 14.0 && cS != 21.0 && (1.0 - subUv.y) < 0.24 && ditherRng > (1.0 - subUv.y) * 3.8) {
+              col = computeBiomeColor(cS, pixPos, chunkPos, subUv, uTime, nS.a > 0.72);
+            } else if (hW == myHeight && cW != myCode && cW != 9.0 && cW != 14.0 && cW != 21.0 && subUv.x < 0.24 && ditherRng > subUv.x * 3.8) {
+              col = computeBiomeColor(cW, pixPos, chunkPos, subUv, uTime, nW.a > 0.72);
+            } else if (hE == myHeight && cE != myCode && cE != 9.0 && cE != 14.0 && cE != 21.0 && (1.0 - subUv.x) < 0.24 && ditherRng > (1.0 - subUv.x) * 3.8) {
+              col = computeBiomeColor(cE, pixPos, chunkPos, subUv, uTime, nE.a > 0.72);
+            }
+          }
+
+          if (myHeight > 0.5 && self.a > 0.18 && self.a < 0.72) {
+            vec2 fPix = floor(subUv * 16.0);
+            float mudNoise = landHash12(pixPos * 16.0);
+            bool uN = nN.a > 0.18 && nN.a < 0.72;
+            bool uS = nS.a > 0.18 && nS.a < 0.72;
+            bool uW = nW.a > 0.18 && nW.a < 0.72;
+            bool uE = nE.a > 0.18 && nE.a < 0.72;
+            float rimDist = 2.0;
+            if (!uN) rimDist = min(rimDist, subUv.y);
+            if (!uS) rimDist = min(rimDist, 1.0 - subUv.y);
+            if (!uW) rimDist = min(rimDist, subUv.x);
+            if (!uE) rimDist = min(rimDist, 1.0 - subUv.x);
+
+            float treadBar = step(mod(fPix.y + floor(mod(fPix.x, 4.0) * 0.5), 4.0), 1.5);
+            vec3 mudDeep  = landSrgb(52.0, 31.0, 18.0);
+            vec3 mudBase  = landSrgb(86.0, 52.0, 29.0);
+            vec3 mudRim   = landSrgb(116.0, 76.0, 44.0);
+            vec3 treadCol = mix(mudBase, mudDeep, clamp(treadBar * 0.68 + (mudNoise > 0.65 ? 0.32 : 0.0), 0.0, 1.0));
+            if (rimDist < 0.16) treadCol = mix(mudDeep, mudRim, smoothstep(0.0, 0.16, rimDist));
+            else if (mudNoise < 0.14) treadCol = mudDeep;
+            float crushMix = (myCode == 9.0 || myCode == 14.0 || myCode == 21.0) ? 0.65 : 0.94;
+            col = mix(col, treadCol, crushMix);
+          }
+
+          float waterDist = 2.0;
+          if (hN < 0.5) waterDist = min(waterDist, subUv.y);
+          if (hS < 0.5) waterDist = min(waterDist, 1.0 - subUv.y);
+          if (hW < 0.5) waterDist = min(waterDist, subUv.x);
+          if (hE < 0.5) waterDist = min(waterDist, 1.0 - subUv.x);
+          if (waterDist < 0.36) {
+            float wetWave = 0.24 + 0.08 * sin(uTime * 2.6 + (pixPos.x + pixPos.y) * 0.45);
+            if (waterDist < wetWave) col *= 0.78;
+          }
+
+          float lowerEdge = 2.0;
+          vec2 rimNormal = vec2(0.0);
+          if (hS < myHeight && (1.0 - subUv.y) < lowerEdge) { lowerEdge = 1.0 - subUv.y; rimNormal = vec2(0.0, 1.0); }
+          if (hE < myHeight && (1.0 - subUv.x) < lowerEdge) { lowerEdge = 1.0 - subUv.x; rimNormal = vec2(1.0, 0.0); }
+          if (hN < myHeight && subUv.y < lowerEdge) { lowerEdge = subUv.y; rimNormal = vec2(0.0, -1.0); }
+          if (hW < myHeight && subUv.x < lowerEdge) { lowerEdge = subUv.x; rimNormal = vec2(-1.0, 0.0); }
+          if (lowerEdge < 0.12) {
+            float sunRimAlign = clamp(dot(rimNormal, normalize(uSunDir.xz + vec2(0.0001))) * 0.5 + 0.5, 0.0, 1.0);
+            float rimBoost = (abs(myCode - 10.0) < 0.5 || abs(myCode - 12.0) < 0.5 || abs(myCode - 16.0) < 0.5) ? 1.26 : 1.18;
+            col *= mix(vec3(1.02), uSunTint * rimBoost, 0.45 + 0.55 * sunRimAlign);
+          }
+
+          float lowAngleReach = mix(0.24, 0.48, clamp(1.0 - uSunDir.y, 0.0, 1.0));
+          float shadowMask = 0.0;
+          if (hE > myHeight && uSunDir.x > 0.1 && (1.0 - subUv.x) < lowAngleReach) shadowMask = max(shadowMask, 1.0 - (1.0 - subUv.x) / lowAngleReach);
+          if (hW > myHeight && uSunDir.x < -0.1 && subUv.x < lowAngleReach) shadowMask = max(shadowMask, 1.0 - subUv.x / lowAngleReach);
+          if (hS > myHeight && uSunDir.z > 0.1 && (1.0 - subUv.y) < lowAngleReach) shadowMask = max(shadowMask, 1.0 - (1.0 - subUv.y) / lowAngleReach);
+          if (hN > myHeight && uSunDir.z < -0.1 && subUv.y < lowAngleReach) shadowMask = max(shadowMask, 1.0 - subUv.y / lowAngleReach);
+
+          float higherEdge = 2.0;
+          if (hN > myHeight) higherEdge = min(higherEdge, subUv.y);
+          if (hW > myHeight) higherEdge = min(higherEdge, subUv.x);
+          if (hS > myHeight) higherEdge = min(higherEdge, 1.0 - subUv.y);
+          if (hE > myHeight) higherEdge = min(higherEdge, 1.0 - subUv.x);
+          if (higherEdge < 0.22) shadowMask = max(shadowMask, (1.0 - smoothstep(0.0, 0.22, higherEdge)) * 0.75);
+          if (shadowMask > 0.01) col *= mix(vec3(1.0), uShadowTint * 0.62, clamp(shadowMask, 0.0, 1.0));
+
+          if (abs(myCode - 22.0) > 0.5) {
+            float slopeSun = clamp(((hW - hE) * uSunDir.x + (hN - hS) * uSunDir.z) * 0.35 + 0.5, 0.0, 1.0);
+            vec3 todBiomeGrade = mix(uShadowTint, uSunTint, mix(0.68, 0.34, uDarkness) * (0.65 + 0.35 * slopeSun));
+            col *= todBiomeGrade;
+          } else {
+            float voidRim = 0.0;
+            if (abs(cN - 22.0) > 0.5 && subUv.y < 0.16) voidRim = max(voidRim, 1.0 - subUv.y / 0.16);
+            if (abs(cS - 22.0) > 0.5 && (1.0 - subUv.y) < 0.16) voidRim = max(voidRim, 1.0 - (1.0 - subUv.y) / 0.16);
+            if (abs(cW - 22.0) > 0.5 && subUv.x < 0.16) voidRim = max(voidRim, 1.0 - subUv.x / 0.16);
+            if (abs(cE - 22.0) > 0.5 && (1.0 - subUv.x) < 0.16) voidRim = max(voidRim, 1.0 - (1.0 - subUv.x) / 0.16);
+            if (voidRim > 0.05) {
+              float oozePulse = 0.7 + 0.3 * sin(uTime * 4.5 + pixPos.x * 2.0 + pixPos.y * 2.0);
+              col = mix(col, landSrgb(124.0, 58.0, 237.0), voidRim * 0.55 * oozePulse);
+            }
+          }
+          diffuseColor.rgb = col;
+        } else {
+          float wallU = abs(vLandWorldNormal.x) > 0.5 ? vLandWorldPos.z : vLandWorldPos.x;
+          vec2 wallPix = floor(vec2(wallU, vLandWorldPos.y) * 16.0) / 16.0;
+          vec2 wallChunk = floor(wallPix * 8.0) / 8.0;
+
+          cliffOwnerCoord = floor(vLandWorldPos.xz + 0.5 - vLandWorldNormal.xz * 0.25);
+          cliffNeighborCoord = floor(vLandWorldPos.xz + 0.5 + vLandWorldNormal.xz * 0.25);
+          ownerCode = decodeTerrain(sampleLandTile(cliffOwnerCoord));
+          float neighborCode = decodeTerrain(sampleLandTile(cliffNeighborCoord));
+          bool isVoidWall = abs(ownerCode - 22.0) < 0.5 || abs(neighborCode - 22.0) < 0.5;
+          bool isCraterWall = abs(ownerCode - 12.0) < 0.5 || abs(neighborCode - 12.0) < 0.5 || abs(ownerCode - 24.0) < 0.5 || abs(neighborCode - 24.0) < 0.5;
+          bool isBlightWall = abs(ownerCode - 25.0) < 0.5 || abs(neighborCode - 25.0) < 0.5;
+          bool isFloralWall = abs(ownerCode - 26.0) < 0.5;
+          bool isBadlandsWall = abs(ownerCode - 19.0) < 0.5 || abs(neighborCode - 19.0) < 0.5;
+          bool isMountainWall = abs(ownerCode - 16.0) < 0.5 || abs(ownerCode - 11.0) < 0.5;
+          bool isUrbanRetainingWall =
+            !isVoidWall && !isCraterWall && !isBlightWall &&
+            (abs(ownerCode - 9.0) < 0.5 || abs(ownerCode - 14.0) < 0.5 || abs(ownerCode - 21.0) < 0.5 ||
+             (uEpoch >= 3.5 && neighborCode < 1.5));
+
+          float strata = landNoise(vec2(wallChunk.x * 0.65, wallChunk.y * 2.2));
+          float brickRow = floor(wallPix.y * 4.0);
+          float brickCol = floor((wallPix.x + mod(brickRow, 2.0) * 0.25) * 2.0);
+          float seam = step(0.86, fract(wallPix.y * 4.0)) + step(0.91, fract((wallPix.x + mod(brickRow, 2.0) * 0.25) * 2.0));
+          float brickTone = landHash12(vec2(brickCol, brickRow));
+
+          vec3 cliffCol;
+          if (isUrbanRetainingWall) {
+            if (uEpoch >= 3.5) {
+              vec3 concBase = uEpoch >= 5.5 ? landSrgb(112.0, 126.0, 144.0) : landSrgb(122.0, 130.0, 138.0);
+              vec3 concHi   = uEpoch >= 5.5 ? landSrgb(148.0, 164.0, 184.0) : landSrgb(154.0, 162.0, 170.0);
+              vec3 concSh   = uEpoch >= 5.5 ? landSrgb(68.0, 78.0, 92.0)    : landSrgb(74.0, 82.0, 90.0);
+              float panelSeam = max(step(0.88, fract(wallPix.y * 2.5)), step(0.90, fract(wallPix.x * 1.5)));
+              float panelTone = landHash12(floor(vec2(wallPix.x * 1.5, wallPix.y * 2.5)));
+              cliffCol = mix(concBase, concHi, step(0.62, panelTone));
+              cliffCol = mix(cliffCol, concSh, panelSeam * 0.72);
+              if (uEpoch >= 5.5 && abs(fract(wallPix.y * 1.2) - 0.5) < 0.08) {
+                cliffCol = mix(cliffCol, landSrgb(86.0, 207.0, 225.0), 0.52);
+              }
+            } else {
+              vec3 ashlarBase = landSrgb(126.0, 120.0, 114.0);
+              vec3 ashlarHi   = landSrgb(158.0, 152.0, 142.0);
+              vec3 ashlarSh   = landSrgb(78.0, 74.0, 70.0);
+              cliffCol = mix(ashlarSh, ashlarBase, step(0.28, brickTone));
+              cliffCol = mix(cliffCol, ashlarHi, step(0.68, brickTone));
+              cliffCol = mix(cliffCol, ashlarSh, clamp(seam, 0.0, 1.0) * 0.78);
+            }
+          } else {
+            vec3 stoneBase = isVoidWall
+              ? vec3(0.015, 0.008, 0.035)
+              : isBlightWall
+                ? landSrgb(48.0, 22.0, 68.0)
+                : isCraterWall
+                  ? landSrgb(44.0, 32.0, 30.0)
+                  : isFloralWall
+                    ? landSrgb(92.0, 118.0, 88.0)
+                    : isBadlandsWall
+                      ? landSrgb(162.0, 82.0, 48.0)
+                      : isMountainWall
+                        ? landSrgb(88.0, 96.0, 106.0)
+                        : landSrgb(74.0, 89.0, 95.0);
+            vec3 stoneHi = isVoidWall
+              ? landSrgb(58.0, 24.0, 96.0)
+              : isBlightWall
+                ? landSrgb(76.0, 38.0, 104.0)
+                : isCraterWall
+                  ? landSrgb(78.0, 52.0, 42.0)
+                  : isFloralWall
+                    ? landSrgb(132.0, 168.0, 116.0)
+                    : isBadlandsWall
+                      ? landSrgb(206.0, 122.0, 72.0)
+                      : isMountainWall
+                        ? landSrgb(126.0, 136.0, 146.0)
+                        : landSrgb(104.0, 122.0, 129.0);
+            vec3 stoneSh = isVoidWall
+              ? vec3(0.004, 0.002, 0.012)
+              : isBlightWall
+                ? landSrgb(24.0, 10.0, 36.0)
+                : isCraterWall
+                  ? landSrgb(22.0, 15.0, 16.0)
+                  : isFloralWall
+                    ? landSrgb(56.0, 78.0, 54.0)
+                    : isBadlandsWall
+                      ? landSrgb(106.0, 52.0, 32.0)
+                      : isMountainWall
+                        ? landSrgb(54.0, 60.0, 68.0)
+                        : landSrgb(45.0, 56.0, 61.0);
+
+            cliffCol = mix(stoneSh, stoneBase, step(0.32, strata * 0.7 + brickTone * 0.3));
+            cliffCol = mix(cliffCol, stoneHi, step(0.68, strata * 0.65 + brickTone * 0.35));
+            cliffCol = mix(cliffCol, stoneSh, clamp(seam, 0.0, 1.0) * 0.65);
+
+            if (isVoidWall) {
+              float wallStar = landHash12(floor(wallPix * 16.0 + vec2(uTime * 2.2, -uTime * 1.4)));
+              if (wallStar > 0.962) cliffCol = mix(cliffCol, vec3(0.75, 0.62, 1.0), 0.92);
+            } else if (isBlightWall) {
+              float toxVein = step(0.80, strata * 0.6 + brickTone * 0.4);
+              cliffCol = mix(cliffCol, landSrgb(74.0, 222.0, 128.0), toxVein * 0.78);
+            } else if (isCraterWall) {
+              float emberVein = step(0.76, strata * 0.6 + brickTone * 0.4);
+              cliffCol = mix(cliffCol, landSrgb(255.0, 112.0, 24.0), emberVein * 0.85);
+            }
+          }
+
+          float sunSide = clamp(dot(vLandWorldNormal, normalize(uSunDir)) * 0.5 + 0.5, 0.0, 1.0);
+          vec3 todCliffGrade = mix(uShadowTint * 0.78, uSunTint * 1.14, sunSide);
+          cliffCol *= todCliffGrade;
+          if (vLandWorldPos.y < 0.48) {
+            cliffCol *= mix(0.68, 1.0, smoothstep(0.26, 0.48, vLandWorldPos.y));
+          }
+          diffuseColor.rgb = cliffCol;
+        }`,
+      )
+      .replace(
+        '#include <roughnessmap_fragment>',
+        `#include <roughnessmap_fragment>
+        if (abs(vLandWorldNormal.y) > 0.5) {
+          vec2 rTile = floor(floor((vLandWorldPos.xz + 0.5) * 16.0) / 16.0);
+          float rCode = decodeTerrain(sampleLandTile(rTile));
+          if (abs(rCode - 13.0) < 0.5) roughnessFactor = 0.34;
+          else if (abs(rCode - 9.0) < 0.5) roughnessFactor = 0.65;
+          else if (abs(rCode - 11.0) < 0.5 || abs(rCode - 18.0) < 0.5) roughnessFactor = 0.68;
+          else roughnessFactor = 0.82;
+        } else {
+          roughnessFactor = 0.84;
+        }`,
+      )
+      .replace(
+        '#include <metalnessmap_fragment>',
+        `#include <metalnessmap_fragment>
+        if (abs(vLandWorldNormal.y) > 0.5) {
+          vec2 mTile = floor(floor((vLandWorldPos.xz + 0.5) * 16.0) / 16.0);
+          float mCode = decodeTerrain(sampleLandTile(mTile));
+          if (abs(mCode - 13.0) < 0.5) metalnessFactor = 0.28;
+          else if (abs(mCode - 10.0) < 0.5 || abs(mCode - 16.0) < 0.5) metalnessFactor = 0.12;
+          else metalnessFactor = 0.05;
+        } else {
+          metalnessFactor = 0.08;
+        }`,
+      )
+      .replace(
+        '#include <dithering_fragment>',
+        `#include <dithering_fragment>
+        if (aeonIsTop) {
+          if (abs(myCode - 22.0) < 0.5) {
+            gl_FragColor.rgb = col;
+          }
+          if (uDarkness > 0.03) {
+            vec3 nightCityGlow = computeCityNightGlow(pixPos, tileCoord, subUv, myCode, uTime, uEpoch, uDarkness);
+            gl_FragColor.rgb += nightCityGlow * 0.62;
+          }
+          if (uZoneActive > 0.5) {
+            vec4 zCol = sampleLandZoneColor(tileCoord);
+            vec4 zId = sampleLandZoneId(tileCoord);
+            if (zCol.a > 0.01) {
+              vec4 zN = sampleLandZoneId(tileCoord + vec2(0.0, -1.0));
+              vec4 zS = sampleLandZoneId(tileCoord + vec2(0.0, 1.0));
+              vec4 zW = sampleLandZoneId(tileCoord + vec2(-1.0, 0.0));
+              vec4 zE = sampleLandZoneId(tileCoord + vec2(1.0, 0.0));
+              vec4 zNW = sampleLandZoneId(tileCoord + vec2(-1.0, -1.0));
+              vec4 zNE = sampleLandZoneId(tileCoord + vec2(1.0, -1.0));
+              vec4 zSW = sampleLandZoneId(tileCoord + vec2(-1.0, 1.0));
+              vec4 zSE = sampleLandZoneId(tileCoord + vec2(1.0, 1.0));
+              vec4 zN2 = sampleLandZoneId(tileCoord + vec2(0.0, -2.0));
+              vec4 zS2 = sampleLandZoneId(tileCoord + vec2(0.0, 2.0));
+              vec4 zW2 = sampleLandZoneId(tileCoord + vec2(-2.0, 0.0));
+              vec4 zE2 = sampleLandZoneId(tileCoord + vec2(2.0, 0.0));
+
+              bool diffN = abs(zN.r - zId.r) > 0.002 || abs(zN.g - zId.g) > 0.002;
+              bool diffS = abs(zS.r - zId.r) > 0.002 || abs(zS.g - zId.g) > 0.002;
+              bool diffW = abs(zW.r - zId.r) > 0.002 || abs(zW.g - zId.g) > 0.002;
+              bool diffE = abs(zE.r - zId.r) > 0.002 || abs(zE.g - zId.g) > 0.002;
+              bool diffNW = abs(zNW.r - zId.r) > 0.002 || abs(zNW.g - zId.g) > 0.002;
+              bool diffNE = abs(zNE.r - zId.r) > 0.002 || abs(zNE.g - zId.g) > 0.002;
+              bool diffSW = abs(zSW.r - zId.r) > 0.002 || abs(zSW.g - zId.g) > 0.002;
+              bool diffSE = abs(zSE.r - zId.r) > 0.002 || abs(zSE.g - zId.g) > 0.002;
+              bool diffN2 = abs(zN2.r - zId.r) > 0.002 || abs(zN2.g - zId.g) > 0.002;
+              bool diffS2 = abs(zS2.r - zId.r) > 0.002 || abs(zS2.g - zId.g) > 0.002;
+              bool diffW2 = abs(zW2.r - zId.r) > 0.002 || abs(zW2.g - zId.g) > 0.002;
+              bool diffE2 = abs(zE2.r - zId.r) > 0.002 || abs(zE2.g - zId.g) > 0.002;
+
+              bool isOuterBorderTile = diffN || diffS || diffW || diffE || diffNW || diffNE || diffSW || diffSE;
+              bool isInnerBorderTile = !isOuterBorderTile && (diffN2 || diffS2 || diffW2 || diffE2);
+              float outerDarkW = 0.44;
+              bool onDarkOuterStroke =
+                (diffN && subUv.y < outerDarkW) ||
+                (diffS && subUv.y > 1.0 - outerDarkW) ||
+                (diffW && subUv.x < outerDarkW) ||
+                (diffE && subUv.x > 1.0 - outerDarkW) ||
+                (diffNW && subUv.x < outerDarkW && subUv.y < outerDarkW) ||
+                (diffNE && subUv.x > 1.0 - outerDarkW && subUv.y < outerDarkW) ||
+                (diffSW && subUv.x < outerDarkW && subUv.y > 1.0 - outerDarkW) ||
+                (diffSE && subUv.x > 1.0 - outerDarkW && subUv.y > 1.0 - outerDarkW);
+              bool isHovered = zId.b > 0.5;
+              float hoverPulse = isHovered ? (0.16 + 0.09 * sin(uTime * 5.0)) : 0.0;
+              if (onDarkOuterStroke) {
+                vec3 outerCol = zCol.rgb * (isHovered ? 0.52 : 0.36);
+                gl_FragColor.rgb = mix(gl_FragColor.rgb, outerCol, 0.96);
+              } else if (isOuterBorderTile || isInnerBorderTile) {
+                vec3 rimCol = zCol.rgb * (isHovered ? 0.64 : 0.46);
+                gl_FragColor.rgb = mix(gl_FragColor.rgb, rimCol, isOuterBorderTile ? 0.95 : 0.90);
+              } else {
+                float fillAlpha = zCol.a * 0.54 + hoverPulse;
+                gl_FragColor.rgb = mix(gl_FragColor.rgb, zCol.rgb, clamp(fillAlpha, 0.0, 0.78));
+              }
+            }
+          }
+        } else {
+          if (uDarkness > 0.03) {
+            vec3 cliffNightGlow = computeCityNightGlow(cliffOwnerCoord + vec2(0.5), cliffOwnerCoord, vec2(0.5), ownerCode, uTime, uEpoch, uDarkness);
+            gl_FragColor.rgb += cliffNightGlow * 0.45;
+          }
+          if (uZoneActive > 0.5) {
+            vec4 zCol = sampleLandZoneColor(cliffOwnerCoord);
+            vec4 zId = sampleLandZoneId(cliffOwnerCoord);
+            vec4 zNbId = sampleLandZoneId(cliffNeighborCoord);
+            if (zCol.a > 0.01) {
+              bool diffCliff = abs(zNbId.r - zId.r) > 0.002 || abs(zNbId.g - zId.g) > 0.002;
+              bool isHovered = zId.b > 0.5;
+              if (diffCliff) {
+                vec3 rimCol = zCol.rgb * (isHovered ? 0.56 : 0.40);
+                gl_FragColor.rgb = mix(gl_FragColor.rgb, rimCol, 0.95);
+              } else {
+                float hBoost = isHovered ? 0.16 : 0.0;
+                gl_FragColor.rgb = mix(gl_FragColor.rgb, zCol.rgb, clamp(zCol.a * 0.52 + hBoost, 0.0, 0.76));
+              }
+            }
+          }
+        }`,
+      );
+  };
+  createdMaterials.push(unifiedMat);
+
   // Reusable O(N) Chamfer distance-transform buffers for fast 512x512 bathymetry (replaces 81x nested scan)
   const totalMapCells = gridSize * gridSize;
   const distToLand = new Uint8Array(totalMapCells);
@@ -3183,31 +3793,37 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
     }
   };
 
+  let bathymetryReady = false;
+
   const updateMap = (
     tiles: TileData[],
     buildings?: BuildingEntity[],
     settlementSpecies?: Record<string, SpeciesId>,
+    waterChanged = true,
   ) => {
     cityLightBytes.fill(0);
-    distToLand.fill(60);
-    distToShallow.fill(60);
-    distToDeep.fill(60);
+    if (!bathymetryReady || waterChanged) {
+      distToLand.fill(60);
+      distToShallow.fill(60);
+      distToDeep.fill(60);
 
-    // Seed distance transform in one O(N) pass
-    for (let i = 0; i < tiles.length; i++) {
-      const t = tiles[i];
-      if (t.height > 0) {
-        distToLand[i] = 0;
-        distToShallow[i] = 0;
-      } else if (t.terrain === 'deep_water' && !t.isRiver && !t.isLake) {
-        distToDeep[i] = 0;
-      } else {
-        distToShallow[i] = 0;
+      // Seed distance transform in one O(N) pass
+      for (let i = 0; i < tiles.length; i++) {
+        const t = tiles[i];
+        if (t.height > 0) {
+          distToLand[i] = 0;
+          distToShallow[i] = 0;
+        } else if (t.terrain === 'deep_water' && !t.isRiver && !t.isLake) {
+          distToDeep[i] = 0;
+        } else {
+          distToShallow[i] = 0;
+        }
       }
+      runChamferPass(distToLand);
+      runChamferPass(distToShallow);
+      runChamferPass(distToDeep);
+      bathymetryReady = true;
     }
-    runChamferPass(distToLand);
-    runChamferPass(distToShallow);
-    runChamferPass(distToDeep);
 
     for (let i = 0; i < tiles.length; i++) {
       const t = tiles[i];
@@ -3271,7 +3887,16 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
           b.species ??
           (b.settlementId && settlementSpecies ? settlementSpecies[b.settlementId] : undefined) ??
           'human';
-        const specByte = bSpec === 'elf' ? 160 : bSpec === 'orc' ? 235 : 64;
+        const specByte =
+          bSpec === 'elf'
+            ? 160
+            : bSpec === 'orc'
+              ? 235
+              : bSpec === 'dwarf'
+                ? 112
+                : bSpec === 'lizardfolk'
+                  ? 196
+                  : 64;
         const isMajor =
           b.type === 'bonfire' ||
           b.type === 'ziggurat' ||
@@ -3352,7 +3977,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
   const getMaterials = (terrain: TerrainType) =>
     terrainMaterialMap.get(terrain) ?? terrainMaterialMap.get('grass')!;
 
-  const getChunkMaterials = () => ({ topMat: chunkTopMat, cliffMat });
+  const getChunkMaterials = () => ({ topMat: chunkTopMat, cliffMat, unifiedMat });
 
   const dispose = () => {
     for (const m of createdMaterials) m.dispose();

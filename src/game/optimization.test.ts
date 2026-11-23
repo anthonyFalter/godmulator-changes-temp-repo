@@ -27,16 +27,22 @@ import {
   AutoOptimizer,
   DESPAWN_CULL_HYSTERESIS,
   WorldCullBounds,
+  computeOrthoGroundCullBounds,
+  isAabbIntersectingCullBounds,
   isHazardIntersectingCullBounds,
   isPointInCullBounds,
   isRingIntersectingCullBounds,
+  isWholeMapInsideCullBounds,
 } from './autoOptimizer';
+import { ChunkTerrainSystem } from './chunkTerrainRenderer';
+import { computeUnitEffectiveStats } from './unitCustomization';
 import { getMaxCityPopulation } from './catalog';
 import {
   createInitialSimulationState,
   createWorldConfigFromTemplate,
   ensureWorldGrid,
   executeTerrainDropBatchImpact,
+  spawnUnit,
   stepSimulation,
 } from './simulation';
 import { sanitizeSimulationForSave } from './worldStorage';
@@ -671,6 +677,249 @@ describe('Major Optimization & 512x512 Scaling Suite', () => {
     );
 
     batchSys.dispose();
+  });
+
+  it('all 4 cliff wall orientations (-Z, +Z, -X, +X) have outward CCW triangle winding matching their normals', () => {
+    const gridSize = 32;
+    const grid = createWorldGridBuffers(gridSize, CHUNK_SIZE);
+    for (let z = 0; z < gridSize; z++) {
+      for (let x = 0; x < gridSize; x++) {
+        const i = z * gridSize + x;
+        const isPlateau = x >= 10 && x <= 18 && z >= 10 && z <= 18;
+        grid.heightMap[i] = isPlateau ? 3 : 1;
+        grid.terrainCodeMap[i] = isPlateau ? TERRAIN_TO_CODE.highland : TERRAIN_TO_CODE.grass;
+      }
+    }
+
+    const chunk = buildTerrainChunkGeometryData(
+      grid.heightMap,
+      grid.terrainCodeMap,
+      grid.crushedMask,
+      gridSize,
+      0,
+      0,
+      CHUNK_SIZE,
+    );
+
+    const pos = chunk.cliffPositions;
+    const norm = chunk.cliffNormals;
+    const idx = chunk.cliffIndices;
+    assert.ok(idx.length > 0, 'Expected cliff indices');
+
+    const seenDirs = new Set<string>();
+    const v0 = new THREE.Vector3();
+    const v1 = new THREE.Vector3();
+    const v2 = new THREE.Vector3();
+    const e1 = new THREE.Vector3();
+    const e2 = new THREE.Vector3();
+    const cross = new THREE.Vector3();
+    const nAttr = new THREE.Vector3();
+
+    for (let i = 0; i < idx.length; i += 3) {
+      const a = idx[i] * 3;
+      const b = idx[i + 1] * 3;
+      const c = idx[i + 2] * 3;
+      v0.set(pos[a], pos[a + 1], pos[a + 2]);
+      v1.set(pos[b], pos[b + 1], pos[b + 2]);
+      v2.set(pos[c], pos[c + 1], pos[c + 2]);
+      e1.subVectors(v1, v0);
+      e2.subVectors(v2, v0);
+      cross.crossVectors(e1, e2).normalize();
+
+      nAttr.set(norm[a], norm[a + 1], norm[a + 2]);
+      const dot = cross.dot(nAttr);
+      assert.ok(
+        dot > 0.99,
+        `Cliff triangle winding must face outward along attribute normal (${nAttr.x},${nAttr.y},${nAttr.z}), got geometric normal (${cross.x.toFixed(2)},${cross.y.toFixed(2)},${cross.z.toFixed(2)})`,
+      );
+      seenDirs.add(`${Math.round(nAttr.x)},${Math.round(nAttr.z)}`);
+    }
+
+    assert.ok(seenDirs.has('0,-1'), 'Expected -Z (North) cliff faces');
+    assert.ok(seenDirs.has('0,1'), 'Expected +Z (South) cliff faces');
+    assert.ok(seenDirs.has('-1,0'), 'Expected -X (West) cliff faces');
+    assert.ok(seenDirs.has('1,0'), 'Expected +X (East) cliff faces');
+  });
+
+  it('computeOrthoGroundCullBounds dynamically updates rotated OBB culling across camera yaws and culls off-screen diagonal corners', () => {
+    const gridSize = 128;
+    const frustumSize = 40;
+    const aspect = 1.6;
+    const cam = new THREE.OrthographicCamera(
+      (-frustumSize * aspect) / 2,
+      (frustumSize * aspect) / 2,
+      frustumSize / 2,
+      -frustumSize / 2,
+      -400,
+      520,
+    );
+    const bounds: WorldCullBounds = { minX: 0, maxX: 0, minZ: 0, maxZ: 0 };
+
+    // Rotate through 4 diagonal/cardinal angles around map center (64, 64)
+    const yaws = [Math.PI / 4, (3 * Math.PI) / 4, (5 * Math.PI) / 4, (7 * Math.PI) / 4];
+    for (const yaw of yaws) {
+      cam.position.set(64 + Math.sin(yaw) * 28, 22.5, 64 + Math.cos(yaw) * 28);
+      cam.lookAt(64, 1.2, 64);
+      cam.updateMatrixWorld();
+
+      computeOrthoGroundCullBounds(cam, gridSize, bounds, 4.0, 7.5);
+      assert.equal(bounds.obbEnabled, true, 'OBB culling must be enabled for isometric camera');
+      assert.equal(isPointInCullBounds(64, 64, bounds), true, 'Camera target must always be visible');
+      assert.equal(isWholeMapInsideCullBounds(gridSize, bounds), false, 'Zoomed-in view must not mark whole 128x128 map visible');
+
+      // A corner of the axis-aligned AABB at 45° yaw is far outside the rotated viewport OBB
+      const cornerInAabb =
+        bounds.minX <= bounds.minX + 0.5 &&
+        bounds.minZ <= bounds.minZ + 0.5;
+      assert.equal(cornerInAabb, true);
+      assert.equal(
+        isPointInCullBounds(bounds.minX + 0.5, bounds.minZ + 0.5, bounds),
+        false,
+        `Off-screen AABB diagonal corner should be culled by rotated OBB at yaw=${yaw.toFixed(2)}`,
+      );
+    }
+
+    // Zoomed-out overview covering entire 64x64 map should report wholeMapInside = true
+    const overviewSize = 110;
+    cam.left = (-overviewSize * aspect) / 2;
+    cam.right = (overviewSize * aspect) / 2;
+    cam.top = overviewSize / 2;
+    cam.bottom = -overviewSize / 2;
+    cam.updateProjectionMatrix();
+    cam.position.set(32 + Math.sin(Math.PI / 4) * 28, 22.5, 32 + Math.cos(Math.PI / 4) * 28);
+    cam.lookAt(32, 1.2, 32);
+    cam.updateMatrixWorld();
+    computeOrthoGroundCullBounds(cam, 64, bounds, 6.5, 7.5);
+    assert.equal(isWholeMapInsideCullBounds(64, bounds), true, 'Full overview should contain all 4 corners of 64x64 world');
+  });
+
+  it('isAabbIntersectingCullBounds SAT culls off-screen diagonal corner chunks and ChunkTerrainSystem uses unified single-material solidMesh', () => {
+    const gridSize = 128;
+    const frustumSize = 36;
+    const aspect = 1.6;
+    const cam = new THREE.OrthographicCamera(
+      (-frustumSize * aspect) / 2,
+      (frustumSize * aspect) / 2,
+      frustumSize / 2,
+      -frustumSize / 2,
+      -400,
+      520,
+    );
+    cam.position.set(64 + Math.sin(Math.PI / 4) * 28, 22.5, 64 + Math.cos(Math.PI / 4) * 28);
+    cam.lookAt(64, 1.2, 64);
+    cam.updateMatrixWorld();
+
+    const bounds: WorldCullBounds = { minX: 0, maxX: 0, minZ: 0, maxZ: 0 };
+    computeOrthoGroundCullBounds(cam, gridSize, bounds, 4.0, 7.5);
+    assert.equal(bounds.obbEnabled, true);
+
+    // Center chunk is clearly visible; extreme top-left corner chunk (0..16, 0..16) inside or near AABB must be culled cleanly
+    assert.equal(isAabbIntersectingCullBounds(56, 72, 56, 72, bounds, 1.5), true);
+    assert.equal(isAabbIntersectingCullBounds(0, 12, 0, 12, bounds, 0), false);
+
+    // Unified single-material ChunkTerrainSystem creates 1 material on solidMesh with 0 geometry groups
+    const grid = createWorldGridBuffers(64, CHUNK_SIZE);
+    grid.heightMap.fill(1);
+    grid.terrainCodeMap.fill(TERRAIN_TO_CODE.grass);
+    grid.heightMap[10 * 64 + 10] = 3;
+
+    const topMat = new THREE.MeshStandardMaterial({ color: 0xffffff });
+    const cliffMat = new THREE.MeshStandardMaterial({ color: 0x888888 });
+    const unifiedMat = new THREE.MeshStandardMaterial({ color: 0xffffff });
+    const terrainSys = new ChunkTerrainSystem(64, topMat, cliffMat, null, CHUNK_SIZE, unifiedMat);
+    assert.equal(terrainSys.isUnifiedSolid, true);
+    terrainSys.rebuildAllSync(grid);
+
+    const chunk0 = terrainSys.group.children[0] as THREE.Mesh;
+    assert.ok(!Array.isArray(chunk0.material), 'Unified solidMesh must use single Material, not Material[]');
+    assert.equal(chunk0.geometry.groups.length, 0, 'Unified solidMesh must have 0 geometry groups');
+
+    // Update culling with tight frustum + shadow box around (10, 10) so chunk (32..64, 32..64) is culled & disables castShadow
+    const farCam = new THREE.OrthographicCamera(-12, 12, 12, -12, -400, 520);
+    farCam.position.set(10, 22.5, 10);
+    farCam.lookAt(10, 1.2, 10);
+    farCam.updateMatrixWorld();
+    const farBounds: WorldCullBounds = { minX: 0, maxX: 24, minZ: 0, maxZ: 24 };
+    const stats = terrainSys.updateCulling(farCam, farBounds, 4, 4, 4);
+    assert.ok(stats.visibleChunks >= 1 && stats.visibleChunks < stats.totalChunks);
+    const farChunkSolid = terrainSys.group.children[6] as THREE.Mesh; // chunk (1,1) -> 32..64
+    assert.equal(farChunkSolid.visible, false);
+    assert.equal(farChunkSolid.castShadow, false);
+
+    terrainSys.dispose();
+    topMat.dispose();
+    cliffMat.dispose();
+    unifiedMat.dispose();
+  });
+
+  it('BatchedStaticPool strips invisible -Y bottom faces on opaque FrontSide props while keeping DoubleSide geometry intact', () => {
+    const box = new THREE.BoxGeometry(1, 1, 1, 2, 2, 2);
+    const opaqueMat = new THREE.MeshStandardMaterial({ color: 0x88aa66, side: THREE.FrontSide });
+    const doubleMat = new THREE.MeshStandardMaterial({ color: 0x88aa66, side: THREE.DoubleSide });
+
+    const opaquePool = new BatchedStaticPool('opaque_box', opaqueMat, [box], true, false, 8);
+    const dsPool = new BatchedStaticPool('ds_box', doubleMat, [box], true, false, 8);
+
+    // Opaque 2x2x2 box loses its bottom face (-Y) -> 120 indices (40 tris) vs DoubleSide 144 indices (48 tris)
+    assert.ok(
+      opaquePool.mesh.geometry.index!.count < dsPool.mesh.geometry.index!.count,
+      `Expected -Y face stripping on opaque FrontSide prop (${opaquePool.mesh.geometry.index!.count} vs ${dsPool.mesh.geometry.index!.count})`,
+    );
+
+    opaquePool.dispose();
+    dsPool.dispose();
+    box.dispose();
+    opaqueMat.dispose();
+    doubleMat.dispose();
+  });
+
+  it('computeUnitEffectiveStats structural WeakMap cache reflects in-place mutations on traits, genes, items, and statBonuses', () => {
+    const sim = createInitialSimulationState(48, 31337);
+    const tile = sim.tiles.find((t) => t.height >= 1 && !t.buildingId)!;
+    const unit = spawnUnit(sim, 'warrior', tile.x, tile.z, true, undefined, { appearanceSeed: 5 }).unit!;
+    unit.traits = [];
+    unit.genes = ['Adaptable'];
+    unit.items = [];
+    unit.statBonuses = undefined;
+    unit.isKing = false;
+    unit.ageStage = 'adult';
+
+    const s0 = computeUnitEffectiveStats(unit);
+    const s0Again = computeUnitEffectiveStats(unit);
+    assert.deepEqual(s0Again, s0);
+    assert.notEqual(s0Again, s0, 'Cached stats return fresh flat copy so caller mutations cannot corrupt cache');
+
+    // Mutate traits array IN-PLACE via .push()
+    unit.traits.push('tough');
+    const s1 = computeUnitEffectiveStats(unit);
+    assert.equal(s1.maxHp, s0.maxHp + 40);
+
+    // Mutate items array IN-PLACE via .push()
+    unit.items.push('Iron Sword');
+    const s2 = computeUnitEffectiveStats(unit);
+    assert.equal(s2.attackDamage, s1.attackDamage + 12);
+
+    // Mutate statBonuses IN-PLACE
+    unit.statBonuses = { attackDamage: 10 };
+    const s3 = computeUnitEffectiveStats(unit);
+    assert.equal(s3.attackDamage, s2.attackDamage + 10);
+    unit.statBonuses.attackDamage = 25;
+    const s4 = computeUnitEffectiveStats(unit);
+    assert.equal(s4.attackDamage, s2.attackDamage + 25);
+
+    // Toggle isKing and ageStage
+    unit.isKing = true;
+    const s5 = computeUnitEffectiveStats(unit);
+    assert.equal(s5.maxHp, s4.maxHp + 35);
+    unit.ageStage = 'child';
+    const sChild = computeUnitEffectiveStats(unit);
+    assert.ok(sChild.maxHp < s5.maxHp, 'Changing ageStage to child must invalidate cache and reduce maxHp');
+
+    // worldImmortal option flag respects cached entries independently
+    const sImmortal = computeUnitEffectiveStats(unit, undefined, { worldImmortal: true });
+    assert.equal(sImmortal.immortal, true);
+    const sNormal = computeUnitEffectiveStats(unit);
+    assert.equal(sNormal.immortal, false);
   });
 });
 

@@ -1,12 +1,10 @@
 import React, { useMemo, useState } from 'react';
 import { getEntityInspectProfile } from '../game/entityInspector';
 import {
-  Resources,
   SimulationState,
   UnitEntity,
   UnitStatKey,
   UnitStatusEffect,
-  ZoneToggleState,
 } from '../game/types';
 import {
   ItemSlot,
@@ -16,24 +14,14 @@ import {
   UNIT_TRAITS,
   formatModifierList,
 } from '../game/unitCustomization';
-import { TileZoneInspection } from '../game/zones';
-import { HudPixelIcon, InspectorPixelIcon, ResourceIconSvg, UnitPixelIcon } from './GameIcons';
-
-const INSPECT_RESOURCE_KEYS: { key: keyof Resources; label: string }[] = [
-  { key: 'food', label: 'Food' },
-  { key: 'wood', label: 'Wood' },
-  { key: 'stone', label: 'Stone' },
-  { key: 'ore', label: 'Ore' },
-  { key: 'knowledge', label: 'Lore' },
-  { key: 'alloy', label: 'Alloy' },
-  { key: 'faith', label: 'God Energy' },
-];
+import { HudPixelIcon, InspectorPixelIcon, UnitPixelIcon } from './GameIcons';
 
 export interface UnitEditHandlers {
   onSetUnitStat?: (unitId: string, stat: UnitStatKey, value: number) => void;
   onResetUnitStats?: (unitId: string) => void;
   onHealUnit?: (unitId: string) => void;
   onSetUnitAge?: (unitId: string, ageYears: number) => void;
+  onSetUnitSizeScale?: (unitId: string, sizeScale: number) => void;
   onToggleUnitTrait?: (unitId: string, traitId: string) => void;
   onToggleUnitGene?: (unitId: string, geneName: string) => void;
   onAddUnitItem?: (unitId: string, itemName: string) => void;
@@ -46,14 +34,11 @@ interface EntityInspectorCardProps extends UnitEditHandlers {
   selectedUnit: UnitEntity | null;
   favoriteUnits: UnitEntity[];
   followingEntityId?: string | null;
-  hoveredZoneInfo?: TileZoneInspection | null;
-  activeZones?: ZoneToggleState;
   onToggleFavorite: (unitId: string) => void;
   onSelectUnit: (unitId: string | null) => void;
   onFocusUnit: (unit: UnitEntity) => void;
   onRenameUnit?: (unitId: string, newName: string) => void;
   onRenameSettlement?: (settlementId: string, newName: string) => void;
-  onRenameKingdom?: (kingdomId: string, newName: string) => void;
 }
 
 type InspectorTab = 'stats' | 'traits' | 'genes' | 'items' | 'favorites';
@@ -130,18 +115,16 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
   selectedUnit,
   favoriteUnits,
   followingEntityId,
-  hoveredZoneInfo = null,
-  activeZones,
   onToggleFavorite,
   onSelectUnit,
   onFocusUnit,
   onRenameUnit,
   onRenameSettlement,
-  onRenameKingdom,
   onSetUnitStat,
   onResetUnitStats,
   onHealUnit,
   onSetUnitAge,
+  onSetUnitSizeScale,
   onToggleUnitTrait,
   onToggleUnitGene,
   onAddUnitItem,
@@ -154,7 +137,7 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
   const [geneFilter, setGeneFilter] = useState<'all' | 'mutation' | 'intrinsic'>('all');
   const [itemFilter, setItemFilter] = useState<Exclude<ItemSlot, 'natural'>>('weapon');
   const [editingTarget, setEditingTarget] = useState<{
-    kind: 'unit' | 'settlement' | 'kingdom';
+    kind: 'unit' | 'settlement';
     id: string;
     label: string;
   } | null>(null);
@@ -166,13 +149,12 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
     if (trimmed.length > 0) {
       if (editingTarget.kind === 'unit') onRenameUnit?.(editingTarget.id, trimmed);
       else if (editingTarget.kind === 'settlement') onRenameSettlement?.(editingTarget.id, trimmed);
-      else if (editingTarget.kind === 'kingdom') onRenameKingdom?.(editingTarget.id, trimmed);
     }
     setEditingTarget(null);
   };
 
-  // While editing, lock onto the selected unit so moving the mouse over the canvas doesn't swap panels
-  const displayUnit = editMode ? (selectedUnit ?? hoveredUnit) : (hoveredUnit ?? selectedUnit);
+  // Strictly show entities only (selected unit takes priority over hovered unit)
+  const displayUnit = selectedUnit ?? hoveredUnit;
   const isSelectedDisplayed = Boolean(
     displayUnit && selectedUnit && displayUnit.id === selectedUnit.id,
   );
@@ -391,7 +373,7 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                   title="Unpin selection"
                   className="px-btn w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center cursor-pointer text-[#8f8679] hover:text-[#f2ece1] transition-colors"
                 >
-                  <HudPixelIcon kind="close" className="w-3.5 h-3.5 sm:w-4 sm:h-4 pixelated-canvas" />
+                  <HudPixelIcon kind="unpin" className="w-3.5 h-3.5 sm:w-4 sm:h-4 pixelated-canvas" />
                 </button>
               )}
 
@@ -609,6 +591,79 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                           +
                         </button>
                         <span className="w-4 text-[10px] text-[#8f8679]">y</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {onSetUnitSizeScale && (
+                    <div className="flex flex-col gap-1.5 text-[11px] pt-1.5 border-t border-[#2c2620]">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[#cfc6b8] w-16 shrink-0">Size</span>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onSetUnitSizeScale(
+                                displayUnit.id,
+                                Math.max(0.35, Number((profile.informations.sizeScale - 0.15).toFixed(2))),
+                              )
+                            }
+                            className="px-btn w-6 h-6 flex items-center justify-center text-xs font-bold text-[#f2ece1] cursor-pointer"
+                          >
+                            -
+                          </button>
+                          <input
+                            type="number"
+                            data-testid="stat-input-size"
+                            value={profile.informations.sizeScale}
+                            min={0.35}
+                            max={4.0}
+                            step={0.05}
+                            onKeyDown={(e) => e.stopPropagation()}
+                            onChange={(e) => {
+                              const parsed = parseFloat(e.target.value);
+                              if (!Number.isNaN(parsed)) onSetUnitSizeScale(displayUnit.id, parsed);
+                            }}
+                            className="w-16 bg-[#141210] border border-[#3a332b] focus:border-[#f5b742] px-1.5 py-0.5 text-center font-pixel-num text-[11px] text-[#f2ece1] tabular-nums outline-none"
+                          />
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onSetUnitSizeScale(
+                                displayUnit.id,
+                                Math.min(4.0, Number((profile.informations.sizeScale + 0.15).toFixed(2))),
+                              )
+                            }
+                            className="px-btn w-6 h-6 flex items-center justify-center text-xs font-bold text-[#f2ece1] cursor-pointer"
+                          >
+                            +
+                          </button>
+                          <span className="w-4 text-[10px] text-[#8f8679]">×</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="range"
+                          data-testid="stat-slider-size"
+                          min={0.35}
+                          max={4.0}
+                          step={0.05}
+                          value={profile.informations.sizeScale}
+                          onChange={(e) => {
+                            const parsed = parseFloat(e.target.value);
+                            if (!Number.isNaN(parsed)) onSetUnitSizeScale(displayUnit.id, parsed);
+                          }}
+                          className="w-full accent-[#f5b742] cursor-pointer h-1.5"
+                        />
+                        {Math.abs(profile.informations.sizeScale - 1.0) > 0.005 && (
+                          <button
+                            type="button"
+                            onClick={() => onSetUnitSizeScale(displayUnit.id, 1.0)}
+                            className="px-btn px-1.5 py-0.5 text-[10px] text-[#cfc6b8] hover:text-[#f5b742] shrink-0 cursor-pointer"
+                          >
+                            1×
+                          </button>
+                        )}
                       </div>
                     </div>
                   )}
@@ -1222,9 +1277,9 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
           )}
         </>
       ) : (
-        <div className="space-y-1.5 sm:space-y-2 text-xs text-[#cfc6b8]" data-testid="zone-inspector-content">
+        <div className="space-y-2 text-xs text-[#cfc6b8]" data-testid="entity-inspector-empty">
           <div className="flex items-center justify-between gap-2">
-            <h2 className="font-bold text-[#f5b742] text-xs sm:text-sm">Inspect Tool</h2>
+            <h2 className="font-bold text-[#f5b742] text-xs sm:text-sm">Entity Inspector</h2>
             <button
               type="button"
               onClick={() => setMinimized(true)}
@@ -1235,169 +1290,48 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
             </button>
           </div>
 
-          {editingTarget?.kind === 'kingdom' && (
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                commitRename();
-              }}
-              className="bg-[#191613] px-2.5 py-2 border border-[#f5b742] space-y-1.5"
-            >
-              <div className="text-[10px] text-[#f5b742] font-semibold">Rename City / Kingdom</div>
-              <div className="flex items-center gap-1">
-                <input
-                  type="text"
-                  value={draftName}
-                  maxLength={32}
-                  autoFocus
-                  data-testid="inspector-rename-kingdom-input"
-                  onChange={(e) => setDraftName(e.target.value)}
-                  onKeyDown={(e) => {
-                    e.stopPropagation();
-                    if (e.key === 'Escape') setEditingTarget(null);
-                  }}
-                  className="w-full min-w-0 bg-[#141210] border border-[#3a332b] px-1.5 py-0.5 text-xs text-[#f2ece1] outline-none"
-                />
-                <button
-                  type="submit"
-                  className="px-btn-active px-2 py-0.5 text-[10px] font-bold text-[#f5b742] cursor-pointer shrink-0"
-                >
-                  Save
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setEditingTarget(null)}
-                  className="px-btn px-1.5 py-0.5 text-[10px] text-[#a89f91] cursor-pointer shrink-0"
-                >
-                  ✕
-                </button>
-              </div>
-            </form>
-          )}
+          <p className="text-xs text-[#a89f91]">
+            Hover or tap on any unit or creature to inspect stats, traits, genetics, and items.
+          </p>
 
-          {(() => {
-            const otherZonesOnly =
-              !activeZones?.kingdoms &&
-              !activeZones?.alliances &&
-              Boolean(
-                activeZones?.territories || activeZones?.biomes || activeZones?.temperature,
-              );
-            const showKingdomCard = Boolean(hoveredZoneInfo?.kingdom && !otherZonesOnly);
-            const showAnyZone = Boolean(
-              hoveredZoneInfo &&
-                (showKingdomCard ||
-                  (activeZones?.territories && hoveredZoneInfo.territory) ||
-                  (activeZones?.biomes && hoveredZoneInfo.biomeZone) ||
-                  (activeZones?.temperature && hoveredZoneInfo.temperatureZone)),
-            );
-            if (!showAnyZone || !hoveredZoneInfo) {
-              return (
-                <p className="text-xs text-[#a89f91]">
-                  Hover or tap on a unit, city, or zone to see stats and edit traits or gear.
-                </p>
-              );
-            }
-            return (
-              <div className="space-y-2">
-                {showKingdomCard && hoveredZoneInfo.kingdom && (
+          {favoriteUnits.length > 0 && (
+            <div className="space-y-1.5 pt-1 border-t border-[#2c2620]">
+              <div className="text-[11px] font-semibold text-[#ffd166]">Favorites</div>
+              <div className="space-y-1 max-h-40 overflow-y-auto pr-0.5">
+                {favoriteUnits.map((fav) => (
                   <div
-                    className="bg-[#191613] px-3 py-2 border-l-4 space-y-2"
-                    style={{ borderLeftColor: hoveredZoneInfo.kingdom.hexColor }}
-                    data-testid="inspect-zone-kingdom"
+                    key={fav.id}
+                    className="flex items-center justify-between gap-2 p-1.5 bg-[#191613] hover:bg-[#201c18] transition-colors"
                   >
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-1 min-w-0">
-                        <span className="font-bold text-[#f2ece1] truncate">
-                          {hoveredZoneInfo.kingdom.name}
-                        </span>
-                        {onRenameKingdom && (
-                          <button
-                            type="button"
-                            data-testid="inspector-rename-kingdom-btn"
-                            aria-label="Rename city or kingdom"
-                            title="Rename city / kingdom"
-                            onClick={() => {
-                              setEditingTarget({
-                                kind: 'kingdom',
-                                id: hoveredZoneInfo.kingdom!.kingdomId,
-                                label: 'Kingdom',
-                              });
-                              setDraftName(hoveredZoneInfo.kingdom!.name);
-                            }}
-                            className="text-[11px] text-[#9e9486] hover:text-[#f5b742] cursor-pointer shrink-0 px-0.5"
-                          >
-                            ✎
-                          </button>
-                        )}
-                      </div>
-                      <span className="font-pixel-num text-xs font-bold text-[#80ed99] tabular-nums shrink-0">
-                        Pop {hoveredZoneInfo.kingdom.population}
-                      </span>
-                    </div>
-                    <div
-                      className="grid grid-cols-4 gap-1 pt-1 border-t border-[#2c2620]"
-                      data-testid="inspect-kingdom-resources"
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onSelectUnit(fav.id);
+                        onFocusUnit(fav);
+                      }}
+                      className="flex items-center gap-2 min-w-0 flex-1 text-left cursor-pointer"
+                      title="Select & focus camera"
                     >
-                      {INSPECT_RESOURCE_KEYS.map(({ key, label }) => (
-                        <div
-                          key={key}
-                          title={`${label}: ${Math.floor(hoveredZoneInfo.kingdom!.resources[key] ?? 0)}`}
-                          className="bg-[#141210] px-1.5 py-1 flex items-center justify-between gap-1"
-                        >
-                          <ResourceIconSvg
-                            resource={key}
-                            className="w-3.5 h-3.5 pixelated-canvas shrink-0"
-                          />
-                          <span className="font-pixel-num text-[10px] text-[#e8e0d2] tabular-nums">
-                            {Math.floor(hoveredZoneInfo.kingdom!.resources[key] ?? 0)}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
+                      <UnitPixelIcon role={fav.role} className="w-5 h-5 shrink-0" />
+                      <span className="font-semibold text-[#f2ece1] truncate">{fav.name}</span>
+                      <span className="font-pixel-num text-[10px] text-[#80ed99] tabular-nums shrink-0">
+                        {Math.round(fav.hp)}hp
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onToggleFavorite(fav.id)}
+                      aria-label={`Unfavorite ${fav.name}`}
+                      className="text-[#ffd166] hover:text-[#ff8f6b] cursor-pointer p-1"
+                      title="Unfavorite"
+                    >
+                      <HudPixelIcon kind="starOn" className="w-3.5 h-3.5 pixelated-canvas" />
+                    </button>
                   </div>
-                )}
-
-                {activeZones?.territories && hoveredZoneInfo.territory && (
-                  <div
-                    className="bg-[#191613] px-3 py-2 border-l-4 flex items-center justify-between gap-2"
-                    style={{ borderLeftColor: hoveredZoneInfo.territory.hexColor }}
-                    data-testid="inspect-zone-territory"
-                  >
-                    <span className="font-bold text-[#f2ece1] truncate">
-                      {hoveredZoneInfo.territory.name}
-                    </span>
-                    <span className="font-pixel-num text-xs font-bold text-[#fb923c] tabular-nums shrink-0">
-                      Pop {hoveredZoneInfo.territory.animalCount}
-                    </span>
-                  </div>
-                )}
-
-                {activeZones?.biomes && hoveredZoneInfo.biomeZone && (
-                  <div
-                    className="bg-[#191613] px-3 py-2 border-l-4 flex items-center justify-between gap-2"
-                    style={{ borderLeftColor: hoveredZoneInfo.biomeZone.hexColor }}
-                    data-testid="inspect-zone-biome"
-                  >
-                    <span className="font-bold text-[#f2ece1] truncate">
-                      {hoveredZoneInfo.biomeZone.name}
-                    </span>
-                  </div>
-                )}
-
-                {activeZones?.temperature && hoveredZoneInfo.temperatureZone && (
-                  <div
-                    className="bg-[#191613] px-3 py-2 border-l-4 flex items-center justify-between gap-2"
-                    style={{ borderLeftColor: hoveredZoneInfo.temperatureZone.hexColor }}
-                    data-testid="inspect-zone-temperature"
-                  >
-                    <span className="font-bold text-[#f2ece1] truncate">
-                      {hoveredZoneInfo.temperatureZone.name}
-                    </span>
-                  </div>
-                )}
+                ))}
               </div>
-            );
-          })()}
+            </div>
+          )}
         </div>
       )}
     </aside>

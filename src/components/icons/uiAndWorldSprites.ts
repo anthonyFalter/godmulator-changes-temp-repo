@@ -1247,7 +1247,8 @@ export const HUD_SPRITES: Record<
   | 'settings'
   | 'star'
   | 'starOn'
-  | 'close',
+  | 'close'
+  | 'unpin',
   CompiledSprite
 > = {
   rotateLeft: cluster16(
@@ -1740,5 +1741,28 @@ export const HUD_SPRITES: Record<
     MAT.hud,
     MATS,
     false,
+  ),
+
+  unpin: cluster16(
+    [
+      '................',
+      '.Rr.............',
+      '..Rr.$$$$$$.....',
+      '...Rr$$$$$$.....',
+      '....Rr$$$$......',
+      '.....Rr$$$......',
+      '......Rr$$......',
+      '....$$.Rr$$$....',
+      '....$$$$Rr$$....',
+      '.......$$Rr.....',
+      '.......$$.Rr....',
+      '.......$$..Rr...',
+      '........$...Rr..',
+      '........$....Rr.',
+      '................',
+      '................',
+    ],
+    MAT.hud,
+    MATS,
   ),
 };

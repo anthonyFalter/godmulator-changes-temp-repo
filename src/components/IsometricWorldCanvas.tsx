@@ -48,6 +48,7 @@ import {
   computeSnappedShadowBounds,
   isHazardIntersectingCullBounds,
   isPointInCullBounds,
+  isWholeMapInsideCullBounds,
 } from '../game/autoOptimizer';
 import {
   TIME_OF_DAY_PRESETS,
@@ -106,6 +107,7 @@ import {
 import { ChunkTerrainSystem } from '../game/chunkTerrainRenderer';
 import { BatchedBuildingSystem } from '../game/batchedBuildings';
 import { BatchedUnitSystem, getBatchedUnitPose } from '../game/batchedUnits';
+import { getEffectiveUnitSizeScale } from '../game/unitCustomization';
 import { BatchedStaticPool } from '../game/batchedStaticProps';
 import { TreeImpostorSystem } from '../game/treeImpostors';
 import { EngineWorkerPool } from '../game/workerPool';
@@ -166,6 +168,7 @@ interface IsometricWorldCanvasProps {
   hoveredEntityId?: string | null;
   selectedEntityId?: string | null;
   followingEntityId?: string | null;
+  selectedCityId?: string | null;
   zoneOverlayBuffers?: {
     colorData: Uint8Array;
     idData: Uint8Array;
@@ -181,6 +184,14 @@ interface IsometricWorldCanvasProps {
   onHoverTileChange: (tile: { x: number; z: number } | null) => void;
   onHoverEntityChange?: (unitId: string | null) => void;
   onSelectEntity?: (unitId: string | null) => void;
+  onSelectCityLabel?: (city: {
+    settlementId: string;
+    kingdomId: string;
+    name: string;
+    hexColor: string;
+    tileX: number;
+    tileZ: number;
+  }) => void;
   onBreakFollow?: () => void;
   onSyncHud: () => void;
   onPerfTelemetry?: (snapshot: PerfTelemetrySnapshot) => void;
@@ -220,12 +231,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
   hoveredEntityId = null,
   selectedEntityId = null,
   followingEntityId = null,
+  selectedCityId = null,
   captureThumbnailRef,
   zoneOverlayBuffers,
   onTileInteract,
   onHoverTileChange,
   onHoverEntityChange,
   onSelectEntity,
+  onSelectCityLabel,
   onBreakFollow,
   onSyncHud,
   onPerfTelemetry,
@@ -363,13 +376,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       propsRef.current.gameState === 'title'
         ? getResponsiveTitleFrustum(aspect)
         : getWholeMapFrustum(sim.gridSize);
+    const camDepthSpan = Math.max(320, Math.ceil(sim.gridSize * 1.65) + 120);
     const camera = new THREE.OrthographicCamera(
       (-frustumSize * aspect) / 2,
       (frustumSize * aspect) / 2,
       frustumSize / 2,
       -frustumSize / 2,
-      -260,
-      420,
+      -camDepthSpan,
+      camDepthSpan + 120,
     );
 
     const gridCenter = (sim.gridSize - 1) / 2;
@@ -448,7 +462,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
     worldGroup.add(oceanFoam.mesh);
 
     const zoneOverlay = createZoneOverlaySystem(sim.gridSize);
-    zoneOverlay.updateMap(sim.tiles);
+    if (propsRef.current.zoneOverlayBuffers?.anyActive) {
+      zoneOverlay.updateMap(sim.tiles);
+    }
     worldGroup.add(zoneOverlay.mesh);
 
     const warFrontArrows = createWarFrontArrowsSystem();
@@ -494,13 +510,18 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
     }
 
     const terrainWorkerPool = new EngineWorkerPool();
-    const { topMat: chunkTopMat, cliffMat: chunkCliffMat } = styledTerrain.getChunkMaterials();
+    const {
+      topMat: chunkTopMat,
+      cliffMat: chunkCliffMat,
+      unifiedMat: chunkUnifiedMat,
+    } = styledTerrain.getChunkMaterials();
     const chunkTerrain = new ChunkTerrainSystem(
       sim.gridSize,
       chunkTopMat,
       chunkCliffMat,
       terrainWorkerPool,
       CHUNK_SIZE,
+      chunkUnifiedMat,
     );
     terrainGroup.add(chunkTerrain.group);
 
@@ -743,6 +764,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
     let propViewDirty = true;
     const tileTerrainSig = new Int32Array(sim.tiles.length).fill(-1);
     const tileMetroSig = new Int32Array(sim.tiles.length).fill(-1);
+    let metroFeatureTileCount = 0;
 
     function applyAmbientFoliageFactor(_factor: number) {
       propViewDirty = true;
@@ -1314,9 +1336,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
     };
 
     const getScaledParticleCount = (rawCount: number): number => {
-      const scale = activeGfxProfile.particleScale * autoOptDecisions.particleScale;
+      let scale = activeGfxProfile.particleScale * autoOptDecisions.particleScale;
+      if (activeParticleCount > MAX_PARTICLES * 0.78) {
+        scale *= 0.4;
+      } else if (activeParticleCount > MAX_PARTICLES * 0.55) {
+        scale *= 0.68;
+      }
       if (scale >= 0.99) return rawCount;
-      if (activeParticleCount > MAX_PARTICLES * 0.85 && scale < 0.5) return 0;
+      if (activeParticleCount > MAX_PARTICLES * 0.85 && scale < 0.45) return 0;
       return Math.max(1, Math.round(rawCount * scale));
     };
 
@@ -3423,7 +3450,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         | 'icbm_missile'
         | 'elf_starfall_spell'
         | 'orc_siege_boulder'
-        | 'orc_waagh_rocket';
+        | 'orc_waagh_rocket'
+        | 'dwarf_quake_mortar'
+        | 'lizard_solar_lance';
       stemMesh?: THREE.Mesh;
       capMesh?: THREE.Mesh;
       faultSegments?: EarthquakeFaultSegment[];
@@ -3458,7 +3487,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       }>;
       colorHex: string;
     }
-    const MAX_BURST_FX = 64;
+    const getMaxBurstFx = (): number =>
+      autoOptDecisions.tier >= 3 ? 10 : autoOptDecisions.tier === 2 ? 14 : autoOptDecisions.tier === 1 ? 20 : 28;
     const activeBurstFx: ActiveBurstFx[] = [];
     const _warArrowProjVec = new THREE.Vector3();
     const _trailLookVec = new THREE.Vector3();
@@ -3532,7 +3562,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       ty = Math.max(WATER_SURFACE_EFFECT_Y, ty);
 
       // Bound simultaneous active bursts for smooth performance during continuous S-pattern painting
-      if (activeBurstFx.length >= MAX_BURST_FX) {
+      if (activeBurstFx.length >= getMaxBurstFx()) {
         const dropIdx = activeBurstFx.findIndex((f) => f.impactFired || !f.deferImpact);
         const idx = dropIdx >= 0 ? dropIdx : 0;
         const old = activeBurstFx[idx];
@@ -5816,7 +5846,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       radius: number,
       colorHex: string,
     ) {
-      if (activeBurstFx.length >= MAX_BURST_FX) {
+      if (activeBurstFx.length >= getMaxBurstFx()) {
         const dropIdx = activeBurstFx.findIndex((f) => f.impactFired || !f.deferImpact);
         const idx = dropIdx >= 0 ? dropIdx : 0;
         const old = activeBurstFx[idx];
@@ -6036,10 +6066,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         | 'icbm_missile'
         | 'elf_starfall_spell'
         | 'orc_siege_boulder'
-        | 'orc_waagh_rocket',
+        | 'orc_waagh_rocket'
+        | 'dwarf_quake_mortar'
+        | 'lizard_solar_lance',
       flightDuration?: number,
     ) {
-      if (activeBurstFx.length >= MAX_BURST_FX) {
+      if (activeBurstFx.length >= getMaxBurstFx()) {
         const dropIdx = activeBurstFx.findIndex((f) => f.impactFired || !f.deferImpact);
         const idx = dropIdx >= 0 ? dropIdx : 0;
         const old = activeBurstFx[idx];
@@ -6328,19 +6360,25 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         // Persistent 3D flight trail ribbon for race warfare & tactical projectiles
         let trailBundle: ReturnType<typeof createProjectileTrailRibbon> | undefined;
         if (subtype === 'icbm_missile') {
-          trailBundle = createProjectileTrailRibbon('#f1f5f9', 36, 0.34, 0.86);
+          trailBundle = createProjectileTrailRibbon('#f1f5f9', 42, 0.42, 0.9);
         } else if (subtype === 'elf_starfall_spell') {
-          trailBundle = createProjectileTrailRibbon(boltColor || '#c084fc', 32, 0.28, 0.88);
+          trailBundle = createProjectileTrailRibbon(boltColor || '#c084fc', 36, 0.34, 0.9);
         } else if (subtype === 'orc_siege_boulder') {
-          trailBundle = createProjectileTrailRibbon('#fb923c', 26, 0.28, 0.82);
+          trailBundle = createProjectileTrailRibbon('#78716c', 30, 0.34, 0.84);
         } else if (subtype === 'orc_waagh_rocket') {
-          trailBundle = createProjectileTrailRibbon('#dc2626', 34, 0.26, 0.84);
+          trailBundle = createProjectileTrailRibbon('#57534e', 38, 0.32, 0.86);
+        } else if (subtype === 'dwarf_quake_mortar') {
+          trailBundle = createProjectileTrailRibbon('#f59e0b', 30, 0.3, 0.86);
+        } else if (subtype === 'lizard_solar_lance') {
+          trailBundle = createProjectileTrailRibbon(boltColor || '#facc15', 32, 0.28, 0.9);
         } else if (subtype === 'missile') {
-          trailBundle = createProjectileTrailRibbon('#e2e8f0', 18, 0.16, 0.78);
+          trailBundle = createProjectileTrailRibbon('#e2e8f0', 24, 0.22, 0.84);
+        } else if (subtype === 'bomb') {
+          trailBundle = createProjectileTrailRibbon('#94a3b8', 20, 0.2, 0.72);
         } else if (subtype === 'cannon_shell') {
-          trailBundle = createProjectileTrailRibbon('#fdba74', 16, 0.14, 0.72);
+          trailBundle = createProjectileTrailRibbon('#cbd5e1', 20, 0.18, 0.76);
         } else if (subtype === 'arcane_bolt') {
-          trailBundle = createProjectileTrailRibbon(boltColor || '#c084fc', 18, 0.16, 0.82);
+          trailBundle = createProjectileTrailRibbon(boltColor || '#c084fc', 22, 0.2, 0.86);
         } else if (subtype === 'bullet') {
           trailBundle = createProjectileTrailRibbon('#fef08a', 10, 0.08, 0.65);
         }
@@ -6360,13 +6398,17 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         } else if (
           subtype !== 'bomb' &&
           subtype !== 'cannon_shell' &&
+          subtype !== 'missile' &&
+          subtype !== 'arcane_bolt' &&
           subtype !== 'ice_ball' &&
           subtype !== 'foxfire_ball' &&
           subtype !== 'venom_ball' &&
           subtype !== 'icbm_missile' &&
           subtype !== 'elf_starfall_spell' &&
           subtype !== 'orc_siege_boulder' &&
-          subtype !== 'orc_waagh_rocket'
+          subtype !== 'orc_waagh_rocket' &&
+          subtype !== 'dwarf_quake_mortar' &&
+          subtype !== 'lizard_solar_lance'
         ) {
           spawnParticleBurst(tx, ty + 0.35, tz, 10, boltColor, 0.5, 3.6, 0.78);
         }
@@ -6375,7 +6417,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           subtype === 'icbm_missile' ||
           subtype === 'elf_starfall_spell' ||
           subtype === 'orc_siege_boulder' ||
-          subtype === 'orc_waagh_rocket';
+          subtype === 'orc_waagh_rocket' ||
+          subtype === 'dwarf_quake_mortar' ||
+          subtype === 'lizard_solar_lance';
 
         // For strategic transcontinental strikes, match exact sim arrival flightDuration and keep a lingering post-impact trail fade!
         const defaultFlightDur =
@@ -7727,9 +7771,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
     window.addEventListener('keyup', onKeyUp);
     window.addEventListener('blur', clearInputs);
 
-    if (!isSoftwareGl) {
-      renderer.compile(scene, camera);
-    }
+    // Shader compilation is spread progressively across frames by `startupRevealStage`
+    // (instead of blocking `useEffect` with synchronous `renderer.compile(scene, camera)`).
 
     // Pre-allocate scratch math objects outside the animation loop (Zero-GC)
     const _dummyMatrix = new THREE.Matrix4();
@@ -7790,7 +7833,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
     let lastPropCamX = -9999;
     let lastPropCamZ = -9999;
     let lastPropCamYaw = -9999;
+    let lastPropWholeMap = false;
     let lastPropFoliageFactor = -1;
+    let propCacheWinMinX = 0;
+    let propCacheWinMaxX = -1;
+    let propCacheWinMinZ = 0;
+    let propCacheWinMaxZ = -1;
 
     const pushTreeCache = (
       x: number,
@@ -7937,34 +7985,21 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       const propR = Math.max(14, frustumSize * 0.55);
       const propRSq = propR * propR;
 
-      // Exact camera-oriented 2D bounding box (OBB) eliminates ~75% of off-screen trees
-      // that used to leak through the 4 empty diagonal corners of the axis-aligned AABB.
-      const obbAspect = getCurrentAspect();
-      const obbPad = 6.0;
-      const rx = Math.cos(camYaw);
-      const rz = -Math.sin(camYaw);
-      const fx = Math.sin(camYaw);
-      const fz = Math.cos(camYaw);
-      const halfW = (frustumSize * obbAspect) * 0.5 + obbPad;
-      const halfFFront = frustumSize * 0.82 + 3.0 + obbPad;
-      const halfFBack = frustumSize * 0.82 + 7.5 + obbPad;
-
-      const cMinX = worldCullBounds.minX - obbPad;
-      const cMaxX = worldCullBounds.maxX + obbPad;
-      const cMinZ = worldCullBounds.minZ - obbPad;
-      const cMaxZ = worldCullBounds.maxZ + obbPad;
+      // Exact camera-projected 2D OBB from computeOrthoGroundCullBounds eliminates off-screen
+      // trees/props/details in diagonal corners while guaranteeing zero edge clipping at any yaw.
+      const cMinX = worldCullBounds.minX;
+      const cMaxX = worldCullBounds.maxX;
+      const cMinZ = worldCullBounds.minZ;
+      const cMaxZ = worldCullBounds.maxZ;
       const useImpostors = treeImpostors.isBaked;
 
       // 1. Trees (exact OBB cull + high-detail 4-tier LOD in 2 BatchedMesh draw calls + baked 2-tri impostors at far/overview)
       for (let i = 0; i < treeCacheCount; i++) {
         const tx = treeCacheX[i];
         const tz = treeCacheZ[i];
+        if (!isPointInCullBounds(tx, tz, worldCullBounds, 1.5)) continue;
         const dx = tx - focusX;
         const dz = tz - focusZ;
-        const projR = dx * rx + dz * rz;
-        if (projR < -halfW || projR > halfW) continue;
-        const projF = dx * fx + dz * fz;
-        if (projF < -halfFBack || projF > halfFFront) continue;
 
         const flags = treeCacheFlags[i];
         // Hide cramped under-canopy sapling layer (k===2) at overview where overlapping foliage occludes it
@@ -8021,13 +8056,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         const px = propCacheX[i];
         const pz = propCacheZ[i];
         const kind = propCacheKind[i];
-        const pad = kind === 9 ? 3.5 : 0; // Atlantis ruins have ~1.7u outer perimeter
+        const pad = kind === 9 ? 4.5 : 1.0; // Atlantis ruins have ~1.7u outer perimeter
+        if (!isPointInCullBounds(px, pz, worldCullBounds, pad)) continue;
         const dx = px - focusX;
         const dz = pz - focusZ;
-        const projR = dx * rx + dz * rz;
-        if (projR < -halfW - pad || projR > halfW + pad) continue;
-        const projF = dx * fx + dz * fz;
-        if (projF < -halfFBack - pad || projF > halfFFront + pad) continue;
 
         let useLod0 = false;
         if (lodBand === 0) {
@@ -8053,12 +8085,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         if (ambCacheTier[i] > allowedAmbTier) continue;
         const ax = ambCacheX[i];
         const az = ambCacheZ[i];
-        const dx = ax - focusX;
-        const dz = az - focusZ;
-        const projR = dx * rx + dz * rz;
-        if (projR < -halfW || projR > halfW) continue;
-        const projF = dx * fx + dz * fz;
-        if (projF < -halfFBack || projF > halfFFront) continue;
+        if (!isPointInCullBounds(ax, az, worldCullBounds, 0.5)) continue;
         const gIdx = ambGeoIdx[ambCacheGroup[i]][ambCacheVar[i]];
         ambBatch.pushFromMatrixArray(gIdx, ambCacheMat, i * 16);
       }
@@ -8074,6 +8101,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       lastPropCamX = focusX;
       lastPropCamZ = focusZ;
       lastPropCamYaw = camYaw;
+      lastPropWholeMap = isWholeMapInsideCullBounds(simRef.current.gridSize, worldCullBounds);
       lastPropFoliageFactor = appliedFoliageFactor;
     };
 
@@ -8102,10 +8130,19 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
     let lastPropRebuildTime = -1;
     let pendingPropsSync = false;
     let lastMapTexSyncTime = -1;
+    let lastWaterMapSyncTime = -1;
+    let lastDynamicChunkFlushTime = -1;
     let pendingWaterMapSync = false;
     let pendingTerrainMapSync = false;
-    let pendingZoneOverlayMapSync = false;
+    let pendingTerrainBathymetrySync = false;
+    let pendingZoneOverlayMapSync = !propsRef.current.zoneOverlayBuffers?.anyActive;
     let simSteppedThisFrame = true;
+    let shadowSceneDirty = true;
+    let shadowWarmupFrames = 4;
+    let lastShadowPreset = '';
+    let lastShadowKeyX = NaN;
+    let lastShadowKeyY = NaN;
+    let lastShadowKeyZ = NaN;
 
     // Staged progressive reveal spreads WebGL shader compilation across frames instead of freezing Frame 0
     // 0: space+ocean only -> 1: terrain chunks -> 2: clouds+zones -> 3: props+ambient -> 4: trees -> 5: buildings+units+metro -> 6: impostors
@@ -8174,6 +8211,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         tileTerrainCode.fill(-1);
         tileTerrainSig.fill(-1);
         tileMetroSig.fill(-1);
+        metroFeatureTileCount = 0;
+        shadowSceneDirty = true;
+        shadowWarmupFrames = 4;
         tileHadHazard.fill(0);
         for (let i = 0; i < simState.tiles.length; i++) {
           const t = simState.tiles[i];
@@ -8198,6 +8238,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           propsRef.current.gameState === 'title'
             ? getResponsiveTitleFrustum(getCurrentAspect())
             : getWholeMapFrustum(simState.gridSize);
+        propCacheWinMaxX = -1;
       }
 
       // 1. Collect active terrain-deforming hazards without heap allocations
@@ -8253,6 +8294,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       const tileCount = tiles.length;
 
       let anyDynamicTileY = false;
+      let anyGridChangedThisFrame = false;
       const shouldScanTiles =
         simChanged ||
         simSteppedThisFrame ||
@@ -8288,7 +8330,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           for (let ti = 0; ti < activeTsunamis.length; ti++) {
             const th = activeTsunamis[ti];
             const curR = th.currentRadius ?? th.radius;
-            const dist = Math.hypot(t.x - th.x, t.z - th.z);
+            const outerR = curR + 2.7;
+            const dxT = t.x - th.x;
+            if (dxT < -outerR || dxT > outerR) continue;
+            const dzT = t.z - th.z;
+            if (dzT < -outerR || dzT > outerR) continue;
+            const dist = Math.hypot(dxT, dzT);
             const fade = Math.min(1, th.remaining / 1.2);
             const diffPrimary = Math.abs(dist - curR);
             if (diffPrimary < 2.6) {
@@ -8360,6 +8407,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           worldGrid.crushedMask[i] !== isCrushedByte;
 
         if (gridChanged) {
+          anyGridChangedThisFrame = true;
           worldGrid.heightMap[i] = t.height;
           worldGrid.terrainCodeMap[i] = tCode;
           worldGrid.crushedMask[i] = isCrushedByte;
@@ -8407,7 +8455,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         }
         const mSig =
           tCode === 9 || tCode === 14 || tCode === 21 ? (t.height << 5) | tCode : 0;
-        if (tileMetroSig[i] !== mSig) {
+        const prevMSig = tileMetroSig[i];
+        if (prevMSig !== mSig) {
+          if (prevMSig > 0) metroFeatureTileCount--;
+          if (mSig > 0) metroFeatureTileCount++;
           tileMetroSig[i] = mSig;
           metroNeedsSync = true;
         }
@@ -8418,8 +8469,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
               ? 1
               : 0;
           const overrideBiome = t.burntTreeBiome ?? t.treeBiomeOverride;
-          const burntBiomeCode =
-            overrideBiome === 'forest'
+          const burntBiomeCode = overrideBiome
+            ? overrideBiome === 'forest'
               ? 1
               : overrideBiome === 'meadow'
                 ? 2
@@ -8435,7 +8486,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
                           ? 7
                           : overrideBiome === 'highland'
                             ? 8
-                            : 0;
+                            : 0
+            : 0;
           const sig =
             (burntBiomeCode << 19) |
             (isBurntTree << 18) |
@@ -8482,44 +8534,89 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       lastTileScanPendingY = anyDynamicTileY;
       }
 
+      let heavyWorkDoneThisFrame = false;
       if (initialMapsPreuploaded) {
         initialMapsPreuploaded = false;
       } else {
-        if (waterMapNeedsSync) pendingWaterMapSync = true;
+        if (waterMapNeedsSync) {
+          pendingWaterMapSync = true;
+          pendingTerrainBathymetrySync = true;
+        }
         if (terrainMapDirty || waterMapNeedsSync) pendingTerrainMapSync = true;
         if (simChanged || zoneHeightDirty) pendingZoneOverlayMapSync = true;
-        const canRunMapTexSync =
-          simChanged || lastMapTexSyncTime < 0 || elapsed - lastMapTexSyncTime >= 0.36;
-        if (canRunMapTexSync && (pendingWaterMapSync || pendingTerrainMapSync || pendingZoneOverlayMapSync)) {
+
+        if (simChanged) {
           lastMapTexSyncTime = elapsed;
+          lastWaterMapSyncTime = elapsed;
           if (pendingWaterMapSync) {
             pendingWaterMapSync = false;
             oceanFoam.updateMap(simState.tiles);
           }
           if (pendingTerrainMapSync) {
             pendingTerrainMapSync = false;
-            styledTerrain.updateMap(simState.tiles, simState.buildings, simState.settlementSpecies);
+            pendingTerrainBathymetrySync = false;
+            styledTerrain.updateMap(simState.tiles, simState.buildings, simState.settlementSpecies, true);
           }
-          // Skip multi-megabyte zone vertex-buffer rewrite when Zone Overlay is turned off;
-          // pendingZoneOverlayMapSync stays true and flushes immediately when zones are toggled on.
-          if (pendingZoneOverlayMapSync && (simChanged || Boolean(zb?.anyActive))) {
+          if (pendingZoneOverlayMapSync) {
             pendingZoneOverlayMapSync = false;
             zoneOverlay.updateMap(simState.tiles);
+          }
+        } else {
+          // Stagger heavy full-map texture uploads across separate frames (max 1 per frame)
+          // so continuous power cascades never stack multiple 15-25ms uploads into a single frame.
+          if (
+            pendingTerrainMapSync &&
+            (lastMapTexSyncTime < 0 || elapsed - lastMapTexSyncTime >= 0.36)
+          ) {
+            lastMapTexSyncTime = elapsed;
+            const wantBathy = pendingTerrainBathymetrySync;
+            pendingTerrainMapSync = false;
+            pendingTerrainBathymetrySync = false;
+            styledTerrain.updateMap(
+              simState.tiles,
+              simState.buildings,
+              simState.settlementSpecies,
+              wantBathy,
+            );
+            heavyWorkDoneThisFrame = true;
+          } else if (
+            pendingWaterMapSync &&
+            (lastWaterMapSyncTime < 0 || elapsed - lastWaterMapSyncTime >= 0.55)
+          ) {
+            lastWaterMapSyncTime = elapsed;
+            pendingWaterMapSync = false;
+            oceanFoam.updateMap(simState.tiles);
+            heavyWorkDoneThisFrame = true;
+          } else if (pendingZoneOverlayMapSync && Boolean(zb?.anyActive)) {
+            pendingZoneOverlayMapSync = false;
+            zoneOverlay.updateMap(simState.tiles);
+            heavyWorkDoneThisFrame = true;
           }
         }
       }
 
-      // Advance staged progressive reveal (1 layer per frame) so Frame 0 stays light while the full title background loads in ~4 frames
+      if (
+        anyGridChangedThisFrame ||
+        anyDynamicTileY ||
+        propsNeedSync ||
+        metroNeedsSync ||
+        propViewDirty
+      ) {
+        shadowSceneDirty = true;
+      }
+
+      // Advance staged progressive reveal with breathing frames between layers so first visit stays responsive
       if (startupRevealStage < 4) {
         startupStageWait++;
-        if (startupRevealStage === 0 && startupStageWait >= 1) {
+        if (startupRevealStage === 0 && startupStageWait >= 3) {
           startupRevealStage = 1;
           startupStageWait = 0;
           terrainGroup.visible = true;
           skyClouds.group.visible = true;
           skyClouds.shadowGroup.visible = true;
           zoneOverlay.mesh.visible = Boolean(propsRef.current.zoneOverlayBuffers?.anyActive);
-        } else if (startupRevealStage === 1 && !chunkTerrain.hasPendingProgressiveRebuild()) {
+          shadowSceneDirty = true;
+        } else if (startupRevealStage === 1 && !chunkTerrain.hasPendingProgressiveRebuild() && startupStageWait >= 3) {
           startupRevealStage = 2;
           startupStageWait = 0;
           nodesGroup.visible = true;
@@ -8527,46 +8624,80 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           treeBatchShadow.group.visible = true;
           treeBatchNoShadow.group.visible = true;
           propViewDirty = true;
-        } else if (startupRevealStage === 2 && startupStageWait >= 1) {
+          shadowSceneDirty = true;
+        } else if (startupRevealStage === 2 && startupStageWait >= 3) {
           startupRevealStage = 3;
           startupStageWait = 0;
           buildingsGroup.visible = true;
           unitsGroup.visible = true;
           metroGroup.visible = true;
-        } else if (startupRevealStage === 3 && startupStageWait >= 1) {
+          shadowSceneDirty = true;
+        } else if (startupRevealStage === 3 && startupStageWait >= 3) {
           startupRevealStage = 4;
           startupStageWait = 0;
+          shadowSceneDirty = true;
         }
       }
 
-      // Stream initial/world-switch terrain chunks center-outward (8 chunks/frame) so the island appears in 2 frames without freezing
+      // Stream initial/world-switch terrain chunks center-outward (4 chunks/frame) so first visit stays smooth
       const terrainStreaming = chunkTerrain.hasPendingProgressiveRebuild();
       if (terrainStreaming) {
         if (startupRevealStage >= 1) {
-          chunkTerrain.stepProgressiveRebuild(worldGrid, tileRenderY, 8);
+          chunkTerrain.stepProgressiveRebuild(worldGrid, tileRenderY, 4);
+          shadowSceneDirty = true;
         }
       } else if (worldGrid.dirtyChunkCount > 0) {
-        // Rebuild only modified 32x32 chunks (sync for instant 1-6 chunk edits, Comlink workers for bulk)
-        chunkTerrain.flushDirtyChunks(
-          worldGrid,
-          anyDynamicTileY || hasTsunamis || hasQuakes ? tileRenderY : null,
-          anyDynamicTileY || hasTsunamis || hasQuakes,
-        );
+        const isDynamicOnly = !anyGridChangedThisFrame && (anyDynamicTileY || hasTsunamis || hasQuakes);
+        const canFlushDynamic =
+          !isDynamicOnly || lastDynamicChunkFlushTime < 0 || elapsed - lastDynamicChunkFlushTime >= 0.05;
+        if (canFlushDynamic) {
+          if (isDynamicOnly) lastDynamicChunkFlushTime = elapsed;
+          const useDynamicY = anyDynamicTileY || hasTsunamis || hasQuakes;
+          const syncBudget = isDynamicOnly ? 2 : heavyWorkDoneThisFrame ? 2 : 3;
+          const flushed = chunkTerrain.flushDirtyChunks(
+            worldGrid,
+            useDynamicY ? tileRenderY : null,
+            useDynamicY,
+            syncBudget,
+          );
+          if (flushed > 0) shadowSceneDirty = true;
+          if (flushed >= 2) heavyWorkDoneThisFrame = true;
+        }
       }
 
-      // Progressively bake the 2048x1024 tree impostor atlas (2 species/frame) once all scene layers have revealed
-      if (startupRevealStage >= 4 && !terrainStreaming && !treeImpostors.isBaked) {
-        if (treeImpostors.stepBake(2)) {
+      // Defer 2048x1024 tree impostor atlas baking until the player actually zooms out (frustumSize >= 36)
+      // and bake only 1 species every 2nd frame so initial load / Title Screen pays zero impostor GPU cost.
+      if (
+        startupRevealStage >= 4 &&
+        !terrainStreaming &&
+        !treeImpostors.isBaked &&
+        frustumSize >= 36 &&
+        (syncFrameStamp & 1) === 0
+      ) {
+        if (treeImpostors.stepBake(1)) {
           propViewDirty = true;
         }
       }
 
-      // Debounce routine full-map prop matrix recompositions (~2.6 Hz during power cascades) and defer until props/trees reveal stage
+      const gsProps = simState.gridSize;
+      const needPropWindowShift =
+        propCacheWinMaxX < propCacheWinMinX ||
+        (propCacheWinMinX > 0 && worldCullBounds.minX - 4 < propCacheWinMinX) ||
+        (propCacheWinMaxX < gsProps - 1 && worldCullBounds.maxX + 4 > propCacheWinMaxX) ||
+        (propCacheWinMinZ > 0 && worldCullBounds.minZ - 4 < propCacheWinMinZ) ||
+        (propCacheWinMaxZ < gsProps - 1 && worldCullBounds.maxZ + 4 > propCacheWinMaxZ);
+
+      // Debounce routine prop matrix recompositions during power cascades and avoid stacking on frames
+      // that already performed a heavy map texture upload or multi-chunk remesh.
+      const propDebounceSec = activeBurstFx.length > 0 ? 0.5 : 0.38;
       const runPropsSyncNow =
-        propsNeedSync &&
         startupRevealStage >= 2 &&
         !terrainStreaming &&
-        (simChanged || lastPropRebuildTime < 0 || elapsed - lastPropRebuildTime >= 0.38);
+        (needPropWindowShift ||
+          (propsNeedSync &&
+            (simChanged ||
+              (!heavyWorkDoneThisFrame &&
+                (lastPropRebuildTime < 0 || elapsed - lastPropRebuildTime >= propDebounceSec)))));
       if (propsNeedSync && !runPropsSyncNow) {
         pendingPropsSync = true;
       }
@@ -8577,8 +8708,21 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         propCacheCount = 0;
         ambCacheCount = 0;
 
-        for (let i = 0; i < simState.tiles.length; i++) {
-          const t = simState.tiles[i];
+        const winPad = 24;
+        const wMinX = Math.max(0, Math.floor(worldCullBounds.minX - winPad));
+        const wMaxX = Math.min(gsProps - 1, Math.ceil(worldCullBounds.maxX + winPad));
+        const wMinZ = Math.max(0, Math.floor(worldCullBounds.minZ - winPad));
+        const wMaxZ = Math.min(gsProps - 1, Math.ceil(worldCullBounds.maxZ + winPad));
+        propCacheWinMinX = wMinX;
+        propCacheWinMaxX = wMaxX;
+        propCacheWinMinZ = wMinZ;
+        propCacheWinMaxZ = wMaxZ;
+
+        for (let tz = wMinZ; tz <= wMaxZ; tz++) {
+          const rowBase = tz * gsProps;
+          for (let tx = wMinX; tx <= wMaxX; tx++) {
+            const i = rowBase + tx;
+            const t = simState.tiles[i];
           if (t.buildingId) continue;
           if (t.height <= 0) {
             if (
@@ -8839,47 +8983,41 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
               pushAmbCache(ambGroupIdx, h % len, ambTier, t.x, t.z, _dummyMatrix.elements);
             }
           }
+          }
         }
 
         propViewDirty = true;
       }
 
       const curLodBand = frustumSize < 22 ? 0 : frustumSize < 40 ? 1 : frustumSize < 64 ? 2 : 3;
-      const wholeMapVisible =
-        worldCullBounds.minX <= 0 &&
-        worldCullBounds.maxX >= simState.gridSize - 1 &&
-        worldCullBounds.minZ <= 0 &&
-        worldCullBounds.maxZ >= simState.gridSize - 1;
-      const prevWholeMap =
-        lastPropCullMinX <= 0 &&
-        lastPropCullMaxX >= simState.gridSize - 1 &&
-        lastPropCullMinZ <= 0 &&
-        lastPropCullMaxZ >= simState.gridSize - 1;
+      const wholeMapVisible = isWholeMapInsideCullBounds(simState.gridSize, worldCullBounds);
+      const wholeMapChanged = wholeMapVisible !== lastPropWholeMap;
       const boundsShifted =
         !wholeMapVisible &&
         (worldCullBounds.minX < lastPropCullMinX + 1.0 ||
           worldCullBounds.maxX > lastPropCullMaxX - 1.0 ||
           worldCullBounds.minZ < lastPropCullMinZ + 1.0 ||
           worldCullBounds.maxZ > lastPropCullMaxZ - 1.0 ||
-          worldCullBounds.minX - lastPropCullMinX > 16.0 ||
-          lastPropCullMaxX - worldCullBounds.maxX > 16.0 ||
-          worldCullBounds.minZ - lastPropCullMinZ > 16.0 ||
-          lastPropCullMaxZ - worldCullBounds.maxZ > 16.0);
-      if (boundsShifted || (wholeMapVisible && !prevWholeMap)) {
-        metroNeedsSync = true;
-      }
+          worldCullBounds.minX - lastPropCullMinX > 12.0 ||
+          lastPropCullMaxX - worldCullBounds.maxX > 12.0 ||
+          worldCullBounds.minZ - lastPropCullMinZ > 12.0 ||
+          lastPropCullMaxZ - worldCullBounds.maxZ > 12.0);
       const frustumDeltaPct =
         Math.abs(frustumSize - lastPropLodFrustum) / Math.max(10, lastPropLodFrustum);
       const radialCamMoved =
         !wholeMapVisible &&
-        (Math.abs(camTarget.x - lastPropCamX) > 4.2 ||
-          Math.abs(camTarget.z - lastPropCamZ) > 4.2);
-      const yawMoved = !wholeMapVisible && Math.abs(camYaw - lastPropCamYaw) > 0.14;
+        (Math.abs(camTarget.x - lastPropCamX) > 3.2 ||
+          Math.abs(camTarget.z - lastPropCamZ) > 3.2);
+      const yawMoved = !wholeMapVisible && Math.abs(camYaw - lastPropCamYaw) > 0.04;
+      if (boundsShifted || wholeMapChanged || yawMoved) {
+        metroNeedsSync = true;
+      }
 
       if (
         propViewDirty ||
         curLodBand !== lastPropLodBand ||
         lastPropFoliageFactor !== appliedFoliageFactor ||
+        wholeMapChanged ||
         boundsShifted ||
         yawMoved ||
         (curLodBand < 3 && frustumDeltaPct > 0.22) ||
@@ -8889,16 +9027,24 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       }
 
       if (metroNeedsSync) {
-        // Rebuild Elevated Metro Viaducts (Epoch 5+) & Dedicated Runway Edge Beacons per settlement epoch
-        for (const mInst of allMetroInsts) mInst.count = 0;
-
-        let maxWorldEpoch = simState.epochIndex;
-        if (simState.kingdomEpochs) {
-          for (const k in simState.kingdomEpochs) {
-            const epVal = simState.kingdomEpochs[k];
-            if (epVal > maxWorldEpoch) maxWorldEpoch = epVal;
+        if (metroFeatureTileCount <= 0) {
+          for (const mInst of allMetroInsts) {
+            if (mInst.count > 0 || mInst.visible) {
+              mInst.count = 0;
+              mInst.visible = false;
+            }
           }
-        }
+        } else {
+          // Rebuild Elevated Metro Viaducts (Epoch 5+) & Dedicated Runway Edge Beacons per settlement epoch
+          for (const mInst of allMetroInsts) mInst.count = 0;
+
+          let maxWorldEpoch = simState.epochIndex;
+          if (simState.kingdomEpochs) {
+            for (const k in simState.kingdomEpochs) {
+              const epVal = simState.kingdomEpochs[k];
+              if (epVal > maxWorldEpoch) maxWorldEpoch = epVal;
+            }
+          }
 
         if (maxWorldEpoch >= 6) {
           metroConcreteMat.color.setHex(0xcbd5e1);
@@ -9296,6 +9442,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             mInst.instanceMatrix.needsUpdate = true;
           }
         }
+        }
       }
 
       const gsBld = simState.gridSize;
@@ -9425,7 +9572,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       let newUnitsThisFrame = 0;
       const MAX_NEW_BATCH_TEMPLATES_PER_FRAME = startupRevealStage >= 3 ? 18 : 0;
       let newBatchTemplatesThisFrame = 0;
-      batchedUnits.beginFrame();
+      batchedUnits.beginFrame(elapsed < 4.0 ? 4 : 12);
       const batchCrowdDistSq = (frustumSize * 0.42) * (frustumSize * 0.42);
 
       for (let ui = 0; ui < simState.units.length; ui++) {
@@ -9487,6 +9634,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           (u.z - camTarget.z) * (u.z - camTarget.z);
         const canBatchUnit =
           !isCameraPinnedUnit &&
+          u.role !== 'phoenix' &&
           (u.battlewillActive ?? 0) <= 0 &&
           !(u.role === 'leviathan' && (u.leviathanBeamTimer ?? 0) > 0) &&
           !(u.role === 'dragon' && (u.dragonRunPhase === 'strafe' || (u.attackAnimTimer ?? 0) > 0));
@@ -9646,10 +9794,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
                 ? Math.sin(elapsed * bobFreqB + seedPhaseB) * (isAnimalB ? 0.065 : 0.08)
                 : 0;
 
-          let scaleB = 1.0;
+          const unitSizeMultB = getEffectiveUnitSizeScale(u);
+          let scaleB = unitSizeMultB;
           if (isLeviathanB && u.leviathanSubmerged && (u.leviathanLeapTimer ?? 0) > 4.0) {
             const diveFrac = THREE.MathUtils.clamp(((u.leviathanLeapTimer ?? 0) - 4.0) / 2.2, 0, 1);
-            scaleB = Math.max(0.05, Math.pow(diveFrac, 1.8));
+            scaleB = Math.max(0.05, Math.pow(diveFrac, 1.8)) * unitSizeMultB;
           }
 
           const csScale = batchedUnits.pushUnit(
@@ -9667,7 +9816,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           );
           if (csScale > 0 && !(isLeviathanB && u.leviathanSubmerged)) {
             const totalAirB = Math.max(0, finalYB - groundYB);
-            const s = csScale * Math.max(0.28, 1 - totalAirB * 0.18);
+            const s = csScale * unitSizeMultB * Math.max(0.28, 1 - totalAirB * 0.18);
             const slot = unitShadowCount++;
             ensureInstancedCapacity(unitContactShadowsInst, unitShadowCount);
             const arr = unitContactShadowsInst.instanceMatrix.array as Float32Array;
@@ -10306,6 +10455,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           uGroup.rotation.x =
             !isFrozen && isWorking && !isAnimal ? Math.sin(elapsed * 16 + u.x) * 0.22 : 0;
           uGroup.scale.setScalar(1);
+        }
+        const customUnitSizeScale = getEffectiveUnitSizeScale(u);
+        if (customUnitSizeScale !== 1.0) {
+          uGroup.scale.multiplyScalar(customUnitSizeScale);
         }
 
         const {
@@ -11055,7 +11208,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
 
         if (uEntry.contactShadowScale > 0 && !(u.role === 'leviathan' && u.leviathanSubmerged)) {
           const totalAir = flightHoverY + airborneAltY + pounceHopY;
-          const s = uEntry.contactShadowScale * Math.max(0.28, 1 - totalAir * 0.18);
+          const s = uEntry.contactShadowScale * customUnitSizeScale * Math.max(0.28, 1 - totalAir * 0.18);
           const slot = unitShadowCount++;
           ensureInstancedCapacity(unitContactShadowsInst, unitShadowCount);
           const arr = unitContactShadowsInst.instanceMatrix.array as Float32Array;
@@ -11087,6 +11240,56 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         if (uEntry.heldTool) {
           const showTool = frustumSize < 38;
           if (uEntry.heldTool.visible !== showTool) uEntry.heldTool.visible = showTool;
+        }
+
+        // Distinctive ambient VFX trails for mythical creatures (throttled & scaled by graphics profile)
+        if (u.state !== 'ko' && frustumSize < 64 && activeGfxProfile.particleScale > 0.1) {
+          const pRate = dt * 9.5 * activeGfxProfile.particleScale;
+          const mythicSizeScale = getEffectiveUnitSizeScale(u);
+          const ux = uGroup.position.x;
+          const uy = uGroup.position.y;
+          const uz = uGroup.position.z;
+          if (u.role === 'cerberus') {
+            if (Math.random() < pRate * (isMoving ? 1.8 : 0.75)) {
+              spawnRisingParticles(ux, uy + 0.12, uz, isMoving ? 2 : 1, Math.random() < 0.55 ? '#ff5400' : '#fbbf24', 0.42 * mythicSizeScale, 2.6, 0.72, 0.58);
+            }
+          } else if (u.role === 'phoenix') {
+            if (Math.random() < pRate * 1.45) {
+              spawnRisingParticles(ux, uy + 0.25, uz, 1, Math.random() < 0.5 ? '#fde047' : '#f97316', 0.48 * mythicSizeScale, 2.2, 0.68, 0.72);
+            }
+          } else if (u.role === 'dragon') {
+            if (Math.random() < pRate * 0.7) {
+              spawnRisingParticles(ux, uy + 0.35, uz, 1, Math.random() < 0.6 ? '#fb923c' : '#ef4444', 0.65 * mythicSizeScale, 1.8, 0.65, 0.62);
+            }
+          } else if (u.role === 'unicorn' || u.role === 'pegasus') {
+            if (Math.random() < pRate * 0.85) {
+              spawnRisingParticles(ux, uy + 0.28, uz, 1, Math.random() < 0.5 ? '#e0aaff' : '#fef08a', 0.38 * mythicSizeScale, 1.5, 0.55, 0.75);
+            }
+          } else if (u.role === 'kitsune') {
+            if (Math.random() < pRate * 0.95) {
+              spawnRisingParticles(ux, uy + 0.25, uz, 1, Math.random() < 0.5 ? '#38bdf8' : '#c084fc', 0.45 * mythicSizeScale, 1.9, 0.6, 0.78);
+            }
+          } else if (u.role === 'thunderbird') {
+            if (Math.random() < pRate * 1.1) {
+              spawnParticleBurst(ux, uy + 0.3, uz, 1, Math.random() < 0.5 ? '#38bdf8' : '#e0f2fe', 0.55 * mythicSizeScale, 2.4, 0.62);
+            }
+          } else if (u.role === 'yeti') {
+            if (Math.random() < pRate * (isMoving ? 0.9 : 0.35)) {
+              spawnRisingParticles(ux, uy + 0.14, uz, 1, '#bae6fd', 0.44 * mythicSizeScale, 1.1, 0.68, 0.7);
+            }
+          } else if (u.role === 'basilisk' || u.role === 'hydra') {
+            if (Math.random() < pRate * 0.65) {
+              spawnRisingParticles(ux, uy + 0.16, uz, 1, Math.random() < 0.5 ? '#4ade80' : '#22c55e', 0.42 * mythicSizeScale, 1.2, 0.56, 0.64);
+            }
+          } else if (u.role === 'fae') {
+            if (Math.random() < pRate * 1.15) {
+              spawnRisingParticles(ux, uy + 0.32, uz, 1, Math.random() < 0.5 ? '#f472b6' : '#fde047', 0.32 * mythicSizeScale, 1.4, 0.48, 0.8);
+            }
+          } else if (u.role === 'golem' || (u.role === 'ent' && !u.treantDisguised)) {
+            if (Math.random() < pRate * 0.45) {
+              spawnRisingParticles(ux, uy + 0.22, uz, 1, u.role === 'golem' ? '#fbbf24' : '#86efac', 0.48 * mythicSizeScale, 1.1, 0.52, 0.7);
+            }
+          }
         }
 
         const carryBox = uEntry.carryBox;
@@ -11596,7 +11799,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           if (haz.kind !== 'orbital_beam' && !isHazardIntersectingCullBounds(haz, worldCullBounds, hazPad)) {
             continue;
           }
-          if (!hv || hv.isSuper !== haz.isSuper) {
+          if (!hv || Boolean(hv.isSuper) !== Boolean(haz.isSuper)) {
             if (hv) {
               disposeHazardVisual(hv);
             }
@@ -12821,18 +13024,6 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       if (wantStride !== appliedShadowStride) {
         appliedShadowStride = wantStride;
         renderer.shadowMap.autoUpdate = false;
-      }
-      if (appliedShadowsEnabled) {
-        // Sim ticks at 15 Hz, so 30 Hz close-up / 15 Hz overview shadow refreshes plus immediate
-        // updates on camera/frustum shifts look identical while cutting GPU shadow-pass cost.
-        const effectiveStride =
-          frustumSize >= 48
-            ? Math.max(4, appliedShadowStride)
-            : Math.max(2, appliedShadowStride);
-        shadowFrameCounter = (shadowFrameCounter + 1) % effectiveStride;
-        if (shadowFrameCounter === 0) {
-          renderer.shadowMap.needsUpdate = true;
-        }
       }
 
       // Stagger heavy graphics/pipeline subsystem changes across separate frames so toggling
@@ -14402,13 +14593,19 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
               fx.tracerMesh.lookAt(_trailLookVec);
             }
             trackTrail = flightT < 1;
-            if (flightT < 1 && Math.random() < 0.85) {
-              spawnParticleBurst(curX, curY, curZ, 1, Math.random() < 0.72 ? '#f1f5f9' : '#fb923c', 0.24, 0.75, 0.52);
+            if (flightT < 1) {
+              if (Math.random() < 0.92) {
+                spawnRisingParticles(curX, curY, curZ, 2, Math.random() < 0.65 ? '#e2e8f0' : '#cbd5e1', 0.24, 0.72, 0.88, 1.35);
+              }
+              if (Math.random() < 0.65) {
+                spawnParticleBurst(curX, curY, curZ, 1, Math.random() < 0.6 ? '#fb923c' : '#fef08a', 0.18, 0.85, 0.48);
+              }
             }
             if (flightT >= 1 && !fx.impactFired) {
               fx.impactFired = true;
-              spawnParticleBurst(fx.tx, fx.ty + 0.35, fx.tz, 34, '#fb923c', Math.max(1.1, fx.radius * 0.9), 6.2, 1.15);
-              spawnParticleBurst(fx.tx, fx.ty + 0.45, fx.tz, 18, '#fef08a', 0.75, 5.4, 0.88);
+              spawnParticleBurst(fx.tx, fx.ty + 0.35, fx.tz, 34, '#fb923c', Math.max(1.2, fx.radius * 0.95), 6.4, 1.18);
+              spawnParticleBurst(fx.tx, fx.ty + 0.45, fx.tz, 18, '#fef08a', 0.8, 5.6, 0.9);
+              spawnRisingParticles(fx.tx, fx.ty + 0.35, fx.tz, 14, '#475569', Math.max(0.95, fx.radius * 0.78), 2.8, 1.25, 1.65);
             }
           } else if (fx.vfxSubtype === 'elf_starfall_spell') {
             // Elf long-range astral comet: rotating casting rune circle + graceful harmonic S-weave across sky
@@ -14433,13 +14630,29 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
               const castMat = fx.originRingMesh.material as THREE.MeshBasicMaterial;
               castMat.opacity = castFade * 0.92;
             }
-            if (flightT < 1 && Math.random() < 0.82) {
-              spawnParticleBurst(curX, curY, curZ, 1, Math.random() < 0.55 ? '#c084fc' : '#38bdf8', 0.2, 0.7, 0.46);
+            if (flightT < 1) {
+              if (Math.random() < 0.88) {
+                spawnRisingParticles(
+                  curX,
+                  curY,
+                  curZ,
+                  1,
+                  Math.random() < 0.5 ? '#c084fc' : Math.random() < 0.65 ? '#38bdf8' : '#fef08a',
+                  0.24,
+                  0.78,
+                  0.68,
+                  1.1,
+                );
+              }
+              if (Math.random() < 0.5) {
+                spawnParticleBurst(curX, curY, curZ, 1, '#e0f2fe', 0.16, 0.65, 0.36);
+              }
             }
             if (flightT >= 1 && !fx.impactFired) {
               fx.impactFired = true;
-              spawnParticleBurst(fx.tx, fx.ty + 0.35, fx.tz, 28, fx.colorHex || '#c084fc', Math.max(0.95, fx.radius * 0.85), 5.6, 1.02);
-              spawnParticleBurst(fx.tx, fx.ty + 0.4, fx.tz, 14, '#e0f2fe', 0.65, 4.8, 0.76);
+              spawnParticleBurst(fx.tx, fx.ty + 0.35, fx.tz, 28, fx.colorHex || '#c084fc', Math.max(1.0, fx.radius * 0.88), 5.8, 1.05);
+              spawnParticleBurst(fx.tx, fx.ty + 0.4, fx.tz, 14, '#e0f2fe', 0.68, 5.0, 0.78);
+              spawnRisingParticles(fx.tx, fx.ty + 0.3, fx.tz, 12, '#a855f7', Math.max(0.85, fx.radius * 0.72), 2.5, 1.05, 1.35);
             }
           } else if (fx.vfxSubtype === 'orc_siege_boulder') {
             // Orc flaming magma boulder lob: heavy catapult parabola + violent tumbling + cinder shatter
@@ -14452,13 +14665,19 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             fx.tracerMesh.rotation.y += dt * 8.2;
             fx.tracerMesh.rotation.z += dt * 7.4;
             trackTrail = flightT < 1;
-            if (flightT < 1 && Math.random() < 0.8) {
-              spawnParticleBurst(curX, curY, curZ, 1, Math.random() < 0.55 ? '#f97316' : '#44403c', 0.24, 0.72, 0.48);
+            if (flightT < 1) {
+              if (Math.random() < 0.85) {
+                spawnRisingParticles(curX, curY, curZ, 1, Math.random() < 0.62 ? '#44403c' : '#f97316', 0.24, 0.82, 0.78, 1.15);
+              }
+              if (Math.random() < 0.5) {
+                spawnParticleBurst(curX, curY, curZ, 1, '#fb923c', 0.2, 0.7, 0.42);
+              }
             }
             if (flightT >= 1 && !fx.impactFired) {
               fx.impactFired = true;
-              spawnParticleBurst(fx.tx, fx.ty + 0.3, fx.tz, 30, '#ea580c', Math.max(0.95, fx.radius * 0.88), 5.8, 1.05);
-              spawnParticleBurst(fx.tx, fx.ty + 0.35, fx.tz, 16, '#44403c', 0.75, 4.2, 0.95);
+              spawnParticleBurst(fx.tx, fx.ty + 0.3, fx.tz, 30, '#ea580c', Math.max(1.0, fx.radius * 0.9), 5.8, 1.08);
+              spawnParticleBurst(fx.tx, fx.ty + 0.35, fx.tz, 16, '#44403c', 0.78, 4.4, 0.96);
+              spawnRisingParticles(fx.tx, fx.ty + 0.3, fx.tz, 12, '#292524', Math.max(0.9, fx.radius * 0.75), 2.4, 1.15, 1.5);
             }
           } else if (fx.vfxSubtype === 'orc_waagh_rocket') {
             // Orc WAAAGH! scrap-rocket: erratic helical corkscrew spiraling wildly toward target!
@@ -14489,13 +14708,66 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
               fx.tracerMesh.lookAt(_trailLookVec);
             }
             trackTrail = flightT < 1;
-            if (flightT < 1 && Math.random() < 0.88) {
-              spawnParticleBurst(curX, curY, curZ, 1, Math.random() < 0.5 ? '#dc2626' : '#292524', 0.24, 0.8, 0.5);
+            if (flightT < 1) {
+              if (Math.random() < 0.92) {
+                spawnRisingParticles(curX, curY, curZ, 2, Math.random() < 0.65 ? '#292524' : '#44403c', 0.25, 0.85, 0.82, 1.25);
+              }
+              if (Math.random() < 0.7) {
+                spawnParticleBurst(curX, curY, curZ, 1, Math.random() < 0.55 ? '#ef4444' : '#facc15', 0.2, 0.85, 0.45);
+              }
             }
             if (flightT >= 1 && !fx.impactFired) {
               fx.impactFired = true;
-              spawnParticleBurst(fx.tx, fx.ty + 0.35, fx.tz, 30, '#ef4444', Math.max(0.95, fx.radius * 0.85), 5.8, 1.04);
-              spawnParticleBurst(fx.tx, fx.ty + 0.35, fx.tz, 16, '#facc15', 0.68, 4.6, 0.82);
+              spawnParticleBurst(fx.tx, fx.ty + 0.35, fx.tz, 30, '#ef4444', Math.max(1.0, fx.radius * 0.88), 6.0, 1.08);
+              spawnParticleBurst(fx.tx, fx.ty + 0.35, fx.tz, 16, '#facc15', 0.72, 4.8, 0.84);
+              spawnRisingParticles(fx.tx, fx.ty + 0.32, fx.tz, 14, '#292524', Math.max(0.9, fx.radius * 0.78), 2.7, 1.2, 1.55);
+            }
+          } else if (fx.vfxSubtype === 'dwarf_quake_mortar') {
+            // Dwarven Runic Quake Mortar: high parabolic brass mortar lob + dark steam & golden rune embers + seismic shockwave
+            const arcPeak = fx.flightPeakY ?? 5.6;
+            curX = ox + (fx.tx - ox) * flightT;
+            curZ = oz + (fx.tz - oz) * flightT;
+            curY = (oy + 0.5) + (fx.ty - (oy + 0.5)) * flightT + 4 * flightT * (1 - flightT) * arcPeak;
+            fx.tracerMesh.position.set(curX, curY, curZ);
+            fx.tracerMesh.rotation.x += dt * 8.5;
+            fx.tracerMesh.rotation.y += dt * 7.2;
+            trackTrail = flightT < 1;
+            if (flightT < 1) {
+              if (Math.random() < 0.88) {
+                spawnRisingParticles(curX, curY, curZ, 1, Math.random() < 0.6 ? '#475569' : '#f59e0b', 0.22, 0.78, 0.76, 1.15);
+              }
+              if (Math.random() < 0.55) {
+                spawnParticleBurst(curX, curY, curZ, 1, '#fbbf24', 0.16, 0.7, 0.4);
+              }
+            }
+            if (flightT >= 1 && !fx.impactFired) {
+              fx.impactFired = true;
+              spawnParticleBurst(fx.tx, fx.ty + 0.3, fx.tz, 30, '#f59e0b', Math.max(1.05, fx.radius * 0.92), 6.0, 1.12);
+              spawnParticleBurst(fx.tx, fx.ty + 0.35, fx.tz, 16, '#64748b', 0.82, 4.4, 0.96);
+              spawnRisingParticles(fx.tx, fx.ty + 0.3, fx.tz, 12, '#334155', Math.max(0.9, fx.radius * 0.78), 2.6, 1.18, 1.5);
+            }
+          } else if (fx.vfxSubtype === 'lizard_solar_lance') {
+            // Lizardfolk Solar Prism Lance: crisp high-velocity solar spear + shimmering golden-emerald stardust trail + solar nova
+            const arcPeak = fx.flightPeakY ?? 4.6;
+            curX = ox + (fx.tx - ox) * flightT;
+            curZ = oz + (fx.tz - oz) * flightT;
+            curY = (oy + 0.55) + (fx.ty - (oy + 0.55)) * flightT + Math.sin(flightT * Math.PI) * arcPeak;
+            fx.tracerMesh.position.set(curX, curY, curZ);
+            fx.tracerMesh.rotation.z = prog * 14;
+            trackTrail = flightT < 1;
+            if (flightT < 1) {
+              if (Math.random() < 0.88) {
+                spawnRisingParticles(curX, curY, curZ, 1, Math.random() < 0.6 ? '#facc15' : '#10b981', 0.22, 0.75, 0.68, 1.05);
+              }
+              if (Math.random() < 0.55) {
+                spawnParticleBurst(curX, curY, curZ, 1, '#fef08a', 0.16, 0.68, 0.38);
+              }
+            }
+            if (flightT >= 1 && !fx.impactFired) {
+              fx.impactFired = true;
+              spawnParticleBurst(fx.tx, fx.ty + 0.32, fx.tz, 28, '#facc15', Math.max(1.0, fx.radius * 0.88), 5.8, 1.08);
+              spawnParticleBurst(fx.tx, fx.ty + 0.36, fx.tz, 14, '#10b981', 0.68, 4.8, 0.82);
+              spawnRisingParticles(fx.tx, fx.ty + 0.3, fx.tz, 11, '#fde047', Math.max(0.85, fx.radius * 0.72), 2.5, 1.04, 1.35);
             }
           } else if (fx.vfxSubtype === 'bomb') {
             curX = ox + (fx.tx - ox) * flightT;
@@ -14503,10 +14775,15 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             curY = oy + (fx.ty - oy) * (flightT * flightT);
             fx.tracerMesh.position.set(curX, curY, curZ);
             fx.tracerMesh.rotation.x = 0.35 + flightT * 1.15;
+            trackTrail = flightT < 1;
+            if (flightT < 1 && Math.random() < 0.72) {
+              spawnRisingParticles(curX, curY, curZ, 1, '#64748b', 0.16, 0.48, 0.56, 0.88);
+            }
             if (flightT >= 1 && !fx.impactFired) {
               fx.impactFired = true;
-              spawnParticleBurst(fx.tx, fx.ty + 0.25, fx.tz, 32, '#ff9e00', fx.radius * 0.95, 6.6, 1.2);
-              spawnParticleBurst(fx.tx, fx.ty + 0.35, fx.tz, 18, '#475569', fx.radius * 0.75, 4.0, 1.4);
+              spawnParticleBurst(fx.tx, fx.ty + 0.25, fx.tz, 34, '#ff9e00', fx.radius * 0.98, 6.8, 1.22);
+              spawnParticleBurst(fx.tx, fx.ty + 0.35, fx.tz, 18, '#475569', fx.radius * 0.78, 4.2, 1.4);
+              spawnRisingParticles(fx.tx, fx.ty + 0.32, fx.tz, 14, '#334155', Math.max(0.95, fx.radius * 0.82), 2.9, 1.28, 1.65);
             }
           } else if (fx.vfxSubtype === 'cannon_shell') {
             const horizDist = Math.hypot(fx.tx - ox, fx.tz - oz);
@@ -14516,12 +14793,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             curY = oy + (fx.ty - oy) * flightT + 4 * flightT * (1 - flightT) * arcPeak;
             fx.tracerMesh.position.set(curX, curY, curZ);
             trackTrail = flightT < 1;
-            if (flightT < 1 && Math.random() < 0.4) {
-              spawnParticleBurst(curX, curY, curZ, 1, '#94a3b8', 0.14, 0.4, 0.32);
+            if (flightT < 1 && Math.random() < 0.72) {
+              spawnRisingParticles(curX, curY, curZ, 1, Math.random() < 0.65 ? '#94a3b8' : '#64748b', 0.16, 0.58, 0.58, 0.9);
             }
             if (flightT >= 1 && !fx.impactFired) {
               fx.impactFired = true;
-              spawnParticleBurst(fx.tx, fx.ty + 0.25, fx.tz, 24, '#ff9e00', fx.radius * 0.85, 5.4, 1.05);
+              spawnParticleBurst(fx.tx, fx.ty + 0.25, fx.tz, 24, '#ff9e00', fx.radius * 0.88, 5.5, 1.06);
+              spawnRisingParticles(fx.tx, fx.ty + 0.28, fx.tz, 9, '#475569', Math.max(0.75, fx.radius * 0.68), 2.3, 1.05, 1.35);
             }
           } else if (fx.vfxSubtype === 'missile') {
             curX = ox + (fx.tx - ox) * flightT;
@@ -14529,12 +14807,19 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             curZ = oz + (fx.tz - oz) * flightT;
             fx.tracerMesh.position.set(curX, curY, curZ);
             trackTrail = flightT < 1;
-            if (flightT < 1 && Math.random() < 0.75) {
-              spawnParticleBurst(curX, curY, curZ, 1, '#e2e8f0', 0.16, 0.5, 0.34);
+            if (flightT < 1) {
+              if (Math.random() < 0.88) {
+                spawnRisingParticles(curX, curY, curZ, 1, Math.random() < 0.65 ? '#e2e8f0' : '#94a3b8', 0.18, 0.68, 0.7, 1.05);
+              }
+              if (Math.random() < 0.55) {
+                spawnParticleBurst(curX, curY, curZ, 1, '#ff6b35', 0.14, 0.6, 0.36);
+              }
             }
             if (flightT >= 1 && !fx.impactFired) {
               fx.impactFired = true;
-              spawnParticleBurst(fx.tx, fx.ty + 0.25, fx.tz, 24, '#ff6b35', fx.radius * 0.8, 5.2, 0.98);
+              spawnParticleBurst(fx.tx, fx.ty + 0.25, fx.tz, 26, '#ff6b35', fx.radius * 0.86, 5.4, 1.04);
+              spawnParticleBurst(fx.tx, fx.ty + 0.32, fx.tz, 12, '#fef08a', 0.58, 4.4, 0.76);
+              spawnRisingParticles(fx.tx, fx.ty + 0.3, fx.tz, 11, '#475569', Math.max(0.8, fx.radius * 0.72), 2.5, 1.12, 1.45);
             }
           } else if (fx.vfxSubtype === 'arcane_bolt') {
             curX = ox + (fx.tx - ox) * flightT;
@@ -14544,8 +14829,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             fx.tracerMesh.rotation.z = prog * 16;
             fx.tracerMesh.rotation.y += dt * 12;
             trackTrail = flightT < 1;
-            if (flightT < 1 && Math.random() < 0.55) {
-              spawnParticleBurst(curX, curY, curZ, 1, '#c084fc', 0.14, 0.5, 0.3);
+            if (flightT < 1 && Math.random() < 0.72) {
+              spawnRisingParticles(curX, curY, curZ, 1, Math.random() < 0.55 ? '#c084fc' : '#5eead4', 0.16, 0.58, 0.52, 0.82);
+            }
+            if (flightT >= 1 && !fx.impactFired) {
+              fx.impactFired = true;
+              spawnParticleBurst(fx.tx, fx.ty + 0.28, fx.tz, 18, fx.colorHex || '#c084fc', Math.max(0.65, fx.radius * 0.75), 4.6, 0.88);
+              spawnRisingParticles(fx.tx, fx.ty + 0.26, fx.tz, 7, '#5eead4', Math.max(0.6, fx.radius * 0.58), 2.0, 0.84, 1.05);
             }
           } else if (fx.vfxSubtype === 'ice_ball') {
             // Yeti's thrown blocky voxel ice ball: high parabolic lob, tumbling cubes, snowy trail & frost shatter
@@ -14600,6 +14890,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           } else if (fx.vfxSubtype === 'plasma_beam' || fx.vfxSubtype === 'laser_beam') {
             const beamPulse = Math.max(0.28, 1.4 - prog * 1.15);
             fx.tracerMesh.scale.set(beamPulse, beamPulse, 1);
+            if (!fx.impactFired) {
+              fx.impactFired = true;
+              spawnRisingParticles(fx.tx, fx.ty + 0.3, fx.tz, 6, fx.colorHex || '#56cfe1', 0.65, 2.2, 0.82, 0.95);
+            }
           } else {
             fx.tracerMesh.position.set(curX, curY, curZ);
             trackTrail = flightT < 1;
@@ -14625,7 +14919,15 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             fx.vfxSubtype === 'icbm_missile' ||
             fx.vfxSubtype === 'elf_starfall_spell' ||
             fx.vfxSubtype === 'orc_siege_boulder' ||
-            fx.vfxSubtype === 'orc_waagh_rocket';
+            fx.vfxSubtype === 'orc_waagh_rocket' ||
+            fx.vfxSubtype === 'dwarf_quake_mortar' ||
+            fx.vfxSubtype === 'lizard_solar_lance';
+          const isImpactRingShot =
+            isStrategicShot ||
+            fx.vfxSubtype === 'missile' ||
+            fx.vfxSubtype === 'bomb' ||
+            fx.vfxSubtype === 'cannon_shell' ||
+            fx.vfxSubtype === 'arcane_bolt';
 
           const bodyOpacity =
             fx.vfxSubtype === 'plasma_beam' || fx.vfxSubtype === 'laser_beam'
@@ -14641,16 +14943,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           if (fx.materials[0]) (fx.materials[0] as THREE.MeshBasicMaterial).opacity = bodyOpacity;
           if (fx.materials[1]) (fx.materials[1] as THREE.MeshBasicMaterial).opacity = bodyOpacity * 0.92;
           const ringMat = fx.materials[2] ?? fx.materials[1];
-          if (isStrategicShot) {
+          if (isImpactRingShot) {
             const impactP = flightT < 1 ? 0 : (prog - flightEndFrac) / Math.max(0.05, 1 - flightEndFrac);
             fx.ringMesh.visible = flightT >= 1;
-            fx.ringMesh.scale.setScalar(0.35 + impactP * fx.radius * 1.9);
+            fx.ringMesh.scale.setScalar(0.35 + impactP * fx.radius * (isStrategicShot ? 1.95 : 1.65));
             if (ringMat) (ringMat as THREE.MeshBasicMaterial).opacity = Math.max(0, (1 - impactP) * 0.92);
           } else {
-            fx.ringMesh.scale.setScalar(
-              (fx.vfxSubtype === 'bomb' ? 0.34 : 0.2) +
-                prog * fx.radius * (fx.vfxSubtype === 'bomb' ? 1.65 : 1.2),
-            );
+            fx.ringMesh.scale.setScalar(0.2 + prog * fx.radius * 1.2);
             if (ringMat) (ringMat as THREE.MeshBasicMaterial).opacity = Math.max(0, (1 - prog) * 0.88);
           }
           if (fx.muzzleRingMesh) {
@@ -14826,14 +15125,39 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         }
       }
 
-      // Compute generously padded orthographic ground-plane cull bounds before syncing entities
+      // Smooth exponential camera damping & pose update BEFORE computing cull bounds so
+      // rotation/pan/zoom culling has zero 1-frame lag on terrain, props, buildings, or units.
+      const followDamp = propsRef.current.followingEntityId ? 11 : 8;
+      camYaw = THREE.MathUtils.damp(camYaw, camDesiredYaw, 8, dt);
+      camTarget.x = THREE.MathUtils.damp(camTarget.x, camDesiredTarget.x, followDamp, dt);
+      camTarget.y = THREE.MathUtils.damp(camTarget.y, camDesiredTarget.y, followDamp, dt);
+      camTarget.z = THREE.MathUtils.damp(camTarget.z, camDesiredTarget.z, followDamp, dt);
+      if (container && Math.abs(frustumSize - desiredFrustum) > 0.01) {
+        const preAspect = Math.max(1, container.clientWidth) / Math.max(1, container.clientHeight);
+        frustumSize = THREE.MathUtils.damp(frustumSize, desiredFrustum, 15, dt);
+        camera.left = (-frustumSize * preAspect) / 2;
+        camera.right = (frustumSize * preAspect) / 2;
+        camera.top = frustumSize / 2;
+        camera.bottom = -frustumSize / 2;
+        camera.updateProjectionMatrix();
+      }
+      camera.position.set(
+        camTarget.x + Math.sin(camYaw) * 28,
+        camTarget.y + 22.5,
+        camTarget.z + Math.cos(camYaw) * 28,
+      );
+      camera.lookAt(camTarget.x, camTarget.y, camTarget.z);
+      camera.updateMatrixWorld();
+
+      // Compute generously padded orthographic ground-plane cull bounds (AABB + exact rotated OBB) before syncing entities
       if (elapsedTotal > 0.05) {
-        computeOrthoGroundCullBounds(camera, simRef.current.gridSize, worldCullBounds, 6.5, 6.0);
+        computeOrthoGroundCullBounds(camera, simRef.current.gridSize, worldCullBounds, 6.5, 7.5);
       } else {
         worldCullBounds.minX = -12;
         worldCullBounds.maxX = simRef.current.gridSize + 12;
         worldCullBounds.minZ = -12;
         worldCullBounds.maxZ = simRef.current.gridSize + 12;
+        worldCullBounds.obbEnabled = false;
       }
 
       syncSceneFromSimulation(simRef.current, dt, elapsedTotal);
@@ -14925,6 +15249,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       particleInstanced.count = activeParticleCount;
       particleInstanced.visible = activeParticleCount > 0;
       if (activeParticleCount > 0 || hadParticles) {
+        if (activeParticleCount > 0) {
+          particleInstanced.instanceMatrix.clearUpdateRanges();
+          particleInstanced.instanceMatrix.addUpdateRange(0, activeParticleCount * 16);
+          if (particleInstanced.instanceColor) {
+            particleInstanced.instanceColor.clearUpdateRanges();
+            particleInstanced.instanceColor.addUpdateRange(0, activeParticleCount * 3);
+          }
+        }
         particleInstanced.instanceMatrix.needsUpdate = true;
         if (particleInstanced.instanceColor) particleInstanced.instanceColor.needsUpdate = true;
       }
@@ -15094,11 +15426,15 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       favoriteStarsInst.count = favCount;
       favoriteStarsInst.visible = favCount > 0;
       if (favCount > 0) {
+        favoriteStarsInst.instanceMatrix.clearUpdateRanges();
+        favoriteStarsInst.instanceMatrix.addUpdateRange(0, favCount * 16);
         favoriteStarsInst.instanceMatrix.needsUpdate = true;
       }
       kingCrownsInst.count = kingCount;
       kingCrownsInst.visible = kingCount > 0;
       if (kingCount > 0) {
+        kingCrownsInst.instanceMatrix.clearUpdateRanges();
+        kingCrownsInst.instanceMatrix.addUpdateRange(0, kingCount * 16);
         kingCrownsInst.instanceMatrix.needsUpdate = true;
       }
 
@@ -15385,7 +15721,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           : clampedSimSpeed === 0
             ? 0
             : Math.min(5, Math.max(0.25, clampedSimSpeed));
-      skyClouds.update(dt * atmosSpeed, shaderElapsed, preset);
+      skyClouds.update(dt * atmosSpeed, shaderElapsed, preset, worldCullBounds);
       oceanFoam.updateFrame(shaderElapsed, preset);
       zoneOverlay.updateFrame(shaderElapsed);
       styledTerrain.updateFrame(
@@ -15395,28 +15731,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         cyclePhase01,
       );
 
-      // Smooth exponential camera damping + decaying trauma shake
-      const followDamp = propsRef.current.followingEntityId ? 11 : 8;
-      camYaw = THREE.MathUtils.damp(camYaw, camDesiredYaw, 8, dt);
-      camTarget.x = THREE.MathUtils.damp(camTarget.x, camDesiredTarget.x, followDamp, dt);
-      camTarget.y = THREE.MathUtils.damp(camTarget.y, camDesiredTarget.y, followDamp, dt);
-      camTarget.z = THREE.MathUtils.damp(camTarget.z, camDesiredTarget.z, followDamp, dt);
-
       let viewportAspect = renderWidth / Math.max(1, renderHeight);
       if (container) {
         const w = Math.max(1, container.clientWidth);
         const h = Math.max(1, container.clientHeight);
         const newAspect = w / h;
         viewportAspect = newAspect;
-
-        if (Math.abs(frustumSize - desiredFrustum) > 0.01) {
-          frustumSize = THREE.MathUtils.damp(frustumSize, desiredFrustum, 15, dt);
-          camera.left = (-frustumSize * newAspect) / 2;
-          camera.right = (frustumSize * newAspect) / 2;
-          camera.top = frustumSize / 2;
-          camera.bottom = -frustumSize / 2;
-          camera.updateProjectionMatrix();
-        }
 
         // Dynamically and smoothly interpolate pixel scale from 2.5x (zoomed in) to 1.0x (zoomed out)
         // On HiDPI mobile devices, also unlocks up to 2x native sharpness as the player zooms out
@@ -15545,16 +15865,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         keyLight.shadow.camera.updateProjectionMatrix();
         shadowFrustumChanged = true;
       }
-      if (
-        appliedShadowsEnabled &&
-        (shadowFrustumChanged ||
-          Math.abs(lastShadowCenterX - snappedShadow.centerX) > 1.2 ||
-          Math.abs(lastShadowCenterZ - snappedShadow.centerZ) > 1.2)
-      ) {
-        lastShadowCenterX = snappedShadow.centerX;
-        lastShadowCenterZ = snappedShadow.centerZ;
-        renderer.shadowMap.needsUpdate = true;
-      }
+      const shadowCamChanged =
+        shadowFrustumChanged ||
+        Math.abs(lastShadowCenterX - snappedShadow.centerX) > 1.2 ||
+        Math.abs(lastShadowCenterZ - snappedShadow.centerZ) > 1.2 ||
+        Math.abs(lastShadowKeyX - keyLight.position.x) > 0.05 ||
+        Math.abs(lastShadowKeyY - keyLight.position.y) > 0.05 ||
+        Math.abs(lastShadowKeyZ - keyLight.position.z) > 0.05 ||
+        lastShadowPreset !== preset;
 
       const isoDist = 28;
       const isoHeight = 22.5;
@@ -15571,6 +15889,50 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       );
       if (shakePower > 0.002) {
         camera.rotation.z += Math.sin(elapsedTotal * 34) * 0.008 * shakePower;
+      }
+      camera.updateMatrixWorld();
+
+      const curChunkStats = chunkTerrain.updateCulling(
+        camera,
+        worldCullBounds,
+        snappedShadow.centerX,
+        snappedShadow.centerZ,
+        shadowBounds,
+      );
+
+      if (appliedShadowsEnabled) {
+        const motionActive =
+          simSteppedThisFrame ||
+          clampedSimSpeed > 0 ||
+          currentGameState === 'title' ||
+          Boolean(draggedTargetUnit) ||
+          activeBurstFx.length > 0;
+        const immediateDirty =
+          shadowCamChanged ||
+          shadowSceneDirty ||
+          shadowWarmupFrames > 0 ||
+          startupRevealStage < 4 ||
+          curChunkStats.pendingWorkerChunks > 0;
+        if (immediateDirty) {
+          lastShadowCenterX = snappedShadow.centerX;
+          lastShadowCenterZ = snappedShadow.centerZ;
+          lastShadowKeyX = keyLight.position.x;
+          lastShadowKeyY = keyLight.position.y;
+          lastShadowKeyZ = keyLight.position.z;
+          lastShadowPreset = preset;
+          shadowSceneDirty = false;
+          if (shadowWarmupFrames > 0) shadowWarmupFrames--;
+          renderer.shadowMap.needsUpdate = true;
+        } else if (motionActive) {
+          const effectiveStride =
+            frustumSize >= 48
+              ? Math.max(4, appliedShadowStride)
+              : Math.max(2, appliedShadowStride);
+          shadowFrameCounter = (shadowFrameCounter + 1) % effectiveStride;
+          if (shadowFrameCounter === 0) {
+            renderer.shadowMap.needsUpdate = true;
+          }
+        }
       }
 
       renderer.render(scene, camera);
@@ -15599,6 +15961,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           if (el.dataset.lastOpacity !== nextOpacity) {
             el.dataset.lastOpacity = nextOpacity;
             el.style.opacity = nextOpacity;
+            if (el.dataset.clickable === '1') {
+              el.style.pointerEvents = offscreen ? 'none' : 'auto';
+            }
           }
           if (!offscreen) {
             const anchorTranslate = isFlatGround ? 'translate(-50%, -50%)' : 'translate(-50%, -100%)';
@@ -15708,7 +16073,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         if (perfHudAccum >= 0.25) {
           const avgFrameMs = (perfHudAccum * 1000) / Math.max(1, perfFrameCount);
           const avgFps = Math.round(perfFrameCount / perfHudAccum);
-          const chunkStats = chunkTerrain.updateVisibilityStats(camera);
+          const chunkStats = chunkTerrain.getStats();
           propsRef.current.onPerfTelemetry({
             fps: avgFps,
             frameMs: avgFrameMs,
@@ -15985,7 +16350,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
                 ? '#10b981'
                 : king.species === 'orc'
                   ? '#ef4444'
-                  : '#3b82f6';
+                  : king.species === 'dwarf'
+                    ? '#d97706'
+                    : king.species === 'lizardfolk'
+                      ? '#eab308'
+                      : '#3b82f6';
             const kingdomHex =
               (king.settlementId && zoneOverlayBuffers?.kingdomColors?.[king.settlementId]) ||
               (rootKingdomId && zoneOverlayBuffers?.kingdomColors?.[rootKingdomId]) ||
@@ -16052,50 +16421,104 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           data-testid="zone-map-labels-layer"
           className="fixed inset-0 z-10 pointer-events-none overflow-hidden select-none"
         >
-          {activeLabels.map((lbl) => (
-            <div
-              key={lbl.id}
-              data-testid={`zone-map-label-${lbl.id}`}
-              data-tile-x={lbl.tileX}
-              data-tile-z={lbl.tileZ}
-              data-flat-ground={lbl.flatGround ? '1' : '0'}
-              style={{
-                backgroundColor: `color-mix(in srgb, ${lbl.hexColor} 28%, #161310)`,
-                borderColor: `color-mix(in srgb, ${lbl.hexColor} 55%, #000000)`,
-                left: 0,
-                top: 0,
-                opacity: 0,
-              }}
-              className={`absolute px-2 py-0.5 border-2 flex items-center gap-1.5 whitespace-nowrap ${
-                lbl.isHovered ? 'scale-110 z-20' : 'z-10'
-              }`}
-            >
-              {lbl.species && (
-                <UnitPixelIcon
-                  role={lbl.species}
-                  className="w-3.5 h-3.5 shrink-0 pixelated-canvas"
+          {activeLabels.map((lbl) => {
+            const isCityClickable = lbl.kind === 'city' && Boolean(lbl.settlementId);
+            const isCitySelected = Boolean(
+              isCityClickable && selectedCityId && lbl.settlementId === selectedCityId,
+            );
+            const sharedStyle: React.CSSProperties = {
+              backgroundColor: `color-mix(in srgb, ${lbl.hexColor} 28%, #161310)`,
+              borderColor: isCitySelected
+                ? '#f5b742'
+                : `color-mix(in srgb, ${lbl.hexColor} 55%, #000000)`,
+              left: 0,
+              top: 0,
+              opacity: 0,
+            };
+            const sharedContent = (
+              <>
+                {lbl.species && (
+                  <UnitPixelIcon
+                    role={lbl.species}
+                    className="w-3.5 h-3.5 shrink-0 pixelated-canvas"
+                  />
+                )}
+                <span
+                  className="w-2 h-2 shrink-0"
+                  style={{ backgroundColor: lbl.hexColor }}
+                  aria-hidden="true"
                 />
-              )}
-              <span
-                className="w-2 h-2 shrink-0"
-                style={{ backgroundColor: lbl.hexColor }}
-                aria-hidden="true"
-              />
-              <span className="text-[11px] font-bold text-[#f2ece1]">
-                {lbl.name}
-              </span>
-              {lbl.epochName && (
-                <span className="text-[10px] font-semibold text-[#d6cec0] border-l border-white/20 pl-1.5">
-                  {lbl.epochName}
+                <span className="text-[11px] font-bold text-[#f2ece1]">
+                  {lbl.name}
                 </span>
-              )}
-              {lbl.population !== null && (
-                <span className="font-pixel-num text-[10px] font-bold text-[#ffd166] tabular-nums">
-                  {lbl.population}
-                </span>
-              )}
-            </div>
-          ))}
+                {lbl.epochName && (
+                  <span className="text-[10px] font-semibold text-[#d6cec0] border-l border-white/20 pl-1.5">
+                    {lbl.epochName}
+                  </span>
+                )}
+                {lbl.population !== null && (
+                  <span className="font-pixel-num text-[10px] font-bold text-[#ffd166] tabular-nums">
+                    {lbl.population}
+                  </span>
+                )}
+              </>
+            );
+
+            if (isCityClickable && lbl.settlementId) {
+              return (
+                <button
+                  key={lbl.id}
+                  type="button"
+                  data-testid={`zone-map-label-${lbl.id}`}
+                  data-settlement-id={lbl.settlementId}
+                  data-tile-x={lbl.tileX}
+                  data-tile-z={lbl.tileZ}
+                  data-flat-ground={lbl.flatGround ? '1' : '0'}
+                  data-clickable="1"
+                  aria-label={`Inspect city ${lbl.name}`}
+                  title={`Click to inspect ${lbl.name}`}
+                  style={sharedStyle}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onPointerUp={(e) => e.stopPropagation()}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onTouchStart={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSelectCityLabel?.({
+                      settlementId: lbl.settlementId!,
+                      kingdomId: lbl.kingdomId || lbl.settlementId!,
+                      name: lbl.name,
+                      hexColor: lbl.hexColor,
+                      tileX: lbl.tileX,
+                      tileZ: lbl.tileZ,
+                    });
+                  }}
+                  className={`absolute px-2 py-0.5 border-2 flex items-center gap-1.5 whitespace-nowrap pointer-events-auto cursor-pointer hover:brightness-115 active:brightness-95 transition-[filter] ${
+                    lbl.isHovered || isCitySelected ? 'scale-110 z-20' : 'z-10'
+                  }`}
+                >
+                  {sharedContent}
+                </button>
+              );
+            }
+
+            return (
+              <div
+                key={lbl.id}
+                data-testid={`zone-map-label-${lbl.id}`}
+                data-tile-x={lbl.tileX}
+                data-tile-z={lbl.tileZ}
+                data-flat-ground={lbl.flatGround ? '1' : '0'}
+                data-clickable="0"
+                style={sharedStyle}
+                className={`absolute px-2 py-0.5 border-2 flex items-center gap-1.5 whitespace-nowrap ${
+                  lbl.isHovered ? 'scale-110 z-20' : 'z-10'
+                }`}
+              >
+                {sharedContent}
+              </div>
+            );
+          })}
         </div>
       )}
       {gameState !== 'title' && activeWarArrows.length > 0 && (

@@ -4250,10 +4250,44 @@ export function createBuildingGroup(
 
   const isElf = species === 'elf';
   const isOrc = species === 'orc';
-  const raceGlowMat = isElf ? elfAquaGlowMat : isOrc ? orcMagmaGlowMat : glowCyanMat;
-  const raceTechWallMat = isElf ? elfPearlTechMat : isOrc ? orcGunmetalMat : techMat;
-  const raceTechTrimMat = isElf ? elfJadeRoofMat : isOrc ? orcIronMat : darkTechMat;
-  const raceAccentMat = isElf ? goldMat : isOrc ? orcCrimsonMat : goldMat;
+  const isDwarf = species === 'dwarf';
+  const isLizardfolk = species === 'lizardfolk';
+  const raceGlowMat = isElf
+    ? elfAquaGlowMat
+    : isOrc
+      ? orcMagmaGlowMat
+      : isDwarf
+        ? neonAmberMat
+        : isLizardfolk
+          ? neonLimeMat
+          : glowCyanMat;
+  const raceTechWallMat = isElf
+    ? elfPearlTechMat
+    : isOrc
+      ? orcGunmetalMat
+      : isDwarf
+        ? darkStoneMat
+        : isLizardfolk
+          ? stoneMat
+          : techMat;
+  const raceTechTrimMat = isElf
+    ? elfJadeRoofMat
+    : isOrc
+      ? orcIronMat
+      : isDwarf
+        ? copperMat
+        : isLizardfolk
+          ? goldMat
+          : darkTechMat;
+  const raceAccentMat = isElf
+    ? goldMat
+    : isOrc
+      ? orcCrimsonMat
+      : isDwarf
+        ? copperMat
+        : isLizardfolk
+          ? elfJadeRoofMat
+          : goldMat;
 
   // Floating City Foundation Platform when constructed on water (evolves across epochs & races)
   if (isWaterTile) {
@@ -4908,6 +4942,414 @@ export function createBuildingGroup(
     }
   };
 
+  if (isDwarf) {
+    // =========================================================================
+    // DWARVEN HOLD ARCHITECTURE: Monumental Carved Granite Vaults, Ribbed
+    // Hammered-Bronze Domes, Molten Amber Forge-Channels & Brass Gear-Citadels
+    // =========================================================================
+    const hScale = 1 + Math.min(0.65, epochIndex * 0.1);
+    const bodyWall = epochIndex >= 5 ? orcIronMat : darkStoneMat;
+    const basePlinthMat = orcBasaltMat;
+    const metalTrim = epochIndex >= 6 ? goldMat : copperMat;
+    const forgeGlow = epochIndex >= 6 ? goldMat : neonAmberMat;
+
+    // Monumental chamfered basalt foundation plinth (signature Dwarven fortress base)
+    const plinth = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.12, 0.92), basePlinthMat);
+    plinth.position.y = 0.06;
+    group.add(plinth);
+    const bronzeSkirt = new THREE.Mesh(new THREE.BoxGeometry(0.94, 0.04, 0.94), metalTrim);
+    bronzeSkirt.position.y = 0.12;
+    group.add(bronzeSkirt);
+
+    // Helper: 4 heavy angled corner rune-buttresses with glowing amber forge-braziers
+    const addDwarfCornerButtresses = (span: number, colH: number, withBraziers = true) => {
+      for (const [sx, sz] of [
+        [-1, -1],
+        [1, -1],
+        [-1, 1],
+        [1, 1],
+      ] as const) {
+        const pillar = new THREE.Mesh(new THREE.BoxGeometry(0.14, colH, 0.14), basePlinthMat);
+        pillar.position.set(sx * span, 0.12 + colH * 0.5, sz * span);
+        group.add(pillar);
+        const band = new THREE.Mesh(new THREE.BoxGeometry(0.165, 0.055, 0.165), metalTrim);
+        band.position.set(sx * span, 0.12 + colH * 0.55, sz * span);
+        group.add(band);
+        const cap = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.06, 0.17), metalTrim);
+        cap.position.set(sx * span, 0.12 + colH + 0.03, sz * span);
+        group.add(cap);
+        if (withBraziers) {
+          const flame = new THREE.Mesh(pxCone(0.05, 0.11, 4), forgeGlow);
+          flame.position.set(sx * span, 0.12 + colH + 0.1, sz * span);
+          flame.name = 'flicker_flame';
+          group.add(flame);
+        }
+      }
+    };
+
+    if (type === 'bonfire') {
+      if (epochIndex <= 1) {
+        // Great Hearth-Anvil: Circular basalt forge-ring + giant bronze anvil + blazing forge fire + 4 runic monoliths
+        const ring = new THREE.Mesh(pxCylinder(0.42, 0.46, 0.12, 8), darkStoneMat);
+        ring.position.y = 0.18;
+        group.add(ring);
+        const anvilBase = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.16, 0.16), orcIronMat);
+        anvilBase.position.y = 0.3;
+        group.add(anvilBase);
+        const anvilTop = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.09, 0.2), metalTrim);
+        anvilTop.position.y = 0.41;
+        group.add(anvilTop);
+        const hearthFire = new THREE.Mesh(pxCone(0.14, 0.28, 5), flameMat);
+        hearthFire.position.set(0, 0.54, 0);
+        hearthFire.name = 'flicker_flame';
+        group.add(hearthFire);
+        addDwarfCornerButtresses(0.36, 0.36, true);
+      } else {
+        // Majestic Khazad-dum Great Forge Hall: Octagonal granite citadel + ribbed hammered-bronze dome + molten rune gate + golden gyro-ring
+        const hallH = 0.52 * hScale;
+        const mainHall = new THREE.Mesh(pxCylinder(0.42, 0.48, hallH, 8), bodyWall);
+        mainHall.position.y = 0.12 + hallH * 0.5;
+        group.add(mainHall);
+        // Monumental recessed geometric archway with glowing molten-gold portal
+        const archFrame = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.34, 0.16), metalTrim);
+        archFrame.position.set(0, 0.29, 0.38);
+        group.add(archFrame);
+        const portal = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.24, 0.18), forgeGlow);
+        portal.position.set(0, 0.25, 0.39);
+        group.add(portal);
+        // Ribbed hammered-bronze dome crown
+        const domeBase = new THREE.Mesh(pxCylinder(0.4, 0.44, 0.1, 8), metalTrim);
+        domeBase.position.y = 0.12 + hallH + 0.05;
+        group.add(domeBase);
+        const dome = new THREE.Mesh(pxSphere(0.36, 8, 6), metalTrim);
+        dome.scale.set(1, 0.68, 1);
+        dome.position.y = 0.12 + hallH + 0.12;
+        group.add(dome);
+        // Towering runic anvil finial + spinning golden gyro-ring in high epochs
+        const spire = new THREE.Mesh(pxCylinder(0.04, 0.1, 0.38, 6), goldMat);
+        spire.position.y = 0.12 + hallH + 0.44;
+        group.add(spire);
+        const beacon = new THREE.Mesh(pxCone(0.09, 0.18, 4), forgeGlow);
+        beacon.position.y = 0.12 + hallH + 0.68;
+        group.add(beacon);
+        if (epochIndex >= 4) {
+          const gyro = new THREE.Mesh(pxTorus(0.28, 0.032, 6, 12), goldMat);
+          gyro.position.y = 0.12 + hallH + 0.46;
+          gyro.rotation.x = Math.PI / 3;
+          gyro.name = 'spin_part';
+          group.add(gyro);
+        }
+        addDwarfCornerButtresses(0.39, hallH * 0.88, true);
+      }
+    } else if (type === 'forager_hut' || type === 'granary') {
+      // Stout Vaulted Granite-and-Bronze Stone Bunker Hall with ribbed copper barrel-vault roof & glowing vertical rune-slits
+      const hallH = (type === 'granary' ? 0.44 : 0.34) * hScale;
+      const bodyW = type === 'granary' ? 0.78 : 0.72;
+      const bodyD = type === 'granary' ? 0.74 : 0.66;
+      const vaultBody = new THREE.Mesh(new THREE.BoxGeometry(bodyW, hallH, bodyD), bodyWall);
+      vaultBody.position.y = 0.12 + hallH * 0.5;
+      group.add(vaultBody);
+      // Heavy trapezoidal/ribbed copper barrel-vault roof (unmistakably Dwarven — never a human gable!)
+      const vaultRoof = new THREE.Mesh(pxCylinder(bodyD * 0.52, bodyD * 0.52, bodyW * 1.04, 6), metalTrim);
+      vaultRoof.rotation.z = Math.PI / 2;
+      vaultRoof.scale.set(0.68, 1, 1);
+      vaultRoof.position.y = 0.12 + hallH + 0.04;
+      group.add(vaultRoof);
+      // Ribbed bronze arch bands over the barrel roof
+      for (const rx of [-bodyW * 0.34, 0, bodyW * 0.34]) {
+        const rib = new THREE.Mesh(pxCylinder(bodyD * 0.55, bodyD * 0.55, 0.055, 6), goldMat);
+        rib.rotation.z = Math.PI / 2;
+        rib.scale.set(0.7, 1, 1);
+        rib.position.set(rx, 0.12 + hallH + 0.04, 0);
+        group.add(rib);
+      }
+      // Recessed bronze-framed dwarf door & glowing vertical rune-slit windows
+      const doorFrame = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.22, 0.08), metalTrim);
+      doorFrame.position.set(0, 0.23, bodyD * 0.5);
+      group.add(doorFrame);
+      const doorRecess = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.17, 0.09), doorDarkMat);
+      doorRecess.position.set(0, 0.21, bodyD * 0.51);
+      group.add(doorRecess);
+      for (const wx of [-bodyW * 0.28, bodyW * 0.28]) {
+        const slit = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.14, 0.05), forgeGlow);
+        slit.position.set(wx, 0.12 + hallH * 0.55, bodyD * 0.5);
+        group.add(slit);
+      }
+      // Side hearth chimney with glowing forge ember
+      const chimney = new THREE.Mesh(new THREE.BoxGeometry(0.14, hallH + 0.32, 0.14), basePlinthMat);
+      chimney.position.set(bodyW * 0.36, 0.12 + (hallH + 0.32) * 0.5, -bodyD * 0.28);
+      group.add(chimney);
+      const chimCap = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.05, 0.17), forgeGlow);
+      chimCap.position.set(bodyW * 0.36, 0.12 + hallH + 0.33, -bodyD * 0.28);
+      group.add(chimCap);
+      addDwarfCornerButtresses(bodyW * 0.48, hallH * 0.9, epochIndex >= 2);
+    } else if (
+      type === 'smeltery' ||
+      type === 'steam_foundry' ||
+      type === 'dynamo_plant' ||
+      type === 'fission_reactor'
+    ) {
+      // Colossal Dwarven Great Forge & Brass Gear-Works: Exposed molten crucible + twin copper smokestacks + spinning giant brass cogwheel
+      const forgeH = 0.5 * hScale;
+      const mainBlock = new THREE.Mesh(new THREE.BoxGeometry(0.8, forgeH, 0.76), bodyWall);
+      mainBlock.position.y = 0.12 + forgeH * 0.5;
+      group.add(mainBlock);
+      // Exposed glowing molten-gold forge crucible trough on top
+      const crucibleRim = new THREE.Mesh(pxCylinder(0.28, 0.32, 0.14, 8), metalTrim);
+      crucibleRim.position.y = 0.12 + forgeH + 0.07;
+      group.add(crucibleRim);
+      const moltenPool = new THREE.Mesh(pxCylinder(0.22, 0.22, 0.15, 8), forgeGlow);
+      moltenPool.position.y = 0.12 + forgeH + 0.08;
+      group.add(moltenPool);
+      // Twin towering hammered-copper furnace stacks
+      for (const sx of [-0.28, 0.28]) {
+        const stack = new THREE.Mesh(pxCylinder(0.085, 0.115, 0.55 * hScale, 8), metalTrim);
+        stack.position.set(sx, 0.12 + forgeH + 0.22 * hScale, -0.22);
+        group.add(stack);
+        const crown = new THREE.Mesh(pxCylinder(0.105, 0.105, 0.06, 8), forgeGlow);
+        crown.position.set(sx, 0.12 + forgeH + 0.5 * hScale, -0.22);
+        group.add(crown);
+      }
+      // Giant spinning brass gearwheel mounted on the front facade
+      const gearRing = new THREE.Mesh(pxTorus(0.2, 0.045, 6, 8), goldMat);
+      gearRing.position.set(0, 0.12 + forgeH * 0.52, 0.4);
+      gearRing.name = 'spin_part';
+      group.add(gearRing);
+      const gearHub = new THREE.Mesh(pxCylinder(0.07, 0.07, 0.1, 6), forgeGlow);
+      gearHub.rotation.x = Math.PI / 2;
+      gearHub.position.set(0, 0.12 + forgeH * 0.52, 0.4);
+      group.add(gearHub);
+      addDwarfCornerButtresses(0.4, forgeH * 0.92, true);
+    } else if (
+      type === 'ziggurat' ||
+      type === 'shaman_totem' ||
+      type === 'observatory' ||
+      type === 'cyber_institute'
+    ) {
+      // Hall of Ancestors & Spinning Brass Runic Astrolabe Monument
+      const tier1 = new THREE.Mesh(new THREE.BoxGeometry(0.84, 0.22, 0.84), bodyWall);
+      tier1.position.y = 0.23;
+      group.add(tier1);
+      const tier2 = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.24 * hScale, 0.62), metalTrim);
+      tier2.position.y = 0.34 + 0.12 * hScale;
+      group.add(tier2);
+      // Giant glowing runic obelisk / rotating golden armillary astrolabe
+      const pillarTopY = 0.34 + 0.24 * hScale;
+      const runeCore = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.48 * hScale, 0.2), forgeGlow);
+      runeCore.position.y = pillarTopY + 0.24 * hScale;
+      group.add(runeCore);
+      const astroRing1 = new THREE.Mesh(pxTorus(0.3, 0.035, 6, 12), goldMat);
+      astroRing1.position.y = pillarTopY + 0.26 * hScale;
+      astroRing1.rotation.x = Math.PI / 4;
+      astroRing1.name = 'spin_part';
+      group.add(astroRing1);
+      addDwarfCornerButtresses(0.4, 0.48 * hScale, true);
+    } else {
+      // Guildhall, Rail Station, Airport, Launch Arcology & Dyson Spire: Majestic Armored Dwarven Citadel / Sky-Harbor / Runic Forge-Spire
+      const isSpire = type === 'launch_arcology' || type === 'dyson_spire';
+      const towerH = (isSpire ? 1.15 : 0.6) * hScale;
+      const keep = new THREE.Mesh(pxCylinder(0.38, 0.48, towerH, 8), bodyWall);
+      keep.position.y = 0.12 + towerH * 0.5;
+      group.add(keep);
+      const crownRing = new THREE.Mesh(pxCylinder(0.44, 0.42, 0.1, 8), metalTrim);
+      crownRing.position.y = 0.12 + towerH + 0.04;
+      group.add(crownRing);
+      const dome = new THREE.Mesh(pxSphere(0.34, 8, 6), goldMat);
+      dome.scale.set(1, 0.72, 1);
+      dome.position.y = 0.12 + towerH + 0.1;
+      group.add(dome);
+      if (isSpire) {
+        const gyro1 = new THREE.Mesh(pxTorus(0.42, 0.045, 6, 14), goldMat);
+        gyro1.position.y = 0.12 + towerH * 0.72;
+        gyro1.rotation.x = Math.PI / 2;
+        gyro1.name = 'spin_part';
+        group.add(gyro1);
+        const skyBeam = new THREE.Mesh(pxCylinder(0.075, 0.075, 2.6, 8), forgeGlow);
+        skyBeam.position.y = 0.12 + towerH + 1.3;
+        group.add(skyBeam);
+      }
+      addDwarfCornerButtresses(0.42, Math.min(0.85, towerH * 0.78), true);
+    }
+  } else if (isLizardfolk) {
+    // =========================================================================
+    // LIZARDFOLK SAURIAN ARCHITECTURE: Majestic Aztec/Mayan Stepped Limestone &
+    // Obsidian Sun-Pyramids, Grand Ceremonial Staircases, Jade Feathered-Serpent
+    // Pillars & Levitating Golden-Emerald Solar Prism Crystals
+    // =========================================================================
+    const hScale = 1 + Math.min(0.65, epochIndex * 0.1);
+    const pyrStone = epochIndex >= 5 ? orcBasaltMat : epochIndex >= 2 ? adobeMat : tanPlasterMat;
+    const jadeMat = elfJadeRoofMat;
+    const sunGold = goldMat;
+    const prismGlow = epochIndex >= 4 ? neonLimeMat : neonAmberMat;
+
+    // Helper: Builds a true multi-tiered Mesoamerican stepped pyramid with gold friezes & grand front staircase
+    const addSteppedPyramid = (
+      tiers: number,
+      baseW: number,
+      tierH: number,
+      withStairs = true,
+      withJadeCorners = true,
+    ): number => {
+      let curY = 0;
+      for (let ti = 0; ti < tiers; ti++) {
+        const frac = 1 - (ti / Math.max(1, tiers)) * 0.62;
+        const w = baseW * frac;
+        const block = new THREE.Mesh(new THREE.BoxGeometry(w, tierH, w), ti % 2 === 1 && epochIndex >= 3 ? orcBasaltMat : pyrStone);
+        block.position.y = curY + tierH * 0.5;
+        group.add(block);
+        // Beaten sun-gold frieze band crowning each pyramid step
+        const goldBand = new THREE.Mesh(new THREE.BoxGeometry(w + 0.025, 0.028, w + 0.025), ti === tiers - 1 ? sunGold : jadeMat);
+        goldBand.position.y = curY + tierH;
+        group.add(goldBand);
+        curY += tierH;
+      }
+      if (withStairs) {
+        // Grand ceremonial Mesoamerican staircase climbing the front (+Z) face with twin jade serpent balustrades
+        const stairH = curY * 0.96;
+        const stairSteps = Math.max(4, tiers * 2);
+        for (let si = 0; si < stairSteps; si++) {
+          const sf = si / stairSteps;
+          const stepMesh = new THREE.Mesh(new THREE.BoxGeometry(0.24, stairH / stairSteps + 0.02, 0.09), pyrStone);
+          stepMesh.position.set(0, sf * stairH + 0.03, baseW * 0.52 - sf * (baseW * 0.3));
+          group.add(stepMesh);
+        }
+        for (const sx of [-0.145, 0.145]) {
+          const serpentHead = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.12, 0.12), jadeMat);
+          serpentHead.position.set(sx, 0.08, baseW * 0.54);
+          group.add(serpentHead);
+          const serpentCrest = new THREE.Mesh(new THREE.BoxGeometry(0.095, 0.04, 0.06), sunGold);
+          serpentCrest.position.set(sx, 0.15, baseW * 0.53);
+          group.add(serpentCrest);
+        }
+      }
+      if (withJadeCorners) {
+        for (const [sx, sz] of [
+          [-1, -1],
+          [1, -1],
+          [-1, 1],
+          [1, 1],
+        ] as const) {
+          const cornerPillar = new THREE.Mesh(new THREE.BoxGeometry(0.085, tierH * 1.4, 0.085), jadeMat);
+          cornerPillar.position.set(sx * baseW * 0.46, tierH * 0.7, sz * baseW * 0.46);
+          group.add(cornerPillar);
+          const goldTip = new THREE.Mesh(pxCone(0.055, 0.1, 4), sunGold);
+          goldTip.position.set(sx * baseW * 0.46, tierH * 1.4 + 0.05, sz * baseW * 0.46);
+          group.add(goldTip);
+        }
+      }
+      return curY;
+    };
+
+    if (type === 'bonfire') {
+      // Grand Temple of the Sun (El Castillo Stepped Pyramid + Sanctum Shrine + Levitating Sun-Prism)
+      const tiers = epochIndex <= 1 ? 3 : epochIndex <= 3 ? 4 : 5;
+      const topY = addSteppedPyramid(tiers, 0.94, 0.145 * hScale, true, true);
+      // Summit Sun-Sanctum temple chamber with golden lintel
+      const sanctum = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.2, 0.32), epochIndex >= 4 ? orcBasaltMat : pyrStone);
+      sanctum.position.y = topY + 0.1;
+      group.add(sanctum);
+      const sanctumDoor = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.14, 0.33), prismGlow);
+      sanctumDoor.position.y = topY + 0.08;
+      group.add(sanctumDoor);
+      const sanctumRoof = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.05, 0.36), sunGold);
+      sanctumRoof.position.y = topY + 0.22;
+      group.add(sanctumRoof);
+      // Levitating spinning Golden Sun-Prism Octahedron above the pyramid summit
+      const prismTop = new THREE.Mesh(pxCone(0.11, 0.22, 4), prismGlow);
+      prismTop.position.y = topY + 0.44;
+      prismTop.name = 'spin_part';
+      group.add(prismTop);
+      const sunHalo = new THREE.Mesh(pxTorus(0.22, 0.028, 6, 12), sunGold);
+      sunHalo.position.y = topY + 0.42;
+      sunHalo.rotation.x = Math.PI / 2.2;
+      sunHalo.name = 'spin_part';
+      group.add(sunHalo);
+    } else if (type === 'forager_hut' || type === 'granary') {
+      // Mesoamerican Stepped Terraced Sun-Villa & Jade Granary Pyramid (flat terraced roofs + hanging jungle gardens!)
+      const tiers = type === 'granary' ? 3 : 2;
+      const topY = addSteppedPyramid(tiers, 0.86, (type === 'granary' ? 0.16 : 0.17) * hScale, false, true);
+      // Carved golden sun-lintel doorway on front
+      const lintel = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.05, 0.08), sunGold);
+      lintel.position.set(0, 0.22, 0.43);
+      group.add(lintel);
+      const doorway = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.18, 0.06), doorDarkMat);
+      doorway.position.set(0, 0.1, 0.43);
+      group.add(doorway);
+      // Terraced jade-and-foliage hanging roof garden + small golden sun-brazier
+      const garden = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.06, 0.42), elfLeafRoofMat);
+      garden.position.y = topY + 0.03;
+      group.add(garden);
+      const sunBrazier = new THREE.Mesh(pxCone(0.065, 0.14, 4), prismGlow);
+      sunBrazier.position.y = topY + 0.13;
+      sunBrazier.name = 'flicker_flame';
+      group.add(sunBrazier);
+    } else if (
+      type === 'ziggurat' ||
+      type === 'shaman_totem' ||
+      type === 'observatory' ||
+      type === 'cyber_institute'
+    ) {
+      // Iconic Mayan Caracol Circular Solar Observatory on Stepped Pyramid Base
+      const topY = addSteppedPyramid(3, 0.9, 0.14 * hScale, true, true);
+      const drum = new THREE.Mesh(pxCylinder(0.26, 0.3, 0.28 * hScale, 8), epochIndex >= 4 ? orcBasaltMat : pyrStone);
+      drum.position.y = topY + 0.14 * hScale;
+      group.add(drum);
+      const dome = new THREE.Mesh(pxSphere(0.26, 8, 6), jadeMat);
+      dome.scale.set(1, 0.72, 1);
+      dome.position.y = topY + 0.28 * hScale;
+      group.add(dome);
+      const sunDisc = new THREE.Mesh(pxTorus(0.32, 0.032, 6, 12), sunGold);
+      sunDisc.position.y = topY + 0.34 * hScale;
+      sunDisc.rotation.x = Math.PI / 3;
+      sunDisc.name = 'spin_part';
+      group.add(sunDisc);
+      const crystal = new THREE.Mesh(pxCone(0.085, 0.22, 4), prismGlow);
+      crystal.position.y = topY + 0.5 * hScale;
+      group.add(crystal);
+    } else if (
+      type === 'smeltery' ||
+      type === 'steam_foundry' ||
+      type === 'dynamo_plant' ||
+      type === 'fission_reactor'
+    ) {
+      // Solar-Lens Concentrator Temple: Obsidian stepped base + 4 angled golden sun-mirror fins focusing into a radiant solar core
+      const topY = addSteppedPyramid(2, 0.88, 0.16 * hScale, false, true);
+      const corePillar = new THREE.Mesh(pxCylinder(0.14, 0.18, 0.44 * hScale, 6), prismGlow);
+      corePillar.position.y = topY + 0.22 * hScale;
+      group.add(corePillar);
+      for (let fi = 0; fi < 4; fi++) {
+        const a = (fi / 4) * Math.PI * 2 + Math.PI / 4;
+        const fin = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.42 * hScale, 0.055), sunGold);
+        fin.position.set(Math.cos(a) * 0.28, topY + 0.22 * hScale, Math.sin(a) * 0.28);
+        fin.rotation.y = -a + Math.PI / 2;
+        fin.rotation.x = -0.24;
+        group.add(fin);
+      }
+      const focusRing = new THREE.Mesh(pxTorus(0.24, 0.035, 6, 10), jadeMat);
+      focusRing.position.y = topY + 0.44 * hScale;
+      focusRing.rotation.x = Math.PI / 2;
+      focusRing.name = 'spin_part';
+      group.add(focusRing);
+    } else {
+      // Guildhall, Rail Station, Airport, Launch Arcology & Dyson Spire: Majestic Celestial Sun-Pyramid Spire
+      const isSpire = type === 'launch_arcology' || type === 'dyson_spire';
+      const tiers = isSpire ? 5 : 4;
+      const topY = addSteppedPyramid(tiers, 0.94, (isSpire ? 0.2 : 0.15) * hScale, true, true);
+      const obelisk = new THREE.Mesh(pxCone(0.16, (isSpire ? 0.72 : 0.42) * hScale, 4), sunGold);
+      obelisk.position.y = topY + (isSpire ? 0.36 : 0.21) * hScale;
+      group.add(obelisk);
+      const halo = new THREE.Mesh(pxTorus(isSpire ? 0.42 : 0.3, 0.04, 6, 14), jadeMat);
+      halo.position.y = topY + (isSpire ? 0.48 : 0.26) * hScale;
+      halo.rotation.x = Math.PI / 2;
+      halo.name = 'spin_part';
+      group.add(halo);
+      if (isSpire) {
+        const solarPillar = new THREE.Mesh(pxCylinder(0.075, 0.075, 2.8, 8), prismGlow);
+        solarPillar.position.y = topY + 1.5;
+        group.add(solarPillar);
+      }
+    }
+  } else {
   switch (type) {
     case 'bonfire':
     case 'ziggurat': {
@@ -7913,6 +8355,8 @@ export function createBuildingGroup(
     }
   }
 
+  }
+
   finalizeStaticBuildingMeshes(group);
   // Mark template geometries & materials as shared so clones reuse the same GPU buffers safely
   group.traverse((obj) => {
@@ -8024,12 +8468,32 @@ function makeTransformedCone(
   return g;
 }
 
-function makeWingTriangleGeo(tris: Array<[number, number, number]>): THREE.BufferGeometry {
+function makeWingTriangleGeo(
+  tris: Array<[number, number, number]>,
+  flipWinding = false,
+): THREE.BufferGeometry {
   const arr = new Float32Array(tris.length * 3);
-  for (let i = 0; i < tris.length; i++) {
-    arr[i * 3] = tris[i][0];
-    arr[i * 3 + 1] = tris[i][1];
-    arr[i * 3 + 2] = tris[i][2];
+  if (flipWinding) {
+    for (let i = 0; i < tris.length; i += 3) {
+      const p0 = tris[i];
+      const p1 = tris[i + 2];
+      const p2 = tris[i + 1];
+      arr[i * 3] = p0[0];
+      arr[i * 3 + 1] = p0[1];
+      arr[i * 3 + 2] = p0[2];
+      arr[(i + 1) * 3] = p1[0];
+      arr[(i + 1) * 3 + 1] = p1[1];
+      arr[(i + 1) * 3 + 2] = p1[2];
+      arr[(i + 2) * 3] = p2[0];
+      arr[(i + 2) * 3 + 1] = p2[1];
+      arr[(i + 2) * 3 + 2] = p2[2];
+    }
+  } else {
+    for (let i = 0; i < tris.length; i++) {
+      arr[i * 3] = tris[i][0];
+      arr[i * 3 + 1] = tris[i][1];
+      arr[i * 3 + 2] = tris[i][2];
+    }
   }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(arr, 3));
@@ -8179,7 +8643,7 @@ function getDragonGeoTemplate(): DragonGeoTemplate {
       // Scalloped notches at trailing edge
       [0, 0.02, -0.58], [sign * 0.24, 0.02, -0.52], [sign * 0.45, 0.03, -0.74],
       [sign * 0.45, 0.03, -0.74], [sign * 0.72, 0.02, -0.56], [sign * 0.94, 0.02, -0.68],
-    ]);
+    ], sign < 0);
 
     // Outer wing fingers (swept main leading phalanx + 3 fanned finger spars)
     const outerBones: THREE.BufferGeometry[] = [
@@ -8199,7 +8663,7 @@ function getDragonGeoTemplate(): DragonGeoTemplate {
       // Bay 3: finger 3 -> trailing root
       [0, 0.02, 0.0], [sign * 0.46, -0.02, -0.82], [sign * 0.06, -0.02, -0.76],
       [0, 0.02, 0.0], [sign * 0.06, -0.02, -0.76], [sign * -0.08, -0.01, -0.68],
-    ]);
+    ], sign < 0);
 
     return {
       innerBone: mergeCleanParts(innerBones),
@@ -10198,10 +10662,16 @@ function buildCreatureUnitGroup(
     // Radiant soaring firebird with layered crimson/gold wings, blazing crest & long luminous flame tail
     shadowRadius = 0.85;
     auraRadius = 0.48;
-    const crimsonMat = mat(0xdc2626, 0.42, 0.15, 0xef4444, 0.45);
-    const emberMat = mat(0xf97316, 0.35, 0.2, 0xf97316, 0.72);
-    const goldMat = mat(0xfde047, 0.25, 0.45, 0xfbbf24, 0.9);
-    const beakMat = mat(0xf59e0b, 0.25, 0.55);
+    const crimsonMat = mat(0xdc2626, 0.32, 0.12, 0xff4d1a, 0.95);
+    crimsonMat.transparent = true;
+    crimsonMat.opacity = 0.82;
+    const emberMat = mat(0xf97316, 0.25, 0.15, 0xff8800, 1.15);
+    emberMat.transparent = true;
+    emberMat.opacity = 0.78;
+    const goldMat = mat(0xfde047, 0.18, 0.35, 0xffd166, 1.35);
+    goldMat.transparent = true;
+    goldMat.opacity = 0.84;
+    const beakMat = mat(0xf59e0b, 0.25, 0.55, 0xfbbf24, 0.45);
 
     const body = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.24, 0.62), crimsonMat);
     body.position.set(0, 0.46, 0);
@@ -13358,9 +13828,23 @@ export function createUnitGroup(
   }
 
   const resolvedSpecies: SpeciesId =
-    role === 'elf' ? 'elf' : role === 'orc' ? 'orc' : role === 'human' ? 'human' : species;
+    role === 'elf'
+      ? 'elf'
+      : role === 'orc'
+        ? 'orc'
+        : role === 'dwarf'
+          ? 'dwarf'
+          : role === 'lizardfolk'
+            ? 'lizardfolk'
+            : role === 'human'
+              ? 'human'
+              : species;
 
-  const shadowRadius = isChild ? 0.42 : species === 'orc' ? 0.68 : 0.58;
+  const shadowRadius = isChild
+    ? 0.42
+    : resolvedSpecies === 'orc' || resolvedSpecies === 'dwarf'
+      ? 0.66
+      : 0.58;
   group.add(createContactShadow(shadowRadius));
 
   // 1. Diverse multi-ethnic skin tones per race
@@ -13395,6 +13879,22 @@ export function createUnitGroup(
     0xb35f3c, // red-clay warclan
     0x8f825b, // dune tan
   ];
+  const dwarfSkins = [
+    0xf0c2a0, // warm forge fair
+    0xdca178, // ruddy copper
+    0xc5855c, // hearth bronze
+    0xa66e4c, // stone-tanned
+    0x8f6b58, // deep mountain umber
+    0x7e838a, // iron-bearded slate
+  ];
+  const lizardfolkSkins = [
+    0x10b981, // emerald jade
+    0x059669, // deep jungle green
+    0x14b8a6, // temple turquoise
+    0x0f766e, // obsidian teal
+    0x65a30d, // sun-canopy chartreuse
+    0x22c55e, // bright saurian leaf
+  ];
   const hostileSkins = [0x8f5656, 0x544a4e, 0x4c6b3a, 0x5c446e, 0x9c5e42];
 
   const skinPool =
@@ -13404,11 +13904,15 @@ export function createUnitGroup(
         ? orcSkins
         : resolvedSpecies === 'elf'
           ? elfSkins
-          : humanSkins;
+          : resolvedSpecies === 'dwarf'
+            ? dwarfSkins
+            : resolvedSpecies === 'lizardfolk'
+              ? lizardfolkSkins
+              : humanSkins;
   const skinHex = skinPool[s0 % skinPool.length];
   const skinMat = new THREE.MeshStandardMaterial({
     color: skinHex,
-    roughness: 0.64,
+    roughness: resolvedSpecies === 'lizardfolk' ? 0.44 : 0.64,
   });
 
   // 2. Diverse hair color & styles
@@ -13421,8 +13925,18 @@ export function createUnitGroup(
   const orcHairs = isChild
     ? [0x18181b, 0x8c3b28, 0x4a4b52, 0xcfc7b8]
     : [0x18181b, 0xdcd4c2, 0xb54229, 0x4a4b52, 0x633224];
+  const dwarfHairs = [0xb45309, 0xd97706, 0x9a3412, 0xeab308, 0x475569, 0xcbd5e1];
+  const lizardHairs = [0xfacc15, 0xf59e0b, 0x14b8a6, 0xef4444, 0x0f766e];
   const hairPool =
-    resolvedSpecies === 'elf' ? elfHairs : resolvedSpecies === 'orc' ? orcHairs : humanHairs;
+    resolvedSpecies === 'elf'
+      ? elfHairs
+      : resolvedSpecies === 'orc'
+        ? orcHairs
+        : resolvedSpecies === 'dwarf'
+          ? dwarfHairs
+          : resolvedSpecies === 'lizardfolk'
+            ? lizardHairs
+            : humanHairs;
   const hairMat = new THREE.MeshStandardMaterial({
     color: hairPool[(s0 >> 4) % hairPool.length],
     roughness: 0.72,
@@ -13444,6 +13958,14 @@ export function createUnitGroup(
       epochLevel >= 6
         ? [0x9b2226, 0x5a189a, 0xbb3e03, 0x334155]
         : [0x8d3b2b, 0x6b2d26, 0x495057, 0x7f4f24, 0x9b2226, 0x3f4e37],
+    dwarf:
+      epochLevel >= 6
+        ? [0xf59e0b, 0xb45309, 0x64748b, 0xeab308]
+        : [0xb45309, 0x78716c, 0x9a3412, 0xd97706, 0x475569, 0x854d0e],
+    lizardfolk:
+      epochLevel >= 6
+        ? [0xfacc15, 0x14b8a6, 0x10b981, 0xfde047]
+        : [0xeab308, 0x0f766e, 0x1e293b, 0xca8a04, 0x047857, 0x14b8a6],
     villager:
       epochLevel >= 6
         ? [0xd8dee9, 0x72efdd, 0xcbd5e1]
@@ -13470,7 +13992,7 @@ export function createUnitGroup(
     color: tunicColor,
     roughness: epochLevel >= 4 && !isChild ? 0.35 : 0.58,
     metalness:
-      !isChild && (role === 'warrior' || role === 'astro_engineer' || epochLevel >= 5) ? 0.42 : 0.08,
+      !isChild && (role === 'warrior' || role === 'astro_engineer' || resolvedSpecies === 'dwarf' || epochLevel >= 5) ? 0.45 : 0.08,
   });
   const sashMat = new THREE.MeshStandardMaterial({
     color: sashColor,
@@ -13496,12 +14018,24 @@ export function createUnitGroup(
       ? 1.45
       : resolvedSpecies === 'orc'
         ? 1.13
-        : resolvedSpecies === 'elf'
-          ? 0.99
-          : 1.0;
+        : resolvedSpecies === 'dwarf'
+          ? 0.72
+          : resolvedSpecies === 'lizardfolk'
+            ? 1.04
+            : resolvedSpecies === 'elf'
+              ? 0.99
+              : 1.0;
   const scale = baseSpeciesScale * heightVariance;
   const widthMult =
-    (resolvedSpecies === 'orc' ? 1.22 : resolvedSpecies === 'elf' ? 0.86 : 1.0) * widthVariance;
+    (resolvedSpecies === 'dwarf'
+      ? 1.48
+      : resolvedSpecies === 'orc'
+        ? 1.22
+        : resolvedSpecies === 'elf'
+          ? 0.86
+          : resolvedSpecies === 'lizardfolk'
+            ? 0.94
+            : 1.0) * widthVariance;
   const headMult = isChild ? 1.22 : 1.0;
 
   // 1. Legs
@@ -13598,6 +14132,122 @@ export function createUnitGroup(
       tuskR.position.set(0.055 * scale * headMult, headCenterY - 0.04 * scale, 0.1 * scale * headMult);
       group.add(tuskR);
     }
+  } else if (resolvedSpecies === 'dwarf' && faction === 'civilization') {
+    // Unmistakable Dwarven Silhouette: Massive cascading braided beard + bushy mustache + forged bronze horned helm + heavy pauldrons
+    const beardH = isChild ? 0.1 : 0.22;
+    const dwarfBeard = new THREE.Mesh(
+      new THREE.BoxGeometry(headSizeX * 1.12, beardH * scale, 0.09 * scale),
+      hairMat,
+    );
+    dwarfBeard.position.set(0, headCenterY - headSizeY * 0.42 - (isChild ? 0.02 : 0.065) * scale, headSizeZ * 0.48);
+    group.add(dwarfBeard);
+    const mustache = new THREE.Mesh(
+      new THREE.BoxGeometry(headSizeX * 1.24, 0.045 * scale, 0.075 * scale),
+      hairMat,
+    );
+    mustache.position.set(0, headCenterY - headSizeY * 0.24, headSizeZ * 0.52);
+    group.add(mustache);
+    if (!isChild) {
+      const goldTrimMat = new THREE.MeshStandardMaterial({ color: 0xf5b742, roughness: 0.28, metalness: 0.82 });
+      const bronzePlateMat = new THREE.MeshStandardMaterial({ color: 0xb45309, roughness: 0.34, metalness: 0.74 });
+      const runeAmberMat = new THREE.MeshBasicMaterial({ color: 0xfbbf24 });
+
+      // Twin golden beard clasps
+      for (const bx of [-0.042 * scale, 0.042 * scale]) {
+        const clasp = new THREE.Mesh(new THREE.BoxGeometry(0.036 * scale, 0.034 * scale, 0.098 * scale), goldTrimMat);
+        clasp.position.set(bx, headCenterY - headSizeY * 0.92, headSizeZ * 0.49);
+        group.add(clasp);
+      }
+
+      // Iconic Forged Bronze Horned/Winged Dwarven Helm worn by all adult Dwarves
+      const helmDome = new THREE.Mesh(
+        new THREE.BoxGeometry(headSizeX * 1.24, 0.11 * scale, headSizeZ * 1.22),
+        bronzePlateMat,
+      );
+      helmDome.position.set(0, headCenterY + headSizeY * 0.48, 0);
+      group.add(helmDome);
+      const helmCrest = new THREE.Mesh(
+        new THREE.BoxGeometry(0.055 * scale, 0.075 * scale, headSizeZ * 1.26),
+        goldTrimMat,
+      );
+      helmCrest.position.set(0, headCenterY + headSizeY * 0.82, 0);
+      group.add(helmCrest);
+      const browRune = new THREE.Mesh(
+        new THREE.BoxGeometry(0.05 * scale, 0.04 * scale, 0.03 * scale),
+        runeAmberMat,
+      );
+      browRune.position.set(0, headCenterY + headSizeY * 0.44, headSizeZ * 0.62);
+      group.add(browRune);
+      // Curved bronze helm horns/wings on both sides
+      for (const sx of [-1, 1]) {
+        const horn = new THREE.Mesh(new THREE.BoxGeometry(0.085 * scale, 0.048 * scale, 0.045 * scale), goldTrimMat);
+        horn.position.set(sx * headSizeX * 0.78, headCenterY + headSizeY * 0.64, 0);
+        horn.rotation.z = sx * 0.55;
+        group.add(horn);
+      }
+
+      // Heavy forged bronze shoulder pauldrons + glowing runic belt buckle
+      const pauldronGeo = new THREE.BoxGeometry(0.115 * scale, 0.085 * scale, 0.145 * scale);
+      const pL = new THREE.Mesh(pauldronGeo, bronzePlateMat);
+      pL.position.set(-0.16 * scale * widthMult, 0.34 * scale, 0);
+      group.add(pL);
+      const pR = new THREE.Mesh(pauldronGeo, bronzePlateMat);
+      pR.position.set(0.16 * scale * widthMult, 0.34 * scale, 0);
+      group.add(pR);
+      const buckle = new THREE.Mesh(new THREE.BoxGeometry(0.08 * scale, 0.055 * scale, 0.04 * scale), runeAmberMat);
+      buckle.position.set(0, 0.19 * scale, 0.095 * scale);
+      group.add(buckle);
+    }
+  } else if (resolvedSpecies === 'lizardfolk' && faction === 'civilization') {
+    // Unmistakable Saurian Silhouette: Long reptilian snout + golden eyes + tall dorsal crest + Aztec sun-fan crown + 3-segment sweeping tail
+    const snout = new THREE.Mesh(
+      new THREE.BoxGeometry(headSizeX * 0.72, headSizeY * 0.5, 0.14 * scale * headMult),
+      skinMat,
+    );
+    snout.position.set(0, headCenterY - 0.02 * scale, headSizeZ * 0.72);
+    group.add(snout);
+
+    const goldCrownMat = new THREE.MeshStandardMaterial({ color: 0xfacc15, roughness: 0.3, metalness: 0.72 });
+    const jadeCrestMat = new THREE.MeshStandardMaterial({ color: 0x10b981, roughness: 0.4 });
+    const eyeGlowMat = new THREE.MeshBasicMaterial({ color: 0xfef08a });
+    for (const ex of [-headSizeX * 0.36, headSizeX * 0.36]) {
+      const eye = new THREE.Mesh(new THREE.BoxGeometry(0.032 * scale, 0.032 * scale, 0.032 * scale), eyeGlowMat);
+      eye.position.set(ex, headCenterY + 0.025 * scale, headSizeZ * 0.52);
+      group.add(eye);
+    }
+
+    // Tall 4-spine dorsal crest running down the crown and neck
+    for (let ci = 0; ci < 4; ci++) {
+      const spine = new THREE.Mesh(
+        new THREE.BoxGeometry(0.036 * scale, (0.095 - ci * 0.014) * scale, 0.045 * scale),
+        ci % 2 === 0 ? goldCrownMat : jadeCrestMat,
+      );
+      spine.position.set(0, headCenterY + headSizeY * 0.58 + (0.03 - ci * 0.012) * scale, (0.04 - ci * 0.062) * scale);
+      group.add(spine);
+    }
+
+    // Beaten-gold Aztec feathered sun-fan headdress on adults
+    if (!isChild) {
+      const sunFan = new THREE.Mesh(
+        new THREE.BoxGeometry(headSizeX * 1.45, 0.085 * scale, 0.035 * scale),
+        goldCrownMat,
+      );
+      sunFan.position.set(0, headCenterY + headSizeY * 0.66, -0.02 * scale);
+      group.add(sunFan);
+    }
+
+    // Long 3-segment sweeping reptilian tail
+    const tail1 = new THREE.Mesh(new THREE.BoxGeometry(0.095 * scale, 0.082 * scale, 0.22 * scale), skinMat);
+    tail1.position.set(0, 0.17 * scale, -0.17 * scale);
+    tail1.rotation.x = -0.22;
+    group.add(tail1);
+    const tail2 = new THREE.Mesh(new THREE.BoxGeometry(0.068 * scale, 0.058 * scale, 0.2 * scale), skinMat);
+    tail2.position.set(0, 0.13 * scale, -0.34 * scale);
+    tail2.rotation.x = -0.12;
+    group.add(tail2);
+    const tailTip = new THREE.Mesh(new THREE.BoxGeometry(0.042 * scale, 0.038 * scale, 0.14 * scale), goldCrownMat);
+    tailTip.position.set(0, 0.11 * scale, -0.47 * scale);
+    group.add(tailTip);
   }
 
   // Facial hair / warpaint on adults
@@ -13620,10 +14270,12 @@ export function createUnitGroup(
     }
   }
 
-  // 4. Expressive Sculpted Hairstyles + Optional Epoch Headgear
+  // 4. Expressive Sculpted Hairstyles + Optional Epoch Headgear (skip human hairstyles for Lizardfolk and helmed adult Dwarves)
   const hairStyle = s2 % 7;
   const hairTopY = headCenterY + headSizeY * 0.52;
-  if (hairStyle !== 6 || isChild) {
+  const skipHumanHair =
+    resolvedSpecies === 'lizardfolk' || (resolvedSpecies === 'dwarf' && !isChild);
+  if (!skipHumanHair && (hairStyle !== 6 || isChild)) {
     // Top hair cap (skip only for bald adults on style 6)
     const capH = hairStyle === 4 ? 0.085 : 0.055;
     const capW = hairStyle === 4 ? headSizeX * 1.24 : headSizeX * 1.08;
@@ -13636,7 +14288,7 @@ export function createUnitGroup(
     group.add(hairCap);
   }
 
-  if (hairStyle === 1) {
+  if (!skipHumanHair && hairStyle === 1) {
     // Flowing long locks down the back
     const backHair = new THREE.Mesh(
       new THREE.BoxGeometry(headSizeX * 1.02, 0.16 * scale, 0.06 * scale),
@@ -13644,7 +14296,7 @@ export function createUnitGroup(
     );
     backHair.position.set(0, headCenterY - 0.04 * scale, -headSizeZ * 0.48);
     group.add(backHair);
-  } else if (hairStyle === 2) {
+  } else if (!skipHumanHair && hairStyle === 2) {
     // Twin side pigtails / hair buns (classic child & elven look)
     const bunGeo = new THREE.BoxGeometry(0.065 * scale, 0.075 * scale, 0.065 * scale);
     const bunL = new THREE.Mesh(bunGeo, hairMat);
@@ -13653,7 +14305,7 @@ export function createUnitGroup(
     const bunR = new THREE.Mesh(bunGeo, hairMat);
     bunR.position.set(headSizeX * 0.62, hairTopY - 0.01 * scale, -0.02 * scale);
     group.add(bunR);
-  } else if (hairStyle === 3) {
+  } else if (!skipHumanHair && hairStyle === 3) {
     // Tall topknot / mohawk crest
     const crest = new THREE.Mesh(
       new THREE.BoxGeometry(0.055 * scale, 0.11 * scale, headSizeZ * 0.92),
@@ -13661,7 +14313,7 @@ export function createUnitGroup(
     );
     crest.position.set(0, hairTopY + 0.06 * scale, -0.01 * scale);
     group.add(crest);
-  } else if (hairStyle === 5) {
+  } else if (!skipHumanHair && hairStyle === 5) {
     // Ponytail / braid in back
     const tail = new THREE.Mesh(
       new THREE.BoxGeometry(0.06 * scale, 0.13 * scale, 0.06 * scale),
@@ -13672,9 +14324,10 @@ export function createUnitGroup(
     group.add(tail);
   }
 
-  // Hats / Helmets / Circlets on military roles, high epochs, or select adults (never hiding children's cute hairstyles unless a small headband!)
+  // Hats / Helmets / Circlets on military roles, high epochs, or select adults (Dwarves & Lizardfolk already wear bespoke racial helms/headdresses!)
   const wearsHeadgear =
     !isChild &&
+    !skipHumanHair &&
     (faction === 'hostile' ||
       role === 'warrior' ||
       role === 'priest' ||
@@ -14147,6 +14800,8 @@ function buildVehicleGroupInner(
   const group = new THREE.Group();
   const isElf = species === 'elf';
   const isOrc = species === 'orc';
+  const isDwarf = species === 'dwarf';
+  const isLizardfolk = species === 'lizardfolk';
   const variant = Math.abs(variantSeed);
 
   const raceBodyHex = isElf
@@ -14155,35 +14810,51 @@ function buildVehicleGroupInner(
       : 0x2ec4b6
     : isOrc
       ? 0x9b2226
-      : epochLevel <= 3
-        ? 0x3b4252
-        : epochLevel === 4
-          ? variant % 3 === 1
-            ? 0xf4a261
-            : 0x3a86ff
-          : epochLevel === 5
-            ? variant % 4 === 0
-              ? 0xe63946
-              : variant % 4 === 1
-                ? 0x00b4d8
-                : variant % 4 === 2
-                  ? 0xe5e7eb
-                  : 0x4361ee
-            : 0xe2e8f0;
+      : isDwarf
+        ? epochLevel >= 5
+          ? 0xd97706
+          : 0x92400e
+        : isLizardfolk
+          ? epochLevel >= 5
+            ? 0x10b981
+            : 0x0f766e
+          : epochLevel <= 3
+            ? 0x3b4252
+            : epochLevel === 4
+              ? variant % 3 === 1
+                ? 0xf4a261
+                : 0x3a86ff
+              : epochLevel === 5
+                ? variant % 4 === 0
+                  ? 0xe63946
+                  : variant % 4 === 1
+                    ? 0x00b4d8
+                    : variant % 4 === 2
+                      ? 0xe5e7eb
+                      : 0x4361ee
+                : 0xe2e8f0;
 
   const bodyMat = new THREE.MeshStandardMaterial({
     color: raceBodyHex,
-    roughness: epochLevel >= 5 ? 0.25 : 0.48,
-    metalness: epochLevel >= 5 ? 0.55 : 0.25,
+    roughness: isDwarf ? 0.34 : epochLevel >= 5 ? 0.25 : 0.48,
+    metalness: isDwarf ? 0.65 : epochLevel >= 5 ? 0.55 : 0.25,
   });
   const trimMat = new THREE.MeshStandardMaterial({
-    color: isOrc ? 0x2b2d42 : isElf ? 0xf5b742 : 0x334155,
+    color: isOrc
+      ? 0x2b2d42
+      : isElf
+        ? 0xf5b742
+        : isDwarf
+          ? 0x475569
+          : isLizardfolk
+            ? 0xfacc15
+            : 0x334155,
     roughness: 0.4,
     metalness: 0.5,
   });
   const glassMat = new THREE.MeshStandardMaterial({
-    color: isOrc ? 0xff7b54 : 0x90e0ef,
-    emissive: isOrc ? 0xd62828 : 0x48bfe3,
+    color: isOrc ? 0xff7b54 : isDwarf ? 0xfbbf24 : isLizardfolk ? 0xfde047 : 0x90e0ef,
+    emissive: isOrc ? 0xd62828 : isDwarf ? 0xf59e0b : isLizardfolk ? 0x14b8a6 : 0x48bfe3,
     emissiveIntensity: epochLevel >= 5 ? 0.55 : 0.25,
     roughness: 0.15,
   });
@@ -14191,7 +14862,15 @@ function buildVehicleGroupInner(
   const headlightMat = new THREE.MeshBasicMaterial({ color: 0xfff3bf });
   const taillightMat = new THREE.MeshBasicMaterial({ color: 0xef4444 });
   const glowMat = new THREE.MeshBasicMaterial({
-    color: isElf ? 0x52f2c8 : isOrc ? 0xff5421 : 0x56cfe1,
+    color: isElf
+      ? 0x52f2c8
+      : isOrc
+        ? 0xff5421
+        : isDwarf
+          ? 0xfbbf24
+          : isLizardfolk
+            ? 0xfde047
+            : 0x56cfe1,
   });
 
   if (type === 'roadster') {

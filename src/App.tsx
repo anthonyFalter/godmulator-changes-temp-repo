@@ -28,6 +28,7 @@ import {
   getKingdomRelation,
   getTile,
   placeBuilding,
+  setKingdomEpoch,
   spawnUnit,
   syncAverageEpochFromKingdoms,
 } from './game/simulation';
@@ -45,6 +46,7 @@ import {
   removeUnitItem,
   resetUnitStatBonuses,
   setUnitAgeYears,
+  setUnitSizeScale,
   setUnitStatValue,
   toggleUnitGene,
   toggleUnitTrait,
@@ -97,6 +99,7 @@ import {
   inspectTileZones,
 } from './game/zones';
 import { EntityInspectorCard } from './components/EntityInspectorCard';
+import { CityInspectorCard, InspectedCityRef } from './components/CityInspectorCard';
 import { GraphicsSettingsPanel } from './components/GraphicsSettingsPanel';
 import {
   BuildingPixelIcon,
@@ -443,8 +446,12 @@ export default function App() {
   const [lightingPreset, setLightingPreset] = useState<LightingPreset>('noon');
   const [dockCollapsed, setDockCollapsed] = useState<boolean>(false);
   const [chronicleOpen, setChronicleOpen] = useState<boolean>(false);
+  const [chronicleFilter, setChronicleFilter] = useState<'major' | 'all'>('major');
   const [muted, setMuted] = useState<boolean>(false);
   const [hoverTile, setHoverTile] = useState<{ x: number; z: number } | null>(null);
+  const [inspectedCity, setInspectedCity] = useState<
+    (InspectedCityRef & { hexColor?: string }) | null
+  >(null);
   const [hoveredEntityId, setHoveredEntityId] = useState<string | null>(null);
   const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
   const selectedEntityIdRef = useRef<string | null>(null);
@@ -598,6 +605,7 @@ export default function App() {
       setSelectedEntityId(null);
       selectedEntityIdRef.current = null;
       setFollowingEntityId(null);
+      setInspectedCity(null);
       setSelectedAllianceKingdomId(null);
       setLightingPreset(nextSim.worldRules?.dayNightCycle ? 'auto' : 'noon');
       setActiveCategory('spawn');
@@ -646,6 +654,7 @@ export default function App() {
         setSelectedEntityId(null);
         selectedEntityIdRef.current = null;
         setFollowingEntityId(null);
+        setInspectedCity(null);
         setSelectedAllianceKingdomId(null);
         setLightingPreset(builtSim.worldRules?.dayNightCycle ? 'auto' : 'noon');
         setActiveCategory('spawn');
@@ -823,6 +832,7 @@ export default function App() {
       setSelectedEntityId(null);
       selectedEntityIdRef.current = null;
       setFollowingEntityId(null);
+      setInspectedCity(null);
       setSelectedAllianceKingdomId(null);
       setActiveCategory('spawn');
       setActiveTool({ kind: 'spawn', unit: 'human' });
@@ -1029,6 +1039,23 @@ export default function App() {
     setHudTick((t) => t + 1);
   }, []);
 
+  const handleSelectCityLabel = useCallback(
+    (city: {
+      settlementId: string;
+      kingdomId: string;
+      name: string;
+      hexColor: string;
+      tileX: number;
+      tileZ: number;
+    }) => {
+      setInspectedCity(city);
+      soundEngine.playClick();
+      setStatusFeedback(`Inspecting city ${city.name}`);
+      setHudTick((t) => t + 1);
+    },
+    [],
+  );
+
   const handleToggleFavoriteEntity = useCallback((unitId: string) => {
     const unit = simRef.current.units.find((u) => u.id === unitId && u.state !== 'ko');
     if (!unit) return;
@@ -1057,17 +1084,60 @@ export default function App() {
   }, []);
 
   const worldZonesRef = useRef<ReturnType<typeof computeWorldZones> | null>(null);
+  const lastInteractHudTickRef = useRef(0);
+  const lastInteractFeedbackRef = useRef<{ msg: string; ts: number }>({ msg: '', ts: 0 });
+  const lastInteractSoundRef = useRef(0);
 
   const handleTileInteract = useCallback(
     (tileX: number, tileZ: number) => {
       const sim = simRef.current;
       sim.selectedTile = { x: tileX, z: tileZ };
+      const notifyInteractHud = (msg: string) => {
+        const now = performance.now();
+        if (
+          msg !== lastInteractFeedbackRef.current.msg ||
+          now - lastInteractFeedbackRef.current.ts >= 400
+        ) {
+          lastInteractFeedbackRef.current = { msg, ts: now };
+          setStatusFeedback(msg);
+        }
+        if (now - lastInteractHudTickRef.current >= 200) {
+          lastInteractHudTickRef.current = now;
+          setHudTick((t) => t + 1);
+        }
+      };
 
       if (activeTool.kind === 'inspect') {
-        const currentZones = worldZonesRef.current;
-        if (activeZones.alliances && currentZones) {
-          const zInspect = inspectTileZones(currentZones, sim, tileX, tileZ);
-          if (zInspect?.kingdom) {
+        const rayPickedUnit = selectedEntityIdRef.current
+          ? sim.units.find((u) => u.id === selectedEntityIdRef.current && u.state !== 'ko')
+          : undefined;
+        const nearbyUnit =
+          rayPickedUnit ??
+          sim.units.find(
+            (u) => u.state !== 'ko' && Math.hypot(u.x - tileX, u.z - tileZ) <= 0.65,
+          );
+        if (nearbyUnit) {
+          if (selectedEntityIdRef.current !== nearbyUnit.id) {
+            selectedEntityIdRef.current = nearbyUnit.id;
+            setSelectedEntityId(nearbyUnit.id);
+          }
+          const def = UNITS.find((d) => d.role === nearbyUnit.role);
+          const label =
+            nearbyUnit.faction === 'wildlife'
+              ? def?.name ?? nearbyUnit.role
+              : nearbyUnit.ageStage === 'child'
+                ? `${nearbyUnit.species} child`
+                : `${nearbyUnit.species} ${nearbyUnit.role}`;
+          setStatusFeedback(`${nearbyUnit.name} (${label}, ${Math.round(nearbyUnit.hp)}/${nearbyUnit.maxHp} HP)`);
+          soundEngine.playClick();
+          setHudTick((t) => t + 1);
+          return;
+        }
+
+        if (activeZones.alliances) {
+          const currentZones = worldZonesRef.current ?? computeWorldZones(sim);
+          const zInspect = currentZones ? inspectTileZones(currentZones, sim, tileX, tileZ) : null;
+          if (currentZones && zInspect?.kingdom) {
             const rootId = getKingdomId(sim, zInspect.kingdom.settlementId);
             setSelectedAllianceKingdomId(rootId);
             const seenRoots = new Set<string>([rootId]);
@@ -1089,33 +1159,13 @@ export default function App() {
             return;
           }
         }
+
         const tile = getTile(sim, tileX, tileZ);
-        const pickedUnit = selectedEntityIdRef.current
-          ? sim.units.find((u) => u.id === selectedEntityIdRef.current && u.state !== 'ko')
-          : undefined;
+        const bld = sim.buildings.find((b) => b.tileX === tileX && b.tileZ === tileZ);
         const nearbyRoadster = (sim.vehicles ?? []).find(
           (v) => v.type === 'roadster' && Math.hypot(v.x - tileX, v.z - tileZ) <= 1.15,
         );
-        const nearbyUnit =
-          pickedUnit ??
-          sim.units.find(
-            (u) => u.state !== 'ko' && Math.hypot(u.x - tileX, u.z - tileZ) <= 0.85,
-          );
-        const bld = sim.buildings.find((b) => b.tileX === tileX && b.tileZ === tileZ);
-        if (nearbyUnit) {
-          if (!selectedEntityIdRef.current) {
-            selectedEntityIdRef.current = nearbyUnit.id;
-            setSelectedEntityId(nearbyUnit.id);
-          }
-          const def = UNITS.find((d) => d.role === nearbyUnit.role);
-          const label =
-            nearbyUnit.faction === 'wildlife'
-              ? def?.name ?? nearbyUnit.role
-              : nearbyUnit.ageStage === 'child'
-                ? `${nearbyUnit.species} child`
-                : `${nearbyUnit.species} ${nearbyUnit.role}`;
-          setStatusFeedback(`${nearbyUnit.name} (${label}, ${Math.round(nearbyUnit.hp)}/${nearbyUnit.maxHp} HP)`);
-        } else if (nearbyRoadster) {
+        if (nearbyRoadster) {
           const modeLabel =
             nearbyRoadster.stuntPhase && nearbyRoadster.stuntPhase !== 'cruise'
               ? `Propulsion Stunt: ${nearbyRoadster.stuntPhase.replace('_', ' ')}`
@@ -1172,13 +1222,12 @@ export default function App() {
           } else {
             soundEngine.playClick();
           }
-          setStatusFeedback(
+          notifyInteractHud(
             res.count && res.count > 1 ? `${def?.name} ×${res.count} cast` : `${def?.name} cast`,
           );
         } else {
-          setStatusFeedback(res.reason || 'Need more God Energy');
+          notifyInteractHud(res.reason || 'Need more God Energy');
         }
-        setHudTick((t) => t + 1);
         return;
       }
 
@@ -1186,16 +1235,19 @@ export default function App() {
         const res = applyTerrainTool(sim, activeTool.tool, tileX, tileZ, brushRadius);
         const def = TERRAIN_TOOLS.find((t) => t.type === activeTool.tool);
         if (res.ok) {
-          if (def?.isSkyRain) {
-            soundEngine.playSkyRain(def.type);
-          } else {
-            soundEngine.playSculpt();
+          const nowSfx = performance.now();
+          if (nowSfx - lastInteractSoundRef.current >= 75) {
+            lastInteractSoundRef.current = nowSfx;
+            if (def?.isSkyRain) {
+              soundEngine.playSkyRain(def.type);
+            } else {
+              soundEngine.playSculpt();
+            }
           }
-          setStatusFeedback(`${def?.name} applied`);
+          notifyInteractHud(`${def?.name} applied`);
         } else {
-          setStatusFeedback(res.reason || 'Cannot edit tile');
+          notifyInteractHud(res.reason || 'Cannot edit tile');
         }
-        setHudTick((t) => t + 1);
         return;
       }
 
@@ -1204,11 +1256,10 @@ export default function App() {
         const def = BUILDINGS.find((b) => b.type === activeTool.building);
         if (res.ok) {
           soundEngine.playBuild();
-          setStatusFeedback(`Placed ${def?.name}`);
+          notifyInteractHud(`Placed ${def?.name}`);
         } else {
-          setStatusFeedback(res.reason || 'Cannot build here');
+          notifyInteractHud(res.reason || 'Cannot build here');
         }
-        setHudTick((t) => t + 1);
         return;
       }
 
@@ -1216,15 +1267,23 @@ export default function App() {
         const res = spawnUnit(sim, activeTool.unit, tileX, tileZ);
         const def = UNITS.find((u) => u.role === activeTool.unit);
         if (res.ok) {
-          soundEngine.playSpawn();
-          setStatusFeedback(`Spawned ${def?.name}`);
+          const nowSfx = performance.now();
+          if (nowSfx - lastInteractSoundRef.current >= 65) {
+            lastInteractSoundRef.current = nowSfx;
+            soundEngine.playSpawn();
+          }
+          notifyInteractHud(`Spawned ${def?.name}`);
         } else {
-          setStatusFeedback(res.reason || 'Cannot spawn here');
+          notifyInteractHud(res.reason || 'Cannot spawn here');
         }
-        setHudTick((t) => t + 1);
       }
     },
-    [activeTool, brushRadius, brushSize, activeZones.alliances],
+    [
+      activeTool,
+      brushRadius,
+      brushSize,
+      activeZones.alliances,
+    ],
   );
 
   const handleToggleGodRule = useCallback((key: BooleanWorldRuleKey) => {
@@ -1266,8 +1325,7 @@ export default function App() {
     activeZones.biomes ||
     activeZones.temperature ||
     activeZones.alliances;
-  const shouldComputeZones =
-    anyZoneActive || isInspectTabActive || activeCategory === 'zones';
+  const shouldComputeZones = anyZoneActive || activeCategory === 'zones';
 
   // Compute dynamic land & sea zones & gather HUD unit lists in a single pass
   const sim = simRef.current;
@@ -1297,12 +1355,17 @@ export default function App() {
         .map(([k, v]) => `${k}=${v}`)
         .join(',')
     : '';
+  const settlementNamesKey = sim.settlementNames
+    ? Object.entries(sim.settlementNames)
+        .map(([k, v]) => `${k}=${v}`)
+        .join('|')
+    : '';
   const zoneCacheKey = shouldComputeZones
-    ? `${sim.seed}:${Math.floor(sim.year)}:${sim.buildings.length}:${sim.units.length}:${kingdomEpochsKey}:${Math.floor(hudTick / 10)}`
+    ? `${sim.seed}:${Math.floor(sim.year)}:${sim.buildings.length}:${sim.units.length}:${kingdomEpochsKey}:${settlementNamesKey}:${Math.floor(hudTick / 10)}`
     : 'idle';
   const kingdomLabelsKey =
     !anyZoneActive && activeZones.kingdomLabels && gameState !== 'title'
-      ? `${sim.seed}:${sim.buildings.length}:${sim.units.length}:${kingdomEpochsKey}:${Math.floor(hudTick / 10)}`
+      ? `${sim.seed}:${sim.buildings.length}:${sim.units.length}:${kingdomEpochsKey}:${settlementNamesKey}:${Math.floor(hudTick / 10)}`
       : 'off';
 
   const worldZones = useMemo(() => {
@@ -1315,7 +1378,8 @@ export default function App() {
   const hoveredZoneInfo = useMemo(() => {
     if (!worldZones || !hoverTile) return null;
     return inspectTileZones(worldZones, simRef.current, hoverTile.x, hoverTile.z);
-  }, [worldZones, hoverTile]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [worldZones, hoverTile, hudTick]);
 
   const zoneOverlayVersionRef = useRef(0);
   const zoneColorBufRef = useRef<Uint8Array | undefined>(undefined);
@@ -1499,6 +1563,18 @@ export default function App() {
     return null;
   })();
 
+  // Overlay visibility flags so full-screen / centered popups hide underlying UI cleanly
+  const hasBlockingSaveOrQuitModal =
+    gameState !== 'title' && (Boolean(saveModalStep) || (quitConfirmOpen && !hasSavedWorld));
+  const hasInGameOverlayModal =
+    gameState === 'paused' ||
+    gameState === 'gameover' ||
+    (gameState === 'playing' && (showWorldInfoModal || showGodRulesModal)) ||
+    hasBlockingSaveOrQuitModal;
+  const hasSavedWorldRulesModal =
+    gameState === 'title' && Boolean(editingRulesWorldId && editingRulesDraft);
+  const hasAnyBlockingModal = hasInGameOverlayModal || hasSavedWorldRulesModal;
+
   return (
     <main className="relative w-[100dvw] h-[100dvh] overflow-hidden bg-[#141210] text-[#f2ece1]">
       {/* 3D Pixelated Isometric World Canvas */}
@@ -1520,18 +1596,20 @@ export default function App() {
         hoveredEntityId={isInspectTabActive ? hoveredEntityId : null}
         selectedEntityId={isInspectTabActive ? selectedEntityId : null}
         followingEntityId={isInspectTabActive ? followingEntityId : null}
+        selectedCityId={inspectedCity?.settlementId ?? null}
         zoneOverlayBuffers={zoneOverlayBuffers}
         onTileInteract={handleTileInteract}
         onHoverTileChange={setHoverTile}
         onHoverEntityChange={setHoveredEntityId}
         onSelectEntity={handleSelectEntity}
+        onSelectCityLabel={handleSelectCityLabel}
         onBreakFollow={handleBreakFollow}
         onSyncHud={syncHud}
         onPerfTelemetry={setPerfTelemetry}
       />
 
       {/* Optional Phase 0 Performance Debug HUD (toggled via F3 or Settings) */}
-      {graphicsSettings.showPerformanceHud && perfTelemetry && (
+      {graphicsSettings.showPerformanceHud && perfTelemetry && !hasAnyBlockingModal && (
         <PerformanceHud
           stats={perfTelemetry}
           strictLossless={graphicsSettings.strictLossless !== false}
@@ -1548,7 +1626,8 @@ export default function App() {
       {/* TITLE SCREEN OVERLAY */}
       {gameState === 'title' && (
         <div className="fixed inset-0 z-30 pointer-events-none flex items-center justify-center p-2 sm:p-4">
-          {/* LEFT COLLAPSIBLE UPDATE LOG */}
+          {/* LEFT COLLAPSIBLE UPDATE LOG (hidden when Saved World Rules modal is open) */}
+          {!hasSavedWorldRulesModal && (
           <aside
             aria-label="Update Log"
             data-testid="start-update-log"
@@ -1605,14 +1684,17 @@ export default function App() {
               </div>
             )}
           </aside>
+          )}
 
           {/* BOTTOM-LEFT VERSION */}
+          {!hasSavedWorldRulesModal && (
           <div
             data-testid="game-version-badge"
             className="pointer-events-auto fixed left-2.5 bottom-2 sm:left-4 sm:bottom-4 z-30 text-[11px] sm:text-xs text-[#cfc6b8] tabular-nums select-none drop-shadow-[0_2px_0_#0b0a09]"
           >
             Godmulator {GAME_VERSION}
           </div>
+          )}
 
           {/* MAIN START MENU (Optically Centered) */}
           {titleMenuStep === 'main' && (
@@ -2298,8 +2380,14 @@ export default function App() {
           {titleMenuStep === 'continue_worlds' && (
             <div
               data-testid="continue-worlds-modal"
-              className="pointer-events-auto w-[min(46rem,calc(100vw-16px))] max-h-[calc(100dvh-20px)] flex flex-col px-panel p-4 sm:p-6 gap-3.5"
+              className={
+                hasSavedWorldRulesModal
+                  ? 'pointer-events-auto'
+                  : 'pointer-events-auto w-[min(46rem,calc(100vw-16px))] max-h-[calc(100dvh-20px)] flex flex-col px-panel p-4 sm:p-6 gap-3.5'
+              }
             >
+              {!hasSavedWorldRulesModal && (
+                <>
               <div className="flex items-center justify-between shrink-0">
                 <h2 className="text-lg font-bold text-[#f5b742]">Saved Worlds</h2>
                 <button
@@ -2518,6 +2606,8 @@ export default function App() {
                     );
                   })}
                 </div>
+              )}
+                </>
               )}
 
               {/* Nested Saved World Rules Editor */}
@@ -2782,8 +2872,8 @@ export default function App() {
         </div>
       )}
 
-      {/* PLAYING HUD OVERLAY */}
-      {gameState !== 'title' && !isEventCinematic && (
+      {/* PLAYING HUD OVERLAY (hidden while a blocking modal such as World Info, God Rules, Settings, Save, or Quit is active) */}
+      {gameState !== 'title' && !isEventCinematic && !hasInGameOverlayModal && (
         <div className="fixed inset-0 z-20 pointer-events-none flex flex-col justify-between gap-1 sm:gap-1.5 pt-[max(0.25rem,env(safe-area-inset-top))] pb-[max(0.25rem,env(safe-area-inset-bottom))] pl-[max(0.25rem,env(safe-area-inset-left))] pr-[max(0.25rem,env(safe-area-inset-right))] sm:p-2.5 md:p-3">
           {/* Active World Event compact banner when cinematic camera is dismissed */}
           {activeWorldEvent && activeWorldEvent.remaining > 0 && (
@@ -3091,6 +3181,8 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => {
+                    setSpeedMenuOpen(false);
+                    setCameraMenuOpen(false);
                     setChronicleOpen((prev) => !prev);
                     soundEngine.playClick();
                   }}
@@ -3125,11 +3217,13 @@ export default function App() {
                   onClick={(e) => {
                     e.currentTarget.blur();
                     soundEngine.playClick();
+                    setSpeedMenuOpen(false);
+                    setCameraMenuOpen(false);
+                    setShowWorldInfoModal(false);
+                    setShowGodRulesModal(false);
                     setGameState((prev) => (prev === 'paused' ? 'playing' : 'paused'));
                   }}
-                  className={`w-6 h-6 sm:w-8 sm:h-8 flex items-center justify-center cursor-pointer shrink-0 ${
-                    gameState === 'paused' ? 'px-btn-active' : 'px-btn'
-                  }`}
+                  className="px-btn w-6 h-6 sm:w-8 sm:h-8 flex items-center justify-center cursor-pointer shrink-0"
                   aria-label="Settings"
                   title="Settings"
                 >
@@ -3139,17 +3233,16 @@ export default function App() {
             </div>
           </div>
 
-          {/* MIDDLE HUD LAYER: Entity/Zone Inspector & World Log (bounded cleanly between top bar & bottom dock) */}
+          {/* MIDDLE HUD LAYER: Entity Inspector, City Inspector & World Log (bounded cleanly between top bar & bottom dock) */}
           <div className="relative flex-1 min-h-0 w-full pointer-events-none">
             {gameState === 'playing' && isInspectTabActive && (
+              <div className={chronicleOpen && !speedMenuOpen && !cameraMenuOpen ? 'hidden lg:contents' : 'contents'}>
               <EntityInspectorCard
                 sim={sim}
                 hoveredUnit={hoveredUnit}
                 selectedUnit={selectedUnit}
                 favoriteUnits={favoriteUnits}
                 followingEntityId={followingEntityId}
-                hoveredZoneInfo={hoveredZoneInfo}
-                activeZones={activeZones}
                 onToggleFavorite={handleToggleFavoriteEntity}
                 onSelectUnit={handleSelectEntity}
                 onFocusUnit={handleFocusEntity}
@@ -3172,23 +3265,6 @@ export default function App() {
                     s.settlementNames[kid] = newName;
                   }
                   setStatusFeedback(`Renamed city to ${newName}`);
-                  setHudTick((v) => v + 1);
-                }}
-                onRenameKingdom={(kingdomId, newName) => {
-                  const s = simRef.current;
-                  const oldName = s.settlementNames?.[kingdomId];
-                  if (!s.settlementNames) s.settlementNames = {};
-                  s.settlementNames[kingdomId] = newName;
-                  // Also rename capital settlement if it matched the old kingdom name
-                  if (s.settlementKingdoms) {
-                    for (const [sid, kid] of Object.entries(s.settlementKingdoms)) {
-                      if (kid === kingdomId && (!s.settlementNames[sid] || s.settlementNames[sid] === oldName)) {
-                        s.settlementNames[sid] = newName;
-                        break;
-                      }
-                    }
-                  }
-                  setStatusFeedback(`Renamed kingdom to ${newName}`);
                   setHudTick((v) => v + 1);
                 }}
                 onSetUnitStat={(unitId, statKey, value) => {
@@ -3230,6 +3306,12 @@ export default function App() {
                   const target = simRef.current.units.find((u) => u.id === unitId);
                   if (!target) return;
                   setUnitAgeYears(target, ageYears);
+                  setHudTick((v) => v + 1);
+                }}
+                onSetUnitSizeScale={(unitId, sizeScale) => {
+                  const target = simRef.current.units.find((u) => u.id === unitId);
+                  if (!target) return;
+                  setUnitSizeScale(target, sizeScale);
                   setHudTick((v) => v + 1);
                 }}
                 onToggleUnitTrait={(unitId, traitId) => {
@@ -3286,22 +3368,161 @@ export default function App() {
                   }
                 }}
               />
+              </div>
             )}
 
-            {chronicleOpen && (
+            {gameState === 'playing' && inspectedCity && (
+              <div className={chronicleOpen && !speedMenuOpen && !cameraMenuOpen ? 'hidden lg:contents' : 'contents'}>
+                <CityInspectorCard
+                  sim={sim}
+                  cityRef={inspectedCity}
+                  accentHex={
+                    inspectedCity.hexColor ||
+                    zoneOverlayBuffers.kingdomColors?.[inspectedCity.settlementId] ||
+                    zoneOverlayBuffers.kingdomColors?.[inspectedCity.kingdomId] ||
+                    '#f5b742'
+                  }
+                  offsetForEntityInspector={isInspectTabActive}
+                  onClose={() => {
+                    setInspectedCity(null);
+                    soundEngine.playClick();
+                  }}
+                  onFocusTile={(tx, tz) => {
+                    cameraActionRef.current.focusTarget = { x: tx, z: tz, zoom: 11.5 };
+                    soundEngine.playClick();
+                    setStatusFeedback(`Focused camera on ${inspectedCity.name || 'city'}`);
+                  }}
+                  onRenameSettlement={(settlementId, newName) => {
+                    const s = simRef.current;
+                    const oldName = s.settlementNames?.[settlementId];
+                    if (!s.settlementNames) s.settlementNames = {};
+                    s.settlementNames[settlementId] = newName;
+                    const kid = s.settlementKingdoms?.[settlementId];
+                    if (kid && kid !== settlementId && (!s.settlementNames[kid] || s.settlementNames[kid] === oldName)) {
+                      s.settlementNames[kid] = newName;
+                    }
+                    setInspectedCity((prev) =>
+                      prev && prev.settlementId === settlementId ? { ...prev, name: newName } : prev,
+                    );
+                    setStatusFeedback(`Renamed city to ${newName}`);
+                    setHudTick((v) => v + 1);
+                  }}
+                  onRenameKingdom={(kingdomId, newName) => {
+                    const s = simRef.current;
+                    const oldName = s.settlementNames?.[kingdomId];
+                    if (!s.settlementNames) s.settlementNames = {};
+                    s.settlementNames[kingdomId] = newName;
+                    if (s.settlementKingdoms) {
+                      for (const [sid, kid] of Object.entries(s.settlementKingdoms)) {
+                        if (kid === kingdomId && (!s.settlementNames[sid] || s.settlementNames[sid] === oldName)) {
+                          s.settlementNames[sid] = newName;
+                          break;
+                        }
+                      }
+                    }
+                    setStatusFeedback(`Renamed kingdom to ${newName}`);
+                    setHudTick((v) => v + 1);
+                  }}
+                  onSetKingdomResource={(kingdomId, resource, value) => {
+                    const s = simRef.current;
+                    if (!s.kingdomResources) s.kingdomResources = {};
+                    if (!s.kingdomResources[kingdomId]) {
+                      s.kingdomResources[kingdomId] = {
+                        food: 0,
+                        wood: 0,
+                        stone: 0,
+                        ore: 0,
+                        knowledge: 0,
+                        energy: 0,
+                        alloy: 0,
+                        faith: 0,
+                      };
+                    }
+                    s.kingdomResources[kingdomId][resource] = Math.max(0, Math.min(999999, Math.round(value)));
+                    setHudTick((v) => v + 1);
+                  }}
+                  onBoostKingdomResources={(kingdomId, delta) => {
+                    const s = simRef.current;
+                    if (!s.kingdomResources) s.kingdomResources = {};
+                    if (!s.kingdomResources[kingdomId]) {
+                      s.kingdomResources[kingdomId] = {
+                        food: 0,
+                        wood: 0,
+                        stone: 0,
+                        ore: 0,
+                        knowledge: 0,
+                        energy: 0,
+                        alloy: 0,
+                        faith: 0,
+                      };
+                    }
+                    const res = s.kingdomResources[kingdomId];
+                    const keys: (keyof Resources)[] = ['food', 'wood', 'stone', 'ore', 'knowledge', 'alloy', 'faith'];
+                    for (const key of keys) {
+                      res[key] = delta === 0 ? 0 : Math.max(0, Math.min(999999, Math.floor((res[key] ?? 0) + delta)));
+                    }
+                    setStatusFeedback(delta === 0 ? 'Cleared city stockpile' : `Granted +${delta} to all city resources`);
+                    setHudTick((v) => v + 1);
+                  }}
+                  onSetKingdomEpoch={(kingdomId, epochIndex) => {
+                    setKingdomEpoch(simRef.current, kingdomId, epochIndex, true);
+                    setStatusFeedback(`Updated kingdom era`);
+                    setHudTick((v) => v + 1);
+                  }}
+                  onSetKingdomEpochProgress={(kingdomId, progress) => {
+                    const s = simRef.current;
+                    if (!s.kingdomEpochProgress) s.kingdomEpochProgress = {};
+                    s.kingdomEpochProgress[kingdomId] = Math.max(0, Math.min(100, Math.round(progress)));
+                    setHudTick((v) => v + 1);
+                  }}
+                  onToggleKingdomPeaceful={(kingdomId) => {
+                    const s = simRef.current;
+                    if (!s.kingdomPeacefulTraits) s.kingdomPeacefulTraits = {};
+                    const next = !s.kingdomPeacefulTraits[kingdomId];
+                    s.kingdomPeacefulTraits[kingdomId] = next;
+                    setStatusFeedback(next ? 'Kingdom set to Peaceful' : 'Kingdom set to Expansionist');
+                    setHudTick((v) => v + 1);
+                  }}
+                />
+              </div>
+            )}
+
+            {chronicleOpen && !speedMenuOpen && !cameraMenuOpen && (
               <div className="pointer-events-auto absolute right-0 top-0 z-20 w-[min(24rem,100%)] max-h-[min(240px,100%)] sm:max-h-full px-panel p-2 sm:p-3 overflow-y-auto">
-                <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center justify-between gap-2 mb-2">
                   <h2 className="font-bold text-sm text-[#f5b742]">World Log</h2>
-                  <button
-                    type="button"
-                    onClick={() => setChronicleOpen(false)}
-                    className="px-btn px-2 py-0.5 text-xs cursor-pointer"
-                  >
-                    Close
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setChronicleFilter('major')}
+                      className={`px-1.5 py-0.5 text-[10px] font-semibold cursor-pointer ${
+                        chronicleFilter === 'major' ? 'px-btn-active' : 'px-btn'
+                      }`}
+                    >
+                      Major
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setChronicleFilter('all')}
+                      className={`px-1.5 py-0.5 text-[10px] font-semibold cursor-pointer ${
+                        chronicleFilter === 'all' ? 'px-btn-active' : 'px-btn'
+                      }`}
+                    >
+                      All
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setChronicleOpen(false)}
+                      className="px-btn px-2 py-0.5 text-xs cursor-pointer"
+                    >
+                      Close
+                    </button>
+                  </div>
                 </div>
                 <div className="space-y-1.5 text-xs">
-                  {sim.chronicle.map((entry) => (
+                  {sim.chronicle
+                    .filter((entry) => chronicleFilter === 'all' || entry.tone !== 'build')
+                    .map((entry) => (
                     <div key={entry.id} className="leading-snug flex gap-2">
                       <span className="font-pixel-num text-[10px] text-[#9e9486] shrink-0 pt-0.5">
                         {entry.yearLabel}
@@ -4268,7 +4489,7 @@ export default function App() {
       )}
 
       {/* IN-GAME SETTINGS / PAUSE MODAL */}
-      {gameState === 'paused' && (
+      {gameState === 'paused' && !hasBlockingSaveOrQuitModal && (
         <div
           role="dialog"
           aria-modal="true"
@@ -4335,7 +4556,7 @@ export default function App() {
       )}
 
       {/* VICTORY MODAL */}
-      {gameState === 'gameover' && (
+      {gameState === 'gameover' && !hasBlockingSaveOrQuitModal && (
         <div
           role="dialog"
           aria-modal="true"
@@ -4388,7 +4609,7 @@ export default function App() {
       )}
 
       {/* GOD RULES OVERLAY */}
-      {showGodRulesModal && gameState === 'playing' && (
+      {showGodRulesModal && gameState === 'playing' && !hasBlockingSaveOrQuitModal && (
         <div
           role="dialog"
           aria-modal="true"
@@ -4398,7 +4619,7 @@ export default function App() {
             soundEngine.playClick();
             setShowGodRulesModal(false);
           }}
-          className="fixed inset-0 z-40 flex items-center justify-center p-2 sm:p-4"
+          className="fixed inset-0 z-40 flex items-center justify-center bg-[#0d0c0b]/75 p-2 sm:p-4"
         >
           <div
             onClick={(e) => e.stopPropagation()}
@@ -4483,12 +4704,14 @@ export default function App() {
       )}
 
       {/* WORLD INFO OVERLAY */}
-      {showWorldInfoModal && gameState === 'playing' && (() => {
+      {showWorldInfoModal && gameState === 'playing' && !showGodRulesModal && !hasBlockingSaveOrQuitModal && (() => {
         const wStats = sim.worldStats ?? createEmptyWorldStats();
         let livingCivs = 0;
         let livingHumans = 0;
         let livingElves = 0;
         let livingOrcs = 0;
+        let livingDwarves = 0;
+        let livingLizardfolk = 0;
         let livingChildren = 0;
         let livingWildlife = 0;
         let livingMythical = 0;
@@ -4507,6 +4730,8 @@ export default function App() {
             if (u.ageStage === 'child') livingChildren += 1;
             if (u.species === 'elf') livingElves += 1;
             else if (u.species === 'orc') livingOrcs += 1;
+            else if (u.species === 'dwarf') livingDwarves += 1;
+            else if (u.species === 'lizardfolk') livingLizardfolk += 1;
             else livingHumans += 1;
           } else if (u.faction === 'hostile') {
             livingHostiles += 1;
@@ -4552,7 +4777,7 @@ export default function App() {
               soundEngine.playClick();
               setShowWorldInfoModal(false);
             }}
-            className="fixed inset-0 z-40 flex items-center justify-center p-2 sm:p-4"
+            className="fixed inset-0 z-40 flex items-center justify-center bg-[#0d0c0b]/75 p-2 sm:p-4"
           >
             <div
               onClick={(e) => e.stopPropagation()}
@@ -4599,6 +4824,12 @@ export default function App() {
                     <span className="text-[#a89f91]">Humans / Elves / Orcs</span>
                     <span className="text-[#f2ece1]">
                       {livingHumans.toLocaleString()} / {livingElves.toLocaleString()} / {livingOrcs.toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between tabular-nums">
+                    <span className="text-[#a89f91]">Dwarves / Lizardfolk</span>
+                    <span className="text-[#f2ece1]">
+                      {livingDwarves.toLocaleString()} / {livingLizardfolk.toLocaleString()}
                     </span>
                   </div>
                   <div className="flex items-center justify-between tabular-nums">
@@ -4767,7 +4998,7 @@ export default function App() {
       })()}
 
       {/* QUIT TO MAIN MENU GUARD MODAL (unsaved worlds only) */}
-      {quitConfirmOpen && !hasSavedWorld && gameState !== 'title' && (
+      {quitConfirmOpen && !hasSavedWorld && gameState !== 'title' && !saveModalStep && (
         <div
           role="dialog"
           aria-modal="true"

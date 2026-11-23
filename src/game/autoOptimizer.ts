@@ -5,6 +5,16 @@ export interface WorldCullBounds {
   maxX: number;
   minZ: number;
   maxZ: number;
+  /** Exact camera-oriented 2D bounding box (OBB) for tight dynamic culling at any camera yaw */
+  obbEnabled?: boolean;
+  obbRightX?: number;
+  obbRightZ?: number;
+  obbMinR?: number;
+  obbMaxR?: number;
+  obbFwdX?: number;
+  obbFwdZ?: number;
+  obbMinF?: number;
+  obbMaxF?: number;
 }
 
 export interface AutoOptimizerDecisions {
@@ -186,7 +196,8 @@ export function computeOrthoGroundCullBounds(
   gridSize: number,
   out: WorldCullBounds,
   padTiles = 5.5,
-  maxElevation = 5.5,
+  maxElevation = 7.5,
+  minElevation = -0.6,
 ): WorldCullBounds {
   camera.updateMatrixWorld();
   camera.getWorldDirection(_rayDir);
@@ -202,20 +213,41 @@ export function computeOrthoGroundCullBounds(
     out.maxX = gridSize + padTiles;
     out.minZ = -padTiles;
     out.maxZ = gridSize + padTiles;
+    out.obbEnabled = false;
     return out;
   }
+
+  const horizLen = Math.hypot(_rayDir.x, _rayDir.z);
+  const useObb = horizLen > 1e-4;
+  const fwdX = useObb ? _rayDir.x / horizLen : 0;
+  const fwdZ = useObb ? _rayDir.z / horizLen : 1;
+  const rightX = -fwdZ;
+  const rightZ = fwdX;
+
+  let minR = Infinity;
+  let maxR = -Infinity;
+  let minF = Infinity;
+  let maxF = -Infinity;
 
   for (let i = 0; i < 4; i++) {
     _rayOrigin.copy(_ndcCorners[i]).unproject(camera);
 
-    // Intersect plane y = 0 (sea level)
-    const t0 = -_rayOrigin.y / dirY;
+    // Intersect plane y = minElevation (seabed / sunken terrain)
+    const t0 = (minElevation - _rayOrigin.y) / dirY;
     const x0 = _rayOrigin.x + _rayDir.x * t0;
     const z0 = _rayOrigin.z + _rayDir.z * t0;
     if (x0 < minX) minX = x0;
     if (x0 > maxX) maxX = x0;
     if (z0 < minZ) minZ = z0;
     if (z0 > maxZ) maxZ = z0;
+    if (useObb) {
+      const r0 = x0 * rightX + z0 * rightZ;
+      const f0 = x0 * fwdX + z0 * fwdZ;
+      if (r0 < minR) minR = r0;
+      if (r0 > maxR) maxR = r0;
+      if (f0 < minF) minF = f0;
+      if (f0 > maxF) maxF = f0;
+    }
 
     // Intersect plane y = maxElevation (mountain peaks / tall towers / flying units)
     const t1 = (maxElevation - _rayOrigin.y) / dirY;
@@ -225,12 +257,33 @@ export function computeOrthoGroundCullBounds(
     if (x1 > maxX) maxX = x1;
     if (z1 < minZ) minZ = z1;
     if (z1 > maxZ) maxZ = z1;
+    if (useObb) {
+      const r1 = x1 * rightX + z1 * rightZ;
+      const f1 = x1 * fwdX + z1 * fwdZ;
+      if (r1 < minR) minR = r1;
+      if (r1 > maxR) maxR = r1;
+      if (f1 < minF) minF = f1;
+      if (f1 > maxF) maxF = f1;
+    }
   }
 
   out.minX = minX - padTiles;
   out.maxX = maxX + padTiles;
   out.minZ = minZ - padTiles;
   out.maxZ = maxZ + padTiles;
+  if (useObb) {
+    out.obbEnabled = true;
+    out.obbRightX = rightX;
+    out.obbRightZ = rightZ;
+    out.obbMinR = minR - padTiles;
+    out.obbMaxR = maxR + padTiles;
+    out.obbFwdX = fwdX;
+    out.obbFwdZ = fwdZ;
+    out.obbMinF = minF - padTiles;
+    out.obbMaxF = maxF + padTiles;
+  } else {
+    out.obbEnabled = false;
+  }
   return out;
 }
 
@@ -264,22 +317,46 @@ export function computeSnappedShadowBounds(
 /** Hysteresis buffer (tiles) outside spawn cull bounds before existing 3D objects are unrendered & disposed. */
 export const DESPAWN_CULL_HYSTERESIS = 4.0;
 
-/** Zero-GC point-in-AABB check against the padded camera ground cull bounds. */
+/** Zero-GC point-in-cull-bounds check (AABB + exact rotated camera OBB when enabled). */
 export function isPointInCullBounds(
   x: number,
   z: number,
   bounds: WorldCullBounds,
   pad = 0,
 ): boolean {
+  if (
+    x < bounds.minX - pad ||
+    x > bounds.maxX + pad ||
+    z < bounds.minZ - pad ||
+    z > bounds.maxZ + pad
+  ) {
+    return false;
+  }
+  if (bounds.obbEnabled) {
+    const r = x * bounds.obbRightX! + z * bounds.obbRightZ!;
+    if (r < bounds.obbMinR! - pad || r > bounds.obbMaxR! + pad) return false;
+    const f = x * bounds.obbFwdX! + z * bounds.obbFwdZ!;
+    if (f < bounds.obbMinF! - pad || f > bounds.obbMaxF! + pad) return false;
+  }
+  return true;
+}
+
+/** Returns true only when all 4 corners of the [0, gridSize-1]^2 world are inside the exact cull bounds (including OBB). */
+export function isWholeMapInsideCullBounds(
+  gridSize: number,
+  bounds: WorldCullBounds,
+  pad = 0,
+): boolean {
+  const maxCoord = Math.max(0, gridSize - 1);
   return (
-    x >= bounds.minX - pad &&
-    x <= bounds.maxX + pad &&
-    z >= bounds.minZ - pad &&
-    z <= bounds.maxZ + pad
+    isPointInCullBounds(0, 0, bounds, pad) &&
+    isPointInCullBounds(maxCoord, 0, bounds, pad) &&
+    isPointInCullBounds(0, maxCoord, bounds, pad) &&
+    isPointInCullBounds(maxCoord, maxCoord, bounds, pad)
   );
 }
 
-/** Zero-GC AABB-vs-AABB overlap test against camera ground cull bounds. */
+/** Zero-GC AABB-vs-OBB overlap test (AABB precheck + exact SAT rotated camera OBB when enabled). */
 export function isAabbIntersectingCullBounds(
   aMinX: number,
   aMaxX: number,
@@ -288,12 +365,37 @@ export function isAabbIntersectingCullBounds(
   bounds: WorldCullBounds,
   pad = 0,
 ): boolean {
-  return (
-    aMaxX >= bounds.minX - pad &&
-    aMinX <= bounds.maxX + pad &&
-    aMaxZ >= bounds.minZ - pad &&
-    aMinZ <= bounds.maxZ + pad
-  );
+  if (
+    aMaxX < bounds.minX - pad ||
+    aMinX > bounds.maxX + pad ||
+    aMaxZ < bounds.minZ - pad ||
+    aMinZ > bounds.maxZ + pad
+  ) {
+    return false;
+  }
+  if (bounds.obbEnabled) {
+    const midX = (aMinX + aMaxX) * 0.5;
+    const midZ = (aMinZ + aMaxZ) * 0.5;
+    const halfX = (aMaxX - aMinX) * 0.5;
+    const halfZ = (aMaxZ - aMinZ) * 0.5;
+
+    const rx = bounds.obbRightX!;
+    const rz = bounds.obbRightZ!;
+    const rCenter = midX * rx + midZ * rz;
+    const rExtent = halfX * Math.abs(rx) + halfZ * Math.abs(rz);
+    if (rCenter + rExtent < bounds.obbMinR! - pad || rCenter - rExtent > bounds.obbMaxR! + pad) {
+      return false;
+    }
+
+    const fx = bounds.obbFwdX!;
+    const fz = bounds.obbFwdZ!;
+    const fCenter = midX * fx + midZ * fz;
+    const fExtent = halfX * Math.abs(fx) + halfZ * Math.abs(fz);
+    if (fCenter + fExtent < bounds.obbMinF! - pad || fCenter - fExtent > bounds.obbMaxF! + pad) {
+      return false;
+    }
+  }
+  return true;
 }
 
 /**

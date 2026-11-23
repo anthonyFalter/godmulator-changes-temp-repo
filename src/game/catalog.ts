@@ -356,6 +356,32 @@ export const SPECIES_UNITS: UnitDefinition[] = [
     attackRange: 1.45,
     harvestRate: 10,
   },
+  {
+    role: 'dwarf',
+    species: 'dwarf',
+    name: 'Dwarf',
+    faction: 'civilization',
+    roleSummary: 'Armored rune-smiths who build stone bastions, steam ironclads, and seismic mortars',
+    cost: { faith: 12 },
+    maxHp: 215,
+    speed: 2.15,
+    attackDamage: 24,
+    attackRange: 1.5,
+    harvestRate: 14,
+  },
+  {
+    role: 'lizardfolk',
+    species: 'lizardfolk',
+    name: 'Lizardfolk',
+    faction: 'civilization',
+    roleSummary: 'Sun-temple builders wielding solar prism lances, stepped ziggurats, and sky-skiffs',
+    cost: { faith: 12 },
+    maxHp: 195,
+    speed: 2.55,
+    attackDamage: 23,
+    attackRange: 1.75,
+    harvestRate: 12,
+  },
 ];
 
 export const ANIMAL_UNITS: UnitDefinition[] = [
@@ -1663,7 +1689,7 @@ export const GOD_POWERS: GodPowerDefinition[] = [
     type: 'solar_orbital_laser',
     name: 'Solar Beam',
     category: 'Wrathful',
-    summary: 'Summons a blazing sun that sweeps a solar beam and hurls lava-forming flares across the map',
+    summary: 'Summons a blazing sun whose sweeping beam burns through blocks, evaporates water, and hurls lava-forming flares',
     faithCost: 55,
     radius: 4.5,
     keyHint: '',
@@ -1773,7 +1799,7 @@ export const GOD_POWERS: GodPowerDefinition[] = [
     type: 'wildfire_ring',
     name: 'Lava Fissure',
     category: 'Wrathful',
-    summary: 'Tears a glowing molten rift across the earth, erupting lava bombs and igniting both banks',
+    summary: 'Cracks open a jagged tectonic fissure across the ground before erupting roaring pillars of lava and volcanic bombs',
     faithCost: 35,
     radius: 7.0,
     keyHint: '',
@@ -2192,6 +2218,10 @@ export function getUnitMaxLifespan(unit: {
         base = 215 + (seed % 50);
       } else if (unit.species === 'orc') {
         base = 68 + (seed % 16);
+      } else if (unit.species === 'dwarf') {
+        base = 145 + (seed % 35);
+      } else if (unit.species === 'lizardfolk') {
+        base = 115 + (seed % 30);
       } else {
         base = 88 + (seed % 20);
       }

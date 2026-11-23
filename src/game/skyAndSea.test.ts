@@ -5,6 +5,7 @@ import {
   createOceanFoamSystem,
   createPixelSpaceSystem,
   createSkyCloudSystem,
+  createStyledTerrainSystem,
   createWorldUnderglowSystem,
   createZoneOverlaySystem,
 } from './skyAndSea';
@@ -245,7 +246,39 @@ test('Poison smoothly gradients across connected active water and never bleeds t
   ocean.updateMap(tiles);
   assert.equal(getBlue(11, 2), 170, 'Quenched river next to volcanic_wasteland should render as river water, not lava');
 
+  // Verify uHasLava and uHasPoison uniforms track live water map state cleanly
+  assert.equal(mat.uniforms.uHasPoison.value, 1);
+  assert.equal(mat.uniforms.uHasLava.value, 0);
+  tiles[0].waterKind = 'lava';
+  ocean.updateMap(tiles);
+  assert.equal(mat.uniforms.uHasLava.value, 1);
+
   ocean.dispose();
+});
+
+test('Sky clouds collapse into 2 BatchedMesh draw calls, ocean uses lightweight vertex grid, and terrain provides unifiedMat', () => {
+  const clouds = createSkyCloudSystem(128);
+  assert.equal(clouds.group.children.length, 1, 'Cloud canopy must render via 1 BatchedMesh');
+  assert.equal(clouds.shadowGroup.children.length, 1, 'Cloud shadows must render via 1 BatchedMesh');
+
+  const cloudBatch = clouds.group.children[0] as THREE.BatchedMesh;
+  assert.ok(cloudBatch.isBatchedMesh);
+  clouds.setQuality('reduced');
+  clouds.update(0, 12.0, 'noon', { minX: 20, maxX: 60, minZ: 20, maxZ: 60 });
+  assert.equal(clouds.group.visible, true);
+  clouds.setQuality('off');
+  assert.equal(clouds.group.visible, false);
+  clouds.dispose();
+
+  const ocean = createOceanFoamSystem(128);
+  const oceanGeo = ocean.mesh.geometry as THREE.PlaneGeometry;
+  assert.ok(oceanGeo.parameters.widthSegments <= 48 && oceanGeo.parameters.heightSegments <= 48);
+  ocean.dispose();
+
+  const styled = createStyledTerrainSystem(32);
+  const mats = styled.getChunkMaterials();
+  assert.ok(mats.unifiedMat && mats.unifiedMat instanceof THREE.MeshStandardMaterial);
+  styled.dispose();
 });
 
 

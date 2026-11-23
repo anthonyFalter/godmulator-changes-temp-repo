@@ -735,100 +735,110 @@ for (const g of UNIT_GENES) {
   }
 }
 
+const GENE_INFO_CACHE = new Map<string, GeneDefinition>();
+const GENE_INFO_CACHE_MAX = 512;
+
 export function resolveGeneInfo(geneName: string, isIntrinsic = false): GeneDefinition {
   const exact = GENE_BY_NAME.get(geneName);
+  if (exact && !isIntrinsic) {
+    return exact;
+  }
+  const cacheKey = `${isIntrinsic ? '1' : '0'}|${geneName}`;
+  const cached = GENE_INFO_CACHE.get(cacheKey);
+  if (cached) return cached;
+
+  let resolved: GeneDefinition;
   if (exact) {
-    return isIntrinsic ? { ...exact, kind: 'intrinsic' } : exact;
+    resolved = { ...exact, kind: 'intrinsic' };
+  } else {
+    const lower = geneName.toLowerCase();
+    if (lower.endsWith('scales')) {
+      resolved = {
+        name: geneName,
+        kind: 'intrinsic',
+        icon: 'scale',
+        description: 'Hard dragon scales that block heat and heavy blows.',
+        mods: { armor: 16, fireproof: true, maxHp: 35 },
+      };
+    } else if (lower.includes('venom') || lower.includes('toxin') || lower.includes('blight')) {
+      resolved = {
+        name: geneName,
+        kind: 'intrinsic',
+        icon: 'venom',
+        description: 'Natural venom that sickens foes on contact.',
+        mods: { venomous: true, attackDamage: 4 },
+      };
+    } else if (lower.includes('fire') || lower.includes('flame') || lower.includes('hell') || lower.includes('ember')) {
+      resolved = {
+        name: geneName,
+        kind: 'intrinsic',
+        icon: 'flame',
+        description: 'Built for heat and completely comfortable near lava.',
+        mods: { fireproof: true, attackDamage: 5 },
+      };
+    } else if (lower.includes('frost') || lower.includes('ice') || lower.includes('glacial') || lower.includes('polar')) {
+      resolved = {
+        name: geneName,
+        kind: 'intrinsic',
+        icon: 'frost',
+        description: 'Thick winter build made for snow and ice.',
+        mods: { armor: 10, maxHp: 20 },
+      };
+    } else if (lower.includes('wing') || lower.includes('sky') || lower.includes('feather') || lower.includes('soar') || lower.includes('gallop') || lower.includes('swift') || lower.includes('leap') || lower.includes('sprint')) {
+      resolved = {
+        name: geneName,
+        kind: 'intrinsic',
+        icon: 'feather',
+        description: 'Natural build for fast movement across open ground.',
+        mods: { speed: 0.45 },
+      };
+    } else if (lower.includes('horn') || lower.includes('tusk') || lower.includes('antler') || lower.includes('charger')) {
+      resolved = {
+        name: geneName,
+        kind: 'intrinsic',
+        icon: 'horn',
+        description: 'Heavy horns built for head-on charges.',
+        mods: { attackDamage: 5, armor: 6 },
+      };
+    } else if (lower.includes('shell') || lower.includes('armor') || lower.includes('stone') || lower.includes('granite') || lower.includes('bark') || lower.includes('fleece') || lower.includes('fur') || lower.includes('blubber') || lower.includes('bulk') || lower.includes('heavy')) {
+      resolved = {
+        name: geneName,
+        kind: 'intrinsic',
+        icon: 'shield',
+        description: 'Natural padding and tough outer hide.',
+        mods: { armor: 10, maxHp: 18 },
+      };
+    } else if (lower.includes('claw') || lower.includes('fang') || lower.includes('apex') || lower.includes('stalker') || lower.includes('hunter') || lower.includes('raider') || lower.includes('warrior')) {
+      resolved = {
+        name: geneName,
+        kind: 'intrinsic',
+        icon: 'claw',
+        description: 'Natural weapons tuned for close fights.',
+        mods: { attackDamage: 5, critChance: 6 },
+      };
+    } else if (lower.includes('regen') || lower.includes('hydra') || lower.includes('moss') || lower.includes('living')) {
+      resolved = {
+        name: geneName,
+        kind: 'intrinsic',
+        icon: 'regen',
+        description: 'Steadily mends injuries without resting.',
+        mods: { regenPerSec: 2.2, maxHp: 20 },
+      };
+    } else {
+      resolved = {
+        name: geneName,
+        kind: isIntrinsic ? 'intrinsic' : 'mutation',
+        icon: 'dna',
+        description: 'Inherited species trait passed down from its lineage.',
+        mods: { maxHp: 10 },
+      };
+    }
   }
-  const lower = geneName.toLowerCase();
-  if (lower.endsWith('scales')) {
-    return {
-      name: geneName,
-      kind: 'intrinsic',
-      icon: 'scale',
-      description: 'Hard dragon scales that block heat and heavy blows.',
-      mods: { armor: 16, fireproof: true, maxHp: 35 },
-    };
+
+  if (GENE_INFO_CACHE.size < GENE_INFO_CACHE_MAX) {
+    GENE_INFO_CACHE.set(cacheKey, resolved);
   }
-  if (lower.includes('venom') || lower.includes('toxin') || lower.includes('blight')) {
-    return {
-      name: geneName,
-      kind: 'intrinsic',
-      icon: 'venom',
-      description: 'Natural venom that sickens foes on contact.',
-      mods: { venomous: true, attackDamage: 4 },
-    };
-  }
-  if (lower.includes('fire') || lower.includes('flame') || lower.includes('hell') || lower.includes('ember')) {
-    return {
-      name: geneName,
-      kind: 'intrinsic',
-      icon: 'flame',
-      description: 'Built for heat and completely comfortable near lava.',
-      mods: { fireproof: true, attackDamage: 5 },
-    };
-  }
-  if (lower.includes('frost') || lower.includes('ice') || lower.includes('glacial') || lower.includes('polar')) {
-    return {
-      name: geneName,
-      kind: 'intrinsic',
-      icon: 'frost',
-      description: 'Thick winter build made for snow and ice.',
-      mods: { armor: 10, maxHp: 20 },
-    };
-  }
-  if (lower.includes('wing') || lower.includes('sky') || lower.includes('feather') || lower.includes('soar') || lower.includes('gallop') || lower.includes('swift') || lower.includes('leap') || lower.includes('sprint')) {
-    return {
-      name: geneName,
-      kind: 'intrinsic',
-      icon: 'feather',
-      description: 'Natural build for fast movement across open ground.',
-      mods: { speed: 0.45 },
-    };
-  }
-  if (lower.includes('horn') || lower.includes('tusk') || lower.includes('antler') || lower.includes('charger')) {
-    return {
-      name: geneName,
-      kind: 'intrinsic',
-      icon: 'horn',
-      description: 'Heavy horns built for head-on charges.',
-      mods: { attackDamage: 5, armor: 6 },
-    };
-  }
-  if (lower.includes('shell') || lower.includes('armor') || lower.includes('stone') || lower.includes('granite') || lower.includes('bark') || lower.includes('fleece') || lower.includes('fur') || lower.includes('blubber') || lower.includes('bulk') || lower.includes('heavy')) {
-    return {
-      name: geneName,
-      kind: 'intrinsic',
-      icon: 'shield',
-      description: 'Natural padding and tough outer hide.',
-      mods: { armor: 10, maxHp: 18 },
-    };
-  }
-  if (lower.includes('claw') || lower.includes('fang') || lower.includes('apex') || lower.includes('stalker') || lower.includes('hunter') || lower.includes('raider') || lower.includes('warrior')) {
-    return {
-      name: geneName,
-      kind: 'intrinsic',
-      icon: 'claw',
-      description: 'Natural weapons tuned for close fights.',
-      mods: { attackDamage: 5, critChance: 6 },
-    };
-  }
-  if (lower.includes('regen') || lower.includes('hydra') || lower.includes('moss') || lower.includes('living')) {
-    return {
-      name: geneName,
-      kind: 'intrinsic',
-      icon: 'regen',
-      description: 'Steadily mends injuries without resting.',
-      mods: { regenPerSec: 2.2, maxHp: 20 },
-    };
-  }
-  return {
-    name: geneName,
-    kind: isIntrinsic ? 'intrinsic' : 'mutation',
-    icon: 'dna',
-    description: 'Inherited species trait passed down from its lineage.',
-    mods: { maxHp: 10 },
-  };
+  return resolved;
 }
 
 // ============================================================================
@@ -1170,13 +1180,14 @@ const ITEM_BY_NAME = new Map<string, ItemDefinition>(
   UNIT_ITEMS.map((item) => [item.name, item]),
 );
 
+const ITEM_INFO_CACHE = new Map<string, ItemDefinition>();
+const ITEM_INFO_CACHE_MAX = 512;
+
 export function resolveItemInfo(itemName: string): ItemDefinition {
   const exact = ITEM_BY_NAME.get(itemName);
   if (exact) return exact;
 
-  const lower = itemName.toLowerCase();
-
-  // Dynamic carrying label
+  // Dynamic carrying label (avoid polluting memo cache with resource variant strings)
   if (itemName.startsWith('Carrying ')) {
     return {
       name: itemName,
@@ -1186,6 +1197,11 @@ export function resolveItemInfo(itemName: string): ItemDefinition {
       mods: {},
     };
   }
+
+  const cached = ITEM_INFO_CACHE.get(itemName);
+  if (cached) return cached;
+
+  const lower = itemName.toLowerCase();
 
   // Material-prefixed generated weapons/shields/tools
   const tierBonus = lower.includes('laser') || lower.includes('plasma')
@@ -1198,17 +1214,17 @@ export function resolveItemInfo(itemName: string): ItemDefinition {
           ? 1
           : 0;
 
+  let resolved: ItemDefinition;
   if (lower.includes('rifle') || lower.includes('laser') || lower.includes('beam')) {
-    return {
+    resolved = {
       name: itemName,
       slot: 'weapon',
       icon: lower.includes('laser') || lower.includes('plasma') || lower.includes('beam') ? 'laser' : 'rifle',
       description: 'Ranged weapon built for long shots.',
       mods: { attackDamage: 12 + tierBonus * 3, attackRange: 2.0 + tierBonus * 0.25 },
     };
-  }
-  if (lower.includes('spear') || lower.includes('sword') || lower.includes('axe') || lower.includes('club') || lower.includes('cleaver') || lower.includes('bow')) {
-    return {
+  } else if (lower.includes('spear') || lower.includes('sword') || lower.includes('axe') || lower.includes('club') || lower.includes('cleaver') || lower.includes('bow')) {
+    resolved = {
       name: itemName,
       slot: 'weapon',
       icon: lower.includes('axe') || lower.includes('cleaver')
@@ -1226,27 +1242,24 @@ export function resolveItemInfo(itemName: string): ItemDefinition {
         attackRange: lower.includes('bow') ? 1.6 : lower.includes('spear') ? 0.5 : 0,
       },
     };
-  }
-  if (lower.includes('shield') || lower.includes('armor') || lower.includes('plate') || lower.includes('shell') || lower.includes('scale') || lower.includes('hide') || lower.includes('granite') || lower.includes('pelt') || lower.includes('fur') || lower.includes('wool') || lower.includes('blubber')) {
-    return {
+  } else if (lower.includes('shield') || lower.includes('armor') || lower.includes('plate') || lower.includes('shell') || lower.includes('scale') || lower.includes('hide') || lower.includes('granite') || lower.includes('pelt') || lower.includes('fur') || lower.includes('wool') || lower.includes('blubber')) {
+    resolved = {
       name: itemName,
       slot: lower.includes('shield') || lower.includes('armor') ? 'armor' : 'natural',
       icon: lower.includes('scale') ? 'scale' : lower.includes('shield') ? 'shield' : 'armor',
       description: 'Thick protection that softens incoming hits.',
       mods: { armor: 7 + tierBonus * 3, maxHp: 14 + tierBonus * 8 },
     };
-  }
-  if (lower.includes('pickaxe') || lower.includes('hammer') || lower.includes('sickle') || lower.includes('drill') || lower.includes('tool') || lower.includes('welder') || lower.includes('wrench')) {
-    return {
+  } else if (lower.includes('pickaxe') || lower.includes('hammer') || lower.includes('sickle') || lower.includes('drill') || lower.includes('tool') || lower.includes('welder') || lower.includes('wrench')) {
+    resolved = {
       name: itemName,
       slot: 'tool',
       icon: lower.includes('hammer') ? 'hammer' : lower.includes('sickle') ? 'sickle' : lower.includes('wrench') || lower.includes('welder') ? 'wrench' : 'pickaxe',
       description: 'Everyday work gear for building and gathering.',
       mods: { harvestPct: 14 + tierBonus * 6, attackDamage: 2 + tierBonus },
     };
-  }
-  if (lower.includes('fang') || lower.includes('claw') || lower.includes('talon') || lower.includes('jaw') || lower.includes('tusk') || lower.includes('horn') || lower.includes('antler') || lower.includes('beak') || lower.includes('stinger')) {
-    return {
+  } else if (lower.includes('fang') || lower.includes('claw') || lower.includes('talon') || lower.includes('jaw') || lower.includes('tusk') || lower.includes('horn') || lower.includes('antler') || lower.includes('beak') || lower.includes('stinger')) {
+    resolved = {
       name: itemName,
       slot: 'natural',
       icon: lower.includes('venom') || lower.includes('stinger')
@@ -1263,59 +1276,60 @@ export function resolveItemInfo(itemName: string): ItemDefinition {
         venomous: lower.includes('venom') || lower.includes('stinger') ? true : undefined,
       },
     };
-  }
-  if (lower.includes('flame') || lower.includes('ember') || lower.includes('lava') || lower.includes('solar') || lower.includes('ash') || lower.includes('foxfire')) {
-    return {
+  } else if (lower.includes('flame') || lower.includes('ember') || lower.includes('lava') || lower.includes('solar') || lower.includes('ash') || lower.includes('foxfire')) {
+    resolved = {
       name: itemName,
       slot: 'natural',
       icon: 'flame',
       description: 'Hot natural organ or keepsake untouched by fire.',
       mods: { fireproof: true, attackDamage: 5 },
     };
-  }
-  if (lower.includes('venom') || lower.includes('ink')) {
-    return {
+  } else if (lower.includes('venom') || lower.includes('ink')) {
+    resolved = {
       name: itemName,
       slot: 'natural',
       icon: 'venom',
       description: 'Biting toxin used to wear down targets.',
       mods: { venomous: true, attackDamage: 3 },
     };
-  }
-  if (lower.includes('feather') || lower.includes('wing') || lower.includes('pinion') || lower.includes('hoof') || lower.includes('hooves') || lower.includes('fin') || lower.includes('tendon')) {
-    return {
+  } else if (lower.includes('feather') || lower.includes('wing') || lower.includes('pinion') || lower.includes('hoof') || lower.includes('hooves') || lower.includes('fin') || lower.includes('tendon')) {
+    resolved = {
       name: itemName,
       slot: 'natural',
       icon: 'feather',
       description: 'Built for quick movement and balance.',
       mods: { speed: 0.3 },
     };
-  }
-  if (lower.includes('scroll') || lower.includes('book') || lower.includes('plan') || lower.includes('tablet') || lower.includes('pad') || lower.includes('compass')) {
-    return {
+  } else if (lower.includes('scroll') || lower.includes('book') || lower.includes('plan') || lower.includes('tablet') || lower.includes('pad') || lower.includes('compass')) {
+    resolved = {
       name: itemName,
       slot: 'trinket',
       icon: 'scroll',
       description: 'Notes and charts kept on hand during work.',
       mods: { harvestPct: 12 },
     };
-  }
-  if (lower.includes('clover') || lower.includes('lucky') || lower.includes('bell') || lower.includes('flute') || lower.includes('wreath') || lower.includes('token') || lower.includes('charm')) {
-    return {
+  } else if (lower.includes('clover') || lower.includes('lucky') || lower.includes('bell') || lower.includes('flute') || lower.includes('wreath') || lower.includes('token') || lower.includes('charm')) {
+    resolved = {
       name: itemName,
       slot: 'trinket',
       icon: 'clover',
       description: 'Small personal keepsake carried everywhere.',
       mods: { critChance: 6, speed: 0.15 },
     };
+  } else {
+    resolved = {
+      name: itemName,
+      slot: 'trinket',
+      icon: 'pouch',
+      description: 'Carried gear or personal belonging.',
+      mods: { maxHp: 8 },
+    };
   }
-  return {
-    name: itemName,
-    slot: 'trinket',
-    icon: 'pouch',
-    description: 'Carried gear or personal belonging.',
-    mods: { maxHp: 8 },
-  };
+
+  if (ITEM_INFO_CACHE.size < ITEM_INFO_CACHE_MAX) {
+    ITEM_INFO_CACHE.set(itemName, resolved);
+  }
+  return resolved;
 }
 
 // ============================================================================
@@ -1438,6 +1452,40 @@ function applyMod(acc: EffectiveUnitStats, m: UnitModifierSet | undefined): void
   if (m.vampiric) acc.vampiric = true;
 }
 
+interface CachedEffectiveStatsEntry {
+  def: UnitDefinition | undefined;
+  role: UnitRole;
+  ageStage: string | undefined;
+  isKing: boolean;
+  traitsSnap: string[] | undefined;
+  genesSnap: string[] | undefined;
+  itemsSnap: string[] | undefined;
+  bMaxHp: number;
+  bAtk: number;
+  bArmor: number;
+  bSpd: number;
+  bCrit: number;
+  bRange: number;
+  bRegen: number;
+  stats: EffectiveUnitStats;
+}
+
+const UNIT_STATS_CACHE = new WeakMap<object, CachedEffectiveStatsEntry>();
+
+function stringArraysEqual(
+  snap: string[] | undefined,
+  live: readonly string[] | undefined,
+): boolean {
+  const nLive = live ? live.length : 0;
+  const nSnap = snap ? snap.length : 0;
+  if (nLive !== nSnap) return false;
+  if (nLive === 0) return true;
+  for (let i = 0; i < nLive; i++) {
+    if (snap![i] !== live![i]) return false;
+  }
+  return true;
+}
+
 export function computeUnitEffectiveStats(
   unit: Pick<
     UnitEntity,
@@ -1455,6 +1503,57 @@ export function computeUnitEffectiveStats(
   options?: { includeStatusEffects?: boolean; worldImmortal?: boolean },
 ): EffectiveUnitStats {
   const def = defOverride ?? UNIT_BY_ROLE.get(unit.role);
+  const canUseCache = !options?.includeStatusEffects;
+  const b = unit.statBonuses;
+  const bMaxHp = b?.maxHp ?? 0;
+  const bAtk = b?.attackDamage ?? 0;
+  const bArmor = b?.armor ?? 0;
+  const bSpd = b?.speed ?? 0;
+  const bCrit = b?.critChance ?? 0;
+  const bRange = b?.attackRange ?? 0;
+  const bRegen = b?.regenPerSec ?? 0;
+  const isKing = Boolean(unit.isKing);
+
+  if (canUseCache) {
+    const cached = UNIT_STATS_CACHE.get(unit);
+    if (
+      cached &&
+      cached.def === def &&
+      cached.role === unit.role &&
+      cached.ageStage === unit.ageStage &&
+      cached.isKing === isKing &&
+      cached.bMaxHp === bMaxHp &&
+      cached.bAtk === bAtk &&
+      cached.bArmor === bArmor &&
+      cached.bSpd === bSpd &&
+      cached.bCrit === bCrit &&
+      cached.bRange === bRange &&
+      cached.bRegen === bRegen &&
+      stringArraysEqual(cached.traitsSnap, unit.traits) &&
+      stringArraysEqual(cached.genesSnap, unit.genes) &&
+      stringArraysEqual(cached.itemsSnap, unit.items)
+    ) {
+      const s = cached.stats;
+      return {
+        maxHp: s.maxHp,
+        attackDamage: s.attackDamage,
+        armor: s.armor,
+        speed: s.speed,
+        critChance: s.critChance,
+        attackRange: s.attackRange,
+        attackSpeedMult: s.attackSpeedMult,
+        regenPerSec: s.regenPerSec,
+        harvestMult: s.harvestMult,
+        lifespanBonus: s.lifespanBonus,
+        immortal: s.immortal || Boolean(options?.worldImmortal),
+        fireproof: s.fireproof,
+        thorns: s.thorns,
+        venomous: s.venomous,
+        vampiric: s.vampiric,
+      };
+    }
+  }
+
   const isChild = unit.ageStage === 'child';
 
   const baseMaxHp = def
@@ -1477,7 +1576,7 @@ export function computeUnitEffectiveStats(
     regenPerSec: 0,
     harvestMult: 1,
     lifespanBonus: 0,
-    immortal: Boolean(options?.worldImmortal),
+    immortal: false,
     fireproof:
       unit.role === 'dragon' ||
       unit.role === 'phoenix' ||
@@ -1489,7 +1588,7 @@ export function computeUnitEffectiveStats(
     vampiric: false,
   };
 
-  if (unit.isKing) {
+  if (isKing) {
     stats.maxHp += 35;
     stats.attackDamage += 4;
     stats.armor += 6;
@@ -1522,15 +1621,14 @@ export function computeUnitEffectiveStats(
   }
 
   // User-edited manual stat bonuses
-  const b = unit.statBonuses;
   if (b) {
-    if (b.maxHp) stats.maxHp += b.maxHp;
-    if (b.attackDamage) stats.attackDamage += b.attackDamage;
-    if (b.armor) stats.armor += b.armor;
-    if (b.speed) stats.speed += b.speed;
-    if (b.critChance) stats.critChance += b.critChance;
-    if (b.attackRange) stats.attackRange += b.attackRange;
-    if (b.regenPerSec) stats.regenPerSec += b.regenPerSec;
+    if (bMaxHp) stats.maxHp += bMaxHp;
+    if (bAtk) stats.attackDamage += bAtk;
+    if (bArmor) stats.armor += bArmor;
+    if (bSpd) stats.speed += bSpd;
+    if (bCrit) stats.critChance += bCrit;
+    if (bRange) stats.attackRange += bRange;
+    if (bRegen) stats.regenPerSec += bRegen;
   }
 
   // Optional live status effects (for inspector display; simulation applies status multipliers explicitly)
@@ -1551,16 +1649,40 @@ export function computeUnitEffectiveStats(
     }
   }
 
-  // Safe clamps
+  // Safe numeric rounding & clamps (avoids .toFixed() string allocations)
   stats.maxHp = Math.max(10, Math.round(stats.maxHp));
   stats.attackDamage = Math.max(1, Math.round(stats.attackDamage));
   stats.armor = Math.max(0, Math.min(75, Math.round(stats.armor)));
-  stats.speed = Number(Math.max(0.4, Math.min(12, stats.speed)).toFixed(2));
+  stats.speed = Math.round(Math.max(0.4, Math.min(12, stats.speed)) * 100) / 100;
   stats.critChance = Math.max(0, Math.min(85, Math.round(stats.critChance)));
-  stats.attackRange = Number(Math.max(0.8, Math.min(14, stats.attackRange)).toFixed(1));
-  stats.attackSpeedMult = Number(Math.max(0.4, Math.min(3.0, stats.attackSpeedMult)).toFixed(2));
-  stats.regenPerSec = Number(Math.max(0, Math.min(50, stats.regenPerSec)).toFixed(1));
-  stats.harvestMult = Number(Math.max(0.3, Math.min(4.0, stats.harvestMult)).toFixed(2));
+  stats.attackRange = Math.round(Math.max(0.8, Math.min(14, stats.attackRange)) * 10) / 10;
+  stats.attackSpeedMult = Math.round(Math.max(0.4, Math.min(3.0, stats.attackSpeedMult)) * 100) / 100;
+  stats.regenPerSec = Math.round(Math.max(0, Math.min(50, stats.regenPerSec)) * 10) / 10;
+  stats.harvestMult = Math.round(Math.max(0.3, Math.min(4.0, stats.harvestMult)) * 100) / 100;
+
+  if (canUseCache) {
+    UNIT_STATS_CACHE.set(unit, {
+      def,
+      role: unit.role,
+      ageStage: unit.ageStage,
+      isKing,
+      traitsSnap: unit.traits && unit.traits.length > 0 ? unit.traits.slice() : undefined,
+      genesSnap: unit.genes && unit.genes.length > 0 ? unit.genes.slice() : undefined,
+      itemsSnap: unit.items && unit.items.length > 0 ? unit.items.slice() : undefined,
+      bMaxHp,
+      bAtk,
+      bArmor,
+      bSpd,
+      bCrit,
+      bRange,
+      bRegen,
+      stats: { ...stats },
+    });
+  }
+
+  if (options?.worldImmortal) {
+    stats.immortal = true;
+  }
 
   return stats;
 }
@@ -1648,8 +1770,48 @@ export function setUnitStatValue(
   return eff;
 }
 
+export const MIN_UNIT_SIZE_SCALE = 0.35;
+export const MAX_UNIT_SIZE_SCALE = 4.0;
+
+/** Returns the raw user-edited size multiplier for a unit (default 1.0). */
+export function getUnitSizeScale(unit: Pick<UnitEntity, 'sizeScale'>): number {
+  const raw = unit.sizeScale;
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) return 1.0;
+  return Number(Math.max(MIN_UNIT_SIZE_SCALE, Math.min(MAX_UNIT_SIZE_SCALE, raw)).toFixed(2));
+}
+
+/**
+ * Returns the effective 3D visual scale multiplier for a unit, combining custom inspector
+ * `sizeScale` with `giant` (1.28×) / `tiny` (0.76×) traits.
+ */
+export function getEffectiveUnitSizeScale(
+  unit: Pick<UnitEntity, 'sizeScale' | 'traits'>,
+): number {
+  let scale = getUnitSizeScale(unit);
+  const traits = unit.traits;
+  if (traits && traits.length > 0) {
+    if (traits.includes('giant')) scale *= 1.28;
+    else if (traits.includes('tiny')) scale *= 0.76;
+  }
+  return Math.max(0.25, Math.min(5.0, scale));
+}
+
+export function setUnitSizeScale(unit: UnitEntity, desiredScale: number): number {
+  if (!Number.isFinite(desiredScale)) return getUnitSizeScale(unit);
+  const clamped = Number(
+    Math.max(MIN_UNIT_SIZE_SCALE, Math.min(MAX_UNIT_SIZE_SCALE, desiredScale)).toFixed(2),
+  );
+  if (Math.abs(clamped - 1.0) < 0.005) {
+    unit.sizeScale = undefined;
+    return 1.0;
+  }
+  unit.sizeScale = clamped;
+  return clamped;
+}
+
 export function resetUnitStatBonuses(unit: UnitEntity): EffectiveUnitStats {
   unit.statBonuses = undefined;
+  unit.sizeScale = undefined;
   return syncUnitDerivedStats(unit, false);
 }
 

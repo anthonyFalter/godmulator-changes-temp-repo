@@ -1,8 +1,84 @@
 import * as THREE from 'three';
 
+function stripDownwardBottomTriangles(g: THREE.BufferGeometry): void {
+  const posAttr = g.getAttribute('position') as THREE.BufferAttribute | undefined;
+  const normAttr = g.getAttribute('normal') as THREE.BufferAttribute | undefined;
+  const colAttr = g.getAttribute('color') as THREE.BufferAttribute | undefined;
+  if (!posAttr || !normAttr) return;
+
+  const nArr = normAttr.array as Float32Array;
+  const idxAttr = g.index;
+  if (idxAttr) {
+    const idxArr = idxAttr.array;
+    const triCount = Math.floor(idxAttr.count / 3);
+    let kept = 0;
+    for (let t = 0; t < triCount; t++) {
+      const o = t * 3;
+      const a = idxArr[o];
+      const b = idxArr[o + 1];
+      const c = idxArr[o + 2];
+      if (nArr[a * 3 + 1] < -0.95 && nArr[b * 3 + 1] < -0.95 && nArr[c * 3 + 1] < -0.95) {
+        continue;
+      }
+      kept++;
+    }
+    if (kept === triCount) return;
+
+    const nextIdx =
+      posAttr.count > 65535 ? new Uint32Array(kept * 3) : new Uint16Array(kept * 3);
+    let w = 0;
+    for (let t = 0; t < triCount; t++) {
+      const o = t * 3;
+      const a = idxArr[o];
+      const b = idxArr[o + 1];
+      const c = idxArr[o + 2];
+      if (nArr[a * 3 + 1] < -0.95 && nArr[b * 3 + 1] < -0.95 && nArr[c * 3 + 1] < -0.95) {
+        continue;
+      }
+      nextIdx[w++] = a;
+      nextIdx[w++] = b;
+      nextIdx[w++] = c;
+    }
+    g.setIndex(new THREE.BufferAttribute(nextIdx, 1));
+    return;
+  }
+
+  const pArr = posAttr.array as Float32Array;
+  const cArr = colAttr ? (colAttr.array as Float32Array) : null;
+  const triCount = Math.floor(posAttr.count / 3);
+  let kept = 0;
+  for (let t = 0; t < triCount; t++) {
+    const base = t * 9;
+    if (nArr[base + 1] < -0.95 && nArr[base + 4] < -0.95 && nArr[base + 7] < -0.95) {
+      continue;
+    }
+    kept++;
+  }
+  if (kept === triCount) return;
+
+  const nextPos = new Float32Array(kept * 9);
+  const nextNorm = new Float32Array(kept * 9);
+  const nextCol = cArr ? new Float32Array(kept * 9) : null;
+  let w = 0;
+  for (let t = 0; t < triCount; t++) {
+    const base = t * 9;
+    if (nArr[base + 1] < -0.95 && nArr[base + 4] < -0.95 && nArr[base + 7] < -0.95) {
+      continue;
+    }
+    nextPos.set(pArr.subarray(base, base + 9), w);
+    nextNorm.set(nArr.subarray(base, base + 9), w);
+    if (nextCol && cArr) nextCol.set(cArr.subarray(base, base + 9), w);
+    w += 9;
+  }
+  g.setAttribute('position', new THREE.BufferAttribute(nextPos, 3));
+  g.setAttribute('normal', new THREE.BufferAttribute(nextNorm, 3));
+  if (nextCol) g.setAttribute('color', new THREE.BufferAttribute(nextCol, 3));
+}
+
 function normalizeForStaticBatch(
   source: THREE.BufferGeometry,
   wantIndexed: boolean,
+  stripBottomFaces: boolean,
 ): THREE.BufferGeometry {
   const g = source.index ? (wantIndexed ? source.clone() : source.toNonIndexed()) : source.clone();
   if (!g.getAttribute('normal')) {
@@ -20,9 +96,13 @@ function normalizeForStaticBatch(
       g.deleteAttribute(attrName);
     }
   }
-  if (wantIndexed && !g.index && count > 0) {
-    const idx = count > 65535 ? new Uint32Array(count) : new Uint16Array(count);
-    for (let i = 0; i < count; i++) idx[i] = i;
+  if (stripBottomFaces && count > 0) {
+    stripDownwardBottomTriangles(g);
+  }
+  const postCount = g.getAttribute('position')?.count ?? 0;
+  if (wantIndexed && !g.index && postCount > 0) {
+    const idx = postCount > 65535 ? new Uint32Array(postCount) : new Uint16Array(postCount);
+    for (let i = 0; i < postCount; i++) idx[i] = i;
     g.setIndex(new THREE.BufferAttribute(idx, 1));
   }
   return g;
@@ -67,9 +147,15 @@ export class BatchedStaticPool {
     this.receiveShadow = receiveShadow;
     this.maxInstances = Math.max(64, initialMaxInstances);
 
+    // Strip invisible occluded -Y bottom caps only on opaque FrontSide grounded materials
+    const stripBottomFaces =
+      !material.transparent &&
+      (material.side === THREE.FrontSide || material.side === undefined);
     // Use indexed layout if all source geometries are indexed (e.g. voxelTrees), else non-indexed
     const allIndexed = geometries.length > 0 && geometries.every((g) => g.index !== null);
-    this.normalizedGeos = geometries.map((g) => normalizeForStaticBatch(g, allIndexed));
+    this.normalizedGeos = geometries.map((g) =>
+      normalizeForStaticBatch(g, allIndexed, stripBottomFaces),
+    );
 
     let verts = 0;
     let indices = 0;

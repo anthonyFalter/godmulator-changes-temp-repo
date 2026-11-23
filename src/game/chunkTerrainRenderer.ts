@@ -9,15 +9,18 @@ import {
   buildTerrainChunkGeometryData,
 } from './terrainMesher';
 import { EngineWorkerPool } from './workerPool';
+import { WorldCullBounds, isAabbIntersectingCullBounds } from './autoOptimizer';
 
 interface TerrainChunkNode {
   chunkX: number;
   chunkZ: number;
-  /** Land top + exposed cliff mesh (group 0 = landTop, group 1 = cliff; castsShadow = true) */
+  /** Land top + exposed cliff mesh (single unified pass or group 0/1; castsShadow dynamically culled) */
   solidMesh: THREE.Mesh;
   /** Submerged seabed / sea-ice top mesh (castsShadow = false) */
   waterMesh: THREE.Mesh;
   boundingBox: THREE.Box3;
+  hasSolidGeo: boolean;
+  hasWaterGeo: boolean;
   triangleCount: number;
   revision: number;
   inFlightRevision: number;
@@ -31,21 +34,23 @@ export interface ChunkTerrainStats {
 }
 
 /**
- * Frustum-Culled 32×32 Greedy-Meshed Terrain Chunk Renderer.
+ * Frustum- & OBB-Culled 32×32 Greedy-Meshed Terrain Chunk Renderer.
  *
  * Replaces the 24 full-map unculled BoxGeometry InstancedMeshes with `chunksPerSide²`
  * watertight greedy-meshed chunks using the exact `styledTerrain` top & cliff shaders.
- * Only chunks intersecting the camera frustum are rendered, and only dirty chunks are
- * rebuilt (off-thread via Comlink Web Workers for large batches, or immediately on edit).
+ * When unified solid material is provided, each chunk draws land tops & cliffs in 1 draw call.
+ * Only chunks intersecting the camera frustum + OBB are rendered, and off-frustum chunks
+ * automatically disable `castShadow` to skip off-screen shadow draw calls.
  */
 export class ChunkTerrainSystem {
   readonly group = new THREE.Group();
   readonly gridSize: number;
   readonly chunkSize: number;
   readonly chunksPerSide: number;
+  readonly isUnifiedSolid: boolean;
 
   private chunks: TerrainChunkNode[] = [];
-  private solidMaterials: [THREE.MeshStandardMaterial, THREE.MeshStandardMaterial];
+  private solidMaterial: THREE.Material | THREE.Material[];
   private waterMaterial: THREE.MeshStandardMaterial;
   private workerPool: EngineWorkerPool | null;
   private disposed = false;
@@ -62,11 +67,17 @@ export class ChunkTerrainSystem {
     cliffMat: THREE.MeshStandardMaterial,
     workerPool: EngineWorkerPool | null = null,
     chunkSize = CHUNK_SIZE,
+    unifiedSolidMat?: THREE.MeshStandardMaterial,
   ) {
     this.gridSize = gridSize;
     this.chunkSize = chunkSize;
     this.chunksPerSide = Math.ceil(gridSize / chunkSize);
-    this.solidMaterials = [chunkTopMat, cliffMat];
+    this.isUnifiedSolid = Boolean(unifiedSolidMat) || chunkTopMat === cliffMat;
+    this.solidMaterial = unifiedSolidMat
+      ? unifiedSolidMat
+      : chunkTopMat === cliffMat
+        ? chunkTopMat
+        : [chunkTopMat, cliffMat];
     this.waterMaterial = chunkTopMat;
     this.workerPool = workerPool;
     this.group.name = 'chunked_terrain_root';
@@ -75,7 +86,7 @@ export class ChunkTerrainSystem {
     for (let cz = 0; cz < this.chunksPerSide; cz++) {
       for (let cx = 0; cx < this.chunksPerSide; cx++) {
         const solidGeo = new THREE.BufferGeometry();
-        const solidMesh = new THREE.Mesh(solidGeo, this.solidMaterials);
+        const solidMesh = new THREE.Mesh(solidGeo, this.solidMaterial);
         solidMesh.castShadow = true;
         solidMesh.receiveShadow = true;
         solidMesh.frustumCulled = true;
@@ -103,6 +114,8 @@ export class ChunkTerrainSystem {
               Math.min(gridSize, (cz + 1) * chunkSize) - 0.5,
             ),
           ),
+          hasSolidGeo: false,
+          hasWaterGeo: false,
           triangleCount: 0,
           revision: 0,
           inFlightRevision: 0,
@@ -143,8 +156,10 @@ export class ChunkTerrainSystem {
       solidGeo.setAttribute('normal', new THREE.BufferAttribute(mergedNorm, 3));
       solidGeo.setIndex(new THREE.BufferAttribute(mergedIdx, 1));
       solidGeo.clearGroups();
-      if (landIdxLen > 0) solidGeo.addGroup(0, landIdxLen, 0);
-      if (cliffIdxLen > 0) solidGeo.addGroup(landIdxLen, cliffIdxLen, 1);
+      if (!this.isUnifiedSolid) {
+        if (landIdxLen > 0) solidGeo.addGroup(0, landIdxLen, 0);
+        if (cliffIdxLen > 0) solidGeo.addGroup(landIdxLen, cliffIdxLen, 1);
+      }
 
       const box = new THREE.Box3(
         new THREE.Vector3(data.boundsMin[0], data.boundsMin[1], data.boundsMin[2]),
@@ -153,9 +168,11 @@ export class ChunkTerrainSystem {
       solidGeo.boundingBox = box;
       solidGeo.boundingSphere = box.getBoundingSphere(new THREE.Sphere());
       node.solidMesh.geometry = solidGeo;
+      node.hasSolidGeo = true;
       node.solidMesh.visible = true;
       node.boundingBox.copy(box);
     } else {
+      node.hasSolidGeo = false;
       node.solidMesh.visible = false;
     }
     oldSolidGeo.dispose();
@@ -174,11 +191,13 @@ export class ChunkTerrainSystem {
       waterGeo.boundingBox = box;
       waterGeo.boundingSphere = box.getBoundingSphere(new THREE.Sphere());
       node.waterMesh.geometry = waterGeo;
+      node.hasWaterGeo = true;
       node.waterMesh.visible = true;
       if (totalSolidVerts === 0) {
         node.boundingBox.copy(box);
       }
     } else {
+      node.hasWaterGeo = false;
       node.waterMesh.visible = false;
     }
     oldWaterGeo.dispose();
@@ -292,6 +311,7 @@ export class ChunkTerrainSystem {
     grid: WorldGridBuffers,
     yOverrides?: Float32Array | null,
     preferSync = false,
+    maxSyncChunksPerFrame = 0,
   ): number {
     if (grid.dirtyChunkCount <= 0) return 0;
 
@@ -308,13 +328,17 @@ export class ChunkTerrainSystem {
 
     const useAsync =
       !preferSync &&
-      dirtyIndices.length > 6 &&
+      dirtyIndices.length > 3 &&
       this.workerPool !== null &&
       this.workerPool.hasWorkers() &&
       !yOverrides;
 
     if (!useAsync) {
-      for (let k = 0; k < dirtyIndices.length; k++) {
+      const limit =
+        maxSyncChunksPerFrame > 0 && dirtyIndices.length > maxSyncChunksPerFrame
+          ? maxSyncChunksPerFrame
+          : dirtyIndices.length;
+      for (let k = 0; k < limit; k++) {
         const idx = dirtyIndices[k];
         const node = this.chunks[idx];
         node.revision++;
@@ -330,7 +354,13 @@ export class ChunkTerrainSystem {
         );
         this.applyChunkData(node, data);
       }
-      return dirtyIndices.length;
+      // Leave any remaining dirty chunks queued for the very next frame to prevent frame-time spikes
+      for (let k = limit; k < dirtyIndices.length; k++) {
+        const idx = dirtyIndices[k];
+        dirtyArr[idx] = 1;
+        grid.dirtyChunkCount++;
+      }
+      return limit;
     }
 
     // Snapshot buffers once for async worker batch so main thread mutations don't race
@@ -374,8 +404,73 @@ export class ChunkTerrainSystem {
   }
 
   /**
+   * Dynamically culls terrain chunks against camera frustum + rotated ground OBB, and disables
+   * `castShadow` on chunks outside the shadow camera's footprint (keeping 16-tile dawn/dusk margin).
+   */
+  updateCulling(
+    camera: THREE.Camera,
+    cullBounds?: WorldCullBounds,
+    shadowCenterX?: number,
+    shadowCenterZ?: number,
+    shadowHalfExtent?: number,
+  ): ChunkTerrainStats {
+    this.scratchProjScreenMat.multiplyMatrices(
+      camera.projectionMatrix,
+      camera.matrixWorldInverse,
+    );
+    this.scratchFrustum.setFromProjectionMatrix(this.scratchProjScreenMat);
+
+    const hasShadowBox =
+      shadowCenterX !== undefined &&
+      shadowCenterZ !== undefined &&
+      shadowHalfExtent !== undefined;
+    const sMargin = hasShadowBox ? shadowHalfExtent! + 16.0 : 0;
+    const sMinX = hasShadowBox ? shadowCenterX! - sMargin : -Infinity;
+    const sMaxX = hasShadowBox ? shadowCenterX! + sMargin : Infinity;
+    const sMinZ = hasShadowBox ? shadowCenterZ! - sMargin : -Infinity;
+    const sMaxZ = hasShadowBox ? shadowCenterZ! + sMargin : Infinity;
+
+    let vis = 0;
+    for (let i = 0; i < this.chunks.length; i++) {
+      const c = this.chunks[i];
+      if (!c.hasSolidGeo && !c.hasWaterGeo) {
+        c.solidMesh.visible = false;
+        c.waterMesh.visible = false;
+        c.solidMesh.castShadow = false;
+        continue;
+      }
+
+      const b = c.boundingBox;
+      const inFrustum = this.scratchFrustum.intersectsBox(b);
+      const inObb =
+        !cullBounds ||
+        isAabbIntersectingCullBounds(b.min.x, b.max.x, b.min.z, b.max.z, cullBounds, 1.5);
+      const isVis = inFrustum && inObb;
+
+      c.solidMesh.visible = c.hasSolidGeo && isVis;
+      c.waterMesh.visible = c.hasWaterGeo && isVis;
+      if (isVis) vis++;
+
+      if (c.hasSolidGeo) {
+        c.solidMesh.castShadow =
+          !hasShadowBox ||
+          (b.max.x >= sMinX && b.min.x <= sMaxX && b.max.z >= sMinZ && b.min.z <= sMaxZ);
+      } else {
+        c.solidMesh.castShadow = false;
+      }
+    }
+    this.visibleChunkCount = vis;
+
+    return {
+      visibleChunks: this.visibleChunkCount,
+      totalChunks: this.chunks.length,
+      totalTriangles: this.totalTriangleCount,
+      pendingWorkerChunks: this.pendingAsyncCount + (this.workerPool?.getPendingCount() ?? 0),
+    };
+  }
+
+  /**
    * Computes exact visible chunk count against the active camera frustum for Performance HUD telemetry.
-   * Three.js also performs per-mesh frustum culling natively on `solidMesh` & `waterMesh`.
    */
   updateVisibilityStats(camera: THREE.Camera): ChunkTerrainStats {
     this.scratchProjScreenMat.multiplyMatrices(

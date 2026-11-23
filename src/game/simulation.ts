@@ -272,6 +272,15 @@ export function createUniqueCityName(
     'Crag', 'Hold', 'Peak', 'Bastion', 'Fort', 'Ridge', 'Pit', 'Anvil', 'Keep', 'Forge',
     'Gate', 'Maw', 'Fang', 'Citadel', 'Trench', 'Gorge',
   ];
+  const DWARF_SYL_A = ['Khaz', 'Karak', 'Kazad', 'Thun', 'Grim', 'Durn', 'Brim', 'Krag', 'Vorn', 'Nid'];
+  const DWARF_SYL_B = ['-Modan', '-Vorn', 'hearth', 'forge', 'deep', 'anvil', 'hall', 'delve', 'helm', 'bastion'];
+  const DWARF_ADJ = ['Iron', 'Bronze', 'Runic', 'Granite', 'Anvil', 'Molten', 'Deep', 'Thunder', 'Copper', 'Hearth'];
+  const DWARF_NOUN = ['Hold', 'Forge', 'Vault', 'Bastion', 'Hall', 'Delve', 'Citadel', 'Crag', 'Foundry', 'Gate'];
+
+  const LIZARD_SYL_A = ['Itza', 'Xoch', 'Tlal', 'Quetz', 'Sotek', 'Chich', 'Coatl', 'Teot', 'Zotl', 'Kroq'];
+  const LIZARD_SYL_B = ['-Sol', 'itl', 'ocan', '-Kyr', '-Vael', '-Ra', 'tlan', 'ac', 'tepec', 'ara'];
+  const LIZARD_ADJ = ['Solar', 'Jade', 'Obsidian', 'Gilded', 'Sunlit', 'Emerald', 'Saurian', 'Verdant', 'Golden', 'Scaled'];
+  const LIZARD_NOUN = ['Ziggurat', 'Pyramid', 'Sanctum', 'Spire', 'Temple', 'Citadel', 'Terrace', 'Altar', 'Bastion', 'Observatory'];
 
   for (let attempt = 0; attempt < 64; attempt++) {
     const roll = rng ? rng() : Math.random();
@@ -291,6 +300,18 @@ export function createUniqueCityName(
         const a = pick(ORC_ADJ);
         const n = pick(ORC_NOUN);
         candidate = `${a} ${n}`;
+      }
+    } else if (species === 'dwarf') {
+      if (roll < 0.56) {
+        candidate = `${pick(DWARF_SYL_A)}${pick(DWARF_SYL_B)}`;
+      } else {
+        candidate = `${pick(DWARF_ADJ)} ${pick(DWARF_NOUN)}`;
+      }
+    } else if (species === 'lizardfolk') {
+      if (roll < 0.56) {
+        candidate = `${pick(LIZARD_SYL_A)}${pick(LIZARD_SYL_B)}`;
+      } else {
+        candidate = `${pick(LIZARD_ADJ)} ${pick(LIZARD_NOUN)}`;
       }
     } else {
       if (roll < 0.6) {
@@ -318,7 +339,11 @@ export function createUniqueCityName(
       ? `${pick(ELF_SYL_A)}${pick(ELF_SYL_B)}`
       : species === 'orc'
         ? `${pick(ORC_SYL_A)}${pick(ORC_SYL_B)}`
-        : `${pick(HUMAN_PREFIXES)}${pick(HUMAN_SUFFIXES)}`;
+        : species === 'dwarf'
+          ? `${pick(DWARF_SYL_A)}${pick(DWARF_SYL_B)}`
+          : species === 'lizardfolk'
+            ? `${pick(LIZARD_SYL_A)}${pick(LIZARD_SYL_B)}`
+            : `${pick(HUMAN_PREFIXES)}${pick(HUMAN_SUFFIXES)}`;
   return `${fallbackRoot} ${usedNames.size + 1}`;
 }
 
@@ -419,10 +444,31 @@ function createUniqueUnitName(
     return `${creaturePool[Math.floor(Math.random() * creaturePool.length)]} ${state.units.length + 1}`;
   }
 
+  const DWARF_FIRST = ['Thorin', 'Bardin', 'Dwalin', 'Helga', 'Astrid', 'Brokk', 'Runa', 'Durin', 'Thrain', 'Bram', 'Kilda', 'Orin'];
+  const DWARF_LAST = ['Ironfoot', 'Stonehammer', 'Forgebeard', 'Anvilborn', 'Runesmith', 'Copperhelm', 'Deepdelver', 'Bronzeshield'];
+  const LIZARD_FIRST = ['Kroq', 'Itzli', 'Xolotl', 'Quetzal', 'Zotl', 'Tlaloc', 'Sotek', 'Chaac', 'Coatl', 'Nahuatl', 'Tepetl', 'Xiuh'];
+  const LIZARD_LAST = ['Sunscale', 'Jadefang', 'Goldcrest', 'Obsidian-Tail', 'Starprism', 'Templeguard', 'Suncaller', 'Verdant-Claw'];
+
   const firstPool =
-    species === 'elf' ? ELF_FIRST_NAMES : species === 'orc' ? ORC_FIRST_NAMES : HUMAN_FIRST_NAMES;
+    species === 'elf'
+      ? ELF_FIRST_NAMES
+      : species === 'orc'
+        ? ORC_FIRST_NAMES
+        : species === 'dwarf'
+          ? DWARF_FIRST
+          : species === 'lizardfolk'
+            ? LIZARD_FIRST
+            : HUMAN_FIRST_NAMES;
   const lastPool =
-    species === 'elf' ? ELF_SURNAMES : species === 'orc' ? ORC_CLAN_NAMES : HUMAN_LAST_NAMES;
+    species === 'elf'
+      ? ELF_SURNAMES
+      : species === 'orc'
+        ? ORC_CLAN_NAMES
+        : species === 'dwarf'
+          ? DWARF_LAST
+          : species === 'lizardfolk'
+            ? LIZARD_LAST
+            : HUMAN_LAST_NAMES;
 
   // Prefer single names or rich Name + Surname/Clan combinations, always avoiding duplicates!
   for (let attempt = 0; attempt < 48; attempt++) {
@@ -1424,6 +1470,9 @@ export function createInitialSimulationState(
     kingdomUltimateCooldowns: {},
     kingdomRelations: {},
     kingdomPeacefulTraits: {},
+    kingdomPeaceTreaties: {},
+    kingdomTradePacts: {},
+    kingdomWarStartYears: {},
     diplomacyTimer: 0,
     rebellionTimer: 0,
     worldEventTimer: 0,
@@ -1708,7 +1757,7 @@ export function addChronicle(
       tone,
       timestamp: Date.now(),
     },
-    ...state.chronicle.slice(0, 49),
+    ...state.chronicle.slice(0, 119),
   ];
 }
 
@@ -1887,7 +1936,16 @@ export function spawnUnit(
   }
 
   const species: SpeciesId =
-    def.species ?? (role === 'elf' ? 'elf' : role === 'orc' ? 'orc' : 'human');
+    def.species ??
+    (role === 'elf'
+      ? 'elf'
+      : role === 'orc'
+        ? 'orc'
+        : role === 'dwarf'
+          ? 'dwarf'
+          : role === 'lizardfolk'
+            ? 'lizardfolk'
+            : 'human');
 
   let resolvedSettlementId = settlementIdOverride;
   if (def.faction === 'civilization' && !resolvedSettlementId) {
@@ -1914,7 +1972,13 @@ export function spawnUnit(
 
   let ageStage: UnitAgeStage = options?.ageStage ?? 'adult';
   if (!options?.ageStage && def.faction === 'civilization' && resolvedSettlementId) {
-    const isBasicRaceRole = role === 'human' || role === 'elf' || role === 'orc' || role === 'villager';
+    const isBasicRaceRole =
+      role === 'human' ||
+      role === 'elf' ||
+      role === 'orc' ||
+      role === 'dwarf' ||
+      role === 'lizardfolk' ||
+      role === 'villager';
     const adultSameSpeciesCount = state.units.filter(
       (u) =>
         u.faction === 'civilization' &&
@@ -5826,9 +5890,14 @@ export function executeGodPowerImpact(
         }
       }
       const kidsArr = nearbyKids.size >= 2 ? Array.from(nearbyKids) : getLiveKingdomIds(state);
+      if (!state.kingdomPeaceTreaties) state.kingdomPeaceTreaties = {};
+      if (!state.kingdomWarStartYears) state.kingdomWarStartYears = {};
       for (let i = 0; i < kidsArr.length; i++) {
         for (let j = i + 1; j < kidsArr.length; j++) {
           setKingdomRelation(state, kidsArr[i], kidsArr[j], 'allied');
+          const pKey = getKingdomPairKey(kidsArr[i], kidsArr[j]);
+          state.kingdomPeaceTreaties[pKey] = Math.max(state.kingdomPeaceTreaties[pKey] ?? 0, state.year + 30);
+          delete state.kingdomWarStartYears[pKey];
         }
       }
       forEachTileInBounds(state, targetX - r, targetX + r, targetZ - r, targetZ + r, (t) => {
@@ -6229,9 +6298,9 @@ export function executeGodPowerImpact(
         maxRadius: Math.max(5.0, r),
         remaining: 7.5,
         duration: 7.5,
-        tickTimer: 0.2,
+        tickTimer: 0.14,
       });
-      addChronicle(state, 'A Magma Geyser cracked open the earth, pulsing fountains of molten lava!', 'warning');
+      addChronicle(state, 'The earth fractured into a jagged Lava Fissure, building pressure before erupting molten magma!', 'warning');
       break;
     }
   }
@@ -6447,8 +6516,17 @@ export function rollKingdomPeacefulTrait(
     return state.kingdomPeacefulTraits[kingdomId];
   }
   const r = rollOverride ?? deterministicUnitFloat(state.seed ?? 1, kingdomId, species);
-  // Humans & Elves have a high chance of peaceful diplomacy; Orcs are barbaric by default with a rare peace chance
-  const peaceProb = species === 'orc' ? 0.12 : species === 'elf' ? 0.82 : 0.74;
+  // Humans, Elves & Dwarves favor trade and peace; Lizardfolk are balanced/territorial; Orcs are belligerent
+  const peaceProb =
+    species === 'orc'
+      ? 0.12
+      : species === 'elf'
+        ? 0.82
+        : species === 'dwarf'
+          ? 0.76
+          : species === 'lizardfolk'
+            ? 0.62
+            : 0.74;
   const isPeaceful = r < peaceProb;
   state.kingdomPeacefulTraits[kingdomId] = isPeaceful;
   return isPeaceful;
@@ -6484,19 +6562,25 @@ export function initializeKingdomDiplomacyPair(
 
   let rel: DiplomaticRelation = 'neutral';
   if (!pA || !pB) {
-    // At least one side is barbaric/belligerent (e.g., standard Orcs)
+    // At least one side is belligerent — still give a realistic chance of uneasy neutrality before war erupts
     const bothOrcOrVsOrc = spA === 'orc' || spB === 'orc';
-    if (warsOn && (bothOrcOrVsOrc ? pairRoll < 0.9 : pairRoll < 0.48)) {
+    if (warsOn && (bothOrcOrVsOrc ? pairRoll < 0.42 : pairRoll < 0.2)) {
       rel = 'war';
     } else {
       rel = 'neutral';
     }
   } else {
-    // Both kingdoms rolled peaceful inclinations -> form alliance or cordial peace
-    rel = pairRoll < 0.62 ? 'allied' : 'neutral';
+    // Both kingdoms rolled peaceful inclinations -> form alliance, trade pact, or cordial peace
+    rel = pairRoll < 0.48 ? 'allied' : 'neutral';
+    if (pairRoll < 0.72) {
+      if (!state.kingdomTradePacts) state.kingdomTradePacts = {};
+      state.kingdomTradePacts[key] = state.year + 28;
+    }
   }
   state.kingdomRelations[key] = rel;
   if (rel === 'war') {
+    if (!state.kingdomWarStartYears) state.kingdomWarStartYears = {};
+    state.kingdomWarStartYears[key] = state.year;
     recordWarFrontBaselineIfMissing(state, kA, kB);
   }
   return rel;
@@ -6703,30 +6787,138 @@ function stepKingdomDiplomacyAndRebellions(state: SimulationState, dt: number): 
   }
 
   state.diplomacyTimer = (state.diplomacyTimer ?? 0) + dt;
-  if (state.diplomacyTimer >= 14 && kingdoms.length > 1) {
+  if (state.diplomacyTimer >= 12 && kingdoms.length > 1) {
     state.diplomacyTimer = 0;
     const warsOn = state.worldRules?.warsEnabled !== false;
+    if (!state.kingdomPeaceTreaties) state.kingdomPeaceTreaties = {};
+    if (!state.kingdomTradePacts) state.kingdomTradePacts = {};
+    if (!state.kingdomWarStartYears) state.kingdomWarStartYears = {};
+
     for (let i = 0; i < kingdoms.length; i++) {
       for (let j = i + 1; j < kingdoms.length; j++) {
         const kA = kingdoms[i];
         const kB = kingdoms[j];
+        const pairKey = getKingdomPairKey(kA.kingdomId, kB.kingdomId);
         const rel = getKingdomRelation(state, kA.kingdomId, kB.kingdomId);
         const roll = Math.random();
         const peaceA = rollKingdomPeacefulTrait(state, kA.kingdomId, kA.species);
         const peaceB = rollKingdomPeacefulTrait(state, kB.kingdomId, kB.species);
-        if (warsOn && rel === 'neutral') {
-          const warChance = !peaceA || !peaceB ? 0.35 : 0.08;
-          if (roll < warChance) {
-            setKingdomRelation(state, kA.kingdomId, kB.kingdomId, 'war');
-            ensureWorldStats(state).warsStarted += 1;
-            addChronicle(state, `War declared between ${kA.name} and ${kB.name}!`, 'warning');
-          } else if (peaceA && peaceB && roll > 0.72) {
-            setKingdomRelation(state, kA.kingdomId, kB.kingdomId, 'allied');
-            addChronicle(state, `${kA.name} and ${kB.name} signed a pact of alliance.`, 'divine');
+
+        // Expire finished treaties / trade pacts cleanly
+        let peaceUntil = state.kingdomPeaceTreaties[pairKey] ?? 0;
+        if (peaceUntil > 0 && state.year >= peaceUntil) {
+          delete state.kingdomPeaceTreaties[pairKey];
+          peaceUntil = 0;
+        }
+        let tradeUntil = state.kingdomTradePacts[pairKey] ?? 0;
+        if (tradeUntil > 0 && (state.year >= tradeUntil || rel === 'war')) {
+          delete state.kingdomTradePacts[pairKey];
+          tradeUntil = 0;
+        }
+
+        // Active Trade Agreements enrich both kingdoms with mutual goods & shared knowledge every cycle
+        if (tradeUntil > state.year && rel !== 'war') {
+          const resA = ensureKingdomResources(state, kA.kingdomId);
+          const resB = ensureKingdomResources(state, kB.kingdomId);
+          const epA = getKingdomEpoch(state, kA.kingdomId);
+          const epB = getKingdomEpoch(state, kB.kingdomId);
+          const tradeBonus = 8 + Math.max(epA, epB) * 4;
+          resA.food += tradeBonus;
+          resB.food += tradeBonus;
+          resA.wood += Math.round(tradeBonus * 0.65);
+          resB.stone += Math.round(tradeBonus * 0.65);
+          resA.ore += Math.round(tradeBonus * 0.45);
+          resB.ore += Math.round(tradeBonus * 0.45);
+          resA.knowledge += Math.round(tradeBonus * 0.55);
+          resB.knowledge += Math.round(tradeBonus * 0.55);
+          if (Math.max(epA, epB) >= 3) {
+            resA.alloy += Math.round(tradeBonus * 0.35);
+            resB.alloy += Math.round(tradeBonus * 0.35);
           }
-        } else if (rel === 'war' && peaceA && peaceB && roll < 0.14) {
-          setKingdomRelation(state, kA.kingdomId, kB.kingdomId, 'neutral');
-          addChronicle(state, `${kA.name} and ${kB.name} agreed to a ceasefire.`, 'divine');
+        }
+
+        const underPeaceTreaty = peaceUntil > state.year;
+        const hasTradePact = tradeUntil > state.year;
+
+        if (rel === 'neutral') {
+          if (underPeaceTreaty) {
+            // During an active Peace Treaty, realms cannot declare war — instead they may open trade or forge an alliance
+            if (!hasTradePact && roll < (peaceA && peaceB ? 0.28 : 0.14)) {
+              const years = 24 + Math.floor(Math.random() * 18);
+              state.kingdomTradePacts[pairKey] = state.year + years;
+              addChronicle(
+                state,
+                `${kA.name} and ${kB.name} signed a ${years}-year Trade Agreement, opening merchant routes.`,
+                'divine',
+              );
+            } else if (peaceA && peaceB && roll > 0.84) {
+              setKingdomRelation(state, kA.kingdomId, kB.kingdomId, 'allied');
+              addChronicle(state, `${kA.name} and ${kB.name} forged a grand Alliance!`, 'divine');
+            }
+          } else {
+            const warChance = warsOn ? (!peaceA || !peaceB ? 0.13 : 0.03) : 0;
+            const tradeChance = !hasTradePact ? (peaceA && peaceB ? 0.24 : 0.1) : 0;
+            const treatyChance = peaceA && peaceB ? 0.14 : 0.07;
+            const allianceChance = peaceA && peaceB ? (hasTradePact ? 0.22 : 0.12) : 0.03;
+
+            if (warChance > 0 && roll < warChance) {
+              setKingdomRelation(state, kA.kingdomId, kB.kingdomId, 'war');
+              state.kingdomWarStartYears[pairKey] = state.year;
+              delete state.kingdomTradePacts[pairKey];
+              ensureWorldStats(state).warsStarted += 1;
+              addChronicle(state, `War declared between ${kA.name} and ${kB.name}!`, 'warning');
+            } else if (roll < warChance + tradeChance) {
+              const years = 25 + Math.floor(Math.random() * 20);
+              state.kingdomTradePacts[pairKey] = state.year + years;
+              addChronicle(
+                state,
+                `${kA.name} and ${kB.name} signed a ${years}-year Trade Agreement, exchanging goods and knowledge.`,
+                'divine',
+              );
+            } else if (roll < warChance + tradeChance + treatyChance) {
+              const years = 16 + Math.floor(Math.random() * 14);
+              state.kingdomPeaceTreaties[pairKey] = state.year + years;
+              addChronicle(
+                state,
+                `${kA.name} and ${kB.name} signed a ${years}-year Peace Treaty.`,
+                'divine',
+              );
+            } else if (roll < warChance + tradeChance + treatyChance + allianceChance) {
+              setKingdomRelation(state, kA.kingdomId, kB.kingdomId, 'allied');
+              addChronicle(state, `${kA.name} and ${kB.name} signed a pact of alliance!`, 'divine');
+            }
+          }
+        } else if (rel === 'allied') {
+          if (!hasTradePact && roll < 0.3) {
+            const years = 30 + Math.floor(Math.random() * 20);
+            state.kingdomTradePacts[pairKey] = state.year + years;
+            addChronicle(
+              state,
+              `Allies ${kA.name} and ${kB.name} established a ${years}-year Trade Pact.`,
+              'divine',
+            );
+          }
+        } else if (rel === 'war') {
+          const warStart = state.kingdomWarStartYears[pairKey] ?? state.year;
+          const warDuration = Math.max(0, state.year - warStart);
+          // War exhaustion allows both peaceful and belligerent kingdoms to negotiate multi-year Peace Treaties
+          if (warDuration >= 10) {
+            const peaceChance =
+              peaceA && peaceB
+                ? Math.min(0.48, 0.14 + warDuration * 0.014)
+                : Math.min(0.32, 0.06 + warDuration * 0.009);
+            if (roll < peaceChance) {
+              const treatyYears = 18 + Math.floor(Math.random() * 18);
+              setKingdomRelation(state, kA.kingdomId, kB.kingdomId, 'neutral');
+              state.kingdomPeaceTreaties[pairKey] = state.year + treatyYears;
+              delete state.kingdomWarStartYears[pairKey];
+              addChronicle(
+                state,
+                `${kA.name} and ${kB.name} signed a ${treatyYears}-year Peace Treaty, ending their war.`,
+                'divine',
+              );
+            }
+          }
         }
       }
     }
@@ -6985,6 +7177,7 @@ function resolveStrategicStrikeImpact(
         createdAt: Date.now(),
       });
     }
+    applyWarfareCraterImpact(state, tx, tz, Math.max(1.85, strike.radius * 0.72), 'orc', 1);
   } else if (strike.kind === 'orc_waagh_rocket') {
     state.pendingVfx.push({
       id: nextEntityId('vfx'),
@@ -6992,13 +7185,73 @@ function resolveStrategicStrikeImpact(
       x: tx,
       y: hitY,
       z: tz,
-      radius: strike.radius * 1.1,
+      radius: strike.radius * 1.15,
       color: '#ff3b30',
       createdAt: Date.now(),
     });
     if (targetTile && targetTile.height > 0 && state.worldRules?.wildfireSpread !== false) {
       targetTile.onFireTimer = Math.max(targetTile.onFireTimer, 5.5);
     }
+    applyWarfareCraterImpact(state, tx, tz, Math.max(1.85, strike.radius * 0.72), 'orc', 1);
+  } else if (strike.kind === 'dwarf_seismic_hammer') {
+    state.pendingVfx.push({
+      id: nextEntityId('vfx'),
+      type: 'nuke_blast',
+      originX: strike.originX,
+      originY,
+      originZ: strike.originZ,
+      x: tx,
+      y: hitY,
+      z: tz,
+      radius: strike.radius,
+      color: '#f59e0b',
+      createdAt: Date.now(),
+    });
+    applySuperweaponEnvironmentImpact(state, tx, tz, Math.max(3.6, strike.radius * 0.88), 'nuke');
+    addChronicle(state, `${atkName}'s Tectonic Forge-Hammer shattered ${defName}!`, 'warning');
+  } else if (strike.kind === 'lizard_solar_cataclysm') {
+    state.pendingVfx.push({
+      id: nextEntityId('vfx'),
+      type: 'arcane_cataclysm',
+      originX: strike.originX,
+      originY,
+      originZ: strike.originZ,
+      x: tx,
+      y: hitY,
+      z: tz,
+      radius: strike.radius,
+      color: '#facc15',
+      createdAt: Date.now(),
+    });
+    applySuperweaponEnvironmentImpact(state, tx, tz, Math.max(3.5, strike.radius * 0.85), 'arcane');
+    addChronicle(state, `${atkName} unleashed a Sun-Prism Cataclysm upon ${defName}!`, 'warning');
+  } else if (strike.kind === 'dwarf_quake_mortar') {
+    state.pendingVfx.push({
+      id: nextEntityId('vfx'),
+      type: 'animal_attack',
+      variant: 'slam',
+      originX: strike.originX,
+      originZ: strike.originZ,
+      x: tx,
+      y: hitY,
+      z: tz,
+      radius: strike.radius * 1.15,
+      color: '#f59e0b',
+      createdAt: Date.now(),
+    });
+    applyWarfareCraterImpact(state, tx, tz, Math.max(2.0, strike.radius * 0.78), 'orc', 1);
+  } else if (strike.kind === 'lizard_solar_lance') {
+    state.pendingVfx.push({
+      id: nextEntityId('vfx'),
+      type: 'hit_spark',
+      x: tx,
+      y: hitY,
+      z: tz,
+      radius: strike.radius * 1.2,
+      color: '#facc15',
+      createdAt: Date.now(),
+    });
+    applyWarfareCraterImpact(state, tx, tz, Math.max(1.9, strike.radius * 0.75), 'arcane', 1);
   } else if (strike.kind === 'elf_starfall_spell') {
     state.pendingVfx.push({
       id: nextEntityId('vfx'),
@@ -7006,10 +7259,11 @@ function resolveStrategicStrikeImpact(
       x: tx,
       y: hitY,
       z: tz,
-      radius: strike.radius * 1.15,
+      radius: strike.radius * 1.2,
       color: '#c084fc',
       createdAt: Date.now(),
     });
+    applyWarfareCraterImpact(state, tx, tz, Math.max(1.85, strike.radius * 0.72), 'arcane', 1);
   } else {
     // Conventional Human ICBM / ballistic missile strike
     state.pendingVfx.push({
@@ -7018,13 +7272,14 @@ function resolveStrategicStrikeImpact(
       x: tx,
       y: hitY,
       z: tz,
-      radius: strike.radius * 1.15,
+      radius: strike.radius * 1.2,
       color: '#ff6b35',
       createdAt: Date.now(),
     });
     if (targetTile && targetTile.height > 0 && state.worldRules?.wildfireSpread !== false) {
       targetTile.onFireTimer = Math.max(targetTile.onFireTimer, 4.5);
     }
+    applyWarfareCraterImpact(state, tx, tz, Math.max(1.95, strike.radius * 0.76), 'explosive', 1);
   }
 
   const r = strike.radius;
@@ -7425,6 +7680,58 @@ export function stepStrategicWarfare(state: SimulationState, dt: number): void {
             si === 0 ? '#c084fc' : '#5eead4',
             false,
           );
+        }
+      }
+    } else if (atk.species === 'dwarf') {
+      // Dwarves: Runic Seismic Quake Mortars -> Tectonic Forge-Hammer superweapon!
+      if (
+        atk.epoch >= 4 &&
+        kUltReady &&
+        completedAtkBlds.length >= 9 &&
+        atk.units.length >= 16 &&
+        hasSuperweaponFacility &&
+        (def.buildings.length >= 2 || def.units.length >= 3) &&
+        trySpendStrikeCost({ ore: 30, alloy: 18 })
+      ) {
+        if (!state.kingdomUltimateCooldowns) state.kingdomUltimateCooldowns = {};
+        state.kingdomUltimateCooldowns[atk.kingdomId] = 42.0;
+        const flightDur = Math.max(1.85, Math.min(3.7, 1.35 + dist * 0.032));
+        queueStrike('dwarf_seismic_hammer', 'dwarf_quake_mortar', targetX, targetZ, flightDur, 225, 5.8, '#f59e0b', true);
+      } else if (atk.epoch >= 2 && completedAtkBlds.length >= 5 && atk.units.length >= 8 && trySpendStrikeCost({ ore: 12, stone: 8 })) {
+        const salvoCount = atk.epoch >= 4 ? 2 : 1;
+        for (let si = 0; si < salvoCount; si++) {
+          const jx = si === 0 ? 0 : (Math.random() - 0.5) * 3.4;
+          const jz = si === 0 ? 0 : (Math.random() - 0.5) * 3.4;
+          const tx = Math.max(2, Math.min(state.gridSize - 3, targetX + jx));
+          const tz = Math.max(2, Math.min(state.gridSize - 3, targetZ + jz));
+          const flightDur = Math.max(1.3, Math.min(3.1, 1.0 + dist * 0.028 + si * 0.25));
+          queueStrike('dwarf_quake_mortar', 'dwarf_quake_mortar', tx, tz, flightDur, 48 + atk.epoch * 11, 2.8, '#f59e0b', false);
+        }
+      }
+    } else if (atk.species === 'lizardfolk') {
+      // Lizardfolk: Solar Prism Lances -> Sun-Prism Cataclysm superweapon!
+      if (
+        atk.epoch >= 4 &&
+        kUltReady &&
+        completedAtkBlds.length >= 9 &&
+        atk.units.length >= 16 &&
+        hasSuperweaponFacility &&
+        (def.buildings.length >= 2 || def.units.length >= 3) &&
+        trySpendStrikeCost({ knowledge: 26, alloy: 16 })
+      ) {
+        if (!state.kingdomUltimateCooldowns) state.kingdomUltimateCooldowns = {};
+        state.kingdomUltimateCooldowns[atk.kingdomId] = 42.0;
+        const flightDur = Math.max(1.8, Math.min(3.6, 1.3 + dist * 0.03));
+        queueStrike('lizard_solar_cataclysm', 'lizard_solar_lance', targetX, targetZ, flightDur, 215, 5.6, '#facc15', true);
+      } else if (atk.epoch >= 1 && completedAtkBlds.length >= 4 && atk.units.length >= 7 && trySpendStrikeCost({ knowledge: 12, stone: 8 })) {
+        const lanceCount = atk.epoch >= 4 ? 2 : 1;
+        for (let si = 0; si < lanceCount; si++) {
+          const jx = si === 0 ? 0 : (Math.random() - 0.5) * 3.6;
+          const jz = si === 0 ? 0 : (Math.random() - 0.5) * 3.6;
+          const tx = Math.max(2, Math.min(state.gridSize - 3, targetX + jx));
+          const tz = Math.max(2, Math.min(state.gridSize - 3, targetZ + jz));
+          const flightDur = Math.max(1.35, Math.min(3.2, 1.05 + dist * 0.026 + si * 0.24));
+          queueStrike('lizard_solar_lance', 'lizard_solar_lance', tx, tz, flightDur, 42 + atk.epoch * 11, 2.7, si === 0 ? '#facc15' : '#10b981', false);
         }
       }
     } else {
@@ -9119,7 +9426,16 @@ export function ensureSettlementKings(state: SimulationState): void {
       if (!monarch.name.startsWith('King ')) {
         monarch.name = `King ${monarch.name}`;
       }
-      const royalHp = monarch.species === 'orc' ? 260 : monarch.species === 'elf' ? 190 : 175;
+      const royalHp =
+        monarch.species === 'orc'
+          ? 260
+          : monarch.species === 'dwarf'
+            ? 245
+            : monarch.species === 'lizardfolk'
+              ? 215
+              : monarch.species === 'elf'
+                ? 190
+                : 175;
       if (monarch.maxHp < royalHp) {
         monarch.maxHp = royalHp;
         monarch.hp = royalHp;
@@ -9870,8 +10186,17 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
       state.totalStructuresBuilt += 1;
       paveSettlementStreetsNear(state, site.x, site.z, sid);
       claimTerritoryAround(state, site.x, site.z, 3.2, sid, sidKingdomId, true);
-      const vName = state.settlementNames[sid] ?? 'Settlement';
-      addChronicle(state, `Settlers of ${vName} break ground on a ${def.name} at (${site.x}, ${site.z}).`, 'build');
+      const isLandmarkBuild =
+        def.type === 'dyson_spire' ||
+        def.type === 'launch_arcology' ||
+        def.type === 'fission_reactor' ||
+        def.type === 'cyber_institute' ||
+        def.type === 'observatory' ||
+        def.type === 'ziggurat';
+      if (isLandmarkBuild) {
+        const vName = state.settlementNames[sid] ?? 'Settlement';
+        addChronicle(state, `${vName} began constructing a grand ${def.name}.`, 'build');
+      }
     }
 
     // Autonomous Territory Claiming: races constantly seek to claim as much territory as possible
@@ -9962,6 +10287,10 @@ const voidGooPossibleByState = new WeakMap<SimulationState, boolean>();
 const specialLiquidPossibleByState = new WeakMap<SimulationState, boolean>();
 const liquidReactionAccumByState = new WeakMap<SimulationState, number>();
 const liquidContactAccumByState = new WeakMap<SimulationState, number>();
+const solarBeamTileStateMap = new WeakMap<
+  ActiveHazardZone,
+  { burnAccum: Map<number, number>; evapAccum: Map<number, number>; evaporatedTiles: Set<number> }
+>();
 
 export function stepSimulation(
   state: SimulationState,
@@ -11032,91 +11361,157 @@ function stepSimulationSingle(
       }
     }
 
-    // Tectonic Lava Fissure: tears a glowing molten crack line outward in both directions, splitting armies & igniting banks
+    // Tectonic Lava Fissure: Stage 1 tears open a jagged fault crack across the earth before Stage 2 unleashes pressurized magma eruptions!
     if (haz.kind === 'magma_geyser') {
       if (haz.heading === undefined) {
         haz.heading = (((Math.round(haz.x) * 19 + Math.round(haz.z) * 37) & 31) / 32) * Math.PI;
       }
-      haz.tickTimer -= dt;
-      if (haz.tickTimer <= 0) {
-        haz.tickTimer = 0.28;
-        const progress = Math.min(1, 1 - haz.remaining / Math.max(0.1, haz.duration));
-        const maxHalfLen = Math.max(6.5, (haz.maxRadius ?? haz.radius) * 1.25);
-        const curHalfLen = Math.max(1.0, maxHalfLen * progress);
-        haz.currentRadius = curHalfLen;
-        const dirX = Math.cos(haz.heading);
-        const dirZ = Math.sin(haz.heading);
-        const perpX = -dirZ;
-        const perpZ = dirX;
+      const progress = Math.min(1, 1 - haz.remaining / Math.max(0.1, haz.duration));
+      const maxHalfLen = Math.max(6.5, (haz.maxRadius ?? haz.radius) * 1.25);
+      const dirX = Math.cos(haz.heading);
+      const dirZ = Math.sin(haz.heading);
+      const perpX = -dirZ;
+      const perpZ = dirX;
 
-        // Tear both ends of the jagged lava fissure outward
-        for (const side of [-1, 1]) {
-          const distAlong = side * curHalfLen;
-          const jitter = Math.sin(curHalfLen * 1.7 + side) * 1.1;
-          const fx = Math.max(2, Math.min(state.gridSize - 3, Math.round(haz.x + dirX * distAlong + perpX * jitter)));
-          const fz = Math.max(2, Math.min(state.gridSize - 3, Math.round(haz.z + dirZ * distAlong + perpZ * jitter)));
-          const ft = getTile(state, fx, fz);
-          if (ft && !ft.buildingId) {
-            if (ft.height === 0 && ft.waterKind === 'poison') {
-              ft.terrain = 'scorched';
-              delete ft.waterKind;
-              ft.cursedTimer = Math.max(ft.cursedTimer, 10);
-            } else if (ft.height === 0 && !ft.waterKind && ft.terrain !== 'ice') {
-              ft.height = 1;
-              ft.terrain = 'rock';
-            } else {
-              ft.height = 0;
-              ft.terrain = 'shallow_water';
-              ft.waterKind = 'lava';
-              ft.isRiver = true;
-              ft.resourceNode = 'none';
-              ft.resourceAmount = 0;
-              ft.farmSettlementId = undefined;
-              clearBurntTreeState(ft);
-            }
+      const fissureCrackTile = (fx: number, fz: number, bankRadius: number, burstPower: number) => {
+        const ft = getTile(state, fx, fz);
+        if (ft && !ft.buildingId) {
+          if (ft.height === 0 && ft.waterKind === 'poison') {
+            ft.terrain = 'scorched';
+            delete ft.waterKind;
+            ft.cursedTimer = Math.max(ft.cursedTimer, 10);
+          } else if (ft.height === 0 && !ft.waterKind && ft.terrain !== 'ice') {
+            ft.height = 1;
+            ft.terrain = 'rock';
+          } else {
+            ft.height = 0;
+            ft.terrain = 'shallow_water';
+            ft.waterKind = 'lava';
+            ft.isRiver = true;
+            ft.resourceNode = 'none';
+            ft.resourceAmount = 0;
+            ft.farmSettlementId = undefined;
+            clearBurntTreeState(ft);
           }
-          // Ignite both banks of the fissure
+        }
+        // Scorch and ignite flanking banks along the crack
+        for (let bDist = 1; bDist <= bankRadius; bDist++) {
           for (const bank of [-1, 1]) {
-            const bx = Math.max(1, Math.min(state.gridSize - 2, Math.round(fx + perpX * bank)));
-            const bz = Math.max(1, Math.min(state.gridSize - 2, Math.round(fz + perpZ * bank)));
+            const bx = Math.max(1, Math.min(state.gridSize - 2, Math.round(fx + perpX * bank * bDist)));
+            const bz = Math.max(1, Math.min(state.gridSize - 2, Math.round(fz + perpZ * bank * bDist)));
             const bt = getTile(state, bx, bz);
             if (bt && bt.height > 0 && bt.blessedTimer <= 0) {
-              bt.onFireTimer = Math.max(bt.onFireTimer, 7.5);
-              bt.tempOffset = Math.min(80, (bt.tempOffset ?? 0) + 22);
+              if (burstPower >= 1 || bDist === 1) {
+                bt.onFireTimer = Math.max(bt.onFireTimer, burstPower >= 1 ? 8.5 : 4.5);
+              }
+              bt.tempOffset = Math.min(80, (bt.tempOffset ?? 0) + (burstPower >= 1 ? 30 : 14));
               if (!bt.buildingId && (bt.terrain === 'grass' || bt.terrain === 'fertile' || bt.terrain === 'forest')) {
                 bt.terrain = 'scorched';
               }
             }
           }
-          if (state.pendingVfx.length < 48) {
-            state.pendingVfx.push({
-              id: nextEntityId('vfx'),
-              type: 'fire_spread',
-              originX: haz.x,
-              originY: 0.9,
-              originZ: haz.z,
-              x: fx,
-              y: 0.65,
-              z: fz,
-              radius: 1.4,
-              color: '#ff5400',
-              createdAt: Date.now(),
-            });
-          }
-          // Fling nearby units outward away from the tearing rift!
-          for (const u of state.units) {
-            if (u.state === 'ko' || u.statusEffects.shielded || u.role === 'dragon' || u.role === 'phoenix' || u.role === 'cerberus') continue;
-            const dSq = (u.x - fx) ** 2 + (u.z - fz) ** 2;
-            if (dSq <= 6.25) {
-              u.hp = Math.max(0, u.hp - 26);
-              const pushSign = (u.x - fx) * perpX + (u.z - fz) * perpZ >= 0 ? 1 : -1;
-              u.vxAir = perpX * pushSign * 7.5;
-              u.vzAir = perpZ * pushSign * 7.5;
-              u.vzVertical = 5.0;
+        }
+      };
+
+      haz.tickTimer -= dt;
+      if (haz.tickTimer <= 0) {
+        haz.tickTimer = 0.24;
+
+        if (progress < 0.4) {
+          // Stage 1: Tectonic ground cracking — jagged rift rips outward in both directions before eruption
+          const splitFrac = Math.min(1, progress / 0.36);
+          const curHalfLen = Math.max(1.0, maxHalfLen * splitFrac);
+          haz.currentRadius = curHalfLen;
+
+          for (const side of [-1, 1]) {
+            const distAlong = side * curHalfLen;
+            const normT = side * splitFrac;
+            const jitter = Math.sin(normT * 9.5 + 0.7) * 0.65 + Math.cos(normT * 21) * 0.25;
+            const fx = Math.max(2, Math.min(state.gridSize - 3, Math.round(haz.x + dirX * distAlong + perpX * jitter)));
+            const fz = Math.max(2, Math.min(state.gridSize - 3, Math.round(haz.z + dirZ * distAlong + perpZ * jitter)));
+            fissureCrackTile(fx, fz, 1, 0.4);
+
+            for (const u of state.units) {
+              if (u.state === 'ko' || u.statusEffects.shielded || u.role === 'dragon' || u.role === 'phoenix' || u.role === 'cerberus') continue;
+              const dSq = (u.x - fx) ** 2 + (u.z - fz) ** 2;
+              if (dSq <= 4.0) {
+                u.hp = Math.max(0, u.hp - 8);
+                const pushSign = (u.x - fx) * perpX + (u.z - fz) * perpZ >= 0 ? 1 : -1;
+                u.vxAir = perpX * pushSign * 3.8;
+                u.vzAir = perpZ * pushSign * 3.8;
+                u.vzVertical = 2.6;
+              }
             }
           }
+          resolveLiquidReactionsAround(state, haz.x, haz.z, curHalfLen + 2);
+        } else {
+          // Stage 2: Pressurized Lava Eruption — massive rift burst followed by sustained magma plumes
+          haz.currentRadius = maxHalfLen;
+          if (!haz.exploded) {
+            haz.exploded = true;
+            const stepCount = Math.max(5, Math.round(maxHalfLen * 1.4));
+            for (let si = 0; si <= stepCount; si++) {
+              const normT = (si / stepCount) * 2 - 1;
+              const distAlong = normT * maxHalfLen;
+              const jitter = Math.sin(normT * 9.5 + 0.7) * 0.65 + Math.cos(normT * 21) * 0.25;
+              const fx = Math.max(2, Math.min(state.gridSize - 3, Math.round(haz.x + dirX * distAlong + perpX * jitter)));
+              const fz = Math.max(2, Math.min(state.gridSize - 3, Math.round(haz.z + dirZ * distAlong + perpZ * jitter)));
+              fissureCrackTile(fx, fz, 2, 1.5);
+              if (si % 2 === 0 && state.pendingVfx.length < 48) {
+                state.pendingVfx.push({
+                  id: nextEntityId('vfx'),
+                  type: 'fire_spread',
+                  originX: haz.x,
+                  originY: 0.9,
+                  originZ: haz.z,
+                  x: fx,
+                  y: 0.85,
+                  z: fz,
+                  radius: 1.9,
+                  color: '#ff5400',
+                  createdAt: Date.now(),
+                });
+              }
+            }
+            for (const u of state.units) {
+              if (u.state === 'ko' || u.statusEffects.shielded || u.role === 'dragon' || u.role === 'phoenix' || u.role === 'cerberus') continue;
+              const rx = u.x - haz.x;
+              const rz = u.z - haz.z;
+              const alongProj = rx * dirX + rz * dirZ;
+              const perpDist = rx * perpX + rz * perpZ;
+              if (Math.abs(alongProj) <= maxHalfLen + 1.5 && Math.abs(perpDist) <= 3.2) {
+                u.hp = Math.max(0, u.hp - 34);
+                const pushSign = perpDist >= 0 ? 1 : -1;
+                u.vxAir = perpX * pushSign * 8.5;
+                u.vzAir = perpZ * pushSign * 8.5;
+                u.vzVertical = 7.5;
+              }
+            }
+          } else if (progress <= 0.88) {
+            // Sustained eruption pulses along staggered vents
+            const ventFracs = [-0.65, 0, 0.65];
+            for (let vi = 0; vi < ventFracs.length; vi++) {
+              const normT = ventFracs[vi];
+              const distAlong = normT * maxHalfLen;
+              const jitter = Math.sin(normT * 9.5 + 0.7) * 0.65 + Math.cos(normT * 21) * 0.25;
+              const fx = Math.max(2, Math.min(state.gridSize - 3, Math.round(haz.x + dirX * distAlong + perpX * jitter)));
+              const fz = Math.max(2, Math.min(state.gridSize - 3, Math.round(haz.z + dirZ * distAlong + perpZ * jitter)));
+              fissureCrackTile(fx, fz, 1, 1.0);
+              for (const u of state.units) {
+                if (u.state === 'ko' || u.statusEffects.shielded || u.role === 'dragon' || u.role === 'phoenix' || u.role === 'cerberus') continue;
+                const dSq = (u.x - fx) ** 2 + (u.z - fz) ** 2;
+                if (dSq <= 6.25) {
+                  u.hp = Math.max(0, u.hp - 22);
+                  const pushSign = (u.x - fx) * perpX + (u.z - fz) * perpZ >= 0 ? 1 : -1;
+                  u.vxAir = perpX * pushSign * 7.2;
+                  u.vzAir = perpZ * pushSign * 7.2;
+                  u.vzVertical = 5.4;
+                }
+              }
+            }
+          }
+          resolveLiquidReactionsAround(state, haz.x, haz.z, maxHalfLen + 2);
         }
-        resolveLiquidReactionsAround(state, haz.x, haz.z, curHalfLen + 2);
       }
     }
 
@@ -12141,38 +12536,140 @@ function stepSimulationSingle(
     }
 
     // Sweeping Helios Solar Beam ('orbital_beam'): blazing overhead Sun channels a searing laser
-    // across terrain while periodically launching map-wide solar projectiles that erupt into lava on impact!
+    // that burns through blocks, evaporates water into steam/seabed, and periodically launches solar flares!
     if (haz.kind === 'orbital_beam') {
       const bx = haz.beamDirX ?? 1;
       const bz = haz.beamDirZ ?? 0;
-      haz.x = Math.max(3, Math.min(state.gridSize - 4, haz.x + bx * 3.6 * dt));
-      haz.z = Math.max(3, Math.min(state.gridSize - 4, haz.z + bz * 3.6 * dt));
+      haz.x = Math.max(3, Math.min(state.gridSize - 4, haz.x + bx * 2.65 * dt));
+      haz.z = Math.max(3, Math.min(state.gridSize - 4, haz.z + bz * 2.65 * dt));
       // Gently steer back inward if approaching the map rim so the Sun keeps sweeping across the world
       if (haz.x <= 4 || haz.x >= state.gridSize - 5) haz.beamDirX = -bx;
       if (haz.z <= 4 || haz.z >= state.gridSize - 5) haz.beamDirZ = -bz;
 
+      let beamState = solarBeamTileStateMap.get(haz);
+      if (!beamState) {
+        beamState = { burnAccum: new Map(), evapAccum: new Map(), evaporatedTiles: new Set() };
+        solarBeamTileStateMap.set(haz, beamState);
+      }
+      const { burnAccum, evapAccum, evaporatedTiles } = beamState;
+
       const bR = haz.radius * 0.78;
       const bSq = bR * bR;
+      const cutR = Math.max(1.85, bR * 0.68);
+      const lavaTrenchR = Math.max(1.2, bR * 0.42);
+      let carvedLavaThisTick = false;
+
       forEachTileInRadius(state, haz.x, haz.z, bR, (t) => {
-        t.tempOffset = Math.min(80, (t.tempOffset ?? 0) + 52 * dt);
+        const d = Math.hypot(t.x - haz.x, t.z - haz.z);
+        const falloff = Math.max(0.2, 1 - d / Math.max(0.5, bR));
+        const idx = t.z * state.gridSize + t.x;
+        t.blessedTimer = 0;
+        t.tempOffset = Math.min(80, (t.tempOffset ?? 0) + 56 * dt);
+
         if (t.height === 0) {
           if (t.terrain === 'ice') {
+            // Melt sea ice back to water first before evaporating on subsequent exposure
             t.terrain = t.frozenWaterBase ?? 'shallow_water';
             delete t.frozenWaterBase;
+            evapAccum.set(idx, 0);
+            return;
           }
-          damageOrBleachWaterTile(t, 260 * dt, true);
-        } else if (!t.buildingId) {
-          if (t.terrain === 'sand') t.terrain = 'crystal_field';
-          else if (t.terrain !== 'crystal_field') {
-            const coreDistSq = (t.x - haz.x) ** 2 + (t.z - haz.z) ** 2;
-            t.terrain = coreDistSq <= 1.6 ? 'volcanic_wasteland' : 'scorched';
+          if (t.waterKind === 'lava') {
+            return;
+          }
+          damageOrBleachWaterTile(t, 280 * dt, true);
+          if (!t.buildingId && d <= cutR) {
+            const nextEvap = (evapAccum.get(idx) ?? 0) + dt * (3.6 * falloff + 0.55);
+            if (nextEvap >= 1.0) {
+              evapAccum.set(idx, nextEvap - 1.0);
+              if (t.terrain === 'deep_water' && !t.waterKind) {
+                t.terrain = 'shallow_water';
+                t.resourceNode = 'none';
+                t.resourceAmount = 0;
+              } else {
+                // Boil off shallow/poison/floral water into dry scorched/sandy seabed
+                t.height = 1;
+                t.terrain = d <= lavaTrenchR ? 'scorched' : 'sand';
+                delete t.waterKind;
+                delete t.frozenWaterBase;
+                t.isRiver = false;
+                t.isLake = false;
+                t.resourceNode = 'none';
+                t.resourceAmount = 0;
+                t.onFireTimer = 0;
+                evaporatedTiles.add(idx);
+              }
+            } else {
+              evapAccum.set(idx, nextEvap);
+            }
+          }
+          return;
+        }
+
+        if (!t.buildingId) {
+          t.farmSettlementId = undefined;
+          if (t.resourceNode === 'berry_bush') {
+            t.resourceNode = 'none';
+            t.resourceAmount = 0;
+          } else if (t.resourceNode === 'timber_grove') {
+            if (d <= cutR) {
+              t.resourceNode = 'none';
+              t.resourceAmount = 0;
+              clearBurntTreeState(t);
+              delete t.treeBiomeOverride;
+            } else {
+              t.burntTree = true;
+            }
+          }
+          if (t.terrain === 'sand') {
+            t.terrain = 'crystal_field';
+          } else if (t.terrain !== 'crystal_field') {
+            t.terrain = d <= lavaTrenchR ? 'volcanic_wasteland' : 'scorched';
           }
           t.onFireTimer = Math.max(t.onFireTimer, 8.0);
+
+          // Burn down blocks inside the concentrated solar beam core!
+          if (d <= cutR) {
+            const nextBurn = (burnAccum.get(idx) ?? 0) + dt * (4.4 * falloff + 0.7);
+            if (nextBurn >= 1.0) {
+              burnAccum.set(idx, nextBurn - 1.0);
+              if (t.height > 1) {
+                t.height -= 1;
+                t.terrain = 'volcanic_wasteland';
+                if (t.resourceNode === 'stone_outcrop' || t.resourceNode === 'ore_vein') {
+                  t.resourceNode = 'none';
+                  t.resourceAmount = 0;
+                }
+              } else if (d <= lavaTrenchR && !evaporatedTiles.has(idx)) {
+                // Focal point melts the bottom terrain layer into an incandescent lava trench
+                t.height = 0;
+                t.terrain = 'shallow_water';
+                t.waterKind = 'lava';
+                t.isRiver = true;
+                t.isLake = false;
+                delete t.frozenWaterBase;
+                t.resourceNode = 'none';
+                t.resourceAmount = 0;
+                t.onFireTimer = 0;
+                clearBurntTreeState(t);
+                delete t.treeBiomeOverride;
+                carvedLavaThisTick = true;
+              }
+            } else {
+              burnAccum.set(idx, nextBurn);
+            }
+          }
         }
       });
+
+      if (carvedLavaThisTick) {
+        specialLiquidPossibleByState.set(state, true);
+        resolveLiquidReactionsAround(state, haz.x, haz.z, bR + 1.5);
+      }
+
       for (const b of state.buildings) {
         if (b.shieldTimer <= 0 && (b.tileX - haz.x) ** 2 + (b.tileZ - haz.z) ** 2 <= bSq) {
-          b.hp = Math.max(0, b.hp - 260 * dt);
+          b.hp = Math.max(0, b.hp - 280 * dt);
         }
       }
       for (const v of state.vehicles ?? []) {
@@ -15021,12 +15518,20 @@ function stepVehicles(state: SimulationState, dt: number): void {
         const dmg = vStats.dmg;
         const tracerColor =
           v.type === 'orbital_gunship' || (vEpoch >= 6 && (v.type === 'tank' || v.type === 'warship' || v.type === 'bomber_plane'))
-            ? '#56cfe1'
+            ? v.species === 'dwarf'
+              ? '#fbbf24'
+              : v.species === 'lizardfolk'
+                ? '#facc15'
+                : '#56cfe1'
             : v.species === 'elf'
               ? '#c084fc'
               : v.species === 'orc'
                 ? '#ff3b30'
-                : '#ffd166';
+                : v.species === 'dwarf'
+                  ? '#f59e0b'
+                  : v.species === 'lizardfolk'
+                    ? '#facc15'
+                    : '#ffd166';
         const hitTile = getTile(state, targetX, targetZ);
         const hitY = (hitTile?.height ?? 2) * 0.45 + 0.35;
 
@@ -15037,27 +15542,39 @@ function stepVehicles(state: SimulationState, dt: number): void {
               : v.type === 'bomber_plane' || v.type === 'warship' || (v.type === 'tank' && vEpoch >= 3)
                 ? 'elf_starfall_spell'
                 : 'arcane_bolt'
-            : v.species === 'orc'
-              ? vEpoch >= 3
-                ? v.type === 'orc_flyer' || v.type === 'bomber_plane' || v.type === 'warship' || v.type === 'tank'
-                  ? 'orc_waagh_rocket'
-                  : 'bullet'
-                : 'orc_siege_boulder'
-              : v.type === 'orbital_gunship' || (vEpoch >= 6 && (v.type === 'tank' || v.type === 'warship' || v.type === 'bomber_plane'))
+            : v.species === 'dwarf'
+              ? v.type === 'orbital_gunship' || vEpoch >= 6
                 ? 'plasma_beam'
-                : v.type === 'bomber_plane'
-                  ? targetDist <= 6.2
-                    ? 'bomb'
-                    : 'missile'
-                  : v.type === 'glider'
-                    ? 'bullet'
-                    : v.type === 'helicopter'
-                      ? Math.floor(state.year * 10 + v.variantSeed) % 2 === 0
-                        ? 'missile'
-                        : 'bullet'
-                      : vEpoch >= 4 && (v.type === 'warship' || v.type === 'tank') && targetDist >= 6.5
-                        ? 'missile'
-                        : 'cannon_shell';
+                : v.type === 'bomber_plane' || v.type === 'warship' || v.type === 'tank'
+                  ? 'dwarf_quake_mortar'
+                  : 'cannon_shell'
+              : v.species === 'lizardfolk'
+                ? v.type === 'orbital_gunship' || vEpoch >= 6
+                  ? 'plasma_beam'
+                  : v.type === 'bomber_plane' || v.type === 'warship' || (v.type === 'tank' && vEpoch >= 2)
+                    ? 'lizard_solar_lance'
+                    : 'arcane_bolt'
+                : v.species === 'orc'
+                  ? vEpoch >= 3
+                    ? v.type === 'orc_flyer' || v.type === 'bomber_plane' || v.type === 'warship' || v.type === 'tank'
+                      ? 'orc_waagh_rocket'
+                      : 'bullet'
+                    : 'orc_siege_boulder'
+                  : v.type === 'orbital_gunship' || (vEpoch >= 6 && (v.type === 'tank' || v.type === 'warship' || v.type === 'bomber_plane'))
+                    ? 'plasma_beam'
+                    : v.type === 'bomber_plane'
+                      ? targetDist <= 6.2
+                        ? 'bomb'
+                        : 'missile'
+                      : v.type === 'glider'
+                        ? 'bullet'
+                        : v.type === 'helicopter'
+                          ? Math.floor(state.year * 10 + v.variantSeed) % 2 === 0
+                            ? 'missile'
+                            : 'bullet'
+                          : vEpoch >= 4 && (v.type === 'warship' || v.type === 'tank') && targetDist >= 6.5
+                            ? 'missile'
+                            : 'cannon_shell';
 
         // Evolved Atomic+ Bombers & Orbital Gunships deliver tactical payloads only when kingdom ultimate cooldown is ready against tough targets
         const kUltReady = !myKid || (state.kingdomUltimateCooldowns?.[myKid] ?? 0) <= 0;
@@ -15110,6 +15627,40 @@ function stepVehicles(state: SimulationState, dt: number): void {
               flightDuration: 0.7,
               createdAt: Date.now(),
             });
+          } else if (v.species === 'dwarf') {
+            state.pendingVfx.push({
+              id: nextEntityId('vfx'),
+              type: 'projectile_tracer',
+              vfxSubtype: 'dwarf_quake_mortar',
+              species: 'dwarf',
+              originX: v.x,
+              originY: cruiseY + 0.12,
+              originZ: v.z,
+              x: targetX,
+              y: hitY,
+              z: targetZ,
+              radius: 2.35,
+              color: '#f59e0b',
+              flightDuration: 0.68,
+              createdAt: Date.now(),
+            });
+          } else if (v.species === 'lizardfolk') {
+            state.pendingVfx.push({
+              id: nextEntityId('vfx'),
+              type: 'projectile_tracer',
+              vfxSubtype: 'lizard_solar_lance',
+              species: 'lizardfolk',
+              originX: v.x,
+              originY: cruiseY + 0.15,
+              originZ: v.z,
+              x: targetX,
+              y: hitY,
+              z: targetZ,
+              radius: 2.3,
+              color: '#facc15',
+              flightDuration: 0.68,
+              createdAt: Date.now(),
+            });
           } else {
             // Human tactical air-launched missile / falling bomb into target
             state.pendingVfx.push({
@@ -15129,9 +15680,10 @@ function stepVehicles(state: SimulationState, dt: number): void {
               createdAt: Date.now(),
             });
           }
+          const isSolarOrArcanePayload = v.species === 'elf' || v.species === 'lizardfolk';
           state.pendingVfx.push({
             id: nextEntityId('vfx'),
-            type: v.species === 'elf' ? 'arcane_cataclysm' : 'nuke_blast',
+            type: isSolarOrArcanePayload ? 'arcane_cataclysm' : 'nuke_blast',
             originX: v.x,
             originY: cruiseY + 0.25,
             originZ: v.z,
@@ -15139,7 +15691,14 @@ function stepVehicles(state: SimulationState, dt: number): void {
             y: hitY,
             z: targetZ,
             radius: 3.4,
-            color: v.species === 'elf' ? '#c084fc' : '#ff9e00',
+            color:
+              v.species === 'elf'
+                ? '#c084fc'
+                : v.species === 'lizardfolk'
+                  ? '#facc15'
+                  : v.species === 'dwarf'
+                    ? '#f59e0b'
+                    : '#ff9e00',
             createdAt: Date.now(),
           });
           applySuperweaponEnvironmentImpact(
@@ -15147,7 +15706,7 @@ function stepVehicles(state: SimulationState, dt: number): void {
             targetX,
             targetZ,
             3.2,
-            v.species === 'elf' ? 'arcane' : 'nuke',
+            isSolarOrArcanePayload ? 'arcane' : 'nuke',
           );
           for (const ou of state.units) {
             if (ou.state === 'ko' || ou.hp <= 0 || ou.statusEffects.shielded) continue;
@@ -15239,6 +15798,51 @@ function stepVehicles(state: SimulationState, dt: number): void {
           }
           if (v.settlementId && myKid) {
             claimTerritoryAround(state, targetX, targetZ, 2.0, v.settlementId, myKid, true);
+          }
+
+          // AoE splash damage + miniature craters for explosive & magical vehicle ordnance across all races
+          const vehSplashRadius =
+            vfxSubtype === 'bomb'
+              ? 2.55
+              : vfxSubtype === 'missile' ||
+                  vfxSubtype === 'elf_starfall_spell' ||
+                  vfxSubtype === 'orc_waagh_rocket' ||
+                  vfxSubtype === 'orc_siege_boulder' ||
+                  vfxSubtype === 'dwarf_quake_mortar' ||
+                  vfxSubtype === 'lizard_solar_lance'
+                ? 2.25
+                : vfxSubtype === 'cannon_shell'
+                  ? 1.85
+                  : vfxSubtype === 'plasma_beam'
+                    ? 1.5
+                    : vfxSubtype === 'arcane_bolt'
+                      ? 1.25
+                      : 0;
+          if (vehSplashRadius > 0) {
+            const vehCraterMode: 'explosive' | 'arcane' | 'orc' =
+              v.species === 'elf' || v.species === 'lizardfolk'
+                ? 'arcane'
+                : v.species === 'orc' || v.species === 'dwarf'
+                  ? 'orc'
+                  : 'explosive';
+            applyWarfareAreaSplash(
+              state,
+              targetX,
+              targetZ,
+              vehSplashRadius,
+              dmg,
+              v.id,
+              myKid,
+              v.species,
+              vehCraterMode,
+              {
+                excludeUnitId: targetUnit?.id,
+                excludeVehicleId: targetVeh?.id,
+                excludeBuildingId: targetBld?.id,
+                craterRadius: vfxSubtype === 'arcane_bolt' ? 0.95 : Math.min(2.1, vehSplashRadius * 0.78),
+                knockback: vehSplashRadius >= 1.85,
+              },
+            );
           }
         }
       }
@@ -15351,6 +15955,179 @@ function applySuperweaponEnvironmentImpact(
           t.onFireTimer = 4.5;
         }
       }
+    }
+  }
+}
+
+/**
+ * Miniature crater & battlefield scar generator for conventional racial warfare ordnance:
+ * - 'explosive' (Human missiles, bombs, ICBMs, shells): mini-crater, scorched earth & rim embers
+ * - 'arcane' (Elf starfall & astral magic): shimmering crystalline crater & arcane scars
+ * - 'orc' (Orc WAAAGH! rockets & flaming magma boulders): jagged badlands/scorched mini-crater & burning debris
+ */
+function applyWarfareCraterImpact(
+  state: SimulationState,
+  cx: number,
+  cz: number,
+  radius: number,
+  mode: 'explosive' | 'arcane' | 'orc',
+  craterDepth = 1,
+): void {
+  const clampedR = Math.max(0.9, Math.min(3.4, radius));
+  const minX = Math.max(0, Math.floor(cx - clampedR));
+  const maxX = Math.min(state.gridSize - 1, Math.ceil(cx + clampedR));
+  const minZ = Math.max(0, Math.floor(cz - clampedR));
+  const maxZ = Math.min(state.gridSize - 1, Math.ceil(cz + clampedR));
+  const allowFire = state.worldRules?.wildfireSpread !== false;
+
+  for (let z = minZ; z <= maxZ; z++) {
+    for (let x = minX; x <= maxX; x++) {
+      const t = getTile(state, x, z);
+      if (!t) continue;
+      const d = Math.hypot(x - cx, z - cz);
+      if (d > clampedR) continue;
+
+      if (t.height === 0) {
+        damageOrBleachWaterTile(t, 85, false);
+        continue;
+      }
+
+      t.blessedTimer = 0;
+
+      // Clear foliage/crops inside the miniature crater core
+      if (d <= clampedR * 0.68) {
+        if (t.resourceNode === 'timber_grove' || t.resourceNode === 'berry_bush') {
+          t.resourceNode = 'none';
+          t.resourceAmount = 0;
+        }
+        if (t.farmSettlementId) {
+          t.farmSettlementId = undefined;
+        }
+      }
+
+      const inCore = d <= Math.max(0.75, clampedR * 0.48);
+      if (inCore && t.height > 1 && !t.buildingId) {
+        t.height = Math.max(1, t.height - craterDepth);
+      }
+
+      if (mode === 'arcane') {
+        if (inCore || (!t.buildingId && d <= clampedR * 0.82)) {
+          t.terrain = 'crystal_field';
+        }
+      } else if (mode === 'orc') {
+        if (inCore) {
+          t.terrain = (x + z) % 2 === 0 ? 'badlands' : 'scorched';
+          if (allowFire) t.onFireTimer = Math.max(t.onFireTimer, 5.2);
+        } else if (!t.buildingId && d <= clampedR * 0.85) {
+          t.terrain = (x + z) % 2 === 0 ? 'scorched' : 'badlands';
+          if (allowFire && (x * 7 + z * 13) % 3 === 0) {
+            t.onFireTimer = Math.max(t.onFireTimer, 4.2);
+          }
+        }
+      } else {
+        if (inCore) {
+          t.terrain = 'scorched';
+          if (allowFire) t.onFireTimer = Math.max(t.onFireTimer, 4.8);
+        } else if (!t.buildingId && d <= clampedR * 0.85) {
+          t.terrain = t.terrain === 'sand' ? 'crystal_field' : 'scorched';
+          if (allowFire && (x * 11 + z * 5) % 3 === 0) {
+            t.onFireTimer = Math.max(t.onFireTimer, 3.8);
+          }
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Shared AoE splash damage + miniature crater resolver for racial missiles, shells, bombs & magic.
+ */
+function applyWarfareAreaSplash(
+  state: SimulationState,
+  cx: number,
+  cz: number,
+  splashRadius: number,
+  baseDamage: number,
+  attackerId: string,
+  attackerKingdomId: string | undefined,
+  species: string | undefined,
+  craterMode: 'explosive' | 'arcane' | 'orc',
+  options?: {
+    excludeUnitId?: string;
+    excludeVehicleId?: string;
+    excludeBuildingId?: string;
+    craterRadius?: number;
+    knockback?: boolean;
+    onUnitKill?: () => void;
+  },
+): void {
+  if (splashRadius <= 0) return;
+  const isArcane = craterMode === 'arcane' || species === 'elf';
+  const craterR = options?.craterRadius ?? Math.min(2.2, splashRadius * 0.76);
+  if (craterR >= 0.9) {
+    applyWarfareCraterImpact(state, cx, cz, craterR, craterMode, 1);
+  }
+
+  for (let i = 0; i < state.units.length; i++) {
+    const cand = state.units[i];
+    if (
+      cand.id === attackerId ||
+      cand.id === options?.excludeUnitId ||
+      cand.state === 'ko' ||
+      cand.hp <= 0 ||
+      cand.statusEffects.shielded ||
+      cand.ageStage === 'child'
+    ) {
+      continue;
+    }
+    const cKid =
+      cand.faction === 'civilization'
+        ? cand.settlementId
+          ? getKingdomId(state, cand.settlementId)
+          : cand.kingdomId
+        : undefined;
+    if (attackerKingdomId && cKid === attackerKingdomId) continue;
+    const d = Math.hypot(cand.x - cx, cand.z - cz);
+    if (d <= splashRadius) {
+      const falloff = d <= splashRadius * 0.45 ? 0.72 : 0.46;
+      cand.hp -= baseDamage * falloff;
+      cand.lastAttackerId = attackerId;
+      cand.underAttackTimer = 7.0;
+      if (isArcane && cand.statusEffects) {
+        cand.statusEffects.cursed = Math.max(cand.statusEffects.cursed ?? 0, 3.5);
+      }
+      if (cand.hp > 0 && options?.knockback && d <= splashRadius * 0.85) {
+        const safeD = Math.max(0.35, d);
+        cand.vxAir = ((cand.x - cx) / safeD) * 2.8;
+        cand.vzAir = ((cand.z - cz) / safeD) * 2.8;
+        cand.altitude = Math.max(cand.altitude ?? 0, 0.45);
+        cand.vzVertical = Math.max(cand.vzVertical ?? 0, 2.8);
+      }
+      if (cand.hp <= 0) {
+        options?.onUnitKill?.();
+      }
+    }
+  }
+
+  if (state.vehicles) {
+    for (let vi = 0; vi < state.vehicles.length; vi++) {
+      const ev = state.vehicles[vi];
+      if (ev.id === attackerId || ev.id === options?.excludeVehicleId || (ev.hp ?? 100) <= 0) continue;
+      const vKid = ev.kingdomId ?? getKingdomId(state, ev.settlementId);
+      if (attackerKingdomId && vKid === attackerKingdomId) continue;
+      if (Math.hypot(ev.x - cx, ev.z - cz) <= splashRadius + 0.55) {
+        ev.hp = Math.max(0, (ev.hp ?? 100) - baseDamage * 0.58);
+      }
+    }
+  }
+
+  for (let bi = 0; bi < state.buildings.length; bi++) {
+    const b = state.buildings[bi];
+    if (b.id === options?.excludeBuildingId || b.hp <= 0 || b.shieldTimer > 0) continue;
+    const bKid = b.settlementId ? getKingdomId(state, b.settlementId) : undefined;
+    if (attackerKingdomId && bKid === attackerKingdomId) continue;
+    if (Math.hypot(b.tileX - cx, b.tileZ - cz) <= splashRadius + 0.4) {
+      b.hp = Math.max(0, b.hp - baseDamage * 0.65);
     }
   }
 }
@@ -15842,7 +16619,7 @@ function tileMatchesWildlifeHabitat(
     return t.terrain === 'snow' || t.terrain === 'tundra' || t.terrain === 'ice' || t.terrain === 'taiga';
   }
   if (role === 'turtle' || role === 'crab' || role === 'flamingo') {
-    if (t.terrain === 'shallow_water') return true;
+    if (role !== 'flamingo' && t.terrain === 'shallow_water') return true;
     if (t.terrain === 'sand' || t.terrain === 'swamp') {
       for (const [ox, oz] of [
         [1, 0],
@@ -16094,7 +16871,7 @@ export function seedWorldWildlife(state: SimulationState, maxToAdd?: number): vo
       const st = getTile(state, sx, sz);
       if (!st || st.buildingId || st.onFireTimer > 0) continue;
       const okIce = (q.role === 'penguin' || q.role === 'polar_bear' || q.role === 'seal') && st.terrain === 'ice';
-      const okShallow = (q.role === 'turtle' || q.role === 'crab' || q.role === 'flamingo' || q.role === 'seal') && st.terrain === 'shallow_water';
+      const okShallow = (q.role === 'turtle' || q.role === 'crab' || q.role === 'seal') && st.terrain === 'shallow_water';
       if (st.height <= 0 && !okIce && !okShallow) continue;
       const seedForSlot =
         q.appearanceSeed !== undefined
@@ -16122,7 +16899,7 @@ export function seedWorldWildlife(state: SimulationState, maxToAdd?: number): vo
       const t = getTile(state, tx, tz);
       if (!t || t.buildingId || t.onFireTimer > 0) continue;
       const okIce = (q.role === 'penguin' || q.role === 'polar_bear' || q.role === 'seal') && t.terrain === 'ice';
-      const okShallow = (q.role === 'turtle' || q.role === 'crab' || q.role === 'flamingo' || q.role === 'seal') && t.terrain === 'shallow_water';
+      const okShallow = (q.role === 'turtle' || q.role === 'crab' || q.role === 'seal') && t.terrain === 'shallow_water';
       if (t.height <= 0 && !okIce && !okShallow) continue;
       if (!tileMatchesWildlifeHabitat(state, t, q.role, q.appearanceSeed)) continue;
       if (isNearCivilization(tx, tz, minCivDist)) continue;
@@ -16195,10 +16972,8 @@ function stepWildlifeAI(
     u.role === 'frog' ||
     u.role === 'hippo' ||
     u.role === 'crocodile' ||
-    u.role === 'giant_spider' ||
     u.role === 'hydra' ||
     u.role === 'basilisk' ||
-    u.role === 'flamingo' ||
     u.role === 'seal' ||
     u.role === 'kraken';
   const canWalkDeepWater = u.role === 'kraken';
@@ -16216,6 +16991,41 @@ function stepWildlifeAI(
     u.dinoRushTimer = Math.max(0, (u.dinoRushTimer ?? 0) - dt);
   }
   const curTile = getTile(state, u.x, u.z);
+  if (!isFlying && !canWalkDeepWater && u.role !== 'leviathan') {
+    const onLiquidWater = Boolean(
+      curTile &&
+        curTile.height === 0 &&
+        curTile.terrain !== 'ice' &&
+        !(canWalkShallows && curTile.terrain === 'shallow_water'),
+    );
+    u.isSwimming = onLiquidWater;
+  }
+  // Cerberus hellhound flaming pawprints: walking erupts fire along its path & ignites surrounding tiles
+  if (
+    u.role === 'cerberus' &&
+    u.state !== 'ko' &&
+    curTile &&
+    curTile.height > 0 &&
+    (u.state === 'moving' || u.state === 'fighting')
+  ) {
+    curTile.onFireTimer = Math.max(curTile.onFireTimer, 6.5);
+    if (curTile.terrain === 'snow' || curTile.terrain === 'tundra') {
+      curTile.terrain = 'scorched';
+    }
+    if (Math.random() < dt * 2.4) {
+      const dirs: ReadonlyArray<[number, number]> = [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ];
+      const [ox, oz] = dirs[Math.floor(Math.random() * dirs.length)];
+      const nb = getTile(state, curTile.x + ox, curTile.z + oz);
+      if (nb && nb.height > 0) {
+        nb.onFireTimer = Math.max(nb.onFireTimer, 4.8);
+      }
+    }
+  }
   if (
     curTile &&
     curTile.onFireTimer > 0 &&
@@ -17097,7 +17907,7 @@ function stepWildlifeAI(
       }
 
       if (!bestPlantTile) {
-        u.actionCooldown = 0.55;
+        u.actionCooldown = 1.2 + ((u.appearanceSeed ?? 0) & 3) * 0.15;
       }
     }
 
@@ -18493,11 +19303,11 @@ function stepWildlifeAI(
       const dz = u.targetZ - u.z;
       const dist = Math.hypot(dx, dz);
       if (dist > 0.1) {
-        const pace = isFlying ? 0.92 : isHerbivore ? 0.72 : 0.84;
+        const pace = isFlying ? 0.92 : currentTileInvalid ? 0.65 : isHerbivore ? 0.72 : 0.84;
         const nx = u.x + (dx / dist) * moveSpeed * pace * dt;
         const nz = u.z + (dz / dist) * moveSpeed * pace * dt;
         const nt = getTile(state, nx, nz);
-        if (isFlying || canStepOn(nt)) {
+        if (isFlying || canStepOn(nt) || (currentTileInvalid && nt)) {
           u.x = Math.max(1, Math.min(gs - 2, nx));
           u.z = Math.max(1, Math.min(gs - 2, nz));
         } else {
@@ -19117,6 +19927,10 @@ function stepCivilianUnitAI(
     speciesCombatMult = 1.48;
   } else if (u.species === 'elf') {
     speciesCombatMult = hasElfArcaneTech ? 1.38 : 1.18;
+  } else if (u.species === 'dwarf') {
+    speciesCombatMult = 1.22 + myEpoch * 0.06;
+  } else if (u.species === 'lizardfolk') {
+    speciesCombatMult = 1.18 + myEpoch * 0.07;
   } else if (u.species === 'human') {
     speciesCombatMult = hasHumanTechSupport ? 1.05 + myEpoch * 0.1 : 0.74;
   }
@@ -19149,9 +19963,19 @@ function stepCivilianUnitAI(
           ? hasElfGuns
             ? Math.max(6.2, attackerEff.attackRange)
             : Math.max(4.2, attackerEff.attackRange)
-          : (u.battlewillActive ?? 0) > 0 || (orcCanBattlewill && (u.battlewillCooldown ?? 0) <= 0)
-            ? Math.max(4.2, attackerEff.attackRange)
-            : Math.max(1.85, attackerEff.attackRange);
+          : u.species === 'dwarf'
+            ? myEpoch >= 3
+              ? Math.max(5.4, attackerEff.attackRange)
+              : myEpoch >= 2
+                ? Math.max(3.6, attackerEff.attackRange)
+                : attackerEff.attackRange
+            : u.species === 'lizardfolk'
+              ? myEpoch >= 3
+                ? Math.max(6.0, attackerEff.attackRange)
+                : Math.max(4.0, attackerEff.attackRange)
+              : (u.battlewillActive ?? 0) > 0 || (orcCanBattlewill && (u.battlewillCooldown ?? 0) <= 0)
+                ? Math.max(4.2, attackerEff.attackRange)
+                : Math.max(1.85, attackerEff.attackRange);
     const effectiveRange = isNavalOrColossalTarget ? Math.max(5.5, baseRange) : baseRange;
 
     if (dist <= effectiveRange) {
@@ -19555,33 +20379,65 @@ function stepCivilianUnitAI(
             if (myEpoch >= 6) {
               weaponSubtype = shotCycle % 3 === 0 ? 'plasma_beam' : shotCycle % 3 === 1 ? 'elf_starfall_spell' : 'arcane_bolt';
               weaponColor = weaponSubtype === 'plasma_beam' ? '#56cfe1' : '#e879f9';
-              weaponSplash = weaponSubtype === 'elf_starfall_spell' ? 1.85 : 0;
+              weaponSplash = weaponSubtype === 'elf_starfall_spell' ? 2.15 : weaponSubtype === 'plasma_beam' ? 1.45 : 1.25;
             } else if (myEpoch >= 3) {
               weaponSubtype = shotCycle % 3 === 0 ? 'elf_starfall_spell' : shotCycle % 3 === 1 ? 'plasma_beam' : 'arcane_bolt';
               weaponColor = weaponSubtype === 'plasma_beam' ? '#38bdf8' : '#c084fc';
-              weaponSplash = weaponSubtype === 'elf_starfall_spell' ? 1.65 : 0;
+              weaponSplash = weaponSubtype === 'elf_starfall_spell' ? 1.9 : weaponSubtype === 'plasma_beam' ? 1.35 : 1.15;
             } else {
               weaponSubtype = shotCycle % 4 === 0 && myEpoch >= 2 ? 'elf_starfall_spell' : 'arcane_bolt';
               weaponColor = hasElfArcaneTech ? '#5eead4' : '#c084fc';
-              weaponSplash = weaponSubtype === 'elf_starfall_spell' ? 1.35 : 0;
+              weaponSplash = weaponSubtype === 'elf_starfall_spell' ? 1.55 : myEpoch >= 2 ? 1.05 : 0;
             }
           } else if (u.species === 'human') {
             isRangedShot = hasHumanGuns || (myEpoch >= 1 && dist > 1.6) || forceVerticalRanged;
             if (myEpoch >= 6) {
               weaponSubtype = shotCycle % 3 === 0 ? 'plasma_beam' : shotCycle % 3 === 1 ? 'missile' : 'cannon_shell';
               weaponColor = weaponSubtype === 'plasma_beam' ? '#56cfe1' : '#38bdf8';
-              weaponSplash = weaponSubtype !== 'plasma_beam' ? 1.8 : 0;
+              weaponSplash = weaponSubtype === 'missile' ? 2.15 : weaponSubtype === 'cannon_shell' ? 1.85 : 1.4;
             } else if (myEpoch >= 4) {
               weaponSubtype = shotCycle % 4 === 0 ? 'missile' : shotCycle % 4 === 1 ? 'cannon_shell' : 'bullet';
               weaponColor = weaponSubtype === 'missile' ? '#ff6b35' : '#ffd166';
-              weaponSplash = weaponSubtype !== 'bullet' ? 1.7 : 0;
+              weaponSplash = weaponSubtype === 'missile' ? 2.0 : weaponSubtype === 'cannon_shell' ? 1.7 : 0;
             } else if (hasHumanGuns) {
               weaponSubtype = shotCycle % 4 === 0 ? 'cannon_shell' : 'bullet';
               weaponColor = '#ffd166';
-              weaponSplash = weaponSubtype === 'cannon_shell' ? 1.4 : 0;
+              weaponSplash = weaponSubtype === 'cannon_shell' ? 1.55 : 0;
             } else {
               weaponSubtype = 'bullet';
               weaponColor = '#fca311';
+            }
+          } else if (u.species === 'dwarf') {
+            // Dwarven arsenal: Heavy Runic Quake Mortars, forged artillery shells & golden forge-plasma beams
+            isRangedShot = myEpoch >= 2 || dist > 1.75 || forceVerticalRanged;
+            if (myEpoch >= 6) {
+              weaponSubtype = shotCycle % 3 === 0 ? 'plasma_beam' : shotCycle % 3 === 1 ? 'dwarf_quake_mortar' : 'cannon_shell';
+              weaponColor = weaponSubtype === 'plasma_beam' ? '#fbbf24' : '#f59e0b';
+              weaponSplash = weaponSubtype === 'dwarf_quake_mortar' ? 2.25 : weaponSubtype === 'cannon_shell' ? 1.85 : 1.45;
+            } else if (myEpoch >= 3) {
+              weaponSubtype = shotCycle % 3 === 0 ? 'dwarf_quake_mortar' : shotCycle % 3 === 1 ? 'cannon_shell' : 'bullet';
+              weaponColor = '#f59e0b';
+              weaponSplash = weaponSubtype === 'dwarf_quake_mortar' ? 2.05 : weaponSubtype === 'cannon_shell' ? 1.7 : 0;
+            } else {
+              weaponSubtype = shotCycle % 3 === 0 ? 'dwarf_quake_mortar' : 'cannon_shell';
+              weaponColor = '#d97706';
+              weaponSplash = weaponSubtype === 'dwarf_quake_mortar' ? 1.7 : 1.35;
+            }
+          } else if (u.species === 'lizardfolk') {
+            // Lizardfolk arsenal: Radiant Solar Prism Lances, emerald-jade arcane bolts & sun-gold beams
+            isRangedShot = myEpoch >= 1 || dist > 1.6 || forceVerticalRanged;
+            if (myEpoch >= 6) {
+              weaponSubtype = shotCycle % 3 === 0 ? 'plasma_beam' : shotCycle % 3 === 1 ? 'lizard_solar_lance' : 'arcane_bolt';
+              weaponColor = weaponSubtype === 'arcane_bolt' ? '#10b981' : '#facc15';
+              weaponSplash = weaponSubtype === 'lizard_solar_lance' ? 2.15 : weaponSubtype === 'plasma_beam' ? 1.5 : 1.25;
+            } else if (myEpoch >= 3) {
+              weaponSubtype = shotCycle % 3 === 0 ? 'lizard_solar_lance' : shotCycle % 3 === 1 ? 'plasma_beam' : 'arcane_bolt';
+              weaponColor = weaponSubtype === 'arcane_bolt' ? '#10b981' : '#facc15';
+              weaponSplash = weaponSubtype === 'lizard_solar_lance' ? 1.95 : weaponSubtype === 'plasma_beam' ? 1.35 : 1.15;
+            } else {
+              weaponSubtype = shotCycle % 3 === 0 ? 'lizard_solar_lance' : 'arcane_bolt';
+              weaponColor = weaponSubtype === 'lizard_solar_lance' ? '#facc15' : '#10b981';
+              weaponSplash = weaponSubtype === 'lizard_solar_lance' ? 1.65 : myEpoch >= 2 ? 1.05 : 0;
             }
           } else {
             // Orc arsenal: Flaming siege boulders early -> chaotic WAAAGH! scrap-rockets & dakka later
@@ -19589,15 +20445,15 @@ function stepCivilianUnitAI(
             if (myEpoch >= 5) {
               weaponSubtype = shotCycle % 3 === 0 ? 'orc_waagh_rocket' : shotCycle % 3 === 1 ? 'orc_siege_boulder' : 'plasma_beam';
               weaponColor = '#ff5400';
-              weaponSplash = 1.9;
+              weaponSplash = weaponSubtype === 'plasma_beam' ? 1.5 : 2.1;
             } else if (myEpoch >= 3) {
               weaponSubtype = shotCycle % 3 === 0 ? 'orc_waagh_rocket' : shotCycle % 3 === 1 ? 'orc_siege_boulder' : 'bullet';
               weaponColor = '#ff4d1a';
-              weaponSplash = weaponSubtype !== 'bullet' ? 1.65 : 0;
+              weaponSplash = weaponSubtype !== 'bullet' ? 1.85 : 0;
             } else {
               weaponSubtype = 'orc_siege_boulder';
               weaponColor = '#ff3b30';
-              weaponSplash = 1.4;
+              weaponSplash = 1.55;
             }
           }
 
@@ -19613,7 +20469,7 @@ function stepCivilianUnitAI(
               originX: u.x,
               originY,
               originZ: u.z,
-              radius: weaponSplash > 0 ? 1.35 : 0.92,
+              radius: weaponSplash > 0 ? Math.max(1.35, weaponSplash * 0.78) : 0.92,
               color: weaponColor,
               createdAt: Date.now(),
             });
@@ -19677,33 +20533,40 @@ function stepCivilianUnitAI(
               claimTerritoryAround(state, nearestEnemy.x, nearestEnemy.z, 3.0, claimSid, myKingdomId, true);
             }
           }
-          if (weaponSplash > 0) {
-            for (const cand of state.units) {
-              if (cand.id === nearestEnemy.id || cand.id === u.id || cand.state === 'ko' || cand.hp <= 0) continue;
-              const cKid =
-                cand.faction === 'civilization'
-                  ? cand.settlementId
-                    ? getKingdomId(state, cand.settlementId)
-                    : cand.kingdomId
-                  : undefined;
-              if (myKingdomId && cKid === myKingdomId) continue;
-              if (Math.hypot(cand.x - nearestEnemy.x, cand.z - nearestEnemy.z) <= weaponSplash) {
-                cand.hp -= strikeDmg * 0.42;
-                cand.lastAttackerId = u.id;
-                cand.underAttackTimer = 6.0;
-                if (cand.hp <= 0) u.kills = (u.kills ?? 0) + 1;
-              }
-            }
-            if (state.vehicles) {
-              for (const ev of state.vehicles) {
-                if ((ev.hp ?? 100) <= 0) continue;
-                const vKid = ev.kingdomId ?? getKingdomId(state, ev.settlementId);
-                if (myKingdomId && vKid === myKingdomId) continue;
-                if (Math.hypot(ev.x - nearestEnemy.x, ev.z - nearestEnemy.z) <= weaponSplash + 0.6) {
-                  ev.hp = Math.max(0, (ev.hp ?? 100) - strikeDmg * 0.55);
-                }
-              }
-            }
+          if (isRangedShot && weaponSplash > 0) {
+            const unitCraterMode: 'explosive' | 'arcane' | 'orc' =
+              u.species === 'elf' || u.species === 'lizardfolk'
+                ? 'arcane'
+                : u.species === 'orc' || u.species === 'dwarf'
+                  ? 'orc'
+                  : 'explosive';
+            const heavyOrdnance =
+              weaponSubtype === 'missile' ||
+              weaponSubtype === 'cannon_shell' ||
+              weaponSubtype === 'elf_starfall_spell' ||
+              weaponSubtype === 'orc_waagh_rocket' ||
+              weaponSubtype === 'orc_siege_boulder' ||
+              weaponSubtype === 'dwarf_quake_mortar' ||
+              weaponSubtype === 'lizard_solar_lance';
+            applyWarfareAreaSplash(
+              state,
+              nearestEnemy.x,
+              nearestEnemy.z,
+              weaponSplash,
+              strikeDmg,
+              u.id,
+              myKingdomId,
+              u.species,
+              unitCraterMode,
+              {
+                excludeUnitId: nearestEnemy.id,
+                craterRadius: heavyOrdnance ? Math.min(1.65, weaponSplash * 0.78) : 0.95,
+                knockback: heavyOrdnance,
+                onUnitKill: () => {
+                  u.kills = (u.kills ?? 0) + 1;
+                },
+              },
+            );
           }
         }
       }
@@ -19765,27 +20628,88 @@ function stepCivilianUnitAI(
               1.45 *
               (u.statusEffects.frenzied ? 2.0 : 1.0);
             nearestEnemyVeh.hp = Math.max(0, (nearestEnemyVeh.hp ?? 100) - vehDmg);
+            const avSubtype: VisualEffectEvent['vfxSubtype'] =
+              u.species === 'elf'
+                ? myEpoch >= 3
+                  ? 'elf_starfall_spell'
+                  : 'arcane_bolt'
+                : u.species === 'dwarf'
+                  ? myEpoch >= 2
+                    ? 'dwarf_quake_mortar'
+                    : 'cannon_shell'
+                  : u.species === 'lizardfolk'
+                    ? myEpoch >= 2
+                      ? 'lizard_solar_lance'
+                      : 'arcane_bolt'
+                    : u.species === 'orc'
+                      ? myEpoch >= 3
+                        ? 'orc_waagh_rocket'
+                        : myEpoch >= 2
+                          ? 'orc_siege_boulder'
+                          : undefined
+                      : myEpoch >= 4
+                        ? 'missile'
+                        : myEpoch >= 3
+                          ? 'cannon_shell'
+                          : undefined;
+            const avSplash =
+              avSubtype === 'missile' ||
+              avSubtype === 'elf_starfall_spell' ||
+              avSubtype === 'orc_waagh_rocket' ||
+              avSubtype === 'dwarf_quake_mortar' ||
+              avSubtype === 'lizard_solar_lance'
+                ? 1.9
+                : avSubtype === 'cannon_shell' || avSubtype === 'orc_siege_boulder'
+                  ? 1.6
+                  : avSubtype === 'arcane_bolt' && myEpoch >= 2
+                    ? 1.1
+                    : 0;
             state.pendingVfx.push({
               id: nextEntityId('vfx'),
-              type: myEpoch >= 3 || u.species === 'elf' ? 'projectile_tracer' : 'hit_spark',
-              vfxSubtype:
-                u.species === 'elf'
-                  ? 'arcane_bolt'
-                  : myEpoch >= 5
-                    ? 'missile'
-                    : myEpoch >= 3
-                      ? 'bullet'
-                      : undefined,
+              type: avSubtype ? 'projectile_tracer' : 'hit_spark',
+              vfxSubtype: avSubtype,
+              species: u.species,
               x: nearestEnemyVeh.x,
               y: (nearestEnemyVeh.y ?? 0.2) + 0.35,
               z: nearestEnemyVeh.z,
               originX: u.x,
               originY: (curTile?.height ?? 2) * 0.45 + 0.35,
               originZ: u.z,
-              radius: 1.0,
-              color: u.species === 'elf' ? '#56cfe1' : u.species === 'orc' ? '#ff4d4d' : '#ffd166',
+              radius: avSplash > 0 ? Math.max(1.25, avSplash * 0.78) : 1.0,
+              color:
+                u.species === 'elf'
+                  ? '#c084fc'
+                  : u.species === 'orc'
+                    ? '#ff4d1a'
+                    : u.species === 'dwarf'
+                      ? '#f59e0b'
+                      : u.species === 'lizardfolk'
+                        ? '#facc15'
+                        : '#ff6b35',
               createdAt: Date.now(),
             });
+            if (avSplash > 0) {
+              applyWarfareAreaSplash(
+                state,
+                nearestEnemyVeh.x,
+                nearestEnemyVeh.z,
+                avSplash,
+                vehDmg,
+                u.id,
+                myKingdomId,
+                u.species,
+                u.species === 'elf' || u.species === 'lizardfolk'
+                  ? 'arcane'
+                  : u.species === 'orc' || u.species === 'dwarf'
+                    ? 'orc'
+                    : 'explosive',
+                {
+                  excludeVehicleId: nearestEnemyVeh.id,
+                  craterRadius: avSubtype === 'arcane_bolt' ? 0.95 : Math.min(1.55, avSplash * 0.76),
+                  knockback: avSplash >= 1.6,
+                },
+              );
+            }
           }
           return;
         } else if (vDist <= 14.0) {
@@ -19830,9 +20754,11 @@ function stepCivilianUnitAI(
       const effectiveRange =
         myEpoch >= 3 && u.species !== 'orc'
           ? 5.2
-          : u.species === 'elf'
+          : u.species === 'elf' || u.species === 'lizardfolk'
             ? Math.max(3.8, def.attackRange)
-            : Math.max(isFloatingBld ? 4.2 : 1.6, def.attackRange);
+            : u.species === 'dwarf' && myEpoch >= 2
+              ? Math.max(3.4, def.attackRange)
+              : Math.max(isFloatingBld ? 4.2 : 1.6, def.attackRange);
       const claimSid =
         u.settlementId ??
         (myKingdomId ? resolvePrimarySettlementForKingdom(state, myKingdomId, nearestForeignBld.tileX, nearestForeignBld.tileZ) : undefined);
@@ -19869,19 +20795,88 @@ function stepCivilianUnitAI(
               nearestForeignBld.constructionProgress = 100;
             }
           }
+          const siegeSubtype: VisualEffectEvent['vfxSubtype'] =
+            u.species === 'elf'
+              ? myEpoch >= 3
+                ? 'elf_starfall_spell'
+                : 'arcane_bolt'
+              : u.species === 'dwarf'
+                ? myEpoch >= 2
+                  ? 'dwarf_quake_mortar'
+                  : 'cannon_shell'
+                : u.species === 'lizardfolk'
+                  ? myEpoch >= 2
+                    ? 'lizard_solar_lance'
+                    : 'arcane_bolt'
+                  : u.species === 'orc'
+                    ? myEpoch >= 3
+                      ? 'orc_waagh_rocket'
+                      : myEpoch >= 2
+                        ? 'orc_siege_boulder'
+                        : undefined
+                    : myEpoch >= 4
+                      ? 'missile'
+                      : myEpoch >= 3
+                        ? 'cannon_shell'
+                        : undefined;
+          const siegeSplash =
+            siegeSubtype === 'missile' ||
+            siegeSubtype === 'elf_starfall_spell' ||
+            siegeSubtype === 'orc_waagh_rocket' ||
+            siegeSubtype === 'dwarf_quake_mortar' ||
+            siegeSubtype === 'lizard_solar_lance'
+              ? 1.85
+              : siegeSubtype === 'cannon_shell' || siegeSubtype === 'orc_siege_boulder'
+                ? 1.55
+                : siegeSubtype === 'arcane_bolt' && myEpoch >= 2
+                  ? 1.05
+                  : 0;
           state.pendingVfx.push({
             id: nextEntityId('vfx'),
-            type: myEpoch >= 3 && u.species !== 'orc' ? 'projectile_tracer' : 'hit_spark',
+            type: siegeSubtype ? 'projectile_tracer' : 'hit_spark',
+            vfxSubtype: siegeSubtype,
+            species: u.species,
             x: nearestForeignBld.tileX,
             y: (bTile?.height ?? 2) * 0.45 + 0.35,
             z: nearestForeignBld.tileZ,
-            originX: u.species === 'elf' || myEpoch >= 3 ? u.x : undefined,
-            originY: u.species === 'elf' || myEpoch >= 3 ? (curTile?.height ?? 2) * 0.45 + 0.35 : undefined,
-            originZ: u.species === 'elf' || myEpoch >= 3 ? u.z : undefined,
-            radius: 0.9,
-            color: u.species === 'elf' ? '#56cfe1' : u.species === 'orc' ? '#ff4d4d' : '#ff9f68',
+            originX: siegeSubtype ? u.x : undefined,
+            originY: siegeSubtype ? (curTile?.height ?? 2) * 0.45 + 0.35 : undefined,
+            originZ: siegeSubtype ? u.z : undefined,
+            radius: siegeSplash > 0 ? Math.max(1.25, siegeSplash * 0.78) : 0.9,
+            color:
+              u.species === 'elf'
+                ? '#c084fc'
+                : u.species === 'orc'
+                  ? '#ff4d1a'
+                  : u.species === 'dwarf'
+                    ? '#f59e0b'
+                    : u.species === 'lizardfolk'
+                      ? '#facc15'
+                      : '#ff6b35',
             createdAt: Date.now(),
           });
+          if (siegeSplash > 0) {
+            applyWarfareAreaSplash(
+              state,
+              nearestForeignBld.tileX,
+              nearestForeignBld.tileZ,
+              siegeSplash,
+              bldDmg * 0.72,
+              u.id,
+              myKingdomId,
+              u.species,
+              u.species === 'elf' || u.species === 'lizardfolk'
+                ? 'arcane'
+                : u.species === 'orc' || u.species === 'dwarf'
+                  ? 'orc'
+                  : 'explosive',
+              {
+                excludeBuildingId: nearestForeignBld.id,
+                craterRadius: siegeSubtype === 'arcane_bolt' ? 0.95 : Math.min(1.5, siegeSplash * 0.75),
+                knockback: siegeSplash >= 1.55,
+              },
+            );
+          }
         }
       } else {
         u.state = 'moving';
@@ -20046,13 +21041,17 @@ function stepCivilianUnitAI(
     } else {
       u.state = 'building';
       const speciesBuildBase =
-        u.species === 'human'
-          ? 24
-          : u.species === 'elf'
-            ? 19
-            : state.sandboxFreeMode
-              ? 26
-              : 14;
+        u.species === 'dwarf'
+          ? 26
+          : u.species === 'human'
+            ? 24
+            : u.species === 'lizardfolk'
+              ? 21
+              : u.species === 'elf'
+                ? 19
+                : state.sandboxFreeMode
+                  ? 26
+                  : 14;
       const buildSpeed =
         (u.role === 'builder' ? 28 : speciesBuildBase) *
         (unfinished.type === 'bonfire' ? 1.8 : 1.0) *
@@ -20128,7 +21127,16 @@ function stepCivilianUnitAI(
       advanceUnitPositionWithWaterRules(state, u, dx / dist, dz / dist, moveSpeed, dt, dist <= 4.5);
     } else {
       u.state = 'building';
-      const speciesUpgMult = u.species === 'human' ? 1.2 : u.species === 'elf' ? 0.8 : 0.35;
+      const speciesUpgMult =
+        u.species === 'dwarf'
+          ? 1.25
+          : u.species === 'human'
+            ? 1.2
+            : u.species === 'lizardfolk'
+              ? 0.95
+              : u.species === 'elf'
+                ? 0.8
+                : 0.35;
       const upgSpeed = (u.role === 'builder' ? 13 : 9) * speciesUpgMult * (u.statusEffects.blessed ? 1.5 : 1.0);
       upgradeTarget.upgradeProgress = (upgradeTarget.upgradeProgress ?? 0) + upgSpeed * dt;
       upgradeTarget.hp = Math.min(upgradeTarget.maxHp, upgradeTarget.hp + 12 * dt);
@@ -20188,7 +21196,16 @@ function stepCivilianUnitAI(
         advanceUnitPositionWithWaterRules(state, u, dx / dist, dz / dist, moveSpeed, dt, false);
       } else {
         u.state = u.role === 'priest' ? 'praying' : 'researching';
-        const researchPace = u.species === 'human' ? 1.15 : u.species === 'elf' ? 1.0 : 0.35;
+        const researchPace =
+          u.species === 'human'
+            ? 1.15
+            : u.species === 'lizardfolk'
+              ? 1.1
+              : u.species === 'dwarf'
+                ? 1.05
+                : u.species === 'elf'
+                  ? 1.0
+                  : 0.35;
         u.harvestTimer = (u.harvestTimer ?? 0) + dt * researchPace * (u.statusEffects.blessed ? 1.7 : 1.0);
         if (u.harvestTimer >= 1.2) {
           u.harvestTimer -= 1.2;

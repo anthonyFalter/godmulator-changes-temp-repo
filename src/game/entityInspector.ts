@@ -22,6 +22,7 @@ import {
   TraitDefinition,
   computeUnitEffectiveStats,
   generateUnitTraits,
+  getUnitSizeScale,
   resolveGeneInfo,
   resolveItemInfo,
 } from './unitCustomization';
@@ -64,6 +65,7 @@ export interface EntityInspectProfile {
     regenPerSec: number;
     attackSpeedMult: number;
     harvestMult: number;
+    sizeScale: number;
     kills: number;
     fireproof: boolean;
     thorns: boolean;
@@ -94,7 +96,7 @@ export interface EntityInspectProfile {
 }
 
 export const RARE_GENE_POOLS: Record<
-  'civilization' | 'elf' | 'orc' | 'herbivore' | 'carnivore' | 'dragon' | 'unicorn' | 'hostile',
+  'civilization' | 'elf' | 'orc' | 'dwarf' | 'lizardfolk' | 'herbivore' | 'carnivore' | 'dragon' | 'unicorn' | 'hostile',
   string[]
 > = {
   civilization: [
@@ -118,6 +120,18 @@ export const RARE_GENE_POOLS: Record<
     'Thick Skull',
     'Strong Grip',
     'Tough Hide',
+  ],
+  dwarf: [
+    'Stoneblood',
+    'Forge Born',
+    'Iron Grip',
+    'Rune Sense',
+  ],
+  lizardfolk: [
+    'Sun Scales',
+    'Cold Blood',
+    'Jungle Step',
+    'Solar Focus',
   ],
   herbivore: [
     'White Coat',
@@ -381,6 +395,12 @@ export function getUnitIntrinsicGene(
   if (species === 'orc') {
     return 'Orc Strength';
   }
+  if (species === 'dwarf') {
+    return 'Runic Resilience';
+  }
+  if (species === 'lizardfolk') {
+    return 'Sun-Blessed Scales';
+  }
   return 'Adaptable';
 }
 
@@ -391,6 +411,8 @@ export function isIntrinsicGene(gene: string): boolean {
     'Adaptable',
     'Long Lived',
     'Orc Strength',
+    'Runic Resilience',
+    'Sun-Blessed Scales',
     'Magic Horn',
     'Apex Predator',
     'Horned Crest',
@@ -572,6 +594,10 @@ export function generateUnitGenes(
       pool = RARE_GENE_POOLS.elf;
     } else if (species === 'orc') {
       pool = RARE_GENE_POOLS.orc;
+    } else if (species === 'dwarf') {
+      pool = RARE_GENE_POOLS.dwarf;
+    } else if (species === 'lizardfolk') {
+      pool = RARE_GENE_POOLS.lizardfolk;
     } else {
       pool = RARE_GENE_POOLS.civilization;
     }
@@ -689,7 +715,11 @@ export function generateUnitItems(
       ? ['Forest Cloak', 'Sun Charm', 'Silver Flute']
       : species === 'orc'
         ? ['Bone Charm', 'War Horn', 'Iron Flask']
-        : ['Travel Bag', 'Wood Token', 'Pocket Compass'];
+        : species === 'dwarf'
+          ? ['Rune Stone', 'Brass Tankard', 'Forge Tongs']
+          : species === 'lizardfolk'
+            ? ['Sun Disc', 'Jade Idol', 'Obsidian Fang']
+            : ['Travel Bag', 'Wood Token', 'Pocket Compass'];
   const trinket = trinketPool[seededHash(seed, 9) % trinketPool.length];
 
   if (role === 'warrior') {
@@ -1327,9 +1357,11 @@ export function getEntityInspectProfile(
     };
   });
 
+  const sizeScale = getUnitSizeScale(unit);
   const hasStatOverrides = Boolean(
-    unit.statBonuses &&
-      Object.values(unit.statBonuses).some((v) => typeof v === 'number' && Math.abs(v) > 0.001),
+    Math.abs(sizeScale - 1.0) > 0.005 ||
+      (unit.statBonuses &&
+        Object.values(unit.statBonuses).some((v) => typeof v === 'number' && Math.abs(v) > 0.001)),
   );
 
   return {
@@ -1356,6 +1388,7 @@ export function getEntityInspectProfile(
       regenPerSec: effectiveWithStatus.regenPerSec,
       attackSpeedMult: effectiveWithStatus.attackSpeedMult,
       harvestMult: effectiveWithStatus.harvestMult,
+      sizeScale,
       kills: Math.max(0, Math.floor(unit.kills ?? 0)),
       fireproof: effectiveWithStatus.fireproof,
       thorns: effectiveWithStatus.thorns,

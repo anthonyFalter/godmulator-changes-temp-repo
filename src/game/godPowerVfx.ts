@@ -137,6 +137,7 @@ export interface SharedGodPowerGeos {
   cloudDeckGeo: THREE.BufferGeometry;
   crackStarGeo: THREE.BufferGeometry;
   fissureTrenchGeo: THREE.BufferGeometry;
+  unitBoxGeo: THREE.BufferGeometry;
   clockHandsGeo: THREE.BufferGeometry;
   domeShellGeo: THREE.BufferGeometry;
   torusRingGeo: THREE.BufferGeometry;
@@ -283,6 +284,7 @@ export function createSharedGodPowerGeos(): SharedGodPowerGeos {
   clockParts.forEach((g) => g.dispose());
 
   // Primitive shared geometries
+  const unitBoxGeo = new THREE.BoxGeometry(1, 1, 1);
   const rockChunkGeo = new THREE.DodecahedronGeometry(0.32, 0);
   const rainDropGeo = new THREE.BoxGeometry(0.08, 0.95, 0.08);
   const iceShardGeo = new THREE.OctahedronGeometry(0.24, 0);
@@ -371,6 +373,7 @@ export function createSharedGodPowerGeos(): SharedGodPowerGeos {
     cloudDeckGeo,
     crackStarGeo,
     fissureTrenchGeo,
+    unitBoxGeo,
     clockHandsGeo,
     domeShellGeo,
     torusRingGeo,
@@ -399,6 +402,7 @@ export function createSharedGodPowerGeos(): SharedGodPowerGeos {
     cloudDeckGeo,
     crackStarGeo,
     fissureTrenchGeo,
+    unitBoxGeo,
     clockHandsGeo,
     domeShellGeo,
     torusRingGeo,
@@ -1054,19 +1058,32 @@ export function createEnhancedHazardVfx(
   }
 
   // -------------------------------------------------------------------------
-  // 7. LAVA FISSURE (`magma_geyser`) — Tectonic Molten Crack + Roaring Lava Column + 36 Erupting Bombs!
+  // 7. LAVA FISSURE (`magma_geyser`) — Jagged Contour-Hugging Tectonic Rift -> Delayed Lava Beam Eruption!
   // -------------------------------------------------------------------------
   if (kind === 'magma_geyser') {
-    const trenchMat = new THREE.MeshLambertMaterial({
-      vertexColors: true,
-      emissive: 0xff4500,
-      emissiveIntensity: 0.65,
+    const abyssMat = new THREE.MeshLambertMaterial({
+      color: 0xffffff,
+      emissive: 0x1a0804,
+      emissiveIntensity: 0.35,
+      flatShading: true,
+    });
+    const crackGlowMat = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.9,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const basaltMat = new THREE.MeshLambertMaterial({
+      color: 0xffffff,
+      emissive: 0x3b1206,
+      emissiveIntensity: 0.25,
       flatShading: true,
     });
     const outerJetMat = new THREE.MeshBasicMaterial({
       color: 0xff5400,
       transparent: true,
-      opacity: 0.72,
+      opacity: 0.76,
       side: THREE.DoubleSide,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
@@ -1082,28 +1099,59 @@ export function createEnhancedHazardVfx(
     const bombMat = new THREE.MeshBasicMaterial({
       color: 0xffffff,
     });
-    const scorchRingMat = createMagicCircleMat('volcano_eruption', 0.8, 19);
-    materials.push(trenchMat, outerJetMat, coreJetMat, bombMat, scorchRingMat);
+    materials.push(abyssMat, crackGlowMat, basaltMat, outerJetMat, coreJetMat, bombMat);
 
-    const fissureMesh = new THREE.Mesh(geos.fissureTrenchGeo, trenchMat);
-    fissureMesh.position.y = 0.08;
-    group.add(fissureMesh);
+    const CRACK_SEGS = 28; // 20 main zigzag fault segments + 8 branching side fractures
+    const crackAbyssInst = new THREE.InstancedMesh(geos.unitBoxGeo, abyssMat, CRACK_SEGS);
+    crackAbyssInst.frustumCulled = false;
+    for (let i = 0; i < CRACK_SEGS; i++) {
+      _color.setHex(i % 2 === 0 ? 0x0c0a09 : 0x1c1917);
+      crackAbyssInst.setColorAt(i, _color);
+    }
+    if (crackAbyssInst.instanceColor) crackAbyssInst.instanceColor.needsUpdate = true;
+    group.add(crackAbyssInst);
+    instancedMeshes.push(crackAbyssInst);
 
-    const groundRing = new THREE.Mesh(sharedMagicCircleGeo, scorchRingMat);
-    groundRing.position.y = 0.16;
-    group.add(groundRing);
+    const crackGlowInst = new THREE.InstancedMesh(geos.unitBoxGeo, crackGlowMat, CRACK_SEGS);
+    crackGlowInst.frustumCulled = false;
+    for (let i = 0; i < CRACK_SEGS; i++) {
+      _color.setHex(i >= 20 ? 0xff4500 : i % 3 === 0 ? 0xfef08a : 0xff6b1a);
+      crackGlowInst.setColorAt(i, _color);
+    }
+    if (crackGlowInst.instanceColor) crackGlowInst.instanceColor.needsUpdate = true;
+    group.add(crackGlowInst);
+    instancedMeshes.push(crackGlowInst);
+
+    const PLATE_COUNT = 36;
+    const rockPlateInst = new THREE.InstancedMesh(geos.rockChunkGeo, basaltMat, PLATE_COUNT);
+    rockPlateInst.frustumCulled = false;
+    for (let i = 0; i < PLATE_COUNT; i++) {
+      _color.setHex(i % 3 === 0 ? 0x292524 : i % 3 === 1 ? 0x44403c : 0x57534e);
+      rockPlateInst.setColorAt(i, _color);
+    }
+    if (rockPlateInst.instanceColor) rockPlateInst.instanceColor.needsUpdate = true;
+    group.add(rockPlateInst);
+    instancedMeshes.push(rockPlateInst);
+
+    const VENT_COUNT = 7;
+    const ventJetInst = new THREE.InstancedMesh(geos.lightPillarGeo, outerJetMat, VENT_COUNT);
+    ventJetInst.frustumCulled = false;
+    ventJetInst.count = 0;
+    group.add(ventJetInst);
+    instancedMeshes.push(ventJetInst);
 
     const outerPillar = new THREE.Mesh(geos.lightPillarGeo, outerJetMat);
-    outerPillar.position.y = 2.6;
+    outerPillar.visible = false;
     group.add(outerPillar);
 
     const corePillar = new THREE.Mesh(geos.lightPillarGeo, coreJetMat);
-    corePillar.position.y = 2.4;
+    corePillar.visible = false;
     group.add(corePillar);
 
     const BOMB_COUNT = 36;
     const bombInst = new THREE.InstancedMesh(geos.rockChunkGeo, bombMat, BOMB_COUNT);
     bombInst.frustumCulled = false;
+    bombInst.count = 0;
     const seeds = new Float32Array(BOMB_COUNT * 4); // [alongFrac (-1..1), perpSign, phase, arcHeight]
     for (let i = 0; i < BOMB_COUNT; i++) {
       seeds[i * 4] = ((i / (BOMB_COUNT - 1)) * 2 - 1) * 0.92;
@@ -1117,13 +1165,22 @@ export function createEnhancedHazardVfx(
     group.add(bombInst);
     instancedMeshes.push(bombInst);
 
-    refs.fissureMesh = fissureMesh;
-    refs.groundRing = groundRing;
+    refs.crackAbyssInst = crackAbyssInst;
+    refs.crackGlowInst = crackGlowInst;
+    refs.rockPlateInst = rockPlateInst;
+    refs.ventJetInst = ventJetInst;
     refs.outerPillar = outerPillar;
     refs.corePillar = corePillar;
     refs.bombInst = bombInst;
+    refs.crackGlowMat = crackGlowMat;
+    refs.outerJetMat = outerJetMat;
+    refs.coreJetMat = coreJetMat;
     refs.seeds = seeds;
     refs.bombCount = BOMB_COUNT;
+    refs.crackSegs = CRACK_SEGS;
+    refs.plateCount = PLATE_COUNT;
+    refs.ventCount = VENT_COUNT;
+    refs.eruptedBurst = false;
 
     return { kind, group, materials, geometries, instancedMeshes, particleTimer: 0, refs };
   }
@@ -2141,74 +2198,269 @@ export function updateEnhancedHazardVfx(
   }
 
   // -------------------------------------------------------------------------
-  // 7. LAVA FISSURE (`magma_geyser`) — Tectonic Crack + Lava Pillar + 36 Erupting Magma Bombs!
+  // 7. LAVA FISSURE (`magma_geyser`) — Stage 1: Tectonic Ground Crack -> Stage 2: Lava Beam Eruption!
   // -------------------------------------------------------------------------
   if (vfx.kind === 'magma_geyser') {
-    const fissureMesh = refs.fissureMesh as THREE.Mesh;
-    const groundRing = refs.groundRing as THREE.Mesh;
+    const crackAbyssInst = refs.crackAbyssInst as THREE.InstancedMesh;
+    const crackGlowInst = refs.crackGlowInst as THREE.InstancedMesh;
+    const rockPlateInst = refs.rockPlateInst as THREE.InstancedMesh;
+    const ventJetInst = refs.ventJetInst as THREE.InstancedMesh;
     const outerPillar = refs.outerPillar as THREE.Mesh;
     const corePillar = refs.corePillar as THREE.Mesh;
     const bombInst = refs.bombInst as THREE.InstancedMesh;
+    const crackGlowMat = refs.crackGlowMat as THREE.MeshBasicMaterial;
+    const outerJetMat = refs.outerJetMat as THREE.MeshBasicMaterial;
+    const coreJetMat = refs.coreJetMat as THREE.MeshBasicMaterial;
     const seeds = refs.seeds as Float32Array;
     const bombCount = refs.bombCount as number;
+    const plateCount = refs.plateCount as number;
+    const ventCount = refs.ventCount as number;
 
     const heading = haz.heading ?? 0;
-    const curHalfLen = Math.max(1.4, haz.currentRadius ?? haz.radius * 0.65);
-    const pulse = 0.86 + Math.sin(elapsed * 14) * 0.18;
-
-    fissureMesh.rotation.y = -heading;
-    fissureMesh.scale.set(curHalfLen * fade, 1.0 * fade, 1.25 * fade);
-
-    groundRing.rotation.set(0, elapsed * 1.8, 0);
-    groundRing.scale.setScalar(Math.max(1.8, curHalfLen * 0.55) * pulse * fade);
-
-    const geyserH = (3.4 + Math.abs(Math.sin(elapsed * 5.8)) * 2.4) * fade;
-    outerPillar.position.y = geyserH * 0.5;
-    outerPillar.scale.set(1.15 * pulse * fade, geyserH, 1.15 * pulse * fade);
-    outerPillar.rotation.y = elapsed * 2.5;
-
-    corePillar.position.y = geyserH * 0.48;
-    corePillar.scale.set(0.55 * pulse * fade, geyserH * 0.96, 0.55 * pulse * fade);
-
     const dirX = Math.cos(heading);
     const dirZ = Math.sin(heading);
     const perpX = -dirZ;
     const perpZ = dirX;
 
-    for (let i = 0; i < bombCount; i++) {
-      const s = i * 4;
-      const along = seeds[s] * curHalfLen;
-      const perp = seeds[s + 1];
-      const cycle = (elapsed * 1.15 + seeds[s + 2]) % 1;
-      const arcH = seeds[s + 3];
+    const fullHalfLen = Math.max(6.5, (haz.maxRadius ?? haz.radius) * 1.25);
+    const splitFrac = Math.min(1, Math.max(0.06, progress / 0.36));
+    const curHalfLen = fullHalfLen * splitFrac;
+    const crackWiden = Math.min(1.18, 0.32 + (progress / 0.4) * 0.78);
 
-      const px = dirX * along + perpX * perp * cycle * 2.4;
-      const pz = dirZ * along + perpZ * perp * cycle * 2.4;
-      const py = 0.25 + 4 * cycle * (1 - cycle) * arcH;
-      const sc = (0.55 + (1 - cycle) * 0.65) * fade;
-
-      _pos.set(px, py, pz);
-      _euler.set(elapsed * 6 + i, elapsed * 4, i);
-      _quat.setFromEuler(_euler);
-      _scale.set(sc, sc, sc);
-      _mat4.compose(_pos, _quat, _scale);
-      bombInst.setMatrixAt(i, _mat4);
+    // Stage 2 eruption envelope (strictly 0 while progress < 0.40 so fissure cracks visibly FIRST!)
+    let eruptEnv = 0;
+    if (progress >= 0.4) {
+      const eruptIn = Math.min(1, (progress - 0.4) / 0.08);
+      const eruptOut = progress > 0.88 ? Math.max(0, 1 - (progress - 0.88) / 0.12) : 1;
+      eruptEnv = eruptIn * eruptOut * fade;
+      if (!refs.eruptedBurst) {
+        refs.eruptedBurst = true;
+        particles.spawnImpactFlash?.(haz.x, hy + 2.2, haz.z, '#ff5400', 28, 0.055);
+      }
     }
-    bombInst.instanceMatrix.needsUpdate = true;
+
+    const pulse = 0.88 + Math.sin(elapsed * 16) * 0.16;
+    const pressureGlow = progress < 0.4 ? 0.42 + (progress / 0.4) * 0.52 : 0.94;
+    crackGlowMat.opacity = Math.min(1, pressureGlow * (0.85 + Math.sin(elapsed * 20) * 0.15) * fade);
+
+    const MAIN_SEGS = 20;
+    // 20 Main Zigzag Fault Segments tearing outward from center to +/- fullHalfLen
+    for (let i = 0; i < MAIN_SEGS; i++) {
+      const f0 = (i / MAIN_SEGS) * 2 - 1;
+      const f1 = ((i + 1) / MAIN_SEGS) * 2 - 1;
+      const fMid = (f0 + f1) * 0.5;
+      const distFrac = Math.abs(fMid);
+      const segReveal = Math.min(1, Math.max(0, (splitFrac - distFrac * 0.92) * 5.2));
+
+      if (segReveal <= 0.01) {
+        _scale.set(0, 0, 0);
+        _pos.set(0, -10, 0);
+        _quat.identity();
+        _mat4.compose(_pos, _quat, _scale);
+        crackAbyssInst.setMatrixAt(i, _mat4);
+        crackGlowInst.setMatrixAt(i, _mat4);
+        continue;
+      }
+
+      const j0 = Math.sin(f0 * 9.5 + 0.7) * 0.65 + Math.cos(f0 * 21) * 0.25;
+      const j1 = Math.sin(f1 * 9.5 + 0.7) * 0.65 + Math.cos(f1 * 21) * 0.25;
+      const x0 = dirX * (f0 * fullHalfLen) + perpX * j0;
+      const z0 = dirZ * (f0 * fullHalfLen) + perpZ * j0;
+      const x1 = dirX * (f1 * fullHalfLen) + perpX * j1;
+      const z1 = dirZ * (f1 * fullHalfLen) + perpZ * j1;
+
+      const mx = (x0 + x1) * 0.5;
+      const mz = (z0 + z1) * 0.5;
+      const segLen = Math.hypot(x1 - x0, z1 - z0) * 1.12;
+      const segYaw = -Math.atan2(z1 - z0, x1 - x0);
+      const localGy = particles.getGroundY(haz.x + mx, haz.z + mz) - hy;
+      const centerTaper = 1.0 - distFrac * 0.35;
+      const crackW = (0.62 + eruptEnv * 0.38) * crackWiden * centerTaper * segReveal * fade;
+
+      _euler.set(0, segYaw, 0);
+      _quat.setFromEuler(_euler);
+
+      // Dark obsidian chasm wall/trench floor
+      _pos.set(mx, localGy + 0.04, mz);
+      _scale.set(segLen * segReveal, 0.24 * fade, crackW * 1.45);
+      _mat4.compose(_pos, _quat, _scale);
+      crackAbyssInst.setMatrixAt(i, _mat4);
+
+      // Recessed glowing molten magma seam inside the abyss
+      _pos.set(mx, localGy + 0.1 + eruptEnv * 0.08, mz);
+      _scale.set(segLen * 0.96 * segReveal, 0.16 * fade, crackW * 0.72);
+      _mat4.compose(_pos, _quat, _scale);
+      crackGlowInst.setMatrixAt(i, _mat4);
+    }
+
+    // 8 Diagonal Branching Hairline Side Fractures splitting off the main rift
+    const branchFracs = [-0.72, -0.45, -0.18, 0.15, 0.42, 0.7, -0.58, 0.56];
+    for (let bi = 0; bi < 8; bi++) {
+      const idx = MAIN_SEGS + bi;
+      const f = branchFracs[bi];
+      const segReveal = Math.min(1, Math.max(0, (splitFrac - Math.abs(f) * 0.92) * 4.5));
+      if (segReveal <= 0.01) {
+        _scale.set(0, 0, 0);
+        _pos.set(0, -10, 0);
+        _quat.identity();
+        _mat4.compose(_pos, _quat, _scale);
+        crackAbyssInst.setMatrixAt(idx, _mat4);
+        crackGlowInst.setMatrixAt(idx, _mat4);
+        continue;
+      }
+
+      const j = Math.sin(f * 9.5 + 0.7) * 0.65 + Math.cos(f * 21) * 0.25;
+      const sideSign = bi % 2 === 0 ? 1 : -1;
+      const branchAng = heading + sideSign * (0.78 + (bi % 3) * 0.16);
+      const bLen = (1.65 + (bi % 3) * 0.55) * segReveal * fade;
+      const bdx = Math.cos(branchAng);
+      const bdz = Math.sin(branchAng);
+      const bx = dirX * (f * fullHalfLen) + perpX * j + bdx * (bLen * 0.48);
+      const bz = dirZ * (f * fullHalfLen) + perpZ * j + bdz * (bLen * 0.48);
+      const localGy = particles.getGroundY(haz.x + bx, haz.z + bz) - hy;
+
+      _euler.set(0, -branchAng, 0);
+      _quat.setFromEuler(_euler);
+
+      _pos.set(bx, localGy + 0.03, bz);
+      _scale.set(bLen, 0.18 * fade, 0.42 * crackWiden * fade);
+      _mat4.compose(_pos, _quat, _scale);
+      crackAbyssInst.setMatrixAt(idx, _mat4);
+
+      _pos.set(bx, localGy + 0.08, bz);
+      _scale.set(bLen * 0.88, 0.12 * fade, 0.22 * crackWiden * fade);
+      _mat4.compose(_pos, _quat, _scale);
+      crackGlowInst.setMatrixAt(idx, _mat4);
+    }
+    crackAbyssInst.instanceMatrix.needsUpdate = true;
+    crackGlowInst.instanceMatrix.needsUpdate = true;
+
+    // 36 Upturned Fractured Basalt Rock Slabs heaving & tilting outward along both sides of the fissure
+    for (let pi = 0; pi < plateCount; pi++) {
+      const frac = ((pi / (plateCount - 1)) * 2 - 1) * 0.94;
+      const segReveal = Math.min(1, Math.max(0, (splitFrac - Math.abs(frac) * 0.9) * 5.2));
+      if (segReveal <= 0.01) {
+        _scale.set(0, 0, 0);
+        _pos.set(0, -10, 0);
+        _quat.identity();
+        _mat4.compose(_pos, _quat, _scale);
+        rockPlateInst.setMatrixAt(pi, _mat4);
+        continue;
+      }
+      const sideSign = pi % 2 === 0 ? 1 : -1;
+      const jitter = Math.sin(frac * 9.5 + 0.7) * 0.65 + Math.cos(frac * 21) * 0.25;
+      const lipDist = (0.64 + (pi % 3) * 0.16) * crackWiden;
+      const px = dirX * (frac * fullHalfLen) + perpX * (jitter + sideSign * lipDist);
+      const pz = dirZ * (frac * fullHalfLen) + perpZ * (jitter + sideSign * lipDist);
+      const localGy = particles.getGroundY(haz.x + px, haz.z + pz) - hy;
+
+      const plateSize = (0.78 + (pi % 4) * 0.18) * segReveal * fade;
+      const heaveY = 0.08 + segReveal * 0.22 + eruptEnv * 0.08;
+      _pos.set(px, localGy + heaveY, pz);
+      _euler.set(sideSign * (0.48 + eruptEnv * 0.22), -heading + (pi % 5) * 0.15, (pi % 3 - 1) * 0.2, 'YXZ');
+      _quat.setFromEuler(_euler);
+      _scale.set(plateSize * 1.35, plateSize * 0.75, plateSize * 1.1);
+      _mat4.compose(_pos, _quat, _scale);
+      rockPlateInst.setMatrixAt(pi, _mat4);
+    }
+    rockPlateInst.instanceMatrix.needsUpdate = true;
+
+    // Stage 2: Pressurized Lava Beam + Staggered Crack Vent Jets + Erupting Magma Bombs!
+    const showEruption = eruptEnv > 0.02;
+    outerPillar.visible = showEruption;
+    corePillar.visible = showEruption;
+
+    if (showEruption) {
+      const geyserH = (4.8 + Math.abs(Math.sin(elapsed * 7.2)) * 2.6) * eruptEnv;
+      outerPillar.position.y = geyserH * 0.5;
+      outerPillar.scale.set(1.22 * pulse * eruptEnv, geyserH, 1.22 * pulse * eruptEnv);
+      outerPillar.rotation.y = elapsed * 2.8;
+      outerJetMat.opacity = 0.76 * eruptEnv;
+
+      corePillar.position.y = geyserH * 0.48;
+      corePillar.scale.set(0.58 * pulse * eruptEnv, geyserH * 0.96, 0.58 * pulse * eruptEnv);
+      coreJetMat.opacity = 0.94 * eruptEnv;
+
+      ventJetInst.count = ventCount;
+      for (let vi = 0; vi < ventCount; vi++) {
+        const vf = ((vi / (ventCount - 1)) * 2 - 1) * 0.82;
+        const vj = Math.sin(vf * 9.5 + 0.7) * 0.65 + Math.cos(vf * 21) * 0.25;
+        const vx = dirX * (vf * fullHalfLen) + perpX * vj;
+        const vz = dirZ * (vf * fullHalfLen) + perpZ * vj;
+        const localGy = particles.getGroundY(haz.x + vx, haz.z + vz) - hy;
+        const jetH = (2.2 + Math.abs(Math.sin(elapsed * 8.6 + vi * 1.15)) * 2.5) * eruptEnv;
+        const jetR = (0.42 + (vi % 2) * 0.16) * pulse * eruptEnv;
+
+        _pos.set(vx, localGy + jetH * 0.5, vz);
+        _euler.set((vi % 2 === 0 ? 1 : -1) * 0.08, elapsed * 3.0 + vi, 0);
+        _quat.setFromEuler(_euler);
+        _scale.set(jetR, jetH, jetR);
+        _mat4.compose(_pos, _quat, _scale);
+        ventJetInst.setMatrixAt(vi, _mat4);
+      }
+      ventJetInst.instanceMatrix.needsUpdate = true;
+
+      bombInst.count = bombCount;
+      for (let i = 0; i < bombCount; i++) {
+        const s = i * 4;
+        const alongFrac = seeds[s];
+        const along = alongFrac * fullHalfLen;
+        const jitter = Math.sin(alongFrac * 9.5 + 0.7) * 0.65 + Math.cos(alongFrac * 21) * 0.25;
+        const perp = seeds[s + 1];
+        const cycle = (elapsed * 1.25 + seeds[s + 2]) % 1;
+        const arcH = seeds[s + 3];
+
+        const px = dirX * along + perpX * (jitter + perp * cycle * 2.5);
+        const pz = dirZ * along + perpZ * (jitter + perp * cycle * 2.5);
+        const py = 0.25 + 4 * cycle * (1 - cycle) * arcH * Math.min(1, eruptEnv * 1.2);
+        const sc = (0.55 + (1 - cycle) * 0.65) * eruptEnv;
+
+        _pos.set(px, py, pz);
+        _euler.set(elapsed * 6 + i, elapsed * 4, i);
+        _quat.setFromEuler(_euler);
+        _scale.set(sc, sc, sc);
+        _mat4.compose(_pos, _quat, _scale);
+        bombInst.setMatrixAt(i, _mat4);
+      }
+      bombInst.instanceMatrix.needsUpdate = true;
+    } else {
+      ventJetInst.count = 0;
+      bombInst.count = 0;
+    }
 
     if (emitParticles) {
-      const along = (Math.random() * 2 - 1) * curHalfLen;
-      particles.spawnRising(
-        haz.x + dirX * along,
-        hy + 0.35,
-        haz.z + dirZ * along,
-        3,
-        Math.random() < 0.5 ? '#ff5400' : '#facc15',
-        1.2,
-        6.0,
-        0.85,
-        1.05,
-      );
+      const sampleFrac = progress < 0.4 ? (Math.random() < 0.5 ? -splitFrac : splitFrac) * 0.9 : (Math.random() * 2 - 1) * 0.9;
+      const sampleJitter = Math.sin(sampleFrac * 9.5 + 0.7) * 0.65 + Math.cos(sampleFrac * 21) * 0.25;
+      const px = haz.x + dirX * (sampleFrac * fullHalfLen) + perpX * sampleJitter;
+      const pz = haz.z + dirZ * (sampleFrac * fullHalfLen) + perpZ * sampleJitter;
+      const pGy = particles.getGroundY(px, pz);
+      if (progress < 0.4) {
+        // Pre-eruption rift smoke & glowing crack embers along the splitting fault tips
+        particles.spawnRising(
+          px,
+          pGy + 0.2,
+          pz,
+          2,
+          Math.random() < 0.55 ? '#ff5400' : '#a8a29e',
+          0.9,
+          2.6,
+          0.7,
+          0.85,
+        );
+      } else {
+        // Full eruption lava sparks & molten plumes
+        particles.spawnRising(
+          px,
+          pGy + 0.4,
+          pz,
+          3,
+          Math.random() < 0.5 ? '#ff5400' : '#fde047',
+          Math.max(1.2, curHalfLen * 0.18),
+          7.0,
+          0.85,
+          1.1,
+        );
+      }
     }
     return;
   }
@@ -2498,8 +2750,12 @@ export function updateEnhancedHazardVfx(
     }
 
     if (emitParticles) {
-      particles.spawnBurst(haz.x, hy + 0.35, haz.z, 3, '#fb923c', 1.4, 6.2, 0.95);
-      particles.spawnRising(haz.x, hy + 0.3, haz.z, 2, '#fde047', r * 0.55, 5.8, 0.72, 0.85);
+      if (hy <= 0.25) {
+        // Boiling steam clouds rising where Solar Beam evaporates water
+        particles.spawnRising(haz.x, hy + 0.25, haz.z, 4, Math.random() < 0.65 ? '#e0f2fe' : '#f8fafc', r * 0.52, 4.8, 0.9, 1.3);
+      } else {
+        particles.spawnBurst(haz.x, hy + 0.35, haz.z, 3, Math.random() < 0.5 ? '#fb923c' : '#fde047', 1.4, 6.2, 0.95);
+      }
     }
     return;
   }

@@ -210,9 +210,25 @@ export function getEpochCityLightProfile(
   if (epochIndex <= 0) {
     // Prehistoric / Stone Age: Flickering campfires, bonfires & wooden fire-torches
     const primaryHex =
-      species === 'elf' ? 0x48f5c8 : species === 'orc' ? 0xff4814 : 0xff7b1c;
+      species === 'elf'
+        ? 0x48f5c8
+        : species === 'orc'
+          ? 0xff4814
+          : species === 'dwarf'
+            ? 0xffa62b
+            : species === 'lizardfolk'
+              ? 0xfacc15
+              : 0xff7b1c;
     const secondaryHex =
-      species === 'elf' ? 0xa8ffdb : species === 'orc' ? 0xff922b : 0xffb703;
+      species === 'elf'
+        ? 0xa8ffdb
+        : species === 'orc'
+          ? 0xff922b
+          : species === 'dwarf'
+            ? 0xffd166
+            : species === 'lizardfolk'
+              ? 0x34d399
+              : 0xffb703;
     return {
       fixtureKind: 'campfire',
       primaryHex,
@@ -231,9 +247,25 @@ export function getEpochCityLightProfile(
     const torchFlicker =
       1 + (Math.sin(safeElapsed * 10.5) * 0.065 + Math.cos(safeElapsed * 16.8) * 0.045);
     const primaryHex =
-      species === 'elf' ? 0x52f2c8 : species === 'orc' ? 0xff5421 : 0xff9e2c;
+      species === 'elf'
+        ? 0x52f2c8
+        : species === 'orc'
+          ? 0xff5421
+          : species === 'dwarf'
+            ? 0xf59e0b
+            : species === 'lizardfolk'
+              ? 0xfde047
+              : 0xff9e2c;
     const secondaryHex =
-      species === 'elf' ? 0xffd166 : species === 'orc' ? 0xff9f1c : 0xffd166;
+      species === 'elf'
+        ? 0xffd166
+        : species === 'orc'
+          ? 0xff9f1c
+          : species === 'dwarf'
+            ? 0xfbbf24
+            : species === 'lizardfolk'
+              ? 0x2dd4bf
+              : 0xffd166;
     return {
       fixtureKind: 'brazier_lantern',
       primaryHex,
@@ -251,9 +283,25 @@ export function getEpochCityLightProfile(
     // Industrial Age: Cast-iron Victorian gaslight lampposts, factory skylights & warm tenement windows
     const gasHum = 1 + Math.sin(safeElapsed * 7.2) * 0.025;
     const primaryHex =
-      species === 'elf' ? 0x64dfdf : species === 'orc' ? 0xff6b2b : 0xffc44d;
+      species === 'elf'
+        ? 0x64dfdf
+        : species === 'orc'
+          ? 0xff6b2b
+          : species === 'dwarf'
+            ? 0xf59e0b
+            : species === 'lizardfolk'
+              ? 0xfacc15
+              : 0xffc44d;
     const secondaryHex =
-      species === 'elf' ? 0xffe699 : species === 'orc' ? 0xff3b1f : 0xff922b;
+      species === 'elf'
+        ? 0xffe699
+        : species === 'orc'
+          ? 0xff3b1f
+          : species === 'dwarf'
+            ? 0xff7b1c
+            : species === 'lizardfolk'
+              ? 0x10b981
+              : 0xff922b;
     return {
       fixtureKind: 'gas_lamppost',
       primaryHex,
@@ -274,15 +322,23 @@ export function getEpochCityLightProfile(
         ? 0x72efdd
         : species === 'orc'
           ? 0xff5e36
-          : epochIndex === 5
-            ? 0xfff0b3
-            : 0xffe082;
+          : species === 'dwarf'
+            ? 0xfbbf24
+            : species === 'lizardfolk'
+              ? 0xfde047
+              : epochIndex === 5
+                ? 0xfff0b3
+                : 0xffe082;
     const secondaryHex =
       species === 'elf'
         ? 0x48bfe3
         : species === 'orc'
           ? 0xffbe0b
-          : 0x38bdf8;
+          : species === 'dwarf'
+            ? 0xf97316
+            : species === 'lizardfolk'
+              ? 0x14b8a6
+              : 0x38bdf8;
     return {
       fixtureKind: 'city_streetlight',
       primaryHex,
@@ -299,9 +355,25 @@ export function getEpochCityLightProfile(
   // Orbital & Interstellar Ages (epochIndex >= 6): Bioluminescent arcologies, plasma street luminaires & cyan/gold transit grids
   const pulse = 1 + Math.sin(safeElapsed * 3.2) * 0.05;
   const primaryHex =
-    species === 'elf' ? 0x52f2c8 : species === 'orc' ? 0xff5421 : 0x56cfe1;
+    species === 'elf'
+      ? 0x52f2c8
+      : species === 'orc'
+        ? 0xff5421
+        : species === 'dwarf'
+          ? 0xfbbf24
+          : species === 'lizardfolk'
+            ? 0xfde047
+            : 0x56cfe1;
   const secondaryHex =
-    species === 'elf' ? 0xffd166 : species === 'orc' ? 0xffbe0b : 0xffd166;
+    species === 'elf'
+      ? 0xffd166
+      : species === 'orc'
+        ? 0xffbe0b
+        : species === 'dwarf'
+          ? 0xf97316
+          : species === 'lizardfolk'
+            ? 0x10b981
+            : 0xffd166;
   return {
     fixtureKind: 'arcology_neon',
     primaryHex,

@@ -217,6 +217,7 @@ export function generateWorldTiles(
   const seed = normalizeSeed(rawSeed);
   const rng = createRng(seed ^ 0x9e3779b9);
   const isScrapSea = options?.template === 'scrap_sea';
+  const isArchipelago = options?.template === 'archipelago';
   const forcedSingleBiome: TerrainType | null =
     options?.template === 'single_biome' ? (options.singleBiome ?? 'forest') : null;
 
@@ -242,7 +243,7 @@ export function generateWorldTiles(
 
   // Seeded world-flavor parameters so each seed shifts continent style, mountain vigor, & climate
   const worldStyle = rng(); // archipelago / twin-bay / grand-continent
-  const warpAmp = 6.5 + rng() * 5.0;
+  const warpAmp = isArchipelago ? 4.8 + rng() * 3.0 : 6.5 + rng() * 5.0;
   const mountainMult =
     options?.mountainBias === 'high' ? 1.25 : options?.mountainBias === 'low' ? 0.68 : 1.0;
   const ridgeStrength = (7.4 + rng() * 2.8) * mountainMult;
@@ -257,6 +258,278 @@ export function generateWorldTiles(
   const ridgeAngle = rng() * Math.PI;
   const cosR = Math.cos(ridgeAngle);
   const sinR = Math.sin(ridgeAngle);
+
+  // Dedicated curved Island Chains & Scattered Atolls field for the 'archipelago' template
+  let archElevGrid: Float32Array | null = null;
+  let archShelfGrid: Float32Array | null = null;
+  let starterHubX = center;
+  let starterHubZ = center;
+
+  if (isArchipelago) {
+    archElevGrid = new Float32Array(totalTiles);
+    archShelfGrid = new Float32Array(totalTiles);
+
+    const sizeScale = gridSize / 128;
+    const radScale = Math.pow(sizeScale, 0.72);
+    const margin = Math.max(6.5, gridSize * 0.085);
+    const minBound = margin;
+    const maxBound = gridSize - 1 - margin;
+    const clampCoord = (v: number) => Math.max(minBound, Math.min(maxBound, v));
+
+    interface ArchIslandNode {
+      x: number;
+      z: number;
+      rx: number;
+      rz: number;
+      cosA: number;
+      sinA: number;
+      peak: number;
+      chainIdx: number;
+    }
+
+    const nodes: ArchIslandNode[] = [];
+    const chainCount = Math.max(2, Math.min(6, Math.round(2.4 + sizeScale * 0.9)));
+    const nodesPerChain = Math.max(4, Math.min(8, Math.round(4.6 + sizeScale * 1.1)));
+    const minChannelGap = Math.max(3.0, 4.0 * radScale);
+    const baseRingAngle = rng() * Math.PI * 2;
+
+    const canPlaceNode = (x: number, z: number, rx: number, rz: number, allowClose = false) => {
+      const rSelf = Math.max(rx, rz);
+      for (let i = 0; i < nodes.length; i++) {
+        const other = nodes[i];
+        const rOther = Math.max(other.rx, other.rz);
+        const minSep = (rSelf + rOther) * (allowClose ? 0.78 : 0.88) + minChannelGap;
+        const d = Math.hypot(x - other.x, z - other.z);
+        if (d < minSep) return false;
+      }
+      return true;
+    };
+
+    const stampChainShelfPoint = (px: number, pz: number, shelfR: number) => {
+      const rCeil = Math.ceil(shelfR);
+      const minX = Math.max(0, Math.floor(px - rCeil));
+      const maxX = Math.min(gridSize - 1, Math.ceil(px + rCeil));
+      const minZ = Math.max(0, Math.floor(pz - rCeil));
+      const maxZ = Math.min(gridSize - 1, Math.ceil(pz + rCeil));
+      for (let gz = minZ; gz <= maxZ; gz++) {
+        const dz = gz - pz;
+        for (let gx = minX; gx <= maxX; gx++) {
+          const dx = gx - px;
+          const s = Math.max(0, 1.0 - Math.hypot(dx, dz) / shelfR);
+          if (s > 0) {
+            const idx = gz * gridSize + gx;
+            if (s > archShelfGrid![idx]) archShelfGrid![idx] = s;
+          }
+        }
+      }
+    };
+
+    for (let c = 0; c < chainCount; c++) {
+      let midX: number;
+      let midZ: number;
+      let dirAngle: number;
+      if (c === 0) {
+        // Primary chain sweeps across the central region so camera & starter pioneers see islands right away
+        const jitterA = rng() * Math.PI * 2;
+        const jitterR = rng() * gridSize * 0.08;
+        midX = clampCoord(center + Math.cos(jitterA) * jitterR);
+        midZ = clampCoord(center + Math.sin(jitterA) * jitterR);
+        dirAngle = rng() * Math.PI * 2;
+      } else {
+        const sectorA =
+          baseRingAngle +
+          ((c - 1) * Math.PI * 2) / Math.max(1, chainCount - 1) +
+          (rng() - 0.5) * 0.65;
+        const sectorR = gridSize * (0.24 + rng() * 0.13);
+        midX = clampCoord(center + Math.cos(sectorA) * sectorR);
+        midZ = clampCoord(center + Math.sin(sectorA) * sectorR);
+        // Orient chain tangentially or diagonally for sweeping outer archipelago arcs
+        dirAngle = sectorA + Math.PI * 0.5 + (rng() - 0.5) * 0.9;
+      }
+
+      const halfChord = gridSize * (0.22 + rng() * 0.15);
+      const p0x = clampCoord(midX - Math.cos(dirAngle) * halfChord);
+      const p0z = clampCoord(midZ - Math.sin(dirAngle) * halfChord);
+      const p2x = clampCoord(midX + Math.cos(dirAngle) * halfChord);
+      const p2z = clampCoord(midZ + Math.sin(dirAngle) * halfChord);
+
+      const chordAngle = Math.atan2(p2z - p0z, p2x - p0x);
+      const perpX = -Math.sin(chordAngle);
+      const perpZ = Math.cos(chordAngle);
+      const bow = (rng() < 0.5 ? -1 : 1) * gridSize * (0.09 + rng() * 0.14);
+      const p1x = clampCoord((p0x + p2x) * 0.5 + perpX * bow);
+      const p1z = clampCoord((p0z + p2z) * 0.5 + perpZ * bow);
+
+      // Stamp shallow reef shelf ridge along the tectonic arc spine
+      const shelfSamples = 18;
+      for (let s = 0; s <= shelfSamples; s++) {
+        const t = s / shelfSamples;
+        const omt = 1 - t;
+        const sx = omt * omt * p0x + 2 * omt * t * p1x + t * t * p2x;
+        const sz = omt * omt * p0z + 2 * omt * t * p1z + t * t * p2z;
+        stampChainShelfPoint(sx, sz, 7.2 * radScale);
+      }
+
+      // On chain 0, place the middle starter island first so neighboring links space cleanly around it
+      const nodeIndices: number[] = [];
+      const midN = Math.floor(nodesPerChain / 2);
+      if (c === 0) nodeIndices.push(midN);
+      for (let n = 0; n < nodesPerChain; n++) {
+        if (c === 0 && n === midN) continue;
+        nodeIndices.push(n);
+      }
+
+      for (const n of nodeIndices) {
+        const t = Math.max(0.03, Math.min(0.97, (n + 0.18 + rng() * 0.64) / nodesPerChain));
+        const omt = 1 - t;
+        const bx = omt * omt * p0x + 2 * omt * t * p1x + t * t * p2x;
+        const bz = omt * omt * p0z + 2 * omt * t * p1z + t * t * p2z;
+        const tx = 2 * omt * (p1x - p0x) + 2 * t * (p2x - p1x);
+        const tz = 2 * omt * (p1z - p0z) + 2 * t * (p2z - p1z);
+        const tanAngle = Math.atan2(tz, tx);
+
+        const lateralOffset = (rng() - 0.5) * 6.5 * radScale;
+        let ix = clampCoord(bx - Math.sin(tanAngle) * lateralOffset);
+        let iz = clampCoord(bz + Math.cos(tanAngle) * lateralOffset);
+
+        const tierRoll = rng();
+        const isStarterCentral = c === 0 && n === midN;
+        let rx: number;
+        let rz: number;
+        let peak: number;
+        if (isStarterCentral || tierRoll < 0.36) {
+          // Major anchor island capable of supporting settlements, valleys & volcanic/rocky peaks
+          rx = (8.2 + rng() * 3.8) * radScale;
+          rz = rx * (0.6 + rng() * 0.28);
+          peak = (3.8 + rng() * 3.2) * (0.75 + mountainMult * 0.25);
+        } else if (tierRoll < 0.8) {
+          // Medium stepping-stone island along the chain
+          rx = (5.0 + rng() * 2.5) * radScale;
+          rz = rx * (0.58 + rng() * 0.3);
+          peak = (2.6 + rng() * 2.3) * (0.78 + mountainMult * 0.22);
+        } else {
+          // Small rocky spire or sandy cay
+          rx = (3.0 + rng() * 1.6) * radScale;
+          rz = rx * (0.64 + rng() * 0.28);
+          peak = 2.0 + rng() * 1.8;
+        }
+
+        let placed = isStarterCentral || canPlaceNode(ix, iz, rx, rz);
+        if (!placed) {
+          // Retry with a compact stepping-stone size or lateral nudge so chains keep clean links
+          const shrRx = Math.max(2.6 * radScale, rx * 0.68);
+          const shrRz = Math.max(2.0 * radScale, rz * 0.68);
+          for (const nudge of [0, 4.5 * radScale, -4.5 * radScale]) {
+            const nx = clampCoord(ix - Math.sin(tanAngle) * nudge);
+            const nz = clampCoord(iz + Math.cos(tanAngle) * nudge);
+            if (canPlaceNode(nx, nz, shrRx, shrRz)) {
+              ix = nx;
+              iz = nz;
+              rx = shrRx;
+              rz = shrRz;
+              placed = true;
+              break;
+            }
+          }
+        }
+
+        if (placed) {
+          const islandAngle = tanAngle + (rng() - 0.5) * 0.85;
+          nodes.push({
+            x: ix,
+            z: iz,
+            rx,
+            rz,
+            cosA: Math.cos(islandAngle),
+            sinA: Math.sin(islandAngle),
+            peak,
+            chainIdx: c,
+          });
+          if (isStarterCentral) {
+            starterHubX = ix;
+            starterHubZ = iz;
+          }
+        }
+      }
+    }
+
+    // Add scattered satellite islets / coral atolls in open sea pockets between chains
+    const outlierAttempts = Math.max(14, Math.round(22 * sizeScale));
+    for (let a = 0; a < outlierAttempts; a++) {
+      const ix = minBound + rng() * Math.max(4, maxBound - minBound);
+      const iz = minBound + rng() * Math.max(4, maxBound - minBound);
+      const rx = (2.8 + rng() * 2.5) * radScale;
+      const rz = rx * (0.64 + rng() * 0.28);
+      const angle = rng() * Math.PI * 2;
+      if (canPlaceNode(ix, iz, rx, rz)) {
+        nodes.push({
+          x: ix,
+          z: iz,
+          rx,
+          rz,
+          cosA: Math.cos(angle),
+          sinA: Math.sin(angle),
+          peak: 1.9 + rng() * 2.1,
+          chainIdx: 100 + a,
+        });
+      }
+    }
+
+    // Precompute domain-warped coordinates once & stamp each island node locally via Math.max
+    // (Using Math.max prevents adjacent islands from summing tails into land bridges!)
+    const wxGrid = new Float32Array(totalTiles);
+    const wzGrid = new Float32Array(totalTiles);
+    for (let z = 0; z < gridSize; z++) {
+      for (let x = 0; x < gridSize; x++) {
+        const idx = z * gridSize + x;
+        wxGrid[idx] = x + (warpNoise.fbm(x * 0.042, z * 0.042, 3) - 0.5) * warpAmp;
+        wzGrid[idx] = z + (warpNoise.fbm(x * 0.042 + 37.2, z * 0.042 + 19.7, 3) - 0.5) * warpAmp;
+      }
+    }
+
+    for (let i = 0; i < nodes.length; i++) {
+      const n = nodes[i];
+      const maxR = Math.max(n.rx, n.rz);
+      const boxR = Math.ceil(maxR * 1.55 + warpAmp + 3);
+      const minX = Math.max(1, Math.floor(n.x - boxR));
+      const maxX = Math.min(gridSize - 2, Math.ceil(n.x + boxR));
+      const minZ = Math.max(1, Math.floor(n.z - boxR));
+      const maxZ = Math.min(gridSize - 2, Math.ceil(n.z + boxR));
+
+      for (let gz = minZ; gz <= maxZ; gz++) {
+        for (let gx = minX; gx <= maxX; gx++) {
+          const idx = gz * gridSize + gx;
+          const dx = wxGrid[idx] - n.x;
+          const dz = wzGrid[idx] - n.z;
+          const u = dx * n.cosA + dz * n.sinA;
+          const v = -dx * n.sinA + dz * n.cosA;
+          const eDist = Math.hypot(u / n.rx, v / n.rz);
+          if (eDist > 1.65) continue;
+
+          // Multi-harmonic coastline wobble creates natural coves, headlands, and bays
+          const coastWobble =
+            (elevNoise.fbm(
+              wxGrid[idx] * 0.085 + n.chainIdx * 13.7,
+              wzGrid[idx] * 0.085 - n.x * 0.11,
+              3,
+            ) -
+              0.5) *
+            0.38;
+          const effDist = eDist + coastWobble;
+          if (effDist < 1.32) {
+            const shelf = Math.max(0, (1.32 - effDist) * 0.9);
+            if (shelf > archShelfGrid[idx]) archShelfGrid[idx] = shelf;
+          }
+          if (effDist < 1.0) {
+            const dome = Math.pow(Math.max(0, 1.0 - effDist), 0.54) * n.peak;
+            if (dome > archElevGrid[idx]) {
+              archElevGrid[idx] = dome;
+            }
+          }
+        }
+      }
+    }
+  }
 
   // Stage 1 & 2: Domain-warped tectonic elevation + temperature + moisture fields
   for (let z = 0; z < gridSize; z++) {
@@ -273,6 +546,31 @@ export function generateWorldTiles(
 
       if (isScrapSea) {
         heightGrid[idx] = 0;
+      } else if (isArchipelago && archElevGrid) {
+        const islandElev = archElevGrid[idx];
+        if (islandElev <= 0.02) {
+          heightGrid[idx] = 0;
+        } else {
+          const detailHills = elevNoise.fbm(wx * 0.085 + 11.4, wz * 0.085 - 5.2, 3);
+          const rx = wx * cosR - wz * sinR;
+          const rz = wx * sinR + wz * cosR;
+          const volcanoRidge =
+            Math.pow(Math.max(0, ridgeNoise.ridged(rx * 0.032, rz * 0.032, 3) - 0.44) * 1.85, 1.2) *
+            (1.9 * mountainMult);
+          const interiorWeight = Math.min(1, islandElev / 1.35);
+          // Map border fade keeps a clean ocean margin around outer islands
+          const edgeMargin = Math.min(x, z, gridSize - 1 - x, gridSize - 1 - z);
+          const borderFade = edgeMargin < 3 ? (3 - edgeMargin) * 1.5 : 0;
+          // Archipelago preset itself defaults to 'high' seaLevelBias, so calibrate around +0.44 baseline
+          const rawElevation =
+            islandElev +
+            0.44 +
+            (detailHills - 0.5) * 1.15 * interiorWeight +
+            volcanoRidge * interiorWeight +
+            seaOffset * 0.35 -
+            borderFade;
+          heightGrid[idx] = Math.max(0, Math.min(9, Math.round(rawElevation)));
+        }
       } else {
         // Continent base mass
         const macroLand = elevNoise.fbm(wx * 0.026, wz * 0.026, 4);
@@ -366,14 +664,16 @@ export function generateWorldTiles(
       }
     }
 
-    const desiredLakes = Math.min(4, Math.max(2, Math.floor(gridSize / 34)));
+    const desiredLakes = isArchipelago
+      ? Math.min(2, Math.max(1, Math.floor(gridSize / 64)))
+      : Math.min(4, Math.max(2, Math.floor(gridSize / 34)));
     for (let l = 0; l < desiredLakes && lakeCandidates.length > 0; l++) {
       const pick = Math.floor(rng() * lakeCandidates.length);
       const cand = lakeCandidates.splice(pick, 1)[0];
       if (lakeCenters.some((other) => Math.hypot(other.x - cand.x, other.z - cand.z) < 16)) {
         continue;
       }
-      const radius = 3.2 + rng() * 2.3;
+      const radius = isArchipelago ? 1.8 + rng() * 1.1 : 3.2 + rng() * 2.3;
       lakeCenters.push({ x: cand.x, z: cand.z, radius });
 
       const rCeil = Math.ceil(radius + 2);
@@ -382,7 +682,7 @@ export function generateWorldTiles(
           const nx = cand.x + ox;
           const nz = cand.z + oz;
           if (nx <= 2 || nx >= gridSize - 3 || nz <= 2 || nz >= gridSize - 3) continue;
-          if (Math.hypot(nx - center, nz - center) < 7.0) continue;
+          if (Math.hypot(nx - starterHubX, nz - starterHubZ) < (isArchipelago ? 4.5 : 7.0)) continue;
           const nIdx = nz * gridSize + nx;
           const wobble = (warpNoise.sample(nx * 0.18 + l * 13, nz * 0.18) - 0.5) * 1.35;
           const d = Math.hypot(ox, oz) + wobble;
@@ -402,14 +702,16 @@ export function generateWorldTiles(
     for (let z = 6; z < gridSize - 6; z += 4) {
       for (let x = 6; x < gridSize - 6; x += 4) {
         const idx = z * gridSize + x;
-        const distCenter = Math.hypot(x - center, z - center);
-        if (heightGrid[idx] >= 4 && distCenter > 10.5) {
+        const distCenter = Math.hypot(x - starterHubX, z - starterHubZ);
+        if (heightGrid[idx] >= 4 && distCenter > (isArchipelago ? 5.5 : 10.5)) {
           springCandidates.push(idx);
         }
       }
     }
 
-    const riverCount = Math.min(6, Math.max(3, Math.floor(gridSize / 24)));
+    const riverCount = isArchipelago
+      ? Math.min(3, Math.max(1, Math.floor(gridSize / 48)))
+      : Math.min(6, Math.max(3, Math.floor(gridSize / 24)));
     for (let r = 0; r < riverCount && springCandidates.length > 0; r++) {
       const pick = Math.floor(rng() * springCandidates.length);
       const currIdx = springCandidates.splice(pick, 1)[0];
@@ -431,8 +733,8 @@ export function generateWorldTiles(
       const maxSteps = gridSize * 2;
       for (let step = 0; step < maxSteps; step++) {
         if (cx <= 1 || cx >= gridSize - 2 || cz <= 1 || cz >= gridSize - 2) break;
-        const distFromHome = Math.hypot(cx - center, cz - center);
-        if (distFromHome < 6.5) break; // Never flood the starter acropolis
+        const distFromHome = Math.hypot(cx - starterHubX, cz - starterHubZ);
+        if (distFromHome < (isArchipelago ? 4.0 : 6.5)) break; // Never flood the starter acropolis
 
         const idx = cz * gridSize + cx;
         if (step > 3 && heightGrid[idx] === 0 && riverMask[idx] === 0) {
@@ -559,7 +861,9 @@ export function generateWorldTiles(
       : [...coastalReefCandidates, ...offshoreReefCandidates];
   const desiredReefZones = isScrapSea
     ? Math.max(4, Math.min(8, Math.round(gridSize / 18)))
-    : Math.max(4, Math.min(7, Math.round(gridSize / 20)));
+    : isArchipelago
+      ? Math.max(6, Math.min(14, Math.round(gridSize / 12)))
+      : Math.max(4, Math.min(7, Math.round(gridSize / 20)));
   const chosenReefCenters: Array<{ x: number; z: number; radius: number }> = [];
   for (let attempt = 0; attempt < 120 && chosenReefCenters.length < desiredReefZones && reefCandidates.length > 0; attempt++) {
     const pick = Math.floor(rng() * reefCandidates.length);
@@ -659,8 +963,9 @@ export function generateWorldTiles(
           const shelfWave =
             (reefNoise.fbm(x * 0.052 + 7.4, z * 0.052 - 4.8, 3) - 0.5) * 2.8 +
             (warpNoise.fbm(x * 0.11 - 2.1, z * 0.11 + 5.7, 2) - 0.5) * 1.4;
-          const onContinentalShelf = minLandDist + shelfWave <= 3.8;
-          terrain = nearLand || onContinentalShelf || isWarmReefZone ? 'shallow_water' : 'deep_water';
+          const onChainRidge = isArchipelago && archShelfGrid ? archShelfGrid[idx] > 0.36 : false;
+          const onContinentalShelf = minLandDist + shelfWave <= (isArchipelago ? 4.3 : 3.8);
+          terrain = nearLand || onContinentalShelf || onChainRidge || isWarmReefZone ? 'shallow_water' : 'deep_water';
 
           if (isContiguousCoralBank && minLandDist > 1.2 && roll < 0.90) {
             resourceNode = 'coral_reef';
@@ -810,7 +1115,7 @@ export function generateWorldTiles(
             resourceNode = 'ore_vein';
             resourceAmount = 280;
           }
-        } else if (isCoast && moist < 0.62 && dist > 6.0) {
+        } else if (isCoast && moist < (isArchipelago ? 0.72 : 0.62) && (isArchipelago || dist > 6.0)) {
           // Coastal sandy beach
           terrain = 'sand';
         } else if (temp < 0.32 && dist > 7.0) {
@@ -1005,8 +1310,9 @@ export function generateWorldTiles(
     const signatureLandCandidates: Array<{ x: number; z: number }> = [];
     for (let z = 10; z < gridSize - 10; z += 4) {
       for (let x = 10; x < gridSize - 10; x += 4) {
-        const distCenter = Math.hypot(x - center, z - center);
-        if (distCenter < 10.5 || distCenter > maxRadius * 0.78) continue;
+        const distHome = Math.hypot(x - starterHubX, z - starterHubZ);
+        if (distHome < (isArchipelago ? 7.5 : 10.5)) continue;
+        if (!isArchipelago && Math.hypot(x - center, z - center) > maxRadius * 0.78) continue;
         const t = tiles[z * gridSize + x];
         if (t && t.height >= 1 && t.height <= 4) {
           signatureLandCandidates.push({ x, z });
@@ -1043,10 +1349,12 @@ export function generateWorldTiles(
           const nx = bc.x + ox;
           const nz = bc.z + oz;
           if (nx <= 2 || nx >= gridSize - 3 || nz <= 2 || nz >= gridSize - 3) continue;
-          if (Math.hypot(nx - center, nz - center) < 7.5) continue;
+          if (Math.hypot(nx - starterHubX, nz - starterHubZ) < (isArchipelago ? 5.5 : 7.5)) continue;
           const nIdx = nz * gridSize + nx;
           const t = tiles[nIdx];
           if (!t) continue;
+          // In archipelago worlds, preserve ocean straits and coastlines strictly (never fill sea into land bridges)
+          if (isArchipelago && heightGrid[nIdx] === 0) continue;
           const wobble = (warpNoise.sample(nx * 0.2 + bc.x, nz * 0.2 + bc.z) - 0.5) * 1.45;
           const d = Math.hypot(ox, oz) + wobble;
           if (d > radius) continue;
@@ -1055,11 +1363,18 @@ export function generateWorldTiles(
           const along = ox * rCos + oz * rSin;
           const perp = -ox * rSin + oz * rCos + Math.sin(along * 0.65) * 0.85;
           const tileRoll = ((Math.abs(((nx * 73856093) ^ (nz * 19349663) ^ seed) | 0)) % 1000) / 1000;
+          const enclosedInterior =
+            !isArchipelago ||
+            (heightGrid[nIdx - 1] > 0 &&
+              heightGrid[nIdx + 1] > 0 &&
+              heightGrid[nIdx - gridSize] > 0 &&
+              heightGrid[nIdx + gridSize] > 0);
 
           if (bc.kind === 'volcanic_wasteland') {
             // Central volcano caldera lava lake + flowing lava river channel
-            const isCalderaPool = Math.hypot(ox, oz) <= 1.45;
-            const isLavaChannel = along >= -0.5 && along <= radius * 0.92 && Math.abs(perp) <= 0.68;
+            const isCalderaPool = Math.hypot(ox, oz) <= 1.45 && enclosedInterior;
+            const isLavaChannel =
+              enclosedInterior && along >= -0.5 && along <= radius * 0.92 && Math.abs(perp) <= 0.68;
             if (isCalderaPool || isLavaChannel) {
               t.height = 0;
               t.terrain = 'shallow_water';
@@ -1093,8 +1408,12 @@ export function generateWorldTiles(
             }
           } else if (bc.kind === 'blighted_mire') {
             // Poison-filled green lake & winding toxic river through dark purple soil
-            const isPoisonLake = Math.hypot(ox - 0.5, oz + 0.5) <= 1.75;
-            const isPoisonChannel = along >= -radius * 0.75 && along <= radius * 0.85 && Math.abs(perp) <= 0.72;
+            const isPoisonLake = Math.hypot(ox - 0.5, oz + 0.5) <= 1.75 && enclosedInterior;
+            const isPoisonChannel =
+              enclosedInterior &&
+              along >= -radius * 0.75 &&
+              along <= radius * 0.85 &&
+              Math.abs(perp) <= 0.72;
             if (isPoisonLake || isPoisonChannel) {
               t.height = 0;
               t.terrain = 'shallow_water';
@@ -1123,7 +1442,7 @@ export function generateWorldTiles(
             }
           } else if (bc.kind === 'floral_plains') {
             // Majestic fantasy floral steppes with a crystal-clear floral spring pond
-            const isFloralSpring = Math.hypot(ox, oz) <= 1.35;
+            const isFloralSpring = Math.hypot(ox, oz) <= 1.35 && enclosedInterior;
             if (isFloralSpring) {
               t.height = 0;
               t.terrain = 'shallow_water';
