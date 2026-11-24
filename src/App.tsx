@@ -24,6 +24,7 @@ import {
   createWorldConfigFromTemplate,
   dismissWorldEventCinematic,
   formatYearLabel,
+  getKingdomEpoch,
   getKingdomId,
   getKingdomRelation,
   getTile,
@@ -31,6 +32,7 @@ import {
   setKingdomEpoch,
   spawnUnit,
   syncAverageEpochFromKingdoms,
+  syncStateResourcesFromKingdoms,
 } from './game/simulation';
 import { normalizeSeed } from './game/worldGen';
 import { soundEngine } from './game/sound';
@@ -67,6 +69,7 @@ import {
   LightingPreset,
   PerfTelemetrySnapshot,
   Resources,
+  SeasonPreset,
   SimulationState,
   TerrainType,
   ToolCategory,
@@ -79,6 +82,7 @@ import {
 } from './game/types';
 import { loadGraphicsSettings, saveGraphicsSettings } from './game/graphics';
 import { SIMULATION_SPEED_OPTIONS, clampSimulationSpeed } from './game/dayNightLighting';
+import { WORLD_SEASON_PRESETS, computeSeasonState } from './game/worldSeasons';
 import {
   SavedWorldRecord,
   deleteSavedWorld,
@@ -101,6 +105,7 @@ import {
 import { EntityInspectorCard } from './components/EntityInspectorCard';
 import { CityInspectorCard, InspectedCityRef } from './components/CityInspectorCard';
 import { GraphicsSettingsPanel } from './components/GraphicsSettingsPanel';
+import { AgeProgressBanner, AgeProgressEvent } from './components/AgeProgressBanner';
 import {
   BuildingPixelIcon,
   HudPixelIcon,
@@ -444,6 +449,15 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
   const [lightingPreset, setLightingPreset] = useState<LightingPreset>('noon');
+  const [seasonPreset, setSeasonPreset] = useState<SeasonPreset>('auto');
+  const [ageBannerEvent, setAgeBannerEvent] = useState<AgeProgressEvent | null>(null);
+  const [isAgeScreenShaking, setIsAgeScreenShaking] = useState<boolean>(false);
+  const prevEpochTrackRef = useRef<{ worldKey: string; epochIndex: number }>({
+    worldKey: '',
+    epochIndex: 0,
+  });
+  const ageBannerSeqRef = useRef<number>(1);
+  const ageShakeTimerRef = useRef<number | null>(null);
   const [dockCollapsed, setDockCollapsed] = useState<boolean>(false);
   const [chronicleOpen, setChronicleOpen] = useState<boolean>(false);
   const [chronicleFilter, setChronicleFilter] = useState<'major' | 'all'>('major');
@@ -696,10 +710,6 @@ export default function App() {
       setSavedWorldsLoading(false);
     }
   }, []);
-
-  useEffect(() => {
-    void refreshSavedWorlds();
-  }, [refreshSavedWorlds]);
 
   const handleOpenSaveFlow = useCallback(
     (thenQuit = false) => {
@@ -1506,6 +1516,58 @@ export default function App() {
 
   const avgEpochInfo = computeAverageCivilizationEpoch(sim);
   const currentEpoch = EPOCHS[avgEpochInfo.roundedIndex] || EPOCHS[0];
+
+  // Detect upward age progression while playing and launch the middle Fortnite-style token flip banner
+  useEffect(() => {
+    const worldKey = `${sim.seed}:${sim.gridSize}`;
+    if (gameState !== 'playing') {
+      prevEpochTrackRef.current = { worldKey, epochIndex: currentEpoch.index };
+      setAgeBannerEvent(null);
+      setIsAgeScreenShaking(false);
+      return;
+    }
+    if (prevEpochTrackRef.current.worldKey !== worldKey) {
+      prevEpochTrackRef.current = { worldKey, epochIndex: currentEpoch.index };
+      return;
+    }
+    const prevIdx = prevEpochTrackRef.current.epochIndex;
+    if (currentEpoch.index > prevIdx) {
+      prevEpochTrackRef.current.epochIndex = currentEpoch.index;
+      setAgeBannerEvent({
+        id: ageBannerSeqRef.current++,
+        fromIndex: prevIdx,
+        toIndex: currentEpoch.index,
+      });
+    } else if (currentEpoch.index < prevIdx) {
+      prevEpochTrackRef.current.epochIndex = currentEpoch.index;
+    }
+  }, [currentEpoch.index, gameState, sim.seed, sim.gridSize]);
+
+  useEffect(() => {
+    return () => {
+      if (ageShakeTimerRef.current !== null) {
+        window.clearTimeout(ageShakeTimerRef.current);
+      }
+    };
+  }, []);
+
+  const handleAgeBannerImpact = useCallback(() => {
+    if (ageShakeTimerRef.current !== null) {
+      window.clearTimeout(ageShakeTimerRef.current);
+    }
+    setIsAgeScreenShaking(false);
+    window.requestAnimationFrame(() => {
+      setIsAgeScreenShaking(true);
+      ageShakeTimerRef.current = window.setTimeout(() => {
+        setIsAgeScreenShaking(false);
+        ageShakeTimerRef.current = null;
+      }, 440);
+    });
+  }, []);
+
+  const handleAgeBannerComplete = useCallback(() => {
+    setAgeBannerEvent(null);
+  }, []);
   const activeWorldEvent = sim.activeWorldEvent ?? null;
   const isEventCinematic =
     gameState === 'playing' &&
@@ -1590,7 +1652,20 @@ export default function App() {
   const hasAnyBlockingModal = hasInGameOverlayModal || hasSavedWorldRulesModal;
 
   return (
-    <main className="relative w-[100dvw] h-[100dvh] overflow-hidden bg-[#15100e] text-[#f4e7d4]">
+    <main
+      className={`relative w-[100dvw] h-[100dvh] overflow-hidden bg-[#15100e] text-[#f4e7d4] ${
+        isAgeScreenShaking ? 'age-screen-shake' : ''
+      }`}
+    >
+      {/* Top-Center Age Progression Banner HUD (3D Square Scenery Flip + Pixel Explosion + Screen Shake) */}
+      {gameState === 'playing' && !hasAnyBlockingModal && (
+        <AgeProgressBanner
+          event={ageBannerEvent}
+          onImpact={handleAgeBannerImpact}
+          onComplete={handleAgeBannerComplete}
+        />
+      )}
+
       {/* 3D Pixelated Isometric World Canvas */}
       <IsometricWorldCanvas
         key={sim.gridSize}
@@ -1604,6 +1679,7 @@ export default function App() {
         mobilePanMode={mobilePanMode}
         pixelScale={pixelScale}
         lightingPreset={lightingPreset}
+        seasonPreset={seasonPreset}
         graphicsSettings={graphicsSettings}
         cameraActionRef={cameraActionRef}
         captureThumbnailRef={captureThumbnailRef}
@@ -2923,7 +2999,9 @@ export default function App() {
                 <div className="flex items-baseline gap-1 sm:gap-2 min-w-0">
                   <span
                     data-testid="hud-average-age"
-                    className="font-bold text-[10px] sm:text-sm text-[#f2c478] whitespace-nowrap truncate leading-tight"
+                    className={`font-bold text-[10px] sm:text-sm text-[#f2c478] whitespace-nowrap truncate leading-tight inline-block ${
+                      isAgeScreenShaking ? 'age-text-slam text-[#ffe49e]' : ''
+                    }`}
                   >
                     {currentEpoch.name}
                   </span>
@@ -3468,6 +3546,7 @@ export default function App() {
                       };
                     }
                     s.kingdomResources[kingdomId][resource] = Math.max(0, Math.min(999999, Math.round(value)));
+                    syncStateResourcesFromKingdoms(s);
                     setHudTick((v) => v + 1);
                   }}
                   onBoostKingdomResources={(kingdomId, delta) => {
@@ -3490,18 +3569,44 @@ export default function App() {
                     for (const key of keys) {
                       res[key] = delta === 0 ? 0 : Math.max(0, Math.min(999999, Math.floor((res[key] ?? 0) + delta)));
                     }
+                    syncStateResourcesFromKingdoms(s);
                     setStatusFeedback(delta === 0 ? 'Cleared city stockpile' : `Granted +${delta} to all city resources`);
                     setHudTick((v) => v + 1);
                   }}
                   onSetKingdomEpoch={(kingdomId, epochIndex) => {
-                    setKingdomEpoch(simRef.current, kingdomId, epochIndex, true);
-                    setStatusFeedback(`Updated kingdom era`);
+                    const s = simRef.current;
+                    const clamped = Math.max(0, Math.min(EPOCHS.length - 1, Math.round(epochIndex)));
+                    const prevEpoch = getKingdomEpoch(s, kingdomId);
+                    setKingdomEpoch(s, kingdomId, clamped, true);
+                    for (const b of s.buildings) {
+                      if (b.hp > 0 && b.settlementId && getKingdomId(s, b.settlementId) === kingdomId) {
+                        b.epochLevel = clamped;
+                      }
+                    }
+                    if (clamped > prevEpoch) soundEngine.playEpochAscend();
+                    else soundEngine.playClick();
+                    setStatusFeedback(`Set kingdom era to ${EPOCHS[clamped]?.name ?? 'Era'}`);
                     setHudTick((v) => v + 1);
                   }}
                   onSetKingdomEpochProgress={(kingdomId, progress) => {
                     const s = simRef.current;
                     if (!s.kingdomEpochProgress) s.kingdomEpochProgress = {};
-                    s.kingdomEpochProgress[kingdomId] = Math.max(0, Math.min(100, Math.round(progress)));
+                    const clamped = Math.max(0, Math.min(100, Math.round(progress)));
+                    const curEpoch = getKingdomEpoch(s, kingdomId);
+                    if (clamped >= 100 && curEpoch < EPOCHS.length - 1) {
+                      const nextEpoch = curEpoch + 1;
+                      setKingdomEpoch(s, kingdomId, nextEpoch, true);
+                      for (const b of s.buildings) {
+                        if (b.hp > 0 && b.settlementId && getKingdomId(s, b.settlementId) === kingdomId) {
+                          b.epochLevel = nextEpoch;
+                        }
+                      }
+                      soundEngine.playEpochAscend();
+                      setStatusFeedback(`Advanced kingdom to ${EPOCHS[nextEpoch]?.name ?? 'next era'}`);
+                    } else {
+                      s.kingdomEpochProgress[kingdomId] = clamped;
+                      syncAverageEpochFromKingdoms(s);
+                    }
                     setHudTick((v) => v + 1);
                   }}
                   onToggleKingdomPeaceful={(kingdomId) => {
@@ -3509,6 +3614,7 @@ export default function App() {
                     if (!s.kingdomPeacefulTraits) s.kingdomPeacefulTraits = {};
                     const next = !s.kingdomPeacefulTraits[kingdomId];
                     s.kingdomPeacefulTraits[kingdomId] = next;
+                    soundEngine.playClick();
                     setStatusFeedback(next ? 'Kingdom set to Peaceful' : 'Kingdom set to Expansionist');
                     setHudTick((v) => v + 1);
                   }}
@@ -4386,7 +4492,7 @@ export default function App() {
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-4 px-0.5">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-4 px-0.5">
                         {/* Age Slider */}
                         <div className="flex flex-col gap-1">
                           <div className="flex items-center justify-between text-[11px] sm:text-xs">
@@ -4407,22 +4513,37 @@ export default function App() {
                             min={0}
                             max={EPOCHS.length - 1}
                             step={1}
-                            value={Math.max(0, Math.min(EPOCHS.length - 1, sim.epochIndex))}
+                            value={Math.max(0, Math.min(EPOCHS.length - 1, currentEpoch.index))}
                             onChange={(e) => {
                               const idx = Number(e.target.value);
                               const ep = EPOCHS[idx];
                               if (!ep) return;
                               const s = simRef.current;
+                              const targetProg = ep.index >= EPOCHS.length - 1 ? 100 : 0;
                               s.epochIndex = ep.index;
                               if (!s.kingdomEpochs) s.kingdomEpochs = {};
                               if (!s.kingdomEpochProgress) s.kingdomEpochProgress = {};
+                              for (const kid of Object.keys(s.kingdomEpochs)) {
+                                s.kingdomEpochs[kid] = ep.index;
+                                s.kingdomEpochProgress[kid] = targetProg;
+                              }
                               for (const b of s.buildings) {
                                 b.epochLevel = ep.index;
                                 if (b.settlementId) {
                                   const kid = getKingdomId(s, b.settlementId);
                                   s.kingdomEpochs[kid] = ep.index;
-                                  s.kingdomEpochProgress[kid] =
-                                    ep.index >= EPOCHS.length - 1 ? 100 : 0;
+                                  s.kingdomEpochProgress[kid] = targetProg;
+                                }
+                              }
+                              for (const u of s.units) {
+                                if (u.faction === 'civilization' && u.state !== 'ko' && u.hp > 0) {
+                                  const kid = u.settlementId
+                                    ? getKingdomId(s, u.settlementId)
+                                    : u.kingdomId;
+                                  if (kid) {
+                                    s.kingdomEpochs[kid] = ep.index;
+                                    s.kingdomEpochProgress[kid] = targetProg;
+                                  }
                                 }
                               }
                               syncAverageEpochFromKingdoms(s);
@@ -4430,7 +4551,7 @@ export default function App() {
                               setStatusFeedback(ep.name);
                               setHudTick((t) => t + 1);
                             }}
-                            className="px-range w-full cursor-pointer"
+                            className="px-range my-1 w-full cursor-pointer"
                           />
                           <div className="flex items-center justify-between text-[9px] sm:text-[10px] text-[#8f7862]">
                             <span>{EPOCHS[0]?.name}</span>
@@ -4472,7 +4593,7 @@ export default function App() {
                               setStatusFeedback(`Sky: ${presetObj.label}`);
                               setHudTick((t) => t + 1);
                             }}
-                            className="px-range w-full cursor-pointer"
+                            className="px-range my-1 w-full cursor-pointer"
                           />
                           <div className="flex items-center justify-between text-[9px] sm:text-[10px] text-[#8f7862]">
                             {WORLD_SKY_PRESETS.map((p) => (
@@ -4489,6 +4610,69 @@ export default function App() {
                             ))}
                           </div>
                         </div>
+
+                        {/* Season Slider */}
+                        {(() => {
+                          const activeSeasonIdx = Math.max(
+                            0,
+                            WORLD_SEASON_PRESETS.findIndex((p) => p.id === seasonPreset),
+                          );
+                          const activeSeasonOpt =
+                            WORLD_SEASON_PRESETS[activeSeasonIdx] ?? WORLD_SEASON_PRESETS[0];
+                          const liveSeason = computeSeasonState(seasonPreset, sim.year);
+                          const liveSeasonLabel =
+                            seasonPreset === 'auto'
+                              ? `Auto (${liveSeason.dominantSeason[0].toUpperCase()}${liveSeason.dominantSeason.slice(1)})`
+                              : activeSeasonOpt.label;
+                          return (
+                            <div className="flex flex-col gap-1">
+                              <div className="flex items-center justify-between text-[11px] sm:text-xs">
+                                <label htmlFor="world-season-slider" className="text-[#bfa88f]">
+                                  Season
+                                </label>
+                                <span
+                                  data-testid="world-season-value"
+                                  className="text-[#f2c478] font-bold"
+                                >
+                                  {liveSeasonLabel}
+                                </span>
+                              </div>
+                              <input
+                                id="world-season-slider"
+                                data-testid="world-season-slider"
+                                type="range"
+                                min={0}
+                                max={WORLD_SEASON_PRESETS.length - 1}
+                                step={1}
+                                value={activeSeasonIdx}
+                                onChange={(e) => {
+                                  const idx = Number(e.target.value);
+                                  const opt = WORLD_SEASON_PRESETS[idx];
+                                  if (!opt) return;
+                                  setSeasonPreset(opt.id);
+                                  soundEngine.playClick();
+                                  setStatusFeedback(`Season: ${opt.label}`);
+                                  setHudTick((t) => t + 1);
+                                }}
+                                className="px-range my-1 w-full cursor-pointer"
+                              />
+                              <div className="flex items-center justify-between text-[9px] sm:text-[10px] text-[#8f7862]">
+                                {WORLD_SEASON_PRESETS.map((p) => (
+                                  <span
+                                    key={p.id}
+                                    className={
+                                      p.id === activeSeasonOpt.id
+                                        ? 'text-[#f4e7d4] font-semibold'
+                                        : undefined
+                                    }
+                                  >
+                                    {p.shortLabel}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </div>
                     </div>
                   );

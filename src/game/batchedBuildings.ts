@@ -69,6 +69,8 @@ export interface BatchedBuildingEntry {
   lastY: number;
   lastZ: number;
   lastScaleY: number;
+  lastScaleXZ: number;
+  lastTiltZ: number;
   visible: boolean;
   seenStamp: number;
   /** Lightweight animated sub-meshes (only allocated if template has flicker_flame/spin_part) */
@@ -632,6 +634,8 @@ export class BatchedBuildingSystem {
     scaleY: number,
     visible: boolean,
     seenStamp: number,
+    scaleXZ = 1,
+    tiltZ = 0,
   ): BatchedBuildingEntry {
     const entry = this.entries.get(id);
     const variantBucket = Math.abs(variantSeed) % 4;
@@ -644,9 +648,9 @@ export class BatchedBuildingSystem {
 
       const tpl = this.getOrBakeTemplate(type, epochLevel, species, variantSeed, isWaterTile);
       this.scratchPos.set(x, y, z);
-      this.scratchEuler.set(0, rotY, 0);
+      this.scratchEuler.set(0, rotY, tiltZ);
       this.scratchQuat.setFromEuler(this.scratchEuler);
-      this.scratchScale.set(1, scaleY, 1);
+      this.scratchScale.set(scaleXZ, scaleY, scaleXZ);
       this.scratchMat.compose(this.scratchPos, this.scratchQuat, this.scratchScale);
 
       for (let i = 0; i < tpl.staticParts.length; i++) {
@@ -693,8 +697,8 @@ export class BatchedBuildingSystem {
       if (tpl.animatedParts.length > 0) {
         animGroup = new THREE.Group();
         animGroup.position.set(x, y, z);
-        animGroup.rotation.y = rotY;
-        animGroup.scale.set(1, scaleY, 1);
+        animGroup.rotation.set(0, rotY, tiltZ);
+        animGroup.scale.set(scaleXZ, scaleY, scaleXZ);
         animGroup.visible = visible;
         for (let ai = 0; ai < tpl.animatedParts.length; ai++) {
           const ap = tpl.animatedParts[ai];
@@ -724,6 +728,8 @@ export class BatchedBuildingSystem {
         lastY: y,
         lastZ: z,
         lastScaleY: scaleY,
+        lastScaleXZ: scaleXZ,
+        lastTiltZ: tiltZ,
         visible,
         seenStamp,
         animGroup,
@@ -740,7 +746,9 @@ export class BatchedBuildingSystem {
       entry.lastY !== y ||
       entry.lastZ !== z ||
       entry.cachedRotY !== rotY ||
-      entry.lastScaleY !== scaleY;
+      entry.lastScaleY !== scaleY ||
+      entry.lastScaleXZ !== scaleXZ ||
+      entry.lastTiltZ !== tiltZ;
     const visChanged = entry.visible !== visible;
 
     if (transformChanged || visChanged) {
@@ -749,13 +757,15 @@ export class BatchedBuildingSystem {
       entry.lastZ = z;
       entry.cachedRotY = rotY;
       entry.lastScaleY = scaleY;
+      entry.lastScaleXZ = scaleXZ;
+      entry.lastTiltZ = tiltZ;
       entry.visible = visible;
 
       if (transformChanged) {
         this.scratchPos.set(x, y, z);
-        this.scratchEuler.set(0, rotY, 0);
+        this.scratchEuler.set(0, rotY, tiltZ);
         this.scratchQuat.setFromEuler(this.scratchEuler);
-        this.scratchScale.set(1, scaleY, 1);
+        this.scratchScale.set(scaleXZ, scaleY, scaleXZ);
         this.scratchMat.compose(this.scratchPos, this.scratchQuat, this.scratchScale);
       }
 
@@ -784,8 +794,8 @@ export class BatchedBuildingSystem {
       if (entry.animGroup) {
         if (transformChanged) {
           entry.animGroup.position.set(x, y, z);
-          entry.animGroup.rotation.y = rotY;
-          entry.animGroup.scale.set(1, scaleY, 1);
+          entry.animGroup.rotation.set(0, rotY, tiltZ);
+          entry.animGroup.scale.set(scaleXZ, scaleY, scaleXZ);
         }
         if (visChanged) {
           entry.animGroup.visible = visible;

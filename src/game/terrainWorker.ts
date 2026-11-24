@@ -4,8 +4,7 @@ import {
   buildTerrainChunkGeometryData,
   getTerrainChunkTransferables,
 } from './terrainMesher';
-import { createInitialSimulationState } from './simulation';
-import { SimulationState, WorldGenConfig } from './types';
+import type { SimulationState, WorldGenConfig } from './types';
 
 export interface TerrainWorkerApi {
   meshChunk(
@@ -24,7 +23,7 @@ export interface TerrainWorkerApi {
     seed: number,
     config?: Partial<WorldGenConfig>,
     onProgress?: (pct: number, stage: string) => void,
-  ): SimulationState;
+  ): Promise<SimulationState>;
 }
 
 const workerApi: TerrainWorkerApi = {
@@ -51,8 +50,9 @@ const workerApi: TerrainWorkerApi = {
     return Comlink.transfer(data, getTerrainChunkTransferables(data));
   },
 
-  generateWorld(gridSize, seed, config, onProgress) {
+  async generateWorld(gridSize, seed, config, onProgress) {
     onProgress?.(10, `Sculpting ${gridSize}×${gridSize} continents & mountain ridges...`);
+    const { createInitialSimulationState } = await import('./simulation');
     const state = createInitialSimulationState(gridSize, seed, config);
     onProgress?.(92, 'Finalizing biome climate & settlements...');
     // Strip transient non-serializable caches before transferring to main thread

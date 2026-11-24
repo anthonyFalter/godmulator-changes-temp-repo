@@ -334,12 +334,16 @@ class DynamicUnitBatchBucket {
     this.count = 0;
   }
 
-  pushInstance(geoIdx: number, matrix: THREE.Matrix4): void {
+  private readonly scratchColor = new THREE.Color(1, 1, 1);
+  private colorTextureActive = false;
+
+  pushInstance(geoIdx: number, matrix: THREE.Matrix4, hitFlash = 0): void {
     const gid = this.geoIds[geoIdx];
     if (gid === undefined) return;
     const slot = this.count;
     if (slot >= this.maxInstances) {
       this.rebuildMesh(Math.ceil(this.maxInstances * 1.6), this.maxVertices);
+      this.colorTextureActive = false;
     }
     this.count = slot + 1;
     if (slot >= this.allocatedInstances) {
@@ -350,6 +354,18 @@ class DynamicUnitBatchBucket {
       this.mesh.setGeometryIdAt(slot, gid);
       this.mesh.setMatrixAt(slot, matrix);
       this.mesh.setVisibleAt(slot, true);
+    }
+    if (hitFlash > 0.01) {
+      this.colorTextureActive = true;
+      this.scratchColor.setRGB(
+        1 + hitFlash * 1.65,
+        1 + hitFlash * 1.45,
+        1 + hitFlash * 0.95,
+      );
+      this.mesh.setColorAt(slot, this.scratchColor);
+    } else if (this.colorTextureActive) {
+      this.scratchColor.setRGB(1, 1, 1);
+      this.mesh.setColorAt(slot, this.scratchColor);
     }
   }
 
@@ -609,6 +625,8 @@ export class BatchedUnitSystem {
     yaw: number,
     koTiltZ: number,
     scale = 1.0,
+    scaleY?: number,
+    hitFlash = 0,
   ): number {
     const pose = getBatchedUnitPose(unit);
     if (this.frameBakeBudget > 0) {
@@ -641,14 +659,14 @@ export class BatchedUnitSystem {
     this.posVec.set(wx, wy, wz);
     this.euler.set(0, yaw, koTiltZ, 'YXZ');
     this.quat.setFromEuler(this.euler);
-    this.scaleVec.setScalar(scale);
+    this.scaleVec.set(scale, scaleY ?? scale, scale);
     this.mat4.compose(this.posVec, this.quat, this.scaleVec);
 
     if (tpl.stdGeoIdx >= 0) {
-      this.stdBucket.pushInstance(tpl.stdGeoIdx, this.mat4);
+      this.stdBucket.pushInstance(tpl.stdGeoIdx, this.mat4, hitFlash);
     }
     if (tpl.glowGeoIdx >= 0) {
-      this.glowBucket.pushInstance(tpl.glowGeoIdx, this.mat4);
+      this.glowBucket.pushInstance(tpl.glowGeoIdx, this.mat4, hitFlash);
     }
     this.unitPositions.set(unit.id, { x: wx, y: wy, z: wz });
     return tpl.contactShadowScale;

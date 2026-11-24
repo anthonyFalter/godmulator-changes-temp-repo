@@ -22,13 +22,23 @@ export class EngineWorkerPool {
   private slots: WorkerSlot[] = [];
   private disposed = false;
   private totalPending = 0;
+  private desiredCount = 0;
+  private workersInitialized = false;
+  private workersUnavailable = false;
 
   constructor(poolSize?: number) {
-    if (typeof Worker === 'undefined') return;
+    if (typeof Worker === 'undefined') {
+      this.workersUnavailable = true;
+      return;
+    }
     const hw = typeof navigator !== 'undefined' ? navigator.hardwareConcurrency || 4 : 2;
-    const count = Math.max(1, Math.min(poolSize ?? Math.min(3, Math.max(1, hw - 1)), 4));
+    this.desiredCount = Math.max(1, Math.min(poolSize ?? Math.min(2, Math.max(1, hw - 1)), 3));
+  }
 
-    for (let i = 0; i < count; i++) {
+  private ensureWorkers(): void {
+    if (this.workersInitialized || this.disposed || this.workersUnavailable || this.desiredCount <= 0) return;
+    this.workersInitialized = true;
+    for (let i = 0; i < this.desiredCount; i++) {
       try {
         const worker = new Worker(new URL('./terrainWorker.ts', import.meta.url), {
           type: 'module',
@@ -40,6 +50,9 @@ export class EngineWorkerPool {
         break;
       }
     }
+    if (this.slots.length === 0) {
+      this.workersUnavailable = true;
+    }
   }
 
   getPendingCount(): number {
@@ -47,11 +60,14 @@ export class EngineWorkerPool {
   }
 
   hasWorkers(): boolean {
-    return this.slots.length > 0 && !this.disposed;
+    if (this.disposed || this.workersUnavailable) return false;
+    return this.workersInitialized ? this.slots.length > 0 : this.desiredCount > 0;
   }
 
   private pickLeastBusySlot(): WorkerSlot | null {
-    if (this.slots.length === 0 || this.disposed) return null;
+    if (this.disposed || this.workersUnavailable) return null;
+    this.ensureWorkers();
+    if (this.slots.length === 0) return null;
     let best = this.slots[0];
     for (let i = 1; i < this.slots.length; i++) {
       if (this.slots[i].inFlight < best.inFlight) {

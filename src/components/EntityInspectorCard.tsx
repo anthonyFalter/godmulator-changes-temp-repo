@@ -656,7 +656,7 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                             const parsed = parseFloat(e.target.value);
                             if (!Number.isNaN(parsed)) onSetUnitSizeScale(displayUnit.id, parsed);
                           }}
-                          className="px-range w-full cursor-pointer"
+                          className="px-range my-1 w-full cursor-pointer"
                         />
                         {Math.abs(profile.informations.sizeScale - 1.0) > 0.005 && (
                           <button
@@ -1179,7 +1179,7 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] font-bold text-[#f2c478]">Give Item</span>
                     <span className="text-[10px] text-[#8f7862] tabular-nums">
-                      {(displayUnit.items?.length ?? 0)} / 12
+                      {profile.itemDetails.filter((i) => !i.isCargo).length} / 12
                     </span>
                   </div>
                   <div className="flex flex-wrap gap-1">

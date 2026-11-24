@@ -373,17 +373,57 @@ export async function updateSavedWorldRules(
         ? 'noon'
         : existing.lightingPreset);
 
+  const updatedSim = {
+    ...existing.simulation,
+    epochIndex: nextEpochIndex,
+    worldRules: mergedRules,
+    autoBuildEnabled: mergedRules.autoBuildEnabled,
+    sandboxFreeMode: mergedRules.sandboxFreeMode,
+  };
+
+  if (typeof updates.epochIndex === 'number') {
+    const nextKingdomEpochs: Record<string, number> = {
+      ...(existing.simulation.kingdomEpochs ?? {}),
+    };
+    const nextKingdomProgress: Record<string, number> = {
+      ...(existing.simulation.kingdomEpochProgress ?? {}),
+    };
+    const settlementKingdoms = existing.simulation.settlementKingdoms ?? {};
+    const resolveKid = (sid?: string, fallbackKid?: string): string | undefined =>
+      sid ? (settlementKingdoms[sid] ?? sid) : fallbackKid;
+
+    for (const kid of Object.keys(nextKingdomEpochs)) {
+      nextKingdomEpochs[kid] = nextEpochIndex;
+      nextKingdomProgress[kid] = nextEpochIndex >= 7 ? 100 : 0;
+    }
+    updatedSim.buildings = existing.simulation.buildings.map((b) => {
+      const kid = resolveKid(b.settlementId);
+      if (kid) {
+        nextKingdomEpochs[kid] = nextEpochIndex;
+        nextKingdomProgress[kid] = nextEpochIndex >= 7 ? 100 : 0;
+      }
+      return { ...b, epochLevel: nextEpochIndex };
+    });
+    for (const u of existing.simulation.units) {
+      if (u.faction === 'civilization' && u.state !== 'ko' && u.hp > 0) {
+        const kid = resolveKid(u.settlementId, u.kingdomId);
+        if (kid) {
+          nextKingdomEpochs[kid] = nextEpochIndex;
+          nextKingdomProgress[kid] = nextEpochIndex >= 7 ? 100 : 0;
+        }
+      }
+    }
+    updatedSim.kingdomEpochs = nextKingdomEpochs;
+    updatedSim.kingdomEpochProgress = nextKingdomProgress;
+    updatedSim.averageEpochIndex = nextEpochIndex;
+    updatedSim.epochProgress = nextEpochIndex >= 7 ? 100 : 0;
+  }
+
   const updated: SavedWorldRecord = {
     ...existing,
     epochIndex: nextEpochIndex,
     lightingPreset: nextLightingPreset,
-    simulation: {
-      ...existing.simulation,
-      epochIndex: nextEpochIndex,
-      worldRules: mergedRules,
-      autoBuildEnabled: mergedRules.autoBuildEnabled,
-      sandboxFreeMode: mergedRules.sandboxFreeMode,
-    },
+    simulation: updatedSim,
   };
   try {
     await adapter.put(updated);

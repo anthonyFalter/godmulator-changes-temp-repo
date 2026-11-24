@@ -11548,7 +11548,7 @@ function stepSimulationSingle(
           advanceKingdomEpoch(state, kid, false, { freeFromProgress: true, skipAverageSync: true });
           state.kingdomEpochProgress[kid] = 0;
         } else {
-          state.kingdomEpochProgress[kid] = Math.min(99, Math.max(nextProg, resReadiness * 100 * 0.5));
+          state.kingdomEpochProgress[kid] = Math.min(99, nextProg);
         }
       }
     }

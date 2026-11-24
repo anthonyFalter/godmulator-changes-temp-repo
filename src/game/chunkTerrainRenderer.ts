@@ -78,7 +78,7 @@ export class ChunkTerrainSystem {
       : chunkTopMat === cliffMat
         ? chunkTopMat
         : [chunkTopMat, cliffMat];
-    this.waterMaterial = chunkTopMat;
+    this.waterMaterial = unifiedSolidMat ?? chunkTopMat;
     this.workerPool = workerPool;
     this.group.name = 'chunked_terrain_root';
 

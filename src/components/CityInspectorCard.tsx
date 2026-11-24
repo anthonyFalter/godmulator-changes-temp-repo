@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { BUILDINGS, EPOCHS, getMaxCityPopulation } from '../game/catalog';
 import { createSeededNomadName, getKingdomEpoch, getKingdomId, getKingdomRelation } from '../game/simulation';
 import { Resources, SimulationState, SpeciesId } from '../game/types';
@@ -74,9 +74,10 @@ export const CityInspectorCard: React.FC<CityInspectorCardProps> = ({
   const [renameTarget, setRenameTarget] = useState<'settlement' | 'kingdom' | null>(null);
   const [draftName, setDraftName] = useState('');
 
-  const summary = useMemo(() => {
+  // Compute live summary directly on render because `sim` is mutated in-place between HUD ticks.
+  const summary = (() => {
     const sid = cityRef.settlementId;
-    const kid = sim.settlementKingdoms?.[sid] ?? cityRef.kingdomId ?? sid;
+    const kid = getKingdomId(sim, sid);
 
     let buildingCount = 0;
     let completedCount = 0;
@@ -209,7 +210,7 @@ export const CityInspectorCard: React.FC<CityInspectorCardProps> = ({
       topBuildings,
       exists,
     };
-  }, [sim, cityRef]);
+  })();
 
   const positionClass = offsetForEntityInspector
     ? 'left-0 lg:left-[372px] top-0 z-20'
@@ -256,7 +257,7 @@ export const CityInspectorCard: React.FC<CityInspectorCardProps> = ({
             <UnitPixelIcon role={summary.species} className="w-7 h-7 sm:w-8 sm:h-8" />
           </div>
           <div className="min-w-0 flex-1">
-            {renameTarget === 'settlement' ? (
+            {renameTarget === 'settlement' && activePage !== 'era' ? (
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
@@ -576,24 +577,61 @@ export const CityInspectorCard: React.FC<CityInspectorCardProps> = ({
             <div className="space-y-2.5 text-xs" data-testid="city-edit-era-page">
               {/* Rename City & Kingdom */}
               <div className="px-card p-2 space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-[11px] text-[#bfa88f]">City Name</span>
-                  <div className="flex items-center gap-1 min-w-0">
-                    <span className="text-[#f4e7d4] font-semibold truncate max-w-[155px]">
-                      {summary.cityName}
-                    </span>
+                {renameTarget === 'settlement' ? (
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      commitRename();
+                    }}
+                    className="flex items-center gap-1"
+                  >
+                    <input
+                      type="text"
+                      value={draftName}
+                      maxLength={32}
+                      autoFocus
+                      data-testid="city-inspector-rename-input"
+                      onChange={(e) => setDraftName(e.target.value)}
+                      onKeyDown={(e) => {
+                        e.stopPropagation();
+                        if (e.key === 'Escape') setRenameTarget(null);
+                      }}
+                      className="w-full min-w-0 bg-[#15100e] border border-[#f2c478] px-1.5 py-0.5 text-xs text-[#f4e7d4] outline-none"
+                    />
+                    <button
+                      type="submit"
+                      className="px-btn-active px-2 py-0.5 text-[10px] font-bold text-[#fff6e6] cursor-pointer shrink-0"
+                    >
+                      Save
+                    </button>
                     <button
                       type="button"
-                      onClick={() => {
-                        setRenameTarget('settlement');
-                        setDraftName(summary.cityName);
-                      }}
-                      className="px-btn px-1.5 py-0.5 text-[10px] text-[#f2c478] cursor-pointer"
+                      onClick={() => setRenameTarget(null)}
+                      className="px-btn px-1.5 py-0.5 text-[10px] text-[#b09880] cursor-pointer shrink-0"
                     >
-                      Rename
+                      ✕
                     </button>
+                  </form>
+                ) : (
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[11px] text-[#bfa88f]">City Name</span>
+                    <div className="flex items-center gap-1 min-w-0">
+                      <span className="text-[#f4e7d4] font-semibold truncate max-w-[155px]">
+                        {summary.cityName}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRenameTarget('settlement');
+                          setDraftName(summary.cityName);
+                        }}
+                        className="px-btn px-1.5 py-0.5 text-[10px] text-[#f2c478] cursor-pointer"
+                      >
+                        Rename
+                      </button>
+                    </div>
                   </div>
-                </div>
+                )}
 
                 {renameTarget === 'kingdom' ? (
                   <form
@@ -712,7 +750,7 @@ export const CityInspectorCard: React.FC<CityInspectorCardProps> = ({
                       onChange={(e) =>
                         onSetKingdomEpochProgress(summary.kid, Number(e.target.value))
                       }
-                      className="px-range w-full cursor-pointer"
+                      className="px-range my-1 w-full cursor-pointer"
                     />
                     <div className="flex items-center justify-end gap-1">
                       <button

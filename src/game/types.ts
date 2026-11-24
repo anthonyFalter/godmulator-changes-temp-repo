@@ -891,6 +891,8 @@ export interface WorldEventState {
 export type GameLifecycleState = 'title' | 'playing' | 'paused' | 'gameover';
 
 export type LightingPreset = 'noon' | 'dusk' | 'night' | 'midnight' | 'dawn' | 'auto';
+export type SeasonId = 'spring' | 'summer' | 'autumn' | 'winter';
+export type SeasonPreset = 'auto' | SeasonId;
 
 export type GraphicsQualityPreset = 'high' | 'balanced' | 'fast' | 'custom';
 export type ShadowQualityOption = 'on' | 'fast' | 'off';

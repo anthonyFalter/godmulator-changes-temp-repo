@@ -71,6 +71,20 @@ import { createCitizenBubbleSystem } from '../game/citizenBubbles';
 import { createSpectacleEffectsSystem } from '../game/spectacleEffects';
 import { createMonumentsSystem } from '../game/monumentsSystem';
 import {
+  computeSeasonState,
+  createSeasonalAtmosphereSystem,
+  multiplyColorByTint,
+} from '../game/worldSeasons';
+import {
+  classifyChronicleMilestone,
+  computeBuildingHitWobble,
+  computeElasticPopScale,
+  computeHitRecoil,
+  createChimneySmokeSystem,
+  createHitFlashOverlaySystem,
+  createWorldMilestoneSystem,
+} from '../game/worldJuice';
+import {
   DEFAULT_GRAPHICS_SETTINGS,
   ResolvedGraphicsProfile,
   resolveGraphicsProfile,
@@ -138,6 +152,7 @@ import {
   GraphicsSettings,
   LightingPreset,
   PerfTelemetrySnapshot,
+  SeasonPreset,
   SimulationState,
   TerrainToolType,
   TerrainType,
@@ -160,6 +175,7 @@ interface IsometricWorldCanvasProps {
   mobilePanMode?: boolean;
   pixelScale: number;
   lightingPreset: LightingPreset;
+  seasonPreset?: SeasonPreset;
   graphicsSettings?: GraphicsSettings;
   cameraActionRef: React.MutableRefObject<{
     rotateDelta: number;
@@ -230,6 +246,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
   mobilePanMode = false,
   pixelScale,
   lightingPreset,
+  seasonPreset = 'auto',
   graphicsSettings = DEFAULT_GRAPHICS_SETTINGS,
   cameraActionRef,
   hoveredEntityId = null,
@@ -263,6 +280,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
     mobilePanMode,
     pixelScale,
     lightingPreset,
+    seasonPreset,
     graphicsSettings,
     hoveredEntityId,
     selectedEntityId,
@@ -288,6 +306,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       mobilePanMode,
       pixelScale,
       lightingPreset,
+      seasonPreset,
       graphicsSettings,
       hoveredEntityId,
       selectedEntityId,
@@ -311,6 +330,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
     mobilePanMode,
     pixelScale,
     lightingPreset,
+    seasonPreset,
     graphicsSettings,
     hoveredEntityId,
     selectedEntityId,
@@ -365,9 +385,17 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       TIME_OF_DAY_PRESETS.noon.fogDensity,
     );
 
-    const pmremGenerator = new THREE.PMREMGenerator(renderer);
-    scene.environment = pmremGenerator.fromScene(new RoomEnvironment(), 0.04).texture;
-    pmremGenerator.dispose();
+    // Defer RoomEnvironment PMREM cubemap baking until Stage 1 (after Frame 1 paints the Title Screen & stars)
+    let envRT: THREE.WebGLRenderTarget | null = null;
+    const ensureEnvironment = () => {
+      if (envRT) return;
+      const pmremGenerator = new THREE.PMREMGenerator(renderer);
+      const roomEnv = new RoomEnvironment();
+      envRT = pmremGenerator.fromScene(roomEnv, 0.04);
+      scene.environment = envRT.texture;
+      roomEnv.dispose();
+      pmremGenerator.dispose();
+    };
 
     // Orthographic camera for authentic isometric projection (responsive to portrait & landscape)
     const sim = simRef.current;
@@ -573,6 +601,43 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
     const monuments = createMonumentsSystem();
     worldGroup.add(monuments.group);
 
+    const seasonalAtmosphere = createSeasonalAtmosphereSystem();
+    worldGroup.add(seasonalAtmosphere.group);
+
+    const chimneySmoke = createChimneySmokeSystem();
+    worldGroup.add(chimneySmoke.group);
+
+    const hitFlashOverlay = createHitFlashOverlaySystem();
+    worldGroup.add(hitFlashOverlay.group);
+
+    const milestoneBursts = createWorldMilestoneSystem();
+    worldGroup.add(milestoneBursts.group);
+
+    // Lightweight render-side tactile juice trackers (zero React re-renders, pruned every frame)
+    interface BuildingJuiceRecord {
+      popAge: number;
+      popDur: number;
+      lastEpoch: number;
+      lastHp: number;
+      hitAge: number;
+      lastX: number;
+      lastY: number;
+      lastZ: number;
+      seenStamp: number;
+    }
+    interface UnitJuiceRecord {
+      spawnAge: number;
+      lastHp: number;
+      hitAge: number;
+      seenStamp: number;
+    }
+    const buildingJuiceMap = new Map<string, BuildingJuiceRecord>();
+    const unitJuiceMap = new Map<string, UnitJuiceRecord>();
+    const seenChronicleIds = new Set<string>();
+    let lastJuiceWorldKey = '';
+    const _popScaleScratch = { xz: 1, y: 1 };
+    const _hitRecoilScratch = { flash: 0, hopY: 0, squashXZ: 1, squashY: 1 };
+
     // Frustum-culled 32x32 hidden-face-culled greedy-meshed terrain chunk system
     // (100% pixel-identical to individual blocks via world-space styledTerrain shaders!)
     const styledTerrain = createStyledTerrainSystem(sim.gridSize);
@@ -647,12 +712,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
     const initWorldGrid = ensureWorldGrid(sim);
     chunkTerrain.queueProgressiveRebuild(initWorldGrid);
 
-    // Instanced Multi-Object Props (1-4 objects per tile, starting compactly and growing on demand)
-    const variantLib = getNodeVariantLibrary();
-
-
-    // 3D Sculpted Micro-Voxel Biome Trees (4-tier zoom LOD greedy-merged static InstancedMeshes)
-    const voxelTreeLib = getVoxelTreeLibrary();
+    // Lazy progressive asset & BatchedStaticPool builders so initial mount paints Frame 1 in <150ms
     const TREE_BIOME_KEYS: TreeBiomeKey[] = [
       'forest',
       'meadow',
@@ -680,145 +740,228 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       floral: 10,
     };
 
-    // Collapse all 32 live + 32 burnt voxel tree species × 4 LODs (384 InstancedMeshes -> 2 BatchedMeshes!)
-    const treeBatchGeos: THREE.BufferGeometry[] = [];
-    // Indexed as [charred: 0|1][lod: 0..3][biomeIdx: 0..7][varIdx] -> flat geometry index
+    let variantLib: ReturnType<typeof getNodeVariantLibrary> | null = null;
+    let voxelTreeLib: ReturnType<typeof getVoxelTreeLibrary> | null = null;
+    let propAssetsReady = false;
+    let treeAssetsReady = false;
+
     const treeGeoIdx: number[][][][] = [[], []];
     const treeBiomePoolLen: number[][] = [[], []];
-    const treeLodRecords = [
-      [voxelTreeLib.byBiome, voxelTreeLib.byBiomeLod1, voxelTreeLib.byBiomeLod2, voxelTreeLib.byBiomeLod3],
-      [
-        voxelTreeLib.burntByBiome,
-        voxelTreeLib.burntByBiomeLod1,
-        voxelTreeLib.burntByBiomeLod2,
-        voxelTreeLib.burntByBiomeLod3,
-      ],
-    ];
-    for (let c = 0; c < 2; c++) {
-      for (let lod = 0; lod < 4; lod++) {
-        const byBiomeArr: number[][] = [];
-        const rec = treeLodRecords[c][lod];
-        for (let b = 0; b < TREE_BIOME_KEYS.length; b++) {
-          const geos = rec[TREE_BIOME_KEYS[b]];
-          if (lod === 0) treeBiomePoolLen[c][b] = geos.length;
-          const varIds: number[] = [];
-          for (let v = 0; v < geos.length; v++) {
-            varIds.push(treeBatchGeos.length);
-            treeBatchGeos.push(geos[v]);
-          }
-          byBiomeArr.push(varIds);
-        }
-        treeGeoIdx[c].push(byBiomeArr);
-      }
-    }
-    const treeBatchShadow = new BatchedStaticPool(
-      'batched_trees_shadow',
-      voxelTreeLib.material,
-      treeBatchGeos,
-      true,
-      true,
-      2048,
-    );
-    const treeBatchNoShadow = new BatchedStaticPool(
-      'batched_trees_noshadow',
-      voxelTreeLib.material,
-      treeBatchGeos,
-      false,
-      true,
-      1024,
-    );
-    worldGroup.add(treeBatchShadow.group);
-    worldGroup.add(treeBatchNoShadow.group);
-
-    // Baked multi-angle pixel-art tree impostor system (2 tris/tree in 1 draw call at overview/far zoom)
-    const treeImpostors = new TreeImpostorSystem(renderer, voxelTreeLib, 2048, scene.environment);
+    let treeBatchShadow: BatchedStaticPool | null = null;
+    let treeBatchNoShadow: BatchedStaticPool | null = null;
+    let treeImpostors: TreeImpostorSystem | null = null;
     const _impostorTint = new THREE.Color(1, 1, 1);
     const _noonRefColor = new THREE.Color(0xffdfb0);
-    worldGroup.add(treeImpostors.mesh);
 
-    // Collapse all 10 resource prop kinds × 2 LODs (~70 InstancedMeshes -> 5 BatchedMeshes!)
-    // Buckets: 0=std+shadow, 1=std+noShadow, 2=crystal+shadow, 3=crystal+noShadow, 4=coral+noShadow
-    const propBucketGeos: THREE.BufferGeometry[][] = [[], [], [], [], []];
-    const propKindSpecs: {
-      lod0: THREE.BufferGeometry[];
-      lod2: THREE.BufferGeometry[];
-      b0: number;
-      b2: number;
-    }[] = [
-      { lod0: variantLib.berry, lod2: variantLib.berryLod2, b0: 0, b2: 1 }, // 0: berry
-      { lod0: variantLib.farmCrop, lod2: variantLib.farmCropLod2, b0: 0, b2: 1 }, // 1: farmCrop
-      { lod0: variantLib.sciFiFarm, lod2: variantLib.sciFiFarmLod2, b0: 2, b2: 3 }, // 2: sciFiFarm
-      { lod0: variantLib.stone, lod2: variantLib.stoneLod2, b0: 0, b2: 1 }, // 3: stone
-      { lod0: variantLib.ore, lod2: variantLib.oreLod2, b0: 0, b2: 1 }, // 4: ore
-      { lod0: variantLib.crystal, lod2: variantLib.crystalLod2, b0: 2, b2: 2 }, // 5: crystal
-      { lod0: variantLib.coralReef, lod2: variantLib.coralReefLod2, b0: 4, b2: 4 }, // 6: coralReef
-      { lod0: variantLib.coralReefBleached, lod2: variantLib.coralReefBleachedLod2, b0: 1, b2: 1 }, // 7: coralReefBleached
-      { lod0: variantLib.scrapFlotsam, lod2: variantLib.scrapFlotsamLod2, b0: 0, b2: 1 }, // 8: scrapFlotsam
-      { lod0: variantLib.atlantisRuin, lod2: variantLib.atlantisRuinLod2, b0: 0, b2: 0 }, // 9: atlantisRuin
-    ];
     const propKindLens: number[] = [];
     const propLod0Bucket: number[] = [];
     const propLod2Bucket: number[] = [];
     const propLod0GeoIdx: number[][] = [];
     const propLod2GeoIdx: number[][] = [];
-    for (let k = 0; k < propKindSpecs.length; k++) {
-      const spec = propKindSpecs[k];
-      propKindLens.push(spec.lod0.length);
-      propLod0Bucket.push(spec.b0);
-      propLod2Bucket.push(spec.b2);
-      const ids0: number[] = [];
-      for (let v = 0; v < spec.lod0.length; v++) {
-        ids0.push(propBucketGeos[spec.b0].length);
-        propBucketGeos[spec.b0].push(spec.lod0[v]);
-      }
-      propLod0GeoIdx.push(ids0);
-      const ids2: number[] = [];
-      for (let v = 0; v < spec.lod2.length; v++) {
-        ids2.push(propBucketGeos[spec.b2].length);
-        propBucketGeos[spec.b2].push(spec.lod2[v]);
-      }
-      propLod2GeoIdx.push(ids2);
-    }
-    const propBatches: BatchedStaticPool[] = [
-      new BatchedStaticPool('batched_props_std_shadow', variantLib.standardMat, propBucketGeos[0], true, true, 512),
-      new BatchedStaticPool('batched_props_std_noshadow', variantLib.standardMat, propBucketGeos[1], false, true, 512),
-      new BatchedStaticPool('batched_props_crystal_shadow', variantLib.crystalMat, propBucketGeos[2], true, true, 256),
-      new BatchedStaticPool('batched_props_crystal_noshadow', variantLib.crystalMat, propBucketGeos[3], false, true, 128),
-      new BatchedStaticPool('batched_props_coral_noshadow', variantLib.coralReefMat, propBucketGeos[4], false, true, 256),
-    ];
-    for (let i = 0; i < propBatches.length; i++) {
-      nodesGroup.add(propBatches[i].group);
-    }
+    const propBatches: BatchedStaticPool[] = [];
 
-    // Race-unique & Era-evolving Farm Windmills (15 towers + 15 spinning rotors in 2 BatchedMesh draw calls!)
-    const windmillTowerPool = new BatchedStaticPool(
-      'batched_windmill_towers',
-      variantLib.standardMat,
-      variantLib.windmillTowers,
-      true,
-      true,
-      64,
-    );
-    const windmillBladesPool = new BatchedStaticPool(
-      'batched_windmill_blades',
-      variantLib.standardMat,
-      variantLib.windmillBladesVariants,
-      true,
-      true,
-      64,
-    );
-    // Heavy Industrial Mining & Quarry Facilities (cranes, ore crushers, tracked excavators in 1 BatchedMesh draw call!)
-    const miningFacilityPool = new BatchedStaticPool(
-      'batched_mining_facilities',
-      variantLib.standardMat,
-      variantLib.miningFacilities,
-      true,
-      true,
-      128,
-    );
-    nodesGroup.add(windmillTowerPool.group);
-    nodesGroup.add(windmillBladesPool.group);
-    nodesGroup.add(miningFacilityPool.group);
+    let windmillTowerPool: BatchedStaticPool | null = null;
+    let windmillBladesPool: BatchedStaticPool | null = null;
+    let miningFacilityPool: BatchedStaticPool | null = null;
+
+    const ambGeoIdx: number[][] = [];
+    const ambGroupLens: number[] = [];
+    let ambBatch: BatchedStaticPool | null = null;
+
+    const ensurePropAssets = () => {
+      if (propAssetsReady) return;
+      propAssetsReady = true;
+      variantLib = getNodeVariantLibrary();
+
+      // Collapse all 10 resource prop kinds × 2 LODs (~70 InstancedMeshes -> 5 BatchedMeshes!)
+      // Buckets: 0=std+shadow, 1=std+noShadow, 2=crystal+shadow, 3=crystal+noShadow, 4=coral+noShadow
+      const propBucketGeos: THREE.BufferGeometry[][] = [[], [], [], [], []];
+      const propKindSpecs: {
+        lod0: THREE.BufferGeometry[];
+        lod2: THREE.BufferGeometry[];
+        b0: number;
+        b2: number;
+      }[] = [
+        { lod0: variantLib.berry, lod2: variantLib.berryLod2, b0: 0, b2: 1 }, // 0: berry
+        { lod0: variantLib.farmCrop, lod2: variantLib.farmCropLod2, b0: 0, b2: 1 }, // 1: farmCrop
+        { lod0: variantLib.sciFiFarm, lod2: variantLib.sciFiFarmLod2, b0: 2, b2: 3 }, // 2: sciFiFarm
+        { lod0: variantLib.stone, lod2: variantLib.stoneLod2, b0: 0, b2: 1 }, // 3: stone
+        { lod0: variantLib.ore, lod2: variantLib.oreLod2, b0: 0, b2: 1 }, // 4: ore
+        { lod0: variantLib.crystal, lod2: variantLib.crystalLod2, b0: 2, b2: 2 }, // 5: crystal
+        { lod0: variantLib.coralReef, lod2: variantLib.coralReefLod2, b0: 4, b2: 4 }, // 6: coralReef
+        { lod0: variantLib.coralReefBleached, lod2: variantLib.coralReefBleachedLod2, b0: 1, b2: 1 }, // 7: coralReefBleached
+        { lod0: variantLib.scrapFlotsam, lod2: variantLib.scrapFlotsamLod2, b0: 0, b2: 1 }, // 8: scrapFlotsam
+        { lod0: variantLib.atlantisRuin, lod2: variantLib.atlantisRuinLod2, b0: 0, b2: 0 }, // 9: atlantisRuin
+      ];
+      for (let k = 0; k < propKindSpecs.length; k++) {
+        const spec = propKindSpecs[k];
+        propKindLens.push(spec.lod0.length);
+        propLod0Bucket.push(spec.b0);
+        propLod2Bucket.push(spec.b2);
+        const ids0: number[] = [];
+        for (let v = 0; v < spec.lod0.length; v++) {
+          ids0.push(propBucketGeos[spec.b0].length);
+          propBucketGeos[spec.b0].push(spec.lod0[v]);
+        }
+        propLod0GeoIdx.push(ids0);
+        const ids2: number[] = [];
+        for (let v = 0; v < spec.lod2.length; v++) {
+          ids2.push(propBucketGeos[spec.b2].length);
+          propBucketGeos[spec.b2].push(spec.lod2[v]);
+        }
+        propLod2GeoIdx.push(ids2);
+      }
+      propBatches.push(
+        new BatchedStaticPool('batched_props_std_shadow', variantLib.standardMat, propBucketGeos[0], true, true, 512),
+        new BatchedStaticPool('batched_props_std_noshadow', variantLib.standardMat, propBucketGeos[1], false, true, 512),
+        new BatchedStaticPool('batched_props_crystal_shadow', variantLib.crystalMat, propBucketGeos[2], true, true, 256),
+        new BatchedStaticPool('batched_props_crystal_noshadow', variantLib.crystalMat, propBucketGeos[3], false, true, 128),
+        new BatchedStaticPool('batched_props_coral_noshadow', variantLib.coralReefMat, propBucketGeos[4], false, true, 256),
+      );
+      for (let i = 0; i < propBatches.length; i++) {
+        nodesGroup.add(propBatches[i].group);
+      }
+
+      // Collapse all 19 ambient biome & freshwater detail groups into 1 BatchedMesh draw call!
+      const ambSourceLists: THREE.BufferGeometry[][] = [
+        variantLib.ambientGrass,
+        variantLib.ambientForest,
+        variantLib.ambientSand,
+        variantLib.ambientRock,
+        variantLib.ambientSnow,
+        variantLib.ambientSavanna,
+        variantLib.ambientSwamp,
+        variantLib.ambientHighland,
+        variantLib.ambientJungle,
+        variantLib.ambientMountain,
+        variantLib.ambientTaiga,
+        variantLib.ambientTundra,
+        variantLib.ambientBadlands,
+        variantLib.ambientBlossom,
+        variantLib.ambientVolcanic,
+        variantLib.ambientBlight,
+        variantLib.ambientFloral,
+        variantLib.ambientLake,
+        variantLib.ambientRiver,
+      ];
+      const ambBatchGeos: THREE.BufferGeometry[] = [];
+      for (let g = 0; g < ambSourceLists.length; g++) {
+        const list = ambSourceLists[g];
+        ambGroupLens.push(list.length);
+        const ids: number[] = [];
+        for (let v = 0; v < list.length; v++) {
+          ids.push(ambBatchGeos.length);
+          ambBatchGeos.push(list[v]);
+        }
+        ambGeoIdx.push(ids);
+      }
+      ambBatch = new BatchedStaticPool(
+        'batched_ambient_details',
+        variantLib.standardMat,
+        ambBatchGeos,
+        false,
+        true,
+        2048,
+      );
+      ambBatch.group.visible = false;
+      worldGroup.add(ambBatch.group);
+    };
+
+    const ensureDistrictFacilityPools = () => {
+      if (windmillTowerPool && windmillBladesPool && miningFacilityPool) return;
+      ensurePropAssets();
+      if (!variantLib) return;
+      windmillTowerPool = new BatchedStaticPool(
+        'batched_windmill_towers',
+        variantLib.standardMat,
+        variantLib.windmillTowers,
+        true,
+        true,
+        64,
+      );
+      windmillBladesPool = new BatchedStaticPool(
+        'batched_windmill_blades',
+        variantLib.standardMat,
+        variantLib.windmillBladesVariants,
+        true,
+        true,
+        64,
+      );
+      miningFacilityPool = new BatchedStaticPool(
+        'batched_mining_facilities',
+        variantLib.standardMat,
+        variantLib.miningFacilities,
+        true,
+        true,
+        128,
+      );
+      nodesGroup.add(windmillTowerPool.group);
+      nodesGroup.add(windmillBladesPool.group);
+      nodesGroup.add(miningFacilityPool.group);
+    };
+
+    const ensureTreeAssets = () => {
+      if (treeAssetsReady) return;
+      treeAssetsReady = true;
+      voxelTreeLib = getVoxelTreeLibrary();
+
+      // Collapse all 32 live + 32 burnt voxel tree species × 4 LODs (384 InstancedMeshes -> 2 BatchedMeshes!)
+      const treeBatchGeos: THREE.BufferGeometry[] = [];
+      const treeLodRecords = [
+        [voxelTreeLib.byBiome, voxelTreeLib.byBiomeLod1, voxelTreeLib.byBiomeLod2, voxelTreeLib.byBiomeLod3],
+        [
+          voxelTreeLib.burntByBiome,
+          voxelTreeLib.burntByBiomeLod1,
+          voxelTreeLib.burntByBiomeLod2,
+          voxelTreeLib.burntByBiomeLod3,
+        ],
+      ];
+      for (let c = 0; c < 2; c++) {
+        for (let lod = 0; lod < 4; lod++) {
+          const byBiomeArr: number[][] = [];
+          const rec = treeLodRecords[c][lod];
+          for (let b = 0; b < TREE_BIOME_KEYS.length; b++) {
+            const geos = rec[TREE_BIOME_KEYS[b]];
+            if (lod === 0) treeBiomePoolLen[c][b] = geos.length;
+            const varIds: number[] = [];
+            for (let v = 0; v < geos.length; v++) {
+              varIds.push(treeBatchGeos.length);
+              treeBatchGeos.push(geos[v]);
+            }
+            byBiomeArr.push(varIds);
+          }
+          treeGeoIdx[c].push(byBiomeArr);
+        }
+      }
+      treeBatchShadow = new BatchedStaticPool(
+        'batched_trees_shadow',
+        voxelTreeLib.material,
+        treeBatchGeos,
+        true,
+        true,
+        2048,
+      );
+      treeBatchNoShadow = new BatchedStaticPool(
+        'batched_trees_noshadow',
+        voxelTreeLib.material,
+        treeBatchGeos,
+        false,
+        true,
+        1024,
+      );
+      treeBatchShadow.group.visible = false;
+      treeBatchNoShadow.group.visible = false;
+      worldGroup.add(treeBatchShadow.group);
+      worldGroup.add(treeBatchNoShadow.group);
+    };
+
+    const ensureTreeImpostors = (): TreeImpostorSystem | null => {
+      if (treeImpostors) return treeImpostors;
+      if (!voxelTreeLib) return null;
+      treeImpostors = new TreeImpostorSystem(renderer, voxelTreeLib, 2048, scene.environment);
+      worldGroup.add(treeImpostors.mesh);
+      return treeImpostors;
+    };
 
     const _wmQuat = new THREE.Quaternion();
     const _wmSpinQuat = new THREE.Quaternion();
@@ -828,51 +971,6 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
     const _wmMat = new THREE.Matrix4();
     const _wmMatBuf = new Float32Array(16);
     const _wmAxisZ = new THREE.Vector3(0, 0, 1);
-
-    // Collapse all 19 ambient biome & freshwater detail groups into 1 BatchedMesh draw call!
-    const ambSourceLists: THREE.BufferGeometry[][] = [
-      variantLib.ambientGrass,
-      variantLib.ambientForest,
-      variantLib.ambientSand,
-      variantLib.ambientRock,
-      variantLib.ambientSnow,
-      variantLib.ambientSavanna,
-      variantLib.ambientSwamp,
-      variantLib.ambientHighland,
-      variantLib.ambientJungle,
-      variantLib.ambientMountain,
-      variantLib.ambientTaiga,
-      variantLib.ambientTundra,
-      variantLib.ambientBadlands,
-      variantLib.ambientBlossom,
-      variantLib.ambientVolcanic,
-      variantLib.ambientBlight,
-      variantLib.ambientFloral,
-      variantLib.ambientLake,
-      variantLib.ambientRiver,
-    ];
-    const ambBatchGeos: THREE.BufferGeometry[] = [];
-    const ambGeoIdx: number[][] = [];
-    const ambGroupLens: number[] = [];
-    for (let g = 0; g < ambSourceLists.length; g++) {
-      const list = ambSourceLists[g];
-      ambGroupLens.push(list.length);
-      const ids: number[] = [];
-      for (let v = 0; v < list.length; v++) {
-        ids.push(ambBatchGeos.length);
-        ambBatchGeos.push(list[v]);
-      }
-      ambGeoIdx.push(ids);
-    }
-    const ambBatch = new BatchedStaticPool(
-      'batched_ambient_details',
-      variantLib.standardMat,
-      ambBatchGeos,
-      false,
-      true,
-      2048,
-    );
-    worldGroup.add(ambBatch.group);
 
     // Flat typed placement caches for zero-GC zoom LOD & viewport frustum culling
     let treeCacheCap = 1024;
@@ -8165,10 +8263,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
     };
 
     const rebuildVisiblePropsAndLod = () => {
+      if (!propAssetsReady || !treeAssetsReady || !treeBatchShadow || !treeBatchNoShadow || !ambBatch) {
+        return;
+      }
       for (let i = 0; i < propBatches.length; i++) {
         propBatches[i].reset();
       }
-      treeImpostors.reset();
+      treeImpostors?.reset();
       treeBatchShadow.reset();
       treeBatchNoShadow.reset();
       ambBatch.reset();
@@ -8195,7 +8296,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       const cMaxX = worldCullBounds.maxX;
       const cMinZ = worldCullBounds.minZ;
       const cMaxZ = worldCullBounds.maxZ;
-      const useImpostors = treeImpostors.isBaked;
+      const useImpostors = Boolean(treeImpostors?.isBaked);
 
       // 1. Trees (exact OBB cull + high-detail 4-tier LOD in 2 BatchedMesh draw calls + baked 2-tri impostors at far/overview)
       for (let i = 0; i < treeCacheCount; i++) {
@@ -8213,12 +8314,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         const isCompanion = (flags & 2) !== 0;
 
         if (lodBand === 3) {
-          if (useImpostors) {
+          if (useImpostors && treeImpostors) {
             treeImpostors.pushTreeFromMatrix(charred, treeCacheBiome[i], treeCacheVar[i], treeCacheMat, i * 16);
             continue;
           }
         } else if (lodBand === 2) {
-          if (dx * dx + dz * dz > innerRSq && useImpostors) {
+          if (dx * dx + dz * dz > innerRSq && useImpostors && treeImpostors) {
             treeImpostors.pushTreeFromMatrix(charred, treeCacheBiome[i], treeCacheVar[i], treeCacheMat, i * 16);
             continue;
           }
@@ -8251,7 +8352,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           treeBatchNoShadow.pushFromMatrixArray(gIdx, treeCacheMat, i * 16);
         }
       }
-      treeImpostors.commit();
+      treeImpostors?.commit();
       treeBatchShadow.commit();
       treeBatchNoShadow.commit();
 
@@ -8348,18 +8449,18 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
     let lastShadowKeyY = NaN;
     let lastShadowKeyZ = NaN;
 
-    // Staged progressive reveal spreads WebGL shader compilation across frames instead of freezing Frame 0
-    // 0: space+ocean only -> 1: terrain chunks -> 2: clouds+zones -> 3: props+ambient -> 4: trees -> 5: buildings+units+metro -> 6: impostors
+    // Staged progressive reveal spreads WebGL shader compilation & procedural voxel builds across frames
+    // 0: space+ocean only -> 1: PMREM + terrain chunks + clouds -> 2a: prop/ambient pools -> 2b: tree pools -> 3: buildings+units+metro -> 4: ready
     let startupRevealStage = 0;
     let startupStageWait = 0;
     terrainGroup.visible = false;
     skyClouds.group.visible = false;
     skyClouds.shadowGroup.visible = false;
+    ambientFauna.group.visible = false;
+    monuments.group.visible = false;
+    elevatedLiquidGroup.visible = false;
     zoneOverlay.mesh.visible = false;
     nodesGroup.visible = false;
-    ambBatch.group.visible = false;
-    treeBatchShadow.group.visible = false;
-    treeBatchNoShadow.group.visible = false;
     buildingsGroup.visible = false;
     unitsGroup.visible = false;
     metroGroup.visible = false;
@@ -8852,31 +8953,43 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       // Advance staged progressive reveal with breathing frames between layers so first visit stays responsive
       if (startupRevealStage < 4) {
         startupStageWait++;
-        if (startupRevealStage === 0 && startupStageWait >= 3) {
+        if (startupRevealStage === 0 && startupStageWait >= 2) {
+          ensureEnvironment();
           startupRevealStage = 1;
           startupStageWait = 0;
           terrainGroup.visible = true;
           skyClouds.group.visible = true;
           skyClouds.shadowGroup.visible = true;
+          ambientFauna.group.visible = true;
+          monuments.group.visible = true;
+          elevatedLiquidGroup.visible = true;
           zoneOverlay.mesh.visible = Boolean(propsRef.current.zoneOverlayBuffers?.anyActive);
           shadowSceneDirty = true;
-        } else if (startupRevealStage === 1 && !chunkTerrain.hasPendingProgressiveRebuild() && startupStageWait >= 3) {
-          startupRevealStage = 2;
-          startupStageWait = 0;
-          nodesGroup.visible = true;
-          ambBatch.group.visible = true;
-          treeBatchShadow.group.visible = true;
-          treeBatchNoShadow.group.visible = true;
-          propViewDirty = true;
-          shadowSceneDirty = true;
-        } else if (startupRevealStage === 2 && startupStageWait >= 3) {
+        } else if (startupRevealStage === 1 && !chunkTerrain.hasPendingProgressiveRebuild() && startupStageWait >= 2) {
+          if (!propAssetsReady) {
+            ensurePropAssets();
+            startupStageWait = 0;
+            heavyWorkDoneThisFrame = true;
+          } else if (!treeAssetsReady) {
+            ensureTreeAssets();
+            startupRevealStage = 2;
+            startupStageWait = 0;
+            nodesGroup.visible = true;
+            if (ambBatch) ambBatch.group.visible = true;
+            if (treeBatchShadow) treeBatchShadow.group.visible = true;
+            if (treeBatchNoShadow) treeBatchNoShadow.group.visible = true;
+            propViewDirty = true;
+            shadowSceneDirty = true;
+            heavyWorkDoneThisFrame = true;
+          }
+        } else if (startupRevealStage === 2 && startupStageWait >= 2) {
           startupRevealStage = 3;
           startupStageWait = 0;
           buildingsGroup.visible = true;
           unitsGroup.visible = true;
           metroGroup.visible = true;
           shadowSceneDirty = true;
-        } else if (startupRevealStage === 3 && startupStageWait >= 3) {
+        } else if (startupRevealStage === 3 && startupStageWait >= 2) {
           startupRevealStage = 4;
           startupStageWait = 0;
           shadowSceneDirty = true;
@@ -8909,16 +9022,17 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         }
       }
 
-      // Defer 2048x1024 tree impostor atlas baking until the player actually zooms out (frustumSize >= 36)
-      // and bake only 1 species every 2nd frame so initial load / Title Screen pays zero impostor GPU cost.
+      // Lazily allocate & bake the 2048x2048 tree impostor atlas ONLY once the player actually zooms out (frustumSize >= 36)
+      // and bake only 1 species every 2nd frame so initial load / Title Screen pays zero impostor VRAM or GPU cost.
       if (
         startupRevealStage >= 4 &&
         !terrainStreaming &&
-        !treeImpostors.isBaked &&
+        treeAssetsReady &&
         frustumSize >= 36 &&
         (syncFrameStamp & 1) === 0
       ) {
-        if (treeImpostors.stepBake(1)) {
+        const imp = ensureTreeImpostors();
+        if (imp && !imp.isBaked && imp.stepBake(1)) {
           propViewDirty = true;
         }
       }
@@ -9330,12 +9444,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       }
 
       // Sync & animate Race-Unique Era-Evolving Farm Windmills + Heavy Industrial Quarry/Mining Facilities
-      {
+      if (startupRevealStage >= 2 && propAssetsReady) {
         const districtsMap = simState.settlementDistricts;
         const wmGridSize = simState.gridSize;
-        windmillTowerPool.reset();
-        windmillBladesPool.reset();
-        miningFacilityPool.reset();
+        windmillTowerPool?.reset();
+        windmillBladesPool?.reset();
+        miningFacilityPool?.reset();
 
         if (districtsMap) {
           let wmIdx = 0;
@@ -9375,6 +9489,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
                 }
               }
               if (nearbyFarms >= 4) {
+                ensureDistrictFacilityPools();
                 const topY = tileCurrentY[centerIdx] ?? centerTile.height * HEIGHT_STEP;
                 const yaw = ((cx * 7 + cz * 13) % 4) * (Math.PI * 0.5) + Math.PI * 0.25;
                 _wmEuler.set(0, yaw, 0);
@@ -9382,7 +9497,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
                 _wmPos.set(cx, topY, cz);
                 _wmMat.compose(_wmPos, _wmQuat, _wmScale);
                 _wmMatBuf.set(_wmMat.elements);
-                windmillTowerPool.pushFromMatrixArray(wmVariantIdx, _wmMatBuf, 0);
+                windmillTowerPool!.pushFromMatrixArray(wmVariantIdx, _wmMatBuf, 0);
 
                 // Rotor hub height & spin speed evolve cleanly with era tier
                 const hubY = eraTier === 2 ? 2.12 : eraTier === 1 ? 1.38 : 1.24;
@@ -9398,7 +9513,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
                 );
                 _wmMat.compose(_wmPos, _wmQuat, _wmScale);
                 _wmMatBuf.set(_wmMat.elements);
-                windmillBladesPool.pushFromMatrixArray(wmVariantIdx, _wmMatBuf, 0);
+                windmillBladesPool!.pushFromMatrixArray(wmVariantIdx, _wmMatBuf, 0);
                 wmIdx++;
               }
             }
@@ -9422,6 +9537,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
               }
 
               if (quarryCount >= 4) {
+                ensureDistrictFacilityPools();
                 const placeMiningMachine = (
                   ox: number,
                   oz: number,
@@ -9440,7 +9556,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
                   _wmPos.set(tx, topY, tz);
                   _wmMat.compose(_wmPos, _wmQuat, _wmScale);
                   _wmMatBuf.set(_wmMat.elements);
-                  miningFacilityPool.pushFromMatrixArray(machineIdx, _wmMatBuf, 0);
+                  miningFacilityPool!.pushFromMatrixArray(machineIdx, _wmMatBuf, 0);
                 };
 
                 // Primary Quarry Crane: Timber/Iron Derrick (Epoch 1-2) -> Yellow-Steel Heavy Industrial Tower Crane (Epoch 3+)
@@ -9461,9 +9577,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           }
         }
 
-        windmillTowerPool.commit();
-        windmillBladesPool.commit();
-        miningFacilityPool.commit();
+        windmillTowerPool?.commit();
+        windmillBladesPool?.commit();
+        miningFacilityPool?.commit();
       }
 
       if (metroNeedsSync) {
@@ -9910,7 +10026,44 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         return rotY;
       };
 
-      // 2. Sync buildings via lossless THREE.BatchedMesh with 2-tier zoom LOD
+      // Re-seed tactile juice maps cleanly whenever a new/loaded world appears so pre-existing entities never pop-spam
+      const curWorldKey = `${simState.seed}:${simState.gridSize}`;
+      if (curWorldKey !== lastJuiceWorldKey) {
+        lastJuiceWorldKey = curWorldKey;
+        buildingJuiceMap.clear();
+        unitJuiceMap.clear();
+        seenChronicleIds.clear();
+        for (let bi0 = 0; bi0 < simState.buildings.length; bi0++) {
+          const b0 = simState.buildings[bi0];
+          const t0 = simState.tiles[b0.tileZ * gsBld + b0.tileX];
+          const gy0 = t0 ? Math.max(0.18, t0.height * HEIGHT_STEP + 0.25) : 1.0;
+          buildingJuiceMap.set(b0.id, {
+            popAge: 99,
+            popDur: 0.42,
+            lastEpoch: b0.epochLevel,
+            lastHp: b0.hp,
+            hitAge: 99,
+            lastX: b0.tileX,
+            lastY: gy0,
+            lastZ: b0.tileZ,
+            seenStamp: syncFrameStamp,
+          });
+        }
+        for (let ui0 = 0; ui0 < simState.units.length; ui0++) {
+          const u0 = simState.units[ui0];
+          unitJuiceMap.set(u0.id, {
+            spawnAge: 99,
+            lastHp: u0.hp,
+            hitAge: 99,
+            seenStamp: syncFrameStamp,
+          });
+        }
+        for (let ci0 = 0; ci0 < simState.chronicle.length; ci0++) {
+          seenChronicleIds.add(simState.chronicle[ci0].id);
+        }
+      }
+
+      // 2. Sync buildings via lossless THREE.BatchedMesh with 2-tier zoom LOD + elastic pop-in & hit-shudder juice
       batchedBuildings.setLodLevel(frustumSize >= 46 ? 1 : 0);
       const cullMinX = worldCullBounds.minX;
       const cullMaxX = worldCullBounds.maxX;
@@ -9928,6 +10081,59 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           worldCullBounds,
           existingEntry ? DESPAWN_CULL_HYSTERESIS : 0,
         );
+
+        let bJuice = buildingJuiceMap.get(b.id);
+        const tile = simState.tiles[b.tileZ * gsBld + b.tileX];
+        const isWaterTile = Boolean(tile && tile.height === 0);
+        const groundY = tile
+          ? isWaterTile
+            ? 0.29 + Math.sin(elapsed * 2.1 + b.tileX * 0.7 + b.tileZ * 0.5) * 0.02
+            : Math.max(0.18, tile.height * HEIGHT_STEP + 0.25)
+          : 1.0;
+
+        if (!bJuice) {
+          const shouldBounce = startupRevealStage >= 4 && elapsed > 1.2;
+          bJuice = {
+            popAge: shouldBounce ? 0 : 99,
+            popDur: 0.42,
+            lastEpoch: b.epochLevel,
+            lastHp: b.hp,
+            hitAge: 99,
+            lastX: b.tileX,
+            lastY: groundY,
+            lastZ: b.tileZ,
+            seenStamp: syncFrameStamp,
+          };
+          buildingJuiceMap.set(b.id, bJuice);
+          if (shouldBounce && bInView) {
+            spawnParticleBurst(b.tileX, groundY + 0.12, b.tileZ, 7, '#e7d8bc', 0.48, 1.9, 0.55);
+          }
+        } else {
+          bJuice.seenStamp = syncFrameStamp;
+          bJuice.popAge += dt;
+          bJuice.hitAge += dt;
+          bJuice.lastX = b.tileX;
+          bJuice.lastY = groundY;
+          bJuice.lastZ = b.tileZ;
+          if (b.epochLevel > bJuice.lastEpoch) {
+            bJuice.lastEpoch = b.epochLevel;
+            bJuice.popAge = 0;
+            bJuice.popDur = 0.46;
+            if (bInView) {
+              spawnParticleBurst(b.tileX, groundY + 0.4, b.tileZ, 9, '#fde047', 0.55, 2.5, 0.7);
+            }
+          } else if (b.epochLevel !== bJuice.lastEpoch) {
+            bJuice.lastEpoch = b.epochLevel;
+          }
+          if (b.hp < bJuice.lastHp - 0.5) {
+            bJuice.hitAge = 0;
+            if (bInView) {
+              spawnParticleBurst(b.tileX, groundY + 0.55, b.tileZ, 5, '#d6c3a5', 0.42, 2.4, 0.52);
+            }
+          }
+          bJuice.lastHp = b.hp;
+        }
+
         if (!bInView) {
           // Leave seenStamp unstamped so pruneUnseen() unrenders & frees off-screen BatchedMesh slots
           continue;
@@ -9937,14 +10143,6 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           newBuildingsThisFrame++;
         }
 
-        const tile = simState.tiles[b.tileZ * gsBld + b.tileX];
-        const isWaterTile = Boolean(tile && tile.height === 0);
-        const groundY = tile
-          ? isWaterTile
-            ? 0.29 + Math.sin(elapsed * 2.1 + b.tileX * 0.7 + b.tileZ * 0.5) * 0.02
-            : Math.max(0.18, tile.height * HEIGHT_STEP + 0.25)
-          : 1.0;
-
         const bSpecies =
           b.species ??
           (b.settlementId ? simState.settlementSpecies?.[b.settlementId] : undefined) ??
@@ -9953,8 +10151,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           !existingEntry || propsNeedSync
             ? computeBuildingRotY(b.tileX, b.tileZ, b.type)
             : existingEntry.cachedRotY;
-        const buildScaleY =
+        const baseBuildScaleY =
           b.constructionProgress < 100 ? 0.22 + 0.78 * (b.constructionProgress / 100) : 1;
+        computeElasticPopScale(bJuice.popAge, bJuice.popDur, _popScaleScratch);
+        const buildScaleY = baseBuildScaleY * _popScaleScratch.y;
+        const buildScaleXZ = _popScaleScratch.xz;
+        const buildTiltZ = computeBuildingHitWobble(bJuice.hitAge);
         const variantSeed = b.tileX * 31 + b.tileZ * 17;
 
         const entry = batchedBuildings.upsertBuilding(
@@ -9971,6 +10173,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           buildScaleY,
           true,
           syncFrameStamp,
+          buildScaleXZ,
+          buildTiltZ,
         );
 
         for (let fi = 0; fi < entry.flickerFlames.length; fi++) {
@@ -9980,6 +10184,20 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         }
         for (let si = 0; si < entry.spinParts.length; si++) {
           entry.spinParts[si].rotation.y += dt * 1.8;
+        }
+      }
+
+      // Emit tumbling rubble & dust puff when a tracked building is destroyed in view
+      for (const [bId, bJuice] of buildingJuiceMap.entries()) {
+        if (bJuice.seenStamp !== syncFrameStamp) {
+          if (
+            startupRevealStage >= 4 &&
+            isPointInCullBounds(bJuice.lastX, bJuice.lastZ, worldCullBounds, 2)
+          ) {
+            spawnParticleBurst(bJuice.lastX, bJuice.lastY + 0.35, bJuice.lastZ, 11, '#a89078', 0.58, 3.2, 0.72);
+            spawnParticleBurst(bJuice.lastX, bJuice.lastY + 0.2, bJuice.lastZ, 6, '#e7d8bc', 0.45, 1.9, 0.58);
+          }
+          buildingJuiceMap.delete(bId);
         }
       }
 
@@ -10060,6 +10278,57 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           }
         }
         visibleUnitsThisFrame++;
+
+        // Track per-unit elastic spawn pop-in & combat hit-flash/recoil state
+        let uJuice = unitJuiceMap.get(u.id);
+        if (!uJuice) {
+          const shouldUnitBounce = startupRevealStage >= 4 && elapsed > 1.2;
+          uJuice = {
+            spawnAge: shouldUnitBounce ? 0 : 99,
+            lastHp: u.hp,
+            hitAge: 99,
+            seenStamp: syncFrameStamp,
+          };
+          unitJuiceMap.set(u.id, uJuice);
+          if (shouldUnitBounce && !u.isSwimming && (u.altitude ?? 0) < 0.25) {
+            const stTile = simState.tiles[Math.round(THREE.MathUtils.clamp(u.z, 0, gsBld - 1)) * gsBld + Math.round(THREE.MathUtils.clamp(u.x, 0, gsBld - 1))];
+            const stY = stTile ? Math.max(0.18, stTile.height * HEIGHT_STEP + 0.25) : 0.6;
+            spawnParticleBurst(u.x, stY + 0.08, u.z, 4, '#efe4cc', 0.26, 1.4, 0.36);
+          }
+        } else {
+          uJuice.seenStamp = syncFrameStamp;
+          uJuice.spawnAge += dt;
+          uJuice.hitAge += dt;
+          if (u.hp < uJuice.lastHp - 0.25) {
+            uJuice.hitAge = 0;
+            const htTile = simState.tiles[Math.round(THREE.MathUtils.clamp(u.z, 0, gsBld - 1)) * gsBld + Math.round(THREE.MathUtils.clamp(u.x, 0, gsBld - 1))];
+            const htY = htTile ? Math.max(0.18, htTile.height * HEIGHT_STEP + 0.25) : 0.6;
+            hitFlashOverlay.spawnFlash(
+              u.x,
+              htY + 0.42 + (u.altitude ?? 0) * 0.5,
+              u.z,
+              u.faction === 'hostile' ? 0xfef08a : 0xfff8dc,
+              getEffectiveUnitSizeScale(u),
+            );
+            spawnParticleBurst(
+              u.x,
+              htY + 0.36 + (u.altitude ?? 0) * 0.5,
+              u.z,
+              5,
+              '#fde047',
+              0.28,
+              2.65,
+              0.38,
+            );
+          }
+          uJuice.lastHp = u.hp;
+        }
+        computeElasticPopScale(uJuice.spawnAge, 0.32, _popScaleScratch);
+        computeHitRecoil(uJuice.hitAge, 0.20, _hitRecoilScratch);
+        const unitJuiceXZ = _popScaleScratch.xz * _hitRecoilScratch.squashXZ;
+        const unitJuiceY = _popScaleScratch.y * _hitRecoilScratch.squashY;
+        const unitJuiceHopY = _hitRecoilScratch.hopY;
+        const unitJuiceFlash = _hitRecoilScratch.flash;
 
         const desiredEpoch = u.faction === 'civilization' ? getUnitEpoch(simState, u) : 0;
         const unitSpecies = u.species ?? 'human';
@@ -10248,11 +10517,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             unitAgeStage,
             appSeed,
             interpXB,
-            finalYB,
+            finalYB + unitJuiceHopY,
             interpZB,
             yawB,
-            koTiltZB,
-            scaleB,
+            koTiltZB + (unitJuiceFlash > 0 ? unitJuiceFlash * 0.16 : 0),
+            scaleB * unitJuiceXZ,
+            scaleB * unitJuiceY,
+            unitJuiceFlash,
           );
           if (csScale > 0 && !(isLeviathanB && u.leviathanSubmerged)) {
             const totalAirB = Math.max(0, finalYB - groundYB);
@@ -10751,7 +11022,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           !u.draggedByPlayer && u.prevZ !== undefined && Math.abs(u.z - u.prevZ) < 3.5
             ? u.prevZ + (u.z - u.prevZ) * simInterpAlpha
             : u.z;
-        uGroup.position.set(interpX, finalUnitY, interpZ);
+        uGroup.position.set(interpX, finalUnitY + unitJuiceHopY, interpZ);
 
         let dragonYawDelta = 0;
         if (blackHolePullFrac > 0.15) {
@@ -10899,6 +11170,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         const customUnitSizeScale = getEffectiveUnitSizeScale(u);
         if (customUnitSizeScale !== 1.0) {
           uGroup.scale.multiplyScalar(customUnitSizeScale);
+        }
+        if (unitJuiceXZ !== 1 || unitJuiceY !== 1) {
+          uGroup.scale.x *= unitJuiceXZ;
+          uGroup.scale.y *= unitJuiceY;
+          uGroup.scale.z *= unitJuiceXZ;
+        }
+        if (unitJuiceFlash > 0.01) {
+          uGroup.rotation.z += unitJuiceFlash * 0.16;
         }
 
         const {
@@ -11814,6 +12093,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           unitMeshes.delete(id);
         }
       }
+      // Prune stale unit juice records cleanly every frame
+      for (const [uid, uj] of unitJuiceMap.entries()) {
+        if (uj.seenStamp !== syncFrameStamp) {
+          unitJuiceMap.delete(uid);
+        }
+      }
 
       // 3b. Sync vehicles with cached animated children & viewport culling
       const vehicles = simState.vehicles;
@@ -12214,6 +12499,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           if (vfx.type === 'huge_asteroid_strike') {
             soundEngine.playHugeAsteroidApproach();
           }
+          if (vfx.type === 'epoch_up') {
+            milestoneBursts.spawnMilestone('epoch_up', vfx.x, surfY, vfx.z);
+            spectacleEffects.spawnFestival(vfx.x, surfY, vfx.z, vfx.color || '#facc15');
+          }
           spawnPowerVisualEffect(
             vfx.type,
             vfx.x,
@@ -12230,6 +12519,44 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             vfx.dropKind,
             vfx.dropTargets,
           );
+        }
+      }
+
+      // Detect newly added chronicle milestones & signal them purely in-world via pixel icon bursts + sparks
+      if (startupRevealStage >= 4 && simState.chronicle.length > 0) {
+        const scanMax = Math.min(8, simState.chronicle.length);
+        for (let ci = 0; ci < scanMax; ci++) {
+          const ev = simState.chronicle[ci];
+          if (!ev || seenChronicleIds.has(ev.id)) continue;
+          seenChronicleIds.add(ev.id);
+          const mKind = classifyChronicleMilestone(ev);
+          if (!mKind) continue;
+          const mx =
+            typeof ev.x === 'number' && Number.isFinite(ev.x)
+              ? ev.x
+              : simState.buildings[0]?.tileX ?? camTarget.x;
+          const mz =
+            typeof ev.z === 'number' && Number.isFinite(ev.z)
+              ? ev.z
+              : simState.buildings[0]?.tileZ ?? camTarget.z;
+          const mTile = getTileFromArray(simState, mx, mz);
+          const mY = getTileEffectSurfaceY(mTile, 0.8);
+          milestoneBursts.spawnMilestone(mKind, mx, mY, mz);
+          if (mKind === 'epoch_up' || mKind === 'wonder') {
+            spectacleEffects.spawnFestival(mx, mY, mz, mKind === 'wonder' ? '#38bdf8' : '#facc15');
+          } else if (mKind === 'war') {
+            spawnParticleBurst(mx, mY + 0.65, mz, 14, '#ef4444', 0.85, 3.4, 0.8);
+          } else if (mKind === 'peace') {
+            spawnParticleBurst(mx, mY + 0.65, mz, 12, '#34d399', 0.75, 2.7, 0.75);
+          } else if (mKind === 'city_founded' || mKind === 'city_captured') {
+            spawnParticleBurst(mx, mY + 0.55, mz, 14, '#fbbf24', 0.8, 3.1, 0.75);
+          }
+        }
+        if (seenChronicleIds.size > 400) {
+          seenChronicleIds.clear();
+          for (let ci = 0; ci < simState.chronicle.length; ci++) {
+            seenChronicleIds.add(simState.chronicle[ci].id);
+          }
         }
       }
 
@@ -16023,7 +16350,16 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       } else {
         _targetBgColor.set(epochDef.skyColor);
       }
+      // Compute smooth four-season atmospheric state layered harmoniously onto Time-of-Day lighting
+      const activeSeasonState = computeSeasonState(
+        propsRef.current.seasonPreset ?? 'auto',
+        simRef.current.year,
+      );
+      // Attenuate strong seasonal color tints slightly during deep midnight so night stays readable
+      const seasonTintStrength = 1 - currentDarkness * 0.42;
+
       _targetLightColor.setHex(todState.keyColorHex);
+      multiplyColorByTint(_targetLightColor, activeSeasonState.keyTint, seasonTintStrength);
 
       const lightBlend = Math.min(1, dt * (isCycleActive ? 2.4 : 6.0));
       _bgColor.lerp(_targetBgColor, lightBlend);
@@ -16032,12 +16368,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
 
       // Dynamically tint hemisphere sky/ground fill, rim light, PBR environment intensity, and exposure
       _targetLightColor.setHex(todState.hemiSkyHex);
+      multiplyColorByTint(_targetLightColor, activeSeasonState.hemiTint, seasonTintStrength);
       hemiLight.color.lerp(_targetLightColor, lightBlend);
       _targetLightColor.setHex(todState.hemiGroundHex);
       hemiLight.groundColor.lerp(_targetLightColor, lightBlend);
       hemiLight.intensity += (todState.hemiIntensity - hemiLight.intensity) * lightBlend;
 
       _targetLightColor.setHex(todState.rimColorHex);
+      multiplyColorByTint(_targetLightColor, activeSeasonState.rimTint, seasonTintStrength);
       rimLight.color.lerp(_targetLightColor, lightBlend);
       rimLight.intensity += (todState.rimIntensity - rimLight.intensity) * lightBlend;
       rimLight.position.set(todState.rimOffset[0], todState.rimOffset[1], todState.rimOffset[2]);
@@ -16055,7 +16393,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
 
       scene.background = _bgColor;
 
-      if (treeImpostors.mesh.visible) {
+      if (treeImpostors && treeImpostors.mesh.visible) {
         // Normalize strictly relative to TIME_OF_DAY_PRESETS.noon (key=1.92, hemi=0.86, env=0.92)
         // so midday impostors stay 1.0x identical to 3D trees with zero darkening, while dusk/night tint smoothly.
         const noonRefLight = 1.92 * 0.62 + 0.86 * 0.38;
@@ -16073,8 +16411,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       }
       if (scene.fog instanceof THREE.FogExp2) {
         _targetFogColor.setHex(todState.fogColorHex);
+        multiplyColorByTint(_targetFogColor, activeSeasonState.fogTint, seasonTintStrength * 0.85);
         scene.fog.color.lerp(_targetFogColor, lightBlend);
-        scene.fog.density += (todState.fogDensity - scene.fog.density) * lightBlend;
+        const targetFogDensity = todState.fogDensity * activeSeasonState.fogDensityMult;
+        scene.fog.density += (targetFogDensity - scene.fog.density) * lightBlend;
       }
 
       // Age-dependent city, window, campfire, lamppost, and street illumination at dark hours
@@ -16236,6 +16576,35 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         propsRef.current.graphicsSettings?.particles ?? 'full',
       );
       monuments.update(simRef.current, shaderElapsed);
+      if (startupRevealStage >= 3) {
+        const juiceParticleBudget = activeGfxProfile.particleScale * autoOptDecisions.particleScale;
+        seasonalAtmosphere.update(
+          dt,
+          shaderElapsed,
+          activeSeasonState,
+          currentDarkness,
+          camTarget.x,
+          camTarget.z,
+          frustumSize,
+          juiceParticleBudget,
+          atmosSpeed,
+        );
+        chimneySmoke.update(
+          dt,
+          shaderElapsed,
+          simRef.current,
+          activeSeasonState.windX,
+          activeSeasonState.windZ,
+          currentDarkness,
+          camTarget.x,
+          camTarget.z,
+          frustumSize,
+          juiceParticleBudget,
+          atmosSpeed,
+        );
+      }
+      hitFlashOverlay.update(dt);
+      milestoneBursts.update(dt, frustumSize);
       oceanFoam.updateFrame(shaderElapsed, preset);
       if (elevatedWaterInst.visible || elevatedLavaInst.visible || elevatedPoisonInst.visible) {
         elevatedLiquidGroup.position.y = Math.sin(shaderElapsed * 2.15) * 0.015;
@@ -16698,10 +17067,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       sharedGodPowerGeos.dispose();
       batchedBuildings.dispose();
       batchedUnits.dispose();
-      treeImpostors.dispose();
-      treeBatchShadow.dispose();
-      treeBatchNoShadow.dispose();
-      ambBatch.dispose();
+      treeImpostors?.dispose();
+      treeBatchShadow?.dispose();
+      treeBatchNoShadow?.dispose();
+      ambBatch?.dispose();
+      windmillTowerPool?.dispose();
+      windmillBladesPool?.dispose();
+      miningFacilityPool?.dispose();
+      envRT?.dispose();
       for (const uEntry of unitMeshes.values()) {
         disposeEntityGroup(uEntry.group);
       }
@@ -16798,6 +17171,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       citizenBubbles.dispose();
       spectacleEffects.dispose();
       monuments.dispose();
+      seasonalAtmosphere.dispose();
+      chimneySmoke.dispose();
+      hitFlashOverlay.dispose();
+      milestoneBursts.dispose();
       oceanFoam.dispose();
       elevatedLiquidGeo.dispose();
       elevatedWaterMat.dispose();
