@@ -1373,14 +1373,6 @@ export default function App() {
       }
     }
   }
-  const hoveredVehicle =
-    isInspectTabActive && !hoveredUnit && hoveredEntityId && sim.vehicles
-      ? sim.vehicles.find((v) => v.id === hoveredEntityId && (!v.isMilitary || (v.hp ?? 1) > 0)) ?? null
-      : null;
-  const selectedVehicle =
-    isInspectTabActive && !selectedUnit && selectedEntityId && sim.vehicles
-      ? sim.vehicles.find((v) => v.id === selectedEntityId && (!v.isMilitary || (v.hp ?? 1) > 0)) ?? null
-      : null;
 
   const kingdomEpochsKey = sim.kingdomEpochs
     ? Object.entries(sim.kingdomEpochs)
@@ -3356,8 +3348,6 @@ export default function App() {
                 sim={sim}
                 hoveredUnit={hoveredUnit}
                 selectedUnit={selectedUnit}
-                hoveredVehicle={hoveredVehicle}
-                selectedVehicle={selectedVehicle}
                 favoriteUnits={favoriteUnits}
                 followingEntityId={followingEntityId}
                 onToggleFavorite={handleToggleFavoriteEntity}
