@@ -15,7 +15,7 @@ function pushGeo(parts: THREE.BufferGeometry[], rawGeo: THREE.BufferGeometry, he
     }
   }
   const uvs = new Float32Array(pos.count * 2);
-  const uvScale = 0.52;
+  const uvScale = 0.24;
   for (let i = 0; i < pos.count; i++) {
     const px = pos.getX(i);
     const py = pos.getY(i);
@@ -134,10 +134,34 @@ function pushTaperedHull(
     bevelEnabled: bevel > 0,
     bevelThickness: bevel,
     bevelSize: bevel,
-    bevelSegments: 1,
+    bevelSegments: 2,
   });
   g.rotateX(Math.PI / 2);
   g.translate(0, yTop, 0);
+  pushGeo(parts, g, hex);
+}
+
+/** Sculpted vertical naval/aerospace ventral keel blade (YZ-plane extruded silhouette, Alien-Mothership style) */
+function pushVentralKeel(
+  parts: THREE.BufferGeometry[],
+  yzPoints: Array<[number, number]>,
+  thickness: number,
+  hex: number,
+  bevel = 0.08,
+): void {
+  const shape = new THREE.Shape();
+  shape.moveTo(yzPoints[0][0], yzPoints[0][1]);
+  for (let i = 1; i < yzPoints.length; i++) shape.lineTo(yzPoints[i][0], yzPoints[i][1]);
+  shape.closePath();
+  const g = new THREE.ExtrudeGeometry(shape, {
+    depth: thickness,
+    bevelEnabled: bevel > 0,
+    bevelThickness: bevel,
+    bevelSize: bevel,
+    bevelSegments: 2,
+  });
+  g.translate(0, 0, -thickness * 0.5);
+  g.rotateY(-Math.PI / 2);
   pushGeo(parts, g, hex);
 }
 
@@ -317,6 +341,8 @@ function finalizeMultiFinishGroup(
   metalParts: THREE.BufferGeometry[],
   winParts: THREE.BufferGeometry[],
   glowParts: THREE.BufferGeometry[],
+  darkParts: THREE.BufferGeometry[] = [],
+  deckParts: THREE.BufferGeometry[] = [],
 ): THREE.Group {
 
   const group = new THREE.Group();
@@ -332,26 +358,49 @@ function finalizeMultiFinishGroup(
     group.add(mesh);
   };
 
+  // 1. Machined Armored Hull Plating (matches Alien Mothership armorMidMat / armorLightMat sheen!)
   addMerged(
     matteParts,
     new THREE.MeshStandardMaterial({
       vertexColors: true,
       map: getSiegeSurfaceTexture('weathered_armor'),
-      roughness: 0.72,
-      metalness: 0.22,
+      roughness: 0.44,
+      metalness: 0.56,
     }),
     true,
   );
+  // 2. Brushed Gunmetal / Gold / Brass Trim & Barrels
   addMerged(
     metalParts,
     new THREE.MeshStandardMaterial({
       vertexColors: true,
       map: getSiegeSurfaceTexture('brushed_metal'),
-      roughness: 0.34,
-      metalness: 0.74,
+      roughness: 0.28,
+      metalness: 0.82,
     }),
     true,
   );
+  // 3. Glossy Obsidian-Charcoal Structural Trusses, Hangars & Frames (zero muddy noise!)
+  addMerged(
+    darkParts,
+    new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      roughness: 0.34,
+      metalness: 0.78,
+    }),
+    true,
+  );
+  // 4. Clean Matte Flight Decks, Wood Planks & Stone Terraces
+  addMerged(
+    deckParts,
+    new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      roughness: 0.78,
+      metalness: 0.12,
+    }),
+    true,
+  );
+  // 5. Crisp Lit Bridge Windows
   addMerged(
     winParts,
     new THREE.MeshBasicMaterial({
@@ -359,6 +408,7 @@ function finalizeMultiFinishGroup(
     }),
     false,
   );
+  // 6. Restrained Emissive Thruster / Reactor / Arcane Accents
   addMerged(
     glowParts,
     new THREE.MeshBasicMaterial({
@@ -386,10 +436,12 @@ export function createCapitalWarVehicleGroup(
   const metal: THREE.BufferGeometry[] = [];
   const win: THREE.BufferGeometry[] = [];
   const glow: THREE.BufferGeometry[] = [];
+  const dark: THREE.BufferGeometry[] = [];
+  const deck: THREE.BufferGeometry[] = [];
 
   // =========================================================================
   // 1. PRIMARY SIEGE MACHINES (aircraft_carrier slot, Epoch 3+)
-  //    - Human:      Voxel WWII Wood-Deck Carrier (image.png) -> Nuclear Supercarrier (Sea)
+  //    - Human:      Mothership-grade Fleet Carrier (WWII wood-deck -> Nuclear Supercarrier, Sea)
   //    - Dwarf:      Runeforge Land-Dreadnought Mobile Fortress (Land)
   //    - Orc:        WAAAGH! Scrap-Juggernaut Jaw-Fortress (Land)
   //    - Elf:        Sylvan Aether-Carrier Levitating Sky-Citadel (Sky)
@@ -399,183 +451,223 @@ export function createCapitalWarVehicleGroup(
     const isPropEra = e <= 3;
 
     if (species === 'dwarf') {
-      // DWARF: Runeforge Land-Dreadnought — sleek sloped-armor quad-tread mobile fortress (Land Siege Machine)
+      // DWARF: Runeforge Land-Dreadnought — high-contrast sloped gunmetal, glossy charcoal treads & riveted brass!
       for (const zOff of [-3.1, 2.2]) {
         for (const side of [-1, 1]) {
-          pushBox(matte, 1.05, 0.95, 2.85, side * 2.15, 0.48, zOff, 0x1f2937);
+          pushBox(dark, 1.05, 0.95, 2.95, side * 2.15, 0.48, zOff, 0x181b20);
           for (let wi = -1; wi <= 1; wi++) {
-            pushCyl(metal, 0.34, 0.34, 1.12, 10, side * 2.15, 0.38, zOff + wi * 0.92, 0xb45309, 0, 0, Math.PI / 2);
+            pushCyl(metal, 0.36, 0.36, 1.14, 12, side * 2.15, 0.38, zOff + wi * 0.94, 0xb45309, 0, 0, Math.PI / 2);
+            pushCyl(dark, 0.16, 0.16, 1.22, 8, side * 2.15, 0.38, zOff + wi * 0.94, 0x111418, 0, 0, Math.PI / 2);
           }
-          pushBox(matte, 1.20, 0.22, 3.15, side * 2.15, 1.02, zOff, 0x475569); // armored track skirts
+          pushBox(matte, 1.26, 0.24, 3.25, side * 2.15, 1.04, zOff, 0x64748b);
+          // Exposed structural fender braces
+          for (const bz of [-1.2, 0, 1.2]) {
+            pushBox(dark, 0.14, 0.65, 0.16, side * 2.74, 0.72, zOff + bz, 0x262a33);
+          }
         }
       }
-      // Tapered armored glacis hull + bronze ram prow + glowing magma furnace grates
-      pushTaperedHull(matte, [[1.65, -4.8], [1.95, -3.2], [1.95, 3.4], [1.45, 4.9], [0.55, 5.4]], 1.25, 1.68, 0x334155, 0.08);
-      pushBox(metal, 3.98, 0.16, 8.6, 0, 1.72, -0.2, 0xb45309); // riveted brass trim belt
+      pushTaperedHull(matte, [[1.65, -4.8], [1.98, -3.2], [1.98, 3.4], [1.45, 4.9], [0.55, 5.45]], 1.28, 1.70, 0x475569, 0.10);
+      pushBox(deck, 3.35, 0.14, 8.8, 0, 1.76, -0.2, 0x1f2937); // dark ironclad upper deck
+      pushBox(metal, 4.06, 0.16, 8.6, 0, 1.74, -0.2, 0xb45309);
       for (const side of [-1, 1]) {
-        for (const fz of [-1.2, 0.0, 1.2]) {
-          pushBox(matte, 0.16, 0.48, 0.85, side * 1.98, 1.12, fz, 0x1e293b);
-          pushBox(glow, 0.08, 0.30, 0.62, side * 2.04, 1.12, fz, 0xf59e0b); // blast furnace vents
+        for (const fz of [-1.4, 0.0, 1.4]) {
+          pushBox(dark, 0.22, 0.56, 0.92, side * 1.98, 1.12, fz, 0x111418);
+          pushBox(glow, 0.08, 0.30, 0.64, side * 2.08, 1.12, fz, 0xf59e0b);
+          pushBox(dark, 0.14, 0.95, 0.14, side * 2.04, 1.18, fz + 0.68, 0x262a33); // hull rib
         }
       }
-      // Tiered octagonal Runeforge Citadel Keep + twin tall industrial chimneys
-      pushTaperedHull(matte, [[1.25, -3.2], [1.48, -1.8], [1.48, 1.2], [1.15, 2.2]], 1.15, 2.85, 0x475569, 0.06);
-      pushBox(metal, 2.35, 0.18, 4.2, 0, 2.94, -0.6, 0xd97706);
-      addWindowStrip(win, 0, 2.48, 2.24, 5, 0.34, false, 0xfbbf24);
+      // Tiered Runeforge Citadel Keep + overhanging bronze command gallery + twin blast chimneys
+      pushTaperedHull(matte, [[1.25, -3.2], [1.50, -1.8], [1.50, 1.2], [1.15, 2.2]], 1.18, 2.88, 0x64748b, 0.08);
+      pushBox(dark, 2.75, 0.58, 2.6, 0, 3.22, -0.4, 0x181b20);
+      pushBox(metal, 2.45, 0.18, 4.3, 0, 3.58, -0.6, 0xd97706);
+      addWindowStrip(win, 0, 3.22, 0.94, 5, 0.36, false, 0xfbbf24);
       for (const side of [-1, 1]) {
-        pushCyl(metal, 0.22, 0.28, 2.35, 10, side * 0.95, 3.85, -2.15, 0x1e293b, -0.1, 0, 0);
-        pushCyl(metal, 0.26, 0.26, 0.18, 10, side * 0.95, 4.98, -2.28, 0xd97706);
+        pushCyl(dark, 0.22, 0.28, 2.45, 12, side * 0.95, 4.15, -2.15, 0x181b20, -0.1, 0, 0);
+        pushCyl(metal, 0.28, 0.28, 0.20, 12, side * 0.95, 5.32, -2.28, 0xd97706);
       }
-      // Twin heavy twin-barrel siege turrets (fore & aft) + flank sponsons
-      addNavalTurret(matte, metal, 0, 1.72, 3.35, 1.45, 0x475569, 0x1e293b, 0);
-      addNavalTurret(matte, metal, 0, 1.72, -3.75, 1.25, 0x475569, 0x1e293b, Math.PI);
-      addNavalTurret(matte, metal, -1.75, 1.72, 0.5, 0.9, 0xb45309, 0x1e293b, -Math.PI / 2);
-      addNavalTurret(matte, metal, 1.75, 1.72, 0.5, 0.9, 0xb45309, 0x1e293b, Math.PI / 2);
-      if (e >= 5) pushCyl(glow, 0.32, 0.42, 0.72, 8, 0, 3.38, -0.5, 0xfbbf24);
+      addNavalTurret(matte, metal, 0, 1.80, 3.45, 1.48, 0x64748b, 0x181b20, 0);
+      addNavalTurret(matte, metal, 0, 1.80, -3.75, 1.28, 0x64748b, 0x181b20, Math.PI);
+      addNavalTurret(matte, metal, -1.78, 1.80, 0.5, 0.92, 0xb45309, 0x181b20, -Math.PI / 2);
+      addNavalTurret(matte, metal, 1.78, 1.80, 0.5, 0.92, 0xb45309, 0x181b20, Math.PI / 2);
+      if (e >= 5) pushCyl(glow, 0.34, 0.44, 0.78, 10, 0, 4.02, -0.5, 0xfbbf24);
     } else if (species === 'orc') {
-      // ORC: WAAAGH! Scrap-Juggernaut — brutal sloped scrap-armor jaw-fortress on spiked treads (Land Siege Machine)
+      // ORC: WAAAGH! Scrap-Juggernaut — high-contrast glossy charcoal chassis, crimson war-plates & iron tusks!
       for (const side of [-1, 1]) {
-        pushBox(matte, 1.15, 1.05, 8.2, side * 2.1, 0.52, -0.2, 0x262626);
-        for (let tz = -3.6; tz <= 3.6; tz += 1.2) {
-          pushCyl(metal, 0.04, 0.16, 0.55, 5, side * 2.75, 0.52, tz, 0xa1a1aa, 0, 0, -side * Math.PI / 2);
+        pushBox(dark, 1.15, 1.05, 8.4, side * 2.12, 0.52, -0.2, 0x18181b);
+        for (let tz = -3.6; tz <= 3.6; tz += 1.0) {
+          pushCyl(metal, 0.04, 0.16, 0.58, 6, side * 2.78, 0.52, tz, 0xa1a1aa, 0, 0, -side * Math.PI / 2);
         }
       }
-      // Asymmetric welded scrap hull + crimson war-plates
-      pushTaperedHull(matte, [[1.75, -4.6], [2.05, -2.5], [2.05, 3.2], [1.65, 4.4]], 1.45, 1.85, 0x3b3532, 0.08);
-      pushBox(matte, 1.45, 0.95, 5.4, -1.25, 1.48, -0.4, 0x881b1b, 0, 0, 0.08);
-      pushBox(matte, 1.35, 0.85, 4.8, 1.25, 1.52, 0.2, 0x5c2b22, 0, 0, -0.06);
-      // Roaring furnace-jaw ram with iron tusks at the bow
-      pushBox(matte, 3.4, 0.95, 1.4, 0, 0.95, 4.65, 0x18181b);
-      pushBox(glow, 2.7, 0.55, 0.65, 0, 0.95, 5.15, 0xf97316);
-      for (let tx = -1.35; tx <= 1.35; tx += 0.54) {
-        pushCyl(metal, 0.03, 0.14, 0.88, 5, tx, 0.68, 5.52, 0xd4d4d8, Math.PI / 2 - 0.25, 0, 0);
-        pushCyl(metal, 0.03, 0.12, 0.72, 5, tx, 1.38, 5.42, 0xd4d4d8, Math.PI / 2 + 0.22, 0, 0);
+      pushTaperedHull(matte, [[1.75, -4.6], [2.05, -2.5], [2.05, 3.2], [1.65, 4.4]], 1.48, 1.88, 0x4b433e, 0.08);
+      pushBox(deck, 3.65, 0.14, 8.2, 0, 1.92, -0.3, 0x262626);
+      pushBox(matte, 1.48, 0.98, 5.6, -1.25, 1.50, -0.4, 0x991b1b, 0, 0, 0.08);
+      pushBox(matte, 1.38, 0.88, 4.9, 1.25, 1.54, 0.2, 0x6b2f24, 0, 0, -0.06);
+      // Roaring furnace-jaw ram with iron tusks
+      pushBox(dark, 3.55, 1.02, 1.45, 0, 0.96, 4.65, 0x141417);
+      pushBox(glow, 2.75, 0.56, 0.68, 0, 0.96, 5.18, 0xf97316);
+      for (let tx = -1.35; tx <= 1.35; tx += 0.45) {
+        pushCyl(metal, 0.03, 0.14, 0.92, 6, tx, 0.68, 5.56, 0xd4d4d8, Math.PI / 2 - 0.25, 0, 0);
+        pushCyl(metal, 0.03, 0.12, 0.74, 6, tx, 1.40, 5.45, 0xd4d4d8, Math.PI / 2 + 0.22, 0, 0);
       }
-      // Off-center Warboss Citadel + belching tilted exhaust pipes + crimson war-banner
-      pushBox(matte, 2.25, 1.45, 3.6, 0.45, 2.55, -1.35, 0x4d4540);
-      pushBox(matte, 1.65, 0.85, 2.2, 0.65, 3.65, -1.55, 0x991b1b);
-      addWindowStrip(win, 0.65, 3.68, -0.42, 4, 0.30, false, 0xfbbf24);
-      pushCyl(metal, 0.20, 0.26, 2.45, 8, -1.25, 3.25, -2.65, 0x262626, -0.18, 0, 0.15);
-      pushCyl(metal, 0.18, 0.24, 2.15, 8, 1.55, 3.45, -2.35, 0x262626, -0.16, 0, -0.12);
-      pushCyl(glow, 0.16, 0.16, 0.12, 8, -1.45, 4.45, -2.88, 0xf97316);
-      // Heavy rotary dakka turret + crimson banner pole
-      addNavalTurret(matte, metal, -0.75, 1.88, 2.15, 1.45, 0x881b1b, 0x18181b, -0.15);
-      pushCyl(metal, 0.04, 0.06, 2.6, 6, 1.45, 4.5, -1.2, 0x78716c);
-      pushBox(matte, 0.06, 0.95, 1.45, 1.45, 5.25, -1.95, 0xdc2626);
+      pushBox(dark, 2.35, 1.48, 3.7, 0.45, 2.58, -1.35, 0x262626);
+      pushBox(matte, 1.72, 0.88, 2.3, 0.65, 3.68, -1.55, 0x991b1b);
+      addWindowStrip(win, 0.65, 3.72, -0.36, 4, 0.30, false, 0xfbbf24);
+      pushCyl(dark, 0.22, 0.28, 2.55, 10, -1.25, 3.30, -2.65, 0x18181b, -0.18, 0, 0.15);
+      pushCyl(dark, 0.20, 0.26, 2.25, 10, 1.55, 3.50, -2.35, 0x18181b, -0.16, 0, -0.12);
+      pushCyl(glow, 0.18, 0.18, 0.14, 10, -1.48, 4.55, -2.90, 0xf97316);
+      addNavalTurret(matte, metal, -0.75, 1.94, 2.15, 1.48, 0x991b1b, 0x18181b, -0.15);
+      addNavalTurret(matte, metal, 1.55, 1.94, 1.25, 0.95, 0x4b433e, 0x18181b, 0.5);
+      pushCyl(metal, 0.04, 0.06, 2.7, 6, 1.45, 4.6, -1.2, 0xa1a1aa);
+      pushBox(deck, 0.06, 1.0, 1.55, 1.45, 5.35, -1.98, 0xdc2626);
     } else if (species === 'elf') {
-      // ELF: Sylvan Aether-Carrier — sleek sweeping ivory & gold levitating sky-citadel (Sky Siege Machine)
-      pushTaperedHull(matte, [[0.85, -6.1], [1.55, -3.8], [1.65, 2.8], [1.05, 5.2], [0.0, 6.6]], 0.86, 0.56, 0xf5f0e2, 0.08);
-      pushTaperedHull(matte, [[1.45, -2.4], [4.35, -0.9], [3.85, 0.7], [1.45, 2.1]], 0.26, 0.26, 0xe8e2d0, 0.05); // swept swan-wings
-      pushBox(metal, 0.16, 0.04, 11.4, 0, 0.60, 0.2, 0xc8a441); // gilded runway spine
-      pushBox(glow, 0.08, 0.04, 10.2, -0.95, 0.60, 0.15, 0x38bdf8);
-      pushBox(glow, 0.08, 0.04, 10.2, 0.95, 0.60, 0.15, 0x38bdf8);
-      // Twin ducted arcane lift-turbines with vertical light shafts
+      // ELF: Sylvan Aether-Carrier — Mothership-grade ventral keel + swept swan-wings + gilded ivory sky-citadel!
+      pushVentralKeel(matte, [[-4.2, -0.4], [4.6, -0.4], [2.4, -2.3], [-1.8, -1.9]], 0.42, 0xe8e2d0, 0.06);
+      pushTaperedHull(matte, [[0.85, -6.2], [1.58, -3.8], [1.68, 2.8], [1.05, 5.3], [0.0, 6.8]], 0.88, 0.56, 0xf5f0e2, 0.09);
+      pushTaperedHull(matte, [[1.45, -2.5], [4.55, -0.9], [4.05, 0.8], [1.45, 2.2]], 0.28, 0.26, 0xe8e2d0, 0.06);
+      pushTaperedHull(deck, [[1.28, -5.8], [1.42, -3.5], [1.46, 2.6], [0.92, 4.9], [0.0, 6.2]], 0.12, 0.64, 0xf8f5eb, 0.02);
+      pushBox(metal, 0.18, 0.04, 11.6, 0, 0.66, 0.2, 0xc8a441);
+      pushBox(glow, 0.08, 0.04, 10.4, -0.98, 0.66, 0.15, 0x38bdf8);
+      pushBox(glow, 0.08, 0.04, 10.4, 0.98, 0.66, 0.15, 0x38bdf8);
       for (const side of [-1, 1]) {
-        addDuctedTurbine(matte, metal, glow, side * 3.15, 0.08, -0.25, 1.18, 0xc8a441, 0xf8f5eb, 0x38bdf8);
-        pushCyl(glow, 0.32, 0.52, 2.8, 8, side * 3.15, -1.45, -0.25, 0x7dd3fc);
+        for (let ri = -3; ri <= 3; ri++) {
+          pushBox(metal, 0.14, 0.72, 0.14, side * 1.66, 0.15, ri * 1.45, 0xc8a441);
+        }
+        addDuctedTurbine(matte, metal, glow, side * 3.25, 0.08, -0.25, 1.24, 0xc8a441, 0xf8f5eb, 0x38bdf8);
+        pushCyl(glow, 0.34, 0.54, 2.9, 12, side * 3.25, -1.5, -0.25, 0x7dd3fc);
       }
-      // Graceful starboard crystal spire bridge + parked star-gliders
-      pushTaperedHull(matte, [[0.28, -2.6], [0.46, -1.2], [0.42, 0.4], [0.16, 1.1]], 1.35, 1.92, 0xf8f5eb, 0.05);
-      pushCyl(metal, 0.08, 0.26, 1.85, 8, 1.18, 2.55, -1.25, 0xc8a441);
-      pushCyl(glow, 0.18, 0.04, 0.85, 8, 1.18, 3.85, -1.25, 0xc084fc);
-      addWindowStrip(win, 0.72, 1.48, -1.15, 5, 0.36, true, 0x7dd3fc);
+      pushBox(matte, 0.78, 1.45, 2.55, 1.18, 1.38, -1.25, 0xf8f5eb);
+      pushBox(metal, 0.92, 0.18, 2.68, 1.18, 2.15, -1.25, 0xc8a441);
+      pushCyl(metal, 0.08, 0.28, 1.95, 10, 1.18, 3.15, -1.25, 0xc8a441);
+      pushCyl(glow, 0.20, 0.04, 0.92, 10, 1.18, 4.55, -1.25, 0xc084fc);
+      addWindowStrip(win, 0.76, 1.56, -1.25, 5, 0.38, true, 0x7dd3fc);
       for (const zf of [-4.0, -2.2, -0.4, 1.4, 3.2]) {
-        addDeckAircraft(matte, metal, win, -0.58, 0.62, zf, 0xc8a441, 0xf8f5eb, false, 0.12);
+        addDeckAircraft(matte, metal, win, -0.58, 0.68, zf, 0xc8a441, 0xf8f5eb, false, 0.12);
       }
     } else if (species === 'lizardfolk') {
-      // LIZARDFOLK: Amphibious Ziggurat-Leviathan — hybrid land + sea obsidian & gold temple-crawler!
+      // LIZARDFOLK: Amphibious Ziggurat-Leviathan — high-contrast obsidian, gilded gold & jade hydro-ribs!
       for (const side of [-1, 1]) {
-        // Armored amphibious pontoon-treads with glowing jade hydro-ribs
-        pushTaperedHull(matte, [[0.35, -5.2], [0.65, -3.8], [0.68, 3.8], [0.35, 5.2], [0.0, 5.7]], 0.82, 0.82, 0x1e293b, 0.05);
-        pushBox(matte, 0.92, 0.78, 9.8, side * 2.15, 0.42, 0, 0x1e293b);
-        pushBox(metal, 0.98, 0.16, 9.4, side * 2.15, 0.84, 0, 0xca8a04);
-        pushBox(glow, 0.12, 0.18, 8.6, side * 2.62, 0.46, 0, 0x34d399);
+        pushBox(dark, 0.96, 0.82, 10.2, side * 2.18, 0.42, 0, 0x111827);
+        pushBox(metal, 1.04, 0.18, 9.8, side * 2.18, 0.88, 0, 0xca8a04);
+        pushBox(glow, 0.12, 0.18, 8.8, side * 2.68, 0.46, 0, 0x34d399);
+        for (let ri = -3; ri <= 3; ri++) {
+          pushBox(metal, 0.14, 0.78, 0.18, side * 2.68, 0.45, ri * 1.4, 0xd4af37);
+        }
       }
-      pushTaperedHull(matte, [[1.75, -5.0], [2.05, -3.2], [2.05, 3.2], [1.45, 5.0], [0.0, 5.8]], 1.05, 1.18, 0x0f172a, 0.07);
-      // 3-Tiered crisp stepped golden-obsidian ziggurat sanctuary deck
-      pushBox(matte, 3.4, 0.62, 6.8, 0, 1.48, -0.4, 0x1e293b);
-      pushBox(metal, 3.55, 0.14, 7.0, 0, 1.82, -0.4, 0xca8a04);
-      pushBox(matte, 2.45, 0.62, 4.8, 0, 2.18, -0.5, 0x1e293b);
-      pushBox(metal, 2.6, 0.14, 5.0, 0, 2.52, -0.5, 0xd4af37);
-      pushBox(matte, 1.5, 0.56, 2.8, 0, 2.86, -0.6, 0x1e293b);
-      pushCyl(glow, 0.08, 0.55, 1.55, 4, 0, 3.85, -0.6, 0x34d399); // blazing emerald sun-obelisk
-      // Twin forward solar-lance cannons + 4 corner emerald temple braziers
+      pushTaperedHull(matte, [[1.78, -5.0], [2.08, -3.2], [2.08, 3.2], [1.45, 5.0], [0.0, 5.9]], 1.08, 1.20, 0x1e293b, 0.08);
+      pushBox(deck, 3.45, 0.64, 6.9, 0, 1.50, -0.4, 0x182230);
+      pushBox(metal, 3.62, 0.16, 7.1, 0, 1.86, -0.4, 0xca8a04);
+      pushBox(deck, 2.48, 0.64, 4.9, 0, 2.22, -0.5, 0x182230);
+      pushBox(metal, 2.66, 0.16, 5.1, 0, 2.58, -0.5, 0xd4af37);
+      pushBox(dark, 1.55, 0.58, 2.85, 0, 2.92, -0.6, 0x111827);
+      pushCyl(glow, 0.08, 0.58, 1.65, 4, 0, 3.96, -0.6, 0x34d399);
       for (const side of [-1, 1]) {
-        pushCyl(metal, 0.10, 0.14, 2.65, 6, side * 0.95, 1.38, 4.25, 0xd4af37, Math.PI / 2, 0, 0);
-        pushCyl(glow, 0.08, 0.08, 0.35, 6, side * 0.95, 1.38, 5.62, 0x34d399, Math.PI / 2, 0, 0);
+        pushCyl(metal, 0.11, 0.15, 2.75, 8, side * 0.95, 1.42, 4.35, 0xd4af37, Math.PI / 2, 0, 0);
+        pushCyl(glow, 0.09, 0.09, 0.38, 8, side * 0.95, 1.42, 5.75, 0x34d399, Math.PI / 2, 0, 0);
         for (const bz of [-3.6, 2.8]) {
-          pushCyl(glow, 0.14, 0.20, 0.52, 6, side * 1.62, 2.08, bz, 0x34d399);
+          pushCyl(glow, 0.15, 0.22, 0.56, 8, side * 1.66, 2.12, bz, 0x34d399);
         }
       }
     } else {
-      // HUMAN: Sleek, Realistic Textured Fleet Aircraft Carrier (13.2 tiles long, ~5.6:1 naval ratio!)
-      // Epoch 3 (Industrial): Warm weathered cream wood deck + crimson bow insignia (image.png) + steel girders!
-      // Epoch 4+ (Atomic/Info): Dark angled-deck nuclear supercarrier with delta jets, radar island & elevators!
-      const hullHex = isPropEra ? 0x9aa7b4 : e >= 5 ? 0x475569 : 0x64748b;
-      const deckHex = isPropEra ? 0xe6cfa8 : e >= 5 ? 0x262f3b : 0x334155;
-      // Dark maroon anti-fouling lower hull waterline belt
+      // HUMAN: Alien-Mothership-Grade Fleet Aircraft Carrier (13.4 tiles long!)
+      // Crisp 6-material separation: machined light/mid steel hull, glossy dark hangars/trusses,
+      // clean matte plank/asphalt flight deck, brushed steel turrets/girders/cranes, warm bridge slits!
+      const hullLight = isPropEra ? 0xb4bfc9 : e >= 5 ? 0x64748b : 0x808e9c;
+      const hullMid = isPropEra ? 0x808f9e : e >= 5 ? 0x475569 : 0x5d6b7a;
+      const deckHex = isPropEra ? 0xe5cca4 : e >= 5 ? 0x1b212b : 0x2a3340;
+
+      // 1. Maroon anti-fouling lower hull + smooth flared machined steel upper hull
+      pushTaperedHull(deck, [
+        [0.90, -6.3], [1.20, -4.6], [1.26, 2.9], [0.92, 5.3], [0.38, 6.5], [0.0, 6.9],
+      ], 0.34, 0.30, 0x6b212a, 0.04);
       pushTaperedHull(matte, [
-        [0.90, -6.2], [1.18, -4.5], [1.24, 2.9], [0.90, 5.2], [0.38, 6.4], [0.0, 6.8],
-      ], 0.32, 0.30, 0x6b212a, 0.03);
-      // Weathered steel flared hull rising smoothly to the hangar deck
-      pushTaperedHull(matte, [
-        [0.96, -6.1], [1.24, -4.4], [1.30, 2.9], [0.96, 5.2], [0.42, 6.3], [0.0, 6.7],
-      ], 0.72, 1.00, hullHex, 0.05);
-      // Under-deck steel girder pillars supporting the cantilevered bow & stern flight deck
+        [0.98, -6.2], [1.26, -4.5], [1.32, 2.9], [0.98, 5.3], [0.44, 6.4], [0.0, 6.8],
+      ], 0.74, 1.02, hullMid, 0.06);
+
+      // 2. Exposed dark structural truss ribs, recessed glossy hangars, sponsons & under-deck steel girders!
       for (const side of [-1, 1]) {
-        for (const gz of [-5.5, -4.8, 5.1, 5.8]) {
-          pushCyl(metal, 0.055, 0.065, 0.65, 6, side * 0.68, 0.85, gz, 0x475569);
+        // Light-grey upper armored gunwale belt + dark catwalk trough
+        pushBox(matte, 0.22, 0.22, 10.2, side * 1.38, 0.94, -0.3, hullLight);
+        pushBox(dark, 0.16, 0.12, 10.6, side * 1.48, 1.06, -0.3, 0x181b20);
+        // 8 exposed structural hull ribs along each flank (Mothership-style mechanical density!)
+        for (let ri = -4; ri <= 3; ri++) {
+          pushBox(dark, 0.14, 0.72, 0.14, side * 1.34, 0.64, ri * 1.35 + 0.4, 0x262a33);
         }
-        // Recessed glowing hangar bay openings + deck-edge elevators
-        for (const hz of [-2.5, 0.9]) {
-          pushBox(matte, 0.14, 0.36, 1.65, side * 1.28, 0.66, hz, 0x111827);
-          pushBox(win, 0.06, 0.12, 1.35, side * 1.31, 0.76, hz, 0xfbbf24);
+        // Under-deck cantilevered girder pillars at bow & stern
+        for (const gz of [-5.7, -5.0, 5.2, 5.9]) {
+          pushCyl(dark, 0.055, 0.065, 0.68, 8, side * 0.72, 0.85, gz, 0x1e242c);
+        }
+        // Recessed glowing hangar bays framed in glossy charcoal
+        for (const hz of [-2.6, 0.9]) {
+          pushBox(dark, 0.18, 0.42, 1.78, side * 1.30, 0.64, hz, 0x111418);
+          pushBox(win, 0.06, 0.12, 1.38, side * 1.36, 0.76, hz, 0xfbbf24);
+        }
+        // Compact armored lifeboat / sensor sponsons
+        for (const lz of [-4.2, 3.2]) {
+          pushBox(dark, 0.34, 0.26, 0.92, side * 1.46, 0.86, lz, 0x262a33);
+          pushBox(matte, 0.30, 0.10, 0.86, side * 1.46, 1.02, lz, hullLight);
         }
       }
-      // Long cantilevered flight deck (12.8 tiles long) with two-tone weathered aft/fore deck on Industrial era
-      pushTaperedHull(matte, [
-        [1.26, -6.0], [1.48, -4.3], [1.50, 3.7], [1.18, 5.8], [0.86, 6.3],
-      ], 0.18, 1.18, deckHex, 0.03);
-      if (isPropEra) {
-        // Darker weathered aft landing deck + bold crimson bow star insignia (matching image.png!)
-        pushBox(matte, 2.75, 0.02, 5.8, 0, 1.195, -2.9, 0xcbb287);
-        pushBox(matte, 0.62, 0.025, 0.62, 0, 1.20, 4.45, 0xb91c1c, 0, Math.PI / 4, 0);
-        pushBox(matte, 0.62, 0.025, 0.62, 0, 1.20, 4.45, 0xb91c1c);
-      } else {
-        // Port angled landing deck sponson + crisp white & amber catapult markings
-        pushBox(matte, 1.02, 0.16, 6.8, -1.46, 1.10, -0.85, deckHex, 0, 0.13, 0);
-        pushBox(matte, 0.09, 0.025, 6.4, -1.32, 1.20, -0.85, 0xf1f5f9, 0, 0.13, 0);
-        pushBox(matte, 0.09, 0.025, 11.4, -0.18, 1.20, 0.15, 0xf1f5f9);
-        pushBox(matte, 0.06, 0.025, 10.0, 0.38, 1.20, 0.35, 0xfbbf24);
-        if (e >= 6) pushBox(glow, 0.08, 0.03, 10.6, -0.18, 1.21, 0.15, 0x60a5fa);
+
+      // 3. Long clean matte flight deck + arrestor cables + blast deflectors + deck-edge elevators
+      pushTaperedHull(deck, [
+        [1.28, -6.1], [1.50, -4.4], [1.52, 3.8], [1.20, 5.9], [0.88, 6.4],
+      ], 0.18, 1.20, deckHex, 0.03);
+      // 4 crisp steel arrestor wires across aft landing zone
+      for (let aw = 0; aw < 4; aw++) {
+        pushBox(metal, 2.25, 0.025, 0.04, -0.15, 1.22, -5.1 + aw * 0.55, 0x94a3b8);
       }
-      // Deck-edge aircraft elevators
-      pushBox(metal, 0.42, 0.12, 1.35, -1.58, 1.14, -0.6, 0x475569);
-      pushBox(metal, 0.42, 0.12, 1.35, 1.58, 1.14, 2.1, 0x475569);
-      // Detailed starboard command island, overhanging bridge wings, funnel & radar mast
-      pushBox(matte, 0.66, 1.28, 2.65, 1.12, 1.84, -1.15, hullHex);
-      pushBox(matte, 0.88, 0.48, 1.55, 1.12, 2.68, -1.25, 0x94a3b8);
-      if (isPropEra) {
-        pushCyl(metal, 0.22, 0.26, 1.55, 10, 1.12, 2.82, -0.35, 0x334155, -0.12, 0, 0);
-        pushCyl(metal, 0.04, 0.08, 1.85, 6, 1.12, 3.55, -1.55, 0xcbd5e1);
-        pushBox(metal, 0.72, 0.08, 0.06, 1.12, 4.05, -1.55, 0xe2e8f0);
-      } else {
-        pushCyl(metal, 0.06, 0.11, 1.75, 8, 1.12, 3.68, -1.25, 0xcbd5e1);
-        pushBox(metal, 1.05, 0.12, 0.09, 1.12, 4.18, -1.25, 0xe2e8f0);
-        pushCyl(matte, 0.22, 0.22, 0.26, 8, 1.12, 3.05, -0.75, 0xf8fafc); // white radome
+      // Deck-edge aircraft elevators framed in dark steel
+      for (const [ex, ez] of [[-1.62, -0.6], [1.62, 2.1], [-1.62, -3.5]]) {
+        pushBox(dark, 0.48, 0.14, 1.45, ex, 1.15, ez, 0x181b20);
+        pushBox(metal, 0.42, 0.06, 1.35, ex, 1.21, ez, 0x64748b);
       }
-      addWindowStrip(win, 0.78, 2.18, -1.15, 5, 0.36, true, 0xfbbf24);
-      addWindowStrip(win, 1.12, 2.72, -0.45, 3, 0.16, false, 0xfbbf24);
-      // Flank AA defense turrets & parked aircraft in rows
-      addNavalTurret(matte, metal, -1.52, 1.18, 3.85, 0.72, 0x64748b, 0x1e293b, -0.3);
-      addNavalTurret(matte, metal, 1.44, 1.18, -4.65, 0.72, 0x64748b, 0x1e293b, 2.8);
-      addNavalTurret(matte, metal, -1.52, 1.18, -4.45, 0.65, 0x64748b, 0x1e293b, -2.6);
+
+      if (isPropEra) {
+        // Darker weathered aft landing deck + bold crimson bow star insignia (image.png!)
+        pushBox(deck, 2.78, 0.02, 5.9, 0, 1.215, -2.95, 0xcab084);
+        pushBox(deck, 0.64, 0.025, 0.64, 0, 1.22, 4.55, 0xb91c1c, 0, Math.PI / 4, 0);
+        pushBox(deck, 0.64, 0.025, 0.64, 0, 1.22, 4.55, 0xb91c1c);
+      } else {
+        // Port angled landing deck sponson + crisp white dashed centerline & catapult tracks + jet blast deflectors
+        pushBox(deck, 1.06, 0.16, 6.9, -1.48, 1.12, -0.85, deckHex, 0, 0.13, 0);
+        pushBox(deck, 0.09, 0.025, 6.5, -1.34, 1.22, -0.85, 0xf1f5f9, 0, 0.13, 0);
+        pushBox(deck, 0.09, 0.025, 11.6, -0.18, 1.22, 0.15, 0xf1f5f9);
+        pushBox(deck, 0.06, 0.025, 10.2, 0.38, 1.22, 0.35, 0xfbbf24);
+        pushBox(metal, 0.56, 0.18, 0.12, -0.18, 1.28, 1.55, 0x64748b, -0.45, 0, 0); // jet blast deflector
+        if (e >= 6) pushBox(glow, 0.08, 0.03, 10.8, -0.18, 1.23, 0.15, 0x60a5fa);
+      }
+
+      // 4. Multi-tiered high-contrast Command Island (light steel + glossy charcoal bridge + amber slits + crane + radome!)
+      pushBox(matte, 0.68, 1.30, 2.75, 1.14, 1.86, -1.15, hullMid);
+      pushBox(dark, 0.78, 0.54, 1.95, 1.14, 2.52, -1.20, 0x181b20);
+      pushBox(matte, 0.96, 0.20, 1.65, 1.14, 2.86, -1.25, hullLight); // overhanging bridge cap
+      // Aft deck recovery crane boom
+      pushCyl(metal, 0.05, 0.07, 1.35, 8, 1.22, 1.92, -3.15, 0x94a3b8, -0.55, 0, 0.15);
+      if (isPropEra) {
+        pushCyl(dark, 0.22, 0.26, 1.60, 12, 1.14, 2.95, -0.35, 0x181b20, -0.12, 0, 0);
+        pushCyl(metal, 0.24, 0.24, 0.16, 12, 1.14, 3.72, -0.44, 0x475569);
+        pushCyl(metal, 0.04, 0.08, 1.95, 8, 1.14, 3.75, -1.55, 0xcbd5e1);
+        pushBox(metal, 0.78, 0.08, 0.06, 1.14, 4.25, -1.55, 0xe2e8f0);
+      } else {
+        pushCyl(metal, 0.06, 0.11, 1.85, 10, 1.14, 3.82, -1.25, 0xcbd5e1);
+        pushBox(metal, 1.12, 0.12, 0.09, 1.14, 4.35, -1.25, 0xe2e8f0);
+        pushCyl(deck, 0.24, 0.24, 0.28, 12, 1.14, 3.16, -0.75, 0xf8fafc); // crisp white radome
+        pushBox(glow, 0.12, 0.10, 0.12, 1.14, 4.78, -1.25, 0x60a5fa); // mast beacon
+      }
+      addWindowStrip(win, 0.74, 2.52, -1.20, 5, 0.34, true, 0xfbbf24);
+      addWindowStrip(win, 1.14, 2.54, -0.20, 3, 0.16, false, 0xfbbf24);
+
+      // 5. 4 Armored AA Defense Turrets + 6 Sculpted Parked Aircraft
+      addNavalTurret(matte, metal, -1.54, 1.20, 3.95, 0.72, hullLight, 0x181b20, -0.3);
+      addNavalTurret(matte, metal, 1.46, 1.20, -4.75, 0.72, hullLight, 0x181b20, 2.8);
+      addNavalTurret(matte, metal, -1.54, 1.20, -4.55, 0.65, hullLight, 0x181b20, -2.6);
+      addNavalTurret(matte, metal, 1.46, 1.20, 4.05, 0.65, hullLight, 0x181b20, 0.3);
       for (const [fx, fz] of [[-0.68, -4.6], [-0.62, -2.8], [-0.56, -1.0], [-0.48, 0.8], [-0.36, 2.6], [0.34, 4.0]]) {
-        addDeckAircraft(matte, metal, win, fx, 1.21, fz, 0x94a3b8, 0xe2e8f0, isPropEra, 0.14);
+        addDeckAircraft(matte, metal, win, fx, 1.23, fz, 0x94a3b8, 0xe2e8f0, isPropEra, 0.14);
       }
     }
 
-    return finalizeMultiFinishGroup(matte, metal, win, glow);
+    return finalizeMultiFinishGroup(matte, metal, win, glow, dark, deck);
   }
 
   // =========================================================================
@@ -1100,115 +1192,136 @@ export function createCapitalWarVehicleGroup(
   }
 
   // =========================================================================
-  // 5. SKY SIEGE MACHINES (sky_carrier, Epoch 5+) — Sleek sculpted Helicarrier & Sky Citadels!
+  // 5. SKY SIEGE MACHINES (sky_carrier, Epoch 5+) — Mothership-grade Helicarrier & Sky Citadels!
   // =========================================================================
   if (type === 'sky_carrier') {
     if (species === 'elf') {
-      // ELF: Grand Sylvan Aether-Citadel (sweeping ivory & gold sky-carrier with 4 glowing astral lift-turbines)
-      pushTaperedHull(matte, [[1.15, -6.0], [1.72, -3.4], [1.78, 3.0], [1.20, 5.4], [0.0, 6.6]], 0.88, 0.54, 0xf5f0e2, 0.08);
-      pushTaperedHull(matte, [[1.58, -3.2], [4.15, -1.6], [4.15, 1.6], [1.58, 3.2]], 0.28, 0.24, 0xe8e2d0, 0.05);
-      pushBox(metal, 0.16, 0.04, 11.4, 0, 0.58, 0.15, 0xc8a441);
-      pushBox(matte, 0.80, 1.55, 2.55, 1.32, 1.32, -1.25, 0xf8f5eb);
-      pushCyl(metal, 0.10, 0.28, 1.75, 8, 1.32, 2.82, -1.25, 0xc8a441);
-      pushCyl(glow, 0.22, 0.05, 0.85, 8, 1.32, 3.95, -1.25, 0xc084fc);
-      addWindowStrip(win, 0.90, 1.65, -1.25, 5, 0.38, true, 0x7dd3fc);
-      for (const [rx, rz] of [[-3.35, 2.25], [3.35, 2.25], [-3.35, -2.25], [3.35, -2.25]]) {
-        addDuctedTurbine(matte, metal, glow, rx, 0.08, rz, 1.18, 0xc8a441, 0xf8f5eb, 0xc084fc);
-        pushCyl(glow, 0.32, 0.52, 3.4, 8, rx, -1.65, rz, 0x7dd3fc);
+      // ELF: Grand Sylvan Aether-Citadel (sculpted ventral keel + swept wings + 4 astral lift-turbines)
+      pushVentralKeel(matte, [[-4.8, -0.4], [5.2, -0.4], [2.6, -2.6], [-2.2, -2.1]], 0.48, 0xe8e2d0, 0.07);
+      pushTaperedHull(matte, [[1.15, -6.1], [1.74, -3.4], [1.80, 3.0], [1.20, 5.5], [0.0, 6.8]], 0.90, 0.54, 0xf5f0e2, 0.09);
+      pushTaperedHull(matte, [[1.58, -3.2], [4.25, -1.6], [4.25, 1.6], [1.58, 3.2]], 0.28, 0.24, 0xe8e2d0, 0.06);
+      pushTaperedHull(deck, [[1.35, -5.7], [1.52, -3.2], [1.56, 2.8], [0.98, 5.0], [0.0, 6.2]], 0.12, 0.62, 0xf8f5eb, 0.02);
+      pushBox(metal, 0.18, 0.04, 11.6, 0, 0.64, 0.15, 0xc8a441);
+      pushBox(matte, 0.82, 1.55, 2.60, 1.32, 1.36, -1.25, 0xf8f5eb);
+      pushBox(metal, 0.96, 0.20, 2.75, 1.32, 2.22, -1.25, 0xc8a441);
+      pushCyl(metal, 0.10, 0.28, 1.85, 10, 1.32, 3.15, -1.25, 0xc8a441);
+      pushCyl(glow, 0.24, 0.05, 0.95, 10, 1.32, 4.45, -1.25, 0xc084fc);
+      addWindowStrip(win, 0.90, 1.68, -1.25, 5, 0.38, true, 0x7dd3fc);
+      for (const [rx, rz] of [[-3.45, 2.25], [3.45, 2.25], [-3.45, -2.25], [3.45, -2.25]]) {
+        addDuctedTurbine(matte, metal, glow, rx, 0.08, rz, 1.24, 0xc8a441, 0xf8f5eb, 0xc084fc);
+        pushCyl(glow, 0.34, 0.54, 3.6, 12, rx, -1.75, rz, 0x7dd3fc);
       }
       for (const zf of [-4.0, -2.2, -0.4, 1.4, 3.2]) {
-        addDeckAircraft(matte, metal, win, -0.62, 0.58, zf, 0xc8a441, 0xf8f5eb, false, 0.12);
+        addDeckAircraft(matte, metal, win, -0.62, 0.66, zf, 0xc8a441, 0xf8f5eb, false, 0.12);
       }
     } else if (species === 'orc') {
-      // ORC: Scrap-Krumpa Sky-Hulk (bolted ironclad flying dreadnought with flame-belching turbines & ski-jump prow)
-      pushTaperedHull(matte, [[1.45, -5.9], [1.95, -3.5], [2.00, 3.1], [1.50, 5.4], [0.74, 6.3]], 1.08, 0.60, 0x3b3532, 0.07);
-      pushBox(metal, 1.95, 0.20, 2.25, -0.25, 0.86, 5.3, 0x991b1b, -0.18, 0, 0);
-      pushBox(matte, 0.96, 1.56, 2.80, 1.46, 1.36, -1.35, 0x5c2b22);
-      pushBox(matte, 0.82, 0.65, 1.85, 1.46, 2.42, -1.45, 0x991b1b);
-      addWindowStrip(win, 0.96, 1.68, -1.35, 5, 0.42, true, 0xfbbf24);
-      for (const [rx, rz] of [[-3.35, 2.65], [3.35, 2.65], [-3.35, -2.65], [3.35, -2.65]]) {
-        addDuctedTurbine(matte, metal, glow, rx, 0.10, rz, 1.22, 0x262626, 0x991b1b, 0xf97316);
-        pushCyl(glow, 0.40, 0.62, 3.2, 8, rx, -1.55, rz, 0xf97316);
+      // ORC: Scrap-Krumpa Sky-Hulk (glossy charcoal frame + bolted crimson armor + 4 flame-belching turbines)
+      pushVentralKeel(dark, [[-4.4, -0.5], [4.6, -0.5], [3.4, -2.4], [-3.2, -1.8]], 0.56, 0x18181b, 0.06);
+      pushTaperedHull(matte, [[1.45, -6.0], [1.96, -3.5], [2.02, 3.1], [1.50, 5.4], [0.74, 6.4]], 1.10, 0.60, 0x4b433e, 0.08);
+      pushTaperedHull(deck, [[1.30, -5.6], [1.75, -3.3], [1.80, 2.9], [1.34, 5.1], [0.65, 5.9]], 0.12, 0.68, 0x262626, 0.02);
+      pushBox(metal, 1.98, 0.22, 2.30, -0.25, 0.90, 5.35, 0x991b1b, -0.18, 0, 0);
+      pushBox(dark, 1.00, 1.58, 2.85, 1.46, 1.40, -1.35, 0x262626);
+      pushBox(matte, 0.86, 0.68, 1.90, 1.46, 2.48, -1.45, 0x991b1b);
+      addWindowStrip(win, 0.94, 1.72, -1.35, 5, 0.42, true, 0xfbbf24);
+      for (const [rx, rz] of [[-3.45, 2.65], [3.45, 2.65], [-3.45, -2.65], [3.45, -2.65]]) {
+        addDuctedTurbine(matte, metal, glow, rx, 0.10, rz, 1.26, 0x18181b, 0x991b1b, 0xf97316);
+        pushCyl(glow, 0.42, 0.64, 3.4, 12, rx, -1.65, rz, 0xf97316);
       }
-      addNavalTurret(matte, metal, -1.82, 0.62, 3.55, 1.12, 0x991b1b, 0x18181b, -0.4);
-      addNavalTurret(matte, metal, 1.65, 0.62, -4.35, 1.05, 0x991b1b, 0x18181b, 2.7);
+      addNavalTurret(matte, metal, -1.84, 0.70, 3.55, 1.15, 0x991b1b, 0x18181b, -0.4);
+      addNavalTurret(matte, metal, 1.68, 0.70, -4.35, 1.08, 0x991b1b, 0x18181b, 2.7);
       for (const zf of [-3.8, -2.0, -0.2, 1.6, 3.4]) {
-        addDeckAircraft(matte, metal, win, -0.68, 0.63, zf, 0xb91c1c, 0x3f3a36, false, 0.15);
+        addDeckAircraft(matte, metal, win, -0.68, 0.72, zf, 0xb91c1c, 0x3f3a36, false, 0.15);
       }
     } else if (species === 'dwarf') {
-      // DWARF: Ironclad Sky-Barge (heavy brass-ribbed armored fortress dirigible with magma turbines)
-      pushTaperedHull(matte, [[1.55, -5.8], [2.02, -3.3], [2.06, 3.2], [1.55, 5.3], [0.72, 6.2]], 1.15, 0.64, 0x334155, 0.07);
-      pushBox(metal, 4.12, 0.16, 9.6, 0, 0.66, -0.1, 0xb45309);
-      pushBox(matte, 1.04, 1.52, 2.95, 1.48, 1.42, -1.25, 0x475569);
-      pushBox(metal, 1.12, 0.18, 3.05, 1.48, 2.24, -1.25, 0xd97706);
-      addWindowStrip(win, 0.94, 1.68, -1.25, 5, 0.44, true, 0xfbbf24);
-      for (const [rx, rz] of [[-3.35, 2.55], [3.35, 2.55], [-3.35, -2.55], [3.35, -2.55]]) {
-        addDuctedTurbine(matte, metal, glow, rx, 0.06, rz, 1.18, 0xb45309, 0x334155, 0xf59e0b);
-        pushCyl(glow, 0.38, 0.58, 3.0, 8, rx, -1.5, rz, 0xfbbf24);
+      // DWARF: Ironclad Sky-Barge (sculpted armored ventral keel + brass-trimmed ironclad deck + magma turbines)
+      pushVentralKeel(dark, [[-4.6, -0.5], [4.8, -0.5], [3.2, -2.6], [-2.8, -2.2]], 0.62, 0x181b20, 0.06);
+      pushTaperedHull(matte, [[1.55, -5.9], [2.04, -3.3], [2.08, 3.2], [1.55, 5.4], [0.72, 6.3]], 1.18, 0.64, 0x475569, 0.08);
+      pushTaperedHull(deck, [[1.38, -5.5], [1.82, -3.1], [1.86, 3.0], [1.38, 5.0], [0.62, 5.8]], 0.12, 0.72, 0x1f2937, 0.02);
+      pushBox(metal, 4.18, 0.18, 9.6, 0, 0.68, -0.1, 0xb45309);
+      pushBox(matte, 1.06, 1.54, 2.98, 1.48, 1.46, -1.25, 0x64748b);
+      pushBox(dark, 1.14, 0.56, 2.15, 1.48, 2.38, -1.25, 0x181b20);
+      pushBox(metal, 1.22, 0.18, 3.08, 1.48, 2.74, -1.25, 0xd97706);
+      addWindowStrip(win, 0.90, 2.38, -1.25, 5, 0.36, true, 0xfbbf24);
+      for (const [rx, rz] of [[-3.45, 2.55], [3.45, 2.55], [-3.45, -2.55], [3.45, -2.55]]) {
+        addDuctedTurbine(matte, metal, glow, rx, 0.06, rz, 1.22, 0xb45309, 0x334155, 0xf59e0b);
+        pushCyl(glow, 0.40, 0.60, 3.2, 12, rx, -1.55, rz, 0xfbbf24);
       }
-      addNavalTurret(matte, metal, -1.84, 0.66, 3.55, 1.12, 0xb45309, 0x1e293b, -0.35);
-      addNavalTurret(matte, metal, 1.65, 0.66, -4.25, 1.05, 0xb45309, 0x1e293b, 2.75);
+      addNavalTurret(matte, metal, -1.86, 0.74, 3.55, 1.15, 0xb45309, 0x181b20, -0.35);
+      addNavalTurret(matte, metal, 1.68, 0.74, -4.25, 1.08, 0xb45309, 0x181b20, 2.75);
       for (const zf of [-3.8, -2.0, -0.2, 1.6, 3.4]) {
-        addDeckAircraft(matte, metal, win, -0.62, 0.68, zf, 0xd97706, 0x475569, false, 0.10);
+        addDeckAircraft(matte, metal, win, -0.62, 0.76, zf, 0xd97706, 0x475569, false, 0.10);
       }
     } else if (species === 'lizardfolk') {
-      // LIZARDFOLK: Floating Sun-Pyramid Sky-Temple (stepped obsidian-gold levitating ziggurat + 4 corner obelisks)
-      pushBox(matte, 7.2, 0.85, 7.2, 0, -0.15, 0, 0x1e293b);
-      pushBox(metal, 7.4, 0.16, 7.4, 0, 0.32, 0, 0xca8a04);
-      pushBox(matte, 5.4, 0.82, 5.4, 0, 0.78, 0, 0x1e293b);
-      pushBox(metal, 5.6, 0.16, 5.6, 0, 1.24, 0, 0xd4af37);
-      pushBox(matte, 3.5, 0.78, 3.5, 0, 1.68, 0, 0x1e293b);
-      pushBox(metal, 3.7, 0.16, 3.7, 0, 2.12, 0, 0xd4af37);
-      pushCyl(glow, 0.08, 0.92, 1.95, 4, 0, 3.25, 0, 0x34d399);
-      pushCyl(glow, 0.95, 0.38, 1.85, 6, 0, -1.25, 0, 0xfacc15);
-      for (const [ox, oz] of [[-4.2, 4.2], [4.2, 4.2], [-4.2, -4.2], [4.2, -4.2]]) {
-        pushCyl(metal, 0.28, 0.42, 2.65, 4, ox, 0.55, oz, 0xca8a04);
-        pushCyl(glow, 0.06, 0.26, 0.95, 4, ox, 2.25, oz, 0x34d399);
-        pushCyl(glow, 0.26, 0.44, 2.8, 6, ox, -1.55, oz, 0x34d399);
+      // LIZARDFOLK: Floating Sun-Pyramid Sky-Temple (high-contrast obsidian & gold ziggurat + emerald obelisks)
+      pushBox(dark, 7.4, 0.88, 7.4, 0, -0.15, 0, 0x111827);
+      pushBox(metal, 7.6, 0.18, 7.6, 0, 0.34, 0, 0xca8a04);
+      pushBox(deck, 5.5, 0.84, 5.5, 0, 0.80, 0, 0x1e293b);
+      pushBox(metal, 5.7, 0.18, 5.7, 0, 1.26, 0, 0xd4af37);
+      pushBox(dark, 3.6, 0.80, 3.6, 0, 1.70, 0, 0x111827);
+      pushBox(metal, 3.8, 0.18, 3.8, 0, 2.14, 0, 0xd4af37);
+      pushCyl(glow, 0.08, 0.96, 2.05, 4, 0, 3.32, 0, 0x34d399);
+      pushCyl(glow, 0.98, 0.40, 1.95, 8, 0, -1.28, 0, 0xfacc15);
+      for (const [ox, oz] of [[-4.3, 4.3], [4.3, 4.3], [-4.3, -4.3], [4.3, -4.3]]) {
+        pushCyl(metal, 0.30, 0.44, 2.75, 4, ox, 0.55, oz, 0xca8a04);
+        pushCyl(glow, 0.06, 0.28, 1.0, 4, ox, 2.30, oz, 0x34d399);
+        pushCyl(glow, 0.28, 0.46, 3.0, 8, ox, -1.60, oz, 0x34d399);
       }
     } else {
-      // HUMAN: Sleek Sculpted Textured Helicarrier (matching image_2.png silhouette & details without blocky cubes!)
-      // Deep tapered lower armored keel + main weathered steel hull + recessed glowing hangar bays
-      pushTaperedHull(matte, [[0.95, -5.8], [1.35, -3.8], [1.40, 3.0], [1.00, 5.2], [0.55, 5.9]], 0.72, -0.35, 0x334155, 0.05);
-      pushTaperedHull(matte, [[1.32, -6.1], [1.68, -4.1], [1.72, 3.4], [1.32, 5.6], [0.88, 6.4]], 0.96, 0.58, 0x64748b, 0.07);
+      // HUMAN: Alien-Mothership-Grade Helicarrier (sculpted ventral keel blade, exposed flank truss ribs,
+      // glossy dark structural hangars, clean charcoal flight deck, 4 giant lift-turbines + vertical light beams!)
+      pushVentralKeel(matte, [[-4.2, -0.35], [5.4, -0.35], [3.6, -2.5], [0.8, -3.2], [-2.4, -2.0]], 0.52, 0x94a3b8, 0.08);
+      pushTaperedHull(dark, [[1.05, -5.9], [1.42, -3.9], [1.46, 3.1], [1.05, 5.3], [0.58, 6.0]], 0.72, -0.30, 0x181b20, 0.05);
+      pushTaperedHull(matte, [[1.34, -6.2], [1.70, -4.2], [1.74, 3.5], [1.34, 5.7], [0.90, 6.5]], 0.98, 0.58, 0x6b7280, 0.08);
+      // Exposed Mothership-style side truss ribs, armored gunwale belts & recessed glowing hangars!
       for (const side of [-1, 1]) {
+        pushBox(matte, 0.24, 0.24, 10.6, side * 1.78, 0.48, -0.2, 0x94a3b8);
+        for (let ri = -4; ri <= 4; ri++) {
+          pushBox(dark, 0.16, 0.86, 0.16, side * 1.76, 0.12, ri * 1.25, 0x262a33);
+        }
         for (const hz of [-3.2, 0.2, 3.2]) {
-          pushBox(matte, 0.14, 0.42, 1.55, side * 1.72, 0.18, hz, 0x111827);
-          pushBox(win, 0.06, 0.14, 1.25, side * 1.75, 0.24, hz, 0xfbbf24);
+          pushBox(dark, 0.22, 0.48, 1.65, side * 1.74, 0.16, hz, 0x111418);
+          pushBox(win, 0.06, 0.14, 1.32, side * 1.82, 0.24, hz, 0xfbbf24);
         }
       }
-      // Dark charcoal flight deck + port angled landing deck + crisp white runway markings + glowing bow threshold
-      pushTaperedHull(matte, [[1.20, -5.8], [1.52, -3.9], [1.56, 3.3], [1.18, 5.4], [0.78, 6.2]], 0.14, 0.66, 0x1f2630, 0.02);
-      pushBox(matte, 1.18, 0.18, 7.0, -1.60, 0.54, -0.85, 0x1f2630, 0, 0.13, 0);
-      pushBox(matte, 0.10, 0.025, 11.0, -0.22, 0.69, 0.1, 0xf1f5f9);
-      pushBox(matte, 0.09, 0.025, 6.4, -1.48, 0.65, -0.85, 0xf1f5f9, 0, 0.13, 0);
-      pushBox(glow, 1.72, 0.04, 0.22, 0, 0.69, 6.08, 0xfbbf24); // bow launch threshold lights (image_2.png!)
-      // 4 Swept Outrigger Wing-Struts + Huge Circular Ducted Lift-Turbines + Vertical Cyan-White Thruster Beams!
-      for (const [rx, rz] of [[-3.55, 2.75], [3.55, 2.75], [-3.55, -2.75], [3.55, -2.75]]) {
-        const sgn = rx > 0 ? 1 : -1;
-        pushBox(matte, 2.05, 0.42, 1.65, sgn * 2.35, 0.18, rz, 0x64748b);
-        addDuctedTurbine(matte, metal, glow, rx, 0.10, rz, 1.32, 0x475569, 0x94a3b8, 0x7dd3fc);
-        pushCyl(glow, 0.44, 0.72, 4.2, 10, rx, -2.05, rz, 0xe0f2fe); // bright lower thruster shaft
-        pushCyl(glow, 0.22, 0.42, 2.1, 8, rx, 1.25, rz, 0xbae6fd); // upper intake glow column
+      // Clean matte charcoal flight deck + angled landing deck + arrestor cables + blast deflectors + bow threshold!
+      pushTaperedHull(deck, [[1.22, -5.9], [1.54, -4.0], [1.58, 3.4], [1.20, 5.5], [0.80, 6.3]], 0.14, 0.68, 0x181d24, 0.02);
+      pushBox(deck, 1.22, 0.18, 7.2, -1.62, 0.56, -0.85, 0x181d24, 0, 0.13, 0);
+      pushBox(deck, 0.10, 0.025, 11.2, -0.22, 0.71, 0.1, 0xf1f5f9);
+      pushBox(deck, 0.09, 0.025, 6.6, -1.50, 0.67, -0.85, 0xf1f5f9, 0, 0.13, 0);
+      pushBox(glow, 1.78, 0.04, 0.24, 0, 0.71, 6.18, 0xfbbf24); // glowing bow threshold strip
+      for (let aw = 0; aw < 4; aw++) {
+        pushBox(metal, 2.35, 0.025, 0.04, -0.2, 0.71, -5.0 + aw * 0.55, 0x94a3b8);
       }
-      // Towering 3-tier overhanging command bridge + radar domes & twin antenna masts (image_2.png!)
-      pushBox(matte, 0.84, 1.38, 2.75, 1.32, 1.34, -1.25, 0x64748b);
-      pushBox(matte, 1.38, 0.48, 1.75, 1.32, 2.22, -1.30, 0x94a3b8); // overhanging bridge wings
-      pushBox(matte, 0.72, 0.42, 1.25, 1.32, 2.66, -1.35, 0x475569);
-      pushCyl(metal, 0.06, 0.11, 1.85, 8, 1.32, 3.65, -1.35, 0xe2e8f0);
-      pushBox(metal, 1.15, 0.10, 0.08, 1.32, 4.12, -1.35, 0xe2e8f0);
-      pushCyl(matte, 0.24, 0.24, 0.26, 8, 1.32, 3.02, -0.85, 0xf8fafc); // white radome
-      addWindowStrip(win, 0.90, 1.66, -1.25, 5, 0.40, true, 0xfbbf24);
-      addWindowStrip(win, 0.62, 2.24, -1.30, 4, 0.34, true, 0xfbbf24);
-      // Deck defense turrets, cargo crates & parked stealth jets
-      addNavalTurret(matte, metal, -1.86, 0.66, 3.75, 1.02, 0x64748b, 0x181b20, -0.3);
-      addNavalTurret(matte, metal, 1.65, 0.66, -4.55, 1.02, 0x64748b, 0x181b20, 2.7);
-      pushBox(matte, 0.55, 0.34, 0.85, 0.88, 0.84, 1.65, 0x78716c);
+      // 4 Swept Outrigger Wing-Struts + Huge Circular Ducted Lift-Turbines + Vertical Cyan-White Thruster Beams!
+      for (const [rx, rz] of [[-3.65, 2.85], [3.65, 2.85], [-3.65, -2.85], [3.65, -2.85]]) {
+        const sgn = rx > 0 ? 1 : -1;
+        pushBox(matte, 2.15, 0.44, 1.75, sgn * 2.40, 0.18, rz, 0x6b7280);
+        pushBox(dark, 2.10, 0.16, 1.82, sgn * 2.40, -0.08, rz, 0x181b20); // dark lower wing truss
+        addDuctedTurbine(matte, metal, glow, rx, 0.10, rz, 1.38, 0x374151, 0x9ca3af, 0x7dd3fc);
+        pushCyl(glow, 0.46, 0.74, 4.4, 14, rx, -2.15, rz, 0xe0f2fe);
+        pushCyl(glow, 0.24, 0.44, 2.2, 12, rx, 1.30, rz, 0xbae6fd);
+      }
+      // High-Contrast 3-Tier Overhanging Command Citadel (light steel + glossy black bridge + radome + radar masts!)
+      pushBox(matte, 0.86, 1.38, 2.80, 1.34, 1.36, -1.25, 0x6b7280);
+      pushBox(dark, 1.48, 0.54, 1.85, 1.34, 2.24, -1.30, 0x181b20); // overhanging glossy charcoal bridge wings
+      pushBox(matte, 1.32, 0.20, 1.65, 1.34, 2.60, -1.32, 0xc2c8d1); // light steel cap
+      pushCyl(metal, 0.06, 0.11, 1.95, 10, 1.34, 3.68, -1.35, 0xe2e8f0);
+      pushBox(metal, 1.22, 0.10, 0.08, 1.34, 4.18, -1.35, 0xe2e8f0);
+      pushBox(glow, 0.14, 0.12, 0.14, 1.34, 4.68, -1.35, 0x60a5fa); // mast beacon
+      pushCyl(deck, 0.26, 0.26, 0.28, 12, 1.34, 2.86, -0.82, 0xf8fafc); // crisp white radome
+      addWindowStrip(win, 0.88, 1.68, -1.25, 5, 0.40, true, 0xfbbf24);
+      addWindowStrip(win, 0.58, 2.26, -1.30, 4, 0.34, true, 0xfbbf24);
+      // 4 Defense Turrets, Deck Crane, Cargo Containers & 6 Stealth Jets
+      addNavalTurret(matte, metal, -1.90, 0.68, 3.85, 1.02, 0x94a3b8, 0x181b20, -0.3);
+      addNavalTurret(matte, metal, 1.68, 0.68, -4.65, 1.02, 0x94a3b8, 0x181b20, 2.7);
+      addNavalTurret(matte, metal, -1.90, 0.68, -4.55, 0.85, 0x94a3b8, 0x181b20, -2.6);
+      pushCyl(metal, 0.05, 0.07, 1.35, 8, 1.42, 1.42, -3.25, 0x94a3b8, -0.55, 0, 0.15);
+      pushBox(deck, 0.58, 0.36, 0.88, 0.90, 0.86, 1.65, 0x78716c);
       for (const [fx, fz] of [[-0.78, -4.2], [-0.72, -2.5], [-0.64, -0.8], [-0.56, 1.0], [-0.46, 2.8], [0.35, 4.2]]) {
-        addDeckAircraft(matte, metal, win, fx, 0.69, fz, 0x94a3b8, 0xe2e8f0, false, 0.14);
+        addDeckAircraft(matte, metal, win, fx, 0.71, fz, 0x94a3b8, 0xe2e8f0, false, 0.14);
       }
     }
-    return finalizeMultiFinishGroup(matte, metal, win, glow);
+    return finalizeMultiFinishGroup(matte, metal, win, glow, dark, deck);
   }
 
   // =========================================================================
