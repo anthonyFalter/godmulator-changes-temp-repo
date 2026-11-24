@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { getPixelArtTexture } from './meshBuilders';
 import type { BattleMemorial, SimulationState, SpeciesId, WorldWonder } from './types';
 
 export interface MonumentsSystem {
@@ -15,14 +17,182 @@ interface WonderVisual {
   baseAnimY: number;
 }
 
-function buildRaceWonderMesh(species: SpeciesId): {
+type MaterialBucket = 'stone' | 'wood' | 'foliage' | 'metal' | 'cloth' | 'glow';
+
+interface SharedWonderMaterials {
+  stone: THREE.MeshStandardMaterial;
+  wood: THREE.MeshStandardMaterial;
+  foliage: THREE.MeshStandardMaterial;
+  metal: THREE.MeshStandardMaterial;
+  cloth: THREE.MeshStandardMaterial;
+  glow: THREE.MeshStandardMaterial;
+  beam: THREE.MeshBasicMaterial;
+}
+
+function createSharedWonderMaterials(): SharedWonderMaterials {
+  return {
+    stone: new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      map: getPixelArtTexture('wonder_stone_neutral', '#e6e6e6', '#ffffff', '#b4b4b4', 'stone'),
+      roughness: 0.8,
+      metalness: 0.08,
+    }),
+    wood: new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      map: getPixelArtTexture('wonder_wood_neutral', '#e4e4e4', '#ffffff', '#b0b0b0', 'wood'),
+      roughness: 0.86,
+      metalness: 0.04,
+    }),
+    foliage: new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      map: getPixelArtTexture('wonder_foliage_neutral', '#e4e4e4', '#ffffff', '#aeaeae', 'grass'),
+      roughness: 0.78,
+      metalness: 0.04,
+    }),
+    metal: new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      map: getPixelArtTexture('wonder_metal_neutral', '#e6e6e6', '#ffffff', '#b2b2b2', 'tech'),
+      roughness: 0.34,
+      metalness: 0.65,
+    }),
+    cloth: new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      map: getPixelArtTexture('wonder_cloth_neutral', '#e8e8e8', '#ffffff', '#b6b6b6', 'roof'),
+      roughness: 0.74,
+      metalness: 0.05,
+    }),
+    glow: new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      emissive: new THREE.Color('#ffffff'),
+      emissiveIntensity: 0.72,
+      roughness: 0.18,
+      metalness: 0.2,
+    }),
+    beam: new THREE.MeshBasicMaterial({
+      color: 0xfef08a,
+      transparent: true,
+      opacity: 0.62,
+    }),
+  };
+}
+
+/** Strips invisible downward-facing (-Y) triangles for isometric optimization (PERFORMANCE_README Rule 1). */
+function stripDownwardTriangles(g: THREE.BufferGeometry): THREE.BufferGeometry {
+  const nonIdx = g.index ? g.toNonIndexed() : g;
+  const posAttr = nonIdx.getAttribute('position') as THREE.BufferAttribute;
+  const normAttr = nonIdx.getAttribute('normal') as THREE.BufferAttribute;
+  const colAttr = nonIdx.getAttribute('color') as THREE.BufferAttribute | undefined;
+  const uvAttr = nonIdx.getAttribute('uv') as THREE.BufferAttribute | undefined;
+  if (!posAttr || !normAttr) return nonIdx;
+
+  const nArr = normAttr.array as Float32Array;
+  const pArr = posAttr.array as Float32Array;
+  const cArr = colAttr ? (colAttr.array as Float32Array) : null;
+  const uArr = uvAttr ? (uvAttr.array as Float32Array) : null;
+  const triCount = Math.floor(posAttr.count / 3);
+  let kept = 0;
+  for (let t = 0; t < triCount; t++) {
+    const b = t * 9;
+    if (nArr[b + 1] < -0.94 && nArr[b + 4] < -0.94 && nArr[b + 7] < -0.94) continue;
+    kept++;
+  }
+  if (kept === triCount) return nonIdx;
+
+  const nextPos = new Float32Array(kept * 9);
+  const nextNorm = new Float32Array(kept * 9);
+  const nextCol = cArr ? new Float32Array(kept * 9) : null;
+  const nextUv = uArr ? new Float32Array(kept * 6) : null;
+  let w = 0;
+  let wUv = 0;
+  for (let t = 0; t < triCount; t++) {
+    const b = t * 9;
+    if (nArr[b + 1] < -0.94 && nArr[b + 4] < -0.94 && nArr[b + 7] < -0.94) continue;
+    nextPos.set(pArr.subarray(b, b + 9), w);
+    nextNorm.set(nArr.subarray(b, b + 9), w);
+    if (nextCol && cArr) nextCol.set(cArr.subarray(b, b + 9), w);
+    if (nextUv && uArr) {
+      nextUv.set(uArr.subarray(t * 6, t * 6 + 6), wUv);
+      wUv += 6;
+    }
+    w += 9;
+  }
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.BufferAttribute(nextPos, 3));
+  out.setAttribute('normal', new THREE.BufferAttribute(nextNorm, 3));
+  if (nextCol) out.setAttribute('color', new THREE.BufferAttribute(nextCol, 3));
+  if (nextUv) out.setAttribute('uv', new THREE.BufferAttribute(nextUv, 2));
+  if (nonIdx !== g) nonIdx.dispose();
+  g.dispose();
+  return out;
+}
+
+function makeColoredBox(
+  w: number,
+  h: number,
+  d: number,
+  x: number,
+  y: number,
+  z: number,
+  hexColor: number,
+  rotY = 0,
+): THREE.BufferGeometry {
+  const geo = new THREE.BoxGeometry(w, h, d);
+  // Scale UVs proportionally to physical box face size so pixel texels stay uniform across large & small parts
+  const uvAttr = geo.getAttribute('uv') as THREE.BufferAttribute;
+  const normAttr = geo.getAttribute('normal') as THREE.BufferAttribute;
+  if (uvAttr && normAttr) {
+    const uvScale = 1.45;
+    for (let i = 0; i < uvAttr.count; i++) {
+      const nx = Math.abs(normAttr.getX(i));
+      const ny = Math.abs(normAttr.getY(i));
+      const u = uvAttr.getX(i);
+      const v = uvAttr.getY(i);
+      if (ny > 0.5) {
+        uvAttr.setXY(i, u * w * uvScale, v * d * uvScale);
+      } else if (nx > 0.5) {
+        uvAttr.setXY(i, u * d * uvScale, v * h * uvScale);
+      } else {
+        uvAttr.setXY(i, u * w * uvScale, v * h * uvScale);
+      }
+    }
+  }
+  if (rotY !== 0) geo.rotateY(rotY);
+  geo.translate(x, y, z);
+
+  const nonIdx = geo.toNonIndexed();
+  geo.dispose();
+  const count = nonIdx.getAttribute('position').count;
+  const col = new THREE.Color(hexColor);
+  const colors = new Float32Array(count * 3);
+  for (let i = 0; i < count; i++) {
+    colors[i * 3] = col.r;
+    colors[i * 3 + 1] = col.g;
+    colors[i * 3 + 2] = col.b;
+  }
+  nonIdx.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  return nonIdx;
+}
+
+function buildRaceWonderMesh(
+  species: SpeciesId,
+  mats: SharedWonderMaterials,
+): {
   root: THREE.Group;
   animatedPart?: THREE.Object3D;
   baseAnimY: number;
 } {
   const root = new THREE.Group();
+  const buckets: Record<MaterialBucket, THREE.BufferGeometry[]> = {
+    stone: [],
+    wood: [],
+    foliage: [],
+    metal: [],
+    cloth: [],
+    glow: [],
+  };
 
-  const addBox = (
+  const addPart = (
+    bucket: MaterialBucket,
     w: number,
     h: number,
     d: number,
@@ -30,195 +200,260 @@ function buildRaceWonderMesh(species: SpeciesId): {
     y: number,
     z: number,
     color: number,
-    emissive = 0x000000,
-    emissiveIntensity = 0,
-    metalness = 0.15,
-    roughness = 0.65,
+    rotY = 0,
   ) => {
-    const geo = new THREE.BoxGeometry(w, h, d);
-    const mat = new THREE.MeshStandardMaterial({
-      color,
-      emissive,
-      emissiveIntensity,
-      metalness,
-      roughness,
-      flatShading: true,
-    });
-    const m = new THREE.Mesh(geo, mat);
-    m.position.set(x, y, z);
-    m.castShadow = true;
-    m.receiveShadow = true;
-    root.add(m);
-    return m;
+    buckets[bucket].push(makeColoredBox(w, h, d, x, y, z, color, rotY));
   };
+
+  let animatedPart: THREE.Object3D | undefined;
+  let baseAnimY = 2.2;
 
   switch (species) {
     case 'human': {
-      // Grand Sun Lighthouse: stepped marble plinth + fluted alabaster tower + rotating golden beacon
-      addBox(1.55, 0.28, 1.55, 0, 0.14, 0, 0xd6d3d1, 0, 0, 0.1, 0.78);
-      addBox(1.18, 0.34, 1.18, 0, 0.45, 0, 0xe7e5e4, 0, 0, 0.1, 0.72);
-      addBox(0.76, 1.45, 0.76, 0, 1.34, 0, 0xf5f5f4, 0, 0, 0.12, 0.62);
-      addBox(0.92, 0.16, 0.92, 0, 2.12, 0, 0xfbbf24, 0xd97706, 0.25, 0.55, 0.35);
-      // Beacon turret
+      // Grand Sun Lighthouse: stepped marble plinth, 4 corner buttresses, fluted alabaster tower, glowing arches, banners & golden beacon
+      addPart('stone', 1.66, 0.24, 1.66, 0, 0.12, 0, 0xcbd5e1);
+      addPart('stone', 1.32, 0.28, 1.32, 0, 0.38, 0, 0xe2e8f0);
+      addPart('stone', 0.84, 1.48, 0.84, 0, 1.26, 0, 0xf1f5f9);
+      // 4 carved corner buttresses + arched pilasters
+      for (const sx of [-0.46, 0.46]) {
+        for (const sz of [-0.46, 0.46]) {
+          addPart('stone', 0.22, 1.12, 0.22, sx, 0.96, sz, 0xd6d3d1);
+          addPart('metal', 0.16, 0.14, 0.16, sx, 1.56, sz, 0xfbbf24);
+        }
+      }
+      // Glowing arched lighthouse windows & royal crimson-gold banners
+      addPart('glow', 0.16, 0.36, 0.88, 0, 1.24, 0, 0xfef08a);
+      addPart('glow', 0.88, 0.36, 0.16, 0, 1.24, 0, 0xfef08a);
+      addPart('cloth', 0.22, 0.56, 0.04, 0, 0.95, 0.44, 0xdc2626);
+      addPart('cloth', 0.22, 0.56, 0.04, 0, 0.95, -0.44, 0xdc2626);
+      // Gilded balcony & cupola rim
+      addPart('metal', 1.04, 0.14, 1.04, 0, 2.06, 0, 0xfbbf24);
+      addPart('stone', 0.92, 0.12, 0.92, 0, 2.18, 0, 0xf8fafc);
+
       const beacon = new THREE.Group();
-      beacon.position.set(0, 2.48, 0);
-      const core = new THREE.Mesh(
-        new THREE.OctahedronGeometry(0.32, 0),
-        new THREE.MeshStandardMaterial({
-          color: 0xfef08a,
-          emissive: 0xf59e0b,
-          emissiveIntensity: 1.35,
-          roughness: 0.15,
-          flatShading: true,
-        }),
-      );
-      const beam = new THREE.Mesh(
-        new THREE.BoxGeometry(1.4, 0.14, 0.14),
-        new THREE.MeshBasicMaterial({
-          color: 0xfef08a,
-          transparent: true,
-          opacity: 0.65,
-        }),
-      );
+      beacon.position.set(0, 2.52, 0);
+      const coreGeo = new THREE.OctahedronGeometry(0.3, 0).toNonIndexed();
+      const cCount = coreGeo.getAttribute('position').count;
+      const cCols = new Float32Array(cCount * 3);
+      const cCol = new THREE.Color(0xfef08a);
+      for (let i = 0; i < cCount; i++) {
+        cCols[i * 3] = cCol.r;
+        cCols[i * 3 + 1] = cCol.g;
+        cCols[i * 3 + 2] = cCol.b;
+      }
+      coreGeo.setAttribute('color', new THREE.BufferAttribute(cCols, 3));
+      const core = new THREE.Mesh(coreGeo, mats.glow);
+      const beam = new THREE.Mesh(new THREE.BoxGeometry(1.48, 0.12, 0.12), mats.beam);
       beacon.add(core, beam);
       root.add(beacon);
-      return { root, animatedPart: beacon, baseAnimY: 2.48 };
+      animatedPart = beacon;
+      baseAnimY = 2.52;
+      break;
     }
 
     case 'elf': {
-      // World Tree Sanctuary: sculpted ancient trunk + lush tiered blossom-emerald canopy + floating spirit crown
-      addBox(1.4, 0.22, 1.4, 0, 0.11, 0, 0x86efac, 0, 0, 0.05, 0.85);
-      addBox(0.58, 1.35, 0.58, 0, 0.88, 0, 0x78350f, 0, 0, 0.05, 0.9);
-      addBox(1.55, 0.48, 1.55, 0, 1.72, 0, 0x22c55e, 0x15803d, 0.15, 0.05, 0.75);
-      addBox(1.22, 0.44, 1.22, 0, 2.16, 0, 0xf472b6, 0xdb2777, 0.22, 0.05, 0.7);
-      addBox(0.76, 0.36, 0.76, 0, 2.54, 0, 0x4ade80, 0x22c55e, 0.2, 0.05, 0.7);
-      const crown = new THREE.Mesh(
-        new THREE.OctahedronGeometry(0.28, 0),
-        new THREE.MeshStandardMaterial({
-          color: 0xa7f3d0,
-          emissive: 0x34d399,
-          emissiveIntensity: 1.15,
-          roughness: 0.2,
-          flatShading: true,
-        }),
-      );
-      crown.position.set(0, 2.98, 0);
+      // World Tree Sanctuary: mossy terraced stone plinth, flared ancient roots & trunk, dappled emerald & blossom canopy, hanging lanterns
+      addPart('stone', 1.6, 0.2, 1.6, 0, 0.1, 0, 0xcbd5e1);
+      addPart('foliage', 1.38, 0.14, 1.38, 0, 0.26, 0, 0x4ade80);
+      // Flared gnarled roots & sculpted trunk
+      addPart('wood', 0.56, 1.4, 0.56, 0, 0.96, 0, 0x78350f);
+      addPart('wood', 0.96, 0.34, 0.28, 0, 0.44, 0, 0x92400e);
+      addPart('wood', 0.28, 0.34, 0.96, 0, 0.44, 0, 0x92400e);
+      // Tiered dappled emerald & sakura-blossom pixel canopy
+      addPart('foliage', 1.66, 0.44, 1.66, 0, 1.72, 0, 0x22c55e);
+      addPart('foliage', 1.38, 0.38, 1.38, 0.08, 2.08, -0.06, 0xf472b6);
+      addPart('foliage', 1.08, 0.36, 1.08, -0.06, 2.42, 0.05, 0x4ade80);
+      addPart('foliage', 0.68, 0.28, 0.68, 0, 2.72, 0, 0xf9a8d4);
+      // Hanging golden sanctuary lanterns under lower boughs
+      for (const [lx, lz] of [[-0.64, 0.54], [0.64, 0.54], [-0.64, -0.54], [0.64, -0.54]] as const) {
+        addPart('glow', 0.12, 0.16, 0.12, lx, 1.38, lz, 0xfef08a);
+      }
+
+      const crownGeo = new THREE.OctahedronGeometry(0.28, 0).toNonIndexed();
+      const cCount = crownGeo.getAttribute('position').count;
+      const cCols = new Float32Array(cCount * 3);
+      const cCol = new THREE.Color(0x6ee7b7);
+      for (let i = 0; i < cCount; i++) {
+        cCols[i * 3] = cCol.r;
+        cCols[i * 3 + 1] = cCol.g;
+        cCols[i * 3 + 2] = cCol.b;
+      }
+      crownGeo.setAttribute('color', new THREE.BufferAttribute(cCols, 3));
+      const crown = new THREE.Mesh(crownGeo, mats.glow);
+      crown.position.set(0, 3.1, 0);
       root.add(crown);
-      return { root, animatedPart: crown, baseAnimY: 2.98 };
+      animatedPart = crown;
+      baseAnimY = 3.1;
+      break;
     }
 
     case 'orc': {
-      // Iron War Colossus: dark iron bastion + twin horned obsidian spires + blazing magma brazier
-      addBox(1.6, 0.32, 1.6, 0, 0.16, 0, 0x292524, 0, 0, 0.35, 0.7);
-      addBox(1.05, 1.2, 0.9, 0, 0.92, 0, 0x44403c, 0, 0, 0.55, 0.55);
-      addBox(0.26, 1.1, 0.26, -0.58, 1.8, 0, 0x1c1917, 0, 0, 0.65, 0.45);
-      addBox(0.26, 1.1, 0.26, 0.58, 1.8, 0, 0x1c1917, 0, 0, 0.65, 0.45);
-      addBox(1.28, 0.24, 0.38, 0, 1.56, 0, 0x991b1b, 0x7f1d1d, 0.2, 0.2, 0.65);
-      const brazier = new THREE.Mesh(
-        new THREE.OctahedronGeometry(0.36, 0),
-        new THREE.MeshStandardMaterial({
-          color: 0xfb923c,
-          emissive: 0xff3b00,
-          emissiveIntensity: 1.4,
-          roughness: 0.25,
-          flatShading: true,
-        }),
-      );
-      brazier.position.set(0, 2.02, 0);
+      // Iron War Colossus: riveted basalt-iron bastion, 4 spiked corner totems, twin horned obsidian spires, crimson war banners & magma brazier
+      addPart('stone', 1.68, 0.3, 1.68, 0, 0.15, 0, 0x3f3f46);
+      addPart('metal', 1.18, 1.15, 1.04, 0, 0.88, 0, 0x52525b);
+      addPart('metal', 0.28, 1.24, 0.28, -0.6, 1.72, 0, 0x27272a);
+      addPart('metal', 0.28, 1.24, 0.28, 0.6, 1.72, 0, 0x27272a);
+      // Horned iron tips & riveted corner bastions
+      for (const sx of [-0.68, 0.68]) {
+        for (const sz of [-0.68, 0.68]) {
+          addPart('stone', 0.24, 0.54, 0.24, sx, 0.56, sz, 0x27272a);
+          addPart('metal', 0.16, 0.22, 0.16, sx, 0.94, sz, 0xb45309);
+        }
+      }
+      // Crimson war-banner crossbar & hanging banners
+      addPart('cloth', 1.36, 0.22, 0.42, 0, 1.54, 0, 0x991b1b);
+      addPart('cloth', 0.34, 0.68, 0.05, 0, 1.02, 0.56, 0xb91c1c);
+      addPart('cloth', 0.34, 0.68, 0.05, 0, 1.02, -0.56, 0xb91c1c);
+      addPart('metal', 0.38, 0.08, 0.07, 0, 1.38, 0.56, 0xf59e0b);
+      addPart('metal', 0.38, 0.08, 0.07, 0, 1.38, -0.56, 0xf59e0b);
+
+      const brazierGeo = new THREE.OctahedronGeometry(0.35, 0).toNonIndexed();
+      const cCount = brazierGeo.getAttribute('position').count;
+      const cCols = new Float32Array(cCount * 3);
+      const cCol = new THREE.Color(0xfb923c);
+      for (let i = 0; i < cCount; i++) {
+        cCols[i * 3] = cCol.r;
+        cCols[i * 3 + 1] = cCol.g;
+        cCols[i * 3 + 2] = cCol.b;
+      }
+      brazierGeo.setAttribute('color', new THREE.BufferAttribute(cCols, 3));
+      const brazier = new THREE.Mesh(brazierGeo, mats.glow);
+      brazier.position.set(0, 2.08, 0);
       root.add(brazier);
-      return { root, animatedPart: brazier, baseAnimY: 2.02 };
+      animatedPart = brazier;
+      baseAnimY = 2.08;
+      break;
     }
 
     case 'dwarf': {
-      // Runic Titan Forge: heavy granite-bronze plinth + twin anvil pillars + spinning mithril rune ring
-      addBox(1.62, 0.36, 1.62, 0, 0.18, 0, 0x57534e, 0, 0, 0.3, 0.72);
-      addBox(1.2, 0.85, 1.2, 0, 0.78, 0, 0x92400e, 0, 0, 0.62, 0.42);
-      addBox(0.32, 0.95, 0.32, -0.46, 1.52, -0.46, 0xb45309, 0, 0, 0.72, 0.35);
-      addBox(0.32, 0.95, 0.32, 0.46, 1.52, 0.46, 0xb45309, 0, 0, 0.72, 0.35);
-      addBox(0.95, 0.22, 0.95, 0, 1.32, 0, 0xfbbf24, 0xd97706, 0.22, 0.75, 0.3);
-      const runeRing = new THREE.Mesh(
-        new THREE.TorusGeometry(0.46, 0.1, 6, 8),
-        new THREE.MeshStandardMaterial({
-          color: 0x38bdf8,
-          emissive: 0x0284c7,
-          emissiveIntensity: 1.15,
-          metalness: 0.6,
-          roughness: 0.2,
-          flatShading: true,
-        }),
-      );
-      runeRing.position.set(0, 2.15, 0);
+      // Runic Titan Forge: chamfered granite-bronze dais, 4 corner runic obelisks, arched gilded anvil hearth, glowing molten core & spinning rune ring
+      addPart('stone', 1.68, 0.34, 1.68, 0, 0.17, 0, 0x57534e);
+      addPart('metal', 1.34, 0.2, 1.34, 0, 0.44, 0, 0x92400e);
+      addPart('stone', 1.12, 0.78, 1.12, 0, 0.92, 0, 0x78716c);
+      // 4 gilded corner forge pillars
+      for (const sx of [-0.52, 0.52]) {
+        for (const sz of [-0.52, 0.52]) {
+          addPart('metal', 0.26, 1.08, 0.26, sx, 1.24, sz, 0xb45309);
+          addPart('metal', 0.32, 0.12, 0.32, sx, 1.82, sz, 0xfbbf24);
+        }
+      }
+      // Gilded anvil crown & glowing molten forge grates
+      addPart('metal', 1.02, 0.22, 1.02, 0, 1.42, 0, 0xfbbf24);
+      addPart('glow', 0.44, 0.36, 1.16, 0, 0.9, 0, 0xfb923c);
+      addPart('glow', 1.16, 0.36, 0.44, 0, 0.9, 0, 0xfb923c);
+
+      const ringGeo = new THREE.TorusGeometry(0.44, 0.09, 6, 8).toNonIndexed();
+      const cCount = ringGeo.getAttribute('position').count;
+      const cCols = new Float32Array(cCount * 3);
+      const cCol = new THREE.Color(0x38bdf8);
+      for (let i = 0; i < cCount; i++) {
+        cCols[i * 3] = cCol.r;
+        cCols[i * 3 + 1] = cCol.g;
+        cCols[i * 3 + 2] = cCol.b;
+      }
+      ringGeo.setAttribute('color', new THREE.BufferAttribute(cCols, 3));
+      const runeRing = new THREE.Mesh(ringGeo, mats.glow);
+      runeRing.position.set(0, 2.24, 0);
       root.add(runeRing);
-      return { root, animatedPart: runeRing, baseAnimY: 2.15 };
+      animatedPart = runeRing;
+      baseAnimY = 2.24;
+      break;
     }
 
     case 'lizardfolk':
     default: {
-      // Great Solar Ziggurat: 4-tier stepped sandstone & jade pyramid + levitating solar crystal
-      addBox(1.7, 0.34, 1.7, 0, 0.17, 0, 0xd97706, 0, 0, 0.12, 0.78);
-      addBox(1.36, 0.36, 1.36, 0, 0.52, 0, 0x10b981, 0x059669, 0.14, 0.18, 0.65);
-      addBox(1.02, 0.36, 1.02, 0, 0.88, 0, 0xeab308, 0, 0, 0.25, 0.6);
-      addBox(0.68, 0.34, 0.68, 0, 1.23, 0, 0x059669, 0x047857, 0.2, 0.2, 0.58);
-      const sunCrystal = new THREE.Mesh(
-        new THREE.OctahedronGeometry(0.36, 0),
-        new THREE.MeshStandardMaterial({
-          color: 0xfef08a,
-          emissive: 0xfacc15,
-          emissiveIntensity: 1.45,
-          roughness: 0.12,
-          metalness: 0.3,
-          flatShading: true,
-        }),
-      );
-      sunCrystal.position.set(0, 1.98, 0);
+      // Great Solar Ziggurat: 4-tier carved sandstone & jade pyramid, grand 4-sided stairs, corner fire braziers & levitating solar crystal
+      addPart('stone', 1.74, 0.34, 1.74, 0, 0.17, 0, 0xd97706);
+      addPart('stone', 1.4, 0.34, 1.4, 0, 0.51, 0, 0x10b981);
+      addPart('stone', 1.06, 0.34, 1.06, 0, 0.85, 0, 0xeab308);
+      addPart('stone', 0.72, 0.34, 0.72, 0, 1.19, 0, 0x059669);
+      // Grand central stair ramps on all 4 cardinal sides
+      addPart('stone', 0.36, 1.24, 1.82, 0, 0.62, 0, 0xf59e0b);
+      addPart('stone', 1.82, 1.24, 0.36, 0, 0.62, 0, 0xf59e0b);
+      // 4 gilded temple sanctum pillars + glowing corner fire braziers
+      for (const sx of [-0.26, 0.26]) {
+        for (const sz of [-0.26, 0.26]) {
+          addPart('metal', 0.12, 0.42, 0.12, sx, 1.54, sz, 0xfbbf24);
+        }
+      }
+      for (const [bx, bz] of [[-0.72, 0.72], [0.72, 0.72], [-0.72, -0.72], [0.72, -0.72]] as const) {
+        addPart('stone', 0.18, 0.22, 0.18, bx, 0.44, bz, 0xb45309);
+        addPart('glow', 0.12, 0.14, 0.12, bx, 0.62, bz, 0xfde047);
+      }
+
+      const sunGeo = new THREE.OctahedronGeometry(0.34, 0).toNonIndexed();
+      const cCount = sunGeo.getAttribute('position').count;
+      const cCols = new Float32Array(cCount * 3);
+      const cCol = new THREE.Color(0xfef08a);
+      for (let i = 0; i < cCount; i++) {
+        cCols[i * 3] = cCol.r;
+        cCols[i * 3 + 1] = cCol.g;
+        cCols[i * 3 + 2] = cCol.b;
+      }
+      sunGeo.setAttribute('color', new THREE.BufferAttribute(cCols, 3));
+      const sunCrystal = new THREE.Mesh(sunGeo, mats.glow);
+      sunCrystal.position.set(0, 2.08, 0);
       root.add(sunCrystal);
-      return { root, animatedPart: sunCrystal, baseAnimY: 1.98 };
+      animatedPart = sunCrystal;
+      baseAnimY = 2.08;
+      break;
     }
   }
+
+  // Merge each material bucket into ONE draw call and strip invisible -Y underside triangles
+  const bucketKeys: MaterialBucket[] = ['stone', 'wood', 'foliage', 'metal', 'cloth', 'glow'];
+  for (const key of bucketKeys) {
+    const parts = buckets[key];
+    if (parts.length === 0) continue;
+    const merged = mergeGeometries(parts, false);
+    for (const p of parts) p.dispose();
+    if (!merged) continue;
+    const stripped = stripDownwardTriangles(merged);
+    const mesh = new THREE.Mesh(stripped, mats[key]);
+    mesh.castShadow = key !== 'glow';
+    mesh.receiveShadow = true;
+    root.add(mesh);
+  }
+
+  return { root, animatedPart, baseAnimY };
 }
 
-function disposeObjectTree(obj: THREE.Object3D): void {
+function disposeWonderGeometries(obj: THREE.Object3D): void {
   obj.traverse((child) => {
     const mesh = child as THREE.Mesh;
     if (mesh.geometry) mesh.geometry.dispose();
-    if (mesh.material) {
-      if (Array.isArray(mesh.material)) {
-        for (const m of mesh.material) m.dispose();
-      } else {
-        mesh.material.dispose();
-      }
-    }
   });
 }
 
 /**
  * Renders Phase 4 Monuments:
- * - Race-themed World Wonders (bespoke multi-part animated 3D structures)
- * - Battle Memorials (instanced stone obelisks + crimson/gold war-sword plaques)
+ * - Race-themed World Wonders (pixel-textured, merged-bucket optimized 3D monuments)
+ * - Battle Memorials (instanced pixel-textured stone obelisks + gilded bronze plaques)
  */
 export function createMonumentsSystem(): MonumentsSystem {
   const group = new THREE.Group();
   group.name = 'monuments_group';
 
+  const sharedMats = createSharedWonderMaterials();
   const wonderVisuals = new Map<string, WonderVisual>();
 
-  // Instanced Battle Memorials (2 draw calls total for all memorials)
+  // Instanced Battle Memorials (2 draw calls total for all memorials, now with pixel-art textures!)
   const MAX_MEMORIALS = 32;
   const obeliskGeo = new THREE.BoxGeometry(0.28, 0.78, 0.28);
   const obeliskMat = new THREE.MeshStandardMaterial({
-    color: new THREE.Color('#cbd5e1'),
+    color: new THREE.Color('#e2e8f0'),
+    map: getPixelArtTexture('memorial_stone', '#cbd5e1', '#f8fafc', '#64748b', 'stone'),
     roughness: 0.82,
     metalness: 0.1,
-    flatShading: true,
   });
   const plaqueGeo = new THREE.BoxGeometry(0.46, 0.14, 0.46);
   const plaqueMat = new THREE.MeshStandardMaterial({
-    color: new THREE.Color('#64748b'),
+    color: new THREE.Color('#cbd5e1'),
+    map: getPixelArtTexture('memorial_bronze', '#94a3b8', '#fde68a', '#475569', 'tech'),
     emissive: new THREE.Color('#f59e0b'),
-    emissiveIntensity: 0.22,
-    roughness: 0.65,
-    metalness: 0.25,
-    flatShading: true,
+    emissiveIntensity: 0.2,
+    roughness: 0.58,
+    metalness: 0.35,
   });
   const obeliskInst = new THREE.InstancedMesh(obeliskGeo, obeliskMat, MAX_MEMORIALS);
   const plaqueInst = new THREE.InstancedMesh(plaqueGeo, plaqueMat, MAX_MEMORIALS);
@@ -246,7 +481,7 @@ export function createMonumentsSystem(): MonumentsSystem {
       activeIds.add(w.id);
       let vis = wonderVisuals.get(w.id);
       if (!vis) {
-        const built = buildRaceWonderMesh(w.species);
+        const built = buildRaceWonderMesh(w.species, sharedMats);
         vis = {
           id: w.id,
           species: w.species,
@@ -270,7 +505,7 @@ export function createMonumentsSystem(): MonumentsSystem {
     for (const [id, vis] of wonderVisuals.entries()) {
       if (!activeIds.has(id)) {
         group.remove(vis.root);
-        disposeObjectTree(vis.root);
+        disposeWonderGeometries(vis.root);
         wonderVisuals.delete(id);
       }
     }
@@ -314,9 +549,16 @@ export function createMonumentsSystem(): MonumentsSystem {
 
   const dispose = () => {
     for (const vis of wonderVisuals.values()) {
-      disposeObjectTree(vis.root);
+      disposeWonderGeometries(vis.root);
     }
     wonderVisuals.clear();
+    sharedMats.stone.dispose();
+    sharedMats.wood.dispose();
+    sharedMats.foliage.dispose();
+    sharedMats.metal.dispose();
+    sharedMats.cloth.dispose();
+    sharedMats.glow.dispose();
+    sharedMats.beam.dispose();
     obeliskGeo.dispose();
     obeliskMat.dispose();
     plaqueGeo.dispose();

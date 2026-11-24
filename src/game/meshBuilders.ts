@@ -2112,6 +2112,7 @@ export interface NodeVariantLibrary {
   windmillBladesVariants: THREE.BufferGeometry[];
   miningFacilities: THREE.BufferGeometry[];
   standardMat: THREE.MeshStandardMaterial;
+  facilityTexturedMat: THREE.MeshStandardMaterial;
   crystalMat: THREE.MeshStandardMaterial;
   coralReefMat: THREE.MeshStandardMaterial;
 }
@@ -4251,6 +4252,12 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
       vertexColors: true,
       roughness: 0.78,
       metalness: 0.08,
+    }),
+    facilityTexturedMat: new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      map: getPixelArtTexture('facility_detail_neutral', '#e6e6e6', '#ffffff', '#b6b6b6', 'stone'),
+      roughness: 0.78,
+      metalness: 0.1,
     }),
     crystalMat: (() => {
       const m = new THREE.MeshStandardMaterial({

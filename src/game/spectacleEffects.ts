@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { getPixelArtTexture } from './meshBuilders';
 import type { SimulationState, TileData } from './types';
 
 export interface SpectacleEffectsSystem {
@@ -56,10 +57,10 @@ export function createSpectacleEffectsSystem(initialTiles: TileData[]): Spectacl
   const ruinPillarGeo = new THREE.BoxGeometry(0.24, 0.92, 0.24);
   const ruinArchGeo = new THREE.BoxGeometry(0.86, 0.2, 0.28);
   const ruinStoneMat = new THREE.MeshStandardMaterial({
-    color: new THREE.Color('#9ca3af'),
+    color: new THREE.Color('#d6d3d1'),
+    map: getPixelArtTexture('ancient_ruin_stone', '#9ca3af', '#cbd5e1', '#52525b', 'stone'),
     roughness: 0.88,
     metalness: 0.06,
-    flatShading: true,
   });
   const ruinOrbGeo = new THREE.OctahedronGeometry(0.18, 0);
   const ruinOrbMat = new THREE.MeshStandardMaterial({

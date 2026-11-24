@@ -1000,7 +1000,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       if (!variantLib) return;
       windmillTowerPool = new BatchedStaticPool(
         'batched_windmill_towers',
-        variantLib.standardMat,
+        variantLib.facilityTexturedMat,
         variantLib.windmillTowers,
         true,
         true,
@@ -1008,7 +1008,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       );
       windmillBladesPool = new BatchedStaticPool(
         'batched_windmill_blades',
-        variantLib.standardMat,
+        variantLib.facilityTexturedMat,
         variantLib.windmillBladesVariants,
         true,
         true,
@@ -1016,7 +1016,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       );
       miningFacilityPool = new BatchedStaticPool(
         'batched_mining_facilities',
-        variantLib.standardMat,
+        variantLib.facilityTexturedMat,
         variantLib.miningFacilities,
         true,
         true,

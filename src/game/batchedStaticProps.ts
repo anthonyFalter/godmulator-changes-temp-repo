@@ -4,6 +4,7 @@ function stripDownwardBottomTriangles(g: THREE.BufferGeometry): void {
   const posAttr = g.getAttribute('position') as THREE.BufferAttribute | undefined;
   const normAttr = g.getAttribute('normal') as THREE.BufferAttribute | undefined;
   const colAttr = g.getAttribute('color') as THREE.BufferAttribute | undefined;
+  const uvAttr = g.getAttribute('uv') as THREE.BufferAttribute | undefined;
   if (!posAttr || !normAttr) return;
 
   const nArr = normAttr.array as Float32Array;
@@ -45,6 +46,7 @@ function stripDownwardBottomTriangles(g: THREE.BufferGeometry): void {
 
   const pArr = posAttr.array as Float32Array;
   const cArr = colAttr ? (colAttr.array as Float32Array) : null;
+  const uArr = uvAttr ? (uvAttr.array as Float32Array) : null;
   const triCount = Math.floor(posAttr.count / 3);
   let kept = 0;
   for (let t = 0; t < triCount; t++) {
@@ -59,7 +61,9 @@ function stripDownwardBottomTriangles(g: THREE.BufferGeometry): void {
   const nextPos = new Float32Array(kept * 9);
   const nextNorm = new Float32Array(kept * 9);
   const nextCol = cArr ? new Float32Array(kept * 9) : null;
+  const nextUv = uArr ? new Float32Array(kept * 6) : null;
   let w = 0;
+  let wUv = 0;
   for (let t = 0; t < triCount; t++) {
     const base = t * 9;
     if (nArr[base + 1] < -0.95 && nArr[base + 4] < -0.95 && nArr[base + 7] < -0.95) {
@@ -68,31 +72,68 @@ function stripDownwardBottomTriangles(g: THREE.BufferGeometry): void {
     nextPos.set(pArr.subarray(base, base + 9), w);
     nextNorm.set(nArr.subarray(base, base + 9), w);
     if (nextCol && cArr) nextCol.set(cArr.subarray(base, base + 9), w);
+    if (nextUv && uArr) {
+      const uvBase = t * 6;
+      nextUv.set(uArr.subarray(uvBase, uvBase + 6), wUv);
+      wUv += 6;
+    }
     w += 9;
   }
   g.setAttribute('position', new THREE.BufferAttribute(nextPos, 3));
   g.setAttribute('normal', new THREE.BufferAttribute(nextNorm, 3));
   if (nextCol) g.setAttribute('color', new THREE.BufferAttribute(nextCol, 3));
+  if (nextUv) g.setAttribute('uv', new THREE.BufferAttribute(nextUv, 2));
 }
 
 function normalizeForStaticBatch(
   source: THREE.BufferGeometry,
   wantIndexed: boolean,
   stripBottomFaces: boolean,
+  preserveUv: boolean,
 ): THREE.BufferGeometry {
   const g = source.index ? (wantIndexed ? source.clone() : source.toNonIndexed()) : source.clone();
   if (!g.getAttribute('normal')) {
     g.computeVertexNormals();
   }
-  const count = g.getAttribute('position')?.count ?? 0;
+  const posAttr = g.getAttribute('position') as THREE.BufferAttribute | undefined;
+  const normAttr = g.getAttribute('normal') as THREE.BufferAttribute | undefined;
+  const count = posAttr?.count ?? 0;
   if (!g.getAttribute('color') && count > 0) {
     const colors = new Float32Array(count * 3);
     colors.fill(1);
     g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   }
+  if (preserveUv && !g.getAttribute('uv') && posAttr && count > 0) {
+    // Synthesize crisp box-projected pixel UVs if a sub-part lacked UVs
+    const uvs = new Float32Array(count * 2);
+    for (let i = 0; i < count; i++) {
+      const px = posAttr.getX(i);
+      const py = posAttr.getY(i);
+      const pz = posAttr.getZ(i);
+      const nx = Math.abs(normAttr?.getX(i) ?? 0);
+      const ny = Math.abs(normAttr?.getY(i) ?? 1);
+      const nz = Math.abs(normAttr?.getZ(i) ?? 0);
+      if (ny >= nx && ny >= nz) {
+        uvs[i * 2] = px * 1.2;
+        uvs[i * 2 + 1] = pz * 1.2;
+      } else if (nx >= nz) {
+        uvs[i * 2] = pz * 1.2;
+        uvs[i * 2 + 1] = py * 1.2;
+      } else {
+        uvs[i * 2] = px * 1.2;
+        uvs[i * 2 + 1] = py * 1.2;
+      }
+    }
+    g.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  }
   // Remove unused attributes so every geometry in the BatchedMesh has an identical attribute layout
   for (const attrName of Object.keys(g.attributes)) {
-    if (attrName !== 'position' && attrName !== 'normal' && attrName !== 'color') {
+    if (
+      attrName !== 'position' &&
+      attrName !== 'normal' &&
+      attrName !== 'color' &&
+      !(preserveUv && attrName === 'uv')
+    ) {
       g.deleteAttribute(attrName);
     }
   }
@@ -151,10 +192,11 @@ export class BatchedStaticPool {
     const stripBottomFaces =
       !material.transparent &&
       (material.side === THREE.FrontSide || material.side === undefined);
+    const preserveUv = Boolean((material as THREE.MeshStandardMaterial).map);
     // Use indexed layout if all source geometries are indexed (e.g. voxelTrees), else non-indexed
     const allIndexed = geometries.length > 0 && geometries.every((g) => g.index !== null);
     this.normalizedGeos = geometries.map((g) =>
-      normalizeForStaticBatch(g, allIndexed, stripBottomFaces),
+      normalizeForStaticBatch(g, allIndexed, stripBottomFaces, preserveUv),
     );
 
     let verts = 0;
