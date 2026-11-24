@@ -493,17 +493,52 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
     oceanFoam.updateMap(sim.tiles);
     worldGroup.add(oceanFoam.mesh);
 
-    // 3D stackable elevated liquid volumes (mountain crater lakes, lava calderas, poison basins)
-    const ELEVATED_LIQUID_CAP = Math.min(8192, sim.tiles.length);
-    const elevatedLiquidGeo = new THREE.BoxGeometry(1.01, 1.0, 1.01);
+    // 3D stackable elevated liquid volumes (seamless face-culled merged surfaces — zero internal tile grid seams!)
+    const elevatedWaterTex = (() => {
+      const c = document.createElement('canvas');
+      c.width = 64;
+      c.height = 64;
+      const g = c.getContext('2d');
+      if (g) {
+        g.fillStyle = '#2cbce8';
+        g.fillRect(0, 0, 64, 64);
+        // Seamless tileable soft pixel-art water ripples & caustics
+        for (let y = 0; y < 64; y += 2) {
+          for (let x = 0; x < 64; x += 2) {
+            const w1 = Math.sin((x / 64) * Math.PI * 4 + (y / 64) * Math.PI * 2);
+            const w2 = Math.cos((y / 64) * Math.PI * 4 - (x / 64) * Math.PI * 2);
+            const v = (w1 + w2) * 0.5;
+            if (v > 0.62) {
+              g.fillStyle = '#7ce4fc';
+              g.fillRect(x, y, 2, 2);
+            } else if (v > 0.28) {
+              g.fillStyle = '#4ad0f2';
+              g.fillRect(x, y, 2, 2);
+            } else if (v < -0.45) {
+              g.fillStyle = '#1da5d4';
+              g.fillRect(x, y, 2, 2);
+            }
+          }
+        }
+      }
+      const tex = new THREE.CanvasTexture(c);
+      tex.wrapS = THREE.RepeatWrapping;
+      tex.wrapT = THREE.RepeatWrapping;
+      tex.magFilter = THREE.NearestFilter;
+      tex.minFilter = THREE.NearestFilter;
+      tex.colorSpace = THREE.SRGBColorSpace;
+      return tex;
+    })();
+
     const elevatedWaterMat = new THREE.MeshStandardMaterial({
-      color: new THREE.Color('#2eb8e6'),
+      color: new THREE.Color('#ffffff'),
+      map: elevatedWaterTex,
       emissive: new THREE.Color('#0284c7'),
-      emissiveIntensity: 0.22,
+      emissiveIntensity: 0.2,
       roughness: 0.14,
-      metalness: 0.12,
+      metalness: 0.08,
       transparent: true,
-      opacity: 0.82,
+      opacity: 0.84,
       depthWrite: false,
     });
     const elevatedLavaMat = new THREE.MeshStandardMaterial({
@@ -520,59 +555,151 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       roughness: 0.2,
       metalness: 0.08,
       transparent: true,
-      opacity: 0.88,
+      opacity: 0.86,
       depthWrite: false,
     });
-    const elevatedWaterInst = new THREE.InstancedMesh(elevatedLiquidGeo, elevatedWaterMat, ELEVATED_LIQUID_CAP);
-    const elevatedLavaInst = new THREE.InstancedMesh(elevatedLiquidGeo, elevatedLavaMat, ELEVATED_LIQUID_CAP);
-    const elevatedPoisonInst = new THREE.InstancedMesh(elevatedLiquidGeo, elevatedPoisonMat, ELEVATED_LIQUID_CAP);
-    elevatedWaterInst.count = 0;
-    elevatedLavaInst.count = 0;
-    elevatedPoisonInst.count = 0;
-    elevatedWaterInst.visible = false;
-    elevatedLavaInst.visible = false;
-    elevatedPoisonInst.visible = false;
-    elevatedWaterInst.frustumCulled = false;
-    elevatedLavaInst.frustumCulled = false;
-    elevatedPoisonInst.frustumCulled = false;
-    elevatedWaterInst.renderOrder = -4;
-    elevatedLavaInst.renderOrder = -4;
-    elevatedPoisonInst.renderOrder = -4;
+
+    const elevatedWaterMesh = new THREE.Mesh(new THREE.BufferGeometry(), elevatedWaterMat);
+    const elevatedLavaMesh = new THREE.Mesh(new THREE.BufferGeometry(), elevatedLavaMat);
+    const elevatedPoisonMesh = new THREE.Mesh(new THREE.BufferGeometry(), elevatedPoisonMat);
+    elevatedWaterMesh.visible = false;
+    elevatedLavaMesh.visible = false;
+    elevatedPoisonMesh.visible = false;
+    elevatedWaterMesh.frustumCulled = false;
+    elevatedLavaMesh.frustumCulled = false;
+    elevatedPoisonMesh.frustumCulled = false;
+    elevatedWaterMesh.renderOrder = -4;
+    elevatedLavaMesh.renderOrder = -4;
+    elevatedPoisonMesh.renderOrder = -4;
     const elevatedLiquidGroup = new THREE.Group();
-    elevatedLiquidGroup.add(elevatedWaterInst, elevatedLavaInst, elevatedPoisonInst);
+    elevatedLiquidGroup.add(elevatedWaterMesh, elevatedLavaMesh, elevatedPoisonMesh);
     worldGroup.add(elevatedLiquidGroup);
-    const _elevLiquidDummy = new THREE.Object3D();
+
+    const pushLiquidQuad = (
+      pos: number[],
+      norm: number[],
+      uv: number[],
+      idx: number[],
+      ax: number, ay: number, az: number, au: number, av: number,
+      bx: number, by: number, bz: number, bu: number, bv: number,
+      cx: number, cy: number, cz: number, cu: number, cv: number,
+      dx: number, dy: number, dz: number, du: number, dv: number,
+      nx: number, ny: number, nz: number,
+    ) => {
+      const base = pos.length / 3;
+      pos.push(ax, ay, az, bx, by, bz, cx, cy, cz, dx, dy, dz);
+      norm.push(nx, ny, nz, nx, ny, nz, nx, ny, nz, nx, ny, nz);
+      uv.push(au, av, bu, bv, cu, cv, du, dv);
+      idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+    };
+
     const syncElevatedLiquids = (tiles: typeof sim.tiles) => {
-      let wCount = 0;
-      let lCount = 0;
-      let pCount = 0;
+      const gs = Math.round(Math.sqrt(tiles.length));
+      if (gs <= 0) return;
+
+      // Fast lookup arrays for neighbor face culling (eliminates all internal tile walls)
+      const kindGrid = new Uint8Array(gs * gs); // 0=none, 1=water, 2=lava, 3=poison
+      const lvlGrid = new Uint8Array(gs * gs);
+      const topYGrid = new Float32Array(gs * gs);
+      const terrainTopGrid = new Float32Array(gs * gs);
+
       for (let i = 0; i < tiles.length; i++) {
         const t = tiles[i];
+        const cell = t.z * gs + t.x;
+        const terrainTop = t.height <= 0 ? 0.12 : t.height * 0.45 + 0.25;
+        terrainTopGrid[cell] = terrainTop;
         const lvl = t.liquidLevel ?? 0;
-        if (lvl <= t.height) continue;
-        const floorY = t.height <= 0 ? 0.12 : t.height * 0.45 + 0.25;
-        const topY = lvl * 0.45 + 0.16;
-        const thick = Math.max(0.18, topY - floorY + 0.04);
-        _elevLiquidDummy.position.set(t.x, floorY - 0.04 + thick * 0.5, t.z);
-        _elevLiquidDummy.scale.set(1, thick, 1);
-        _elevLiquidDummy.updateMatrix();
-        if (t.liquidKind === 'lava') {
-          if (lCount < ELEVATED_LIQUID_CAP) elevatedLavaInst.setMatrixAt(lCount++, _elevLiquidDummy.matrix);
-        } else if (t.liquidKind === 'poison') {
-          if (pCount < ELEVATED_LIQUID_CAP) elevatedPoisonInst.setMatrixAt(pCount++, _elevLiquidDummy.matrix);
-        } else {
-          if (wCount < ELEVATED_LIQUID_CAP) elevatedWaterInst.setMatrixAt(wCount++, _elevLiquidDummy.matrix);
+        if (lvl > t.height) {
+          kindGrid[cell] = t.liquidKind === 'lava' ? 2 : t.liquidKind === 'poison' ? 3 : 1;
+          lvlGrid[cell] = lvl;
+          topYGrid[cell] = lvl * 0.45 + 0.16;
         }
       }
-      elevatedWaterInst.count = wCount;
-      elevatedWaterInst.visible = wCount > 0;
-      if (wCount > 0) elevatedWaterInst.instanceMatrix.needsUpdate = true;
-      elevatedLavaInst.count = lCount;
-      elevatedLavaInst.visible = lCount > 0;
-      if (lCount > 0) elevatedLavaInst.instanceMatrix.needsUpdate = true;
-      elevatedPoisonInst.count = pCount;
-      elevatedPoisonInst.visible = pCount > 0;
-      if (pCount > 0) elevatedPoisonInst.instanceMatrix.needsUpdate = true;
+
+      const buffers = [
+        { pos: [] as number[], norm: [] as number[], uv: [] as number[], idx: [] as number[] }, // 1: water
+        { pos: [] as number[], norm: [] as number[], uv: [] as number[], idx: [] as number[] }, // 2: lava
+        { pos: [] as number[], norm: [] as number[], uv: [] as number[], idx: [] as number[] }, // 3: poison
+      ];
+
+      const UV_SCALE = 0.2;
+      for (let i = 0; i < tiles.length; i++) {
+        const t = tiles[i];
+        const cell = t.z * gs + t.x;
+        const kind = kindGrid[cell];
+        if (kind === 0) continue;
+
+        const lvl = lvlGrid[cell];
+        const topY = topYGrid[cell];
+        const floorY = terrainTopGrid[cell];
+        const buf = buffers[kind - 1];
+        const x0 = t.x - 0.5;
+        const x1 = t.x + 0.5;
+        const z0 = t.z - 0.5;
+        const z1 = t.z + 0.5;
+
+        // 1. Seamless Top Surface Quad (continuous world-space UVs across adjacent tiles)
+        pushLiquidQuad(
+          buf.pos, buf.norm, buf.uv, buf.idx,
+          x0, topY, z1, x0 * UV_SCALE, z1 * UV_SCALE,
+          x1, topY, z1, x1 * UV_SCALE, z1 * UV_SCALE,
+          x1, topY, z0, x1 * UV_SCALE, z0 * UV_SCALE,
+          x0, topY, z0, x0 * UV_SCALE, z0 * UV_SCALE,
+          0, 1, 0,
+        );
+
+        // 2. Exterior-Only Side Walls (culled against same liquid >= lvl or higher surrounding terrain)
+        const emitSideIfExposed = (
+          nx: number,
+          nz: number,
+          ax: number, az: number,
+          bx: number, bz: number,
+          normX: number, normZ: number,
+        ) => {
+          let botY = floorY;
+          if (nx >= 0 && nx < gs && nz >= 0 && nz < gs) {
+            const nCell = nz * gs + nx;
+            if (kindGrid[nCell] === kind && lvlGrid[nCell] >= lvl) return;
+            const nTerrain = terrainTopGrid[nCell];
+            if (nTerrain >= topY - 0.005) return;
+            const nLiquidTop = kindGrid[nCell] === kind ? topYGrid[nCell] : 0;
+            botY = Math.max(floorY - 0.04, nTerrain, nLiquidTop);
+          }
+          if (topY - botY <= 0.01) return;
+          pushLiquidQuad(
+            buf.pos, buf.norm, buf.uv, buf.idx,
+            ax, botY, az, 0, botY * UV_SCALE,
+            bx, botY, bz, UV_SCALE, botY * UV_SCALE,
+            bx, topY, bz, UV_SCALE, topY * UV_SCALE,
+            ax, topY, az, 0, topY * UV_SCALE,
+            normX, 0, normZ,
+          );
+        };
+
+        // +Z (South), -Z (North), +X (East), -X (West)
+        emitSideIfExposed(t.x, t.z + 1, x0, z1, x1, z1, 0, 1);
+        emitSideIfExposed(t.x, t.z - 1, x1, z0, x0, z0, 0, -1);
+        emitSideIfExposed(t.x + 1, t.z, x1, z1, x1, z0, 1, 0);
+        emitSideIfExposed(t.x - 1, t.z, x0, z0, x0, z1, -1, 0);
+      }
+
+      const meshes = [elevatedWaterMesh, elevatedLavaMesh, elevatedPoisonMesh];
+      for (let k = 0; k < 3; k++) {
+        const mesh = meshes[k];
+        const b = buffers[k];
+        if (b.idx.length === 0) {
+          mesh.visible = false;
+          continue;
+        }
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.Float32BufferAttribute(b.pos, 3));
+        geo.setAttribute('normal', new THREE.Float32BufferAttribute(b.norm, 3));
+        geo.setAttribute('uv', new THREE.Float32BufferAttribute(b.uv, 2));
+        geo.setIndex(b.idx);
+        mesh.geometry.dispose();
+        mesh.geometry = geo;
+        mesh.visible = true;
+      }
     };
     syncElevatedLiquids(sim.tiles);
 
@@ -16606,12 +16733,15 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       hitFlashOverlay.update(dt);
       milestoneBursts.update(dt, frustumSize);
       oceanFoam.updateFrame(shaderElapsed, preset);
-      if (elevatedWaterInst.visible || elevatedLavaInst.visible || elevatedPoisonInst.visible) {
-        elevatedLiquidGroup.position.y = Math.sin(shaderElapsed * 2.15) * 0.015;
-        if (elevatedLavaInst.visible) {
+      if (elevatedWaterMesh.visible || elevatedLavaMesh.visible || elevatedPoisonMesh.visible) {
+        elevatedLiquidGroup.position.y = Math.sin(shaderElapsed * 2.15) * 0.014;
+        if (elevatedWaterMesh.visible) {
+          elevatedWaterTex.offset.set(shaderElapsed * 0.045, shaderElapsed * 0.03);
+        }
+        if (elevatedLavaMesh.visible) {
           elevatedLavaMat.emissiveIntensity = 0.8 + Math.sin(shaderElapsed * 3.1) * 0.16;
         }
-        if (elevatedPoisonInst.visible) {
+        if (elevatedPoisonMesh.visible) {
           elevatedPoisonMat.emissiveIntensity = 0.48 + Math.sin(shaderElapsed * 2.6 + 1.2) * 0.1;
         }
       }
@@ -17176,7 +17306,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       hitFlashOverlay.dispose();
       milestoneBursts.dispose();
       oceanFoam.dispose();
-      elevatedLiquidGeo.dispose();
+      elevatedWaterMesh.geometry.dispose();
+      elevatedLavaMesh.geometry.dispose();
+      elevatedPoisonMesh.geometry.dispose();
+      elevatedWaterTex.dispose();
       elevatedWaterMat.dispose();
       elevatedLavaMat.dispose();
       elevatedPoisonMat.dispose();
