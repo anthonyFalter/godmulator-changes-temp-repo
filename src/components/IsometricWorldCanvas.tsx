@@ -12452,9 +12452,16 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           const v = vehicles[vi];
           let vEntry = vehicleMeshes.get(v.id);
           const vBasePad =
-            v.type === 'plane' || v.type === 'bomber_plane' || v.type === 'orbital_gunship'
-              ? 3.5
-              : 0.5;
+            v.type === 'orbital_mothership' || v.type === 'sky_carrier' || v.type === 'aircraft_carrier'
+              ? 8.5
+              : v.type === 'sky_cannonship' || v.type === 'submarine'
+                ? 5.5
+                : v.type === 'siege_artillery' ||
+                    v.type === 'plane' ||
+                    v.type === 'bomber_plane' ||
+                    v.type === 'orbital_gunship'
+                  ? 3.5
+                  : 0.5;
           const vPad = vEntry ? vBasePad + DESPAWN_CULL_HYSTERESIS : vBasePad;
           if (!isPointInCullBounds(v.x, v.z, worldCullBounds, vPad)) {
             continue;
@@ -12581,28 +12588,73 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
                 0.35,
               );
             }
-          } else if (v.type === 'warship' || v.type === 'passenger_ship') {
+          } else if (
+            v.type === 'warship' ||
+            v.type === 'passenger_ship' ||
+            v.type === 'aircraft_carrier' ||
+            v.type === 'submarine'
+          ) {
             const isSea = vTile?.height === 0;
+            const baseSeaY = v.type === 'submarine' ? 0.06 : v.type === 'aircraft_carrier' ? 0.22 : 0.26;
             const shipY = isSea
-              ? 0.26 + Math.sin(elapsed * 2.2 + v.x * 0.7) * 0.035
+              ? baseSeaY + Math.sin(elapsed * (v.type === 'aircraft_carrier' ? 1.4 : 2.2) + v.x * 0.7) * 0.03
               : groundY + v.y + 0.02;
             vGroup.position.set(v.x, shipY, v.z);
+            const wakeBackDist = v.type === 'aircraft_carrier' ? 5.9 : v.type === 'submarine' ? 3.8 : 0.62;
             if (isSea && Math.random() < 0.55) {
-              // Seafoam stern wake trailing behind sailing/cruising ships & ferries
+              // Seafoam stern wake trailing behind sailing/cruising ships, carriers & submarines
               spawnParticleBurst(
-                v.x - Math.sin(v.heading) * 0.62,
-                shipY + 0.05,
-                v.z - Math.cos(v.heading) * 0.62,
-                2,
+                v.x - Math.sin(v.heading) * wakeBackDist,
+                0.30,
+                v.z - Math.cos(v.heading) * wakeBackDist,
+                v.type === 'aircraft_carrier' ? 3 : 2,
                 v.epochLevel >= 6 ? '#56cfe1' : '#e0f2fe',
-                0.22,
+                v.type === 'aircraft_carrier' ? 0.36 : 0.22,
                 0.45,
-                0.42,
+                0.45,
               );
             }
-            if (v.epochLevel === 3 && Math.random() < 0.38) {
-              // Industrial steam ferry / ironclad smokestack plumes
-              spawnParticleBurst(v.x, shipY + 0.58, v.z, 1, '#475569', 0.18, 0.9, 0.52);
+            if (v.epochLevel === 3 && v.type !== 'submarine' && Math.random() < 0.38) {
+              // Industrial steam ferry / ironclad / carrier smokestack plumes
+              spawnParticleBurst(
+                v.x,
+                shipY + (v.type === 'aircraft_carrier' ? 3.4 : 0.58),
+                v.z,
+                1,
+                '#475569',
+                v.type === 'aircraft_carrier' ? 0.28 : 0.18,
+                0.9,
+                0.55,
+              );
+            }
+          } else if (
+            v.type === 'sky_cannonship' ||
+            v.type === 'sky_carrier' ||
+            v.type === 'orbital_mothership'
+          ) {
+            const hoverBob = Math.sin(elapsed * 1.6 + v.x * 0.4) * 0.14;
+            const capAirY = Math.max(groundY + 3.2, v.y + hoverBob);
+            vGroup.position.set(v.x, capAirY, v.z);
+            if (Math.random() < 0.35) {
+              const backOff = v.type === 'orbital_mothership' ? 7.2 : v.type === 'sky_carrier' ? 5.8 : 4.6;
+              spawnParticleBurst(
+                v.x - Math.sin(v.heading) * backOff,
+                capAirY,
+                v.z - Math.cos(v.heading) * backOff,
+                1,
+                v.species === 'orc'
+                  ? '#f97316'
+                  : v.species === 'dwarf'
+                    ? '#f59e0b'
+                    : v.species === 'elf'
+                      ? '#c084fc'
+                      : v.species === 'lizardfolk'
+                        ? '#34d399'
+                        : '#60a5fa',
+                0.28,
+                0.65,
+                0.42,
+              );
             }
           } else if (v.type === 'helicopter') {
             const heliY = Math.max(
