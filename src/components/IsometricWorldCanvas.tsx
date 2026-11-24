@@ -9481,32 +9481,99 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
               ambThresh = 76;
               ambGroupIdx = 16;
             } else if (isFreshwaterSurfaceProp) {
-              const touchesShore =
-                (tx > 0 && simState.tiles[i - 1].height > 0) ||
-                (tx + 1 < gsProps && simState.tiles[i + 1].height > 0) ||
-                (tz > 0 && simState.tiles[i - gsProps].height > 0) ||
-                (tz + 1 < gsProps && simState.tiles[i + gsProps].height > 0);
+              const tL = tx > 0 ? simState.tiles[i - 1] : null;
+              const tR = tx + 1 < gsProps ? simState.tiles[i + 1] : null;
+              const tU = tz > 0 ? simState.tiles[i - gsProps] : null;
+              const tD = tz + 1 < gsProps ? simState.tiles[i + gsProps] : null;
+              const shoreTile =
+                tL && tL.height > 0
+                  ? tL
+                  : tR && tR.height > 0
+                    ? tR
+                    : tU && tU.height > 0
+                      ? tU
+                      : tD && tD.height > 0
+                        ? tD
+                        : null;
+              const touchesShore = shoreTile !== null;
+              const shoreTerrain = shoreTile ? shoreTile.terrain : null;
+              const isMangroveShore = shoreTerrain === 'swamp' || shoreTerrain === 'jungle';
+              const isLushGrassShore =
+                shoreTerrain === 'fertile' || shoreTerrain === 'grass' || shoreTerrain === 'blossom';
+              const isSandyShore = shoreTerrain === 'sand';
+              const isRockyShore =
+                shoreTerrain === 'highland' || shoreTerrain === 'mountain' || shoreTerrain === 'tundra';
+              const vPick = (h >> 3) % 6;
+
               if (t.isLake) {
                 ambGroupIdx = 17;
-                ambThresh = touchesShore ? 48 : 20;
+                ambThresh = !touchesShore
+                  ? 22
+                  : isMangroveShore
+                    ? 66
+                    : isLushGrassShore
+                      ? 58
+                      : isSandyShore
+                        ? 24
+                        : isRockyShore
+                          ? 46
+                          : 44;
                 if (chance < ambThresh) {
                   const ambTier = chance < ambThresh * 0.28 ? 0 : chance < ambThresh * 0.62 ? 1 : 2;
-                  const lakeVariant = touchesShore
-                    ? [1, 1, 0, 0, 3, 2][(h >> 3) % 6]
-                    : ((h >> 3) & 1) === 0
-                      ? 0
-                      : 2;
+                  let lakeVariant = 0;
+                  if (!touchesShore) {
+                    lakeVariant = (vPick & 1) === 0 ? 0 : 2;
+                  } else if (isMangroveShore) {
+                    // Water-edge stilt-root mangroves (5), dense tall marsh grass (4), cattails (1), driftwood (3)
+                    lakeVariant = vPick < 2 ? 5 : vPick < 4 ? 4 : vPick === 4 ? 1 : 3;
+                  } else if (isLushGrassShore) {
+                    // Dense tall aquatic grass & sedges (4), cattails (1), lotus lily pads (0)
+                    lakeVariant = vPick < 3 ? 4 : vPick < 5 ? 1 : 0;
+                  } else if (isSandyShore) {
+                    // Open sandy shoal: mostly submerged cobbles (2) & sparse driftwood/reeds
+                    lakeVariant = vPick < 3 ? 2 : vPick < 5 ? 3 : 1;
+                  } else if (isRockyShore) {
+                    // Rocky lake edge: submerged mossy cobbles (2) & driftwood (3)
+                    lakeVariant = vPick < 4 ? 2 : 3;
+                  } else {
+                    lakeVariant = vPick < 2 ? 4 : vPick < 4 ? 1 : vPick === 4 ? 3 : 0;
+                  }
                   pushAmbCache(ambGroupIdx, lakeVariant, ambTier, t.x, t.z, _dummyMatrix.elements);
                 }
                 ambGroupIdx = -1;
               } else {
                 ambGroupIdx = 18;
-                ambThresh = touchesShore ? 38 : 28;
+                ambThresh = !touchesShore
+                  ? 24
+                  : isMangroveShore
+                    ? 64
+                    : isLushGrassShore
+                      ? 56
+                      : isSandyShore
+                        ? 24
+                        : isRockyShore
+                          ? 54
+                          : 42;
                 if (chance < ambThresh) {
                   const ambTier = chance < ambThresh * 0.28 ? 0 : chance < ambThresh * 0.62 ? 1 : 2;
-                  const riverVariant = touchesShore
-                    ? [1, 0, 2, 3][(h >> 3) % 4]
-                    : [0, 2, 3][(h >> 3) % 3];
+                  let riverVariant = 0;
+                  if (!touchesShore) {
+                    riverVariant = vPick < 2 ? 0 : vPick < 4 ? 2 : 3;
+                  } else if (isMangroveShore) {
+                    // River-edge stilt-root mangroves (5), tall reeds (4), cattails (1)
+                    riverVariant = vPick < 2 ? 5 : vPick < 5 ? 4 : 1;
+                  } else if (isLushGrassShore) {
+                    // Tall riverbank grass & sedges (4), cattails & rushes (1), gravel shoal (2)
+                    riverVariant = vPick < 3 ? 4 : vPick < 5 ? 1 : 2;
+                  } else if (isSandyShore) {
+                    // Sandy shoal edge: mostly submerged gravel/pebble shoals (2) & sparse rushes (1)
+                    riverVariant = vPick < 4 ? 2 : 1;
+                  } else if (isRockyShore) {
+                    // Rocky rapids edge: stepping stones (0), whitewater boulders (3), gravel shoals (2)
+                    riverVariant = vPick < 2 ? 0 : vPick < 4 ? 3 : 2;
+                  } else {
+                    riverVariant = vPick < 2 ? 4 : vPick < 4 ? 1 : vPick === 4 ? 2 : 0;
+                  }
                   pushAmbCache(ambGroupIdx, riverVariant, ambTier, t.x, t.z, _dummyMatrix.elements);
                 }
                 ambGroupIdx = -1;

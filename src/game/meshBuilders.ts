@@ -3040,6 +3040,39 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     addColoredBox(p, 0.15, 0.02, 0.15, 0.14, 0.011, 0.20, 0x3b8f4e); // lily pad
     ambientLake.push(finalizeMergedParts(p));
   }
+  {
+    // Variant 4: Dense tall aquatic marsh grass, arching sedge blades & twin cattail reeds
+    const p: THREE.BufferGeometry[] = [];
+    addColoredBox(p, 0.036, 0.56, 0.036, -0.22, 0.09, -0.14, 0x3a6f35);
+    addColoredBox(p, 0.062, 0.12, 0.062, -0.22, 0.34, -0.14, 0x6b4226); // tall cattail head
+    addColoredBox(p, 0.034, 0.48, 0.034, 0.14, 0.06, -0.18, 0x4b8540);
+    addColoredBox(p, 0.056, 0.10, 0.056, 0.14, 0.27, -0.18, 0x5c361e); // second cattail head
+    addColoredBox(p, 0.032, 0.42, 0.032, -0.06, 0.04, 0.16, 0x539146); // tall aquatic grass blade
+    addColoredBox(p, 0.032, 0.38, 0.032, 0.22, 0.02, 0.12, 0x62a150);
+    addColoredBox(p, 0.030, 0.34, 0.030, -0.16, 0.00, 0.20, 0x457d3c);
+    addColoredBox(p, 0.030, 0.30, 0.030, 0.04, -0.01, -0.02, 0x6fb05a);
+    addColoredBox(p, 0.030, 0.26, 0.030, -0.28, -0.03, 0.04, 0x589649);
+    ambientLake.push(finalizeMergedParts(p));
+  }
+  {
+    // Variant 5: Shallow-water stilt-root mangrove sapling rooted directly in the water edge
+    const p: THREE.BufferGeometry[] = [];
+    // Arched prop/stilt roots dipping down into the lakebed
+    addColoredBox(p, 0.055, 0.30, 0.055, -0.14, -0.02, -0.10, 0x59422f);
+    addColoredBox(p, 0.055, 0.30, 0.055, 0.14, -0.02, -0.08, 0x523b29);
+    addColoredBox(p, 0.055, 0.28, 0.055, -0.08, -0.03, 0.14, 0x614833);
+    addColoredBox(p, 0.055, 0.28, 0.055, 0.11, -0.03, 0.12, 0x4d3726);
+    // Central mangrove trunk rising above the water surface
+    addColoredBox(p, 0.11, 0.36, 0.11, 0.0, 0.24, 0.0, 0x644a34);
+    // Layered damp emerald-olive mangrove canopy
+    addColoredBox(p, 0.42, 0.16, 0.38, 0.0, 0.46, 0.0, 0x2f6b3a);
+    addColoredBox(p, 0.34, 0.14, 0.32, 0.06, 0.58, -0.04, 0x3d8147);
+    addColoredBox(p, 0.22, 0.10, 0.22, -0.08, 0.64, 0.06, 0x4c9452);
+    // Companion reed tufts at the mangrove roots
+    addColoredBox(p, 0.032, 0.32, 0.032, -0.24, 0.01, 0.10, 0x4f8944);
+    addColoredBox(p, 0.030, 0.26, 0.030, 0.22, -0.01, -0.14, 0x619e50);
+    ambientLake.push(finalizeMergedParts(p));
+  }
 
   // Freshwater River micro-voxel props (y = 0 aligns with water surface at y ~ 0.295)
   const ambientRiver: THREE.BufferGeometry[] = [];
@@ -3084,6 +3117,32 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     addColoredBox(p, 0.36, 0.018, 0.07, 0.0, 0.013, -0.15, 0xe8fbff);
     addColoredBox(p, 0.07, 0.018, 0.32, -0.17, 0.013, 0.0, 0xc9f2f7);
     addColoredBox(p, 0.14, 0.016, 0.08, 0.16, 0.011, 0.15, 0xbcebf2);
+    ambientRiver.push(finalizeMergedParts(p));
+  }
+  {
+    // Variant 4: Dense tall riverbank grass, sedges & cattail reeds lining vegetated banks
+    const p: THREE.BufferGeometry[] = [];
+    addColoredBox(p, 0.036, 0.54, 0.036, -0.20, 0.08, -0.16, 0x3b7236);
+    addColoredBox(p, 0.060, 0.11, 0.060, -0.20, 0.32, -0.16, 0x683f23); // cattail head
+    addColoredBox(p, 0.034, 0.44, 0.034, 0.16, 0.04, -0.12, 0x4c8741);
+    addColoredBox(p, 0.032, 0.40, 0.032, -0.08, 0.03, 0.18, 0x579649);
+    addColoredBox(p, 0.032, 0.34, 0.032, 0.20, 0.00, 0.16, 0x67a654);
+    addColoredBox(p, 0.030, 0.30, 0.030, -0.24, -0.01, 0.08, 0x49803e);
+    addColoredBox(p, 0.030, 0.28, 0.030, 0.02, -0.02, -0.04, 0x72b35c);
+    ambientRiver.push(finalizeMergedParts(p));
+  }
+  {
+    // Variant 5: River-edge stilt-root mangrove sapling dipping roots into the current
+    const p: THREE.BufferGeometry[] = [];
+    addColoredBox(p, 0.052, 0.28, 0.052, -0.13, -0.02, -0.10, 0x59422f);
+    addColoredBox(p, 0.052, 0.28, 0.052, 0.13, -0.02, -0.08, 0x503a28);
+    addColoredBox(p, 0.052, 0.26, 0.052, -0.08, -0.03, 0.13, 0x624934);
+    addColoredBox(p, 0.052, 0.26, 0.052, 0.10, -0.03, 0.11, 0x4c3625);
+    addColoredBox(p, 0.10, 0.34, 0.10, 0.0, 0.23, 0.0, 0x634933);
+    addColoredBox(p, 0.38, 0.15, 0.36, 0.0, 0.44, 0.0, 0x2e6a38);
+    addColoredBox(p, 0.30, 0.13, 0.28, -0.05, 0.55, 0.04, 0x3e8248);
+    addColoredBox(p, 0.20, 0.09, 0.20, 0.07, 0.61, -0.05, 0x4e9654);
+    addColoredBox(p, 0.030, 0.30, 0.030, 0.22, 0.0, 0.08, 0x528d46);
     ambientRiver.push(finalizeMergedParts(p));
   }
 

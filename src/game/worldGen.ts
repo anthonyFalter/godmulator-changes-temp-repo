@@ -240,6 +240,8 @@ export function generateWorldTiles(
   const biomeVarGrid = new Float32Array(totalTiles);
   const riverMask = new Uint8Array(totalTiles);
   const lakeMask = new Uint8Array(totalTiles);
+  // 1 = inside-bend depositional shoal (sandy/silty point bar), 2 = outside-bend erosional cut-bank (rocky/cobble)
+  const riverPointBarMask = new Uint8Array(totalTiles);
 
   // Seeded world-flavor parameters so each seed shifts continent style, mountain vigor, & climate
   const worldStyle = rng(); // archipelago / twin-bay / grand-continent
@@ -673,10 +675,25 @@ export function generateWorldTiles(
       if (lakeCenters.some((other) => Math.hypot(other.x - cand.x, other.z - cand.z) < 16)) {
         continue;
       }
-      const radius = isArchipelago ? 1.8 + rng() * 1.1 : 3.2 + rng() * 2.3;
+      const radius = isArchipelago ? 2.1 + rng() * 1.2 : 3.6 + rng() * 2.6;
       lakeCenters.push({ x: cand.x, z: cand.z, radius });
 
-      const rCeil = Math.ceil(radius + 2);
+      // Build 2–3 overlapping organic lobes so lakes have coves, bays & natural irregular shorelines
+      const lobeCount = isArchipelago ? 2 : 2 + (rng() < 0.65 ? 1 : 0);
+      const lobes: Array<{ lx: number; lz: number; lr: number }> = [
+        { lx: cand.x, lz: cand.z, lr: radius },
+      ];
+      for (let lb = 1; lb < lobeCount; lb++) {
+        const ang = rng() * Math.PI * 2;
+        const off = radius * (0.48 + rng() * 0.42);
+        lobes.push({
+          lx: cand.x + Math.cos(ang) * off,
+          lz: cand.z + Math.sin(ang) * off,
+          lr: radius * (0.58 + rng() * 0.34),
+        });
+      }
+
+      const rCeil = Math.ceil(radius * 2.0 + 3);
       for (let oz = -rCeil; oz <= rCeil; oz++) {
         for (let ox = -rCeil; ox <= rCeil; ox++) {
           const nx = cand.x + ox;
@@ -684,20 +701,27 @@ export function generateWorldTiles(
           if (nx <= 2 || nx >= gridSize - 3 || nz <= 2 || nz >= gridSize - 3) continue;
           if (Math.hypot(nx - starterHubX, nz - starterHubZ) < (isArchipelago ? 4.5 : 7.0)) continue;
           const nIdx = nz * gridSize + nx;
-          const wobble = (warpNoise.sample(nx * 0.18 + l * 13, nz * 0.18) - 0.5) * 1.35;
-          const d = Math.hypot(ox, oz) + wobble;
-          if (d <= radius) {
+          const wobble =
+            (warpNoise.fbm(nx * 0.14 + l * 13.7, nz * 0.14 - l * 7.3, 2) - 0.5) * 2.1;
+          let minSignedDist = Infinity;
+          for (let lb = 0; lb < lobes.length; lb++) {
+            const lobe = lobes[lb];
+            const sd = Math.hypot(nx - lobe.lx, nz - lobe.lz) + wobble - lobe.lr;
+            if (sd < minSignedDist) minSignedDist = sd;
+          }
+          if (minSignedDist <= 0) {
             heightGrid[nIdx] = 0;
             lakeMask[nIdx] = 1;
-          } else if (d <= radius + 1.8) {
+          } else if (minSignedDist <= 2.4) {
             if (heightGrid[nIdx] > 2) heightGrid[nIdx] = 1;
-            moistGrid[nIdx] = Math.min(1, moistGrid[nIdx] + 0.32);
+            moistGrid[nIdx] = Math.min(1, moistGrid[nIdx] + Math.max(0.14, 0.40 - minSignedDist * 0.11));
           }
         }
       }
     }
 
-    // Stage 3: Seeded Hydrology — trace lively, meandering shallow rivers from mountain springs to lakes & coast
+    // Stage 3: Seeded Hydrology — smooth curving, meandering rivers with natural width growth,
+    // inside-bend sandy/silty point-bar shoals, outside-bend rocky cut-banks, and flared coastal mouths
     const springCandidates: number[] = [];
     for (let z = 6; z < gridSize - 6; z += 4) {
       for (let x = 6; x < gridSize - 6; x += 4) {
@@ -715,105 +739,129 @@ export function generateWorldTiles(
     for (let r = 0; r < riverCount && springCandidates.length > 0; r++) {
       const pick = Math.floor(rng() * springCandidates.length);
       const currIdx = springCandidates.splice(pick, 1)[0];
-      let cx = currIdx % gridSize;
-      let cz = Math.floor(currIdx / gridSize);
+      let rx = currIdx % gridSize;
+      let rz = Math.floor(currIdx / gridSize);
 
-      // Bias initial direction toward nearest lake or sea edge
-      let targetX = cx + (cx - center) * 0.8;
-      let targetZ = cz + (cz - center) * 0.8;
+      // Bias target toward an inland lake or outer coast
+      let targetX = rx + (rx - center) * 1.15;
+      let targetZ = rz + (rz - center) * 1.15;
       if (lakeCenters.length > 0 && r % 2 === 0) {
         const lk = lakeCenters[r % lakeCenters.length];
         targetX = lk.x;
         targetZ = lk.z;
       }
-      const initLen = Math.max(1, Math.hypot(targetX - cx, targetZ - cz));
-      let dirX = (targetX - cx) / initLen;
-      let dirZ = (targetZ - cz) / initLen;
+      let heading = Math.atan2(targetZ - rz, targetX - rx);
+      const meanderPhase = rng() * Math.PI * 2;
+      const meanderFreq = 0.085 + rng() * 0.045;
+      const meanderAmp = 0.72 + rng() * 0.42;
+      const stepDist = 0.58;
+      const maxSteps = Math.round(gridSize * 2.8);
+      const ownRiverTiles = new Uint8Array(totalTiles);
+      let reachedWater = false;
 
-      const maxSteps = gridSize * 2;
       for (let step = 0; step < maxSteps; step++) {
-        if (cx <= 1 || cx >= gridSize - 2 || cz <= 1 || cz >= gridSize - 2) break;
-        const distFromHome = Math.hypot(cx - starterHubX, cz - starterHubZ);
-        if (distFromHome < (isArchipelago ? 4.0 : 6.5)) break; // Never flood the starter acropolis
-
-        const idx = cz * gridSize + cx;
-        if (step > 3 && heightGrid[idx] === 0 && riverMask[idx] === 0) {
-          break; // Reached ocean or inland lake!
+        if (rx <= 1.5 || rx >= gridSize - 2.5 || rz <= 1.5 || rz >= gridSize - 2.5) break;
+        const distFromHome = Math.hypot(rx - starterHubX, rz - starterHubZ);
+        if (distFromHome < (isArchipelago ? 4.2 : 6.8)) {
+          // Gently steer around the starter acropolis instead of abruptly terminating
+          const awayAngle = Math.atan2(rz - starterHubZ, rx - starterHubX);
+          heading = awayAngle;
+          rx += Math.cos(heading) * stepDist;
+          rz += Math.sin(heading) * stepDist;
+          continue;
         }
 
-        // Carve shallow river bed with natural meandering bends and occasional wider pools
-        heightGrid[idx] = 0;
-        riverMask[idx] = 1;
-        const widenPool = step > 8 && ((step + r * 5) % 6 === 0 || step > 22);
-        if (widenPool) {
-          const perpX = Math.abs(dirX) > Math.abs(dirZ) ? 0 : 1;
-          const perpZ = perpX === 0 ? 1 : 0;
-          const wx = cx + perpX;
-          const wz = cz + perpZ;
-          if (
-            wx > 1 &&
-            wx < gridSize - 2 &&
-            wz > 1 &&
-            wz < gridSize - 2 &&
-            Math.hypot(wx - center, wz - center) > 6.5
-          ) {
-            const wIdx = wz * gridSize + wx;
-            heightGrid[wIdx] = 0;
-            riverMask[wIdx] = 1;
-          }
+        const ix = Math.round(rx);
+        const iz = Math.round(rz);
+        const cIdx = iz * gridSize + ix;
+        if (step > 6 && heightGrid[cIdx] === 0 && ownRiverTiles[cIdx] === 0) {
+          reachedWater = true;
         }
 
-        // Gently terrace and hydrate riverbanks so rivers sit in lush, lively valleys instead of harsh trenches
-        for (let oz = -3; oz <= 3; oz++) {
-          for (let ox = -3; ox <= 3; ox++) {
-            const nx = cx + ox;
-            const nz = cz + oz;
-            if (nx <= 0 || nx >= gridSize - 1 || nz <= 0 || nz >= gridSize - 1) continue;
+        // Smooth natural river width progression:
+        // headwaters (0.8..1.05) -> mid-valley meandering river (1.15..1.65) -> wide estuary mouth (1.85..2.35)
+        const progress = Math.min(1, step / Math.max(26, gridSize * 0.45));
+        const poolPulse =
+          Math.sin(step * 0.17 + r * 3.1) * 0.24 +
+          (warpNoise.sample(rx * 0.12 + r * 5.3, rz * 0.12) - 0.5) * 0.34;
+        const estuaryFlare = reachedWater ? 0.65 : 0;
+        const baseRadius = isArchipelago
+          ? 0.78 + progress * 0.65 + poolPulse * 0.55 + estuaryFlare * 0.55
+          : 0.88 + progress * 0.92 + poolPulse + estuaryFlare;
+        const riverRadius = Math.max(0.72, Math.min(2.45, baseRadius));
+
+        // Signed meander curvature determines inside bend (point-bar shoal) vs outside bend (cut-bank)
+        const swayRate = Math.cos(step * meanderFreq + meanderPhase);
+        const perpX = -Math.sin(heading);
+        const perpZ = Math.cos(heading);
+
+        // Carve smooth circular river cross-section & softly terrace surrounding valley banks
+        const bankReach = Math.ceil(riverRadius + 2.6);
+        for (let oz = -bankReach; oz <= bankReach; oz++) {
+          for (let ox = -bankReach; ox <= bankReach; ox++) {
+            const nx = ix + ox;
+            const nz = iz + oz;
+            if (nx <= 1 || nx >= gridSize - 2 || nz <= 1 || nz >= gridSize - 2) continue;
+            if (Math.hypot(nx - starterHubX, nz - starterHubZ) < (isArchipelago ? 4.0 : 6.5)) continue;
+            const d = Math.hypot(nx - rx, nz - rz);
             const nIdx = nz * gridSize + nx;
-            const d = Math.hypot(ox, oz);
-            if (d <= 1.5 && heightGrid[nIdx] > 2) {
-              heightGrid[nIdx] = Math.min(heightGrid[nIdx], 2);
+            if (d <= riverRadius) {
+              heightGrid[nIdx] = 0;
+              riverMask[nIdx] = 1;
+              ownRiverTiles[nIdx] = 1;
+            } else if (d <= riverRadius + 2.2) {
+              const bankDist = d - riverRadius;
+              if (bankDist <= 1.25 && heightGrid[nIdx] > 2) {
+                heightGrid[nIdx] = Math.min(heightGrid[nIdx], 2);
+              } else if (bankDist <= 2.0 && heightGrid[nIdx] > 3) {
+                heightGrid[nIdx] = Math.min(heightGrid[nIdx], 3);
+              }
+              moistGrid[nIdx] = Math.min(1, moistGrid[nIdx] + Math.max(0, 0.38 - bankDist * 0.13));
+
+              // Mark inside of strong curves as depositional point-bar shoal (1), outside as cut-bank (2)
+              if (bankDist <= 1.65 && Math.abs(swayRate) > 0.22 && riverPointBarMask[nIdx] === 0) {
+                const sideDot = (nx - rx) * perpX + (nz - rz) * perpZ;
+                const isInsideBend = sideDot * swayRate > 0;
+                riverPointBarMask[nIdx] = isInsideBend ? 1 : 2;
+              }
             }
-            moistGrid[nIdx] = Math.min(1, moistGrid[nIdx] + Math.max(0, 0.34 - d * 0.08));
           }
         }
 
-        // Sinusoidal meander sway + downhill gradient so rivers curve gracefully
-        const swayAngle = Math.sin(step * 0.38 + r * 2.1) * 0.55;
-        const cosS = Math.cos(swayAngle);
-        const sinS = Math.sin(swayAngle);
-        const swayDirX = dirX * cosS - dirZ * sinS;
-        const swayDirZ = dirX * sinS + dirZ * cosS;
-
-        let bestX = cx;
-        let bestZ = cz;
-        let bestScore = Infinity;
-        const dirs = [
-          [1, 0],
-          [-1, 0],
-          [0, 1],
-          [0, -1],
-        ];
-        for (const [ox, oz] of dirs) {
-          const nx = cx + ox;
-          const nz = cz + oz;
-          if (nx <= 0 || nx >= gridSize - 1 || nz <= 0 || nz >= gridSize - 1) continue;
-          const nIdx = nz * gridSize + nx;
-          if (riverMask[nIdx] === 1) continue;
-          const dotMomentum = ox * swayDirX + oz * swayDirZ;
-          const score = heightGrid[nIdx] * 1.25 - dotMomentum * 0.95 + rng() * 0.55;
-          if (score < bestScore) {
-            bestScore = score;
-            bestX = nx;
-            bestZ = nz;
-          }
+        if (reachedWater) {
+          // Carve 2 extra estuary tiles into the lake/sea mouth for a natural funnel blend, then stop
+          break;
         }
 
-        if (bestX === cx && bestZ === cz) break;
-        dirX = dirX * 0.58 + (bestX - cx) * 0.42;
-        dirZ = dirZ * 0.58 + (bestZ - cz) * 0.42;
-        cx = bestX;
-        cz = bestZ;
+        // Compute smooth continuous heading: downhill pull + target drift + sweeping sinusoidal meander + noise
+        const toTargetAngle = Math.atan2(targetZ - rz, targetX - rx);
+        let gradX = 0;
+        let gradZ = 0;
+        const sampleR = 3;
+        const hL = heightGrid[iz * gridSize + Math.max(1, ix - sampleR)];
+        const hR = heightGrid[iz * gridSize + Math.min(gridSize - 2, ix + sampleR)];
+        const hU = heightGrid[Math.max(1, iz - sampleR) * gridSize + ix];
+        const hD = heightGrid[Math.min(gridSize - 2, iz + sampleR) * gridSize + ix];
+        gradX = hL - hR;
+        gradZ = hU - hD;
+
+        const targetPullX = Math.cos(toTargetAngle) * 0.85 + gradX * 0.22;
+        const targetPullZ = Math.sin(toTargetAngle) * 0.85 + gradZ * 0.22;
+        const baseAngle = Math.atan2(targetPullZ, targetPullX);
+
+        const meanderOffset =
+          Math.sin(step * meanderFreq + meanderPhase) * meanderAmp +
+          (warpNoise.sample(rx * 0.07 + r * 9.1, rz * 0.07 - r * 4.3) - 0.5) * 0.65;
+        const desiredHeading = baseAngle + meanderOffset;
+
+        // Shortest angular interpolation so curves sweep smoothly without kinks
+        let angleDiff = desiredHeading - heading;
+        while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+        while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+        heading += angleDiff * 0.24;
+
+        rx += Math.cos(heading) * stepDist;
+        rz += Math.sin(heading) * stepDist;
       }
     }
   }
@@ -1086,14 +1134,87 @@ export function generateWorldTiles(
             (z < gridSize - 1 && heightGrid[idx + gridSize] === 0));
 
         if (touchesRiverOrLake) {
-          // Lush riverbanks and lakeshores with wildflowers, reeds, and berry groves
-          terrain = temp > 0.56 && bVar > 0.55 ? 'blossom' : 'fertile';
-          if (roll < 0.42) {
-            resourceNode = 'berry_bush';
-            resourceAmount = 230;
-          } else if (roll < 0.62) {
-            resourceNode = 'timber_grove';
-            resourceAmount = 240;
+          // Coherent natural riverbanks & lakeshores:
+          // - Sandy shoals & inside-bend point bars
+          // - Rocky cobble/gravel banks on outside cut-banks & cool/elevated stretches
+          // - Earthy/muddy silt banks
+          // - Vegetated aquatic edges (no beach!) with stilt-root mangroves OR tall grasses & reeds
+          const shoreStyleNoise = warpNoise.fbm(x * 0.085 + 19.3, z * 0.085 - 11.7, 2);
+          const bendType = riverPointBarMask[idx]; // 1 = inside point bar, 2 = outside cut-bank
+
+          if (temp < 0.34) {
+            // Cold/sub-arctic riverbanks: rocky gravel or snowy/taiga edges
+            if (shoreStyleNoise < 0.48 || bendType === 2 || h >= 2) {
+              terrain = 'highland';
+              if (roll < 0.36) {
+                resourceNode = 'stone_outcrop';
+                resourceAmount = 220;
+              }
+            } else {
+              terrain = 'taiga';
+              if (roll < 0.45) {
+                resourceNode = 'timber_grove';
+                resourceAmount = 230;
+              }
+            }
+          } else if (bendType === 1 && h === 1 && shoreStyleNoise < 0.68) {
+            // Inside river bend: natural deposited sandy shoal / point bar
+            terrain = 'sand';
+            if (roll < 0.14) {
+              resourceNode = 'stone_outcrop';
+              resourceAmount = 180;
+            }
+          } else if (
+            (bendType === 2 && shoreStyleNoise < 0.58) ||
+            (h >= 2 && shoreStyleNoise < 0.42) ||
+            shoreStyleNoise < 0.21
+          ) {
+            // Rocky / gravelly cobble shoreline
+            terrain = 'highland';
+            if (roll < 0.42) {
+              resourceNode = 'stone_outcrop';
+              resourceAmount = 220;
+            } else if (roll < 0.56) {
+              resourceNode = 'berry_bush';
+              resourceAmount = 190;
+            }
+          } else if (h === 1 && shoreStyleNoise < 0.40) {
+            // Warm sandy shoal / beach cove
+            terrain = 'sand';
+            if (roll < 0.12) {
+              resourceNode = 'stone_outcrop';
+              resourceAmount = 170;
+            }
+          } else if (h === 1 && shoreStyleNoise < 0.54) {
+            // Muddy / earthy silt riverbank (damp dirt shoreline)
+            terrain = 'savanna';
+            if (roll < 0.22) {
+              resourceNode = 'stone_outcrop';
+              resourceAmount = 180;
+            } else if (roll < 0.38) {
+              resourceNode = 'berry_bush';
+              resourceAmount = 200;
+            }
+          } else if (h === 1 && temp > 0.45 && shoreStyleNoise < 0.74) {
+            // Vegetated aquatic mangrove shoreline (no sand/rock beach — stilt-root mangroves & marsh reeds!)
+            terrain = 'swamp';
+            if (roll < 0.58) {
+              resourceNode = 'timber_grove';
+              resourceAmount = 240;
+            } else if (roll < 0.72) {
+              resourceNode = 'berry_bush';
+              resourceAmount = 200;
+            }
+          } else {
+            // Vegetated tall-grass, reed & wildflower bank (no sand/rock beach!)
+            terrain = temp > 0.56 && bVar > 0.55 ? 'blossom' : 'fertile';
+            if (roll < 0.36) {
+              resourceNode = 'berry_bush';
+              resourceAmount = 230;
+            } else if (roll < 0.54) {
+              resourceNode = 'timber_grove';
+              resourceAmount = 240;
+            }
           }
         } else if (temp > 0.58 && moist < 0.36 && h >= 2 && bVar > 0.49 && dist > 7.0) {
           // Terracotta Red-Rock Badlands Canyon
