@@ -389,17 +389,6 @@ export const AgeProgressBanner: React.FC<AgeProgressBannerProps> = ({
           >
             {/* LEFT: True Pixelated Golden Semicircle Dial (78x42 frame scaled 2x -> 156x84, inner art 72x36 scaled 2x -> 144x72) */}
             <div className="relative shrink-0 w-[130px] h-[70px] sm:w-[156px] sm:h-[84px]">
-              {/* Expanding Golden Shockwave Ring on Age Lock-In */}
-              {showNewText && (
-                <div
-                  aria-hidden="true"
-                  className="age-shockwave-ring pointer-events-none absolute left-1/2 top-1/2 w-[96px] h-[96px] rounded-full border-[4px] border-[#fef08a]"
-                  style={{
-                    boxShadow: '0 0 18px rgba(253,224,71,0.85)',
-                  }}
-                />
-              )}
-
               {/* Inner Semicircular Clipped Viewport (tucked strictly inside the pixelated golden bezel!) */}
               <div className="absolute left-[5px] top-[5px] w-[120px] h-[60px] sm:left-[6px] sm:top-[6px] sm:w-[144px] sm:h-[72px] rounded-t-full overflow-hidden bg-[#140c08]">
                 {/* Single Uninterrupted Anticipation-and-Spring Rotating Two-Half Disk */}
