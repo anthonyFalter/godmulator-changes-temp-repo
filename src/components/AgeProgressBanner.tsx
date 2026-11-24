@@ -366,6 +366,25 @@ export const AgeProgressBanner: React.FC<AgeProgressBannerProps> = ({
                     />
                   );
                 })}
+                {/* Static vertical golden meridian line down the center of the half-circle */}
+                <line
+                  x1="73"
+                  y1="2"
+                  x2="73"
+                  y2="72"
+                  stroke="#0c0705"
+                  strokeWidth="3.6"
+                  opacity="0.85"
+                />
+                <line
+                  x1="73"
+                  y1="2"
+                  x2="73"
+                  y2="72"
+                  stroke="#ffe89c"
+                  strokeWidth="1.6"
+                  opacity="0.95"
+                />
               </svg>
 
               {/* Crisp white-gold zenith lock-in flash across the full semicircle */}
