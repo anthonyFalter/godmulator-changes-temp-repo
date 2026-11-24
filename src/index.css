@@ -695,19 +695,7 @@
   }
 }
 
-@keyframes age-dial-counter-ready-anim {
-  0% {
-    transform: rotate(0deg);
-  }
-  65% {
-    transform: rotate(0deg);
-  }
-  100% {
-    transform: rotate(10deg);
-  }
-}
-
-/* Smooth celestial arc rotation: old age sets right, new age rises left to zenith */
+/* Smooth celestial arc rotation: old age sets right, new age rises left to fill the semicircle */
 @keyframes age-dial-wheel-rotate-anim {
   0% {
     transform: rotate(-10deg);
@@ -723,49 +711,19 @@
   }
 }
 
-@keyframes age-dial-counter-rotate-anim {
-  0% {
-    transform: rotate(10deg);
-  }
-  25% {
-    transform: rotate(-42deg);
-  }
-  72% {
-    transform: rotate(-162deg);
-  }
-  100% {
-    transform: rotate(-180deg);
-  }
-}
-
-/* Crisp clockwork lock-in detent bounce at 180deg zenith */
+/* Crisp clockwork lock-in detent bounce at 180deg */
 @keyframes age-dial-wheel-impact-anim {
   0% {
-    transform: rotate(185deg);
+    transform: rotate(184deg);
   }
   38% {
-    transform: rotate(177.5deg);
+    transform: rotate(178deg);
   }
   70% {
-    transform: rotate(181.5deg);
+    transform: rotate(181deg);
   }
   100% {
     transform: rotate(180deg);
-  }
-}
-
-@keyframes age-dial-counter-impact-anim {
-  0% {
-    transform: rotate(-185deg) scale(1.16);
-  }
-  38% {
-    transform: rotate(-177.5deg) scale(0.94);
-  }
-  70% {
-    transform: rotate(-181.5deg) scale(1.04);
-  }
-  100% {
-    transform: rotate(-180deg) scale(1);
   }
 }
 
@@ -846,32 +804,16 @@
   animation: age-dial-wheel-ready-anim 340ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
-.age-dial-counter-ready {
-  animation: age-dial-counter-ready-anim 340ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
-}
-
 .age-dial-wheel-rotate {
   animation: age-dial-wheel-rotate-anim 620ms cubic-bezier(0.42, 0.04, 0.32, 1) forwards;
-}
-
-.age-dial-counter-rotate {
-  animation: age-dial-counter-rotate-anim 620ms cubic-bezier(0.42, 0.04, 0.32, 1) forwards;
 }
 
 .age-dial-wheel-impact {
   animation: age-dial-wheel-impact-anim 360ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
-.age-dial-counter-impact {
-  animation: age-dial-counter-impact-anim 360ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
-
 .age-dial-wheel-settled {
   transform: rotate(180deg);
-}
-
-.age-dial-counter-settled {
-  transform: rotate(-180deg);
 }
 
 .age-text-slam {
@@ -894,8 +836,7 @@
   .age-screen-shake {
     animation: none;
   }
-  .age-dial-wheel-rotate,
-  .age-dial-counter-rotate {
+  .age-dial-wheel-rotate {
     animation-duration: 180ms;
   }
 }
