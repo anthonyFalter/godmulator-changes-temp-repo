@@ -34,11 +34,9 @@ interface EntityInspectorCardProps extends UnitEditHandlers {
   selectedUnit: UnitEntity | null;
   favoriteUnits: UnitEntity[];
   followingEntityId?: string | null;
-  firstPersonEntityId?: string | null;
   onToggleFavorite: (unitId: string) => void;
   onSelectUnit: (unitId: string | null) => void;
   onFocusUnit: (unit: UnitEntity) => void;
-  onToggleFirstPerson?: (unit: UnitEntity) => void;
   onRenameUnit?: (unitId: string, newName: string) => void;
   onRenameSettlement?: (settlementId: string, newName: string) => void;
 }
@@ -117,11 +115,9 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
   selectedUnit,
   favoriteUnits,
   followingEntityId,
-  firstPersonEntityId,
   onToggleFavorite,
   onSelectUnit,
   onFocusUnit,
-  onToggleFirstPerson,
   onRenameUnit,
   onRenameSettlement,
   onSetUnitStat,
@@ -366,31 +362,6 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
                   }`}
                 >
                   <HudPixelIcon kind="center" className="w-3.5 h-3.5 sm:w-4 sm:h-4 pixelated-canvas" />
-                </button>
-              )}
-
-              {selectedUnit && onToggleFirstPerson && (
-                <button
-                  type="button"
-                  data-testid="inspector-first-person-btn"
-                  onClick={() => onToggleFirstPerson(selectedUnit)}
-                  aria-label={
-                    firstPersonEntityId === selectedUnit.id
-                      ? 'Exit 1st Person control'
-                      : 'Control entity in 1st Person'
-                  }
-                  title={
-                    firstPersonEntityId === selectedUnit.id
-                      ? 'Exit 1st Person (Esc)'
-                      : '1st Person Control (WASD + Mouse Look)'
-                  }
-                  className={`h-7 sm:h-8 px-1.5 sm:px-2 flex items-center justify-center cursor-pointer font-pixel-num text-[10px] font-bold tracking-wider transition-colors ${
-                    firstPersonEntityId === selectedUnit.id
-                      ? 'px-btn-primary text-[#fff8eb]'
-                      : 'px-btn text-[#ffd36b] hover:text-[#fff3c4]'
-                  }`}
-                >
-                  1P
                 </button>
               )}
 
