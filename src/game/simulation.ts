@@ -16321,18 +16321,90 @@ function stepVehicles(state: SimulationState, dt: number): void {
       }
     }
 
+    // Compute era-scaled global military vehicle cap so Industrial has a few vehicles per city
+    // while Information Age+ superpowers field full armored columns and air wings.
+    let industrialAtomicCities = 0;
+    let infoPlusCities = 0;
+    for (const sid of settlementIds) {
+      const ce = getSettlementTechEpoch(sid);
+      if (ce >= 5) infoPlusCities++;
+      else if (ce >= 3) industrialAtomicCities++;
+    }
+    const maxGlobalMilitaryVehicles = Math.min(72, 24 + industrialAtomicCities * 3 + infoPlusCities * 7);
+
     const militaryVehiclesCount = state.vehicles.filter((v) => v.isMilitary).length;
-    if (militaryVehiclesCount < 24) {
+    if (runVehicleSpawners && militaryVehiclesCount < maxGlobalMilitaryVehicles) {
+      let currentGlobalMilCount = militaryVehiclesCount;
       for (const sid of settlementIds) {
-        if (state.vehicles.filter((v) => v.isMilitary).length >= 24) break;
+        if (currentGlobalMilCount >= maxGlobalMilitaryVehicles) break;
         const cityEpoch = getSettlementTechEpoch(sid);
         if (cityEpoch < 1) continue;
         const sp: SpeciesId = state.settlementSpecies?.[sid] ?? 'human';
         const kid = getKingdomId(state, sid);
+        const cityAtWar = Boolean(
+          kid &&
+            (activeTickIndex
+              ? (activeTickIndex.warEnemiesByKingdom.get(kid)?.size ?? 0) > 0
+              : settlementIds.some((otherSid) => areKingdomsAtWar(state, kid, getKingdomId(state, otherSid)))),
+        );
         const anchor = getSettlementAnchorForId(state, sid);
         const cityMilitary = state.vehicles.filter((v) => v.isMilitary && v.settlementId === sid);
-        const hasType = (t: VehicleType) => cityMilitary.some((v) => v.type === t);
+        const countType = (t: VehicleType) => cityMilitary.filter((v) => v.type === t).length;
+        const countTypes = (types: VehicleType[]) => cityMilitary.filter((v) => types.includes(v.type)).length;
 
+        // Per-city vehicle doctrine by epoch:
+        // - Epoch 1-2 (Bronze/Medieval): 1 coastal warship
+        // - Epoch 3 (Industrial): few war vehicles supporting infantry armies (cap 4-5: 1-2 tanks, 1 fighter, 1 airship, 1 warship)
+        // - Epoch 4 (Atomic): mechanized combined-arms corps (cap 7: 3 tanks, 2 choppers, 1-2 bombers, 1 warship)
+        // - Epoch 5 (Information): vehicle-dominated modern military (cap 10: 4 tanks, 3 choppers, 2 stealth bombers, 2 warships)
+        // - Epoch 6+ (Orbital/Interstellar): full mechanized & aerospace armada (cap 12: 4 hover tanks, 3 orbital gunships, 3 plasma bombers, 2 cruisers)
+        const cityCap =
+          cityEpoch >= 6
+            ? 12
+            : cityEpoch === 5
+              ? 10
+              : cityEpoch === 4
+                ? 7
+                : cityEpoch === 3
+                  ? cityAtWar
+                    ? 5
+                    : 4
+                  : 1;
+        if (cityMilitary.length >= cityCap) continue;
+
+        const maxWarships = cityEpoch >= 5 ? 2 : 1;
+        const maxTanks =
+          cityEpoch >= 5
+            ? 4
+            : cityEpoch === 4
+              ? 3
+              : cityEpoch === 3
+                ? cityAtWar
+                  ? 2
+                  : 1
+                : 0;
+        const maxFixedWing =
+          cityEpoch >= 6
+            ? 3
+            : cityEpoch === 5
+              ? 2
+              : cityEpoch === 4
+                ? cityAtWar
+                  ? 2
+                  : 1
+                : cityEpoch === 3
+                  ? 1
+                  : 0;
+        const maxHoverAir =
+          cityEpoch >= 5
+            ? 3
+            : cityEpoch === 4
+              ? 2
+              : cityEpoch === 3
+                ? 1
+                : 0;
+
+        let spawnedThisCity = false;
         const trySpawnMilitary = (mType: VehicleType, sx: number, sz: number) => {
           const stats = getMilitaryVehicleStats(mType, cityEpoch);
           state.vehicles!.push({
@@ -16356,77 +16428,123 @@ function stepVehicles(state: SimulationState, dt: number): void {
             speed: stats.speed,
             path: [{ x: sx, z: sz }],
             pathIndex: 0,
-            variantSeed: cityMilitary.length + Math.round(sx * 3 + sz * 7),
+            variantSeed: cityMilitary.length * 13 + Math.round(sx * 3 + sz * 7),
           });
           cityMilitary.push(state.vehicles![state.vehicles!.length - 1]);
+          currentGlobalMilCount++;
+          spawnedThisCity = true;
         };
 
-        // 1. Seaborne Warship if coastal water exists nearby (Epoch 1+ Bronze Galley -> Galleon -> Steam Ironclad -> Destroyer -> Plasma Cruiser)
-        if (cityEpoch >= 1 && !hasType('warship') && cityMilitary.length < 4) {
+        // Spawn at most 1 new military vehicle per settlement per spawner cycle (~1.2s) for natural factory cadence
+        // 1. Ground Battle Vehicle (Epoch 3+ WWI Trench Tank -> Atomic Tank -> Composite MBT -> Hover Railgun Tank)
+        // Prioritized first in Industrial+ so land battlefields rapidly fill with armor
+        if (!spawnedThisCity && cityEpoch >= 3 && countType('tank') < maxTanks && cityMilitary.length < cityCap) {
+          const tankIdx = countType('tank');
+          let tankTile: TileData | null = null;
+          for (let attempt = 0; attempt < 8 && !tankTile; attempt++) {
+            const ang = ((tankIdx * 2 + attempt) / 8) * Math.PI * 2;
+            const rad = 2 + (attempt % 3) * 1.5;
+            const tx = Math.max(2, Math.min(state.gridSize - 3, Math.round(anchor.x + Math.cos(ang) * rad)));
+            const tz = Math.max(2, Math.min(state.gridSize - 3, Math.round(anchor.z + Math.sin(ang) * rad)));
+            const tt = getTile(state, tx, tz);
+            if (tt && (cityEpoch >= 6 ? tt.height <= 6 : tt.height >= 1 && tt.height <= 5)) {
+              tankTile = tt;
+            }
+          }
+          if (tankTile) {
+            trySpawnMilitary('tank', tankTile.x, tankTile.z);
+          }
+        }
+
+        // 2. Lighter-Than-Air / Rotor / VTOL Assault branch (Epoch 3 Airship -> Epoch 4-5 Helicopter / Orc Flyer -> Epoch 6+ Orbital Gunship)
+        if (
+          !spawnedThisCity &&
+          cityEpoch >= 3 &&
+          countTypes(['airship', 'helicopter', 'orc_flyer', 'orbital_gunship']) < maxHoverAir &&
+          cityMilitary.length < cityCap
+        ) {
+          const targetHoverType = getEvolvedMilitaryAirType('airship', cityEpoch, sp);
+          const airIdx = countTypes(['airship', 'helicopter', 'orc_flyer', 'orbital_gunship']);
+          const ang = (airIdx / Math.max(1, maxHoverAir)) * Math.PI * 2 + 0.7;
+          const sx = Math.max(2, Math.min(state.gridSize - 3, anchor.x + Math.cos(ang) * 2.5));
+          const sz = Math.max(2, Math.min(state.gridSize - 3, anchor.z + Math.sin(ang) * 2.5));
+          trySpawnMilitary(targetHoverType, sx, sz);
+        }
+
+        // 3. Fixed-Wing Fighter / Bomber branch (Epoch 3 Biplane -> Epoch 4 Prop Heavy Bomber -> Epoch 5+ Stealth Jet / Plasma Bomber)
+        if (
+          !spawnedThisCity &&
+          cityEpoch >= 3 &&
+          countTypes(['glider', 'bomber_plane']) < maxFixedWing &&
+          cityMilitary.length < cityCap
+        ) {
+          const targetFixedType = getEvolvedMilitaryAirType('glider', cityEpoch, sp);
+          const fwIdx = countTypes(['glider', 'bomber_plane']);
+          const ang = (fwIdx / Math.max(1, maxFixedWing)) * Math.PI * 2;
+          const sx = Math.max(2, Math.min(state.gridSize - 3, anchor.x + Math.cos(ang) * 2.0));
+          const sz = Math.max(2, Math.min(state.gridSize - 3, anchor.z + Math.sin(ang) * 2.0));
+          trySpawnMilitary(targetFixedType, sx, sz);
+        }
+
+        // 4. Seaborne Warship if open coastal sea exists nearby (Epoch 1+ Galley -> Galleon -> Ironclad -> Destroyer -> Plasma Cruiser)
+        if (!spawnedThisCity && cityEpoch >= 1 && countType('warship') < maxWarships && cityMilitary.length < cityCap) {
           let coastalWater: TileData | null = null;
+          let fallbackWater: TileData | null = null;
           for (let r = 4; r <= 18 && !coastalWater; r += 2) {
             for (let a = 0; a < 8; a++) {
-              const ang = (a / 8) * Math.PI * 2;
+              const ang = ((a + countType('warship') * 3) / 8) * Math.PI * 2;
               const wx = Math.round(anchor.x + Math.cos(ang) * r);
               const wz = Math.round(anchor.z + Math.sin(ang) * r);
               const wt = getTile(state, wx, wz);
-              if (wt && wt.height === 0) {
-                coastalWater = wt;
-                break;
+              if (wt && wt.height === 0 && !wt.isLake) {
+                if (!wt.isRiver) {
+                  coastalWater = wt;
+                  break;
+                } else if (!fallbackWater) {
+                  fallbackWater = wt;
+                }
               }
             }
           }
-          if (coastalWater) {
-            trySpawnMilitary('warship', coastalWater.x, coastalWater.z);
-          }
-        }
-
-        // 2. Ground Battle Vehicle (Epoch 3+ WWI Riveted Trench Tank -> Cast-Turret Tank -> Composite MBT -> Hover Railgun Tank)
-        if (cityEpoch >= 3 && !hasType('tank') && cityMilitary.length < 4) {
-          const tankX = Math.max(2, Math.min(state.gridSize - 3, anchor.x + 2));
-          const tankZ = Math.max(2, Math.min(state.gridSize - 3, anchor.z + 2));
-          const tt = getTile(state, tankX, tankZ);
-          if (tt && tt.height >= 1 && tt.height <= 5) {
-            trySpawnMilitary('tank', tt.x, tt.z);
-          }
-        }
-
-        // 3. Fixed-Wing Fighter / Bomber branch (Epoch 3 Industrial Propeller Biplane Fighter -> Epoch 4 Prop Heavy Bomber -> Epoch 5+ Stealth Jet / Plasma Bomber; ZERO aircraft in Medieval!)
-        if (cityEpoch >= 3 && cityMilitary.length < 4 && !hasType('glider') && !hasType('bomber_plane')) {
-          const targetFixedType = getEvolvedMilitaryAirType('glider', cityEpoch, sp);
-          trySpawnMilitary(targetFixedType, anchor.x, anchor.z);
-        }
-
-        // 4. Lighter-Than-Air / Rotor / VTOL Assault branch (Epoch 3 Industrial Rigid Zeppelin / Sky-Ship -> Epoch 4 Chopper / Orc Skull-Chopper -> Epoch 5 Attack Gunship -> Epoch 6+ Orbital Gunship; ZERO airships in Medieval!)
-        if (cityEpoch >= 3 && cityMilitary.length < 4) {
-          const targetHoverType = getEvolvedMilitaryAirType('airship', cityEpoch, sp);
-          if (
-            !hasType('airship') &&
-            !hasType('helicopter') &&
-            !hasType('orc_flyer') &&
-            !hasType('orbital_gunship')
-          ) {
-            trySpawnMilitary(targetHoverType, anchor.x - 1.5, anchor.z + 1.5);
+          const spawnSea = coastalWater ?? fallbackWater;
+          if (spawnSea) {
+            trySpawnMilitary('warship', spawnSea.x, spawnSea.z);
           }
         }
       }
     }
 
     // Update & fight with military vehicles
+    const vehTickNum = simTickCounterByState.get(state) ?? 0;
     for (const v of state.vehicles) {
       if (!v.isMilitary || (v.hp ?? 0) <= 0) continue;
       if ((v.attackCooldown ?? 0) > 0) v.attackCooldown = Math.max(0, (v.attackCooldown ?? 0) - dt);
       if ((v.strafeExtendTimer ?? 0) > 0) v.strafeExtendTimer = Math.max(0, (v.strafeExtendTimer ?? 0) - dt);
       const myKid = v.kingdomId ?? getKingdomId(state, v.settlementId);
       const anchor = getSettlementAnchorForId(state, v.settlementId);
+      const vEpoch = v.epochLevel ?? getSettlementTechEpoch(v.settlementId);
+      const warEnemiesSet = myKid && activeTickIndex ? activeTickIndex.warEnemiesByKingdom.get(myKid) : undefined;
+      const isAtWar = Boolean(warEnemiesSet && warEnemiesSet.size > 0);
 
-      // Find nearest valid threat: hostile raiders, marauding predators near territory, wartime units/buildings/vehicles
+      // Wartime theater search range scales drastically by era so Industrial+ vehicles spearhead invasions
+      // and Info Age+ armored columns & air wings deploy across the entire battlefield!
+      const warTheaterRange = isAtWar
+        ? vEpoch >= 5
+          ? 180
+          : vEpoch === 4
+            ? 110
+            : vEpoch === 3
+              ? 78
+              : 48
+        : 32;
+
+      // Find nearest valid threat: local raiders/predators/units, plus theater-wide enemy vehicles/buildings/forces during war
       let targetX: number | null = null;
       let targetZ: number | null = null;
       let foundVehTargetUnit: UnitEntity | null = null;
       let targetBld: BuildingEntity | null = null;
       let targetVeh: VehicleEntity | null = null;
-      let bestDistSq = 28 * 28;
+      let bestDistSq = warTheaterRange * warTheaterRange;
 
       const considerVehThreat = (other: UnitEntity, dSq: number) => {
         if (other.state === 'ko' || other.hp <= 0 || dSq >= bestDistSq) return;
@@ -16450,31 +16568,43 @@ function stepVehicles(state: SimulationState, dt: number): void {
         targetX = other.x;
         targetZ = other.z;
       };
+
+      // 1. Local immediate threats (raiders, beasts, nearby frontline infantry within 32 tiles)
       if (activeTickIndex) {
-        forEachUnitInRadius(activeTickIndex, v.x, v.z, 28, considerVehThreat);
+        forEachUnitInRadius(activeTickIndex, v.x, v.z, 32, considerVehThreat);
       } else {
         for (const other of state.units) {
           considerVehThreat(other, (other.x - v.x) ** 2 + (other.z - v.z) ** 2);
         }
       }
-      const targetUnit = foundVehTargetUnit as UnitEntity | null;
 
-      if (!targetUnit) {
+      // 2. Enemy vehicles across the wartime theater (in Atomic/Info+ Ages, prioritize vehicle-vs-vehicle clashes!)
+      const localUnitThreat = foundVehTargetUnit !== null && bestDistSq <= 16 * 16;
+      if (!localUnitThreat) {
+        let bestEnemyVehDistSq = vEpoch >= 4 ? warTheaterRange * warTheaterRange : bestDistSq;
         for (const ov of state.vehicles) {
           if (ov.id === v.id || (ov.hp ?? 0) <= 0) continue;
           const oKid = ov.kingdomId ?? getKingdomId(state, ov.settlementId);
           if (!areKingdomsAtWar(state, myKid, oKid)) continue;
-          const dSq = (ov.x - v.x) ** 2 + (ov.z - v.z) ** 2;
-          if (dSq < bestDistSq) {
-            bestDistSq = dSq;
+          // Prioritize enemy military vehicles over civilian cars/trains
+          const priorityMult = ov.isMilitary ? 0.65 : 1.15;
+          const rawDSq = (ov.x - v.x) ** 2 + (ov.z - v.z) ** 2;
+          const weightedDSq = rawDSq * priorityMult * priorityMult;
+          if (rawDSq <= warTheaterRange * warTheaterRange && weightedDSq < bestEnemyVehDistSq) {
+            bestEnemyVehDistSq = weightedDSq;
             targetVeh = ov;
+            foundVehTargetUnit = null;
             targetX = ov.x;
             targetZ = ov.z;
           }
         }
+        if (targetVeh) {
+          bestDistSq = (targetVeh.x - v.x) ** 2 + (targetVeh.z - v.z) ** 2;
+        }
       }
 
-      if (!targetUnit && !targetVeh) {
+      // 3. Enemy wartime buildings across the theater so tanks, helicopters, bombers, and warships actively invade & capture cities
+      if (!foundVehTargetUnit && !targetVeh && isAtWar) {
         for (const b of state.buildings) {
           if (b.hp <= 0 || b.shieldTimer > 0) continue;
           const bKid = b.settlementId ? getKingdomId(state, b.settlementId) : undefined;
@@ -16489,7 +16619,22 @@ function stepVehicles(state: SimulationState, dt: number): void {
         }
       }
 
-      const vEpoch = v.epochLevel ?? getSettlementTechEpoch(v.settlementId);
+      // 4. Fallback: long-range wartime enemy units if no buildings or vehicles found
+      if (!foundVehTargetUnit && !targetVeh && !targetBld && isAtWar && activeTickIndex && warEnemiesSet) {
+        for (const enemyKid of warEnemiesSet) {
+          const enemyUnits = activeTickIndex.livingCivByKingdom.get(enemyKid);
+          if (!enemyUnits) continue;
+          const step = enemyUnits.length > 40 ? 4 : 1;
+          const offset = (vehTickNum + v.variantSeed) % step;
+          for (let ei = offset; ei < enemyUnits.length; ei += step) {
+            const eUnit = enemyUnits[ei];
+            considerVehThreat(eUnit, (eUnit.x - v.x) ** 2 + (eUnit.z - v.z) ** 2);
+          }
+        }
+      }
+
+      const targetUnit = foundVehTargetUnit as UnitEntity | null;
+
       const vStats = getMilitaryVehicleStats(v.type, vEpoch);
       const isNaval = v.type === 'warship';
       const isGround = v.type === 'tank';
@@ -16540,25 +16685,36 @@ function stepVehicles(state: SimulationState, dt: number): void {
         const shouldCloseIn = isFixedWing || targetX === null || targetDist > fireRange * 0.72;
         if (shouldCloseIn) {
           const step = v.speed * dt;
-          const nx = Math.max(1, Math.min(state.gridSize - 2, v.x + Math.sin(v.heading) * step));
-          const nz = Math.max(1, Math.min(state.gridSize - 2, v.z + Math.cos(v.heading) * step));
-          const nextTile = getTile(state, Math.round(nx), Math.round(nz));
-          if (isNaval) {
-            if (nextTile && nextTile.height === 0) {
-              v.x = nx;
-              v.z = nz;
-            } else {
-              // Steer along coastline
-              v.heading = wrapAngleRad(v.heading + 1.2 * dt);
+          if (isNaval || isGround) {
+            const canPassTile = (t: TileData | undefined): boolean => {
+              if (!t) return false;
+              if (isNaval) return t.height === 0;
+              if (isHoverTank) return t.height <= 6;
+              return (t.height >= 1 && t.height <= 5) || (t.height === 0 && isWalkableOrWalkwayTile(t));
+            };
+            const fanOffsets = [0, 0.45, -0.45, 0.95, -0.95, 1.45, -1.45];
+            let moved = false;
+            for (const off of fanOffsets) {
+              const testHeading = wrapAngleRad(v.heading + off);
+              const nx = Math.max(1, Math.min(state.gridSize - 2, v.x + Math.sin(testHeading) * step));
+              const nz = Math.max(1, Math.min(state.gridSize - 2, v.z + Math.cos(testHeading) * step));
+              const nt = getTile(state, Math.round(nx), Math.round(nz));
+              if (canPassTile(nt)) {
+                v.x = nx;
+                v.z = nz;
+                if (off !== 0) {
+                  v.heading = wrapAngleRad(v.heading + off * Math.min(1, dt * 4.5));
+                }
+                moved = true;
+                break;
+              }
             }
-          } else if (isGround) {
-            if (nextTile && (isHoverTank ? nextTile.height <= 6 : nextTile.height >= 1 && nextTile.height <= 5)) {
-              v.x = nx;
-              v.z = nz;
-            } else {
-              v.heading = wrapAngleRad(v.heading + 1.4 * dt);
+            if (!moved) {
+              v.heading = wrapAngleRad(v.heading + 1.8 * dt);
             }
           } else {
+            const nx = Math.max(1, Math.min(state.gridSize - 2, v.x + Math.sin(v.heading) * step));
+            const nz = Math.max(1, Math.min(state.gridSize - 2, v.z + Math.cos(v.heading) * step));
             v.x = nx;
             v.z = nz;
             // Fixed-wing turns gracefully around map edges if extending toward border
@@ -16830,8 +16986,12 @@ function stepVehicles(state: SimulationState, dt: number): void {
               targetUnit.role === 'dragon' || targetUnit.role === 'leviathan'
                 ? 22
                 : targetUnit.faction === 'hostile' || targetUnit.role === 'warrior' || targetUnit.isKing
-                  ? 12
-                  : 7;
+                  ? vEpoch >= 4
+                    ? 8
+                    : 12
+                  : vEpoch >= 4
+                    ? 4
+                    : 7;
             v.hp = Math.max(0, (v.hp ?? 100) - counterFire);
           } else if (targetVeh) {
             targetVeh.hp = Math.max(0, (targetVeh.hp ?? 100) - dmg);
@@ -21394,7 +21554,35 @@ function stepCivilianUnitAI(
   const mySettlementAttackers = u.settlementId && idx ? idx.attackersOfSettlement.get(u.settlementId) : undefined;
   const myKingdomAttackers = myKingdomId && idx ? idx.attackersOfKingdom.get(myKingdomId) : undefined;
   const isWarriorOrKingOrOrc = u.role === 'warrior' || u.isKing || u.species === 'orc';
-  const warMaxR = isWarriorOrKingOrOrc ? 52 : 34;
+  // Era-driven battlefield doctrine:
+  // - Prehistoric/Bronze/Medieval (Epoch 0-2): mass foot armies march across the map
+  // - Industrial (Epoch 3): still armies of individuals backed by early tanks, biplanes & airships
+  // - Atomic (Epoch 4): mechanized combined arms; civilians defend home while warriors deploy
+  // - Info Age+ (Epoch 5+): vehicles dominate the battlefield; only a small elite foot vanguard deploys outward
+  const isInfoVanguard =
+    (u.role === 'warrior' && indivHash % 4 === 0) || (u.species === 'orc' && indivHash % 3 === 0);
+  const warMaxR =
+    myEpoch >= 5
+      ? isInfoVanguard
+        ? u.species === 'orc'
+          ? 28
+          : 26
+        : u.role === 'warrior'
+          ? 16
+          : u.isKing
+            ? 14
+            : 11
+      : myEpoch === 4
+        ? isWarriorOrKingOrOrc
+          ? 30
+          : 15
+        : myEpoch === 3
+          ? isWarriorOrKingOrOrc
+            ? 46
+            : 26
+          : isWarriorOrKingOrOrc
+            ? 52
+            : 34;
 
   const considerEnemyCandidate = (other: UnitEntity, dSq: number) => {
     if (other.id === u.id || other.state === 'ko' || other.hp <= 0 || dSq >= enemyDistSq) return;
@@ -22358,7 +22546,30 @@ function stepCivilianUnitAI(
     let nearestForeignBld: BuildingEntity | null = null;
     let bestForeignBldDistSq = Infinity;
     const isInvasionUnit =
-      u.role === 'warrior' || u.isKing || u.species === 'orc' || indivHash % 3 !== 0;
+      myEpoch >= 5
+        ? isInfoVanguard
+        : myEpoch === 4
+          ? u.role === 'warrior' || u.species === 'orc'
+          : myEpoch === 3
+            ? u.role === 'warrior' || u.isKing || u.species === 'orc' || indivHash % 2 === 0
+            : u.role === 'warrior' || u.isKing || u.species === 'orc' || indivHash % 3 !== 0;
+    const bldInvasionMaxDist =
+      myEpoch >= 5
+        ? isInvasionUnit
+          ? 32
+          : 14
+        : myEpoch === 4
+          ? isInvasionUnit
+            ? 40
+            : 18
+          : myEpoch === 3
+            ? isInvasionUnit
+              ? 76
+              : 26
+            : isInvasionUnit
+              ? 96
+              : 38;
+    const maxSearchDistSq = bldInvasionMaxDist * bldInvasionMaxDist;
     for (const b of state.buildings) {
       if (b.hp <= 0) continue;
       const bKid = b.settlementId ? getKingdomId(state, b.settlementId) : undefined;
@@ -22369,7 +22580,6 @@ function stepCivilianUnitAI(
       if (!atWarWithBld && !u.statusEffects.frenzied) continue;
       const distToHomeSq = (b.tileX - homeAnchor.x) ** 2 + (b.tileZ - homeAnchor.z) ** 2;
       const distToUnitSq = (b.tileX - u.x) ** 2 + (b.tileZ - u.z) ** 2;
-      const maxSearchDistSq = isInvasionUnit ? 96 * 96 : 38 * 38;
       const encroachingHome = distToHomeSq <= maxSearchDistSq || distToUnitSq <= maxSearchDistSq;
       if (!encroachingHome && !u.statusEffects.frenzied) continue;
       if (distToUnitSq < bestForeignBldDistSq) {
