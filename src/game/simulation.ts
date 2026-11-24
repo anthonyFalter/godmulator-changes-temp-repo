@@ -3222,12 +3222,13 @@ export function fillLiquidBasin(
   if (curSurface >= 10) return 0;
   const targetLevel = Math.min(10, curSurface + 1);
 
-  // 2. Bounded flood-fill at `targetLevel`: find all connected tiles strictly below `targetLevel`.
-  //    If the region is enclosed by rim tiles (`nb.height >= targetLevel`) within `maxTiles`,
-  //    stack liquid to `targetLevel` across the entire basin!
+  // 2. Bounded flood-fill at `targetLevel`: find all connected tiles strictly below `targetLevel`,
+  //    grouped by BFS distance ring so water visibly ripples outward to fill the gap!
   const visited: TileData[] = [];
+  const rings: TileData[][] = [];
   const seen = new Set<number>();
   const queue: TileData[] = [seedTile];
+  const distQueue: number[] = [0];
   seen.add(seedTile.z * gs + seedTile.x);
 
   let rimContacts = 0;
@@ -3235,11 +3236,14 @@ export function fillLiquidBasin(
 
   for (let qi = 0; qi < queue.length; qi++) {
     const cur = queue[qi];
+    const dist = distQueue[qi];
     if (cur.x <= 0 || cur.z <= 0 || cur.x >= gs - 1 || cur.z >= gs - 1) {
       enclosed = false;
       break;
     }
     visited.push(cur);
+    if (!rings[dist]) rings[dist] = [];
+    rings[dist].push(cur);
     if (visited.length > maxTiles) {
       enclosed = false;
       break;
@@ -3260,6 +3264,7 @@ export function fillLiquidBasin(
 
       seen.add(nIdx);
       queue.push(nb);
+      distQueue.push(dist + 1);
     }
   }
 
@@ -3267,33 +3272,67 @@ export function fillLiquidBasin(
     return 0;
   }
 
-  let filledCount = 0;
   let minX = seedTile.x;
   let maxX = seedTile.x;
   let minZ = seedTile.z;
   let maxZ = seedTile.z;
-
   for (let i = 0; i < visited.length; i++) {
     const vt = visited[i];
-    if (applyElevatedLiquidToTile(state, vt, targetLevel, kind)) {
+    if (vt.x < minX) minX = vt.x;
+    if (vt.x > maxX) maxX = vt.x;
+    if (vt.z < minZ) minZ = vt.z;
+    if (vt.z > maxZ) maxZ = vt.z;
+  }
+
+  const cx = (minX + maxX) * 0.5;
+  const cz = (minZ + maxZ) * 0.5;
+  const reactionRadius = Math.min(14, Math.ceil(Math.hypot(maxX - minX, maxZ - minZ) * 0.5) + 2);
+
+  // Immediately splash the first ring (impact center) for instant visual feedback
+  let filledCount = 0;
+  const firstRing = rings[0] ?? [];
+  for (let i = 0; i < firstRing.length; i++) {
+    if (applyElevatedLiquidToTile(state, firstRing[i], targetLevel, kind)) {
       filledCount++;
-      if (vt.x < minX) minX = vt.x;
-      if (vt.x > maxX) maxX = vt.x;
-      if (vt.z < minZ) minZ = vt.z;
-      if (vt.z > maxZ) maxZ = vt.z;
     }
   }
 
-  if (filledCount > 0) {
-    const cx = (minX + maxX) * 0.5;
-    const cz = (minZ + maxZ) * 0.5;
-    const r = Math.min(14, Math.ceil(Math.hypot(maxX - minX, maxZ - minZ) * 0.5) + 2);
-    resolveLiquidReactionsAround(state, cx, cz, r);
+  // Queue remaining outward BFS rings to animate smoothly in stepDynamicLiquidFlow
+  if (rings.length > 1) {
+    let activeWaves = pendingBasinWavesByState.get(state);
+    if (!activeWaves) {
+      activeWaves = [];
+      pendingBasinWavesByState.set(state, activeWaves);
+    }
+    activeWaves.push({
+      rings,
+      nextRingIndex: 1,
+      targetLevel,
+      kind,
+      timer: 0,
+      centerX: cx,
+      centerZ: cz,
+      reactionRadius,
+    });
+  } else if (filledCount > 0) {
+    resolveLiquidReactionsAround(state, cx, cz, reactionRadius);
   }
 
-  return filledCount;
+  return Math.max(filledCount, rings.length > 1 ? 1 : 0);
 }
 
+interface PendingBasinFillWave {
+  rings: TileData[][];
+  nextRingIndex: number;
+  targetLevel: number;
+  kind: LiquidKind;
+  timer: number;
+  centerX: number;
+  centerZ: number;
+  reactionRadius: number;
+}
+
+const pendingBasinWavesByState = new WeakMap<SimulationState, PendingBasinFillWave[]>();
 const liquidFlowTimerByState = new WeakMap<SimulationState, number>();
 
 /**
@@ -3302,6 +3341,35 @@ const liquidFlowTimerByState = new WeakMap<SimulationState, number>();
  * is broken or a side chamber is carved!
  */
 function stepDynamicLiquidFlow(state: SimulationState, dt: number): void {
+  // 1. Advance animated outward-ripple basin fills smoothly (~18 rings/sec)
+  const activeWaves = pendingBasinWavesByState.get(state);
+  if (activeWaves && activeWaves.length > 0) {
+    const RING_INTERVAL_SEC = 0.055;
+    for (let wi = activeWaves.length - 1; wi >= 0; wi--) {
+      const wave = activeWaves[wi];
+      wave.timer += dt;
+      while (wave.timer >= RING_INTERVAL_SEC && wave.nextRingIndex < wave.rings.length) {
+        wave.timer -= RING_INTERVAL_SEC;
+        const ring = wave.rings[wave.nextRingIndex++];
+        let anyApplied = false;
+        for (let i = 0; i < ring.length; i++) {
+          const tile = ring[i];
+          if (tile.buildingId || tile.height >= wave.targetLevel) continue;
+          if (applyElevatedLiquidToTile(state, tile, wave.targetLevel, wave.kind)) {
+            anyApplied = true;
+          }
+        }
+        if (anyApplied && (wave.kind === 'lava' || wave.kind === 'poison')) {
+          resolveLiquidReactionsAround(state, wave.centerX, wave.centerZ, wave.reactionRadius);
+        }
+      }
+      if (wave.nextRingIndex >= wave.rings.length) {
+        resolveLiquidReactionsAround(state, wave.centerX, wave.centerZ, wave.reactionRadius);
+        activeWaves.splice(wi, 1);
+      }
+    }
+  }
+
   const prevTimer = liquidFlowTimerByState.get(state) ?? 0;
   const nextTimer = prevTimer + dt;
   if (nextTimer < 0.35) {
