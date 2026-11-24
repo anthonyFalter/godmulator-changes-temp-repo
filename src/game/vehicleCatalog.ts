@@ -128,7 +128,7 @@ export function getMilitaryVehicleStats(mType: VehicleType, epochIdx: number): M
         fireRange: e >= 6 ? 17.0 : e >= 5 ? 15.2 : 13.8,
         fireCooldown: Math.max(1.15, 1.85 - Math.max(0, e - 4) * 0.16),
         dmg: Math.round(52 * (1 + Math.max(0, e - 4) * 0.32)),
-        cruiseY: 4.85,
+        cruiseY: 5.8,
         domain: 'air',
         minEpoch: 4,
       };
@@ -139,7 +139,7 @@ export function getMilitaryVehicleStats(mType: VehicleType, epochIdx: number): M
         fireRange: e >= 7 ? 19.5 : e >= 6 ? 17.8 : 16.0,
         fireCooldown: Math.max(1.2, 1.75 - Math.max(0, e - 5) * 0.15),
         dmg: Math.round(58 * (1 + Math.max(0, e - 5) * 0.34)),
-        cruiseY: 5.95,
+        cruiseY: 7.4,
         domain: 'air',
         minEpoch: 5,
       };
@@ -161,7 +161,7 @@ export function getMilitaryVehicleStats(mType: VehicleType, epochIdx: number): M
         fireRange: e >= 7 ? 22.0 : 19.0,
         fireCooldown: Math.max(1.25, 1.7 - Math.max(0, e - 6) * 0.2),
         dmg: Math.round(78 * (1 + Math.max(0, e - 6) * 0.38)),
-        cruiseY: 7.45,
+        cruiseY: 9.6,
         domain: 'orbital',
         minEpoch: 6,
       };

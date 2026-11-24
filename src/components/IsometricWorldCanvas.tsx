@@ -7444,12 +7444,20 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           const vz = vEntry ? vEntry.group.position.z : v.z;
           const pickRad =
             v.type === 'orbital_mothership'
-              ? 2.1
-              : v.type === 'sky_carrier' || v.type === 'aircraft_carrier'
-                ? 1.65
-                : v.type === 'sky_cannonship' || v.type === 'warship' || v.type === 'orbital_gunship'
-                  ? 1.25
-                  : 0.95;
+              ? 5.4
+              : v.type === 'sky_carrier'
+                ? 4.4
+                : v.type === 'aircraft_carrier'
+                  ? 3.8
+                  : v.type === 'sky_cannonship'
+                    ? 3.2
+                    : v.type === 'submarine'
+                      ? 2.6
+                      : v.type === 'siege_artillery'
+                        ? 2.0
+                        : v.type === 'warship' || v.type === 'orbital_gunship'
+                          ? 1.4
+                          : 1.0;
           _pickCenter.set(vx, vy + 0.28, vz);
           const distSq = ray.distanceSqToPoint(_pickCenter);
           if (distSq <= pickRad * pickRad) {
@@ -16511,16 +16519,25 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         const hz = vEntry ? vEntry.group.position.z : hoverTargetVeh.z;
         const vRingScale =
           hoverTargetVeh.type === 'orbital_mothership'
-            ? 2.8
-            : hoverTargetVeh.type === 'sky_carrier' || hoverTargetVeh.type === 'aircraft_carrier'
-              ? 2.2
-              : 1.5;
+            ? 6.4
+            : hoverTargetVeh.type === 'sky_carrier'
+              ? 5.2
+              : hoverTargetVeh.type === 'aircraft_carrier'
+                ? 4.6
+                : hoverTargetVeh.type === 'sky_cannonship'
+                  ? 3.8
+                  : hoverTargetVeh.type === 'submarine'
+                    ? 3.1
+                    : hoverTargetVeh.type === 'siege_artillery'
+                      ? 2.4
+                      : 1.6;
         const pulse = 1 + Math.sin(elapsedTotal * 7.5) * 0.06;
         hoverHighlightRig.group.visible = true;
         hoverHighlightRig.group.position.set(hx, hy, hz);
         hoverHighlightRig.ringRoot.scale.setScalar(vRingScale * pulse);
         hoverHighlightRig.ringRoot.rotation.y = elapsedTotal * 1.2;
-        hoverHighlightRig.pointer.position.y = 1.15 + Math.sin(elapsedTotal * 5.2) * 0.1;
+        hoverHighlightRig.pointer.position.y =
+          (vRingScale >= 4.5 ? 3.8 : 2.1) + Math.sin(elapsedTotal * 5.2) * 0.14;
         hoverHighlightRig.pointer.rotation.y = elapsedTotal * 2.4;
         hoverHighlightRig.ringMat.opacity = 0.8 + Math.sin(elapsedTotal * 7.5) * 0.16;
       } else {
@@ -16560,16 +16577,25 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         const sz = vEntry ? vEntry.group.position.z : selectedTargetVeh.z;
         const vRingScale =
           selectedTargetVeh.type === 'orbital_mothership'
-            ? 2.95
-            : selectedTargetVeh.type === 'sky_carrier' || selectedTargetVeh.type === 'aircraft_carrier'
-              ? 2.35
-              : 1.65;
+            ? 6.6
+            : selectedTargetVeh.type === 'sky_carrier'
+              ? 5.4
+              : selectedTargetVeh.type === 'aircraft_carrier'
+                ? 4.8
+                : selectedTargetVeh.type === 'sky_cannonship'
+                  ? 4.0
+                  : selectedTargetVeh.type === 'submarine'
+                    ? 3.3
+                    : selectedTargetVeh.type === 'siege_artillery'
+                      ? 2.6
+                      : 1.75;
         selectedHighlightRig.group.visible = true;
         selectedHighlightRig.group.position.set(sx, sy, sz);
         selectedHighlightRig.ringRoot.scale.setScalar(vRingScale);
         selectedHighlightRig.ringRoot.rotation.y = -elapsedTotal * 0.8;
         selectedHighlightRig.pointer.visible = selectedTargetVeh.id !== activeHoverUnitId;
-        selectedHighlightRig.pointer.position.y = 1.25 + Math.sin(elapsedTotal * 4.2) * 0.08;
+        selectedHighlightRig.pointer.position.y =
+          (vRingScale >= 4.5 ? 4.0 : 2.25) + Math.sin(elapsedTotal * 4.2) * 0.12;
         selectedHighlightRig.pointer.rotation.y = -elapsedTotal * 2.0;
       } else {
         selectedHighlightRig.group.visible = false;
