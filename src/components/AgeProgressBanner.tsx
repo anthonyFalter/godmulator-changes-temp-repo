@@ -28,13 +28,13 @@ const EPOCH_ART_IDS: readonly EpochId[] = [
 let epochArtPreloaded = false;
 
 /**
- * Returns the asset URL for the handcrafted painterly pixel-art panoramic landscape
- * of each civilization epoch (stored in public/assets/epochs/<epochId>.webp).
+ * Returns the asset URL for the crisp 72x36 indexed-palette pixel-art panoramic landscape
+ * of each civilization epoch (stored in public/assets/epochs/<epochId>.png).
  */
 export function getEpochSceneryDataUrl(epochId: EpochId): string {
   const base = import.meta.env.BASE_URL || '/';
   const normalizedBase = base.endsWith('/') ? base : `${base}/`;
-  return `${normalizedBase}assets/epochs/${epochId}.webp`;
+  return `${normalizedBase}assets/epochs/${epochId}.png`;
 }
 
 function preloadEpochArt() {
@@ -269,8 +269,8 @@ export const AgeProgressBanner: React.FC<AgeProgressBannerProps> = ({
             showNewText ? 'age-text-slam' : ''
           }`}
         >
-          {/* LEFT: Full-Bleed Half-Circle Rotating Age Wheel (Exact 2:1 Semicircle: inner 120x60 / 146x73) */}
-          <div className="relative shrink-0 w-[126px] h-[66px] sm:w-[152px] sm:h-[79px]">
+          {/* LEFT: Full-Bleed Half-Circle Rotating Age Wheel (Exact 2:1 Semicircle: inner 120x60 / 144x72 = exact 2x of 72x36) */}
+          <div className="relative shrink-0 w-[126px] h-[66px] sm:w-[150px] sm:h-[78px]">
             {/* Semicircular Clipped Viewport */}
             <div
               className="relative w-full h-full rounded-t-full overflow-hidden border-t-[3px] border-x-[3px] border-b-[3px] border-[#0c0705] bg-[#140c08]"
@@ -281,7 +281,7 @@ export const AgeProgressBanner: React.FC<AgeProgressBannerProps> = ({
             >
               {/* Full Circular Two-Half Diorama Disk (Top Half = Previous Age, Bottom Half = Next Age) */}
               <div
-                className={`absolute left-0 top-0 w-[120px] h-[120px] sm:w-[146px] sm:h-[146px] rounded-full overflow-hidden ${wheelPhaseClass}`}
+                className={`absolute left-0 top-0 w-[120px] h-[120px] sm:w-[144px] sm:h-[144px] rounded-full overflow-hidden ${wheelPhaseClass}`}
                 style={{ willChange: 'transform' }}
               >
                 {/* TOP HALF (0°): Full-Bleed Previous Age Painterly Pixel-Art Scene */}
