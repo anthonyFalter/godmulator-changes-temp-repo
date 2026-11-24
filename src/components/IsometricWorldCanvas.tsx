@@ -12789,39 +12789,63 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             v.type === 'aircraft_carrier' ||
             v.type === 'submarine'
           ) {
-            const isSea = vTile?.height === 0;
-            const baseSeaY = v.type === 'submarine' ? 0.295 : v.type === 'aircraft_carrier' ? 0.22 : 0.26;
-            const bobAmp = v.type === 'submarine' ? 0.012 : 0.03;
-            const shipY = isSea
-              ? baseSeaY + Math.sin(elapsed * (v.type === 'aircraft_carrier' ? 1.4 : 2.2) + v.x * 0.7) * bobAmp
-              : groundY + v.y + 0.02;
-            vGroup.position.set(v.x, shipY, v.z);
-            const wakeBackDist = v.type === 'aircraft_carrier' ? 5.9 : v.type === 'submarine' ? 0.15 : 0.62;
-            if (isSea && Math.random() < (v.type === 'submarine' ? 0.42 : 0.55)) {
-              // Seafoam stern wake (or crisp periscope feather wake for submerged submarines)
-              spawnParticleBurst(
-                v.x - Math.sin(v.heading) * wakeBackDist,
-                0.31,
-                v.z - Math.cos(v.heading) * wakeBackDist,
-                v.type === 'aircraft_carrier' ? 3 : v.type === 'submarine' ? 1 : 2,
-                v.epochLevel >= 6 ? '#56cfe1' : '#e0f2fe',
-                v.type === 'aircraft_carrier' ? 0.36 : v.type === 'submarine' ? 0.14 : 0.22,
-                0.45,
-                0.45,
-              );
-            }
-            if (v.epochLevel === 3 && v.type !== 'submarine' && Math.random() < 0.38) {
-              // Industrial steam ferry / ironclad / carrier smokestack plumes
-              spawnParticleBurst(
-                v.x,
-                shipY + (v.type === 'aircraft_carrier' ? 3.4 : 0.58),
-                v.z,
-                1,
-                '#475569',
-                v.type === 'aircraft_carrier' ? 0.28 : 0.18,
-                0.9,
-                0.55,
-              );
+            const isSkyVariant =
+              v.species === 'elf' && (v.type === 'aircraft_carrier' || v.type === 'submarine');
+            const isGroundVariant =
+              (v.type === 'aircraft_carrier' && (v.species === 'dwarf' || v.species === 'orc')) ||
+              (v.type === 'submarine' && v.species === 'dwarf');
+            const isSea = !isSkyVariant && !isGroundVariant && vTile?.height === 0;
+
+            if (isSkyVariant) {
+              const hoverBob = Math.sin(elapsed * 1.5 + v.x * 0.4) * 0.14;
+              const skyY = Math.max(groundY + 3.2, v.y + hoverBob);
+              vGroup.position.set(v.x, skyY, v.z);
+              if (Math.random() < 0.25) {
+                spawnParticleBurst(v.x, skyY - 0.3, v.z, 1, '#7dd3fc', 0.22, 0.45, 0.5);
+              }
+            } else if (isGroundVariant) {
+              vGroup.position.set(v.x, groundY + 0.03, v.z);
+              if (v.type === 'submarine' && Math.random() < 0.32) {
+                // Dwarf Subterranean Mole-Driller earthy dust rumble
+                spawnParticleBurst(v.x, groundY + 0.12, v.z, 1, '#785a3a', 0.22, 0.55, 0.45);
+              } else if (v.type === 'aircraft_carrier' && Math.random() < 0.35) {
+                // Dwarf Land-Dreadnought / Orc Scrap-Juggernaut furnace exhaust smoke
+                spawnParticleBurst(v.x, groundY + 4.8, v.z, 1, v.species === 'orc' ? '#292524' : '#475569', 0.32, 1.1, 0.65);
+              }
+            } else {
+              const baseSeaY = v.type === 'submarine' ? 0.295 : v.type === 'aircraft_carrier' ? 0.22 : 0.26;
+              const bobAmp = v.type === 'submarine' ? 0.012 : 0.03;
+              const shipY = isSea
+                ? baseSeaY + Math.sin(elapsed * (v.type === 'aircraft_carrier' ? 1.4 : 2.2) + v.x * 0.7) * bobAmp
+                : groundY + 0.03;
+              vGroup.position.set(v.x, shipY, v.z);
+              const wakeBackDist = v.type === 'aircraft_carrier' ? 5.9 : v.type === 'submarine' ? 0.15 : 0.62;
+              if (isSea && Math.random() < (v.type === 'submarine' ? 0.42 : 0.55)) {
+                // Seafoam stern wake (or crisp periscope feather wake for submerged submarines)
+                spawnParticleBurst(
+                  v.x - Math.sin(v.heading) * wakeBackDist,
+                  0.31,
+                  v.z - Math.cos(v.heading) * wakeBackDist,
+                  v.type === 'aircraft_carrier' ? 3 : v.type === 'submarine' ? 1 : 2,
+                  v.epochLevel >= 6 ? '#56cfe1' : '#e0f2fe',
+                  v.type === 'aircraft_carrier' ? 0.36 : v.type === 'submarine' ? 0.14 : 0.22,
+                  0.45,
+                  0.45,
+                );
+              }
+              if (v.epochLevel === 3 && v.type !== 'submarine' && Math.random() < 0.38) {
+                // Industrial steam ferry / ironclad / carrier smokestack plumes
+                spawnParticleBurst(
+                  v.x,
+                  shipY + (v.type === 'aircraft_carrier' ? 3.4 : 0.58),
+                  v.z,
+                  1,
+                  '#475569',
+                  v.type === 'aircraft_carrier' ? 0.28 : 0.18,
+                  0.9,
+                  0.55,
+                );
+              }
             }
           } else if (
             v.type === 'sky_cannonship' ||
@@ -17037,9 +17061,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
               : vStats.domain === 'land'
                 ? 0xf97316
                 : 0x38bdf8;
+        const effectiveRange =
+          rangeTargetVeh.type === 'submarine' && rangeTargetVeh.epochLevel >= 4
+            ? Math.max(38, Math.round(simRef.current.gridSize * 0.6))
+            : vStats.fireRange;
         vehicleRangeRingGroup.visible = true;
         vehicleRangeRingGroup.position.set(rx, ringY, rz);
-        vehicleRangeRingGroup.scale.setScalar(vStats.fireRange);
+        vehicleRangeRingGroup.scale.setScalar(effectiveRange);
         vehicleRangeOuterMat.color.setHex(ringColor);
         vehicleRangeMidMat.color.setHex(ringColor);
         vehicleRangeFillMat.color.setHex(ringColor);

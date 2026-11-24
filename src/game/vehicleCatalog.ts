@@ -247,29 +247,35 @@ export function getVehicleDisplayName(
           : species === 'orc'
             ? 'Shark-Jaw Submersible'
             : species === 'elf'
-              ? 'Manta Nautilus'
+              ? 'High-Altitude Astral Prism-Skiff'
               : species === 'lizardfolk'
-                ? 'Caiman Reef-Sub'
-                : 'Diesel U-Submarine';
+                ? 'Abyssal Sun-Serpent Submersible'
+                : 'Diesel Attack Submarine';
       }
-      if (e === 4) return `${rp} Nuclear Submarine`;
-      if (e === 5) return `${rp} Stealth Torpedo Sub`;
-      return `${rp} Abyssal Plasma Sub`;
+      if (species === 'dwarf') return e >= 5 ? 'Runeforge Seismic Rail-Driller' : 'Subterranean Mole-Driller';
+      if (species === 'elf') return e >= 5 ? 'Stratospheric Starfall Prism-Skiff' : 'High-Altitude Astral Skiff';
+      if (species === 'orc') return e >= 5 ? 'WAAAGH! Mega-Rokkit Sub-Shark' : 'Scrap-Shark Submersible';
+      if (species === 'lizardfolk') return e >= 5 ? 'Tidal Solar-Serpent Leviathan' : 'Abyssal Sun-Serpent Sub';
+      if (e === 4) return 'Ballistic Missile Submarine';
+      if (e === 5) return 'Stealth SLBM Submarine';
+      return 'Abyssal Plasma SLBM Sub';
     case 'aircraft_carrier':
-      if (e === 3) return `${rp} Seaplane Tender`;
-      if (e === 4) {
-        return species === 'dwarf'
-          ? 'Twin-Hull Forge Carrier'
-          : species === 'elf'
-            ? 'Sun-Sail Wing Carrier'
-            : species === 'orc'
-              ? 'Dakka Flat-Top Hulk'
-              : species === 'lizardfolk'
-                ? 'Temple-Deck Sea Ark'
-                : 'Fleet Aircraft Carrier';
+      if (species === 'dwarf') {
+        return e >= 5 ? 'Runeforge Colossus Land-Dreadnought (Siege Machine)' : 'Runeforge Land-Dreadnought (Siege Machine)';
       }
-      if (e === 5) return `${rp} Nuclear Supercarriers`;
-      return `${rp} Aegis Plasma Carrier`;
+      if (species === 'orc') {
+        return e >= 5 ? 'Mega-WAAAGH! Scrap-Juggernaut (Siege Machine)' : 'WAAAGH! Scrap-Juggernaut (Siege Machine)';
+      }
+      if (species === 'elf') {
+        return e >= 5 ? 'Grand Sylvan Aether-Carrier (Siege Machine)' : 'Sylvan Aether-Carrier (Siege Machine)';
+      }
+      if (species === 'lizardfolk') {
+        return e >= 5 ? 'Grand Amphibious Ziggurat-Leviathan (Siege Machine)' : 'Amphibious Ziggurat-Leviathan (Siege Machine)';
+      }
+      if (e === 3) return 'Fleet Aircraft Carrier (Siege Machine)';
+      if (e === 4) return 'Nuclear Supercarrier (Siege Machine)';
+      if (e === 5) return 'Aegis Supercarrier (Siege Machine)';
+      return 'Orbital-Grade Fleet Carrier (Siege Machine)';
     case 'tank':
       if (e === 3) return `${rp} Trench Landship`;
       if (e === 4) return `${rp} Heavy Battle Tank`;
