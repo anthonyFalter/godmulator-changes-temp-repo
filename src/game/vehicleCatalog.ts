@@ -278,18 +278,46 @@ export function getVehicleDisplayName(
     case 'siege_artillery':
       if (e === 3) {
         return species === 'dwarf'
-          ? 'Runeforge Quake-Mortar Crawler'
+          ? 'Runeforge Steam Gun-Carriage'
           : species === 'orc'
-            ? 'Spiked Doom-Kannon Roller'
+            ? 'Ironjaw Half-Track Gun-Wagon'
             : species === 'elf'
-              ? 'Prism-Lance Strider'
+              ? 'Sylvan Wheeled Ballista-Sentry'
               : species === 'lizardfolk'
-                ? 'Obsidian Sun-Obelisk Walker'
-                : 'Heavy Siege Howitzer';
+                ? 'Solar Wheeled Altar-Carriage'
+                : 'Armored Gun-Carriage Sentry';
       }
-      if (e === 4) return `${rp} Heavy Artillery Crawler`;
-      if (e === 5) return `${rp} Long-Range Rail-Battery`;
-      return `${rp} Plasma Siege Walker`;
+      if (e === 4) {
+        return species === 'dwarf'
+          ? 'Runeforge Armored Radar-Battery'
+          : species === 'orc'
+            ? 'Orc Dakka-Wagon Sentry'
+            : species === 'elf'
+              ? 'Sylvan Prism-Carriage Sentry'
+              : species === 'lizardfolk'
+                ? 'Obsidian Sun-Battery Carriage'
+                : '8x8 Radar Sentry Vehicle';
+      }
+      if (e === 5) {
+        return species === 'dwarf'
+          ? 'Runeforge Spider-Sentry'
+          : species === 'orc'
+            ? 'Orc Scrap-Skuttler Walker'
+            : species === 'elf'
+              ? 'Sylvan Weaver-Strider'
+              : species === 'lizardfolk'
+                ? 'Temple-Scarab Sentry Walker'
+                : 'Tactical 4-Legged Spider-Sentry';
+      }
+      return species === 'dwarf'
+        ? 'Dyson Forge-Spider Walker'
+        : species === 'orc'
+          ? 'Ironjaw Plasma-Skuttler'
+          : species === 'elf'
+            ? 'Astral Star-Weaver Walker'
+            : species === 'lizardfolk'
+              ? 'Solar Scarab Orbital-Walker'
+              : 'Orbital Plasma Spider-Walker';
     case 'sky_cannonship':
       if (e <= 4) {
         return species === 'dwarf'
@@ -376,10 +404,10 @@ export function getVehicleProgressionTrack(vType: VehicleType): VehicleProgressi
       ];
     case 'siege_artillery':
       return [
-        { epoch: 3, label: 'Siege Gun' },
-        { epoch: 4, label: 'Howitzer' },
-        { epoch: 5, label: 'Rail Battery' },
-        { epoch: 6, label: 'Siege Walker' },
+        { epoch: 3, label: 'Gun-Carriage' },
+        { epoch: 4, label: 'Radar Sentry' },
+        { epoch: 5, label: 'Spider-Sentry' },
+        { epoch: 6, label: 'Orbital Walker' },
       ];
     case 'sky_cannonship':
       return [

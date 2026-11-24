@@ -508,58 +508,286 @@ export function createCapitalWarVehicleGroup(
   }
 
   // =========================================================================
-  // 3. SIEGE ARTILLERY (Land, Epoch 3+) — Realistic ~4.4 tiles long low-slung SPG / Walker!
+  // 3. MOBILE SENTRY -> 4-LEGGED SPIDER WALKING SENTRY (Land, Epoch 3+)
+  //    - Epoch 3 (Industrial): Wheeled Armored Gun-Carriage Sentry (NO walker legs!)
+  //    - Epoch 4 (Atomic):     8x8 Armored Radar Sentry Vehicle (NO walker legs!)
+  //    - Epoch 5 (Info):       4-Legged Articulated Spider-Like Walking Sentry!
+  //    - Epoch 6+ (Orbital):   Apex 4-Legged Plasma/Orbital Spider-Walker!
   // =========================================================================
   if (type === 'siege_artillery') {
-    if (species === 'elf') {
-      pushTaperedHull(matte, [[0.65, -1.4], [0.95, -0.4], [0.88, 1.1], [0.42, 1.7]], 0.56, 1.48, 0xf2ede0, 0.06);
-      for (const [lx, lz] of [[-1.08, 0.95], [1.08, 0.95], [-1.08, -0.95], [1.08, -0.95]]) {
-        pushCyl(metal, 0.14, 0.18, 1.18, 6, lx, 0.60, lz, 0xc8a441);
-        pushBox(matte, 0.44, 0.16, 0.48, lx, 0.08, lz, 0xe8e2d0);
-      }
-      pushCyl(metal, 0.15, 0.22, 3.65, 8, 0, 2.05, 0.85, 0xf8f5eb, Math.PI / 2 - 0.26, 0, 0);
-      pushTorus(glow, 0.40, 0.06, 6, 14, 0, 2.15, 1.35, 0xc084fc, 0, 0, 0);
-    } else if (species === 'orc') {
-      pushBox(matte, 2.15, 0.72, 3.45, 0, 0.62, -0.25, 0x3f3a36);
-      pushCyl(metal, 0.46, 0.46, 2.65, 10, 0, 0.48, 1.75, 0x71717a, 0, 0, Math.PI / 2);
+    const isSpiderWalker = e >= 5;
+    const isOrbitalWalker = e >= 6;
+
+    // Helper: push a 3D strut connecting point A to point B cleanly
+    const pushStrut = (
+      target: THREE.BufferGeometry[],
+      ax: number,
+      ay: number,
+      az: number,
+      bx: number,
+      by: number,
+      bz: number,
+      rTop: number,
+      rBot: number,
+      hex: number,
+    ) => {
+      const dx = bx - ax;
+      const dy = by - ay;
+      const dz = bz - az;
+      const len = Math.hypot(dx, dy, dz);
+      if (len < 0.001) return;
+      const g = new THREE.CylinderGeometry(rTop, rBot, len, 6);
+      const dir = new THREE.Vector3(dx, dy, dz).normalize();
+      const quat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+      g.applyQuaternion(quat);
+      g.translate((ax + bx) * 0.5, (ay + by) * 0.5, (az + bz) * 0.5);
+      pushGeo(target, g, hex);
+    };
+
+    if (!isSpiderWalker) {
+      // --- INDUSTRIAL (Epoch 3) & ATOMIC (Epoch 4): WHEELED ARMORED SENTRY CARRIAGES (NO WALKER LEGS) ---
+      const isAtomicRadar = e === 4;
+      const wheelCount = isAtomicRadar ? 4 : 3;
+      const hullPrimary =
+        species === 'elf'
+          ? 0xf2ede0
+          : species === 'orc'
+            ? 0x3b3532
+            : species === 'dwarf'
+              ? 0x334155
+              : species === 'lizardfolk'
+                ? 0x1e293b
+                : isAtomicRadar
+                  ? 0x4b5563
+                  : 0x4d5d42;
+      const trimCol =
+        species === 'elf'
+          ? 0xc8a441
+          : species === 'orc'
+            ? 0x881b1b
+            : species === 'dwarf'
+              ? 0xb45309
+              : species === 'lizardfolk'
+                ? 0xca8a04
+                : 0x64748b;
+      const accentGlow =
+        species === 'elf'
+          ? 0xc084fc
+          : species === 'orc'
+            ? 0xf97316
+            : species === 'dwarf'
+              ? 0xf59e0b
+              : species === 'lizardfolk'
+                ? 0x34d399
+                : 0x60a5fa;
+
+      // Sleek compact armored wheeled chassis (~2.7 tiles long x 1.45 wide)
+      pushTaperedHull(
+        matte,
+        [
+          [0.58, -1.25],
+          [0.68, -0.35],
+          [0.68, 0.85],
+          [0.44, 1.38],
+        ],
+        0.48,
+        0.78,
+        hullPrimary,
+        0.04,
+      );
+      // Side wheel arches & cylindrical armored wheels (6x6 in Industrial, 8x8 in Atomic)
       for (const side of [-1, 1]) {
-        pushBox(matte, 0.46, 0.64, 3.15, side * 1.18, 0.34, -0.35, 0x262626);
-        pushCyl(metal, 0.13, 0.15, 1.35, 6, side * 0.85, 1.55, -1.65, 0x18181b);
-      }
-      pushCyl(metal, 0.28, 0.38, 3.75, 8, 0, 1.72, 0.45, 0x27272a, Math.PI / 2 - 0.30, 0, 0);
-      pushCyl(matte, 0.38, 0.38, 0.48, 8, 0, 2.25, 2.05, 0x991b1b, Math.PI / 2 - 0.30, 0, 0);
-      pushCyl(glow, 0.20, 0.20, 0.12, 8, 0, 2.34, 2.32, 0xf97316, Math.PI / 2 - 0.30, 0, 0);
-    } else if (species === 'dwarf') {
-      for (const side of [-1, 1]) {
-        pushBox(matte, 0.56, 0.62, 3.85, side * 1.08, 0.32, 0, 0x27272a);
-        pushBox(metal, 0.64, 0.20, 3.75, side * 1.08, 0.66, 0, 0xb45309);
-      }
-      pushTaperedHull(matte, [[0.92, -1.7], [1.04, -0.5], [1.04, 1.2], [0.76, 1.85]], 0.76, 1.38, 0x334155, 0.05);
-      pushCyl(metal, 0.32, 0.42, 3.25, 10, 0, 1.98, 0.58, 0xb45309, Math.PI / 2 - 0.42, 0, 0);
-      pushCyl(metal, 0.44, 0.44, 0.36, 10, 0, 2.62, 1.95, 0xd97706, Math.PI / 2 - 0.42, 0, 0);
-      pushBox(glow, 0.76, 0.34, 0.16, 0, 0.96, -1.78, 0xf59e0b);
-    } else if (species === 'lizardfolk') {
-      pushTaperedHull(matte, [[0.85, -1.4], [1.15, 0.0], [0.95, 1.4], [0.55, 1.75]], 0.62, 1.32, 0x1e293b, 0.05);
-      for (const [lx, lz] of [[-1.12, 1.05], [1.12, 1.05], [-1.12, -1.05], [1.12, -1.05]]) {
-        pushCyl(matte, 0.20, 0.24, 0.95, 6, lx, 0.48, lz, 0x334155);
-        pushBox(metal, 0.48, 0.16, 0.52, lx, 0.08, lz, 0xca8a04);
-      }
-      pushBox(metal, 1.45, 0.40, 1.58, 0, 1.56, 0, 0xca8a04);
-      pushCyl(glow, 0.08, 0.34, 1.95, 4, 0, 2.65, 0.05, 0x34d399);
-    } else {
-      const hullHex = e >= 5 ? 0x4b5563 : 0x4d5d42;
-      for (const side of [-1, 1]) {
-        pushBox(matte, 0.52, 0.52, 3.85, side * 0.98, 0.28, 0, 0x1f2328);
-        for (let wi = -2; wi <= 2; wi++) {
-          pushCyl(metal, 0.21, 0.21, 0.56, 8, side * 0.98, 0.24, wi * 0.68, 0x52525b, 0, 0, Math.PI / 2);
+        pushBox(matte, 0.22, 0.14, 2.35, side * 0.72, 0.54, 0, trimCol);
+        for (let wi = 0; wi < wheelCount; wi++) {
+          const wz = -0.95 + (wi / Math.max(1, wheelCount - 1)) * 1.9;
+          pushCyl(matte, 0.24, 0.24, 0.18, 10, side * 0.74, 0.24, wz, 0x1f2328, 0, 0, Math.PI / 2);
+          pushCyl(metal, 0.11, 0.11, 0.20, 6, side * 0.74, 0.24, wz, trimCol, 0, 0, Math.PI / 2);
         }
-        pushBox(matte, 0.58, 0.16, 3.75, side * 0.98, 0.58, 0, hullHex);
       }
-      pushTaperedHull(matte, [[0.82, -1.85], [0.92, -0.4], [0.92, 1.3], [0.68, 1.95]], 0.58, 1.12, hullHex, 0.04);
-      pushBox(matte, 1.34, 0.72, 1.85, 0, 1.48, -0.55, 0x64748b);
-      pushCyl(metal, 0.11, 0.17, 3.85, 8, 0, 2.05, 0.95, 0x94a3b8, Math.PI / 2 - 0.30, 0, 0);
-      pushBox(metal, 0.36, 0.26, 0.40, 0, 2.62, 2.75, 0x334155, -0.30, 0, 0);
-      if (e >= 6) pushBox(glow, 0.14, 0.09, 3.35, 0, 2.12, 1.02, 0x60a5fa, -0.30, 0, 0);
+      // Race-distinct compact sentry turret cupola + twin weapons
+      if (species === 'elf') {
+        pushCyl(matte, 0.36, 0.48, 0.36, 8, 0, 0.98, -0.05, 0xf8f5eb);
+        pushCyl(metal, 0.05, 0.08, 1.45, 6, -0.22, 1.04, 0.65, 0xc8a441, Math.PI / 2 - 0.12, 0, 0);
+        pushCyl(metal, 0.05, 0.08, 1.45, 6, 0.22, 1.04, 0.65, 0xc8a441, Math.PI / 2 - 0.12, 0, 0);
+        pushBox(glow, 0.24, 0.16, 0.14, 0, 1.04, 0.38, accentGlow);
+      } else if (species === 'orc') {
+        pushBox(matte, 0.92, 0.44, 0.96, 0, 1.02, -0.1, 0x881b1b);
+        pushBox(metal, 1.38, 0.22, 0.26, 0, 0.42, 1.42, 0x71717a); // spiked ram bumper
+        pushCyl(metal, 0.10, 0.12, 1.42, 6, -0.24, 1.05, 0.65, 0x27272a, Math.PI / 2 - 0.1, 0, 0);
+        pushCyl(metal, 0.10, 0.12, 1.42, 6, 0.24, 1.05, 0.65, 0x27272a, Math.PI / 2 - 0.1, 0, 0);
+        pushCyl(metal, 0.08, 0.10, 0.85, 6, 0.42, 1.25, -0.95, 0x18181b); // exhaust stack
+        pushBox(win, 0.44, 0.10, 0.08, 0, 1.08, 0.40, 0xfbbf24);
+      } else if (species === 'dwarf') {
+        pushCyl(matte, 0.46, 0.56, 0.42, 8, 0, 1.00, -0.05, 0x475569);
+        pushCyl(metal, 0.48, 0.48, 0.08, 8, 0, 1.22, -0.05, 0xd97706);
+        pushCyl(metal, 0.11, 0.14, 1.35, 8, -0.24, 1.04, 0.62, 0xb45309, Math.PI / 2 - 0.18, 0, 0);
+        pushCyl(metal, 0.11, 0.14, 1.35, 8, 0.24, 1.04, 0.62, 0xb45309, Math.PI / 2 - 0.18, 0, 0);
+        pushCyl(metal, 0.12, 0.14, 0.72, 8, 0, 1.18, -0.88, 0xb45309); // steam boiler funnel
+        pushBox(glow, 0.34, 0.16, 0.10, 0, 0.62, -1.26, accentGlow);
+      } else if (species === 'lizardfolk') {
+        pushBox(matte, 0.96, 0.26, 0.96, 0, 0.92, -0.05, 0x1e293b);
+        pushBox(metal, 0.68, 0.24, 0.68, 0, 1.16, -0.05, 0xca8a04);
+        pushCyl(glow, 0.06, 0.20, 0.78, 4, 0, 1.62, -0.05, accentGlow);
+        pushCyl(metal, 0.08, 0.10, 1.15, 6, 0, 1.06, 0.68, 0xca8a04, Math.PI / 2 - 0.12, 0, 0);
+      } else {
+        // Human Armored Gun-Carriage (Epoch 3) -> 8x8 Radar Sentry Vehicle (Epoch 4)
+        pushBox(matte, 0.88, 0.42, 1.04, 0, 1.00, -0.1, 0x64748b);
+        pushCyl(metal, 0.06, 0.08, 1.55, 6, -0.20, 1.04, 0.72, 0x94a3b8, Math.PI / 2 - 0.14, 0, 0);
+        pushCyl(metal, 0.06, 0.08, 1.55, 6, 0.20, 1.04, 0.72, 0x94a3b8, Math.PI / 2 - 0.14, 0, 0);
+        addWindowStrip(win, 0, 0.64, 1.38, 3, 0.18, false, 0xfbbf24);
+      }
+      if (isAtomicRadar) {
+        // Atomic Age rotating radar dish + missile pod atop the wheeled sentry
+        pushCyl(metal, 0.05, 0.06, 0.48, 6, 0, 1.44, -0.35, 0x94a3b8);
+        pushBox(metal, 0.62, 0.24, 0.08, 0, 1.68, -0.35, 0xe2e8f0, -0.22, 0, 0);
+        pushBox(glow, 0.12, 0.12, 0.06, 0, 1.68, -0.30, accentGlow);
+      }
+    } else {
+      // --- INFORMATION AGE (Epoch 5) & ORBITAL/INTERSTELLAR (Epoch 6+): 4-LEGGED SPIDER WALKING SENTRY! ---
+      const bodyY = isOrbitalWalker ? 1.08 : 0.96;
+      const bodyHex =
+        species === 'elf'
+          ? 0xf5f0e2
+          : species === 'orc'
+            ? 0x3b3532
+            : species === 'dwarf'
+              ? 0x334155
+              : species === 'lizardfolk'
+                ? 0x1e293b
+                : isOrbitalWalker
+                  ? 0x475569
+                  : 0x374151;
+      const legHex =
+        species === 'elf'
+          ? 0xc8a441
+          : species === 'orc'
+            ? 0x57534e
+            : species === 'dwarf'
+              ? 0xb45309
+              : species === 'lizardfolk'
+                ? 0xca8a04
+                : 0x1f242b;
+      const jointHex =
+        species === 'elf'
+          ? 0xf8f5eb
+          : species === 'orc'
+            ? 0x881b1b
+            : species === 'dwarf'
+              ? 0xd97706
+              : species === 'lizardfolk'
+                ? 0xd4af37
+                : 0x94a3b8;
+      const eyeGlow =
+        species === 'elf'
+          ? 0xc084fc
+          : species === 'orc'
+            ? 0xf97316
+            : species === 'dwarf'
+              ? 0xf59e0b
+              : species === 'lizardfolk'
+                ? 0x34d399
+                : 0x38bdf8;
+
+      // 4 Articulated High-Kneed Arachnid Spider Legs radiating at 45°, 135°, 225°, 315°
+      const legAngles = [Math.PI * 0.25, Math.PI * 0.75, Math.PI * 1.25, Math.PI * 1.75];
+      const hipR = 0.48;
+      const kneeR = isOrbitalWalker ? 1.28 : 1.15;
+      const kneeY = bodyY + (isOrbitalWalker ? 0.56 : 0.46);
+      const footR = isOrbitalWalker ? 1.62 : 1.48;
+      for (const ang of legAngles) {
+        const ca = Math.cos(ang);
+        const sa = Math.sin(ang);
+        const hx = ca * hipR;
+        const hz = sa * hipR;
+        const kx = ca * kneeR;
+        const kz = sa * kneeR;
+        const fx = ca * footR;
+        const fz = sa * footR;
+
+        // Hip joint socket
+        pushCyl(metal, 0.14, 0.14, 0.16, 8, hx, bodyY, hz, jointHex);
+        // Upper femur angled UP and OUT to high spider knee
+        pushStrut(metal, hx, bodyY, hz, kx, kneeY, kz, 0.085, 0.11, legHex);
+        // Armored knee joint hub (+ glowing actuator in Orbital Age)
+        pushCyl(matte, 0.15, 0.15, 0.18, 8, kx, kneeY, kz, jointHex);
+        if (isOrbitalWalker) {
+          pushCyl(glow, 0.09, 0.09, 0.22, 6, kx, kneeY, kz, eyeGlow);
+        }
+        // Lower tibia angled DOWN and OUT to clawed footpad
+        pushStrut(matte, kx, kneeY, kz, fx, 0.10, fz, 0.06, 0.095, legHex);
+        // Armored arachnid footpad
+        pushCyl(metal, 0.12, 0.18, 0.12, 6, fx, 0.06, fz, jointHex);
+      }
+
+      // Race-Unique Central Spider-Sentry Carapace & Twin Weapon Pods
+      if (species === 'elf') {
+        // Sylvan Weaver-Strider: graceful domed ivory carapace, amethyst eye core & twin starlight lances
+        pushCyl(matte, 0.48, 0.66, 0.44, 8, 0, bodyY + 0.12, 0, bodyHex);
+        pushCyl(metal, 0.14, 0.44, 0.34, 8, 0, bodyY + 0.48, -0.04, 0xc8a441);
+        pushCyl(glow, 0.22, 0.22, 0.16, 8, 0, bodyY + 0.16, 0.56, eyeGlow, Math.PI / 2, 0, 0);
+        for (const side of [-1, 1]) {
+          pushCyl(metal, 0.05, 0.075, 1.38, 6, side * 0.58, bodyY + 0.10, 0.52, 0xc8a441, Math.PI / 2, 0, 0);
+          pushCyl(glow, 0.04, 0.04, 0.35, 6, side * 0.58, bodyY + 0.10, 1.24, eyeGlow, Math.PI / 2, 0, 0);
+        }
+        if (isOrbitalWalker) {
+          pushTorus(glow, 0.62, 0.06, 6, 16, 0, bodyY + 0.62, -0.04, eyeGlow);
+        }
+      } else if (species === 'orc') {
+        // Orc Scrap-Skuttler: brutal riveted crimson-and-iron spider turret with rotary dakka cannons & exhausts
+        pushBox(matte, 1.12, 0.58, 1.18, 0, bodyY + 0.14, 0, bodyHex);
+        pushBox(matte, 0.92, 0.34, 0.88, 0, bodyY + 0.54, -0.05, 0x881b1b);
+        pushBox(glow, 0.58, 0.14, 0.10, 0, bodyY + 0.22, 0.60, eyeGlow); // angry glowing visor slit
+        for (const side of [-1, 1]) {
+          pushCyl(metal, 0.12, 0.14, 1.32, 6, side * 0.68, bodyY + 0.14, 0.52, 0x18181b, Math.PI / 2, 0, 0);
+          pushCyl(metal, 0.08, 0.10, 0.68, 6, side * 0.38, bodyY + 0.78, -0.42, 0x262626);
+        }
+        if (isOrbitalWalker) {
+          pushCyl(glow, 0.10, 0.10, 0.24, 6, -0.68, bodyY + 0.14, 1.22, eyeGlow, Math.PI / 2, 0, 0);
+          pushCyl(glow, 0.10, 0.10, 0.24, 6, 0.68, bodyY + 0.14, 1.22, eyeGlow, Math.PI / 2, 0, 0);
+        }
+      } else if (species === 'dwarf') {
+        // Runeforge Forge-Spider: heavy armored octagonal ironclad carapace, amber furnace core & twin heavy mortars
+        pushCyl(matte, 0.62, 0.74, 0.54, 8, 0, bodyY + 0.14, 0, bodyHex);
+        pushCyl(metal, 0.66, 0.66, 0.10, 8, 0, bodyY + 0.44, 0, 0xd97706);
+        pushBox(glow, 0.42, 0.22, 0.12, 0, bodyY + 0.18, 0.66, eyeGlow);
+        for (const side of [-1, 1]) {
+          pushCyl(metal, 0.13, 0.17, 1.25, 8, side * 0.68, bodyY + 0.26, 0.46, 0xb45309, Math.PI / 2 - 0.18, 0, 0);
+        }
+        if (isOrbitalWalker) {
+          pushCyl(glow, 0.28, 0.28, 0.28, 8, 0, bodyY + 0.62, 0, eyeGlow);
+        }
+      } else if (species === 'lizardfolk') {
+        // Temple-Scarab Sentry Walker: stepped obsidian-and-gold carapace + blazing emerald sun-beam obelisk
+        pushBox(matte, 1.18, 0.34, 1.18, 0, bodyY + 0.06, 0, bodyHex);
+        pushBox(metal, 0.86, 0.28, 0.86, 0, bodyY + 0.36, 0, 0xca8a04);
+        pushCyl(glow, 0.06, 0.28, 0.92, 4, 0, bodyY + 0.86, 0, eyeGlow);
+        pushBox(glow, 0.36, 0.16, 0.12, 0, bodyY + 0.12, 0.60, eyeGlow);
+        for (const side of [-1, 1]) {
+          pushCyl(metal, 0.07, 0.09, 1.18, 6, side * 0.64, bodyY + 0.12, 0.48, 0xd4af37, Math.PI / 2, 0, 0);
+        }
+      } else {
+        // HUMAN: Sleek Tactical 4-Legged Spider-Sentry (Info Age) -> Orbital Plasma Spider-Walker (Orbital+)
+        pushCyl(matte, 0.56, 0.68, 0.46, 8, 0, bodyY + 0.12, 0, bodyHex);
+        pushBox(matte, 0.82, 0.28, 0.94, 0, bodyY + 0.44, -0.06, 0x181b20); // matte-black turret crown
+        // Iconic glowing cyclops optic visor
+        pushBox(glow, 0.46, 0.14, 0.10, 0, bodyY + 0.16, 0.64, eyeGlow);
+        // Twin shoulder-mounted rail-autocannons
+        for (const side of [-1, 1]) {
+          pushBox(matte, 0.22, 0.24, 0.68, side * 0.68, bodyY + 0.18, 0.05, 0x4b5563);
+          pushCyl(metal, 0.05, 0.065, 1.42, 6, side * 0.68, bodyY + 0.18, 0.72, 0x94a3b8, Math.PI / 2, 0, 0);
+          if (isOrbitalWalker) {
+            pushCyl(glow, 0.04, 0.04, 0.42, 6, side * 0.68, bodyY + 0.18, 1.38, eyeGlow, Math.PI / 2, 0, 0);
+          }
+        }
+        // Top tactical sensor dish / orbital plasma ring
+        if (isOrbitalWalker) {
+          pushTorus(metal, 0.52, 0.06, 6, 14, 0, bodyY + 0.72, -0.06, 0x64748b);
+          pushCyl(glow, 0.18, 0.18, 0.16, 8, 0, bodyY + 0.72, -0.06, eyeGlow);
+        } else {
+          pushCyl(metal, 0.04, 0.05, 0.36, 6, 0.22, bodyY + 0.74, -0.22, 0xcbd5e1);
+          pushBox(metal, 0.42, 0.18, 0.06, 0.22, bodyY + 0.92, -0.22, 0xe2e8f0, -0.2, 0, 0);
+        }
+      }
     }
     return finalizeMultiFinishGroup(matte, metal, win, glow);
   }
