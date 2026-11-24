@@ -19894,5 +19894,102 @@ export function createHyperspaceRippleEffects(radius: number): HyperspaceRippleE
   };
 }
 
+/**
+ * Era-evolving 3D bridge architectural kit (instanced per open-water bridge edge, 1 draw call per era style):
+ * - Prehistoric / Bronze (ep <= 1): Timber pilings, knee braces, handrails, mid-rails & slatted cross-plank deck
+ * - Classical / Medieval (ep === 2): Carved ashlar stone parapet walls, stone piers, coping caps & under-arch corbels
+ * - Industrial / Modern (ep >= 3): Riveted wrought-iron Warren truss girders, steel stanchions & reinforced piers
+ */
+export function createBridgeKitGeometries(): {
+  woodSideGeo: THREE.BufferGeometry;
+  woodDeckGeo: THREE.BufferGeometry;
+  stoneSideGeo: THREE.BufferGeometry;
+  ironSideGeo: THREE.BufferGeometry;
+} {
+  // 1. Wooden Timber Bridge Side Rail + Pilings + Knee Braces (aligned along X: -0.5..+0.5, y = 0 at deck surface)
+  const woodSideParts: THREE.BufferGeometry[] = [];
+  // Twin corner timber pilings descending into water & rising to handrail posts
+  addColoredBox(woodSideParts, 0.11, 0.56, 0.11, -0.43, -0.01, 0.0, 0x5c3c22);
+  addColoredBox(woodSideParts, 0.11, 0.56, 0.11, 0.43, -0.01, 0.0, 0x55361e);
+  // Weathered darker timber post caps
+  addColoredBox(woodSideParts, 0.13, 0.04, 0.13, -0.43, 0.285, 0.0, 0x7a5130);
+  addColoredBox(woodSideParts, 0.13, 0.04, 0.13, 0.43, 0.285, 0.0, 0x744c2c);
+  // Center baluster post
+  addColoredBox(woodSideParts, 0.075, 0.25, 0.075, 0.0, 0.125, 0.0, 0x6b472a);
+  // Top timber handrail & middle rope/slat rail
+  addColoredBox(woodSideParts, 1.04, 0.055, 0.068, 0.0, 0.23, 0.0, 0x8b5e36);
+  addColoredBox(woodSideParts, 1.02, 0.036, 0.045, 0.0, 0.12, 0.0, 0x734b2b);
+  // Heavy outer deck stringer beam hugging the water-facing edge
+  addColoredBox(woodSideParts, 1.04, 0.095, 0.085, 0.0, -0.03, 0.0, 0x4b2f19);
+  // Stepped under-deck timber knee braces framing an arch silhouette beneath the span
+  addColoredBox(woodSideParts, 0.18, 0.065, 0.07, -0.32, -0.10, 0.0, 0x432916);
+  addColoredBox(woodSideParts, 0.18, 0.065, 0.07, 0.32, -0.10, 0.0, 0x432916);
+  addColoredBox(woodSideParts, 0.10, 0.065, 0.065, -0.37, -0.16, 0.0, 0x3b2413);
+  addColoredBox(woodSideParts, 0.10, 0.065, 0.065, 0.37, -0.16, 0.0, 0x3b2413);
+  const woodSideGeo = finalizeMergedParts(woodSideParts);
+
+  // 2. Wooden Slatted Cross-Plank Deck Overlay (5 oak planks perpendicular to bridge travel along X)
+  const woodDeckParts: THREE.BufferGeometry[] = [];
+  const plankColors = [0x9c6e42, 0x8d6138, 0xa87a4c, 0x865b33, 0x97693e];
+  for (let pi = 0; pi < 5; pi++) {
+    const px = -0.39 + pi * 0.195;
+    addColoredBox(woodDeckParts, 0.155, 0.034, 0.86, px, 0.017, 0.0, plankColors[pi]);
+    // Tiny dark nail/iron-stud trim near each plank end
+    addColoredBox(woodDeckParts, 0.035, 0.038, 0.045, px, 0.019, -0.36, 0x4b321d);
+    addColoredBox(woodDeckParts, 0.035, 0.038, 0.045, px, 0.019, 0.36, 0x4b321d);
+  }
+  const woodDeckGeo = finalizeMergedParts(woodDeckParts);
+
+  // 3. Classical & Medieval Carved Stone Arch Bridge Parapet + Piers + Coping
+  const stoneSideParts: THREE.BufferGeometry[] = [];
+  // Sturdy corner stone piers descending into water & rising to crenellated caps
+  addColoredBox(stoneSideParts, 0.17, 0.58, 0.17, -0.43, -0.01, 0.0, 0x7c8085);
+  addColoredBox(stoneSideParts, 0.17, 0.58, 0.17, 0.43, -0.01, 0.0, 0x74787d);
+  addColoredBox(stoneSideParts, 0.20, 0.045, 0.20, -0.43, 0.29, 0.0, 0xa9adb2);
+  addColoredBox(stoneSideParts, 0.20, 0.045, 0.20, 0.43, 0.29, 0.0, 0xa2a6ab);
+  // Multi-tone dressed ashlar stone parapet wall
+  addColoredBox(stoneSideParts, 0.34, 0.20, 0.11, -0.22, 0.10, 0.0, 0x8f9499);
+  addColoredBox(stoneSideParts, 0.32, 0.20, 0.11, 0.08, 0.10, 0.0, 0x83888d);
+  addColoredBox(stoneSideParts, 0.24, 0.20, 0.11, 0.30, 0.10, 0.0, 0x969ba0);
+  // Overhanging dressed stone coping cap along the top
+  addColoredBox(stoneSideParts, 1.04, 0.05, 0.145, 0.0, 0.22, 0.0, 0xb6babf);
+  // Under-deck stone arch spandrel & stepped arch voussoirs curving between piers
+  addColoredBox(stoneSideParts, 1.02, 0.08, 0.12, 0.0, -0.04, 0.0, 0x6b7076);
+  addColoredBox(stoneSideParts, 0.22, 0.08, 0.115, -0.32, -0.11, 0.0, 0x60656b);
+  addColoredBox(stoneSideParts, 0.22, 0.08, 0.115, 0.32, -0.11, 0.0, 0x60656b);
+  addColoredBox(stoneSideParts, 0.12, 0.09, 0.11, -0.38, -0.18, 0.0, 0x555a60);
+  addColoredBox(stoneSideParts, 0.12, 0.09, 0.11, 0.38, -0.18, 0.0, 0x555a60);
+  const stoneSideGeo = finalizeMergedParts(stoneSideParts);
+
+  // 4. Industrial & Modern Riveted Iron Truss / Steel Viaduct Side Girder + Piers
+  const ironSideParts: THREE.BufferGeometry[] = [];
+  // Concrete/masonry water piers beneath the steel span
+  addColoredBox(ironSideParts, 0.16, 0.34, 0.16, -0.44, -0.15, 0.0, 0x737b84);
+  addColoredBox(ironSideParts, 0.16, 0.34, 0.16, 0.44, -0.15, 0.0, 0x6d757e);
+  // Lower & upper riveted steel truss chords
+  addColoredBox(ironSideParts, 1.04, 0.065, 0.085, 0.0, 0.01, 0.0, 0x3b444e);
+  addColoredBox(ironSideParts, 1.04, 0.06, 0.075, 0.0, 0.31, 0.0, 0x4c5763);
+  // Vertical iron truss stanchions
+  addColoredBox(ironSideParts, 0.07, 0.34, 0.075, -0.44, 0.16, 0.0, 0x343c45);
+  addColoredBox(ironSideParts, 0.06, 0.32, 0.065, 0.0, 0.16, 0.0, 0x3f4954);
+  addColoredBox(ironSideParts, 0.07, 0.34, 0.075, 0.44, 0.16, 0.0, 0x343c45);
+  // Stepped Warren-truss diagonal cross-bracing struts
+  addColoredBox(ironSideParts, 0.055, 0.10, 0.055, -0.32, 0.09, 0.0, 0x53606e);
+  addColoredBox(ironSideParts, 0.055, 0.10, 0.055, -0.22, 0.16, 0.0, 0x5a6877);
+  addColoredBox(ironSideParts, 0.055, 0.10, 0.055, -0.12, 0.23, 0.0, 0x53606e);
+  addColoredBox(ironSideParts, 0.055, 0.10, 0.055, 0.12, 0.23, 0.0, 0x53606e);
+  addColoredBox(ironSideParts, 0.055, 0.10, 0.055, 0.22, 0.16, 0.0, 0x5a6877);
+  addColoredBox(ironSideParts, 0.055, 0.10, 0.055, 0.32, 0.09, 0.0, 0x53606e);
+  const ironSideGeo = finalizeMergedParts(ironSideParts);
+
+  return {
+    woodSideGeo,
+    woodDeckGeo,
+    stoneSideGeo,
+    ironSideGeo,
+  };
+}
+
+
 
 

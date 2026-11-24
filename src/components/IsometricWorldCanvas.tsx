@@ -27,6 +27,7 @@ import {
 } from '../game/voxelTrees';
 import {
   createAlienMothershipVisual,
+  createBridgeKitGeometries,
   createBuildingGroup,
   createHyperspaceRippleEffects,
   createUnitGroup,
@@ -1263,6 +1264,18 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
     const billboardPinkInst = makeMetroInst(billboardScreenGeo, billboardPinkMat, MAX_METRO_INST, false);
     const billboardGoldInst = makeMetroInst(billboardScreenGeo, billboardGoldMat, MAX_METRO_INST, false);
 
+    // Era-evolving 3D Bridge Architectural Kit (1 draw call per era style, 0 draw calls when unused)
+    const bridgeKit = createBridgeKitGeometries();
+    const bridgeKitMat = new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      roughness: 0.78,
+      metalness: 0.14,
+    });
+    const bridgeWoodSideInst = makeMetroInst(bridgeKit.woodSideGeo, bridgeKitMat, MAX_METRO_STRIP_INST, true);
+    const bridgeWoodDeckInst = makeMetroInst(bridgeKit.woodDeckGeo, bridgeKitMat, MAX_METRO_INST, false);
+    const bridgeStoneSideInst = makeMetroInst(bridgeKit.stoneSideGeo, bridgeKitMat, MAX_METRO_STRIP_INST, true);
+    const bridgeIronSideInst = makeMetroInst(bridgeKit.ironSideGeo, bridgeKitMat, MAX_METRO_STRIP_INST, true);
+
     const allMetroInsts = [
       metroPillarInst,
       metroCapInst,
@@ -1283,6 +1296,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       billboardCyanInst,
       billboardPinkInst,
       billboardGoldInst,
+      bridgeWoodSideInst,
+      bridgeWoodDeckInst,
+      bridgeStoneSideInst,
+      bridgeIronSideInst,
     ];
 
     const TERRAIN_CODE: Record<string, number> = {
@@ -9947,8 +9964,59 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           if (t.height <= 0 && !isWaterWalkway) continue;
           const curY = tileCurrentY[i];
 
-          // Water walkway support pilings / pontoons under bridges & water causeways
-          if (isWaterWalkway) {
+          // Era-evolving 3D Bridge Architecture (wooden timber rails + slatted deck, carved stone arch parapets, riveted iron trusses)
+          if (isWaterWalkway && t.terrain !== 'runway') {
+            const bridgeEp = getLocalTileEpoch(t.x, t.z);
+            const tN = t.z > 0 ? simState.tiles[(t.z - 1) * gs + t.x] : null;
+            const tS = t.z + 1 < gs ? simState.tiles[(t.z + 1) * gs + t.x] : null;
+            const tW = t.x > 0 ? simState.tiles[t.z * gs + (t.x - 1)] : null;
+            const tE = t.x + 1 < gs ? simState.tiles[t.z * gs + (t.x + 1)] : null;
+            const isBridgeLink = (nb: typeof tN) =>
+              nb !== null &&
+              (nb.height > 0 || nb.terrain === 'stone_road' || nb.terrain === 'rail_track');
+            const nConn = isBridgeLink(tN);
+            const sConn = isBridgeLink(tS);
+            const wConn = isBridgeLink(tW);
+            const eConn = isBridgeLink(tE);
+            const touchesDryLand =
+              (tN !== null && tN.height > 0) ||
+              (tS !== null && tS.height > 0) ||
+              (tW !== null && tW.height > 0) ||
+              (tE !== null && tE.height > 0);
+
+            const sideInst =
+              t.terrain === 'rail_track' || bridgeEp >= 3
+                ? bridgeIronSideInst
+                : bridgeEp >= 2
+                  ? bridgeStoneSideInst
+                  : bridgeWoodSideInst;
+
+            // Place 3D railings / parapets / trusses + water pilings along every open-water edge
+            if (!nConn) pushInst(sideInst, t.x, curY, t.z - 0.45, 0, 0, 0);
+            if (!sConn) pushInst(sideInst, t.x, curY, t.z + 0.45, 0, 0, 0);
+            if (!wConn) pushInst(sideInst, t.x - 0.45, curY, t.z, 0, Math.PI * 0.5, 0);
+            if (!eConn) pushInst(sideInst, t.x + 0.45, curY, t.z, 0, Math.PI * 0.5, 0);
+
+            // Slatted wooden cross-plank decking on Prehistoric & Bronze Age bridges (oriented perpendicular to span)
+            if (bridgeEp <= 1 && t.terrain === 'stone_road') {
+              const spanNS = (nConn || sConn) && !(wConn && eConn);
+              pushInst(bridgeWoodDeckInst, t.x, curY, t.z, 0, spanNS ? Math.PI * 0.5 : 0, 0);
+            }
+
+            // Warm bridge entrance lanterns atop the posts where a bridge meets dry land
+            if (touchesDryLand) {
+              const lampY = curY + (bridgeEp >= 3 ? 0.36 : 0.33);
+              if (!nConn && tW && tW.height > 0) pushInst(streetLampHeadInst, t.x - 0.43, lampY, t.z - 0.45);
+              if (!sConn && tW && tW.height > 0) pushInst(streetLampHeadInst, t.x - 0.43, lampY, t.z + 0.45);
+              if (!nConn && tE && tE.height > 0) pushInst(streetLampHeadInst, t.x + 0.43, lampY, t.z - 0.45);
+              if (!sConn && tE && tE.height > 0) pushInst(streetLampHeadInst, t.x + 0.43, lampY, t.z + 0.45);
+              if (!wConn && tN && tN.height > 0) pushInst(streetLampHeadInst, t.x - 0.45, lampY, t.z - 0.43);
+              if (!eConn && tN && tN.height > 0) pushInst(streetLampHeadInst, t.x + 0.45, lampY, t.z - 0.43);
+              if (!wConn && tS && tS.height > 0) pushInst(streetLampHeadInst, t.x - 0.45, lampY, t.z + 0.43);
+              if (!eConn && tS && tS.height > 0) pushInst(streetLampHeadInst, t.x + 0.45, lampY, t.z + 0.43);
+            }
+          } else if (isWaterWalkway) {
+            // Offshore runway pontoon pilings
             for (const [px, pz] of [
               [-0.42, -0.42],
               [0.42, -0.42],
@@ -17411,6 +17479,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       billboardCyanMat.dispose();
       billboardPinkMat.dispose();
       billboardGoldMat.dispose();
+      bridgeKit.woodSideGeo.dispose();
+      bridgeKit.woodDeckGeo.dispose();
+      bridgeKit.stoneSideGeo.dispose();
+      bridgeKit.ironSideGeo.dispose();
+      bridgeKitMat.dispose();
       chunkTerrain.dispose();
       terrainWorkerPool.dispose();
       for (const batch of propBatches) batch.dispose();
