@@ -26,10 +26,11 @@ const EPOCH_ART_IDS: readonly EpochId[] = [
 ];
 
 let epochArtPreloaded = false;
+let cachedPixelArchFrameUrl: string | null = null;
 
 /**
- * Returns the asset URL for the crisp 72x36 indexed-palette pixel-art panoramic landscape
- * of each civilization epoch (stored in public/assets/epochs/<epochId>.png).
+ * Returns the asset URL for the crisp 72x36 hand-pixelled epoch landscape
+ * (stored in public/assets/epochs/<epochId>.png, rendered at exact 2x = 144x72).
  */
 export function getEpochSceneryDataUrl(epochId: EpochId): string {
   const base = import.meta.env.BASE_URL || '/';
@@ -44,6 +45,121 @@ function preloadEpochArt() {
     const img = new Image();
     img.src = getEpochSceneryDataUrl(id);
   }
+}
+
+/**
+ * Generates a 100% stair-stepped pixelated golden semicircle arch bezel (78x42 grid, scaled 2x -> 156x84)
+ * matching .px-panel-hero's exact burnished gold & dark espresso palette — zero smooth vector curves.
+ */
+function getPixelArchFrameDataUrl(): string {
+  if (cachedPixelArchFrameUrl !== null) return cachedPixelArchFrameUrl;
+  if (typeof document === 'undefined') return '';
+
+  const W = 78;
+  const H = 42;
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return '';
+
+  ctx.imageSmoothingEnabled = false;
+  const px = (x: number, y: number, color: string) => {
+    if (x < 0 || y < 0 || x >= W || y >= H) return;
+    ctx.fillStyle = color;
+    ctx.fillRect(x, y, 1, 1);
+  };
+
+  const cx = 38.5;
+  const cy = 38.5;
+  const rInnerOutline = 34.4;
+  const rGoldInner = 35.4;
+  const rGoldOuter = 37.6;
+  const rOuterOutline = 38.7;
+
+  // 1. Stair-stepped pixelated semicircular golden bezel arch
+  for (let y = 0; y <= 38; y++) {
+    for (let x = 0; x < W; x++) {
+      const dx = x - cx;
+      const dy = y - cy;
+      const r = Math.hypot(dx, dy);
+      if (r <= rInnerOutline || r > rOuterOutline) continue;
+
+      if (r <= rGoldInner || r > rGoldOuter) {
+        px(x, y, '#0c0705');
+      } else {
+        // Directional pixel bevel: bright ivory-gold on top-left rim, warm gold mid, bronze shadow right
+        const angle = Math.atan2(dy, dx); // -PI (left) to 0 (right)
+        const isOuterBand = r > (rGoldInner + rGoldOuter) * 0.5;
+        if (isOuterBand) {
+          if (angle > -Math.PI * 0.85 && angle < -Math.PI * 0.25) {
+            px(x, y, angle > -Math.PI * 0.65 && angle < -Math.PI * 0.35 ? '#fff9ee' : '#f7d2a6');
+          } else {
+            px(x, y, '#d99968');
+          }
+        } else {
+          px(x, y, angle < -Math.PI * 0.2 ? '#d99968' : '#a66b44');
+        }
+      }
+    }
+  }
+
+  // 2. Crisp pixelated degree notch ticks along inner arch (±60°, ±30°)
+  for (const deg of [-60, -30, 30, 60]) {
+    const rad = ((deg - 90) * Math.PI) / 180;
+    for (let step = 0; step < 3; step++) {
+      const r = 34.0 - step;
+      const tx = Math.round(cx + Math.cos(rad) * r);
+      const ty = Math.round(cy + Math.sin(rad) * r);
+      px(tx, ty, step === 0 ? '#fff9ee' : '#f7d2a6');
+    }
+  }
+
+  // 3. Crisp pixelated static vertical golden meridian line down exact center (x = 38..39)
+  for (let y = 5; y <= 37; y++) {
+    px(37, y, '#0c0705');
+    px(38, y, y % 2 === 0 ? '#fff4cc' : '#f7d2a6');
+    px(39, y, '#d99968');
+    px(40, y, '#0c0705');
+  }
+
+  // 4. Crisp pixelated bottom horizon golden bar (y = 38..41)
+  for (let x = 0; x < W; x++) {
+    px(x, 38, '#0c0705');
+    px(x, 39, x > 4 && x < W - 5 ? '#f7d2a6' : '#d99968');
+    px(x, 40, x > 6 && x < W - 7 ? '#d99968' : '#8f5b38');
+    px(x, 41, '#0c0705');
+  }
+  px(0, 39, '#0c0705');
+  px(0, 40, '#0c0705');
+  px(W - 1, 39, '#0c0705');
+  px(W - 1, 40, '#0c0705');
+
+  // 5. Pixelated golden horizon corner studs (left & right) + center pivot jewel
+  const drawStud = (sx: number, sy: number) => {
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        px(sx + dx, sy + dy, '#0c0705');
+      }
+    }
+    px(sx, sy, '#fff9ee');
+    px(sx + 1, sy, '#f7d2a6');
+  };
+  drawStud(2, 39);
+  drawStud(W - 3, 39);
+  // Center bottom pivot stud
+  for (let dy = -2; dy <= 1; dy++) {
+    for (let dx = -2; dx <= 2; dx++) {
+      if (Math.abs(dx) + Math.abs(dy) <= 2) px(38 + dx, 39 + dy, '#0c0705');
+    }
+  }
+  px(38, 38, '#fff9ee');
+  px(39, 38, '#f7d2a6');
+  px(38, 39, '#f7d2a6');
+  px(39, 39, '#d99968');
+
+  cachedPixelArchFrameUrl = canvas.toDataURL('image/png');
+  return cachedPixelArchFrameUrl;
 }
 
 interface PixelBurstParticle {
@@ -119,18 +235,18 @@ export const AgeProgressBanner: React.FC<AgeProgressBannerProps> = ({
       const burst: PixelBurstParticle[] = [];
 
       // 1. High-energy radial pixel starlight burst around the half-circle dial
-      for (let i = 0; i < 56; i++) {
-        const angle = (i / 56) * Math.PI * 2 + (Math.random() - 0.5) * 0.25;
-        const speed = 135 + Math.random() * 255;
+      for (let i = 0; i < 48; i++) {
+        const angle = (i / 48) * Math.PI * 2 + (Math.random() - 0.5) * 0.25;
+        const speed = 130 + Math.random() * 235;
         burst.push({
-          x: dialOriginX + (Math.random() - 0.5) * 36,
-          y: dialOriginY + (Math.random() - 0.5) * 26,
+          x: dialOriginX + (Math.random() - 0.5) * 34,
+          y: dialOriginY + (Math.random() - 0.5) * 24,
           vx: Math.cos(angle) * speed,
-          vy: Math.sin(angle) * speed - 25,
+          vy: Math.sin(angle) * speed - 22,
           size: Math.random() < 0.32 ? 8 : Math.random() < 0.72 ? 6 : 4,
           color: palette[Math.floor(Math.random() * palette.length)],
           age: 0,
-          life: 0.52 + Math.random() * 0.52,
+          life: 0.5 + Math.random() * 0.48,
           gravity: 320 + Math.random() * 140,
           drag: 0.94,
           sparkle: Math.random() < 0.45,
@@ -138,18 +254,18 @@ export const AgeProgressBanner: React.FC<AgeProgressBannerProps> = ({
       }
 
       // 2. Horizontal pixel spark shimmer along the newly revealed age title on the right
-      for (let i = 0; i < 28; i++) {
-        const tx = cw * 0.5 + 42 + (Math.random() - 0.5) * 190;
-        const ty = dialOriginY + 6 + (Math.random() - 0.5) * 24;
+      for (let i = 0; i < 24; i++) {
+        const tx = cw * 0.5 + 42 + (Math.random() - 0.5) * 180;
+        const ty = dialOriginY + 6 + (Math.random() - 0.5) * 22;
         burst.push({
           x: tx,
           y: ty,
-          vx: (tx - dialOriginX) * 0.65 + (Math.random() - 0.5) * 85,
-          vy: -(55 + Math.random() * 150),
+          vx: (tx - dialOriginX) * 0.65 + (Math.random() - 0.5) * 80,
+          vy: -(50 + Math.random() * 140),
           size: Math.random() < 0.5 ? 6 : 4,
           color: i % 3 === 0 ? '#ffffff' : i % 2 === 0 ? '#fde047' : toEpoch.accentColor,
           age: 0,
-          life: 0.6 + Math.random() * 0.5,
+          life: 0.55 + Math.random() * 0.45,
           gravity: 250,
           drag: 0.95,
           sparkle: true,
@@ -235,6 +351,7 @@ export const AgeProgressBanner: React.FC<AgeProgressBannerProps> = ({
 
   const fromUrl = getEpochSceneryDataUrl(fromEpoch.id);
   const toUrl = getEpochSceneryDataUrl(toEpoch.id);
+  const archFrameUrl = getPixelArchFrameDataUrl();
   const displayedEpoch = showNewText ? toEpoch : fromEpoch;
 
   const wheelPhaseClass =
@@ -254,7 +371,7 @@ export const AgeProgressBanner: React.FC<AgeProgressBannerProps> = ({
         phase === 'exit' ? 'age-banner-exit' : 'age-banner-enter'
       }`}
     >
-      {/* Unified Horizontal HUD Plaque: Full-Bleed Half-Circle Age Dial (Left) + Age Title (Right) */}
+      {/* Unified Horizontal Pixel HUD Plaque: Pixelated Golden Semicircle Dial (Left) + Divider + Title (Right) */}
       <div className="relative flex items-center justify-center">
         {/* Crisp pixelated explosion particle canvas aligned to dial + title */}
         <canvas
@@ -265,26 +382,20 @@ export const AgeProgressBanner: React.FC<AgeProgressBannerProps> = ({
         />
 
         <div
-          className={`px-panel-hero pt-3.5 pb-2.5 pl-3 pr-4 sm:pt-4 sm:pb-3 sm:pl-4 sm:pr-7 flex flex-row items-center gap-3.5 sm:gap-4 min-w-[300px] sm:min-w-[384px] ${
+          className={`px-panel-hero pt-4 pb-3 pl-3.5 pr-4 sm:pt-4 sm:pb-3.5 sm:pl-4 sm:pr-7 flex flex-row items-center gap-3.5 sm:gap-4 min-w-[304px] sm:min-w-[396px] ${
             showNewText ? 'age-text-slam' : ''
           }`}
         >
-          {/* LEFT: Full-Bleed Half-Circle Rotating Age Wheel (Exact 2:1 Semicircle: inner 120x60 / 144x72 = exact 2x of 72x36) */}
-          <div className="relative shrink-0 w-[126px] h-[66px] sm:w-[150px] sm:h-[78px]">
-            {/* Semicircular Clipped Viewport */}
-            <div
-              className="relative w-full h-full rounded-t-full overflow-hidden border-t-[3px] border-x-[3px] border-b-[3px] border-[#0c0705] bg-[#140c08]"
-              style={{
-                boxShadow:
-                  '0 0 0 1.5px #e6bf78, 0 0 10px rgba(230,191,120,0.22), 0 4px 0 rgba(10,6,4,0.82)',
-              }}
-            >
+          {/* LEFT: True Pixelated Golden Semicircle Dial (78x42 frame scaled 2x -> 156x84, inner art 72x36 scaled 2x -> 144x72) */}
+          <div className="relative shrink-0 w-[130px] h-[70px] sm:w-[156px] sm:h-[84px]">
+            {/* Inner Semicircular Clipped Viewport (tucked strictly inside the pixelated golden bezel!) */}
+            <div className="absolute left-[5px] top-[5px] w-[120px] h-[60px] sm:left-[6px] sm:top-[6px] sm:w-[144px] sm:h-[72px] rounded-t-full overflow-hidden bg-[#140c08]">
               {/* Full Circular Two-Half Diorama Disk (Top Half = Previous Age, Bottom Half = Next Age) */}
               <div
                 className={`absolute left-0 top-0 w-[120px] h-[120px] sm:w-[144px] sm:h-[144px] rounded-full overflow-hidden ${wheelPhaseClass}`}
                 style={{ willChange: 'transform' }}
               >
-                {/* TOP HALF (0°): Full-Bleed Previous Age Painterly Pixel-Art Scene */}
+                {/* TOP HALF (0°): Previous Age Crisp 72x36 Pixel-Art Scene */}
                 <div className="absolute inset-x-0 top-0 h-1/2 overflow-hidden">
                   <img
                     src={fromUrl}
@@ -293,7 +404,7 @@ export const AgeProgressBanner: React.FC<AgeProgressBannerProps> = ({
                   />
                 </div>
 
-                {/* BOTTOM HALF (180°): Full-Bleed Next Age Painterly Pixel-Art Scene (pre-rotated 180° to land upright) */}
+                {/* BOTTOM HALF (180°): Next Age Crisp 72x36 Pixel-Art Scene (pre-rotated 180° to land upright) */}
                 <div
                   className="absolute inset-x-0 bottom-0 h-1/2 overflow-hidden"
                   style={{ transform: 'rotate(180deg)' }}
@@ -305,129 +416,52 @@ export const AgeProgressBanner: React.FC<AgeProgressBannerProps> = ({
                   />
                 </div>
 
-                {/* Golden Astrolabe Seam Divider Separating the Two Ages Across the Diameter */}
+                {/* Pixelated Golden Seam Divider Separating the Two Ages Across the Diameter */}
                 <div
                   aria-hidden="true"
                   className="pointer-events-none absolute inset-x-0 top-1/2 -translate-y-1/2 h-[4px] bg-[#0c0705] flex items-center"
                 >
-                  <div className="w-full h-[2px] bg-gradient-to-r from-[#b88f4a] via-[#fff6d1] to-[#b88f4a]" />
+                  <div className="w-full h-[2px] bg-[#f7d2a6]" />
                 </div>
-
-                {/* Center Astrolabe Pivot Jewel */}
-                <div
-                  aria-hidden="true"
-                  className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[10px] h-[10px] rounded-full bg-[#fff6d1] border-[2px] border-[#0c0705]"
-                  style={{ boxShadow: '0 0 8px rgba(255,246,209,0.9)' }}
-                />
               </div>
-
-              {/* Ornate Celestial Astrolabe Golden Filigree Rim & Degree Ticks Overlay */}
-              <svg
-                viewBox="0 0 146 73"
-                className="pointer-events-none absolute inset-0 w-full h-full"
-                aria-hidden="true"
-              >
-                {/* Outer & inner double golden astrolabe arcs */}
-                <path
-                  d="M 2 72 A 71 71 0 0 1 144 72"
-                  fill="none"
-                  stroke="#f5d284"
-                  strokeWidth="1.8"
-                  opacity="0.92"
-                />
-                <path
-                  d="M 7 72 A 66 66 0 0 1 139 72"
-                  fill="none"
-                  stroke="#fff6d1"
-                  strokeWidth="0.9"
-                  strokeDasharray="2 3"
-                  opacity="0.72"
-                />
-                {/* Fine radial astrolabe degree ticks along the rim */}
-                {[-75, -60, -45, -30, -15, 0, 15, 30, 45, 60, 75].map((deg) => {
-                  const rad = ((deg - 90) * Math.PI) / 180;
-                  const isMajor = deg % 30 === 0;
-                  const rOuter = 70;
-                  const rInner = isMajor ? 63 : 66;
-                  const x1 = 73 + Math.cos(rad) * rInner;
-                  const y1 = 72 + Math.sin(rad) * rInner;
-                  const x2 = 73 + Math.cos(rad) * rOuter;
-                  const y2 = 72 + Math.sin(rad) * rOuter;
-                  return (
-                    <line
-                      key={deg}
-                      x1={x1}
-                      y1={y1}
-                      x2={x2}
-                      y2={y2}
-                      stroke={isMajor ? '#ffffff' : '#f5d284'}
-                      strokeWidth={isMajor ? 1.5 : 0.9}
-                      opacity={isMajor ? 0.95 : 0.72}
-                    />
-                  );
-                })}
-                {/* Static vertical golden meridian line down the center of the half-circle */}
-                <line
-                  x1="73"
-                  y1="2"
-                  x2="73"
-                  y2="72"
-                  stroke="#0c0705"
-                  strokeWidth="3.6"
-                  opacity="0.85"
-                />
-                <line
-                  x1="73"
-                  y1="2"
-                  x2="73"
-                  y2="72"
-                  stroke="#ffe89c"
-                  strokeWidth="1.6"
-                  opacity="0.95"
-                />
-              </svg>
 
               {/* Crisp white-gold zenith lock-in flash across the full semicircle */}
               {phase === 'impact' && (
                 <div className="age-impact-flash pointer-events-none absolute inset-0 bg-[#fff9db]" />
               )}
-
-              {/* Bottom Horizon Golden Rim Trim */}
-              <div
-                aria-hidden="true"
-                className="pointer-events-none absolute inset-x-0 bottom-0 h-[3px] bg-gradient-to-r from-[#8f6a36] via-[#fff6d1] to-[#8f6a36]"
-              />
             </div>
 
-            {/* Ornate Zenith Compass Diamond Pointer at 12 o'clock */}
+            {/* 100% Stair-Stepped Pixelated Golden Semicircle Bezel + Meridian Line + Horizon Bar Overlay */}
+            <img
+              src={archFrameUrl}
+              alt=""
+              aria-hidden="true"
+              className="pixelated-canvas pointer-events-none absolute inset-0 w-full h-full block"
+            />
+
+            {/* Crisp Pixelated 12 o'clock Zenith Diamond Crest */}
             <div
               aria-hidden="true"
-              className={`pointer-events-none absolute left-1/2 -top-[5px] -translate-x-1/2 w-[11px] h-[11px] rotate-45 bg-[#fff6d1] border-[2px] border-[#0c0705] ${
+              className={`pointer-events-none absolute left-1/2 -top-[4px] -translate-x-1/2 w-[10px] h-[10px] rotate-45 bg-[#fff9ee] border-[2px] border-[#0c0705] ${
                 phase === 'impact' ? 'age-zenith-pulse' : ''
               }`}
               style={{
-                boxShadow: '0 0 8px rgba(255,246,209,0.9)',
+                boxShadow: 'inset 0 0 0 1px #f7d2a6',
               }}
-            />
-
-            {/* Left & Right Horizon Celestial Nodes */}
-            <div
-              aria-hidden="true"
-              className="pointer-events-none absolute -left-[3px] bottom-[-2px] w-[7px] h-[7px] rounded-full bg-[#fff6d1] border-[1.5px] border-[#0c0705]"
-            />
-            <div
-              aria-hidden="true"
-              className="pointer-events-none absolute -right-[3px] bottom-[-2px] w-[7px] h-[7px] rounded-full bg-[#e6bf78] border-[1.5px] border-[#0c0705]"
             />
           </div>
 
-          {/* CENTER: Vertical Golden Pixel Divider Line Separating Dial & Text */}
+          {/* CENTER: Crisp Pixelated Vertical Golden Divider Bar */}
           <div
             aria-hidden="true"
-            className="relative shrink-0 flex items-center justify-center h-[52px] sm:h-[62px] w-[6px]"
+            className="relative shrink-0 flex items-center justify-center h-[54px] sm:h-[64px] w-[8px]"
           >
-            <div className="h-full w-[2px] bg-gradient-to-b from-transparent via-[#f5d284] to-transparent shadow-[1px_0_0_#0c0705,-1px_0_0_#0c0705]" />
-            <div className="absolute w-[6px] h-[6px] rotate-45 bg-[#fff6d1] border border-[#0c0705]" />
+            <div className="h-full w-[4px] bg-[#0c0705] px-[1px] py-[2px] flex flex-col">
+              <div className="w-full h-[6px] bg-[#8f5b38]" />
+              <div className="w-full flex-1 bg-[#f7d2a6]" />
+              <div className="w-full h-[6px] bg-[#8f5b38]" />
+            </div>
+            <div className="absolute w-[8px] h-[8px] rotate-45 bg-[#fff9ee] border-[2px] border-[#0c0705]" />
           </div>
 
           {/* RIGHT: Eyebrow Copy & Age Title Text */}
@@ -446,11 +480,16 @@ export const AgeProgressBanner: React.FC<AgeProgressBannerProps> = ({
             >
               {displayedEpoch.name}
             </span>
-            {/* Subtle decorative golden underline accent */}
+            {/* Crisp pixelated stepped golden underline bar */}
             <div
               aria-hidden="true"
-              className="mt-1.5 h-[2px] w-full max-w-[160px] bg-gradient-to-r from-[#f7d2a6] via-[#d99968]/70 to-transparent"
-            />
+              className="mt-1.5 flex items-center gap-[2px] h-[4px] w-full max-w-[164px]"
+            >
+              <div className="h-[4px] w-[4px] bg-[#fff9ee] border border-[#0c0705]" />
+              <div className="h-[2px] flex-1 bg-[#d99968] shadow-[0_1px_0_#0c0705]" />
+              <div className="h-[2px] w-[14px] bg-[#8f5b38]" />
+              <div className="h-[2px] w-[6px] bg-[#6e4229]" />
+            </div>
           </div>
         </div>
       </div>
