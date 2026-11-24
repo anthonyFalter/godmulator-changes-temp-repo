@@ -753,11 +753,11 @@
 
 @keyframes age-zenith-pulse-anim {
   0% {
-    transform: translateX(-50%) rotate(45deg) scale(1.55);
+    scale: 1.5;
     filter: brightness(1.7);
   }
   100% {
-    transform: translateX(-50%) rotate(45deg) scale(1);
+    scale: 1;
     filter: brightness(1);
   }
 }
