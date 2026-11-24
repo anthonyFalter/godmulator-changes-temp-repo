@@ -3883,7 +3883,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         | 'orc_siege_boulder'
         | 'orc_waagh_rocket'
         | 'dwarf_quake_mortar'
-        | 'lizard_solar_lance';
+        | 'lizard_solar_lance'
+        | 'sub_human_slbm'
+        | 'sub_elf_abyssal_lance'
+        | 'sub_orc_krump_torp'
+        | 'sub_dwarf_depth_mortar'
+        | 'sub_lizard_tidal_serpent';
       stemMesh?: THREE.Mesh;
       capMesh?: THREE.Mesh;
       faultSegments?: EarthquakeFaultSegment[];
@@ -6236,6 +6241,23 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
     const sharedArcaneBoltGeo = new THREE.OctahedronGeometry(0.24, 0);
     const sharedArcaneRingGeo = new THREE.TorusGeometry(0.32, 0.036, 6, 14);
     const sharedPlasmaBeamGeo = new THREE.CylinderGeometry(0.08, 0.08, 1.0, 8);
+    // Dedicated race-unique submarine-launched weapon geometries (zero per-shot allocations)
+    const sharedSubSlbmBodyGeo = new THREE.CylinderGeometry(0.11, 0.125, 1.25, 10);
+    sharedSubSlbmBodyGeo.rotateX(Math.PI / 2);
+    const sharedSubSlbmFinGeo = new THREE.BoxGeometry(0.56, 0.04, 0.34);
+    const sharedSubElfPrismGeo = new THREE.ConeGeometry(0.16, 1.18, 6);
+    sharedSubElfPrismGeo.rotateX(Math.PI / 2);
+    const sharedSubElfWingGeo = new THREE.BoxGeometry(0.92, 0.03, 0.24);
+    const sharedSubOrcTorpBodyGeo = new THREE.CylinderGeometry(0.17, 0.14, 0.96, 5);
+    sharedSubOrcTorpBodyGeo.rotateX(Math.PI / 2);
+    const sharedSubOrcJawNoseGeo = new THREE.ConeGeometry(0.21, 0.46, 5);
+    sharedSubOrcJawNoseGeo.rotateX(Math.PI / 2);
+    const sharedSubDwarfCanisterGeo = new THREE.CylinderGeometry(0.18, 0.18, 0.68, 8);
+    sharedSubDwarfCanisterGeo.rotateX(Math.PI / 2);
+    const sharedSubDwarfBandGeo = new THREE.TorusGeometry(0.20, 0.048, 6, 10);
+    const sharedSubLizardDartGeo = new THREE.ConeGeometry(0.17, 1.24, 4);
+    sharedSubLizardDartGeo.rotateX(Math.PI / 2);
+    const sharedSubLizardCrestGeo = new THREE.BoxGeometry(0.05, 0.44, 0.72);
     sharedPlasmaBeamGeo.rotateX(Math.PI / 2);
     const sharedPlasmaMuzzleGeo = new THREE.OctahedronGeometry(0.26, 1);
     const sharedSparkShardGeo = new THREE.BoxGeometry(0.075, 0.46, 0.075);
@@ -6505,7 +6527,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         | 'orc_siege_boulder'
         | 'orc_waagh_rocket'
         | 'dwarf_quake_mortar'
-        | 'lizard_solar_lance',
+        | 'lizard_solar_lance'
+        | 'sub_human_slbm'
+        | 'sub_elf_abyssal_lance'
+        | 'sub_orc_krump_torp'
+        | 'sub_dwarf_depth_mortar'
+        | 'sub_lizard_tidal_serpent',
       flightDuration?: number,
     ) {
       if (activeBurstFx.length >= getMaxBurstFx()) {
@@ -6530,7 +6557,17 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
               ? '#334155'
               : subtype === 'orc_siege_boulder'
                 ? '#292524'
-                : boltColor,
+                : subtype === 'sub_human_slbm'
+                  ? '#dc2626'
+                  : subtype === 'sub_elf_abyssal_lance'
+                    ? '#38bdf8'
+                    : subtype === 'sub_orc_krump_torp'
+                      ? '#991b1b'
+                      : subtype === 'sub_dwarf_depth_mortar'
+                        ? '#b45309'
+                        : subtype === 'sub_lizard_tidal_serpent'
+                          ? '#d4af37'
+                          : boltColor,
           transparent: true,
           opacity: 0.96,
         });
@@ -6538,17 +6575,21 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           color:
             subtype === 'bomb'
               ? '#ff9e00'
-              : subtype === 'icbm_missile'
+              : subtype === 'icbm_missile' || subtype === 'sub_human_slbm'
                 ? '#f8fafc'
-                : subtype === 'elf_starfall_spell'
+                : subtype === 'elf_starfall_spell' || subtype === 'sub_elf_abyssal_lance'
                   ? '#e0f2fe'
                   : subtype === 'orc_siege_boulder'
                     ? '#f97316'
-                    : subtype === 'orc_waagh_rocket'
-                      ? '#facc15'
-                      : subtype === 'plasma_beam' || subtype === 'laser_beam'
-                        ? '#ecfeff'
-                        : '#ffffff',
+                    : subtype === 'orc_waagh_rocket' || subtype === 'sub_orc_krump_torp'
+                      ? '#57534e'
+                      : subtype === 'sub_dwarf_depth_mortar'
+                        ? '#fbbf24'
+                        : subtype === 'sub_lizard_tidal_serpent'
+                          ? '#34d399'
+                          : subtype === 'plasma_beam' || subtype === 'laser_beam'
+                            ? '#ecfeff'
+                            : '#ffffff',
           transparent: true,
           opacity: 0.94,
         });
@@ -6556,15 +6597,19 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           color:
             subtype === 'bomb'
               ? '#ff6b35'
-              : subtype === 'icbm_missile'
+              : subtype === 'icbm_missile' || subtype === 'sub_human_slbm'
                 ? '#fb923c'
-                : subtype === 'elf_starfall_spell'
-                  ? '#c084fc'
+                : subtype === 'elf_starfall_spell' || subtype === 'sub_elf_abyssal_lance'
+                  ? '#818cf8'
                   : subtype === 'orc_siege_boulder'
                     ? '#ea580c'
-                    : subtype === 'orc_waagh_rocket'
-                      ? '#ef4444'
-                      : boltColor,
+                    : subtype === 'orc_waagh_rocket' || subtype === 'sub_orc_krump_torp'
+                      ? '#f97316'
+                      : subtype === 'sub_dwarf_depth_mortar'
+                        ? '#f59e0b'
+                        : subtype === 'sub_lizard_tidal_serpent'
+                          ? '#10b981'
+                          : boltColor,
           transparent: true,
           opacity: 0.9,
           side: THREE.DoubleSide,
@@ -6605,6 +6650,125 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           group.add(muzzleRingMesh);
           spawnParticleBurst(ox, startY + 0.3, oz, 16, '#e2e8f0', 0.85, 3.4, 0.95);
           spawnParticleBurst(ox, startY + 0.2, oz, 10, '#fb923c', 0.55, 2.8, 0.7);
+        } else if (subtype === 'sub_human_slbm') {
+          // Human Vertical-Launch SLBM: sleek white ballistic body, crimson warhead, cruciform fins + ocean breach geyser
+          const slbmGrp = new THREE.Group();
+          const body = new THREE.Mesh(sharedSubSlbmBodyGeo, coreMat);
+          const nose = new THREE.Mesh(sharedMissileWarheadGeo, boltMat);
+          nose.scale.set(1.25, 1.25, 1.55);
+          nose.position.z = 0.78;
+          const finH = new THREE.Mesh(sharedSubSlbmFinGeo, boltMat);
+          finH.position.z = -0.45;
+          const finV = new THREE.Mesh(sharedSubSlbmFinGeo, boltMat);
+          finV.rotation.z = Math.PI / 2;
+          finV.position.z = -0.45;
+          const flame = new THREE.Mesh(sharedMissilePlumeGeo, ringMat);
+          flame.scale.set(1.35, 1.35, 1.9);
+          flame.position.z = -0.82;
+          slbmGrp.add(body, nose, finH, finV, flame);
+          slbmGrp.position.set(ox, oy + 0.15, oz);
+          slbmGrp.lookAt(tx, endY + 5.5, tz);
+          tracerObj = slbmGrp;
+          flightPeakY = Math.min(14.0, Math.max(4.2, horizDist * 0.32));
+          muzzleRingMesh = new THREE.Mesh(sharedHazRingGeo, coreMat);
+          muzzleRingMesh.position.set(ox, 0.32, oz);
+          muzzleRingMesh.scale.setScalar(0.55);
+          group.add(muzzleRingMesh);
+          // Sea-breach steam & water spray column
+          spawnRisingParticles(ox, 0.32, oz, 14, '#e0f2fe', 0.72, 3.6, 0.88, 1.55);
+          spawnParticleBurst(ox, 0.35, oz, 8, '#fb923c', 0.42, 2.4, 0.55);
+        } else if (subtype === 'sub_elf_abyssal_lance') {
+          // Elf Abyssal Star-Torpedo: faceted sapphire sea-prism + swept crystal hydro-wings + runic ocean ring
+          const elfSubGrp = new THREE.Group();
+          const prism = new THREE.Mesh(sharedSubElfPrismGeo, boltMat);
+          const wingA = new THREE.Mesh(sharedSubElfWingGeo, coreMat);
+          wingA.position.z = -0.18;
+          const wingB = new THREE.Mesh(sharedSubElfWingGeo, coreMat);
+          wingB.rotation.z = Math.PI / 2;
+          wingB.position.z = -0.18;
+          const hydroRing = new THREE.Mesh(sharedArcaneRingGeo, ringMat);
+          hydroRing.scale.setScalar(1.15);
+          elfSubGrp.add(prism, wingA, wingB, hydroRing);
+          elfSubGrp.position.set(ox, oy + 0.2, oz);
+          elfSubGrp.lookAt(tx, endY + 3.5, tz);
+          tracerObj = elfSubGrp;
+          flightPeakY = Math.min(10.5, Math.max(3.2, horizDist * 0.26));
+          const seaRuneMat = new THREE.MeshBasicMaterial({
+            map: getMagicCircleTexture('arcane'),
+            color: '#38bdf8',
+            transparent: true,
+            opacity: 0.92,
+            side: THREE.DoubleSide,
+            depthWrite: false,
+          });
+          materials.push(seaRuneMat);
+          originRingMesh = new THREE.Mesh(sharedMagicCircleGeo, seaRuneMat);
+          originRingMesh.position.set(ox, 0.33, oz);
+          originRingMesh.scale.setScalar(1.25);
+          group.add(originRingMesh);
+          spawnRisingParticles(ox, 0.34, oz, 12, '#7dd3fc', 0.58, 3.0, 0.78, 1.3);
+        } else if (subtype === 'sub_orc_krump_torp') {
+          // Orc Breaching Sea-Rokkit: chunky 5-sided scrap torpedo-rocket + crimson shark-jaw nose + choppy fins
+          const orcSubGrp = new THREE.Group();
+          const drum = new THREE.Mesh(sharedSubOrcTorpBodyGeo, coreMat);
+          const jawNose = new THREE.Mesh(sharedSubOrcJawNoseGeo, boltMat);
+          jawNose.position.z = 0.68;
+          const finA = new THREE.Mesh(sharedSubSlbmFinGeo, boltMat);
+          finA.scale.set(1.2, 1.8, 1.1);
+          finA.rotation.z = 0.35;
+          finA.position.z = -0.36;
+          const flame = new THREE.Mesh(sharedMissilePlumeGeo, ringMat);
+          flame.scale.set(1.65, 1.65, 2.0);
+          flame.position.z = -0.72;
+          orcSubGrp.add(drum, jawNose, finA, flame);
+          orcSubGrp.position.set(ox, oy + 0.15, oz);
+          orcSubGrp.lookAt(tx, endY + 3.0, tz);
+          tracerObj = orcSubGrp;
+          flightPeakY = Math.min(11.0, Math.max(3.0, horizDist * 0.25));
+          muzzleRingMesh = new THREE.Mesh(sharedHazRingGeo, ringMat);
+          muzzleRingMesh.position.set(ox, 0.32, oz);
+          muzzleRingMesh.scale.setScalar(0.5);
+          group.add(muzzleRingMesh);
+          spawnRisingParticles(ox, 0.32, oz, 12, '#e0f2fe', 0.65, 3.2, 0.75, 1.4);
+          spawnParticleBurst(ox, 0.4, oz, 10, '#44403c', 0.62, 2.8, 0.75);
+        } else if (subtype === 'sub_dwarf_depth_mortar') {
+          // Dwarf Runeforge Depth-Mortar: heavy octagonal bronze canister + twin glowing magma-amber rune bands
+          const dwfSubGrp = new THREE.Group();
+          const canister = new THREE.Mesh(sharedSubDwarfCanisterGeo, boltMat);
+          const bandFront = new THREE.Mesh(sharedSubDwarfBandGeo, coreMat);
+          bandFront.position.z = 0.16;
+          const bandBack = new THREE.Mesh(sharedSubDwarfBandGeo, ringMat);
+          bandBack.position.z = -0.16;
+          dwfSubGrp.add(canister, bandFront, bandBack);
+          dwfSubGrp.position.set(ox, oy + 0.2, oz);
+          tracerObj = dwfSubGrp;
+          flightPeakY = Math.min(12.2, Math.max(3.8, horizDist * 0.34));
+          muzzleRingMesh = new THREE.Mesh(sharedHazRingGeo, ringMat);
+          muzzleRingMesh.position.set(ox, 0.32, oz);
+          muzzleRingMesh.scale.setScalar(0.55);
+          group.add(muzzleRingMesh);
+          spawnRisingParticles(ox, 0.34, oz, 12, '#fef08a', 0.58, 3.2, 0.76, 1.35);
+          spawnRisingParticles(ox, 0.32, oz, 8, '#e0f2fe', 0.65, 2.8, 0.72, 1.25);
+        } else if (subtype === 'sub_lizard_tidal_serpent') {
+          // Lizardfolk Tidal Solar-Serpent: golden-obsidian pyramid dart + jade dorsal plasma crest + energy tail
+          const lizSubGrp = new THREE.Group();
+          const dart = new THREE.Mesh(sharedSubLizardDartGeo, boltMat);
+          const crest = new THREE.Mesh(sharedSubLizardCrestGeo, coreMat);
+          crest.position.set(0, 0.14, -0.14);
+          const tailFlare = new THREE.Mesh(sharedMissilePlumeGeo, ringMat);
+          tailFlare.scale.set(1.2, 1.2, 1.85);
+          tailFlare.position.z = -0.78;
+          lizSubGrp.add(dart, crest, tailFlare);
+          lizSubGrp.position.set(ox, oy + 0.18, oz);
+          lizSubGrp.lookAt(tx, endY + 3.2, tz);
+          tracerObj = lizSubGrp;
+          flightPeakY = Math.min(10.0, Math.max(2.9, horizDist * 0.24));
+          muzzleRingMesh = new THREE.Mesh(sharedHazRingGeo, coreMat);
+          muzzleRingMesh.position.set(ox, 0.32, oz);
+          muzzleRingMesh.scale.setScalar(0.55);
+          group.add(muzzleRingMesh);
+          spawnRisingParticles(ox, 0.34, oz, 12, '#34d399', 0.6, 3.4, 0.75, 1.4);
+          spawnParticleBurst(ox, 0.35, oz, 8, '#facc15', 0.45, 2.6, 0.6);
         } else if (subtype === 'elf_starfall_spell') {
           // Elf Long-Range Astral Spell: spinning runic casting circle at launch + radiant crystal comet with twin orbiting halo rings
           const starGrp = new THREE.Group();
@@ -6798,6 +6962,16 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         let trailBundle: ReturnType<typeof createProjectileTrailRibbon> | undefined;
         if (subtype === 'icbm_missile') {
           trailBundle = createProjectileTrailRibbon('#f1f5f9', 42, 0.42, 0.9);
+        } else if (subtype === 'sub_human_slbm') {
+          trailBundle = createProjectileTrailRibbon('#e2e8f0', 34, 0.3, 0.88);
+        } else if (subtype === 'sub_elf_abyssal_lance') {
+          trailBundle = createProjectileTrailRibbon('#7dd3fc', 32, 0.28, 0.9);
+        } else if (subtype === 'sub_orc_krump_torp') {
+          trailBundle = createProjectileTrailRibbon('#57534e', 32, 0.28, 0.86);
+        } else if (subtype === 'sub_dwarf_depth_mortar') {
+          trailBundle = createProjectileTrailRibbon('#fbbf24', 28, 0.26, 0.86);
+        } else if (subtype === 'sub_lizard_tidal_serpent') {
+          trailBundle = createProjectileTrailRibbon('#34d399', 30, 0.26, 0.9);
         } else if (subtype === 'elf_starfall_spell') {
           trailBundle = createProjectileTrailRibbon(boltColor || '#c084fc', 36, 0.34, 0.9);
         } else if (subtype === 'orc_siege_boulder') {
@@ -6829,10 +7003,18 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         ringMesh.scale.setScalar(subtype === 'bomb' ? 0.28 : 0.18);
         group.add(ringMesh);
 
+        const isSubmarineWeapon =
+          subtype === 'sub_human_slbm' ||
+          subtype === 'sub_elf_abyssal_lance' ||
+          subtype === 'sub_orc_krump_torp' ||
+          subtype === 'sub_dwarf_depth_mortar' ||
+          subtype === 'sub_lizard_tidal_serpent';
+
         if (subtype === 'plasma_beam' || subtype === 'laser_beam') {
           spawnParticleBurst(tx, ty + 0.35, tz, radius >= 2.2 ? 32 : 18, boltColor || '#56cfe1', radius >= 2.2 ? 1.45 : 0.8, 5.2, 0.96);
           spawnParticleBurst(tx, ty + 0.4, tz, 10, '#ffffff', 0.5, 5.8, 0.65);
         } else if (
+          !isSubmarineWeapon &&
           subtype !== 'bomb' &&
           subtype !== 'cannon_shell' &&
           subtype !== 'missile' &&
@@ -6851,6 +7033,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         }
 
         const isStrategicFlight =
+          isSubmarineWeapon ||
           subtype === 'icbm_missile' ||
           subtype === 'elf_starfall_spell' ||
           subtype === 'orc_siege_boulder' ||
@@ -6862,8 +7045,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         const defaultFlightDur =
           subtype === 'icbm_missile'
             ? 2.2
-            : subtype === 'elf_starfall_spell'
-              ? 1.75
+            : isSubmarineWeapon
+              ? Math.max(0.75, Math.min(1.45, horizDist * 0.055))
+              : subtype === 'elf_starfall_spell'
+                ? 1.75
               : subtype === 'orc_waagh_rocket'
                 ? 1.65
                 : subtype === 'orc_siege_boulder'
@@ -15862,6 +16047,140 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
               spawnParticleBurst(fx.tx, fx.ty + 0.45, fx.tz, 18, '#fef08a', 0.8, 5.6, 0.9);
               spawnRisingParticles(fx.tx, fx.ty + 0.35, fx.tz, 14, '#475569', Math.max(0.95, fx.radius * 0.78), 2.8, 1.25, 1.65);
             }
+          } else if (fx.vfxSubtype === 'sub_human_slbm') {
+            // Human SLBM: vertical sea-breach boost -> soaring ballistic arc -> terminal warhead dive
+            const arcPeak = fx.flightPeakY ?? 7.2;
+            curX = ox + (fx.tx - ox) * flightT;
+            curZ = oz + (fx.tz - oz) * flightT;
+            curY = oy + (fx.ty - oy) * flightT + Math.sin(flightT * Math.PI) * arcPeak;
+            const nextT = Math.min(1, flightT + 0.04);
+            _trailLookVec.set(
+              ox + (fx.tx - ox) * nextT,
+              oy + (fx.ty - oy) * nextT + Math.sin(nextT * Math.PI) * arcPeak,
+              oz + (fx.tz - oz) * nextT,
+            );
+            fx.tracerMesh.position.set(curX, curY, curZ);
+            if (flightT < 0.99) fx.tracerMesh.lookAt(_trailLookVec);
+            trackTrail = flightT < 1;
+            if (flightT < 1 && Math.random() < 0.85) {
+              spawnRisingParticles(curX, curY, curZ, 1, '#e2e8f0', 0.2, 0.55, 0.72, 1.1);
+            }
+            if (flightT >= 1 && !fx.impactFired) {
+              fx.impactFired = true;
+              spawnParticleBurst(fx.tx, fx.ty + 0.35, fx.tz, 24, '#fb923c', Math.max(0.95, fx.radius * 0.8), 5.2, 0.95);
+              spawnParticleBurst(fx.tx, fx.ty + 0.4, fx.tz, 12, '#fef08a', 0.65, 4.4, 0.75);
+              spawnRisingParticles(fx.tx, fx.ty + 0.35, fx.tz, 10, '#475569', 0.75, 2.2, 1.0, 1.4);
+            }
+          } else if (fx.vfxSubtype === 'sub_elf_abyssal_lance') {
+            // Elf Abyssal Star-Torpedo: harmonic cyan-violet S-curve + spinning water-rune casting ring
+            const arcPeak = fx.flightPeakY ?? 5.5;
+            const dx = fx.tx - ox;
+            const dz = fx.tz - oz;
+            const span = Math.max(1, Math.hypot(dx, dz));
+            const perpX = -dz / span;
+            const perpZ = dx / span;
+            const weave = Math.sin(flightT * Math.PI * 2.5 + (fx.wobbleSeed ?? 0)) * Math.sin(flightT * Math.PI) * Math.min(1.4, span * 0.06);
+            curX = ox + dx * flightT + perpX * weave;
+            curZ = oz + dz * flightT + perpZ * weave;
+            curY = oy + (fx.ty - oy) * flightT + Math.sin(flightT * Math.PI) * arcPeak;
+            const nextT = Math.min(1, flightT + 0.04);
+            const nextWeave = Math.sin(nextT * Math.PI * 2.5 + (fx.wobbleSeed ?? 0)) * Math.sin(nextT * Math.PI) * Math.min(1.4, span * 0.06);
+            _trailLookVec.set(
+              ox + dx * nextT + perpX * nextWeave,
+              oy + (fx.ty - oy) * nextT + Math.sin(nextT * Math.PI) * arcPeak,
+              oz + dz * nextT + perpZ * nextWeave,
+            );
+            fx.tracerMesh.position.set(curX, curY, curZ);
+            if (flightT < 0.99) fx.tracerMesh.lookAt(_trailLookVec);
+            fx.tracerMesh.rotation.z += dt * 10;
+            trackTrail = flightT < 1;
+            if (fx.originRingMesh) {
+              fx.originRingMesh.rotation.y += dt * 4.5;
+              fx.originRingMesh.scale.setScalar(1.2 + Math.min(1, prog * 2.5) * 1.1);
+              (fx.originRingMesh.material as THREE.MeshBasicMaterial).opacity = Math.max(0, 1 - prog * 1.7) * 0.9;
+            }
+            if (flightT < 1 && Math.random() < 0.8) {
+              spawnRisingParticles(curX, curY, curZ, 1, Math.random() < 0.5 ? '#7dd3fc' : '#c084fc', 0.18, 0.5, 0.65, 0.95);
+            }
+            if (flightT >= 1 && !fx.impactFired) {
+              fx.impactFired = true;
+              spawnParticleBurst(fx.tx, fx.ty + 0.35, fx.tz, 22, '#38bdf8', Math.max(0.95, fx.radius * 0.8), 5.0, 0.9);
+              spawnParticleBurst(fx.tx, fx.ty + 0.45, fx.tz, 14, '#c084fc', 0.72, 4.2, 0.78);
+            }
+          } else if (fx.vfxSubtype === 'sub_orc_krump_torp') {
+            // Orc Breaching Sea-Rokkit: corkscrewing smoky wobble arc with erratic ember puffs
+            const arcPeak = fx.flightPeakY ?? 5.4;
+            const dx = fx.tx - ox;
+            const dz = fx.tz - oz;
+            const span = Math.max(1, Math.hypot(dx, dz));
+            const perpX = -dz / span;
+            const perpZ = dx / span;
+            const spiral = Math.sin(flightT * Math.PI * 5 + (fx.wobbleSeed ?? 0)) * Math.sin(flightT * Math.PI) * 0.75;
+            curX = ox + dx * flightT + perpX * spiral;
+            curZ = oz + dz * flightT + perpZ * spiral;
+            curY = oy + (fx.ty - oy) * flightT + Math.sin(flightT * Math.PI) * arcPeak + Math.cos(flightT * Math.PI * 5) * Math.sin(flightT * Math.PI) * 0.35;
+            const nextT = Math.min(1, flightT + 0.04);
+            _trailLookVec.set(ox + dx * nextT, oy + (fx.ty - oy) * nextT + Math.sin(nextT * Math.PI) * arcPeak, oz + dz * nextT);
+            fx.tracerMesh.position.set(curX, curY, curZ);
+            if (flightT < 0.99) fx.tracerMesh.lookAt(_trailLookVec);
+            fx.tracerMesh.rotation.z += dt * 14;
+            trackTrail = flightT < 1;
+            if (flightT < 1 && Math.random() < 0.85) {
+              spawnRisingParticles(curX, curY, curZ, 1, Math.random() < 0.6 ? '#44403c' : '#f97316', 0.24, 0.65, 0.72, 1.15);
+            }
+            if (flightT >= 1 && !fx.impactFired) {
+              fx.impactFired = true;
+              spawnParticleBurst(fx.tx, fx.ty + 0.35, fx.tz, 24, '#ef4444', Math.max(1.0, fx.radius * 0.85), 5.4, 0.95);
+              spawnRisingParticles(fx.tx, fx.ty + 0.35, fx.tz, 12, '#292524', 0.85, 2.4, 1.05, 1.45);
+            }
+          } else if (fx.vfxSubtype === 'sub_dwarf_depth_mortar') {
+            // Dwarf Runeforge Depth-Mortar: high heavy parabolic lob with tumbling bronze canister & magma sparks
+            const arcPeak = fx.flightPeakY ?? 6.8;
+            curX = ox + (fx.tx - ox) * flightT;
+            curZ = oz + (fx.tz - oz) * flightT;
+            curY = oy + (fx.ty - oy) * flightT + 4 * flightT * (1 - flightT) * arcPeak;
+            fx.tracerMesh.position.set(curX, curY, curZ);
+            fx.tracerMesh.rotation.x += dt * 9;
+            fx.tracerMesh.rotation.y += dt * 6;
+            trackTrail = flightT < 1;
+            if (flightT < 1 && Math.random() < 0.8) {
+              spawnRisingParticles(curX, curY, curZ, 1, Math.random() < 0.55 ? '#fbbf24' : '#f97316', 0.2, 0.5, 0.68, 1.0);
+            }
+            if (flightT >= 1 && !fx.impactFired) {
+              fx.impactFired = true;
+              spawnParticleBurst(fx.tx, fx.ty + 0.35, fx.tz, 24, '#f59e0b', Math.max(1.0, fx.radius * 0.85), 5.2, 0.92);
+              spawnParticleBurst(fx.tx, fx.ty + 0.45, fx.tz, 12, '#fef08a', 0.68, 4.5, 0.75);
+            }
+          } else if (fx.vfxSubtype === 'sub_lizard_tidal_serpent') {
+            // Lizardfolk Tidal Solar-Serpent: sinuous undulating wave dart with electric jade-gold lightning sparks
+            const arcPeak = fx.flightPeakY ?? 5.0;
+            const dx = fx.tx - ox;
+            const dz = fx.tz - oz;
+            const span = Math.max(1, Math.hypot(dx, dz));
+            const perpX = -dz / span;
+            const perpZ = dx / span;
+            const slither = Math.sin(flightT * Math.PI * 4 + (fx.wobbleSeed ?? 0)) * Math.sin(flightT * Math.PI) * 0.9;
+            curX = ox + dx * flightT + perpX * slither;
+            curZ = oz + dz * flightT + perpZ * slither;
+            curY = oy + (fx.ty - oy) * flightT + Math.sin(flightT * Math.PI) * arcPeak;
+            const nextT = Math.min(1, flightT + 0.04);
+            const nextSlither = Math.sin(nextT * Math.PI * 4 + (fx.wobbleSeed ?? 0)) * Math.sin(nextT * Math.PI) * 0.9;
+            _trailLookVec.set(
+              ox + dx * nextT + perpX * nextSlither,
+              oy + (fx.ty - oy) * nextT + Math.sin(nextT * Math.PI) * arcPeak,
+              oz + dz * nextT + perpZ * nextSlither,
+            );
+            fx.tracerMesh.position.set(curX, curY, curZ);
+            if (flightT < 0.99) fx.tracerMesh.lookAt(_trailLookVec);
+            trackTrail = flightT < 1;
+            if (flightT < 1 && Math.random() < 0.82) {
+              spawnParticleBurst(curX, curY, curZ, 1, Math.random() < 0.55 ? '#34d399' : '#facc15', 0.2, 1.4, 0.45);
+            }
+            if (flightT >= 1 && !fx.impactFired) {
+              fx.impactFired = true;
+              spawnParticleBurst(fx.tx, fx.ty + 0.35, fx.tz, 22, '#34d399', Math.max(0.95, fx.radius * 0.8), 5.2, 0.9);
+              spawnParticleBurst(fx.tx, fx.ty + 0.45, fx.tz, 14, '#facc15', 0.72, 4.4, 0.75);
+            }
           } else if (fx.vfxSubtype === 'elf_starfall_spell') {
             // Elf long-range astral comet: rotating casting rune circle + graceful harmonic S-weave across sky
             const arcPeak = fx.flightPeakY ?? 6.8;
@@ -16176,7 +16495,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             fx.vfxSubtype === 'orc_siege_boulder' ||
             fx.vfxSubtype === 'orc_waagh_rocket' ||
             fx.vfxSubtype === 'dwarf_quake_mortar' ||
-            fx.vfxSubtype === 'lizard_solar_lance';
+            fx.vfxSubtype === 'lizard_solar_lance' ||
+            fx.vfxSubtype === 'sub_human_slbm' ||
+            fx.vfxSubtype === 'sub_elf_abyssal_lance' ||
+            fx.vfxSubtype === 'sub_orc_krump_torp' ||
+            fx.vfxSubtype === 'sub_dwarf_depth_mortar' ||
+            fx.vfxSubtype === 'sub_lizard_tidal_serpent';
           const isImpactRingShot =
             isStrategicShot ||
             fx.vfxSubtype === 'missile' ||
