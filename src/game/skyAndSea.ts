@@ -2659,7 +2659,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
     roughness: 0.84,
     metalness: 0.08,
   });
-  cliffMat.customProgramCacheKey = () => 'aeon_cliff_pixel_v9';
+  cliffMat.customProgramCacheKey = () => 'aeon_cliff_pixel_v10';
   cliffMat.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = sharedTime;
     shader.uniforms.uEpoch = sharedEpoch;
@@ -2686,24 +2686,39 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
 
         vec2 cliffOwnerCoord = floor(vLandWorldPos.xz + 0.5 - vLandWorldNormal.xz * 0.25);
         vec2 cliffNeighborCoord = floor(vLandWorldPos.xz + 0.5 + vLandWorldNormal.xz * 0.25);
-        float ownerCode = decodeTerrain(sampleLandTile(cliffOwnerCoord));
+        vec4 ownerSample = sampleLandTile(cliffOwnerCoord);
+        float ownerCode = decodeTerrain(ownerSample);
+        float ownerH = floor(ownerSample.g * 255.0 / 20.0 + 0.5);
+        float distFromTop = max(0.0, ownerH * 0.45 - vLandWorldPos.y);
         float neighborCode = decodeTerrain(sampleLandTile(cliffNeighborCoord));
         bool isVoidWall = abs(ownerCode - 22.0) < 0.5 || abs(neighborCode - 22.0) < 0.5;
         bool isCraterWall = abs(ownerCode - 12.0) < 0.5 || abs(neighborCode - 12.0) < 0.5 || abs(ownerCode - 24.0) < 0.5 || abs(neighborCode - 24.0) < 0.5;
         bool isBlightWall = abs(ownerCode - 25.0) < 0.5 || abs(neighborCode - 25.0) < 0.5;
         bool isFloralWall = abs(ownerCode - 26.0) < 0.5;
         bool isBadlandsWall = abs(ownerCode - 19.0) < 0.5 || abs(neighborCode - 19.0) < 0.5;
-        bool isMountainWall = abs(ownerCode - 16.0) < 0.5 || abs(ownerCode - 11.0) < 0.5;
+        bool isMountainWall = abs(ownerCode - 16.0) < 0.5 || abs(ownerCode - 11.0) < 0.5 || abs(ownerCode - 8.0) < 0.5 || abs(ownerCode - 10.0) < 0.5 || abs(ownerCode - 18.0) < 0.5;
+        bool isSandWall = abs(ownerCode - 2.0) < 0.5;
+        bool isSwampWall = abs(ownerCode - 7.0) < 0.5;
+        bool isSavannaWall = abs(ownerCode - 6.0) < 0.5;
+        bool isTaigaWall = abs(ownerCode - 17.0) < 0.5;
+        bool isBlossomWall = abs(ownerCode - 20.0) < 0.5;
+        bool isEarthBank =
+          !isVoidWall && !isCraterWall && !isBlightWall && !isBadlandsWall && !isMountainWall &&
+          (abs(ownerCode - 3.0) < 0.5 || abs(ownerCode - 4.0) < 0.5 || abs(ownerCode - 5.0) < 0.5 ||
+           abs(ownerCode - 6.0) < 0.5 || abs(ownerCode - 15.0) < 0.5 || abs(ownerCode - 17.0) < 0.5 ||
+           abs(ownerCode - 20.0) < 0.5) &&
+          (ownerH <= 3.5 || distFromTop < 0.52);
         bool isUrbanRetainingWall =
           !isVoidWall && !isCraterWall && !isBlightWall &&
-          (abs(ownerCode - 9.0) < 0.5 || abs(ownerCode - 14.0) < 0.5 || abs(ownerCode - 21.0) < 0.5 ||
-           (uEpoch >= 3.5 && neighborCode < 1.5));
+          (abs(ownerCode - 9.0) < 0.5 || abs(ownerCode - 14.0) < 0.5 || abs(ownerCode - 21.0) < 0.5);
 
         float strata = landNoise(vec2(wallChunk.x * 0.65, wallChunk.y * 2.2));
         float brickRow = floor(wallPix.y * 4.0);
         float brickCol = floor((wallPix.x + mod(brickRow, 2.0) * 0.25) * 2.0);
         float seam = step(0.86, fract(wallPix.y * 4.0)) + step(0.91, fract((wallPix.x + mod(brickRow, 2.0) * 0.25) * 2.0));
         float brickTone = landHash12(vec2(brickCol, brickRow));
+        float pixGrain = landHash12(floor(wallPix * 16.0));
+        float lipJitter = (landHash12(vec2(floor(wallU * 8.0), 3.7)) - 0.5) * 0.07;
 
         vec3 cliffCol;
         if (isUrbanRetainingWall) {
@@ -2727,6 +2742,43 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
             cliffCol = mix(ashlarSh, ashlarBase, step(0.28, brickTone));
             cliffCol = mix(cliffCol, ashlarHi, step(0.68, brickTone));
             cliffCol = mix(cliffCol, ashlarSh, clamp(seam, 0.0, 1.0) * 0.78);
+          }
+        } else if (isSandWall) {
+          // Layered warm beach / shoal sand bank (dry pale sand lip -> warm golden sand -> damp ochre base)
+          vec3 sandHi   = landSrgb(226.0, 208.0, 166.0);
+          vec3 sandBase = landSrgb(196.0, 172.0, 126.0);
+          vec3 sandSh   = landSrgb(156.0, 134.0, 96.0);
+          cliffCol = mix(sandSh, sandBase, step(0.28, strata * 0.65 + pixGrain * 0.35));
+          cliffCol = mix(cliffCol, sandHi, step(0.72, strata * 0.55 + pixGrain * 0.45));
+          if (distFromTop < 0.09 + lipJitter) {
+            cliffCol = mix(cliffCol, sandHi, 0.75);
+          }
+        } else if (isSwampWall) {
+          // Wet muddy peat & tangled mangrove-root bank with mossy overhang lip
+          vec3 mudSh   = landSrgb(46.0, 38.0, 28.0);
+          vec3 mudBase = landSrgb(72.0, 58.0, 42.0);
+          vec3 mudHi   = landSrgb(98.0, 82.0, 58.0);
+          cliffCol = mix(mudSh, mudBase, step(0.30, strata * 0.65 + pixGrain * 0.35));
+          cliffCol = mix(cliffCol, mudHi, step(0.72, strata * 0.6 + pixGrain * 0.4));
+          if (distFromTop < 0.09 + lipJitter) {
+            cliffCol = mix(landSrgb(58.0, 92.0, 52.0), landSrgb(78.0, 114.0, 62.0), step(0.5, pixGrain));
+          }
+        } else if (isEarthBank) {
+          // Natural earthy loam riverbank with overhanging biome turf lip
+          vec3 dirtSh   = landSrgb(78.0, 56.0, 38.0);
+          vec3 dirtBase = landSrgb(116.0, 86.0, 58.0);
+          vec3 dirtHi   = landSrgb(142.0, 108.0, 76.0);
+          cliffCol = mix(dirtSh, dirtBase, step(0.30, strata * 0.65 + pixGrain * 0.35));
+          cliffCol = mix(cliffCol, dirtHi, step(0.74, strata * 0.6 + pixGrain * 0.4));
+          if (distFromTop < 0.10 + lipJitter) {
+            vec3 turfCol = isSavannaWall
+              ? landSrgb(164.0, 142.0, 72.0)
+              : isTaigaWall
+                ? landSrgb(68.0, 108.0, 76.0)
+                : isBlossomWall
+                  ? landSrgb(116.0, 160.0, 92.0)
+                  : landSrgb(86.0, 142.0, 70.0);
+            cliffCol = mix(turfCol * 0.84, turfCol, step(0.45, pixGrain));
           }
         } else {
           vec3 stoneBase = isVoidWall
@@ -3291,7 +3343,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
     roughness: 0.82,
     metalness: 0.05,
   });
-  unifiedMat.customProgramCacheKey = () => 'aeon_land_unified_chunk_v2';
+  unifiedMat.customProgramCacheKey = () => 'aeon_land_unified_chunk_v3';
   unifiedMat.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = sharedTime;
     shader.uniforms.uEpoch = sharedEpoch;
@@ -3334,24 +3386,39 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
 
           cliffOwnerCoord = floor(vLandWorldPos.xz + 0.5 - vLandWorldNormal.xz * 0.25);
           cliffNeighborCoord = floor(vLandWorldPos.xz + 0.5 + vLandWorldNormal.xz * 0.25);
-          ownerCode = decodeTerrain(sampleLandTile(cliffOwnerCoord));
+          vec4 ownerSample = sampleLandTile(cliffOwnerCoord);
+          ownerCode = decodeTerrain(ownerSample);
+          float ownerH = floor(ownerSample.g * 255.0 / 20.0 + 0.5);
+          float distFromTop = max(0.0, ownerH * 0.45 - vLandWorldPos.y);
           float neighborCode = decodeTerrain(sampleLandTile(cliffNeighborCoord));
           bool isVoidWall = abs(ownerCode - 22.0) < 0.5 || abs(neighborCode - 22.0) < 0.5;
           bool isCraterWall = abs(ownerCode - 12.0) < 0.5 || abs(neighborCode - 12.0) < 0.5 || abs(ownerCode - 24.0) < 0.5 || abs(neighborCode - 24.0) < 0.5;
           bool isBlightWall = abs(ownerCode - 25.0) < 0.5 || abs(neighborCode - 25.0) < 0.5;
           bool isFloralWall = abs(ownerCode - 26.0) < 0.5;
           bool isBadlandsWall = abs(ownerCode - 19.0) < 0.5 || abs(neighborCode - 19.0) < 0.5;
-          bool isMountainWall = abs(ownerCode - 16.0) < 0.5 || abs(ownerCode - 11.0) < 0.5;
+          bool isMountainWall = abs(ownerCode - 16.0) < 0.5 || abs(ownerCode - 11.0) < 0.5 || abs(ownerCode - 8.0) < 0.5 || abs(ownerCode - 10.0) < 0.5 || abs(ownerCode - 18.0) < 0.5;
+          bool isSandWall = abs(ownerCode - 2.0) < 0.5;
+          bool isSwampWall = abs(ownerCode - 7.0) < 0.5;
+          bool isSavannaWall = abs(ownerCode - 6.0) < 0.5;
+          bool isTaigaWall = abs(ownerCode - 17.0) < 0.5;
+          bool isBlossomWall = abs(ownerCode - 20.0) < 0.5;
+          bool isEarthBank =
+            !isVoidWall && !isCraterWall && !isBlightWall && !isBadlandsWall && !isMountainWall &&
+            (abs(ownerCode - 3.0) < 0.5 || abs(ownerCode - 4.0) < 0.5 || abs(ownerCode - 5.0) < 0.5 ||
+             abs(ownerCode - 6.0) < 0.5 || abs(ownerCode - 15.0) < 0.5 || abs(ownerCode - 17.0) < 0.5 ||
+             abs(ownerCode - 20.0) < 0.5) &&
+            (ownerH <= 3.5 || distFromTop < 0.52);
           bool isUrbanRetainingWall =
             !isVoidWall && !isCraterWall && !isBlightWall &&
-            (abs(ownerCode - 9.0) < 0.5 || abs(ownerCode - 14.0) < 0.5 || abs(ownerCode - 21.0) < 0.5 ||
-             (uEpoch >= 3.5 && neighborCode < 1.5));
+            (abs(ownerCode - 9.0) < 0.5 || abs(ownerCode - 14.0) < 0.5 || abs(ownerCode - 21.0) < 0.5);
 
           float strata = landNoise(vec2(wallChunk.x * 0.65, wallChunk.y * 2.2));
           float brickRow = floor(wallPix.y * 4.0);
           float brickCol = floor((wallPix.x + mod(brickRow, 2.0) * 0.25) * 2.0);
           float seam = step(0.86, fract(wallPix.y * 4.0)) + step(0.91, fract((wallPix.x + mod(brickRow, 2.0) * 0.25) * 2.0));
           float brickTone = landHash12(vec2(brickCol, brickRow));
+          float pixGrain = landHash12(floor(wallPix * 16.0));
+          float lipJitter = (landHash12(vec2(floor(wallU * 8.0), 3.7)) - 0.5) * 0.07;
 
           vec3 cliffCol;
           if (isUrbanRetainingWall) {
@@ -3373,6 +3440,43 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
               cliffCol = mix(ashlarSh, ashlarBase, step(0.28, brickTone));
               cliffCol = mix(cliffCol, ashlarHi, step(0.68, brickTone));
               cliffCol = mix(cliffCol, ashlarSh, clamp(seam, 0.0, 1.0) * 0.78);
+            }
+          } else if (isSandWall) {
+            // Layered warm beach / shoal sand bank (dry pale sand lip -> warm golden sand -> damp ochre base)
+            vec3 sandHi   = landSrgb(226.0, 208.0, 166.0);
+            vec3 sandBase = landSrgb(196.0, 172.0, 126.0);
+            vec3 sandSh   = landSrgb(156.0, 134.0, 96.0);
+            cliffCol = mix(sandSh, sandBase, step(0.28, strata * 0.65 + pixGrain * 0.35));
+            cliffCol = mix(cliffCol, sandHi, step(0.72, strata * 0.55 + pixGrain * 0.45));
+            if (distFromTop < 0.09 + lipJitter) {
+              cliffCol = mix(cliffCol, sandHi, 0.75);
+            }
+          } else if (isSwampWall) {
+            // Wet muddy peat & tangled mangrove-root bank with mossy overhang lip
+            vec3 mudSh   = landSrgb(46.0, 38.0, 28.0);
+            vec3 mudBase = landSrgb(72.0, 58.0, 42.0);
+            vec3 mudHi   = landSrgb(98.0, 82.0, 58.0);
+            cliffCol = mix(mudSh, mudBase, step(0.30, strata * 0.65 + pixGrain * 0.35));
+            cliffCol = mix(cliffCol, mudHi, step(0.72, strata * 0.6 + pixGrain * 0.4));
+            if (distFromTop < 0.09 + lipJitter) {
+              cliffCol = mix(landSrgb(58.0, 92.0, 52.0), landSrgb(78.0, 114.0, 62.0), step(0.5, pixGrain));
+            }
+          } else if (isEarthBank) {
+            // Natural earthy loam riverbank with overhanging biome turf lip
+            vec3 dirtSh   = landSrgb(78.0, 56.0, 38.0);
+            vec3 dirtBase = landSrgb(116.0, 86.0, 58.0);
+            vec3 dirtHi   = landSrgb(142.0, 108.0, 76.0);
+            cliffCol = mix(dirtSh, dirtBase, step(0.30, strata * 0.65 + pixGrain * 0.35));
+            cliffCol = mix(cliffCol, dirtHi, step(0.74, strata * 0.6 + pixGrain * 0.4));
+            if (distFromTop < 0.10 + lipJitter) {
+              vec3 turfCol = isSavannaWall
+                ? landSrgb(164.0, 142.0, 72.0)
+                : isTaigaWall
+                  ? landSrgb(68.0, 108.0, 76.0)
+                  : isBlossomWall
+                    ? landSrgb(116.0, 160.0, 92.0)
+                    : landSrgb(86.0, 142.0, 70.0);
+              cliffCol = mix(turfCol * 0.84, turfCol, step(0.45, pixGrain));
             }
           } else {
             vec3 stoneBase = isVoidWall
