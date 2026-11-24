@@ -402,6 +402,15 @@ export const AgeProgressBanner: React.FC<AgeProgressBannerProps> = ({
             />
           </div>
 
+          {/* CENTER: Vertical Golden Pixel Divider Line Separating Dial & Text */}
+          <div
+            aria-hidden="true"
+            className="relative shrink-0 flex items-center justify-center h-[52px] sm:h-[62px] w-[6px]"
+          >
+            <div className="h-full w-[2px] bg-gradient-to-b from-transparent via-[#f5d284] to-transparent shadow-[1px_0_0_#0c0705,-1px_0_0_#0c0705]" />
+            <div className="absolute w-[6px] h-[6px] rotate-45 bg-[#fff6d1] border border-[#0c0705]" />
+          </div>
+
           {/* RIGHT: Eyebrow Copy & Age Title Text */}
           <div className="flex flex-col items-start text-left justify-center min-w-0">
             <span className="font-pixel-num text-[10px] sm:text-[11px] font-bold tracking-[0.08em] text-[#e6c38d] leading-tight mb-0.5 whitespace-nowrap">
