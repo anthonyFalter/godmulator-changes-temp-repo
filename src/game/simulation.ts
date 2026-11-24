@@ -16395,6 +16395,195 @@ function stepVehicles(state: SimulationState, dt: number): void {
       }
     }
 
+    // Cache raw kingdom border sectors per tick (only populated when a vehicle builds/refreshes its patrol route)
+    const kingdomBorderCache = new Map<
+      string,
+      { cx: number; cz: number; sectors: Array<{ x: number; z: number } | null> }
+    >();
+    const NUM_PERIM_SECTORS = 16;
+
+    const getKingdomBorderSectors = (kid: string, fallbackAnchor: { x: number; z: number }) => {
+      const cached = kingdomBorderCache.get(kid);
+      if (cached) return cached;
+
+      const gs = state.gridSize;
+      const kingdomBlds: Array<{ x: number; z: number }> = [];
+      let sumX = 0;
+      let sumZ = 0;
+
+      for (let bi = 0; bi < state.buildings.length; bi++) {
+        const b = state.buildings[bi];
+        if (b.hp <= 0 || !b.settlementId) continue;
+        if (getKingdomId(state, b.settlementId) !== kid) continue;
+        kingdomBlds.push({ x: b.tileX, z: b.tileZ });
+        sumX += b.tileX;
+        sumZ += b.tileZ;
+      }
+
+      const cx = kingdomBlds.length > 0 ? sumX / kingdomBlds.length : fallbackAnchor.x;
+      const cz = kingdomBlds.length > 0 ? sumZ / kingdomBlds.length : fallbackAnchor.z;
+      const sectorMaxR = new Float64Array(NUM_PERIM_SECTORS);
+      let globalMaxR = 0;
+
+      // Bucket all kingdom buildings into 16 angular sectors around the country centroid
+      for (let i = 0; i < kingdomBlds.length; i++) {
+        const dx = kingdomBlds[i].x - cx;
+        const dz = kingdomBlds[i].z - cz;
+        const r = Math.hypot(dx, dz);
+        if (r > globalMaxR) globalMaxR = r;
+        const ang = Math.atan2(dz, dx) + Math.PI; // 0 .. 2*PI
+        const sec = Math.min(NUM_PERIM_SECTORS - 1, Math.floor((ang / (Math.PI * 2)) * NUM_PERIM_SECTORS));
+        if (r > sectorMaxR[sec]) sectorMaxR[sec] = r;
+      }
+
+      // Smoothly fill any empty angular sectors from neighboring sectors so the country perimeter is continuous
+      const baseBorderPad = 7.5;
+      const minPerimeterR = Math.max(11, globalMaxR * 0.55 + baseBorderPad);
+      const sectors: Array<{ x: number; z: number } | null> = new Array(NUM_PERIM_SECTORS).fill(null);
+
+      for (let i = 0; i < NUM_PERIM_SECTORS; i++) {
+        let r = sectorMaxR[i];
+        if (r <= 0.1) {
+          const prev = sectorMaxR[(i + NUM_PERIM_SECTORS - 1) % NUM_PERIM_SECTORS];
+          const next = sectorMaxR[(i + 1) % NUM_PERIM_SECTORS];
+          if (prev > 0.1 && next > 0.1) r = (prev + next) * 0.5;
+          else if (prev > 0.1) r = prev * 0.85;
+          else if (next > 0.1) r = next * 0.85;
+        }
+        const finalR = Math.max(minPerimeterR, r + baseBorderPad);
+        const ang = ((i + 0.5) / NUM_PERIM_SECTORS) * Math.PI * 2 - Math.PI;
+        sectors[i] = {
+          x: Math.max(3, Math.min(gs - 4, cx + Math.cos(ang) * finalR)),
+          z: Math.max(3, Math.min(gs - 4, cz + Math.sin(ang) * finalR)),
+        };
+      }
+
+      const entry = { cx, cz, sectors };
+      kingdomBorderCache.set(kid, entry);
+      return entry;
+    };
+
+    const isChordPassable = (
+      ax: number,
+      az: number,
+      bx: number,
+      bz: number,
+      passableFn: (tx: number, tz: number) => boolean,
+    ): boolean => {
+      const steps = 6;
+      for (let i = 1; i < steps; i++) {
+        const t = i / steps;
+        if (!passableFn(Math.round(ax + (bx - ax) * t), Math.round(az + (bz - az) * t))) {
+          return false;
+        }
+      }
+      return true;
+    };
+
+    const buildKingdomPerimeterPath = (
+      kid: string,
+      fallbackAnchor: { x: number; z: number },
+      domain: 'naval' | 'ground' | 'air',
+      isHoverTank: boolean,
+      isCapitalAir: boolean,
+      variantSeed: number,
+    ): Array<{ x: number; z: number }> => {
+      const gs = state.gridSize;
+      const { cx, cz, sectors } = getKingdomBorderSectors(kid, fallbackAnchor);
+
+      const isNavalPassable = (tx: number, tz: number) => {
+        const t = getTile(state, tx, tz);
+        return Boolean(t && t.height === 0);
+      };
+      const isGroundPassable = (tx: number, tz: number) => {
+        const t = getTile(state, tx, tz);
+        return Boolean(t && (isHoverTank ? t.height <= 6 : t.height >= 1 && t.height <= 5));
+      };
+
+      const rawPts: Array<{ x: number; z: number }> = [];
+
+      for (let i = 0; i < NUM_PERIM_SECTORS; i++) {
+        const bp = sectors[i];
+        if (!bp) continue;
+        const dx = bp.x - cx;
+        const dz = bp.z - cz;
+        const len = Math.max(0.001, Math.hypot(dx, dz));
+        const ux = dx / len;
+        const uz = dz / len;
+
+        if (domain === 'air') {
+          const outPad = isCapitalAir ? 4.5 + (variantSeed % 3) : 2.0 + (variantSeed % 3);
+          rawPts.push({
+            x: Math.max(4, Math.min(gs - 5, bp.x + ux * outPad)),
+            z: Math.max(4, Math.min(gs - 5, bp.z + uz * outPad)),
+          });
+        } else if (domain === 'ground') {
+          // Prefer right along the inner border edge; step inward if border tile is water/cliff
+          let found: { x: number; z: number } | null = null;
+          for (let step = 0; step <= 6; step++) {
+            const px = Math.max(2, Math.min(gs - 3, Math.round(bp.x - ux * step)));
+            const pz = Math.max(2, Math.min(gs - 3, Math.round(bp.z - uz * step)));
+            if (isGroundPassable(px, pz)) {
+              found = { x: px, z: pz };
+              break;
+            }
+          }
+          if (found) rawPts.push(found);
+        } else {
+          // Naval: walk outward from the country border to find open ocean with shore clearance
+          let found: { x: number; z: number } | null = null;
+          for (let step = 2; step <= 18; step += 2) {
+            const px = Math.max(2, Math.min(gs - 3, Math.round(bp.x + ux * step)));
+            const pz = Math.max(2, Math.min(gs - 3, Math.round(bp.z + uz * step)));
+            if (isNavalPassable(px, pz)) {
+              // Prefer 1-tile clearance from shore so capital ships & subs cruise cleanly
+              const clear =
+                isNavalPassable(px + 1, pz) &&
+                isNavalPassable(px - 1, pz) &&
+                isNavalPassable(px, pz + 1) &&
+                isNavalPassable(px, pz - 1);
+              found = { x: px, z: pz };
+              if (clear) break;
+            }
+          }
+          if (found) rawPts.push(found);
+        }
+      }
+
+      // Deduplicate very close consecutive points
+      const pts: Array<{ x: number; z: number }> = [];
+      for (const p of rawPts) {
+        if (pts.length === 0 || Math.hypot(p.x - pts[pts.length - 1].x, p.z - pts[pts.length - 1].z) >= 3.0) {
+          pts.push(p);
+        }
+      }
+
+      if (pts.length >= 3 && (domain === 'naval' || domain === 'ground')) {
+        // For coastal arcs or peninsulas where the wrap-around chord crosses impassable terrain,
+        // patrol back-and-forth along the accessible perimeter instead of trying to cut across land/sea!
+        const passableFn = domain === 'naval' ? isNavalPassable : isGroundPassable;
+        const closesCleanly = isChordPassable(
+          pts[pts.length - 1].x,
+          pts[pts.length - 1].z,
+          pts[0].x,
+          pts[0].z,
+          passableFn,
+        );
+        if (!closesCleanly) {
+          const pingPong = pts.slice();
+          for (let i = pts.length - 2; i >= 1; i--) {
+            pingPong.push(pts[i]);
+          }
+          return variantSeed % 2 === 1 ? pingPong.reverse() : pingPong;
+        }
+      }
+
+      if (variantSeed % 2 === 1 && pts.length > 2) {
+        pts.reverse();
+      }
+      return pts;
+    };
+
     // Update & fight with military vehicles
     for (const v of state.vehicles) {
       if (!v.isMilitary || (v.hp ?? 0) <= 0) continue;
@@ -16409,7 +16598,11 @@ function stepVehicles(state: SimulationState, dt: number): void {
       let foundVehTargetUnit: UnitEntity | null = null;
       let targetBld: BuildingEntity | null = null;
       let targetVeh: VehicleEntity | null = null;
-      let bestDistSq = 28 * 28;
+      const detectRange =
+        v.type === 'orbital_mothership' || v.type === 'sky_carrier' || v.type === 'sky_cannonship' || v.type === 'aircraft_carrier'
+          ? 34
+          : 28;
+      let bestDistSq = detectRange * detectRange;
 
       const considerVehThreat = (other: UnitEntity, dSq: number) => {
         if (other.state === 'ko' || other.hp <= 0 || dSq >= bestDistSq) return;
@@ -16434,7 +16627,7 @@ function stepVehicles(state: SimulationState, dt: number): void {
         targetZ = other.z;
       };
       if (activeTickIndex) {
-        forEachUnitInRadius(activeTickIndex, v.x, v.z, 28, considerVehThreat);
+        forEachUnitInRadius(activeTickIndex, v.x, v.z, detectRange, considerVehThreat);
       } else {
         for (const other of state.units) {
           considerVehThreat(other, (other.x - v.x) ** 2 + (other.z - v.z) ** 2);
@@ -16477,6 +16670,8 @@ function stepVehicles(state: SimulationState, dt: number): void {
       const isNaval = isNavalMilitaryType(v.type);
       const isGround = isGroundMilitaryType(v.type);
       const isFixedWing = v.type === 'glider' || v.type === 'bomber_plane';
+      const isCapitalAir =
+        v.type === 'sky_cannonship' || v.type === 'sky_carrier' || v.type === 'orbital_mothership';
       const isHoverTank = isGround && vEpoch >= 6;
       const cruiseY = vStats.cruiseY;
       v.y = cruiseY;
@@ -16493,11 +16688,54 @@ function stepVehicles(state: SimulationState, dt: number): void {
           goalZ = targetZ;
         }
       } else {
-        // Patrol smoothly around home city (or coastal ring for warships)
-        const patrolOrbit = isNaval ? 10 + (v.variantSeed % 5) : isFixedWing ? 11 + (v.variantSeed % 6) : 7 + (v.variantSeed % 7);
-        const patrolAngle = (state.year * (isGround ? 0.32 : isFixedWing ? 0.85 : 0.65) + v.variantSeed * 1.37) % (Math.PI * 2);
-        goalX = Math.max(3, Math.min(state.gridSize - 4, anchor.x + Math.cos(patrolAngle) * patrolOrbit));
-        goalZ = Math.max(3, Math.min(state.gridSize - 4, anchor.z + Math.sin(patrolAngle) * patrolOrbit));
+        // Patrol the full perimeter of the kingdom's territory (land borders, coastal waters, or airspace)
+        v.phaseTimer = (v.phaseTimer ?? 0) - dt;
+        if (!v.path || v.path.length < 2 || v.phaseTimer <= 0) {
+          const domain = isNaval ? 'naval' : isGround ? 'ground' : 'air';
+          const newPath = buildKingdomPerimeterPath(
+            myKid,
+            anchor,
+            domain,
+            isHoverTank,
+            isCapitalAir,
+            v.variantSeed,
+          );
+          if (newPath.length >= 2) {
+            v.path = newPath;
+            // Start at the waypoint immediately ahead of the nearest perimeter point
+            let nearestIdx = 0;
+            let nearestSq = Infinity;
+            for (let pi = 0; pi < newPath.length; pi++) {
+              const dSq = (newPath[pi].x - v.x) ** 2 + (newPath[pi].z - v.z) ** 2;
+              if (dSq < nearestSq) {
+                nearestSq = dSq;
+                nearestIdx = pi;
+              }
+            }
+            v.pathIndex = (nearestIdx + 1) % newPath.length;
+          }
+          v.phaseTimer = 26 + (v.variantSeed % 10);
+          v.stuntTimer = 0;
+        }
+
+        if (v.path && v.path.length >= 2) {
+          const wpIdx = ((v.pathIndex ?? 0) % v.path.length + v.path.length) % v.path.length;
+          let wp = v.path[wpIdx];
+          const arriveR = isNaval ? 3.8 : isGround ? 3.0 : isCapitalAir ? 5.2 : 3.8;
+          if (Math.hypot(wp.x - v.x, wp.z - v.z) <= arriveR) {
+            v.pathIndex = (wpIdx + 1) % v.path.length;
+            wp = v.path[v.pathIndex];
+            v.stuntTimer = 0;
+          }
+          goalX = wp.x;
+          goalZ = wp.z;
+        } else {
+          // Graceful fallback if no perimeter points exist (e.g., landlocked naval spawn edge case)
+          const patrolOrbit = isNaval ? 14 + (v.variantSeed % 5) : 12 + (v.variantSeed % 6);
+          const patrolAngle = (state.year * 0.28 + v.variantSeed * 1.37) % (Math.PI * 2);
+          goalX = Math.max(3, Math.min(state.gridSize - 4, anchor.x + Math.cos(patrolAngle) * patrolOrbit));
+          goalZ = Math.max(3, Math.min(state.gridSize - 4, anchor.z + Math.sin(patrolAngle) * patrolOrbit));
+        }
       }
 
       const dx = goalX - v.x;
@@ -16510,38 +16748,76 @@ function stepVehicles(state: SimulationState, dt: number): void {
         v.strafeExtendTimer = 1.9;
       }
 
-      const turnRate = isFixedWing ? 2.15 : v.type === 'helicopter' || v.type === 'orc_flyer' || v.type === 'orbital_gunship' ? 3.4 : 2.3;
+      const turnRate = isFixedWing
+        ? 2.15
+        : isCapitalAir || v.type === 'aircraft_carrier'
+          ? 1.35
+          : v.type === 'helicopter' || v.type === 'orc_flyer' || v.type === 'orbital_gunship'
+            ? 3.4
+            : 2.3;
       let attackBearingDelta = 0;
 
       if (dist > 0.15 || isFixedWing) {
         const desiredHeading = dist > 0.15 ? Math.atan2(dx, dz) : v.heading;
-        const turnDelta = wrapAngleRad(desiredHeading - v.heading);
-        v.heading = wrapAngleRad(v.heading + Math.max(-turnRate * dt, Math.min(turnRate * dt, turnDelta)));
-        v.bank = isNaval || isGround ? 0 : Math.max(-0.46, Math.min(0.46, turnDelta * (isFixedWing ? 0.62 : 0.4)));
-        v.pitch = isFixedWing ? -0.05 : v.type === 'helicopter' || v.type === 'orc_flyer' ? (dist > fireRange * 0.72 ? 0.12 : 0.02) : 0;
-
         const shouldCloseIn = isFixedWing || targetX === null || targetDist > fireRange * 0.72;
-        if (shouldCloseIn) {
+        let steerHeading = desiredHeading;
+        let moved = false;
+
+        if (shouldCloseIn && (isNaval || isGround)) {
           const step = v.speed * dt;
-          const nx = Math.max(1, Math.min(state.gridSize - 2, v.x + Math.sin(v.heading) * step));
-          const nz = Math.max(1, Math.min(state.gridSize - 2, v.z + Math.cos(v.heading) * step));
-          const nextTile = getTile(state, Math.round(nx), Math.round(nz));
-          if (isNaval) {
-            if (nextTile && nextTile.height === 0) {
+          const canEnter = (nx: number, nz: number) => {
+            const nt = getTile(state, Math.round(nx), Math.round(nz));
+            if (!nt) return false;
+            if (isNaval) return nt.height === 0;
+            return isHoverTank ? nt.height <= 6 : nt.height >= 1 && nt.height <= 5;
+          };
+
+          // First try advancing along smoothed desired heading; if blocked, fan out to skirt coastlines/cliffs without spinning
+          const nextHeading = wrapAngleRad(
+            v.heading + Math.max(-turnRate * dt, Math.min(turnRate * dt, wrapAngleRad(desiredHeading - v.heading))),
+          );
+          const tryOffsets =
+            v.variantSeed % 2 === 0
+              ? [0, 0.45, -0.45, 0.9, -0.9, 1.35, -1.35, 1.8, -1.8]
+              : [0, -0.45, 0.45, -0.9, 0.9, -1.35, 1.35, -1.8, 1.8];
+          for (let oi = 0; oi < tryOffsets.length; oi++) {
+            const candHeading = wrapAngleRad(nextHeading + tryOffsets[oi]);
+            const nx = Math.max(1, Math.min(state.gridSize - 2, v.x + Math.sin(candHeading) * step));
+            const nz = Math.max(1, Math.min(state.gridSize - 2, v.z + Math.cos(candHeading) * step));
+            if (canEnter(nx, nz)) {
+              v.heading = candHeading;
               v.x = nx;
               v.z = nz;
-            } else {
-              // Steer along coastline
-              v.heading = wrapAngleRad(v.heading + 1.2 * dt);
+              moved = true;
+              if (oi === 0) {
+                v.stuntTimer = Math.max(0, (v.stuntTimer ?? 0) - dt);
+              } else {
+                v.stuntTimer = (v.stuntTimer ?? 0) + dt * 0.75;
+              }
+              break;
             }
-          } else if (isGround) {
-            if (nextTile && (isHoverTank ? nextTile.height <= 6 : nextTile.height >= 1 && nextTile.height <= 5)) {
-              v.x = nx;
-              v.z = nz;
-            } else {
-              v.heading = wrapAngleRad(v.heading + 1.4 * dt);
-            }
-          } else {
+          }
+          if (!moved) {
+            v.stuntTimer = (v.stuntTimer ?? 0) + dt * 1.5;
+            v.heading = wrapAngleRad(v.heading + (v.variantSeed % 2 === 0 ? 1.5 : -1.5) * dt);
+          }
+          // If blocked or skirting for > 2.2s while patrolling, immediately skip to the next perimeter waypoint
+          if (targetX === null && (v.stuntTimer ?? 0) > 2.2 && v.path && v.path.length >= 2) {
+            v.pathIndex = ((v.pathIndex ?? 0) + 1) % v.path.length;
+            v.stuntTimer = 0;
+          }
+          v.bank = 0;
+          v.pitch = 0;
+        } else {
+          const turnDelta = wrapAngleRad(steerHeading - v.heading);
+          v.heading = wrapAngleRad(v.heading + Math.max(-turnRate * dt, Math.min(turnRate * dt, turnDelta)));
+          v.bank = isNaval || isGround ? 0 : Math.max(-0.46, Math.min(0.46, turnDelta * (isFixedWing ? 0.62 : isCapitalAir ? 0.18 : 0.4)));
+          v.pitch = isFixedWing ? -0.05 : v.type === 'helicopter' || v.type === 'orc_flyer' ? (dist > fireRange * 0.72 ? 0.12 : 0.02) : 0;
+
+          if (shouldCloseIn) {
+            const step = v.speed * dt;
+            const nx = Math.max(1, Math.min(state.gridSize - 2, v.x + Math.sin(v.heading) * step));
+            const nz = Math.max(1, Math.min(state.gridSize - 2, v.z + Math.cos(v.heading) * step));
             v.x = nx;
             v.z = nz;
             // Fixed-wing turns gracefully around map edges if extending toward border

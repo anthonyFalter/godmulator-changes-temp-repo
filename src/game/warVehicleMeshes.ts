@@ -451,60 +451,145 @@ export function createCapitalWarVehicleGroup(
   }
 
   // =========================================================================
-  // 2. SUBMARINE (Sea, Epoch 3+) — Sleek ~8.4 tiles long cigar riding half-submerged!
+  // 2. SUBMARINE (Sea, Epoch 3+) — Submerged underwater silhouette + periscope above water!
   // =========================================================================
   if (type === 'submarine') {
+    const silhouette: THREE.BufferGeometry[] = [];
+    const silCol = 0x071929;
+
+    // Helper: push a flattened underwater hull silhouette part flush at the water plane
+    const pushSilGeo = (raw: THREE.BufferGeometry) => {
+      const g = raw.index ? raw.toNonIndexed() : raw;
+      if (g !== raw) raw.dispose();
+      g.deleteAttribute('uv');
+      silhouette.push(g);
+    };
+    const pushSubSilhouetteCyl = (
+      rTop: number,
+      rBot: number,
+      len: number,
+      segs: number,
+      x: number,
+      z: number,
+    ) => {
+      const g = new THREE.CylinderGeometry(rTop, rBot, len, segs);
+      g.rotateX(Math.PI / 2);
+      g.scale(1, 0.08, 1);
+      g.translate(x, 0.02, z);
+      pushSilGeo(g);
+    };
+    const pushSubSilhouetteHull = (pts: [number, number][]) => {
+      const shape = new THREE.Shape();
+      shape.moveTo(pts[0][0], pts[0][1]);
+      for (let i = 1; i < pts.length; i++) shape.lineTo(pts[i][0], pts[i][1]);
+      for (let i = pts.length - 1; i >= 0; i--) shape.lineTo(-pts[i][0], pts[i][1]);
+      shape.closePath();
+      const g = new THREE.ExtrudeGeometry(shape, { depth: 0.03, bevelEnabled: false });
+      g.rotateX(Math.PI / 2);
+      g.translate(0, 0.035, 0);
+      pushSilGeo(g);
+    };
+
     if (species === 'elf') {
-      pushCyl(matte, 0.46, 0.50, 5.4, 12, 0, 0.24, 0, 0x1e3a5f, Math.PI / 2, 0, 0);
-      pushCyl(metal, 0.06, 0.46, 1.75, 12, 0, 0.24, 3.55, 0xc8a441, Math.PI / 2, 0, 0);
-      pushCyl(matte, 0.46, 0.06, 1.95, 12, 0, 0.24, -3.65, 0x1e3a5f, Math.PI / 2, 0, 0);
-      pushTaperedHull(matte, [[0.52, -1.6], [2.15, -0.4], [1.85, 0.8], [0.52, 1.8]], 0.12, 0.32, 0x2b5978, 0.03);
-      pushCyl(glow, 0.34, 0.42, 1.35, 10, 0, 0.66, 0.45, 0x7dd3fc, Math.PI / 2, 0, 0);
+      // Submerged manta-ray hull silhouette beneath the waves
+      pushSubSilhouetteCyl(0.46, 0.50, 5.2, 12, 0, 0);
+      pushSubSilhouetteCyl(0.06, 0.46, 1.75, 12, 0, 3.45);
+      pushSubSilhouetteCyl(0.46, 0.06, 1.95, 12, 0, -3.55);
+      pushSubSilhouetteHull([[0.50, -1.6], [2.15, -0.4], [1.85, 0.8], [0.50, 1.8]]);
+      // Above-water: slender gilded crystal periscope spire + glowing sky-cyan hydro-optic lens
+      pushCyl(metal, 0.09, 0.14, 0.42, 8, 0, 0.22, 0.35, 0xc8a441);
+      pushCyl(metal, 0.035, 0.055, 0.82, 8, 0, 0.78, 0.38, 0xe2e8f0);
+      pushCyl(glow, 0.08, 0.08, 0.18, 8, 0, 1.16, 0.46, 0x7dd3fc, Math.PI / 2, 0, 0);
     } else if (species === 'orc') {
-      pushCyl(matte, 0.54, 0.54, 5.2, 10, 0, 0.26, -0.1, 0x3b3532, Math.PI / 2, 0, 0);
-      pushCyl(matte, 0.16, 0.54, 1.55, 10, 0, 0.26, 3.25, 0x881b1b, Math.PI / 2, 0, 0);
-      pushCyl(matte, 0.52, 0.14, 1.65, 10, 0, 0.26, -3.52, 0x2c2825, Math.PI / 2, 0, 0);
-      pushBox(matte, 0.36, 1.08, 1.65, 0, 0.96, 0.45, 0x2c2825);
-      pushCyl(metal, 0.05, 0.05, 0.95, 6, 0, 1.85, 0.65, 0x9ca3af);
+      // Submerged brutal shark-sub + twin torpedo pod silhouette beneath the waves
+      pushSubSilhouetteCyl(0.54, 0.54, 5.2, 10, 0, -0.1);
+      pushSubSilhouetteCyl(0.16, 0.54, 1.55, 10, 0, 3.25);
+      pushSubSilhouetteCyl(0.52, 0.14, 1.65, 10, 0, -3.52);
       for (const side of [-1, 1]) {
-        pushCyl(metal, 0.16, 0.16, 2.65, 8, side * 0.64, 0.26, 1.15, 0x57534e, Math.PI / 2, 0, 0);
+        pushSubSilhouetteCyl(0.18, 0.18, 2.65, 8, side * 0.66, 1.15);
       }
-      pushCyl(glow, 0.22, 0.22, 0.14, 8, 0, 0.26, -4.38, 0xf97316, Math.PI / 2, 0, 0);
+      // Above-water: riveted scrap-iron periscope hatch, crooked snorkel & angry red optic lens
+      pushBox(matte, 0.24, 0.36, 0.58, 0, 0.18, 0.42, 0x2c2825);
+      pushCyl(metal, 0.05, 0.06, 0.86, 6, 0, 0.74, 0.54, 0x78716c);
+      pushBox(metal, 0.14, 0.12, 0.24, 0, 1.14, 0.62, 0x44403c);
+      pushBox(glow, 0.10, 0.08, 0.06, 0, 1.14, 0.75, 0xef4444);
+      pushCyl(metal, 0.035, 0.045, 0.64, 6, 0.08, 0.62, 0.22, 0x57534e);
     } else if (species === 'dwarf') {
-      pushCyl(matte, 0.58, 0.58, 4.8, 10, 0, 0.28, -0.1, 0x334155, Math.PI / 2, 0, 0);
-      pushCyl(metal, 0.05, 0.54, 1.65, 10, 0, 0.28, 3.12, 0xd97706, Math.PI / 2, 0, 0);
-      pushCyl(matte, 0.54, 0.20, 1.55, 10, 0, 0.28, -3.28, 0x334155, Math.PI / 2, 0, 0);
+      // Submerged twin-pontoon ironclad Nautilus silhouette beneath the waves
+      pushSubSilhouetteCyl(0.58, 0.58, 4.8, 10, 0, -0.1);
+      pushSubSilhouetteCyl(0.06, 0.54, 1.65, 10, 0, 3.12);
+      pushSubSilhouetteCyl(0.54, 0.20, 1.55, 10, 0, -3.28);
       for (const side of [-1, 1]) {
-        pushCyl(metal, 0.26, 0.26, 4.25, 8, side * 0.74, 0.22, -0.1, 0xb45309, Math.PI / 2, 0, 0);
+        pushSubSilhouetteCyl(0.28, 0.28, 4.25, 8, side * 0.76, -0.1);
       }
-      pushCyl(matte, 0.44, 0.52, 0.88, 10, 0, 1.02, 0.25, 0x475569);
-      addWindowStrip(win, 0, 1.16, 0.74, 3, 0.22, false, 0xfbbf24);
+      // Above-water: brass diving-bell periscope cupola + twin optical periscopes + amber viewport
+      pushCyl(metal, 0.22, 0.28, 0.36, 10, 0, 0.18, 0.28, 0xb45309);
+      pushCyl(metal, 0.045, 0.055, 0.80, 8, -0.07, 0.72, 0.34, 0xd97706);
+      pushCyl(metal, 0.035, 0.045, 0.62, 8, 0.08, 0.64, 0.22, 0x94a3b8);
+      pushBox(metal, 0.12, 0.11, 0.22, -0.07, 1.12, 0.42, 0xd97706);
+      pushBox(glow, 0.08, 0.07, 0.05, -0.07, 1.12, 0.53, 0xfbbf24);
     } else if (species === 'lizardfolk') {
-      pushCyl(matte, 0.48, 0.52, 5.4, 10, 0, 0.24, 0, 0x1e293b, Math.PI / 2, 0, 0);
-      pushCyl(matte, 0.12, 0.48, 1.75, 10, 0, 0.24, 3.55, 0x0f172a, Math.PI / 2, 0, 0);
-      pushCyl(matte, 0.50, 0.10, 1.95, 10, 0, 0.24, -3.65, 0x1e293b, Math.PI / 2, 0, 0);
-      for (const zs of [-2.2, -1.1, 0.0, 1.1, 2.2]) {
-        pushBox(metal, 0.20, 0.48, 0.44, 0, 0.74, zs, 0xd4af37);
+      // Submerged serpentine leviathan-sub + tail fluke silhouette beneath the waves
+      pushSubSilhouetteCyl(0.48, 0.52, 5.4, 10, 0, 0);
+      pushSubSilhouetteCyl(0.12, 0.48, 1.75, 10, 0, 3.55);
+      pushSubSilhouetteCyl(0.50, 0.10, 1.95, 10, 0, -3.65);
+      pushSubSilhouetteHull([[0.22, -4.15], [1.15, -3.55], [0.95, -2.85], [0.22, -2.75]]);
+      // Above-water: golden dorsal periscope fin-crest + twin glowing emerald optic stalks
+      pushBox(metal, 0.14, 0.38, 0.72, 0, 0.20, 0.35, 0xd4af37);
+      for (const side of [-1, 1]) {
+        pushCyl(metal, 0.035, 0.045, 0.72, 6, side * 0.11, 0.68, 0.48, 0xca8a04);
+        pushBox(glow, 0.08, 0.08, 0.10, side * 0.11, 1.04, 0.54, 0x34d399);
       }
-      pushBox(matte, 2.15, 0.10, 0.72, 0, 0.24, -3.15, 0x334155);
-      pushBox(glow, 0.16, 0.12, 0.22, -0.32, 0.44, 2.85, 0x34d399);
-      pushBox(glow, 0.16, 0.12, 0.22, 0.32, 0.44, 2.85, 0x34d399);
     } else {
-      // HUMAN: Sleek matte-charcoal nuclear/diesel attack submarine (~8.4 tiles long, 7.8:1 ratio!)
-      const hullHex = e >= 5 ? 0x181d24 : 0x2a333f;
-      pushCyl(matte, 0.50, 0.50, 5.5, 12, 0, 0.26, 0, hullHex, Math.PI / 2, 0, 0);
-      pushCyl(matte, 0.10, 0.50, 1.48, 12, 0, 0.26, 3.48, hullHex, Math.PI / 2, 0, 0); // parabolic sonar bow
-      pushCyl(matte, 0.50, 0.08, 1.90, 12, 0, 0.26, -3.68, hullHex, Math.PI / 2, 0, 0); // tapered tail
-      // Streamlined conning tower sail + diving planes + twin slender periscopes
-      pushTaperedHull(matte, [[0.16, -0.35], [0.26, 0.25], [0.24, 1.15], [0.06, 1.55]], 1.02, 1.54, 0x334155, 0.03);
-      pushBox(metal, 1.68, 0.08, 0.38, 0, 1.10, 0.65, 0x475569);
-      pushCyl(metal, 0.035, 0.045, 0.92, 6, -0.06, 1.98, 0.82, 0xcbd5e1);
-      pushCyl(metal, 0.03, 0.04, 0.68, 6, 0.07, 1.86, 0.45, 0x94a3b8);
-      pushBox(matte, 0.10, 0.92, 0.68, 0, 0.46, -3.92, 0x334155);
-      pushBox(metal, 1.62, 0.08, 0.44, 0, 0.26, -3.82, 0x475569);
-      addWindowStrip(win, 0, 1.34, 1.52, 3, 0.13, false, 0xfbbf24);
+      // HUMAN: Submerged sleek attack submarine silhouette (~8.4 tiles long) + periscope-only above water!
+      pushSubSilhouetteCyl(0.50, 0.50, 5.5, 12, 0, 0);
+      pushSubSilhouetteCyl(0.10, 0.50, 1.48, 12, 0, 3.48);
+      pushSubSilhouetteCyl(0.50, 0.08, 1.90, 12, 0, -3.68);
+      // Submerged diving planes & tail stabilizers silhouette
+      pushSubSilhouetteHull([[0.18, 0.25], [0.96, 0.45], [0.96, 0.85], [0.18, 0.95]]);
+      pushSubSilhouetteHull([[0.16, -4.15], [0.92, -3.95], [0.92, -3.55], [0.16, -3.45]]);
+      // Above-water: sleek upper conning sail tip + primary optical periscope + radar/snorkel mast
+      pushTaperedHull(matte, [[0.10, -0.05], [0.16, 0.28], [0.14, 0.72], [0.04, 0.95]], 0.34, 0.36, 0x334155, 0.02);
+      pushCyl(metal, 0.032, 0.045, 0.96, 8, -0.05, 0.82, 0.58, 0xcbd5e1);
+      pushBox(metal, 0.10, 0.10, 0.22, -0.05, 1.28, 0.66, 0x475569); // periscope optical head
+      pushBox(glow, 0.07, 0.06, 0.05, -0.05, 1.28, 0.78, e >= 5 ? 0x38bdf8 : 0xfef08a); // lens glint
+      pushCyl(metal, 0.026, 0.036, 0.72, 6, 0.06, 0.70, 0.28, 0x94a3b8); // secondary radar/snorkel mast
     }
-    return finalizeMultiFinishGroup(matte, metal, win, glow);
+
+    const subGroup = finalizeMultiFinishGroup(matte, metal, win, glow);
+
+    // Add dark semi-transparent underwater hull silhouette (renders smoothly over ocean surface without seabed clipping)
+    if (silhouette.length > 0) {
+      const mergedSil = mergeGeometries(silhouette, false);
+      for (const g of silhouette) g.dispose();
+      if (mergedSil) {
+        const silMat = new THREE.MeshBasicMaterial({
+          color: silCol,
+          transparent: true,
+          opacity: 0.46,
+          depthWrite: false,
+        });
+        const silMesh = new THREE.Mesh(mergedSil, silMat);
+        silMesh.renderOrder = -4;
+        subGroup.add(silMesh);
+      }
+    }
+
+    // Crisp subtle white surface ripple collar around the periscope waterline
+    const rippleGeo = new THREE.RingGeometry(0.18, 0.34, 16);
+    rippleGeo.rotateX(-Math.PI / 2);
+    rippleGeo.translate(0, 0.035, 0.42);
+    const rippleMat = new THREE.MeshBasicMaterial({
+      color: 0xe0f2fe,
+      transparent: true,
+      opacity: 0.55,
+      depthWrite: false,
+    });
+    const rippleMesh = new THREE.Mesh(rippleGeo, rippleMat);
+    rippleMesh.renderOrder = -3;
+    subGroup.add(rippleMesh);
+
+    return subGroup;
   }
 
   // =========================================================================

@@ -12605,21 +12605,22 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             v.type === 'submarine'
           ) {
             const isSea = vTile?.height === 0;
-            const baseSeaY = v.type === 'submarine' ? 0.06 : v.type === 'aircraft_carrier' ? 0.22 : 0.26;
+            const baseSeaY = v.type === 'submarine' ? 0.295 : v.type === 'aircraft_carrier' ? 0.22 : 0.26;
+            const bobAmp = v.type === 'submarine' ? 0.012 : 0.03;
             const shipY = isSea
-              ? baseSeaY + Math.sin(elapsed * (v.type === 'aircraft_carrier' ? 1.4 : 2.2) + v.x * 0.7) * 0.03
+              ? baseSeaY + Math.sin(elapsed * (v.type === 'aircraft_carrier' ? 1.4 : 2.2) + v.x * 0.7) * bobAmp
               : groundY + v.y + 0.02;
             vGroup.position.set(v.x, shipY, v.z);
-            const wakeBackDist = v.type === 'aircraft_carrier' ? 5.9 : v.type === 'submarine' ? 3.8 : 0.62;
-            if (isSea && Math.random() < 0.55) {
-              // Seafoam stern wake trailing behind sailing/cruising ships, carriers & submarines
+            const wakeBackDist = v.type === 'aircraft_carrier' ? 5.9 : v.type === 'submarine' ? 0.15 : 0.62;
+            if (isSea && Math.random() < (v.type === 'submarine' ? 0.42 : 0.55)) {
+              // Seafoam stern wake (or crisp periscope feather wake for submerged submarines)
               spawnParticleBurst(
                 v.x - Math.sin(v.heading) * wakeBackDist,
-                0.30,
+                0.31,
                 v.z - Math.cos(v.heading) * wakeBackDist,
-                v.type === 'aircraft_carrier' ? 3 : 2,
+                v.type === 'aircraft_carrier' ? 3 : v.type === 'submarine' ? 1 : 2,
                 v.epochLevel >= 6 ? '#56cfe1' : '#e0f2fe',
-                v.type === 'aircraft_carrier' ? 0.36 : 0.22,
+                v.type === 'aircraft_carrier' ? 0.36 : v.type === 'submarine' ? 0.14 : 0.22,
                 0.45,
                 0.45,
               );
