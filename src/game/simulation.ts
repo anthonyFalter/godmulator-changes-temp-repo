@@ -8250,8 +8250,8 @@ function resolveStrategicStrikeImpact(
       color: '#ff9e00',
       createdAt: Date.now(),
     });
-    applySuperweaponEnvironmentImpact(state, tx, tz, Math.max(3.6, strike.radius * 0.88), 'nuke');
-    addChronicle(state, `${atkName}'s ballistic warhead struck ${defName}!`, 'warning');
+    applySuperweaponEnvironmentImpact(state, tx, tz, Math.max(4.6, strike.radius * 1.15), 'nuke');
+    addChronicle(state, `${atkName}'s thermonuclear ICBM devastated ${defName}!`, 'warning');
   } else if (strike.kind === 'elf_astral_cataclysm') {
     state.pendingVfx.push({
       id: nextEntityId('vfx'),
@@ -8262,11 +8262,11 @@ function resolveStrategicStrikeImpact(
       x: tx,
       y: hitY,
       z: tz,
-      radius: strike.radius,
+      radius: strike.radius * 1.15,
       color: '#c084fc',
       createdAt: Date.now(),
     });
-    applySuperweaponEnvironmentImpact(state, tx, tz, Math.max(3.5, strike.radius * 0.85), 'arcane');
+    applySuperweaponEnvironmentImpact(state, tx, tz, Math.max(4.5, strike.radius * 1.12), 'arcane');
     addChronicle(state, `${atkName} called down a Starfall Cataclysm upon ${defName}!`, 'warning');
   } else if (strike.kind === 'orc_siege_boulder') {
     state.pendingVfx.push({
@@ -8278,24 +8278,25 @@ function resolveStrategicStrikeImpact(
       x: tx,
       y: hitY,
       z: tz,
-      radius: strike.radius,
+      radius: strike.radius * 1.15,
       color: '#ff5400',
       createdAt: Date.now(),
     });
     if (targetTile && targetTile.height > 0 && state.worldRules?.wildfireSpread !== false) {
-      targetTile.onFireTimer = Math.max(targetTile.onFireTimer, 6.5);
+      targetTile.onFireTimer = Math.max(targetTile.onFireTimer, 10.5);
+      targetTile.fireColor = '#ff3b30';
       state.pendingVfx.push({
         id: nextEntityId('vfx'),
         type: 'fire_spread',
         x: tx,
         y: hitY,
         z: tz,
-        radius: 1.6,
-        color: '#ff5400',
+        radius: 2.4,
+        color: '#ff3b30',
         createdAt: Date.now(),
       });
     }
-    applyWarfareCraterImpact(state, tx, tz, Math.max(1.85, strike.radius * 0.72), 'orc', 1);
+    applyWarfareCraterImpact(state, tx, tz, Math.max(2.6, strike.radius * 0.95), 'orc', 2);
   } else if (strike.kind === 'orc_waagh_rocket') {
     state.pendingVfx.push({
       id: nextEntityId('vfx'),
@@ -8303,14 +8304,15 @@ function resolveStrategicStrikeImpact(
       x: tx,
       y: hitY,
       z: tz,
-      radius: strike.radius * 1.15,
+      radius: strike.radius * 1.3,
       color: '#ff3b30',
       createdAt: Date.now(),
     });
     if (targetTile && targetTile.height > 0 && state.worldRules?.wildfireSpread !== false) {
-      targetTile.onFireTimer = Math.max(targetTile.onFireTimer, 5.5);
+      targetTile.onFireTimer = Math.max(targetTile.onFireTimer, 9.5);
+      targetTile.fireColor = '#ff3b30';
     }
-    applyWarfareCraterImpact(state, tx, tz, Math.max(1.85, strike.radius * 0.72), 'orc', 1);
+    applyWarfareCraterImpact(state, tx, tz, Math.max(2.5, strike.radius * 0.92), 'orc', 2);
   } else if (strike.kind === 'dwarf_seismic_hammer') {
     state.pendingVfx.push({
       id: nextEntityId('vfx'),
@@ -8321,11 +8323,11 @@ function resolveStrategicStrikeImpact(
       x: tx,
       y: hitY,
       z: tz,
-      radius: strike.radius,
+      radius: strike.radius * 1.15,
       color: '#f59e0b',
       createdAt: Date.now(),
     });
-    applySuperweaponEnvironmentImpact(state, tx, tz, Math.max(3.6, strike.radius * 0.88), 'nuke');
+    applySuperweaponEnvironmentImpact(state, tx, tz, Math.max(4.6, strike.radius * 1.15), 'seismic');
     addChronicle(state, `${atkName}'s Tectonic Forge-Hammer shattered ${defName}!`, 'warning');
   } else if (strike.kind === 'lizard_solar_cataclysm') {
     state.pendingVfx.push({
@@ -8337,11 +8339,11 @@ function resolveStrategicStrikeImpact(
       x: tx,
       y: hitY,
       z: tz,
-      radius: strike.radius,
+      radius: strike.radius * 1.15,
       color: '#facc15',
       createdAt: Date.now(),
     });
-    applySuperweaponEnvironmentImpact(state, tx, tz, Math.max(3.5, strike.radius * 0.85), 'arcane');
+    applySuperweaponEnvironmentImpact(state, tx, tz, Math.max(4.5, strike.radius * 1.12), 'solar');
     addChronicle(state, `${atkName} unleashed a Sun-Prism Cataclysm upon ${defName}!`, 'warning');
   } else if (strike.kind === 'dwarf_quake_mortar') {
     state.pendingVfx.push({
@@ -8353,11 +8355,15 @@ function resolveStrategicStrikeImpact(
       x: tx,
       y: hitY,
       z: tz,
-      radius: strike.radius * 1.15,
+      radius: strike.radius * 1.25,
       color: '#f59e0b',
       createdAt: Date.now(),
     });
-    applyWarfareCraterImpact(state, tx, tz, Math.max(2.0, strike.radius * 0.78), 'orc', 1);
+    if (targetTile && targetTile.height > 0 && state.worldRules?.wildfireSpread !== false) {
+      targetTile.onFireTimer = Math.max(targetTile.onFireTimer, 8.0);
+      targetTile.fireColor = '#f59e0b';
+    }
+    applyWarfareCraterImpact(state, tx, tz, Math.max(2.6, strike.radius * 0.95), 'seismic', 2);
   } else if (strike.kind === 'lizard_solar_lance') {
     state.pendingVfx.push({
       id: nextEntityId('vfx'),
@@ -8365,11 +8371,15 @@ function resolveStrategicStrikeImpact(
       x: tx,
       y: hitY,
       z: tz,
-      radius: strike.radius * 1.2,
+      radius: strike.radius * 1.3,
       color: '#facc15',
       createdAt: Date.now(),
     });
-    applyWarfareCraterImpact(state, tx, tz, Math.max(1.9, strike.radius * 0.75), 'arcane', 1);
+    if (targetTile && targetTile.height > 0 && state.worldRules?.wildfireSpread !== false) {
+      targetTile.onFireTimer = Math.max(targetTile.onFireTimer, 9.0);
+      targetTile.fireColor = '#facc15';
+    }
+    applyWarfareCraterImpact(state, tx, tz, Math.max(2.5, strike.radius * 0.92), 'solar', 1);
   } else if (strike.kind === 'elf_starfall_spell') {
     state.pendingVfx.push({
       id: nextEntityId('vfx'),
@@ -8377,11 +8387,15 @@ function resolveStrategicStrikeImpact(
       x: tx,
       y: hitY,
       z: tz,
-      radius: strike.radius * 1.2,
+      radius: strike.radius * 1.3,
       color: '#c084fc',
       createdAt: Date.now(),
     });
-    applyWarfareCraterImpact(state, tx, tz, Math.max(1.85, strike.radius * 0.72), 'arcane', 1);
+    if (targetTile && targetTile.height > 0 && state.worldRules?.wildfireSpread !== false) {
+      targetTile.onFireTimer = Math.max(targetTile.onFireTimer, 8.0);
+      targetTile.fireColor = '#c084fc';
+    }
+    applyWarfareCraterImpact(state, tx, tz, Math.max(2.4, strike.radius * 0.9), 'arcane', 1);
   } else {
     // Conventional Human ICBM / ballistic missile strike
     state.pendingVfx.push({
@@ -8390,21 +8404,26 @@ function resolveStrategicStrikeImpact(
       x: tx,
       y: hitY,
       z: tz,
-      radius: strike.radius * 1.2,
+      radius: strike.radius * 1.35,
       color: '#ff6b35',
       createdAt: Date.now(),
     });
     if (targetTile && targetTile.height > 0 && state.worldRules?.wildfireSpread !== false) {
-      targetTile.onFireTimer = Math.max(targetTile.onFireTimer, 4.5);
+      targetTile.onFireTimer = Math.max(targetTile.onFireTimer, 9.0);
+      targetTile.fireColor = '#ff6b35';
     }
-    applyWarfareCraterImpact(state, tx, tz, Math.max(1.95, strike.radius * 0.76), 'explosive', 1);
+    applyWarfareCraterImpact(state, tx, tz, Math.max(2.6, strike.radius * 0.95), 'explosive', 2);
   }
 
-  const r = strike.radius;
+  const r = strike.isSuperweapon ? strike.radius * 1.2 : strike.radius * 1.08;
+  const effectiveDamage = strike.isSuperweapon ? strike.damage * 1.45 : strike.damage * 1.25;
   const isElfSpell = strike.kind === 'elf_starfall_spell' || strike.kind === 'elf_astral_cataclysm';
+  const isHumanNuke = strike.kind === 'icbm_nuke';
   const isHeavyBlast =
     strike.kind === 'icbm_nuke' ||
     strike.kind === 'elf_astral_cataclysm' ||
+    strike.kind === 'dwarf_seismic_hammer' ||
+    strike.kind === 'lizard_solar_cataclysm' ||
     strike.kind === 'orc_siege_boulder' ||
     strike.kind === 'orc_waagh_rocket';
 
@@ -8426,19 +8445,19 @@ function resolveStrategicStrikeImpact(
     if (candidate.ageStage === 'child') continue;
     const d = Math.hypot(candidate.x - tx, candidate.z - tz);
     if (d <= r) {
-      const falloff = d <= r * 0.5 ? 1.0 : 0.65;
-      candidate.hp -= strike.damage * falloff;
+      const falloff = d <= r * 0.55 ? 1.0 : 0.7;
+      candidate.hp -= effectiveDamage * falloff;
       candidate.underAttackTimer = 8.0;
-      if (isElfSpell && candidate.statusEffects) {
-        candidate.statusEffects.cursed = Math.max(candidate.statusEffects.cursed ?? 0, 4.5);
+      if ((isElfSpell || isHumanNuke) && candidate.statusEffects) {
+        candidate.statusEffects.cursed = Math.max(candidate.statusEffects.cursed ?? 0, isHumanNuke ? 18.0 : 8.5);
       }
       if (candidate.hp > 0 && isHeavyBlast) {
         const safeD = Math.max(0.35, d);
-        const launchPower = strike.isSuperweapon ? 7.2 : 4.2;
+        const launchPower = strike.isSuperweapon ? 7.8 : 4.5;
         candidate.vxAir = ((candidate.x - tx) / safeD) * launchPower;
         candidate.vzAir = ((candidate.z - tz) / safeD) * launchPower;
-        candidate.altitude = Math.max(candidate.altitude ?? 0, 0.85);
-        candidate.vzVertical = strike.isSuperweapon ? 6.8 : 4.4;
+        candidate.altitude = Math.max(candidate.altitude ?? 0, 0.9);
+        candidate.vzVertical = strike.isSuperweapon ? 7.2 : 4.6;
         candidate.fallDamageArmed = true;
       }
     }
@@ -8450,34 +8469,55 @@ function resolveStrategicStrikeImpact(
     const vKid = v.kingdomId ?? getKingdomId(state, v.settlementId);
     if (vKid === strike.attackerKingdomId) continue;
     if (Math.hypot(v.x - tx, v.z - tz) <= r) {
-      v.hp = Math.max(0, (v.hp ?? 100) - strike.damage * 0.85);
+      v.hp = Math.max(0, (v.hp ?? 100) - effectiveDamage * 0.9);
     }
   }
 
   const bldMult =
-    strike.kind === 'orc_siege_boulder'
-      ? 1.55
+    strike.kind === 'dwarf_seismic_hammer'
+      ? 2.25
       : strike.isSuperweapon
-        ? 1.45
-        : 1.15;
+        ? 2.0
+        : strike.kind === 'orc_siege_boulder' || strike.kind === 'dwarf_quake_mortar'
+          ? 1.75
+          : 1.45;
   const attackerSid = resolvePrimarySettlementForKingdom(state, strike.attackerKingdomId, tx, tz);
+  const shockedSettlements = new Set<string>();
   for (let bi = 0; bi < state.buildings.length; bi++) {
     const b = state.buildings[bi];
     if (b.hp <= 0) continue;
     const bKid = b.settlementId ? getKingdomId(state, b.settlementId) : undefined;
     if (bKid === strike.attackerKingdomId) continue;
     const bd = Math.hypot(b.tileX - tx, b.tileZ - tz);
-    if (bd <= r + 0.5) {
+    if (bd <= r + 0.6) {
       if (b.shieldTimer > 0) {
-        if (strike.isSuperweapon && bd <= 3.0) b.shieldTimer = 0;
+        if (strike.isSuperweapon && bd <= 4.0) b.shieldTimer = 0;
         else continue;
       }
-      b.hp = Math.max(0, b.hp - strike.damage * bldMult);
-      if (b.hp <= 0 && attackerSid) {
-        const bt = getTile(state, b.tileX, b.tileZ);
-        if (bt && bt.buildingId === b.id) bt.buildingId = null;
-        claimTerritoryAround(state, b.tileX, b.tileZ, 4.2, attackerSid, strike.attackerKingdomId, true);
+      if (b.settlementId) shockedSettlements.add(b.settlementId);
+      const bFalloff = bd <= r * 0.55 ? 1.0 : 0.72;
+      b.hp = Math.max(0, b.hp - effectiveDamage * bldMult * bFalloff);
+      const bt = getTile(state, b.tileX, b.tileZ);
+      if (bt && state.worldRules?.wildfireSpread !== false) {
+        bt.onFireTimer = Math.max(bt.onFireTimer, strike.isSuperweapon ? 11.0 : 7.5);
       }
+      if (b.hp <= 0) {
+        if (bt) {
+          if (bt.buildingId === b.id) bt.buildingId = null;
+          bt.terrain = 'scorched';
+          bt.devastatedTimer = Math.max(bt.devastatedTimer ?? 0, strike.isSuperweapon ? 50 : 30);
+        }
+        if (attackerSid) {
+          claimTerritoryAround(state, b.tileX, b.tileZ, 4.2, attackerSid, strike.attackerKingdomId, true);
+        }
+      }
+    }
+  }
+  if (shockedSettlements.size > 0) {
+    if (!state.settlementRebuildCooldowns) state.settlementRebuildCooldowns = {};
+    const shockAdd = strike.isSuperweapon ? 24 : 14;
+    for (const sid of shockedSettlements) {
+      state.settlementRebuildCooldowns[sid] = Math.min(42, (state.settlementRebuildCooldowns[sid] ?? 0) + shockAdd);
     }
   }
   if (attackerSid) {
@@ -9384,6 +9424,7 @@ export function paveSettlementRailNetwork(state: SimulationState, settlementId =
 
 function canConvertTileToRoad(t: TileData | undefined, allowWater: boolean): t is TileData {
   if (!t || t.buildingId) return false;
+  if (t.onFireTimer > 0 || (t.devastatedTimer ?? 0) > 0) return false;
   if (t.height <= 0 && !allowWater) return false;
   if (
     t.terrain === 'crystal_field' ||
@@ -10024,6 +10065,7 @@ function findBuildableTileNear(
         if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
         const t = getTile(state, anchorX + dx, anchorZ + dz);
         if (!t || t.height >= 6 || t.buildingId) continue;
+        if (t.onFireTimer > 0 || (t.devastatedTimer ?? 0) > 0) continue;
         if (t.height <= 0 && !allowWaterLots) continue;
 
         // Protect dedicated Farmland & Quarry territories from random residential buildings
@@ -10641,22 +10683,26 @@ function transformSettlementEnvironment(
   }
 
   // 1. Era-driven terrain flattening, artificial islands, connected streets & rail/runway transformation
+  // Paused during post-destruction crisis so bombed/raided cities stay visibly scarred instead of instantly repaving!
   const pKid = getKingdomId(state, sid);
   const cityEpoch = getKingdomEpoch(state, pKid);
   const pStock = ensureKingdomResources(state, pKid);
-  terraformSettlementDistrict(state, sid, false);
-  if (cityEpoch >= 1 && (state.sandboxFreeMode || pStock.stone >= 8)) {
-    if (!state.sandboxFreeMode) pStock.stone = Math.max(0, pStock.stone - 4);
-    connectSettlementRoads(state, sid);
-    paveSettlementStreetsNear(state, sampleBld.tileX, sampleBld.tileZ, sid);
-    syncStateResourcesFromKingdoms(state);
-  }
-  if (cityEpoch >= 3 && (sampleBld.type === 'rail_station' || villageBuildings.length >= 6)) {
-    paveSettlementRailNetwork(state, sid);
-  }
-  for (const b of villageBuildings) {
-    if (b.type === 'airport' && b.constructionProgress >= 100) {
-      paveAirportRunwayForBuilding(state, b.tileX, b.tileZ);
+  const isRecoveringFromDestruction = (state.settlementRebuildCooldowns?.[sid] ?? 0) > 0;
+  if (!isRecoveringFromDestruction) {
+    terraformSettlementDistrict(state, sid, false);
+    if (cityEpoch >= 1 && (state.sandboxFreeMode || pStock.stone >= 8)) {
+      if (!state.sandboxFreeMode) pStock.stone = Math.max(0, pStock.stone - 4);
+      connectSettlementRoads(state, sid);
+      paveSettlementStreetsNear(state, sampleBld.tileX, sampleBld.tileZ, sid);
+      syncStateResourcesFromKingdoms(state);
+    }
+    if (cityEpoch >= 3 && (sampleBld.type === 'rail_station' || villageBuildings.length >= 6)) {
+      paveSettlementRailNetwork(state, sid);
+    }
+    for (const b of villageBuildings) {
+      if (b.type === 'airport' && b.constructionProgress >= 100) {
+        paveAirportRunwayForBuilding(state, b.tileX, b.tileZ);
+      }
     }
   }
 
@@ -11251,7 +11297,17 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
       Math.floor(Math.abs(state.year * 10)) % 3 === 1;
 
     const maxConcurrentSites = cityEpoch >= 3 ? 4 : cityEpoch >= 1 || villageUnits.length >= 5 ? 3 : 2;
-    const sitesToPlaceThisTick = state.sandboxFreeMode || kRes.wood >= 80 ? 2 : 1;
+    const isCityInRebuildCrisis = (state.settlementRebuildCooldowns?.[sid] ?? 0) > 0;
+    const isKingdomAtWarNow = settlementIds.some((oSid) =>
+      areKingdomsAtWar(state, sidKingdomId, getKingdomId(state, oSid)),
+    );
+    const sitesToPlaceThisTick = isCityInRebuildCrisis
+      ? 0
+      : isKingdomAtWarNow
+        ? 1
+        : state.sandboxFreeMode || kRes.wood >= 80
+          ? 2
+          : 1;
 
     for (let placeAttempt = 0; placeAttempt < sitesToPlaceThisTick; placeAttempt++) {
       if (
@@ -11304,7 +11360,7 @@ function stepCivilizationPlanner(state: SimulationState, dt: number): void {
         tileZ: site.z,
         hp: def.maxHp,
         maxHp: def.maxHp,
-        constructionProgress: 34,
+        constructionProgress: isKingdomAtWarNow ? 15 : 34,
         epochLevel: cityEpoch === 0 ? 0 : Math.min(cityEpoch, baseEpochIdx),
         upgradeProgress: 0,
         blessedTimer: 0,
@@ -11462,6 +11518,16 @@ function stepSimulationSingle(
     for (const kid of Object.keys(state.kingdomUltimateCooldowns)) {
       if (state.kingdomUltimateCooldowns[kid] > 0) {
         state.kingdomUltimateCooldowns[kid] = Math.max(0, state.kingdomUltimateCooldowns[kid] - dt);
+      }
+    }
+  }
+  if (state.settlementRebuildCooldowns) {
+    for (const sid of Object.keys(state.settlementRebuildCooldowns)) {
+      if (state.settlementRebuildCooldowns[sid] > 0) {
+        state.settlementRebuildCooldowns[sid] = Math.max(0, state.settlementRebuildCooldowns[sid] - dt);
+        if (state.settlementRebuildCooldowns[sid] <= 0) {
+          delete state.settlementRebuildCooldowns[sid];
+        }
       }
     }
   }
@@ -14246,6 +14312,10 @@ function stepSimulationSingle(
         }
       }
     }
+    if ((t.devastatedTimer ?? 0) > 0) {
+      t.devastatedTimer = Math.max(0, (t.devastatedTimer ?? 0) - tileSweepDt);
+      if (t.devastatedTimer <= 0) t.devastatedTimer = undefined;
+    }
     if (t.onFireTimer > 0) {
       t.onFireTimer = Math.max(0, t.onFireTimer - tileSweepDt);
       if (t.height <= 0) {
@@ -14288,21 +14358,22 @@ function stepSimulationSingle(
             t.farmSettlementId = undefined;
           }
         }
-      } else if (hasFlammableGround && (t.onFireTimer <= 0.8 || t.onFireTimer === 0)) {
+      } else if (hasFlammableGround && (t.onFireTimer <= 1.2 || t.onFireTimer === 0)) {
         t.terrain = 'scorched';
         t.farmSettlementId = undefined;
       }
 
-      // Wildfire spread from any burning tile (meteor embers, lightning, dragon fire, war-braziers)
-      if (t.onFireTimer > 0.6 && wildfireSpreadEnabled) {
-        const sourceHeatBoost =
-          t.resourceNode === 'timber_grove' ||
-          t.burntTree ||
-          t.terrain === 'forest' ||
-          t.terrain === 'jungle' ||
-          t.terrain === 'scorched'
-            ? 1.15
-            : 1.0;
+      // Wildfire & urban conflagration spread from any burning tile (uses tileSweepDt so spread is brisk & responsive)
+      if (t.onFireTimer > 0.5 && wildfireSpreadEnabled) {
+        const sourceHeatBoost = t.buildingId
+          ? 1.55
+          : t.resourceNode === 'timber_grove' ||
+              t.burntTree ||
+              t.terrain === 'forest' ||
+              t.terrain === 'jungle' ||
+              t.terrain === 'scorched'
+            ? 1.3
+            : 1.1;
         for (let k = 0; k < fireSpreadOffsets.length; k++) {
           const [ox, oz, distWeight] = fireSpreadOffsets[k];
           const nb = getTile(state, t.x + ox, t.z + oz);
@@ -14310,22 +14381,22 @@ function stepSimulationSingle(
           if (pendingFireIgnitions?.has(nb)) continue;
           const rate = getTileFlammabilityRate(state, nb) * distWeight * sourceHeatBoost;
           if (rate <= 0) continue;
-          const igniteProb = 1 - Math.exp(-rate * dt);
+          const igniteProb = 1 - Math.exp(-rate * tileSweepDt);
           if (Math.random() < igniteProb) {
-            const childDuration =
-              nb.buildingId ||
-              nb.resourceNode === 'timber_grove' ||
-              nb.terrain === 'forest' ||
-              nb.terrain === 'jungle' ||
-              nb.terrain === 'taiga'
-                ? 4.4
+            const childDuration = nb.buildingId
+              ? 8.5
+              : nb.resourceNode === 'timber_grove' ||
+                  nb.terrain === 'forest' ||
+                  nb.terrain === 'jungle' ||
+                  nb.terrain === 'taiga'
+                ? 7.2
                 : nb.terrain === 'savanna' ||
                     nb.terrain === 'blossom' ||
                     nb.terrain === 'fertile' ||
                     nb.resourceNode === 'berry_bush' ||
                     nb.farmSettlementId
-                  ? 3.9
-                  : 3.6;
+                  ? 6.0
+                  : 5.2;
             if (!pendingFireIgnitions) pendingFireIgnitions = new Map();
             pendingFireIgnitions.set(nb, {
               duration: childDuration,
@@ -14470,7 +14541,8 @@ function stepSimulationSingle(
     if (b.shieldTimer > 0) b.shieldTimer = Math.max(0, b.shieldTimer - dt);
     const bTile = getTile(state, b.tileX, b.tileZ);
     if (bTile && bTile.onFireTimer > 0 && b.shieldTimer <= 0) {
-      b.hp = Math.max(0, b.hp - 12 * dt);
+      const burnDps = b.epochLevel <= 2 ? 44 : 34;
+      b.hp = Math.max(0, b.hp - burnDps * dt);
     }
     // Individual building age progression & abandoned/intruding structure decay
     const bSpecies: SpeciesId =
@@ -14929,15 +15001,31 @@ function stepSimulationSingle(
     if (b.hp <= 0) {
       ensureWorldStats(state).buildingsDestroyed += 1;
       const t = getTile(state, b.tileX, b.tileZ);
-      if (t && t.buildingId === b.id) t.buildingId = null;
-      if (b.settlementId) destroyedSettlementIds.add(b.settlementId);
+      if (t) {
+        if (t.buildingId === b.id) t.buildingId = null;
+        if (t.height > 0) {
+          t.terrain = 'scorched';
+          t.devastatedTimer = Math.max(t.devastatedTimer ?? 0, 28);
+          if (state.worldRules?.wildfireSpread !== false) {
+            t.onFireTimer = Math.max(t.onFireTimer, 6.0);
+          }
+        }
+      }
+      if (b.settlementId) {
+        destroyedSettlementIds.add(b.settlementId);
+        if (!state.settlementRebuildCooldowns) state.settlementRebuildCooldowns = {};
+        state.settlementRebuildCooldowns[b.settlementId] = Math.min(
+          38,
+          (state.settlementRebuildCooldowns[b.settlementId] ?? 0) + 12,
+        );
+      }
       state.pendingVfx.push({
         id: nextEntityId('vfx'),
         type: 'hit_spark',
         x: b.tileX,
         y: (t?.height ?? 2) * 0.45 + 0.3,
         z: b.tileZ,
-        radius: 1.2,
+        radius: 1.4,
         color: '#ff6b6b',
         createdAt: Date.now(),
       });
@@ -17223,13 +17311,14 @@ function applySuperweaponEnvironmentImpact(
   cx: number,
   cz: number,
   radius: number,
-  mode: 'nuke' | 'arcane' | 'battlewill',
+  mode: 'nuke' | 'arcane' | 'seismic' | 'solar' | 'battlewill',
   slashHeadingRad?: number,
 ): void {
   const minX = Math.max(0, Math.floor(cx - radius - 1));
   const maxX = Math.min(state.gridSize - 1, Math.ceil(cx + radius + 1));
   const minZ = Math.max(0, Math.floor(cz - radius - 1));
   const maxZ = Math.min(state.gridSize - 1, Math.ceil(cz + radius + 1));
+  const allowFire = state.worldRules?.wildfireSpread !== false;
 
   for (let z = minZ; z <= maxZ; z++) {
     for (let x = minX; x <= maxX; x++) {
@@ -17250,6 +17339,16 @@ function applySuperweaponEnvironmentImpact(
 
       if (t.height === 0) {
         damageOrBleachWaterTile(t, 400, true);
+        if (mode === 'solar' && d <= radius * 0.5 && t.terrain === 'shallow_water') {
+          t.height = 1;
+          t.terrain = 'scorched';
+          t.devastatedTimer = Math.max(t.devastatedTimer ?? 0, 40);
+          if (allowFire) {
+            t.onFireTimer = Math.max(t.onFireTimer, 9.0);
+            t.fireColor = '#facc15';
+          }
+          continue;
+        }
         if (d <= radius * 0.55) {
           t.terrain = 'deep_water';
         }
@@ -17261,7 +17360,7 @@ function applySuperweaponEnvironmentImpact(
       if (t.resourceNode === 'timber_grove' || t.resourceNode === 'berry_bush') {
         t.resourceNode = 'none';
         t.resourceAmount = 0;
-      } else if (d <= radius * 0.72 && t.resourceNode !== 'none') {
+      } else if (d <= radius * 0.78 && t.resourceNode !== 'none') {
         t.resourceNode = 'none';
         t.resourceAmount = 0;
       }
@@ -17269,36 +17368,106 @@ function applySuperweaponEnvironmentImpact(
         t.farmSettlementId = undefined;
       }
 
+      // Lingering war-devastation scar prevents instant city rebuilding & road repaving
+      t.devastatedTimer = Math.max(t.devastatedTimer ?? 0, d <= radius * 0.65 ? 55 : 38);
+
       if (mode === 'nuke') {
+        // Human Thermonuclear ICBM: deep terraced blast crater, blazing firestorm & radioactive fallout
         const wasSand = t.terrain === 'sand';
-        if (d <= radius * 0.36) {
+        t.cursedTimer = Math.max(t.cursedTimer, d <= radius * 0.65 ? 36 : 22);
+        if (d <= radius * 0.42) {
           t.height = Math.max(1, t.height - 2);
           t.terrain = 'scorched';
-          t.onFireTimer = state.worldRules?.wildfireSpread ? 6.0 : 0;
-        } else if (d <= radius * 0.68) {
+          if (allowFire) {
+            t.onFireTimer = Math.max(t.onFireTimer, 13.5);
+            t.fireColor = '#ff6b00';
+          }
+        } else if (d <= radius * 0.75) {
           t.height = Math.max(1, t.height - 1);
-          t.terrain = 'scorched';
-          if (state.worldRules?.wildfireSpread && (t.x * 13 + t.z * 7) % 3 === 0) {
-            t.onFireTimer = 6.5;
+          t.terrain = (t.x + t.z) % 4 === 0 ? 'blighted_mire' : 'scorched';
+          if (allowFire && (t.x * 13 + t.z * 7) % 2 === 0) {
+            t.onFireTimer = Math.max(t.onFireTimer, 10.5);
+            t.fireColor = '#ff6b00';
           }
         } else if (!t.buildingId) {
           t.terrain = wasSand ? 'crystal_field' : 'scorched';
-          if (state.worldRules?.wildfireSpread && (t.x * 17 + t.z * 11) % 4 === 0) {
-            t.onFireTimer = 5.0;
+          if (allowFire && (t.x * 17 + t.z * 11) % 3 === 0) {
+            t.onFireTimer = Math.max(t.onFireTimer, 8.0);
+            t.fireColor = '#ff6b00';
           }
         }
       } else if (mode === 'arcane') {
-        if (d <= radius * 0.36) {
+        // Elf Starfall Cataclysm: glasses terrain into glowing crystal fields + violet mana-fire
+        t.cursedTimer = Math.max(t.cursedTimer, d <= radius * 0.6 ? 20 : 12);
+        if (d <= radius * 0.42) {
           t.height = Math.max(1, t.height - 2);
           t.terrain = 'crystal_field';
-        } else if (d <= radius * 0.68) {
+          if (allowFire) {
+            t.onFireTimer = Math.max(t.onFireTimer, 12.0);
+            t.fireColor = '#c084fc';
+          }
+        } else if (d <= radius * 0.74) {
           t.height = Math.max(1, t.height - 1);
           t.terrain = (t.x + t.z) % 3 === 0 ? 'scorched' : 'crystal_field';
+          if (allowFire && (t.x * 11 + t.z * 7) % 2 === 0) {
+            t.onFireTimer = Math.max(t.onFireTimer, 9.5);
+            t.fireColor = '#c084fc';
+          }
         } else if (!t.buildingId) {
           t.terrain = 'crystal_field';
-          if (t.resourceNode === 'none' && (t.x * 19 + t.z * 23) % 13 === 0) {
+          if (t.resourceNode === 'none' && (t.x * 19 + t.z * 23) % 11 === 0) {
             t.resourceNode = 'crystal_monolith';
             t.resourceAmount = 220;
+          }
+          if (allowFire && (t.x * 13 + t.z * 5) % 3 === 0) {
+            t.onFireTimer = Math.max(t.onFireTimer, 7.5);
+            t.fireColor = '#c084fc';
+          }
+        }
+      } else if (mode === 'seismic') {
+        // Dwarf Tectonic Forge-Hammer: shatters earth into deep rocky volcanic chasms + molten forge-fire
+        if (d <= radius * 0.44) {
+          t.height = Math.max(1, t.height - 3);
+          t.terrain = (t.x + t.z) % 2 === 0 ? 'volcanic_wasteland' : 'rock';
+          if (allowFire) {
+            t.onFireTimer = Math.max(t.onFireTimer, 12.5);
+            t.fireColor = '#f59e0b';
+          }
+        } else if (d <= radius * 0.76) {
+          t.height = Math.max(1, t.height - 1);
+          t.terrain = (t.x + t.z) % 3 === 0 ? 'scorched' : 'rock';
+          if (allowFire && (t.x * 7 + t.z * 13) % 2 === 0) {
+            t.onFireTimer = Math.max(t.onFireTimer, 9.5);
+            t.fireColor = '#f59e0b';
+          }
+        } else if (!t.buildingId) {
+          t.terrain = (t.x + t.z) % 2 === 0 ? 'badlands' : 'scorched';
+          if (allowFire && (t.x * 5 + t.z * 11) % 3 === 0) {
+            t.onFireTimer = Math.max(t.onFireTimer, 7.5);
+            t.fireColor = '#f59e0b';
+          }
+        }
+      } else if (mode === 'solar') {
+        // Lizardfolk Sun-Prism Cataclysm: orbital solar glassing into sun-baked sand/crystal + golden sunfire
+        if (d <= radius * 0.42) {
+          t.height = Math.max(1, t.height - 2);
+          t.terrain = (t.x + t.z) % 2 === 0 ? 'crystal_field' : 'scorched';
+          if (allowFire) {
+            t.onFireTimer = Math.max(t.onFireTimer, 14.0);
+            t.fireColor = '#facc15';
+          }
+        } else if (d <= radius * 0.76) {
+          t.height = Math.max(1, t.height - 1);
+          t.terrain = (t.x + t.z) % 2 === 0 ? 'scorched' : 'sand';
+          if (allowFire && (t.x * 13 + t.z * 5) % 2 === 0) {
+            t.onFireTimer = Math.max(t.onFireTimer, 11.0);
+            t.fireColor = '#facc15';
+          }
+        } else if (!t.buildingId) {
+          t.terrain = (t.x + t.z) % 3 === 0 ? 'sand' : 'scorched';
+          if (allowFire && (t.x * 17 + t.z * 7) % 3 === 0) {
+            t.onFireTimer = Math.max(t.onFireTimer, 8.5);
+            t.fireColor = '#facc15';
           }
         }
       } else {
@@ -17313,8 +17482,9 @@ function applySuperweaponEnvironmentImpact(
         } else if (!t.buildingId) {
           t.terrain = (t.x * 7 + t.z * 5) % 3 === 0 ? 'rock' : 'scorched';
         }
-        if (state.worldRules?.wildfireSpread && (t.x * 11 + t.z * 17) % 5 === 0) {
-          t.onFireTimer = 4.5;
+        if (allowFire && (t.x * 11 + t.z * 17) % 3 === 0) {
+          t.onFireTimer = Math.max(t.onFireTimer, 8.5);
+          t.fireColor = '#ff3b30';
         }
       }
     }
@@ -17323,19 +17493,21 @@ function applySuperweaponEnvironmentImpact(
 
 /**
  * Miniature crater & battlefield scar generator for conventional racial warfare ordnance:
- * - 'explosive' (Human missiles, bombs, ICBMs, shells): mini-crater, scorched earth & rim embers
- * - 'arcane' (Elf starfall & astral magic): shimmering crystalline crater & arcane scars
- * - 'orc' (Orc WAAAGH! rockets & flaming magma boulders): jagged badlands/scorched mini-crater & burning debris
+ * - 'explosive' (Human missiles, bombs, ICBMs, shells): crater, scorched earth & incendiary fire
+ * - 'arcane' (Elf starfall & astral magic): shimmering crystalline crater & violet mana-fire
+ * - 'orc' (Orc WAAAGH! rockets & flaming magma boulders): jagged badlands/volcanic crater & red inferno
+ * - 'seismic' (Dwarf quake mortars): fractured rocky crater & amber forge-embers
+ * - 'solar' (Lizardfolk solar lances): sun-vitrified sand/scorched crater & golden sunfire
  */
 function applyWarfareCraterImpact(
   state: SimulationState,
   cx: number,
   cz: number,
   radius: number,
-  mode: 'explosive' | 'arcane' | 'orc',
+  mode: 'explosive' | 'arcane' | 'orc' | 'seismic' | 'solar',
   craterDepth = 1,
 ): void {
-  const clampedR = Math.max(0.9, Math.min(3.4, radius));
+  const clampedR = Math.max(0.9, Math.min(3.8, radius));
   const minX = Math.max(0, Math.floor(cx - clampedR));
   const maxX = Math.min(state.gridSize - 1, Math.ceil(cx + clampedR));
   const minZ = Math.max(0, Math.floor(cz - clampedR));
@@ -17356,8 +17528,8 @@ function applyWarfareCraterImpact(
 
       t.blessedTimer = 0;
 
-      // Clear foliage/crops inside the miniature crater core
-      if (d <= clampedR * 0.68) {
+      // Clear foliage/crops inside the crater core
+      if (d <= clampedR * 0.72) {
         if (t.resourceNode === 'timber_grove' || t.resourceNode === 'berry_bush') {
           t.resourceNode = 'none';
           t.resourceAmount = 0;
@@ -17367,33 +17539,74 @@ function applyWarfareCraterImpact(
         }
       }
 
-      const inCore = d <= Math.max(0.75, clampedR * 0.48);
+      const inCore = d <= Math.max(0.85, clampedR * 0.52);
       if (inCore && t.height > 1 && !t.buildingId) {
         t.height = Math.max(1, t.height - craterDepth);
       }
+      t.devastatedTimer = Math.max(t.devastatedTimer ?? 0, inCore ? 28 : 18);
 
       if (mode === 'arcane') {
-        if (inCore || (!t.buildingId && d <= clampedR * 0.82)) {
+        if (inCore || (!t.buildingId && d <= clampedR * 0.85)) {
           t.terrain = 'crystal_field';
+          if (allowFire && (inCore || (x * 7 + z * 11) % 3 === 0)) {
+            t.onFireTimer = Math.max(t.onFireTimer, inCore ? 8.0 : 5.5);
+            t.fireColor = '#c084fc';
+          }
+        }
+      } else if (mode === 'seismic') {
+        if (inCore) {
+          t.terrain = (x + z) % 2 === 0 ? 'volcanic_wasteland' : 'rock';
+          if (allowFire) {
+            t.onFireTimer = Math.max(t.onFireTimer, 8.5);
+            t.fireColor = '#f59e0b';
+          }
+        } else if (!t.buildingId && d <= clampedR * 0.85) {
+          t.terrain = (x + z) % 2 === 0 ? 'rock' : 'scorched';
+          if (allowFire && (x * 5 + z * 11) % 3 === 0) {
+            t.onFireTimer = Math.max(t.onFireTimer, 6.0);
+            t.fireColor = '#f59e0b';
+          }
+        }
+      } else if (mode === 'solar') {
+        if (inCore) {
+          t.terrain = (x + z) % 2 === 0 ? 'scorched' : 'crystal_field';
+          if (allowFire) {
+            t.onFireTimer = Math.max(t.onFireTimer, 9.5);
+            t.fireColor = '#facc15';
+          }
+        } else if (!t.buildingId && d <= clampedR * 0.85) {
+          t.terrain = (x + z) % 2 === 0 ? 'sand' : 'scorched';
+          if (allowFire && (x * 11 + z * 7) % 2 === 0) {
+            t.onFireTimer = Math.max(t.onFireTimer, 7.0);
+            t.fireColor = '#facc15';
+          }
         }
       } else if (mode === 'orc') {
         if (inCore) {
-          t.terrain = (x + z) % 2 === 0 ? 'badlands' : 'scorched';
-          if (allowFire) t.onFireTimer = Math.max(t.onFireTimer, 5.2);
+          t.terrain = (x + z) % 2 === 0 ? 'volcanic_wasteland' : 'scorched';
+          if (allowFire) {
+            t.onFireTimer = Math.max(t.onFireTimer, 9.5);
+            t.fireColor = '#ff3b30';
+          }
         } else if (!t.buildingId && d <= clampedR * 0.85) {
           t.terrain = (x + z) % 2 === 0 ? 'scorched' : 'badlands';
-          if (allowFire && (x * 7 + z * 13) % 3 === 0) {
-            t.onFireTimer = Math.max(t.onFireTimer, 4.2);
+          if (allowFire && (x * 7 + z * 13) % 2 === 0) {
+            t.onFireTimer = Math.max(t.onFireTimer, 7.0);
+            t.fireColor = '#ff3b30';
           }
         }
       } else {
         if (inCore) {
           t.terrain = 'scorched';
-          if (allowFire) t.onFireTimer = Math.max(t.onFireTimer, 4.8);
+          if (allowFire) {
+            t.onFireTimer = Math.max(t.onFireTimer, 8.5);
+            t.fireColor = '#ff6b35';
+          }
         } else if (!t.buildingId && d <= clampedR * 0.85) {
           t.terrain = t.terrain === 'sand' ? 'crystal_field' : 'scorched';
-          if (allowFire && (x * 11 + z * 5) % 3 === 0) {
-            t.onFireTimer = Math.max(t.onFireTimer, 3.8);
+          if (allowFire && (x * 11 + z * 5) % 2 === 0) {
+            t.onFireTimer = Math.max(t.onFireTimer, 6.2);
+            t.fireColor = '#ff6b35';
           }
         }
       }
@@ -17827,22 +18040,22 @@ function getTileFlammabilityRate(state: SimulationState, t: TileData): number {
   if (t.buildingId) {
     const bld = state.buildings.find((b) => b.id === t.buildingId);
     if (!bld || bld.hp <= 0 || bld.shieldTimer > 0 || bld.blessedTimer > 0) return 0;
-    return 0.12;
+    return bld.epochLevel <= 2 ? 0.42 : 0.32;
   }
-  if (t.resourceNode === 'timber_grove') return 0.24;
-  if (t.resourceNode === 'berry_bush') return 0.17;
+  if (t.resourceNode === 'timber_grove') return 0.48;
+  if (t.resourceNode === 'berry_bush') return 0.36;
   if (t.terrain === 'forest' || t.terrain === 'jungle' || t.terrain === 'taiga') {
-    return 0.18;
+    return 0.38;
   }
-  if (t.terrain === 'savanna') return 0.18;
+  if (t.terrain === 'savanna') return 0.38;
   if (t.terrain === 'blossom' || t.terrain === 'floral_plains' || t.terrain === 'fertile') {
-    return 0.16;
+    return 0.32;
   }
   if (t.terrain === 'grass') {
-    return t.farmSettlementId ? 0.16 : 0.13;
+    return t.farmSettlementId ? 0.34 : 0.28;
   }
-  if (t.terrain === 'highland' || t.terrain === 'blighted_mire') return 0.11;
-  if (t.terrain === 'swamp') return 0.08;
+  if (t.terrain === 'highland' || t.terrain === 'blighted_mire') return 0.22;
+  if (t.terrain === 'swamp') return 0.14;
   return 0;
 }
 

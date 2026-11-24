@@ -116,6 +116,7 @@ export interface TileData {
   tempOffset?: number;
   frozenWaterBase?: 'deep_water' | 'shallow_water';
   crushedTimer?: number;
+  devastatedTimer?: number; // Lingering war-scar/rubble cooldown blocking instant rebuilding & road repaving
   burntTree?: boolean;
   burntTreeBiome?:
     | 'forest'
@@ -1060,6 +1061,8 @@ export interface SimulationState {
   strategicWarTimer?: number;
   diplomacyTimer?: number;
   rebellionTimer?: number;
+  /** Settlement ID -> remaining seconds of post-destruction crisis pausing auto-rebuilding & road repaving */
+  settlementRebuildCooldowns?: Record<string, number>;
   wildlifeSeeded?: boolean;
   wildlifeRespawnTimer?: number;
   raiderWaveTimer?: number;
