@@ -19,9 +19,72 @@ const TILE_W = 80;
 const TILE_H = 40;
 const cachedSceneryUrls = new Map<EpochId, string>();
 
+const EPOCH_COSMOS_PALETTE: Record<
+  EpochId,
+  { deep: string; mid: string; nebula: string; glow: string; spark: string }
+> = {
+  prehistoric: {
+    deep: '#0b0916',
+    mid: '#1c1228',
+    nebula: '#4a1f2c',
+    glow: '#d97736',
+    spark: '#fde68a',
+  },
+  bronze: {
+    deep: '#0a0e1d',
+    mid: '#172038',
+    nebula: '#453121',
+    glow: '#e5a94c',
+    spark: '#fef08a',
+  },
+  medieval: {
+    deep: '#080e21',
+    mid: '#122247',
+    nebula: '#223e73',
+    glow: '#d9a44e',
+    spark: '#e0f2fe',
+  },
+  industrial: {
+    deep: '#0c0b17',
+    mid: '#1f1829',
+    nebula: '#472c2a',
+    glow: '#e09a4d',
+    spark: '#fde68a',
+  },
+  atomic: {
+    deep: '#071121',
+    mid: '#0e2640',
+    nebula: '#164d6b',
+    glow: '#67e8f9',
+    spark: '#fff7d6',
+  },
+  information: {
+    deep: '#070c1f',
+    mid: '#111e47',
+    nebula: '#1e3a7a',
+    glow: '#38bdf8',
+    spark: '#e0f2fe',
+  },
+  orbital: {
+    deep: '#060a1c',
+    mid: '#101d42',
+    nebula: '#1c3e75',
+    glow: '#7dd3fc',
+    spark: '#ffffff',
+  },
+  interstellar: {
+    deep: '#07081a',
+    mid: '#19133d',
+    nebula: '#42206b',
+    glow: '#fbbf24',
+    spark: '#fef08a',
+  },
+};
+
 /**
- * Renders a richly detailed, handcrafted 80x40 panoramic pixel-art scenery + foreground age emblem
- * designed to fill a full half-circle of the rotating celestial age dial (100% procedural).
+ * Renders a richly detailed 80x40 celestial astrolabe pixel-art illustration
+ * (starry midnight cosmos, golden clockwork filigree arcs, and luminous ivory-gold age glyph)
+ * tailored to fill each half of the rotating semicircular age dial.
  */
 export function getEpochSceneryDataUrl(epochId: EpochId): string {
   const existing = cachedSceneryUrls.get(epochId);
@@ -41,386 +104,148 @@ export function getEpochSceneryDataUrl(epochId: EpochId): string {
     ctx.fillRect(Math.floor(x), Math.floor(y), Math.floor(w), Math.floor(h));
   };
 
-  // Checkerboard pixel dithering transition between horizontal bands
-  const ditherBand = (yStart: number, height: number, c1: string, c2: string) => {
-    for (let y = yStart; y < yStart + height; y++) {
-      for (let x = 0; x < TILE_W; x++) {
-        ctx.fillStyle = (x + y) % 2 === 0 ? c1 : c2;
+  // Pixel-crisp 1px circular arc centered at (cx, cy)
+  const arcRing = (
+    cx: number,
+    cy: number,
+    r: number,
+    color: string,
+    dashed = false
+  ) => {
+    ctx.fillStyle = color;
+    const steps = Math.max(48, Math.round(r * 6));
+    for (let i = 0; i <= steps; i++) {
+      if (dashed && Math.floor(i / 2) % 2 === 1) continue;
+      const a = Math.PI + (i / steps) * Math.PI; // upper semicircle
+      const x = Math.round(cx + Math.cos(a) * r);
+      const y = Math.round(cy + Math.sin(a) * r);
+      if (x >= 0 && x < TILE_W && y >= 0 && y < TILE_H) {
         ctx.fillRect(x, y, 1, 1);
       }
     }
   };
 
-  // Crisp integer-grid filled circle
-  const circle = (cx: number, cy: number, r: number, color: string) => {
-    ctx.fillStyle = color;
-    const r2 = r * r;
-    for (let dy = -Math.ceil(r); dy <= Math.ceil(r); dy++) {
-      for (let dx = -Math.ceil(r); dx <= Math.ceil(r); dx++) {
-        if (dx * dx + dy * dy <= r2) {
-          ctx.fillRect(Math.round(cx + dx), Math.round(cy + dy), 1, 1);
-        }
-      }
-    }
+  // Crisp 4-point celestial star glint
+  const starGlint = (x: number, y: number, r: number, core: string, ray: string) => {
+    px(x - r, y, r * 2 + 1, 1, ray);
+    px(x, y - r, 1, r * 2 + 1, ray);
+    px(x, y, 1, 1, core);
   };
 
-  // --- 1. Panoramic 80x40 Epoch Miniature Pixel Landscape Scenery ---
-  switch (epochId) {
-    case 'prehistoric': {
-      // Dramatic volcanic crimson-amber sunset with dithered sky bands
-      px(0, 0, TILE_W, 8, '#3b161c');
-      ditherBand(8, 2, '#3b161c', '#6e2825');
-      px(0, 10, TILE_W, 7, '#6e2825');
-      ditherBand(17, 2, '#6e2825', '#b84925');
-      px(0, 19, TILE_W, 7, '#b84925');
-      ditherBand(26, 2, '#b84925', '#eb8838');
-      px(0, 28, TILE_W, 4, '#eb8838');
+  const pal = EPOCH_COSMOS_PALETTE[epochId];
 
-      // Radiant setting sun on right horizon
-      circle(61, 17, 5.8, '#f59e0b');
-      circle(61, 17, 4.2, '#fde047');
-      circle(61, 17, 2.4, '#fffbeb');
+  // --- 1. Starry Midnight Cosmos & Pixel-Dithered Nebula Glow ---
+  for (let y = 0; y < TILE_H; y++) {
+    for (let x = 0; x < TILE_W; x++) {
+      // Distance from celestial dial center (40, 38) + subtle diagonal nebula tilt
+      const dx = (x - 40) * 0.85;
+      const dy = (y - 34) * 1.15;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const dither = (x + y) % 2 === 0;
+      const diagBand = Math.abs((y - 24) + (x - 40) * 0.28);
 
-      // Billowing volcanic ash plumes
-      circle(18, 8, 3.0, '#6e5652');
-      circle(22, 6, 3.4, '#8c726c');
-      circle(27, 5, 2.3, '#ad928a');
-      px(17, 11, 4, 3, '#57413f');
-
-      // Smoking volcano silhouette + glowing lava fissures on left
-      for (let row = 0; row < 18; row++) {
-        const halfW = 3 + Math.floor(row * 0.68);
-        px(17 - halfW, 13 + row, halfW * 2, 1, row < 4 ? '#291413' : '#3d1f1b');
+      let color = pal.deep;
+      if (dist < 15 || (diagBand < 5 && dist < 34)) {
+        color = dist < 11 ? pal.nebula : dither ? pal.nebula : pal.mid;
+      } else if (dist < 27 || (diagBand < 10 && dist < 40)) {
+        color = dist < 21 ? pal.mid : dither ? pal.mid : pal.deep;
       }
-      px(15, 13, 4, 1, '#ff7b29');
-      px(16, 12, 2, 1, '#fde047');
-      px(17, 14, 1, 3, '#f97316');
-      px(18, 16, 1, 2, '#ea580c');
-
-      // Distant volcanic ridge & lush savanna plains
-      px(0, 29, TILE_W, 3, '#4a3323');
-      px(48, 27, 32, 3, '#5c3e27');
-      px(0, 31, TILE_W, 4, '#476125');
-      px(0, 32, TILE_W, 1, '#6c8c35');
-      ditherBand(35, 2, '#476125', '#2a3b16');
-      px(0, 37, TILE_W, 3, '#2a3b16');
-
-      // Savanna acacia silhouettes flanking the horizon
-      px(6, 26, 8, 2, '#223615');
-      px(7, 25, 6, 1, '#314f1e');
-      px(9, 28, 1, 5, '#4a2e1a');
-      px(65, 26, 8, 2, '#223615');
-      px(66, 25, 6, 1, '#314f1e');
-      px(69, 28, 1, 5, '#4a2e1a');
-      break;
-    }
-
-    case 'bronze': {
-      // Sun-drenched ancient desert sky with turquoise-to-gold dithered horizon
-      px(0, 0, TILE_W, 8, '#1d4f78');
-      ditherBand(8, 2, '#1d4f78', '#387ea8');
-      px(0, 10, TILE_W, 8, '#387ea8');
-      ditherBand(18, 2, '#387ea8', '#87bcc4');
-      px(0, 20, TILE_W, 6, '#d9b56c');
-      ditherBand(26, 2, '#d9b56c', '#f2ca77');
-      px(0, 28, TILE_W, 4, '#f2ca77');
-
-      // Blazing sun disc on upper-left sky
-      circle(19, 13, 4.8, '#f59e0b');
-      circle(19, 13, 3.4, '#fde047');
-      circle(19, 13, 1.9, '#fffbeb');
-      px(19, 6, 1, 2, '#fef08a');
-      px(12, 13, 2, 1, '#fef08a');
-      px(25, 13, 2, 1, '#fef08a');
-
-      // Stepped Mesopotamian Ziggurat on right
-      px(52, 24, 21, 6, '#9c6327');
-      px(52, 24, 14, 6, '#ba7932');
-      px(52, 24, 14, 1, '#e8ab58');
-      px(55, 19, 15, 5, '#a86b2b');
-      px(55, 19, 10, 5, '#cc883b');
-      px(55, 19, 10, 1, '#f2ba68');
-      px(58, 14, 9, 5, '#ba7932');
-      px(58, 14, 6, 5, '#de9b49');
-      px(58, 14, 6, 1, '#fcd386');
-      px(61, 16, 2, 3, '#4a2b12'); // temple archway
-
-      // Rolling golden sandstone dunes
-      px(0, 30, TILE_W, 10, '#c48333');
-      for (let x = 0; x < TILE_W; x++) {
-        const y = 30 + Math.round(Math.sin(x * 0.11) * 1.4);
-        px(x, y, 1, 2, '#ebb05b');
-        px(x, y + 2, 1, 10, '#c48333');
-      }
-      for (let x = 22; x < TILE_W; x++) {
-        const y = 35 + Math.round(Math.cos((x - 22) * 0.1) * 1.3);
-        px(x, y, 1, 1, '#d99843');
-        px(x, y + 1, 1, 6, '#9e6322');
-      }
-
-      // Oasis palm trees on left dune
-      px(11, 27, 2, 6, '#5c3a1d');
-      px(8, 25, 4, 2, '#2d6a32');
-      px(12, 24, 4, 2, '#3d873e');
-      px(10, 23, 3, 2, '#52a34c');
-      break;
-    }
-
-    case 'medieval': {
-      // Crisp fairytale cerulean sky with dithered horizon
-      px(0, 0, TILE_W, 9, '#275da3');
-      ditherBand(9, 2, '#275da3', '#4d8dd1');
-      px(0, 11, TILE_W, 9, '#4d8dd1');
-      ditherBand(20, 2, '#4d8dd1', '#8cc2eb');
-      px(0, 22, TILE_W, 8, '#8cc2eb');
-
-      // Shaded fluffy cumulus clouds
-      circle(20, 11, 3.0, '#ffffff');
-      circle(24, 11, 2.5, '#ffffff');
-      circle(17, 12, 2.0, '#e2f1ff');
-      px(16, 13, 10, 1, '#c8e1f5');
-      circle(57, 10, 2.6, '#ffffff');
-      circle(61, 11, 2.2, '#e2f1ff');
-      px(55, 12, 8, 1, '#c8e1f5');
-
-      // Distant blue-slate mountain peaks on left
-      for (let x = 2; x < 34; x++) {
-        const h = Math.max(0, 8 - Math.abs(x - 16) * 0.55);
-        px(x, 30 - h, 1, h + 2, '#628db8');
-      }
-
-      // Stone castle keep with towers, battlements & royal crimson pennant on right
-      px(54, 17, 16, 14, '#738294');
-      px(54, 17, 10, 14, '#92a1b3');
-      px(54, 14, 3, 3, '#aebcc9');
-      px(60, 14, 4, 3, '#aebcc9');
-      px(67, 14, 3, 3, '#8897a8');
-      px(57, 21, 2, 4, '#2d3748');
-      px(64, 21, 2, 4, '#2d3748');
-      px(61, 9, 1, 5, '#3b2416');
-      px(62, 9, 5, 2, '#dc2626');
-      px(63, 11, 3, 1, '#991b1b');
-
-      // Rolling emerald meadows & pine trees
-      for (let x = 0; x < TILE_W; x++) {
-        const y = 30 + Math.round(Math.sin(x * 0.09) * 1.6);
-        px(x, y, 1, 2, '#6ec458');
-        px(x, y + 2, 1, 10, '#438f3d');
-      }
-      ditherBand(36, 2, '#438f3d', '#2d662a');
-      px(0, 38, TILE_W, 2, '#2d662a');
-
-      // Pine trees on left ridge
-      px(11, 26, 3, 2, '#1e4f24');
-      px(10, 28, 5, 2, '#27632c');
-      px(12, 30, 1, 2, '#4f3018');
-      px(17, 27, 3, 2, '#1e4f24');
-      px(16, 29, 5, 2, '#27632c');
-      px(18, 31, 1, 2, '#4f3018');
-      break;
-    }
-
-    case 'industrial': {
-      // Victorian twilight smog sky (plum -> rust -> amber)
-      px(0, 0, TILE_W, 8, '#2c2336');
-      ditherBand(8, 2, '#2c2336', '#5e3c47');
-      px(0, 10, TILE_W, 8, '#5e3c47');
-      ditherBand(18, 2, '#5e3c47', '#a65b41');
-      px(0, 20, TILE_W, 8, '#a65b41');
-      ditherBand(28, 2, '#a65b41', '#db914d');
-      px(0, 30, TILE_W, 3, '#db914d');
-
-      // Rising steam & coal smoke plumes
-      circle(16, 9, 3.0, '#b8b0aa');
-      circle(20, 7, 3.4, '#d4cdc8');
-      circle(25, 6, 2.2, '#e8e2dd');
-      circle(62, 10, 2.8, '#a89f9a');
-      circle(66, 8, 3.0, '#c7bfba');
-
-      // Brick mill skyline & twin tall smokestacks
-      px(13, 12, 4, 21, '#4a261e');
-      px(13, 12, 2, 21, '#633428');
-      px(61, 13, 4, 20, '#4a261e');
-      px(61, 13, 2, 20, '#633428');
-      px(4, 22, 21, 11, '#5c2e22');
-      px(4, 22, 21, 1, '#7d4332');
-      px(55, 20, 21, 13, '#52281e');
-      px(55, 20, 21, 1, '#753d2d');
-
-      // Warm glowing factory windows
-      for (let wx = 7; wx <= 21; wx += 4) {
-        px(wx, 25, 2, 3, '#fbbf24');
-        px(wx, 25, 1, 2, '#fef08a');
-        px(wx, 29, 2, 2, '#f59e0b');
-      }
-      for (let wx = 57; wx <= 71; wx += 4) {
-        px(wx, 23, 2, 3, '#fbbf24');
-        px(wx, 23, 1, 2, '#fef08a');
-        px(wx, 28, 2, 3, '#f59e0b');
-      }
-
-      // Cobblestone & iron rail yard foreground
-      px(0, 33, TILE_W, 7, '#292429');
-      px(0, 33, TILE_W, 2, '#4f464c');
-      for (let x = 3; x < TILE_W - 2; x += 6) {
-        px(x, 36, 4, 2, '#3d353b');
-      }
-      break;
-    }
-
-    case 'atomic': {
-      // Mid-century retro-futurist deep teal to luminous aqua sky
-      px(0, 0, TILE_W, 9, '#0f3352');
-      ditherBand(9, 2, '#0f3352', '#1d628a');
-      px(0, 11, TILE_W, 9, '#1d628a');
-      ditherBand(20, 2, '#1d628a', '#3da1c4');
-      px(0, 22, TILE_W, 8, '#3da1c4');
-      ditherBand(30, 2, '#3da1c4', '#8ce0eb');
-
-      // Hyperbolic cooling tower + crisp white vapor puff on left
-      circle(17, 11, 3.2, '#e0f7fa');
-      circle(21, 10, 2.6, '#ffffff');
-      for (let row = 0; row < 16; row++) {
-        const pinch = Math.abs(row - 5) * 0.25;
-        const hw = Math.round(3.5 + pinch);
-        px(17 - hw, 17 + row, hw * 2, 1, '#78909c');
-        px(17 - hw, 17 + row, hw, 1, '#a7bcc7');
-      }
-      px(13, 17, 8, 1, '#d2e3ec');
-
-      // Modernist mid-century glass skyline on right
-      px(56, 14, 8, 19, '#3e5869');
-      px(56, 14, 5, 19, '#58788c');
-      px(64, 19, 8, 14, '#2f4554');
-      for (let wy = 16; wy <= 29; wy += 3) {
-        px(57, wy, 2, 1, '#a5f3fc');
-        px(60, wy, 2, 1, '#67e8f9');
-        if (wy >= 21) px(66, wy, 4, 1, '#a5f3fc');
-      }
-
-      // Concrete highway horizon with golden lane dashes
-      px(0, 33, TILE_W, 7, '#1e2c36');
-      px(0, 33, TILE_W, 2, '#4a6475');
-      for (let x = 4; x < TILE_W; x += 14) {
-        px(x, 37, 7, 1, '#facc15');
-      }
-      break;
-    }
-
-    case 'information': {
-      // Cyber-dusk sapphire skyline with neon glow horizon
-      px(0, 0, TILE_W, 10, '#091126');
-      ditherBand(10, 2, '#091126', '#142754');
-      px(0, 12, TILE_W, 10, '#142754');
-      ditherBand(22, 2, '#142754', '#1d4487');
-      px(0, 24, TILE_W, 9, '#1d4487');
-
-      // Glowing neon skyscrapers flanking both sides
-      px(6, 14, 9, 20, '#14203b');
-      px(15, 20, 7, 14, '#1c2d52');
-      px(57, 12, 9, 22, '#14203b');
-      px(66, 18, 8, 16, '#1c2d52');
-      px(61, 7, 1, 5, '#38bdf8');
-      px(61, 6, 1, 1, '#f43f5e');
-
-      for (let wy = 16; wy <= 31; wy += 3) {
-        px(8, wy, 2, 1, '#38bdf8');
-        px(11, wy, 2, 1, wy % 2 === 0 ? '#facc15' : '#7dd3fc');
-        if (wy >= 22) px(17, wy, 3, 1, '#38bdf8');
-        px(59, wy, 2, 1, '#38bdf8');
-        px(62, wy, 2, 1, '#c084fc');
-        if (wy >= 20) px(68, wy, 4, 1, '#38bdf8');
-      }
-
-      // Illuminated fiber-optic transit boulevard
-      px(0, 34, TILE_W, 6, '#0b1224');
-      px(0, 34, TILE_W, 1, '#38bdf8');
-      px(0, 35, TILE_W, 1, '#1d4ed8');
-      px(8, 37, 16, 1, '#38bdf8');
-      px(52, 38, 18, 1, '#a855f7');
-      break;
-    }
-
-    case 'orbital': {
-      // Deep space cosmos with twinkling stars & curved glowing planet limb
-      px(0, 0, TILE_W, 18, '#060b1c');
-      ditherBand(18, 3, '#060b1c', '#0d1b3d');
-      px(0, 21, TILE_W, 10, '#0d1b3d');
-
-      const stars: Array<[number, number, string]> = [
-        [14, 10, '#ffffff'],
-        [22, 6, '#bae6fd'],
-        [31, 4, '#fde047'],
-        [52, 6, '#ffffff'],
-        [63, 11, '#e0f2fe'],
-        [10, 20, '#ffffff'],
-        [68, 19, '#fef08a'],
-        [25, 16, '#93c5fd'],
-        [56, 16, '#bae6fd'],
-      ];
-      for (const [sx, sy, sc] of stars) px(sx, sy, 1, 1, sc);
-      px(52, 5, 1, 3, '#ffffff');
-      px(51, 6, 3, 1, '#ffffff');
-
-      // Curved planet limb across the lower panoramic horizon
-      circle(40, 72, 43, '#a5f3fc');
-      circle(40, 73, 42, '#38bdf8');
-      circle(40, 75, 42, '#155e91');
-      // Orbital continents & cloud bands
-      px(14, 34, 14, 4, '#2ea043');
-      px(17, 33, 8, 2, '#4ade80');
-      px(52, 35, 15, 4, '#2ea043');
-      px(56, 34, 8, 2, '#4ade80');
-      px(24, 31, 10, 1, '#e0f2fe');
-      px(46, 32, 9, 1, '#ffffff');
-      break;
-    }
-
-    case 'interstellar': {
-      // Deep galactic cosmos with diagonal magenta-violet-gold nebula & ringed world
-      px(0, 0, TILE_W, TILE_H, '#060817');
-
-      for (let i = 0; i < TILE_W; i++) {
-        const cy = 30 - Math.floor(i * 0.28);
-        px(i, cy - 7, 1, 14, '#1a1038');
-        px(i, cy - 4, 1, 9, '#301654');
-        px(i, cy - 2, 1, 4, '#54206b');
-        if (i % 2 === 0) px(i, cy, 1, 2, '#823285');
-      }
-
-      const stars: Array<[number, number, string]> = [
-        [12, 12, '#ffffff'],
-        [20, 6, '#fde047'],
-        [30, 8, '#c4b5fd'],
-        [55, 6, '#f9a8d4'],
-        [66, 13, '#ffffff'],
-        [10, 24, '#7dd3fc'],
-        [18, 34, '#ffffff'],
-        [27, 36, '#fde047'],
-        [68, 23, '#bae6fd'],
-      ];
-      for (const [sx, sy, sc] of stars) px(sx, sy, 1, 1, sc);
-
-      // Ringed golden gas giant on right horizon
-      circle(62, 30, 5.0, '#b45309');
-      circle(61, 29, 3.6, '#f59e0b');
-      circle(60, 28, 1.9, '#fde68a');
-      for (let rx = -8; rx <= 8; rx++) {
-        const ry = Math.round(rx * 0.28);
-        px(62 + rx, 30 + ry, 1, 1, rx % 2 === 0 ? '#fef08a' : '#fbbf24');
-      }
-      break;
+      ctx.fillStyle = color;
+      ctx.fillRect(x, y, 1, 1);
     }
   }
 
-  // --- 2. Foreground Crisp, Finely Shaded Pixel Age Emblem (Centered at x=40, y=22) ---
-  // Offset helper: maps 48x48 centered coordinates (center 24,24) -> 80x40 arch center (40,22)
+  // Subtle warm celestial aura right behind the central emblem
+  for (let dy = -11; dy <= 11; dy++) {
+    for (let dx = -13; dx <= 13; dx++) {
+      const d = Math.sqrt(dx * dx + dy * dy);
+      if (d <= 11 && (dx + dy) % 2 === 0) {
+        ctx.fillStyle = d < 6 ? pal.glow : pal.nebula;
+        ctx.globalAlpha = d < 6 ? 0.22 : 0.35;
+        ctx.fillRect(40 + dx, 20 + dy, 1, 1);
+      }
+    }
+  }
+  ctx.globalAlpha = 1;
+
+  // --- 2. Intricate Golden Astrolabe Filigree Rings & Clockwork Gears ---
+  // Concentric golden orbital arcs centered at the dial pivot (40, 40)
+  arcRing(40, 40, 35, '#8f6a36', false);
+  arcRing(40, 40, 32, '#d4af68', true);
+  arcRing(40, 40, 23, '#735329', false);
+  arcRing(40, 40, 14, '#b88f4a', true);
+
+  // Interlocking pixel clockwork gear peeking from lower-left (echoing reference astrolabe)
+  arcRing(22, 39, 13, '#c79b52', false);
+  arcRing(22, 39, 10, '#f0d08a', true);
+  arcRing(22, 39, 6, '#8f6a36', false);
+  for (let i = 0; i < 8; i++) {
+    const a = Math.PI + (i / 7) * Math.PI;
+    const gx = Math.round(22 + Math.cos(a) * 14);
+    const gy = Math.round(39 + Math.sin(a) * 14);
+    px(gx, gy, 2, 2, '#e6bf78');
+  }
+
+  // Secondary smaller celestial gear ring peeking from lower-right
+  arcRing(59, 39, 11, '#9e763b', false);
+  arcRing(59, 39, 8, '#d4af68', true);
+  for (let i = 0; i < 6; i++) {
+    const a = Math.PI + (i / 5) * Math.PI;
+    const gx = Math.round(59 + Math.cos(a) * 12);
+    const gy = Math.round(39 + Math.sin(a) * 12);
+    px(gx, gy, 1, 2, '#d4af68');
+  }
+
+  // Fine radial astrolabe meridian crosshair lines
+  for (let y = 3; y < 38; y += 2) {
+    px(40, y, 1, 1, 'rgba(240,208,138,0.28)');
+  }
+  for (let i = -28; i <= 28; i += 2) {
+    const y = 39 - Math.round(Math.abs(i) * 0.52);
+    if (y >= 4 && y < 39) {
+      px(40 + i, y, 1, 1, 'rgba(212,175,104,0.22)');
+    }
+  }
+
+  // --- 3. Starlight Dust & 4-Point Celestial Sparkles ---
+  const stars: Array<[number, number, string]> = [
+    [12, 18, '#ffffff'],
+    [16, 11, pal.spark],
+    [25, 7, '#f7d2a6'],
+    [32, 5, '#ffffff'],
+    [49, 6, pal.spark],
+    [57, 9, '#ffffff'],
+    [65, 14, '#f7d2a6'],
+    [69, 22, '#ffffff'],
+    [10, 29, '#bae6fd'],
+    [19, 24, pal.spark],
+    [62, 26, '#bae6fd'],
+    [71, 31, pal.spark],
+    [29, 31, '#ffffff'],
+    [52, 32, '#f7d2a6'],
+  ];
+  for (const [sx, sy, sc] of stars) px(sx, sy, 1, 1, sc);
+
+  // Bright 4-point celestial star glints flanking the emblem
+  starGlint(20, 14, 2, '#ffffff', pal.spark);
+  starGlint(60, 15, 2, '#ffffff', '#fde68a');
+  starGlint(15, 28, 1, '#ffffff', '#bae6fd');
+  starGlint(66, 28, 1, '#ffffff', pal.spark);
+
+  // --- 4. Luminous Celestial Ivory-Gold Age Emblem (Centered at x=40, y=20) ---
+  // Styled after the crisp white-gold illuminated celestial icons in the reference astrolabe
   const ox = 16;
-  const oy = -2;
-  const paintEmblem = (pixels: Array<[number, number, number, number, string]>) => {
+  const oy = -3;
+  const paintCelestialEmblem = (
+    pixels: Array<[number, number, number, number, string]>
+  ) => {
+    // Soft outer golden-starlight aura (2px corners) + crisp dark-cosmos separation outline
     for (const [x, y, w, h] of pixels) {
-      px(x + ox - 1, y + oy, w + 2, h, '#120a07');
-      px(x + ox, y + oy - 1, w, h + 2, '#120a07');
+      px(x + ox - 1, y + oy - 1, w + 2, h + 2, '#070a17');
+    }
+    for (const [x, y, w, h] of pixels) {
+      px(x + ox - 1, y + oy, w + 2, h, '#090e1f');
+      px(x + ox, y + oy - 1, w, h + 2, '#090e1f');
     }
     for (const [x, y, w, h, c] of pixels) {
       px(x + ox, y + oy, w, h, c);
@@ -429,209 +254,208 @@ export function getEpochSceneryDataUrl(epochId: EpochId): string {
 
   switch (epochId) {
     case 'prehistoric': {
-      paintEmblem([
-        [13, 35, 4, 3, '#6b7280'],
-        [14, 35, 2, 1, '#9ca3af'],
-        [31, 35, 4, 3, '#6b7280'],
-        [32, 35, 2, 1, '#9ca3af'],
-        [15, 33, 18, 4, '#5c2e16'],
-        [17, 32, 14, 2, '#8a4824'],
-        [18, 35, 12, 2, '#3d1c0c'],
-        [16, 23, 16, 10, '#dc2626'],
-        [17, 19, 14, 13, '#ea580c'],
-        [19, 15, 10, 15, '#f97316'],
-        [21, 11, 6, 8, '#f97316'],
-        [23, 9, 2, 4, '#fb923c'],
-        [19, 22, 10, 9, '#facc15'],
-        [21, 17, 6, 11, '#facc15'],
-        [23, 14, 2, 5, '#fde047'],
-        [21, 24, 6, 6, '#fef9c3'],
-        [22, 21, 4, 7, '#ffffff'],
-        [16, 12, 2, 2, '#fde047'],
-        [31, 14, 2, 2, '#fb923c'],
-        [27, 9, 1, 2, '#fef08a'],
+      // Celestial Hearth Flame & Golden Crescent Cradle
+      paintCelestialEmblem([
+        // Golden crescent hearth base
+        [15, 32, 18, 2, '#d4a24e'],
+        [17, 34, 14, 2, '#a67632'],
+        [14, 30, 3, 2, '#f5d284'],
+        [31, 30, 3, 2, '#f5d284'],
+        // Outer golden flame silhouette
+        [17, 22, 14, 9, '#e5a33e'],
+        [18, 18, 12, 12, '#f5c258'],
+        [20, 14, 8, 14, '#fde088'],
+        [22, 10, 4, 7, '#fde088'],
+        [23, 8, 2, 3, '#fff9db'],
+        // Luminous ivory-white inner flame tongue
+        [20, 21, 8, 9, '#fff9db'],
+        [21, 16, 6, 12, '#ffffff'],
+        [23, 12, 2, 6, '#ffffff'],
+        // Flanking floating spark stars
+        [15, 14, 2, 2, '#fef08a'],
+        [31, 15, 2, 2, '#fef08a'],
       ]);
       break;
     }
 
     case 'bronze': {
-      paintEmblem([
-        [15, 33, 18, 4, '#784116'],
-        [16, 33, 16, 1, '#b56c2a'],
-        [18, 28, 12, 5, '#9a541d'],
-        [19, 28, 5, 5, '#bd6e2a'],
-        [11, 21, 26, 7, '#cc7d2e'],
-        [9, 21, 6, 4, '#e39a42'],
-        [7, 21, 4, 2, '#f5bc62'],
-        [13, 21, 23, 2, '#fde08a'],
-        [14, 23, 21, 1, '#e8a246'],
-        [28, 24, 8, 3, '#9a541d'],
-        [20, 10, 11, 6, '#e59d40'],
-        [21, 10, 9, 2, '#fff0b8'],
-        [29, 11, 2, 4, '#9a541d'],
-        [23, 16, 3, 5, '#6e3a1c'],
-        [24, 16, 1, 5, '#9e5a31'],
-        [14, 14, 2, 2, '#fef08a'],
-        [17, 17, 1, 1, '#ffffff'],
-        [34, 15, 2, 2, '#fde047'],
+      // Gilded Solar Anvil & Celestial Hammer
+      paintCelestialEmblem([
+        // Anvil base & column
+        [16, 32, 16, 3, '#c99342'],
+        [17, 32, 14, 1, '#f7d688'],
+        [19, 27, 10, 5, '#e0ad55'],
+        // Horned anvil body in luminous ivory-gold
+        [12, 21, 24, 6, '#f5ca6e'],
+        [9, 21, 5, 3, '#fef0b8'],
+        [7, 21, 3, 2, '#ffffff'],
+        [13, 21, 22, 2, '#ffffff'],
+        [14, 23, 20, 1, '#fff6d1'],
+        // Forging hammer poised above with starlight glint
+        [20, 10, 10, 5, '#f5ca6e'],
+        [21, 10, 8, 2, '#ffffff'],
+        [23, 15, 3, 6, '#d4a24e'],
+        [24, 15, 1, 6, '#fef0b8'],
+        // Forge star sparks
+        [15, 14, 2, 2, '#ffffff'],
+        [33, 15, 2, 2, '#fef08a'],
       ]);
       break;
     }
 
     case 'medieval': {
-      paintEmblem([
-        [13, 13, 22, 14, '#d97706'],
-        [14, 27, 20, 4, '#b45309'],
-        [16, 31, 16, 3, '#b45309'],
-        [19, 34, 10, 3, '#92400e'],
-        [22, 37, 4, 2, '#78350f'],
-        [14, 13, 20, 1, '#fde047'],
-        [13, 14, 1, 13, '#fbbf24'],
-        [15, 15, 18, 12, '#b91c1c'],
-        [16, 27, 16, 4, '#991b1b'],
-        [18, 31, 12, 3, '#991b1b'],
-        [21, 34, 6, 2, '#7f1d1d'],
-        [15, 15, 9, 10, '#dc2626'],
-        [24, 24, 9, 3, '#dc2626'],
-        [22, 8, 4, 24, '#cbd5e1'],
-        [22, 8, 2, 23, '#ffffff'],
-        [23, 7, 2, 2, '#ffffff'],
-        [24, 11, 1, 17, '#94a3b8'],
-        [17, 20, 14, 3, '#f59e0b'],
-        [18, 20, 12, 1, '#fef08a'],
-        [16, 21, 2, 2, '#d97706'],
-        [30, 21, 2, 2, '#d97706'],
-        [23, 32, 2, 4, '#5c2e16'],
-        [22, 36, 4, 3, '#f59e0b'],
-        [23, 37, 2, 1, '#ef4444'],
+      // Celestial Gold-Filigree Shield & Starlight Broadsword
+      paintCelestialEmblem([
+        // Ornate golden shield rim
+        [14, 13, 20, 13, '#d9a448'],
+        [15, 26, 18, 4, '#b88332'],
+        [17, 30, 14, 3, '#b88332'],
+        [20, 33, 8, 3, '#946522'],
+        [15, 13, 18, 1, '#fff3c4'],
+        // Midnight-indigo celestial field inside shield
+        [16, 15, 16, 11, '#162854'],
+        [17, 26, 14, 4, '#101d3d'],
+        [19, 30, 10, 3, '#101d3d'],
+        // Luminous white-gold broadsword bisecting shield
+        [22, 7, 4, 24, '#e2e8f0'],
+        [22, 7, 2, 23, '#ffffff'],
+        [23, 6, 2, 2, '#ffffff'],
+        // Radiant golden crossguard & pommel
+        [17, 19, 14, 3, '#f5c258'],
+        [18, 19, 12, 1, '#ffffff'],
+        [23, 31, 2, 4, '#d9a448'],
+        [22, 35, 4, 3, '#fde088'],
+        [23, 36, 2, 1, '#ffffff'],
       ]);
       break;
     }
 
     case 'industrial': {
-      paintEmblem([
-        [21, 8, 6, 30, '#c77c32'],
-        [9, 20, 30, 6, '#c77c32'],
-        [12, 11, 6, 6, '#b86d28'],
-        [30, 11, 6, 6, '#b86d28'],
-        [12, 29, 6, 6, '#b86d28'],
-        [30, 29, 6, 6, '#b86d28'],
-        [14, 13, 20, 20, '#e59f47'],
-        [15, 12, 18, 22, '#e59f47'],
-        [13, 14, 22, 18, '#e59f47'],
-        [15, 13, 14, 2, '#fef0c7'],
-        [14, 14, 2, 14, '#fad596'],
-        [22, 9, 4, 2, '#fef0c7'],
-        [17, 16, 14, 14, '#5e3920'],
-        [22, 16, 4, 14, '#d98e3b'],
-        [17, 21, 14, 4, '#d98e3b'],
-        [20, 19, 8, 8, '#f5c77e'],
-        [21, 20, 6, 6, '#c77c32'],
-        [22, 21, 4, 4, '#241812'],
-        [16, 15, 1, 1, '#fff7d6'],
-        [31, 15, 1, 1, '#fff7d6'],
-        [16, 30, 1, 1, '#fff7d6'],
-        [31, 30, 1, 1, '#fff7d6'],
+      // Grand Astrolabe Brass & Ivory Clockwork Gear
+      paintCelestialEmblem([
+        // 8 cardinal & diagonal gear teeth
+        [21, 8, 6, 30, '#d9a448'],
+        [9, 20, 30, 6, '#d9a448'],
+        [12, 11, 6, 6, '#c7913a'],
+        [30, 11, 6, 6, '#c7913a'],
+        [12, 29, 6, 6, '#c7913a'],
+        [30, 29, 6, 6, '#c7913a'],
+        // Gleaming ivory-gold outer ring
+        [14, 13, 20, 20, '#f5ca6e'],
+        [15, 12, 18, 22, '#f5ca6e'],
+        [13, 14, 22, 18, '#f5ca6e'],
+        [15, 13, 14, 2, '#ffffff'],
+        [22, 9, 4, 2, '#fff9db'],
+        // Deep cosmic inner wheel well
+        [17, 16, 14, 14, '#141a33'],
+        // Delicate luminous ivory spokes
+        [23, 16, 2, 14, '#fff6d1'],
+        [17, 22, 14, 2, '#fff6d1'],
+        // Radiant central jewel hub
+        [20, 19, 8, 8, '#fde088'],
+        [22, 21, 4, 4, '#ffffff'],
       ]);
       break;
     }
 
     case 'atomic': {
-      paintEmblem([
-        [22, 8, 4, 30, '#0284c7'],
-        [9, 21, 30, 4, '#0284c7'],
-        [14, 13, 20, 20, '#38bdf8'],
-        [16, 15, 16, 16, '#0f2940'],
-        [13, 12, 4, 4, '#7dd3fc'],
-        [31, 12, 4, 4, '#7dd3fc'],
-        [13, 30, 4, 4, '#7dd3fc'],
-        [31, 30, 4, 4, '#7dd3fc'],
-        [23, 9, 2, 28, '#bae6fd'],
-        [10, 22, 28, 2, '#bae6fd'],
-        [18, 17, 12, 12, '#0c2236'],
-        [20, 19, 8, 8, '#f59e0b'],
-        [21, 20, 6, 6, '#fde047'],
+      // Celestial Orbital Atom with Glowing White-Gold Nucleus
+      paintCelestialEmblem([
+        // Outer luminous orbital rings
+        [22, 8, 4, 30, '#7dd3fc'],
+        [9, 21, 30, 4, '#7dd3fc'],
+        [14, 13, 20, 20, '#bae6fd'],
+        [16, 15, 16, 16, '#0d1d38'],
+        [23, 9, 2, 28, '#ffffff'],
+        [10, 22, 28, 2, '#ffffff'],
+        [18, 17, 12, 12, '#0a162b'],
+        // Radiant golden-white nucleus
+        [20, 19, 8, 8, '#f5c258'],
+        [21, 20, 6, 6, '#fef08a'],
         [22, 21, 4, 4, '#ffffff'],
-        [12, 11, 3, 3, '#e0f2fe'],
-        [33, 11, 3, 3, '#e0f2fe'],
-        [12, 32, 3, 3, '#e0f2fe'],
-        [33, 32, 3, 3, '#e0f2fe'],
+        // Sparkling orbital electron stars
+        [12, 11, 3, 3, '#ffffff'],
+        [33, 11, 3, 3, '#ffffff'],
+        [12, 32, 3, 3, '#ffffff'],
+        [33, 32, 3, 3, '#ffffff'],
       ]);
       break;
     }
 
     case 'information': {
-      paintEmblem([
-        [17, 8, 2, 5, '#f59e0b'],
-        [23, 8, 2, 5, '#fbbf24'],
-        [29, 8, 2, 5, '#f59e0b'],
-        [17, 34, 2, 5, '#f59e0b'],
-        [23, 34, 2, 5, '#fbbf24'],
-        [29, 34, 2, 5, '#f59e0b'],
-        [8, 16, 5, 2, '#f59e0b'],
-        [8, 22, 5, 2, '#fbbf24'],
-        [8, 28, 5, 2, '#f59e0b'],
-        [35, 16, 5, 2, '#f59e0b'],
-        [35, 22, 5, 2, '#fbbf24'],
-        [35, 28, 5, 2, '#f59e0b'],
-        [13, 12, 22, 22, '#1d4ed8'],
-        [14, 13, 20, 20, '#0f172a'],
-        [14, 13, 20, 1, '#60a5fa'],
-        [17, 15, 1, 16, '#1e40af'],
-        [30, 15, 1, 16, '#1e40af'],
-        [16, 16, 16, 1, '#1e40af'],
-        [16, 29, 16, 1, '#1e40af'],
-        [18, 17, 12, 12, '#0284c7'],
-        [19, 18, 10, 10, '#38bdf8'],
-        [21, 20, 6, 6, '#e0f2fe'],
-        [22, 21, 3, 3, '#ffffff'],
+      // Constellation Circuit Star-Chip (Gold Pins & Luminous Ivory-Cyan Core)
+      paintCelestialEmblem([
+        // Gold filigree pins
+        [17, 8, 2, 5, '#f5c258'],
+        [23, 8, 2, 5, '#fff3c4'],
+        [29, 8, 2, 5, '#f5c258'],
+        [17, 34, 2, 5, '#f5c258'],
+        [23, 34, 2, 5, '#fff3c4'],
+        [29, 34, 2, 5, '#f5c258'],
+        [8, 16, 5, 2, '#f5c258'],
+        [8, 22, 5, 2, '#fff3c4'],
+        [8, 28, 5, 2, '#f5c258'],
+        [35, 16, 5, 2, '#f5c258'],
+        [35, 22, 5, 2, '#fff3c4'],
+        [35, 28, 5, 2, '#f5c258'],
+        // Gold-framed cosmic chassis
+        [13, 12, 22, 22, '#d9a448'],
+        [14, 13, 20, 20, '#0c1630'],
+        [14, 13, 20, 1, '#fff3c4'],
+        // Luminous constellation die core
+        [18, 17, 12, 12, '#38bdf8'],
+        [19, 18, 10, 10, '#bae6fd'],
+        [21, 20, 6, 6, '#ffffff'],
+        [23, 16, 2, 14, '#ffffff'],
+        [17, 22, 14, 2, '#ffffff'],
       ]);
       break;
     }
 
     case 'orbital': {
-      paintEmblem([
-        [23, 7, 2, 3, '#ef4444'],
-        [22, 10, 4, 3, '#dc2626'],
-        [22, 10, 2, 3, '#f87171'],
-        [20, 13, 8, 16, '#cbd5e1'],
-        [20, 13, 5, 16, '#f8fafc'],
-        [21, 13, 2, 15, '#ffffff'],
-        [26, 14, 2, 15, '#94a3b8'],
-        [22, 16, 4, 4, '#0284c7'],
-        [23, 17, 2, 2, '#7dd3fc'],
-        [23, 17, 1, 1, '#ffffff'],
-        [20, 26, 8, 2, '#dc2626'],
-        [15, 24, 5, 6, '#b91c1c'],
-        [16, 25, 3, 4, '#ef4444'],
-        [28, 24, 5, 6, '#b91c1c'],
-        [29, 25, 3, 4, '#ef4444'],
-        [21, 29, 6, 2, '#475569'],
-        [21, 31, 6, 3, '#f97316'],
-        [22, 32, 4, 5, '#facc15'],
-        [23, 33, 2, 6, '#fffbeb'],
+      // Ascendant Ivory-Gold Star-Vessel
+      paintCelestialEmblem([
+        // Golden nose tip
+        [23, 7, 2, 3, '#fde088'],
+        [22, 10, 4, 3, '#f5c258'],
+        // Luminous ivory fuselage
+        [20, 13, 8, 15, '#e2e8f0'],
+        [21, 13, 5, 15, '#ffffff'],
+        // Celestial sapphire viewport
+        [22, 16, 4, 4, '#38bdf8'],
+        [23, 17, 2, 2, '#ffffff'],
+        // Gold swept celestial fins
+        [20, 25, 8, 2, '#d9a448'],
+        [15, 23, 5, 6, '#d9a448'],
+        [16, 24, 3, 4, '#fef08a'],
+        [28, 23, 5, 6, '#d9a448'],
+        [29, 24, 3, 4, '#fef08a'],
+        // Starlight plasma tail
+        [21, 29, 6, 3, '#f5c258'],
+        [22, 31, 4, 5, '#fef08a'],
+        [23, 32, 2, 6, '#ffffff'],
       ]);
       break;
     }
 
     case 'interstellar': {
-      paintEmblem([
-        [23, 7, 2, 32, '#d97706'],
-        [8, 22, 32, 2, '#d97706'],
-        [22, 11, 4, 24, '#f59e0b'],
-        [12, 21, 24, 4, '#f59e0b'],
-        [13, 12, 5, 5, '#fbbf24'],
-        [30, 12, 5, 5, '#fbbf24'],
-        [13, 29, 5, 5, '#fbbf24'],
-        [30, 29, 5, 5, '#fbbf24'],
-        [16, 15, 16, 16, '#fbbf24'],
-        [18, 17, 12, 12, '#fde047'],
-        [20, 19, 8, 8, '#fef9c3'],
-        [22, 21, 4, 4, '#ffffff'],
-        [23, 8, 2, 3, '#fef08a'],
-        [23, 35, 2, 3, '#fef08a'],
-        [9, 22, 3, 2, '#fef08a'],
-        [36, 22, 3, 2, '#fef08a'],
+      // Transcendent 8-Point Celestial Compass Star (pure Genshin astrolabe aesthetic)
+      paintCelestialEmblem([
+        // Long razor-sharp cardinal compass spikes
+        [23, 6, 2, 34, '#f5c258'],
+        [7, 22, 34, 2, '#f5c258'],
+        [22, 10, 4, 26, '#fde088'],
+        [11, 21, 26, 4, '#fde088'],
+        // Diagonal star rays
+        [13, 12, 5, 5, '#fef08a'],
+        [30, 12, 5, 5, '#fef08a'],
+        [13, 29, 5, 5, '#fef08a'],
+        [30, 29, 5, 5, '#fef08a'],
+        // Concentric celestial ring & blazing white core
+        [17, 16, 14, 14, '#fef08a'],
+        [19, 18, 10, 10, '#ffffff'],
+        [23, 8, 2, 30, '#ffffff'],
+        [9, 22, 30, 2, '#ffffff'],
       ]);
       break;
     }
@@ -698,19 +522,19 @@ export const AgeProgressBanner: React.FC<AgeProgressBannerProps> = ({
 
       const canvas = canvasRef.current;
       const cw = canvas ? canvas.width : 580;
-      const dialOriginX = cw * 0.5 - 92;
+      const dialOriginX = cw * 0.5 - 102;
       const dialOriginY = 92;
       const palette = [
         '#fff9db',
         '#fde047',
-        '#f59e0b',
+        '#f5c258',
         '#f7d2a6',
         toEpoch.accentColor,
         '#ffffff',
       ];
       const burst: PixelBurstParticle[] = [];
 
-      // 1. High-energy radial pixel spark explosion around the half-circle dial
+      // 1. High-energy radial pixel starlight burst around the half-circle dial
       for (let i = 0; i < 56; i++) {
         const angle = (i / 56) * Math.PI * 2 + (Math.random() - 0.5) * 0.25;
         const speed = 135 + Math.random() * 255;
@@ -725,13 +549,13 @@ export const AgeProgressBanner: React.FC<AgeProgressBannerProps> = ({
           life: 0.52 + Math.random() * 0.52,
           gravity: 320 + Math.random() * 140,
           drag: 0.94,
-          sparkle: Math.random() < 0.42,
+          sparkle: Math.random() < 0.45,
         });
       }
 
       // 2. Horizontal pixel spark shimmer along the newly revealed age title on the right
       for (let i = 0; i < 28; i++) {
-        const tx = cw * 0.5 + 32 + (Math.random() - 0.5) * 180;
+        const tx = cw * 0.5 + 36 + (Math.random() - 0.5) * 190;
         const ty = dialOriginY + 6 + (Math.random() - 0.5) * 24;
         burst.push({
           x: tx,
@@ -807,7 +631,7 @@ export const AgeProgressBanner: React.FC<AgeProgressBannerProps> = ({
 
           ctx.globalAlpha = alpha;
           if (sz >= 6) {
-            ctx.fillStyle = '#120a07';
+            ctx.fillStyle = '#090e1f';
             ctx.fillRect(rx - 2, ry - 2, sz + 4, sz + 4);
           }
           ctx.fillStyle = p.color;
@@ -846,7 +670,7 @@ export const AgeProgressBanner: React.FC<AgeProgressBannerProps> = ({
         phase === 'exit' ? 'age-banner-exit' : 'age-banner-enter'
       }`}
     >
-      {/* Unified Horizontal HUD Plaque: Full-Bleed Half-Circle Age Dial (Left) + Age Title (Right) */}
+      {/* Unified Horizontal HUD Plaque: Full-Bleed Celestial Astrolabe Dial (Left) + Age Title (Right) */}
       <div className="relative flex items-center justify-center">
         {/* Crisp pixelated explosion particle canvas aligned to dial + title */}
         <canvas
@@ -857,26 +681,26 @@ export const AgeProgressBanner: React.FC<AgeProgressBannerProps> = ({
         />
 
         <div
-          className={`px-panel-hero pt-3.5 pb-2.5 pl-3 pr-4 sm:pt-4 sm:pb-3 sm:pl-4 sm:pr-7 flex flex-row items-center gap-3.5 sm:gap-4 min-w-[268px] sm:min-w-[330px] ${
+          className={`px-panel-hero pt-3.5 pb-2.5 pl-3 pr-4 sm:pt-4 sm:pb-3 sm:pl-4 sm:pr-7 flex flex-row items-center gap-3.5 sm:gap-4 min-w-[280px] sm:min-w-[356px] ${
             showNewText ? 'age-text-slam' : ''
           }`}
         >
-          {/* LEFT: Full-Bleed Half-Circle Rotating Age Wheel (Exact 2:1 Semicircle) */}
+          {/* LEFT: Full-Bleed Half-Circle Celestial Astrolabe Wheel (Exact 2:1 Semicircle) */}
           <div className="relative shrink-0 w-[108px] h-[57px] sm:w-[128px] sm:h-[67px]">
-            {/* Semicircular Clipped Viewport */}
+            {/* Semicircular Clipped Celestial Viewport */}
             <div
-              className="relative w-full h-full rounded-t-full overflow-hidden border-t-[3px] border-x-[3px] border-b-[3px] border-[#0c0705] bg-[#140c08]"
+              className="relative w-full h-full rounded-t-full overflow-hidden border-t-[3px] border-x-[3px] border-b-[3px] border-[#0c0705] bg-[#080d1e]"
               style={{
                 boxShadow:
-                  '0 0 0 1.5px #d99968, 0 4px 0 rgba(10,6,4,0.8)',
+                  '0 0 0 1.5px #e6bf78, 0 0 10px rgba(230,191,120,0.22), 0 4px 0 rgba(10,6,4,0.82)',
               }}
             >
-              {/* Full Circular Two-Half Diorama Disk (Top Half = Previous Age, Bottom Half = Next Age) */}
+              {/* Full Circular Two-Half Celestial Disk (Top Half = Previous Age, Bottom Half = Next Age) */}
               <div
                 className={`absolute left-0 top-0 w-[102px] h-[102px] sm:w-[122px] sm:h-[122px] rounded-full overflow-hidden ${wheelPhaseClass}`}
                 style={{ willChange: 'transform' }}
               >
-                {/* TOP HALF (0°): Full-Bleed Previous Age Scene */}
+                {/* TOP HALF (0°): Full-Bleed Previous Age Celestial Scene */}
                 <div className="absolute inset-x-0 top-0 h-1/2 overflow-hidden">
                   <img
                     src={fromUrl}
@@ -885,7 +709,7 @@ export const AgeProgressBanner: React.FC<AgeProgressBannerProps> = ({
                   />
                 </div>
 
-                {/* BOTTOM HALF (180°): Full-Bleed Next Age Scene (pre-rotated 180° so it lands upright!) */}
+                {/* BOTTOM HALF (180°): Full-Bleed Next Age Celestial Scene (pre-rotated 180° to land upright) */}
                 <div
                   className="absolute inset-x-0 bottom-0 h-1/2 overflow-hidden"
                   style={{ transform: 'rotate(180deg)' }}
@@ -900,46 +724,47 @@ export const AgeProgressBanner: React.FC<AgeProgressBannerProps> = ({
                 {/* Golden Astrolabe Seam Divider Separating the Two Ages Across the Diameter */}
                 <div
                   aria-hidden="true"
-                  className="pointer-events-none absolute inset-x-0 top-1/2 -translate-y-1/2 h-[4px] bg-[#0c0705] flex items-center"
+                  className="pointer-events-none absolute inset-x-0 top-1/2 -translate-y-1/2 h-[4px] bg-[#070a17] flex items-center"
                 >
-                  <div className="w-full h-[2px] bg-gradient-to-r from-[#a66b44] via-[#ffe49e] to-[#a66b44]" />
+                  <div className="w-full h-[2px] bg-gradient-to-r from-[#b88f4a] via-[#fff6d1] to-[#b88f4a]" />
                 </div>
 
                 {/* Center Astrolabe Pivot Jewel */}
                 <div
                   aria-hidden="true"
-                  className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[10px] h-[10px] rounded-full bg-[#ffe49e] border-[2px] border-[#0c0705]"
-                  style={{ boxShadow: '0 0 6px rgba(255,228,158,0.8)' }}
+                  className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[10px] h-[10px] rounded-full bg-[#fff6d1] border-[2px] border-[#070a17]"
+                  style={{ boxShadow: '0 0 8px rgba(255,246,209,0.9)' }}
                 />
               </div>
 
-              {/* Crisp Astrolabe Golden Arc Rim & Degree Ticks Overlay */}
+              {/* Ornate Celestial Astrolabe Golden Filigree Rim & Degree Ticks Overlay */}
               <svg
                 viewBox="0 0 128 64"
                 className="pointer-events-none absolute inset-0 w-full h-full"
                 aria-hidden="true"
               >
-                {/* Inner golden arch bezel */}
+                {/* Outer & inner double golden astrolabe arcs */}
                 <path
                   d="M 2 63 A 62 62 0 0 1 126 63"
                   fill="none"
-                  stroke="#f7d2a6"
-                  strokeWidth="2"
-                  opacity="0.88"
+                  stroke="#f5d284"
+                  strokeWidth="1.8"
+                  opacity="0.92"
                 />
                 <path
-                  d="M 6 63 A 58 58 0 0 1 122 63"
+                  d="M 7 63 A 57 57 0 0 1 121 63"
                   fill="none"
-                  stroke="#0c0705"
-                  strokeWidth="1.2"
-                  opacity="0.55"
+                  stroke="#fff6d1"
+                  strokeWidth="0.9"
+                  strokeDasharray="2 3"
+                  opacity="0.72"
                 />
                 {/* Fine radial astrolabe degree ticks along the rim */}
                 {[-75, -60, -45, -30, -15, 0, 15, 30, 45, 60, 75].map((deg) => {
                   const rad = ((deg - 90) * Math.PI) / 180;
                   const isMajor = deg % 30 === 0;
                   const rOuter = 61;
-                  const rInner = isMajor ? 54.5 : 57;
+                  const rInner = isMajor ? 54 : 57;
                   const x1 = 64 + Math.cos(rad) * rInner;
                   const y1 = 63 + Math.sin(rad) * rInner;
                   const x2 = 64 + Math.cos(rad) * rOuter;
@@ -951,9 +776,9 @@ export const AgeProgressBanner: React.FC<AgeProgressBannerProps> = ({
                       y1={y1}
                       x2={x2}
                       y2={y2}
-                      stroke={isMajor ? '#fff3c4' : '#f7d2a6'}
-                      strokeWidth={isMajor ? 1.5 : 1}
-                      opacity={isMajor ? 0.92 : 0.65}
+                      stroke={isMajor ? '#ffffff' : '#f5d284'}
+                      strokeWidth={isMajor ? 1.5 : 0.9}
+                      opacity={isMajor ? 0.95 : 0.7}
                     />
                   );
                 })}
@@ -967,36 +792,36 @@ export const AgeProgressBanner: React.FC<AgeProgressBannerProps> = ({
               {/* Bottom Horizon Golden Rim Trim */}
               <div
                 aria-hidden="true"
-                className="pointer-events-none absolute inset-x-0 bottom-0 h-[3px] bg-gradient-to-r from-[#8f5b38] via-[#ffe49e] to-[#8f5b38]"
+                className="pointer-events-none absolute inset-x-0 bottom-0 h-[3px] bg-gradient-to-r from-[#8f6a36] via-[#fff6d1] to-[#8f6a36]"
               />
             </div>
 
-            {/* Ornate Zenith Diamond Pointer at 12 o'clock (top of arch) */}
+            {/* Ornate Zenith Compass Diamond Pointer at 12 o'clock */}
             <div
               aria-hidden="true"
-              className={`pointer-events-none absolute left-1/2 -top-[5px] -translate-x-1/2 w-[11px] h-[11px] rotate-45 bg-[#ffe49e] border-[2px] border-[#0c0705] ${
+              className={`pointer-events-none absolute left-1/2 -top-[5px] -translate-x-1/2 w-[11px] h-[11px] rotate-45 bg-[#fff6d1] border-[2px] border-[#0c0705] ${
                 phase === 'impact' ? 'age-zenith-pulse' : ''
               }`}
               style={{
-                boxShadow: '0 0 6px rgba(255,228,158,0.8)',
+                boxShadow: '0 0 8px rgba(255,246,209,0.9)',
               }}
             />
 
-            {/* Left & Right Horizon Astrolabe Nodes */}
+            {/* Left & Right Horizon Celestial Nodes */}
             <div
               aria-hidden="true"
-              className="pointer-events-none absolute -left-[3px] bottom-[-2px] w-[7px] h-[7px] rounded-full bg-[#f7d2a6] border-[1.5px] border-[#0c0705]"
+              className="pointer-events-none absolute -left-[3px] bottom-[-2px] w-[7px] h-[7px] rounded-full bg-[#fff6d1] border-[1.5px] border-[#0c0705]"
             />
             <div
               aria-hidden="true"
-              className="pointer-events-none absolute -right-[3px] bottom-[-2px] w-[7px] h-[7px] rounded-full bg-[#d99968] border-[1.5px] border-[#0c0705]"
+              className="pointer-events-none absolute -right-[3px] bottom-[-2px] w-[7px] h-[7px] rounded-full bg-[#e6bf78] border-[1.5px] border-[#0c0705]"
             />
           </div>
 
-          {/* RIGHT: Age Eyebrow & Title Text */}
+          {/* RIGHT: Eyebrow Copy & Age Title Text */}
           <div className="flex flex-col items-start text-left justify-center min-w-0">
-            <span className="font-pixel-num text-[10px] sm:text-xs font-bold tracking-[0.15em] uppercase text-[#d9a977] leading-none mb-1">
-              {displayedEpoch.yearLabel}
+            <span className="font-pixel-num text-[10px] sm:text-[11px] font-bold tracking-[0.08em] text-[#e6c38d] leading-tight mb-0.5 whitespace-nowrap">
+              Your world has reached the
             </span>
             <span
               data-testid="age-progress-banner-title"
@@ -1012,7 +837,7 @@ export const AgeProgressBanner: React.FC<AgeProgressBannerProps> = ({
             {/* Subtle decorative golden underline accent */}
             <div
               aria-hidden="true"
-              className="mt-1.5 h-[2px] w-full max-w-[140px] bg-gradient-to-r from-[#f7d2a6] via-[#d99968]/70 to-transparent"
+              className="mt-1.5 h-[2px] w-full max-w-[160px] bg-gradient-to-r from-[#f7d2a6] via-[#d99968]/70 to-transparent"
             />
           </div>
         </div>
