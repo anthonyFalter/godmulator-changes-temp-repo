@@ -2,47 +2,6 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { SpeciesId, VehicleType } from './types';
 
-let cachedHullPanelTex: THREE.CanvasTexture | null = null;
-
-function getHullPanelTexture(): THREE.CanvasTexture | null {
-  if (cachedHullPanelTex) return cachedHullPanelTex;
-  if (typeof document === 'undefined') return null;
-  const canvas = document.createElement('canvas');
-  canvas.width = 32;
-  canvas.height = 32;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return null;
-  ctx.fillStyle = '#e5e7eb';
-  ctx.fillRect(0, 0, 32, 32);
-  ctx.fillStyle = '#f3f4f6';
-  ctx.fillRect(1, 1, 14, 14);
-  ctx.fillRect(17, 1, 14, 14);
-  ctx.fillRect(1, 17, 14, 14);
-  ctx.fillRect(17, 17, 14, 14);
-  ctx.fillStyle = '#9ca3af';
-  ctx.fillRect(0, 0, 32, 1);
-  ctx.fillRect(0, 16, 32, 1);
-  ctx.fillRect(0, 0, 1, 32);
-  ctx.fillRect(16, 0, 1, 32);
-  ctx.fillStyle = '#6b7280';
-  for (const [rx, ry] of [
-    [2, 2], [13, 2], [2, 13], [13, 13],
-    [18, 2], [29, 2], [18, 13], [29, 13],
-    [2, 18], [13, 18], [2, 29], [13, 29],
-    [18, 18], [29, 18], [18, 29], [29, 29],
-  ]) {
-    ctx.fillRect(rx, ry, 1, 1);
-  }
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.magFilter = THREE.NearestFilter;
-  tex.minFilter = THREE.NearestFilter;
-  tex.wrapS = THREE.RepeatWrapping;
-  tex.wrapT = THREE.RepeatWrapping;
-  tex.colorSpace = THREE.SRGBColorSpace;
-  cachedHullPanelTex = tex;
-  return tex;
-}
-
 /** Normalize any Three.js BufferGeometry into non-indexed {position, normal, uv, color} so mergeGeometries always succeeds */
 function pushGeo(parts: THREE.BufferGeometry[], rawGeo: THREE.BufferGeometry, hex: number): void {
   const g = rawGeo.index ? rawGeo.toNonIndexed() : rawGeo;
@@ -281,14 +240,12 @@ function finalizeGroup(
   glowHex = 0x38bdf8,
 ): THREE.Group {
   const group = new THREE.Group();
-  const hullTex = getHullPanelTexture();
   if (bodyParts.length > 0) {
     const merged = mergeGeometries(bodyParts, false);
     for (const g of bodyParts) g.dispose();
     if (merged) {
       const mat = new THREE.MeshStandardMaterial({
         vertexColors: true,
-        map: hullTex,
         roughness,
         metalness,
       });
