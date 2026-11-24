@@ -654,16 +654,16 @@
 }
 
 /* ============================================================================
-   AGE PROGRESSION MIDDLE BANNER & FORTNITE-STYLE TOKEN FLIP + SCREEN SHAKE
+   AGE PROGRESSION BANNER & HALF-CIRCLE ASTROLABE DIAL TRANSITION + SHAKE
    ============================================================================ */
 @keyframes age-banner-in {
   0% {
     opacity: 0;
-    transform: translate3d(0, -18px, 0) scale(0.84);
+    transform: translate3d(0, -16px, 0) scale(0.9);
   }
   65% {
     opacity: 1;
-    transform: translate3d(0, 3px, 0) scale(1.04);
+    transform: translate3d(0, 2px, 0) scale(1.02);
   }
   100% {
     opacity: 1;
@@ -678,63 +678,106 @@
   }
   100% {
     opacity: 0;
-    transform: translate3d(0, -14px, 0) scale(0.92);
+    transform: translate3d(0, -14px, 0) scale(0.94);
   }
 }
 
-@keyframes age-token-ready-anim {
+/* Astrolabe time-wheel: subtle clockwork wind-up before sweeping 180deg */
+@keyframes age-dial-wheel-ready-anim {
   0% {
-    transform: rotateY(0deg) scale(0.85);
-  }
-  60% {
-    transform: rotateY(0deg) scale(1.05);
-  }
-  100% {
-    transform: rotateY(-22deg) scale(1.06);
-  }
-}
-
-/* Rapid 540deg Y-axis spin (1.5 turns) landing cleanly on the back face (next age) */
-@keyframes age-token-flip-anim {
-  0% {
-    transform: rotateY(-22deg) scale(1.06);
-  }
-  25% {
-    transform: rotateY(150deg) scale(1.16);
+    transform: rotate(0deg);
   }
   65% {
-    transform: rotateY(430deg) scale(1.26);
+    transform: rotate(0deg);
   }
   100% {
-    transform: rotateY(540deg) scale(1.28);
+    transform: rotate(-10deg);
   }
 }
 
-/* Punchy slam settle on the revealed back face (540deg === 180deg front-facing) */
-@keyframes age-token-slam-anim {
+@keyframes age-dial-counter-ready-anim {
   0% {
-    transform: rotateY(540deg) scale(1.36);
+    transform: rotate(0deg);
   }
-  32% {
-    transform: rotateY(540deg) scale(0.91);
-  }
-  62% {
-    transform: rotateY(540deg) scale(1.07);
+  65% {
+    transform: rotate(0deg);
   }
   100% {
-    transform: rotateY(540deg) scale(1);
+    transform: rotate(10deg);
+  }
+}
+
+/* Smooth celestial arc rotation: old age sets right, new age rises left to zenith */
+@keyframes age-dial-wheel-rotate-anim {
+  0% {
+    transform: rotate(-10deg);
+  }
+  25% {
+    transform: rotate(42deg);
+  }
+  72% {
+    transform: rotate(162deg);
+  }
+  100% {
+    transform: rotate(180deg);
+  }
+}
+
+@keyframes age-dial-counter-rotate-anim {
+  0% {
+    transform: rotate(10deg);
+  }
+  25% {
+    transform: rotate(-42deg);
+  }
+  72% {
+    transform: rotate(-162deg);
+  }
+  100% {
+    transform: rotate(-180deg);
+  }
+}
+
+/* Crisp clockwork lock-in detent bounce at 180deg zenith */
+@keyframes age-dial-wheel-impact-anim {
+  0% {
+    transform: rotate(185deg);
+  }
+  38% {
+    transform: rotate(177.5deg);
+  }
+  70% {
+    transform: rotate(181.5deg);
+  }
+  100% {
+    transform: rotate(180deg);
+  }
+}
+
+@keyframes age-dial-counter-impact-anim {
+  0% {
+    transform: rotate(-185deg) scale(1.16);
+  }
+  38% {
+    transform: rotate(-177.5deg) scale(0.94);
+  }
+  70% {
+    transform: rotate(-181.5deg) scale(1.04);
+  }
+  100% {
+    transform: rotate(-180deg) scale(1);
   }
 }
 
 @keyframes age-text-slam-anim {
   0% {
-    transform: scale(1.24);
+    transform: scale(1.14);
   }
   38% {
-    transform: scale(0.94);
+    transform: scale(0.96);
   }
   70% {
-    transform: scale(1.04);
+    transform: scale(1.03);
   }
   100% {
     transform: scale(1);
@@ -747,6 +790,17 @@
   }
   100% {
     opacity: 0;
+  }
+}
+
+@keyframes age-zenith-pulse-anim {
+  0% {
+    transform: translateX(-50%) rotate(45deg) scale(1.55);
+    filter: brightness(1.7);
+  }
+  100% {
+    transform: translateX(-50%) rotate(45deg) scale(1);
+    filter: brightness(1);
   }
 }
 
@@ -788,20 +842,36 @@
   animation: age-banner-out 380ms cubic-bezier(0.4, 0, 1, 1) forwards;
 }
 
-.age-token-ready {
-  animation: age-token-ready-anim 340ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+.age-dial-wheel-ready {
+  animation: age-dial-wheel-ready-anim 340ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
-.age-token-flip {
-  animation: age-token-flip-anim 620ms cubic-bezier(0.45, 0.05, 0.55, 0.95) forwards;
+.age-dial-counter-ready {
+  animation: age-dial-counter-ready-anim 340ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
-.age-token-slam {
-  animation: age-token-slam-anim 380ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+.age-dial-wheel-rotate {
+  animation: age-dial-wheel-rotate-anim 620ms cubic-bezier(0.42, 0.04, 0.32, 1) forwards;
 }
 
-.age-token-settled {
-  transform: rotateY(540deg) scale(1);
+.age-dial-counter-rotate {
+  animation: age-dial-counter-rotate-anim 620ms cubic-bezier(0.42, 0.04, 0.32, 1) forwards;
+}
+
+.age-dial-wheel-impact {
+  animation: age-dial-wheel-impact-anim 360ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.age-dial-counter-impact {
+  animation: age-dial-counter-impact-anim 360ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.age-dial-wheel-settled {
+  transform: rotate(180deg);
+}
+
+.age-dial-counter-settled {
+  transform: rotate(-180deg);
 }
 
 .age-text-slam {
@@ -809,7 +879,11 @@
 }
 
 .age-impact-flash {
-  animation: age-impact-flash-anim 240ms ease-out forwards;
+  animation: age-impact-flash-anim 280ms ease-out forwards;
+}
+
+.age-zenith-pulse {
+  animation: age-zenith-pulse-anim 380ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 .age-screen-shake {
@@ -820,7 +894,8 @@
   .age-screen-shake {
     animation: none;
   }
-  .age-token-flip {
+  .age-dial-wheel-rotate,
+  .age-dial-counter-rotate {
     animation-duration: 180ms;
   }
 }
