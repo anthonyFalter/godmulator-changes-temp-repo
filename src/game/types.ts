@@ -421,6 +421,7 @@ export type GodPowerType =
   | 'heat_wave'
   | 'freeze_snap'
   | 'bloodlust_frenzy'
+  | 'start_war'
   | 'curse'
   | 'plague_miasma'
   | 'lightning_smite'

@@ -653,6 +653,7 @@ export function getMagicCircleThemeForPower(powerOrTool: string): MagicCircleThe
     case 'blizzard':
       return 'frost';
     case 'bloodlust_frenzy':
+    case 'start_war':
     case 'volcano_eruption':
     case 'lava_deluge':
     case 'volcanic_wasteland':

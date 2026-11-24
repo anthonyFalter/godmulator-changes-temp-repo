@@ -1536,6 +1536,16 @@ export const GOD_POWERS: GodPowerDefinition[] = [
     color: '#e63946',
   },
   {
+    type: 'start_war',
+    name: 'Start War',
+    category: 'Wrathful',
+    summary: 'Turns affected kingdom aggressively expansionist and declares war on rival nations',
+    faithCost: 25,
+    radius: 6.5,
+    keyHint: '',
+    color: '#dc2626',
+  },
+  {
     type: 'curse',
     name: 'Curse',
     category: 'Wrathful',

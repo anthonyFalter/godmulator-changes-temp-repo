@@ -5511,6 +5511,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         type === 'alien_invasion' ||
         type === 'chrono_surge' ||
         type === 'harmony_dove' ||
+        type === 'start_war' ||
         type === 'solar_orbital_laser' ||
         type === 'gravity_flip' ||
         type === 'fortify_walls' ||
@@ -5558,6 +5559,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           group.add(doveGrp);
           dropObj = doveGrp;
           spawnRisingParticles(tx, ty + 0.4, tz, 18, '#fef08a', radius * 0.7, 4.4, 1.15, 1.05);
+        } else if (type === 'start_war') {
+          spawnRisingParticles(tx, ty + 0.4, tz, 22, '#ef4444', radius * 0.75, 4.8, 1.25, 1.15);
         } else if (type === 'fortify_walls') {
           // Eye of Judgment dramatic golden-crimson manifestation spire + burst!
           const flareMat = new THREE.MeshBasicMaterial({

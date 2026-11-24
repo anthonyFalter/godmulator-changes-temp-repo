@@ -6896,6 +6896,144 @@ export function executeGodPowerImpact(
       break;
     }
 
+    case 'start_war': {
+      isHeavy = false;
+      const affectedKids = new Set<string>();
+      for (const b of state.buildings) {
+        if (b.hp > 0 && b.settlementId && (b.tileX - targetX) ** 2 + (b.tileZ - targetZ) ** 2 <= rSq) {
+          affectedKids.add(getKingdomId(state, b.settlementId));
+        }
+      }
+      for (const u of state.units) {
+        if (u.state !== 'ko' && u.faction === 'civilization' && (u.x - targetX) ** 2 + (u.z - targetZ) ** 2 <= rSq) {
+          const kid = u.kingdomId ?? (u.settlementId ? getKingdomId(state, u.settlementId) : undefined);
+          if (kid) affectedKids.add(kid);
+        }
+      }
+      forEachTileInBounds(state, targetX - r, targetX + r, targetZ - r, targetZ + r, (t) => {
+        const ownerSid = t.claimedSettlementId ?? t.farmSettlementId;
+        if (ownerSid && (t.x - targetX) ** 2 + (t.z - targetZ) ** 2 <= rSq) {
+          affectedKids.add(getKingdomId(state, ownerSid));
+        }
+      });
+
+      const liveKids = getLiveKingdomIds(state);
+      // Fallback: if cast slightly outside borders, pick nearest living kingdom within 18 tiles
+      if (affectedKids.size === 0 && liveKids.length > 0) {
+        let nearestKid: string | null = null;
+        let bestDistSq = 18 * 18;
+        for (const b of state.buildings) {
+          if (b.hp <= 0 || !b.settlementId) continue;
+          const dSq = (b.tileX - targetX) ** 2 + (b.tileZ - targetZ) ** 2;
+          if (dSq <= bestDistSq) {
+            bestDistSq = dSq;
+            nearestKid = getKingdomId(state, b.settlementId);
+          }
+        }
+        if (nearestKid) affectedKids.add(nearestKid);
+      }
+
+      if (affectedKids.size === 0) {
+        addChronicle(state, 'Start War echoed over empty land — cast on a nation to ignite war!', 'warning');
+        break;
+      }
+
+      if (!state.kingdomPeacefulTraits) state.kingdomPeacefulTraits = {};
+      if (!state.kingdomPeaceTreaties) state.kingdomPeaceTreaties = {};
+      if (!state.kingdomWarStartYears) state.kingdomWarStartYears = {};
+
+      const affectedArr = Array.from(affectedKids);
+      for (const kid of affectedArr) {
+        // Turn affected nation aggressively expansionist
+        state.kingdomPeacefulTraits[kid] = false;
+      }
+
+      const declaredPairs: Array<[string, string]> = [];
+      const declareWarPair = (kA: string, kB: string) => {
+        if (kA === kB) return;
+        const pKey = getKingdomPairKey(kA, kB);
+        const wasWar = getKingdomRelation(state, kA, kB) === 'war';
+        delete state.kingdomPeaceTreaties![pKey];
+        setKingdomRelation(state, kA, kB, 'war');
+        state.kingdomWarStartYears![pKey] = state.year;
+        if (!wasWar) {
+          if (state.worldStats) state.worldStats.warsStarted += 1;
+          declaredPairs.push([kA, kB]);
+        }
+      };
+
+      if (affectedArr.length >= 2) {
+        // Multiple nations caught in the cast radius -> ignite war between all of them
+        for (let i = 0; i < affectedArr.length; i++) {
+          for (let j = i + 1; j < affectedArr.length; j++) {
+            declareWarPair(affectedArr[i], affectedArr[j]);
+          }
+        }
+      } else {
+        // Single nation targeted -> turn it aggressively expansionist and declare war on rival kingdoms
+        const aggressor = affectedArr[0];
+        const rivals = liveKids.filter((k) => k !== aggressor);
+        // Sort rivals by distance to cast point so nearest neighbors are targeted first
+        const rivalDist = new Map<string, number>();
+        for (const rKid of rivals) {
+          let minDSq = Infinity;
+          for (const b of state.buildings) {
+            if (b.hp <= 0 || !b.settlementId) continue;
+            if (getKingdomId(state, b.settlementId) === rKid) {
+              const dSq = (b.tileX - targetX) ** 2 + (b.tileZ - targetZ) ** 2;
+              if (dSq < minDSq) minDSq = dSq;
+            }
+          }
+          rivalDist.set(rKid, minDSq);
+        }
+        rivals.sort((a, b) => (rivalDist.get(a) ?? Infinity) - (rivalDist.get(b) ?? Infinity));
+        // Prefer rivals not yet at war; declare war on up to 2 nearest rivals (or all if <= 2)
+        const nonWarRivals = rivals.filter((k) => getKingdomRelation(state, aggressor, k) !== 'war');
+        const warTargets = (nonWarRivals.length > 0 ? nonWarRivals : rivals).slice(0, 2);
+        for (const tKid of warTargets) {
+          declareWarPair(aggressor, tKid);
+        }
+      }
+
+      state.pendingVfx.push({
+        id: nextEntityId('vfx'),
+        type: 'animal_attack',
+        variant: 'horn_blast',
+        originX: targetX,
+        originZ: targetZ,
+        x: targetX,
+        y: (centerTile?.height ?? 2) * 0.45 + 0.6,
+        z: targetZ,
+        radius: Math.max(4.5, r * 0.9),
+        color: '#dc2626',
+        createdAt: Date.now(),
+      });
+
+      const getKName = (kid: string) => state.settlementNames?.[kid] ?? 'Kingdom';
+      if (state.worldRules?.warsEnabled === false) {
+        addChronicle(
+          state,
+          `Start War turned ${affectedArr.map(getKName).join(', ')} Expansionist (enable Wars in World Rules for combat!).`,
+          'warning',
+        );
+      } else if (declaredPairs.length > 0) {
+        const [a, b] = declaredPairs[0];
+        const extra = declaredPairs.length > 1 ? ` (+${declaredPairs.length - 1} more)` : '';
+        addChronicle(
+          state,
+          `Start War! ${getKName(a)} turned aggressively expansionist and declared war on ${getKName(b)}${extra}!`,
+          'warning',
+        );
+      } else {
+        addChronicle(
+          state,
+          `Start War! ${affectedArr.map(getKName).join(', ')} turned aggressively expansionist and mobilized for war!`,
+          'warning',
+        );
+      }
+      break;
+    }
+
     case 'solar_orbital_laser': {
       isHeavy = true;
       specialLiquidPossibleByState.set(state, true);
@@ -7328,6 +7466,7 @@ export function castGodPower(
     powerType !== 'freeze_snap' &&
     powerType !== 'heat_wave' &&
     powerType !== 'harmony_dove' &&
+    powerType !== 'start_war' &&
     powerType !== 'drag_entity';
 
   const targets = getPowerClusterTargets(

@@ -663,6 +663,30 @@ export const POWER_SPRITES: Record<GodPowerType, CompiledSprite> = {
     PB_MATS,
   ),
 
+  // 16x16 Crossed Steel War Swords over a Blazing Crimson War Banner
+  start_war: cluster16(
+    [
+      '................',
+      '..44........44..',
+      '..434......434..',
+      '...434.rr.434...',
+      '....434RR434....',
+      '.....43rr34.....',
+      '....rR4334Rr....',
+      '...rRR3443RRr...',
+      '....rR4334Rr....',
+      '.....43rr34.....',
+      '....Y4Y..Y4Y....',
+      '...YoY....YoY...',
+      '..Yo........oY..',
+      '....rRRRRRRr....',
+      '.....rrRRrr.....',
+      '................',
+    ],
+    MAT.steel,
+    PB_MATS,
+  ),
+
   // 16x16 Intense Orbital Helios Beam firing from sky mirror onto scorched impact ring
   solar_orbital_laser: cluster16(
     [
