@@ -2,17 +2,40 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { SpeciesId, VehicleType } from './types';
 
-/** Normalize any Three.js BufferGeometry into non-indexed {position, normal, color} for clean merging */
+/** Normalize any Three.js BufferGeometry into non-indexed {position, normal, uv, color} for clean merging */
 function pushGeo(parts: THREE.BufferGeometry[], rawGeo: THREE.BufferGeometry, hex: number): void {
   const g = rawGeo.index ? rawGeo.toNonIndexed() : rawGeo;
   if (rawGeo.index) rawGeo.dispose();
   if (!g.getAttribute('normal')) g.computeVertexNormals();
   const pos = g.getAttribute('position');
+  const norm = g.getAttribute('normal');
   for (const key of Object.keys(g.attributes)) {
     if (key !== 'position' && key !== 'normal') {
       g.deleteAttribute(key);
     }
   }
+  const uvs = new Float32Array(pos.count * 2);
+  const uvScale = 0.52;
+  for (let i = 0; i < pos.count; i++) {
+    const px = pos.getX(i);
+    const py = pos.getY(i);
+    const pz = pos.getZ(i);
+    const ax = Math.abs(norm.getX(i));
+    const ay = Math.abs(norm.getY(i));
+    const az = Math.abs(norm.getZ(i));
+    if (ay >= ax && ay >= az) {
+      uvs[i * 2] = px * uvScale;
+      uvs[i * 2 + 1] = pz * uvScale;
+    } else if (ax >= az) {
+      uvs[i * 2] = pz * uvScale;
+      uvs[i * 2 + 1] = py * uvScale;
+    } else {
+      uvs[i * 2] = px * uvScale;
+      uvs[i * 2 + 1] = py * uvScale;
+    }
+  }
+  g.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+
   const col = new THREE.Color(hex);
   const colors = new Float32Array(pos.count * 3);
   for (let i = 0; i < pos.count; i++) {
@@ -221,12 +244,81 @@ function addWindowStrip(
  * 3. Crisp Lit Bridge Windows (MeshBasicMaterial) — warm amber/ice-blue viewports
  * 4. Restrained Engine / Reactor Glow (MeshBasicMaterial) — thruster cores & accent strips
  */
+const siegeSurfaceTexCache: Partial<Record<'weathered_armor' | 'brushed_metal', THREE.Texture>> = {};
+
+/**
+ * Generates crisp 32x32 pixel-art weathered armor & brushed metal surface textures (NearestFilter,
+ * neutral light-grey base so vertexColors multiply cleanly without any repetitive black grid!).
+ */
+function getSiegeSurfaceTexture(style: 'weathered_armor' | 'brushed_metal'): THREE.Texture {
+  const existing = siegeSurfaceTexCache[style];
+  if (existing) return existing;
+
+  if (typeof document === 'undefined') {
+    const data = new Uint8Array(32 * 32 * 4).fill(235);
+    const tex = new THREE.DataTexture(data, 32, 32, THREE.RGBAFormat);
+    tex.needsUpdate = true;
+    siegeSurfaceTexCache[style] = tex;
+    return tex;
+  }
+
+  const canvas = document.createElement('canvas');
+  canvas.width = 32;
+  canvas.height = 32;
+  const ctx = canvas.getContext('2d')!;
+  const img = ctx.createImageData(32, 32);
+
+  for (let y = 0; y < 32; y++) {
+    for (let x = 0; x < 32; x++) {
+      let h = Math.imul(x + 17, 374761393) ^ Math.imul(y + 31, 668265263);
+      h = Math.imul(h ^ (h >>> 13), 1274126177);
+      const n = ((h ^ (h >>> 16)) >>> 0) / 4294967295;
+
+      // Coarse 2x2 mottled weathering blotches (like Minecraft/voxel stone & weathered steel in image_2.png)
+      let hc = Math.imul((x >> 1) + 5, 2246822519) ^ Math.imul((y >> 1) + 11, 3266489917);
+      hc = Math.imul(hc ^ (hc >>> 15), 668265263);
+      const nc = ((hc ^ (hc >>> 16)) >>> 0) / 4294967295;
+
+      let v = 228;
+      if (style === 'weathered_armor') {
+        v = 216 + Math.round((nc - 0.5) * 44) + Math.round((n - 0.5) * 26);
+        if (y % 8 === 0 && (x + (y >> 3) * 7) % 16 < 12) v -= 14;
+        if ((x % 8 === 2 || x % 8 === 6) && y % 8 === 1 && n > 0.45) v += 18;
+      } else {
+        let hs = Math.imul((x >> 2) + 3, 374761393) ^ Math.imul(y + 19, 668265263);
+        const streak = (((hs ^ (hs >>> 13)) >>> 0) / 4294967295 - 0.5) * 38;
+        v = 224 + Math.round(streak) + Math.round((n - 0.5) * 20);
+        if (y % 6 === 2 && n > 0.65) v += 24;
+      }
+
+      v = Math.max(150, Math.min(255, v));
+      const idx = (y * 32 + x) * 4;
+      img.data[idx] = v;
+      img.data[idx + 1] = v;
+      img.data[idx + 2] = v;
+      img.data[idx + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.magFilter = THREE.NearestFilter;
+  tex.minFilter = THREE.NearestFilter;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.needsUpdate = true;
+  siegeSurfaceTexCache[style] = tex;
+  return tex;
+}
+
 function finalizeMultiFinishGroup(
   matteParts: THREE.BufferGeometry[],
   metalParts: THREE.BufferGeometry[],
   winParts: THREE.BufferGeometry[],
   glowParts: THREE.BufferGeometry[],
 ): THREE.Group {
+
   const group = new THREE.Group();
 
   const addMerged = (parts: THREE.BufferGeometry[], mat: THREE.Material, castShadow: boolean) => {
@@ -244,8 +336,9 @@ function finalizeMultiFinishGroup(
     matteParts,
     new THREE.MeshStandardMaterial({
       vertexColors: true,
+      map: getSiegeSurfaceTexture('weathered_armor'),
       roughness: 0.72,
-      metalness: 0.18,
+      metalness: 0.22,
     }),
     true,
   );
@@ -253,6 +346,7 @@ function finalizeMultiFinishGroup(
     metalParts,
     new THREE.MeshStandardMaterial({
       vertexColors: true,
+      map: getSiegeSurfaceTexture('brushed_metal'),
       roughness: 0.34,
       metalness: 0.74,
     }),
@@ -394,15 +488,18 @@ class VoxelShipBuilder {
     win: THREE.BufferGeometry[],
     glow: THREE.BufferGeometry[],
   ): void {
-    const buckets: Record<VoxelFinish, { pos: number[]; norm: number[]; col: number[] }> = {
-      matte: { pos: [], norm: [], col: [] },
-      metal: { pos: [], norm: [], col: [] },
-      win: { pos: [], norm: [], col: [] },
-      glow: { pos: [], norm: [], col: [] },
+    const buckets: Record<VoxelFinish, { pos: number[]; norm: number[]; uv: number[]; col: number[] }> = {
+      matte: { pos: [], norm: [], uv: [], col: [] },
+      metal: { pos: [], norm: [], uv: [], col: [] },
+      win: { pos: [], norm: [], uv: [], col: [] },
+      glow: { pos: [], norm: [], uv: [], col: [] },
     };
 
     const vs = this.vs;
     const oy = this.offsetY;
+    const uvScale = 0.52;
+
+    const hasVox = (x: number, y: number, z: number) => this.voxels.has(VoxelShipBuilder.key(x, y, z));
 
     // 6 cardinal faces with outward CCW winding
     const faces: Array<{
@@ -423,6 +520,8 @@ class VoxelShipBuilder {
       { dx: 0, dy: 0, dz: -1, nx: 0, ny: 0, nz: -1, corners: [[1, 0, 0], [0, 0, 0], [0, 1, 0], [1, 1, 0]], shade: 0.84 },
     ];
 
+    const aoLevels = [1.0, 0.87, 0.76, 0.66];
+
     for (const [k, v] of this.voxels.entries()) {
       const x = ((k >>> 16) & 255) - 128;
       const y = ((k >>> 8) & 255) - 128;
@@ -431,32 +530,78 @@ class VoxelShipBuilder {
       const wx = (x - 0.5) * vs;
       const wy = y * vs + oy;
       const wz = (z - 0.5) * vs;
+      const isEmissive = v.finish === 'glow' || v.finish === 'win';
 
       for (let fi = 0; fi < 6; fi++) {
         const f = faces[fi];
-        if (this.voxels.has(VoxelShipBuilder.key(x + f.dx, y + f.dy, z + f.dz))) continue;
+        const nx = x + f.dx;
+        const ny = y + f.dy;
+        const nz = z + f.dz;
+        if (hasVox(nx, ny, nz)) continue;
         const c = f.corners;
-        const sh = v.finish === 'glow' || v.finish === 'win' ? 1.0 : f.shade;
-        const cr = v.r * sh;
-        const cg = v.g * sh;
-        const cb = v.b * sh;
+        const baseShade = isEmissive ? 1.0 : f.shade;
 
-        // 2 triangles: (0, 1, 2) and (0, 2, 3)
-        const idx = [0, 1, 2, 0, 2, 3];
+        // Compute per-corner voxel Ambient Occlusion (Minecraft-style crease darkening!)
+        const cornerAo: [number, number, number, number] = [1, 1, 1, 1];
+        if (!isEmissive) {
+          for (let ci = 0; ci < 4; ci++) {
+            const pt = c[ci];
+            const sx = pt[0] === 0 ? -1 : 1;
+            const sy = pt[1] === 0 ? -1 : 1;
+            const sz = pt[2] === 0 ? -1 : 1;
+            let occ = 0;
+            if (f.dy !== 0) {
+              const s1 = hasVox(nx + sx, ny, nz) ? 1 : 0;
+              const s2 = hasVox(nx, ny, nz + sz) ? 1 : 0;
+              const cr = s1 && s2 ? 1 : hasVox(nx + sx, ny, nz + sz) ? 1 : 0;
+              occ = s1 + s2 + cr;
+            } else if (f.dx !== 0) {
+              const s1 = hasVox(nx, ny + sy, nz) ? 1 : 0;
+              const s2 = hasVox(nx, ny, nz + sz) ? 1 : 0;
+              const cr = s1 && s2 ? 1 : hasVox(nx, ny + sy, nz + sz) ? 1 : 0;
+              occ = s1 + s2 + cr;
+            } else {
+              const s1 = hasVox(nx + sx, ny, nz) ? 1 : 0;
+              const s2 = hasVox(nx, ny + sy, nz) ? 1 : 0;
+              const cr = s1 && s2 ? 1 : hasVox(nx + sx, ny + sy, nz) ? 1 : 0;
+              occ = s1 + s2 + cr;
+            }
+            cornerAo[ci] = aoLevels[occ];
+          }
+        }
+
+        // Flip quad diagonal when AO anisotropy requires it for smooth crease shading
+        const idx = cornerAo[0] + cornerAo[2] > cornerAo[1] + cornerAo[3] ? [0, 1, 2, 0, 2, 3] : [1, 2, 3, 1, 3, 0];
         for (let ti = 0; ti < 6; ti++) {
-          const pt = c[idx[ti]];
-          b.pos.push(wx + pt[0] * vs, wy + pt[1] * vs, wz + pt[2] * vs);
+          const ci = idx[ti];
+          const pt = c[ci];
+          const vx = wx + pt[0] * vs;
+          const vy = wy + pt[1] * vs;
+          const vz = wz + pt[2] * vs;
+          b.pos.push(vx, vy, vz);
           b.norm.push(f.nx, f.ny, f.nz);
-          b.col.push(cr, cg, cb);
+          if (f.dy !== 0) {
+            b.uv.push(vx * uvScale, vz * uvScale);
+          } else if (f.dx !== 0) {
+            b.uv.push(vz * uvScale, vy * uvScale);
+          } else {
+            b.uv.push(vx * uvScale, vy * uvScale);
+          }
+          const sh = baseShade * cornerAo[ci];
+          b.col.push(v.r * sh, v.g * sh, v.b * sh);
         }
       }
     }
 
-    const pushBucket = (target: THREE.BufferGeometry[], data: { pos: number[]; norm: number[]; col: number[] }) => {
+    const pushBucket = (
+      target: THREE.BufferGeometry[],
+      data: { pos: number[]; norm: number[]; uv: number[]; col: number[] },
+    ) => {
       if (data.pos.length === 0) return;
       const g = new THREE.BufferGeometry();
       g.setAttribute('position', new THREE.Float32BufferAttribute(data.pos, 3));
       g.setAttribute('normal', new THREE.Float32BufferAttribute(data.norm, 3));
+      g.setAttribute('uv', new THREE.Float32BufferAttribute(data.uv, 2));
       g.setAttribute('color', new THREE.Float32BufferAttribute(data.col, 3));
       target.push(g);
     };
@@ -625,19 +770,31 @@ export function createCapitalWarVehicleGroup(
         v.box(-hw, 0, z, hw, 1, z, 0x6b212a, 'matte', 0.05);
         v.box(-hw, 2, z, hw, 4, z, hullGrey, 'matte', 0.075);
       }
-      for (const sz of [-18, -9, 2, 12]) {
-        v.symBox(5, 3, sz - 1, 5, 4, sz + 1, 0x64748b, 'metal', 0.05);
+      // Under-deck steel support girders holding up the cantilevered bow & stern flight deck (image.png!)
+      for (const gz of [-23, -20, 21, 24]) {
+        v.symBox(3, 2, gz, 3, 4, gz, 0x475569, 'metal', 0.05);
+      }
+      // Deck-edge aircraft elevator cutouts & armored AA gun sponsons with metallic gun barrels
+      for (const sz of [-18, -9, 2, 12, 19]) {
+        v.symBox(5, 3, sz - 1, 6, 4, sz + 1, 0x64748b, 'metal', 0.05);
+        addNavalTurret(matte, metal, -1.5, 1.25, sz * 0.25, 0.48, 0x64748b, 0x1e293b, -0.5);
+        addNavalTurret(matte, metal, 1.5, 1.25, sz * 0.25, 0.48, 0x64748b, 0x1e293b, 0.5);
       }
       for (const hz of [-12, 4]) {
         v.symBox(4, 2, hz - 3, 4, 3, hz + 3, 0x111827, 'matte', 0.02);
         v.symBox(4, 3, hz - 2, 4, 3, hz + 2, 0xfbbf24, 'win', 0);
       }
-      v.box(-5, 5, -25, 5, 5, 25, deckCol, 'matte', 0.055);
+      // Two-tone weathered flight deck (darker worn aft landing zone vs lighter clean forward launch deck, matching image.png!)
+      v.box(-5, 5, -25, 5, 5, -2, isPropEra ? 0xcbb287 : deckCol, 'matte', 0.06);
+      v.box(-5, 5, -1, 5, 5, 25, deckCol, 'matte', 0.055);
       v.box(-4, 5, 26, 4, 5, 27, deckCol, 'matte', 0.05);
+      // Deck-edge elevator platforms
+      v.box(-6, 5, -4, -5, 5, 1, 0x475569, 'metal', 0.04);
+      v.box(5, 5, 8, 6, 5, 13, 0x475569, 'metal', 0.04);
 
       if (isPropEra) {
         for (let z = -22; z <= 22; z += 4) {
-          v.box(-4, 5, z, 4, 5, z, 0xd5bc92, 'matte', 0.03);
+          v.box(-4, 5, z, 4, 5, z, z < 0 ? 0xb59b70 : 0xd5bc92, 'matte', 0.03);
         }
         // Bold crimson star/roundel insignia on forward bow deck (matching image.png!)
         v.box(-1, 5, 17, 1, 5, 19, 0xb91c1c, 'matte', 0.02);
@@ -645,12 +802,16 @@ export function createCapitalWarVehicleGroup(
         v.set(0, 5, 16, 0xb91c1c, 'matte', 0.02);
         v.set(-2, 5, 18, 0xb91c1c, 'matte', 0.02);
         v.set(2, 5, 18, 0xb91c1c, 'matte', 0.02);
-        v.box(4, 6, -9, 6, 9, -2, hullGrey, 'matte', 0.06);
-        v.box(4, 10, -8, 5, 12, -5, 0x475569, 'metal', 0.05);
-        v.box(5, 10, -4, 5, 15, -4, 0xcbd5e1, 'metal', 0.03);
+        // Detailed starboard bridge island + angled WWII funnel + lattice tripod mast
+        v.box(4, 6, -10, 6, 9, -2, hullGrey, 'matte', 0.06);
+        v.box(3, 10, -9, 6, 11, -3, 0x94a3b8, 'matte', 0.05);
+        v.box(4, 12, -8, 5, 14, -5, 0x475569, 'metal', 0.05);
+        v.box(5, 11, -4, 5, 17, -4, 0xcbd5e1, 'metal', 0.03);
+        v.box(3, 15, -4, 7, 15, -4, 0xe2e8f0, 'metal', 0.03);
         v.set(4, 8, -3, 0xfbbf24, 'win', 0);
         v.set(4, 8, -5, 0xfbbf24, 'win', 0);
-        for (const [px, pz] of [[-2, -20], [1, -17], [-2, -13], [1, -10], [-2, -5]]) {
+        v.set(3, 10, -4, 0xfbbf24, 'win', 0);
+        for (const [px, pz] of [[-2, -21], [1, -18], [-2, -14], [1, -10], [-2, -6], [1, -2]]) {
           v.parkedAircraft(px, 6, pz, 0x64748b, 0xcbd5e1, false);
         }
       } else {
@@ -660,9 +821,9 @@ export function createCapitalWarVehicleGroup(
         for (let z = -16; z <= 4; z += 3) v.set(-6, 5, z, 0xfbbf24, 'matte', 0.01);
         if (e >= 6) v.box(1, 5, -20, 1, 5, 22, 0x60a5fa, 'glow', 0);
         v.box(3, 6, -12, 6, 11, -2, 0x64748b, 'matte', 0.06);
-        v.box(4, 12, -10, 6, 14, -4, 0x94a3b8, 'matte', 0.05);
-        v.box(5, 15, -8, 5, 19, -8, 0xe2e8f0, 'metal', 0.03);
-        v.box(3, 17, -8, 7, 17, -8, 0xe2e8f0, 'metal', 0.03);
+        v.box(2, 12, -11, 7, 14, -3, 0x94a3b8, 'matte', 0.05);
+        v.box(5, 15, -8, 5, 20, -8, 0xe2e8f0, 'metal', 0.03);
+        v.box(3, 18, -8, 7, 18, -8, 0xe2e8f0, 'metal', 0.03);
         for (let wz = -10; wz <= -4; wz += 2) v.set(3, 10, wz, 0xfbbf24, 'win', 0);
         for (const [px, pz] of [[-4, -20], [-2, -13], [-3, -5], [-2, 4], [1, 13]]) {
           v.parkedAircraft(px, 6, pz, 0x94a3b8, 0x64748b, true);
@@ -1283,54 +1444,79 @@ export function createCapitalWarVehicleGroup(
       pushCyl(glow, 0.85, 0.35, 2.2, 6, 0, -1.4, 0, 0xfacc15);
     } else {
       // HUMAN: Monumental Micro-Voxel Helicarrier modeled directly after image_2.png!
-      // Stepped weathered-steel hull, dark charcoal flight deck, 4 huge outrigger circular lift-turbines
-      // with bright cyan-white vertical light thruster shafts, parked delta jets, cargo crates & tall command tower!
-      for (let z = -23; z <= 25; z++) {
+      // Deep stepped under-hull keel, lower hangar deck, 4 diagonal wing-outrigger circular lift-turbines
+      // with bright cyan-white vertical light thruster shafts, parked delta jets, deck cranes & towering command bridge!
+      for (let z = -24; z <= 26; z++) {
         const hw = z > 18 ? Math.max(4, Math.round(6 - (z - 18) * 0.35)) : z < -18 ? Math.max(4, Math.round(6 - (-18 - z) * 0.35)) : 6;
-        v.box(-hw, 0, z, hw, 3, z, 0x64748b, 'matte', 0.085); // weathered mottled steel hull
-        v.box(-hw + 1, 4, z, hw - 1, 4, z, 0x262f3b, 'matte', 0.05); // dark flight deck runway
+        // Deep tapered under-hull armored keel (y = -3 .. -1)
+        const kw = Math.max(2, hw - 2);
+        v.box(-kw, -2, z, kw, -1, z, 0x334155, 'matte', 0.08);
+        if (Math.abs(z) <= 18) v.box(-kw + 1, -3, z, kw - 1, -3, z, 0x1e293b, 'matte', 0.07);
+        // Main weathered mottled steel hull (y = 0 .. 3) + dark flight deck runway (y = 4)
+        v.box(-hw, 0, z, hw, 3, z, 0x64748b, 'matte', 0.085);
+        v.box(-hw + 1, 4, z, hw - 1, 4, z, 0x262f3b, 'matte', 0.05);
+      }
+      // Recessed glowing lower hangar bays & armored hull ribs along both flanks
+      for (const hz of [-14, 0, 13]) {
+        v.symBox(6, 0, hz - 3, 6, 2, hz + 3, 0x111827, 'matte', 0.03);
+        v.symBox(6, 1, hz - 2, 6, 1, hz + 2, 0xfbbf24, 'win', 0);
       }
       // Port-side angled landing deck sponson & crisp runway markings
-      v.box(-9, 3, -15, -7, 4, 4, 0x262f3b, 'matte', 0.05);
-      v.box(-8, 2, -14, -7, 2, 3, 0x64748b, 'matte', 0.08);
+      v.box(-10, 3, -16, -7, 4, 5, 0x262f3b, 'matte', 0.05);
+      v.box(-9, 1, -15, -7, 2, 4, 0x64748b, 'matte', 0.08);
       for (let z = -20; z <= 24; z += 3) v.set(-1, 4, z, 0xf1f5f9, 'matte', 0.01);
-      v.box(-5, 4, 24, 5, 4, 25, 0xfbbf24, 'glow', 0); // glowing bow launch threshold lights (image_2.png!)
-      // 4 Giant Outrigger Circular Lift-Turbine Pods with vertical white-cyan light thruster beams!
-      for (const [rx, rz] of [[-14, 10], [14, 10], [-14, -10], [14, -10]]) {
-        v.box(rx > 0 ? 6 : rx, 1, rz - 4, rx > 0 ? rx : -6, 3, rz + 4, 0x64748b, 'matte', 0.085);
+      v.box(-5, 4, 24, 5, 4, 25, 0xfbbf24, 'glow', 0);
+      // 4 Giant Swept-Wing Outrigger Circular Lift-Turbine Pods with vertical white-cyan light thruster beams!
+      for (const [rx, rz] of [[-15, 10], [15, 10], [-15, -10], [15, -10]]) {
+        const sgn = rx > 0 ? 1 : -1;
+        // Tapered stepped wing strut connecting hull to turbine pod
+        for (let step = 7; step <= 14; step++) {
+          const zHalf = Math.max(3, Math.round(5 - (step - 7) * 0.25));
+          v.box(sgn * step, 0, rz - zHalf, sgn * step, 3, rz + zHalf, 0x64748b, 'matte', 0.085);
+          v.box(sgn * step, 3, rz + zHalf, sgn * step, 3, rz + zHalf, 0x94a3b8, 'metal', 0.05);
+        }
         for (let dx = -5; dx <= 5; dx++) {
           for (let dz = -5; dz <= 5; dz++) {
             const d = Math.hypot(dx, dz);
-            if (d >= 3.2 && d <= 5.1) {
+            if (d >= 3.2 && d <= 5.2) {
+              v.set(rx + dx, 1, rz + dz, 0x334155, 'matte', 0.08);
               v.set(rx + dx, 2, rz + dz, 0x475569, 'matte', 0.08);
               v.set(rx + dx, 3, rz + dz, 0x94a3b8, 'metal', 0.06);
             } else if (d < 3.2) {
-              v.set(rx + dx, 2, rz + dz, 0x7dd3fc, 'glow', 0);
+              // Crossed steel turbine rotor struts over glowing cyan thruster core
+              if (Math.abs(dx) === 0 || Math.abs(dz) === 0) {
+                v.set(rx + dx, 2, rz + dz, 0x1e293b, 'metal', 0.04);
+              } else {
+                v.set(rx + dx, 2, rz + dz, 0x7dd3fc, 'glow', 0);
+              }
             }
           }
         }
         // Bright vertical thruster light columns (above & below turbines, matching image_2.png!)
-        pushCyl(glow, 0.45, 0.72, 4.2, 10, rx * 0.26, -1.9, rz * 0.26, 0xe0f2fe);
-        pushCyl(glow, 0.22, 0.42, 2.2, 8, rx * 0.26, 1.35, rz * 0.26, 0xbae6fd);
+        pushCyl(glow, 0.45, 0.72, 4.4, 10, rx * 0.26, -2.0, rz * 0.26, 0xe0f2fe);
+        pushCyl(glow, 0.22, 0.42, 2.3, 8, rx * 0.26, 1.4, rz * 0.26, 0xbae6fd);
       }
-      // Deck cargo crates & parked stealth fighter jets on bow & mid-deck (image_2.png!)
+      // Deck defense turrets, cargo crates & parked stealth fighter jets (image_2.png!)
+      addNavalTurret(matte, metal, -2.1, 0.72, 4.8, 0.95, 0x64748b, 0x181b20, -0.35);
+      addNavalTurret(matte, metal, 2.0, 0.72, -5.2, 0.95, 0x64748b, 0x181b20, 2.75);
       v.box(3, 5, 5, 5, 6, 8, 0x78716c, 'matte', 0.07);
       v.box(3, 5, 10, 4, 6, 12, 0x94a3b8, 'matte', 0.06);
-      for (const [px, pz] of [[-2, 18], [1, 14], [-3, 9], [-4, -4], [-3, -14]]) {
+      for (const [px, pz] of [[-2, 19], [1, 15], [-3, 10], [-4, -4], [-3, -14]]) {
         v.parkedAircraft(px, 5, pz, 0x475569, 0x64748b, true);
       }
-      // Towering multi-tiered voxel command bridge with twin radar masts & antennas (image_2.png!)
+      // Towering 3-tier overhanging voxel command bridge with radar domes & antenna array (image_2.png!)
       v.box(3, 5, -14, 7, 10, -3, 0x64748b, 'matte', 0.08);
-      v.box(2, 11, -13, 8, 13, -4, 0x94a3b8, 'matte', 0.07); // overhanging bridge wing
+      v.box(1, 11, -13, 9, 13, -4, 0x94a3b8, 'matte', 0.07); // wide overhanging bridge wings
       v.box(3, 14, -12, 7, 16, -6, 0x475569, 'matte', 0.07);
       for (let wz = -11; wz <= -5; wz += 2) {
-        v.set(2, 12, wz, 0xfbbf24, 'win', 0);
+        v.set(1, 12, wz, 0xfbbf24, 'win', 0);
         v.set(3, 8, wz, 0xfbbf24, 'win', 0);
       }
-      // Tall antenna masts & radar crossbar
-      v.box(5, 17, -10, 5, 23, -10, 0xe2e8f0, 'metal', 0.03);
-      v.box(3, 20, -10, 7, 20, -10, 0xe2e8f0, 'metal', 0.03);
-      v.box(6, 17, -7, 6, 21, -7, 0xcbd5e1, 'metal', 0.03);
+      // Tall antenna masts, radar crossbar & white radome
+      v.box(5, 17, -10, 5, 24, -10, 0xe2e8f0, 'metal', 0.03);
+      v.box(2, 20, -10, 8, 20, -10, 0xe2e8f0, 'metal', 0.03);
+      v.box(6, 17, -7, 6, 22, -7, 0xcbd5e1, 'metal', 0.03);
+      v.box(4, 17, -8, 5, 18, -7, 0xf8fafc, 'matte', 0.02); // white radar dome
     }
 
     v.emit(matte, metal, win, glow);
