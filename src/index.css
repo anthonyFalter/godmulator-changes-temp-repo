@@ -682,60 +682,63 @@
   }
 }
 
-/* Astrolabe time-wheel: subtle clockwork wind-up before sweeping 180deg */
-@keyframes age-dial-wheel-ready-anim {
+/* Single continuous anticipation-and-spring sweep: charges left, springs right at full power, settles cleanly at 180deg */
+@keyframes age-dial-wheel-sweep-anim {
   0% {
     transform: rotate(0deg);
-  }
-  65% {
-    transform: rotate(0deg);
-  }
-  100% {
-    transform: rotate(-10deg);
-  }
-}
-
-/* Smooth celestial arc rotation: old age sets right, new age rises left to fill the semicircle */
-@keyframes age-dial-wheel-rotate-anim {
-  0% {
-    transform: rotate(-10deg);
-  }
-  25% {
-    transform: rotate(42deg);
-  }
-  72% {
-    transform: rotate(162deg);
   }
   100% {
     transform: rotate(180deg);
   }
 }
 
-/* Crisp clockwork lock-in detent bounce at 180deg */
-@keyframes age-dial-wheel-impact-anim {
+@keyframes age-dial-charge-glow-anim {
   0% {
-    transform: rotate(184deg);
+    opacity: 0;
   }
-  38% {
-    transform: rotate(178deg);
+  45% {
+    opacity: 0.42;
   }
-  70% {
-    transform: rotate(181deg);
+  85% {
+    opacity: 0.72;
   }
   100% {
-    transform: rotate(180deg);
+    opacity: 0;
+  }
+}
+
+@keyframes age-screen-blink-anim {
+  0% {
+    opacity: 0.46;
+  }
+  28% {
+    opacity: 0.22;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes age-shockwave-ring-anim {
+  0% {
+    opacity: 0.95;
+    transform: translate(-50%, -50%) scale(0.55);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(2.6);
   }
 }
 
 @keyframes age-text-slam-anim {
   0% {
-    transform: scale(1.14);
+    transform: scale(1.18);
   }
-  38% {
-    transform: scale(0.96);
+  36% {
+    transform: scale(0.95);
   }
-  70% {
-    transform: scale(1.03);
+  68% {
+    transform: scale(1.04);
   }
   100% {
     transform: scale(1);
@@ -744,7 +747,7 @@
 
 @keyframes age-impact-flash-anim {
   0% {
-    opacity: 0.92;
+    opacity: 0.96;
   }
   100% {
     opacity: 0;
@@ -753,8 +756,8 @@
 
 @keyframes age-zenith-pulse-anim {
   0% {
-    scale: 1.5;
-    filter: brightness(1.7);
+    scale: 1.65;
+    filter: brightness(1.85);
   }
   100% {
     scale: 1;
@@ -793,39 +796,39 @@
 }
 
 .age-banner-enter {
-  animation: age-banner-in 260ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: age-banner-in 240ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 .age-banner-exit {
   animation: age-banner-out 380ms cubic-bezier(0.4, 0, 1, 1) forwards;
 }
 
-.age-dial-wheel-ready {
-  animation: age-dial-wheel-ready-anim 340ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+.age-dial-wheel-sweep {
+  animation: age-dial-wheel-sweep-anim 1080ms cubic-bezier(0.68, -0.45, 0.2, 1.12) 180ms both;
 }
 
-.age-dial-wheel-rotate {
-  animation: age-dial-wheel-rotate-anim 620ms cubic-bezier(0.42, 0.04, 0.32, 1) forwards;
+.age-dial-charge-glow {
+  animation: age-dial-charge-glow-anim 780ms ease-in 180ms both;
 }
 
-.age-dial-wheel-impact {
-  animation: age-dial-wheel-impact-anim 360ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+.age-screen-blink {
+  animation: age-screen-blink-anim 420ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
-.age-dial-wheel-settled {
-  transform: rotate(180deg);
+.age-shockwave-ring {
+  animation: age-shockwave-ring-anim 520ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 .age-text-slam {
-  animation: age-text-slam-anim 320ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: age-text-slam-anim 340ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 .age-impact-flash {
-  animation: age-impact-flash-anim 280ms ease-out forwards;
+  animation: age-impact-flash-anim 300ms ease-out forwards;
 }
 
 .age-zenith-pulse {
-  animation: age-zenith-pulse-anim 380ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: age-zenith-pulse-anim 420ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 .age-screen-shake {
@@ -833,11 +836,14 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .age-screen-shake {
+  .age-screen-shake,
+  .age-screen-blink,
+  .age-shockwave-ring {
     animation: none;
   }
-  .age-dial-wheel-rotate {
-    animation-duration: 180ms;
+  .age-dial-wheel-sweep {
+    animation-duration: 200ms;
+    animation-timing-function: ease-out;
   }
 }
 
