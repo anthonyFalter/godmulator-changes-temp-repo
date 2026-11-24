@@ -40,6 +40,7 @@ import {
   HyperspaceRippleEffectsVisual,
   updateBuildingNightMaterials,
 } from '../game/meshBuilders';
+import { getMilitaryVehicleStats } from '../game/vehicleCatalog';
 import {
   AutoOptimizer,
   AutoOptimizerDecisions,
@@ -1588,6 +1589,48 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
     const hoverHighlightRig = createEntityHighlightRig(0x56cfe1);
     const selectedHighlightRig = createEntityHighlightRig(0xffd166);
     const dragHighlightRig = createEntityHighlightRig(0x00f5d4);
+
+    // Pre-allocated 3D Effective Attack Range Ring for hovered or pinned military vehicles (0 per-frame allocs)
+    const vehicleRangeRingGroup = new THREE.Group();
+    vehicleRangeRingGroup.visible = false;
+    const vehicleRangeOuterGeo = new THREE.RingGeometry(0.972, 1.0, 64);
+    vehicleRangeOuterGeo.rotateX(-Math.PI / 2);
+    const vehicleRangeOuterMat = new THREE.MeshBasicMaterial({
+      color: 0x38bdf8,
+      transparent: true,
+      opacity: 0.85,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      depthTest: false,
+    });
+    const vehicleRangeOuterMesh = new THREE.Mesh(vehicleRangeOuterGeo, vehicleRangeOuterMat);
+    vehicleRangeOuterMesh.renderOrder = 26;
+    const vehicleRangeMidGeo = new THREE.RingGeometry(0.492, 0.505, 48);
+    vehicleRangeMidGeo.rotateX(-Math.PI / 2);
+    const vehicleRangeMidMat = new THREE.MeshBasicMaterial({
+      color: 0x38bdf8,
+      transparent: true,
+      opacity: 0.32,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      depthTest: false,
+    });
+    const vehicleRangeMidMesh = new THREE.Mesh(vehicleRangeMidGeo, vehicleRangeMidMat);
+    vehicleRangeMidMesh.renderOrder = 25;
+    const vehicleRangeFillGeo = new THREE.CircleGeometry(0.972, 64);
+    vehicleRangeFillGeo.rotateX(-Math.PI / 2);
+    const vehicleRangeFillMat = new THREE.MeshBasicMaterial({
+      color: 0x38bdf8,
+      transparent: true,
+      opacity: 0.11,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      depthTest: false,
+    });
+    const vehicleRangeFillMesh = new THREE.Mesh(vehicleRangeFillGeo, vehicleRangeFillMat);
+    vehicleRangeFillMesh.renderOrder = 24;
+    vehicleRangeRingGroup.add(vehicleRangeFillMesh, vehicleRangeMidMesh, vehicleRangeOuterMesh);
+    scene.add(vehicleRangeRingGroup);
 
     const dragTargetReticleGeo = new THREE.RingGeometry(0.28, 0.44, 16);
     dragTargetReticleGeo.rotateX(-Math.PI / 2);
@@ -7385,6 +7428,38 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           if (score < bestScore) {
             bestScore = score;
             bestId = u.id;
+          }
+        }
+      }
+
+      // Also allow inspecting Sea, Land, Air & Orbital vehicles in Inspect mode
+      if (propsRef.current.activeTool.kind === 'inspect' && simRef.current.vehicles) {
+        const simVehicles = simRef.current.vehicles;
+        for (let i = 0; i < simVehicles.length; i++) {
+          const v = simVehicles[i];
+          if (v.isMilitary && (v.hp ?? 1) <= 0) continue;
+          const vEntry = vehicleMeshes.get(v.id);
+          const vx = vEntry ? vEntry.group.position.x : v.x;
+          const vy = vEntry ? vEntry.group.position.y : v.y;
+          const vz = vEntry ? vEntry.group.position.z : v.z;
+          const pickRad =
+            v.type === 'orbital_mothership'
+              ? 2.1
+              : v.type === 'sky_carrier' || v.type === 'aircraft_carrier'
+                ? 1.65
+                : v.type === 'sky_cannonship' || v.type === 'warship' || v.type === 'orbital_gunship'
+                  ? 1.25
+                  : 0.95;
+          _pickCenter.set(vx, vy + 0.28, vz);
+          const distSq = ray.distanceSqToPoint(_pickCenter);
+          if (distSq <= pickRad * pickRad) {
+            const along = _pickDelta.subVectors(_pickCenter, ray.origin).dot(ray.direction);
+            // Slight priority bias for capital military vehicles so hovering them over crowds feels crisp
+            const score = along + distSq * 0.30 - (v.isMilitary ? 0.35 : 0);
+            if (score < bestScore) {
+              bestScore = score;
+              bestId = v.id;
+            }
           }
         }
       }
@@ -16406,10 +16481,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         dragTetherLine.visible = false;
       }
 
-      // Update Hover Highlight Ring (cyan pulsing enclosure + diamond pointer for hovered living unit)
+      // Update Hover Highlight Ring (cyan pulsing enclosure + diamond pointer for hovered unit or vehicle)
       const hoverTargetUnit = activeHoverUnitId
         ? simRef.current.units.find((u) => u.id === activeHoverUnitId && u.state !== 'ko')
         : undefined;
+      const hoverTargetVeh =
+        !hoverTargetUnit && activeHoverUnitId && simRef.current.vehicles
+          ? simRef.current.vehicles.find((v) => v.id === activeHoverUnitId && (!v.isMilitary || (v.hp ?? 1) > 0))
+          : undefined;
       if (hoverTargetUnit) {
         const metrics = getUnitInspectMetrics(hoverTargetUnit);
         const hasPos = getUnitRenderPos(hoverTargetUnit.id, _unitPosScratch);
@@ -16425,17 +16504,40 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           metrics.bodyHeight + 0.45 + Math.sin(elapsedTotal * 5.2) * 0.09;
         hoverHighlightRig.pointer.rotation.y = elapsedTotal * 2.6;
         hoverHighlightRig.ringMat.opacity = 0.78 + Math.sin(elapsedTotal * 7.5) * 0.18;
+      } else if (hoverTargetVeh) {
+        const vEntry = vehicleMeshes.get(hoverTargetVeh.id);
+        const hx = vEntry ? vEntry.group.position.x : hoverTargetVeh.x;
+        const hy = vEntry ? vEntry.group.position.y : hoverTargetVeh.y;
+        const hz = vEntry ? vEntry.group.position.z : hoverTargetVeh.z;
+        const vRingScale =
+          hoverTargetVeh.type === 'orbital_mothership'
+            ? 2.8
+            : hoverTargetVeh.type === 'sky_carrier' || hoverTargetVeh.type === 'aircraft_carrier'
+              ? 2.2
+              : 1.5;
+        const pulse = 1 + Math.sin(elapsedTotal * 7.5) * 0.06;
+        hoverHighlightRig.group.visible = true;
+        hoverHighlightRig.group.position.set(hx, hy, hz);
+        hoverHighlightRig.ringRoot.scale.setScalar(vRingScale * pulse);
+        hoverHighlightRig.ringRoot.rotation.y = elapsedTotal * 1.2;
+        hoverHighlightRig.pointer.position.y = 1.15 + Math.sin(elapsedTotal * 5.2) * 0.1;
+        hoverHighlightRig.pointer.rotation.y = elapsedTotal * 2.4;
+        hoverHighlightRig.ringMat.opacity = 0.8 + Math.sin(elapsedTotal * 7.5) * 0.16;
       } else {
         hoverHighlightRig.group.visible = false;
       }
 
-      // Update Selected Highlight Ring (warm amber-gold enclosure)
+      // Update Selected Highlight Ring (warm amber-gold enclosure for pinned unit or vehicle)
       const selectedTargetUnit =
         activeSelectedUnitId && activeSelectedUnitId !== activeHoverUnitId
           ? simRef.current.units.find((u) => u.id === activeSelectedUnitId && u.state !== 'ko')
           : activeSelectedUnitId && activeSelectedUnitId === activeHoverUnitId
             ? hoverTargetUnit
             : undefined;
+      const selectedTargetVeh =
+        !selectedTargetUnit && activeSelectedUnitId && simRef.current.vehicles
+          ? simRef.current.vehicles.find((v) => v.id === activeSelectedUnitId && (!v.isMilitary || (v.hp ?? 1) > 0))
+          : undefined;
       if (selectedTargetUnit) {
         const metrics = getUnitInspectMetrics(selectedTargetUnit);
         const hasPos = getUnitRenderPos(selectedTargetUnit.id, _unitPosScratch);
@@ -16451,8 +16553,59 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         selectedHighlightRig.pointer.position.y =
           metrics.bodyHeight + 0.48 + Math.sin(elapsedTotal * 4.2) * 0.07;
         selectedHighlightRig.pointer.rotation.y = -elapsedTotal * 2.1;
+      } else if (selectedTargetVeh) {
+        const vEntry = vehicleMeshes.get(selectedTargetVeh.id);
+        const sx = vEntry ? vEntry.group.position.x : selectedTargetVeh.x;
+        const sy = vEntry ? vEntry.group.position.y : selectedTargetVeh.y;
+        const sz = vEntry ? vEntry.group.position.z : selectedTargetVeh.z;
+        const vRingScale =
+          selectedTargetVeh.type === 'orbital_mothership'
+            ? 2.95
+            : selectedTargetVeh.type === 'sky_carrier' || selectedTargetVeh.type === 'aircraft_carrier'
+              ? 2.35
+              : 1.65;
+        selectedHighlightRig.group.visible = true;
+        selectedHighlightRig.group.position.set(sx, sy, sz);
+        selectedHighlightRig.ringRoot.scale.setScalar(vRingScale);
+        selectedHighlightRig.ringRoot.rotation.y = -elapsedTotal * 0.8;
+        selectedHighlightRig.pointer.visible = selectedTargetVeh.id !== activeHoverUnitId;
+        selectedHighlightRig.pointer.position.y = 1.25 + Math.sin(elapsedTotal * 4.2) * 0.08;
+        selectedHighlightRig.pointer.rotation.y = -elapsedTotal * 2.0;
       } else {
         selectedHighlightRig.group.visible = false;
+      }
+
+      // Update 3D Effective Attack Range Ring for hovered or pinned military vehicles (Sea, Land, Air & Orbital)
+      const rangeTargetVeh =
+        isInspectMode
+          ? (hoverTargetVeh?.isMilitary ? hoverTargetVeh : undefined) ??
+            (selectedTargetVeh?.isMilitary ? selectedTargetVeh : undefined)
+          : undefined;
+      if (rangeTargetVeh) {
+        const vEntry = vehicleMeshes.get(rangeTargetVeh.id);
+        const rx = vEntry ? vEntry.group.position.x : rangeTargetVeh.x;
+        const rz = vEntry ? vEntry.group.position.z : rangeTargetVeh.z;
+        const vStats = getMilitaryVehicleStats(rangeTargetVeh.type, rangeTargetVeh.epochLevel);
+        const groundTile = getTileFromArray(simRef.current, Math.round(rx), Math.round(rz));
+        const ringY = getTileEffectSurfaceY(groundTile, 0.34) + 0.12;
+        const ringColor =
+          vStats.domain === 'orbital'
+            ? 0xc084fc
+            : vStats.domain === 'air'
+              ? 0xfbbf24
+              : vStats.domain === 'land'
+                ? 0xf97316
+                : 0x38bdf8;
+        vehicleRangeRingGroup.visible = true;
+        vehicleRangeRingGroup.position.set(rx, ringY, rz);
+        vehicleRangeRingGroup.scale.setScalar(vStats.fireRange);
+        vehicleRangeOuterMat.color.setHex(ringColor);
+        vehicleRangeMidMat.color.setHex(ringColor);
+        vehicleRangeFillMat.color.setHex(ringColor);
+        vehicleRangeOuterMat.opacity = 0.76 + Math.sin(elapsedTotal * 5.0) * 0.16;
+        vehicleRangeFillMat.opacity = 0.09 + Math.sin(elapsedTotal * 3.5) * 0.03;
+      } else {
+        vehicleRangeRingGroup.visible = false;
       }
 
       // Update Persistent Golden Star Markers above Favorited Living Units & Royal Crowns above Kings
@@ -17484,6 +17637,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       bridgeKit.stoneSideGeo.dispose();
       bridgeKit.ironSideGeo.dispose();
       bridgeKitMat.dispose();
+      vehicleRangeOuterGeo.dispose();
+      vehicleRangeOuterMat.dispose();
+      vehicleRangeMidGeo.dispose();
+      vehicleRangeMidMat.dispose();
+      vehicleRangeFillGeo.dispose();
+      vehicleRangeFillMat.dispose();
       chunkTerrain.dispose();
       terrainWorkerPool.dispose();
       for (const batch of propBatches) batch.dispose();

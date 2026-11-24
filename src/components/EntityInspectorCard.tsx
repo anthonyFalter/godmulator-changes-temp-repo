@@ -1,11 +1,18 @@
 import React, { useMemo, useState } from 'react';
+import { EPOCHS } from '../game/catalog';
 import { getEntityInspectProfile } from '../game/entityInspector';
 import {
   SimulationState,
   UnitEntity,
   UnitStatKey,
   UnitStatusEffect,
+  VehicleEntity,
 } from '../game/types';
+import {
+  getMilitaryVehicleStats,
+  getVehicleDisplayName,
+  getVehicleProgressionTrack,
+} from '../game/vehicleCatalog';
 import {
   ItemSlot,
   TraitCategory,
@@ -32,6 +39,8 @@ interface EntityInspectorCardProps extends UnitEditHandlers {
   sim: SimulationState;
   hoveredUnit: UnitEntity | null;
   selectedUnit: UnitEntity | null;
+  hoveredVehicle?: VehicleEntity | null;
+  selectedVehicle?: VehicleEntity | null;
   favoriteUnits: UnitEntity[];
   followingEntityId?: string | null;
   onToggleFavorite: (unitId: string) => void;
@@ -113,6 +122,8 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
   sim,
   hoveredUnit,
   selectedUnit,
+  hoveredVehicle,
+  selectedVehicle,
   favoriteUnits,
   followingEntityId,
   onToggleFavorite,
@@ -130,6 +141,8 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
   onAddUnitItem,
   onRemoveUnitItem,
 }) => {
+  const displayVehicle = hoveredVehicle ?? selectedVehicle ?? null;
+  const isPinnedVehicle = Boolean(selectedVehicle && (!hoveredVehicle || hoveredVehicle.id === selectedVehicle.id));
   const [activeTab, setActiveTab] = useState<InspectorTab>('stats');
   const [minimized, setMinimized] = useState<boolean>(false);
   const [editMode, setEditMode] = useState<boolean>(false);
@@ -1279,7 +1292,146 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
             </div>
           )}
         </>
-      ) : (
+      ) : displayVehicle ? (() => {
+        const vStats = getMilitaryVehicleStats(displayVehicle.type, displayVehicle.epochLevel);
+        const vName = getVehicleDisplayName(displayVehicle.type, displayVehicle.epochLevel, displayVehicle.species);
+        const vEpochDef = EPOCHS[Math.min(EPOCHS.length - 1, Math.max(0, displayVehicle.epochLevel))];
+        const vHomeCity = sim.settlementNames?.[displayVehicle.settlementId] ?? displayVehicle.settlementId;
+        const vHp = Math.max(0, Math.round(displayVehicle.hp ?? vStats.maxHp));
+        const vMaxHp = Math.max(1, Math.round(displayVehicle.maxHp ?? vStats.maxHp));
+        const vHpPct = Math.max(0, Math.min(100, Math.round((vHp / vMaxHp) * 100)));
+        const progTrack = getVehicleProgressionTrack(displayVehicle.type);
+        const domainColors: Record<string, string> = {
+          sea: 'text-[#38bdf8] border-[#38bdf8]/60 bg-[#0c2333]',
+          land: 'text-[#fb923c] border-[#fb923c]/60 bg-[#2d180c]',
+          air: 'text-[#fbbf24] border-[#fbbf24]/60 bg-[#2b210b]',
+          orbital: 'text-[#c084fc] border-[#c084fc]/60 bg-[#241236]',
+        };
+        const domainBadgeClass = domainColors[vStats.domain] ?? domainColors.sea;
+        return (
+          <div className="space-y-2.5 text-xs text-[#e8d8c4]" data-testid="vehicle-inspector-card">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <h2 className="text-xs sm:text-sm font-bold text-[#f4e7d4] leading-tight truncate">
+                    {vName}
+                  </h2>
+                  <span className={`px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider border ${domainBadgeClass}`}>
+                    {vStats.domain}
+                  </span>
+                </div>
+                <div className="text-[10px] text-[#bfa88f] mt-0.5 flex items-center gap-1.5 flex-wrap">
+                  <span className="capitalize text-[#f2c478] font-semibold">{displayVehicle.species}</span>
+                  <span>·</span>
+                  <span>{vEpochDef?.name ?? `Epoch ${displayVehicle.epochLevel}`}</span>
+                  <span>·</span>
+                  <span className="truncate">{vHomeCity}</span>
+                </div>
+              </div>
+              {isPinnedVehicle && (
+                <button
+                  type="button"
+                  onClick={() => onSelectUnit(null)}
+                  className="px-btn px-1.5 py-0.5 text-[10px] text-[#f2c478] cursor-pointer shrink-0"
+                  title="Unpin Vehicle"
+                >
+                  Unpin
+                </button>
+              )}
+            </div>
+
+            {displayVehicle.isMilitary && (
+              <>
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-[10px]">
+                    <span className="text-[#ccb69c] font-semibold">Hull Integrity</span>
+                    <span className="font-pixel-num text-[#80ed99] tabular-nums">
+                      {vHp} / {vMaxHp}
+                    </span>
+                  </div>
+                  <div className="w-full h-2 bg-[#1c1512] border border-[#4a372c] overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-[#22c55e] to-[#86efac]"
+                      style={{ width: `${vHpPct}%` }}
+                    />
+                  </div>
+                </div>
+
+                {/* Tactical Stats + Effective Attack Range Highlight */}
+                <div className="grid grid-cols-2 gap-1.5">
+                  <div className="p-1.5 bg-[#121c24] border border-[#38bdf8]/55">
+                    <div className="text-[9px] uppercase tracking-wider text-[#7dd3fc]">Effective Range</div>
+                    <div className="font-pixel-num text-xs font-bold text-[#e0f2fe] tabular-nums">
+                      {vStats.fireRange.toFixed(1)} tiles
+                    </div>
+                  </div>
+                  <div className="p-1.5 bg-[#1e1512] border border-[#544034]">
+                    <div className="text-[9px] uppercase tracking-wider text-[#bfa88f]">Firepower</div>
+                    <div className="font-pixel-num text-xs font-bold text-[#fca5a5] tabular-nums">
+                      {vStats.dmg} dmg
+                    </div>
+                  </div>
+                  <div className="p-1.5 bg-[#1e1512] border border-[#544034]">
+                    <div className="text-[9px] uppercase tracking-wider text-[#bfa88f]">Cruise Speed</div>
+                    <div className="font-pixel-num text-xs font-bold text-[#fde68a] tabular-nums">
+                      {vStats.speed.toFixed(1)}
+                    </div>
+                  </div>
+                  <div className="p-1.5 bg-[#1e1512] border border-[#544034]">
+                    <div className="text-[9px] uppercase tracking-wider text-[#bfa88f]">Elevation</div>
+                    <div className="font-pixel-num text-xs font-bold text-[#d8b4fe] tabular-nums">
+                      {vStats.cruiseY >= 5.5
+                        ? 'High Sky / Orbit'
+                        : vStats.cruiseY >= 2.0
+                          ? 'Airborne'
+                          : vStats.domain === 'sea'
+                            ? displayVehicle.type === 'submarine'
+                              ? 'Submerged'
+                              : 'Sea Surface'
+                            : 'Ground'}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Age Innovation Progression Track */}
+                <div className="pt-1.5 border-t border-[#423229] space-y-1">
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-[#f2c478]">
+                    Era Innovation Track
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {progTrack.map((tier) => {
+                      const unlocked = displayVehicle.epochLevel >= tier.epoch;
+                      const isCurrent =
+                        unlocked &&
+                        !progTrack.some((t2) => t2.epoch > tier.epoch && displayVehicle.epochLevel >= t2.epoch);
+                      return (
+                        <span
+                          key={tier.epoch}
+                          className={`px-1.5 py-0.5 text-[9px] font-bold border ${
+                            isCurrent
+                              ? 'bg-[#2e2412] border-[#fbbf24] text-[#fef08a]'
+                              : unlocked
+                                ? 'bg-[#1b221a] border-[#4d6b47] text-[#a7f3d0]'
+                                : 'bg-[#171311] border-[#382b24] text-[#7a685b]'
+                          }`}
+                        >
+                          {tier.label}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+              </>
+            )}
+
+            <div className="text-[10px] text-[#9eb8cc]">
+              {isPinnedVehicle
+                ? 'Pinned — effective attack range ring is locked on map.'
+                : 'Click vehicle to pin its attack range ring on the map.'}
+            </div>
+          </div>
+        );
+      })() : (
         <div className="space-y-2 text-xs text-[#ccb69c]" data-testid="entity-inspector-empty">
           <div className="flex items-center justify-between gap-2">
             <h2 className="font-bold text-[#f2c478] text-xs sm:text-sm">Entity Inspector</h2>
@@ -1294,7 +1446,7 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
           </div>
 
           <p className="text-xs text-[#b09880]">
-            Hover or tap on any unit or creature to inspect stats, traits, genetics, and items.
+            Hover or tap on any unit, creature, or war vehicle to inspect stats, traits, genetics, and effective attack range.
           </p>
 
           {favoriteUnits.length > 0 && (

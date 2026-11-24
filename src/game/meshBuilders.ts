@@ -4,6 +4,7 @@ import { ANIMAL_ROLE_SET, getDragonVariant } from './catalog';
 import { wrapShaderTime } from './dayNightLighting';
 import { getVoxelTreeLibrary } from './voxelTrees';
 import { enhanceMythicBeastModel } from './mythicEnhancements';
+import { createCapitalWarVehicleGroup } from './warVehicleMeshes';
 import {
   BuildingType,
   ResourceNodeType,
@@ -15641,6 +15642,8 @@ export function createVehicleGroup(
   species: SpeciesId = 'human',
   variantSeed = 0,
 ): THREE.Group {
+  const capital = createCapitalWarVehicleGroup(type, epochLevel, species);
+  if (capital) return capital;
   const group = buildVehicleGroupInner(type, epochLevel, species, variantSeed);
   // Collapse 10-18 static sub-meshes per vehicle into 1-2 shared-material vertex-colored draw calls (PERFORMANCE_README Rule 2)
   bakeVertexColoredStaticMeshes(group, VEHICLE_SKIP_MERGE_NAMES, {
