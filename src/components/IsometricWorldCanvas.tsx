@@ -188,6 +188,7 @@ interface IsometricWorldCanvasProps {
   hoveredEntityId?: string | null;
   selectedEntityId?: string | null;
   followingEntityId?: string | null;
+  firstPersonEntityId?: string | null;
   selectedCityId?: string | null;
   zoneOverlayBuffers?: {
     colorData: Uint8Array;
@@ -213,6 +214,7 @@ interface IsometricWorldCanvasProps {
     tileZ: number;
   }) => void;
   onBreakFollow?: () => void;
+  onExitFirstPerson?: () => void;
   onSyncHud: () => void;
   onPerfTelemetry?: (snapshot: PerfTelemetrySnapshot) => void;
 }
@@ -252,6 +254,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
   hoveredEntityId = null,
   selectedEntityId = null,
   followingEntityId = null,
+  firstPersonEntityId = null,
   selectedCityId = null,
   captureThumbnailRef,
   zoneOverlayBuffers,
@@ -261,6 +264,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
   onSelectEntity,
   onSelectCityLabel,
   onBreakFollow,
+  onExitFirstPerson,
   onSyncHud,
   onPerfTelemetry,
 }) => {
@@ -285,12 +289,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
     hoveredEntityId,
     selectedEntityId,
     followingEntityId,
+    firstPersonEntityId,
     zoneOverlayBuffers,
     onTileInteract,
     onHoverTileChange,
     onHoverEntityChange,
     onSelectEntity,
     onBreakFollow,
+    onExitFirstPerson,
     onSyncHud,
     onPerfTelemetry,
   });
@@ -311,12 +317,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       hoveredEntityId,
       selectedEntityId,
       followingEntityId,
+      firstPersonEntityId,
       zoneOverlayBuffers,
       onTileInteract,
       onHoverTileChange,
       onHoverEntityChange,
       onSelectEntity,
       onBreakFollow,
+      onExitFirstPerson,
       onSyncHud,
       onPerfTelemetry,
     };
@@ -335,12 +343,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
     hoveredEntityId,
     selectedEntityId,
     followingEntityId,
+    firstPersonEntityId,
     zoneOverlayBuffers,
     onTileInteract,
     onHoverTileChange,
     onHoverEntityChange,
     onSelectEntity,
     onBreakFollow,
+    onExitFirstPerson,
     onSyncHud,
     onPerfTelemetry,
   ]);
@@ -417,6 +427,28 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       -camDepthSpan,
       camDepthSpan + 120,
     );
+
+    // First-Person Possession Camera & zero-allocation state
+    const fpCamera = new THREE.PerspectiveCamera(68, aspect, 0.08, 190);
+    fpCamera.rotation.order = 'YXZ';
+    let fpActiveUnitId: string | null = null;
+    let fpHiddenMeshId: string | null = null;
+    let fpYaw = 0;
+    let fpPitch = -0.05;
+    let fpLookDragging = false;
+    let fpLookPointerId: number | null = null;
+    let fpLookLastX = 0;
+    let fpLookLastY = 0;
+    let fpLookMoved = 0;
+    let fpJumpOffset = 0;
+    let fpJumpVel = 0;
+    let fpWalkPhase = 0;
+    let fpAttackSwing = 0;
+    let fpAttackCooldown = 0;
+    let fpPreFrustum = 24;
+    const fpPreTarget = new THREE.Vector3();
+    let fpHasSavedCam = false;
+    let isFirstPersonRendering = false;
 
     const gridCenter = (sim.gridSize - 1) / 2;
 
@@ -7445,6 +7477,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       camera.top = frustumSize / 2;
       camera.bottom = -frustumSize / 2;
       camera.updateProjectionMatrix();
+      fpCamera.aspect = newAspect;
+      fpCamera.updateProjectionMatrix();
     };
 
     updateSize();
@@ -7667,7 +7701,60 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       return [first, second];
     };
 
+    const triggerFirstPersonStrike = () => {
+      const fpId = propsRef.current.firstPersonEntityId;
+      if (!fpId || fpAttackCooldown > 0) return;
+      const fpUnit = simRef.current.units.find((u) => u.id === fpId && u.state !== 'ko');
+      if (!fpUnit) return;
+      fpAttackSwing = 1;
+      fpAttackCooldown = 0.35;
+      const reach = 2.4 * Math.max(0.85, Math.min(2.0, fpUnit.sizeScale ?? 1.0));
+      const fwdX = -Math.sin(fpYaw);
+      const fwdZ = -Math.cos(fpYaw);
+      let bestTarget: (typeof simRef.current.units)[number] | null = null;
+      let bestDistSq = reach * reach;
+      for (let i = 0; i < simRef.current.units.length; i++) {
+        const other = simRef.current.units[i];
+        if (other.id === fpUnit.id || other.state === 'ko') continue;
+        if (fpUnit.kingdomId && other.kingdomId === fpUnit.kingdomId) continue;
+        const dx = other.x - fpUnit.x;
+        const dz = other.z - fpUnit.z;
+        const dSq = dx * dx + dz * dz;
+        if (dSq > bestDistSq || dSq < 0.0001) continue;
+        const dist = Math.sqrt(dSq);
+        const dot = (dx * fwdX + dz * fwdZ) / dist;
+        if (dot > 0.35) {
+          bestDistSq = dSq;
+          bestTarget = other;
+        }
+      }
+      if (bestTarget) {
+        const dmg = Math.max(10, Math.round(14 + (fpUnit.statBonuses?.attackDamage ?? 0)));
+        bestTarget.hp = Math.max(0, bestTarget.hp - dmg);
+        bestTarget.x = THREE.MathUtils.clamp(bestTarget.x + fwdX * 0.45, 1, simRef.current.gridSize - 2);
+        bestTarget.z = THREE.MathUtils.clamp(bestTarget.z + fwdZ * 0.45, 1, simRef.current.gridSize - 2);
+        if (bestTarget.hp <= 0) {
+          bestTarget.state = 'ko';
+        }
+        propsRef.current.onSyncHud();
+      }
+    };
+
     const onPointerDown = (e: PointerEvent) => {
+      if (propsRef.current.firstPersonEntityId && propsRef.current.gameState === 'playing') {
+        fpLookDragging = true;
+        fpLookPointerId = e.pointerId;
+        fpLookLastX = e.clientX;
+        fpLookLastY = e.clientY;
+        fpLookMoved = 0;
+        try {
+          renderer.domElement.setPointerCapture(e.pointerId);
+        } catch {
+          // ignore capture error
+        }
+        return;
+      }
+
       if (e.pointerType === 'touch') {
         activeTouches.set(e.pointerId, { clientX: e.clientX, clientY: e.clientY });
 
@@ -7808,6 +7895,19 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
     };
 
     const onPointerMove = (e: PointerEvent) => {
+      if (propsRef.current.firstPersonEntityId && propsRef.current.gameState === 'playing') {
+        if (fpLookDragging && fpLookPointerId === e.pointerId) {
+          const dx = e.clientX - fpLookLastX;
+          const dy = e.clientY - fpLookLastY;
+          fpLookLastX = e.clientX;
+          fpLookLastY = e.clientY;
+          fpLookMoved += Math.abs(dx) + Math.abs(dy);
+          fpYaw -= dx * 0.0055;
+          fpPitch = THREE.MathUtils.clamp(fpPitch - dy * 0.0045, -1.15, 0.95);
+        }
+        return;
+      }
+
       if (e.pointerType === 'touch') {
         if (activeTouches.has(e.pointerId)) {
           activeTouches.set(e.pointerId, { clientX: e.clientX, clientY: e.clientY });
@@ -7991,6 +8091,17 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
     };
 
     const onPointerUp = (e: PointerEvent) => {
+      if (propsRef.current.firstPersonEntityId && propsRef.current.gameState === 'playing') {
+        if (fpLookDragging && fpLookPointerId === e.pointerId) {
+          fpLookDragging = false;
+          fpLookPointerId = null;
+          if (e.type === 'pointerup' && fpLookMoved < 7) {
+            triggerFirstPersonStrike();
+          }
+        }
+        return;
+      }
+
       if (e.pointerType === 'touch') {
         activeTouches.delete(e.pointerId);
 
@@ -8149,6 +8260,20 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       keysPressed.add(e.code);
 
       if (propsRef.current.gameState !== 'playing') return;
+
+      if (propsRef.current.firstPersonEntityId) {
+        if (e.code === 'Escape') {
+          e.preventDefault();
+          propsRef.current.onExitFirstPerson?.();
+        } else if (e.code === 'Space') {
+          e.preventDefault();
+          if (fpJumpOffset <= 0.001) fpJumpVel = 3.5;
+        } else if (e.code === 'KeyF') {
+          e.preventDefault();
+          triggerFirstPersonStrike();
+        }
+        return;
+      }
 
       // Single-press desktop camera view shortcuts
       if (e.code === 'BracketLeft') {
@@ -10393,8 +10518,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           Boolean(u.isKing) ||
           isBossUnit;
 
-        // Embarked or off-screen units are completely unrendered and live purely in simulation data
-        if (u.embarkedVehicleId) {
+        // Embarked, first-person possessed, or off-screen units are completely unrendered and live purely in simulation data
+        if (u.embarkedVehicleId || (propsRef.current.firstPersonEntityId && u.id === propsRef.current.firstPersonEntityId)) {
           continue;
         }
         if (!isCameraPinnedUnit) {
@@ -14038,9 +14163,205 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         camAct.focusTarget = null;
       }
 
+      // First-Person Possession Mode (WASD move, Shift sprint, Space jump, Q/E/Arrows look, Click/F strike)
+      const requestedFpId = currentGameState === 'playing' ? propsRef.current.firstPersonEntityId : null;
+      if (requestedFpId) {
+        const curSim = simRef.current;
+        const fpUnit = curSim.units.find((u) => u.id === requestedFpId && u.state !== 'ko');
+        if (!fpUnit) {
+          isFirstPersonRendering = false;
+          fpActiveUnitId = null;
+          fpHiddenMeshId = null;
+          if (fpHasSavedCam) {
+            desiredFrustum = THREE.MathUtils.clamp(fpPreFrustum, 7.5, maxZoomOut);
+            camDesiredTarget.copy(fpPreTarget);
+            fpHasSavedCam = false;
+          }
+          propsRef.current.onExitFirstPerson?.();
+        } else {
+          if (fpActiveUnitId !== fpUnit.id) {
+            if (!fpHasSavedCam) {
+              fpPreFrustum = desiredFrustum;
+              fpPreTarget.copy(camDesiredTarget);
+              fpHasSavedCam = true;
+            }
+            fpActiveUnitId = fpUnit.id;
+            fpHiddenMeshId = fpUnit.id;
+            fpYaw = camYaw;
+            fpPitch = -0.06;
+            fpJumpOffset = 0;
+            fpJumpVel = 0;
+            fpWalkPhase = 0;
+            fpAttackSwing = 0;
+            fpAttackCooldown = 0;
+            desiredFrustum = THREE.MathUtils.clamp(28, 7.5, maxZoomOut);
+          }
+
+          // Smooth keyboard yaw turn with Q/E or Left/Right arrows
+          const fpTurnSpeed = 2.05 * dt;
+          if (keysPressed.has('KeyQ') || keysPressed.has('ArrowLeft')) fpYaw += fpTurnSpeed;
+          if (keysPressed.has('KeyE') || keysPressed.has('ArrowRight')) fpYaw -= fpTurnSpeed;
+
+          // Movement relative to first-person look direction
+          let moveFwd = 0;
+          let moveRight = 0;
+          if (keysPressed.has('KeyW') || keysPressed.has('ArrowUp')) moveFwd += 1;
+          if (keysPressed.has('KeyS') || keysPressed.has('ArrowDown')) moveFwd -= 1;
+          if (keysPressed.has('KeyD')) moveRight += 1;
+          if (keysPressed.has('KeyA')) moveRight -= 1;
+
+          const sprinting = keysPressed.has('ShiftLeft') || keysPressed.has('ShiftRight');
+          const raceSpeedMult =
+            fpUnit.species === 'elf'
+              ? 1.18
+              : fpUnit.species === 'dwarf'
+                ? 0.88
+                : fpUnit.species === 'orc'
+                  ? 1.05
+                  : fpUnit.species === 'lizardfolk'
+                    ? 1.12
+                    : 1.0;
+          const speedBonusMult = 1 + (fpUnit.statBonuses?.speed ?? 0) * 0.08;
+          const baseMoveSpeed = Math.max(2.6, 3.6 * speedBonusMult) * raceSpeedMult;
+          const moveSpeed = baseMoveSpeed * (sprinting ? 1.65 : 1.0);
+
+          let isMovingFp = false;
+          if (moveFwd !== 0 || moveRight !== 0) {
+            const len = Math.hypot(moveFwd, moveRight);
+            const nf = moveFwd / len;
+            const nr = moveRight / len;
+            const fwdX = -Math.sin(fpYaw);
+            const fwdZ = -Math.cos(fpYaw);
+            const rightX = Math.cos(fpYaw);
+            const rightZ = -Math.sin(fpYaw);
+            const stepX = (fwdX * nf + rightX * nr) * moveSpeed * dt;
+            const stepZ = (fwdZ * nf + rightZ * nr) * moveSpeed * dt;
+            const gSize = curSim.gridSize;
+            const candX = THREE.MathUtils.clamp(fpUnit.x + stepX, 1.5, gSize - 2.5);
+            const candZ = THREE.MathUtils.clamp(fpUnit.z + stepZ, 1.5, gSize - 2.5);
+
+            const canStepTile = (tx: number, tz: number) => {
+              const ix = Math.max(0, Math.min(gSize - 1, Math.round(tx)));
+              const iz = Math.max(0, Math.min(gSize - 1, Math.round(tz)));
+              const t = curSim.tiles[iz * gSize + ix];
+              if (!t) return false;
+              // Lizardfolk can swim freely; other races wade shallows but avoid deep abyssal water
+              if (t.terrain === 'deep_water' && fpUnit.species !== 'lizardfolk') {
+                return false;
+              }
+              return true;
+            };
+
+            if (canStepTile(candX, candZ)) {
+              fpUnit.x = candX;
+              fpUnit.z = candZ;
+              isMovingFp = true;
+            } else if (canStepTile(candX, fpUnit.z)) {
+              fpUnit.x = candX;
+              isMovingFp = true;
+            } else if (canStepTile(fpUnit.x, candZ)) {
+              fpUnit.z = candZ;
+              isMovingFp = true;
+            }
+          }
+
+          // Override unit AI while possessed so the player stays in full command
+          fpUnit.targetX = fpUnit.x;
+          fpUnit.targetZ = fpUnit.z;
+          if (fpUnit.state !== 'fighting') {
+            fpUnit.state = isMovingFp ? 'moving' : 'idle';
+          }
+
+          // Jump & gravity physics
+          if (fpJumpOffset > 0 || fpJumpVel > 0) {
+            fpJumpOffset += fpJumpVel * dt;
+            fpJumpVel -= 14.5 * dt;
+            if (fpJumpOffset <= 0) {
+              fpJumpOffset = 0;
+              fpJumpVel = 0;
+            }
+          }
+
+          // Walk head-bob & melee lunge decay
+          if (isMovingFp && fpJumpOffset <= 0.01) {
+            fpWalkPhase += dt * (sprinting ? 12.5 : 8.5);
+          } else {
+            fpWalkPhase = THREE.MathUtils.damp(fpWalkPhase, Math.round(fpWalkPhase / Math.PI) * Math.PI, 8, dt);
+          }
+          if (fpAttackSwing > 0) fpAttackSwing = Math.max(0, fpAttackSwing - dt * 4.5);
+          if (fpAttackCooldown > 0) fpAttackCooldown = Math.max(0, fpAttackCooldown - dt);
+
+          // Bilinear ground height sampling for smooth hill traversal
+          const gSize = curSim.gridSize;
+          const fx = THREE.MathUtils.clamp(fpUnit.x, 0, gSize - 1.001);
+          const fz = THREE.MathUtils.clamp(fpUnit.z, 0, gSize - 1.001);
+          const x0 = Math.floor(fx);
+          const z0 = Math.floor(fz);
+          const x1 = Math.min(gSize - 1, x0 + 1);
+          const z1 = Math.min(gSize - 1, z0 + 1);
+          const txFrac = fx - x0;
+          const tzFrac = fz - z0;
+          const h00 = Math.max(0.15, (curSim.tiles[z0 * gSize + x0]?.height ?? 1) * HEIGHT_STEP);
+          const h10 = Math.max(0.15, (curSim.tiles[z0 * gSize + x1]?.height ?? 1) * HEIGHT_STEP);
+          const h01 = Math.max(0.15, (curSim.tiles[z1 * gSize + x0]?.height ?? 1) * HEIGHT_STEP);
+          const h11 = Math.max(0.15, (curSim.tiles[z1 * gSize + x1]?.height ?? 1) * HEIGHT_STEP);
+          const hTop = h00 + (h10 - h00) * txFrac;
+          const hBot = h01 + (h11 - h01) * txFrac;
+          const groundY = hTop + (hBot - hTop) * tzFrac;
+
+          // Race-authentic eye height scaled by unit.sizeScale
+          const raceEyeBase =
+            fpUnit.species === 'dwarf'
+              ? 0.54
+              : fpUnit.species === 'elf'
+                ? 0.82
+                : fpUnit.species === 'orc'
+                  ? 0.88
+                  : fpUnit.species === 'lizardfolk'
+                    ? 0.72
+                    : 0.75;
+          const eyeHeight = raceEyeBase * (fpUnit.sizeScale ?? 1.0);
+          const bobY = isMovingFp && fpJumpOffset <= 0.01 ? Math.sin(fpWalkPhase) * 0.042 : 0;
+          const lungeAmt = Math.sin(fpAttackSwing * Math.PI) * 0.18;
+          const fwdX = -Math.sin(fpYaw);
+          const fwdZ = -Math.cos(fpYaw);
+
+          fpCamera.position.set(
+            fpUnit.x + fwdX * lungeAmt,
+            groundY + eyeHeight + fpJumpOffset + bobY,
+            fpUnit.z + fwdZ * lungeAmt,
+          );
+          fpCamera.rotation.set(
+            fpPitch - Math.sin(fpAttackSwing * Math.PI) * 0.06,
+            fpYaw,
+            isMovingFp && fpJumpOffset <= 0.01 ? Math.cos(fpWalkPhase * 0.5) * 0.012 : 0,
+          );
+          fpCamera.updateMatrixWorld();
+
+          // Keep isometric shadow & culling center tracking the possessed unit
+          camDesiredTarget.set(
+            THREE.MathUtils.clamp(fpUnit.x, 2, gSize - 3),
+            Math.max(1.2, groundY),
+            THREE.MathUtils.clamp(fpUnit.z, 2, gSize - 3),
+          );
+          isFirstPersonRendering = true;
+        }
+      } else if (isFirstPersonRendering || fpActiveUnitId !== null) {
+        isFirstPersonRendering = false;
+        fpActiveUnitId = null;
+        fpHiddenMeshId = null;
+        fpLookDragging = false;
+        fpLookPointerId = null;
+        if (fpHasSavedCam) {
+          desiredFrustum = THREE.MathUtils.clamp(fpPreFrustum, 7.5, maxZoomOut);
+          camDesiredTarget.copy(fpPreTarget);
+          fpHasSavedCam = false;
+        }
+      }
+
       // Desktop keyboard camera controls: WASD/Arrows pan (+Shift boost), Q/E rotate, +/-/PgUp/PgDn zoom
       let panKeyMoved = false;
-      if (currentGameState === 'playing') {
+      if (currentGameState === 'playing' && !isFirstPersonRendering) {
         const boost = keysPressed.has('ShiftLeft') || keysPressed.has('ShiftRight') ? 2.0 : 1.0;
         const panSpeed = Math.max(12, frustumSize * 1.15) * boost * dt;
         const forwardX = -Math.sin(camYaw);
@@ -16095,8 +16416,15 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       camera.lookAt(camTarget.x, camTarget.y, camTarget.z);
       camera.updateMatrixWorld();
 
-      // Compute generously padded orthographic ground-plane cull bounds (AABB + exact rotated OBB) before syncing entities
-      if (elapsedTotal > 0.05) {
+      // Compute generously padded ground-plane cull bounds before syncing entities
+      if (isFirstPersonRendering) {
+        const fpRadius = 52;
+        worldCullBounds.minX = fpCamera.position.x - fpRadius;
+        worldCullBounds.maxX = fpCamera.position.x + fpRadius;
+        worldCullBounds.minZ = fpCamera.position.z - fpRadius;
+        worldCullBounds.maxZ = fpCamera.position.z + fpRadius;
+        worldCullBounds.obbEnabled = false;
+      } else if (elapsedTotal > 0.05) {
         computeOrthoGroundCullBounds(camera, simRef.current.gridSize, worldCullBounds, 6.5, 7.5);
       } else {
         worldCullBounds.minX = -12;
@@ -16914,8 +17242,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       }
       camera.updateMatrixWorld();
 
+      const activeRenderCamera: THREE.Camera = isFirstPersonRendering ? fpCamera : camera;
       const curChunkStats = chunkTerrain.updateCulling(
-        camera,
+        activeRenderCamera,
         worldCullBounds,
         snappedShadow.centerX,
         snappedShadow.centerZ,
@@ -16957,12 +17286,19 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         }
       }
 
-      renderer.render(scene, camera);
+      renderer.render(scene, activeRenderCamera);
 
       // Update floating screen-space Zone headers (Zone Name + Population if any)
       const curSim = simRef.current;
       const labelLayer = zoneLabelsLayerRef.current;
-      if (labelLayer && labelLayer.children.length > 0) {
+      const kingLayerVis = kingMarkersLayerRef.current;
+      const warArrowLayerVis = warArrowLabelsLayerRef.current;
+      const labelVis = isFirstPersonRendering ? 'hidden' : 'visible';
+      if (labelLayer && labelLayer.style.visibility !== labelVis) labelLayer.style.visibility = labelVis;
+      if (kingLayerVis && kingLayerVis.style.visibility !== labelVis) kingLayerVis.style.visibility = labelVis;
+      if (warArrowLayerVis && warArrowLayerVis.style.visibility !== labelVis) warArrowLayerVis.style.visibility = labelVis;
+
+      if (!isFirstPersonRendering && labelLayer && labelLayer.children.length > 0) {
         const cWidth = container?.clientWidth || window.innerWidth;
         const cHeight = container?.clientHeight || window.innerHeight;
         const gSize = curSim.gridSize;

@@ -470,6 +470,7 @@ export default function App() {
   const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
   const selectedEntityIdRef = useRef<string | null>(null);
   const [followingEntityId, setFollowingEntityId] = useState<string | null>(null);
+  const [firstPersonEntityId, setFirstPersonEntityId] = useState<string | null>(null);
   const [hoveredHint, setHoveredHint] = useState<HoveredHint | null>(null);
   const [statusFeedback, setStatusFeedback] = useState<string>('Click land to spawn a Human');
   const [activeZones, setActiveZones] = useState<ZoneToggleState>(() => ({
@@ -1105,6 +1106,29 @@ export default function App() {
     setFollowingEntityId(null);
   }, []);
 
+  const handleToggleFirstPerson = useCallback((unit: UnitEntity) => {
+    setFirstPersonEntityId((prev) => {
+      if (prev === unit.id) {
+        soundEngine.playClick();
+        setStatusFeedback('Exited 1st-Person View');
+        return null;
+      }
+      soundEngine.playClick();
+      setFollowingEntityId(null);
+      setStatusFeedback(`Possessing ${unit.name} in 1st-Person — WASD move, Drag look, Esc exit`);
+      return unit.id;
+    });
+  }, []);
+
+  const handleExitFirstPerson = useCallback(() => {
+    setFirstPersonEntityId((prev) => {
+      if (!prev) return null;
+      soundEngine.playClick();
+      setStatusFeedback('Exited 1st-Person View');
+      return null;
+    });
+  }, []);
+
   const worldZonesRef = useRef<ReturnType<typeof computeWorldZones> | null>(null);
   const lastInteractHudTickRef = useRef(0);
   const lastInteractFeedbackRef = useRef<{ msg: string; ts: number }>({ msg: '', ts: 0 });
@@ -1686,6 +1710,7 @@ export default function App() {
         hoveredEntityId={isInspectTabActive ? hoveredEntityId : null}
         selectedEntityId={isInspectTabActive ? selectedEntityId : null}
         followingEntityId={isInspectTabActive ? followingEntityId : null}
+        firstPersonEntityId={gameState === 'playing' ? firstPersonEntityId : null}
         selectedCityId={inspectedCity?.settlementId ?? null}
         zoneOverlayBuffers={zoneOverlayBuffers}
         onTileInteract={handleTileInteract}
@@ -1694,9 +1719,76 @@ export default function App() {
         onSelectEntity={handleSelectEntity}
         onSelectCityLabel={handleSelectCityLabel}
         onBreakFollow={handleBreakFollow}
+        onExitFirstPerson={handleExitFirstPerson}
         onSyncHud={syncHud}
         onPerfTelemetry={setPerfTelemetry}
       />
+
+      {/* First-Person Possession HUD Overlay */}
+      {gameState === 'playing' && firstPersonEntityId && (() => {
+        const fpUnit = sim.units.find((u) => u.id === firstPersonEntityId && u.state !== 'ko');
+        if (!fpUnit) return null;
+        const hpPct = Math.max(0, Math.min(100, Math.round((fpUnit.hp / Math.max(1, fpUnit.maxHp)) * 100)));
+        const raceLabel = fpUnit.species
+          ? fpUnit.species.charAt(0).toUpperCase() + fpUnit.species.slice(1)
+          : fpUnit.role;
+        return (
+          <div className="fixed inset-0 z-40 pointer-events-none select-none" data-testid="first-person-hud">
+            {/* Crisp Pixel Crosshair */}
+            <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center justify-center">
+              <div className="relative w-5 h-5">
+                <span className="absolute left-1/2 top-0 -translate-x-1/2 w-[2px] h-1.5 bg-[#fef9e7]/90 shadow-[0_0_2px_#000]" />
+                <span className="absolute left-1/2 bottom-0 -translate-x-1/2 w-[2px] h-1.5 bg-[#fef9e7]/90 shadow-[0_0_2px_#000]" />
+                <span className="absolute top-1/2 left-0 -translate-y-1/2 h-[2px] w-1.5 bg-[#fef9e7]/90 shadow-[0_0_2px_#000]" />
+                <span className="absolute top-1/2 right-0 -translate-y-1/2 h-[2px] w-1.5 bg-[#fef9e7]/90 shadow-[0_0_2px_#000]" />
+                <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[2px] h-[2px] bg-[#fbbf24]" />
+              </div>
+            </div>
+
+            {/* Top-Right Exit Button */}
+            <div className="absolute top-3 right-3 pointer-events-auto">
+              <button
+                type="button"
+                data-testid="first-person-exit-btn"
+                onClick={handleExitFirstPerson}
+                className="px-3 py-1.5 bg-[#1b1610]/90 hover:bg-[#2a2218] text-[#fef3c7] border-2 border-[#d4a017] shadow-[3px_3px_0_#000] text-xs font-bold tracking-wider uppercase cursor-pointer"
+              >
+                Exit 1st Person (Esc)
+              </button>
+            </div>
+
+            {/* Bottom-Center RPG Status & Controls Bar */}
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1.5 px-4 py-2.5 bg-[#14110d]/88 border-2 border-[#b4832c] shadow-[4px_4px_0_#000] min-w-[280px] max-w-[92vw]">
+              <div className="flex items-center justify-between gap-4 w-full">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-xs font-extrabold tracking-wide text-[#fef3c7] truncate">
+                    {fpUnit.name}
+                  </span>
+                  <span className="px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-[#2b2216] text-[#fbbf24] border border-[#8a6523]">
+                    {raceLabel}
+                  </span>
+                </div>
+                <span className="text-[11px] font-bold text-[#fca5a5] tabular-nums">
+                  HP {Math.ceil(fpUnit.hp)}/{Math.ceil(fpUnit.maxHp)}
+                </span>
+              </div>
+              <div className="w-full h-2 bg-[#2b1d1d] border border-[#5e3434] overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-[#dc2626] to-[#ef4444] transition-all duration-150"
+                  style={{ width: `${hpPct}%` }}
+                />
+              </div>
+              <div className="text-[10px] text-[#d6ccb8] tracking-wide text-center">
+                <span className="text-[#fbbf24] font-bold">WASD</span> Move ·{' '}
+                <span className="text-[#fbbf24] font-bold">Shift</span> Sprint ·{' '}
+                <span className="text-[#fbbf24] font-bold">Drag / Q E</span> Look ·{' '}
+                <span className="text-[#fbbf24] font-bold">Space</span> Jump ·{' '}
+                <span className="text-[#fbbf24] font-bold">Click / F</span> Strike
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Optional Phase 0 Performance Debug HUD (toggled via F3 or Settings) */}
       {graphicsSettings.showPerformanceHud && perfTelemetry && !hasAnyBlockingModal && (
@@ -2962,8 +3054,8 @@ export default function App() {
         </div>
       )}
 
-      {/* PLAYING HUD OVERLAY (hidden while a blocking modal such as World Info, God Rules, Settings, Save, or Quit is active) */}
-      {gameState !== 'title' && !isEventCinematic && !hasInGameOverlayModal && (
+      {/* PLAYING HUD OVERLAY (hidden while a blocking modal or First-Person Possession is active) */}
+      {gameState !== 'title' && !isEventCinematic && !hasInGameOverlayModal && !firstPersonEntityId && (
         <div className="fixed inset-0 z-20 pointer-events-none flex flex-col justify-between gap-1 sm:gap-1.5 pt-[max(0.25rem,env(safe-area-inset-top))] pb-[max(0.25rem,env(safe-area-inset-bottom))] pl-[max(0.25rem,env(safe-area-inset-left))] pr-[max(0.25rem,env(safe-area-inset-right))] sm:p-2.5 md:p-3">
           {/* Active World Event compact banner when cinematic camera is dismissed */}
           {activeWorldEvent && activeWorldEvent.remaining > 0 && (
@@ -3350,7 +3442,9 @@ export default function App() {
                 selectedUnit={selectedUnit}
                 favoriteUnits={favoriteUnits}
                 followingEntityId={followingEntityId}
+                firstPersonEntityId={firstPersonEntityId}
                 onToggleFavorite={handleToggleFavoriteEntity}
+                onToggleFirstPerson={handleToggleFirstPerson}
                 onSelectUnit={handleSelectEntity}
                 onFocusUnit={handleFocusEntity}
                 onRenameUnit={(unitId, newName) => {
