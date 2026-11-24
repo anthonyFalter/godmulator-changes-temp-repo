@@ -1425,6 +1425,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       spinRotors: THREE.Object3D[];
       thrusterPlumes: THREE.Object3D[];
       contactShadows: THREE.Object3D[];
+      spiderLegs: THREE.Object3D[];
+      walkPhase: number;
+      lastX: number;
+      lastZ: number;
       seenStamp: number;
     }
 
@@ -12484,12 +12488,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             const spinRotors: THREE.Object3D[] = [];
             const thrusterPlumes: THREE.Object3D[] = [];
             const contactShadows: THREE.Object3D[] = [];
+            const spiderLegs: THREE.Object3D[] = [];
             for (let ci = 0; ci < group.children.length; ci++) {
               const ch = group.children[ci];
               if (ch.name === 'spin_prop') spinProps.push(ch);
               else if (ch.name === 'spin_rotor') spinRotors.push(ch);
               else if (ch.name === 'thruster_plume') thrusterPlumes.push(ch);
               else if (ch.name === 'contact_shadow') contactShadows.push(ch);
+              else if (ch.name.startsWith('spider_leg_')) spiderLegs.push(ch);
             }
             vEntry = {
               group,
@@ -12500,6 +12506,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
               spinRotors,
               thrusterPlumes,
               contactShadows,
+              spiderLegs,
+              walkPhase: 0,
+              lastX: v.x,
+              lastZ: v.z,
               seenStamp: syncFrameStamp,
             };
             vehicleMeshes.set(v.id, vEntry);
@@ -12704,6 +12714,34 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             const shadowFade = Math.max(0.25, 1 - Math.max(0, v.y - 0.1) * 0.25);
             for (let csi = 0; csi < vEntry.contactShadows.length; csi++) {
               vEntry.contactShadows[csi].scale.setScalar(shadowFade);
+            }
+          }
+          if (vEntry.spiderLegs.length > 0) {
+            const dx = v.x - vEntry.lastX;
+            const dz = v.z - vEntry.lastZ;
+            const stepDist = Math.hypot(dx, dz);
+            vEntry.lastX = v.x;
+            vEntry.lastZ = v.z;
+            const isMoving = stepDist > 0.0004;
+            if (isMoving) {
+              vEntry.walkPhase += stepDist * 5.2;
+              vGroup.position.y += Math.abs(Math.sin(vEntry.walkPhase)) * 0.075;
+            }
+            for (let sli = 0; sli < vEntry.spiderLegs.length; sli++) {
+              const leg = vEntry.spiderLegs[sli];
+              const baseYaw = (leg.userData.baseYaw as number) ?? 0;
+              const legIdx = (leg.userData.legIndex as number) ?? sli;
+              if (isMoving) {
+                const phase = vEntry.walkPhase + (legIdx % 2 === 0 ? 0 : Math.PI);
+                const lift = Math.max(0, Math.sin(phase));
+                const forwardSwing = -Math.cos(phase);
+                const yawSign = legIdx === 1 || legIdx === 2 ? 1 : -1;
+                leg.rotation.y = baseYaw + yawSign * forwardSwing * 0.28;
+                leg.rotation.z = lift * 0.34;
+              } else {
+                leg.rotation.y = THREE.MathUtils.damp(leg.rotation.y, baseYaw, 8, dt);
+                leg.rotation.z = THREE.MathUtils.damp(leg.rotation.z, 0, 8, dt);
+              }
             }
           }
         }

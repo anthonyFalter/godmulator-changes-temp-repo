@@ -688,36 +688,43 @@ export function createCapitalWarVehicleGroup(
                 ? 0x34d399
                 : 0x38bdf8;
 
-      // 4 Articulated High-Kneed Arachnid Spider Legs radiating at 45°, 135°, 225°, 315°
+      // 4 Articulated Hip-Pivoted Arachnid Spider Legs (animated in IsometricWorldCanvas during walking!)
       const legAngles = [Math.PI * 0.25, Math.PI * 0.75, Math.PI * 1.25, Math.PI * 1.75];
       const hipR = 0.48;
-      const kneeR = isOrbitalWalker ? 1.28 : 1.15;
-      const kneeY = bodyY + (isOrbitalWalker ? 0.56 : 0.46);
-      const footR = isOrbitalWalker ? 1.62 : 1.48;
-      for (const ang of legAngles) {
-        const ca = Math.cos(ang);
-        const sa = Math.sin(ang);
-        const hx = ca * hipR;
-        const hz = sa * hipR;
-        const kx = ca * kneeR;
-        const kz = sa * kneeR;
-        const fx = ca * footR;
-        const fz = sa * footR;
+      const kneeOut = (isOrbitalWalker ? 1.28 : 1.15) - hipR;
+      const kneeLift = isOrbitalWalker ? 0.56 : 0.46;
+      const footOut = (isOrbitalWalker ? 1.62 : 1.48) - hipR;
+      const footDrop = -(bodyY - 0.10);
 
-        // Hip joint socket
-        pushCyl(metal, 0.14, 0.14, 0.16, 8, hx, bodyY, hz, jointHex);
-        // Upper femur angled UP and OUT to high spider knee
-        pushStrut(metal, hx, bodyY, hz, kx, kneeY, kz, 0.085, 0.11, legHex);
-        // Armored knee joint hub (+ glowing actuator in Orbital Age)
-        pushCyl(matte, 0.15, 0.15, 0.18, 8, kx, kneeY, kz, jointHex);
-        if (isOrbitalWalker) {
-          pushCyl(glow, 0.09, 0.09, 0.22, 6, kx, kneeY, kz, eyeGlow);
-        }
-        // Lower tibia angled DOWN and OUT to clawed footpad
-        pushStrut(matte, kx, kneeY, kz, fx, 0.10, fz, 0.06, 0.095, legHex);
-        // Armored arachnid footpad
-        pushCyl(metal, 0.12, 0.18, 0.12, 6, fx, 0.06, fz, jointHex);
+      // Build one canonical leg in local hip space (+X = radially outward) and share across all 4 pivots
+      const legParts: THREE.BufferGeometry[] = [];
+      const legGlowParts: THREE.BufferGeometry[] = [];
+      // Hip socket
+      pushCyl(legParts, 0.14, 0.14, 0.16, 8, 0, 0, 0, jointHex);
+      // Upper femur angled UP and OUT to high spider knee
+      pushStrut(legParts, 0, 0, 0, kneeOut, kneeLift, 0, 0.085, 0.11, legHex);
+      // Armored knee joint hub
+      pushCyl(legParts, 0.15, 0.15, 0.18, 8, kneeOut, kneeLift, 0, jointHex);
+      if (isOrbitalWalker) {
+        pushCyl(legGlowParts, 0.09, 0.09, 0.22, 6, kneeOut, kneeLift, 0, eyeGlow);
       }
+      // Lower tibia angled DOWN and OUT to clawed footpad
+      pushStrut(legParts, kneeOut, kneeLift, 0, footOut, footDrop, 0, 0.06, 0.095, legHex);
+      // Armored arachnid footpad
+      pushCyl(legParts, 0.12, 0.18, 0.12, 6, footOut, footDrop - 0.04, 0, jointHex);
+
+      const mergedLegGeo = mergeGeometries(legParts, false);
+      for (const g of legParts) g.dispose();
+      const mergedLegGlowGeo = legGlowParts.length > 0 ? mergeGeometries(legGlowParts, false) : null;
+      for (const g of legGlowParts) g.dispose();
+      const legMat = new THREE.MeshStandardMaterial({
+        vertexColors: true,
+        roughness: 0.42,
+        metalness: 0.62,
+      });
+      const legGlowMat = mergedLegGlowGeo
+        ? new THREE.MeshBasicMaterial({ vertexColors: true })
+        : null;
 
       // Race-Unique Central Spider-Sentry Carapace & Twin Weapon Pods
       if (species === 'elf') {
@@ -788,6 +795,31 @@ export function createCapitalWarVehicleGroup(
           pushBox(metal, 0.42, 0.18, 0.06, 0.22, bodyY + 0.92, -0.22, 0xe2e8f0, -0.2, 0, 0);
         }
       }
+
+      const walkerGroup = finalizeMultiFinishGroup(matte, metal, win, glow);
+      if (mergedLegGeo) {
+        for (let li = 0; li < legAngles.length; li++) {
+          const ang = legAngles[li];
+          const legPivot = new THREE.Group();
+          legPivot.name = `spider_leg_${li}`;
+          legPivot.position.set(Math.cos(ang) * hipR, bodyY, Math.sin(ang) * hipR);
+          legPivot.rotation.order = 'YXZ';
+          legPivot.rotation.y = -ang;
+          legPivot.userData.baseYaw = -ang;
+          legPivot.userData.legIndex = li;
+
+          const legMesh = new THREE.Mesh(mergedLegGeo, legMat);
+          legMesh.castShadow = true;
+          legMesh.receiveShadow = true;
+          legPivot.add(legMesh);
+
+          if (mergedLegGlowGeo && legGlowMat) {
+            legPivot.add(new THREE.Mesh(mergedLegGlowGeo, legGlowMat));
+          }
+          walkerGroup.add(legPivot);
+        }
+      }
+      return walkerGroup;
     }
     return finalizeMultiFinishGroup(matte, metal, win, glow);
   }
