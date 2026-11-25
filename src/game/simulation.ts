@@ -12036,12 +12036,12 @@ function stepSimulationSingle(
             : kEpoch === 2
               ? 8
               : kEpoch === 3
-                ? 12
+                ? 16
                 : kEpoch === 4
-                  ? 16
+                  ? 22
                   : kEpoch === 5
-                    ? 22
-                    : 26;
+                    ? 28
+                    : 34;
       const requiredPop =
         kEpoch === 0
           ? 4
@@ -12050,12 +12050,12 @@ function stepSimulationSingle(
             : kEpoch === 2
               ? 14
               : kEpoch === 3
-                ? 20
+                ? 26
                 : kEpoch === 4
-                  ? 26
+                  ? 34
                   : kEpoch === 5
-                    ? 32
-                    : 38;
+                    ? 44
+                    : 54;
 
       const upgradedCount = kCompleted.filter((b) => b.epochLevel >= kEpoch).length;
       const upgradeReady = kEpoch < 3 || upgradedCount >= Math.ceil(completedCount * 0.65);
@@ -12072,11 +12072,13 @@ function stepSimulationSingle(
             ? kCompleted.some(
                 (b) => b.type === 'steam_foundry' || b.type === 'dynamo_plant' || b.type === 'rail_station',
               )
-            : kEpoch === 5
-              ? kCompleted.some((b) => b.type === 'cyber_institute' || b.type === 'fission_reactor')
-              : kEpoch === 6
-                ? kCompleted.some((b) => b.type === 'launch_arcology')
-                : true;
+            : kEpoch === 4
+              ? kCompleted.some((b) => b.type === 'fission_reactor' || b.type === 'cyber_institute')
+              : kEpoch === 5
+                ? kCompleted.some((b) => b.type === 'cyber_institute' || b.type === 'fission_reactor')
+                : kEpoch === 6
+                  ? kCompleted.some((b) => b.type === 'launch_arcology')
+                  : true;
 
       const hasFullFoundation =
         completedCount >= requiredStructures && kPop >= requiredPop && upgradeReady && eraInfraReady;
@@ -12102,7 +12104,10 @@ function stepSimulationSingle(
       const structureFactor = Math.min(2.2, 0.35 + completedCount * 0.12);
       const popFactor = Math.min(2.0, 0.4 + kPop * 0.06);
       const readinessFactor = 0.25 + resReadiness * 1.45;
-      const eraDifficulty = 1 + kEpoch * 0.55;
+      const eraDifficulty =
+        kEpoch < 3
+          ? 1 + kEpoch * 0.55
+          : 1 + kEpoch * 0.55 + Math.pow(kEpoch - 2, 1.75) * 1.65;
       const nativeRatePerSec =
         ((0.45 * structureFactor * popFactor * readinessFactor * speciesPace) / eraDifficulty) *
         (state.sandboxFreeMode ? 1.35 : 1.0);
@@ -12110,7 +12115,9 @@ function stepSimulationSingle(
       const diff = diffusionByKid.get(kid)!;
       if (diff.isCatchingUp && kEpoch < diff.maxNeighborEpoch) {
         // Proximity-based diminishing catch-up curve: steep when far behind a close neighbor, tapering as gap -> 0
-        const diffusionRatePerSec = diff.diffusionBoost * (1.85 + 0.25 * Math.min(4, completedCount));
+        const eraDiffDamp = kEpoch < 3 ? 1 : 1 / (1 + (kEpoch - 2) * 0.45);
+        const diffusionRatePerSec =
+          diff.diffusionBoost * (1.85 + 0.25 * Math.min(4, completedCount)) * eraDiffDamp;
         const nextProg = (state.kingdomEpochProgress[kid] ?? 0) + (nativeRatePerSec + diffusionRatePerSec) * dt;
         if (nextProg >= 100 && hasDiffusionFoundation) {
           // Advance by +1 toward neighbor's age; reset progress to 0 so diffusion NEVER overtakes a leading neighbor!

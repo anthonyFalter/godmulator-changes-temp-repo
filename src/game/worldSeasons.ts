@@ -15,7 +15,7 @@ export const WORLD_SEASON_PRESETS: SeasonPresetOption[] = [
   { id: 'winter', label: 'Winter', shortLabel: 'Win' },
 ];
 
-export const YEARS_PER_SEASON = 4;
+export const YEARS_PER_SEASON = 30;
 export const FULL_SEASON_CYCLE_YEARS = YEARS_PER_SEASON * 4;
 
 export interface SeasonProfile {
@@ -237,7 +237,7 @@ export function stepSeasonWeightsVector(
   current: THREE.Vector4,
   target: Record<SeasonId, number>,
   dt: number,
-  speed = 2.4,
+  speed = 1.4,
 ): THREE.Vector4 {
   const safeDt = Number.isFinite(dt) ? Math.max(0, Math.min(0.25, dt)) : 0;
   const alpha = safeDt <= 0 ? 0 : Math.min(1, 1 - Math.exp(-speed * safeDt));
