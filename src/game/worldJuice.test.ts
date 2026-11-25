@@ -362,3 +362,57 @@ test('lava_drop on water solidifies into stone (rock, height 1)', () => {
   assert.equal(seaTile.terrain, 'rock', 'lava dropped onto water must solidify into stone');
   assert.equal(seaTile.height, 1, 'stone formed by lava on water rises to land height 1');
 });
+
+test('lava_drop and poison_drop poured on a snowy mountain peak flow downhill and run out cleanly', () => {
+  const sim = createInitialSimulationState(48, 'MOUNTAIN-LAVA-POISON-RUNOUT-TEST');
+  for (const t of sim.tiles) {
+    t.buildingId = null;
+    t.resourceNode = 'none';
+    t.onFireTimer = 0;
+    t.cursedTimer = 0;
+    delete t.liquidLevel;
+    delete t.liquidKind;
+    if (t.x <= 20) {
+      t.height = 4;
+      t.terrain = 'snow';
+    } else if (t.x === 21) {
+      t.height = 3;
+      t.terrain = 'snow';
+    } else if (t.x === 22) {
+      t.height = 2;
+      t.terrain = 'grass';
+    } else if (t.x === 23) {
+      t.height = 1;
+      t.terrain = 'grass';
+    } else {
+      t.height = 0;
+      t.terrain = 'shallow_water';
+    }
+  }
+
+  assert.equal(executeTerrainDropTileImpact(sim, 'lava_drop', 20, 14), true);
+  assert.equal(executeTerrainDropTileImpact(sim, 'poison_drop', 20, 32), true);
+
+  // After a few ticks both streams should be actively flowing downhill
+  for (let i = 0; i < 4; i++) {
+    stepSimulation(sim, 0.1);
+  }
+  assert.ok((getTile(sim, 21, 14)!.liquidLevel ?? 0) > 3, 'lava should cascade down snowy mountain slope');
+  assert.ok((getTile(sim, 21, 32)!.liquidLevel ?? 0) > 3, 'poison should cascade down snowy mountain slope');
+
+  // After sufficient time, both lava and poison MUST thin out and run out completely to 0 elevated tiles
+  for (let i = 0; i < 120; i++) {
+    stepSimulation(sim, 0.1);
+  }
+  let remainingLava = 0;
+  let remainingPoison = 0;
+  for (const t of sim.tiles) {
+    if ((t.liquidLevel ?? 0) > t.height) {
+      if (t.liquidKind === 'lava') remainingLava++;
+      if (t.liquidKind === 'poison') remainingPoison++;
+    }
+  }
+  assert.equal(remainingLava, 0, 'lava poured on a snowy mountain must eventually cool/run out completely');
+  assert.equal(remainingPoison, 0, 'poison poured on a snowy mountain must eventually soak/run out completely');
+});
+

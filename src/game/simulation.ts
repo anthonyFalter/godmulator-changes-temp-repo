@@ -3168,7 +3168,7 @@ function applyElevatedLiquidToTile(
 
   if (
     t.liquidLevel !== undefined &&
-    Math.abs(t.liquidLevel - clampedLevel) < 0.005 &&
+    Math.abs(t.liquidLevel - clampedLevel) < 0.0001 &&
     (t.liquidKind ?? 'water') === finalKind
   ) {
     return false;
@@ -3186,9 +3186,6 @@ function applyElevatedLiquidToTile(
   if (finalKind === 'lava') {
     t.tempOffset = Math.min(80, Math.max(t.tempOffset ?? 0, 35));
     if (t.height > 0 && t.terrain !== 'volcanic_wasteland' && t.terrain !== 'void_goo') {
-      if ((t.terrain === 'snow' || t.terrain === 'tundra') && t.height > 1) {
-        t.height = Math.max(1, t.height - 1);
-      }
       t.terrain = 'volcanic_wasteland';
       syncTileToWorldGrid(ensureWorldGrid(state), t);
     }
@@ -3538,9 +3535,6 @@ function stepDynamicLiquidFlow(state: SimulationState, dt: number): void {
         } else if (kind === 'lava') {
           t.tempOffset = Math.min(80, Math.max(t.tempOffset ?? 0, 35));
           if (t.height > 0 && t.terrain !== 'volcanic_wasteland' && t.terrain !== 'void_goo') {
-            if ((t.terrain === 'snow' || t.terrain === 'tundra') && t.height > 1) {
-              t.height = Math.max(1, t.height - 1);
-            }
             t.terrain = 'volcanic_wasteland';
             syncTileToWorldGrid(ensureWorldGrid(state), t);
           }
@@ -3601,20 +3595,21 @@ function stepDynamicLiquidFlow(state: SimulationState, dt: number): void {
           }
         }
 
-        // Evaporate / cool tiny trailing films on open slopes only after they thin out little by little
-        const minActiveVol = kind === 'lava' ? 0.032 : kind === 'poison' ? 0.028 : 0.038;
-        if (vol < minActiveVol && hasLowerEscape) {
+        // Evaporate / cool tiny trailing films once they thin out little by little.
+        // Water still pools permanently in enclosed basins (no lower escape), whereas thin lava cools and thin poison seeps into soil.
+        const minActiveVol = kind === 'lava' ? 0.045 : kind === 'poison' ? 0.04 : 0.038;
+        if (vol < minActiveVol && (hasLowerEscape || kind !== 'water')) {
           markTouched(idx);
           _liquidDeltaVolBuf[idx] -= vol;
           continue;
         }
 
+        let totalSent = 0;
         if (weightedTotal > 0.0001) {
           // Viscosity-tuned flow rates: water flows briskly, poison oozes steadily, lava creeps thick & viscous
           const volFrac = kind === 'lava' ? 0.28 : kind === 'poison' ? 0.36 : 0.5;
           const diffFrac = kind === 'lava' ? 0.26 : kind === 'poison' ? 0.34 : 0.44;
           const maxOut = Math.min(vol * volFrac, maxRawDiff * diffFrac);
-          let totalSent = 0;
           for (let d = 0; d < 4; d++) {
             if (nbWeights[d] <= 0) continue;
             const share = maxOut * (nbWeights[d] / weightedTotal);
@@ -3662,11 +3657,22 @@ function stepDynamicLiquidFlow(state: SimulationState, dt: number): void {
           if (totalSent > 0) {
             markTouched(idx);
             _liquidDeltaVolBuf[idx] -= totalSent;
-            // Gradual soil absorption / cooling as a flowing front thins out far from its source
-            if (vol < 0.18 && hasLowerEscape) {
-              const loss = kind === 'lava' ? 0.008 : kind === 'poison' ? 0.007 : 0.015;
-              _liquidDeltaVolBuf[idx] -= Math.min(Math.max(0, vol - totalSent), loss);
+          }
+        }
+
+        // Gradual soil absorption / cooling as streams thin out far from their source
+        const remAfterSend = Math.max(0, vol - totalSent);
+        if (remAfterSend > 0) {
+          if (kind === 'water') {
+            if (totalSent > 0 && vol < 0.18 && hasLowerEscape) {
+              markTouched(idx);
+              _liquidDeltaVolBuf[idx] -= Math.min(remAfterSend, 0.015);
             }
+          } else if (vol < 0.35 || hasLowerEscape) {
+            // Lava gradually cools into volcanic crust and poison seeps into blighted soil as it spreads thin
+            const loss = kind === 'lava' ? (hasLowerEscape ? 0.014 : 0.01) : (hasLowerEscape ? 0.012 : 0.009);
+            markTouched(idx);
+            _liquidDeltaVolBuf[idx] -= Math.min(remAfterSend, loss);
           }
         }
         continue;
