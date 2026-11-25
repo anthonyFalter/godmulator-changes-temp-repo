@@ -321,29 +321,6 @@ export const TAB_SPRITES: Record<ToolCategory, CompiledSprite> = {
     );
   }),
 
-  // 16x16 Diagonal blacksmith hammer (clean bright face, dark back, crisp oak handle)
-  build: cluster16(
-    [
-      '................',
-      '....3333........',
-      '...3332221......',
-      '..2222221111....',
-      '..111Bbk.1111...',
-      '....BbkK..11....',
-      '...BbkK.........',
-      '..BbkK..........',
-      '.BbkK...........',
-      '.YgK............',
-      '.gG.............',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.steel,
-    MATS,
-  ),
 
   // 16x16 Symmetrical RPG adventurer bust (top hair crown, clean face, symmetrical tunic)
   spawn: cluster16(

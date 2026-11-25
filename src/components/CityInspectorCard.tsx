@@ -140,7 +140,14 @@ export const CityInspectorCard: React.FC<CityInspectorCardProps> = React.memo(({
     for (let tz = scanMinZ; tz <= scanMaxZ; tz++) {
       const rowOff = tz * gs;
       for (let tx = scanMinX; tx <= scanMaxX; tx++) {
-        if (tiles[rowOff + tx].farmSettlementId === sid) farmCount++;
+        const ft = tiles[rowOff + tx];
+        if (
+          ft.farmSettlementId === sid &&
+          ft.farmPlotKind !== 'timber_plantation' &&
+          ft.farmPlotKind !== 'quarry'
+        ) {
+          farmCount++;
+        }
       }
     }
 

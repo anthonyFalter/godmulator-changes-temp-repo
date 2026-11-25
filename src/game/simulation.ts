@@ -57,6 +57,8 @@ import { generateUnitGenes, generateUnitItems } from './entityInspector';
 import {
   computeUnitEffectiveStats,
   generateUnitTraits,
+  getUnitSizeScale,
+  setUnitSizeScale,
   syncUnitDerivedStats,
 } from './unitCustomization';
 import { generateWorldTiles, normalizeSeed } from './worldGen';
@@ -2331,6 +2333,24 @@ export function spawnUnit(
 ): { ok: boolean; reason?: string; unit?: UnitEntity } {
   const def = UNITS.find((u) => u.role === role);
   if (!def) return { ok: false, reason: 'Unknown unit role' };
+
+  if (state.worldRules?.allowDinosaurs === false && role === 'dinosaur') {
+    return { ok: false, reason: 'Dinosaurs are disabled by World Rules' };
+  }
+  if (state.worldRules?.allowFantasy === false) {
+    const isFantasySpecies =
+      role === 'elf' ||
+      role === 'orc' ||
+      role === 'dwarf' ||
+      role === 'lizardfolk' ||
+      def.species === 'elf' ||
+      def.species === 'orc' ||
+      def.species === 'dwarf' ||
+      def.species === 'lizardfolk';
+    if (isFantasySpecies || MYTHICAL_ROLE_SET.has(role) || def.category === 'mythical') {
+      return { ok: false, reason: 'Fantasy species & mythicals are disabled by World Rules' };
+    }
+  }
 
   const tile = getTile(state, x, z);
   if (!tile) {
@@ -6294,22 +6314,39 @@ export function executeGodPowerImpact(
 
     case 'eureka': {
       isHeavy = true;
-      grantResourcesToKingdomOrPool(state, { knowledge: 140 });
       const liveKids = getLiveKingdomIds(state);
       const boostKids = new Set<string>();
       const reachSq = (r * 2.6) ** 2;
+      let nearestKid: string | undefined;
+      let nearestKidDistSq = Infinity;
       for (const b of state.buildings) {
-        if (b.settlementId && (b.tileX - targetX) ** 2 + (b.tileZ - targetZ) ** 2 <= reachSq) {
-          boostKids.add(getKingdomId(state, b.settlementId));
+        if (!b.settlementId) continue;
+        const dSq = (b.tileX - targetX) ** 2 + (b.tileZ - targetZ) ** 2;
+        if (dSq <= reachSq) {
+          const kid = getKingdomId(state, b.settlementId);
+          boostKids.add(kid);
+          if (dSq < nearestKidDistSq) {
+            nearestKidDistSq = dSq;
+            nearestKid = kid;
+          }
         }
       }
       for (const u of state.units) {
-        if (u.faction === 'civilization' && u.state !== 'ko' && (u.x - targetX) ** 2 + (u.z - targetZ) ** 2 <= reachSq) {
+        if (u.faction !== 'civilization' || u.state === 'ko') continue;
+        const dSq = (u.x - targetX) ** 2 + (u.z - targetZ) ** 2;
+        if (dSq <= reachSq) {
           const kid = u.kingdomId ?? (u.settlementId ? getKingdomId(state, u.settlementId) : undefined);
-          if (kid) boostKids.add(kid);
+          if (kid) {
+            boostKids.add(kid);
+            if (dSq < nearestKidDistSq) {
+              nearestKidDistSq = dSq;
+              nearestKid = kid;
+            }
+          }
         }
       }
       const targetKids = boostKids.size > 0 ? Array.from(boostKids) : liveKids;
+      grantResourcesToKingdomOrPool(state, { knowledge: 140 }, nearestKid ?? targetKids[0]);
       if (targetKids.length > 0) {
         if (!state.kingdomEpochProgress) state.kingdomEpochProgress = {};
         for (const kid of targetKids) {
@@ -6521,7 +6558,7 @@ export function executeGodPowerImpact(
       };
       applyExpandingWaveSlice(state, 'frenzy_wave', targetX, targetZ, r, 0, seedR, getWaveAppliedSet(haz));
       state.activeHazards.push(haz);
-      addChronicle(state, 'Rage cast! Units healed and enraged (+150% combat damage).', 'warning');
+      addChronicle(state, 'Rage cast! Units healed and enraged (+100% combat damage, +50% speed).', 'warning');
       break;
     }
 
@@ -7013,13 +7050,18 @@ export function executeGodPowerImpact(
       for (const u of state.units) {
         if (u.state === 'ko') continue;
         if ((u.x - targetX) ** 2 + (u.z - targetZ) ** 2 <= rSq) {
-          u.maxHp = Math.min(900, Math.round(u.maxHp * 1.55));
-          u.hp = u.maxHp;
-          u.statusEffects.blessed = Math.max(u.statusEffects.blessed ?? 0, 28);
-          u.statusEffects.shielded = Math.max(u.statusEffects.shielded ?? 0, 14);
+          const hpBoost = Math.min(400, Math.max(40, Math.round(u.maxHp * 0.55)));
+          if (!u.statBonuses) u.statBonuses = {};
+          u.statBonuses.maxHp = Math.min(2000, (u.statBonuses.maxHp ?? 0) + hpBoost);
+          u.statBonuses.attackDamage = Math.min(200, (u.statBonuses.attackDamage ?? 0) + 6);
           if (u.role === 'villager') {
             u.role = 'warrior';
           }
+          syncUnitDerivedStats(u, true);
+          u.hp = u.maxHp;
+          setUnitSizeScale(u, Math.min(2.2, getUnitSizeScale(u) * 1.25));
+          u.statusEffects.blessed = Math.max(u.statusEffects.blessed ?? 0, 28);
+          u.statusEffects.shielded = Math.max(u.statusEffects.shielded ?? 0, 14);
           if (u.faction === 'wildlife') {
             u.statusEffects.frenzied = Math.max(u.statusEffects.frenzied ?? 0, 18);
           }
@@ -15892,6 +15934,56 @@ function stepSimulationSingle(
         (h) => h.kind === 'wormhole_rift' && Math.hypot(u.x - h.x, u.z - h.z) <= h.radius * 1.45,
       );
     if (u.state === 'ko') {
+      // Intercept direct-KO damage paths (god powers, hazards, fall damage, Leviathan) so Phoenix Rebirth always triggers once
+      if (
+        u.role === 'phoenix' &&
+        !u.phoenixReborn &&
+        (state.worldRules?.immortalEntities === true || (u.ageYears ?? 0) < (u.maxLifespan ?? 9999))
+      ) {
+        u.phoenixReborn = true;
+        u.state = 'idle';
+        u.koTimer = 0;
+        u.hp = Math.round(u.maxHp * 0.65);
+        delete u.statusEffects.cursed;
+        delete u.statusEffects.plagued;
+        delete u.statusEffects.frozen;
+        u.statusEffects.shielded = 3.0;
+        u.attackAnimTimer = 0.65;
+        const rebirthR = 4.2;
+        const rebirthRSq = rebirthR * rebirthR;
+        const scorchNearby = (other: UnitEntity, dSq: number) => {
+          if (other.id === u.id || other.state === 'ko' || dSq > rebirthRSq) return;
+          if (other.faction === 'hostile' || other.id === u.lastAttackerId) {
+            other.hp -= 38;
+            other.lastAttackerId = u.id;
+            other.underAttackTimer = 8.0;
+          }
+        };
+        if (activeTickIndex) {
+          forEachUnitInRadius(activeTickIndex, u.x, u.z, rebirthR + 0.1, scorchNearby);
+        } else {
+          for (const other of state.units) {
+            scorchNearby(other, (other.x - u.x) ** 2 + (other.z - u.z) ** 2);
+          }
+        }
+        const pt = getTile(state, Math.round(u.x), Math.round(u.z));
+        state.pendingVfx.push({
+          id: nextEntityId('vfx'),
+          type: 'fire_spread',
+          x: u.x,
+          y: (pt?.height ?? 2) * 0.45 + 0.6,
+          z: u.z,
+          radius: rebirthR,
+          color: '#ff9500',
+          createdAt: Date.now(),
+        });
+        addChronicle(state, `Phoenix ${u.name} erupted from the ashes in fiery rebirth!`, 'divine', {
+          x: u.x,
+          z: u.z,
+        });
+        remainingUnits.push(u);
+        continue;
+      }
       if (suspendedInVortex) {
         remainingUnits.push(u);
         continue;
@@ -19160,14 +19252,16 @@ function stepHostileUnitAI(
       }
     }
     if (nearestBld) {
+      const hostileEff = computeUnitEffectiveStats(u, def);
       const dist = Math.sqrt(bestDistSq);
-      if (dist <= def.attackRange) {
+      if (dist <= hostileEff.attackRange) {
         u.state = 'fighting';
-        u.windupTimer += dt;
+        u.windupTimer += dt * hostileEff.attackSpeedMult;
         if (u.windupTimer >= 0.65) {
           u.windupTimer = 0;
           if (nearestBld.shieldTimer <= 0) {
-            nearestBld.hp = Math.max(0, nearestBld.hp - def.attackDamage);
+            const frenzMult = u.statusEffects.frenzied ? 2.0 : 1.0;
+            nearestBld.hp = Math.max(0, nearestBld.hp - hostileEff.attackDamage * frenzMult);
           }
         }
       } else {
@@ -19230,15 +19324,20 @@ function stepHostileUnitAI(
   };
 
   if (nearestBldFallback && (!nearestCiv || bestBldDistSq + 4 < bestDistSq)) {
+    const hostileEff = computeUnitEffectiveStats(u, def);
     const bDist = Math.sqrt(bestBldDistSq);
-    if (bDist <= Math.max(1.8, def.attackRange)) {
+    if (bDist <= Math.max(1.8, hostileEff.attackRange)) {
       u.state = 'fighting';
       u.targetX = nearestBldFallback.tileX;
       u.targetZ = nearestBldFallback.tileZ;
       if (u.actionCooldown <= 0) {
-        u.actionCooldown = u.role === 'alien_walker' ? 1.05 : 0.85;
+        u.actionCooldown = (u.role === 'alien_walker' ? 1.05 : 0.85) / Math.max(0.4, hostileEff.attackSpeedMult);
         if (nearestBldFallback.shieldTimer <= 0) {
-          nearestBldFallback.hp = Math.max(0, nearestBldFallback.hp - def.attackDamage * 1.25);
+          const frenzMult = u.statusEffects.frenzied ? 2.0 : 1.0;
+          nearestBldFallback.hp = Math.max(
+            0,
+            nearestBldFallback.hp - hostileEff.attackDamage * 1.25 * frenzMult,
+          );
         }
         if (isAlienRanged) {
           const bt = getTile(state, nearestBldFallback.tileX, nearestBldFallback.tileZ);
@@ -19531,6 +19630,9 @@ function isPredatorRole(role: UnitRole, appearanceSeed?: number): boolean {
     role === 'kitsune' ||
     role === 'pegasus' ||
     role === 'ent' ||
+    role === 'fairy' ||
+    role === 'fae' ||
+    role === 'will_o_wisp' ||
     isCarnivoreAnimal(role, appearanceSeed)
   );
 }
@@ -19582,7 +19684,7 @@ function tileMatchesWildlifeHabitat(
   role: UnitRole,
   appearanceSeed?: number,
 ): boolean {
-  if (role === 'kraken') {
+  if (role === 'kraken' || role === 'lantern_jelly') {
     return t.height === 0 && !t.isRiver && !t.isLake && (t.terrain === 'deep_water' || t.terrain === 'shallow_water');
   }
   if (role === 'giant_spider') {
@@ -19665,6 +19767,10 @@ function tileMatchesWildlifeHabitat(
   if (role === 'minotaur' || role === 'manticore') return t.terrain === 'badlands' || t.terrain === 'rock' || t.terrain === 'highland' || t.terrain === 'savanna' || t.terrain === 'sand';
   if (role === 'cerberus') return t.terrain === 'volcanic_wasteland' || t.terrain === 'badlands' || t.terrain === 'rock' || t.terrain === 'mountain' || t.terrain === 'scorched';
   if (role === 'ent') return t.terrain === 'forest' || t.terrain === 'jungle' || t.terrain === 'blossom' || t.terrain === 'floral_plains' || t.terrain === 'taiga';
+  if (role === 'firefly') return t.terrain === 'grass' || t.terrain === 'fertile' || t.terrain === 'swamp' || t.terrain === 'blossom' || t.terrain === 'floral_plains' || t.terrain === 'forest';
+  if (role === 'glow_moth') return t.terrain === 'blossom' || t.terrain === 'floral_plains' || t.terrain === 'forest' || t.terrain === 'jungle' || t.terrain === 'taiga';
+  if (role === 'fairy' || role === 'fae') return t.terrain === 'blossom' || t.terrain === 'floral_plains' || t.terrain === 'forest' || t.terrain === 'fertile' || t.terrain === 'crystal_field';
+  if (role === 'will_o_wisp') return t.terrain === 'swamp' || t.terrain === 'blighted_mire' || t.terrain === 'taiga' || t.terrain === 'forest' || t.terrain === 'crystal_field';
   return true;
 }
 
@@ -19809,6 +19915,13 @@ export function seedWorldWildlife(state: SimulationState, maxToAdd?: number): vo
         { role: 'manticore', count: Math.min(2, Math.max(1, Math.round(mapDensityScale * 0.7))), predator: true },
         { role: 'gargoyle', count: Math.min(2, Math.max(1, Math.round(mapDensityScale * 0.7))), predator: true },
         { role: 'dragon', count: Math.min(3, Math.max(1, Math.round(mapDensityScale))), predator: true },
+        // Luminous nocturnal wildlife & fae spirits
+        { role: 'firefly', count: scaled(4), predator: false, herdSize: 3 },
+        { role: 'glow_moth', count: scaled(3), predator: false, herdSize: 2 },
+        { role: 'lantern_jelly', count: scaled(3), predator: false, herdSize: 2 },
+        { role: 'fairy', count: Math.min(2, Math.max(1, Math.round(mapDensityScale * 0.8))), predator: false },
+        { role: 'fae', count: Math.min(2, Math.max(1, Math.round(mapDensityScale * 0.8))), predator: false },
+        { role: 'will_o_wisp', count: Math.min(2, Math.max(1, Math.round(mapDensityScale * 0.8))), predator: false },
       ];
 
   const quotas = baseQuotas.filter((q) => {
@@ -19846,7 +19959,10 @@ export function seedWorldWildlife(state: SimulationState, maxToAdd?: number): vo
       if (!st || st.buildingId || st.onFireTimer > 0) continue;
       const okIce = (q.role === 'penguin' || q.role === 'polar_bear' || q.role === 'seal') && st.terrain === 'ice';
       const okShallow = (q.role === 'turtle' || q.role === 'crab' || q.role === 'seal') && st.terrain === 'shallow_water';
-      if (st.height <= 0 && !okIce && !okShallow) continue;
+      const okOcean =
+        (q.role === 'kraken' || q.role === 'lantern_jelly') &&
+        (st.terrain === 'deep_water' || st.terrain === 'shallow_water');
+      if (st.height <= 0 && !okIce && !okShallow && !okOcean) continue;
       const seedForSlot =
         q.appearanceSeed !== undefined
           ? findDeterministicDinoSeedForMorph(getDinosaurVariant(q.appearanceSeed).morph, q.appearanceSeed + (spawnedTotal + m) * 7)
@@ -19981,8 +20097,12 @@ function stepWildlifeReproduction(state: SimulationState, dt: number): void {
   let birthsThisCycle = 0;
   const pairedThisCycle = new Set<string>();
 
+  const allowFantasy = state.worldRules?.allowFantasy !== false;
+  const allowDinosaurs = state.worldRules?.allowDinosaurs !== false;
   for (let i = 0; i < livingWildlife.length && birthsThisCycle < maxBirthsPerCycle; i++) {
     const parentA = livingWildlife[i];
+    if (!allowFantasy && MYTHICAL_ROLE_SET.has(parentA.role)) continue;
+    if (!allowDinosaurs && parentA.role === 'dinosaur') continue;
     if (pairedThisCycle.has(parentA.id)) continue;
     if (parentA.state === 'fighting' || parentA.draggedByPlayer) continue;
     if (parentA.hp < parentA.maxHp * 0.55) continue;
@@ -20154,7 +20274,8 @@ function stepWildlifeAI(
     !isFlying &&
     u.role !== 'golem' &&
     u.role !== 'cerberus' &&
-    u.role !== 'gargoyle'
+    u.role !== 'gargoyle' &&
+    !computeUnitEffectiveStats(u, def).fireproof
   ) {
     u.hp -= 10 * dt;
   }
@@ -20479,22 +20600,26 @@ function stepWildlifeAI(
     }
 
     // 3. ACQUIRE COMBAT TARGETS (ships, swimmers/coastal units, coastal/floating buildings)
+    const canProactivelyAttack = state.worldRules?.animalAttacks !== false || Boolean(u.statusEffects.frenzied);
     let targetShip: VehicleEntity | null = null;
     let targetUnit: UnitEntity | null = null;
     let targetBld: BuildingEntity | null = null;
     let bestDist = 16.0;
 
-    for (const v of state.vehicles ?? []) {
-      if ((v.hp ?? 0) <= 0 || (v.type !== 'passenger_ship' && v.type !== 'warship')) continue;
-      const d = Math.hypot(v.x - u.x, v.z - u.z);
-      if (d < bestDist) {
-        bestDist = d;
-        targetShip = v;
+    if (canProactivelyAttack) {
+      for (const v of state.vehicles ?? []) {
+        if ((v.hp ?? 0) <= 0 || (v.type !== 'passenger_ship' && v.type !== 'warship')) continue;
+        const d = Math.hypot(v.x - u.x, v.z - u.z);
+        if (d < bestDist) {
+          bestDist = d;
+          targetShip = v;
+        }
       }
     }
     for (const other of state.units) {
       if (other.id === u.id || other.state === 'ko' || other.hp <= 0 || other.role === 'leviathan') continue;
       const isAttacker = (u.underAttackTimer ?? 0) > 0 && other.id === u.lastAttackerId;
+      if (!canProactivelyAttack && !isAttacker) continue;
       if (!isAttacker && other.role === 'dragon') continue;
       const ot = getTile(state, Math.round(other.x), Math.round(other.z));
       if (!isAttacker && (!ot || ot.height > 2)) continue;
@@ -20506,7 +20631,7 @@ function stepWildlifeAI(
         targetShip = null;
       }
     }
-    if (!targetShip && !targetUnit && (state.worldRules?.animalAttacks !== false || u.statusEffects.frenzied)) {
+    if (!targetShip && !targetUnit && canProactivelyAttack) {
       for (const b of state.buildings) {
         if (b.hp <= 0 || b.shieldTimer > 0) continue;
         const bt = getTile(state, b.tileX, b.tileZ);
@@ -20594,19 +20719,34 @@ function stepWildlifeAI(
         u.attackTargetX = tx;
         u.attackTargetZ = tz;
         if (u.actionCooldown <= 0) {
-          u.actionCooldown = 1.25;
+          const leviEff = computeUnitEffectiveStats(u, def);
+          const frenzMult = u.statusEffects.frenzied ? 2.0 : 1.0;
+          const isCrit = leviEff.critChance > 0 && Math.random() * 100 < leviEff.critChance;
+          const baseMeleeDmg = leviEff.attackDamage * frenzMult * (isCrit ? 1.6 : 1.0);
+          u.actionCooldown = 1.25 / Math.max(0.4, leviEff.attackSpeedMult);
           u.attackAnimTimer = 0.65;
           if (targetShip) {
-            targetShip.hp = Math.max(0, (targetShip.hp ?? 100) - def.attackDamage * 1.15);
+            targetShip.hp = Math.max(0, (targetShip.hp ?? 100) - baseMeleeDmg * 1.15);
             if (targetShip.type === 'warship') {
               u.hp = Math.max(0, u.hp - 18);
             }
           } else if (targetUnit && !targetUnit.statusEffects.shielded) {
-            if (!targetUnit.statusEffects.shielded) {
-              targetUnit.hp = Math.max(0, targetUnit.hp - def.attackDamage);
-            }
+            const targetDef = UNIT_BY_ROLE.get(targetUnit.role);
+            const targetEff = computeUnitEffectiveStats(targetUnit, targetDef);
+            const armorMult = 1 - Math.min(0.75, targetEff.armor / 100);
+            const dealt = Math.max(1, Math.round(baseMeleeDmg * armorMult));
+            targetUnit.hp = Math.max(0, targetUnit.hp - dealt);
             targetUnit.lastAttackerId = u.id;
             targetUnit.underAttackTimer = 8.0;
+            if (leviEff.venomous && !targetUnit.statusEffects.blessed) {
+              targetUnit.statusEffects.plagued = Math.max(targetUnit.statusEffects.plagued ?? 0, 10);
+            }
+            if (leviEff.vampiric && dealt > 0) {
+              u.hp = Math.min(u.maxHp, u.hp + dealt * 0.25);
+            }
+            if (targetEff.thorns && dealt > 0) {
+              u.hp = Math.max(0, u.hp - dealt * 0.2);
+            }
             if (targetUnit.hp <= 0) {
               targetUnit.state = 'ko';
               targetUnit.koTimer = 0.45;
@@ -20616,7 +20756,7 @@ function stepWildlifeAI(
               u.hp = Math.max(0, u.hp - (targetUnit.role === 'warrior' || targetUnit.isKing ? 14 : 8));
             }
           } else if (targetBld && targetBld.shieldTimer <= 0) {
-            targetBld.hp = Math.max(0, targetBld.hp - def.attackDamage * 1.45);
+            targetBld.hp = Math.max(0, targetBld.hp - baseMeleeDmg * 1.45);
           }
 
           addChronicle(
@@ -21115,10 +21255,15 @@ function stepWildlifeAI(
     u.attackTargetX = targetX;
     u.attackTargetZ = targetZ;
 
-    if (options?.unitTarget) {
-      options.unitTarget.hp -= dmg;
-      options.unitTarget.lastAttackerId = u.id;
-      options.unitTarget.underAttackTimer = 8.0;
+    if (options?.unitTarget && !options.unitTarget.statusEffects.shielded) {
+      const targetDef = UNIT_BY_ROLE.get(options.unitTarget.role);
+      const targetEff = computeUnitEffectiveStats(options.unitTarget, targetDef);
+      if (!targetEff.fireproof) {
+        const armorMult = 1 - Math.min(0.75, targetEff.armor / 100);
+        options.unitTarget.hp -= Math.max(1, Math.round(dmg * armorMult));
+        options.unitTarget.lastAttackerId = u.id;
+        options.unitTarget.underAttackTimer = 8.0;
+      }
     }
     if (options?.buildingTarget && options.buildingTarget.shieldTimer <= 0) {
       options.buildingTarget.hp = Math.max(0, options.buildingTarget.hp - dmg * 0.85);
@@ -21155,9 +21300,14 @@ function stepWildlifeAI(
       ) {
         const sdSq = (splashTarget.x - targetX) ** 2 + (splashTarget.z - targetZ) ** 2;
         if (sdSq <= 2.56) {
-          splashTarget.hp -= dmg * 0.35;
-          splashTarget.lastAttackerId = u.id;
-          splashTarget.underAttackTimer = 8.0;
+          const splashDef = UNIT_BY_ROLE.get(splashTarget.role);
+          const splashEff = computeUnitEffectiveStats(splashTarget, splashDef);
+          if (!splashEff.fireproof) {
+            const armorMult = 1 - Math.min(0.75, splashEff.armor / 100);
+            splashTarget.hp -= Math.max(1, Math.round(dmg * 0.35 * armorMult));
+            splashTarget.lastAttackerId = u.id;
+            splashTarget.underAttackTimer = 8.0;
+          }
         }
       }
     }
@@ -21634,7 +21784,10 @@ function stepWildlifeAI(
       u.role === 'dragon' &&
       (target || envTarget || u.dragonRunPhase === 'strafe' || u.dragonRunPhase === 'turn')
     ) {
-      const dmg = def.attackDamage * (isFrenzied ? 1.65 : 1.0);
+      const dragonEff = computeUnitEffectiveStats(u, def);
+      const isCrit = dragonEff.critChance > 0 && Math.random() * 100 < dragonEff.critChance;
+      const dmg = dragonEff.attackDamage * (isFrenzied ? 2.0 : 1.0) * (isCrit ? 1.6 : 1.0);
+      const dragonRange = dragonEff.attackRange;
       const canBreathe = (u.dragonBreathCooldown ?? 0) <= 0 && u.actionCooldown <= 0;
       const hasLiveGoal = Boolean(target || envTarget);
       const goalX = target ? target.x : envTarget ? envTarget.x : (u.dragonAnchorX ?? u.x);
@@ -21695,7 +21848,7 @@ function stepWildlifeAI(
           const forwardCheckZ = u.z + dirZ * 1.8;
           if (
             target &&
-            Math.hypot(target.x - u.x, target.z - u.z) <= def.attackRange + 0.8 &&
+            Math.hypot(target.x - u.x, target.z - u.z) <= dragonRange + 0.8 &&
             (target.x - u.x) * dirX + (target.z - u.z) * dirZ >= -0.25
           ) {
             emitDragonBreathAt(target.x, target.z, dmg, {
@@ -21703,7 +21856,7 @@ function stepWildlifeAI(
             });
           } else if (
             envTarget &&
-            Math.hypot(envTarget.x - u.x, envTarget.z - u.z) <= def.attackRange + 0.8 &&
+            Math.hypot(envTarget.x - u.x, envTarget.z - u.z) <= dragonRange + 0.8 &&
             (envTarget.x - u.x) * dirX + (envTarget.z - u.z) * dirZ >= -0.25
           ) {
             emitDragonBreathAt(envTarget.x, envTarget.z, dmg, {
@@ -22263,14 +22416,16 @@ function stepWildlifeAI(
     }
 
     if (envTarget) {
+      const wEff = computeUnitEffectiveStats(u, def);
       const dist = Math.hypot(envTarget.x - u.x, envTarget.z - u.z);
       u.targetX = envTarget.x;
       u.targetZ = envTarget.z;
-      if (dist <= def.attackRange) {
+      if (dist <= wEff.attackRange) {
         u.state = 'fighting';
         if (u.actionCooldown <= 0) {
-          const dmg = def.attackDamage * (isFrenzied ? 1.8 : 1.0);
-          u.actionCooldown = isFrenzied ? 1.2 : 5.2;
+          const isCrit = wEff.critChance > 0 && Math.random() * 100 < wEff.critChance;
+          const dmg = wEff.attackDamage * (isFrenzied ? 2.0 : 1.0) * (isCrit ? 1.6 : 1.0);
+          u.actionCooldown = (isFrenzied ? 1.2 : 5.2) / Math.max(0.4, wEff.attackSpeedMult);
           u.wildlifeSkillCooldown = isFrenzied ? 2.5 : 5.5;
           u.dinoRushTimer = 0;
           u.attackAnimTimer = 0.52;
@@ -23252,9 +23407,14 @@ function stepCivilianUnitAI(
     }
   }
 
-  // Burning tile hurts unshielded units; also update swimming/stamina if standing on open water while idle
+  // Burning tile hurts unshielded, non-fireproof units; also update swimming/stamina if standing on open water while idle
   const curTile = getTile(state, u.x, u.z);
-  if (curTile && curTile.onFireTimer > 0 && !u.statusEffects.shielded) {
+  if (
+    curTile &&
+    curTile.onFireTimer > 0 &&
+    !u.statusEffects.shielded &&
+    !computeUnitEffectiveStats(u, def).fireproof
+  ) {
     u.hp -= 10 * dt;
   }
   if (curTile && !isWalkableOrWalkwayTile(curTile)) {
@@ -23651,7 +23811,7 @@ function stepCivilianUnitAI(
           attackerEff.attackDamage *
           speciesCombatMult *
           kingMult *
-          (u.statusEffects.frenzied ? 2.4 : 1.0);
+          (u.statusEffects.frenzied ? 2.0 : 1.0);
         const enemyTile = getTile(state, nearestEnemy.x, nearestEnemy.z);
         const originY = (curTile?.height ?? 2) * 0.45 + 0.42;
         const targetY = (enemyTile?.height ?? 2) * 0.45 + 0.35;
@@ -24451,24 +24611,27 @@ function stepCivilianUnitAI(
       }
 
       if (nearestEnemyVeh) {
+        const civVehEff = computeUnitEffectiveStats(u, def);
         const vDist = Math.sqrt(bestVehDistSq);
         const isShipVeh = nearestEnemyVeh.type === 'passenger_ship' || nearestEnemyVeh.type === 'warship';
         const antiVehRange =
           myEpoch >= 3 && u.species !== 'orc'
-            ? 7.5
+            ? Math.max(7.5, civVehEff.attackRange)
             : u.species === 'elf'
-              ? 6.5
-              : Math.max(isShipVeh ? 5.5 : 3.2, def.attackRange + 1.8);
+              ? Math.max(6.5, civVehEff.attackRange)
+              : Math.max(isShipVeh ? 5.5 : 3.2, civVehEff.attackRange + 1.8);
         if (vDist <= antiVehRange) {
           u.state = 'fighting';
           if (u.actionCooldown <= 0) {
-            u.actionCooldown = u.statusEffects.frenzied ? 0.45 : 0.72;
+            u.actionCooldown = (u.statusEffects.frenzied ? 0.45 : 0.72) / Math.max(0.4, civVehEff.attackSpeedMult);
+            const isCrit = civVehEff.critChance > 0 && Math.random() * 100 < civVehEff.critChance;
             const vehDmg =
-              def.attackDamage *
+              civVehEff.attackDamage *
               speciesCombatMult *
               kingMult *
               1.45 *
-              (u.statusEffects.frenzied ? 2.0 : 1.0);
+              (u.statusEffects.frenzied ? 2.0 : 1.0) *
+              (isCrit ? 1.6 : 1.0);
             nearestEnemyVeh.hp = Math.max(0, (nearestEnemyVeh.hp ?? 100) - vehDmg);
             const avSubtype: VisualEffectEvent['vfxSubtype'] =
               u.species === 'elf'
@@ -24615,14 +24778,15 @@ function stepCivilianUnitAI(
       const bDist = Math.sqrt(bestForeignBldDistSq);
       const bTile = getTile(state, nearestForeignBld.tileX, nearestForeignBld.tileZ);
       const isFloatingBld = Boolean(bTile && bTile.height === 0);
+      const civBldEff = computeUnitEffectiveStats(u, def);
       const effectiveRange =
         myEpoch >= 3 && u.species !== 'orc'
-          ? 5.2
+          ? Math.max(5.2, civBldEff.attackRange)
           : u.species === 'elf' || u.species === 'lizardfolk'
-            ? Math.max(3.8, def.attackRange)
+            ? Math.max(3.8, civBldEff.attackRange)
             : u.species === 'dwarf' && myEpoch >= 2
-              ? Math.max(3.4, def.attackRange)
-              : Math.max(isFloatingBld ? 4.2 : 1.6, def.attackRange);
+              ? Math.max(3.4, civBldEff.attackRange)
+              : Math.max(isFloatingBld ? 4.2 : 1.6, civBldEff.attackRange);
       const claimSid =
         u.settlementId ??
         (myKingdomId ? resolvePrimarySettlementForKingdom(state, myKingdomId, nearestForeignBld.tileX, nearestForeignBld.tileZ) : undefined);
@@ -24632,13 +24796,15 @@ function stepCivilianUnitAI(
           claimTerritoryAround(state, u.x, u.z, 2.2, claimSid, myKingdomId, true);
         }
         if (u.actionCooldown <= 0) {
-          u.actionCooldown = u.statusEffects.frenzied ? 0.45 : 0.75;
+          u.actionCooldown = (u.statusEffects.frenzied ? 0.45 : 0.75) / Math.max(0.4, civBldEff.attackSpeedMult);
+          const isCrit = civBldEff.critChance > 0 && Math.random() * 100 < civBldEff.critChance;
           const bldDmg =
-            def.attackDamage *
+            civBldEff.attackDamage *
             speciesCombatMult *
             kingMult *
             1.65 *
-            (u.statusEffects.frenzied ? 2.2 : 1.0);
+            (u.statusEffects.frenzied ? 2.0 : 1.0) *
+            (isCrit ? 1.6 : 1.0);
           if (nearestForeignBld.shieldTimer <= 0) {
             nearestForeignBld.hp = Math.max(0, nearestForeignBld.hp - bldDmg);
             // When an enemy building is conquered in war, annex its territory and capture/claim the structure for our kingdom!

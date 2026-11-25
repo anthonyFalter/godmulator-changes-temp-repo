@@ -1761,7 +1761,7 @@ export const GOD_POWERS: GodPowerDefinition[] = [
     type: 'bloodlust_frenzy',
     name: 'Rage',
     category: 'Wrathful',
-    summary: 'Enrages creatures for +150% damage',
+    summary: 'Enrages creatures for +100% damage and +50% speed',
     faithCost: 20,
     radius: 5.5,
     keyHint: 'U',
@@ -2269,6 +2269,9 @@ export function getUnitMaxLifespan(unit: {
     case 'kitsune':
     case 'pegasus':
     case 'thunderbird':
+    case 'fairy':
+    case 'fae':
+    case 'will_o_wisp':
       base = 350 + (seed % 70);
       break;
     case 'griffin':
@@ -2335,6 +2338,9 @@ export function getUnitMaxLifespan(unit: {
     case 'rabbit':
     case 'frog':
     case 'crab':
+    case 'firefly':
+    case 'glow_moth':
+    case 'lantern_jelly':
       base = 8 + (seed % 5);
       break;
     case 'raider_swarmer':

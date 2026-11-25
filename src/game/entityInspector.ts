@@ -34,7 +34,10 @@ export type DietCategory =
   | 'Forest Herbivore'
   | 'Sea Predator'
   | 'Omnivore'
-  | 'Forager';
+  | 'Forager'
+  | 'Undead'
+  | 'Energy-Powered'
+  | 'Arcane';
 
 export interface EntityDietInfo {
   category: DietCategory;
@@ -1049,6 +1052,36 @@ function getDietInfo(unit: UnitEntity): EntityDietInfo {
         category: 'Omnivore',
         detail: 'Perches as a hard stone statue to heal fast, then wakes up to dive-slam intruders',
       };
+    case 'firefly':
+      return {
+        category: 'Forager',
+        detail: 'Sips nectar and dew while illuminating meadows and marshes at dusk',
+      };
+    case 'glow_moth':
+      return {
+        category: 'Forager',
+        detail: 'Feeds on moonlit blossoms and forest sap',
+      };
+    case 'lantern_jelly':
+      return {
+        category: 'Sea Predator',
+        detail: 'Drifts through open seas pulsing bioluminescent light as it feeds on plankton',
+      };
+    case 'fairy':
+      return {
+        category: 'Arcane',
+        detail: 'Sustained by blossom nectar and radiant woodland mana',
+      };
+    case 'fae':
+      return {
+        category: 'Arcane',
+        detail: 'Draws starlight and ancient glade magic to weave shimmering bolts',
+      };
+    case 'will_o_wisp':
+      return {
+        category: 'Arcane',
+        detail: 'Spectral marsh flame sustained by stray spirit embers and arcane mist',
+      };
     case 'raider_swarmer':
     case 'raider_ranged':
     case 'raider_behemoth':
@@ -1058,14 +1091,14 @@ function getDietInfo(unit: UnitEntity): EntityDietInfo {
       };
     case 'skeleton':
       return {
-        category: 'Sea Predator',
+        category: 'Undead',
         detail: 'Kept alive by dark portal magic',
       };
     case 'alien_trooper':
     case 'alien_ufo':
     case 'alien_walker':
       return {
-        category: 'Sea Predator',
+        category: 'Energy-Powered',
         detail: 'Powered by alien energy cells',
       };
     default: {
@@ -1378,6 +1411,60 @@ export function getEntityInspectProfile(
         Object.values(unit.statBonuses).some((v) => typeof v === 'number' && Math.abs(v) > 0.001)),
   );
 
+  let displayAttackRange = effectiveWithStatus.attackRange;
+  let displayAttackDamage = effectiveWithStatus.attackDamage;
+  if (unit.faction === 'civilization' && unit.ageStage !== 'child') {
+    const hasHumanGuns = unit.species === 'human' && unitEpoch >= 3;
+    const hasElfGuns = unit.species === 'elf' && unitEpoch >= 3;
+    const orcCanBattlewill =
+      unit.species === 'orc' &&
+      (unitEpoch >= 4 || (unitEpoch >= 3 && (unit.role === 'warrior' || unit.isKing)));
+    if (unit.species === 'human') {
+      displayAttackRange = hasHumanGuns
+        ? Math.max(5.8, displayAttackRange)
+        : unitEpoch >= 1
+          ? Math.max(2.0, displayAttackRange)
+          : displayAttackRange;
+    } else if (unit.species === 'elf') {
+      displayAttackRange = hasElfGuns
+        ? Math.max(6.2, displayAttackRange)
+        : Math.max(4.2, displayAttackRange);
+    } else if (unit.species === 'dwarf') {
+      displayAttackRange =
+        unitEpoch >= 3
+          ? Math.max(5.4, displayAttackRange)
+          : unitEpoch >= 2
+            ? Math.max(3.6, displayAttackRange)
+            : displayAttackRange;
+    } else if (unit.species === 'lizardfolk') {
+      displayAttackRange =
+        unitEpoch >= 3
+          ? Math.max(6.0, displayAttackRange)
+          : Math.max(4.0, displayAttackRange);
+    } else if (unit.species === 'orc') {
+      displayAttackRange =
+        (unit.battlewillActive ?? 0) > 0 ||
+        (orcCanBattlewill && (unit.battlewillCooldown ?? 0) <= 0)
+          ? Math.max(4.2, displayAttackRange)
+          : Math.max(1.85, displayAttackRange);
+    }
+
+    let speciesCombatMult = 1.0;
+    if (unit.species === 'orc') {
+      speciesCombatMult = 1.48;
+    } else if (unit.species === 'elf') {
+      speciesCombatMult = unitEpoch >= 1 ? 1.38 : 1.18;
+    } else if (unit.species === 'dwarf') {
+      speciesCombatMult = 1.22 + unitEpoch * 0.06;
+    } else if (unit.species === 'lizardfolk') {
+      speciesCombatMult = 1.18 + unitEpoch * 0.07;
+    } else if (unit.species === 'human') {
+      speciesCombatMult = unitEpoch >= 1 ? 1.05 + unitEpoch * 0.1 : 0.74;
+    }
+    const kingMult = unit.isKing ? 1.35 : 1.0;
+    displayAttackDamage = Math.max(1, Math.round(displayAttackDamage * speciesCombatMult * kingMult));
+  }
+
   return {
     id: unit.id,
     name: unit.name,
@@ -1394,8 +1481,8 @@ export function getEntityInspectProfile(
       immortal,
       settlementName,
       activity: formatActivity(unit),
-      attackDamage: effectiveWithStatus.attackDamage,
-      attackRange: Number(effectiveWithStatus.attackRange.toFixed(1)),
+      attackDamage: displayAttackDamage,
+      attackRange: Number(displayAttackRange.toFixed(1)),
       speed: Number(effectiveWithStatus.speed.toFixed(1)),
       armor: effectiveWithStatus.armor,
       critChance: effectiveWithStatus.critChance,

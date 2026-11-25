@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { getDinosaurVariant } from './catalog';
+import { getDinosaurVariant, getDragonVariant } from './catalog';
 import { createUnitGroup, disposeEntityGroup } from './meshBuilders';
 import { SpeciesId, UnitAgeStage, UnitEntity, UnitRole } from './types';
 
@@ -418,9 +418,11 @@ export function getBatchedUnitTemplateKey(
   const varBucket =
     role === 'dinosaur'
       ? `${getDinosaurVariant(seed).morph}_${seed % 2}`
-      : faction === 'civilization'
-        ? `${seed % 6}`
-        : `${seed % 3}`;
+      : role === 'dragon'
+        ? `${getDragonVariant(seed).name}`
+        : faction === 'civilization'
+          ? `${seed % 6}`
+          : `${seed % 3}`;
   return `${role}|${faction}|${epochLevel}|${species}|${ageStage}|${varBucket}|${pose}`;
 }
 

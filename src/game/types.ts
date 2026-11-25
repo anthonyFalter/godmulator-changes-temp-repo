@@ -583,13 +583,12 @@ export type ZoneOverlayType =
 
 export type ZoneToggleState = Record<ZoneOverlayType, boolean>;
 
-export type ToolCategory = 'powers' | 'terrain' | 'build' | 'spawn' | 'zones' | 'rules' | 'epochs' | 'inspect';
+export type ToolCategory = 'powers' | 'terrain' | 'spawn' | 'zones' | 'rules' | 'epochs' | 'inspect';
 
 export type ActiveTool =
   | { kind: 'inspect' }
   | { kind: 'power'; power: GodPowerType }
   | { kind: 'terrain'; tool: TerrainToolType }
-  | { kind: 'build'; building: BuildingType }
   | { kind: 'spawn'; unit: UnitRole };
 
 export interface ChronicleEvent {

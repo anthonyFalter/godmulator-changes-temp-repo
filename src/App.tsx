@@ -28,7 +28,6 @@ import {
   getKingdomId,
   getKingdomRelation,
   getTile,
-  placeBuilding,
   setKingdomEpoch,
   setWorldEpoch,
   shouldTriggerAgeProgressBanner,
@@ -113,7 +112,6 @@ import {
 import { GraphicsSettingsPanel } from './components/GraphicsSettingsPanel';
 import { AgeProgressBanner, AgeProgressEvent } from './components/AgeProgressBanner';
 import {
-  BuildingPixelIcon,
   HudPixelIcon,
   PowerPixelIcon,
   ResourceIconSvg,
@@ -1352,18 +1350,6 @@ export default function App() {
         return;
       }
 
-      if (activeTool.kind === 'build') {
-        const res = placeBuilding(sim, activeTool.building, tileX, tileZ);
-        const def = BUILDINGS.find((b) => b.type === activeTool.building);
-        if (res.ok) {
-          soundEngine.playBuild();
-          notifyInteractHud(`Placed ${def?.name}`);
-        } else {
-          notifyInteractHud(res.reason || 'Cannot build here');
-        }
-        return;
-      }
-
       if (activeTool.kind === 'spawn') {
         const res = spawnUnit(sim, activeTool.unit, tileX, tileZ);
         const def = UNITS.find((u) => u.role === activeTool.unit);
@@ -1697,9 +1683,6 @@ export default function App() {
     if (activeTool.kind === 'terrain') {
       return TERRAIN_TOOLS.find((t) => t.type === activeTool.tool)?.name ?? 'Land';
     }
-    if (activeTool.kind === 'build') {
-      return BUILDINGS.find((b) => b.type === activeTool.building)?.name ?? 'Build';
-    }
     return UNITS.find((u) => u.role === activeTool.unit)?.name ?? 'Unit';
   })();
 
@@ -1723,15 +1706,6 @@ export default function App() {
         title: tool.name,
         cost: sim.sandboxFreeMode ? 'Free' : `${tool.faithCost} God Energy`,
         detail: tool.summary,
-      };
-    }
-    if (activeCategory === 'build' && activeTool.kind === 'build') {
-      const bld = BUILDINGS.find((b) => b.type === activeTool.building);
-      if (!bld) return null;
-      return {
-        title: bld.name,
-        cost: formatCompactCost(bld.cost, sim.sandboxFreeMode),
-        detail: bld.roleSummary,
       };
     }
     if (activeCategory === 'spawn' && activeTool.kind === 'spawn') {
@@ -3910,10 +3884,7 @@ export default function App() {
                     { id: 'inspect', label: 'Inspect' },
                   ] as { id: ToolCategory; label: string }[]
                 ).map((tab) => {
-                  const isActive =
-                    !dockCollapsed &&
-                    (activeCategory === tab.id ||
-                      (tab.id === 'epochs' && activeCategory === 'rules'));
+                  const isActive = !dockCollapsed && activeCategory === tab.id;
                   const activeZoneCount =
                     tab.id === 'zones'
                       ? Number(activeZones.kingdoms) +
@@ -4256,7 +4227,10 @@ export default function App() {
                       SPECIES_UNITS.filter(
                         (u) =>
                           sim.worldRules?.allowFantasy !== false ||
-                          (u.role !== 'elf' && u.role !== 'orc'),
+                          (u.role !== 'elf' &&
+                            u.role !== 'orc' &&
+                            u.role !== 'dwarf' &&
+                            u.role !== 'lizardfolk'),
                       ).map((u) => {
                         const isSelected =
                           activeTool.kind === 'spawn' && activeTool.unit === u.role;
@@ -4511,7 +4485,7 @@ export default function App() {
                 )}
 
                 {/* TAB 6: WORLD (Ages & Sky Sliders + God Rules & World Info Overlay Triggers) */}
-                {(activeCategory === 'epochs' || activeCategory === 'rules') && (() => {
+                {activeCategory === 'epochs' && (() => {
                   const isCycleSky =
                     Boolean(sim.worldRules?.dayNightCycle) || lightingPreset === 'auto';
                   const activeSkyIdx = isCycleSky

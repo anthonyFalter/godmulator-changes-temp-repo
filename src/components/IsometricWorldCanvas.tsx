@@ -7637,7 +7637,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
 
     const applyHoldStrokeToTile = (tx: number, tz: number, nowMs: number) => {
       const tool = propsRef.current.activeTool;
-      if (tool.kind === 'terrain' || tool.kind === 'build') {
+      if (tool.kind === 'terrain') {
         const isFlattenTool = tool.kind === 'terrain' && tool.tool === 'flatten';
         if (isFlattenTool && paintedStrokeTiles.size === 0) {
           const gSize = simRef.current.gridSize;
@@ -16623,9 +16623,6 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         } else if (tool.kind === 'terrain') {
           reticleTileRadius = getTerrainTileRadius(activeBrushSize);
           hexColor = '#56cfe1';
-        } else if (tool.kind === 'build') {
-          reticleTileRadius = 0;
-          hexColor = '#80ed99';
         } else {
           reticleTileRadius = 0;
         }

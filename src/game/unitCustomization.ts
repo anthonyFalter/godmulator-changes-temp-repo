@@ -726,6 +726,78 @@ export const UNIT_GENES: GeneDefinition[] = [
     description: 'Quick runner with sharp teeth suited for chases.',
     mods: { speed: 0.35, attackDamage: 3 },
   },
+  // Dwarf intrinsic & rare genes
+  {
+    name: 'Stoneblood',
+    kind: 'intrinsic',
+    icon: 'shield',
+    description: 'Dense mountain-born constitution that shrugs off heavy blows.',
+    mods: { maxHp: 20, armor: 8 },
+  },
+  {
+    name: 'Forge Born',
+    kind: 'intrinsic',
+    icon: 'flame',
+    description: 'Hardened by furnace heat and skilled in stonework and smithing.',
+    mods: { armor: 6, harvestPct: 20 },
+  },
+  {
+    name: 'Iron Grip',
+    kind: 'intrinsic',
+    icon: 'sword',
+    description: 'Unshakable grip that drives axes and hammers deeper.',
+    mods: { attackDamage: 5, critChance: 6 },
+  },
+  {
+    name: 'Rune Sense',
+    kind: 'intrinsic',
+    icon: 'eye',
+    description: 'Attuned to ancient stonecraft and hidden veins of ore.',
+    mods: { harvestPct: 25, attackRange: 0.2 },
+  },
+  {
+    name: 'Runic Resilience',
+    kind: 'mutation',
+    icon: 'shield',
+    description: 'Ancestral runic ward that fortifies body and vitality.',
+    mods: { maxHp: 35, armor: 12, regenPerSec: 1.0 },
+  },
+  // Lizardfolk intrinsic & rare genes
+  {
+    name: 'Sun Scales',
+    kind: 'intrinsic',
+    icon: 'scale',
+    description: 'Warm reptilian scales that deflect glancing strikes in the sun.',
+    mods: { armor: 7, maxHp: 14 },
+  },
+  {
+    name: 'Cold Blood',
+    kind: 'intrinsic',
+    icon: 'frost',
+    description: 'Calm reptilian metabolism with steady endurance.',
+    mods: { maxHp: 15, regenPerSec: 0.8 },
+  },
+  {
+    name: 'Jungle Step',
+    kind: 'intrinsic',
+    icon: 'boot',
+    description: 'Nimble footing through dense jungle vines and marsh.',
+    mods: { speed: 0.35, attackSpeedPct: 10 },
+  },
+  {
+    name: 'Solar Focus',
+    kind: 'intrinsic',
+    icon: 'eye',
+    description: 'Sun-sharpened reflexes that heighten critical precision.',
+    mods: { critChance: 10, attackDamage: 4 },
+  },
+  {
+    name: 'Sun-Blessed Scales',
+    kind: 'mutation',
+    icon: 'scale',
+    description: 'Radiant golden-green scales infused with solar vitality.',
+    mods: { armor: 11, maxHp: 28, regenPerSec: 1.4 },
+  },
 ];
 
 const GENE_BY_NAME = new Map<string, GeneDefinition>();
@@ -1634,8 +1706,8 @@ export function computeUnitEffectiveStats(
   // Optional live status effects (for inspector display; simulation applies status multipliers explicitly)
   if (options?.includeStatusEffects && unit.statusEffects) {
     if (unit.statusEffects.frenzied) {
-      stats.attackDamage *= 1.45;
-      stats.speed *= 1.35;
+      stats.attackDamage *= 2.0;
+      stats.speed *= 1.5;
       stats.attackSpeedMult *= 1.3;
     } else if (unit.statusEffects.blessed) {
       stats.attackDamage *= 1.2;
@@ -1761,12 +1833,8 @@ export function setUnitStatValue(
     unit.statBonuses[statKey] = nextBonus;
   }
 
-  // If maxHp increased, also scale current hp nicely; if reduced, clamp
-  const prevMax = unit.maxHp;
+  // If maxHp increased, syncUnitDerivedStats(unit, true) adds the delta to unit.hp once; if reduced, clamps hp
   const eff = syncUnitDerivedStats(unit, statKey === 'maxHp' && nextBonus > prevBonus);
-  if (statKey === 'maxHp' && eff.maxHp > prevMax) {
-    unit.hp = Math.min(unit.maxHp, unit.hp + (eff.maxHp - prevMax));
-  }
   return eff;
 }
 
@@ -1828,6 +1896,10 @@ export function setUnitAgeYears(unit: UnitEntity, years: number): void {
   unit.ageYears = clamped;
   if (clamped < 12 && unit.faction === 'civilization') {
     unit.ageStage = 'child';
+    if (unit.growthTimer === undefined || unit.growthTimer <= 0) {
+      unit.growthTimer = Math.max(4, (12 - clamped) * 2.5);
+    }
+    syncUnitDerivedStats(unit, false);
   } else if (clamped >= 12 && unit.ageStage === 'child') {
     unit.ageStage = 'adult';
     unit.growthTimer = undefined;
