@@ -4068,6 +4068,31 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         const idx = dropIdx >= 0 ? dropIdx : 0;
         const old = activeBurstFx[idx];
         if (old) {
+          if (old.deferImpact && !old.impactFired) {
+            old.impactFired = true;
+            if (old.kind === 'sky_rain_shower' && old.skyRainDrops) {
+              const firstDrop = old.skyRainDrops.find((d) => !d.landed && d.applyOnLand);
+              if (firstDrop) {
+                const remainingCoords: Array<{ x: number; z: number }> = [];
+                for (const d of old.skyRainDrops) {
+                  if (d.landed || !d.applyOnLand) continue;
+                  remainingCoords.push({ x: d.tileX, z: d.tileZ });
+                  if (d.extraTiles) {
+                    for (const ex of d.extraTiles) remainingCoords.push(ex);
+                  }
+                }
+                if (remainingCoords.length > 0) {
+                  executeTerrainDropBatchImpact(simRef.current, firstDrop.dropKind, remainingCoords);
+                }
+              }
+            } else {
+              executeGodPowerImpact(simRef.current, old.powerType as GodPowerType, old.tx, old.tz, {
+                radiusOverride: old.radius,
+                faultSegments: old.faultSegments,
+                quakeShapeKind: old.quakeShapeKind,
+              });
+            }
+          }
           disposeBurstFx(old);
           activeBurstFx.splice(idx, 1);
         }
@@ -7483,7 +7508,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
 
       for (let i = 0; i < simUnits.length; i++) {
         const u = simUnits[i];
-        if (u.state === 'ko') continue;
+        if (u.state === 'ko' || (u.role === 'leviathan' && u.leviathanSubmerged)) continue;
         const metrics = getUnitInspectMetrics(u);
         let ux = u.x;
         let uz = u.z;
@@ -7854,7 +7879,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           propsRef.current.activeTool.kind === 'inspect' ||
           propsRef.current.brushInputMode === 'tap';
 
-        if (!shouldOneFingerPan && isDragPowerActive()) {
+        if (!propsRef.current.mobilePanMode && isDragPowerActive()) {
           const picked = hoveredEntityInternal ?? pickLivingUnitAtRay(raycaster.ray);
           if (picked) {
             const grabbed = beginDragUnit(simRef.current, picked);
@@ -14766,8 +14791,17 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           } else {
             if (!fx.impactFired) {
               fx.impactFired = true;
-              if (fx.deferImpact) {
-                executeGodPowerImpact(simRef.current, fx.powerType as GodPowerType, fx.tx, fx.tz, { radiusOverride: fx.radius });
+              if (fx.deferImpact && (!arrivingCloud || arrivingCloud.impactPending)) {
+                // Only invoke if stepHazards has not already fired the arriving rain_cloud impact
+                const alreadyFired = simRef.current.activeHazards?.some(
+                  (h) =>
+                    h.kind === 'rain_cloud' &&
+                    !h.impactPending &&
+                    Math.hypot((h.targetX ?? h.x) - fx.tx, (h.targetZ ?? h.z) - fx.tz) < 1.5,
+                );
+                if (!alreadyFired) {
+                  executeGodPowerImpact(simRef.current, fx.powerType as GodPowerType, fx.tx, fx.tz, { radiusOverride: fx.radius });
+                }
                 soundEngine.playBlessing();
               }
               triggerLightFlash(fx.tx, fx.ty, fx.tz, '#72efdd', 14);

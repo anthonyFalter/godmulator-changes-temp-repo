@@ -1690,8 +1690,13 @@ export default function App() {
     if (activeCategory === 'powers' && activeTool.kind === 'power') {
       const power = GOD_POWERS.find((p) => p.type === activeTool.power);
       if (!power) return null;
-      const clusterCount =
-        power.type === 'drag_entity' ? 1 : getPowerClusterCount(brushSize);
+      const isSingleCastPower =
+        power.type === 'drag_entity' ||
+        power.type === 'golden_age' ||
+        power.type === 'harmony_dove' ||
+        power.type === 'divine_shield' ||
+        power.type === 'eureka';
+      const clusterCount = isSingleCastPower ? 1 : getPowerClusterCount(brushSize);
       const totalFaithCost = power.faithCost * clusterCount;
       return {
         title: clusterCount > 1 ? `${power.name} (×${clusterCount})` : power.name,
@@ -4139,8 +4144,13 @@ export default function App() {
                     }).map((power) => {
                       const isSelected =
                         activeTool.kind === 'power' && activeTool.power === power.type;
-                      const clusterCount =
-                        power.type === 'drag_entity' ? 1 : getPowerClusterCount(brushSize);
+                      const isSingleCastPower =
+                        power.type === 'drag_entity' ||
+                        power.type === 'golden_age' ||
+                        power.type === 'harmony_dove' ||
+                        power.type === 'divine_shield' ||
+                        power.type === 'eureka';
+                      const clusterCount = isSingleCastPower ? 1 : getPowerClusterCount(brushSize);
                       const totalFaithCost = power.faithCost * clusterCount;
                       const affordable =
                         sim.sandboxFreeMode || sim.resources.faith >= totalFaithCost;
