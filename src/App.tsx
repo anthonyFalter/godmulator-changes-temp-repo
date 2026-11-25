@@ -119,6 +119,8 @@ import {
 } from './components/GameIcons';
 import { IsometricWorldCanvas } from './components/IsometricWorldCanvas';
 
+const UNIT_DEF_BY_ROLE = new Map(UNITS.map((d) => [d.role, d]));
+
 const RESOURCE_KEYS: { key: keyof Resources; label: string }[] = [
   { key: 'food', label: 'Food' },
   { key: 'wood', label: 'Wood' },
@@ -1351,6 +1353,15 @@ export default function App() {
     activeZones.alliances;
   const shouldComputeZones = anyZoneActive || activeCategory === 'zones';
 
+  // Only push hovered tile coords into React state when Inspect or Zones UI actually reads them,
+  // eliminating 60 Hz full-App re-renders during normal cursor movement across the map.
+  const hoverNeedsStateRef = useRef(false);
+  hoverNeedsStateRef.current = isInspectTabActive || shouldComputeZones;
+  const handleHoverTileChange = useCallback((tile: { x: number; z: number } | null) => {
+    if (!hoverNeedsStateRef.current) return;
+    setHoverTile(tile);
+  }, []);
+
   // Compute dynamic land & sea zones & gather HUD unit lists in a single pass
   const sim = simRef.current;
   const livingKings: UnitEntity[] = [];
@@ -1374,16 +1385,20 @@ export default function App() {
     }
   }
 
-  const kingdomEpochsKey = sim.kingdomEpochs
-    ? Object.entries(sim.kingdomEpochs)
-        .map(([k, v]) => `${k}=${v}`)
-        .join(',')
-    : '';
-  const settlementNamesKey = sim.settlementNames
-    ? Object.entries(sim.settlementNames)
-        .map(([k, v]) => `${k}=${v}`)
-        .join('|')
-    : '';
+  const needsKingdomLabelKeys =
+    shouldComputeZones || (!anyZoneActive && activeZones.kingdomLabels && gameState !== 'title');
+  const kingdomEpochsKey =
+    needsKingdomLabelKeys && sim.kingdomEpochs
+      ? Object.entries(sim.kingdomEpochs)
+          .map(([k, v]) => `${k}=${v}`)
+          .join(',')
+      : '';
+  const settlementNamesKey =
+    needsKingdomLabelKeys && sim.settlementNames
+      ? Object.entries(sim.settlementNames)
+          .map(([k, v]) => `${k}=${v}`)
+          .join('|')
+      : '';
   const zoneCacheKey = shouldComputeZones
     ? `${sim.seed}:${Math.floor(sim.year)}:${sim.buildings.length}:${sim.units.length}:${kingdomEpochsKey}:${settlementNamesKey}:${Math.floor(hudTick / 10)}`
     : 'idle';
@@ -1412,13 +1427,16 @@ export default function App() {
   const zoneHighlightHoverTile =
     isInspectTabActive || activeCategory === 'zones' ? hoverTile : null;
 
-  const kingdomRelationsKey = sim.kingdomRelations
-    ? Object.entries(sim.kingdomRelations)
-        .filter(([, rel]) => rel === 'war')
-        .map(([k]) => k)
-        .sort()
-        .join(',')
-    : '';
+  const needsWarRelationsKey =
+    showWarFrontArrows && (activeZones.kingdoms || activeZones.alliances);
+  const kingdomRelationsKey =
+    needsWarRelationsKey && sim.kingdomRelations
+      ? Object.entries(sim.kingdomRelations)
+          .filter(([, rel]) => rel === 'war')
+          .map(([k]) => k)
+          .sort()
+          .join(',')
+      : '';
   const warFrontRefreshTick =
     showWarFrontArrows &&
     (activeZones.kingdoms || activeZones.alliances) &&
@@ -1577,10 +1595,12 @@ export default function App() {
         !activeWorldEvent.dismissedByUser &&
         activeWorldEvent.remaining > 0,
     );
-  const inspectedTile = hoverTile ? getTile(sim, hoverTile.x, hoverTile.z) : null;
-  const inspectedBuilding = hoverTile
-    ? sim.buildings.find((b) => b.tileX === hoverTile.x && b.tileZ === hoverTile.z)
-    : undefined;
+  const inspectedTile =
+    isInspectTabActive && hoverTile ? getTile(sim, hoverTile.x, hoverTile.z) : null;
+  const inspectedBuilding =
+    isInspectTabActive && hoverTile
+      ? sim.buildings.find((b) => b.tileX === hoverTile.x && b.tileZ === hoverTile.z)
+      : undefined;
 
   const activeToolLabel = (() => {
     if (activeTool.kind === 'inspect') return 'Inspect';
@@ -1689,7 +1709,7 @@ export default function App() {
         selectedCityId={inspectedCity?.settlementId ?? null}
         zoneOverlayBuffers={zoneOverlayBuffers}
         onTileInteract={handleTileInteract}
-        onHoverTileChange={setHoverTile}
+        onHoverTileChange={handleHoverTileChange}
         onHoverEntityChange={setHoveredEntityId}
         onSelectEntity={handleSelectEntity}
         onSelectCityLabel={handleSelectCityLabel}
@@ -4956,7 +4976,7 @@ export default function App() {
 
         for (const u of sim.units) {
           if (u.state === 'ko' || u.hp <= 0) continue;
-          const uDef = UNITS.find((d) => d.role === u.role);
+          const uDef = UNIT_DEF_BY_ROLE.get(u.role);
           if (MYTHICAL_ROLE_SET.has(u.role) || uDef?.category === 'mythical') {
             livingMythical += 1;
           } else if (uDef?.category === 'animal') {

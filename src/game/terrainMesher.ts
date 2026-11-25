@@ -38,6 +38,12 @@ export interface TerrainChunkMeshData {
  * - Merging adjacent coplanar cliff wall strips of identical `(topY, bottomY)` along X or Z
  *   interpolates `vLandWorldPos` identically while eliminating buried internal & bottom faces!
  */
+let _scratchCapacity = 0;
+let _scratchTopY = new Float32Array(0);
+let _scratchTopQ = new Int32Array(0);
+let _scratchIsWater = new Uint8Array(0);
+let _scratchVisited = new Uint8Array(0);
+
 export function buildTerrainChunkGeometryData(
   heightMap: Uint8Array,
   terrainCodeMap: Uint8Array,
@@ -71,11 +77,20 @@ export function buildTerrainChunkGeometryData(
   // Quantize Y to millimeter integer keys so floating point jitter never prevents clean merges
   const quantizeY = (y: number): number => Math.round(y * 1000);
 
-  // Precompute local topY + shadow group for this chunk
-  const localTopY = new Float32Array(w * h);
-  const localTopQ = new Int32Array(w * h);
-  const localIsWater = new Uint8Array(w * h);
-  const visited = new Uint8Array(w * h);
+  // Precompute local topY + shadow group for this chunk using reusable scratch buffers
+  const cellCount = w * h;
+  if (_scratchCapacity < cellCount) {
+    _scratchCapacity = cellCount;
+    _scratchTopY = new Float32Array(cellCount);
+    _scratchTopQ = new Int32Array(cellCount);
+    _scratchIsWater = new Uint8Array(cellCount);
+    _scratchVisited = new Uint8Array(cellCount);
+  }
+  const localTopY = _scratchTopY;
+  const localTopQ = _scratchTopQ;
+  const localIsWater = _scratchIsWater;
+  const visited = _scratchVisited;
+  visited.fill(0, 0, cellCount);
 
   let maxY = TERRAIN_BOTTOM_Y;
   let minY = 1e9;

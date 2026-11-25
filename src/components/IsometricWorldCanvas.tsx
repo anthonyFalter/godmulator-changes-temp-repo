@@ -3817,6 +3817,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       trailMaxPoints?: number;
       trailWidth?: number;
       trailSampleAccum?: number;
+      trailParticleAccum?: number;
       flightPeakY?: number;
       wobbleSeed?: number;
       flightEndFrac?: number;
@@ -8235,6 +8236,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
 
     let lastTime = performance.now();
     let hudSyncAccumulator = 0;
+    let lastStreetPoleEpoch = -1;
+    let lumUnitScanAccum = 0.1;
+    let cachedLumUnitId: string | null = null;
     let elapsedTotal = 0;
     let dayNightClock = 0;
     let lastAppliedPixelScale = propsRef.current.pixelScale;
@@ -15656,6 +15660,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           const oy = fx.oy ?? fx.ty;
           const oz = fx.oz ?? fx.tz;
 
+          // Gate continuous trail particle emissions at ~20 Hz (Rule 4.3) so 60–120 FPS projectile volleys don't thrash the 650-particle pool
+          fx.trailParticleAccum = (fx.trailParticleAccum ?? 0.05) + dt;
+          const emitTrail = fx.trailParticleAccum >= 0.05;
+          if (emitTrail) fx.trailParticleAccum = 0;
+
           let curX = ox + (fx.tx - ox) * flightT;
           let curY = oy + (fx.ty - oy) * flightT;
           let curZ = oz + (fx.tz - oz) * flightT;
@@ -15677,7 +15686,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
               fx.tracerMesh.lookAt(_trailLookVec);
             }
             trackTrail = flightT < 1;
-            if (flightT < 1) {
+            if (flightT < 1 && emitTrail) {
               if (Math.random() < 0.92) {
                 spawnRisingParticles(curX, curY, curZ, 2, Math.random() < 0.65 ? '#e2e8f0' : '#cbd5e1', 0.24, 0.72, 0.88, 1.35);
               }
@@ -15714,7 +15723,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
               const castMat = fx.originRingMesh.material as THREE.MeshBasicMaterial;
               castMat.opacity = castFade * 0.92;
             }
-            if (flightT < 1) {
+            if (flightT < 1 && emitTrail) {
               if (Math.random() < 0.88) {
                 spawnRisingParticles(
                   curX,
@@ -15749,7 +15758,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             fx.tracerMesh.rotation.y += dt * 8.2;
             fx.tracerMesh.rotation.z += dt * 7.4;
             trackTrail = flightT < 1;
-            if (flightT < 1) {
+            if (flightT < 1 && emitTrail) {
               if (Math.random() < 0.85) {
                 spawnRisingParticles(curX, curY, curZ, 1, Math.random() < 0.62 ? '#44403c' : '#f97316', 0.24, 0.82, 0.78, 1.15);
               }
@@ -15792,7 +15801,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
               fx.tracerMesh.lookAt(_trailLookVec);
             }
             trackTrail = flightT < 1;
-            if (flightT < 1) {
+            if (flightT < 1 && emitTrail) {
               if (Math.random() < 0.92) {
                 spawnRisingParticles(curX, curY, curZ, 2, Math.random() < 0.65 ? '#292524' : '#44403c', 0.25, 0.85, 0.82, 1.25);
               }
@@ -15816,7 +15825,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             fx.tracerMesh.rotation.x += dt * 8.5;
             fx.tracerMesh.rotation.y += dt * 7.2;
             trackTrail = flightT < 1;
-            if (flightT < 1) {
+            if (flightT < 1 && emitTrail) {
               if (Math.random() < 0.88) {
                 spawnRisingParticles(curX, curY, curZ, 1, Math.random() < 0.6 ? '#475569' : '#f59e0b', 0.22, 0.78, 0.76, 1.15);
               }
@@ -15839,7 +15848,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             fx.tracerMesh.position.set(curX, curY, curZ);
             fx.tracerMesh.rotation.z = prog * 14;
             trackTrail = flightT < 1;
-            if (flightT < 1) {
+            if (flightT < 1 && emitTrail) {
               if (Math.random() < 0.88) {
                 spawnRisingParticles(curX, curY, curZ, 1, Math.random() < 0.6 ? '#facc15' : '#10b981', 0.22, 0.75, 0.68, 1.05);
               }
@@ -15860,7 +15869,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             fx.tracerMesh.position.set(curX, curY, curZ);
             fx.tracerMesh.rotation.x = 0.35 + flightT * 1.15;
             trackTrail = flightT < 1;
-            if (flightT < 1 && Math.random() < 0.72) {
+            if (flightT < 1 && emitTrail && Math.random() < 0.72) {
               spawnRisingParticles(curX, curY, curZ, 1, '#64748b', 0.16, 0.48, 0.56, 0.88);
             }
             if (flightT >= 1 && !fx.impactFired) {
@@ -15877,7 +15886,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             curY = oy + (fx.ty - oy) * flightT + 4 * flightT * (1 - flightT) * arcPeak;
             fx.tracerMesh.position.set(curX, curY, curZ);
             trackTrail = flightT < 1;
-            if (flightT < 1 && Math.random() < 0.72) {
+            if (flightT < 1 && emitTrail && Math.random() < 0.72) {
               spawnRisingParticles(curX, curY, curZ, 1, Math.random() < 0.65 ? '#94a3b8' : '#64748b', 0.16, 0.58, 0.58, 0.9);
             }
             if (flightT >= 1 && !fx.impactFired) {
@@ -15891,7 +15900,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             curZ = oz + (fx.tz - oz) * flightT;
             fx.tracerMesh.position.set(curX, curY, curZ);
             trackTrail = flightT < 1;
-            if (flightT < 1) {
+            if (flightT < 1 && emitTrail) {
               if (Math.random() < 0.88) {
                 spawnRisingParticles(curX, curY, curZ, 1, Math.random() < 0.65 ? '#e2e8f0' : '#94a3b8', 0.18, 0.68, 0.7, 1.05);
               }
@@ -15913,7 +15922,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             fx.tracerMesh.rotation.z = prog * 16;
             fx.tracerMesh.rotation.y += dt * 12;
             trackTrail = flightT < 1;
-            if (flightT < 1 && Math.random() < 0.72) {
+            if (flightT < 1 && emitTrail && Math.random() < 0.72) {
               spawnRisingParticles(curX, curY, curZ, 1, Math.random() < 0.55 ? '#c084fc' : '#5eead4', 0.16, 0.58, 0.52, 0.82);
             }
             if (flightT >= 1 && !fx.impactFired) {
@@ -15931,7 +15940,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             fx.tracerMesh.position.set(curX, curY, curZ);
             fx.tracerMesh.rotation.x += dt * 9.5;
             fx.tracerMesh.rotation.y += dt * 11.5;
-            if (flightT < 1 && Math.random() < 0.65) {
+            if (flightT < 1 && emitTrail && Math.random() < 0.65) {
               spawnParticleBurst(curX, curY, curZ, 1, Math.random() < 0.5 ? '#bae6fd' : '#ffffff', 0.18, 0.55, 0.34);
             }
             if (flightT >= 1 && !fx.impactFired) {
@@ -15947,7 +15956,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             fx.tracerMesh.position.set(curX, curY, curZ);
             fx.tracerMesh.rotation.x += dt * 13;
             fx.tracerMesh.rotation.y += dt * 15;
-            if (flightT < 1 && Math.random() < 0.72) {
+            if (flightT < 1 && emitTrail && Math.random() < 0.72) {
               spawnParticleBurst(curX, curY, curZ, 1, Math.random() < 0.5 ? (fx.colorHex || '#ff6b1a') : '#fde047', 0.16, 0.6, 0.32);
             }
             if (flightT >= 1 && !fx.impactFired) {
@@ -15963,7 +15972,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             fx.tracerMesh.position.set(curX, curY, curZ);
             fx.tracerMesh.rotation.x += dt * 10;
             fx.tracerMesh.rotation.z += dt * 12;
-            if (flightT < 1 && Math.random() < 0.62) {
+            if (flightT < 1 && emitTrail && Math.random() < 0.62) {
               spawnParticleBurst(curX, curY, curZ, 1, '#84cc16', 0.16, 0.55, 0.32);
             }
             if (flightT >= 1 && !fx.impactFired) {
@@ -16701,22 +16710,25 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         shaderElapsed,
       );
 
-      // Update 3D street fixture materials according to current epoch & darkness
-      if (epochIdx === 0) {
-        streetPoleMat.color.setHex(0x4a301c);
-        streetPoleMat.metalness = 0.05;
-      } else if (epochIdx <= 2) {
-        streetPoleMat.color.setHex(0x5c3a21);
-        streetPoleMat.metalness = 0.18;
-      } else if (epochIdx === 3) {
-        streetPoleMat.color.setHex(0x282d33);
-        streetPoleMat.metalness = 0.68;
-      } else if (epochIdx <= 5) {
-        streetPoleMat.color.setHex(0x64748b);
-        streetPoleMat.metalness = 0.62;
-      } else {
-        streetPoleMat.color.setHex(0xcbd5e1);
-        streetPoleMat.metalness = 0.75;
+      // Update 3D street fixture materials only when epoch changes
+      if (epochIdx !== lastStreetPoleEpoch) {
+        lastStreetPoleEpoch = epochIdx;
+        if (epochIdx === 0) {
+          streetPoleMat.color.setHex(0x4a301c);
+          streetPoleMat.metalness = 0.05;
+        } else if (epochIdx <= 2) {
+          streetPoleMat.color.setHex(0x5c3a21);
+          streetPoleMat.metalness = 0.18;
+        } else if (epochIdx === 3) {
+          streetPoleMat.color.setHex(0x282d33);
+          streetPoleMat.metalness = 0.68;
+        } else if (epochIdx <= 5) {
+          streetPoleMat.color.setHex(0x64748b);
+          streetPoleMat.metalness = 0.62;
+        } else {
+          streetPoleMat.color.setHex(0xcbd5e1);
+          streetPoleMat.metalness = 0.75;
+        }
       }
       streetLampGlowMat.color.setHex(
         currentDarkness > 0.12 ? cityLightProfile.primaryHex : 0x475569,
@@ -16733,20 +16745,37 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           ? Math.max(0.85, cityLightProfile.pointLightIntensity)
           : 0.35 * (1 - currentDarkness * 0.5);
 
-      // Pooled 3rd PointLight: prioritizes closest visible luminous creature, or falls back to 2nd city cluster at night
+      // Pooled 3rd PointLight: prioritizes closest visible luminous creature (scanned at 10 Hz), or falls back to 2nd city cluster at night
       let closestLumUnit: UnitEntity | null = null;
-      let closestLumDistSq = Infinity;
+      lumUnitScanAccum += dt;
       const lumUnits = simRef.current.units;
-      for (let ui = 0; ui < lumUnits.length; ui++) {
-        const lu = lumUnits[ui];
-        if (lu.state === 'ko' || !LUMINOUS_ENTITY_ROLES.has(lu.role)) continue;
-        if (!isPointInCullBounds(lu.x, lu.z, worldCullBounds, 4.0)) continue;
-        const dSq =
-          (lu.x - camTarget.x) * (lu.x - camTarget.x) +
-          (lu.z - camTarget.z) * (lu.z - camTarget.z);
-        if (dSq < closestLumDistSq) {
-          closestLumDistSq = dSq;
-          closestLumUnit = lu;
+      if (lumUnitScanAccum >= 0.1) {
+        lumUnitScanAccum = 0;
+        let closestLumDistSq = Infinity;
+        for (let ui = 0; ui < lumUnits.length; ui++) {
+          const lu = lumUnits[ui];
+          if (lu.state === 'ko' || !LUMINOUS_ENTITY_ROLES.has(lu.role)) continue;
+          if (!isPointInCullBounds(lu.x, lu.z, worldCullBounds, 4.0)) continue;
+          const dSq =
+            (lu.x - camTarget.x) * (lu.x - camTarget.x) +
+            (lu.z - camTarget.z) * (lu.z - camTarget.z);
+          if (dSq < closestLumDistSq) {
+            closestLumDistSq = dSq;
+            closestLumUnit = lu;
+          }
+        }
+        cachedLumUnitId = closestLumUnit ? closestLumUnit.id : null;
+      } else if (cachedLumUnitId !== null) {
+        for (let ui = 0; ui < lumUnits.length; ui++) {
+          const lu = lumUnits[ui];
+          if (lu.id === cachedLumUnitId) {
+            if (lu.state !== 'ko' && isPointInCullBounds(lu.x, lu.z, worldCullBounds, 4.0)) {
+              closestLumUnit = lu;
+            } else {
+              cachedLumUnitId = null;
+            }
+            break;
+          }
         }
       }
 

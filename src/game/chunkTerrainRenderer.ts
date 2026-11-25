@@ -58,6 +58,12 @@ export class ChunkTerrainSystem {
   private visibleChunkCount = 0;
   private totalTriangleCount = 0;
   private pendingAsyncCount = 0;
+  private readonly cachedStats: ChunkTerrainStats = {
+    visibleChunks: 0,
+    totalChunks: 0,
+    totalTriangles: 0,
+    pendingWorkerChunks: 0,
+  };
   private scratchFrustum = new THREE.Frustum();
   private scratchProjScreenMat = new THREE.Matrix4();
 
@@ -460,13 +466,7 @@ export class ChunkTerrainSystem {
       }
     }
     this.visibleChunkCount = vis;
-
-    return {
-      visibleChunks: this.visibleChunkCount,
-      totalChunks: this.chunks.length,
-      totalTriangles: this.totalTriangleCount,
-      pendingWorkerChunks: this.pendingAsyncCount + (this.workerPool?.getPendingCount() ?? 0),
-    };
+    return this.getStats();
   }
 
   /**
@@ -487,22 +487,16 @@ export class ChunkTerrainSystem {
       }
     }
     this.visibleChunkCount = vis;
-
-    return {
-      visibleChunks: this.visibleChunkCount,
-      totalChunks: this.chunks.length,
-      totalTriangles: this.totalTriangleCount,
-      pendingWorkerChunks: this.pendingAsyncCount + (this.workerPool?.getPendingCount() ?? 0),
-    };
+    return this.getStats();
   }
 
   getStats(): ChunkTerrainStats {
-    return {
-      visibleChunks: this.visibleChunkCount,
-      totalChunks: this.chunks.length,
-      totalTriangles: this.totalTriangleCount,
-      pendingWorkerChunks: this.pendingAsyncCount + (this.workerPool?.getPendingCount() ?? 0),
-    };
+    this.cachedStats.visibleChunks = this.visibleChunkCount;
+    this.cachedStats.totalChunks = this.chunks.length;
+    this.cachedStats.totalTriangles = this.totalTriangleCount;
+    this.cachedStats.pendingWorkerChunks =
+      this.pendingAsyncCount + (this.workerPool?.getPendingCount() ?? 0);
+    return this.cachedStats;
   }
 
   dispose(): void {

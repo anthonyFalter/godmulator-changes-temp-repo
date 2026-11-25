@@ -109,7 +109,7 @@ function formatSlotLabel(slot: ItemSlot): string {
   }
 }
 
-export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
+export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = React.memo(({
   sim,
   hoveredUnit,
   selectedUnit,
@@ -1339,4 +1339,4 @@ export const EntityInspectorCard: React.FC<EntityInspectorCardProps> = ({
       )}
     </aside>
   );
-};
+});

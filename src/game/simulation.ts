@@ -6666,7 +6666,7 @@ export function executeGodPowerImpact(
           return;
         }
         t.terrain = 'void_goo';
-        voidGooPossibleByState.set(state, true);
+        trackVoidGooTile(state, t.z * state.gridSize + t.x);
         t.farmSettlementId = undefined;
         if (t.resourceNode === 'berry_bush' || t.resourceNode === 'timber_grove') {
           t.resourceNode = 'none';
@@ -11474,6 +11474,16 @@ const tileTimerAccumByState = new WeakMap<SimulationState, number>();
 const vehicleSpawnAccumByState = new WeakMap<SimulationState, number>();
 const simTickCounterByState = new WeakMap<SimulationState, number>();
 const voidGooPossibleByState = new WeakMap<SimulationState, boolean>();
+const voidGooFrontierByState = new WeakMap<SimulationState, Set<number>>();
+function trackVoidGooTile(state: SimulationState, tileIdx: number): void {
+  voidGooPossibleByState.set(state, true);
+  let frontier = voidGooFrontierByState.get(state);
+  if (!frontier) {
+    frontier = new Set<number>();
+    voidGooFrontierByState.set(state, frontier);
+  }
+  frontier.add(tileIdx);
+}
 const specialLiquidPossibleByState = new WeakMap<SimulationState, boolean>();
 const liquidReactionAccumByState = new WeakMap<SimulationState, number>();
 const liquidContactAccumByState = new WeakMap<SimulationState, number>();
@@ -23934,13 +23944,17 @@ function stepVoidGooAndWisps(state: SimulationState, dt: number): void {
   let voidGooActive = voidGooPossibleByState.get(state);
   if (voidGooActive === undefined) {
     voidGooActive = false;
+    const frontier = new Set<number>();
     for (let i = 0; i < state.tiles.length; i++) {
       if (state.tiles[i].terrain === 'void_goo') {
         voidGooActive = true;
-        break;
+        frontier.add(i);
       }
     }
     voidGooPossibleByState.set(state, voidGooActive);
+    if (frontier.size > 0) {
+      voidGooFrontierByState.set(state, frontier);
+    }
   }
 
   if (voidGooActive) {
@@ -23959,15 +23973,17 @@ function stepVoidGooAndWisps(state: SimulationState, dt: number): void {
     if (state.voidGooTimer >= 0.48) {
       state.voidGooTimer = 0;
       const gs = state.gridSize;
-      const voidIndices: number[] = [];
-      for (let i = 0; i < state.tiles.length; i++) {
-        if (state.tiles[i].terrain === 'void_goo') {
-          voidIndices.push(i);
+      let frontier = voidGooFrontierByState.get(state);
+      if (!frontier) {
+        frontier = new Set<number>();
+        for (let i = 0; i < state.tiles.length; i++) {
+          if (state.tiles[i].terrain === 'void_goo') frontier.add(i);
         }
+        voidGooFrontierByState.set(state, frontier);
       }
-      if (voidIndices.length === 0) {
+      if (frontier.size === 0) {
         voidGooPossibleByState.set(state, false);
-      } else if (voidIndices.length < state.tiles.length * 0.92) {
+      } else if (frontier.size < state.tiles.length * 0.92) {
         const toInfect = new Set<TileData>();
         const dirs: readonly [number, number][] = [
           [1, 0],
@@ -23979,32 +23995,44 @@ function stepVoidGooAndWisps(state: SimulationState, dt: number): void {
           [1, -1],
           [-1, -1],
         ];
-        // Shuffle starting offset deterministically so expansion looks organic
-        const stride = voidIndices.length > 900 ? 2 : 1;
+        // Prune cured or completely surrounded interior tiles so frontier stays O(perimeter)
+        const stride = frontier.size > 900 ? 2 : 1;
         const offset = Math.floor(Math.random() * stride);
-        for (let idx = offset; idx < voidIndices.length && toInfect.size < 52; idx += stride) {
-          const vt = state.tiles[voidIndices[idx]];
+        let seen = 0;
+        for (const tileIdx of frontier) {
+          const vt = state.tiles[tileIdx];
+          if (!vt || vt.terrain !== 'void_goo') {
+            frontier.delete(tileIdx);
+            continue;
+          }
+          if (stride > 1 && (seen++ & 1) !== offset) continue;
+          let hasUninfectedLandNeighbor = false;
           for (let k = 0; k < dirs.length; k++) {
             const [ox, oz] = dirs[k];
             const nx = vt.x + ox;
             const nz = vt.z + oz;
             if (nx < 0 || nz < 0 || nx >= gs || nz >= gs) continue;
             const nb = state.tiles[nz * gs + nx];
-            if (!nb || nb.terrain === 'void_goo' || nb.blessedTimer > 0) continue;
+            if (!nb || nb.terrain === 'void_goo' || nb.height <= 0) continue;
+            hasUninfectedLandNeighbor = true;
+            if (nb.blessedTimer > 0) continue;
             const isDiag = k >= 4;
-            if (nb.height > 0) {
-              const chance = isDiag ? 0.24 : 0.62;
-              if (Math.random() < chance) {
-                toInfect.add(nb);
-              }
+            const chance = isDiag ? 0.24 : 0.62;
+            if (Math.random() < chance) {
+              toInfect.add(nb);
             }
             if (toInfect.size >= 52) break;
           }
+          if (!hasUninfectedLandNeighbor) {
+            frontier.delete(tileIdx);
+          }
+          if (toInfect.size >= 52) break;
         }
 
         for (const targetTile of toInfect) {
           if (targetTile.height <= 0) continue;
           targetTile.terrain = 'void_goo';
+          frontier.add(targetTile.z * gs + targetTile.x);
           targetTile.onFireTimer = 0;
           targetTile.fireColor = undefined;
           targetTile.cursedTimer = 0;

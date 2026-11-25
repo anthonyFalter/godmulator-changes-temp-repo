@@ -180,7 +180,7 @@ const IMPACT_DELAY_MS = 980;
 const EXIT_START_MS = 3000;
 const TOTAL_DURATION_MS = 3450;
 
-export const AgeProgressBanner: React.FC<AgeProgressBannerProps> = ({
+export const AgeProgressBanner: React.FC<AgeProgressBannerProps> = React.memo(({
   event,
   onImpact,
   onComplete,
@@ -287,23 +287,24 @@ export const AgeProgressBanner: React.FC<AgeProgressBannerProps> = ({
     };
   }, [event, toEpoch.accentColor]);
 
-  // Dedicated crisp pixel-particle canvas animation loop (zero React re-renders per frame)
+  // Dedicated crisp pixel-particle canvas animation loop (zero React re-renders per frame;
+  // only runs during active burst after impact and halts automatically once all particles expire)
   useEffect(() => {
-    if (!event) return;
+    if (!event || phase !== 'impact') return;
     let rafId = 0;
     let lastTs = performance.now();
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext('2d') ?? null;
 
     const step = (now: number) => {
       const dt = Math.min(0.05, Math.max(0.001, (now - lastTs) / 1000));
       lastTs = now;
 
-      const canvas = canvasRef.current;
-      const ctx = canvas?.getContext('2d');
+      const list = particlesRef.current;
       if (canvas && ctx) {
         ctx.imageSmoothingEnabled = false;
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        const list = particlesRef.current;
         for (let i = list.length - 1; i >= 0; i--) {
           const p = list[i];
           p.age += dt;
@@ -336,12 +337,20 @@ export const AgeProgressBanner: React.FC<AgeProgressBannerProps> = ({
         ctx.globalAlpha = 1;
       }
 
-      rafId = window.requestAnimationFrame(step);
+      if (list.length > 0) {
+        rafId = window.requestAnimationFrame(step);
+      } else {
+        rafId = 0;
+      }
     };
 
-    rafId = window.requestAnimationFrame(step);
-    return () => window.cancelAnimationFrame(rafId);
-  }, [event]);
+    if (particlesRef.current.length > 0) {
+      rafId = window.requestAnimationFrame(step);
+    }
+    return () => {
+      if (rafId) window.cancelAnimationFrame(rafId);
+    };
+  }, [event, phase]);
 
   if (!event) return null;
 
@@ -507,4 +516,4 @@ export const AgeProgressBanner: React.FC<AgeProgressBannerProps> = ({
       </div>
     </>
   );
-};
+});

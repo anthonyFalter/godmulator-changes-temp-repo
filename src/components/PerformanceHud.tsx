@@ -10,8 +10,9 @@ interface PerformanceHudProps {
 }
 
 const METER_SEGMENTS = 12;
+const METER_INDICES = Array.from({ length: METER_SEGMENTS }, (_, i) => i);
 
-export const PerformanceHud: React.FC<PerformanceHudProps> = ({
+export const PerformanceHud: React.FC<PerformanceHudProps> = React.memo(({
   stats,
   strictLossless,
   onClose,
@@ -77,7 +78,7 @@ export const PerformanceHud: React.FC<PerformanceHudProps> = ({
           className="px-bar-track grid grid-cols-12 gap-[2px] h-3.5"
           aria-hidden="true"
         >
-          {Array.from({ length: METER_SEGMENTS }, (_, i) => (
+          {METER_INDICES.map((i) => (
             <span
               key={i}
               className={i < filledSegments ? fpsBarClass : 'bg-[#241c19]'}
@@ -132,4 +133,4 @@ export const PerformanceHud: React.FC<PerformanceHudProps> = ({
       </div>
     </aside>
   );
-};
+});

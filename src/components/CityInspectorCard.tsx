@@ -55,7 +55,9 @@ function getSpeciesCityLabel(species: SpeciesId): string {
   }
 }
 
-export const CityInspectorCard: React.FC<CityInspectorCardProps> = ({
+const BUILDING_DEF_BY_TYPE = new Map(BUILDINGS.map((d) => [d.type, d]));
+
+export const CityInspectorCard: React.FC<CityInspectorCardProps> = React.memo(({
   sim,
   cityRef,
   offsetForEntityInspector = false,
@@ -85,26 +87,55 @@ export const CityInspectorCard: React.FC<CityInspectorCardProps> = ({
     let popCapBonus = 0;
     let sumX = 0;
     let sumZ = 0;
+    let minBX = Infinity;
+    let maxBX = -Infinity;
+    let minBZ = Infinity;
+    let maxBZ = -Infinity;
+    let firstBuildingSpecies: SpeciesId | undefined;
     const typeCounts = new Map<string, number>();
+    const otherKingdoms = new Set<string>();
 
+    // Single pass over sim.buildings for settlement stats, bounding box, species, and rival kingdoms
     for (let i = 0; i < sim.buildings.length; i++) {
       const b = sim.buildings[i];
       if (b.hp <= 0) continue;
-      if ((b.settlementId || 'city_default') !== sid) continue;
-      buildingCount++;
-      sumX += b.tileX;
-      sumZ += b.tileZ;
-      if (b.constructionProgress >= 100) {
-        completedCount++;
-        const def = BUILDINGS.find((d) => d.type === b.type);
-        if (def) {
-          popCapBonus += def.popCapBonus ?? 0;
-          typeCounts.set(def.name, (typeCounts.get(def.name) ?? 0) + 1);
+      const bSid = b.settlementId || 'city_default';
+      if (bSid === sid) {
+        buildingCount++;
+        sumX += b.tileX;
+        sumZ += b.tileZ;
+        if (b.tileX < minBX) minBX = b.tileX;
+        if (b.tileX > maxBX) maxBX = b.tileX;
+        if (b.tileZ < minBZ) minBZ = b.tileZ;
+        if (b.tileZ > maxBZ) maxBZ = b.tileZ;
+        if (!firstBuildingSpecies && b.species) firstBuildingSpecies = b.species;
+        if (b.constructionProgress >= 100) {
+          completedCount++;
+          const def = BUILDING_DEF_BY_TYPE.get(b.type);
+          if (def) {
+            popCapBonus += def.popCapBonus ?? 0;
+            typeCounts.set(def.name, (typeCounts.get(def.name) ?? 0) + 1);
+          }
         }
+      } else if (b.settlementId) {
+        const otherKid = getKingdomId(sim, b.settlementId);
+        if (otherKid !== kid) otherKingdoms.add(otherKid);
       }
     }
-    for (let i = 0; i < sim.tiles.length; i++) {
-      if (sim.tiles[i].farmSettlementId === sid) farmCount++;
+
+    // Bounded tile scan around settlement footprint (+20-tile farm margin) instead of scanning all 262k tiles
+    const gs = sim.gridSize;
+    const pad = 20;
+    const scanMinX = Math.max(0, (buildingCount > 0 ? minBX : cityRef.tileX) - pad);
+    const scanMaxX = Math.min(gs - 1, (buildingCount > 0 ? maxBX : cityRef.tileX) + pad);
+    const scanMinZ = Math.max(0, (buildingCount > 0 ? minBZ : cityRef.tileZ) - pad);
+    const scanMaxZ = Math.min(gs - 1, (buildingCount > 0 ? maxBZ : cityRef.tileZ) + pad);
+    const tiles = sim.tiles;
+    for (let tz = scanMinZ; tz <= scanMaxZ; tz++) {
+      const rowOff = tz * gs;
+      for (let tx = scanMinX; tx <= scanMaxX; tx++) {
+        if (tiles[rowOff + tx].farmSettlementId === sid) farmCount++;
+      }
     }
 
     let adults = 0;
@@ -129,7 +160,7 @@ export const CityInspectorCard: React.FC<CityInspectorCardProps> = ({
 
     const species: SpeciesId =
       sim.settlementSpecies?.[sid] ??
-      sim.buildings.find((b) => b.hp > 0 && (b.settlementId || 'city_default') === sid)?.species ??
+      firstBuildingSpecies ??
       firstSpecies ??
       'human';
 
@@ -152,13 +183,6 @@ export const CityInspectorCard: React.FC<CityInspectorCardProps> = ({
     const centerZ = buildingCount > 0 ? Math.round(sumZ / buildingCount) : cityRef.tileZ;
 
     // Count diplomatic relations with other active kingdoms
-    const otherKingdoms = new Set<string>();
-    for (let i = 0; i < sim.buildings.length; i++) {
-      const b = sim.buildings[i];
-      if (b.hp <= 0 || !b.settlementId) continue;
-      const otherKid = getKingdomId(sim, b.settlementId);
-      if (otherKid !== kid) otherKingdoms.add(otherKid);
-    }
     let alliesCount = 0;
     let warsCount = 0;
     otherKingdoms.forEach((otherKid) => {
@@ -897,4 +921,4 @@ export const CityInspectorCard: React.FC<CityInspectorCardProps> = ({
       )}
     </aside>
   );
-};
+});
