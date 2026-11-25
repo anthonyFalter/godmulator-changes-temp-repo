@@ -343,4 +343,22 @@ test('lava_drop and poison_drop pour dynamic elevated liquid on hills and cascad
   assert.equal(poisonSrc.terrain, 'blighted_mire', 'poison corrodes touched land into Land of Blight');
   assert.equal(poisonDown.terrain, 'blighted_mire', 'cascading poison turns downhill blocks into Land of Blight');
   assert.ok(poisonSrc.cursedTimer > 0, 'flowing poison corrupts ground beneath it');
+  // Lava and poison must persist as active flowing liquid across multiple ticks instead of despawning immediately
+  stepSimulation(sim, 0.12);
+  stepSimulation(sim, 0.12);
+  assert.ok((lavaDown.liquidLevel ?? 0) > lavaDown.height, 'lava remains actively flowing across ticks');
+  assert.ok((poisonDown.liquidLevel ?? 0) > poisonDown.height, 'poison remains actively flowing across ticks');
+});
+
+test('lava_drop on water solidifies into stone (rock, height 1)', () => {
+  const sim = createInitialSimulationState(24, 'LAVA-WATER-STONE-TEST');
+  const seaTile = getTile(sim, 12, 12)!;
+  seaTile.height = 0;
+  seaTile.terrain = 'shallow_water';
+  delete seaTile.waterKind;
+  seaTile.buildingId = null;
+
+  assert.equal(executeTerrainDropTileImpact(sim, 'lava_drop', 12, 12), true);
+  assert.equal(seaTile.terrain, 'rock', 'lava dropped onto water must solidify into stone');
+  assert.equal(seaTile.height, 1, 'stone formed by lava on water rises to land height 1');
 });

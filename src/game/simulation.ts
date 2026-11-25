@@ -2798,7 +2798,63 @@ function applyTerrainToolTileMutation(
           }
           break;
         }
-        case 'lava_drop':
+        case 'lava_drop': {
+          tileModified = true;
+          if (state) specialLiquidPossibleByState.set(state, true);
+          if (t.height === 0 && t.waterKind === 'poison') {
+            // Lava + Poison -> violent corrosive crater!
+            t.height = 0;
+            t.terrain = 'scorched';
+            delete t.waterKind;
+            t.isRiver = false;
+            t.isLake = false;
+            t.cursedTimer = Math.max(t.cursedTimer, 10);
+            t.resourceNode = 'none';
+            t.resourceAmount = 0;
+          } else if (t.height === 0 && !t.waterKind) {
+            // Lava dropped onto ocean/lake/river/ice solidifies into Stone!
+            t.height = 1;
+            t.terrain = 'rock';
+            delete t.waterKind;
+            delete t.frozenWaterBase;
+            delete t.liquidLevel;
+            delete t.liquidKind;
+            t.isRiver = false;
+            t.isLake = false;
+            t.onFireTimer = 0;
+            t.resourceNode = 'none';
+            t.resourceAmount = 0;
+            t.tempOffset = Math.min(35, (t.tempOffset ?? 0) + 12);
+            if (state && state.pendingVfx.length < 48) {
+              state.pendingVfx.push({
+                id: nextEntityId('vfx'),
+                type: 'hit_spark',
+                x: t.x,
+                y: 0.72,
+                z: t.z,
+                radius: 1.4,
+                color: '#e2e8f0',
+                createdAt: Date.now(),
+              });
+            }
+          } else {
+            t.height = 0;
+            t.terrain = 'shallow_water';
+            t.waterKind = 'lava';
+            t.isRiver = true;
+            t.isLake = false;
+            delete t.frozenWaterBase;
+            t.resourceNode = 'none';
+            t.resourceAmount = 0;
+            t.onFireTimer = 0;
+            t.crushedTimer = 0;
+            t.farmSettlementId = undefined;
+            clearBurntTreeState(t);
+            delete t.treeBiomeOverride;
+            t.tempOffset = Math.min(80, Math.max(t.tempOffset ?? 0, 35));
+          }
+          break;
+        }
         case 'lava_river': {
           tileModified = true;
           if (state) specialLiquidPossibleByState.set(state, true);
@@ -3083,9 +3139,29 @@ function applyElevatedLiquidToTile(
     syncTileToWorldGrid(ensureWorldGrid(state), t);
     return true;
   } else if ((existing === 'lava' && kind === 'water') || (existing === 'water' && kind === 'lava')) {
-    // Water + Lava quenches into steaming water
-    finalKind = 'water';
-    t.tempOffset = Math.min(25, Math.max(0, (t.tempOffset ?? 0) + (kind === 'lava' ? 10 : -20)));
+    // Lava + Water solidifies into Stone with steam!
+    delete t.liquidLevel;
+    delete t.liquidKind;
+    t.height = Math.max(1, Math.min(10, t.height));
+    t.terrain = 'rock';
+    t.onFireTimer = 0;
+    t.resourceNode = 'none';
+    t.resourceAmount = 0;
+    t.tempOffset = Math.min(35, Math.max(0, (t.tempOffset ?? 0) + (kind === 'lava' ? 12 : -18)));
+    syncTileToWorldGrid(ensureWorldGrid(state), t);
+    if (state.pendingVfx.length < 48) {
+      state.pendingVfx.push({
+        id: nextEntityId('vfx'),
+        type: 'hit_spark',
+        x: t.x,
+        y: t.height * 0.45 + 0.35,
+        z: t.z,
+        radius: 1.4,
+        color: '#e2e8f0',
+        createdAt: Date.now(),
+      });
+    }
+    return true;
   } else if (existing === 'poison' && kind === 'water') {
     finalKind = 'water';
   }
@@ -3402,7 +3478,7 @@ function stepDynamicLiquidFlow(state: SimulationState, dt: number): void {
 
   const prevTimer = liquidFlowTimerByState.get(state) ?? 0;
   const nextTimer = prevTimer + dt;
-  if (nextTimer < 0.08) {
+  if (nextTimer < 0.095) {
     liquidFlowTimerByState.set(state, nextTimer);
     return;
   }
@@ -3525,27 +3601,54 @@ function stepDynamicLiquidFlow(state: SimulationState, dt: number): void {
           }
         }
 
-        // Evaporate / soak in tiny trailing runoff films on open slopes so mountain streams dry cleanly
-        if (vol < 0.055 && hasLowerEscape) {
+        // Evaporate / cool tiny trailing films on open slopes only after they thin out little by little
+        const minActiveVol = kind === 'lava' ? 0.032 : kind === 'poison' ? 0.028 : 0.038;
+        if (vol < minActiveVol && hasLowerEscape) {
           markTouched(idx);
           _liquidDeltaVolBuf[idx] -= vol;
           continue;
         }
 
         if (weightedTotal > 0.0001) {
-          // Strict volume conservation & non-oscillatory damping (<= 0.45 * maxRawDiff eliminates checkerboards!)
-          const maxOut = Math.min(vol * 0.52, maxRawDiff * 0.45);
+          // Viscosity-tuned flow rates: water flows briskly, poison oozes steadily, lava creeps thick & viscous
+          const volFrac = kind === 'lava' ? 0.28 : kind === 'poison' ? 0.36 : 0.5;
+          const diffFrac = kind === 'lava' ? 0.26 : kind === 'poison' ? 0.34 : 0.44;
+          const maxOut = Math.min(vol * volFrac, maxRawDiff * diffFrac);
           let totalSent = 0;
           for (let d = 0; d < 4; d++) {
             if (nbWeights[d] <= 0) continue;
             const share = maxOut * (nbWeights[d] / weightedTotal);
-            if (share <= 0.0005) continue;
+            if (share <= 0.0004) continue;
             const nbIdx = idx + nbOffsets[d];
             const nb = tiles[nbIdx];
             totalSent += share;
             if (nb.height === 0) {
-              // Water drains permanently into the sea!
-              if (getTileLiquidKind(nb) === null && pendingSea.length < MAX_SEA_FLOW_PER_PULSE) {
+              const nbSeaKind = getTileLiquidKind(nb);
+              if (kind === 'lava' && (nbSeaKind === 'water' || nb.terrain === 'ice')) {
+                // Flowing lava pouring into ocean/lake water solidifies it into Stone with steam!
+                nb.height = 1;
+                nb.terrain = 'rock';
+                delete nb.waterKind;
+                delete nb.frozenWaterBase;
+                nb.isRiver = false;
+                nb.isLake = false;
+                nb.onFireTimer = 0;
+                nb.resourceNode = 'none';
+                nb.resourceAmount = 0;
+                syncTileToWorldGrid(ensureWorldGrid(state), nb);
+                if (state.pendingVfx.length < 48) {
+                  state.pendingVfx.push({
+                    id: nextEntityId('vfx'),
+                    type: 'hit_spark',
+                    x: nb.x,
+                    y: 0.72,
+                    z: nb.z,
+                    radius: 1.35,
+                    color: '#e2e8f0',
+                    createdAt: Date.now(),
+                  });
+                }
+              } else if (nbSeaKind === null && pendingSea.length < MAX_SEA_FLOW_PER_PULSE) {
                 pendingSea.push({ tile: nb, kind });
               }
             } else {
@@ -3559,9 +3662,10 @@ function stepDynamicLiquidFlow(state: SimulationState, dt: number): void {
           if (totalSent > 0) {
             markTouched(idx);
             _liquidDeltaVolBuf[idx] -= totalSent;
-            // Gentle soil absorption on thin runoff over dry slopes
-            if (kind === 'water' && vol < 0.14 && hasLowerEscape) {
-              _liquidDeltaVolBuf[idx] -= Math.min(vol - totalSent, 0.015);
+            // Gradual soil absorption / cooling as a flowing front thins out far from its source
+            if (vol < 0.18 && hasLowerEscape) {
+              const loss = kind === 'lava' ? 0.008 : kind === 'poison' ? 0.007 : 0.015;
+              _liquidDeltaVolBuf[idx] -= Math.min(Math.max(0, vol - totalSent), loss);
             }
           }
         }
@@ -3653,7 +3757,7 @@ function stepDynamicLiquidFlow(state: SimulationState, dt: number): void {
 
     const prevVol = Math.max(0, (t.liquidLevel ?? 0) - t.height);
     const nextVol = prevVol + dVol;
-    if (nextVol < 0.035) {
+    if (nextVol < 0.025) {
       if ((t.liquidLevel ?? 0) > t.height) {
         delete t.liquidLevel;
         delete t.liquidKind;
@@ -3664,8 +3768,12 @@ function stepDynamicLiquidFlow(state: SimulationState, dt: number): void {
         if (t.z > maxZ) maxZ = t.z;
       }
     } else {
+      const incomingKind: LiquidKind =
+        dKindCode === 2 ? 'lava' : dKindCode === 3 ? 'poison' : dKindCode === 1 ? 'water' : (t.liquidKind ?? 'water');
       const kind: LiquidKind =
-        t.liquidKind ?? (dKindCode === 2 ? 'lava' : dKindCode === 3 ? 'poison' : 'water');
+        t.liquidKind && dKindCode !== 0 && t.liquidKind !== incomingKind
+          ? incomingKind
+          : (t.liquidKind ?? incomingKind);
       if (applyElevatedLiquidToTile(state, t, t.height + nextVol, kind)) {
         changed++;
         if (t.x < minX) minX = t.x;
@@ -4032,8 +4140,8 @@ export function executeTerrainDropTileImpact(
     if (filled > 0) {
       changed = true;
     } else if (t.height > 0 && !t.buildingId) {
-      // Pour dynamic elevated liquid on hills, slopes, terraces, or brim-full basins so it cascades downhill!
-      const nextLvl = Math.min(10, Math.max(t.height + 1, (t.liquidLevel ?? t.height) + 1));
+      // Pour generous dynamic elevated liquid on hills, slopes, or plains so it visibly flows & thins out gradually!
+      const nextLvl = Math.min(10, Math.max(t.height + 1.6, (t.liquidLevel ?? t.height) + 1.4));
       changed = applyElevatedLiquidToTile(state, t, nextLvl, dropLiquidKind);
       if (changed) {
         resolveLiquidReactionsAround(state, tileX, tileZ, 3);
@@ -4124,9 +4232,9 @@ export function executeTerrainDropBatchImpact(
         continue;
       }
       if (t.height > 0 && !t.buildingId) {
-        // Pour dynamic elevated liquid onto hills, slopes, or open plains so it cascades & pools naturally!
+        // Pour generous dynamic elevated liquid onto hills, slopes, or open plains so it flows & thins out gradually!
         const curLvl = t.liquidLevel ?? t.height;
-        const nextLvl = Math.min(10, Math.max(t.height + 1, curLvl + 1));
+        const nextLvl = Math.min(10, Math.max(t.height + 1.6, curLvl + 1.4));
         if (applyElevatedLiquidToTile(state, t, nextLvl, batchLiquidKind)) {
           changedCount++;
           if (t.x < minX) minX = t.x;
