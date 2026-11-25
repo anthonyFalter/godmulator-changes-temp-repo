@@ -15,7 +15,7 @@ import {
   computeElasticPopScale,
   computeHitRecoil,
 } from './worldJuice';
-import { TERRAIN_TOOLS } from './catalog';
+import { GOD_POWERS, TERRAIN_TOOLS } from './catalog';
 import {
   createInitialSimulationState,
   executeTerrainDropTileImpact,
@@ -205,22 +205,50 @@ test('computeWorldZones shifts temperature bands with seasons and anchors labels
   }
 });
 
-test('TERRAIN_TOOLS is ordered by player usage frequency with all tools preserved', () => {
+test('TERRAIN_TOOLS is ordered by player usage frequency with all liquid tools grouped together', () => {
   const types = TERRAIN_TOOLS.map((t) => t.type);
   assert.equal(types.length, 35);
-  assert.deepEqual(types.slice(0, 8), [
+  assert.deepEqual(types.slice(0, 12), [
     'raise',
     'lower',
     'flatten',
     'smooth_terrain',
     'island_bridge',
     'water_drop',
+    'lava_drop',
+    'poison_drop',
     'carve_river',
     'abyssal_trench',
+    'lava_river',
+    'poison_river',
   ]);
-  assert.ok(types.includes('lava_drop'), 'includes lava_drop');
-  assert.ok(types.includes('poison_drop'), 'includes poison_drop');
   assert.equal(new Set(types).size, 35, 'all terrain tool types must be unique');
+});
+
+test('GOD_POWERS is ordered by usage frequency and logical category groups with all powers preserved', () => {
+  const types = GOD_POWERS.map((p) => p.type);
+  assert.equal(types.length, 37);
+  assert.equal(new Set(types).size, 37, 'all god power types must be unique');
+  assert.deepEqual(types.slice(0, 6), [
+    'drag_entity',
+    'blessing',
+    'rain_of_plenty',
+    'cleanse_land',
+    'eureka',
+    'golden_age',
+  ]);
+  // Climate controls grouped together
+  const heatIdx = types.indexOf('heat_wave');
+  assert.deepEqual(types.slice(heatIdx, heatIdx + 4), ['heat_wave', 'freeze_snap', 'blizzard', 'acid_rain']);
+  // Classic disasters grouped together
+  const lightningIdx = types.indexOf('lightning_smite');
+  assert.deepEqual(types.slice(lightningIdx, lightningIdx + 5), [
+    'lightning_smite',
+    'meteor_strike',
+    'tornado',
+    'earthquake',
+    'tsunami',
+  ]);
 });
 
 test('water_drop pours dynamic elevated water on slopes without carving height-0 holes, cascades to sea and runs out cleanly', () => {
