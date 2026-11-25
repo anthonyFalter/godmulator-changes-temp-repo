@@ -5721,6 +5721,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           floral_rain: { primary: 0xfacc15, secondary: 0xf472b6, streak: 0x86efac, impactHex: '#f472b6', secondaryHex: '#4ade80', geo: sharedSkySeedGeo, emissive: 0.78, sway: 0.62, dur: 0.52 },
           plant_forest: { primary: 0x84cc16, secondary: 0x22c55e, streak: 0xbef264, impactHex: '#4ade80', secondaryHex: '#bef264', geo: sharedSkySeedGeo, emissive: 0.58, sway: 0.42, dur: 0.48 },
           water_drop: { primary: 0x38bdf8, secondary: 0x0ea5e9, streak: 0xbae6fd, impactHex: '#38bdf8', secondaryHex: '#e0f2fe', geo: sharedSkySeedGeo, emissive: 0.75, sway: 0.12, dur: 0.34 },
+          lava_drop: { primary: 0xff5a00, secondary: 0xfacc15, streak: 0xfb923c, impactHex: '#ff5a00', secondaryHex: '#fde047', geo: sharedSkySeedGeo, emissive: 0.95, sway: 0.08, dur: 0.36 },
+          poison_drop: { primary: 0x84cc16, secondary: 0x4ade80, streak: 0xbef264, impactHex: '#84cc16', secondaryHex: '#bef264', geo: sharedSkySeedGeo, emissive: 0.85, sway: 0.14, dur: 0.35 },
         };
         const cfg = palette[kind] ?? palette.seed_ore;
 

@@ -207,7 +207,7 @@ test('computeWorldZones shifts temperature bands with seasons and anchors labels
 
 test('TERRAIN_TOOLS is ordered by player usage frequency with all tools preserved', () => {
   const types = TERRAIN_TOOLS.map((t) => t.type);
-  assert.equal(types.length, 33);
+  assert.equal(types.length, 35);
   assert.deepEqual(types.slice(0, 8), [
     'raise',
     'lower',
@@ -218,7 +218,9 @@ test('TERRAIN_TOOLS is ordered by player usage frequency with all tools preserve
     'carve_river',
     'abyssal_trench',
   ]);
-  assert.equal(new Set(types).size, 33, 'all terrain tool types must be unique');
+  assert.ok(types.includes('lava_drop'), 'includes lava_drop');
+  assert.ok(types.includes('poison_drop'), 'includes poison_drop');
+  assert.equal(new Set(types).size, 35, 'all terrain tool types must be unique');
 });
 
 test('water_drop pours dynamic elevated water on slopes without carving height-0 holes, cascades to sea and runs out cleanly', () => {
@@ -306,4 +308,36 @@ test('water_drop inside an enclosed basin pools into a continuous flat lake with
       );
     }
   }
+});
+
+test('lava_drop and poison_drop pour dynamic elevated liquid on hills and cascade downhill', () => {
+  const sim = createInitialSimulationState(32, 'LAVA-POISON-DROP-TEST');
+  for (const t of sim.tiles) {
+    t.buildingId = null;
+    t.resourceNode = 'none';
+    t.onFireTimer = 0;
+    t.cursedTimer = 0;
+    delete t.liquidLevel;
+    delete t.liquidKind;
+    t.height = t.x <= 14 ? 3 : 2;
+    t.terrain = 'grass';
+  }
+
+  assert.equal(executeTerrainDropTileImpact(sim, 'lava_drop', 14, 10), true);
+  assert.equal(executeTerrainDropTileImpact(sim, 'poison_drop', 14, 22), true);
+
+  const lavaSrc = getTile(sim, 14, 10)!;
+  const poisonSrc = getTile(sim, 14, 22)!;
+  assert.equal(lavaSrc.liquidKind, 'lava');
+  assert.equal(poisonSrc.liquidKind, 'poison');
+  assert.equal(lavaSrc.height, 3, 'lava_drop does not carve height-0 hole');
+  assert.equal(poisonSrc.height, 3, 'poison_drop does not carve height-0 hole');
+
+  stepSimulation(sim, 0.12);
+  const lavaDown = getTile(sim, 15, 10)!;
+  const poisonDown = getTile(sim, 15, 22)!;
+  assert.equal(lavaDown.liquidKind, 'lava', 'lava cascades downhill onto lower tile');
+  assert.equal(poisonDown.liquidKind, 'poison', 'poison cascades downhill onto lower tile');
+  assert.equal(lavaSrc.terrain, 'scorched', 'flowing lava scorches grass beneath it');
+  assert.ok(poisonSrc.cursedTimer > 0, 'flowing poison corrupts ground beneath it');
 });

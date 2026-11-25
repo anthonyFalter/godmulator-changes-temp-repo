@@ -500,7 +500,9 @@ export type TerrainToolType =
   | 'volcanic_crater'
   | 'smooth_terrain'
   | 'island_bridge'
-  | 'water_drop';
+  | 'water_drop'
+  | 'lava_drop'
+  | 'poison_drop';
 
 export interface TerrainToolDefinition {
   type: TerrainToolType;

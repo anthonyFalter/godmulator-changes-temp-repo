@@ -2282,6 +2282,8 @@ export function canApplyTerrainToolToTile(
     case 'island_bridge':
       return true;
     case 'water_drop':
+    case 'lava_drop':
+    case 'poison_drop':
       return !t.buildingId;
     case 'seed_ore':
     case 'crystal_shower':
@@ -2796,6 +2798,7 @@ function applyTerrainToolTileMutation(
           }
           break;
         }
+        case 'lava_drop':
         case 'lava_river': {
           tileModified = true;
           if (state) specialLiquidPossibleByState.set(state, true);
@@ -2834,6 +2837,7 @@ function applyTerrainToolTileMutation(
           }
           break;
         }
+        case 'poison_drop':
         case 'poison_river': {
           tileModified = true;
           if (state) specialLiquidPossibleByState.set(state, true);
@@ -3430,13 +3434,21 @@ function stepDynamicLiquidFlow(state: SimulationState, dt: number): void {
         const kind: LiquidKind = t.liquidKind ?? 'water';
         const kindCode = kind === 'lava' ? 2 : kind === 'poison' ? 3 : 1;
 
-        // Flowing water extinguishes fire and hydrates scorched land beneath it
+        // Flowing water extinguishes fire & hydrates; flowing lava scorches; flowing poison corrupts
         if (kind === 'water') {
           if (t.onFireTimer > 0) t.onFireTimer = 0;
           if (t.terrain === 'scorched') {
             t.terrain = 'grass';
             syncTileToWorldGrid(ensureWorldGrid(state), t);
           }
+        } else if (kind === 'lava') {
+          t.tempOffset = Math.min(80, Math.max(t.tempOffset ?? 0, 35));
+          if (t.terrain === 'grass' || t.terrain === 'fertile' || t.terrain === 'forest' || t.terrain === 'jungle' || t.terrain === 'blossom' || t.terrain === 'floral_plains') {
+            t.terrain = 'scorched';
+            syncTileToWorldGrid(ensureWorldGrid(state), t);
+          }
+        } else if (kind === 'poison') {
+          t.cursedTimer = Math.max(t.cursedTimer, 8);
         }
 
         const surf = t.height + vol;
@@ -3964,14 +3976,23 @@ export function executeTerrainDropTileImpact(
   const t = getTile(state, tileX, tileZ);
   if (!t) return false;
   let changed = false;
-  if (toolType === 'water_drop') {
-    const filled = fillLiquidBasin(state, tileX, tileZ, 'water', 220);
+  const dropLiquidKind: LiquidKind | null =
+    toolType === 'water_drop'
+      ? 'water'
+      : toolType === 'lava_drop'
+        ? 'lava'
+        : toolType === 'poison_drop'
+          ? 'poison'
+          : null;
+
+  if (dropLiquidKind) {
+    const filled = fillLiquidBasin(state, tileX, tileZ, dropLiquidKind, 220);
     if (filled > 0) {
       changed = true;
     } else if (t.height > 0 && !t.buildingId) {
-      // Pour dynamic elevated water on hills, slopes, terraces, or brim-full basins so it cascades downhill!
+      // Pour dynamic elevated liquid on hills, slopes, terraces, or brim-full basins so it cascades downhill!
       const nextLvl = Math.min(10, Math.max(t.height + 1, (t.liquidLevel ?? t.height) + 1));
-      changed = applyElevatedLiquidToTile(state, t, nextLvl, 'water');
+      changed = applyElevatedLiquidToTile(state, t, nextLvl, dropLiquidKind);
       if (changed) {
         resolveLiquidReactionsAround(state, tileX, tileZ, 3);
       }
@@ -4024,8 +4045,17 @@ export function executeTerrainDropBatchImpact(
   let minZ = Infinity;
   let maxZ = -Infinity;
 
-  if (toolType === 'water_drop') {
-    // Allow up to 1 stack per droplet for small brushes (capped at 2 stacks per landed batch so water rises smoothly!)
+  const batchLiquidKind: LiquidKind | null =
+    toolType === 'water_drop'
+      ? 'water'
+      : toolType === 'lava_drop'
+        ? 'lava'
+        : toolType === 'poison_drop'
+          ? 'poison'
+          : null;
+
+  if (batchLiquidKind) {
+    // Allow up to 1 stack per droplet for small brushes (capped at 2 stacks per landed batch so liquid rises smoothly!)
     let basinStacksThisBatch = 0;
     const maxStacksPerBatch = coords.length >= 4 ? 2 : 1;
     let anyBasinHandled = false;
@@ -4035,7 +4065,7 @@ export function executeTerrainDropBatchImpact(
       const t = getTile(state, c.x, c.z);
       if (!t) continue;
       if (basinStacksThisBatch < maxStacksPerBatch) {
-        const filled = fillLiquidBasin(state, c.x, c.z, 'water', 220);
+        const filled = fillLiquidBasin(state, c.x, c.z, batchLiquidKind, 220);
         if (filled > 0) {
           basinStacksThisBatch++;
           anyBasinHandled = true;
@@ -4052,10 +4082,10 @@ export function executeTerrainDropBatchImpact(
         continue;
       }
       if (t.height > 0 && !t.buildingId) {
-        // Pour dynamic elevated water onto hills, slopes, or open plains so it cascades & pools naturally!
+        // Pour dynamic elevated liquid onto hills, slopes, or open plains so it cascades & pools naturally!
         const curLvl = t.liquidLevel ?? t.height;
         const nextLvl = Math.min(10, Math.max(t.height + 1, curLvl + 1));
-        if (applyElevatedLiquidToTile(state, t, nextLvl, 'water')) {
+        if (applyElevatedLiquidToTile(state, t, nextLvl, batchLiquidKind)) {
           changedCount++;
           if (t.x < minX) minX = t.x;
           if (t.x > maxX) maxX = t.x;
@@ -4090,7 +4120,7 @@ export function executeTerrainDropBatchImpact(
 
   if (changedCount === 0) return 0;
 
-  if (toolType === 'water_drop') {
+  if (batchLiquidKind) {
     const cx = (minX + maxX) * 0.5;
     const cz = (minZ + maxZ) * 0.5;
     const r = Math.min(14, Math.ceil(Math.hypot(maxX - minX, maxZ - minZ) * 0.5) + 2);
@@ -4340,9 +4370,9 @@ export function applyTerrainTool(
     !deferSkyImpact
       ? toolType === 'water_drop' || toolType === 'carve_river'
         ? 'water'
-        : toolType === 'lava_river'
+        : toolType === 'lava_drop' || toolType === 'lava_river'
           ? 'lava'
-          : toolType === 'poison_river'
+          : toolType === 'poison_drop' || toolType === 'poison_river'
             ? 'poison'
             : null
       : null;
@@ -4457,6 +4487,8 @@ export function applyTerrainTool(
 
   if (
     toolType === 'water_drop' ||
+    toolType === 'lava_drop' ||
+    toolType === 'poison_drop' ||
     toolType === 'lava_river' ||
     toolType === 'poison_river' ||
     toolType === 'carve_river' ||

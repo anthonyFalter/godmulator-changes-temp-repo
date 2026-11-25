@@ -2042,6 +2042,24 @@ export const TERRAIN_TOOLS: TerrainToolDefinition[] = [
 
   // Tier 5: Specialty & Cataclysmic Terrain (Occasional)
   {
+    type: 'lava_drop',
+    name: 'Lava Drop',
+    category: 'Water',
+    isSkyRain: true,
+    summary: 'Pours dynamic flowing lava that cascades downhill, fills basins, and ignites land',
+    faithCost: 5,
+    color: '#ff5a00',
+  },
+  {
+    type: 'poison_drop',
+    name: 'Poison Drop',
+    category: 'Water',
+    isSkyRain: true,
+    summary: 'Pours dynamic flowing poison that cascades downhill, fills basins, and corrupts land',
+    faithCost: 5,
+    color: '#84cc16',
+  },
+  {
     type: 'lava_river',
     name: 'Lava River',
     category: 'Water',

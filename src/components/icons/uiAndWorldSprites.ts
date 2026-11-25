@@ -1109,25 +1109,74 @@ export const TERRAIN_SPRITES: Record<TerrainToolType, CompiledSprite> = {
     );
   }),
 
-  water_drop: icon16((c) => {
-    c.isoTile(MAT.azure, MAT.azure, MAT.azure, 14, 2);
-    c.stamp(
-      4,
-      1,
-      [
-        '...u....',
-        '..ucu...',
-        '.ucCcu..',
-        '.uCIccu.',
-        'ucICccuU',
-        'ucccuuuU',
-        '.uuuuUU.',
-        '..UUUU..',
-      ],
-      MAT.azure,
-      MATS,
-    );
-  }),
+  water_drop: cluster16(
+    [
+      '................',
+      '.....sSSSSs.....',
+      '....sM....Ms....',
+      '...sM..CC..Ms...',
+      '..sSCcICccCcsM..',
+      '..sMCcuuucCMsM..',
+      '..sMMuuuuMMMsM..',
+      '...sSmmmmMMMD...',
+      '...sSsmmmMMMD...',
+      '...sSsmmCCMMD...',
+      '....sSsmcuMD....',
+      '....sSsmmMMD....',
+      '....sSsmmMMD....',
+      '.....sMMMMD.....',
+      '......DDDD......',
+      '................',
+    ],
+    MAT.azure,
+    MATS,
+  ),
+
+  lava_drop: cluster16(
+    [
+      '................',
+      '.....sSSSSs.....',
+      '....sM....Ms....',
+      '...sM..FF..Ms...',
+      '..sSFfYFffFfsM..',
+      '..sMFfaaafFMsM..',
+      '..sMMaaaaMMMsM..',
+      '...sSmmmmMMMD...',
+      '...sSsmmmMMMD...',
+      '...sSsmmFFMMD...',
+      '....sSsmfaMD....',
+      '....sSsmmMMD....',
+      '....sSsmmMMD....',
+      '.....sMMMMD.....',
+      '......DDDD......',
+      '................',
+    ],
+    MAT.flame,
+    MATS,
+  ),
+
+  poison_drop: cluster16(
+    [
+      '................',
+      '.....sSSSSs.....',
+      '....sM....Ms....',
+      '...sM..EE..Ms...',
+      '..sSEeYEeeEesM..',
+      '..sMEellleEMsM..',
+      '..sMMllllMMMsM..',
+      '...sSmmmmMMMD...',
+      '...sSsmmmMMMD...',
+      '...sSsmmEEMMD...',
+      '....sSsmelMD....',
+      '....sSsmmMMD....',
+      '....sSsmmMMD....',
+      '.....sMMMMD.....',
+      '......DDDD......',
+      '................',
+    ],
+    MAT.leaf,
+    MATS,
+  ),
 
   canyon_carve: cluster16(
     [

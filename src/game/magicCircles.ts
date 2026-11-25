@@ -658,6 +658,7 @@ export function getMagicCircleThemeForPower(powerOrTool: string): MagicCircleThe
     case 'lava_deluge':
     case 'volcanic_wasteland':
     case 'lava_river':
+    case 'lava_drop':
     case 'meteor_strike':
     case 'huge_asteroid_strike':
     case 'solar_orbital_laser':
@@ -673,6 +674,7 @@ export function getMagicCircleThemeForPower(powerOrTool: string): MagicCircleThe
     case 'blight_plague':
     case 'blighted_mire':
     case 'poison_river':
+    case 'poison_drop':
     case 'fertile_meadow':
     case 'plant_forest':
     case 'jungle_bloom':
