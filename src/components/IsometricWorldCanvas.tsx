@@ -17655,11 +17655,16 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             const isCitySelected = Boolean(
               isCityClickable && selectedCityId && lbl.settlementId === selectedCityId,
             );
+            const isTempLabel = lbl.kind === 'temperature';
             const sharedStyle: React.CSSProperties = {
-              backgroundColor: `color-mix(in srgb, ${lbl.hexColor} 28%, #181310)`,
+              backgroundColor: isTempLabel
+                ? `color-mix(in srgb, ${lbl.hexColor} 40%, #0f141e)`
+                : `color-mix(in srgb, ${lbl.hexColor} 28%, #181310)`,
               borderColor: isCitySelected
                 ? '#f2c478'
-                : `color-mix(in srgb, ${lbl.hexColor} 55%, #110c0a)`,
+                : isTempLabel
+                  ? `color-mix(in srgb, ${lbl.hexColor} 88%, #0b0f17)`
+                  : `color-mix(in srgb, ${lbl.hexColor} 55%, #110c0a)`,
               left: 0,
               top: 0,
               opacity: 0,
@@ -17667,6 +17672,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             };
             const sharedContent = (
               <>
+                {isTempLabel && (
+                  <span
+                    className="w-2.5 h-2.5 shrink-0 border border-black/50"
+                    style={{ backgroundColor: lbl.hexColor }}
+                  />
+                )}
                 {lbl.species && (
                   <UnitPixelIcon
                     role={lbl.species}
@@ -17676,6 +17687,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
                 <span className="text-[11px] font-bold text-[#edf3ff]">
                   {lbl.name}
                 </span>
+                {lbl.subtitle && (
+                  <span className="font-pixel-num text-[10px] font-semibold text-[#e2ecff] border-l border-white/25 pl-1.5 tabular-nums">
+                    {lbl.subtitle}
+                  </span>
+                )}
                 {lbl.epochName && (
                   <span className="text-[10px] font-semibold text-[#c5d6f5] border-l border-white/20 pl-1.5">
                     {lbl.epochName}

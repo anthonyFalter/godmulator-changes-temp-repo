@@ -15,6 +15,12 @@ import {
   computeElasticPopScale,
   computeHitRecoil,
 } from './worldJuice';
+import { createInitialSimulationState } from './simulation';
+import {
+  DEFAULT_ZONE_TOGGLES,
+  buildZoneOverlayTextures,
+  computeWorldZones,
+} from './zones';
 
 test('computeSeasonState returns pure locked seasonal presets', () => {
   for (const s of ['spring', 'summer', 'autumn', 'winter'] as const) {
@@ -151,4 +157,44 @@ test('classifyChronicleMilestone categorizes historic world events accurately', 
     classifyChronicleMilestone({ text: 'A wolf chased a rabbit.', tone: 'build' }),
     null,
   );
+});
+
+test('computeWorldZones shifts temperature bands with seasons and anchors labels strictly inside matching bands', () => {
+  const sim = createInitialSimulationState(64, 'TEMP-ZONE-SEASON-TEST');
+  for (const t of sim.tiles) {
+    t.height = 2;
+    t.terrain = 'grass';
+    t.onFireTimer = 0;
+    t.tempOffset = 0;
+  }
+
+  const summerZones = computeWorldZones(sim, 'summer');
+  const winterZones = computeWorldZones(sim, 'winter');
+
+  const centerIdx = 32 * sim.gridSize + 32;
+  assert.ok(
+    summerZones.tempCelsiusMap[centerIdx] >= winterZones.tempCelsiusMap[centerIdx] + 15,
+    'winter must cool temperate grassland significantly compared to summer',
+  );
+
+  // All 5 thermal bands must have distinct hex colors
+  const uniqueColors = new Set(
+    Array.from(winterZones.tempBandsById.values()).map((b) => b.hexColor),
+  );
+  assert.equal(uniqueColors.size, 5, 'all 5 thermal bands should have distinct colors');
+
+  const winterPack = buildZoneOverlayTextures(
+    winterZones,
+    { ...DEFAULT_ZONE_TOGGLES, kingdomLabels: false, temperature: true },
+    null,
+  );
+  assert.ok(winterPack.labels.length >= 1, 'winter temperature overlay emits labels');
+  for (const lbl of winterPack.labels) {
+    const idx = lbl.tileZ * sim.gridSize + lbl.tileX;
+    const bandId = winterZones.tempBandMap[idx];
+    const bandInfo = winterZones.tempBandsById.get(bandId);
+    assert.equal(bandInfo?.name, lbl.name);
+    assert.equal(bandInfo?.hexColor, lbl.hexColor);
+    assert.ok(lbl.subtitle?.endsWith('°C'), 'temperature label should show local °C subtitle');
+  }
 });

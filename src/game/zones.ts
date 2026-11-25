@@ -4,6 +4,7 @@ import {
   AnimalRole,
   DiplomaticRelation,
   Resources,
+  SeasonPreset,
   SimulationState,
   SpeciesId,
   TerrainType,
@@ -11,6 +12,7 @@ import {
   ZoneOverlayType,
   ZoneToggleState,
 } from './types';
+import { computeSeasonState } from './worldSeasons';
 
 export type { ZoneOverlayType, ZoneToggleState };
 
@@ -116,6 +118,7 @@ export interface ZoneMapLabel {
   name: string;
   species?: SpeciesId;
   epochName?: string;
+  subtitle?: string;
   population: number | null;
   hexColor: string;
   tileX: number;
@@ -376,7 +379,7 @@ const THERMAL_BAND_META: Array<{
     bandId: 'freezing',
     name: 'Freezing',
     rangeLabel: '≤ 0°C (≤ 32°F)',
-    color: [96, 165, 250],
+    color: [86, 110, 252],
     maxThreshold: 0,
     effectSummary: 'Sub-zero tundra and snowfields; stops wildfires and slows crop growth.',
   },
@@ -385,7 +388,7 @@ const THERMAL_BAND_META: Array<{
     bandId: 'cold',
     name: 'Cold',
     rangeLabel: '1°C – 11°C (34°F – 52°F)',
-    color: [56, 189, 248],
+    color: [14, 185, 238],
     maxThreshold: 11,
     effectSummary: 'Cool highlands, taiga, and deepseas.',
   },
@@ -394,7 +397,7 @@ const THERMAL_BAND_META: Array<{
     bandId: 'temperate',
     name: 'Temperate',
     rangeLabel: '12°C – 22°C (54°F – 72°F)',
-    color: [74, 222, 128],
+    color: [34, 197, 94],
     maxThreshold: 22,
     effectSummary: 'Balanced climate suited for settlements, farming, and forests.',
   },
@@ -403,7 +406,7 @@ const THERMAL_BAND_META: Array<{
     bandId: 'warm',
     name: 'Warm',
     rangeLabel: '23°C – 31°C (73°F – 88°F)',
-    color: [251, 191, 36],
+    color: [249, 115, 22],
     maxThreshold: 31,
     effectSummary: 'Sunlit shores, wildwood, and savanna regions.',
   },
@@ -412,7 +415,7 @@ const THERMAL_BAND_META: Array<{
     bandId: 'scorching',
     name: 'Hot',
     rangeLabel: '≥ 32°C (≥ 90°F)',
-    color: [239, 68, 68],
+    color: [239, 52, 52],
     maxThreshold: 999,
     effectSummary: 'High heat across badlands, scorched lands, and active fires.',
   },
@@ -582,8 +585,9 @@ function findZoneInteriorAnchors(
       const cz = (idx / size) | 0;
       const dEdge = distToEdge[idx];
       const dCenter = Math.hypot(cx - meanX, cz - meanZ);
-      const prefBonus = preferTile && preferTile(idx) ? 1000 : 0;
-      const score = prefBonus + dEdge * 12 - dCenter * 0.35;
+      // Prefer land/interior tiles only when they are genuinely inside the patch (never drag labels onto 1-tile border edges)
+      const prefBonus = preferTile && preferTile(idx) ? (dEdge >= 2 ? 28 + Math.min(dEdge, 6) * 8 : 2) : 0;
+      const score = prefBonus + dEdge * 14 - dCenter * 0.35;
       if (score > bestScore) {
         bestScore = score;
         bestIdx = idx;
@@ -626,7 +630,10 @@ function findZoneInteriorAnchors(
   return patchesByZone;
 }
 
-export function computeWorldZones(sim: SimulationState): WorldZonesData {
+export function computeWorldZones(
+  sim: SimulationState,
+  seasonPreset?: SeasonPreset,
+): WorldZonesData {
   const size = sim.gridSize;
   const totalTiles = size * size;
   const tiles = sim.tiles;
@@ -1674,6 +1681,16 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
 
   const rawTemp = new Float32Array(totalTiles);
   const halfSize = size * 0.5;
+  let baseSeasonalOffsetC = 0;
+  if (seasonPreset) {
+    const sState = computeSeasonState(seasonPreset, sim.year);
+    baseSeasonalOffsetC =
+      sState.weights.spring * -1.0 +
+      sState.weights.summer * 4.5 +
+      sState.weights.autumn * -4.0 +
+      sState.weights.winter * -15.0;
+  }
+
   for (let z = 0; z < size; z++) {
     const latNorm = Math.abs(z - halfSize) / halfSize;
     const latOffset = (0.35 - latNorm) * 6.0;
@@ -1683,6 +1700,20 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
       const tile = tiles[idx];
       const bMeta = BIOME_META[tile.terrain] || BIOME_META.grass;
       let temp = bMeta.baseTempC + latOffset;
+
+      if (baseSeasonalOffsetC !== 0) {
+        // Oceans, deserts, jungles, and volcanic zones have different thermal inertia than temperate land
+        const terrain = tile.terrain;
+        const seasonScale =
+          terrain === 'volcanic_wasteland' || terrain === 'scorched' || terrain === 'void_goo'
+            ? 0.15
+            : terrain === 'deep_water' || terrain === 'shallow_water' || terrain === 'ice'
+              ? 0.45
+              : terrain === 'sand' || terrain === 'badlands' || terrain === 'jungle' || terrain === 'savanna'
+                ? 0.55
+                : 1.0;
+        temp += baseSeasonalOffsetC * seasonScale;
+      }
 
       // Altitude lapse rate on land: higher peaks get progressively colder
       if (tile.height > 2) {
@@ -1767,8 +1798,8 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
     size,
     () => true,
     24,
-    2,
-    26,
+    3,
+    24,
     (idx) => tiles[idx].height > 0,
   );
 
@@ -1782,10 +1813,31 @@ export function computeWorldZones(sim: SimulationState): WorldZonesData {
         info.centerZ = anchors[0].z;
         info.labelAnchors = anchors.filter((a, idx) => idx === 0 || a.tileCount >= 65);
       } else {
-        const cx = Math.round(sumXByTemp[bid] / info.tileCount);
-        const cz = Math.round(sumZByTemp[bid] / info.tileCount);
-        info.centerX = Math.max(2, Math.min(size - 3, cx));
-        info.centerZ = Math.max(2, Math.min(size - 3, cz));
+        // Scattered micro-patches (< 24 contiguous tiles): keep centerX/centerZ on an actual in-band tile
+        // and leave labelAnchors empty so we never place a stray label on top of a different thermal zone.
+        const cx = Math.max(0, Math.min(size - 1, Math.round(sumXByTemp[bid] / info.tileCount)));
+        const cz = Math.max(0, Math.min(size - 1, Math.round(sumZByTemp[bid] / info.tileCount)));
+        if (tempBandMap[cz * size + cx] === bid) {
+          info.centerX = cx;
+          info.centerZ = cz;
+        } else {
+          let bestDist = Infinity;
+          let bestX = cx;
+          let bestZ = cz;
+          for (let ti = 0; ti < totalTiles; ti++) {
+            if (tempBandMap[ti] !== bid) continue;
+            const tx = ti % size;
+            const tz = (ti / size) | 0;
+            const dSq = (tx - cx) * (tx - cx) + (tz - cz) * (tz - cz);
+            if (dSq < bestDist) {
+              bestDist = dSq;
+              bestX = tx;
+              bestZ = tz;
+            }
+          }
+          info.centerX = bestX;
+          info.centerZ = bestZ;
+        }
         info.labelAnchors = [];
       }
     } else {
@@ -2047,12 +2099,12 @@ export function buildZoneOverlayTextures(
       const tid = zones.tempBandMap[i];
       const info = zones.tempBandsById.get(tid);
       if (info) {
-        const w = 0.85;
+        const w = 1.05;
         rAcc += info.color[0] * w;
         gAcc += info.color[1] * w;
         bAcc += info.color[2] * w;
         wAcc += w;
-        alphaMax = Math.max(alphaMax, 148);
+        alphaMax = Math.max(alphaMax, 184);
         primaryId = tid + 200;
         styleFlag = 2;
         if (hoveredTempId > 0 && tid === hoveredTempId) isHovered = 255;
@@ -2237,16 +2289,24 @@ export function buildZoneOverlayTextures(
         const anchors =
           tm.labelAnchors && tm.labelAnchors.length > 0
             ? tm.labelAnchors
-            : [{ x: tm.centerX, z: tm.centerZ, tileCount: tm.tileCount }];
+            : zones.tempBandMap[tm.centerZ * size + tm.centerX] === tm.zoneId
+              ? [{ x: tm.centerX, z: tm.centerZ, tileCount: tm.tileCount }]
+              : [];
         for (let ai = 0; ai < anchors.length; ai++) {
+          const ax = anchors[ai].x;
+          const az = anchors[ai].z;
+          const aIdx = az * size + ax;
+          if (zones.tempBandMap[aIdx] !== tm.zoneId) continue;
+          const localTempC = zones.tempCelsiusMap[aIdx];
           labels.push({
             id: ai === 0 ? `temp-${tm.zoneId}` : `temp-${tm.zoneId}-${ai}`,
             kind: 'temperature',
             name: tm.name,
+            subtitle: `${localTempC}°C`,
             population: null,
             hexColor: tm.hexColor,
-            tileX: anchors[ai].x,
-            tileZ: anchors[ai].z,
+            tileX: ax,
+            tileZ: az,
             isHovered: tm.zoneId === hoveredTempId,
             flatGround: true,
           });

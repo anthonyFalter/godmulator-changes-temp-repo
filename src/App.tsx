@@ -1159,7 +1159,7 @@ export default function App() {
         }
 
         if (activeZones.alliances) {
-          const currentZones = worldZonesRef.current ?? computeWorldZones(sim);
+          const currentZones = worldZonesRef.current ?? computeWorldZones(sim, seasonPreset);
           const zInspect = currentZones ? inspectTileZones(currentZones, sim, tileX, tileZ) : null;
           if (currentZones && zInspect?.kingdom) {
             const rootId = getKingdomId(sim, zInspect.kingdom.settlementId);
@@ -1400,7 +1400,7 @@ export default function App() {
           .join('|')
       : '';
   const zoneCacheKey = shouldComputeZones
-    ? `${sim.seed}:${Math.floor(sim.year)}:${sim.buildings.length}:${sim.units.length}:${kingdomEpochsKey}:${settlementNamesKey}:${Math.floor(hudTick / 10)}`
+    ? `${sim.seed}:${Math.floor(sim.year)}:${seasonPreset}:${sim.buildings.length}:${sim.units.length}:${kingdomEpochsKey}:${settlementNamesKey}:${Math.floor(hudTick / 10)}`
     : 'idle';
   const kingdomLabelsKey =
     !anyZoneActive && activeZones.kingdomLabels && gameState !== 'title'
@@ -1409,7 +1409,7 @@ export default function App() {
 
   const worldZones = useMemo(() => {
     if (!shouldComputeZones) return null;
-    return computeWorldZones(simRef.current);
+    return computeWorldZones(simRef.current, seasonPreset);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shouldComputeZones, zoneCacheKey]);
   worldZonesRef.current = worldZones;
