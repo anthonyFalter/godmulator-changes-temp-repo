@@ -640,6 +640,8 @@ export function getMagicCircleThemeForPower(powerOrTool: string): MagicCircleThe
     case 'seed_ore':
     case 'bountiful_harvest':
     case 'locust_swarm':
+    case 'boulder_rain':
+    case 'desert_dunes':
       return 'golden';
     case 'divine_shield':
     case 'rain_of_plenty':
@@ -647,6 +649,10 @@ export function getMagicCircleThemeForPower(powerOrTool: string): MagicCircleThe
     case 'tsunami':
     case 'coral_reef_rain':
     case 'summon_fleet':
+    case 'salvage_drop':
+    case 'atlantis_rise':
+    case 'tornado':
+    case 'super_tornado':
       return 'shield';
     case 'freeze_snap':
     case 'alpine_glacier':
@@ -668,6 +674,7 @@ export function getMagicCircleThemeForPower(powerOrTool: string): MagicCircleThe
     case 'fortify_walls':
     case 'recruit_legion':
     case 'wildfire_ring':
+    case 'earthquake':
       return 'wrath';
     case 'terraform_beam':
     case 'plague_miasma':
@@ -680,6 +687,7 @@ export function getMagicCircleThemeForPower(powerOrTool: string): MagicCircleThe
     case 'jungle_bloom':
     case 'soil_enrich':
     case 'acid_rain':
+    case 'swamp_mire':
       return 'nature';
     case 'curse':
     case 'wormhole_ascension':

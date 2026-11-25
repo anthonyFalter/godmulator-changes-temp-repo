@@ -15209,7 +15209,6 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
                 faultSegments: fx.faultSegments,
                 quakeShapeKind: fx.quakeShapeKind,
                 quakeExtent: fx.radius,
-                radiusOverride: fx.radius,
               });
             }
             trauma = Math.max(trauma, 0.64);
