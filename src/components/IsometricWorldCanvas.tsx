@@ -7775,6 +7775,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       touchGestureMode = 'one_finger_paint';
       isHoldPainting = true;
       paintedStrokeTiles.clear();
+      strokeFlattenHeight = null;
       lastPaintTile = null;
       lastHoldCastPos = null;
       lastHoldCastTime = 0;
@@ -7841,6 +7842,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           isPointerDragging = false;
           isHoldPainting = false;
           paintedStrokeTiles.clear();
+      strokeFlattenHeight = null;
           lastPaintTile = null;
           lastHoldCastPos = null;
           if (draggedUnitId) {
@@ -7961,6 +7963,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         ) {
           isHoldPainting = true;
           paintedStrokeTiles.clear();
+      strokeFlattenHeight = null;
           lastPaintTile = null;
           lastHoldCastPos = null;
           lastHoldCastTime = 0;
@@ -8141,6 +8144,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       if (isHoldPainting) {
         isHoldPainting = false;
         paintedStrokeTiles.clear();
+      strokeFlattenHeight = null;
         lastPaintTile = null;
         lastHoldCastPos = null;
       }
@@ -8187,6 +8191,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           clearTouchPaintGrace();
           isHoldPainting = false;
           paintedStrokeTiles.clear();
+      strokeFlattenHeight = null;
           lastPaintTile = null;
           lastHoldCastPos = null;
           touchGestureMode = activeTouches.size > 0 ? 'wait_all_up' : 'none';
@@ -8215,6 +8220,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         if (isHoldPainting) {
           isHoldPainting = false;
           paintedStrokeTiles.clear();
+      strokeFlattenHeight = null;
           lastPaintTile = null;
           lastHoldCastPos = null;
           touchGestureMode = 'none';
@@ -8264,6 +8270,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       if (isHoldPainting) {
         isHoldPainting = false;
         paintedStrokeTiles.clear();
+      strokeFlattenHeight = null;
         lastPaintTile = null;
         lastHoldCastPos = null;
         return;
@@ -8344,6 +8351,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       isPointerDragging = false;
       isHoldPainting = false;
       paintedStrokeTiles.clear();
+      strokeFlattenHeight = null;
       lastPaintTile = null;
       lastHoldCastPos = null;
       if (draggedUnitId) {

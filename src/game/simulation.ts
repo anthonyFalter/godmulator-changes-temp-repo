@@ -2659,6 +2659,14 @@ function raiseWaterTileToLand(t: TileData, terrain: TerrainType, height = 1): vo
   }
 }
 
+function isSeaLevelWaterSurface(t: TileData): boolean {
+  return (
+    t.height === 0 &&
+    !t.isBridge &&
+    (t.terrain === 'shallow_water' || t.terrain === 'deep_water' || t.terrain === 'ice')
+  );
+}
+
 export function canApplyTerrainToolToTile(
   t: TileData,
   toolType: TerrainToolType,
@@ -2675,12 +2683,21 @@ export function canApplyTerrainToolToTile(
     case 'alpine_glacier':
     case 'volcanic_obsidian':
     case 'volcanic_wasteland':
+    case 'smooth_terrain':
+      return true;
     case 'canyon_carve':
+      return t.height > 0 && !t.buildingId;
     case 'mesa_plateau':
     case 'volcanic_crater':
-    case 'smooth_terrain':
+      return !t.buildingId;
     case 'island_bridge':
-      return true;
+      return (
+        t.height === 0 &&
+        !t.buildingId &&
+        !t.isBridge &&
+        t.waterKind !== 'lava' &&
+        t.waterKind !== 'poison'
+      );
     case 'water_drop':
       return !t.buildingId || t.onFireTimer > 0;
     case 'lava_drop':
@@ -2692,7 +2709,17 @@ export function canApplyTerrainToolToTile(
       return t.height > 0 && !t.buildingId;
     case 'stone_road':
     case 'rail_track':
-      return t.height >= 0 && !t.buildingId;
+      return (
+        t.height >= 0 &&
+        !t.buildingId &&
+        t.waterKind !== 'lava' &&
+        t.waterKind !== 'poison' &&
+        !(
+          t.height > 0 &&
+          (t.liquidLevel ?? 0) > t.height &&
+          (t.liquidKind === 'lava' || t.liquidKind === 'poison')
+        )
+      );
     case 'fertile_meadow':
       return isCultivableSoil(t);
     case 'plant_forest':
@@ -2726,32 +2753,40 @@ function applyTerrainToolTileMutation(
   _centerHeight: number,
   normDist = 0,
   state?: SimulationState,
+  brushRadius = 0,
+  smoothHeightSnapshot?: Map<number, number>,
 ): boolean {
   let tileModified = false;
   switch (toolType) {
         case 'raise': {
-          // Organic feathered rim so sculpted hills & coastlines feel hand-painted rather than stamped circles
-          if (normDist > 0.84 && (((t.x * 13 + t.z * 29) & 3) === 0)) {
+          // Organic feathered rim only on larger brushes (3x+) so 1x & 2x reticles sculpt every tile cleanly
+          if (brushRadius >= 2 && normDist > 0.84 && (((t.x * 13 + t.z * 29) & 3) === 0)) {
+            break;
+          }
+          if (t.height >= 10) {
             break;
           }
           tileModified = true;
           if (t.height === 0) {
-            if (normDist <= 0.55) {
-              raiseWaterTileToLand(t, 'grass', 2);
-            } else {
-              raiseWaterTileToLand(t, 'sand', 1);
-            }
+            raiseWaterTileToLand(t, 'sand', 1);
           } else {
-            const liftStep = normDist <= 0.32 && t.height < 8 ? 2 : 1;
-            t.height = Math.min(10, t.height + liftStep);
+            t.height = Math.min(10, t.height + 1);
+            if (t.liquidLevel !== undefined && t.height >= t.liquidLevel) {
+              delete t.liquidLevel;
+              delete t.liquidKind;
+            }
             if (t.height >= 8) {
               t.terrain = 'snow';
+              t.farmSettlementId = undefined;
+              delete t.farmPlotKind;
               if (t.resourceNode === 'berry_bush' || t.resourceNode === 'timber_grove') {
                 t.resourceNode = 'none';
                 t.resourceAmount = 0;
                 delete t.treeBiomeOverride;
               }
             } else if (t.height >= 5) {
+              t.farmSettlementId = undefined;
+              delete t.farmPlotKind;
               if (
                 t.terrain !== 'scorched' &&
                 t.terrain !== 'volcanic_wasteland' &&
@@ -2772,15 +2807,24 @@ function applyTerrainToolTileMutation(
           break;
         }
         case 'lower': {
-          if (normDist > 0.84 && (((t.x * 17 + t.z * 23) & 3) === 0)) {
+          if (brushRadius >= 2 && normDist > 0.84 && (((t.x * 17 + t.z * 23) & 3) === 0)) {
             break;
           }
-          tileModified = true;
           if (t.height === 0) {
-            if (t.terrain !== 'deep_water') {
-              t.terrain = 'deep_water';
+            if (t.terrain === 'deep_water' && !t.waterKind && !t.isBridge) {
+              break;
             }
+            t.terrain = 'deep_water';
+            delete t.waterKind;
+            delete t.frozenWaterBase;
+            delete t.liquidLevel;
+            delete t.liquidKind;
+            delete t.isBridge;
+            t.isRiver = false;
+            t.isLake = false;
+            tileModified = true;
           } else {
+            tileModified = true;
             t.height = Math.max(0, t.height - 1);
             if (t.height === 0) {
               t.terrain = 'shallow_water';
@@ -2794,6 +2838,8 @@ function applyTerrainToolTileMutation(
               t.resourceNode = 'none';
               t.resourceAmount = 0;
               t.onFireTimer = 0;
+              t.farmSettlementId = undefined;
+              delete t.farmPlotKind;
               clearBurntTreeState(t);
               delete t.treeBiomeOverride;
               destroyUnderminedBuildingsOnTile(state, t, 'water');
@@ -2806,6 +2852,14 @@ function applyTerrainToolTileMutation(
           break;
         }
     case 'flatten': {
+      if (t.buildingId) break;
+      if (
+        state &&
+        (state.worldWonders ?? []).some((w) => (w.hp ?? 1) > 0 && w.tileX === t.x && w.tileZ === t.z)
+      ) {
+        break;
+      }
+      if (t.height === targetFlattenHeight) break;
       if (t.height === 0) {
         const raisedTerrain: TerrainType =
           targetFlattenHeight >= 8
@@ -2819,9 +2873,18 @@ function applyTerrainToolTileMutation(
         tileModified = true;
       } else if (t.height > 0) {
         t.height = targetFlattenHeight;
-        if (t.height >= 8) t.terrain = 'snow';
-        else if (t.height >= 5 && t.terrain !== 'scorched' && t.terrain !== 'volcanic_wasteland' && t.terrain !== 'badlands' && t.terrain !== 'rock') {
+        if (t.liquidLevel !== undefined && t.height >= t.liquidLevel) {
+          delete t.liquidLevel;
+          delete t.liquidKind;
+        }
+        if (t.height >= 8) {
+          t.terrain = 'snow';
+          t.farmSettlementId = undefined;
+          delete t.farmPlotKind;
+        } else if (t.height >= 5 && t.terrain !== 'scorched' && t.terrain !== 'volcanic_wasteland' && t.terrain !== 'badlands' && t.terrain !== 'rock') {
           t.terrain = 'mountain';
+          t.farmSettlementId = undefined;
+          delete t.farmPlotKind;
         } else if (
           t.height < 5 &&
           (t.terrain === 'snow' || t.terrain === 'rock' || t.terrain === 'mountain')
@@ -2833,27 +2896,84 @@ function applyTerrainToolTileMutation(
       break;
     }
         case 'stone_road': {
-          if (t.height >= 0 && !t.buildingId) {
+          if (
+            t.height >= 0 &&
+            !t.buildingId &&
+            t.waterKind !== 'lava' &&
+            t.waterKind !== 'poison' &&
+            !(
+              t.height > 0 &&
+              (t.liquidLevel ?? 0) > t.height &&
+              (t.liquidKind === 'lava' || t.liquidKind === 'poison')
+            )
+          ) {
+            if (t.terrain === 'stone_road' && !t.waterKind && !t.liquidLevel) {
+              break;
+            }
             t.terrain = 'stone_road';
+            if (t.height === 0) {
+              t.isBridge = true;
+            }
+            delete t.waterKind;
+            delete t.frozenWaterBase;
+            delete t.liquidLevel;
+            delete t.liquidKind;
+            t.farmSettlementId = undefined;
+            delete t.farmPlotKind;
             clearBurntTreeState(t);
             delete t.treeBiomeOverride;
-            if (t.resourceNode === 'berry_bush' || t.resourceNode === 'timber_grove') {
+            if (
+              t.resourceNode === 'berry_bush' ||
+              t.resourceNode === 'timber_grove' ||
+              t.resourceNode === 'coral_reef' ||
+              t.resourceNode === 'scrap_flotsam' ||
+              t.resourceNode === 'atlantis_ruin'
+            ) {
               t.resourceNode = 'none';
               t.resourceAmount = 0;
+              delete t.coralBleachTimer;
             }
             tileModified = true;
           }
           break;
         }
         case 'rail_track': {
-          if (t.height >= 0 && !t.buildingId) {
+          if (
+            t.height >= 0 &&
+            !t.buildingId &&
+            t.waterKind !== 'lava' &&
+            t.waterKind !== 'poison' &&
+            !(
+              t.height > 0 &&
+              (t.liquidLevel ?? 0) > t.height &&
+              (t.liquidKind === 'lava' || t.liquidKind === 'poison')
+            )
+          ) {
+            if (t.terrain === 'rail_track' && !t.waterKind && !t.liquidLevel) {
+              break;
+            }
             t.terrain = 'rail_track';
+            if (t.height === 0) {
+              t.isBridge = true;
+            }
+            delete t.waterKind;
+            delete t.frozenWaterBase;
+            delete t.liquidLevel;
+            delete t.liquidKind;
             t.farmSettlementId = undefined;
+            delete t.farmPlotKind;
             clearBurntTreeState(t);
             delete t.treeBiomeOverride;
-            if (t.resourceNode === 'berry_bush' || t.resourceNode === 'timber_grove') {
+            if (
+              t.resourceNode === 'berry_bush' ||
+              t.resourceNode === 'timber_grove' ||
+              t.resourceNode === 'coral_reef' ||
+              t.resourceNode === 'scrap_flotsam' ||
+              t.resourceNode === 'atlantis_ruin'
+            ) {
               t.resourceNode = 'none';
               t.resourceAmount = 0;
+              delete t.coralBleachTimer;
             }
             tileModified = true;
           }
@@ -3136,16 +3256,24 @@ function applyTerrainToolTileMutation(
           break;
         }
         case 'carve_river': {
-          tileModified = true;
           if (t.height === 0 && t.waterKind === 'lava') {
             solidifyLavaWaterTile(state, t, true);
-          } else if (t.height >= 3) {
-            t.height = Math.max(1, t.height - 2);
-            if (t.terrain === 'snow' || t.terrain === 'rock') t.terrain = 'rock';
+            tileModified = true;
           } else {
+            if (
+              t.height === 0 &&
+              t.terrain === 'shallow_water' &&
+              !t.waterKind &&
+              !t.isBridge &&
+              !t.buildingId &&
+              t.resourceNode === 'none'
+            ) {
+              break;
+            }
             t.height = 0;
             t.terrain = 'shallow_water';
             t.isRiver = true;
+            t.isLake = false;
             delete t.waterKind;
             delete t.frozenWaterBase;
             delete t.liquidLevel;
@@ -3154,8 +3282,12 @@ function applyTerrainToolTileMutation(
             t.resourceNode = 'none';
             t.resourceAmount = 0;
             t.onFireTimer = 0;
+            t.farmSettlementId = undefined;
+            delete t.farmPlotKind;
+            clearBurntTreeState(t);
             delete t.treeBiomeOverride;
             destroyUnderminedBuildingsOnTile(state, t, 'water');
+            tileModified = true;
           }
           break;
         }
@@ -3171,22 +3303,34 @@ function applyTerrainToolTileMutation(
             }
             break;
           }
-          tileModified = true;
           if (
             (t.height === 0 && t.waterKind === 'lava') ||
             ((t.liquidLevel ?? 0) > t.height && t.liquidKind === 'lava')
           ) {
             solidifyLavaWaterTile(state, t, true);
+            tileModified = true;
           } else if (t.height === 0 && t.waterKind === 'poison') {
             t.height = 0;
             t.terrain = 'shallow_water';
             delete t.waterKind;
             delete t.liquidLevel;
             delete t.liquidKind;
+            delete t.isBridge;
             t.isRiver = false;
             t.isLake = true;
             t.onFireTimer = 0;
+            tileModified = true;
           } else {
+            if (
+              t.height === 0 &&
+              t.terrain === 'shallow_water' &&
+              !t.waterKind &&
+              !t.isBridge &&
+              t.onFireTimer <= 0 &&
+              (t.tempOffset ?? 0) <= 0
+            ) {
+              break;
+            }
             t.height = 0;
             t.terrain = 'shallow_water';
             t.isLake = true;
@@ -3195,38 +3339,36 @@ function applyTerrainToolTileMutation(
             delete t.frozenWaterBase;
             delete t.liquidLevel;
             delete t.liquidKind;
+            delete t.isBridge;
             t.resourceNode = 'none';
             t.resourceAmount = 0;
             t.onFireTimer = 0;
             t.crushedTimer = 0;
             t.farmSettlementId = undefined;
+            delete t.farmPlotKind;
             clearBurntTreeState(t);
             delete t.treeBiomeOverride;
             if ((t.tempOffset ?? 0) > 0) {
               t.tempOffset = Math.max(0, (t.tempOffset ?? 0) - 18);
             }
+            tileModified = true;
           }
           break;
         }
         case 'lava_drop': {
-          tileModified = true;
           if (state) specialLiquidPossibleByState.set(state, true);
-          if (t.height === 0 && t.waterKind === 'poison') {
-            // Lava + Poison -> violent corrosive crater!
-            t.height = 0;
-            t.terrain = 'scorched';
-            delete t.waterKind;
-            delete t.liquidLevel;
-            delete t.liquidKind;
-            t.isRiver = false;
-            t.isLake = false;
+          if (isSeaLevelWaterSurface(t) && t.waterKind === 'poison') {
+            solidifyLavaWaterTile(state, t, true);
             t.cursedTimer = Math.max(t.cursedTimer, 10);
-            t.resourceNode = 'none';
-            t.resourceAmount = 0;
-          } else if (t.height === 0 && (!t.waterKind || t.waterKind === 'floral')) {
+            tileModified = true;
+          } else if (isSeaLevelWaterSurface(t) && (!t.waterKind || t.waterKind === 'floral')) {
             // Lava dropped onto ocean/lake/river/floral/ice solidifies into Stone!
             solidifyLavaWaterTile(state, t, true);
+            tileModified = true;
           } else {
+            if (t.height === 0 && t.waterKind === 'lava' && !t.buildingId && !t.isBridge) {
+              break;
+            }
             t.height = 0;
             t.terrain = 'shallow_water';
             t.waterKind = 'lava';
@@ -3241,38 +3383,35 @@ function applyTerrainToolTileMutation(
             t.onFireTimer = 0;
             t.crushedTimer = 0;
             t.farmSettlementId = undefined;
+            delete t.farmPlotKind;
             clearBurntTreeState(t);
             delete t.treeBiomeOverride;
             t.tempOffset = Math.min(80, Math.max(t.tempOffset ?? 0, 35));
             destroyUnderminedBuildingsOnTile(state, t, 'lava');
+            tileModified = true;
           }
           break;
         }
         case 'lava_river': {
-          tileModified = true;
           if (state) specialLiquidPossibleByState.set(state, true);
-          if (t.height === 0 && t.waterKind === 'poison') {
-            // Lava + Poison -> violent corrosive crater!
-            t.height = 0;
-            t.terrain = 'scorched';
-            delete t.waterKind;
-            delete t.liquidLevel;
-            delete t.liquidKind;
-            delete t.isBridge;
-            t.isRiver = false;
-            t.isLake = false;
+          if (isSeaLevelWaterSurface(t) && t.waterKind === 'poison') {
+            solidifyLavaWaterTile(state, t, true);
             t.cursedTimer = Math.max(t.cursedTimer, 10);
-            t.resourceNode = 'none';
-            t.resourceAmount = 0;
             destroyUnderminedBuildingsOnTile(state, t, 'lava');
-          } else if (t.height === 0 && (!t.waterKind || t.waterKind === 'floral')) {
+            tileModified = true;
+          } else if (isSeaLevelWaterSurface(t) && (!t.waterKind || t.waterKind === 'floral')) {
             // Lava poured into active water or ice consistently solidifies into Stone!
             solidifyLavaWaterTile(state, t, true);
+            tileModified = true;
           } else {
+            if (t.height === 0 && t.waterKind === 'lava' && !t.buildingId && !t.isBridge) {
+              break;
+            }
             t.height = 0;
             t.terrain = 'shallow_water';
             t.waterKind = 'lava';
             t.isRiver = true;
+            t.isLake = false;
             delete t.isBridge;
             delete t.liquidLevel;
             delete t.liquidKind;
@@ -3282,35 +3421,31 @@ function applyTerrainToolTileMutation(
             t.resourceAmount = 0;
             t.onFireTimer = 0;
             t.farmSettlementId = undefined;
+            delete t.farmPlotKind;
             clearBurntTreeState(t);
             delete t.treeBiomeOverride;
             destroyUnderminedBuildingsOnTile(state, t, 'lava');
+            tileModified = true;
           }
           break;
         }
         case 'poison_drop':
         case 'poison_river': {
-          tileModified = true;
           if (state) specialLiquidPossibleByState.set(state, true);
-          if (t.height === 0 && t.waterKind === 'lava') {
-            // Poison + Lava -> violent corrosive crater!
-            t.height = 0;
-            t.terrain = 'scorched';
-            delete t.waterKind;
-            delete t.liquidLevel;
-            delete t.liquidKind;
-            delete t.isBridge;
-            t.isRiver = false;
-            t.isLake = false;
+          if (isSeaLevelWaterSurface(t) && t.waterKind === 'lava') {
+            solidifyLavaWaterTile(state, t, true);
             t.cursedTimer = Math.max(t.cursedTimer, 10);
-            t.resourceNode = 'none';
-            t.resourceAmount = 0;
             destroyUnderminedBuildingsOnTile(state, t, 'poison');
+            tileModified = true;
           } else {
+            if (t.height === 0 && t.waterKind === 'poison' && !t.buildingId && !t.isBridge) {
+              break;
+            }
             t.height = 0;
             t.terrain = 'shallow_water';
             t.waterKind = 'poison';
             t.isRiver = true;
+            t.isLake = false;
             delete t.isBridge;
             delete t.frozenWaterBase;
             delete t.liquidLevel;
@@ -3319,9 +3454,11 @@ function applyTerrainToolTileMutation(
             t.resourceAmount = 0;
             t.onFireTimer = 0;
             t.farmSettlementId = undefined;
+            delete t.farmPlotKind;
             clearBurntTreeState(t);
             delete t.treeBiomeOverride;
             destroyUnderminedBuildingsOnTile(state, t, 'poison');
+            tileModified = true;
           }
           break;
         }
@@ -3343,9 +3480,20 @@ function applyTerrainToolTileMutation(
             tileModified = true;
             break;
           }
+          if (
+            t.height === 0 &&
+            t.terrain === 'deep_water' &&
+            !t.waterKind &&
+            !t.isBridge &&
+            !t.buildingId &&
+            t.resourceNode === 'none'
+          ) {
+            break;
+          }
           t.height = 0;
           t.terrain = 'deep_water';
           t.isRiver = false;
+          t.isLake = false;
           delete t.waterKind;
           delete t.liquidLevel;
           delete t.liquidKind;
@@ -3355,6 +3503,8 @@ function applyTerrainToolTileMutation(
           t.resourceAmount = 0;
           t.onFireTimer = 0;
           t.farmSettlementId = undefined;
+          delete t.farmPlotKind;
+          clearBurntTreeState(t);
           delete t.treeBiomeOverride;
           destroyUnderminedBuildingsOnTile(state, t, 'water');
           tileModified = true;
@@ -3421,8 +3571,19 @@ function applyTerrainToolTileMutation(
         case 'canyon_carve': {
           if (t.height > 0 && !t.buildingId) {
             const drop = normDist <= 0.55 ? 3 : 1;
-            t.height = Math.max(1, t.height - drop);
-            t.terrain = normDist <= 0.45 ? 'rock' : 'badlands';
+            const nextH = Math.max(1, t.height - drop);
+            const nextTerrain: TerrainType = normDist <= 0.45 ? 'rock' : 'badlands';
+            if (t.height === nextH && t.terrain === nextTerrain && !t.liquidLevel && !t.isBridge) {
+              break;
+            }
+            t.height = nextH;
+            t.terrain = nextTerrain;
+            delete t.liquidLevel;
+            delete t.liquidKind;
+            delete t.isBridge;
+            t.farmSettlementId = undefined;
+            delete t.farmPlotKind;
+            clearBurntTreeState(t);
             if (t.resourceNode === 'berry_bush' || t.resourceNode === 'timber_grove') {
               t.resourceNode = 'none';
               t.resourceAmount = 0;
@@ -3434,12 +3595,26 @@ function applyTerrainToolTileMutation(
         }
         case 'mesa_plateau': {
           if (!t.buildingId) {
+            const desiredTerrain: TerrainType = normDist <= 0.62 ? 'badlands' : 'highland';
+            const alreadyPlateau = t.height >= 5 && (t.terrain === 'badlands' || t.terrain === 'highland');
+            const targetH = alreadyPlateau
+              ? t.height
+              : normDist <= 0.62
+                ? Math.min(7, Math.max(5, targetFlattenHeight + 3))
+                : Math.min(6, Math.max(3, targetFlattenHeight + 1));
+            const nextH = Math.max(t.height, targetH);
+            if (t.height === nextH && t.terrain === desiredTerrain && !t.liquidLevel && !t.isBridge) {
+              break;
+            }
             if (t.height === 0) raiseWaterTileToLand(t, 'badlands', 1);
-            const targetH = normDist <= 0.62
-              ? Math.min(9, Math.max(5, targetFlattenHeight + 3))
-              : Math.min(7, Math.max(3, targetFlattenHeight + 1));
-            t.height = Math.max(t.height, targetH);
-            t.terrain = normDist <= 0.62 ? 'badlands' : 'highland';
+            t.height = nextH;
+            t.terrain = desiredTerrain;
+            delete t.liquidLevel;
+            delete t.liquidKind;
+            delete t.isBridge;
+            t.farmSettlementId = undefined;
+            delete t.farmPlotKind;
+            clearBurntTreeState(t);
             if (t.resourceNode === 'berry_bush' || t.resourceNode === 'timber_grove') {
               t.resourceNode = 'none';
               t.resourceAmount = 0;
@@ -3451,14 +3626,24 @@ function applyTerrainToolTileMutation(
         }
         case 'volcanic_crater': {
           if (!t.buildingId) {
-            if (t.height === 0) raiseWaterTileToLand(t, 'rock', 1);
-            if (normDist <= 0.52) {
-              t.height = Math.max(1, targetFlattenHeight - 2);
-              t.terrain = 'rock';
-            } else {
-              t.height = Math.min(9, Math.max(t.height, targetFlattenHeight + 2));
-              t.terrain = t.height >= 5 ? 'mountain' : 'rock';
+            const nextH =
+              normDist <= 0.52
+                ? Math.max(1, targetFlattenHeight - 2)
+                : Math.min(9, Math.max(t.height, targetFlattenHeight + 2));
+            const nextTerrain: TerrainType =
+              normDist <= 0.52 ? 'rock' : nextH >= 5 ? 'mountain' : 'rock';
+            if (t.height === nextH && t.terrain === nextTerrain && !t.liquidLevel && !t.isBridge) {
+              break;
             }
+            if (t.height === 0) raiseWaterTileToLand(t, 'rock', 1);
+            t.height = nextH;
+            t.terrain = nextTerrain;
+            delete t.liquidLevel;
+            delete t.liquidKind;
+            delete t.isBridge;
+            t.farmSettlementId = undefined;
+            delete t.farmPlotKind;
+            clearBurntTreeState(t);
             if (t.resourceNode === 'berry_bush' || t.resourceNode === 'timber_grove') {
               t.resourceNode = 'none';
               t.resourceAmount = 0;
@@ -3470,22 +3655,28 @@ function applyTerrainToolTileMutation(
         }
         case 'smooth_terrain': {
           if (state && !t.buildingId) {
+            const gs = state.gridSize;
             let sum = 0;
             let cnt = 0;
             for (let oz = -1; oz <= 1; oz++) {
+              const nz = t.z + oz;
+              if (nz < 0 || nz >= gs) continue;
               for (let ox = -1; ox <= 1; ox++) {
-                const nt = getTile(state, t.x + ox, t.z + oz);
-                if (nt) {
-                  sum += nt.height;
-                  cnt++;
-                }
+                const nx = t.x + ox;
+                if (nx < 0 || nx >= gs) continue;
+                const idx = nz * gs + nx;
+                const snapH = smoothHeightSnapshot?.get(idx);
+                sum += snapH !== undefined ? snapH : state.tiles[idx].height;
+                cnt++;
               }
             }
             if (cnt > 0) {
               const avg = Math.round(sum / cnt);
               if (avg !== t.height) {
                 if (t.height === 0 && avg > 0) {
-                  raiseWaterTileToLand(t, 'sand', avg);
+                  const raisedTerrain: TerrainType =
+                    avg >= 8 ? 'snow' : avg >= 5 ? 'mountain' : avg >= 2 ? 'grass' : 'sand';
+                  raiseWaterTileToLand(t, raisedTerrain, avg);
                 } else if (t.height > 0 && avg === 0) {
                   t.height = 0;
                   t.terrain = 'shallow_water';
@@ -3493,13 +3684,33 @@ function applyTerrainToolTileMutation(
                   delete t.frozenWaterBase;
                   delete t.liquidLevel;
                   delete t.liquidKind;
+                  delete t.isBridge;
                   t.isRiver = false;
                   t.isLake = false;
                   t.onFireTimer = 0;
+                  t.farmSettlementId = undefined;
+                  delete t.farmPlotKind;
+                  clearBurntTreeState(t);
+                  delete t.treeBiomeOverride;
                   t.resourceNode = 'none';
                   t.resourceAmount = 0;
                 } else {
                   t.height = avg;
+                  if (t.liquidLevel !== undefined && t.height >= t.liquidLevel) {
+                    delete t.liquidLevel;
+                    delete t.liquidKind;
+                  }
+                  if (t.height >= 8) {
+                    t.terrain = 'snow';
+                    t.farmSettlementId = undefined;
+                    delete t.farmPlotKind;
+                  } else if (t.height >= 5 && (t.terrain === 'grass' || t.terrain === 'sand' || t.terrain === 'fertile')) {
+                    t.terrain = 'mountain';
+                    t.farmSettlementId = undefined;
+                    delete t.farmPlotKind;
+                  } else if (t.height < 5 && (t.terrain === 'snow' || t.terrain === 'mountain')) {
+                    t.terrain = 'highland';
+                  }
                 }
                 tileModified = true;
               }
@@ -3508,7 +3719,13 @@ function applyTerrainToolTileMutation(
           break;
         }
         case 'island_bridge': {
-          if (t.height === 0 && !t.buildingId) {
+          if (
+            t.height === 0 &&
+            !t.buildingId &&
+            !t.isBridge &&
+            t.waterKind !== 'lava' &&
+            t.waterKind !== 'poison'
+          ) {
             raiseWaterTileToLand(t, 'stone_road', 1);
             t.isBridge = true;
             tileModified = true;
@@ -4718,10 +4935,60 @@ export function executeTerrainDropTileImpact(
           ? 'poison'
           : null;
 
+  const applyElevatedHazardousLiquidToBuilding = (
+    tile: TileData,
+    kind: LiquidKind,
+  ): boolean => {
+    if (kind === 'water') {
+      if (tile.onFireTimer > 0) {
+        tile.onFireTimer = 0;
+        tile.fireColor = undefined;
+        if ((tile.tempOffset ?? 0) > 0) {
+          tile.tempOffset = Math.max(0, (tile.tempOffset ?? 0) - 20);
+        }
+        return true;
+      }
+      return false;
+    }
+    let hit = false;
+    const dmg = kind === 'lava' ? 140 : 80;
+    for (const b of state.buildings) {
+      if (b.hp > 0 && b.tileX === tile.x && b.tileZ === tile.z) {
+        if (b.shieldTimer <= 0) {
+          b.hp = Math.max(0, b.hp - dmg);
+          if (kind === 'poison') b.cursedTimer = Math.max(b.cursedTimer, 10);
+        }
+        hit = true;
+      }
+    }
+    for (const w of state.worldWonders ?? []) {
+      if ((w.hp ?? 1) > 0 && w.tileX === tile.x && w.tileZ === tile.z) {
+        if ((w.shieldTimer ?? 0) <= 0) {
+          damageWorldWondersInRadius(state, w.tileX, w.tileZ, 0.5, dmg, false);
+        }
+        hit = true;
+      }
+    }
+    if (kind === 'lava' && state.worldRules?.wildfireSpread !== false && tile.blessedTimer <= 0) {
+      tile.onFireTimer = Math.max(tile.onFireTimer, 6.5);
+      tile.tempOffset = Math.min(80, (tile.tempOffset ?? 0) + 25);
+      hit = true;
+    } else if (kind === 'poison' && tile.blessedTimer <= 0) {
+      tile.cursedTimer = Math.max(tile.cursedTimer, 10);
+      hit = true;
+    }
+    return hit;
+  };
+
   if (dropLiquidKind) {
-    const filled = fillLiquidBasin(state, tileX, tileZ, dropLiquidKind, 220);
+    const hasWonderHere = (state.worldWonders ?? []).some(
+      (w) => (w.hp ?? 1) > 0 && w.tileX === tileX && w.tileZ === tileZ,
+    );
+    const filled = t.buildingId || hasWonderHere ? 0 : fillLiquidBasin(state, tileX, tileZ, dropLiquidKind, 220);
     if (filled > 0) {
       changed = true;
+    } else if (t.height > 0 && (t.buildingId || hasWonderHere)) {
+      changed = applyElevatedHazardousLiquidToBuilding(t, dropLiquidKind);
     } else if (t.height > 0 && !t.buildingId) {
       // Pour generous dynamic elevated liquid on hills, slopes, or plains so it visibly flows & thins out gradually!
       const nextLvl = Math.min(10, Math.max(t.height + 1.6, (t.liquidLevel ?? t.height) + 1.4));
@@ -4791,17 +5058,64 @@ export function executeTerrainDropBatchImpact(
     // Allow up to 1 stack per droplet for small brushes (capped at 2 stacks per landed batch so liquid rises smoothly!)
     let basinStacksThisBatch = 0;
     const maxStacksPerBatch = coords.length >= 4 ? 2 : 1;
-    let anyBasinHandled = false;
 
     for (let i = 0; i < coords.length; i++) {
       const c = coords[i];
       const t = getTile(state, c.x, c.z);
       if (!t) continue;
+      const hasWonderHere = (state.worldWonders ?? []).some(
+        (w) => (w.hp ?? 1) > 0 && w.tileX === t.x && w.tileZ === t.z,
+      );
+      if (t.height > 0 && (t.buildingId || hasWonderHere)) {
+        let hit = false;
+        if (batchLiquidKind === 'water') {
+          if (t.onFireTimer > 0) {
+            t.onFireTimer = 0;
+            t.fireColor = undefined;
+            if ((t.tempOffset ?? 0) > 0) t.tempOffset = Math.max(0, (t.tempOffset ?? 0) - 20);
+            hit = true;
+          }
+        } else {
+          const dmg = batchLiquidKind === 'lava' ? 140 : 80;
+          for (const b of state.buildings) {
+            if (b.hp > 0 && b.tileX === t.x && b.tileZ === t.z) {
+              if (b.shieldTimer <= 0) {
+                b.hp = Math.max(0, b.hp - dmg);
+                if (batchLiquidKind === 'poison') b.cursedTimer = Math.max(b.cursedTimer, 10);
+              }
+              hit = true;
+            }
+          }
+          for (const w of state.worldWonders ?? []) {
+            if ((w.hp ?? 1) > 0 && w.tileX === t.x && w.tileZ === t.z) {
+              if ((w.shieldTimer ?? 0) <= 0) {
+                damageWorldWondersInRadius(state, w.tileX, w.tileZ, 0.5, dmg, false);
+              }
+              hit = true;
+            }
+          }
+          if (batchLiquidKind === 'lava' && state.worldRules?.wildfireSpread !== false && t.blessedTimer <= 0) {
+            t.onFireTimer = Math.max(t.onFireTimer, 6.5);
+            t.tempOffset = Math.min(80, (t.tempOffset ?? 0) + 25);
+            hit = true;
+          } else if (batchLiquidKind === 'poison' && t.blessedTimer <= 0) {
+            t.cursedTimer = Math.max(t.cursedTimer, 10);
+            hit = true;
+          }
+        }
+        if (hit) {
+          changedCount++;
+          if (t.x < minX) minX = t.x;
+          if (t.x > maxX) maxX = t.x;
+          if (t.z < minZ) minZ = t.z;
+          if (t.z > maxZ) maxZ = t.z;
+        }
+        continue;
+      }
       if (basinStacksThisBatch < maxStacksPerBatch) {
         const filled = fillLiquidBasin(state, c.x, c.z, batchLiquidKind, 220);
         if (filled > 0) {
           basinStacksThisBatch++;
-          anyBasinHandled = true;
           changedCount += filled;
           if (t.x < minX) minX = t.x;
           if (t.x > maxX) maxX = t.x;
@@ -4809,9 +5123,11 @@ export function executeTerrainDropBatchImpact(
           if (t.z > maxZ) maxZ = t.z;
           continue;
         }
-      }
-      if (anyBasinHandled) {
-        // Already stacked this basin during this batch
+      } else if (
+        (t.liquidLevel ?? 0) > t.height &&
+        (t.liquidKind ?? 'water') === batchLiquidKind
+      ) {
+        // Already stacked this basin during this batch; skip extra stacks inside the same basin only
         continue;
       }
       if (t.height > 0 && !t.buildingId) {
@@ -4947,7 +5263,7 @@ function resolveLiquidReactionsAround(
           if (nx < 0 || nz < 0 || nx >= gs || nz >= gs) continue;
           const nb = state.tiles[nz * gs + nx];
           if (!nb) continue;
-          if (nb.height === 0) {
+          if (isSeaLevelWaterSurface(nb)) {
             if (nb.waterKind === 'poison') {
               touchedPoison = true;
               // Corrode & solidify the meeting poison tile into cursed volcanic rock
@@ -4961,6 +5277,7 @@ function resolveLiquidReactionsAround(
               touchedWater = true;
             }
           } else if (
+            nb.height > 0 &&
             state.worldRules?.wildfireSpread !== false &&
             nb.blessedTimer <= 0 &&
             (nb.buildingId ||
@@ -5012,7 +5329,7 @@ function resolveLiquidReactionsAround(
           if (nx < 0 || nz < 0 || nx >= gs || nz >= gs) continue;
           const nb = state.tiles[nz * gs + nx];
           if (!nb) continue;
-          if (nb.height === 0 && !nb.waterKind && nb.terrain !== 'ice') {
+          if (isSeaLevelWaterSurface(nb) && !nb.waterKind && nb.terrain !== 'ice') {
             cleanWaterNeighbors++;
             continue;
           }
@@ -5097,6 +5414,36 @@ export function applyTerrainTool(
       // Elevated crater is already filled to the brim with the same liquid — don't punch through its floor
       return { ok: true };
     }
+  } else if (
+    deferSkyImpact &&
+    (toolType === 'water_drop' || toolType === 'lava_drop' || toolType === 'poison_drop')
+  ) {
+    const skyKind: LiquidKind = toolType === 'water_drop' ? 'water' : toolType === 'lava_drop' ? 'lava' : 'poison';
+    if (
+      clampedRadius === 0 &&
+      (centerTile.liquidLevel ?? 0) > centerTile.height &&
+      (centerTile.liquidKind ?? 'water') === skyKind &&
+      (centerTile.liquidLevel ?? 0) >= 10
+    ) {
+      return { ok: true };
+    }
+  }
+
+  let smoothHeightSnapshot: Map<number, number> | undefined;
+  if (!deferSkyImpact && toolType === 'smooth_terrain') {
+    smoothHeightSnapshot = new Map<number, number>();
+    const pad = clampedRadius + 1;
+    const gs = state.gridSize;
+    for (let dz = -pad; dz <= pad; dz++) {
+      const tz = centerZ + dz;
+      if (tz < 0 || tz >= gs) continue;
+      for (let dx = -pad; dx <= pad; dx++) {
+        const tx = centerX + dx;
+        if (tx < 0 || tx >= gs) continue;
+        const idx = tz * gs + tx;
+        smoothHeightSnapshot.set(idx, state.tiles[idx].height);
+      }
+    }
   }
 
   if (filledBasinCount === 0) {
@@ -5109,7 +5456,16 @@ export function applyTerrainTool(
         const normDist = clampedRadius > 0 ? Math.hypot(dx, dz) / clampedRadius : 0;
         const tileEligible = deferSkyImpact
           ? canApplyTerrainToolToTile(t, toolType, centerTile.height)
-          : applyTerrainToolTileMutation(t, toolType, targetFlattenHeight, centerTile.height, normDist, state);
+          : applyTerrainToolTileMutation(
+              t,
+              toolType,
+              targetFlattenHeight,
+              centerTile.height,
+              normDist,
+              state,
+              clampedRadius,
+              smoothHeightSnapshot,
+            );
 
         if (tileEligible) {
           if (wg) syncTileToWorldGrid(wg, t);
@@ -5599,6 +5955,17 @@ function damageOrBleachWaterTile(
   dmgAmount: number,
   destroyWalkway = false,
 ): void {
+  if (
+    destroyWalkway &&
+    !t.buildingId &&
+    t.isBridge &&
+    (t.terrain === 'stone_road' || t.terrain === 'rail_track' || t.terrain === 'runway')
+  ) {
+    t.height = 0;
+    t.terrain = 'shallow_water';
+    delete t.isBridge;
+    return;
+  }
   if (t.height !== 0) return;
   if (t.resourceNode === 'coral_reef') {
     t.resourceAmount = Math.max(0, t.resourceAmount - dmgAmount);
@@ -5620,6 +5987,7 @@ function damageOrBleachWaterTile(
     (t.terrain === 'stone_road' || t.terrain === 'rail_track' || t.terrain === 'runway')
   ) {
     t.terrain = 'shallow_water';
+    delete t.isBridge;
   }
 }
 
