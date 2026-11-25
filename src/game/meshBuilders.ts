@@ -2115,6 +2115,7 @@ export interface NodeVariantLibrary {
   facilityTexturedMat: THREE.MeshStandardMaterial;
   crystalMat: THREE.MeshStandardMaterial;
   coralReefMat: THREE.MeshStandardMaterial;
+  updateSeason: (weights: THREE.Vector4) => void;
 }
 
 let cachedVariantLib: NodeVariantLibrary | null = null;
@@ -4307,11 +4308,103 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
     windmillTowers,
     windmillBladesVariants,
     miningFacilities,
-    standardMat: new THREE.MeshStandardMaterial({
-      vertexColors: true,
-      roughness: 0.78,
-      metalness: 0.08,
-    }),
+    standardMat: (() => {
+      const seasonUniform = { value: new THREE.Vector4(0.0, 1.0, 0.0, 0.0) };
+      const m = new THREE.MeshStandardMaterial({
+        vertexColors: true,
+        roughness: 0.78,
+        metalness: 0.08,
+      });
+      m.userData.seasonWeightsUniform = seasonUniform;
+      m.customProgramCacheKey = () => 'aeon_static_props_seasonal_v1';
+      m.onBeforeCompile = (shader) => {
+        shader.uniforms.uSeasonWeights = seasonUniform;
+        shader.vertexShader =
+          `varying vec3 vPropSeasonWorldPos;\nvarying vec3 vPropSeasonWorldNormal;\n` +
+          shader.vertexShader.replace(
+            '#include <project_vertex>',
+            `#include <project_vertex>
+            vec4 propSeasonWp = vec4(transformed, 1.0);
+            #ifdef USE_BATCHING
+              propSeasonWp = batchingMatrix * propSeasonWp;
+            #endif
+            #ifdef USE_INSTANCING
+              propSeasonWp = instanceMatrix * propSeasonWp;
+            #endif
+            propSeasonWp = modelMatrix * propSeasonWp;
+            vPropSeasonWorldPos = propSeasonWp.xyz;
+
+            vec3 propSeasonWn = objectNormal;
+            #ifdef USE_BATCHING
+              propSeasonWn = mat3(batchingMatrix) * propSeasonWn;
+            #endif
+            #ifdef USE_INSTANCING
+              propSeasonWn = mat3(instanceMatrix) * propSeasonWn;
+            #endif
+            vPropSeasonWorldNormal = normalize(mat3(modelMatrix) * propSeasonWn);`,
+          );
+
+        shader.fragmentShader =
+          `uniform vec4 uSeasonWeights;
+          varying vec3 vPropSeasonWorldPos;
+          varying vec3 vPropSeasonWorldNormal;
+
+          float propSeasonHash(vec2 p) {
+            vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+            p3 += dot(p3, p3.yzx + 33.33);
+            return fract((p3.x + p3.y) * p3.z);
+          }
+          ` +
+          shader.fragmentShader.replace(
+            '#include <color_fragment>',
+            `#include <color_fragment>
+            float psSpr = uSeasonWeights.x;
+            float psAut = uSeasonWeights.z;
+            float psWin = uSeasonWeights.w;
+
+            if (psSpr + psAut + psWin > 0.01) {
+              vec3 baseRgb = diffuseColor.rgb;
+              float lum = dot(baseRgb, vec3(0.299, 0.587, 0.114));
+              float isFoliage = smoothstep(0.004, 0.032, baseRgb.g - baseRgb.r * 1.05) * smoothstep(0.004, 0.028, baseRgb.g - baseRgb.b * 1.10);
+              float propSeed = propSeasonHash(floor(vPropSeasonWorldPos.xz * 1.5));
+
+              // Spring: fresh vibrant green grass tufts, reeds, bushes & crops
+              if (psSpr > 0.01 && isFoliage > 0.05) {
+                vec3 sprRgb = baseRgb * vec3(0.95, 1.15, 0.86) + vec3(0.01, 0.022, 0.004);
+                diffuseColor.rgb = mix(diffuseColor.rgb, sprRgb, psSpr * isFoliage * 0.82);
+              }
+
+              // Autumn: warm golden-ochre, amber & russet grass tufts, bushes & harvest foliage
+              if (psAut > 0.01 && isFoliage > 0.05) {
+                vec3 autTone = propSeed < 0.38
+                  ? vec3(0.90, 0.62, 0.10)
+                  : propSeed < 0.72
+                    ? vec3(0.84, 0.34, 0.06)
+                    : vec3(0.68, 0.22, 0.05);
+                vec3 autRgb = autTone * clamp(lum * 2.45, 0.06, 1.28);
+                diffuseColor.rgb = mix(diffuseColor.rgb, autRgb, psAut * isFoliage * 0.86);
+              }
+
+              // Winter: frosted foliage & snow-dusted upward surfaces on bushes, rocks, tufts & props
+              if (psWin > 0.01) {
+                if (isFoliage > 0.05) {
+                  vec3 frostFoliage = mix(vec3(lum * 0.80), baseRgb * vec3(0.74, 0.86, 0.96), 0.45);
+                  diffuseColor.rgb = mix(diffuseColor.rgb, frostFoliage, psWin * isFoliage * 0.76);
+                }
+                float upFace = smoothstep(0.45, 0.80, vPropSeasonWorldNormal.y);
+                // Keep dark volcanic/obsidian/ember props from getting heavy snow
+                float isHotEmber = smoothstep(0.12, 0.32, baseRgb.r - baseRgb.b * 2.2) * smoothstep(0.08, 0.25, baseRgb.r - baseRgb.g * 1.3);
+                float snowAmt = upFace * (1.0 - isHotEmber) * smoothstep(0.10, 0.86, psWin) * 0.86;
+                if (snowAmt > 0.01) {
+                  vec3 snowRgb = mix(vec3(0.60, 0.74, 0.88), vec3(0.93, 0.97, 1.0), smoothstep(0.08, 0.38, lum + 0.18));
+                  diffuseColor.rgb = mix(diffuseColor.rgb, snowRgb, snowAmt);
+                }
+              }
+            }`,
+          );
+      };
+      return m;
+    })(),
     facilityTexturedMat: new THREE.MeshStandardMaterial({
       vertexColors: true,
       map: getPixelArtTexture('facility_detail_neutral', '#e6e6e6', '#ffffff', '#b6b6b6', 'stone'),
@@ -4360,6 +4453,14 @@ export function getNodeVariantLibrary(): NodeVariantLibrary {
       m.customProgramCacheKey = () => 'coral-reef-biolum-v1';
       return m;
     })(),
+    updateSeason: (weights: THREE.Vector4) => {
+      const uniform = cachedVariantLib?.standardMat.userData.seasonWeightsUniform as
+        | { value: THREE.Vector4 }
+        | undefined;
+      if (uniform) {
+        uniform.value.copy(weights);
+      }
+    },
   };
 
   return cachedVariantLib;

@@ -75,6 +75,7 @@ import {
   computeSeasonState,
   createSeasonalAtmosphereSystem,
   multiplyColorByTint,
+  stepSeasonWeightsVector,
 } from '../game/worldSeasons';
 import {
   classifyChronicleMilestone,
@@ -731,6 +732,16 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
 
     const seasonalAtmosphere = createSeasonalAtmosphereSystem();
     worldGroup.add(seasonalAtmosphere.group);
+    const initialSeasonState = computeSeasonState(
+      propsRef.current.seasonPreset ?? 'auto',
+      sim.year,
+    );
+    const renderedSeasonWeights = new THREE.Vector4(
+      initialSeasonState.weights.spring,
+      initialSeasonState.weights.summer,
+      initialSeasonState.weights.autumn,
+      initialSeasonState.weights.winter,
+    );
 
     const chimneySmoke = createChimneySmokeSystem();
     worldGroup.add(chimneySmoke.group);
@@ -16629,6 +16640,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         propsRef.current.seasonPreset ?? 'auto',
         simRef.current.year,
       );
+      stepSeasonWeightsVector(renderedSeasonWeights, activeSeasonState.weights, dt, 2.4);
+      voxelTreeLib?.updateSeason(renderedSeasonWeights);
+      variantLib?.updateSeason(renderedSeasonWeights);
+      treeImpostors?.updateSeason(renderedSeasonWeights);
       // Attenuate strong seasonal color tints slightly during deep midnight so night stays readable
       const seasonTintStrength = 1 - currentDarkness * 0.42;
 
@@ -16899,7 +16914,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       }
       hitFlashOverlay.update(dt);
       milestoneBursts.update(dt, frustumSize);
-      oceanFoam.updateFrame(shaderElapsed, preset);
+      oceanFoam.updateFrame(shaderElapsed, preset, renderedSeasonWeights);
       if (elevatedWaterMesh.visible || elevatedLavaMesh.visible || elevatedPoisonMesh.visible) {
         elevatedLiquidGroup.position.y = Math.sin(shaderElapsed * 2.15) * 0.014;
         if (elevatedWaterMesh.visible) {
@@ -16918,6 +16933,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         epochIdx,
         isCycleActive ? 'auto' : preset,
         cyclePhase01,
+        renderedSeasonWeights,
       );
 
       let viewportAspect = renderWidth / Math.max(1, renderHeight);

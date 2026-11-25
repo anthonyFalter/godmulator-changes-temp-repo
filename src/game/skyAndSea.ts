@@ -11,6 +11,7 @@ import {
 import { getTimeOfDayLightingState, wrapShaderTime } from './dayNightLighting';
 import { createRng, normalizeSeed } from './worldGen';
 import { WorldCullBounds, isPointInCullBounds } from './autoOptimizer';
+import { SEASON_WATER_PROFILES } from './worldSeasons';
 
 function addSteppedPuff(
   parts: THREE.BufferGeometry[],
@@ -436,7 +437,7 @@ export interface OceanFoamSystem {
   mesh: THREE.Mesh;
   updateMap: (tiles: TileData[]) => void;
   updateZones: (colorData: Uint8Array, idData: Uint8Array, anyActive: boolean) => void;
-  updateFrame: (elapsed: number, preset: LightingPreset) => void;
+  updateFrame: (elapsed: number, preset: LightingPreset, seasonWeights?: THREE.Vector4) => void;
   dispose: () => void;
 }
 
@@ -491,6 +492,7 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
       uReefWaterColor: { value: new THREE.Color('#12d6df') },
       uFoamColor: { value: new THREE.Color('#f4fbff') },
       uFoamMint: { value: new THREE.Color('#9ee6f5') },
+      uSeasonFrost: { value: 0.0 },
     },
   ]);
   // Assign mutable DataTexture AFTER merge so UniformsUtils.merge does not clone a stale copy
@@ -538,6 +540,7 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
       uniform vec3 uReefWaterColor;
       uniform vec3 uFoamColor;
       uniform vec3 uFoamMint;
+      uniform float uSeasonFrost;
 
       varying vec3 vWorldPos;
 
@@ -907,6 +910,19 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
         color = mix(color, foamMintCol, mintMask * 0.82);
         color = mix(color, foamCoreCol, whiteMask * 0.98);
 
+        // Winter shoreline ice-crust & frosted river/lake bank sheen (skips lava & poisoned waters)
+        if (uSeasonFrost > 0.01 && !isLavaWater && poisonTintAmt < 0.25) {
+          float frostNoise = valueNoise(pixPos * 1.45 + vec2(3.7, 9.1));
+          float shoreIceBand = smoothstep(0.32, 0.03, landDist) * step(0.42 - uSeasonFrost * 0.22, frostNoise);
+          float inlandIce = (isRiver || isLake)
+            ? smoothstep(0.65, 0.05, landDist) * step(0.50 - uSeasonFrost * 0.26, frostNoise)
+            : 0.0;
+          float iceMask = clamp(max(shoreIceBand * 0.88, inlandIce * 0.92), 0.0, 1.0) * uSeasonFrost;
+          vec3 iceCol = mix(uFoamMint * 0.95, uFoamColor, step(0.62, frostNoise));
+          color = mix(color, iceCol, iceMask * 0.78);
+          waterAlpha = max(waterAlpha, iceMask * 0.84);
+        }
+
         float zoneAlpha = 0.0;
         if (uZoneActive > 0.5) {
           vec4 zCol = sampleZoneColor(tileCoord);
@@ -1260,7 +1276,11 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
   const _foamTarget = new THREE.Color('#f4fbff');
   const _mintTarget = new THREE.Color('#9ee6f5');
 
-  const updateFrame = (elapsed: number, preset: LightingPreset) => {
+  const updateFrame = (
+    elapsed: number,
+    preset: LightingPreset,
+    seasonWeights?: THREE.Vector4,
+  ) => {
     const mu = material.uniforms;
     mu.uTime.value = wrapShaderTime(elapsed);
 
@@ -1301,12 +1321,48 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
       _mintTarget.set('#9ee6f5');
     }
 
+    let targetFrost = 0.0;
+    if (seasonWeights) {
+      const wSpr = seasonWeights.x;
+      const wSum = seasonWeights.y;
+      const wAut = seasonWeights.z;
+      const wWin = seasonWeights.w;
+      const pSpr = SEASON_WATER_PROFILES.spring;
+      const pSum = SEASON_WATER_PROFILES.summer;
+      const pAut = SEASON_WATER_PROFILES.autumn;
+      const pWin = SEASON_WATER_PROFILES.winter;
+
+      const applyTint = (
+        c: THREE.Color,
+        a: [number, number, number],
+        b: [number, number, number],
+        d: [number, number, number],
+        e: [number, number, number],
+      ) => {
+        const r = a[0] * wSpr + b[0] * wSum + d[0] * wAut + e[0] * wWin;
+        const g = a[1] * wSpr + b[1] * wSum + d[1] * wAut + e[1] * wWin;
+        const bl = a[2] * wSpr + b[2] * wSum + d[2] * wAut + e[2] * wWin;
+        c.setRGB(Math.min(1.0, c.r * r), Math.min(1.0, c.g * g), Math.min(1.0, c.b * bl));
+      };
+
+      applyTint(_shallowTarget, pSpr.shallowTint, pSum.shallowTint, pAut.shallowTint, pWin.shallowTint);
+      applyTint(_deepTarget, pSpr.deepTint, pSum.deepTint, pAut.deepTint, pWin.deepTint);
+      applyTint(_crestTarget, pSpr.crestTint, pSum.crestTint, pAut.crestTint, pWin.crestTint);
+      applyTint(_foamTarget, pSpr.foamTint, pSum.foamTint, pAut.foamTint, pWin.foamTint);
+      targetFrost =
+        pSpr.frostStrength * wSpr +
+        pSum.frostStrength * wSum +
+        pAut.frostStrength * wAut +
+        pWin.frostStrength * wWin;
+    }
+
     mu.uShallowColor.value.lerp(_shallowTarget, 0.08);
     mu.uDeepColor.value.lerp(_deepTarget, 0.08);
     mu.uCrestColor.value.lerp(_crestTarget, 0.08);
     mu.uReefWaterColor.value.lerp(_reefTarget, 0.08);
     mu.uFoamColor.value.lerp(_foamTarget, 0.08);
     mu.uFoamMint.value.lerp(_mintTarget, 0.08);
+    mu.uSeasonFrost.value += (targetFrost - mu.uSeasonFrost.value) * 0.12;
   };
 
   const updateZones = (colorData: Uint8Array, idData: Uint8Array, anyActive: boolean) => {
@@ -1350,6 +1406,7 @@ export interface StyledTerrainSystem {
     epochIndex?: number,
     preset?: LightingPreset,
     cyclePhase01?: number,
+    seasonWeights?: THREE.Vector4,
   ) => void;
   dispose: () => void;
 }
@@ -1439,6 +1496,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
   const sharedSunDir = { value: new THREE.Vector3(0.38, 0.88, 0.26).normalize() };
   const sharedSunTint = { value: new THREE.Vector3(1.02, 1.0, 0.98) };
   const sharedShadowTint = { value: new THREE.Vector3(0.82, 0.88, 0.95) };
+  const sharedSeasonWeights = { value: new THREE.Vector4(0.0, 1.0, 0.0, 0.0) };
 
   const glslHelpers = `
     uniform float uTime;
@@ -1453,6 +1511,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
     uniform vec3 uSunDir;
     uniform vec3 uSunTint;
     uniform vec3 uShadowTint;
+    uniform vec4 uSeasonWeights;
     varying vec3 vLandWorldPos;
     varying vec3 vLandWorldNormal;
 
@@ -1507,6 +1566,45 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
 
     float decodeTerrain(vec4 t) {
       return floor(t.r * 255.0 / 8.0 + 0.5);
+    }
+
+    vec3 applySeasonalCliffColor(
+      vec3 cliffCol,
+      bool isEarthBank,
+      bool isSwampWall,
+      bool isMountainWall,
+      bool isVoidWall,
+      bool isCraterWall,
+      bool isBlightWall,
+      bool isSandWall,
+      bool isBadlandsWall,
+      bool isUrbanRetainingWall,
+      float distFromTop,
+      float lipJitter,
+      float pixGrain
+    ) {
+      float wAut = uSeasonWeights.z;
+      float wWin = uSeasonWeights.w;
+      if (isVoidWall || isCraterWall || isBlightWall || isUrbanRetainingWall) {
+        return cliffCol;
+      }
+      // Autumn warms turf overhang on earth/swamp banks
+      if (wAut > 0.01 && (isEarthBank || isSwampWall) && distFromTop < 0.11 + lipJitter) {
+        vec3 autTurf = mix(landSrgb(148.0, 96.0, 42.0), landSrgb(184.0, 126.0, 54.0), step(0.45, pixGrain));
+        cliffCol = mix(cliffCol, autTurf, wAut * 0.78);
+      }
+      // Winter adds crisp pixel snow-lip overhang along top of earth banks, swamp banks, and mountain ledges
+      if (wWin > 0.01 && !isSandWall && !isBadlandsWall) {
+        float lipDepth = (isEarthBank || isMountainWall ? 0.14 : 0.10) + lipJitter * 1.25;
+        if (distFromTop < lipDepth) {
+          vec3 snowLip = mix(landSrgb(188.0, 210.0, 228.0), landSrgb(242.0, 249.0, 255.0), step(0.42, pixGrain));
+          float lipMix = smoothstep(lipDepth, lipDepth * 0.25, distFromTop) * wWin * 0.92;
+          cliffCol = mix(cliffCol, snowLip, lipMix);
+        } else if (isMountainWall) {
+          cliffCol = mix(cliffCol, cliffCol * vec3(0.92, 0.97, 1.06), wWin * 0.55);
+        }
+      }
+      return cliffCol;
     }
 
     vec3 computeCityNightGlow(
@@ -1677,7 +1775,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
   `;
 
   const topOnlyGlslHelpers = `
-    vec3 computeBiomeColor(float code, vec2 pixPos, vec2 chunkPos, vec2 subUv, float tTime, bool isCultivatedFarm) {
+    vec3 computeBaseBiomeColor(float code, vec2 pixPos, vec2 chunkPos, vec2 subUv, float tTime, bool isCultivatedFarm) {
       float waveA = landNoise(chunkPos * 0.42);
       float waveB = landNoise(chunkPos * 0.92 + vec2(11.3, 7.1));
       float detail = landHash12(pixPos * 16.0);
@@ -2029,6 +2127,209 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         }
         return c;
       }
+    }
+
+    vec3 applySeasonalBiomeColor(
+      vec3 baseCol,
+      float code,
+      vec2 pixPos,
+      vec2 chunkPos,
+      vec2 subUv,
+      float tTime,
+      bool isCultivatedFarm
+    ) {
+      float wSpr = uSeasonWeights.x;
+      float wSum = uSeasonWeights.y;
+      float wAut = uSeasonWeights.z;
+      float wWin = uSeasonWeights.w;
+
+      // Skip extreme/aquatic/fantasy biomes that should keep their signature look
+      if (
+        code < 1.5 ||
+        abs(code - 11.0) < 0.5 ||
+        abs(code - 12.0) < 0.5 ||
+        abs(code - 13.0) < 0.5 ||
+        abs(code - 21.0) < 0.5 ||
+        abs(code - 22.0) < 0.5 ||
+        abs(code - 23.0) < 0.5 ||
+        abs(code - 24.0) < 0.5 ||
+        abs(code - 25.0) < 0.5
+      ) {
+        return baseCol;
+      }
+
+      float detail = landHash12(pixPos * 16.0);
+      float driftNoise = landNoise(chunkPos * 0.68 + vec2(5.1, 2.9));
+      float leafNoise = landNoise(chunkPos * 1.35 + vec2(17.3, 4.7));
+      vec3 col = baseCol;
+
+      bool isGrass = abs(code - 3.0) < 0.5;
+      bool isFertile = abs(code - 4.0) < 0.5;
+      bool isForest = abs(code - 5.0) < 0.5;
+      bool isSavanna = abs(code - 6.0) < 0.5;
+      bool isSwamp = abs(code - 7.0) < 0.5;
+      bool isHighland = abs(code - 8.0) < 0.5;
+      bool isRock = abs(code - 10.0) < 0.5;
+      bool isJungle = abs(code - 15.0) < 0.5;
+      bool isMountain = abs(code - 16.0) < 0.5;
+      bool isTaiga = abs(code - 17.0) < 0.5;
+      bool isTundra = abs(code - 18.0) < 0.5;
+      bool isBlossom = abs(code - 20.0) < 0.5;
+      bool isFloral = code >= 25.5;
+      bool isArid = abs(code - 2.0) < 0.5 || abs(code - 19.0) < 0.5;
+
+      // ---- SPRING: Fresh sprout-green vibrancy & blooming wildflower/petal flecks ----
+      if (wSpr > 0.01) {
+        vec3 sprCol = col;
+        if (isGrass || (isFertile && !isCultivatedFarm) || isForest || isHighland || isBlossom || isFloral) {
+          sprCol = mix(sprCol, sprCol * vec3(0.95, 1.14, 0.88) + landSrgb(12.0, 26.0, 6.0) * 0.35, 0.72);
+          if (isGrass || (isFertile && !isCultivatedFarm)) {
+            if (detail > 0.942) {
+              sprCol = mix(sprCol, landSrgb(252.0, 224.0, 108.0), 0.90);
+            } else if (detail < 0.042) {
+              sprCol = mix(sprCol, landSrgb(250.0, 168.0, 206.0), 0.88);
+            } else if (detail > 0.485 && detail < 0.502) {
+              sprCol = mix(sprCol, landSrgb(252.0, 250.0, 240.0), 0.85);
+            }
+          } else if (isBlossom && (leafNoise > 0.52 || detail > 0.80)) {
+            sprCol = mix(sprCol, detail > 0.90 ? landSrgb(255.0, 234.0, 244.0) : landSrgb(250.0, 164.0, 204.0), 0.88);
+          }
+        } else if (isFertile && isCultivatedFarm && uEpoch < 5.5) {
+          // Spring cultivated farms: fresh dark loam & bright young green shoots
+          vec2 fPix = floor(subUv * 16.0);
+          float furrow = mod(fPix.y, 4.0);
+          vec3 wetSoil = landSrgb(78.0, 56.0, 38.0);
+          vec3 youngShoot = landSrgb(112.0, 192.0, 72.0);
+          sprCol = mix(wetSoil, youngShoot, step(1.6, furrow));
+        } else if (isSavanna) {
+          sprCol = mix(sprCol, sprCol * vec3(0.92, 1.10, 0.84), 0.65);
+        } else if (isTaiga || isTundra) {
+          sprCol = mix(sprCol, sprCol * vec3(0.94, 1.09, 0.95), 0.55);
+        }
+        col = mix(col, sprCol, wSpr);
+      }
+
+      // ---- SUMMER: Warm sun-drenched saturation boost ----
+      if (wSum > 0.01 && (isGrass || isFertile || isForest || isSavanna || isJungle)) {
+        vec3 sumCol = col * vec3(1.04, 1.02, 0.92);
+        col = mix(col, sumCol, wSum * 0.45);
+      }
+
+      // ---- AUTUMN: Warm golden-olive/russet grass, fallen crimson/amber leaf litter & harvest farms ----
+      if (wAut > 0.01) {
+        vec3 autCol = col;
+        if (isGrass || (isFertile && !isCultivatedFarm) || isBlossom || isFloral) {
+          float lum = dot(col, vec3(0.299, 0.587, 0.114));
+          vec3 autSh   = landSrgb(106.0, 74.0, 34.0);
+          vec3 autBase = landSrgb(164.0, 118.0, 48.0);
+          vec3 autHi   = landSrgb(212.0, 162.0, 66.0);
+          vec3 palette = mix(autSh, autBase, smoothstep(0.05, 0.22, lum));
+          palette = mix(palette, autHi, smoothstep(0.22, 0.48, lum));
+          autCol = mix(col, palette, isFloral ? 0.58 : 0.84);
+          // Scattered crisp autumn leaf-litter pixels
+          if (detail > 0.91 || (leafNoise > 0.66 && detail > 0.72)) {
+            vec3 leafCol = detail > 0.96
+              ? landSrgb(220.0, 68.0, 32.0)
+              : detail > 0.93
+                ? landSrgb(242.0, 152.0, 38.0)
+                : landSrgb(198.0, 96.0, 30.0);
+            autCol = mix(autCol, leafCol, 0.84);
+          }
+        } else if (isFertile && isCultivatedFarm && uEpoch < 5.5) {
+          // Harvested autumn wheat & amber stubble furrows
+          vec2 fPix = floor(subUv * 16.0);
+          float furrow = mod(fPix.y, 4.0);
+          vec3 soilDry = landSrgb(98.0, 64.0, 36.0);
+          vec3 stubble = landSrgb(196.0, 134.0, 48.0);
+          vec3 goldRow = landSrgb(236.0, 178.0, 64.0);
+          autCol = mix(soilDry, stubble, step(1.4, furrow));
+          autCol = mix(autCol, goldRow, step(2.7, furrow));
+        } else if (isForest || isHighland) {
+          vec3 mossRust = isForest ? landSrgb(128.0, 76.0, 34.0) : landSrgb(146.0, 102.0, 52.0);
+          autCol = mix(col, mossRust, 0.72);
+          if (leafNoise > 0.54 || detail > 0.82) {
+            vec3 leafCol = detail > 0.93
+              ? landSrgb(218.0, 62.0, 28.0)
+              : detail > 0.86
+                ? landSrgb(238.0, 144.0, 36.0)
+                : landSrgb(176.0, 82.0, 26.0);
+            autCol = mix(autCol, leafCol, 0.82);
+          }
+        } else if (isSavanna) {
+          autCol = mix(col, landSrgb(186.0, 128.0, 52.0), 0.58);
+        } else if (isSwamp) {
+          autCol = mix(col, landSrgb(96.0, 76.0, 44.0), 0.56);
+        } else if (isTaiga || isTundra) {
+          autCol = mix(col, col * vec3(1.16, 0.96, 0.76), 0.62);
+          if (detail > 0.90) autCol = mix(autCol, landSrgb(212.0, 152.0, 48.0), 0.72);
+        } else if (isJungle) {
+          autCol = mix(col, col * vec3(1.08, 0.96, 0.86), 0.30);
+        } else if (isArid) {
+          autCol = mix(col, col * vec3(1.06, 0.96, 0.88), 0.32);
+        }
+        col = mix(col, autCol, wAut);
+      }
+
+      // ---- WINTER: Crisp pixel-dithered snowdrifts, glacial shadows & frost glints ----
+      if (wWin > 0.01) {
+        float snowThreshold = 1.0;
+        float maxSnowCover = 0.0;
+        if (isGrass || isForest || isHighland || isBlossom || isTaiga || isTundra) {
+          snowThreshold = 0.22;
+          maxSnowCover = 0.95;
+        } else if (isFertile) {
+          snowThreshold = isCultivatedFarm ? 0.34 : 0.22;
+          maxSnowCover = isCultivatedFarm ? 0.78 : 0.95;
+        } else if (isFloral) {
+          snowThreshold = 0.30;
+          maxSnowCover = 0.82;
+        } else if (isMountain || isRock) {
+          snowThreshold = 0.36;
+          maxSnowCover = 0.86;
+        } else if (isSwamp) {
+          snowThreshold = 0.48;
+          maxSnowCover = 0.58;
+        } else if (isSavanna) {
+          snowThreshold = 0.66;
+          maxSnowCover = 0.32;
+        } else if (isJungle) {
+          // Humid jungle resists snow; only cools slightly
+          col = mix(col, col * vec3(0.88, 0.94, 1.02), wWin * 0.40);
+        } else if (isArid) {
+          // Desert/badlands stay dry with cool winter light
+          col = mix(col, col * vec3(0.92, 0.95, 1.04), wWin * 0.35);
+        }
+
+        if (maxSnowCover > 0.01) {
+          // Organic pixel-stepped snowdrift coverage that spreads cleanly as winter deepens
+          float snowField = driftNoise * 0.74 + detail * 0.26;
+          float coverEdge = mix(1.05, snowThreshold, smoothstep(0.05, 0.92, wWin));
+          float snowMask = step(coverEdge, snowField) * smoothstep(0.06, 0.35, wWin) * maxSnowCover;
+          // Frost base underneath even before full snowdrift blankets it
+          vec3 frostedBase = mix(col, col * vec3(0.78, 0.86, 0.96) + landSrgb(42.0, 56.0, 72.0) * 0.35, wWin * 0.62);
+          float glint = step(0.962, landHash12(pixPos * 16.0 + floor(tTime * 1.4)));
+          vec3 snowSh   = landSrgb(166.0, 192.0, 212.0);
+          vec3 snowBase = landSrgb(220.0, 234.0, 244.0);
+          vec3 snowHi   = landSrgb(246.0, 251.0, 255.0);
+          vec3 snowCol = mix(snowSh, snowBase, step(0.32, driftNoise));
+          snowCol = mix(snowCol, snowHi, step(0.64, driftNoise));
+          snowCol = mix(snowCol, snowHi, glint * 0.85);
+          if (isFertile && isCultivatedFarm && uEpoch < 5.5) {
+            // Keep faint plowed furrow lines visible beneath winter frost
+            vec2 fPix = floor(subUv * 16.0);
+            float furrowLine = step(mod(fPix.y, 4.0), 1.1);
+            snowCol = mix(snowCol, landSrgb(138.0, 154.0, 170.0), furrowLine * 0.38);
+          }
+          col = mix(frostedBase, snowCol, snowMask);
+        }
+      }
+
+      return col;
+    }
+
+    vec3 computeBiomeColor(float code, vec2 pixPos, vec2 chunkPos, vec2 subUv, float tTime, bool isCultivatedFarm) {
+      vec3 baseCol = computeBaseBiomeColor(code, pixPos, chunkPos, subUv, tTime, isCultivatedFarm);
+      return applySeasonalBiomeColor(baseCol, code, pixPos, chunkPos, subUv, tTime, isCultivatedFarm);
     }
 
     float sdSeg(vec2 p, vec2 a, vec2 b, out float projT) {
@@ -2659,7 +2960,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
     roughness: 0.84,
     metalness: 0.08,
   });
-  cliffMat.customProgramCacheKey = () => 'aeon_cliff_pixel_v10';
+  cliffMat.customProgramCacheKey = () => 'aeon_cliff_pixel_v11';
   cliffMat.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = sharedTime;
     shader.uniforms.uEpoch = sharedEpoch;
@@ -2673,6 +2974,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
     shader.uniforms.uSunDir = sharedSunDir;
     shader.uniforms.uSunTint = sharedSunTint;
     shader.uniforms.uShadowTint = sharedShadowTint;
+    shader.uniforms.uSeasonWeights = sharedSeasonWeights;
     patchVertexShader(shader);
 
     shader.fragmentShader =
@@ -2836,6 +3138,22 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
             cliffCol = mix(cliffCol, landSrgb(255.0, 112.0, 24.0), emberVein * 0.85);
           }
         }
+
+        cliffCol = applySeasonalCliffColor(
+          cliffCol,
+          isEarthBank,
+          isSwampWall,
+          isMountainWall,
+          isVoidWall,
+          isCraterWall,
+          isBlightWall,
+          isSandWall,
+          isBadlandsWall,
+          isUrbanRetainingWall,
+          distFromTop,
+          lipJitter,
+          pixGrain
+        );
 
         // Dynamic time-of-day directional cliff face shading (east sunrise vs west sunset vs indigo midnight)
         float sunSide = clamp(dot(vLandWorldNormal, normalize(uSunDir)) * 0.5 + 0.5, 0.0, 1.0);
@@ -3232,7 +3550,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
       roughness,
       metalness,
     });
-    topMat.customProgramCacheKey = () => 'aeon_land_top_pixel_v16';
+    topMat.customProgramCacheKey = () => 'aeon_land_top_pixel_v17';
     topMat.onBeforeCompile = (shader) => {
       shader.uniforms.uTime = sharedTime;
       shader.uniforms.uEpoch = sharedEpoch;
@@ -3246,6 +3564,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
       shader.uniforms.uSunDir = sharedSunDir;
       shader.uniforms.uSunTint = sharedSunTint;
       shader.uniforms.uShadowTint = sharedShadowTint;
+      shader.uniforms.uSeasonWeights = sharedSeasonWeights;
       shader.uniforms.uDefaultCode = { value: tCode };
       patchVertexShader(shader);
 
@@ -3343,7 +3662,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
     roughness: 0.82,
     metalness: 0.05,
   });
-  unifiedMat.customProgramCacheKey = () => 'aeon_land_unified_chunk_v3';
+  unifiedMat.customProgramCacheKey = () => 'aeon_land_unified_chunk_v4';
   unifiedMat.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = sharedTime;
     shader.uniforms.uEpoch = sharedEpoch;
@@ -3357,6 +3676,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
     shader.uniforms.uSunDir = sharedSunDir;
     shader.uniforms.uSunTint = sharedSunTint;
     shader.uniforms.uShadowTint = sharedShadowTint;
+    shader.uniforms.uSeasonWeights = sharedSeasonWeights;
     shader.uniforms.uDefaultCode = { value: -1.0 };
     patchVertexShader(shader);
 
@@ -3534,6 +3854,22 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
               cliffCol = mix(cliffCol, landSrgb(255.0, 112.0, 24.0), emberVein * 0.85);
             }
           }
+
+          cliffCol = applySeasonalCliffColor(
+            cliffCol,
+            isEarthBank,
+            isSwampWall,
+            isMountainWall,
+            isVoidWall,
+            isCraterWall,
+            isBlightWall,
+            isSandWall,
+            isBadlandsWall,
+            isUrbanRetainingWall,
+            distFromTop,
+            lipJitter,
+            pixGrain
+          );
 
           float sunSide = clamp(dot(vLandWorldNormal, normalize(uSunDir)) * 0.5 + 0.5, 0.0, 1.0);
           vec3 todCliffGrade = mix(uShadowTint * 0.78, uSunTint * 1.14, sunSide);
@@ -3897,9 +4233,13 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
     epochIndex = 0,
     preset: LightingPreset = 'noon',
     cyclePhase01 = 0,
+    seasonWeights?: THREE.Vector4,
   ) => {
     sharedTime.value = wrapShaderTime(elapsed);
     sharedEpoch.value = epochIndex;
+    if (seasonWeights) {
+      sharedSeasonWeights.value.copy(seasonWeights);
+    }
 
     const tod = getTimeOfDayLightingState(preset, cyclePhase01);
     sharedDarkness.value += (tod.darkness - sharedDarkness.value) * 0.08;

@@ -42,6 +42,7 @@ export interface VoxelTreeLibrary {
   burntTreesLod2: THREE.BufferGeometry[];
   burntTreesLod3: THREE.BufferGeometry[];
   material: THREE.MeshStandardMaterial;
+  updateSeason: (weights: THREE.Vector4) => void;
   dispose: () => void;
 }
 
@@ -2039,11 +2040,135 @@ export function getVoxelTreeLibrary(): VoxelTreeLibrary {
   const burntTreesLod2 = burntSets.lod2;
   const burntTreesLod3 = burntSets.lod3;
 
+  const seasonWeightsUniform = { value: new THREE.Vector4(0.0, 1.0, 0.0, 0.0) };
   const material = new THREE.MeshStandardMaterial({
     vertexColors: true,
     roughness: 0.86,
     metalness: 0.04,
   });
+  material.customProgramCacheKey = () => 'aeon_voxel_trees_seasonal_v1';
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.uSeasonWeights = seasonWeightsUniform;
+    shader.vertexShader =
+      `varying vec3 vTreeSeasonWorldPos;\nvarying vec3 vTreeSeasonWorldNormal;\nvarying float vTreeSeasonLocalY;\n` +
+      shader.vertexShader.replace(
+        '#include <project_vertex>',
+        `#include <project_vertex>
+        vTreeSeasonLocalY = position.y;
+        vec4 treeSeasonWp = vec4(transformed, 1.0);
+        #ifdef USE_BATCHING
+          treeSeasonWp = batchingMatrix * treeSeasonWp;
+        #endif
+        #ifdef USE_INSTANCING
+          treeSeasonWp = instanceMatrix * treeSeasonWp;
+        #endif
+        treeSeasonWp = modelMatrix * treeSeasonWp;
+        vTreeSeasonWorldPos = treeSeasonWp.xyz;
+
+        vec3 treeSeasonWn = objectNormal;
+        #ifdef USE_BATCHING
+          treeSeasonWn = mat3(batchingMatrix) * treeSeasonWn;
+        #endif
+        #ifdef USE_INSTANCING
+          treeSeasonWn = mat3(instanceMatrix) * treeSeasonWn;
+        #endif
+        vTreeSeasonWorldNormal = normalize(mat3(modelMatrix) * treeSeasonWn);`,
+      );
+
+    shader.fragmentShader =
+      `uniform vec4 uSeasonWeights;
+      varying vec3 vTreeSeasonWorldPos;
+      varying vec3 vTreeSeasonWorldNormal;
+      varying float vTreeSeasonLocalY;
+
+      float treeSeasonHash(vec2 p) {
+        vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+        p3 += dot(p3, p3.yzx + 33.33);
+        return fract((p3.x + p3.y) * p3.z);
+      }
+      ` +
+      shader.fragmentShader.replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+        float tsSpr = uSeasonWeights.x;
+        float tsAut = uSeasonWeights.z;
+        float tsWin = uSeasonWeights.w;
+
+        if (tsSpr + tsAut + tsWin > 0.01) {
+          vec3 baseRgb = diffuseColor.rgb;
+          float lum = dot(baseRgb, vec3(0.299, 0.587, 0.114));
+          // Identify green foliage vs wood bark / embers / snow / blossoms in linear RGB
+          float greenOverRed = baseRgb.g - baseRgb.r * 1.06;
+          float greenOverBlue = baseRgb.g - baseRgb.b * 1.12;
+          float isLeaf = smoothstep(0.004, 0.032, greenOverRed) * smoothstep(0.004, 0.028, greenOverBlue) * smoothstep(0.14, 0.32, vTreeSeasonLocalY);
+          // Cool blue-tinted spruce/taiga conifers have higher B/G ratio than broadleaf deciduous canopies
+          float blueRatio = baseRgb.b / max(baseRgb.g, 0.001);
+          float isConifer = smoothstep(0.42, 0.68, blueRatio);
+          float isDeciduous = isLeaf * (1.0 - isConifer * 0.82);
+
+          // Per-tree spatial hash so nearby trees vary organically in autumn & spring
+          vec2 treeCell = floor(vTreeSeasonWorldPos.xz * 0.5 + 0.25);
+          float treeSeed = treeSeasonHash(treeCell);
+          float voxelSpark = treeSeasonHash(floor(vTreeSeasonWorldPos.xz * 6.0) + vec2(floor(vTreeSeasonWorldPos.y * 6.0), 1.7));
+
+          // ---- SPRING: Fresh sprout-green highlight & scattered pastel blossom flecks ----
+          if (tsSpr > 0.01 && isLeaf > 0.05) {
+            vec3 sprRgb = baseRgb * vec3(0.96, 1.16, 0.86) + vec3(0.012, 0.026, 0.004);
+            // Sunlit upper deciduous crowns occasionally burst with soft spring blossoms
+            if (isDeciduous > 0.4 && treeSeed > 0.58 && vTreeSeasonWorldNormal.y > 0.35 && voxelSpark > 0.72) {
+              vec3 blossomTint = treeSeed > 0.78 ? vec3(0.96, 0.58, 0.74) : vec3(0.98, 0.92, 0.94);
+              sprRgb = mix(sprRgb, blossomTint * max(0.35, lum * 2.2), 0.78);
+            }
+            diffuseColor.rgb = mix(diffuseColor.rgb, sprRgb, tsSpr * isLeaf * 0.85);
+          }
+
+          // ---- AUTUMN: Painterly per-tree mosaic of gold, amber, burnt orange, crimson & russet ----
+          if (tsAut > 0.01 && isDeciduous > 0.05) {
+            vec3 autTone;
+            if (treeSeed < 0.28) {
+              // Golden birch / aspen yellow-gold
+              autTone = vec3(0.95, 0.68, 0.07);
+            } else if (treeSeed < 0.56) {
+              // Warm harvest amber / burnt orange
+              autTone = vec3(0.88, 0.30, 0.04);
+            } else if (treeSeed < 0.80) {
+              // Deep crimson maple red
+              autTone = vec3(0.72, 0.11, 0.04);
+            } else {
+              // Warm russet bronze-olive
+              autTone = vec3(0.62, 0.36, 0.08);
+            }
+            // Preserve baked 3D voxel crevice AO & sun shading via luminance scaling
+            vec3 autRgb = autTone * clamp(lum * 2.55, 0.06, 1.35);
+            // Subtle sunlit golden-edge variation inside each crown
+            autRgb = mix(autRgb, vec3(0.98, 0.56, 0.10) * clamp(lum * 2.4, 0.08, 1.3), step(0.74, voxelSpark) * 0.35);
+            diffuseColor.rgb = mix(diffuseColor.rgb, autRgb, tsAut * isDeciduous * 0.92);
+          }
+
+          // ---- WINTER: Frosted cool foliage & crisp snow caps resting on upward-facing canopy tops ----
+          if (tsWin > 0.01) {
+            // Cool & desaturate foliage slightly in winter (conifers stay deep frosty spruce; deciduous turns muted frosted)
+            if (isLeaf > 0.05) {
+              vec3 frostLeaf = mix(vec3(lum * 0.82), baseRgb * vec3(0.72, 0.86, 0.96), 0.45 + isConifer * 0.35);
+              diffuseColor.rgb = mix(diffuseColor.rgb, frostLeaf, tsWin * isLeaf * 0.78);
+            }
+            // Crisp snow accumulation on upward-facing canopy & bough surfaces above lower trunk
+            float upFace = smoothstep(0.42, 0.78, vTreeSeasonWorldNormal.y);
+            float heightMask = smoothstep(0.18, 0.42, vTreeSeasonLocalY);
+            float snowPatch = smoothstep(0.15, 0.55, upFace * (0.72 + voxelSpark * 0.38));
+            float snowAmt = upFace * heightMask * snowPatch * smoothstep(0.08, 0.85, tsWin) * 0.94;
+            if (snowAmt > 0.01) {
+              vec3 snowRgb = mix(vec3(0.58, 0.72, 0.86), vec3(0.92, 0.96, 1.0), smoothstep(0.08, 0.35, lum + upFace * 0.22));
+              diffuseColor.rgb = mix(diffuseColor.rgb, snowRgb, snowAmt);
+            }
+          }
+        }`,
+      );
+  };
+
+  const updateSeason = (weights: THREE.Vector4) => {
+    seasonWeightsUniform.value.copy(weights);
+  };
 
   cachedVoxelTreeLib = {
     byBiome,
@@ -2062,6 +2187,7 @@ export function getVoxelTreeLibrary(): VoxelTreeLibrary {
     burntTreesLod2,
     burntTreesLod3,
     material,
+    updateSeason,
     dispose: () => {
       for (const g of allGeometries) g.dispose();
       for (const g of allExtraLodGeometries) g.dispose();

@@ -3,9 +3,11 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import {
   FULL_SEASON_CYCLE_YEARS,
+  SEASON_WATER_PROFILES,
   YEARS_PER_SEASON,
   computeSeasonState,
   multiplyColorByTint,
+  stepSeasonWeightsVector,
 } from './worldSeasons';
 import {
   classifyChronicleMilestone,
@@ -63,6 +65,22 @@ test('multiplyColorByTint modulates color channels safely within HDR cap', () =>
   multiplyColorByTint(col, [1.12, 0.89, 0.72], 1.0);
   assert.ok(col.r > col.g && col.g > col.b);
   assert.ok(col.r <= 1.35 && col.g <= 1.35 && col.b <= 1.35);
+});
+
+test('stepSeasonWeightsVector smoothly blends and stays normalized', () => {
+  const v = new THREE.Vector4(0, 1, 0, 0); // start in summer
+  const target = computeSeasonState('winter', 0).weights;
+  stepSeasonWeightsVector(v, target, 0.1, 2.4);
+  assert.ok(v.y < 1 && v.y > 0.5, 'summer weight decays smoothly');
+  assert.ok(v.w > 0 && v.w < 0.5, 'winter weight ramps smoothly');
+  assert.ok(Math.abs(v.x + v.y + v.z + v.w - 1) < 1e-6, 'weights remain normalized');
+
+  for (let i = 0; i < 60; i++) {
+    stepSeasonWeightsVector(v, target, 0.1, 2.4);
+  }
+  assert.ok(v.w > 0.999, 'converges cleanly to winter');
+  assert.ok(SEASON_WATER_PROFILES.winter.frostStrength === 1.0);
+  assert.ok(SEASON_WATER_PROFILES.summer.frostStrength === 0.0);
 });
 
 test('computeElasticPopScale bounces with squash-and-stretch and settles to (1, 1)', () => {

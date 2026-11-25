@@ -189,6 +189,72 @@ export function multiplyColorByTint(
   );
 }
 
+export interface SeasonalWaterProfile {
+  shallowTint: [number, number, number];
+  deepTint: [number, number, number];
+  crestTint: [number, number, number];
+  foamTint: [number, number, number];
+  /** 0..1 shoreline frost & chilly shallow ice sheen intensity */
+  frostStrength: number;
+}
+
+export const SEASON_WATER_PROFILES: Record<SeasonId, SeasonalWaterProfile> = {
+  spring: {
+    shallowTint: [0.96, 1.08, 1.04],
+    deepTint: [0.94, 1.05, 1.04],
+    crestTint: [0.98, 1.06, 1.04],
+    foamTint: [1.0, 1.02, 1.02],
+    frostStrength: 0.0,
+  },
+  summer: {
+    shallowTint: [1.02, 1.03, 1.02],
+    deepTint: [1.0, 1.02, 1.02],
+    crestTint: [1.04, 1.04, 1.0],
+    foamTint: [1.02, 1.02, 1.0],
+    frostStrength: 0.0,
+  },
+  autumn: {
+    shallowTint: [0.92, 0.89, 0.88],
+    deepTint: [0.90, 0.88, 0.90],
+    crestTint: [0.96, 0.91, 0.85],
+    foamTint: [1.02, 0.97, 0.92],
+    frostStrength: 0.0,
+  },
+  winter: {
+    shallowTint: [0.88, 0.96, 1.16],
+    deepTint: [0.80, 0.90, 1.14],
+    crestTint: [1.05, 1.12, 1.24],
+    foamTint: [1.06, 1.10, 1.18],
+    frostStrength: 1.0,
+  },
+};
+
+/**
+ * Smoothly interpolates a 4-component (spring, summer, autumn, winter) weight vector
+ * toward the active SeasonalVisualState weights so manual preset switches morph organically.
+ */
+export function stepSeasonWeightsVector(
+  current: THREE.Vector4,
+  target: Record<SeasonId, number>,
+  dt: number,
+  speed = 2.4,
+): THREE.Vector4 {
+  const safeDt = Number.isFinite(dt) ? Math.max(0, Math.min(0.25, dt)) : 0;
+  const alpha = safeDt <= 0 ? 0 : Math.min(1, 1 - Math.exp(-speed * safeDt));
+  current.x += (target.spring - current.x) * alpha;
+  current.y += (target.summer - current.y) * alpha;
+  current.z += (target.autumn - current.z) * alpha;
+  current.w += (target.winter - current.w) * alpha;
+
+  const sum = current.x + current.y + current.z + current.w;
+  if (sum > 0.0001) {
+    current.multiplyScalar(1 / sum);
+  } else {
+    current.set(target.spring, target.summer, target.autumn, target.winter);
+  }
+  return current;
+}
+
 type SeasonParticleKind = 'petal' | 'pollen' | 'firefly' | 'leaf' | 'snow';
 
 interface SeasonParticle {

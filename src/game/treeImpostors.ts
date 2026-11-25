@@ -55,6 +55,7 @@ export class TreeImpostorSystem {
   private bakeScene: THREE.Scene | null = null;
   private bakeCam: THREE.OrthographicCamera | null = null;
   private bakeMesh: THREE.Mesh | null = null;
+  private bakeMaterial: THREE.MeshStandardMaterial | null = null;
   private bakeSpeciesGeos: THREE.BufferGeometry[] = [];
   private bakeSpeciesMetas: BakedSpeciesMeta[] = [];
   private bakeCursor = 0;
@@ -160,6 +161,7 @@ export class TreeImpostorSystem {
         uAtlas: { value: rt ? rt.texture : null },
         uCamYaw: { value: Math.PI / 4 },
         uTint: { value: new THREE.Color(1, 1, 1) },
+        uSeasonWeights: { value: new THREE.Vector4(0, 1, 0, 0) },
       },
       vertexShader: /* glsl */ `
         attribute vec4 aTreeCenterSize;
@@ -167,6 +169,8 @@ export class TreeImpostorSystem {
 
         uniform float uCamYaw;
         varying vec2 vUv;
+        varying vec2 vLocalUv;
+        varying vec2 vTreeWorldXZ;
 
         const float TWO_PI = 6.28318530718;
         const float SECTOR = 0.78539816339; // TWO_PI / 8.0
@@ -192,6 +196,8 @@ export class TreeImpostorSystem {
           vec2 pad = vec2(0.5 / ${CELL_PX.toFixed(1)}, 0.5 / ${CELL_PX.toFixed(1)});
           vec2 localUv = mix(pad, vec2(1.0) - pad, uv);
           vUv = (vec2(col, row) + localUv) / vec2(${ATLAS_COLS.toFixed(1)}, ${ATLAS_ROWS.toFixed(1)});
+          vLocalUv = uv;
+          vTreeWorldXZ = aTreeCenterSize.xz;
 
           gl_Position = projectionMatrix * viewMatrix * vec4(worldPos, 1.0);
         }
@@ -199,12 +205,62 @@ export class TreeImpostorSystem {
       fragmentShader: /* glsl */ `
         uniform sampler2D uAtlas;
         uniform vec3 uTint;
+        uniform vec4 uSeasonWeights;
         varying vec2 vUv;
+        varying vec2 vLocalUv;
+        varying vec2 vTreeWorldXZ;
+
+        float impHash(vec2 p) {
+          vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+          p3 += dot(p3, p3.yzx + 33.33);
+          return fract((p3.x + p3.y) * p3.z);
+        }
 
         void main() {
           vec4 tex = texture2D(uAtlas, vUv);
           if (tex.a < 0.45) discard;
-          gl_FragColor = vec4(tex.rgb * uTint, 1.0);
+          vec3 rgb = tex.rgb;
+          float sSpr = uSeasonWeights.x;
+          float sAut = uSeasonWeights.z;
+          float sWin = uSeasonWeights.w;
+
+          if (sSpr + sAut + sWin > 0.01) {
+            float lum = dot(rgb, vec3(0.299, 0.587, 0.114));
+            float isLeaf = smoothstep(0.01, 0.06, rgb.g - rgb.r * 1.04) * smoothstep(0.01, 0.05, rgb.g - rgb.b * 1.08) * smoothstep(0.22, 0.42, vLocalUv.y);
+            float blueRatio = rgb.b / max(rgb.g, 0.001);
+            float isConifer = smoothstep(0.52, 0.78, blueRatio);
+            float isDeciduous = isLeaf * (1.0 - isConifer * 0.80);
+            float treeSeed = impHash(floor(vTreeWorldXZ * 0.5 + 0.25));
+
+            if (sSpr > 0.01 && isLeaf > 0.05) {
+              vec3 sprRgb = rgb * vec3(0.96, 1.14, 0.88) + vec3(0.01, 0.025, 0.004);
+              rgb = mix(rgb, sprRgb, sSpr * isLeaf * 0.80);
+            }
+            if (sAut > 0.01 && isDeciduous > 0.05) {
+              vec3 autTone = treeSeed < 0.28
+                ? vec3(0.95, 0.72, 0.14)
+                : treeSeed < 0.56
+                  ? vec3(0.90, 0.40, 0.10)
+                  : treeSeed < 0.80
+                    ? vec3(0.78, 0.20, 0.10)
+                    : vec3(0.68, 0.44, 0.16);
+              vec3 autRgb = autTone * clamp(lum * 2.1, 0.08, 1.25);
+              rgb = mix(rgb, autRgb, sAut * isDeciduous * 0.90);
+            }
+            if (sWin > 0.01) {
+              if (isLeaf > 0.05) {
+                vec3 frostLeaf = mix(vec3(lum * 0.85), rgb * vec3(0.76, 0.88, 0.98), 0.45 + isConifer * 0.35);
+                rgb = mix(rgb, frostLeaf, sWin * isLeaf * 0.75);
+              }
+              float crownCap = smoothstep(0.46, 0.76, vLocalUv.y) * smoothstep(0.08, 0.85, sWin);
+              float pixDither = impHash(floor(vLocalUv * 24.0) + floor(vTreeWorldXZ));
+              float snowMask = crownCap * step(0.32, vLocalUv.y * 0.75 + pixDither * 0.40) * 0.82;
+              vec3 snowRgb = mix(vec3(0.66, 0.78, 0.90), vec3(0.94, 0.98, 1.0), smoothstep(0.15, 0.55, lum));
+              rgb = mix(rgb, snowRgb, snowMask);
+            }
+          }
+
+          gl_FragColor = vec4(rgb * uTint, 1.0);
           #include <tonemapping_fragment>
           #include <colorspace_fragment>
         }
@@ -260,13 +316,22 @@ export class TreeImpostorSystem {
     bakeScene.add(rim);
 
     const bakeCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 120);
-    const bakeMesh = new THREE.Mesh(speciesGeos[0], treeMaterial);
+    // Use a neutral unpatched vertex-color material for baking so seasonal shader transforms
+    // are never baked permanently into the static atlas texture.
+    const bakeMat = new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      roughness: 0.86,
+      metalness: 0.04,
+    });
+    const bakeMesh = new THREE.Mesh(speciesGeos[0], bakeMat);
     bakeScene.add(bakeMesh);
+    void treeMaterial;
 
     this.bakeRenderer = renderer;
     this.bakeScene = bakeScene;
     this.bakeCam = bakeCam;
     this.bakeMesh = bakeMesh;
+    this.bakeMaterial = bakeMat;
     this.bakeSpeciesGeos = speciesGeos;
     this.bakeSpeciesMetas = speciesMetas;
     this.bakeCursor = 0;
@@ -275,6 +340,10 @@ export class TreeImpostorSystem {
   }
 
   private clearBakeContext(): void {
+    if (this.bakeMaterial) {
+      this.bakeMaterial.dispose();
+      this.bakeMaterial = null;
+    }
     this.bakeRenderer = null;
     this.bakeScene = null;
     this.bakeCam = null;
@@ -461,6 +530,10 @@ export class TreeImpostorSystem {
     } else {
       uTint.setRGB(daylightFactor, daylightFactor, daylightFactor);
     }
+  }
+
+  updateSeason(weights: THREE.Vector4): void {
+    (this.material.uniforms.uSeasonWeights.value as THREE.Vector4).copy(weights);
   }
 
   getCount(): number {
