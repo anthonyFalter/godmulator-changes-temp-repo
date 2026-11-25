@@ -221,7 +221,7 @@ test('TERRAIN_TOOLS is ordered by player usage frequency with all tools preserve
   assert.equal(new Set(types).size, 33, 'all terrain tool types must be unique');
 });
 
-test('water_drop pours dynamic elevated water on slopes without carving height-0 holes and cascades downhill', () => {
+test('water_drop pours dynamic elevated water on slopes without carving height-0 holes, cascades to sea and runs out cleanly', () => {
   const sim = createInitialSimulationState(48, 'DYNAMIC-WATER-FLOW-TEST');
   for (const t of sim.tiles) {
     t.buildingId = null;
@@ -229,12 +229,23 @@ test('water_drop pours dynamic elevated water on slopes without carving height-0
     t.onFireTimer = 0;
     delete t.liquidLevel;
     delete t.liquidKind;
-    // Build a stepped slope from height 4 at x=20 down to height 1 at x=26
-    if (t.x <= 20) t.height = 4;
-    else if (t.x === 21) t.height = 3;
-    else if (t.x === 22) t.height = 2;
-    else t.height = 1;
-    t.terrain = 'grass';
+    // Build a stepped slope from height 4 at x=20 down to open sea (height 0) at x>=24
+    if (t.x <= 20) {
+      t.height = 4;
+      t.terrain = 'grass';
+    } else if (t.x === 21) {
+      t.height = 3;
+      t.terrain = 'grass';
+    } else if (t.x === 22) {
+      t.height = 2;
+      t.terrain = 'grass';
+    } else if (t.x === 23) {
+      t.height = 1;
+      t.terrain = 'grass';
+    } else {
+      t.height = 0;
+      t.terrain = 'shallow_water';
+    }
   }
 
   const peak = getTile(sim, 20, 24)!;
@@ -244,10 +255,55 @@ test('water_drop pours dynamic elevated water on slopes without carving height-0
   assert.ok((peak.liquidLevel ?? 0) > peak.height, 'hilltop receives dynamic elevated water');
 
   // Step simulation so water cascades downhill onto the lower terrace at x=21
-  stepSimulation(sim, 0.2);
+  stepSimulation(sim, 0.12);
   const lowerStep = getTile(sim, 21, 24)!;
   assert.ok(
     (lowerStep.liquidLevel ?? 0) > lowerStep.height,
     'dynamic water must cascade downhill onto lower neighboring terraces',
   );
+
+  // Continue stepping: water flowing down to the sea MUST strictly conserve volume and eventually run out!
+  for (let i = 0; i < 80; i++) {
+    stepSimulation(sim, 0.1);
+  }
+  let remainingElevatedTiles = 0;
+  for (const t of sim.tiles) {
+    if ((t.liquidLevel ?? 0) > t.height) remainingElevatedTiles++;
+  }
+  assert.equal(
+    remainingElevatedTiles,
+    0,
+    'water poured on a mountain slope flowing into the sea must eventually run out cleanly',
+  );
+});
+
+test('water_drop inside an enclosed basin pools into a continuous flat lake with zero checkerboard gaps', () => {
+  const sim = createInitialSimulationState(32, 'DYNAMIC-WATER-BASIN-TEST');
+  for (const t of sim.tiles) {
+    t.buildingId = null;
+    t.resourceNode = 'none';
+    t.onFireTimer = 0;
+    delete t.liquidLevel;
+    delete t.liquidKind;
+    // 5x5 enclosed crater floor (height 1) surrounded by height 3 walls
+    const inFloor = t.x >= 12 && t.x <= 16 && t.z >= 12 && t.z <= 16;
+    t.height = inFloor ? 1 : 3;
+    t.terrain = 'grass';
+  }
+
+  executeTerrainDropTileImpact(sim, 'water_drop', 14, 14);
+  for (let i = 0; i < 20; i++) {
+    stepSimulation(sim, 0.1);
+  }
+
+  // Every single tile inside the 5x5 basin must be smoothly filled (zero dry checkerboard gaps!)
+  for (let z = 12; z <= 16; z++) {
+    for (let x = 12; x <= 16; x++) {
+      const t = getTile(sim, x, z)!;
+      assert.ok(
+        (t.liquidLevel ?? 0) > t.height + 0.5,
+        `basin tile (${x},${z}) must remain continuously filled without checkerboard gaps`,
+      );
+    }
+  }
 });

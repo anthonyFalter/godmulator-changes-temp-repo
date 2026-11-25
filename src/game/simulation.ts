@@ -3058,7 +3058,7 @@ function applyElevatedLiquidToTile(
   kind: LiquidKind,
 ): boolean {
   if (t.buildingId) return false;
-  const clampedLevel = Math.max(t.height + 1, Math.min(10, Math.round(level)));
+  const clampedLevel = Math.max(t.height + 0.05, Math.min(10, level));
   const existingElevated = (t.liquidLevel ?? 0) > t.height ? (t.liquidKind ?? 'water') : null;
   const existingSea = t.height === 0 ? getTileLiquidKind(t) : null;
   const existing = existingElevated ?? existingSea;
@@ -3086,7 +3086,11 @@ function applyElevatedLiquidToTile(
     finalKind = 'water';
   }
 
-  if (t.liquidLevel === clampedLevel && (t.liquidKind ?? 'water') === finalKind) {
+  if (
+    t.liquidLevel !== undefined &&
+    Math.abs(t.liquidLevel - clampedLevel) < 0.005 &&
+    (t.liquidKind ?? 'water') === finalKind
+  ) {
     return false;
   }
 
@@ -3334,6 +3338,10 @@ interface PendingBasinFillWave {
 
 const pendingBasinWavesByState = new WeakMap<SimulationState, PendingBasinFillWave[]>();
 const liquidFlowTimerByState = new WeakMap<SimulationState, number>();
+let _liquidDeltaVolBuf = new Float32Array(0);
+let _liquidDeltaKindBuf = new Uint8Array(0);
+let _liquidTouchedBuf = new Int32Array(0);
+let _liquidTouchedFlag = new Uint8Array(0);
 
 /**
  * Dynamically flows water, lava, and poison into newly destroyed, crushed, or breached
@@ -3372,23 +3380,41 @@ function stepDynamicLiquidFlow(state: SimulationState, dt: number): void {
 
   const prevTimer = liquidFlowTimerByState.get(state) ?? 0;
   const nextTimer = prevTimer + dt;
-  if (nextTimer < 0.15) {
+  if (nextTimer < 0.08) {
     liquidFlowTimerByState.set(state, nextTimer);
     return;
   }
   liquidFlowTimerByState.set(state, 0);
 
   const gs = state.gridSize;
+  const totalCells = gs * gs;
+  if (_liquidDeltaVolBuf.length < totalCells) {
+    _liquidDeltaVolBuf = new Float32Array(totalCells);
+    _liquidDeltaKindBuf = new Uint8Array(totalCells);
+    _liquidTouchedBuf = new Int32Array(totalCells);
+    _liquidTouchedFlag = new Uint8Array(totalCells);
+  }
+
   const tiles = state.tiles;
   const pendingSea: Array<{ tile: TileData; kind: LiquidKind }> = [];
-  const pendingElevated: Array<{ tile: TileData; level: number; kind: LiquidKind }> = [];
-  const pendingDrain: Array<{ tile: TileData; nextLevel: number }> = [];
-  const MAX_FLOW_PER_PULSE = 96;
+  const MAX_SEA_FLOW_PER_PULSE = 48;
+  let touchedCount = 0;
+
+  const markTouched = (idx: number) => {
+    if (_liquidTouchedFlag[idx] === 0) {
+      _liquidTouchedFlag[idx] = 1;
+      _liquidTouchedBuf[touchedCount++] = idx;
+    }
+  };
+
+  const nbOffsets = [1, -1, gs, -gs];
+  const nbWeights = [0, 0, 0, 0];
 
   for (let z = 1; z < gs - 1; z++) {
     const rowOff = z * gs;
     for (let x = 1; x < gs - 1; x++) {
-      const t = tiles[rowOff + x];
+      const idx = rowOff + x;
+      const t = tiles[idx];
       if (!t) continue;
 
       // Clean up invalid elevated liquid if terrain was raised above it
@@ -3397,16 +3423,12 @@ function stepDynamicLiquidFlow(state: SimulationState, dt: number): void {
         delete t.liquidKind;
       }
 
-      // A. Elevated stacked liquid spreading / cascading downhill under gravity
-      if ((t.liquidLevel ?? 0) > t.height && pendingElevated.length < MAX_FLOW_PER_PULSE) {
-        const curLevel = t.liquidLevel!;
+      // A. Strictly volume-conserving shallow-water cellular flow for elevated liquids
+      const rawLvl = t.liquidLevel ?? 0;
+      if (rawLvl > t.height) {
+        const vol = rawLvl - t.height;
         const kind: LiquidKind = t.liquidKind ?? 'water';
-        const nbs = [
-          tiles[rowOff + x + 1],
-          tiles[rowOff + x - 1],
-          tiles[rowOff + gs + x],
-          tiles[rowOff - gs + x],
-        ];
+        const kindCode = kind === 'lava' ? 2 : kind === 'poison' ? 3 : 1;
 
         // Flowing water extinguishes fire and hydrates scorched land beneath it
         if (kind === 'water') {
@@ -3417,52 +3439,82 @@ function stepDynamicLiquidFlow(state: SimulationState, dt: number): void {
           }
         }
 
-        let spilledDownhill = false;
-        let hasOpenFlatEscape = false;
-        let sameKindNeighbors = 0;
+        const surf = t.height + vol;
+        let weightedTotal = 0;
+        let maxRawDiff = 0;
+        let hasLowerEscape = false;
 
         for (let d = 0; d < 4; d++) {
-          const nb = nbs[d];
+          nbWeights[d] = 0;
+          const nbIdx = idx + nbOffsets[d];
+          const nb = tiles[nbIdx];
           if (!nb || nb.buildingId) continue;
-          const nbHasSame =
-            (nb.liquidLevel ?? 0) > nb.height && (nb.liquidKind ?? 'water') === kind;
-          if (nbHasSame) sameKindNeighbors++;
 
-          const nbSurf = getTileSurfaceHeight(nb);
-          if (nbSurf < curLevel) {
-            if (nb.height === 0 && getTileLiquidKind(nb) !== null) {
-              // Drains directly into open sea/river below
-              spilledDownhill = true;
-            } else if (nb.height === 0) {
-              pendingSea.push({ tile: nb, kind });
-              spilledDownhill = true;
-            } else {
-              // Prioritize gravity drop over cliffs, or equalize horizontally across basins/terraces
+          if (nb.height === 0) {
+            // Open sea/basin below acts as a true gravity sink so mountain runoff runs out!
+            const diff = surf;
+            nbWeights[d] = diff * 2.2;
+            weightedTotal += nbWeights[d];
+            if (diff > maxRawDiff) maxRawDiff = diff;
+            hasLowerEscape = true;
+          } else {
+            const nbVol = Math.max(0, (nb.liquidLevel ?? 0) - nb.height);
+            const nbSurf = nb.height + nbVol;
+            if (nbSurf < surf - 0.012) {
+              const diff = surf - nbSurf;
               const isDrop = nb.height < t.height;
-              const spreadLevel =
-                nb.height < curLevel - 1 && nbSurf === nb.height
-                  ? Math.min(curLevel, nb.height + 1)
-                  : curLevel;
-              pendingElevated.push({ tile: nb, level: spreadLevel, kind });
-              if (isDrop) {
-                spilledDownhill = true;
-              } else if (curLevel === t.height + 1 && nbSurf === nb.height) {
-                hasOpenFlatEscape = true;
-              }
+              nbWeights[d] = diff * (isDrop ? 2.2 : 1.0);
+              weightedTotal += nbWeights[d];
+              if (diff > maxRawDiff) maxRawDiff = diff;
+              if (isDrop || nbVol < 0.02) hasLowerEscape = true;
             }
           }
         }
 
-        // Drain source when spilling downhill over a cliff/breach, or when a thin 1-layer sheet
-        // on flat open land spreads out and soaks into the soil (enclosed basins stay permanently full!)
-        if (spilledDownhill || (kind === 'water' && hasOpenFlatEscape && curLevel === t.height + 1 && sameKindNeighbors <= 2)) {
-          const nextLvl = curLevel - 1;
-          pendingDrain.push({ tile: t, nextLevel: nextLvl > t.height ? nextLvl : 0 });
+        // Evaporate / soak in tiny trailing runoff films on open slopes so mountain streams dry cleanly
+        if (vol < 0.055 && hasLowerEscape) {
+          markTouched(idx);
+          _liquidDeltaVolBuf[idx] -= vol;
+          continue;
+        }
+
+        if (weightedTotal > 0.0001) {
+          // Strict volume conservation & non-oscillatory damping (<= 0.45 * maxRawDiff eliminates checkerboards!)
+          const maxOut = Math.min(vol * 0.52, maxRawDiff * 0.45);
+          let totalSent = 0;
+          for (let d = 0; d < 4; d++) {
+            if (nbWeights[d] <= 0) continue;
+            const share = maxOut * (nbWeights[d] / weightedTotal);
+            if (share <= 0.0005) continue;
+            const nbIdx = idx + nbOffsets[d];
+            const nb = tiles[nbIdx];
+            totalSent += share;
+            if (nb.height === 0) {
+              // Water drains permanently into the sea!
+              if (getTileLiquidKind(nb) === null && pendingSea.length < MAX_SEA_FLOW_PER_PULSE) {
+                pendingSea.push({ tile: nb, kind });
+              }
+            } else {
+              markTouched(nbIdx);
+              _liquidDeltaVolBuf[nbIdx] += share;
+              if (_liquidDeltaKindBuf[nbIdx] === 0) {
+                _liquidDeltaKindBuf[nbIdx] = kindCode;
+              }
+            }
+          }
+          if (totalSent > 0) {
+            markTouched(idx);
+            _liquidDeltaVolBuf[idx] -= totalSent;
+            // Gentle soil absorption on thin runoff over dry slopes
+            if (kind === 'water' && vol < 0.14 && hasLowerEscape) {
+              _liquidDeltaVolBuf[idx] -= Math.min(vol - totalSent, 0.015);
+            }
+          }
         }
         continue;
       }
 
-      if (t.buildingId || pendingSea.length >= MAX_FLOW_PER_PULSE) continue;
+      if (t.buildingId || pendingSea.length >= MAX_SEA_FLOW_PER_PULSE) continue;
 
       // B. Sea-level breach inflow (crushed, scorched, or dry height-0 gaps next to sea-level liquid)
       let requiredLiquidNeighbors = 0;
@@ -3533,29 +3585,40 @@ function stepDynamicLiquidFlow(state: SimulationState, dt: number): void {
   let maxZ = -Infinity;
   let changed = 0;
 
-  for (let i = 0; i < pendingDrain.length; i++) {
-    const d = pendingDrain[i];
-    if (d.nextLevel <= d.tile.height) {
-      delete d.tile.liquidLevel;
-      delete d.tile.liquidKind;
-    } else {
-      d.tile.liquidLevel = d.nextLevel;
-    }
-    changed++;
-    if (d.tile.x < minX) minX = d.tile.x;
-    if (d.tile.x > maxX) maxX = d.tile.x;
-    if (d.tile.z < minZ) minZ = d.tile.z;
-    if (d.tile.z > maxZ) maxZ = d.tile.z;
-  }
+  for (let i = 0; i < touchedCount; i++) {
+    const idx = _liquidTouchedBuf[i];
+    const dVol = _liquidDeltaVolBuf[idx];
+    const dKindCode = _liquidDeltaKindBuf[idx];
+    _liquidDeltaVolBuf[idx] = 0;
+    _liquidDeltaKindBuf[idx] = 0;
+    _liquidTouchedFlag[idx] = 0;
 
-  for (let i = 0; i < pendingElevated.length; i++) {
-    const p = pendingElevated[i];
-    if (applyElevatedLiquidToTile(state, p.tile, p.level, p.kind)) {
-      changed++;
-      if (p.tile.x < minX) minX = p.tile.x;
-      if (p.tile.x > maxX) maxX = p.tile.x;
-      if (p.tile.z < minZ) minZ = p.tile.z;
-      if (p.tile.z > maxZ) maxZ = p.tile.z;
+    if (Math.abs(dVol) < 0.0005) continue;
+    const t = tiles[idx];
+    if (!t || t.height <= 0) continue;
+
+    const prevVol = Math.max(0, (t.liquidLevel ?? 0) - t.height);
+    const nextVol = prevVol + dVol;
+    if (nextVol < 0.035) {
+      if ((t.liquidLevel ?? 0) > t.height) {
+        delete t.liquidLevel;
+        delete t.liquidKind;
+        changed++;
+        if (t.x < minX) minX = t.x;
+        if (t.x > maxX) maxX = t.x;
+        if (t.z < minZ) minZ = t.z;
+        if (t.z > maxZ) maxZ = t.z;
+      }
+    } else {
+      const kind: LiquidKind =
+        t.liquidKind ?? (dKindCode === 2 ? 'lava' : dKindCode === 3 ? 'poison' : 'water');
+      if (applyElevatedLiquidToTile(state, t, t.height + nextVol, kind)) {
+        changed++;
+        if (t.x < minX) minX = t.x;
+        if (t.x > maxX) maxX = t.x;
+        if (t.z < minZ) minZ = t.z;
+        if (t.z > maxZ) maxZ = t.z;
+      }
     }
   }
 

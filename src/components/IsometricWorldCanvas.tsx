@@ -556,7 +556,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
 
       // Fast lookup arrays for neighbor face culling, rim foam, and downhill flow vectors
       const kindGrid = new Uint8Array(gs * gs); // 0=none, 1=water, 2=lava, 3=poison
-      const lvlGrid = new Uint8Array(gs * gs);
+      const lvlGrid = new Float32Array(gs * gs);
       const topYGrid = new Float32Array(gs * gs);
       const terrainTopGrid = new Float32Array(gs * gs);
       const heightGrid = new Uint8Array(gs * gs);
@@ -571,7 +571,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         if (lvl > t.height) {
           kindGrid[cell] = t.liquidKind === 'lava' ? 2 : t.liquidKind === 'poison' ? 3 : 1;
           lvlGrid[cell] = lvl;
-          topYGrid[cell] = lvl * 0.45 + 0.16;
+          // Mirror-flat surface across multi-height basins, while thin sheets sit cleanly above slope terrain
+          topYGrid[cell] = Math.max(terrainTop + 0.04, lvl * 0.45 + 0.22);
         }
       }
 
@@ -685,13 +686,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           let botY = floorY;
           if (nx >= 0 && nx < gs && nz >= 0 && nz < gs) {
             const nCell = nz * gs + nx;
-            if (kindGrid[nCell] === kind && lvlGrid[nCell] >= lvl) return;
+            if (kindGrid[nCell] === kind && topYGrid[nCell] >= topY - 0.08) return;
             const nTerrain = terrainTopGrid[nCell];
             if (nTerrain >= topY - 0.005) return;
             const nLiquidTop = kindGrid[nCell] === kind ? topYGrid[nCell] : 0;
             botY = Math.max(nTerrain, nLiquidTop, 0.14);
           }
-          if (topY - botY <= 0.01) return;
+          if (topY - botY <= 0.06) return;
           // Normalized vertical V (0 at plunge base -> 1 at waterfall crest) for splash & lip foam
           pushLiquidQuad(
             buf.pos, buf.norm, buf.uv, buf.idx,
@@ -9053,7 +9054,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         const elevLvl = t.liquidLevel ?? 0;
         const lqSig =
           elevLvl > t.height
-            ? ((elevLvl & 15) << 8) |
+            ? ((Math.round(elevLvl * 16) & 255) << 8) |
               ((t.height & 15) << 4) |
               (t.liquidKind === 'lava' ? 2 : t.liquidKind === 'poison' ? 3 : 1)
             : 0;

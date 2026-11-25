@@ -1528,7 +1528,7 @@ export function createDynamicWaterMaterial(): DynamicWaterMaterialHandle {
 
             color = mix(color, mix(uCrestColor, uFoamMint, 0.5), streak * 0.44 * flowMag);
             color = mix(color, uFoamColor, max(brightStreak * 0.38, sparkle * 0.58) * flowMag);
-            alpha = mix(0.56, 0.84, depthFrac) + streak * 0.08 + brightStreak * 0.08;
+            alpha = mix(0.76, 0.94, depthFrac) + streak * 0.05 + brightStreak * 0.05;
           } else {
             // Calm enclosed pool / mountain lake: breeze wavelets, caustics & dancing sun sparkles
             float waveA = dwNoise(chunkPos * 1.15 + vec2(uTime * 0.45, uTime * 0.22));
@@ -1540,7 +1540,7 @@ export function createDynamicWaterMaterial(): DynamicWaterMaterialHandle {
             color = mix(color, uCrestColor, caustic * 0.28);
             color = mix(color, uFoamMint, ripple * 0.32);
             color = mix(color, uFoamColor, glint * 0.65);
-            alpha = mix(0.54, 0.86, depthFrac) + ripple * 0.06;
+            alpha = mix(0.78, 0.95, depthFrac) + ripple * 0.04;
           }
 
           // Animated pixel-art shoreline / basin-rim foam lapping against surrounding terrain walls
@@ -1551,16 +1551,16 @@ export function createDynamicWaterMaterial(): DynamicWaterMaterialHandle {
             float coreRim = smoothstep(0.52, 0.90, vEdgeMask + lapWave * 0.6) * step(0.46, rimNoise + vEdgeMask * 0.5);
             color = mix(color, uFoamMint, mintRim * 0.72);
             color = mix(color, uFoamColor, coreRim * 0.92);
-            alpha = max(alpha, max(mintRim * 0.78, coreRim * 0.92));
+            alpha = max(alpha, max(mintRim * 0.84, coreRim * 0.95));
           }
 
-          // Winter frost/ice crust along basin rims & shallow pools
-          if (uSeasonFrost > 0.01) {
+          // Winter frost/ice crust along basin rims (keeps open lake surface rich arctic blue!)
+          if (uSeasonFrost > 0.01 && vEdgeMask > 0.12) {
             float frostN = dwNoise(pixPos * 1.5 + vec2(4.1, 8.3));
-            float iceMask = clamp(max(vEdgeMask * 0.95, 0.45) * step(0.46 - uSeasonFrost * 0.25, frostN), 0.0, 1.0) * uSeasonFrost;
+            float iceMask = clamp(vEdgeMask * step(0.42 - uSeasonFrost * 0.20, frostN), 0.0, 1.0) * uSeasonFrost;
             vec3 iceCol = mix(uFoamMint * 0.96, uFoamColor, step(0.60, frostN));
-            color = mix(color, iceCol, iceMask * 0.74);
-            alpha = max(alpha, iceMask * 0.86);
+            color = mix(color, iceCol, iceMask * 0.72);
+            alpha = max(alpha, iceMask * 0.90);
           }
         } else {
           // ---- VERTICAL WALLS: Cascading whitewater waterfall curtains & splash froth ----
